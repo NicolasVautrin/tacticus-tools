@@ -56,12 +56,16 @@ State-file UNIQUE par agent (chemin absolu). Skip propre si pas de session / geo
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import uuid
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import damage_profile_pierce    # noqa: E402
 
 import hexgeo
 
@@ -98,15 +102,6 @@ def _cfg_constants() -> dict:
 def _cfg_range() -> int:
     """`constants.range` (GetNumberConstant 0x16) -- PILOTE la geometrie des scenarios splash."""
     return int(_cfg_constants()["range"])
-
-
-def _cfg_pierce() -> int:
-    """`damageProfiles[HeavyRound].PiercingRatio` -- le percage effectif du port y ajoute les ExtraPierce du
-    caster (`profile_pierce`), verifies nuls par l'appelant."""
-    import gameconfig as GC
-    ratio = (GC.damage_profile(PROFILE) or {}).get("PiercingRatio")
-    assert ratio is not None, f"oracle introuvable : damageProfiles[{PROFILE}].PiercingRatio"
-    return int(ratio)
 
 
 def _build(seed: str):
@@ -304,17 +299,23 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
             damage_profile=PROFILE, is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         assert tree_main == d_main, f"arbre MAIN {tree_main} != sequence directe {d_main} (feuille/pipeline)"
         assert tree_splash == d_splash, f"arbre SPLASH {tree_splash} != sequence directe {d_splash}"
-        # PERCAGE : oracle = `damageProfiles[HeavyRound].PiercingRatio` (config), pas un 55 fige. Le percage
-        # effectif etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)` -- et HeavyRound ne saturant
-        # PAS a 100 --, on exige d'abord des ExtraPierce nuls, sinon l'egalite testerait la somme et non le
-        # PROFIL (c'est ce que ces deux assertions verifient : les DEUX volets portent bien HeavyRound).
-        cfg_pierce = _cfg_pierce()
+        # PERCAGE = valeur BRUTE (`StaticBattleRules.Damage$$GetPiercingRatio` lit
+        # `DamageProfile.PiercingDamageRatio` tel quel) -> oracle = CONFIG, via `damage_profile_pierce`
+        # qui ECHOUE sur cle absente. Le NOM du profil, lui, est un fait de STRUCTURE :
+        # `HarvesterOfSoulsAbility$$ExecuteBehaviour` passe un litteral `Nullable<DamageProfileType>(0x13
+        # = HeavyRound)` a `DSLFactory$$AttackWithAttackDamage` -- il n'appelle PAS
+        # `AbilityConfiguration$$GetDamageProfile`, donc aucune constante damageProfile a lire ici.
+        # Le percage EFFECTIF etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)` -- et
+        # HeavyRound ne saturant PAS a 100 --, on exige d'abord des ExtraPierce nuls : sinon l'egalite
+        # testerait la SOMME et non le PROFIL (ces deux assertions verifient que les DEUX volets portent
+        # bien HeavyRound).
+        pierce_cfg = damage_profile_pierce(PROFILE)
         _ctx = st_dir.get_entity(cid).get_component(StatsComponent).ctx
         assert (_ctx.extra_pierce, _ctx.extra_pierce_ranged) == (0, 0), (
             f"caster avec percage supplementaire ({_ctx.extra_pierce}/{_ctx.extra_pierce_ranged}) : le "
             f"percage effectif n'est plus l'identite du PiercingRatio -- adapter le setup ou l'attendu")
-        assert pierce == cfg_pierce and pierce2 == cfg_pierce, (
-            f"pierce {pierce}/{pierce2} != damageProfiles[{PROFILE}].PiercingRatio={cfg_pierce} "
+        assert pierce == pierce_cfg and pierce2 == pierce_cfg, (
+            f"pierce {pierce}/{pierce2} != damageProfiles.{PROFILE}.PiercingRatio={pierce_cfg} "
             f"(oracle gameconfig ; profil = Nullable(0x13) litteral du decompile)")
 
         # (d) native_factory discriminant : "ability" (1 tirage/coup) DIVERGE du live des le coup >=2

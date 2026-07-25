@@ -55,6 +55,7 @@ Le TREE SentinelDirectives lui-meme est fidele (A/B bit-exact). ASCII only.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -63,6 +64,10 @@ from pathlib import Path
 import pytest
 
 import gameconfig as GC
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import damage_profile_pierce    # noqa: E402
+
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -249,9 +254,7 @@ def test_sentinel_directives_live(live_session, rpc):
         # ORACLE CONFIG : nb de coups + profil lus TELS QUELS dans la config (cf. en-tete).
         want_hits = int(_const("nrOfHits"))
         prof = _const("damageProfile")
-        dp = GC.damage_profile(prof) or {}
-        assert dp.get("PiercingRatio") is not None, f"oracle introuvable : damageProfiles.{prof}.PiercingRatio"
-        want_pierce = int(dp["PiercingRatio"])
+        want_pierce = damage_profile_pierce(prof)   # damageProfiles.<prof>.PiercingRatio (echoue si absent)
         bmin, bmax, pierce, hits = ability_attack_params(st, cid, "SentinelDirectives", prof, ranged=True)
         assert hits == want_hits, (
             f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "

@@ -34,7 +34,14 @@ ASCII-only.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import gameconfig as GC
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import damage_profile_pierce    # noqa: E402
+
 from engine.services.static_battle_rules import (
     W_LASCANNON_PIERCE_BONUS, get_piercing_ratio, get_damage_with_piercing)
 from engine.services.damage_prediction import get_attack_piercing_damage_ratio
@@ -112,33 +119,50 @@ def test_las_carrier_kit_from_gameconfig():
     assert "Emplacement" in (u.get("traits") or [])
     dp = GC.damage_profile("Las") or {}
     assert "LasCannon" in (dp.get("Traits") or []), "le profil Las ne porte pas DamageTrait.LasCannon"
-    assert int(dp.get("PiercingRatio") or 0) == 10       # base pierce du profil Las
+    # La BASE de percage du profil Las est une valeur BRUTE de config : on ne la FIGE pas, on exige
+    # seulement que l'oracle `damageProfiles.Las.PiercingRatio` soit LISIBLE (il echoue si la cle a
+    # disparu) et strictement sous le clamp -- sinon le contrefactuel `base+50 -> clamp 100` de
+    # `test_get_piercing_ratio_clamped_100` ne discriminerait plus rien ici.
+    assert 0 < damage_profile_pierce("Las") < 100
 
 
 # ------------------------------------------------------------------ 4. select_weapon_pierce (foyer partage) + TOGGLE
 
+def _las_with_bonus() -> int:
+    """Attendu du carrier gate-ON = `GetPiercingRatio` mirrote sur SES DEUX sources : la base BRUTE de config
+    (`damageProfiles.Las.PiercingRatio`) et la constante NATIVE du cctor (`W_LASCANNON_PIERCE_BONUS`), sous le
+    clamp 100. Aucune des deux n'est ecrite en dur ici."""
+    return min(100, damage_profile_pierce("Las") + W_LASCANNON_PIERCE_BONUS)
+
+
 def test_select_weapon_pierce_bonus_ranged():
-    """Carrier Las+Emplacement au RANGE (dist<=Range4) -> pierce 60 (base 10 + 50)."""
+    """Carrier Las+Emplacement au RANGE (dist<=Range4) -> pierce = base profil Las + bonus lascannon."""
     ctx = _Ctx(LAS_CARRIER, GC.unit(LAS_CARRIER)["traits"])
     pierce, is_ranged, _h, prof = select_weapon_pierce(ctx, is_adjacent=False, dist=3)
     assert prof == "Las" and is_ranged is True
-    assert pierce == 60
+    assert _las_with_bonus() > damage_profile_pierce("Las"), \
+        "base + bonus sature deja le clamp : le gate ne serait plus DISCRIMINANT"
+    assert pierce == _las_with_bonus()
 
 
 def test_toggle_emplacement_gates_bonus():
-    """TOGGLE OFFLINE du discriminant (mirror HasTrait(attacker, HW/Emp) natif) : retirer Emplacement -> 10 ;
-    remettre HeavyWeapon -> 60 (l'un OU l'autre suffit)."""
+    """TOGGLE OFFLINE du discriminant (mirror HasTrait(attacker, HW/Emp) natif) : retirer Emplacement -> base
+    profil seule ; remettre HeavyWeapon -> base + bonus (l'un OU l'autre suffit)."""
     base_traits = list(GC.unit(LAS_CARRIER)["traits"])
-    # Emplacement present -> 60
+    base_pierce = damage_profile_pierce("Las")
+    with_bonus = _las_with_bonus()
+    assert with_bonus > base_pierce, \
+        "base + bonus sature deja le clamp : le toggle ne serait plus DISCRIMINANT"
+    # Emplacement present -> bonus arme
     p_on = select_weapon_pierce(_Ctx(LAS_CARRIER, base_traits), False, 3)[0]
-    assert p_on == 60
-    # Emplacement retire, aucun HW/Emp -> 10 (bonus annule)
+    assert p_on == with_bonus
+    # Emplacement retire, aucun HW/Emp -> base du profil (bonus annule)
     stripped = [t for t in base_traits if t not in ("Emplacement", "HeavyWeapon")]
     p_off = select_weapon_pierce(_Ctx(LAS_CARRIER, stripped), False, 3)[0]
-    assert p_off == 10, f"sans HW/Emp le bonus devrait disparaitre (got {p_off})"
-    # HeavyWeapon ajoute -> 60 (l'autre trait du gate suffit aussi)
+    assert p_off == base_pierce, f"sans HW/Emp le bonus devrait disparaitre (got {p_off})"
+    # HeavyWeapon ajoute -> bonus arme (l'autre trait du gate suffit aussi)
     p_hw = select_weapon_pierce(_Ctx(LAS_CARRIER, stripped + ["HeavyWeapon"]), False, 3)[0]
-    assert p_hw == 60, f"HeavyWeapon devrait ARMER le bonus (got {p_hw})"
+    assert p_hw == with_bonus, f"HeavyWeapon devrait ARMER le bonus (got {p_hw})"
 
 
 def test_toggle_profile_lascannon_gates_bonus():
@@ -147,8 +171,10 @@ def test_toggle_profile_lascannon_gates_bonus():
     ctx = _Ctx(LAS_CARRIER, GC.unit(LAS_CARRIER)["traits"])
     pierce, is_ranged, _h, prof = select_weapon_pierce(ctx, is_adjacent=True, dist=1)
     assert prof != "Las", "en melee le carrier prend une arme non-Las"
-    # le pierce est celui du profil melee (Physical PiercingRatio 1), PAS 51/60 (pas de bonus sur non-Las)
-    assert pierce < 50, f"pas de bonus attendu sur une arme non-Las (got {pierce})"
+    # Le percage est EXACTEMENT la base du profil melee selectionne (aucun bonus sur non-Las) -- derive
+    # du profil RENDU par le selecteur, pas d'un seuil ecrit a la main.
+    assert pierce == damage_profile_pierce(prof), \
+        f"pas de bonus attendu sur une arme non-Las : {pierce} != damageProfiles.{prof}.PiercingRatio"
 
 
 # ------------------------------------------------------------------ 5. le bonus CHANGE le degat de combat (armure)
@@ -175,7 +201,10 @@ def test_zero_regression_pool_las_carriers_no_bonus():
         assert "HeavyWeapon" not in traits and "Emplacement" not in traits, \
             f"{vis} porte HW/Emp -> le contrefactuel n'est plus valide"
         ctx = _Ctx(vis, traits)
-        # au range OU en melee : jamais de +50 (base du profil seulement, pierce < 50 pour ces unites)
+        # au range OU en melee : jamais de bonus -> le percage est EXACTEMENT la base du profil de l'arme
+        # selectionnee (derive du profil rendu, pas d'un seuil ecrit a la main).
         for adj, dist in ((False, 3), (True, 1)):
-            pierce = select_weapon_pierce(ctx, adj, dist)[0]
-            assert pierce < 50, f"{vis} (adj={adj}) ne devrait PAS recevoir le bonus lascannon (got {pierce})"
+            pierce, _ir, _h, prof = select_weapon_pierce(ctx, adj, dist)
+            assert pierce == damage_profile_pierce(prof), (
+                f"{vis} (adj={adj}) ne devrait PAS recevoir le bonus lascannon : {pierce} != "
+                f"damageProfiles.{prof}.PiercingRatio")
