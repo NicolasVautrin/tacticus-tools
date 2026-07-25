@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Validation LIVE des overrides `CalculateCustomUtility` de la tranche #27-1 (Herald, Drachnyen).
+"""Validation LIVE des overrides `CalculateCustomUtility` portes (#27-1 Herald/Drachnyen ; #27-2 DoomSiren).
 
-Deux A/B CAUSAUX : dans chaque paire d'etats, une SEULE entree bascule la condition du terme
+Trois A/B CAUSAUX : dans chaque paire d'etats, une SEULE entree bascule la condition du terme
 natif ; on confronte le choix d'action du MOTEUR a celui de l'IA NATIVE (`aiDryRunAllUnits`,
 read-only) sur le MEME etat. Les utilites de PAIRE sont verifiees au scoreur natif
 (`pairUtility`) pour ecarter tout confond de prediction avant de conclure sur le terme d'ACTION.
@@ -21,6 +21,14 @@ read-only) sur le MEME etat. Les utilites de PAIRE sont verifiees au scoreur nat
       - 1 ennemi adjacent -> custom 0 -> natif = attaque NORMALE ;
       - 2 ennemis adjacents -> custom = W(Drachnyen_MultipleAdjacentUnits)=10 -> natif = DRACHNYEN.
 
+(C) DoomSiren (1199) IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$CalculateCustomUtility -- emperKakophonist.
+    Cible FIGEE (tauCrisis), tuile d'attaque FIGEE ; seul un 2e ennemi bouge (loin <-> adjacent
+    a la cible). `--hp-target 900000` reduit l'AoE native (le confond) a un residu MESURE :
+      - aucun ennemi adjacent a la cible -> custom 0 -> natif = attaque NORMALE (69) ;
+      - un ennemi adjacent a la cible -> custom = W(DoomSiren_TargetHasAdjacentEnemy)=50 -> natif = 1199.
+    Le probe verifie AUSSI que le moteur AVEC custom force a 0 repond 69 dans les DEUX bras
+    (= comportement d'avant le port) : la bascule est donc CAUSALEMENT due au terme custom.
+
 Un seul runner reutilise (state-file dedie), dispose en fin de passe. ASCII only.
 Usage : python probe_custom_utility_27_live.py    (exit 0 = OK)
 """
@@ -35,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
 from engine import weights as W  # noqa: E402
+from engine import playbook as _pbmod  # noqa: E402  (contre-epreuve : custom force a 0)
 from engine.playbook import scene as _scene  # noqa: E402
 from engine_validate import engine_decide  # noqa: E402
 
@@ -187,6 +196,70 @@ def drachnyen(sid, wt, fails):
     return rid
 
 
+def doomsiren(sid, wt, fails):
+    """(C) DoomSiren (1199) : flip d'ABILITY 69 <-> 1199 pilote par le terme d'adjacence a la CIBLE.
+
+    Geometrie FIGEE : caster emperKakophonist a son spawn, cible tauCrisis a distance 2, tuile
+    d'attaque native (1,1) dans les deux bras (le terme Tile s'annule donc exactement). Le SEUL
+    changement = blackTerminator loin -> adjacent a la cible. `--hp-target 900000` ecrase les PV
+    de tous les ennemis : la contribution AoE native (le confond) tombe a ~0.47 la ou l'avance de
+    l'attaque normale vaut ~1.10 -> l'AoE SEULE ne peut pas expliquer la bascule."""
+    print("(C) DoomSiren (1199) IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$CalculateCustomUtility -- emperKakophonist")
+    rid = _build("emperKakophonist",
+                 "tauCrisis,blackTerminator,astraOrdnance,necroDestroyer,worldTerminator",
+                 ["--hp-target", "900000"])
+    if rid is None:
+        fails.append("C: build KO")
+        return None
+    print("    runner", rid)
+    predictor = _scene.build_predictor(lambda m, b, t: _r(sid, m, b, t), rid)
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 60)
+    tiles = bg.get("tiles") or []
+    walk = {(t["col"], t["row"]) for t in tiles if t.get("walkable")}
+    elev = {(t["col"], t["row"]): t.get("elevation") for t in tiles}
+    dv = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+    K, T, P = _find(dv, "emperKakophonist"), _find(dv, "tauCrisis"), _find(dv, "blackTerminator")
+    X = [_find(dv, v) for v in ("astraOrdnance", "necroDestroyer", "worldTerminator")]
+    if not (K and T and P and all(X)):
+        fails.append("C: unites absentes")
+        return rid
+    cid = K["id"]
+    kp = (K["pos"]["col"], K["pos"]["row"])
+    tp = sorted(p for p in walk if hexgeo.distance(kp, p) == 2)[0]
+    adj = sorted(p for p in walk if hexgeo.distance(p, tp) == 1
+                 and abs(elev[p] - elev[tp]) < 2 and hexgeo.distance(kp, p) >= 2)
+    far = sorted(p for p in walk if hexgeo.distance(kp, p) >= 6 and hexgeo.distance(p, tp) >= 4)
+    if not adj or len(far) < 4:
+        fails.append("C: geometrie MC1_67 inattendue")
+        return rid
+    for u, p in zip(X, far[:3]):
+        _move(sid, rid, u["id"], p)
+    _move(sid, rid, T["id"], tp)
+    for tag, pp, expect in (("cible ISOLEE -> custom 0", far[3], 69),
+                            ("ennemi adjacent a la CIBLE -> custom W=50", adj[0], 1199)):
+        _move(sid, rid, P["id"], pp)
+        _reset_activation(sid, rid, cid)
+        _confront(sid, rid, wt, predictor, cid, tag, expect, fails)
+        # CONTRE-EPREUVE : moteur avec le custom DoomSiren force a 0 = etat d'AVANT le port.
+        pb = _pbmod.get_playbook(1199)
+        orig = type(pb).calculate_custom_utility
+        type(pb).calculate_custom_utility = lambda self, ctx, tile, tgt, aid: 0.0
+        try:
+            dv2 = _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+            mov2 = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
+            mbu2 = {u.get("unitId"): u for u in (mov2.get("units") or [])}
+            e0 = engine_decide(sid, rid, dv2, mbu2, cid, wt, predictor)
+            ab0 = e0.get("ability") if e0.get("kind") == "ability" else None
+        finally:
+            type(pb).calculate_custom_utility = orig
+        print(f"      contre-epreuve (custom=0) : moteur ab={ab0}")
+        if expect == 1199 and ab0 == 1199:
+            fails.append("C: le moteur choisit 1199 MEME avec custom=0 -> bras non causal")
+        if expect == 69 and ab0 != 69:
+            fails.append(f"C: bras neutre incoherent avec custom=0 (ab={ab0})")
+    return rid
+
+
 def main() -> int:
     sid = _resolve_session()
     wt = W.load()
@@ -198,6 +271,10 @@ def main() -> int:
             _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
             rid = None
         rid = drachnyen(sid, wt, fails)
+        if rid is not None:
+            _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
+            rid = None
+        rid = doomsiren(sid, wt, fails)
     finally:
         if rid is not None:
             _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
@@ -206,8 +283,8 @@ def main() -> int:
         for f in fails:
             print("FAIL", f)
         return 2
-    print("PASS : Herald (1020) et Drachnyen (1029) -- les DEUX bras de chaque A/B causal "
-          "sont exerces cote natif ET reproduits par le moteur.")
+    print("PASS : Herald (1020), Drachnyen (1029) et DoomSiren (1199) -- les DEUX bras de chaque "
+          "A/B causal sont exerces cote natif ET reproduits par le moteur.")
     return 0
 
 

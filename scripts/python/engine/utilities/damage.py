@@ -98,6 +98,45 @@ class KillUnitUtility(BaseUtility):
         return 0.0
 
 
+def will_be_overkill(pred) -> bool:
+    """`IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill` — borne GARANTIE de l'overkill
+    (`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` sur le degat sante BRUT MIN @0x24, ou le
+    scenario BLOCK `list[0]@0x50` quand present, cf. #54A). Extrait de `OverkillUnitUtility.evaluate`
+    (qui l'appelle) pour etre CONSOMMABLE HORS composite : `DoomSirenPlaybook.CalculateCustomUtility`
+    compte les predictions `WillBeOverkill` (playbook/loki_custom.py)."""
+    if not pred:
+        return False
+    from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
+    hp = pred.get("hpBefore") or 0
+    if hp <= 0:
+        return False
+    raw_min = pred.get("rawHealthDmgMin")
+    if raw_min is None:
+        raw_min = pred.get("healthDmgMin") or 0   # fallback capped (chemins runner/move sans champs raw)
+    _bmin = pred.get("blockRawMin")
+    will_min = _bmin if _bmin is not None else raw_min
+    allow = 1 if pred.get("forceOverkill") else 0
+    return bool(is_overkill(hp, will_min, default_flag=0, allow_flag=allow, suppress=0, cond=1,
+                            threshold_pct=_overkill_threshold_pct()))
+
+
+def might_be_overkill(pred) -> bool:
+    """`IdunBattle.Core.Services.DamagePredictionResult$$MightBeOverkill` — borne OPTIMISTE
+    (`IsOverkill` sur le degat sante BRUT MAX @0x28, SANS block)."""
+    if not pred:
+        return False
+    from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
+    hp = pred.get("hpBefore") or 0
+    if hp <= 0:
+        return False
+    raw_max = pred.get("rawHealthDmgMax")
+    if raw_max is None:
+        raw_max = pred.get("healthDmgMax") or 0
+    allow = 1 if pred.get("forceOverkill") else 0
+    return bool(is_overkill(hp, raw_max, default_flag=0, allow_flag=allow, suppress=0, cond=1,
+                            threshold_pct=_overkill_threshold_pct()))
+
+
 class OverkillUnitUtility(BaseUtility):
     """`OverkillUnitUtility` (IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor, TypeDefIndex 12129 ; UtilityType.OverkillUnit=37) ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
     `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill (borne MIN) -> DefinitelyOverkill(40) ; sinon `IdunBattle.Core.Services.DamagePredictionResult$$MightBeOverkill
@@ -110,28 +149,11 @@ class OverkillUnitUtility(BaseUtility):
     UTILITY_TYPE = int(UtilityType.OverkillUnit)  # 37
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
-        if not pred:
-            return 0.0
-        from ..services.trait_damage_limits import is_overkill, _overkill_threshold_pct
-        hp = pred.get("hpBefore") or 0
-        if hp <= 0:
-            return 0.0
-        # raw* = dégât santé NON capé par HP (mirror @0x24/@0x28). Fallback capped (INERTE, ancien comportement)
-        # si un caller (runner/move) ne fournit pas encore les champs raw -> pas de régression sur ces chemins.
-        raw_min = pred.get("rawHealthDmgMin")
-        raw_max = pred.get("rawHealthDmgMax")
-        if raw_min is None or raw_max is None:
-            raw_min, raw_max = pred.get("healthDmgMin") or 0, pred.get("healthDmgMax") or 0
-        thr = _overkill_threshold_pct()
-        allow = 1 if pred.get("forceOverkill") else 0
-        # #54A : `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill` lit le scénario BLOCK `list[0]@0x50` quand présent
-        # (comme WillBeKill) — la borne « garantie » compte le block du défenseur. MightBeOverkill
-        # reste sur le rawMax scalaire.
-        _bmin = pred.get("blockRawMin")
-        will_min = _bmin if _bmin is not None else raw_min
-        if is_overkill(hp, will_min, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
+        # raw* = dégât santé NON capé par HP (mirror @0x24/@0x28) ; le détail (fallback capped, scénario
+        # BLOCK #54A) vit dans `will_be_overkill`/`might_be_overkill` — MÊME code que DoomSiren (#27-2).
+        if will_be_overkill(pred):
             return wt.overkill(definite=True)     # WillBeOverkill -> DefinitelyOverkill (40)
-        if is_overkill(hp, raw_max, default_flag=0, allow_flag=allow, suppress=0, cond=1, threshold_pct=thr):
+        if might_be_overkill(pred):
             return wt.overkill(definite=False)    # MightBeOverkill -> PossibleOverkill (15)
         return 0.0
 

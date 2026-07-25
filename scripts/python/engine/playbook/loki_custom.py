@@ -27,9 +27,10 @@ from __future__ import annotations
 import hexgeo
 
 from .common import DefaultActiveAbilityPlaybook
-from .base import register
+from .base import register, tile_utility
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
+from ..utilities.damage import will_be_overkill
 
 
 class _CustomOnlyPlaybook(DefaultActiveAbilityPlaybook):
@@ -184,10 +185,104 @@ class DrachnyenPlaybook(_CustomOnlyPlaybook):
         return ctx.wt.sub("ActiveAbilities", self.W_KEY)       # 10
 
 
+def _main_tile_of(ctx, entity_id):
+    """`IdunBattle.Entities.EntityExtensions$$GetMainTile` / `GetTiles(e).First()` de l'entite `entity_id`
+    -> `(col, row)` ou None (entite absente/hors plateau). Unites mono-tuile : `GetTiles().First()`
+    == `GetMainTile()` (les seules multi-tuiles sont les plateformes de MoW, jamais cibles ici)."""
+    for u in (ctx.units or []):
+        if u.get("id") == entity_id:
+            p = u.get("pos") or {}
+            if p.get("col") is None:
+                return None
+            return (p["col"], p["row"])
+    return None
+
+
+class DoomSirenPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$CalculateCustomUtility` :
+
+        u = Fix64(0);
+        foreach (p in MakeDamagePredictions(unit, position, target))      // vtable +0x358
+            if (p.Prediction.WillBeOverkill()) u += GetUtilityValue("DoomSiren_DefinitelyOverkill");
+        if (Enumerable.Count(battleQuery.<0x7f>(GetTiles(target).First(), unit)) > 0)
+            u += GetUtilityValue("DoomSiren_TargetHasAdjacentEnemy");
+        return u;
+
+    Le slot 0x7f est l'overload `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(Tile, TUnit)`
+    (`OwnerComponent.CurrentPlayerEntityId(unit)` -> filtre ennemis, puis `GetAdjacentUnits(tile)`) :
+    le compte des ENNEMIS DU CASTER adjacents a la TUILE DE LA CIBLE — c'est-a-dire « l'AoE va-t-elle
+    toucher quelqu'un d'autre ? ». Mirror : `battle_query.count_adjacent` (meme `IterateAdjacentTiles`
+    + porte d'elevation) sur `ctx.epos`. La cible elle-meme est a distance 0 -> jamais comptee.
+    Terme INDEPENDANT de la tuile d'attaque, DEPENDANT de la cible.
+
+    Le premier terme reutilise la MEME `MakeDamagePredictions` que `calculate_action_utility`
+    (`IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$MakeDamagePredictions` = cible principale +
+    jusqu'a `GetNumberConstant(0x78)`=`nrOfUnits`=2 ennemis adjacents a la cible, puis
+    `GenerateMultiHitAttackPredictions`) -> le compte d'overkills porte sur cible + AoE.
+    `WillBeOverkill` = `engine.utilities.damage.will_be_overkill` (meme code que la feuille
+    `OverkillUnitUtility`).
+
+    Poids seed-bc : `DoomSiren_DefinitelyOverkill` = 40, `DoomSiren_TargetHasAdjacentEnemy` = 50.
+    Porteur emperKakophonist `Adamatar` [hero, present dans `rl_duel --list-pool`]."""
+    ability_id = int(ActiveAbilityType.DoomSiren)  # 1199
+    W_OVERKILL = "DoomSiren_DefinitelyOverkill"
+    W_ADJACENT = "DoomSiren_TargetHasAdjacentEnemy"
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        u = 0.0
+        w_ok = ctx.wt.sub("ActiveAbilities", self.W_OVERKILL)          # 40
+        for ev in (self.make_damage_predictions(ctx, caster_tile, target, ability_id) or []):
+            if will_be_overkill(ev.composite_fields()):
+                u += w_ok
+        tpos = _main_tile_of(ctx, target)
+        if tpos is not None and bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos) > 0:
+            u += ctx.wt.sub("ActiveAbilities", self.W_ADJACENT)        # 50
+        return u
+
+
+class SorcerousFacadePlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility` :
+
+        u1 = services[7].EvaluateMovement(new UtilityMovementCase(unit, GetMainTile(target), null, null, null));
+        u2 = services[7].EvaluateMovement(new UtilityMovementCase(unit, position,             null, null, null));
+        return u1 - u2;
+
+    SorcerousFacade ECHANGE le caster et sa cible : le terme note « combien il est bon d'etre LA OU
+    EST LA CIBLE » moins « combien il est bon d'etre sur la tuile d'attaque ». Terme
+    POSITION-DEPENDANT (il entre dans l'argmax par tuile de `_best_attack`).
+
+    RE DECISIF — le `UtilityMovementCase` est construit avec **ClosestEnemy = null** (3e argument du
+    ctor `IdunBattle.AI.Utilities.UtilityMovementCase$$.ctor`, champ @0x20 ; meme forme que
+    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility`).
+    Or `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+    rend `Fix64(0)` des que `case.ClosestEnemy == null` (3e garde, avant tout `GetMinDistanceToEnemy`).
+    => la feuille MinDistanceToClosestEnemy(16) du composite est INERTE sur ce chemin, et le composite
+    de mouvement se REDUIT a sa feuille Tile(7). Mirror exact = `base.tile_utility` (le MEME
+    `tile_composite` que le sweep move et que le terme Tile de `CalculateActionUtility`).
+
+    Consequence : sur terrain PLAT et sans effets de tuile, le terme vaut 0 ; il devient decisif des
+    que l'elevation / les effets de tuile / la feuille TriggeredAbilities(2) different entre la tuile
+    de la cible et la tuile d'attaque. Aucun poids `ActiveAbilities` dedie (le terme est une DIFFERENCE
+    d'utilites de tuile, ponderees par la categorie Tile de la BC).
+
+    Porteur thousTzaangor `Tzaangor Shaman` [hero, present dans `rl_duel --list-pool`].
+    (`IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$ShouldExecute` — gate supplementaire
+    `!WillNormalAttackKill` + comparaison aux tuiles de deplacement — n'est PAS porte ici : #27 ne
+    couvre que le terme custom.)"""
+    ability_id = int(ActiveAbilityType.SorcerousFacade)  # 1100
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0.0
+        return tile_utility(ctx, tpos) - tile_utility(ctx, caster_tile)
+
+
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
-                HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook):
+                HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
+                DoomSirenPlaybook, SorcerousFacadePlaybook):
         register(cls())
 
 
