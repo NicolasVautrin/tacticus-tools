@@ -160,19 +160,34 @@ class AddEffect(AbilityBehaviour):
     (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
     """
     __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source",
-                 "duration_turns")
+                 "duration_turns", "source_ref")
 
     def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
-                 level=None, scale_from_source: bool = False, duration_turns=None):
+                 level=None, scale_from_source: bool = False, duration_turns=None, source_ref=None):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
         self.level, self.scale_from_source = level, scale_from_source
         self.duration_turns = duration_turns
+        # `source_ref` = le 4e argument NATIF d'`IdunBattleLogic.Entities.DSLFactory$$AddEffect` (le noeud
+        # SOURCE, `AddEffectBehaviour..ctor` param_4) : `caster@0x160` / `Owner@0x148` sur la quasi-totalite
+        # des call-sites -> defaut None = le caster (comportement historique INCHANGE).
+        # `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` passe
+        # `target@0x178` comme source de son effet de TUILE Contaminated -> d'ou le parametre.
+        self.source_ref = source_ref
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
         state = ectx.state
-        src = (entities.caster or {}).get("id")               # AbilityStateReference = caster (source)
+        if self.source_ref is not None:                       # noeud SOURCE natif explicite (param_4)
+            # Domaine MIXTE : le natif stocke une ENTITE dans `EffectComponent.SourceUnit @+0x10` --
+            # unite OU tuile (PlagueburstMortar passe `target@0x178` = la TUILE ciblee).
+            raw = self.source_ref.evaluate(entities)
+            src = _add_effect_target_id(
+                (raw[0] if isinstance(raw, (list, tuple)) and raw and not (
+                    len(raw) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in raw))
+                 else raw), state)
+        else:
+            src = (entities.caster or {}).get("id")           # AbilityStateReference = caster (source)
         if state is None or src is None:
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
@@ -315,6 +330,125 @@ class RemoveEffect(AbilityBehaviour):
                 removed += 1
             ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
         return OperationResult.ok()
+
+
+class ChangeEffectTurns(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$ChangeEffectTurns(owner, effectType, turnsNode, changeType)` ->
+    `IdunBattle.Entities.Behaviours.ChangeEffectTurnsBehaviour$$Execute` — MIRROR du DECOMPILE :
+
+        this+0x50 = EffectFromOwner(owner, effectType)   # selecteur d'ENTITES-EFFET
+        this+0x58 = turnsNode                            # formule (V), evaluee UNE fois
+        this+0x60 = changeType                           # IdunBattle.Entities.Enum.ChangeType
+        Execute : amount = turnsNode.Calculate(entities)
+                  foreach effect in (this+0x50).Select(entities) :
+                      ChangeEffectTurnsOperation.Execute(effect, amount, changeType)
+
+    Le natif ne touche QUE la duree d'instances d'effet DEJA presentes (aucune pose). Frontiere #149 :
+    feuille DECLARATIVE ici, `ChangeEffectTurnsOperation` (mutateur `EffectComponent.Duration`) en dessous.
+
+    Port : `EffectFromOwner` n'est pas materialisable comme selecteur offline (il rend `[]`, cf.
+    `entities/selectors.py`) -> la feuille resout elle-meme les instances via `state.effects.by_unit[owner]`
+    filtrees sur `effect_type` (MEME cle que la pose `AddEffectOperation`) — c'est litteralement ce que le
+    selecteur natif rend. `owner_sel` = le 2e argument natif (`target@0x178` pour TwinSmartMissileSystem).
+    `turns` = int OU noeud-formule ; `change_type` = 0 Add (defaut natif du seul call-site porte) / 1 Set.
+    Emet 'ChangeEffectTurns' par instance touchee. Effet PUR (stop=False)."""
+    __slots__ = ("owner_sel", "effect_type", "turns", "change_type")
+
+    def __init__(self, owner_sel: TargetsSelector, effect_type: int, turns, change_type: int = 0):
+        self.owner_sel, self.effect_type = owner_sel, int(effect_type)
+        self.turns, self.change_type = turns, int(change_type)
+
+    def execute(self, entities, ectx):
+        from ...operations.effects import ChangeEffectTurnsOperation
+        state = ectx.state
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        amount = int(self.turns.evaluate(entities) if hasattr(self.turns, "evaluate") else self.turns)
+        for ou in _units_of(self.owner_sel, entities):
+            oid = ou.get("id") if isinstance(ou, dict) else None
+            if oid is None:
+                continue
+            for eff in state.effects.by_unit.get(int(oid), []):    # == EffectFromOwner(owner, type)
+                if eff.consumed or eff.effect_type != self.effect_type:
+                    continue
+                new = ChangeEffectTurnsOperation.execute(state, eff, amount, self.change_type)
+                ectx.emit("ChangeEffectTurns", owner=oid, effect_type=self.effect_type,
+                          amount=amount, change_type=self.change_type, remaining=new)
+        return OperationResult.ok()
+
+
+class AddStaticStatModifierEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect(unit, effectType, statType, amountNode,
+    ..., flag)` : pose sur `unit` un effet `effectType` porteur d'une modification de stat STATIQUE
+    (montant fige a la pose, != un modifier dynamique re-calcule). Wrapper MINCE au-dessus des DEUX
+    operations deja portees : `AddEffectOperation` (materialisation de l'entite-effet) puis
+    `apply_change_stat` (la `ValueModification` per-source, cle = l'instance d'effet) — frontiere #149
+    respectee (feuille declarative / Operations imperatives).
+
+    `stat_mod_source` est pose sur l'instance pour que `RemoveEffect` (qui lit `reverted_stats()` +
+    `stat_mod_source`) sache annuler EXACTEMENT cette contribution : c'est la mecanique de rafraichissement
+    d'`AddOrUpdateStaticStatModifierEffect` (remove-puis-add). L'effet materialise n'ayant pas forcement de
+    classe dediee, on force `reverted_stats` sur l'instance (attribut d'instance, prioritaire sur la methode
+    de classe seulement si l'appelant lit la LISTE -- ici `RemoveEffect` appelle `eff.reverted_stats()`, donc
+    on installe un callable). Emet 'AddStaticStatModifierEffect'. PUR."""
+    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name")
+
+    def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
+                 name: str | None = None):
+        self.unit_sel, self.effect_type = unit_sel, int(effect_type)
+        self.stat_type, self.amount, self.name = int(stat_type), amount, name
+
+    def execute(self, entities, ectx):
+        from ...operations.effects import AddEffectOperation
+        from ...operations.stat_ops import apply_change_stat
+        state = ectx.state
+        src = (entities.caster or {}).get("id")
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
+        for u in _units_of(self.unit_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            eff = AddEffectOperation.execute(state, source=src, target=uid,
+                                             effect_type=self.effect_type, name=self.name,
+                                             duration_override=None, value=amt)
+            if eff is None:                          # deja present (gate `deja-present` de l'operation)
+                continue
+            key = f"eff:{self.effect_type}:{uid}:{id(eff)}"
+            eff.stat_mod_source = key
+            eff.reverted_stats = (lambda st=self.stat_type: [st])
+            apply_change_stat(state, uid, self.stat_type, key, amt)
+            ectx.emit("AddStaticStatModifierEffect", unit=uid, effect_type=self.effect_type,
+                      stat=self.stat_type, amount=amt)
+        return OperationResult.ok()
+
+
+def add_or_update_static_stat_modifier_effect(unit_sel: TargetsSelector, effect_type: int,
+                                              stat_type: int, amount, name: str | None = None):
+    """`IdunBattleLogic.Entities.DSLFactory$$AddOrUpdateStaticStatModifierEffect(unit, effectType, statType,
+    amountNode, ...)` — FACTORY COMPOSITE, mirror 1:1 du decompile (elle n'alloue PAS de behaviour dedie) :
+
+        cur  = CurrentStatModifierAmountFormula(dslFactory+0x38, unit, effectType, statType)
+        cond = NOT( AmountIsEqual(amountNode, cur) )
+        body = RemoveEffect(unit, Nullable(effectType))  op_BitwiseAnd  AddStaticStatModifierEffect(
+                   unit, effectType, statType, amountNode, ...)
+        return ForeachBehaviour(cond, body, null)        # == `If(cond, body)`
+
+    -> « si le modificateur COURANT de `statType` porte par l'effet `effectType` differe du nouveau montant,
+    on retire l'effet et on le re-pose au bon montant » (idempotent : montant identique = no-op).
+
+    Port : `CurrentStatModifierAmountFormula` est modelise par `_current_stat_modifier_amount` (lit la
+    contribution `stat_mod_source` de l'instance d'effet portee ; 0 si absente)."""
+    from ....entities.behaviours import If as IfBehaviour, op_and
+    from ....entities.triggers import Not, AmountIsEqual
+    from ....entities.formulas import CurrentStatModifierAmount
+    from ....dsl.base import Const
+    amt_node = amount if hasattr(amount, "evaluate") else Const(int(amount))
+    cond = Not(AmountIsEqual(amt_node, CurrentStatModifierAmount(unit_sel, effect_type, stat_type)))
+    body = op_and(RemoveEffect(effect_type, unit_sel),
+                  AddStaticStatModifierEffect(unit_sel, effect_type, stat_type, amt_node, name=name))
+    return IfBehaviour(cond, body)
 
 
 class SetOnFire(AbilityBehaviour):

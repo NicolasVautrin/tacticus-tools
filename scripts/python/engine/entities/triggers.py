@@ -224,7 +224,20 @@ class HasEffect(AbilityTrigger):
 
     `min_level` (conserve, defaut 0) reste le filtre de NIVEAU du port pour les call-sites qui en ont
     besoin ; `active_only` (defaut True = ce que passent les call-sites natifs lus) fait respecter
-    l'`ActiveCondition` de l'effet (`BaseEffect.is_active`). `ctx.has_effect` defaut None → False."""
+    l'`ActiveCondition` de l'effet (`BaseEffect.is_active`). `ctx.has_effect` defaut None → False.
+    NON captable offline standard (partiel live via decisionView.effects).
+
+    DOMAINE MIXTE (#90 — mirror du natif, qui teste une `IEntity` INDIFFERENCIEE via
+    `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`) : une entite-UNITE (dict) passe par
+    `ctx.has_effect`, une entite-TUILE (id int, ex. le sujet d'un `Filter` tile-domain --
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour` filtre sa zone
+    par `HasEffect(Tiles(Subject@0x180), 5=Fire)`) par `ctx.tile_has_effect`. Accesseur absent -> False.
+
+    LIMITE ASSUMEE (fusion #100 x #90) : `active_only` n'est threade QUE sur la branche UNITE. Le natif
+    l'applique a n'importe quelle `IEntity`, mais l'accesseur tuile du port (`ctx.tile_has_effect`,
+    #217) n'expose aucune notion d'effet actif/inactif -- le lui passer serait inventer un parametre
+    qu'il ne sait pas honorer. Sans consequence tant qu'aucun effet de TUILE ne porte d'ActiveCondition
+    (aucun a ce jour) ; a rouvrir avec l'infra effets-de-tuile mutables (tache #85)."""
     def __init__(self, unit: AbilityTrigger, effect_type, min_level: int = 0,
                  active_only: bool = True):
         self.unit, self.effect_type, self.min_level = unit, effect_type, min_level
@@ -232,8 +245,19 @@ class HasEffect(AbilityTrigger):
 
     def should_trigger(self, ctx):
         he = ctx.has_effect or (lambda u, et, sf=6, ml=0, ao=True: False)
-        return any(he(u, self.effect_type, 6, self.min_level, self.active_only)
-                   for u in _units_of(self.unit, ctx))
+        the = getattr(ctx, "tile_has_effect", None)
+        # Meme normalisation que `_units_of` (dict -> [dict], None -> [], liste telle quelle),
+        # ETENDUE au domaine TUILE : l'iteration de #90 la subsume, on y injecte `active_only`.
+        raw = self.unit.evaluate(ctx)
+        items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
+        for it in items:
+            if isinstance(it, dict):
+                if he(it, self.effect_type, 6, self.min_level, self.active_only):
+                    return True
+            elif isinstance(it, int) and not isinstance(it, bool):
+                if the is not None and the(int(it), int(self.effect_type)):
+                    return True
+        return False
 
 
 class HasAnyEffect(AbilityTrigger):
@@ -246,6 +270,151 @@ class HasAnyEffect(AbilityTrigger):
         he = ctx.has_effect or (lambda u, et, sf=6, ml=0: False)
         us = _units_of(self.unit, ctx)
         return any(he(u, et, 6, 0) for u in us for et in self.effect_types)
+
+
+class HasFaction(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$HasFaction(unit, faction, mode)` -> `IdunBattle.Entities.Triggers.HasFactionTrigger$$ShouldTrigger` :
+    resout `unit` en UNE entite (slot 7 = select-single) puis `IdunBattle.Entities.UnitExtensions$$HasFaction(entity, faction@+0x10)`.
+    `faction` = valeur de l'enum `IdunBattle.Entities.Enum.UnitFaction` (0=Ultramarines, 1=Sisterhood,
+    2=AstraMilitarum, ...). Entite absente -> False (le natif retourne sans valeur = 0).
+
+    Port : la faction offline vient de `ctx.faction_of` (FactionId gameconfig, une CHAINE) -- on compare donc
+    au NOM de l'enum (`UNIT_FACTION_NAMES[value]`), meme reduction que `UnitsFromFaction` (qui, lui, recoit
+    deja le nom via `System.Enum.ToString`). Accesseur absent -> False.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
+    (`If(HasFaction(target, 1=Sisterhood), AddEffect(1401), AddEffect(1436))`)."""
+    def __init__(self, unit: AbilityTrigger, faction):
+        self.unit, self.faction = unit, faction
+
+    def should_trigger(self, ctx):
+        fo = ctx.faction_of
+        if fo is None:
+            return False
+        name = UNIT_FACTION_NAMES.get(int(self.faction)) if not isinstance(self.faction, str) \
+            else self.faction
+        if name is None:
+            return False
+        return any(fo(u) == name for u in _units_of(self.unit, ctx))
+
+
+# `IdunBattle.Entities.Enum.UnitFaction` (dump enums du build) — la table est PARTIELLE : seules les valeurs
+# effectivement referencees par un arbre porte y figurent (ajouter au fil des call-sites, jamais deviner).
+UNIT_FACTION_NAMES = {
+    0: "Ultramarines", 1: "Sisterhood", 2: "AstraMilitarum", 3: "BlackLegion", 4: "DeathGuard",
+    5: "Orks", 6: "BlackTemplars", 7: "Necrons",
+}
+
+
+class HasUnit(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$HasUnit(tiles, mode)` : la/les TUILE(s) du selecteur portent-elles
+    une unite (`GetUnitOrMachine(tile) != null`) ? Predicat TILE-domain -- consomme sous un `Filter`/
+    `FilterContinuous` ou le sujet est un id de tuile (`IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`).
+    Lit `ctx.board.coord(tile)` + l'occupation VIVANTE de `ctx.units` (meme modele que `CanAddUnit`/`Units`).
+    board absent -> False."""
+    def __init__(self, tiles: AbilityTrigger):
+        self.tiles = tiles
+
+    def should_trigger(self, ctx):
+        return bool(_units_on(self.tiles, ctx))
+
+
+def _units_on(tiles: AbilityTrigger, ctx) -> list:
+    """Occupants VIVANTS des tuiles rendues par `tiles` (mirror `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine`
+    applique a une entite-TUILE). Accepte le domaine id-de-tuile (int), position (col,row) ou dict d'unite
+    (passthrough). Helper partage `HasUnit`/`AreEnemies` (tile-domain)."""
+    board = getattr(ctx, "board", None)
+    raw = tiles.evaluate(ctx)
+    items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            out.append(it)
+            continue
+        if isinstance(it, bool) or board is None:
+            continue
+        p = None
+        if isinstance(it, int):
+            p = board.coord(it) if it in board.by_id else None
+        elif isinstance(it, (tuple, list)) and len(it) == 2:
+            p = (it[0], it[1])
+        if p is None:
+            continue
+        for u in ctx.units:
+            if _is_alive(u) and _pos(u) == (int(p[0]), int(p[1])):
+                out.append(u)
+    return out
+
+
+class AreEnemies(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$AreEnemies(a, b, mode)` : symetrique exact d'`AreFriends` (equipes
+    DIFFERENTES). `IdunBattle.Entities.UnitExtensions$$IsFriend` == false pour au moins une paire resolue.
+    Les deux operandes sont normalises par `_units_of` (un ref-unite seul compte pour 1). None d'un cote ->
+    False. Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`
+    (`HasUnit(subject) & AreEnemies(Owner@0x148, Units(subject))`)."""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+        self.a, self.b = a, b
+
+    def should_trigger(self, ctx):
+        ta = [u.get("team") for u in _units_of(self.a, ctx) if isinstance(u, dict)]
+        tb = [u.get("team") for u in _units_of(self.b, ctx) if isinstance(u, dict)]
+        return any(x is not None and y is not None and x != y for x in ta for y in tb)
+
+
+class HasNegativeModifier(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$HasNegativeModifier(unit, statType)` ->
+    `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger` : l'entite porte-t-elle AU MOINS UNE
+    modification PER-SOURCE strictement NEGATIVE sur l'un des StatTypes du filtre (`@+0x18` = array inline) ?
+    Le natif itere le `Dictionary<source, ValueModification>` du `StatComponent` et rend true au 1er
+    `value(@+0x14) < 0` dont le `stat(@+0x10)` est dans le filtre.
+
+    Port : `UnitStats.has_negative_modifier(stat_types)` (mirror deja en place, foyer du gate
+    ConquerorImperative) via l'accesseur `ctx.get_stat`-adjacent `ctx.has_negative_modifier` ; accesseur
+    absent -> False (degradation fidele). Consommateur porte :
+    `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetIsValidAdjacentEnemyTrigger`
+    (`HasNegativeModifier(subject@0x180, 0x10=FixedArmor)`)."""
+    def __init__(self, unit: AbilityTrigger, stat_types):
+        self.unit = unit
+        self.stat_types = tuple(int(s) for s in
+                                (stat_types if isinstance(stat_types, (list, tuple, set, frozenset))
+                                 else (stat_types,)))
+
+    def should_trigger(self, ctx):
+        fn = getattr(ctx, "has_negative_modifier", None)
+        if fn is None:
+            return False
+        return any(fn(u, self.stat_types) for u in _units_of(self.unit, ctx))
+
+
+class IsInTeamAura(AbilityTrigger):
+    """`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` (construit par
+    `IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura(unit, teamReference)` = le meme trigger
+    fige sur `effectType = 0x42f = 1071 ContagionsOfNurgle_ArmorReduction1`) :
+
+        unit = <selecteur @+0x10>.SelectSingle(entities)      ; null -> false
+        ref  = <selecteur @+0x18>.SelectSingle(entities)      ; null -> false
+        team = EntityExtensions.GetCurrentTeamId(ref)
+        return battleQuery.<slot 0x92>(effectType@+0x20, team, unit)
+
+    -> « `unit` est-elle dans la PORTEE d'une aura `effectType` d'un porteur de l'equipe de `ref` ? ».
+
+    RESIDU ASSUME : le canal d'AURA n'est PAS materialise offline (aucun `GetInRangeAuraAmount` porte ;
+    cf. la meme limitation cote `EffectFromOwner`). Le noeud lit `ctx.is_in_team_aura(unit, effectType,
+    teamRef)` ; accesseur ABSENT (cas courant) -> **False** = degradation fidele « present != applique ».
+    L'autre branche du predicat consommateur (`HasNegativeModifier` FixedArmor) est, elle, PLEINEMENT
+    portee -- c'est celle qui est exercable/validable live."""
+    def __init__(self, unit: AbilityTrigger, effect_type: int, team_reference: AbilityTrigger):
+        self.unit, self.effect_type, self.team_reference = unit, int(effect_type), team_reference
+
+    def should_trigger(self, ctx):
+        fn = getattr(ctx, "is_in_team_aura", None)
+        if fn is None:
+            return False
+        us = _units_of(self.unit, ctx)
+        refs = _units_of(self.team_reference, ctx)
+        if not us or not refs:
+            return False
+        return any(fn(u, self.effect_type, r) for u in us for r in refs)
 
 
 class IsAlive(AbilityTrigger):

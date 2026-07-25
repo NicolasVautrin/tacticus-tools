@@ -17,14 +17,20 @@ import gameconfig as GC
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, ChainBehaviour, op_and
+from ...entities.behaviours import AtomicGroup, ChainBehaviour, If as IfBehaviour, op_add, op_and
+from ...entities.formulas import (If as FormulaIf, Multiply, Sum, TotalActiveAbilityUsed)
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
-                                   CasterTile, Damageable, Enemies, FixedTileIds, Friends, Nothing,
-                                   Null, Sub, Target)
-from ...entities.triggers import IsAlive, IsInRange, TriggerAnd
+                                   CasterTile, Damageable, Enemies, Filter, FixedTileIds, Friends,
+                                   Nothing, Null, Sub, Subject, Target, TilesInTriangleShape,
+                                   TilesOnSameElevation, Units)
+from ...entities.triggers import (HasEffect, IsAlive, IsInRange, IsPositionMachineForCurrentPlayer,
+                                  TriggerAnd)
+from ...entities.effect_type import EffectType
+from ...entities.stats import StatType
 from ...entities.active_ability_type import ActiveAbilityType
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage, Spawn, UseActiveAbility
+from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage, ChangeStat, Spawn,
+                         UseActiveAbility, add_or_update_static_stat_modifier_effect)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -331,3 +337,173 @@ class IncursionAbility(ActiveAbility):
         spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
         attacks = [p for n, p in ectx.emitted if n == "UseActiveAbility"]
         return {"spawned": spawned, "attacks": attacks, "max_summons": max_summons, "dsl": True}
+
+
+# =================================================================================================== #
+# DaemonicOrdnance (1148, `blackForgefiend` -- Forgefiend, MachineOfWar) -- lot #90 groupe D
+# Patron « COMPOSITE LOURD » : 5 etages heterogenes en UN seul behaviour-seq. Seul de son patron.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour` (MIRROR) :
+#   extraCritDmg    = GetVariableForLevel(config@0x60, 0x42 = 66 extraCritDmg,    entities)
+#   extraCritChance = GetVariableForLevel(config@0x60, 0x41 = 65 extraCritChance, entities)
+#   area            = GetTargetAreaTiles()                                    # cf. fonction NOMMEE ci-dessous
+#   targets         = Enemies( caster@0x160,
+#                              Units( Filter(area, HasEffect(Tiles(Subject@0x180), 5 = Fire)), 1 ), 3 )
+#                     (== `DaemonicOrdnanceAbility$$GetAllDamageableTargets`)
+#   [1] ChangeStat( owner@0x148, Position(10 = CriticalDamage, 0), mode 2 = Add,
+#                   Direct(extraCritDmg), <sel par defaut>, 3, false, false )
+#   [2] AttackWithAttackDamage( owner@0x148, targets, MinMaxDamage(this, entities),
+#                               Direct(GetDamageProfile(config)) = Plasma,
+#                               Direct(GetHits()) = ConfigConst(0x2f) = nrOfHits = 3,
+#                               AbilityOrEffect(0x47c = 1148), <opts> )
+#   [3] ChangeStat( owner@0x148, Position(10, 0), mode 3 = Subtract, Direct(extraCritDmg), ... )
+#   [4] If( HasEffect(owner@0x148, 0x524 = 1316 DaemonicOrdnance_ExtraCritChance, 0, 6),
+#           AddOrUpdateStaticStatModifierEffect( owner@0x148, 0x524, 9 = CriticalChance,
+#               Multiply( Sum(TotalActiveAbilityUsed(owner@0x148, 0x47c), Get(1)),
+#                         Direct(extraCritChance) ), 0, false ),
+#           null )
+#   [5] AddEffect( 5 = Fire, AbilityStateReference, source = owner@0x148, targets = area, options ZERO )
+#   AActiveAbility.Execute( ((((1 + 2) + 3) + 4) + 5), entities )       # Execute PLAIN, op_Addition x4
+#
+# LECTURES A NE PAS INVERSER (le case doc les avait croisees) : c'est `extraCritDmg` (var 0x42) qui
+# encadre l'attaque sur `CriticalDamage` (stat 10), et `extraCritChance` (var 0x41) qui alimente le
+# stat-modifier CUMULATIF sur `CriticalChance` (stat 9).
+#
+# 2-PHASES PAR CONSTRUCTION : l'attaque ne frappe que les ennemis debout sur une tuile DEJA EN FEU ;
+# le feu, lui, est pose EN FIN de ce meme cast ([5], apres l'attaque) -> un 1er cast ne fait AUCUN
+# degat (il allume la zone), le SUIVANT frappe ce qui s'y trouve encore. C'est la structure native,
+# pas une degradation du port.
+#
+# L'effet 1316 n'est PAS cree ici : sa creation/suppression appartient aux triggered
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnance_AddCritChance$$CreateBehaviour`
+# (`AddStaticStatModifierEffectToOwner(0x524, 9, Get(0))`) et `..._RemoveCritChance$$CreateBehaviour`
+# (`If(CriticalHitsThisTurn(owner) >= GetHits2, RemoveEffect(owner, 0x524))`) -- HORS de ce port ;
+# d'ou le gate `If(HasEffect(owner, 0x524))` de l'etage [4], INERTE tant que ces triggered ne sont pas
+# portes (residu documente).
+# =================================================================================================== #
+
+DAEMONIC_ORDNANCE_ID = "DaemonicOrdnance"
+DO_EXTRA_CRIT_CHANCE_EFFECT = int(EffectType.DaemonicOrdnance_ExtraCritChance)   # 0x524 = 1316
+DO_FIRE = int(EffectType.Fire)                                            # 5 = feu de tuile
+# `MachineOfWarPosition.Bottom` = 2, litteral passe a `IsPositionMachineForCurrentPlayer(2)`
+# (`DaemonicOrdnanceAbility$$IsBottomPlayer`, MEME construction que MacroPlasmaIncinerator).
+DO_MACHINE_POSITION_BOTTOM = 2
+
+
+def daemonic_ordnance_target_area_tiles(target_sel):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetTargetAreaTiles`
+    (MIRROR 1:1) :
+
+        dir = If( IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4) )     # == IsBottomPlayer
+        return TilesOnSameElevation( target@0x178, TilesInTriangleShape(target@0x178, dir), maxDiff = 1 )
+
+    = la tuile ciblee + les DEUX voisines du coin `dir` (`IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape` :
+    dir=1 -> {S, SE}, dir=4 -> {NW, N}), filtrees sur un ecart d'elevation <= 1 avec la tuile ciblee.
+
+    ⚠ CONTRASTE `MacroPlasmaIncineratorAbility$$ExecuteBehaviour` : AUCUN `Walkable` ici (le feu se pose
+    sur des tuiles non marchables aussi). Ne pas recopier le filtre de l'autre MoW."""
+    direction = FormulaIf(IsPositionMachineForCurrentPlayer(DO_MACHINE_POSITION_BOTTOM),
+                          Const(1), Const(4))
+    return TilesOnSameElevation(target_sel, TilesInTriangleShape(target_sel, direction), 1)
+
+
+def daemonic_ordnance_all_damageable_targets(target_sel):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetAllDamageableTargets`
+    (MIRROR) = `Enemies(caster@0x160, Units(Filter(GetTargetAreaTiles(), HasEffect(Tiles(Subject@0x180),
+    5 = Fire)), 1), 3)` : les ENNEMIS debout sur une tuile de la zone qui PORTE DEJA l'effet de feu.
+
+    Le `Filter` lie chaque TUILE de la zone au slot sujet et teste l'effet sur cette entite-tuile
+    (`HasEffect` domaine mixte, cf. `entities/triggers.py`)."""
+    area = daemonic_ordnance_target_area_tiles(target_sel)
+    burning = Filter(area, HasEffect(Subject(), DO_FIRE))
+    return Enemies(Units(burning))
+
+
+def daemonic_ordnance_tree(target_sel, extra_crit_dmg: int, extra_crit_chance: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour`
+    (MIRROR 1:1 des 5 etages, cf. le bloc de commentaire) :
+
+        op_Addition x4 ( ChangeStat(+extraCritDmg sur CRITICAL_DAMAGE),
+                         AttackWithAttackDamage(<ennemis sur tuiles en feu>),
+                         ChangeStat(-extraCritDmg),
+                         If(HasEffect(owner, 1316), AddOrUpdateStaticStatModifierEffect(...)),
+                         AddEffect(Fire -> zone) )
+
+    - le buff/debuff ENCADRE l'attaque (meme patron NET-NUL que HeroicFusillade) : la feuille `ChangeStat`
+      `mode="add"` puis `mode="revert"` sur la MEME cle de source -> revert EXACT par-source.
+    - l'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille ATTACK :
+      crit/block, 2 tirages/coup) -> `native_factory="attack"` (DEFAUT) -- c'est justement pourquoi le
+      bonus de CriticalDamage est encadre.
+    - `Fire` (5) : options natives ZERO -> `DefaultAmountOfRounds(5) = 2` rounds, converti DANS
+      `AddEffectOperation` (`duration_rounds=None` cote port)."""
+    src_key = f"DaemonicOrdnance:{id(target_sel)}"        # cle de source PARTAGEE add <-> revert
+    buff = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src_key, extra_crit_dmg)
+    attack = AttackWithAttackDamage(daemonic_ordnance_all_damageable_targets(target_sel),
+                                    DAEMONIC_ORDNANCE_ID, "Plasma", is_melee=False, multi=True,
+                                    ability_type=int(ActiveAbilityType.DaemonicOrdnance))
+    unbuff = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "revert", src_key)
+    amount = Multiply(Sum(TotalActiveAbilityUsed(Caster(), int(ActiveAbilityType.DaemonicOrdnance)),
+                          Const(1)),
+                      Const(int(extra_crit_chance)))
+    cumul = IfBehaviour(
+        HasEffect(Caster(), DO_EXTRA_CRIT_CHANCE_EFFECT),
+        add_or_update_static_stat_modifier_effect(
+            Caster(), DO_EXTRA_CRIT_CHANCE_EFFECT, int(StatType.CRIT_CHANCE), amount,
+            name=EffectType.DaemonicOrdnance_ExtraCritChance.name))
+    fire = AddEffect(DO_FIRE, EffectType.Fire.name,
+                     daemonic_ordnance_target_area_tiles(target_sel), duration_rounds=None)
+    return op_add(op_add(op_add(op_add(buff, attack), unbuff), cumul), fire)
+
+
+class DaemonicOrdnanceAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$ExecuteBehaviour` (id 1148,
+    `blackForgefiend` -- Forgefiend, Black Legion, MACHINE OF WAR) — cf. le bloc de commentaire.
+
+    Kit gameconfig 1148 : `damageProfile=Plasma`, `nrOfHits=3` (+`nrOfHits_2=3`, non lu par ce behaviour),
+    `minDmg`/`maxDmg`/`extraCritDmg`[level] (rarity-affected), `extraCritChance`[level],
+    `attackRangeType=Ranged`, `initialCooldownTurns=1`.
+
+    OBSERVABLE : (1) la zone-triangle autour de la cible s'embrase (`EnvFireTile` 5, 2 rounds) ;
+    (2) les ennemis DEJA sur une tuile en feu prennent 3 coups Plasma avec +extraCritDmg de degat critique
+    (buff pose puis retire autour de l'attaque -- net nul sur la fiche apres le cast) ; (3) si la MoW porte
+    deja `DaemonicOrdnance_ExtraCritChance` (1316), son montant est rafraichi a
+    `(nbUsages + 1) x extraCritChance` sur `CriticalChance`.
+
+    Turn-flags = defauts base (1148 absent des overrides). Retour : {attacks, burned_tiles, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DaemonicOrdnance)   # 1148
+    ABILITY_ID = DAEMONIC_ORDNANCE_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from ...entities.effects.magnitude import ability_var
+        from ..components import StatsComponent
+        if target_id is None:
+            return None
+        ce = state.get_entity(caster_id)
+        sc = ce.get_component(StatsComponent) if ce is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        crit_dmg = int(ability_var(self.ABILITY_ID, "extraCritDmg", level, multiplier_pct=mult) or 0)
+        crit_chance = int(ability_var(self.ABILITY_ID, "extraCritChance", level,
+                                      multiplier_pct=mult) or 0)
+        # `target@0x178` : l'ability cible une UNITE ; si le message porte un id de TUILE (cast
+        # tile-target), on presente la tuile au domaine tile-selecteur (meme normalisation que Malleus).
+        if state.get_entity(target_id) is not None:
+            target_sel = Target()
+        elif state.board is not None and target_id in state.board.by_id:
+            target_sel = FixedTileIds([int(target_id)])
+        else:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        daemonic_ordnance_tree(target_sel, crit_dmg, crit_chance).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        burned = [p.get("target") for n, p in ectx.emitted
+                  if n == "AddEffect" and p.get("effect_type") == DO_FIRE and p.get("placed")]
+        stat_mods = [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
+        return {"ability": DAEMONIC_ORDNANCE_ID, "caster": caster_id, "target": target_id,
+                "attacks": attacks, "burned_tiles": burned, "stat_mods": stat_mods,
+                "extra_crit_dmg": crit_dmg, "extra_crit_chance": crit_chance, "dsl": True}

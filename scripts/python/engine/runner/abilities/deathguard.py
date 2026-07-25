@@ -28,14 +28,20 @@ import hexgeo
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, AtomicGroup
-from ...entities.selectors import (ActiveTarget, Caster, CasterTile, AdjacentUnits, FixedTileIds,
-                                   Friends, Union, UnitsWithoutTrait, UnitsWithTrait, Target)
+from ...entities.selectors import (ActiveTarget, Caster, CasterTile, AdjacentTiles, AdjacentUnits,
+                                   Enemies, Filter, FixedTileIds, Friends, Subject, Union, Unique,
+                                   Units, UnitsWithoutTrait, UnitsWithTrait, Target)
+from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, IsInTeamAura,
+                                  TriggerAnd, TriggerOr)
+from ...entities.formulas import StatAmount
+from ...entities.effect_type import EffectType
+from ...entities.stats import StatType, StatPart
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .behaviours import (entities_from_state, Heal, healable_heal_type_0,
+from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
                         AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
 
 if TYPE_CHECKING:
@@ -397,3 +403,199 @@ class SpawnPoxwalkersAbility(ActiveAbility):
         attacks = [p for nm, p in ectx.emitted if nm == "PerformAIAttack"]
         return {"spawned": spawned, "attacks": attacks, "radius": radius, "tiles": picked,
                 "count": n, "dsl": True}
+
+
+# ============== PlagueburstMortar (deathCrawler, MACHINE OF WAR, actif 1169) ==============
+#                                 case #90 lot B — « attaque filtree par un ETAT »
+#
+# `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE ; namespace `Active` SANS `.Loki`, comme EntropyCannons -- meme porteur) :
+#
+#   adjTiles = AdjacentTiles(target@0x178)                                       # capture AVANT tout
+#   pred     = PlagueburstMortarAbility.GetIsValidAdjacentEnemyTrigger           # cf. ci-dessous
+#   main     = Filter( Enemies(caster@0x160, target@0x178, 3), pred )
+#              (== `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetMainDamageTarget`)
+#   adj      = Filter( Enemies(caster@0x160, Units(AdjacentTiles(target@0x178), 1), 3), pred )
+#              (== `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetAdjacentDamageTargets`)
+#   targets  = Unique( main op_Addition adj )
+#   attack   = AttackWithAbilityDamage( caster@0x160, targets, MinMaxDamage(this, entities),
+#                                       Nullable(GetDamageProfile())=Toxic, GetHits()=ConfigConst(0x2f)=3,
+#                                       AbilityOrEffect(this+0x10 = 0x491 = 1169) )
+#   pin      = AddEffect( 0x429 = 1065 Pinned, AbilityStateReference, source=caster@0x160,
+#                         targets = <les MEMES `targets`>, options ZERO )
+#   n        = Difference( ConfigVar(0x66 = nrOfTiles, entities, config@0x60), factory+0xc0 = Get(1) )
+#   tiles    = target@0x178  op_Addition  PickRandomly(adjTiles, n, 0, 0x7fffffff, false)
+#   contam   = AddEffect( 0x4dc = 1244 Contaminated, AbilityStateReference,
+#                         source = **target@0x178** (PAS le caster), targets = tiles, options ZERO )
+#   AActiveAbility.Execute( (attack & pin) & contam, entities )     # Execute PLAIN (pas ExecuteAtomic)
+#
+# `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetIsValidAdjacentEnemyTrigger`
+# (MIRROR) — evalue sur le SUJET (`@0x180`, l'element courant lie par le `Filter`) :
+#
+#   IsInTeamContagionsOfNurgleAura(subject@0x180, caster@0x160)                       # aura Contagion ALLIEE
+#   op_BitwiseOr
+#   ( HasNegativeModifier(subject@0x180, 0x10=FixedArmor)
+#     op_BitwiseAnd  AmountIsGreaterThanZero(StatAmount(subject@0x180, 0x10, part 3=Initial)) )
+#
+# = MEME predicat de legalite que `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`
+# (l'autre active du deathCrawler), ici applique COMME FILTRE DE CIBLES au sein du behaviour (donc face
+# COMBAT, portee) et non comme gate de ciblage.
+#
+# NOTE `Difference` : la factory native est `IdunBattleLogic.Entities.DSLFactory$$Difference(a, b)` = `a - b` ;
+# `factory+0xc0` est le noeud constante `Get(1)` (`IdunBattleLogic.Entities.DSLFactory$$.ctor` : +0xb8=Get(0),
+# +0xc0=Get(1), +0xc8=Get(2), +0xd0=Get(100), +0xd8=Get(-1)) -> `nrOfTiles - 1` tuiles TIREES, la tuile de la
+# cible etant deja dans l'union -> `nrOfTiles` entites contaminees au total.
+
+PLAGUEBURST_MORTAR_ID = "PlagueburstMortar"
+CONTAGIONS_OF_NURGLE_ARMOR_REDUCTION1 = int(EffectType.ContagionsOfNurgle_ArmorReduction1)   # 0x42f
+PINNED = int(EffectType.Pinned)                                                             # 0x429
+CONTAMINATED = int(EffectType.Contaminated)                                                 # 0x4dc
+
+
+def plagueburst_is_valid_adjacent_enemy_trigger() -> TriggerOr:
+    """`IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetIsValidAdjacentEnemyTrigger`
+    (MIRROR 1:1 du decompile, cf. le bloc ci-dessus). Le sujet est `Subject()` (= `@0x180`, l'element lie
+    par le `Filter`), la reference d'equipe de l'aura est `Caster()` (= `@0x160`).
+
+    RESIDU : la branche AURA (`IsInTeamAura`) est INERTE offline (canal d'aura non materialise, cf.
+    `entities/triggers.py::IsInTeamAura`) -> seule la branche ARMURE discrimine. Le natif, lui, accepte
+    aussi une cible sous aura Contagion alliee."""
+    aura = IsInTeamAura(Subject(), CONTAGIONS_OF_NURGLE_ARMOR_REDUCTION1, Caster())
+    armor = TriggerAnd(
+        HasNegativeModifier(Subject(), (int(StatType.FIXED_ARMOR),)),
+        AmountIsGreaterThanZero(StatAmount(Subject(), int(StatType.FIXED_ARMOR),
+                                           int(StatPart.INITIAL))))
+    return TriggerOr(aura, armor)
+
+
+def plagueburst_damage_targets(target_sel) -> Unique:
+    """`Unique(GetMainDamageTarget + GetAdjacentDamageTargets)` (MIRROR) : l'occupant de la tuile ciblee
+    ET les ennemis des tuiles adjacentes, TOUS filtres par le predicat de validite. Le `Unique` natif
+    dedup l'intersection.
+
+    REDUCTION NOTEE : le cast est TILE-TARGET (mesure live `abilityTargets` : `kind="tile"`), donc le
+    natif passe une entite-TUILE a `Enemies(caster, target@0x178, 3)` ; son `UnitsByTeamSelector.CountOrAdd`
+    resout l'entite par `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine` (la tuile -> son occupant)
+    pour le TEST d'equipe, mais ajoute l'entite BRUTE au resultat. Le port materialise la resolution
+    (`Units(target_sel)`) et travaille donc en domaine UNITE de bout en bout : identique pour le volet
+    DEGAT, et pour le volet `Pinned` cela pose l'effet sur l'UNITE plutot que sur la TUILE.
+    RESIDU EXPLICITE (non discriminable sur un runner frais, ou le predicat vide l'ensemble) : si le
+    natif posait `Pinned` sur l'entite-tuile, l'empreinte differerait sur ce point precis."""
+    pred = plagueburst_is_valid_adjacent_enemy_trigger()
+    main = Filter(Enemies(Units(target_sel)), pred)
+    adj = Filter(Enemies(Units(AdjacentTiles(target_sel))), pred)
+    return Unique(Union(main, adj))
+
+
+def plagueburst_nr_of_tiles(state: "State", caster_id: int) -> int:
+    """`ConfigVar(0x66 = nrOfTiles)` de 1169, au niveau d'ability ACTIVE du caster et scale par son
+    `AbilityVariablesMultiplier` (mirror `ConfigAmount.Calculate` -> `GetVariableForLevel`). Pour une MoW
+    le couple {level, mult} vient de son `AbilityState` PER-ABILITY (`_load_machine_stats`)."""
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    cctx = sc.ctx if sc is not None else None
+    level = getattr(cctx, "active_ability_level", None)
+    mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+    return int(ability_var(PLAGUEBURST_MORTAR_ID, "nrOfTiles", level, multiplier_pct=mult) or 0)
+
+
+def plagueburst_target_tile(state: "State", target_id: Optional[int]) -> Optional[int]:
+    """Id de la TUILE ciblee : le cast est TILE-TARGET (mesure live), mais on accepte aussi un id
+    d'UNITE (on prend alors sa MainTile) -- `target@0x178` designe une ENTITE et le natif en lit la
+    MainTile partout ou il l'utilise en domaine tuile."""
+    board = state.board
+    if board is None or target_id is None:
+        return None
+    if int(target_id) in board.by_id:
+        return int(target_id)
+    te = state.get_entity(target_id)
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    return board.id_at(tpc.col, tpc.row) if tpc is not None else None
+
+
+def plagueburst_contaminated_tiles(state: "State", target_id: int, n_tiles: int) -> list:
+    """COLLAPSE imperatif du `PickRandomly(AdjacentTiles(target@0x178), Difference(nrOfTiles, Get(1)),
+    0, 0x7fffffff, false)` natif : le tirage vit ICI (seul endroit qui voit `state.rng`), meme patron que
+    Poxwalkers/Fragstorm/SquigMine. Rend les ids de tuile TIRES (`nrOfTiles - 1` au plus).
+
+    ⚠ GAP RNG #215 (deja documente pour SquigMine) : quand `|pool| > n`, l'ENSEMBLE tire peut differer du
+    live (le pool et le cardinal, eux, sont exacts)."""
+    board = state.board
+    tid = plagueburst_target_tile(state, target_id)
+    if board is None or tid is None:
+        return []
+    pool = list(board.neighbours(tid))
+    from .loki.splash import _pick_randomly_n
+    return _pick_randomly_n(state, pool, max(0, int(n_tiles) - 1))
+
+
+def plagueburst_mortar_tree(target_sel, picked_tiles: list):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour`
+    (MIRROR 1:1) :
+
+        op_BitwiseAnd( op_BitwiseAnd( AttackWithAbilityDamage(<cibles valides>),
+                                      AddEffect(Pinned -> <les MEMES cibles>) ),
+                       AddEffect(Contaminated -> cible + <tuiles tirees>) )
+
+    - l'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille ABILITY :
+      1 tirage/coup, pas de crit) -> `native_factory="ability"` ; profil `Toxic`, `nrOfHits`=3.
+    - `Pinned` : options natives ZERO -> duree = `DefaultAmountOfRounds(0x429)=1` convertie DANS
+      `AddEffectOperation` (`duration_rounds=None` cote port).
+    - `Contaminated` : options ZERO aussi (-> `DefaultAmountOfRounds(0x4dc)=2`), et **source = la CIBLE**
+      (`target@0x178`, 4e argument natif d'AddEffect) et non le caster -> `source_ref=Target()`.
+    - le 1er terme de l'union `Contaminated` est `target@0x178` LUI-MEME = la TUILE ciblee (cast
+      tile-target) : la zone contaminee est donc `{tuile ciblee} + <tuiles tirees>`, toutes en domaine
+      TUILE. `source_ref = target@0x178` = la MEME entite (4e argument natif d'AddEffect)."""
+    targets = plagueburst_damage_targets(target_sel)
+    attack = AttackWithAttackDamage(targets, PLAGUEBURST_MORTAR_ID, "Toxic", is_melee=False,
+                                    multi=True, native_factory="ability",
+                                    ability_type=int(ActiveAbilityType.PlagueburstMortar))
+    pin = AddEffect(PINNED, EffectType.Pinned.name, targets, duration_rounds=None)
+    contam = AddEffect(CONTAMINATED, EffectType.Contaminated.name,
+                       Union(target_sel, FixedTileIds(picked_tiles)),
+                       duration_rounds=None, source_ref=target_sel)
+    return op_and(op_and(attack, pin), contam)
+
+
+class PlagueburstMortarAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` (id 1169,
+    `deathCrawler` « Plagueburst Crawler », MACHINE OF WAR Death Guard) — cf. le bloc de commentaire.
+
+    Kit gameconfig 1169 : `damageProfile=Toxic`, `nrOfHits=3`, `minDmg`/`maxDmg`[level] (rarity-affected),
+    `nrOfTiles`[level] (3..7), `initialCooldownTurns=1`. PAS d'`attackRangeType` -> `is_melee=None`
+    (gates defenseur melee/ranged INERTES, meme convention qu'EntropyCannons : ne rien inventer).
+
+    OBSERVABLE : (1) 3 coups Toxic + `Pinned` sur les ennemis VALIDES (cible + adjacents de la cible qui
+    passent le predicat armure/aura -- ensemble souvent VIDE sur un runner frais, exactement comme le
+    « 0 cible au spawn » d'EntropyCannons) ; (2) `Contaminated` sur la CIBLE + `nrOfTiles-1` tuiles tirees
+    parmi les adjacentes de la cible -- ce volet, lui, est INCONDITIONNEL.
+
+    Turn-flags = defauts base (1169 absent des overrides)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.PlagueburstMortar)   # 1169
+    ABILITY_ID = PLAGUEBURST_MORTAR_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        tile_id = plagueburst_target_tile(state, target_id)
+        if tile_id is None:
+            return None
+        n_tiles = plagueburst_nr_of_tiles(state, caster_id)
+        picked = plagueburst_contaminated_tiles(state, target_id, n_tiles)
+        # `target@0x178` = l'ENTITE ciblee. Cast TILE-TARGET -> on la presente en domaine TUILE
+        # (`FixedTileIds`), ce que consomment `AdjacentTiles`/`Units`/`AddEffect` indifferemment.
+        target_sel = FixedTileIds([tile_id])
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        plagueburst_mortar_tree(target_sel, picked).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        pinned = [p.get("target") for n, p in ectx.emitted
+                  if n == "AddEffect" and p.get("effect_type") == PINNED and p.get("placed")]
+        contaminated = [p.get("target") for n, p in ectx.emitted
+                        if n == "AddEffect" and p.get("effect_type") == CONTAMINATED and p.get("placed")]
+        return {"ability": PLAGUEBURST_MORTAR_ID, "caster": caster_id, "target": target_id,
+                "tile": tile_id, "attacks": attacks, "pinned": pinned, "contaminated": contaminated,
+                "nr_of_tiles": n_tiles, "picked_tiles": picked, "dsl": True}

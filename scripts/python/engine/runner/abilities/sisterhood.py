@@ -15,12 +15,16 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, op_add, op_and, If
-from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, FixedTileIds, Sub,
+from ...entities.behaviours import AtomicGroup, Foreach, op_add, op_and, If
+from ...entities.formulas import Count
+from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, Enemies,
+                                   FilterContinuous, FixedTileIds, PickFirstN, SortByFormula,
+                                   Subject, Sub, SurroundingTiles, Tiles, TilesBehindInLine, Units,
                                    TileFromVector, TileUnique, Unobscured, FixedTiles, Union)
-from ...entities.triggers import (Not, IsAlive, IsAdjacent, TriggerAnd,
-                                  IsPositionMachineForCurrentPlayer)
+from ...entities.triggers import (Not, AreEnemies, HasFaction, HasUnit, IsAlive, IsAdjacent,
+                                  TriggerAnd, IsPositionMachineForCurrentPlayer)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
@@ -437,3 +441,161 @@ class DevastatingRefrainAbility(ActiveAbility):
         posed = [{"target": p["target"], "effect": p["effect_type"]}
                  for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
         return {"tile": tile_id, "machineSide": side, "posed": posed, "dsl": True}
+
+
+# =================================================================================================== #
+# ThriceBlessedConflagration (1187, `adeptExorcist` -- Exorcist, MachineOfWar) -- lot #90 groupe D
+# Patron « COMPOSITE LOURD » (seul de son patron avec DaemonicOrdnance) : buff sur la CIBLE (qui est un
+# ALLIE) + degat sur une LIGNE d'ennemis choisie par OPTIMISATION.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
+# (MIRROR) :
+#   rounds = GetVariableForLevel(config@0x60, 0x68 = 104 nrOfRounds, entities)
+#   turns  = TurnsFromRounds(rounds)
+#   buff   = If( HasFaction(target@0x178, 1 = Sisterhood, 3),
+#                AddEffect(0x579 = 1401 ThriceBlessedConflagration_ExtraPctDamage, absRef,
+#                          source = owner@0x148, targets = target@0x178, turns),
+#                AddEffect(0x59c = 1436 ThriceBlessedConflagration_RangedExtraPctDamage, absRef,
+#                          source = owner@0x148, targets = target@0x178, turns) )
+#   ring   = SurroundingTiles(target@0x178, includeCenter = 0, radius = 1, false, false)
+#   best   = First( SortByFormula(ring, Count(GetTilesInLine(Subject@0x180)), flag 0 = DESCENDANT), 1 )
+#   line   = GetTilesInLine(best)
+#   tgts   = Enemies( owner@0x148, target@0x178 op_Addition line, 3 )
+#   attack = Foreach( tgts, <lambda b__0> )
+#   AActiveAbility.Execute( attack op_BitwiseAnd buff, entities )
+#
+# `<lambda b__0>` (`ThriceBlessedConflagrationAbility.u003Cu003Ec__DisplayClass1_0$$
+#  u003CExecuteBehaviouru003Eb__0`) = pour CHAQUE cible :
+#   Group( AttackWithAbilityDamage( caster@0x160, <cible>, MinMaxDamage(this, entities),
+#                                   Nullable(GetDamageProfile(config)) = Flame,
+#                                   GetHits() = ConfigConst(0x2f) = nrOfHits = 1,
+#                                   AbilityOrEffect(0x4a3 = 1187) ),
+#          <cible>, 0x20 )
+# (corps IDENTIQUE aux methodes nommees `ThriceBlessedConflagrationAbility$$AttackUnit` /
+#  `$$DamageUnit` -- la seule difference d'`AttackUnit` est le `Group` de presentation, `DamageUnit`
+#  ne l'a pas. `DSLFactory.Group` = regroupement VISUEL/atomique, aucune mutation d'etat -> non porte.)
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine(from)`
+# (MIRROR) :
+#   settings = new TilesBehindInLineSettings { +0x10 = false }
+#   pred     = HasUnit(Subject@0x180, 3)  op_BitwiseAnd  AreEnemies(owner@0x148, Units(Subject@0x180))
+#   start    = First( SortByDistance(Tiles(target@0x178), from), 1 )      # singleton -> la tuile de la cible
+#   return     FilterContinuous( TilesBehindInLine(start, from, settings, 0), pred )
+# = la ligne droite qui part de la tuile `from` (une voisine de la cible) et S'ELOIGNE de la cible, en
+# gardant le PREFIXE CONTIGU de tuiles occupees par un ENNEMI (le `FilterContinuous` casse au 1er trou).
+# `SortByFormula(..., 0 = DESCENDANT)` retient donc la direction qui aligne le PLUS d'ennemis.
+# =================================================================================================== #
+
+THRICE_BLESSED_ID = "ThriceBlessedConflagration"
+TBC_EXTRA_PCT_DAMAGE = int(EffectType.ThriceBlessedConflagration_ExtraPctDamage)          # 0x579=1401
+TBC_RANGED_EXTRA_PCT_DAMAGE = int(EffectType.ThriceBlessedConflagration_RangedExtraPctDamage)  # 0x59c=1436
+TBC_FACTION_SISTERHOOD = 1        # `IdunBattle.Entities.Enum.UnitFaction.Sisterhood`
+
+
+def thrice_blessed_get_tiles_in_line(from_sel):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`
+    (MIRROR 1:1, cf. le bloc ci-dessus).
+
+    `start` : le natif ecrit `First(SortByDistance(Tiles(target@0x178), from), 1)` sur un SINGLETON (la
+    MainTile de la cible) -> le tri et le `First` sont l'IDENTITE ; on passe donc `Tiles(Target())`
+    directement (meme resultat, un noeud de moins -- reduction NOTEE, pas une divergence).
+
+    `AreEnemies(owner@0x148, Units(subject))` : `Caster()` tient lieu d'`Owner@0x148` (Owner == Caster
+    pour un cast d'active, convention deja en place dans tout le port)."""
+    pred = TriggerAnd(HasUnit(Subject()), AreEnemies(Caster(), Units(Subject())))
+    return FilterContinuous(TilesBehindInLine(Tiles(Target()), from_sel), pred)
+
+
+def thrice_blessed_get_tiles_in_best_line():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInBestLine`
+    (MIRROR ; le corps est INLINE dans `ExecuteBehaviour`) :
+
+        ring = SurroundingTiles(target@0x178, 0, 1, ...)                       # anneau r=1, centre EXCLU
+        best = First( SortByFormula(ring, Count(GetTilesInLine(Subject@0x180)), 0 = DESC), 1 )
+        return target@0x178  op_Addition  GetTilesInLine(best)
+
+    Le `Subject()` de la formule est la tuile d'anneau COURANTE (binding `SortByFormula`) ; le
+    `FilterContinuous` interne re-lie le sujet PAR TUILE DE LIGNE, mais APRES resolution de
+    `TilesBehindInLine` (qui lit le sujet d'anneau) -- meme ordre d'evaluation que le natif, donc
+    aucune collision de binding."""
+    ring = SurroundingTiles(Target(), Const(1))
+    key = Count(thrice_blessed_get_tiles_in_line(Subject()))
+    best = PickFirstN(SortByFormula(ring, key, ascending=False), 1)
+    return Union(Target(), Units(thrice_blessed_get_tiles_in_line(best)))
+
+
+def thrice_blessed_conflagration_tree(duration_turns: int, is_sisterhood_target: bool):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
+    (MIRROR 1:1) :
+
+        op_BitwiseAnd( Foreach(<ennemis de la meilleure ligne>, AttackWithAbilityDamage(...)),
+                       If(HasFaction(cible, Sisterhood), AddEffect(1401), AddEffect(1436)) )
+
+    - l'ATTAQUE d'abord, le BUFF ensuite (ordre natif du `op_BitwiseAnd`) ; le buff s'applique a la CIBLE
+      (un allie), le degat aux ENNEMIS alignes.
+    - `Enemies(owner, target + line)` : le natif passe un ensemble MIXTE (l'unite-cible + des ids de TUILE)
+      a `UnitsByTeamSelector`, dont le `CountOrAdd` resout chaque entite par
+      `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine` avant le test d'equipe -- une tuile compte
+      donc par son OCCUPANT. Le port materialise cette resolution avec `Units(...)` sur le volet tuiles
+      (mirror explicite du `GetUnitOrMachine` interne). La cible ALLIEE est ecartee par `Enemies`, comme
+      dans le natif.
+    - la feuille d'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille
+      ABILITY : 1 tirage/coup, pas de crit) -> `native_factory="ability"`.
+    - `duration_turns` = `TurnsFromRounds(nrOfRounds[level])` DEJA converti par la classe d'ability
+      (`convert_rounds_to_turns`), passe tel quel a `AddEffect` (le natif met la valeur convertie dans
+      les options -> `AddEffectOperation` ne la reconvertit pas).
+    - `is_sisterhood_target` = le verdict `HasFaction(target@0x178, 1)` calcule par la classe d'ability :
+      un `If` du domaine SELECTEUR/EFFET dont le predicat ne depend d'aucun element courant -> meme
+      resolution que `devastating_refrain_tree` (branche unique instanciee, evaluation identique)."""
+    eff = TBC_EXTRA_PCT_DAMAGE if is_sisterhood_target else TBC_RANGED_EXTRA_PCT_DAMAGE
+    name = (EffectType.ThriceBlessedConflagration_ExtraPctDamage.name if is_sisterhood_target
+            else EffectType.ThriceBlessedConflagration_RangedExtraPctDamage.name)
+    buff = AddEffect(eff, name, Target(), duration_rounds=None, duration_turns=duration_turns)
+    attack = Foreach(Enemies(thrice_blessed_get_tiles_in_best_line()),
+                     AttackWithAttackDamage(Subject(), THRICE_BLESSED_ID, "Flame", is_melee=False,
+                                            native_factory="ability",
+                                            ability_type=int(ActiveAbilityType.ThriceBlessedConflagration)))
+    return op_and(attack, buff)
+
+
+class ThriceBlessedConflagrationAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$ExecuteBehaviour`
+    (id 1187, `adeptExorcist` -- Exorcist, Adepta Sororitas, MACHINE OF WAR) — cf. le bloc de commentaire.
+
+    Kit gameconfig 1187 : `damageProfile=Flame`, `nrOfHits=1`, `minDmg`/`maxDmg`[level] (rarity-affected),
+    `extraDmgPct`[level] (magnitude de l'effet pose, consommee par l'EFFET pas par ce behaviour),
+    `nrOfRounds`[level] (duree du buff), `attackRangeType=Ranged`, `munitionsCost=1`.
+
+    OBSERVABLE : (1) la CIBLE (un allie) recoit `ThriceBlessedConflagration_ExtraPctDamage` (1401) si elle
+    est de faction Sisterhood, sinon `..._RangedExtraPctDamage` (1436), pour `nrOfRounds` rounds ;
+    (2) chaque ennemi de la ligne contigue partant de la cible dans la direction qui en aligne le plus
+    prend 1 coup Flame (famille ABILITY).
+
+    Turn-flags = defauts base (1187 absent des overrides). Retour : {attacks, buff, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ThriceBlessedConflagration)   # 1187
+    ABILITY_ID = THRICE_BLESSED_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from .base import convert_rounds_to_turns
+        if target_id is None or state.get_entity(target_id) is None:
+            return None
+        sc = state.get_entity(caster_id).get_component(StatsComponent) \
+            if state.get_entity(caster_id) is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        rounds = int(ability_var(self.ABILITY_ID, "nrOfRounds", level, multiplier_pct=mult) or 0)
+        turns = convert_rounds_to_turns(state, rounds)     # noeud natif `TurnsFromRounds(nrOfRounds)`
+        entities = entities_from_state(state, caster_id, target_id)
+        is_sis = HasFaction(Target(), TBC_FACTION_SISTERHOOD).should_trigger(entities)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        thrice_blessed_conflagration_tree(turns, is_sis).execute(entities, ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        buffs = [{"target": p.get("target"), "effect": p.get("effect_type")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": THRICE_BLESSED_ID, "caster": caster_id, "target": target_id,
+                "attacks": attacks, "buff": buffs, "sisterhood_target": is_sis,
+                "rounds": rounds, "duration_turns": turns, "dsl": True}

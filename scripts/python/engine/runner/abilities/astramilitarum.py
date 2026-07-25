@@ -24,8 +24,8 @@ from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Caster, CasterTile,
                                    FixedTileIds, SurroundingFriends, Target, UnitsWithIds)
-from .behaviours import (AddBondEffect, AddEffect, Spawn, PerformAIAction, UseActiveAbility,
-                         entities_from_state)
+from .behaviours import (AddBondEffect, AddEffect, Spawn, PerformAIAction, PerformAIAttack,
+                         UseActiveAbility, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -365,3 +365,124 @@ class MalleusRocketLauncherAbility(ActiveAbility):
         posed = [{"target": p["target"], "effect": p["effect_type"]}
                  for nm, p in ectx.emitted if nm in ("AddEffect", "AddBondEffect")]
         return {"tile": tile_id, "posed": posed, "dsl": True}
+
+
+# =================================================================================================== #
+# ForwardSpotter (1143, `astraOrdnanceBattery` -- Ordnance Battery, MachineOfWar) -- lot #90 groupe C
+# Patron « SPAWN template » (seul de son patron dans le lot) : c'est EXACTEMENT le template deja porte
+# `Spawn + WithStatsFromConfig + on-appearance PerformAIAttack` (AberrantHypermorph / AlphaWarrior /
+# DeathFromAbove), la seule specificite etant la chaine de SELECTION DE TUILE.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$ExecuteBehaviour` (MIRROR) :
+#   opts        = SpawnUnitOptions.WithStatsFromConfig(config@0x60, entities)
+#   opts+0x18   = PerformAIAttack(ActiveTarget@0x180, 1, ...)            # sous-behaviour on-appearance
+#   nrOfSummons = GetNumberConstant(config, 0x10)                        # = 1
+#   unitId      = GetStringConstant(config, 0)                           # = astraSmnGuardsman
+#   base        = CanAddUnit(AdjacentTiles(target@0x178))
+#   sel         = TilesUnitCanAttackFrom(base, caster@0x160, unitId, 1).Otherwise(base)
+#   sel         = SortTilesByUtilityForSummon(sel, 7, owner@0x148)
+#   tiles       = First(sel, Direct(nrOfSummons))                        # = PickFirstN
+#   AActiveAbility.Execute( Spawn(caster@0x160, tiles, unitId, opts), entities )
+#
+# (`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles` = la MEME chaine,
+#  exposee pour la face DECISION.)
+#
+# COLLAPSE ASSUME (doctrine slice-18/19, meme classe que `SendInTheNextWaveAbility$$GetSpawnTilesSelector`) :
+#  * `TilesUnitCanAttackFrom(...).Otherwise(base)` est un NO-OP POUR CE CALL-SITE, et ce par les DEUX
+#    lectures possibles de son referent (`ClosestPositionToTarget..ctor` : +0x28 = `caster@0x160`) :
+#      - referent = le CASTER : c'est une MACHINE OF WAR HORS PLATEAU (aucune position) -> la portee
+#        d'attaque ne se calcule pas -> selecteur VIDE -> `.Otherwise(base)` rend `base` ;
+#      - referent = la cible du barrage : `base` ne contient que des tuiles ADJACENTES a la cible
+#        (distance 1) et la portee max du summon `astraSmnGuardsman` est 2 (arme Las, gameconfig) ->
+#        TOUTES passent -> selecteur == `base`.
+#    Les deux lectures CONVERGENT sur le meme ensemble -> l'ambiguite ne change AUCUN observable.
+#  * `SortTilesByUtilityForSummon(sel, 7, owner)` = `SortTilesByUtility(sel, <units>, UtilityDefinition(7),
+#    owner)` -> `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = un tri par
+#    `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` (moteur d'utilite IA COMPLET, cle =
+#    `-utilite`). NON PORTE : meme collapse que SkyStrike/HeroicFusillade. Le referent `owner@0x148` etant
+#    ici une MoW SANS POSITION, le collapse « la plus proche du caster » des autres call-sites n'a meme pas
+#    de sens -> on conserve l'ORDRE DU SELECTEUR (voisinage natif `board.neighbours`, deterministe).
+#    RESIDU EXPLICITE : quand `|base| > nrOfSummons`, la TUILE choisie peut differer du live ; le POOL et le
+#    CARDINAL, eux, sont exacts (meme classe de residu que le GAP RNG #215 de PickRandomly).
+# =================================================================================================== #
+
+FORWARD_SPOTTER_ID = "ForwardSpotter"
+FS_CONST_NR_OF_SUMMONS = 0x10        # GetNumberConstant(0x10) -> "nrOfSummons" = 1
+FS_CONST_UNIT_ID = 0x00              # GetStringConstant(0)    -> "unitId"      = astraSmnGuardsman
+
+
+def forward_spotter_num_summons() -> int:
+    """`GetNumberConstant(config, 0x10)` = `nrOfSummons` (CONSTANTE, hors niveau) de 1143."""
+    consts = (GC.ability(FORWARD_SPOTTER_ID) or {}).get("constants") or {}
+    return int(consts.get("nrOfSummons") or 0)
+
+
+def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int) -> list:
+    """COLLAPSE de `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles`
+    (cf. le bloc ci-dessus) : `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target))
+    .Otherwise-filtre, 7, owner), nrOfSummons)`.
+
+    Rendu = les `n` premieres tuiles LIBRES (walkable + inoccupees par un vivant) ADJACENTES a la tuile
+    ciblee, dans l'ordre du voisinage natif. `target_id` = une UNITE (l'ability cible une unite ennemie,
+    cf. `ForwardSpotterAbility$$GetDynamicInvalidTargetReason` : `IsUnit(target) && target != caster`)."""
+    board = state.board
+    te = state.get_entity(target_id) if target_id is not None else None
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    if board is None or tpc is None:
+        return []
+    tid = board.id_at(tpc.col, tpc.row)
+    if tid is None:
+        return []
+    occ = set()
+    for e in state.entities.values():                     # CanAddUnit : LIBRE = aucun occupant VIVANT
+        uc = e.get_component(UnitComponent)
+        pc = e.get_component(PositionComponent)
+        if pc is None or (uc is not None and not uc.alive):
+            continue
+        t = board.id_at(pc.col, pc.row)
+        if t is not None:
+            occ.add(t)
+    free = [t for t in board.neighbours(tid) if t not in occ and board.walkable(t)]
+    return free[:max(0, int(n))]
+
+
+def forward_spotter_tree(tiles: list) -> Spawn:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$ExecuteBehaviour` :
+    UN noeud `Spawn` (owner = caster@0x160, `WithStatsFromConfig`) dont les options portent le
+    sous-behaviour ON-APPEARANCE `PerformAIAttack(ActiveTarget@0x180)` -- le Cadian fraichement pose
+    execute immediatement une attaque IA. Les tuiles sont le collapse de `PickTiles` (cf. ci-dessus).
+
+    ⚠ Le on-appearance est un `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (routine IA depuis la
+    position du summon), PAS un `UseNormalAttackIfAble(target)` dirige (contraste SendInTheNextWave) :
+    le natif ne lui passe QUE l'acteur (`@0x180`), aucune cible."""
+    return Spawn(FixedTileIds(tiles), FORWARD_SPOTTER_ID,
+                 on_appearance=PerformAIAttack(ActiveTarget()))
+
+
+class ForwardSpotterAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$ExecuteBehaviour` (id 1143,
+    `astraOrdnanceBattery` -- Ordnance Battery, Astra Militarum, MACHINE OF WAR). Cast UNIT-TARGET.
+
+    Kit gameconfig 1143 : `nrOfSummons=1`, `unitId=astraSmnGuardsman`, `summonHp`/`summonDmg`/`summonArmor`
+    [level] (rarity-affected), `initialCooldownTurns=2`. AUCUN volet degat propre : l'ability EST le spawn.
+
+    OBSERVABLE : 1 `astraSmnGuardsman` apparait sur une tuile libre adjacente a la cible et attaque
+    immediatement. Turn-flags = defauts base (1143 absent des overrides).
+
+    Retour : {spawned, attacks, tiles, count, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ForwardSpotter)   # 1143
+    ABILITY_ID = FORWARD_SPOTTER_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        n = forward_spotter_num_summons()
+        tiles = forward_spotter_pick_tiles(state, target_id, n)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        forward_spotter_tree(tiles).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
+        attacks = [p for nm, p in ectx.emitted if nm == "PerformAIAttack"]
+        return {"spawned": spawned, "attacks": attacks, "tiles": tiles, "count": n, "dsl": True}

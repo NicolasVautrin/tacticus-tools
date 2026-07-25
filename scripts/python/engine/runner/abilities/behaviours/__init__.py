@@ -46,7 +46,8 @@ from .ai_control import PerformAIAction
 from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
                      UseActiveAbility, InformWeapon)
 from .effects import (AddBondEffect, AddEffect, IncreaseEffectLevel, add_effect_or_increase_level,
-                      RemoveEffect, SetOnFire, CreateShield,
+                      RemoveEffect, SetOnFire, CreateShield, ChangeEffectTurns,
+                      AddStaticStatModifierEffect, add_or_update_static_stat_modifier_effect,
                       _add_effect_targets, _add_effect_target_id)
 from .stats import (Heal, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
                     healable_heal_type_0, RefreshDynamicStatModifierValue)
@@ -59,7 +60,8 @@ __all__ = [
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
     "InformWeapon",
     "AddBondEffect", "AddEffect", "IncreaseEffectLevel", "add_effect_or_increase_level",
-    "RemoveEffect", "SetOnFire", "CreateShield",
+    "RemoveEffect", "SetOnFire", "CreateShield", "ChangeEffectTurns",
+    "AddStaticStatModifierEffect", "add_or_update_static_stat_modifier_effect",
     "Heal", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical", "healable_heal_type_0",
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit",
