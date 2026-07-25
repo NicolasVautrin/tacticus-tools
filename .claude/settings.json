@@ -5,11 +5,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\nicolasv\\tacticus-tools\\scripts\\hooks\\snapshot.ps1\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
             "command": "powershell.exe -NoProfile -Command \"(New-Object Media.SoundPlayer 'C:\\Users\\nicolasv\\.claude\\sounds\\ill-be-back.wav').PlaySync()\"",
             "timeout": 15,
             "async": true

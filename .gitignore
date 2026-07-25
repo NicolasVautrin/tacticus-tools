@@ -55,5 +55,3 @@ frida/hooks/scratch/
 scratch/
 # Claude harness state
 .claude/scheduled_tasks.lock
-# Instantane ecrit par le hook PostCompact (etat machine, pas du code)
-.claude/last-compact-state.md
