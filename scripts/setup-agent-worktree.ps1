@@ -33,8 +33,29 @@ if (Test-Path $Link) {
         Write-Output "OK (deja en place): $Link -> $($item.Target)"
         exit 0
     }
-    Write-Error "data/ existe deja dans le worktree et n'est PAS une junction ($($item.LinkType)) - ne pas ecraser"
-    exit 1
+    if ($item.LinkType) {
+        Write-Error "data/ du worktree est un reparse point inattendu ($($item.LinkType)) - ne pas ecraser"
+        exit 1
+    }
+    # Repertoire REEL. C'est le cas NORMAL d'un worktree frais depuis que data/symbols/ est
+    # VERSIONNE (seule exception de data/) : git materialise data\symbols\ au checkout, AVANT
+    # qu'on ait pu poser la junction. On ne peut donc plus refuser en bloc - mais on ne supprime
+    # que si le contenu se reduit EXACTEMENT a du suivi-par-git deja present dans l'arbre
+    # principal. Tout le reste (seeds BC, boards, state-files, ai-traces...) est gitignore, donc
+    # SEUL du travail non reproductible : sa presence ici signale autre chose qu'un checkout
+    # frais -> on s'arrete.
+    $unexpected = @(Get-ChildItem -Force $Link | Where-Object { $_.Name -ne 'symbols' })
+    if ($unexpected.Count -gt 0) {
+        Write-Error ("data/ du worktree contient autre chose que symbols/ : " +
+            ($unexpected.Name -join ', ') + " - contenu non versionne, refus de supprimer")
+        exit 1
+    }
+    if (-not (Test-Path (Join-Path $Target "symbols"))) {
+        Write-Error "data\symbols absent de l'arbre principal ($Target) - refus (la junction priverait le worktree de sa table de symboles)"
+        exit 1
+    }
+    Remove-Item -Recurse -Force $Link
+    Write-Output "data\symbols (checkout git) supprime du worktree -> remplace par la junction vers l'arbre principal"
 }
 New-Item -ItemType Junction -Path $Link -Target $Target | Out-Null
 Write-Output "OK: junction creee $Link -> $Target"
