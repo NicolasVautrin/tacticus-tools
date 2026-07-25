@@ -7,9 +7,9 @@ noeud IsNormalAttack (RE decompile : callees IdunBattle.Entities.Effects.Loki.Av
 GetAbilityState, ConfigVar} ; PAS d'IsNormalAttack). Additif PRE-percage par coup (attacker_additive_pre),
 gate IsCharging = l'unite s'est-elle rapprochee de la cible (has_moved), astraBullgryn etant MELEE-only.
 
-VALIDATION (adversariale, combat replay-diff bit-exact). load_state NE seed PAS moved_this_turn depuis le
-live (peuple uniquement par MoveUnitOperation offline) -> on RECONSTRUIT fidelement l'etat "a charge" en
-ajoutant l'attaquant a state.moved_this_turn SSI l'attaque live etait une charge (fait CONNU car on pilote
+VALIDATION (adversariale, combat replay-diff bit-exact). load_state NE seed PAS le `UnitFlag.Moved` depuis
+le live (aucun RPC ne l'expose ; il n'est pose que par MoveUnitOperation offline) -> on RECONSTRUIT
+fidelement l'etat "a charge" via `set_moved_flag(state, att)` SSI l'attaque live etait une charge (fait CONNU car on pilote
 le deplacement). Pour CHAQUE attaque normale live on calcule DEUX contrefactuels offline depuis le MEME
 etat + le MEME RNG (dumpRng) : off_charge (moved={att}) et off_nocharge (moved vide), et on confronte au
 live per-hit :
@@ -82,11 +82,12 @@ def _live_per_hit(res, tid, ability_id):
 
 
 def _off_per_hit(dv, ob, snap, att, tid, charged: bool, rng_state):
-    """Rejoue l'attaque normale OFFLINE depuis un etat frais + RNG seede. `charged` -> reconstruit
-    moved_this_turn={att} (fidele au fait live "a charge"). Renvoie (per_hit, hp_after)."""
+    """Rejoue l'attaque normale OFFLINE depuis un etat frais + RNG seede. `charged` -> pose le flag natif
+    `UnitFlag.Moved` sur l'attaquant (fidele au fait live "a charge"). Renvoie (per_hit, hp_after)."""
+    from engine.runner.components import set_moved_flag
     state = load_state(dv, ob, snap)
     if charged:
-        state.moved_this_turn.add(att)              # IsCharging : l'attaquant s'est deplace ce tour
+        set_moved_flag(state, att)                 # IsCharging : l'attaquant s'est deplace ce tour
     state.rng = _seed_rng(rng_state)
     runner = Runner(state).install_default_handlers(20)
     runner.apply(AttackUnitMessage(att, tid))

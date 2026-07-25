@@ -87,7 +87,7 @@ class State:
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
-                 "turn_counts", "moved_this_turn", "turn_order_player_count")
+                 "turn_counts", "turn_order_player_count")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -97,11 +97,13 @@ class State:
         self.rng: Optional["IntBasedMersenneTwister"] = None
         self.board = None
         self.turn_counts: dict[int, int] = {}
-        # #60 has_moved : ids des unites ayant BOUGE ce tour d'equipe (pose par MoveUnitOperation,
-        # reset au StartTurnOperation). Modelise le gate natif "has not moved this turn" (i2 HeavyWeapon ;
-        # natif = flag du contexte d'execution d'ability @+0x148, verdict RE cluster #60). Lu par
-        # `attacker_modifiers` -> gate no-move (HeavyWeapon_ExtraDmg s'annule si l'unite a bouge).
-        self.moved_this_turn: set[int] = set()
+        # #101 : le fait "a bouge ce tour" N'EST PLUS un set d'etat ici — il vit ou le natif le met, dans
+        # le `UnitFlagsComponent` de l'unite (`UnitFlag.Moved=0`), pose par `set_moved_flag`
+        # (`IdunBattle.Entities.UnitExtensions$$SetMovedFlag`, appele par MoveUnitOperation) et purge par
+        # `RemoveTurnFlags(new_activation=1)` du StartTurnOperation (PAR JOUEUR ENTRANT). Lecteur unique :
+        # `components.unit_has_moved`. (#60 avait introduit un set `moved_this_turn` PARALLELE : jamais
+        # seede sur un etat recharge par `load_state`, jamais lu par les autres consommateurs du flag,
+        # et reset GLOBALEMENT au lieu de per-joueur.)
         # #90/#98 : nb de joueurs du `BC.Player.TurnOrder` de `PlayerType != 2` (Environment exclu) —
         # le FACTEUR de `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (`count * rounds`). Seede par
         # `load_state` depuis `observeBattle.counts.player` (moins l'unique joueur Environment

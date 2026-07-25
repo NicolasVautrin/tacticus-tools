@@ -17,7 +17,7 @@ FixedArmor) a l'entree/au tick (aval deja valide #132).
 CE FICHIER (port-agreement offline, board natif evenq + kit gameconfig ; positions DRIVE'es) :
   1. branche 1 : apres que le Skitarii bouge (`after_move_triggers`) -> SA tuile porte Contaminated (1244) ;
   2. branche 3 : en fin de tour SANS avoir bouge (`end_turn_summon_triggers`) -> SA tuile porte Contaminated ;
-  3. gate branche 3 : s'il a bouge ce tour (`state.moved_this_turn`) -> la fin de tour NE re-contamine PAS ;
+  3. gate branche 3 : s'il a bouge ce tour (flag natif `UnitFlag.Moved`) -> la fin de tour NE re-contamine PAS ;
   4. aval arme : la tuile contaminee expose un `ContaminatedTileEffect` (machinerie #132 desormais alimentee).
 
 ASCII only. NON committe (tests confront live, hors depot)."""
@@ -119,6 +119,18 @@ def _prep(rpc, build_runner):
     return state, board, sid, spot, player
 
 
+def _set_moved(state, uid, moved: bool):
+    """Pose/retire le flag natif `UnitFlag.Moved` (`UnitFlagsComponent`) — LE store du fait « a bouge ce
+    tour » cote natif comme cote port (`components.unit_has_moved`)."""
+    from engine.runner.components import UnitFlagsComponent, set_moved_flag
+    if moved:
+        set_moved_flag(state, uid)
+        return
+    fl = state.get_entity(uid).get_component(UnitFlagsComponent)
+    if fl is not None:
+        fl.remove(UnitFlagsComponent.MOVED)
+
+
 def _skit_tile(state, board, sid):
     from engine.runner.components import PositionComponent
     pc = state.get_entity(sid).get_component(PositionComponent)
@@ -171,7 +183,7 @@ def test_rad_saturation_turn_end_no_move_contaminates(live_session, rpc, build_r
     Contaminated (1244) sur la tuile du Skitarii."""
     from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
     state, board, sid, tile, player = _prep(rpc, build_runner)
-    state.moved_this_turn.discard(sid)                    # n'a PAS bouge ce tour
+    _set_moved(state, sid, False)                         # n'a PAS bouge ce tour (flag natif absent)
     assert not state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile deja contaminee (pre-cond KO)"
 
     out = end_turn_summon_triggers(state, player)
@@ -184,11 +196,11 @@ def test_rad_saturation_turn_end_no_move_contaminates(live_session, rpc, build_r
 
 
 def test_rad_saturation_turn_end_gate_skips_if_moved(live_session, rpc, build_runner):
-    """Gate branche 3 : s'il a BOUGE ce tour (`sid in state.moved_this_turn`), la fin de tour NE re-contamine
-    PAS (la branche 1 l'a deja fait a la destination) -> `NOT(HasFlag moved)` refute."""
+    """Gate branche 3 : s'il a BOUGE ce tour (flag natif `UnitFlag.Moved` pose sur lui), la fin de tour NE
+    re-contamine PAS (la branche 1 l'a deja fait a la destination) -> `NOT(HasFlag moved)` refute."""
     from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
     state, board, sid, tile, player = _prep(rpc, build_runner)
-    state.moved_this_turn.add(sid)                        # a BOUGE ce tour -> branche 3 gatee
+    _set_moved(state, sid, True)                          # a BOUGE ce tour -> branche 3 gatee
     assert not state.effects.has_effect(tile, effect_type=CONTAMINATED_TILE), "tuile deja contaminee (pre-cond KO)"
 
     out = end_turn_summon_triggers(state, player)

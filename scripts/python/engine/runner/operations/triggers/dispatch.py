@@ -696,7 +696,8 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
 
     1. DISPATCH GENERIQUE `On(TurnEnd)` (registre `ABILITY_TRIGGERS`) — ability-triggers TurnEnd. Consommateur :
        `RadSaturationAbility` (branche 3 : le Skitarii Vanguard qui n'a PAS bouge ce tour contamine sa tuile en
-       fin de tour ; gate `owner not in state.moved_this_turn`). `player_id` scope l'`OwnerIsActor`.
+       fin de tour ; gate `not unit_has_moved(state, owner)` = `NOT HasFlag(owner, UnitFlag.Moved)`).
+       `player_id` scope l'`OwnerIsActor`.
     2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger `On(0x17)` &
        `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour) — chaque
        grot (passif `PileIn`) du `player_id`, a PV PLEINS et owner >=2 tours finis, s'auto-dédouble avec proba

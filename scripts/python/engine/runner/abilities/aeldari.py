@@ -107,7 +107,7 @@ from ...entities.selectors import (Target, TargetTile, CasterTile, AdjacentUnits
 from ...entities.triggers import IsDead
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
-from ..components import StatsComponent, UnitFlagsComponent
+from ..components import StatsComponent, unit_has_moved
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage
 
@@ -192,10 +192,9 @@ def _harvester_hits(state: "State", caster_id: int) -> int:
     from ...entities.effects.magnitude import ability_var
     n = int(ability_var("HarvesterOfSouls", "nrOfHits", is_constant=True) or 1)
     extra = int(ability_var("HarvesterOfSouls", "extraHit", is_constant=True) or 0)
-    ce = state.get_entity(caster_id)
-    fc = ce.get_component(UnitFlagsComponent) if ce is not None else None
-    moved = bool(fc.has(UnitFlagsComponent.MOVED)) if fc is not None else False
-    return n if moved else (n + extra)
+    # #101 : LECTEUR PARTAGE du flag natif (meme `HasFlag(unit, Moved)` que le gate no-move
+    # d'HeavyWeapon_ExtraDmg / la branche fin-de-tour de RadSaturation) -> une seule source.
+    return n if unit_has_moved(state, caster_id) else (n + extra)
 
 
 def harvester_of_souls_tree(n_hits: int, range_r: int) -> AtomicGroup:

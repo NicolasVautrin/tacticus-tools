@@ -183,10 +183,9 @@ class StartTurnOperation:
     def execute(state: State, player: int) -> list[dict]:
         state.turn_counts[player] = state.turn_counts.get(player, 0) + 1
         _bump_turns_started(state, player)     # #123 : turnsStarted PER-UNITE (stat 12) += 1 (joueur courant)
-        # #60 has_moved : nouveau tour d'equipe -> reset des flags "a bouge ce tour" (mirror RemoveTurnFlags
-        # natif). Chaque unite qui bouge ce tour re-marquera son id via MoveUnitOperation.
-        state.moved_this_turn.clear()
         # #139 : reset des UnitFlags de tour du joueur ENTRANT — mirror de la boucle de StartTurnOperation.
+        # (#101 : c'est le SEUL reset du fait "a bouge ce tour" — le `state.moved_this_turn.clear()` de #60
+        # etait un reset GLOBAL, non natif : il effacait aussi la marque des unites du joueur SORTANT.)
         # IdunBattle.Operations.StartTurnOperation$$Execute : pour chaque unite de `PlayerComponent.CurrentlyOwnedUnitIds`,
         # `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags(includeNoAction=0, newActivation=1) (retire Moved/Teleported/
         # ArrivedAtFinalTile + ActiveAbilityUsed/TurnFinished/27 ; NoActionAvailable est CONSERVE — il n'est

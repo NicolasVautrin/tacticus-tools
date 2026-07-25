@@ -17,7 +17,7 @@ travers la parite -> marche parity-safe par lookup.
 
 Destination (mirror partie commune de `Execute`) :
 - tuile LIBRE (walkable, non occupee) -> **emet `MoveUnitOperation IdunBattle.Operations.MoveUnitOperation$$Execute`** (le natif reutilise
-  MoveUnit ; DisplaceUnit NE reecrit PAS la position lui-meme) -> pose PositionComponent + moved_this_turn
+  MoveUnit ; DisplaceUnit NE reecrit PAS la position lui-meme) -> pose PositionComponent + UnitFlag.Moved
   + tile-defense + cascade after-move (overwatch) deja cablees.
 - aucune tuile valide (hors-board / mur / occupee) -> **push ANNULE** (`lVar7==0` : return sans move).
 - garde `IsDisplaceable(pushed)` en tete : mort OU trait non-deplacable (Immovable=17, BigTarget=1017)

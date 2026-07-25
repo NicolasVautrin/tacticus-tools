@@ -369,8 +369,13 @@ AllModifiers @18102d3f0`. Donc les feuilles positionnelles sont partagées BY CO
   Modifier @180f4f030` = `ForPercentIncrease(OwnerIsCaster & IsRangedAttack & NOT HasFlag(execCtx.flags@0x148,
   3) …)` — le « n'a pas bougé ce tour » est un **flag d'état de tour** (contexte d'exécution d'ability),
   PAS une comparaison de position (i2 : « when this unit has not moved this turn »). Le port passait
-  has_moved=None → bonus TOUJOURS appliqué (FAUX). **Port** : `state.moved_this_turn` (set), posé par
-  `MoveUnitOperation`, reset au `StartTurnOperation` (mirror RemoveTurnFlags), lu par `attacker_modifiers`.
+  has_moved=None → bonus TOUJOURS appliqué (FAUX). **Port (état FINAL, #101)** : le flag natif
+  `UnitFlag.Moved=0` du `UnitFlagsComponent` — posé par `set_moved_flag` (mirror
+  `IdunBattle.Entities.UnitExtensions$$SetMovedFlag`, appelé par `MoveUnitOperation`), purgé par
+  `remove_turn_flags(new_activation=True)` du `StartTurnOperation` (PAR JOUEUR ENTRANT), lu par le
+  **lecteur unique** `components.unit_has_moved` (`attacker_modifiers`, `HarvesterOfSouls$$GetHits`,
+  `RadSaturation` fin-de-tour). Le set `state.moved_this_turn` de #60 était une 2ᵉ représentation
+  parallèle du même flag → supprimé (cf. `case-101-moved-flag` : +25% fantôme sur tout état rechargé).
   Bypass overwatch (flags 0/0xc) = le bonus SURVIT en tir d'overwatch (déjà couvert : l'overwatch garde le bonus).
 
 - **#62b — CRIT en prédiction normale = PAS de changement (déjà fidèle)**. `DamagePredictionResult` porte

@@ -24,7 +24,7 @@ l'occupant a l'entree `On(4)` / au tick `On(0x12)`, sauf immunise (ContagionsOfN
 
 DISPATCH : branche 1 (`On(4)`) via le registre `ABILITY_TRIGGERS` + vecteur `after_move_triggers` (aucun
 cablage neuf) ; branche 3 (`On(0x17=TurnEnd)`) via la dispatch generique ajoutee a `end_turn_summon_triggers`
-(gate `owner not in state.moved_this_turn`). Branche 2 (`On(0x23=UnitDisplaced) & OwnerIsTarget`) PORTEE via le
+(gate `not unit_has_moved(state, owner)` = flag natif `UnitFlag.Moved`). Branche 2 (`On(0x23=UnitDisplaced) & OwnerIsTarget`) PORTEE via le
 vecteur `displace_triggers` (dispatch.py) que `DisplaceUnitOperation.execute` appelle apres le push (mirror
 `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` : emet On(UnitDisplaced) {actor=pusher,
 target=pushed} ; OwnerIsTarget => fire ssi le Skitarii POUSSE est l'owner -> il contamine sa tuile
@@ -38,7 +38,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import OwnerComponent
+from ....components import OwnerComponent, unit_has_moved
 from ....abilities.behaviours import AddEffect, entities_from_state
 from .....entities.selectors import Tiles, Caster
 from .....entities.effect_type import EffectType
@@ -88,7 +88,7 @@ class RadSaturationAbility(TriggeredAbility):
         if ev.event_id == _TURN_END:
             # branche 3 : `On(0x17) & OwnerIsActor & NOT(HasFlag moved@0x148)` — fin de tour du player courant,
             # le Skitarii n'a PAS bouge ce tour (sinon la branche 1 a deja contamine sa tuile de destination).
-            if self.owner_id in state.moved_this_turn:     # NOT(HasFlag moved) : a bouge -> deja couvert
+            if unit_has_moved(state, self.owner_id):       # NOT(HasFlag moved) : a bouge -> deja couvert
                 return False
             owner = state.get_entity(self.owner_id)
             oc = owner.get_component(OwnerComponent) if owner is not None else None

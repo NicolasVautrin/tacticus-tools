@@ -69,10 +69,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Reste à mesurer/généraliser : bornes d'attaque NORMALE (`damage_ops:177/179`), normal-like (`:472`),
   additional-hits — tous live-validés bit-exact AVEC la troncature (famille ATTACK), donc chacun exige
   sa propre campagne de datapoints discriminants. `[fable]`.
-- **`test_harvester_live::test_harvester_live_moved_bitexact_and_native_factory` (seeds 777 et 31337)
-  échoue au commit `9eedcbc`** : MAIN offline `[2694, 2896]` vs LIVE `[2155, 2317]` (ratio 1.25 =
-  HeavyWeapon_ExtraDmg appliqué offline alors que l'unité a BOUGÉ). Reproduit sur base propre (patch
-  stashé) → **pré-existant**, pas une régression du lot #90 A. `[opus]`.
+- ~~**`test_harvester_live::test_harvester_live_moved_bitexact_and_native_factory` (seeds 777 et
+  31337)**~~ — **RÉSOLU (#101)**, avec `test_sentinel_directives_live` (même cause). Le fait « a bougé
+  ce tour » avait **deux** représentations dans le port (le set `State.moved_this_turn` de #60, lu par
+  le gate no-move ; le flag natif `UnitFlag.Moved` du `UnitFlagsComponent`, lu par
+  `HarvesterOfSouls$$GetHits`) et **aucune** n'était posée par le move + lue par le gate → `+25%`
+  HeavyWeapon fantôme sur tout état rechargé (`load_state`). Fix = **un seul store**, celui du natif
+  (`set_moved_flag` / `unit_has_moved`). Détail + décomposition par étage + généralisation bit-exact
+  dans les DEUX sens : `case-101-moved-flag`.
+- **`HeavyGravCannon` (1291) non porté** (`case-220 §6.17`, chiffré par `case-101 §3.2`) :
+  `HeavyGravCannonEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(cond, ConfigVar(8=extraDmg))`
+  + `...$$CreatePiercingBonusForAttack` = `ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio))`, cond =
+  `OwnerIsActor & IsRangedAttack & (HasTrait(target, 5=Mechanical) | 1013 MkXGravis | 1039
+  TerminatorArmour)`. MESURÉ live : `+443` flat (Sy-Gex -> necroOverlord Mechanical, seed 777) — seul
+  confond restant de `test_sentinel_directives_live` (qui asserte donc `live >= offline`). `[opus]`.
+- **`UnitFlag.ArrivedAtFinalTile` (1) non posé par `MoveUnitOperation`** (`case-101 §6`) : le natif
+  l'ajoute juste après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Aucun consommateur
+  porté n'en dépend aujourd'hui ; à câbler avec le reste des `MoveUnitOptions`. `[opus]`.
+- **Les `UnitFlags` ne sont exposés par AUCUN RPC** (`case-101 §6`) : un état rechargé par `load_state`
+  ne peut pas savoir qu'une unité a bougé / a fini son tour ; seules les fixtures qui *pilotent* le
+  déplacement re-posent le flag. Point d'ancrage natif à capter dans `combatSnapshot` :
+  `IdunBattle.Entities.Components.UnitFlagsComponent` (`OrderedSet<int>` @+0x10) par unité. `[opus]`.
 - ~~**Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**~~ — **RÉSOLU
   (#88/#89, 2026-07-25)**. Le lookup n'est pas un dictionnaire mais le `hasValue` du
   **`Nullable<ReviveData>` @`UnitComponent + 0xa8`** (même champ que celui qu'écrit
