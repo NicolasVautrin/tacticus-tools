@@ -61,6 +61,10 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         "alive": alive,
         "hp": hc.hp if hc is not None else (1 if alive else 0),
         "visualId": uc.visual_id if uc is not None else None,
+        # Lien PARENT (`ParentComponent` id @+0x10, live `Unit_Parent_Id`) : lu par le selecteur
+        # `Parent` (`IdunBattle.Entities.Selectors.ParentSelector$$Select` ->
+        # `IdunBattle.Entities.UnitExtensions$$GetParent`). None pour toute unite du roster initial.
+        "parentId": getattr(uc, "parent_id", None) if uc is not None else None,
         "_traits": traits,
     }
 

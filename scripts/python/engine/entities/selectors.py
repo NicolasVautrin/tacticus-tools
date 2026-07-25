@@ -584,6 +584,38 @@ class Children(TargetsSelector):
         return list(getattr(ctx, "children", None) or [])
 
 
+class Parent(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$Parent(source, mode)` -> `IdunBattle.Entities.Selectors.ParentSelector$$Select` :
+    pour CHAQUE entite du selecteur source, `IdunBattle.Entities.UnitExtensions$$GetParent(u, ..., mode)` ;
+    les parents non nuls sont accumules dans un `OrderedSet` (donc DEDUPLIQUES, ordre d'apparition).
+
+    Port : le lien enfant -> parent vit sur le dict d'unite (`parentId`, alimente par `UnitComponent.
+    parent_id` que `SpawnUnitOperation` pose au spawn = le `Unit_Parent_Id` natif). Le parent est
+    RESOLU dans `ctx.units` (meme domaine que tous les selecteurs d'unite) ; un parent absent du
+    contexte (ou `parentId` None) ne produit rien -> selecteur VIDE, mirror du `if (parent != null)`.
+
+    Call-sites portes : `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$CreateTargetSelector`
+    (`Parent(Self@0x148)` = le summoner que l'effet buffe) et
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtector_ProtectAbility$$CreateBehaviour`
+    (`SwitchPosition(Self, Parent(Self))`)."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        out: list = []
+        seen: set = set()
+        for u in _units_of(self.source, ctx):
+            pid = u.get("parentId") if isinstance(u, dict) else None
+            if pid is None or pid in seen:
+                continue
+            for cand in ctx.units:
+                if cand.get("id") == pid:
+                    seen.add(pid)
+                    out.append(cand)
+                    break
+        return out
+
+
 class LastUnitAttackedBy(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$LastUnitAttackedBy` = `Entities.Selectors.LastUnitAttackedBySelector`
     (IdunBattle.Entities.Selectors.LastUnitAttackedBySelector$$Select) : dernière unité attaquée par `unit`. Port : le dict FRAIS (état POST-attaque, relu par la

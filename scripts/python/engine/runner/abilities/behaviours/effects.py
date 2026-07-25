@@ -310,6 +310,7 @@ class RemoveEffect(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from ...operations.stat_ops import revert_change_stat
+        from ...operations.ability_modifications import revert_ability_modifications
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
@@ -326,6 +327,9 @@ class RemoveEffect(AbilityBehaviour):
                 if src is not None:
                     for stat in eff.reverted_stats():
                         revert_change_stat(state, tgt, stat, src)
+                # `<Effect>.RevertInternal` part MODIFICATIONS D'ABILITY : rejoue les
+                # `AddUnitActiveAbilityModification` en `-delta` (cf. operations/ability_modifications.py).
+                revert_ability_modifications(state, eff)
                 eff.consumed = True
                 removed += 1
             ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)

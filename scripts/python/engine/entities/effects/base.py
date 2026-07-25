@@ -108,6 +108,12 @@ class BaseEffect:
     # l'override de sous-classe (ex. `ActOfFaithBuffEffect.stacks_stat_mod_on_add = True`). Attribut de
     # classe SIMPLE = surchargeable par la MRO (même pattern que `cc_delta`/`stat_mod_source`).
     stacks_stat_mod_on_add = False
+    # Journal des `AddUnitActiveAbilityModification` REELLEMENT poses par cette instance (liste de
+    # `(target, key, delta)`), rempli par `operations/ability_modifications.py::apply_ability_modifications`
+    # et NIE par `revert_ability_modifications` (mirror `RevertInternal` = les memes appels en `-delta`).
+    # Meme regime d'attribut de classe SIMPLE que `stacks_stat_mod_on_add` (pas d'annotation -> pas de
+    # field dataclass). None/[] = l'effet n'a pose aucune modification d'ability.
+    applied_ability_modifications = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """`<Effect>.ApplyModification` (part DATA côté `entities/`) — liste des `(StatType, montant)` posés
@@ -354,6 +360,29 @@ class BaseEffect:
         valeur du parent (= `eff.source`, mirror `GetParentUnit`) et exécute `apply_stat_override`
         (part 7 → SetOverride) ; le retrait exécute `remove_stat_override` (part 8, mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` → ResetStat ×N). Défaut `[]` = pas d'override."""
         return []
+
+    def ability_modifications(self) -> "list":
+        """Part DATA d'un `ApplyInternal` qui ecrit des **modifications de constantes d'ABILITY** sur une
+        unite (et NON une stat) — natif `IdunBattle.Operations.OperationProcessor$$AddUnitActiveAbilityModification`
+        -> `IdunBattle.Operations.AddUnitActiveAbilityModificationOperation$$Execute` ->
+        `IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$Add(key, delta)`.
+
+        Rend une liste de `(key, delta)` ou `key` = l'index de constante d'ability (`AbilityVarOrConst`,
+        ex. `0x10` = nrOfSummons, `0x16` = range) et `delta` = le montant ADDITIF. Le `RevertInternal`
+        natif rejoue LES MEMES appels en `-delta` -> la couche runner reverte en niant cette liste (pas
+        de table separee). Defaut `[]` = l'effet n'ecrit aucune modification d'ability.
+
+        Unique porteur du build : `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect` (0x426)."""
+        return []
+
+    def ability_modifications_target_selector(self):
+        """`<Effect>.CreateTargetSelector` — le selecteur des entites sur lesquelles `ApplyInternal`
+        ecrit ses `ability_modifications` (natif : `ApplyInternal(this, .., target, ..)` est appele PAR
+        CIBLE rendue par ce selecteur). `None` (defaut) = le PORTEUR lui-meme.
+
+        `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$CreateTargetSelector` = `Parent(Self@0x148)`
+        -> l'effet est PORTE par Kell mais MODIFIE son parent (Creed)."""
+        return None
 
     # ── matérialisation composite ─────────────────────────────────────────────────────────────────
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:

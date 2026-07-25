@@ -67,6 +67,7 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, St
                      BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
+from .ability_modifications import ListenUpMaggotsEffect
 
 __all__ = [
     # extra_damage (volet DIRECT)
@@ -116,4 +117,6 @@ __all__ = [
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
+    # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)
+    "ListenUpMaggotsEffect",
 ]

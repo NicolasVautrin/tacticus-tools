@@ -82,6 +82,7 @@ from .dark_talon_strike import DarkTalonStrikePlaybook
 from .send_in_the_next_wave import SendInTheNextWavePlaybook
 from .incursion import IncursionPlaybook
 from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
+from .supreme_commander import SupremeCommanderPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -104,6 +105,10 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         HammerOfWrathPlaybook(),
         HeroicFusilladePlaybook(),   # #15 (G5, Judh) — util plate=1, gates Hero+ennemi-voisin
         DoctrinaImperativesPlaybook(),  # S4a (Tan Gi'da) — self-cast toggle, util 100, once-per-turn
+        # #95-RESTE2 — DEBLOQUE par le port de `SwornProtector` : son gate `IsFriendlyKell` exige un
+        # ENFANT du caster, ce qui etait impossible offline tant que Kell ne pouvait pas apparaitre
+        # (le playbook aurait rendu False EN PERMANENCE = code enregistre-mais-mort).
+        SupremeCommanderPlaybook(),     # 1028 (Creed) — util PLATE 3/2, MIN_UTILITY 1 (.cctor)
         # #44 (reframe #34) — les 5 playbooks NC du « lead 8 » : le stage agreement les classait
         # « non-attack-oracle » alors qu'ils sont NonComparable NATIFS (EvaluateNonComparable, AUCUN
         # Make*Predictions). Deux familles : utilite ENTIERE (comptage/paliers) pour 1113/1121/1151,
@@ -217,4 +222,5 @@ __all__ = [
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
     "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
     "SendInTheNextWavePlaybook", "IncursionPlaybook", "MasterOfTheTutelariesPlaybook",
+    "SupremeCommanderPlaybook",
 ]

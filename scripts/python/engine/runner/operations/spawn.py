@@ -210,18 +210,23 @@ def _occupied_tiles(state: State) -> set:
 
 def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                        level, mult: int, team, player, ai_controlled: bool = True,
-                       key_suffix: str = "") -> Optional[int]:
+                       key_suffix: str = "", parent_id: Optional[int] = None) -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
     `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
     = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
     GetEmRuntz/SquigHound (WithStatsFromConfig, PAS clone) et par CultDemagogue (neophyte).
     `ai_controlled` = summon auto-joué au turn-start (grots/swarms) vs unité normale jouée au tour de sa team
     (neophyte = trait Ambush+BattleFatigue, PAS Summon → `False`). `key_suffix` = suffixe des clés de stats
-    (ex. `_2` pour CultDemagogue)."""
+    (ex. `_2` pour CultDemagogue).
+
+    `parent_id` = le CASTER (mirror `Unit_Parent_Id` emis nativement au spawn d'un summon ; ground truth
+    live SupremeCommander : `Step#10 e=<summon> Unit_Parent_Id=<casterId>`). Alimente `Parent(Self)`
+    (`ListenUpMaggotsEffect.CreateTargetSelector`) et `Children(caster)`. None = lien non pose."""
     if tile is None:
         return None
     e = state.add_entity()
-    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=ai_controlled))
+    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=ai_controlled,
+                                  parent_id=parent_id))
     e.add_component(OwnerComponent(team=team, player=player))
     ctx = build_summon_context(e.id, visual_id, summon_ability, level, mult, key_suffix=key_suffix)
     e.add_component(StatsComponent(ctx=ctx))

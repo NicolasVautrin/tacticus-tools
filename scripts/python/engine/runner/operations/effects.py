@@ -170,6 +170,11 @@ class AddEffectOperation:
         # `<Effect>.ApplyInternal` part OVERRIDE (MV71 InitialDmg IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal) : overrides part 7 aux
         # valeurs CURRENT du PARENT (= la source de la pose), snapshotées ICI (nœud Direct évalué à l'apply).
         AddEffectOperation._apply_stat_overrides(state, target, eff)
+        # `<Effect>.ApplyInternal` part MODIFICATIONS D'ABILITY (`AddUnitActiveAbilityModification`) :
+        # ecrit des deltas de CONSTANTES d'ability sur les cibles du `CreateTargetSelector` de l'effet
+        # (qui peut viser une AUTRE unite que le porteur — `ListenUpMaggotsEffect` = `Parent(Self)`).
+        from .ability_modifications import apply_ability_modifications
+        apply_ability_modifications(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
         AddEffectOperation._spawn_sub_effects(state, source, target, eff)
