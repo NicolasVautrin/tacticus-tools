@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from ..state import State
 from ..events import EventBus
-from ..components import PositionComponent, UnitComponent, StatsComponent, HealthComponent
+from ..components import (PositionComponent, UnitComponent, StatsComponent, HealthComponent,
+                          set_moved_flag)
 from .base import Operation
 
 
@@ -73,8 +74,6 @@ class MoveUnitOperation(Operation):
             e.add_component(PositionComponent(self.to[0], self.to[1]))
         else:
             pc.col, pc.row = self.to
-        # #60 has_moved : marque l'unite "a bouge ce tour" (gate no-move HeavyWeapon lu en combat).
-        state.moved_this_turn.add(self.unit_id)
         # #198 : materialisation DYNAMIQUE du stat-mod DEFENSE de tuile (Thorns/famille). En quittant/
         # entrant une tuile a stat-mod DEFENSE, l'occupant non-Immune gagne/perd la modification (mirror
         # ThornsDefenseReductionEffect apply-on-enter/revert-on-leave). No-op hors terrain a stat-mod /
@@ -87,6 +86,16 @@ class MoveUnitOperation(Operation):
         # tuile d'arrivée est crushé (kill propre, pas de death-trigger) AVANT que le vecteur after-move
         # (visit_MoveUnitMessage -> after_move_triggers) ne s'exécute -> le decoy est déjà mort pour G2.
         _kill_steppable_units(state, self.to, self.unit_id)
+        # #101 : `SetMovedFlag(unit)` — le natif pose ici le `UnitFlag.Moved` (+ `Teleported` si le move
+        # est un teleport-strike). POSITION NATIVE lue au decompile d'`IdunBattle.Operations.
+        # MoveUnitOperation$$Execute` : AddMoveEvent(s) -> KillSteppableUnits -> UpdateCharging ->
+        # **SetMovedFlag** (gate par l'option `MoveUnitOptions` @+0x8, nulle a tous les call-sites du
+        # port -> flag TOUJOURS pose) -> Add(ArrivedAtFinalTile=1) [non porte] -> after-move triggers.
+        # C'est LE store unique du fait "a bouge ce tour" (lu par `unit_has_moved`), purge par le
+        # `RemoveTurnFlags` du StartTurnOperation. (#60 posait un set `state.moved_this_turn` PARALLELE
+        # au composant natif -> fork de port : deux representations du meme flag, l'une jamais posee par
+        # le move, l'autre jamais lue par le gate no-move.)
+        set_moved_flag(state, self.unit_id)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

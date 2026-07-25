@@ -595,6 +595,55 @@ def unit_is_alive(entity) -> bool:
     return hc.hp >= 1
 
 
+# Effets dont la presence (owner OU target) fait qu'un move est un TELEPORT (cf. `set_moved_flag`) :
+# TeleportStrike_TeleportingIn(0x40b=1035)/TeleportStrike_Moving(0x40c=1036) et
+# FearOfTheUnseen_TeleportingIn(0x4d6=1238)/FearOfTheUnseen_Moving(0x4d9=1241).
+_TELEPORT_MOVE_EFFECTS = (0x40c, 0x40b, 0x4d9, 0x4d6)
+
+
+def set_moved_flag(state, unit_id: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$SetMovedFlag` — mirror 1:1, appele par
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` (SEUL chemin de pose du flag avec
+    `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile`) :
+
+        added = UnitFlagsComponent.Add(unit, UnitFlag.Moved=0)
+        if added and (IsOwnerOfEffect|IsTargetOfEffect (unit, 0x40c|0x40b|0x4d9|0x4d6)):
+            UnitFlagsComponent.Add(unit, UnitFlag.Teleported=0xc)
+
+    `Add` natif rend « etait ABSENT » -> le flag Teleported n'est pose qu'au PREMIER move du tour
+    (fidele : un 2e move ne re-teste pas les effets de teleport). Roles owner/target confondus offline
+    (l'`EffectsState` stocke par-porteur ; meme convention que `is_attack_max_out_damage`).
+    Cree le `UnitFlagsComponent` au besoin (le natif le resout par `GetComponent` sur une entite qui
+    l'a toujours). Renvoie « le flag Moved vient d'etre pose »."""
+    e = state.get_entity(unit_id)
+    if e is None:
+        return False
+    fl = e.get_component(UnitFlagsComponent)
+    if fl is None:
+        fl = e.add_component(UnitFlagsComponent())
+    added = not fl.has(UnitFlagsComponent.MOVED)
+    fl.add(UnitFlagsComponent.MOVED)
+    if added and state.effects is not None and any(
+            state.effects.has_effect(unit_id, effect_type=t) for t in _TELEPORT_MOVE_EFFECTS):
+        fl.add(UnitFlagsComponent.TELEPORTED)                 # Add(0xc) — le move etait un teleport
+    return added
+
+
+def unit_has_moved(state, unit_id: int) -> bool:
+    """`HasFlag(unit, UnitFlag.Moved=0)` (`IdunBattleLogic.Entities.DSLFactory$$HasFlag` ->
+    `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$ShouldTrigger` = `UnitFlagsComponent.Has`).
+    LECTEUR UNIQUE du fait « a bouge ce tour » cote port : le natif n'a QU'UN store (le
+    `UnitFlagsComponent`), pose par `set_moved_flag` et purge par `RemoveTurnFlags(new_activation=1)`
+    du `StartTurnOperation` — PAR JOUEUR ENTRANT, pas globalement. Consommateurs : le gate no-move de
+    `HeavyWeapon_ExtraDmg`/`CrushingStrike` (via `attacker_modifiers`), la branche fin-de-tour de
+    `RadSaturation`, le `GetHits` d'HarvesterOfSouls. Composant absent = flag absent = n'a pas bouge
+    (etat charge par `load_state` : le RPC n'expose pas les UnitFlags -> une fixture qui SAIT que
+    l'unite a bouge doit poser le flag, cf. tests live)."""
+    e = state.get_entity(unit_id)
+    fl = e.get_component(UnitFlagsComponent) if e is not None else None
+    return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))
+
+
 def unit_is_dead(entity) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$IsDead` — mort SSI `!IsAlive(u) && !HasFlag(u, Fled=9)` : une unite
     RETIREE du board (flag 9, `UnitFlag.Fled`) n'est PAS « morte » au sens de ce predicat. Restreint aux

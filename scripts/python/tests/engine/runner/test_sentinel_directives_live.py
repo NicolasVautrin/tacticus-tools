@@ -22,14 +22,24 @@ Ce que ces tests PROUVENT (lit l'etat LIVE ; drive les positions ; state-file UN
       direct (A/B bit-exact, native_factory attack) -> l'arbre n'introduit AUCUN bug de degat ; la valeur
       brute tiree est dans les bornes config [minDmg,maxDmg][level].
 
-RESIDU DOCUMENTE (confound CASTER-INTRINSEQUE, HORS de ce port) : le seul porteur de 1139 (Sy-Gex) a TOUJOURS
-deux PASSIFS captes live sur lui -- `HeavyWeapon_ExtraDmg`(1008, +25% ranged not-moved) et `HeavyGravCannon`
-(1291, +degat/+pierce vs Mechanical) -- que le pipeline PARTAGE d'attaque d'ability ne consomme PAS entierement
-(HeavyGravCannon non porte = case-220 §6.17 « [opus]+prerequis » ; `execute_ability_attack` ne passe pas
-`is_ranged` a `attacker_modifiers` -> HeavyWeapon_ExtraDmg/RangedSpecialist droppes pour les attaques d'ability).
--> le degat LIVE est >= le degat offline (les passifs n'AJOUTENT que). Ces tests asserttent donc `live >= offline`
-(direction) + A/B tree==pipeline (fidelite structurelle), PAS l'egalite bit-exact live (confondue par les 2
-passifs caster). Le TREE SentinelDirectives lui-meme est fidele (A/B bit-exact). ASCII only.
+RESIDU DOCUMENTE (confound CASTER-INTRINSEQUE, HORS de ce port) : le seul porteur de 1139 (Sy-Gex) porte
+`HeavyGravCannon` (1291) -- `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$
+CreateEffectDamageBonusForAttack` = ForAddition(cond, ConfigVar(8=extraDmg)) et `...$$
+CreatePiercingBonusForAttack` = ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio)), avec
+`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target, 5=Mechanical) |
+HasTrait(target, 0x3f5=1013 MkXGravis) | HasTrait(target, 0x40f=1039 TerminatorArmour)) -- passif NON PORTE
+(case-220 §6.17 « [opus]+prerequis »). La cible de ce test, `necroOverlord`, EST Mechanical -> la condition
+est VRAIE -> le natif ajoute un FLAT que l'offline n'a pas. D'ou : `live >= offline` (direction), pas
+l'egalite bit-exact. MESURE #101 (seed 777, armure 1909, pierce 1) : offline 3067, live 3510 -> +443 = le
+flat HeavyGravCannon (le +pierce reste INERTE : le percage natif est un PLANCHER `max(dmg-armor,
+dmg*pierce%)` et `dmg-armor` domine ici).
+
+`HeavyWeapon_ExtraDmg` (1008, +25% ranged) N'EST PLUS un confond (#101) : son gate natif
+`!HasFlag(Moved=0) | HasFlag(Teleported=0xc)` est desormais lu des DEUX cotes sur le MEME store (le
+`UnitFlagsComponent`), et l'approche du caster (qui emet des `move`) est re-seedee offline via
+`set_moved_flag` -> le bonus est OFF live comme offline. Le gate lui-meme est valide bit-exact DANS LES
+DEUX SENS par `test_heavy_weapon_moved_gate_live` (cible orksNob, non eligible a HeavyGravCannon).
+Le TREE SentinelDirectives lui-meme est fidele (A/B bit-exact). ASCII only.
 """
 from __future__ import annotations
 
@@ -47,7 +57,7 @@ from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.prng import IntBasedMersenneTwister
-from engine.runner.components import HealthComponent, StatsComponent
+from engine.runner.components import HealthComponent, StatsComponent, set_moved_flag
 from engine.runner.abilities.base import (ability_attack_params, sets_end_turn_flags_for,
                                           sets_active_ability_used_flag_for, NO_END_TURN_ABILITY_TYPES,
                                           NO_ABILITY_USED_FLAG_ABILITY_TYPES)
@@ -97,7 +107,9 @@ def _build(seed, a_units):
 
 def _approach(rpc, rid, board, target_vis):
     """Avance jusqu'a mon tour ; rapproche le caster a portee 3 de la cible (LOS clair). Renvoie
-    (cid, tid, my_player) ou None."""
+    (cid, tid, my_player, moves) ou None. `moves` = nb de deplacements REELLEMENT emis pour le caster :
+    fait CONNU (on pilote) que `load_state` ne peut PAS relire (aucun RPC n'expose les UnitFlags) et
+    qu'on re-seede offline via `set_moved_flag` -> gate no-move de HeavyWeapon_ExtraDmg fidele."""
     from collections import deque
 
     def tile_of(u):
@@ -120,6 +132,7 @@ def _approach(rpc, rid, board, target_vis):
         return [x.get("targetId") for x in (ab.get("fromHere") or ab.get("targets") or [])]
 
     my = None
+    moves = 0
     for _ in range(25):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         units = dv.get("units") or []
@@ -133,7 +146,7 @@ def _approach(rpc, rid, board, target_vis):
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60); continue
         cid = caster["id"]
         if hexgeo.distance(_cr(caster), _cr(tgt)) <= RANGE and tgt["id"] in legal(cid):
-            return cid, tgt["id"], my
+            return cid, tgt["id"], my, moves
         dist = bfs(tile_of(tgt))
         mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
         cmt = next((x for x in (mt.get("units") or []) if x.get("unitId") == cid), None)
@@ -145,6 +158,7 @@ def _approach(rpc, rid, board, target_vis):
         best = min(pool, key=lambda t: dist[t]); col, row = reach[best]
         rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "move", "unitId": cid, "to": {"col": col, "row": row}}}, 60)
+        moves += 1
     return None
 
 
@@ -183,13 +197,25 @@ def test_sentinel_directives_live(live_session, rpc):
         placed = _approach(rpc, rid, board, TARGET_VIS)
         if placed is None:
             pytest.skip("caster n'a pas atteint la portee 3 de la cible (LOS)")
-        cid, tid, my = placed
+        cid, tid, my, moves = placed
 
         # capture PRE-cast + config
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         ob = rpc("observeBattle", {"runnerId": rid}, 60)
         snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
-        st = load_state(dv, ob, snap, board=board)
+
+        def mkstate():
+            """Etat offline frais + le FAIT connu de la fixture : le caster a-t-il bouge ce tour.
+            `load_state` ne relit PAS les UnitFlags (aucun RPC ne les expose) -> on re-pose le flag natif
+            `UnitFlag.Moved` via `set_moved_flag` SSI l'approche a reellement emis un deplacement. Sans
+            ca, le gate no-move d'HeavyWeapon_ExtraDmg (+25% ranged) verrait un caster « immobile » et
+            appliquerait un bonus que le natif N'APPLIQUE PAS (mesure #101 : off 3834 vs live 3510)."""
+            s = load_state(dv, ob, snap, board=board)
+            if moves > 0:
+                set_moved_flag(s, cid)
+            return s
+
+        st = mkstate()
         ce = st.get_entity(cid)
         if ce is None or ce.get_component(StatsComponent) is None:
             pytest.skip("caster sans StatsComponent")
@@ -218,7 +244,7 @@ def test_sentinel_directives_live(live_session, rpc):
         cur_after = dv2.get("currentPlayer")
 
         # --- OFFLINE port (arbre DSL via le wiring ability-exec) ---
-        stp = load_state(dv, ob, snap, board=board); stp.rng = _seed_rng(s0)
+        stp = mkstate(); stp.rng = _seed_rng(s0)
         runner = Runner(stp).install_default_handlers(20)
         runner.apply(ActiveAbilityMessage(caster_id=cid, target_id=tid, ability_type=ABILITY))
         last = runner.ability_handler.last or {}
@@ -245,7 +271,7 @@ def test_sentinel_directives_live(live_session, rpc):
         assert cur_after == my, f"currentPlayer {cur_after} != {my} apres cast : le tour a change (1139 devrait NE PAS finir le tour)"
 
         # --- A/B : arbre == sequence directe execute_ability_attack (attack family, meme rng) ---
-        st_ab = load_state(dv, ob, snap, board=board); st_ab.rng = _seed_rng(s0)
+        st_ab = mkstate(); st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Physical", is_melee=False,
             is_attack_damage_op=True)
@@ -257,13 +283,16 @@ def test_sentinel_directives_live(live_session, rpc):
         assert off_ph == ab_ph, f"arbre {off_ph} != sequence directe execute_ability_attack {ab_ph}"
         # raw brut tire dans les bornes config (la valeur pre-reduction est le degat quand armure faible)
         assert bmin <= (atk.get("clean_max") or bmax) , "borne config incoherente"
-        # (RESIDU) le degat LIVE >= offline : les 2 passifs caster (HeavyWeapon 1008 + HeavyGravCannon 1291,
-        # captes live sur Sy-Gex) n'AJOUTENT que -> live >= offline. Egalite bit-exacte CONFONDUE (hors port).
+        # (RESIDU) le degat LIVE >= offline : le SEUL passif caster encore non porte, HeavyGravCannon
+        # (1291, actif car necroOverlord est Mechanical), n'AJOUTE que (ForAddition + ForPiercing) ->
+        # live >= offline. Egalite bit-exacte CONFONDUE par ce flat (hors port). HeavyWeapon_ExtraDmg
+        # (1008) n'est PLUS un confond : gate no-move fidele des DEUX cotes (#101, cf. en-tete).
         assert live_ph[0] >= off_ph[0], (
-            f"live {live_ph[0]} < offline {off_ph[0]} : les passifs caster ne peuvent que RAJOUTER du degat")
+            f"live {live_ph[0]} < offline {off_ph[0]} : le passif caster HeavyGravCannon ne peut que "
+            f"RAJOUTER du degat (si live < off, c'est l'OFFLINE qui applique un bonus de trop)")
         print(f"[SENTDIR] OK : ported + InformWeapon + Pinned live(src {cid})==offline + turn-flow (ne finit "
-              f"pas le tour, cur={cur_after}) + A/B tree==pipeline. delta live-off={live_ph[0]-off_ph[0]} "
-              f"= passifs caster HeavyWeapon(1008)+HeavyGravCannon(1291) [residu pipeline, hors port]")
+              f"pas le tour, cur={cur_after}) + A/B tree==pipeline. caster_moved={moves > 0} "
+              f"delta live-off={live_ph[0]-off_ph[0]} = HeavyGravCannon(1291) [residu, hors port]")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)

@@ -75,7 +75,7 @@ class MoveUnit(AbilityBehaviour):
     NON portes (=> slice-21b+, flagges comme le push) : les 5 selecteurs d'OPTIONS (+0x70/+0x78/+0x80/+0x88/
     +0x90) sont TOUS nuls a ce call-site (defauts natifs) -> aucun flag actif ; la cascade after-move
     flag-driven (overwatch au CHARGE, kill-steppable pendant le move) n'est PAS declenchee (comme le push,
-    `MoveUnitOperation.execute` direct = position + moved_this_turn + tile-defense, PAS le vecteur after-move
+    `MoveUnitOperation.execute` direct = position + UnitFlag.Moved (SetMovedFlag) + tile-defense, PAS le vecteur after-move
     du handler de message). DETERMINISTE (aucun tirage rng) -> ne decale pas l'ordre RNG. Emet 'MoveUnit'. PUR."""
     __slots__ = ("subject_sel", "dest_tile_sel")
 

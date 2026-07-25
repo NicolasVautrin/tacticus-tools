@@ -182,7 +182,8 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
     - GATE `IsCharging` (`AverageDistanceFormula IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` via `IdunBattleLogic.Entities.DSLFactory$$IsCharging` : l'unite
       s'est-elle rapprochee de la cible = a-t-elle charge). astraBullgryn est MELEE-only (aucune attaque
       ranged) -> le gate `is_ranged` est un no-op ; conserve pour rester le calque strict de FeederTendrils
-      (meme noeud IsCharging). Cote combat `has_moved = unit_id in state.moved_this_turn` (proxy de charge) ;
+      (meme noeud IsCharging). Cote combat `has_moved = unit_has_moved(state, unit_id)` = flag natif
+      `UnitFlag.Moved` (proxy de charge) ;
       en prediction-display les tuiles rankees sont des tuiles de charge -> has_moved None/True -> gate TRUE.
     - PAS de `is_normal_attack` gate (contrairement a FeederTendrils) : le natif n'a PAS le noeud IsNormalAttack."""
 
@@ -326,8 +327,8 @@ class CrushingStrikeEffect(BaseEffect):
       plate via `AbilityConfiguration.GetNumberConstant` — cf. `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` —
       NON rarity-scalée).
     - condition d'activité `IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateActiveCondition : NOT HasFlag(HasMoved) (« if it has
-      not moved this turn ») — en PRÉDICTION la tuile candidate fixe le flag (`has_moved`), en COMBAT
-      `state.moved_this_turn` (#60).
+      not moved this turn ») — en PRÉDICTION la tuile candidate fixe le flag (`has_moved`), en COMBAT le
+      flag natif `UnitFlag.Moved` du `UnitFlagsComponent` (`components.unit_has_moved`, #60/#101).
     VALIDÉ live #98 (darkaTerminator u80→u78 seed777 roster1) : préd depuis (6,6) not-moved elev2>1
     = ×2.25 = CrushingStrike(×1.5) × ÉlévationBonus(×1.5) [composition %-list multiplicative] ;
     depuis les tuiles déplacées (elev égale) = ×1.0 EXACT (5307,7959)."""
@@ -376,9 +377,12 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier ; i2 : « When this unit has not moved this
         # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
         # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
-        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). En COMBAT (#60) l'état est DÉSORMAIS tracé
-        # (`state.moved_this_turn` -> `attacker_modifiers` passe un bool défini) : le bonus s'annule si
-        # l'unité a bougé ce tour. None (contexte hors combat/prédiction) → bonus appliqué (fallback).
+        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). En COMBAT (#60/#101) l'état est lu SUR LE
+        # FLAG NATIF (`components.unit_has_moved` = `UnitFlagsComponent.Has(unit, UnitFlag.Moved)`, posé
+        # par `set_moved_flag` dans MoveUnitOperation) -> `attacker_modifiers` passe un bool défini : le
+        # bonus s'annule si l'unité a bougé ce tour. None (contexte hors combat/prédiction) → bonus
+        # appliqué (fallback). ⚠ Un état rechargé par `load_state` NE connaît PAS le flag (aucun RPC ne
+        # l'expose) : une fixture qui SAIT que le caster a bougé doit poser le flag (cf. tests live).
         if has_moved:
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")

@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
-                         UnitComponent)
+                         UnitComponent, unit_has_moved)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -281,9 +281,13 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
                        is_normal_attack: bool = True, damage_profile: Optional[str] = None,
                        trigger_ability_type: Optional[int] = None):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
-    (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60) = l'unité a-t-elle
-    BOUGE ce tour (state.moved_this_turn) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si l'unité a bougé
-    (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué, FAUX). `target_id`
+    (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60/#101) = l'unité
+    a-t-elle BOUGE ce tour — LU SUR LE FLAG NATIF `UnitFlag.Moved` du `UnitFlagsComponent` (`unit_has_moved`,
+    posé par `set_moved_flag` dans `MoveUnitOperation`) -> gate no-move : HeavyWeapon_ExtraDmg s'ANNULE si
+    l'unité a bougé (verdict RE cluster #60 : le combat lisait has_moved=None -> bonus TOUJOURS appliqué,
+    FAUX ; #101 : le set PARALLÈLE `state.moved_this_turn` n'était jamais alimenté sur un état rechargé par
+    `load_state` ni lisible par les autres lecteurs du flag -> +25% fantôme, mesuré ×1.25 exact sur 2 seeds
+    HarvesterOfSouls). `target_id`
     (incr. C) = la CIBLE du coup -> calcule le gate `HasNegativeModifier(cible armure)` (`defender_armor_reduced`)
     pour la contribution +extraDmg de ConquerorImperative ; None (chemin sans cible) -> gate None (inerte).
     `is_normal_attack` (#217) = nature du VECTEUR côté ATTAQUANT (symétrique du #112 défenseur) : False =
@@ -300,7 +304,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     Conqueror/BeaconOfRage) sont ajoutées ici (`_apply_ally_attack_damage_auras`) — mirror combat de la prédiction."""
     active = (state.effects.active_effects(unit_id, {"hp": hp})
               if state.effects is not None else [])
-    has_moved = unit_id in state.moved_this_turn
+    has_moved = unit_has_moved(state, unit_id)
     tar = defender_armor_reduced(state, target_id) if target_id is not None else None
     # #35 : att_ctx POSITIONNEL (att_pos + effets de tuile ring-1 lus de l'ECS) — nourrit les bonus
     # position-dépendants (LordOfTempests : +extraDmg x Count(Ice ring-1)) côté COMBAT, symétrique de
