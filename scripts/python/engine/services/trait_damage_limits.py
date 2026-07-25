@@ -20,6 +20,21 @@ comportement GROUP-UNIT à `nrOfMembers == 2`, keyé sur le NOMBRE DE MEMBRES : 
 early-return `DamageTrait.HitsMultipleMembers` (seul le profil Blast le porte), plafond de soin =
 `get_group_unit_heal_limit`/`is_at_group_unit_heal_limit`. Les 6 porteurs du trait ont TOUS
 `nrOfMembers == 2`. Identité verrouillée par `tests/engine/test_two_man_team_group_cap.py`.
+
+⚠ L'argument « pas de `HasTrait(0x3fa)` » est INSUFFISANT SEUL — `Diminutive` (0x408) n'est lui non plus
+JAMAIS lu par `HasTrait` : il passe par le dict trait→ability dérivée. Le chemin manquant a été fermé
+(validation adversariale #87) : dans `StaticBattleRules.Trait..cctor @18157f650`, `0x3fa` n'est clé
+d'AUCUN des 7 conteneurs (ni `GetTriggeredAbility`, ni `GetEffectToBeAddedToOwnerForTrait` — clés
+0x41e/0x3e9/0x41f/0x424 —, ni les OrderedSets) ; il n'y apparaît qu'en VALEUR de la clé 0x3ef
+(trait 1007 → triggered 1018). ⇒ ni ability dérivée, ni owner-effect. Ghidra écrivant les constantes
+tantôt en hexa tantôt en décimal, la recherche `,1018,` a aussi été faite : 0 occurrence.
+
+⚠ AUCUN cas discriminant n'existe LIVE : sur les 17 unités multi-membres du jeu, les 6 à `nrOfMembers == 2`
+sont EXACTEMENT les 6 porteurs du trait ; les 11 autres (Swarm/Nurglings/Ripper) ont 4-5 membres et n'ont
+PAS le trait. Le live ne pourrait donc jamais départager « cap dû aux membres » de « cap dû au trait » —
+la conclusion ne tient QUE par le RE (la fonction native lit les membres, pas les traits). Porteurs =
+4 npc + 2 summons invoqués par `EnvFactionSummons:AstraMilitarum` (ability d'ENVIRONNEMENT, aucun summoner
+du pool) ⇒ non confrontable live de toute façon.
 """
 from __future__ import annotations
 
@@ -137,7 +152,11 @@ def apply_group_unit_damage_limit(dmg: int, profile_has_hits_multiple_members: b
                                   cumulative_damage: int, flag: bool = False) -> int:
     """DamagePrediction.ApplyGroupUnitDamageLimit @18102bfe0 : cape le degat a la frontiere de membre
     pour une cible MULTI-MEMBRE. Skip si le profil a HitsMultipleMembers (trait 2 = Blast). No-op si
-    `member_count <= 1` (heros). `cumulative_damage` = param_5."""
+    `member_count <= 1` (heros). `cumulative_damage` = param_5.
+
+    /!\\ BORD CONFORME AU NATIF (#87) : a `remaining == 1` (un membre deja mort, donc PV < 50%), le gate
+    `if (1 < remaining)` est FAUX -> **plus aucun cap**, le dernier membre peut etre one-shot. Le tooltip
+    TwoManTeam (« max 50% d'un seul coup ») est donc inexact en fin de vie ; on mirror le natif."""
     if member_count <= 1:
         return dmg
     if profile_has_hits_multiple_members:   # HasTrait(profile, 2) -> return (pas de member-cap pour Blast)
