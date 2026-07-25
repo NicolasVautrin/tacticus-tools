@@ -206,16 +206,20 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
 - **Constantes de gameplay FIGÉES dans les tests, sans oracle** (#96, inventaire — corrigés à ce jour :
   `test_summon_trait_effects_live` Diminutive + ShadowInTheWarp, `test_lightcover_gate_live` ; **LOT A
   `nrOfHits`/`nrOfHits_2` LIVRÉ** : `test_cord_claw_live`, `test_flail_swing_live`,
-  `test_great_frost_axe_live`, `test_fragstorm_migration_live`, `test_jakhal_stimms_live`). Le patron
-  reste présent dans les fichiers ci-dessous : un scalaire écrit en
+  `test_great_frost_axe_live`, `test_fragstorm_migration_live`, `test_jakhal_stimms_live` ; **LOT B
+  LIVRÉ** et **LOT C LIVRÉ** : `test_stikkbomb_migration_live`, `test_summon_ability_ports_live`,
+  `test_harvester_live`, `test_harbinger_of_destruction_live`, `test_destroyer_hive_live` — les deux
+  détaillés plus bas). Le patron reste présent dans les fichiers ci-dessous : un scalaire écrit en
   dur alors que le jeu le porte dans une clé de config re-équilibrable — le message d'assertion NOMME
   souvent la clé, ce qui rend le tri mécanique.
 
   Familles restantes (scan `assert … == <litt> … (nrOfHits|pierce|chance|Pct|range|config)`) :
-  `nrOfHits`/`nrOfHits_2` (stikkbomb, summon_ability_ports, harvester,
-  harbinger, destroyer_hive) ; `PiercingRatio` de profil (40 Power, 55 HeavyRound, 100
-  DirectDamage, 1 Physical, 10 Las — y compris dans les 5 fichiers du lot A, hors périmètre de ce lot ;
-  30 Energy est traité par le lot B) ;
+  la famille `nrOfHits`/`nrOfHits_2` de l'inventaire d'origine (15 fichiers) est **CLOSE** par les lots
+  A/B/C ; le scan post-lot-C fait apparaître **un résidu HORS inventaire** — `test_damage_crushingclaws_live`
+  (`main["hits"] == 2` = `nrOfHits` de CrushingClaws) ; `PiercingRatio` de profil (40 Power dans
+  `test_flail_swing_live`, 1 Physical dans `test_jakhal_stimms_live`, 10/50/60 Las dans
+  `test_lascannon_pierce_offline` — résidus DANS des fichiers déjà traités pour leur famille `nrOfHits`,
+  hors périmètre de leurs lots ; 55 HeavyRound et 100 DirectDamage ont disparu avec le lot C) ;
   constantes globales (`getStuckInChance == 30`,
   `firstAidRecovery == 35`, `parryHitReduction` via `base_cfg - 1` dans
   `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory) ; et deux résidus
@@ -257,6 +261,30 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `martial_apotheosis` (vecteur turn-start — `applyAction endturn` + `captureEvents` rend 1 action / **0
   event**, aucun per-coup observable ; il faudrait hooker `AttackDamageOperation$$ExecuteHit`) et
   `savage_echoes` (cast live = résidu out-of-pool pré-existant) ne confrontent le compte qu'au PORT.
+
+  **LOT C — ce que la RE a tranché** (décompilé lu sur `gqfc5mff6c`, indices résolus sur
+  `IdunBattle.Configuration.AbilityConstantType` : 0x2f=`nrOfHits`, 0x32=`nrOfHits_2`, 0x2b=`extraHit`,
+  0x16=`range` ; 0x13=`HeavyRound` sur `DamageProfileType`) :
+  - **BRUT → oracle CONFIG** : `StikkbombAbility$$ExecuteBehaviour`, `PlasmaGrenadeAbility$$ExecuteBehaviour`,
+    `HarbingerOfDestructionAbility$$ExecuteBehaviour` et `DestroyerHiveAbility$$CreateBehaviour` passent
+    `GetNumberConstant(0x2f/0x32)` et `GetDamageProfile(config, 0)` **tels quels** aux nœuds DSL ;
+    `HarbingerOfDestructionAbility$$GetAdditionalTargets` et `HarvesterOfSoulsAbility$$ExecuteBehaviour`
+    font de même avec `GetNumberConstant(0x16)` (`range`). Aucune formule entre la config et le nœud.
+  - **CALCULÉ → oracle LIVE / dérivation** : le nb de coups d'Harvester est
+    `If(HasFlag(Moved), ConfigConst(0x2f), Sum(ConfigConst(0x2f), ConfigConst(0x2b)))` — la FORMULE est
+    testée, ses deux opérandes viennent de la config, et le compte réel est confronté au live
+    (`len(live_main)`). Idem le dégât : confronté au live ou à une séquence directe rejouée sous le même rng.
+  - **Piège « clé voisine / repli de même valeur » FERMÉ par dérivation** : `nrOfHits` (Harbinger,
+    DestroyerHive), `nrOfHits_2` (PlasmaGrenade) valent **1** — exactement le repli de `ability_var(…) or 1` ;
+    `range` d'Harvester vaut **3** — exactement le repli `or 3` du port. Une clé mal nommée rendrait donc la
+    bonne valeur. Ces quatre lectures sont désormais prouvées DÉRIVÉES : le test décale l'oracle
+    (monkeypatch de `gameconfig.ability`) et exige que le port suive. **Mesure** : port muté (clé remplacée
+    par un nom absent) → seul le test de dérivation rougit, l'égalité statique reste verte — la
+    démonstration que le contrôle n'est pas rituel.
+  - Le percage effectif étant `clamp(0,100, PiercingRatio + ExtraPierce…)`, chaque test qui l'assert exige
+    d'abord des ExtraPierce nuls : sans ça l'égalité testerait la somme, pas le choix du PROFIL.
+  - Le rayon des scénarios Harbinger/Harvester est désormais **piloté par `constants.range`** (la frontière
+    testée est `range` vs `range+1`), au lieu d'un 2/3 écrit en dur dans la géométrie du setup.
 
   `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
 - **Nature du coup, résidus** (`case-106-ismeleeattack-fork` §7 — fork CLOS, `execute_normal_like`

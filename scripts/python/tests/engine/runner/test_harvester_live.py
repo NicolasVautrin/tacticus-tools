@@ -12,7 +12,8 @@
             MinMaxDamage2, Nullable(0x13=HeavyRound), hits) ) )                                   # SPLASH
 
 i2 : « 3x HeavyRound + 1 extra hit if hasn't moved a un ennemi ET aux ennemis adjacents dans un rayon ».
-Attaque RANGED HeavyRound (pierce 55), config 1067 : nrOfHits=2, extraHit=1, range=3 ; minDmg_2/maxDmg_2 ==
+Attaque RANGED HeavyRound. Config 1067 LUE A LA REDACTION (les tests, eux, la relisent : cf. ORACLE en bas
+de cet en-tete) : nrOfHits=2, extraHit=1, range=3, PiercingRatio 55 ; minDmg_2/maxDmg_2 ==
 minDmg/maxDmg. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, XREF ExecuteBehaviour ; 2 tirages/coup a cc=0, rngcrit-1202).
 Le natif B `Enemies(caster, AdjacentFriends(target,1))` = ennemis-du-caster ring-1 de la cible ; porte via
 `AdjacentEnemies(TargetTile(), Const(1))` (le runner `AdjacentFriends` filtre team==CASTER, PAS subject-relatif ->
@@ -37,6 +38,18 @@ le passif (crits per-coup) tandis que l'offline non (mesure : main live [3748,31
 ratios ~1.87/1.52/1.18 = crits) -> divergence per-coup ATTENDUE cote live (non un bug de ce port ; le hit-count=3 et
 la geometrie splash restent EXACTS). D'ou : per-coup live-agreement teste UNIQUEMENT sur le cas A BOUGE (cc=0).
 
+ORACLE (#96) -- AUCUN scalaire de gameplay n'est fige dans ce fichier. Le decompile tranche brut/calcule :
+  * `HarvesterOfSoulsAbility$$GetHits` = `If(HasFlag(caster,Moved), ConfigConst(0x2f), Sum(ConfigConst(0x2f),
+    ConfigConst(0x2b)))` -> les DEUX operandes sont des `ConfigConst` = BRUTS (`constants.nrOfHits` et
+    `constants.extraHit`, indices resolus sur `IdunBattle.Configuration.AbilityConstantType`). Le nb de coups,
+    lui, est CALCULE par cette formule : le test le confronte donc a `nrOfHits` / `nrOfHits + extraHit` selon
+    la branche (jamais a 2/3 ecrits en dur) cote offline, et au LIVE (`len(live_main)`) cote bataille.
+  * `ExecuteBehaviour` passe `GetNumberConstant(config, 0x16)` (= `constants.range`) TEL QUEL a
+    `SurroundingUnits` -> BRUT : la portee du splash est lue en config et PILOTE la geometrie du scenario.
+  * le profil, lui, n'est PAS lu en config : le decompile construit un `Nullable<DamageProfileType>(0x13)`
+    litteral (0x13 = 19 = HeavyRound sur `IdunBattle.Entities.Enum.DamageProfileType`) -> le NOM reste un
+    mirror en dur, mais son `PiercingRatio` se lit dans `damageProfiles`.
+
 Drive les positions (memoire « drive positions »). Lit l'etat LIVE, aucune RVA/tuile hardcodee. ASCII only.
 State-file UNIQUE par agent (chemin absolu). Skip propre si pas de session / geometrie / legalite infaisable.
 """
@@ -57,14 +70,43 @@ ROOT = PYDIR.parents[1]                                      # racine repo
 AGENT = "a0cb06c655a982391"                                  # id agent -> state-file unique (coexistence runners)
 CASTER_VIS = "eldarMauganRa"
 ABILITY = 1067
+ABILITY_ID = "HarvesterOfSouls"                              # cle gameconfig (= ABILITY_ID du port)
 A_UNITS = "necroWarden,necroDestroyer,necroOverlord"
-RANGE_R = 3                                                  # config 1067 GetNumberConstant(range=0x16)
+# Profil de degat : le decompile d'`ExecuteBehaviour` construit un `Nullable<DamageProfileType>(0x13)`
+# LITTERAL (pas de `GetDamageProfile(config)`) -- 0x13 = 19 = HeavyRound. Le nom est donc un mirror en dur ;
+# son PiercingRatio, lui, se lit dans `damageProfiles` (cf. `_cfg_pierce`).
+PROFILE = "HeavyRound"
 
 
 # ------------------------------------------------------------------ helpers
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _cfg_constants() -> dict:
+    """ORACLE des scalaires BRUTS de 1067 = `constants` de gameconfig (cf. en-tete : `ConfigConst(0x2f/0x2b)`
+    et `GetNumberConstant(0x16)` sont pris TELS QUELS par le natif)."""
+    import gameconfig as GC
+    cst = (GC.ability(ABILITY_ID) or {}).get("constants") or {}
+    assert cst.get("nrOfHits") is not None and cst.get("extraHit") is not None \
+        and cst.get("range") is not None, \
+        f"oracle introuvable : constants nrOfHits/extraHit/range de {ABILITY_ID} (lu: {cst})"
+    return cst
+
+
+def _cfg_range() -> int:
+    """`constants.range` (GetNumberConstant 0x16) -- PILOTE la geometrie des scenarios splash."""
+    return int(_cfg_constants()["range"])
+
+
+def _cfg_pierce() -> int:
+    """`damageProfiles[HeavyRound].PiercingRatio` -- le percage effectif du port y ajoute les ExtraPierce du
+    caster (`profile_pierce`), verifies nuls par l'appelant."""
+    import gameconfig as GC
+    ratio = (GC.damage_profile(PROFILE) or {}).get("PiercingRatio")
+    assert ratio is not None, f"oracle introuvable : damageProfiles[{PROFILE}].PiercingRatio"
+    return int(ratio)
 
 
 def _build(seed: str):
@@ -143,7 +185,7 @@ def _drive_moved(rpc, rid, board):
         _mv(rpc, rid, cid, c)                                        # DEPLACE le caster -> UnitFlag.Moved
         if tgt["id"] not in _legal_fromhere(rpc, rid, cid):
             continue
-        sc = next((s for j, s in enumerate(nb) if j != ci and hexgeo.distance(s, c) <= RANGE_R), None)
+        sc = next((s for j, s in enumerate(nb) if j != ci and hexgeo.distance(s, c) <= _cfg_range()), None)
         if sc is None:
             continue
         _mv(rpc, rid, e1["id"], sc)                                  # splash : adjacent-cible ET <= range du caster
@@ -211,8 +253,13 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
         cc = int(getattr(st0.get_entity(cid).get_component(StatsComponent).ctx, "crit_chance", 0) or 0)
         if cc != 0:
             pytest.skip(f"crit_chance={cc} != 0 (bit-exact requiert cc=0)")
+        # branche A BOUGE de `GetHits` = `ConfigConst(0x2f)` SEUL -> l'attendu est `constants.nrOfHits`
+        # (oracle gameconfig), pas un 2 ecrit en dur.
+        cfg_hits = int(_cfg_constants()["nrOfHits"])
         off_hits = _harvester_hits(st0, cid)
-        assert off_hits == 2, f"cas A BOUGE : hits {off_hits} != nrOfHits 2 (flag Moved seede)"
+        assert off_hits == cfg_hits, (
+            f"cas A BOUGE : hits {off_hits} != constants.nrOfHits={cfg_hits} (oracle gameconfig, flag Moved "
+            f"seede -> branche then de If(HasFlag(Moved)))")
 
         # --- LIVE cast ---
         cast = rpc("applyAction", {"runnerId": rid, "action": {
@@ -230,7 +277,7 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
         st_tree = mkstate(); st_tree.rng = _mk_rng(s0)
         res = HarvesterOfSoulsAbility().execute_behaviour(st_tree, cid, tid)
         assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
-        assert res.get("hits") == off_hits, f"port hits {res.get('hits')} != 2 (moved)"
+        assert res.get("hits") == off_hits, f"port hits {res.get('hits')} != {off_hits} (moved)"
         tree_main = (res.get("main_attack") or {}).get("per_hit") or []
         splash_list = res.get("splash") or []
         tree_splash_ids = [x["target"] for x in splash_list]
@@ -246,28 +293,40 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
 
         # (c) A/B : arbre == sequences directes execute_ability_attack (main puis splash, meme rng)
         st_dir = mkstate(); st_dir.rng = _mk_rng(s0)
-        bmin, bmax, pierce, _h = ability_attack_params(st_dir, cid, "HarvesterOfSouls", "HeavyRound", ranged=True)
+        bmin, bmax, pierce, _h = ability_attack_params(st_dir, cid, ABILITY_ID, PROFILE, ranged=True)
         d_main = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
+            damage_profile=PROFILE, is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         bmin2, bmax2, pierce2, _h2 = ability_attack_params(
-            st_dir, cid, "HarvesterOfSouls", "HeavyRound", ranged=True, min_key="minDmg_2", max_key="maxDmg_2")
+            st_dir, cid, ABILITY_ID, PROFILE, ranged=True, min_key="minDmg_2", max_key="maxDmg_2")
         d_splash = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, sid_splash, bmin2, bmax2, pierce2, off_hits,
-            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
+            damage_profile=PROFILE, is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
         assert tree_main == d_main, f"arbre MAIN {tree_main} != sequence directe {d_main} (feuille/pipeline)"
         assert tree_splash == d_splash, f"arbre SPLASH {tree_splash} != sequence directe {d_splash}"
-        assert pierce == 55 and pierce2 == 55, f"pierce HeavyRound {pierce}/{pierce2} != 55"
+        # PERCAGE : oracle = `damageProfiles[HeavyRound].PiercingRatio` (config), pas un 55 fige. Le percage
+        # effectif etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)` -- et HeavyRound ne saturant
+        # PAS a 100 --, on exige d'abord des ExtraPierce nuls, sinon l'egalite testerait la somme et non le
+        # PROFIL (c'est ce que ces deux assertions verifient : les DEUX volets portent bien HeavyRound).
+        cfg_pierce = _cfg_pierce()
+        _ctx = st_dir.get_entity(cid).get_component(StatsComponent).ctx
+        assert (_ctx.extra_pierce, _ctx.extra_pierce_ranged) == (0, 0), (
+            f"caster avec percage supplementaire ({_ctx.extra_pierce}/{_ctx.extra_pierce_ranged}) : le "
+            f"percage effectif n'est plus l'identite du PiercingRatio -- adapter le setup ou l'attendu")
+        assert pierce == cfg_pierce and pierce2 == cfg_pierce, (
+            f"pierce {pierce}/{pierce2} != damageProfiles[{PROFILE}].PiercingRatio={cfg_pierce} "
+            f"(oracle gameconfig ; profil = Nullable(0x13) litteral du decompile)")
 
         # (d) native_factory discriminant : "ability" (1 tirage/coup) DIVERGE du live des le coup >=2
         st_ab = mkstate(); st_ab.rng = _mk_rng(s0)
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, tid, bmin, bmax, pierce, off_hits,
-            damage_profile="HeavyRound", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")
+            damage_profile=PROFILE, is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")
         assert off_ability != live_main, \
             (f"modele 'ability' {off_ability} == LIVE {live_main} : le discriminant native_factory ne separe "
              f"pas les familles (attendu: 'ability' desync des le coup 2)")
-        print(f"[harv live seed={seed}] MOVED hits=2 cc=0 | MAIN live={live_main}==tree | SPLASH live={live_splash}==tree")
+        print(f"[harv live seed={seed}] MOVED hits={off_hits} cc=0 | MAIN live={live_main}==tree "
+              f"| SPLASH live={live_splash}==tree")
         print(f"[harv live seed={seed}] A/B arbre==directes ; native_factory attack DISCRIMINE (ability={off_ability})")
     finally:
         _cleanup(rpc, rid, state_file)
@@ -332,13 +391,18 @@ def _find_splash_geom(board, r):
     return None
 
 
-def test_harvester_offline_hits_and_splash_geometry(live_session, rpc):
-    """(f) HITS : A BOUGE -> 2 ; PAS BOUGE -> 3 (formule If(HasFlag(Moved))). (e) SPLASH geometrie, drivee
+def test_harvester_offline_hits_and_splash_geometry(live_session, rpc, monkeypatch):
+    """(f) HITS, formule `If(HasFlag(Moved), ConfigConst(nrOfHits), Sum(nrOfHits, extraHit))` : A BOUGE ->
+    `nrOfHits` ; PAS BOUGE -> `nrOfHits + extraHit`. (e) SPLASH geometrie (rayon = `constants.range`), drivee
     OFFLINE depuis un etat LIVE reel (deterministe) :
-      [HIT]     ennemi adjacent-cible ET <= range(3) hex du caster -> touche.
-      [PRUNE-A] ennemi adjacent-cible mais HORS rayon-caster (dist>3) -> NON touche.
+      [HIT]     ennemi adjacent-cible ET <= `range` hex du caster -> touche.
+      [PRUNE-A] ennemi adjacent-cible mais HORS rayon-caster (dist > `range`) -> NON touche.
       [PRUNE-B] ennemi dans le rayon-caster mais NON adjacent-cible (dist>=2) -> NON touche.
-      [EXCL]    la cible principale n'est jamais dans le splash."""
+      [EXCL]    la cible principale n'est jamais dans le splash.
+
+    ORACLE (cf. en-tete) : les DEUX branches de la formule sont derivees de la config, jamais ecrites en
+    dur -- et on exige d'abord `extraHit > 0`, sans quoi les deux branches rendraient le MEME nombre et le
+    test serait INCAPABLE d'echouer sur un port qui ignorerait le flag Moved."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     from engine.runner.abilities.aeldari import HarvesterOfSoulsAbility, _harvester_hits
@@ -369,16 +433,25 @@ def test_harvester_offline_hits_and_splash_geometry(live_session, rpc):
             pytest.skip("caster + 3 ennemis requis")
         tid, a, b = ens[0], ens[1], ens[2]
 
-        geom = _find_splash_geom(board, RANGE_R)
+        range_r = _cfg_range()                              # constants.range (0x16) -- pilote la geometrie
+        geom = _find_splash_geom(board, range_r)
         if geom is None:
-            pytest.skip("geometrie splash discriminante indispo sur ce board")
+            pytest.skip(f"geometrie splash discriminante (rayon {range_r}) indispo sur ce board")
         C, T, E1, E2, E3 = geom
 
-        # (f) HITS : PAS BOUGE -> 3 ; A BOUGE -> 2 (meme etat, seul le flag change)
+        # (f) HITS : les DEUX attendus viennent de la config (oracle), pas de 2/3 en dur.
+        cst = _cfg_constants()
+        n_hits, extra_hit = int(cst["nrOfHits"]), int(cst["extraHit"])
+        assert extra_hit > 0, (
+            f"constants.extraHit={extra_hit} : les deux branches de If(HasFlag(Moved)) rendraient le MEME "
+            f"nombre -- ce test ne pourrait plus distinguer un port qui IGNORE le flag Moved")
         st = mkstate(); _set_moved(st, cid, False)
-        assert _harvester_hits(st, cid) == 3, "PAS BOUGE : hits != nrOfHits+extraHit (2+1=3)"
+        assert _harvester_hits(st, cid) == n_hits + extra_hit, (
+            f"PAS BOUGE : hits != constants.nrOfHits + constants.extraHit ({n_hits}+{extra_hit}) "
+            f"(oracle gameconfig, branche else de If(HasFlag(Moved)))")
         _set_moved(st, cid, True)
-        assert _harvester_hits(st, cid) == 2, "A BOUGE : hits != nrOfHits (2)"
+        assert _harvester_hits(st, cid) == n_hits, (
+            f"A BOUGE : hits != constants.nrOfHits={n_hits} (oracle gameconfig, branche then)")
 
         # [HIT] + [PRUNE-A] : E1 adjacent-cible dans rayon -> touche ; E2 adjacent-cible hors rayon -> exclu
         st = mkstate(); _set_moved(st, cid, True)
@@ -395,8 +468,29 @@ def test_harvester_offline_hits_and_splash_geometry(live_session, rpc):
         sp = sorted(x["target"] for x in (res.get("splash") or []))
         assert sp == [a], f"[PRUNE-B] splash {sp} != [{a}] (E3 dans rayon mais non adjacent-cible exclu)"
 
-        # splash utilise les MEMES coups que le main (hits=2 moved) et un per-hit non vide
+        # splash utilise les MEMES coups que le main (hits = nrOfHits, caster moved) et un per-hit non vide
         assert (res.get("splash") or [])[0]["attack"].get("per_hit"), "[SPLASH] aucun coup emis"
-        print(f"[harv offline] HITS moved=2/notmoved=3 OK ; SPLASH HIT/PRUNE-A(rayon)/PRUNE-B(adjacence)/EXCL(cible) OK")
+
+        # [DERIVE-RANGE] la portee du splash doit DERIVER de `constants.range`, pas de la valeur de repli du
+        # lecteur -- qui vaut justement 3 dans le port (`ability_var(...) or 3`) : une cle mal nommee rendrait
+        # 3 elle aussi et passerait inapercue (piege " repli de meme valeur ", #96). On DECALE l'oracle a
+        # range+1 et on exige que la FRONTIERE bouge : E2 (adjacent-cible, a exactement range+1 du caster,
+        # exclu ci-dessus par le pruning A) doit desormais ETRE touche.
+        import gameconfig as GC
+        orig_ability = GC.ability
+        patched = dict(orig_ability(ABILITY_ID) or {})
+        patched["constants"] = {**cst, "range": str(range_r + 1)}
+        monkeypatch.setattr(GC, "ability",
+                            lambda aid: patched if aid == ABILITY_ID else orig_ability(aid))
+        st = mkstate(); _set_moved(st, cid, True)
+        _setpos(st, cid, C); _setpos(st, tid, T); _setpos(st, a, E1); _setpos(st, b, E2)
+        res = HarvesterOfSoulsAbility().execute_behaviour(st, cid, tid)
+        sp = sorted(x["target"] for x in (res.get("splash") or []))
+        assert sp == sorted([a, b]), (
+            f"[DERIVE-RANGE] splash {sp} != {sorted([a, b])} avec range={range_r + 1} : la portee du splash "
+            f"ne DERIVE pas de constants.range (cle mal nommee retombant sur le repli, ou rayon fige)")
+        print(f"[harv offline] HITS moved={n_hits}/notmoved={n_hits + extra_hit} (oracle config) OK ; "
+              f"SPLASH rayon={range_r} HIT/PRUNE-A(rayon)/PRUNE-B(adjacence)/EXCL(cible) OK ; "
+              f"DERIVE-RANGE {range_r}->{range_r + 1} OK")
     finally:
         _cleanup(rpc, rid, state_file)

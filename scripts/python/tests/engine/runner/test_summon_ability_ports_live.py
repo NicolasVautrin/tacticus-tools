@@ -6,11 +6,21 @@ la STRUCTURE au natif :
 
   - ValkyrieStrike (1018) : le port dedie EXCLUT du generique -> AUCUN degat immediat + effet 1022 pose
     (correction du sur-tir). Controle : `_is_active_attack_ability(1018) is True` (le sur-tir etait reel).
-  - PlasmaGrenade (1098) : main sur target (hits=nrOfHits=2) + splash sur `_adjacent_enemies_of` (hits=
-    nrOfHits_2=1). Le SET splash == voisins boardGraph (NATIF) de la cible INTER ennemis (hors cible).
+  - PlasmaGrenade (1098) : main sur target (hits = `nrOfHits`) + splash sur `_adjacent_enemies_of` (hits =
+    `nrOfHits_2`). Le SET splash == voisins boardGraph (NATIF) de la cible INTER ennemis (hors cible).
 
 Geometrie = adjacence NATIVE (boardGraph -> Board evenq). Degat exact (RNG cale) = raffinement non teste ici
 (comme test_summon_trigger) ; on valide COUNTS + SET + no-fire, i.e. les priorites 1/2/4 du spec validator.
+
+ORACLE des COUPS (#96) -- aucune valeur figee. Le decompile de
+`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour` passe
+`GetNumberConstant(config, 0x2f)` (main) et `GetNumberConstant(config, 0x32)` (splash) TELS QUELS aux deux
+feuilles `AttackWithAttackDamage` : ce sont des scalaires BRUTS, leur oracle est donc `constants.nrOfHits` /
+`constants.nrOfHits_2` de gameconfig (0x2f/0x32 resolus sur `IdunBattle.Configuration.AbilityConstantType`).
+Le `hits` que le diag expose est ici EXACTEMENT ce brut : la factory native de PlasmaGrenade est
+`AttackWithAbilityDamage` (famille ABILITY), et `AbilityDamageOperation.Execute` n'appelle PAS `GetAttackHits`
+-- le canal de coups (ExtraHits, Parry/Camouflage/Diminutive, auras) n'est pas traverse sur ce vecteur.
+Les deux cles ayant des valeurs DIFFERENTES, l'une ne peut pas se faire passer pour l'autre.
 
 NON committe (tests confront live, hors depot).
 """
@@ -40,6 +50,9 @@ def _tile_of(board, state, uid):
 
 
 def _load(rpc, build_runner):
+    """(state, board, dec, mkstate) -- `mkstate()` reconstruit un etat NEUF depuis les MEMES payloads deja
+    en cache (aucun RPC, aucun runner de plus) : indispensable pour re-caster proprement, PV et rng remis
+    a leur valeur d'origine (controles de derivation d'oracle)."""
     from engine.entities.pathfinding.board import Board
     rid = build_runner("777")["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -50,10 +63,13 @@ def _load(rpc, build_runner):
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec, ob, snap, board=board)
-    if isinstance(s0, dict) and s0.get("mt"):
-        state.rng = _seed_rng(s0)
-    return state, board, dec
+
+    def mkstate():
+        st = load_state(dec, ob, snap, board=board)
+        if isinstance(s0, dict) and s0.get("mt"):
+            st.rng = _seed_rng(s0)
+        return st
+    return mkstate(), board, dec, mkstate
 
 
 def _teams(state):
@@ -108,7 +124,7 @@ def _pick_target_with_adjacent_enemy(state, board):
 def test_valkyrie_strike_no_immediate_damage(rpc, build_runner):
     """1018 = post l'effet 1022, ZERO degat immediat (sur-tir generique corrige)."""
     from engine.runner.operations.summon_ai import _apply_active_ability, _is_active_attack_ability
-    state, board, _dec = _load(rpc, build_runner)
+    state, board, _dec, _mk = _load(rpc, build_runner)
     by_team = _teams(state)
     if len(by_team) < 2:
         pytest.skip("pas 2 teams")
@@ -134,10 +150,20 @@ def test_valkyrie_strike_no_immediate_damage(rpc, build_runner):
         f"effet 1022 ValkyrieStrike_Effect non pose : {eff_names}"
 
 
-def test_plasma_grenade_main_plus_splash(rpc, build_runner):
-    """1098 = attaque main (2 hits) sur target + splash (1 hit) sur les ennemis adjacents (set == boardGraph)."""
+def test_plasma_grenade_main_plus_splash(rpc, build_runner, monkeypatch):
+    """1098 = attaque main (`nrOfHits` coups) sur target + splash (`nrOfHits_2` coups) sur les ennemis
+    adjacents (set == boardGraph). Les deux comptes viennent de gameconfig (cf. ORACLE en en-tete)."""
+    import gameconfig as GC
     from engine.runner.operations.summon_ai import _apply_active_ability
-    state, board, _dec = _load(rpc, build_runner)
+    cst = (GC.ability("PlasmaGrenade") or {}).get("constants") or {}
+    cfg_main, cfg_splash = cst.get("nrOfHits"), cst.get("nrOfHits_2")
+    assert cfg_main is not None and cfg_splash is not None, \
+        f"oracle introuvable : constants nrOfHits/nrOfHits_2 de PlasmaGrenade (lu: {cst})"
+    cfg_main, cfg_splash = int(cfg_main), int(cfg_splash)
+    assert cfg_main != cfg_splash, (
+        f"constants.nrOfHits == nrOfHits_2 == {cfg_main} : les deux volets ne sont plus distinguables, "
+        f"ce test ne verrait plus une feuille qui lirait la MAUVAISE cle")
+    state, board, _dec, mkstate = _load(rpc, build_runner)
     picked = _pick_target_with_adjacent_enemy(state, board)
     if picked is None:
         pytest.skip("pas de cible avec ennemi adjacent (ni drivable)")
@@ -168,10 +194,41 @@ def test_plasma_grenade_main_plus_splash(rpc, build_runner):
 
     assert res.get("routed") == "handler", f"1098 non route au handler : {res}"
     assert diag.get("main_attack") is not None, "attaque main absente"
-    assert main.get("hits") == 2, f"hits main {main.get('hits')} != nrOfHits=2"
-    for x in splash:                                                    # chaque volet splash = nrOfHits_2 = 1
+    assert main.get("hits") == cfg_main, \
+        f"hits main {main.get('hits')} != constants.nrOfHits={cfg_main} (oracle gameconfig, 0x2f)"
+    for x in splash:                                        # chaque volet splash = constants.nrOfHits_2
         h = (x.get("attack") or {}).get("hits")
-        assert h == 1, f"hits splash cible {x.get('target')} = {h} != nrOfHits_2=1"
+        assert h == cfg_splash, (f"hits splash cible {x.get('target')} = {h} != "
+                                 f"constants.nrOfHits_2={cfg_splash} (oracle gameconfig, 0x32)")
     assert splash_ids == enemies_adj, \
         f"SET splash {splash_ids} != voisins boardGraph INTER ennemis {enemies_adj}"
     assert len(splash_ids) >= 1, "aucune cible splash (condition non remplie)"
+
+    # === DERIVATION de la cle SPLASH : on DECALE `nrOfHits_2` et le port doit SUIVRE ===
+    # `nrOfHits_2` vaut 1, exactement la valeur de repli du lecteur (`ability_var(...) or 1`) : une feuille
+    # qui lirait une cle MAL NOMMEE rendrait 1 elle aussi et l'egalite ci-dessus ne la verrait pas (piege
+    # " repli de meme valeur ", #96). Le volet MAIN doit rester a `nrOfHits` -> les deux feuilles lisent
+    # bien des cles DISTINCTES. Etat NEUF depuis les payloads en cache (aucun RPC, PV et rng d'origine).
+    pos_snap = {u: _tile_of(board, state, u) for u in state.entities}
+    bumped = cfg_splash + 2
+    orig_ability = GC.ability
+    patched = dict(orig_ability("PlasmaGrenade") or {})
+    patched["constants"] = {**cst, "nrOfHits_2": str(bumped)}
+    monkeypatch.setattr(GC, "ability", lambda aid: patched if aid == "PlasmaGrenade" else orig_ability(aid))
+    st2 = mkstate()
+    for u, tile in pos_snap.items():                        # rejoue le DRIVE de positions a l'identique
+        info = board.by_id.get(tile) if tile is not None else None
+        pc = st2.get_entity(u).get_component(PositionComponent) if st2.get_entity(u) else None
+        if info is not None and pc is not None:
+            pc.col, pc.row = info["col"], info["row"]
+    diag2 = (_apply_active_ability(st2, caster, target, PLASMA_GRENADE) or {}).get("diag") or {}
+    main2 = (diag2.get("main_attack") or {}).get("hits")
+    splash2 = sorted({(x.get("attack") or {}).get("hits") for x in (diag2.get("splash") or [])})
+    print(f"[PLASMA oracle] nrOfHits_2 {cfg_splash}->{bumped} : splash_hits {splash_hits}->{splash2} "
+          f"main_hits={main2} (attendu {cfg_main}, inchange)")
+    assert splash2 == [bumped], (
+        f"splash hits {splash2} != [{bumped}] : la feuille SPLASH ne DERIVE pas de constants.nrOfHits_2 "
+        f"(cle mal nommee retombant sur le repli 1, ou valeur figee)")
+    assert main2 == cfg_main, (
+        f"main hits {main2} != constants.nrOfHits={cfg_main} apres decalage de nrOfHits_2 : le volet MAIN "
+        f"lit la cle du SPLASH")
