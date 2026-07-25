@@ -12,6 +12,32 @@ from ....entities.traits.unit_trait import UnitTrait
 from ...components import HealthComponent, StatsComponent
 
 
+class RefreshDynamicStatModifierValue(AbilityBehaviour):
+    """`Idun.Source.IdunBattle.Logic.Entities.Behaviours.RefreshDynamicStatModifierValueBehaviour` — 2e volet
+    (`op_BitwiseAnd`) de la factory `DSLFactory.AbilityAreaDamage @180de5920` :
+        `AttackWithAbilityDamage(caster, Units(area), amount, profile, src)
+         & RefreshDynamicStatModifierValueBehaviour(AllAliveMachinesSelector(area))`
+    Le natif RE-EVALUE la valeur des stat-modifiers DYNAMIQUES (aura/adjacence) des unites VIVANTES de la
+    zone apres le degat de zone — la nova peut tuer des voisins et donc changer les sources d'aura.
+
+    Le port n'a AUCUNE machinerie de stat-modifier dynamique a rafraichir (les auras sont recalculees a la
+    lecture par `defender_fixed_armor`/`attacker_modifiers`, pas mises en cache) -> ce noeud est un
+    STRUCTURAL NO-OP, porte pour que l'arbre reste isomorphe au `CreateBehaviour` natif (meme precedent que
+    `Inform`/`KillDeadUnits`). Deterministe, aucune mutation, aucun tirage -> n'altere PAS l'ordre
+    `state.rng` du volet degat qui le precede dans le `&`. Emet 'RefreshDynamicStatModifierValue'
+    (diagnostic). PUR."""
+    __slots__ = ("target_sel",)
+
+    def __init__(self, target_sel: TargetsSelector):
+        self.target_sel = target_sel
+
+    def execute(self, entities, ectx):
+        ectx.emit("RefreshDynamicStatModifierValue",
+                  targets=[u.get("id") for u in _units_of(self.target_sel, entities)
+                           if isinstance(u, dict)])
+        return OperationResult.ok()
+
+
 def is_mechanical(ht, u) -> bool:
     """`UnitExtensions.IsMechanical @180ed8a30` = `HasTrait(Mechanical=5) OU HasTrait(LivingMetal=1000)
     OU HasTrait(Vehicle=0x405=1029)`. Les TROIS sont des traits gameconfig reels (126/51/8 units), donc

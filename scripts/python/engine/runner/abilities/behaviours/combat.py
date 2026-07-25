@@ -188,13 +188,39 @@ class AttackWithAbilityDamage(AbilityBehaviour):
 
     ⚠ `Direct(Nullable(3))` natif : le `3` n'est PAS le nb de coups (live = 1 tick) ; sa semantique exacte
     (DamageTrait / tag de source) n'est pas RE'd et reste INERTE pour un degat DIRECT (rien a taguer : pas de
-    crit/block/after-hit). Non porte (ne change aucun nombre)."""
-    __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref")
+    crit/block/after-hit). Non porte (ne change aucun nombre).
+
+    `multi` (case death-nova) = mode MULTI-CIBLE, mirror du `AttackBehaviour.Execute @180fb91a0` que la
+    factory native enveloppe TOUJOURS (`AttackWithAbilityDamage @180de9e50` = `AbilityDamageBehaviour` +
+    `AttackBehaviour(caster, targetsSelector, dmgBehaviour, profile)`) : quand le selecteur resout N unites
+    (Explodes/PutridExplosion : tous les adjacents), le behaviour resout la LISTE, l'`OrderBy` (b__5_0,
+    cle scalaire par-unite = ordre de lecture) puis attaque CHAQUE cible. Port : `evaluate` -> liste triee
+    par `id` (== `AttackWithAttackDamage.multi`, meme mirror). `multi=False` (defaut) = mono-cible
+    `resolve_unit` : chemin INCHANGE pour le DoT feu.
+
+    `native_operation` = l'OPERATION native que la feuille route (le `AttackBehaviour` est le meme, c'est
+    l'`ADamageBehaviour` enveloppe qui differe cote port) :
+      - `"ability"` = `AbilityDamageBehaviour` -> `AbilityDamageOperation.ExecuteHits @180e2a860` +
+        `CalculateAbilityDamage @18102cb50` : percage/armure + mods DEFENSEUR + block + bouclier + caps
+        (member/Resilient, mode 2), AUCUN crit (la famille ABILITY n'a pas de slot RollCritical, #45f),
+        AUCUNE feuille positionnelle (elevation/trench), 0 tirage de valeur (amount FIXE => min==max).
+        Port = `execute_ability_attack(base, base, ..., is_attack_damage_op=False)` — MEME route deja
+        live-validee bit-exact pour Stormcaller (probe_217) et #45f.
+      - `"direct"` (defaut) = route HISTORIQUE du DoT de tuile `EnvFireTile` :
+        `AttackDamageOperation.execute_direct` (percage/armure SEULS, mods=None, ni block ni bouclier ni
+        cap Resilient). C'est une SIMPLIFICATION heritee, numeriquement equivalente pour une source TUILE
+        (pas de crit, cible sans block/bouclier dans les mesures) — conservee telle quelle (zero
+        regression sur un chemin live-valide) et documentee comme RESIDU : la migration du feu vers
+        `"ability"` est un chantier separe."""
+    __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref",
+                 "multi", "native_operation")
 
     def __init__(self, target_sel: TargetsSelector, profile: str, amount, is_melee: bool = True,
-                 hits: int = 1, source_ref=None):
+                 hits: int = 1, source_ref=None, multi: bool = False,
+                 native_operation: str = "direct"):
         self.target_sel, self.profile, self.amount = target_sel, profile, amount
         self.is_melee, self.hits, self.source_ref = is_melee, int(hits), source_ref
+        self.multi, self.native_operation = multi, native_operation
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -204,18 +230,39 @@ class AttackWithAbilityDamage(AbilityBehaviour):
             return OperationResult.ok()
         su = resolve_unit(self.source_ref, entities) if self.source_ref is not None else entities.caster
         src = (su or {}).get("id")
-        tu = resolve_unit(self.target_sel, entities)
-        tgt = tu.get("id") if tu and tu.get("id") is not None else None
-        if src is None or tgt is None:
+        if src is None:
             return OperationResult.ok()
-        base = int(self.amount.evaluate(entities))            # Fix64 mirror (entities.get_stat -> StatAmount)
-        pierce = profile_pierce(None, self.profile, ranged=not self.is_melee)  # source=tuile : PiercingRatio brut
-        atk = None
-        for _ in range(max(1, self.hits)):
-            atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce,
-                                                       damage_profile=self.profile)   # #202 : cle "recu ce tour"
-        ectx.emit("AttackWithAbilityDamage", source=src, target=tgt,
-                  total=(atk or {}).get("total"), attack=atk)
+        if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
+            targets = sorted((u for u in _units_of(self.target_sel, entities)
+                              if (u or {}).get("id") is not None), key=lambda u: u.get("id"))
+        else:                                              # mono-cible (DoT feu : l'occupant resolu)
+            tu = resolve_unit(self.target_sel, entities)
+            targets = [tu] if tu and tu.get("id") is not None else []
+        for tu in targets:
+            tgt = tu.get("id")
+            base = int(self.amount.evaluate(entities))     # Fix64 mirror (entities.get_stat -> StatAmount)
+            if self.native_operation == "ability":         # AbilityDamageOperation (famille ABILITY)
+                se = state.get_entity(src)
+                ssc = se.get_component(StatsComponent) if se is not None else None
+                pierce = profile_pierce(ssc.ctx if ssc is not None else None, self.profile,
+                                        ranged=not self.is_melee)
+                atk = AttackDamageOperation.execute_ability_attack(
+                    state, src, tgt, base, base, pierce, max(1, self.hits),
+                    damage_profile=self.profile, is_melee=self.is_melee,
+                    is_attack_damage_op=False,             # famille ABILITY : pas de crit, pas de resolve
+                    # etage MULTIPLICATEUR de CBDWAM @18102d3f0 (slot 0x10 = Round(dmg x mult,
+                    # AwayFromZero) @1810021c0) : inconditionnel des que param_7 HasValue, ce qui est
+                    # TOUJOURS le cas dans `CalculateAbilityDamage @18102cb50`. MESURE live (nova
+                    # base 200 -> 140, base 201 -> 141 ; floor donnerait 139/140).
+                    round_materialize=True)
+            else:                                          # route DIRECT historique (DoT feu)
+                pierce = profile_pierce(None, self.profile, ranged=not self.is_melee)  # source=tuile : ratio brut
+                atk = None
+                for _ in range(max(1, self.hits)):
+                    atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce,
+                                                               damage_profile=self.profile)  # #202 : cle "recu ce tour"
+            ectx.emit("AttackWithAbilityDamage", source=src, target=tgt,
+                      total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()
 
 

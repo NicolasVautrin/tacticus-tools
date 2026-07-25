@@ -61,6 +61,7 @@ from .loki.reanimation_beam import (ReanimationBeamReviveTrigger,    # #79 (effe
 from .loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (relic, marqueur 1451)
                                PHOENIX_GEM_CAN_REVIVE)
 from .loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
+from .loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -89,6 +90,14 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # AreEnemies & AmountIsGreaterThanZero(Units(target))` -> `AddEffect(Pinned, Target())`. Route sur
     # `On(NormalAttack=38)` (cf. loki/suppressive_fire.py @181225d00/@181225c50).
     "SuppressiveFire": [SuppressiveFireAddEffectAbility],
+    # DEATH-NOVA (`loki/death_nova.py`) : les deux traits qui font exploser le porteur a sa MORT, sur
+    # l'event `PreUnitDeath_2 = 2` (PAS 1 : `OnPreDeath2 @180df7ee0` -> `OnDeathEvent(2,...)`).
+    # Explodes (1008 -> triggered 1021, @18121e6f0/@18121e450) : maxPV x 25% en DirectDamage a TOUS les
+    # adjacents (friendly-fire), fire MEME EN OVERKILL (`OnPreDeath2(1,1)` = aucun gate).
+    "Explodes": [ExplodesAbility],
+    # PutridExplosion (2028 -> triggered 1074, @1812248f0/@181224710) : maxPV x 25% en Toxic aux adjacents
+    # SAUF faction DeathGuard ; `OnPreDeath2(1,0)` = pas de gate overkill, mais NOT HasTrait(Steppable).
+    "PutridExplosion": [PutridExplosionAbility],
 }
 
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
@@ -439,6 +448,28 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
     `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
     matche."""
     ev = TriggerEvent(EventTriggerType.PreUnitDeath,
+                      killer_id if killer_id is not None else dying_id, dying_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
+                      overkill=overkill)
+    return evaluate_trigger_operation(state, ev)
+
+
+def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[int],
+                              overkill: bool = False) -> list[dict]:
+    """Vecteur `On(PreUnitDeath_2 = 2)` — event NATIF DISTINCT de `PreUnitDeath(1)` et de
+    `UnitDefeated(55)`. Emis par `KillUnitOperation$$Execute @180e76470` ENTRE les deux : ordre
+    d'instruction LU au decompile `On(1)` (ret 0x180e76c4c) -> `On(2)` (ret 0x180e76dea) ->
+    `On(0)` (0x180e77269) -> `On(0x37=55)` (0x180e7731c) -> `On(0x36=54)` (0x180e7749c).
+    (`ApplyDamageOperation$$Execute @180e5a540` n'emet AUCUN des trois ; `InputMessageProcessor$$
+    VerifyDeaths @180ebb0a0` non plus — il ne fait qu'appeler `OperationProcessor$$KillUnit` @180e0a9f0.)
+
+    Consommateurs portes : la famille DEATH-NOVA (`DSLFactory.OnPreDeath2 @180df7ee0` ->
+    `OnDeathEvent(2, a, b)` @180df7ad0) — `ExplodesAbility` (trait Explodes) et `PutridExplosion_Ability`
+    (trait PutridExplosion). Les DEUX passent `a=1` -> AUCUN gate `NOT HasFlag(dying, Overkilled=8)` :
+    la nova part MEME EN OVERKILL (le flag `overkill` est thread pour fidelite du payload, aucun
+    consommateur de CE vecteur ne le lit aujourd'hui). L'unite est deja `alive=False` au dispatch
+    (fire-on-death). No-op si aucun porteur ne meurt."""
+    ev = TriggerEvent(EventTriggerType.PreUnitDeath_2,
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
                       overkill=overkill)

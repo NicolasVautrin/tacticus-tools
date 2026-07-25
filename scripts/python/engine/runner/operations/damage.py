@@ -107,22 +107,52 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     @staticmethod
     def _fire_death_if_killed(state: State, target_id: int, attacker_id: int,
                              hp_before, hp_after, tgt, damage=None) -> Optional[list]:
-        """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance le
-        vecteur MORT (`after_death_triggers`, `On(1)` {dying=cible, killer=attaquant}) qui déclenche les
-        accumulations ActOfFaith des alliés Imperial + l'attaque de mort FinalJustice (worldKharn). No-op si
-        pas de mort. Mirror de l'`OnDeathEvent` natif émis lors de l'application des dégâts. `damage` = dégât
-        LÉTAL total du coup (pour le flag OVERKILL = `dmg >= 2*PV`, gate de FinalJustice)."""
+        """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance la
+        SÉQUENCE d'événements de mort. `damage` = dégât LÉTAL total du coup (pour le flag OVERKILL =
+        `dmg >= 2*PV`). No-op si pas de mort.
+
+        ORDRE DES ÉVÉNEMENTS — RE TRANCHÉE au décompilé (2026-07-25). L'émetteur réel est
+        **`KillUnitOperation$$Execute` @180e76470** (et NON `ApplyDamageOperation$$Execute` @180e5a540, qui
+        n'émet que 0x3a/0xf/0x10, ni les lambdas de `InputMessageProcessor$$VerifyDeaths` @180ebb0a0, qui ne
+        font qu'appeler `OperationProcessor$$KillUnit` @180e0a9f0). Ordre des INSTRUCTIONS dans
+        `KillUnitOperation$$Execute` (adresses de retour des call-sites de dispatch) :
+
+            On(1  = PreUnitDeath)    ret 0x180e76c4c   <- AVANT la garde `if (*pcVar21 == '\\0')` @0x180e76c9e
+            On(2  = PreUnitDeath_2)  ret 0x180e76dea   <- sous la garde
+            On(0  = UnitDeath)       ret 0x180e77269   (aucun consommateur porté)
+            On(55 = UnitDefeated)    ret 0x180e7731c
+            On(54 = PostUnitKill)    ret 0x180e7749c   (aucun consommateur porté)
+
+        => **1 -> 2 -> 55** est CONFIRMÉ (auparavant une simple inférence par numérotation). Les 3 vecteurs
+        portés sont donc émis dans cet ordre ci-dessous.
+
+        - `On(1)` : accumulations ActOfFaith (allié Imperial qui meurt/tue), FinalJustice (riposte du
+          mourant, gate overkill dans son BEHAVIOUR), TaintedNarthecium (revive).
+        - `On(2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `OnPreDeath2`
+          @180df7ee0. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
+        - `On(55)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
+
+        RÉSIDU DOCUMENTÉ (hors périmètre, cf. le retrofit REVIVE) : natif, `On(1)` est émis AVANT la garde
+        @0x180e76c9e alors que 2/0/55/54 sont dedans — un `KillUnit` qui ne franchit pas cette garde
+        n'émettrait que `On(1)`. La sémantique exacte de cette garde (dictionnaire `entities+0xa8` indexé
+        par une clé du singleton de bataille) n'a PAS été résolue ; en particulier, savoir si un REVIVE
+        déclenché sur `On(1)` court-circuite `On(2)`/`On(55)` reste OUVERT. Le port émet les trois
+        inconditionnellement — c'est le comportement DÉJÀ en place pour `On(55)`, inchangé ici."""
         if hp_before is None or hp_before <= 0 or hp_after != 0:
             return None
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import after_death_triggers, is_overkill, unit_defeated_triggers
-        out = after_death_triggers(state, target_id, attacker_id,
-                                   overkill=is_overkill(hp_before, damage))
-        # #G3 : le natif emet AUSSI `On(UnitDefeated=55)` (event DISTINCT de PreUnitDeath=1) apres la mort ->
-        # Ambush_SummonAbility (mort -> decoy + record turn_defeated). L'unite est deja alive=False (fire-on-death).
-        return (out or []) + unit_defeated_triggers(state, target_id, attacker_id)
+        from .triggers import (after_death_triggers, is_overkill, unit_defeated_triggers,
+                               pre_unit_death_2_triggers)
+        overkill = is_overkill(hp_before, damage)
+        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `On(PreUnitDeath_2 = 2)` — émis par `KillUnitOperation$$Execute` APRÈS `On(1)` et AVANT `On(55)`
+        # (ordre d'instruction lu au décompilé, cf. docstring). Vecteur des death-novas Explodes/Putrid.
+        out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)
+        # #G3 : `On(UnitDefeated=55)` (event DISTINCT de 1 et 2) -> Ambush_SummonAbility (mort -> decoy +
+        # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
+        return out + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
     def _refresh_swarm(state: State, target_id: int) -> None:

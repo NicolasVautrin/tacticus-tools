@@ -245,7 +245,8 @@ class _DamageOpsMixin:
                                is_melee: Optional[bool] = None,
                                ability_type: Optional[int] = None,
                                is_attack_damage_op: bool = True,
-                               force_overkill: bool = False) -> Optional[dict]:
+                               force_overkill: bool = False,
+                               round_materialize: bool = False) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -350,9 +351,15 @@ class _DamageOpsMixin:
         def _reduce(value: int) -> int:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
             # attaque normale — même pipeline natif CalculateAbilityDamage/CBDWAM par coup).
+            # `round_materialize` (case death-nova) : étage MULTIPLICATEUR de CBDWAM @18102d3f0
+            # (slot 0x10 = `Round(dmg x multiplier, AwayFromZero)` @1810021c0) — non matérialisé par
+            # le port quand la %-list est VIDE. Activé UNIQUEMENT par la famille ABILITY amount-mode
+            # (feuille `AttackWithAbilityDamage`), cf. `apply_all_modifiers` pour la mesure live et le
+            # périmètre. Défaut False = tous les call-sites historiques INCHANGÉS.
             return apply_all_modifiers(
                 apply_pierce_and_modifiers(value, profile_pierce, armor, mods,
-                                           hit_mult=_tgt_hit_mult, attacker_additive_pre=True), def_mods)
+                                           hit_mult=_tgt_hit_mult, attacker_additive_pre=True),
+                def_mods, round_materialize=round_materialize)
 
         # ABILITY = roll-then-reduce : on tire dans les bornes BRUTES config (RandomAmount(min,max)) PUIS
         # on réduit (perçage/armure/mods) via `post_roll`. (≠ attaque normale reduce-then-roll.) Confirmé

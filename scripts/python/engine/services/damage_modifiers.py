@@ -160,20 +160,46 @@ def apply_capped_modifiers(value, mods: DamageModifiers) -> "_fx.Fix64":
     return _fx.Fix64(_fx.round_raw(v_raw, 1))
 
 
-def apply_all_modifiers(value: int, mods: DamageModifiers) -> int:
+def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bool = False) -> int:
     """Combinaison %-list + additif — ORDRE TRANCHÉ par RE de `CalculateBaseDamageWithAllModifiers`
     @18102d3f0 : ApplyCappedModifiers(%-list attaquant) → (%-list défenseur) → ApplyAdditive(additif
     attaquant @+0x10) → (additif défenseur) → override défenseur éventuel. Donc %-list PUIS additif,
     plancher >= 0 (Fix64.Max(dmg, 0)). ⚠ PRÉDICTION d'attaque : l'additif s'applique UNE FOIS PAR
     ATTAQUE sur le total agrégé (cf. get_attack_prediction §5, call-sites PredictAttackRaw AVANT la
-    boucle d'events) — cette fonction combinée reste pour le chemin COMBAT (valeur tirée)."""
+    boucle d'events) — cette fonction combinée reste pour le chemin COMBAT (valeur tirée).
+
+    `round_materialize` (défaut False = comportement HISTORIQUE strictement inchangé) — mirror de
+    l'étage MULTIPLICATEUR de `CalculateBaseDamageWithAllModifiers @18102d3f0` (étape 6 = slot 0x10 ->
+    `DamageCalculations.CalculateBaseDamageWithModifiers @1810021c0` : `v = Fix64.Round(Mul(v,
+    multiplier), AwayFromZero=1)`, le `Round` étant @181002308 ; `Fix64.Round @1815636e0` avec flag=1 =
+    half-AWAY-FROM-ZERO). Ce `Round` est INCONDITIONNEL dès qu'un `Nullable<DamageModifiers>` HasValue —
+    indépendamment du fait que la %-list soit vide (dans `CalculateAbilityDamage @18102cb50` le
+    `param_7` défenseur est TOUJOURS construit via le slot 0xf, donc l'arrondi passe toujours). Le port
+    ne matérialise ce Round que dans `apply_capped_modifiers` **quand la %-list est NON vide** ; %-list
+    VIDE -> la valeur reste fractionnaire et le caller la TRONQUE ici (`op_Explicit` @181564100 =
+    `raw >> 32` = floor). => divergence de ±1 quand le produit du perçage tombe juste sous un entier
+    (le Fix64 de `pierce/100` est légèrement < à la fraction exacte : `Div(70,100)` = 0.6999999999534).
+
+    **MESURÉ LIVE — 2 datapoints, famille ABILITY amount-mode** (probe_deathnova, PutridExplosion sur
+    ultraTitus armure 1850, profil Toxic pierce 70) : base 200 -> Fix64 139.99999999068 -> natif **140**
+    (floor donnerait 139) ; base 201 -> 140.69999999 -> natif **141** (floor 140). Corroboré par le DoT
+    feu, qui matérialise DÉJÀ par `int(round(...))` dans `execute_direct` (1908 x 25% = 476.99999999 ->
+    live 477).
+
+    ⚠ PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : le flag n'est activé QUE par la famille ABILITY amount-mode
+    (feuille `AttackWithAbilityDamage` en `native_operation="ability"`). Le généraliser aux autres
+    vecteurs COMBAT (bornes d'attaque NORMALE `damage_ops:177/179`, ability bounds-mode `:353`,
+    normal-like `:472`, additional-hits) est un CHANTIER SÉPARÉ : ces chemins sont live-validés
+    bit-exact AVEC la troncature et exigeraient leur propre campagne de mesure. Résidu documenté."""
     v_raw = apply_capped_modifiers(value, mods).raw
     if mods.additive:
         v_raw = v_raw + _fx.from_number(mods.additive)
     # COMBAT : conversion int finale = TRONCATURE (`op_Explicit`, `CalculateAbilityDamage @18102cb50`),
     # PAS round. Fix64 EXACT de bout en bout (#30a) : `v_raw` porte le fractionnaire du perçage/%-list
     # sans bruit float -> `to_int` (floor) = le natif bit-exact.
-    v = _fx.to_int(v_raw)
+    # `round_materialize` : l'étage MULTIPLICATEUR natif (Round AwayFromZero) s'intercale AVANT cette
+    # troncature -> le Fix64 est alors déjà entier et `to_int` devient un no-op (cf. docstring).
+    v = _fx.to_int(_fx.round_raw(v_raw, 1) if round_materialize else v_raw)
     # ⚠ Les réductions DYNAMIQUES CAPÉES du DÉFENSEUR (GuardianOrganism) ne sont PLUS appliquées ici :
     # `CurrentDamage` du natif = la valeur UNIQUE post-mods (le dégât TIRÉ), donc en COMBAT la soustraction
     # se fait PAR VALEUR TIRÉE (cf. `apply_capped_reductions`, appelé dans `_run_hits` APRÈS le tirage), PAS
