@@ -115,17 +115,25 @@ def waaagh_buff(rpc, build_runner):
     if hexgeo.distance(_upos(ally), _upos(foe)) != 1:
         pytest.skip("Nob pas au contact de sa cible -> mesure melee impossible")
 
-    # cible LEGALE de Waaagh, publiee par le natif (`GetDynamicInvalidTargetReason`)
+    # Cible LEGALE de Waaagh, publiee par le natif (`GetDynamicInvalidTargetReason` =
+    # `Count(GetPossibleMovementTiles(target)) > 0`). #111 : on lit `fromHere` -- « legalite EXACTE
+    # du cast immediat » -- et NON `targets`, qui est le superset « ce tour, MOVE inclus » : une cible
+    # de `targets \ fromHere` n'est castable qu'APRES un deplacement, donc `applyAction` (qui ne bouge
+    # pas) y rendrait un NO-OP moteur (`mutated=false`) -> ce fixture skiperait en vert sans avoir
+    # rien valide. `targets` reste en repli (fromHere indispo = degradation documentee du RPC).
     wb_target = None
     for _ in range(6):
         d = dv()
         c = find(d, CASTER)
         if d.get("currentPlayer") != c.get("owner"):
             endturn(); continue
-        at = rpc("abilityTargets", {"runnerId": rid}, 90)
-        tg = [t["targetId"] for u in (at.get("units") or []) if u.get("unitId") == c["id"]
-              for a in (u.get("abilities") or []) if a.get("abilityId") == 1058
-              for t in (a.get("targets") or []) if t.get("targetId") is not None]
+        at = rpc("abilityTargets", {"runnerId": rid, "unitId": c["id"], "allAbilities": True}, 90)
+        abils = [a for u in (at.get("units") or []) if u.get("unitId") == c["id"]
+                 for a in (u.get("abilities") or []) if a.get("abilityId") == 1058]
+        tg = [t["targetId"] for a in abils for t in (a.get("fromHere") or [])
+              if t.get("targetId") is not None] \
+            or [t["targetId"] for a in abils for t in (a.get("targets") or [])
+                if t.get("targetId") is not None]
         if tg:
             e = find(d, FOE_CASTER)
             wb_target = e["id"] if (e and e["id"] in tg) else tg[0]
