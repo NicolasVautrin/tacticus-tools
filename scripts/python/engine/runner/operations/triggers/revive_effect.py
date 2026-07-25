@@ -12,29 +12,52 @@ Artefacts natifs (build gqfc5mff6c, VA citees ; RVA = VA - 0x180000000 calculee 
     ReviveEffect.CreateTargetTrigger         @180f46d80  OnPreDeath(target, get_ReviveOnOverkill)
                                                          & CanBeRevived(target, get_HealType)
                                                          & CreateTargetFilter          (3 virtuels)
-    ReviveEffect.CreateTargetTriggerBehaviour @180f46a70 Maybe(GetReviveChance){
-                                                             Revive(self, target,
-                                                                    Min(GetReviveHP,
+    ReviveEffect.CreateTargetTriggerBehaviour @180f46a70 Maybe(GetReviveChance@0x768){
+                                                             Revive(self@0x148, target@0x178,
+                                                                    Min(GetReviveHP@0x778,
                                                                         StatAmount(target,Health,max)),
-                                                                    tile, sourceId) ;
+                                                                    GetHealType@0x748,
+                                                                    AbilityOrEffect(effect.Id)) ;
                                                              DeactivateEffect }
-    DSLFactory.Revive          @180dfa4f0 -> ReviveBehaviour.Execute @180fd1230 -> ReviveUnitMessage
-                               -> OperationProcessor.ReviveUnit @180e0b510
-                               -> ReviveUnitOperation.Execute @180e91bd0   (operations/revive.py)
+    DSLFactory.Revive          @180dfa4f0 -> ReviveBehaviour.Execute @180fd1230 (POSE la `ReviveData`
+                               sur `UnitComponent+0xa8` -- AUCUNE mutation) ; le mutateur
+                               `ReviveUnitOperation.Execute @180e91bd0` la DRAINE plus tard
+                               (`OperationProcessor.ReviveUnit @180e0b510`). Cf. `operations/revive.py`.
     DSLFactory.DeactivateEffect @180dede20 -> ActivateEffectBehaviour(effect, active=false)
     BattleQuery.CanBeRevived    @181058a50
 
-## Les 3 virtuels de `CreateTargetTrigger` (slots vtable resolus LIVE, `probe_79_revive_vtable.py`)
+## Les virtuels de `ReviveEffect` -- LUS, pas deduits (case-89 volet B1)
 
-Le decompile appelle `(**(klass + 0x738))`, `(+0x748)`, `(+0x758)`. Le dump metadata NE LISTE PAS ces
-corps (des `return 0` / `return 1` triviaux sont deduplique par ICF) -> resolus par le RPC
-`resolveVtableSlot` (lecture de pointeurs, ZERO invoke) sur les classes CONCRETES :
+Le decompile appelle `(**(klass + 0x738))`, `(+0x748)`, `(+0x758)`, `(+0x768)`, `(+0x778)`. La vtable
+d'un `Il2CppClass` commence a `+0x138` et chaque entree fait 0x10 (`{methodPtr, MethodInfo*}`) ->
+slot = (offset - 0x138) / 0x10 : **0x738 = slot 96**, 0x748 = 97, 0x758 = 98, 0x768 = 99, 0x778 = 100.
 
-    +0x728  get_ActivateOnResurrect  @1802b15a0 = `return 0`   (base, aucune sous-classe ne surcharge)
-    +0x738  get_ReviveOnOverkill     @1802b15a0 = `return 0`   base + Narthecium_ReviveEffect
-                                     @1802b1590 = `return 1`   TaintedNarthecium_ReviveEffect
-    +0x748  get_HealType             @1802b15b0 = `return 0`   (base et sous-classes)
-    +0x758  CreateTargetFilter       -> @180f5acf0 (Narthecium) / @180f709b0 (TaintedNarthecium) / ...
+DEUX chemins de lecture, croises :
+  (a) LIVE `resolveVtableSlot` (`probe_79_revive_vtable.py`) -- ne marche que sur une classe INITIALISEE
+      (ReanimationBeam_ReviveEffect / RitesOfMorkaiEffect rendent des slots NULS : carriers hors pool) ;
+  (b) OFFLINE la table `methodPointers` d'IL2CPP, presente TELLE QUELLE dans `GameAssembly.dll` (les
+      pointeurs sont stockes en VA image-base 0x180000000). Le bloc d'un `*_ReviveEffect` a la forme
+      LUE : `[get_ReviveOnOverkill] [get_HealType?] .ctor CreateTargetFilter GetReviveChance GetReviveHP`
+      (ordre valide sur la BASE @file 0x30fdb28 : `0 | 0x1802b15a0 | 0x1802b15b0 | .ctor 0x180f46e60 |
+      CreateTargetTrigger 0x180f46d80 | 0 | CreateTargetTriggerBehaviour 0x180f46a70 | 0 | 0` -- les
+      TROIS zeros = les 3 ABSTRAITS, ce que la lecture live confirme : slots 0x758/0x768/0x778 de la base
+      pointent sur le stub abstrait @1801e6080, `MethodInfo` nul).
+      Le TYPE DE RETOUR desambigue les deux entrees triviales : `get_ReviveOnOverkill` renvoie un **bool**
+      (corps 1 octet : @1802b15a0 = `return 0`, @1802b1590 = `return 1`) ; `get_HealType` renvoie un
+      **int** (corps 8 octets : @1802b15b0 = `return 0`, @1802cca80 = `return 1`).
+
+    classe (bloc methodPointers)        | ReviveOnOverkill | HealType | GetReviveChance | GetReviveHP
+    Narthecium_ReviveEffect  @0x30fffc0 | 0 (@1802b15a0)   | (herite) | @180f5ada0      | @180f5add0
+    TaintedNarthecium_...    @0x3100e28 | 1 (@1802b1590)   | (herite) | @180f5ada0      | @180f5add0
+    RitesOfMorkaiEffect      @0x3100878 | 0 (@1802b15a0)   | (herite) | @1806e1ac0      | @180f5add0
+    ReanimationBeam_...      @0x3100698 | 0 (@1802b15a0)   | 1 (@1802cca80) | @1806e1ac0 | @180f5add0
+    base ReviveEffect        @0x30fdb30 | 0 (@1802b15a0)   | 0 (@1802b15b0) | ABSTRAIT   | ABSTRAIT
+
+  * `@180f5ada0` = `GetNumberConstant(config@0x60, 0x2a='chance')` (corps partage par ICF).
+  * `@1806e1ac0` = `b8 64 00 00 00 c3` = **`mov eax,100 ; ret`** -> `GetReviveChance` LITTERAL **= 100**
+    pour RitesOfMorkai ET ReanimationBeam (leurs configs n'ont PAS de constante 'chance' et
+    `GetStringConstant @181576bb0` LEVE une `System.Exception` sur cle absente : ils DEVAIENT overrider).
+    => `default_chance = 100` n'est plus une hypothese, c'est une LECTURE.
 
 `get_ReviveOnOverkill` EST le byte `param_3` de `DSLFactory.OnDeathEvent @180df7ad0` :
   * `param_3 == 0` -> le trigger AJOUTE `NOT(HasFlag(dying, 8=overkill))`  => « unless Overkilled »
@@ -64,17 +87,24 @@ AFFECTED_BY_HEAL = int(UnitTrait.AffectedByHealAndRepair)  # 0x421=1057 (IsAffec
 
 
 class Revive(AbilityBehaviour):
-    """Feuille DSL `Revive` (`DSLFactory.Revive @180dfa4f0` -> `ReviveBehaviour.Execute @180fd1230`) : revive
-    CHAQUE unite du selecteur `target_sel` (le mourant, `Target()@0x178`) a `Min(reviveHP, target.maxPV)`.
-    Frontiere #149 : la FEUILLE (declaratif, ICI) APPELLE l'Operation IMPERATIVE `ReviveUnitOperation.execute`
-    (operations/revive.py, EN-DESSOUS) -- on NE fusionne PAS. `reviveHP` = `ability_var(ability_id, 'hp',
-    passive_level_du_CASTER, mult)` (mirror `GetReviveHP` = `GetVariableForLevel(config, 0x1d, level)` scalee
-    rarete) ; `Min(reviveHP, target.hp_max)` = le noeud `Min(Direct(GetReviveHP), StatAmount(target, Health,
-    max))` du behaviour natif. PUR (stop=False)."""
-    __slots__ = ("target_sel", "ability_id", "hp_var", "level", "mult")
+    """Feuille DSL `Revive` (`DSLFactory.Revive @180dfa4f0` -> `ReviveBehaviour.Execute @180fd1230`).
+
+    ⚠ CETTE FEUILLE NE MUTE RIEN (RE case-89 volet C) : le natif se contente de POSER une `ReviveData`
+    (`amount`, `healType`, `sourceId`, `priority`) sur le `Nullable<ReviveData>` @`UnitComponent+0xa8`
+    de CHAQUE cible du selecteur, sous le gate `IsPreferredRevive @180fd1b50`. Les PV/flags/position ne
+    bougent que plus tard, quand `ReviveUnitOperation.Execute @180e91bd0` draine ce champ.
+    Frontiere #149 : la FEUILLE (declaratif, ICI) POSE ; l'Operation IMPERATIVE (operations/revive.py,
+    EN-DESSOUS) APPLIQUE -- on NE fusionne PAS.
+
+    `amount` = `Min(GetReviveHP, StatAmount(target, Health, max))` = le noeud `Min(Direct(GetReviveHP),
+    StatAmount(target@0x178, Health=5, max=3))` du behaviour natif (`GetReviveHP` =
+    `GetVariableForLevel(config, 0x1d='hp', level)`, scalee rarete via `ability_var`). PUR (stop=False)."""
+    __slots__ = ("target_sel", "ability_id", "hp_var", "level", "mult", "heal_type",
+                 "source_id", "priority")
 
     def __init__(self, target_sel, ability_id: str, hp_var: str = "hp",
-                 level=None, mult: int = 100):
+                 level=None, mult: int = 100, heal_type: int = 0,
+                 source_id=None, priority: int = 0):
         self.target_sel, self.ability_id, self.hp_var = target_sel, ability_id, hp_var
         # `GetReviveHP(abilityState)` = `GetVariableForLevel(config, 0x1d='hp', level)` ou `abilityState`
         # est celui de l'ABILITY SOURCE portee par l'effet. Le niveau/multiplicateur sont donc RESOLUS PAR
@@ -82,9 +112,16 @@ class Revive(AbilityBehaviour):
         # d'office par un passiveAbility ; niveau de l'ACTIVE du POSEUR (transporte par l'effet) pour un
         # ReviveEffect pose par une ability active. La feuille ne devine RIEN.
         self.level, self.mult = level, mult
+        # 5e argument de `DSLFactory.Revive` : `GetHealType@0x748` pour un ReviveEffect, litteral pour les
+        # TriggeredAbility autonomes (PhoenixGem = 2 @181111610, FuelledByFury = 0 @180f810c0).
+        self.heal_type = int(heal_type)
+        # 6e argument : `Nullable<AbilityOrEffect>` du poseur -- relu par `CurrentAbilityIs` sur On(0x2e).
+        self.source_id = source_id
+        # 8e argument : priorite (`IsPreferredRevive`). 0 partout SAUF PhoenixGem = **-1000** (0xfffffc18).
+        self.priority = int(priority)
 
     def execute(self, entities, ectx):
-        from ..revive import ReviveUnitOperation
+        from ..revive import post_pending_revive
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -100,9 +137,11 @@ class Revive(AbilityBehaviour):
             hp = revive_hp
             if hp is not None and maxhp is not None:
                 hp = min(int(hp), int(maxhp))                # Min(reviveHP, StatAmount(target,Health,max))
-            r = ReviveUnitOperation.execute(state, tid, hp)  # -> mutateur ECS imperatif (revive-en-place)
-            ectx.emit("Revive", target=tid, hp=(r or {}).get("hp"), revive_hp=revive_hp,
-                      revived=r is not None)
+            # ECRITURE de la `ReviveData` @UnitComponent+0xa8 (gate `IsPreferredRevive`) -- PAS de mutation.
+            posted = post_pending_revive(state, tid, hp, heal_type=self.heal_type,
+                                         source=self.source_id, priority=self.priority)
+            ectx.emit("Revive", target=tid, hp=hp, revive_hp=revive_hp,
+                      revived=posted is not None, posted=posted is not None)
         return OperationResult.ok()
 
 
@@ -160,7 +199,8 @@ class RemoveReviveEffect(AbilityBehaviour):
 
 def create_target_trigger_behaviour(chance: int, ability_id: str, hp_var: str = "hp",
                                     remove_effect: bool = False, effect_type: int = -1,
-                                    owner_sel=None, level=None, mult: int = 100):
+                                    owner_sel=None, level=None, mult: int = 100,
+                                    heal_type: int = 0):
     """Arbre de `ReviveEffect.CreateTargetTriggerBehaviour @180f46a70` (MIRROR, base -> partage par TOUTES
     les sous-classes) :
 
@@ -178,20 +218,49 @@ def create_target_trigger_behaviour(chance: int, ability_id: str, hp_var: str = 
     second = (RemoveReviveEffect(owner_sel, effect_type) if remove_effect
               else ConsumeReviveGate(owner_sel))
     return Maybe(chance, op_add(
-        Revive(Target(), ability_id, hp_var, level, mult),  # DSLFactory.Revive -> ReviveUnitOperation
+        # DSLFactory.Revive : POSE la ReviveData (healType = GetHealType@0x748 ; sourceId =
+        # AbilityOrEffect(effect.Id) = `param_1[2]` @180f46a70 ; priorite 0).
+        Revive(Target(), ability_id, hp_var, level, mult,
+               heal_type=heal_type, source_id=effect_type),
         second))                                # DeactivateEffect (once-per-turn) | RemoveEffect (one-shot)
 
 
-def can_be_revived(entities, target_liveunit, target_id: int, state: State) -> bool:
+def is_affected_by_heal_type(has_trait, liveunit, heal_type: int) -> bool:
+    """`UnitExtensions.IsAffectedByHealType @180ed77d0` -- MIRROR 1:1 du decompile (case-89 volet B1) :
+
+        if (HasTrait(unit, 0x421 = AffectedByHealAndRepair)) return true;
+        if (healType == 0 && IsMechanical(unit))  return false;     // 0 = Heal   : pas les mecaniques
+        if (healType == 1 && !IsMechanical(unit)) return false;     // 1 = Repair : QUE les mecaniques
+        return true;                                                // 2 (PhoenixGem) = aucun filtre
+
+    ⚠ Le port precedent HARDCODAIT `healType = 0` pour tous les consommateurs : ReanimationBeam
+    (`get_HealType @vtable+0x748` override = **1**, lu dans `methodPointers` @0x31006a0 = @1802cca80
+    `return 1`) exige au contraire une cible MECHANICAL -- or son propre `CreateTargetFilter @180f67ac0`
+    impose `HasTrait(target, Mechanical)` : avec healType=0 le revive etait un **NO-OP GARANTI** (sauf
+    trait AffectedByHealAndRepair). C'est corrige ici."""
+    if has_trait is None:
+        return True                                          # pas de resolveur trait -> non bloquant
+    if has_trait(liveunit, AFFECTED_BY_HEAL):                # HasTrait(0x421) -> toujours affecte
+        return True
+    mech = is_mechanical(has_trait, liveunit)
+    if int(heal_type) == 0 and mech:
+        return False
+    if int(heal_type) == 1 and not mech:
+        return False
+    return True
+
+
+def can_be_revived(entities, target_liveunit, target_id: int, state: State,
+                   heal_type: int = 0) -> bool:
     """`BattleQuery.CanBeRevived @181058a50` (mirror, appele par le noeud `CanBeRevived` du
     `CreateTargetTrigger @180f46d80` via `DSLFactory.CanBeRevived @180deb4a0 -> CanBeRevivedTrigger
     @180f96b00`) : `GetStat(unit,Health,0) < 1` (mort) & `IsAffectedByHealType(healType)` &
     `NOT HasFlag(unit,0xd)` & `NOT HasTrait(PermaDeath=0x41a=1050)` & `NOT HasHealBlockers`.
 
-    Port : hp<1 (mort) & NOT PermaDeath & IsAffectedByHealType(0) = `HasTrait(AffectedByHealAndRepair)
-    OR NOT IsMechanical` (mirror @180ed77d0 via le helper partage `is_mechanical`). `healType` = le virtuel
-    `get_HealType @+0x748` = 0 pour la base ET toutes les sous-classes (lu LIVE, cf. entete). Flag 0xd
-    (pas encore pose a l'instant de l'OnPreDeath) & HealBlockers non modelises -> non-bloquants."""
+    `healType` = le virtuel `get_HealType @vtable+0x748` de la sous-classe (0 base/Narthecium/Tainted/
+    RitesOfMorkai, **1** ReanimationBeam, **2** PhoenixGem via le litteral de son CreateBehaviour
+    @181111610) -- cf. `is_affected_by_heal_type`. Flag 0xd (pas encore pose a l'instant de l'OnPreDeath)
+    & HealBlockers non modelises -> non-bloquants."""
     e = state.get_entity(target_id)
     hc = e.get_component(HealthComponent) if e is not None else None
     if hc is None or hc.hp is None or int(hc.hp) >= 1:        # GetStat(Health,0) < 1 : doit etre mort
@@ -201,8 +270,7 @@ def can_be_revived(entities, target_liveunit, target_id: int, state: State) -> b
         return True                                          # pas de resolveur trait -> defaut revivable
     if ht(target_liveunit, PERMADEATH):                      # NOT HasTrait(PermaDeath=1050)
         return False
-    # IsAffectedByHealType(0) @180ed77d0 : HasTrait(AffectedByHealAndRepair=1057) OR NOT IsMechanical
-    return bool(ht(target_liveunit, AFFECTED_BY_HEAL) or not is_mechanical(ht, target_liveunit))
+    return is_affected_by_heal_type(ht, target_liveunit, heal_type)   # IsAffectedByHealType(healType)
 
 
 class _ReviveEffectCore:
@@ -219,19 +287,21 @@ class _ReviveEffectCore:
                                   au turn-start) ; True = RemoveEffect (one-shot definitif)
       * `create_target_filter` -- virtuel @vtable+0x758 (le SEUL noeud specifique a chaque consommateur)"""
     ability_id: str = ""
-    revive_on_overkill: bool = False                # get_ReviveOnOverkill @vtable+0x738
+    revive_on_overkill: bool = False                # get_ReviveOnOverkill @vtable+0x738 (slot 96)
+    heal_type: int = 0                              # get_HealType         @vtable+0x748 (slot 97)
     remove_effect: bool = False                     # champ 0x488 (ctor) : DeactivateEffect vs RemoveEffect
     effect_type: int = -1                           # EffectType du ReviveEffect (pour RemoveEffect)
     hp_var: str = "hp"
     chance_is_constant: bool = True                 # GetReviveChance = GetNumberConstant(config, 0x2a)
-    # Fallback quand l'ability n'a PAS de constante 'chance' dans le gameconfig. Ce N'EST PAS un defaut
-    # de confort : `AbilityConfiguration.GetNumberConstant @181576af0` delegue a `GetStringConstant
-    # @181576bb0` qui **LANCE UNE EXCEPTION** si la cle est absente du dictionnaire. Une sous-classe dont
-    # la config n'a pas 'chance' NE PEUT donc PAS partager le `GetReviveChance` de Narthecium
-    # (@180f5ada0) : elle DOIT l'overrider par un corps litteral -- corps trivial (`return N`) donc
-    # FOLDE par ICF, invisible au dump metadata, et sa vtable n'est pas lisible LIVE tant que sa classe
-    # n'est pas initialisee (carrier hors pool). La valeur est donc une HYPOTHESE, posee par la
-    # sous-classe et justifiee par son i2.
+    # Valeur du `GetReviveChance` (@vtable+0x768) quand l'ability n'a PAS de constante 'chance' dans le
+    # gameconfig. Ce N'EST PAS un defaut de confort : `AbilityConfiguration.GetNumberConstant @181576af0`
+    # delegue a `GetStringConstant @181576bb0` qui **LANCE UNE `System.Exception`** si la cle est absente
+    # du dictionnaire, et `GetReviveChance` est **ABSTRAIT dans la base** (slot 0x768 de `ReviveEffect` =
+    # stub abstrait @1801e6080, lu LIVE) -> toute sous-classe DOIT l'implementer. Celles dont la config
+    # n'a pas 'chance' (RitesOfMorkai, ReanimationBeam) l'overrident par un corps LITTERAL, folde par ICF
+    # et donc sans symbole propre -- mais la table `methodPointers` du PE le donne quand meme :
+    # @0x3100890 (RitesOfMorkai) et @0x31006b8 (ReanimationBeam) valent tous deux **@1806e1ac0**, dont les
+    # octets sont `b8 64 00 00 00 c3` = `mov eax,100 ; ret`. => **100, LU** (plus une hypothese, #89/B2).
     default_chance: Optional[int] = None
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:
@@ -264,8 +334,8 @@ class _ReviveEffectCore:
         tgt = entities.target
         if tgt is None:
             return False
-        # CanBeRevived(target)  (@181058a50)
-        if not can_be_revived(entities, tgt, dying, state):
+        # CanBeRevived(target, get_HealType@0x748)  (@181058a50)
+        if not can_be_revived(entities, tgt, dying, state, heal_type=self.heal_type):
             return False
         # CreateTargetFilter (virtuel @+0x758)
         return bool(self.create_target_filter(state, ev, entities))
@@ -283,7 +353,8 @@ class _ReviveEffectCore:
         create_target_trigger_behaviour(int(chance), self.ability_id, self.hp_var,
                                         remove_effect=self.remove_effect,
                                         effect_type=self.effect_type,
-                                        level=level, mult=mult).execute(entities, ectx)
+                                        level=level, mult=mult,
+                                        heal_type=self.heal_type).execute(entities, ectx)
         revives = [p for n, p in ectx.emitted if n == "Revive" and p.get("revived")]
         consumed = any(n in ("DeactivateReviveEffect", "RemoveReviveEffect") for n, _ in ectx.emitted)
         return {"ability": self.ability_id, "owner": self.owner_id, "dying": ev.dying_id,

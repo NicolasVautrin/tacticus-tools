@@ -53,9 +53,26 @@ class UnitComponent(Component):
     exécuté APRÈS un revive réussi) : une fois l'effet désactivé, son trigger ne fire plus jusqu'à
     RÉACTIVATION au début de tour. Posé à True par la feuille `ConsumeReviveGate` (revive.py), remis à
     False pour TOUTES les unités au turn-start (`reset_revive_gates`, comme `times_attacked_this_turn`).
-    i2 « Can only be triggered once per turn »."""
+    i2 « Can only be triggered once per turn ».
+
+    `pending_revive` = mirror du champ `UnitComponent + 0xa8` = **`Nullable<ReviveData>`** (le champ
+    IMMÉDIATEMENT après le `Nullable<AttackHit>` @+0x98, cf. `UnitComponent.Copy @180fac610` qui teste le
+    `hasValue` du Nullable @+0x98 par le MÊME helper `thunk_FUN_1801f3000(ptr, fieldInfo)`). Trois
+    fonctions natives le manipulent, et c'est LA pièce centrale du sous-système REVIVE :
+      * ÉCRITURE  `ReviveBehaviour.Execute @180fd1230` — la feuille DSL `Revive` n'exécute AUCUNE mutation :
+        elle POSE la `ReviveData` (amount/healType/sourceId/priority) sur `unitComponent + 0xa8..0xe8`,
+        après le gate `IsPreferredRevive @180fd1b50` ;
+      * GARDE    `KillUnitOperation.Execute @180e76470` @0x180e76c9e : `if (!pendingRevive.HasValue)` —
+        tout le RESTE de la mort (`On(2)`, `On(0)`, `On(55)`, `On(54)`, Remove(flag 0xf)/Add(flag 6),
+        `RemoveEffects`, `RegisterDefeatedUnit`) est SOUS cette garde. Un revive posé pendant `On(1)`
+        ANNULE donc la mort (cf. `damage.py::_fire_death_if_killed`) ;
+      * LECTURE+PURGE `ReviveUnitOperation.Execute @180e91bd0` : lit les 9 qwords @0xa8..0xe8, refuse
+        (log d'erreur + return) si `!HasValue` @0x180e91e8a, applique le revive, puis REMET LES 9 QWORDS
+        À 0 @0x180e92977+ (donc APRÈS l'émission de `On(UnitRevived=0x2e)`).
+    Port : `None` = pas de revive en attente ; sinon un dict `{amount, heal_type, source, priority}`
+    (cf. `operations/revive.py`)."""
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
-                 "received_damage_this_turn", "revive_used_this_turn")
+                 "received_damage_this_turn", "revive_used_this_turn", "pending_revive")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False):
         self.visual_id = visual_id
@@ -65,6 +82,7 @@ class UnitComponent(Component):
         self.times_attacked_this_turn = 0
         self.received_damage_this_turn: dict = {}
         self.revive_used_this_turn = False
+        self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
 
 
 class OwnerComponent(Component):

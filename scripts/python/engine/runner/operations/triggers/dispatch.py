@@ -59,6 +59,8 @@ from .loki.rites_of_morkai import (RitesOfMorkaiReviveTrigger,       # #79 (effe
 from .loki.reanimation_beam import (ReanimationBeamReviveTrigger,    # #79 (effet 1547, MoW necroReanimator)
                                     REANIMATION_BEAM_EFFECT)
 from .loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (relic, marqueur 1451)
+                               PhoenixGemRemoveMarkerOnRevive,       # #89-B3 (On(0x2e) -> RemoveEffect)
+                               PhoenixGemRemoveMarkerOnResurrect,    # #89-B3 (On(0x2f) -> RemoveEffect)
                                PHOENIX_GEM_CAN_REVIVE)
 from .loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 from .loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
@@ -151,29 +153,36 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "Narthecium": [NartheciumReviveAbility],
 }
 
-# --- Registre : effectType → effet-trigger ---------------------------------------------------------
-EFFECT_TRIGGERS: dict[int, type[EffectTrigger]] = {
-    OVERWATCH_AUTO_ATTACK: OverwatchAutoAttack,
-    CONTAMINATED_TILE: ContaminatedTileEffect,   # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
-    FIRE_TILE: FireTileDoT,                       # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
+# --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
+# ⚠ La valeur est une LISTE : cote natif, `BaseEffect.CreateHandleTriggerAbilitiesInternal` renvoie un
+# **`ArraySet`** (N `Triggered(trigger, behaviour)` par effet) — ex. `PhoenixGem_CanReviveEffect
+# @180f5e4a0` en enregistre DEUX. Un dict 1->1 ne pouvait pas les porter.
+EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
+    OVERWATCH_AUTO_ATTACK: [OverwatchAutoAttack],
+    CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
+    FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
     # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
     # par-effet-actif EST le Add/RemoveTriggeredAbility natif (ApplyInternal @180f59090 /
     # RevertInternal @180f591f0) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
-    MASTEROFTUTELARIES_EFFECT: MasterOfTheTutelariesSummonAbility,   # 1197 -> 1173
+    MASTEROFTUTELARIES_EFFECT: [MasterOfTheTutelariesSummonAbility],   # 1197 -> 1173
     # RitesOfMorkai (#79, effet « Inspired » 1502 pose par l'active 1211 de spaceWolfPriest) = MEME base
     # `ReviveEffect` que Narthecium, mais rail EFFET (pose par une ACTIVE, pas par un passif) : filtre
     # @180f69c10 = `OwnerIsTarget` (self-revive) et ctor @180f69c30 `removeEffect=TRUE` -> le 2e volet du
     # behaviour est `RemoveEffect` (one-shot DEFINITIF) et non `DeactivateEffect` (once-per-turn).
-    RITES_OF_MORKAI_EFFECT: RitesOfMorkaiReviveTrigger,              # 1502 (self-revive one-shot)
+    RITES_OF_MORKAI_EFFECT: [RitesOfMorkaiReviveTrigger],            # 1502 (self-revive one-shot)
     # ReanimationBeam (#79, effet 1547 pose par l'active 1223 de la MoW necroReanimator) = base
     # ReviveEffect, filtre @180f67ac0 = AreFriends & HasTrait(Mechanical=5) & HasEffect(1545
     # NanoscarabRepairProtocols) ; ctor @180f67b90 removeEffect=TRUE -> one-shot.
-    REANIMATION_BEAM_EFFECT: ReanimationBeamReviveTrigger,           # 1547 (allie Mechanical nanoscarabe)
+    REANIMATION_BEAM_EFFECT: [ReanimationBeamReviveTrigger],         # 1547 (allie Mechanical nanoscarabe)
     # PhoenixGem (#79, relic d'eldarAutarch) : PAS un ReviveEffect -- `PhoenixGem_ReviveAbility`
     # (@1811117b0/@181111610) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
     # (@180f5e4a0). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
-    # bataille (le marqueur est retire apres le revive).
-    PHOENIX_GEM_CAN_REVIVE: PhoenixGemReviveAbility,                 # 1451 (self-revive, even-if-overkill)
+    # bataille. Le `CreateHandleTriggerAbilitiesInternal @180f5e4a0` de l'effet enregistre en plus les
+    # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2e=UnitRevived) & OwnerIsTarget &
+    # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2f=UnitResurrected) & OwnerIsTarget`.
+    PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
+                             PhoenixGemRemoveMarkerOnRevive,         # On(0x2e) -> RemoveEffect(1451)
+                             PhoenixGemRemoveMarkerOnResurrect],     # On(0x2f) -> RemoveEffect(1451)
 }
 
 
@@ -214,8 +223,7 @@ def collect_effect_triggers(state: State) -> list[EffectTrigger]:
         for e in effs:
             if e.consumed:
                 continue
-            cls = EFFECT_TRIGGERS.get(e.effect_type)
-            if cls is not None:
+            for cls in EFFECT_TRIGGERS.get(e.effect_type, ()):   # ArraySet natif : N triggers par effet
                 out.append(cls(int(uid)))
     return out
 
@@ -485,6 +493,25 @@ def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int]
     ev = TriggerEvent(EventTriggerType.UnitDefeated,
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -> list[dict]:
+    """Vecteur `On(UnitRevived = 46 = 0x2e)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
+    @0x180e92691 (`FUN_180026490(0x4d, DAT_1831d3468, events, 0x2e)`), APRES la mutation PV/flags/position
+    et **AVANT** la purge de la `ReviveData` (@0x180e92977+). DISTINCT d'`On(UnitResurrected=47=0x2f)`
+    (`ResurrectUnitOperation`, ambush).
+
+    `current_ability` = le `sourceId` (`AbilityOrEffect`) porte par la `ReviveData` — c'est ce que lit le
+    noeud `CurrentAbilityIs` des consommateurs. Consommateurs portes :
+      * `PhoenixGem_CanReviveEffect` @180f5e4a0 : `On(0x2e) & OwnerIsTarget & CurrentAbilityIs(0x5b2=1458
+        TriggeredAbilityType.PhoenixGem)` -> `RemoveEffect(marqueur 1451)` = « the FIRST TIME each battle » ;
+      * (non porte, cf. residu A2) `FuelledByFury_CanReviveEffect` @180f4ab10 : meme forme avec
+        `CurrentAbilityIs(0x4e3=1251)` -> `DeactivateEffect` (« first time each TURN »).
+    Le bras `On(UnitRevived)` du trait Swarm est, lui, re-evalue IMPERATIVEMENT par l'Operation (helper
+    `on_group_unit_hp_changed`) — residu structurel deja documente (#60). No-op si rien ne matche."""
+    ev = TriggerEvent(EventTriggerType.UnitRevived, revived_id, revived_id,
+                      ranged=False, profile=None, ability_type=current_ability)
     return evaluate_trigger_operation(state, ev)
 
 

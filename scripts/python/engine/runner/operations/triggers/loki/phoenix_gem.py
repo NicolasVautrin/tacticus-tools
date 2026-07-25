@@ -15,10 +15,16 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
                                                   -> effet-MARQUEUR `EffectType.PhoenixGem_CanRevive`=1451
   PhoenixGem_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f5e4a0
       ArraySet{
-        Triggered( On(0x2e) & OwnerIsTarget & CurrentAbilityIs(AbilityOrEffect(0x5b2)),
+        Triggered( On(0x2e=UnitRevived) & OwnerIsTarget
+                   & CurrentAbilityIs(AbilityOrEffect(0x5b2=1458 TriggeredAbilityType.PhoenixGem)),
                    RemoveEffect(self@0x150) ),          # revive consomme -> le marqueur DISPARAIT
-        Triggered( On(0x2f) & OwnerIsTarget, RemoveEffect(self@0x150) )
+        Triggered( On(0x2f=UnitResurrected) & OwnerIsTarget, RemoveEffect(self@0x150) )
       }
+      -> case-89 volet B3 : ces DEUX triggers sont desormais PORTES pour de vrai
+      (`PhoenixGemRemoveMarkerOnRevive` / `PhoenixGemRemoveMarkerOnResurrect` ci-dessous), branches sur
+      les vecteurs `unit_revived_triggers` (`On(0x2e)`, emis par `ReviveUnitOperation` @0x180e92691) et
+      `unit_resurrected_triggers` (`On(0x2f)`). Avant, le retrait etait CHAINE en dur au behaviour du
+      revive faute de vecteur `On(0x2e)` dispatche — la structure DSL est retablie.
   PhoenixGem_ReviveAbility.CreateTrigger   @1811117b0
       `OnPreDeath(ignoreOverkill=TRUE) & OwnerIsTarget & HasEffect(self@0x148, 0x5ab=1451, 0, 6)`
       -> `ignoreOverkill=1` : `OnDeathEvent @180df7ad0` n'ajoute AUCUN gate overkill
@@ -43,7 +49,6 @@ from typing import Optional
 from ....state import State
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from .....entities.behaviours import op_add
 from .....entities.selectors import Caster
 from ...effects import BaseEffect  # noqa: F401  (documente le type materialise dans state.effects)
 from ..base import EffectTrigger, TriggerEvent
@@ -53,6 +58,13 @@ from .....entities.effects.magnitude import ability_var
 
 ABILITY_ID = "PhoenixGem"
 PHOENIX_GEM_CAN_REVIVE = 1451          # EffectType.PhoenixGem_CanRevive (le marqueur « peut encore revive »)
+PHOENIX_GEM_ABILITY = 1458             # TriggeredAbilityType.PhoenixGem (0x5b2) -- l'id `AbilityOrEffect`
+                                       # passe en `sourceId` du `Revive` @181111610 ET teste par le
+                                       # `CurrentAbilityIs` du trigger de retrait @180f5e4a0.
+PHOENIX_GEM_HEAL_TYPE = 2              # 5e argument du `Revive` @181111610 (`CONCAT44(0,2)`) : healType=2
+                                       # -> `IsAffectedByHealType @180ed77d0` ne filtre NI Heal NI Repair.
+PHOENIX_GEM_PRIORITY = -1000           # 8e argument (`0xfffffc18`) : priorite la plus BASSE ->
+                                       # `IsPreferredRevive @180fd1b50` prefere TOUT autre revive.
 
 
 class PhoenixGemReviveAbility(EffectTrigger):
@@ -86,26 +98,24 @@ class PhoenixGemReviveAbility(EffectTrigger):
         if tgt is None:
             return False
         # `DSLFactory.Revive` -> `ReviveBehaviour` verifie la revivabilite en amont du mutateur ; on
-        # mirroir le meme gate que la base ReviveEffect (mort + non-PermaDeath + heal-type).
-        return can_be_revived(entities, tgt, ev.dying_id, state)
+        # mirroir le meme gate que la base ReviveEffect (mort + non-PermaDeath + heal-type=2 litteral).
+        return can_be_revived(entities, tgt, ev.dying_id, state, heal_type=PHOENIX_GEM_HEAL_TYPE)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         entities = entities_from_state(state, self.owner_id, ev.dying_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         level, mult = self._level(state)
-        # `CreateBehaviour @181111610` = Revive(self, self, Direct(GetVariableForLevel('hp'))) -- AUCUN
-        # `Maybe` (inconditionnel). Le 2e volet (retrait du marqueur) est, cote NATIF, un trigger SEPARE
-        # de `PhoenixGem_CanReviveEffect` (`On(0x2e) & OwnerIsTarget & CurrentAbilityIs(PhoenixGem)`
-        # @180f5e4a0). Le port le chaine ici parce que le vecteur d'event `0x2e` n'est pas dispatche
-        # (cf. `ReviveUnitOperation` : « emet On(UnitRevived) -> pas d'autre consommateur porte »).
-        # Observable IDENTIQUE (le retrait suit immediatement le revive) ; a RE-SEPARER le jour ou le
-        # vecteur d'event est porte.
-        op_add(Revive(Caster(), ABILITY_ID, "hp", level, mult),
-               RemoveReviveEffect(Caster(), PHOENIX_GEM_CAN_REVIVE)).execute(entities, ectx)
+        # `CreateBehaviour @181111610` = `Revive(self@0x148, self@0x148, Direct(GetVariableForLevel('hp')),
+        # healType=2, Nullable(AbilityOrEffect(this.Id=1458)), 0, priority=-1000, 0)` -- AUCUN `Maybe`
+        # (inconditionnel). Le behaviour se REDUIT a ce seul noeud : le retrait du marqueur est, cote
+        # natif, un trigger SEPARE de `PhoenixGem_CanReviveEffect` (@180f5e4a0), desormais porte a part
+        # (`PhoenixGemRemoveMarkerOnRevive`) — plus de chainage en dur ici (case-89 volet B3).
+        Revive(Caster(), ABILITY_ID, "hp", level, mult,
+               heal_type=PHOENIX_GEM_HEAL_TYPE, source_id=PHOENIX_GEM_ABILITY,
+               priority=PHOENIX_GEM_PRIORITY).execute(entities, ectx)
         revives = [p for n, p in ectx.emitted if n == "Revive" and p.get("revived")]
         return {"ability": ABILITY_ID, "owner": self.owner_id, "dying": ev.dying_id,
-                "revives": revives,
-                "gate_consumed": any(n == "RemoveReviveEffect" for n, _ in ectx.emitted)}
+                "revives": revives}
 
     def _level(self, state: State):
         """`GetVariableForLevel(config@0x20, 0x1d='hp', abilityState)` : le niveau vient de l'AbilityState
@@ -117,6 +127,53 @@ class PhoenixGemReviveAbility(EffectTrigger):
                     lvl = e.active_ability_level if e.active_ability_level is not None else e.ability_level
                     return lvl, (e.ability_variables_multiplier or 100)
         return None, 100
+
+
+class _PhoenixGemRemoveMarker(EffectTrigger):
+    """Base des DEUX triggers de RETRAIT du marqueur 1451 (`PhoenixGem_CanReviveEffect.
+    CreateHandleTriggerAbilitiesInternal @180f5e4a0`, entrees de l'`ArraySet`). Behaviour commun :
+    `RemoveEffect(self@0x150)` -> la feuille `RemoveReviveEffect` (revive_effect.py). C'est CE retrait
+    qui realise le « the FIRST TIME each battle » (et non un gate dans le trigger de revive)."""
+    effect_type = PHOENIX_GEM_CAN_REVIVE
+    fire_on_death = True        # au moment du dispatch, l'unite vient d'etre revive (alive=True), mais
+                                # `On(0x2f)` peut arriver sur une unite encore marquee morte -> tolerant.
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        raise NotImplementedError
+
+    def _owner_is_target(self, ev: TriggerEvent) -> bool:
+        """`get_OwnerIsTarget` : le porteur du marqueur EST la cible de l'event (target@0x178)."""
+        return ev.target_id == self.owner_id
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent):
+        entities = entities_from_state(state, self.owner_id, self.owner_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        RemoveReviveEffect(Caster(), PHOENIX_GEM_CAN_REVIVE).execute(entities, ectx)
+        return {"ability": ABILITY_ID, "owner": self.owner_id,
+                "removed": PHOENIX_GEM_CAN_REVIVE, "on_event": int(ev.event_id)}
+
+
+class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
+    """1re entree de l'`ArraySet @180f5e4a0` : `On(0x2e=UnitRevived) & OwnerIsTarget &
+    CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))` -> `RemoveEffect(1451)`. Le gate `CurrentAbilityIs`
+    est essentiel : un revive de PhoenixGem consomme le marqueur, un revive venu d'AILLEURS (Narthecium
+    d'un allie, ...) le LAISSE en place."""
+    event_id = EventTriggerType.UnitRevived                    # 0x2e = 46
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if not self._owner_is_target(ev):
+            return False
+        return ev.ability_type is not None and int(ev.ability_type) == PHOENIX_GEM_ABILITY
+
+
+class PhoenixGemRemoveMarkerOnResurrect(_PhoenixGemRemoveMarker):
+    """2e entree de l'`ArraySet @180f5e4a0` : `On(0x2f=UnitResurrected) & OwnerIsTarget` ->
+    `RemoveEffect(1451)`. AUCUN `CurrentAbilityIs` ici (lu au decompile) : toute RESURRECTION
+    (`ResurrectUnitOperation` @180e8e4c0, ambush) consomme aussi le marqueur."""
+    event_id = EventTriggerType.UnitResurrected                # 0x2f = 47
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        return self._owner_is_target(ev)
 
 
 # `PhoenixGem.hp` n'est PAS dans `variablesAffectedByRarityBonus` (gameconfig) -> pas de scaling rarete :

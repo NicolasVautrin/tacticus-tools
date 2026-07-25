@@ -31,10 +31,17 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
                                                   AreFriends / IsAdjacent : la portee a deja ete
                                                   appliquee a la POSE de l'effet).
   base ReviveEffect.CreateTargetTrigger  @180f46d80 / CreateTargetTriggerBehaviour @180f46a70
-  get_ReviveOnOverkill (0x738)       : PAS d'override (la classe n'expose que .ctor + CreateTargetFilter)
-                                       -> herite la BASE = @1802b15a0 `return 0` (lu LIVE sur la vtable de
-                                       `ReviveEffect`, `probe_79_revive_vtable.py`) => « unless Overkilled »,
-                                       ce que l'i2 confirme mot pour mot.
+  VTABLE — LUE dans la table `methodPointers` d'IL2CPP du PE (la classe n'est jamais initialisee ->
+  `resolveVtableSlot` LIVE rend des slots nuls ; case-89 volet B1/B2). Bloc @file 0x3100878 :
+
+      0x3100878  0x1802b15a0   get_ReviveOnOverkill = `return 0` (bool)  -> **« unless Overkilled »**
+      0x3100880  0x180f69c30   .ctor
+      0x3100888  0x180f69c10   CreateTargetFilter
+      0x3100890  0x1806e1ac0   GetReviveChance      = `mov eax,100 ; ret` -> **chance = 100**
+      0x3100898  0x180f5add0   GetReviveHP          (corps partage ICF avec Narthecium)
+
+  PAS d'entree `get_HealType` (corps 8 octets) dans le bloc -> la classe l'HERITE de la base = 0 (Heal),
+  contrairement a ReanimationBeam qui l'override a 1. L'i2 confirme mot pour mot le gate overkill.
 
 PORTEUR / VOIE DE VALIDATION : `spaceWolfPriest` est un HERO mais **absent du pool runner**
 (`rl_duel.py build --list-pool`, rank 17) -> l'effet 1502 n'est PAS posable en runner. Port MIRROR +
@@ -56,7 +63,8 @@ class RitesOfMorkaiReviveTrigger(ReviveEffectTrigger):
     CanBeRevived, behaviour Maybe/Revive) vient de la base `ReviveEffect`."""
     effect_type = RITES_OF_MORKAI_EFFECT
     ability_id = ABILITY_ID
-    revive_on_overkill = False             # herite la base @1802b15a0 = 0 -> « unless Overkilled »
+    revive_on_overkill = False             # methodPointers @0x3100878 = @1802b15a0 (`return 0`) : LU
+    heal_type = 0                          # pas d'override de `get_HealType` dans son bloc -> base = 0
     remove_effect = True                   # ctor 0x488=1 -> RemoveEffect : one-shot DEFINITIF
     # `OwnerIsTarget` : le PORTEUR de l'effet est le MOURANT -> au moment ou le port emet PreUnitDeath
     # l'owner est deja `alive=False`. Sans ce flag, le gate `CanGetEffectTrigger` (owner vivant) du
@@ -64,11 +72,10 @@ class RitesOfMorkaiReviveTrigger(ReviveEffectTrigger):
     fire_on_death = True
     # `GetReviveChance` : la config gameconfig de `RitesOfMorkai` n'a PAS de constante 'chance'
     # (constants = {range, nrOfRounds}) -- or `GetNumberConstant @181576af0 -> GetStringConstant
-    # @181576bb0` JETTE sur cle absente. La sous-classe override donc `GetReviveChance` par un corps
-    # litteral (folde par ICF -> illisible offline, et sa vtable n'est pas lisible LIVE : classe non
-    # initialisee car le carrier est hors pool). HYPOTHESE : 100 -- l'i2 n'annonce AUCUN pourcentage
-    # (« it is **instead revived** », inconditionnel), contrairement a TaintedNarthecium (« has a
-    # {chance}% chance »). A confirmer si spaceWolfPriest entre un jour dans le pool.
+    # @181576bb0` JETTE sur cle absente, et `GetReviveChance` est ABSTRAIT dans la base -> la sous-classe
+    # DOIT overrider par un corps litteral. Ce corps est LU dans `methodPointers` @0x3100890 =
+    # **@1806e1ac0** = `b8 64 00 00 00 c3` = `mov eax,100 ; ret` -> **100** (case-89 volet B2 : ce n'est
+    # plus une hypothese justifiee par l'i2, c'est une lecture du binaire).
     default_chance = 100
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:

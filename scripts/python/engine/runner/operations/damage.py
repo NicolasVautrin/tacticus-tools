@@ -132,12 +132,19 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
           @180df7ee0. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
         - `On(55)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
 
-        RÉSIDU DOCUMENTÉ (hors périmètre, cf. le retrofit REVIVE) : natif, `On(1)` est émis AVANT la garde
-        @0x180e76c9e alors que 2/0/55/54 sont dedans — un `KillUnit` qui ne franchit pas cette garde
-        n'émettrait que `On(1)`. La sémantique exacte de cette garde (dictionnaire `entities+0xa8` indexé
-        par une clé du singleton de bataille) n'a PAS été résolue ; en particulier, savoir si un REVIVE
-        déclenché sur `On(1)` court-circuite `On(2)`/`On(55)` reste OUVERT. Le port émet les trois
-        inconditionnellement — c'est le comportement DÉJÀ en place pour `On(55)`, inchangé ici."""
+        **SÉMANTIQUE DE LA GARDE @0x180e76c9e — TRANCHÉE (case-89 volet C, 2026-07-25).** Elle lit le
+        `hasValue` du `Nullable<ReviveData>` @`UnitComponent + 0xa8` (même champ, même helper
+        `thunk_FUN_1801f3000(ptr, <fieldInfo hasValue>)`, que `ReviveUnitOperation.Execute @180e91bd0`
+        qui le DRAINE puis le remet à 0, et que `ReviveBehaviour.Execute @180fd1230` qui l'ÉCRIT) :
+
+            if (!unitComponent.PendingRevive.HasValue) { ...tout le reste de la mort... }
+
+        ⇒ **un REVIVE posé pendant `On(1)` COURT-CIRCUITE `On(2)`, `On(0)`, `On(55)`, `On(54)`**, ainsi
+        que `RegisterDefeatedUnit`, `Remove(flag 0xf)` / `Add(flag 6)` et `RemoveEffects`. Vérifié à la
+        profondeur d'accolades du décompilé : `On(1)` est au niveau 7, les quatre autres au niveau 9,
+        et il n'y a AUCUN `else`. Le port applique donc la garde ci-dessous (`kill_unit_revive_gate`),
+        qui draine aussi le revive — mirror de la phase `RunPhase(0xd)` de `VerifyDeaths @180ebb0a0`,
+        qui suit la phase de kill `RunPhase(0xc)`."""
         if hp_before is None or hp_before <= 0 or hp_after != 0:
             return None
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
@@ -145,8 +152,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             uc.alive = False
         from .triggers import (after_death_triggers, is_overkill, unit_defeated_triggers,
                                pre_unit_death_2_triggers)
+        from .revive import kill_unit_revive_gate
         overkill = is_overkill(hp_before, damage)
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # GARDE @0x180e76c9e : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
+        # consommateur d'`On(1)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
+        # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(2), NI On(0), NI On(55), NI On(54).
+        revived = kill_unit_revive_gate(state, target_id)
+        if revived is not None:
+            return (out or []) + [{"kill_cancelled_by_revive": revived}]
         # `On(PreUnitDeath_2 = 2)` — émis par `KillUnitOperation$$Execute` APRÈS `On(1)` et AVANT `On(55)`
         # (ordre d'instruction lu au décompilé, cf. docstring). Vecteur des death-novas Explodes/Putrid.
         out = (out or []) + pre_unit_death_2_triggers(state, target_id, attacker_id, overkill=overkill)

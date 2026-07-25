@@ -19,12 +19,27 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
                                                    d'accroche est l'effet 1545 pose par l'autre active du
                                                    Reanimator.)
   base ReviveEffect.CreateTargetTrigger @180f46d80 / CreateTargetTriggerBehaviour @180f46a70
-  get_ReviveOnOverkill (0x738)       : PAS d'override visible -> herite la BASE = @1802b15a0 `return 0`
-                                       => « unless Overkilled ». RESIDU : l'i2 de ReanimationBeam est MUET
-                                       sur l'overkill (pas de phrase de tooltip dans le dump) et la vtable
-                                       de la classe n'est pas lisible LIVE (classe non initialisee : son
-                                       carrier n'est pas montable, cf. VOIE) -> le port herite la base,
-                                       a confirmer si le carrier devient atteignable.
+
+  VTABLE — RESIDU #89/B1 **FERME PAR LECTURE** (2026-07-25). La vtable de la classe reste illisible LIVE
+  (classe jamais initialisee : `resolveVtableSlot` rend des slots NULS, carrier hors pool) -> lecture par
+  l'AUTRE chemin : la table `methodPointers` d'IL2CPP, presente TELLE QUELLE dans `GameAssembly.dll`
+  (VA image-base 0x180000000). Bloc de la classe @file 0x3100698 :
+
+      0x3100698  0x1802b15a0   get_ReviveOnOverkill  = `return 0` (corps 1 octet, bool)  -> **overkill BLOQUE**
+      0x31006a0  0x1802cca80   get_HealType          = `return 1` (corps 8 octets, int)  -> **healType = 1**
+      0x31006a8  0x180f67b90   .ctor
+      0x31006b0  0x180f67ac0   CreateTargetFilter
+      0x31006b8  0x1806e1ac0   GetReviveChance       = `mov eax,100 ; ret`               -> **chance = 100**
+      0x31006c0  0x180f5add0   GetReviveHP           (corps partage ICF avec Narthecium)
+
+  (Ordre valide sur la BASE @0x30fdb28 et croise LIVE sur Narthecium @0x30fffc0 / TaintedNarthecium
+  @0x3100e28, dont les `get_ReviveOnOverkill` lus ici — `return 0` / `return 1` — coincident exactement
+  avec les slots 0x738 lus par `resolveVtableSlot`.)
+
+  ⚠ `get_HealType = 1` (**Repair**) est la CLE du port : `IsAffectedByHealType @180ed77d0` avec healType=1
+  exige une cible MECHANICAL. Avec l'ancien healType=0 code en dur, `CanBeRevived` REJETAIT precisement
+  les cibles que `CreateTargetFilter` exige (`HasTrait(Mechanical)`) -> le revive etait un **NO-OP
+  GARANTI** hors trait `AffectedByHealAndRepair`. Corrige.
 
 PORTEUR / VOIE : `necroReanimator` est une **Machine of War** ABSENTE du pool runner (les 8 MoW
 spawnables au rank 17 sont adeptExorcist, astraOrdnanceBattery, blackForgefiend, deathCrawler,
@@ -50,12 +65,14 @@ class ReanimationBeamReviveTrigger(ReviveEffectTrigger):
     ALLIE Mechanical porteur de `NanoscarabRepairProtocols`. Rail EFFET, one-shot (`removeEffect`)."""
     effect_type = REANIMATION_BEAM_EFFECT
     ability_id = ABILITY_ID
-    revive_on_overkill = False             # herite la base @1802b15a0 = 0 -> « unless Overkilled »
+    revive_on_overkill = False             # methodPointers @0x3100698 = @1802b15a0 (`return 0`) : LU
+    heal_type = 1                          # methodPointers @0x31006a0 = @1802cca80 (`return 1`) = Repair :
+                                           # `IsAffectedByHealType(1)` exige une cible MECHANICAL (LU)
     remove_effect = True                   # ctor 0x488=1 -> RemoveEffect : one-shot DEFINITIF
-    # Meme raisonnement que RitesOfMorkai : le gameconfig `ReanimationBeam` n'a pas de constante 'chance'
-    # (constants = {initialCooldownTurns, munitionsCost}) et `GetStringConstant @181576bb0` JETTE sur cle
-    # absente -> `GetReviveChance` est override par un corps litteral, folde/illisible. HYPOTHESE : 100
-    # (aucun pourcentage annonce ; l'ability est un soin/repair deterministe).
+    # `GetReviveChance` : le gameconfig `ReanimationBeam` n'a PAS de constante 'chance' (constants =
+    # {initialCooldownTurns, munitionsCost}) et `GetStringConstant @181576bb0` JETTE sur cle absente ->
+    # la classe DOIT overrider. methodPointers @0x31006b8 = **@1806e1ac0** = `b8 64 00 00 00 c3` =
+    # `mov eax,100 ; ret` -> **100, LU** (ce n'est plus une hypothese ; case-89 volet B2).
     default_chance = 100
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:

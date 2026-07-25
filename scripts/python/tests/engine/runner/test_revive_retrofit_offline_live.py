@@ -19,7 +19,7 @@ import pytest
 
 from engine.runner.snapshot import load_state
 from engine.runner.operations.triggers import after_death_triggers
-from engine.runner.operations.revive import reset_revive_gates
+from engine.runner.operations.revive import reset_revive_gates, kill_unit_revive_gate
 from engine.runner.components import (UnitComponent, HealthComponent, OwnerComponent,
                                       StatsComponent, PositionComponent)
 from engine.runner.prng import IntBasedMersenneTwister
@@ -87,9 +87,13 @@ def _traits(st, uid, *add):
 
 
 def _kill(st, uid, killer, overkill=False):
+    """`On(1)` PUIS la GARDE @0x180e76c9e (`kill_unit_revive_gate`) qui draine la `ReviveData` posee par
+    la feuille `Revive` -- mirror de `KillUnitOperation.Execute @180e76470` (case-89 volet C)."""
     st.get_entity(uid).get_component(HealthComponent).hp = 0
     st.get_entity(uid).get_component(UnitComponent).alive = False
-    return after_death_triggers(st, dying_id=uid, killer_id=killer, overkill=overkill)
+    out = after_death_triggers(st, dying_id=uid, killer_id=killer, overkill=overkill)
+    kill_unit_revive_gate(st, uid)
+    return out
 
 
 def _alive(st, uid):
@@ -102,9 +106,12 @@ def _setup_beam(env, mechanical=True, nanoscarab=True):
     beam, tgt = _two_allies(st)               # beam = porteur de l'effet 1547 (le Reanimator)
     _add_effect(st, beam, REANIMATION_BEAM_EFFECT, "ReanimationBeam_Revive")
     if mechanical:
-        # HasTrait(target, Mechanical=5) ; `CanBeRevived` exige alors AffectedByHealAndRepair
-        # (IsAffectedByHealType(0) = HasTrait(AffectedByHealAndRepair) OR NOT IsMechanical).
-        _traits(st, tgt, "Mechanical", "AffectedByHealAndRepair")
+        # HasTrait(target, Mechanical=5) SEUL. Le port pose desormais `heal_type = 1` (Repair), lu dans
+        # methodPointers @0x31006a0 = @1802cca80 (`return 1`) -> `IsAffectedByHealType(1) @180ed77d0`
+        # EXIGE une cible mecanique : plus besoin de la bequille `AffectedByHealAndRepair` (avec
+        # l'ancien healType=0 code en dur, une cible Mechanical SANS ce trait etait REJETEE -> le revive
+        # ReanimationBeam etait un NO-OP GARANTI, case-89 volet B1).
+        _traits(st, tgt, "Mechanical")
     if nanoscarab:
         _add_effect(st, tgt, NANOSCARAB_EFFECT, "NanoscarabRepairProtocols")
     return st, beam, tgt
@@ -132,10 +139,28 @@ def test_beam_requires_nanoscarab_effect(env):
 
 def test_beam_requires_mechanical(env):
     """`HasTrait(target, Mechanical=5)` : une cible NON-Mechanical (meme avec 1545) -> PAS de revive.
-    C'est l'INVERSE de Narthecium, qui exclut les Mechanical."""
+    C'est l'INVERSE de Narthecium, qui exclut les Mechanical. DOUBLE barriere ici : le filtre
+    @180f67ac0 ET `IsAffectedByHealType(healType=1)` @180ed77d0 (Repair -> mecaniques seulement)."""
     st, beam, tgt = _setup_beam(env, mechanical=False)
     _kill(st, tgt, beam)
     assert not _alive(st, tgt), "revive d'une cible non-Mechanical (filtre HasTrait non respecte)"
+
+
+def test_beam_heal_type_is_repair(env):
+    """Discriminant case-89/B1 : `get_HealType @vtable+0x748` de ReanimationBeam = **1** (Repair, lu dans
+    methodPointers @0x31006a0 -> @1802cca80 `return 1`). Consequence OBSERVABLE : une cible MECHANICAL
+    SANS le trait `AffectedByHealAndRepair` est revivable. Avec l'ancien healType=0 code en dur,
+    `IsAffectedByHealType(0)` la rejetait -> le revive etait un NO-OP GARANTI.
+    Face NEGATIVE opposee : avec healType=0 (celui de Narthecium/RitesOfMorkai), la MEME cible est
+    rejetee -- on l'oppose directement via `is_affected_by_heal_type`."""
+    from engine.runner.operations.triggers.revive_effect import is_affected_by_heal_type
+    from engine.runner.abilities.behaviours import entities_from_state
+    st, beam, tgt = _setup_beam(env)
+    ent = entities_from_state(st, beam, tgt)
+    assert is_affected_by_heal_type(ent.has_trait, ent.target, 1), "healType=1 rejette un Mechanical"
+    assert not is_affected_by_heal_type(ent.has_trait, ent.target, 0), "healType=0 accepte un Mechanical"
+    _kill(st, tgt, beam)
+    assert _alive(st, tgt), "Mechanical sans AffectedByHealAndRepair NON revive (healType!=1)"
 
 
 def test_beam_unless_overkilled_and_one_shot(env):
@@ -201,3 +226,23 @@ def test_phoenix_no_marker_no_revive(env):
     uid, other = _two_allies(st)
     _kill(st, uid, other)
     assert not _alive(st, uid), "revive sans marqueur PhoenixGem"
+
+
+def test_phoenix_marker_survives_a_foreign_revive(env):
+    """Discriminant case-89/B3 : le retrait du marqueur 1451 est un trigger SEPARE
+    (`PhoenixGem_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f5e4a0`) gate par
+    `CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))`. Un revive venu d'AILLEURS (ici une `ReviveData`
+    posee directement, sourceId != PhoenixGem) emet bien `On(0x2e)` mais NE consomme PAS le marqueur.
+    L'ancien port chainait le `RemoveEffect` en dur au behaviour -> ce discriminant etait inexprimable."""
+    from engine.runner.operations.revive import post_pending_revive, kill_unit_revive_gate as _gate
+    st = _fresh(env)
+    uid, other = _two_allies(st)
+    _add_effect(st, uid, PHOENIX_GEM_CAN_REVIVE, "PhoenixGem_CanRevive")
+    st.get_entity(uid).get_component(HealthComponent).hp = 0
+    st.get_entity(uid).get_component(UnitComponent).alive = False
+    post_pending_revive(st, uid, 500, heal_type=0, source=9999)   # sourceId ETRANGER
+    assert _gate(st, uid) is not None, "revive etranger non applique"
+    assert _alive(st, uid)
+    assert not any(e.consumed for e in st.effects.by_unit[int(uid)]
+                   if e.effect_type == PHOENIX_GEM_CAN_REVIVE), \
+        "marqueur 1451 consomme par un revive ETRANGER (CurrentAbilityIs non respecte)"

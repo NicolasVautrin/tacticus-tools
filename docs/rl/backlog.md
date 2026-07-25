@@ -35,7 +35,7 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | #17 | Surveillance des 2 résidus `move` | `[opus]` | Nature RNG, non actionnable — veille seulement. |
 | #PAI-c | Consommateurs de `PerformAIAction` restants (socle LIVRÉ) : **Waaagh 1058**, **SendInTheNextWave 1016**, **Incursion 1021**, **Poxwalkers 1040**, + retrofit **CultDemagogue 1179** (`PerformAINeophyteTurn` bespoke → nœud générique, cycle flags manquant) | `[opus]` | `case-perform-ai-action` §7 (par consommateur : ce qui manque exactement). Waaagh site-2 déjà lu (`@18122c260`, `asGroup=1/reset=1`) → manque `UnitsWithVisualId` / `VisualUnitIdFromUnitId` / `Get`. |
 | #PAI-k | `ListenUpMaggotsEffect` (0x426) + chaîne `SwornProtector`→spawn de Kell : SEULE source de `ActiveAbilityModificationsComponent` ; débloque le chemin NON-NUL de `GetAbilityStatModification` **et** la face DÉCISION `SupremeCommanderPlaybook` (gate « un enfant du caster existe ») | `[opus]` | `case-perform-ai-action` §5.1 + §6 (VAs : `@180f56590`/`@180f56740`, ability `@181221cc0`/`@181221d20` ; playbook `@181162890`/`@181162410`/`@181162720`). Tant que Kell n'est pas porté, porter le playbook = code enregistré-mais-mort. |
-| #66-r | Retrofit des autres consommateurs de la base `ReviveEffect` (revive-en-place) | `[opus]` | `case-66-revive-in-place` §6 : la base + `ReviveUnitOperation` sont PORTEES/VALIDEES (TaintedNarthecium). Ne restent que FILTRE + vars + gate overkill/HealType par sous-classe, chacune EXIGE un carrier spawnable validable : **Narthecium** (ultraApothecary Imperial, `@180f5ae20/@180f5acf0`, non-Mechanical + **unless Overkilled** byte 0x738=0 + chance=100) ; **RitesOfMorkai/FuelledByFury** (spaceWolfPriest 1211, `@180f4ab10`/`@180f810c0/@180f81250`) ; **GhostRevive/TimeFlux** (thousTerminator, `@180f83600/@180f83800`) ; **PhoenixGem_CanReviveEffect** (`@180f5e680/@180f5e4a0`, ability `@181111610/@1811117b0`) ; **ReanimationBeam** (`@180f67b90/@180f67ac0`, carrier a identifier). NB : Narthecium = ajouter le gate `NOT ev.overkill` (contraste TaintedNarthecium). |
+| #66-r2 | Les 2 derniers consommateurs de `DSLFactory.Revive` : **FuelledByFury** (`ultraTitus`) et **GhostRevive/TimeFlux** (`thousTerminator`) | `[opus]` | Retrofit #79 + fermeture #88/#89 LIVRÉS (`case-66-revive-in-place` §6-§7 : les 5 `ReviveEffect` + les 3 hypothèses fermées PAR LECTURE + la garde `KillUnitOperation`). Restent 2 chantiers PROPRES (arbres entièrement RE, cf. §8) : **FuelledByFury** — bloqué sur 3 points nommés, dont l'**émetteur de `On(PendingDeathAdded=3)` non localisé** (ancrage à hooker : `MatchState.AddDeath @181009f90`, xrefs DATA only) + le contexte `TriggeringAbilityIs(FinalJustice)` non threadé + la pose de l'effet 1324 ; **GhostRevive/TimeFlux** — exige un vecteur `On(PreUnitMove=31)`, un effet portant une TUILE (le ghost) et un revive **NON in-place** (`SetRevivePosition @180e936e0` paramétrée). Les DEUX carriers sont des heros DANS le pool ⇒ validables LIVE le jour du port. |
 
 ## Résidus documentés (pas encore des tâches)
 
@@ -65,12 +65,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Reste à mesurer/généraliser : bornes d'attaque NORMALE (`damage_ops:177/179`), ability bounds-mode
   (`:353`), normal-like (`:472`), additional-hits — tous live-validés bit-exact AVEC la troncature,
   donc chacun exige sa propre campagne de datapoints discriminants. `[fable]`.
-- **Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**
-  (`case-death-nova-explodes-putridexplosion` §2.1) : `On(PreUnitDeath=1)` est émis AVANT la garde,
-  `On(2)`/`On(0)`/`On(55)`/`On(54)` DEDANS. Sémantique du lookup (`entities+0xa8` indexé par une clé du
-  singleton de bataille) NON résolue -> savoir si un REVIVE déclenché sur `On(1)` court-circuite
-  `On(2)`/`On(55)` reste OUVERT. Le port émet les trois inconditionnellement (== comportement déjà en
-  place pour `On(55)`). À trancher avec **#66-r** (retrofit REVIVE). `[fable]`.
+- ~~**Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**~~ — **RÉSOLU
+  (#88/#89, 2026-07-25)**. Le lookup n'est pas un dictionnaire mais le `hasValue` du
+  **`Nullable<ReviveData>` @`UnitComponent + 0xa8`** (même champ que celui qu'écrit
+  `ReviveBehaviour.Execute @180fd1230` et que lit+purge `ReviveUnitOperation.Execute @180e91bd0`).
+  ⇒ **un REVIVE posé sur `On(1)` COURT-CIRCUITE `On(2)`, `On(0)`, `On(55)`, `On(54)`** (+ flags de mort,
+  `RemoveEffects`, `RegisterDefeatedUnit`). Le port applique la garde (`kill_unit_revive_gate`), validée
+  live par `test_revive_cancels_death_events_live.py`. Détail : `case-66-revive-in-place` §7.
 - **Migration du DoT de tuile `EnvFireTile` vers la route `AbilityDamageOperation`**
   (`case-death-nova-explodes-putridexplosion` §3) : `DSLFactory.AttackWithAbilityDamage @180de9e50`
   construit `AbilityDamageBehaviour` + `AttackBehaviour` -> `AbilityDamageOperation`, alors que le port
