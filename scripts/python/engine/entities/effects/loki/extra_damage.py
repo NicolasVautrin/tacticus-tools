@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_decrease,
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
-from ..base import BaseEffect
+from ..base import BaseEffect, is_melee_attack, is_ranged_attack
 from ..magnitude import ability_var, trait_var
 
 
@@ -340,8 +340,8 @@ class CrushingStrikeEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                            # gated IsMeleeAttack (IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier)
-            return None
+        if not is_melee_attack(is_ranged):       # gated IsMeleeAttack (IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier)
+            return None                          # #106 : nature NON prouvee melee -> gate FAUX (mirror BattleQuery)
         if is_normal_attack is False:            # gated IsNormalAttack (spéciale mêlée → pas de bonus)
             return None
         if has_moved:                            # ActiveCondition NOT HasFlag(HasMoved) (IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateActiveCondition)
@@ -372,8 +372,8 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if not is_ranged:                        # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
-            return None
+        if not is_ranged_attack(is_ranged):      # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
+            return None                          # #106 : foyer unique du predicat (mirror BattleQuery)
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier ; i2 : « When this unit has not moved this
         # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
         # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
@@ -414,8 +414,8 @@ class RangedSpecialistEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if not is_ranged:                        # gated IsRangedAttack (IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack)
-            return None
+        if not is_ranged_attack(is_ranged):      # gated IsRangedAttack (IdunBattle.Entities.Effects.Loki.RangedSpecialistEffect$$CreateEffectDamageBonusForAttack)
+            return None                          # #106 : foyer unique du predicat (mirror BattleQuery)
         pct = trait_var("RangedSpecialist", "rangedSpecialistDmgPct")
         return for_percent_increase(True, pct) if pct is not None else None
 
@@ -442,8 +442,8 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                                  # IsMeleeAttack -> melee uniquement
-            return None
+        if not is_melee_attack(is_ranged):             # IsMeleeAttack -> melee uniquement
+            return None                                # #106 : nature NON prouvee melee -> gate FAUX
         if not target_traits or _BEAST_SLAYER_TARGET_TRAITS.isdisjoint(target_traits):
             return None                                # cible ni BigTarget ni Vehicle -> 0
         pct = trait_var("BeastSlayer", "beastSlayerExtraDmgPct")
@@ -616,8 +616,8 @@ class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if not is_ranged:                              # gate IsRangedAttack IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack (melee/inconnu -> 0)
-            return None
+        if not is_ranged_attack(is_ranged):            # gate IsRangedAttack IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack (melee/inconnu -> 0)
+            return None                                # #106 : foyer unique du predicat (mirror BattleQuery)
         crescendo = self.level                         # EffectLevel (stack), deja cappe (buffMaxLevel=6) a l'ecriture
         if not crescendo or int(crescendo) <= 0:
             return None

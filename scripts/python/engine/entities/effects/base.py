@@ -26,6 +26,34 @@ from ...services.effect_bonus import EffectBonus
 SAME_TURNS = "same"
 
 
+# ── nature du coup : mirror des DEUX prédicats natifs (#106) ────────────────────────────────────
+# `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` / `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack`
+# (consommés par `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` /
+# `IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger`, eux-mêmes les nœuds
+# `IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` / `$$IsRangedAttack` des `CreateEffectDamageBonusForAttack`).
+# Les DEUX partent de `GetAbilityAttackRangeType(abilityDuCoup)` et rendent un **bool**, jamais un tri-état :
+#   • `Nullable<AbilityOrEffect>` VIDE (pas d'ability dans le contexte) → `GetAbilityAttackRangeType` = 0
+#     → melee=FALSE **et** ranged=FALSE ;
+#   • 0 (None)   → melee=FALSE, ranged=FALSE  (ni l'un ni l'autre — les deux gates se taisent) ;
+#   • 1 (Melee)  → melee=TRUE,  ranged=FALSE ;
+#   • 2 (Ranged) → melee=FALSE, ranged=TRUE  ;
+#   • 3 (Both)   → `HasFlag(unit, 0x15)` ? (melee=FALSE, ranged=TRUE) : `AreUnitsInMelee(attPos, tgtPos)`
+#                  (position-based, melee = AreUnitsInMelee, ranged = son complément).
+# ⇒ le natif n'a PAS d'état « inconnu », et surtout : quand la nature n'est PAS déterminée, il ne se rabat
+# JAMAIS sur mêlée. Côté port, `is_ranged=None` (nature non threadée par la façade appelante) doit donc
+# faire TAIRE les DEUX familles de gates, comme l'axe COUPS (`att_ctx["is_melee"] is not True`) et les
+# auras (`ctx["is_melee"]`) le font déjà. Le défaut FALSY de `if is_ranged:` faisait l'inverse sur l'axe
+# DÉGÂT (contribution mêlée-only appliquée à un coup de nature inconnue) — c'était le fork du cas #106.
+def is_melee_attack(is_ranged: "bool | None") -> bool:
+    """`BattleQuery$$IsMeleeAttack` : VRAI seulement si la nature du coup est PROUVÉE mêlée."""
+    return is_ranged is False
+
+
+def is_ranged_attack(is_ranged: "bool | None") -> bool:
+    """`BattleQuery$$IsRangedAttack` : VRAI seulement si la nature du coup est PROUVÉE distance."""
+    return is_ranged is True
+
+
 @dataclass
 class SubEffectSpec:
     """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des

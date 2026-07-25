@@ -239,3 +239,18 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   d'appartenance : « un patch d'équilibrage peut-il changer ce nombre ? »
 
   `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
+- **Nature du coup, résidus** (`case-106-ismeleeattack-fork` §7 — fork CLOS, `execute_normal_like`
+  threade désormais la nature et le prédicat a un foyer unique) : (a) **le mode `AttackRangeType.Both`
+  (3) n'est pas modélisé** — le port déclare la nature (`is_melee` du behaviour) là où
+  `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` la calcule par `AreUnitsInMelee(attPos, tgtPos)`
+  pour ce mode ; les deux coïncident sur tout ce qui a été mesuré (coups hors-mêlée), un coup `Both`
+  résolu AU CONTACT ferait diverger ; (b) **famille ABILITY d'`execute_ability_attack`** — la mesure
+  #45f dit que `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` reçoit des modifiers
+  ATTAQUANT **vides** ; le port ne les vide pas, il se contente de ne pas threader la nature, donc les
+  bonus SANS gate de nature (`DecoysAndMisdirection`, `RapidAssault`) y passent encore. `[opus]`.
+- **`WaaaghAbility` (1058) : face COMBAT inerte dans le runner isolé** (`case-106` §7, mesuré session 78) :
+  `applyAction ability` sur le Warboss rend `ok:true, mutated:false, events:[group 12 Waaagh, finish]` et
+  ne pose AUCUN des 3 buffs (1099/1100/1101) — ni sur le caster, ni sur l'allié adjacent — y compris au
+  tour suivant sans déplacement préalable et en ciblant une tuile. Bloque toute confrontation live des
+  contributions Waaagh (#95) et le contre-cas mêlée-only de `case-106`. Cause non élucidée. `[opus]`,
+  à traiter avec `#PAI-c` (Waaagh est déjà son 1er consommateur nommé).

@@ -535,7 +535,22 @@ class _DamageOpsMixin:
             return None
         ctx = sc.ctx
         ahc = att.get_component(HealthComponent)
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id)
+        # #106 (fork IsMeleeAttack) : NATURE DU COUP threadee dans la collecte attacker-modifiers, comme
+        # `execute` (attaque normale, `_ranged` de l'arme) et `execute_ability_attack` (#47, `not is_melee`).
+        # CETTE facade RECEVAIT deja `is_melee` (elle le passe a `defender_modifiers` et au perçage de
+        # profil du caller) mais NE le threadait PAS a l'axe ATTAQUANT -> `is_ranged=None` remontait
+        # jusqu'aux gates `IsMeleeAttack`/`IsRangedAttack` des effets. Le natif ne connait PAS cet etat :
+        # `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` / `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack`
+        # rendent un BOOL depuis l'`AttackRangeType` de l'ability du coup (None=0 -> les DEUX faux ;
+        # Melee=1 -> melee ; Ranged=2 -> ranged ; Both=3 -> `AreUnitsInMelee` position-based sauf flag 0x15).
+        # Consequence du gap : le splash Psyker (`is_melee=False`, RANGED) recevait les bonus MELEE-only
+        # (Waaagh_ExtraDamage/CrushingStrike : `if is_ranged:` avec None FALSY -> appliques) et PERDAIT les
+        # bonus RANGED-only (RangedSpecialist/HeavyWeapon), a l'inverse de la face PREDICTION du meme coup
+        # (`playbook/psyker.py` passe `is_ranged=True`). `is_melee is None` (appel direct hors des deux
+        # call-sites portes, qui passent tous un bool) -> None conserve = gates inertes.
+        _ranged = (not is_melee) if is_melee is not None else None
+        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
+                                          is_ranged=_ranged)
         # #45f : feuilles POSITIONNELLES du builder PARTAGE IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (elevation/trench) — appliquees
         # a TOUT vecteur d'attaque par le natif (aucun gate normale/ability ; cf. execute_ability_attack,
         # meme fix, probe_45f_gfa_elevation). Le vecteur normal-like (splash Psyker / amount-mode) les
