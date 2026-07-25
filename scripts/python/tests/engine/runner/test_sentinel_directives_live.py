@@ -22,6 +22,17 @@ Ce que ces tests PROUVENT (lit l'etat LIVE ; drive les positions ; state-file UN
       direct (A/B bit-exact, native_factory attack) -> l'arbre n'introduit AUCUN bug de degat ; la valeur
       brute tiree est dans les bornes config [minDmg,maxDmg][level].
 
+ORACLES DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : dans
+`IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour`, le nb de coups
+part de `IdunBattleLogic.Entities.DSLFactory$$ConfigConst(0x2f)` et le profil de
+`IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile`, tous deux passes DIRECTEMENT a
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule (et
+`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` = `GetStringConstant` +
+`System.Int32.Parse`). Valeurs BRUTES -> l'oracle est la CONFIG :
+`gameconfig.ability("SentinelDirectives").constants` (`nrOfHits`, `damageProfile`, `range`) et
+`gameconfig.damage_profile(<profil>).PiercingRatio`. Cle non ambigue : enum `AbilityConstantType`
+0x2f=nrOfHits(47) vs 0x16=range(22) (cf. `engine/entities/formulas.py::ConfigConst`).
+
 RESIDU DOCUMENTE (confound CASTER-INTRINSEQUE, HORS de ce port) : le seul porteur de 1139 (Sy-Gex) porte
 `HeavyGravCannon` (1291) -- `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$
 CreateEffectDamageBonusForAttack` = ForAddition(cond, ConfigVar(8=extraDmg)) et `...$$
@@ -51,6 +62,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -71,7 +83,21 @@ CASTER_VIS = "admecDestroyer"
 TARGET_VIS = "necroOverlord"        # vanille tanky (survit 1 coup) ; LOS clair depuis le spawn (cast fiable)
 ABILITY = 1139
 PINNED = 0x429                      # 1065
-RANGE = 3                          # SentinelDirectives = Ranged, range 3
+
+
+def _const(key):
+    """ORACLE : constante de config d'ability SentinelDirectives (`ConfigConst`/`GetNumberConstant`,
+    lecture BRUTE cote natif -- cf. en-tete). Fail explicite si la cle a disparu de la config."""
+    v = ((GC.ability("SentinelDirectives") or {}).get("constants") or {}).get(key)
+    assert v is not None, (f"oracle introuvable : gameconfig.ability('SentinelDirectives').constants.{key} "
+                           f"absent -- le natif le lit en ConfigConst, il DOIT exister")
+    return v
+
+
+def _range():
+    """Portee de l'ability = `constants.range` (0x16) : elle pilote le rapprochement du caster, donc un
+    litteral la desynchroniserait silencieusement du jeu (cast illegal -> skip, pas d'echec visible)."""
+    return int(_const("range"))
 
 
 def _ok(r):
@@ -106,7 +132,7 @@ def _build(seed, a_units):
 
 
 def _approach(rpc, rid, board, target_vis):
-    """Avance jusqu'a mon tour ; rapproche le caster a portee 3 de la cible (LOS clair). Renvoie
+    """Avance jusqu'a mon tour ; rapproche le caster a portee `constants.range` de la cible (LOS clair). Renvoie
     (cid, tid, my_player, moves) ou None. `moves` = nb de deplacements REELLEMENT emis pour le caster :
     fait CONNU (on pilote) que `load_state` ne peut PAS relire (aucun RPC n'expose les UnitFlags) et
     qu'on re-seede offline via `set_moved_flag` -> gate no-move de HeavyWeapon_ExtraDmg fidele."""
@@ -133,6 +159,7 @@ def _approach(rpc, rid, board, target_vis):
 
     my = None
     moves = 0
+    rng_cfg = _range()                       # portee LUE en config, jamais figee
     for _ in range(25):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         units = dv.get("units") or []
@@ -145,7 +172,7 @@ def _approach(rpc, rid, board, target_vis):
         if dv.get("currentPlayer") != my:
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60); continue
         cid = caster["id"]
-        if hexgeo.distance(_cr(caster), _cr(tgt)) <= RANGE and tgt["id"] in legal(cid):
+        if hexgeo.distance(_cr(caster), _cr(tgt)) <= rng_cfg and tgt["id"] in legal(cid):
             return cid, tgt["id"], my, moves
         dist = bfs(tile_of(tgt))
         mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
@@ -219,9 +246,25 @@ def test_sentinel_directives_live(live_session, rpc):
         ce = st.get_entity(cid)
         if ce is None or ce.get_component(StatsComponent) is None:
             pytest.skip("caster sans StatsComponent")
-        bmin, bmax, pierce, hits = ability_attack_params(st, cid, "SentinelDirectives", "Physical", ranged=True)
-        assert hits == 1, f"nrOfHits {hits} != 1 (config SentinelDirectives constants.nrOfHits)"
-        assert pierce == 1, f"pierce {pierce} != 1 (profil Physical PiercingRatio)"
+        # ORACLE CONFIG : nb de coups + profil lus TELS QUELS dans la config (cf. en-tete).
+        want_hits = int(_const("nrOfHits"))
+        prof = _const("damageProfile")
+        dp = GC.damage_profile(prof) or {}
+        assert dp.get("PiercingRatio") is not None, f"oracle introuvable : damageProfiles.{prof}.PiercingRatio"
+        want_pierce = int(dp["PiercingRatio"])
+        bmin, bmax, pierce, hits = ability_attack_params(st, cid, "SentinelDirectives", prof, ranged=True)
+        assert hits == want_hits, (
+            f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas la "
+            f"CONSTANTE d'ability (0x2f) mais autre chose (variable per-niveau scalee ? mauvaise cle ?)")
+        # percage = PiercingRatio du PROFIL + ExtraPierce du caster ; Sy-Gex n'a pas d'ExtraPierce en STAT
+        # (son bonus HeavyGravCannon passe par un EFFET, cf. RESIDU en tete) -> l'identite isole l'oracle
+        # de profil. Si un patch lui en donnait en stat, ce garde-fou le DIRAIT.
+        _ctx = ce.get_component(StatsComponent).ctx
+        _xp = int(_ctx.extra_pierce or 0) + int(_ctx.extra_pierce_ranged or 0)
+        assert _xp == 0, (f"setup n'isole plus le PiercingRatio du profil : le caster a ExtraPierce={_xp} "
+                          f"-> l'oracle attendu devient PiercingRatio + {_xp}")
+        assert pierce == want_pierce, (
+            f"pierce {pierce} != oracle config {want_pierce} (damageProfiles.{prof}.PiercingRatio)")
         # Pinned NE doit PAS etre present avant le cast (delta -> c'est SentinelDirectives qui le pose)
         t_pre = next((u for u in (dv.get("units") or []) if u.get("id") == tid), {})
         pinned_pre = next((ef for ef in (t_pre.get("effects") or []) if ef.get("effectType") == 1065), None)
@@ -236,6 +279,13 @@ def test_sentinel_directives_live(live_session, rpc):
             pytest.skip(f"aucun degat live (LOS/obscurci) cast={str(res)[:160]}")
         if crit or block or evade:
             pytest.skip(f"coup non propre (crit/block/evade): {crit}/{block}/{evade}")
+        # CONFRONTATION du nb de coups au LIVE (le nb APPLIQUE est CALCULE : base - reductions, plancher 1).
+        # Sans elle, un port qui lirait la mauvaise constante resterait vert : oracle et port lisent la MEME
+        # config, seul le natif tranche. (Mesure : perturbation nrOfHits 1 -> 2 non detectee avant ajout.)
+        assert len(live_ph) == want_hits, (
+            f"{len(live_ph)} coups LIVE (per_hit={live_ph}) != oracle config nrOfHits={want_hits} -- soit "
+            f"une reduction de coups joue dans ce setup (le port doit la modeliser), soit le port/l'oracle "
+            f"ne lisent pas la constante que le natif passe a AttackWithAttackDamage (ConfigConst 0x2f)")
 
         # Pinned live sur la cible + turn-flow live (currentPlayer inchange)
         dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
@@ -252,7 +302,9 @@ def test_sentinel_directives_live(live_session, rpc):
         assert last.get("ported") is True, (
             f"SentinelDirectives (1139) non execute (no-op) : last={last} ; "
             f"unported={getattr(runner.ability_handler, 'unported', None)}")
-        assert last.get("informed_weapon") == "Physical", f"InformWeapon(Physical) non emis: {last.get('informed_weapon')}"
+        assert last.get("informed_weapon") == prof, (
+            f"InformWeapon({prof}) non emis: {last.get('informed_weapon')} -- le profil vient de "
+            f"`constants.damageProfile` (GetDamageProfile), pas d'un litteral")
         atk = last.get("attack") or {}
         off_ph = atk.get("per_hit") or []
         # (2) Pinned materialise offline ET live
@@ -273,13 +325,14 @@ def test_sentinel_directives_live(live_session, rpc):
         # --- A/B : arbre == sequence directe execute_ability_attack (attack family, meme rng) ---
         st_ab = mkstate(); st_ab.rng = _seed_rng(s0)
         direct = AttackDamageOperation.execute_ability_attack(
-            st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile="Physical", is_melee=False,
+            st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile=prof, is_melee=False,
             is_attack_damage_op=True)
         ab_ph = (direct or {}).get("per_hit") or []
         print(f"\n[SENTDIR] config [{bmin},{bmax}] pierce={pierce} hits={hits}")
         print(f"[SENTDIR] live={live_ph} off={off_ph} A/B={ab_ph} pinned_live_src={pinned_live.get('source')}")
         # (4) TREE FIDELE : l'arbre emet la MEME Operation que le pipeline direct (bit-exact)
-        assert len(off_ph) == 1 and len(ab_ph) == 1, f"coups off={off_ph} A/B={ab_ph} != 1"
+        assert len(off_ph) == want_hits and len(ab_ph) == want_hits, \
+            f"coups off={off_ph} A/B={ab_ph} != oracle config nrOfHits={want_hits}"
         assert off_ph == ab_ph, f"arbre {off_ph} != sequence directe execute_ability_attack {ab_ph}"
         # raw brut tire dans les bornes config (la valeur pre-reduction est le degat quand armure faible)
         assert bmin <= (atk.get("clean_max") or bmax) , "borne config incoherente"

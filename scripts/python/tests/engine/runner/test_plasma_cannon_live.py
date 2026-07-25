@@ -23,7 +23,7 @@ CE QUE LE TEST VALIDE (perimetre du PORT) :
       `execute_ability_attack(Plasma, nrOfHits, [minDmg,maxDmg], native_factory=attack)` sous le MEME rng
       seede -> prouve que la FEUILLE lit la bonne config/profil/factory (structure fidele, isole du pipeline).
   (B) TARGETING LIVE : le splash frappe EXACTEMENT les unites directly-behind (== `UnitsDirectlyBehind`
-      offline), 3 coups (nrOfHits) par cible, main comprise. La fidelite du selecteur (directly-behind, non
+      offline), `nrOfHits` coups par cible, main comprise. La fidelite du selecteur (directly-behind, non
       adjacent-all comme PlasmaGrenade) = `UnitsDirectlyBehind offline == {les 2 unites drivees}` + geometrie
       STRICTE (2 unites a d=3 > d_ct=2, cote oppose au caster ; toute autre unite parquee LOIN).
   (C) native_factory="attack" LIVE : sur la cible MAIN (rng SYNCHRONISE, avant le PickRandomly), le ratio
@@ -41,6 +41,19 @@ CONFONDS DOCUMENTES (pipeline PARTAGE, HORS perimetre de ce port ; cf. rapport) 
   => la confrontation de MAGNITUDE bit-exact du degat est CONFONDUE ; on valide la STRUCTURE (A/B), le
      TARGETING, le nb de coups, et native_factory (ratio-constant), PAS l'egalite de degat brute.
 
+ORACLE DU NOMBRE DE COUPS (#96 -- aucun scalaire de gameplay fige). Le decompile TRANCHE : dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour`, les DEUX volets
+(main ET splash) passent `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits`
+= `GetNumberConstant(cfg, 0x2f)` directement en argument de
+`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -- aucune formule, et
+`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` n'est qu'un `GetStringConstant` +
+`System.Int32.Parse`. Valeur BRUTE -> l'oracle est la CONFIG :
+`gameconfig.ability("PlasmaCannon").constants.nrOfHits`. Cle non ambigue malgre la COLLISION DE VALEUR
+avec `range` (les deux valent 3 aujourd'hui) : enum `AbilityConstantType` 0x2f=nrOfHits(47) vs
+0x16=range(22) (cf. `engine/entities/formulas.py::ConfigConst`). Le nb de coups REELLEMENT applique, lui,
+est CALCULE (`attack_hits_with_modifiers` : base + ExtraHits - reductions, plancher 1) : c'est donc le
+LIVE qui l'arbitre, et on le confronte a l'oracle config (aucune reduction de coups dans ce setup).
+
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. Skip si build/geometrie/darkaTerminator indispo.
 """
 from __future__ import annotations
@@ -53,6 +66,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -86,6 +100,14 @@ def _caster(dv):
 
 def _spread(ratios):
     return (max(ratios) - min(ratios)) if ratios else 0.0
+
+
+def _want_hits():
+    """ORACLE : `constants.nrOfHits` de PlasmaCannon (lecture BRUTE cote natif, cf. en-tete)."""
+    v = ((GC.ability("PlasmaCannon") or {}).get("constants") or {}).get("nrOfHits")
+    assert v is not None, ("oracle introuvable : gameconfig.ability('PlasmaCannon').constants.nrOfHits "
+                           "absent -- le natif le lit par GetNumberConstant(0x2f), il DOIT exister")
+    return int(v)
 
 
 def test_plasma_cannon_live(live_session, rpc):
@@ -205,7 +227,10 @@ def test_plasma_cannon_live(live_session, rpc):
         assert set(udb) == {b1["id"], b2["id"]}, \
             f"UnitsDirectlyBehind offline {udb} != les 2 unites drivees derriere {sorted([b1['id'], b2['id']])}"
         bmin, bmax, pierce, hits = ability_attack_params(st, cid, "PlasmaCannon", "Plasma", ranged=True)
-        assert hits == 3, f"nrOfHits {hits} != 3 (config PlasmaCannon)"
+        want_hits = _want_hits()
+        assert hits == want_hits, (
+            f"nrOfHits lu {hits} != oracle config {want_hits} (constants.nrOfHits) -- le port ne lit pas "
+            f"la CONSTANTE d'ability (0x2f) mais autre chose (variable per-niveau scalee ? mauvaise cle ?)")
         s0 = rpc("dumpRng", {"runnerId": rid}, 30)
         if not _ok(s0):
             pytest.skip("dumpRng KO")
@@ -232,7 +257,11 @@ def test_plasma_cannon_live(live_session, rpc):
             f"cibles splash live {sorted(live)} != main+directly-behind "
             f"{sorted([target['id'], b1['id'], b2['id']])}")
         for tid, ph in live.items():
-            assert len(ph) == 3, f"cible {tid} : {len(ph)} coups live != 3 (nrOfHits)"
+            assert len(ph) == want_hits, (
+                f"cible {tid} : {len(ph)} coups LIVE != oracle config nrOfHits={want_hits}. Le nb applique "
+                f"est CALCULE (base - reductions, plancher 1) : soit une reduction de coups s'applique "
+                f"dans ce setup (le port doit alors la modeliser), soit les DEUX volets ne lisent plus la "
+                f"meme constante (le natif passe ArmoriumCherubAbility$$GetHits aux deux)")
 
         # (A) A/B : arbre (main) == sequence directe execute_ability_attack, BIT-EXACT sous le meme rng seede.
         st_tree = load_state(dv2, ob2, snap2, board=board); st_tree.rng = _seed_rng(s0)
@@ -256,7 +285,10 @@ def test_plasma_cannon_live(live_session, rpc):
         off_ability = (AttackDamageOperation.execute_ability_attack(
             st_ab, cid, target["id"], bmin, bmax, pierce, hits,
             damage_profile="Plasma", is_melee=False, is_attack_damage_op=False) or {}).get("per_hit")   # "ability"
-        assert len(live_main) == 3 and len(tree_main) == 3 and len(off_ability) == 3
+        assert len(live_main) == want_hits and len(tree_main) == want_hits \
+            and len(off_ability) == want_hits, (
+            f"comparaison per-coup impossible : live={len(live_main)} tree={len(tree_main)} "
+            f"ability={len(off_ability)} coups, oracle config nrOfHits={want_hits}")
         r_attack = [lm / om for lm, om in zip(live_main, tree_main)]
         r_ability = [lm / om for lm, om in zip(live_main, off_ability)]
         # attack-family : ratio constant (buff scalaire, rng synced) ; ability-family : desync -> spread large.
