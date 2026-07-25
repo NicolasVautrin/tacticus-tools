@@ -5,6 +5,7 @@ import "./game/runner.js";
 import "./game/match-state.js";
 import "./game/ai-control.js";
 import { installMainPump, installMenuPump } from "./runtime/main-pump.js";
+import { installFreezeDetectorNeutralizer } from "./runtime/freeze-detector.js";
 import { installCrashLogger } from "./runtime/crash-logger.js";
 import { installExceptionTracer } from "./runtime/exception-tracer.js";
 import { log } from "./runtime/diag.js";
@@ -16,6 +17,11 @@ log("[*] il2cpp base=" + il2cppBase + " size=" + il2cppSize);
 // installCrashLogger();  // disabled — Process.setExceptionHandler intercepts
 //                       // every SIGSEGV including IL2CPP soft null-checks and
 //                       // GC write barriers, freezing the main thread.
+// EN PREMIER : desarmer le UnityFreezeDetector avant toute autre pose de hook. C'est lui
+// qui appelle `ForceCrash` quand la boucle Unity bloque trop longtemps — donc lui qui tuait
+// le jeu sur un warmup un peu long ou un heap scan. Tout ce qui suit devient survivable.
+installFreezeDetectorNeutralizer();
+
 installMainPump();
 installMenuPump();
 installExceptionTracer();
