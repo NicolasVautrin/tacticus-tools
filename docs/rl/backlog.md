@@ -193,3 +193,12 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Repair_GalvanicField) ou sans id `ActiveAbilityType` (SavageEchoes). Chaque item nomme son débloqueur
   exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe d'overlays. Biais visible
   seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
+- **Canal de coups des abilities, résidus** (`case-61-ability-hits-channel` §6 — canal COMBAT LIVRÉ,
+  base géométrique de `FrenziedFiring` LIVRÉE) : (a) **volet AoE de `FrenziedFiring`** — le playbook natif
+  émet un 2e batch sur `FrenziedFiringAbility$$GetTargets` (ennemis adjacents à la cible, `hits = 1`
+  littéral) que le port n'émet pas, axe `get_aoe_targets` ; (b) **`On(PreAttack=5)` absent du vecteur
+  ability** (fidèle : le natif l'émet depuis `ALoki_NormalAttackAbility$$ExecuteNormalAttack`) → sur ce
+  vecteur `LetTheGalaxyBurn` ne s'arme que par `TargetHasTileEffect`, jamais par le flag persistant 33 % ;
+  (c) **per-coup non bit-exact contre `templChampion`** (même nb de coups, dégât différent — axe DÉGÂT,
+  effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est
+  bit-exact). `[opus]`, à promouvoir si un miss d'agreement les fait surface.

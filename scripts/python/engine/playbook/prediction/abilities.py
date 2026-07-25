@@ -223,11 +223,64 @@ def _great_frost_axe_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ta
     return {"base_override": base}
 
 
+def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
+    """`IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions` (ability 1036,
+    blackObliterator « Volk ») — le nb de coups de l'event PRINCIPAL n'est PAS `nrOfHits` : le playbook
+    evalue le noeud `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetHitsForOriginalTarget`
+    et le passe en 7e arg de `GenerateMultiHitAttackPredictions`. Transcription EXACTE de l'arbre natif :
+
+        Min( Cache( Sum( Get(GetHits),                       # GetHits = GetNumberConstant(0x2f=nrOfHits)=1
+                         Count( Filter( Walkable(AdjacentTiles(target@0x178)),
+                                        Not(HasUnit(tile)) | Not(AreEnemies(Units(tile), caster@0x160)) ) ) ) ),
+             ConfigConst(0x48 = maxNrOfHits) )
+
+    = `nrOfHits` + le nombre de tuiles ADJACENTES A LA CIBLE qui sont marchables ET **pas occupees par un
+    ennemi du caster** (une tuile vide compte ; une tuile tenue par un ALLIE du caster compte AUSSI —
+    seule la presence d'un ennemi l'exclut), plafonne a `maxNrOfHits`. C'est donc une base GEOMETRIQUE :
+    plus la cible est degagee, plus Volk la crible.
+
+    GROUND TRUTH live (case-61, runner isole, board MC1_67, oracle `aiPlaybookPredict.appliedHits`) :
+      - cible en plein champ, 6 voisins marchables, 1 ALLIE du caster sur l'un d'eux -> natif **7** = 1+6
+        (l'allie ne retranche RIEN) ;
+      - un ENNEMI place sur un voisin -> natif **6** = 1+5 ; deplacer l'allie d'un voisin a un autre ne
+        change RIEN (toujours 6) ; un CADAVRE sur un voisin ne compte pas comme unite (tuile comptee).
+    Le port rendait **1** (= `nrOfHits` config seul) dans TOUS les cas -> l'IA sous-estimait FrenziedFiring
+    d'un facteur ~7. C'est la vraie cause du datapoint « 4 ou 5 selon la cible » de #87 (geometrie), et non
+    un effet de la cible : ni `Diminutive` ni `Camouflage` ne modifient ce compte (le canal de coups n'est
+    PAS interpose en prediction, cf. `services/attack_hits_formula.py`).
+
+    Vivants seulement (`Units(tile)` = occupation REELLE ; `decisionView` garde les cadavres, cf. #57m).
+    Board/positions absents -> `{}` = base generique (degradation fidele, aucune sur-prediction).
+    ⚠ RESIDU : le 2e batch du playbook (`GetTargets()` = ennemis adjacents a la cible, `hits=1` litteral)
+    = volet AoE, porte separement par `get_aoe_targets` (non couvert ici)."""
+    board = getattr(scene, "board", None)
+    t_pos = scene.pos(target_id)
+    n = int((cfg.constants or {}).get("nrOfHits") or 0)          # GetHits = GetNumberConstant(0x2f)
+    cap = int((cfg.constants or {}).get("maxNrOfHits") or 0)     # ConfigConst 0x48
+    if board is None or not t_pos or not n:
+        return {}
+    t_tile = board.id_at(t_pos[0], t_pos[1])
+    if t_tile is None:
+        return {}
+    c_team = scene.team(caster_id)
+    enemy_tiles = set()                                          # tuiles tenues par un ENNEMI du caster
+    for uid, p in (scene.pos_by_id or {}).items():
+        if not p or (scene.hp(uid) or 0) <= 0:                   # cadavre => la tuile est libre
+            continue
+        if scene.team(uid) != c_team:                            # AreEnemies(Units(tile), caster)
+            enemy_tiles.add(board.id_at(p[0], p[1]))
+    count = sum(1 for nb in board.neighbours(t_tile)             # AdjacentTiles(target)
+                if board.walkable(nb) and nb not in enemy_tiles)  # Walkable + (!HasUnit | !AreEnemies)
+    hits = n + count
+    return {"hits_override": min(hits, cap) if cap else hits}    # Min(., ConfigConst(maxNrOfHits))
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
-                             1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs}
+                             1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
+                             1036: _frenzied_firing_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
