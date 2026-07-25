@@ -203,18 +203,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   (c) **per-coup non bit-exact contre `templChampion`** (même nb de coups, dégât différent — axe DÉGÂT,
   effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est
   bit-exact). `[opus]`, à promouvoir si un miss d'agreement les fait surface.
-- **Constantes de gameplay FIGÉES dans les tests, sans oracle** (#96, inventaire — 3 tests corrigés :
-  `test_summon_trait_effects_live` Diminutive + ShadowInTheWarp, `test_lightcover_gate_live`). Le patron
-  reste présent dans **~35 assertions sur ~18 fichiers** de `tests/engine/runner/` : un scalaire écrit en
+- **Constantes de gameplay FIGÉES dans les tests, sans oracle** (#96, inventaire — corrigés à ce jour :
+  `test_summon_trait_effects_live` Diminutive + ShadowInTheWarp, `test_lightcover_gate_live` ; **LOT A
+  `nrOfHits`/`nrOfHits_2` LIVRÉ** : `test_cord_claw_live`, `test_flail_swing_live`,
+  `test_great_frost_axe_live`, `test_fragstorm_migration_live`, `test_jakhal_stimms_live`). Le patron
+  reste présent dans les fichiers ci-dessous : un scalaire écrit en
   dur alors que le jeu le porte dans une clé de config re-équilibrable — le message d'assertion NOMME
-  souvent la clé, ce qui rend le tri mécanique. Familles vues au scan
-  (`assert … == <litt> … (nrOfHits|pierce|chance|Pct|range|config)`) : `nrOfHits`/`nrOfHits_2`
-  (cord_claw, flail_swing, great_frost_axe, fragstorm, jakhal_stimms, martial_apotheosis, plasma_cannon,
+  souvent la clé, ce qui rend le tri mécanique.
+
+  Familles restantes (scan `assert … == <litt> … (nrOfHits|pierce|chance|Pct|range|config)`) :
+  `nrOfHits`/`nrOfHits_2` (martial_apotheosis, plasma_cannon,
   savage_echoes, sanctorum_missile, sentinel_directives, stikkbomb, summon_ability_ports, harvester,
   harbinger, destroyer_hive) ; `PiercingRatio` de profil (40 Power, 55 HeavyRound, 30 Energy, 100
-  DirectDamage, 1 Physical, 10 Las) ; constantes globales (`getStuckInChance == 30`,
+  DirectDamage, 1 Physical, 10 Las — y compris dans les 5 fichiers du lot A, hors périmètre de ce lot) ;
+  constantes globales (`getStuckInChance == 30`,
   `firstAidRecovery == 35`, `parryHitReduction` via `base_cfg - 1` dans
-  `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory).
+  `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory) ; et deux résidus
+  NOMMÉS par le lot A dans ses propres fichiers : `nrOfTargets` du `PickRandomly` Fragstorm
+  (= `GetNumberConstant(cfg, 0x11)`, cap 4 écrit en dur) et `hpPct` du self-loss JakhalStimms
+  (25 % écrit en dur dans `exp_loss`).
 
   **LE CRITÈRE EST BINAIRE — quel oracle pour cette assertion ?**
   - la valeur est **CALCULÉE** (le moteur la dérive par une formule : coups appliqués après

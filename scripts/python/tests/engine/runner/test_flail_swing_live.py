@@ -4,7 +4,7 @@
     Execute( op_BitwiseAnd(
         InformWeapon(GetDamageProfile=Power, 1),                                  # metadata arme (no-op combat)
         AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(minDmg 0xc/maxDmg 0xd),
-                               GetDamageProfile=Power, nrOfHits=GetNumberConstant(0x2f)=3,
+                               GetDamageProfile=Power, nrOfHits=GetNumberConstant(0x2f),
                                alwaysOverkilled=Nullable(true)) ) )
 plain `Execute` (PAS `ExecuteAtomic` -- l'op_BitwiseAnd est passe DIRECTEMENT a `AActiveAbility.Execute`).
 `native_factory="attack"` (la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour = symbole `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`,
@@ -25,6 +25,16 @@ Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore port
       SANS le flag laisse 1 PV (cap Resilient tient) -> le flag est le SEUL ecart (bypass du cap
       `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`).
 
+ORACLE DU NOMBRE DE COUPS (#96 / lot A) : le natif ne DERIVE pas le nb de coups, il le LIT tel quel --
+`AbilityConfiguration.GetNumberConstant(cfg, 0x2f)` (DECOMPILE ci-dessus), et `GetNumberConstant` =
+`Int32.Parse(GetStringConstant(...))` sur le dictionnaire de constantes de l'ability. La valeur est donc
+BRUTE -> l'oracle est la CONFIG, `gameconfig.ability("FlailSwing").constants.nrOfHits` (helper `_cfg_hits`),
+jamais un litteral : un re-equilibrage deplace l'attendu AVEC le jeu au lieu de rougir (ou pire, de rester
+vert sur une verite perimee). Le nb de coups REELLEMENT emis, lui, est CALCULE (`attack_hits_with_modifiers`
+= constante +/- extraHits/malus defenseur/cover, plancher `max(1, ...)`) -> son oracle est le LIVE : on
+confronte port-vs-live, et l'egalite avec la constante ne vaut que parce que ce setup n'a aucun modificateur
+de canal de coups (elle le CONSTATE).
+
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. State-file UNIQUE -> dispose au teardown. Skip si
 build/geometrie/deathBlightlord|custoKyrus indispo.
 """
@@ -38,6 +48,7 @@ from pathlib import Path
 
 import pytest
 
+import gameconfig as GC
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -56,6 +67,19 @@ A_UNITS = "necroWarden,necroWarden,necroWarden,necroOverlord"
 
 def _ok(r):
     return isinstance(r, dict) and r.get("ok")
+
+
+def _cfg_hits(key: str = "nrOfHits") -> int:
+    """ORACLE du nb de coups = la CONSTANTE de config de FlailSwing, PAS un litteral.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour` passe
+    `hits = IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(cfg, 0x2f)` a
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` : valeur BRUTE (aucune formule), donc
+    l'oracle est `gameconfig.ability("FlailSwing").constants[<key>]`."""
+    c = (GC.ability("FlailSwing") or {}).get("constants") or {}
+    v = c.get(key)
+    assert v is not None, (f"oracle introuvable : constants.{key} absent de gameconfig pour FlailSwing "
+                           f"(GetNumberConstant(0x2f) non resolvable offline)")
+    return int(v)
 
 
 def _seed_rng(s):
@@ -194,8 +218,17 @@ def test_flail_swing_live(live_session, rpc):
         ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
         snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
         st = load_state(dv2, ob2, snap2, board=board)
+        cfg_hits = _cfg_hits()
         bmin, bmax, pierce, hits = ability_attack_params(st, cid, "FlailSwing", "Power", ranged=False)
-        assert hits == 3, f"nrOfHits {hits} != 3 (config FlailSwing constants.nrOfHits)"
+        assert hits == cfg_hits, (
+            f"ability_attack_params rend nrOfHits={hits} != oracle "
+            f"gameconfig.ability('FlailSwing').constants.nrOfHits={cfg_hits} (GetNumberConstant 0x2f)")
+        # Le DISCRIMINANT native_factory (2) exige au moins 2 coups : a 1 coup, familles "attack" et
+        # "ability" tirent la meme premiere valeur et le test ne separerait plus rien. On le dit fort
+        # plutot que de laisser un vert non discriminant si la config etait re-equilibree a 1.
+        assert cfg_hits >= 2, (
+            f"setup NON discriminant : nrOfHits={cfg_hits} < 2 -> la desync native_factory commence au "
+            f"coup 2, le volet (2) de ce test ne peut plus rougir")
         assert pierce == 40, f"pierce {pierce} != 40 (profil Power PiercingRatio)"
         sec_hp0 = None
         if sec_id is not None:
@@ -226,9 +259,16 @@ def test_flail_swing_live(live_session, rpc):
         print(f"\n[FLAIL] config [{bmin},{bmax}] pierce={pierce} hits={hits}")
         print(f"[FLAIL] live={live_main} port={tree_ph} A/B={(direct or {}).get('per_hit')}")
 
-        # (1a) 3 coups, per-coup LIVE == port (melee flat -> bit-exact)
-        assert len(live_main) == 3 and len(tree_ph) == 3, \
-            f"coups live={len(live_main)} port={len(tree_ph)} != 3"
+        # (1a) per-coup LIVE == port (melee flat -> bit-exact). Le NOMBRE de coups emis est CALCULE
+        # (`attack_hits_with_modifiers` : constante +/- extraHits/malus/cover, plancher max(1,..)) ->
+        # son oracle est le LIVE (port == natif). L'egalite avec la constante de config, elle, CONSTATE
+        # qu'aucun modificateur de canal n'agit dans ce setup (sinon le bit-exact per-coup ci-dessous
+        # comparerait des indices desalignes).
+        assert len(tree_ph) == len(live_main), \
+            f"nb de coups port {len(tree_ph)} != live {len(live_main)} (le port ne suit pas le natif)"
+        assert len(live_main) == cfg_hits, (
+            f"le natif emet {len(live_main)} coups != nrOfHits={cfg_hits} (oracle config) -> un "
+            f"modificateur de canal de coups agit dans ce setup, le bit-exact per-coup n'est plus aligne")
         assert tree_ph == live_main, \
             f"port per_hit {tree_ph} != live {live_main} (melee flat board -> devrait etre bit-exact)"
         # (1b) A/B bit-exact
@@ -303,8 +343,13 @@ def test_flail_swing_native_factory_second_seed(live_session, rpc):
         ability = (AttackDamageOperation.execute_ability_attack(
             st_b, cid, tid, bmin, bmax, pierce, hits, damage_profile="Power", is_melee=True,
             is_attack_damage_op=False, force_overkill=True) or {}).get("per_hit")
-        print(f"\n[FLAIL s2] attack={attack} ability={ability}")
-        assert attack and ability and len(attack) == 3
+        cfg_hits = _cfg_hits()
+        print(f"\n[FLAIL s2] oracle nrOfHits={cfg_hits} attack={attack} ability={ability}")
+        assert cfg_hits >= 2, (
+            f"setup NON discriminant : nrOfHits={cfg_hits} < 2 -> les deux familles ne peuvent pas "
+            f"diverger (la desync commence au coup 2)")
+        assert attack and ability and len(attack) == cfg_hits, \
+            f"coups offline {len(attack or [])} != oracle constants.nrOfHits={cfg_hits}"
         assert attack[0] == ability[0], f"coup 1 devrait etre identique (meme 1er tirage): {attack} vs {ability}"
         assert attack != ability, \
             f"attack {attack} == ability {ability} : le choix de factory ne change RIEN (discriminant KO)"
