@@ -46,7 +46,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.playbook import scene as SC  # noqa: E402
 from engine.playbook.scene import Scene  # noqa: E402
 from engine.playbook import prediction  # noqa: E402
-from engine.entities.effects.loki.extra_damage import (  # noqa: E402
+from engine.entities.effects.loki.extra_damage_aura import (  # noqa: E402
     SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect)
 
 PYDIR = Path(__file__).resolve().parent

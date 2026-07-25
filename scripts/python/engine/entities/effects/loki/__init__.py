@@ -7,7 +7,9 @@ Ce `__init__` re-exporte la SURFACE PUBLIQUE COMPLETE (les 44 effets + `LIGHT_CO
 imports externes (`from .loki import X` dans `factory.py`/`effects/__init__.py`, `from ...entities.effects.loki
 import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 
-- `extra_damage.py`     — bonus de dégât ATTAQUANT (`create_effect_damage_bonus_for_attack` / aura attack).
+- `extra_damage.py`      — bonus de dégât ATTAQUANT, volet DIRECT (l'effet buffe l'attaque de son porteur).
+- `extra_damage_aura.py` — même famille, volet AURA (effet sur le SOURCE + `CreateTargetSelector` natif →
+                           hooks `create_aura_*`, réévalués PAR CANDIDAT).
 - `damage_reduction.py` — malus de dégât DÉFENSEUR (`create_effect_damage_malus_for_defense` + auras réduc).
 - `hits.py`             — coups / blocs / pénétration-armure (hits/block/armor-pen).
 - `status.py`           — stat-mods, composites (Stunned/Taunted), HP-floor, modificateurs multi-axes.
@@ -18,16 +20,17 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEf
                            FeederTendrilsExtraDamageEffect, AvalancheOfMuscleExtraDamageEffect,
                            DecoysAndMisdirectionExtraDamageEffect,
                            LordOfTempestsExtraDamageEffect,
-                           RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                            CrushingStrikeEffect, HeavyWeaponExtraDmgEffect, RangedSpecialistEffect,
                            BeastSlayerExtraDmgEffect, MartialKatahDmgBonusEffect,
                            CondemnorStakeExtraDmgEffect,
-                           DaughterOfTheAbyssExtraDamagePctEffect,
-                           BeaconOfRageExtraDamageEffect, BeaconOfRageFriendlyExtraDamageEffect,
-                           TerrifyingCrescendoExtraDmgEffect,
-                           LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
-                           SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect,
-                           DefenderOfTheGreaterGoodExtraDmgEffect)
+                           BeaconOfRageExtraDamageEffect,
+                           TerrifyingCrescendoExtraDmgEffect)
+from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
+                                DaughterOfTheAbyssExtraDamagePctEffect,
+                                BeaconOfRageFriendlyExtraDamageEffect,
+                                LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
+                                SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect,
+                                DefenderOfTheGreaterGoodExtraDmgEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
                                NightshroudDmgReductionEffect, NeuroparasiteEffect,
@@ -64,16 +67,16 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, St
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 
 __all__ = [
-    # extra_damage
+    # extra_damage (volet DIRECT)
     "RapidAssaultExtraDamageEffect", "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
     "AvalancheOfMuscleExtraDamageEffect",
     "DecoysAndMisdirectionExtraDamageEffect", "LordOfTempestsExtraDamageEffect",
-    "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
     "BeastSlayerExtraDmgEffect", "MartialKatahDmgBonusEffect", "CondemnorStakeExtraDmgEffect",
-    "DaughterOfTheAbyssExtraDamagePctEffect",
-    "BeaconOfRageExtraDamageEffect", "BeaconOfRageFriendlyExtraDamageEffect",
-    "TerrifyingCrescendoExtraDmgEffect",
+    "BeaconOfRageExtraDamageEffect", "TerrifyingCrescendoExtraDmgEffect",
+    # extra_damage_aura (volet AURA)
+    "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
+    "DaughterOfTheAbyssExtraDamagePctEffect", "BeaconOfRageFriendlyExtraDamageEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",
     "DefenderOfTheGreaterGoodExtraDmgEffect",
