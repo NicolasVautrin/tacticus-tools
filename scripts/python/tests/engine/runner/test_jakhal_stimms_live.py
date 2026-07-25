@@ -60,6 +60,7 @@ State-file UNIQUE par agent (chemin absolu). Skip propre si pas de session / geo
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -68,6 +69,10 @@ from pathlib import Path
 import pytest
 
 import gameconfig as GC
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import damage_profile_pierce    # noqa: E402
+
 import hexgeo
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
@@ -308,7 +313,11 @@ def test_jakhal_stimms_live_bitexact(live_session, rpc, seed):
         assert hh == cfg_hits, (
             f"ability_attack_params rend nrOfHits={hh} != oracle constants.nrOfHits={cfg_hits} "
             f"(GetHits 0x2f)")
-        assert pierce == 1, f"pierce Physical {pierce} != 1"
+        # PERCAGE = valeur BRUTE (`StaticBattleRules.Damage$$GetPiercingRatio` lit
+        # `DamageProfile.PiercingDamageRatio` tel quel) -> oracle = CONFIG, cle nommee.
+        pierce_cfg = damage_profile_pierce("Physical")
+        assert pierce == pierce_cfg, \
+            f"pierce {pierce} != damageProfiles.Physical.PiercingRatio ({pierce_cfg})"
         d_main = (AttackDamageOperation.execute_ability_attack(
             st_dir, cid, tid, bmin, bmax, pierce, hh,
             damage_profile="Physical", is_melee=True, is_attack_damage_op=True) or {}).get("per_hit")

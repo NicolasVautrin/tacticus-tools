@@ -41,6 +41,7 @@ build/geometrie/deathBlightlord|custoKyrus indispo.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -49,6 +50,11 @@ from pathlib import Path
 import pytest
 
 import gameconfig as GC
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import (assert_ability_damage_profile,     # noqa: E402
+                            damage_profile_pierce)
+
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -229,7 +235,14 @@ def test_flail_swing_live(live_session, rpc):
         assert cfg_hits >= 2, (
             f"setup NON discriminant : nrOfHits={cfg_hits} < 2 -> la desync native_factory commence au "
             f"coup 2, le volet (2) de ce test ne peut plus rougir")
-        assert pierce == 40, f"pierce {pierce} != 40 (profil Power PiercingRatio)"
+        # PERCAGE = valeur BRUTE : `StaticBattleRules.Damage$$GetPiercingRatio` lit
+        # `DamageProfile.PiercingDamageRatio` tel quel. L'oracle est donc la CONFIG, pas un litteral --
+        # et le profil lui-meme vient de `AbilityConfiguration$$GetDamageProfile` (FlailSwingAbility$$
+        # ExecuteBehaviour l'appelle), donc les DEUX cles sont verifiees.
+        assert_ability_damage_profile("FlailSwing", "Power")
+        pierce_cfg = damage_profile_pierce("Power")
+        assert pierce == pierce_cfg, \
+            f"pierce {pierce} != damageProfiles.Power.PiercingRatio ({pierce_cfg})"
         sec_hp0 = None
         if sec_id is not None:
             se = st.get_entity(sec_id)

@@ -11,9 +11,14 @@ n'est PAS soigne au tour du player. ASCII only. (Modele : test_lightcover_gate_l
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
-import gameconfig as GC
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import global_constant          # noqa: E402
+
 from engine.runner.snapshot import load_state
 from engine.runner.components import (HealthComponent, PositionComponent, OwnerComponent,
                                       UnitComponent)
@@ -81,12 +86,17 @@ def _place(st, uid, col, row):
     pc.col, pc.row = col, row
 
 
-def test_firstaid_heals_35pct_of_maxhp(firstaid_capture):
-    """Un allie DAMAGED sur une tuile FirstAid est soigne de `firstAidRecovery`(35)% de sa maxHP au
-    StartTurn (event 0x13). Heal clampe a maxHP ; event heal emis."""
+def test_firstaid_heals_pct_of_maxhp(firstaid_capture):
+    """Un allie DAMAGED sur une tuile FirstAid est soigne de `firstAidRecovery`% de sa maxHP au StartTurn
+    (event 0x13). Heal clampe a maxHP ; event heal emis.
+
+    Le POURCENTAGE est une valeur BRUTE : `FirstAidHealEffect$$CreateTargetTriggerBehaviour` le prend par
+    `Direct(GetNumberConstant(config, 0x13))` -- son oracle est la CONFIG, pas un litteral. `global_constant`
+    ECHOUE si la cle a disparu : un `or 0` rendrait `expected = 0`, et l'assertion « heal == 0 » resterait
+    VERTE sans plus rien verifier."""
     cap = firstaid_capture
-    healpct = int(GC.global_value("firstAidRecovery") or 0)
-    assert healpct == 35, "firstAidRecovery attendu 35, lu %d" % healpct
+    healpct = global_constant("firstAidRecovery")      # globalValues.firstAidRecovery
+    assert healpct > 0, "un heal de 0%% ne discrimine rien (lu %d)" % healpct
     st = _fresh(cap)
     uid, player = _find_unit(st, cap["my_team"], want_team=True)
     if uid is None:
@@ -102,7 +112,9 @@ def test_firstaid_heals_35pct_of_maxhp(firstaid_capture):
     expected = min(maxhp - before, round(maxhp * healpct / 100))
     print("[FIRSTAID heal] board=%s maxhp=%d before=%d after=%d expected+%d res=%s" %
           (cap["board_id"], maxhp, before, after, expected, res))
-    assert after - before == expected, "heal %d != attendu %d (35%% maxHP clamp)" % (after - before, expected)
+    assert after - before == expected, \
+        "heal %d != attendu %d (firstAidRecovery=%d%% de maxHP, clamp maxHP)" % (
+            after - before, expected, healpct)
     assert any(r.get("unit") == uid and r.get("heal") == expected for r in res), "event heal FirstAid manquant"
 
 

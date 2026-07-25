@@ -32,7 +32,14 @@ ASCII-only. Skip si pas de session / Typhus non buildable.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import (assert_ability_damage_profile,     # noqa: E402
+                            damage_profile_pierce)
 
 TYPHUS_VIS = "deathTyphus"
 ENEMY_VIS = "necroWarden"
@@ -190,14 +197,17 @@ def test_dh_structure(dh_state):
     n_hits, prof = cst.get("nrOfHits"), cst.get("damageProfile")
     assert n_hits is not None and prof, \
         f"oracle introuvable : constants.nrOfHits/damageProfile de l'ability DestroyerHive (lu: {cst})"
-    ratio = (GC.damage_profile(prof) or {}).get("PiercingRatio")
-    assert ratio is not None, f"oracle introuvable : damageProfiles[{prof}].PiercingRatio"
+    ratio = damage_profile_pierce(prof)      # ECHOUE sur cle absente (jamais un None qui passe en 0)
     ctx = dh_state["build_state"]().get_entity(dh_state["tid"]).get_component(StatsComponent).ctx
     assert (ctx.extra_pierce, ctx.extra_pierce_melee) == (0, 0), (
         f"le porteur a un percage supplementaire ({ctx.extra_pierce}/{ctx.extra_pierce_melee}) : le percage "
         f"effectif n'est plus l'identite du PiercingRatio de profil -- adapter le setup ou l'attendu")
     off = _fire_offline(dh_state, dh_state["p_team"])
     assert off is not None
+    # `assert_ability_damage_profile` epingle le nom de profil LU EN CONFIG a celui du decompile
+    # (`DestroyerHiveAbility$$CreateBehaviour` -> `AbilityConfiguration$$GetDamageProfile`) : sans lui, un
+    # profil renomme en config deplacerait silencieusement l'attendu avec lui.
+    assert_ability_damage_profile("DestroyerHive", "DirectDamage")
     assert off.get("hits") == int(n_hits), \
         f"coups {off.get('hits')} != constants.nrOfHits={n_hits} (oracle gameconfig, GetNumberConstant 0x2f)"
     assert off.get("pierce") == int(ratio), (

@@ -52,6 +52,7 @@ from pathlib import Path
 import pytest
 
 import gameconfig as GC
+
 import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state

@@ -59,11 +59,16 @@ hardcodee, seed = simple generateur. State-file UNIQUE (chemin absolu + agent id
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import (assert_ability_damage_profile,     # noqa: E402
+                            damage_profile_pierce)
 
 import hexgeo
 from engine.entities.pathfinding.board import Board
@@ -189,15 +194,6 @@ def _cfg_constants() -> dict:
     assert cst.get("nrOfHits") is not None and cst.get("range") is not None and cst.get("damageProfile"), \
         f"oracle introuvable : constants nrOfHits/range/damageProfile de HarbingerOfDestruction (lu: {cst})"
     return cst
-
-
-def _cfg_profile_pierce(profile_name: str) -> int:
-    """`damageProfiles[<profil>].PiercingRatio` -- l'autre moitie de l'oracle BRUT. Le percage EFFECTIF du
-    port y ajoute les ExtraPierce du caster (`profile_pierce`), verifies nuls par l'appelant."""
-    import gameconfig as GC
-    ratio = (GC.damage_profile(profile_name) or {}).get("PiercingRatio")
-    assert ratio is not None, f"oracle introuvable : damageProfiles[{profile_name}].PiercingRatio"
-    return int(ratio)
 
 
 # ------------------------------------------------------------------ fixture : etat LIVE rejouable
@@ -385,12 +381,17 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
         assert port_ph.get(tid) == ref_ph.get(tid), (
             f"A/B e{tid}: arbre {port_ph.get(tid)} != baseline execute_ability_attack {ref_ph.get(tid)}")
     # (5) params BRUTS -> ORACLE CONFIG (jamais un litteral) : `constants.nrOfHits` (GetNumberConstant 0x2f)
-    #     et `PiercingRatio` du profil NOMME par `constants.damageProfile` (GetDamageProfile 0). Le percage
-    #     effectif etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)`, on exige d'abord des
-    #     ExtraPierce nuls, sinon l'egalite ne testerait plus le choix du PROFIL mais la somme.
+    #     et `PiercingRatio` du profil NOMME par `constants.damageProfile` (GetDamageProfile 0, appele par
+    #     `HarbingerOfDestructionAbility$$ExecuteBehaviour`). Le percage lui-meme est BRUT :
+    #     `StaticBattleRules.Damage$$GetPiercingRatio` lit `DamageProfile.PiercingDamageRatio` tel quel.
+    #     `assert_ability_damage_profile` epingle EN PLUS le nom lu en config a celui du decompile -- sans
+    #     lui, un profil renomme en config deplacerait silencieusement l'attendu avec lui.
+    #     Le percage EFFECTIF etant `clamp(0,100, ratio + ExtraPierce + ExtraPierceRanged)`, on exige
+    #     d'abord des ExtraPierce nuls, sinon l'egalite ne testerait plus le choix du PROFIL mais la somme.
     from engine.runner.components import StatsComponent
     cfg_hits = int(cst["nrOfHits"])
-    cfg_pierce = _cfg_profile_pierce(cfg_profile)
+    assert_ability_damage_profile("HarbingerOfDestruction", "DirectDamage")
+    cfg_pierce = damage_profile_pierce(cfg_profile)
     ctx = st2.get_entity(cid).get_component(StatsComponent).ctx
     assert (ctx.extra_pierce, ctx.extra_pierce_ranged) == (0, 0), (
         f"caster avec percage supplementaire ({ctx.extra_pierce}/{ctx.extra_pierce_ranged}) : le percage "

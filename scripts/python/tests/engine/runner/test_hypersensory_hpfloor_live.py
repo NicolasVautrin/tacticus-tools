@@ -20,7 +20,13 @@ ASCII-only. Skip si pas de session / Judh non buildable.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import ability_variable_levels  # noqa: E402
 
 JUDH_VIS = "genesKelermorph"     # Judh : passif HypersensoryAbilities + actif HeroicFusillade
 ENEMY_VIS = "necroWarden"
@@ -127,9 +133,16 @@ def test_g6_judh_carries_minimal_health_effect(g6_state):
     judh, _ = _judh_enemy(state)
     eff = _minimal_effect(state, judh)
     assert eff is not None, "Judh doit porter HypersensoryAbilities_MinimalHealth (auto-pose init passif)"
-    # pct = hpPct[niveau passif] entre 30 et 50 (level-indexe).
+    # pct = hpPct[niveau passif]. VALEUR BRUTE level-indexee (var 0x26, NON rarity-scalee :
+    # `variablesAffectedByRarityBonus` = [minDmg, maxDmg]) -> l'oracle est la CONFIG. La plage n'est PAS
+    # ecrite : elle est DERIVEE du tableau per-niveau `abilities.HypersensoryAbilities.variables.hpPct`,
+    # dont les DEUX bornes sont le min et le max. On exige l'APPARTENANCE (plus fort qu'un encadrement :
+    # une valeur intermediaire absente du tableau serait rejetee).
+    levels = ability_variable_levels("HypersensoryAbilities", "hpPct")
     pct = eff.minimal_health_pct()
-    assert pct is not None and 30 <= pct <= 50, f"hpPct attendu dans [30,50], obtenu {pct}"
+    assert pct in levels, (
+        f"hpPct {pct} absent de abilities.HypersensoryAbilities.variables.hpPct "
+        f"(plage per-niveau [{min(levels)},{max(levels)}])")
     # Pas de floor tant que le driver n'a pas tourne pour un tour ennemi.
     assert _hc(state, judh).minimal_health is None, "aucun floor pose avant evaluation"
 

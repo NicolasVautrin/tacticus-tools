@@ -206,26 +206,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
 - **Constantes de gameplay FIGÉES dans les tests, sans oracle** (#96, inventaire — corrigés à ce jour :
   `test_summon_trait_effects_live` Diminutive + ShadowInTheWarp, `test_lightcover_gate_live` ; **LOT A
   `nrOfHits`/`nrOfHits_2` LIVRÉ** : `test_cord_claw_live`, `test_flail_swing_live`,
-  `test_great_frost_axe_live`, `test_fragstorm_migration_live`, `test_jakhal_stimms_live` ; **LOT B
-  LIVRÉ** et **LOT C LIVRÉ** : `test_stikkbomb_migration_live`, `test_summon_ability_ports_live`,
-  `test_harvester_live`, `test_harbinger_of_destruction_live`, `test_destroyer_hive_live` — les deux
-  détaillés plus bas). Le patron reste présent dans les fichiers ci-dessous : un scalaire écrit en
+  `test_great_frost_axe_live`, `test_fragstorm_migration_live`, `test_jakhal_stimms_live` ; **LOTS B, C
+  et D LIVRÉS** : `test_martial_apotheosis_live`, `test_plasma_cannon_live`, `test_savage_echoes_live`,
+  `test_sanctorum_missile_live`, `test_sentinel_directives_live`, `test_stikkbomb_migration_live`,
+  `test_summon_ability_ports_live`, `test_harvester_live`, `test_harbinger_of_destruction_live`,
+  `test_destroyer_hive_live` — détaillés plus bas). Le patron reste présent dans les fichiers
+  ci-dessous : un scalaire écrit en
   dur alors que le jeu le porte dans une clé de config re-équilibrable — le message d'assertion NOMME
   souvent la clé, ce qui rend le tri mécanique.
 
   Familles restantes (scan `assert … == <litt> … (nrOfHits|pierce|chance|Pct|range|config)`) :
   la famille `nrOfHits`/`nrOfHits_2` de l'inventaire d'origine (15 fichiers) est **CLOSE** par les lots
-  A/B/C ; le scan post-lot-C fait apparaître **un résidu HORS inventaire** — `test_damage_crushingclaws_live`
-  (`main["hits"] == 2` = `nrOfHits` de CrushingClaws) ; `PiercingRatio` de profil (40 Power dans
-  `test_flail_swing_live`, 1 Physical dans `test_jakhal_stimms_live`, 10/50/60 Las dans
-  `test_lascannon_pierce_offline` — résidus DANS des fichiers déjà traités pour leur famille `nrOfHits`,
-  hors périmètre de leurs lots ; 55 HeavyRound et 100 DirectDamage ont disparu avec le lot C) ;
-  constantes globales (`getStuckInChance == 30`,
-  `firstAidRecovery == 35`, `parryHitReduction` via `base_cfg - 1` dans
-  `test_ability_hits_channel_live`) ; plage figée `30 <= hpPct <= 50` (hypersensory) ; et deux résidus
-  NOMMÉS par le lot A dans ses propres fichiers : `nrOfTargets` du `PickRandomly` Fragstorm
-  (= `GetNumberConstant(cfg, 0x11)`, cap 4 écrit en dur) et `hpPct` du self-loss JakhalStimms
+  A/B/C ; la famille `PiercingRatio` de profil, les constantes globales (`getStuckInChance`,
+  `firstAidRecovery`), `parryHitReduction` et la plage `hpPct` sont **CLOSES** par le lot D.
+  RESTENT : **un résidu HORS inventaire** trouvé au scan post-lot-C —
+  `test_damage_crushingclaws_live` (`main["hits"] == 2` = `nrOfHits` de CrushingClaws) ; et deux
+  résidus NOMMÉS par le lot A dans ses propres fichiers : `nrOfTargets` du `PickRandomly`
+  Fragstorm (= `GetNumberConstant(cfg, 0x11)`, cap 4 écrit en dur) et `hpPct` du self-loss JakhalStimms
   (25 % écrit en dur dans `exp_loss`).
+  La famille `PiercingRatio`, les constantes globales et la plage `hpPct` sont CLOSES (lot D).
 
   **LE CRITÈRE EST BINAIRE — quel oracle pour cette assertion ?**
   - la valeur est **CALCULÉE** (le moteur la dérive par une formule : coups appliqués après
@@ -285,8 +284,39 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     d'abord des ExtraPierce nuls : sans ça l'égalité testerait la somme, pas le choix du PROFIL.
   - Le rayon des scénarios Harbinger/Harvester est désormais **piloté par `constants.range`** (la frontière
     testée est `range` vs `range+1`), au lieu d'un 2/3 écrit en dur dans la géométrie du setup.
+  **LOT D LIVRÉ (#110)** — oracles centralisés dans `tests/engine/runner/_config_oracle.py` (une clé
+  absente y ÉCHOUE, jamais de repli sur 0 qui rendrait l'assertion vacue ; gardes offline dédiées dans
+  `test_config_oracle_offline.py`) :
+  - `PiercingRatio` de profil (Power, HeavyRound, DirectDamage ×2, Physical, Las ; Energy/Physical de
+    `martial_apotheosis`/`sentinel_directives` étaient déjà faits par le lot B) →
+    `damageProfiles.<P>.PiercingRatio`. `StaticBattleRules.Damage$$GetPiercingRatio` lit
+    `DamageProfile.PiercingDamageRatio` (+0x14) TEL QUEL ⇒ BRUTE. Là où le behaviour natif appelle
+    `AbilityConfiguration$$GetDamageProfile` (FlailSwing, HarbingerOfDestruction, DestroyerHive), le NOM
+    du profil est vérifié en plus contre `constants.damageProfile` ; `HarvesterOfSouls` passe un littéral
+    `Nullable<DamageProfileType>(0x13)` ⇒ le nom y reste structurel. Le fichier LasCannon dérive
+    désormais `base` et `base + bonus` (`W_LASCANNON_PIERCE_BONUS`, constante du cctor natif) au lieu de
+    figer 10/60, et ses contrefactuels comparent au `PiercingRatio` du profil RENDU par le sélecteur.
+  - `getStuckInChance` → `traitVariables.getStuckInChance`, avec garde `!= getStuckInChance_2` (sinon
+    l'assertion ne distingue plus la branche `GetStuckInAbility$$GetBonusHitChance` prise) ;
+    `firstAidRecovery` → `globalValues.firstAidRecovery`.
+  - `parryHitReduction` : `ParryEffect$$CreateEffectHitsBonusForAttack` =
+    `ForAdditionWithMinimum(OwnerIsTarget & IsMeleeAttack, Direct(-GetNumberConstant(0x2c)), Direct(1))`
+    ⇒ l'amplitude est BRUTE (config), le plancher `Direct(1)` est un littéral NATIF et reste littéral.
+    Garde de discrimination ajoutée : `base - reduction > 1`, sinon le plancher absorberait la valeur et
+    l'assertion serait verte moteur cassé.
+  - plage `30 <= hpPct <= 50` (hypersensory) → appartenance au tableau per-niveau
+    `abilities.HypersensoryAbilities.variables.hpPct` (les deux bornes en sont le min/max).
 
   `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
+- **`getstuckin_combat_chance` code les DEUX chances en dur** (trouvé pendant le lot D #110, NON corrigé —
+  hors périmètre « hygiène de test ») : `engine/runner/damage_model.py` termine par
+  `return 100 if friends_adj >= 4 else 30` alors que le natif
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` lit
+  `ConfigConst(0x33)` / `ConfigConst(0x2a)` = `traitVariables.getStuckInChance_2` /
+  `getStuckInChance`. Les valeurs coïncident aujourd'hui (100 / 30) donc rien ne casse ; au premier
+  rebalance le port dérive en silence. Depuis #110 le test `test_getstuckin_chance_present` interroge la
+  CONFIG : c'est lui qui virera au rouge, et le rouge sera VRAI (le port, pas le test). Fix = lire les
+  deux clés au lieu des littéraux. `[opus]`, 1-liner.
 - **Nature du coup, résidus** (`case-106-ismeleeattack-fork` §7 — fork CLOS, `execute_normal_like`
   threade désormais la nature et le prédicat a un foyer unique) : (a) **le mode `AttackRangeType.Both`
   (3) n'est pas modélisé** — le port déclare la nature (`is_melee` du behaviour) là où

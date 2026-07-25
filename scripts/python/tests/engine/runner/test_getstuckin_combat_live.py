@@ -18,9 +18,14 @@ l'etat LIVE (rien de hardcode). ASCII-only. (Modele : test_beast_slayer_block_li
 from __future__ import annotations
 
 import json
+import os
+import sys
 from collections import deque
 
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import trait_variable           # noqa: E402
 
 from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
@@ -174,10 +179,21 @@ def _replay(rpc, rid, tgt, champ, move_to):
 
 
 def test_getstuckin_chance_present(gsi_combat):
-    """DETERMINISTE : orksNob adjacent a la cible expose une chance GetStuckIn combat = 30 (1v1)."""
+    """DETERMINISTE : orksNob adjacent a la cible expose la chance GetStuckIn de la branche 1v1.
+
+    `GetStuckInAbility$$GetBonusHitChance` = `If(orks_adj(cible)>=2 OU amis_adj(caster)>=4,
+    ConfigConst(0x33), ConfigConst(0x2a))` : les DEUX branches rendent une constante de config lue TELLE
+    QUELLE -> valeur BRUTE, oracle = CONFIG. En 1v1 adjacent c'est la branche BASSE (`getStuckInChance`) ;
+    la garde `!=` verifie que les deux cles restent DISTINCTES, sans quoi l'assertion ne discriminerait
+    plus la branche prise."""
     c = gsi_combat
-    assert c["gsi_chance"] == 30, (
-        f"chance GetStuckIn attendue 30 (1v1 adjacent), obtenu {c['gsi_chance']}")
+    base = trait_variable("GetStuckIn", "getStuckInChance")        # ConfigConst(0x2a), branche 1v1
+    crowd = trait_variable("GetStuckIn", "getStuckInChance_2")     # ConfigConst(0x33), branche foule
+    assert base != crowd, \
+        f"getStuckInChance == getStuckInChance_2 ({base}) : l'assertion ne distingue plus la branche"
+    assert c["gsi_chance"] == base, (
+        f"chance GetStuckIn {c['gsi_chance']} != traitVariables.getStuckInChance ({base}) "
+        f"-- branche 1v1 adjacent")
 
 
 def test_getstuckin_hitcount_and_rng_aligned(gsi_combat):

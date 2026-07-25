@@ -38,8 +38,13 @@ hardcodee. ASCII only. Runners auto-disposes par la fixture `build_runner`.
 from __future__ import annotations
 
 import json
+import os
+import sys
 
 import pytest
+
+sys.path.insert(0, os.path.dirname(__file__))      # import du helper sibling
+from _config_oracle import trait_variable           # noqa: E402
 
 import hexgeo
 from engine.entities.pathfinding.board import Board
@@ -224,9 +229,24 @@ def test_ability_hits_channel_combat_defender_malus(live_session, rpc, build_run
           f"{off_par.get('per_hit')} | tgt_effects={tgt_fx}")
 
     assert base_cfg2 == base_cfg, "les deux runs n'ont pas la meme base config"
-    assert len(live_par) == base_cfg - 1, \
-        (f"natif {len(live_par)} != base-1 ({base_cfg - 1}) sur une cible Parry : le canal de coups "
-         f"ne serait PAS traverse par le vecteur ability (premisse du cas #61 fausse)")
+    # LE MALUS EST UNE VALEUR BRUTE, LE PLANCHER UN LITTERAL NATIF. `ParryEffect$$CreateEffectHits
+    # BonusForAttack` = `EffectBonus.ForAdditionWithMinimum(OwnerIsTarget & IsMeleeAttack,
+    # Direct(-GetNumberConstant(config, 0x2c)), Direct(1))` -> coups = `Max(base - parryHitReduction, 1)`.
+    #   * l'amplitude `-parryHitReduction` se LIT en config (le meme slot 0x2c porte
+    #     `camouflageHitReduction_1`/`diminutiveHitReduction`, de MEME valeur : la cle exacte est
+    #     load-bearing, une voisine passerait vert) ;
+    #   * le minimum `Direct(1)` est un LITTERAL du natif (pas une constante de config) -> il reste litteral.
+    # La garde ci-dessous exige que le scenario DISCRIMINE : si `base - reduction` retombait sur le
+    # plancher, l'assertion serait verte meme avec le canal de coups debranche.
+    parry_reduction = trait_variable("Parry", "parryHitReduction")
+    expected_par = max(base_cfg - parry_reduction, 1)          # ForAdditionWithMinimum(., Direct(1))
+    assert expected_par > 1, (
+        f"base {base_cfg} - parryHitReduction {parry_reduction} sature le plancher natif Direct(1) : "
+        f"le scenario ne DISCRIMINE plus (l'assertion serait verte moteur casse)")
+    assert len(live_par) == expected_par, \
+        (f"natif {len(live_par)} != base {base_cfg} - parryHitReduction {parry_reduction} "
+         f"(= {expected_par}) sur une cible Parry : le canal de coups ne serait PAS traverse par le "
+         f"vecteur ability (premisse du cas #61 fausse)")
     assert off_par.get("hits") == len(live_par), \
         (f"port {off_par.get('hits')} != natif {len(live_par)} : le vecteur ability ne traverse pas "
          f"la formule de coups partagee (canal #61 non branche)")
