@@ -401,13 +401,18 @@ async function warmupGameSingletons(
     // Observe le 2026-07-22 (3 fois, la game mourait ensuite) et le 2026-07-25 (la game
     // survit depuis `runtime/freeze-detector.ts`, mais l'UI reste figee).
     //
-    // Avec cette option on ne NEGOCIE AUCUNE transition, donc il n'y a rien a wedger. Le prix :
+    // En sortant ici on ne NEGOCIE AUCUNE transition, donc il n'y a rien a wedger. Le prix :
     // le jeu reste sur l'ecran de bataille de warmup, en phase de deploiement. Acceptable —
     // les runners isoles ne consomment pas l'ecran campagne (cf. `runner.md`).
     //
-    // NON active par defaut : le comportement historique (ecran rendu propre) reste celui des
-    // appelants existants. A basculer en defaut si le wedge se confirme comme la norme.
-    if (opts?.stopAfterCapture) {
+    // C'EST LE DEFAUT depuis le 2026-07-25. Mesure live (session 77, build gqfc5mff6c) :
+    //     cycle complet    61,2 s  ok:false (9/10)  UI figee, relance du jeu obligatoire
+    //     sortie ici        3,9 s  ok:true          jeu utilisable
+    // Validation FONCTIONNELLE et pas seulement « etape verte » : `dumpCampaignCatalog` rend
+    // les memes 1 230 459 octets qu'apres un cycle complet — le builder EST arme.
+    // L'appelant qui veut vraiment l'ecran campagne rendu propre passe explicitement
+    // `stopAfterCapture: false` ; il herite alors du risque de wedge decrit ci-dessus.
+    if (opts?.stopAfterCapture !== false) {
         steps.push({
             step: "stop-after-capture", ok: true,
             info: "menage d'ecran saute (pause/retreat/retour campagne) — aucune transition",

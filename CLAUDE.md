@@ -72,6 +72,43 @@ Cette règle s'applique aux dumps offline pareil : tout `data/dumps/<hash>/*.tsv
 ou `*.json` n'a de valeur que pour la **lecture humaine** (consulter du code
 décompilé, comprendre l'archi). Aucun hook live ne doit en dépendre.
 
+### Règle d'écriture : on cite un SYMBOLE, jamais une adresse
+
+**Toute référence à du code natif — commentaire, docstring, message de test, doc —
+s'écrit avec le symbole Ghidra VERBATIM, jamais avec une VA.**
+
+```
+IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage      ✅
+`CalculateDirectDamage @18102f130`                                    ❌
+```
+
+- **Point interne** à une fonction : `<symbole>+0x<offset>`.
+- **Échappement conservé tel quel** (`u003C` = `<`, `u003E` = `>`) : c'est ce qui rend le
+  grep code ↔ table immédiat.
+- **Les offsets RELATIFS restent** : champs de struct (`+0xa8`), slots de vtable, RVA
+  calculées en code depuis l'image base. Seules les **VA absolues** sont proscrites.
+
+**Pourquoi** : churn inter-build **mesuré** (build de mai → `gqfc5mff6c`) — les noms sont
+stables à **97,5 %**, les adresses changent à **100 %**. Une citation par adresse est donc
+fausse dès la mise à jour suivante, **silencieusement** : on ne l'apprend qu'en lisant du
+décompilé qui ne correspond à rien. Le symbole, lui, survit et se re-résout d'un grep.
+
+**Comment résoudre** une adresse trouvée dans Ghidra :
+
+```bash
+python scripts/python/ghidra_symbols.py whereis <VA>     # -> <symbole>+0x<offset>
+```
+
+ou, 100 % offline (ghidra-mcp éteint), un grep dans `data/symbols/<build>/functions.tsv`
+(format `<adresse>\t<symbole>`). Migration d'un lot existant :
+`scripts/python/migrate_va_to_symbol.py` (token-aware — il ne réécrit QUE dans les
+commentaires et chaînes, jamais un littéral exécutable) ; `probe_va_in_code_vs_prose.py`
+est le garde-fou à passer avant.
+
+**Reste en VA, et c'est voulu** : les adresses qui ne résolvent que sur un placeholder
+`FUN_<addr>` (le « symbole » n'y est que l'adresse déguisée) et les thunks de la table
+d'imports. Les lister plutôt que les maquiller.
+
 ## Démarrage
 
 ```bash
@@ -90,10 +127,14 @@ Host sur `http://127.0.0.1:8765`. Front sur `http://127.0.0.1:8765/view/`.
    passe par l'API / les scripts.)
 4. **Warmup** = appeler le RPC `warmupGameSingletons({ force: true })`.
    **Autonome** : il pilote toute la nav UI lui-même (campagne → node → play →
-   capture ctor → pause → retreat) et capture `lastSource` +
-   `lastUnitProgression` + `IdunUniverse`, push `builder_ready` au front (refresh
-   catalog). **Aucun clic humain ; Claude ne demande JAMAIS à l'utilisateur de
-   cliquer une battle in-game.** (Détails : section « Workflow RL ».)
+   capture ctor) et capture `lastSource` + `lastUnitProgression` + `IdunUniverse`,
+   push `builder_ready` au front (refresh catalog). **Aucun clic humain ; Claude ne
+   demande JAMAIS à l'utilisateur de cliquer une battle in-game.**
+   **Le cycle s'ARRÊTE à la capture** (`stopAfterCapture`, défaut depuis le
+   2026-07-25) : le jeu reste sur l'écran de bataille, et c'est normal. Le ménage
+   d'écran qui suivait (pause → retreat → retour campagne) était du confort pur et
+   **la seule source de wedge** — 61,2 s / `ok:false` contre 3,9 s / `ok:true`.
+   (Détails : section « Workflow RL ».)
 5. Builder front : tout est armé. On peut générer la `BattleConfiguration` de
    n'importe quelle node (events inactifs inclus) sans relancer une battle.
 
@@ -110,8 +151,12 @@ volonté sans casser le jeu actif. Rappel des deux points les plus violés (dét
 
 1. **Warmup une fois par session Frida** (après chaque inject/reinject), AVANT tout RPC/build :
    `warmupGameSingletons({ force: true })`. **Autonome — aucun clic humain** : pilote la nav
-   (campagne → node → play → capture ctor → pause → retreat) et force l'init des singletons/classes.
+   (campagne → node → play → capture ctor) et force l'init des singletons/classes.
    Claude l'appelle directement après chaque (re)inject et NE demande JAMAIS de cliquer une battle.
+   Le cycle **s'arrête à la capture** et laisse le jeu sur l'écran de bataille (`stopAfterCapture`,
+   défaut) : c'est l'état ATTENDU, pas un warmup incomplet. Les runners isolés ne consomment
+   pas l'écran campagne. Pour l'écran rendu propre malgré le risque de wedge :
+   `warmupGameSingletons({ force: true, stopAfterCapture: false })`.
 
    > **RÈGLE INCONDITIONNELLE — warmup après CHAQUE (re)inject, AVANT tout RPC/probe, SANS EXCEPTION**,
    > y compris les probes « self-contained » montés depuis une seed BC sur disque (ex.

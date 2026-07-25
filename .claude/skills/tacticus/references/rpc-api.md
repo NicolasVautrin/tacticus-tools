@@ -30,9 +30,12 @@ les homonymes de `status.ts`/`observe.ts`.
 
 Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
 
-- **`warmupGameSingletons({ force? })`** (`warmup-singletons.ts`) — nav UI
+- **`warmupGameSingletons({ force?, stopAfterCapture? })`** (`warmup-singletons.ts`) — nav UI
   AUTONOME (capture `lastSource` + init classes battle IL2CPP, sinon crash 0x2c).
   1× par session après chaque (ré)inject, avant tout autre RPC. Aucun clic humain.
+  **S'arrête à la capture par défaut** et laisse le jeu sur l'écran de bataille — état
+  ATTENDU, pas un warmup incomplet (3,9 s / `ok:true`). `stopAfterCapture: false` rejoue
+  le ménage d'écran historique (pause → retreat → campagne), 61,2 s et wedge fréquent.
 - **`buildNormalizedBC({ baseBcJson, target{Rank,ProgressionIndex,Rarity,Level,StarLevel,AbilityLevel}, boardJson?, spawnPointSetIndex? })`**
   (`normalize-bc.ts`) → `{ ok, configJson, normalized:[unitId], mow:[unitId] }`.
   Résout une BC seed au rank cible ; passage obligé (les UnitId `:pvp` bruts
