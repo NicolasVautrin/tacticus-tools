@@ -35,15 +35,21 @@ ROOT = Path(__file__).resolve().parents[3]           # racine repo
 # defaut, ca disposerait le runner de travail de l'utilisateur.
 #
 # UNIQUE PAR PROCESSUS *ET* PAR BUILD (2026-07-25) : le nom etait FIXE, donc
-# partage par tous les pytest concurrents. Avec plusieurs agents en parallele,
-# le `build` de l'un DISPOSAIT le runner de l'autre (le scoped-replace lit
-# l'ancien runnerId dans le state-file et le dispose) -> faux echecs non
-# reproductibles. Le suffixe PID isole les processus ; le compteur ajoute
-# l'isolation INTRA-session (deux runners construits par la meme session
-# coexistent au lieu de se remplacer). `TACTICUS_PYTEST_STATE_PREFIX` permet
-# de deporter les state-files ailleurs (chemin ABSOLU, sans extension).
-STATE_PREFIX = Path(os.environ.get(
-    "TACTICUS_PYTEST_STATE_PREFIX", str(ROOT / "data" / "_pytest_duel_state")))
+# partage par tous les pytest concurrents (plusieurs agents worktree partagent
+# le meme `data/`). Le `build` de l'un DISPOSAIT le runner de l'autre : le
+# scoped-replace de `rl_duel build` lit l'ancien runnerId dans le state-file et
+# le dispose -> faux echecs non reproductibles. Le suffixe PID isole les
+# processus ; le compteur ajoute l'isolation INTRA-session (deux runners
+# construits par la meme session coexistent au lieu de se remplacer).
+#
+# Override : `TACTICUS_PYTEST_STATE_PREFIX` (chemin ABSOLU, sans extension) pour
+# deporter les state-files ailleurs. `TACTICUS_PYTEST_STATE` (chemin ABSOLU d'un
+# .json) est accepte pour compatibilite — son suffixe est retire et le chemin
+# sert de prefixe, on ne revient PAS a un fichier unique.
+_state_env = os.environ.get("TACTICUS_PYTEST_STATE_PREFIX") \
+    or os.environ.get("TACTICUS_PYTEST_STATE")
+STATE_PREFIX = (Path(_state_env).with_suffix("") if _state_env
+                else ROOT / "data" / "_pytest_duel_state")
 _state_seq = itertools.count()
 
 

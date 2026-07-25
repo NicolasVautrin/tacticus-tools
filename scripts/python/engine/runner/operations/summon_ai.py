@@ -1,10 +1,19 @@
-"""Passe AI-control du turn-start — joue les unites `ai_controlled` (summons) via le PLAYBOOK COMPLET. #65.
+"""Couche AI-CONTROL du runner : faire jouer une unite par l'IA HORS de son activation normale.
 
-Mirror de `IdunBattle.View.Game.IdunGameViews.QueueComputerActions @1804d90d0` (+ `IsPlayerAiControlled`
-@1804d7b10) : au DEBUT du tour d'une team, les unites AI-controlees (summons — meme sur une team joueur)
-sont jouees par l'IA AVANT que le controleur agisse (verite-terrain live : les Cadiens de Yarrick bougent
-seuls au turn-start de leur team). Ce N'EST PAS un triggered ability (le trigger-trace ne capte aucun
-trigger turn-start summon) : c'est une passe AI-control du runner.
+Deux entrees natives distinctes, portees ici cote a cote :
+
+1. **Passe AI-control du TURN-START** (#65) — mirror de `IdunBattle.View.Game.IdunGameViews.
+   QueueComputerActions @1804d90d0` (+ `IsPlayerAiControlled` @1804d7b10) : au DEBUT du tour d'une team,
+   les unites AI-controlees (summons — meme sur une team joueur) sont jouees par l'IA AVANT que le
+   controleur agisse (verite-terrain live : les Cadiens de Yarrick bougent seuls au turn-start de leur
+   team). Ce N'EST PAS un triggered ability (le trigger-trace ne capte aucun trigger turn-start summon) :
+   c'est une passe AI-control du runner. -> `collect_ai_controlled` / `run_ai_control_pass`.
+
+2. **`ComputerActionOperation`** (`IdunBattle.Operations.ComputerActionOperation`, mono @180e641e0 /
+   groupe @180e63d80) — le mutateur ECS derriere `OperationProcessor.ComputerAction` @180e07330/@180e07360,
+   lui-meme la FEUILLE du behaviour DSL `PerformAIAction` (cf. `abilities/behaviours/ai_control.py`) :
+   fait agir une ou plusieurs unites TIERCES **immediatement**, en SAUVEGARDANT puis RESTAURANT leurs
+   flags de tour -> l'action supplementaire NE CONSOMME PAS le tour de la cible.
 
 DECISION = le playbook complet porte (`DefaultAiUnitTactic.calculate_next_action` via le bridge offline
 `engine.ai.state_bridge.build_from_state`) — la routine de candidats native = `PerformAIAbilityUnitBehaviour
@@ -18,10 +27,17 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import UnitComponent, OwnerComponent, PositionComponent
+from ..components import (UnitComponent, OwnerComponent, PositionComponent, UnitFlagsComponent,
+                          unit_is_dead)
 from ...entities.active_ability_type import ActiveAbilityType
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 — id synthetique du bridge (cf. state_bridge) #158
+
+# `AnAiGroupOperator.GetValidUnits @1811833e0` : cap anti-emballement du nb d'actions AI DEJA jouees par
+# une unite (`BaseUnitComponent+0x60 < 0x3e9`) — le compteur est incremente par
+# `DefaultGroupOperator.<CalculateNextActionForUnitGroup>d__6.MoveNext @1811974c0` juste avant de
+# demander sa prochaine action a la tactique.
+MAX_AI_ACTIONS_PER_UNIT = 0x3e9 - 1                      # 1000
 
 
 def collect_ai_controlled(state: State, player: int) -> list:
@@ -144,3 +160,162 @@ def _is_active_attack_ability(ability_id: int) -> bool:
     from engine.ai.state_bridge import _resolve_ability, _is_attack_ability
     _n, cfg = _resolve_ability(ability_id)
     return _is_attack_ability(ability_id, cfg)
+
+
+# ============================================================================================== #
+# `IdunBattle.Core.Services.AiControl` — le service qui fait JOUER une unite par l'IA.
+# ============================================================================================== #
+
+def has_action_left(state: State, uid: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions.HasActionLeft @180ed50e0` = `entityType in {Unit(1),
+    Machine(6)} && !UnitFlagsComponent.Has(NoActionAvailable=4)`. Offline toutes les entites du `state`
+    portant un `UnitComponent` sont des unites -> seul le flag est teste ; composant absent -> AUCUN flag
+    -> action disponible (== natif sur un `UnitFlagsComponent` vide)."""
+    e = state.get_entity(uid)
+    if e is None or e.get_component(UnitComponent) is None:
+        return False
+    fl = e.get_component(UnitFlagsComponent)
+    return not (fl is not None and fl.has(UnitFlagsComponent.NO_ACTION_AVAILABLE))
+
+
+def ai_control_execute_for(state: State, uid: int) -> dict:
+    """`AiControl.ExecuteFor(unit)` @180ffbda0 : UNE passe
+    `DefaultPlayerStrategy.CalculateNextActionForUnit @1810b42e0` (-> `<...>d__7.MoveNext @1810c0c10` ->
+    `GetUnitTactic(unit)` puis `tactic.CalculateNextActionForUnit(unit)`) drainee jusqu'au bout, puis
+    `ApplyAiMessages @180ffb3a0`. **PAS de boucle exterieure** (contraste avec la surcharge groupe).
+
+    Port : `decide_and_apply` = decision playbook (`DefaultAiUnitTactic`) + apply des Operations runner =
+    l'equivalent d'UNE passe messages-appliques. Le journal `AIActions`/`DateTime.Now` du natif (pur
+    logging) n'est pas porte."""
+    return decide_and_apply(state, uid)
+
+
+def ai_control_execute_for_group(state: State, uids: list) -> list:
+    """`AiControl.ExecuteFor(IEnumerable<Unit> group)` @180ffbeb0 : BOUCLE
+    `while (messages = DefaultPlayerStrategy.CalculateNextActionForUnitGroup(group)) != empty:
+    ApplyAiMessages(messages)`. Le groupe rend UNE unite a la fois via
+    `DefaultGroupOperator.<CalculateNextActionForUnitGroup>d__6.MoveNext @1811974c0` :
+      `u = PickNextUnit(group)` (@181183d50 -> `AnAiGroupOperator.GetValidUnits @1811833e0` puis le
+      picker d'utilite, iface slot 1) ; `if IsDead(u) -> messages vides -> FIN` ; sinon
+      `BaseUnitComponent.aiActions@+0x60 += 1` puis `GetUnitTactic(u).CalculateNextActionForUnit(u)`.
+    `GetValidUnits` = `HasActionLeft(u) && !IsDead(u) && aiActions < 0x3e9` -> la boucle TERMINE parce
+    qu'une unite qui vient de jouer n'a plus d'action disponible.
+
+    Port : meme boucle (validite RE-EVALUEE a chaque tour -> une unite tuee par l'overwatch pendant la
+    passe d'une autre est ecartee), une passe `decide_and_apply` par unite, puis on pose
+    `NoActionAvailable(4)` (= ce que lit `HasActionLeft`) pour sortir de la boucle -- fidele a l'observe
+    live (`UnitStats_ActionsAvailable=0` emis par unite juste apres son action, cascade du cast
+    SupremeCommander). Compteur `aiActions` mirroré + cap natif.
+
+    ⚠ RESIDU (documente) : l'ORDRE rendu par le picker natif est un argmax d'UTILITE (iface slot 1,
+    poids `operator+0x30`) ; le port garde l'ORDRE DU SELECTEUR. Observe live sur SupremeCommander :
+    les 2 gardes agissent dans l'ordre INVERSE de leur spawn -> divergence d'ordre possible (sans
+    incidence quand les unites du groupe sont interchangeables, cas des gardes clones)."""
+    ai_actions: dict = {}
+    results: list = []
+    order = [int(u) for u in (uids or [])]
+    while True:
+        valid = [u for u in order
+                 if has_action_left(state, u)
+                 and not unit_is_dead(state.get_entity(u))
+                 and ai_actions.get(u, 0) < MAX_AI_ACTIONS_PER_UNIT]
+        if not valid:
+            return results
+        uid = valid[0]                                   # PickNextUnit (utilite natif -> ordre selecteur)
+        ai_actions[uid] = ai_actions.get(uid, 0) + 1     # BaseUnitComponent+0x60 += 1 (@1811974c0)
+        try:
+            results.append(ai_control_execute_for(state, uid))
+        finally:
+            e = state.get_entity(uid)                    # l'unite a joue -> plus d'action disponible
+            if e is not None:
+                fl = e.get_component(UnitFlagsComponent)
+                if fl is None:
+                    fl = UnitFlagsComponent()
+                    e.add_component(fl)
+                fl.add(UnitFlagsComponent.NO_ACTION_AVAILABLE)
+
+
+# ============================================================================================== #
+# `IdunBattle.Operations.ComputerActionOperation` — l'Operation ECS (mutateur) de l'action AI forcee.
+# ============================================================================================== #
+
+class ComputerActionOperation:
+    """`IdunBattle.Operations.ComputerActionOperation` — appelee par `Core.Services.OperationProcessor.
+    ComputerAction` @180e07330 (mono) / @180e07360 (groupe), elle-meme la feuille du behaviour DSL
+    `PerformAIAction` (`PerformAIActionBehaviour.Execute @180fcba10`).
+
+    SEMANTIQUE CLE (le detail qui rend le port faux si on le devine) : quand `reset_turn_flags` est vrai,
+    l'Operation **retire les flags de tour de la cible AVANT** de la faire jouer, puis les **RESTAURE
+    apres** (`UnitFlagsComponent.RemoveTurnFlags(flags, true, true)` @180fad310 -> struct sauvegardee ->
+    `SetUnitTurnsFlags` @180e645b0). Consequence : l'unite agit MEME si elle avait deja fini son tour, et
+    son etat de tour est rendu INCHANGE -> **l'action supplementaire ne consomme pas le tour de la cible**.
+    C'est aussi ce qui rend l'action possible : `HasActionLeft` (lu par `GetValidUnits`) teste le flag
+    `NoActionAvailable(4)` que le reset vient d'effacer."""
+    __slots__ = ()
+
+    @staticmethod
+    def _flags(state: State, uid: int) -> Optional[UnitFlagsComponent]:
+        """`unit.GetComponent<UnitFlagsComponent>()` — get-or-create : le natif LEVE si le composant
+        manque (toute unite native en a un), alors que le spawn offline (`_spawn_config_grot`) n'en pose
+        pas ; on le cree pour que le cycle sauvegarde/restauration soit REEL sur les unites deja seedees
+        comme sur les summons frais."""
+        e = state.get_entity(uid)
+        if e is None or e.get_component(UnitComponent) is None:
+            return None
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is None:
+            fl = UnitFlagsComponent()
+            e.add_component(fl)
+        return fl
+
+    @staticmethod
+    def execute(state: State, uid: int, reset_turn_flags: bool) -> dict:
+        """`ComputerActionOperation.Execute(Unit, bool)` @180e641e0 :
+            `saved = resetTurnFlags ? RemoveTurnFlags(unit.flags, true, true) : null`
+            `IAiControl.ExecuteFor(unit)`                       (iface slot 5)
+            `if (resetTurnFlags && saved.HasValue) SetUnitTurnsFlags(unit, saved)`."""
+        saved: set = set()
+        if reset_turn_flags:
+            fl = ComputerActionOperation._flags(state, uid)
+            if fl is None:
+                return {"uid": uid, "skipped": "no-unit"}
+            saved = fl.remove_turn_flags(True, True)     # RemoveTurnFlags(flags, true, true)
+        res = ai_control_execute_for(state, uid)
+        if reset_turn_flags:
+            ComputerActionOperation.set_unit_turns_flags(state, uid, saved)
+        return res
+
+    @staticmethod
+    def execute_group(state: State, uids: list, reset_turn_flags: bool) -> list:
+        """`ComputerActionOperation.Execute(IReadOnlyList<Unit>, bool)` @180e63d80 : MEME cycle, mais les
+        flags de TOUTES les unites sont retires D'ABORD (liste de structs sauvegardees, une par unite,
+        indexee par position), PUIS `IAiControl.ExecuteFor(group)` (iface slot 6) joue le groupe entier,
+        PUIS chaque unite recoit ses flags d'origine (`SetUnitTurnsFlags(units[i], saved[i])`).
+        L'ordre reset-tout / jouer / restaurer-tout est essentiel : pendant que la 1re unite joue, les
+        suivantes ont deja leurs flags effaces (elles restent `valid` pour le group operator)."""
+        uids = [int(u) for u in (uids or [])]
+        saved: list = []
+        if reset_turn_flags:
+            for uid in uids:
+                fl = ComputerActionOperation._flags(state, uid)
+                if fl is None:
+                    break                                # natif : NRE -> on arrete la collecte
+                saved.append((uid, fl.remove_turn_flags(True, True)))
+        res = ai_control_execute_for_group(state, uids)
+        if reset_turn_flags:
+            for uid, flags in saved:
+                ComputerActionOperation.set_unit_turns_flags(state, uid, flags)
+        return res
+
+    @staticmethod
+    def set_unit_turns_flags(state: State, uid: int, flags) -> None:
+        """`ComputerActionOperation.SetUnitTurnsFlags` @180e645b0 : re-`Add` un a un les flags que
+        `RemoveTurnFlags` avait effectivement retires (Moved(0), Teleported(0xc), ArrivedAtFinalTile(1),
+        NoActionAvailable(4), ActiveAbilityUsed(2), TurnFinished(3), TurnFinishedForced(0x1b))."""
+        if not flags:
+            return
+        fl = ComputerActionOperation._flags(state, uid)
+        if fl is None:
+            return
+        for f in flags:
+            fl.add(f)

@@ -36,11 +36,13 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
 - `lifecycle` : `KillDeadUnits`, `RemoveUnit` (+ futur REVIVE / `TriggerAbility`).
+- `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` @180fcba10 -> `ComputerActionOperation`).
 """
 from __future__ import annotations
 
 from .context import entities_from_state, LiveUnit, _unit_dict
 from .summon import Spawn, PerformAIAttack, SpawnSummon, SpawnReplica
+from .ai_control import PerformAIAction
 from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
                      UseActiveAbility, InformWeapon)
 from .effects import (AddBondEffect, AddEffect, RemoveEffect, SetOnFire, CreateShield,
@@ -51,7 +53,7 @@ from .lifecycle import KillDeadUnits, RemoveUnit
 
 __all__ = [
     "entities_from_state", "LiveUnit",
-    "Spawn", "PerformAIAttack", "SpawnSummon", "SpawnReplica",
+    "Spawn", "PerformAIAttack", "SpawnSummon", "SpawnReplica", "PerformAIAction",
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
     "InformWeapon",
     "AddBondEffect", "AddEffect", "RemoveEffect", "SetOnFire", "CreateShield",

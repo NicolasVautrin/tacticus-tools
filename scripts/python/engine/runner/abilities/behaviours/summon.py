@@ -19,11 +19,19 @@ class Spawn(AbilityBehaviour):
     est AJOUTE a `entities.children` (accumulateur factory+0x148, relu par `Children` pour le Taunt), annote
     pour le Taunt (`_new_child`/`_turns_started`/`_attacks_made`/`_last_attacked`). L'ordre d'enumeration =
     l'ordre du tile-selecteur (le `Cache` partage) -> `children` en ordre de TUILE (== l'ordre que
-    `PerformAIAttack` reparcourt). Effet PUR (`stop=False`) ; journalise chaque spawn."""
-    __slots__ = ("tile_selector", "summon_ability")
+    `PerformAIAttack` reparcourt). Effet PUR (`stop=False`) ; journalise chaque spawn.
 
-    def __init__(self, tile_selector: TargetsSelector, summon_ability: str):
+    `pick_n` = FOLD du `PickRandomly(tileSelector, n) @180df8e70` (`PickRandomAmountSelector`) quand le
+    natif ENVELOPPE le tile-selecteur du Spawn -- meme convention que le `pick_n` des feuilles d'attaque
+    (`AttackWithAttackDamage`) : le tirage vit dans la feuille, qui seule voit `ectx.state.rng`.
+    Consommateur : `SupremeCommanderAbility.ExecuteBehaviour @18120df30` =
+    `Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), nrOfSummons), unitId, WithStatsFromConfig)`.
+    None (defaut) = pas de PickRandomly natif (GetEmRuntz : toutes les tuiles du `Cache`)."""
+    __slots__ = ("tile_selector", "summon_ability", "pick_n")
+
+    def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
+        self.pick_n = pick_n
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -39,7 +47,11 @@ class Spawn(AbilityBehaviour):
         level = getattr(cctx, "active_ability_level", None)
         mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
         vid = ((GC.ability(self.summon_ability) or {}).get("constants") or {}).get("unitId")
-        for tile in (self.tile_selector.evaluate(entities) or []):   # itere les tuiles EN INTERNE (natif)
+        tiles = self.tile_selector.evaluate(entities) or []
+        if self.pick_n is not None:                       # fold `PickRandomly(tiles, n)` @180df8e70
+            from ..loki.splash import _pick_randomly_n
+            tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
+        for tile in tiles:                                # itere les tuiles EN INTERNE (natif)
             gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
                                      oc.team if oc is not None else None,
                                      oc.player if oc is not None else None)

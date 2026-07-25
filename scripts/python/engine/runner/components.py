@@ -334,18 +334,35 @@ class UnitFlagsComponent(Component):
         (VerifyUnitTurnEnded @180eded20) et par l'AttackQuery pour exclure les unités finies."""
         return self.TURN_FINISHED in self.flags
 
-    def remove_turn_flags(self, include_no_action: bool = False, new_activation: bool = True) -> None:
+    def remove_turn_flags(self, include_no_action: bool = False, new_activation: bool = True) -> set:
         """`UnitFlagsComponent.RemoveTurnFlags` @180fad310 : retire TOUJOURS {ActiveAbilityUsed(2),
         TurnFinished(3), 27} ; + {NoActionAvailable(4)} si `include_no_action` (param_3 natif) ;
         + {Moved(0), Teleported(12), ArrivedAtFinalTile(1)} si `new_activation` (param_4 natif).
-        `StartTurnOperation.Execute` @180ea3fb0 l'appelle (0, 1) pour chaque unité du joueur entrant."""
+        `StartTurnOperation.Execute` @180ea3fb0 l'appelle (0, 1) pour chaque unité du joueur entrant.
+
+        RETOUR = les flags EFFECTIVEMENT retirés (ceux qui étaient présents). Le natif rend une STRUCT
+        de 7 bools (`Remove` @180fad3e0 rend « était présent » ; offsets +5=Moved(0), +0=Teleported(0xc),
+        +6=ArrivedAtFinalTile(1), +1=NoActionAvailable(4), +2=ActiveAbilityUsed(2), +3=TurnFinished(3),
+        +4=TurnFinishedForced(0x1b)) — struct consommée par `ComputerActionOperation.SetUnitTurnsFlags`
+        @180e645b0 qui les RE-POSE une à une (restauration exacte du turn-state après une action AI
+        forcée, cf. `runner/operations/summon_ai.py`). Le port rend le SET des flags retirés (la struct
+        n'est qu'un bitset « était présent » ; l'ordre des `Add` de la restauration est indifférent).
+        Les appelants historiques ignorent le retour (aucun changement de comportement)."""
+        removed: set = set()
+
+        def _rm(f):
+            if f in self.flags:
+                self.flags.discard(f)
+                removed.add(f)
+
         if new_activation:
             for f in (self.MOVED, self.TELEPORTED, self.ARRIVED_AT_FINAL_TILE):
-                self.flags.discard(f)
+                _rm(f)
         if include_no_action:
-            self.flags.discard(self.NO_ACTION_AVAILABLE)
+            _rm(self.NO_ACTION_AVAILABLE)
         for f in (self.ACTIVE_ABILITY_USED, self.TURN_FINISHED, self.TURN_FINISHED_FORCED):
-            self.flags.discard(f)
+            _rm(f)
+        return removed
 
 
 class StatsComponent(Component):
@@ -434,6 +451,64 @@ class TriggeredAbilityComponent(Component):
         `has_triggered` sont conservés). Appelé au boundary d'activation (`EndPhaseOperation`)."""
         for e in self.entries.values():
             e.times_this_phase = 0
+
+
+class ActiveAbilityModificationsComponent(Component):
+    """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent` @180f8f7d0 (.ctor) — registre
+    par-unite des MODIFICATIONS de constantes/variables d'ability apportees par des sources TIERCES
+    (`Dictionary<AbilityVarOrConst, ModificationConfig>` @+0x10).
+
+      • `Add(key, delta)` @180f8f2a0 : TryGetValue(key) -> `ModificationConfig.Add(delta)` @180fa5170
+        (`value += delta` puis CLAMP `if (cap.HasValue && cap < value) value = cap` -- `cap` = le
+        `Nullable<int>` @+4 de la struct, JAMAIS pose par les sources lues dans ce build -> None) ;
+        cle absente -> cree une entree ZERO (`set_Item(key, default)`) puis re-appelle `Add`.
+      • `Get(key)` @180f8f570 : `TryGetValue(key) ? config.value : 0` -- **0 quand la cle est absente**.
+
+    SOURCE NATIVE unique lue dans ce build : `AddUnitActiveAbilityModificationOperation.Execute
+    @180e522b0` (= `OperationProcessor.AddUnitActiveAbilityModification` @180e06ec0), appelee par
+    `ListenUpMaggotsEffect.ApplyInternal` @180f56590 (+ `RevertInternal` @180f56740, meme appel en
+    `-value`) -- le passif de `astraSmnKell` qui buffe le SupremeCommander de son parent Creed.
+
+    ⚠ RESIDU : cette source (effet 0x426 `ListenUpMaggots`, trigger @181221d20) n'est PAS portee -> le
+    dict reste VIDE offline et `get_ability_stat_modification` rend 0. C'est l'etat CONFRONTE live
+    (2 probes : meme avec Kell VIVANT en jeu au moment du cast, le natif summon 2 gardes = modification
+    nulle) -- pas une degradation silencieuse. Le composant + les deux semantiques de CONSOMMATION
+    (additive pour nrOfSummons, OVERRIDE pour range, cf. `SupremeCommanderAbility.ExecuteBehaviour`
+    @18120df30) sont portes 1:1 et exerces offline en injectant une modification."""
+    __slots__ = ("modifications",)
+
+    def __init__(self, modifications=None):
+        self.modifications: dict = dict(modifications or {})
+
+    def add(self, key, delta: int, cap=None) -> int:
+        """`ActiveAbilityModificationsComponent.Add` @180f8f2a0 + `ModificationConfig.Add` @180fa5170."""
+        value = int(self.modifications.get(key, 0)) + int(delta)
+        if cap is not None and int(cap) < value:      # clamp `Nullable<int>` @+4 (jamais pose in-build)
+            value = int(cap)
+        self.modifications[key] = value
+        return value
+
+    def get(self, key) -> int:
+        """`ActiveAbilityModificationsComponent.Get` @180f8f570 : valeur de la modification, 0 si absente."""
+        return int(self.modifications.get(key, 0))
+
+
+def get_ability_stat_modification(entity, key) -> int:
+    """`IdunBattle.Entities.UnitExtensions.GetAbilityStatModification` @180ece900 =
+    `unit.GetComponent<ActiveAbilityModificationsComponent>().Get(key)`.
+
+    `key` = un `AbilityVarOrConst` (natif : `AbilityVarOrConst.op_Implicit(Nullable<AbilityConstant>)`
+    replie la constante en une cle 4 octets -- ex. `0x10` = nrOfSummons, `0x16` = range). Le port passe
+    directement l'index de constante (int), MEME domaine de cle que `add`.
+
+    Unite sans composant (cas NOMINAL offline : aucune source de modification portee) -> 0, identique au
+    `Get` natif sur un dict vide. Consommateurs natifs (xrefs EXHAUSTIVES du build gqfc5mff6c) : les DEUX
+    call-sites de `SupremeCommanderAbility.ExecuteBehaviour` @18120df30 (@18120e09b cle 0x10 nrOfSummons,
+    @18120e17a cle 0x16 range) -- AUCUN autre appelant."""
+    if entity is None:
+        return 0
+    comp = entity.get_component(ActiveAbilityModificationsComponent)
+    return comp.get(key) if comp is not None else 0
 
 
 # --- Predicat de LIVENESS d'unite (#70) -------------------------------------------------------- #
