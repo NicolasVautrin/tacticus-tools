@@ -553,6 +553,29 @@ class _DamageOpsMixin:
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
         block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
+        # `On(PreAttack=5)` SUR LE VECTEUR ABILITY (famille ATTACK) — MEME raisonnement que le canal
+        # #179 plus bas : le natif n'a QU'UNE `IdunBattle.Operations.AttackDamageOperation$$Execute`,
+        # empruntee par l'attaque NORMALE et par toute ability `AttackWithAttackDamage` (case-61 §1.2),
+        # et c'est ELLE qui emet l'event 5 avant `GetAttackHits`. Le port ne l'emettait que dans
+        # `execute` -> 2e branche du meme fork de port.
+        #   REFUTE le residu case-61 §6 (« `On(PreAttack=5)` n'est pas emis par le vecteur ability ->
+        #   `LetTheGalaxyBurn` ne peut s'armer que par sa branche `TargetHasTileEffect` »), qui n'avait
+        #   jamais ete mesure. MESURE (probe_61d_frenzy_aoe_combat, `blackObliterator` porteur du trait
+        #   `LetTheGalaxyBurn`, cast de FrenziedFiring 1036, roster TEMOIN sans modificateur de coups) :
+        #   le natif applique **+1 coup sur une PARTIE des cibles, et la partie CHANGE d'un run a
+        #   l'autre a geometrie identique** (k=3 : {77:4,79:1,81:1,83:1} puis {77:5,79:2,81:2,83:1}) =
+        #   signature d'un chance-gate par attaque -- exactement le `Maybe(ConfigConst(0x2a))` de
+        #   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger`
+        #   (`On(5) & OwnerIsCaster & Maybe(chance) & !HasTileStatusEffect(TargetTiles@0x190)`).
+        #   Emis ICI = AVANT le canal de coups (qui relit le flag via `attacker_persistent_data`) et
+        #   avant tout degat, comme le natif. `ability_type` threade (l'`AbilityOrEffect` du coup).
+        #   COUT pour une unite NON porteuse : nul -- aucun autre trigger porte n'ecoute l'event 5
+        #   (cf. `pre_attack_triggers`), donc 0 conso RNG et 0 mutation.
+        from .triggers.dispatch import pre_attack_triggers       # lazy : cycle damage<->triggers
+        if is_attack_damage_op:
+            pre_attack_triggers(state, attacker_id, target_id,
+                                ranged=not bool(is_melee) if is_melee is not None else False,
+                                profile=damage_profile, ability_type=ability_type)
         # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
         # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
         # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.
@@ -738,6 +761,30 @@ class _DamageOpsMixin:
             # `GetDamageSourceAbility(currentAbility = l'ABILITY, triggeringAbility = null)` : une
             # ability n'est pas une attaque REGULIERE -> la source est l'ability elle-meme.
             source_ability=AttackDamageOperation._damage_source_ability(ability_type, None))
+        # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
+        # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
+        # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :
+        # « MEME `Execute`, MEME `GetAttackHits` »). Or c'est CETTE `Execute` qui appelle
+        # `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
+        # (son SEUL appelant, XREF) -> les coups additionnels HETEROGENES du canal #179 se greffent aussi
+        # sur les attaques d'ability. Le port ne les cablait que dans `execute` (attaque normale) : FORK
+        # de port (1 Execute native -> 2 facades offline dont 1 muette).
+        # MESURE (probe_61d_frenzy_aoe_combat, blackObliterator « Volk » porteur permanent d'un effet du
+        # cycle `FleshmetalGuns`, cast de FrenziedFiring 1036) : le natif applique, APRES les coups
+        # HeavyRound de l'arbre, 2 coups au profil du cycle (Melta ~2000/coup) SUR CHAQUE cible touchee
+        # -- absents du port, qui s'arretait aux coups d'arme.
+        # GATE FAMILLE : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$Execute`) est
+        # une Operation DISTINCTE, qui n'appelle PAS ce canal -> `is_attack_damage_op` seul (meme gate que
+        # les mods attaquant / le crit ci-dessus). Aucun groupe qualifie -> no-op strict, 0 conso RNG.
+        _ah = None
+        if is_attack_damage_op:
+            _ah = execute_additional_hits(
+                state, attacker_id, target_id, tgt, thc,
+                collect_additional_hit_groups(
+                    state, attacker_id, target_id, active, bool(is_melee),
+                    state.effects.active_effects(target_id) if state.effects is not None else []),
+                mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
+                extra_pierce=ctx.extra_pierce)
         # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
@@ -770,6 +817,7 @@ class _DamageOpsMixin:
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
+                "additional_hits": _ah,          # #179 sur le vecteur ability (None = aucun groupe)
                 # part PV par coup + PV AVANT l'attaque (#116 `ChainLeftOverHitsAttackDamage` : localiser
                 # le coup qui met la cible a 0 PV -> compter les coups GASPILLES sur le cadavre).
                 # `hp_after` = PV APRES la mutation (purement ADDITIF, aucune branche modifiee) : le DoT

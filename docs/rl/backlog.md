@@ -45,6 +45,28 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Le VERDICT du `Maybe` de `LetTheGalaxyBurn` diverge natif/port** (`case-61` §6, mesuré par
+  `probe_61d_frenzy_aoe_combat.py`). Depuis que `On(PreAttack=5)` est émis sur le vecteur ability, le
+  *tirage* est consommé des DEUX côtés — l'alignement `state.rng` est préservé — mais le prédicat ne
+  rend pas toujours le même booléen : mesuré K=1, natif **6** coups sur la cible (non armé) vs port
+  **7** (armé), **les 6 premiers coups restant bit-exacts**. Ce n'est donc pas un décalage de flux
+  mais un écart de **seuil** : port `LetTheGalaxyBurnArmAbility.matches` →
+  `state.rng.next_internal(0, 100) < LetTheGalaxyBurnChancePct` vs natif
+  `IdunBattleLogic.Entities.DSLFactory$$Maybe` → `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`
+  (bornes / comparaison / générateur à LIRE). Impact : ±1 coup par attaque pour les 5 porteurs
+  `LetTheGalaxyBurn` (Black Legion) ; `test_ability_hits_channel_live.py` borne l'écart à 1. `[opus]`.
+
+- **Conso RNG du canal #179 non bit-exacte sur le vecteur ability** (`case-61` §4ter ; le résidu
+  `case-202` §7 « à confirmer live » est désormais CHIFFRÉ). Sur un cast de `FrenziedFiring` (caster
+  `blackObliterator`, porteur permanent d'un effet du cycle `FleshmetalGuns`), les coups d'ARME sont
+  bit-exacts (K=0, 2 seeds) mais les 2 coups additionnels du canal #179 diffèrent en valeur : port
+  `[2735, 2553]` vs natif `[2481, 2754]`. Comme ces coups s'exécutent **après** chaque attaque, tout
+  ce qui suit la première attaque est désaligné (2ᵉ, 3ᵉ… cible d'un volet AoE). Pistes à trancher
+  au décompilé : l'ordre relatif de
+  `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` vs
+  `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (le port place le canal AVANT
+  les after-hit), et le nombre de tirages par coup additionnel. `[opus]`.
+
 - **Les vecteurs COMBAT autres que l'attaque normale TRONQUENT encore leurs bornes réduites**
   (`case-131-normal-attack-bounds-materialization` §5, remonté par le fix #131). Les cellules
   min/max d'un coup viennent de `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` (slot 4

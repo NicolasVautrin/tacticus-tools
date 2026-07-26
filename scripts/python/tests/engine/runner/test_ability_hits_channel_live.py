@@ -537,3 +537,252 @@ def test_frenzied_firing_aoe_batch_matches_native(live_session, rpc, build_runne
     assert main0[1] - main3[1] == len(adj3), \
         (f"coups du batch d'origine {main0[1]} -> {main3[1]} : l'ecart ne vaut pas le nombre de "
          f"voisins ennemis ({len(adj3)}) -> la base geometrique (4) a bouge")
+
+
+# ================================================ (6) FrenziedFiring : volet AoE, face COMBAT
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour` (MIRROR) :
+#     hitsNode = GetHitsForOriginalTarget(this)
+#     A = SetCache(hitsNode) & AttackWithAttackDamage(caster@0x160, target@0x178, hits = hitsNode)
+#     B = SetCache(hitsNode) & AttackWithAttackDamage(caster@0x160,
+#                                 AdjacentEnemies(caster@0x160, targetTiles@0x190, 1),
+#                                 hits = DSLFactory.Direct(1))
+#     AtomicGroup(0x4e, <ExecuteBehaviour>b__0)  ou b__0 = Execute( op_Addition(A, B) )
+#
+# La face DECISION (5) ne PREDIT pas la face COMBAT : rien ne garantissait que l'execution reprenne le
+# meme sous-arbre. La lecture montre qu'elle le reprend -- MEME selecteur (`GetTargets`) et MEME
+# `hits = 1` (ici `Direct(1)`, la un immediat du call-site) -- d'ou la reutilisation stricte de `_AOE`
+# et `AOE_HITS`, et la seule DEFINITION de `GetHitsForOriginalTarget` (partagee par les deux faces).
+#
+# ROSTER TEMOIN OBLIGATOIRE : aucune des 4 cibles ne porte de modificateur du canal de coups partage
+# (BigTarget/Parry/LightCover/Camouflage/Diminutive). Avec un roster quelconque, les malus/bonus de ce
+# canal (case-61 §1.2, deja livres, appliques aux DEUX vecteurs) melangent leur verdict a celui du
+# volet mesure ici -- constate : un `astraBullgryn` (aura BigTarget) sur l'anneau retire 1 coup a la
+# cible cote PORT alors que le natif n'en retire pas.
+FRENZY_WITNESSES = ["necroWarden", "necroOverlord", "admecMarshall", "eldarAutarch"]
+FRENZY_PROFILE_HEAVY_ROUND = 19     # `DamageProfileType.HeavyRound` = profil des DEUX volets de 1036
+
+
+def _frenzy_cast_by_target(rpc, rid, cid, tid):
+    """Caste 1036 et ventile les coups appliques PAR CIBLE et PAR PROFIL :
+    `({cible: [coups HeavyRound]}, {cible: [coups d'un AUTRE profil]})`.
+
+    La ventilation est INDISPENSABLE : `blackObliterator` porte en permanence un effet du cycle
+    `FleshmetalGuns`, dont `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithout
+    DamageProfileType` greffe des coups d'un profil PROPRE (Melta/Flame/HeavyRound selon le tour du
+    cycle) sur CHAQUE attaque. Ces coups appartiennent au canal #179, pas a l'arbre 1036."""
+    res = rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": cid, "targetId": tid, "abilityType": FRENZY},
+        "captureEvents": True}, 120)
+    per, other = {}, {}
+    for act in (res.get("actions") or []):
+        for e in (act.get("events") or []):
+            td = e.get("tags")
+            if not td:
+                continue
+            td = json.loads(td) if isinstance(td, str) else td
+            if "Amount" not in td or td.get("Active_Ability_Type") != FRENZY:
+                continue
+            dst = per if td.get("DamageProfileType") == FRENZY_PROFILE_HEAVY_ROUND else other
+            dst.setdefault(td.get("Target_Id"), []).append(td.get("Amount"))
+    return per, other, res
+
+
+def _frenzy_offline(rpc, rid, board, cid, tid):
+    """Rejoue 1036 OFFLINE (arbre DSL `frenzied_firing_tree`) sur l'etat live, `state.rng` cale via
+    `dumpRng` -- DERNIER RPC avant le cast live. Rend `{cible: [coups]}` du volet 1036."""
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    dv = _dv(rpc, rid)
+    ob = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    st = load_state(dv, ob, snap, board=board)
+    s0 = rpc("dumpRng", {"runnerId": rid}, 30)
+    if not _ok(s0):
+        return None
+    st.rng = _seed_rng(s0)
+    res = ABILITY_CLASSES[FRENZY]().execute_behaviour(st, cid, tid) or {}
+    out = {tid: list(((res.get("origin_attack") or {}).get("per_hit")) or [])}
+    for row in (res.get("aoe") or []):
+        out[row["target"]] = list((row.get("attack") or {}).get("per_hit") or [])
+    return out
+
+
+def _frenzy_combat_geometry(rpc, build_runner, seed, k):
+    """Monte un runner ISOLE, place la cible en PLEIN CHAMP a portee du caster IMMOBILE et `k` de ses
+    allies sur l'anneau hex de la cible (placement ADAPTATIF : un ennemi pose entre le caster et la
+    cible OBSCURCIT la ligne de tir et rend le cast illegal -- on essaie l'anneau du plus LOIN au plus
+    proche et on ne garde que les placements qui preservent la legalite). Caste ensuite l'ability et
+    rend `(natif_HeavyRound, natif_autres_profils, port, adj, nb_voisins_marchables)`.
+
+    UN RUNNER PAR GEOMETRIE : le cast CONSOMME l'activation de l'ability, donc deux geometries ne
+    peuvent pas etre mesurees sur la meme bataille."""
+    rid = build_runner(seed, extra=["--roster", "1", "--p-units", FRENZY_VIS,
+                                    "--a-units", ",".join(FRENZY_WITNESSES),
+                                    "--hp-target", "90000"])["rid"]
+    board = _board(rpc, rid)
+    dv = _dv(rpc, rid)
+    me = _find(dv, FRENZY_VIS)
+    if me is None:
+        pytest.skip(f"{FRENZY_VIS} absent du build")
+    if not _my_turn(rpc, rid, me.get("owner")):
+        pytest.skip("tour du caster non atteint")
+    dv = _dv(rpc, rid)
+    me = _find(dv, FRENZY_VIS)
+    foes = [u for u in (dv.get("units") or [])
+            if u.get("alive") and u.get("owner") != me.get("owner")]
+    if me is None or len(foes) < 1 + k:
+        pytest.skip(f"roster insuffisant (caster={bool(me)} ennemis={len(foes)})")
+
+    cpos = _pos(me)                                  # LE CASTER N'EST JAMAIS DEPLACE (cf. docstring)
+    walk = [board.coord(t) for t in sorted(board.by_id) if board.walkable(t)]
+
+    def nb_free(coord):
+        return [n for n in board.neighbours(board.id_at(*coord)) if board.walkable(n)]
+
+    open_tiles = [c for c in walk if len(nb_free(c)) == 6 and 2 <= hexgeo.distance(c, cpos) <= 3]
+    if not open_tiles:
+        pytest.skip(f"aucune tuile a 6 voisins marchables a portee du caster @{cpos}")
+    tgt, others = foes[0], foes[1:]
+    _move(rpc, rid, tgt["id"], max(open_tiles, key=lambda c: hexgeo.distance(c, cpos)))
+    dv = _dv(rpc, rid)
+    tu = next((u for u in (dv.get("units") or []) if u.get("id") == tgt["id"]), None)
+    tpos = _pos(tu) if tu else None
+    if tpos is None:
+        pytest.skip("cible non placee")
+    ring = sorted((board.coord(n) for n in nb_free(tpos) if board.coord(n) != cpos),
+                  key=lambda c: -hexgeo.distance(c, cpos))
+    far = [c for c in walk
+           if hexgeo.distance(c, tpos) > 4 and hexgeo.distance(c, cpos) > 4]
+    if len(ring) < k or len(far) < len(others):
+        pytest.skip(f"geometrie insuffisante (anneau={len(ring)} tuiles lointaines={len(far)})")
+
+    def castable():
+        at = rpc("abilityTargets", {"runnerId": rid, "unitId": me["id"],
+                                    "abilityType": FRENZY}, 120)
+        ab = next((x for u in (at.get("units") or []) for x in (u.get("abilities") or [])
+                   if x.get("abilityId") == FRENZY), {})
+        return tgt["id"] in [x.get("targetId") for x in (ab.get("fromHere") or [])]
+
+    for i, u in enumerate(others):                    # tout le monde LOIN d'abord
+        _move(rpc, rid, u["id"], far[(i * 7) % len(far)])
+    free_ring, placed = list(ring), 0
+    for i, u in enumerate(others):
+        if placed >= k:
+            break
+        for c in list(free_ring):
+            _move(rpc, rid, u["id"], c)
+            cur = next((x for x in (_dv(rpc, rid).get("units") or [])
+                        if x.get("id") == u["id"]), None)
+            if _pos(cur) == c and castable():
+                free_ring.remove(c)
+                placed += 1
+                break
+            _move(rpc, rid, u["id"], far[(i * 7) % len(far)])     # rejete -> reparque loin
+
+    d = _dv(rpc, rid)
+    adj = sorted(u["id"] for u in (d.get("units") or [])
+                 if u.get("alive") and u.get("id") != tgt["id"]
+                 and u.get("owner") != me.get("owner") and _pos(u)
+                 and hexgeo.distance(_pos(u), tpos) == 1)
+    if len(adj) != k or not castable():
+        pytest.skip(f"geometrie K={k} non montee (adj={adj}, castable={castable()})")
+    off = _frenzy_offline(rpc, rid, board, me["id"], tgt["id"])
+    if off is None:
+        pytest.skip("dumpRng KO -> aucune comparaison per-coup possible")
+    nat, other, _res = _frenzy_cast_by_target(rpc, rid, me["id"], tgt["id"])
+    return {"cid": me["id"], "tid": tgt["id"], "adj": adj, "nb_free": len(nb_free(tpos)),
+            "nat": nat, "other": other, "port": off}
+
+
+def _frenzy_assert_geometry(g, n_hits):
+    """Assertions COMMUNES aux deux geometries : cibles touchees, base geometrique du volet
+    d'origine, `hits = Direct(1)` du volet AoE, et concordance natif/port -- chaque compte borne par
+    le +1 `LetTheGalaxyBurn` (chance-gate par ATTAQUE, cf. la docstring du test)."""
+    tid, adj = g["tid"], g["adj"]
+    expected_main = n_hits + g["nb_free"] - len(adj)   # Min(nrOfHits + Count(tuiles libres), cap)
+    assert sorted(g["nat"]) == sorted([tid] + adj), \
+        (f"K={len(adj)} : le natif frappe {sorted(g['nat'])} (attendu cible + voisins "
+         f"{sorted([tid] + adj)}) -> le volet AoE n'est pas "
+         f"`AdjacentEnemies(caster@0x160, TargetTiles@0x190, 1)`")
+    assert sorted(k for k, v in g["port"].items() if v) == sorted(g["nat"]), \
+        (f"K={len(adj)} : cibles du port {sorted(k for k, v in g['port'].items() if v)} != "
+         f"natif {sorted(g['nat'])}")
+    assert expected_main <= len(g["port"][tid]) <= expected_main + 1, \
+        (f"K={len(adj)} : le port applique {len(g['port'][tid])} coups a la cible d'origine, attendu "
+         f"nrOfHits({n_hits}) + tuiles adjacentes marchables SANS ennemi ({g['nb_free']} - "
+         f"{len(adj)}) = {expected_main} (+1 LetTheGalaxyBurn au plus) -> la base GEOMETRIQUE a bouge")
+    for t in adj:
+        assert 1 <= len(g["port"][t]) <= 2, \
+            (f"volet AoE, cible u{t} : le port applique {len(g['port'][t])} coups, attendu le "
+             f"litteral `DSLFactory.Direct(1)` (+1 LetTheGalaxyBurn au plus)")
+    for t in g["nat"]:
+        assert abs(len(g["nat"][t]) - len(g["port"][t])) <= 1, \
+            (f"cible u{t} : natif {len(g['nat'][t])} coups vs port {len(g['port'][t])} -- ecart > 1, "
+             f"hors de la tolerance `LetTheGalaxyBurn` (cf. docstring)")
+
+
+def test_frenzied_firing_aoe_combat_matches_native(live_session, rpc, build_runner):
+    """COMBAT. `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour`
+    (MIRROR du DECOMPILE) :
+
+        hitsNode = GetHitsForOriginalTarget(this)
+        A = SetCache(hitsNode) & AttackWithAttackDamage(caster@0x160, target@0x178, hits = hitsNode)
+        B = SetCache(hitsNode) & AttackWithAttackDamage(caster@0x160,
+                                    AdjacentEnemies(caster@0x160, targetTiles@0x190, 1),
+                                    hits = DSLFactory.Direct(1))
+        AtomicGroup(0x4e, <ExecuteBehaviour>b__0)   ou b__0 = Execute( op_Addition(A, B) )
+
+    DEUX geometries, UN RUNNER CHACUNE (le cast consomme l'activation), caster IMMOBILE :
+      - K=0 -> volet AoE INERTE : le natif ne frappe QUE la cible (non-regression du volet d'origine)
+        et, a nombre de coups egal, le port est BIT-EXACT coup par coup ;
+      - K>=1 -> volet AoE MORDANT : le natif frappe la cible + chaque ennemi de l'anneau, et les
+        coups du volet d'origine TOMBENT d'autant (chaque ennemi de l'anneau retire une tuile du
+        `Count` ET ajoute une cible) -- l'anti-correlation des DEUX volets.
+    Le nombre de coups attendu est DERIVE a chaque fois de la config (`nrOfHits`) et du board
+    (voisins marchables de la cible), jamais code en dur ; la geometrie K est celle REELLEMENT
+    obtenue (le placement d'anneau est adaptatif, cf. `_frenzy_combat_geometry`).
+
+    !! LE CASTER N'EST JAMAIS DEPLACE (case-101 §6) : `applyAction move` poserait `UnitFlag.Moved`,
+    que le natif lit pour desarmer `HeavyWeapon_ExtraDmg` (+25 % ranged not-moved) alors qu'aucun RPC
+    ne l'expose au port -> x1,25 uniforme de MESURE, etranger au volet teste.
+
+    ROSTER TEMOIN : aucune cible ne porte de modificateur du canal de coups partage (case-61 §1.2) --
+    sans cela, un `astraBullgryn` (aura BigTarget) sur l'anneau retire 1 coup a la cible cote PORT
+    alors que le natif n'en retire pas, et le verdict du volet mesure ici serait melange au leur.
+
+    RESIDU ADMIS, borne a +-1 coup par cible : le trait `LetTheGalaxyBurn` de Volk arme, au
+    `On(PreAttack=5)` de CHAQUE attaque, un flag `Maybe(chance)` qui vaut +1 coup. Le vecteur est
+    desormais emis sur le chemin ability (sans quoi le K=0 n'etait JAMAIS bit-exact), et le tirage est
+    consomme des DEUX cotes -- mais le VERDICT du `Maybe` peut differer (residu nomme, cf.
+    docs/rl/case-61-ability-hits-channel.md §6). Le test borne donc l'ecart a 1 coup par cible et
+    n'exige le bit-exact que lorsque les comptes concordent."""
+    from engine.entities.effects.magnitude import ability_var
+    n_hits = int(ability_var(FRENZY_NAME, "nrOfHits", is_constant=True) or 1)
+
+    g0 = _frenzy_combat_geometry(rpc, build_runner, "61106", 0)
+    print(f"\n[#61 frenzy AoE COMBAT] K=0 cible u{g0['tid']} ({g0['nb_free']} voisins marchables) "
+          f"natif={ {t: len(v) for t, v in g0['nat'].items()} } "
+          f"port={ {t: len(v) for t, v in g0['port'].items()} } "
+          f"(canal #179 natif={ {t: len(v) for t, v in g0['other'].items()} })")
+    assert set(g0["nat"]) == {g0["tid"]}, \
+        (f"sans voisin ennemi le natif frappe {sorted(g0['nat'])} (attendu la seule cible "
+         f"u{g0['tid']}) -> le volet AoE ne serait pas gate par la geometrie")
+    _frenzy_assert_geometry(g0, n_hits)
+    if len(g0["nat"][g0["tid"]]) == len(g0["port"][g0["tid"]]):   # meme verdict `Maybe` -> rng aligne
+        assert g0["port"][g0["tid"]] == g0["nat"][g0["tid"]], \
+            (f"K=0 : per-coup port {g0['port'][g0['tid']]} != natif {g0['nat'][g0['tid']]} -- a "
+             f"nombre de coups EGAL le flux `state.rng` doit etre aligne coup par coup")
+
+    g3 = _frenzy_combat_geometry(rpc, build_runner, "61107", 3)
+    print(f"[#61 frenzy AoE COMBAT] K={len(g3['adj'])} adj={g3['adj']} cible u{g3['tid']} "
+          f"({g3['nb_free']} voisins marchables) "
+          f"natif={ {t: len(v) for t, v in g3['nat'].items()} } "
+          f"port={ {t: len(v) for t, v in g3['port'].items()} } "
+          f"(canal #179 natif={ {t: len(v) for t, v in g3['other'].items()} })")
+    assert len(g3["adj"]) >= 1, "geometrie K>=1 non obtenue -> le volet AoE n'est pas exerce"
+    _frenzy_assert_geometry(g3, n_hits)
+    # Le scenario DISCRIMINE : le natif lui-meme frappe un nombre DIFFERENT de cibles entre les deux
+    # geometries (sinon un port qui n'emettrait que le volet d'origine passerait vert).
+    assert len(g3["nat"]) == 1 + len(g3["adj"]) > len(g0["nat"]), \
+        (f"le natif frappe {len(g3['nat'])} cibles a K={len(g3['adj'])} et {len(g0['nat'])} a K=0 -> "
+         f"le scenario n'oppose pas les deux geometries")

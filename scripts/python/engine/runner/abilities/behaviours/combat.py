@@ -117,6 +117,12 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # = nrOfHits de l'arme melee du caster, WeaponHitsFormula IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate ; la config d'ability 1025 n'a pas
         # de `nrOfHits`). Defaut None = coups lus de la config (`hits_key`, comportement historique). Mode bornes
         # uniquement (le mode `amount` a deja un `hits` explicite). Exclusif avec `hits` (Executioner).
+        # Accepte un INT (valeur deja resolue par la classe d'ability) **ou un NOEUD `AAmountFormula`** :
+        # le 6e argument natif d'`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` est un NOEUD
+        # (`AttackDamageBehaviour+0x80`, EVALUE par
+        # `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`) — passer le noeud le laisse
+        # s'evaluer A L'EXECUTION contre l'`entities` du behaviour, ce qu'exige un arbre dont un `Cache` a ete
+        # FIGE en amont par un `SetCache` (FrenziedFiring : `SetCache(hitsNode) & Attack(..., hits=hitsNode)`).
         self.hits_override = hits_override
 
     def execute(self, entities, ectx):
@@ -170,7 +176,10 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 if self.hits is not None:                  # hits DYNAMIQUE (Executioner RoundsStarted) override config nrOfHits
                     hits = int(self.hits)
                 elif self.hits_override is not None:       # coups = NODE dynamique (SkyStrike MeleeWeaponHits)
-                    hits = int(self.hits_override)
+                    # Noeud `AAmountFormula` (6e arg natif de `AttackWithAttackDamage`) -> EVALUE ICI, comme
+                    # `AttackDamageBehaviour$$ExecuteTarget` ; un int deja resolu passe tel quel.
+                    hits = int(self.hits_override.evaluate(entities)
+                               if hasattr(self.hits_override, "evaluate") else self.hits_override)
                 if self.damage_override is not None:       # GetAttackDamage surchargee (ex. SpiritLeech +extraDmg)
                     bmin, bmax = self.damage_override(state, caster, tgt, bmin, bmax)
                 atk = AttackDamageOperation.execute_ability_attack(

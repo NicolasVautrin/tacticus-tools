@@ -55,7 +55,7 @@ from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, Vigilance
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility)
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
-                          DaemonicOrdnanceAbility)
+                          DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat)
 from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
 from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
@@ -108,6 +108,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     RevitalizingMalignancyAbility.ABILITY_TYPE: RevitalizingMalignancyAbility,  # 1037 (deathRotbone : heal self+allies adj non-Imperial, split trait Chaos regular/chaos-cumul, case-220)
     FlailSwingAbility.ABILITY_TYPE: FlailSwingAbility,                 # 1042 (deathBlightlord DeathGuard : 3x Power melee mono-cible + InformWeapon no-op ; residu overkill flag, case-220)
     BringerOfDespairAbility.ABILITY_TYPE: BringerOfDespairAbility,     # 1022 (Angrax blackTerminator : 4x Power cible melee + 4x Power ennemi random adjacent-CASTER, splash factory attack, case-220 BL)
+    FrenziedFiringAbilityCombat.ABILITY_TYPE: FrenziedFiringAbilityCombat,  # 1036 (Volk blackObliterator BlackLegion : AtomicGroup(op_Addition( SetCache(hitsNode) & Attack(cible, hits=Min(Cache(nrOfHits + #tuiles-adjacentes-marchables-sans-ennemi), maxNrOfHits)), SetCache(hitsNode) & Attack(AdjacentEnemies(TargetTile,1), hits=Direct(1), multi) )) ; famille ATTACK, HeavyRound ranged ; case-61 volet AoE COMBAT)
     PlasmaCannonAbility.ABILITY_TYPE: PlasmaCannonAbility,             # 1150 (darkaTerminator DarkAngels : 3x Plasma cible + 3x sur <=2 unites tirees directly-behind, native_factory attack, case-220)
     CombatRestorativesAbility.ABILITY_TYPE: CombatRestorativesAbility,  # 1002 (ultraApothecary : heal self+allies adj, split trait Imperial hpToHeal_2 / non-Imperial hpToHeal, PAS de cumul, case-220 P0-HEAL)
     MortisRoundAbility.ABILITY_TYPE: MortisRoundAbility,               # 1004 (ultraEliminatorSgt : AtomicGroup(Attack HeavyRound 1x + PushUnit cible 1 hex) ; wiring valide ; quirk HeavyWeapon double = residu cross-cutting non porte, case-220 UM)
