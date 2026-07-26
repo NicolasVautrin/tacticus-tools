@@ -172,6 +172,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `execute_normal_like`. Attention : le porter inconditionnellement casserait les vecteurs
   `AbilityDamageOperation` (Stormcaller 3-hit bit-exact SANS resolve, cf. `probe_217`) — la condition est
   la FAMILLE de factory native, pas la largeur des bornes. `[opus]`.
+- **Résidus NEUFS engendrés par la vague du 2026-07-26 (#67b / #224 / #127 / EnvFireTile)** — nommés
+  dans les case docs, absents d'ici jusque-là. Détail, porteurs et fichiers :
+  `port-residuals-inventory.md` §4 (N1-N6).
+  - **N1** ciblage d'`ArcaneShield` sur un allié NON-Chaos (écart port/natif, `case-67` §6.5) `[opus]` ;
+  - **N2** famille ATTACK en **bounds-mode** : cap SCALAIRE vs cap sur les CELLULES — le fix #67b est
+    gaté sur `is_attack_damage_op`, cette face n'a pas été confrontée (`case-67` §6.5) `[opus]` ;
+  - **N3** ordre réduction × bouclier sur `execute_normal_like` — indiscernable à `spread_pct = 0`,
+    donc jamais mesuré (`case-67` §6.5) `[opus]` ;
+  - **N4** le STADE natif du refus `TerminatorArmour`/`Pinned` n'est pas identifié : `PinnedEffect`
+    n'override PAS `EntityIsImmuneToEffect` et la base ne teste que le trait `Immune`, qu'aucune unité
+    ne porte → **collapse assumé** par #224 (`case-224-effect-immunity-gate` §5). `[fable]` ;
+  - **N5** chaîne `&` derrière un `AddEffect` REFUSÉ : quand la pose est abandonnée par le gate
+    d'immunité, la suite de l'`op_and` s'exécute-t-elle ? Confond non éliminé (`case-224` §5) `[opus]` ;
+  - **N6** `test_hailstrike_phase2_live` **rouge** — échec PRÉ-EXISTANT vérifié par stash, signalé
+    INDÉPENDAMMENT par `7c412b8` et `ad5692e` (donc pas un artefact de branche). `[opus]`.
 - **(RÉSOLU #224) Gate d'IMMUNITÉ d'effet** — canal déclaratif (`BaseEffect.can_be_immune_to` +
   `entity_is_immune_to_effect`, surcharges `PinnedEffect`/`ContaminatedEffect`), résolution d'effet-DEF
   (`EffectFactory.effect_def`, mirror `EffectsDatabase.Get`), gate au stade natif exact dans
