@@ -246,6 +246,27 @@ behaviour (`AddEffect`) et le `ApplyModification` de l'effet (ex. `_apply_act_of
 (feuille DSL au-dessus, Operation/effet impératif en-dessous), ne pas wrapper le mélange. Classification par
 ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (section « Classification »).
 
+### Entrer au registre SANS son masque de ciblage = régression silencieuse (règle de non-régression)
+
+**Une ability qui entre dans `ABILITY_CLASSES` pose son `TARGETING_OPTIONS` DANS LE MÊME COMMIT.**
+
+- **Pourquoi** : `get_invalid_target_reason` / `get_invalid_caster_reason`
+  (`engine/runner/abilities/targeting.py`) commencent par
+  `options = getattr(ability, "TARGETING_OPTIONS", None)` ; `None` ⇒ **retour 0 immédiat, aucun
+  gate**. Le moteur accepte alors des casts que `IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget`
+  REFUSE (ami/ennemi, cible == caster, caster ayant bougé). La dégradation est **permissive** :
+  ni erreur, ni crash — donc invisible en self-play, et c'est exactement le trou qu'un
+  entraînement irait exploiter.
+- **Dette MESURÉE** : `ABILITY_CLASSES` = 76 entrées, **1 seule** (`WaaaghAbility`, 1058) porte son
+  masque. Le compte est passé de 60 à 75 manquants : c'est le SEUL gisement que notre propre
+  cadence de portage aggrave, chaque nouveau port l'alimentant.
+- **Source du masque** : le littéral passé par `<X>Ability$$.ctor` à
+  `IdunBattle.Core.Services.TargetingOptions$$.ctor`. **Piège** : l'overload **PRESET + flags**
+  (`TargetingOptions..ctor(&opts, &preset, <flags>, 0)`, ex.
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor`) — le littéral
+  visible n'est PAS le masque effectif. Ne renseigner que les masques EFFECTIVEMENT lus ; recopier
+  le littéral sans vérifier l'overload produit un masque FAUX, pire que l'absence.
+
 !include .claude/skills/tacticus-re-port/SKILL.md
 
 ## Agents — invariants (valent AUSSI si tu es toi-même un agent qui en lance un)
