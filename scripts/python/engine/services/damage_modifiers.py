@@ -196,11 +196,22 @@ def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bo
     étant le coup létal écrêté aux PV restants). L'ancien verdict « live-validé bit-exact AVEC la
     troncature » venait de régimes NON discriminants (ex. p=65 sur base 2813 : floor == round).
 
-    ⚠ RESTENT tronquants (résidu nommé, chiffré, hors #131) : ability bounds-mode famille ATTACK
-    (`damage_ops:execute_ability_attack::_reduce` quand `is_attack_damage_op=True`), `execute_normal_like`,
-    `additional_hits`. Ils passent par le MÊME `PredictAttackRaw` natif (avec `predefined`) et sont donc
-    suspects du même ±1 — mais aucun n'a été confronté live sur un régime discriminant : campagne de
-    mesure propre à faire avant de basculer."""
+    **CAMPAGNE HeavyGravCannon (2026-07-26) — l'ability bounds-mode famille ATTACK BASCULE AUSSI** (`damage_ops:execute_ability_attack`,
+    `_round_mat = True` inconditionnel). Sa campagne discriminante a enfin pu être faite : sur ce vecteur
+    la valeur finale n'est FRACTIONNAIRE que si les DEUX %-list sont vides (sinon `ApplyCappedModifiers`
+    arrondit déjà en fin d'appel) ET si la branche PERÇAGE du plancher `max(0, d − armure, d × pierce%)`
+    l'emporte — régime que le canal perçage de `HeavyGravCannonEffect` (+extraPierceRatio=60 sur un
+    profil à PiercingRatio=1) fabrique enfin. MESURE (probe_hgc_1291 `--case round`, SentinelDirectives,
+    14 casts, 2 régimes d'armure) : armure 2411 → d=4976 exact 3305.59 (floor 3305 / round 3306) live
+    **3306** et d=4812 exact 3205.55 (floor 3205 / round 3206) live **3206** ; les 12 autres casts ont
+    une partie fractionnaire < .5 (ou nulle) et donnent floor == round == live. ⇒ live == arrondi 14/14,
+    == troncature 12/14, les 2 écarts tombant EXACTEMENT sur frac ≥ .5 (un additif oublié aurait donné un
+    +1 systématique). Les validations bit-exact « avec la troncature » de ce vecteur portaient toutes sur
+    des régimes NON discriminants (valeur entière).
+
+    ⚠ RESTENT tronquants (résidu nommé, chiffré) : `execute_normal_like`, `additional_hits`. Même
+    suspicion (même `PredictAttackRaw` natif avec `predefined`), même prérequis de mesure : il faut un
+    régime à %-list vides + branche perçage gagnante. Pas de porteur confronté à ce jour."""
     v_raw = apply_capped_modifiers(value, mods).raw
     if mods.additive:
         v_raw = v_raw + _fx.from_number(mods.additive)

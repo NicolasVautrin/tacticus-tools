@@ -107,8 +107,13 @@ pierced = (4976 + 443) x 0.61        = 3305.6  <  after_armor = 4976 + 443 - 190
 ```
 
 Le `+pierce` est donc **inerte** ici : `GetDamageWithPiercing` prend `max(0, d - armor, d x pierce%)`
-(le perçage est un **plancher**) et `d - armor` domine. L'écart résiduel est le **flat seul**, et son
-signe est désormais correct (`live >= offline`) — c'est ce que le test asserte.
+(le perçage est un **plancher**) et `d - armor` domine. L'écart résiduel est le **flat seul**.
+
+> **MAJ 2026-07-26 — résolu.** `HeavyGravCannonEffect` est porté (`entities/effects/loki/
+> extra_damage.py`, les deux canaux) et `execute_ability_attack` threade désormais `target_traits`
+> (sans quoi le gate `HasTrait(target, …)` était mort sur la voie ability). `test_sentinel_directives_
+> live` asserte l'**égalité bit-exacte** (off == live == 3510) au lieu de `live >= offline`. Le canal
+> perçage est confronté séparément sur une cible à armure haute (`test_heavy_grav_cannon_live`).
 
 ## 4. Fix
 
@@ -178,9 +183,8 @@ le même symptôme (le Vanguard bouge sans se rapprocher, attaque ranged 3 hits 
 
 ## 6. Résidus documentés (hors périmètre)
 
-- **`HeavyGravCannon` (1291) non porté** — `case-220 §6.17`. Mesuré ici : `+443` flat sur une cible
-  `Mechanical`. C'est le seul confond restant de `test_sentinel_directives_live` (d'où
-  `live >= offline` plutôt que le bit-exact).
+- ~~**`HeavyGravCannon` (1291) non porté**~~ — **RÉSOLU le 2026-07-26** (le `+443` mesuré ici était
+  exactement `extraDmg[50] × 160%`). `test_sentinel_directives_live` asserte l'égalité bit-exacte.
 - **`UnitFlag.ArrivedAtFinalTile = 1` non posé par le port** : `MoveUnitOperation$$Execute` l'ajoute
   juste après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Aucun consommateur porté
   n'en dépend aujourd'hui (le flag est posé par `FinishUnitTurnOperation` côté port) — à câbler avec

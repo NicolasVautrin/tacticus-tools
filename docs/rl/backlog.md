@@ -230,12 +230,41 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   HeavyWeapon fantôme sur tout état rechargé (`load_state`). Fix = **un seul store**, celui du natif
   (`set_moved_flag` / `unit_has_moved`). Détail + décomposition par étage + généralisation bit-exact
   dans les DEUX sens : `case-101-moved-flag`.
-- **`HeavyGravCannon` (1291) non porté** (`case-220 §6.17`, chiffré par `case-101 §3.2`) :
-  `HeavyGravCannonEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(cond, ConfigVar(8=extraDmg))`
-  + `...$$CreatePiercingBonusForAttack` = `ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio))`, cond =
-  `OwnerIsActor & IsRangedAttack & (HasTrait(target, 5=Mechanical) | 1013 MkXGravis | 1039
-  TerminatorArmour)`. MESURÉ live : `+443` flat (Sy-Gex -> necroOverlord Mechanical, seed 777) — seul
-  confond restant de `test_sentinel_directives_live` (qui asserte donc `live >= offline`). `[opus]`.
+- ~~**`HeavyGravCannon` (1291) non porté**~~ — **RÉSOLU (2026-07-26)**. `HeavyGravCannonEffect`
+  (`entities/effects/loki/extra_damage.py`) porte les DEUX canaux (`ForAddition(cond,
+  ConfigVar(8=extraDmg))` + `ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio))`, `cond` = la MÊME
+  `...$$DamageCondition` pour les deux). Prérequis levé au passage : `execute_ability_attack` ne
+  threadait pas `target_traits` — tout bonus attaquant target-conditionnel était mort sur la voie
+  ability. `test_sentinel_directives_live` asserte désormais l'**égalité bit-exacte** (off == live ==
+  3510, l'ancien `+443`) ; le canal perçage, inerte face à `necroOverlord` (armure 1909, la branche
+  `d − armure` du plancher domine), est confronté sur une cible à armure haute par
+  `test_heavy_grav_cannon_live` (4 hypothèses : deux canaux / flat seul / perçage seul / aucun).
+- **`execute_normal_like` ne threade pas `target_traits`** (jumeau du prérequis levé pour
+  `execute_ability_attack`, 2026-07-26) : la voie `StatAmount`/`PercentageOf` (splash Psyker, montants
+  mono-valeur) passe encore `target_traits=None` à `attacker_modifiers` → `BeastSlayer_ExtraDmg`,
+  `MartialKatah_DmgBonus`, `CondemnorStake_ExtraDmg` et `HeavyGravCannon` y restent muets. Le natif n'a
+  qu'UN collecteur (`IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`), donc c'est bien un
+  gap ; non corrigé faute de mesure live sur CE vecteur (aucun porteur de ces effets n'a d'attaque
+  `normal_like` confrontée). Même remarque pour `additional_hits`. `[opus]`.
+- **Matérialisation finale : `execute_normal_like` et `additional_hits` restent TRONQUANTS**
+  (`apply_all_modifiers`, résidu nommé). Le 3ᵉ larron de la liste, `execute_ability_attack` famille
+  ATTACK, a été **basculé sur `Round(AwayFromZero)`** le 2026-07-26 sur mesure (`probe_hgc_1291
+  --case round`, 14 casts / 2 régimes d'armure : live == arrondi 14/14, == troncature 12/14, les 2
+  écarts tombant exactement sur les tirages à partie fractionnaire ≥ .5 → réfute l'hypothèse « additif
+  oublié »). Les deux autres vecteurs attendent la même campagne : le régime discriminant exige que les
+  DEUX %-list soient vides ET que la branche perçage du plancher l'emporte (armure haute + perçage
+  élevé). `[opus]`.
+- **`rl_duel build --hp-target` remet le `FixedArmor` des a-units à 0** (mesuré 2026-07-26,
+  `probe_hgc_1291 --case band` : `adeptMorvenn` 2411 → 0 et `necroWarden` 2008 → 0, seule variable entre
+  les deux runs). Piège de mesure : tout test qui force les PV pour garantir la survie de la cible
+  supprime SILENCIEUSEMENT l'étage armure — donc aussi tout régime où la branche perçage du plancher
+  pourrait mordre. À documenter dans `runner.md` (ou à corriger côté normalisation si c'est un effet de
+  bord non voulu). `[opus]`.
+- **`tests/conftest.py` écrit ses state-files dans `data/`** (`STATE_PREFIX = ROOT/"data"/
+  "_pytest_duel_state"`) alors que `data/` est VERSIONNÉ depuis le 2026-07-26 (`data/` = ce qu'on LIT,
+  `logs/` = ce qu'on ÉCRIT). Les fichiers sont unlinkés au teardown, donc invisibles la plupart du
+  temps — mais une passe interrompue les laisse dans `git status`. Contournement en attendant :
+  `TACTICUS_PYTEST_STATE_PREFIX=<worktree>/logs/runners/...`. `[opus]` (une ligne).
 - **`UnitFlag.ArrivedAtFinalTile` (1) non posé par `MoveUnitOperation`** (`case-101 §6`) : le natif
   l'ajoute juste après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Aucun consommateur
   porté n'en dépend aujourd'hui ; à câbler avec le reste des `MoveUnitOptions`. `[opus]`.

@@ -107,6 +107,7 @@ from .loki import (
     AncestralFortuneExtraBlockChanceEffect,
     GravitonRifleExtraPierceEffect,
     HailstrikeExtraPierceEffect,
+    HeavyGravCannonEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -449,6 +450,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CurrentAbilityIs` -> s'applique aussi a l'attaque NORMALE ranged du porteur. Le nom d'EffectType
     # capte live est « Hailstrike » (== `EffectType.Hailstrike`, verifie par test_storm_speeder_live).
     "Hailstrike": HailstrikeExtraPierceEffect,
+    # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
+    # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
+    # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
+    # HasTrait(target,0x3f5=1013 MkXGravis) | HasTrait(target,0x40f=1039 TerminatorArmour))) :
+    #   `...$$CreateEffectDamageBonusForAttack`  = ForAddition(cond, ConfigVar(8=extraDmg))     -> flat
+    #   `...$$CreatePiercingBonusForAttack`      = ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio))
+    # ⚠ Le nom est un HOMONYME a TROIS faces : EffectType 1291 = HeavyGravCannon (CETTE cle, le nom capte
+    # live), TriggeredAbilityType 1233 = HeavyGravCannon (la config lue via l'AbilityOrEffect 0x4d1 du
+    # ctor), TriggeredAbilityType 1291 = SelfRepairMechanism (aucun rapport).
+    "HeavyGravCannon": HeavyGravCannonEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

@@ -26,18 +26,31 @@ base.py (NO_END_TURN + NO_ABILITY_USED) -> slot générique (handler `_add_flags
 VALIDATION LIVE (admecDestroyer Sy-Gex, seul porteur ; test_sentinel_directives_live) : config
 [minDmg 4254,maxDmg 5318] pierce=1 hits=1 ; A/B tree==pipeline direct BIT-EXACT (off=3067==A/B=3067) ;
 Pinned posé live (delta pre/post)==offline ; turn-flow live (currentPlayer inchangé, 2 flags False).
-RÉSIDU (hors port, confound caster-intrinsèque) : live=3510 >= off=3067 (delta 443) = passifs Sy-Gex
-HeavyWeapon_ExtraDmg(1008) + HeavyGravCannon(1291) non entièrement consommés par le pipeline d'attaque
-d'ability -> égalité bit-exacte live confondue (assert direction live>=off). HeavyGravCannon = item
-séparé ci-dessous ([opus]+prérequis canal PIERCING). Le TREE SentinelDirectives lui-même est fidèle.
+RÉSIDU LEVÉ (2026-07-26) : le delta 443 (live 3510 vs off 3067) était le passif HeavyGravCannon(1291),
+désormais porté (item ci-dessous) ; HeavyWeapon_ExtraDmg(1008) l'avait déjà été par #101 (gate no-move
+lu sur le flag natif). Le test asserte maintenant l'ÉGALITÉ BIT-EXACTE (off == live == 3510).
+Le TREE SentinelDirectives lui-même est fidèle.
 ```
 ```
-[HeavyGravCannon | admecDestroyer passif]  — [opus]+prérequis
-VAs : effet @180f4ee20/@180f4ec20/@180f4ed60/@180f4ef20 (1291 enum-only)
-Owner-effect ranged vs Mechanical/MkXGravis(1013)/TerminatorArmour(1039) : +364 dégât (clone
-BeastSlayer, trivial) + +60% PIERCE. Prérequis : canal PIERCING attaquant — `for_piercing` DÉFINI
-(effect_bonus.py:72) mais JAMAIS consommé par damage_model [ledger §T pierce]. Risques : effet capté
-live sans classe = no-op silencieux ; dégât vs blindés faux sans le canal.
+[HeavyGravCannon | admecDestroyer passif]  — **PORTE + VALIDE LIVE (2026-07-26)**
+Symboles : `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` /
+$$CreateEffectDamageBonusForAttack / $$CreatePiercingBonusForAttack / $$.ctor
+Owner-effect (EffectType 1291, capté live sur Sy-Gex) : UNE condition partagee par DEUX canaux --
+  DamageCondition = (OwnerIsActor & IsRangedAttack) & (HasTrait(target,5=Mechanical)
+                    | HasTrait(target,0x3f5=1013 MkXGravis) | HasTrait(target,0x40f=1039 TerminatorArmour))
+  CreateEffectDamageBonusForAttack = ForAddition(cond, ConfigVar(8=extraDmg))          -> flat
+  CreatePiercingBonusForAttack     = ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio))
+Le ctor est `BaseEffect(AbilityOrEffect.op_Implicit(0x4d1 = 1233), 1)` -> la config lue est celle de
+l'ABILITY (TriggeredAbilityType 1233 HeavyGravCannon) : `gameconfig.ability("HeavyGravCannon")`.
+⚠ HOMONYMIE A TROIS FACES : EffectType 1291 = HeavyGravCannon (le nom capté) ; TriggeredAbilityType
+1233 = HeavyGravCannon (la config) ; TriggeredAbilityType 1291 = SelfRepairMechanism (sans rapport).
+Le prérequis « canal PIERCING attaquant » était en fait DEJA levé (case-117/#113 : `create_effect_
+piercing_bonus_for_attack` + `piercing_bonus_from_effects` + `ability_pierce_effect_bonus`, porteurs
+GravitonRifle/Hailstrike). Le VRAI prérequis manquant était `target_traits` non threadé par
+`execute_ability_attack` (le gate HasTrait était mort sur la voie ability).
+LIVE : montage 1 (necroOverlord, armure 1909) -> flat seul, off == live == 3510 bit-exact ; montage 2
+(adeptMorvenn, armure 2411 -> la branche perçage du plancher gagne pour TOUT tirage) -> les deux canaux
+observables, 4 hypothèses séparées (3306 / 3008 / 3035 / 2565), live == 3306.
 ```
 ```
 [1116 RadBombardment | admecDominus]  — [opus]+prérequis (décision DONE NC)
@@ -75,8 +88,9 @@ RandomAmount [partagé Poxwalkers] ; move-into-vacated-hex. Validation en TOUR E
 ```
 
 **Synthèse AdMec** : couvert/fold = Vehicle, GalvanicField ; [opus] direct = SentinelDirectives (PORTÉ+VALIDÉ) ;
-[opus]+prérequis = MasterAnnihilator, HeavyGravCannon, RadBombardment ; **[fable]** = OptimizedGait.
-Transverses : canal PIERCING attaquant (HeavyGravCannon + GravitonRifle §6.10) ; sélecteur ligne
-runner (RadBombardment + DarkTalonStrike §3) ; RandomAmount (OptimizedGait + Poxwalkers §2) ;
-remove-effect-by-source (MasterAnnihilator). HYPOTHÈSES : trait 0xc=Mechanic ; magnitudes ConfigVar ;
-cap 5456 ; for_piercing = seul canal manquant.
+PORTÉS+VALIDÉS depuis = MasterAnnihilator (#222), HeavyGravCannon (2026-07-26) ; [opus]+prérequis
+restant = RadBombardment ; **[fable]** = OptimizedGait.
+Transverses : ~~canal PIERCING attaquant~~ (LEVÉ : GravitonRifle §6.10 / Hailstrike case-117 l'ont
+câblé, HeavyGravCannon le consomme) ; sélecteur ligne runner (RadBombardment + DarkTalonStrike §3) ;
+RandomAmount (OptimizedGait + Poxwalkers §2) ; remove-effect-by-source (MasterAnnihilator).
+HYPOTHÈSES : trait 0xc=Mechanic ; magnitudes ConfigVar ; cap 5456.

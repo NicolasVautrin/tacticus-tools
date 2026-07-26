@@ -409,7 +409,11 @@ class _DamageOpsMixin:
 
         DÉFENSIF : si `state.rng` n'est pas calé (replay effet-seul, sans dumpRng), on SKIP le dégât
         (return None) au lieu de lever — le wiring d'ability reste utilisable pour matérialiser un effet
-        sans replay de dégât. Un replay de DÉGÂT doit caler rng (dumpRng) avant le cast."""
+        sans replay de dégât. Un replay de DÉGÂT doit caler rng (dumpRng) avant le cast.
+
+        `round_materialize` : REDONDANT depuis la campagne HeavyGravCannon (2026-07-26) — l'étage
+        `Fix64.Round(·, AwayFromZero)` est désormais INCONDITIONNEL sur ce vecteur (cf. `_round_mat`
+        plus bas). Conservé pour la signature des callers existants ; ce n'est plus un knob."""
         from .damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             return None
@@ -442,9 +446,21 @@ class _DamageOpsMixin:
         #     (`AbilityDamageOperation`) recoit des mods ATTAQUANT VIDES (struct zeroee, mesure #45f
         #     Stormcaller) -> is_ranged/trigger NE SONT threades que pour la famille ATTACK
         #     (`is_attack_damage_op=True`) ; ability-family = None (gates inertes, comportement inchange).
+        #   - `target_traits` (case HeavyGravCannon) : les gates `HasTrait(target@0x178, X)` lisent la CIBLE
+        #     du contexte d'attaque, que le natif remplit sur TOUT vecteur -- il n'y a qu'UN collecteur
+        #     (`IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`), pas un par famille. Ce site
+        #     ne le threadait PAS (seule l'attaque NORMALE le faisait, damage_ops `execute`) -> tout bonus
+        #     target-conditionnel etait MORT sur la voie ability. GROUND TRUTH (case-101 §3.2, cast
+        #     SentinelDirectives = vecteur ABILITY famille ATTACK) : live 3510 - offline 3067 = +443 =
+        #     `extraDmg[50] x 160%` de `HeavyGravCannon`, dont la condition est precisement
+        #     `HasTrait(target, 5=Mechanical)` -> le natif EVALUE bien les traits de la cible ici.
+        #     Meme gate FAMILLE que `is_ranged`/`trigger_ability_type` : la famille ABILITY recoit des mods
+        #     attaquant VIDES (#45f) -> None hors `is_attack_damage_op` (comportement inchange).
         _ranged = (not is_melee) if (is_melee is not None and is_attack_damage_op) else None
+        _tgt_traits = target_trait_names(state, target_id) if is_attack_damage_op else None
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
                                           is_ranged=_ranged, is_normal_attack=False,
+                                          target_traits=_tgt_traits,
                                           trigger_ability_type=(ability_type if is_attack_damage_op else None))
         # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
@@ -513,9 +529,30 @@ class _DamageOpsMixin:
         #   seed 12345 off 86 [28,29,29] live 86 (+0) · 4242 off 87 live 89 (+2) · 777 off 91 live 93
         #   (+2) · 31337 off 87 live 90 (+3) -> l'écart VARIE dans [0, hits] = signature d'un ARRONDI
         #   par coup (un additif systématique donnerait +hits constant). floor -> live == round.
-        # La famille ATTACK (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, `is_attack_damage_op=True`)
-        # reste TRONQUANTE : ces chemins sont live-validés bit-exact ainsi (chantier séparé).
-        _round_mat = bool(round_materialize) or not is_attack_damage_op
+        #
+        # CAMPAGNE HeavyGravCannon (2026-07-26) -- la famille ATTACK **AUSSI**, mesure faite. Elle etait restee
+        # TRONQUANTE avec la note « suspects du meme ±1, campagne de mesure propre a faire avant de
+        # basculer » (`apply_all_modifiers`, residu nomme) : les validations bit-exact historiques de ce
+        # vecteur portaient toutes sur un regime NON DISCRIMINANT, ou la valeur finale est ENTIERE. Elle
+        # ne peut etre FRACTIONNAIRE que si les DEUX %-list (attaquant ET defenseur) sont vides -- sinon
+        # `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` arrondit deja en fin
+        # d'appel -- ET que la branche PERCAGE du plancher `max(0, d - armure, d x pierce%)` l'emporte.
+        # Le canal percage de `HeavyGravCannonEffect` (+extraPierceRatio=60 sur un profil a
+        # PiercingRatio=1) fabrique exactement ce regime.
+        # CAMPAGNE (probe_hgc_1291 --case round, SentinelDirectives = ability bounds-mode famille ATTACK,
+        # 14 casts / 2 regimes d'armure, une seule variable = la materialisation finale) :
+        #   armure 2411 (adeptMorvenn) : d=4976 exact 3305.59 floor 3305 round 3306 -> live **3306**
+        #                                d=4812 exact 3205.55 floor 3205 round 3206 -> live **3206**
+        #                                d=4839/4554/4480/4905 frac .02/.17/.03/.28 -> floor==round==live
+        #   armure 2008 (necroWarden)  : 8 casts, frac 0 ou < .5 -> floor==round==live (temoin : PAS de
+        #                                +1 systematique, ce qui refute l'hypothese « additif oublie »)
+        # => live == Round(AwayFromZero) 14/14, live == floor 12/14, les 2 ecarts tombant EXACTEMENT sur
+        # les tirages a partie fractionnaire >= .5. C'est l'etage `Fix64.Round(Mul(v, multiplier),
+        # AwayFromZero)` de `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`
+        # (slot 0x10), INCONDITIONNEL des qu'un `Nullable<DamageModifiers>` HasValue.
+        # STRICTEMENT NO-OP hors de ce regime (valeur deja entiere -> Round == floor == identite).
+        # `execute_normal_like` et `additional_hits` restent tronquants : PAS de mesure sur eux (backlog).
+        _round_mat = True
 
         def _reduce(value: int) -> int:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT (idem
