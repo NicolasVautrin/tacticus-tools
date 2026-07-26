@@ -162,13 +162,23 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `execute_normal_like`. Attention : le porter inconditionnellement casserait les vecteurs
   `AbilityDamageOperation` (Stormcaller 3-hit bit-exact SANS resolve, cf. `probe_217`) — la condition est
   la FAMILLE de factory native, pas la largeur des bornes. `[opus]`.
-- **Gate d'IMMUNITÉ d'effet (`BaseEffect.EntityIsImmuneToEffect` + surcharges) non porté**
-  (`operations/effects.py` en-tête ; MESURE #112) : `AddEffectOperation` pose l'effet sans consulter
-  l'immunité. GROUND TRUTH live : `ExemplarOfHate` sur `blackAbaddon` (trait `TerminatorArmour`, i2
-  « This unit cannot be Suppressed ») ne pose PAS `Pinned` côté natif, alors que le port le pose.
-  Le socle générique existe (`ContaminatedEffect$$EntityIsImmuneToEffect` est déjà porté en dur dans
-  `effect_triggers.py`) — il manque le canal DÉCLARATIF par classe d'effet + son appel dans
-  `AddEffectOperation.execute`. Touche tous les poseurs de `Pinned`/`Stunned`. `[opus]`.
+- **(RÉSOLU #224) Gate d'IMMUNITÉ d'effet** — canal déclaratif (`BaseEffect.can_be_immune_to` +
+  `entity_is_immune_to_effect`, surcharges `PinnedEffect`/`ContaminatedEffect`), résolution d'effet-DEF
+  (`EffectFactory.effect_def`, mirror `EffectsDatabase.Get`), gate au stade natif exact dans
+  `AddEffectOperation.execute`, et migration du portage EN DUR de Contaminated. Validé live sur les
+  DEUX branches. Détail, inventaire des 7 classes `CanBeImmuneTo` et résidus :
+  `docs/rl/case-224-effect-immunity-gate.md`.
+  - **RÉSIDU `[fable]`** : le STADE natif par lequel `TerminatorArmour` fait ÉCHOUER la pose de
+    `Pinned` n'est pas identifié — `PinnedEffect` n'override PAS `EntityIsImmuneToEffect` (vtable
+    runtime), la base ne teste que `UnitTrait.Immune` (qu'aucune unité du roster ne porte) et le seul
+    artefact qui nomme le couple est `PinnedEffect$$CreateActiveCondition = Not(HasTrait(0x40f))` — or
+    une ActiveCondition désactive, elle n'empêche pas la pose, alors que la mesure montre un REFUS
+    (aucun groupe `AddEffect`). Le port COLLAPSE l'ActiveCondition dans le gate. Point d'ancrage pour
+    trancher : hook sur la valeur de retour du slot 40 d'`IEffect` dans `AddEffectOperation$$Execute`,
+    ou sur `BaseUnitComponent$$HasTrait` (arg + résultat). Cf. case-224 §4/§5.1.
+  - **RÉSIDU `[opus]`** : chaîne `&` derrière un `AddEffect` REFUSÉ — live, la branche Chaos entière
+    d'`ExemplarOfHate` tombe avec le `Pinned` refusé (`mutated=False`), le port la poursuit. CONFOND
+    non éliminé (élection d'attaquant DarkAngels à portée non forçable sur ce board). Cf. case-224 §5.2.
 - **`decisionView.effects` cache les effets INACTIFS** (`frida/hooks/game/effects.ts`,
   `readEffectsByUnit` : `if (!info.active || info.removed) continue`) : impossible de confirmer live
   qu'un `AddEffect` a réellement posé un effet dont l'`ActiveCondition` n'est pas encore satisfaite —

@@ -55,13 +55,17 @@ from ...entities.effects import effect_stat_mod_key
 
 
 def _unit_state(state: State, unit_id: int) -> dict:
-    """`{hp, max_hp}` — l'argument `unit_state` des `is_active()` (mirror des `StatAmount(Self, HEALTH,
-    CURRENT/CURRENT_PCT)` des `CreateActiveCondition`)."""
+    """`{hp, max_hp, traits}` — l'argument `unit_state` des `is_active()` (mirror des `StatAmount(Self,
+    HEALTH, CURRENT/CURRENT_PCT)` des `CreateActiveCondition`). `traits` = les NOMS de traits gameconfig
+    du porteur, pour les `CreateActiveCondition` qui sont des prédicats de TRAIT (`PinnedEffect` =
+    `Not(HasTrait(TerminatorArmour))`, #224) ; absent ⇒ trait inconnu ⇒ `HasTrait` faux."""
+    from .triggers.base import _unit_trait_names
     ent = state.get_entity(unit_id)
     hc = ent.get_component(HealthComponent) if ent is not None else None
+    traits = _unit_trait_names(state, unit_id)
     if hc is None:
-        return {}
-    return {"hp": hc.hp, "max_hp": hc.hp_max}
+        return {"traits": traits} if traits else {}
+    return {"hp": hc.hp, "max_hp": hc.hp_max, "traits": traits}
 
 
 def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -> list:
