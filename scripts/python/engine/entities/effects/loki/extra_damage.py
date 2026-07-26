@@ -42,6 +42,72 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
         return True
 
 
+class PrioritisedEfficiencyExtraDmgEffect(BaseEffect):
+    """`PrioritisedEfficiency_ExtraDmg` (EffectType 0x5c9=**1481**) -- volet OFFENSIF de la stance
+    « Hostile Acquisition » du trait `PrioritisedEfficiency` (1059 ; x3 Leagues of Votann :
+    votanBeserk / votanIronmaster / votanUthar). #121.
+
+    MIRROR 1:1 de `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` :
+
+        EffectBonus.ForPercentIncrease( DSLFactory.get_OwnerIsCaster,
+                                        DSLFactory.ConfigConst(0xf, source@effet+0x60) )
+
+    Le corps natif est le JUMEAU EXACT de `RapidAssault_ExtraDamage` ci-dessus (meme paire
+    `get_OwnerIsCaster` + `ConfigConst(0xf)`, meme `ForPercentIncrease`) -- d'ou la meme forme de port.
+
+    ETAGE (la question de #121) -- `ForPercentIncrease` ecrit la **%-list** du `DamageModifiers`
+    ATTAQUANT (`IdunBattle.Core.Services.DamageModifiers$$Add` : `pct_list.Add(GetMultiplierFromDamageBonus(+25))`),
+    consommee par `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` **APRES** percage/armure
+    (`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`) et AVANT l'additif @+0x10.
+    Ce n'est donc NI un scale des bornes d'arme/config, NI un additif : sur une cible a armure > 0 les deux
+    placements different de `0.25 x armure_effective` par coup (cf. le test discriminant #121).
+
+    CONDITIONS (lues, pas supposees) : le SEUL noeud de condition est `get_OwnerIsCaster` --
+      * pas de `IsNormalAttack` -> s'applique aux attaques NORMALES **et** aux attaques d'ABILITY
+        (i2 : « Deals +{[extraDmgPct]}% Damage with all attacks ») ;
+      * pas de `IsMeleeAttack`/`IsRangedAttack` -> melee ET distance ;
+      * pas de gate sur un trait de la cible, pas de `CreateActiveCondition`, pas de
+        `CreateTargetSelector` (aucun de ces symboles n'existe pour cet effet) -> present == applique ;
+      * `OwnerIsCaster` = l'effet ne compte que pour les attaques de SON PORTEUR. Il est vrai par
+        construction sur ce canal (`_attacker_effect_bonuses` n'itere que les effets de l'ATTAQUANT) ;
+        cote DEFENSE l'effet est muet (aucun `CreateEffectDamageMalusForDefense`) -> un Votann ATTAQUE
+        ne prend PAS +25 % de degat.
+
+    MAGNITUDE = `ConfigConst(0xf)`, PAS un litteral natif. `ConfigConst(key, source)` construit un
+    `IdunBattle.Entities.Formulas.ConfigAmount` (slot constante) dont `Calculate` finit sur
+    `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(key)` de la config designee par
+    `source` = le champ +0x60 de l'effet, pose par son ctor. Ce ctor est DEDUPLIQUE par IL2CPP avec
+    celui de `PrioritisedEfficiency_DmgReductionEffect` (la table Frida donne le MEME RVA aux deux
+    `..ctor` -- ghidra n'a garde qu'une etiquette) : il lit
+    `BaseEffect(AbilityOrEffect(0x5ce), 1)` ou **0x5ce = 1486 = TriggeredAbilityType.PrioritisedEfficiency**
+    (surtout PAS EffectType 1486 = AncestralFortune_ExtraBlockChance -- enums homonymes).
+    Cote gameconfig, la config d'une triggered DERIVEE D'UN TRAIT = `globalValues.traitVariables`,
+    clef `<trait camelCase> + <nom de la constante>` -> `prioritisedEfficiencyExtraDmgPct` (= 25).
+    Deux precedents confirment que la clef 0xf est le generique `extraDmgPct` : `RapidAssault` 0xf ->
+    `rapidAssaultExtraDmgPct` (validee live) et, symetriquement, 0x72 -> `<trait>DmgReductionPct`
+    (`MartialKatah`, `PrioritisedEfficiency`). Le placeholder i2 `{[extraDmgPct]}` le corrobore.
+
+    CYCLE DE VIE (HORS PERIMETRE #121, residu nomme) : la POSE/BASCULE de la stance vit dans
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.APrioritisedEfficiencyAbility$$GetSetOffensiveStanceBehaviour`
+    (= `RemoveAllStanceEffects & AddEffect(1479 marqueur) & AddEffect(1481 CET effet) &
+    AddStaticStatModifierEffectToOwner(1482 +1 Movement) & SetPersistentData(...)`), pilote par
+    `...PrioritisedEfficiency_InitAbility$$CreateBehaviour` / `..._UpdateStanceAbility$$CreateBehaviour`
+    -- qui dependent du substrat PERSISTENT-DATA absent du port. L'effet est donc SEEDE depuis l'etat
+    live capte (`decisionView.effects`), pas encore pose par le moteur offline."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # ConfigConst(0xf) = trait var `prioritisedEfficiencyExtraDmgPct` (= 25). Aucun autre noeud
+        # de condition dans le natif -> aucun gate ici (cf. docstring).
+        pct = trait_var("PrioritisedEfficiency", "prioritisedEfficiencyExtraDmgPct")
+        return for_percent_increase(True, pct) if pct else None
+
+
 class SmashaEadExtraDamageEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack` (orksNob "Tanksmasha", ability
     SmashaEad, EffectType "SmashaEad") : `EffectBonus.ForAddition(OwnerIsCaster & IsNormalAttack,
