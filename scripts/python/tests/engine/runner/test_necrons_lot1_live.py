@@ -8,8 +8,8 @@ ORACLE (gameconfig / decompile), jamais un scalaire fige :
   * 1009 : le nb de summons == `Min(Count(amis LivingMetal morts) + TURNS_STARTED(caster), 6)` BRIDE par
     le nb d'hexes libres adjacents (`CanAddUnit(AdjacentTiles(caster))`) ; l'unite spawnee est celle de
     `constants.unitId` ; AUCUN revive (le set des unites MORTES est inchange).
-  * 1006 : la chaine ne repart QUE si la cible MEURT, avec `1 + extraHit` coups (mesure #116) ; sans
-    kill elle a exactement UN maillon.
+  * 1006 : la chaine ne repart QUE si la cible MEURT, avec `max(0, H - k - 1) + extraHit` coups
+    (loi #125, H = coups appliques, k = index du coup fatal) ; sans kill elle a exactement UN maillon.
   * 1226 : `Foreach(SurroundingEnemies(caster, range))` -> Pinned|Stunned + Chronometron_ExtraDamage sur
     CHAQUE ennemi du disque et sur AUCUN allie/le caster ; la branche `HasTrait(It, Summon)` route vers
     Stunned.
@@ -144,9 +144,10 @@ def test_resurrection_orb_registered_and_summon_count_live(rpc, build_runner):
 # ------------------------------------------------------------------ 1006 MultiThreatEliminator
 
 def test_multi_threat_chain_only_on_kill_live(rpc, build_runner):
-    """La chaine ne repart QUE si la cible MEURT. Deux regimes sur le MEME etat (une seule variable :
+    """La chaine ne repart QUE si la cible MEURT. Trois regimes sur le MEME etat (une seule variable :
     les PV de la cible) : cible pleine -> UN maillon ; cible ramenee sous le total du 1er volet ->
-    DEUX maillons, le 2e recevant `1 + extraHit` coups (mesure live #116)."""
+    DEUX maillons ; cible a 1 PV -> report STRICTEMENT plus grand (coup fatal plus precoce). Le report
+    est confronte a la loi `max(0, H - k - 1) + extraHit` (#125), pas a un scalaire."""
     assert ABILITY_CLASSES.get(MULTI_THREAT) is not None, "1006 doit etre dans ABILITY_CLASSES"
     rid = build_runner("4242", extra=["--p-units", "necroDestroyer",
                                       "--a-units", "eldarRanger,astraBullgryn", "--no-ai",
@@ -185,15 +186,39 @@ def test_multi_threat_chain_only_on_kill_live(rpc, build_runner):
     assert diag["chain"][0]["hits"] == 6, diag["chain"][0]     # champ statique de la classe native
     assert st.get_entity(foes[1]).get_component(HealthComponent).hp == hp2
 
-    # (b) cible FRAGILE -> kill -> 2e maillon a `1 + extraHit` coups
+    # (b) cible FRAGILE -> kill -> le 2e maillon recoit `max(0, H - k - 1) + extraHit` coups
+    # (H = coups appliques, k = index 1-based du coup fatal). ORACLE = la loi #125 recalculee ICI
+    # depuis la part PV par coup du 1er maillon, JAMAIS un scalaire fige : l'ancienne assertion
+    # `1 + extraHit` (#116) etait calibree sur un seul regime et passait par coincidence.
+    extra = int(GC.ability("MultiThreatEliminator")["constants"]["extraHit"])
     dmg1 = diag["chain"][0]["total"]
+
+    def report(diag_):
+        c0 = diag_["chain"][0]
+        per, hp = list(c0["per_hit_health"]), int(c0["hp_before"])
+        acc = 0
+        for i, h in enumerate(per):
+            acc += int(h)
+            if acc >= hp:
+                return max(0, len(per) - (i + 1) - 1) + extra
+        return 0
+
     st, cid, foes = scene(max(1, dmg1 // 2))
     diag2 = _cast(st, cid, foes[0], MULTI_THREAT)
     assert len(diag2["chain"]) >= 2, diag2["chain"]
-    extra = int(GC.ability("MultiThreatEliminator")["constants"]["extraHit"])
-    assert diag2["chain"][1]["hits"] == 1 + extra, (diag2["chain"], extra)
+    assert diag2["chain"][1]["hits"] == report(diag2), (diag2["chain"], extra)
     assert diag2["chain"][1]["target"] == foes[1]
     assert not st.get_entity(foes[0]).get_component(UnitComponent).alive
+
+    # (c) MEME scene, cible ENCORE plus fragile -> le coup fatal arrive PLUS TOT -> report PLUS GRAND.
+    # C'est ce contre-cas qui interdit a un report CONSTANT de passer le test.
+    st3, cid3, foes3 = scene(1)
+    diag3 = _cast(st3, cid3, foes3[0], MULTI_THREAT)
+    assert len(diag3["chain"]) >= 2, diag3["chain"]
+    assert diag3["chain"][1]["hits"] == report(diag3), (diag3["chain"], extra)
+    assert diag3["chain"][1]["hits"] > diag2["chain"][1]["hits"], (
+        f"mesure NON discriminante : meme report ({diag3['chain'][1]['hits']}) pour un coup fatal "
+        f"plus precoce -- un report CONSTANT passerait")
 
 
 # ------------------------------------------------------------------ 1226 Chronometron
