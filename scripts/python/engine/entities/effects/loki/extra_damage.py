@@ -77,8 +77,10 @@ class PrioritisedEfficiencyExtraDmgEffect(BaseEffect):
     `IdunBattle.Entities.Formulas.ConfigAmount` (slot constante) dont `Calculate` finit sur
     `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(key)` de la config designee par
     `source` = le champ +0x60 de l'effet, pose par son ctor. Ce ctor est DEDUPLIQUE par IL2CPP avec
-    celui de `PrioritisedEfficiency_DmgReductionEffect` (la table Frida donne le MEME RVA aux deux
-    `..ctor` -- ghidra n'a garde qu'une etiquette) : il lit
+    celui de `PrioritisedEfficiency_DmgReductionEffect` (corps byte-identiques) : la table FRIDA
+    attribue le RVA `f66060` a `PrioritisedEfficiency_ExtraDmgEffect..ctor` et n'a AUCUNE ligne pour
+    `...DmgReductionEffect..ctor`, tandis que ghidra a pose l'etiquette `...DmgReductionEffect$$.ctor`
+    sur `180f66060` -- MEME corps, deux noms. Il lit
     `BaseEffect(AbilityOrEffect(0x5ce), 1)` ou **0x5ce = 1486 = TriggeredAbilityType.PrioritisedEfficiency**
     (surtout PAS EffectType 1486 = AncestralFortune_ExtraBlockChance -- enums homonymes).
     Cote gameconfig, la config d'une triggered DERIVEE D'UN TRAIT = `globalValues.traitVariables`,
