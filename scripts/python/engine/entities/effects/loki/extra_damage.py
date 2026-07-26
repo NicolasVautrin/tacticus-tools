@@ -44,8 +44,10 @@ class RapidAssaultExtraDamageEffect(BaseEffect):
 
 class PrioritisedEfficiencyExtraDmgEffect(BaseEffect):
     """`PrioritisedEfficiency_ExtraDmg` (EffectType 0x5c9=**1481**) -- volet OFFENSIF de la stance
-    « Hostile Acquisition » du trait `PrioritisedEfficiency` (1059 ; x3 Leagues of Votann :
-    votanBeserk / votanIronmaster / votanUthar). #121.
+    « Hostile Acquisition » du trait `PrioritisedEfficiency` (1059). PORTEURS (7, tous Leagues of
+    Votann) : les 4 heros `votanBeserk` / `votanIronmaster` / `votanMemnyr` / `votanUthar`, le SUMMON
+    `votanSmnSteeljack` (spawne par IronkinSteeljack) et 2 npc (`votanBeserk_LHE`,
+    `votanNpc2Steeljack`). #121.
 
     MIRROR 1:1 de `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` :
 

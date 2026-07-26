@@ -168,7 +168,10 @@ HORS PERIMETRE (inchange) : `…AncestralFortune_CountResetAbility$$CreateTrigge
 ```
 
 ```
-[PrioritisedEfficiency | trait 0x423=1059, LES TROIS Votann]  — VOLET DEGAT PORTE + VALIDE LIVE (#121)
+[PrioritisedEfficiency | trait 0x423=1059, x7 porteurs]  — VOLET DEGAT PORTE + VALIDE LIVE (#121)
+PORTEURS (tous Votann) : les 4 heros votanBeserk / votanIronmaster / votanMemnyr / votanUthar (les 3
+premiers + Uthar sont dans --list-pool via catalog_inject #92), le SUMMON votanSmnSteeljack (amene en
+bataille par IronkinSteeljack) et 2 npc (votanBeserk_LHE, votanNpc2Steeljack).
 Systeme de STANCES a 5 effets (1479 marqueur HostileAcquisition, 1480 marqueur FortifyTakeover,
 1481 ExtraDmg, 1482 ExtraMovement, 1483 DmgReduction). i2 : « au debut de chaque tour et jusqu'a la fin
 de ce tour, l'unite gagne un effet selon sa stance ; quand un allie a PrioritisedEfficiency utilise une

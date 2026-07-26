@@ -1,4 +1,5 @@
-"""Tache #121 -- trait `PrioritisedEfficiency` (0x423=1059, LES TROIS Leagues of Votann) : ETAGE,
+"""Tache #121 -- trait `PrioritisedEfficiency` (0x423=1059, 7 porteurs Leagues of Votann : les 4 heros
+votanBeserk/votanIronmaster/votanMemnyr/votanUthar, le summon votanSmnSteeljack, 2 npc) : ETAGE,
 CONDITIONS et ORIENTATION du +extraDmgPct % de la stance << Hostile Acquisition >>.
 
 Artefacts natifs (mirror 1:1, cf. `engine/entities/effects/loki/extra_damage.py` et

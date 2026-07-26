@@ -182,7 +182,8 @@ class MartialKatahDmgReductionEffect(BaseEffect):
 
 class PrioritisedEfficiencyDmgReductionEffect(BaseEffect):
     """`PrioritisedEfficiency_DmgReduction` (EffectType 0x5cb=**1483**) — volet DEFENSIF de la stance
-    « Fortify Takeover » du trait `PrioritisedEfficiency` (1059, x3 Votann). Jumeau exact de
+    « Fortify Takeover » du trait `PrioritisedEfficiency` (1059, 7 porteurs Votann : 4 heros + le summon
+    `votanSmnSteeljack` + 2 npc — cf. extra_damage.py). Jumeau exact de
     `PrioritisedEfficiencyExtraDmgEffect` (extra_damage.py) : MEME trait, MEME source de config, face
     opposee du pipeline. #121.
 
