@@ -114,6 +114,19 @@ class BaseEffect:
     # Meme regime d'attribut de classe SIMPLE que `stacks_stat_mod_on_add` (pas d'annotation -> pas de
     # field dataclass). None/[] = l'effet n'a pose aucune modification d'ability.
     applied_ability_modifications = None
+    # CLE de la `ValueModification` que CETTE instance a posee sur le `UnitStats` de sa cible. Cote natif
+    # c'est litteralement l'ENTITE-EFFET : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification`
+    # passe `DSLFactory$$Entity(<effectEntity>)` en 6e argument de `IdunBattleLogic.Entities.DSLFactory$$ChangeStat`,
+    # et `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` REPASSE LA MEME entite avec
+    # `Position(stat, part 6)` -> `IdunBattle.Entities.Components.ValueModification$$ReverseModification`.
+    # => UNE seule cle par instance d'effet, quel que soit le chemin qui l'a posee. Renseignee par les
+    # chemins de pose OFFLINE (`AddEffectOperation._apply_stat_mods`, feuille `AddStaticStatModifierEffect`) ;
+    # laissee None pour un effet SEEDE (la cle est alors DERIVEE — cf. `effect_stat_mod_key`).
+    stat_mod_source = None
+    # Marqueur d'idempotence du revert (`RevertModification` deja joue pour cette instance). Le revert
+    # par-source est structurellement idempotent (`ReverseModification` pop une cle absente = no-op) ; ce
+    # drapeau evite surtout de RE-LISTER le meme revert a chaque tick dans les diagnostics.
+    stat_mod_reverted = False
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """`<Effect>.ApplyModification` (part DATA côté `entities/`) — liste des `(StatType, montant)` posés
@@ -350,8 +363,17 @@ class BaseEffect:
         posés par `ApplyModification`, reverté par-source via la clé `stat_mod_source`). C'est la part DATA
         (côté `entities/`) que la feuille runner `RemoveEffect` lit pour exécuter le revert (`revert_change_stat`,
         côté `runner/`) — l'interface `get_stat_modification_stat` est SINGULIÈRE et ne couvre pas un effet
-        multi-stat (ex. ActOfFaith = crit-chance ET crit-damage). Défaut `[]` = aucun ChangeStat à annuler."""
-        return []
+        multi-stat (ex. ActOfFaith = crit-chance ET crit-damage), d'où la liste.
+
+        DÉFAUT = le stat de `get_stat_modification_stat()` (mirror EXACT de la paire native
+        `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` /
+        `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` : les DEUX construisent leur
+        `Position(stat, part)` depuis le MÊME `(**vtable+0x728)` = `GetStatModification()`, seule la `part`
+        change — 5/9 à l'apply, 6 au revert). Autrement dit un `AStatModifierEffect` reverte TOUJOURS le stat
+        qu'il modifie ; il n'y a pas de famille « modifie mais ne reverte pas » côté natif. `[]` (défaut
+        effectif) pour tout effet non-StatModifier."""
+        st = self.get_stat_modification_stat()
+        return [] if st is None else [int(st)]
 
     def overridden_stats(self) -> "list":
         """Part DATA d'un `ApplyInternal` qui OVERRIDE des stats du porteur (part 7, `ChangeStat` mode 4)

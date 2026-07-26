@@ -50,6 +50,7 @@ __all__ = [
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source", "statmod_source_key",
+    "effect_stat_mod_key",
 ]
 
 
@@ -489,6 +490,35 @@ def statmod_source_key(eff) -> tuple:
     `unit_context.py`)."""
     return ("statmod", getattr(eff, "effect_type", None), getattr(eff, "source", None),
             getattr(eff, "name", None))
+
+
+def effect_stat_mod_key(eff):
+    """Cle UNIQUE de la `ValueModification` posee par CETTE instance d'effet — ou `None` si l'instance
+    n'a pose aucune modification de stat.
+
+    NATIF : la source d'un `ChangeStat` d'effet EST l'entite-effet elle-meme.
+    `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` appelle
+    `IdunBattleLogic.Entities.DSLFactory$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
+    Direct(amount), Entity(<effectEntity>), ...)` et
+    `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` rejoue le MEME appel avec
+    `Position(stat, part 6)` et LA MEME `Entity(<effectEntity>)` ->
+    `IdunBattle.Entities.Components.ValueModification$$ReverseModification` retire EXACTEMENT cette
+    contribution. Il n'y a donc jamais DEUX entrees `per_source` pour une meme entite-effet.
+
+    PORT : l'entite-effet n'existe pas offline, la cle est donc :
+      1. `eff.stat_mod_source` si un chemin de POSE l'a renseignee (`AddEffectOperation._apply_stat_mods`,
+         feuille `AddStaticStatModifierEffect`) ;
+      2. sinon la cle DERIVEE `statmod_source_key(eff)` — c'est celle sous laquelle l'ATTRIBUTION DU SEED
+         (`stat_modifications_by_source` -> `stats.seed_unit_stats(attributed=...)`) et le driver
+         d'ActiveCondition (`runner/operations/refresh_effects.py`) ecrivent deja. Un effet SEEDE porte
+         donc bien une modification par-source, RETIRABLE (c'est ce qui manquait : la cle etait calculee
+         a l'attribution puis oubliee, donc l'expiration ne pouvait plus rien retirer) ;
+      3. `None` si l'effet ne declare aucune stat-modification (`get_stat_modification_stat() is None`)
+         ET n'a pas de cle de pose -> rien a reverter."""
+    src = getattr(eff, "stat_mod_source", None)
+    if src is not None:
+        return src
+    return statmod_source_key(eff) if eff.get_stat_modification_stat() is not None else None
 
 
 def stat_modifications_by_source(effects, source_of=None) -> dict:

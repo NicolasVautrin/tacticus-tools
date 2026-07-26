@@ -23,6 +23,10 @@ Quatre invariants confrontes LIVE puis REJOUES offline (bit-exact) :
      branche `ChangeEffectTurns(Set)` du `If(HasEffect, ...)`.
   5. EXPIRATION : le stat-mod SORT quand le timer tombe (mirror
      `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`).
+  6. EXPIRATION D'UN STACK **SEEDE** (#118) : meme invariant, mais l'etat offline est charge
+     APRES la pose (l'effet est DEJA actif, son +15 DEJA CUIT dans `combatSnapshot.stats`). Le
+     natif garde la contribution dans une `ValueModification` keyee par l'ENTITE-EFFET et la
+     retire au retrait ; le port doit donc l'attribuer AU SEED pour pouvoir la retirer.
 
 FIXTURES : `emperNoiseMarine` (Shiron, ranged r3) + `emperKakophonist` (Adamatar, melee), les DEUX
 porteurs spawnables du rank courant, contre des ennemis NON-Necron (`orksNob`/`astraBullgryn` -- un
@@ -187,9 +191,11 @@ def _off_eff(state, uid, effect_type=THRILLED):
     return False, None
 
 
-def _battle(rpc, build_runner, seed):
-    """Bataille neuve + ids resolus. Chaque test la reconstruit -> aucun couplage d'ordre."""
-    rid = build_runner(seed, extra=BUILD)["rid"]
+def _battle(rpc, build_runner, seed, board="MC1_67"):
+    """Bataille neuve + ids resolus. Chaque test la reconstruit -> aucun couplage d'ordre.
+    `board` est une VARIABLE EXPERIMENTALE (geometrie/spawns) : le cas SEEDE (#118) est rejoue
+    sur deux couples (board, seed, porteur) distincts pour ne pas conclure d'un seul plateau."""
+    rid = build_runner(seed, extra=BUILD, board=board)["rid"]
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     assert isinstance(bg, dict) and bg.get("tiles"), "boardGraph indispo"
     h = _Harness(rpc, rid, Board(bg["tiles"], adjacency="evenq"))
@@ -346,3 +352,69 @@ def test_thrill_seekers_expires_and_reverts_the_stat_mod(rpc, build_runner):
     assert ctx.stat(StatType.CRIT_CHANCE) == cc_on - EXTRA_CC, (
         f"MOTEUR: stat-mod NON reverte a l'expiration "
         f"(cc={ctx.stat(StatType.CRIT_CHANCE)}, attendu {cc_on - EXTRA_CC})")
+
+
+@pytest.mark.parametrize("carrier,seed,board", [
+    # DEUX couples (porteur, seed, board) distincts : le verdict ne doit rien devoir a la geometrie
+    # d'UN plateau ni au kit d'UN porteur. Adamatar = melee au contact ; Shiron = ranged a 2 hex.
+    ("adamatar", "8118", "MC1_67"),
+    ("shiron", "4242", "C4_09"),
+])
+def test_thrill_seekers_seeded_stat_mod_reverts_on_expiry(rpc, build_runner, carrier, seed, board):
+    """(6) #118 -- STACK SEEDE : l'etat offline est charge APRES la pose, donc `Thrilled` est DEJA
+    porte et son +15 est DEJA CUIT dans `combatSnapshot.stats`. Le stat-mod doit quand meme SORTIR
+    a l'expiration, cote LIVE et cote MOTEUR.
+
+    C'est le cas que le test (5) ne couvre PAS : lui charge l'etat AVANT l'attaque, donc l'effet est
+    pose OFFLINE (la feuille `AddStaticStatModifierEffect` renseigne sa cle de source) -- le revert
+    marchait deja. Ici l'effet arrive par `EffectsState.seed` / `UnitContext.from_snapshot` : sa
+    contribution n'etait attribuee A AUCUNE source retirable (elle tombait dans le residu opaque
+    `CAPTURED_SOURCE`), donc l'expiration offline gardait le +15 A VIE.
+
+    Natif : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` ecrit un
+    `IdunBattleLogic.Entities.DSLFactory$$ChangeStat(Entity(target), Position(stat, part 5|9), 4,
+    Direct(amount), Entity(<effectEntity>))` -- la SOURCE est l'entite-effet -- et
+    `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` rejoue le MEME appel en
+    `part 6` avec LA MEME entite -> `IdunBattle.Entities.Components.ValueModification$$ReverseModification`.
+    Un effet a stat-mod ne peut donc PAS disparaitre en laissant sa contribution."""
+    from engine.runner.operations.turnflow import EndTurnOperation
+
+    h, ids = _battle(rpc, build_runner, seed, board=board)
+    ada, foe = ids[carrier], ids["foeB"]
+    h.move(foe, 3, 3)                        # cible au centre (tuile jouable sur les deux boards)
+    h.move(ada, 2, 3) if carrier == "adamatar" else h.move(ada, 1, 2)   # contact / 2 hex (portee 3)
+    h.attack(ada, foe)                       # pose `Thrilled` sur le porteur (cible pleine vie)
+
+    # CAPTURE APRES LA POSE : c'est LA difference avec (5) -- l'effet est deja actif ici.
+    dec, ob, snap = h.dec(), rpc("observeBattle", {"runnerId": h.rid}, 40), h.snap()
+    present, rem = _eff(dec, ada)
+    cc_on = _cc(snap, ada)
+    print(f"\n[TS/seeded] capture AVEC Thrilled actif: present={present} rem={rem} cc={cc_on}")
+    assert present and rem and rem > 0, (
+        f"capture prise sans Thrilled a timer (present={present} rem={rem}) -- cas SEEDE non arme")
+
+    # MOTEUR : etat SEEDE depuis cette capture, puis on tique jusqu'a expiration.
+    st = load_state(dec, ob, snap, board=h.board)
+    ctx = _ctx(st, ada)
+    assert ctx.stat(StatType.CRIT_CHANCE) == cc_on, (
+        f"MOTEUR: seed divergent avant tout tick (cc={ctx.stat(StatType.CRIT_CHANCE)} != {cc_on})")
+    for _ in range(int(rem)):
+        EndTurnOperation.execute(st, advance=True)
+    off_present, off_rem = _off_eff(st, ada)
+    off_cc = ctx.stat(StatType.CRIT_CHANCE)
+    print(f"[TS/seeded] MOTEUR apres {rem} EndTurn: rem={off_rem} cc={off_cc}")
+    assert off_rem is not None and off_rem <= 0, f"MOTEUR: effet seede non expire (rem={off_rem})"
+
+    # LIVE : meme sequence, l'oracle. La crit chance doit redescendre du MEME montant.
+    for _ in range(int(rem) + 2):
+        h.endturn()
+        if not _eff(h.dec(), ada)[0]:
+            break
+    assert not _eff(h.dec(), ada)[0], "LIVE: Thrilled n'expire pas"
+    cc_live = _cc(h.snap(), ada)
+    print(f"[TS/seeded] LIVE cc apres expiration = {cc_live} (etait {cc_on})")
+    assert cc_live == cc_on - EXTRA_CC, (
+        f"LIVE: cc {cc_live} apres expiration, attendu {cc_on - EXTRA_CC}")
+    assert off_cc == cc_live, (
+        f"MOTEUR: stat-mod SEEDE non reverte a l'expiration (cc={off_cc}, live {cc_live}) -- "
+        f"la contribution du seed n'est attribuee a aucune source retirable")

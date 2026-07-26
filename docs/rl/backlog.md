@@ -41,6 +41,19 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Stat-mods EAGER (`applied_stat_mods`) présents AU SEED : appliqués mais non revertables**
+  (`case-118-seeded-statmod-revert` §5). Le volet DÉCLARATIF (`get_stat_modification_stat/amount`)
+  est fermé — clé unique par instance (`effect_stat_mod_key`) lue par les trois consommateurs du
+  retrait. Reste la famille EAGER : `ActOfFaith_Effect` (1017), `ProtectorImperative` /
+  `ConquerorImperative` (1247/1248). Leur magnitude se calcule depuis le `StatsComponent.ctx` du
+  porteur, or l'attribution du seed est calculée **avant** que le `UnitStats` n'existe
+  (`UnitContext.from_snapshot` : `attributed` précède `seed_unit_stats`) — et ActOfFaith lit
+  justement `StatPart.INITIAL` du crit-damage : dépendance circulaire à démêler. Symptôme : un stack
+  seedé retiré offline (reset ActOfFaith au crit, toggle Doctrina) ne re-baisse pas la stat.
+  Débloqueur alternatif, plus fidèle : exposer `StatModificationComponent` (+0x10 StatType /
+  +0x14 montant) de l'entité-effet dans `frida/hooks/game/effects.ts` → plus aucune magnitude
+  re-dérivée offline. **Exige rebuild + reinject.** `[opus]`.
+
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,

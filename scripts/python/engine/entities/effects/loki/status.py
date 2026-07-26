@@ -309,6 +309,44 @@ class ActOfFaithBuffEffect(BaseEffect):
         return [StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE]
 
 
+class ThrillSeekersEffect(BaseEffect):
+    """`ThrillSeekers` / « Thrilled » (effet 0x59a=1434) — buff CRIT_CHANCE a TIMER du trait
+    `UnitTrait.ThrillSeekers` (1056, x5 Emperor's Children).
+
+    ARTEFACT NATIF : il n'y a PAS de classe d'effet dediee — l'entite-effet est un
+    `IdunBattle.Entities.Effects.StaticStatModifierEffect` generique, INSTANCIE par la feuille
+    `IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect` de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ThrillSeekersAbility$$CreateBehaviour` :
+    `AddStaticStatModifierEffect(Owner@0x148, 0x59a, statType 9 = CRIT_CHANCE,
+     Get(AbilityConfiguration.GetNumberConstant(cfg, 0x30 = extraCritChance)),
+     TurnsFromRounds(GetNumberConstant(cfg, 0x45 = nrOfRounds)), 0)`.
+    Le couple (stat, montant) est donc BAKE dans le `StatModificationComponent` de l'entite-effet :
+    `IdunBattle.Entities.Effects.AStatModifierEffect$$GetStatModificationStat` = champ `+0x10`,
+    `IdunBattle.Entities.Effects.StaticStatModifierEffect$$GetStatModificationAmount` = champ `+0x14`.
+
+    POURQUOI CETTE CLASSE EXISTE COTE PORT (#118) : `decisionView.effects` n'expose NI le stat NI le
+    montant d'un effet capte (cf. `frida/hooks/game/effects.ts` : EffectType/remaining/level/source
+    seulement). Un `Thrilled` DEJA ACTIF au chargement d'un `State` arrivait donc sans stat-modification
+    declaree -> son +15 restait dans le RESIDU OPAQUE (`CAPTURED_SOURCE`) de `seed_unit_stats`, sans
+    aucune `ValueModification` attribuee, donc **non retirable** : l'expiration offline gardait le bonus
+    a vie alors que le live le retire (`AStatModifierEffect$$RevertModification`). En declarant ici le
+    couple (stat, montant) — RE-DERIVE de la MEME source que le natif, la config d'ability exposee cote
+    client sur le trait — l'attribution du seed (`stat_modifications_by_source`) pose la contribution
+    par-source et l'expiration la reverte.
+
+    MAGNITUDE : `GetNumberConstant(cfg, 0x30)` == gameconfig `traits.ThrillSeekers.variables.
+    thrillSeekersExtraCritChance` (=15) — une CONSTANTE d'ability, donc NON scalee par
+    l'`AbilityVariablesMultiplierPercentage` de l'unite (meme lecture que
+    `runner/operations/triggers/loki/thrill_seekers.py::thrill_seekers_extra_crit_chance`, source unique).
+    0/absent -> aucune contribution (no-op fidele plutot qu'une magnitude inventee)."""
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 9                                     # StatType.CRIT_CHANCE (statType du CreateBehaviour)
+
+    def get_stat_modification_amount(self) -> int | None:
+        return trait_var("ThrillSeekers", "thrillSeekersExtraCritChance")
+
+
 class TauntedEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.TauntedEffect$$ApplyInternal (effet COMPOSITE 27 = `Taunted_OnlySpecificTargets`,
     base `ABondEffect` — lien cible↔tauntant). À l'application, spawne 3 SOUS-effets via

@@ -86,6 +86,7 @@ from .loki import (
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
+    ThrillSeekersEffect,
     TerminatorArmourReduceDmgEffect,
     TerrifyingExtraDefenseEffect,
     ProtectorImperativeEffect,
@@ -246,6 +247,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # aucun gate profil/mêlée). #29 lead 2.
     "VexillaMagnifica_DmgReduction": VexillaMagnificaDmgReductionEffect,
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
+    # « Thrilled » (1434, trait ThrillSeekers) : StaticStatModifierEffect CRIT_CHANCE +extraCritChance,
+    # a TIMER (TurnsFromRounds(nrOfRounds)). Le declarer ici = l'attribution du seed pose sa
+    # `ValueModification` par-source, donc son expiration la RETIRE (#118) au lieu de la garder a vie.
+    # Le nom capte est le membre d'enum `EffectType` (cf. `EFFECT_TYPE_NAMES[1434] = "ThrillSeekers"`),
+    # identique a celui que passe la feuille `AddStaticStatModifierEffect` a la pose en combat.
+    "ThrillSeekers": ThrillSeekersEffect,
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)

@@ -301,14 +301,16 @@ class RemoveEffect(AbilityBehaviour):
     Frontiere classification (#149) : le NOEUD `RemoveEffect` (declaratif) au-dessus ; `ReverseModification`
     (revert par-source, impuratif) EN DESSOUS. L'effet DECLARE ses StatTypes revertes (`reverted_stats()`, DATA
     cote `entities/`) ; la feuille (runner/) EXECUTE le revert (`revert_change_stat`, couche runner) sur chacun,
-    keye par `stat_mod_source`. Un stack SEEDE sans `stat_mod_source` = retire mais non reverte (limitation
-    pre-existante : delta inconnu dans le residu opaque)."""
+    keye par `effect_stat_mod_key(eff)` = la cle de POSE si elle existe, sinon la cle DERIVEE
+    `statmod_source_key` sous laquelle l'ATTRIBUTION DU SEED a ecrit la contribution (#118 : un stack SEEDE
+    etait retire mais NON reverte, sa contribution restait dans le `UnitStats`)."""
     __slots__ = ("effect_type", "target_sel")
 
     def __init__(self, effect_type: int, target_sel: TargetsSelector):
         self.effect_type, self.target_sel = int(effect_type), target_sel
 
     def execute(self, entities, ectx):
+        from ....entities.effects import effect_stat_mod_key
         from ...operations.stat_ops import revert_change_stat
         from ...operations.ability_modifications import revert_ability_modifications
         state = ectx.state
@@ -323,10 +325,12 @@ class RemoveEffect(AbilityBehaviour):
                 if eff.consumed or eff.effect_type != self.effect_type:
                     continue
                 # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocke.
-                src = getattr(eff, "stat_mod_source", None)
+                src = None if eff.stat_mod_reverted else effect_stat_mod_key(eff)
                 if src is not None:
                     for stat in eff.reverted_stats():
                         revert_change_stat(state, tgt, stat, src)
+                    eff.stat_mod_source = None
+                    eff.stat_mod_reverted = True
                 # `<Effect>.RevertInternal` part MODIFICATIONS D'ABILITY : rejoue les
                 # `AddUnitActiveAbilityModification` en `-delta` (cf. operations/ability_modifications.py).
                 revert_ability_modifications(state, eff)

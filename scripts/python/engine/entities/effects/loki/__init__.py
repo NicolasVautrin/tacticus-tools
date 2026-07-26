@@ -62,7 +62,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, StandVigilExtraArmorEffect,
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
-                     ActOfFaithBuffEffect, TauntedEffect, PinnedEffect,
+                     ActOfFaithBuffEffect, ThrillSeekersEffect, TauntedEffect, PinnedEffect,
                      MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect,
                      BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
@@ -111,7 +111,7 @@ __all__ = [
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedUnitEffect", "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
-    "ActOfFaithBuffEffect", "TauntedEffect", "PinnedEffect",
+    "ActOfFaithBuffEffect", "ThrillSeekersEffect", "TauntedEffect", "PinnedEffect",
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
