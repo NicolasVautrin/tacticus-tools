@@ -39,7 +39,13 @@ __pycache__/
 .claude/plans/
 .claude/worktrees/
 frida/assets/
-tools/
+# ANCRE (`/tools/`, pas `tools/`) : sans le slash initial, git ignore TOUT repertoire
+# nomme `tools` a n'importe quelle profondeur. Ca attrapait `scripts/python/tools/`,
+# dont depend le test VERSIONNE `tests/engine/runner/test_damage_decomp_live.py`
+# (`from tools import damage_decomp`) : le test collectait dans l'arbre principal, ou le
+# fichier existe en local, et echouait dans TOUS les worktrees d'agent. Meme piege
+# ancre/non-ancre que celui deja paye sur `data/symbols`.
+/tools/
 app/
 build-errors.log
 inject.json
