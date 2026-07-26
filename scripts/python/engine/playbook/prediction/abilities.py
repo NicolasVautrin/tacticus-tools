@@ -263,30 +263,29 @@ def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     vaut 1 en config, mais le recopier serait une coincidence, pas un mirror), puis CONCATENE ses events
     dans la liste du 1er batch. Meme `GetDamageFormula` et meme `Nullable(GetDamageProfile)` que le batch
     d'origine -> `aoe_overrides` ne surcharge QUE les coups. `param_10` (poids Fix64) = 0 sur les deux
-    batchs -> probabilite 1, aucune ponderation `GetMaxSecondaryTargets`."""
+    batchs -> probabilite 1, aucune ponderation `GetMaxSecondaryTargets`.
+
+    L'ARBRE de coups est celui de `FrenziedFiringAbility.get_hits_for_original_target` (DEFINITION
+    UNIQUE, partagee avec la face COMBAT `runner/abilities/blacklegion.py` — un seul artefact natif,
+    un seul port). Ce handler ne fait que lui fournir son `DslContext` (units/caster/target/board de
+    la SCENE) et les deux constantes de config resolues."""
     board = getattr(scene, "board", None)
-    t_pos = scene.pos(target_id)
-    n = int((cfg.constants or {}).get("nrOfHits") or 0)          # GetHits = GetNumberConstant(0x2f)
+    n = int((cfg.constants or {}).get("nrOfHits") or 0)          # Get(GetHits) = GetNumberConstant(0x2f)
     cap = int((cfg.constants or {}).get("maxNrOfHits") or 0)     # ConfigConst 0x48
     # `hits = 1` LITTERAL du 2e batch — porte par la classe d'ability (constante native, pas config).
     aoe = {"aoe_overrides": {"hits_override": FrenziedFiringAbility.AOE_HITS}}
-    if board is None or not t_pos or not n:
+    by_id = {u.get("id"): u for u in (scene.units or [])}
+    caster, target = by_id.get(caster_id), by_id.get(target_id)
+    # Board/positions/constantes absents -> `{}` = base generique (degradation fidele, aucune
+    # sur-prediction). `cap` absent est IMPOSSIBLE nativement (`GetNumberConstant` THROW sur cle
+    # manquante) : la garde est un garde-fou offline, pas une branche native.
+    if board is None or caster is None or target is None or not scene.pos(target_id) \
+            or not n or not cap:
         return aoe
-    t_tile = board.id_at(t_pos[0], t_pos[1])
-    if t_tile is None:
-        return aoe
-    c_team = scene.team(caster_id)
-    enemy_tiles = set()                                          # tuiles tenues par un ENNEMI du caster
-    for uid, p in (scene.pos_by_id or {}).items():
-        if not p or (scene.hp(uid) or 0) <= 0:                   # cadavre => la tuile est libre
-            continue
-        if scene.team(uid) != c_team:                            # AreEnemies(Units(tile), caster)
-            enemy_tiles.add(board.id_at(p[0], p[1]))
-    count = sum(1 for nb in board.neighbours(t_tile)             # AdjacentTiles(target)
-                if board.walkable(nb) and nb not in enemy_tiles)  # Walkable + (!HasUnit | !AreEnemies)
-    hits = n + count
+    dctx = dsl.DslContext(units=scene.units, caster=caster, target=target, board=board)
     # Min(., ConfigConst(maxNrOfHits)) pour le batch d'ORIGINE ; `aoe_overrides` garde hits=1.
-    return {"hits_override": min(hits, cap) if cap else hits, **aoe}
+    hits = int(FrenziedFiringAbility.get_hits_for_original_target(n, cap).evaluate(dctx))
+    return {"hits_override": hits, **aoe}
 
 
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch

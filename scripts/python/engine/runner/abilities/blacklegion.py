@@ -8,6 +8,8 @@ Contenu :
   sur UN ennemi aleatoire adjacent au CASTER (template splash `loki/splash.py`, factory attack).
 - `Incursion` (1021, Vitruvius `blackPossession`) — `ChainBehaviour` de spawns Bloodletter adjacents a la
   cible + on-appearance `UseNormalAttackIfAble` (case-220 P0-SUMMON).
+- `FrenziedFiring` (1036, Volk `blackObliterator`) — attaque ORIGINE a base GEOMETRIQUE + volet AoE 1 coup
+  sur les ennemis de l'anneau de la cible (case-61, face COMBAT).
 """
 from __future__ import annotations
 
@@ -17,7 +19,8 @@ import gameconfig as GC
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, ChainBehaviour, If as IfBehaviour, op_add, op_and
+from ...entities.abilities.active_ability import FrenziedFiringAbility
+from ...entities.behaviours import AtomicGroup, ChainBehaviour, If as IfBehaviour, SetCache, op_add, op_and
 from ...entities.formulas import (If as FormulaIf, Multiply, Sum, TotalActiveAbilityUsed)
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
                                    CasterTile, Damageable, Enemies, Filter, FixedTileIds, Friends,
@@ -508,3 +511,126 @@ class DaemonicOrdnanceAbility(ActiveAbility):
         return {"ability": DAEMONIC_ORDNANCE_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "burned_tiles": burned, "stat_mods": stat_mods,
                 "extra_crit_dmg": crit_dmg, "extra_crit_chance": crit_chance, "dsl": True}
+
+
+# ================== FrenziedFiring (blackObliterator `Volk`, actif 1036) -- case-61 volet AoE COMBAT =========
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE -- l'artefact qui manquait au cas #61, jamais lu jusqu'ici) :
+#
+#     hitsNode = GetHitsForOriginalTarget(this)                                  # noeud VALEUR geometrique
+#     dmg      = AActiveAbility.MinMaxDamage(this, level)                        # bornes minDmg/maxDmg
+#     prof     = Nullable(AActiveAbility.GetDamageProfile(this))                 # profil config = HeavyRound
+#     src      = AbilityOrEffect.op_Implicit(this+0x10)                          # = ActiveAbilityType 1036
+#     A = op_BitwiseAnd( SetCache(hitsNode),                                             # displayClass+0x10
+#                        AttackWithAttackDamage(caster@0x160, target@0x178, dmg, prof,
+#                                               hits = hitsNode,      src, opts=0) )
+#     B = op_BitwiseAnd( SetCache(hitsNode),                                             # displayClass+0x18
+#                        AttackWithAttackDamage(caster@0x160,
+#                                               AdjacentEnemies(caster@0x160, targetTiles@0x190, 1),
+#                                               dmg, prof,
+#                                               hits = DSLFactory.Direct(1), src, opts=0) )
+#     AtomicGroup( 0x4e, OnProjectileFinishedCallback(displayClass, <ExecuteBehaviour>b__0) )
+#         ou `<ExecuteBehaviour>b__0` = Execute( op_Addition(A, B) )              # A PUIS B, dans l'ordre
+#
+# CE QUE LA LECTURE APPREND, ET QU'ON NE POUVAIT PAS DEDUIRE DE LA FACE DECISION :
+#   1. la face COMBAT emet bien DEUX volets (elle N'EST PAS mono-cible) ; le 2e reprend le MEME selecteur
+#      `AdjacentEnemies(caster, TargetTiles@0x190, 1)` que `FrenziedFiringAbility$$GetTargets` que le
+#      playbook consomme -> la feuille `_AOE` deja portee est REUTILISEE telle quelle (aucun 2e port) ;
+#   2. le nb de coups du volet AoE est un `DSLFactory.Direct(1)` -- un noeud CONSTANT construit au
+#      call-site, PAS `GetNumberConstant(0x2f)` (qui vaut aussi 1 : le recopier serait une coincidence).
+#      C'est la MEME constante native que le `hits = 1` LITTERAL du 2e batch du playbook -> `AOE_HITS` ;
+#   3. les DEUX volets partagent le MEME noeud `hitsNode`, et chacun est PRECEDE de son propre
+#      `SetCache(hitsNode)` : la geometrie est FIGEE avant la 1re attaque, donc le batch AoE ne peut pas
+#      la re-mesurer apres que les coups du batch 1 ont mute l'etat (le 2e SetCache retombe sur le cache) ;
+#   4. `AttackWithAttackDamage` sur les DEUX volets => famille ATTACK => le canal de coups partage
+#      (`GetAttackHits`, case-61 §1.2) s'interpose sur les DEUX -- y compris sur la base 1 de l'AoE ;
+#   5. AUCUN `Foreach` : le selecteur multi-cible est passe DIRECTEMENT a UNE feuille d'attaque (patron
+#      HarvesterOfSouls/PlasmaGrenade) -> `multi=True` (l'`OrderBy` de `AttackBehaviour$$Execute` folde
+#      en un tri par id) ;
+#   6. AUCUN noeud d'effet, AUCUN spawn, AUCUN stat-mod : la face COMBAT de 1036 est PUREMENT deux
+#      attaques. (`SuppressiveFire`/`LetTheGalaxyBurn` de Volk sont des TRAITS, hors de cet arbre.)
+FRENZIED_FIRING_ID = "FrenziedFiring"
+CONST_FF_NR_OF_HITS = 0x2f        # GetNumberConstant(0x2f) -> "nrOfHits"    = 1  (via ArmoriumCherub.GetHits)
+CONST_FF_MAX_NR_OF_HITS = 0x48    # ConfigConst(0x48)       -> "maxNrOfHits" = 10
+
+
+def frenzied_firing_tree(n_hits: int, max_hits: int) -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour`
+    (MIRROR du DECOMPILE ; cf. le bloc de commentaire ci-dessus) :
+
+        AtomicGroup( op_Addition(
+            op_BitwiseAnd( SetCache(hitsNode),
+                           AttackWithAttackDamage(Target(), hits = hitsNode) ),          # [ORIGINE]
+            op_BitwiseAnd( SetCache(hitsNode),
+                           AttackWithAttackDamage(AdjacentEnemies(TargetTile(), 1),
+                                                  hits = Direct(1), multi) ) ) )         # [AoE]
+
+    - `hitsNode` = `FrenziedFiringAbility.get_hits_for_original_target(nrOfHits, maxNrOfHits)` =
+      L'ARBRE PARTAGE avec la face DECISION (definition UNIQUE ; instance FRAICHE par cast car son
+      `Cache` est stateful). Passe TEL QUEL (noeud, pas int) a la feuille d'ORIGINE : c'est
+      `AttackDamageBehaviour$$ExecuteTarget` qui l'evalue -- et il tombe sur le cache que le
+      `SetCache` amont vient de figer, exactement comme le natif.
+    - le volet AoE reutilise `FrenziedFiringAbility._AOE` (= `GetTargets`, deja porte et live-valide
+      sur la face DECISION) et `FrenziedFiringAbility.AOE_HITS` enveloppe en `Const` (= `Direct(1)`).
+      Le selecteur est NU (sans `Damageable`) : le filtre VIVANT vient de `UnitsOnTilesSelector$$Select`
+      (occupation de tuile), que `_within` mirrore.
+    - profil `HeavyRound` (`GetDamageProfile` config), `attackRangeType=Ranged` -> `is_melee=False` sur
+      les DEUX volets ; `native_factory="attack"` (defaut) = la factory VERIFIEE au decompile
+      (`DSLFactory$$AttackWithAttackDamage`, 2 tirages/coup a cc=0), JAMAIS `AttackWithAbilityDamage`.
+    - `ability_type=1036` (`AbilityOrEffect(this+0x10)`) threade sur les deux feuilles (payload after-hit).
+    - ordre = ORIGINE puis AoE (`op_Addition` gauche->droite, cibles AoE triees par id = `OrderBy` natif)
+      -> meme sequence `state.rng` que le natif ; `AtomicGroup` (tag 0x4e) inline (#201)."""
+    ability_type = int(ActiveAbilityType.FrenziedFiring)
+    hits_node = FrenziedFiringAbility.get_hits_for_original_target(n_hits, max_hits)   # uVar10 (PARTAGE)
+    origin = AttackWithAttackDamage(Target(), FRENZIED_FIRING_ID, "HeavyRound", is_melee=False,
+                                    hits_override=hits_node, ability_type=ability_type)
+    aoe = AttackWithAttackDamage(FrenziedFiringAbility._AOE, FRENZIED_FIRING_ID, "HeavyRound",
+                                 is_melee=False, multi=True,
+                                 hits_override=Const(FrenziedFiringAbility.AOE_HITS),  # Direct(1)
+                                 ability_type=ability_type)
+    return AtomicGroup(op_add(op_and(SetCache(hits_node), origin),
+                              op_and(SetCache(hits_node), aoe)))
+
+
+class FrenziedFiringAbilityCombat(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour` (id 1036,
+    `blackObliterator` « Volk », Black Legion) — face COMBAT, arbre DSL (`frenzied_firing_tree`).
+
+    Kit gameconfig 1036 : `damageProfile=HeavyRound` (pierce 55), `attackRangeType=Ranged`, `nrOfHits=1`,
+    `maxNrOfHits=10`, `range=3`, `minDmg`/`maxDmg`[level] (rarity-affected).
+
+    OBSERVABLE : (1) la CIBLE encaisse `min(nrOfHits + <tuiles adjacentes marchables non tenues par un
+    ennemi du caster>, maxNrOfHits)` coups HeavyRound -- base GEOMETRIQUE, donc 7 coups sur une cible en
+    plein champ et moins des qu'elle est adossee/entouree d'ennemis ; (2) CHAQUE ennemi du caster pose sur
+    l'anneau hex de la cible encaisse EN PLUS **1** coup HeavyRound. Les deux volets sont ANTI-CORRELES :
+    un ennemi sur l'anneau retire une tuile du compte du volet 1 ET ajoute une cible au volet 2.
+
+    Le suffixe `Combat` distingue cette classe de son HOMONYME de la face DECISION
+    (`entities/abilities/active_ability.FrenziedFiringAbility`, dont ce module importe le noeud de coups et
+    la feuille `_AOE`) : UN artefact natif, DEUX faces, mais un SEUL port de chaque noeud.
+
+    Turn-flags = defauts base (1036 absent des overrides). Retour : {origin_attack, aoe, hits, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FrenziedFiring)      # 1036
+    ABILITY_ID = FRENZIED_FIRING_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from ...entities.effects.magnitude import ability_var
+        if target_id is None:
+            return None
+        # `Get(GetHits)` = `GetNumberConstant(0x2f)` et `ConfigConst(0x48)` : constantes de config resolues
+        # ICI (le DslContext runner ne porte ni `config` ni `ability_level`) -- meme convention que
+        # `harvester_of_souls_tree(n_hits, range_r)`.
+        n_hits = int(ability_var(self.ABILITY_ID, "nrOfHits", is_constant=True) or 1)
+        max_hits = int(ability_var(self.ABILITY_ID, "maxNrOfHits", is_constant=True) or n_hits)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        frenzied_firing_tree(n_hits, max_hits).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        origin = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        aoe = [{"target": p["target"], "attack": p["attack"]}
+               for p in atks if p.get("target") != target_id]      # volet AoE = cibles != cible d'origine
+        return {"ability": FRENZIED_FIRING_ID, "caster": caster_id, "target": target_id,
+                "hits": (origin or {}).get("hits"), "origin_attack": origin, "aoe": aoe, "dsl": True}

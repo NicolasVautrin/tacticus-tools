@@ -2,13 +2,14 @@
 
 **Statut : LIVRÉ.** Le vecteur COMBAT des attaques d'ability traverse désormais la formule de coups
 partagée ; la face PRÉDICTION reste sur la base seule (verdict natif) ; `FrenziedFiring` (1036) a sa
-base géométrique portée **et son volet AoE** (le 2ᵉ batch du playbook, §4bis).
+base géométrique portée, son volet AoE **côté DÉCISION** (§4bis) **et côté COMBAT** (§4ter).
 
 Artefacts : `engine/runner/operations/damage_ops.py` (`execute_ability_attack`),
 `engine/services/attack_hits_formula.py`, `engine/playbook/prediction/abilities.py`
 (`_frenzied_firing_inputs`, `make_damage_predictions`),
 `engine/entities/abilities/active_ability.py` (`FrenziedFiringAbility`),
-`probe_61_ability_hits.py`, `probe_61c_frenzy_aoe.py`,
+`engine/runner/abilities/blacklegion.py` (`frenzied_firing_tree`, `FrenziedFiringAbilityCombat`),
+`probe_61_ability_hits.py`, `probe_61c_frenzy_aoe.py`, `probe_61d_frenzy_aoe_combat.py`,
 `tests/engine/runner/test_ability_hits_channel_live.py`.
 
 ---
@@ -227,6 +228,104 @@ Avant : le port n'émettait **que** l'event de la cible d'origine (1 event dans 
 
 ---
 
+## 4ter. Le volet AoE, face COMBAT
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour` — jamais lu
+avant cette passe, et **rien ne garantissait a priori** que l'exécution reprenne le sous-arbre du
+playbook. Elle le reprend. Transcription du décompilé :
+
+```
+hitsNode = GetHitsForOriginalTarget(this)                       # nœud VALEUR géométrique (§4)
+dmg      = AActiveAbility.MinMaxDamage(this, level)             # bornes minDmg/maxDmg
+prof     = Nullable(AActiveAbility.GetDamageProfile(this))      # profil config = HeavyRound
+src      = AbilityOrEffect.op_Implicit(this+0x10)               # = ActiveAbilityType 1036
+A = op_BitwiseAnd( SetCache(hitsNode),                                         # displayClass+0x10
+                   AttackWithAttackDamage(caster@0x160, target@0x178, dmg, prof,
+                                          hits = hitsNode,      src, opts=0) )
+B = op_BitwiseAnd( SetCache(hitsNode),                                         # displayClass+0x18
+                   AttackWithAttackDamage(caster@0x160,
+                                          AdjacentEnemies(caster@0x160, targetTiles@0x190, 1),
+                                          dmg, prof,
+                                          hits = DSLFactory.Direct(1), src, opts=0) )
+AtomicGroup( 0x4e, OnProjectileFinishedCallback(displayClass,
+                       FrenziedFiringAbility.<>c__DisplayClass1_0$$<ExecuteBehaviour>b__0) )
+    où b__0 = Execute( op_Addition(A, B) )                       # A PUIS B, dans cet ordre
+```
+
+Ce que la lecture apprend, et qui n'était **pas** déductible de la face DÉCISION :
+
+1. la face COMBAT émet bien **deux** volets (elle n'est pas mono-cible), et le second reprend le
+   **même** sélecteur que `FrenziedFiringAbility$$GetTargets` → la feuille `_AOE` déjà portée est
+   réutilisée telle quelle (aucun second port) ;
+2. le nombre de coups du volet AoE est un **`DSLFactory.Direct(1)`** — un nœud constant construit au
+   call-site, **pas** `GetNumberConstant(0x2f)` (qui vaut aussi 1 : le recopier serait une
+   coïncidence). C'est la même constante native que le `hits = 1` littéral du 2ᵉ batch du playbook →
+   `AOE_HITS`, partagée par les deux faces ;
+3. les deux volets partagent le **même** nœud `hitsNode`, et chacun est précédé de **son propre**
+   `SetCache(hitsNode)` : la géométrie est FIGÉE avant la première attaque, donc le volet AoE ne peut
+   pas la re-mesurer après que les coups du volet 1 ont muté l'état ;
+4. `AttackWithAttackDamage` sur les deux volets ⇒ famille ATTACK ⇒ le canal de coups partagé (§1.2)
+   s'interpose sur les **deux**, y compris sur la base 1 du volet AoE ;
+5. aucun `Foreach` : le sélecteur multi-cible est passé directement à **une** feuille d'attaque
+   (patron HarvesterOfSouls/PlasmaGrenade) → `multi=True`, l'`OrderBy` foldant en un tri par id ;
+6. aucun nœud d'effet, aucun spawn, aucun stat-mod : la face COMBAT de 1036 est purement deux
+   attaques (`SuppressiveFire`/`LetTheGalaxyBurn` de Volk sont des **traits**, hors de cet arbre).
+
+**Une seule définition du nœud de coups.** `GetHitsForOriginalTarget` vit désormais en **arbre DSL**
+sur `FrenziedFiringAbility.get_hits_for_original_target` (`entities/abilities/active_ability.py`) —
+`Min(Cache(Sum(Get(nrOfHits), Count(Filter(Walkable(AdjacentTiles(Target())), Not(HasUnit(Subject()))
+| Not(AreEnemies(Units(Subject()), Caster())))))), Const(maxNrOfHits))` — et les **deux** faces
+l'évaluent (la PRÉDICTION contre un `DslContext` bâti de la scène, le COMBAT contre celui du runner).
+Le recalcul impératif qu'avait `_frenzied_firing_inputs` est retiré : un artefact natif, un port.
+L'instance est **fraîche par appel** (le `Cache` est stateful, comme côté natif où l'arbre est
+reconstruit à chaque cast).
+
+### Ground truth live
+
+Runner isolé, board `MC1_67`, **caster jamais déplacé**, roster **témoin** (`necroWarden`,
+`necroOverlord`, `admecMarshall`, `eldarAutarch` : aucun modificateur du canal de coups — voir le
+piège ci-dessous). Oracle = un événement de dégât par coup appliqué, **ventilé par
+`DamageProfileType`** (le caster porte en permanence un effet du cycle `FleshmetalGuns`, dont les
+coups appartiennent au canal #179 et non à l'arbre 1036). `probe_61d_frenzy_aoe_combat.py`.
+
+| voisins ennemis | cibles natives | coups natifs (HeavyRound) | coups port | per-coup |
+|---|---|---|---|---|
+| 0 | cible seule | 7 | 7 | **bit-exact** (2 seeds) |
+| 1 | cible + 1 | 6 / 2 | 7 / 1 | 6 premiers coups bit-exacts |
+| 3 | cible + 3 | 4 / 1 / 1 / 1 | 4 / 1 / 1 / 1 | — |
+
+La base du volet 1 tombe exactement du nombre d'ennemis posés sur l'anneau (7 → 6 → 4) : chaque
+voisin retire une tuile du `Count` **et** ajoute une cible au volet AoE. Avant ce port, `1036`
+n'avait **aucun** handler de combat — le cast était un no-op complet (0 dégât).
+
+### Deux forks de port fermés au passage (mesurés ici, décompilé-prouvés)
+
+Le natif n'a **qu'une** `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntée par
+l'attaque NORMALE **et** par toute ability `AttackWithAttackDamage` (§1.2). Le port en a deux façades
+(`execute` / `execute_ability_attack`), et deux vecteurs n'étaient câblés que dans la première :
+
+- **canal #179** (coups additionnels hétérogènes) :
+  `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` a `Execute` pour **seul**
+  appelant (XREF). Mesure : le natif applique 2 coups Melta (cycle `FleshmetalGuns`) **sur chaque
+  cible** d'un cast de 1036, absents du port. Branché dans `execute_ability_attack`, gaté sur la
+  famille ATTACK (`AbilityDamageOperation$$Execute` est une Operation distincte).
+- **`On(PreAttack=5)`** : émis par cette même `Execute`, avant `GetAttackHits`. Le port ne l'émettait
+  que sur l'attaque normale. Mesure discriminante : le natif applique **+1 coup sur une partie des
+  cibles, et la partie change d'un run à l'autre à géométrie identique** (K=3 : `{77:4, 79:1, 81:1,
+  83:1}` puis `{77:5, 79:2, 81:2, 83:1}`) — signature du `Maybe(ConfigConst(0x2a))` de
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger`
+  (`On(5) & OwnerIsCaster & Maybe(chance) & !HasTileStatusEffect(TargetTiles@0x190)`). C'est
+  l'émission de ce vecteur qui rend le K=0 **bit-exact** : avant elle, le tirage du `Maybe` n'était
+  pas consommé côté port et **tout** le flux `state.rng` était décalé d'un cran.
+
+> ⚠ **Piège de mesure : le roster.** Avec un roster quelconque, les malus/bonus du canal de coups des
+> cibles (§1.2) se mélangent au verdict du volet mesuré. Constaté : un `astraBullgryn` (aura
+> `BigTarget_AdjacentEffect`) posé sur l'anneau retire 1 coup à la cible **côté port** alors que le
+> natif n'en retire pas ; un `ultraTitus` porteur de `LightCover` donne 2 coups natifs pour une base
+> de 1. Le roster témoin est donc une **condition de la mesure**, pas un détail.
+
+---
+
 ## 5. Reproduction
 
 ```bash
@@ -234,8 +333,10 @@ Avant : le port n'émettait **que** l'event de la cible d'origine (1 event dans 
 python probe_61_ability_hits.py both    --sid S --runner R --caster U --ability 1042 --target T
 python probe_61_ability_hits.py predict --sid S --runner R --caster U --ability 1042 --targets "t1,t2"
 python probe_61_ability_hits.py combat  --sid S --runner R --caster U --ability 1036 --target T
-python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61203 --k 3   # volet AoE (monte son runner)
-python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61200 --k 0   # volet AoE inerte
+python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61203 --k 3   # volet AoE DECISION (monte son runner)
+python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61200 --k 0   # volet AoE DECISION inerte
+python probe_61d_frenzy_aoe_combat.py --board MC1_67 --seed 61340 --k 0   # volet AoE COMBAT inerte
+python probe_61d_frenzy_aoe_combat.py --board MC1_67 --seed 61341 --k 3   # volet AoE COMBAT mordant
 python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 ```
 
@@ -243,14 +344,31 @@ python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 
 ## 6. Résidus
 
-- **`On(PreAttack=5)` n'est pas émis par le vecteur ability** — fidèle : le natif l'émet depuis
-  `ALoki_NormalAttackAbility$$ExecuteNormalAttack`, pas depuis le chemin ability. Conséquence : sur ce
-  vecteur, `LetTheGalaxyBurn` ne peut s'armer que par sa branche `TargetHasTileEffect` (le flag
-  persistant 33 % reste vide). Le threading des deux entrées d'état est en place ; si une mesure montre
-  un +1 par la branche flag sur une attaque d'ability, c'est l'émission de `PreAttack` qu'il faudra
-  ajouter, pas le canal.
+- ~~**`On(PreAttack=5)` n'est pas émis par le vecteur ability**~~ — **RÉFUTÉ** (§4ter) : cette lecture
+  n'avait jamais été mesurée. Le natif l'émet depuis `AttackDamageOperation$$Execute`, partagée par
+  les deux vecteurs ; le +1 `LetTheGalaxyBurn` apparaît bien sur un cast d'ability. Le vecteur est
+  désormais émis dans `execute_ability_attack` (gaté famille ATTACK) — c'est ce qui rend le K=0 de
+  1036 bit-exact.
+- **Le VERDICT du `Maybe` de `LetTheGalaxyBurn` peut différer natif/port.** Le *tirage* est
+  maintenant consommé des deux côtés (l'alignement per-coup est préservé jusque-là), mais le prédicat
+  ne rend pas toujours le même booléen : mesuré K=1, natif 6 coups sur la cible (non armé) vs port 7
+  (armé), les 6 premiers coups restant **bit-exacts** — donc le décalage n'est pas un décalage de
+  flux mais un écart de **seuil**. Port :
+  `LetTheGalaxyBurnArmAbility.matches` → `state.rng.next_internal(0, 100) < LetTheGalaxyBurnChancePct`
+  vs natif `IdunBattleLogic.Entities.DSLFactory$$Maybe` → `MaybeBehaviour$$Execute`. Le mirror exact
+  du tirage de `Maybe` (bornes, comparaison, générateur) reste à lire. Impact : ±1 coup par attaque
+  pour les 5 porteurs `LetTheGalaxyBurn` (Black Legion) — le test de garde borne l'écart à 1.
+- **Conso RNG du canal #179 non bit-exacte** (résidu case-202 §7, « à confirmer live ») : les 2 coups
+  additionnels `FleshmetalGuns` diffèrent en valeur (mesure K=0 : port `[2735, 2553]` vs natif
+  `[2481, 2754]`) alors que les coups d'arme sont bit-exacts. Comme ces coups sont exécutés **après**
+  chaque attaque, tout ce qui suit la première attaque d'un caster porteur d'un effet #179 est
+  désaligné — c'est pourquoi le per-coup n'est confronté qu'à K=0.
 - **Cap `maxNrOfHits` de `FrenziedFiring` non exercé** : un hexagone a au plus 6 voisins, donc la base
   plafonne à 7 < 10. Le `Min` est porté mais jamais mordant sur le board actuel.
+- **Cible morte et `TargetTiles@0x190`** : si le volet 1 tuait la cible, le natif la retire du board
+  (`KillUnit`) alors que le port lui laisse sa position (`alive=False` seulement) — le sélecteur
+  `AdjacentEnemies(TargetTile(), 1)` du volet AoE pourrait donc diverger. Non exercé (les mesures
+  tournent à `--hp-target 90000`), non porté.
 - **Per-coup non bit-exact contre `templChampion`** (natif `[4654, 4640]` vs port `[5081, 4990]`, même
   nombre de coups) : axe DÉGÂT, hors canal de coups. La cible porte `MartialSuperiority` /
   `RapidAssault_ExtraDamage` ; le témoin `necroWarden`, lui, est bit-exact. À traiter comme un item de

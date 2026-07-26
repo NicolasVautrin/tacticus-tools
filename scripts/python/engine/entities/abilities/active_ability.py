@@ -443,7 +443,7 @@ class FrenziedFiringAbility(AActiveAbility):
     `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions` :
 
       1. cible d'ORIGINE — `targets = Target@0x178`, `hits = Evaluate(GetHitsForOriginalTarget)`
-         (base GEOMETRIQUE, portee par `_frenzied_firing_inputs` — case-61, LIVREE) ;
+         (base GEOMETRIQUE, arbre `get_hits_for_original_target` ci-dessous — case-61, LIVREE) ;
       2. **volet AoE** — `targets = IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets`,
          `hits = 1` **LITTERAL** (immediat du call-site, PAS une constante de config : `nrOfHits`
          (0x2f) vaut deja 1 pour cette ability, mais le natif n'appelle NI `GetNumberConstant` NI
@@ -472,11 +472,54 @@ class FrenziedFiringAbility(AActiveAbility):
     # IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets
     _AOE = dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1))
 
-    #: `hits` LITTERAL du 2e `GenerateMultiHitAttackPredictions` (7e arg = immediat 1).
+    #: `hits` LITTERAL du 2e `GenerateMultiHitAttackPredictions` (7e arg = immediat 1) ET du 2e
+    #: `AttackWithAttackDamage` de `FrenziedFiringAbility$$ExecuteBehaviour` (`DSLFactory.Direct(1)`).
     AOE_HITS = 1
 
     def get_aoe_targets(self, ctx):
         return self._AOE.evaluate(ctx)
+
+    @staticmethod
+    def get_hits_for_original_target(n_hits: int, max_hits: int):
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetHitsForOriginalTarget`
+        — MIRROR 1:1 du DECOMPILE, en ARBRE DSL (source UNIQUE des deux faces : la PREDICTION
+        (`_frenzied_firing_inputs`) et le COMBAT (`runner/abilities/blacklegion.py`) EVALUENT
+        CET arbre, aucun recalcul impératif parallèle) :
+
+            Min( Cache( Sum( Get(GetHits),                       # GetHits = GetNumberConstant(0x2f=nrOfHits)
+                             Count( Filter( Walkable(AdjacentTiles(Target@0x178)),
+                                            Not(HasUnit(Subject@0x180))
+                                            | Not(AreEnemies(Units(Subject@0x180), Caster@0x160)) ) ) ) ),
+                 ConfigConst(0x48 = maxNrOfHits) )
+
+        = `nrOfHits` + le nombre de tuiles ADJACENTES A LA CIBLE marchables ET **pas tenues par un
+        ennemi du caster** (tuile vide = comptée ; tuile tenue par un ALLIÉ du caster = comptée AUSSI ;
+        seule la présence d'un ennemi l'exclut), plafonné à `maxNrOfHits`. Base GEOMETRIQUE : plus la
+        cible est dégagée, plus Volk la crible.
+
+        `Subject@0x180` = l'élément COURANT lié par le `Filter` (mirror du slot `ability+0x180` que
+        `FromTriggerSelector` écrase à chaque item) — ici un id de TUILE, d'où les prédicats
+        tile-domain `HasUnit`/`Units`.
+
+        Le filtre VIVANT n'est pas un nœud : il vient de `Units(...)`
+        (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`, lecture par occupation de tuile —
+        un mort n'est plus sur le board), que `_units_on`/`Units` mirrorent déjà (#57m).
+
+        INSTANCE FRAICHE PAR APPEL (factory, pas attribut de classe) : le nœud `Cache` est STATEFUL
+        (mémoïsation par instance, cf. `Cache`), et le natif reconstruit l'arbre à chaque cast —
+        `FrenziedFiringAbility$$ExecuteBehaviour` appelle `GetHitsForOriginalTarget(this)` puis
+        `SetCache(<ce nœud>)` AVANT chacune de ses deux attaques, ce qui FIGE la géométrie
+        pré-attaque et la partage entre les deux volets.
+
+        `n_hits` (`Get(GetHits)`) et `max_hits` (`ConfigConst(0x48)`) sont RESOLUS PAR L'APPELANT
+        depuis SA source de config (le `DslContext` du RUNNER ne porte ni `config` ni `ability_level`,
+        contrairement à celui de la prédiction) — même convention que `harvester_of_souls_tree`."""
+        pred = dsl.TriggerOr(dsl.Not(dsl.HasUnit(dsl.Subject())),                    # !HasUnit(tile)
+                             dsl.Not(dsl.AreEnemies(dsl.Units(dsl.Subject()),        # | !AreEnemies(
+                                                    dsl.Caster())))                  #     Units(tile), caster)
+        tiles = dsl.Filter(dsl.Walkable(dsl.AdjacentTiles(dsl.Target())), pred)
+        return dsl.Min(dsl.Cache(dsl.Sum(dsl.Get(int(n_hits)), dsl.Count(tiles))),
+                       dsl.Const(int(max_hits)))
 
 
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
