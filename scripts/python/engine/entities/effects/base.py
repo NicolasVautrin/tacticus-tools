@@ -270,6 +270,19 @@ class BaseEffect:
         sur la crit-chance (eux DANS GetStat) → pas de double-compte. Défaut None = pas de bonus."""
         return None
 
+    def create_effect_piercing_bonus_for_attack(self, ctx: Mapping | None = None) -> "int | None":
+        """`<Effect>.CreatePiercingBonusForAttack` — contribution ADDITIVE au **ratio de perçage** du coup
+        courant (`IdunBattle.Entities.Effects.BaseEffect$$PiercingBonusForAttack` : le cache d'`EffectBonus`
+        est évalué contre les `entities` du coup, `ForAddition` → +montant / `ForSubtraction` → −montant),
+        consommée par `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`
+        (`Min(100, Max(base>0, dirPierce + extraPierce + <ces bonus> + basePiercingRatio))`).
+
+        `ctx` = contexte du coup fourni par l'agrégateur `piercing_bonus_from_effects` :
+        `{owner_id, att_id, ability_type, target_traits, owner_ctx}` — de quoi évaluer les gates natifs
+        `get_OwnerIsCaster` (owner_id == att_id), `CurrentAbilityIs(<abilityOrEffect>)` et
+        `HasTrait(target, …)`. Défaut None = pas de contribution (la quasi-totalité des effets)."""
+        return None
+
     def create_effect_crit_damage_bonus_for_attack(self) -> int | None:
         """Bonus de DÉGÂT de crit — couche calc-time SÉPARÉE de `GetStat(10)`, sommée dans
         `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects puis ajoutée à GetStat(10) dans

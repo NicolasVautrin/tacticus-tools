@@ -345,13 +345,20 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     l'unite, l'owner-effect pose par son `CreateBehaviour` a l'init (DSL `AddEffect(owner)`). Ex. passive
     `PathOfCommand` -> `PathOfCommand_ExtraDmg` (aura +Attack) ; passive `HypersensoryAbilities` ->
     `HypersensoryAbilities_MinimalHealth` (HP-floor). Abilities lues de gameconfig (active+passive).
-    `ability_level` (= `ctx.passive_ability_level`) indexe les variables per-niveau de l'owner-effect posé."""
+    `ability_level` (= `ctx.passive_ability_level`) indexe les variables per-niveau de l'owner-effect posé.
+
+    DEUX sources natives dans CETTE boucle (dicts DISTINCTS, tous deux portés) :
+      * `<Ability>.CreateBehaviour` -> `AddEffect(owner)` (`ABILITY_INIT_OWNER_EFFECTS`) ;
+      * `StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50,
+        `ABILITY_OWNER_EFFECTS`) — chemin DIRECT, ex. GravitonRifle -> GravitonRifle_ExtraPierce (#113)."""
     import gameconfig as GC
-    from ...entities.effects.factory import get_owner_effects_added_on_ability_init
+    from ...entities.effects.factory import (get_owner_effects_added_on_ability_init,
+                                             get_effect_to_be_added_to_owner_for_ability)
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
     return [name for ab in abilities
-            for name in get_owner_effects_added_on_ability_init(ab)
+            for name in (get_owner_effects_added_on_ability_init(ab)
+                         + get_effect_to_be_added_to_owner_for_ability(ab))
             if _materialize_owner_effect(state, unit_id, name, mult, ability_level=ability_level)]
 
 

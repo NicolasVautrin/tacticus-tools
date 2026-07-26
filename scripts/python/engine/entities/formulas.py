@@ -132,12 +132,16 @@ class PercentageOf(AAmountFormula):
 
 class Count(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$Count(selector)` → `IdunBattle.Entities.Formulas.CountFormula$$Calculate` : cardinal du
-    sélecteur (nb d'éléments). Retour int >= 0."""
+    sélecteur (nb d'éléments). Retour int >= 0.
+
+    ⚠ `_units_of` NORMALISE l'évaluation : côté natif un sélecteur rend TOUJOURS une collection, mais le
+    port laisse les accesseurs mono-entité (`Target()`/`Caster()`/`Subject()`) rendre le dict NU — sans
+    normalisation, `len(dict)` compterait ses CLÉS. Une liste reste elle-même, None → 0."""
     def __init__(self, selector: TargetsSelector):
         self.selector = selector
 
     def calculate(self, ctx):
-        return len(self.selector.evaluate(ctx))
+        return len(_units_of(self.selector, ctx))
 
 
 # --- Accesseurs VALEUR (mirror `DSLFactory.X` -> formules natives : config / stat / compteurs). ---

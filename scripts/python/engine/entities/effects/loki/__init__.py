@@ -13,7 +13,9 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `damage_reduction.py` — malus de dégât DÉFENSEUR (`create_effect_damage_malus_for_defense` + auras réduc).
 - `hits.py`             — coups / blocs / pénétration-armure (hits/block/armor-pen).
 - `status.py`           — stat-mods, composites (Stunned/Taunted), HP-floor, modificateurs multi-axes.
-- `imperative.py`       — DoctrinaImperatives (Tan Gi'da) : Protector (+FixedArmor) / Conqueror (+dmg gate)."""
+- `imperative.py`       — DoctrinaImperatives (Tan Gi'da) : Protector (+FixedArmor) / Conqueror (+dmg gate).
+- `votann.py`           — Leagues of Votann (#113) : les 3 `DynamicStatModifierEffect` GÉNÉRIQUES du lot
+                          (armure −, crit +, block +) + le canal PERÇAGE `GravitonRifle_ExtraPierce`."""
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEffect,
@@ -68,6 +70,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedUnitEffect, St
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
+from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
+                     AncestralFortuneExtraBlockChanceEffect, GravitonRifleExtraPierceEffect)
 
 __all__ = [
     # extra_damage (volet DIRECT)
@@ -119,4 +123,7 @@ __all__ = [
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)
     "ListenUpMaggotsEffect",
+    # votann (#113)
+    "AugmentedAssaultReduceArmorEffect", "AncestralFortuneExtraCritChanceEffect",
+    "AncestralFortuneExtraBlockChanceEffect", "GravitonRifleExtraPierceEffect",
 ]

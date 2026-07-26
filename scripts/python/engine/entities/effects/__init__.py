@@ -49,6 +49,7 @@ __all__ = [
     "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
+    "piercing_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source", "statmod_source_key",
     "effect_stat_mod_key",
 ]
@@ -464,6 +465,23 @@ def crit_chance_bonus_from_effects(effects) -> int:
         b = e.create_effect_crit_chance_bonus_for_attack()
         if b is not None:
             total += b
+    return total
+
+
+def piercing_bonus_from_effects(effects, ctx=None) -> int:
+    """Σ des bonus de PERÇAGE apportés par les effets ACTIFS de l'ATTAQUANT — mirror de la boucle native
+    qui alimente les deux termes `Fix64` de
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` depuis
+    `IdunBattle.Entities.Effects.BaseEffect$$PiercingBonusForAttack` (un `EffectBonus` gaté par effet).
+
+    `ctx` = contexte du coup ({owner_id/att_id/ability_type/target_traits/owner_ctx}) — chaque effet
+    évalue SES gates (`create_effect_piercing_bonus_for_attack`). No-op (0) tant qu'aucun effet actif
+    n'override le hook."""
+    total = 0
+    for e in _as_effects(effects):
+        b = e.create_effect_piercing_bonus_for_attack(ctx)
+        if b is not None:
+            total += int(b)
     return total
 
 

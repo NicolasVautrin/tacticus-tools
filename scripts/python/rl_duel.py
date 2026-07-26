@@ -336,6 +336,12 @@ def cmd_build(sid: int, a) -> int:
         _patch_combat_stat(a_set, "CritChance", "CritDamage", a.crit_target)
     if getattr(a, "block_target", None):
         _patch_combat_stat(a_set, "BlockChance", "BlockDamage", a.block_target)
+    if getattr(a, "block_player", None):
+        # Pendant côté JOUEUR de --block-target (comme --hp-player l'est de --hp-target). Un héros
+        # frais a BlockChance/BlockDamage = 0 (le block vient des items) -> indispensable pour exercer
+        # un gate qui LIT le block de BASE du caster (ex. `AncestralFortuneAbility$$CanAddBlockChance`
+        # = `StatAmount(self, 7, INITIAL) > 0`, #113).
+        _patch_combat_stat(p_set, "BlockChance", "BlockDamage", a.block_player)
     if getattr(a, "hp_target", None):
         # Cible « one-shottable » : PV bas (Health + RemainingHealth) ET armure nulle (Armor/FixedArmor=0)
         # sur les a-units → un allié one-shot pour un kill DÉTERMINISTE (validation du vecteur MORT
@@ -1948,6 +1954,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--crit-target", default=None, help="build: idem --crit pour les a-units")
     ap.add_argument("--block-target", default=None,
                     help="build: force BlockChance,BlockDamage sur les a-units (ex. '100,500')")
+    ap.add_argument("--block-player", default=None,
+                    help="build: idem --block-target mais pour les p-units (block de BASE du caster — "
+                         "requis pour exercer un gate qui lit StatAmount(self, BlockChance, INITIAL))")
     ap.add_argument("--hp-target", type=int, default=None,
                     help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe)")
     ap.add_argument("--hp-player", type=int, default=None,

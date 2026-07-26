@@ -12,23 +12,17 @@ from .....entities.stats import StatType
 from .....entities.effects import hits_bonus_from_effects
 from .....entities.selectors import Caster, Target
 from .....services.damage_prediction import get_attack_prediction
-from .....utilities import damage_composite
-from .....weights import load as _load_weights
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _adjacent_enemies
 
-# Cache des poids d'utilité (BC `Utilities` — statiques, cf. project_ai_weights_in_battle_config) pour le
-# tri de cible FinalJustice (chargé une fois depuis la BC JSON sur disque ; seules KillUnit/OverkillUnit
-# sont lues — les poids DamageDealt 80/20 sont des Fix64 codés en dur dans `DamageUtility.cctor`).
-_DAMAGE_UTILITY_WEIGHTS = None
-
-
+# Les poids d'utilité (BC `Utilities`) et le tri lui-même vivent désormais dans le port PARTAGÉ du
+# sélecteur natif — `operations/damage_utility.py` (`SortUnitsByDamageUtilitySelector$$Select`) : FinalJustice
+# et AncestralFortune (#113) branchent le MÊME étage de tri, seul le nœud de dégât diffère.
 def _damage_utility_weights():
-    global _DAMAGE_UTILITY_WEIGHTS
-    if _DAMAGE_UTILITY_WEIGHTS is None:
-        _DAMAGE_UTILITY_WEIGHTS = _load_weights()
-    return _DAMAGE_UTILITY_WEIGHTS
+    """Alias historique (call-sites/tests existants) — cf. `damage_utility.damage_utility_weights`."""
+    from ...damage_utility import damage_utility_weights
+    return damage_utility_weights()
 
 
 def _normal_attack_health_range(state: State, owner_id: int):
@@ -85,29 +79,10 @@ def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
         return min(cands, key=lambda eid: (_hp(eid), eid))
 
     dmin, dmax = rng_pred
-    wt = _damage_utility_weights()
-    best = None
-    best_util = None
-    for eid in sorted(cands):                              # ordre déterministe (tie-break id croissant)
-        e = state.get_entity(eid)
-        hc = e.get_component(HealthComponent) if e is not None else None
-        hp = int(hc.hp) if (hc is not None and hc.hp is not None) else 0
-        max_hp = int(hc.hp_max) if (hc is not None and hc.hp_max) else hp
-        shield = 0                                         # bouclier non modélisé (rare ; TODO)
-        eff_min = max(0, dmin - shield)
-        eff_max = max(0, dmax - shield)
-        pred = {"healthDmgMin": eff_min, "healthDmgMax": eff_max,
-                # rawHealthDmg* = plage NON capée (mirror @0x24/@0x28) : `OverkillUnit` faithful via over-shoot
-                # (dmg >= 2*PV), comme `SortUnitsByDamageUtility` natif — ici eff_* SONT déjà bruts (#84).
-                "rawHealthDmgMin": eff_min, "rawHealthDmgMax": eff_max,
-                "hpBefore": hp, "shieldBefore": shield,
-                "killSure": hp > 0 and eff_min >= hp,      # WillBeKill (dmg min ≥ PV)
-                "kill": hp > 0 and eff_max >= hp}          # MightBeKill (dmg max ≥ PV)
-        util = damage_composite(pred, max_hp, wt)
-        if best_util is None or util > best_util:          # argmax (strict → 1er id en cas d'égalité)
-            best_util = util
-            best = eid
-    return best
+    # `First(SortUnitsByDamageUtility(…), 1)` — étage de tri PARTAGÉ (port du sélecteur natif) : argmax du
+    # composite Damage(34), tie-break `id` croissant. Bit-identique à l'ancien corps inline (mêmes champs).
+    from ...damage_utility import first_by_damage_utility
+    return first_by_damage_utility(state, cands, dmin, dmax)
 
 
 def _finaljustice_attack(state: State, owner_id: int) -> Optional[dict]:
