@@ -186,8 +186,13 @@ qu'aucune ligne ne voit.
   (`{target 54, to (3,6), pred 5.32, full 25.32}`) mais le moteur rend quand meme `69` parce que la
   meilleure attaque Comparable score plus haut. **Divergence PRE-EXISTANTE et ORTHOGONALE au gate**
   (identique avec et sans gate) : le terme `Tile(7)` d'elevation (10 vs 20 entre les deux positions)
-  domine l'ecart de degat. **Candidat de suite** : confronter l'utilite d'ACTION 1197 vs normale sur
-  un etat ou le natif caste 1197.
+  domine l'ecart de degat. **TRANCHE par #128** (`docs/rl/case-128-tile-elevation-utility.md`) : le
+  soupcon porte sur le terme d'elevation etait FAUX — ce terme est un mirror exact (gate
+  `get_IgnoreTileUtility` = `xor al,al`, `MakeFinalTilePrediction` = identite, composite `Tile(7)` =
+  29 feuilles lues dans la carte de composition, BC `{10,10,-5}`) et le natif paie le MEME `+10/niveau`
+  (mesure S3 : a degat natif identique il choisit la tuile e3 contre six tuiles e2). L'etage divergent
+  est l'ENSEMBLE DE CANDIDATS (le port score depuis la tuile d'ORIGINE, absente de l'enumeration
+  native) ; un residu subsiste sur cet etat precis (#128 §6).
 - **Cible de l'attaque normale a profils EGAUX** : tie tranche par la position (axe positionnement,
   plancher 45 %). Contourne dans le test par deux ennemis de profils distincts.
 - **`tileComponent+0x40` vs `IsWalkable`** : residu herite de #117 — le natif distingue `+0x41`

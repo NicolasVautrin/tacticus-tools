@@ -45,14 +45,27 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
-- **Arbitrage Comparable `ExcruciatingFrequencies` (1197) vs attaque NORMALE**
-  (`case-124-elevation-gate-decision` §7). MESURÉ sur un état où le natif CASTE 1197 (board `C4_02`,
-  `emperNoiseMarine` (5,5), 2 ennemis derrière une marche, natif = `1197 tgt=54 to=(3,6)`) : le
-  générateur bespoke produit **exactement** ce candidat (`{target 54, to (3,6), pred 5.32,
-  full 25.32}`) mais le moteur rend quand même `69` — la meilleure attaque Comparable score plus
-  haut. **ORTHOGONAL au gate d'élévation** (identique avec et sans gate) : c'est le terme `Tile(7)`
-  d'élévation (10 vs 20 entre les deux positions) qui domine l'écart de dégât. Reprise = confronter
-  l'utilité d'**ACTION** 1197 vs normale (pas le candidat, qui est juste) sur cet état. `[opus]`.
+- **La tuile d'ORIGINE est dans les candidats d'ability du port, pas dans ceux du natif** — remonté
+  et CHIFFRÉ par `case-128-tile-elevation-utility` §5 (RE + live). `ABaseAiUnitTactic$$
+  GenerateActionTiles` = `IBattleQuery.slot+0xe` (tuiles de MOUVEMENT, `GetMovableTilesFor` **exclut**
+  la tuile courante) ; `ActiveAbilityActionGenerator.<GenerateActions>d__7` ne tire la branche
+  `NullPosition` (= sur place) **que si la liste est vide**. Notre hook, lui, ajoute EXPRÈS l'origine
+  à `attackPlans.ranked`, et `_best_attack` la consomme sans filtre `movable`. Mesure S3 (`C4_02`,
+  `emperNoiseMarine`) : natif `69 tgt=77 to=(3,3)` = **exactement** l'argmax du port une fois le seul
+  candidat « origine » retiré (39.961) ; le port rend `69 tgt=79 to=(2,2)` (41.886). ⚠ tranche à part
+  entière : le changement touche TOUTE unité qui attaquerait sans bouger → exige une passe d'agreement
+  complète (`test_playbook_live` + batch multi-seed), pas un smoke. `[opus]`.
+
+- **Arbitrage Comparable `ExcruciatingFrequencies` (1197) vs attaque NORMALE — RÉSIDU RÉDUIT**
+  (`case-128-tile-elevation-utility` §6, qui a clos l'hypothèse « terme d'élévation » de
+  `case-124` §7). Le terme `Tile(7)`/`Elevation` est un **mirror exact** (gate `get_IgnoreTileUtility`
+  = `xor al,al ; ret`, `MakeFinalTilePrediction` = identité, membership 29 feuilles lue dans la carte
+  de composition `UtilitiesDatabase+0x58`, BC `{Multiplier 10, Highest 10, Lowest -5}`) et le natif le
+  paie (mesure S3). L'étage dégât est **bit-exact** 18/18. Reste : sur l'état où 1197 est disponible,
+  natif = `1197@(4,1)` (port 27.977) contre `69@(3,3)` (port 37.05, origine déjà retirée) → il
+  faudrait `u(1197) > 17.05` soit 2.1× la valeur du port. Seul étage non lu ligne à ligne :
+  `Bucket<T>.Merge` / `ChooseAction` (arbre `SortedList<Key, sous-Bucket>` + admission
+  `FUN_18004cc80(bucket, action)` appelée dans `EvaluateInternal`). `[fable]`.
 
 - **DIRECTION du beam `DarkTalonStrike` côté DÉCISION**
   (`case-124-elevation-gate-decision` §7, résidu ANTÉRIEUR à #124). `_beam_count` modélise `best`
