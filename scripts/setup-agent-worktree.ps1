@@ -1,8 +1,8 @@
-# setup-agent-worktree.ps1 — VERIFIE qu'un worktree agent est runnable.
+# setup-agent-worktree.ps1 -- VERIFIE qu'un worktree agent est runnable.
 #
 # CE SCRIPT NE CREE PLUS DE JONCTION (2026-07-26). Il ne reste que par compatibilite,
 # pour qu'un brief d'agent pas encore mis a jour recoive un message clair au lieu d'un
-# « fichier introuvable ». Il ne modifie RIEN : il constate et rend un code de sortie.
+# "fichier introuvable". Il ne modifie RIEN : il constate et rend un code de sortie.
 #
 # POURQUOI LA JONCTION A DISPARU
 # Elle joignait <worktree>\data -> <arbre principal>\data parce que les entrees dont
@@ -13,13 +13,13 @@
 #      n'etait PAS celle de SON commit ; un checkout detache de l'arbre principal a deja
 #      prive TOUS les agents de leur table d'un coup ;
 #   b) les N agents ecrivaient leurs state-files dans le MEME repertoire -> d'ou la
-#      discipline « un nom unique par agent », et 355 fichiers d'etat retrouves le
+#      discipline "un nom unique par agent", et 355 fichiers d'etat retrouves le
 #      2026-07-26 qui avaient SURVECU aux worktrees les ayant produits ;
 #   c) `git worktree remove --force` sur la jonction DETRUISAIT le data/ partage
 #      (arrive le 2026-07-22).
 #
 # CE QUI L'A REMPLACEE : les quatre ENTREES sont VERSIONNEES (symbols/, boards/,
-# seed-bc.json, i2_en.json — ~1,1 Mo compresse, cf. .gitignore). Un worktree frais les
+# seed-bc.json, i2_en.json -- ~1,1 Mo compresse, cf. .gitignore). Un worktree frais les
 # tient donc de SON PROPRE commit. Et les SORTIES (state-files de probe, rl-state/...)
 # sont ecrites dans le data/ local du worktree, gitignore : elles MEURENT avec lui.
 #
@@ -48,7 +48,7 @@ $link = Join-Path $WorktreePath "data"
 if (Test-Path $link) {
     $item = Get-Item $link -Force
     if ($item.LinkType) {
-        Write-Error ("data/ est un $($item.LinkType) vers $($item.Target) — heritage d'avant " +
+        Write-Error ("data/ est un $($item.LinkType) vers $($item.Target) -- heritage d'avant " +
             "la suppression de la jonction. A retirer avec `rmdir data` (JAMAIS Remove-Item " +
             "-Recurse, qui suivrait le lien et effacerait la cible), puis " +
             "`git checkout -- data` pour materialiser les entrees versionnees.")
@@ -61,7 +61,7 @@ foreach ($r in $REQUIRED) {
     if (-not (Test-Path (Join-Path $WorktreePath $r.Path))) { $missing += $r }
 }
 if ($missing.Count -gt 0) {
-    foreach ($m in $missing) { Write-Output "MANQUE $($m.Path) — $($m.Kind)" }
+    foreach ($m in $missing) { Write-Output "MANQUE $($m.Path) -- $($m.Kind)" }
     Write-Error ("Entrees absentes du checkout. Elles sont VERSIONNEES : " +
         "`git checkout -- data` devrait suffire. Si le commit du worktree est anterieur " +
         "au 2026-07-26, il precede leur versionnement -> rebaser sur origin/master.")
