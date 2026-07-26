@@ -274,31 +274,97 @@ apparaître (il prend le coup à cause du switch) — d'où le « 2 gardes » tr
 
 ---
 
-## 6. Face DÉCISION — `SupremeCommanderPlaybook`, PORTÉE (le gate est devenu atteignable)
+## 6. Face DÉCISION — `SupremeCommanderPlaybook`, PORTÉE **et CONFRONTÉE À L'IA NATIVE** (#119)
 
 `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook` (`NonComparablePlaybook<0x404=1028>`) —
-port : `engine/playbook/noncomparable/supreme_commander.py`.
+port : `engine/playbook/noncomparable/supreme_commander.py` ; probe :
+`probe_119_supreme_commander_decision.py` ; garde : `tests/engine/test_supreme_commander_decision_live.py`.
 
 - `.ctor` = `NonComparablePlaybook(0x404)` ; `.cctor` = `MIN_UTILITY = Fix64.FromInt(1)` = **1.0**.
 - `ShouldEvaluate` :
   1. `if (BasePlaybook.EnemyWillBeKilledWithNormalAttack(unit)) return false;`
   2. `units = SelectUniqueUnits(ability.baseSelector@+0x80 + DSLFactory.AllDeadUnits(), ctx)` ;
      `if (!units.Any(u => IsFriendlyKell(u, unit))) return false;`
-     — `IsFriendlyKell` = `u.<ParentComponent>+0x10 == EntityId(caster) && IsFriend(u, caster)`
-     = **il existe un enfant (vivant OU mort) du caster**, c.-à-d. Kell ;
+     — `IsFriendlyKell` = `u.GetComponent<ChildComponent>().ParentId(+0x10) == EntityId(caster)
+     && UnitExtensions.IsFriend(u, caster)` = **il existe un enfant (vivant OU mort) du caster**.
+     Le composant lu est **`ChildComponent`** (champ `ParentId`, `BEntityId` @+0x10 — offset
+     confirmé live par `dumpEntityComponents` sur Kell), **pas** `ParentComponent` (dont le +0x10
+     est `ChildrenIds`, une `List`). Les deux composants existent sur TOUTE unité, d'où l'absence
+     de branche null côté natif. Le sélecteur amont est « toutes les vivantes » + « toutes les
+     mortes » = toutes les unités des DEUX camps : c'est `IsFriend` qui filtre l'équipe ;
   3. `chance = Fix64(1/2) + FillUpStatComponent.RemainingPercentage(unit) / 2`, passée à l'iface
-     `this+0x30` slot 4 (tirage).
+     `this+0x30` slot 4 (tirage) — même slot que `BasePlaybook$$ShouldEvaluate`.
 - `EvaluateNonComparable` : bucket `(0, MIN_UTILITY=1)`, `GetEligibleTargetsSelectable(position.MainTile)`,
   utilité **plate `3/2` = 1.5** par cible, `Bucket.AddAction`.
 
-**Ce qui a changé** : le gate (2) exige un enfant du caster ; c'était impossible offline tant que
-`SwornProtector` n'était pas portée — un port aurait rendu `False` en permanence (code
-enregistré-mais-mort). Kell étant désormais spawnable offline, le port est légitime et vivant.
+### 6.1 Étage (3) : ce n'est pas une jauge abstraite, c'est le RATIO DE PV DU CASTER
 
-**GAP assumé** (même classe et même traitement que `BlackRagePlaybook`, dont le natif tire 0.4) :
-l'étage (3) — le TIRAGE de chance — n'est pas reproduit ; le port rend `True` dès que (1) et (2)
-passent. `FillUpStatComponent.RemainingPercentage` n'est pas matérialisé offline. À jauge pleine la
-chance vaut 1 (le port est alors EXACT) ; à jauge vide, 1/2.
+`FillUpStatComponent.RemainingPercentage` = `Max(0, remaining@+0x18 / get_CurrentMaximumValue())`.
+`ShouldEvaluate` fait le **même `GetComponent`** que la branche `param_2 == 5` de
+`IdunBattle.Entities.UnitExtensions$$GetFillUpStatComponent` (même classe générique, même static de
+type) : le stat interrogé est **5 = Health**. Donc `chance = 1/2 + hp/hpMax du caster / 2`, et **à PV
+pleins la chance vaut 1** — l'étage (3) y est DÉTERMINISTE.
+
+Mesures LIVE (`aiDryRunAllUnits` = `CalculateNextActionForUnit`, tirages consécutifs sur le même état) :
+
+| PV du caster | chance attendue `1/2 + hp%/2` | cast natif observé |
+|---|---|---|
+| 100 % | 1.000 | **20/20** (et 20/20 sur un 2ᵉ couple board/seed) |
+| 32.4 % | 0.662 | **31/40 = 0.775** |
+
+Le tirage EXISTE (31/40 ≠ 40/40) et sa fréquence à PV réduits est incompatible avec `1/2`
+(p ≈ 8·10⁻⁴) comme avec `hp%` (0.324) — cohérente avec la formule lue. **GAP assumé, borné** : le
+port rend `True` dès que (1) et (2) passent, donc il SUR-PRÉDIT sous les PV pleins (probabilité
+d'abstention native `(1 − hp%)/2`, au pire 1/2 à l'agonie). Même classe de gap que
+`BlackRagePlaybook` (`GetUseProbability` = 0.4) : moteur déterministe, RNG d'IA non porté.
+
+### 6.2 Le gate (2) : le lien enfant→parent n'est publié par AUCUN RPC
+
+`ChildComponent.ParentId` n'apparaît ni dans `projectUnitsFull` (decisionView : id/visualId/pos/hp/
+owner/team/alive/ctrl/hasAction/ranged/defeatedByMelee/killerId/abilities/effects), ni dans
+`observeBattle`, ni dans `combatSnapshot`. Le port lisait `u["parentId"]` — clé **toujours absente**
+→ gate (2) constamment `False` → `should_evaluate` constamment `False` → **playbook enregistré mais
+mort** sur la face décision. Désaccord MESURÉ avec l'IA native (§6.3, ligne A) : le natif castait,
+le port attaquait.
+
+Le lien est donc reconstruit offline par `_kit_spawn_visual_ids`
+(`engine/playbook/noncomparable/_base.py`) : **toute constante d'une ability du kit du caster dont la
+valeur nomme une unité connue de gameconfig désigne une unité que ce kit fait apparaître**. Le scan
+des 669 unités rend un vocabulaire étroit et exclusivement spawn-related — `unitId`(48),
+`unitToSpawn`(5), `unitId_2`(5), `summonId`(3), `heroId`(3), `unitIds`(2), `affectedUnitIds`(1). Pour
+Creed : `{astraSmnKell, astraSmnGuardsman, astraNpc1Guardsman}` — `affectedUnitIds` apporte le
+visualId **live** du garde (`astraNpc1Guardsman`), dont l'id de config (`astraSmnGuardsman`) diffère.
+Un enfant = une unité de ce set, **de la même équipe** (`IsFriend`), vivante ou morte.
+
+**Domaine d'exactitude** : le couple (visualId de summon, équipe) identifie le parent tant qu'une
+équipe ne porte pas DEUX summoners du même summon. **Résidu pour lever l'approximation** : publier
+`ChildComponent.ParentId` dans `projectUnitsFull` — le port consommerait alors directement la clé
+`parentId` (elle existe déjà côté offline, `engine/entities/selectors.py::Parent`). Non fait ici :
+un changement de hook exige une réinjection Frida, impossible sans casser les sessions concurrentes.
+
+### 6.3 Confrontation à l'IA native — états CRAFTÉS, oracle = un tour d'IA
+
+Oracle : `CalculateNextActionForUnit` (RPC `aiDryRunAllUnits`, read-only, `mutated=false` vérifié) +
+un tour **réellement joué** (`playTurn`) sur le cas nominal. **Jamais** `aiPredict`/`GetAllPredictions`
+(preview du seul vecteur Attack). Géométrie pilotée ; rendez-vous DÉRIVÉ du `boardGraph` (une tuile à
+6 voisins jouables) et non codé en dur — `SwornProtectorAbility$$GetSpawnTile` exige un voisin LIBRE
+de la cible, sans quoi Kell ne spawne pas et le scénario est silencieusement vide.
+
+| état | gates natifs visés | natif | port |
+|---|---|---|---|
+| A — Kell allié, PV pleins, ennemis increvables | (1)F (2)V (3)=1 | **caste 1028 sur lui-même** | idem, même cible |
+| A2 — idem sur board `C3_01` / seed 777 | idem | **caste 1028** | idem |
+| B — Creed jamais attaqué (aucun enfant) | (2) FAUX | attaque (69) | idem, même cible |
+| C — DEUX Creed, **un seul Kell, camp adverse** | (2) selon l'équipe | mon Creed **se déplace**, le leur **caste 1028** | idem pour les deux, même destination |
+| D — Kell allié mais ennemi sure-kill | (1) VRAI | attaque (69), même tuile | idem |
+
+**C est le point discriminant** : dans le MÊME état, deux Creed et un seul Kell — une règle naïve
+« il existe un Kell sur le plateau » répondrait pareil pour les deux ; le natif non. Contre-épreuve
+faite : en restaurant le corps pré-#119 (`u["parentId"]`), A et C-adverse **désaccordent**.
+
+**Non couvert** : l'étage (3) sous les PV pleins (gap assumé ci-dessus, mesuré mais non porté) ; le
+cas « deux summoners du même summon dans une équipe » (hors domaine d'exactitude du §6.2) ; le
+second cast d'affilée (cooldown de l'ability, jamais atteint dans ces états).
 
 ---
 
