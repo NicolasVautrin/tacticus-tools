@@ -31,7 +31,8 @@ from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, Spawn
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility)
 from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
-from .darkangels import PlasmaCannonAbility
+from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
+                         HailstrikeAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility)
 from .bloodangels import SavageEchoesAbility
@@ -126,6 +127,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     PlagueburstMortarAbility.ABILITY_TYPE: PlagueburstMortarAbility,   # 1169 (deathCrawler DeathGuard MoW, groupe B : 3x Toxic + Pinned(1065) sur cible+adjacents FILTRES par le predicat aura-Contagion/armure-reduite, + Contaminated(1244) sur la cible + nrOfTiles-1 tuiles adjacentes tirees ; unit-target)
     ForwardSpotterAbility.ABILITY_TYPE: ForwardSpotterAbility,         # 1143 (astraOrdnanceBattery AstraMilitarum MoW, groupe C : Spawn(nrOfSummons=1 astraSmnGuardsman sur tuile libre adjacente a la cible, WithStatsFromConfig) + on-appearance PerformAIAttack ; template SpawnSummon)
     DaemonicOrdnanceAbility.ABILITY_TYPE: DaemonicOrdnanceAbility,     # 1148 (blackForgefiend BlackLegion MoW, groupe D : ChangeStat(+extraCritDmg CRIT_DAMAGE) -> 3x Plasma famille ATTACK sur les ennemis deja sur une tuile EN FEU du triangle -> ChangeStat(-extraCritDmg) -> If(HasEffect 1316) AddOrUpdateStaticStatModifier((usages+1) x extraCritChance sur CRIT_CHANCE) -> AddEffect(Fire -> triangle) ; 2-phases par construction)
+    # --- #117 DarkAngels lot 2 (case-117-darkangels-lot2.md) ---
+    DarkTalonStrikeAbility.ABILITY_TYPE: DarkTalonStrikeAbility,        # 1092 (darkaAzrael HERO : cible TILE ; 1x DirectDamage sur l'occupant + nrOfHits_2 Bolter sur la ligne CONTIGUE d'ennemis (best-line count DESC, tie-break angle ASC, gate walkable+elevation |d|<2 pas-a-pas) + Pinned sur tous les touches)
+    DeathOnTheWindAbility.ABILITY_TYPE: DeathOnTheWindAbility,          # 1213 (darkaStormSpeeder MoW : 6x HeavyRound sur les ennemis des nrOfTiles hexes de la ligne (best = direction qui aligne le plus d'ennemis, PAS de FilterContinuous) + effet 1257 sur les survivants, 1 tour ; gate de ciblage = cible deja attaquee ce tour)
+    HailstrikeAbility.ABILITY_TYPE: HailstrikeAbility,                  # 1214 (darkaStormSpeeder MoW, effect-poser : AddEffect(1509 Hailstrike) sur un ALLIE, TurnsFromRounds(nrOfRounds) ; phase 2 = pierce bonus + ability triggered Hailstrike_Attack)
     ThriceBlessedConflagrationAbility.ABILITY_TYPE: ThriceBlessedConflagrationAbility,  # 1187 (adeptExorcist Sisterhood MoW, groupe D : Foreach(1x Flame famille ABILITY sur la ligne CONTIGUE d'ennemis partant de la cible dans la direction qui en aligne le plus) + If(HasFaction(cible, Sisterhood), AddEffect(1401), AddEffect(1436)) sur la cible ALLIEE)
 }
 
