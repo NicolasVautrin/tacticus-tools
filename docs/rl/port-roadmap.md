@@ -5,10 +5,17 @@
 > `audit_kit_coverage.py`, vue par-kit) + `combat-ability-coverage.md` (#95, vue par-ability),
 > tous deux régénérés ce jour (build `gqfc5mff6c`).
 >
-> **Chiffres** : 123 kits lineup — **4 complets** (`admecMarshall`, `genesKelermorph`,
-> `genesPrimus`, `thousInfernalMaster`), **119 avec du travail**, **249 items** manquants.
-> Côté abilities : 171 actives castables, **16 portées combat**, ~30 playbooks NC décision,
-> **27 actives [-D]** (décision portée, combat NO-OP silencieux).
+> ⚠ **CHIFFRES ET VERDICTS PÉRIMÉS (mesuré le 2026-07-26, commit `7f47c29`).** Ce document a été
+> rédigé le 2026-07-23 et n'a pas suivi les ports #90/#94/#112/#113/#114/#115/#116/#117/#120/#204/#205.
+> **L'état confronté au code vit dans `docs/rl/port-residuals-inventory.md`** ; les deux audits
+> générés (`kit-coverage.md`, `combat-ability-coverage.md`), eux, sont à jour.
+>
+> **Chiffres du 2026-07-23** (barrés) → **valeurs re-dérivées le 2026-07-26** :
+> 123 kits lineup — ~~4 complets~~ **22 complets**, ~~119 avec du travail~~ **101**,
+> ~~249 items~~ **139 items** manquants. Côté abilities : 171 actives castables,
+> ~~16 portées combat~~ **75 portées** (registre `ABILITY_CLASSES` = 76), 35 playbooks NC décision,
+> ~~27 actives [-D]~~ **20** (dont 18 à porteur confrontable — et le compte de `kit-coverage.md`
+> lui-même en affiche 14, parce que l'audit ne lit que 2 des 3 registres de décision).
 
 ## 1. Doctrine d'affectation des agents
 
@@ -44,11 +51,23 @@ d'agent ; parallélisables en worktrees indépendants) :
 Taille validée empiriquement : 1 ability end-to-end par session (#204), ou 1 tranche de kit
 (#202-C). Un kit à 2-3 items = 2-3 sessions d'agents, parallélisables.
 
-## 3. P0 (#217) — résorber DÉCIDER ≠ EXÉCUTER : les 27 actives `[-D]`
+## 3. P0 (#217) — résorber DÉCIDER ≠ EXÉCUTER : les actives `[-D]`
 
 La décision CHOISIT ces abilities en walk, l'exécution les NO-OP silencieusement → divergence
 d'état invisible. **Chaque ability = 1 tâche solver** (la sémantique est déjà à moitié RE'd dans
 le playbook NC porté). Par sous-groupe :
+
+> ⚠ **ÉTAT AU 2026-07-26 — 16 des 26 lignes de ce §3 sont PORTÉES.** Portées :
+> 1113 Stormcaller · 1163 BlackRage · 1151 TheQuickening · 1002 CombatRestoratives ·
+> 1037 RevitalizingMalignancy · 1082 InspiredToGreatness · 1166 AberrantHypermorph ·
+> 1016 SendInTheNextWave · 1040 Poxwalkers · 1021 Incursion · 1077 EarlyWarningOverride ·
+> 1122 CordClaw · 1202 VigilanceEternal · 1000 GauntletsOfUltramar · 1092 DarkTalonStrike ·
+> 1081 FightingRetreat. **Restent OUVERTES** : 1153 HammerOfWrath · 1191 MartialInspiration ·
+> 1117 DefendTheDivineWork · 1039 RitesOfRestoration · 1121 ItItches · 1038 FoulInfusion ·
+> 1090 GrapnelLauncher · 1129 BloodyFury · 1183 VexillaMagnifica · 1050 HolyDuel.
+> Liste `[-D]` complète et à jour (20 items, symboles + confrontabilité) :
+> `port-residuals-inventory.md` §2 — **elle contient 8 items ABSENTS de ce §3** (1020, 1029,
+> 1036, 1100, 1116, 1137, 1171, 1199).
 
 ### P0-WALK — castées dans le walk de garde 31337 lui-même (à faire EN PREMIER)
 
@@ -126,7 +145,7 @@ Classement des NOUVEAUX sous-systèmes par retour sur investissement (items déb
 
 | Sous-système (nouveau) | Items débloqués | Agent | Réf §T |
 |---|---|---|---|
-| **Harnais cast-par-MoW hors-plateau** | **17 items** BLOQUÉS (DutyEternal, Malleus, 2x tauBroadside, 2x necroReanimator, 2x adeptExorcist, 2x orksRukkatrukk, 2x thousDaemonPrince, EntropyCannons, MacroPlasmaIncinerator, HadesAutocannons, ForwardSpotter, DeathOnTheWind/Hailstrike) | **fable** (prouver le cast MoW en runner) | case-219 §5 |
+| ~~**Harnais cast-par-MoW hors-plateau**~~ — **PÉRIMÉ côté COMBAT (`a9714a4`, 2026-07-25)** | ~~17 items BLOQUÉS~~ : 13/16 abilities MoW castent sans mise en scène (sweep `probe_mow_cast.py`), les 3 « 0 cible » étaient des prédicats de ciblage, **portés + validés** (`case-mow-targeting-predicates`, #90 lot A). Les porteurs hors seed BC (`thousDaemonPrince`, `necroReanimator`) sont confrontables par `catalog_inject` (`ab98129`). **Restent bloqués : `DutyEternal` (substrat MULTI-HEX) et la face DÉCISION MoW** | ~~fable~~ → opus (les 2 verrous restants sont nommés) | `case-mow-offboard-cast`, `case-92-catalog-injection` |
 | **Feuille AddStaticStatModifierEffect** (self / ToOwner / sur SÉLECTEUR) | 9 items (4 BlackTemplars + DoomSiren, ExcruciatingFrequencies, RefusalToBeOutdone, LeadingTheCharge, TrophyTaker) | opus | §T |
 | **Persistent-data store** (Set/Get/Add/Clear, scalar+LIST+compteur) | 8 items (StandVigil, LegendaryCommander, PrioritisedEfficiency, FuryFromTheDelve, AncestralFortune, HazeOfCorruption, HaywireMine, AggressiveOnslaught) — Fury/Fortune retombent quasi-opus après | fable (1er port), retombées opus | §T |
 | **Vecteur On(ArrivedAtFinalTile=28)** (émettre AUSSI en fin de tour sans move) | 7 items (FabricatorClawArray, LivingLightning, SanguinaryPriest, RedRampage, FuryOfTheAncients, ChampionOfTheFeast, SpiritualLeader) | opus (turnflow pose déjà le flag) | §T |
@@ -170,6 +189,12 @@ exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 
 ### 5.2 Exceptions DURES ou à trancher (ne PAS envoyer en opus-solver direct)
 
+> ⚠ **ÉTAT AU 2026-07-26** — dans la table ci-dessous, **PORTÉES depuis** (présentes dans
+> `ABILITY_CLASSES`) : 1009 ResurrectionOrb · 1058 Waaagh · 1028 SupremeCommander ·
+> 1226 Chronometron · 1230 SavageEchoes · 1142/1148/1169 (les 3 « BLOQUÉ harnais MoW »).
+> **Restent OUVERTES** : 1164 MindControl · 1100 SorcerousFacade · 1228 SternguardFocus ·
+> 1158 DutyEternal (multi-hex).
+
 | Item | Porteur | Agent | Pourquoi |
 |---|---|---|---|
 > **T-RE campagne 2026-07-23 (`case-219`)** : les 6 énigmes historiques sont TRANCHÉES par
@@ -178,7 +203,7 @@ exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 
 | Item | Porteur | Agent | Verdict RE |
 |---|---|---|---|
-| 1164 MindControl | genesMagus | ✅ **opus-solver** (T-RE FAITE, `case-219` §1) | PAS d'owner-swap : 2 debuffs (1349 flat −dmgReduction sortant / 1350 +% subis) + taunt bondé 27/1367 vers l'allié adjacent max-Health, gate trait 25 Immune — substrat Taunted/AddBondEffect DÉJÀ porté ; `ExecuteBehaviour @1811f3ec0` |
+| 1164 MindControl | genesMagus | ✅ **opus-solver** — TOUJOURS OUVERTE au 2026-07-26 (T-RE FAITE, `case-219` §1) | PAS d'owner-swap : 2 debuffs (1349 flat −dmgReduction sortant / 1350 +% subis) + taunt bondé 27/1367 vers l'allié adjacent max-Health, gate trait 25 Immune — substrat Taunted/AddBondEffect DÉJÀ porté ; `ExecuteBehaviour @1811f3ec0` |
 | 1009 ResurrectionOrb | necroOverlord | ✅ **opus-solver** (T-RE FAITE, `case-219` §2) | summon template PUR (pas de résurrection) : `Min(morts LivingMetal alliés + turnsStarted, 6)` × necroSmnWarrior adjacents ; nouveau sélecteur `AllDeadOrResurrectedUnits` ; `@181200140` |
 | 1058 Waaagh | orksWarboss | ✅ **opus-solver, 2 tranches** (T-RE FAITE, `case-219` §3) | 5 groupes séquentiels TOUS nommés/template (spawn, buff équipe, charge `SortTilesByUtility`, attaque normale, Boyz jouent) ; prérequis partagé `PerformAIAction` (§4) ; `@18122b010` |
 | 1028 SupremeCommander | astraCreed | ✅ **opus-solver** (T-RE FAITE, `case-219` §4) | summon + `PerformAIAction` (Guardsmen jouent) + canal `GetAbilityStatModification` (interaction Kell : +1 summon, range 3) ; `@18120df30` |
@@ -187,7 +212,7 @@ exception dure détectée sauf `SentinelDirectives` à classifier en T-RE.)
 | ~~SavageEchoes (id ?)~~ **1230** | bloodTerminator | ✅ **opus-solver** (id RÉSOLU, `case-219` §6) | tâche kit NORMALE (4× Eviscerate + healthPct 50 ; passif RedRampage 1551) — enum mirrors fixés (tsv stale) ; `@181204660` |
 | ~~SternguardFocus (id ?)~~ **1228** | darkaSternguard | ✅ **opus-solver** (affiné `case-220` §6.5) | [opus]+prérequis : pattern OVERRIDE-ATTAQUE (1er user runner) + PercentageOfAttackCappedAtMax runner + ChangeCooldown (1548) ; ⚠ passif SpecialIssueCombiMelta 1545 = **[fable]**, RE à finir (effets 1563/1564 non lus) ; `@18120bca0` |
 | 1100 SorcerousFacade | thousTzaangor | opus-solver **avec lecture case-171 obligatoire** | interaction attaque-normale déjà documentée |
-| 1169 PlagueburstMortar, 1148 DaemonicOrdnance, 1142 MalleusRocketLauncher | deathCrawler, blackForgefiend, astraOrdnanceBattery | **BLOQUÉ harnais** | porteur MoW hors-plateau en arène (case-27/#172) — veille, pas de tâche ; **DutyEternal rejoint ce groupe** avec débloqueur explicite (multi-hex) |
+| ~~1169 PlagueburstMortar, 1148 DaemonicOrdnance, 1142 MalleusRocketLauncher~~ | deathCrawler, blackForgefiend, astraOrdnanceBattery | ~~BLOQUÉ harnais~~ **PORTÉES COMBAT (#90, `a9714a4`+`bf61e8b`)** | les 3 sont dans `ABILITY_CLASSES`. Ce qui reste bloqué pour ces porteurs est la **face DÉCISION MoW** seule (`state_bridge._plans_for_unit`/`_dv_units`) ; `DutyEternal` reste bloquée par le substrat multi-hex |
 
 ### 5.3 Classification par faction — campagne `case-220` §6 (**COMPLÈTE 2026-07-23**, 24/24 tranches)
 
