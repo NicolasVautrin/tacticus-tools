@@ -141,7 +141,13 @@ def test_sworn_protector_switches_position_live(chain):
 
     DISCRIMINANT : Creed sort de l'attaque a PV PLEINS (`--hp-player 400000` intact) alors qu'une
     attaque ennemie l'a bel et bien cible — les degats sont partis ailleurs. Et les deux unites
-    n'occupent pas la meme tuile (l'echange a eu lieu)."""
+    n'occupent pas la meme tuile (l'echange a eu lieu).
+
+    ORACLE de la VOIE NORMALE pour la re-resolution de cible (#120bis) : le switch DEPLACE Creed,
+    mais ce qui redirige les coups est l'etage suivant d'`ActiveAbilityOperation$$ExecuteInternal`
+    (`GetUnit(First(AbilityEntities@+0x38))` -> `ExecuteForReplacedTarget` -> re-entree dans
+    `Execute`). Le port rejoue ce verdict dans `probe_120bis_execute_for_replaced_target.py`
+    (etape 1) ; avant #120bis il faisait encore encaisser Creed."""
     kell, creed_id = chain["kell"], chain["creed"]
     creed = [u for u in chain["after_attack"] if u.get("id") == creed_id][0]
     assert _upos(kell) != _upos(creed)

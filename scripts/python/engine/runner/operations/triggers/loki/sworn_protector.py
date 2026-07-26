@@ -98,25 +98,25 @@ RESIDUS EXPLICITES :
    PORTEE (`abilities/attack_type.py`) au lieu d'etre satisfaite structurellement.
  * `AbilityHasAttackType` degrade en FAUX pour une ability dont le litteral du ctor natif n'a pas ete
    lu (table `ABILITY_ATTACK_TYPE`) : Kell n'apparait pas, comme avant #120. Aucun trigger invente.
- * RE-RESOLUTION DE CIBLE apres le vecteur -- NON PORTEE, sur AUCUNE des deux voies (l'ecart
-   PREEXISTE a #120 et est SYMETRIQUE). `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-   enchaine, JUSTE APRES le `FUN_180026490(.., 0x2b)` :
+ * (LEVE en #120bis) RE-RESOLUTION DE CIBLE apres le vecteur. Ce n'est PAS le `SwitchPosition` qui
+   envoie les degats sur Kell -- lui ne fait que DEPLACER Creed. C'est l'etage suivant de
+   `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`, JUSTE APRES le
+   `FUN_180026490(.., 0x2b)` :
 
-       if (IsUnit(target) && Count(targetTiles) > 0) {
-           replaced = UnitExtensions.GetUnit(First(targetTiles), state);
+       if (IsUnit(target) && Count(entities@+0x38) > 0) {   # entities@+0x38 = GetTiles(target),
+           replaced = UnitExtensions.GetUnit(First(...), state);   # FIGE avant l'emission
            if (replaced != target)
                return ActiveAbilityOperation$$ExecuteForReplacedTarget(op, caster, replaced, abilityType, options);
        }
 
-   et `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget` rebatit les
-   `AbilityEntities` sur la NOUVELLE cible, recalcule `GetSkipEndTurnFlag`/`GetSkipAbilityUsedFlag`,
-   puis (sauf `IsDeadUnitAndNotAllowedByAbility`) pose `options[1] = Nullable(2)` et RE-ENTRE dans
-   `ActiveAbilityOperation$$Execute`. C'est CE maillon -- et non le switch lui-meme -- qui envoie les
-   degats sur Kell : le switch deplace Creed, la re-resolution constate qu'une AUTRE unite occupe la
-   tuile visee et rejoue l'ability contre elle. MESURE (`probe_120_pre_unit_ability_fork.py`, etape 1)
-   : offline Creed encaisse (400000 -> 393568) la ou le live le laisse intact. Le porter demande de le
-   cabler sur les DEUX voies a la fois (sinon on recree exactement le fork que #120 vient de fermer) :
-   tache dediee.
+   -- la liste de tuiles est figee AVANT le vecteur (par `ActiveAbilityOperation$$GetAbilityEntities`),
+   la resolution de l'occupant se fait APRES : si le switch a fait entrer Kell sur la tuile visee,
+   c'est LUI que l'ability frappe. `ExecuteForReplacedTarget` RE-ENTRE alors dans
+   `ActiveAbilityOperation$$Execute` (vraie re-entree : nouveaux gates, nouveau `On(0x2b)`, behaviour,
+   puis flags de tour une seule fois). Porte sur les DEUX voies a la fois -- foyer unique
+   `engine/runner/operations/active_ability.py`, appele par `damage_ops.execute` (attaque normale) et
+   `AbilityHandler.visit_ActiveAbilityMessage` (cast) ; le cabler sur une seule aurait rouvert le fork
+   que #120 venait de fermer. Garde : `probe_120bis_execute_for_replaced_target.py`.
 """
 from __future__ import annotations
 

@@ -567,6 +567,39 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
      `should_block`/PickNext offline ne le lit — raffinement : brancher la future boucle PickNextUnit
      et `VerifyUnitsTurnFinished` dessus). Tests : `test_turnflow_endturn_flags.py` (offline pur).
 
+   **TF-C PORTÉ (#120bis) — RE-RÉSOLUTION DE CIBLE après `On(0x2b = PreUnitAbility)`** (validé live,
+   `SwornProtector`/Kell) :
+   - **Où** : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`, JUSTE après l'émission du
+     vecteur et le gate caster-mort, AVANT l'exécution de la behaviour :
+     `if (IsUnit(target) && Count(entities@+0x38) > 0) { replaced = UnitExtensions.GetUnit(First(...));
+     if (replaced != target) return ExecuteForReplacedTarget(caster, replaced, abilityType, options); }`.
+   - **Le point de bascule** : `entities@+0x38` = `EntityExtensions.GetTiles(finalTarget)` est **figé par
+     `ActiveAbilityOperation$$GetAbilityEntities` AVANT le vecteur** (struct `AbilityEntities` de 0x130 :
+     +0x10 target, +0x30 `GetMainTile(target)`, +0x38 `GetTiles(target)`, +0x48 casterTiles), tandis que
+     `GetUnit` est résolu APRÈS. Si la cascade de triggers a fait entrer une AUTRE unité sur la tuile
+     visée, c'est ELLE que l'ability frappe.
+   - **`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget`** rebâtit les
+     `AbilityEntities` sur la nouvelle cible, RECALCULE `GetSkipEndTurnFlag`/`GetSkipAbilityUsedFlag`
+     (consommés seulement par sa branche cible-morte `IsDeadUnitAndNotAllowedByAbility`, qui appelle
+     `AddFlagsAfterAbilityExecution` et sort), écrit `options@+0x8 = Nullable(2)` (champ **relu par
+     personne** dans la chaîne — marqueur de step/vue) puis **RE-ENTRE dans
+     `ActiveAbilityOperation$$Execute`** : gates re-joués, NOUVEAU `On(0x2b)`, behaviour, flags de tour.
+     L'appelant `return`e aussitôt ⇒ les flags ne sont posés **qu'une fois**, par la ré-entrée.
+   - **Port** : foyer unique `engine/runner/operations/active_ability.py` (`get_tiles`, `get_unit`,
+     `resolve_replaced_target`, `execute_for_replaced_target`), appelé par **les DEUX portes
+     d'opération** — `operations/damage_ops.py::execute` (attaque normale : elle EST une active ability)
+     et `abilities/handler.py::visit_ActiveAbilityMessage` (cast). Le câbler sur une seule aurait rouvert
+     le fork que #120 venait de fermer. `AttackDamageOperation.execute` publie désormais `target` = la
+     cible RÉELLEMENT frappée, que `DamageHandler` relit pour le vecteur after-hit.
+   - **Garde du `Count(targetTiles) > 0`** : `get_tiles` d'une unité MORTE rend `[]` (mirror du board
+     natif, d'où un mort est retiré) ⇒ aucune re-résolution sur un cast visant un cadavre — c'est ce qui
+     protège `ReviveEffect`/`ReviveUnitOperation` (#66).
+   - Tests : `probe_120bis_execute_for_replaced_target.py` (8 scénarios : 2 voies avec switch, 2 voies
+     sans switch via `CanSwitchPosition` faux, cible sans SwornProtector, ability `Others`, cible morte,
+     structure de la ré-entrée) + `test_pre_unit_ability_fork_live.py` (oracle live voie CAST, incl. un
+     cast MONO-CIBLE sur un autre board/seed) + `test_sworn_protector_kell_live.py` (oracle live voie
+     NORMALE).
+
    ### 6bis. BOUCLIERS (`ShieldComponent`) — modèle + absorption + décay (RE, port offline-validé)
 
    Modèle natif (`ShieldComponent` @180fa8770) = liste d'instances (+0x10) + compteur d'id (+0x18) ;

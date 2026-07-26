@@ -135,22 +135,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   rebuild+reinject** : même fenêtre « atelier vide » que le résidu `StatModificationComponent`
   ci-dessus et que « stats des MoW non captables ». `[opus]`.
 
-- **`ActiveAbilityOperation$$ExecuteForReplacedTarget` non porté** (remonté par #120, RE COMPLÈTE) :
-  `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` enchaîne, **juste après** l'émission
-  de `On(0x2b = PreUnitAbility)`, une **re-résolution de cible** —
-  `if (IsUnit(target) && Count(targetTiles) > 0) { replaced = UnitExtensions.GetUnit(First(targetTiles), state);
-  if (replaced != target) return ExecuteForReplacedTarget(op, caster, replaced, abilityType, options); }`.
-  `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget` rebâtit les
-  `AbilityEntities` sur la nouvelle cible, recalcule `GetSkipEndTurnFlag`/`GetSkipAbilityUsedFlag`,
-  puis (sauf `IsDeadUnitAndNotAllowedByAbility`) pose `options[1] = Nullable(2)` et **ré-entre** dans
-  `ActiveAbilityOperation$$Execute`. C'est CE maillon qui envoie les dégâts sur **Kell** après le
-  switch de `SwornProtector` — le port ne le matérialise sur **aucune** des deux voies (écart
-  ANTÉRIEUR à #120 et **symétrique**), donc offline Creed encaisse encore (mesure :
-  `probe_120_pre_unit_ability_fork.py` étape 1, 400000 → 393568 ; live : Creed intact).
-  **Le porter exige de le câbler sur les DEUX voies à la fois** (attaque normale + cast), sinon on
-  recrée exactement le fork que #120 vient de fermer. Seul consommateur connu aujourd'hui :
-  SwornProtector/Kell.
-
 - **Résidus de `PickRandomly` après #130** (`case-130-pick-randomly-rng.md`). La **loi de
   consommation** est close : le sélecteur tire `min(len(pool), amount)` fois, bornes décroissantes,
   **même quand le pool tient dans `amount`** (`_pick_randomly_n` mirror 1:1 ; comptage direct des
