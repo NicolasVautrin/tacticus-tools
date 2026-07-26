@@ -111,6 +111,111 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
     return blk_f or blk_t
 
 
+def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
+                           walkable_at=None, elevation_at=None) -> bool:
+    """`IdunBattle.Core.Services.TileUtil$$IsTileValidForList(tile, refTile, checkWalkable,
+    checkElevation)` en domaine POSITION — le 4e argument est le litteral `1` a l'unique call-site
+    porte (`IdunBattle.Core.Services.BattleQuery$$GetTilesBehind`), donc `checkElevation` est cable
+    a True ici :
+
+        if (tileComponent+0x41 != 0)            return false            # mur
+        if (!checkWalkable)                     return tileComponent+0x40 == 0
+        if (!TileExtensions.IsWalkable(tile))   return false
+        if (!checkElevation)                    return true
+        if (refTile != null)                    return |elev(ref) - elev(tile)| < 2
+
+    Le gate d'ELEVATION vit DANS la branche walkable : `checkWalkable == False` le desactive AUSSI.
+    C'est la consequence non evidente qui a coute la face COMBAT (#117) puis la face DECISION (#124).
+
+    `walkable_at(pos) -> bool` / `elevation_at(pos) -> int|None` : accesseurs injectes (board du
+    runner cote COMBAT, `walkable_by_pos`/`elev_by_pos` cote DECISION). Accesseur absent ou donnee
+    manquante -> le gate correspondant est INERTE (borne SUPERIEURE : on ne coupe jamais une ligne
+    a l'aveugle). RESIDU (herite du port #117) : le natif distingue `+0x41` (mur) de `+0x40`
+    (drapeau de tuile) ; les deux substrats offline ne connaissent que `IsWalkable`, qui FOND les
+    deux -- inerte pour les call-sites portes (tous filtrent `HasUnit` en aval)."""
+    if walkable_at is not None and not walkable_at(tile):
+        return False
+    if not check_walkable:
+        return True                       # branche `!checkWalkable` : PAS de gate d'elevation
+    if ref is None or elevation_at is None:
+        return True
+    et, er = elevation_at(tile), elevation_at(ref)
+    if et is None or er is None:
+        return True                       # elevation inconnue -> gate inerte (borne SUP)
+    return abs(er - et) < 2
+
+
+def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
+                     check_walkable: bool = False, update_reference: bool = False,
+                     walkable_at=None, elevation_at=None, tile_exists=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetTilesBehind(from, to, checkWalkable,
+    updateReference, maxCount)` en domaine POSITION — LE mirror UNIQUE de la ligne hex, consomme
+    par la face COMBAT (`engine.entities.selectors.TilesBehindInLine`) ET par les deux feuilles de
+    DECISION (`DarkTalonStrikePlaybook`, `ExcruciatingFrequenciesPlaybook`).
+
+        dir = CubeCoordinate.DirectionTo(cube(from), cube(to))
+        ref = MainTileEntity(from)                       # tuile de REFERENCE d'elevation
+        cur = cube(from)
+        loop:
+            if maxCount.HasValue && maxCount.Value <= list.Count : return list
+            next = cur - dir                             # 1re iteration -> `to`
+            tile = GetTileEntityAt(next) ; if (tile == null) return list
+            if (!TileUtil.IsTileValidForList(tile, ref, checkWalkable, 1)) return list
+            list.Add(tile)
+            if (updateReference) ref = tile              # la reference SUIT la ligne
+            cur = next
+
+    La ligne S'ARRETE au 1er echec (`return list`) : c'est un PREFIXE, pas un filtre. Geometrie CUBE
+    droite (parite-INDEPENDANTE) : `tile_k = cube(to) + k*dir`, `dir = cube(to) - cube(from)`,
+    `k = 0..` -- la 1re tuile rendue EST `to`, la reference initiale est `from`.
+
+    `check_walkable` / `update_reference` = les DEUX bools de la struct `settings` que chaque
+    call-site alloue et passe a `IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine` (champs
+    `+0x10` / `+0x11`). INVENTAIRE des call-sites (LU au decompile, #117) :
+      | `DarkTalonStrikeAbility$$GetTilesInLine`            | 1 | 1 |
+      | `ExcruciatingFrequenciesAbility$$GetAffectedTiles`  | 1 | 1 |
+      | `DeathOnTheWindAbility$$GetTilesInLine`             | 0 | 1 |
+      | `ThriceBlessedConflagrationAbility$$GetTilesInLine` | 0 | 0 |
+    Defauts `False/False` = le comportement de ThriceBlessedConflagration.
+
+    `tile_exists(pos) -> bool` mirrore `GetTileEntityAt(next) == null -> return list` (bord du
+    plateau). Absent -> pas de borne de plateau ; `max_count is None` retombe alors sur le
+    garde-fou `k > 64`."""
+    ox, _oy, oz = hexgeo.to_cube(frm[0], frm[1])
+    ax, _ay, az = hexgeo.to_cube(to[0], to[1])
+    dx, dz = ax - ox, az - oz
+    if dx == 0 and dz == 0:
+        return []
+    out, ref, k = [], (frm[0], frm[1]), 0
+    while max_count is None or len(out) < max_count:
+        p = hexgeo.from_cube(ax + dx * k, az + dz * k)
+        if tile_exists is not None and not tile_exists(p):
+            break                          # `GetTileEntityAt == null` -> fin de ligne
+        if not is_tile_valid_for_list(p, ref, check_walkable, walkable_at, elevation_at):
+            break                          # `return list` natif : PREFIXE, pas un filtre
+        out.append(p)
+        if update_reference:               # settings+0x11 : la reference d'elevation suit la ligne
+            ref = p
+        k += 1
+        if max_count is None and k > 64:   # garde-fou (plateau borne ; jamais atteint)
+            break
+    return out
+
+
+def tiles_behind_accessors(walkable_by_pos: dict | None, elev_by_pos: dict | None):
+    """Accesseurs `(walkable_at, elevation_at, tile_exists)` de `get_tiles_behind` batis sur les
+    cartes OFFLINE de la face DECISION (`ctx.walkable_by_pos` = boardGraph `IsWalkableTile`,
+    `ctx.elev_by_pos` = tileMeta `elevation`). Carte absente/vide -> accesseur None = gate INERTE
+    (le port se degrade vers son comportement pre-#124, jamais vers une ligne tronquee a tort)."""
+    walkable_at = ((lambda p: bool(walkable_by_pos.get((p[0], p[1]), False)))
+                   if walkable_by_pos else None)
+    elevation_at = ((lambda p: elev_by_pos.get((p[0], p[1])))
+                    if elev_by_pos else None)
+    tile_exists = ((lambda p: (p[0], p[1]) in walkable_by_pos) if walkable_by_pos else
+                   ((lambda p: (p[0], p[1]) in elev_by_pos) if elev_by_pos else None))
+    return walkable_at, elevation_at, tile_exists
+
+
 def surrounding_enemies(origin: tuple, positions: list,
                         elev_by_pos: dict | None = None) -> set:
     """`Unobscured(DSLFactory.SurroundingEnemies(Caster, r=2))` — le terme « surrounding » de

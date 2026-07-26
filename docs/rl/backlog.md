@@ -45,6 +45,22 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Arbitrage Comparable `ExcruciatingFrequencies` (1197) vs attaque NORMALE**
+  (`case-124-elevation-gate-decision` §7). MESURÉ sur un état où le natif CASTE 1197 (board `C4_02`,
+  `emperNoiseMarine` (5,5), 2 ennemis derrière une marche, natif = `1197 tgt=54 to=(3,6)`) : le
+  générateur bespoke produit **exactement** ce candidat (`{target 54, to (3,6), pred 5.32,
+  full 25.32}`) mais le moteur rend quand même `69` — la meilleure attaque Comparable score plus
+  haut. **ORTHOGONAL au gate d'élévation** (identique avec et sans gate) : c'est le terme `Tile(7)`
+  d'élévation (10 vs 20 entre les deux positions) qui domine l'écart de dégât. Reprise = confronter
+  l'utilité d'**ACTION** 1197 vs normale (pas le candidat, qui est juste) sur cet état. `[opus]`.
+
+- **DIRECTION du beam `DarkTalonStrike` côté DÉCISION**
+  (`case-124-elevation-gate-decision` §7, résidu ANTÉRIEUR à #124). `_beam_count` modélise `best`
+  par le prolongement du rayon `caster -> aim` ; le natif le CHOISIT parmi les 6
+  `AdjacentTiles(target@0x178)` via `SortByFormula(AngleBetweenLines, ASC)` puis
+  `SortByFormula(Count(Units(GetTilesInLine)), DESC)` + `First(1)` (tris STABLES → clé primaire =
+  #ennemis alignés). Le port est donc une **borne INFÉRIEURE** de l'utilité native. `[opus]`.
+
 - **Stat-mods EAGER (`applied_stat_mods`) présents AU SEED : appliqués mais non revertables**
   (`case-118-seeded-statmod-revert` §5). Le volet DÉCLARATIF (`get_stat_modification_stat/amount`)
   est fermé — clé unique par instance (`effect_stat_mod_key`) lue par les trois consommateurs du

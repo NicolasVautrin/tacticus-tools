@@ -3,30 +3,53 @@ touches par le rayon depuis le caster a travers la tuile visee)."""
 from __future__ import annotations
 
 import hexgeo
+from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook
 
 
-def _beam_count(origin: tuple, aim: tuple, enemy_set: set) -> int:
-    """#ennemis CONTINUS sur le rayon droit depuis `origin` a travers `aim`, en partant de `aim`
-    vers l'exterieur (`TilesBehindInLine` + `FilterContinuous(hasUnit & areEnemies)` IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine).
-    Extension en coordonnees CUBE (rayon droit parite-independant) : dir = cube(aim)-cube(origin)
-    (aim ADJACENT -> pas unitaire) ; on avance k=1,2,... tant que la tuile est un ennemi. Le compte
-    S'ARRETE au 1er trou (tuile sans ennemi) = continuite du beam."""
+def _beam_count(origin: tuple, aim: tuple, enemy_set: set,
+                walkable_by_pos: dict | None = None, elev_by_pos: dict | None = None) -> int:
+    """`|Enemies(Units(GetTilesInBestLine()))|` = l'utilite NonComparable d'une tuile visee `aim`.
+
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInBestLine` rend
+    `target@0x178 op_Addition GetTilesInLine(best)` : la tuile VISEE elle-meme (jamais gatee -- elle
+    entre par `op_Addition`, hors de la ligne) PUIS la ligne partant de `best` en s'eloignant de la
+    cible. `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine(best)` =
+    `FilterContinuous( TilesBehindInLine(from = target@0x178, to = best, settings{+0x10=1, +0x11=1},
+    count = null), HasUnit(subject) & AreEnemies(owner, Units(subject)) )`.
+
+    Deux troncatures s'empilent donc, dans cet ordre :
+      1. le GATE DE TUILE de `IdunBattle.Core.Services.TileUtil$$IsTileValidForList` (walkable +
+         `|elev(ref) - elev(tile)| < 2`, reference qui SUIT la ligne : settings 1/1) -- porte par
+         `engine.battle_query.get_tiles_behind`, mirror partage avec la face COMBAT (#117/#124) ;
+      2. le `FilterContinuous` (prefixe contigu d'ennemis) : on s'arrete au 1er trou.
+    Sans (1) le port SUR-ESTIME l'utilite d'un beam qui traverse une marche >= 2 (il compte des
+    ennemis que l'attaque ne touchera jamais). La reference d'elevation initiale est la tuile
+    `aim` (= `MainTileEntity(from)` avec `from = target@0x178`), donc la 1re marche testee est
+    `aim -> best`.
+
+    APPROXIMATION CONSERVEE (deja flaggee, hors perimetre #124) : `best` est modelise par le
+    prolongement du rayon caster -> aim (`dir = cube(aim) - cube(origin)`), alors que le natif le
+    CHOISIT parmi les 6 `AdjacentTiles(target@0x178)` par `SortByFormula(angle, ASC)` puis
+    `SortByFormula(count, DESC)` + `First(1)` (cle primaire = #ennemis alignes). Le port est donc
+    une BORNE INFERIEURE de l'utilite native quand une autre direction aligne davantage d'ennemis."""
     ox, _oy, oz = hexgeo.to_cube(origin[0], origin[1])
     ax, _ay, az = hexgeo.to_cube(aim[0], aim[1])
     dx, dz = ax - ox, az - oz
     if dx == 0 and dz == 0:
         return 0
-    cnt, k = 0, 1
-    while k <= 12:
-        tile = hexgeo.from_cube(ox + dx * k, oz + dz * k)
-        if tile in enemy_set:
-            cnt += 1
-            k += 1
-        else:
-            break
+    best = hexgeo.from_cube(ax + dx, az + dz)     # `best` modelise = prolongement caster -> aim
+    walkable_at, elevation_at, tile_exists = bq.tiles_behind_accessors(walkable_by_pos, elev_by_pos)
+    line = bq.get_tiles_behind(aim, best, max_count=None, check_walkable=True,
+                               update_reference=True, walkable_at=walkable_at,
+                               elevation_at=elevation_at, tile_exists=tile_exists)
+    cnt = 1 if aim in enemy_set else 0            # `target@0x178 op_Addition ...` (hors gate)
+    for tile in line:
+        if tile not in enemy_set:
+            break                                 # FilterContinuous : prefixe contigu d'ennemis
+        cnt += 1
     return cnt
 
 
@@ -60,10 +83,17 @@ class DarkTalonStrikePlaybook(NonComparablePlaybook):
       max (cas s11 ; confirme par les castes en place de la tranche). PRIORITY=0 (#115).
     - IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$.ctor = `NonComparablePlaybook(0x444)` -> 1er arg=ability_id.
 
+    GATE D'ELEVATION (#124) : la ligne consomme `engine.battle_query.get_tiles_behind` (settings
+    `+0x10 = +0x11 = 1`, cf. `_beam_count`) — MEME mirror que la face COMBAT (#117). Avant #124 la
+    feuille tirait un rayon cube droit SANS gate et sur-estimait l'utilite d'un beam traversant une
+    marche >= 2.
+
     FLAGS VALIDATEUR (approximations) :
-      * beam = RAYON DROIT continu (cube-line) ; la vraie geometrie `GetTilesInBestLine` inclut une
-        variante ANGLE (AngleBetweenLines + SortByFormula) / ligne coudee NON modelisee. A s11 le rayon
-        droit colle exactement (5/1/1). Un beam coude ne serait pas fidele.
+      * DIRECTION du beam = prolongement caster -> aim ; le natif CHOISIT `best` parmi les 6
+        `AdjacentTiles(target@0x178)` (`SortByFormula(AngleBetweenLines, ASC)` puis
+        `SortByFormula(Count(Units(GetTilesInLine)), DESC)` + `First(1)`, tris STABLES -> cle
+        primaire = #ennemis alignes). Le port est donc une BORNE INFERIEURE de l'utilite native.
+        A s11 le rayon droit colle exactement (5/1/1).
       * AIM depuis l'ORIGINE uniquement (`fromHere`) : le natif balaie aussi les tuiles de MOVE (aimer
         apres deplacement). Non modelise -> si le natif MOVE+caste (meilleur beam ailleurs), le port
         caste en place (miss residuel). SUR : le port ne fire QUE si beam-origine >= 2, ce qui implique
@@ -93,7 +123,8 @@ class DarkTalonStrikePlaybook(NonComparablePlaybook):
         enemy_set = {ep for ep in (ctx.epos or []) if ep and ep[0] is not None}
         best_aim, best_c = None, None
         for T in aims:                            # keep-first au tie (ordre GetEligibleTargets)
-            c = _beam_count(ctx.origin, T, enemy_set)
+            c = _beam_count(ctx.origin, T, enemy_set,
+                            ctx.walkable_by_pos, ctx.elev_by_pos)   # gate d'elevation (#124)
             if best_c is None or c > best_c:      # strict > : 1re tuile du max gagne
                 best_aim, best_c = T, c
         if best_aim is None or best_c < self.MIN_UTILITY:
