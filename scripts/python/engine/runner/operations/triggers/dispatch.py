@@ -80,6 +80,7 @@ from .loki.sworn_protector import (SwornProtectorSummonKellAbility,  # #95-RESTE
 from .loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
 from .loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
+from .loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -224,6 +225,26 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "ListenUpMaggots": [ListenUpMaggotsAddEffectAbility],
 }
 
+# --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
+# Mirror de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetDerived
+# TriggeredAbilities` (dict statique `ActiveAbilityType -> List<TriggeredAbilityType>`, peuple par
+# `...StaticBattleRules.ActiveAbility$$.cctor`) : posseder l'ability ACTIVE fait porter la (les)
+# triggered-ability(s) derivee(s) DES L'INIT de l'unite, sans aucun cast prealable. C'est un TROISIEME
+# chemin de registration, distinct des deux deja portes (`TRAIT_TRIGGERS` = par trait ;
+# `ABILITY_TRIGGERS` = par passiveAbility) -- et le SEUL qui puisse porter une triggered-ability greffee
+# sur une ability ACTIVE (cas des MoW, qui n'ont ni trait ni passif dedie).
+# Cle = NOM gameconfig de l'ability active (`units.activeAbilities`), comme ABILITY_TRIGGERS l'est pour
+# `units.passiveAbilities`. 39 entrees existent cote natif ; seules celles dont la triggered-ability est
+# PORTEE sont inscrites ici (le reste = registered-but-unported, no-op fidele).
+ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    # 0x4be (1214 Hailstrike, `darkaStormSpeeder` MoW) -> 0x5e3 (1507 Hailstrike_Attack) : quand un ALLIE
+    # porteur du buff 1509 finit une attaque RANGED/OVERWATCH sur un ennemi VIVANT, la MoW attaque la
+    # MEME cible (`nrOfHits` coups du profil de la config 1214, factory AttackWithAbilityDamage).
+    # Le gate `HasEffect(attaquant, 1509)` du trigger rend l'entree INERTE tant qu'aucun Hailstrike
+    # n'est pose -> l'inscription inconditionnelle est fidele. Cf. loki/hailstrike.py.
+    "Hailstrike": [HailstrikeAttackAbility],
+}
+
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
 # ⚠ La valeur est une LISTE : cote natif, `BaseEffect.CreateHandleTriggerAbilitiesInternal` renvoie un
 # **`ArraySet`** (N `Triggered(trigger, behaviour)` par effet) — ex. `PhoenixGem_CanReviveEffect
@@ -281,8 +302,14 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
         # passiveAbilities (TheBetrayer…) — résolues via gameconfig par visualId.
         vid = getattr(sc.ctx, "visual_id", None)
         if vid:
-            for pa in ((GC.unit(vid) or {}).get("passiveAbilities") or []):
+            gu = GC.unit(vid) or {}
+            for pa in (gu.get("passiveAbilities") or []):
                 for cls in ABILITY_TRIGGERS.get(pa, ()):
+                    out.append(cls(eid))
+            # activeAbilities -> triggered-abilities DERIVEES (`StaticBattleRules.ActiveAbility$$
+            # GetDerivedTriggeredAbilities`) : porté dès l'init de l'unité, sans cast préalable.
+            for aa in (gu.get("activeAbilities") or []):
+                for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
                     out.append(cls(eid))
     return out
 

@@ -106,6 +106,7 @@ from .loki import (
     AncestralFortuneExtraCritChanceEffect,
     AncestralFortuneExtraBlockChanceEffect,
     GravitonRifleExtraPierceEffect,
+    HailstrikeExtraPierceEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -441,6 +442,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    = `ForPercentDecrease(get_OwnerIsTarget, ConfigConst(0x72))` -> -33 % sur TOUT degat recu.
     "PrioritisedEfficiency_ExtraDmg": PrioritisedEfficiencyExtraDmgEffect,
     "PrioritisedEfficiency_DmgReduction": PrioritisedEfficiencyDmgReductionEffect,
+    # 0x5e5=1509 Hailstrike (case-117 phase 2) : buff pose sur un ALLIE par l'ability 1214 de la MoW
+    # `darkaStormSpeeder`. Classe DEDIEE `IdunBattle.Entities.Effects.Loki.Hailstrike_ExtraPierceEffect`
+    # — canal PERCAGE : `CreatePiercingBonusForAttack` = `ForPiercing(OwnerIsCaster & (IsRangedAttack |
+    # IsOverwatchAttack), ConfigVar(0x3f=63 extraPierceRatio, GetAbilityState(this)))`. AUCUN gate
+    # `CurrentAbilityIs` -> s'applique aussi a l'attaque NORMALE ranged du porteur. Le nom d'EffectType
+    # capte live est « Hailstrike » (== `EffectType.Hailstrike`, verifie par test_storm_speeder_live).
+    "Hailstrike": HailstrikeExtraPierceEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

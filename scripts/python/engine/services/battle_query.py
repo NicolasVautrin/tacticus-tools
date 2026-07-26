@@ -96,7 +96,7 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
     return w, bool(w.get("Range"))
 
 
-def select_weapon_pierce(ctx, is_adjacent, dist=None):
+def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
     """SÉLECTION D'ARME + PERÇAGE — service PARTAGÉ prédiction↔runner (foyer natif `BattleQuery`).
     `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX + porte de portée
     ranged `dist`, cf. #188) + `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` (profil.PiercingRatio +
@@ -108,7 +108,16 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None):
     #71 : le BONUS LasCannon (+50) est appliqué ICI via `get_piercing_ratio` — mirror du natif
     `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` qui fait `base = GetPiercingRatio(profile, attackerTraits)`
     (bonus lascannon INCLUS) PUIS `+ ExtraPierce`. `GetAttackPiercingDamageRatio` n'a que des xrefs DATA
-    (invoqué par delegate/slot) = service PARTAGÉ prédiction+combat -> le fix ici couvre LES DEUX faces."""
+    (invoqué par delegate/slot) = service PARTAGÉ prédiction+combat -> le fix ici couvre LES DEUX faces.
+
+    `effect_bonus` (case-117 phase 2) = Σ des `EffectBonus` de perçage des effets ACTIFS de l'attaquant
+    (`IdunBattle.Entities.Effects.BaseEffect$$PiercingBonusForAttack`). C'est l'un des DEUX termes `Fix64`
+    que le natif passe EN ARGUMENT à `GetAttackPiercingDamageRatio` (`param_6`/`param_7`, sommés DANS le
+    `Max`/`Min` unique : `Min(100, Max(base>0, dirPierce + extraPierce + bonusB + bonusA + basePierce))`)
+    -> il entre ici DANS la même somme, avant le clamp, jamais dans un second clamp. Défaut 0 =
+    comportement historique. L'appelant COMBAT (attaque normale) le calcule après avoir résolu la nature
+    du coup (`is_ranged`), que les gates d'effet consomment ; la PRÉDICTION ne le passe pas encore
+    (résidu documenté : la face décision ignore ce canal, comme elle ignorait déjà GravitonRifle)."""
     w, is_ranged = get_attack_weapon_for_default_normal_attack(
         ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=dist)
     if w is None:
@@ -126,5 +135,5 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None):
                        or UnitTrait.Emplacement.name in att_traits)
     base_pierce = get_piercing_ratio(prof_ratio, profile_has_lascannon, attacker_hw_emp)
     dir_pierce = ctx.extra_pierce_ranged if is_ranged else ctx.extra_pierce_melee
-    pierce = max(0, min(100, base_pierce + ctx.extra_pierce + dir_pierce))
+    pierce = max(0, min(100, base_pierce + ctx.extra_pierce + dir_pierce + int(effect_bonus or 0)))
     return pierce, is_ranged, int(w.get("hits") or 1), w.get("DamageProfile")

@@ -496,9 +496,15 @@ def hailstrike_tree(target_ref, duration_turns: int):
     (MIRROR 1:1) : `AddEffect(1509 Hailstrike, source = caster@0x160, targets = target@0x178,
     TurnsFromRounds(nrOfRounds))`. `duration_turns` = `TurnsFromRounds(...)` DEJA converti par la classe
     d'ability (`convert_rounds_to_turns`) -> passe tel quel (le natif met la valeur convertie dans les
-    options, `AddEffectOperation` ne la reconvertit pas)."""
+    options, `AddEffectOperation` ne la reconvertit pas).
+
+    `scale_from_source=True` = le PORT de l'`AbilityStateReference` du 2e argument natif (case-117
+    phase 2) : la magnitude de l'effet 1509 est `ConfigVar(0x3f = extraPierceRatio,
+    GetAbilityState(effect), config@0x60)`, resolue contre l'etat d'ability de la **SOURCE**
+    (la Storm Speeder) et NON du porteur. Sans ce flag, l'effet materialise portait le niveau de
+    l'ALLIE buffe -> mauvaise entree de la courbe `extraPierceRatio` (10 / 12 / 15)."""
     return AddEffect(HAILSTRIKE_EFFECT, EffectType.Hailstrike.name, target_ref,
-                     duration_rounds=None, duration_turns=duration_turns)
+                     duration_rounds=None, duration_turns=duration_turns, scale_from_source=True)
 
 
 class HailstrikeAbility(ActiveAbility):

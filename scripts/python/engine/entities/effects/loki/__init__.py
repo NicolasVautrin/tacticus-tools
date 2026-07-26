@@ -15,7 +15,9 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `status.py`           — stat-mods, composites (Stunned/Taunted), HP-floor, modificateurs multi-axes.
 - `imperative.py`       — DoctrinaImperatives (Tan Gi'da) : Protector (+FixedArmor) / Conqueror (+dmg gate).
 - `votann.py`           — Leagues of Votann (#113) : les 3 `DynamicStatModifierEffect` GÉNÉRIQUES du lot
-                          (armure −, crit +, block +) + le canal PERÇAGE `GravitonRifle_ExtraPierce`."""
+                          (armure −, crit +, block +) + le canal PERÇAGE `GravitonRifle_ExtraPierce`.
+- `darkangels.py`       — Dark Angels (case-117 phase 2) : canal PERÇAGE `Hailstrike_ExtraPierce` (1509,
+                          porteur != source -> scaling resolu contre la SOURCE)."""
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyExtraDmgEffect,
@@ -75,6 +77,7 @@ from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
                      AncestralFortuneExtraBlockChanceEffect, GravitonRifleExtraPierceEffect)
+from .darkangels import HailstrikeExtraPierceEffect
 
 __all__ = [
     # extra_damage (volet DIRECT)
@@ -131,4 +134,6 @@ __all__ = [
     # votann (#113)
     "AugmentedAssaultReduceArmorEffect", "AncestralFortuneExtraCritChanceEffect",
     "AncestralFortuneExtraBlockChanceEffect", "GravitonRifleExtraPierceEffect",
+    # darkangels (case-117 phase 2)
+    "HailstrikeExtraPierceEffect",
 ]

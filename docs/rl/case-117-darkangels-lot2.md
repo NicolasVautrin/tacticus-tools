@@ -7,7 +7,7 @@ aucun changement `frida/hooks`, aucun rebuild, aucun reinject. Build `gqfc5mff6c
 |---|---|---|---|
 | DarkTalonStrike | 1092 | `darkaAzrael` (HERO) | **PORTE + VALIDE LIVE** (2 geometries + mutation-test du gate) |
 | DeathOnTheWind  | 1213 | `darkaStormSpeeder` (MoW) | **PORTE + VALIDE LIVE** (ligne + effet 1257 + gate de ciblage) |
-| Hailstrike      | 1214 | `darkaStormSpeeder` (MoW) | **PORTE + VALIDE LIVE** (pose d'effet) ; PHASE 2 = residu (§5) |
+| Hailstrike      | 1214 | `darkaStormSpeeder` (MoW) | **PORTE + VALIDE LIVE** (pose d'effet) ; PHASE 2 portee par #123 (§5bis) |
 
 Code : `engine/runner/abilities/darkangels.py` · `engine/entities/selectors.py`
 (`TilesBehindInLine`, `Units`, `SortByDistance`) · `engine/entities/formulas.py`
@@ -223,6 +223,144 @@ est le cablage + sa confrontation live, non un verrou.
 valide ; la phase 2 est un artefact NATIF DISTINCT (un effet + une triggered ability) — meme decoupage
 que case-90 (« le degat vit dans la PHASE 2, hors de ces ports »). **Candidat de suite immediate**, pas
 un cas dur.
+
+> **FAIT DEPUIS (#123)** : les deux maillons sont portes et confrontes — cf. §5bis. La transcription
+> ci-dessus a ete re-verifiee au decompile et est exacte ; elle omettait deux choses tranchantes,
+> corrigees en §5bis : `0x20` de `CreateBehaviour` est `EventTriggerType.Custom` (donc la branche
+> `== 0x20` est le REVEIL differe, pas le fire initial), et `0x14` de `GetDamageProfileOrDefault` est le
+> profil par DEFAUT (`Piercing`), pas le profil retenu (la config 1214 impose `Projectile`).
+
+## 5bis. PHASE 2 de Hailstrike — PORTEE (#123)
+
+**Statut** : 2/2 maillons PORTES. (b) **BIT-EXACT LIVE** ; (a) **canal + magnitude confirmes live par
+ENVELOPPE**, bit-exactitude du coup buffe = residu chiffre (§5ter).
+
+Code : `engine/entities/effects/loki/darkangels.py` (nouveau) · `engine/runner/operations/triggers/loki/
+hailstrike.py` (nouveau) · `engine/runner/operations/triggers/dispatch.py` (registre
+`ACTIVE_ABILITY_TRIGGERS`) · `engine/services/battle_query.py` + `engine/runner/damage_model.py`
+(`effect_bonus` du percage) · `engine/runner/operations/damage_ops.py` (cablage voie NORMALE +
+`is_overwatch`) · `engine/runner/abilities/base.py` (`ability_pierce_effect_bonus` etendu) ·
+`engine/runner/abilities/darkangels.py` (`scale_from_source=True`).
+Probe : `scripts/python/probe_123_hailstrike_phase2.py`. Test : `tests/engine/runner/
+test_hailstrike_phase2_live.py`.
+
+### (b) `Hailstrike_AttackAbility` (triggered 0x5e3 = 1507) — l'attaque liee de la MACHINE
+
+**Le verrou etait le REGISTRE, pas le behaviour.** Le port n'avait que DEUX chemins d'enregistrement
+d'ability-trigger (par TRAIT, par `passiveAbilities`) ; or `darkaStormSpeeder` n'a ni trait ni passif —
+uniquement `activeAbilities = [DeathOnTheWind, Hailstrike]`. Le 3e chemin natif, LU au decompile :
+
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetDerivedTriggeredAbilities`
+= lookup d'un dict statique `ActiveAbilityType -> List<TriggeredAbilityType>` peuple par
+`...StaticBattleRules.ActiveAbility$$.cctor`. Entree LUE : **`0x4be (1214) -> [0x5e3 (1507)]`** (39
+entrees dans ce dict, meme forme `Add(dict, <activeId>, ToList(<triggeredId>))`). Posseder l'ability
+ACTIVE fait donc porter la triggered-ability **des l'init**, sans aucun cast — c'est le gate
+`HasEffect(attaquant, 1509)` du trigger qui la rend inerte tant que personne ne porte le buff.
+Port : registre `ACTIVE_ABILITY_TRIGGERS` (cle = nom gameconfig de l'active), collecte dans
+`collect_triggered_abilities`.
+
+Trigger et behaviour = mirror 1:1 de la transcription §5 (RE re-verifiee au decompile). Deux precisions
+LUES qui n'y etaient pas :
+
+- `CreateBehaviour(abilityState, triggerType)` : `triggerType` est un **`EventTriggerType`** (signature du
+  dump), et `0x20 = 32 = Custom`. La branche `== Custom` est donc le **REVEIL DIFFERE**, la branche
+  `!= Custom` le fire INITIAL qui planifie `TriggerAbilityDelayed(owner, 1507, kind=3)`. Patron
+  identique a `MasterOfTheTutelaries_SummonAbility` (#202-C) -> meme COLLAPSE : l'attaque part inline a
+  la fin du vecteur `On(9)`.
+- profil = `GetDamageProfileOrDefault(0x14)` =
+  `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$GetDamageProfileOrDefault` =
+  `config.GetDamageProfile() ?? Piercing(20)`. **PIEGE** : `0x14` est le DEFAUT, pas le profil. La config
+  1214 definit `damageProfile = Projectile` -> c'est Projectile qui sort (confirme live : tous les coups
+  de la MoW ont `DamageProfileType = 1`).
+- degat = `BaseTriggeredAbility$$MinMaxDamage(abilityState)` =
+  `RandomAmount(GetVariableForLevel(0xc = minDmg), GetVariableForLevel(0xd = maxDmg))` sur la config 1214
+  au niveau de l'ability ACTIVE de la MoW (rarity-scale : `variablesAffectedByRarityBonus` = [minDmg,
+  maxDmg]). Coups = `GetNumberConstant(0x2f = nrOfHits)` = 3. Factory native = `AttackWithAbilityDamage`
+  -> famille ABILITY (`is_attack_damage_op=False` : 1 tirage/coup, aucun crit, mods attaquant vides,
+  arrondi `Round(AwayFromZero)`).
+
+**MESURE LIVE** (probe `--phase ab` / `ab_noarmor`, runner MC1_67, allie `darkaAzrael` buffe tirant au
+Plasma a portee 2 sur `astraBullgryn`) — les tags de l'evenement de degat identifient la source sans
+ambiguite : `Attacker_Id` = **la MoW** (et non l'allie), `Passive_Ability_Type` = **1507**,
+`DamageProfileType` = 1 (Projectile), 3 coups, MEME cible que l'attaque declenchante.
+
+| configuration | coups MoW LIVE | coups MoW OFFLINE |
+|---|---|---|
+| cible armure 3513 | `[317, 315, 302]` | `[317, 315, 302]` |
+| cible armure 0 (`--hp-target`) | `[2116, 2099, 2011]` | `[2116, 2099, 2011]` |
+
+**BIT-EXACT, per-coup, dans les deux configurations** — donc le trigger, son ciblage, son ordre dans le
+vecteur `On(9)`, son nombre de coups, son profil, ses bornes de degat, sa consommation RNG et son
+arrondi sont tous justes. Le total HP de l'action (coup de l'allie + 3 coups MoW) est egalement
+bit-exact a armure 0 : live 9578 == offline 9578.
+
+### (a) `Hailstrike_ExtraPierceEffect` (effet 0x5e5 = 1509) — le bonus de percage
+
+Mirror 1:1 de `CreatePiercingBonusForAttack` (§5) : `ForPiercing(get_OwnerIsCaster & (IsRangedAttack |
+IsOverwatchAttack), ConfigVar(0x3f = extraPierceRatio, GetAbilityState(this), this+0x60))`. Trois points
+LUS qui ont demande du cablage, au-dela du simple clone de `GravitonRifle_ExtraPierce` :
+
+1. **Porteur != source.** GravitonRifle est un OWNER-effect (porteur == source) ; Hailstrike est pose par
+   la MoW **sur un ALLIE**. Or `BaseEffect$$GetAbilityState` rend l'`AbilityState` de la SOURCE. Deux
+   consequences : le `AddEffect` du behaviour de cast passe desormais `scale_from_source=True` (mirror de
+   l'`AbilityStateReference` natif), et l'effet CAPTE depuis le live (que `EffectsState.seed` scale sur le
+   PORTEUR) re-resout son niveau depuis `self.source` via le resolveur `unit_ctx_of` du contexte de coup.
+   Sans ca l'effet lisait `extraPierceRatio` au niveau de l'ALLIE — la courbe VARIE (10 / 12 / 15).
+2. **AUCUN gate `CurrentAbilityIs`** (contraste GravitonRifle, qui en a un). Le bonus s'applique donc a
+   l'attaque **NORMALE** ranged du porteur. Le port ne cablait l'agregateur `piercing_bonus_from_effects`
+   que sur la voie ABILITY -> il fallait le cabler sur la voie NORMALE (`damage_ops.execute`), avec
+   `ability_type=None` (une attaque normale n'a pas d'AbilityOrEffect d'ability : les effets gates
+   `CurrentAbilityIs` restent muets, comme le natif).
+3. **`IsRangedAttack | IsOverwatchAttack` est une DISJONCTION.** `Overwatch_AutoAttackEffect` resout son
+   coup par `UseActiveAbility(NormalAttack)` : cote port c'est `AttackDamageOperation.execute`, qui ne
+   savait pas distinguer un overwatch. Ajout d'un flag `is_overwatch` (passe par `OverwatchAutoAttack`)
+   pour que le gate reste vrai sur un overwatch de MELEE (le mover arrive au contact).
+
+Le terme entre dans le clamp UNIQUE du natif :
+`GetAttackPiercingDamageRatio(damageProfile, attacker, defender, isMelee, attackModifier, defenderModifier)`
+(signature LUE) = `Min(100, Max(base>0, dirPierce + extraPierce + defenderModifier + attackModifier +
+basePierce))` — `attackModifier` EST la somme des `BaseEffect$$PiercingBonusForAttack`. Le port le passe
+donc a `battle_query.select_weapon_pierce(..., effect_bonus=...)` pour qu'il entre dans la MEME somme,
+jamais dans un second clamp.
+
+**MESURE LIVE — decomposition par etage** (probe `--phase ab`, `--phase ab_noarmor`, `--phase samples`) :
+
+| etage | scenario | resultat |
+|---|---|---|
+| controle | allie SANS buff, cible armure 3513 | live 1798 == offline 1798 (percage 65 = profil Plasma) — **le port de base est bit-exact pour ce couple unite/arme** |
+| « le buff ajoute-t-il du DEGAT ? » | allie AVEC buff, cible **armure 0** | live 3352 == offline 3352 (**bit-exact**) -> a armure nulle le percage est inerte : le buff n'ajoute **AUCUN** degat. C'est bien un canal PERCAGE et rien d'autre |
+| magnitude | allie AVEC buff, cible armure 3513, 7 tirs | valeurs live `1921, 2422, 2700, 2015, 2445, 2153` (+ `2617` sur un autre run) |
+
+L'enveloppe des 7 tirs IDENTIFIE le ratio live (bornes du port = `[int(2250*p/100), int(3376*p/100)]`,
+base = Attack 2813 +/- spread 20 %) :
+- il faut `p >= 80` pour que **2700** soit atteignable (`p = 79 -> borne haute 2667 < 2700`) ;
+- il faut `p <= 85` pour que **1921** soit atteignable (`p = 86 -> borne basse 1935 > 1921`) ;
+- **4 valeurs sur 7 depassent 2194 = la borne haute a `p = 65`** -> sans le bonus, le port ne peut PAS
+  produire ce que le live produit : **le bonus est PORTANT**, et la garde le prouve.
+
+`p in [80, 85]` avec `extraPierceRatio[L50] = 15` et un profil Plasma a 65 -> **`p = 80`**, exactement ce
+que le port calcule.
+
+## 5ter. Ce qui n'est PAS couvert par #123
+
+- **Bit-exactitude du coup de l'ALLIE quand il est buffe ET que la cible a de l'armure.** Le controle
+  (sans buff) et le cas armure-0 (avec buff) sont bit-exacts ; le cas buffe-avec-armure diverge (ex.
+  live 1921 / offline 2301 ; live 2617 / offline 2248). La divergence n'est **pas** causee par le port
+  de #123 : un balayage exhaustif `bonus de percage 0..40` x `tirages RNG brules 0..24` (1025
+  combinaisons, probe `--phase ab`) ne reproduit **aucune** valeur live — donc ni la valeur du percage,
+  ni un decalage de flux RNG ne l'expliquent, et le port SANS le bonus (`bonus = 0`) ne matche pas
+  davantage. L'etage divergent est en amont du bonus (modele de tirage `reduce-then-roll` du port vs
+  natif quand les bornes reduites changent). **CANDIDAT fable-solver**, hors perimetre #123 : c'est le
+  moteur de degat de l'attaque normale, pas Hailstrike.
+- **Face DECISION** : `HailstrikePlaybook` (`GetTargetUtility`, `GetPierceRatioUtility`,
+  `HasRangedAttackAndCanAttackThisTurn`) n'est pas portee ; la prediction ne passe pas encore
+  `effect_bonus` a `select_weapon_pierce` (meme residu que GravitonRifle avant #113).
+- **`overwatch` reel** : le flag `is_overwatch` est cable (`OverwatchAutoAttack` le passe) mais n'a pas
+  ete confronte live (il faudrait un mover qui declenche l'overwatch d'un allie buffe).
+- **Re-pose / refresh** de l'effet 1509 sur une unite qui le porte deja (le probe re-caste ; le gate
+  « deja present » du port no-ope) — non confronte.
+- **Gate de ciblage** de 1214 : inchange depuis §7 (le filtre STATIQUE `TargetingOptions` n'est pas porte ;
+  le test prend ses cibles dans `abilityTargets.fromHere`).
 
 ## 6. Validation
 
