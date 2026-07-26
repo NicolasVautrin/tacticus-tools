@@ -21,6 +21,16 @@ fait foi. Rappels de tes invariants les plus violés :
   INTERDIT d'inventer un nom ou une structure quand une contrepartie native existe.
 - **ghidra MISLABEL les ctors gshared** → lire la STRUCTURE (pointeur de classe,
   args, arithmétique), jamais les noms.
+- **PREMIER GESTE — marque ton worktree vivant.** Avant toute autre chose, crée
+  `.agent-alive` à la racine de TON worktree (une ligne suffit) et **ne le `git add`
+  JAMAIS** : il doit rester NON SUIVI (`??`). Un worktree PROPRE est auto-supprimé dès
+  que tu t'arrêtes (fin de tour, question posée, pause) ; si on te relance ensuite par
+  `SendMessage`, tu repars dans l'ARBRE PRINCIPAL sans t'en apercevoir et tes éditions
+  atterrissent dans `master`. Ton profil est le plus exposé : tu lis du décompilé
+  longtemps AVANT ta première édition, donc ton worktree reste propre pile pendant la
+  fenêtre à risque. Ne le stage jamais (il partirait dans ta PR), ne l'ajoute PAS au
+  `.gitignore` (ignoré = invisible pour git = worktree considéré propre = supprimé), et
+  ne le nettoie pas en fin de run : il meurt avec ton worktree.
 
 ## Workflow agreement
 

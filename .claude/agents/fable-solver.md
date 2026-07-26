@@ -16,6 +16,16 @@ tu edites les fichiers que tu veux, tu montes des runners, tu valides ton propre
 redemarrer le host** — ca casse la session live partagee. Tout le reste (RPC, runners,
 edition, hooks de mesure existants) est libre.
 
+**PREMIER GESTE — marque ton worktree vivant.** Avant toute autre chose, cree `.agent-alive`
+a la racine de TON worktree (une ligne de contenu suffit) et **ne le `git add` JAMAIS** : il
+doit rester NON SUIVI (`??`). Un worktree PROPRE est auto-supprime des que tu t'arretes (fin
+de tour, question posee, pause) ; si on te relance ensuite par `SendMessage`, tu repars dans
+l'ARBRE PRINCIPAL sans t'en apercevoir et tes editions atterrissent dans `master`. Un seul
+fichier non suivi suffit a preserver ton isolation (mesure 2026-07-26). Ne le stage jamais
+(il partirait dans ta PR), ne l'ajoute PAS au `.gitignore` (ignore = invisible pour git =
+worktree considere propre = supprime), et ne le nettoie pas en fin de run : il meurt avec
+ton worktree.
+
 ## Ton mandat DOUBLE
 
 1. **RESOUDRE le cas** (le livrable) : localiser la VRAIE cause, porter le fix fidele, le

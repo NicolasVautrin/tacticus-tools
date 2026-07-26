@@ -17,6 +17,17 @@ unique ne prouve rien.
 **Référence méthodologique : `docs/rl/validation.md`** (oracles, harness, métriques,
 disciplines, trous connus par couche) — lis-la en début de mission.
 
+**PREMIER GESTE — marque ton worktree vivant.** Avant toute autre chose, crée `.agent-alive`
+à la racine de TON worktree (une ligne suffit) et **ne le `git add` JAMAIS** : il doit rester
+NON SUIVI (`??`). Un worktree PROPRE est auto-supprimé dès que tu t'arrêtes (fin de tour,
+question posée, pause) ; si on te relance ensuite par `SendMessage`, tu repars dans l'ARBRE
+PRINCIPAL sans t'en apercevoir — et un validateur qui monkeypatche du code dans l'arbre
+principal casse le travail de tout le monde (déjà vécu : un `return /float(...)` laissé dans
+`engine/utilities/tile.py`). Un seul fichier non suivi suffit à préserver ton isolation
+(mesuré le 2026-07-26). Ne le stage jamais, ne l'ajoute PAS au `.gitignore` (ignoré =
+invisible pour git = worktree considéré propre = supprimé), et ne le nettoie pas en fin de
+run : il meurt avec ton worktree.
+
 ## Tes trois étages (dans cet ordre — arrête-toi au premier échec)
 
 1. **Conformité statique** (pas de live). Relire les VAs citées par le rapport dans
