@@ -219,7 +219,7 @@ def _dfa_spawn_tiles(state: "State", caster_id: int, target_id: int) -> list:
     `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$GetPossibleSpawnTiles`) : tuiles LIBRES (marchables, non occupees) adjacentes a la CIBLE,
     triees ASCENDANT par distance-hex au CASTER. `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` = `Enumerable.
     OrderBy` (.NET, STABLE) sur la cle `PositionComponent.Distance(caster, tile)` (lambda IdunBattle.Entities.Selectors.SortByDistanceSelector.u003Cu003Ec__DisplayClass3_0$$u003CSelectu003Eb__0) -> la
-    plus proche du caster d'abord. DETERMINISTE (0 tirage rng, contraste `_pick_randomly`).
+    plus proche du caster d'abord. DETERMINISTE (0 tirage rng, contraste `_pick_randomly_one`).
 
     ADJACENCE = `_free_tiles_adjacent` -> `board.neighbours(target)`. Le natif `AdjacentTiles`/`CanAddUnit`
     (`IdunBattle.Entities.TileExtensions$$CanAddUnit` + le graphe d'adjacence du board) porte une PORTE D'ELEVATION :
@@ -265,7 +265,8 @@ class SpawnInceptors(AbilityBehaviour):
     -- i2 « if not enough hexes around the target are free, fewer Inceptors will be summoned ».
 
     Port : placement DETERMINISTE `_dfa_spawn_tiles[:count]` (SortByDistance -> 0 rng, contraste
-    `SpawnUnitOperation.execute` qui consommerait du rng via `_pick_randomly` -> desyncerait les attaques
+    `SpawnUnitOperation.execute` qui consomme du rng via `_pick_placement_tile` des que >1 tuile libre
+    (residu de tri, cf. case-130 SS4) -> desyncerait les attaques
     on-appearance) ; le SPAWN par tuile delegue a `_spawn_config_grot` (== la creation per-summon de
     `SpawnUnitOperation.execute` : owner CopyOwner team+player du caster, stats `ability_var(DeathFromAbove,
     summonHp/summonDmg/summonArmor, casterLevel, mult)`, owner-effects traits + abilities derivees). Puis

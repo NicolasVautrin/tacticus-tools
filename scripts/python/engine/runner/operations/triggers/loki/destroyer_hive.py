@@ -46,8 +46,8 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
     PUISSANCE-DE-2 qui CONSOMME un genrand (retourne 0) -- comme le wasted-resolve #220 `Next(v, v+1)` largeur-1.
     Donc la pick CONSOMME 1 tirage MEME a n==1 (critique : elle precede l'attaque -> la bit-exactness de
     l'attaque en depend). `_pick_target` ci-dessous tire donc TOUJOURS `next_internal(0, n)`. MEME LOI, meme
-    foyer : `abilities/loki/splash.py::_pick_randomly_n` (#130, confronte live) ; residu nomme = le helper
-    `_pick_randomly` de base.py/spawn.py, qui court-circuite encore a n==1.
+    foyer : `abilities/loki/splash.py::_pick_randomly_n` (#130, confronte live) -- les helpers freres n==1
+    de `base.py`/`spawn.py` l'appliquent aussi depuis case-130 SS4 (comptage live, splash Psyker).
 
 Config gameconfig `DestroyerHive` : attackRangeType=Melee (`is_melee=True`), nrOfHits=1, damageProfile="DirectDamage"
 (profil PiercingRatio 100 = pierce-100), minDmg/maxDmg courbes par niveau (`variablesAffectedByRarityBonus` ->
@@ -72,8 +72,9 @@ def _pick_target(state: State, candidates: list) -> Optional[int]:
     """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(GetValidTargets, count=1)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` :
     la boucle tire `NextInternal(0, candidates.Count)` UNE fois pour count=1. `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` a
     rng==1 prend la branche puissance-de-2 qui CONSOMME un genrand (retourne 0) -> **la pick consomme 1 tirage
-    MEME a n==1** (le decompile ne skippe pas le tirage quand le set tient -- contraste `_pick_randomly`/
-    `_pick_randomly_n` cales pour le spawn placement). Le tirage precede l'attaque -> le consommer est necessaire
+    MEME a n==1** (le decompile ne skippe pas le tirage quand le set tient -- meme loi que
+    `base.py::_pick_randomly` / `spawn.py::_pick_randomly_one`, cales sur `_pick_randomly_n`). Le tirage precede
+    l'attaque -> le consommer est necessaire
     a la bit-exactness du degat qui suit. Ordre des candidats = tri par id (approx de l'enumeration ECS native ;
     n==1 -> index 0 deterministe, n>1 -> ordre exact = raffinement, cf. base.py `_pick_randomly`). `state.rng`
     None (replay effet-seul) -> 1er candidat sans tirage."""
