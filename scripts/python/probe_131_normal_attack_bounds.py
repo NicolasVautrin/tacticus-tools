@@ -217,8 +217,10 @@ def _run_models(dv, ob, snap, rng0, board, att, tgt):
 
 
 def _value_draw(events):
-    """(lo, hi_excl, valeur, raw>>1) du tirage de VALEUR = le dernier `next_internal` de
-    largeur > 2 (les next_bool crit/block ont lo=1, hi=100)."""
+    """(lo, hi_excl, valeur, raw>>1) du tirage de VALEUR du **PREMIER coup** = le premier
+    `next_internal` qui n'est pas un `next_bool` (crit/block -> lo=1, hi=100). `raw` = le
+    `genrand_int32() >> 1` que ce tirage a consomme (le journal `_EVENTS` porte les deux) :
+    c'est LUI qui prouve que les deux modeles partent du MEME flux RNG."""
     out = None
     for i, e in enumerate(events):
         if e[0] != "ni":
@@ -414,9 +416,11 @@ def phase_hailstrike(sid, args):
 
 # ---------------------------------------------------------------- phase plain (2e cas)
 def phase_plain(sid, args):
-    """2e CAS DISCRIMINANT, SANS aucun buff : un attaquant ORDINAIRE dont les bornes reduites
-    tombent sur une fraction >= 0.5 (le regime ou floor != round). Le probe CHERCHE le couple
-    dans le runner (stats REELLES lues du combatSnapshot) puis tire N fois."""
+    """2e CAS, SANS aucun buff : un attaquant ORDINAIRE (`--attacker`) tire N fois sur une cible
+    ARMUREE. Le probe ne devine rien — il rapporte, tir par tir, si le regime EST discriminant
+    (cellules tronquees != arrondies) et lequel des deux modeles reproduit le live PER-COUP. Un
+    regime non discriminant est un point de NON-REGRESSION, pas un echec. `--phase scan` donne
+    les couples (base, PiercingRatio) ou floor != round."""
     p_units = args.p_units
     a_units = args.a_units
     # `--tanky` : seed BC ou l'ennemi a des PV enormes mais son ARMURE INTACTE (`--hp-target` de
