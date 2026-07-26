@@ -116,7 +116,8 @@ def plasma_cannon_tree():
        (`MinDistance(caster,cand) > MinDistance(caster,target)`, STRICT = AmountIsGreater, case #48 : la
        laterale a distance EGALE est EXCLUE), meme elevation (tolerance +-1). Le `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(.,2)` (2 = nrOfTargets, lu au decompile) est FOLDE dans la feuille via `pick_n=2` (comme Fragstorm
        IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : tire 2 cibles DANS la resolution du selecteur d'attaque via `state.rng`). len<=2 -> les deux
-       (le natif ne roll pas quand le set tient).
+       unites, MAIS le natif TIRE QUAND MEME (`min(len(pool),2)` tirages, bornes decroissantes) -- #130,
+       cf. `_pick_randomly_n`. La feuille re-trie par id apres le pick (`OrderBy` de `AttackBehaviour$$Execute`).
 
     2. **HITS main == HITS splash == `nrOfHits` (0x2f)** : les DEUX volets appellent `GetHits(param_1,0)`
        (`ArmoriumCherubAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` = `GetNumberConstant(config, 0x2f, 0)` = nrOfHits). PlasmaGrenade
@@ -139,9 +140,10 @@ def plasma_cannon_tree():
 
     GAP (flagge) : (a) `UnitsDirectlyBehind` runner degrade le GATE d'ELEVATION en no-op (`entities_from_state`
     ne peuple pas `ctx.elev_by_pos`) -> sur board plat = exact (meme elevation partout) ; board a relief =
-    raffinement. (b) RNG-exact du `PickRandomly` >2 candidats : `_pick_randomly_n` tire via `state.rng` mais
-    l'ORDRE/cout exact de `PickRandomlySelector.Select` n'est pas cale (== Fragstorm #215) -> le set/la conso rng
-    peuvent diverger quand >2 unites derriere la cible. Structure fidele ; bit-exactness garantie a <=2 derriere."""
+    raffinement. (b) RESIDU #215 restant, >2 candidats derriere la cible : l'ordre d'enumeration natif du pool
+    (non id-trie) decide QUELLES 2 unites sont piquees -> le SET peut diverger (la CONSO, elle, est exacte
+    dans tous les cas depuis #130). A <=2 derriere : BIT-EXACT, confronte live (ratio live/offline == 1.0 sur
+    la main ET le splash, regimes pool=1 et pool=2, `probe_215_pick_randomly_rng.py`)."""
     tgt = Target()
     # [MAIN] cible du message, 3 coups (nrOfHits), plage MinMaxDamage, profil Plasma, ranged.
     main = AttackWithAttackDamage(tgt, "PlasmaCannon", "Plasma", is_melee=False,
@@ -549,11 +551,12 @@ def _supercharge_behind(state: "State", caster_id: int, target_id: int) -> list:
     Le natif construit UN SEUL noeud selecteur (`uVar12`) et le passe aux DEUX consommateurs : le
     `TargetsSelector.op_Addition(target@0x178, uVar12)` de l'`AddEffect` ET le selecteur de cibles du
     volet SPLASH. On le resout UNE fois ici et on l'injecte en `UnitSet` aux deux -- doctrine de collapse
-    S (slice-18/19). EXACT pour <=2 candidats (`_pick_randomly_n` rend tout le set SANS tirage), et c'est
-    la lecture i2 (« these units » = les memes que celles attaquees).
+    S (slice-18/19). EXACT pour <=2 candidats sur le SET (`_pick_randomly_n` rend tout le pool) -- et depuis
+    #130 la CONSO rng du pick est exacte aussi (`min(len(pool),2)` tirages) ; c'est la lecture i2
+    (« these units » = les memes que celles attaquees).
     RESIDU (>2 candidats derriere la cible) : le natif re-evalue son `PickRandomly` a chaque `Select`
-    (potentiellement 2 sets differents + 2 tirages) ; le port n'en fait qu'un -- meme classe de residu que
-    le GAP #215 deja flagge sur `pick_n`.
+    (potentiellement 2 sets differents + 2 series de tirages) ; le port n'en fait qu'un -- meme classe de
+    residu que le GAP #215 restant sur `pick_n` (ordre d'enumeration du pool).
 
     `UnitsDirectlyBehind` = le noeud DEJA porte (mirror `IdunBattleLogic.Entities.DSLFactory$$
     UnitsDirectlyBehind`) ; `PickRandomly` = `_pick_randomly_n` (== PlasmaCannon/Fragstorm). Tri par id

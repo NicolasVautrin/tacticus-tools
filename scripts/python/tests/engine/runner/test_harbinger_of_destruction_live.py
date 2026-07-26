@@ -366,6 +366,15 @@ def test_harbinger_radius2_targeting_and_ab(har_off):
     cfg_profile = str(cst["damageProfile"])
     bmin, bmax, pierce, hits = ability_attack_params(st2, cid, "HarbingerOfDestruction", cfg_profile,
                                                      ranged=True)
+    # Le `PickRandomly(pool, N-1)` natif precede TOUS les coups (il resout le selecteur d'additionnels)
+    # et consomme `min(len(pool), N-1)` tirages, bornes decroissantes -- MEME quand le pool tient dans
+    # N-1 (#130 : `PickRandomAmountSelector$$Select` n'a aucun court-circuit). Le setup ne laisse dans le
+    # rayon que a1/a2 (far est a range+1) -> pool = les ennemis a dist <= range, cible exclue.
+    pool_ids = sorted(i for i in (a1_id, a2_id, far_id) if dist[i] <= rng_range)
+    n_draw = len(splash)                                     # == min(len(pool), N-1), lu du port
+    assert n_draw == min(len(pool_ids), n_draw), f"pick {n_draw} > pool {len(pool_ids)} (setup incoherent)"
+    for i in range(n_draw):
+        st2.rng.next_internal(0, len(pool_ids) - i)          # NextInternal(0, candidates.Count)
     ref_ph = {}
     for tid in sorted(expect_hit):                          # ordre id (== multi=True du leaf)
         rr = AttackDamageOperation.execute_ability_attack(st2, cid, tid, bmin, bmax, pierce, hits,

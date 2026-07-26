@@ -546,9 +546,10 @@ def squig_mine_tree(target_tile_id: int, picked_tile_ids, duration_turns: int):
     COLLAPSE du `PickRandomly` (doctrine slice-18/19, == BringerOfDespair/Poxwalkers/SendInTheNextWave) :
     le tirage doit voir `state.rng`, que le domaine DSL n'expose pas -> la classe d'ability evalue le pool
     (arbre DSL, cf. `squig_mine_pool_tree`), applique `_pick_randomly_n`, et injecte le resultat par le
-    vehicule `FixedTileIds`. ⚠ GAP #215 (RNG-exact) : l'ordre/cout exact du tirage natif n'est pas calibre
-    -> quand `len(pool) > nrOfTiles`, l'ENSEMBLE tire peut differer du live (le CARDINAL et le POOL, eux,
-    sont exacts)."""
+    vehicule `FixedTileIds`. Le COUT du tirage est cale depuis #130 (`min(len(pool), nrOfTiles)` tirages,
+    bornes decroissantes, MEME quand le pool tient -- cf. `_pick_randomly_n`). ⚠ RESIDU #215 : l'ordre
+    d'ENUMERATION natif du pool (non trie) -> quand `len(pool) > nrOfTiles`, l'ENSEMBLE tire peut differer
+    du live (le CARDINAL et le POOL, eux, sont exacts)."""
     picked = FixedTileIds(list(picked_tile_ids))
     targets = Cache(Union(FixedTileIds([target_tile_id]), picked))
     return AddEffect(SQUIG_MINE_TILE, EffectType.SquigMine_Tile.name, targets,

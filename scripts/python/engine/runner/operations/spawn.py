@@ -180,8 +180,15 @@ def _free_tiles_adjacent(state: State, target_id: int, exclude: set) -> list:
 
 
 def _pick_randomly(state: State, tiles: list):
-    """`PickRandomly(tiles, 1)` — UNE tuile. n==1 → l'unique ; sinon index `next_internal(0,n)` (coût RNG
-    exact à confirmer live ; placement RNG-exact = raffinement, cf. structure d'abord)."""
+    """UNE tuile de placement. n==1 → l'unique ; sinon index `next_internal(0,n)`.
+
+    ⚠ RÉSIDU NOMMÉ (#130, hors périmètre de ce cas) — helper AMBIGU : ses appelants mirrorent DEUX
+    nœuds natifs différents. (a) `PickRandomly(tiles, 1)` -> `PickRandomAmountSelector$$Select`, qui
+    tire `min(len(pool), 1)` fois donc **1 tirage même à n==1** (aucun court-circuit au décompilé ;
+    loi mesurée live par `probe_215_pick_randomly_rng.py`, foyer =
+    `abilities/loki/splash.py::_pick_randomly_n`). (b) `First(SortTilesByUtilityForSummon(...))`, qui
+    ne tire RIEN. Faire tirer inconditionnellement casserait (b) ; démêler les appelants un par un
+    (quel nœud natif chacun mirrore) est un cas à part entière, pas un « pendant que j'y suis »."""
     if not tiles:
         return None
     if len(tiles) == 1 or state.rng is None:

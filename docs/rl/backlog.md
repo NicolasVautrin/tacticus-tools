@@ -133,16 +133,24 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   recrée exactement le fork que #120 vient de fermer. Seul consommateur connu aujourd'hui :
   SwornProtector/Kell.
 
-- **`PickRandomly` consomme du RNG MÊME quand le pool tient dans `n` — GAP #215 désormais CHIFFRÉ**
-  (`case-220/dark-angels.md`, item 1103, mesure #112) : sur `Supercharge` avec 2 unités derrière la
-  cible (pool = 2, n = 2), le dégât live s'aligne sur le port **décalé de +2 tirages** pour le volet
-  MAIN et **+5** pour le volet SPLASH. Or `_pick_randomly_n` (`abilities/loki/splash.py`) court-circuite
-  sans tirer dès que `len(items) <= n` (« le natif ne roll pas quand le set tient » — RÉFUTÉ par cette
-  mesure). Le même cast sur une cible SANS unité derrière est **bit-exact** (5618 == 5618) ⇒ la
-  divergence est purement dans le FLUX RNG, pas dans la formule de dégât. Non corrigé : le helper est
-  PARTAGÉ (PlasmaCannon / Fragstorm / BringerOfDespair — leurs tests actuels passent avec le
-  court-circuit), et le +1 tirage résiduel avant le splash n'est pas encore attribué (candidat : la
-  source de block supplémentaire `Daemon_ExtraBlock` de la cible). `[fable]` — chantier socle RNG.
+- **Résidus de `PickRandomly` après #130** (`case-130-pick-randomly-rng.md`). La **loi de
+  consommation** est close : le sélecteur tire `min(len(pool), amount)` fois, bornes décroissantes,
+  **même quand le pool tient dans `amount`** (`_pick_randomly_n` mirror 1:1 ; comptage direct des
+  `genrand_int32` sur deux régimes, port bit-exact live sur PlasmaCannon). Restent :
+  - **Ordre d'énumération du pool quand `len(pool) > amount`** : le natif tire dans l'ordre du sélecteur
+    source (ECS, non trié), le port id-trie → **QUI** est piqué peut différer (Fragstorm, PlasmaCannon
+    >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine). `[opus]`.
+  - **Fragstorm tire des HEXES, pas des occupants** : `PickRandomly(AdjacentTiles(target) −
+    Tiles(Friends(caster)), 4)` inclut les tuiles VIDES (coup gaspillé) → le CARDINAL du pool diffère,
+    donc le nombre de tirages aussi. Exige de porter le sélecteur en tuiles. `[opus]`.
+  - **`AddForcedTargetsAndUpdateCandidates` non porté** : `ignoreForcedTargets` (`+0x38`) est FAUX pour
+    toutes les factories `PickRandomly` → le natif pré-remplit le résultat avec
+    `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)` (non vide sous contrainte de ciblage
+    type Taunt) et les retire des candidats, ce qui **réduit le nombre de tirages**. `[opus]`.
+  - **Le helper frère `_pick_randomly` (n=1) court-circuite encore** : `triggers/base.py` (même nœud
+    natif sans ambiguïté → bug identique ; déplace le flux RNG de Genestealer/Psyker) et `spawn.py`
+    (AMBIGU : une partie des appelants mirrorent `PickRandomly(tiles,1)` = 1 tirage, l'autre
+    `First(SortTilesByUtilityForSummon(...))` = 0 tirage — les démêler un par un). `[opus]`.
 - **Gate d'IMMUNITÉ d'effet (`BaseEffect.EntityIsImmuneToEffect` + surcharges) non porté**
   (`operations/effects.py` en-tête ; MESURE #112) : `AddEffectOperation` pose l'effet sans consulter
   l'immunité. GROUND TRUTH live : `ExemplarOfHate` sur `blackAbaddon` (trait `TerminatorArmour`, i2

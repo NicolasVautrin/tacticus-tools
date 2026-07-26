@@ -48,10 +48,16 @@ class AttackWithAttackDamage(AbilityBehaviour):
     d'une attaque (SPLASH de Fragstorm IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
     Comme `multi=True` folde l'`OrderBy`, `pick_n` folde le PickRandomly DANS la resolution du selecteur
     d'attaque : apres `evaluate`+tri par id, on tire `n` cibles via `_pick_randomly_n(state.rng)` (== l'imperatif
-    `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng). Defaut None
-    = pas de tirage (toutes les cibles). Requiert `multi=True`. ⚠ GAP #215 (RNG-exact) : le natif tire des HEXES
-    (tuiles VIDES incluses = coup gaspille) et l'ordre/cout exact du tirage ne sont pas cales ; le port tire des
-    OCCUPANTS (pas de tuile vide) -> divergence possible quand >n tuiles adjacentes candidates.
+    `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng), PUIS on
+    RE-TRIE par id : le `PickRandomly` vit dans le SELECTEUR (il rend l'ordre de tirage) et l'`OrderBy` de
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` s'applique APRES la resolution. Defaut None
+    = pas de tirage (toutes les cibles). Requiert `multi=True`.
+    #130 : la CONSOMMATION rng du pick est desormais EXACTE meme quand le pool tient dans `n`
+    (`min(len(pool), n)` tirages, bornes decroissantes -- cf. `_pick_randomly_n`) ; confronte live
+    bit-exact sur PlasmaCannon (`probe_215_pick_randomly_rng.py`). ⚠ RESIDU #215 restant, NON couvert :
+    pour Fragstorm le natif tire des HEXES (`AdjacentTiles(target) - Tiles(Friends)`, tuiles VIDES incluses
+    = coup gaspille) la ou le port tire des OCCUPANTS -> le CARDINAL du pool differe, donc le nombre de
+    tirages aussi ; et quand `len(pool) > n` l'ordre d'enumeration natif (non id-trie) decide QUI est pique.
 
     `amount` = FOLD du degat-node `Direct(amountFormula)` quand le natif passe une **valeur calculee** a
     `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
@@ -124,7 +130,11 @@ class AttackWithAttackDamage(AbilityBehaviour):
                              key=lambda u: u.get("id"))     # OrderBy (b__5_0) = ordre de lecture == id
             if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng), == imperatif
                 from ..loki import _pick_randomly_n
-                targets = _pick_randomly_n(state, targets, int(self.pick_n))
+                # `PickRandomly` vit DANS le selecteur -> il rend l'ordre de TIRAGE ; l'`OrderBy` de
+                # `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (`if (Count > 1)
+                # targets.OrderBy(b__5_0).ToList()`) s'applique APRES la resolution -> on re-trie.
+                targets = sorted(_pick_randomly_n(state, targets, int(self.pick_n)),
+                                 key=lambda u: u.get("id"))
         else:                                              # collapse mono-cible (cible du message)
             tu = resolve_unit(self.target_sel, entities)
             targets = [tu] if tu and tu.get("id") is not None else []

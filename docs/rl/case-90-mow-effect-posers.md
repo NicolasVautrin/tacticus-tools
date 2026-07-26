@@ -262,9 +262,11 @@ AVANT/APRES sur les DEUX canaux d'effets.
 3. **`EntitiesWithoutEffects` non discrimine live** : le canal de (2) est desormais branche, donc la
    validation est DEBLOQUEE (un runner dont une tuile porte deja `1441` rend l'etat confrontable) —
    elle reste A FAIRE (aucun scenario SquigMine avec mine preexistante n'a encore ete monte).
-4. **GAP RNG #215 sur `PickRandomly`** (SquigMine) : quand `|pool| > nrOfTiles`, l'ENSEMBLE tire differe
-   du live (le cardinal, le pool et la signature d'effet, eux, sont exacts). Aucune saturation du pool
-   (`|pool| <= nrOfTiles`) n'est atteignable sur `C1_02`/`C2_02` sans mise en scene supplementaire.
+4. **RESIDU #215 sur `PickRandomly`** (SquigMine) : quand `|pool| > nrOfTiles`, l'ENSEMBLE tire differe
+   du live -- l'ordre d'ENUMERATION natif du pool (non id-trie) decide qui est pique (le cardinal, le
+   pool et la signature d'effet, eux, sont exacts). La CONSOMMATION rng du tirage, elle, est calee
+   depuis #130 (`min(|pool|, nrOfTiles)` tirages, bornes decroissantes -- cf.
+   `case-130-pick-randomly-rng.md`), y compris quand `|pool| <= nrOfTiles`.
 5. **`turns_from_rounds` (identite) vs la mesure** — cf. §3.3, tache a instruire.
 6. **Face DECISION MoW** toujours hors-jeu (le natif ne met que `EntityType.Unit` dans
    `decisionView.units` ; cf. `case-mow-offboard-cast.md` §8) : ces 5 abilities ne sont pas choisies par

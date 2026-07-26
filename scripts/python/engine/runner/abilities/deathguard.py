@@ -268,8 +268,8 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
 
     `IdunBattle.Entities.Formulas.RandomAmount$$Calculate` = `rng.<slot 2>(min, max + 1)` -> borne haute INCLUSE ; le port
     consomme `state.rng.next_internal(min, max+1)` (meme primitive que `_pick_randomly`). `state.rng`
-    non cale -> on retombe sur la borne BASSE (deterministe, documente ; le cout/ordre RNG exact reste
-    le GAP deja flague sur `_pick_randomly_n`)."""
+    non cale -> on retombe sur la borne BASSE (deterministe, documente). Le cout du `PickRandomly` aval,
+    lui, est desormais EXACT (`min(len(pool), n)` tirages, cf. `_pick_randomly_n` -- #130)."""
     from math import ceil
     sc = state.get_entity(caster_id).get_component(StatsComponent)
     cctx = sc.ctx if sc is not None else None
@@ -518,8 +518,9 @@ def plagueburst_contaminated_tiles(state: "State", target_id: int, n_tiles: int)
     0, 0x7fffffff, false)` natif : le tirage vit ICI (seul endroit qui voit `state.rng`), meme patron que
     Poxwalkers/Fragstorm/SquigMine. Rend les ids de tuile TIRES (`nrOfTiles - 1` au plus).
 
-    ⚠ GAP RNG #215 (deja documente pour SquigMine) : quand `|pool| > n`, l'ENSEMBLE tire peut differer du
-    live (le pool et le cardinal, eux, sont exacts)."""
+    La CONSO rng du tirage est calee depuis #130 (`min(|pool|, n)` tirages, bornes decroissantes, MEME
+    quand le pool tient dans `n` -- cf. `_pick_randomly_n`). ⚠ RESIDU #215 (idem SquigMine) : quand
+    `|pool| > n`, l'ordre d'ENUMERATION natif (non trie) decide QUELLES tuiles sont tirees."""
     board = state.board
     tid = plagueburst_target_tile(state, target_id)
     if board is None or tid is None:

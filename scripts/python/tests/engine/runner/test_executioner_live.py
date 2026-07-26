@@ -375,6 +375,11 @@ def test_executioner_isdead_secondary_offline(live_session, rpc):
         bmin, bmax, pierce, _h = ability_attack_params(st_b, cid, "Executioner", "Psychic", ranged=True)
         AttackDamageOperation.execute_ability_attack(st_b, cid, tid, bmin, bmax, pierce, K,
                                                      damage_profile="Psychic", is_melee=False, is_attack_damage_op=True)
+        # `PickRandomly(Alive(Enemies(AdjacentUnits(TargetTile()))), 1)` s'intercale entre le MAIN et le
+        # SECONDARY : il consomme `min(len(pool), 1)` tirages MEME quand le pool tient dans `amount`
+        # (#130 -- aucun court-circuit dans `PickRandomAmountSelector$$Select`). Ici le setup ne laisse
+        # QU'UN ennemi adjacent a la cible (`eid` ; `e2` est parque a >6 hex) -> pool==1, borne 1.
+        st_b.rng.next_internal(0, 1)
         ref_sec = (AttackDamageOperation.execute_ability_attack(
             st_b, cid, eid, bmin, bmax, pierce, K,
             damage_profile="Psychic", is_melee=False, is_attack_damage_op=True) or {}).get("per_hit")
