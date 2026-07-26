@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **207/207 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1904 assignations ecartees dans 246 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (5586 symboles distincts) de la PROSE (2452 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1904 assignations ecartees dans 248 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (5634 symboles distincts) de la PROSE (2495 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, move, playbook, predict, runner, services, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -64,7 +64,7 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 - Passifs distincts dans le parc (lineup 123 / npc 481 / summons 65) : **207**
 - **PORTES** (>=1 canal structurel) : **46** (22 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **11**
-- **GAPS** (mention seule + absent) : **150** = 37 mention + 113 absent
+- **GAPS** (mention seule + absent) : **150** = 39 mention + 111 absent
 - Passifs portes par >=1 unite **confrontable** : **116** ; parmi eux, **63 gaps** et **7 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=18, **O**=4, **E**=31, **G**=1, **X**=0, **B**=3
@@ -94,7 +94,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | HazeOfCorruption | L+=1 N=4 | deathBlightlord | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` |
 | HeadClaimer | L+=1 N=5 | blackHaarken | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
 | InescapableAccuracy | L+=1 N=5 | eldarMauganRa | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracyAbility$$CreateBehaviour` |
-| InescapableDeath | L+=1 N=5 | necroDestroyer | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
+| InescapableDeath | L+=1 N=5 | necroDestroyer | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
 | KustomForceFieldReworked | L+=1 N=3 | orksBigMek | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KustomForceFieldReworkedAbility$$CreateBehaviour` |
 | LegacyOfCombat | L+=1 | custoBladeChampion | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
 | LegendaryCommander | L+=1 | custoTrajann | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
@@ -175,7 +175,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | ElectroShock | S?=1 N=2 | - | GAP-MENTION | **.** | - |
 | EmbodiedProphecy | N=1 | - | GAP-ABSENT | - | - |
 | Fealty | N=1 | - | GAP-MENTION | **.** | - |
-| FiringPosition | S?=1 N=1 | - | GAP-ABSENT | - | - |
+| FiringPosition | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | FullThrottle | N=1 | - | GAP-ABSENT | - | - |
 | FuryFromTheDelve | L-=1 N=1 | - | GAP-ABSENT | - | - |
 | GeminaeSuperia | L-=1 N=4 | - | GAP-MENTION | **.** | - |
@@ -266,7 +266,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | BeaconOfRage | L+=1 N=1 | worldEightbound | PORTE | **E**=BeaconOfRage_ExtraDamage,BeaconOfRage_FriendlyExtraDamage | effects |
 | CondemnorStake | L+=1 N=3 | adeptCanoness | PORTE | **E**=CondemnorStake_ExtraDmg | effects |
 | ControlEdict | L+=1 N=5 | admecMarshall | PORTE | **T**=ControlEdictAbility | playbook, runner |
-| CyclicIonBlaster | L+=1 N=4 | tauCrisis | PORTE | **E**=CyclicIonBlaster_AdditionalHits | effects |
+| CyclicIonBlaster | L+=1 N=4 | tauCrisis | PORTE | **E**=CyclicIonBlaster_AdditionalHits | effects, runner |
 | DaughterOfTheAbyss | L+=1 | custoAtlacoya | PORTE | **E**=DaughterOfTheAbyss_ExtraDamagePct,DaughterOfTheAbyss_FriendlyDmgReductionPct | effects |
 | DecoysAndMisdirection | L+=1 N=3 | genesPrimus | PORTE | **T**=DecoysAndMisdirectionDamageEnemiesAbility,DecoysAndMisdirectionBuffFriendsAbility **E**=DecoysAndMisdirection_ExtraDamage | effects, runner, utilities |
 | DestroyerHive | L+=1 N=5 | deathTyphus | PORTE | **T**=DestroyerHiveAbility | runner |
@@ -328,7 +328,7 @@ Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 p
 | 15 | **HazeOfCorruption** | deathBlightlord | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` |
 | 16 | **HeadClaimer** | blackHaarken | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
 | 17 | **InescapableAccuracy** | eldarMauganRa | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracyAbility$$CreateBehaviour` |
-| 18 | **InescapableDeath** | necroDestroyer | L+=1 N=5 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
+| 18 | **InescapableDeath** | necroDestroyer | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
 | 19 | **KustomForceFieldReworked** | orksBigMek | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KustomForceFieldReworkedAbility$$CreateBehaviour` |
 | 20 | **LegacyOfCombat** | custoBladeChampion | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
 | 21 | **LegendaryCommander** | custoTrajann | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
