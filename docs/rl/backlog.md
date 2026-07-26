@@ -73,17 +73,17 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Débloqueur alternatif, plus fidèle : exposer `StatModificationComponent` (+0x10 StatType /
   +0x14 montant) de l'entité-effet dans `frida/hooks/game/effects.ts` → plus aucune magnitude
   re-dérivée offline. **Exige rebuild + reinject.** `[opus]`.
-- **ActiveCondition de l'OVERWATCH non modélisée** (`case-114-tau-lot1` §5, RE fraîche) :
-  `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` gate
-  l'activation de l'effet `Overwatch_AutoAttack` (1009) par
-  `On(0x12) & NOT IsTurnOf(owner) & (HasEffect(owner, 0x516=1302 IgnoreUsedAbilityInOverwatch) |
-  DoesNotHaveFlag(owner, 2=ActiveAbilityUsed)) & NOT HasEffect(owner, 0x429=1065 Pinned)`.
-  Offline, un effet 1009 **présent est toujours actif** → le gate réellement manquant est
-  `DoesNotHaveFlag(ActiveAbilityUsed)` : **un overwatcher qui a utilisé une ability active pendant son
-  tour ne devrait PAS overwatcher au tour adverse**. Chantier PRÉ-EXISTANT (l'effet-trigger
-  `OverwatchAutoAttack` date de #201) ; point de port =
-  `engine/runner/operations/triggers/effect_triggers.py::OverwatchAutoAttack.matches`. Sans incidence
-  pour EarlyWarningOverride (1077 override justement `SetsActiveAbilityUsedFlag`). `[opus]`.
+- **OVERWATCH : un seul tir par activation** (`case-127-overwatch-active-condition` §6.1, MESURÉ
+  LIVE) — 3ᵉ `Triggered()` de
+  `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` :
+  `On(AttackDamageAttack=10, 1) & OwnerIsActor -> DeactivateEffect`. Ground truth : au 1ᵉʳ
+  déplacement ennemi dans la portée, les deux overwatchers tirent (`hp 400000 -> 385014`) et l'effet
+  1009 **disparaît des deux** ; le déplacement suivant ne déclenche **rien** (`delta 0`). Offline, un
+  overwatcher tire à **chaque** déplacement ennemi de la portée. Indépendant du gate
+  `ActiveAbilityUsed` (fermé par #127) : un porteur qui n'attaque pas n'a que ce dernier. Fix =
+  marqueur « a tiré depuis la dernière activation » posé par
+  `OverwatchAutoAttack.execute_behaviour` et purgé au `StartTurnOperation`, ou le champ `IsActive`
+  générique par instance d'effet (`case-127` §6.3). `[opus]`.
 - **Retrait de `InspiredToGreatness_OverrideLevel` (1180)** (`case-114-tau-lot1` §5) :
   `IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$
   CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` — non branché offline, l'override de
