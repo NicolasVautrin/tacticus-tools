@@ -21,6 +21,8 @@ Ce que ces tests PROUVENT (lit l'etat LIVE ; drive les positions ; state-file UN
   (4) TREE FIDELE : la feuille AttackWithAttackDamage emet la MEME Operation que `execute_ability_attack`
       direct (A/B bit-exact, native_factory attack) -> l'arbre n'introduit AUCUN bug de degat ; la valeur
       brute tiree est dans les bornes config [minDmg,maxDmg][level].
+  (5) DEGAT BIT-EXACT live == offline (EGALITE, plus l'ancienne inegalite molle) : les deux passifs
+      caster-intrinseques sont portes (cf. plus bas), donc plus aucun confond a absorber.
 
 ORACLES DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : dans
 `IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour`, le nb de coups
@@ -33,17 +35,19 @@ part de `IdunBattleLogic.Entities.DSLFactory$$ConfigConst(0x2f)` et le profil de
 `gameconfig.damage_profile(<profil>).PiercingRatio`. Cle non ambigue : enum `AbilityConstantType`
 0x2f=nrOfHits(47) vs 0x16=range(22) (cf. `engine/entities/formulas.py::ConfigConst`).
 
-RESIDU DOCUMENTE (confound CASTER-INTRINSEQUE, HORS de ce port) : le seul porteur de 1139 (Sy-Gex) porte
-`HeavyGravCannon` (1291) -- `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$
-CreateEffectDamageBonusForAttack` = ForAddition(cond, ConfigVar(8=extraDmg)) et `...$$
-CreatePiercingBonusForAttack` = ForPiercing(cond, ConfigVar(0x3f=extraPierceRatio)), avec
-`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target, 5=Mechanical) |
-HasTrait(target, 0x3f5=1013 MkXGravis) | HasTrait(target, 0x40f=1039 TerminatorArmour)) -- passif NON PORTE
-(case-220 §6.17 « [opus]+prerequis »). La cible de ce test, `necroOverlord`, EST Mechanical -> la condition
-est VRAIE -> le natif ajoute un FLAT que l'offline n'a pas. D'ou : `live >= offline` (direction), pas
-l'egalite bit-exact. MESURE #101 (seed 777, armure 1909, pierce 1) : offline 3067, live 3510 -> +443 = le
-flat HeavyGravCannon (le +pierce reste INERTE : le percage natif est un PLANCHER `max(dmg-armor,
-dmg*pierce%)` et `dmg-armor` domine ici).
+PASSIF DU CASTER, DESORMAIS PORTE (l'ancien residu de ce fichier) : le seul porteur de 1139 (Sy-Gex)
+porte aussi `HeavyGravCannon` (EffectType 1291) --
+`IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$CreateEffectDamageBonusForAttack` =
+ForAddition(cond, ConfigVar(8=extraDmg)) et `...$$CreatePiercingBonusForAttack` = ForPiercing(cond,
+ConfigVar(0x3f=extraPierceRatio)), avec `...$$DamageCondition` = OwnerIsActor & IsRangedAttack &
+(HasTrait(target, 5=Mechanical) | HasTrait(target, 0x3f5=1013 MkXGravis) |
+HasTrait(target, 0x40f=1039 TerminatorArmour)). La cible de ce test, `necroOverlord`, EST Mechanical ->
+la condition est VRAIE. Le port (`entities/effects/loki/extra_damage.py::HeavyGravCannonEffect`) le rend
+maintenant DES DEUX COTES, d'ou l'assertion d'EGALITE BIT-EXACTE plus bas (elle valait `live >= offline`
+tant que le flat manquait). MESURE : avant port off 3067 / live 3510 = +443 = `extraDmg[50] x 160%` ;
+apres port off == live == 3510. Le canal PERCAGE est INERTE sur CE montage (le percage natif est un
+PLANCHER `max(0, d - armure, d x pierce%)` et `d - armure` domine face a l'armure 1909) -- il est
+confronte separement, sur une cible a armure haute, par `test_heavy_grav_cannon_live`.
 
 `HeavyWeapon_ExtraDmg` (1008, +25% ranged) N'EST PLUS un confond (#101) : son gate natif
 `!HasFlag(Moved=0) | HasFlag(Teleported=0xc)` est desormais lu des DEUX cotes sur le MEME store (le
@@ -75,7 +79,8 @@ from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import HealthComponent, StatsComponent, set_moved_flag
-from engine.runner.abilities.base import (ability_attack_params, sets_end_turn_flags_for,
+from engine.runner.abilities.base import (ability_attack_params, ability_pierce_effect_bonus,
+                                          sets_end_turn_flags_for,
                                           sets_active_ability_used_flag_for, NO_END_TURN_ABILITY_TYPES,
                                           NO_ABILITY_USED_FLAG_ABILITY_TYPES)
 from engine.runner.abilities.admec import SentinelDirectivesAbility
@@ -326,10 +331,18 @@ def test_sentinel_directives_live(live_session, rpc):
         assert cur_after == my, f"currentPlayer {cur_after} != {my} apres cast : le tour a change (1139 devrait NE PAS finir le tour)"
 
         # --- A/B : arbre == sequence directe execute_ability_attack (attack family, meme rng) ---
+        # ⚠ Le PERCAGE de la sequence directe doit inclure `BaseEffect$$PiercingBonusForAttack` (ce que
+        # la feuille `AttackWithAttackDamage` fait, cf. abilities/behaviours/combat.py) : Sy-Gex porte
+        # `HeavyGravCannon`, dont le canal percage ajoute `extraPierceRatio` contre une cible Mechanical.
+        # Sans ce terme l'A/B comparerait DEUX percages differents -- inoffensif tant que la branche
+        # armure domine (cas de cette cible), FAUX des que le tirage passe sous le seuil du plancher.
         st_ab = mkstate(); st_ab.rng = _seed_rng(s0)
+        _pb = ability_pierce_effect_bonus(st_ab, cid, tid, ABILITY, is_ranged=True)
+        _, _, pierce_eff, _ = ability_attack_params(st_ab, cid, "SentinelDirectives", prof,
+                                                    ranged=True, pierce_effect_bonus=_pb)
         direct = AttackDamageOperation.execute_ability_attack(
-            st_ab, cid, tid, bmin, bmax, pierce, hits, damage_profile=prof, is_melee=False,
-            is_attack_damage_op=True)
+            st_ab, cid, tid, bmin, bmax, pierce_eff, hits, damage_profile=prof, is_melee=False,
+            ability_type=ABILITY, is_attack_damage_op=True)
         ab_ph = (direct or {}).get("per_hit") or []
         print(f"\n[SENTDIR] config [{bmin},{bmax}] pierce={pierce} hits={hits}")
         print(f"[SENTDIR] live={live_ph} off={off_ph} A/B={ab_ph} pinned_live_src={pinned_live.get('source')}")
@@ -339,16 +352,19 @@ def test_sentinel_directives_live(live_session, rpc):
         assert off_ph == ab_ph, f"arbre {off_ph} != sequence directe execute_ability_attack {ab_ph}"
         # raw brut tire dans les bornes config (la valeur pre-reduction est le degat quand armure faible)
         assert bmin <= (atk.get("clean_max") or bmax) , "borne config incoherente"
-        # (RESIDU) le degat LIVE >= offline : le SEUL passif caster encore non porte, HeavyGravCannon
-        # (1291, actif car necroOverlord est Mechanical), n'AJOUTE que (ForAddition + ForPiercing) ->
-        # live >= offline. Egalite bit-exacte CONFONDUE par ce flat (hors port). HeavyWeapon_ExtraDmg
-        # (1008) n'est PLUS un confond : gate no-move fidele des DEUX cotes (#101, cf. en-tete).
-        assert live_ph[0] >= off_ph[0], (
-            f"live {live_ph[0]} < offline {off_ph[0]} : le passif caster HeavyGravCannon ne peut que "
-            f"RAJOUTER du degat (si live < off, c'est l'OFFLINE qui applique un bonus de trop)")
+        # (5) DEGAT BIT-EXACT live == offline. Les DEUX passifs du caster sont desormais portes :
+        # HeavyWeapon_ExtraDmg (1008) par le gate no-move lu sur le flag natif (#101) et
+        # HeavyGravCannon (1291, ACTIF ici car necroOverlord est Mechanical) par
+        # `HeavyGravCannonEffect` -- plus aucun confond caster-intrinseque, donc plus d'inegalite
+        # molle : toute divergence est un VRAI ecart de port.
+        assert live_ph == off_ph, (
+            f"live {live_ph} != offline {off_ph} : un etage du coup diverge. Suspects, dans l'ordre : "
+            f"le flat HeavyGravCannon (extraDmg[passiveLvl] x mult), son canal percage "
+            f"(extraPierceRatio, inerte tant que la branche armure domine), le gate no-move "
+            f"HeavyWeapon (caster_moved={moves > 0}), la materialisation finale du vecteur")
         print(f"[SENTDIR] OK : ported + InformWeapon + Pinned live(src {cid})==offline + turn-flow (ne finit "
-              f"pas le tour, cur={cur_after}) + A/B tree==pipeline. caster_moved={moves > 0} "
-              f"delta live-off={live_ph[0]-off_ph[0]} = HeavyGravCannon(1291) [residu, hors port]")
+              f"pas le tour, cur={cur_after}) + A/B tree==pipeline + degat BIT-EXACT "
+              f"(HeavyGravCannon 1291 porte). caster_moved={moves > 0}")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)

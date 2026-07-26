@@ -29,7 +29,8 @@ from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyE
                            BeastSlayerExtraDmgEffect, MartialKatahDmgBonusEffect,
                            CondemnorStakeExtraDmgEffect,
                            BeaconOfRageExtraDamageEffect,
-                           TerrifyingCrescendoExtraDmgEffect)
+                           TerrifyingCrescendoExtraDmgEffect,
+                           HeavyGravCannonEffect)
 from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraDmgEffect,
                                 DaughterOfTheAbyssExtraDamagePctEffect,
                                 BeaconOfRageFriendlyExtraDamageEffect,
@@ -88,6 +89,7 @@ __all__ = [
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
     "BeastSlayerExtraDmgEffect", "MartialKatahDmgBonusEffect", "CondemnorStakeExtraDmgEffect",
     "BeaconOfRageExtraDamageEffect", "TerrifyingCrescendoExtraDmgEffect",
+    "HeavyGravCannonEffect",
     # extra_damage_aura (volet AURA)
     "RitesOfBattleExtraDmgEffect", "PathOfCommandExtraDmgEffect",
     "DaughterOfTheAbyssExtraDamagePctEffect", "BeaconOfRageFriendlyExtraDamageEffect",

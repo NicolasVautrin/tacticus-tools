@@ -698,3 +698,112 @@ class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
         if not per:
             return None
         return for_addition(True, int(per) * int(crescendo))   # Multiply(ConfigVar(extraDmg), EffectLevel)
+
+
+# Traits CIBLE qualifiant `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` :
+# TROIS noeuds `DSLFactory$$HasTrait(factory, factory+0x178 = target, X)` fusionnes par
+# `IdunBattle.DSL.AbilityTrigger$$op_BitwiseOr`. `IdunBattle.Entities.Enum.UnitTrait` (dump enums
+# gqfc5mff6c) : 5 = Mechanical, 0x3f5 = 1013 MkXGravis, 0x40f = 1039 TerminatorArmour. MEME triple que
+# `GravitonRifle_ExtraPierce` (loki/votann.py) -- deux armes anti-blindage du meme moule, sets ecrits
+# separement parce que ce sont DEUX listes natives distinctes (aucune constante partagee cote natif).
+_HEAVY_GRAV_CANNON_TARGET_TRAITS = frozenset({"Mechanical", "MkXGravis", "TerminatorArmour"})
+
+
+class HeavyGravCannonEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` -- **EffectType 1291** (`HeavyGravCannon`),
+    passif `HeavyGravCannon` d'`admecDestroyer` <<Sy-Gex>> (AdeptusMechanicus, seul porteur du build).
+    DEUX canaux, UNE condition partagee.
+
+    PIEGE D'HOMONYMIE (trois ids distincts, VERIFIES au dump d'enums) :
+      * `EffectType` 1291 = `HeavyGravCannon`      <- CET effet (nom capte live) ;
+      * `TriggeredAbilityType` 1233 = `HeavyGravCannon` <- l'ABILITY dont on lit la config ;
+      * `TriggeredAbilityType` 1291 = `SelfRepairMechanism` (rien a voir).
+    `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$.ctor` =
+    `BaseEffect(AbilityOrEffect.op_Implicit(0x4d1 = 1233), 1)` -> les `ConfigVar` ci-dessous se resolvent
+    contre la config de l'ABILITY 1233, c.-a-d. `gameconfig.ability("HeavyGravCannon")`
+    (`variables` = exactement `{extraDmg, extraPierceRatio}`, `variablesAffectedByRarityBonus = [extraDmg]`).
+
+    CONDITION PARTAGEE -- `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition`
+    (MIRROR du decompile ; les DEUX canaux l'appellent, ce n'est PAS un etage distinct par canal) :
+
+        ( get_OwnerIsActor & IsRangedAttack )
+        & ( HasTrait(target, 5) | HasTrait(target, 0x3f5) | HasTrait(target, 0x40f) )
+
+    CANAL 1 -- `...$$CreateEffectDamageBonusForAttack` (MIRROR) :
+        `EffectBonus.ForAddition( DamageCondition(this),
+                                  ConfigVar(8 = extraDmg, GetAbilityState(this), config@this+0x60) )`
+      = FLAT additif sur l'attaque du porteur (canal `DamageModifiers$$Add` @+0x10, applique par coup —
+      meme canal que CondemnorStake/BeaconOfRage/SmashaEad). `extraDmg` ∈ `variablesAffectedByRarityBonus`
+      -> scale x `AbilityVariablesMultiplier` du porteur.
+
+    CANAL 2 -- `...$$CreatePiercingBonusForAttack` (MIRROR) :
+        `EffectBonus.ForPiercing( DamageCondition(this),
+                                  ConfigVar(0x3f = 63 extraPierceRatio, GetAbilityState(this), config@+0x60) )`
+      = ADDITIF au ratio de percage du coup, sommé par
+      `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`
+      (`Min(100, Max(base>0, dirPierce + extraPierce + <ces bonus> + basePiercingRatio))`) — canal port
+      `create_effect_piercing_bonus_for_attack` (slot ATTAQUANT, mirror de Hailstrike/GravitonRifle ;
+      le slot `create_piercing_bonus_for_attack` est la variante `OwnerIsTarget`, hors sujet ici).
+      `extraPierceRatio` est HORS `variablesAffectedByRarityBonus` -> le multiplier y est inerte (40 -> 60).
+
+    NIVEAU : `GetAbilityState(this)` = l'AbilityState de la SOURCE de l'effet ; ici owner == source ==
+    porteur (owner-effect d'un PASSIF), et `HeavyGravCannon` est dans `passiveAbilities` d'admecDestroyer
+    -> `self.ability_level` (= `unitConfig.passiveAbilityLevel`, ce que `EffectsState.seed` propage),
+    repli `self.level`. Niveau inconnu -> inerte (degradation fidele, jamais un `extraDmg[0]` mal indexe).
+
+    GROUND TRUTH (case-101 §3.2, seed 777 MC1_67, Sy-Gex -> necroOverlord qui EST `Mechanical`) :
+    `extraDmg[50] x 160% = round(277 x 1.6) = 443` == `live 3510 - offline 3067` EXACT. Le canal PERCAGE y
+    est INERTE (`extraPierceRatio[50] = 60` -> pierce_eff 1+60 = 61 %, mais le percage natif est un
+    PLANCHER `max(0, d - armor, d x pierce%)` et `d - armor` domine : 5419-1909 = 3510 > 5419 x 0.61) —
+    d'ou le 2e montage discriminant (cible a armure haute) qui le fait MORDRE.
+
+    GATE `IsRangedAttack` : tri-etat #106 (`is_ranged is None` = nature non threadee -> le predicat natif
+    `BattleQuery$$IsRangedAttack` est FAUX, donc pas de bonus). GATE CIBLE : `target_traits` (None = cible
+    inconnue -> pas de bonus, « present != applique »). `get_OwnerIsActor` : ce canal n'est appele QUE pour
+    l'attaque du porteur -> implicitement VRAI (== CondemnorStake/SmashaEad) ; le canal PERCAGE, lui, le
+    verifie explicitement (`owner_id == att_id`) car son agregateur boucle sur les effets du caster."""
+
+    def _damage_condition(self, is_ranged: "bool | None",
+                          target_traits: "frozenset[str] | None") -> bool:
+        """`IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` — volet evaluable
+        offline (le `get_OwnerIsActor` est verifie par l'appelant, cf. docstring de classe)."""
+        if not is_ranged_attack(is_ranged):                       # IsRangedAttack
+            return False
+        return bool(target_traits) and not _HEAVY_GRAV_CANNON_TARGET_TRAITS.isdisjoint(target_traits)
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # `ForAddition(DamageCondition, ConfigVar(8 = extraDmg))`. AUCUN gate no-move / IsNormalAttack /
+        # profil : `DamageCondition` est la SEULE condition du decompile.
+        if not self._damage_condition(is_ranged, target_traits):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        if lvl is None:
+            return None                                           # ConfigVar sans AbilityState -> inerte
+        amt = ability_var("HeavyGravCannon", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, int(amt)) if amt else None
+
+    def create_effect_piercing_bonus_for_attack(self, ctx=None) -> "int | None":
+        """`...$$CreatePiercingBonusForAttack` — bonus ADDITIF au ratio de percage du coup courant.
+        `ctx` (fourni par `piercing_bonus_from_effects`) : `{owner_id, att_id, is_ranged, target_traits,
+        owner_ctx, ...}` — `owner_id == att_id` mirror `get_OwnerIsActor`, `is_ranged`/`target_traits`
+        mirrorent le reste de `DamageCondition`. PAS de `IsOverwatchAttack` (contraste Hailstrike) ni de
+        `CurrentAbilityIs` (contraste GravitonRifle) : le decompile n'a que `DamageCondition`."""
+        c = ctx or {}
+        oid, aid = c.get("owner_id"), c.get("att_id")
+        if oid is None or aid is None or oid != aid:              # get_OwnerIsActor
+            return None
+        if not self._damage_condition(c.get("is_ranged"), c.get("target_traits")):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        if lvl is None:
+            return None
+        amt = ability_var("HeavyGravCannon", "extraPierceRatio", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)   # hors rarityBonus -> mult inerte
+        return int(amt) if amt else None
