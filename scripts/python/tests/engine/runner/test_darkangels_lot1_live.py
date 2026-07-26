@@ -37,10 +37,12 @@ RESIDUS NOMMES (mesures, non assertes) :
     `FearedInterrogator` de darkaAsmodai (live 6 coups vs 4 = `weapons[0].hits` de la config ; effets
     `FearedInterrogator_Owner`/`_Target` presents des le spawn). On asserte donc l'override et le
     ciblage, PAS le per-coup de l'attaque libre.
-  * Immunite d'effet : `BaseEffect.EntityIsImmuneToEffect` (+ surcharges) n'est pas portee ->
-    `Pinned` est pose par le port sur une cible a trait `TerminatorArmour` alors que le natif le refuse
-    (i2 « This unit cannot be Suppressed » ; MESURE #112 sur blackAbaddon). Les tests evitent donc les
-    cibles TerminatorArmour pour la branche Chaos.
+  * (RESOLU #224) Immunite d'effet : `BaseEffect.EntityIsImmuneToEffect` + `get_CanBeImmuneTo` sont
+    desormais portes (canal declaratif par classe d'effet + gate dans `AddEffectOperation.execute`) ->
+    `Pinned` n'est PLUS pose par le port sur une cible a trait `TerminatorArmour`, comme le natif
+    (i2 « This unit cannot be Suppressed » ; MESURE #112 sur blackAbaddon). Ce test-ci continue de
+    CHOISIR une cible sans le trait parce qu'il asserte la POSE de Pinned ; les deux branches du gate
+    sont couvertes par `test_effect_immunity_live.py`.
 
 ASCII-only. Dispose SES runners.
 """
@@ -339,8 +341,9 @@ def test_exemplar_live_effects_attacker_and_override(da_fresh):
     `PercentageOfAttackCappedAtMax` (`UnitStats_Attack_Override` de la cascade).
 
     Le degat de l'attaque libre n'est PAS asserte : il est confondu par le passif non porte
-    `FearedInterrogator` d'Asmodai (cf. en-tete). On evite les cibles a trait `TerminatorArmour`
-    (immunite Suppressed non portee)."""
+    `FearedInterrogator` d'Asmodai (cf. en-tete). On CHOISIT une cible sans trait `TerminatorArmour`
+    parce que ce test asserte la POSE de `Pinned` -- sur un porteur du trait, natif ET port la refusent
+    (gate d'immunite #224, les deux branches sont testees dans `test_effect_immunity_live.py`)."""
     sid, rid = da_fresh
     board, dv, ob, cs, rng = _snapshot(sid, rid)
     bv = PR.units_by_visual(dv)
@@ -358,7 +361,7 @@ def test_exemplar_live_effects_attacker_and_override(da_fresh):
         return "TerminatorArmour" in ((GC.unit(vis.get(uid)) or {}).get("traits") or [])
     cands = [t for t in legal if not has_termi(t)]
     if not cands:
-        pytest.skip("toutes les cibles legales sont TerminatorArmour (immunite Pinned non portee)")
+        pytest.skip("toutes les cibles legales sont TerminatorArmour (Pinned refuse des deux cotes, #224)")
     tgt = min(cands, key=lambda e: hexgeo.distance(pos[caster], pos[e]))
 
     st = load_state(dv, ob, cs, board=board)

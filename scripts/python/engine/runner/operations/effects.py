@@ -11,7 +11,9 @@ Chaîne native RE'd (VA citées) :
       → get_EffectsDatabase → query def par effectType            (record msg 0x3e = pre-add)
       → GATES :
           • target == 0                         → log + abandon
-          • déjà-présent (query 0x28 def↔cible) → return (pas de re-pose)
+          • **IMMUNITÉ** `def.EntityIsImmuneToEffect(target)` (IEffect slot 40, == le corps de
+            `BattleQuery$$IsUnitImmuneTo`) → `return 0` : ni entité-effet ni événement (#224).
+            L'ancienne lecture « déjà-présent » de ce gate était FAUSSE (corrigée 2026-07-26).
           • IsUnit(target) && HasFlag(target,6) → **cible MORTE** → log + abandon
             (`IdunBattle.Entities.Enum.UnitFlag` : 6 = `Dead` — l'ancienne lecture « immunité » de ce
              gate etait FAUSSE, corrigee 2026-07-25 depuis le dump d'enums du build)
@@ -31,12 +33,11 @@ Chaîne native RE'd (VA citées) :
           → record msgs 0x30 (added) / 0x3f
       → record msgs 0x47 / 0x2f (applied)
 
-⚠ PORTAGE STRUCTUREL (pas encore validé live) : le chemin NOUVEAU (effet absent → matérialisé)
-est porté fidèlement (champs/durée/registre). Détails marqués TODO car non sourçables offline pour
-l'instant : (1) l'immunité `HasFlag(target,6)` (les flags d'unité ne sont pas exposés par l'ECS) ;
-(2) le refresh de stack `UpdateExistingEffect` (règles d'empilement par EffectType) ; (3) la valeur
-exacte (param_6) qui dépend du builder du vecteur appelant. La VALIDATION live (replay-diff de
-l'effet matérialisé sur la cible) vient avec le wiring du vecteur attaque (after-hit trigger).
+⚠ PORTAGE STRUCTUREL : le chemin NOUVEAU (effet absent → matérialisé) est porté fidèlement
+(champs/durée/registre). Détails non portés : (1) le gate cible-MORTE `HasFlag(target,6)` (redondant
+en pratique, cf. le commentaire in-situ) ; (2) le refresh de stack `UpdateExistingEffect` (règles
+d'empilement par EffectType) ; (3) la valeur exacte (param_6) qui dépend du builder du vecteur
+appelant. Le gate d'IMMUNITÉ, lui, EST porté (#224, `entity_is_immune_to_effect` ci-dessous).
 """
 from __future__ import annotations
 
@@ -68,6 +69,26 @@ def default_amount_of_rounds(effect_type: int) -> Optional[int]:
 # L'AUTRE membre porté de `StaticBattleRules.Effect` — `IsTileStatusEffect` — vit dans
 # `engine/services/static_battle_rules.py` : il est consommé par `entities/` ET par `runner/`, et
 # `entities/` n'importe jamais `runner/` (cf. le commentaire d'implantation là-bas).
+
+
+def entity_is_immune_to_effect(state: State, target: int, effect_type: int,
+                               *, name: Optional[str] = None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo(unit, effectType)` — mirror 1:1 :
+
+        effectsDatabase.Get(effectType).EntityIsImmuneToEffect(unit)
+
+    C'est LA façade du gate d'immunité : elle résout l'effet-DEF (`EffectFactory.effect_def`, mirror
+    d'`EffectsDatabase.Get`) puis délègue au point d'extension DÉCLARATIF de la classe d'effet. La seule
+    part IMPÉRATIVE ici est la lecture des traits de la cible (`StatsComponent.ctx.traits`, côté runner) —
+    la logique de trait, elle, vit sur l'effet (`entities/effects/`), jamais dupliquée par appelant.
+
+    Consommateurs : `AddEffectOperation.execute` (gate de pose) et le vecteur tile-effect
+    `ContaminatedTileEffect`. Cible sans `StatsComponent` (tuile) → `[]` traits → jamais immune (mirror
+    `UnitExtensions.HasTrait` qui passe par `GetBaseUnitComponent`, null ⇒ faux)."""
+    from ...entities.effects import EffectFactory
+    from .triggers.base import _unit_trait_names
+    return EffectFactory.effect_def(int(effect_type), name).entity_is_immune_to_effect(
+        _unit_trait_names(state, int(target)))
 
 
 class AddEffectOperation:
@@ -104,6 +125,16 @@ class AddEffectOperation:
         pre_effect_added_triggers(state, source, target, int(effect_type))
         # GATE : pas de cible → abandon (Execute log "couldn't apply, no target" puis return 0).
         if target is None:
+            return None
+        # GATE d'IMMUNITÉ — `effectsDatabase.Get(effectType).EntityIsImmuneToEffect(target)` (interface
+        # `IEffect` slot 40 ; le MÊME appel qu'expose `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`).
+        # PLACEMENT = celui du natif : APRÈS le message pre-add 0x3e et le gate cible-nulle, AVANT le gate
+        # cible-MORTE et AVANT toute matérialisation. Vrai ⇒ `return 0` : aucune entité-effet, aucun
+        # événement d'ajout — et, pour un vecteur qui chaîne (`op_add`/`&`), la suite de la chaîne tombe
+        # avec (GROUND TRUTH #224 : la branche Chaos entière d'`ExemplarOfHate` est absente sur une cible
+        # `TerminatorArmour`). Le PRÉDICAT est DÉCLARATIF, porté par la classe d'effet
+        # (`BaseEffect.entity_is_immune_to_effect` + surcharges) — jamais recâblé ici.
+        if entity_is_immune_to_effect(state, target, effect_type, name=name):
             return None
         if state.effects is None:
             # Pas d'EffectsState matérialisé (snapshot sans combatSnapshot) → on ne peut pas poser
@@ -157,7 +188,9 @@ class AddEffectOperation:
                                    active_ability_level=active_ability_level)
         eff.target = target
         eff.value = value
-        # GATE : déjà-présent (query 0x28 def↔cible) — pas de re-pose d'un même type non consommé.
+        # GATE : déjà-présent — pas de re-pose d'un même type non consommé. (Le natif n'a PAS de gate
+        # « déjà présent » distinct : il passe par `UpdateExistingEffect` ; ce no-op en est l'équivalent
+        # observable, cf. ci-dessous. La query 0x28 qu'on lui attribuait est le gate d'IMMUNITÉ, #224.)
         # ⚠ Le refresh de stack `UpdateExistingEffect` (RE slice-20 Q3 : gate `IsUpdatable(type)` + match
         # effectType+SOURCE) n'est PAS porté ; ici un même-type déjà présent = simple no-op (return None) =
         # refresh-équivalent (mirror suffisant pour les effets UPDATABLE Fire/Pinned/Stunned). EXCEPTION :

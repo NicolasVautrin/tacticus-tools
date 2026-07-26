@@ -19,6 +19,7 @@ from .loki import (
     BeaconOfRageFriendlyExtraDamageEffect,
     TerrifyingCrescendoExtraDmgEffect,
     BlessingsOfKhorneModifiersEffect,
+    ContaminatedEffect,
     ContaminatedUnitEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
     VexillaMagnificaDmgReductionEffect,
@@ -410,6 +411,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
     # (#128, triggers.py). Nom capte = effect-type-names.ts:368.
     "Contaminated_Unit": ContaminatedUnitEffect,
+    # Contaminated (0x4dc=1244) : l'effet de TUILE lui-meme. Porte pour son point d'extension
+    # IMMUNITE (`ContaminatedEffect$$EntityIsImmuneToEffect` : ContagionsOfNurgle | Mechanical |
+    # base) — canal unique consulte par le gate de `AddEffectOperation` ET par le vecteur
+    # tile-effect. Nom capte = effect-type-names.ts (`EffectType.Contaminated`). #224.
+    "Contaminated": ContaminatedEffect,
     # Leagues of Votann (#113) — les TROIS stat-mods sont des `DynamicStatModifierEffect` GENERIQUES
     # (aucune classe native dediee) instancies par des lambdas de `EffectsDatabase$$InitializeEffects` :
     # magnitude = `ConfigVar(<abilityId>, EffectSource, <varKey>)`, signe = le champ `isNegative` (+0x4a4)
@@ -634,6 +640,19 @@ class EffectFactory:
         return [cls.create(c, ability_variables_multiplier, ability_level, active_ability_level)
                 for c in (captured_list or [])
                 if isinstance(c, Mapping) and c.get("name")]
+
+    @classmethod
+    def effect_def(cls, effect_type: int | None = None, name: str | None = None) -> BaseEffect:
+        """`IdunBattle.Core.Services.EffectsDatabase` slot 0 = `Get(EffectType)` — l'instance-DEF que le
+        jeu tient PAR EffectType et qu'interrogent `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`
+        et le gate d'immunité d'`IdunBattle.Operations.AddEffectOperation$$Execute`.
+
+        Le registre du port est keyé par NOM d'EffectType (c'est ce que threadent les vecteurs de pose),
+        d'où le paramètre `name` ; `effect_type` n'est porté que pour l'identité de l'instance. Nom absent
+        ou non porté → `BaseEffect` = def NEUTRE (`can_be_immune_to = False` ⇒ jamais immune), la
+        dégradation fidèle : un effet dont la classe n'est pas portée n'invente aucune immunité."""
+        klass = cls.registry.get(name, BaseEffect) if name else BaseEffect
+        return klass(name=name or "", effect_type=effect_type)
 
     @classmethod
     def register(cls, name: str, klass: type[BaseEffect]) -> None:

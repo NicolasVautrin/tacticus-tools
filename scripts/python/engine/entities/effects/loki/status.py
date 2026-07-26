@@ -11,6 +11,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
+from ...traits import UnitTrait, has_any_trait, has_trait
 
 
 class HypersensoryMinimalHealthEffect(BaseEffect):
@@ -47,6 +48,33 @@ class HypersensoryMinimalHealthEffect(BaseEffect):
             return None
         raw = int(round(int(current_hp) * pct / 100.0))
         return min(raw, int(current_hp) - 1)
+
+
+class ContaminatedEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect` (effet de TUILE 0x4dc=1244) — porté ICI pour
+    son SEUL point d'extension déclaratif : l'IMMUNITÉ.
+
+    `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$EntityIsImmuneToEffect` (mirror 1:1) :
+
+        HasTrait(entity, 0x7eb = 2027 = UnitTrait.ContagionsOfNurgle)
+          || UnitExtensions.IsMechanical(entity)
+          || base.EntityIsImmuneToEffect(entity)          # HasTrait(Immune) && CanBeImmuneTo
+
+    `get_CanBeImmuneTo` = **true** (vtable runtime, cf. `BaseEffect.can_be_immune_to`) ⇒ la 3e branche
+    mord réellement pour cet effet. `IsMechanical` est approximé par le TRAIT `Mechanical` (la propriété
+    native peut couvrir davantage — approximation pré-existante #154, conservée telle quelle).
+
+    C'est le canal unique consulté par les DEUX consommateurs : le gate générique de
+    `IdunBattle.Operations.AddEffectOperation$$Execute` (via `EffectFactory.effect_def`) ET le vecteur
+    tile-effect `ContaminatedTileEffect` (`operations/triggers/effect_triggers.py`), qui portait
+    auparavant la même liste de traits EN DUR — fork 1 nœud natif → 2 portes offline, supprimé."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> stub partagé `return 1`
+
+    def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
+        if has_any_trait(trait_names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical)):
+            return True
+        return super().entity_is_immune_to_effect(trait_names)
 
 
 class ContaminatedUnitEffect(BaseEffect):
@@ -382,8 +410,42 @@ class PinnedEffect(BaseEffect):
     profils). GROUND TRUTH : 54321 s16 u81 bloodIntercessor Pinned -> t89, natif 2192/3288 =
     off 3132/4698 × 0.700 EXACT (probe_57b_x070.py).
 
+    IMMUNITÉ « cannot be Suppressed » (#224). `get_CanBeImmuneTo` = **true** (vtable runtime) et le SEUL
+    artefact natif qui nomme le couple `TerminatorArmour` ↔ `Pinned` est
+    `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` =
+    `Not(DSLFactory.HasTrait(Self, 0x40f = 1039 = UnitTrait.TerminatorArmour))` (i2 TerminatorArmour :
+    « This unit cannot be Suppressed »). GROUND TRUTH LIVE (#224, deux abilities × deux cibles, runner
+    isolé MC1_67) : sur une cible `TerminatorArmour` la pose est **REFUSÉE** — aucun groupe `AddEffect`,
+    aucune entité-effet, et la chaîne `&` d'`ExemplarOfHate` AVORTE derrière — alors qu'elle passe sur la
+    même cible sans le trait. Ce n'est donc PAS « posé mais inactif ».
+
+    ⚠ COLLAPSE ASSUMÉ + RÉSIDU NOMMÉ : `PinnedEffect` **n'override PAS**
+    `EntityIsImmuneToEffect` côté natif (vtable runtime de la classe : le slot pointe sur le corps de
+    `BaseEffect`), et la base ne teste que `UnitTrait.Immune` — qu'AUCUNE unité du roster ne porte. Le
+    STAGE natif exact par lequel `TerminatorArmour` fait échouer l'opération n'est donc pas identifié
+    (candidat fable-solver, cf. `docs/rl/case-224-effect-immunity-gate.md` §5). Le port COLLAPSE
+    l'ActiveCondition lue dans le gate d'immunité, parce que c'est le seul câblage qui reproduit
+    l'observable MESURÉ (refus de pose) sans inventer de symbole natif.
+
     ⚠ Contribution NON portée restante (présent ≠ appliqué, §17.4) : la réduction de Movement
     (le mouvement n'est pas dans le chemin de combat/dégât porté)."""
+
+    can_be_immune_to = True                          # `get_CanBeImmuneTo` -> stub partagé `return 1`
+
+    def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
+        # COLLAPSE de `PinnedEffect$$CreateActiveCondition` (cf. docstring) — la branche générique
+        # `HasTrait(Immune) && CanBeImmuneTo` reste rendue par la base.
+        if has_trait(trait_names, UnitTrait.TerminatorArmour):
+            return True
+        return super().entity_is_immune_to_effect(trait_names)
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """`IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(
+        0x40f = TerminatorArmour))` — mirror LITTÉRAL. Utile pour un `Pinned` SEEDÉ (capté sur une unité
+        qui a acquis le trait après coup) : la voie de POSE, elle, est déjà fermée par
+        `entity_is_immune_to_effect`. `unit_state` sans clé `traits` ⇒ traits inconnus ⇒ actif (mirror du
+        `HasTrait` faux sur une entité sans composant d'unité)."""
+        return not has_trait((unit_state or {}).get("traits"), UnitTrait.TerminatorArmour)
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,

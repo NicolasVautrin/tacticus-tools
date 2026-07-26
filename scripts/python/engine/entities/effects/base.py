@@ -11,6 +11,7 @@ Méthodes d'interface (chacune = sa jumelle native) :
   • create_effect_hits_bonus_for_attack   → `EffectBonus | None`  (CreateEffectHitsBonusForAttack)
   • get_armor_penetration                 → `int | None`          (IgnoreArmor, ex. KanOpener ConfigVar 0x40)
   • is_active(unit_state)                  → bool                  (CreateActiveCondition)
+  • entity_is_immune_to_effect(traits)     → bool                  (EntityIsImmuneToEffect + get_CanBeImmuneTo)
 Cycle de vie (porté depuis les `*Ability.CreateTrigger` de pose/retrait) : `removed_after_attack`,
 `one_shot`, `expired`.
 """
@@ -463,6 +464,39 @@ class BaseEffect:
         Défaut : aucun (effet simple). Un effet COMPOSITE (ex. Stunned) override pour déclarer ses
         enfants ; `AddEffectOperation` les matérialise après le parent (en propageant le lien parent)."""
         return []
+
+    # ── immunité (gate de POSE) ─────────────────────────────────────────────────────────────────────
+    # `IdunBattle.Entities.Effects.BaseEffect$$get_CanBeImmuneTo` — VIRTUEL de `BaseEffect` (slot de
+    # vtable `get_CanBeImmuneTo`). Le corps de la BASE est le stub partagé `return 0` ⇒ **False par
+    # défaut** : la quasi-totalité des effets ne sont PAS « immunisables ». Attribut de CLASSE simple
+    # (pas d'annotation ⇒ pas de field dataclass, surchargeable par la MRO — même régime que
+    # `stacks_stat_mod_on_add`). INVENTAIRE des surcharges `return 1` (lecture de la VTABLE RUNTIME par
+    # classe, `probe_224_can_be_immune_to.py` — aucun `get_CanBeImmuneTo` n'existe dans
+    # `data/symbols/<build>/frida/methods.tsv`, les corps triviaux étant partagés et le dump keyé par
+    # RVA) : `PinnedEffect`, `ContaminatedEffect`, `FireEffect`, `IceEffect`,
+    # `BlockEnteringUnitsTileEffect`, `BlockTileMovementEffect`,
+    # `ContagionsOfNurgle_ArmorReduction_Effect` — 7 classes, et RIEN d'autre sur les 442 classes du
+    # namespace `IdunBattle.Entities.Effects.*`. Recoupé par l'i2 du trait `Immune` : « immune to
+    # special hexes and hex effects, and cannot have its Armour, hits, Movement or Range reduced ».
+    can_be_immune_to = False
+
+    def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
+        """`IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` — mirror 1:1 (octets relus) :
+
+            bool EntityIsImmuneToEffect(IEntity entity)
+                => UnitExtensions.HasTrait(entity, UnitTrait.Immune /* 0x19 = 25 */) && this.CanBeImmuneTo;
+
+        C'est le point d'extension VIRTUEL que le CONSOMMATEUR
+        `IdunBattle.Operations.AddEffectOperation$$Execute` interroge sur l'effet-DEF rendu par
+        `EffectsDatabase.Get(effectType)` (interface `IEffect` slot 40 ; MÊME appel que
+        `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`) — vrai ⇒ **la pose est ABANDONNÉE**
+        (`return 0`), avant même la création de l'entité-effet.
+
+        `trait_names` = les NOMS de traits gameconfig de la cible (`StatsComponent.ctx.traits`) ; une
+        entité SANS composant d'unité (tuile) rend `[]` ⇒ jamais immune — mirror de
+        `UnitExtensions.HasTrait` qui passe par `GetBaseUnitComponent` (null ⇒ faux)."""
+        from ..traits import UnitTrait, has_trait          # lazy : entities.traits n'importe pas effects
+        return bool(self.can_be_immune_to) and has_trait(trait_names, UnitTrait.Immune)
 
     # ── cycle de vie ────────────────────────────────────────────────────────────────────────────────
     def is_active(self, unit_state: Mapping | None = None) -> bool:

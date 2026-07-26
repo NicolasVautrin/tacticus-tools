@@ -15,7 +15,6 @@ from typing import Optional
 from ...state import State
 from ...components import OwnerComponent, StatsComponent, UnitComponent, UnitFlagsComponent
 from ....entities.stats import StatType
-from ....entities.traits import UnitTrait, has_any_trait
 from ....entities.effect_type import EffectType
 from ....dsl.event_trigger_type import EventTriggerType
 from ..damage import AttackDamageOperation
@@ -24,8 +23,9 @@ from .base import EffectTrigger, TileEffectTrigger, _unit_trait_names, _in_attac
 # --- Contaminated (tile-effect, RE #132/#128) : enter-tile + tick posent le sous-effet -X% armure --------
 CONTAMINATED_TILE = int(EffectType.Contaminated)        # 1244 — effet de TUILE (posé par attaque Toxic, OnToxicDamage).
 CONTAMINATED_UNIT = int(EffectType.Contaminated_Unit)   # 1245 — sous-effet -X% FixedArmor posé sur l'unité.
-# #158 : ex-`CONTAMINATED_IMMUNE_TRAIT = 2027` (mort depuis #154 : l'immunité gate via
-# `has_any_trait(names, (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))`) retiré. 2027 = UnitTrait.ContagionsOfNurgle.
+# #158 : ex-`CONTAMINATED_IMMUNE_TRAIT = 2027` retiré. #224 : la liste de traits elle-même a migré vers
+# la CLASSE d'effet (`ContaminatedEffect.entity_is_immune_to_effect`) — un seul nœud natif, une seule
+# porte offline (cf. `_is_immune_to_contaminated` plus bas).
 # Magnitude Contaminated_Unit (#132, RE re-expert 2026-07-14) : `ContaminatedStatModifierEffect.GetDynamicStat
 # ModificationAmount IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$GetDynamicStatModificationAmount` = `-BattleQuery.GetEffectConfig(EffectType=6)` ; `BattleQuery.GetEffectConfig
 # IdunBattle.Core.Services.BattleQuery$$GetEffectConfig` lit `BattleConfiguration.Effect[+0x28]` = **`ContaminatedArmorReductionPct`** (=30). => le sous-effet
@@ -51,14 +51,16 @@ OVERWATCH_IGNORE_ABILITY_USED = int(EffectType.IgnoreUsedAbilityInOverwatch)   #
 
 
 def _is_immune_to_contaminated(state: State, unit_id: int) -> bool:
-    """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$EntityIsImmuneToEffect` (décompilé) = `HasTrait(0x7eb=2027=
-    ContagionsOfNurgle) OR IsMechanical(unit) OR BaseEffect.EntityIsImmuneToEffect(...)`. #154 : porte les
-    DEUX premières branches — `ContagionsOfNurgle` (trait, `UnitTrait` #146) ajouté au gate, + `Mechanical`
-    (APPROXIMATION trait de la propriété native `UnitExtensions.IsMechanical` — best-effort pré-existant, la
-    propriété peut couvrir plus que le seul trait Mechanical). Non porté (sous-gate résiduel documenté) : la
-    3e branche `BaseEffect.EntityIsImmuneToEffect` (immunité générique d'effet, input offline non capté)."""
-    return has_any_trait(_unit_trait_names(state, unit_id),
-                         (UnitTrait.ContagionsOfNurgle, UnitTrait.Mechanical))
+    """`IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$EntityIsImmuneToEffect` — DÉLÉGUÉ au canal
+    DÉCLARATIF depuis #224 : la liste de traits vit sur la classe d'effet (`ContaminatedEffect`,
+    `entities/effects/loki/status.py`), plus EN DUR ici. Le nœud natif est UNIQUE (un seul virtuel
+    d'effet) ⇒ une seule porte offline : `entity_is_immune_to_effect` (mirror
+    `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`), la même que consulte le gate de
+    `IdunBattle.Operations.AddEffectOperation$$Execute`. La 3e branche (`base` = `HasTrait(Immune) &&
+    CanBeImmuneTo`) est désormais portée elle aussi."""
+    from ..effects import entity_is_immune_to_effect
+    return entity_is_immune_to_effect(state, unit_id, CONTAMINATED_TILE,
+                                      name=EffectType.Contaminated.name)
 
 
 def _ranged_auto_attack_is_active(state: State, owner_id: int) -> bool:
