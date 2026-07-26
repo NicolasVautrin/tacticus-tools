@@ -233,6 +233,22 @@ Ordre **RNG** d'un coup (chaque roll = `IPseudoRNG.NextBool(chance)` = slot #5 =
      @1810004f0 — `evasionChance = GetStat(cible, 0xf)` ; si `>0`, `NextBool` → succès = `dmg 0`.
 4. `EvaluateAfterHitTriggers` (cascade — tranche TRIGGERS).
 
+> ⚠ **PRÉCISION #131 — d'où viennent les CELLULES min/max du coup.** Le point 1 ci-dessus n'est le
+> tirage de VALEUR que pour les vecteurs dont le `HitDamage` d'entrée est NON dégénéré (ability
+> bounds-mode). Pour l'**attaque NORMALE** le `HitDamage` est dégénéré (`Min == Max`) → 0 tirage ;
+> `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` appelle ensuite le **slot 4**
+> `IdunBattle.Core.Services.DamagePrediction$$PredictAttack` (un CACHE dont le seul corps de calcul
+> est `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`) pour obtenir les cellules min/max
+> RÉDUITES, puis le **slot 8** `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`
+> = `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal(min, max + 1)` — **c'est CE tirage
+> qui est la valeur du coup**. Conséquence structurelle : le COMBAT de l'attaque normale et la
+> PRÉDICTION IA appellent LA MÊME fonction native (`PredictAttackRaw` et
+> `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` sont les DEUX SEULS appelants de
+> `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`), donc la MÊME
+> matérialisation des bornes : `FixMath.NET.Fix64$$Round(·, AwayFromZero)` (dernier étage
+> `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`), PAS `op_Explicit`.
+> Détail + mesure live per-coup : `case-131-normal-attack-bounds-materialization`.
+
 **Crit (déterministe, post-roll)** : `CalculateCriticalDamage` @18102da90 :
 `critDmgPct = max(0, GetStat(attaquant,10) + GetCritDamageBonusFromEffects)` →
 `ApplyCritDamage` @181000210 = `base + critBonus` (additif ; trait `0x1c` = exécution :

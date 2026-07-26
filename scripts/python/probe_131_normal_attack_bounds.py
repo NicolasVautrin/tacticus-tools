@@ -131,12 +131,14 @@ def legal_targets(sid, rid, unit_id, ability_id):
     return []
 
 
-def drive(sid, rid, vis, goal_id, want_dist, iters=14):
-    """Rapproche `vis` a <= want_dist de `goal_id` -- on DEPLACE les unites, on ne subit pas
-    la geometrie de spawn."""
+def drive(sid, rid, vis, goal_id, want_dist, iters=14, unit_id=None):
+    """Rapproche l'unite (`unit_id` si fourni, sinon le 1er `vis`) a <= want_dist de `goal_id` --
+    on DEPLACE les unites, on ne subit pas la geometrie de spawn. `unit_id` est OBLIGATOIRE des que
+    le meme visualId existe des deux cotes (miroir), sinon on piloterait l'unite adverse."""
     for _ in range(iters):
         d = dview(sid, rid)
-        u = find(d, vis)
+        u = (next((x for x in (d.get("units") or []) if x["id"] == unit_id), None)
+             if unit_id is not None else find(d, vis))
         g = next((x for x in (d.get("units") or []) if x["id"] == goal_id), None)
         if u is None or g is None:
             return d
@@ -431,9 +433,17 @@ def phase_plain(sid, args):
         print("[plain] ABORT : roster incomplet")
         return rid
     att_vis = args.attacker or me[0].get("visualId")
+    # L'attaquant se cherche DANS MON CAMP : `find(d, vis)` rendrait l'unite ENNEMIE quand le meme
+    # visualId est present des deux cotes (miroir) -> l'attaque partait d'une unite qui n'est pas a moi
+    # et le probe ne mesurait rien.
+    att0 = next((u for u in me if u.get("visualId") == att_vis), None)
+    if att0 is None:
+        print(f"[plain] ABORT : {att_vis} absent de MON camp")
+        return rid
+    my_team = att0.get("owner")
     tgt_id = foes[0]["id"]
-    d = drive(sid, rid, att_vis, tgt_id, args.dist)
-    att = find(d, att_vis)
+    d = drive(sid, rid, att_vis, tgt_id, args.dist, unit_id=att0["id"])
+    att = next((u for u in (d.get("units") or []) if u["id"] == att0["id"]), None)
     if att is None:
         print("[plain] ABORT : attaquant introuvable")
         return rid
@@ -450,7 +460,7 @@ def phase_plain(sid, args):
     for n in range(int(args.n)):
         dd = dview(sid, rid)
         au = next((u for u in (dd.get("units") or []) if u["id"] == att["id"]), {})
-        if not au.get("hasAction") or dd.get("currentPlayer") != att.get("owner"):
+        if not au.get("hasAction") or dd.get("currentPlayer") != my_team:
             rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
             dd = dview(sid, rid)
             au = next((u for u in (dd.get("units") or []) if u["id"] == att["id"]), {})

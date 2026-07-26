@@ -45,6 +45,24 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Les vecteurs COMBAT autres que l'attaque normale TRONQUENT encore leurs bornes réduites**
+  (`case-131-normal-attack-bounds-materialization` §5, remonté par le fix #131). Les cellules
+  min/max d'un coup viennent de `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` (slot 4
+  `…$$PredictAttack`, caché), dont le dernier étage
+  (`IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`) **arrondit**
+  (`Fix64$$Round`, AwayFromZero) dès qu'un `Nullable<DamageModifiers>` HasValue. #131 a corrigé
+  `damage_ops.execute::_reduced_bounds` (mesuré live : arrondi 6/6 puis 17/18 coups, troncature 1/6
+  puis 0/18). **Restent tronquants**, sur le MÊME chemin natif : `execute_ability_attack::_reduce`
+  quand `is_attack_damage_op=True` (famille ATTACK `DSLFactory$$AttackWithAttackDamage` ; la famille
+  ABILITY arrondit déjà depuis #90), `execute_normal_like` (splash Psyker), `additional_hits`
+  (#179/#202-B). Chacun exige son propre montage discriminant — `probe_131_normal_attack_bounds.py
+  --phase scan` énumère les régimes où floor ≠ round (28 sur 6 bases × 10 ratios : c'est fréquent).
+  Deux sous-résidus du même fork, LUS mais non mesurés : le **plancher 1** de
+  `CalculateBaseDamageWithModifiers` (`0 < v < 1 → Fix64.One`, jumeau du `MinMaxDamageFix64$$MathMax`
+  porté côté prédiction sous #170) absent du combat, et le fait que `_reduced_bounds` reste une
+  **re-implémentation partielle** de `PredictAttackRaw` (extraMax, split bouclier per-coup, cap PV,
+  trait-limits traités ailleurs) — dé-forker réellement les deux faces est un chantier à part. `[opus]`.
+
 - **La tuile d'ORIGINE est dans les candidats d'ability du port, pas dans ceux du natif** — remonté
   et CHIFFRÉ par `case-128-tile-elevation-utility` §5 (RE + live). `ABaseAiUnitTactic$$
   GenerateActionTiles` = `IBattleQuery.slot+0xe` (tuiles de MOUVEMENT, `GetMovableTilesFor` **exclut**
