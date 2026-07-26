@@ -10,6 +10,7 @@ from fractions import Fraction
 
 import hexgeo
 
+from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
                         _default_get_stat, resolve_unit, _units_of)
 
@@ -177,27 +178,6 @@ class Count(AAmountFormula):
         return len(_units_of(self.selector, ctx))
 
 
-# Deltas CUBE unitaires -> index d'arete hexagonale (`IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor`,
-# MIRROR : cle = `100*x + 10*y + z`, seules les 6 valeurs ci-dessous mappent, tout le reste rend `null`).
-_EDGE_BY_CUBE_DELTA = {
-    (0, -1, 1): 0,     # key  -9
-    (1, -1, 0): 1,     # key  90 (0x5a)
-    (1, 0, -1): 2,     # key  99
-    (0, 1, -1): 3,     # key   9
-    (-1, 1, 0): 4,     # key -90
-    (-1, 0, 1): 5,     # key -99
-}
-
-
-def _connecting_edge(src, dst):
-    """`IdunBattle.Utils.Hex.AxialCoordinate$$ConnectingEdge(a, b)` (MIRROR) : l'index d'ARETE (0..5) du
-    vecteur `b - a` en coordonnees CUBE, ou None si le delta n'est pas une direction hex UNITAIRE
-    (`CubeDirections.EdgeToNeighbor` rend `Nullable<Edge>` vide). `src`/`dst` = positions (col,row)."""
-    ax, ay, az = hexgeo.to_cube(src[0], src[1])
-    bx, by, bz = hexgeo.to_cube(dst[0], dst[1])
-    return _EDGE_BY_CUBE_DELTA.get((bx - ax, by - ay, bz - az))
-
-
 class AngleBetweenLines(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$AngleBetweenLines(a1, b1, a2, b2)` ->
     `IdunBattle.Entities.Formulas.AngleBetweenLinesFormula$$Calculate` (MIRROR 1:1) :
@@ -218,6 +198,10 @@ class AngleBetweenLines(AAmountFormula):
     donc l'angle rendu est le meme. Delta non unitaire / tuile identique -> arete 0 (mirror du
     `Position.Zero` natif).
 
+    Les deux slots vivent en mirror UNIQUE, en domaine POSITION, dans `engine.battle_query`
+    (`get_vector` / `get_angle_between_vectors`) : cette formule DSL (face COMBAT) et la feuille
+    `DarkTalonStrikePlaybook` (face DECISION, #126) en sont deux ADAPTATEURS de substrat.
+
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInBestLine`
     (`AngleBetweenLines(caster@0x160, <voisine du caster la plus proche de la cible>, target@0x178,
     subject@0x180)` = ecart entre la direction d'APPROCHE du Dark Talon et la direction du rayon)."""
@@ -231,15 +215,14 @@ class AngleBetweenLines(AAmountFormula):
         if board is None:
             return 0
 
-        def _edge(na, nb):
+        def _vec(na, nb):
             pa = _tile_positions(na, ctx, board)
             pb = _tile_positions(nb, ctx, board)
-            if not pa or not pb or pa[0] == pb[0]:
-                return 0                       # GetVector : MainTile identique -> Position.Zero
-            return _connecting_edge(pa[0], pb[0]) or 0     # delta non unitaire -> Position.Zero
-        d = abs(_edge(self.a1, self.b1) - _edge(self.a2, self.b2))
-        ang = d * 60
-        return (6 - d) * 60 if ang > 120 else ang          # EdgeExtensions.GetAngleTo
+            if not pa or not pb:
+                return 0
+            return _bq.get_vector(pa[0], pb[0])            # slot 0x70 = BattleQuery.GetVector
+        # slot 0x71 = EdgeExtensions.GetAngleTo -- mirror UNIQUE partage avec la face DECISION
+        return _bq.get_angle_between_vectors(_vec(self.a1, self.b1), _vec(self.a2, self.b2))
 
 
 # --- Accesseurs VALEUR (mirror `DSLFactory.X` -> formules natives : config / stat / compteurs). ---

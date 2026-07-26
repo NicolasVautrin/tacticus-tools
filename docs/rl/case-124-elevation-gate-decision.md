@@ -1,5 +1,9 @@
 # Case #124 — le gate d'ELEVATION manquait aux DEUX faces DECISION de la ligne hex
 
+> Ce document couvre DEUX cas de la meme geometrie de ligne hex : **#124** (le gate d'ELEVATION,
+> §1-8) et **#126** (la DIRECTION du beam DarkTalonStrike, §9). Le second etait le premier residu
+> nomme au §7 du premier.
+
 **Statut** : 2/2 items PORTES + CONFRONTES LIVE (conformite ET discriminance). Correctif 100 %
 Python (`scripts/python/**`) — aucun changement `frida/hooks`, aucun rebuild, aucun reinject.
 Build `gqfc5mff6c`. Spillover de #117 (face COMBAT, merge en `169b4b2`).
@@ -174,13 +178,7 @@ qu'aucune ligne ne voit.
 
 ## 7. Ce qui n'est PAS couvert
 
-- **DIRECTION du beam DarkTalonStrike (residu ANTERIEUR, hors perimetre)** : la feuille modelise
-  `best` par le prolongement du rayon `caster -> aim`, alors que
-  `DarkTalonStrikeAbility$$GetTilesInBestLine` le CHOISIT parmi les 6 `AdjacentTiles(target@0x178)`
-  via `SortByFormula(AngleBetweenLines, ASC)` puis `SortByFormula(Count(Units(GetTilesInLine)),
-  DESC)` + `First(1)` (tris STABLES -> cle primaire = #ennemis alignes). Le port est donc une
-  **BORNE INFERIEURE** de l'utilite native quand une autre direction aligne davantage d'ennemis.
-  Deja flagge avant #124 ; #124 ne l'aggrave ni ne le corrige.
+- ~~**DIRECTION du beam DarkTalonStrike**~~ -> **RESOLU par #126, section 9 ci-dessous.**
 - **AIM depuis l'ORIGINE uniquement** pour 1092 (`fromHere`) : le natif balaie aussi les tuiles de
   MOVE. Residu anterieur, inchange.
 - **Arbitrage Comparable 1197 vs attaque normale** : mesure C4_02 (etat ou le natif CASTE 1197
@@ -218,3 +216,178 @@ qu'aucune ligne ne voit.
 que leurs ids d'enum ; `RadBombardment` est meme dans `_NO_DAMAGE_ABILITIES`). Il n'y a donc pas de
 troisieme consommateur a corriger — mais toute future tranche qui porte l'un d'eux doit lire ses
 settings au call-site et passer par `engine.battle_query.get_tiles_behind`.
+
+---
+
+# Case #126 — la DIRECTION du beam DarkTalonStrike : le port DEDUISAIT, le natif CHOISIT
+
+**Statut** : 1/1 item PORTE + CONFRONTE LIVE (conformite ET discriminance, sur DEUX boards) +
+mutation-test. Correctif 100 % Python (`scripts/python/**`) — aucun changement `frida/hooks`, aucun
+rebuild, aucun reinject. Build `gqfc5mff6c`. Residu nomme au §7 ci-dessus, ANTERIEUR a #124.
+
+| item | ability | feuille DECISION | verdict |
+|---|---|---|---|
+| (c) | `DarkTalonStrike` 1092 (`darkaAzrael`, HERO) | `engine/playbook/noncomparable/dark_talon_strike.py::_best_line_direction` | **QUIRK PORTE + VALIDE LIVE** |
+
+Code : `engine/battle_query.py` (`connecting_edge`, `get_vector`, `get_angle_between_vectors`,
+`get_adjacent_tiles`) · `engine/entities/formulas.py` (`AngleBetweenLines` -> adaptateur) ·
+`engine/playbook/noncomparable/dark_talon_strike.py` (`_best_line_direction`, `_line_enemy_count`,
+`_beam_count`). Tests : `tests/engine/test_dark_talon_beam_direction_decision_live.py` (LIVE) +
+`tests/engine/entities/test_beam_best_line_direction_offline.py` (structure du tri, invisible du
+live). Probe : `scripts/python/probe_126_dark_talon_beam_direction.py`.
+
+## 9.1. La question, et la reponse
+
+> Sur un etat ou plusieurs directions de beam sont possibles depuis la cible, la face DECISION
+> offline choisit-elle la MEME tuile que le natif ?
+
+**Avant #126 : NON.** `_beam_count` modelisait `best` par le prolongement `caster -> aim`. Le port
+etait donc une **BORNE INFERIEURE** — il ne pouvait que SOUS-estimer le nombre d'ennemis alignes,
+donc **rater des casts que le natif fait**. Mesure : sur le scenario du §9.4, natif `1092` vs port
+`69` (attaque normale).
+
+**Apres #126 : OUI** — natif et port rendent `1092` sur la MEME entite-tuile, sur deux boards.
+
+## 9.2. L'arbre natif, lu au decompile
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInBestLine` (slots
+`InitializeShared` : `0x148 Owner · 0x160 Caster · 0x178 Target · 0x180 ActiveTarget`) :
+
+    ring    = AdjacentTiles(target@0x178)
+    nearest = First( SortByDistance(AdjacentTiles(caster@0x160), target@0x178), 1 )
+    angle   = AngleBetweenLines(caster@0x160, nearest, target@0x178, subject@0x180)
+    count   = Count( Units( GetTilesInLine(subject@0x180) ) )
+    best    = First( SortByFormula( SortByFormula(ring, angle, ASC), count, DESC ), 1 )
+    return    target@0x178  op_Addition  GetTilesInLine(best)
+
+Trois lectures qui ne se devinent pas :
+
+1. **Le SENS des tris.** `IdunBattleLogic.Entities.DSLFactory$$SortByFormula(sel, formula, flag)` ->
+   `IdunBattle.Entities.Selectors.SortByFormulaSelector$$.ctor(this, inner@0x18, formula@0x20,
+   shared, flag@0x28)`, et `$$Select` teste `if (this+0x28 == 0) OrderByDescending else OrderBy`.
+   Au call-site : `SortByFormula(ring, angle, 1)` = **ASCENDANT**, puis
+   `SortByFormula(..., count, 0)` = **DESCENDANT**. `Enumerable.OrderBy`/`OrderByDescending` sont
+   STABLES -> le tri applique EN DERNIER domine : **cle primaire = le compte**, tie-break = l'angle,
+   puis l'ordre de `ring`.
+2. **La formule d'angle est EXACTE et entiere.**
+   `IdunBattle.Entities.Formulas.AngleBetweenLinesFormula$$Calculate` evalue ses 4 selecteurs
+   (`+0x10 = caster`, `+0x18 = nearest`, `+0x20 = target`, `+0x28 = subject`) puis appelle deux
+   slots du service : `0x70 = IdunBattle.Core.Services.BattleQuery$$GetVector` sur chaque paire,
+   `0x71 = BattleQuery$$GetAngleBetweenVectors` sur les deux vecteurs.
+   - `GetVector(a, b)` : `MainTile(a) == MainTile(b)` -> vecteur par defaut ; sinon
+     `IdunBattle.Utils.Hex.AxialCoordinate$$ConnectingEdge` -> `IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor(diff)`,
+     qui hache le delta cube en `100*x + 10*y + z` et ne mappe QUE 6 valeurs
+     (`-9 -> 0 · 90 -> 1 · 99 -> 2 · 9 -> 3 · -90 -> 4 · -99 -> 5`) — tout autre delta rend un
+     `Nullable<Edge>` VIDE, donc le vecteur par defaut (arete 0).
+   - `GetAngleBetweenVectors` EST `IdunBattle.Utils.Hex.EdgeExtensions$$GetAngleTo(e1, e2)` :
+     `d = |e1-e2| ; a = d*60 ; if (a > 120) a = (6-d)*60` -> **0/60/120/180/120/60**.
+   Consequence : `nearest` etant la voisine du caster la plus proche de la cible, l'angle **0** est
+   exactement le PROLONGEMENT `caster -> aim`. Le prolongement n'etait donc pas faux, il etait le
+   **tie-break** promu a tort en regle.
+3. **`ring` n'est PAS le ring-1 geometrique.**
+   `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` appelle le slot `0x4f` avec
+   `(entity, 0, 1, 1)` = `BattleQuery$$GetAdjacentTiles(from, onlyEmptyOrSteppable=false,
+   onlyWalkableTiles=true, allowTemporary=true)`, qui delegue a
+   `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : celui-ci
+   filtre les non-walkables **et** applique la porte `|elev(src) - elev(voisin)| < 2`,
+   **INCONDITIONNELLE** (elle ne depend d'aucun des trois flags). C'est la MEME porte que le
+   mouvement et que `IsTileValidForList` — un palier a +2 est hors du beam comme il est hors du pas.
+
+## 9.3. Le correctif : trois slots de plus dans le mirror unique
+
+Meme regle qu'au §3 : **1 fonction native = 1 foyer offline**. Les briques manquaient en domaine
+POSITION, elles rejoignent `engine/battle_query.py` :
+
+| ajout | natif |
+|---|---|
+| `connecting_edge(src, dst)` | `AxialCoordinate$$ConnectingEdge` + `CubeDirections$$EdgeToNeighbor` |
+| `get_vector(a, b)` | `BattleQuery$$GetVector` (slot 0x70) |
+| `get_angle_between_vectors(v1, v2)` | `BattleQuery$$GetAngleBetweenVectors` (slot 0x71) = `EdgeExtensions$$GetAngleTo` |
+| `get_adjacent_tiles(pos, ...)` | `BattleQuery$$GetAdjacentTiles` (slot 0x4f) -> `TileQuery.<IterateAdjacentTiles>d__8` |
+
+`get_adjacent_tiles` ne mirrore QUE la combinaison de flags LUE au call-site et **leve** sur les
+autres (pas de substrat offline pour `IsTemporary`/`IsEmptyOrSteppable`) : mentir par defaut aurait
+cree un faux mirror generique. Les deux faces deviennent des ADAPTATEURS :
+
+| consommateur | face | substrat |
+|---|---|---|
+| `engine/entities/formulas.py::AngleBetweenLines` | COMBAT (noeud DSL) | selecteurs -> `_tile_positions` |
+| `engine/playbook/.../dark_talon_strike.py::_best_line_direction` | DECISION | `ctx.walkable_by_pos` / `ctx.elev_by_pos` |
+
+La face COMBAT portait DEJA l'arbre complet en DSL
+(`engine/runner/abilities/darkangels.py::dark_talon_get_tiles_in_best_line`) : #126 ne la change pas
+(doctrine #149 — natif DSL reste DSL), il lui retire seulement sa copie locale de la table d'aretes.
+La feuille de DECISION, elle, ne peut pas evaluer un arbre DSL (substrat `decisionView`) : elle
+mirrore la STRUCTURE du tri, deux `list.sort` successifs (stables, comme `OrderBy`).
+
+Degradation SURE : carte absente -> `get_adjacent_tiles` rend les 6 voisins geometriques et le gate
+d'elevation est inerte (borne SUPERIEURE), l'argmax reste actif.
+
+## 9.4. Confrontation LIVE — conformite ET discriminance
+
+Oracle = l'IA NATIVE sur le MEME etat (`aiDryRunAllUnits` -> `CalculateNextActionForUnit`), jamais
+`aiPredict`. Trois mesures sur l'etat identique : natif · moteur ARGMAX (post-#126) · moteur
+PROLONGEMENT (feuille remise a la geometrie pre-#126).
+
+Scenario DERIVE du board (aucune tuile hardcodee) : **coude a 60 deg**. Caster `P`, chaine
+d'ennemis `E1 = P + d1`, `E2 = E1 + d2`, `E3 = E1 + 2*d2` avec `d2` a une arete de `d1`
+=> `dist(P, E3) = 3`, **hors de la portee de cast** (mesure : `abilityTargets` ne rend qu'UN aim
+`fromHere`, `E1`) — donc **pas de tie** entre les deux bouts de la chaine. Toutes les tuiles au MEME
+palier (le gate #124 reste inerte : on n'exerce QUE la direction) et le prolongement `E1 + d1`
+existe, walkable et VIDE.
+
+| | ability | cible (entite-tuile) |
+|---|---|---|
+| natif | **1092** | 27 |
+| moteur ARGMAX | **1092** | 27 |
+| moteur PROLONGEMENT | **69** (attaque normale) | 79 |
+
+Mecanique : le prolongement `P -> E1` ne touche personne -> `util(E1) = 1` (la tuile visee seule)
+< `MIN_UTILITY` (2, du `DarkTalonStrikePlaybook$$.cctor`) -> **aucun** candidat NonComparable ->
+fallback Comparable. L'argmax retient la direction `E1 -> E2` (2 ennemis alignes) ->
+`util(E1) = 1 + 2 = 3` -> cast, comme le natif.
+
+**Generalisation (2e couple board/seed)** : `C1_25` / seed 777 — `P=(1,3) E1=(2,2) E2=(3,3)
+E3=(4,3)`, natif `1092`/28, argmax `1092`/28, prolongement `69`/49. Meme verdict.
+(1er couple : `MC1_67` / seed 41171 — `P=(0,5) E1=(1,6) E2=(2,5) E3=(3,5)`.)
+
+**Mutation-test (l'argmax est PORTANT)** : `_best_line_direction` remis au prolongement EN
+PRODUCTION -> le test ECHOUE (`util(argmax, aim E1)=1`, moteur `69` vs natif `1092`). Revert ->
+vert. Le test est donc incapable de passer sur un port qui DEDUIT la direction.
+
+## 9.5. Ce que le LIVE ne peut PAS distinguer (et le test offline qui le garde)
+
+La face DECISION n'observe du beam que son UTILITE : a comptes EGAUX, deux directions donnent la
+MEME utilite, donc la MEME action. **Le tri par angle et l'ordre de `ring` sont invisibles d'un
+agreement live** — ils ne changent que la ligne effectivement frappee, cote COMBAT.
+`tests/engine/entities/test_beam_best_line_direction_offline.py` garde donc, hors live :
+`GetAngleTo` (0/60/120/180/120/60), le ring gate (walkabilite + `|Delta elev| < 2` + bord de
+plateau), la hierarchie count-DESC > angle-ASC, et la troncature d'elevation SOUS l'argmax.
+
+## 9.6. Ce qui n'est PAS couvert par #126
+
+- **Interaction gate x argmax en LIVE** : chaque face est gardee separement (le gate par
+  `test_line_elevation_gate_decision_live`, l'argmax par `test_dark_talon_beam_direction_...`).
+  Un etat ou la marche fait BASCULER le choix de direction (direction riche bloquee, direction
+  pauvre retenue) n'est pas confronte au natif — il l'est offline (§9.5, dernier test).
+- **Ordre d'enumeration de `ring`** : le natif suit `tile.Neighbours` (liste pre-calculee du
+  composant tuile), le port suit `hexgeo.neighbors`. Tie-break de DERNIER recours entre directions
+  d'utilite EGALE -> inerte pour la decision ; il deviendrait observable si la face COMBAT
+  consommait ce foyer (elle a son propre arbre DSL, ordonne par ses propres selecteurs).
+- **AIM depuis l'ORIGINE uniquement** (`fromHere`) : residu ANTERIEUR, inchange (cf. §7).
+- **`ThriceBlessedConflagrationPlaybook` (1187) : le MEME motif d'argmax, face DECISION NON PORTEE.**
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInBestLine`
+  a la meme forme — `best = First(SortByFormula(ring, Count(GetTilesInLine(subject)), DESC), 1)` —
+  avec DEUX differences lues au decompile : (a) **pas de tri par angle** (un seul `SortByFormula`,
+  donc le tie-break est directement l'ordre de `ring`) ; (b) `ring = SurroundingTiles(target@0x178,
+  includeCenter=0, radius=1, ...)`, PAS `AdjacentTiles` — donc `IsTileValidForList(tile, src, 1, 0)`
+  (walkable, SANS test d'elevation) au lieu de la porte `|Delta elev| < 2`. Sa face COMBAT est
+  portee et fidele (`engine/runner/abilities/sisterhood.py::thrice_blessed_get_tiles_in_best_line`).
+  Sa face DECISION `IdunBattle.AI.Playbook.Loki.ThriceBlessedConflagrationPlaybook$$EvaluateNonComparable`
+  existe nativement mais n'a **aucun port offline** (`engine/playbook/` ne la connait pas) : ce n'est
+  donc pas une direction FAUSSE a corriger, c'est une feuille NonComparable ABSENTE. **Candidat de
+  suite**, hors perimetre #126.
+- **`ExcruciatingFrequencies` (1197) : pas de motif d'argmax** (verifie au decompile).
+  `ExcruciatingFrequenciesAbility$$GetAffectedTiles` = `SortReverse(TilesBehindInLine(
+  CasterTile@0x168, TargetTiles@0x190, settings{0x101}, Direct(nrOfTiles)))` — la direction est
+  DONNEE par l'aim, il n'y a rien a choisir. Sa feuille `_line_tiles` reste correcte.

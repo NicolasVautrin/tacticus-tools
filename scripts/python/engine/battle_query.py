@@ -216,6 +216,108 @@ def tiles_behind_accessors(walkable_by_pos: dict | None, elev_by_pos: dict | Non
     return walkable_at, elevation_at, tile_exists
 
 
+# Deltas CUBE unitaires -> index d'ARETE hexagonale. MIRROR de
+# `IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor(diff)` : cle `100*x + 10*y + z` (le natif
+# calcule `z + (y + x*10)*10`), SEULES ces 6 valeurs mappent -- tout autre delta rend un
+# `Nullable<Edge>` VIDE. L'ordre 0..5 tourne d'un cran de 60 deg a chaque increment, ce qui rend
+# `|e1 - e2|` interpretable comme un ecart angulaire (cf. `get_angle_between_vectors`).
+_EDGE_BY_CUBE_DELTA = {
+    (0, -1, 1): 0,     # cle  -9
+    (1, -1, 0): 1,     # cle  90
+    (1, 0, -1): 2,     # cle  99
+    (0, 1, -1): 3,     # cle   9
+    (-1, 1, 0): 4,     # cle -90
+    (-1, 0, 1): 5,     # cle -99
+}
+
+
+def connecting_edge(src: tuple, dst: tuple) -> int | None:
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$ConnectingEdge(a, b)` (MIRROR) : l'index d'ARETE (0..5)
+    du vecteur `b - a` en coordonnees CUBE, `None` si le delta n'est pas une direction hex UNITAIRE
+    (le natif convertit les deux offsets en cube puis delegue a `CubeDirections$$EdgeToNeighbor`, qui
+    rend un `Nullable<Edge>` vide hors des 6 deltas)."""
+    ax, ay, az = hexgeo.to_cube(src[0], src[1])
+    bx, by, bz = hexgeo.to_cube(dst[0], dst[1])
+    return _EDGE_BY_CUBE_DELTA.get((bx - ax, by - ay, bz - az))
+
+
+def get_vector(a: tuple | None, b: tuple | None) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetVector(a, b)` en domaine POSITION (slot 0x70) :
+
+        tileA = GetMainTile(a) ; tileB = GetMainTile(b)
+        if (tileA == tileB)                    return <static IdunVector par defaut>
+        edge = AxialCoordinate.ConnectingEdge(coord(tileA), coord(tileB))
+        return edge.HasValue ? new Position(edge.Value, 1) : <static IdunVector par defaut>
+
+    Le natif rend un `IdunVector` ; seule son ARETE est consommee (par
+    `GetAngleBetweenVectors`), donc le port rend directement l'index 0..5. Tuiles identiques ou
+    delta non unitaire -> le vecteur statique par defaut, d'arete 0."""
+    if a is None or b is None or (a[0], a[1]) == (b[0], b[1]):
+        return 0
+    e = connecting_edge(a, b)
+    return 0 if e is None else e
+
+
+def get_angle_between_vectors(v1: int, v2: int) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAngleBetweenVectors(vectorA, vectorB)` (slot 0x71),
+    dont le corps EST `IdunBattle.Utils.Hex.EdgeExtensions$$GetAngleTo(edge, edge2)` (MIRROR EXACT) :
+
+        d = |e1 - e2| ; a = d * 60 ; if (a > 120) a = (6 - d) * 60 ; return a
+
+    -> 0 / 60 / 120 / 180 / 120 / 60 pour d = 0..5 : l'ecart angulaire MINIMAL entre deux directions
+    hex, en degres. Invariant par rotation ET par reflexion de la numerotation des aretes, donc
+    insensible a la convention de cube du port."""
+    d = abs(v1 - v2)
+    a = d * 60
+    return (6 - d) * 60 if a > 120 else a
+
+
+def get_adjacent_tiles(pos: tuple, walkable_at=None, elevation_at=None, tile_exists=None,
+                       only_empty_or_steppable: bool = False, only_walkable_tiles: bool = True,
+                       allow_temporary: bool = True) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(from, onlyEmptyOrSteppable,
+    onlyWalkableTiles, allowTemporary)` (slot 0x4f) en domaine POSITION. Le corps delegue a
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` :
+
+        foreach (neighbour in tile.Neighbours)            # liste PRE-CALCULEE du composant tuile
+            if (tile == null)                                             continue
+            if (!allowTemporary   && TileExtensions.IsTemporary(tile))    continue
+            if (onlyWalkableTiles && !TileExtensions.IsWalkable(tile, 1)) continue
+            if (onlyEmptyOrSteppable && !IsEmptyOrSteppable(tile, ...))   continue
+            if (|elev(src) - elev(tile)| < 2) yield tile                  # PORTE D'ELEVATION
+
+    La porte `|Delta elev| < 2` est INCONDITIONNELLE (elle ne depend d'aucun flag) : le ring-1 natif
+    n'est PAS le ring-1 geometrique des que le relief bouge. Meme porte que le mouvement et que
+    `is_tile_valid_for_list` -- un palier a +2 est inaccessible A PIED comme A LA LIGNE.
+
+    Flags PORTES = ceux LUS a l'unique call-site porte (`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`
+    appelle le slot avec `(entity, 0, 1, 1)`, cf. `IdunBattleLogic.Entities.DSLFactory$$AdjacentTiles`) :
+    `onlyEmptyOrSteppable=False` (les tuiles OCCUPEES passent -- indispensable, on vise des ennemis),
+    `onlyWalkableTiles=True`, `allowTemporary=True`. Les deux autres combinaisons ne sont PAS portees
+    (pas de substrat offline pour `IsTemporary`/`IsEmptyOrSteppable`) et leve plutot que de mentir.
+
+    ORDRE : le natif suit `tile.Neighbours` (liste pre-calculee du board) ; le port suit
+    `hexgeo.neighbors`. Les deux ordres peuvent differer -- RESIDU INERTE pour les consommateurs
+    portes, ou l'ordre n'est qu'un tie-break de dernier recours entre directions D'UTILITE EGALE."""
+    if only_empty_or_steppable or not only_walkable_tiles or not allow_temporary:
+        raise NotImplementedError(
+            "get_adjacent_tiles: seule la combinaison du call-site porte "
+            "(onlyEmptyOrSteppable=False, onlyWalkableTiles=True, allowTemporary=True) est mirroree")
+    src_e = elevation_at(pos) if elevation_at is not None else None
+    out = []
+    for n in hexgeo.neighbors(pos[0], pos[1]):
+        if tile_exists is not None and not tile_exists(n):
+            continue                       # `GetTileEntityById == null` / hors board
+        if walkable_at is not None and not walkable_at(n):
+            continue                       # `onlyWalkableTiles` -> TileExtensions.IsWalkable
+        if src_e is not None and elevation_at is not None:
+            ne = elevation_at(n)
+            if ne is not None and abs(src_e - ne) >= 2:
+                continue                   # porte d'elevation INCONDITIONNELLE de l'iterateur
+        out.append(n)
+    return out
+
+
 def surrounding_enemies(origin: tuple, positions: list,
                         elev_by_pos: dict | None = None) -> set:
     """`Unobscured(DSLFactory.SurroundingEnemies(Caster, r=2))` — le terme « surrounding » de
