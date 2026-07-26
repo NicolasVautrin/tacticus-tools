@@ -274,6 +274,19 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    process pytest/probe et parle au runner par RPC. Seul `frida/hooks/*` vit dans Frida.
 6. **Le worktree part de `origin/master`** — ni de la branche courante, ni des changements non
    commités. Pour qu'un agent voie du travail en cours : le commiter et le POUSSER d'abord.
+7. **Un agent mis en pause avec un worktree PROPRE le PERD** — il est auto-supprimé (règle
+   « auto-cleaned if unchanged »), et la reprise par `SendMessage` le fait repartir dans
+   l'**arbre principal**, silencieusement : l'invariant 1 saute et l'agent édite `master`.
+   Cause racine : une pause est rapportée `completed` — le harnais ne distingue pas « fini,
+   rien à garder » de « en pause, n'a PAS ENCORE écrit ». Vise donc le profil « RE d'abord,
+   édition ensuite » (un `re-expert`/`opus-solver` qui lit du décompilé 20 min avant sa
+   première édition). **Parade, mesurée le 2026-07-26 : faire écrire l'agent TÔT** — une
+   édition réelle, ou à défaut un fichier jetable `git add`-é. Un worktree SALE survit
+   intégralement à la pause (cwd, index, branche, `master` non contaminé). À défaut, avant
+   toute reprise d'un agent qui va écrire : lui faire vérifier `pwd` +
+   `git rev-parse --show-toplevel`, et relancer un agent frais s'il n'y est plus.
+   NB : dans `git worktree list`, `locked` = agent EN COURS d'exécution, **pas** « worktree
+   conservé » — un agent arrêté mais sale apparaît `unlocked` et bien présent.
 
 Le reste de la conduite de campagne (pipeline de dispatch, routage opus/fable, workflow de
 livraison par PR, reprise d'un agent par `SendMessage`, exploitation de la plateforme,
