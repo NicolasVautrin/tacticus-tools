@@ -21,10 +21,14 @@ RE (decompile ghidra, build `gqfc5mff6c`) — relue integralement, pas reprise d
          `return this@0x30.<slot 4>(chance)`            # TIRAGE de chance
 
   `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook$$IsFriendlyKell(u, caster)` :
-      `pc = u.GetComponent<ParentComponent>()`
-      `return pc.<+0x10> == EntityId(caster) && UnitExtensions.IsFriend(u, caster)`
+      `c = u.GetComponent<ChildComponent>()`
+      `return c.ParentId<+0x10> == EntityId(caster) && UnitExtensions.IsFriend(u, caster)`
       => « u est un ENFANT du caster ET son allie » (le selecteur amont inclut `AllDeadUnits()` :
-      un Kell MORT satisfait encore le gate).
+      un Kell MORT satisfait encore le gate). #119 : le composant lu est `ChildComponent`
+      (`ParentId`, BEntityId @+0x10 — offset CONFIRME live par `dumpEntityComponents` sur Kell),
+      PAS `ParentComponent` (qui porte `ChildrenIds`, une `List` @+0x10 : la lire comme un int
+      n'aurait aucun sens). Les DEUX composants sont presents sur toute unite (Creed compris),
+      d'ou l'absence de branche null dans le natif.
 
   `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook$$EvaluateNonComparable(entities, position)` :
       `bucket  = new Bucket(0, Nullable(MIN_UTILITY = 1))`
@@ -32,18 +36,29 @@ RE (decompile ghidra, build `gqfc5mff6c`) — relue integralement, pas reprise d
       `foreach t in targets: bucket.AddAction(GenerateAction(position, t, Fix64(3/2)))`
       => utilite **PLATE 3/2 = 1.5** par cible (aucun terme de scoring), admise car `1.5 >= 1.0`.
 
-GAP ASSUME (meme classe et meme traitement que `BlackRagePlaybook`, dont le natif tire 0.4) : le
-TIRAGE de chance de l'etage (3) n'est pas reproduit — le port rend `True` des que les gates
-DETERMINISTES (1) et (2) passent. Consequence : offline le playbook propose 1028 la ou le natif peut
-le sauter. La formule exacte est citee ci-dessus ; `FillUpStatComponent.RemainingPercentage` (jauge de
-« fill-up ») n'est de toute facon pas materialise offline. A pleine jauge la chance vaut 1 (100 %) et
-le port est EXACT ; a jauge vide elle vaut 1/2.
+ETAGE (3) — le TIRAGE, et pourquoi le port est EXACT a PV PLEINS (#119, RE relue) :
+`FillUpStatComponent.RemainingPercentage` = `Max(0, remaining@+0x18 / get_CurrentMaximumValue())`.
+Le composant interroge est celui du stat **5 = Health** : `ShouldEvaluate` fait le MEME
+`GetComponent` que la branche `param_2 == 5` de `IdunBattle.Entities.UnitExtensions$$GetFillUpStatComponent`
+(meme classe generique, meme static de type). Ce n'est donc PAS une « jauge de fill-up » abstraite
+non materialisee offline : c'est le **ratio de PV du CASTER**.
+
+  `chance = Fix64(1/2) + hp(caster)/hpMax(caster) / 2`   ->   PV PLEINS => chance = 1
+
+Le tirage est `IRandom.Chance(chance)` (meme slot que `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate`,
+champ `this@+0x30`, interface slot 4). A chance = 1 il passe TOUJOURS — CONFIRME LIVE (#119) :
+20/20 tirages `CalculateNextActionForUnit` d'affilee sur le meme etat rendent le cast 1028.
+=> a PV PLEINS le port (qui rend True des que (1) et (2) passent) est EXACT.
+GAP ASSUME, borne et mesure : sous les PV pleins le port SUR-PREDIT (il propose 1028 la ou le natif
+peut sauter, avec une probabilite d'abstention `(1 - hp%)/2`, donc au pire 1/2 a l'agonie). Meme
+classe de gap que `BlackRagePlaybook` (`GetUseProbability` = 0.4) — moteur deterministe, pas de RNG
+d'IA porte.
 """
 from __future__ import annotations
 
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook
+from ._base import NCContext, NonComparablePlaybook, _kit_spawn_visual_ids
 from .hammer_of_wrath import _enemy_killed_by_normal_attack
 
 # `Fix64.FromIntFraction(3, 2)` de `EvaluateNonComparable` : utilite PLATE par cible.
@@ -67,24 +82,42 @@ class SupremeCommanderPlaybook(NonComparablePlaybook):
         return self._has_friendly_kell(ctx)                # (2) Any(IsFriendlyKell)
 
     def _has_friendly_kell(self, ctx: NCContext) -> bool:
-        """`Any(u => IsFriendlyKell(u, caster))` sur `baseSelector + AllDeadUnits()`.
+        """`Any(u => IsFriendlyKell(u, caster))` sur `baseSelector@+0x80 + AllDeadUnits()`.
 
-        Port : un enfant du caster, de la MEME equipe, VIVANT OU MORT. La source des morts est
-        `ctx.obs_units` (`decisionView` garde les depouilles, cf. `project_decisionview_keeps_dead`) ;
-        le lien parent vient de `parentId` (pose au spawn). Aucune de ces deux seams -> False
-        (degradation fidele : sans lien parent le natif rendrait False aussi)."""
+        Le selecteur amont est l'union « toutes les unites VIVANTES » (`DSLFactory@+0x80`, pose par
+        `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`) et « toutes les MORTES »
+        (`IdunBattleLogic.Entities.DSLFactory$$AllDeadUnits`) = TOUTES les unites, les deux camps :
+        c'est `IsFriend` qui filtre l'equipe, pas le selecteur. D'ou le pool = `ctx.units` (dv, qui
+        garde les depouilles — `project_decisionview_keeps_dead`) + `ctx.obs_units` (observeBattle,
+        qui porte `isDead`), SANS filtre de vie : un Kell MORT satisfait encore le gate.
+
+        `c.ParentId == EntityId(caster)` est MIRRORE OFFLINE par `_kit_spawn_visual_ids` (le lien
+        natif `ChildComponent.ParentId` n'est publie par aucun RPC — cf. sa docstring pour la
+        derivation, son domaine d'exactitude et le residu). `IsFriend(u, caster)` = meme equipe.
+        Le caster est exclu de son propre pool d'enfants (une unite n'est jamais son propre parent).
+
+        AVANT #119 ce predicat lisait `u["parentId"]`, ABSENT de toute reponse RPC -> il rendait
+        False EN PERMANENCE : `should_evaluate` etait constant False et le playbook, quoique
+        enregistre, ne proposait JAMAIS 1028. Desaccord MESURE avec l'IA native (le natif caste,
+        le port attaque)."""
         me = None
         for u in (ctx.units or []):
             if u.get("id") == ctx.uid:
                 me = u
                 break
-        my_team = me.get("team") if me else None
-        pool = list(ctx.units or []) + list(ctx.obs_units or [])
-        for u in pool:
-            if u.get("parentId") != ctx.uid:               # pc.<+0x10> == EntityId(caster)
+        if me is None:
+            return False
+        kids = _kit_spawn_visual_ids(me.get("visualId"))
+        if not kids:
+            return False
+        my_team = me.get("team")
+        for u in (list(ctx.units or []) + list(ctx.obs_units or [])):
+            if u.get("visualId") not in kids:              # c.ParentId == EntityId(caster)
                 continue
-            team = u.get("team", u.get("teamId"))
-            if my_team is None or team == my_team:         # UnitExtensions.IsFriend(u, caster)
+            if u.get("id") == ctx.uid or u.get("squadId") == ctx.uid:
+                continue                                   # pas son propre enfant
+            team = u.get("team") if u.get("team") is not None else u.get("teamId")
+            if my_team is None or team is None or team == my_team:   # IsFriend(u, caster)
                 return True
         return False
 

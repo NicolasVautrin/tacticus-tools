@@ -36,6 +36,72 @@ def _traits(visual_id) -> list:
     return _unit_cfg(visual_id).get("traits") or []
 
 
+_KIT_SPAWN_CACHE: dict = {}
+_ALL_UNIT_IDS: set | None = None
+
+
+def _all_unit_ids() -> set:
+    """Tous les ids d'unite connus de gameconfig (lineup + npc + summons), caches."""
+    global _ALL_UNIT_IDS
+    if _ALL_UNIT_IDS is None:
+        try:
+            _ALL_UNIT_IDS = set(sum(_gc.all_unit_ids().values(), []))
+        except Exception:
+            _ALL_UNIT_IDS = set()
+    return _ALL_UNIT_IDS
+
+
+def _kit_spawn_visual_ids(visual_id) -> set:
+    """Ids d'unite que le KIT de `visual_id` peut faire APPARAITRE (ses summons).
+
+    MIRROR OFFLINE du lien natif enfant -> parent. Le natif le lit sur l'ECS :
+    `IdunBattle.Entities.Components.ChildComponent` porte `ParentId` (BEntityId @+0x10 -- offset
+    CONFIRME live par `dumpEntityComponents`), pose au spawn par
+    `IdunBattle.Operations.SpawnUnitOperation$$Execute`. C'est ce champ que lit
+    `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook$$IsFriendlyKell` (`*(int *)(comp + 0x10)
+    == EntityId(caster)`).
+
+    AUCUN RPC ne publie ce champ : ni `projectUnitsFull` (decisionView : id/visualId/pos/hp/owner/
+    team/alive/ctrl/hasAction/ranged/defeatedByMelee/killerId/abilities/effects), ni `observeBattle`
+    (entityId/squadId/visualId/teamId/playerId/col/row/hp/hpMax/armor/rank/isDead), ni
+    `combatSnapshot`. Le lien se RECONSTRUIT donc depuis la config : toute constante d'une ability
+    du kit dont la valeur NOMME une unite connue de gameconfig designe une unite que ce kit fait
+    apparaitre. Le scan des 669 unites rend un vocabulaire de cles etroit et exclusivement
+    spawn-related : `unitId`(48), `unitToSpawn`(5), `unitId_2`(5), `summonId`(3), `heroId`(3),
+    `unitIds`(2), `affectedUnitIds`(1).
+
+    `affectedUnitIds` apporte en prime le visualId **LIVE** d'un summon dont l'id de CONFIG differe :
+    `SupremeCommander` spawne `astraSmnGuardsman` (kind=summons) mais le live projette
+    `astraNpc1Guardsman` (kind=npc, meme nom « Cadian Guardsman ») -- les deux sont dans
+    `affectedUnitIds`, donc les deux formes sont couvertes.
+
+    DOMAINE D'EXACTITUDE (a lire avec le consommateur `IsFriendlyKell`) : le couple
+    (visualId de summon, equipe du summoner) identifie le parent des lors qu'une equipe ne porte pas
+    DEUX summoners du meme summon. Sinon le predicat « j'ai un enfant » peut passer pour le
+    summoner A alors que l'enfant est celui de B. RESIDU pour lever l'approximation : publier
+    `ChildComponent.ParentId` dans `projectUnitsFull` (le champ dict `parentId` existe deja cote
+    port -- `engine/entities/selectors.py::Parent` -- et serait alors lu directement)."""
+    if not visual_id:
+        return set()
+    s = _KIT_SPAWN_CACHE.get(visual_id)
+    if s is None:
+        known = _all_unit_ids()
+        cfg = _unit_cfg(visual_id)
+        s = set()
+        for ab in ((cfg.get("activeAbilities") or []) + (cfg.get("passiveAbilities") or [])):
+            try:
+                consts = (_gc.ability(ab) or {}).get("constants") or {}
+            except Exception:
+                continue
+            for v in consts.values():
+                for tok in str(v).split(","):
+                    tok = tok.strip()
+                    if tok in known:
+                        s.add(tok)
+        _KIT_SPAWN_CACHE[visual_id] = s
+    return s
+
+
 def _has_valid_targets(ctx: "NCContext", unit_id: int) -> bool:
     """`IBattleQuery.HasValidTargets(unit, GetUnitPosition(unit), GetNormalAttackType(unit))` (slot 0x3f
     -> `IdunBattle.Core.Services.BattleQuery$$HasValidTargets` -> `IdunBattle.Core.Services.AttackQuery$$HasValidTargets`) résolu OFFLINE :
