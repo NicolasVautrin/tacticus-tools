@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **72**
-- **NO-OP silencieux** (a porter) : **99**
-- Ventilation NO-OP : **DAMAGE**=65, **EFFECT/BUFF**=22, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **75**
+- **NO-OP silencieux** (a porter) : **96**
+- Ventilation NO-OP : **DAMAGE**=63, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (99)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (96)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -50,10 +50,8 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1019 | StormOfWrath | DAMAGE(Psychic) | 4 | LN |
 | 1154 | TacticalPrecision | DAMAGE(Bolter) | 4 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 4 | LN |
-| 1189 | CalibaniteGreatsword | DAMAGE(Power) | 3 | LN |
 | 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
-| 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
 | 1129 | BloodyFury | DAMAGE(Chain) | 2 | LN |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
@@ -101,7 +99,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1011 | TunnelingHorror | EFFECT/BUFF | 4 | NS |
 | 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
-| 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
@@ -126,7 +123,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (72)
+## PORTED (registry) (75)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -145,8 +142,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
 | 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
 | 1043 | ThunderousAssault | DAMAGE(Power) | 4 | LN |
+| 1189 | CalibaniteGreatsword | DAMAGE(Power) | 3 | LN |
 | 1092 | DarkTalonStrike | DAMAGE(DirectDamage) | 3 | LN |
 | 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
+| 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 2 | LN |
 | 1148 | DaemonicOrdnance | DAMAGE(Plasma) | 2 | LN |
 | 1213 | DeathOnTheWind | DAMAGE(HeavyRound) | 2 | LN |
@@ -180,6 +179,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 4 | LN |
 | 1003 | DeathFromAbove | EFFECT/BUFF | 4 | LN |
+| 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
