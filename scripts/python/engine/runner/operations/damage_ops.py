@@ -759,14 +759,23 @@ class _DamageOpsMixin:
                             profile_pierce: int, hits: int = 1, spread_pct: int = 20,
                             damage_profile: Optional[str] = None,
                             is_melee: Optional[bool] = None,
-                            ability_type: Optional[int] = None) -> Optional[dict]:
+                            ability_type: Optional[int] = None,
+                            is_attack_damage_op: bool = True) -> Optional[dict]:
         """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
         Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
         (≠ ability RandomAmount), avec base + perçage de profil DONNÉS. Mute les PV de la cible.
         `spread_pct` = variance d'arme (DamageSpreadPercentage) : **0 pour un montant `StatAmount`**
         (mono-valeur, AUCUNE variance — confirmé live, splash Psyker = base exact) ; 20 seulement si le
-        node porte de vraies bornes min/max d'arme. Renvoie le dict résultat (per_hit/total/...) ou None."""
+        node porte de vraies bornes min/max d'arme. Renvoie le dict résultat (per_hit/total/...) ou None.
+
+        `is_attack_damage_op` = LA FAMILLE DE FACTORY NATIVE du coup (cf. `_run_hits`) — threadé par la
+        feuille DSL depuis son `native_factory`. Il ne pilote ICI qu'une seule chose : l'ORDRE bouclier ×
+        limites (famille ABILITY = `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`,
+        cap sur le RESTE post-bouclier ; famille ATTACK = cap sur le total, split en aval). Le resolve
+        slot-8 qu'il gate aussi dans `_run_hits` n'existe pas sur ce vecteur (bornes pré-réduites,
+        `post_roll=None`) → défaut `True` = comportement historique strictement inchangé pour les
+        appelants qui ne le renseignent pas (attaque normale d'un summon, …)."""
         from .damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             return None
@@ -848,7 +857,9 @@ class _DamageOpsMixin:
                                             # (`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
-                                            limits_hp=int(thc.hp or 0))
+                                            limits_hp=int(thc.hp or 0),
+                                            # famille de factory native : pilote l'ordre bouclier x limites
+                                            is_attack_damage_op=is_attack_damage_op)
         AttackDamageOperation._deplete_shield(shc, r)
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,

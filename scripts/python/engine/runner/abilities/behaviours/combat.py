@@ -151,7 +151,10 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     state, caster, tgt, base, pierce,
                     hits=int(self.hits) if self.hits is not None else 1, spread_pct=0,
                     damage_profile=self.profile, is_melee=self.is_melee,
-                    ability_type=self.ability_type)
+                    ability_type=self.ability_type,
+                    # meme classification que le mode bornes (cf. `native_factory`) : elle pilote
+                    # l'ordre bouclier x limites (`CalculateAbilityDamage` cape le RESTE post-bouclier).
+                    is_attack_damage_op=(self.native_factory != "ability"))
             else:
                 # `BaseEffect$$PiercingBonusForAttack` : les effets ACTIFS du caster peuvent ajouter au
                 # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`
