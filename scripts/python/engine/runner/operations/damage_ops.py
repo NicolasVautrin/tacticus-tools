@@ -272,11 +272,34 @@ class _DamageOpsMixin:
             # `flat_add` (#45f) = EffectBonus.addition PER-BRANCHE (Ice crit-only) : POST-spread
             # PRE-perçage (même position que mods.additive #75), sans poluer `mods` (qui s'applique
             # aux DEUX branches nc/cr).
+            # #131 MATERIALISATION DES BORNES REDUITES = `Fix64$$Round(., AwayFromZero)`, PAS la
+            # troncature. Ces cellules ne sont PAS produites par un calcul propre au combat : le
+            # per-coup natif `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` appelle le
+            # slot 4 `IdunBattle.Core.Services.DamagePrediction$$PredictAttack` (cache ->
+            # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw`, SEUL appelant de CBDWAM
+            # avec `CalculateAbilityDamage`) puis resout la cellule par le slot 8
+            # `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` = Next(min,max+1).
+            # C'est donc LA MEME fonction native que la PREDICTION -> meme materialisation. Le dernier
+            # etage de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+            # est le MULTIPLICATEUR (slot 0x10 ->
+            # `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`) :
+            #     v = Mul(dmg, multiplier) ; v<=0 -> 0 ; 0<v<1 -> 1 ; sinon Round(v, AwayFromZero)
+            # traverse des qu'un `Nullable<DamageModifiers>` HasValue (attaquant OU defenseur).
+            # MESURE LIVE (probe_131, per-COUP, tirage brut IDENTIQUE entre les 2 modeles) :
+            #   - Azrael Plasma p=80 / armure 3513 : cellules floor [1800,2700] vs round [1800,2701]
+            #     -> live 6/6 = round, 1/6 = floor (le datapoint case-117 5ter live 1921 / offline 2301
+            #        est exactement ce +1 de borne haute : 2700.8 tronque a 2700) ;
+            #   - Azrael Power p=40 / armure 3513, 3 coups, SANS buff : [899,1350] vs [900,1350]
+            #     -> live 17/18 coups = round, 0/18 = floor (le 18e = coup letal ecrete aux PV restants).
+            # Le controle p=65 de case-117 etait bit-exact parce que ce regime n'est PAS discriminant
+            # (2250x0.65 -> 1462.4999, 3376x0.65 -> 2194.4 : floor == round).
             mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
+                mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True),
+                def_mods, round_materialize=True)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
+                mm.max + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True),
+                def_mods, round_materialize=True)
             return HitDamage(lo, hi)
 
         # MkXGravis (trait CIBLE 0x3f5=1013) : les dégâts entrants traversent l'armure 2× SAUF au crit
