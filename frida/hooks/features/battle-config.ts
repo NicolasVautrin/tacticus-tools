@@ -1176,7 +1176,9 @@ export function register(ctx: Ctx): void {
         });
     };
 
-    ctx.rpc.buildPatchedRunner = (patch?: BattleConfigPatch) => {
+    // `owner` (2e argument, facultatif) : étiquette du propriétaire enregistrée
+    // dans le registre — cf. runner-registry.ts.
+    ctx.rpc.buildPatchedRunner = (patch?: BattleConfigPatch, owner?: string) => {
         return queueOnMainThread(() => {
             const bc = getLiveBattleConfig();
             if (bc === null) {
@@ -1205,7 +1207,8 @@ export function register(ctx: Ctx): void {
             }
             try {
                 const handle = buildRunner(bc);
-                const entry = registerRunner(handle, { autoDispose: false });
+                const entry = registerRunner(handle,
+                    { autoDispose: false, owner });
                 log(`[battle-config] buildPatchedRunner: runnerId=` +
                     `${entry.runnerId} runner=${handle.runner} seed=${handle.seed}`);
                 return {

@@ -117,12 +117,16 @@ export function registerViewSnapshot(ctx: Ctx): void {
             : findMethodByParamCount(dpq.readPointer(), "GetNormalAttackPrediction", 3);
         const getUnitPosMi = entityExtClass
             ? findMethodByParamCount(entityExtClass, "GetUnitPosition", 2) : null;
-        // toutes les unités vivantes (servent de cibles de référence pour la prédiction)
-        const allUnits: Array<{ e: NativePointer; id: number }> = [];
+        // Toutes les entités COMBATTANTES vivantes (cibles de référence pour la
+        // prédiction ET lignes du snapshot). Machine INCLUSE (#93) : les MoW
+        // portent des stats et se font attaquer comme les squads, mais elles
+        // étaient absentes du snapshot — leur prédiction offline n'avait donc
+        // aucune stat résolue à confronter.
+        const allUnits: Array<{ e: NativePointer; id: number; entityType: number }> = [];
         forEachEntity(statePtr, (e, id, ty) => {
-            if (ty === EntityType.Unit && invokeBool(isAliveMi, [e, statePtr])) {
-                allUnits.push({ e, id });
-            }
+            if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
+            if (!invokeBool(isAliveMi, [e, statePtr])) return;
+            allUnits.push({ e, id, entityType: ty });
         });
         // DÉGÂT DE BASE de l'attaque normale (one-shot, iso-AI) via `GetNormalAttackPrediction
         // (attacker, target, pos)`. Ce chemin calcule pour les cibles ATTEIGNABLES (0 sinon) ; au
@@ -244,7 +248,7 @@ export function registerViewSnapshot(ctx: Ctx): void {
         };
 
         const units: Array<Record<string, unknown>> = [];
-        for (const { e, id } of allUnits) {
+        for (const { e, id, entityType } of allUnits) {
             const stats: Record<string, number | null> = {};
             // AXE STAT-MODIFICATION (§7bis prediction.md) : delta Current-Initial par StatType.
             // `CalculateModifiersFromStatModifications` @181004380 ne s'active QUE si CurrentValue !=
@@ -276,7 +280,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 .map((a) => ({ id: a.id, name: a.name, kind: a.kind,
                     level: a.level, multiplier: a.multiplier }));
             units.push({
-                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
+                entityId: id, entityType,
+                ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
                 stats, statDelta, healthMax,
                 normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
                 shields: readShields(e), abilityStates,
@@ -346,20 +351,24 @@ export function registerViewSnapshot(ctx: Ctx): void {
             } catch { return 0; }
         };
 
-        // Toutes les entités = sources candidates ; unités vivantes (filtrées par unitId) = cibles.
+        // Toutes les entités = sources candidates ; entités COMBATTANTES vivantes
+        // (filtrées par unitId) = cibles. Machine INCLUSE (#93) : une MoW porte
+        // des ValueModification comme une squad — sans elle, un statDelta de MoW
+        // restait insourçable.
         const allEntities: Array<{ e: NativePointer; id: number; isUnit: boolean }> = [];
-        const targetUnits: Array<{ e: NativePointer; id: number }> = [];
+        const targetUnits: Array<{ e: NativePointer; id: number; entityType: number }> = [];
         forEachEntity(statePtr, (e, id, ty) => {
             const isUnit = ty === EntityType.Unit;
             allEntities.push({ e, id, isUnit });
-            if (isUnit && (body?.unitId === undefined || id === body.unitId)
+            const isCombatant = isUnit || ty === EntityType.Machine;
+            if (isCombatant && (body?.unitId === undefined || id === body.unitId)
                 && invokeBool(isAliveMi, [e, statePtr])) {
-                targetUnits.push({ e, id });
+                targetUnits.push({ e, id, entityType: ty });
             }
         });
 
         const units: Array<Record<string, unknown>> = [];
-        for (const { e, id } of targetUnits) {
+        for (const { e, id, entityType } of targetUnits) {
             const mods: Record<string, unknown> = {};
             for (const k of requested) {
                 const total = getMod(e, k, nullSrc);
@@ -380,7 +389,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 mods[k] = { total, residual: total - attributed, bySource };
             }
             units.push({
-                entityId: id, ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]), mods,
+                entityId: id, entityType,
+                ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]), mods,
             });
         }
         return { ok: true, runner: label, statTypes: COMBAT_STAT_IDS, units };

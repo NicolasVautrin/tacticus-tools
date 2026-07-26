@@ -27,6 +27,16 @@ interface Entry extends RunnerHandle {
      *  / buildPatchedRunner) so a CONCURRENT build can't evict a sibling runner
      *  mid-use (TF06). UI / mirror-replay runners keep the default (true). */
     autoDispose: boolean;
+    /** Étiquette libre du PROPRIÉTAIRE, fournie par le constructeur (chemin de
+     *  state-file, nom d'agent, id de test…). Sert à la purge SÛRE des runners
+     *  orphelins : sans elle, le registre ne dit pas à qui appartient un runner,
+     *  et le seul critère disponible — l'âge — condamne un runner légitime d'un
+     *  agent lent aussi vite qu'un orphelin. null quand l'appelant ne l'a pas
+     *  renseignée (les anciens appelants restent valides). */
+    owner: string | null;
+    /** Horodatage de l'enregistrement (ms). Diagnostic — JAMAIS un critère de
+     *  purge à lui seul, cf. `owner`. */
+    createdAt: number;
     /** Pointers added via `pinForRunner` — all unpinned by `disposeRunner`. */
     pinnedRefs: NativePointer[];
 }
@@ -43,10 +53,14 @@ let counter = 0;
 export const MAX_RUNNERS = 10;
 
 export function registerRunner(
-    h: RunnerHandle, opts?: { autoDispose?: boolean },
+    h: RunnerHandle, opts?: { autoDispose?: boolean; owner?: string },
 ): Entry {
     const e: Entry = { ...h, runnerId: ++counter, started: false,
-                       autoDispose: opts?.autoDispose !== false, pinnedRefs: [] };
+                       autoDispose: opts?.autoDispose !== false,
+                       owner: typeof opts?.owner === "string" && opts.owner
+                           ? opts.owner : null,
+                       createdAt: Date.now(),
+                       pinnedRefs: [] };
     byId.set(e.runnerId, e);
     return e;
 }
@@ -64,11 +78,14 @@ export function getRunner(runnerId: number): Entry {
 
 export function listRunners(): Array<{
     runnerId: number; started: boolean; seed: number;
+    owner: string | null; createdAt: number;
 }> {
     return [...byId.values()].map((e) => ({
         runnerId: e.runnerId,
         started: e.started,
         seed: e.seed,
+        owner: e.owner,
+        createdAt: e.createdAt,
     }));
 }
 

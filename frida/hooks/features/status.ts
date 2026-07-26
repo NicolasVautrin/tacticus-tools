@@ -5,7 +5,7 @@
 import { il2cppBase, il2cppSize } from "../il2cpp/helpers.js";
 import { isSerializerReady } from "../il2cpp/serializer.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
-import { state, LogEntry } from "../game/state.js";
+import { state, LogEntry, clearLogUnpinned } from "../game/state.js";
 import { runnerOff } from "../game/runner.js";
 import { readBattleStatus } from "../game/match-state.js";
 import { install, ensureInstalled } from "../game/recorder.js";
@@ -43,7 +43,12 @@ export function register(ctx: Ctx): void {
         realAiControl: state.realAiControl?.toString() ?? null,
         logSize: state.log.length,
         listeners: state.installedListeners.length,
-        gcRootCount: gcRoot.listPtr() ? gcRoot.count() : null,
+        // SANS garde `listPtr()` : depuis la migration gchandle (2026-05-07) ce
+        // legacy rend TOUJOURS null, donc `info` publiait `gcRootCount: null`
+        // depuis 2,5 mois — un null ne fait pas de bruit, personne ne l'a vu.
+        // `count()` est la taille de la Map de gchandles, exacte et sans état
+        // externe (init-trace.ts l'appelle directement depuis toujours).
+        gcRootCount: gcRoot.count(),
     });
 
     ctx.rpc.summary = () => queueOnMainThread(() => {
@@ -69,9 +74,11 @@ export function register(ctx: Ctx): void {
     }));
 
     ctx.rpc.clear = () => queueOnMainThread(() => {
-        state.log = [];
+        // Dépingle AVANT de vider (cf. game/state.ts) : sinon chaque message
+        // épinglé par le recorder devient un handle orphelin définitif.
+        const unpinned = clearLogUnpinned();
         state.counter = 0;
-        return { ok: true };
+        return { ok: true, unpinned };
     });
 
     ctx.rpc.battleStatus = () => queueOnMainThread(() => {

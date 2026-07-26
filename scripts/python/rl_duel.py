@@ -402,9 +402,14 @@ def cmd_build(sid: int, a) -> int:
         if old_rid is not None:
             _rpc(sid, "disposeRunner", [{"runnerId": old_rid}], timeout=15)
             print(f"[build] ancien runner {old_rid} du state-file dispose")
+    # `owner` = le --state-file ABSOLU. C'est LA cle de proprietaire du harnais :
+    # le registre cote hooks la garde telle quelle, si bien qu'un runner orphelin
+    # se reconnait par recoupement avec les state-files vivants -- et non a l'age,
+    # qui condamne aussi vite un runner legitime d'un agent lent.
     init_resp = _rpc(sid, "initAndStart",
                      [{"configJson": json.dumps(bc), "seed": a.seed,
-                       "playerUnits": player_units}], timeout=40)
+                       "playerUnits": player_units,
+                       "owner": str(STATE.resolve())}], timeout=40)
     init = init_resp.get("result") or {}
     rid = init.get("runnerId")
     if rid is None:

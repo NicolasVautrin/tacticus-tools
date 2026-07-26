@@ -6,6 +6,7 @@
 
 import { StreamEvent } from "./apply-stack.js";
 import { MtSnapshot } from "../il2cpp/mt.js";
+import { gcRoot } from "../il2cpp/gc-root.js";
 
 export interface LogEntry {
     idx: number;
@@ -222,3 +223,42 @@ export const state = {
         ts: number;
     },
 };
+
+// --- Dépinglage des conteneurs de messages -----------------------------------
+// Le recorder ÉPINGLE chaque message managé appliqué à un runner surveillé
+// (`gcRoot.add(msg)`) : sans ça, un GC déclenché PENDANT l'Apply collecterait un
+// objet dont seule notre JS tient la référence -> AV. Le pin doit donc vivre
+// aussi longtemps que le conteneur qui garde le pointeur.
+//
+// Corollaire, longtemps manqué : **vider le conteneur sans dépingler transforme
+// chaque pin en handle ORPHELIN définitif** — plus aucun code ne connaît le
+// pointeur, et rien ne le relâchera jamais. `purgeLogForOrigin` (sim-engine)
+// faisait déjà le bon geste au dispose d'un runner ; trois autres sites vidaient
+// à cru : la bascule de bataille live (main-pump), le RPC `clear` (status) et la
+// file miroir (sim-engine). Ces helpers sont le geste correct, en un seul
+// endroit. C'est exactement le budget de handles que le protocole #132 mesure.
+
+/** Dépingle les messages de `entries` (best effort). Rend le nombre traité. */
+export function unpinEntries(entries: Array<{ ptr?: string }>): number {
+    let n = 0;
+    for (const e of entries) {
+        if (!e.ptr) continue;
+        try { gcRoot.remove(ptr(e.ptr)); n++; } catch { /* best effort */ }
+    }
+    return n;
+}
+
+/** Vide `state.log` EN DÉPINGLANT ses messages. Rend le nombre dépinglé. */
+export function clearLogUnpinned(): number {
+    const n = unpinEntries(state.log);
+    state.log = [];
+    return n;
+}
+
+/** Vide `state.mirrorTurnQueue` EN DÉPINGLANT ses messages (épinglés par
+ *  `recorder.captureMirrorMsg`). Rend le nombre dépinglé. */
+export function clearMirrorQueueUnpinned(): number {
+    const n = unpinEntries(state.mirrorTurnQueue);
+    state.mirrorTurnQueue = [];
+    return n;
+}

@@ -1,13 +1,14 @@
 import {
     class_get_fields, class_get_name, class_get_parent,
     field_get_name, field_get_offset, field_get_type,
-    findMethodByParamCount, s,
+    findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
     type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import {
-    EntityType, forEachEntity, projectMatchState, readUnitDeathMeta,
+    EntityType, forEachComponent, forEachEntity, projectMatchState,
+    readUnitDeathMeta,
 } from "../../game/match-state.js";
 import { abilityName } from "../../data/ability-names.js";
 import {
@@ -285,7 +286,32 @@ export interface FullUnit {
      * tueur (`DeathReason` → `DamageSource.get_KillerId`). Lu sur le SQUAD →
      * fiable aussi sur les corpses (pas de UnitFoot). false/null sur les vivants. */
     defeatedByMelee: boolean; killerId: number | null;
+    /** `ChildComponent.ParentId` — l'entité qui a INVOQUÉ celle-ci (summon),
+     *  null si l'unité n'est l'enfant de personne. Publié à la source : tout
+     *  gate natif « u est un enfant de X » se lisait jusqu'ici en le
+     *  reconstruisant depuis la config (`_kit_spawn_visual_ids`), exact tant
+     *  qu'une équipe ne porte pas deux summoners du même summon. */
+    parentId: number | null;
     abilities: AbilityInfo[];
+}
+
+// ChildComponent : lien enfant -> invocateur. `ParentId` (BEntityId) résolu par
+// nom au runtime ; repli sur +0x10 (offset confirmé live, cf. case-perform-ai-action
+// §6.2) si la table de champs n'est pas énumérable.
+const childComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "ChildComponent");
+const childParentIdOff = childComponentClass
+    ? (getFieldOffset(childComponentClass, "ParentId") || 0x10) : 0x10;
+
+function readParentId(entityPtr: NativePointer): number | null {
+    if (!childComponentClass) return null;
+    let comp: NativePointer | null = null;
+    forEachComponent(entityPtr, (c, klass) => {
+        if (comp === null && klass.equals(childComponentClass)) comp = c;
+    });
+    if (comp === null) return null;
+    try { return (comp as NativePointer).add(childParentIdOff).readS32(); }
+    catch { return null; }
 }
 
 /** Projection de TOUTES les units (2 camps) : flags vivants + abilities concrètes. */
@@ -301,6 +327,7 @@ export function projectUnitsFull(statePtr: NativePointer, allAbilities: boolean)
         out.push({
             id, visualId: b?.visualId ?? null, pos: b?.pos ?? null,
             hp: b?.hp ?? null, owner: b?.ownerId ?? null, team: b?.teamId ?? null,
+            parentId: readParentId(e),
             alive: invokeBool(isAliveMi, [e, statePtr]),
             ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
             hasAction: invokeBool(hasActionLeftMi, [e]),

@@ -47,11 +47,18 @@ export function registerViewDecision(ctx: Ctx): void {
      *  (computeAttackPlans, normal attack par défaut) ; la DANGER ZONE ennemie.
      *  Read-only (mutated=false attendu). Python merge ensuite avec board.py
      *  (terrain/hex) + gameconfig.py (kits) + wiki (tactique).
-     *  body: { runnerId, maxRank?=6, allAbilities?=false } */
+     *  `includeInactive` publie AUSSI les effets posés-mais-inactifs, avec leur
+     *  flag `active` (défaut FAUX = comportement historique) : sans lui, l'absence
+     *  d'un effet est ambiguë — non-posé ou posé-inactif ? cf. game/effects.ts.
+     *  body: { runnerId, maxRank?=6, allAbilities?=false, includeInactive?=false } */
     ctx.rpc.decisionView = (
-        body?: { runnerId?: number; maxRank?: number; allAbilities?: boolean },
+        body?: {
+            runnerId?: number; maxRank?: number; allAbilities?: boolean;
+            includeInactive?: boolean;
+        },
     ): Promise<unknown> => queueOnMainThread(() => {
         const allAbilities = body?.allAbilities === true;
+        const includeInactive = body?.includeInactive === true;
         const maxRank = (typeof body?.maxRank === "number" && body.maxRank > 0)
             ? (body.maxRank | 0) : 6;
         let runner: NativePointer; let label: string;
@@ -105,7 +112,7 @@ export function registerViewDecision(ctx: Ctx): void {
         // (EffectsOwnedComponent.ActiveEffectIds), = ce que l'UI render en
         // icônes de statut. Attaché par unit/mow (railgun-mark, OW armé, Ice,
         // heal-block, Stun… surfacés sans scan ad-hoc — cf. game/effects.ts).
-        const effectsByUnit = readEffectsByUnit(statePtr);
+        const effectsByUnit = readEffectsByUnit(statePtr, { includeInactive });
         // Round-cap clock — board-wide bombardment telegraph (EnvEndBombardment_Incoming).
         // NOT in any unit's owned effects, so surfaced separately (cf. hypotheses.md H58).
         const roundCap = readRoundCapClock(statePtr);

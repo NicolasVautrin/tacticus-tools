@@ -49,7 +49,9 @@ import {
     digestState, entityCensus, EntityType, forEachEntity, msEntitiesOff,
     projectMatchState, readBattleStatus, UnitProjection,
 } from "../game/match-state.js";
-import { state } from "../game/state.js";
+import {
+    state, clearMirrorQueueUnpinned, unpinEntries,
+} from "../game/state.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 
 /** Source of a mirror — either the in-game live runner or a build runner
@@ -1369,7 +1371,8 @@ export function register(ctx: Ctx): void {
 
         // Phase 1: capture
         send({ t: "diag", msg: "[sim] simRunAiTurn · Phase 1 enter" });
-        state.mirrorTurnQueue = [];
+        // Résidu d'un run précédent : dépingle avant de vider (cf. game/state.ts).
+        clearMirrorQueueUnpinned();
         state.captureMirrorMessages = true;
         const t0 = Date.now();
         let phase1Err: string | null = null;
@@ -1471,6 +1474,11 @@ export function register(ctx: Ctx): void {
             }
         } finally {
             state.replayingOnMirror = false;
+            // Les messages capturés ont fini leur office (rejoués sur live) et
+            // plus personne ne détient leur pointeur — le pin de
+            // `captureMirrorMsg` deviendrait un handle orphelin. Même geste que
+            // le dépinglage équilibré après chaque Apply (launch.ts).
+            unpinEntries(captured);
         }
         const phase2Ms = Date.now() - t1;
         const phase2Divergent = liveCommits.filter((c) => c.divergent).length;

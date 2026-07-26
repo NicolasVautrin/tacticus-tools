@@ -19,7 +19,7 @@
 // fire correctly.
 
 import { findClass, findMethod, getFieldOffset } from "../il2cpp/helpers.js";
-import { state } from "../game/state.js";
+import { state, clearLogUnpinned } from "../game/state.js";
 import { install } from "../game/recorder.js";
 import { clearTraceOrigin } from "../game/trace-origin.js";
 import { log, traceEnter } from "./diag.js";
@@ -88,7 +88,10 @@ export function installMainPump(): void {
             state.runnerInstance = r;  // legacy alias
             state.watchedRunners.set(r.toString(), "live");
             state.counter = 0;
-            state.log = [];
+            // Dépingle AVANT de vider : les messages du log sont épinglés par le
+            // recorder, et un `state.log = []` à cru en fait des handles
+            // orphelins définitifs (cf. game/state.ts).
+            clearLogUnpinned();
             state.installNeeded = true;
             setTimeout(() => {
                 if (state.installNeeded) {

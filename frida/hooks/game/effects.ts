@@ -15,7 +15,11 @@
 // overwatch-fix). All offsets resolved runtime via getFieldOffset — no RVA
 // hardcoding (CLAUDE.md "Hash du build = identité du dump").
 
-import { findClassAnywhere, getFieldOffset } from "../il2cpp/helpers.js";
+import {
+    class_get_fields, class_get_name, field_get_name, field_get_offset,
+    field_get_type, findClassAnywhere, getFieldOffset, s,
+    type_get_class_or_element_class,
+} from "../il2cpp/helpers.js";
 import { EntityType, forEachComponent, forEachEntity } from "./match-state.js";
 import { EFFECT_TYPE_NAMES } from "../data/effect-type-names.js";
 
@@ -45,6 +49,81 @@ const EC = {
         ? (getFieldOffset(effectComponentClass, "Level") || 0x68) : 0x68,
 } as const;
 
+// --- StatModifierComponent de l'entité-effet ---------------------------------
+// La MAGNITUDE d'un effet stat-mod (le « +N Attack » qu'il porte) vivait jusqu'ici
+// re-dérivée offline depuis le `StatsComponent` du porteur — avec une dépendance
+// circulaire sur la famille EAGER (ActOfFaith lit `StatPart.INITIAL` du crit-damage,
+// or l'attribution du seed précède la création du `UnitStats`). La lire À LA SOURCE
+// supprime toute re-dérivation.
+//
+// Les NOMS DE CHAMPS ne sont PAS devinés : la classe fait 0x20 o (header
+// BaseComponent 0x10 + le reste) et le dump ne porte pas sa table de champs. On
+// énumère donc ses champs DÉCLARÉS au chargement (nom + offset + type) et on
+// publie chaque valeur SOUS SON NOM NATIF. Si une MAJ renomme ou redispose, la
+// charge utile change de forme au lieu de mentir sous un nom figé.
+const statModifierComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "StatModifierComponent");
+
+interface FieldRef { name: string; off: number; type: string }
+
+/** Champs DÉCLARÉS d'une classe (sans remonter les parents — le header
+ *  BaseComponent ne porte rien d'exploitable ici). */
+function declaredFields(klass: NativePointer | null): FieldRef[] {
+    if (!klass) return [];
+    const out: FieldRef[] = [];
+    try {
+        const iter = Memory.alloc(Process.pointerSize);
+        iter.writePointer(ptr(0));
+        for (;;) {
+            const f = class_get_fields(klass, iter) as NativePointer;
+            if (f.isNull()) break;
+            let type = "?";
+            try {
+                const tc = type_get_class_or_element_class(
+                    field_get_type(f) as NativePointer) as NativePointer;
+                if (!tc.isNull()) type = s(class_get_name(tc) as NativePointer);
+            } catch { /* type best-effort */ }
+            out.push({
+                name: s(field_get_name(f) as NativePointer),
+                off: field_get_offset(f) as number, type,
+            });
+        }
+    } catch { /* classe non énumérable → aucun champ publié */ }
+    return out;
+}
+
+const STAT_MODIFIER_FIELDS = declaredFields(statModifierComponentClass);
+
+/** Lit le `StatModifierComponent` d'une entité-effet → {champ natif: valeur}.
+ *  null si l'effet n'en porte pas (la grande majorité).
+ *
+ *  La LARGEUR de lecture suit le TYPE déclaré du champ : `Boolean` fait 1 octet,
+ *  le lire en s32 ramasse les octets voisins et publie un nombre absurde
+ *  (mesuré : `IsHidden: 1946157056` au lieu de 0/1). Enums et entiers restent en
+ *  s32. C'est la raison d'être de l'énumération des champs : elle donne le type,
+ *  pas seulement l'offset. */
+function readStatModifier(
+    effEntityPtr: NativePointer,
+): Record<string, number> | null {
+    if (!statModifierComponentClass || STAT_MODIFIER_FIELDS.length === 0) return null;
+    let comp: NativePointer | null = null;
+    forEachComponent(effEntityPtr, (c, klass) => {
+        if (comp === null && klass.equals(statModifierComponentClass)) comp = c;
+    });
+    if (comp === null) return null;
+    const c = comp as NativePointer;
+    const out: Record<string, number> = {};
+    for (const f of STAT_MODIFIER_FIELDS) {
+        try {
+            out[f.name] = (f.type === "Boolean" || f.type === "Byte"
+                || f.type === "SByte")
+                ? c.add(f.off).readU8()
+                : c.add(f.off).readS32();
+        } catch { /* champ illisible */ }
+    }
+    return out;
+}
+
 export interface EffectInfo {
     /** Effect entity id (EntityType.Effect). */
     effectId: number;
@@ -57,11 +136,20 @@ export interface EffectInfo {
     level: number | null;
     /** SourceUnitId — entity that applied the effect. */
     source: number | null;
+    /** `EffectComponent.IsActive` — l'effet est POSÉ mais son ActiveCondition
+     *  n'est pas forcément satisfaite. Toujours `true` sauf si l'appelant a
+     *  demandé `includeInactive` (les inactifs sont filtrés par défaut). */
+    active: boolean;
+    /** `EffectComponent.Removed`. */
+    removed: boolean;
+    /** Champs natifs du `StatModifierComponent` porté par l'entité-effet
+     *  (magnitude À LA SOURCE), ou null s'il n'en porte pas. */
+    statMod: Record<string, number> | null;
 }
 
 /** Decoded effect + liveness flags (IsActive/Removed) used to drop effects
  * owned but not currently applying (e.g. an aura whose target left its range). */
-type Decoded = Omit<EffectInfo, "effectId"> & { active: boolean; removed: boolean };
+type Decoded = Omit<EffectInfo, "effectId">;
 
 /** Read an EffectEntity's EffectComponent → identity + metadata + liveness. */
 function readEffect(effEntityPtr: NativePointer): Decoded | null {
@@ -88,7 +176,8 @@ function readEffect(effEntityPtr: NativePointer): Decoded | null {
     // names the cascade/UI show: "Ice", "HeavyRailRifle_PendingTarget", …).
     const name = (effectType !== null)
         ? (EFFECT_TYPE_NAMES[effectType] ?? null) : null;
-    return { name, effectType, remaining, level, source, active, removed };
+    return { name, effectType, remaining, level, source, active, removed,
+             statMod: readStatModifier(effEntityPtr) };
 }
 
 // AbilityStateReference (struct inline, EffectComponent.AbilityState @0x18, dump gqfc5mff6c
@@ -169,12 +258,43 @@ function readOwnedEffectIds(unitPtr: NativePointer): number[] {
     return out;
 }
 
+/** Matérialise une entrée de charge utile depuis un effet décodé. */
+function toInfo(eid: number, info: Decoded | undefined): EffectInfo {
+    return {
+        effectId: eid,
+        name: info?.name ?? null,
+        effectType: info?.effectType ?? null,
+        remaining: info?.remaining ?? null,
+        level: info?.level ?? null,
+        source: info?.source ?? null,
+        active: info?.active ?? true,
+        removed: info?.removed ?? false,
+        statMod: info?.statMod ?? null,
+    };
+}
+
+export interface ReadEffectsOpts {
+    /** Publier AUSSI les effets POSÉS mais dont l'`ActiveCondition` n'est pas
+     *  satisfaite (`EffectComponent.IsActive == false`). Par défaut FAUX —
+     *  comportement historique, que tous les consommateurs actuels supposent.
+     *
+     *  Sans ce drapeau, l'absence d'un effet dans la charge utile est AMBIGUË :
+     *  non-posé ou posé-inactif ? C'est ce qui a forcé #127 à replier le gate
+     *  d'activation de l'overwatch dans le `matches` du tir, faute de pouvoir
+     *  distinguer les deux. Avec `includeInactive`, la distinction est LUE, et
+     *  le repli peut se déplier à son vrai étage. Les effets RETIRÉS (`Removed`)
+     *  restent filtrés dans les deux cas — ils ne sont plus là, point. */
+    includeInactive?: boolean;
+}
+
 /** Map owner entityId (Type=1 squad / Type=6 machine — = decisionView unit/mow
- * id) → its active effects (name + metadata). Reads the game's own owned-effect
- * list, mirroring exactly what the in-game UI renders as status icons. */
+ * id) → its effects (name + metadata + liveness + magnitude stat-mod). Reads the
+ * game's own owned-effect list, mirroring exactly what the in-game UI renders as
+ * status icons. */
 export function readEffectsByUnit(
-    statePtr: NativePointer,
+    statePtr: NativePointer, opts?: ReadEffectsOpts,
 ): Map<number, EffectInfo[]> {
+    const includeInactive = opts?.includeInactive === true;
     const byId = indexEffects(statePtr);
     const out = new Map<number, EffectInfo[]>();
     forEachEntity(statePtr, (e, id, ty) => {
@@ -187,15 +307,9 @@ export function readEffectsByUnit(
             // Drop effects owned but NOT applying (inactive / removed) — e.g. an
             // aura whose target is currently out of range. Default-keep on a
             // read failure (active=true) so we never silently hide a real effect.
-            if (info && (!info.active || info.removed)) continue;
-            effs.push({
-                effectId: eid,
-                name: info?.name ?? null,
-                effectType: info?.effectType ?? null,
-                remaining: info?.remaining ?? null,
-                level: info?.level ?? null,
-                source: info?.source ?? null,
-            });
+            if (info && info.removed) continue;
+            if (info && !info.active && !includeInactive) continue;
+            effs.push(toInfo(eid, info));
         }
         if (effs.length) out.set(id, effs);
     });
@@ -211,8 +325,9 @@ export function readEffectsByUnit(
  * weight key (Fire/Ice/SpiderWeb/Thorns_DefenseReduction…). `source` is the
  * effect's owner (needed for GetStatusEffectMultiplier's friend/foe branch). */
 export function readEffectsByTile(
-    statePtr: NativePointer,
+    statePtr: NativePointer, opts?: ReadEffectsOpts,
 ): Map<number, EffectInfo[]> {
+    const includeInactive = opts?.includeInactive === true;
     const byId = indexEffects(statePtr);
     const out = new Map<number, EffectInfo[]>();
     forEachEntity(statePtr, (e, id, ty) => {
@@ -222,15 +337,9 @@ export function readEffectsByTile(
         const effs: EffectInfo[] = [];
         for (const eid of ids) {
             const info = byId.get(eid);
-            if (info && (!info.active || info.removed)) continue;   // drop inactive/removed
-            effs.push({
-                effectId: eid,
-                name: info?.name ?? null,
-                effectType: info?.effectType ?? null,
-                remaining: info?.remaining ?? null,
-                level: info?.level ?? null,
-                source: info?.source ?? null,
-            });
+            if (info && info.removed) continue;
+            if (info && !info.active && !includeInactive) continue;
+            effs.push(toInfo(eid, info));
         }
         if (effs.length) out.set(id, effs);
     });

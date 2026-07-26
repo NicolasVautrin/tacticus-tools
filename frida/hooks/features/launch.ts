@@ -305,7 +305,12 @@ function captureEvents(
 
 export function register(ctx: Ctx): void {
 
-    ctx.rpc.initRunner = (args: { configJson: string; seed?: number }) => {
+    // `owner` : étiquette libre du propriétaire (chemin de state-file, nom
+    // d'agent…), enregistrée telle quelle dans le registre. Facultative — les
+    // appelants existants restent valides et rendent `owner: null`.
+    ctx.rpc.initRunner = (
+        args: { configJson: string; seed?: number; owner?: string },
+    ) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
         }
@@ -345,7 +350,8 @@ export function register(ctx: Ctx): void {
                 const r = buildRunner(configPtr,
                     typeof args.seed === "number" ? { seed: args.seed } : undefined);
                 // RL/isolated runner → never auto-evicted by recorder (TF06).
-                const entry = registerRunner(r, { autoDispose: false });
+                const entry = registerRunner(r,
+                    { autoDispose: false, owner: args.owner });
                 // Transfer the pin to the runner's owned-refs set so it
                 // gets released by disposeRunner.
                 pinForRunner(entry.runnerId, configPtr);
@@ -477,6 +483,9 @@ export function register(ctx: Ctx): void {
         playerUnits: Array<{
             unitId: string; playerId: number; col: number; row: number;
         }>;
+        /** Étiquette du propriétaire, enregistrée dans le registre (facultative
+         *  — cf. runner-registry.ts). */
+        owner?: string;
     }) => {
         if (!isDeserializerReady()) {
             throw new Error("Newtonsoft DeserializeObject not resolved");
@@ -527,7 +536,8 @@ export function register(ctx: Ctx): void {
                                                   : undefined);
                 log("[initAndStart] buildRunner ok runner=" + r.runner);
                 // RL/isolated runner → never auto-evicted by recorder (TF06).
-                entry = registerRunner(r, { autoDispose: false });
+                entry = registerRunner(r,
+                    { autoDispose: false, owner: args.owner });
                 pinForRunner(entry.runnerId, configPtr);
                 state.watchedRunners.set(
                     r.runner.toString(), entry.runnerId);
@@ -638,6 +648,7 @@ export function register(ctx: Ctx): void {
     ctx.rpc.loadFromSavedBundle = (args: {
         configJson: string;
         messages: ReplayMessage[];
+        owner?: string;
     }) => queueOnMainThread(() => {
         // Single-build policy — drop any prior build before this one.
         for (const old of listRunners()) {
@@ -659,7 +670,7 @@ export function register(ctx: Ctx): void {
         // missing entries → mirror reaches initial config state, not the
         // replayed state, and renders nothing.
         const handle = buildEmptyRunner(args.configJson);
-        const entry = registerRunner(handle);
+        const entry = registerRunner(handle, { owner: args.owner });
         state.watchedRunners.set(handle.runner.toString(), entry.runnerId);
         state.watchedAiControls.set(
             handle.innerAiControl.toString(), entry.runnerId);

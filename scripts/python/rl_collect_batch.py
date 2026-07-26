@@ -1060,10 +1060,14 @@ def _attempt_battle(sid: int, idx: int, bc: dict, roster_p: list[str],
          "col": int(player_pts[i][0]), "row": int(player_pts[i][1])}
         for i in range(min(len(roster_p), len(player_pts)))
     ]
+    # `owner` : etiquette de proprietaire gardee par le registre cote hooks
+    # (cf. rl_duel build). Un batch n'a pas de state-file -> on l'identifie par
+    # son process, ce qui suffit a distinguer ses runners de ceux d'un agent.
     init_resp = _rpc(sid, "initAndStart",
                      [{"configJson": json.dumps(bc),
                        "seed": engine_seed,
-                       "playerUnits": player_units}], timeout=30)
+                       "playerUnits": player_units,
+                       "owner": f"rl_collect_batch:pid{os.getpid()}"}], timeout=30)
     init = init_resp.get("result") or {}
     runner_id = init.get("runnerId")
     if runner_id is None:

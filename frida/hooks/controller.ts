@@ -51,6 +51,10 @@ import * as scorerDamageTrace from "./features/scorer-damage-trace.js";
 import * as triggerTrace from "./features/trigger-trace.js";
 import * as dslTrace from "./features/dsl-trace.js";
 import * as dslCtorTrace from "./features/dsl-ctor-trace.js";
+import * as gcProbe from "./features/gc-probe.js";
+// hit-trace = Interceptor sur AttackDamageOperation$$ExecuteHit (chemin de dégât
+// ULTRA-CHAUD) : le register n'arme RIEN, l'armement est on-demand (hitTraceArm).
+import * as hitTrace from "./features/hit-trace.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -375,6 +379,7 @@ export function wireRpc(ctx: Ctx): void {
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
-     scorerDamageTrace, triggerTrace, dslTrace, dslCtorTrace]
+     scorerDamageTrace, triggerTrace, dslTrace, dslCtorTrace,
+     gcProbe, hitTrace]
         .forEach((f) => f.register(ctx));
 }
