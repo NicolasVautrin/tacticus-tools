@@ -272,13 +272,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   du feu route encore sur `execute_direct` (perçage/armure SEULS : ni mods défenseur, ni block, ni
   bouclier, ni cap Resilient). Numériquement équivalent pour une source TUILE dans les mesures
   existantes, mais latent. `[opus]`.
-- **Fork de port `PerformAIAttackFromCurrentPosition`** (`case-217-thequickening` §5, finding
-  relecture au merge PR #11) : 2 mirrors du même nœud natif (`loki/summon.py` #202-C avec dispatch
-  after-hit vs `quickening.py::_free_melee_attack` #217 sans) → unifier en une feuille unique
-  contexte-aware (ForcedInMelee → domaine adjacent) + dispatch after-hit. `[opus]`. **PROMU
-  sous-système P1 par la campagne T-RE `case-219` §7** : le nœud cousin `PerformAIAction` est le
-  débloqueur commun de Waaagh (1058), SupremeCommander (1028), de l'act-again BlackRage (event
-  0x16) et du refactor CultDemagogue — cf. `port-roadmap.md` §4.
+- ~~**Fork de port `PerformAIAttackFromCurrentPosition`**~~ — **RÉSOLU (2026-07-26)**. Il n'existe
+  plus qu'**UN** corps du nœud (`abilities/loki/summon.py::perform_ai_attack_from_current_position`) ;
+  la feuille DSL `PerformAIAttack` et `quickening.py::_free_melee_attack` y délèguent. Le décompilé a
+  tranché les deux différences : (a) le dispatch after-hit est **inconditionnel** (aucun champ du
+  `PerformAIAbilityUnitBehaviour` ne le gate — l'IA exécute une vraie ability d'attaque), les deux
+  mirrors sans after-hit étaient donc FAUX ; (b) le domaine adjacent de TheQuickening **n'est pas un
+  choix de code** mais `TargetingQuery$$GetRange` qui fait `Math.Min(1, range)` si l'unité porte
+  `ForcedInMelee (0x529)` — le port pose désormais réellement l'effet. Détail : `case-217-thequickening`
+  §5. RESTE OUVERT (distinct) : le nœud cousin `PerformAIAction` — débloqueur commun de Waaagh (1058),
+  SupremeCommander (1028), act-again BlackRage (event 0x16), refactor CultDemagogue, cf.
+  `port-roadmap.md` §4.
+- **Nœud `DSLFactory$$PerformAIAttack(unit, …, amountNode, …)` : un corps câblé à la main subsiste**
+  (finding du de-fork ci-dessus). Ce nœud est le MÊME `PerformAIAbilityUnitBehaviour` que
+  `PerformAIAttackFromCurrentPosition`, à un seul champ près : `+0x78` (l'option `Nullable<int>` de
+  l'appel IA) y est **fourni par l'appelant** au lieu d'être épinglé à `factory+0xb8 = Direct(0)` — c'est
+  le budget de déplacement, d'où « FromCurrentPosition » = 0. ForwardSpotter (1143) passe déjà par la
+  feuille commune, mais **`SpawnReplica` (ScarabSummon 1047, on-appearance `PerformAIAttack(1)`)
+  ré-implémente `_nearest_enemy` + `AttackDamageOperation.execute` à la main, SANS gate de portée ni
+  dispatch after-hit** (`behaviours/summon.py`). À rabattre sur le corps unique une fois la sémantique
+  du budget de déplacement portée (aujourd'hui aucun étage du port ne fait bouger un summon avant son
+  attaque, donc l'amount est inerte — mais le gate et l'after-hit manquent). `[opus]`.
 - **Trait `Unstoppable` (1042), exemption movement-stop** (`case-205` — RE complet, verdict
   invalidable) : trait = membre de `NotBlockingMovementOfTraits @18155b370` {Mounted, Vehicle,
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending

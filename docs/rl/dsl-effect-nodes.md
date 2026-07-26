@@ -438,7 +438,7 @@ ExecuteBehaviour(this, entities, out result) :
 | `Cache(GetSpawnTileSelector) @180deb0d0` | `Cache(...)` MÉMOÏSANT (slot unique), **PARTAGÉ** Spawn/PerformAIAttack | **mirror #199** (fix bug pass-through) |
 | `ExecuteAtomic @180fb0930` (AtomicGroup) | `AtomicGroup(Spawn(cache))` — inline (RE #201) | **mirror #199** |
 | `op_Addition @180ffaa70` | `op_add(PerformAIAttack(cache), Foreach(Children, Taunt))` | **mirror #199** |
-| `PerformAIAttackFromCurrentPosition @180df8a10` | `PerformAIAttack` (EffectNode, per-child nearest + AttackDamageOperation) | **#199** |
+| `PerformAIAttackFromCurrentPosition @180df8a10` | `PerformAIAttack` (EffectNode : résout le DOMAINE — tuiles ou unités — puis **délègue** au corps UNIQUE `loki/summon.py::perform_ai_attack_from_current_position` : cible `_nearest_enemy`, gate `_in_attack_range` = `TargetingQuery$$GetRange` clamp `ForcedInMelee` inclus, `AttackDamageOperation.execute`, **dispatch after-hit inconditionnel**) | **#199** ; de-fork 2026-07-26 (`case-217` §5) |
 | `Children @180debed0` (`AllAliveMachinesSelector`) | `Children` (lit `DslContext.children`, accumulateur factory+0x148) | **#199** |
 | `TotalAttacksMade @180dfe090` / `LastUnitAttackedBy @180df5ee0` / `UnitTurnsStarted @180dff280` | accesseurs runtime (lisent le dict enfant annoté par `PerformAIAttack`) | **#199** |
 | `op_BitwiseAnd` (AbilityTrigger, ×2) | `predicates.TriggerAnd` | **#199** |
