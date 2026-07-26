@@ -15,7 +15,7 @@ qu'apres l'import de ce mixin comme classe de base)."""
 from __future__ import annotations
 
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
-from ...services.damage_modifiers import apply_all_modifiers
+from ...services.damage_modifiers import apply_all_modifiers, DamageModifiers
 from ...services.battle_query import are_tiles_adjacent
 from ...services.attack_hits_formula import attack_hits_with_modifiers
 from ...entities.stats import StatType
@@ -426,16 +426,36 @@ class _DamageOpsMixin:
         `Fix64.Round(·, AwayFromZero)` est désormais INCONDITIONNEL sur ce vecteur (cf. `_round_mat`
         plus bas). Conservé pour la signature des callers existants ; ce n'est plus un knob."""
         from .damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
-        if state.rng is None:
+        # GARDE-FOU rng (PAS un mirror natif) : sans `state.rng` cale (replay effet-seul, etat
+        # `load_state` sans dumpRng) on SKIP au lieu de lever. RAFFINE a la migration du DoT de tuile :
+        # ce vecteur ne consomme un tirage QUE si (a) les bornes sont non degenerees (`HitDamage$$
+        # GetDamage` gate min==max), (b) un crit peut etre roule, (c) une source de block existe, ou
+        # (d) le resolve slot-8 GASPILLE de la famille ATTACK tourne (`is_attack_damage_op`). Un DoT de
+        # tuile (amount FIXE, famille ABILITY, cible sans block) est 0-tirage : le skipper le rendrait
+        # NO-OP hors runner, ce qu'il n'etait pas sur la route `execute_direct`. Les deux termes
+        # connus ici gardent l'entree ; les deux autres sont testes juste avant `_run_hits`.
+        if state.rng is None and (int(base_min) != int(base_max) or is_attack_damage_op):
             return None
         att = state.get_entity(attacker_id)
         tgt = state.get_entity(target_id)
         sc = att.get_component(StatsComponent) if att is not None else None
         thc = tgt.get_component(HealthComponent) if tgt is not None else None
-        if sc is None or thc is None:
+        if thc is None:
             return None
-        ctx = sc.ctx
-        ahc = att.get_component(HealthComponent)
+        # CASTER NON-UNITE (entite TUILE) — `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+        # resout son champ +0x50 (le CASTER) en UNE entite qui n'est PAS forcement une unite : le DoT
+        # de tuile (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour`)
+        # passe `Tiles(<occupant>)` en caster, donc l'entite-TUILE. Elle n'a ni `StatsComponent` ni
+        # `HealthComponent` (le port ne la materialise meme pas dans `State.entities` : la cle d'une
+        # tuile ne vit que dans `EffectsState`). Le natif s'en accommode parce que la famille ABILITY
+        # (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` ->
+        # `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`) recoit des mods
+        # ATTAQUANT **VIDES** (struct zeroee, MESURE #45f probe_217) : aucune stat du caster n'entre
+        # dans le calcul. On mirror : `sc is None` -> mods attaquant vides + crit inexistant, au lieu
+        # d'abandonner. La CIBLE, elle, reste obligatoire (`thc`). INERTE pour tous les appelants
+        # historiques (leur caster est une unite -> `sc` non nul -> chemin inchange).
+        ctx = sc.ctx if sc is not None else None
+        ahc = att.get_component(HealthComponent) if att is not None else None
         # #217 : vecteur ABILITY -> is_normal_attack=False côté ATTAQUANT aussi (symétrique du #112
         # défenseur ci-dessous). MESURÉ live (probe_217 B, cast Stormcaller avec effet LordOfTempests
         # ACTIF + 3 hexes glacés ring-1 à l'attaque) : natif +0, offline-sans-gate +extraDmg x3 x3 hits
@@ -469,10 +489,17 @@ class _DamageOpsMixin:
         #     attaquant VIDES (#45f) -> None hors `is_attack_damage_op` (comportement inchange).
         _ranged = (not is_melee) if (is_melee is not None and is_attack_damage_op) else None
         _tgt_traits = target_trait_names(state, target_id) if is_attack_damage_op else None
-        mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
-                                          is_ranged=_ranged, is_normal_attack=False,
-                                          target_traits=_tgt_traits,
-                                          trigger_ability_type=(ability_type if is_attack_damage_op else None))
+        if sc is None:
+            # caster NON-UNITE (tuile) : mods attaquant VIDES == ce que `CalculateAbilityDamage`
+            # recoit (mesure #45f). On NE passe PAS par `attacker_modifiers`, dont la collecte
+            # `state.effects.active_effects(<id de tuile>)` rendrait les effets DE LA TUILE (le FEU
+            # lui-meme) comme s'ils etaient des effets d'ATTAQUANT.
+            mods, active = DamageModifiers(), []
+        else:
+            mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
+                                              is_ranged=_ranged, is_normal_attack=False,
+                                              target_traits=_tgt_traits,
+                                              trigger_ability_type=(ability_type if is_attack_damage_op else None))
         # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de
@@ -512,7 +539,8 @@ class _DamageOpsMixin:
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
-        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        crit_chance, crit_damage, crit_enabled = (
+            AttackDamageOperation._crit_params(ctx, active) if ctx is not None else (0, 0, False))
         # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
         # IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage
@@ -620,7 +648,7 @@ class _DamageOpsMixin:
         # une ability RANGED castee au contact taisait `Camouflage_HitReduction`/`BigTarget`/`LightCover`
         # et sur-appliquait `Parry`. Positions/board absents -> on GARDE la base brute (aucune
         # sur-application).
-        _ap_h = att.get_component(PositionComponent)
+        _ap_h = att.get_component(PositionComponent) if att is not None else None
         _tp_h = tgt.get_component(PositionComponent)
         if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
             _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
@@ -649,6 +677,10 @@ class _DamageOpsMixin:
                 attacker_persistent_data=persistent_data_keys(att),
                 is_normal_attack=False)     # gate `IsNormalAttack` (PowerTrip) : vecteur ABILITY
         hits = max(1, int(hits))
+        # 2e volet du garde-fou rng (cf. l'entree) : crit-roll et block sont les deux SEULS tirages
+        # restants de ce vecteur, et ils ne sont connus qu'ici.
+        if state.rng is None and (crit_enabled or block_sources):
+            return None
         _hp_before_chain = int(thc.hp or 0)     # PV AVANT l'attaque (#116, cf. le retour `hp_before`)
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
@@ -668,9 +700,20 @@ class _DamageOpsMixin:
                                             # Resilient a chaque coup (no-op cible non-Resilient).
                                             force_overkill=force_overkill)
         AttackDamageOperation._deplete_shield(shc, r)
+        # `is_attack` = COMPTABILITE d'attaque (`_record_attacked` -> `ActorStatisticsComponent$$
+        # RegisterAttackReceived`, dont le SEUL appelant natif est `IdunBattle.Operations.
+        # RegisterAttackOperation$$Execute`). GATE PAR FAMILLE : le corps d'`IdunBattle.Operations.
+        # AbilityDamageOperation$$Execute` (LU : boucle `ExecuteHits` + chain + `IdunBattle.Operations.
+        # ADamageOperation$$RegisterFinalDamage`) n'enqueue JAMAIS `RegisterAttackOperation` -> la
+        # famille ABILITY n'incremente PAS le compteur `HasBeenAttackedAmountThisTurn` de la cible.
+        # Le gate ne change rien au DEGAT ; il evite qu'un tick de DoT de tuile (migre sur cette
+        # route) soit compte comme une ATTAQUE recue (plancher PV Hypersensory, MoveAndSpawnDecoy,
+        # formule `TimesReceivedAttackedThisTurn`). Effet de bord ASSUME et fonde RE sur les autres
+        # consommateurs de la famille (Hailstrike, PutridExplosion) : eux non plus n'ont de
+        # `RegisterAttackOperation` dans leur chemin natif.
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
-            r["shield_dmg"], r["armor_dmg"])
+            r["shield_dmg"], r["armor_dmg"], is_attack=bool(is_attack_damage_op))
         # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
@@ -705,7 +748,11 @@ class _DamageOpsMixin:
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
                 # part PV par coup + PV AVANT l'attaque (#116 `ChainLeftOverHitsAttackDamage` : localiser
                 # le coup qui met la cible a 0 PV -> compter les coups GASPILLES sur le cadavre).
-                "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain}
+                # `hp_after` = PV APRES la mutation (purement ADDITIF, aucune branche modifiee) : le DoT
+                # de tuile en a besoin pour son emit, et le total ne suffit pas des qu'un cap (Resilient)
+                # ou un bouclier s'interpose.
+                "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain,
+                "hp_after": int(thc.hp or 0)}
 
     @staticmethod
     def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,

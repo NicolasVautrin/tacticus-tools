@@ -268,12 +268,16 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   ⇒ **un REVIVE posé sur `On(1)` COURT-CIRCUITE `On(2)`, `On(0)`, `On(55)`, `On(54)`** (+ flags de mort,
   `RemoveEffects`, `RegisterDefeatedUnit`). Le port applique la garde (`kill_unit_revive_gate`), validée
   live par `test_revive_cancels_death_events_live.py`. Détail : `case-66-revive-in-place` §7.
-- **Migration du DoT de tuile `EnvFireTile` vers la route `AbilityDamageOperation`**
-  (`case-death-nova-explodes-putridexplosion` §3) : `DSLFactory.AttackWithAbilityDamage @180de9e50`
-  construit `AbilityDamageBehaviour` + `AttackBehaviour` -> `AbilityDamageOperation`, alors que le port
-  du feu route encore sur `execute_direct` (perçage/armure SEULS : ni mods défenseur, ni block, ni
-  bouclier, ni cap Resilient). Numériquement équivalent pour une source TUILE dans les mesures
-  existantes, mais latent. `[opus]`.
+- ~~**Migration du DoT de tuile `EnvFireTile` vers la route `AbilityDamageOperation`**~~ — **RÉSOLU
+  (2026-07-26)**, cf. `case-envfire-tile-ability-route.md`. Le résidu n'était PAS latent : la route
+  `execute_direct` ignorait les mods défenseur (tick natif sur `darkaTerminator` **25000** vs 100000
+  portés, 4× trop) et l'étage limites (tick natif sur `astraYarrick` Resilient = **hp−1**, l'unité
+  survit à 1 PV là où le port la **tuait**). Deux bugs de la slice-19 fermés au passage : le caster
+  **tuile** laissait `entities.caster = None` → le DoT de tuile était un **no-op silencieux** ; et
+  `StatAmount(x, HEALTH, Maximum)` rendait la PV **courante** (`HEALTH` est une stat *fill-up*, à
+  router sur le `HealthComponent` comme `NUMBER_OF_MEMBERS`). **Reste ouvert** : généraliser
+  l'arrondi `AwayFromZero` aux autres vecteurs COMBAT (chantier séparé, cf. ci-dessous) — et le
+  demi-entier du DoT de tuile n'a pas pu être exercé live (`--hp-target` force l'armure à 0).
 - ~~**Fork de port `PerformAIAttackFromCurrentPosition`**~~ — **RÉSOLU (2026-07-26)**. Il n'existe
   plus qu'**UN** corps du nœud (`abilities/loki/summon.py::perform_ai_attack_from_current_position`) ;
   la feuille DSL `PerformAIAttack` et `quickening.py::_free_melee_attack` y délèguent. Le décompilé a

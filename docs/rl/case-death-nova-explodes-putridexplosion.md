@@ -171,12 +171,18 @@ Profils : `DirectDamage` PiercingRatio **100** ; `Toxic` PiercingRatio **70** (+
     TOUJOURS (selecteur -> N cibles, `OrderBy` = ordre de lecture == id) ;
   - `native_operation="ability"` — route sur `AbilityDamageOperation`
     (`execute_ability_attack(..., is_attack_damage_op=False)`) et non sur la route `execute_direct`
-    HISTORIQUE du DoT de tuile. **Justification RE** : `DSLFactory.AttackWithAbilityDamage
-    @180de9e50` construit `AbilityDamageBehaviour` + `AttackBehaviour` -> `AbilityDamageOperation.
-    ExecuteHits @180e2a860` (percage/armure + mods DEFENSEUR + block + bouclier + caps
+    HISTORIQUE du DoT de tuile. **Justification RE** : `IdunBattleLogic.Entities.DSLFactory$$
+    AttackWithAbilityDamage` construit `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$.ctor`
+    + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` -> `IdunBattle.Operations.
+    AbilityDamageOperation$$ExecuteHits` (percage/armure + mods DEFENSEUR + block + bouclier + caps
     member/Resilient, AUCUN crit — la famille ABILITY n'a pas de slot `RollCritical`, cf. #45f).
-    La route `"direct"` reste le DEFAUT -> le DoT feu est INCHANGE (residu documente : sa migration
-    est un chantier separe).
+
+    **RESIDU CLOS (2026-07-26)** : le DoT de tuile `EnvFireTile` est **MIGRE** sur `"ability"`, et
+    `"direct"` n'a plus aucun consommateur. Detail, mesures et effets de bord : `case-envfire-tile-
+    ability-route.md`. En resume, la route `"direct"` n'etait PAS « numeriquement equivalente » :
+    elle ignorait les mods DEFENSEUR (tick natif sur `darkaTerminator` = **25000**, port legacy
+    100000, soit 4x trop) et l'etage LIMITES (tick natif sur `astraYarrick` Resilient a 62076 PV =
+    **hp-1**, l'unite survit a 1 PV la ou le port la TUAIT).
 - **Face PREDICTION** : `TRAIT_TRIGGERED_ABILITY_IDS += {"Explodes": (1021,), "PutridExplosion":
   (1074,)}` — mirror fidele du contenu de l'`AbilitiesComponent`. **Mesure d'inertie** : aucun symbole
   `Explodes*Playbook` / `PutridExplosion*Playbook` n'existe dans le binaire, donc
