@@ -193,6 +193,47 @@ def turns_until_end_of_current_players_next_turn(state: "State") -> int:
     return convert_rounds_to_turns(state, 1) + 1
 
 
+def turns_until_unit_owner_turn(state: "State", unit_id: int) -> int:
+    """`IdunBattleLogic.Entities.DSLFactory$$TurnsUntilUnitOwnerTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn` (MIRROR
+    du decompile) :
+
+        cur = StateExtensions.GetCurrentPlayer(state)
+        if (cur == null) return 0
+        if (GetOriginalPlayerId(cur) == GetOriginalPlayerId(unit)) return 0     # c'est deja son tour
+        order = query.<slot 0x17>()                       # la liste TurnOrder d'ids de joueurs
+        i0 = order.IndexOf(GetOriginalPlayerId(cur))
+        count = 0
+        for k in 0 .. order.Count-1 :
+            p = GetPlayer(state, order[(k + i0) % order.Count])
+            if (GetOriginalPlayerId(p) == GetOriginalPlayerId(unit)) return count
+            if (p.PlayerComponent@+0x20 != 2)             # != Environment
+                if (!query.<slot 0x19>(p)) count++        # joueur non-elimine
+        return count
+
+    => « nombre de tours de joueur (hors Environment) restant a jouer AVANT que le tour du proprietaire
+    de `unit` ne commence ». C'est la duree que `AReactivateOverwatchEffect$$GetAddHitReductionBehaviour`
+    donne au stat-mod EXTRA_HITS : la reduction de coups ne vit QUE le reste du tour adverse en cours.
+
+    COLLAPSE ASSUME (doctrine slice-18/19 -- la formule V n'a pas de noeud porte) : le port ne detient
+    pas la LISTE `TurnOrder` (`state` n'expose que `current_player_id` et `turn_order_player_count`,
+    seede depuis `observeBattle.counts.player - 1`). Sur un runner de duel -- le SEUL vecteur du port,
+    `turn_order_player_count == 2` -- la boucle native ne peut compter que le joueur COURANT avant de
+    tomber sur le proprietaire : le resultat est **1**. RESIDU NOMME : avec plus de 2 joueurs
+    non-Environment le rang exact du proprietaire dans l'ordre n'est pas derivable offline et cette
+    fonction rend 1 (borne INFERIEURE, jamais une duree inventee plus longue)."""
+    from ..components import OwnerComponent
+    cur = state.current_player_id
+    if cur is None:
+        return 0                                       # `GetCurrentPlayer(state) == null`
+    e = state.get_entity(int(unit_id))
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    owner_player = oc.player if oc is not None else None
+    if owner_player is not None and int(owner_player) == int(cur):
+        return 0                                       # c'est deja le tour du proprietaire
+    return 1
+
+
 # ---------------------------------------------------------------------------
 # « Does not end turn » (#139) — mirror des virtuals `SetsEndTurnFlags` / `SetsActiveAbilityUsedFlag`.
 #

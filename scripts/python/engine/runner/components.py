@@ -81,9 +81,21 @@ class UnitComponent(Component):
 
     Le lien RECIPROQUE (parent -> enfants) n'est PAS materialise : le port le derive en balayant
     `state.entities` (cf. `children_of`), la ou le natif tient une liste `ParentComponent.children`.
+
+    `death_source` = mirror du `Nullable<IdunBattle.Operations.DamageSource>` @`UnitComponent+0x108`,
+    ECRIT par `IdunBattle.Operations.KillUnitOperation$$RecordDeathReason(killer, killed,
+    killedUnitComponent, deathReason)` (call-site : `IdunBattle.Operations.KillUnitOperation$$Execute`,
+    AVANT le `On(PreUnitDeath=1)` -- ordre LU au decompile) et RELU par
+    `IdunBattle.Entities.Triggers.HasDeathReasonTrigger$$ShouldTrigger` (qui resout SON selecteur, prend
+    le `UnitComponent` de chaque unite selectionnee, lit ce champ et delegue a
+    `...$$IsMatchingDeathReason`). Structure de la `DamageSource` LUE au decompile :
+    `+0x00 KillerId` · `+0x14 DamageReason` (0=Ability, 1=Knockback, 2=Steppable) ·
+    `+0x18 Nullable<AbilityOrEffect>` (lu par `IdunBattle.Operations.DamageSource$$IsFromAbility`).
+    Cote port : `(killer_id, damage_reason, ability_or_effect|None)`, None tant que l'unite est vivante.
     """
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
-                 "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id")
+                 "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
+                 "death_source")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -96,6 +108,7 @@ class UnitComponent(Component):
         self.revive_used_this_turn = False
         self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
         self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
+        self.death_source = None              # `Nullable<DamageSource>` @UnitComponent+0x108
 
 
 class OwnerComponent(Component):

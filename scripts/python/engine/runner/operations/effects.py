@@ -277,10 +277,25 @@ class AddEffectOperation:
         """Mirror `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$RevertInternal` = `IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ResetStat` ×N (part 8 = REMOVE_OVERRIDE) :
         retire les overrides posés par `_apply_stat_overrides` (liste `stat_override_stats` de
         l'instance). Appelé à la CONSOMMATION de l'effet (ex. TargetTrigger `On(AttackDamageAttack)&
-        OwnerIsCaster` de MV71 InitialDmg, exécuté par l'ability après l'attaque commandée)."""
+        OwnerIsCaster` de MV71 InitialDmg, exécuté par l'ability après l'attaque commandée).
+
+        VOLET `ACTIVE_ABILITY_LEVEL` (#114 résidu 2) : la feuille `AddStatOverrideEffect` écrit CE stat
+        dans `UnitContext.active_ability_level` en plus du `UnitStats` — c'est le seul canal que lisent
+        `ability_var` / `ability_attack_params`, donc le seul mirror OBSERVABLE de
+        `GetStat(unit, ACTIVE_ABILITY_LEVEL)` — et mémorise la valeur précédente dans
+        `overridden_prev`. Le `ResetStat` (part 8) doit donc la RESTAURER symétriquement, sinon le
+        retrait de `InspiredToGreatness_OverrideLevel` (1180) laisserait le niveau plafonné à vie."""
         from .stat_ops import remove_stat_override
-        for st in (getattr(eff, "stat_override_stats", None) or []):
+        from ...entities.stats import StatType
+        stats = getattr(eff, "stat_override_stats", None) or []
+        for st in stats:
             remove_stat_override(state, target, int(st))
+        if int(StatType.ACTIVE_ABILITY_LEVEL) in [int(s) for s in stats] \
+                and hasattr(eff, "overridden_prev"):
+            te = state.get_entity(int(target))
+            tsc = te.get_component(StatsComponent) if te is not None else None
+            if tsc is not None and tsc.ctx is not None:
+                tsc.ctx.active_ability_level = eff.overridden_prev
         eff.stat_override_stats = []
 
     @staticmethod

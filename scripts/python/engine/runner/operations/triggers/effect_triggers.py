@@ -237,8 +237,14 @@ class OverwatchAutoAttack(EffectTrigger):
         # `is_overwatch=True` : le natif resout ce coup par `UseActiveAbility(NormalAttack)` (donc une
         # attaque NORMALE), mais le predicat `IsOverwatchAttack` le distingue -- consomme par la
         # disjonction `IsRangedAttack | IsOverwatchAttack` du bonus de percage Hailstrike (case-117 ph.2).
+        # `triggering_ability` (#114) : le natif resout ce coup par `UseActiveAbility(NormalAttack)`
+        # DEPUIS l'effet 1009 -> `StaticBattleRules$$GetDamageSourceAbility(currentAbility = attaque
+        # REGULIERE, triggeringAbility = 1009)` attribue le degat (et donc la RAISON DE MORT gravee sur
+        # la victime) a l'EFFET 1009, pas a l'attaque normale. C'est ce que teste
+        # `AReactivateOverwatchEffect$$LegitDeathReasons` (`HasDeathReason(dying, Ability, 0x3f1)`).
         res = AttackDamageOperation.execute(state, self.owner_id, ev.actor_id, 20,  # attaque NORMALE
-                                            is_overwatch=True)
+                                            is_overwatch=True,
+                                            triggering_ability=OVERWATCH_AUTO_ATTACK)
         return {"effect": "Overwatch_AutoAttack", "attacker": self.owner_id,
                 "target": ev.actor_id, "result": res}
 

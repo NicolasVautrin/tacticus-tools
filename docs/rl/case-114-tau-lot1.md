@@ -4,6 +4,9 @@
 dans `kit-coverage.md`. RE ghidra `gqfc5mff6c` (decompile = verite), port DSL 1:1, confront LIVE
 bit-exact des 3 (4 tests, `tests/engine/runner/test_tau_lot1_live.py`).
 
+**Les DEUX residus de §5 sont LEVES** (§7 retrait de l'override de niveau 1180, §8 re-entree en
+overwatch 1145) — 3 tests supplementaires, `tests/engine/runner/test_tau_lot1_residues_live.py`.
+
 | ability | id | porteur | artefact natif | verdict |
 |---|---|---|---|---|
 | FightingRetreat | 1081 | `tauDarkstrider` (HERO) | `...Active.Loki.FightingRetreatAbility$$ExecuteBehaviour` (arbre DSL, 5 volets) | **porte + live-valide** (2 scenarios discriminants) |
@@ -277,14 +280,8 @@ Points de mesure notables :
    override -> 1009 PRESENT, meme tour, meme cible). Le 3e `Triggered()` (`On(10) & OwnerIsActor ->
    DeactivateEffect` = **un seul tir par activation**) est FERME lui aussi : `case-127` §8 (flag
    `EffectComponent.IsActive @+0x5c` par instance + vecteur `On(AttackDamageAttack)`).
-2. **Retrait de l'override de niveau (1180)** — `InspiredToGreatness_OverrideLevelEffect$$
-   CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` (retrait au PROCHAIN cast du porteur). Non
-   branche offline -> l'override sur `active_ability_level` PERSISTE apres la 2e utilisation. Sans
-   consequence pratique (le porteur n'a droit qu'a UNE utilisation supplementaire).
-3. **Phase 2 d'EarlyWarningOverride** — `EarlyWarningOverride_ReactivateOverwatchEffect`
-   (`$$GetOverwatchExtraDamage`, `$$LegitDeathReasons`) : la re-entree en overwatch apres un kill avec
-   `hitsReduction=1` (i2 : « she remains in Overwatch, retaining 1 fewer hits »). L'effet 1145 est
-   POSE (presence fidele) mais reste un `BaseEffect` inerte. 1149 = visuel pur.
+2. ~~**Retrait de l'override de niveau (1180)**~~ — **LEVE** (cf. §7).
+3. ~~**Phase 2 d'EarlyWarningOverride**~~ — **LEVE** (cf. §8). 1149 reste VISUEL pur (inerte assume).
 4. **`ab.<+0x34>`** (champ non nomme entre `IsDisabled@0x35` et le Nullable de cooldown), lu comme 0
    dans `entity_can_have_active_ability_reset` -> la branche « en cooldown » est toujours PRISE. Non
    observable par le canal live actuel.
@@ -327,3 +324,208 @@ comme le natif.
 | `entity_can_have_active_ability_reset` / `ResetActiveAbilityOperation` | `runner/operations/ability_reset.py` | `BattleQuery$$EntityCanHaveActiveAbilityReset` / `ResetActiveAbilityOperation$$Execute` |
 | `turns_until_end_of_current_players_next_turn` | `runner/abilities/base.py` | `DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn` |
 | gate de PORTEE de `PerformAIAttack` | `runner/abilities/behaviours/summon.py` | `PerformAIAbilityUnitBehaviour$$Execute` (routine AI depuis la position courante) |
+| `turns_until_unit_owner_turn` | `runner/abilities/base.py` | `DSLFactory$$TurnsUntilUnitOwnerTurn` / `TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn` |
+| `is_active_ability` | `runner/abilities/attack_type.py` | `StaticBattleRules.ActiveAbility$$IsActiveAbility` |
+| vecteur `On(UnitActiveAbility = 0xc)` | `runner/operations/triggers/dispatch.py` | `ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0xc)` sous gate) |
+| `UnitComponent.death_source` + `_record_death_reason` / `_damage_source_ability` | `runner/components.py`, `runner/operations/damage.py` | `KillUnitOperation$$RecordDeathReason` / `StaticBattleRules$$GetDamageSourceAbility` |
+| `has_death_reason` (predicat T) | `runner/operations/triggers/loki/reactivate_overwatch.py` | `HasDeathReasonTrigger$$ShouldTrigger` / `$$IsMatchingDeathReason` |
+
+---
+
+## 7. Residu 2 LEVE — retrait de l'override de niveau (1180)
+
+### 7.1 Artefact natif
+
+`IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$CreateRemoveEffectTrigger`
+= `On(0xc) & get_OwnerIsCaster`. Le trigger n'est pas enregistre par la classe d'effet : c'est
+`IdunBattle.Entities.Effects.BaseEffect$$CreateHandleTriggerAbilities` (wrapper GENERIQUE au-dessus de
+`CreateHandleTriggerAbilitiesInternal`) qui, quand ce virtuel rend un trigger non nul, AJOUTE a
+l'`ArraySet` de l'effet :
+
+```
+Triggered( CreateRemoveEffectTrigger(),
+           DSLFactory.RemoveEffect(df@0x150) )        # == BaseEffect$$GetRemoveEffectBehaviour
+```
+
+`df@0x150` = le selecteur d'entite-effet COURANTE -> le behaviour retire CETTE instance.
+
+### 7.2 Le gate qui fait la semantique : `On(0xc)` N'EST PAS emis par une attaque normale
+
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (sequence LUE au decompile) :
+
+```
+On(0x2b) PreUnitAbility            <- avant l'execution
+... execution de la behaviour ...
+On(0xb)  UnitAbility               <- inconditionnel
+if (StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType))  On(0xc) UnitActiveAbility
+AddFlagsAfterAbilityExecution(...)
+On(0xe)  UnitPostAbility
+```
+
+`IsActiveAbility(t)` = `!IsRegularAttack(t) && t not in {0x12 Heal, 0x1c Repair, 0x45f
+Repair_GalvanicField, 0x48f Heal_TwistedScience, 0x4bc HealingBalms_Heal}`. L'attaque NORMALE emprunte
+pourtant la MEME operation (elle EST une active ability) : c'est ce gate, et lui seul, qui borne le
+retrait au **prochain CAST D'ACTIF** du porteur — l'utilisation supplementaire que 1082 vient de lui
+accorder — et non a sa prochaine action.
+
+Le port emet donc `On(0xc)` depuis la SEULE voie ability (`AbilityHandler.visit_ActiveAbilityMessage`),
+au rang natif (apres l'execution, avant `AddFlagsAfterAbilityExecution`) et avec le gate re-applique
+dans le vecteur. La voie normale (`damage.py`) n'a rien a emettre.
+
+### 7.3 Le revert doit RESTAURER `active_ability_level`
+
+`AddStatOverrideEffect` ecrit le stat 18 dans `UnitContext.active_ability_level` (seul canal lu par
+`ability_var`/`ability_attack_params`, donc seul mirror OBSERVABLE de `GetStat(unit,
+ACTIVE_ABILITY_LEVEL)`) et memorise `overridden_prev`. Le `ResetStat` (part 8) de
+`AddEffectOperation.revert_stat_overrides` restaure desormais cette valeur — sinon le retrait de 1180
+laisserait le niveau plafonne a vie.
+
+---
+
+## 8. Residu 3 LEVE — re-entree en overwatch + reduction de coups (1145)
+
+### 8.1 Hierarchie native
+
+`EarlyWarningOverride_ReactivateOverwatchEffect` (1145) etend
+`IdunBattle.Entities.Effects.AReactivateOverwatchEffect` (qui etend `DamageModifierAbilityEffect`) ;
+son ctor = `AReactivateOverwatchEffect..ctor(this, 0x435 = 1077)` -> l'effet resout ses `ConfigVar`
+contre la config de 1077. Trois autres sous-classes partagent la meme mecanique :
+`FiringPosition_ReactivateOverwatchEffect` (1150), `CalibaniteGreatsword_StrikeOverwatchingEffect`,
+`InescapableDeathEffect`.
+
+### 8.2 `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` (MIRROR 1:1)
+
+```
+Triggered(                                                     # (1) LA RE-ENTREE
+    On(1 = PreUnitDeath) & get_OwnerIsActor
+      & NOT df@0xa0                                            # IsTurnOf(owner@0x148)
+      & AmountIsGreater( Max(RangedAttackHits(Owner), MeleeAttackHits(Owner)),
+                         HitReductionValue() )                 # vtable +0x748
+      & LegitDeathReasons(),                                   # vtable +0x738
+    ActivateEffect(Owner, 0x3f1 = 1009)                        # GetReactivateOverwatchBehaviour
+    & AddStaticStatModifierEffect(Owner, GetHitReductionEffectType(),   # vtable +0x758
+                                  0x11 = EXTRA_HITS, Negative(HitReductionValue()),
+                                  TurnsUntilUnitOwnerTurn(Owner), isHidden=0) )
+
+Triggered(                                                     # (2) LA PURGE
+    ( On(0 = UnitDeath) | On(0x11 = PostDamageTaken) )
+      & NOT HasEffect(Owner, 0x3f1, onlyActive=1, targetType=6=Both),
+    RemoveEffect(Owner, Nullable(GetHitReductionEffectType())) )
+```
+
+`AReactivateOverwatchEffect$$HitReductionValue` = `Direct(GetNumberConstant(config@0x60, 0x2c))` =
+la constante `hitsReduction` de l'ability source (=1 pour 1077).
+
+Overrides de 1145 :
+- `$$GetHitReductionEffectType` = `return 0x47a` = **1146 `EarlyWarningOverride_HitReduction`** ;
+- `$$LegitDeathReasons` = `HasDeathReason(dying@0x178, Ability, 0x3f1 = 1009)
+  | HasDeathReason(dying@0x178, Ability, 0x47c = 1148 CyclicIonBlaster_AdditionalHits)` — la base ne
+  garde que la 1re branche. Un kill porte par les 3 coups Particle du passif de Re'vas compte AUSSI :
+  c'est ce que « toute mort re-arme » aurait rate.
+
+### 8.3 Le canal DEATH-REASON (la piece qui manquait au port)
+
+`HasDeathReasonTrigger$$ShouldTrigger` resout son SELECTEUR, prend le `UnitComponent` de chaque unite
+selectionnee, lit son `Nullable<DamageSource>` @`+0x108` et delegue a `$$IsMatchingDeathReason` :
+
+```
+if (!src.HasValue) return false
+if (src.DamageReason != this.deathReason) return false                 # 0=Ability 1=Knockback 2=Steppable
+if (!this.abilityOrEffect.HasValue) return true
+return src.AbilityOrEffect.HasValue && src.AbilityOrEffect == this.abilityOrEffect
+```
+
+Le champ est ecrit par `KillUnitOperation$$RecordDeathReason(killer, killed, killedUnitComponent,
+deathReason)`, appelee par `KillUnitOperation$$Execute` **AVANT** l'emission d'`On(PreUnitDeath=1)`
+(ordre lu au decompile). Son `AbilityOrEffect` vient de la `DamageSource` construite PAR COUP par
+`AttackDamageOperation$$ExecuteHit` / `AbilityDamageOperation$$ExecuteHit` via
+
+```
+StaticBattleRules$$GetDamageSourceAbility(currentAbility, triggeringAbility) =
+    IsRegularAttack(currentAbility) && triggeringAbility.HasValue ? triggeringAbility : currentAbility
+```
+
+=> un tir d'OVERWATCH (`Overwatch_AutoAttackEffect$$GetAttackBehaviour` =
+`UseActiveAbility(NormalAttack)`, donc une attaque REGULIERE declenchee par l'effet 1009) enregistre
+**1009** comme source. Le port FUSIONNE les deux morceaux au moment du kill
+(`AttackDamageOperation._record_death_reason`, alimente par `_damage_source_ability` et par le
+`triggering_ability` que le call-site overwatch passe) — il n'a pas le transport
+`DamageAppliedResult.source` du natif.
+
+MESURE (test de garde) : `death_source = (81, 0, 1009)` sur la victime d'un tir d'overwatch,
+`(81, 0, 1013)` sur la victime d'une attaque normale du MEME porteur.
+
+### 8.4 Ce que le port modelise, et ce qu'il ne modelise pas
+
+- **La reduction de coups est pleinement observable** : 1146 apparait sur le porteur avec un stat-mod
+  `EXTRA_HITS = -hitsReduction` (mesure : `-1`) de duree `TurnsUntilUnitOwnerTurn` (mesure : 1 tour,
+  offline == live) ; `attack_hits_with_modifiers` le consomme -> le tir suivant a un coup de moins.
+- **`ActivateEffect(Owner, 1009)` = le CONTREPOIDS du « un seul tir par activation »** (`case-127` §8,
+  3e `Triggered()` de `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` :
+  `On(AttackDamageAttack=10) & OwnerIsActor -> DeactivateEffect`). Le tir d'overwatch CONSOMME
+  l'instance 1009 ; ce behaviour la RE-ARME quand le tir a tue. La feuille `ActivateEffect` ecrit
+  desormais le flag `BaseEffect.active` (= `EffectComponent.IsActive @+0x5c`, porte par `case-127`) en
+  plus de la presence — sans ce complement, `GetReactivateOverwatchBehaviour` restait vide.
+  GROUND TRUTH LIVE (test de garde §9) : apres le kill en overwatch, 1009 est TOUJOURS present dans
+  `decisionView` (donc `IsActive != 0`) — « she remains in Overwatch ».
+- **`On(PostDamageTaken = 0x11)`** (2e disjonct de la purge) : aucun vecteur du port ne l'emet (site
+  d'emission natif non localise — ni `ApplyDamageOperation$$Execute`, qui n'emet que 0x3a/0xf/0x10, ni
+  `KillUnitOperation$$Execute`). La classe l'ECOUTE (`event_ids`) ; l'ecoute est dormante. Aucun port
+  speculatif du vecteur.
+- **Branche 1148** de `LegitDeathReasons` : le port ne materialise pas la `DamageSource` PAR COUP, donc
+  un kill porte par un coup additionnel `CyclicIonBlaster_AdditionalHits` s'enregistre sous la source
+  de l'attaque porteuse. Le predicat porte la branche ; elle ne peut pas matcher aujourd'hui.
+
+### 8.5 Pieges de RE traverses (a ne pas re-payer)
+
+- Ghidra nomme `EarlyWarningOverride_ReactivateOverwatchEffect$$GetOverwatchExtraDamage` la fonction
+  @RVA `f40360` : la table FRIDA (AMONT de Ghidra dans la chaine de symboles) dit que c'est
+  `InescapableDeathEffect.GetOverwatchExtraDamage`. 1145 n'override PAS `GetOverwatchExtraDamage` ;
+  son 2e override est `GetHitReductionEffectType` @`f40350`, que Ghidra n'a meme pas en fonction
+  (corps `mov eax,0x47a ; ret`, lu en OCTETS).
+- Les ctors gshared (`IsUnitWIthIdTrigger`, `ModuloAbilityTrigger`) sont mislabeles : c'est la
+  STRUCTURE des arguments qui identifie `RangedAttackHits` / `MeleeAttackHits` (meme classe, flag
+  ranged 1/0) et `TurnsUntilUnitOwnerTurn`.
+- Qualification d'enum : `1145` est AUSSI `ActiveAbilityType.SporeMineLauncher` (deja portee) et
+  `1148` AUSSI `ActiveAbilityType.DaemonicOrdnance`. Le contexte est `EffectType` des DEUX cotes.
+
+### 8.6 Collapses assumes
+
+| noeud natif | collapse |
+|---|---|
+| `RangedAttackHits` / `MeleeAttackHits` (`AttackHitsFormula$$Calculate`) | `arme(profil).Hits + ExtraHits(0x11) [+ ExtraHitsMelee(0x17) en melee]` = `GetDefaultAttackHits`, la base exacte de la facade `GetAttackHits` (la formule native est evaluee SANS defenseur) |
+| `TurnsUntilUnitOwnerTurn` | le port ne detient pas la liste `TurnOrder` (seulement `current_player_id` + `turn_order_player_count`) : sur un duel — le seul vecteur du port — la boucle native ne compte que le joueur courant, soit **1**. Au-dela de 2 joueurs non-Environment, la fonction rend 1 (borne INFERIEURE) |
+| `NOT df@0xa0` (`IsTurnOf(owner)`) du Triggered #1 | REDONDANT sur le canal porte : `AReactivateOverwatchEffect$$CreateActiveCondition` = `NOT IsTurnOf(owner)`, donc l'effet 1145 est INACTIF pendant le tour de son porteur et `readEffectsByUnit` le DROPPE — le trigger n'est meme pas enregistre. Le conjoint est porte quand meme (il redevient load-bearing le jour ou l'`IsActive` par instance existe) |
+
+---
+
+## 9. Confront LIVE des deux residus
+
+`tests/engine/runner/test_tau_lot1_residues_live.py` — 3 tests, 3/3 verts. Chaque test exerce la
+branche AVANT **et** APRES ; les trois ECHOUENT si l'on desactive les entrees `EFFECT_TRIGGERS`
+(verifie).
+
+| test | scenario (DRIVE des positions) | mesure |
+|---|---|---|
+| `test_inspired_to_greatness_override_removed_on_next_active_cast_live` | Re'vas consomme 1077 -> Aun'Shi caste 1082 (1180 pose) -> tour suivant, Re'vas RE-CASTE 1077 | 1180 PRESENT avant, ABSENT apres — offline **et** live. Controle `OwnerIsCaster` : le cast de 1082, rejoue OFFLINE, emet lui aussi `On(0xc)` (caster = Aun'Shi) APRES sa behaviour et ne retire PAS le 1180 qu'il vient de poser |
+| `test_early_warning_override_reactivate_overwatch_live` | Re'vas caste 1077, la main passe a l'adversaire, un ork (`--hp-target 1`) est DRIVE d'un pas dans sa portee -> overwatch -> kill | 1146 ABSENT avant, PRESENT apres — offline **et** live, `remaining` identique ; `EXTRA_HITS = -1` ; `death_source = (revas, Ability, 1009)` |
+| `test_tau_lot1_residues_gates_negative_live` | MEME unite, MEME etat (1180 pose, overwatch arme), mais une ATTAQUE NORMALE qui TUE, pendant SON tour | 1180 SURVIT (gate `IsActiveAbility`) et 1146 n'est PAS pose ; `death_source = (revas, Ability, 1013)` = le marqueur de kind attaque-normale, pas 1009 |
+
+**Le drive du camp ADVERSE est un acquis de harnais** : `applyAction move` accepte l'unite du joueur
+COURANT, adversaire compris (`mutated: true`, position changee) — c'est ce qui rend un kill en
+overwatch CRAFTABLE sans dependre de l'IA native. `aiMovableTiles` sans `side` rend les unites du
+joueur courant. En revanche, `applyAction endturn` emis pendant le tour adverse a fait passer le
+runner en `stage Finished` : on laisse le tour adverse basculer SEUL (il le fait des que ses unites
+n'ont plus d'action).
+
+### Non couvert (explicite)
+
+- **Branche 1148** de `LegitDeathReasons` (kill par un coup additionnel `CyclicIonBlaster`) : non
+  atteignable tant que la `DamageSource` n'est pas materialisee PAR COUP (cf. §8.4).
+- **`ActivateEffect(1009)`** : no-op sous le modele presence == IsActive ; sa validation appartient au
+  chantier « un seul tir par activation » (`case-127` §6.1).
+- **Le disjonct `On(PostDamageTaken)`** de la purge : vecteur non emis par le port.
+- **Le gate de coups** `Max(Ranged, Melee AttackHits) > hitsReduction` : exerce en positif seulement
+  (Re'vas a plus d'un coup) ; aucun porteur du roster ne le met en defaut.
+- **`FiringPosition_ReactivateOverwatchEffect` (1150)** : meme base, porteur non identifie — non
+  enregistre (le registre `EFFECT_TRIGGERS` est keye par `effectType`, l'ajout serait mecanique).

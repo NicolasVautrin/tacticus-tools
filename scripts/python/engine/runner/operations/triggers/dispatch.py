@@ -84,6 +84,11 @@ from .loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE
 from .loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from .loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
+from .loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,   # #114 residu 2
+                                         ITG_OVERRIDE_LEVEL)
+from .loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
+                                        EarlyWarningOverrideHitReductionPurge,
+                                        EWO_REACTIVATE_OVERWATCH)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -290,6 +295,22 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # $$CreateTargetTrigger` = `On(0xe=UnitPostAbility) & AreEqual(target@0x178, EffectSource(this))` ->
     # le bonus +20 % block ne vit QUE le temps de l'ability qui l'a declenche (ground truth live).
     ANVIL_FROZEN_ADVANTAGE: [AnvilShieldFrozenAdvantageExpire],      # 1201 -> conso a UnitPostAbility
+    # InspiredToGreatness_OverrideLevel (#114 residu 2, effet 1180 pose par l'active 1082 de tauAunShi
+    # sur l'allie `canReset`) : son SEUL trigger est celui que `BaseEffect$$CreateHandleTriggerAbilities`
+    # greffe quand `CreateRemoveEffectTrigger` est non nul --
+    # `InspiredToGreatness_OverrideLevelEffect$$CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster`
+    # -> `BaseEffect$$GetRemoveEffectBehaviour` = `RemoveEffect(<cette instance>)`. Borne l'override de
+    # `ACTIVE_ABILITY_LEVEL` au PROCHAIN CAST D'ACTIF du porteur.
+    ITG_OVERRIDE_LEVEL: [InspiredToGreatnessOverrideLevelRemove],    # 1180 -> retrait On(0xc)
+    # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
+    # tauCrisis) : `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` rend un ArraySet
+    # de DEUX `Triggered()` -> DEUX classes. (1) `On(1=PreUnitDeath) & OwnerIsActor & NOT IsTurnOf(owner)
+    # & AmountIsGreater(Max(Ranged,Melee AttackHits), hitsReduction) & LegitDeathReasons` ->
+    # `ActivateEffect(1009) & AddStaticStatModifierEffect(1146, EXTRA_HITS, -hitsReduction,
+    # TurnsUntilUnitOwnerTurn)` ; (2) `(On(0)|On(0x11)) & NOT HasEffect(owner,1009,onlyActive)` ->
+    # `RemoveEffect(1146)`. Cf. loki/reactivate_overwatch.py.
+    EWO_REACTIVATE_OVERWATCH: [EarlyWarningOverrideReactivateOverwatch,   # 1145 -> re-entree + -1 coup
+                               EarlyWarningOverrideHitReductionPurge],   # 1145 -> purge du 1146
 }
 
 
@@ -532,6 +553,34 @@ def unit_post_ability_triggers(state: State, caster_id: int, target_id: int,
     comme le natif). Emettre `0x2b` sans son `0xe` sur la meme voie laisserait un effet
     « le temps de CETTE ability » pose pour toujours."""
     ev = TriggerEvent(EventTriggerType.UnitPostAbility, caster_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_active_ability_triggers(state: State, caster_id: int, target_id: Optional[int],
+                                 ranged: bool, profile: Optional[str] = None,
+                                 ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(UnitActiveAbility = 0xc = 12)` — emis par
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` APRES l'execution de la behaviour
+    et AVANT `AddFlagsAfterAbilityExecution`, **sous le gate**
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$IsActiveAbility`
+    (sequence lue au decompile : `On(0xb)` inconditionnel -> `if (IsActiveAbility(t)) On(0xc)` ->
+    `AddFlagsAfterAbilityExecution` -> `On(0xe)`).
+
+    Ce gate est LOAD-BEARING : l'attaque NORMALE emprunte la meme operation mais est un
+    `IsRegularAttack` -> elle n'emet PAS `0xc`. Le port n'emet donc ce vecteur que depuis la voie
+    ABILITY (`AbilityHandler.visit_ActiveAbilityMessage`), et le gate y est re-applique tel quel (une
+    ability du registre qui serait, elle, une attaque reguliere -- ex. 1076 MV71 -- reste muette).
+
+    SEUL consommateur porte : `InspiredToGreatnessOverrideLevelRemove` (effet 1180, #114) — le retrait
+    de l'override de niveau au PROCHAIN CAST D'ACTIF du porteur. AUCUN autre trigger porte n'ecoute
+    `event_id == 12`. `ability_type` = `df@0x130` (l'ability declenchante), threade pour les gates
+    kind des futurs consommateurs."""
+    from ...abilities.attack_type import is_active_ability   # lazy : coherent avec les autres vecteurs
+    if not is_active_ability(ability_type):
+        return []
+    ev = TriggerEvent(EventTriggerType.UnitActiveAbility, caster_id,
+                      target_id if target_id is not None else caster_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
     return evaluate_trigger_operation(state, ev)
 
