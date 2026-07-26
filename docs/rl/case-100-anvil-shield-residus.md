@@ -153,11 +153,15 @@ la **clé de source du seed** (`statmod_source_key`, factorisée) et `ValueModif
   `IsNormalAttack` (AnvilShield) et `AbilityHasAttackType(0|1)` (SwornProtector), tous deux dans
   `engine/runner/abilities/attack_type.py`. Voir `probe_120_pre_unit_ability_fork.py` et
   `tests/engine/runner/test_pre_unit_ability_fork_live.py`.
-- **`ExecuteForReplacedTarget` reste NON PORTÉ** (résidu nommé, symétrique sur les deux voies) : juste
-  après `0x2b`, le natif re-résout la cible (`GetUnit(First(targetTiles))`) et rejoue l'ability contre
-  l'unité qui occupe désormais la tuile visée. C'est ce maillon qui envoie les dégâts sur Kell après le
-  switch — offline, Creed encaisse encore. Détail RE en tête de
-  `engine/runner/operations/triggers/loki/sworn_protector.py`.
+- ~~**`ExecuteForReplacedTarget` reste NON PORTÉ**~~ — **CORRIGÉ (#120bis)**, sur les **deux** voies à
+  la fois (le câbler sur une seule aurait rouvert le fork que #120 venait de fermer). Juste après
+  `0x2b`, le natif re-résout la cible (`GetUnit(First(AbilityEntities@+0x38))`, la liste de tuiles
+  **figée avant** l'émission par `ActiveAbilityOperation$$GetAbilityEntities`) et **RE-ENTRE** dans
+  `ActiveAbilityOperation$$Execute` contre l'unité qui occupe désormais la tuile visée — c'est ce
+  maillon, et non le `SwitchPosition` lui-même, qui envoie les dégâts sur Kell. Foyer unique :
+  `engine/runner/operations/active_ability.py`, appelé par `damage_ops.execute` (voie normale) et
+  `AbilityHandler.visit_ActiveAbilityMessage` (voie cast). Voir
+  `probe_120bis_execute_for_replaced_target.py` (8 scénarios, dont les contre-cas « pas de switch »).
 - `On(0xb)`/`On(0xc)` (les deux événements intermédiaires de la même opération) ne sont pas émis :
   aucun trigger porté ne les écoute.
 - `IsMeleeAttack` est résolu **par POSITION** (`_is_ranged_position`, mirror

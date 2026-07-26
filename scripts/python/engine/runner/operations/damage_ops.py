@@ -148,8 +148,29 @@ class _DamageOpsMixin:
         # `ability_type = 0x3f5 = 1013` (le marqueur « kind attaque-normale » du `DirectAbilitySelector`
         # natif, cf. `attack_type.NORMAL_ATTACK_KIND`) qui le satisfait sur CETTE voie.
         from .triggers.dispatch import pre_unit_ability_triggers   # lazy : cycle damage<->triggers
+        # #120bis SNAPSHOT DE TUILE de la cible (AVANT l'emission) — `IdunBattle.Operations.
+        # ActiveAbilityOperation$$GetAbilityEntities` fige `AbilityEntities@+0x38 =
+        # EntityExtensions.GetTiles(finalTarget)` en amont du `0x2b` ; la re-resolution qui SUIT
+        # l'emission confronte ce fige a l'occupation reelle.
+        from .active_ability import (execute_for_replaced_target, get_tiles,
+                                     resolve_replaced_target)
+        _target_tiles = get_tiles(state, target_id)
         pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                   profile=_profile, ability_type=1013)
+        # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans
+        # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`. L'attaque normale EST une
+        # active ability (`ALoki_NormalAttackAbility`) : elle traverse le MEME etage que le cast, et
+        # c'est LUI qui envoie les coups sur Kell apres le switch de SwornProtector (le switch, seul,
+        # ne fait que deplacer Creed). La re-entree = un `AttackDamageOperation.execute` NEUF sur la
+        # nouvelle cible (mirror `ActiveAbilityOperation$$Execute`), donc selection d'arme, distance,
+        # `On(0x2b)`, coups et modificateurs sont TOUS recalcules contre elle. Cet appel-ci `return`e
+        # aussitot, comme le natif. Cable sur les DEUX voies a la fois (cf. `active_ability.py`).
+        _replaced, _new_target = resolve_replaced_target(state, target_id, _target_tiles)
+        if _replaced:
+            return execute_for_replaced_target(
+                state, attacker_id, _new_target,
+                lambda t: AttackDamageOperation.execute(state, attacker_id, t, spread_pct,
+                                                        is_overwatch=is_overwatch))
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
@@ -351,7 +372,12 @@ class _DamageOpsMixin:
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce)
         if _ah is not None:
             death = death or _ah.get("death")
+        # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
+        # re-resolution d'`ExecuteInternal` a bascule l'attaque sur une remplacante (SwornProtector) :
+        # les vecteurs AVAL du natif (after-hit d'`ExecuteHit`) portent l'AttackData de CETTE
+        # attaque-la, pas celle du message -> `DamageHandler` la relit ici.
         return {"hits": hits, "total": r["total"], "base": ctx.stat(StatType.ATTACK), "pierce": pierce,
+                "target": int(target_id),
                 "armor": armor, "clean_min": clean_min, "clean_max": clean_max, "death": death,
                 "shield_dmg": r["shield_dmg"], "armor_dmg": r["armor_dmg"],
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],

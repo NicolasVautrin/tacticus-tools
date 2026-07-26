@@ -490,8 +490,13 @@ class DamageHandler:
             # CurrentAttackDamageProfilesContain du trigger 1173).
             _profs = {self.last.get("profile")} - {None}
             _profs |= set((self.last.get("additional_hits") or {}).get("profiles") or [])
+            # #120bis : la cible du vecteur after-hit = celle que l'attaque a REELLEMENT frappee
+            # (`last["target"]`), pas celle du message — la re-resolution d'`ActiveAbilityOperation$$
+            # ExecuteInternal` peut avoir bascule l'attaque sur une remplacante (SwornProtector/Kell).
+            # Le natif emet ces vecteurs depuis `AttackDamageOperation$$ExecuteHit`, donc avec
+            # l'AttackData de l'attaque re-entrante. Defaut = la cible du message (retro-compat).
             self.after_hit = after_hit_normal_attack(
-                self.state, msg.attacker_id, msg.target_id,
+                self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 bool(self.last.get("ranged")), self.last.get("profile"),
                 is_crit=bool(self.last.get("did_crit")), profiles=_profs,
                 did_block=bool(self.last.get("did_block")))

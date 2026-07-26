@@ -213,10 +213,29 @@ class AbilityHandler:
                          "caster": msg.caster_id, "target": msg.target_id,
                          "invalid_target": int(reason)}
             return
+        # #120bis SNAPSHOT DE TUILE de la cible — `IdunBattle.Operations.ActiveAbilityOperation$$
+        # GetAbilityEntities` fige `AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`
+        # AVANT le `On(0x2b)`. C'est ce fige-la que la re-resolution ci-dessous confronte a
+        # l'occupation REELLE d'apres la cascade. Pris ICI, au rang natif (juste apres les gates).
+        from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
+                                                 resolve_replaced_target)
+        _target_tiles = get_tiles(self.state, msg.target_id)
         # #120 `On(PreUnitAbility=0x2b)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
         # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
         self._pre_unit_ability(msg)
+        # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans
+        # `ActiveAbilityOperation$$ExecuteInternal` : si une AUTRE unite occupe desormais la tuile
+        # visee (SwornProtector : Kell echange sa place avec Creed pendant la cascade), le natif
+        # `return`e sur `ExecuteForReplacedTarget`, qui RE-ENTRE dans `Execute` avec la nouvelle
+        # cible. Cet appelant-ci ne pose donc NI behaviour NI flags — c'est la re-entree qui les
+        # pose, une seule fois. Meme foyer que la voie d'ATTAQUE NORMALE (damage_ops.execute) : le
+        # natif n'a qu'un site, le cabler sur une seule voie recreerait le fork ferme par #120.
+        _replaced, _new_target = resolve_replaced_target(self.state, msg.target_id, _target_tiles)
+        if _replaced:
+            self._execute_for_replaced_target(msg, ability, _new_target,
+                                              execute_for_replaced_target)
+            return
         if ability is None:
             self.unported.add(int(msg.ability_type))   # #93/#95 : rend le no-op VISIBLE (plus muet)
             self.last = {"ability_type": msg.ability_type, "ported": False}
@@ -233,6 +252,32 @@ class AbilityHandler:
         # `AddFlagsAfterAbilityExecution`. Pendant exact du `0x2b` emis en tete : c'est lui qui
         # consomme les effets « le temps de CETTE ability » (ex. 1201 AnvilShield_FrozenAttackerAdvantage).
         self._post_unit_ability(msg)
+
+    def _execute_for_replaced_target(self, msg, ability, new_target, op) -> None:
+        """Voie CAST de `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget` : la
+        re-entree est un `visit_ActiveAbilityMessage` NEUF sur la cible remplacante — mirror du
+        `ActiveAbilityOperation$$Execute(caster, newTarget, abilityType, options)` natif, qui rejoue
+        TOUTE la chaine (gate acteur-mort, gate de cible, un nouveau `On(0x2b)`, la behaviour, puis
+        `AddFlagsAfterAbilityExecution` + `On(0xe)`). `self.last` est donc celui de la re-entree,
+        enrichi de la tracabilite du remplacement.
+
+        `new_target is None` (tuile videe pendant la cascade) : no-op complet, cf.
+        `operations/active_ability.execute_for_replaced_target`."""
+        from ..messages import ActiveAbilityMessage
+        caster, ability_type = int(msg.caster_id), int(msg.ability_type)
+        self.last = {"ability_type": ability_type, "ported": ability is not None,
+                     "caster": caster, "target": msg.target_id,
+                     "replaced_from": msg.target_id, "replaced_target": None,
+                     "replaced_aborted": True}
+
+        def _reenter(target_id: int):
+            self.visit_ActiveAbilityMessage(ActiveAbilityMessage(caster, target_id, ability_type))
+            if isinstance(self.last, dict):
+                self.last["replaced_from"] = msg.target_id
+                self.last["replaced_target"] = target_id
+            return self.last
+
+        op(self.state, caster, new_target, _reenter)
 
     def _pre_unit_ability(self, msg) -> None:
         """`FUN_180026490(0x4d, .., 0x2b)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de

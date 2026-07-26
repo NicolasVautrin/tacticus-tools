@@ -33,21 +33,20 @@ points 1 et 2, et le port ci-dessous rend les MEMES deux verdicts :
     `AbilityHasAttackType(0|1)` est FAUSSE. Discriminant : « frapper Creed » ne suffit pas, c'est la
     CLASSE de l'ability qui tranche.
 
-RESIDU NOMME, MESURE ICI, NON PORTE : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
-enchaine, JUSTE APRES le `0x2b`, une RE-RESOLUTION DE CIBLE --
+ETAGE SUIVANT (porte depuis, cf. `probe_120bis_execute_for_replaced_target.py`) :
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` enchaine, JUSTE APRES le `0x2b`, une
+RE-RESOLUTION DE CIBLE --
 
-    if (IsUnit(target) && Count(targetTiles) > 0) {
-        replaced = UnitExtensions.GetUnit(First(targetTiles), state);   // qui occupe la tuile MAINTENANT
+    if (IsUnit(target) && Count(entities@+0x38) > 0) {                  // GetTiles(target), FIGE
+        replaced = UnitExtensions.GetUnit(First(...), state);           // qui occupe la tuile MAINTENANT
         if (replaced != target)
             return ActiveAbilityOperation$$ExecuteForReplacedTarget(op, caster, replaced, abilityType, options);
     }
 
-et `ExecuteForReplacedTarget` rebatit les `AbilityEntities` sur la NOUVELLE cible, recalcule
-`GetSkipEndTurnFlag`/`GetSkipAbilityUsedFlag`, puis (sauf `IsDeadUnitAndNotAllowedByAbility`) pose
-`options[1] = Nullable(2)` et RE-ENTRE dans `ActiveAbilityOperation$$Execute`. C'est CE maillon qui
-envoie les degats sur Kell apres le switch. Le port ne le materialise sur AUCUNE des deux voies
-(l'ecart preexiste a #120 et est SYMETRIQUE) -> offline Creed encaisse encore. Le porter demande de
-le cabler sur les DEUX voies, sinon on recree un fork : hors perimetre de #120, tache dediee.
+-- c'est CE maillon (et non le switch lui-meme) qui envoie les degats sur Kell. Ce probe-ci ne le
+mesure PAS : son etape 1 caste `JakhalStimms`, dont le volet AoE
+`AdjacentUnits(caster) & AdjacentFriends(target)` touche Creed APRES le switch, ce qui brouille le
+critere « Creed intact ». Le probe 120bis utilise une ability MONO-CIBLE pour le trancher.
 
 ASCII only (cp1252). Usage : `python probe_120_pre_unit_ability_fork.py`.
 """
@@ -154,12 +153,16 @@ def main() -> int:
     assert (kp.col, kp.row) == before, "Kell n'a pas pris la place de Creed (switch manquant)"
     assert after != before, "Creed n'a pas bouge -> pas de SwitchPosition"
     # ORDRE : le vecteur part AVANT l'execution de la behaviour -- c'est ce qui rend le switch
-    # visible par l'ability. RESIDU NOMME (`ExecuteForReplacedTarget`, cf. l'en-tete du module et
-    # `triggers/loki/sworn_protector.py`) : le port ne RE-RESOUT pas la cible apres le vecteur, donc
-    # les degats restent sur Creed alors que le live les envoie sur Kell. On MESURE l'ecart plutot
-    # que de le taire : Creed encaisse offline, il ne devrait pas.
-    print("    RESIDU ExecuteForReplacedTarget : hp Creed offline=%s (live: intact, Kell encaisse)"
-          % hp_creed)
+    # visible par l'ability, donc exploitable par la re-resolution de cible qui suit
+    # (`ExecuteForReplacedTarget`, porte en #120bis : la CIBLE de l'ability bascule sur Kell).
+    # Les PV que Creed perd encore ICI ne viennent PAS de l'attaque principale mais du volet AoE de
+    # `JakhalStimms` (`AdjacentUnits(caster) & AdjacentFriends(target)`), qui l'atteint depuis sa
+    # NOUVELLE tuile -- d'ou l'ability MONO-CIBLE du probe 120bis pour trancher « Creed intact ».
+    kp_hp = state.get_entity(kell).get_component(HealthComponent).hp
+    print("    apres re-resolution : cible frappee=%s (kell) hp kell=%s ; Creed perd %s par l'AoE"
+          % (kell, kp_hp, 400000 - hp_creed))
+    assert kp_hp < state.get_entity(kell).get_component(HealthComponent).hp_max, (
+        "Kell n'a rien encaisse -> la re-resolution de cible (#120bis) ne s'arme pas sur la voie CAST")
 
     # --- 2. CONTRE-CAS : une ability `Others` qui FRAPPE POURTANT Creed ne le reveille pas ---------
     state, creed, foe = _fresh("ultraCalgar")
