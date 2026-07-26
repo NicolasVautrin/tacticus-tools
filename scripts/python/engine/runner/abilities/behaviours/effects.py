@@ -461,6 +461,72 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class AddDynamicStatModifierEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffect(targets, source, effectType,
+    statType, abilityStateRef, durationNode, …)` — et son jumeau
+    `IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffectToOwner(effectType, statType,
+    durationNode, …)` qui n'est que le MEME appel avec `self@0x148` dans les DEUX slots.
+
+    Les deux allouent un `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour` dont le ctor
+    (`…$$.ctor`, lu au decompile) range :
+        +0x50 isDynamic(=1) · **+0x58 SOURCE** · **+0x60 TARGETS** · +0x68 effectType · +0x6c statType
+        · +0x70 amountNode(null si dynamique) · +0x78 durationNode · +0x88 abilityStateRef
+    et son `…$$Execute` **ITERE le selecteur +0x60** (une instance d'effet par element) en attribuant la
+    `ValueModification` a l'entite resolue par **+0x58** (`lVar17 = local_298 (source) sinon la cible`).
+    C'est CE couple qui tranche « self-buff vs debuff sur la cible » — pas le nom de l'effet.
+
+    Port : wrapper MINCE au-dessus des DEUX operations deja portees — `AddEffectOperation`
+    (materialisation ECS + `_apply_stat_mods` = le `AStatModifierEffect$$ApplyModification` natif) ;
+    la MAGNITUDE et le SIGNE vivent dans la CLASSE D'EFFET (`applied_stat_mods`, part DATA cote
+    `entities/`), exactement comme le natif les tient dans
+    `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` (`ConfigVar(abilityId, EffectSource,
+    varKey)` + champ `isNegative`). Frontiere #149 respectee : feuille declarative ici, Operation en
+    dessous ; AUCUN `apply_change_stat` recable a la main.
+
+    `stat_type` = l'argument natif +0x6c, conserve pour la tracabilite/diagnostic (`emit`) ; la valeur
+    EFFECTIVE appliquee vient de la classe d'effet (les deux coincident par construction — verifie au
+    decompile pour les trois effets du lot Votann). Effet non porte (`BaseEffect` nu) -> effet PRESENT
+    mais sans stat-mod = degradation fidele (§17.4).
+
+    `duration_rounds` / `duration_turns` : meme semantique que `AddEffect` (None des deux = pas
+    d'override -> `DefaultAmountOfRounds`, sinon PERMANENT). Emet 'AddDynamicStatModifierEffect' par
+    cible. Effet PUR (stop=False)."""
+    __slots__ = ("target_sel", "source_sel", "effect_type", "stat_type", "name",
+                 "duration_rounds", "duration_turns")
+
+    def __init__(self, target_sel: TargetsSelector, source_sel: TargetsSelector, effect_type: int,
+                 stat_type: int, name: str | None = None, duration_rounds=None, duration_turns=None):
+        self.target_sel, self.source_sel = target_sel, source_sel
+        self.effect_type, self.stat_type = int(effect_type), int(stat_type)
+        self.name = name
+        self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
+
+    def execute(self, entities, ectx):
+        from ...operations.effects import AddEffectOperation
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        su = resolve_unit(self.source_sel, entities)            # selecteur +0x58 (SOURCE de la modif)
+        src = su.get("id") if isinstance(su, dict) else None
+        if src is None:
+            return OperationResult.ok()
+        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
+        # `AbilityStateReference` (+0x88) : l'effet resout ses `ConfigVar` contre l'etat d'ability de sa
+        # SOURCE -> on propage niveau/multiplier du poseur (== `scale_from_source` d'`AddEffect`).
+        mult, ab_lvl, act_lvl = _source_scaling(state, src)
+        for elem in _add_effect_targets(self.target_sel.evaluate(entities)):   # ITERE +0x60
+            tgt = _add_effect_target_id(elem, state)
+            if tgt is None:
+                continue
+            eff = AddEffectOperation.execute(state, source=src, target=tgt,
+                                             effect_type=self.effect_type, name=self.name,
+                                             duration_override=dur, ability_level=ab_lvl,
+                                             active_ability_level=act_lvl, multiplier_pct=mult)
+            ectx.emit("AddDynamicStatModifierEffect", source=src, target=tgt,
+                      effect_type=self.effect_type, stat=self.stat_type, placed=eff is not None)
+        return OperationResult.ok()
+
+
 def add_or_update_static_stat_modifier_effect(unit_sel: TargetsSelector, effect_type: int,
                                               stat_type: int, amount, name: str | None = None):
     """`IdunBattleLogic.Entities.DSLFactory$$AddOrUpdateStaticStatModifierEffect(unit, effectType, statType,

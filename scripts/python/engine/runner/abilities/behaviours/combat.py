@@ -143,10 +143,16 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type)
             else:
+                # `BaseEffect$$PiercingBonusForAttack` : les effets ACTIFS du caster peuvent ajouter au
+                # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`
+                # -> le contexte a besoin de la CIBLE, donc calculé ICI et non dans la config).
+                from ..base import ability_pierce_effect_bonus
+                pbonus = ability_pierce_effect_bonus(state, caster, tgt, self.ability_type)
                 bmin, bmax, pierce, hits = ability_attack_params(
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
                     min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,
-                    hits_add_key=self.hits_add_key, level_slot=self.level_slot)
+                    hits_add_key=self.hits_add_key, level_slot=self.level_slot,
+                    pierce_effect_bonus=pbonus)
                 if self.hits is not None:                  # hits DYNAMIQUE (Executioner RoundsStarted) override config nrOfHits
                     hits = int(self.hits)
                 elif self.hits_override is not None:       # coups = NODE dynamique (SkyStrike MeleeWeaponHits)

@@ -9,6 +9,13 @@ Contenu :
   caster (cast tile-target), `WithStatsFromConfig` level-scale, attaque a l'apparition
   (`PerformAIAttackFromCurrentPosition`). CLONE du corps `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour`
   (dedup IL2CPP -- cf. classe).
+- `AugmentedAssault` (1221, `votanBeserk` -- Havyr) : 4x Eviscerate sur la cible + stat-mod NEGATIF
+  FixedArmor sur CETTE cible (`AugmentedAssault_ReduceArmor` 1541, permanent).
+- `GravitonRifle` (1206, `votanIronmaster` -- Vynn) : 3x Physical range-2 + `Stunned` (1162) nrOfRounds
+  rounds ; l'owner-effect `GravitonRifle_ExtraPierce` (1484) ajoute +extraPierceRatio au percage de CE
+  cast contre TerminatorArmour/MkXGravis/Mechanical (canal percage, cf. `entities/effects/loki/votann.py`).
+- `AncestralFortune` (1207, `votanUthar` -- Uthar) : self-buff +critChance (1485) & +blockChance (1486)
+  1 round, puis attaque conditionnelle 3x Plasma sur le meilleur ennemi ADJACENT.
 """
 from __future__ import annotations
 
@@ -17,10 +24,16 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility
-from .behaviours import entities_from_state
+from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect,
+                         AddDynamicStatModifierEffect)
 from .loki import perform_ai_attack_from_current_position
-from ..components import OwnerComponent, StatsComponent
+from ..components import OwnerComponent, StatsComponent, UnitComponent, PositionComponent
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
+from ...entities.stats import StatType, StatPart
+from ...entities.behaviours import op_and, op_add, If as IfBehaviour
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import Caster, Target
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 
 if TYPE_CHECKING:
@@ -143,3 +156,296 @@ class IronkinSteeljackAbility(ActiveAbility):
                    for n, p in ectx.emitted if n == "SummonOnAppearance"]
         return {"summon": "votanSmnSteeljack", "spawned": spawned, "attacks": attacks,
                 "tile": tile_id, "dsl": True}
+
+
+# ---------------------------------------------------------------------------------------------------
+# #113 -- AugmentedAssault (1221) / GravitonRifle (1206) / AncestralFortune (1207).
+# ---------------------------------------------------------------------------------------------------
+
+AUGMENTED_ASSAULT_REDUCE_ARMOR = int(EffectType.AugmentedAssault_ReduceArmor)   # 0x605 = 1541
+GRAVITON_RIFLE_EXTRA_PIERCE = int(EffectType.GravitonRifle_ExtraPierce)        # 0x5cc = 1484
+ANCESTRAL_FORTUNE_EXTRA_CRIT = int(EffectType.AncestralFortune_ExtraCritChance)   # 0x5cd = 1485
+ANCESTRAL_FORTUNE_EXTRA_BLOCK = int(EffectType.AncestralFortune_ExtraBlockChance)  # 0x5ce = 1486
+STUNNED = int(EffectType.Stunned)                                              # 0x48a = 1162
+
+
+def augmented_assault_tree() -> object:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility$$ExecuteBehaviour`
+    (id 1221, `votanBeserk` -- Havyr), MIRROR 1:1 du DECOMPILE :
+
+        op_BitwiseAnd(
+            AttackWithAttackDamage( caster@0x160, target@0x178,
+                                    MinMaxDamage(entities, 0) = RandomAmount(minDmg[lvl], maxDmg[lvl]),
+                                    Nullable(GetDamageProfile(0)),
+                                    GetHits(0) = GetNumberConstant(0x2f = nrOfHits),
+                                    AbilityOrEffect(this+0x10 = 1221) ),
+            AddDynamicStatModifierEffect( targets = target@0x178, source = self@0x148,
+                                          0x605 = 1541, stat = 0x10 = 16 FixedArmor,
+                                          AbilityStateReference, duree = <aucun noeud> ) )
+
+    DEUX noeuds seulement, combines par `AbilityBehaviour.op_BitwiseAnd` (== `Seq`), passes tels quels a
+    `AActiveAbility.Execute`. Le profil (`Eviscerate`) et le nb de coups (4) viennent de la config 1221
+    (`constants.damageProfile` / `constants.nrOfHits`) — l'ability est `attackRangeType = Melee`.
+
+    La cible du stat-mod EST la cible de l'attaque (`target@0x178` dans les DEUX noeuds) : le malus
+    d'armure frappe l'ennemi, pas le caster (cf. `AugmentedAssaultReduceArmorEffect` pour la lecture des
+    slots source/targets et du flag `isNegative`)."""
+    attack = AttackWithAttackDamage(Target(), "AugmentedAssault", "Eviscerate", is_melee=True,
+                                    ability_type=int(ActiveAbilityType.AugmentedAssault))
+    debuff = AddDynamicStatModifierEffect(Target(), Caster(), AUGMENTED_ASSAULT_REDUCE_ARMOR,
+                                          int(StatType.FIXED_ARMOR),
+                                          name="AugmentedAssault_ReduceArmor",
+                                          duration_rounds=None)      # aucun noeud de duree -> permanent
+    return op_and(attack, debuff)
+
+
+class AugmentedAssaultAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility$$ExecuteBehaviour` (id 1221,
+    `votanBeserk` -- Havyr). Attaque MELEE mono-cible 4x Eviscerate + pose sur la CIBLE le stat-mod
+    NEGATIF `AugmentedAssault_ReduceArmor` (FixedArmor -= armorReduction[lvl] x mult, permanent).
+
+    Behaviour = l'arbre `augmented_assault_tree()` (mirror 1:1). Turn-flags = defauts base (1221 absent de
+    `NO_END_TURN_ABILITY_TYPES`/`NO_ABILITY_USED_FLAG_ABILITY_TYPES` -> le cast TERMINE le tour).
+
+    Face DECISION (`IdunBattle.AI.Playbook.Loki.AugmentedAssaultPlaybook$$EvaluateNonComparable` /
+    `$$.ctor`) NON portee dans ce lot — signalee telle quelle, pas empilee ici."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.AugmentedAssault)   # 1221
+    ABILITY_ID = "AugmentedAssault"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        augmented_assault_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), {})
+        mod = next((p for n, p in ectx.emitted if n == "AddDynamicStatModifierEffect"), {})
+        return {"ability": "AugmentedAssault", "caster": caster_id, "target": target_id,
+                "attack": atk.get("attack"), "total": atk.get("total"),
+                "armor_debuff": {"target": mod.get("target"), "placed": mod.get("placed"),
+                                 "effect_type": AUGMENTED_ASSAULT_REDUCE_ARMOR},
+                "dsl": True}
+
+
+def graviton_rifle_tree(rounds: int) -> object:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility$$ExecuteBehaviour`
+    (id 1206, `votanIronmaster` -- Vynn), MIRROR 1:1 du DECOMPILE :
+
+        op_Addition(
+            AttackWithAttackDamage( caster@0x160, target@0x178, MinMaxDamage(entities, 0),
+                                    Nullable(GetDamageProfile(0)), GetHits(0),
+                                    AbilityOrEffect(this+0x10 = 1206) ),
+            AddEffect( 0x48a = 1162 Stunned, AbilityStateReference, target@0x178,
+                       TurnsFromRounds( GetNumberConstant(config@0x60, 0x45 = 69 nrOfRounds) ) ) )
+
+    `rounds` = la constante config lue par l'appelant (`nrOfRounds` = 1) : le noeud natif est un
+    `TurnsFromRounds(<constante>)`, donc `duration_rounds` (converti par `ConvertRoundsToTurns`).
+    Profil `Physical`, 3 coups, `attackRangeType = Ranged` (range 2 -> la portee est un gate de CIBLAGE,
+    cote decision ; la cible arrive par le message)."""
+    attack = AttackWithAttackDamage(Target(), "GravitonRifle", "Physical", is_melee=False,
+                                    ability_type=int(ActiveAbilityType.GravitonRifle))
+    stun = AddEffect(STUNNED, "Stunned", Target(), duration_rounds=rounds)
+    return op_add(attack, stun)
+
+
+class GravitonRifleAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility$$ExecuteBehaviour` (id 1206,
+    `votanIronmaster` -- Vynn). Attaque RANGED (range 2) mono-cible 3x Physical + `Stunned` (1162,
+    composite) sur la cible pour `nrOfRounds` (=1) round.
+
+    PERCAGE CONDITIONNEL : l'owner-effect `GravitonRifle_ExtraPierce` (1484), ajoute a Vynn a la creation
+    par le dict natif `GetEffectToBeAddedToOwnerForAbility`, ajoute `+extraPierceRatio[lvl]` au ratio de
+    percage de CE cast quand la cible porte TerminatorArmour(1039) / MkXGravis(1013) / Mechanical(5) —
+    branche par la feuille `AttackWithAttackDamage` (canal `BaseEffect$$PiercingBonusForAttack`, cf.
+    `ability_pierce_effect_bonus`), PAS recable ici.
+
+    Turn-flags = defauts base (1206 absent des deux frozensets -> le cast termine le tour)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.GravitonRifle)   # 1206
+    ABILITY_ID = "GravitonRifle"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        # `GetNumberConstant(config@0x60, 0x45 = nrOfRounds)` — le natif rend 0 pour une constante absente.
+        rounds = ability_var("GravitonRifle", "nrOfRounds", is_constant=True) or 0
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        graviton_rifle_tree(int(rounds)).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), {})
+        stun = next((p for n, p in ectx.emitted if n == "AddEffect"
+                     and p.get("effect_type") == STUNNED), {})
+        return {"ability": "GravitonRifle", "caster": caster_id, "target": target_id,
+                "attack": atk.get("attack"), "total": atk.get("total"),
+                "stunned": {"target": stun.get("target"), "placed": stun.get("placed"),
+                            "rounds": int(rounds)},
+                "dsl": True}
+
+
+def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional[int]:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$GetAttackTarget` (le corps
+    est INLINE dans l'`ExecuteBehaviour`) :
+
+        First( SortUnitsByDamageUtility( NormalUnits( AdjacentEnemies(caster@0x160, @0x168, 1), 3 ),
+                                         MinMaxDamage(entities, 1), 3 ),
+               1 )
+
+    - `AdjacentEnemies(caster, 1)` = ennemis VIVANTS a distance hex 1 du caster.
+    - `NormalUnits(sel, 3)` = `FromTrigger(Units(sel, 1, 3), <IsNormalUnit @dsl+0x180>)` : filtre les
+      entites non-unites (objets/decor). Offline, `state.entities` ne contient QUE des unites de combat
+      -> le filtre est un no-op DOCUMENTE (aucun objet n'y entre).
+    - `MinMaxDamage(entities, 1)` = branche `useAverage != 0` de
+      `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` = `Half(Sum(Direct(minDmg[lvl]),
+      Direct(maxDmg[lvl])))` -> min == max == moyenne des bornes de l'ability (le noeud de degat que
+      `SortUnitsByDamageUtility` branche sur son slot +0x40).
+    - le TRI + le `First` sont le port PARTAGE `first_by_damage_utility`
+      (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` = argmax du composite
+      Damage(34)), le meme etage que FinalJustice.
+
+    Selecteur AI-target (kind S lourd, chevauche le playbook) -> COLLAPSE imperativement, comme
+    `_finaljustice_target`, puis injecte dans l'arbre via `Target()`. None si aucun ennemi adjacent."""
+    import hexgeo
+    from ..operations.damage_utility import first_by_damage_utility
+    e = state.get_entity(caster_id)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if pc is None or oc is None:
+        return None
+    src = (pc.col, pc.row)
+    cands = []
+    for eid, other in state.entities.items():
+        if eid == caster_id:
+            continue
+        ooc = other.get_component(OwnerComponent)
+        opc = other.get_component(PositionComponent)
+        ouc = other.get_component(UnitComponent)
+        if ooc is None or opc is None or ooc.team == oc.team:      # AdjacentEnemies : team != caster
+            continue
+        if ouc is not None and not ouc.alive:
+            continue
+        if hexgeo.distance(src, (opc.col, opc.row)) == 1:          # radius 1
+            cands.append(eid)
+    if not cands:
+        return None
+    ctx = sc.ctx if sc is not None else None
+    lvl = int(getattr(ctx, "active_ability_level", 0) or 0) if ctx is not None else 0
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    bmin = int(ability_var("AncestralFortune", "minDmg", lvl, multiplier_pct=mult) or 0)
+    bmax = int(ability_var("AncestralFortune", "maxDmg", lvl, multiplier_pct=mult) or 0)
+    avg = (bmin + bmax) // 2                                   # Half(Sum(minDmg, maxDmg))
+    return first_by_damage_utility(state, cands, avg, avg)
+
+
+def ancestral_fortune_tree(attack_target: Optional[int]) -> object:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$ExecuteBehaviour`
+    (id 1207, `votanUthar` -- Uthar), MIRROR 1:1 du DECOMPILE :
+
+        turns  = TurnsFromRounds(1)
+        crit   = If( AmountIsGreaterThanZero( StatAmount(self@0x148, 9 = CritChance,  3 = INITIAL) ),
+                     AddDynamicStatModifierEffectToOwner(0x5cd = 1485, stat 9, turns) )
+        block  = If( AmountIsGreaterThanZero( StatAmount(self@0x148, 7 = BlockChance, 3 = INITIAL) ),
+                     AddDynamicStatModifierEffectToOwner(0x5ce = 1486, stat 7, turns) )
+        tgt    = First(SortUnitsByDamageUtility(NormalUnits(AdjacentEnemies(caster,1),3),
+                                                MinMaxDamage(entities,1), 3), 1)
+        atk    = If( AmountIsGreaterThanZero(tgt),
+                     AttackWithAttackDamage(caster@0x160, tgt, MinMaxDamage(entities,0),
+                                            Nullable(GetDamageProfile(0)), GetHits(0),
+                                            AbilityOrEffect(1207)) )
+        clear  = ClearPersistentData( AbilityOrEffect(this+0x10 = 1207), self@0x148, <type> )
+        Execute( op_BitwiseAnd( op_BitwiseAnd( op_BitwiseAnd(crit, block), clear ), atk ) )
+
+    Les DEUX gates `StatAmount(..., INITIAL)` sont des mirrors EXACTS de
+    `…AncestralFortuneAbility$$CanAddCritChance` / `$$CanAddBlockChance` (memes corps) : le buff n'est pose
+    que si le caster a une valeur de BASE > 0 sur la stat correspondante.
+
+    `attack_target` = le collapse imperatif du selecteur AI (cf. `_ancestral_fortune_attack_target`) ;
+    None -> le gate `AmountIsGreaterThanZero(tgt)` est FAUX et l'attaque ne s'execute pas.
+
+    `ClearPersistentData(1207, self)` : RESIDU DOCUMENTE — le substrat persistent-data (compteur de
+    blocs/crits arme par `…AncestralFortune_CountResetAbility$$CreateTrigger` et consomme par
+    `…AncestralFortune_TriggerResetAbility$$CreateTrigger` pour le `ResetActiveAbility` au 6e) N'EST PAS
+    porte ; le noeud est donc un NO-OP fidele ici (rien a effacer), et le RESET de l'ability reste hors
+    perimetre de ce lot.
+
+    ================================================================================================
+    ORDRE D'EXECUTION + RESIDU MESURE (regime CRIT)
+    ================================================================================================
+    Les buffs sont poses AVANT l'attaque (ordre de l'arbre natif) ET l'attaque du MEME cast en
+    BENEFICIE. GROUND TRUTH (`probe_113_votann.py`, Uthar crit-base 10 / block-base 12 via
+    `rl_duel build --crit/--block-player`) :
+      * la sequence d'events natifs est g22 `AncestralFortune_ExtraCritChance`
+        (`UnitStats_CritChance_Modification: 30`) PUIS g22 `_ExtraBlockChance` (+30) PUIS les 3 g26
+        de degat -> les stat-mods sont appliques avant les coups ;
+      * MC1_67/31337 : le natif crit **3/3** (`Attack_DidCrit` = 1,1,1) -- impossible a crit-chance 10
+        (le port y tire 0/3), reproduit exactement a crit-chance **40** = 10 base + 30 buff.
+
+    RESIDU MESURE, NON impute a ce lot : sur C1_74/777 le natif crit 1/3 la ou le port (meme rng cale,
+    meme crit-chance 40) crit 2/3 -- le 3e coup a le MEME roll de degat des deux cotes (1339) mais un
+    verdict de crit different. C'est UN verdict sur 6 mesures, sur le canal PARTAGE
+    `IdunBattle.Core.Services.DamageCalculations$$RollCritical` (hors perimetre #113) ; le regime SANS
+    buff (`fortune_gated`) est lui bit-exact sur les deux boards. Documente dans
+    docs/rl/case-220/votann.md."""
+    from ...entities.formulas import StatAmount, Count
+    from ...entities.triggers import AmountIsGreaterThanZero
+
+    crit = IfBehaviour(
+        AmountIsGreaterThanZero(StatAmount(Caster(), int(StatType.CRIT_CHANCE),
+                                           variant=int(StatPart.INITIAL))),
+        AddDynamicStatModifierEffect(Caster(), Caster(), ANCESTRAL_FORTUNE_EXTRA_CRIT,
+                                     int(StatType.CRIT_CHANCE),
+                                     name="AncestralFortune_ExtraCritChance", duration_rounds=1))
+    block = IfBehaviour(
+        AmountIsGreaterThanZero(StatAmount(Caster(), int(StatType.BLOCK_CHANCE),
+                                           variant=int(StatPart.INITIAL))),
+        AddDynamicStatModifierEffect(Caster(), Caster(), ANCESTRAL_FORTUNE_EXTRA_BLOCK,
+                                     int(StatType.BLOCK_CHANCE),
+                                     name="AncestralFortune_ExtraBlockChance", duration_rounds=1))
+    # `AmountIsGreaterThanZero(<le selecteur de cible>)` = « le selecteur a rendu >= 1 element » ; le
+    # collapse impératif est injecte dans `entities.target` -> `Count(Target())` EST ce cardinal (0 ou 1).
+    atk = IfBehaviour(
+        AmountIsGreaterThanZero(Count(Target())),
+        AttackWithAttackDamage(Target(), "AncestralFortune", "Plasma", is_melee=True,
+                               ability_type=int(ActiveAbilityType.AncestralFortune)))
+    # Ordre NATIF : `((crit & block) & clear) & atk` -- les buffs AVANT l'attaque (le `clear` est le
+    # no-op documente ci-dessus). GROUND TRUTH : sur MC1_67/31337 le natif crit 3/3 avec le crit-chance
+    # BUFFE (40), ce que seul cet ordre reproduit.
+    return op_and(op_and(crit, block), atk)
+
+
+class AncestralFortuneAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$ExecuteBehaviour` (id 1207,
+    `votanUthar` -- Uthar). SELF-CAST : Uthar gagne +extraCritChance (1485) et +extraBlockChance (1486)
+    pendant 1 round, puis — s'il est adjacent a un ennemi — frappe 3x Plasma le meilleur d'entre eux.
+
+    Behaviour = l'arbre `ancestral_fortune_tree()` (mirror 1:1). `target_id` du message est IGNORE : le
+    natif RE-DERIVE sa cible d'attaque par selecteur (`GetAttackTarget`), le cast est un self-cast
+    (`GetPossibleAttackTargets` ne sert qu'au preview cote UI/decision).
+
+    HORS PERIMETRE de ce lot (prerequis absents, signales et NON empiles ici) :
+      * `…AncestralFortune_CountResetAbility$$CreateTrigger` / `$$CreateBehaviour` (compteur de blocs+crits
+        via persistent-data) et `…AncestralFortune_TriggerResetAbility$$CreateTrigger` / `$$CanReset`
+        (`ResetActiveAbility` au 6e = `nrOfAttacks`) — substrat persistent-data + ResetActiveAbility +
+        predicat WasBlock (event UnitBlocked) non portes.
+      * face DECISION (`IdunBattle.AI.Playbook.Loki.AncestralFortunePlaybook$$MakeDamagePredictions` /
+        `$$ShouldExecute`).
+    Turn-flags = defauts base (1207 absent des deux frozensets -> le cast termine le tour)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.AncestralFortune)   # 1207
+    ABILITY_ID = "AncestralFortune"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        atk_tgt = _ancestral_fortune_attack_target(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        ancestral_fortune_tree(atk_tgt).execute(
+            entities_from_state(state, caster_id, atk_tgt), ectx)
+        buffs = [{"effect_type": p.get("effect_type"), "stat": p.get("stat"),
+                  "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddDynamicStatModifierEffect"]
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), {})
+        return {"ability": "AncestralFortune", "caster": caster_id,
+                "attack_target": atk_tgt, "buffs": buffs,
+                "attack": atk.get("attack"), "total": atk.get("total"), "dsl": True}

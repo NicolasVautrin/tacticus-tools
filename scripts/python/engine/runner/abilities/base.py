@@ -15,7 +15,7 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
                           profile_name: str, ranged: bool = False,
                           min_key: str = "minDmg", max_key: str = "maxDmg",
                           hits_key: str = "nrOfHits", hits_add_key: str | None = None,
-                          level_slot: str = "active"):
+                          level_slot: str = "active", pierce_effect_bonus: int = 0):
     """Paramètres de l'attaque d'une ability (mirror `MinMaxDamage`/`GetHits`/`GetDamageProfile`) depuis
     l'ECS + gameconfig : `(base_min, base_max, pierce, hits)`.
       • base_min/base_max = `GetVariableForLevel(config, 0xc/0xd, level)` = `minDmg`/`maxDmg`[<level_slot>]
@@ -56,25 +56,64 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     hits = ability_var(ability_id, hits_key, is_constant=True) or 1
     if hits_add_key is not None:                       # bande somme-de-2-constantes (Gauntlets adjacente)
         hits += ability_var(ability_id, hits_add_key, is_constant=True) or 0
-    pierce = profile_pierce(ctx, profile_name, ranged)
+    pierce = profile_pierce(ctx, profile_name, ranged, effect_bonus=pierce_effect_bonus)
     return int(bmin), int(bmax), pierce, int(hits)
 
 
-def profile_pierce(ctx, profile_name: str, ranged: bool = False) -> int:
+def profile_pierce(ctx, profile_name: str, ranged: bool = False, effect_bonus: int = 0) -> int:
     """Perçage effectif d'une attaque = `clamp(0, 100, profil.PiercingRatio + ExtraPierce +
-    ExtraPierce{Melee|Ranged})` (volet perçage commun de `MinMaxDamage`/`AttackWithAttackDamage` :
-    PiercingRatio du profil de dégât + les stats de perçage du caster). Extrait de
-    `ability_attack_params` pour être PARTAGÉ par les deux feuilles à dégât-node `StatAmount`/`PercentageOf`
-    (sans bornes d'arme, elles routent leur base par ce perçage) : le mode `amount` de `AttackWithAttackDamage`
-    (Psyker, crit/block) ET la feuille directe `AttackWithAbilityDamage` (DoT feu, sans crit/block — appelée
-    avec `ctx=None`). `ctx` = `UnitContext` du caster (None → perçage = PiercingRatio seul, cas de la tuile
-    en feu qui n'a pas de stats ExtraPierce)."""
+    ExtraPierce{Melee|Ranged} + Σ bonus d'effets)` (volet perçage commun de `MinMaxDamage`/
+    `AttackWithAttackDamage` : PiercingRatio du profil de dégât + les stats de perçage du caster). Extrait
+    de `ability_attack_params` pour être PARTAGÉ par les deux feuilles à dégât-node `StatAmount`/
+    `PercentageOf` (sans bornes d'arme, elles routent leur base par ce perçage) : le mode `amount` de
+    `AttackWithAttackDamage` (Psyker, crit/block) ET la feuille directe `AttackWithAbilityDamage` (DoT feu,
+    sans crit/block — appelée avec `ctx=None`). `ctx` = `UnitContext` du caster (None → perçage =
+    PiercingRatio seul, cas de la tuile en feu qui n'a pas de stats ExtraPierce).
+
+    `effect_bonus` = Σ des `EffectBonus` de perçage des effets ACTIFS de l'attaquant
+    (`piercing_bonus_from_effects` → `BaseEffect$$PiercingBonusForAttack`) : c'est le terme `Fix64` que
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` additionne DANS la même somme,
+    AVANT le `Min(100, …)` — porteur du lot : `GravitonRifle_ExtraPierce` (+extraPierceRatio vs
+    TerminatorArmour/MkXGravis/Mechanical). Défaut 0 = comportement historique inchangé."""
     import gameconfig as GC
     dp = GC.damage_profile(profile_name) or {}
     extra = ctx.extra_pierce if ctx is not None else 0
     dir_pierce = ((ctx.extra_pierce_ranged if ranged else ctx.extra_pierce_melee)
                   if ctx is not None else 0)
-    return max(0, min(100, int(dp.get("PiercingRatio") or 0) + extra + dir_pierce))
+    return max(0, min(100, int(dp.get("PiercingRatio") or 0) + extra + dir_pierce + int(effect_bonus)))
+
+
+def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, ability_type) -> int:
+    """Σ des bonus de perçage apportés par les effets ACTIFS du CASTER pour un coup d'ability donné —
+    assemble le `ctx` du gate natif (`get_OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target, …)`) puis
+    délègue à `piercing_bonus_from_effects` (mirror `BaseEffect$$PiercingBonusForAttack`). 0 si l'état n'a
+    pas d'`EffectsState`, si le caster n'a pas de stats, ou si aucun effet actif ne contribue."""
+    from ..components import StatsComponent, UnitComponent
+    from ...entities.effects import piercing_bonus_from_effects
+    if state is None or caster_id is None or ability_type is None:
+        return 0
+    ce = state.get_entity(caster_id)
+    csc = ce.get_component(StatsComponent) if ce is not None else None
+    if csc is None:
+        return 0
+    effects = None
+    if state.effects is not None:
+        effects = state.effects.active_effects(caster_id)
+    if not effects:
+        effects = getattr(csc.ctx, "active_effects", None)
+    if not effects:
+        return 0
+    traits = None
+    if target_id is not None:
+        import gameconfig as GC
+        te = state.get_entity(target_id)
+        tuc = te.get_component(UnitComponent) if te is not None else None
+        if tuc is not None:
+            traits = frozenset((GC.unit(tuc.visual_id) or {}).get("traits") or ())
+    return piercing_bonus_from_effects(
+        effects, {"owner_id": int(caster_id), "att_id": int(caster_id),
+                  "ability_type": int(ability_type), "target_traits": traits,
+                  "owner_ctx": csc.ctx})
 
 
 def turns_from_rounds(rounds: int) -> int:

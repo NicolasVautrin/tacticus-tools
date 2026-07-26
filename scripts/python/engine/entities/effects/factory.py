@@ -98,6 +98,10 @@ from .loki import (
     WaaaghExtraMovementEffect,
     WaaaghExtraDamageEffect,
     WaaaghExtraHitsEffect,
+    AugmentedAssaultReduceArmorEffect,
+    AncestralFortuneExtraCritChanceEffect,
+    AncestralFortuneExtraBlockChanceEffect,
+    GravitonRifleExtraPierceEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -392,6 +396,25 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
     # (#128, triggers.py). Nom capte = effect-type-names.ts:368.
     "Contaminated_Unit": ContaminatedUnitEffect,
+    # Leagues of Votann (#113) — les TROIS stat-mods sont des `DynamicStatModifierEffect` GENERIQUES
+    # (aucune classe native dediee) instancies par des lambdas de `EffectsDatabase$$InitializeEffects` :
+    # magnitude = `ConfigVar(<abilityId>, EffectSource, <varKey>)`, signe = le champ `isNegative` (+0x4a4)
+    # lu par `DynamicStatModifierEffect$$GetDynamicStatModificationAmount`. Detail + lambdas citees :
+    # entities/effects/loki/votann.py.
+    #  - 0x605=1541 : ability 1221 AugmentedAssault, var 0x30=48 armorReduction, isNegative=1 -> stat 16
+    #    FixedArmor NEGATIF sur la CIBLE de l'attaque (permanent : 0x605 absent du switch
+    #    `StaticBattleRules.Effect$$DefaultAmountOfRounds`).
+    #  - 0x5cd=1485 / 0x5ce=1486 : ability 1207 AncestralFortune, vars 0x41=65 extraCritChance /
+    #    0x3e=62 extraBlockChance, isNegative=0 -> stats 9 CritChance / 7 BlockChance sur le CASTER, 1 round.
+    "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
+    "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
+    "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,
+    # 0x5cc=1484 GravitonRifle_ExtraPierce : OWNER-effect de Vynn (dict natif
+    # `GetEffectToBeAddedToOwnerForAbility`), classe DEDIEE
+    # `IdunBattle.Entities.Effects.Loki.GravitonRifle_ExtraPierceEffect` — canal PERCAGE (pas stat-mod) :
+    # `CreatePiercingBonusForAttack` = ForAddition((OwnerIsCaster & CurrentAbilityIs(1206)) &
+    # (HasTrait(target,1039)|HasTrait(target,1013)|HasTrait(target,5)), ConfigVar(0x3f=63 extraPierceRatio)).
+    "GravitonRifle_ExtraPierce": GravitonRifleExtraPierceEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 
@@ -513,6 +536,24 @@ def get_owner_effects_added_on_ability_init(ability_name: str) -> list[str]:
     """Owner-effects posés par `<Ability>.CreateBehaviour` à l'INIT de l'ability (DSL AddEffect(owner)).
     Ability sans owner-effect-à-l'init porté -> []."""
     return ABILITY_INIT_OWNER_EFFECTS.get(ability_name, [])
+
+
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`
+# — dict `ActiveAbility` +0x50 (peuplé par le `.cctor` de la même classe), lu par la boucle ABILITIES
+# d'`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` : owner-effects ajoutés au PORTEUR à
+# la création parce qu'il possède l'ability (chemin DIRECT, DISTINCT du `CreateBehaviour` ci-dessus).
+# CONTENU COMPLET du dict natif = 2 entrées (armes joueur) ; seule la 2ᵉ a une contribution modélisée :
+#   PlasmaCannon   -> PlasmaCannon_Visual        (effet purement VISUEL -> non inscrit, aucun hook)
+#   GravitonRifle  -> GravitonRifle_ExtraPierce  (0x5cc=1484, canal perçage conditionnel, #113)
+ABILITY_OWNER_EFFECTS: dict[str, list[str]] = {
+    "GravitonRifle": ["GravitonRifle_ExtraPierce"],   # ability 0x4b6=1206 -> effet 0x5cc=1484
+}
+
+
+def get_effect_to_be_added_to_owner_for_ability(ability_name: str) -> list[str]:
+    """`StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` — owner-effects qu'une ability
+    ajoute à son porteur à la création de l'unité. Ability hors dict -> [] (le natif renvoie null)."""
+    return ABILITY_OWNER_EFFECTS.get(ability_name, [])
 
 
 class EffectFactory:

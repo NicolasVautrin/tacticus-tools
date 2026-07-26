@@ -34,18 +34,61 @@ l'apparition = les valeurs assertees offline. PIEGE : le summon porte le visualI
 (scripts/python/catalog_inject.py, tests/engine/runner/test_catalog_inject_live.py).
 ```
 ```
-[1221 AugmentedAssault | votanBeserk]  — [opus] direct
-VAs : ExecuteBehaviour @1811b80d0 ; playbook @18111da40/@18111d690
-Attack(4x Eviscerate pierce-50) & AddDynamicStatModifierEffect(1541, stat 16 FixedArmor) — patron
-ProtectorImperative. Risques : cible/sens/magnitude du 1541 (self+armor vs target−armor) NON tranchés
-au décompilé → i2/statModSources live.
+[1221 AugmentedAssault | votanBeserk]  — PORTE + VALIDE LIVE (#113)
+`IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility$$ExecuteBehaviour` (MIRROR) :
+    op_BitwiseAnd(
+      AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(entities,0),
+                             Nullable(GetDamageProfile(0)=Eviscerate), GetHits(0)=nrOfHits=4,
+                             AbilityOrEffect(this+0x10=1221)),
+      AddDynamicStatModifierEffect(targets=target@0x178, source=self@0x148, 0x605=1541,
+                                   stat=0x10=16 FixedArmor, AbilityStateReference, duree=<aucune>) )
+SENS/CIBLE TRANCHES AU DECOMPILE (les deux « risques » sont leves) :
+ - QUI porte : `IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffect` (overload 8 args)
+   -> `AddStatModifierEffectBehaviour$$.ctor(.., +0x58=source=param_3, +0x60=targets=param_2, ..)` ;
+   son `$$Execute` ITERE **+0x60** (une instance par element) et attribue la ValueModification a
+   **+0x58**. Le call-site passe target@0x178 en param_2 -> la CIBLE porte le malus. (Le helper jumeau
+   `$$AddDynamicStatModifierEffectToOwner` met self@0x148 dans les DEUX slots = self-buff.)
+ - SIGNE : les 3 stat-mods du lot n'ont AUCUNE classe native ; ce sont des
+   `IdunBattle.Entities.Effects.DynamicStatModifierEffect` GENERIQUES instancies par des lambdas de
+   `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects`. La magnitude sort du corps generique
+   `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` =
+   `ConfigVar(<abilityId>, EffectSource(Get(entities)), <varKey>)` puis `isNegative ? -a : a`
+   (champ +0x4a4, 4e arg du ctor). Lambda 1541 =
+   `…EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_533` :
+   `DynamicStatModifierEffect(AbilityType(0x4c5=1221), 0x30=48 armorReduction, isNegative=1, 1)`.
+ - DUREE : aucun noeud de duree (+0x78=0) et 0x605 ABSENT du switch
+   `idun…StaticBattleRules.Effect$$DefaultAmountOfRounds` (lu EN ENTIER : 0x4f=3 ; 0x429/0x48a=1 ;
+   5/0x11/0x12/0x3a/0x4dc/0x5c4=2) -> duree 0 = PERMANENT (« rest of the battle »).
+GROUND TRUTH LIVE (runner 696, necroWarden) : fixedArmor 2008 -> 1011 = **-997** =
+armorReduction[L50]=554 x mult 180 ; effet sur la CIBLE, ABSENT du caster ; port == live per-coup.
+PORT : `engine/runner/abilities/votann.py` (`augmented_assault_tree`) + feuille DSL
+`AddDynamicStatModifierEffect` (behaviours/effects.py) + `AugmentedAssaultReduceArmorEffect`
+(`engine/entities/effects/loki/votann.py`). Face DECISION (`…AugmentedAssaultPlaybook$$…`) NON portee.
 ```
 ```
-[1206 GravitonRifle | votanIronmaster]  — [opus] direct + prérequis pierce
-VAs : ExecuteBehaviour @1811e31a0 ; effet ExtraPierce @180f4be80/@180f4bc20
-Attack(3x Physical range-2) + Stunned 1 round (PORTÉ) ; le +60% pierce vs Gravis/Terminator/Mechanical
-= owner-effect init NON porté (factory.py:346) → prérequis canal pierce-ratio attaquant conditionnel
-trait-cible. Risques : delta mesurable seulement vs cible à trait qualifiant.
+[1206 GravitonRifle | votanIronmaster]  — PORTE + VALIDE LIVE (#113), canal percage CREE
+`IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility$$ExecuteBehaviour` (MIRROR) :
+    op_Addition( AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage(entities,0),
+                                        Nullable(Physical), GetHits(0)=3, AbilityOrEffect(1206)),
+                 AddEffect(0x48a=1162 Stunned, stateRef, target@0x178,
+                           TurnsFromRounds(GetNumberConstant(config@0x60, 0x45=69 nrOfRounds))) )
+OWNER-EFFECT 0x5cc=1484 : ajoute au porteur a la CREATION par le dict natif
+`idun…StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (ActiveAbility +0x50) —
+porte (`ABILITY_OWNER_EFFECTS`, factory.py) + branche dans `_seed_ability_owner_effects` (spawn.py).
+`IdunBattle.Entities.Effects.Loki.GravitonRifle_ExtraPierceEffect$$CreatePiercingBonusForAttack` :
+    ForAddition( (get_OwnerIsCaster & CurrentAbilityIs(AbilityOrEffect(0x4b6=1206)))
+                 & (HasTrait(target@0x178,0x40f=1039 TerminatorArmour)
+                    | HasTrait(target@0x178,0x3f5=1013 MkXGravis)
+                    | HasTrait(target@0x178,5 Mechanical)),
+                 ConfigVar(0x3f=63 extraPierceRatio, GetAbilityState(this), this+0x60) )
+CANAL PERCAGE CREE (c'etait le prerequis) : `BaseEffect.create_effect_piercing_bonus_for_attack` +
+agregateur `piercing_bonus_from_effects` (mirror `BaseEffect$$PiercingBonusForAttack`), consomme par
+`profile_pierce(..., effect_bonus=)` — le terme Fix64 que
+`DamagePrediction$$GetAttackPiercingDamageRatio` additionne AVANT le `Min(100, …)`.
+GROUND TRUTH LIVE (contraste a fixedArmor EGAL 2008) : necroWarden (Mechanical) **-6758** vs
+bloodMephiston (non qualifiant) **-3548** ; le port reproduit les DEUX totaux, et l'A/B (effet 1484
+consomme) ne bouge QUE sur la cible qualifiante. `GravitonRifle_ExtraPierce` est bien present sur Vynn
+au deploiement. Face DECISION (`…GravitonRiflePlaybook$$…`) NON portee.
 ```
 ```
 [PredictiveGuidance | votanMemnyr passif]  — [opus]+prérequis
@@ -82,16 +125,62 @@ Mechanic n'est exécutable nulle part — repair.py = utilité IA seule) ; Perfo
 tracking AlreadySummonedUnits. Non isolable sans le substrat repair d'abord.
 ```
 ```
-[1207 AncestralFortune | votanUthar]  — [fable] (le + lourd)
-VAs : ExecuteBehaviour @1811b1b00 ; CountReset @180e15bf0/@180e15d00 ; TriggerReset @180e15fa0/
-      @180e16170/@180e15e20 ; playbook @18111b430/@18111b070
-Active = +crit-chance 1485 & +block-chance 1486 (1 tour) & attaque conditionnelle 3x Plasma
-(First(SortUnitsByDamageUtility(adjacents))) & ClearPersistentData. CountReset On(9) : WasCrit(caster)
-OU WasBlock(target) → compteur +1 ; TriggerReset On(59 PhaseEnd) : compteur ≥6 → ResetActiveAbility.
-Prérequis ABSENTS : persistent-data compteur ; ResetActiveAbility [partagé InspiredToGreatness §1] ;
-prédicat WasBlock (event UnitBlocked=61) ; SortUnitsByDamageUtility. Risques : boucle 6-exact ;
-Clear au re-cast.
+[1207 AncestralFortune | votanUthar]  — VOLET ACTIF PORTE + VALIDE LIVE (#113) ; RESET hors perimetre
+`IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$ExecuteBehaviour` (MIRROR) :
+    turns = TurnsFromRounds(1)
+    crit  = If( AmountIsGreaterThanZero(StatAmount(self@0x148, 9=CritChance,  3=INITIAL)),
+                AddDynamicStatModifierEffectToOwner(0x5cd=1485, stat 9, turns) )
+    block = If( AmountIsGreaterThanZero(StatAmount(self@0x148, 7=BlockChance, 3=INITIAL)),
+                AddDynamicStatModifierEffectToOwner(0x5ce=1486, stat 7, turns) )
+    tgt   = First(SortUnitsByDamageUtility(NormalUnits(AdjacentEnemies(caster@0x160,@0x168,1),3),
+                                           MinMaxDamage(entities,1), 3), 1)
+    atk   = If( AmountIsGreaterThanZero(tgt),
+                AttackWithAttackDamage(caster@0x160, tgt, MinMaxDamage(entities,0),
+                                       Nullable(Plasma), GetHits(0)=3, AbilityOrEffect(1207)) )
+    clear = ClearPersistentData(AbilityOrEffect(1207), self@0x148, <type>)
+    Execute( ((crit & block) & clear) & atk )
+Les deux gates sont les corps EXACTS de `…AncestralFortuneAbility$$CanAddCritChance` /
+`$$CanAddBlockChance`. `…$$GetAttackTarget` = le meme `First(SortUnitsByDamageUtility(NormalUnits(
+AdjacentEnemies)))`, `…$$GetPossibleAttackTargets` = `NormalUnits(AdjacentEnemies)`, et
+`…$$GetDynamicInvalidCasterReason` = `if CanAddCrit -> 0 ; if CanAddBlock -> 0 ; if Count(possible)>0
+-> 0 ; else 2`. `MinMaxDamage(entities,1)` = branche `useAverage != 0` de
+`IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` = `Half(Sum(Direct(minDmg),Direct(maxDmg)))`.
+Effets : lambdas `…EffectsDatabase…b__14_520` (AbilityType 0x4b7=1207, var 0x41=65 extraCritChance,
+isNegative=0) et `…b__14_519` (meme ability, var 0x3e=62 extraBlockChance) -> stats 9 / 7 sur le CASTER.
+GROUND TRUTH LIVE — le GATE est le fait dominant : un heros FRAIS a critChance/blockChance de BASE = 0
+(ces stats viennent des ITEMS, strippes par la normalisation) -> AUCUN des deux buffs n'est pose (c'est
+ce que la campagne #92 avait lu comme « AncestralFortune sans effet »). Avec `rl_duel build --crit
+10,300 --block-player 12,400` (option `--block-player` AJOUTEE, pendant de `--block-target`) : les deux
+buffs apparaissent et critChance 10 -> 40 / blockChance 12 -> 42 = **+30/+30** = extraCritChance[L50] /
+extraBlockChance[L50] (NON rarity-scale : `variablesAffectedByRarityBonus` de 1207 = [minDmg,maxDmg]).
+`SortUnitsByDamageUtility` : PORTE — `engine/runner/operations/damage_utility.py`, mirror de
+`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` (argmax du composite
+Damage(0x22=34), `OrderBy(-utilite)`), etage EXTRAIT de `_finaljustice_target` et desormais PARTAGE.
+`ClearPersistentData` : no-op documente (substrat persistent-data absent).
+RESIDU MESURE (canal PARTAGE, hors #113) : en regime CRIT, sur C1_74/777 le natif crit 1/3 la ou le
+port (meme rng cale, meme crit-chance 40) crit 2/3 — MEME roll de degat (1339), seul le verdict de
+`DamageCalculations$$RollCritical` differe ; MC1_67/31337 concorde 3/3. Le regime SANS buff est
+bit-exact sur les deux boards. Le test confronte COUP PAR COUP et borne ce residu a 1 verdict.
+HORS PERIMETRE (inchange) : `…AncestralFortune_CountResetAbility$$CreateTrigger`/`$$CreateBehaviour`
++ `…AncestralFortune_TriggerResetAbility$$CreateTrigger`/`$$CanReset`/`$$CreateBehaviour`
+(persistent-data compteur, ResetActiveAbility, predicat WasBlock/UnitBlocked) ; playbook
+`…AncestralFortunePlaybook$$MakeDamagePredictions`/`$$ShouldExecute`.
 ```
+
+**MAJ #113 (lot 1 livré)** : `IronkinSteeljack` (1219), `AugmentedAssault` (1221), `GravitonRifle`
+(1206) et le VOLET ACTIF d'`AncestralFortune` (1207) sont PORTÉS et VALIDÉS LIVE, avec leurs 4 effets
+(1541 / 1484 / 1485 / 1486). Trois débloqueurs transverses ont été créés au passage :
+  * **canal PERÇAGE conditionnel** — `BaseEffect.create_effect_piercing_bonus_for_attack` +
+    `piercing_bonus_from_effects` (mirror `BaseEffect$$PiercingBonusForAttack`), consommé par
+    `profile_pierce(..., effect_bonus=)`. Débloque aussi `GrimEfficiency_ExtraPierce` (1488),
+    `RelicBoltPistol_ExtraPierce`, `Hailstrike_ExtraPierce`, `Supercharge_ExtraPiercing`,
+    `AllIsDust`, `WallOfMirrors`, `HeavyGravCannon`, `BloodChalice_HealOnAttack` (mêmes symboles
+    `…$$CreatePiercingBonusForAttack`).
+  * **feuille DSL `AddDynamicStatModifierEffect`** (+ son jumeau `…ToOwner`) — la paire de slots
+    source(+0x58)/targets(+0x60) qui tranche « self-buff vs debuff sur la cible ».
+  * **`SortUnitsByDamageUtility`** extrait en port partagé (`operations/damage_utility.py`).
+Restent Votann : `PredictiveGuidance`, `GrimEfficiency` (gate stance), `FuryFromTheDelve`,
+`EcogSupport`, le RESET d'`AncestralFortune`, le trait `PrioritisedEfficiency` (5 effets, x7 porteurs).
 
 **Synthèse Votann** : [opus] direct = IronkinSteeljack (PORTE), AugmentedAssault, GravitonRifle (attaque) ;
 [opus]+prérequis = PredictiveGuidance, GrimEfficiency (gate stance) ; **[fable]** = FuryFromTheDelve,
