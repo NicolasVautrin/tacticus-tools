@@ -55,7 +55,7 @@ def _pinned_of(units, uid):
 
 
 def _build(seed, p_units, a_units):
-    sf = ROOT / "data" / "rl-state" / f"suppfire-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"suppfire-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),

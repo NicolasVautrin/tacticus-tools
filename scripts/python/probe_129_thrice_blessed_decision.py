@@ -49,14 +49,14 @@ def make_bc(ammo: int = 5) -> Path:
     for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
         if isinstance(p, dict) and p.get("PlayerType") != 2:      # Environment exclu
             p["MachineOfWarAmmo"] = ammo
-    out = ROOT / "data" / "rl-state" / f"bc-129-{uuid.uuid4().hex[:8]}.json"
+    out = ROOT / "logs" / "runners" / f"bc-129-{uuid.uuid4().hex[:8]}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(bc), encoding="utf-8")
     return out
 
 
 def build(seed: str, board: str, bc: Path, p_units: str, a_units: str) -> tuple:
-    state = ROOT / "data" / "rl-state" / f"st-129-{uuid.uuid4().hex[:8]}.json"
+    state = ROOT / "logs" / "runners" / f"st-129-{uuid.uuid4().hex[:8]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     p = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,

@@ -4,7 +4,7 @@ epingle sur seed 123, capture CHAQUE cas mono-coup (clean + block-divergent) et 
 rejouable OFFLINE-only du cas ou offline != live.
 
 Pour chaque cas : mesure block_sources offline, port execute() (per-hit/rolls/did_block), LIVE,
-et discriminant offline-SANS-block. Sauve data/rl-state/p65-repro-<seed>-<att>-<tgt>.json.
+et discriminant offline-SANS-block. Sauve logs/runners/p65-repro-<seed>-<att>-<tgt>.json.
 
 ASCII only. Usage: python probe_65_block_repro.py [--seed 123]
 """
@@ -23,7 +23,7 @@ import predict_samples as PV  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "p65repro.json"
+STATE = ROOT / "logs" / "runners" / "p65repro.json"
 
 
 def _r(sid, method, body, t=90):
@@ -150,7 +150,7 @@ def main():
                   f"did_block={rr['did_block']} blk={blk} live_ndraw={live_ndraw} off_ndraw={off_ndraw} "
                   f"eff={eff}{tag}")
             if div:
-                out = ROOT / "data" / "rl-state" / f"p65-repro-{args.seed}-{att}-{tgt}.json"
+                out = ROOT / "logs" / "runners" / f"p65-repro-{args.seed}-{att}-{tgt}.json"
                 out.write_text(json.dumps({
                     "seed": args.seed, "att": att, "tgt": tgt, "tgtVis": r.get("tgtVis"),
                     "norm_id": norm["id"], "hp_before": hp_before, "live_after": int(live_after),

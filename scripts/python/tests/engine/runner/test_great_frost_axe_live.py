@@ -129,7 +129,7 @@ def test_great_frost_axe_live(live_session, rpc):
     """Confronte le port GreatFrostAxe au LIVE : (A) structure, (B) zone glace, (C) degat BIT-EXACT
     par coup (residu x1.5 resolu #45f = elevation) + discriminant native_factory. State-file UNIQUE ->
     dispose au teardown."""
-    state_file = ROOT / "data" / "rl-state" / f"gfa-test-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"gfa-test-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "31337", "--state-file", str(state_file),

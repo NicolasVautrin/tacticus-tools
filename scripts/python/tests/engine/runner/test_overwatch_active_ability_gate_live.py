@@ -86,7 +86,7 @@ def _seed_rng(s):
 
 
 def _build(rpc, p_units: str, tag: str, seed: str = "777", board: str = "MC1_67"):
-    sf = ROOT / "data" / "rl-state" / f"ow127-{tag}-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"ow127-{tag}-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", seed, "--state-file", str(sf),

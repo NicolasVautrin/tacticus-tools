@@ -51,7 +51,7 @@ def _rpc(sid, m, b=None, t=60):
 
 
 def _build(seed, board):
-    sf = ROOT / "data" / "rl-state" / f"probe127-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"probe127-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     p = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", seed, "--state-file", str(sf),

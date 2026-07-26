@@ -16,7 +16,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57a2_state.json"
+STATE = ROOT / "logs" / "runners" / "_57a2_state.json"
 
 SEED, STOP, UID = "1357", 15, 135
 

@@ -113,7 +113,7 @@ def _want_hits():
 def test_plasma_cannon_live(live_session, rpc):
     """Confronte le port PlasmaCannon au LIVE : A/B tree==pipeline (A), targeting directly-behind + discriminant
     front (B), native_factory=attack via ratio-constant sur la main (C). State-file UNIQUE -> dispose au teardown."""
-    state_file = ROOT / "data" / "rl-state" / f"plasmacannon-test-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"plasmacannon-test-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),

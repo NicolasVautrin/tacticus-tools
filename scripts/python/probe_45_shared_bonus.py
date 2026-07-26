@@ -66,7 +66,7 @@ def _tags(e):
 
 
 def build(seed, tag, caster_vis):
-    state = ROOT / "data" / "rl-state" / f"p45sb-{tag}-{uuid.uuid4().hex[:6]}.json"
+    state = ROOT / "logs" / "runners" / f"p45sb-{tag}-{uuid.uuid4().hex[:6]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state),

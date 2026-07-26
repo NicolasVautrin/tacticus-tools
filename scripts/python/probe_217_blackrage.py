@@ -41,7 +41,7 @@ from engine.runner.prng import IntBasedMersenneTwister  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_a217_brage_state.json"
+STATE = ROOT / "logs" / "runners" / "_a217_brage_state.json"
 LUCIEN = "bloodDeathCompany"
 ENEMY = "tyranTyrantGuard"           # tanky BigTarget -> survit + push no-op
 ABILITY = 1163

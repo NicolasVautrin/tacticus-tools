@@ -507,7 +507,7 @@ PHASES = {"scan": phase_scan, "hailstrike": phase_hailstrike, "plain": phase_pla
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", required=True, choices=sorted(PHASES))
-    ap.add_argument("--state", default=str(DATA / "rl-state" / "probe131-bounds.json"))
+    ap.add_argument("--state", default=str(LOGS / "runners" / "probe131-bounds.json"))
     ap.add_argument("--seed", default="31337")
     ap.add_argument("-n", "--n", type=int, default=6)
     ap.add_argument("--keep", action="store_true")

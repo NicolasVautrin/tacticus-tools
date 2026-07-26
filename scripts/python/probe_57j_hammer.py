@@ -32,7 +32,7 @@ from engine import battle_query as bq  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57j_state.json"
+STATE = ROOT / "logs" / "runners" / "_57j_state.json"
 SEED, STOP, UID, AB = "54321", 8, 81, 1153
 TGTS = (91, 93)
 

@@ -224,7 +224,7 @@ def _run_cast(rpc, rid, board, cid, target_id):
 def test_sanctorum_missile_targeting_and_ab(live_session, rpc):
     """(A) A/B bit-exact main+splash ; (B) targeting live = 2x cible + 1x chaque adjacent-cible (allie inclus,
     Morvenn exclue) == offline `Sub(AdjacentUnits(TargetTile()), Caster())`."""
-    state_file = ROOT / "data" / "rl-state" / f"sanctorum-tgt-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"sanctorum-tgt-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = _build("777", state_file)
     if not state_file.exists():
@@ -344,7 +344,7 @@ def test_sanctorum_missile_native_factory_attack(live_session, rpc, seed):
     """(C) native_factory="attack" : sur la MAIN (rng synchronise), ratio live/offline CONSTANT en famille
     "attack" (2 tirages/coup), NON-CONSTANT en famille "ability" (1 tirage/coup -> desync des le coup 2).
     Discriminant rngcrit-1202/tip #2, sur 2 seeds (tip #7)."""
-    state_file = ROOT / "data" / "rl-state" / f"sanctorum-fac-{seed}-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"sanctorum-fac-{seed}-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = _build(seed, state_file)
     if not state_file.exists():

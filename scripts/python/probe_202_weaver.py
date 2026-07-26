@@ -38,8 +38,8 @@ from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
 from engine.services.battle_query import are_tiles_adjacent  # noqa: E402
 import engine_validate as EV  # noqa: E402
 
-STATE = ROOT / "data" / "_probe202_duel_state.json"
-OUT = ROOT / "data" / "_probe202_diag.json"
+STATE = ROOT / "logs" / "runners" / "_probe202_duel_state.json"
+OUT = ROOT / "logs" / "runners" / "_probe202_diag.json"
 CARRIER_VIS = "thousInfernalMaster"
 EFFECT_NAME = "WeaverOfFate_MaxOutDamage"
 BUILD = ["--p-units", "thousInfernalMaster,spaceStormcaller,spaceStormcaller",

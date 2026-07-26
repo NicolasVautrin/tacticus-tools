@@ -16,7 +16,7 @@ from rl_collect_batch import _resolve_session, _ensure_ai_trace, _rpc  # noqa: E
 import stream_events as se  # noqa: E402
 
 KHARN = 85
-STATE = Path(__file__).resolve().parents[2] / "data" / "duel_state.json"
+STATE = Path(__file__).resolve().parents[2] / "logs" / "runners" / "duel_state.json"
 
 
 def main() -> int:

@@ -445,7 +445,7 @@ def _build(state, board, p_units, a_units, hp_target="90000", cap_wait_s=900, po
 
 def _run_item(sid, fn, board, p_units, a_units, caster_vis, min_enemies, fails,
               hp_target="90000"):
-    state = ROOT / "data" / "rl-state" / f"probe124-{uuid.uuid4().hex[:8]}.json"
+    state = ROOT / "logs" / "runners" / f"probe124-{uuid.uuid4().hex[:8]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     rid = _build(state, board, p_units, a_units, hp_target)
     if rid is None:

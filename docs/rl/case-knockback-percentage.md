@@ -32,7 +32,7 @@ Getter jumeau `DamageCalculations.get_KnockbackPercentageFix64 @181005d70` : lit
     (`{ElevationBonus, ClassBonus, AffinityBonus, ArmorPercentage, DamageSpreadPercentage,
     KnockbackPercentage, ...}`) → `+0x10..+0x24` mappe exactement.
 - **Valeur** : `BC.Damage.KnockbackPercentage = 20` dans **tous** les seeds BC frais du build
-  courant (`data/rl-state/*.json`, ArmorPercentage=50, DamageSpreadPercentage=20).
+  courant (`logs/runners/*.json`, ArmorPercentage=50, DamageSpreadPercentage=20).
 
 ### 1.3 Le maxHealth passé = maxHealth total de l'unité
 

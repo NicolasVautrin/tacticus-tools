@@ -31,7 +31,7 @@ import gameconfig as GC  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "cordclaw-a06de242.json"
+STATE = ROOT / "logs" / "runners" / "cordclaw-a06de242.json"
 CASTER_VIS = "admecRuststalker"
 ABILITY = 1122
 EFFECT = 1250

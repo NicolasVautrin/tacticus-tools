@@ -45,7 +45,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_fs49x_state.json"
+STATE = ROOT / "logs" / "runners" / "_fs49x_state.json"
 MAXMOVE = 3          # Calgar movement=3 ; pas de driving > 3 par bond
 MAXROUNDS = 40
 

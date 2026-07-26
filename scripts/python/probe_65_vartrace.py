@@ -20,7 +20,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_65_vartrace_state.json"
+STATE = ROOT / "logs" / "runners" / "_65_vartrace_state.json"
 W, H = 7, 9
 MV_VOLK = 2
 

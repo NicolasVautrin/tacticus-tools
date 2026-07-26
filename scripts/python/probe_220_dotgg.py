@@ -46,7 +46,7 @@ from engine.entities.effects.loki.extra_damage_aura import (  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_220_dotgg_a5897909_state.json"
+STATE = ROOT / "logs" / "runners" / "_220_dotgg_a5897909_state.json"
 TOL = 3
 P_UNITS = "tauShadowsun,tauCrisis,admecDestroyer"
 A_UNITS = "bloodSanguinary"

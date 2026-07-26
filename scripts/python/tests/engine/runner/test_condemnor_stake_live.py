@@ -49,7 +49,7 @@ NONPSY = "admecManipulus"        # cible NON-Psyker (Mechanical, sans reanim rea
 PYDIR = Path(__file__).resolve().parents[3]                   # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                    # racine repo (worktree)
 # State-file DEDIE a CET agent (nom UNIQUE, chemin ABSOLU) -> pas de collision avec un autre agent/pytest.
-STATE = ROOT / "data" / "_condemnor_stake_a6a136c3_state.json"
+STATE = ROOT / "logs" / "runners" / "_condemnor_stake_a6a136c3_state.json"
 
 
 def _ok(r):

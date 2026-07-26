@@ -508,7 +508,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Refs action logs
 
-`data/_sp_80003_A.json` (team1, **4 tours** [4 endturns] ; 24 actions : 6 abilities = SendInTheNextWave 1016, ab 1120, 2× normale 69, ab 1043, DeathFromAbove 1003 ; 2 finish, 12 move) + `data/_sp_80003_B.json` (team2, **4 tours** [4 endturns] ; 43 actions : 19 abilities = **16× normale Psyker 69 [le feed splash→WeaverOfFate]**, Ahriman Doombolt 1102, ab 1021, ab 1007 ; 2 finish, 18 move) — **archivés** dans `data/selfplay-logs/sp_80003_2026-06-23-batchfix.json` puis **supprimés post-teardown** ; séquences clés résumées ci-dessus.
+`data/_sp_80003_A.json` (team1, **4 tours** [4 endturns] ; 24 actions : 6 abilities = SendInTheNextWave 1016, ab 1120, 2× normale 69, ab 1043, DeathFromAbove 1003 ; 2 finish, 12 move) + `data/_sp_80003_B.json` (team2, **4 tours** [4 endturns] ; 43 actions : 19 abilities = **16× normale Psyker 69 [le feed splash→WeaverOfFate]**, Ahriman Doombolt 1102, ab 1021, ab 1007 ; 2 finish, 18 move) — **archivés** dans `logs/selfplay/sp_80003_2026-06-23-batchfix.json` puis **supprimés post-teardown** ; séquences clés résumées ci-dessus.
 
 ---
 
@@ -546,7 +546,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Refs action logs
 
-`data/_sp_80031_A.json` / `data/_sp_80031_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `data/selfplay-logs/sp_80031_2026-06-23-b5.json` (winner=no-result) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 22 absent du host).
+`data/_sp_80031_A.json` / `data/_sp_80031_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `logs/selfplay/sp_80031_2026-06-23-b5.json` (winner=no-result) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 22 absent du host).
 
 ---
 
@@ -584,7 +584,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Refs action logs
 
-`data/_sp_80020_A.json` / `data/_sp_80020_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `data/selfplay-logs/sp_80020_2026-06-23-b5.json` (winner=no-result, rejouable via seed 80020) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 24 évincé du registry live de la session 4).
+`data/_sp_80020_A.json` / `data/_sp_80020_B.json` (team1=0 actions, team2=0 actions — **aucun tour joué**, `action_log=[]` des deux côtés) — archivés dans `logs/selfplay/sp_80020_2026-06-23-b5.json` (winner=no-result, rejouable via seed 80020) puis supprimés post-teardown. Pas de séquence de jeu à résumer : le match n'a jamais démarré (runner 24 évincé du registry live de la session 4).
 
 ---
 
@@ -613,7 +613,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 **team2 win-condition (PERDANT, jamais réalisée)** : noyau **summon-snowball + amplification** — Re'vas (EarlyWarningOverride = 2 Shield Drones + arme OW +1892 + CyclicIonBlaster +437 vs Mechanical/RangedSpecialist) + Gibbascrapz (GrotTank summon-engine + KustomForceField) + Tigurius (StormOfWrath Psychic NoBlocking AoE + PsychicFortress block-aura) ; SOURCE = les TROIS engines, qui doivent rester vivants et écraner les fragiles — tous tués en UN tour sur l'over-extension.
 → Accord A.theirs / B.mine = **CONSENSUS** (A lit correctement les 3 engines summon/OW/Psyker ; B auto-lit son plan summon-snowball + son flaw : présenter les fragiles isolés à un focus discipliné).
 
-### Séquences clés (résumé des action logs — détail dans `data/selfplay-logs/sp_80042_2026-06-23-b5.json`)
+### Séquences clés (résumé des action logs — détail dans `logs/selfplay/sp_80042_2026-06-23-b5.json`)
 
 **Player A (team1, VAINQUEUR) :**
 - **T3 — standoff-breaker** : BasiliskBarrage (Thaddeus stationnaire) a chip 3 ennemis ~2025 chacun, Pin (move-1) 3 ennemis ET **disarmé l'Overwatch armé de Certus** (Suppress stoppe l'OW) en un cast → convertit un deep-gap turtle en pression proactive sans exposer personne.
@@ -658,7 +658,7 @@ Action logs complets de CE run : `data/_sp_80000_A.json` (5 turns, dont le Storm
 
 ### Refs action logs
 
-Action logs complets de CE run : `data/_sp_80042_A.json` + `data/_sp_80042_B.json` → archivés dans `data/selfplay-logs/sp_80042_2026-06-23-b5.json` (winner=team1, rejouable via seed 80042) puis supprimés post-teardown ; séquences clés (standoff-breaker T3 → 3-engine focus-kill sur le dive → close mêlée) résumées ci-dessus.
+Action logs complets de CE run : `data/_sp_80042_A.json` + `data/_sp_80042_B.json` → archivés dans `logs/selfplay/sp_80042_2026-06-23-b5.json` (winner=team1, rejouable via seed 80042) puis supprimés post-teardown ; séquences clés (standoff-breaker T3 → 3-engine focus-kill sur le dive → close mêlée) résumées ci-dessus.
 
 ## seed 80053 — winner=team1 (ts=2026-06-23-b5)
 
@@ -776,7 +776,7 @@ refuse hors-Running, cf. H59 ; ne PAS l'interpréter.)
 ### Refs action logs
 
 Action logs complets de CE run : `data/_sp_80053_A.json` + `data/_sp_80053_B.json` → archivés dans
-`data/selfplay-logs/sp_80053_2026-06-23-b5.json` (winner=team1, rejouable via seed 80053) puis supprimés post-teardown ;
+`logs/selfplay/sp_80053_2026-06-23-b5.json` (winner=team1, rejouable via seed 80053) puis supprimés post-teardown ;
 séquences clés (tenue de position T3 → T5 engine-break double-K! Kharn+Ragnar pre-arm + Njal anti-Calgar Psychic →
 overkill final Calgar pour nier FJ) résumées ci-dessus.
 
@@ -853,7 +853,7 @@ overkill final Calgar pour nier FJ) résumées ci-dessus.
 ### Refs action logs
 
 Action logs complets de CE run : `data/_sp_80064_A.json` + `data/_sp_80064_B.json` → archivés dans
-`data/selfplay-logs/sp_80064_2026-06-23-b5.json` (team1=33 actions, team2=21 actions, winner=team2, rejouable via seed 80064)
+`logs/selfplay/sp_80064_2026-06-23-b5.json` (team1=33 actions, team2=21 actions, winner=team2, rejouable via seed 80064)
 puis supprimés post-teardown ; séquences clés (A hold-row-2 T1-T2 → engine-enablers tués gratis T2-T3 → focus Patermine T4 mais
 Aethana over-extend → trade Baraqiel/Njal forward T5 mauvais melee-into-Jaeger ; B engage proactif → kill amplifier-engines en
 ordre Tan Gi'da→Darkstrider→Aethana via Psychic/Direct bypass → Njal one-turn 8032→790 → Patermine over-extend mais déjà gagnant)
@@ -904,7 +904,7 @@ résumées ci-dessus.
 ### Refs action logs
 
 Action logs complets de CE run : `data/_sp_80072_A.json` + `data/_sp_80072_B.json` → archivés dans
-`data/selfplay-logs/sp_80072_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome, rejouable via seed 80072)
+`logs/selfplay/sp_80072_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome, rejouable via seed 80072)
 puis supprimés post-teardown. Séquence clé : A TIMED l'alpha hors-phase-(−50%) (Aun'Shi 8536→1770) mais committé forward dans le danger-5
 (anti-cap) → Nauseous + Neurothrope focus-killés → 5v5→3v5→1v5 ; B HOLD cohésif (Certus OW-turret + Thaumachus ArcaneShield) bait l'over-commit,
 puis tour décisif heal-first (Incisus CombatRestoratives Aun'Shi 1770→7753 + clear Pinned) → kill des 2 engines au range zéro perte
@@ -984,7 +984,7 @@ puis tour décisif heal-first (Incisus CombatRestoratives Aun'Shi 1770→7753 + 
 ### Refs action logs
 
 Action logs complets de CE run : `data/_sp_80085_A.json` + `data/_sp_80085_B.json` → archivés dans
-`data/selfplay-logs/sp_80085_2026-06-23-b6.json` (team1=37 actions, team2=27 actions, rosters + outcome, rejouable via seed 80085)
+`logs/selfplay/sp_80085_2026-06-23-b6.json` (team1=37 actions, team2=27 actions, rosters + outcome, rejouable via seed 80085)
 puis supprimés post-teardown. Séquence décisive : A bait-and-trade — anchors Resilient avant + summon screen, kill du repair-engine
 Vitruvius pour FREE depuis tuile courante (FlailSwing + WarHowl + aura), stun-control de Kut (VexillaMagnifica), puis clôture
 Stormcaller-AoE (Azrael+Hollan) → 4v1 → élim ; B engine-race (overkill WP/FJ-denied, kill Ragnar) mais stranded son repair-engine
@@ -1058,7 +1058,7 @@ Aucune divergence de FAIT sur les mécaniques (les 6 consensus concordent, recou
 ### Refs action logs
 
 Action logs complets de CE run : `data/_sp_80020_A.json` (51 actions) + `data/_sp_80020_B.json` (71 actions) → archivés dans
-`data/selfplay-logs/sp_80020_2026-06-23-b6.json` (rosters + outcome team2, rejouable via seed 80020) puis supprimés post-teardown.
+`logs/selfplay/sp_80020_2026-06-23-b6.json` (rosters + outcome team2, rejouable via seed 80020) puis supprimés post-teardown.
 Séquence décisive : B hold cohésif (Snotflogga 12k anvil + summon screen, refus de diver Overwatch/counter) → A over-commit T7
 (Dreir charge dans le bait-anvil row 6 + Azkor/Tyrith suivant, réactions inertes) → Snotflogga SquigHound multi-hit SOLO chaque
 Resilient anchor (floor→overkill), Isabella regen négatant tout chip adverse, Archimatos/Sho'syl flood le board → focus-kill piecemeal
@@ -1138,7 +1138,7 @@ des 4 héros A → wipe Xybia final → 38 vs 0.
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80097_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80097) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80097_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80097) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1209,7 +1209,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80097_2026-
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80031_2026-06-23-b6.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1278,7 +1278,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_2026-
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80000_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80000) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80000_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80000) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1341,7 +1341,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80000_20260
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80003_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80003) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80003_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80003) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1412,7 +1412,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80003_20260
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80004_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80004) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80004_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80004) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1485,7 +1485,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80004_20260
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80002_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80002) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80002_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80002) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1559,7 +1559,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80002_20260
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80001_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80001) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80001_20260625-b7.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 80001) puis state-files supprimés post-teardown. Séquences décisives résumées ci-dessus.
 
 ---
 
@@ -1630,7 +1630,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80001_20260
 
 ### Refs action logs
 
-Action logs complets de CE run archives dans `data/selfplay-logs/sp_80053_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80053) puis state-files supprimes post-teardown. Sequences decisives (WarHowl-first -> alpha 3-kills T4) resumees ci-dessus.
+Action logs complets de CE run archives dans `logs/selfplay/sp_80053_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80053) puis state-files supprimes post-teardown. Sequences decisives (WarHowl-first -> alpha 3-kills T4) resumees ci-dessus.
 
 ---
 
@@ -1657,7 +1657,7 @@ Action logs complets de CE run archives dans `data/selfplay-logs/sp_80053_b8.jso
 **team1 win-condition (PERDANT, jamais réalisée)** : durable-brick attrition. SOURCE = les 2 ranged out-trade (Snappawrecka DakkaDakka r3 + Sy-gex HeavyGravCannon r3 bonus vs leurs Mechanicals) + Kariyan anti-summon MartialKatah, front-line Resilient/revive (Kariyan + Toth) absorbant le focus. FAILLE = ZÉRO team-sustain : une fois Sy-gex (le seul ranged qui out-trade ET le seul peel anti-engine) mort au Seeker, les bricks n'avaient plus de peel et se sont fait out-focus par un roster qui out-sustain.
 → Accord A.mine / B.theirs = **CONSENSUS** (B a correctement lu le mur durable ancré sur l'UNIQUE reaction-engine Sy-gex Overwatch + HeavyGravCannon, sans 2e Mechanical bénéficiaire — et a ciblé Sy-gex EN PREMIER via le Seeker).
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_80031_b8.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_80031_b8.json)
 
 **Player B (team2, VAINQUEUR) :**
 - T1 : Sho'syl SeekerMissile markerlight sur le turret Overwatch Sy-gex depuis une tuile écranée + summon Aberrant (corps-écran 7477 gratuit). Le Seeker landa pour un chunk massif (Sy-gex 9537->274) = neutralise le SEUL reaction-engine adverse pour zéro coût héros, setup d'un kill cheap. **Meilleur play du match.**
@@ -1698,7 +1698,7 @@ Action logs complets de CE run archives dans `data/selfplay-logs/sp_80053_b8.jso
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives (Seeker T1 sur Sy-gex → suppression du peel → out-focus du mur durable) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_80031_b8.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 80031) puis state-files supprimés post-teardown. Séquences décisives (Seeker T1 sur Sy-gex → suppression du peel → out-focus du mur durable) résumées ci-dessus.
 
 ---
 
@@ -1723,7 +1723,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_b8.js
 **team1 win-condition (PERDANT, jamais réalisée)** : moteur summon Psychic derrière écran. SOURCE = thousInfernalMaster (Abraxas) `MasterOfTheTutelaries` (cascade Pink Horror + Screamers par dégât Psychic) + `WeaverOfFate`, soutenu par darkaHellblaster (Sarquael) tourelle Overwatch r3 (le punisher de réaction vs un all-melee dive), screené par blackTerminator (Angrax) deep-strike TerminatorArmour + necroWarden (Makhotep) RelentlessMarch/LivingMetal. FAILLE = l'engine n'est JAMAIS venu online (Abraxas jamais en r2, Ulf SavageKiller verrouillait les summons, Asmodai a Pin+Suppress Abraxas, puis Abraxas focus-killé avant tout cast ; Sarquael, l'UNIQUE reaction-engine, focus-killé T3 → ligne fragile effondrée).
 → Accord A.mine / B.theirs = **CONSENSUS** (B a correctement lu Abraxas comme l'engine à kill-en-un-burst-garanti + Sarquael comme le turret Overwatch à bait/overkill, et les a éliminés dans cet ordre).
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_81003_b9.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_81003_b9.json)
 
 **Player B (team2, VAINQUEUR) :**
 - T2-3 : GARDA Kharn (le carry/snowball) écrané en arrière full-HP au lieu de le diver → dispo pour le tour-4 KillMaimBurn décisif. **Décision porteuse du match.**
@@ -1766,7 +1766,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_80031_b8.js
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81003_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81003) puis state-files supprimés post-teardown. Séquences décisives (Kharn écrané T2-3 → triple-kill KillMaimBurn T4 sur l'engine marqué Asmodai → snowball TheBetrayer) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_81003_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81003) puis state-files supprimés post-teardown. Séquences décisives (Kharn écrané T2-3 → triple-kill KillMaimBurn T4 sur l'engine marqué Asmodai → snowball TheBetrayer) résumées ci-dessus.
 
 ## seed 81001 — winner=team1 (ts=b9)
 
@@ -1791,7 +1791,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81003_b9.js
 **team2 win-condition (PERDANT, jamais réalisée)** : brick-wall mêlée Imperial converti par un buff-engine empilé. SOURCE = ultraCalgar (Calgar) `RitesOfBattle` (+946 Imperial adjacent) + templHelbrecht (Helbrecht) `CrusadeOfWrath` (+364 melee/+pierce) + admecMarshall (Tan Gi'da) `ControlEdict` Skitarii-Vanguard summon-screens + burst anti-Psyker (custoAtlacoya Atlacoya `DaughterOfTheAbyss`/Direct + Helbrecht `DestroyTheWitch` +1091 vs Psyker). Plan : fermer la distance en masse durable cohésive et écraser la ligne ranged soft en mêlée buffée avant le round-cap.
 → Accord A.theirs / B.mine = **CONSENSUS sur le PACKAGE** (web buff-aura Calgar+Helbrecht+Tan Gi'da + summon-engine + anti-Psyker + close-as-cohesive-mass). DIVERGENCE de SALIENCE sur le CARRY : A foregrounde **Kariyan-as-carry** (Resilient snowball MartialInspiration/RapidAssault, menace critique) ; B s'auto-lit en foregroundant les **enablers Calgar (buff-aura) + Tan Gi'da (summons)** comme SOURCE et traite Kariyan comme une pièce de dive expendable (« Resilient ne survit PAS au focus multi-hit concentré »). Réconciliable : carry (Kariyan) vs enablers (Calgar/Tan Gi'da) du MÊME package buffé.
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_81001_b9.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_81001_b9.json)
 
 **Player A (team1, VAINQUEUR) :**
 - T1-T2 : HOLD le coin serré + barrage global. Lecture : l'all-mêlée ennemi n'a AUCUN ranged global → forcé de traverser → A tient un cluster cohésif, chip-free avec l'artillery Thaddeus, et laisse Xybia stationnaire minter Neophytes/decoys. Pas un double-turtle — A était le SEUL camp à dealer du dmg, forçant l'ennemi à venir.
@@ -1833,7 +1833,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81003_b9.js
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81001_b9.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 81001) puis state-files supprimés post-teardown. Séquences décisives (HOLD coin + barrage global force le dive → focus-kill Kariyan T3 puis Calgar+Tan Gi'da T4 → convert 2v1 T5-6 en gérant FinalJustice via le tank) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_81001_b9.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 81001) puis state-files supprimés post-teardown. Séquences décisives (HOLD coin + barrage global force le dive → focus-kill Kariyan T3 puis Calgar+Tan Gi'da T4 → convert 2v1 T5-6 en gérant FinalJustice via le tank) résumées ci-dessus.
 
 ## seed 81002 — winner=team2 (ts=b9)
 
@@ -1858,7 +1858,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81001_b9.js
 **team1 win-condition (PERDANT, jamais réalisée)** : burst mêlée WarHowl. SOURCE = spaceBlackmane (Ragnar) `WarHowl` (engine : +dmg/+crit/Unstoppable à toute la ligne mêlée Characters sans normale ranged) + templAncient (Thoread) `AstartesBanner` (+1 hit mêlée) + `UnbreakableDuty` (-33% aura) ; Asmodai anti-Chaos (ExemplarOfHate Suppress + FearedInterrogator) vs Corrodius ; le crit WarHowl bypass le MkXGravis de Burchard. JAMAIS cashé — la ligne ne pouvait pas atteindre les cibles sans mourir au mur d'overwatch.
 → Accord A.mine / B.theirs = **CONSENSUS** (B lit A comme « WarHowl-buffed melee dive, SOURCE = Ragnar, doit lander buffé pour gagner » ; A confirme « SOURCE/enabler = Ragnar + Thoread, NEVER cashed »). Les 2 s'accordent : Ragnar mort sur le dive AVANT d'armer WarHowl = la ligne jamais buffée.
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_81002_b9.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_81002_b9.json)
 
 **Player A (team1, PERDANT) :**
 - T1-T2 : avance cohésive tank-led vers l'ennemi turtle-coin (round-cap force le camp mêlée à fermer). Sain en principe, MAIS a brûlé `UnbreakableDuty` (Thoread) T1 spéculativement (aucun ennemi en portée) → gaspillé (cooldown multi-tour → indispo pour le vrai engagement T3).
@@ -1901,7 +1901,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81001_b9.js
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81002_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81002) puis state-files supprimés post-teardown. Séquences décisives (B HOLD coin + arme double-overwatch → A all-mêlée forcé de diver par le round-cap → Ragnar mort mid-move dans le mur OW AVANT WarHowl = swing décisif → B grind les survivants avec aura Corrodius + flood Poxwalker, finit T6 sans perte) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_81002_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81002) puis state-files supprimés post-teardown. Séquences décisives (B HOLD coin + arme double-overwatch → A all-mêlée forcé de diver par le round-cap → Ragnar mort mid-move dans le mur OW AVANT WarHowl = swing décisif → B grind les survivants avec aura Corrodius + flood Poxwalker, finit T6 sans perte) résumées ci-dessus.
 
 ## seed 81004 — winner=team1 (ts=b9)
 
@@ -1926,7 +1926,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81002_b9.js
 **team2 win-condition (PERDANT, jamais réalisée)** : sustain + snowball-carry mêlée. SOURCE = adeptHospitaller (Isabella) `RitesOfRestoration` heal/revive-Imperial + bursts mêlée (templSwordBrother Godswyl `ThunderousAssault` stun + always-overkill, bloodIntercessor Mataneo `HammerOfWrath` deep-strike) + carry snowball worldJakhal (Macer) `JakhalStimms` (multi-hit qui bat Resilient) + necroWarden (Makhotep) `RelentlessMarch` tempo aura ; Makhotep `Gauss` r3 bypasse le Terrifying de Maugan Ra.
 → Accord A.theirs / B.mine = **CONSENSUS** (A lit B comme « sustain + snowball-carry mêlée, SOURCE = Isabella reviver feeding Godswyl/Mataneo bursts + Macer snowball »). Les 2 s'accordent : B n'a jamais pu lander un alpha cohésif dans le coin sans trade-down ; `AdaptiveStrategy`/repair de Makhotep INERTE (aucun allié non-Character/Mechanical).
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_81004_b9.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_81004_b9.json)
 
 **Player A (team1, VAINQUEUR) :**
 - T1-T3 : HOLD un coin serré, Maugan Ra (carry fragile) écran-mêlée par ses propres units, Overwatch armé → force l'ennemi mêlée-lourd à diver dans le reaction-cluster plutôt que d'over-extendre les fragiles dans la portée ennemie. (légèrement TROP passif : 3 holds consécutifs vs un oracle aussi prudent → la fenêtre de closure tombe pile au round-cap.)
@@ -1966,7 +1966,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81002_b9.js
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81004_b9.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 81004) puis state-files supprimés post-teardown. Séquences décisives (A HOLD coin reaction-cluster OW-armé LionHelm → force le dive mêlée de B → kill Mataneo T5 → Dreir LeadingTheCharge sur Macer T6 casse le double-turtle + flood 4 Death Riders → focus reviver Isabella + Bellator DeathFromAbove T7 → 9v1 → finit Makhotep T8 sur le tour-cap) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_81004_b9.json` (action_logs des 2 camps + rosters + outcome team1, rejouable via seed 81004) puis state-files supprimés post-teardown. Séquences décisives (A HOLD coin reaction-cluster OW-armé LionHelm → force le dive mêlée de B → kill Mataneo T5 → Dreir LeadingTheCharge sur Macer T6 casse le double-turtle + flood 4 Death Riders → focus reviver Isabella + Bellator DeathFromAbove T7 → 9v1 → finit Makhotep T8 sur le tour-cap) résumées ci-dessus.
 
 ## seed 81000 — winner=team2 (ts=b9)
 
@@ -1989,7 +1989,7 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81004_b9.js
 
 **team2 win-condition (VAINQUEUR)** : B.mine = multi-source focus-fire alpha + finisher Psychic. Leviers = Kariyan (BeastSlayer anvil-breaker vs les 2 BigTargets), Shadowsun (burst ranged + Exemplar teleport + drone), Njal (Psychic NoBlocking = l'outil propre pour cracker l'Abaddon Resilient/TermArmour), soutenus par Incisus (heal/revive). A.theirs = lit B comme **sustain+summon corner-turtle** : SOURCE = Incisus (heal/revive) + Shadowsun (summoner/buffer), Kariyan = corps wincon protégé, Njal poke. → **CONSENSUS sur les pièces** (Kariyan/Incisus/Shadowsun/Njal tous nommés) ; différence de cadrage (A=sustain-turtle défensif / B=alpha offensif+finisher), les deux valides selon le vantage.
 
-### Séquences clés (résumé des action logs — détail archivé dans data/selfplay-logs/sp_81000_b9.json)
+### Séquences clés (résumé des action logs — détail archivé dans logs/selfplay/sp_81000_b9.json)
 
 **Player A (team1, PERDANT) :**
 - T1-T3 : refuse de diver le corner-turtle row-7 (diver = feeder la carry Snappa à Kariyan `BeastSlayer`) ; avance cohésive puis consolide — raisonne (correctement) que l'oracle adverse ne peut pas non plus gagner en pokant avant le cap round-8 et DOIT committer forward (il l'a fait T4).
@@ -2034,4 +2034,4 @@ Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81004_b9.js
 
 ### Refs action logs
 
-Action logs complets de CE run archivés dans `data/selfplay-logs/sp_81000_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81000) puis state-files supprimés post-teardown. Séquences décisives (A refuse le dive T1-3 → B HOLD turtle force le forward-commit mutuel T4 → A sur-expose carry+repair pour un chunk NON-létal sur Incisus → B punit l'alpha, Snappa mort déclenche Explodes friendly-fire = 3-pour-1 contre A → B presse 6v3, A comeback propre 3v6→1v1 → Njal Psychic-first séquençage crack l'Abaddon Resilient+Drachnyen et gagne le 1v1 avant le cap) résumées ci-dessus.
+Action logs complets de CE run archivés dans `logs/selfplay/sp_81000_b9.json` (action_logs des 2 camps + rosters + outcome team2, rejouable via seed 81000) puis state-files supprimés post-teardown. Séquences décisives (A refuse le dive T1-3 → B HOLD turtle force le forward-commit mutuel T4 → A sur-expose carry+repair pour un chunk NON-létal sur Incisus → B punit l'alpha, Snappa mort déclenche Explodes friendly-fire = 3-pour-1 contre A → B presse 6v3, A comeback propre 3v6→1v1 → Njal Psychic-first séquençage crack l'Abaddon Resilient+Drachnyen et gagne le 1v1 avant le cap) résumées ci-dessus.

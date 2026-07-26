@@ -51,7 +51,7 @@ from engine.services.trait_damage_limits import (  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_60_swarm_state.json"
+STATE = ROOT / "logs" / "runners" / "_60_swarm_state.json"
 TOL = 3
 P_UNITS = "necroSpyder,admecManipulus"
 A_UNITS = "bloodSanguinary"

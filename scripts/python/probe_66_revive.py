@@ -22,7 +22,7 @@ from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_66_revive_state.json"
+STATE = ROOT / "logs" / "runners" / "_66_revive_state.json"
 
 import rl_collect_batch as R
 from engine.runner.snapshot import load_state

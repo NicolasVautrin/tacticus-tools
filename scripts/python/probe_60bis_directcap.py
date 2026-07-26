@@ -56,7 +56,7 @@ from engine.runner.abilities.base import profile_pierce  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_60bis_directcap_state.json"
+STATE = ROOT / "logs" / "runners" / "_60bis_directcap_state.json"
 P_UNITS = "necroSpyder,adeptRetributor"
 A_UNITS = "astraBullgryn"
 W, H = 7, 9

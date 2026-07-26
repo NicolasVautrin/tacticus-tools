@@ -136,7 +136,7 @@ def run_regime(rpc, seed, k_behind):
     import hexgeo
     from engine.entities.pathfinding.board import Board
 
-    state_file = ROOT / "data" / "rl-state" / f"probe215-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"probe215-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     rid = build(seed, state_file)
     if rid is None:

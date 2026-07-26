@@ -105,7 +105,7 @@ def _live_rh_series(cast, eid):
 def run_case(sid, case: str) -> bool:
     caster_vis, ability_id, ability_type, rng_range, relation = CASES[case]
     target_vis = TARGET_BY_CASE.get(case, TARGET_VIS)
-    state = ROOT / "data" / "rl-state" / f"p47-{case}-{uuid.uuid4().hex[:6]}.json"
+    state = ROOT / "logs" / "runners" / f"p47-{case}-{uuid.uuid4().hex[:6]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "909", "--state-file", str(state),

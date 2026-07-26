@@ -39,7 +39,7 @@ from engine.playbook import scene as SC  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_202c_tutelaries_state.json"
+STATE = ROOT / "logs" / "runners" / "_202c_tutelaries_state.json"
 ABX_VIS = "thousInfernalMaster"
 SORC_VIS = "thousSorcerer"                # allie Psychic ranged r2 (re-trigger B/C)
 HORROR_VIS = "thousNpc1PinkHorror"        # visualId LIVE de thousSmnPinkHorror

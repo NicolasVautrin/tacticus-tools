@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # de `rl_duel build` (2026-07-03), un build dispose le runner enregistre dans
 # SON state-file — sur le fichier par defaut ca toucherait le runner de
 # travail de l'utilisateur.
-STATE = ROOT / "data" / "_probe_overwatch_state.json"
+STATE = ROOT / "logs" / "runners" / "_probe_overwatch_state.json"
 
 
 def _res(r):

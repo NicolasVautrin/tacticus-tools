@@ -56,10 +56,14 @@ except Exception:  # noqa: BLE001
     pass
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "data" / "duel_state.json"
+STATE = ROOT / "logs" / "runners" / "duel_state.json"
 
 
 def _save_state(d: dict) -> None:
+    # Creer le repertoire : `logs/` est gitignore, donc ABSENT d'un checkout frais
+    # (contrairement a l'ancien `data/`, qui existait toujours via la jonction).
+    # Sans ce mkdir, un worktree d'agent echoue au premier build sur FileNotFoundError.
+    STATE.parent.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(d), encoding="utf-8")
 
 

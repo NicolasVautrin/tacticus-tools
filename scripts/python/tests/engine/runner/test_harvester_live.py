@@ -107,7 +107,7 @@ def _cfg_range() -> int:
 def _build(seed: str):
     """Build un runner ISOLE (state-file unique agent+tag, chemin absolu). Renvoie (rid, state_file)."""
     tag = uuid.uuid4().hex[:8]
-    state_file = ROOT / "data" / "rl-state" / f"harv-{AGENT}-{seed}-{tag}.json"
+    state_file = ROOT / "logs" / "runners" / f"harv-{AGENT}-{seed}-{tag}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state_file),

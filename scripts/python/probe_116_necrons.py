@@ -240,7 +240,7 @@ def _offline_cast(state, caster, target, ability):
 # --------------------------------------------------------------------------- phase ORB (1009)
 
 def phase_orb(args):
-    st_file = Path(args.state_file or (ROOT / "data" / "_116_orb_state.json"))
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / "_116_orb_state.json"))
     sid = _resolve_session()
     rid = _build(st_file, ["--seed", str(args.seed), "--board", "MC1_67", "--rank", "17",
                            "--p-units", "necroOverlord,necroDestroyer",
@@ -290,8 +290,8 @@ def phase_orb(args):
 # --------------------------------------------------------------------------- phase CHRONO (1226)
 
 def phase_chrono(args):
-    st_file = Path(args.state_file or (ROOT / "data" / "_116_chrono_state.json"))
-    bc_file = ROOT / "data" / "_116_chrono_bc.json"
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / "_116_chrono_state.json"))
+    bc_file = ROOT / "logs" / "runners" / "_116_chrono_bc.json"
     # Le porteur `necroChronomancer` est HORS du seed BC capture -> injection dans les DEUX catalogues
     # (BC.Units ET BC.Abilities, cf. case-92). Les `--a-units` sont injectees aussi : ca permet de mettre
     # un porteur du trait `Summon` en face (branche `Stunned` du If natif).
@@ -385,7 +385,7 @@ def phase_chrono(args):
 # --------------------------------------------------------------------------- phase MTE (1006)
 
 def phase_mte(args):
-    st_file = Path(args.state_file or (ROOT / "data" / "_116_mte_state.json"))
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / "_116_mte_state.json"))
     sid = _resolve_session()
     # `--hp-player` (defaut : celui de `rl_duel build`) : monter les PV du CASTER retire le confond
     # « le caster MEURT de la reaction adverse (Overwatch / WireweaveNet_CounterAttack) pendant la

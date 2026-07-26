@@ -39,7 +39,7 @@ from engine.playbook import prediction  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_61bis_pred_state.json"
+STATE = ROOT / "logs" / "runners" / "_61bis_pred_state.json"
 CASTER_VIS = "tauMarksman"          # Sho'syl (attaque normale = 1076)
 CONTROL_VIS = "templAncient"        # controle non-T'au (gate HasFaction(9) doit l'exclure)
 TARGET_VIS = "astraYarrick"

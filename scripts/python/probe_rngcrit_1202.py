@@ -62,7 +62,7 @@ def _ok(r):
 
 def build(seed: int, tag: str, a_units: str = f"{TGT_VIS},necroDestroyer",
           hp_override: bool = True, extra: list | None = None) -> int:
-    state = ROOT / "data" / "rl-state" / f"rngcrit-a35d06-{tag}.json"
+    state = ROOT / "logs" / "runners" / f"rngcrit-a35d06-{tag}.json"
     state.unlink(missing_ok=True)
     units = ["--p-units", ATK_VIS, "--a-units", a_units]
     if hp_override:

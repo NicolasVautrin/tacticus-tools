@@ -96,7 +96,7 @@ import engine_validate as EV  # noqa: E402  (run_agreement = SOURCE UNIQUE du wa
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 # State-file DÉDIÉ (jamais data/duel_state.json : replace scope = ownership record).
-STATE = ROOT / "data" / "_stages_duel_state.json"
+STATE = ROOT / "logs" / "runners" / "_stages_duel_state.json"
 
 # ── Diag « terme manquant » move (docs/rl/agreement-stages.md lead 7 + case-36) ──
 # Le breakdown `move_terms` est AUTO-RÉFÉRENTIEL : il ne montre que les feuilles qu'on CALCULE.
@@ -922,7 +922,7 @@ def main(argv: list[str]) -> int:
         all_records += out["stage_records"]
 
     summarize(all_records)
-    dump = Path(args.json) if args.json else (ROOT / "data" / "stages_agreement.json")
+    dump = Path(args.json) if args.json else (ROOT / "logs" / "runners" / "stages_agreement.json")
     dump.parent.mkdir(parents=True, exist_ok=True)
     with open(dump, "w", encoding="utf-8") as f:
         json.dump({"runs": runs}, f, ensure_ascii=False, indent=1, default=str)

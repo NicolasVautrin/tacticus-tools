@@ -50,7 +50,7 @@ from engine.entities.effects.loki.extra_damage_aura import (  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_66_spotter_state.json"
+STATE = ROOT / "logs" / "runners" / "_66_spotter_state.json"
 TOL = 3
 P_UNITS = "admecDestroyer,darkaTerminator,astraOrdnance"
 A_UNITS = "bloodSanguinary"

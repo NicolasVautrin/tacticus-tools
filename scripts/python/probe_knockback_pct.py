@@ -27,7 +27,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "p61-kbpct-a1f7b5.json"
+STATE = ROOT / "logs" / "runners" / "p61-kbpct-a1f7b5.json"
 CASTER_VIS = "ultraEliminatorSgt"
 TARGET_VIS = "necroWarden"
 ABILITY = 1004

@@ -35,7 +35,7 @@ from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57h_state.json"
+STATE = ROOT / "logs" / "runners" / "_57h_state.json"
 
 #            seed     stop uid  ab  nat_tgt eng_tgt
 CASES = {"S14": ("12345", 14, 87, 69, 77, 85),

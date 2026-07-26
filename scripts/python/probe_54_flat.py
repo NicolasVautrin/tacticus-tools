@@ -29,7 +29,7 @@ from engine.utilities.damage import DamageUtility, KillUnitUtility, OverkillUnit
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_54_state.json"
+STATE = ROOT / "logs" / "runners" / "_54_state.json"
 
 CASES = [
     {"seed": "1357", "stop": 15, "uid": 135, "ab": 69, "tgt": 162, "tile": (5, 4)},

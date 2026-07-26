@@ -42,7 +42,7 @@ from fractions import Fraction  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_45psy_state.json"
+STATE = ROOT / "logs" / "runners" / "_45psy_state.json"
 
 L3_EXPECTED = 17.85381752299145      # capture L3 31337 s18 (TriggeredAbilitiesUtility#0)
 

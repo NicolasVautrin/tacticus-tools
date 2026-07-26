@@ -54,7 +54,7 @@ def _caster(dv):
 def test_plasma_cannon_lateral_directly_behind_live(live_session, rpc):
     """DISCRIMINANT : le natif EXCLUT l'unite LATERALE a distance EGALE du splash directly-behind
     (confirme `>` STRICT). offline `UnitsDirectlyBehind == {away}` (lateral exclu) == splash LIVE {main, away}."""
-    state_file = ROOT / "data" / "rl-state" / f"plasmacannon-lateral-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"plasmacannon-lateral-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),

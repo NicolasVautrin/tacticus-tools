@@ -31,7 +31,7 @@ import rl_collect_batch as R
 from engine.entities.pathfinding import Board, get_reachable_levels, get_movable_positions
 
 ROOT = Path(__file__).resolve().parents[2]
-STATE = ROOT / "data" / "duel_state.json"
+STATE = ROOT / "logs" / "runners" / "duel_state.json"
 MODES = ["native", "native_sym", "evenq"]
 
 

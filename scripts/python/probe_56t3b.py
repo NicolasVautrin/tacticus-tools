@@ -20,7 +20,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_t3b_probe.json"
+STATE = ROOT / "logs" / "runners" / "_t3b_probe.json"
 
 STOPS = {7: (79, 1197, 44, False), 9: (83, 1016, 95, True), 11: (93, 1021, 81, True)}
 

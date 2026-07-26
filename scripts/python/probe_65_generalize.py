@@ -40,7 +40,7 @@ def _ok(r):
 
 
 def build(tag, seed=777):
-    state = ROOT / "data" / "rl-state" / f"p65gen-{tag}.json"
+    state = ROOT / "logs" / "runners" / f"p65gen-{tag}.json"
     state.unlink(missing_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed),

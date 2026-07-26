@@ -31,7 +31,10 @@ from pathlib import Path
 from il2cpp_provenance import ProvenanceError, installed_dll, stamp_for
 
 REPO = Path(__file__).resolve().parents[2]
-SRC = REPO / 'data' / 'il2cpp_full.json'
+# Le dump brut est une SORTIE (produite par dump_il2cpp.py) -> logs/, pas data/.
+# data/ ne porte que des entrees versionnees ; c'est `data/symbols/<build>/frida/*.tsv`,
+# produit ICI, qui y atterrit.
+SRC = REPO / 'logs' / 'il2cpp_full.json'
 
 
 def main() -> int:

@@ -76,7 +76,7 @@ def main(argv):
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args(argv)
 
-    st_file = Path(args.state_file or (ROOT / "data" / "_125_mte_state.json"))
+    st_file = Path(args.state_file or (ROOT / "logs" / "runners" / "_125_mte_state.json"))
     sid = _resolve_session()
     rid = _build(st_file, ["--seed", str(args.seed), "--board", "MC1_67", "--rank", "17",
                            "--p-units", "necroDestroyer", "--a-units", args.a_units,

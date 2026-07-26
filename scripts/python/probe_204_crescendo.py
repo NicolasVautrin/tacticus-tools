@@ -44,7 +44,10 @@ from engine.playbook import prediction  # noqa: E402
 from engine.entities.effects.magnitude import ability_var  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\rl-states\agent204-crescendo.json")
+# Chemin RELATIF au checkout qui execute ce script (via __file__), jamais absolu :
+# un agent en worktree doit ecrire dans SON logs/, sinon son etat atterrit dans l'arbre
+# principal et lui SURVIT.
+STATE = Path(__file__).resolve().parents[2] / "logs" / "runners" / "agent204-crescendo.json"
 NOISE_VIS = "emperNoiseMarine"      # Shiron -- porteur de TerrifyingCrescendo
 FILL_VIS = "necroWarden"            # fillers cote joueur (neutres)
 ENEMY_VIS = "necroWarden"           # cibles HP-gonfle

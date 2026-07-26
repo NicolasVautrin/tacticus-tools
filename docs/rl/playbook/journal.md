@@ -218,7 +218,7 @@ Débloque : corriger les faiblesses (overwatch-suicide, sur-extension), génére
 
 ## 4. Stratégie de validation (le pilier)
 
-- `engine_validate.py` : sur N états (rejoués depuis les démos `data/selfplay-logs/` OU
+- `engine_validate.py` : sur N états (rejoués depuis les démos `logs/selfplay/` OU
   états aléatoires d'un runner), comparer **action choisie par le moteur** vs **action de
   l'IA native** (`aiStepDryRun`/`aiPlayByUnit` dry-run) → **agreement %** global + par ability.
 - Métrique cible : agreement monte vers ~100 % à mesure qu'on porte les playbooks.

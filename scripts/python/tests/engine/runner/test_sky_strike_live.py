@@ -204,7 +204,7 @@ def _write_injected_seed_bc(tag: str):
                 "ActiveAbilities": [ABILITY], "PassiveAbilities": [],
                 "ConfigId": {"PureId": CASTER_VIS, "Rarity": None, "Level": None,
                              "IsBorrowed": False, "IsPvpOpponent": False}})
-    p = ROOT / "data" / "rl-state" / f"sky-seedbc-{tag}.json"
+    p = ROOT / "logs" / "runners" / f"sky-seedbc-{tag}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({**seed, "Units": units + [inj]}), encoding="utf-8")
     return p
@@ -223,7 +223,7 @@ def sky_state(rpc):
     bc_file = _write_injected_seed_bc(tag)
     if bc_file is None:
         pytest.skip("pas d'unite Sisterhood clonable dans le seed BC")
-    state_file = ROOT / "data" / "rl-state" / f"sky-test-{tag}.json"
+    state_file = ROOT / "logs" / "runners" / f"sky-test-{tag}.json"
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),
          "--seed-bc", str(bc_file), "--board", "MC1_67", "--roster", "1",

@@ -20,7 +20,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57f_state.json"
+STATE = ROOT / "logs" / "runners" / "_57f_state.json"
 
 # case -> (seed, stop, uid, ability, board_or_None)
 CASES = {

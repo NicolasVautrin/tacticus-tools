@@ -44,8 +44,8 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = Path(r"C:\Users\nicolasv\tacticus-tools")
 sys.path.insert(0, str(PYDIR))
 
-STATE = ROOT / "data" / "_case38c_capbranch_state.json"
-OUT = ROOT / "data" / "_probe38c_capbranch.json"
+STATE = ROOT / "logs" / "runners" / "_case38c_capbranch_state.json"
+OUT = ROOT / "logs" / "runners" / "_probe38c_capbranch.json"
 
 TAN_VIS = "admecMarshall"              # Tan Gi'da : actif DoctrinaImperatives(1118) + passif ControlEdict(1200)
 SUMMON_LIVE_VIS = "admecNpc1Vanguard"  # visualId LIVE du Skitarii Vanguard (cle de config = admecSmnVanguard)

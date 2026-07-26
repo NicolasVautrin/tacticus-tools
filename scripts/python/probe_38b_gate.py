@@ -29,8 +29,8 @@ from engine.playbook.noncomparable.doctrina_imperatives import (  # noqa: E402
 from engine import battle_query as bq  # noqa: E402
 import engine_validate as EV  # noqa: E402
 
-STATE = ROOT / "data" / "_solver38b_gate_state.json"
-OUT = ROOT / "data" / "_probe38b_gate.json"
+STATE = ROOT / "logs" / "runners" / "_solver38b_gate_state.json"
+OUT = ROOT / "logs" / "runners" / "_probe38b_gate.json"
 TAN_VIS = "admecMarshall"
 BUILD_EXTRA = ["--p-units", "admecMarshall,admecManipulus,admecRuststalker",
                "--a-units", "necroWarden,necroWarden",

@@ -50,7 +50,7 @@ from engine.entities.pathfinding import (                               # noqa: 
     Board, get_movable_positions, get_reachable_levels)
 
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-states" / "agent205-probe.json"
+STATE = ROOT / "logs" / "runners" / "agent205-probe.json"
 # Porteurs Unstoppable spawnables (lineup). Melee move4 + ranged move2 = deux portees.
 CARRIERS = ["orksNob", "spaceStormcaller"]
 OPP = ["necroDestroyer", "necroWarden"]

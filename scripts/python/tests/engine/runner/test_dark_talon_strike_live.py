@@ -270,7 +270,7 @@ def _offline(state_args, board, cid, tile_id, tgt_entity, rng0):
 
 
 def _build(seed, extra):
-    state_file = ROOT / "data" / "rl-state" / f"dts-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"dts-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state_file),

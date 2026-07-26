@@ -6,7 +6,7 @@ supprimait les state-files (donc jetait les trajectoires) en ne gardant qu'une n
 Ce script extrait la trajectoire compacte AVANT la suppression.
 
 Lecture seule (aucune session Frida / RPC) : il ne lit que les state-files JSON
-(`{runnerId, bc, seed, myTeam, action_log}`) et écrit data/selfplay-logs/sp_<seed>_<ts>.json.
+(`{runnerId, bc, seed, myTeam, action_log}`) et écrit logs/selfplay/sp_<seed>_<ts>.json.
 
 On NE stocke PAS le BC géant : seulement seed + rosters (best-effort) + action_log des 2
 camps + outcome. La démo reste REJOUABLE via le seed (build --seed N déterministe → mêmes
@@ -14,7 +14,7 @@ entity ids → on rederive le mapping entityId→unitId en replay si besoin).
 
 Usage :
   python scripts/python/archive_demo.py --a data/_sp_<seed>_A.json --b data/_sp_<seed>_B.json \
-      --ts "<ts>" --winner team1|team2|no-winner|uncertain [--out data/selfplay-logs]
+      --ts "<ts>" --winner team1|team2|no-winner|uncertain [--out logs/selfplay]
 """
 import argparse
 import json
@@ -80,7 +80,7 @@ def main():
     ap.add_argument("--ts", default="", help="timestamp de la vague")
     ap.add_argument("--winner", default="unknown",
                     help="team1|team2|no-winner|uncertain (authoritative_winner)")
-    ap.add_argument("--out", default="data/selfplay-logs")
+    ap.add_argument("--out", default="logs/selfplay")
     a = ap.parse_args()
 
     sa = _load(a.a)

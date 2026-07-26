@@ -44,7 +44,7 @@ def _mkrpc():
 
 
 def _build(seed, p_units, a_units, extra=None):
-    sf = ROOT / "data" / "rl-state" / f"{TAG}-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"{TAG}-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     args = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
             "--board", "MC1_67", "--p-units", p_units, "--a-units", a_units, *(extra or [])]

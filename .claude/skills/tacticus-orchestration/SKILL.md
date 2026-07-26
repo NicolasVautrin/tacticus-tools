@@ -11,7 +11,7 @@ qu'a la conduite de campagne — un cout paye a chaque lancement d'agent, pour r
 
 Ce qui reste dans le `CLAUDE.md` (donc vu par tous les agents) : protocole RE + portage,
 gate de confrontabilite, DSL-vs-imperatif, regle de citation par symbole, discipline runner,
-tests cibles, ASCII, `Ne jamais`, et les invariants d'agents (worktree, junction, reinject).
+tests cibles, ASCII, `Ne jamais`, et les invariants d'agents (worktree, reinject).
 ## Démarrage
 
 ```bash
@@ -408,22 +408,27 @@ désynchronisés en amont de chaque probe.
   touchent JAMAIS mon arbre. L'isolation par défaut prime sur son coût (~200-500 ms
   + disque). (`isolation: "remote"` = variante cloud, toujours en background.)
 
-- **Worktree RUNNABLE : junction `data/` OBLIGATOIRE (tâche #63, 2026-07-22).** Un worktree
-  frais n'a PAS les `data/` gitignorés (dumps gameconfig/i2, seeds BC, boards, state-files,
-  ai-traces) dont dépendent `gameconfig.py`, `rl_duel.py`, le harness stages et les probes.
-  **Étape 1 de TOUT agent tacticus : créer la junction** —
-  `powershell -File C:\Users\nicolasv\tacticus-tools\scripts\setup-agent-worktree.ps1`
-  (depuis son worktree ; équivalent Git Bash :
-  `cmd //c "mklink /J data C:\Users\nicolasv\tacticus-tools\data"`) — **puis travailler DANS
-  son worktree** (éditer + exécuter). Ne PLUS instruire « travaille dans l'arbre principal » :
-  cette ancienne béquille faisait partager le working copy → l'orchestrateur devait GELER ses
-  éditions `engine/**` pendant les runs des agents, et leurs validations zéro-régression
-  devenaient polluables. Avec la junction, l'isolation redevient réelle : l'orchestrateur édite
-  `master` librement pendant que les agents tournent (leurs imports viennent de LEUR checkout
-  figé). `data/` reste PHYSIQUEMENT PARTAGÉ → disciplines runner inchangées (state-file à NOM
-  UNIQUE par agent en chemin absolu, disposer SES runners, MAX_RUNNERS, session Frida
-  globale via RPC). Vérifié : junction sans droits admin, `git status` du worktree ignore
-  `data` (gitignore), suppression du worktree n'affecte pas la cible (rmdir = lien seul).
+- **Worktree RUNNABLE par son SEUL checkout — plus aucune étape 0 (2026-07-26).** `data/`
+  est VERSIONNÉ et ne porte que des ENTRÉES : `symbols/`, `boards/`, `seed-bc.json`,
+  `i2_en.json` (~47 Mo bruts, ~1,1 Mo compressés). Un agent les tient donc de SON commit,
+  et **travaille DANS son worktree** (éditer + exécuter). Ne PLUS instruire « travaille dans
+  l'arbre principal » : cette vieille béquille faisait partager le working copy →
+  l'orchestrateur devait GELER ses éditions `engine/**` pendant les runs.
+
+  La **junction `data/` (tâche #63) est SUPPRIMÉE**, et avec elle trois défauts qu'elle
+  portait : la table de symboles d'un agent n'était pas celle de SON commit (le script
+  effaçait le `data/symbols` que git venait de matérialiser) ; les N agents écrivaient dans
+  le MÊME répertoire, d'où la discipline « nom unique par agent » — et 355 state-files
+  retrouvés le 2026-07-26 qui avaient **survécu** aux worktrees les ayant produits ; et un
+  `worktree remove --force` sur la junction pouvait détruire le `data/` partagé (vécu le
+  2026-07-22).
+
+  **Les sorties vont dans `logs/`** (gitignoré), à la racine du worktree qui les produit :
+  elles **meurent avec lui**. Rien de produit par un run ne doit atterrir dans `data/` —
+  s'il y atterrit, il apparaît dans `git status`, et c'est ce qui rend la règle
+  auto-vérifiable. Disciplines runner encore valables : disposer SES runners, MAX_RUNNERS,
+  session Frida globale via RPC. Le script `setup-agent-worktree.ps1` ne crée plus rien :
+  il VÉRIFIE qu'un checkout est runnable et signale une junction héritée.
 
 - **CONSÉQUENCE — le worktree part du HEAD de `master` (la base), PAS de ma branche
   courante ni de mes changements NON COMMITÉS.** Un working tree sale / une

@@ -119,7 +119,7 @@ def _mv(key, lvl, mult):
 def test_cord_claw_execute_live(live_session, rpc):
     """Confronte le port CordClaw au LIVE : cast -> effet self au tour N+1 (A) ; agreement offline du behaviour
     (B) ; coups additionnels DirectDamage au tour suivant (C). State-file UNIQUE -> dispose au teardown."""
-    state_file = ROOT / "data" / "rl-state" / f"cordclaw-test-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"cordclaw-test-{uuid.uuid4().hex[:8]}.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),

@@ -38,7 +38,7 @@ import hexgeo  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "mortisround-4b1c7d20.json"
+STATE = ROOT / "logs" / "runners" / "mortisround-4b1c7d20.json"
 CASTER_VIS = "ultraEliminatorSgt"
 TARGET_VIS = "necroWarden"
 ABILITY = 1004

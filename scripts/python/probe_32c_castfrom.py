@@ -19,7 +19,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_32ct_state.json"
+STATE = ROOT / "logs" / "runners" / "_32ct_state.json"
 STOP = 15
 UID = 81
 ABILITY = 1151

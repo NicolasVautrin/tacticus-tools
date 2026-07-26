@@ -29,7 +29,7 @@ from engine.playbook.prediction import defender_prediction_block_amount  # noqa:
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57a_state.json"
+STATE = ROOT / "logs" / "runners" / "_57a_state.json"
 
 SEED, STOP = "1357", 15
 UID, AB, TGT, TILE = 135, 69, 162, (5, 4)

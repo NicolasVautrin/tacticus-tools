@@ -42,7 +42,7 @@ def _caster(dv):
 
 def main():
     R._rpc(SID, "warmupGameSingletons", [{}], timeout=180)
-    sf = ROOT / "data" / "rl-state" / f"udb-probe-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"udb-probe-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(sf),

@@ -1,22 +1,28 @@
 node_modules/
 dist/
-# Tout repertoire `data/` A N'IMPORTE QUELLE PROFONDEUR (motif NON ancre) : dumps runtime.
-# Ne pas le remplacer par `data/*`, qui lui est ancre a la racine et laisserait remonter
-# `frida/data/` et `scripts/python/data/`.
-data/
-# Le `data/` DE LA RACINE demande un traitement en deux temps : on le re-inclut pour que git
-# accepte d'y descendre, puis on exclut son contenu — sans quoi aucune negation ne peut
-# atteindre un sous-repertoire (git n'ouvre jamais un dossier exclu).
-!/data/
-/data/*
-# EXCEPTION VERSIONNEE : la table de symboles du build. C'est le SEUL artefact de `data/`
-# qui doit survivre a la machine — son diff inter-build EST le rapport de changement du jeu
-# (churn mesure : noms stables a 97,5 %, adresses a 100 % changees), et toutes les citations
-# du code pointent dessus. Un `data/` detruit (deja vu le 2026-07-22) ne doit plus l'emporter.
-!/data/symbols/
-# Exception: the hooks/data/ subtree holds source-code lookup tables
-# (ability name mappers), NOT runtime dumps.
-!frida/hooks/data/
+# `data/` A LA RACINE EST VERSIONNE — point. Aucune regle ne l'ignore.
+#
+# C'est le repertoire des ENTREES : `symbols/` (table du build), `boards/` (779 dumps de
+# plateau), `seed-bc.json` (seed BC des runners isoles), `i2_en.json` (texte de regles).
+# ~47 Mo bruts, ~1,1 Mo compresses — le JSON se compresse a 6-18 %.
+#
+# La regle de partage est : **data/ = ce qu'on LIT, logs/ = ce qu'on ECRIT**. Rien qui soit
+# produit par un run n'a le droit d'atterrir ici ; s'il y atterrit, il apparait dans
+# `git status`, et c'est VOULU — c'est ce qui rend la regle auto-verifiable.
+#
+# Ce que ca a remplace (2026-07-26) : `data/` etait ignore, et les worktrees d'agents le
+# recuperaient par une JONCTION vers l'arbre principal. Consequences mesurees ce jour-la :
+# la table de symboles d'un agent n'etait pas celle de SON commit ; les N agents ecrivaient
+# dans le MEME repertoire (d'ou la discipline « un nom unique par agent », et 355 fichiers
+# d'etat qui avaient SURVECU aux worktrees les ayant produits) ; et un
+# `worktree remove --force` sur la jonction pouvait detruire le data/ partage. Les entrees
+# etant versionnees, un worktree frais est runnable par son SEUL checkout.
+#
+# Les repertoires `data/` NICHES, eux, sont des sorties runtime -> ignores explicitement.
+# (`frida/hooks/data/` n'a plus besoin d'exception : les motifs ci-dessous sont ANCRES,
+# donc ils ne l'atteignent pas.)
+frida/data/
+scripts/python/data/
 sources/
 sources_win/
 logs/

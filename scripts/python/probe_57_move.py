@@ -18,7 +18,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57_state.json"
+STATE = ROOT / "logs" / "runners" / "_57_state.json"
 STOP = 5
 UID = 89
 TILES = [(0, 4), (1, 4)]

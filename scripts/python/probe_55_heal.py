@@ -19,7 +19,7 @@ from engine.playbook import scene as scene_mod  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_55_state.json"
+STATE = ROOT / "logs" / "runners" / "_55_state.json"
 STOP = 13
 UID = 91
 

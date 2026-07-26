@@ -23,7 +23,7 @@ from rl_collect_batch import _resolve_session, _rpc   # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_probe90bcd_markerlight.json"
+STATE = ROOT / "logs" / "runners" / "_probe90bcd_markerlight.json"
 MARKERLIGHT = 1122
 ABILITY = 1161
 

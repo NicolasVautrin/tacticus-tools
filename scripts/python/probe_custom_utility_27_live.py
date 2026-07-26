@@ -49,7 +49,7 @@ from engine_validate import engine_decide  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "custom-utility-27-live.json"
+STATE = ROOT / "logs" / "runners" / "custom-utility-27-live.json"
 
 
 def _r(sid, m, b, t=90):

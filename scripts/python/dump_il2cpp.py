@@ -32,8 +32,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 HOST = "http://127.0.0.1:8765"
 ONESHOT = REPO / "scripts" / "frida" / "dump-il2cpp-full.js"
-LOG_DIR = REPO / "frida" / "logs"
-OUT = REPO / "data" / "il2cpp_full.json"
+# Ce script est le SEUL consommateur legitime des run-logs : il recupere son dump de
+# ~40 Mo dans le journal jsonl de sa session one-shot. Depuis que les run-logs sont
+# OPT-IN (le host n'en ecrit plus par defaut), il doit donc demander le sien
+# EXPLICITEMENT via `log_dir` dans la requete -- cf. le POST plus bas.
+LOG_DIR = REPO / "logs" / "sessions"
+OUT = REPO / "logs" / "il2cpp_full.json"
 
 
 def _post(path: str, body: dict, timeout: int = 120) -> dict:
@@ -104,6 +108,8 @@ def main() -> int:
     res = _post("/api/scripts/run", {
         "mode": "attach", "pid": pid, "source": source,
         "stop_previous": False,          # NE PAS tuer la session principale
+        "log_dir": str(LOG_DIR),         # OBLIGATOIRE : sans lui le host n'ecrit plus
+                                         # de run-log, et wait_for_payload ne trouve rien
     })
     run_id = res.get("run_session_id")
     print("session one-shot : %s (status=%s)" % (run_id, res.get("status")))

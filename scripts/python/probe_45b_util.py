@@ -37,7 +37,7 @@ from engine_agreement_stages import _fields_from_native_event  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_45b_state.json"
+STATE = ROOT / "logs" / "runners" / "_45b_state.json"
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:

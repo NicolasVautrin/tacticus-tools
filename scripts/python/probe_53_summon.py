@@ -26,7 +26,7 @@ from engine import weights as W  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_53_state.json"
+STATE = ROOT / "logs" / "runners" / "_53_state.json"
 STOP = 15
 SUMMON = 135
 

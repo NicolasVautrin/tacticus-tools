@@ -78,7 +78,7 @@ def _tags(e):
 
 
 def build(sid, seed: int, tag: str, extra: list) -> tuple:
-    state = ROOT / "data" / "rl-state" / f"p45f-{tag}-{uuid.uuid4().hex[:6]}.json"
+    state = ROOT / "logs" / "runners" / f"p45f-{tag}-{uuid.uuid4().hex[:6]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state),
@@ -246,7 +246,7 @@ def run_scrit(sid, seed: int):
     """Cas SCRIT : Stormcaller (famille ABILITY) + crit force (--crit 100,700) + paire FLAT.
     Discrimine si le bonus crit-sur-Ice s'applique aussi a la famille ABILITY (live vs offline :
     delta 0 = oui comme le port ; delta -175 par coup crit = non -> gater par famille)."""
-    state = ROOT / "data" / "rl-state" / f"p45f-scrit-{uuid.uuid4().hex[:6]}.json"
+    state = ROOT / "logs" / "runners" / f"p45f-scrit-{uuid.uuid4().hex[:6]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state),

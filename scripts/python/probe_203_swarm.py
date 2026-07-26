@@ -33,7 +33,7 @@ from engine.runner.operations.triggers.loki.living_metal import (       # noqa: 
     living_metal_pct, _round_half_even)
 
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_203_swarm_state.json"
+STATE = ROOT / "logs" / "runners" / "_203_swarm_state.json"
 # necroSpyder SEUL (PAS admecManipulus) : le Repair_GalvanicField 1119 du manipulus (ForRepair, WAKE)
 # reviverait les membres du scarab -> re-heal a plein avant la capture -> confond le gate IsDamaged.
 # Sans lui, le scarab reste a sa frontiere de membre endommagee (888/2218) = vrai discriminant du cap.

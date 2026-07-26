@@ -644,7 +644,7 @@ PHASES = {"recon": phase_recon, "full": phase_full, "ab": phase_ab,
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--phase", required=True, choices=sorted(PHASES))
-    ap.add_argument("--state", default=str(DATA / "rl-state" / "probe123-hailstrike.json"))
+    ap.add_argument("--state", default=str(LOGS / "runners" / "probe123-hailstrike.json"))
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--n", type=int, default=8)
     args = ap.parse_args()

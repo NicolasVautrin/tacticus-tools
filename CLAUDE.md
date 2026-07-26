@@ -258,10 +258,14 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    laissé dans `engine/utilities/tile.py` cassait tout l'import `engine`).
 2. **Ne JAMAIS passer `model:`** à l'invocation. Le paramètre écrase le frontmatter et retombe
    sur la fenêtre 200 K — l'enum d'invocation ne sait pas exprimer le suffixe `[1m]`.
-3. **Étape 0 de tout agent en worktree — la junction `data/`** :
-   `powershell -File C:\Users\nicolasv\tacticus-tools\scripts\setup-agent-worktree.ps1`
-   Un worktree frais n'a pas les `data/` gitignorés (seeds BC, boards, gameconfig) dont
-   dépendent `gameconfig.py`, `rl_duel.py` et les probes. Sans junction, rien ne tourne.
+3. **Aucune étape 0 : un worktree frais est RUNNABLE par son seul checkout** (depuis le
+   2026-07-26). `data/` est VERSIONNÉ et ne contient que des ENTRÉES — `symbols/`,
+   `boards/`, `seed-bc.json`, `i2_en.json`. La junction vers l'arbre principal est
+   SUPPRIMÉE : chaque agent lit les entrées de SON commit, et écrit ses sorties dans
+   SON `logs/` (gitignoré), qui **meurt avec son worktree**. Corollaire : plus de
+   discipline « nom unique par agent » sur les state-files, et un `worktree remove`
+   ne peut plus rien détruire de partagé. **Rien de produit par un run ne va dans
+   `data/`** — s'il y atterrit, il apparaît dans `git status`, et c'est le garde-fou.
 4. **⛔ Ne (ré)injecter NI redémarrer le host tant qu'un autre agent tourne.** C'est le SEUL
    geste réellement proscrit : il stoppe la session Frida et casse le harnais des autres. Tout
    le reste (mêmes fichiers, mêmes sujets, RPC concurrents, runners) est libre — un worktree

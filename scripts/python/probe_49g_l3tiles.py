@@ -21,7 +21,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_49gnt_state.json"
+STATE = ROOT / "logs" / "runners" / "_49gnt_state.json"
 TRACES = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. ai-trace-store.ts)
 STOP = 14
 TILES = {(3, 4), (4, 3)}

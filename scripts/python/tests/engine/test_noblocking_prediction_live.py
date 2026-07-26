@@ -29,7 +29,7 @@ import pytest
 PYDIR = Path(__file__).resolve().parents[2]              # scripts/python
 ROOT = Path(__file__).resolve().parents[4]               # racine repo (via junction data/)
 # state-file DEDIE #69 (nom UNIQUE absolu — coexistence multi-agents/multi-runner, discipline runner.md).
-STATE = ROOT / "data" / "_pytest69_noblock_pred_state.json"
+STATE = ROOT / "logs" / "runners" / "_pytest69_noblock_pred_state.json"
 
 ATTACKER = "astraPrimarisPsy"    # arme normale Psychic (Traits=['NoBlocking']) melee ET range
 TARGET = "orksNob"               # BeastSlayer -> effet BeastSlayer_ExtraBlock (source de block)

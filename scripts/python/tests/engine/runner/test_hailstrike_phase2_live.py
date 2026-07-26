@@ -94,7 +94,7 @@ def _ok(r):
 def _build(rpc, tag: str, no_armor: bool):
     """Runner avec la MoW deployee. `no_armor` -> `--hp-target` (met FixedArmor a 0 : le percage devient
     inerte) ; sinon on patche les PV de l'ennemi DANS le seed BC pour garder son armure."""
-    bc = ROOT / "data" / "rl-state" / f"bc-hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
+    bc = ROOT / "logs" / "runners" / f"bc-hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
     bc.parent.mkdir(parents=True, exist_ok=True)
     inj = subprocess.run([sys.executable, "catalog_inject.py", "--units", MOW, "--out", str(bc)],
                          cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
@@ -112,7 +112,7 @@ def _build(rpc, tag: str, no_armor: bool):
                 u["Health"] = 900000                # PV enormes SANS toucher FixedArmor
                 u["RemainingHealth"] = 900000
     bc.write_text(json.dumps(_bc), encoding="utf-8")
-    state_file = ROOT / "data" / "rl-state" / f"hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
     extra = ["--hp-target", "900000", "--hp-player", "900000"] if no_armor else []
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "31337", "--seed-bc", str(bc),

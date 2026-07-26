@@ -29,7 +29,7 @@ from engine_validate import native_chunk  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_49gnt_state.json"
+STATE = ROOT / "logs" / "runners" / "_49gnt_state.json"
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:

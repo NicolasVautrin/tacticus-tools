@@ -47,7 +47,7 @@ from engine.entities.effects.loki.hits import _BaseFleshmetalGunsEffect  # noqa:
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_65_fleshmetal_state.json"
+STATE = ROOT / "logs" / "runners" / "_65_fleshmetal_state.json"
 TOL = 3
 P_UNITS = "blackObliterator"
 A_UNITS = "bloodSanguinary"

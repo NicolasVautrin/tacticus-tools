@@ -24,7 +24,7 @@ sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
-STATE = ROOT / "data" / "_solver38b_capAB_state.json"
+STATE = ROOT / "logs" / "runners" / "_solver38b_capAB_state.json"
 TAN_VIS = "admecMarshall"
 SUMMON_LIVE = "admecNpc1Vanguard"
 ENEMY_VIS = "necroWarden"

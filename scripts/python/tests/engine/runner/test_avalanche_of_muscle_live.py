@@ -42,7 +42,7 @@ TARGET = "bloodIntercessor"      # cible propre (utilisee bit-exact par test_get
 PYDIR = Path(__file__).resolve().parents[3]                   # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                    # racine repo (worktree)
 # State-file DEDIE a CET agent (nom UNIQUE, chemin ABSOLU) -> pas de collision avec un autre agent/pytest.
-STATE = ROOT / "data" / "_avalanche_muscle_a32f82d4_state.json"
+STATE = ROOT / "logs" / "runners" / "_avalanche_muscle_a32f82d4_state.json"
 
 
 def _ok(r):

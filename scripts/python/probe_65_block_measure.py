@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Probe #65 MESURE (a) vs (c) — replay OFFLINE du cas capture + re-capture LIVE ndraw.
 
-Charge data/rl-state/p65-repro-123-95-79.json (etat + rng fige) et mesure OFFLINE :
+Charge logs/runners/p65-repro-123-95-79.json (etat + rng fige) et mesure OFFLINE :
   - execute() AVEC block : total / per_hit / rolls / did_block / tirages consommes ;
   - execute() SANS block (block_sources=None) : total / tirages ;
 Puis re-build seed 123, re-drive u95->u79, capture dumpRng AVANT et APRES l'attaque LIVE :
@@ -27,8 +27,8 @@ import predict_samples as PV  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "rl-state" / "p65measure.json"
-JSON = ROOT / "data" / "rl-state" / "p65-repro-123-95-79.json"
+STATE = ROOT / "logs" / "runners" / "p65measure.json"
+JSON = ROOT / "logs" / "runners" / "p65-repro-123-95-79.json"
 
 
 def _r(sid, method, body, t=90):

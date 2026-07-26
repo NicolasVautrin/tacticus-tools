@@ -28,7 +28,7 @@ from engine.utilities.tile import (TILE_LEAVES, TILE_LEAF_IDS,  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57h_state.json"
+STATE = ROOT / "logs" / "runners" / "_57h_state.json"
 
 #            seed     stop uid  tuiles a decomposer
 CASES = {"S14": ("12345", 14, 87, [(3, 5), (4, 3), (3, 4), (3, 2)]),

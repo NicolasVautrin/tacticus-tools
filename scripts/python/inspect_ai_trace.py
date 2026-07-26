@@ -26,7 +26,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-TRACES_DIR = Path(__file__).resolve().parents[2] / "data" / "ai-traces"
+# Le store ecrit sous `frida/data/ai-traces` (cwd du host = frida/), PAS sous `data/`.
+# Ce chemin pointait sur un repertoire inexistant : bug latent trouve le 2026-07-26.
+TRACES_DIR = Path(__file__).resolve().parents[2] / "frida" / "data" / "ai-traces"
 
 
 # ---- I/O ---------------------------------------------------------------- #

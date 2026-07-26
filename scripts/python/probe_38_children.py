@@ -31,8 +31,8 @@ from engine.playbook.noncomparable.doctrina_imperatives import (  # noqa: E402
     DoctrinaImperativesPlaybook)
 import engine_validate as EV  # noqa: E402
 
-STATE = ROOT / "data" / "_probe38_duel_state.json"
-OUT = ROOT / "data" / "_probe38_diag.json"
+STATE = ROOT / "logs" / "runners" / "_probe38_duel_state.json"
+OUT = ROOT / "logs" / "runners" / "_probe38_diag.json"
 VID = "admecSmnVanguard"
 TAN_VIS = "admecMarshall"
 BUILD_EXTRA = ["--p-units", "admecMarshall,admecManipulus,admecRuststalker",

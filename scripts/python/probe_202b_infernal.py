@@ -37,7 +37,7 @@ from engine.playbook import prediction  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_202b_infernal_state.json"
+STATE = ROOT / "logs" / "runners" / "_202b_infernal_state.json"
 ABX_VIS = "thousInfernalMaster"     # porteur de l'aura
 # Toth : le Chaos ranged lineup le plus PROPRE (pas de passif auto-empilant — emperNoiseMarine
 # ecarte : TerrifyingCrescendo (1424, non porte) stacke a chaque round et pollue tout post-combat).

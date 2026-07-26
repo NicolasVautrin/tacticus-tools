@@ -42,7 +42,7 @@ from engine.entities.pathfinding.board import Board  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_62_campred_state.json"
+STATE = ROOT / "logs" / "runners" / "_62_campred_state.json"
 TOL = 3                      # arrondi //100 vs Fix64 (meme tolerance que predict_samples)
 COVER_POS = (3, 2)           # tuile DryBush de MC1_67
 P_UNITS = "admecRuststalker,bloodSanguinary"

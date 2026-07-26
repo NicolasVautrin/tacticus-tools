@@ -91,7 +91,7 @@ def _live_hits(cast, ability_id):
 @pytest.fixture(scope="module")
 def speeder_runner(rpc):
     """Runner avec la MoW `darkaStormSpeeder` deployee (catalogue augmente). Dispose au teardown."""
-    bc = ROOT / "data" / "rl-state" / f"bc-speeder-{uuid.uuid4().hex[:8]}.json"
+    bc = ROOT / "logs" / "runners" / f"bc-speeder-{uuid.uuid4().hex[:8]}.json"
     bc.parent.mkdir(parents=True, exist_ok=True)
     inj = subprocess.run([sys.executable, "catalog_inject.py", "--units", MOW_VIS, "--out", str(bc)],
                          cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8",
@@ -108,7 +108,7 @@ def speeder_runner(rpc):
         if isinstance(_p, dict) and _p.get("PlayerType") != 2:      # Environment exclu
             _p["MachineOfWarAmmo"] = 5
     bc.write_text(json.dumps(_bc), encoding="utf-8")
-    state_file = ROOT / "data" / "rl-state" / f"speeder-{uuid.uuid4().hex[:8]}.json"
+    state_file = ROOT / "logs" / "runners" / f"speeder-{uuid.uuid4().hex[:8]}.json"
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "41172", "--seed-bc", str(bc),
          "--state-file", str(state_file), "--board", BOARD, "--p-units", P_UNITS,

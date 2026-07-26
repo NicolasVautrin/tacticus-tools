@@ -21,8 +21,8 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine import weights  # noqa: E402
 import engine_validate as EV  # noqa: E402
 
-STATE = ROOT / "data" / "_solver38b_summ_state.json"
-OUT = ROOT / "data" / "_probe38b_summons.json"
+STATE = ROOT / "logs" / "runners" / "_solver38b_summ_state.json"
+OUT = ROOT / "logs" / "runners" / "_probe38b_summons.json"
 TAN_VIS = "admecMarshall"
 BUILD_EXTRA = ["--p-units", "admecMarshall,admecManipulus,admecRuststalker",
                "--a-units", "necroWarden,necroWarden",

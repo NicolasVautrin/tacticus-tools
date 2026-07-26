@@ -33,7 +33,7 @@ from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57g_state.json"
+STATE = ROOT / "logs" / "runners" / "_57g_state.json"
 SEED = "12345"
 STOP = 15          # etat de decision du step 15 (0-based, comme les records stages)
 UID = 89

@@ -125,7 +125,7 @@ def _cr(u):
 
 
 def _build(seed, a_units):
-    sf = ROOT / "data" / "rl-state" / f"sentdir-{uuid.uuid4().hex[:8]}.json"
+    sf = ROOT / "logs" / "runners" / f"sentdir-{uuid.uuid4().hex[:8]}.json"
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),

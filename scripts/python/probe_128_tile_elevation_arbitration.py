@@ -158,7 +158,7 @@ def _dump_ef_stages(ctx):
 
 
 def run(sid, board, a_units, hp_target, p_units="emperNoiseMarine"):
-    state = ROOT / "data" / "rl-state" / f"probe128-{uuid.uuid4().hex[:8]}.json"
+    state = ROOT / "logs" / "runners" / f"probe128-{uuid.uuid4().hex[:8]}.json"
     state.parent.mkdir(parents=True, exist_ok=True)
     rid = P124._build(state, board, p_units, a_units, hp_target)
     if rid is None:

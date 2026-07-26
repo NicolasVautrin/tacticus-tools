@@ -36,7 +36,7 @@ from engine.runner.operations.triggers.loki.living_metal import (        # noqa:
     living_metal_pct, _round_half_even)
 
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_203_livingmetal_state.json"
+STATE = ROOT / "logs" / "runners" / "_203_livingmetal_state.json"
 WARDEN, DESTROYER = "necroWarden", "necroDestroyer"
 
 

@@ -35,7 +35,7 @@ from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
-STATE = ROOT / "data" / "_57k_state.json"
+STATE = ROOT / "logs" / "runners" / "_57k_state.json"
 TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. engine_agreement_stages TRACES_DIR)
 
 #        tag: (seed, stop, uid, visual_hint, tuiles d'interet)
