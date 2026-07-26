@@ -426,7 +426,8 @@ async function tryRestoreOne(
             mode: "attach",
             pid: saved.pid,
             source: bundle,
-            logDir: opts.defaultLogDir,
+            // Pas de run-log sur l'auto-restore : personne ne le lit, et c'est
+            // le chemin le plus frequent (chaque restart du host).
             exePath: saved.exePath,
             bundlePath: saved.bundlePath,
         });
@@ -443,7 +444,6 @@ async function tryRestoreOne(
                         mode: "attach",
                         pid: newPid,
                         source: bundle,
-                        logDir: opts.defaultLogDir,
                         exePath: saved.exePath,
                         bundlePath: saved.bundlePath,
                     });

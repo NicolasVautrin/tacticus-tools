@@ -15,10 +15,16 @@ import { registerHandler } from "./router-messages.js";
 
 const PORT = parseInt(process.env.PORT ?? "8765", 10);
 
-// npm scripts run from frida/ so logs/ sits at cwd. Robust to the
-// hooks/host move (removing src/) because it no longer relies on the
-// compiled-file depth.
-const DEFAULT_LOG_DIR = path.resolve(process.cwd(), "logs");
+// Les SORTIES du host vont sous `logs/` A LA RACINE DU DEPOT, pas sous
+// `frida/`. Les npm scripts tournent depuis `frida/`, d'ou le `..`.
+//
+// Ce repertoire n'est utilise QUE si l'appelant demande explicitement un
+// journal (`log_dir` dans le corps de l'inject). Il n'est PLUS le defaut :
+// mesure du 2026-07-26, `frida/logs/` avait accumule 3 663 Mo / 828 fichiers
+// -- un `run-*.jsonl` par session, contenant CHAQUE message de l'agent -- et
+// le depot ne contient AUCUN lecteur (grep : seul `logger.ts` y touche, et il
+// ne fait qu'ecrire). On garde la capacite, on retire le defaut.
+const DEFAULT_LOG_DIR = path.resolve(process.cwd(), "..", "logs", "sessions");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));

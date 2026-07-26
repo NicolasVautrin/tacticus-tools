@@ -129,7 +129,10 @@ export function buildRouter(defaultLogDir: string): Router {
                 pid: pid ? Number(pid) : undefined,
                 target,
                 source,
-                logDir: log_dir ?? defaultLogDir,
+                // OPT-IN : sans `log_dir` explicite, on n'ecrit PAS de run-log.
+                // Le defaut etait `?? defaultLogDir` -> chaque message de l'agent
+                // (donc chaque reponse RPC) partait sur disque, sans lecteur.
+                logDir: log_dir,
             });
             res.json({
                 run_session_id: session.id,
@@ -321,7 +324,10 @@ export function buildRouter(defaultLogDir: string): Router {
 
             const { session, bundleBytes } = await injectBundle({
                 pid: targetPid,
-                logDir: defaultLogDir,
+                // Pas de run-log par defaut (cf. `logDir` de /api/run ci-dessus).
+                // C'est CE chemin qui produisait les 3 663 Mo de frida/logs/ :
+                // l'inject est la voie normale, et il journalisait tout.
+                logDir: req.body?.log_dir,
             });
 
             // Fast meta sync — RPC-only (enums). Heavy bits (i18n via
