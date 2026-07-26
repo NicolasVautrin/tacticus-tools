@@ -146,14 +146,22 @@ l'offline expose la valeur pre-ecretage — axe distinct (cap PV), pas l'etage t
 anterieure sur un runner a block ACTIF avait de meme un ecart isole (712/1195 -> block) : deux
 confonds identifies, aucun ne touche les cellules.
 
-### Pourquoi le controle de case-117 etait bit-exact
+### Pourquoi le residu a survecu si longtemps
 
-Le regime n'etait **pas discriminant** : a percage 65 sur base 2813,
-`2250 x fix(0.65) = 1462.4999997` (frac < 0.5 -> floor == round) et
-`3376 x fix(0.65) = 2194.3999998` (idem). C'est ce qui a fait passer le port pendant longtemps :
-les regimes valides jusqu'ici tombaient tous du bon cote. `probe_131 --phase scan` enumere les
-regimes discriminants (28 sur un echantillon de 6 bases x 10 ratios) — c'est un cas **frequent**,
-pas une singularite.
+**Deux masques cumules.**
+
+1. **Le regime doit tomber du mauvais cote.** Le controle de case-117 (percage 65 sur base 2813)
+   n'est **pas discriminant** : `2250 x fix(0.65) = 1462.4999997` et `3376 x fix(0.65) = 2194.3999998`
+   (frac < 0.5 -> floor == round). Idem pour le cas historique 18/18 `necroDestroyer` (base 906,
+   percage 60 : `725 x fix(0.6) = 435.0000` et `1087 x fix(0.6) = 652.2`). `probe_131 --phase scan`
+   montre pourtant que le regime discriminant est **frequent** (28 sur 6 bases x 10 ratios).
+2. **Une %-liste NON VIDE arrondissait deja.** `apply_capped_modifiers` termine par
+   `Fix64$$Round(·, 1)` quand la liste de pourcentages est non vide ; la troncature de
+   `apply_all_modifiers` ne mordait donc QUE si les %-listes attaquant **et** defenseur etaient
+   VIDES. Mesure : `bloodDante` (Piercing 80) porte un `x1.25` sur son 1er coup -> cellules
+   `[706,1060] x 1.25 = [882.5, 1325]` -> **883** dans les DEUX modeles (l'arrondi passait deja par
+   la %-liste). Les unites « interessantes » (celles qu'on teste) portent presque toutes un
+   modificateur -> le bug se cachait derriere elles.
 
 ## 4. Le correctif
 
@@ -180,6 +188,36 @@ choses, dont la troisieme la rend non aveugle :
 Le probe `probe_131_normal_attack_bounds.py` force explicitement les DEUX materialisations (il ne
 compare pas « le port tel quel » a « le port patche ») : il reste un oracle discriminant apres le
 correctif.
+
+### Generalisation + non-regression (mesure live, apres correctif)
+
+| regime | couple | discriminant ? | resultat |
+|---|---|---|---|
+| A | `darkaAzrael` Plasma **p=80** (buffe Hailstrike), 1 coup | OUI | arrondi **6/6** tirs · troncature 1/6 |
+| B | `darkaAzrael` Power **p=40**, 3 coups, sans buff | OUI | arrondi **17/18** coups · troncature 0/18 (le 18e = coup letal ecrete) |
+| C | `necroDestroyer` Gauss **p=60**, 6 coups | non | **24/24** coups bit-exacts, modeles IDENTIQUES -> **non-regression** du cas historique 18/18 |
+| D | `bloodDante` Piercing **p=80** + `x1.25`, 4 coups | non (%-liste) | **16/16** coups bit-exacts, modeles IDENTIQUES |
+| E | `astraBullgryn` Physical **p=1** sur cible MULTI-MEMBRE | non (cap membre) | 3 tirs /4 bit-exacts, modeles IDENTIQUES ; le 4e est un ecart **hors sujet** (cible multi-membre, cf. §5) |
+
+Tests CIBLES rejoues apres correctif ET apres rebase sur `origin/master`, **24 verts, 0 rouge** :
+`test_normal_attack_bounds_rounding_live` (la garde), `test_damage_normal_armored_live`,
+`test_damage_roll_live`, `test_runner_attack_live`, `test_damage_crit_live`,
+`test_hailstrike_phase2_live` (le consommateur direct de case-117), `test_mkxgravis_combat_live`
+(hit_mult=2 sur les bornes), `test_guardian_organism_combat_live` (flat cape = centre des bornes),
+`test_nightshroud_combat_live` (reduction plate pre-percage), `test_getstuckin_combat_live`
+(coups bonus sur les memes cellules), `test_damage_block_live`.
+Plus `test_damage_crushingclaws_live`, `test_lascannon_pierce_offline`,
+`test_heavy_weapon_moved_gate_live` : verts.
+
+**Deux echecs PREEXISTANTS, non causes par ce cas** (verifies en rejouant les MEMES unites sur
+l'arbre AVANT le correctif : verdict identique) :
+- `test_damage_catalog_live[bloodDeathCompany]` et `[custoBladeChampion]` — le **per-coup est
+  bit-exact** (`off == live`), seul `live_after` (PV apres) diverge. C'est la limite deja nommee
+  par l'en-tete de `test_damage_normal_armored_live` (« PAS `exact` qui inclut aussi les PV-apres —
+  desalignables par overwatch/derive »).
+- l'echantillon par defaut de `test_damage_catalog_live` (`DAMAGE_CATALOG_N=4`) prend les 4 premiers
+  noms par ordre alphabetique, qui sont des `admecBoss*` **hors pool rank 17** -> 4 echecs
+  « HARNAIS INDISPONIBLE » sans rapport avec le degat. Utiliser `DAMAGE_CATALOG_UNITS`.
 
 ## 5. Ce qui n'est PAS couvert
 
@@ -211,6 +249,11 @@ correctif.
   rapproche du combat au lieu de l'en eloigner.
 - Le confond **coup letal** (montant applique ecrete aux PV restants) et le confond **block** sont
   identifies et neutralises dans la garde (skip explicite), pas modelises.
+- **Cible MULTI-MEMBRE** : le regime E (`astraBullgryn` attaquant un `astraBullgryn`, percage 1) a
+  produit un tir sur 4 ou le live rapporte des montants hors des cellules (`[116, 548, 140, 122]`
+  contre des cellules `[24, 100]`). Les DEUX modeles y sont identiques -> c'est **hors sujet #131**,
+  mais c'est un ecart reel du moteur sur cible multi-membre (cap membre `ApplyGroupUnitDamageLimit` /
+  repartition par membre) — non investigue ici.
 
 ## 6. Reproduire
 

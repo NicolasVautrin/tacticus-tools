@@ -343,15 +343,18 @@ que le port calcule.
 
 ## 5ter. Ce qui n'est PAS couvert par #123
 
-- **Bit-exactitude du coup de l'ALLIE quand il est buffe ET que la cible a de l'armure.** Le controle
-  (sans buff) et le cas armure-0 (avec buff) sont bit-exacts ; le cas buffe-avec-armure diverge (ex.
-  live 1921 / offline 2301 ; live 2617 / offline 2248). La divergence n'est **pas** causee par le port
-  de #123 : un balayage exhaustif `bonus de percage 0..40` x `tirages RNG brules 0..24` (1025
-  combinaisons, probe `--phase ab`) ne reproduit **aucune** valeur live — donc ni la valeur du percage,
-  ni un decalage de flux RNG ne l'expliquent, et le port SANS le bonus (`bonus = 0`) ne matche pas
-  davantage. L'etage divergent est en amont du bonus (modele de tirage `reduce-then-roll` du port vs
-  natif quand les bornes reduites changent). **CANDIDAT fable-solver**, hors perimetre #123 : c'est le
-  moteur de degat de l'attaque normale, pas Hailstrike.
+- ~~**Bit-exactitude du coup de l'ALLIE quand il est buffe ET que la cible a de l'armure**
+  (live 1921 / offline 2301 ; live 2617 / offline 2248)~~ -> **RESOLU par #131**
+  (`case-131-normal-attack-bounds-materialization`). Ce n'etait ni le percage, ni un decalage de flux
+  RNG, ni l'ordre `reduce-then-roll` (d'ou l'echec du balayage 1025 combinaisons : il cherchait dans le
+  mauvais espace). L'etage fautif est la **MATERIALISATION des cellules min/max reduites** : le natif
+  ARRONDIT (`FixMath.NET.Fix64$$Round`, AwayFromZero, dernier etage de
+  `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`), le port TRONQUAIT.
+  A percage 80 sur base 2813, `3376 x fix(0.80) = 2700.8` -> borne haute **2701** et non 2700 : la
+  LARGEUR du modulo du tirage change (902 vs 901), donc la valeur tiree est completement differente.
+  Le controle a percage 65 etait bit-exact parce que ce regime n'est PAS discriminant
+  (`1462.4999` / `2194.4` : floor == round). Corrige + garde live discriminante ; le tir 0 de la serie
+  (`1921`) est reproduit a l'unite.
 - **Face DECISION** : `HailstrikePlaybook` (`GetTargetUtility`, `GetPierceRatioUtility`,
   `HasRangedAttackAndCanAttackThisTurn`) n'est pas portee ; la prediction ne passe pas encore
   `effect_bonus` a `select_weapon_pierce` (meme residu que GravitonRifle avant #113).
