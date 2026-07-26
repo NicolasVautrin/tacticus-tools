@@ -382,17 +382,22 @@ class ActivateEffect(AbilityBehaviour):
     (`if (!info.active || info.removed) continue`). Un `RangedSpecialist` desactive (porteur parti adjacent
     a un ennemi au turn-start, `RangedSpecialistEffect$$CreateHandleTriggerAbilitiesInternal` :
     `If(HasAdjacentEnemies, DeactivateEffect, ActivateEffect)` sur `On(0x12)`) est donc ABSENT de l'etat
-    offline. `ActivateEffect` = rendre l'effet PRESENT :
-      * instance deja portee -> no-op (elle est deja « active » au sens du port) ;
+    offline. `ActivateEffect` = rendre l'effet PRESENT **et** poser son flag :
       * absente -> MATERIALISATION de l'owner-effect (`_materialize_owner_effect`, la MEME primitive qui
         seede les owner-effects de trait d'un summon spawne : `StaticBattleRules.Trait$$
         GetEffectToBeAddedToOwnerForTrait` -- nativement l'entite-effet EXISTE en permanence sur le
-        porteur, seul son flag bascule).
+        porteur, seul son flag bascule) ;
+      * presente -> `BaseEffect.active = True` (le champ par instance porte depuis #127, mirror de
+        `EffectComponent.IsActive @+0x5c`). C'est CE volet qui rend la feuille utile a un call-site dont
+        l'instance est presente mais DESACTIVEE -- `AReactivateOverwatchEffect$$
+        GetReactivateOverwatchBehaviour` = `ActivateEffect(Owner@0x148, 0x3f1)` re-arme un overwatch que
+        `RangedAutoAttackDeactivateOnAttack` (le << un seul tir par activation >> de #127) vient de
+        consommer. Avant #127 le flag n'existait pas cote port et ce volet etait vide.
     Le multiplier/niveau materialises sont ceux du PORTEUR (l'owner-effect natif est pose a la creation de
     l'unite depuis SON etat d'ability -- meme convention que `_seed_trait_owner_effects`).
 
-    Emet 'ActivateEffect' par proprietaire (`created` = l'instance a-t-elle du etre materialisee).
-    PUR (stop=False)."""
+    Emet 'ActivateEffect' par proprietaire (`created` = l'instance a-t-elle du etre materialisee ;
+    `activated` = un flag `active` a-t-il change). PUR (stop=False)."""
     __slots__ = ("owner_sel", "effect_type", "name")
 
     def __init__(self, owner_sel: TargetsSelector, effect_type: int, name: str):
@@ -410,14 +415,22 @@ class ActivateEffect(AbilityBehaviour):
                 continue
             present = (state.effects is not None
                        and state.effects.has_effect(int(uid), effect_type=self.effect_type))
-            created = False
+            created = activated = False
             if not present:
                 e = state.get_entity(int(uid))
                 sc = e.get_component(StatsComponent) if e is not None else None
                 mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc else 100
                 lvl = getattr(sc.ctx, "passive_ability_level", None) if sc is not None else None
                 created = _materialize_owner_effect(state, int(uid), self.name, mult, ability_level=lvl)
-            ectx.emit("ActivateEffect", owner=int(uid), effect_type=self.effect_type, created=created)
+            # `proc.<slot 0x2c>(effect)` = `RefreshEffectsOperation$$ActivateEffect` : `+0x5c = 1` sur
+            # CHAQUE instance selectionnee. No-op si le flag est deja pose (comme le natif).
+            for eff in (state.effects.by_unit.get(int(uid), []) if state.effects is not None else []):
+                if eff.consumed or int(eff.effect_type) != self.effect_type or eff.active:
+                    continue
+                eff.active = True
+                activated = True
+            ectx.emit("ActivateEffect", owner=int(uid), effect_type=self.effect_type,
+                      created=created, activated=activated)
         return OperationResult.ok()
 
 

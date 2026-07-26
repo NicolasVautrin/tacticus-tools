@@ -105,15 +105,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Débloqueur alternatif, plus fidèle : exposer `StatModificationComponent` (+0x10 StatType /
   +0x14 montant) de l'entité-effet dans `frida/hooks/game/effects.ts` → plus aucune magnitude
   re-dérivée offline. **Exige rebuild + reinject.** `[opus]`.
-- **Retrait de `InspiredToGreatness_OverrideLevel` (1180)** (`case-114-tau-lot1` §5) :
-  `IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$
-  CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` — non branché offline, l'override de
-  `active_ability_level` persiste après la 2ᵉ utilisation. Sans conséquence pratique (une seule
-  utilisation supplémentaire est accordée). `[opus]`.
-- **Phase 2 d'EarlyWarningOverride** (`case-114-tau-lot1` §5) :
-  `EarlyWarningOverride_ReactivateOverwatchEffect` (`$$GetOverwatchExtraDamage`,
-  `$$LegitDeathReasons`) = re-entrée en overwatch après un kill avec `hitsReduction=1`. L'effet 1145
-  est POSÉ (présence fidèle) mais reste un `BaseEffect` inerte. `[opus]`.
 
 - **`ChildComponent.ParentId` non publié par les RPC** (`case-perform-ai-action` §6.2, mesuré #119) :
   ni `projectUnitsFull` (decisionView), ni `observeBattle`, ni `combatSnapshot` n'émettent le lien

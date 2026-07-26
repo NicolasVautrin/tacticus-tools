@@ -123,8 +123,66 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         return hit.get_damage(rng, use_midpoint)
 
     @staticmethod
+    def _damage_source_ability(current_ability, triggering_ability):
+        """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility
+        (currentAbility, triggeringAbility)` (MIRROR du decompile) :
+
+            if (currentAbility.<Nullable<ActiveAbilityType>>.HasValue
+                && ActiveAbility.IsRegularAttack(currentAbility.Value)
+                && triggeringAbility.HasValue)   return triggeringAbility.Value
+            return currentAbility
+
+        = « une ATTAQUE REGULIERE declenchee par autre chose s'attribue a son DECLENCHEUR ». Appelee
+        PAR COUP par `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` et
+        `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` pour renseigner l'`AbilityOrEffect`
+        de la `DamageSource` du coup -- c'est LUI que `HasDeathReasonTrigger` compare.
+
+        Consequence load-bearing : un tir d'OVERWATCH (`Overwatch_AutoAttackEffect$$GetAttackBehaviour`
+        = `UseActiveAbility(NormalAttack)`, donc une attaque REGULIERE, declenchee par l'effet
+        `Overwatch_AutoAttack` 1009) s'enregistre comme venant de **1009**, pas de l'attaque normale.
+
+        Le test natif est `IsRegularAttack` sur l'`ActiveAbilityType` CONCRET de l'attaque normale
+        (per-unite : 69, 1030, ...). Le port ne materialise PAS cet id sur la voie normale : il y
+        thread le marqueur de KIND `0x3f5` (cf. `abilities/attack_type.py`, 2e branche de
+        `DSLFactory$$IsNormalAttack`). On teste donc la DISJONCTION `is_normal_attack` = « id concret
+        d'attaque reguliere OU marqueur de kind » -- meme extension sur les deux voies du port."""
+        from ..abilities.attack_type import is_normal_attack   # lazy : cycle damage<->abilities
+        if current_ability is not None and is_normal_attack(current_ability) \
+                and triggering_ability is not None:
+            return int(triggering_ability)
+        return None if current_ability is None else int(current_ability)
+
+    @staticmethod
+    def _record_death_reason(state: State, dying_id: int, killer_id: Optional[int],
+                             source_ability) -> None:
+        """`IdunBattle.Operations.KillUnitOperation$$RecordDeathReason(killer, killed,
+        killedUnitComponent, deathReason)` : ecrit le `Nullable<DamageSource>` @`UnitComponent+0x108`
+        de la victime. Appelee par `KillUnitOperation$$Execute` **AVANT** l'emission d'`On(PreUnitDeath
+        = 1)` (ordre lu au decompile) -- c'est ce qui rend le champ lisible par les
+        `HasDeathReasonTrigger` de ce vecteur.
+
+        COLLAPSE ASSUME : le natif tient DEUX morceaux (le `RecordDeathReason` ci-dessus pose
+        killer + `DamageReason` ; l'`AbilityOrEffect` vient de la `DamageSource` du coup letal,
+        construite par `A*DamageOperation$$ExecuteHit` via `GetDamageSourceAbility` et transportee
+        dans le `DamageAppliedResult`). Le port n'a pas ce transport : il FUSIONNE les deux au moment
+        du kill, avec l'`AbilityOrEffect` deja resolue par `_damage_source_ability`. `DamageReason` =
+        `Ability` (0) -- les deux autres valeurs de l'enum (`Knockback` 1 / `Steppable` 2) sont les
+        morts NON-DEGAT, qui ne passent pas par ce pipeline (le crush d'un steppable est traite par
+        `movement.py::_kill_steppable_units`, hors `_fire_death_if_killed`)."""
+        uc = tgt_uc = None
+        e = state.get_entity(int(dying_id))
+        if e is not None:
+            tgt_uc = e.get_component(UnitComponent)
+        uc = tgt_uc
+        if uc is None:
+            return
+        uc.death_source = (None if killer_id is None else int(killer_id), 0,
+                           None if source_ability is None else int(source_ability))
+
+    @staticmethod
     def _fire_death_if_killed(state: State, target_id: int, attacker_id: int,
-                             hp_before, hp_after, tgt, damage=None) -> Optional[list]:
+                             hp_before, hp_after, tgt, damage=None,
+                             source_ability=None) -> Optional[list]:
         """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance la
         SÉQUENCE d'événements de mort. `damage` = dégât LÉTAL total du coup (pour le flag OVERKILL =
         `dmg >= 2*PV`). No-op si pas de mort.
@@ -172,6 +230,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
         overkill = is_overkill(hp_before, damage)
+        # `KillUnitOperation$$RecordDeathReason` : la `DamageSource` de la victime est enregistree
+        # AVANT `On(1)` -- c'est la seule raison pour laquelle `HasDeathReason` peut matcher sur ce
+        # vecteur (`AReactivateOverwatchEffect$$LegitDeathReasons`, #114).
+        AttackDamageOperation._record_death_reason(state, target_id, attacker_id, source_ability)
         # `IdunBattle.Operations.KillUnitOperation$$Execute` emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36. Les quatre
         # premiers sont portes, DANS CET ORDRE (le 5e, PostUnitKill=0x36, n'a pas de consommateur porte).
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
@@ -211,7 +273,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _apply_damage_pipeline(state: State, target_id: int, attacker_id: int, tgt, thc,
                                total: int, profile: Optional[str],
                                shield_dmg: int = 0, armor_dmg: int = 0,
-                               is_attack: bool = True) -> Optional[list]:
+                               is_attack: bool = True,
+                               source_ability=None) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -234,7 +297,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             from .triggers.dispatch import damage_taken_triggers   # lazy : cycle damage<->triggers
             damage_taken_triggers(state, attacker_id, target_id, profile=profile)
         death = AttackDamageOperation._fire_death_if_killed(
-            state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total)
+            state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
+            # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que
+            # `KillUnitOperation$$RecordDeathReason` grave sur la victime pour `HasDeathReason`.
+            source_ability=source_ability)
         if is_attack:
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
         AttackDamageOperation._register_received_damage(

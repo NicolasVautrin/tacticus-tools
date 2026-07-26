@@ -71,6 +71,15 @@ def hits_channel_is_melee(state: State, attacker_id: int, target_id: int,
     return is_melee
 
 
+def _normal_attack_kind() -> int:
+    """`AbilityOrEffect(0x3f5)` = le marqueur de KIND << attaque-normale >> que la voie NORMALE du port
+    thread partout comme `currentAbility` (cf. `abilities/attack_type.NORMAL_ATTACK_KIND`). Import
+    PARESSEUX : `abilities/__init__` tire tout le registre d'abilities, qui re-importe `damage` ->
+    cycle a l'import module."""
+    from ..abilities.attack_type import NORMAL_ATTACK_KIND
+    return NORMAL_ATTACK_KIND
+
+
 class _DamageOpsMixin:
     """Mixin des vecteurs d'attaque de `AttackDamageOperation`. Sans etat (staticmethods) ; herite
     tel quel. Chaque methode lazy-importe `AttackDamageOperation` pour ses helpers/`_run_hits`."""
@@ -78,7 +87,8 @@ class _DamageOpsMixin:
 
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
-                spread_pct: int = 20, is_overwatch: bool = False) -> Optional[dict]:
+                spread_pct: int = 20, is_overwatch: bool = False,
+                triggering_ability: Optional[int] = None) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
         l'ECS : tire CHAQUE coup sur la plage BRUTE (`stat Attack` ± spread) avec le MT du
         runner (`state.rng`), réduit (perçage de l'arme par distance + armure cible, mods
@@ -89,6 +99,13 @@ class _DamageOpsMixin:
         no-block), `total` == dégât réel live (le tirage de dégât est le 1er conso RNG).
         Multi-coups : tire `hits` fois (valable seulement si le live ne tire pas crit/block
         entre les coups — sinon désync RNG ; couvert au palier crit/block).
+
+        `triggering_ability` (#114) = l'`AbilityOrEffect` DECLENCHEUSE quand cette attaque normale est
+        jouee POUR LE COMPTE d'un effet/trigger (`UseActiveAbility(NormalAttack)`). Elle n'a qu'un
+        consommateur : `StaticBattleRules$$GetDamageSourceAbility(currentAbility, triggeringAbility)`,
+        qui l'utilise comme `AbilityOrEffect` de la `DamageSource` du coup -- et donc comme raison de
+        mort gravee sur la victime (`KillUnitOperation$$RecordDeathReason`, lue par
+        `HasDeathReasonTrigger`). Defaut None = attaque normale ordinaire (la source reste l'attaque).
 
         `is_overwatch` (case-117 phase 2) = ce coup est l'auto-attaque d'un OVERWATCH
         (`Overwatch_AutoAttackEffect.GetAttackBehaviour` = `UseActiveAbility(NormalAttack)` : côté natif
@@ -361,7 +378,11 @@ class _DamageOpsMixin:
         AttackDamageOperation._deplete_shield(shc, r)
         death = AttackDamageOperation._apply_damage_pipeline(           # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], _profile,
-            r["shield_dmg"], r["armor_dmg"])
+            r["shield_dmg"], r["armor_dmg"],
+            # `GetDamageSourceAbility(currentAbility = l'attaque normale, triggeringAbility)` : la voie
+            # NORMALE porte le marqueur de kind 0x3f5 comme `currentAbility` (cf. `attack_type.py`).
+            source_ability=AttackDamageOperation._damage_source_ability(
+                _normal_attack_kind(), triggering_ability))
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
         # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(
@@ -713,7 +734,10 @@ class _DamageOpsMixin:
         # `RegisterAttackOperation` dans leur chemin natif.
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
-            r["shield_dmg"], r["armor_dmg"], is_attack=bool(is_attack_damage_op))
+            r["shield_dmg"], r["armor_dmg"], is_attack=bool(is_attack_damage_op),
+            # `GetDamageSourceAbility(currentAbility = l'ABILITY, triggeringAbility = null)` : une
+            # ability n'est pas une attaque REGULIERE -> la source est l'ability elle-meme.
+            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None))
         # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques

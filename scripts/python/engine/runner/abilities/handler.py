@@ -241,12 +241,18 @@ class AbilityHandler:
             self.last = {"ability_type": msg.ability_type, "ported": False}
             # #139 : les FLAGS de tour sont poses par le natif pour TOUTE ability executee, independamment
             # de sa behaviour -> on les mirror MEME quand la behaviour n'est pas portee (turn-flow fidele).
+            self._unit_active_ability(msg)             # `On(0xc)` : AVANT les flags (ordre natif)
             self.last["flags"] = self._add_flags_after_execution(msg)
             self._post_unit_ability(msg)               # `On(0xe)` : dernier evenement, apres les flags
             return                            # ability non portée → behaviour no-op (présent ≠ exécuté)
         diag = ability.execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
         self.last = {"ability_type": msg.ability_type, "ported": True,
                      "caster": msg.caster_id, "target": msg.target_id, **diag}
+        # `On(UnitActiveAbility=0xc)` — emis APRES l'execution de la behaviour et AVANT
+        # `AddFlagsAfterAbilityExecution` (ordre lu au decompile). L'ability qui vient de s'executer
+        # beneficie donc encore de tout ce que ce vecteur consomme (ex. l'override de niveau 1180 que
+        # son PORTEUR retire ICI, une fois le cast resolu).
+        self._unit_active_ability(msg)
         self.last["flags"] = self._add_flags_after_execution(msg, ability)
         # #120 `On(UnitPostAbility=0xe)` — DERNIER evenement d'`ExecuteInternal`, apres
         # `AddFlagsAfterAbilityExecution`. Pendant exact du `0x2b` emis en tete : c'est lui qui
@@ -290,6 +296,16 @@ class AbilityHandler:
         pre_unit_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
                                   ranged=self._ranged(msg), profile=None,
                                   ability_type=int(msg.ability_type))
+
+    def _unit_active_ability(self, msg) -> None:
+        """`FUN_180026490(0x4d, .., 0xc)` d'`ExecuteInternal`, emis SOUS LE GATE
+        `StaticBattleRules.ActiveAbility$$IsActiveAbility(abilityType)` (le gate est applique dans le
+        vecteur). Emis depuis la SEULE voie ABILITY : l'attaque normale est un `IsRegularAttack`, donc
+        exclue par le gate natif -- la voie normale (`damage.py`) n'a rien a emettre."""
+        from ..operations.triggers.dispatch import unit_active_ability_triggers
+        unit_active_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
+                                     ranged=self._ranged(msg), profile=None,
+                                     ability_type=int(msg.ability_type))
 
     def _post_unit_ability(self, msg) -> None:
         """`FUN_180026490(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres

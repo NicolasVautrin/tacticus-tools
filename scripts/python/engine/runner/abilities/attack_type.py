@@ -234,6 +234,34 @@ def is_regular_attack(ability_type: Optional[int]) -> bool:
     return ability_type is not None and int(ability_type) in REGULAR_ATTACK_ABILITY_TYPES
 
 
+# `IsActiveAbility` exclut, EN PLUS des attaques regulieres, cinq `ActiveAbilityType` litteraux lus au
+# decompile (`... != 0x12 && ... != 0x48f && ... != 0x4bc && ... != 0x1c && ... != 0x45f`) : ce sont les
+# abilities-OUTILS de soin/reparation que le moteur declenche pour le compte d'une AUTRE ability.
+NOT_ACTIVE_ABILITY_TYPES = frozenset({
+    0x012,   # 18   Heal
+    0x01c,   # 28   Repair
+    0x45f,   # 1119 Repair_GalvanicField
+    0x48f,   # 1167 Heal_TwistedScience
+    0x4bc,   # 1212 HealingBalms_Heal
+})
+
+
+def is_active_ability(ability_type: Optional[int]) -> bool:
+    """`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$IsActiveAbility`
+    (MIRROR du decompile) = `!IsRegularAttack(t) && t not in NOT_ACTIVE_ABILITY_TYPES`.
+
+    C'est le GATE de l'evenement `On(UnitActiveAbility = 0xc)` d'
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` : le natif emet `On(0xb)`
+    inconditionnellement puis `On(0xc)` **seulement si** ce predicat est vrai. Consequence directe :
+    une ATTAQUE NORMALE (qui emprunte pourtant la meme operation) n'emet PAS `On(0xc)` -- c'est ce qui
+    rend le retrait de `InspiredToGreatness_OverrideLevel` (`On(0xc) & OwnerIsCaster`) borne au
+    PROCHAIN CAST D'ACTIF de la cible, et non a sa prochaine attaque."""
+    if ability_type is None:
+        return False
+    t = int(ability_type)
+    return not is_regular_attack(t) and t not in NOT_ACTIVE_ABILITY_TYPES
+
+
 def is_normal_attack(ability_type: Optional[int]) -> bool:
     """`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack(df)` -- la DISJONCTION des deux branches
     detaillees en tete de module :
