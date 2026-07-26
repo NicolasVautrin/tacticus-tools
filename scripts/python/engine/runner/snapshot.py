@@ -27,7 +27,7 @@ from .state import State
 from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
-    TriggeredAbilityComponent, MachineComponent,
+    TriggeredAbilityComponent, MachineComponent, ActiveAbility, ActiveAbilitiesComponent,
 )
 
 
@@ -43,6 +43,24 @@ def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
 
 def _effect_names(u: dict) -> List[str]:
     return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])) if n)
+
+
+def _active_abilities(u: dict) -> List[ActiveAbility]:
+    """Entrees `ActiveAbility` d'une unite de `decisionView` (canal `unitAbilityTypes` :
+    `{id, name, kind, usable, cooldown, disabled, level, multiplier}`). On ne garde QUE les kinds
+    `active`/`granted` -- l'entree `normal` est poussee depuis `AbilityComponent.NormalAttackType`
+    SANS objet `ActiveAbility` derriere (elle n'a ni `usable` ni `cooldown`), et le natif l'exclut
+    de toute facon de la boucle de reset (`ActiveAbility.IsRegularAttack`)."""
+    out: List[ActiveAbility] = []
+    for a in (u.get("abilities") or []):
+        if a.get("kind") not in ("active", "granted") or a.get("id") is None:
+            continue
+        out.append(ActiveAbility(
+            ability_type=int(a["id"]), kind=str(a.get("kind")),
+            can_still_be_used=bool(a.get("usable", True)),
+            remaining_cooldown=a.get("cooldown"), disabled=bool(a.get("disabled", False)),
+            level=a.get("level"), multiplier=a.get("multiplier")))
+    return out
 
 
 def _tile_rows(tiles) -> List[dict]:
@@ -146,6 +164,14 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         effs = _effect_names(u)
         if effs:
             e.add_component(EffectsOwnedComponent(effects=effs))
+        # `IdunBattle.Entities.Components.ActiveAbilityComponent` — l'ETAT RUNTIME par actif
+        # (CanStillBeUsed/RemainingCooldownTurns/IsDisabled/AbilityState). Canal live =
+        # `decisionView.units[].abilities` (`unitAbilityTypes` + `readAbilityState`, qui lisent
+        # litteralement ces champs). Sans `allAbilities: true` le canal ne porte que l'attaque
+        # NORMALE -> aucune entree `active`/`granted` -> composant ABSENT (degradation VISIBLE).
+        actives = _active_abilities(u)
+        if actives:
+            e.add_component(ActiveAbilitiesComponent(abilities=actives))
     _load_machines(state, decision)
     if snapshot is not None:
         _load_stats_and_effects(state, decision, snapshot)

@@ -9,19 +9,33 @@ Contenu :
 - `TwinSmartMissileSystem` (1161, MEME porteur `tauBroadside`) : patron « ATTAQUE DSL filtree par un
   ETAT + entretien de cet etat » (groupe B du case doc) -- l'attaque ne porte QUE sur les ennemis deja
   MARQUES (`Markerlight` 1122), et le cast (re)pose/rafraichit ce marquage sur sa cible.
+- `FightingRetreat` (1081, `tauDarkstrider` -- HERO) : DEBUFF DE ZONE + entretien d'un ETAT de trait +
+  pilotage du TURN-FLOW (lot #114 -- cf. `docs/rl/case-114-tau-lot1.md`).
+- `EarlyWarningOverride` (1077, `tauCrisis` -- Re'vas, HERO) : SUMMON (2 drones) + auto-armement
+  OVERWATCH par pose de 4 effets sur soi (lot #114).
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from .base import ActiveAbility, convert_rounds_to_turns
-from .behaviours import (AddEffect, AttackWithAttackDamage, ChangeEffectTurns, entities_from_state)
+from .base import (ActiveAbility, convert_rounds_to_turns,
+                   turns_until_end_of_current_players_next_turn)
+from .behaviours import (ActivateEffect, AddEffect, AddStatOverrideEffect, AttackWithAttackDamage,
+                         ChangeEffectTurns, FinishTurn, Heal, PerformAIAttack, Repair,
+                         ResetActiveAbility, ResetTurn, Spawn, entities_from_state,
+                         healable_heal_type_0, repairable_heal_type_1)
+from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import op_and, If as IfBehaviour
+from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.selectors import AllUnits, Caster, Enemies, EntitiesWithAnyEffect, Target
-from ...entities.triggers import HasEffect
+from ...entities.selectors import (ActiveTarget, AdjacentEnemies, AdjacentFriends, AllUnits, Caster,
+                                   Enemies, EntitiesWithAnyEffect, FixedTileIds, OwnerTile, Sub,
+                                   Subject, Target, Union, UnitsThatCanHaveActiveAbilityReset,
+                                   non_steppable_or_object_units)
+from ...entities.stats import StatType
+from ...entities.traits.unit_trait import UnitTrait
+from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable
 
 if TYPE_CHECKING:
     from ..state import State
@@ -187,3 +201,436 @@ class TwinSmartMissileSystemAbility(ActiveAbility):
                      for n, p in ectx.emitted if n == "ChangeEffectTurns"]
         return {"ability": TWIN_SMART_MISSILE_SYSTEM_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "marked": marked, "refreshed": refreshed, "dsl": True}
+
+
+# ==================== FightingRetreat (tauDarkstrider, HERO, actif 1081) -- lot #114 ====================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE, 5 volets joints par `AbilityBehaviour.op_Addition`) :
+#
+#   adjEnemies = NonSteppableOrObjectUnits( AdjacentEnemies(Owner@0x148, 1, 3), 3 )
+#   adjFriends = NonSteppableOrObjectUnits( AdjacentFriends(Owner@0x148, 1, 3), 3 )
+#   turns      = TurnsUntilEndOfCurrentPlayersNextTurn()
+#   n          = adjEnemies.Count(entities)          # virtuel slot 0x18, EVALUE A LA CONSTRUCTION
+#
+#   AActiveAbility.Execute(
+#         AddEffect(0x485 = 1157 FightingRetreatDmgReduction, absRef, source=Owner@0x148,
+#                   targets=adjEnemies, turns)
+#       + AddEffect(0x486 = 1158 FightingRetreatHitReduction, absRef, source=Owner@0x148,
+#                   targets=adjEnemies, turns)
+#       + Foreach( adjEnemies,
+#                  AddEffect(0x462 = 1122 Markerlight, absRef, source=caster@0x160,
+#                            targets=subject@0x180, turns) )
+#       + Foreach( adjFriends op_Addition caster@0x160,
+#                  If( HasTrait(subject@0x180, 0x424 = 1060 RangedSpecialist),
+#                      ActivateEffect( EffectFromOwner(subject@0x180, 0x5eb = 1515 RangedSpecialist) ) ) )
+#       + If( AmountIsGreater(Direct(n), Direct(0)),
+#             ResetTurn(Owner@0x148, 1),
+#             FinishTurn(Owner@0x148) ),
+#       entities )
+#
+# NOTES DE FIDELITE :
+#  - `NonSteppableOrObjectUnits(sel, 3)` = `(sel & UnitsWithoutTrait(sel, 0x1b=Steppable)) &
+#    UnitsWithoutTrait(sel, 0xd=Object)` (`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits`,
+#    decompile) -> un decoy/objet adjacent n'est NI debuffe NI marque. Helper deja porte (partage avec
+#    les predicats de ciblage de SquigLaunchas).
+#  - `TurnsUntilEndOfCurrentPlayersNextTurn` = `Sum(TurnsFromRounds(1), Direct(1))` (cf.
+#    `abilities/base.py`, ground truth live anvil_shield `remaining 3`). i2 : « for one round ».
+#  - Le COMPTE d'ennemis adjacents est fige a la CONSTRUCTION de l'arbre (`Direct(n)`), pas relu a
+#    l'execution -- aucun observable different (la pose d'effets ne change pas l'adjacence), mais le port
+#    respecte la structure (compte calcule dans le builder, injecte en `Const`).
+#  - Les DEUX faces turn-flag (`SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag`) sont DEJA portees (#139,
+#    `_fighting_retreat_sets_flags` : les flags ne sont poses QUE si AUCUN ennemi adjacent) -- c'est le
+#    MEME predicat que le `If` du 5e volet, mais un canal DISTINCT (queue `AddFlagsAfterAbilityExecution`
+#    de `ActiveAbilityOperation`, hors behaviour). Les deux convergent : ennemi adjacent -> ResetTurn +
+#    aucun flag ; aucun ennemi adjacent -> FinishTurn + flags poses.
+#  - CAST LEGAL (`IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$GetDynamicInvalidTargetReason`,
+#    non porte -- gate AMONT du natif) : le cast est REFUSE (reason 2) sauf si le caster a >=1 ennemi
+#    adjacent OU si un allie adjacent a un `RangedSpecialist` DESACTIVE
+#    (`FightingRetreatAbility$$HasDeactivatedRangedSpecialist`). Cote runner le cast arrive deja valide.
+
+FIGHTING_RETREAT_ID = "FightingRetreat"
+FIGHTING_RETREAT_DMG_REDUCTION = int(EffectType.FightingRetreatDmgReduction)   # 0x485 = 1157
+FIGHTING_RETREAT_HIT_REDUCTION = int(EffectType.FightingRetreatHitReduction)   # 0x486 = 1158
+RANGED_SPECIALIST_EFFECT = int(EffectType.RangedSpecialist)                    # 0x5eb = 1515
+RANGED_SPECIALIST_TRAIT = int(UnitTrait.RangedSpecialist)                      # 0x424 = 1060
+
+
+def fighting_retreat_adjacent_enemies():
+    """`NonSteppableOrObjectUnits(AdjacentEnemies(Owner@0x148, 1, 3), 3)` (MIRROR) -- les ennemis
+    STRICTEMENT adjacents au caster, decoys (`Steppable` 27) et objets (`Object` 13) EXCLUS.
+    L'ancre est `OwnerTile()` = la position LIVE de l'owner (le port ancre `AdjacentEnemies` sur une
+    POSITION ; `OwnerTile` mirror `Owner@0x148`, PAS la tuile d'attaque balayee `CasterTile`)."""
+    return non_steppable_or_object_units(AdjacentEnemies(OwnerTile()))
+
+
+def fighting_retreat_adjacent_friends():
+    """`NonSteppableOrObjectUnits(AdjacentFriends(Owner@0x148, 1, 3), 3)` (MIRROR) -- symetrique allie.
+    `AdjacentFriends` natif EXCLUT deja le caster (anneau `d>0`) ; le 4e volet le re-AJOUTE explicitement
+    par `op_Addition(adjFriends, caster@0x160)`."""
+    return non_steppable_or_object_units(AdjacentFriends(OwnerTile()))
+
+
+def fighting_retreat_tree(state: "State", n_adjacent_enemies: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$ExecuteBehaviour`
+    (MIRROR 1:1, cf. le bloc de commentaire ci-dessus). `n_adjacent_enemies` = le `Direct(n)` natif
+    (`adjEnemies.Count(entities)` evalue A LA CONSTRUCTION)."""
+    adj_enemies = fighting_retreat_adjacent_enemies()
+    adj_friends = fighting_retreat_adjacent_friends()
+    turns = turns_until_end_of_current_players_next_turn(state)      # Sum(TurnsFromRounds(1), Direct(1))
+    debuffs = op_add(
+        AddEffect(FIGHTING_RETREAT_DMG_REDUCTION, EffectType.FightingRetreatDmgReduction.name,
+                  adj_enemies, duration_turns=turns),
+        AddEffect(FIGHTING_RETREAT_HIT_REDUCTION, EffectType.FightingRetreatHitReduction.name,
+                  adj_enemies, duration_turns=turns))
+    marking = Foreach(adj_enemies,
+                      AddEffect(MARKERLIGHT, EffectType.Markerlight.name, Subject(),
+                                duration_turns=turns))
+    # 4e volet : re-ACTIVE le RangedSpecialist du caster ET de ses allies adjacents qui portent le trait
+    # (i2 : « gain the effect of the trait even if they started their turn adjacent to an enemy unit »).
+    reactivate = Foreach(
+        Union(adj_friends, Caster()),
+        IfBehaviour(HasTrait(Subject(), RANGED_SPECIALIST_TRAIT),
+                    ActivateEffect(Subject(), RANGED_SPECIALIST_EFFECT,
+                                   EffectType.RangedSpecialist.name)))
+    # 5e volet : TURN-FLOW. Ennemi adjacent -> le tour de Darkstrider est ROUVERT (il peut re-bouger) ;
+    # sinon son tour est CLOS.
+    turn_flow = IfBehaviour(AmountIsGreater(Const(int(n_adjacent_enemies)), Const(0)),
+                            ResetTurn(Caster(), True),
+                            FinishTurn(Caster()))
+    return op_add(op_add(op_add(debuffs, marking), reactivate), turn_flow)
+
+
+class FightingRetreatAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$ExecuteBehaviour`
+    (id 1081, `tauDarkstrider` Darkstrider -- Tau, HERO). Cast SELF (targeting `TargetingOptions(1, ...,
+    1, 0x802)` -- `abilityTargets` rend le caster lui-meme).
+
+    Kit gameconfig 1081 : `hitsReduction=1` (constante consommee par
+    `FightingRetreat_HitReductionEffect$$CreateEffectHitsBonusForAttack`), `dmgReduction`[level]
+    (rarity-affected, lvl65=582 -- consomme par `FightingRetreat_DamageReductionEffect$$
+    CreateEffectDamageBonusForAttack`). AUCUN volet degat, AUCUN spawn.
+
+    OBSERVABLE du cast : (1) chaque ennemi adjacent (hors Steppable/Object) recoit TROIS effets --
+    1157 FightingRetreatDmgReduction, 1158 FightingRetreatHitReduction, 1122 Markerlight -- de duree
+    `TurnsUntilEndOfCurrentPlayersNextTurn` ; (2) Darkstrider et ses allies adjacents porteurs du trait
+    `RangedSpecialist` voient leur effet 1515 (RE)ACTIVE ; (3) si >=1 ennemi adjacent, le tour de
+    Darkstrider est ROUVERT (`ResetTurn` : flags Moved/ActiveAbilityUsed/TurnFinished retires), sinon il
+    est CLOS (`FinishTurn`).
+
+    Flags de tour : override CONDITIONNEL (#139) -- `SetsActiveAbilityUsedFlag = Direct(!Any(<ennemis
+    adjacents>))` (decompile) ; le handler l'applique deja via `_fighting_retreat_sets_flags`.
+
+    Retour : {posed, activated, turn_flow, adjacent_enemies, turns, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FightingRetreat)   # 1081
+    ABILITY_ID = FIGHTING_RETREAT_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id, target_id)
+        # `adjEnemies.Count(entities)` (virtuel slot 0x18) -> `Direct(n)`, evalue A LA CONSTRUCTION de
+        # l'arbre par le natif (avant tout Execute) : on le calcule donc ICI, pas dans une feuille.
+        n_adj = len(fighting_retreat_adjacent_enemies().evaluate(entities) or [])
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        fighting_retreat_tree(state, n_adj).execute(entities, ectx)
+        posed = [{"target": p.get("target"), "effect": p.get("effect_type"),
+                  "placed": p.get("placed")} for n, p in ectx.emitted if n == "AddEffect"]
+        activated = [{"owner": p.get("owner"), "created": p.get("created")}
+                     for n, p in ectx.emitted if n == "ActivateEffect"]
+        flow = [{"op": n, **p} for n, p in ectx.emitted if n in ("ResetTurn", "FinishTurn")]
+        return {"ability": FIGHTING_RETREAT_ID, "posed": posed, "activated": activated,
+                "turn_flow": flow, "adjacent_enemies": n_adj,
+                "turns": turns_until_end_of_current_players_next_turn(state), "dsl": True}
+
+
+# ================ EarlyWarningOverride (tauCrisis Re'vas, HERO, actif 1077) -- lot #114 ================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE) :
+#
+#   unitId      = GetStringConstant(config@0x60, 0)                  # = tauSmnDroneShield
+#   nrOfSummons = GetNumberConstant(config@0x60, 0x10)               # = 2
+#   opts        = SpawnUnitOptions.WithStatsFromConfig(config@0x60, entities)
+#   opts+0x18   = PerformAIAttackFromCurrentPosition(ActiveTarget@0x180, 0, 0, false)   # on-appearance
+#   tiles       = First( SortTilesByUtilityForSummon( CanAddUnit(AdjacentTiles(Owner@0x148)),
+#                                                     TestUnitProvider(UtilityBucket(WeightedUtility 7,
+#                                                                                    WeightedUtility 0x38)),
+#                                                     Owner@0x148 ),
+#                        Direct(nrOfSummons) )
+#   turns       = TurnsFromRounds(1)
+#   snapshot    = CreateSnapshot(entities)                           # AbilityStateReference fige
+#
+#   AActiveAbility.Execute(
+#         Nothing()
+#       + AddEffect(0x3f1 = 1009 Overwatch_AutoAttack,                     snapshot, Owner@0x148, turns)
+#       + AddEffect(0x478 = 1144 SuppressCloseCombatWeakness,              snapshot, Owner@0x148, turns)
+#       + AddEffect(0x479 = 1145 EarlyWarningOverride_ReactivateOverwatch, snapshot, Owner@0x148, turns)
+#       + AddEffect(0x47d = 1149 EarlyWarningOverride_Visual,              snapshot, Owner@0x148, turns)
+#       + Spawn(Owner@0x148, tiles, unitId, opts),
+#       entities )
+#
+# NOTES DE FIDELITE :
+#  - `Nothing()` (`IdunBattleLogic.Entities.DSLFactory$$Nothing`) = feuille NEUTRE en tete du `op_Addition` :
+#    aucun etat, aucun tirage -> NON materialisee (l'arbre porte demarre au 1er `AddEffect`).
+#  - ORDRE natif : les 4 effets AVANT le spawn. Le spawn ne consomme aucun rng ; l'attaque on-appearance
+#    des drones, SI. Conserver l'ordre garde la sequence rng fidele.
+#  - `SortTilesByUtilityForSummon` (moteur d'utilite IA COMPLET, kind S lourd) est COLLAPSE (doctrine
+#    slice-18/19, meme classe que ForwardSpotter/SendInTheNextWave) : on conserve l'ORDRE DU SELECTEUR
+#    (`CanAddUnit(AdjacentTiles(caster))`, voisinage natif `board.neighbours`). RESIDU EXPLICITE : quand
+#    il y a plus de tuiles libres que `nrOfSummons`, la TUILE choisie peut differer du live ; le POOL et
+#    le CARDINAL sont exacts.
+#  - `Overwatch_AutoAttack` (1009) est un EFFET-TRIGGER DEJA PORTE (`OverwatchAutoAttack`,
+#    `operations/triggers/effect_triggers.py`) : le poser rend Re'vas REELLEMENT overwatchante offline
+#    (auto-attaque `On(4)` = after-move d'un ennemi en portee).
+#  - 1144/1145/1149 n'ont PAS de classe d'effet portee -> `BaseEffect` inerte (presence fidele, semantique
+#    non modelisee) : 1145 = re-entree en overwatch apres un kill avec `hitsReduction=1` (phase 2, effet
+#    `EarlyWarningOverride_ReactivateOverwatchEffect`, HORS de ce port) ; 1149 = VISUEL pur.
+#  - `SetsActiveAbilityUsedFlag` overridee (#139, 1077 dans `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) ;
+#    `SetsEndTurnFlags` = defaut -> l'ability TERMINE le tour de Re'vas.
+
+EARLY_WARNING_OVERRIDE_ID = "EarlyWarningOverride"
+EWO_EFFECTS = (
+    (int(EffectType.Overwatch_AutoAttack), EffectType.Overwatch_AutoAttack.name),                    # 0x3f1
+    (int(EffectType.SuppressCloseCombatWeakness), EffectType.SuppressCloseCombatWeakness.name),      # 0x478
+    (int(EffectType.EarlyWarningOverride_ReactivateOverwatch),
+     EffectType.EarlyWarningOverride_ReactivateOverwatch.name),                                      # 0x479
+    (int(EffectType.EarlyWarningOverride_Visual), EffectType.EarlyWarningOverride_Visual.name),      # 0x47d
+)
+
+
+def early_warning_override_num_summons() -> int:
+    """`GetNumberConstant(config, 0x10)` = `nrOfSummons` (CONSTANTE, hors niveau) de 1077 -- = 2."""
+    import gameconfig as GC
+    consts = (GC.ability(EARLY_WARNING_OVERRIDE_ID) or {}).get("constants") or {}
+    return int(consts.get("nrOfSummons") or 0)
+
+
+def early_warning_override_tree(state: "State", tiles: list):
+    """Arbre de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility$$ExecuteBehaviour`
+    (MIRROR 1:1, cf. le bloc ci-dessus) : les 4 `AddEffect(Owner, TurnsFromRounds(1))` puis le `Spawn`
+    dont les options portent le sous-behaviour on-appearance `PerformAIAttackFromCurrentPosition
+    (ActiveTarget@0x180)`. `tiles` = le COLLAPSE du tile-selecteur (ids deja resolus)."""
+    turns = convert_rounds_to_turns(state, 1)                  # noeud `TurnsFromRounds(1)`
+    node = None
+    for etype, name in EWO_EFFECTS:
+        leaf = AddEffect(etype, name, Caster(), duration_turns=turns)
+        node = leaf if node is None else op_add(node, leaf)
+    return op_add(node, Spawn(FixedTileIds(tiles), EARLY_WARNING_OVERRIDE_ID,
+                              on_appearance=PerformAIAttack(ActiveTarget())))
+
+
+class EarlyWarningOverrideAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility$$ExecuteBehaviour`
+    (id 1077, `tauCrisis` Re'vas -- Tau, HERO). Cast SELF (ctor `AActiveAbility(<targeting statique de la
+    classe>, 2)` ; `abilityTargets` rend le caster).
+
+    Kit gameconfig 1077 : `unitId=tauSmnDroneShield`, `nrOfSummons=2`, `hitsReduction=1`,
+    `summonHp`/`summonDmg`/`summonArmor`[level]. AUCUN volet degat propre.
+
+    OBSERVABLE : (1) QUATRE effets sur Re'vas -- 1009 Overwatch_AutoAttack, 1144
+    SuppressCloseCombatWeakness, 1145 EarlyWarningOverride_ReactivateOverwatch, 1149
+    EarlyWarningOverride_Visual -- de duree `TurnsFromRounds(1)` ; (2) `nrOfSummons` Shield Drones sur
+    des tuiles LIBRES adjacentes a Re'vas, chacun executant une attaque IA a l'apparition (i2 : « can
+    immediately attack an enemy in melee, but cannot move this turn »).
+
+    Flags de tour : `SetsActiveAbilityUsedFlag` overridee (pas de flag 2), `SetsEndTurnFlags` par defaut
+    -> l'ability TERMINE le tour.
+
+    Retour : {posed, spawned, attacks, tiles, count, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.EarlyWarningOverride)   # 1077
+    ABILITY_ID = EARLY_WARNING_OVERRIDE_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id, target_id)
+        n = early_warning_override_num_summons()
+        # COLLAPSE de `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(Owner))), nrOfSummons)` :
+        # la chaine sans le tri IA est EXPRIMABLE en selecteurs DSL portes -> on l'evalue telle quelle et
+        # on injecte les ids resolus (le tri IA reste le seul maillon non porte, cf. bloc ci-dessus).
+        from ...entities.selectors import AdjacentTiles, CanAddUnit, PickFirstN
+        tiles = PickFirstN(CanAddUnit(AdjacentTiles(Caster())), Const(n)).evaluate(entities) or []
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        early_warning_override_tree(state, list(tiles)).execute(entities, ectx)
+        posed = [{"target": p.get("target"), "effect": p.get("effect_type")}
+                 for nm, p in ectx.emitted if nm == "AddEffect"]
+        spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
+        attacks = [p for nm, p in ectx.emitted if nm == "PerformAIAttack"]
+        return {"ability": EARLY_WARNING_OVERRIDE_ID, "posed": posed, "spawned": spawned,
+                "attacks": attacks, "tiles": list(tiles), "count": n, "dsl": True}
+
+
+# =============== InspiredToGreatness (tauAunShi, HERO, actif 1082) -- lot #114 ===============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE) :
+#
+#   hpUsed    = GetVariableForLevel(config@0x60, 0x20, level)     # = hpToHeal   [lvl65 = 1091]
+#   hpUnused  = GetVariableForLevel(config@0x60, 0x22, level)     # = hpToHeal_2 [lvl65 = 4365]
+#   canReset  = UnitsThatCanHaveActiveAbilityReset( target@0x178 )
+#   cantReset = TargetsSelector.op_Subtraction( target@0x178, canReset )
+#   lvl       = Min( AbilityLevelAmount(Owner@0x148, AbilityType(0x43a = 1082)),
+#                    PrimaryActiveAbilityLevelAmount(canReset) )
+#
+#   AActiveAbility.Execute(
+#         ( RepairOrHeal(canReset,  hpUsed,   canReset)
+#         & RepairOrHeal(cantReset, hpUnused, cantReset) )
+#       & AddStatOverrideEffect(canReset, 0x49c = 1180 InspiredToGreatness_OverrideLevel,
+#                               0x12 = 18 ACTIVE_ABILITY_LEVEL, lvl, 0, 0, 0)
+#       & ResetActiveAbility(canReset, 0),
+#       entities )
+#
+#   IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$RepairOrHeal(sel, amt, sel2) =
+#       If( IsRepairable(sel, 0),
+#           Repair(caster@0x160, sel,  Direct(amt), AbilityOrEffect(0x43a)),
+#           Heal  (caster@0x160, sel2, Direct(amt)) )
+#
+# NOTES DE FIDELITE :
+#  - Le SPLIT canReset/cantReset EST la mecanique de l'i2 : « heals or repairs it for 1091 Health.
+#    [...] If that unit has NOT USED their active ability yet, then 4365 Health is restored instead. »
+#    -> `canReset` = l'allie qui A consomme son actif (`BattleQuery.EntityCanHaveActiveAbilityReset`
+#    branche `!IsInCooldown && !CanStillBeUsed`) = le PETIT montant `hpToHeal` ; son complementaire
+#    prend le GROS `hpToHeal_2`. Les deux vars sont dans `variablesAffectedByRarityBonus` (scaling
+#    rarete via `ability_var(multiplier_pct=...)`), lues+arrondies SEPAREMENT (jamais sommees --
+#    meme discipline que le jumeau 1002 CombatRestoratives).
+#  - `Min(AbilityLevelAmount(owner, 1082), PrimaryActiveAbilityLevelAmount(canReset))` = formules V
+#    COLLAPSEES en scalaire (doctrine slice-18/19) : les deux niveaux sont lus sur l'
+#    `ActiveAbilitiesComponent` (`AbilityState.Level` PER-ABILITY, canal `readAbilityState` #100),
+#    avec repli sur `UnitContext.active_ability_level`.
+#  - CAST LEGAL (`InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`, gate AMONT non porte) :
+#    cible != caster, PAS de trait 0x7e7, ET (repairable | healable-blesse |
+#    EntityCanHaveActiveAbilityReset). C'est pourquoi un allie a PLEINS PV dont l'actif est PRET rend
+#    `fromHere = []` -- le cast serait REFUSE (`mutated:false`, indiscernable d'une ability inerte).
+
+INSPIRED_TO_GREATNESS_ID = "InspiredToGreatness"
+ITG_OVERRIDE_LEVEL = int(EffectType.InspiredToGreatness_OverrideLevel)   # 0x49c = 1180
+
+
+def _itg_heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
+    """`(hpUsed, hpUnused)` -- mirror des DEUX `GetVariableForLevel` d'
+    `InspiredToGreatnessAbility$$ExecuteBehaviour` :
+        0x20 -> `hpToHeal`   : l'allie qui A utilise son actif  (canReset)
+        0x22 -> `hpToHeal_2` : l'allie qui ne l'a PAS utilise   (cantReset)
+    Lues SEPAREMENT via `ability_var` (scaling rarete `AbilityVariablesMultiplier`). MEME convention
+    d'index que le jumeau 1002 (`CombatRestoratives`), lue independamment au decompile."""
+    from ...entities.effects.magnitude import ability_var
+    from ..components import StatsComponent
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    return (int(ability_var(INSPIRED_TO_GREATNESS_ID, "hpToHeal", level, multiplier_pct=mult) or 0),
+            int(ability_var(INSPIRED_TO_GREATNESS_ID, "hpToHeal_2", level, multiplier_pct=mult) or 0))
+
+
+def _ability_level_amount(state: "State", unit_id, ability_type: int):
+    """`IdunBattleLogic.Entities.DSLFactory$$AbilityLevelAmount(unit, abilityType)` (formule V,
+    COLLAPSEE) : le niveau de CETTE ability sur CETTE unite = `ActiveAbility.AbilityState.Level`
+    (canal `readAbilityState` #100). Repli sur `UnitContext.active_ability_level` (canal global) si
+    l'entree n'est pas seedee. None si rien de lisible."""
+    from ..components import ActiveAbilitiesComponent, StatsComponent
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    if e is None:
+        return None
+    comp = e.get_component(ActiveAbilitiesComponent)
+    ab = comp.get(int(ability_type)) if comp is not None else None
+    if ab is not None and ab.level is not None:
+        return int(ab.level)
+    sc = e.get_component(StatsComponent)
+    return getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+
+
+def _primary_active_ability_level_amount(state: "State", unit_id):
+    """`IdunBattleLogic.Entities.DSLFactory$$PrimaryActiveAbilityLevelAmount(unit)` (formule V,
+    COLLAPSEE) : le niveau de l'ability active PRIMAIRE de l'unite (`ActiveAbilityComponent.GetActive`
+    = la 1re entree active/granted, cf. le meme accesseur cote playbook `InspiredToGreatnessPlaybook.
+    _active_ability`). Repli `UnitContext.active_ability_level`."""
+    from ..components import ActiveAbilitiesComponent, StatsComponent
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    if e is None:
+        return None
+    comp = e.get_component(ActiveAbilitiesComponent)
+    ab = next((a for a in comp.abilities if a.level is not None), None) if comp is not None else None
+    if ab is not None:
+        return int(ab.level)
+    sc = e.get_component(StatsComponent)
+    return getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+
+
+def _repair_or_heal(sel, amount: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$RepairOrHeal`
+    (MIRROR) = `If(IsRepairable(sel), Repair(caster, sel, Direct(amt)), Heal(caster, sel, Direct(amt)))`.
+    Les gardes d'eligibilite (`HealableUnitsSelector` cote natif) vivent COTE MUTATION, une par
+    branche : `repairable_heal_type_1` (mecanique) / `healable_heal_type_0` (non-mecanique)."""
+    return IfBehaviour(IsRepairable(sel),
+                       Repair(sel, amount, guard=repairable_heal_type_1),
+                       Heal(sel, amount, guard=healable_heal_type_0))
+
+
+def inspired_to_greatness_tree(state: "State", caster_id: int, target_id: Optional[int]):
+    """Arbre d'`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$
+    ExecuteBehaviour` (MIRROR 1:1, cf. le bloc de commentaire ci-dessus)."""
+    hp_used, hp_unused = _itg_heal_amounts(state, caster_id)
+    can_reset = UnitsThatCanHaveActiveAbilityReset(Target())
+    cant_reset = Sub(Target(), can_reset)
+    # `Min(AbilityLevelAmount(owner, 1082), PrimaryActiveAbilityLevelAmount(canReset))` -- COLLAPSE V.
+    own_lvl = _ability_level_amount(state, caster_id, int(ActiveAbilityType.InspiredToGreatness))
+    tgt_lvl = _primary_active_ability_level_amount(state, target_id)
+    lvls = [v for v in (own_lvl, tgt_lvl) if v is not None]
+    override_lvl = min(lvls) if lvls else 0
+    heals = op_and(_repair_or_heal(can_reset, hp_used),
+                   _repair_or_heal(cant_reset, hp_unused))
+    return op_and(op_and(heals,
+                         AddStatOverrideEffect(can_reset, ITG_OVERRIDE_LEVEL,
+                                               int(StatType.ACTIVE_ABILITY_LEVEL), override_lvl,
+                                               name=EffectType.InspiredToGreatness_OverrideLevel.name)),
+                  ResetActiveAbility(can_reset, False))
+
+
+class InspiredToGreatnessAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$ExecuteBehaviour`
+    (id 1082, `tauAunShi` Aun'Shi -- Tau, HERO). Cast UNIT-TARGET (ALLIE adjacent ; ctor
+    `TargetingOptions(0, ..., 1, 0x402)`).
+
+    Kit gameconfig 1082 : `hpToHeal`[level] et `hpToHeal_2`[level] (les DEUX rarity-affected). AUCUN
+    volet degat, AUCUN spawn.
+
+    OBSERVABLE : (1) l'allie cible est SOIGNE ou REPARE (selon `IsRepairable`) de `hpToHeal` s'il a
+    deja utilise son actif, de `hpToHeal_2` sinon ; (2) s'il l'a utilise, il recoit l'effet 1180
+    `InspiredToGreatness_OverrideLevel` (niveau d'ability plafonne au min des deux) et son actif est
+    RE-ARME (`CanStillBeUsed = true`, cooldown remis a zero).
+
+    Flags de tour : defauts base (1082 absent des tables d'override) -> termine le tour +
+    ActiveAbilityUsed.
+
+    Retour : {healed, repaired, override, reset, can_reset, amounts, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.InspiredToGreatness)   # 1082
+    ABILITY_ID = INSPIRED_TO_GREATNESS_ID
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        entities = entities_from_state(state, caster_id, target_id)
+        can_reset = UnitsThatCanHaveActiveAbilityReset(Target()).evaluate(entities) or []
+        # VERDICT INCONNU (canal `ActiveAbilitiesComponent` absent = `decisionView` sans
+        # `allAbilities`) : le split de soin retomberait SILENCIEUSEMENT sur `cantReset` -> on le
+        # REND VISIBLE dans le diagnostic plutot que de laisser une fausse certitude.
+        from ..operations.ability_reset import entity_can_have_active_ability_reset
+        unknown = entity_can_have_active_ability_reset(state, target_id) is None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        inspired_to_greatness_tree(state, caster_id, target_id).execute(entities, ectx)
+        hp_used, hp_unused = _itg_heal_amounts(state, caster_id)
+        return {"ability": INSPIRED_TO_GREATNESS_ID, "caster": caster_id, "target": target_id,
+                "can_reset": [u.get("id") for u in can_reset],
+                "unknown_reset_verdict": unknown,
+                "amounts": {"hpToHeal": hp_used, "hpToHeal_2": hp_unused},
+                "healed": [p for n, p in ectx.emitted if n == "Heal"],
+                "repaired": [p for n, p in ectx.emitted if n == "Repair"],
+                "override": [p for n, p in ectx.emitted if n == "AddStatOverrideEffect"],
+                "reset": [p for n, p in ectx.emitted if n == "ResetActiveAbility"],
+                "dsl": True}

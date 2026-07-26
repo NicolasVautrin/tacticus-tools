@@ -10,8 +10,8 @@
 
 ## Bilan
 
-- Unites lineup : **123** ; kits COMPLETS (aucun manque detecte) : **19** ; kits avec du travail : **104**
-- Volume total : **159** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **123** ; kits COMPLETS (aucun manque detecte) : **20** ; kits avec du travail : **103**
+- Volume total : **156** items manquants (actives no-op + passifs/traits non registres)
 
 ## Par faction (kits avec du travail, tries par volume)
 
@@ -57,17 +57,6 @@
 | emperKakophonist | 2 | DoomSiren(1199) [-D] NO-OP DAMAGE(DirectDamage) | ObsessiveAnnunciation | - |
 | emperLucius | 2 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | - |
 | emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
-
-### Tau — 6 kits, 9 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| tauAunShi | 2 | InspiredToGreatness(1082) [-D] NO-OP HEAL | SereneUnifier | - |
-| tauDarkstrider | 2 | FightingRetreat(1081) [-D] NO-OP EFFECT/BUFF | StructuralAnalyser | - |
-| tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
-| tauCrisis | 1 | EarlyWarningOverride(1077) [-D] NO-OP SUMMON | - | - |
-| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [--] NO-OP DAMAGE(HeavyRound) | - | - |
-| tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
 
 ### ThousandSons — 5 kits, 9 items
 
@@ -178,6 +167,16 @@
 | adeptMorvenn | 1 | SanctorumMissile(1062) [C-] OK | RighteousRepugnance | - |
 | adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
+### Tau — 5 kits, 6 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
+| tauAunShi | 1 | InspiredToGreatness(1082) [CD] OK | SereneUnifier | - |
+| tauDarkstrider | 1 | FightingRetreat(1081) [CD] OK | StructuralAnalyser | - |
+| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [--] NO-OP DAMAGE(HeavyRound) | - | - |
+| tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
+
 ### Ultramarines — 5 kits, 6 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
@@ -229,6 +228,6 @@
 |---|---|---|---|---|
 | astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
 
-## Kits lineup COMPLETS (19)
+## Kits lineup COMPLETS (20)
 
-adeptExorcist, admecMarshall, astraCreed, astraOrdnanceBattery, blackForgefiend, deathCrawler, deathRotbone, eldarFarseer, genesKelermorph, genesPrimus, orksRukkatrukk, orksRuntherd, spaceStormcaller, tauBroadside, thousInfernalMaster, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar
+adeptExorcist, admecMarshall, astraCreed, astraOrdnanceBattery, blackForgefiend, deathCrawler, deathRotbone, eldarFarseer, genesKelermorph, genesPrimus, orksRukkatrukk, orksRuntherd, spaceStormcaller, tauBroadside, tauCrisis, thousInfernalMaster, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar

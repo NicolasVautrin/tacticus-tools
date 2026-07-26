@@ -481,6 +481,61 @@ class TriggeredAbilityComponent(Component):
             e.times_this_phase = 0
 
 
+class ActiveAbility:
+    """`IdunBattle.Entities.Components.ActiveAbility` -- UNE entree d'ability active de l'unite. Champs
+    portes = ceux que le canal live expose (`readAbilityState`, `frida/hooks/features/ai-step/
+    internals.ts`, offsets resolus PAR NOM sur la classe native) :
+
+        CanStillBeUsed         @0x28  -> `can_still_be_used`   (l'ability a-t-elle encore une charge ?)
+        RemainingCooldownTurns @0x2c  -> `remaining_cooldown`  (Nullable<int> ; None = pas de cooldown)
+        IsDisabled             @0x35  -> `disabled`
+        AbilityName            @0x44  -> `ability_type`        (ActiveAbilityType concret)
+        _abilityState          @0x4c  -> `level` / `multiplier` (AbilityState PER-ABILITY, #100)
+
+    `is_in_cooldown` = `IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown` =
+    `RemainingCooldownTurns.HasValue && Value > 0`."""
+    __slots__ = ("ability_type", "kind", "can_still_be_used", "remaining_cooldown", "disabled",
+                 "level", "multiplier")
+
+    def __init__(self, ability_type: int, kind: str = "active", can_still_be_used: bool = True,
+                 remaining_cooldown=None, disabled: bool = False, level=None, multiplier=None):
+        self.ability_type = int(ability_type)
+        self.kind = kind
+        self.can_still_be_used = bool(can_still_be_used)
+        self.remaining_cooldown = remaining_cooldown
+        self.disabled = bool(disabled)
+        self.level, self.multiplier = level, multiplier
+
+    def is_in_cooldown(self) -> bool:
+        """`IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown` : `HasValue && Value > 0`."""
+        return self.remaining_cooldown is not None and int(self.remaining_cooldown) > 0
+
+    def __repr__(self) -> str:                                        # pragma: no cover
+        return (f"ActiveAbility({self.ability_type}, {self.kind}, usable={self.can_still_be_used}, "
+                f"cd={self.remaining_cooldown})")
+
+
+class ActiveAbilitiesComponent(Component):
+    """`IdunBattle.Entities.Components.ActiveAbilityComponent` -- la COLLECTION d'abilities actives de
+    l'unite (`KeyedCollection<ActiveAbilityType, ActiveAbility>` @+0x20, iteree par
+    `IdunBattle.Core.Services.BattleQuery$$EntityCanHaveActiveAbilityReset` et par
+    `IdunBattle.Operations.ResetActiveAbilityOperation$$Execute`).
+
+    SEEDE depuis `decisionView.units[].abilities` (canal `unitAbilityTypes` + `readAbilityState`, qui
+    lit litteralement ces champs sur l'objet natif) -- les entrees `kind == "normal"` (l'attaque
+    normale, poussee depuis `NormalAttackType` SANS objet `ActiveAbility`) sont EXCLUES : le natif les
+    exclut aussi de la boucle de reset (`ActiveAbility.IsRegularAttack`). Le canal n'est peuple que si
+    l'appelant demande `allAbilities: true` -> composant ABSENT sinon (degradation fidele et VISIBLE :
+    les consommateurs rendent None plutot qu'un faux verdict, cf. `entity_can_have_active_ability_reset`)."""
+    __slots__ = ("abilities",)
+
+    def __init__(self, abilities=None):
+        self.abilities: List["ActiveAbility"] = list(abilities or [])
+
+    def get(self, ability_type: int) -> Optional["ActiveAbility"]:
+        return next((a for a in self.abilities if a.ability_type == int(ability_type)), None)
+
+
 class ActiveAbilityModificationsComponent(Component):
     """`IdunBattle.Entities.Components.ActiveAbilityModificationsComponent` IdunBattle.Entities.Components.ActiveAbilityModificationsComponent$$.ctor (.ctor) — registre
     par-unite des MODIFICATIONS de constantes/variables d'ability apportees par des sources TIERCES

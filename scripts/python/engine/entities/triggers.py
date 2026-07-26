@@ -458,6 +458,34 @@ class IsDead(AbilityTrigger):
         return not any(_is_alive(u) for u in _units_of(self.unit, ctx))
 
 
+class IsRepairable(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$IsRepairable(unit, flag)` -- le predicat qui aiguille le
+    `If(IsRepairable, Repair, Heal)` de `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    InspiredToGreatnessAbility$$RepairOrHeal` (i2 : « heals **or repairs** it »).
+
+    SEMANTIQUE DEDUITE (le ctor du trigger est MISLABELE par ghidra -- on lit la STRUCTURE : un
+    trigger a UN operande-unite + un flag) = `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType
+    (unit, 1 = Repair)` = `HasTrait(AffectedByHealAndRepair = 0x421)` OU `IsMechanical(unit)`
+    (Mechanical 5 | LivingMetal 1000 | Vehicle 1029) -- le COMPLEMENTAIRE exact du type 0 deja porte
+    (`healable_heal_type_0` : `HasTrait(0x421) OU NON-IsMechanical`), et le seul aiguillage qui rend
+    l'i2 (« Cannot be healed, but can be repaired instead » du trait Mechanical).
+
+    DISCRIMINANT LIVE : si la lecture etait fausse, une cible MECANIQUE prendrait la branche `Heal`,
+    dont la garde `healable_heal_type_0` la REJETTE -> 0 PV rendus. Un gain de PV mesure sur une cible
+    mecanique PROUVE la branche `Repair`. `ctx.has_trait` absent -> False (branche `Heal`)."""
+    def __init__(self, unit: AbilityTrigger):
+        self.unit = unit
+
+    def should_trigger(self, ctx):
+        from .traits.unit_trait import UnitTrait
+        ht = ctx.has_trait
+        if ht is None:
+            return False
+        mech = (UnitTrait.Mechanical, UnitTrait.LivingMetal, UnitTrait.Vehicle)
+        return any(ht(u, int(UnitTrait.AffectedByHealAndRepair)) or any(ht(u, int(t)) for t in mech)
+                   for u in _units_of(self.unit, ctx))
+
+
 class IsPositionMachineForCurrentPlayer(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsPositionMachineForCurrentPlayer` -> `IsPositionMachineForPlayerTrigger
     .IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` :

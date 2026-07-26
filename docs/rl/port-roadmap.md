@@ -68,7 +68,7 @@ le playbook NC porté). Par sous-groupe :
 | 1037 RevitalizingMalignancy | deathRotbone | ✅ opus-solver **direct** | jumeau 1002 côté Chaos ; montant Chaos = SOMME var0x20+var0x22 (ne pas fitter) ; `@181200eb0` |
 | 1117 DefendTheDivineWork | admecManipulus | ✅ opus-solver + prérequis | feuille Repair multi-cible (clone Heal) + PerformAIAttack multi-unités ; galvanic = pattern quickening DÉJÀ porté ; ⚠ attaque galvanique non-tooltipée à confirmer live ; `@1811d30b0` |
 | 1039 RitesOfRestoration | adeptHospitaller | ✅ opus-solver + prérequis | feuille Resurrect (op existante) + sélecteur `AllDeadUnits` ; RNG double PickRandomly + flag no-act ; `@1812033c0` |
-| 1082 InspiredToGreatness | tauAunShi | ⚠ **fable-solver** | `ResetActiveAbility` (réactivation d'active, ABSENTE) + override de niveau `Min(...)` — 5 primitives neuves, état d'activation/tour ; `@1811eac00` |
+| 1082 InspiredToGreatness | tauAunShi | ✅ opus-solver — **PORTÉ + VALIDÉ LIVE** (#114) | le pronostic « fable » n'a pas tenu : les 5 primitives neuves sont mécaniques (`ActiveAbilitiesComponent` seedé depuis `decisionView.units[].abilities`, `entity_can_have_active_ability_reset`, `ResetActiveAbility`, `Repair`+`IsRepairable`, `AddStatOverrideEffect`). Split `canReset`/`cantReset` = `hpToHeal`/`hpToHeal_2` ; live +1496 == offline ; `case-114-tau-lot1` §3 |
 
 ### P0-SUMMON — CLASSIFIÉ (`case-220` §2)
 
@@ -78,7 +78,7 @@ le playbook NC porté). Par sous-groupe :
 | 1016 SendInTheNextWave | astraYarrick | ✅ opus-solver + prérequis | count dynamique (2+morts alliés, cap 5) + placement range-2 attack-priority ; `@181206490` |
 | 1040 Poxwalkers | deathBlightbringer | ✅ opus-solver + prérequis | amount-nodes DSL `RandomAmount`/`Divide`/`Get` + PickRandomly-by-count + range d'effet Nurgle ; `@181208b80` |
 | 1021 Incursion | blackPossession | ✅ opus-solver + prérequis | combinateur `ChainBehaviour` (boucle ≤6 ré-évaluée par itération) + `GetNextSpawnTile` ; `@1811e9fe0` |
-| 1077 EarlyWarningOverride | tauCrisis | ✅ opus-solver (spawn) + **sous-système Overwatch** (§4) | drones portables tout de suite ; volet réactivation Overwatch (+1892) bloqué sur le sous-système — agreement partiel assumé d'ici là ; `@1811d7310` |
+| 1077 EarlyWarningOverride | tauCrisis | ✅ opus-solver — **PORTÉ + VALIDÉ LIVE** (#114) | 4 `AddEffect` (1009/1144/1145/1149, `TurnsFromRounds(1)`) + `Spawn` 2 drones + on-appearance `PerformAIAttack` (gate de portée AJOUTÉ). Volet phase-2 « réactivation Overwatch après kill » (effet 1145) = résidu inerte, cf. `case-114-tau-lot1` §5 ; `@1811d7310` |
 | 1121 ItItches | tyranParasite | ⚠ **fable-solver** | multi-étage atomique positionnel (suppress + push + kill + hexes libérés + spawn Rippers + `PerformAIAbility` + ResetMovement) ; dépend de P1 PerformAIAction ; `@1811ebd40` |
 
 ### P0-DAMAGE — CLASSIFIÉ (`case-220` §3)
@@ -99,7 +99,7 @@ le playbook NC porté). Par sous-groupe :
 |---|---|---|---|
 | 1183 VexillaMagnifica | custoVexilusPraetor | ✅ opus-solver + prérequis | 2 selectors seulement (`SortUnitsByDamageUtility`, `NormalUnits`) — Stun + DmgReduction DÉJÀ portés, template splash ; `@18122a020` |
 | 1050 HolyDuel | templChampion | ✅ opus-solver + prérequis | 3 effet-classes du bond Duel (taunt mutuel no-expiry + ±dégât) — feuilles AddBondEffect/UseActiveAbility présentes ; `@1811e97a0` |
-| 1081 FightingRetreat | tauDarkstrider | ⚠ **fable-solver** | ré-entrance de tour (`ResetTurn` — le caster peut rebouger) touche le scheduler + ~6 primitives neuves ; effets ±dégât DÉJÀ portés ; `@1811ddf90` |
+| 1081 FightingRetreat | tauDarkstrider | ✅ opus-solver — **PORTÉ + VALIDÉ LIVE** (#114) | la ré-entrance de tour ne touche PAS le scheduler : `ResetUnitTurnBehaviour` = `UnitFlagsComponent.RemoveTurnFlags(includeNoAction=1, newActivation=flag)`, déjà porté. Arbre 5 volets (2 debuffs + Markerlight + `ActivateEffect(RangedSpecialist)` + `If(n>0, ResetTurn, FinishTurn)`) ; 2 scénarios live discriminants ; `case-114-tau-lot1` §1 |
 
 Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC) — veille.
 
@@ -116,7 +116,7 @@ Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC)
 | Réutilisation `GenerateMultiHitAttackPredictions` | groupe #27 | opus-solver | `case-27` |
 | Utilité de déplacement (`UtilityMovementCase`, `GetTargetUtilityDiffOnDisplace`) | groupe #27 | opus-solver, escalade fable si structure ambiguë | `case-27` |
 | Movement-stop #131/B4 (effets de tuile dans la reachability) + exemption Unstoppable | Stormcaller/ICE, Fire tiles, trait 1042 | opus-solver | `case-205`, `terrain-effects.md` |
-| **Sous-système Overwatch en combat** (effets 1009/1144/1145/1149, `@180f40550`/`@180f40360`) | 1077 EarlyWarningOverride (volet réactivation) + blind spot IA overwatch connu | opus-solver (RE d'abord), escalade fable si état transient ambigu | `case-220` §2 |
+| **Sous-système Overwatch en combat** (effets 1009/1144/1145/1149, `@180f40550`/`@180f40360`) | 1077 EarlyWarningOverride (volet réactivation) + blind spot IA overwatch connu | opus-solver (RE d'abord), escalade fable si état transient ambigu | `case-220` §2 ; **POSE des 4 effets LIVRÉE** (#114) — reste (a) l'ActiveCondition `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` (gate `DoesNotHaveFlag(ActiveAbilityUsed)`, RE faite, cf. `case-114-tau-lot1` §2.2/§5) et (b) la phase-2 `EarlyWarningOverride_ReactivateOverwatchEffect` |
 | DslContext live-state (#5) | feuilles DSL à état | opus-solver (architecture à poser) | `dsl-live-context-substrate.md` |
 
 ### 4.1 Consolidation campagne `case-220` (2026-07-23) — top débloqueurs par nombre d'items
