@@ -1,0 +1,76 @@
+"""Noeuds SELECTEUR du DSL = famille `TargetsSelector.Select` (kind S) : selecteurs d'unites, de
+tuiles (domaine TILE = ids), et accesseurs de tuile/entite/sujet.
+
+Mirror du namespace natif `IdunBattle.Entities.Selectors` : les concrets vivent ici, a cote de leurs
+freres `entities/{abilities,triggers,formulas,behaviours,effects}` ; la base `TargetsSelector`
+(= `IdunBattle.DSL`) reste dans `dsl/base.py`. Construits via la facade `DSLFactory` (`dsl/nodes.py`).
+Les selecteurs de TUILES lisent `ctx.board` (entities/pathfinding : `neighbours`/`id_at`/`walkable`).
+
+DECOUPAGE (le fichier faisait 1563 lignes ; aucune logique n'a change, seules les
+tranches ont bouge) -- graphe de dependances ACYCLIQUE, chaque fleche va vers le bas :
+
+    _shared      helpers de normalisation (`_entity_pos`, `_tile_positions`)
+       ^
+       |-- units       domaine UNITE + algebre d'ensembles
+       |-- tiles       domaine TUILE (ids ; lit `ctx.board`)
+       |-- geometry    geometrie hex par direction + noeuds tardifs
+           accessors   slots de role du contexte (aucune dependance)
+       ^
+       |-- composites  les noeuds qui assemblent PLUSIEURS tranches
+
+CE MODULE RE-EXPORTE TOUT : `from ..entities.selectors import X` continue de
+fonctionner a l'identique pour les 145 sites d'import du depot. Ajouter un noeud =
+le poser dans sa tranche ET l'ajouter au re-export ci-dessous."""
+
+from ._shared import (  # noqa: F401
+    _entity_pos, _tile_positions,
+)
+
+from .units import (  # noqa: F401
+    SurroundingUnits, AdjacentEnemies, AdjacentUnits, Enemies, Damageable, And, Sub, Union,
+    UnitsFromFaction, UnitSet, Filter, UnitsDirectlyBehind, Friends, Units,
+    UnitsOnTilesWithEffect, Tiles, First, Unique, UnitsWithIds, UnitsWithTrait,
+    UnitsWithoutTrait, hero_units, AllDeadOrResurrectedUnits, non_steppable_or_object_units,
+    AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
+    Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured,
+)
+
+from .tiles import (  # noqa: F401
+    Caster, AllUnits, Children, Parent, LastUnitAttackedBy, AdjacentTiles, TileUnique,
+    CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
+)
+
+from .accessors import (  # noqa: F401
+    CasterTile, TargetTile, FixedTiles, FixedTileIds, OwnerTile, Subject, Actor, Target,
+    ActiveTarget, SurroundingTiles, _center_pos,
+)
+
+from .geometry import (  # noqa: F401
+    neighbour_at, TilesInTriangleShape, TileFromVector, Walkable, TilesOnSameElevation,
+    EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, Otherwise, TilesBehindInLine,
+    FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null,
+    EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
+)
+
+from .composites import (  # noqa: F401
+    get_spawn_tile_selector,
+)
+
+__all__ = [
+    "_entity_pos", "_tile_positions", "SurroundingUnits", "AdjacentEnemies", "AdjacentUnits",
+    "Enemies", "Damageable", "And", "Sub", "Union", "UnitsFromFaction", "UnitSet", "Filter",
+    "UnitsDirectlyBehind", "Friends", "Units", "UnitsOnTilesWithEffect", "Tiles", "First",
+    "Unique", "UnitsWithIds", "UnitsWithTrait", "UnitsWithoutTrait", "hero_units",
+    "AllDeadOrResurrectedUnits", "non_steppable_or_object_units", "AdjacentFriends",
+    "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
+    "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "Caster", "AllUnits", "Children",
+    "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",
+    "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",
+    "CasterTile", "TargetTile", "FixedTiles", "FixedTileIds", "OwnerTile", "Subject", "Actor",
+    "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
+    "TilesInTriangleShape", "TileFromVector", "Walkable", "TilesOnSameElevation",
+    "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
+    "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
+    "Entity", "Nothing", "Null", "EffectSource", "EffectFromOwner", "EffectsFromUnitSource",
+    "OwnerOfEffect", "get_spawn_tile_selector",
+]
