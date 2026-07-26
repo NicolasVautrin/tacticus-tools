@@ -10,6 +10,11 @@ Contenu :
   cible + on-appearance `UseNormalAttackIfAble` (case-220 P0-SUMMON).
 - `FrenziedFiring` (1036, Volk `blackObliterator`) — attaque ORIGINE a base GEOMETRIQUE + volet AoE 1 coup
   sur les ennemis de l'anneau de la cible (case-61, face COMBAT).
+- `Drachnyen` (1029, Abaddon `blackAbaddon`) — SetHealth(Min(MaxHealth, hp)) & AddEffect(1471) & attaque
+  NORMALE dirigee sur la cible (case-bl-1029-1020).
+- `HeraldOfTheApocalypse` (1020, Haarken `blackHaarken`) — nrOfHits x Piercing sur la cible ET l'ennemi
+  DIRECTEMENT DERRIERE elle & AddEffect(1027) sur les memes & TriggerAbility(BattleFatigue) sur les ennemis
+  du disque rayon `range` autour de la cible (case-bl-1029-1020).
 """
 from __future__ import annotations
 
@@ -20,20 +25,27 @@ import gameconfig as GC
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.abilities.active_ability import FrenziedFiringAbility
-from ...entities.behaviours import AtomicGroup, ChainBehaviour, If as IfBehaviour, SetCache, op_add, op_and
-from ...entities.formulas import (If as FormulaIf, Multiply, Sum, TotalActiveAbilityUsed)
+from ...entities.behaviours import (AtomicGroup, ChainBehaviour, If as IfBehaviour, SetCache,
+                                    op_add, op_and)
+from ...entities.formulas import (If as FormulaIf, Min, Multiply, StatAmount, Sum,
+                                  TotalActiveAbilityUsed)
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, AdjacentUnits, CanAddUnit, Caster,
                                    CasterTile, Damageable, Enemies, Filter, FixedTileIds, Friends,
-                                   Nothing, Null, Sub, Subject, Target, TilesInTriangleShape,
-                                   TilesOnSameElevation, Units)
+                                   Nothing, Null, PickFirstN, SortByDistance, Sub, Subject,
+                                   SurroundingUnits, Target, Tiles, TilesBehindInLine,
+                                   TilesInTriangleShape, TilesOnSameElevation, Union, Units)
 from ...entities.triggers import (HasEffect, IsAlive, IsInRange, IsPositionMachineForCurrentPlayer,
                                   TriggerAnd)
 from ...entities.effect_type import EffectType
-from ...entities.stats import StatType
+from ...entities.stats import StatPart, StatType
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.triggered_ability_type import TriggeredAbilityType
 from .base import ActiveAbility
-from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage, ChangeStat, Spawn,
-                         UseActiveAbility, add_or_update_static_stat_modifier_effect)
+from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage, ChangeStat, SetHealth,
+                         Spawn, TriggerAbility, UseActiveAbility,
+                         add_or_update_static_stat_modifier_effect)
+from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
     from ..state import State
@@ -637,3 +649,302 @@ class FrenziedFiringAbilityCombat(ActiveAbility):
                for p in atks if p.get("target") != target_id]      # volet AoE = cibles != cible d'origine
         return {"ability": FRENZIED_FIRING_ID, "caster": caster_id, "target": target_id,
                 "hits": (origin or {}).get("hits"), "origin_attack": origin, "aoe": aoe, "dsl": True}
+
+
+def _ability_state(state: "State", caster_id: int):
+    """(niveau d'ability ACTIVE, multiplicateur de rarete %) du caster -- l'`AbilityStateReference` natif
+    contre lequel `GetVariableForLevel`/`ConfigVar` resolvent (== HadesAutocannons/DaemonicOrdnance)."""
+    from ..components import StatsComponent
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    cctx = sc.ctx if sc is not None else None
+    return (getattr(cctx, "active_ability_level", None),
+            int(getattr(cctx, "ability_variables_multiplier", 100) or 100))
+
+
+# =================================================================================================== #
+# Drachnyen (1029, `blackAbaddon` -- Abaddon the Despoiler, HERO) -- case-bl-1029-1020
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE) :
+#   hpNode  = Direct( GetVariableForLevel(config@0x60, 0x1d = hp, abilityState) )    # == ...$$HealthAmount
+#   maxHp   = StatAmount( Owner@0x148, 5 = Health, 2 = MAXIMUM, 0 )
+#   [1] setHp  = ChangeStat( Owner@0x148, Position(5 = Health, 0), mode 0 = SetAbsolute,
+#                            Min(maxHp, hpNode) )                                    # == ...$$GetSetHealthBehaviour
+#   [2] addEff = AddEffect( 0x5bf = 1471 Drachnyen_ExtraAttack, AbilityStateReference,
+#                           targets = Owner@0x148, options ZERO )                    # overload 5-args (source null
+#                                                                                    #  -> source = la cible = Abaddon)
+#   [3] attack = UseActiveAbility( subject = Caster@0x160, targets = Target@0x178,
+#                                  abilityType = UnitNormalAttackType(Caster@0x160),
+#                                  source = AbilityOrEffect(this+0x10 = 0x405 = 1029), <opts> )
+#   AActiveAbility.Execute( op_BitwiseAnd( op_BitwiseAnd([1], [2]), [3] ) )
+#
+# i2 : « Abaddon is set to 4729 Health and immediately performs a normal melee attack against an adjacent
+# enemy unit. After this attack and for the rest of the battle, after performing a normal melee attack,
+# Abaddon performs a second attack against an adjacent enemy unit, dealing 3x 873-1091 Piercing Damage.
+# Abaddon cannot be set to higher Health than his maximum Health. »
+#
+# LE `Min` EST LE POINT DE FIDELITE : `hp` est une variable RARITY-SCALED, elle peut depasser le MaxHealth
+# reel ; le natif CAPE (« cannot be set to higher Health than his maximum Health »). Et c'est un SET, pas
+# un heal : mesure live (rank 17, seed 777) Abaddon 10038 -> 6480 PV, soit une PERTE de 3558 -- porter un
+# `max(hp, current)` serait faux dans le sens le plus visible.
+#
+# [2] pose l'effet AVANT [3] : la triggered `Drachnyen_ExtraAttackAbility` (1485), gatee par
+# `HasEffect(Owner, 0x5bf)` sur `On(0x26 = NormalAttack)`, fire donc DES l'attaque normale de CE cast
+# (cascade live : groupes `Drachnyen` > `Drachnyen_ExtraAttack` > `Loki_NormalAttack`). Cette triggered
+# n'est PAS portee -- residu NOMME, hors perimetre (cf. docs/rl/case-bl-1029-1020.md §Residus).
+# =================================================================================================== #
+
+DRACHNYEN_ID = "Drachnyen"
+VAR_DRACHNYEN_HP = 0x1d               # GetVariableForLevel(0x1d) -> "hp" (rarity-scaled)
+DRACHNYEN_EXTRA_ATTACK = int(EffectType.Drachnyen_ExtraAttack)      # 0x5bf = 1471
+
+
+def drachnyen_tree(hp_amount: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$ExecuteBehaviour`
+    (MIRROR 1:1, cf. le bloc de commentaire) :
+
+        op_BitwiseAnd( op_BitwiseAnd(
+            ChangeStat(Owner, Health, SetAbsolute, Min(StatAmount(Owner, Health, MAX), Direct(hp))),
+            AddEffect(1471 Drachnyen_ExtraAttack -> Owner) ),
+            UseActiveAbility(Caster, Target, UnitNormalAttackType(Caster)) )
+
+    - `SetHealth(amount=...)` = la feuille partagee `ChangeStat(Position(Health,0), mode 0 SetAbsolute)`
+      (MEME overload/mode que `BlackRageAbility$$GetSetHealthBehaviour`, live-valide bit-exact) ; seul le
+      noeud MONTANT change, ici `Min(StatAmount(Owner@0x148, Health=5, MAXIMUM=2), Direct(hp[level]))`.
+      `hp_amount` est resolu par l'appelant (`ability_var`, == HadesAutocannons/DaemonicOrdnance : le
+      `ConfigVar` natif lit l'`AbilityStateReference` du caster, non capte par `ctx.config` offline).
+    - `AddEffect(..., duration_rounds=None)` = les options natives ZERO (aucun `TurnsFromRounds`) ->
+      `DefaultAmountOfRounds` ; live : `remaining=0` (permanent, « for the rest of the battle »).
+      La cible de l'effet est `Owner@0x148` = Abaddon lui-meme (overload 5-args de
+      `IdunBattleLogic.Entities.DSLFactory$$AddEffect` : le selecteur SOURCE est null -> `AddEffectBehaviour
+      $$Execute` retombe sur la cible, `lVar14 = lVar7; if (lVar8 != 0) lVar14 = lVar8;`).
+    - `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch d'ATTAQUE
+      NORMALE (`UnitNormalAttackType(Caster)` -> `AttackDamageOperation.execute`, resolveur d'arme par
+      distance) -- exactement le groupe `Loki_NormalAttack` de la cascade live.
+    - AUCUN tirage RNG avant l'attaque ([1] et [2] sont deterministes) -> le flux `state.rng` de l'attaque
+      normale est celui d'une attaque normale nue."""
+    max_hp = StatAmount(Caster(), int(StatType.HEALTH), int(StatPart.MAXIMUM))   # StatAmount(@0x148,5,2)
+    set_hp = SetHealth(Caster(), amount=Min(max_hp, Const(int(hp_amount))))      # ChangeStat mode 0
+    add_eff = AddEffect(DRACHNYEN_EXTRA_ATTACK, EffectType.Drachnyen_ExtraAttack.name,
+                        Caster(), duration_rounds=None)                          # AddEffect(0x5bf -> Owner)
+    attack = UseActiveAbility(Caster(), Target())                                # UnitNormalAttackType
+    return op_and(op_and(set_hp, add_eff), attack)
+
+
+class DrachnyenAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$ExecuteBehaviour` (id 1029,
+    `blackAbaddon` « Abaddon the Despoiler », HERO Black Legion) — cf. le bloc de commentaire.
+
+    Kit gameconfig 1029 : `attackRangeType=Melee`, `damageProfile=Piercing`, `nrOfHits=3`,
+    `minDmg`/`maxDmg`/`hp`[level] (les TROIS rarity-scaled). ⚠ `damageProfile`/`nrOfHits`/`minDmg`/`maxDmg`
+    ne sont PAS lus par cet `ExecuteBehaviour` : ils alimentent la TRIGGERED `Drachnyen_ExtraAttack` (1485),
+    hors port. L'attaque de CE cast est l'attaque NORMALE de l'unite (arme melee), pas une attaque
+    d'ability.
+
+    OBSERVABLE porte : (1) PV d'Abaddon SETES a `min(MaxHealth, hp[level])` (deterministe, bit-exact) ;
+    (2) effet 1471 `Drachnyen_ExtraAttack` pose sur Abaddon, permanent ; (3) attaque normale dirigee sur la
+    cible. Turn-flags = defauts base (1029 absent des overrides). Retour :
+    {set_health, effect, attack, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Drachnyen)   # 1029
+    ABILITY_ID = DRACHNYEN_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$.ctor` combine
+    # LES DEUX pieges a masque a la fois -- d'ou la derivation ecrite ici plutot qu'un litteral :
+    #   1. il recopie les 0x40 octets du PRESET STATIQUE `TargetingOptions` `statics+0x40` (aucun
+    #      litteral de masque n'apparait dans le ctor) ;
+    #   2. il passe ce preset a l'overload PRESET + flags
+    #      `TargetingOptions..ctor(&out, &preset, 0x200000000, 0)`, qui fait
+    #      `out.Rules = flags | preset.Rules` et recopie le RESTE verbatim (+0x00 isSelfCasting,
+    #      +0x08..0x1f TargetingRange, +0x20 forceMeleeTarget, +0x30/+0x38 delegues).
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit pour ce preset : `+0x68` (= +0x28
+    # relatif) `Rules = 0x4000`, `+0x60` (= +0x20) `forceMeleeTarget = 1` (RangedBool.False) et
+    # `+0x48..0x5f` (= +0x08) le `TargetingRange` statique `+0x30`.
+    # MASQUE EFFECTIF = `0x200000000 | 0x4000` = `0x200004000` :
+    #     0x4000       TargetIsEnemy       -> PORTE : refus sur soi-meme et sur un allie.
+    #     0x200000000  TargetIsNotAnObject -> bit 33, regle NON portee (degradation permissive).
+    # PORTEE : MEME preset `+0x40` que JakhalStimms (1131) -- `onlyAdjacent = True` +
+    # `overrideRange = 1` -> cible ADJACENTE obligatoire, et la constante de config `range` n'est
+    # PAS consultee (`overrideRange` deja pose court-circuite
+    # `AActiveAbility$$SetConfigValuesInTargetingOptions`). Coherent avec `attackRangeType=Melee` et
+    # l'i2 (« a normal melee attack against an adjacent enemy unit »).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        from ...entities.effects.magnitude import ability_var
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        level, mult = _ability_state(state, caster_id)
+        hp_amount = int(ability_var(self.ABILITY_ID, "hp", level, multiplier_pct=mult) or 0)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        drachnyen_tree(hp_amount).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        set_hp = next((p for n, p in ectx.emitted if n == "SetHealth"), None)
+        eff = next((p for n, p in ectx.emitted if n == "AddEffect"), None)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "hp_amount": hp_amount, "set_health": set_hp, "effect": eff, "attack": atk,
+                "dsl": True}
+
+
+# =================================================================================================== #
+# HeraldOfTheApocalypse (1020, `blackHaarken` -- Haarken Worldclaimer, HERO) -- case-bl-1029-1020
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE) :
+#   hits    = GetNumberConstant(config@0x60, 0x2f = nrOfHits)                       # 2
+#   profile = GetDamageProfile(config@0x60)                                         # Piercing
+#   tgtTile = First( SortByDistance( Tiles(Target@0x178), CasterTile@0x168 ), 1 )
+#   line    = TilesBehindInLine( from = CasterTile@0x168, to = tgtTile,
+#                                settings{+0x10 = 1 checkWalkable, +0x11 = 1 updateReference},
+#                                maxCount = Get(2) @dsl+0xc8 )
+#   behind  = Enemies( Owner@0x148, Units(line, 1, 3) op_Subtraction Target@0x178, 3 )
+#   targets = Target@0x178 op_Addition behind
+#   [1] AttackWithAttackDamage( Caster@0x160, targets, MinMaxDamage(this, level), Direct(profile),
+#                               Direct(hits), AbilityOrEffect(0x3fc = 1020), <opts> )
+#   [2] AddEffect( 0x403 = 1027 HeraldOfTheApocalypse, AbilityStateReference,
+#                  source = Owner@0x148, targets = targets, options ZERO )
+#   [3] TriggerAbility( Enemies( Owner@0x148,
+#                                SurroundingUnits(Target@0x178, GetNumberConstant(0x16 = range) = 2,
+#                                                 1, includeCenter = 1, 3), 3 ),
+#                       0x401 = TriggeredAbilityType.BattleFatigue,
+#                       actor@0x158, caster@0x160, target@0x178, null, 3, false )
+#   AActiveAbility.Execute( op_Addition( op_Addition([1], [2]), [3] ) )
+#
+# i2 : « Deals 2x 1310-1892 Piercing Damage to an adjacent enemy and an additional enemy directly behind
+# the target. Affected enemies receive +1310 Damage from the next attack made by a unit against them. Also
+# triggers Battle Fatigue for all enemy units within 2 hexes of the original target. »
+#
+# LE POINT DE FIDELITE = LE 2e VOLET DE CIBLES. « directly behind » n'est PAS un anneau : c'est la tuile
+# `cube(target) + (cube(target) - cube(caster))` (une seule, `maxCount = Get(2)` = [tuile cible, tuile
+# derriere]), gatee walkable + ecart d'elevation < 2 pas-a-pas (settings 1/1). L'occupant n'est retenu que
+# s'il est ENNEMI du caster (`Enemies(Owner@0x148, ...)`) et n'est pas la cible elle-meme
+# (`op_Subtraction Target`). Un allie du caster derriere la cible n'est donc PAS touche.
+#
+# ⚠ NE PAS confondre avec `UnitsDirectlyBehind` (Supercharge/PlasmaCannon) : ce noeud-la rend jusqu'a
+# N unites d'un CONE ; ici c'est la ligne stricte a UNE tuile, construite par `TilesBehindInLine`.
+# =================================================================================================== #
+
+HERALD_ID = "HeraldOfTheApocalypse"
+CONST_HERALD_RANGE = 0x16             # GetNumberConstant(0x16) -> "range" = 2 (disque BattleFatigue)
+CONST_HERALD_HITS = 0x2f              # GetNumberConstant(0x2f) -> "nrOfHits" = 2
+HERALD_EFFECT = int(EffectType.HeraldOfTheApocalypse)               # 0x403 = 1027
+TILES_BEHIND_COUNT = 2                # `Get(2)` = dsl+0xc8 (DSLFactory..ctor : 0xb8=0, 0xc0=1, 0xc8=2)
+
+
+def herald_of_the_apocalypse_targets():
+    """Selecteur de cibles de `HeraldOfTheApocalypseAbility$$ExecuteBehaviour` (MIRROR) :
+
+        Target()  op_Addition  Enemies( Units( TilesBehindInLine(CasterTile, First(SortByDistance(
+                                   Tiles(Target), CasterTile), 1), {1,1}, Get(2)) )
+                                op_Subtraction Target() )
+
+    `First(SortByDistance(Tiles(Target), CasterTile), 1)` est un `First` sur un SINGLETON (la cible n'a
+    qu'une MainTile) -> IDENTITE ; on le mirror quand meme (`PickFirstN(..., 1)` = `DSLFactory$$First`
+    avec noeud-montant, cf. la classe) plutot que de le collapser silencieusement.
+
+    `TilesBehindInLine(from=CasterTile, to=<tuile cible>, maxCount=2)` rend `[tuileCible, tuileDerriere]`
+    (la 1re tuile rendue EST `to`) ; `Units` en prend les occupants VIVANTS, `- Target()` retire la cible,
+    `Enemies` filtre a l'equipe adverse du caster."""
+    tgt_tile = PickFirstN(SortByDistance(Tiles(Target()), CasterTile()), 1)
+    line = TilesBehindInLine(CasterTile(), tgt_tile, Const(TILES_BEHIND_COUNT),
+                             check_walkable=True, update_reference=True)   # settings +0x10=1 / +0x11=1
+    behind = Enemies(Sub(Units(line), Target()))
+    return Union(Target(), behind)
+
+
+def herald_of_the_apocalypse_tree(range_: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$
+    ExecuteBehaviour` (MIRROR 1:1, cf. le bloc de commentaire) :
+
+        op_Addition x2 ( AttackWithAttackDamage(<cible + ennemi derriere>),
+                         AddEffect(1027 -> les MEMES cibles),
+                         TriggerAbility(BattleFatigue -> ennemis du disque rayon `range` autour de la cible) )
+
+    - **native_factory = "attack"** (defaut) : le decompile appelle bien
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE sur les callees de
+      l'`ExecuteBehaviour`, pas au nom) -> famille ATTACK, crit/block, 2 tirages/coup a cc=0.
+    - `multi=True` : le selecteur resout 1 ou 2 cibles -> `IdunBattle.Entities.Behaviours.AttackBehaviour
+      $$Execute` attaque CHACUNE (`OrderBy` par-entite quand count > 1 ; port = tri par id, convention
+      partagee par tous les multi-cibles valides bit-exact).
+    - `attackRangeType=Melee` -> `is_melee=True` ; profil `Piercing` ; coups = `nrOfHits` (config).
+    - `AddEffect(..., duration_rounds=None)` = options natives ZERO -> `DefaultAmountOfRounds` (live :
+      `remaining=0`). Le selecteur de cibles est le MEME OBJET que celui de l'attaque, RE-EVALUE apres
+      elle (mirror : le natif partage `uVar10` entre les deux feuilles, l'evaluation est lazy).
+    - `TriggerAbility` : cf. sa docstring — le SET declenche est porte et trace, la fuite elle-meme reste
+      un residu nomme (chance `GetNumberConstant` d'une config absente du gameconfig)."""
+    targets = herald_of_the_apocalypse_targets()
+    attack = AttackWithAttackDamage(targets, HERALD_ID, "Piercing", is_melee=True, multi=True,
+                                    ability_type=int(ActiveAbilityType.HeraldOfTheApocalypse))
+    add_eff = AddEffect(HERALD_EFFECT, EffectType.HeraldOfTheApocalypse.name, targets,
+                        duration_rounds=None)
+    fatigue = TriggerAbility(
+        Enemies(SurroundingUnits(Target(), Const(int(range_)), include_center=True)),
+        int(TriggeredAbilityType.BattleFatigue))
+    return op_add(op_add(attack, add_eff), fatigue)
+
+
+class HeraldOfTheApocalypseAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$ExecuteBehaviour`
+    (id 1020, `blackHaarken` « Haarken Worldclaimer », HERO Black Legion) — cf. le bloc de commentaire.
+
+    Kit gameconfig 1020 : `attackRangeType=Melee`, `damageProfile=Piercing`, `nrOfHits=2`, `range=2`,
+    `minDmg`/`maxDmg`/`armorReduction`/`extraDmg`[level] (rarity-scaled). ⚠ `extraDmg` n'est PAS lu ici :
+    c'est la magnitude de l'EFFET 1027 (`IdunBattle.Entities.Effects.Loki.HeraldOfTheApocalypse_ExtraDamage
+    Effect$$CreateEffectDamageBonusForAttack` = `EffectBonus.ForAddition(OwnerIsTarget & IsUnit(Caster),
+    ConfigVar(8 = extraDmg), AbilityOrEffect(0x3fc))`), phase 2 hors port. `armorReduction` n'est lu NI par
+    l'`ExecuteBehaviour` NI par l'effet 1027 (residu d'inventaire, cf. le case doc).
+
+    OBSERVABLE porte : (1) `nrOfHits` coups Piercing sur la cible ET sur l'ennemi DIRECTEMENT DERRIERE
+    elle ; (2) effet 1027 pose sur ces memes unites ; (3) le set d'ennemis eligibles a Battle Fatigue
+    (disque rayon `range` autour de la cible, cible INCLUSE) resolu et trace. Turn-flags = defauts base
+    (1020 absent des overrides). Retour : {attacks, targets, effects, fatigue, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HeraldOfTheApocalypse)   # 1020
+    ABILITY_ID = HERALD_ID
+
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$
+    # .ctor` n'appelle AUCUN `TargetingOptions..ctor` : il recopie les 0x40 octets du PRESET STATIQUE
+    # `statics+0x40` et les passe tels quels a `AActiveAbility..ctor`. Le masque effectif est donc la
+    # constante ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`
+    # (= `statics+0x68`) = **0x4000**, PAS un litteral du ctor.
+    #     0x4000  TargetIsEnemy -> PORTE : refus sur soi-meme et sur un allie. SEUL bit du masque --
+    #             en particulier PAS de `TargetMatchesDynamicRule`, et 1020 n'a effectivement aucun
+    #             `GetDynamicInvalidTargetReason` natif.
+    # CONTRASTE avec Drachnyen (1029) : MEME preset, mais 1029 y ajoute `0x200000000` via l'overload
+    # PRESET + flags. Deux abilities du MEME module, meme preset, masques DIFFERENTS -> lecture
+    # ability par ability, jamais de generalisation.
+    # PORTEE : preset `+0x40` -> `TargetingRange` statique `+0x30` = `onlyAdjacent = True` +
+    # `overrideRange = 1`. La constante `range = 2` de la config 1020 n'est donc PAS la portee de
+    # CIBLAGE (elle ne sert qu'au disque `SurroundingUnits` du volet BattleFatigue) : i2 dit bien
+    # « an adjacent enemy ».
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
+        range_ = int(consts.get("range") or 0)             # GetNumberConstant(0x16)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        herald_of_the_apocalypse_tree(range_).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        # `clean_min`/`clean_max` = plage NON-CRIT de l'attaque (x coups) telle que la calcule le
+        # pipeline porte : c'est l'ORACLE DE MAGNITUDE du confront live (le per-coup exact n'est pas
+        # comparable des que `LetTheGalaxyBurn` decale le flux RNG -- cf. le test de garde).
+        attacks = [{"target": p.get("target"), "total": p.get("total"),
+                    "per_hit": (p.get("attack") or {}).get("per_hit"),
+                    "clean_min": (p.get("attack") or {}).get("clean_min"),
+                    "clean_max": (p.get("attack") or {}).get("clean_max")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        effects = [p.get("target") for n, p in ectx.emitted
+                   if n == "AddEffect" and p.get("effect_type") == HERALD_EFFECT and p.get("placed")]
+        fatigue = next((p for n, p in ectx.emitted if n == "TriggerAbility"), None)
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "range": range_, "attacks": attacks, "targets": [a["target"] for a in attacks],
+                "effects": effects, "fatigue": fatigue, "dsl": True}

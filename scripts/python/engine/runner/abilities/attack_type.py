@@ -115,8 +115,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1006: AbilityAttackType.DirectTargetAttack,   # MultiThreatEliminatorAbility
     1008: AbilityAttackType.DirectTargetAttack,   # HarbingerOfDestructionAbility
     1014: AbilityAttackType.DirectTargetAttack,   # ArmoriumCherubAbility
+    1020: AbilityAttackType.DirectTargetAttack,   # HeraldOfTheApocalypseAbility (case-bl-1029-1020)
     1022: AbilityAttackType.DirectTargetAttack,   # BringerOfDespairAbility
     1025: AbilityAttackType.DirectTargetAttack,   # SkyStrikeAbility
+    # Drachnyen (1029) : `DrachnyenAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0, 0)`.
+    # Le litteral est `0` MEME si le behaviour n'attaque pas en direct (il dispatche l'attaque
+    # NORMALE via `UseActiveAbility`) : on transcrit le 3e argument du ctor, jamais le profil de
+    # degat de l'arbre. (case-bl-1029-1020)
+    1029: AbilityAttackType.DirectTargetAttack,   # DrachnyenAbility
     1042: AbilityAttackType.DirectTargetAttack,   # FlailSwingAbility
     1043: AbilityAttackType.DirectTargetAttack,   # ThunderousAssaultAbility
     1051: AbilityAttackType.DirectTargetAttack,   # StikkbombAbility

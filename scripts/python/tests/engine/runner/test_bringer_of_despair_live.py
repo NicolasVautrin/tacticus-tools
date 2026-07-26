@@ -323,10 +323,17 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
     assert set(live_by_tgt) == {t_id, b_id}, \
         f"live frappe {set(live_by_tgt)} != {{t{t_id}(main), t{b_id}(bonus adjacent-caster)}}"
 
-    # (2) COUPS DE BASE : offline (port) = config 4/4 (fidele a l'ExecuteBehaviour) ; live >= 4 (base + trait
-    #     extra-hit LetTheGalaxyBurn compose) sur les DEUX attaques.
-    assert len(off_main_ph) == 4 and len(off_bonus_ph) == 4, \
-        f"coups offline (port) main={len(off_main_ph)} bonus={len(off_bonus_ph)} != 4/4 config"
+    # (2) COUPS : assertion d'ACCORD offline == live, plus au moins la base config 4/4 des deux cotes.
+    #     ⚠ Cette assertion exigeait `== 4` cote offline, ce qui encodait « le port ne compose PAS le
+    #     coup additionnel `LetTheGalaxyBurn` ». Le port le compose DESORMAIS (canal #179 + verdict du
+    #     `Maybe` alignes) : le test etait ROUGE sur `origin/master` avec offline 5/5 == live 5/5, donc
+    #     un ACCORD PARFAIT rejete par une attente perimee. Mesure (seed 777, MC1_67) :
+    #         live main [2832,2578,2516,2852,2946] / bonus [2537,2981,2476,2358,2379]
+    #         off  main [2832,2578,2516,2852,2946] / bonus [2537,2981,2476,2358,2379]   (bit-exact)
+    #     Corrige en ACCORD : c'est le live qui est l'oracle, pas la constante de config.
+    assert len(off_main_ph) == len(lm) and len(off_bonus_ph) == len(lb), \
+        (f"coups offline main={len(off_main_ph)} bonus={len(off_bonus_ph)} != "
+         f"live main={len(lm)} bonus={len(lb)}")
     assert len(lm) >= 4 and len(lb) >= 4, \
         f"coups live main={len(lm)} bonus={len(lb)} < 4 (base config attendue sur chaque attaque)"
 
@@ -344,8 +351,9 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
         assert bmin <= v <= bmax, f"coup offline {v} hors plage config-scalee [{bmin},{bmax}]"
     assert lm and min(lm) >= bmin // 2, f"coups live main {lm} anormalement bas vs plage [{bmin},{bmax}]"
 
-    print("[BOD live] OK : ciblage main+bonus(adjacent-caster) LIVE, port 4/4 config, A/B tree==baseline, "
-          "magnitude config ; live 5/5 = 4 + extra-hit LetTheGalaxyBurn (transverse, non porte)")
+    print("[BOD live] OK : ciblage main+bonus(adjacent-caster) LIVE, coups offline == live, "
+          "A/B tree==baseline, magnitude config ; 5/5 = 4 config + extra-hit LetTheGalaxyBurn, "
+          "desormais COMPOSE par le port aussi")
 
 
 # ------------------------------------------------------------------ (3) DISCRIMINANT caster-anchor

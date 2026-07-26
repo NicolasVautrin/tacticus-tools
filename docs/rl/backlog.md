@@ -48,6 +48,10 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 | ~~#119~~ | ~~Face DÉCISION de `SupremeCommanderPlaybook` (1028) jamais confrontée à l'IA native~~ | **LIVRÉ** | `case-perform-ai-action` §6 (réécrit). Le gate (2) lisait `u["parentId"]`, clé qu'AUCUN RPC ne publie → `should_evaluate` constamment `False` = playbook enregistré-mais-mort ; **désaccord mesuré** (le natif caste, le port attaque). Corrigé par la reconstruction offline `_kit_spawn_visual_ids` ; ACCORD sur 5 états craftés (dont le discriminant « deux Creed, un seul Kell adverse ») + 2 couples board/seed. Étage (3) RE-corrigé : `chance = 1/2 + hp%(caster)/2` (stat 5 = Health), déterministe à PV pleins (20/20), mesuré 31/40 à 32 % de PV. Garde : `tests/engine/test_supreme_commander_decision_live.py`. |
 | #66-r2 | Les 2 derniers consommateurs de `DSLFactory.Revive` : **FuelledByFury** (`ultraTitus`) et **GhostRevive/TimeFlux** (`thousTerminator`) | `[opus]` | Retrofit #79 + fermeture #88/#89 LIVRÉS (`case-66-revive-in-place` §6-§7 : les 5 `ReviveEffect` + les 3 hypothèses fermées PAR LECTURE + la garde `KillUnitOperation`). Restent 2 chantiers PROPRES (arbres entièrement RE, cf. §8) : **FuelledByFury** — bloqué sur 3 points nommés, dont l'**émetteur de `On(PendingDeathAdded=3)` non localisé** (ancrage à hooker : `MatchState.AddDeath @181009f90`, xrefs DATA only) + le contexte `TriggeringAbilityIs(FinalJustice)` non threadé + la pose de l'effet 1324 ; **GhostRevive/TimeFlux** — exige un vecteur `On(PreUnitMove=31)`, un effet portant une TUILE (le ghost) et un revive **NON in-place** (`SetRevivePosition @180e936e0` paramétrée). Les DEUX carriers sont des heros DANS le pool ⇒ validables LIVE le jour du port. |
 
+| #BL-1029r | **`Drachnyen_ExtraAttackAbility` (triggered 1485)** — le 2ᵉ volet de dégât d'Abaddon, ~40 % du dégât observé au cast | `[opus]` | `case-bl-1029-1020` §5.1 : la face ACTIVE (1029) est portée et pose bien l'effet 1471 qui ARME cette triggered, mais la triggered elle-même n'existe pas offline → **10 coups live vs 5 offline** au cast (mesuré seed 777/MC1_67). RE **déjà faite, à recopier** (trigger + behaviour + validTargets cités in extenso dans le case doc) ; infra prête (`EFFECT_TRIGGERS[1471]`, patron `PsykerExtraAttackAbility`). **Seul nœud manquant : `SortUnitsByDamageUtility`** (précédent de collapse : `ExemplarOfHate`). Carrier `blackAbaddon` = HERO dans le pool ⇒ validable live. |
+| #BL-1020r | **Magnitude de l'effet 1027 `HeraldOfTheApocalypse_ExtraDamage`** — posé mais INERTE | `[opus]` | `case-bl-1029-1020` §5.2 : `…$$CreateEffectDamageBonusForAttack` = `ForAddition(OwnerIsTarget & IsUnit(Caster@0x160), ConfigVar(8 = extraDmg), AbilityOrEffect(0x3fc))` ; consommation = `…$$CreateHandleTriggerAbilitiesInternal` = `Triggered(On(9) & OwnerIsTarget & IsUnit(Caster), GetRemoveEffectBehaviour())` (+extraDmg au PROCHAIN coup reçu, puis l'effet part). Patron identique aux `*_ExtraDamageEffect` déjà portés (`effects/loki/extra_damage.py`) → travail de recopie, pas de RE. |
+| #BF-chance | **Chance de fuite `BattleFatigue` non sourçable offline** — bloque le dispatch de `TriggerAbility(0x401)` ET rend arbitraire le défaut de la voie trigger-sur-mort | `[opus]`+prérequis | `case-bl-1029-1020` §5.3 + `runner/operations/behaviour.py` : `BattleFatigueAbility$$GetFleeChance` = `ConditionalAmount(TargetIsOverkilled, Direct(GetNumberConstant(0x33)), Direct(GetNumberConstant(0x2a)))` sur une `AbilityConfiguration` **absente du gameconfig**. Deux défauts INCOHÉRENTS coexistent aujourd'hui : `behaviour.py` FUIT toujours (voie trigger), `TriggerAbility` ne dispatche pas (voie Herald). Prérequis = capter les 2 constantes (point d'ancrage : `AbilityConfiguration$$GetNumberConstant` sur la config 1025, ou un sweep live de fréquence de fuite) ; ensuite les DEUX voies partagent le même gate. |
+
 ## Résidus documentés (pas encore des tâches)
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
@@ -83,6 +87,18 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` vs
   `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (le port place le canal AVANT
   les after-hit), et le nombre de tirages par coup additionnel. `[opus]`.
+
+  **2ᵉ datapoint (2026-07-28) qui BORNE les DEUX résidus ci-dessus** (`case-bl-1029-1020` §5.4) :
+  `HeraldOfTheApocalypse` (1020, `blackHaarken`) est **bit-exact offline == live dans les DEUX
+  régimes du `Maybe`** — `MC1_67` où le trait ARME (3 coups/cible, `{77:[1738,1979,1846],
+  79:[1805,1632,1536]}`) comme `C3_01` où il n'arme pas (2 coups/cible). Ni l'écart de seuil du
+  `Maybe`, ni le désalignement du canal #179 ne se manifestent sur ce porteur.
+  ⚠ Cela ne FERME pas les deux entrées : leur mesure d'origine est sur `FrenziedFiring`, dont le
+  caster `blackObliterator` porte en permanence un effet du cycle `FleshmetalGuns` (donc un canal
+  #179 réellement alimenté) que `blackHaarken` n'a pas. Ce datapoint dit seulement que le vecteur
+  ability est aligné **quand le canal #179 n'est pas sollicité** — c'est-à-dire que le suspect
+  restant est bien le canal, pas le vecteur. Garde INCONDITIONNELLE en place
+  (`test_black_legion_1029_1020_live.py`), plus de gate conditionnel.
 
 - **Les vecteurs COMBAT autres que l'attaque normale TRONQUENT encore leurs bornes réduites**
   (`case-131-normal-attack-bounds-materialization` §5, remonté par le fix #131). Les cellules
