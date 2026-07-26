@@ -371,6 +371,10 @@ que le port calcule.
 | MUTATION-TEST (manuel) | `check_walkable=False` -> `[elevation_break]` ECHOUE (`offline [77,79,81,83] != live [77,79,81]`) |
 | `test_storm_speeder_live.py::test_hailstrike_effect_pose_live` | cibles legales = ALLIES ; porteur + type + SOURCE (la MoW) + DUREE (`TurnsFromRounds`) offline == live |
 | `test_storm_speeder_live.py::test_death_on_the_wind_line_live` | gate munitions traverse ; gate « deja attaquee ce tour » PORTANT (une seule tuile legale = celle de la victime) ; SET frappe / coups / profil / porteurs de 1257 offline == live |
+| `test_hailstrike_phase2_live.py::test_hailstrike_attack_trigger_live` (#123) | cible a ARMURE 0 : nb de coups / profil / cible / ORDRE / attribution `Passive_Ability_Type=1507` live ; offline == live PER-COUP + bilan PV ; **mutation-test** du registre `ACTIVE_ABILITY_TRIGGERS` (sans lui l'offline perd exactement les coups de la MoW) |
+| `test_hailstrike_phase2_live.py::test_hailstrike_pierce_envelope_live` (#123) | N tirs buffes : tous les degats live tiennent dans les bornes du port AVEC le bonus, et **au moins un SORT** des bornes SANS lui (garde de discrimination) ; oracle de magnitude = la CONFIG, resolue contre la SOURCE |
+| `test_hailstrike_phase2_live.py::test_hailstrike_pierce_gates_offline` (#123) | les 5 gates de `CreatePiercingBonusForAttack` (OwnerIsCaster, ranged, overwatch, tri-etat #106) + le scaling par la SOURCE (niveau 1 vs 50 -> magnitudes differentes) |
+| `test_hailstrike_phase2_live.py::test_hailstrike_trigger_registered_offline` (#123) | `GetDerivedTriggeredAbilities` : l'active `Hailstrike` accorde la triggered 1507, event ecoute = `On(9)` |
 
 Non-regression (tests CIBLES rejoues, tous verts) : `test_plasma_cannon_live`, `test_mow_groups_bcd_live`
 (ThriceBlessedConflagration = l'autre consommateur de `TilesBehindInLine`), `test_runner_attack_live`,
@@ -384,7 +388,8 @@ Non-regression (tests CIBLES rejoues, tous verts) : `test_plasma_cannon_live`, `
   `execute_ability_attack` ne passe pas `is_ranged` aux modificateurs d'attaquant -> les buffs ranged du
   caster (LionHelm, high-ground) manquent offline. On valide STRUCTURE + CIBLAGE + COUPS + PROFIL +
   EFFET, pas l'egalite de degat brute.
-- **Phase 2 de Hailstrike** (§5).
+- ~~**Phase 2 de Hailstrike** (§5)~~ -> **PORTEE par #123** : cf. §5bis (les 2 maillons) et §5ter (le
+  residu qui reste, borne et chiffre).
 - **Gates de ciblage PROPRES a ce lot** : le maillon GENERIQUE existe depuis #115
   (`engine/runner/abilities/targeting.py`) mais aucune des 3 abilities n'instancie son
   `get_dynamic_invalid_target_reason`. Concretement, offline :
