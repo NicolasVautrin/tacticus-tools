@@ -40,7 +40,8 @@ from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, Chr
                       MultiThreatEliminatorAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
                          ThriceBlessedConflagrationAbility)
-from .tau import HeavyRailRifleAbility, TwinSmartMissileSystemAbility
+from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, FightingRetreatAbility,
+                  EarlyWarningOverrideAbility, InspiredToGreatnessAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility)
 from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
@@ -132,6 +133,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     DeathOnTheWindAbility.ABILITY_TYPE: DeathOnTheWindAbility,          # 1213 (darkaStormSpeeder MoW : 6x HeavyRound sur les ennemis des nrOfTiles hexes de la ligne (best = direction qui aligne le plus d'ennemis, PAS de FilterContinuous) + effet 1257 sur les survivants, 1 tour ; gate de ciblage = cible deja attaquee ce tour)
     HailstrikeAbility.ABILITY_TYPE: HailstrikeAbility,                  # 1214 (darkaStormSpeeder MoW, effect-poser : AddEffect(1509 Hailstrike) sur un ALLIE, TurnsFromRounds(nrOfRounds) ; phase 2 = pierce bonus + ability triggered Hailstrike_Attack)
     ThriceBlessedConflagrationAbility.ABILITY_TYPE: ThriceBlessedConflagrationAbility,  # 1187 (adeptExorcist Sisterhood MoW, groupe D : Foreach(1x Flame famille ABILITY sur la ligne CONTIGUE d'ennemis partant de la cible dans la direction qui en aligne le plus) + If(HasFaction(cible, Sisterhood), AddEffect(1401), AddEffect(1436)) sur la cible ALLIEE)
+    # --- Lot #114 (TAU) : face COMBAT des abilities dont la face DECISION (playbook) etait deja portee.
+    FightingRetreatAbility.ABILITY_TYPE: FightingRetreatAbility,  # 1081 (tauDarkstrider Tau HERO : AddEffect(1157 DmgReduction)+AddEffect(1158 HitReduction) sur les ennemis adjacents non-Steppable/Object + Foreach(Markerlight 1122) + Foreach(allies adjacents + soi, If(HasTrait RangedSpecialist, ActivateEffect 1515)) + If(nbEnnemisAdjacents>0, ResetTurn(soi), FinishTurn(soi)) ; duree TurnsUntilEndOfCurrentPlayersNextTurn ; self-cast)
+    InspiredToGreatnessAbility.ABILITY_TYPE: InspiredToGreatnessAbility,  # 1082 (tauAunShi Aun'Shi Tau HERO : split UnitsThatCanHaveActiveAbilityReset(cible) / complementaire -> RepairOrHeal(hpToHeal) / RepairOrHeal(hpToHeal_2) + AddStatOverrideEffect(1180, ACTIVE_ABILITY_LEVEL = Min(niveau 1082 du caster, niveau de l'actif primaire de la cible)) + ResetActiveAbility ; unit-target allie)
+    EarlyWarningOverrideAbility.ABILITY_TYPE: EarlyWarningOverrideAbility,  # 1077 (tauCrisis Re'vas Tau HERO : AddEffect x4 sur soi (1009 Overwatch_AutoAttack, 1144 SuppressCloseCombatWeakness, 1145 ReactivateOverwatch, 1149 Visual, TurnsFromRounds(1)) + Spawn(nrOfSummons=2 tauSmnDroneShield sur tuiles libres adjacentes-caster, WithStatsFromConfig) + on-appearance PerformAIAttack ; self-cast)
 }
 
 

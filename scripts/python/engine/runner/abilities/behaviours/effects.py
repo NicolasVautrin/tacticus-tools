@@ -340,6 +340,66 @@ class RemoveEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class ActivateEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$ActivateEffect(effectSelector)` ->
+    `IdunBattle.Entities.Behaviours.ActivateEffectBehaviour$$Execute` -- MIRROR du DECOMPILE (3 branches
+    mutuellement exclusives, on porte celle du SEUL call-site vise) :
+
+        if (this+0x58 != 0)   foreach effect in (this+0x58).Select(entities) : proc.<slot 0x2c>(effect)
+        elif (this+0x68 != 0) proc.<slot 0x2c>(this+0x68)                       # entite-effet DIRECTE
+        else                  foreach unit in (this+0x50).Select(entities) :    # via les effets de l'unite
+                                  if unit.EffectComponent.Type@+0x58 == this+0x60 : proc.<slot 0x2c>(unit)
+
+    `FightingRetreatAbility$$ExecuteBehaviour` prend la 1re branche :
+    `ActivateEffect( EffectFromOwner(subject@0x180, 0x5eb = RangedSpecialist) )`.
+    Le slot 0x2c du processeur ECRIT `EffectComponent.IsActive @+0x5c = 1` (le champ que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$HasDeactivatedRangedSpecialist`
+    LIT : `GetOwnedEffect(unit, .., 0x5eb) != null && effect.IsActive == 0`).
+
+    PORT -- le modele `IsActive` du moteur est la PRESENCE de l'instance (case-160, PROUVE live) : le canal
+    de seed (`decisionView.units[].effects` via `readEffectsByUnit`) **DROPPE** les effets `IsActive == 0`
+    (`if (!info.active || info.removed) continue`). Un `RangedSpecialist` desactive (porteur parti adjacent
+    a un ennemi au turn-start, `RangedSpecialistEffect$$CreateHandleTriggerAbilitiesInternal` :
+    `If(HasAdjacentEnemies, DeactivateEffect, ActivateEffect)` sur `On(0x12)`) est donc ABSENT de l'etat
+    offline. `ActivateEffect` = rendre l'effet PRESENT :
+      * instance deja portee -> no-op (elle est deja « active » au sens du port) ;
+      * absente -> MATERIALISATION de l'owner-effect (`_materialize_owner_effect`, la MEME primitive qui
+        seede les owner-effects de trait d'un summon spawne : `StaticBattleRules.Trait$$
+        GetEffectToBeAddedToOwnerForTrait` -- nativement l'entite-effet EXISTE en permanence sur le
+        porteur, seul son flag bascule).
+    Le multiplier/niveau materialises sont ceux du PORTEUR (l'owner-effect natif est pose a la creation de
+    l'unite depuis SON etat d'ability -- meme convention que `_seed_trait_owner_effects`).
+
+    Emet 'ActivateEffect' par proprietaire (`created` = l'instance a-t-elle du etre materialisee).
+    PUR (stop=False)."""
+    __slots__ = ("owner_sel", "effect_type", "name")
+
+    def __init__(self, owner_sel: TargetsSelector, effect_type: int, name: str):
+        self.owner_sel, self.effect_type, self.name = owner_sel, int(effect_type), name
+
+    def execute(self, entities, ectx):
+        from ...components import StatsComponent
+        from ...operations.spawn import _materialize_owner_effect
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.owner_sel, entities):        # `EffectFromOwner` = les effets DE ce porteur
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            present = (state.effects is not None
+                       and state.effects.has_effect(int(uid), effect_type=self.effect_type))
+            created = False
+            if not present:
+                e = state.get_entity(int(uid))
+                sc = e.get_component(StatsComponent) if e is not None else None
+                mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc else 100
+                lvl = getattr(sc.ctx, "passive_ability_level", None) if sc is not None else None
+                created = _materialize_owner_effect(state, int(uid), self.name, mult, ability_level=lvl)
+            ectx.emit("ActivateEffect", owner=int(uid), effect_type=self.effect_type, created=created)
+        return OperationResult.ok()
+
+
 class ChangeEffectTurns(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$ChangeEffectTurns(owner, effectType, turnsNode, changeType)` ->
     `IdunBattle.Entities.Behaviours.ChangeEffectTurnsBehaviour$$Execute` — MIRROR du DECOMPILE :
@@ -524,6 +584,79 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
                                              active_ability_level=act_lvl, multiplier_pct=mult)
             ectx.emit("AddDynamicStatModifierEffect", source=src, target=tgt,
                       effect_type=self.effect_type, stat=self.stat_type, placed=eff is not None)
+        return OperationResult.ok()
+
+
+class AddStatOverrideEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect(unitSel, effectType, statType,
+    amountNode, ...)` -> `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$Execute` --
+    MIRROR du DECOMPILE :
+
+        targets = (this+0x58).Select(entities, kind 0)
+        alt     = (this+0x50) ? (this+0x50).Select(entities, kind 1) : null   # 2e selecteur optionnel
+        foreach unit in targets :
+            entities.subject = unit
+            builder.amount = (this+0x68 /* amountNode */).Calculate(entities)
+            proc.<slot 0x10>(alt ?? unit, unit, builder, this+0x60 /* statType */, this+0x70 /* opts */)
+
+    -> pose sur la cible un effet porteur d'un OVERRIDE de stat (montant fige a la pose), != un
+    `StatModifier` ADDITIF (`AddStatOverrideEffect` ecrase la valeur ; cf. `MultiValueStatEntryEffect`,
+    la base de `InspiredToGreatness_OverrideLevelEffect`).
+
+    Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    InspiredToGreatnessAbility$$ExecuteBehaviour` =
+    `AddStatOverrideEffect(canReset, 0x49c = 1180 InspiredToGreatness_OverrideLevel,
+                           0x12 = 18 ACTIVE_ABILITY_LEVEL,
+                           Min(AbilityLevelAmount(owner, 0x43a), PrimaryActiveAbilityLevelAmount(canReset)))`
+    -- i2 : « For this second use, the ability is at the lowest of its own level and that of Inspired
+    to Greatness ».
+
+    PORT du STAT 18 : cote moteur, le niveau qui INDEXE les variables d'ability n'est PAS lu via
+    `UnitStats.get_stat(18)` (aucun consommateur) mais via `UnitContext.active_ability_level`
+    (`ability_var`/`ability_attack_params`). L'override est donc ecrit LA -- c'est le mirror
+    OBSERVABLE de `GetStat(unit, ACTIVE_ABILITY_LEVEL)`. La valeur precedente est conservee sur
+    l'instance d'effet (`overridden_prev`) pour un revert exact.
+    ⚠ RESIDU FLAGGE : le retrait natif (`InspiredToGreatness_OverrideLevelEffect$$
+    CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster`, i.e. au PROCHAIN cast du porteur) n'est pas
+    branche offline -> l'override PERSISTE apres la 2e utilisation. Sans consequence pratique (le
+    porteur n'a droit qu'a UNE utilisation supplementaire), mais c'est un ecart a lever si un
+    3e usage devenait possible.
+
+    `stat_type` != ACTIVE_ABILITY_LEVEL : aucun call-site porte -> l'effet est pose (presence fidele)
+    SANS override applique (flagge dans le payload `applied`). Emet 'AddStatOverrideEffect'. PUR."""
+    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name")
+
+    def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
+                 name: str | None = None):
+        self.unit_sel, self.effect_type = unit_sel, int(effect_type)
+        self.stat_type, self.amount, self.name = int(stat_type), amount, name
+
+    def execute(self, entities, ectx):
+        from ....entities.stats import StatType
+        from ...components import StatsComponent
+        from ...operations.effects import AddEffectOperation
+        state = ectx.state
+        src = (entities.caster or {}).get("id")
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
+        for u in _units_of(self.unit_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            eff = AddEffectOperation.execute(state, source=src, target=uid,
+                                             effect_type=self.effect_type, name=self.name,
+                                             duration_override=None, value=amt)
+            applied = False
+            if eff is not None and self.stat_type == int(StatType.ACTIVE_ABILITY_LEVEL):
+                e = state.get_entity(int(uid))
+                sc = e.get_component(StatsComponent) if e is not None else None
+                if sc is not None and sc.ctx is not None:
+                    eff.overridden_prev = getattr(sc.ctx, "active_ability_level", None)
+                    sc.ctx.active_ability_level = amt      # OVERRIDE (mirror `GetStat(18)` cote port)
+                    applied = True
+            ectx.emit("AddStatOverrideEffect", unit=int(uid), effect_type=self.effect_type,
+                      stat=self.stat_type, amount=amt, placed=eff is not None, applied=applied)
         return OperationResult.ok()
 
 

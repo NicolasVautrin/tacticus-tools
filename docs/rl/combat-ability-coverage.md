@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **69**
-- **NO-OP silencieux** (a porter) : **102**
-- Ventilation NO-OP : **DAMAGE**=65, **EFFECT/BUFF**=23, **SUMMON**=8, **HEAL**=3, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **72**
+- **NO-OP silencieux** (a porter) : **99**
+- Ventilation NO-OP : **DAMAGE**=65, **EFFECT/BUFF**=22, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (102)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (99)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -95,7 +95,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 5 | LN |
-| 1081 | FightingRetreat | EFFECT/BUFF | 5 | LN |
 | 1063 | FireAndReposition | EFFECT/BUFF | 5 | LN |
 | 1050 | HolyDuel | EFFECT/BUFF | 5 | LN |
 | 1164 | MindControl | EFFECT/BUFF | 5 | LN |
@@ -114,14 +113,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
-| 1082 | InspiredToGreatness | HEAL | 4 | LN |
 | 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |
-| 1077 | EarlyWarningOverride | SUMMON | 5 | LN |
 | 1057 | GrotTank | SUMMON | 4 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
@@ -129,7 +126,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (69)
+## PORTED (registry) (72)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -178,6 +175,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
 | 1066 | Executioner | EFFECT/BUFF | 6 | LN |
+| 1081 | FightingRetreat | EFFECT/BUFF | 5 | LN |
 | 1067 | HarvesterOfSouls | EFFECT/BUFF | 5 | LN |
 | 1025 | SkyStrike | EFFECT/BUFF | 5 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 4 | LN |
@@ -185,6 +183,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1002 | CombatRestoratives | HEAL | 4 | LN |
+| 1082 | InspiredToGreatness | HEAL | 4 | LN |
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1016 | SendInTheNextWave | SUMMON | 7 | LN |
@@ -192,6 +191,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1009 | ResurrectionOrb | SUMMON | 6 | LN |
 | 1007 | ScarabHive | SUMMON | 6 | LN |
 | 1028 | SupremeCommander | SUMMON | 6 | LN |
+| 1077 | EarlyWarningOverride | SUMMON | 5 | LN |
 | 1021 | Incursion | SUMMON | 5 | LN |
 | 1058 | Waaagh | SUMMON | 5 | LN |
 | 1166 | AberrantHypermorph | SUMMON | 4 | LN |

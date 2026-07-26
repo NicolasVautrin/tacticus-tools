@@ -82,6 +82,8 @@ class Heal(AbilityBehaviour):
     le recompute en lisant le total de la derniere `AttackWithAttackDamage` dans `ectx.emitted`). `source`
     de soin = `ctx.caster`. No-op si montant <= 0. Emet 'Heal' (amount + heals=[{target, healed}]). PUR.
 
+    `amount_fn` accepte aussi un SCALAIRE deja resolu (fold d'un `Direct(GetVariableForLevel(...))`).
+
     `guard` (optionnel, defaut None) = predicat par-unite `(entities, ectx, unit_dict) -> bool` : quand
     fourni, une unite dont la garde est FAUSSE est EXCLUE du set (jamais soignee, absente de `heals`). Sert a
     porter la garde `Healable` du `HealableUnitsSelector` natif COTE MUTATION (case-220 1037
@@ -95,7 +97,12 @@ class Heal(AbilityBehaviour):
     def execute(self, entities, ectx):
         from ...operations.heal import HealUnitOperation
         state = ectx.state
-        amount = int(self.amount_fn(entities, ectx) or 0)
+        # `amount_fn` = FOLD du noeud montant natif : CALLABLE (montant derive, ex. le `SetCache
+        # (PercentageOf(LastAttackDamageMade))` du lifesteal SpiritLeech) ou SCALAIRE deja resolu
+        # (`Direct(GetVariableForLevel(...))` d'InspiredToGreatness) -- meme convention que
+        # `ChangeStat.amount` / `Repair.amount_fn`.
+        amount = int((self.amount_fn(entities, ectx) if callable(self.amount_fn)
+                      else self.amount_fn) or 0)
         heals: list = []
         if state is not None and amount > 0:
             src = (entities.caster or {}).get("id")
@@ -112,6 +119,64 @@ class Heal(AbilityBehaviour):
                 healed = HealUnitOperation.execute(state, tid, amount, source_id=src)
                 heals.append({"target": tid, "healed": healed})
         ectx.emit("Heal", amount=amount, heals=heals)
+        return OperationResult.ok()
+
+
+def repairable_heal_type_1(entities, ectx, u) -> bool:
+    """Garde de la feuille `Repair` -- symetrique EXACT de `healable_heal_type_0`, pour le heal type 1
+    (REPARATION) : l'unite est reparable ssi
+      (a) ENDOMMAGEE (HP < max) -- meme pre-filtre `HealableUnitsSelector` ;
+      (b) `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(unit, 1)`
+          = `HasTrait(AffectedByHealAndRepair=0x421)` OU **IsMechanical** (le complementaire du
+          type 0, qui exige NON-mechanical) -- i2 : « Cannot be healed, but can be repaired instead ».
+    IsMechanical = Mechanical(5) | LivingMetal(1000) | Vehicle(1029) (helper partage `is_mechanical`).
+    Sans resolveur de trait -> False (conservateur : c'est la branche `Heal` qui prend le relais dans le
+    `If(IsRepairable, Repair, Heal)` natif)."""
+    state = ectx.state
+    uid = u.get("id") if isinstance(u, dict) else None
+    e = state.get_entity(uid) if (state is not None and uid is not None) else None
+    hc = e.get_component(HealthComponent) if e is not None else None
+    if hc is None or hc.hp is None or hc.hp_max is None or int(hc.hp) >= int(hc.hp_max):
+        return False
+    ht = entities.has_trait
+    if ht is None:
+        return False
+    return bool(ht(u, int(UnitTrait.AffectedByHealAndRepair)) or is_mechanical(ht, u))
+
+
+class Repair(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$Repair(source, targets, amount, abilityOrEffect)` ->
+    `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` : pour chaque unite du selecteur (+0x50,
+    pre-filtree par le wrapper `HealableUnitsSelector`), evalue le montant (+0x58) et emet une Operation
+    de REPARATION (slot processeur 0x58) -- la mutation PV passe par le MEME mutateur fill-up que le
+    soin (`HealUnitOperation`, cf. `On(UnitRepaired=49)` deja cable cote Swarm). La SEULE difference
+    avec `Heal` est la GARDE d'eligibilite : type 1 (mecanique) au lieu du type 0.
+
+    Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    InspiredToGreatnessAbility$$RepairOrHeal` = `If(IsRepairable(sel), Repair(caster, sel, Direct(amt),
+    AbilityOrEffect(0x43a)), Heal(caster, sel, Direct(amt)))`. `abilityOrEffect` (attribution du soin)
+    n'a pas d'observable d'etat porte -> non modelise. Emet 'Repair'. PUR."""
+    __slots__ = ("targets_sel", "amount_fn", "guard")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None):
+        self.targets_sel, self.amount_fn, self.guard = targets_sel, amount_fn, guard
+
+    def execute(self, entities, ectx):
+        from ...operations.heal import HealUnitOperation
+        state = ectx.state
+        amount = int(self.amount_fn(entities, ectx) if callable(self.amount_fn) else self.amount_fn)
+        repairs: list = []
+        if state is not None and amount > 0:
+            src = (entities.caster or {}).get("id")
+            for u in _units_of(self.targets_sel, entities):
+                tid = u.get("id") if isinstance(u, dict) else None
+                if tid is None:
+                    continue
+                if self.guard is not None and not self.guard(entities, ectx, u):
+                    continue
+                repairs.append({"target": tid,
+                                "repaired": HealUnitOperation.execute(state, tid, amount, source_id=src)})
+        ectx.emit("Repair", amount=amount, repairs=repairs)
         return OperationResult.ok()
 
 

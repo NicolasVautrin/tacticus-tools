@@ -155,6 +155,22 @@ def convert_rounds_to_turns(state: "State", rounds: int) -> int:
     return int(rounds) * (int(n) if n else 1)
 
 
+def turns_until_end_of_current_players_next_turn(state: "State") -> int:
+    """`IdunBattleLogic.Entities.DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn` (mirror STRUCTUREL) =
+    `Sum( TurnsFromRounds(1), Direct(1) )` -- le decompile alloue un `TurnsFromRoundsFormula(ctx, query, 1)`
+    ET un noeud constant `1`, puis les combine. SEUL le terme `TurnsFromRounds` passe par
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (#98) ; le `Direct(1)` est deja en TOURS.
+
+    => duree = `convert_rounds_to_turns(state, 1) + 1` = « jusqu'a la FIN du prochain tour du joueur
+    courant » (un tour de plus que `TurnsFromRounds(1)`, qui expire a son DEBUT).
+
+    GROUND TRUTH LIVE (anvil_shield, Stunned pose par `AnvilShieldAbility_ApplyStun`) : `remaining 3` avec
+    `ConvertRoundsToTurns(1) = 2`. Consommateurs : le `Stunned` d'AnvilShield (branche `IsTurnOf`) et les
+    TROIS effets de `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$ExecuteBehaviour`
+    (1157/1158 sur les ennemis adjacents + 1122 Markerlight)."""
+    return convert_rounds_to_turns(state, 1) + 1
+
+
 # ---------------------------------------------------------------------------
 # « Does not end turn » (#139) — mirror des virtuals `SetsEndTurnFlags` / `SetsActiveAbilityUsedFlag`.
 #

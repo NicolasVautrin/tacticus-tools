@@ -576,6 +576,34 @@ class Alive(TargetsSelector):
         return [u for u in self.source.evaluate(ctx) if _is_alive(u)]
 
 
+class UnitsThatCanHaveActiveAbilityReset(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsThatCanHaveActiveAbilityReset(source, flag)` ->
+    `IdunBattle.Entities.Selectors.UnitsThatCanHaveActiveAbilityResetSelector$$Select` : garde les
+    unites de `source` pour lesquelles `IdunBattle.Core.Services.BattleQuery$$
+    EntityCanHaveActiveAbilityReset(unit, flag)` est vrai -- c'est-a-dire celles dont une ability
+    active a DEJA ete utilisee (charge consommee, ou en cooldown).
+
+    UNIQUE consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    InspiredToGreatnessAbility$$ExecuteBehaviour`, qui SPLITTE sa cible en
+    `canReset = UnitsThatCanHaveActiveAbilityReset(target)` et `cantReset = target - canReset` pour
+    router les DEUX montants de soin (var `hpToHeal` vs `hpToHeal_2`).
+
+    Le verdict vient de `ctx.can_have_active_ability_reset` (branche `entities_from_state` ->
+    `operations/ability_reset.py`). **Verdict INCONNU (None, canal `ActiveAbilitiesComponent` absent)
+    -> l'unite est ECARTEE des DEUX cotes** : elle sort de `canReset` (ici) et le `Sub` la laisse dans
+    `cantReset` ; c'est le comportement du natif quand aucune ability n'est resettable, mais ce n'est
+    PAS un verdict -- l'ignorance est journalisee par l'ability (`unknown_reset_verdict`), jamais
+    silencieuse. Accesseur absent -> meme chemin."""
+    def __init__(self, source: TargetsSelector, ignore_turn_flag: bool = False):
+        self.source, self.ignore_turn_flag = source, bool(ignore_turn_flag)
+
+    def select(self, ctx):
+        f = getattr(ctx, "can_have_active_ability_reset", None)
+        if f is None:
+            return []
+        return [u for u in _units_of(self.source, ctx) if f(u) is True]
+
+
 class Unobscured(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Unobscured(from, source)` -> `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` :
     garde les unites de `source` dont la tuile n'est PAS obscurcie (terrain) depuis la tuile du referent

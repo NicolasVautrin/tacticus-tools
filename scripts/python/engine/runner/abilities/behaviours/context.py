@@ -312,10 +312,23 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         fl = e.get_component(UnitFlagsComponent) if e is not None else None
         return bool(fl.has(int(flag))) if fl is not None else False
 
+    # `ctx.can_have_active_ability_reset` (`IdunBattle.Core.Services.BattleQuery$$
+    # EntityCanHaveActiveAbilityReset(unit, false)`) : l'unite a-t-elle une ability active RESETTABLE
+    # (charge consommee hors cooldown, ou en cooldown sous conditions de tour) ? C'est le predicat du
+    # selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness). None = INCONNU (canal
+    # `ActiveAbilitiesComponent` absent) -> propage, jamais rabattu sur False.
+    def _can_have_active_ability_reset(unit):
+        from ...operations.ability_reset import entity_can_have_active_ability_reset
+        uid = (unit or {}).get("id")
+        if uid is None:
+            return None
+        return entity_can_have_active_ability_reset(state, int(uid), False)
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,
+                      can_have_active_ability_reset=_can_have_active_ability_reset,
                       current_player_machine_position=mow_pos)

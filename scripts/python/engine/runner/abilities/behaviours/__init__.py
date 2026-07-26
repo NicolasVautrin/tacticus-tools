@@ -36,6 +36,8 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
 - `lifecycle` : `KillDeadUnits`, `RemoveUnit` (+ futur REVIVE / `TriggerAbility`).
+- `turnflow`  : `ResetTurn` (`ResetUnitTurnBehaviour`), `FinishTurn` (`FinishUnitTurnBehaviour`).
+- `ability_state` : `ResetActiveAbility` (`ResetActiveAbilityBehaviour` -> `ResetActiveAbilityOperation`).
 - `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute -> `ComputerActionOperation`).
 """
 from __future__ import annotations
@@ -46,12 +48,15 @@ from .ai_control import PerformAIAction
 from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
                      UseActiveAbility, InformWeapon, ChainLeftOverHitsAttackDamage)
 from .effects import (AddBondEffect, AddEffect, IncreaseEffectLevel, add_effect_or_increase_level,
-                      RemoveEffect, SetOnFire, CreateShield, ChangeEffectTurns,
+                      RemoveEffect, ActivateEffect, SetOnFire, CreateShield, ChangeEffectTurns,
                       AddStaticStatModifierEffect, AddDynamicStatModifierEffect,
+                      AddStatOverrideEffect,
                       add_or_update_static_stat_modifier_effect,
                       _add_effect_targets, _add_effect_target_id)
-from .stats import (Heal, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
-                    healable_heal_type_0, RefreshDynamicStatModifierValue)
+from .turnflow import ResetTurn, FinishTurn
+from .ability_state import ResetActiveAbility
+from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
+                    healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue)
 from .movement import PushUnit, MoveUnit
 from .lifecycle import KillDeadUnits, RemoveUnit
 
@@ -61,10 +66,12 @@ __all__ = [
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
     "InformWeapon", "ChainLeftOverHitsAttackDamage",
     "AddBondEffect", "AddEffect", "IncreaseEffectLevel", "add_effect_or_increase_level",
-    "RemoveEffect", "SetOnFire", "CreateShield", "ChangeEffectTurns",
-    "AddStaticStatModifierEffect", "AddDynamicStatModifierEffect",
+    "RemoveEffect", "ActivateEffect", "SetOnFire", "CreateShield", "ChangeEffectTurns",
+    "ResetTurn", "FinishTurn", "ResetActiveAbility",
+    "AddStaticStatModifierEffect", "AddDynamicStatModifierEffect", "AddStatOverrideEffect",
     "add_or_update_static_stat_modifier_effect",
-    "Heal", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical", "healable_heal_type_0",
+    "Heal", "Repair", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical",
+    "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit",
     "KillDeadUnits", "RemoveUnit",

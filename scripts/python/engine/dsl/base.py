@@ -193,6 +193,12 @@ class DslContext:
     # CHAQUE unite du state). Defaut None -> False (degradation fidele : aucun ressuscite). Fourni par
     # `entities_from_state` (lit le `UnitFlagsComponent` de l'ECS runner).
     has_unit_flag: object | None = None
+    # Verdict `IdunBattle.Core.Services.BattleQuery$$EntityCanHaveActiveAbilityReset(unit, false)` --
+    # consomme par le selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness).
+    # `can_have_active_ability_reset(unit) -> bool | None` ; None = verdict INCONNU (canal
+    # `ActiveAbilitiesComponent` absent) -> le selecteur le propage au lieu d'inventer un False.
+    # Defaut None (accesseur non branche) = meme ignorance. Fourni par `entities_from_state`.
+    can_have_active_ability_reset: object | None = None
 
 
 class Const(AAmountFormula):

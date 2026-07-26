@@ -114,7 +114,17 @@ class PerformAIAttack(AbilityBehaviour):
         pose dessus via `entities.children` ;
       * DOMAINE UNITE (`IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` :
         `PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)` = le summon fraichement pose, lie par le
-        sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL."""
+        sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL.
+
+    GATE DE PORTEE (#114) : le natif est une routine IA « depuis la position COURANTE » -- l'acteur
+    n'attaque QUE s'il a une cible ATTEIGNABLE sans bouger (`PerformAIAbilityUnitBehaviour.Execute`
+    delegue le choix d'attaque a ses Func AI, qui n'en produisent aucune si rien n'est a portee ; i2
+    EarlyWarningOverride : « can immediately attack an enemy in melee »). Le port applique donc
+    `_in_attack_range` (mirror `DSLFactory.IsInAttackRange(attacker, target, 3)`, la MEME primitive que
+    l'overwatch) sur la cible choisie : hors de portee -> AUCUNE attaque (et aucun tirage rng). Sans ce
+    gate, un drone spawne a 9 hex de l'ennemi le plus proche frappait quand meme. Les call-sites
+    anterieurs spawnent AU CONTACT (ForwardSpotter/SendInTheNextWave/Incursion : tuiles adjacentes a la
+    CIBLE ; GetEmRuntz : tuiles adjacentes aux ennemis) -> gate inerte pour eux (0 regression)."""
     __slots__ = ("tile_selector",)
 
     def __init__(self, tile_selector: TargetsSelector):
@@ -123,6 +133,7 @@ class PerformAIAttack(AbilityBehaviour):
     def execute(self, entities, ectx):
         from ..loki import _nearest_enemy
         from ...operations.damage import AttackDamageOperation
+        from ...operations.triggers.base import _in_attack_range
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -147,6 +158,8 @@ class PerformAIAttack(AbilityBehaviour):
             tgt = _nearest_enemy(state, cid)
             if tgt is None:
                 continue
+            if not _in_attack_range(state, cid, tgt):     # routine AI « depuis la position courante »
+                continue                                 # rien a portee -> aucune attaque, aucun rng
             r = AttackDamageOperation.execute(state, cid, tgt)
             if r is None:
                 continue
