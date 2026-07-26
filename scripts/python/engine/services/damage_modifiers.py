@@ -185,11 +185,22 @@ def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bo
     feu, qui matérialise DÉJÀ par `int(round(...))` dans `execute_direct` (1908 x 25% = 476.99999999 ->
     live 477).
 
-    ⚠ PÉRIMÈTRE VOLONTAIREMENT ÉTROIT : le flag n'est activé QUE par la famille ABILITY amount-mode
-    (feuille `AttackWithAbilityDamage` en `native_operation="ability"`). Le généraliser aux autres
-    vecteurs COMBAT (bornes d'attaque NORMALE `damage_ops:177/179`, ability bounds-mode `:353`,
-    normal-like `:472`, additional-hits) est un CHANTIER SÉPARÉ : ces chemins sont live-validés
-    bit-exact AVEC la troncature et exigeraient leur propre campagne de mesure. Résidu documenté."""
+    **#131 — les BORNES de l'ATTAQUE NORMALE l'activent AUSSI** (`damage_ops.execute::_reduced_bounds`) :
+    leurs cellules min/max ne sont pas un calcul propre au combat mais la sortie de
+    `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` (slot 4
+    `IdunBattle.Core.Services.DamagePrediction$$PredictAttack`, cache), résolue par le slot 8
+    `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` — MÊME fonction native
+    que la PRÉDICTION, donc MÊME matérialisation. Mesuré live per-COUP (probe_131) sur 2 régimes
+    indépendants : Plasma p=80 (cellules [1800,2700] tronquées vs [1800,2701] arrondies -> live 6/6
+    arrondi) et Power p=40 3 coups sans buff ([899,1350] vs [900,1350] -> live 17/18 arrondi, le 18ᵉ
+    étant le coup létal écrêté aux PV restants). L'ancien verdict « live-validé bit-exact AVEC la
+    troncature » venait de régimes NON discriminants (ex. p=65 sur base 2813 : floor == round).
+
+    ⚠ RESTENT tronquants (résidu nommé, chiffré, hors #131) : ability bounds-mode famille ATTACK
+    (`damage_ops:execute_ability_attack::_reduce` quand `is_attack_damage_op=True`), `execute_normal_like`,
+    `additional_hits`. Ils passent par le MÊME `PredictAttackRaw` natif (avec `predefined`) et sont donc
+    suspects du même ±1 — mais aucun n'a été confronté live sur un régime discriminant : campagne de
+    mesure propre à faire avant de basculer."""
     v_raw = apply_capped_modifiers(value, mods).raw
     if mods.additive:
         v_raw = v_raw + _fx.from_number(mods.additive)
