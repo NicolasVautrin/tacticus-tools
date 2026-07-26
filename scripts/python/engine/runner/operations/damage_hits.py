@@ -99,6 +99,11 @@ class _DamageHitsMixin:
         crits: list[bool] = []
         rolls: list[int] = []
         per_hit: list[int] = []
+        # Part PV SEULE par coup (`Damage.health`) — expose EN PLUS de `per_hit` (qui somme PV+bouclier+
+        # armure-pool). Consommateur : `ChainLeftOverHitsAttackDamage` (MultiThreatEliminator #116), qui
+        # doit savoir A QUEL COUP la cible tombe a 0 PV pour compter les coups GASPILLES sur le cadavre
+        # (`ApplyDamageOperation.AddLeftoverHit`). PUREMENT ADDITIF (aucune branche modifiee).
+        per_hit_health: list[int] = []
         failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) où
         # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
@@ -126,6 +131,7 @@ class _DamageHitsMixin:
             shield = max(0, shield - dmg.shield)
             armor_pool = max(0, armor_pool - dmg.armor)
             per_hit.append(dmg.get_total())
+            per_hit_health.append(dmg.health)     # part PV SEULE du coup (hors bouclier/armure-pool)
             total += dmg.health
             shield_dmg += dmg.shield
             armor_dmg += dmg.armor
@@ -281,4 +287,5 @@ class _DamageHitsMixin:
         return {"total": total, "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
+                "per_hit_health": per_hit_health,
                 "bonus_hits": base_bonus}

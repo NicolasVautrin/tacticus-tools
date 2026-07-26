@@ -64,7 +64,19 @@ class Foreach(AbilityBehaviour):
     NORMALISATION du selecteur (mirror du contrat natif `TargetsSelector` = IEnumerable) : un selecteur
     MONO-ENTITE (`Caster()`/`Target()`/`Subject()`, qui rend un DICT d'unite) compte pour UN element --
     sinon Python itererait les CLES du dict. Cas reel : `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` construit
-    `Foreach(self@0x148, ...)` sur un selecteur mono-entite."""
+    `Foreach(self@0x148, ...)` sur un selecteur mono-entite.
+
+    LIAISON DE L'ELEMENT COURANT — le natif ecrit dans DEUX endroits selon la forme du corps
+    (`IdunBattle.Entities.Behaviours.ForeachBehaviour$$Execute`, lu au decompile) :
+      * corps = `Func<entity, behaviour>` (champ +0x68) -> il enveloppe l'element dans
+        `IdunBattleLogic.Entities.DSLFactory$$Entity(elem)` et le passe au lambda (== `Subject()` cote port) ;
+      * corps = behaviour STATIQUE (champ +0x60) -> il ecrit `entities[slot 4] = elem` AVANT d'executer,
+        c.-a-d. le slot que le selecteur cache `factory+0x180` (**ActiveTarget**, `It`) relit.
+    Le port lie donc les DEUX (`subject` ET `active_target`) : les corps existants qui lisent `Subject()`
+    sont inchanges, et un corps qui lit `ActiveTarget()`/`It@0x180` (ex.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility$$ExecuteBehaviour`) resout enfin.
+    Purement ADDITIF : hors `Foreach`, `active_target` n'etait pose que par le sous-behaviour on-appearance
+    d'un `Spawn` et par `ChainBehaviour` — aucun de ces deux corps n'est un `Foreach`."""
     __slots__ = ("selector", "body")
 
     def __init__(self, selector: TargetsSelector, body):
@@ -75,7 +87,9 @@ class Foreach(AbilityBehaviour):
         raw = self.selector.evaluate(entities)
         items = [] if raw is None else ([raw] if isinstance(raw, dict) else list(raw))
         for item in items:
-            sub = replace(entities, subject=item)    # rebuild entities (subject swap), mirror Entity()
+            # `subject` = branche lambda (`Entity(elem)`) ; `active_target` = branche behaviour statique
+            # (`entities[slot 4] = elem`, relu par `ActiveTarget@0x180`). cf. docstring.
+            sub = replace(entities, subject=item, active_target=item)
             node = self.body(sub) if callable(self.body) else self.body
             res = res.combine(node.execute(sub, ectx))
         return res
