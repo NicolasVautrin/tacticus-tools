@@ -13,14 +13,24 @@ moteur des deux faces :
                   TROISIEME chemin de port, ni trigger ni ability derivee). L'oublier faisait compter
                   MartialKatah manquant sur ses 4 porteurs Custodes alors que ses DEUX effets sont
                   portes (MartialKatahDmgBonusEffect / MartialKatahDmgReductionEffect).
-  FACE DECISION (scoring) : DEUX registres, pas un —
+  FACE DECISION (scoring) : TROIS registres, pas un —
     - `engine.playbook.noncomparable.PLAYBOOKS` (id) : les abilities NON-COMPARABLES, qui ont
       leur propre voie de scoring ;
     - `engine.playbook.base.REGISTRY` (id) : les abilities COMPARABLES dotees d'un override
       `CalculateCustomUtility` (#27) — leur voie generique est commune, seul le terme custom est
       par-ability. Lire le 1er SEUL faisait ressortir `[--]` (= rien de porte) sur des abilities
       dont la face DECISION est portee, ex. DoomSiren(1199) alors que `DoomSirenPlaybook` existe.
+    - `entities.abilities.active_ability._SPECIAL_ABILITY_CLASSES` (NOM) : les sous-classes
+      `AActiveAbility` mirrorees PAR ability (formule de coups propre, AoE, degat conditionnel).
+      Consommees uniquement sous `engine/playbook/prediction/` -> face DECISION. Rater ce 3e
+      registre affichait 14 `[-D]` pour 20 reels, et des `[--]` faux (ex. 1191 MartialInspiration).
     Le reste de la voie comparable est generique et n'est pas audite ici.
+
+    ⚠ `_NONCOMPARABLE_ABILITIES` n'est PAS un 4e registre de couverture : y figurer dit seulement
+    que le port CLASSE l'ability NonComparable (donc s'interdit de fabriquer un degat depuis
+    minDmg/maxDmg) ; son UTILITE de decision vit dans `PLAYBOOKS`. L'audit le signale a part
+    (« NC classee, utilite NC non portee ») au lieu de le compter comme `D` -- sinon on commet
+    l'erreur SYMETRIQUE du sous-comptage, en declarant porte ce qui ne l'est pas.
 
 APPROXIMATIONS assumees (l'audit RANGE les kits par volume de travail, il ne PROUVE pas une
 couverture) : un passif peut etre implemente ailleurs (mod attaquant, effet, legalite) sans
@@ -48,6 +58,9 @@ import unit_map as UM
 from audit_combat_ability_coverage import _classify
 from engine.entities.effects.factory import (
     ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES, TRAIT_DERIVED_ABILITIES, TRAIT_OWNER_EFFECTS,
+)
+from engine.entities.abilities.active_ability import (   # 3e registre de decision, keye par NOM
+    _NONCOMPARABLE_ABILITIES, _SPECIAL_ABILITY_CLASSES,
 )
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
 from engine.playbook.noncomparable import PLAYBOOKS
@@ -95,7 +108,20 @@ def collect():
             actives.append({
                 "name": nm, "id": aid, "cat": _classify(nm),
                 "combat": aid in ABILITY_CLASSES,
-                "decision": aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS,
+                # 3e registre, keye par NOM et non par id : `_SPECIAL_ABILITY_CLASSES` mirror une
+                # sous-classe `AActiveAbility` PAR ability (formule de coups propre, AoE, degat
+                # conditionnel), consommee uniquement sous `engine/playbook/prediction/` — c'est
+                # donc bien de la face DECISION, et l'ignorer produisait des `[--]` faux (mesure :
+                # 14 `[-D]` affiches pour 20 reels).
+                "decision": (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS
+                             or nm in _SPECIAL_ABILITY_CLASSES),
+                # `_NONCOMPARABLE_ABILITIES` NE COMPTE PAS comme decision portee, et c'est
+                # deliberé : y figurer signifie seulement que le port CLASSE l'ability
+                # NonComparable — ce qui l'empeche de fabriquer un degat depuis minDmg/maxDmg. Son
+                # UTILITE, elle, vit dans `playbook.noncomparable.PLAYBOOKS`. Compter les deux
+                # ensemble ferait l'erreur SYMETRIQUE du sous-comptage : `HammerOfWrath` passerait
+                # pour porte alors que son propre commentaire dit l'utilite NC « reste a porter ».
+                "nc_unported": nm in _NONCOMPARABLE_ABILITIES and aid not in PLAYBOOKS,
             })
         passives = []
         for nm in (u.get("passiveAbilities") or []):
@@ -127,6 +153,8 @@ def collect():
 def _fmt_active(a: dict) -> str:
     face = ("C" if a["combat"] else "-") + ("D" if a["decision"] else "-")
     tag = "OK" if a["combat"] else "NO-OP %s" % a["cat"]
+    if a["nc_unported"]:
+        tag += " ; NC classee, utilite NC non portee"
     return "%s(%s) [%s] %s" % (a["name"], a["id"] if a["id"] is not None else "?", face, tag)
 
 
@@ -144,7 +172,10 @@ def main():
     lines.append("> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur\n"
                  "> des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`\n"
                  "> (par-ability). Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre\n"
-                 "> les DEUX registres de scoring (non-comparables + overrides custom des comparables).\n"
+                 "> les TROIS registres de scoring (non-comparables + overrides custom des comparables\n"
+                 "> + sous-classes `AActiveAbility` par ability). La mention « NC classee, utilite NC non\n"
+                 "> portee » marque une ability reconnue NonComparable dont l'utilite reste a porter :\n"
+                 "> c'est un travail restant, pas une face couverte.\n"
                  "> A regenerer\n"
                  "> apres tout port. Les MISSING passifs/traits sont des CANDIDATS (approximation\n"
                  "> registres, cf. docstring du script) : trancher au recon du kit.\n\n")

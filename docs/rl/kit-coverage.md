@@ -3,7 +3,10 @@
 > Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur
 > des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`
 > (par-ability). Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre
-> les DEUX registres de scoring (non-comparables + overrides custom des comparables).
+> les TROIS registres de scoring (non-comparables + overrides custom des comparables
+> + sous-classes `AActiveAbility` par ability). La mention « NC classee, utilite NC non
+> portee » marque une ability reconnue NonComparable dont l'utilite reste a porter :
+> c'est un travail restant, pas une face couverte.
 > A regenerer
 > apres tout port. Les MISSING passifs/traits sont des CANDIDATS (approximation
 > registres, cf. docstring du script) : trancher au recon du kit.
@@ -63,7 +66,7 @@
 | necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
 | necroWarden | 2 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | RelentlessMarch | - |
 | necroChronomancer | 1 | Chronometron(1226) [C-] OK | TimesplinterMantle | - |
-| necroDestroyer | 1 | MultiThreatEliminator(1006) [C-] OK | InescapableDeath | - |
+| necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
 | necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
 | necroSpyder | 1 | ScarabHive(1007) [CD] OK | FabricatorClawArray | - |
 
@@ -93,7 +96,7 @@
 |---|---|---|---|---|
 | blackAbaddon | 2 | Drachnyen(1029) [-D] NO-OP DAMAGE(Piercing) | FirstAmongTraitors | - |
 | blackHaarken | 2 | HeraldOfTheApocalypse(1020) [-D] NO-OP DAMAGE(Piercing) | HeadClaimer | - |
-| blackObliterator | 1 | FrenziedFiring(1036) [--] NO-OP DAMAGE(HeavyRound) | - | - |
+| blackObliterator | 1 | FrenziedFiring(1036) [-D] NO-OP DAMAGE(HeavyRound) | - | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
 | blackTerminator | 1 | BringerOfDespair(1022) [C-] OK | HatefulAssault | - |
 
@@ -116,13 +119,13 @@
 | darkaAzrael | 1 | DarkTalonStrike(1092) [CD] OK | LionHelm | - |
 | darkaCompanion | 1 | CalibaniteGreatsword(1189) [C-] OK | EnmityForTheUnworthy | - |
 | darkaHellblaster | 1 | Supercharge(1103) [C-] OK | GrimRetribution | - |
-| darkaTerminator | 1 | PlasmaCannon(1150) [C-] OK | Deathwing | - |
+| darkaTerminator | 1 | PlasmaCannon(1150) [CD] OK | Deathwing | - |
 
 ### WorldEaters — 5 kits, 7 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| worldExecutions | 2 | MurderousSwing(1137) [--] NO-OP DAMAGE(Piercing) | TrophyTaker | - |
+| worldExecutions | 2 | MurderousSwing(1137) [-D] NO-OP DAMAGE(Piercing) | TrophyTaker | - |
 | worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
 | worldEightbound | 1 | OverwhelmingWrath(1141) [--] NO-OP DAMAGE(Eviscerate) | - | - |
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
@@ -135,7 +138,7 @@
 | eldarJainZar | 2 | SilentDeath(1068) [--] NO-OP DAMAGE(Piercing) | TerrorsLament | - |
 | eldarRanger | 2 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | WireweaveNet | - |
 | eldarAutarch | 1 | Loki_SwoopingHawk(1064) [--] NO-OP DAMAGE(Piercing) | - | - |
-| eldarMauganRa | 1 | HarvesterOfSouls(1067) [C-] OK | InescapableAccuracy | - |
+| eldarMauganRa | 1 | HarvesterOfSouls(1067) [CD] OK | InescapableAccuracy | - |
 
 ### Sisterhood — 5 kits, 6 items
 
@@ -173,7 +176,7 @@
 |---|---|---|---|---|
 | admecManipulus | 2 | DefendTheDivineWork(1117) [-D] NO-OP REPAIR | GalvanicField | - |
 | admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
-| admecDominus | 1 | RadBombardment(1116) [--] NO-OP DAMAGE(Toxic) | - | - |
+| admecDominus | 1 | RadBombardment(1116) [--] NO-OP DAMAGE(Toxic) ; NC classee, utilite NC non portee | - | - |
 | admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
 ### Genestealers — 3 kits, 5 items
@@ -189,7 +192,7 @@
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | orksBigMek | 2 | GrotTank(1057) [--] NO-OP SUMMON | KustomForceFieldReworked | - |
-| orksKillaKan | 1 | DakkaDakkaDakka(1171) [--] NO-OP DAMAGE(Projectile) | - | - |
+| orksKillaKan | 1 | DakkaDakkaDakka(1171) [-D] NO-OP DAMAGE(Projectile) | - | - |
 | orksNob | 1 | UnstoppableMomentumReworked(1152) [--] NO-OP DAMAGE(DirectDamage) | - | - |
 | orksWarboss | 1 | Waaagh(1058) [C-] OK | LightImUp | - |
 
