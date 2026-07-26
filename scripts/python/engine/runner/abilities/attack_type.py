@@ -187,6 +187,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1214: AbilityAttackType.Others,   # HailstrikeAbility
     1219: AbilityAttackType.Others,   # IronkinSteeljackAbility
     1226: AbilityAttackType.Others,   # ChronometronAbility
+    # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
+    # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
+    1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility
+    1081: AbilityAttackType.Others,   # FightingRetreatAbility
+    1082: AbilityAttackType.Others,   # InspiredToGreatnessAbility
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de
