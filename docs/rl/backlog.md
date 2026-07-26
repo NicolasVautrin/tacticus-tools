@@ -67,12 +67,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `Bucket<T>.Merge` / `ChooseAction` (arbre `SortedList<Key, sous-Bucket>` + admission
   `FUN_18004cc80(bucket, action)` appelée dans `EvaluateInternal`). `[fable]`.
 
-- **DIRECTION du beam `DarkTalonStrike` côté DÉCISION**
-  (`case-124-elevation-gate-decision` §7, résidu ANTÉRIEUR à #124). `_beam_count` modélise `best`
-  par le prolongement du rayon `caster -> aim` ; le natif le CHOISIT parmi les 6
-  `AdjacentTiles(target@0x178)` via `SortByFormula(AngleBetweenLines, ASC)` puis
+- ~~**DIRECTION du beam `DarkTalonStrike` côté DÉCISION**~~ — **LIVRÉ (#126, merge `bf89224`)**.
+  `_beam_count` modélisait `best` par le prolongement du rayon `caster -> aim` ; le natif le CHOISIT
+  parmi les 6 `AdjacentTiles(target@0x178)` via `SortByFormula(AngleBetweenLines, ASC)` puis
   `SortByFormula(Count(Units(GetTilesInLine)), DESC)` + `First(1)` (tris STABLES → clé primaire =
-  #ennemis alignés). Le port est donc une **borne INFÉRIEURE** de l'utilité native. `[opus]`.
+  #ennemis alignés). Le port avait promu le **tie-break en règle** : l'angle 0 *est* le prolongement,
+  donc les deux coïncidaient tant qu'aucune direction d'angle non nul n'alignait plus d'ennemis.
+  Détail : `case-126-beam-direction`.
 
 - **Stat-mods EAGER (`applied_stat_mods`) présents AU SEED : appliqués mais non revertables**
   (`case-118-seeded-statmod-revert` §5). Le volet DÉCLARATIF (`get_stat_modification_stat/amount`)
