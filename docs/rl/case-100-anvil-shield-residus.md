@@ -144,9 +144,20 @@ la **clé de source du seed** (`statmod_source_key`, factorisée) et `ValueModif
 `is_active() == False` change quelque chose. Blast radius = 0 pour tout effet sans ActiveCondition.
 
 ### Granularité / résidus honnêtes
-- `On(0x2b)`/`On(0xe)` sont émis sur la voie d'attaque **NORMALE** uniquement (c'est ce qu'exige le
-  gate `IsNormalAttack` de FrozenAttackerAdvantage). Les attaques d'ABILITY passent aussi par
-  `ActiveAbilityOperation` côté natif : aucun consommateur porté ne le demande aujourd'hui.
+- ~~`On(0x2b)`/`On(0xe)` sont émis sur la voie d'attaque **NORMALE** uniquement~~ — **CORRIGÉ (#120)**.
+  C'était un **fork de port** : le natif n'a qu'UN site d'émission
+  (`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`) commun à l'attaque normale et aux
+  casts ; le port en avait deux dont un muet, ce qui rendait `SwornProtector` aveugle aux abilities
+  adverses (mesuré live : un cast de `JakhalStimms` sur Creed fait bien apparaître Kell). Les deux
+  voies émettent désormais, et les deux gates jusque-là satisfaits *structurellement* sont **portés** :
+  `IsNormalAttack` (AnvilShield) et `AbilityHasAttackType(0|1)` (SwornProtector), tous deux dans
+  `engine/runner/abilities/attack_type.py`. Voir `probe_120_pre_unit_ability_fork.py` et
+  `tests/engine/runner/test_pre_unit_ability_fork_live.py`.
+- **`ExecuteForReplacedTarget` reste NON PORTÉ** (résidu nommé, symétrique sur les deux voies) : juste
+  après `0x2b`, le natif re-résout la cible (`GetUnit(First(targetTiles))`) et rejoue l'ability contre
+  l'unité qui occupe désormais la tuile visée. C'est ce maillon qui envoie les dégâts sur Kell après le
+  switch — offline, Creed encaisse encore. Détail RE en tête de
+  `engine/runner/operations/triggers/loki/sworn_protector.py`.
 - `On(0xb)`/`On(0xc)` (les deux événements intermédiaires de la même opération) ne sont pas émis :
   aucun trigger porté ne les écoute.
 - `IsMeleeAttack` est résolu **par POSITION** (`_is_ranged_position`, mirror
@@ -185,9 +196,10 @@ l'attaquant — un coup mêlée BLOQUÉ, gate FAUX, **aucun Stun**. C'est le dis
 ### 4.3 NON couvert (honnête)
 - **Branche `TurnsFromRounds(1)` de la durée du Stun** (`If(IsTurnOf(caster), …)` FAUX) : elle exige
   une attaque portée HORS du tour de l'attaquant (overwatch, contre-attaque). Portée, jamais exercée.
-- **`On(0x2b)`/`On(0xe)` sur la voie ABILITY** : non émis (cf. résidus §3).
-- **1201 sur une attaque d'ABILITY** : le gate natif `IsNormalAttack` l'exclut de toute façon, mais la
-  voie n'est pas exercée.
+- **`On(0x2b)`/`On(0xe)` sur la voie ABILITY** : émis depuis #120 (cf. §3).
+- **1201 sur une attaque d'ABILITY** : le gate natif `IsNormalAttack` l'exclut, et ce gate est
+  désormais PORTÉ (`attack_type.is_normal_attack`) au lieu d'être satisfait structurellement — le
+  contrôle négatif est exercé offline (`probe_120_pre_unit_ability_fork.py`, étape 4), pas live.
 - **Cumul 1200 + 1201** : impossible par construction (le gate de 1201 exige `!HasEffect(1200)`) —
   vérifié live dans le test 2, jamais dans une configuration adverse.
 - **Le `remaining` du Stun avec ≠ 2 joueurs non-Environment** : le facteur vient de

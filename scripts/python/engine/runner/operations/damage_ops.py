@@ -79,13 +79,14 @@ class _DamageOpsMixin:
         # l'emet TOUT EN HAUT (`FUN_180026490(0x4d, .., 0x2b)`), AVANT l'execution de l'ability : l'attaque
         # normale EST une active ability (`NormalAttackType`, cf. #139 plus bas). Emis ICI, juste apres la
         # selection d'arme (lecture pure : le natif connait deja la nature du coup) et AVANT tout calcul
-        # de coups / modificateurs / **block** — c'est indispensable : son seul consommateur porte
-        # (`AnvilShieldFrozenAttackerAdvantageAbility`) pose un stat-mod BLOCK_CHANCE que `_block_sources`
-        # doit voir sur CETTE attaque, sinon le port serait un no-op silencieux. Le gate natif
-        # `IsNormalAttack` est satisfait STRUCTURELLEMENT (ce vecteur n'est emis que par l'operation
-        # d'attaque NORMALE) ; `ability_type` porte quand meme l'id natif du kind attaque-normale
-        # (0x3f5=1013) pour les futurs consommateurs a gate `kind`. Aucun autre trigger porte n'ecoute
-        # `0x2b` -> no-op (et zero conso RNG) pour toute unite non-porteuse.
+        # de coups / modificateurs / **block** — c'est indispensable : `AnvilShieldFrozenAttackerAdvantageAbility`
+        # pose un stat-mod BLOCK_CHANCE que `_block_sources` doit voir sur CETTE attaque, sinon le port
+        # serait un no-op silencieux. #120 : ce site n'est PLUS le seul emetteur de `0x2b` — la voie
+        # d'ABILITY (`AbilityHandler.visit_ActiveAbilityMessage`) l'emet aussi, comme le natif, qui n'a
+        # qu'UN site (`ExecuteInternal`) commun aux deux. Le gate natif `IsNormalAttack` n'est donc plus
+        # satisfait structurellement : il est PORTE (`abilities/attack_type.is_normal_attack`), et c'est
+        # `ability_type = 0x3f5 = 1013` (le marqueur « kind attaque-normale » du `DirectAbilitySelector`
+        # natif, cf. `attack_type.NORMAL_ATTACK_KIND`) qui le satisfait sur CETTE voie.
         from .triggers.dispatch import pre_unit_ability_triggers   # lazy : cycle damage<->triggers
         pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                   profile=_profile, ability_type=1013)

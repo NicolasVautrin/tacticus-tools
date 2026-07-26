@@ -10,6 +10,32 @@ Il mirror les GATES d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInte
 l'execution : le gate ACTEUR-MORT (#70) puis le GATE DE CIBLE (#115, `IsInvalidTarget` — filtre
 generique + regle dynamique par ability, cf. `targeting.py`). Un refus = no-op COMPLET : ni
 behaviour, ni `AddFlagsAfterAbilityExecution` (donc `actionConsumed = false` cote natif).
+
+#120 — LES VECTEURS D'OPERATION `On(0x2b)` / `On(0xe)`. Le natif emet `PreUnitAbility (0x2b)` depuis
+UN SEUL site, `ActiveAbilityOperation$$ExecuteInternal`, et l'attaque NORMALE emprunte cette MEME
+operation (elle EST une active ability :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
+portes d'operation — `DamageHandler.visit_AttackUnitMessage` (damage.py) et ce visiteur — et seule la
+premiere emettait : FORK de port (1 site natif -> 2 sites offline dont 1 muet). Les DEUX emettent
+desormais, au MEME rang relatif que le natif. Sequence native mesuree au decompile
+(`ExecuteInternal`, ordre des `FUN_180026490(0x4d, .., <event>)` par adresse croissante) :
+
+    IsDeadUnitAndNotAllowedByAbility(target)  -> return 0
+    IsInvalidTarget(caster, casterTiles, target) -> return 0
+    GetAbilityEntities(...)
+    On(0x2b)  PreUnitAbility        <- AVANT toute execution (donc avant tout degat / calcul de block)
+    if (!options@0x4a && IsUnit(caster) && IsDead(caster)) return 0
+    ... execution de la behaviour ...
+    On(0xb)   UnitAbility           (aucun consommateur porte)
+    On(0xc)   UnitActiveAbility     (aucun consommateur porte)
+    AddFlagsAfterAbilityExecution(...)
+    On(0xe)   UnitPostAbility
+
+DIVERGENCE D'ORDRE ASSUMEE ET NOMMEE : le port place le gate ACTEUR-MORT (#70) AVANT `0x2b`, alors
+que le natif le place JUSTE APRES. Consequence theorique : un cast issu d'un caster deja mort emet
+`0x2b` cote natif et pas cote port. Les deux voies du port sont alignees entre elles sur ce point
+(l'attaque normale gate aussi en tete, damage.py), et #70 a ete valide live sur l'observable
+« attaquant mort = no-op complet » ; on ne le deplace pas ici sans mesure dediee.
 """
 from __future__ import annotations
 
@@ -167,30 +193,70 @@ class AbilityHandler:
                          "caster": msg.caster_id, "target": msg.target_id, "actor_dead": True}
             return
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
-        if klass is None:
+        ability = klass() if klass is not None else None
+        # #115 GATE DE CIBLE (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
+        # `if (IsInvalidTarget(caster, casterTiles, target)) return 0;`). Le natif sort ICI, en amont
+        # du 1er `AActiveAbility.Execute` de la behaviour, d'`AddFlagsAfterAbilityExecution` ET du
+        # vecteur `On(0x2b)` -> un cast REFUSE ne mute rien, ne consomme PAS l'activation
+        # (`actionConsumed=false`, cf. case-111) et NE REVEILLE AUCUN trigger. Le filtre + son point
+        # d'extension par ability vivent dans `targeting.py` ; une ability dont les
+        # `TARGETING_OPTIONS` n'ont pas ete RE-lues n'est PAS gatee (aucun refus invente), et
+        # `ability=None` (non portee) rend 0 par construction (`is_invalid_target`).
+        reason = is_invalid_target(self.state, int(msg.caster_id), msg.target_id, ability)
+        if reason:
+            self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "invalid_target": int(reason)}
+            return
+        # #120 `On(PreUnitAbility=0x2b)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
+        # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
+        # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
+        self._pre_unit_ability(msg)
+        if ability is None:
             self.unported.add(int(msg.ability_type))   # #93/#95 : rend le no-op VISIBLE (plus muet)
             self.last = {"ability_type": msg.ability_type, "ported": False}
             # #139 : les FLAGS de tour sont poses par le natif pour TOUTE ability executee, independamment
             # de sa behaviour -> on les mirror MEME quand la behaviour n'est pas portee (turn-flow fidele).
             self.last["flags"] = self._add_flags_after_execution(msg)
+            self._post_unit_ability(msg)               # `On(0xe)` : dernier evenement, apres les flags
             return                            # ability non portée → behaviour no-op (présent ≠ exécuté)
-        ability = klass()
-        # #115 GATE DE CIBLE (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
-        # `if (IsInvalidTarget(caster, casterTiles, target)) return 0;`). Le natif sort ICI, en amont
-        # du 1er `AActiveAbility.Execute` de la behaviour ET d'`AddFlagsAfterAbilityExecution` -> le
-        # cast ne mute rien et ne consomme PAS l'activation (`actionConsumed=false`, cf. case-111).
-        # Le filtre + son point d'extension par ability vivent dans `targeting.py` ; une ability dont
-        # les `TARGETING_OPTIONS` n'ont pas ete RE-lues n'est PAS gatee (aucun refus invente).
-        reason = is_invalid_target(self.state, int(msg.caster_id), msg.target_id, ability)
-        if reason:
-            self.last = {"ability_type": msg.ability_type, "ported": True,
-                         "caster": msg.caster_id, "target": msg.target_id,
-                         "invalid_target": int(reason)}
-            return
         diag = ability.execute_behaviour(self.state, msg.caster_id, msg.target_id) or {}
         self.last = {"ability_type": msg.ability_type, "ported": True,
                      "caster": msg.caster_id, "target": msg.target_id, **diag}
         self.last["flags"] = self._add_flags_after_execution(msg, ability)
+        # #120 `On(UnitPostAbility=0xe)` — DERNIER evenement d'`ExecuteInternal`, apres
+        # `AddFlagsAfterAbilityExecution`. Pendant exact du `0x2b` emis en tete : c'est lui qui
+        # consomme les effets « le temps de CETTE ability » (ex. 1201 AnvilShield_FrozenAttackerAdvantage).
+        self._post_unit_ability(msg)
+
+    def _pre_unit_ability(self, msg) -> None:
+        """`FUN_180026490(0x4d, .., 0x2b)` en tete d'`ExecuteInternal`. L'`AbilityEntities` de
+        l'evenement est celui de l'ability : caster/actor = le CASTER, target = la cible du cast.
+        `ability_type` = `df@0x130` (l'ability declenchante), lu par les gates `IsNormalAttack` /
+        `AbilityHasAttackType` des consommateurs (cf. `abilities/attack_type.py`). `ranged` =
+        `DSLFactory$$IsRangedAttack` (position-based, `_is_ranged_position`) — False si la cible est
+        une TUILE ou si les positions manquent, comme partout ailleurs dans le port."""
+        from ..operations.triggers.dispatch import pre_unit_ability_triggers
+        pre_unit_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
+                                  ranged=self._ranged(msg), profile=None,
+                                  ability_type=int(msg.ability_type))
+
+    def _post_unit_ability(self, msg) -> None:
+        """`FUN_180026490(0x4d, .., 0xe)` en queue d'`ExecuteInternal` (apres
+        `AddFlagsAfterAbilityExecution`)."""
+        from ..operations.triggers.dispatch import unit_post_ability_triggers
+        unit_post_ability_triggers(self.state, int(msg.caster_id), msg.target_id,
+                                   ranged=self._ranged(msg), profile=None,
+                                   ability_type=int(msg.ability_type))
+
+    def _ranged(self, msg) -> bool:
+        """`IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` = adjacence caster/cible (mirror
+        `_is_ranged_position`). Cible-TUILE / entite absente -> False (melee, le defaut conservateur
+        deja retenu par le helper)."""
+        from ..operations.triggers.base import _is_ranged_position
+        if msg.target_id is None:
+            return False
+        return _is_ranged_position(self.state, int(msg.caster_id), int(msg.target_id))
 
     def _add_flags_after_execution(self, msg, ability=None) -> dict:
         """#139 — queue d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal :
