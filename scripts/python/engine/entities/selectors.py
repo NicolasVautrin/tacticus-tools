@@ -11,6 +11,7 @@ from dataclasses import replace
 
 import hexgeo
 
+from .. import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ..dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
                         resolve_unit)
 
@@ -1295,7 +1296,12 @@ class TilesBehindInLine(TargetsSelector):
     RESIDU documente : la branche `check_walkable == False` du natif teste `tileComponent+0x40 == 0`
     (drapeau de tuile SEUL, sans le composant MUR) ; le port utilise `board.walkable` (capture live de
     `TileExtensions.IsWalkable`, qui FOND le drapeau de tuile ET le mur). Inerte pour ses deux call-sites
-    (`FilterContinuous(HasUnit & AreEnemies)` en aval : une tuile non-walkable ne porte pas d'unite)."""
+    (`FilterContinuous(HasUnit & AreEnemies)` en aval : une tuile non-walkable ne porte pas d'unite).
+
+    La MARCHE elle-meme (`GetTilesBehind` + `IsTileValidForList`) vit dans `engine.battle_query.
+    get_tiles_behind` : mirror UNIQUE partage avec les deux feuilles de DECISION (#124), en domaine
+    POSITION. Ce selecteur n'en est que l'adaptateur tile-id (`board.id_at` / `board.walkable` /
+    `board.elevation`)."""
     def __init__(self, frm: TargetsSelector, to: TargetsSelector, max_count=None,
                  check_walkable: bool = False, update_reference: bool = False):
         self.frm, self.to, self.max_count = frm, to, max_count
@@ -1310,40 +1316,16 @@ class TilesBehindInLine(TargetsSelector):
         dst = _tile_positions(self.to, ctx, board)
         if not src or not dst:
             return []
-        ox, _oy, oz = hexgeo.to_cube(src[0][0], src[0][1])
-        ax, _ay, az = hexgeo.to_cube(dst[0][0], dst[0][1])
-        dx, dz = ax - ox, az - oz
-        if dx == 0 and dz == 0:
-            return []
         n = self.max_count
         n = (n.evaluate(ctx) if hasattr(n, "evaluate") else n)
         n = int(n) if n is not None else None
-        ref = board.id_at(src[0][0], src[0][1])       # `lVar6` = MainTileEntity(from) au 1er tour
-        out, k = [], 0
-        while n is None or len(out) < n:
-            p = hexgeo.from_cube(ax + dx * k, az + dz * k)
-            t = board.id_at(p[0], p[1])
-            if t is None:                      # sortie de plateau -> fin de ligne
-                break
-            if not self._is_tile_valid_for_list(board, t, ref):
-                break                          # `return list` natif : PREFIXE, pas un filtre
-            out.append(t)
-            if self.update_reference:          # settings+0x11 : la reference d'elevation suit la ligne
-                ref = t
-            k += 1
-            if n is None and k > 64:           # garde-fou (plateau borne ; jamais atteint)
-                break
-        return out
-
-    def _is_tile_valid_for_list(self, board, tile_id, ref_tile_id) -> bool:
-        """`IdunBattle.Core.Services.TileUtil$$IsTileValidForList` (cf. la docstring de la classe)."""
-        if not board.walkable(tile_id):
-            return False
-        if not self.check_walkable:
-            return True                        # branche `!checkWalkable` : PAS de gate d'elevation
-        if ref_tile_id is None:
-            return True
-        return abs(board.elevation(ref_tile_id) - board.elevation(tile_id)) < 2
+        positions = battle_query.get_tiles_behind(
+            src[0], dst[0], max_count=n,
+            check_walkable=self.check_walkable, update_reference=self.update_reference,
+            walkable_at=lambda p: board.walkable(board.id_at(p[0], p[1])),
+            elevation_at=lambda p: board.elevation(board.id_at(p[0], p[1])),
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+        return [board.id_at(p[0], p[1]) for p in positions]
 
 
 class FilterContinuous(TargetsSelector):

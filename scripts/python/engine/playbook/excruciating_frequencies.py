@@ -12,9 +12,11 @@ GENERATEUR BESPOKE dans `ComparableAbilityGenerator` (comme heal/repair), qui ba
 
 Structure native (mirror IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$MakeDamagePredictions) :
   - `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAttackTargets` = `Enemies(Units(GetAffectedTiles))` : ennemis sur les tuiles de ligne.
-  - `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles` = `TilesBehindInLine(from=caster, to=aimTile, Direct(nrOfTiles=const
-    0x17=3))` : les `nrOfTiles` tuiles en ligne droite depuis le caster a travers l'aim. Geometrie CUBE
-    droite (parite-independante), identique a DarkTalonStrike `_beam_count` : `tile_k = caster + k*dir`,
+  - `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles` =
+    `SortReverse(TilesBehindInLine(from=CasterTile@0x168, to=TargetTiles@0x190, settings{1,1},
+    Direct(nrOfTiles = const 0x17 = 3)))` : les `nrOfTiles` tuiles en ligne droite depuis le caster a
+    travers l'aim, TRONQUEES au 1er echec du gate de tuile (walkable + `|Delta elev| < 2`, cf.
+    `_line_tiles` / #124). Geometrie CUBE droite (parite-independante) : `tile_k = caster + k*dir`,
     dir = cube(aim) - cube(caster), k=1..nrOfTiles (l'aim = la 1re tuile, voisine du caster).
   - Par ennemi touche -> `GenerateMultiHitAttackPredictions(base=IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetDamageFormula =
     MinMaxDamage(avg minDmg/maxDmg), hits=IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits = GetNumberConstant(0x2f=nrOfHits=1),
@@ -43,6 +45,7 @@ from __future__ import annotations
 
 import hexgeo
 
+from engine import battle_query as bq   # get_tiles_behind : mirror UNIQUE de la ligne hex (#117/#124)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 import gameconfig as _gc
 
@@ -61,16 +64,28 @@ def _n_tiles() -> int:
         return 3
 
 
-def _line_tiles(caster: tuple, aim: tuple, n: int) -> list:
-    """`GetAffectedTiles` = `TilesBehindInLine(caster, aim, n)` : les `n` tuiles en ligne droite depuis
-    le caster a travers l'aim (aim = 1re tuile, voisine du caster). Extension CUBE droite parite-
-    independante (identique DarkTalonStrike `_beam_count`) : `caster + k*dir`, k=1..n, dir=cube(aim)-cube(caster)."""
-    ox, _oy, oz = hexgeo.to_cube(caster[0], caster[1])
-    ax, _ay, az = hexgeo.to_cube(aim[0], aim[1])
-    dx, dz = ax - ox, az - oz
-    if dx == 0 and dz == 0:
-        return []
-    return [hexgeo.from_cube(ox + dx * k, oz + dz * k) for k in range(1, n + 1)]
+def _line_tiles(caster: tuple, aim: tuple, n: int,
+                walkable_by_pos: dict | None = None, elev_by_pos: dict | None = None) -> list:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$GetAffectedTiles`
+    = `SortReverse( TilesBehindInLine(from = CasterTile@0x168, to = TargetTiles@0x190,
+    settings{+0x10 = 1, +0x11 = 1}, Direct(GetNumberConstant(0x17 = nrOfTiles))) )` — mirror 1:1 via
+    `engine.battle_query.get_tiles_behind` (LE mirror partage avec la face COMBAT, #117/#124).
+
+    Geometrie : `aim + k*dir`, k = 0..n-1, `dir = cube(aim) - cube(caster)` (aim = voisine du caster
+    -> pas unitaire ; = `caster + k*dir`, k = 1..n). GATE PAR TUILE (#124) : `settings +0x10 = 1`
+    active `IsWalkable` **ET** le gate d'ELEVATION `|elev(ref) - elev(tile)| < 2` de
+    `IdunBattle.Core.Services.TileUtil$$IsTileValidForList` ; `+0x11 = 1` fait SUIVRE la reference le
+    long de la ligne. La reference initiale est la tuile du CASTER (`from`), donc la 1re marche
+    testee est `caster -> aim`. La ligne S'ARRETE a la 1re tuile invalide (PREFIXE, pas un filtre) :
+    avant #124 la feuille rendait les `n` tuiles inconditionnellement et SUR-ESTIMAIT l'utilite d'un
+    rayon traversant une marche >= 2.
+
+    `SortReverse` ne change que l'ORDRE (l'utilite est une SOMME sur les ennemis touches) -> non
+    porte ici ; il compterait pour la face COMBAT (consommation du RNG coup par coup)."""
+    walkable_at, elevation_at, tile_exists = bq.tiles_behind_accessors(walkable_by_pos, elev_by_pos)
+    return bq.get_tiles_behind(caster, aim, max_count=n, check_walkable=True, update_reference=True,
+                               walkable_at=walkable_at, elevation_at=elevation_at,
+                               tile_exists=tile_exists)
 
 
 def _score(ctx, P: tuple, line_enemies: list):
@@ -126,7 +141,8 @@ def excruciating_frequencies_candidates(ctx) -> list:
             aim_id = ctx.tile_id_by_pos.get(aim)
             if aim_id is None:
                 continue                              # aim hors board -> pas de cible-tuile emettable
-            line = _line_tiles(P, aim, n)
+            line = _line_tiles(P, aim, n,
+                               ctx.walkable_by_pos, ctx.elev_by_pos)   # gate d'elevation (#124)
             line_enemies = [enemy_by_pos[t] for t in line if t in epos and t in enemy_by_pos]
             if not line_enemies:
                 continue                              # ligne sans ennemi -> aucune prediction (util 0)

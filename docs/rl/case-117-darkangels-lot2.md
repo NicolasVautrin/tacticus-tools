@@ -72,6 +72,9 @@ Le port ajoute donc `check_walkable` / `update_reference` a `TilesBehindInLine` 
 (`engine/playbook/excruciating_frequencies.py::_line_tiles`) et celle de `DarkTalonStrike`
 (`playbook/noncomparable/dark_talon_strike.py::_beam_count`) ignorent toutes deux ce gate — elles
 SUR-ESTIMENT donc l'utilite d'un beam qui traverse une marche >= 2. Non corrige ici (perimetre).
+**FERME PAR #124** (`case-124-elevation-gate-decision.md`) : les deux feuilles de DECISION
+consomment desormais le MEME mirror que la face COMBAT (`engine.battle_query.get_tiles_behind`,
+extrait de `TilesBehindInLine` pour eviter le fork de port), confronte live avec mutation-test.
 
 ## 2. DarkTalonStrike (1092) — face COMBAT
 
@@ -255,8 +258,8 @@ Non-regression (tests CIBLES rejoues, tous verts) : `test_plasma_cannon_live`, `
     entierement dans les `TargetingOptions` du ctor (`TargetingOptions(0, <range>, 2, 0x80040, ...)`
     pour 1092), donc dans le filtre STATIQUE de #115 — dont les bits TILE ne sont pas encore portes.
   Les trois gates sont confrontes LIVE dans les tests via `abilityTargets.fromHere` (recette case-111).
-- **`ExcruciatingFrequencies` / `DarkTalonStrike` face DECISION** : geometrie de ligne sans le gate
-  d'elevation (§1, spillover).
+- ~~**`ExcruciatingFrequencies` / `DarkTalonStrike` face DECISION** : geometrie de ligne sans le gate
+  d'elevation (§1, spillover).~~ **FERME par #124** (`case-124-elevation-gate-decision.md`).
 - **`tileComponent+0x40` vs `IsWalkable`** : la branche `checkWalkable == False` du natif teste le
   drapeau de tuile SEUL (sans le composant MUR) ; le port utilise `board.walkable` (qui fond les deux).
   Inerte pour ses call-sites (`FilterContinuous(HasUnit & ...)` en aval).
