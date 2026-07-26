@@ -30,6 +30,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import hexgeo
+
 from ..state import State
 from ..components import (StatsComponent, OwnerComponent, PositionComponent,
                           HealthComponent, UnitComponent)
@@ -149,10 +151,29 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
     return e.id
 
 
-def _free_tiles_adjacent(state: State, target_id: int, exclude: set) -> list:
-    """`CanAddUnit(AdjacentTiles(target))` — tuiles voisines (evenq) de la cible, marchables et NON
-    occupées (par une unité vivante OU une tuile déjà choisie ce spawn). Triées (déterministe) pour
-    `PickRandomly`. [] si pas de board."""
+def _free_tiles_adjacent(state: State, target_id: int, exclude: set,
+                         native_order: bool = False) -> list:
+    """`CanAddUnit(AdjacentTiles(target))` — tuiles voisines de la cible, marchables et NON
+    occupées (par une unité vivante OU une tuile déjà choisie ce spawn). [] si pas de board.
+
+    `native_order=False` (défaut historique) : ids de tuile TRIÉS — approximation déterministe.
+
+    `native_order=True` : **ORDRE D'ÉNUMÉRATION NATIF**.
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` accumule dans un `OrderedSet`
+    (donc ordre d'INSERTION) ce que rend
+    `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(origin, onlyEmptyOrSteppable=false,
+    onlyWalkableTiles=true, allowTemporary=true)` → `IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles`
+    → `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` (liste d'adjacence stockée sur la
+    tuile, + porte d'élévation `|Δelev| < 2`). C'est **exactement** l'itérateur que le capteur
+    `boardGraph` sérialise dans le champ BRUT `neighbours` de chaque tuile (cf.
+    `entities/pathfinding/board.py`) — d'où la lecture directe de ce champ ici, et **pas**
+    `board.neighbours()` (qui trie les ids et symétrise les arêtes).
+
+    Pourquoi ça compte : les tris natifs en aval sont des `OrderBy`/`OrderByDescending` LINQ, donc
+    **STABLES**. Dès qu'ils sont à égalité (carte plate, utilités toutes nulles, clé constante),
+    c'est l'ordre SOURCE qui décide la tuile — il fait donc partie intégrante du port des quatre
+    sites `First(<tri>(…), 1)`. Board construit à la main (tests unitaires, pas de champ brut) →
+    repli sur `board.neighbours` (ids triés)."""
     board = state.board
     tgt = state.get_entity(target_id)
     if board is None or tgt is None:
@@ -174,9 +195,19 @@ def _free_tiles_adjacent(state: State, target_id: int, exclude: set) -> list:
         t = board.id_at(pc.col, pc.row)
         if t is not None:
             occupied.add(t)
-    out = [t for t in sorted(board.neighbours(ttile))
-           if board.walkable(t) and t not in occupied]
+    ring = _adjacent_tiles(board, ttile) if native_order else sorted(board.neighbours(ttile))
+    out = [t for t in ring if board.walkable(t) and t not in occupied]
     return out
+
+
+def _adjacent_tiles(board, tile_id: int) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentTiles(origin)` — voisins de `tile_id` dans
+    l'ORDRE d'itération natif (champ brut `neighbours` du `boardGraph`, cf. `_free_tiles_adjacent`).
+    Repli ids triés quand le champ brut manque (board de test)."""
+    raw = (board.by_id.get(tile_id) or {}).get("neighbours")
+    if not raw:
+        return sorted(board.neighbours(tile_id))
+    return [t for t in raw if t in board.by_id]
 
 
 def _pick_randomly_one(state: State, tiles: list):
@@ -203,39 +234,153 @@ def _pick_randomly_one(state: State, tiles: list):
     return picked[0] if picked else None
 
 
-def _pick_placement_tile(state: State, tiles: list):
-    """UNE tuile de placement pour les nœuds natifs **`First(<tri déterministe>(…), 1)`** — ceux qui
-    NE tirent PAS (`PickAtIndexSelector`). n==1 → l'unique ; sinon index `next_internal(0,n)`.
+def _first(tiles: list):
+    """`IdunBattleLogic.Entities.DSLFactory$$First(entities, 1, ignoreForcedTargets=false)` — le
+    PREMIER élément de la liste résolue par le sélecteur source (None si vide). **ZÉRO tirage** :
+    `First` construit un sélecteur de PRISE-EN-TÊTE, pas un `PickRandomAmountSelector`."""
+    return tiles[0] if tiles else None
 
-    ⚠ APPROXIMATION ASSUMÉE, et ses appelants ont été démêlés un par un (case-130 SS4) : aucun d'eux ne
-    construit un `PickRandomly` — les deux qui le faisaient sont passés à `_pick_randomly_one`. Ce
-    qui reste, avec son nœud natif LU au décompilé :
-      * `SpawnUnitOperation.execute` (ScarabHive,
-        `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour`) :
-        `Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(CanAddUnit(AdjacentTiles(
-        target@0x178)), caster@0x160), caster@0x160))), count), 1)` — **0 tirage** ;
-      * `execute_squighound_summon`
-        (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour`) :
-        `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target@0x178)), 7, caster@0x160), 1)`
-        — **0 tirage** ;
-      * `execute_control_edict_summon`
-        (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion`) :
-        `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(caster@0x148)), 7, @0x160), 1)`
-        — **0 tirage** ;
-      * `execute_pilein_replica`
-        (`IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour`) :
-        `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))), If(HasTrait(0x1b), …)), 1)`
-        — un TROISIÈME nœud : `IdunBattleLogic.Entities.DSLFactory$$Randomize` construit un
-        `PickRandomAmountSelector(source, amount = 0x7fffffff, …)`, donc un mélange complet =
-        **`len(pool)` tirages**, bornes décroissantes.
 
-    Le tirage que ce helper consomme à `n > 1` (et le tri par utilité/formule non porté) sont donc
-    des écarts CONNUS et CHIFFRÉS, hors périmètre de case-130 SS4 : voir `docs/rl/backlog.md`."""
-    if not tiles:
-        return None
-    if len(tiles) == 1 or state.rng is None:
-        return tiles[0]
-    return tiles[state.rng.next_internal(0, len(tiles))]
+def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(entities, origin)` →
+    `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select`, remis en C# :
+
+        var list   = this.entities.Select(entities);
+        var origin = this.originSelector.SelectSingle(entities);
+        if (origin == null) return new List<IEntity>();          // sortie VIDE, pas la liste brute
+        dc.originPos = origin.GetComponent<PositionComponent>();
+        return list.OrderBy(dc.<Select>b__0).ToList();
+
+    et `<Select>b__0(s)` = `dc.originPos.Distance(state.GetEntity(s.GetMainTileId(state)).Position)`
+    (`IdunBattle.Entities.Components.PositionComponent$$Distance` = distance CUBE hex via
+    `IdunBattle.Utils.Hex.AxialCoordinate$$ToCubeCoordinate` + `IdunBattle.Utils.Hex.CubeCoordinate$$Distance`).
+
+    → tri ASCENDANT par distance hex à l'origine, `OrderBy` LINQ donc **STABLE** (les ex aequo
+    gardent l'ordre source = l'ordre d'énumération natif de `AdjacentTiles`). **ZÉRO tirage.**"""
+    org = state.get_entity(origin_id)
+    op = org.get_component(PositionComponent) if org is not None else None
+    board = state.board
+    if op is None or board is None:
+        return []                                    # `origin == null` -> List vide (mirror)
+    o = (op.col, op.row)
+    return sorted(tiles, key=lambda t: hexgeo.distance(o, board.coord(t)))
+
+
+_TILE_UTILITY_WEIGHTS = None       # poids `BattleConfiguration.Utilities` (statiques par bataille)
+
+# Terrain STATIQUE -> abilities de tuile HÉBERGÉES que la feuille `TileEffectsUtility` (9) somme
+# (Loop2), EN PLUS de `utilities/tile.py::TERRAIN_TILE_EFFECTS` (qui ne connaît que DryBush).
+# `Swamp` héberge `ThornsBlockMovementAbility` (case-198 §RE ; case-102 : « Swamp =
+# BlockEnteringUnits(0) + Thorns_DefenseReduction(0xb) ») -> poids `Default.TileEffects
+# .Thorns_DefenseReduction` = -25. MESURÉ ici et pas ailleurs : la table partagée alimente aussi le
+# contexte de DÉGÂT et le scoring de MOUVEMENT (blast radius hors périmètre case-130 SS5).
+_PLACEMENT_TERRAIN_EFFECTS: dict[str, tuple] = {
+    "Swamp": ("Thorns_DefenseReduction",),
+}
+
+
+def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`
+    = `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility(tiles, unit, UtilityDefinition(utilityType), parent)`
+    → `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select`, remis en C# :
+
+        foreach (tile in tiles.Select(entities))
+            dict[tile] = utilityDecider.CalculateUtility(tile, definition.Buckets[0], cache);
+        return tiles.OrderBy(dc.<Select>b__0).ToList();          // b__0 = -dict[tile]
+
+    `<Select>b__0` rend `Fix64.op_UnaryNegation(dict[tile])` → **tri DESCENDANT par utilité**,
+    `OrderBy` LINQ donc **STABLE**. **ZÉRO tirage** — c'est CE point qui est porté ici, et il est
+    mesuré live (case-130 SS5).
+
+    Chaîne de l'utilité, lue au décompilé :
+      * `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(utilityType)` = `Buckets = [ new
+        UtilityBucket(utilityType, null) ]` ;
+      * `IdunBattleLogic.AI.Utilities.UtilityBucket$$.ctor` = `[ new WeightedUtility(utilityType, null) ]`,
+        et `IdunBattleLogic.AI.Utilities.WeightedUtility$$.ctor` met `Weight = weight ?? Fix64.FromInt(1)`
+        → **poids 1** ;
+      * `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` = Σ `Weight × Σ steps` de
+        `<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
+        `utility.EvaluateMovementInSteps(new UtilityMovementCase(unit, tile, null, null, parent))`,
+        `unit` venant d'un sélecteur construit DANS `SortTilesByUtilityForSummon` dont la classe
+        n'est pas identifiable au décompilé (ctor replié par le linker : Ghidra le nomme
+        `AllAliveMachinesSelector`).
+
+    L'utilité est donc le composite `Tile(7)` (`UtilityType.Tile == 7`, l'argument littéral des deux
+    call-sites) évalué sur la tuile — càd `engine/utilities/tile.py::tile_composite`, déjà porté
+    (29 feuilles). On ne lui passe **aucune** clé `ctx` d'unité, faute d'avoir pu identifier le
+    sélecteur `unit` : les feuilles gatées sur l'unité rendent 0 (dégradation déjà en vigueur dans
+    `utilities/tile.py`), et restent ACTIVES les feuilles purement TUILE que le board porte —
+    `ElevationUtility` (8) et `TileEffectsUtility` (9, covers HÉBERGÉS par le terrain statique).
+
+    ⚠ Cette réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre
+    source DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit
+    exprès la géométrie) la valident, et ont au passage forcé l'ajout de `Swamp ->
+    Thorns_DefenseReduction` (-25) à `TERRAIN_TILE_EFFECTS` — sans lui le modèle posait le summon sur
+    une Swamp élevée que le natif évite. Ce qui reste NON couvert : les feuilles gatées sur l'unité
+    (aucun scénario ne les a encore réveillées) et les terrains dont on ne connaît pas les abilities
+    hébergées."""
+    board = state.board
+    if board is None or not tiles:
+        return list(tiles)
+    from ...utilities.tile import tile_composite, terrain_tile_effects
+    from ...weights import load as _load_weights
+    global _TILE_UTILITY_WEIGHTS
+    if _TILE_UTILITY_WEIGHTS is None:
+        _TILE_UTILITY_WEIGHTS = _load_weights()
+    wt = _TILE_UTILITY_WEIGHTS
+    # `ElevationUtility$$LoadRelevantTileElevations` : min/max sur le BOARD ENTIER (ni le
+    # candidate-set, ni les tuiles atteignables) -- verdict re-expert case-37.
+    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+    emax = max(elevs) if elevs else None
+    emin = min(elevs) if elevs else None
+
+    def _u(t) -> float:
+        info = board.by_id.get(t) or {}
+        terr = board.tile_def_id(t)
+        meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
+                "effects": (terrain_tile_effects(terr)
+                            + list(_PLACEMENT_TERRAIN_EFFECTS.get(terr or "", ())))}
+        return tile_composite(t, meta, {}, wt)
+
+    util = {t: _u(t) for t in tiles}
+    return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DESCENDANT, stable
+
+
+def _randomize(state: State, tiles: list) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$Randomize(entities)` =
+    `IdunBattle.Entities.Selectors.PickRandomAmountSelector(state, source, amount = 0x7fffffff, rng,
+    allowRepeat = false, maxRepeat = 0x7fffffff, ignoreForcedTargets = false)` — donc **PAS un tri** :
+    un MÉLANGE COMPLET, qui consomme **`len(pool)` tirages** aux bornes DÉCROISSANTES
+    `len, len-1, … 1` (loi #130). Délègue au foyer unique `abilities/loki/splash.py::_pick_randomly_n`
+    — ne PAS ré-écrire la boucle ici."""
+    from ..abilities.loki.splash import _pick_randomly_n
+    return _pick_randomly_n(state, tiles, 0x7fffffff)
+
+
+def _sort_by_formula_pilein(state: State, tiles: list) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(entities, formula, ascending = false)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour`, avec
+    `formula = If(HasTrait(@0x180, 0x1b), Direct(0), Direct(1))` (les deux `Direct` sont les
+    constantes partagées `DSLFactory+0xb8`=0 et `+0xc0`=1, cf. `IdunBattleLogic.Entities.DSLFactory$$.ctor`).
+
+    `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : `ascending == false` →
+    `OrderByDescending(key)` (LINQ, **STABLE**) ; `key(item)` = la formule évaluée avec `item` posé
+    dans le slot SUJET des `AbilityEntities`. **ZÉRO tirage** (le mélange, lui, est en amont).
+
+    → clé = 0 pour un sujet portant `UnitTrait.Steppable` (27 = 0x1b), 1 sinon ; descendant donc
+    « Steppable en DERNIER ».
+
+    ⚠ Le sélecteur `DSLFactory+0x180` n'est PAS départageable au décompilé entre « sujet courant »
+    (ici une TUILE) et « unité invoquée » (le grot). **Les deux lectures donnent la même clé pour
+    toutes les tuiles du pool** — une tuile ne porte pas de `UnitTrait`, et le grot est le même quel
+    que soit le candidat — donc le tri est une IDENTITÉ stable et `First` rend la tuile TIRÉE EN
+    PREMIER par `Randomize`. C'est ce que le port matérialise ; le jour où une entité-tuile porterait
+    un trait, il faudra trancher le sélecteur."""
+    def _key(tile) -> int:
+        # `HasTrait(subject, Steppable)` : le port n'a pas d'entité-tuile porteuse de traits, et sous
+        # la lecture « unité invoquée » la clé est constante sur le pool -> 1 partout (cf. docstring).
+        return 1
+    return sorted(tiles, key=lambda t: -_key(t))      # OrderByDescending, stable
 
 
 def _occupied_tiles(state: State) -> set:
@@ -459,10 +604,17 @@ class SpawnUnitOperation:
         chosen: set = set()
         board = state.board
         for _ in range(max(0, int(count))):
-            tiles = _free_tiles_adjacent(state, target_id, chosen)
-            # ScarabHive : `First(Get(SelectTiles(SortByDistance(…, caster))), count)` = PickAtIndex,
-            # AUCUN tirage (cf. `_pick_placement_tile`) -> surtout PAS `_pick_randomly_one`.
-            tile = _pick_placement_tile(state, tiles)
+            tiles = _free_tiles_adjacent(state, target_id, chosen, native_order=True)
+            # ScarabHive `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` :
+            #   Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(
+            #     CanAddUnit(AdjacentTiles(target@0x178)), caster@0x160), caster@0x160))), count), 1)
+            # -> DEUX SortByDistance sur la MEME origine (mirrore tel quel ; `OrderBy` LINQ etant
+            # STABLE le second est idempotent) puis prise en tete. **AUCUN tirage** — surtout PAS
+            # `_pick_randomly_one`. Le natif prend les `count` PREMIERES d'une liste triee UNE fois ;
+            # la boucle ici re-trie a chaque tour en excluant les tuiles deja prises, ce qui donne la
+            # meme suite (retirer un element ne change pas l'ordre relatif des autres).
+            tile = _first(_sort_by_distance(state, _sort_by_distance(state, tiles, caster_id),
+                                            caster_id))
             e = state.add_entity()                           # id auto (≠ live ; confront par vis/team/pos)
             # ai_controlled : le summon (trait `Summon` = « moves and attacks automatically at the beginning
             # of its turn ») est joué par l'IA au TURN-START de sa team via `run_ai_control_pass` (#65) —
@@ -551,8 +703,11 @@ class SpawnUnitOperation:
         `level`/`mult` = ceux du parent (`active_ability_level`/`ability_variables_multiplier`, propagés depuis
         le summoner). ⚠ GAP : un grot SEEDÉ depuis un combatSnapshot live n'a PAS de `active_ability_level`
         (level=0) → stats PileIn fausses ; il faut un GetEmRuntz porté (ou le level capté) pour résoudre.
-        Placement natif = `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self)))))` ; ici
-        `PickRandomly` (formule de tri = raffinement)."""
+        Placement natif = `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))),
+        If(HasTrait(@0x180, 0x1b), Direct(0), Direct(1)), ascending=false), 1)` — PORTÉ (case-130 SS5) :
+        `Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` consomme **`len(pool)` tirages**
+        (bornes décroissantes) puis le tri stable à clé constante laisse la tuile TIRÉE EN PREMIER.
+        Cf. `_randomize` / `_sort_by_formula_pilein`."""
         import gameconfig as GC
         parent = state.get_entity(parent_id)
         if parent is None:
@@ -567,11 +722,13 @@ class SpawnUnitOperation:
             return []
         level = getattr(p_ctx, "active_ability_level", None)
         mult = int(getattr(p_ctx, "ability_variables_multiplier", 100) or 100)
-        tiles = _free_tiles_adjacent(state, parent_id, set())
-        # `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))), …), 1)` : NI
-        # `PickRandomly(.,1)` NI un tri pur -- `Randomize` = `PickRandomAmountSelector(amount=int.Max)`
-        # donc `len(pool)` tirages. Ecart CONNU, hors perimetre case-130 SS4 (cf. `_pick_placement_tile`).
-        tile = _pick_placement_tile(state, tiles)
+        tiles = _free_tiles_adjacent(state, parent_id, set(), native_order=True)
+        # `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))),
+        #        If(HasTrait(@0x180, 0x1b), Direct(0), Direct(1)), ascending=false), 1)`
+        # `Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` = MELANGE COMPLET ->
+        # **`len(pool)` tirages**, bornes DECROISSANTES ; le tri qui suit est stable et sa cle est
+        # constante sur le pool -> la tuile rendue est celle TIREE EN PREMIER.
+        tile = _first(_sort_by_formula_pilein(state, _randomize(state, tiles)))
         if tile is None:
             return []                                        # aucune tuile ring-1 libre -> pas de spawn
         e = state.add_entity()
@@ -593,8 +750,10 @@ class SpawnUnitOperation:
     def execute_squighound_summon(state: State, caster_id: int, target_id: int) -> list:
         """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour` (passif triggé, orksRuntherd). APRÈS une
         attaque du caster (trigger `On(0x26)` — cf. wiring after-hit), si **< maxSummons(5)** grots amis, spawn
-        1 grot sur la MEILLEURE tuile LIBRE adjacente à la CIBLE (`AdjacentTiles(target) SortTilesByUtilityForSummon
-        First`), stats `WithStatsFromConfig(SquigHound)` (4802 PV @lvl65), `active_ability_level = casterLevel`
+        1 grot sur la MEILLEURE tuile LIBRE adjacente à la CIBLE (`First(SortTilesByUtilityForSummon(
+        CanAddUnit(AdjacentTiles(target@0x178)), 7 = UtilityType.Tile, caster@0x160), 1)` = **0 tirage**,
+        PORTÉ case-130 SS5 via `_sort_tiles_by_utility_for_summon`),
+        stats `WithStatsFromConfig(SquigHound)` (4802 PV @lvl65), `active_ability_level = casterLevel`
         (→ lève le GAP PileIn). On-appearance `PerformAIAttack` = FLAGGÉ non porté. Renvoie [id] ou []."""
         import gameconfig as GC
         caster = state.get_entity(caster_id)
@@ -617,16 +776,10 @@ class SpawnUnitOperation:
                       and (o := e.get_component(OwnerComponent)) is not None and o.team == coc.team)
         if n_grots >= max_summons:
             return []
-        tgt = state.get_entity(target_id)
-        tp = tgt.get_component(PositionComponent) if tgt is not None else None
-        if tp is None:
-            return []
-        ttile = board.id_at(tp.col, tp.row)
-        if ttile is None:
-            return []
-        occupied = _occupied_tiles(state)
-        cands = [t for t in sorted(board.neighbours(ttile)) if board.walkable(t) and t not in occupied]
-        tile = _pick_placement_tile(state, cands)   # SortTilesByUtilityForSummon+First : 0 tirage (raffinement)
+        # `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target@0x178)), 7 = UtilityType
+        # .Tile, caster@0x160), 1)` : tri DESCENDANT par utilite de tuile, **0 tirage**.
+        cands = _free_tiles_adjacent(state, target_id, set(), native_order=True)
+        tile = _first(_sort_tiles_by_utility_for_summon(state, cands, caster_id))
         level = getattr(c_ctx, "active_ability_level", None)
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
         gid = _spawn_config_grot(state, vid, tile, "SquigHound", level, mult, coc.team, coc.player)
@@ -647,8 +800,8 @@ class SpawnUnitOperation:
             Conqueror d'un cast ULTERIEUR le fait attaquer). Cf. verdict RE ControlEdict.
         `If(NOT AmountIsEqualOrGreater(Children INTER UnitsWithId(admecSmnVanguard), maxSummons)) -> Spawn` :
         no-op au cap (pas de remplacement). Placement natif = `First(SortTilesByUtilityForSummon(CanAddUnit(
-        AdjacentTiles(caster)),7),1)` = 0 tirage ; ici `_pick_placement_tile` (tri par utilite-summon non porte
-        = raffinement, == SquigHound -- surtout PAS un `PickRandomly`, cf. case-130 SS4)."""
+        AdjacentTiles(caster@0x148)), 7 = UtilityType.Tile, @0x160), 1)` = **0 tirage**, PORTE (case-130 SS5,
+        `_sort_tiles_by_utility_for_summon` -- meme noeud que SquigHound ; surtout PAS un `PickRandomly`)."""
         import gameconfig as GC
         from ...entities.effects.magnitude import ability_var
         caster = state.get_entity(caster_id)
@@ -673,8 +826,10 @@ class SpawnUnitOperation:
                 and (o := e.get_component(OwnerComponent)) is not None and o.team == coc.team)
         if n >= max_summons:                              # NOT AmountIsEqualOrGreater(count, max) False -> no-op
             return []
-        tiles = _free_tiles_adjacent(state, caster_id, set())   # CanAddUnit(AdjacentTiles(CASTER))
-        tile = _pick_placement_tile(state, tiles)         # SortTilesByUtilityForSummon+First : 0 tirage
+        # CanAddUnit(AdjacentTiles(CASTER@0x148)) puis `First(SortTilesByUtilityForSummon(., 7 =
+        # UtilityType.Tile, @0x160), 1)` : tri DESCENDANT par utilite de tuile, **0 tirage**.
+        tiles = _free_tiles_adjacent(state, caster_id, set(), native_order=True)
+        tile = _first(_sort_tiles_by_utility_for_summon(state, tiles, caster_id))
         gid = _spawn_config_grot(state, vid, tile, "ControlEdict", level, mult, coc.team, coc.player)
         return [gid] if gid is not None else []
 

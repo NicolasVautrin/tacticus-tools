@@ -133,13 +133,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     toutes les factories `PickRandomly` → le natif pré-remplit le résultat avec
     `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)` (non vide sous contrainte de ciblage
     type Taunt) et les retire des candidats, ce qui **réduit le nombre de tirages**. `[opus]`.
-  - **Le TRI natif des quatre sites de placement `First(…)`** (`spawn.py::_pick_placement_tile`, démêlés
-    par case-130 §4) : aucun n'est un `PickRandomly`, et le helper consomme pourtant 1 tirage dès que le
-    pool dépasse 1. `SortTilesByUtilityForSummon(pool, 7, caster)` (SquigHound, ControlEdict) et le double
-    `SortByDistance(…, caster)` de ScarabHive ne tirent **rien** (seule la tuile choisie diffère) ;
-    `PileInAbility$$CreateBehaviour` passe par `DSLFactory$$Randomize` =
-    `PickRandomAmountSelector(amount = int.MaxValue)` → **`len(pool)` tirages**, bornes décroissantes,
-    plus un `SortByFormula(If(HasTrait(0x1b), …))` non porté. Corriger exige de porter les tris. `[opus]`.
+  - ~~Le TRI natif des quatre sites de placement `First(…)`~~ — **FAIT (case-130 SS5)** : les quatre
+    nœuds sont portés (`SortByDistance`, `SortTilesByUtilityForSummon`, `Randomize` + `SortByFormula`,
+    `First`), le tirage parasite retiré, l'ordre SOURCE natif (`boardGraph.neighbours`) branché ;
+    comptage ET tuile mesurés live (9/9 tuiles, comptage exact hors résidus nommés). Ce qui reste,
+    plus étroit :
+    - **`MaybeTrigger` non porté** (`IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` =
+      `rng.NextBool(chance)` quand `ANonDeterministicAbilityTrigger$$CanUseRandom`, donc **1 tirage**) :
+      le bloc PileIn de `operations/triggers/dispatch.py` traite `Maybe(…)` comme DÉTERMINISTE. Tant
+      qu'il manque, le comptage live de PileIn n'est pas confrontable (le tirage manquant précède le
+      placement). Touche tout gate `Maybe`/`chance` du DSL. `[opus]`.
+    - **Feuilles `Tile(7)` gatées sur l'unité, dans le tri de placement** : le sélecteur `unit` du
+      `UtilityMovementCase` construit par `DSLFactory$$SortTilesByUtilityForSummon` n'est pas
+      identifiable au décompilé (ctor replié par le linker), donc le port n'alimente que les feuilles
+      PURE-TUILE. Aucun scénario mesuré ne réveille les autres — à rouvrir sur un cas où l'une décide.
+    - **`Swamp -> Thorns_DefenseReduction` (−25) porté en local** (`spawn.py::_PLACEMENT_TERRAIN_EFFECTS`)
+      au lieu de `utilities/tile.py::TERRAIN_TILE_EFFECTS` : la table partagée alimente aussi le
+      contexte de DÉGÂT (`runner/damage_model.py::tile_effects_context`) et le scoring de MOUVEMENT.
+      Unifier exige de valider ces deux fronts. `[opus]`.
+    - **On-appearance `PerformAIAttackFromCurrentPosition` du grot SquigHound non portée** : écart
+      CONSTANT de 4 `genrand_int32` mesuré sur ce vecteur (MC1_67/777 et C2_37/31337), étranger au
+      placement. `[opus]`.
 - **Resolve slot-8 non matérialisé dans `execute_normal_like`** (`operations/damage_ops.py` →
   `damage_hits.py::HitDamage.get_damage`, MESURÉ par `probe_130_pick_randomly_one_rng.py`) :
   `get_damage` court-circuite à `min == max` et ne tire rien, alors que
