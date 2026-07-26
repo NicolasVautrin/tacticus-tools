@@ -125,6 +125,17 @@ def _kell(state, creed):
 
 
 def main() -> int:
+    # --- 0. COUVERTURE de la table : tout le registre d'abilities a son litteral de ctor lu ---------
+    # Une ability ajoutee a `ABILITY_CLASSES` sans son `AActiveAbility..ctor(.., <attackType>)` se
+    # degraderait en `Others` -- silencieusement. On le SIGNALE au lieu de le taire.
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    missing = sorted(k for k in ABILITY_CLASSES if k not in ABILITY_ATTACK_TYPE)
+    print("[0] registre=%d abilities ; litteral de ctor manquant: %s"
+          % (len(ABILITY_CLASSES), missing or "aucun"))
+    assert not missing, (
+        "abilities portees sans `AbilityAttackType` lu -> gate SwornProtector muet pour elles : %s"
+        % [(k, ABILITY_CLASSES[k].__name__) for k in missing])
+
     # --- 1. la voie ABILITY emet le vecteur : une ability CLASSEE ATTAQUE reveille SwornProtector --
     state, creed, foe = _fresh("worldJakhal")
     assert ABILITY_ATTACK_TYPE[ATTACK_ABILITY] == AbilityAttackType.DirectTargetAttack

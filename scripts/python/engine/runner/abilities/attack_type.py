@@ -112,6 +112,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1013: AbilityAttackType.DirectTargetAttack,   # PrecisionShot_AttackAbility$$.ctor -- le KIND
                                                   # attaque-normale threade par la voie normale
     1004: AbilityAttackType.DirectTargetAttack,   # MortisRoundAbility
+    1006: AbilityAttackType.DirectTargetAttack,   # MultiThreatEliminatorAbility
     1008: AbilityAttackType.DirectTargetAttack,   # HarbingerOfDestructionAbility
     1014: AbilityAttackType.DirectTargetAttack,   # ArmoriumCherubAbility
     1022: AbilityAttackType.DirectTargetAttack,   # BringerOfDespairAbility
@@ -125,6 +126,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1067: AbilityAttackType.DirectTargetAttack,   # HarvesterOfSoulsAbility
     1078: AbilityAttackType.DirectTargetAttack,   # FragstormAbility
     1089: AbilityAttackType.DirectTargetAttack,   # GreatFrostAxeAbility
+    1092: AbilityAttackType.DirectTargetAttack,   # DarkTalonStrikeAbility
     1098: AbilityAttackType.DirectTargetAttack,   # PlasmaGrenadeAbility
     1104: AbilityAttackType.DirectTargetAttack,   # SpiritLeechAbility
     1105: AbilityAttackType.DirectTargetAttack,   # CrushingClawsAbility
@@ -143,6 +145,8 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1200: AbilityAttackType.DirectTargetAttack,   # SquigLaunchasAbility
     1201: AbilityAttackType.DirectTargetAttack,   # SquigMineAbility
     1202: AbilityAttackType.DirectTargetAttack,   # VigilanceEternalAbility
+    1213: AbilityAttackType.DirectTargetAttack,   # DeathOnTheWindAbility
+    1221: AbilityAttackType.DirectTargetAttack,   # AugmentedAssaultAbility
     1230: AbilityAttackType.DirectTargetAttack,   # SavageEchoesAbility
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
@@ -150,10 +154,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1016: AbilityAttackType.SummonAndAttackTarget,   # SendInTheNextWaveAbility
     1021: AbilityAttackType.SummonAndAttackTarget,   # IncursionAbility
     1040: AbilityAttackType.SummonAndAttackTarget,   # SpawnPoxwalkersAbility
+    1076: AbilityAttackType.SummonAndAttackTarget,   # MV71SniperDroneSquadAttackAbility -- sa classe
+        # native est un TRIGGERED (`...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor`) mais
+        # elle derive de `ALoki_NormalAttackAbility`, dont le ctor FORWARDE son 3e argument a
+        # `AActiveAbility$$.ctor` : `ALoki_NormalAttackAbility..ctor(this, &opts, 1)` -> 1.
     # --- 2 : Others (y compris des abilities qui font pourtant des degats -- le natif les CLASSE
     #         hors « attaque directe sur la cible » : AoE de zone, charge-puis-frappe, tile-target) -
     1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
     1002: AbilityAttackType.Others,   # CombatRestorativesAbility
+    1009: AbilityAttackType.Others,   # ResurrectionOrbAbility
     1018: AbilityAttackType.Others,   # ValkyrieStrikeAbility
     1028: AbilityAttackType.Others,   # SupremeCommanderAbility
     1037: AbilityAttackType.Others,   # RevitalizingMalignancyAbility
@@ -173,14 +182,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1179: AbilityAttackType.Others,   # CultDemagogueAbility
     1187: AbilityAttackType.Others,   # ThriceBlessedConflagrationAbility
     1188: AbilityAttackType.Others,   # DevastatingRefrainAbility
+    1206: AbilityAttackType.Others,   # GravitonRifleAbility
+    1207: AbilityAttackType.Others,   # AncestralFortuneAbility
+    1214: AbilityAttackType.Others,   # HailstrikeAbility
     1219: AbilityAttackType.Others,   # IronkinSteeljackAbility
+    1226: AbilityAttackType.Others,   # ChronometronAbility
 }
-# NON LU : 1076 (`MV71SniperDroneSquadAttack`) -- sa classe native est
-# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility`, un TRIGGERED
-# qui n'appelle jamais `AActiveAbility$$.ctor` : il n'a pas de champ +0x68. Le port l'invoque depuis
-# la voie NORMALE (`damage.py::visit_AttackUnitMessage`), qui emet le marqueur 1013 -> les predicats
-# ci-dessous tranchent quand meme correctement pour lui. 1076 est par ailleurs membre de
-# `REGULAR_ATTACK_ABILITY_TYPES` (c'est L'attaque normale de Sho'syl).
+# COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
+# `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de
+# ctor n'est PAS gatee -- elle se degrade en `Others` (aucun trigger invente), ce que le probe
+# SIGNALE au lieu de le taire.
 
 
 def ability_has_attack_type(ability_type: Optional[int], attack_type: int) -> bool:
