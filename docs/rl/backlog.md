@@ -450,15 +450,12 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     `abilities.HypersensoryAbilities.variables.hpPct` (les deux bornes en sont le min/max).
 
   `[opus]`, par lots de quelques fichiers — l'exécution live domine le coût, pas l'édition.
-- **`getstuckin_combat_chance` code les DEUX chances en dur** (trouvé pendant le lot D #110, NON corrigé —
-  hors périmètre « hygiène de test ») : `engine/runner/damage_model.py` termine par
-  `return 100 if friends_adj >= 4 else 30` alors que le natif
-  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` lit
-  `ConfigConst(0x33)` / `ConfigConst(0x2a)` = `traitVariables.getStuckInChance_2` /
-  `getStuckInChance`. Les valeurs coïncident aujourd'hui (100 / 30) donc rien ne casse ; au premier
-  rebalance le port dérive en silence. Depuis #110 le test `test_getstuckin_chance_present` interroge la
-  CONFIG : c'est lui qui virera au rouge, et le rouge sera VRAI (le port, pas le test). Fix = lire les
-  deux clés au lieu des littéraux. `[opus]`, 1-liner.
+- ~~**`getstuckin_combat_chance` code les DEUX chances en dur**~~ — **RÉSOLU** (commit `886335f`).
+  `engine/runner/damage_model.py` lit désormais les deux clés du gameconfig
+  (`trait_var("GetStuckIn", "getStuckInChance_2" | "getStuckInChance")` = `ConfigConst(0x33)` /
+  `ConfigConst(0x2a)` de
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance`), avec
+  assertion sur clé absente. Les littéraux `100`/`30` ont disparu.
 - **Nature du coup, résidus** (`case-106-ismeleeattack-fork` §7 — fork CLOS, `execute_normal_like`
   threade désormais la nature et le prédicat a un foyer unique) : (a) **le mode `AttackRangeType.Both`
   (3) n'est pas modélisé** — le port déclare la nature (`is_melee` du behaviour) là où
