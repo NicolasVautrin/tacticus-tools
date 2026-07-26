@@ -298,7 +298,12 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
                 is_attack_damage_op=(self.native_factory != "ability"))
             if atk is None:                              # rng non cale : degradation fidele (cf. #217)
                 break
-            chain.append({"target": tgt, "hits": hits, "total": atk.get("total"), "attack": atk})
+            # `hits` = la BASE passee a l'Operation ; `applied_hits`/`per_hit` = ce que la FORMULE de
+            # coups partagee (`AttackHitsWithModifiersFormula$$Calculate`, traversee par la famille
+            # ATTACK) a REELLEMENT applique -- les deux different des que la cible porte un malus de
+            # coups (Parry/LightCover/Camouflage). Exposes pour la confrontation par maillon (#122).
+            chain.append({"target": tgt, "hits": hits, "applied_hits": atk.get("hits"),
+                          "per_hit": atk.get("per_hit"), "total": atk.get("total"), "attack": atk})
             ectx.emit("ChainLeftOverHitsAttackDamage", caster=caster, target=tgt, hits=hits,
                       total=atk.get("total"), attack=atk)
             hits = self._left_over_hits(atk, extra)      # GetLeftOverHits

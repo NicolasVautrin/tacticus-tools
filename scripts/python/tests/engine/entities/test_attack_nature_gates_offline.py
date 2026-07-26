@@ -38,9 +38,16 @@ from engine.entities.effects.loki.extra_damage import (
     BeastSlayerExtraDmgEffect, CrushingStrikeEffect, HeavyWeaponExtraDmgEffect,
     RangedSpecialistEffect,
 )
+from engine.entities.effects.loki.hits import (
+    BigTargetAdjacentEffect, CamouflageHitReductionEffect, DiminutiveHitReductionEffect,
+    LightCoverEffect, ParryEffect,
+)
 from engine.entities.effects.loki.status import WaaaghExtraDamageEffect, WaaaghExtraHitsEffect
 
 MELEE, RANGED, UNKNOWN = False, True, None
+
+# axe COUPS DEFENSEUR : la signature est `is_melee` (et non `is_ranged`) -> meme nature, autre convention.
+M_MELEE, M_RANGED, M_UNKNOWN = True, False, None
 
 
 def test_battlequery_predicates_mirror_native_truth_table():
@@ -91,6 +98,60 @@ def test_ranged_only_damage_bonuses_stay_silent_on_unknown_nature(nature, expect
     hw = HeavyWeaponExtraDmgEffect(name="HeavyWeapon_ExtraDmg", effect_type=1008)
     got_hw = hw.create_effect_damage_bonus_for_attack(is_ranged=nature, has_moved=False)
     assert (got_hw is not None) == expect, f"HeavyWeapon nature={nature} -> {got_hw!r}"
+
+
+# --------------------------------------------------------- #122 : axe COUPS, cote DEFENSEUR
+#
+# Les triggers sont LUS au decompile (jamais deduits du nom) :
+#   IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack
+#       -> OwnerIsTarget & IsMeleeAttack
+#   IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack
+#       -> AreEqual(Tiles(coverPatch), Tiles(Target)) & op_LogicalNot(IsMeleeAttack)
+#   IdunBattleLogic.Entities.Abilities.Triggered.Loki.Camouflage_HitReductionEffect$$CreateEffectHitsBonusForAttack
+#       -> OwnerIsTarget & IsRangedAttack
+#   IdunBattle.Entities.Effects.Loki.BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack
+#       -> OwnerIsTarget & IsRangedAttack
+#   IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack
+#       -> OwnerIsTarget SEUL (aucun gate de nature)
+#
+# La distinction qui compte sur nature INCONNUE (`rangeType 0` : les DEUX predicats faux) :
+# `!IsMeleeAttack` est VRAI (LightCover s'applique) alors qu'`IsRangedAttack` est FAUX
+# (Camouflage/BigTarget se taisent). Confondre les deux = le bug #122.
+
+@pytest.mark.parametrize("nature,parry,light_cover,camouflage,big_target", [
+    (M_MELEE,   True,  False, False, False),
+    (M_RANGED,  False, True,  True,  True),
+    (M_UNKNOWN, False, True,  False, False),
+])
+def test_defender_hits_gates_mirror_native_triggers(nature, parry, light_cover, camouflage,
+                                                    big_target):
+    """Table de verite des gates de NATURE du canal de coups DEFENSEUR (#122)."""
+    p = ParryEffect(name="Parry_ReduceHits").create_effect_hits_malus_for_defense(nature)
+    assert (p is not None) == parry, f"Parry nature={nature} -> {p!r}"
+
+    lc = LightCoverEffect(name="LightCover").create_effect_hits_malus_for_defense(
+        nature, defender_on_cover=True)
+    assert (lc is not None) == light_cover, f"LightCover nature={nature} -> {lc!r}"
+
+    cam = CamouflageHitReductionEffect(
+        name="Camouflage_HitReduction", effect_type=1134).create_effect_hits_malus_for_defense(
+            nature, dist=1)
+    assert (cam is not None) == camouflage, f"Camouflage nature={nature} -> {cam!r}"
+
+    bt = BigTargetAdjacentEffect(name="BigTarget_AdjacentEffect").create_aura_hits_malus_for_defense(
+        {"is_melee": nature, "owner_id": 1, "tgt_id": 2, "owner_team": 0, "tgt_team": 0,
+         "owner_pos": (3, 3), "t_pos": (3, 4)})
+    assert (bt is not None) == big_target, f"BigTarget nature={nature} -> {bt!r}"
+
+
+@pytest.mark.parametrize("nature", [M_MELEE, M_RANGED, M_UNKNOWN])
+def test_diminutive_has_no_nature_gate(nature):
+    """`Diminutive_HitReduction` = `OwnerIsTarget` SEUL : la reduction s'applique a TOUTE attaque,
+    quelle que soit la nature (temoin negatif du test precedent : si Diminutive se mettait a suivre la
+    nature, c'est que le gate a ete recopie au mauvais endroit)."""
+    d = DiminutiveHitReductionEffect(
+        name="Diminutive_HitReduction").create_effect_hits_malus_for_defense(nature)
+    assert d is not None, f"Diminutive nature={nature} -> {d!r} (aucun gate de nature au decompile)"
 
 
 def test_no_nature_means_no_side_wins():

@@ -34,6 +34,43 @@ from .additional_hits import collect_additional_hit_groups, execute_additional_h
 from .damage_hits import HitDamage
 
 
+def hits_channel_is_melee(state: State, attacker_id: int, target_id: int,
+                          is_melee: Optional[bool]) -> Optional[bool]:
+    """Mirror de `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` pour le canal de COUPS d'une
+    attaque d'ABILITY (#122).
+
+    La facade `IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` ne calcule RIEN : elle resout
+    le slot d'interface 2 de la `BattleQuery` et lui passe la tranche `+0x10..+0x28` de l'AttackData,
+    c'est-a-dire le `Nullable<AbilityOrEffect>` de l'attaque en cours (ecrit la par
+    `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits`). `BattleQuery$$IsMeleeAttack` (et son
+    jumeau `$$IsRangedAttack`) partent alors de
+    `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType(ability)` :
+
+        rangeType 0 (absent) -> IsMeleeAttack FALSE  et  IsRangedAttack FALSE
+        rangeType 1 (Melee)  -> IsMeleeAttack TRUE
+        rangeType 2 (Ranged) -> IsRangedAttack TRUE
+        rangeType 3 (Normal) -> HasFlag(unit, 0x15) ? melee=FALSE/ranged=TRUE
+                                                    : AreUnitsInMelee(...)   (POSITIONNEL)
+        (>3 -> NotImplementedException : la table est exhaustive)
+
+    -> la nature du coup est **DECLAREE par l'ability**, sauf pour la seule valeur `Normal`. C'est le
+    MEME predicat que celui des triggers d'effet (`DSLFactory$$IsMeleeAttack`/`$$IsRangedAttack`), donc
+    le meme resultat alimente le terme `ExtraHitsMelee` de la base ET les gates des effets — un seul
+    point de calcul, comme le natif.
+
+    `is_melee` = la nature DECLAREE que la feuille d'attaque a lue dans `attackRangeType` (True=Melee,
+    False=Ranged, **None = attackRangeType absent** -> les DEUX predicats faux, gates inertes). Le port
+    ne modelise pas `Normal`(3) : aucune des 10 abilities qui le portent n'est une feuille d'attaque
+    (residu nomme, case-122 §6). `state`/`attacker_id`/`target_id` sont dans la signature parce que le
+    natif les consomme dans cette branche-la ; ils restent inutilises tant qu'elle n'est pas portee.
+
+    AVANT #122 la facade ability recalculait cette nature POSITIONNELLEMENT (`_is_ranged_position`) :
+    troisieme fork de `IsMeleeAttack` apres #101 et #106, sur la MEME fonction native. Une ability
+    declaree `Ranged` castee au contact passait alors pour de la melee -> `Camouflage_HitReduction` /
+    `BigTarget` / `LightCover` tus, `Parry` sur-applique, `ExtraHitsMelee` ajoute a tort."""
+    return is_melee
+
+
 class _DamageOpsMixin:
     """Mixin des vecteurs d'attaque de `AttackDamageOperation`. Sans etat (staticmethods) ; herite
     tel quel. Chaque methode lazy-importe `AttackDamageOperation` pour ses helpers/`_run_hits`."""
@@ -454,18 +491,22 @@ class _DamageOpsMixin:
         #   - famille ABILITY (`is_attack_damage_op=False`) : `IdunBattle.Operations.AbilityDamageOperation$$Execute`
         #     n'appelle PAS `GetAttackHits` (decompile : il lit le `Nullable<int>` et l'utilise BRUT, defaut 1)
         #     -> base SEULE, canal NON traverse. C'est pourquoi le fold est GATE par la famille.
-        # `is_melee` de la formule = POSITIONNEL (`IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` que
-        # `GetAttackHits` appelle lui-meme, et `IdunBattleLogic.Entities.DSLFactory$$IsMeleeAttack` des triggers
-        # d'effet), PAS la nature declaree de l'ability : une ability "melee" castee a distance 2 est RANGED
-        # pour ce canal. Positions/board absents -> on GARDE la base brute (aucune sur-application).
+        # #122 : `is_melee` de la formule = `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, que
+        # `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` appelle sur l'`AbilityOrEffect` de
+        # l'AttackData -- donc la nature **DECLAREE** (`attackRangeType`) de l'ability, PAS l'adjacence
+        # (seul `rangeType = Normal` est positionnel, non porte). Foyer unique : `hits_channel_is_melee`
+        # ci-dessus, qui documente la table de verite native. Le port recalculait ici la nature
+        # POSITIONNELLEMENT (`_is_ranged_position`) -> 3e fork de `IsMeleeAttack` (apres #101/#106) :
+        # une ability RANGED castee au contact taisait `Camouflage_HitReduction`/`BigTarget`/`LightCover`
+        # et sur-appliquait `Parry`. Positions/board absents -> on GARDE la base brute (aucune
+        # sur-application).
         _ap_h = att.get_component(PositionComponent)
         _tp_h = tgt.get_component(PositionComponent)
         if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
-            from .triggers.base import _is_ranged_position   # lazy : cycle damage<->triggers
-            _melee_pos = not _is_ranged_position(state, attacker_id, target_id)
+            _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
             _board_h, _auras_h, _tgt_eff_h = build_hits_board(
                 state, attacker_id, target_id, (_ap_h.col, _ap_h.row), (_tp_h.col, _tp_h.row),
-                is_melee=_melee_pos)
+                is_melee=_melee_ch)
             # A3 (#113) : gate compute-time LightCover, mirror du call-site de l'attaque normale.
             _t_terrain_h = state.board.terrain_at(_tp_h.col, _tp_h.row)
             _on_cover_h = (_t_terrain_h == LIGHT_COVER_TILE_ID) if _t_terrain_h is not None else None
@@ -474,7 +515,7 @@ class _DamageOpsMixin:
                 extra_hits_melee=ctx.extra_hits_melee,
                 attacker_effects=active, trait_objects=ctx.trait_objects(),
                 target_effects=_tgt_eff_h, aura_sources=_auras_h, board=_board_h,
-                is_melee=_melee_pos, damage_profile=damage_profile,
+                is_melee=_melee_ch, damage_profile=damage_profile,
                 # combat : GetStuckIn n'est PAS dans la formule (behaviour d'exec chance-gate, #62c).
                 # Le vecteur ability ne roule pas non plus de coup bonus (aucun `bonus_hit_chance`
                 # passe a `_run_hits` ici) -> gate False, comme la facade combat de l'attaque normale.

@@ -732,7 +732,12 @@ class CamouflageHitReductionEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None) -> EffectBonus | None:
-        if is_melee:                          # trigger IsRangedAttack -> aucune reduction en melee
+        # #122 : trigger `OwnerIsTarget & IsRangedAttack` (LU au decompile) ->
+        # `BattleQuery$$IsRangedAttack`, VRAI pour le SEUL `attackRangeType = Ranged` (et pour `Normal`
+        # hors-melee). `is_melee = None` = nature NON DECLAREE (`rangeType 0`) : le natif y rend FAUX
+        # pour les DEUX predicats -> aucune reduction. La truthiness (`if is_melee:`) traitait `None`
+        # comme du ranged. No-op strict pour tout appelant qui passe un booleen.
+        if is_melee is not False:             # trigger IsRangedAttack (melee OU nature inconnue -> rien)
             return None
         if defender_on_cover is True:         # HasTile(TilesWithTriggeredAbility(Target, 57)) = sur DryBush
             n = trait_var("Camouflage", "camouflageHitReduction_3")   # numberConstant 0x4d (=3)
@@ -860,7 +865,10 @@ class BigTargetAdjacentEffect(BaseEffect):
 
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
-        if c.get("is_melee") or c.get("owner_id") == c.get("tgt_id"):
+        # #122 : `OwnerIsTarget & IsRangedAttack` (LU) -> `BattleQuery$$IsRangedAttack` = VRAI pour le
+        # seul `attackRangeType = Ranged`. `is_melee = None` (nature non declaree, `rangeType 0`) =
+        # les DEUX predicats faux -> pas d'aura. No-op strict pour un appelant qui passe un booleen.
+        if c.get("is_melee") is not False or c.get("owner_id") == c.get("tgt_id"):
             return None
         if c.get("owner_team") is None or c.get("owner_team") != c.get("tgt_team"):
             return None                     # bénéficiaires = alliés du porteur uniquement

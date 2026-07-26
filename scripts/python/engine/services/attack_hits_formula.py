@@ -42,6 +42,15 @@ Composition (chaque piece deleguee a SON port de classe natif) :
      FromEffects IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffects` (LightCover -2 ranged / Parry -1 melee) + aura BigTarget  -> `entities.effects`
      (`hits_malus_from_defender_effects` / `aura_hits_malus_for_defense`).
 
+NATURE DU COUP (`is_melee`) -- #122. Le natif l'obtient par
+`IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` (que `DamagePrediction$$GetAttackHits` appelle sur
+l'`AbilityOrEffect` de l'AttackData) : elle est **DECLAREE** par l'ability
+(`GetAbilityAttackRangeType` : 0 absent -> melee ET ranged FAUX · 1 Melee · 2 Ranged · 3 Normal ->
+positionnel `AreUnitsInMelee`). Le MEME resultat alimente le terme `ExtraHitsMelee` de la base ET les
+gates des effets -- un seul point de calcul. TRI-ETAT : `None` = nature non declaree, les DEUX familles
+de gates se taisent (les gates `IsRangedAttack` testent donc `is_melee is False`, pas la truthiness ;
+`LightCover`, dont le trigger est `!IsMeleeAttack` et NON `IsRangedAttack`, s'applique sur `None`).
+
 Fidelite GetStuckIn (2) -- divergence PREDICTION vs COMBAT (verdict validateur cluster, BITE 2) : le natif
 applique GetStuckIn comme un behaviour SEPARE chance-gate PENDANT l'execution (pas dans la formule). Les
 DEUX faces sont portees, avec deux emplacements DISTINCTS (fidele : la formule native != l'execution) :
