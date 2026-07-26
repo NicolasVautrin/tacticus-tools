@@ -21,9 +21,10 @@
 > dérivations.
 >
 > **Ce document n'est PAS auto-généré** — mais tous ses comptes le sont. Pour les re-dériver :
-> `python audit_combat_ability_coverage.py` et `python audit_kit_coverage.py` depuis
-> `scripts/python/` (aucune session requise). Les deux fichiers générés
-> (`combat-ability-coverage.md`, `kit-coverage.md`) étaient **déjà à jour** au commit courant :
+> `python audit_combat_ability_coverage.py`, `python audit_kit_coverage.py` et
+> `python audit_passive_ability_coverage.py` depuis `scripts/python/` (le 3ᵉ interroge le pool
+> live ; les deux autres sont offline). Les fichiers générés (`combat-ability-coverage.md`,
+> `kit-coverage.md`, `passive-ability-coverage.md`) étaient **déjà à jour** au commit courant :
 > c'est `port-roadmap.md` (rédigé à la main) qui a dérivé.
 
 ---
@@ -270,6 +271,37 @@ caster, caster ayant bougé). Dégradation **permissive**, donc silencieuse en s
 
 ---
 
+## 3bis. Gisement 4 — les PASSIFS (207), hors du périmètre demandé mais plus gros que les trois
+
+Non demandé par la tâche, mais il faut le nommer sinon la prochaine vague le rate : un **troisième
+audit** existe, `scripts/python/audit_passive_ability_coverage.py`, et son verdict est plus lourd
+que les trois gisements réunis.
+
+Re-dérivé au commit courant :
+
+```
+passifs=207 | enum : TriggeredAbilityType=206, ActiveAbilityType=1
+porte=46  zone-grise=11  gap=150
+confrontables : gap=63  zone-grise=7
+canaux : T=18, O=4, E=31, G=1, X=0, B=3
+```
+
+⇒ **63 passifs à porteur confrontable, non portés.** L'angle mort est **structurel** et vaut d'être
+répété ici : un passif n'est PAS une active non castable, c'est une `TriggeredAbilityType` — un
+objet d'un AUTRE enum. `audit_combat_ability_coverage.py` (le gisement 1) ne pouvait donc rien en
+voir, et l'intersection nom-à-nom actives/passifs est **VIDE**. Cas fondateur : `HeavyGravCannon`,
+qui expliquait un delta live/offline resté longtemps sans cause et n'apparaissait dans AUCUN audit.
+
+⚠ **Homonymie à TROIS faces** à qualifier systématiquement : `EffectType 1291 = HeavyGravCannon`
+(le nom CAPTÉ live) · `TriggeredAbilityType 1233 = HeavyGravCannon` (la CONFIG du passif) ·
+`TriggeredAbilityType 1291 = SelfRepairMechanism` (**sans rapport**). 27 des 207 passifs sont
+homonymes d'un `EffectType` : c'est exactement la population exposée à ce piège.
+
+Détail par passif (canal, verdict, porteur, confrontabilité) : `docs/rl/passive-ability-coverage.md`
+— **régénérer** plutôt que fusionner en cas de conflit.
+
+---
+
 ## 4. Résidus NOMMÉS hors gisement — vérifiés OUVERTS au commit courant
 
 Triés **symptôme mesuré > symptôme nommé > supposé**. Chacun a été relu dans le code ; la
@@ -406,8 +438,11 @@ en tête plutôt qu'une date.
    jour. Un test rouge toléré est un oracle perdu.
 5. **R4 resolve slot-8**, **R9 Chronometron**, **N1-N3** (les trois résidus laissés par #67b) —
    symptômes mesurés ou cause nommée, taille contenue.
-6. **Gisement 3 (§3)** — par faction, ou en règle de non-régression sur chaque nouveau port.
-7. **Gisement 1 (§1), 49 items restants** (67 − les 18 du gisement 2) — piocher par faction ;
+6. **Gisement 4 (§3bis), 63 passifs confrontables** — le plus gros volume, et il est INVISIBLE des
+   deux audits historiques. À traiter en parallèle du gisement 1 (il ne touche PAS `handler.py`,
+   donc pas de collision avec les ports d'actives).
+7. **Gisement 3 (§3)** — par faction, ou en règle de non-régression sur chaque nouveau port.
+8. **Gisement 1 (§1), 49 items restants** (67 − les 18 du gisement 2) — piocher par faction ;
    les 11 de §1.b n'ont plus d'obstacle de harnais.
 8. **R14 face décision MoW**, **R30 multi-hex** — sous-systèmes, à isoler.
 9. **R24, R25, R8** — dette d'outillage / de tests, très peu coûteuse.
