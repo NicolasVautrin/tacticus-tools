@@ -400,6 +400,49 @@ class UnitsWithoutTrait(TargetsSelector):
         return [u for u in self.source.evaluate(ctx) if not ht(u, self.trait)]
 
 
+def hero_units(source: TargetsSelector) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLFactory$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
+    native N'ALLOUE PAS de selecteur dedie, elle DELEGUE textuellement a
+    `IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, 0x10, mask)`. On mirror donc la FACTORY
+    (fonction de composition), pas une classe inventee — `0x10` = `UnitTrait.Hero` (16). Consommateur porte :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetNonCharacterFriendsSelector`
+    (`Friends(...) op_Subtraction HeroUnits(...)` = les amis NON-Character)."""
+    return UnitsWithTrait(source, 0x10)
+
+
+class AllDeadOrResurrectedUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$AllDeadOrResurrectedUnits` ->
+    `IdunBattle.Entities.Selectors.AllDeadOrResurrectedUnitsSelector$$Select` — MIRROR du decompile :
+
+        result = StateExtensions.<slot 0x8a>(state)          # == AllDeadUnitsSelector.Select : les MORTS
+        foreach u in StateExtensions.<slot 0x88>(state):     # toutes les unites du state
+            if UnitFlagsComponent.Has(u, 0xe) and !result.Contains(u):
+                result.Add(u)                                # les RESSUSCITES (deja revenus a la vie)
+        return result
+
+    Le flag `0xe` est celui que `ResurrectUnitOperation` pose (port : `UnitFlagsComponent.AMBUSH_CONSUMED`,
+    permanent, survit a `remove_turn_flags`). Cote port : la moitie MORTS se lit directement de `ctx.units`
+    (le state runner GARDE les cadavres, `alive=False`), la moitie RESSUSCITES via `ctx.has_unit_flag`
+    (None -> False = aucun ressuscite, degradation fidele). Ordre = morts d'abord (ordre `ctx.units`), puis
+    les ressuscites non deja presents — meme ordre d'insertion que le natif.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetMaxSummonsFormula`
+    (`Count(Friends(caster, UnitsWithTrait(AllDeadOrResurrectedUnits, 1000=LivingMetal)))`)."""
+    def select(self, ctx):
+        out = [u for u in ctx.units if not _is_alive(u)]          # == AllDeadUnitsSelector
+        seen = {u.get("id") for u in out}
+        hf = ctx.has_unit_flag
+        if hf is None:
+            return out
+        for u in ctx.units:
+            if u.get("id") in seen:
+                continue
+            if hf(u, 0xe):                                        # UnitFlag 0xe = ressuscite
+                out.append(u)
+                seen.add(u.get("id"))
+        return out
+
+
 def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits(source)` — MIRROR du décompilé (composition PURE
     de primitives déjà portées, comme `get_spawn_tile_selector`) :

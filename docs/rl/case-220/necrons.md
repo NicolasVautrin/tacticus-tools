@@ -2,6 +2,14 @@
 
 ### §6.7 Necrons (11 items après exclusions 1009 ResurrectionOrb / 1226 Chronometron)
 
+> **MAJ #116 (lot 1)** — 3 des 4 actives NO-OP du lot sont **PORTÉES + VALIDÉES LIVE** :
+> **1009 ResurrectionOrb** (summon pur, aucune résurrection — les deux exclusions ci-dessus sont donc
+> levées), **1226 Chronometron**, **1006 MultiThreatEliminator** (la feuille `ChainLeftOverHits` était
+> nommée « ABSENTE / partagée BloodyFury » ci-dessous : elle est désormais portée,
+> `behaviours/combat.py::ChainLeftOverHitsAttackDamage`). **1005 AdaptiveStrategy reste un RÉSIDU**
+> (3 prérequis, dont `RelentlessMarch` hors périmètre). Détail, mesures et résidus chiffrés :
+> [`case-116-necrons-lot1.md`](../case-116-necrons-lot1.md).
+
 **Substrat (grep PROUVÉ)** : feuille DSL `Repair` NON portée (LivingMetal = repair bespoke) ;
 event `On(ArrivedAtFinalTile=28)` posé (turnflow.py:48/67) mais AUCUN vecteur ne le dispatch ;
 famille `ADamageDefenseModifierAbilityEffect` présente (damage_reduction.py) ; faces DÉCISION

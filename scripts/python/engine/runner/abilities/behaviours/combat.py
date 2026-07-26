@@ -170,6 +170,147 @@ class AttackWithAttackDamage(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$ChainLeftOverHitsAttackDamage` ->
+    `IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$Execute` — MIRROR du decompile.
+
+    CHAMPS (mapping factory -> `..ctor` LU, pas devine) : `+0x58` caster · `+0x60` cible INITIALE ·
+    `+0x68` noeud de degat (`MinMaxDamage`) · `+0x70..0x80` `AbilityOrEffect` de la source · `+0x88`
+    selecteur de CIBLE SUIVANTE · `+0x90` noeud `extraHits` · `+0x98` noeud `hits` · `+0xa0` noeud profil.
+
+    BOUCLE NATIVE (`$$Execute`) :
+
+        hits   = (+0x98).Calculate(entities)
+        target = (+0x60).SelectSingle(entities)
+        guard  = 100
+        if hits > 0:
+            while guard > 0 and target != null:
+                <behaviour d'attaque construit a la volee : caster=+0x58, cible=Entity(target),
+                 degat=+0x68, profil=+0xa0, hits=Direct(hits), source=+0x70> .Execute(entities)
+                entities[slot 4] = target                     # == ActiveTarget@0x180
+                hits   = GetLeftOverHits(this, target, entities)
+                target = (+0x88).SelectSingle(entities)       # cible suivante, ActiveTarget = la precedente
+                if hits == 0 : return
+                guard -= 1
+                if hits < 1  : return
+
+    `$$GetLeftOverHits(this, target, entities)` (MIRROR) :
+
+        list  = target.GetComponent<...>.LeftOverDamages (+0x90)
+        count = # d'entrees dont le FLAG est vrai ET dont l'AbilityOrEffect == la notre
+        if list.Count > 0 and (+0x90) != null : count += (+0x90).Calculate(entities)   # extraHits
+        return count
+
+    D'ou viennent les entrees, lu dans `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` et ses
+    TROIS call-sites de `$$Execute` : (a) cible portant DEJA le flag de mort (`UnitExtensions.HasFlag(.., 8)`)
+    -> entree, flag litteral **1** ; (b) coup FATAL (`HealthComponent.IsDead` APRES application) -> entree
+    portant le RESTE d'overkill (`Damage(requested - applied)`), flag = `IsDead` **AVANT**, donc **0**.
+    `list.Count > 0` (donc >= 1 entree) declenche le `+ extraHits` — c'est le canal du « +1 coup par ennemi
+    tue » de l'i2 (`extraHits` = `Get(GetNumberConstant(0x2b) = extraHit)` = 1).
+
+    ⚠ COMBIEN d'entrees COMPTE le predicat de flag : la lecture « toutes les entrees de coups tombes sur le
+    cadavre » est REFUTEE PAR LA MESURE LIVE (probe_116_necrons `--phase mte`, une seule variable = les PV
+    de la 1re cible, donc le nombre de coups gaspillables) :
+
+        PV 1re cible | coups gaspilles apres sa mort | coups recus par la 2e cible, LIVE
+        ------------ | ---------------------------- | ---------------------------------
+        8000         | 1                            | 2   (2987 dmg, 3 seeds bit-exact)
+        4000         | 3                            | 2   (2987 dmg -- IDENTIQUE)
+        2500         | 4                            | 2   (puis 3e cible : 2 coups -> 1 apres Camouflage)
+
+    Le report est **CONSTANT = 1 + extraHits** des que la cible MEURT, et **0** sinon : le predicat ne
+    compte donc QU'UNE entree par attaque tuante (celle du coup fatal, cf. (b)), pas les coups gaspilles.
+    Un modele « 1 par coup gaspille » donnait 4/2 coups a la 2e cible sous PV 4000/8000 -> il aurait
+    SUR-TIRE (mesure : live = 2 dans les deux cas). Le port mirror donc la MESURE, pas la lecture.
+
+    PORT : l'attaque d'une iteration passe par l'Operation deja bit-exacte
+    `AttackDamageOperation.execute_ability_attack` (memes bornes/profil/percage/`state.rng`, meme
+    consommation per-coup) ; l'etat vital est DERIVE de son retour (`per_hit_health` + `hp_before`, exposes
+    pour ce port) : on rejoue la sequence PV coup par coup pour savoir SI et A QUEL coup la cible tombe. Le
+    port applique le degat en UN bloc la ou le natif cesse d'appliquer sur un cadavre : AUCUNE difference
+    observable (la cible est morte dans les deux cas, PV clampes a 0) et AUCUNE difference de conso
+    `state.rng` — le natif ROULE bien les `hits` coups (preuve : le degat de la 2e cible est BIT-EXACT sur
+    3 seeds, ce qui exige un flux `state.rng` aligne). Seul le `total` rapporte pour l'iteration fatale est
+    sur-estime (diagnostic).
+
+    `caster_sel`/`target_sel`/`next_target_sel` = les 3 selecteurs natifs ; `hits`/`extra_hits` = les 2
+    noeuds VALEUR (int ou `AAmountFormula`). `MAX_ITERATIONS` = la garde native `100`. Emet
+    'ChainLeftOverHitsAttackDamage' par iteration. PUR."""
+    __slots__ = ("caster_sel", "target_sel", "next_target_sel", "ability_id", "profile", "hits",
+                 "extra_hits", "is_melee", "native_factory", "min_key", "max_key")
+
+    MAX_ITERATIONS = 100                     # garde native (`iVar19 = 100`)
+
+    def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
+                 next_target_sel: TargetsSelector, ability_id: str, profile: str, hits,
+                 extra_hits, is_melee: bool = False, native_factory: str = "attack",
+                 min_key: str = "minDmg", max_key: str = "maxDmg"):
+        self.caster_sel, self.target_sel, self.next_target_sel = caster_sel, target_sel, next_target_sel
+        self.ability_id, self.profile = ability_id, profile
+        self.hits, self.extra_hits = hits, extra_hits
+        self.is_melee, self.native_factory = is_melee, native_factory
+        self.min_key, self.max_key = min_key, max_key
+
+    @staticmethod
+    def _left_over_hits(atk: dict, extra: int) -> int:
+        """`ChainLeftOverHitsAttackDamageBehaviour$$GetLeftOverHits` — cf. le tableau de mesure de la
+        docstring de la classe :
+          * cible DEJA morte a l'entree (site (a), flag litteral 1) -> une entree PAR coup ;
+          * cible tuee PAR cette attaque (site (b)) -> UNE entree (celle du coup fatal) ;
+          * cible survivante -> AUCUNE entree.
+        `+ extra` des qu'il y a >= 1 entree (`list.Count > 0` natif)."""
+        per_hit = list(atk.get("per_hit_health") or [])
+        hp = int(atk.get("hp_before") or 0)
+        if hp <= 0:                                      # (a) deja morte : chaque coup laisse une entree
+            entries = len(per_hit)
+        else:                                            # (b) UNE entree ssi l'attaque la tue
+            entries = 0
+            for h in per_hit:
+                hp -= int(h)
+                if hp <= 0:
+                    entries = 1
+                    break
+        return entries + (int(extra) if entries else 0)
+
+    def execute(self, entities, ectx):
+        from dataclasses import replace
+        from ...operations.damage import AttackDamageOperation
+        from ..base import ability_attack_params
+        state = ectx.state
+        cu = resolve_unit(self.caster_sel, entities)
+        caster = (cu or {}).get("id")
+        if state is None or caster is None:
+            return OperationResult.ok()
+        hits = int(self.hits.evaluate(entities) if hasattr(self.hits, "evaluate") else self.hits)
+        extra = int(self.extra_hits.evaluate(entities) if hasattr(self.extra_hits, "evaluate")
+                    else self.extra_hits)
+        tu = resolve_unit(self.target_sel, entities)
+        bmin, bmax, pierce, _cfg_hits = ability_attack_params(
+            state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
+            min_key=self.min_key, max_key=self.max_key)
+        guard = self.MAX_ITERATIONS
+        chain: list = []
+        while hits > 0 and guard > 0 and tu is not None and tu.get("id") is not None:
+            tgt = tu.get("id")
+            atk = AttackDamageOperation.execute_ability_attack(
+                state, caster, tgt, bmin, bmax, pierce, hits,
+                damage_profile=self.profile, is_melee=self.is_melee,
+                is_attack_damage_op=(self.native_factory != "ability"))
+            if atk is None:                              # rng non cale : degradation fidele (cf. #217)
+                break
+            chain.append({"target": tgt, "hits": hits, "total": atk.get("total"), "attack": atk})
+            ectx.emit("ChainLeftOverHitsAttackDamage", caster=caster, target=tgt, hits=hits,
+                      total=atk.get("total"), attack=atk)
+            hits = self._left_over_hits(atk, extra)      # GetLeftOverHits
+            # `entities[slot 4] = target` AVANT d'evaluer le selecteur de cible suivante (== ActiveTarget)
+            entities = replace(entities, active_target=tu, subject=tu)
+            tu = resolve_unit(self.next_target_sel, entities)
+            guard -= 1
+        ectx.emit("ChainLeftOverHits", chain=[{k: v for k, v in c.items() if k != "attack"}
+                                              for c in chain])
+        return OperationResult.ok()
+
+
 class AttackWithAbilityDamage(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `AttackDamageBehaviour` sur un noeud de degat
     `Direct(...)` : degat DIRECT (base = un `AAmountFormula`) porte sur la cible, route par le SEUL

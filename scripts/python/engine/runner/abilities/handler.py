@@ -35,7 +35,8 @@ from .darkangels import PlasmaCannonAbility
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility)
 from .bloodangels import SavageEchoesAbility
-from .necrons import HarbingerOfDestructionAbility
+from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
+                      MultiThreatEliminatorAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
                          ThriceBlessedConflagrationAbility)
 from .tau import HeavyRailRifleAbility, TwinSmartMissileSystemAbility
@@ -84,6 +85,9 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     DeathFromAboveAbility.ABILITY_TYPE: DeathFromAboveAbility,         # 1003 (ultraInceptorSgt : spawn ultraSmnInceptor x StatAmount(TURNS_STARTED) tuiles adjacentes-cible SortByDistance(caster) cap-tuiles + on-appearance attaque normale Bolter cible, template SpawnSummon, case-220 UM)
     SavageEchoesAbility.ABILITY_TYPE: SavageEchoesAbility,             # 1230 (Cezare bloodTerminator : 4x Eviscerate melee + extraDmg x free-tiles + self-heal si HP<=50%, case-220 template ArmoriumCherub)
     HarbingerOfDestructionAbility.ABILITY_TYPE: HarbingerOfDestructionAbility,  # 1008 (necroPlasmancer : cible + N-1 ennemis random disque rayon-2 CASTER unobscured, 1x DirectDamage pierce-100, case-220 Necrons)
+    ResurrectionOrbAbility.ABILITY_TYPE: ResurrectionOrbAbility,       # 1009 (necroOverlord Anuphet Necrons : SUMMON PUR (aucun revive) — Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), Min(Count(amis LivingMetal morts/ressuscites) + TURNS_STARTED(caster), 6)), necroSmnWarrior, WithStatsFromConfig), Execute plain, #116)
+    ChronometronAbility.ABILITY_TYPE: ChronometronAbility,             # 1226 (necroChronomancer Thothmek Necrons : Foreach(SurroundingEnemies(caster, range=2), If(HasTrait(It, Summon), AddEffect(Stunned), AddEffect(Pinned)) & AddEffect(Chronometron_ExtraDamage)) ; porteur hors seed BC -> catalog_inject, #116)
+    MultiThreatEliminatorAbility.ABILITY_TYPE: MultiThreatEliminatorAbility,  # 1006 (necroDestroyer Imospekh Necrons : ChainLeftOverHitsAttackDamage 6 coups Gauss + report des coups gaspilles (+extraHit par kill) sur l'ennemi adjacent-derniere-cible & disque rayon-2 caster unobscured, #116)
     SanctorumMissileAbility.ABILITY_TYPE: SanctorumMissileAbility,     # 1062 (adeptMorvenn Morvenn Vahl Sisterhood : missile 2x Blast cible + 1x Blast adjacents-cible (hex Morvenn exclu) Unobscured, native_factory attack, case-220)
     IronkinSteeljackAbility.ABILITY_TYPE: IronkinSteeljackAbility,     # 1219 (votanMemnyr : summon votanSmnSteeljack hex libre adjacent-self + attaque a l'apparition, corps dedup IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour==AberrantHypermorph, case-220 Votann)
     AugmentedAssaultAbility.ABILITY_TYPE: AugmentedAssaultAbility,     # 1221 (votanBeserk Havyr : 4x Eviscerate melee mono-cible + AddDynamicStatModifierEffect(1541) FixedArmor NEGATIF sur la CIBLE, permanent, #113 Votann)

@@ -301,8 +301,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             total += int(comp.modification.get_modification_from_entity(key) or 0)
         return total
 
+    # `ctx.has_unit_flag` (`IdunBattle.Entities.Components.UnitFlagsComponent$$Has`) : l'unite porte-t-elle
+    # le drapeau ? Lu par `AllDeadOrResurrectedUnits` (flag 0xe = RESSUSCITE, pose par
+    # `ResurrectUnitOperation` cote port `UnitFlagsComponent.AMBUSH_CONSUMED`). Unite sans composant de
+    # flags -> False.
+    def _has_unit_flag(unit, flag):
+        from ...components import UnitFlagsComponent
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        fl = e.get_component(UnitFlagsComponent) if e is not None else None
+        return bool(fl.has(int(flag))) if fl is not None else False
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
+                      has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,

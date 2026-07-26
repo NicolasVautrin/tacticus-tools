@@ -487,6 +487,7 @@ class _DamageOpsMixin:
                 attacker_persistent_data=persistent_data_keys(att),
                 is_normal_attack=False)     # gate `IsNormalAttack` (PowerTrip) : vecteur ABILITY
         hits = max(1, int(hits))
+        _hp_before_chain = int(thc.hp or 0)     # PV AVANT l'attaque (#116, cf. le retour `hp_before`)
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
@@ -525,7 +526,10 @@ class _DamageOpsMixin:
                 "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
-                "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"]}
+                "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],
+                # part PV par coup + PV AVANT l'attaque (#116 `ChainLeftOverHitsAttackDamage` : localiser
+                # le coup qui met la cible a 0 PV -> compter les coups GASPILLES sur le cadavre).
+                "per_hit_health": r["per_hit_health"], "hp_before": _hp_before_chain}
 
     @staticmethod
     def execute_normal_like(state: State, attacker_id: int, target_id: int, base: int,

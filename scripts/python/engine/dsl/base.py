@@ -187,6 +187,12 @@ class DslContext:
     # `passive_ability_level`/`active_ability_level` capté (StatsComponent.ctx). Défaut None → niveau inconnu
     # (le nœud consommateur dégrade sur le défaut d'`ability_var`). Fourni par `entities_from_state`.
     get_ability_level: object | None = None
+    # DRAPEAU d'unite (`IdunBattle.Entities.Components.UnitFlagsComponent$$Has(unit, UnitFlag)`) :
+    # `has_unit_flag(unit, flag)->bool`. Lu par `AllDeadOrResurrectedUnits` (mirror
+    # `IdunBattle.Entities.Selectors.AllDeadOrResurrectedUnitsSelector$$Select`, qui teste le flag 0xe sur
+    # CHAQUE unite du state). Defaut None -> False (degradation fidele : aucun ressuscite). Fourni par
+    # `entities_from_state` (lit le `UnitFlagsComponent` de l'ECS runner).
+    has_unit_flag: object | None = None
 
 
 class Const(AAmountFormula):
@@ -211,7 +217,16 @@ def _within(units, center, radius, include_center=False):
     (KillUnit retire l'unite du board) — un cadavre de `ctx.units` (state garde alive=False) ne doit
     donc jamais sortir d'un selecteur d'occupation. Les selecteurs d'ENSEMBLE font leur propre choix
     (`AllUnits`=alive #202, `UnitsDefeatedByMeleeAttack`=morts expres) : le filtre vit ICI, pas dans
-    ctx.units."""
+    ctx.units.
+
+    `center` accepte les DEUX domaines (mirror natif : `AdjacentUnits`/`SurroundingUnits` prennent une
+    ENTITE et le resolveur de tuiles en lit la `MainTile` — meme dualite que `AdjacentTiles`, deja
+    documentee) : une POSITION `(col,row)` **ou** un dict d'unite (-> sa position). Un centre non
+    resolvable (unite sans position) -> aucun voisin."""
+    if isinstance(center, dict):                      # entite -> MainTile (mirror UnitsOnTilesSelector)
+        center = _pos(center)
+    if center is None:
+        return []
     out = []
     for u in units:
         if not _is_alive(u):
