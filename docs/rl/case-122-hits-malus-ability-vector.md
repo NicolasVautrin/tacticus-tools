@@ -172,18 +172,27 @@ et nature positionnelle coincident -> per-coup bit-exact inchange), `test_summon
 
 ## 6. Ce qui n'est PAS couvert
 
-- **RESIDU ADJACENT, mesure et non traite (axe DEGAT / sequencage RNG de la chaine, pas ce canal)** :
-  maillon 3 du regime `--hp-target 2500`, port `[2613]` vs live `[2423]` a nombre de coups EGAL.
-  Piste la plus etayee par la mesure ci-dessus : apres un KILL, le natif execute UN coup de plus que
-  le port (l'event `Amount = 0` du maillon 2 — tags `Attack_Is_First_Hit: 0`,
-  `UnitStats_RemainingHealth: 0` — est un coup tombe sur le CADAVRE, et le maillon 1 du regime 8000
-  montre que le natif emet bien un event par coup, y compris le coup-cadavre final). Ce coup
-  supplementaire consomme du `state.rng` que le port ne consomme pas -> le tirage du maillon SUIVANT
-  diverge. Le regime `8000` (un seul coup gaspille) reste bit-exact, le regime `2500` (quatre coups
-  gaspilles) diverge : c'est coherent avec un desalignement de flux, pas avec un modificateur de degat
-  (aucun effet DEFENSIF sur `tauMarksman` — 1136 `SeekerMissileFrequencyLock_Aiming` et 1515
-  `RangedSpecialist` sont des bonus ATTAQUANT). A instruire cote `ChainLeftOverHitsAttackDamage` /
-  `_run_hits` (#116), pas cote canal de coups.
+- **RESIDU ADJACENT — RESOLU par [case-125](case-125-rng-wasted-hits.md)** : maillon 3 du regime
+  `--hp-target 2500`, port `[2613]` vs live `[2423]`.
+
+  > **La piste avancee ici etait FAUSSE.** « Le natif execute UN coup de plus que le port ... ce coup
+  > supplementaire consomme du `state.rng` que le port ne consomme pas » : non. Le port `_run_hits`
+  > boucle sur `hits` **sans aucun gate de mort**, exactement comme
+  > `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` (`while (i < hits)`, sans sortie sur la
+  > mort ; tirages consommes dans `ExecuteHit`, en amont de la sous-op `0x42`). Les deux cotes roulent
+  > tous leurs coups.
+  >
+  > L'inference « un event de degat == un coup » est elle aussi fausse : des que la cible porte
+  > `UnitFlag.Overkilled` (cumul demande >= 2 x PV), `ApplyDamageOperation$$Execute` retourne AVANT
+  > d'emettre — les coups suivants existent mais sont MUETS. C'est pour cela que le regime 2500 ne
+  > montre que 3 events pour 6 coups.
+
+  Cause reelle : le **report** de `ChainLeftOverHitsAttackDamage` (`GetLeftOverHits`), fige a
+  `1 + extraHit` par #116 alors qu'il vaut `max(0, H - k - 1) + extraHit`. Le maillon 2 recevait 2
+  coups au lieu de 4 -> 4 tirages de moins -> le maillon 3 tirait faux. Le regime `8000` restait
+  bit-exact parce que `k = 5` y rend les deux formules egales ET que `LightCover` (-2, plancher 1)
+  ecrase 1 et 2 sur la meme valeur appliquee. Corrige : port `[2423]` = live, bit-exact aussi sur
+  seeds 31337 / 777.
 - **`attackRangeType = Normal` (3)** : le mode position-based du natif n'est pas modelise (le port ne
   porte que le tri-etat declare). Aucune des 10 abilities concernees n'est une feuille d'attaque du
   port — residu nomme, pas un port speculatif. Idem `HasFlag(unit, 0x15)`, jamais lu.

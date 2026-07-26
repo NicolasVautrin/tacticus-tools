@@ -209,30 +209,31 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
     `list.Count > 0` (donc >= 1 entree) declenche le `+ extraHits` — c'est le canal du « +1 coup par ennemi
     tue » de l'i2 (`extraHits` = `Get(GetNumberConstant(0x2b) = extraHit)` = 1).
 
-    ⚠ COMBIEN d'entrees COMPTE le predicat de flag : la lecture « toutes les entrees de coups tombes sur le
-    cadavre » est REFUTEE PAR LA MESURE LIVE (probe_116_necrons `--phase mte`, une seule variable = les PV
-    de la 1re cible, donc le nombre de coups gaspillables) :
+    ⚠ COMBIEN d'entrees COMPTE le predicat de flag : cf. `_left_over_hits` — le report vaut
+    `max(0, H - k - 1) + extraHits` (H = coups appliques, k = index du coup fatal), et **0** si la cible
+    survit. La lecture « report CONSTANT = 1 + extraHits des que la cible meurt » (#116) etait calibree
+    sur un SEUL regime (PV 8000 -> k=5) et cassait des que k <= 3 (#122) : elle est REFUTEE par
+    `probe_125_leftover_hits.py --mode sweep` (4 regimes, table dans `_left_over_hits`).
 
-        PV 1re cible | coups gaspilles apres sa mort | coups recus par la 2e cible, LIVE
-        ------------ | ---------------------------- | ---------------------------------
-        8000         | 1                            | 2   (2987 dmg, 3 seeds bit-exact)
-        4000         | 3                            | 2   (2987 dmg -- IDENTIQUE)
-        2500         | 4                            | 2   (puis 3e cible : 2 coups -> 1 apres Camouflage)
-
-    Le report est **CONSTANT = 1 + extraHits** des que la cible MEURT, et **0** sinon : le predicat ne
-    compte donc QU'UNE entree par attaque tuante (celle du coup fatal, cf. (b)), pas les coups gaspilles.
-    Un modele « 1 par coup gaspille » donnait 4/2 coups a la 2e cible sous PV 4000/8000 -> il aurait
-    SUR-TIRE (mesure : live = 2 dans les deux cas). Le port mirror donc la MESURE, pas la lecture.
+    FLUX `state.rng` DES COUPS GASPILLES (#125) : le natif ROULE bien TOUS ses `hits` coups, y compris
+    ceux qui tombent sur un cadavre. `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` est une
+    boucle `while (i < hits)` SANS aucune sortie anticipee sur la mort de la cible, et les trois tirages
+    d'un coup (`IdunBattle.Core.HitDamage$$GetDamage`, `IdunBattle.Core.Services.DamagePrediction$$RollCritical`,
+    `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`) sont consommes dans
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` **avant** la sous-operation 0x42
+    (`IdunBattle.Operations.ApplyDamageOperation$$Execute`), seul endroit ou un cadavre court-circuite.
+    Le port fait pareil (`_run_hits` boucle sur `hits` sans gate de mort) -> AUCUN desalignement de flux
+    de ce fait. RESIDU nomme : sur un cadavre DEJA `UnitFlag.Overkilled`, `ApplyDamageOperation$$Execute`
+    retourne AVANT les jets de block/esquive qu'il porte, alors que le port les joue encore — no-op tant
+    que la cible n'a aucune source de block (cas mesures), sinon 1 tirage d'ecart par coup gaspille.
 
     PORT : l'attaque d'une iteration passe par l'Operation deja bit-exacte
     `AttackDamageOperation.execute_ability_attack` (memes bornes/profil/percage/`state.rng`, meme
     consommation per-coup) ; l'etat vital est DERIVE de son retour (`per_hit_health` + `hp_before`, exposes
     pour ce port) : on rejoue la sequence PV coup par coup pour savoir SI et A QUEL coup la cible tombe. Le
-    port applique le degat en UN bloc la ou le natif cesse d'appliquer sur un cadavre : AUCUNE difference
-    observable (la cible est morte dans les deux cas, PV clampes a 0) et AUCUNE difference de conso
-    `state.rng` — le natif ROULE bien les `hits` coups (preuve : le degat de la 2e cible est BIT-EXACT sur
-    3 seeds, ce qui exige un flux `state.rng` aligne). Seul le `total` rapporte pour l'iteration fatale est
-    sur-estime (diagnostic).
+    port applique le degat en UN bloc la ou le natif cesse d'appliquer sur un cadavre : aucune difference
+    observable (la cible est morte des deux cotes, PV clampes a 0). Seul le `total` rapporte pour
+    l'iteration fatale est sur-estime (diagnostic).
 
     `caster_sel`/`target_sel`/`next_target_sel` = les 3 selecteurs natifs ; `hits`/`extra_hits` = les 2
     noeuds VALEUR (int ou `AAmountFormula`). `MAX_ITERATIONS` = la garde native `100`. Emet
@@ -254,24 +255,63 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
 
     @staticmethod
     def _left_over_hits(atk: dict, extra: int) -> int:
-        """`ChainLeftOverHitsAttackDamageBehaviour$$GetLeftOverHits` — cf. le tableau de mesure de la
-        docstring de la classe :
-          * cible DEJA morte a l'entree (site (a), flag litteral 1) -> une entree PAR coup ;
-          * cible tuee PAR cette attaque (site (b)) -> UNE entree (celle du coup fatal) ;
-          * cible survivante -> AUCUNE entree.
-        `+ extra` des qu'il y a >= 1 entree (`list.Count > 0` natif)."""
+        """`IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$GetLeftOverHits` —
+        `count` = nb d'entrees `LeftOverDamages` (composant de la CIBLE, champ +0x90) dont le FLAG
+        (`IdunBattle.Core.LeftOverDamage$$.ctor` param_4 -> champ +0x7c) est vrai ET dont
+        l'`AbilityOrEffect` (+0x18) egale la notre (+0x70) ; `+ extraHits` (noeud +0x90) des que
+        `list.Count > 0` — donc des qu'il existe AU MOINS UNE entree, quel que soit son flag.
+
+        LOI PORTEE (H = coups APPLIQUES, k = index 1-based du coup qui met la cible a 0 PV) :
+
+            cible SURVIVANTE                -> 0            (aucune entree, pas meme le `+ extraHits`)
+            tuee au coup k                  -> max(0, H - k - 1) + extraHits
+            deja morte a l'entree           -> H + extraHits          (modelise, non confronte)
+
+        MESURE LIVE (`probe_125_leftover_hits.py --mode sweep`, seed 4242, board MC1_67, chaine
+        MultiThreatEliminator ; le report est FORCE maillon par maillon et le tuple est confronte au
+        per-coup LIVE du maillon dont la cible SURVIT — seul maillon ou le per-coup live n'est ni
+        clampe par les PV ni tronque) :
+
+            PV 1re cible | k | report LIVE mesure | max(0,H-k-1)+1
+            ------------ | - | ------------------ | ---------------
+            2500         | 2 | 4                  | 4
+            3000         | 2 | 4                  | 4
+            4000         | 3 | {1,2,3} (LightCover ecrase) | 3
+            10000        | 6 | >= 1 (le 2e maillon EST frappe) | 1
+
+        Les regimes 2500 et 3000 ont le MEME k et un index d'overkill DIFFERENT (3 vs 4, lisible au nb
+        d'events : `ApplyDamageOperation$$Execute` retourne des l'entree sur
+        `UnitExtensions.HasFlag(target, UnitFlag.Overkilled = 8)` -> les coups suivants n'emettent plus
+        rien) et donnent le MEME report 4 : le report depend de **k**, pas de l'index d'overkill. Le
+        regime 10000 (k = H, AUCUN coup gaspille) rend >= 1 : c'est lui qui pin le terme `+ extraHits`
+        (`extraHit` = 1 en gameconfig pour 1006).
+
+        ⚠ ECART LECTURE/MESURE, documente : les TROIS call-sites d'`ApplyDamageOperation$$AddLeftoverHit`
+        lus au decompile — (a) `HasFlag(target, Overkilled)` -> entree flag LITTERAL 1 puis `return` ;
+        (b) `Damage.GetTotal(requested) > 0 && HealthComponent.IsDead(apres)` -> flag = `IsDead` AVANT ;
+        (c) reste d'overkill (`requested - applied`), meme flag — predisent `H - k` entrees flag-vrai
+        (un coup sur cadavre = `IsDead` avant = vrai, et `HealthComponent$$IsDead` est bien
+        `CurrentValue < 1 && CurrentMaximumValue > 0`, sans differe). La mesure en donne **une de
+        moins**. Exactement UN coup-sur-cadavre ne laisse donc pas d'entree comptee ; la mesure ne dit
+        pas LEQUEL (le 1er coup sur le cadavre et le coup d'OVERKILL coincident sur les 4 regimes) —
+        residu nomme, pas un scalaire fitte : la loi est entiere et confrontee sur 4 regimes dont deux
+        qui separent k de l'index d'overkill.
+
+        AVANT ce port, le branche « tuee » rendait `1 + extraHits` en dur (mesure #116 lue sur un SEUL
+        regime, PV 8000 -> k=5, H=6, ou `1` se trouve etre `max(0,H-k-1)+1 - 1`... et surtout ou le
+        malus `LightCover` du maillon suivant ecrase 1 et 2 sur la MEME valeur appliquee) : d'ou le
+        bit-exact trompeur de #116 et la divergence de #122 des que k <= 3."""
         per_hit = list(atk.get("per_hit_health") or [])
+        if not per_hit:
+            return 0
         hp = int(atk.get("hp_before") or 0)
-        if hp <= 0:                                      # (a) deja morte : chaque coup laisse une entree
-            entries = len(per_hit)
-        else:                                            # (b) UNE entree ssi l'attaque la tue
-            entries = 0
-            for h in per_hit:
-                hp -= int(h)
-                if hp <= 0:
-                    entries = 1
-                    break
-        return entries + (int(extra) if entries else 0)
+        if hp <= 0:                       # (a) deja morte : chaque coup tombe sur le cadavre
+            return len(per_hit) + int(extra)
+        for i, h in enumerate(per_hit):   # (b) l'attaque tue-t-elle, et A QUEL coup
+            hp -= int(h)
+            if hp <= 0:
+                return max(0, len(per_hit) - (i + 1) - 1) + int(extra)
+        return 0                          # cible SURVIVANTE -> AUCUNE entree -> pas de `+ extraHits`
 
     def execute(self, entities, ectx):
         from dataclasses import replace
@@ -303,8 +343,14 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
             # coups partagee (`AttackHitsWithModifiersFormula$$Calculate`, traversee par la famille
             # ATTACK) a REELLEMENT applique -- les deux different des que la cible porte un malus de
             # coups (Parry/LightCover/Camouflage). Exposes pour la confrontation par maillon (#122).
+            # `per_hit_health`/`hp_before` exposes DANS le maillon (additif, #125) : ce sont les DEUX
+            # entrees de `_left_over_hits` -- un probe/test qui veut recalculer le report doit lire la
+            # part PV, pas `per_hit` (qui somme PV + bouclier + armure-pool).
             chain.append({"target": tgt, "hits": hits, "applied_hits": atk.get("hits"),
-                          "per_hit": atk.get("per_hit"), "total": atk.get("total"), "attack": atk})
+                          "per_hit": atk.get("per_hit"),
+                          "per_hit_health": atk.get("per_hit_health"),
+                          "hp_before": atk.get("hp_before"),
+                          "total": atk.get("total"), "attack": atk})
             ectx.emit("ChainLeftOverHitsAttackDamage", caster=caster, target=tgt, hits=hits,
                       total=atk.get("total"), attack=atk)
             hits = self._left_over_hits(atk, extra)      # GetLeftOverHits

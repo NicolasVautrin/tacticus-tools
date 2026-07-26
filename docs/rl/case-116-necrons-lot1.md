@@ -186,31 +186,36 @@ while guard > 0 and target != null:
 
 `$$GetLeftOverHits` = « nb d'entrées `LeftOverDamage` de la cible portant notre `AbilityOrEffect` et dont
 le flag est vrai » + `extraHits` si la liste est non vide. Les entrées sont posées par
-`IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` : (a) cible portant déjà le flag de mort
-(`HasFlag(.., 8)`) → flag littéral 1 ; (b) coup FATAL → entrée portant le reste d'overkill
-(`Damage(requested − applied)`), flag = `IsDead` **avant**, donc 0.
+`IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` : (a) cible portant déjà
+`UnitFlag.Overkilled` (`HasFlag(.., 8)`) → flag littéral 1 ; (b)/(c) coup laissant la cible morte →
+entrée (dont une portant le reste d'overkill `Damage(requested − applied)`), flag = `IsDead` **avant**.
 
-### ⚠ Ce que la MESURE a tranché (et ce qu'elle a réfuté)
+### ⚠ Le report — CORRIGÉ par [case-125](case-125-rng-wasted-hits.md)
 
-La lecture naturelle — « le report vaut le nombre de coups tombés sur le cadavre » — est **RÉFUTÉE**.
-Mesure live (`--phase mte`, une seule variable : les PV de la 1re cible, donc le nombre de coups
-gaspillables) :
+> **La valeur donnée ici à l'origine — « report CONSTANT = 1 + `extraHit` dès que la cible meurt » — est
+> FAUSSE.** Elle a été calibrée sur un SEUL régime (PV 8000 → coup fatal au 5ᵉ des 6 coups) où elle
+> coïncide numériquement avec la vraie loi, et où le maillon suivant portait `LightCover` (−2 coups,
+> plancher 1) qui **écrase 1 et 2 sur la même valeur appliquée** : les deux formules y sont
+> indiscernables. Elle diverge dès que le coup fatal arrive tôt — c'est l'origine du résidu #116-d.
 
-| PV 1re cible | coups gaspillés après sa mort | coups reçus par la 2e cible, LIVE |
-|---|---|---|
-| 8000 | 1 | **2** (2987 dmg, bit-exact sur 3 seeds) |
-| 4000 | 3 | **2** (2987 dmg — IDENTIQUE) |
-| 2500 | 4 | **2** (puis 3e cible : 2 coups) |
+Loi réelle (mesurée sur 4 régimes, cf. [case-125](case-125-rng-wasted-hits.md) §4), avec `H` = coups
+APPLIQUÉS du maillon et `k` = index 1-based du coup fatal :
 
-Le report est **CONSTANT = 1 + `extraHit`** dès que la cible MEURT, **0** sinon : le prédicat de flag ne
-compte QU'UNE entrée par attaque tuante (celle du coup fatal), pas les coups gaspillés. Le modèle
-« 1 par coup gaspillé » aurait donné 4 coups à la 2e cible sous PV 4000 → **sur-tir**. Le port mirror la
-mesure ; la première version (sur-tirante) a été corrigée, pas ajustée par un scalaire.
+```
+cible SURVIVANTE      -> 0                              (aucune entrée, pas même le + extraHits)
+tuée au coup k        -> max(0, H - k - 1) + extraHits
+déjà morte à l'entrée -> H + extraHits                  (modélisé, non confronté)
+```
 
-Corollaire lu dans la même mesure : le natif **roule bien les 6 coups** même après la mort (le dégât de la
-2e cible est bit-exact sur 3 seeds, ce qui exige un flux `state.rng` aligné) — il cesse seulement de les
-APPLIQUER. Le port applique le total en un bloc : aucune différence observable (la cible est morte des deux
-côtés) et aucune différence de consommation RNG.
+Le tableau de mesure d'origine (« PV 4000 → 2 coups », « PV 2500 → 2 coups ») lisait le nombre d'events
+de dégât live comme un nombre de coups. C'est faux : dès que la cible est `Overkilled` (cumul demandé
+≥ 2 × PV), `ApplyDamageOperation$$Execute` retourne **avant** d'émettre quoi que ce soit — les coups
+suivants existent mais sont muets (case-125 §2.2).
+
+Ce qui reste VRAI de cette section : le natif **roule bien les 6 coups** même après la mort — confirmé
+au décompilé (`AttackDamageOperation$$ExecuteHits` = `while (i < hits)` sans sortie sur la mort ; les
+tirages sont consommés dans `ExecuteHit`, en amont de la sous-op `0x42`). Le port fait pareil (`_run_hits`
+sans gate de mort) : **aucune** différence de consommation `state.rng` de ce fait.
 
 ### Validation live (`--phase mte`, board MC1_67, `--crit 0,0`)
 
@@ -227,13 +232,14 @@ Le delta systématique sur le CASTER (`83`) dans les traces live est la RÉACTIO
 (`Overwatch_AutoAttack` / `WireweaveNet_CounterAttack` de l'`eldarRanger`) — hors ability, non rejouée
 offline sur ce chemin.
 
-**Résidu chiffré, INDÉPENDANT de la chaîne** — ~~canal de réduction de coups~~ **REQUALIFIÉ par
-[case-122](case-122-hits-malus-ability-vector.md) §5.2** : le « offline 2 coups » lisait la **BASE**
-de la chaîne (`chain[].hits`), pas les coups APPLIQUÉS. Le probe expose désormais `applied_hits` :
-sur le 3e maillon (`tauMarksman`, `Camouflage_HitReduction`) le port applique **1** coup, le natif
-**1** aussi — le canal de coups concorde. Ce qui reste est un écart de **DÉGÂT per-coup**
-(port `[2613]` vs live `[2423]`), attribué au **séquencage RNG de la chaîne après un KILL** (le natif
-roule un coup de plus, celui qui tombe sur le cadavre) → backlog **#116-d**.
+**Résidu chiffré #116-d — RÉSOLU par [case-125](case-125-rng-wasted-hits.md)** : ~~canal de réduction
+de coups~~ requalifié par [case-122](case-122-hits-malus-ability-vector.md) §5.2 (le « offline 2 coups »
+lisait la **BASE** `chain[].hits`, pas les coups APPLIQUÉS ; le canal de coups concorde), puis
+définitivement attribué. L'écart de dégât per-coup du 3ᵉ maillon (port `[2613]` vs live `[2423]`)
+**n'était PAS** un problème de séquençage RNG des coups gaspillés (le natif ET le port roulent tous
+leurs coups) : c'était le **report** ci-dessus, faux dès que le coup fatal arrive tôt — le 2ᵉ maillon
+recevait 2 coups au lieu de 4, donc 4 tirages de moins, donc le 3ᵉ maillon tirait faux. Corrigé ;
+port `[2423]` = live, et bit-exact sur seeds 31337 / 777.
 
 **Résidu structurel** : `SelectSingle` du sélecteur de cible suivante prend le PREMIER élément dans
 l'ordre d'énumération natif (tuiles, `UnitsOnTilesSelector`) ; le port prend le premier dans l'ordre
