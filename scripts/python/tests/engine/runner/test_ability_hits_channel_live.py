@@ -31,6 +31,11 @@ la base vient de `constants.nrOfHits`, la difference vient du TRAIT de la cible)
   (4) FrenziedFiring (1036) : les coups ne sont PAS `nrOfHits` mais le noeud GEOMETRIQUE
       `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetHitsForOriginalTarget` ;
       natif == port sur DEUX geometries distinctes, et le compte VARIE entre elles (anti-constante).
+  (5) FrenziedFiring, VOLET AoE : le playbook emet un SECOND batch
+      `GenerateMultiHitAttackPredictions` sur
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets`
+      (ennemis du caster sur l'anneau hex de la cible) a `hits = 1` LITTERAL -- natif == port
+      (cibles, coups ET degat) avec 0 puis 3 voisins ennemis, le caster restant IMMOBILE.
 
 Drive les positions (`applyAction move` ignore portee et propriete). Lit l'etat LIVE ; aucune tuile/RVA
 hardcodee. ASCII only. Runners auto-disposes par la fixture `build_runner`.
@@ -61,6 +66,8 @@ CTRL_VIS = "necroWarden"         # temoin : aucun modificateur de coups
 FRENZY = 1036                    # blackObliterator -- hits = noeud GEOMETRIQUE
 FRENZY_NAME = "FrenziedFiring"
 FRENZY_VIS = "blackObliterator"
+# 4 ennemis : 1 cible + jusqu'a 3 voisins pilotes sur son anneau (volet AoE).
+FRENZY_FOES = ["necroWarden", "templChampion", "ultraTitus", "astraBullgryn"]
 
 
 def _ok(r):
@@ -391,3 +398,142 @@ def test_frenzied_firing_hits_is_geometric(live_session, rpc, build_runner):
     assert a[0] - b[0] == a[2] - b[2], \
         (f"l'ecart de coups ({a[0] - b[0]}) ne suit pas l'ecart de tuiles adjacentes libres "
          f"({a[2] - b[2]}) -> la formule geometrique portee n'est pas la bonne")
+
+
+# ============================================================ (5) FrenziedFiring : volet AoE (2e batch)
+
+def _pred_rows(rpc, rid, cid, tid, dv):
+    """(natif, port) = liste de (targetId, appliedHits, dmgMin, dmgMax) pour le MEME etat.
+
+    NATIF = `aiPlaybookPredict` invoque le `FrenziedFiringPlaybook.MakeDamagePredictions` natif et
+    decode TOUS ses ProbableDamageEvent -- donc les DEUX batchs (cible d'origine + volet AoE)."""
+    from engine.playbook import scene as SC
+    from engine.playbook.scene import Scene
+    from engine.playbook import prediction as PRED
+    r = rpc("aiPlaybookPredict", {"runnerId": rid, "unitId": cid, "targetId": tid,
+                                  "abilityType": FRENZY}, 90)
+    nat = [(e.get("targetId"), e.get("appliedHits"), e.get("healthDmgMin"), e.get("healthDmgMax"))
+           for e in ((r or {}).get("events") or [])]
+    predictor = SC.build_predictor(lambda m, b=None, t=120: rpc(m, b, t), rid)
+    sctx = SC.step_context(predictor, dv)
+    scene = Scene.from_predictor_sctx(predictor, sctx, None)
+    evs = PRED.make_damage_predictions(scene, cid, tid, FRENZY, FRENZY_NAME,
+                                       attack_pos=scene.pos(cid)) or []
+    port = [(e.target, e.prediction.applied_hits, e.prediction.accurate_health_damage.min,
+             e.prediction.accurate_health_damage.max) for e in evs]
+    return sorted(nat, key=lambda x: x[0] or 0), sorted(port, key=lambda x: x[0] or 0)
+
+
+def test_frenzied_firing_aoe_batch_matches_native(live_session, rpc, build_runner):
+    """`FrenziedFiringPlaybook.MakeDamagePredictions` emet DEUX batchs
+    `GenerateMultiHitAttackPredictions` : la cible d'origine (`hits` = noeud GEOMETRIQUE, deja
+    valide en (4)) PUIS un batch AoE sur `FrenziedFiringAbility$$GetTargets`
+    (= `AdjacentEnemies(caster@0x160, TargetTiles@0x190, 1)` = ennemis du caster sur l'anneau hex
+    de la CIBLE) avec `hits = 1` LITTERAL, concatene au premier.
+
+    On mesure la MEME cible dans DEUX geometries pilotees, sur le MEME runner :
+      - K=0 voisin ennemi  -> le volet AoE est INERTE : le natif rend UN seul event (garde de
+        NON-REGRESSION du batch d'origine) ;
+      - K=3 voisins ennemis -> le natif rend 1+3 events, les 3 secondaires a `hits = 1`.
+    Le port doit rendre exactement les MEMES cibles, les MEMES coups et le MEME degat.
+
+    !! LE CASTER N'EST JAMAIS DEPLACE (case-101 #6) : `applyAction move` poserait `UnitFlag.Moved`,
+    que le natif lit pour desarmer `HeavyWeapon_ExtraDmg` (+25% ranged not-moved) alors qu'AUCUN RPC
+    n'expose les UnitFlags au port -> un x1.25 de MESURE, etranger au volet teste. On deplace
+    uniquement la cible et ses voisins autour du caster immobile ; le degat devient bit-exact."""
+    rid = build_runner("61105", extra=["--roster", "1", "--p-units", FRENZY_VIS,
+                                       "--a-units", ",".join(FRENZY_FOES),
+                                       "--hp-target", "90000"])["rid"]
+    board = _board(rpc, rid)
+    dv = _dv(rpc, rid)
+    me = _find(dv, FRENZY_VIS)
+    if me is None:
+        pytest.skip(f"{FRENZY_VIS} absent du build")
+    if not _my_turn(rpc, rid, me.get("owner")):
+        pytest.skip("tour du caster non atteint")
+    dv = _dv(rpc, rid)
+    me = _find(dv, FRENZY_VIS)
+    foes = [u for u in (dv.get("units") or [])
+            if u.get("alive") and u.get("owner") != me.get("owner")]
+    if me is None or len(foes) < 4:
+        pytest.skip(f"roster insuffisant (caster={bool(me)} ennemis={len(foes)})")
+
+    cpos = _pos(me)
+    walk = [board.coord(t) for t in sorted(board.by_id) if board.walkable(t)]
+
+    def nb_free(coord):
+        return [n for n in board.neighbours(board.id_at(*coord)) if board.walkable(n)]
+
+    # Cible en PLEIN CHAMP (6 voisins marchables) et a portee (range 3) du caster IMMOBILE.
+    open_tiles = [c for c in walk if len(nb_free(c)) == 6 and 2 <= hexgeo.distance(c, cpos) <= 3]
+    if not open_tiles:
+        pytest.skip(f"aucune tuile a 6 voisins marchables a portee du caster @{cpos}")
+    tgt, others = foes[0], foes[1:]
+    _move(rpc, rid, tgt["id"], max(open_tiles, key=lambda c: hexgeo.distance(c, cpos)))
+    dv = _dv(rpc, rid)
+    tu = next((u for u in (dv.get("units") or []) if u.get("id") == tgt["id"]), None)
+    tpos = _pos(tu) if tu else None
+    if tpos is None:
+        pytest.skip("cible non placee")
+    # Anneau exploitable = voisins marchables de la cible, hors tuile du caster.
+    ring = [board.coord(n) for n in nb_free(tpos) if board.coord(n) != cpos]
+    far = [c for c in walk
+           if hexgeo.distance(c, tpos) > 4 and hexgeo.distance(c, cpos) > 4]
+    if len(ring) < 3 or len(far) < len(others):
+        pytest.skip(f"geometrie insuffisante (anneau={len(ring)} tuiles lointaines={len(far)})")
+
+    def adjacent_foes():
+        d = _dv(rpc, rid)
+        return sorted(u["id"] for u in (d.get("units") or [])
+                      if u.get("alive") and u.get("id") != tgt["id"]
+                      and u.get("owner") != me.get("owner") and _pos(u)
+                      and hexgeo.distance(_pos(u), tpos) == 1), d
+
+    # --- K = 0 : tous les autres ennemis LOIN -> volet AoE inerte (non-regression) -------------
+    for i, u in enumerate(others):
+        _move(rpc, rid, u["id"], far[(i * 7) % len(far)])
+    adj0, dv0 = adjacent_foes()
+    if adj0:
+        pytest.skip(f"des ennemis restent adjacents a la cible malgre le parking : {adj0}")
+    nat0, port0 = _pred_rows(rpc, rid, me["id"], tgt["id"], dv0)
+
+    # --- K = 3 : trois ennemis SUR l'anneau -> volet AoE mordant -------------------------------
+    for i, u in enumerate(others[:3]):
+        _move(rpc, rid, u["id"], ring[i])
+    adj3, dv3 = adjacent_foes()
+    nat3, port3 = _pred_rows(rpc, rid, me["id"], tgt["id"], dv3)
+
+    print(f"\n[#61 frenzy AoE] caster u{me['id']} @{cpos} (IMMOBILE) cible u{tgt['id']} @{tpos}")
+    print(f"  K=0 adj={adj0} natif={nat0}")
+    print(f"      port ={port0}")
+    print(f"  K=3 adj={adj3} natif={nat3}")
+    print(f"      port ={port3}")
+
+    # (a) Le scenario DISCRIMINE : le natif lui-meme change de nombre d'events entre les 2 geometries.
+    assert len(nat0) == 1, \
+        (f"sans voisin ennemi le natif rend {len(nat0)} events (attendu 1) -> le volet AoE ne "
+         f"serait pas gate par la geometrie : {nat0}")
+    assert len(adj3) == 3 and len(nat3) == 1 + len(adj3), \
+        (f"avec {len(adj3)} voisins ennemis le natif rend {len(nat3)} events (attendu "
+         f"{1 + len(adj3)}) -> le 2e batch n'est pas `AdjacentEnemies(cible)` : {nat3}")
+
+    # (b) Le batch AoE natif est bien a `hits = 1` LITTERAL, cible par cible.
+    aoe_nat = [row for row in nat3 if row[0] != tgt["id"]]
+    assert sorted(r[0] for r in aoe_nat) == adj3, \
+        f"cibles du 2e batch natif {sorted(r[0] for r in aoe_nat)} != voisins ennemis {adj3}"
+    assert {r[1] for r in aoe_nat} == {1}, \
+        (f"le 2e batch natif n'est pas a 1 coup par cible ({[r[1] for r in aoe_nat]}) -> le "
+         f"litteral `hits=1` lu au decompile est faux")
+
+    # (c) PORT == NATIF, event par event, dans LES DEUX geometries (cibles + coups + degat).
+    assert port0 == nat0, f"K=0 : port {port0} != natif {nat0}"
+    assert port3 == nat3, f"K=3 : port {port3} != natif {nat3}"
+
+    # (d) Le batch d'ORIGINE reste geometrique et n'a pas ete casse : ses coups DIMINUENT d'autant
+    #     que des ennemis occupent l'anneau (chaque voisin ennemi retire une tuile du Count et
+    #     ajoute un event AoE) -> anti-constante sur les DEUX volets a la fois.
+    main0 = next(r for r in nat0 if r[0] == tgt["id"])
+    main3 = next(r for r in nat3 if r[0] == tgt["id"])
+    assert main0[1] - main3[1] == len(adj3), \
+        (f"coups du batch d'origine {main0[1]} -> {main3[1]} : l'ecart ne vaut pas le nombre de "
+         f"voisins ennemis ({len(adj3)}) -> la base geometrique (4) a bouge")

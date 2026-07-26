@@ -357,14 +357,17 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe d'overlays. Biais visible
   seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
 - **Canal de coups des abilities, résidus** (`case-61-ability-hits-channel` §6 — canal COMBAT LIVRÉ,
-  base géométrique de `FrenziedFiring` LIVRÉE) : (a) **volet AoE de `FrenziedFiring`** — le playbook natif
-  émet un 2e batch sur `FrenziedFiringAbility$$GetTargets` (ennemis adjacents à la cible, `hits = 1`
-  littéral) que le port n'émet pas, axe `get_aoe_targets` ; (b) **`On(PreAttack=5)` absent du vecteur
+  base géométrique de `FrenziedFiring` LIVRÉE, **volet AoE de `FrenziedFiring` LIVRÉ** : 2e batch
+  `FrenziedFiringAbility$$GetTargets` à `hits = 1` littéral, bit-exact live sur 0/1/2/3 voisins
+  ennemis, cf. §4bis) : (b) **`On(PreAttack=5)` absent du vecteur
   ability** (fidèle : le natif l'émet depuis `ALoki_NormalAttackAbility$$ExecuteNormalAttack`) → sur ce
   vecteur `LetTheGalaxyBurn` ne s'arme que par `TargetHasTileEffect`, jamais par le flag persistant 33 % ;
   (c) **per-coup non bit-exact contre `templChampion`** (même nb de coups, dégât différent — axe DÉGÂT,
   effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est
-  bit-exact). `[opus]`, à promouvoir si un miss d'agreement les fait surface.
+  bit-exact) ; (d) **flag `Moved` absent de la face PRÉDICTION** (résidu `case-101` §6 re-mesuré sur
+  1036 : ×1,25 uniforme `HeavyWeapon_ExtraDmg` sur tout caster ranged déjà déplacé — débloqueur =
+  exposer `UnitFlagsComponent` dans `combatSnapshot`). `[opus]`, à promouvoir si un miss d'agreement
+  les fait surface.
 - **Constantes de gameplay FIGÉES dans les tests, sans oracle** (#96, inventaire — corrigés à ce jour :
   `test_summon_trait_effects_live` Diminutive + ShadowInTheWarp, `test_lightcover_gate_live` ; **LOT A
   `nrOfHits`/`nrOfHits_2` LIVRÉ** : `test_cord_claw_live`, `test_flail_swing_live`,

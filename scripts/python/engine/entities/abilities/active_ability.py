@@ -437,6 +437,48 @@ class MultiThreatEliminatorAbility(AActiveAbility):
         return 6     # IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$.cctor : champ statique hits = 6 (constante native)
 
 
+class FrenziedFiringAbility(AActiveAbility):
+    """`FrenziedFiringAbility` (blackObliterator « Volk », id 1036). Le playbook
+    `IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions` emet **DEUX** batchs
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions` :
+
+      1. cible d'ORIGINE — `targets = Target@0x178`, `hits = Evaluate(GetHitsForOriginalTarget)`
+         (base GEOMETRIQUE, portee par `_frenzied_firing_inputs` — case-61, LIVREE) ;
+      2. **volet AoE** — `targets = IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets`,
+         `hits = 1` **LITTERAL** (immediat du call-site, PAS une constante de config : `nrOfHits`
+         (0x2f) vaut deja 1 pour cette ability, mais le natif n'appelle NI `GetNumberConstant` NI
+         `GetHits` pour ce batch — recopier `nrOfHits` serait une coincidence, pas un mirror).
+         Le resultat du batch 2 est concatene dans la liste du batch 1 (`List.Add` en boucle).
+
+    Les DEUX batchs partagent la meme `GetDamageFormula` (helper etiquete
+    `IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetDamageFormula` =
+    `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` avg = `get_damage()` generique) et le
+    meme `Nullable(IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile)` (profil config, PAS
+    null) -> aucun override base/profil, seul `hits` differe. `param_10` (poids Fix64) = 0 sur les deux
+    -> `probability = Fix64.FromInt(1)`, donc AUCUNE ponderation `GetMaxSecondaryTargets` ici.
+
+    `GetTargets` = `DSLFactory.AdjacentEnemies(caster@0x160, TargetTiles@0x190, 1)`, surcharge
+    `IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies` a 4 args :
+        `Enemies(caster@0x160, Units(AdjacentTiles(TargetTiles@0x190), 1, 3) - TargetTiles@0x190, 3)`
+    = les unites d'equipe != celle du CASTER posees sur les tuiles adjacentes (ring-1 hex) a la tuile
+    de la CIBLE. Le centre est deja exclu par `AdjacentTiles` (le `op_Subtraction` natif est defensif) ;
+    la cible principale, elle, est retiree par `make_damage_predictions`.
+
+    Le filtre VIVANT n'est PAS un noeud du tree : il est porte par `Units(...)`
+    (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`, occupation de tuile — un mort n'est
+    plus sur le board) que `_within` mirrore deja (#57m ; `ctx.units` garde les cadavres). D'ou
+    `AdjacentEnemies` NU, sans wrapper `Damageable`."""
+
+    # IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets
+    _AOE = dsl.AdjacentEnemies(dsl.TargetTile(), dsl.Const(1))
+
+    #: `hits` LITTERAL du 2e `GenerateMultiHitAttackPredictions` (7e arg = immediat 1).
+    AOE_HITS = 1
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
@@ -445,6 +487,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "MurderousSwing": MurderousSwingAbility,
     "Executioner": ExecutionerAbility,
     "MultiThreatEliminator": MultiThreatEliminatorAbility,
+    "FrenziedFiring": FrenziedFiringAbility,
 }
 
 
