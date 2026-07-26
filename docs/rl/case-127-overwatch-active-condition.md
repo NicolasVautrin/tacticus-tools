@@ -1,10 +1,22 @@
-# case-127 — Gate `ActiveAbilityUsed` de l'OVERWATCH
+# case-127 — L'ÉTAT ACTIF de l'OVERWATCH (`EffectComponent.IsActive`)
 
-**Verdict** : QUIRK PORTÉ. Un overwatcher qui a consommé son activation d'ability ce tour **ne
-ré-entre PAS** en overwatch au tour adverse — natif comme port. Le port tirait ; il ne tire plus.
+**Verdict** : QUIRK PORTÉ, en deux temps. Les **trois** `Triggered()` de
+`IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` — qui
+n'écrivent qu'une chose, le flag `EffectComponent.IsActive @+0x5c` de l'instance d'effet — sont
+désormais portés :
 
-**Point de port** : `scripts/python/engine/runner/operations/triggers/effect_triggers.py`
-(`_ranged_auto_attack_is_active` + son appel dans `OverwatchAutoAttack.matches`).
+| `Triggered()` | règle | statut |
+|---|---|---|
+| (1) `On(0x12) & NOT IsTurnOf(owner) & (HasEffect 1302 \| NOT HasFlag ActiveAbilityUsed) & NOT Pinned -> ActivateEffect` | un overwatcher qui a **consommé son activation d'ability** ne ré-entre pas en overwatch | porté (§1-§5) |
+| (2) `On(0x12, 1) & IsTurnOf(owner) -> DeactivateEffect` | pas d'overwatch pendant **son propre** tour | porté (§8) |
+| (3) `On(10 = AttackDamageAttack, 1) & OwnerIsActor -> DeactivateEffect` | **un seul tir par activation** — l'overwatch est consommé dès que son porteur attaque | porté (§8) |
+
+**Points de port** : `scripts/python/engine/runner/operations/triggers/effect_triggers.py`
+(`_ranged_auto_attack_is_active`, `_ranged_auto_attack_flag_is_set`, `OverwatchAutoAttack.matches`,
+les trois classes `RangedAutoAttack{ActivateOnTurnStart,DeactivateOnTurnStart,DeactivateOnAttack}`),
+`engine/entities/effects/base.py` (`BaseEffect.active` = le flag `+0x5c`) et
+`engine/runner/operations/triggers/dispatch.py` (`attack_damage_attack_triggers` = le vecteur
+`On(10)`).
 
 ---
 
@@ -77,11 +89,17 @@ et, pour l'overwatch,
 
 ## 2. Conséquence de la fenêtre temporelle (pourquoi le repli est légitime)
 
-Le port n'a pas de flag `IsActive` par instance d'effet : le canal de seed
-(`decisionView.units[].effects`, `readEffectsByUnit`) **DROPPE déjà** les effets `IsActive == 0`
-(case-160, prouvé live) — un effet présent offline est un effet actif. Le gate d'activation est donc
-**replié dans le `matches` du tir**, exactement comme le port repliait déjà
+Le canal de seed (`decisionView.units[].effects`, `readEffectsByUnit`) **DROPPE déjà** les effets
+`IsActive == 0` (case-160, prouvé live) — un effet présent au seed est un effet actif. Le gate
+d'activation est donc **replié dans le `matches` du tir**, exactement comme le port repliait déjà
 `AdditionalActivateTrigger` (Pinned) avant ce cas.
+
+> Ce repli reste indispensable même depuis que le flag existe par instance (§8) : un replay-diff
+> **seede un état mi-tour** et dispatche directement l'after-move, sans jamais traverser un
+> `StartTurnOperation` — donc sans `On(0x12)`, donc sans (1)/(2). Le flag seul serait permissif sur ce
+> régime, qui est celui de tous les tests ci-dessous. Les deux niveaux ne se recouvrent pas : le repli
+> lit une condition **constante sur la fenêtre**, le flag mémorise un **événement survenu pendant**
+> la fenêtre.
 
 Le repli est observationnellement équivalent sur les vecteurs portés :
 
@@ -135,9 +153,10 @@ Posée explicitement (« le port ignore-t-il les `ActiveCondition` en général 
   déjà **ad hoc**, chacune dans son foyer : `ReviveEffect` via `UnitComponent.revive_used_this_turn`
   (case-66), `AnvilShield_FrozenAttackerAdvantage` (1201) via son trigger `On(0xe)`.
 
-⇒ **Le fix local est le bon étage.** Le vrai chantier générique — un champ `IsActive` par instance
-d'effet, écrit par des feuilles `ActivateEffect`/`DeactivateEffect` et lu par le dispatcher — est
-listé en §6 : il n'est pas requis par ce cas, et le porter à blanc n'aurait aucun effet observable.
+⇒ **Le fix local est le bon étage** pour le gate d'ACTIVATION. Le champ `IsActive` par instance, lui,
+a été porté avec le `Triggered()` (3) qui l'exigeait — mais **PAS au dispatcher** : §8.2 montre au
+décompilé que le gate natif est au niveau du **trigger de CIBLE**, pas de la collecte, et qu'un filtre
+dans `collect_effect_triggers` aurait rendu la ré-activation impossible.
 
 ## 5. Validation
 
@@ -201,18 +220,12 @@ RÈGLE ; le double verdict offline prouve le PORT de la règle.
 (vecteur `On(4)`) · `test_heavy_weapon_moved_gate_live.py` (l'autre gate à flag) — **20 passés,
 1 xfail préexistant**, zéro skip.
 
-## 6. Résidus inventoriés (NON portés)
+## 6. Résidus inventoriés
 
-1. **`Triggered()` (3) — l'overwatch est CONSOMMÉ dès que son porteur attaque.**
-   `On(AttackDamageAttack = 10, 1) & OwnerIsActor -> DeactivateEffect`. **MESURÉ LIVE** (même
-   fixture, tour adverse, deux overwatchers à portée) : le 1er déplacement du mover déclenche les
-   deux tirs (`hp 400000 -> 385014`) et **1009 disparaît des deux** (`[1008, 1111]` /
-   `[1008, 1291]`) ; le déplacement suivant ne déclenche **rien** (`delta 0`). Offline, le port fait
-   tirer un overwatcher **à chaque** déplacement ennemi de la portée — c'est le prochain écart de ce
-   cluster, et il est indépendant de #127 (un porteur non-attaquant n'a que le gate du flag). Fix
-   attendu : un compteur/flag « a tiré depuis la dernière activation » posé par
-   `OverwatchAutoAttack.execute_behaviour` et purgé par le `StartTurnOperation`, ou le vrai champ
-   `IsActive` (point 3 ci-dessous).
+1. ~~**`Triggered()` (3) — l'overwatch est CONSOMMÉ dès que son porteur attaque**~~ — **FERMÉ**, cf.
+   §8. La mesure live qui l'avait ouvert (`hp 400000 -> 385014` puis `delta 0`) est désormais
+   reproduite bit-exact par le port et gardée par
+   `test_overwatch_single_shot_per_activation{,_live}.py`.
 2. **Branche OR `HasEffect(owner, IgnoreUsedAbilityInOverwatch = 1302)`** : portée, mais **aucun
    poseur** de cet EffectType n'a été trouvé dans le décompilé (0 occurrence de `0x516`/`,1302,` en
    position d'`AddEffect` ; les 5 fonctions qui citent `0x516` sont la nôtre + 4 usages du
@@ -224,16 +237,142 @@ RÈGLE ; le double verdict offline prouve le PORT de la règle.
    `$$GetReactivateOverwatchCondition` (`Max(RangedAttackHits, MeleeAttackHits) > <vtable +0x748>`
    & `NOT IsTurnOf(owner)` & `AdditionalActivateTrigger`) — **non portée** (l'effet 1145 est posé
    mais inerte, cf. `case-114-tau-lot1` §5).
-3. **Champ `IsActive` générique par instance d'effet** (le chantier de §4). Aujourd'hui sans effet
-   observable sur les 8 effet-triggers portés ; deviendra nécessaire dès qu'un effet-trigger porté
-   aura une `CreateActiveCondition` non triviale, ou pour porter proprement le point 1.
+3. ~~**Champ `IsActive` générique par instance d'effet**~~ — **PORTÉ** (§8.1 : `BaseEffect.active`),
+   avec la nuance décisive de §8.2 : le gate natif n'est **pas** au dispatcher. Il reste `True` par
+   défaut pour toute instance (dont les seedées) et n'est écrit aujourd'hui que par les trois
+   `Triggered()` de l'overwatch — donc strictement no-op pour les 7 autres effet-triggers.
 
 ## 7. Ce qui n'est PAS couvert
 
-- Le point 1 ci-dessus (« un seul tir par activation ») — mesuré, chiffré, non porté.
 - La branche OR 1302 : portée sans confrontation live (aucun poseur identifié).
 - Le conjoint `NOT IsTurnOf(owner)` est confronté live **indirectement** (au déploiement et pendant
   mon tour, `decisionView` ne liste pas 1009 sur mes propres overwatchers) mais aucun scénario ne le
   rend seul discriminant pour le TIR : sur les vecteurs `after-move` portés, le mover ennemi bouge
   toujours pendant son propre tour. Il ne peut donc ni sur-bloquer ni sous-bloquer aujourd'hui.
 - Le pump FIFO natif reste COLLAPSÉ (case-201) ; ce cas n'y touche pas.
+- Le conjoint `ctx@+0x98` des `Triggered()` (2) et (3) (2ᵉ argument de `DSLFactory$$On`) n'est **pas
+  qualifié** — cf. §8.3. Il est VRAI dans l'exécution réelle (la mesure live le prouve) ; le port ne
+  le modélise pas.
+- Le site d'émission d'`On(10)` diverge STRUCTURELLEMENT du natif (§8.4) : le port l'émet à la sortie
+  des opérations d'attaque-à-dégâts, pas depuis un `FinishAttackOperation` (que le port n'a pas).
+
+---
+
+## 8. Fermeture du résidu #1 — « un seul tir par activation »
+
+### 8.1 Ce que le décompilé impose
+
+`RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` (lu intégralement, les 3 `Triggered()`
+forment un ensemble) : le 3ᵉ est `On(10 = AttackDamageAttack, 1) & OwnerIsActor -> DeactivateEffect
+(effect@0x150)`. `OwnerIsActor` = `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor`, construit
+avec le couple **(owner@0x148, actor@0x158)** — « l'acteur de l'événement est le porteur de l'effet ».
+`DeactivateEffect` = `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect`, dont le corps
+est exactement `if (+0x5c == 0) return; +0x5c = 0; UpdateEffectTargets(...)` (d'où le gate
+« déjà inactif ⇒ no-op » porté tel quel) ; `ActivateEffect` est son pendant `+0x5c = 1`.
+
+Ce `Triggered()` **n'est pas repliable** comme (1)/(2) : il ne lit aucune condition constante sur la
+fenêtre, il mémorise un **événement survenu pendant** elle. Il exige donc l'état natif lui-même — le
+champ `IsActive` **par instance**. C'est le choix retenu (l'alternative « marqueur local posé par
+`OverwatchAutoAttack.execute_behaviour` » aurait recâblé à la main, dans le behaviour du TIR, une
+règle que le natif exprime comme un trigger séparé écoutant **toute** attaque du porteur, pas
+seulement l'overwatch — et aurait raté, par construction, une attaque du porteur par un autre vecteur).
+
+Port : `BaseEffect.active` (annoté `EffectComponent.IsActive @+0x5c`), **défaut `True`**. Ce défaut
+est ce qui préserve l'invariant « présence == IsActive » du seed (case-160) : `readEffectsByUnit`
+droppe déjà les instances `IsActive == 0`, donc un effet capté live est actif. `EffectsState
+.active_effects` conjugue désormais les DEUX notions natives — le FLAG (`e.active`) et la CONDITION
+(`e.is_active(...)`, mirror de `CreateActiveCondition`, cf. `refresh_effects.py`) ; `has_effect`
+(gate « déjà présent » d'`AddEffectOperation`) est laissé inchangé, le natif n'y regardant pas
+`IsActive`.
+
+### 8.2 Où le gate est lu — et pourquoi PAS au dispatcher
+
+`EvaluateEffectTrigger` appelle DEUX routines, et une seule est gatée :
+
+- `EvaluateEffectTriggerEffectAbilities` évalue l'`ArraySet` de `CreateHandleTriggerAbilitiesInternal`
+  — **aucun test de `+0x5c`**. C'est ce qui permet à (1) de RÉ-ACTIVER une instance désactivée ;
+- `EvaluateEffectTriggerTargets` teste `*(char *)(effectEntity + 0x5c)` **avant** d'évaluer le trigger
+  de CIBLE, et le **re-lit par cible** dans sa boucle de drain (une désactivation en cours de drain
+  stoppe les cibles suivantes).
+
+⇒ le port pose le gate dans `OverwatchAutoAttack.matches` (le trigger de cible), **premier test**, et
+laisse `collect_effect_triggers` sans filtre `active`. L'inverse aurait éteint l'overwatch pour
+toujours : le trigger d'activation n'aurait plus jamais été collecté.
+
+### 8.3 Les trois `Triggered()` = trois classes
+
+`EFFECT_TRIGGERS[1009]` porte maintenant quatre entrées (l'`ArraySet` natif porte bien N triggers pour
+un même effet) : `OverwatchAutoAttack` (le TIR, `On(4)`), `RangedAutoAttackActivateOnTurnStart`
+(`On(0x12)`, condition = `_ranged_auto_attack_is_active`, la MÊME fonction que le repli de §2),
+`RangedAutoAttackDeactivateOnTurnStart` (`On(0x12)` & `IsTurnOf(owner)`),
+`RangedAutoAttackDeactivateOnAttack` (`On(10)` & `OwnerIsActor`).
+
+Conjoint non qualifié : `DSLFactory$$On(ctx, evt, bool)` conjugue l'event avec un trigger pré-construit
+du contexte — `ctx@+0x128` quand le booléen est faux, `ctx@+0x98` quand il est vrai
+(`DSLFactory$$InitializeShared`). `ctx@+0x128` est la classe qu'un `is`-test de
+`BaseEffect$$NeedsRefreshing` traite comme trigger TRIVIAL (toujours vrai) ; `ctx@+0x98`, présent sur
+(2) et (3) et absent de (1), n'est pas identifié. La mesure live tranche pour le régime qui nous
+concerne : le tir désactive bel et bien l'overwatch, donc ce conjoint y est vrai.
+
+### 8.4 Le vecteur `On(10)` — et sa divergence de site, assumée
+
+`FinishAttackOperation$$Execute` émet, à la clôture de toute attaque, `On(9 = Attack)` **toujours**,
+puis `On(10)` **sous le gate `currentAttack@+0x2c`** — champ posé par
+`AttackDamageOperation$$Execute` (`*(lVar6 + 0x2c) = 1`, juste après `GetAttackHits`). L'event 10
+signifie donc « cette attaque a comporté une attaque-À-DÉGÂTS », par opposition à une attaque d'ability
+résolue par `AbilityDamageOperation` — côté port, exactement le drapeau `is_attack_damage_op`.
+
+Le port n'a **pas** de `FinishAttackOperation` : ses vecteurs de clôture (`On(0x26)`, `On(9)`) vivent au
+niveau MESSAGE (`DamageHandler.visit_AttackUnitMessage` → `after_hit_normal_attack`) et ne sont donc
+pas traversés par les attaques déclenchées par un trigger — **dont le tir d'overwatch lui-même**, qui
+appelle directement `AttackDamageOperation.execute`. Y émettre `On(10)` aurait raté le seul
+consommateur porté. Il est donc émis à la **sortie des opérations** d'attaque-à-dégâts
+(`AttackDamageOperation.execute` et `execute_ability_attack` quand `is_attack_damage_op`), c'est-à-dire
+au foyer natif du `+0x2c`. Conséquence acceptée : une attaque native unique qui enchaînerait plusieurs
+`AttackDamageOperation` émettrait N fois au lieu d'1 — sans effet observable, `DeactivateEffect` portant
+son propre gate d'idempotence. (Le résidu « le port n'émet pas les vecteurs de clôture pour les attaques
+déclenchées par trigger » est PRÉ-EXISTANT et hors périmètre : le corriger déplacerait Psyker/ActOfFaith.)
+
+Le troisième vecteur d'attaque du port, `execute_normal_like` (splash Psyker), n'émet **pas** `On(10)` :
+il n'est atteint qu'en conséquence d'une attaque du même acteur qui, elle, l'a déjà émis — l'ajouter
+serait un doublon sans effet, donc du port spéculatif. À rouvrir si un jour ce vecteur devient la SEULE
+attaque d'un porteur d'overwatch.
+
+### 8.5 Validation
+
+**Ground truth LIVE reproduite à l'identique** (`test_overwatch_single_shot_per_activation_live.py`,
+board `MC1_67` / seed 777, deux overwatchers `eldarRanger` + `admecDestroyer`, deux movers distincts
+`necroOverlord` + `necroWarden` à `--hp-target 400000`) :
+
+| | live | port (replay depuis l'état pré-move, RNG calé par `dumpRng`) |
+|---|---|---|
+| move 1 (mover A entre en portée) | `400000 -> 385014`, 1009 disparaît des DEUX (`[1008,1111]` / `[1008,1291]`) | **2 tirs**, `385014` — bit-exact |
+| move 2 (mover B, toujours en portée) | `400000 -> 400000` | **0 tir**, `400000` |
+| après aller-retour de tours | 1009 **de retour** sur les deux | flags `IsActive` **de retour** après 2 `EndTurnOperation`, et le port **re-tire** (`320000 -> 301050`) |
+
+Deux movers DISTINCTS (plutôt qu'un même mover déplacé deux fois) : le critère « une seule volée par
+activation » ne doit rien devoir à une éventuelle limite de déplacement par activation.
+
+**Contrôles adversariaux** (les deux joués, le fix neutralisé à la main) :
+- gate `IsActive` court-circuité ⇒ le move 2 re-tire **2** overwatch (`hp 385555` au lieu de `400000`)
+  et 4 tests offline tombent — c'est exactement la divergence d'avant ;
+- `Triggered()` (1) neutralisé (overwatch éteint DÉFINITIVEMENT) ⇒ la branche de ré-activation tombe,
+  live comme offline. Le critère principal seul ne l'aurait **pas** vu.
+
+**Offline pur** (`test_overwatch_single_shot_per_activation.py`, 10 cas) : `OwnerIsActor` dans les deux
+sens, idempotence de la désactivation, (1)/(2) conjoint par conjoint, et le **cycle de tour complet**
+(`EndTurnOperation` → `ChangeTurn` → `StartTurnOperation` → `On(0x12)`) qui rend la ré-activation —
+y compris sa non-ré-activation quand le porteur a consommé son activation d'ability (#127 et ce cas
+cohabitent sans se recouvrir).
+
+**Non-régression** (tests ciblés, **rejoués APRÈS le rebase sur `origin/master`**) :
+`test_overwatch_live.py` · `test_overwatch_active_ability_gate_live.py` ·
+`test_overwatch_activation_condition.py` · `test_damage_roll_live.py` · `test_runner_attack_live.py` ·
+`test_runner_move_live.py` (1 xfail préexistant) · `test_rad_saturation_live.py` ·
+`test_heavy_weapon_moved_gate_live.py` · `test_damage_ability_live.py` · `test_turnflow_live.py` ·
+`test_turnflow_endturn_flags.py` · `test_anvil_shield_stun_live.py` · `test_psyker_splash_live.py` ·
+`test_sentinel_directives_live.py` · `test_thrill_seekers_live.py` · `test_effect_duration_rounds_live.py`
+· `test_act_of_faith_live.py` — **64 passés, 1 xfail**, zéro skip.
+`test_hailstrike_phase2_live.py` échoue (`dégât live 2700 hors de [1688, 2532]`) — **échec
+PRÉ-EXISTANT**, vérifié en rejouant le fichier sur l'arbre SANS le fix (mêmes bornes, même assertion)
+et re-constaté à l'identique après le rebase.

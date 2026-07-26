@@ -105,17 +105,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Débloqueur alternatif, plus fidèle : exposer `StatModificationComponent` (+0x10 StatType /
   +0x14 montant) de l'entité-effet dans `frida/hooks/game/effects.ts` → plus aucune magnitude
   re-dérivée offline. **Exige rebuild + reinject.** `[opus]`.
-- **OVERWATCH : un seul tir par activation** (`case-127-overwatch-active-condition` §6.1, MESURÉ
-  LIVE) — 3ᵉ `Triggered()` de
-  `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` :
-  `On(AttackDamageAttack=10, 1) & OwnerIsActor -> DeactivateEffect`. Ground truth : au 1ᵉʳ
-  déplacement ennemi dans la portée, les deux overwatchers tirent (`hp 400000 -> 385014`) et l'effet
-  1009 **disparaît des deux** ; le déplacement suivant ne déclenche **rien** (`delta 0`). Offline, un
-  overwatcher tire à **chaque** déplacement ennemi de la portée. Indépendant du gate
-  `ActiveAbilityUsed` (fermé par #127) : un porteur qui n'attaque pas n'a que ce dernier. Fix =
-  marqueur « a tiré depuis la dernière activation » posé par
-  `OverwatchAutoAttack.execute_behaviour` et purgé au `StartTurnOperation`, ou le champ `IsActive`
-  générique par instance d'effet (`case-127` §6.3). `[opus]`.
 - **Retrait de `InspiredToGreatness_OverrideLevel` (1180)** (`case-114-tau-lot1` §5) :
   `IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$
   CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` — non branché offline, l'override de

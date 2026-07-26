@@ -274,9 +274,9 @@ Points de mesure notables :
    (`HasEffect(owner, 1302)` | `DoesNotHaveFlag(owner, 2)`) & `AdditionalActivateTrigger`) est
    repliee dans `OverwatchAutoAttack.matches` (helper `_ranged_auto_attack_is_active`), confrontee
    live avec controle interne (`eldarRanger`/1063 flag pose -> 1009 ABSENT vs `admecDestroyer`/1139
-   override -> 1009 PRESENT, meme tour, meme cible). RESTE de ce cluster : le 3e `Triggered()`
-   (`On(10) & OwnerIsActor -> DeactivateEffect` = **un seul tir par activation**), mesure live et
-   inventorie dans `case-127` §6.1 + backlog.
+   override -> 1009 PRESENT, meme tour, meme cible). Le 3e `Triggered()` (`On(10) & OwnerIsActor ->
+   DeactivateEffect` = **un seul tir par activation**) est FERME lui aussi : `case-127` §8 (flag
+   `EffectComponent.IsActive @+0x5c` par instance + vecteur `On(AttackDamageAttack)`).
 2. **Retrait de l'override de niveau (1180)** — `InspiredToGreatness_OverrideLevelEffect$$
    CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` (retrait au PROCHAIN cast du porteur). Non
    branche offline -> l'override sur `active_ability_level` PERSISTE apres la 2e utilisation. Sans
