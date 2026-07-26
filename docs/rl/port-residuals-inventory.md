@@ -7,17 +7,18 @@
 > commit courant** : chaque ligne porte un verdict **OUVERT / PÉRIMÉ / NON PERTINENT**, et seul
 > OUVERT produit une tâche dispatchable.
 >
-> **Base de la mesure** : commit `21494b6` (`origin/master` au moment du rebase), build
-> `gqfc5mff6c`, session Frida 1 `running`, pool `rl_duel build --list-pool` rank 17 =
-> **97 unités + 8 MoW**.
+> **Base de la mesure** : commit `b6d174c` (`origin/master` au 2ᵉ rebase), build `gqfc5mff6c`,
+> session Frida 1 `running`, pool `rl_duel build --list-pool` rank 17 = **97 unités + 8 MoW**.
 >
 > **Démonstration en direct de l'utilité de ce document** : l'inventaire a d'abord été établi sur
-> `7f47c29` ; le rebase avant PR a ramené 4 commits qui ont fermé **4 des résidus que je venais
-> d'inventorier comme OUVERTS** (R2 gate d'immunité, R3 overwatch un-tir, R18 bouclier × limites,
-> R22 EnvFireTile). Ils sont passés en §5 avec leur commit, et les **6 résidus neufs** que ces
-> commits nomment ont été ajoutés (N1-N6). Les comptes des trois GISEMENTS, eux, sont **inchangés
-> après rebase** (ces 4 commits ne portent aucune ability neuve) — re-vérifié en relançant les deux
-> audits sur l'arbre rebasé.
+> `7f47c29` ; **deux rebases successifs** avant PR ont ramené 5 commits qui ont fermé **6 des
+> résidus que je venais d'inventorier comme OUVERTS** (R2 gate d'immunité, R3 overwatch un-tir,
+> R10 override de niveau 1180, R11 phase-2 EarlyWarningOverride, R18 bouclier × limites,
+> R22 EnvFireTile). Ils sont passés en §5.0 avec leur commit, et les **6 résidus neufs** que ces
+> commits nomment dans leurs case docs — absents de tout backlog — ont été ajoutés (N1-N6). Les
+> comptes des trois GISEMENTS, eux, sont **inchangés après les deux rebases** (aucun de ces commits
+> ne porte d'ability neuve) — re-vérifié à chaque fois en relançant les deux audits et les trois
+> dérivations.
 >
 > **Ce document n'est PAS auto-généré** — mais tous ses comptes le sont. Pour les re-dériver :
 > `python audit_combat_ability_coverage.py` et `python audit_kit_coverage.py` depuis
@@ -292,8 +293,8 @@ référence de ligne est le point d'ancrage.
 | # | Résidu | Symbole natif | Porteur / conf. | Fichiers | Taille |
 |---|---|---|---|---|---|
 | R9 | **Magnitude de `Chronometron_ExtraDamage` (1550)** — effet POSÉ (visible `decisionView`) mais INERTE. Les 3 entrées manquent à `attacker_ctx` (`{id, is_normal_attack, faction}`) : équipe de l'attaquant vs équipe de la SOURCE de l'effet, trait `Mechanical` de l'attaquant, compteur `TimesEffectApplied` par instance | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (déjà confronté live, `case-92` §4) | `engine/runner/operations/damage_ops.py` (`attacker_ctx`), `engine/entities/effects/loki/*`, face prédiction | **1 sous-système** (élargissement d'`attacker_ctx` DEUX faces + compteur par instance) |
-| R10 | **Retrait de `InspiredToGreatness_OverrideLevel` (1180)** non branché — l'override d'`active_ability_level` persiste après la 2ᵉ utilisation (résidu flaggé `abilities/behaviours/stats.py:359`) | `IdunBattle.Entities.Effects.Loki.InspiredToGreatness_OverrideLevelEffect$$CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster` | tauAunShi — **HERO pool** | `engine/runner/abilities/behaviours/stats.py`, `engine/runner/abilities/tau.py` | **1 effet** (impact pratique nul : une seule utilisation en trop) |
-| R11 | **Phase 2 d'`EarlyWarningOverride`** — l'effet 1145 est POSÉ (présence fidèle) mais reste un `BaseEffect` inerte (`abilities/tau.py:388` : « HORS de ce port ») | `IdunBattle.Entities.Effects.Loki.EarlyWarningOverride_ReactivateOverwatchEffect` (`$$GetOverwatchExtraDamage`, `$$LegitDeathReasons`) = ré-entrée en overwatch après un kill, `hitsReduction=1` | tauCrisis — **HERO pool** | `engine/runner/abilities/tau.py`, `operations/triggers/effect_triggers.py` | **1 effet** — même tranche que R3 |
+| ~~R10~~ | ~~Retrait de `InspiredToGreatness_OverrideLevel` (1180)~~ — **FERMÉ pendant la rédaction, cf. §5.0 (`b6d174c`, #114 résidus Tau)** | — | — | — | — |
+| ~~R11~~ | ~~Phase 2 d'`EarlyWarningOverride` (effet 1145 inerte)~~ — **FERMÉ pendant la rédaction, cf. §5.0 (`b6d174c`)** | — | — | — | — |
 | R12 | **Les 2 derniers consommateurs de `DSLFactory.Revive`** : `FuelledByFury` (`ultraTitus`) et `GhostRevive`/`TimeFlux` (`thousTerminator`). Base REVIVE portée (`864a371`) ; reste 3 points nommés pour FuelledByFury (émetteur de `On(PendingDeathAdded=3)` non localisé, contexte `TriggeringAbilityIs(FinalJustice)` non threadé, pose de l'effet 1324) et pour GhostRevive un vecteur `On(PreUnitMove=31)` + un effet portant une TUILE + un revive **non in-place** | `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` (non porté, cf. `triggers/dispatch.py:836`) ; ancrage à hooker pour l'émetteur : `IdunBattle.MatchState$$AddDeath` ; `IdunBattle.Operations.…$$SetRevivePosition` | ultraTitus, thousTerminator — **HERO pool tous deux** | `engine/runner/operations/revive.py`, `operations/triggers/revive_effect.py`, `dispatch.py` | **2 abilities** (1 par consommateur) |
 | R13 | **`AdaptiveStrategy` (1005, `necroWarden`)** — ⚠ **un prérequis sur trois est TOMBÉ** : le sous-système OVERRIDE-ATTAQUE existe désormais (`AddStatOverrideEffect`, `abilities/behaviours/stats.py:281`, 1ᵉʳ user #112/#114). Restent (1) `RelentlessMarch` 1004 (sans lui la branche `If(ActorHasTriggeredAbility) TriggerAbility(…)` est un no-op structurel) et (2) les nœuds `TriggerAbility` + `ActorHasTriggeredAbility` | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` ; `…Loki.RelentlessMarchAbility$$CreateBehaviour` | necroWarden — **HERO pool** | `engine/runner/abilities/necrons.py`, `handler.py`, `entities/behaviours.py` | **1 ability + 1 passif** |
 | R14 | **Face DÉCISION des MoW** — `state_bridge._plans_for_unit` ne feede pas l'attaque d'une MoW à `_best_attack` (`origin=None`) ; `engine_decide(…, cid)` n'a aucune entrée pour un `casterId` de MoW (`_dv_units` les exclut). ⇒ AUCUNE ability de MoW n'est proposable, y compris celles dont la feuille NC est portée et validée live (1187 `ThriceBlessedConflagration`) | chemin natif dédié `aiPlaybookPredict` caster Machine (`case-172`) — ne PAS faire passer une entité sans position pour une unité | 8 MoW du pool | `engine/ai/state_bridge.py` (`_dv_units`, `_plans_for_unit`), `engine_validate.engine_decide`, `engine/playbook/scene.py` | **1 sous-système** — oracle utilisable : `aiStepDryRun` après `finish` des alliés (`aiDryRunAllUnits` n'itère que `EntityType.Unit`) |
@@ -358,7 +359,14 @@ J+3 ment déjà.
 | **R3** overwatch un seul tir par activation | `7c412b8` (#127) | rien de nommé ; le port est passé par le flag natif `EffectComponent.IsActive @+0x5c` (`BaseEffect.active`) + le vecteur `On(AttackDamageAttack=10)` — pas par le marqueur ad hoc que le backlog suggérait |
 | **R18** bouclier × limites, voie ability | `21494b6` (#67b) | **N1** (ciblage ArcaneShield allié non-Chaos), **N2** (famille ATTACK bounds-mode), **N3** (ordre réduction × bouclier sur `execute_normal_like`) |
 | **R22** DoT de tuile `EnvFireTile` → route `AbilityDamageOperation` | `ad5692e` | rien de nommé. ⚠ le résidu était étiqueté « latent, numériquement équivalent » — **c'était faux** : 4× d'écart mesuré, et un kill fantôme sur un porteur `Resilient` |
+| **R10** retrait de `InspiredToGreatness_OverrideLevel` (1180) | `b6d174c` (#114 résidus Tau) | rien de nommé ; a produit les primitives réutilisables `is_active_ability`, vecteur `On(0xc)` |
+| **R11** phase 2 d'`EarlyWarningOverride` (effet 1145 inerte) | `b6d174c` | rien de nommé ; a produit `turns_until_unit_owner_turn`, `has_death_reason`, `UnitComponent.death_source` |
 | — | `7c412b8` + `ad5692e` | **N6** : `test_hailstrike_phase2_live` rouge, signalé indépendamment par les deux |
+
+**Cadence mesurée pendant la rédaction de ce document** : **6 résidus fermés** (R2, R3, R10, R11,
+R18, R22) et **6 résidus neufs** (N1-N6) en une soirée, sur deux rebases successifs. C'est le
+chiffre à retenir : un backlog relu à J+3 décrit un arbre qui n'existe plus. **Re-confronter avant
+de dispatcher n'est pas une précaution, c'est la seule façon d'obtenir une file juste.**
 
 ### 5.1 — Entrées à sortir du backlog / de la roadmap
 
