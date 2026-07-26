@@ -177,6 +177,13 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
         mb = e.create_effect_damage_malus_for_defense(is_melee, damage_profile, attacker_ctx)
         if mb is not None:
             maluses.append(mb)
+        # #112 : axe PERCAGE porte par la CIBLE (`<Effect>.CreatePiercingBonusForAttack`, trigger
+        # `OwnerIsTarget` -- ex. `Supercharge_ExtraPiercingEffect`). Slot d'interface DISTINCT ;
+        # `add_modifier` route le kind "Piercing" vers `extra_pierce` (axe @0x20), JAMAIS vers le
+        # scalaire degat. Aucun effet PREEXISTANT ne surcharge ce slot -> no-op strict pour eux.
+        pb = e.create_piercing_bonus_for_attack(damage_profile, is_melee)
+        if pb is not None:
+            maluses.append(pb)
     acc = build_defender_modifiers(maluses)
     # Moitié DEFENSE (1re du natif) : chaque modification du DefenseComponent → entrée %-list `1±v/100`
     # via `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (negate=1). GROUND TRUTH #194/#197 (C2_19,

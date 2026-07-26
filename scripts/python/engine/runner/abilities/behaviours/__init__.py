@@ -50,13 +50,17 @@ from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAb
 from .effects import (AddBondEffect, AddEffect, IncreaseEffectLevel, add_effect_or_increase_level,
                       RemoveEffect, ActivateEffect, SetOnFire, CreateShield, ChangeEffectTurns,
                       AddStaticStatModifierEffect, AddDynamicStatModifierEffect,
-                      AddStatOverrideEffect,
                       add_or_update_static_stat_modifier_effect,
                       _add_effect_targets, _add_effect_target_id)
 from .turnflow import ResetTurn, FinishTurn
 from .ability_state import ResetActiveAbility
+# `AddStatOverrideEffect` vit dans `stats.py` et NULLE PART AILLEURS : #112 et #114 avaient porte
+# le meme noeud natif (`DSLFactory$$AddStatOverrideEffect`) chacun de son cote, en parallele. Les deux
+# consommateurs importent depuis CE paquet -> deux definitions homonymes auraient fait que le dernier
+# import MASQUE l'autre, silencieusement. Fusionne a l'integration (cf. la docstring de la classe).
 from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
-                    healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue)
+                    healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
+                    AddStatOverrideEffect)
 from .movement import PushUnit, MoveUnit
 from .lifecycle import KillDeadUnits, RemoveUnit
 

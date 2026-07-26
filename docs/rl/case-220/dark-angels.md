@@ -26,11 +26,30 @@ BACKLOG (confounds SHARED-pipeline découverts en validant — HORS ce port, can
        (à confirmer : FixedArmor stale/profil Plasma). Contourné par --hp-target dans le test. [à vérifier]
 ```
 ```
-[1103 Supercharge | darkaHellblaster]  — [opus]+1 effet
-VAs : ExecuteBehaviour @18120da20 ; @18120de80/@18120de50 ; effet 1208 @180f703b0 ; playbook @1811623b0
-= PlasmaCannon avec plages main/behind SÉPARÉES (MinMax vs MinMax2) + effet Supercharge_ExtraPiercing
-1208 (+35% pierce Plasma, cible+secondaires, 1 tour). Prérequis : effet pierce-ratio (buff lu par les
-attaques FUTURES). Risques : persistance du buff sur un 2e coup Plasma.
+[1103 Supercharge | darkaHellblaster]  — [opus]+1 effet — PORTÉ + VALIDÉ LIVE (#112, abilities/darkangels.py)
+Symboles : IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$ExecuteBehaviour ;
+  ...$$GetDamageToSecondaryTargets / ...$$GetHitsToSecondaryTargets ;
+  IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack
+ARBRE (LU) : ExecuteAtomic( AddEffect(0x4b8, stateRef, caster@0x160,
+  op_Addition(target@0x178, PickRandomly(UnitsDirectlyBehind(caster,target), 2)), TurnsFromRounds(1))
+  & AttackWithAttackDamage(target, MinMaxDamage=ConfigVar(0xc,0xd), Plasma, GetHits=GetNumberConstant(0x2f))
+  & AttackWithAttackDamage(behind, MinMaxDamage2=ConfigVar(0x36,0x37), Plasma, GetNumberConstant(0x32)), 0x2a )
+→ `supercharge_tree()` (mirror 1:1). L'`AddEffect` est le PREMIER volet du `&` : le +percage bonifie les
+coups de Supercharge EUX-MÊMES (A/B offline + ordre des groupes de la cascade live).
+EFFET 1208 = `ForPiercing(DamageProfileIs(GetDamageProfile(config)=Plasma) & OwnerIsTarget,
+ConfigVar(0x3f=extraPierceRatio))` → NOUVEAU canal port `create_piercing_bonus_for_attack`
+(`effects/base.py` + `effects/loki/damage_reduction.py`), agrégé par
+`build_defender_modifiers_from_effects` et fusionné dans `mods.extra_pierce` par
+`AttackDamageOperation._apply_defender_flat_reductions` (le natif somme Piercing@+0x20 attaquant ET
+défenseur avant `GetBaseDamageWithFixedPiercedArmor`).
+VALIDÉ LIVE (MC1_67 au contact, seed 112112) : cible SANS unité derrière → dégât **BIT-EXACT** (5618 ==
+5618) ; cible AVEC 2 unités derrière → les 3 effets 1208 (cible + les 2 derrière, `RemainingTurns=2`)
+posés AVANT les 2 volets de dégât, splash sur EXACTEMENT ces 2 unités.
+RÉSIDU MESURÉ (GAP #215 désormais CHIFFRÉ) : avec 2 unités derrière, le live s'aligne sur le port décalé
+de **+2 tirages** (volet MAIN) et **+5** (volet SPLASH) ⇒ le `PickRandomly` natif consomme 2 tirages
+MÊME quand le pool tient dans n (`_pick_randomly_n` court-circuite), + 1 tirage avant le splash (candidat :
+source de block supplémentaire `Daemon_ExtraBlock` de la cible). NON corrigé : `_pick_randomly_n` est
+PARTAGÉ (PlasmaCannon / Fragstorm / BringerOfDespair) — le corriger est un chantier socle à part entière.
 ```
 ```
 [EnmityForTheUnworthy | darkaCompanion passif]  — [opus]+2 effets (passif le + facile)
@@ -45,21 +64,61 @@ VAs : @180f7fcf0 ; effet 1294 @180f48c60
 1295 = +2 coups si cible AUSSI Chaos (hits.py). Templates existants (BeastSlayer / extra-hits).
 ```
 ```
-[1228 SternguardFocus | darkaSternguard]  — [opus]+prérequis (le + risqué des opus)
-VAs : ExecuteBehaviour @18120bca0 ; GetOverrideAttackDamageAmount @18120c020 ; cooldown 1548
-      @1811a2240/@1811a2290 ; playbook @18115ee70/@18115f300/@18115f4e0
-PATTERN OVERRIDE-ATTAQUE (1er user runner) : AddStatOverrideEffect(1296, PercentageOfAttackCappedAtMax
-(part 3, var 0xd, cap 0x4a)) + UseNormalAttack + RemoveEffect ; triggered 1548 = ChangeCooldown(1228, 3).
-Prérequis : nœud override-du-dégât-d'attaque ; UseNormalAttack ; PercentageOfAttackCappedAtMax runner
-(impl décision : action_generators.py:493) ; ChangeCooldown. Risques : revert sans fuite ; StatPart 3 vs 0.
+[1228 SternguardFocus | darkaSternguard]  — RE TERMINÉE (#112) — **NON PORTÉ : PORTEUR NON SPAWNABLE**
+Symboles : IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$ExecuteBehaviour /
+  ...$$GetOverrideAttackDamageAmount ;
+  IdunBattleLogic.Entities.Abilities.Triggered.Loki.SternguardFocus_CooldownAbility$$CreateBehaviour
+ARBRE (LU, `AActiveAbility.Execute`, PAS d'ExecuteAtomic) :
+  amount = PercentageOfAttackCappedAtMax( Subject@0x180, StatPart=**3 (INITIAL)**,
+             ConfigVar(0x4cc=1228, Self@0x148, 0xd=maxDmg), ConfigVar(0x4cc, Self@0x148, 0x4a=dmgPct) )
+  op_Addition( op_Addition( AddStatOverrideEffect(caster@0x160, 0x510, ATTACK, amount, 0, 1),
+                            UseNormalAttack(caster@0x160, target@0x178, <options>) ),
+               RemoveEffect(caster@0x160, Nullable(0x510)) )
+⚠ `StatPart = 3 (INITIAL)` ici vs **0 (CURRENT)** pour ExemplarOfHate — différence LUE, à ne PAS
+uniformiser. `UseNormalAttack` alloue le MÊME `UseActiveAbilityBehaviour` que `UseActiveAbility` (avec un
+provider d'ability-type par-unité = l'attaque normale du sujet) ⇒ la feuille portée `UseActiveAbility`
+(déjà spécialisée au dispatch attaque-normale, slice-22) est le mirror exact.
+**BLOCAGE** : `darkaSternguard` (« Ramus ») a `releaseStatus = 1784419200000` (horodatage, ≈ mi-juillet
+2026) et est ABSENT du roster de la seed BC (`data/seed-bc.json` : 0 occurrence) ⇒ absent du pool
+`rl_duel build --list-pool` à TOUS les rangs testés (9/13/15/16/17 : 97 unités, jamais lui). Ce n'est ni
+un npc ni un summon : c'est un HÉROS non encore possédé ⇒ ability **INVALIDABLE LIVE**. Conformément à
+« no unvalidatable ability ports », l'ability N'EST PAS enregistrée dans `ABILITY_CLASSES`.
+**Le port coûte ~10 lignes le jour où le porteur entre au pool** : toutes ses primitives sont déjà
+portées ET live-validées par ExemplarOfHate (`AddStatOverrideEffect`, `percentage_of_attack_capped_at_max`,
+`UseActiveAbility`, `RemoveEffect`+revert d'override) ; seul reste à écrire l'arbre ci-dessus avec
+`stat_part=StatPart.INITIAL` et `Caster()` en lieu et place du collapse `GetAttacker`.
+Hors port de toute façon : le cooldown 3 tours est géré par la triggered `SternguardFocus_Cooldown` (1548).
 ```
 ```
-[1189 CalibaniteGreatsword | darkaCompanion]  — [fable]
-VAs : ExecuteBehaviour @1811cb000 ; @1811caf30/@1811cb490/@1811cb410/@1811cb320 ; sweep-triggered
-      @180e1c070 ; StrikeOverwatching @180f37840 ; playbooks @1811251b0/@1811252b0
-TOGGLE de stance (marqueurs 1404 Strike / 1405 Sweep, patron DoctrinaImperatives) — mais Sweep =
-splash adjacent-both sur ATTAQUE NORMALE (trigger passif) et Strike = overwatch persistant
-post-attaque + decay de coups au kill (1425+1009). HYPOTHÈSE : corps 1425/1009 non lus.
+[1189 CalibaniteGreatsword | darkaCompanion]  — ex-[fable] — PORTÉ + VALIDÉ LIVE (#112) pour l'ACTIVE
+Symboles : IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility$$ExecuteBehaviour /
+  ...$$AddStrikeEffects / ...$$RemoveStrikeEffects ;
+  IdunBattleLogic.Entities.Abilities.Triggered.Loki.CalibaniteGreatsword_SetStartAbility$$CreateBehaviour
+L'ExecuteBehaviour n'est PAS `[fable]` : c'est un TOGGLE PUR, sans attaque ni tirage. ARBRE (LU) :
+  If( HasEffect(Self@0x148, 0x57c, activeOnly=0, sourceFlags=6),
+      AddEffect(0x57d Sweep, Self) + RemoveStrikeEffects(),                       # THEN
+      AddEffect(0x57c) + AddEffect(0x591) + AddEffect(0x3f1) + RemoveEffect(Self, 0x57d) )   # ELSE
+`RemoveStrikeEffects` = RemoveEffect(0x57c, 0x591, 0x3f1, 0x57e). `AddStrikeEffects` (= la branche ELSE,
+INLINÉE par le compilateur) est AUSSI le corps de la triggered `CalibaniteGreatsword_SetStartAbility`
+⇒ Forcas démarre en STRIKE. `activeOnly = 0` LU (les call-sites AnvilShield passent 1).
+VALIDÉ LIVE : 2 casts consécutifs — PRE 1404 seul ; cast 1 → +1405 / −1404 ; cast 2 (tour suivant) →
++1404 / −1405. Aucun dégât, ne finit pas le tour (1189 déjà dans les 2 frozensets de `abilities/base.py`).
+⚠ L'étiquette « NO-OP DAMAGE(Power) » de `kit-coverage.md` est TROMPEUSE : les constantes
+`damageProfile=Power` / `nrOfHits_2=3` et les variables minDmg/maxDmg/nrOfHits de la config 1189
+alimentent la TRIGGERED `CalibaniteGreatsword_NormalAttackAdditionalDamage` (1316, volet Sweep), pas
+cette active.
+RÉSIDU DE MESURE (important) : les effets 0x591 (Strike_Overwatching) et 0x3f1 (Overwatch_AutoAttack)
+n'apparaissent JAMAIS dans `decisionView.effects` — mais ce n'est PAS une preuve de non-pose : le hook
+`frida/hooks/game/effects.ts` (`readEffectsByUnit`) DROPPE toute entrée dont `EffectComponent.IsActive
+@+0x5c` est nul, et l'overwatch de la posture Strike ne s'active qu'EN FIN DE TOUR (i2). Le port MIRRORE
+donc le décompilé (3 `AddEffect`). Conséquence bornée : le port n'a pas d'`ActiveCondition` pour ces deux
+effets → ils y sont actifs dès le cast. En pratique inerte (le trigger `Overwatch_AutoAttack` du port ne
+se déclenche que sur un MOUVEMENT ennemi, donc pendant le tour adverse = après la fin du tour de Forcas).
+Point d'ancrage pour trancher définitivement : exposer `EffectComponent.IsActive` dans
+`decisionView.effects` (exige rebuild+reinject).
+PHASE 2 (hors #112) : les observables de posture vivent dans les TRIGGERED —
+`CalibaniteGreatsword_NormalAttackAdditionalDamageAbility` (1316, splash adjacent-both) et
+`CalibaniteGreatsword_StrikeOverwatchingEffect` (overwatch persistant + decay de coups au kill).
 ```
 ```
 [LionHelm | darkaAzrael passif]  — [fable]
@@ -99,14 +158,43 @@ cible (3x Projectile, gate IsDefeated, sinon TriggerAbilityDelayed). Vecteur « 
 genuinement nouveau (une unité attaque hors de son tour, déclenchée par l'attaque d'un ami).
 ```
 ```
-[1140 ExemplarOfHate | darkaAsmodai]  — [fable]
-VAs : ExecuteBehaviour @1811da7e0 ; GetAttacker @1811dad70 ; GetAttackDamage @1811dac90 ;
-      effet 1293 @180f433a0 (@180f431c0) ; playbook @181130e70
-Pose 1293 (+728 dégât ENTRANT des attaques amies melee/overwatch, 2 tours) ; SI cible Chaos :
-Suppress 1065 + le MEILLEUR attaquant DA (First(SortAttackersByDamagePredictionSelector(
-UnitsWhoCanAttack(UnitsFromFaction(10))))) frappe via pattern override-attaque plafonné.
-Prérequis : sélecteur d'attaquant prediction-heavy ; UnitsWhoCanAttack/UnitsFromFaction ;
-pattern override-attaque (partagé SternguardFocus).
+[1140 ExemplarOfHate | darkaAsmodai]  — ex-[fable] — PORTÉ + VALIDÉ LIVE (#112)
+Symboles : IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$ExecuteBehaviour /
+  ...$$GetAttacker / ...$$GetPossibleAttackers / ...$$GetAttackDamage ;
+  IdunBattle.Entities.Effects.Loki.ExemplarOfHate_TargetEffect$$CreateEffectDamageBonusForAttack ;
+  IdunBattle.Entities.Selectors.SortAttackersByDamagePredictionSelector$$Select (+ <Select>b__0) ;
+  IdunBattle.Entities.Selectors.UnitsWhoCanAttackTargetSelector$$Select
+ARBRE (LU, ordre des `op_BitwiseAnd` vérifié) :
+  AddEffect(0x50d, stateRef, caster@0x160, target@0x178, TurnsFromRounds(2))            # INCONDITIONNEL
+  & If( HasTrait(target@0x178, 0x7ea),
+        AddEffect(0x429 Pinned, ..., durée ZERO = DefaultAmountOfRounds)
+        & AddStatOverrideEffect(attacker, 0x510, ATTACK, GetAttackDamage(), 0, 1)
+        & UseActiveAbility(attacker, target, UnitNormalAttackType(attacker))
+        & RemoveEffect(attacker, Nullable(0x510)) )
+⚠ **0x7ea = 2026 = le PSEUDO-trait de GRANDE-ALLIANCE Chaos** (`idun.Idun.Source.Shared.GrandAlliance$$
+GetTrait` : Imperial→0x1a, Xenos→0x3ee, Chaos→0x7ea) — PAS un trait gameconfig. Un
+`HasTrait(Target(), 2026)` naïf (via `ctx.has_trait`, qui lit les NOMS gameconfig) serait TOUJOURS faux
+⇒ branche Chaos MORTE. Le port passe par `HasGrandAlliance(Target(), CHAOS_FACTIONS)` (même dérivation
+que le `HasTrait(killer, 26=Imperial)` d'ActOfFaith, live-validé). **Piège n°1 de cet item.**
+`GetAttackDamage` = `PercentageOfAttackCappedAtMax(Subject@0x180, StatPart=0 CURRENT, ConfigVar(0xd
+=maxDmg), ConfigVar(0x4a=dmgPct))`. Cette factory est COMPOSITE et son nœud englobant est un ctor gshared
+que ghidra affiche `HasUsedActiveAbilityThisTurnTrigger..ctor` : sa sémantique **Min** est PROUVÉE PAR
+IDENTITÉ DE SINGLETON (`IdunBattleLogic.Entities.DSLFactory$$Min` alloue le MÊME `DAT_18324e140` avec le
+même ctor 2-champs), pas déduite du nom.
+`GetAttacker` (collapse S, doctrine slice-18/19, cf. `_finaljustice_target`) = `First(
+SortAttackersByDamagePrediction( UnitsWhoCanAttack(UnitsFromFaction(Friends(caster), 10), target) ), 1)`
+avec clé `OrderByDescending` LUE : 0x7fffffff si WillBeKill, 0x7ffffffe si MightBeKill, sinon
+`MinMaxDamage.Avg` — portée via `get_attack_prediction` PRÉ-ARMURE avec `initial_damage` = l'OVERRIDE.
+VALIDÉ LIVE (Asmodai adjacent à blackObliterator, MC1_67 au contact) : `ExemplarOfHate_Target`
+`RemainingTurns=4` (= TurnsFromRounds(2) × 2 joueurs) + `Pinned` `RemainingTurns=2` + attaquant élu
+IDENTIQUE + `UnitStats_Attack_Override = 2008` == `min(maxDmg[50]×mult180 = 5983, round(Attack_CURRENT
+2008 × dmgPct 100 / 100))` — EXACT.
+CONFOND documenté (dégât de l'attaque libre NON asserté) : le passif NON PORTÉ `FearedInterrogator`
+d'Asmodai ajoute +2 coups (live 6 vs `weapons[0].hits` = 4) et du dégât.
+RÉSIDUS : (a) branche `IsOverwatchAttack` de l'effet 1293 non threadée (seule la moitié MELEE contribue —
+MANQUE, jamais sur-compte) ; (b) `UnitsWhoCanAttack` porté = « portée d'arme max ≥ distance hex » (règle
+dominante) ; LoS/obscurcissement non modélisés ; (c) le CAP de l'override n'est pas discriminé live (aucun
+allié DA du roster n'a Attack > maxDmg=5983).
 ```
 ```
 [SpecialIssueCombiMelta | darkaSternguard passif 1545]  — [fable] : RE À FINIR
@@ -116,7 +204,22 @@ VAs : init @1811a11a0 (AddEffect 1563+1564 self) ; trigger @1811a10c0 (On 0x26 a
 complémentaire OBLIGATOIRE avant tout port (sinon spéculatif/invalidable).
 ```
 
-**Synthèse DA** : [opus] = PlasmaCannon (direct), Supercharge, EnmityForTheUnworthy,
-FearedInterrogator, SternguardFocus (override-attaque, le + risqué) ; **[fable] x8** =
-CalibaniteGreatsword, LionHelm, GrimRetribution, Deathwing, DeathOnTheWind (MoW), Hailstrike (MoW),
-ExemplarOfHate, SpecialIssueCombiMelta (RE à finir).
+**Synthèse DA** — état au #112 :
+- **PORTÉS + VALIDÉS LIVE** : PlasmaCannon (1150), **Supercharge (1103)**, **ExemplarOfHate (1140)**,
+  **CalibaniteGreatsword (1189)** — les 3 derniers livrés par #112 (ex-`[fable]` pour 1140/1189 : la RE
+  a montré que ni l'un ni l'autre ne résiste — 1189 est un toggle pur, 1140 tient en un collapse S +
+  un mirror d'arbre).
+- **RE TERMINÉE, NON PORTÉ (invalidable)** : SternguardFocus (1228) — porteur hors roster (cf. ci-dessus).
+- **RESTE `[opus]`** : EnmityForTheUnworthy, FearedInterrogator (passifs).
+- **RESTE `[fable]` x6** : LionHelm, GrimRetribution, Deathwing, DeathOnTheWind (MoW), Hailstrike (MoW),
+  SpecialIssueCombiMelta (RE à finir). + PHASE 2 de CalibaniteGreatsword (triggered 1316 / overwatching).
+
+**Machinerie SOCLE ajoutée par #112** (justifiée par 1103 + 1140, vérifiée non-régressive) :
+`DSLFactory$$PercentageOfAttackCappedAtMax` (`entities/formulas.py`, = `Min(cap, PercentageOf(StatAmount(
+unit, ATTACK, statPart), pct))` — Min PROUVÉ par identité de singleton) ; feuille
+`DSLFactory$$AddStatOverrideEffect` (`abilities/behaviours/stats.py`, avec le binding du slot SUJET que
+fait `AddStatOverrideEffectBehaviour$$Execute`) ; part OVERRIDE du `RevertInternal` dans la feuille
+`RemoveEffect` (no-op strict pour tout effet sans `stat_override_stats`) ; slot d'interface
+`CreatePiercingBonusForAttack` + sa fusion défenseur→attaquant dans `mods.extra_pierce`.
+Gardes rejouées sans régression : nightshroud / act_of_faith_reset / mv71 / damage_roll / damage_ability /
+the_quickening / plasma_cannon / terrifying_defense / effect_duration_rounds.

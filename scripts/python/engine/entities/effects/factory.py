@@ -41,6 +41,8 @@ from .loki import (
     LightCoverEffect,
     MartialKatahDmgReductionEffect,
     MarkerlightEffect,
+    ExemplarOfHateTargetEffect,
+    SuperchargeExtraPiercingEffect,
     MasterOfTheTutelariesEffect,
     MV71InitialDmgEffect,
     MV71ResetInitialDmgEffect,
@@ -201,6 +203,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Waaagh_ExtraMovement": WaaaghExtraMovementEffect,
     "Waaagh_ExtraDamage": WaaaghExtraDamageEffect,
     "Waaagh_ExtraHits": WaaaghExtraHitsEffect,
+    # --- #112 DarkAngels lot 1 : les DEUX effets poses par les actives portees dans
+    # `runner/abilities/darkangels.py`, tous deux a trigger `OwnerIsTarget` (ils vivent sur la VICTIME) :
+    # ExemplarOfHate_Target (1293, pose par 1140) = additif `OwnerIsTarget & (IsMeleeAttack |
+    # IsOverwatchAttack)` x `ConfigVar(8=extraDmg)` -> +degat PLAT recu en melee (moitie overwatch = residu).
+    "ExemplarOfHate_Target": ExemplarOfHateTargetEffect,
+    # Supercharge_ExtraPiercing (1208, pose par 1103) = `ForPiercing(DamageProfileIs(Plasma) &
+    # OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))` -> +percage Plasma contre la victime (axe @0x20).
+    "Supercharge_ExtraPiercing": SuperchargeExtraPiercingEffect,
     "RangedSpecialist": RangedSpecialistEffect,  # +33% dégât RANGED (trait, actif si pas parti adjacent)
     # Markerlight (1122, posé sur la CIBLE par MV71SniperDroneSquadAttack IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$ExecuteBehaviour (e) /
     # StructuralAnalyser IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddMarkerlightAbility$$CreateBehaviour) : +MarkerlightDmgBonusPct% (=15, règle BC Effect) au dégât reçu des

@@ -148,6 +148,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1213: AbilityAttackType.DirectTargetAttack,   # DeathOnTheWindAbility
     1221: AbilityAttackType.DirectTargetAttack,   # AugmentedAssaultAbility
     1230: AbilityAttackType.DirectTargetAttack,   # SavageEchoesAbility
+    1103: AbilityAttackType.DirectTargetAttack,   # SuperchargeAbility (lot #112, litteral 0 relu)
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
     1007: AbilityAttackType.SummonAndAttackTarget,   # ScarabHiveAbility
@@ -192,6 +193,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility
     1081: AbilityAttackType.Others,   # FightingRetreatAbility
     1082: AbilityAttackType.Others,   # InspiredToGreatnessAbility
+    # Lot DarkAngels #112, arrive lui aussi apres #120 (litteraux relus au decompile) :
+    # Supercharge est le seul des trois a `DirectTargetAttack` (0) -- il entre donc dans le gate
+    # `AbilityHasAttackType(0|1)` de SwornProtector, contrairement aux deux autres.
+    1140: AbilityAttackType.Others,   # ExemplarOfHateAbility
+    1189: AbilityAttackType.Others,   # CalibaniteGreatswordAbility
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

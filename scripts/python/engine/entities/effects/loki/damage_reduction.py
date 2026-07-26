@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ....services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
+from ....services.effect_bonus import (EffectBonus, for_addition, for_piercing, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect
@@ -42,6 +42,83 @@ class MarkerlightEffect(BaseEffect):
         if not pct:
             return None
         return for_percent_increase(False, int(pct))           # owner=défenseur (dégât REÇU +15 %)
+
+
+class ExemplarOfHateTargetEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ExemplarOfHate_TargetEffect` (effet **1293=0x50d**) — pose sur la
+    CIBLE par `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$ExecuteBehaviour`
+    (`AddEffect(0x50d, stateRef, source=caster@0x160, target@0x178, TurnsFromRounds(2))`, #112).
+
+    `IdunBattle.Entities.Effects.Loki.ExemplarOfHate_TargetEffect$$CreateEffectDamageBonusForAttack`
+    (MIRROR du DECOMPILE) :
+        trigger = get_OwnerIsTarget & ( IsMeleeAttack | IsOverwatchAttack )
+        montant = ConfigVar(8 = extraDmg, GetAbilityState(effect), config@+0x60)
+        -> EffectBonus ADDITIF (le corps est INLINE : la struct construite pose le montant au champ
+           +0x10, EXACTEMENT le slot ecrit par `IdunBattle.Entities.Effects.EffectBonus$$ForAddition`
+           (`param_1[2] = amount`) et distinct de ForPercentIncrease (+0x08) / ForSubtraction (+0x18) /
+           ForOverride (+0x28)).
+    i2 : « For this round and the next, all friendly units deal +<extraDmg> Damage against that enemy
+    with melee or Overwatch attacks. »
+
+    Malgre le nom natif « ...ForAttack », le trigger est `OwnerIsTarget` : l'effet vit sur la VICTIME et
+    MAJORE le degat qu'elle RECOIT -> canal PORT `create_effect_damage_malus_for_defense` (le meme mold
+    que `NeuroparasiteEffect`, dont la docstring documente l'additif POSITIF cote defenseur).
+
+    MAGNITUDE : `ConfigVar` resolu contre l'`AbilityState` de la SOURCE (Asmodai) -> l'`AddEffect` du port
+    passe `scale_from_source=True` (niveau d'ability + multiplier de rarete du poseur seedes sur
+    l'instance). `extraDmg` EST dans `variablesAffectedByRarityBonus` (554 @mult100 -> 997 @mult180).
+
+    RESIDU FLAGGE : la branche `IsOverwatchAttack` du `op_BitwiseOr` n'est PAS threadee (le port ne
+    distingue pas un coup d'overwatch d'un coup ranged ordinaire au site de resolution defenseur) ->
+    seule la moitie MELEE contribue. Un tir d'overwatch ne recoit donc pas le +extraDmg : c'est un
+    MANQUE, jamais un sur-compte."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        if is_melee is not True:              # IsMeleeAttack (prouve melee) ; IsOverwatchAttack = residu
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else self.ability_level)       # ExemplarOfHate = ability ACTIVE du poseur
+        v = ability_var("ExemplarOfHate", "extraDmg", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(False, int(v)) if v else None      # owner=cible -> additif au degat RECU
+
+
+class SuperchargeExtraPiercingEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect` (effet **1208=0x4b8**) — pose sur
+    la cible ET les <=2 unites derriere elle par
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$ExecuteBehaviour`
+    (`AddEffect(0x4b8, stateRef, caster@0x160, op_Addition(target@0x178, behind), TurnsFromRounds(1))`).
+
+    `IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack`
+    (MIRROR du DECOMPILE) :
+        profile = AbilityConfiguration.GetDamageProfile(config@+0x60)          # Plasma
+        trigger = DamageProfileIs(profile) & get_OwnerIsTarget
+        montant = ConfigVar(0x3f = extraPierceRatio, GetAbilityState(effect), config@+0x60)
+        -> EffectBonus.ForPiercing(trigger, montant)      # axe PERCAGE @+0x20, PAS le scalaire degat
+    i2 : « ... all with +<extraPierceRatio>% pierce ratio. Until the beginning of Sarquael's next turn,
+    any further hits that deal Plasma Damage against these units also have +<extraPierceRatio>% pierce
+    ratio. »
+
+    Canal PORT = `create_piercing_bonus_for_attack` (slot d'interface DEDIE, agrege par
+    `build_defender_modifiers_from_effects` puis fusionne dans le percage effectif par
+    `AttackDamageOperation._apply_defender_flat_reductions` : `pierce_eff = clamp(pierce + extra, 0,100)`).
+    Le profil vient de la CONFIG de l'ability source (`Supercharge.constants.damageProfile` = Plasma), pas
+    d'un litteral. Magnitude indexee par l'`AbilityState` du poseur -> `scale_from_source=True` a la pose
+    (`extraPierceRatio` n'est PAS dans `variablesAffectedByRarityBonus` -> multiplier inerte)."""
+
+    def create_piercing_bonus_for_attack(self, damage_profile: str | None = None,
+                                         is_melee: bool | None = None) -> EffectBonus | None:
+        import gameconfig as _GC
+        prof = ((_GC.ability("Supercharge") or {}).get("constants") or {}).get("damageProfile")
+        if not prof or (damage_profile or "") != prof:         # DamageProfileIs(GetDamageProfile(config))
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else self.ability_level)                        # Supercharge = ability ACTIVE du poseur
+        v = ability_var("Supercharge", "extraPierceRatio", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)
+        return for_piercing(False, int(v)) if v else None      # owner=cible (percage de QUI l'attaque)
 
 
 class TerrifyingExtraDefenseEffect(BaseEffect):
