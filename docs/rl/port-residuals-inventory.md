@@ -7,12 +7,12 @@
 > commit courant** : chaque ligne porte un verdict **OUVERT / PÉRIMÉ / NON PERTINENT**, et seul
 > OUVERT produit une tâche dispatchable.
 >
-> **Base de la mesure** : commit `b6d174c` (`origin/master` au 2ᵉ rebase), build `gqfc5mff6c`,
+> **Base de la mesure** : commit `fc23f1e` (`origin/master` au 3ᵉ rebase), build `gqfc5mff6c`,
 > session Frida 1 `running`, pool `rl_duel build --list-pool` rank 17 = **97 unités + 8 MoW**.
 >
 > **Démonstration en direct de l'utilité de ce document** : l'inventaire a d'abord été établi sur
-> `7f47c29` ; **deux rebases successifs** avant PR ont ramené 5 commits qui ont fermé **6 des
-> résidus que je venais d'inventorier comme OUVERTS** (R2 gate d'immunité, R3 overwatch un-tir,
+> `7f47c29` ; **trois rebases successifs** avant PR ont ramené 6 commits qui ont fermé **6 des
+> résidus que je venais d'inventorier comme OUVERTS** (+ un sous-item de R28) (R2 gate d'immunité, R3 overwatch un-tir,
 > R10 override de niveau 1180, R11 phase-2 EarlyWarningOverride, R18 bouclier × limites,
 > R22 EnvFireTile). Ils sont passés en §5.0 avec leur commit, et les **6 résidus neufs** que ces
 > commits nomment dans leurs case docs — absents de tout backlog — ont été ajoutés (N1-N6). Les
@@ -317,7 +317,7 @@ référence de ligne est le point d'ancrage.
 | R25 | **3 constantes de gameplay encore FIGÉES dans les tests** (#96, lots A-D livrés) : `test_damage_crushingclaws_live.py:178` `main["hits"] == 2` (= `nrOfHits` de CrushingClaws) ; `test_fragstorm_migration_live.py` cap `nrOfTargets` (= `GetNumberConstant(cfg, 0x11)`) écrit en dur ; `test_jakhal_stimms_live.py:288` `exp_loss = round(hp0 * 25 / 100)` (`hpPct` en dur) | oracle = la CONFIG (`gameconfig.ability(id).constants`) — les 3 sont des valeurs BRUTES passées telles quelles aux nœuds DSL | — | `scripts/python/tests/engine/runner/` (3 fichiers), oracles centralisés dans `tests/engine/runner/_config_oracle.py` | **1 effet** (lot de 3 fichiers) |
 | R26 | **Rider OVERKILL de `ThrillSeekers`** (face PRÉDICTION) : le port passe `allow_flag=0` en dur (`services/trait_damage_limits.py::compute_prediction_overkill`) | `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` force son `allow_flag` à 1 quand l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET (`default_flag` OU le flag de crit) | emper* — **pool** | `engine/services/trait_damage_limits.py`, face prédiction | **1 effet** — biais UNILATÉRAL (le port sous-estime l'overkill des porteurs *Thrilled* qui critent, donc `OverkillUnitUtility`) |
 | R27 | **Seuil `should_evaluate` de BlackRage** : `playbook/noncomparable/black_rage.py:77` gate à `hp <= hpmax * 0.5` fixe, alors que la RE combat montre un `hpPct` **par niveau** (30 → 50 %) — correct seulement au niveau max | `IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$…` | bloodDeathCompany — **HERO pool** | `engine/playbook/noncomparable/black_rage.py` | **1 effet** — n'affecte pas la garde actuelle (Lucien caste à hp=1) |
-| R28 | **`PickRandomly` — ordre d'énumération du pool quand `len(pool) > amount`** : la LOI de consommation est close et bit-exacte (`_pick_randomly_n`, `abilities/loki/splash.py:396-403`, mirror 1:1) ; reste que le natif tire dans l'ordre du sélecteur source (ECS, non trié) et le port id-trie → **QUI** est piqué peut différer (Fragstorm, PlasmaCannon >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine). Sous-résidus frères : `Fragstorm` tire des **HEXES** pas des occupants (le cardinal du pool diffère) ; `AddForcedTargetsAndUpdateCandidates` non porté (`ignoreForcedTargets` @+0x38 FAUX partout → le natif pré-remplit le résultat avec `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)`, ce qui RÉDUIT le nombre de tirages) ; les 4 sites `First(…)` de placement dont `IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour` (`DSLFactory$$Randomize` = `PickRandomAmountSelector(amount = int.MaxValue)` → `len(pool)` tirages) | `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` | pool | `engine/runner/abilities/loki/splash.py`, `engine/runner/operations/spawn.py`, sélecteurs | **1 sous-système** (porter les tris + le sélecteur en tuiles) |
+| R28 | **`PickRandomly` — ordre d'énumération du pool quand `len(pool) > amount`** : la LOI de consommation est close et bit-exacte (`_pick_randomly_n`, `abilities/loki/splash.py:396-403`, mirror 1:1) ; reste que le natif tire dans l'ordre du sélecteur source (ECS, non trié) et le port id-trie → **QUI** est piqué peut différer (Fragstorm, PlasmaCannon >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine). Sous-résidus frères : `Fragstorm` tire des **HEXES** pas des occupants (le cardinal du pool diffère) ; `AddForcedTargetsAndUpdateCandidates` non porté (`ignoreForcedTargets` @+0x38 FAUX partout → le natif pré-remplit le résultat avec `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)`, ce qui RÉDUIT le nombre de tirages) ; ~~les 4 sites `First(…)` de placement~~ — **FERMÉ pendant la rédaction par `fc23f1e` (case-130 SS5)** : les 4 nœuds sont portés (`SortByDistance`, `SortTilesByUtilityForSummon`, `Randomize`+`SortByFormula`, `First`), le tirage parasite retiré, l'ordre SOURCE natif (`boardGraph.neighbours`) branché | `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` | pool | `engine/runner/abilities/loki/splash.py`, sélecteurs (⚠ `operations/spawn.py` vient d'être réécrit par `fc23f1e`) | **1 sous-système** réduit à 3 sous-items (porter l'ordre du sélecteur source + le sélecteur en tuiles + les forced-targets) |
 | R29 | **`case-61` — canal de coups des abilities, résidus** : (b) `On(PreAttack=5)` absent du vecteur ability (**fidèle** : le natif l'émet depuis `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteNormalAttack`) ⇒ sur ce vecteur `LetTheGalaxyBurn` ne s'arme que par `TargetHasTileEffect` ; (c) per-coup non bit-exact contre `templChampion` (même nb de coups, dégât différent — effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est bit-exact) ; (d) flag `Moved` absent de la face PRÉDICTION (×1,25 uniforme `HeavyWeapon_ExtraDmg` sur tout caster ranged déjà déplacé — débloqueur = exposer `UnitFlagsComponent`, **rebuild requis**) | — | pool | face prédiction | **1 effet** chacun — à promouvoir si un miss d'agreement les fait surface |
 | R30 | **Substrat MULTI-HEX** (une unité occupant N tuiles) — MESURÉ : `DutyEternal` (1158) spawn `ultraSmnDreadnought` sur **3 hexes** (1 squad, 3 `UnitFoot`) ; le moteur offline modélise 1 `PositionComponent` par unité | `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour` (`RemoveMachine` + `Spawn(ThreeTileUnitSpawnShape)`) | ultraDreadnought (MoW pool) ; probablement aussi `AetherStride` | `engine/runner/components.py`, `state.py`, pathfinding, ciblage | **1 sous-système** (N pieds par squad : occupation / adjacence / ciblage / blocage pathfinding) — **le plus gros de la liste** |
 
@@ -363,10 +363,14 @@ J+3 ment déjà.
 | **R11** phase 2 d'`EarlyWarningOverride` (effet 1145 inerte) | `b6d174c` | rien de nommé ; a produit `turns_until_unit_owner_turn`, `has_death_reason`, `UnitComponent.death_source` |
 | — | `7c412b8` + `ad5692e` | **N6** : `test_hailstrike_phase2_live` rouge, signalé indépendamment par les deux |
 
-**Cadence mesurée pendant la rédaction de ce document** : **6 résidus fermés** (R2, R3, R10, R11,
-R18, R22) et **6 résidus neufs** (N1-N6) en une soirée, sur deux rebases successifs. C'est le
-chiffre à retenir : un backlog relu à J+3 décrit un arbre qui n'existe plus. **Re-confronter avant
-de dispatcher n'est pas une précaution, c'est la seule façon d'obtenir une file juste.**
+| **R28**, sous-item « TRI natif des 4 sites de placement `First(…)` » | `fc23f1e` (case-130 SS5) | R28 reste ouvert sur ses **3 autres** sous-items (ordre du sélecteur source, Fragstorm en HEXES, `AddForcedTargetsAndUpdateCandidates`) |
+
+**Cadence mesurée pendant la rédaction de ce document** : **6 résidus entiers fermés** (R2, R3,
+R10, R11, R18, R22) **+ 1 sous-item** (R28/placement), et **6 résidus neufs** (N1-N6), en une
+soirée, sur **trois rebases successifs**. C'est le chiffre à retenir : un backlog relu à J+3 décrit
+un arbre qui n'existe plus. **Re-confronter avant de dispatcher n'est pas une précaution, c'est la
+seule façon d'obtenir une file juste** — et c'est pourquoi cet inventaire porte son commit de base
+en tête plutôt qu'une date.
 
 ### 5.1 — Entrées à sortir du backlog / de la roadmap
 
