@@ -182,6 +182,11 @@ pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1   # build courant (
 # autre build : ... start-ghidra-mcp.ps1 -Project <chemin\gameassembly.gpr>
 ```
 
+> **Les projets Ghidra vivent HORS du dépôt** depuis le 2026-07-26 :
+> `C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>\gameassembly.gpr`. Ils pesaient
+> 14,1 Go dans `data/` (96 % du répertoire) alors qu'ils sont entièrement
+> régénérables — les garder dedans rendait `data/` inmanipulable.
+
 - **Le tool Bash de Claude n'a pas `pwsh`** → lancer via le tool PowerShell (5.1).
   `Start-Process` en 5.1 n'a pas `-Environment` : poser `$env:JAVA_HOME` +
   `$env:GHIDRA_INSTALL_DIR` dans la session **puis** `Start-Process` (l'enfant hérite
@@ -211,7 +216,8 @@ c'est quasi toujours que **le serveur n'est pas lancé** → le démarrer puis `
   Sans `--wait-for-analysis` c'est pire (analyse skippée, tools « Analysis
   incomplete »). Une 2ᵉ session entrerait aussi en collision sur le lock du `.gpr`.
 - **Lock bloqué** : si un lancement précédent est mort, il peut rester un
-  `gameassembly.lock` / `.lock~` dans `data/ghidra_<HASH>/`. Si **aucun** process
+  `gameassembly.lock` / `.lock~` dans `C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>\`.
+  Si **aucun** process
   java/pyghidra ne tourne, ces locks sont périmés → les supprimer avant de relancer.
 
 ## Au changement de build du jeu — PROCÉDURE

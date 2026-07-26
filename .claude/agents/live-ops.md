@@ -27,10 +27,16 @@ tu t'arrêtes et tu escalades avec l'état exact observé.
    `POST /api/_dev/shutdown` → `cd frida && npm run dev` en arrière-plan →
    health-check après ~3 s → le restart réinjecte via auto-restore → warmup (règle 3).
 5. **Boot ghidra-mcp** : script `C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1`
-   via le tool PowerShell (pas Bash — pas de pwsh). Boot ~2 min ; le port 13337
-   n'écoute qu'à la fin de l'analyse. Si aucun process java/pyghidra ne tourne mais
-   que `data/ghidra_<HASH>/` contient des `.lock`/`.lock~`, ils sont périmés → les
-   supprimer avant de relancer.
+   via le tool PowerShell (pas Bash — pas de pwsh). Boot ~2 min ; **le port 13337
+   n'écoute qu'à la fin de l'analyse** — un `/mcp` lancé avant rend
+   `ConnectionRefused`, ce qui ne veut PAS dire que le serveur est mort : vérifier
+   `netstat` ET la présence des process `pyghidra` avant de conclure. Ne pas le
+   lancer en fenêtre masquée : on perd sa sortie de boot, donc le seul moyen de
+   distinguer « démarre » de « mort ».
+   Les projets vivent **hors du dépôt** depuis le 2026-07-26 :
+   `C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>\`. Si aucun process
+   java/pyghidra ne tourne mais que ce répertoire contient des `.lock`/`.lock~`,
+   ils sont périmés → les supprimer avant de relancer.
 6. **Cleanup runners** : `listRunners` puis dispose des orphelins signalés — mais
    JAMAIS pendant qu'un autre agent a un run live en cours (demander si doute).
 
