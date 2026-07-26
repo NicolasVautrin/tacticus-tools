@@ -279,24 +279,34 @@ def _faction_id(state: State, unit_id: int) -> Optional[str]:
 
 
 def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
-    """`PickRandomAmountSelector` (count=1) — choisit UN candidat. Ordre = ids triés (déterministe) ;
-    index = tirage RNG `next_internal(0, n)` quand n>1.
+    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, 1)` ->
+    `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` avec `amount = 1` — choisit UN
+    candidat et **consomme UN tirage dès que le pool est non vide**, y compris quand il ne contient
+    qu'un seul élément (case-130 SS4 ; loi établie et mesurée par #130).
 
-    ⚠ RÉSIDU NOMMÉ (#130, hors périmètre de ce cas) : le court-circuit `n == 1` est FAUX au décompilé.
-    `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` n'a AUCUN court-circuit
-    « le pool tient dans amount » — il tire `min(len(pool), amount)` fois, donc **1 tirage même à
-    n==1** (`NextInternal(0,1)` prend la branche puissance-de-2 et consomme un `genrand_int32`).
-    Mesuré live (`probe_215_pick_randomly_rng.py`) et déjà appliqué par
-    `operations/triggers/loki/destroyer_hive.py::_pick_target`. Corrigé ICI = changement de flux RNG
-    pour Genestealer (`PickRandomly(decoys,1)`) et Psyker -> à traiter dans SON cas, avec ses tests
-    ciblés. Le foyer correct de la loi est `abilities/loki/splash.py::_pick_randomly_n`."""
-    cands = sorted(candidates)
-    n = len(cands)
-    if n == 0:
-        return None
-    if n == 1 or state.rng is None:
-        return cands[0]
-    return cands[state.rng.next_internal(0, n)]
+    Le décompilé de `PickRandomAmountSelector$$Select` n'a AUCUN court-circuit « le pool tient dans
+    amount » : sa seule sortie anticipée est `candidates.Count < 1` (pool VIDE). Pour `amount = 1` et
+    un pool de `k >= 1`, la boucle tourne donc exactement une fois et appelle
+    `rng.NextInternal(0, k)` — et à `k == 1`,
+    `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` prend la branche puissance-de-deux
+    (`(-1 & 1) == 1`), qui CONSOMME un `genrand_int32` avant de retourner 0. Un tirage « sans choix »
+    reste un tirage : court-circuiter décale tout le flux RNG en aval (crit/block/dégât suivants).
+
+    Les DEUX appelants construisent bien ce nœud (décompilé lu, pas déduit) :
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour` :
+        `PickRandomly(Damageable(Enemies(caster, AdjacentUnits(target@0x178, 1, 3))), 1, 0,
+        0x7fffffff, false)` ;
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour` :
+        `PickRandomly(GetValidDecoys(), 1, 0, 0x7fffffff, false)`, sous un `Foreach` -> un tirage PAR
+        ressuscité.
+
+    Foyer unique de la loi = `abilities/loki/splash.py::_pick_randomly_n` (mirror 1:1 de la boucle
+    native) : on délègue au lieu de la ré-écrire. Ordre du pool = ids triés (⚠ résidu #215 restant :
+    le natif énumère dans l'ordre du sélecteur source, ce qui ne change QUI est pris que lorsque le
+    pool déborde `amount` — jamais le NOMBRE de tirages)."""
+    from ...abilities.loki.splash import _pick_randomly_n     # lazy : cycle triggers <-> abilities
+    picked = _pick_randomly_n(state, sorted(candidates), 1)    # PickRandomly(., 1)
+    return picked[0] if picked else None
 
 
 def _unit_tile(state: State, board, uid: int) -> Optional[int]:

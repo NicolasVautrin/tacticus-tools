@@ -179,16 +179,58 @@ def _free_tiles_adjacent(state: State, target_id: int, exclude: set) -> list:
     return out
 
 
-def _pick_randomly(state: State, tiles: list):
-    """UNE tuile de placement. n==1 → l'unique ; sinon index `next_internal(0,n)`.
+def _pick_randomly_one(state: State, tiles: list):
+    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, 1)` ->
+    `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` (`amount = 1`) : UNE tuile, et
+    **UN tirage dès que le pool est non vide** — y compris pool de taille 1 (case-130 SS4 ; loi #130).
 
-    ⚠ RÉSIDU NOMMÉ (#130, hors périmètre de ce cas) — helper AMBIGU : ses appelants mirrorent DEUX
-    nœuds natifs différents. (a) `PickRandomly(tiles, 1)` -> `PickRandomAmountSelector$$Select`, qui
-    tire `min(len(pool), 1)` fois donc **1 tirage même à n==1** (aucun court-circuit au décompilé ;
-    loi mesurée live par `probe_215_pick_randomly_rng.py`, foyer =
-    `abilities/loki/splash.py::_pick_randomly_n`). (b) `First(SortTilesByUtilityForSummon(...))`, qui
-    ne tire RIEN. Faire tirer inconditionnellement casserait (b) ; démêler les appelants un par un
-    (quel nœud natif chacun mirrore) est un cas à part entière, pas un « pendant que j'y suis »."""
+    Le décompilé du sélecteur n'a aucun court-circuit « le pool tient dans amount » : sa seule sortie
+    anticipée est `candidates.Count < 1`. À `k == 1`,
+    `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal(0, 1)` prend la branche
+    puissance-de-deux, CONSOMME un `genrand_int32` et retourne 0.
+
+    Appelants (nœud natif LU, un par un — ne PAS l'étendre aux sites `First(...)` ci-dessous, qui ne
+    tirent rien) :
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour` :
+        `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, 0, 0x7fffffff, false)` ;
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateSummonBehaviour` :
+        `PickRandomly(TilesUnitCanAttackFrom(CanAddUnit(AdjacentTiles(owner@0x148)), owner, unitId_2)
+        .Otherwise(possible), 1, 0, 0x7fffffff, false)`.
+
+    Délègue au foyer unique de la loi, `abilities/loki/splash.py::_pick_randomly_n`."""
+    from ..abilities.loki.splash import _pick_randomly_n       # lazy : cycle operations <-> abilities
+    picked = _pick_randomly_n(state, tiles, 1)                 # PickRandomly(., 1)
+    return picked[0] if picked else None
+
+
+def _pick_placement_tile(state: State, tiles: list):
+    """UNE tuile de placement pour les nœuds natifs **`First(<tri déterministe>(…), 1)`** — ceux qui
+    NE tirent PAS (`PickAtIndexSelector`). n==1 → l'unique ; sinon index `next_internal(0,n)`.
+
+    ⚠ APPROXIMATION ASSUMÉE, et ses appelants ont été démêlés un par un (case-130 SS4) : aucun d'eux ne
+    construit un `PickRandomly` — les deux qui le faisaient sont passés à `_pick_randomly_one`. Ce
+    qui reste, avec son nœud natif LU au décompilé :
+      * `SpawnUnitOperation.execute` (ScarabHive,
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour`) :
+        `Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(CanAddUnit(AdjacentTiles(
+        target@0x178)), caster@0x160), caster@0x160))), count), 1)` — **0 tirage** ;
+      * `execute_squighound_summon`
+        (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SquigHoundSummonUnitAbility$$CreateBehaviour`) :
+        `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target@0x178)), 7, caster@0x160), 1)`
+        — **0 tirage** ;
+      * `execute_control_edict_summon`
+        (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.ControlEdictAbility$$SummonMinion`) :
+        `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(caster@0x148)), 7, @0x160), 1)`
+        — **0 tirage** ;
+      * `execute_pilein_replica`
+        (`IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour`) :
+        `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))), If(HasTrait(0x1b), …)), 1)`
+        — un TROISIÈME nœud : `IdunBattleLogic.Entities.DSLFactory$$Randomize` construit un
+        `PickRandomAmountSelector(source, amount = 0x7fffffff, …)`, donc un mélange complet =
+        **`len(pool)` tirages**, bornes décroissantes.
+
+    Le tirage que ce helper consomme à `n > 1` (et le tri par utilité/formule non porté) sont donc
+    des écarts CONNUS et CHIFFRÉS, hors périmètre de case-130 SS4 : voir `docs/rl/backlog.md`."""
     if not tiles:
         return None
     if len(tiles) == 1 or state.rng is None:
@@ -418,7 +460,9 @@ class SpawnUnitOperation:
         board = state.board
         for _ in range(max(0, int(count))):
             tiles = _free_tiles_adjacent(state, target_id, chosen)
-            tile = _pick_randomly(state, tiles)
+            # ScarabHive : `First(Get(SelectTiles(SortByDistance(…, caster))), count)` = PickAtIndex,
+            # AUCUN tirage (cf. `_pick_placement_tile`) -> surtout PAS `_pick_randomly_one`.
+            tile = _pick_placement_tile(state, tiles)
             e = state.add_entity()                           # id auto (≠ live ; confront par vis/team/pos)
             # ai_controlled : le summon (trait `Summon` = « moves and attacks automatically at the beginning
             # of its turn ») est joué par l'IA au TURN-START de sa team via `run_ai_control_pass` (#65) —
@@ -476,7 +520,8 @@ class SpawnUnitOperation:
         board = state.board
         for _ in range(max(0, int(count))):
             tiles = _free_tiles_adjacent(state, caster_id, chosen)   # adjacent au CASTER (self@0x160)
-            tile = _pick_randomly(state, tiles)
+            # `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, …)` : 1 tirage MEME a pool=1.
+            tile = _pick_randomly_one(state, tiles)
             e = state.add_entity()
             e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
             e.add_component(OwnerComponent(team=coc.team, player=coc.player))       # CopyOwner (owner)
@@ -523,7 +568,10 @@ class SpawnUnitOperation:
         level = getattr(p_ctx, "active_ability_level", None)
         mult = int(getattr(p_ctx, "ability_variables_multiplier", 100) or 100)
         tiles = _free_tiles_adjacent(state, parent_id, set())
-        tile = _pick_randomly(state, tiles)
+        # `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(self@0x148))), …), 1)` : NI
+        # `PickRandomly(.,1)` NI un tri pur -- `Randomize` = `PickRandomAmountSelector(amount=int.Max)`
+        # donc `len(pool)` tirages. Ecart CONNU, hors perimetre case-130 SS4 (cf. `_pick_placement_tile`).
+        tile = _pick_placement_tile(state, tiles)
         if tile is None:
             return []                                        # aucune tuile ring-1 libre -> pas de spawn
         e = state.add_entity()
@@ -578,7 +626,7 @@ class SpawnUnitOperation:
             return []
         occupied = _occupied_tiles(state)
         cands = [t for t in sorted(board.neighbours(ttile)) if board.walkable(t) and t not in occupied]
-        tile = _pick_randomly(state, cands)         # SortTilesByUtilityForSummon+First = raffinement (1re libre)
+        tile = _pick_placement_tile(state, cands)   # SortTilesByUtilityForSummon+First : 0 tirage (raffinement)
         level = getattr(c_ctx, "active_ability_level", None)
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
         gid = _spawn_config_grot(state, vid, tile, "SquigHound", level, mult, coc.team, coc.player)
@@ -599,7 +647,8 @@ class SpawnUnitOperation:
             Conqueror d'un cast ULTERIEUR le fait attaquer). Cf. verdict RE ControlEdict.
         `If(NOT AmountIsEqualOrGreater(Children INTER UnitsWithId(admecSmnVanguard), maxSummons)) -> Spawn` :
         no-op au cap (pas de remplacement). Placement natif = `First(SortTilesByUtilityForSummon(CanAddUnit(
-        AdjacentTiles(caster)),7),1)` ; ici `_pick_randomly` (tri par utilite-summon = raffinement, == SquigHound)."""
+        AdjacentTiles(caster)),7),1)` = 0 tirage ; ici `_pick_placement_tile` (tri par utilite-summon non porte
+        = raffinement, == SquigHound -- surtout PAS un `PickRandomly`, cf. case-130 SS4)."""
         import gameconfig as GC
         from ...entities.effects.magnitude import ability_var
         caster = state.get_entity(caster_id)
@@ -625,7 +674,7 @@ class SpawnUnitOperation:
         if n >= max_summons:                              # NOT AmountIsEqualOrGreater(count, max) False -> no-op
             return []
         tiles = _free_tiles_adjacent(state, caster_id, set())   # CanAddUnit(AdjacentTiles(CASTER))
-        tile = _pick_randomly(state, tiles)               # SortTilesByUtilityForSummon+First = raffinement
+        tile = _pick_placement_tile(state, tiles)         # SortTilesByUtilityForSummon+First : 0 tirage
         gid = _spawn_config_grot(state, vid, tile, "ControlEdict", level, mult, coc.team, coc.player)
         return [gid] if gid is not None else []
 
@@ -699,7 +748,7 @@ class SpawnUnitOperation:
             return any(is_adjacent((ti["col"], ti["row"]), p, elev) for p in epos)
         preferred = [t for t in possible if _can_attack_from(t)]
         sel = preferred if preferred else possible        # .Otherwise(possible)
-        tile = _pick_randomly(state, sel)                 # PickRandomly(sel, 1)
+        tile = _pick_randomly_one(state, sel)             # PickRandomly(sel, 1) : 1 tirage MEME a pool=1
         level = getattr(c_ctx, "active_ability_level", None)
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
         # MESURE LIVE (diag 202c, runner 183) : Screamer MaxHealth 4487 = summonHp_2[50] x 180%

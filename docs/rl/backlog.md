@@ -154,7 +154,11 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
 - **Résidus de `PickRandomly` après #130** (`case-130-pick-randomly-rng.md`). La **loi de
   consommation** est close : le sélecteur tire `min(len(pool), amount)` fois, bornes décroissantes,
   **même quand le pool tient dans `amount`** (`_pick_randomly_n` mirror 1:1 ; comptage direct des
-  `genrand_int32` sur deux régimes, port bit-exact live sur PlasmaCannon). Restent :
+  `genrand_int32` sur deux régimes, port bit-exact live sur PlasmaCannon). Le **helper frère `n = 1`**
+  suit désormais la même loi : ses six appelants ont été démêlés un par un au décompilé (case-130 §4),
+  les deux `PickRandomly(., 1)` (ScarabSummon, MasterOfTheTutelaries) passés à `_pick_randomly_one`, les
+  quatre `First(…)` laissés sur un helper distinct ; mesuré live sur le splash Psyker, trois régimes,
+  trois configurations seed/board. Restent :
   - **Ordre d'énumération du pool quand `len(pool) > amount`** : le natif tire dans l'ordre du sélecteur
     source (ECS, non trié), le port id-trie → **QUI** est piqué peut différer (Fragstorm, PlasmaCannon
     >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine). `[opus]`.
@@ -165,10 +169,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     toutes les factories `PickRandomly` → le natif pré-remplit le résultat avec
     `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)` (non vide sous contrainte de ciblage
     type Taunt) et les retire des candidats, ce qui **réduit le nombre de tirages**. `[opus]`.
-  - **Le helper frère `_pick_randomly` (n=1) court-circuite encore** : `triggers/base.py` (même nœud
-    natif sans ambiguïté → bug identique ; déplace le flux RNG de Genestealer/Psyker) et `spawn.py`
-    (AMBIGU : une partie des appelants mirrorent `PickRandomly(tiles,1)` = 1 tirage, l'autre
-    `First(SortTilesByUtilityForSummon(...))` = 0 tirage — les démêler un par un). `[opus]`.
+  - **Le TRI natif des quatre sites de placement `First(…)`** (`spawn.py::_pick_placement_tile`, démêlés
+    par case-130 §4) : aucun n'est un `PickRandomly`, et le helper consomme pourtant 1 tirage dès que le
+    pool dépasse 1. `SortTilesByUtilityForSummon(pool, 7, caster)` (SquigHound, ControlEdict) et le double
+    `SortByDistance(…, caster)` de ScarabHive ne tirent **rien** (seule la tuile choisie diffère) ;
+    `PileInAbility$$CreateBehaviour` passe par `DSLFactory$$Randomize` =
+    `PickRandomAmountSelector(amount = int.MaxValue)` → **`len(pool)` tirages**, bornes décroissantes,
+    plus un `SortByFormula(If(HasTrait(0x1b), …))` non porté. Corriger exige de porter les tris. `[opus]`.
+- **Resolve slot-8 non matérialisé dans `execute_normal_like`** (`operations/damage_ops.py` →
+  `damage_hits.py::HitDamage.get_damage`, MESURÉ par `probe_130_pick_randomly_one_rng.py`) :
+  `get_damage` court-circuite à `min == max` et ne tire rien, alors que
+  `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)`
+  **sans gate largeur-1** — le port ne matérialise ce resolve que dans la branche ability bounds-mode
+  (`is_attack_damage_op`, cf. le commentaire de `_run_hits`). GROUND TRUTH : sur le splash Psyker
+  (montant plat `PercentageOf(StatAmount(Attack), psykerExtraDmg)`, bornes dégénérées), le live consomme
+  **1 `genrand_int32` de plus que le port par volet splash** — constant, mesuré sur les régimes pool=1 et
+  pool=2, absent quand le splash ne fire pas. Invisible sur le dégât du coup lui-même (montant plat) mais
+  **désynchronise tout ce qui consomme après**. Touche tout vecteur `StatAmount`/`PercentageOf` routé par
+  `execute_normal_like`. Attention : le porter inconditionnellement casserait les vecteurs
+  `AbilityDamageOperation` (Stormcaller 3-hit bit-exact SANS resolve, cf. `probe_217`) — la condition est
+  la FAMILLE de factory native, pas la largeur des bornes. `[opus]`.
 - **Gate d'IMMUNITÉ d'effet (`BaseEffect.EntityIsImmuneToEffect` + surcharges) non porté**
   (`operations/effects.py` en-tête ; MESURE #112) : `AddEffectOperation` pose l'effet sans consulter
   l'immunité. GROUND TRUTH live : `ExemplarOfHate` sur `blackAbaddon` (trait `TerminatorArmour`, i2
