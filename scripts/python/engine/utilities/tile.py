@@ -82,6 +82,14 @@ TEMPORARY_TILE_PENALTY = -10000.0
 # effet dynamique — une DryBush VIDE rend +9). Offline la seule source de cover statique = le terrain
 # (`tileDefId`, boardGraph). DryBush->LightCover VALIDÉ L3 (909 s4 (3,2)=+9 EXACT, pas +DryBush_DefenseBonus
 # => DryBush n'héberge que LightCover pour cette feuille). cf. docs/rl/terrain-effects.md §2 + case-37.
+# ⚠ INCOMPLET, et on sait par quoi : `Swamp` héberge lui aussi une ability de tuile
+# (`ThornsBlockMovementAbility`, description localisée `SwampBlockMovement` — cf. case-198 §RE et
+# case-102 « Swamp = BlockEnteringUnits(0) + Thorns_DefenseReduction(0xb) »), donc Loop2 devrait y
+# sommer `Default.TileEffects.Thorns_DefenseReduction` (-25). MESURÉ live sur le tri de placement des
+# summons (case-130 SS5) — mais PAS ajouté ici : cette table alimente AUSSI le contexte de DÉGÂT
+# (`runner/damage_model.py::tile_effects_context`, où une Swamp porte déjà ces noms comme effets
+# DYNAMIQUES) et le scoring de MOUVEMENT ; l'y poser sans valider ces deux fronts est hors périmètre.
+# Le site qui l'a mesuré le porte donc localement (`runner/operations/spawn.py`) — unification au backlog.
 TERRAIN_TILE_EFFECTS: dict[str, tuple] = {
     "DryBush": ("LightCover",),
 }

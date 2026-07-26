@@ -264,10 +264,10 @@ class SpawnInceptors(AbilityBehaviour):
     each round that has started ») et `First(count)` CAPPE le nombre de tuiles a min(count, tuiles libres)
     -- i2 « if not enough hexes around the target are free, fewer Inceptors will be summoned ».
 
-    Port : placement DETERMINISTE `_dfa_spawn_tiles[:count]` (SortByDistance -> 0 rng, contraste
-    `SpawnUnitOperation.execute` qui consomme du rng via `_pick_placement_tile` des que >1 tuile libre
-    (residu de tri, cf. case-130 SS4) -> desyncerait les attaques
-    on-appearance) ; le SPAWN par tuile delegue a `_spawn_config_grot` (== la creation per-summon de
+    Port : placement DETERMINISTE `_dfa_spawn_tiles[:count]` (SortByDistance -> 0 rng, comme
+    `SpawnUnitOperation.execute` depuis case-130 SS5 : le meme `SortByDistance(., caster)` y est
+    desormais porte via `operations/spawn.py::_sort_by_distance`, et le tirage parasite retire) ;
+    le SPAWN par tuile delegue a `_spawn_config_grot` (== la creation per-summon de
     `SpawnUnitOperation.execute` : owner CopyOwner team+player du caster, stats `ability_var(DeathFromAbove,
     summonHp/summonDmg/summonArmor, casterLevel, mult)`, owner-effects traits + abilities derivees). Puis
     l'ON-APPEARANCE `UseNormalAttackIfAble(Target)` = `_summon_on_appearance_attack(summon, target, None)`

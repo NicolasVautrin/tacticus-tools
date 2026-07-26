@@ -179,7 +179,8 @@ nœud natif. Chacun a été remonté à son `CreateBehaviour`/`ExecuteBehaviour`
 
 Les quatre derniers ne sont **pas** des `PickRandomly` : les faire tirer aurait décalé le PRNG de tous
 les spawns en aval. Le helper a donc été **scindé** — `_pick_randomly_one` (les deux sites `PickRandomly`,
-délègue à `_pick_randomly_n`) et `_pick_placement_tile` (les quatre autres, inchangé).
+délègue à `_pick_randomly_n`) et `_pick_placement_tile` (les quatre autres, laissé inchangé à ce stade,
+puis **porté et supprimé** en SS5 ci-dessous).
 `operations/triggers/loki/destroyer_hive.py::_pick_target` appliquait déjà la bonne loi — c'était le
 seul site correct avant #130.
 
@@ -251,6 +252,123 @@ périmètre — au backlog.
 Vérifié en conditions adversariales : court-circuit ré-injecté → **3 tests rouges** (le helper
 offline, le contraste live, l'attribution) ; retiré → 15 verts.
 
+## Les quatre sites de placement `First(…)` — le TRI natif porté (SS5, CLOS)
+
+`_pick_placement_tile` consommait **1 `genrand_int32` dès que le pool dépassait 1** alors qu'**aucun**
+de ses quatre appelants ne construit un `PickRandomly`. Le helper a été **supprimé** et remplacé par
+les nœuds natifs eux-mêmes, un par un.
+
+### Les nœuds, lus au décompilé
+
+| nœud natif | ce que rend `Select` | tirages |
+|---|---|---|
+| `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` | `list.OrderBy(t => origin.Position.Distance(t.Position))` — `OrderBy` LINQ, **stable** ; `origin == null` → **liste vide** (pas la liste brute) | **0** |
+| `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` | `tiles.OrderBy(t => -utility[t])` (`<Select>b__0` = `Fix64.op_UnaryNegation` du dict) — **descendant, stable** | **0** |
+| `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` | `ascending == false` → `OrderByDescending(key)` ; `ascending == true` → `OrderBy` | **0** |
+| `IdunBattleLogic.Entities.DSLFactory$$Randomize` | `PickRandomAmountSelector(source, amount = 0x7fffffff, allowRepeat = false, maxRepeat = 0x7fffffff)` = **mélange complet** | **`len(pool)`**, bornes décroissantes |
+| `IdunBattleLogic.Entities.DSLFactory$$First(., 1)` | prise en TÊTE | **0** |
+
+Chaîne de l'utilité de `SortTilesByUtilityForSummon(tiles, 7, parent)` : le `7` est un
+**`IdunBattle.Configuration.UtilityType`** (surcharge `utilityType` ; l'autre prend une
+`UtilityDefinition`) — donc `UtilityType.Tile`. `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor`
+crée `Buckets = [ UtilityBucket(7, null) ]`, `IdunBattleLogic.AI.Utilities.UtilityBucket$$.ctor` crée
+`[ WeightedUtility(7, null) ]` et `IdunBattleLogic.AI.Utilities.WeightedUtility$$.ctor` met
+`Weight = weight ?? Fix64.FromInt(1)` → **poids 1** ;
+`IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` somme `Weight × Σ steps` de
+`<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
+`utility.EvaluateMovementInSteps(new UtilityMovementCase(unit, tile, null, null, parent))`.
+→ **utilité(tuile) = le composite `Tile(7)`**, déjà porté dans `engine/utilities/tile.py`.
+
+### L'ORDRE SOURCE fait partie du port
+
+Les tris natifs sont des `OrderBy` LINQ, donc **stables** : dès qu'ils sont à égalité, c'est l'ordre du
+sélecteur SOURCE qui décide la tuile. Or `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`
+accumule dans un `OrderedSet` (ordre d'INSERTION) ce que rend
+`IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles(origin, onlyEmptyOrSteppable = false,
+onlyWalkableTiles = true, allowTemporary = true)` →
+`IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` (liste d'adjacence stockée sur la tuile +
+porte d'élévation `|Δelev| < 2`). C'est **exactement** l'itérateur que le capteur `boardGraph`
+sérialise dans le champ brut `neighbours`. Le port lit donc ce champ tel quel
+(`_free_tiles_adjacent(..., native_order=True)`) au lieu de `board.neighbours()` (qui trie les ids et
+symétrise les arêtes) — même levier que l'ordre ring-1 de Gauntlets (#117).
+
+### La mesure
+
+Sonde : `scripts/python/probe_130_placement_sort_rng.py` (versionnée). Comptage LIVE par `dumpRng`
+avant/après + re-simulation du MT, **et** comparaison des tuiles de spawn. Deux modèles rejoués sur le
+MÊME état seedé : **M0** = l'ex-`_pick_placement_tile` (1 tirage dès pool > 1, pas de tri), **M1** = le
+port actuel. Porteurs HERO (`--list-pool`) : `necroSpyder`/ScarabHive, `admecMarshall`/ControlEdict,
+`orksRuntherd`/SquigHound. Le mode `--discriminate` **place le caster** sur une tuile dont l'anneau
+libre, pris dans l'ordre natif, a son maximum d'utilité AILLEURS qu'en tête — sans quoi tri et ordre
+source rendraient la même tuile et le scénario ne prouverait rien.
+
+```
+scénario                                  pool (ordre natif)          live      M1        M0
+scarabhive   MC1_67/777                   23 31 30 12 13              [12,30] 10  [12,30] 10  [23,30] 12
+scarabhive   C2_37/31337                  14 21 20                    [14,20] 10  [14,20] 10  [14,21] 12
+controledict MC1_67/777                   22 30                       [22]     2  [22]     2  [22]     3
+controledict MC1_67/31337                 22 30                       [22]     2  [22]     2  [30]     3
+controledict MC1_67/777  --discriminate   17(u20) 26(u30) 25(u30)     [26]     2  [26]     2  [17]     3
+controledict MC1_67/777  --caster-tile 15 16(u30) 25(u30) 24(u25)     [16]     2  [16]     2  [16]     3
+controledict C2_37/31337                  20(u10) 19(u30)             [19]     2  [19]     2  [20]     3
+squighound   MC1_67/777                   13(u30) 22(u30)             [13]    10  [13]     6  [13]     7
+squighound   C2_37/31337                  14(u-5) 21(u4) 20(u10)      [20]    12  [20]     8  [20]     9
+```
+
+→ **tuile : M1 = live sur 9/9**, M0 se trompe sur 4. **Comptage : M1 = live exactement** sur
+ScarabHive et ControlEdict ; M0 sur-tire de +1 par tuile placée (donc +2 pour les 2 scarabs).
+
+Le vecteur **SquigHound** garde un écart CONSTANT de −4 tirages sous les DEUX modèles : il est
+étranger au placement (M0 − M1 = +1 exactement, le tirage parasite) et imputable à l'on-appearance
+`PerformAIAttackFromCurrentPosition` du grot, **non portée** — résidu déjà nommé dans le port. C'est
+pour ça que le vecteur propre du nœud utilité est **ControlEdict** : `ControlEdictAbility$$SummonMinion`
+n'a **aucune** on-appearance, donc son comptage est confrontable sans résidu.
+
+### Ce que la géométrie discriminante a fait remonter : le −25 des Swamp
+
+Le premier scénario `--discriminate` a **réfuté** un modèle : pool `t16(Grass elev3) t25(Grass elev3)
+t24(Swamp elev4)`, le composite `Tile(7)` réduit à `ElevationUtility` donnait `t24` (u=50) alors que le
+**live pose sur `t16`**. Explication lue dans le jeu, pas ajustée : la tile-config Unity assigne à
+`Swamp` l'ability de tuile `ThornsBlockMovementAbility` (description localisée `SwampBlockMovement`,
+cf. case-198 §RE ; case-102 « Swamp = `BlockEnteringUnits`(0) + `Thorns_DefenseReduction`(0xb) »), donc
+le Loop2 de `TileEffectsUtility` y somme `Default.TileEffects.Thorns_DefenseReduction` = **−25** →
+u(t24) = 25 < 30 et le modèle retrouve le live. Re-joué sur la géométrie d'origine
+(`--caster-tile 15`) : port = live = `t16`. Et sur une géométrie NEUVE (`--discriminate` après
+correction, pool `t17(u20) t26(u30) t25(u30)`) le live pose sur `t26` — donc le natif départage bien
+par l'utilité, il ne suit pas l'ordre source.
+
+⚠ Ce `Swamp -> Thorns_DefenseReduction` est porté **localement**
+(`operations/spawn.py::_PLACEMENT_TERRAIN_EFFECTS`), pas dans la table partagée
+`utilities/tile.py::TERRAIN_TILE_EFFECTS` : celle-ci alimente aussi le contexte de DÉGÂT
+(`runner/damage_model.py::tile_effects_context`, où une Swamp porte déjà ces noms comme effets
+DYNAMIQUES) et le scoring de MOUVEMENT — l'y poser sans valider ces deux fronts est hors périmètre.
+Unification = backlog.
+
+### Ce qui a été corrigé
+
+- `operations/spawn.py` : `_pick_placement_tile` **supprimé**, remplacé par `_first`,
+  `_sort_by_distance`, `_sort_tiles_by_utility_for_summon`, `_randomize` (délègue à
+  `_pick_randomly_n` — pas de seconde boucle) et `_sort_by_formula_pilein` ;
+  `_free_tiles_adjacent(..., native_order=True)` + `_adjacent_tiles` pour l'ordre source natif.
+- Les quatre call-sites composent désormais leur nœud verbatim (double `SortByDistance` pour
+  ScarabHive inclus — `OrderBy` stable ⇒ le second est idempotent, mirroré tel quel).
+
+### La garde
+
+`scripts/python/tests/engine/runner/test_placement_sort_rng_live.py`
+
+- **offline** : `Randomize` = `len(pool)` tirages bornes décroissantes + SET complet ; le nœud PileIn
+  entier rend la tuile TIRÉE EN PREMIER ; `SortByDistance`/`SortTilesByUtilityForSummon` = **0 tirage**
+  à toute taille de pool ; `First` = prise en tête.
+- **live** : comptage `port == live` ET tuiles `port == live` sur ScarabHive et ControlEdict ;
+- **live, anti-tautologie** : le modèle d'AVANT est vérifié **incapable** de rendre le compte live ; s'il
+  y arrivait (pool retombé à 1), le test le DIT au lieu de passer ;
+- **live, non-tautologie du tri** : le vecteur ControlEdict est joué en mode discriminant et le test
+  exige que M0 place AILLEURS que le live — sinon le tri n'est pas confronté, seulement le comptage.
+
+L'anti-fusion de SS4 (`test_pick_randomly_one_rng_live.py`) est conservée, re-ciblée sur les nouveaux
+nœuds : `First(SortTilesByUtilityForSummon(…), 1)` ne tire RIEN, à aucune taille de pool.
+
 ## Ce qui n'est PAS couvert
 
 0. **Le régime « une seule tuile libre » des deux sites de SPAWN.** `execute_self_replica` et
@@ -272,16 +390,30 @@ offline, le contraste live, l'attribution) ; retiré → 15 verts.
    de ciblage type Taunt) et les retire des candidats. Ça change le nombre de tirages
    (`amount − forced`). Non porté, non mesuré ici (le harnais ne pose pas de contrainte de ciblage sur
    le caster).
-4. **Le TRI natif des quatre sites de placement `First(…)`.** `_pick_placement_tile` rend la première
-   tuile en ordre d'id et **consomme un tirage dès que le pool dépasse 1** — deux écarts, aucun lié au
-   pick :
-   - `SortTilesByUtilityForSummon(pool, 7, caster)` (SquigHound, ControlEdict) et le double
-     `SortByDistance(…, caster)` de ScarabHive ne sont pas portés → la tuile choisie peut différer, mais
-     le natif ne tire **rien** ;
-   - PileIn passe par `Randomize` = `PickRandomAmountSelector(amount = int.MaxValue)` → **`len(pool)`
-     tirages**, plus un `SortByFormula(If(HasTrait(0x1b), …))` non porté.
-   Le tirage que le helper consomme à `len(pool) > 1` est donc faux dans les deux cas, et le corriger
-   demande de porter les tris — cas à part entière.
+4. ~~Le TRI natif des quatre sites de placement `First(…)`.~~ **CLOS (SS5, cf. section dédiée
+   ci-dessus)** : les quatre nœuds sont portés, le tirage parasite retiré, comptage ET tuile mesurés
+   live. Restent ouverts, plus étroits :
+   - **PileIn : comptage live non confrontable** tant que `MaybeTrigger` n'est pas porté. Le gate de
+     l'ability est `Maybe(Difference(Direct(chance), Multiply(Count, Direct(chance_2))))`, et
+     `IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` fait
+     `rng.NextBool(chance)` (donc **1 tirage**) dès que
+     `IdunBattle.DSL.ANonDeterministicAbilityTrigger$$CanUseRandom` est vrai. Le dispatch
+     `operations/triggers/dispatch.py` (bloc PileIn) traite `Maybe` comme DÉTERMINISTE (fire si
+     `chance > 0`) → il manque ce tirage AVANT le placement, ce qui confond toute comparaison de
+     compteur sur ce vecteur. Le nœud de placement, lui, est porté et sa loi (`len(pool)` tirages,
+     bornes décroissantes) est celle de #130, déjà mesurée live sur le foyer `_pick_randomly_n`.
+   - **La fonction d'utilité de `SortTilesByUtilityForSummon` est réduite aux feuilles PURE-TUILE**
+     (Elevation 8, TileEffects 9 via le terrain) : le sélecteur `unit` du `UtilityMovementCase` n'a pas
+     pu être identifié (ctor replié par le linker — Ghidra le nomme `AllAliveMachinesSelector`), donc
+     aucune clé `ctx` d'unité n'est fournie et les feuilles gatées sur l'unité rendent 0. Aucun
+     scénario mesuré ne les réveille à ce jour ; le jour où l'une d'elles décide, il faudra trancher
+     le sélecteur.
+   - **`Swamp -> Thorns_DefenseReduction` vit en local** dans `operations/spawn.py` au lieu de la table
+     partagée `utilities/tile.py::TERRAIN_TILE_EFFECTS` (blast radius dégât + mouvement) — unification
+     à faire, avec validation des deux fronts.
+   - **Les deux sites `_pick_randomly_one`** (`execute_self_replica`, `execute_master_of_tutelaries_screamer`)
+     gardent le pool en ordre d'IDS (`native_order=False`) : leur loi de consommation est exacte
+     (SS4), leur ORDRE SOURCE reste l'approximation du §6 ci-dessous.
 5. **Le resolve slot-8 dans `execute_normal_like`.** `HitDamage.get_damage` court-circuite à
    `min == max` alors que `DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)` sans
    gate largeur-1. Mesuré : **1 tirage manquant par volet splash** sur le vecteur Psyker (montant plat).

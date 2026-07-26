@@ -10,10 +10,11 @@ CE QUE CES TESTS PROUVENT, et pourquoi ils ROUGIRAIENT si la reponse etait l'aut
   (1) OFFLINE : les deux helpers n = 1 (`triggers/base.py::_pick_randomly`,
       `operations/spawn.py::_pick_randomly_one`) tirent `min(len(pool), 1)` fois avec la borne
       `(0, len(pool))`. Rougit si le court-circuit `len(pool) == 1 -> return pool[0]` revient.
-  (2) OFFLINE, ANTI-FUSION : `operations/spawn.py::_pick_placement_tile` -- qui sert les appelants
-      dont le noeud natif est `First(<tri deterministe>(...), 1)` (0 tirage), PAS un `PickRandomly` --
-      reste DISTINCT. Rougit si quelqu'un « uniformise » les deux helpers : faire tirer un
-      `First(SortTilesByUtilityForSummon(...))` decalerait le PRNG de tous les spawns en aval.
+  (2) OFFLINE, ANTI-FUSION : les noeuds de PLACEMENT `First(<tri deterministe>(...), 1)`
+      (`operations/spawn.py::_sort_by_distance` / `_sort_tiles_by_utility_for_summon` / `_first`)
+      restent DISTINCTS d'un `PickRandomly` : ZERO tirage, quelle que soit la taille du pool.
+      Rougit si quelqu'un « uniformise » : faire tirer un `First(SortTilesByUtilityForSummon(...))`
+      decalerait le PRNG de tous les spawns en aval.
   (3) LIVE, COMPTAGE DIRECT (`dumpRng` avant/apres + re-simulation du MT : le nombre de pas EST le
       nombre de `genrand_int32`) sur TROIS regimes du splash Psyker
       (`PickRandomly(Damageable(Enemies(caster, AdjacentUnits(target,1,3))), 1)`), k = |pool| :
@@ -38,7 +39,8 @@ import pytest
 
 import probe_130_pick_randomly_one_rng as P
 from engine.runner.operations.triggers.base import _pick_randomly
-from engine.runner.operations.spawn import _pick_randomly_one, _pick_placement_tile
+from engine.runner.operations.spawn import (_pick_randomly_one, _first,
+                                            _sort_tiles_by_utility_for_summon)
 
 SEED = "777"
 
@@ -92,19 +94,21 @@ def test_pick_randomly_one_no_rng_is_deterministic():
 
 
 @pytest.mark.parametrize("k", [1, 2, 5])
-def test_placement_tile_helper_stays_a_distinct_node(k):
-    """ANTI-FUSION : `_pick_placement_tile` sert les noeuds `First(<tri>(...), 1)` -- il ne doit PAS
-    devenir un `PickRandomly`. En particulier il ne tire RIEN a pool == 1 : le jour ou on portera le
-    tri natif (`SortTilesByUtilityForSummon` / `SortByFormula(Randomize(...))`) le nombre de tirages
-    changera POUR CES SITES, et surement pas vers 'un tirage par pick'."""
+def test_placement_sort_nodes_stay_distinct_from_pick_randomly(k):
+    """ANTI-FUSION : les noeuds de PLACEMENT `First(<tri deterministe>(...), 1)` ne doivent PAS
+    devenir des `PickRandomly` -- ils ne tirent RIEN, a AUCUNE taille de pool (case-130 SS5). Les
+    fusionner decalerait le PRNG de tous les spawns SquigHound/ControlEdict/ScarabHive en aval.
+    (`state.board is None` -> `_sort_tiles_by_utility_for_summon` rend le pool tel quel ; ce qui est
+    teste ici est la CONSOMMATION, mesuree par le rng enregistreur.)"""
     st = _S()
+    st.board = None
     pool = list(range(200, 200 + k))
-    out = _pick_placement_tile(st, list(pool))
+    out = _first(_sort_tiles_by_utility_for_summon(st, list(pool), 1))
     assert out in pool
-    assert len(st.rng.calls) == (0 if k == 1 else 1), (
-        f"pool={k} : `_pick_placement_tile` a consomme {len(st.rng.calls)} tirages -- ce helper a ete "
-        f"DEMELE de `_pick_randomly_one` (case-130 SS4) ; le fusionner decalerait le PRNG de tous les "
-        f"spawns SquigHound/ControlEdict/ScarabHive/PileIn en aval.")
+    assert len(st.rng.calls) == 0, (
+        f"pool={k} : `First(SortTilesByUtilityForSummon(...), 1)` a consomme {len(st.rng.calls)} "
+        f"tirages -- le natif n'en tire AUCUN (`SortTilesByUtilitySelector$$Select` = OrderBy pur).")
+    assert _first([]) is None
 
 
 # --------------------------------------------------------------- live : comptage direct, 3 regimes
