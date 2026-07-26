@@ -452,12 +452,28 @@ def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
     L'`AbilityEntities` de l'evenement est celui de l'ability : caster = l'ACTEUR, target = la cible.
 
     L'attaque NORMALE emprunte cette operation (l'attaque normale EST une active ability, cf.
-    `NormalAttackType` — memoire « normal attack = concrete ability id ») : le port l'emet donc au DEBUT
-    de la voie normale, avec `ability_type` renseigne pour que le gate `IsNormalAttack` puisse trancher.
+    `NormalAttackType` — memoire « normal attack = concrete ability id »).
 
-    Consommateur porte : `AnvilShieldFrozenAttackerAdvantageAbility` (#100) — le bonus +20 % block
-    d'Arjac doit etre POSE avant le calcul du block de CETTE attaque, sinon le port est un no-op
-    silencieux (c'est exactement pour ca que le natif emet l'evenement AVANT l'execution).
+    #120 — LES DEUX VOIES L'EMETTENT. Le natif n'a qu'UN site d'emission ; le port en a deux parce
+    qu'il a deux portes d'operation (`DamageHandler.visit_AttackUnitMessage` pour l'attaque normale,
+    `AbilityHandler.visit_ActiveAbilityMessage` pour un cast). Jusqu'a #120 seule la voie NORMALE
+    emettait = FORK de port (1 site natif -> 2 sites offline dont 1 muet), et les consommateurs
+    s'appuyaient sur un gate STRUCTUREL (« ce vecteur ne peut venir que d'une attaque normale »).
+    Les deux voies emettent desormais, au meme rang relatif que le natif (apres les gates
+    acteur-mort / cible-invalide, avant l'execution), et les gates des consommateurs sont PORTES
+    (`abilities/attack_type.py` : `IsNormalAttack`, `AbilityHasAttackType`).
+
+    `ability_type` = `df@0x130` (l'ability declenchante) : `0x3f5` (marqueur « kind attaque-normale »)
+    sur la voie normale, l'`ActiveAbilityType` du cast sur la voie ability. C'est LE discriminant que
+    lisent les deux gates ci-dessus — le renseigner n'est pas optionnel.
+
+    Consommateurs portes :
+      * `AnvilShieldFrozenAttackerAdvantageAbility` (#100) — gate `IsNormalAttack`, donc actif sur la
+        seule voie normale : le bonus +20 % block d'Arjac doit etre POSE avant le calcul du block de
+        CETTE attaque (c'est exactement pour ca que le natif emet l'evenement AVANT l'execution) ;
+      * `SwornProtectorSummonKellAbility` / `SwornProtectorProtectSwitchAbility` (#95) — gate
+        `AbilityHasAttackType(0|1)`, donc actifs sur les DEUX voies : c'est eux que le fork rendait
+        muets face a une ability offensive.
     AUCUN autre trigger porte n'ecoute `event_id == 0x2b`."""
     ev = TriggerEvent(EventTriggerType.PreUnitAbility, caster_id, target_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
@@ -471,7 +487,13 @@ def unit_post_ability_triggers(state: State, caster_id: int, target_id: int,
     `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0xe)`),
     apres `0x2b` puis `0xb`/`0xc`. Consommateur porte : le trigger PROPRE de l'effet 1201
     (`AnvilShieldFrozenAdvantageExpire`) qui consomme le +20 % block a la fin de l'ability.
-    AUCUN autre trigger porte n'ecoute `event_id == 0xe`."""
+    AUCUN autre trigger porte n'ecoute `event_id == 0xe`.
+
+    #120 — PENDANT EXACT de `pre_unit_ability_triggers` : emis par les DEUX voies (fin de
+    `after_hit_normal_attack` pour l'attaque normale, queue de
+    `AbilityHandler.visit_ActiveAbilityMessage` pour un cast, apres `AddFlagsAfterAbilityExecution`
+    comme le natif). Emettre `0x2b` sans son `0xe` sur la meme voie laisserait un effet
+    « le temps de CETTE ability » pose pour toujours."""
     ev = TriggerEvent(EventTriggerType.UnitPostAbility, caster_id, target_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
     return evaluate_trigger_operation(state, ev)

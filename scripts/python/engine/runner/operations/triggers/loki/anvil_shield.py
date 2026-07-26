@@ -120,6 +120,7 @@ from typing import Optional
 
 from ....state import State
 from ....components import OwnerComponent, UnitComponent, PositionComponent, HealthComponent
+from ....abilities.attack_type import is_normal_attack
 from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
 from ....abilities.base import convert_rounds_to_turns
 from .....entities.selectors import Tiles, Target, Caster
@@ -302,10 +303,19 @@ class AnvilShieldFrozenAttackerAdvantageAbility(TriggeredAbility):
     (`FUN_180026490(0x4d, .., 0x2b)`) **AVANT** l'execution de l'ability — donc avant le calcul du block ;
     la MEME operation emet ensuite `0xb`, `0xc` puis `0xe (UnitPostAbility)`. L'attaque normale passe par
     cette operation (l'attaque normale EST une active ability, cf. `NormalAttackType`), et le gate
-    `IsNormalAttack` la restreint a la voie normale."""
+    `IsNormalAttack` la restreint a la voie normale.
+
+    #120 — le gate `IsNormalAttack` etait jusqu'ici satisfait STRUCTURELLEMENT (le port n'emettait
+    `0x2b` que depuis `AttackDamageOperation`). Depuis que le vecteur part AUSSI de
+    `AbilityHandler.visit_ActiveAbilityMessage` (de-fork du site natif unique), il est PORTE
+    explicitement : `abilities/attack_type.is_normal_attack` (mirror
+    `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`). Sans lui, Arjac gagnerait +20 % de block
+    sur n'importe quel cast adverse — un faux-positif que le natif refuse."""
     event_id = _ON_PRE_ABILITY
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if not is_normal_attack(ev.ability_type):         # IsNormalAttack (#120, cf. docstring)
+            return False
         if ev.target_id != self.owner_id:                 # get_OwnerIsTarget (Arjac est la cible)
             return False
         if ev.actor_id is None or state.effects is None:

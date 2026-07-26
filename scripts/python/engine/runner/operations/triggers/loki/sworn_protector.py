@@ -90,9 +90,33 @@ RESIDUS EXPLICITES :
  * Le marqueur `SwornProtector_JustSummonedEffect` (0x4ce = 1230) est pose puis retire DANS LE MEME
    behaviour et n'est lu par AUCUN gate porte : le port l'omet plutot que de deviner le slot
    `SpawnUnitOptions+0x10` (contraste `+0x18` = on-appearance, lui identifie). Observable nul.
- * Le vecteur `On(PreUnitAbility)` n'est emis par le port QUE sur la voie d'attaque NORMALE
-   (`damage_ops.py`) ; le natif l'emet aussi pour les attaques d'ABILITY -> une ability offensive
-   ciblant Creed ne reveille pas encore SwornProtector cote port (residu partage avec AnvilShield).
+ * (LEVE en #120) Le vecteur `On(PreUnitAbility)` n'etait emis par le port que sur la voie d'attaque
+   NORMALE (`damage_ops.py`) alors que le natif n'a qu'UN site d'emission
+   (`ActiveAbilityOperation$$ExecuteInternal`) commun aux deux voies : une ability offensive ciblant
+   Creed ne reveillait donc PAS SwornProtector. Le vecteur part desormais aussi de
+   `AbilityHandler.visit_ActiveAbilityMessage`, et la disjonction `AbilityHasAttackType(0|1)` est
+   PORTEE (`abilities/attack_type.py`) au lieu d'etre satisfaite structurellement.
+ * `AbilityHasAttackType` degrade en FAUX pour une ability dont le litteral du ctor natif n'a pas ete
+   lu (table `ABILITY_ATTACK_TYPE`) : Kell n'apparait pas, comme avant #120. Aucun trigger invente.
+ * RE-RESOLUTION DE CIBLE apres le vecteur -- NON PORTEE, sur AUCUNE des deux voies (l'ecart
+   PREEXISTE a #120 et est SYMETRIQUE). `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+   enchaine, JUSTE APRES le `FUN_180026490(.., 0x2b)` :
+
+       if (IsUnit(target) && Count(targetTiles) > 0) {
+           replaced = UnitExtensions.GetUnit(First(targetTiles), state);
+           if (replaced != target)
+               return ActiveAbilityOperation$$ExecuteForReplacedTarget(op, caster, replaced, abilityType, options);
+       }
+
+   et `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget` rebatit les
+   `AbilityEntities` sur la NOUVELLE cible, recalcule `GetSkipEndTurnFlag`/`GetSkipAbilityUsedFlag`,
+   puis (sauf `IsDeadUnitAndNotAllowedByAbility`) pose `options[1] = Nullable(2)` et RE-ENTRE dans
+   `ActiveAbilityOperation$$Execute`. C'est CE maillon -- et non le switch lui-meme -- qui envoie les
+   degats sur Kell : le switch deplace Creed, la re-resolution constate qu'une AUTRE unite occupe la
+   tuile visee et rejoue l'ability contre elle. MESURE (`probe_120_pre_unit_ability_fork.py`, etape 1)
+   : offline Creed encaisse (400000 -> 393568) la ou le live le laisse intact. Le porter demande de le
+   cabler sur les DEUX voies a la fois (sinon on recree exactement le fork que #120 vient de fermer) :
+   tache dediee.
 """
 from __future__ import annotations
 
@@ -103,6 +127,7 @@ import gameconfig as GC
 from ....state import State
 from ....components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                             parent_of, children_of)
+from ....abilities.attack_type import ability_is_attack
 from ....abilities.behaviours import Spawn, entities_from_state
 from .....entities.selectors import AdjacentTiles, CanAddUnit, Caster, First
 from .....entities.effect_type import EffectType
@@ -162,12 +187,18 @@ def switch_position(state: State, a_id: int, b_id: int) -> bool:
 
 
 def _is_attack_event(ev: TriggerEvent) -> bool:
-    """`AbilityHasAttackType(@0x130, 0) | AbilityHasAttackType(@0x130, 1)` = « l'ability declenchante est
-    une ATTAQUE (melee OU ranged) ». Le vecteur `On(PreUnitAbility)` du port n'est emis QUE depuis la
-    voie d'attaque normale (`damage_ops.py`, `ability_type=1013`) -> la disjonction est satisfaite
-    STRUCTURELLEMENT (meme raisonnement que le gate `IsNormalAttack` d'AnvilShield). On garde le test
-    d'acteur/cible present pour ne pas fire sur un evenement degenere."""
-    return ev.actor_id is not None and ev.target_id is not None
+    """`GetIsValidAttackForSwornProtectorTrigger` =
+    `AbilityHasAttackType(@0x130, 0 DirectTargetAttack) | AbilityHasAttackType(@0x130, 1
+    SummonAndAttackTarget)`.
+
+    #120 : PORTE (avant, il etait satisfait STRUCTURELLEMENT parce que le port n'emettait
+    `On(PreUnitAbility)` que depuis la voie d'attaque normale). `ability_is_attack` lit la table
+    `ABILITY_ATTACK_TYPE` = le 3e argument du `AActiveAbility$$.ctor` de chaque ability (le champ
+    `AActiveAbility+0x68` que `AActiveAbility$$HasAttackType` compare). Le test d'acteur/cible reste
+    pour ne pas fire sur un evenement degenere."""
+    if ev.actor_id is None or ev.target_id is None:
+        return False
+    return ability_is_attack(ev.ability_type)
 
 
 def sworn_protector_spawn_tree() -> Spawn:
