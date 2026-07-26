@@ -56,8 +56,15 @@ PowerTrip, FightingRetreat_HitReduction, AstartesBanner) et les malus cible (`Ow
 LightCover, Camouflage, Diminutive, BigTarget, MasterAnnihilator). Il n'y a donc **pas** deux canaux à
 brancher séparément : brancher l'appel branche les deux.
 
-`IsMeleeAttack` y est **positionnel** (`IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack`), pas
-la nature déclarée de l'ability — une ability « melee » castée à distance 2 est ranged pour ce canal.
+> ⚠ **CORRIGÉ par [case-122](case-122-hits-malus-ability-vector.md) §2** — la phrase ci-dessous est
+> FAUSSE. `IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` ne calcule rien : il résout le
+> slot d'interface 2 de la `BattleQuery` et délègue à
+> `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, qui part de
+> `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` → la nature est **DÉCLARÉE** par
+> l'ability (`attackRangeType`), et n'est positionnelle que pour la seule valeur `Normal` (3).
+
+~~`IsMeleeAttack` y est **positionnel** (`IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack`), pas
+la nature déclarée de l'ability — une ability « melee » castée à distance 2 est ranged pour ce canal.~~
 
 ### 1.3 Court-circuit
 

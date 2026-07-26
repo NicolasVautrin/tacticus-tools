@@ -31,6 +31,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
@@ -54,15 +55,26 @@ def _r(sid, m, b, t=90):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
-def _build(state_path: Path, args_extra: list) -> int:
-    state_path.unlink(missing_ok=True)
-    proc = subprocess.run(
-        [sys.executable, "rl_duel.py", "build", "--state-file", str(state_path)] + args_extra,
-        cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if not state_path.exists():
-        print("[116] build KO:", (proc.stderr or proc.stdout or "")[-800:])
+def _build(state_path: Path, args_extra: list, retries: int = 40) -> int:
+    """`rl_duel build`. Le plafond MAX_RUNNERS=10 est PARTAGE entre agents : un `runner cap reached`
+    n'est pas une erreur du probe mais une contention -> on ATTEND un slot au lieu d'abandonner (on ne
+    dispose JAMAIS le runner d'un autre)."""
+    for attempt in range(max(1, retries)):
+        state_path.unlink(missing_ok=True)
+        proc = subprocess.run(
+            [sys.executable, "rl_duel.py", "build", "--state-file", str(state_path)] + args_extra,
+            cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if state_path.exists():
+            return json.loads(state_path.read_text())["runnerId"]
+        out = (proc.stderr or "") + (proc.stdout or "")
+        if "runner cap reached" in out and attempt + 1 < retries:
+            print(f"[116] runner cap atteint -- attente d'un slot ({attempt + 1}/{retries})",
+                  flush=True)
+            time.sleep(20)
+            continue
+        print("[116] build KO:", out[-800:])
         sys.exit(2)
-    return json.loads(state_path.read_text())["runnerId"]
+    sys.exit(2)
 
 
 def _dispose(state_path: Path):
@@ -167,10 +179,32 @@ def _advance_until_castable(sid, rid, state_path, visual, ability, max_turns=8):
     return cid, []
 
 
-def _cast_live(sid, rid, caster, target, ability):
-    return _r(sid, "applyAction", {"runnerId": rid, "action": {
+def _cast_live(sid, rid, caster, target, ability, capture_events: bool = False):
+    body = {"runnerId": rid, "action": {
         "kind": "ability", "casterId": int(caster), "targetId": int(target),
-        "abilityType": int(ability)}}, 90)
+        "abilityType": int(ability)}}
+    if capture_events:
+        body["captureEvents"] = True
+    return _r(sid, "applyAction", body, 120)
+
+
+def _live_per_hit(res, ability, dump_zero=False):
+    """{target_id -> [degat par COUP]} depuis les events d'`applyAction(captureEvents)`. Un event de
+    degat portant `Active_Ability_Type == ability` == UN coup APPLIQUE (meme oracle que #61).
+    `dump_zero` imprime les TAGS BRUTS des events a `Amount == 0` : ils sont ambigus (coup tombe sur un
+    cadavre ? marqueur de mort ?) et la difference change le nb de coups qu'on prete au natif."""
+    out: dict = {}
+    for act in (res.get("actions") or []):
+        for e in (act.get("events") or []):
+            td = e.get("tags")
+            if not td:
+                continue
+            td = json.loads(td) if isinstance(td, str) else td
+            if "Amount" in td and td.get("Active_Ability_Type") == int(ability):
+                out.setdefault(int(td.get("Target_Id")), []).append(td.get("Amount"))
+                if dump_zero and not td.get("Amount"):
+                    print(f"[mte] EVENT Amount=0 tags={json.dumps(td, sort_keys=True)}")
+    return out
 
 
 def _alive_units(dec):
@@ -353,10 +387,14 @@ def phase_chrono(args):
 def phase_mte(args):
     st_file = Path(args.state_file or (ROOT / "data" / "_116_mte_state.json"))
     sid = _resolve_session()
+    # `--hp-player` (defaut : celui de `rl_duel build`) : monter les PV du CASTER retire le confond
+    # « le caster MEURT de la reaction adverse (Overwatch / WireweaveNet_CounterAttack) pendant la
+    # chaine » — un acteur mort rend l'attaque NO-OP (#70) et fausse la lecture des maillons (#122).
+    _hp_player = ["--hp-player", str(args.hp_player)] if args.hp_player else []
     rid = _build(st_file, ["--seed", str(args.seed), "--board", "MC1_67", "--rank", "17",
                            "--p-units", "necroDestroyer",
                            "--a-units", args.a_units,
-                           "--hp-target", str(args.hp_target), "--crit", "0,0"])
+                           "--hp-target", str(args.hp_target), "--crit", "0,0"] + _hp_player)
     print(f"[mte] runner={rid} session={sid}")
     try:
         # rapproche le caster : on le laisse a sa place et on DEPLACE les ennemis a portee 2
@@ -378,7 +416,23 @@ def phase_mte(args):
                   for eid, e in st.entities.items()}
         off_delta = {k: (hp_before[k] - off_hp[k]) for k in off_hp
                      if hp_before.get(k) is not None and off_hp[k] != hp_before[k]}
-        res = _cast_live(sid, rid, cid, tid, MULTI_THREAT)
+        # #122 CONTRE-CAS : meme etat, meme RNG, SEULE variable = le predicat `IsMeleeAttack` du canal
+        # de coups. `legacy` = l'ancien calcul POSITIONNEL (adjacence) ; le port livre la nature
+        # DECLAREE (`hits_channel_is_melee`). Si les deux chaines sont identiques, la mesure n'est PAS
+        # discriminante et il ne faut rien en conclure.
+        legacy_chain = []
+        if args.counterfactual:
+            import engine.runner.operations.damage_ops as _dops
+            from engine.runner.operations.triggers.base import _is_ranged_position
+            _keep = _dops.hits_channel_is_melee
+            _dops.hits_channel_is_melee = (
+                lambda state, a, t, is_melee: not _is_ranged_position(state, a, t))
+            try:
+                legacy_chain = (_offline_cast(mkstate(), cid, tid, MULTI_THREAT).get("chain") or [])
+            finally:
+                _dops.hits_channel_is_melee = _keep
+        res = _cast_live(sid, rid, cid, tid, MULTI_THREAT, capture_events=True)
+        live_ph = _live_per_hit(res, MULTI_THREAT, dump_zero=True)
         dec2 = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 90)
         # PV LIVE : `combatSnapshot` ne rend que les VIVANTS -> une unite du set de depart absente du
         # snapshot est MORTE (PV 0).
@@ -394,6 +448,26 @@ def phase_mte(args):
                           if (e.get_component(UnitComponent) is not None
                               and not e.get_component(UnitComponent).alive))
         print(f"[mte] OFFLINE ported={diag.get('ported')} chain={off_chain}")
+        # #122 : decomposition PAR MAILLON. `base_hits` = ce que la chaine passe a l'Operation ;
+        # `applied` = ce que la formule de coups partagee a retenu APRES les malus DEFENSEUR
+        # (Camouflage/Parry/LightCover) -- les confondre fait lire un ecart de COUPS la ou il n'y a
+        # qu'un ecart de DEGAT. `dist` = distance caster/cible (branche -1 vs -2 de Camouflage) ;
+        # elle ne pilote PAS le gate melee/ranged, qui est DECLARE (`attackRangeType`).
+        import hexgeo as _hg
+        _pos = {int(u["id"]): ((u.get("pos") or {}).get("col"), (u.get("pos") or {}).get("row"))
+                for u in (dec.get("units") or []) if (u.get("pos") or {}).get("col") is not None}
+        _cp = _pos.get(int(cid))
+        _fx = _effects_by_unit(dec)
+        _leg = {int(l.get("target")): l for l in legacy_chain}
+        for _lnk in off_chain:
+            _t = int(_lnk.get("target"))
+            _d = _hg.distance(_cp, _pos[_t]) if (_cp and _pos.get(_t)) else None
+            _lg = _leg.get(_t) or {}
+            print(f"[mte] GEOM maillon u{_t} pos={_pos.get(_t)} dist(caster u{cid} @{_cp})={_d} "
+                  f"base_hits={_lnk.get('hits')} OFF applied={_lnk.get('applied_hits')} "
+                  f"per_hit={_lnk.get('per_hit')} | LIVE per_hit={live_ph.get(_t)} "
+                  f"| LEGACY applied={_lg.get('applied_hits')} per_hit={_lg.get('per_hit')} "
+                  f"| effets={_fx.get(_t)}")
         print(f"[mte] OFFLINE deltas PV = {off_delta} morts={off_dead}")
         print(f"[mte] LIVE ok={res.get('ok')} deltas PV = {live_delta} morts={live_dead}")
         print(f"[mte] LIVE hp_before={hp_before} hp_after={live_hp}")
@@ -412,6 +486,10 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=4242)
     ap.add_argument("--rounds", type=int, default=2)
     ap.add_argument("--hp-target", type=int, default=2000)
+    ap.add_argument("--hp-player", type=int, default=0)   # phase mte : PV du caster (0 = defaut build)
+    # phase mte : rejoue AUSSI la chaine offline avec l'ancien predicat POSITIONNEL du canal de coups
+    # (contre-cas #122). Meme etat, meme RNG -- la seule variable est `IsMeleeAttack`.
+    ap.add_argument("--counterfactual", action="store_true")
     # phase `chrono` : mettre un SUMMONER dans le camp adverse (ex. `necroSpyder`) exerce la branche
     # `If(HasTrait(It, Summon), AddEffect(Stunned), AddEffect(Pinned))` du natif.
     ap.add_argument("--a-units", default="eldarRanger,astraBullgryn,tauMarksman")

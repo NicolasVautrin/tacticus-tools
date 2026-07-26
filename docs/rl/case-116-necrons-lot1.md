@@ -227,11 +227,13 @@ Le delta systématique sur le CASTER (`83`) dans les traces live est la RÉACTIO
 (`Overwatch_AutoAttack` / `WireweaveNet_CounterAttack` de l'`eldarRanger`) — hors ability, non rejouée
 offline sur ce chemin.
 
-**Résidu chiffré, INDÉPENDANT de la chaîne** : 3e maillon posé sur un porteur de
-`Camouflage_HitReduction` (`tauMarksman`) — offline 2 coups (2613), live 1 coup (2423). Le canal de
-RÉDUCTION DE COUPS défenseur sur le vecteur ability est en cause, pas le report : le MÊME régime
-(`--hp-target 2500`) avec un 3e ennemi sans Camouflage est bit-exact. À traiter avec le canal
-`hits_malus_from_defender_effects` (axe séparé).
+**Résidu chiffré, INDÉPENDANT de la chaîne** — ~~canal de réduction de coups~~ **REQUALIFIÉ par
+[case-122](case-122-hits-malus-ability-vector.md) §5.2** : le « offline 2 coups » lisait la **BASE**
+de la chaîne (`chain[].hits`), pas les coups APPLIQUÉS. Le probe expose désormais `applied_hits` :
+sur le 3e maillon (`tauMarksman`, `Camouflage_HitReduction`) le port applique **1** coup, le natif
+**1** aussi — le canal de coups concorde. Ce qui reste est un écart de **DÉGÂT per-coup**
+(port `[2613]` vs live `[2423]`), attribué au **séquencage RNG de la chaîne après un KILL** (le natif
+roule un coup de plus, celui qui tombe sur le cadavre) → backlog **#116-d**.
 
 **Résidu structurel** : `SelectSingle` du sélecteur de cible suivante prend le PREMIER élément dans
 l'ordre d'énumération natif (tuiles, `UnitsOnTilesSelector`) ; le port prend le premier dans l'ordre
