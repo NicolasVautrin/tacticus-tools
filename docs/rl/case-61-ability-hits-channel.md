@@ -2,11 +2,13 @@
 
 **Statut : LIVRÉ.** Le vecteur COMBAT des attaques d'ability traverse désormais la formule de coups
 partagée ; la face PRÉDICTION reste sur la base seule (verdict natif) ; `FrenziedFiring` (1036) a sa
-base géométrique portée.
+base géométrique portée **et son volet AoE** (le 2ᵉ batch du playbook, §4bis).
 
 Artefacts : `engine/runner/operations/damage_ops.py` (`execute_ability_attack`),
 `engine/services/attack_hits_formula.py`, `engine/playbook/prediction/abilities.py`
-(`_frenzied_firing_inputs`), `probe_61_ability_hits.py`,
+(`_frenzied_firing_inputs`, `make_damage_predictions`),
+`engine/entities/abilities/active_ability.py` (`FrenziedFiringAbility`),
+`probe_61_ability_hits.py`, `probe_61c_frenzy_aoe.py`,
 `tests/engine/runner/test_ability_hits_channel_live.py`.
 
 ---
@@ -150,8 +152,78 @@ trait `Diminutive` : ni `Diminutive` ni `Camouflage` ne modifient la prédiction
 ligne PRÉDICTION), et la mesure ci-dessus le confirme cible par cible.
 
 Le playbook natif (`IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions`) évalue ce
-nœud pour l'event de la cible principale, puis émet un **second batch** sur
-`FrenziedFiringAbility$$GetTargets` (les ennemis adjacents) avec `hits = 1` littéral.
+nœud pour l'event de la cible principale, puis émet un **second batch** — c'est l'objet du §4bis.
+
+---
+
+## 4bis. Le volet AoE : le 2ᵉ batch du playbook
+
+`IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions` appelle **deux fois**
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`,
+et **concatène** le résultat du second dans la liste du premier (`List.Add` en boucle sur son
+énumérateur) :
+
+| | batch 1 — cible d'origine | batch 2 — **volet AoE** |
+|---|---|---|
+| `targets` (param 5) | `Target@0x178` | `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets` |
+| `hits` (param 7) | `Evaluate(GetHitsForOriginalTarget)` — géométrique (§4) | **`1`, immédiat du call-site** |
+| `formula` (param 6) | `BlightGrenadesAbility$$GetDamageFormula` | *idem* |
+| `profile` (param 8) | `Nullable(AActiveAbility$$GetDamageProfile)` | *idem* |
+| poids Fix64 (param 10) | `0` → `Fix64.FromInt(1)` | *idem* — donc **aucune** pondération `GetMaxSecondaryTargets` |
+
+`GenerateMultiHitAttackPredictions` résout `param_5` en énumérable d'unités puis émet **un
+`ProbableDamageEvent` par unité**, chacun avec `param_7` coups → le batch 2 pose 1 coup sur chaque
+ennemi de l'anneau.
+
+Le `hits = 1` est bien un **littéral** : `nrOfHits` (`0x2f`) vaut aussi 1 en config, mais le natif
+n'appelle **ni** `GetNumberConstant` **ni** `GetHits` pour ce batch — recopier la constante serait une
+coïncidence, pas un mirror. D'où la constante `FrenziedFiringAbility.AOE_HITS`, portée dans la classe
+d'ability et non lue de la config.
+
+### Le sélecteur
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets` =
+`IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(caster@0x160, TargetTiles@0x190, 1)` — la
+surcharge à 4 arguments, qui se développe en :
+
+```
+Enemies( caster@0x160,
+         Units(AdjacentTiles(TargetTiles@0x190), 1, 3) − TargetTiles@0x190,
+         3 )
+```
+
+= les unités d'équipe **≠ celle du CASTER** posées sur les tuiles adjacentes (anneau hex 1) à la
+tuile de la **CIBLE**. Le centre est déjà exclu par `AdjacentTiles` (le `op_Subtraction` est
+défensif) ; la cible principale est retirée par `make_damage_predictions`. Le filtre « vivant » n'est
+pas un nœud de l'arbre : il est porté par `Units(...)`
+(`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`, lecture par **occupation de tuile** —
+un mort n'est plus sur le board), ce que `_within` mirrore déjà (#57m). Le port est donc
+`AdjacentEnemies(TargetTile(), Const(1))` **nu**, sans wrapper `Damageable`.
+
+> ⚠ Les deux volets sont **anti-corrélés** : chaque ennemi posé sur l'anneau retire une tuile du
+> `Count` du batch 1 **et** ajoute un event au batch 2. Un port qui n'émettrait que le batch 1
+> perdrait donc doublement — c'est le levier du test de garde (5).
+
+### Ground truth live
+
+Runner isolé, board `MC1_67`, `blackObliterator` (u85) vs 4 ennemis, **caster jamais déplacé**
+(cf. l'avertissement ci-dessous), cible sur une tuile à 6 voisins marchables. Oracle =
+`aiPlaybookPredict`, qui invoque le `MakeDamagePredictions` natif et décode **tous** ses events.
+
+| voisins ennemis | events natifs | coups batch 1 | coups batch 2 | port |
+|---|---|---|---|---|
+| 0 | 1 | 7 | — | identique, **dégât bit-exact** |
+| 1 | 2 | 6 | 1 | identique, **bit-exact** |
+| 2 | 3 | 5 | 1, 1 | identique, **bit-exact** |
+| 3 | 4 | 4 | 1, 1, 1 | identique, **bit-exact** |
+
+Avant : le port n'émettait **que** l'event de la cible d'origine (1 event dans les 4 cas).
+
+> ⚠ **Ne jamais déplacer le caster pour monter ce scénario** (case-101 §6). `applyAction move` pose
+> `UnitFlag.Moved`, que le natif lit pour désarmer `HeavyWeapon_ExtraDmg` (+25 % ranged not-moved) —
+> or aucun RPC n'expose les `UnitFlags` au port, qui garde le bonus. Mesuré ici : un **×1,25 uniforme
+> sur tous les events** (natif `u77 [10772,16160]` vs port `[13464,20196]`), purement artefact de
+> mesure. Caster immobile ⇒ dégât bit-exact sur les deux batchs.
 
 ---
 
@@ -162,6 +234,8 @@ nœud pour l'event de la cible principale, puis émet un **second batch** sur
 python probe_61_ability_hits.py both    --sid S --runner R --caster U --ability 1042 --target T
 python probe_61_ability_hits.py predict --sid S --runner R --caster U --ability 1042 --targets "t1,t2"
 python probe_61_ability_hits.py combat  --sid S --runner R --caster U --ability 1036 --target T
+python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61203 --k 3   # volet AoE (monte son runner)
+python probe_61c_frenzy_aoe.py --board MC1_67 --seed 61200 --k 0   # volet AoE inerte
 python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 ```
 
@@ -169,8 +243,6 @@ python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 
 ## 6. Résidus
 
-- **Volet AoE de `FrenziedFiring`** : le second batch du playbook (`GetTargets()` = ennemis adjacents à
-  la cible, `hits = 1`) n'est pas émis par le port. Axe `get_aoe_targets`, séparé de la base de coups.
 - **`On(PreAttack=5)` n'est pas émis par le vecteur ability** — fidèle : le natif l'émet depuis
   `ALoki_NormalAttackAbility$$ExecuteNormalAttack`, pas depuis le chemin ability. Conséquence : sur ce
   vecteur, `LetTheGalaxyBurn` ne peut s'armer que par sa branche `TargetHasTileEffect` (le flag
@@ -186,3 +258,10 @@ python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 - **Plancher de la formule** : le natif termine par `Math.Max(hits, 0)`, le port par `max(1, ...)`.
   Écart théorique seulement (aucune base connue ne descend à 0) ; le comportement du port est celui
   validé bit-exact de longue date sur l'attaque normale, il n'a pas été touché.
+- **Le flag `Moved` n'atteint pas la face PRÉDICTION** — résidu de `case-101` §6, re-mesuré ici sur
+  1036 : le chemin `make_damage_predictions` dérive « a bougé » de `attack_pos != scene.pos(caster)`
+  (donc `False` pour la tuile courante) au lieu de lire `UnitFlag.Moved`, qu'aucun RPC n'expose. Un
+  caster ranged **déjà déplacé** garde donc `HeavyWeapon_ExtraDmg` côté port : **×1,25 uniforme sur
+  tous les events** (mesuré `u77 [13464,20196]` port vs `[10772,16160]` natif). Débloqueur nommé dans
+  `case-101` : exposer `UnitFlagsComponent` (`OrderedSet<int>` @+0x10) dans `combatSnapshot`.
+  Hors périmètre #61 (axe DÉGÂT, tous vecteurs ranged concernés — pas propre à 1036).

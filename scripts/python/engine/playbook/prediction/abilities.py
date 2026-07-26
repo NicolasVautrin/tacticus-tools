@@ -152,6 +152,9 @@ _PREDICT_VIA_NORMAL_ATTACK = frozenset({"SorcerousFacade"})
 #    handler = HOMONYME du playbook natif + VA ; rend un dict `{base_override?, hits_override?, profile_override?}`
 #    (kwargs de `generate_multi_hit_attack_prediction`) ou `{}`. La methode generique reste GENERIQUE : aucune
 #    logique ability-specifique inline (ajouter une ability divergente = un handler + une entree registre).
+#    Cle META supplementaire `aoe_overrides` (dict de MEMES kwargs) : entrees PROPRES au 2e batch, pour les
+#    playbooks qui appellent `GenerateMultiHitAttackPredictions` deux fois avec des arguments differents
+#    (FrenziedFiring). Consommee et RETIREE par `make_damage_predictions` — jamais transmise en kwarg.
 def _martial_inspiration_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
     """`MartialInspirationPlaybook.MakeDamagePredictions` (yield machine `<MakeDamagePredictions>IdunBattle.AI.Playbook.Loki.MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext ; Kariyan/custoBladeChampion, ability 1191) — SURCHARGE la base/hits generiques (#106) :
     emet UN coup (hits=1 literal `*(puVar25+0x40)=1`) de base `round(var12 * buff)`, PAS `avg(minDmg,maxDmg)`
@@ -251,17 +254,27 @@ def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
 
     Vivants seulement (`Units(tile)` = occupation REELLE ; `decisionView` garde les cadavres, cf. #57m).
     Board/positions absents -> `{}` = base generique (degradation fidele, aucune sur-prediction).
-    ⚠ RESIDU : le 2e batch du playbook (`GetTargets()` = ennemis adjacents a la cible, `hits=1` litteral)
-    = volet AoE, porte separement par `get_aoe_targets` (non couvert ici)."""
+
+    VOLET AoE (2e batch, porte) : le playbook enchaine un SECOND
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`
+    sur `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets` (= ennemis du
+    caster adjacents a la CIBLE, `get_aoe_targets` de `FrenziedFiringAbility`) avec `hits = 1` **LITTERAL**
+    (7e arg immediat du call-site : le natif n'evalue AUCUN noeud de coups pour ce batch — `nrOfHits`
+    vaut 1 en config, mais le recopier serait une coincidence, pas un mirror), puis CONCATENE ses events
+    dans la liste du 1er batch. Meme `GetDamageFormula` et meme `Nullable(GetDamageProfile)` que le batch
+    d'origine -> `aoe_overrides` ne surcharge QUE les coups. `param_10` (poids Fix64) = 0 sur les deux
+    batchs -> probabilite 1, aucune ponderation `GetMaxSecondaryTargets`."""
     board = getattr(scene, "board", None)
     t_pos = scene.pos(target_id)
     n = int((cfg.constants or {}).get("nrOfHits") or 0)          # GetHits = GetNumberConstant(0x2f)
     cap = int((cfg.constants or {}).get("maxNrOfHits") or 0)     # ConfigConst 0x48
+    # `hits = 1` LITTERAL du 2e batch — porte par la classe d'ability (constante native, pas config).
+    aoe = {"aoe_overrides": {"hits_override": FrenziedFiringAbility.AOE_HITS}}
     if board is None or not t_pos or not n:
-        return {}
+        return aoe
     t_tile = board.id_at(t_pos[0], t_pos[1])
     if t_tile is None:
-        return {}
+        return aoe
     c_team = scene.team(caster_id)
     enemy_tiles = set()                                          # tuiles tenues par un ENNEMI du caster
     for uid, p in (scene.pos_by_id or {}).items():
@@ -272,7 +285,8 @@ def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     count = sum(1 for nb in board.neighbours(t_tile)             # AdjacentTiles(target)
                 if board.walkable(nb) and nb not in enemy_tiles)  # Walkable + (!HasUnit | !AreEnemies)
     hits = n + count
-    return {"hits_override": min(hits, cap) if cap else hits}    # Min(., ConfigConst(maxNrOfHits))
+    # Min(., ConfigConst(maxNrOfHits)) pour le batch d'ORIGINE ; `aoe_overrides` garde hits=1.
+    return {"hits_override": min(hits, cap) if cap else hits, **aoe}
 
 
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
@@ -364,19 +378,28 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # ability-specifique vit dans son handler HOMONYME (cf. `_MAKE_DMG_INPUT_OVERRIDES`), jamais inline ici.
     _ovr_fn = _MAKE_DMG_INPUT_OVERRIDES.get(ability_id)
     overrides = _ovr_fn(scene, caster_id, main_tgt_id, ab, cfg) if (_ovr_fn and ab is not None and cfg is not None) else {}
+    # BATCH SECONDAIRE a entrees PROPRES (`aoe_overrides`) — mirror des playbooks qui appellent
+    # `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`
+    # DEUX fois avec des arguments differents (ex. FrenziedFiring : `hits` = noeud geometrique pour la cible
+    # d'origine, `hits = 1` LITTERAL pour `FrenziedFiringAbility$$GetTargets`). Cle META consommee ici, JAMAIS
+    # transmise en kwarg. Absente -> le batch AoE herite exactement des entrees du batch principal (cas de
+    # tous les autres playbooks portes, qui repassent les memes formule/hits/profil aux deux boucles).
+    _aoe_ovr = overrides.pop("aoe_overrides", None) if overrides else None
     # Profil de prediction par-ability (audit #165) : le playbook natif passe un param_8 explicite (ou null).
     _prof_ovr = _PLAYBOOK_PROFILE_OVERRIDE.get(ability_id)
     if _prof_ovr is not None and "profile_override" not in overrides:
         overrides = {**overrides, "profile_override": _prof_ovr}
+    aoe_overrides = {**overrides, **_aoe_ovr} if _aoe_ovr else overrides
 
-    def _event(tid, prob1=1.0):
+    def _event(tid, prob1=1.0, ovr=None):
         if via_normal:
             ev = make_normal_attack_predictions(scene, caster_id, tid, attack_pos)
             if ev is not None and prob1 != 1.0:
                 ev.probability1 = prob1
             return ev
         dp = generate_multi_hit_attack_prediction(scene, caster_id, tid, ability_id, ability_name,
-                                                  attack_pos=attack_pos, base_bonus=base_bonus, **overrides)
+                                                  attack_pos=attack_pos, base_bonus=base_bonus,
+                                                  **(overrides if ovr is None else ovr))
         return ProbableDamageEvent(target=tid, prediction=dp, probability1=prob1) if dp is not None else None
 
     main = _event(main_tgt_id)
@@ -389,7 +412,7 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     maxsec = ab.get_max_secondary_targets()
     prob1 = (min(1.0, maxsec / len(aoe)) if (maxsec is not None and aoe) else 1.0)
     for t in aoe:
-        aev = _event(t.get("id"), prob1)
+        aev = _event(t.get("id"), prob1, aoe_overrides)
         if aev is not None:
             events.append(aev)
     # #108 count² : les abilities AoE SELF-centrees (MurderousSwing) RE-EMETTENT la liste d'events de degat
