@@ -374,34 +374,44 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
 
 
 class AttackWithAbilityDamage(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> `AttackDamageBehaviour` sur un noeud de degat
-    `Direct(...)` : degat DIRECT (base = un `AAmountFormula`) porte sur la cible, route par le SEUL
-    percage/armure — AUCUN crit / block / bouclier / spread / tirage RNG / after-hit. Factory NATIVE
-    DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
+    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (LU) -> `IdunBattle.Entities.Behaviours.
+    AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` : famille ABILITY
+    (`IdunBattle.Operations.AbilityDamageOperation`), factory NATIVE DISTINCTE de
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
     slice-19 : la classe Python homonyme precedente mirrorait en realite `AttackWithAttackDamage` et a
     ete RENOMMEE (directive « coller au natif ») — cette classe-ci est la VRAIE `AttackWithAbilityDamage`.
 
-    Seul usage porte = le DoT de tuile `EnvFireTile` (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` :
-    `Foreach(<occupants non-immunes sur tuile en feu>, AttackWithAbilityDamage(Tiles(@0x180), PercentageOf(
-    StatAmount(@0x180, Health=5, Max=2), ConfigConst(fireDmgPct)), Direct(Nullable(3)), source=AbilityOrEffect(
-    Fire=5)))`). Wrapper MINCE au-dessus de `AttackDamageOperation.execute_direct` (= l'ancien corps imperatif
-    de `FireTileDoT`) → bit-exact BY CONSTRUCTION (meme base, meme percage, meme mutation/mort).
+    ⚠ Le nom natif `AttackWithAbilityDamage` et le noeud `Direct(...)` de son 3e argument ont longtemps fait
+    lire cette factory comme « degat DIRECT » (= `IdunBattle.Operations.DirectDamageOperation`). C'est FAUX :
+    `Direct(...)` est un noeud de DEGAT (une formule a valeur fixe), pas une Operation ; le corps de la
+    factory construit `AbilityDamageBehaviour` + `AttackBehaviour`, jamais un `DirectDamageOperation`.
+
+    Usages portes : le DoT de tuile `EnvFireTile`
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour` :
+    `Foreach(<occupants non-immunes sur tuile en feu>, AttackWithAbilityDamage(Tiles(@0x180), @0x180,
+    PercentageOf(StatAmount(@0x180, Health=5, Max=2), ConfigConst(fireDmgPct)), AbilityOrEffect(Fire=5),
+    {0, Direct(Nullable(3))}))`) et la nova de mort `PutridExplosion` (mode `multi`).
 
     `amount` = le degat-node `AAmountFormula` (la base ; pour le feu `PercentageOf(fireDmgPct, StatAmount(
     Target(), Health, Max))` — `entities` porte `get_stat`, la base est calculee Fix64 = mirror natif
-    `PercentageOf.Calculate`). `profile` = profil de percage (Flame). `is_melee` n'affecte PAS le percage :
-    la source est une TUILE sans stats ExtraPierce → `profile_pierce(None, profile)` = PiercingRatio brut.
+    `PercentageOf.Calculate`). `profile` = profil de percage (Flame). `is_melee` = la nature DECLAREE du coup
+    (`attackRangeType` ; **None** = absent -> `IsMeleeAttack` et `IsRangedAttack` tous deux FAUX, cas du DoT
+    de tuile dont l'`AbilityOrEffect` est l'EFFET Fire) ; il n'affecte PAS le percage quand la source est une
+    TUILE sans stats ExtraPierce (`profile_pierce(None, profile)` = PiercingRatio brut).
     `hits` = nb d'applications (defaut 1 = 1 tick, live-valide : net 477 = base 1908 × PiercingRatio Flame
     25%). `source_ref` = l'entite-source pour l'attribution de mort (defaut None → `entities.caster` = la
     tuile). Emet 'AttackWithAbilityDamage'. PUR.
 
-    ⚠ `Direct(Nullable(3))` natif : le `3` n'est PAS le nb de coups (live = 1 tick) ; sa semantique exacte
-    (DamageTrait / tag de source) n'est pas RE'd et reste INERTE pour un degat DIRECT (rien a taguer : pas de
-    crit/block/after-hit). Non porte (ne change aucun nombre).
+    ⚠ `Direct(Nullable(3))` natif = le champ +0x90 de l'`AbilityDamageBehaviour`, evalue par
+    `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$ExecuteTarget` dans une cellule de l'AttackData
+    (les champs voisins +0x98 = nrOfHits, defaut 1, et +0xa0 = ability id sont NULS pour le feu). Le `3`
+    n'est PAS le nb de coups (live = 1 tick) ; sa semantique exacte n'est pas RE'd et reste INERTE (aucun
+    nombre porte n'en depend).
 
     `multi` (case death-nova) = mode MULTI-CIBLE, mirror du `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` que la
     factory native enveloppe TOUJOURS (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = `AbilityDamageBehaviour` +
-    `AttackBehaviour(caster, targetsSelector, dmgBehaviour, profile)`) : quand le selecteur resout N unites
+    `AttackBehaviour(caster, targetsSelector, dmgBehaviour, profile)` ; `Execute` resout +0x50 = le CASTER en
+    UNE entite — `SelectOne` — et +0x58 = la LISTE des cibles) : quand le selecteur resout N unites
     (Explodes/PutridExplosion : tous les adjacents), le behaviour resout la LISTE, l'`OrderBy` (b__5_0,
     cle scalaire par-unite = ordre de lecture) puis attaque CHAQUE cible. Port : `evaluate` -> liste triee
     par `id` (== `AttackWithAttackDamage.multi`, meme mirror). `multi=False` (defaut) = mono-cible
@@ -415,12 +425,22 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         AUCUNE feuille positionnelle (elevation/trench), 0 tirage de valeur (amount FIXE => min==max).
         Port = `execute_ability_attack(base, base, ..., is_attack_damage_op=False)` — MEME route deja
         live-validee bit-exact pour Stormcaller (probe_217) et #45f.
-      - `"direct"` (defaut) = route HISTORIQUE du DoT de tuile `EnvFireTile` :
-        `AttackDamageOperation.execute_direct` (percage/armure SEULS, mods=None, ni block ni bouclier ni
-        cap Resilient). C'est une SIMPLIFICATION heritee, numeriquement equivalente pour une source TUILE
-        (pas de crit, cible sans block/bouclier dans les mesures) — conservee telle quelle (zero
-        regression sur un chemin live-valide) et documentee comme RESIDU : la migration du feu vers
-        `"ability"` est un chantier separe."""
+      - `"direct"` = `AttackDamageOperation.execute_direct`, mirror de `IdunBattle.Operations.
+        DirectDamageOperation` / `IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage`
+        (percage/armure SEULS, mods=None, ni block ni bouclier ni cap Resilient). PLUS AUCUN
+        CONSOMMATEUR depuis la migration du DoT de tuile `EnvFireTile` vers `"ability"` : la factory
+        native `AttackWithAbilityDamage` ne construit JAMAIS un `DirectDamageOperation` (elle construit
+        `AbilityDamageBehaviour` + `AttackBehaviour`, LU). Le mode reste expose pour le jour ou une
+        feuille mirrorera vraiment `DirectDamageOperation` ; il n'est plus le defaut.
+
+    MIGRATION du DoT de tuile (residu STRUCTUREL clos) : le port routait le feu sur `"direct"`, ce qui
+    est numeriquement equivalent tant que la cible n'a ni bouclier, ni block, ni cap de trait — mais FAUX
+    des que l'un des trois entre en jeu. DISCRIMINANT MESURE LIVE (probe_envfire_resilient_cap, board
+    MC1_67, `--hp-target 500000` -> dot = 20 % PVmax = 100000, armure 0) : tick de feu sur une cible
+    RESILIENT a 62076 PV -> le natif inflige **62075 = hp-1** et la laisse VIVANTE a 1 PV (signature de
+    `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`) ; TEMOIN au montage
+    STRICTEMENT identique avec une cible NON-Resilient (astraBullgryn, 61362 PV) -> elle MEURT. La route
+    `"direct"` tuait les deux."""
     __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref",
                  "multi", "native_operation")
 

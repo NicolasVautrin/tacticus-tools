@@ -57,22 +57,38 @@ def env_fire_tile_tree(pct: int, profile: str):
                      amount  = PercentageOf( StatAmount(@0x180, Health=5, Max=2), ConfigConst(0x12=fireDmgPct) ),
                      Direct(Nullable(3)),
                      source  = AbilityOrEffect(Fire=5) ) )
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = factory NATIVE DIRECT (DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
-    = Psyker/ThunderousAssault) : degat porte par le SEUL percage/armure, AUCUN crit/block/spread/after-hit.
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` construit `IdunBattle.Entities.Behaviours.
+    AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` (LU) : c'est la
+    famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation` -> `IdunBattle.Core.Services.
+    DamagePrediction$$CalculateAbilityDamage`), DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$
+    AttackWithAttackDamage` (famille ATTACK, Psyker/ThunderousAssault) — et distincte AUSSI de la voie
+    `IdunBattle.Operations.DirectDamageOperation` / `IdunBattle.Core.Services.DamagePrediction$$
+    CalculateDirectDamage`, que ce DoT n'emprunte PAS.
     Port : la FEUILLE `AttackWithAbilityDamage(Target(), "Flame", PercentageOf(Const(pct), StatAmount(Target(),
-    Health, Maximum)))`. Le `Foreach(<selecteur>)` natif (occupants NON-immunes sur tuile en feu) est resolu EN
-    AMONT par le dispatch runner (`TileEffectTrigger` par tuile en feu = `EntitiesWithAnyEffect(5)`, `_unit_on_tile`
-    = l'occupant, `_is_immune_to_fire` = le gate `UnitsWithoutTraits([Steppable, Immune])`) — DSL-ification du
-    selecteur deferree (comme le selecteur Psyker, #216). La cible RESOLUE (l'occupant) passe via `Target()` ; sa
-    PV MAX via `StatAmount(Target(), Health, Maximum)`. La feuille (mode DIRECT) calcule `base = round_fix64(pct%
-    * PVmax)` (Fix64 = mirror natif `PercentageOf.Calculate` ; l'ancien imperatif `round(float)` etait moins
-    fidele -> ici aligne sur l'oracle) puis route via `execute_direct(base, pierce=PiercingRatio(Flame)=25)` =
-    MEME Operation/args que l'ancien corps (percage/armure seuls). Bit-exact BY CONSTRUCTION (meme base, meme
-    percage, meme mutation/mort). `source` non passe -> `entities.caster` = la tuile (owner_id) pour l'attribution
-    de mort. `pct`/`profile` passes par l'appelant (`GC.global_value(fireDmgPct)` / `FIRE_PROFILE`) pour eviter
+    Health, Maximum)), native_operation="ability")`. Le `Foreach(<selecteur>)` natif (occupants NON-immunes sur
+    tuile en feu) est resolu EN AMONT par le dispatch runner (`TileEffectTrigger` par tuile en feu =
+    `EntitiesWithAnyEffect(5)`, `_unit_on_tile` = l'occupant, `_is_immune_to_fire` = le gate
+    `UnitsWithoutTraits([Steppable, Immune])`) — DSL-ification du selecteur deferree (comme le selecteur
+    Psyker, #216). La cible RESOLUE (l'occupant) passe via `Target()` ; sa PV MAX via `StatAmount(Target(),
+    Health, Maximum)`. La feuille calcule `base = round_fix64(pct% * PVmax)` (Fix64 = mirror natif
+    `PercentageOf.Calculate`) puis route via `execute_ability_attack(base, base, ..., is_attack_damage_op=False)`.
+
+    CORRESPONDANCE DES SELECTEURS (`AttackBehaviour$$Execute` : +0x50 = CASTER resolu en UNE entite,
+    +0x58 = la LISTE des cibles) : la factory recoit `(Tiles(@0x180), @0x180)` -> CASTER = la TUILE de
+    l'occupant, CIBLE = l'occupant. `source` non passe cote port -> `entities.caster` = `owner_id` = la
+    tuile : MEME entite que le natif (attribution de mort incluse).
+
+    `is_melee=None` (et non True) : l'`AbilityOrEffect` du coup est l'EFFET `Fire(5)`, pas une ability a
+    `attackRangeType` -> `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` rend 0 (absent),
+    donc `IsMeleeAttack` ET `IsRangedAttack` sont FAUX (cf. la table de verite de `hits_channel_is_melee`).
+    Les malus DEFENSEUR gates `IsMeleeAttack` (Terrifying_ExtraDefense) restent donc inertes, comme le natif.
+    Le percage est inchange (`profile_pierce(ctx=None, ...)` ignore `ranged` : la tuile n'a pas d'ExtraPierce).
+
+    `pct`/`profile` passes par l'appelant (`GC.global_value(fireDmgPct)` / `FIRE_PROFILE`) pour eviter
     tout couplage d'import."""
     amount = PercentageOf(Const(pct), StatAmount(Target(), int(StatType.HEALTH), int(StatPart.MAXIMUM)))
-    return AttackWithAbilityDamage(Target(), profile, amount, is_melee=True, hits=1)
+    return AttackWithAbilityDamage(Target(), profile, amount, is_melee=None, hits=1,
+                                   native_operation="ability")
 
 
 class FireTileDoT(TileEffectTrigger):
@@ -116,15 +132,15 @@ class FireTileDoT(TileEffectTrigger):
             return None
         # behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour) :
         # AttackWithAbilityDamage(Tiles, PercentageOf(StatAmount(Health,Max), fireDmgPct), Direct(3), source=Fire).
-        # La feuille (mode DIRECT) calcule base Fix64 + route `execute_direct` (percage/armure seuls, pas de crit/
-        # block/spread) -> MEME Operation/args que l'ancien corps imperatif (bit-exact BY CONSTRUCTION). La source
+        # La feuille route la famille ABILITY (`AbilityDamageOperation`) : percage/armure + mods DEFENSEUR +
+        # block + bouclier + etage LIMITES mode 2 (member-cap / Resilient), AUCUN crit. La source
         # (entities.caster = la tuile owner_id) sert a l'attribution de mort.
         ectx = ExecutionContext(state=state, rng=state.rng)
         env_fire_tile_tree(int(pct), FIRE_PROFILE).execute(
             entities_from_state(state, self.owner_id, uid), ectx)
         hit = next((p for n, p in ectx.emitted if n == "AttackWithAbilityDamage"), None)
         atk = (hit or {}).get("attack")
-        if not atk or not atk.get("total"):              # dmg <= 0 (execute_direct -> None) : no-op comme l'ancien corps
+        if not atk or not atk.get("total"):              # dmg <= 0 -> no-op comme l'ancien corps
             return None
         return {"tile_effect": "Fire", "tile": self.owner_id, "unit": uid, "dot": atk.get("total"),
                 "hp_before": atk.get("hp_before"), "hp_after": atk.get("hp_after"), "on_event": ev.event_id}

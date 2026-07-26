@@ -143,12 +143,27 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         if actor_id is not None and eid == actor_id:
             actor = u
 
+    # CASTER NON-UNITE (entite TUILE). `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+    # resout son champ +0x50 (le caster) en UNE **entite**, pas forcement une unite : le DoT de tuile
+    # (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour`) y passe
+    # `Tiles(<occupant>)`, donc l'entite-TUILE. Cote port, une tuile ne vit que dans `EffectsState`
+    # (`state.entities` ne contient que des unites/MoW) -> la boucle ci-dessus laissait `caster=None`,
+    # et toute feuille qui lit `entities.caster` (ex. `AttackWithAbilityDamage`) devenait un NO-OP
+    # SILENCIEUX des que le porteur etait une tuile. On materialise donc un caster MINIMAL porteur du
+    # seul `id` — exactement ce dont la feuille a besoin (source du degat / attribution de mort).
+    # Il n'entre PAS dans `units` : le natif non plus ne met pas la tuile dans la liste d'unites de
+    # l'`AbilityEntities`, donc aucun selecteur ne peut la ramasser. INERTE quand `caster_id` designe
+    # une unite (cas de tous les autres appelants).
+    if caster is None and caster_id is not None:
+        caster = {"id": caster_id, "team": None, "player": None, "pos": None,
+                  "alive": True, "hp": None, "visualId": None, "_traits": set()}
+
     def _has_trait(unit, trait_id):
         try:
             enum = UnitTrait(int(trait_id))
         except ValueError:
             return False
-        return has_trait(unit.get("_traits") or set(), enum)
+        return has_trait((unit or {}).get("_traits") or set(), enum)
 
     # `ctx.faction_of` (mirror `UnitsFromFaction`) — FactionId gameconfig par visualId (`_faction` cache).
     # Lazy import (garde anti-circulaire, comme les Operations importees dans les feuilles).
@@ -172,6 +187,30 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         # StatComponent — `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a pas de case 0x14). Offline : parts derivees
         # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
         from ....entities.stats import StatType as _ST
+        # HEALTH = l'AUTRE stat « fill-up » du natif (comme NUMBER_OF_MEMBERS ci-dessous) :
+        # `IdunBattle.Entities.UnitExtensions$$GetStat` route la PV sur un `FillUpStatComponent`
+        # (+0x10 = maximum courant, +0x18 = valeur courante) et delegue a
+        # `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`, PAS sur le `StatComponent`
+        # generique. Cote port la PV vit dans le `HealthComponent` (hp / hp_max) ; passer par
+        # `UnitStats.get_stat` rendait le composant HEALTH generique, dont l'`initial` est la PV
+        # COURANTE captee -> `Maximum` valait la PV COURANTE des que l'unite etait blessee.
+        # MESURE : DoT de tuile sur darkaTerminator a 473240/500000 PV -> base offline 94648
+        # (= 20 % de 473240) contre 100000 attendu (= 20 % de 500000), tick natif 25000.
+        # Parts (mirror `FillUpStatComponent$$GetStatPart`) : 0=Current, 1=CurrentPct, 2=Maximum,
+        # 3=Initial, 4=Missing.
+        if int(stat_type) == int(_ST.HEALTH):
+            hc = e.get_component(HealthComponent) if e is not None else None
+            if hc is not None and hc.hp is not None and hc.hp_max is not None:
+                cur, mx, p = int(hc.hp), int(hc.hp_max), int(variant)
+                if p in (2, 3):
+                    return mx
+                if p == 0:
+                    return cur
+                if p == 4:
+                    return max(0, mx - cur)
+                if p == 1:
+                    return round(max(0.0, cur / mx) * 100) if mx else 0
+            return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
         if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
             n = int(getattr(sc.ctx, "number_of_members", 1)) if sc is not None else 1
             hc = e.get_component(HealthComponent) if e is not None else None
