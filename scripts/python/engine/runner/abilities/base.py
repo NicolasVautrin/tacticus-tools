@@ -83,14 +83,26 @@ def profile_pierce(ctx, profile_name: str, ranged: bool = False, effect_bonus: i
     return max(0, min(100, int(dp.get("PiercingRatio") or 0) + extra + dir_pierce + int(effect_bonus)))
 
 
-def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, ability_type) -> int:
-    """Σ des bonus de perçage apportés par les effets ACTIFS du CASTER pour un coup d'ability donné —
-    assemble le `ctx` du gate natif (`get_OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target, …)`) puis
-    délègue à `piercing_bonus_from_effects` (mirror `BaseEffect$$PiercingBonusForAttack`). 0 si l'état n'a
-    pas d'`EffectsState`, si le caster n'a pas de stats, ou si aucun effet actif ne contribue."""
+def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, ability_type,
+                                is_ranged: "bool | None" = None,
+                                is_overwatch: bool = False) -> int:
+    """Σ des bonus de perçage apportés par les effets ACTIFS du CASTER pour un coup donné — assemble le
+    `ctx` des gates natifs (`get_OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target, …)` /
+    `IsRangedAttack | IsOverwatchAttack`) puis délègue à `piercing_bonus_from_effects` (mirror
+    `BaseEffect$$PiercingBonusForAttack`). 0 si l'état n'a pas d'`EffectsState`, si le caster n'a pas de
+    stats, ou si aucun effet actif ne contribue.
+
+    `ability_type` = `None` est ADMIS depuis case-117 (l'attaque NORMALE n'a pas d'AbilityOrEffect
+    d'ability à threader) : seuls les effets gatés `CurrentAbilityIs` (GravitonRifle) se taisent alors —
+    ceux qui n'ont PAS ce gate (Hailstrike_ExtraPierce) contribuent. `is_ranged`/`is_overwatch` =
+    nature du coup (tri-état #106 : None ⇒ les gates ranged/melee se taisent).
+
+    `unit_ctx_of` (déposé dans le ctx) = mirror de `BaseEffect$$GetAbilityState` pour les effets dont la
+    SOURCE n'est pas le porteur : la magnitude `ConfigVar` s'indexe sur l'état d'ability de CELUI QUI A
+    POSÉ l'effet (la Storm Speeder pour Hailstrike), pas sur celui de l'attaquant qui le porte."""
     from ..components import StatsComponent, UnitComponent
     from ...entities.effects import piercing_bonus_from_effects
-    if state is None or caster_id is None or ability_type is None:
+    if state is None or caster_id is None:
         return 0
     ce = state.get_entity(caster_id)
     csc = ce.get_component(StatsComponent) if ce is not None else None
@@ -110,10 +122,20 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
         tuc = te.get_component(UnitComponent) if te is not None else None
         if tuc is not None:
             traits = frozenset((GC.unit(tuc.visual_id) or {}).get("traits") or ())
+    def _unit_ctx_of(uid):
+        """`BaseEffect$$GetAbilityState` — `UnitContext` de l'unité `uid` (la SOURCE d'un effet), ou None."""
+        if uid is None:
+            return None
+        e = state.get_entity(int(uid))
+        sc = e.get_component(StatsComponent) if e is not None else None
+        return getattr(sc, "ctx", None) if sc is not None else None
+
     return piercing_bonus_from_effects(
         effects, {"owner_id": int(caster_id), "att_id": int(caster_id),
-                  "ability_type": int(ability_type), "target_traits": traits,
-                  "owner_ctx": csc.ctx})
+                  "ability_type": (int(ability_type) if ability_type is not None else None),
+                  "target_traits": traits,
+                  "owner_ctx": csc.ctx, "is_ranged": is_ranged,
+                  "is_overwatch": bool(is_overwatch), "unit_ctx_of": _unit_ctx_of})
 
 
 def turns_from_rounds(rounds: int) -> int:

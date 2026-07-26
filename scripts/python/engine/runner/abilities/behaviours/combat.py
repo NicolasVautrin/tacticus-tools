@@ -147,7 +147,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`
                 # -> le contexte a besoin de la CIBLE, donc calculé ICI et non dans la config).
                 from ..base import ability_pierce_effect_bonus
-                pbonus = ability_pierce_effect_bonus(state, caster, tgt, self.ability_type)
+                pbonus = ability_pierce_effect_bonus(state, caster, tgt, self.ability_type,
+                                                     is_ranged=not self.is_melee)
                 bmin, bmax, pierce, hits = ability_attack_params(
                     state, caster, self.ability_id, self.profile, ranged=not self.is_melee,
                     min_key=self.min_key, max_key=self.max_key, hits_key=self.hits_key,

@@ -95,7 +95,11 @@ class OverwatchAutoAttack(EffectTrigger):
     def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
         if state.rng is None:                                    # l'attaque consomme le RNG (spread/rolls)
             return None
-        res = AttackDamageOperation.execute(state, self.owner_id, ev.actor_id, 20)  # attaque NORMALE
+        # `is_overwatch=True` : le natif resout ce coup par `UseActiveAbility(NormalAttack)` (donc une
+        # attaque NORMALE), mais le predicat `IsOverwatchAttack` le distingue -- consomme par la
+        # disjonction `IsRangedAttack | IsOverwatchAttack` du bonus de percage Hailstrike (case-117 ph.2).
+        res = AttackDamageOperation.execute(state, self.owner_id, ev.actor_id, 20,  # attaque NORMALE
+                                            is_overwatch=True)
         return {"effect": "Overwatch_AutoAttack", "attacker": self.owner_id,
                 "target": ev.actor_id, "result": res}
 

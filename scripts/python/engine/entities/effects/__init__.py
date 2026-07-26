@@ -481,9 +481,9 @@ def piercing_bonus_from_effects(effects, ctx=None) -> int:
     `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` depuis
     `IdunBattle.Entities.Effects.BaseEffect$$PiercingBonusForAttack` (un `EffectBonus` gaté par effet).
 
-    `ctx` = contexte du coup ({owner_id/att_id/ability_type/target_traits/owner_ctx}) — chaque effet
-    évalue SES gates (`create_effect_piercing_bonus_for_attack`). No-op (0) tant qu'aucun effet actif
-    n'override le hook."""
+    `ctx` = contexte du coup ({owner_id/att_id/ability_type/target_traits/owner_ctx + is_ranged/
+    is_overwatch/unit_ctx_of}) — chaque effet évalue SES gates
+    (`create_effect_piercing_bonus_for_attack`). No-op (0) tant qu'aucun effet actif n'override le hook."""
     total = 0
     for e in _as_effects(effects):
         b = e.create_effect_piercing_bonus_for_attack(ctx)

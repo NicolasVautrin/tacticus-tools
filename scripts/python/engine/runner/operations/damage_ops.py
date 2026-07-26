@@ -78,7 +78,7 @@ class _DamageOpsMixin:
 
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
-                spread_pct: int = 20) -> Optional[dict]:
+                spread_pct: int = 20, is_overwatch: bool = False) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
         l'ECS : tire CHAQUE coup sur la plage BRUTE (`stat Attack` ± spread) avec le MT du
         runner (`state.rng`), réduit (perçage de l'arme par distance + armure cible, mods
@@ -88,7 +88,15 @@ class _DamageOpsMixin:
         PALIER ACTUEL : crit/block NON tirés (paliers 2). Pour un coup MONO propre (no-crit/
         no-block), `total` == dégât réel live (le tirage de dégât est le 1er conso RNG).
         Multi-coups : tire `hits` fois (valable seulement si le live ne tire pas crit/block
-        entre les coups — sinon désync RNG ; couvert au palier crit/block)."""
+        entre les coups — sinon désync RNG ; couvert au palier crit/block).
+
+        `is_overwatch` (case-117 phase 2) = ce coup est l'auto-attaque d'un OVERWATCH
+        (`Overwatch_AutoAttackEffect.GetAttackBehaviour` = `UseActiveAbility(NormalAttack)` : côté natif
+        c'est bien une attaque NORMALE, mais le prédicat `IsOverwatchAttack` la distingue). Threadé ici
+        parce que `Hailstrike_ExtraPierceEffect.CreatePiercingBonusForAttack` gate sur la DISJONCTION
+        `IsRangedAttack | IsOverwatchAttack` : sans ce flag, un overwatch de MÊLÉE (le mover arrive
+        adjacent) perdrait le bonus de perçage que le natif accorde. Défaut False = tous les autres
+        appelants (attaque normale ordinaire)."""
         from .damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             raise ValueError("state.rng non calé (seed depuis dumpRng avant un replay-diff)")
@@ -112,6 +120,21 @@ class _DamageOpsMixin:
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist)
         _w = select_weapon(ctx, dist)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
+        # `BaseEffect$$PiercingBonusForAttack` sur la voie NORMALE (case-117 phase 2) : le natif somme
+        # ces `EffectBonus` DANS `GetAttackPiercingDamageRatio` quel que soit le vecteur — l'attaque
+        # normale n'y échappe pas. Le porteur du lot est `Hailstrike_ExtraPierce` (1509), dont le gate
+        # est `OwnerIsCaster & (IsRangedAttack | IsOverwatchAttack)` : AUCUN `CurrentAbilityIs`, donc
+        # l'attaque normale ranged de l'allié buffé EST la cible principale de ce bonus (i2 : « Ranged
+        # and Overwatch attacks have +X% pierce ratio »). Calculé APRÈS la sélection d'arme (la nature
+        # `_ranged` du coup alimente le gate) ; second appel PUR au service (aucun RNG, aucun effet de
+        # bord) pour que le bonus entre dans le clamp UNIQUE du natif, pas dans un second clamp.
+        # `ability_type=None` : une attaque normale n'a pas d'AbilityOrEffect d'ability -> les effets
+        # gatés `CurrentAbilityIs` (GravitonRifle) se taisent, comme le natif.
+        from ..abilities.base import ability_pierce_effect_bonus   # lazy : cycle damage<->abilities
+        _pbonus = ability_pierce_effect_bonus(state, attacker_id, target_id, None,
+                                              is_ranged=bool(_ranged), is_overwatch=bool(is_overwatch))
+        if _pbonus:
+            pierce, _ranged, whits = select_weapon_pierce(ctx, dist, effect_bonus=_pbonus)
         # `On(PreUnitAbility=0x2b)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
         # l'emet TOUT EN HAUT (`FUN_180026490(0x4d, .., 0x2b)`), AVANT l'execution de l'ability : l'attaque
         # normale EST une active ability (`NormalAttackType`, cf. #139 plus bas). Emis ICI, juste apres la
