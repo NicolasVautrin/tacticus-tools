@@ -112,11 +112,15 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
 
 
 def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
-                           walkable_at=None, elevation_at=None) -> bool:
+                           walkable_at=None, elevation_at=None,
+                           check_elevation: bool = True) -> bool:
     """`IdunBattle.Core.Services.TileUtil$$IsTileValidForList(tile, refTile, checkWalkable,
-    checkElevation)` en domaine POSITION — le 4e argument est le litteral `1` a l'unique call-site
-    porte (`IdunBattle.Core.Services.BattleQuery$$GetTilesBehind`), donc `checkElevation` est cable
-    a True ici :
+    checkElevation)` en domaine POSITION. Le 4e argument natif est un LITTERAL, different par
+    call-site porte -> il est ici un PARAMETRE, jamais une deduction :
+      * `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind` passe `1` (defaut) ;
+      * `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` passe
+        `0` (cf. `get_surrounding_tiles`) — le disque `SurroundingTiles` n'a AUCUNE porte
+        d'elevation, contrairement au ring-1 `IterateAdjacentTiles`.
 
         if (tileComponent+0x41 != 0)            return false            # mur
         if (!checkWalkable)                     return tileComponent+0x40 == 0
@@ -137,6 +141,8 @@ def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
         return False
     if not check_walkable:
         return True                       # branche `!checkWalkable` : PAS de gate d'elevation
+    if not check_elevation:
+        return True                       # 4e argument natif == 0 (`IterateSurroundingTiles`)
     if ref is None or elevation_at is None:
         return True
     et, er = elevation_at(tile), elevation_at(ref)
@@ -315,6 +321,62 @@ def get_adjacent_tiles(pos: tuple, walkable_at=None, elevation_at=None, tile_exi
             if ne is not None and abs(src_e - ne) >= 2:
                 continue                   # porte d'elevation INCONDITIONNELLE de l'iterateur
         out.append(n)
+    return out
+
+
+def get_surrounding_tiles(pos: tuple, radius: int = 1, include_center: bool = False,
+                          check_walkable: bool = True,
+                          walkable_at=None, elevation_at=None, tile_exists=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetSurroundingTiles` (slot 0x65) en domaine POSITION.
+    Le corps delegue a `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` :
+
+        cube = CubeCoordinate(srcTile)
+        for x in cube.x-R .. cube.x+R:                       # DISQUE, pas le ring exact
+          for y in cube.y-R .. cube.y+R:
+            for z in cube.z-R .. cube.z+R:
+              if (x + y + z != 0)                                          continue
+              tile = GetTileEntityAt(CubeCoordinate(x,y,z).ToAxialCoordinate())
+              if (tile == null)                                            continue
+              if (requireEmptyOrSteppable && !IsEmptyOrSteppable(tile))    continue
+              if (!includeSelf && tile == srcTile)                         continue
+              if (TileUtil.IsTileValidForList(tile, srcTile, checkWalkable, 0))  yield tile
+
+    DEUX lectures qui separent ce disque du ring-1 `IterateAdjacentTiles` (`get_adjacent_tiles`) :
+    1. le 4e argument d'`IsTileValidForList` est le litteral **`0`** -> **AUCUNE porte d'elevation**
+       (un palier a +2 reste dans le disque, alors qu'il sort du ring-1) ;
+    2. l'ORDRE est celui de la triple boucle cube ASCENDANTE : pour (x, y) donnes un seul z
+       satisfait `x+y+z == 0`, donc l'ordre emis est LEXICOGRAPHIQUE `(cube.x, cube.y)` croissant
+       (= `iterate_surrounding_tiles_order_key`), pas l'ordre `tile.Neighbours` du ring-1.
+
+    FLAGS PORTES = ceux LUS a la chaine de call-sites (`IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select`
+    -> slot 0x65 avec `(tile, radius, requireEmptyOrSteppable=0, checkWalkable=(sel+0x29 == 0),
+    unitFilter=sel+0x28, includeSelf=1)`, ou `sel+0x28`/`+0x29` sont les 2 derniers arguments de
+    `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles`). Les deux call-sites portes
+    (`GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector` r=2, `ThriceBlessedConflagrationAbility$$GetTilesInBestLine`
+    r=1) passent `(..., 0, 0)` -> `requireEmptyOrSteppable=False` (les tuiles OCCUPEES passent),
+    `checkWalkable=True`, `unitFilter=0`. `includeCenter=0` cote DSL est resolu par la branche
+    `SurroundingTiles(entity, includeCenter=1, ...) - Tiles(entity)` -> meme ensemble, meme ordre.
+
+    `include_center=False` retire ici la SEULE tuile `pos` ; le natif retire `Tiles(entity)`,
+    c'est-a-dire TOUTES les tuiles de l'entite. Identique pour une entite mono-tuile (le cas de tous
+    les porteurs confrontes) — RESIDU documente pour une cible multi-tuiles."""
+    cx, cy, cz = hexgeo.to_cube(pos[0], pos[1])
+    key = (pos[0], pos[1])
+    out = []
+    for x in range(cx - radius, cx + radius + 1):
+        for y in range(cy - radius, cy + radius + 1):
+            z = -x - y                      # unique z tel que x+y+z == 0 (la 3e boucle ne matche qu'une fois)
+            if not (cz - radius <= z <= cz + radius):
+                continue
+            p = hexgeo.from_cube(x, z)
+            if tile_exists is not None and not tile_exists(p):
+                continue                    # `GetTileEntityAt == null` -> hors board
+            if not include_center and (p[0], p[1]) == key:
+                continue                    # `includeSelf == 0` (ou `- Tiles(entity)` cote DSL)
+            if not is_tile_valid_for_list(p, pos, check_walkable, walkable_at, elevation_at,
+                                          check_elevation=False):
+                continue                    # 4e argument natif == 0 : PAS de porte d'elevation
+            out.append(p)
     return out
 
 

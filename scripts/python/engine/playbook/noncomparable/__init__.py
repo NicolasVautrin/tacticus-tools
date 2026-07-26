@@ -79,6 +79,7 @@ from .holy_duel import HolyDuelPlaybook
 from .grapnel_launcher import GrapnelLauncherPlaybook
 from .early_warning_override import EarlyWarningOverridePlaybook
 from .dark_talon_strike import DarkTalonStrikePlaybook
+from .thrice_blessed_conflagration import ThriceBlessedConflagrationPlaybook
 from .send_in_the_next_wave import SendInTheNextWavePlaybook
 from .incursion import IncursionPlaybook
 from .master_of_the_tutelaries import MasterOfTheTutelariesPlaybook
@@ -142,6 +143,12 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 position=argmax, gate nearest<9 (IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$EvaluateNonComparable)
         DarkTalonStrikePlaybook(),      # 1092 -- beam en ligne ; cible=TILE (aim), util=#ennemis
         #                                 continus sur le rayon caster->aim, MIN_UTILITY=2 (IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$EvaluateNonComparable)
+        # #129 -- MEME famille `GetTilesInBestLine` que 1092, face DECISION ABSENTE jusqu'ici (la face
+        # COMBAT etait portee et fidele) : l'ability ne pouvait donc JAMAIS etre proposee par le moteur.
+        ThriceBlessedConflagrationPlaybook(),  # 1187 (adeptExorcist, MoW) -- cible=UNITE ALLIEE
+        #                                 (buff 1401/1436), util=#ennemis continus alignes depuis SA
+        #                                 tuile, ring=SurroundingTiles r=1 SANS porte d'elevation,
+        #                                 UN SEUL tri (count DESC), MIN_UTILITY=1 (IdunBattle.AI.Playbook.Loki.ThriceBlessedConflagrationPlaybook$$EvaluateNonComparable)
         # #56 (tranche 3b) -- 2 NC natifs summon reveles par le batch MC1_67 seed 1357 (misses
         # non-attack-oracle). MIN_UTILITY DYNAMIQUE = max stat sur TOUS les ennemis (ne fire que si le
         # meilleur ennemi est ciblable) ; util(cible) = stat de la cible.
@@ -221,6 +228,7 @@ __all__ = [
     "ScarabHivePlaybook", "CordClawPlaybook",
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
     "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",
+    "ThriceBlessedConflagrationPlaybook",
     "SendInTheNextWavePlaybook", "IncursionPlaybook", "MasterOfTheTutelariesPlaybook",
     "SupremeCommanderPlaybook",
 ]
