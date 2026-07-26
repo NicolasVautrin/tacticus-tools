@@ -186,6 +186,11 @@ def _adjacent_damageable_enemies(state: State, attacker_id: int, target_id: int)
     return out
 
 
+from ....entities.effect_type import EffectType
+
+FORCED_IN_MELEE = int(EffectType.ForcedInMelee)   # 1321 = 0x529 — clamp de portée (cf. `_forced_in_melee`)
+
+
 def _max_attack_range(ctx) -> int:
     """Portée d'attaque MAX de l'unité = max(Range des armes) ; mêlée (Range absent) → 1."""
     import gameconfig as GC
@@ -193,6 +198,22 @@ def _max_attack_range(ctx) -> int:
     ranges = [int(w.get("Range") or 0) for w in (gu.get("weapons") or [])]
     mx = max(ranges) if ranges else 0
     return mx if mx > 0 else 1
+
+
+def _forced_in_melee(state: State, unit_id: int) -> bool:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetRange` : juste avant le `Math.Min` final, le natif
+    fait `if (EntityExtensions.HasEffect(unit, ..., 0x529, 0, 0)) { range = Math.Min(1, range); }` —
+    le porteur de l'effet `ForcedInMelee` ne peut plus atteindre QUE la mêlée, quelle que soit son arme
+    (le drapeau `isMelee` de retour bascule aussi). C'est le SEUL paramètre natif qui restreint le
+    domaine de cible d'une attaque « depuis la position courante » à l'adjacence.
+
+    Poseur porté : `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`
+    (pose transitoire autour de sa free-attack, retirée dans le même cast) → inerte partout ailleurs."""
+    eff = getattr(state, "effects", None)
+    if eff is None or unit_id is None:
+        return False
+    return any((not e.consumed) and e.effect_type == FORCED_IN_MELEE
+               for e in eff.by_unit.get(int(unit_id), []))
 
 
 def _hex_dist(board, src: int, dst: int, cap: int) -> Optional[int]:
@@ -217,7 +238,10 @@ def _hex_dist(board, src: int, dst: int, cap: int) -> Optional[int]:
 
 def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
     """`DSLFactory.IsInAttackRange(attacker, target, 3)` — la cible est-elle dans la portée d'attaque
-    de l'attaquant (distance hex <= portée arme max) ? Requiert `state.board` (evenq). Sans board → False."""
+    de l'attaquant (distance hex <= portée arme max) ? Requiert `state.board` (evenq). Sans board → False.
+
+    La portée est celle de `IdunBattle.Core.Services.TargetingQuery$$GetRange`, clamp `ForcedInMelee`
+    INCLUS (`_forced_in_melee`) : un porteur de l'effet 0x529 ne porte qu'à 1."""
     board = state.board
     if board is None:
         return False
@@ -234,7 +258,10 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int) -> bool:
     t_tile = board.id_at(tp.col, tp.row)
     if a_tile is None or t_tile is None:
         return False
-    return _hex_dist(board, a_tile, t_tile, _max_attack_range(sc.ctx)) is not None
+    rng = _max_attack_range(sc.ctx)
+    if _forced_in_melee(state, attacker_id):     # `GetRange` : `range = Math.Min(1, range)`
+        rng = min(1, rng)
+    return _hex_dist(board, a_tile, t_tile, rng) is not None
 
 
 def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:

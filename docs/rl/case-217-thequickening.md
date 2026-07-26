@@ -30,9 +30,13 @@
 - `DSLFactory.Attackable @180deaa50` = `UnitsWithoutTrait(0x1b=27)` -> le swap-unit = occupant de la
   tuile cible SANS trait 27.
 - `GetTriggerAttackBehaviour(unit)` = `If(HasFaction(unit, 0xe=14=BloodAngels),
-    AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(Attack, dmgPct, maxDmg))
-    & AddEffect(0x529 ForcedInMelee) & PerformAIAttackFromCurrentPosition(unit)
-    & RemoveEffect(unit, 0x510) & RemoveEffect(unit, 0x529))`.
+    AddEffect(0x529 ForcedInMelee, source=AbilityStateReference, target=unit, durée=Nullable<int>(1))
+    & AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(Attack, dmgPct, maxDmg))
+    & PerformAIAttackFromCurrentPosition(unit, utilityEntity=unit, customUtility=<lambda>, skipAtomicCheck=0)
+    & RemoveEffect(unit, 0x510) & RemoveEffect(unit, 0x529))`
+  — **ordre relu au décompilé** (chaîne `op_BitwiseAnd` : `AddEffect(0x529) & AddStatOverride & PerformAI
+  & Remove(0x510) & Remove(0x529)`) : l'`AddEffect(0x529)` précède l'`AddStatOverrideEffect`, et il n'est
+  **pas décoratif** — cf. §5.
 - `PercentageOfAttackCappedAtMax(attack, 3, cfg13, cfg74)` = `min(cfg13, PercentageOf(StatAmount(Attack,3), cfg74))`
   = `min(maxDmg[level]xmult, round(Attack x dmgPct[level]/100))` — `cfg13`(ConfigVar 0xd)=maxDmg (cap,
   rarity-scale), `cfg74`(ConfigVar 0x4a)=dmgPct (percentage, non rarity-scale). Gameconfig `TheQuickening` :
@@ -62,9 +66,11 @@ Cast TILE-TARGET (le joueur/IA choisit une TUILE a portee-mouvement 2). Sur exec
 - `scripts/python/engine/runner/abilities/loki/quickening.py` — `TheQuickeningAbility.execute_behaviour` :
   - SWAP via `MoveUnitOperation` (pose la position sans check d'occupation ; le natif lift-off puis MoveIn
     -> l'echange direct rend l'etat NET identique) ;
-  - free-attack faction-BloodAngels via `set_stat_override(ATTACK, V)` (= le canal 0x510) + le pipeline
-    d'attaque normale (`AttackDamageOperation.execute`, arme melee auto a dist 1) + `remove_stat_override`
-    (net-zero) ; `V = _quickening_override` (mirror `PercentageOfAttackCappedAtMax`).
+  - free-attack faction-BloodAngels (`_free_melee_attack`) = mirror de la chaine `op_BitwiseAnd` de
+    `GetTriggerAttackBehaviour` DANS L'ORDRE NATIF : feuille `AddEffect(0x529 ForcedInMelee, Target(),
+    duration_turns=1)` -> `set_stat_override(ATTACK, V)` (= le canal 0x510) -> **le port UNIQUE du noeud**
+    `perform_ai_attack_from_current_position` -> `remove_stat_override` -> feuille `RemoveEffect(0x529)`
+    (net-zero) ; `V = _quickening_override` (mirror `PercentageOfAttackCappedAtMax`). Cf. §5 (de-fork).
 - Enregistrement : `ABILITY_CLASSES[1151]` (`handler.py`), re-export `loki/__init__.py`.
 - `sets_end_turn_flags`/`sets_active_ability_used_flag` = defaut (1151 absent des inventaires d'override
   base.py ; confirme par le walk stages : le tour de meph se termine apres le cast, step 16 = autre unite).
@@ -80,14 +86,72 @@ Cast TILE-TARGET (le joueur/IA choisit une TUILE a portee-mouvement 2). Sur exec
 - **Zero-regression** `engine_agreement_stages.py --build --seeds 31337` : ability 13/13, move 18/18,
   prediction 10/10, utilite 10/10 = **100%**. step 15 u81 ab=1151 tgt=52 **MATCH** (decision intacte).
 - Guard `test_turnflow_endturn_flags.py` (chemin handler) : 9/9 PASS.
+- **De-fork (2026-07-26)** : agreement re-joue **100%** (ability 13/13, move 18/18, prediction 10/10,
+  utilite 10/10 ; step 15 u81 ab=1151 tgt=52 MATCH), + garde discriminante
+  `test_perform_ai_attack_node_live.py` (3/3) et les tests des autres consommateurs du noeud
+  (aberrant 4/4, summon_consumers 23/23, summon_ability_ports, summon_trigger, summon_trait_effects,
+  alpha_warrior, ironkin_steeljack, scarab_summon_migration, runner_attack, overwatch) — cf. §5.
 
-## 5. Residus documentes (NON couverts)
+## 5. De-fork `PerformAIAttackFromCurrentPosition` (2026-07-26)
+
+Le noeud natif n'a plus qu'**UN** port : `abilities/loki/summon.py::perform_ai_attack_from_current_position`.
+La feuille DSL `PerformAIAttack` (`abilities/behaviours/summon.py`, domaine TUILE ou UNITE) et
+`quickening.py::_free_melee_attack` y **delèguent** ; `_nearest_adjacent_enemy` est supprime.
+
+### Ce que le decompile a tranche (et qui n'etait pas arbitrable entre les deux mirrors)
+
+`DSLFactory$$PerformAIAttackFromCurrentPosition(unit, utilityEntity, customUtility, skipAtomicCheck)`
+n'est qu'un CONSTRUCTEUR de `Entities.Behaviours.PerformAIAbilityUnitBehaviour` :
+
+| champ | valeur pour ce noeud | role |
+|---|---|---|
+| `+0x50` | `unit` | selecteur d'ACTEURS, itere par `Execute` |
+| `+0x68` | Func cache du `<>c` de `DSLFactory` | resolveur de l'ability d'ATTAQUE (seul delta vs `PerformAIAbility`, ou il est fourni) |
+| `+0x70` / `+0x71` | `0` / `skipAtomicCheck` | drapeaux d'options |
+| `+0x78` | **`factory+0xb8` = `Direct(0)`** | l'option `Nullable<int>` de l'appel IA = **0** : c'est LITTERALEMENT le « FromCurrentPosition » (budget de deplacement nul). Le noeud cousin `PerformAIAttack` est le MEME behaviour avec ce noeud FOURNI par l'appelant (`PerformAIAttack(…,1,…)` de ForwardSpotter) |
+| `+0x80` / `+0x90` | `utilityEntity` / `customUtility` | surcharges d'UTILITE du choix de cible |
+| `+0x88` | `0` | -> `Execute` prend la branche « pas de cible imposee » (appel IA slot 0x37) : **c'est l'IA qui choisit la cible** |
+
+1. **Le dispatch after-hit est INCONDITIONNEL.** Aucun champ ne le gate : l'IA execute une VRAIE ability
+   d'attaque, donc `FinishAttackOperation$$Execute` emet `On(0x26)`/`On(8)`/`On(9)` comme sur toute
+   attaque normale. Preuve live pre-existante : la chaine Horror -> Screamer de #202-C passe par `On(9)`.
+   **Les deux mirrors sans after-hit etaient donc FAUX** (voir « divergences chiffrees » ci-dessous).
+2. **Le domaine adjacent de la free-attack n'est PAS un choix du port.**
+   `IdunBattle.Core.Services.TargetingQuery$$GetRange` contient, juste avant son `Math.Min` final :
+   `if (EntityExtensions.HasEffect(unit, …, 0x529, 0, 0)) { range = Math.Min(1, range); }`.
+   L'`AddEffect(0x529 ForcedInMelee)` de `GetTriggerAttackBehaviour` est donc le PARAMETRE contextuel qui
+   reduit la portee a 1. Le port **pose reellement l'effet** (feuille `AddEffect`, duree `Nullable<int>(1)`
+   du decompile) avant d'appeler le noeud et le retire apres (feuille `RemoveEffect`) — net-zero conserve.
+   Le clamp vit dans `_in_attack_range` / `_forced_in_melee` (`operations/triggers/base.py`), inerte
+   partout ailleurs (aucun autre poseur de 0x529 porte).
+
+### Divergences observables corrigees (chiffrees, seed 31337 / board MC1_67)
+
+- **TheQuickening** : Meph porte une arme **ranged portee 2** (Psychic, gameconfig). Sans le clamp
+  ForcedInMelee, la free-attack tire sur un ennemi a **distance 2** — mesure de la mutation :
+  `attacks=[{attacker:81, target:77, override:1204, total:3321}]` la ou le natif ne fait **rien**.
+  C'etait le piege exact de l'« union permissive » entre les deux anciens mirrors.
+- **TheQuickening** : la free-attack ne reveillait **aucun** trigger post-attaque. Sonde = Judh
+  (`genesKelermorph`, `On(9) & OwnerIsTarget`) : avant, zero reaction ; apres, l'effet-drapeau 1407 est
+  pose (Judh se deplace + pose un decoy + contre-attaque).
+- **Feuille DSL `PerformAIAttack`** (GetEmRuntz 1045, Poxwalkers 1040, drones Tau, ForwardSpotter 1143) :
+  meme correction — les summons ne pompaient aucun trigger after-hit a l'apparition.
+
+### Garde
+
+`tests/engine/runner/test_perform_ai_attack_node_live.py` (3 tests, **verifies discriminants par
+mutation** : desactiver le clamp ou l'after-hit les fait tomber).
+
+## 6. Residus documentes (NON couverts)
 
 - **Roll de degat de la free-attack = RNG** : non bit-exact offline (choix de cible + tirage). Approx
   faithful-structured (comme MasterOfTheTutelaries / ScarabSummon) ; en replay-diff, un cast 1151 peut
   desyncer la MT APRES le coup. Reste PREFERABLE au no-op (qui desyncait les POSITIONS, divergence plus
-  large). Cible de `PerformAIAttackFromCurrentPosition` approximee par l'ennemi ADJACENT le plus proche
-  (ForcedInMelee -> melee dist 1) ; tie-break id.
+  large).
+- **Choix de cible** : le moteur d'utilite IA natif n'est pas mirrore — approx `_nearest_enemy` A PORTEE
+  (portee = `GetRange`, clamp ForcedInMelee inclus). TheQuickening passe EN PLUS un `customUtility`
+  (lambda du display-class de l'ability, `+0x90`) qui ne peut que reordonner des cibles equivalentes en
+  portee : non mirrore, meme classe de residu. Tie-break `id`.
 - **EvaluateAbilities(0x1c=28)** (phases 3/5, on-move triggers) NON porte -> surface passive separee
   (aucun on-move passif BloodAngels au roster teste ; `AddFlag(1)`/`RefreshEffects(7)` idem).
 - **Filtre `Attackable = UnitsWithoutTrait(0x1b=27)`** du swap-unit approxime par « toute unite vivante
@@ -95,11 +159,10 @@ Cast TILE-TARGET (le joueur/IA choisit une TUILE a portee-mouvement 2). Sur exec
   ne cible pas les tuiles ennemies en jeu AI reel — la decision ne les valorise pas).
 - **`Reserve` / `SetCache` / `InvalidateCaches` / `EffectFromOwner(0x19)`** = plomberie DSL sans effet
   net observable (memoisation de tuile, reservation, invalidation de cache) -> non materialises.
-- **FORK de port `PerformAIAttackFromCurrentPosition` (finding relecture orchestrateur, au merge)** :
-  le meme noeud natif a DEUX mirrors — `loki/summon.py::perform_ai_attack_from_current_position`
-  (#202-C : nearest enemy toutes portees + gate `_in_attack_range` + dispatch `after_hit_normal_attack`
-  avec profils) et `quickening.py::_free_melee_attack` (#217 : nearest ADJACENT + `AttackDamageOperation.
-  execute` SANS dispatch after-hit). Divergence structurelle (`feedback_check_own_port_before_re`) +
-  la free-attack Quickening ne pompe PAS les triggers after-hit (ex. un hit Psychic pres d'un porteur
-  1197 devrait chainer un Screamer ; on-kill triggers idem). A UNIFIER en une seule feuille qui lit le
-  contexte (ForcedInMelee -> domaine adjacent) et dispatche l'after-hit. `[opus]`, fix-forward.
+- **Effet `ForcedInMelee (0x529)` : SEUL le clamp de portee est porte.** `TargetingQuery$$GetRange`
+  bascule aussi son drapeau `isMelee` de retour (2e sortie de la fonction) — non lu par le port, dont la
+  nature melee/ranged d'un coup se derive de la POSITION (`_is_ranged_position`, mirror
+  `DSLFactory$$IsRangedPosition`). Les deux convergent tant que la portee est clampee a 1 (cible
+  adjacente -> melee), donc inerte ici ; a revoir si un autre poseur de 0x529 apparait.
+- **`skipAtomicCheck` (`+0x71`) et l'ordonnancement ATOMIQUE de l'appel IA** ne sont pas materialises
+  (le port execute la feuille sur-le-champ, comme tous les autres call-sites du noeud).

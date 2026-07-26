@@ -382,3 +382,28 @@ def _register_name(state: State, target: int, name: Optional[str]) -> None:
     if name not in comp.effects:
         comp.effects.append(name)
         comp.effects.sort()
+
+
+def unregister_name(state: State, target: int, name: Optional[str]) -> None:
+    """SYMETRIQUE de `_register_name` : retire `name` de l'`EffectsOwnedComponent` de la cible quand
+    plus AUCUNE instance non consommee de ce nom n'y reste. Mirror de `IdunBattle.Operations.
+    RemoveEffectOperation$$Execute`, qui retire l'id de l'entite-effet de `EffectsOwnedComponent.
+    ActiveEffectIds` — sans quoi un effet POSE PUIS RETIRE dans le meme cast (couples transitoires
+    `AddStatOverrideEffect(0x510)`/`RemoveEffect(0x510)`, `AddEffect(0x529 ForcedInMelee)`/
+    `RemoveEffect(0x529)` de TheQuickening, reset ActOfFaith...) laisserait son NOM colle sur l'unite,
+    alors que la mesure live dit « net-zero, aucun effet persistant ». Le canal des NOMS est LU par la
+    couche decision (`ai/state_bridge.py` gates d'effets, `playbook/scene.py`) — une fuite y est
+    observable. No-op si pas d'entite/nom/composant."""
+    if not name:
+        return
+    ent = state.get_entity(target)
+    if ent is None:
+        return
+    comp = ent.get_component(EffectsOwnedComponent)
+    if comp is None or name not in comp.effects:
+        return
+    if state.effects is not None and any(
+            (not e.consumed) and e.name == name
+            for e in state.effects.by_unit.get(int(target), [])):
+        return                                   # un autre stack du MEME nom reste actif -> on garde
+    comp.effects.remove(name)

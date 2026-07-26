@@ -21,9 +21,14 @@ Arbre natif (`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbilit
 caster-src, unit) & MoveUnit(unit -> Null)`  (lift off-board, marqueur transit).
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetMoveInBehaviour`  : `MoveUnit(unit -> tile) & RemoveEffect(unit, 0x414)`  (atterrissage).
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour` : `If(HasFaction(unit, 0xe=14),
-    AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(Attack, dmgPct, maxDmg))
-    & AddEffect(0x529 ForcedInMelee, ...) & PerformAIAttackFromCurrentPosition(unit)
-    & RemoveEffect(unit, 0x510) & RemoveEffect(unit, 0x529))`.
+    AddEffect(0x529 ForcedInMelee, AbilityStateReference, unit, Nullable<int>(1))
+    & AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(Attack, dmgPct, maxDmg))
+    & PerformAIAttackFromCurrentPosition(unit, utilityEntity=unit, customUtility=<lambda>, skipAtomic=0)
+    & RemoveEffect(unit, 0x510) & RemoveEffect(unit, 0x529))`
+  — ORDRE relu au decompile (chaine `op_BitwiseAnd`) : l'AddEffect(0x529) precede l'AddStatOverride.
+  L'effet 0x529 n'est PAS decoratif : `IdunBattle.Core.Services.TargetingQuery$$GetRange` fait
+  `if (HasEffect(unit, 0x529)) range = Math.Min(1, range)` -> c'est LUI qui restreint la free-attack a
+  l'adjacence. Le port le POSE donc reellement (feuille `AddEffect`) et le retire (feuille `RemoveEffect`).
 
 MESURE LIVE (probe_217, runner build) — cast de meph(2,6) sur tuile ally(4,7) : POST meph=(4,7)
 ally=(2,6) (SWAP net) ; effets Untargetable(0x414)/ForcedInMelee(0x529)/TemporaryStatOverride(0x510)
@@ -38,24 +43,26 @@ RESIDUS documentes (case-217) :
     (aucun on-move passif BloodAngels au roster teste) ;
   - le filtre `Attackable = UnitsWithoutTrait(0x1b=27)` du swap-unit est APPROXIME par « toute unite
     vivante sur la tuile cible autre que le caster » (aucune unite trait-27 sur une tuile de swap teste) ;
-  - le CHOIX de cible de `PerformAIAttackFromCurrentPosition` (AI natif) est approxime par l'ennemi
-    ADJACENT le plus proche (ForcedInMelee -> melee, dist 1) ; le roll de degat reste RNG (non bit-exact).
+  - le CHOIX de cible de `PerformAIAttackFromCurrentPosition` (moteur d'utilite AI natif + le
+    `customUtility` propre a ce call-site) est approxime par l'ennemi le plus proche A PORTEE — portee
+    clampee a 1 par l'effet ForcedInMelee, cf. ci-dessus ; le roll de degat reste RNG (non bit-exact).
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
-import hexgeo
 
 from ..base import ActiveAbility
-from ...operations.damage import AttackDamageOperation
+from ..behaviours import AddEffect, RemoveEffect, entities_from_state
+from .summon import perform_ai_attack_from_current_position
 from ...operations.movement import MoveUnitOperation
-from ...components import (StatsComponent, OwnerComponent, PositionComponent,
-                          UnitComponent)
+from ...components import StatsComponent, PositionComponent, UnitComponent
 from ....entities.stats import StatType
 from ....entities.active_ability_type import ActiveAbilityType
+from ....entities.effect_type import EffectType
 from ....entities.effects.magnitude import ability_var
+from ....entities.selectors import Target
 from ....dsl.effects import ExecutionContext
 
 if TYPE_CHECKING:
@@ -65,6 +72,10 @@ if TYPE_CHECKING:
 # faction de Mephiston, le porteur ; l'echange ne beneficie du coup gratuit QU'aux BloodAngels).
 _BLOODANGELS = "BloodAngels"
 _ABILITY = "TheQuickening"
+# `AddEffect(0x529, ...)` / `RemoveEffect(0x529)` de `GetTriggerAttackBehaviour`. C'est le PARAMETRE
+# CONTEXTUEL lu par `IdunBattle.Core.Services.TargetingQuery$$GetRange` (`range = Math.Min(1, range)`)
+# qui reduit le domaine de cible de la free-attack a l'adjacence.
+FORCED_IN_MELEE = int(EffectType.ForcedInMelee)      # 1321 = 0x529
 
 
 def _pos(e) -> Optional[tuple]:
@@ -128,44 +139,31 @@ def _quickening_override(state: "State", attacker_id: int, level, mult: int) -> 
     return int(val)
 
 
-def _nearest_adjacent_enemy(state: "State", unit_id: int) -> Optional[int]:
-    """Ennemi VIVANT ADJACENT (dist hex 1) — cible de la free-attack MELEE (ForcedInMelee -> melee only).
-    Approx du choix AI natif de `PerformAIAttackFromCurrentPosition`. None si aucun adjacent. Tie-break id."""
-    e = state.get_entity(unit_id)
-    pc = e.get_component(PositionComponent) if e is not None else None
-    oc = e.get_component(OwnerComponent) if e is not None else None
-    if pc is None or oc is None:
-        return None
-    src = (pc.col, pc.row)
-    best = None
-    for oid, o in state.entities.items():
-        if oid == unit_id:
-            continue
-        ooc = o.get_component(OwnerComponent)
-        ouc = o.get_component(UnitComponent)
-        opc = o.get_component(PositionComponent)
-        if ooc is None or opc is None or ooc.team == oc.team:
-            continue
-        if ouc is not None and not ouc.alive:
-            continue
-        if hexgeo.distance(src, (opc.col, opc.row)) != 1:      # ForcedInMelee -> adjacent seulement
-            continue
-        if best is None or oid < best:
-            best = oid
-    return best
+def _free_melee_attack(state: "State", caster_id: int, unit_id: int, level, mult: int,
+                       ectx: ExecutionContext) -> Optional[dict]:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`
+    pour UNE unite (gate `HasFaction(unit, 0xe=14)` = BloodAngels deja verifie par l'appelant).
 
+    MIRROR de la chaine `op_BitwiseAnd` du DECOMPILE, **dans l'ordre natif** (le decompile enchaine
+    `uVar7 & local_38 & uVar6 & uVar5 & uVar8`) :
+      1. `AddEffect(0x529 ForcedInMelee, source=AbilityStateReference, target=unit, duree=Nullable<int>(1))`
+      2. `AddStatOverrideEffect(unit, 0x510 Attack_Override, PercentageOfAttackCappedAtMax(...))`
+      3. `PerformAIAttackFromCurrentPosition(unit, utilityEntity=unit, customUtility=<lambda>, skipAtomic=0)`
+      4. `RemoveEffect(unit, 0x510)`
+      5. `RemoveEffect(unit, 0x529)`
 
-def _free_melee_attack(state: "State", unit_id: int, level, mult: int) -> Optional[dict]:
-    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour` pour UNE unite (gate `HasFaction 14`=BloodAngels deja
-    verifie par l'appelant). Mirror : `AddStatOverrideEffect(0x510)` -> `PerformAIAttackFromCurrentPosition`
-    -> `RemoveEffect(0x510)`. Le `set_stat_override(ATTACK, V)` = le canal 0x510 (Attack_Override) ; le
-    pipeline d'attaque normale lit `ctx.stat(ATTACK)=V` (base=V) ; l'override est RETIRE apres (net-zero,
-    conforme a la cascade live). None si rng non cale / pas de cible adjacente / override indisponible."""
+    L'etape 1 n'est PAS decorative : `IdunBattle.Core.Services.TargetingQuery$$GetRange` fait
+    `if (HasEffect(unit, 0x529)) range = Math.Min(1, range)` — c'est ELLE qui reduit le domaine de cible
+    de l'etape 3 a l'ADJACENCE. Le port pose donc reellement l'effet (feuille `AddEffect`) avant d'appeler
+    le noeud, et le retire apres (feuille `RemoveEffect`) : le domaine melee EMERGE du contexte au lieu
+    d'etre code en dur ici (de-fork — il n'existe qu'UN port de `PerformAIAttackFromCurrentPosition`,
+    `loki/summon.py::perform_ai_attack_from_current_position`, dispatch after-hit inclus).
+
+    `set_stat_override(ATTACK, V)` = le canal 0x510 : le pipeline d'attaque normale lit `ctx.stat(ATTACK)=V`
+    (base=V) ; l'override est RETIRE apres (net-zero, conforme a la cascade live). None si rng non cale /
+    override indisponible / aucune cible legale a portee 1 (PerformAIAttack no-op sans cible, trace live)."""
     if state.rng is None:
         return None
-    tgt = _nearest_adjacent_enemy(state, unit_id)
-    if tgt is None:
-        return None                                            # PerformAIAttack no-op sans cible (trace live)
     V = _quickening_override(state, unit_id, level, mult)
     if V is None:
         return None
@@ -173,14 +171,23 @@ def _free_melee_attack(state: "State", unit_id: int, level, mult: int) -> Option
     sc = e.get_component(StatsComponent) if e is not None else None
     if sc is None:
         return None
-    sc.ctx.stats.set_stat_override(StatType.ATTACK, int(V))     # 0x510 TemporaryStatOverride (Attack_Override)
+    # source = `AActiveAbility.get_AbilityStateReference` (l'ability de MEPH = le caster du cast) ;
+    # cible = `param_3` = l'unite qui attaque (le caster OU l'unite echangee) -> `Target()`.
+    ents = entities_from_state(state, caster_id, unit_id)
+    # (1) AddEffect(0x529) : duree = `Nullable<int>(1)` LITTERALE du decompile (pas un TurnsFromRounds).
+    AddEffect(FORCED_IN_MELEE, "ForcedInMelee", Target(), duration_turns=1).execute(ents, ectx)
+    # (2) AddStatOverrideEffect(0x510)
+    sc.ctx.stats.set_stat_override(StatType.ATTACK, int(V))
     try:
-        r = AttackDamageOperation.execute(state, unit_id, tgt)  # dist 1 -> arme melee auto (ForcedInMelee)
+        # (3) LE noeud (corps unique) : cible AI-choisie a portee COURANTE — clampee a 1 par l'effet (1).
+        r = perform_ai_attack_from_current_position(state, unit_id)
     finally:
-        sc.ctx.stats.remove_stat_override(StatType.ATTACK)      # RemoveEffect(0x510) -> net-zero
+        sc.ctx.stats.remove_stat_override(StatType.ATTACK)  # (4) RemoveEffect(0x510) -> net-zero
+        RemoveEffect(FORCED_IN_MELEE, Target()).execute(ents, ectx)   # (5) RemoveEffect(0x529) -> net-zero
     if r is None:
         return None
-    return {"attacker": unit_id, "target": tgt, "override": int(V), "total": r.get("total")}
+    return {"attacker": unit_id, "target": r["target"], "override": int(V), "total": r.get("total"),
+            "after_hit": r.get("after_hit")}
 
 
 class TheQuickeningAbility(ActiveAbility):
@@ -222,7 +229,7 @@ class TheQuickeningAbility(ActiveAbility):
         for uid in ([caster_id] + ([swap_id] if swap_id is not None else [])):
             if _unit_faction(state, uid) != _BLOODANGELS:      # gate HasFaction(unit, 14)
                 continue
-            a = _free_melee_attack(state, uid, level, mult)
+            a = _free_melee_attack(state, caster_id, uid, level, mult, ectx)
             if a is not None:
                 attacks.append(a)
         return {"quickening": True, "caster": caster_id, "target_tile": target_id,

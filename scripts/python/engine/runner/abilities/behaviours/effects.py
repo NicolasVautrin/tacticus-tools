@@ -287,7 +287,12 @@ def add_effect_or_increase_level(effect_type: int, name: str, target_sel: Target
 
 class RemoveEffect(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$RemoveEffect` -> `RemoveEffectBehaviour.Execute` : retire de la cible TOUS les
-    effets du type `effect_type` (non consommes) et ANNULE leur StatModification (`<Effect>.RevertInternal`).
+    effets du type `effect_type` (non consommes), ANNULE leur StatModification (`<Effect>.RevertInternal`)
+    et DE-ENREGISTRE leur nom de l'`EffectsOwnedComponent` (mirror `IdunBattle.Operations.
+    RemoveEffectOperation$$Execute`, qui retire l'id de l'entite-effet d'`ActiveEffectIds`) des qu'aucune
+    instance non consommee du meme nom ne reste — sans quoi un couple pose/retire dans le MEME cast
+    (`AddStatOverrideEffect(0x510)`/`RemoveEffect(0x510)`, `AddEffect(0x529)`/`RemoveEffect(0x529)` de
+    TheQuickening, reset ActOfFaith...) laissait son NOM colle sur l'unite, visible de la couche decision.
     `target` = `target_sel` (ex. `Caster()`/`Self@0x148` pour le reset ActOfFaith IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaith_RemoveEffectAbility$$CreateBehaviour). Wrapper au-dessus
     de l'Operation impurative `revert_change_stat` (mirror exact de l'ancien `_reset_act_of_faith`). No-op si
     `state.effects`/cible absents. Emet 'RemoveEffect' PAR CIBLE (removed = nb de stacks retires). Effet PUR
@@ -313,6 +318,7 @@ class RemoveEffect(AbilityBehaviour):
         from ....entities.effects import effect_stat_mod_key
         from ...operations.stat_ops import revert_change_stat
         from ...operations.ability_modifications import revert_ability_modifications
+        from ...operations.effects import unregister_name
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
@@ -346,6 +352,10 @@ class RemoveEffect(AbilityBehaviour):
                 # `AddUnitActiveAbilityModification` en `-delta` (cf. operations/ability_modifications.py).
                 revert_ability_modifications(state, eff)
                 eff.consumed = True
+                # `RemoveEffectOperation` retire aussi l'entite-effet de `EffectsOwnedComponent.
+                # ActiveEffectIds` -> le canal des NOMS (lu par la couche decision) doit suivre,
+                # sinon un couple pose/retire dans le MEME cast laisse son nom colle.
+                unregister_name(state, tgt, eff.name)
                 removed += 1
             ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
         return OperationResult.ok()

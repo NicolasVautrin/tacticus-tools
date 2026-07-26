@@ -116,24 +116,28 @@ class PerformAIAttack(AbilityBehaviour):
         `PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)` = le summon fraichement pose, lie par le
         sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL.
 
+    ACTION PAR ACTEUR : la feuille ne fait que RESOUDRE LE DOMAINE puis delegue a l'UNIQUE port du noeud,
+    `perform_ai_attack_from_current_position` (`../loki/summon.py` — cible `_nearest_enemy`, gate de portee
+    `_in_attack_range` mirror `IdunBattle.Core.Services.TargetingQuery$$GetRange` clamp `ForcedInMelee`
+    inclus, attaque normale COMPLETE, puis dispatch after-hit `On(0x26)`/`On(8)`/`On(9)`). Il n'existe
+    donc plus qu'UN corps pour ce noeud (de-fork : la feuille dupliquait auparavant cible+gate+attaque
+    SANS le vecteur after-hit -> les grots/Poxwalkers/Cadians ne pompaient aucun trigger post-attaque,
+    alors que le natif execute une VRAIE ability d'attaque via l'IA).
+
     GATE DE PORTEE (#114) : le natif est une routine IA « depuis la position COURANTE » -- l'acteur
     n'attaque QUE s'il a une cible ATTEIGNABLE sans bouger (`PerformAIAbilityUnitBehaviour.Execute`
     delegue le choix d'attaque a ses Func AI, qui n'en produisent aucune si rien n'est a portee ; i2
-    EarlyWarningOverride : « can immediately attack an enemy in melee »). Le port applique donc
-    `_in_attack_range` (mirror `DSLFactory.IsInAttackRange(attacker, target, 3)`, la MEME primitive que
-    l'overwatch) sur la cible choisie : hors de portee -> AUCUNE attaque (et aucun tirage rng). Sans ce
-    gate, un drone spawne a 9 hex de l'ennemi le plus proche frappait quand meme. Les call-sites
-    anterieurs spawnent AU CONTACT (ForwardSpotter/SendInTheNextWave/Incursion : tuiles adjacentes a la
-    CIBLE ; GetEmRuntz : tuiles adjacentes aux ennemis) -> gate inerte pour eux (0 regression)."""
+    EarlyWarningOverride : « can immediately attack an enemy in melee »). Sans ce gate, un drone spawne
+    a 9 hex de l'ennemi le plus proche frappait quand meme. Les call-sites anterieurs spawnent AU CONTACT
+    (ForwardSpotter/SendInTheNextWave/Incursion : tuiles adjacentes a la CIBLE ; GetEmRuntz : tuiles
+    adjacentes aux ennemis) -> gate inerte pour eux (0 regression)."""
     __slots__ = ("tile_selector",)
 
     def __init__(self, tile_selector: TargetsSelector):
         self.tile_selector = tile_selector
 
     def execute(self, entities, ectx):
-        from ..loki import _nearest_enemy
-        from ...operations.damage import AttackDamageOperation
-        from ...operations.triggers.base import _in_attack_range
+        from ..loki import perform_ai_attack_from_current_position
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -155,14 +159,10 @@ class PerformAIAttack(AbilityBehaviour):
             if child is None:
                 continue
             cid = child.get("id")
-            tgt = _nearest_enemy(state, cid)
-            if tgt is None:
-                continue
-            if not _in_attack_range(state, cid, tgt):     # routine AI « depuis la position courante »
-                continue                                 # rien a portee -> aucune attaque, aucun rng
-            r = AttackDamageOperation.execute(state, cid, tgt)
+            r = perform_ai_attack_from_current_position(state, cid)   # <- LE noeud (corps unique)
             if r is None:
                 continue
+            tgt = r["target"]
             child["_attacks_made"] = int(child.get("_attacks_made", 0) or 0) + 1
             child["_last_attacked"] = _unit_dict(state, tgt)   # etat POST-attaque (alive/hp courants)
             attacks.append({"child": cid, "target": tgt, "total": r.get("total")})

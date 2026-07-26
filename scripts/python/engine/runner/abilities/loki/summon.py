@@ -143,20 +143,52 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
 
 
 def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:
-    """`DSLFactory.PerformAIAttackFromCurrentPosition(Spawned@0x180)` — on-appearance des summons
-    MasterOfTheTutelaries (#202-C : Pink Horror ET Screamer ; embarque dans SpawnUnitOptions+0x18 des
-    DEUX Spawn, actif IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$ExecuteBehaviour et triggered IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateSummonBehaviour) : le summon execute UNE attaque NORMALE
-    AI-choisie DEPUIS sa position courante (sans bouger), via le pipeline COMPLET
-    `AttackDamageOperation.execute` (selection d'arme par distance -> le Horror tire son ranged r2
-    PSYCHIC si non-adjacent, melee Physical si adjacent ; auras InfernalPacts/WeaverOfFate/after-hit
-    inclus). MESURE live (diag 202c) : le bonus InfernalPacts PSYCHIC (summon Daemon adjacent a
-    Abraxas) met Psychic dans le SET de profils de l'attaque -> CHAQUE attaque de summon adjacent
-    a Abraxas re-declenche un Screamer (chaine bornee par les positions, pas par le profil d'arme).
+    """**L'UNIQUE port du noeud natif `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition`**
+    (un acteur). Tous ses call-sites passent par ici : la feuille DSL `PerformAIAttack` (domaine TUILE ou
+    UNITE, cf. `../behaviours/summon.py`), les on-appearance embarques dans `SpawnUnitOptions+0x18`
+    (MasterOfTheTutelaries/AberrantHypermorph/AlphaWarrior/IronkinSteeljack/Screamer) et la free-attack
+    de `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`.
 
-    Choix de cible = approx maison `_nearest_enemy` (mirror partiel du choix AI natif — precedent
-    ScarabSummon/PerformAIAttack ; scenario de validation = 1 seul ennemi a portee pour l'exactitude),
-    gate « if able » = cible dans la portee d'arme max (`_in_attack_range`). None si pas de cible
-    legale (le summon n'attaque pas — fidele : PerformAIAttack no-op sans cible)."""
+    STRUCTURE NATIVE (decompile) — le noeud n'est qu'un CONSTRUCTEUR :
+      `PerformAIAttackFromCurrentPosition(unit, utilityEntity, customUtility, skipAtomicCheck)` alloue un
+      `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour` dont les champs sont
+        `+0x50` = `unit`            (le selecteur d'ACTEURS, itere par `Execute`) ;
+        `+0x68` = le `Func<IEntity,int>` CACHE du `<>c` de `DSLFactory` (= resolveur de l'ability
+                  d'ATTAQUE de l'acteur ; c'est le SEUL point qui distingue ce noeud de
+                  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAbility`, ou le Func est fourni) ;
+        `+0x70` = 0 ; `+0x71` = `skipAtomicCheck` ;
+        `+0x78` = **`factory+0xb8` = `Direct(0)`** -> l'option `Nullable<int>` de l'appel IA vaut **0** :
+                  c'est LITTERALEMENT le « FromCurrentPosition » (budget de deplacement nul). Le noeud
+                  cousin `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` est le MEME behaviour avec
+                  ce noeud d'amount FOURNI PAR L'APPELANT (ex. `PerformAIAttack(..., 1, ...)` de
+                  ForwardSpotter / `PerformAIAttack(1)` de ScarabSummon) ;
+        `+0x80` = `utilityEntity`, `+0x90` = `customUtility` (surcharges d'UTILITE du choix de cible) ;
+        `+0x88` = 0 -> `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` prend la
+                  branche « pas de cible imposee » (appel IA slot 0x37, options `{_, skipAtomic, true,
+                  Nullable(0), customUtility}`) : **c'est l'IA qui CHOISIT la cible**, aucune contrainte
+                  d'adjacence n'est cablee dans le noeud.
+
+    CE QUI EN DECOULE, ET QUI EST LE MEME POUR TOUS LES APPELANTS :
+      * **attaque NORMALE COMPLETE** via `AttackDamageOperation.execute` (selection d'arme par distance ->
+        le Horror tire son ranged r2 PSYCHIC si non-adjacent, melee Physical si adjacent ; auras
+        InfernalPacts/WeaverOfFate incluses) ;
+      * **dispatch after-hit INCONDITIONNEL** : l'IA execute une VRAIE ability d'attaque, donc
+        `IdunBattle.Operations.FinishAttackOperation$$Execute` emet `On(0x26)`/`On(8)`/`On(9)` comme sur
+        n'importe quelle attaque normale. AUCUN champ du noeud ne le gate. MESURE live (diag 202c) : le
+        bonus InfernalPacts PSYCHIC (summon Daemon adjacent a Abraxas) met Psychic dans le SET de profils
+        -> CHAQUE attaque de summon adjacent a Abraxas re-declenche un Screamer (trigger 1173 sur `On(9)`).
+        C'est la PREUVE live que le vecteur after-hit part depuis ce noeud ;
+      * **domaine de cible = CONTEXTE, jamais un choix du port** : la portee utilisable est celle de
+        `IdunBattle.Core.Services.TargetingQuery$$GetRange`, qui clampe `Math.Min(1, range)` si l'acteur
+        porte `ForcedInMelee (0x529)`. La free-attack de TheQuickening pose cet effet AVANT d'appeler ce
+        noeud -> son domaine se REDUIT tout seul a l'adjacence, sans variante de code (`_in_attack_range`
+        porte le clamp, cf. `operations/triggers/base.py::_forced_in_melee`).
+
+    RESIDU (commun a tous les appelants) : le choix de cible est approxime par `_nearest_enemy` (le moteur
+    d'utilite IA natif n'est pas mirrore) ; gate « if able » = `_in_attack_range` (mirror `GetRange`).
+    None si pas de cible legale (l'acteur n'attaque pas — fidele : l'IA ne produit aucune action).
+    TheQuickening passe en plus un `customUtility` (lambda du display-class de l'ability) qui ne peut que
+    reordonner des cibles EQUIVALENTES en portee — non mirrore, meme classe de residu."""
     from ...operations.triggers.base import _in_attack_range
     tgt = _nearest_enemy(state, unit_id)
     if tgt is None or not _in_attack_range(state, unit_id, tgt):
