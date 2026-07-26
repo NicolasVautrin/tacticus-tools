@@ -132,6 +132,37 @@ class PercentageOf(AAmountFormula):
         return _round_fix64(Fraction(self.pct.evaluate(ctx) * self.base.evaluate(ctx), 100), self.mode)
 
 
+def percentage_of_attack_capped_at_max(unit_sel: TargetsSelector, cap, pct,
+                                       stat_part: int = 0, mode: int = 0) -> AAmountFormula:
+    """`IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax(unit, statPart, cap, pct, mode)`
+    — FACTORY COMPOSITE (elle n'alloue AUCUNE formule dediee), mirror 1:1 du decompile :
+
+        statAmount = StatAmountFormula(unit, statType=0 (ATTACK), statPart, 0, 0)
+        pctOf      = DSLFactory.PercentageOf(statAmount, pct, mode)
+        return       <noeud 2-champs (cap, pctOf)>
+
+    Le noeud englobant est alloue depuis le singleton de classe `DAT_18324e140`, avec un ctor que ghidra
+    affiche `HasUsedActiveAbilityThisTurnTrigger..ctor` (fold gshared 2-champs, NOM FAUX -- cf. l'en-tete
+    de `dsl/base.py`). **Sa semantique est PROUVEE par IDENTITE DE SINGLETON, pas deduite du nom de la
+    factory** : `IdunBattleLogic.Entities.DSLFactory$$Min(a, b)` alloue EXACTEMENT le meme
+    `DAT_18324e140` avec le meme ctor 2-champs. Donc `PercentageOfAttackCappedAtMax = Min(cap, pctOf)`.
+    CONFIRME LIVE (#112, runner MC1_67 au contact) : `ExemplarOfHate` sur cible Chaos ->
+    `UnitStats_Attack_Override = 2008` = `min(maxDmg[50]xmult180 = 5983, round(Attack_CURRENT 2008 x
+    dmgPct 100 / 100))` ; idem probe_217 TheQuickening (meph 1204 / ally 4818).
+
+    `stat_part` = le `StatPart` natif passe par l'appelant -- **0 = Current**
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$GetAttackDamage`) vs
+    **3 = Initial** (`IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$ExecuteBehaviour`
+    et `...$$GetOverrideAttackDamageAmount`) : difference LUE au decompile, jamais uniformisee.
+    `cap`/`pct` = noeuds VALEUR (`ConfigVar(0xd=maxDmg)` / `ConfigVar(0x4a=dmgPct)` sur les call-sites
+    portes) ou scalaires (collapse V quand la config est resolue imperativement)."""
+    from .stats import StatType
+    cap_n = cap if hasattr(cap, "evaluate") else Const(int(cap))
+    pct_n = pct if hasattr(pct, "evaluate") else Const(int(pct))
+    return Min(cap_n, PercentageOf(pct_n, StatAmount(unit_sel, int(StatType.ATTACK), int(stat_part)),
+                                   mode))
+
+
 class Count(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$Count(selector)` → `IdunBattle.Entities.Formulas.CountFormula$$Calculate` : cardinal du
     sélecteur (nb d'éléments). Retour int >= 0.

@@ -278,6 +278,101 @@ class SubtractHealthPercent(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class AddStatOverrideEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect(unitSel, effectType, statType,
+    amountNode, duration, flag)` -> `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$Execute`
+    — MIRROR du DECOMPILE.
+
+    Champs du ctor (`IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$.ctor`, LUS) :
+    `+0x58` = selecteur d'unites (param_2) · `+0x60` = effectType (param_3) · `+0x64` = statType (param_4)
+    · `+0x68` = noeud MONTANT (param_5) · `+0x70` = duree (param_6) · `+0x78` = flag (param_7) ·
+    `+0x50` = NULL (selecteur SOURCE optionnel ; les 3 call-sites portes le laissent nul -> source = la
+    cible elle-meme, `lVar25 = lVar17` du decompile).
+
+    `Execute` (mirror) :
+        foreach unit in (+0x58).Select(entities) :
+            entities.subject = unit                       # `param_3[4] = lVar17` = slot SUJET @0x20
+            amount = (+0x68).Calculate(entities)          # formule V evaluee AVEC le sujet LIE
+            builder = StatOverrideBuilder(effectType, statType, amount, flag)
+            AddEffect(target=unit, source=unit, builder, effectType, options{duree=+0x70})
+
+    Le binding du SUJET est ce qui rend `PercentageOfAttackCappedAtMax(Subject@0x180, ...)` correct :
+    le montant est calcule sur l'ATTACK de l'unite qui RECOIT l'override, pas sur celle du caster.
+    Frontiere #149 respectee : la feuille est DECLARATIVE ; les deux Operations en dessous sont deja
+    portees (`AddEffectOperation` = materialisation ECS de l'entite-effet ; `apply_stat_override` =
+    `ChangeStat` mode 4 / `Position(statType, part 7 SetOverride)`).
+
+    `stat_override_stats` est pose sur l'instance -> la feuille `RemoveEffect` (qui appelle
+    `AddEffectOperation.revert_stat_overrides`) ANNULE exactement cet override, mirror du
+    `<Effect>.RevertInternal` -> `ResetStat` (part 8 `RemoveOverride`). C'est le couple
+    `AddStatOverrideEffect(0x510) ... RemoveEffect(0x510)` qu'ExemplarOfHate et SternguardFocus
+    encadrent autour de leur attaque libre -> NET-ZERO apres le cast (mesure live #112 : l'effet
+    `TemporaryStatOverride` n'apparait PAS dans `decisionView.effects` apres le cast).
+
+    `is_modifiable` = le flag natif `+0x78` (=1 sur les call-sites portes) -> `SetOverride(value,
+    modifiable)`. Emet 'AddStatOverrideEffect' par unite. PUR (stop=False)."""
+    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name", "duration_rounds",
+                 "duration_turns", "is_modifiable")
+
+    def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
+                 name=None, duration_rounds=None, duration_turns=None,
+                 is_modifiable: bool = True):
+        self.unit_sel, self.effect_type = unit_sel, int(effect_type)
+        self.stat_type, self.amount, self.name = int(stat_type), amount, name
+        self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
+        self.is_modifiable = bool(is_modifiable)
+
+    def execute(self, entities, ectx):
+        from dataclasses import replace
+        from ....entities.stats import StatType
+        from ...components import StatsComponent
+        from ...operations.effects import AddEffectOperation
+        from ...operations.stat_ops import apply_stat_override
+        from .effects import _resolve_duration
+        state = ectx.state
+        if state is None or state.effects is None:
+            return OperationResult.ok()
+        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
+        for u in _units_of(self.unit_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            # `param_3[4] = current` : le natif LIE l'unite courante au slot SUJET (@0x20 = `Subject`
+            # / `ActiveTarget@0x180`) AVANT d'evaluer le noeud montant.
+            sub = replace(entities, subject=u)
+            amt = int(self.amount.evaluate(sub) if hasattr(self.amount, "evaluate") else self.amount)
+            # source = la cible elle-meme (`+0x50` NUL sur les call-sites portes -> `lVar25 = lVar17`).
+            eff = AddEffectOperation.execute(state, source=uid, target=uid,
+                                             effect_type=self.effect_type, name=self.name,
+                                             duration_override=dur, value=amt)
+            if eff is None:                     # gate « deja present » de l'Operation -> pas de re-pose
+                continue
+            apply_stat_override(state, uid, self.stat_type, amt, is_modifiable=self.is_modifiable)
+            eff.stat_override_stats = [int(self.stat_type)]   # lu par RemoveEffect -> revert (part 8)
+            # STAT 18 `ACTIVE_ABILITY_LEVEL` -- cote port, le niveau qui INDEXE les variables d'ability
+            # n'est PAS lu via `UnitStats.get_stat(18)` (aucun consommateur) mais via
+            # `UnitContext.active_ability_level` (`ability_var` / `ability_attack_params`). L'override
+            # doit donc AUSSI etre ecrit la : c'est le seul mirror OBSERVABLE de
+            # `GetStat(unit, ACTIVE_ABILITY_LEVEL)`. Consommateur : `InspiredToGreatnessAbility$$
+            # ExecuteBehaviour` (1082, magnitude +1496 validee live, #114).
+            # `overridden_prev` conserve la valeur precedente sur l'instance d'effet pour un revert exact.
+            # RESIDU FLAGGE (#114) : le retrait natif (`InspiredToGreatness_OverrideLevelEffect$$
+            # CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster`, au PROCHAIN cast du porteur) n'est
+            # pas branche offline -> l'override PERSISTE apres la 2e utilisation. Sans consequence
+            # pratique (le porteur n'a droit qu'a UNE utilisation supplementaire).
+            applied_ctx = False
+            if int(self.stat_type) == int(StatType.ACTIVE_ABILITY_LEVEL):
+                e = state.get_entity(int(uid))
+                sc = e.get_component(StatsComponent) if e is not None else None
+                if sc is not None and sc.ctx is not None:
+                    eff.overridden_prev = getattr(sc.ctx, "active_ability_level", None)
+                    sc.ctx.active_ability_level = amt
+                    applied_ctx = True
+            ectx.emit("AddStatOverrideEffect", unit=uid, effect_type=self.effect_type,
+                      stat=int(self.stat_type), amount=amt, applied=applied_ctx)
+        return OperationResult.ok()
+
+
 class SetHealth(AbilityBehaviour):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` -> `ChangeStat(Health(5), mode 0=SetAbsolute,
     PercentageOf(StatAmount(Health, MAXIMUM=2), ConfigVar(hpPct)))` : SET le HP courant du sujet a

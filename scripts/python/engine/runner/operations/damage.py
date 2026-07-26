@@ -415,6 +415,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (appliqué à part par `apply_all_modifiers`) → aucune double-application. Vide → no-op (rétro-compat)."""
         if def_mods.flat_reductions:
             mods.additive -= sum(def_mods.flat_reductions)
+        # #112 : axe PERCAGE porte par un effet de la CIBLE (`<Effect>.CreatePiercingBonusForAttack`
+        # avec trigger `OwnerIsTarget`, ex. `IdunBattle.Entities.Effects.Loki.
+        # Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack` = `ForPiercing(
+        # DamageProfileIs(Plasma) & OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))`). Le natif SOMME
+        # le champ Piercing@+0x20 de l'accumulateur ATTAQUANT ET de l'accumulateur DEFENSEUR avant
+        # `GetBaseDamageWithFixedPiercedArmor` (`pierce_eff = clamp(pierce + extra, 0, 100)`) ; le port
+        # ne passe que `mods` (attaquant) a `apply_pierce_and_modifiers` -> on FUSIONNE ici, au MEME
+        # endroit que la reduction plate defenseur. Vide -> no-op strict (aucun effet PREEXISTANT
+        # n'alimentait ce canal : `create_piercing_bonus_for_attack` par defaut = None).
+        if def_mods.extra_pierce:
+            mods.extra_pierce += def_mods.extra_pierce
 
 
 class DamageHandler:

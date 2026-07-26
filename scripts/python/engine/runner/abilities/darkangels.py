@@ -9,24 +9,36 @@ attaque RANGED (range 3, profil Plasma) 3x sur la cible + 3x sur JUSQU'A 2 unite
 DIRECTEMENT DERRIERE la cible. Meme plage de degat ET meme nb de coups pour les deux volets. Template
 `plasma_grenade_tree` (loki/splash.py) MOINS le selecteur splash (adjacent-cible -> directly-behind) ET
 avec une FACTORY NATIVE DIFFERENTE (cf. ci-dessous, piege rngcrit-1202).
+
+Lot #112 (actives DarkAngels NO-OP cote COMBAT) — toutes ont pour ARTEFACT NATIF un
+`<Ability>.ExecuteBehaviour` (arbre de noeuds `DSLFactory`) => portees en ARBRE DSL, jamais en `execute_*`
+imperatif (frontiere #149) :
+  * `SuperchargeAbility$$ExecuteBehaviour`          (1103, darkaHellblaster « Sarquael ») -- 2 volets Plasma
+  * `ExemplarOfHateAbility$$ExecuteBehaviour`       (1140, darkaAsmodai « Asmodai »)      -- debuff + branche Chaos
+  * `CalibaniteGreatswordAbility$$ExecuteBehaviour` (1189, darkaCompanion « Forcas »)     -- toggle de POSTURE
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+import hexgeo
+
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, Foreach, If, op_and
+from ...entities.behaviours import AtomicGroup, Foreach, If, op_add, op_and
 from ...entities.effect_type import EffectType
-from ...entities.formulas import AngleBetweenLines, Count
+from ...entities.formulas import AngleBetweenLines, Count, percentage_of_attack_capped_at_max
 from ...entities.selectors import (AdjacentTiles, Alive, Cache, Caster, Enemies, FilterContinuous,
                                    FixedTileIds, PickFirstN, SortByDistance, SortByFormula, Subject,
-                                   SurroundingTiles, Target, Tiles, TilesBehindInLine, Union, Units,
-                                   UnitsDirectlyBehind)
-from ...entities.triggers import AreEnemies, AreEqual, HasUnit, TriggerAnd
+                                   SurroundingTiles, Target, Tiles, TilesBehindInLine, UnitSet,
+                                   Union, Units, UnitsDirectlyBehind)
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.stats import StatPart, StatType
+from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
+                                  TriggerAnd)
 from .base import ActiveAbility
-from .behaviours import AddEffect, AttackWithAttackDamage, entities_from_state
+from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
+                         UseActiveAbility, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -59,6 +71,29 @@ def _resolve_target_tile(state, target_id):
     e = state.get_entity(target_id)
     pc = e.get_component(PositionComponent) if e is not None else None
     return board.id_at(pc.col, pc.row) if pc is not None else None
+
+
+# --- Ids d'effet cites par les arbres (mirror des litteraux du decompile) --------------------------
+SUPERCHARGE_EXTRA_PIERCING = int(EffectType.Supercharge_ExtraPiercing)             # 0x4b8 = 1208
+EXEMPLAR_OF_HATE_TARGET = int(EffectType.ExemplarOfHate_Target)                    # 0x50d = 1293
+PINNED = int(EffectType.Pinned)                                                   # 0x429 = 1065 (UI « Suppressed »)
+TEMPORARY_STAT_OVERRIDE = int(EffectType.TemporaryStatOverride)                    # 0x510 = 1296
+CG_STRIKE = int(EffectType.CalibaniteGreatswordStrike)                            # 0x57c = 1404
+CG_SWEEP = int(EffectType.CalibaniteGreatswordSweep)                              # 0x57d = 1405
+CG_STRIKE_HIT_REDUCTION = int(EffectType.CalibaniteGreatsword_StrikeHitReduction)  # 0x57e = 1406
+CG_STRIKE_OVERWATCHING = int(EffectType.CalibaniteGreatswordStrike_Overwatching)   # 0x591 = 1425
+OVERWATCH_AUTO_ATTACK = int(EffectType.Overwatch_AutoAttack)                      # 0x3f1 = 1009
+
+# `HasTrait(target@0x178, 0x7ea)` d'ExemplarOfHate : 0x7ea = 2026 = le PSEUDO-trait de GRANDE-ALLIANCE
+# **Chaos** (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait` : "Imperial"->0x1a=26, ...->0x3ee=1006
+# Xenos, ...->0x7ea=2026 Chaos). Ce n'est PAS un trait gameconfig : AUCUNE unite ne porte "Chaos" dans
+# sa liste `traits` -> un `HasTrait(Target(), 2026)` naif (via `ctx.has_trait`, qui lit les NOMS
+# gameconfig) serait TOUJOURS faux et la branche Chaos serait MORTE. Le port passe donc par
+# `HasGrandAlliance(unit, factions)` (meme derivation que le `HasTrait(killer, 26=Imperial)` d'ActOfFaith,
+# live-valide). Les 5 factions Chaos des 22 du jeu (`GrandAllianceId == "Chaos"` en gameconfig).
+CHAOS_FACTIONS = frozenset({
+    "BlackLegion", "DeathGuard", "ThousandSons", "WorldEaters", "EmperorsChildren",
+})
 
 
 def plasma_cannon_tree():
@@ -495,3 +530,420 @@ class HailstrikeAbility(ActiveAbility):
         posed = [p["target"] for n, p in ectx.emitted if n == "AddEffect"]
         return {"ability": HAILSTRIKE_ID, "caster": caster_id, "target": target_id,
                 "rounds": rounds, "turns": turns, "posed": posed, "dsl": True}
+
+
+# =====================================================================================================
+# Supercharge (1103, darkaHellblaster « Sarquael ») -- #112
+# =====================================================================================================
+
+def _supercharge_behind(state: "State", caster_id: int, target_id: int) -> list:
+    """COLLAPSE du selecteur `PickRandomly(UnitsDirectlyBehind(caster@0x160, target@0x178), 2)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$ExecuteBehaviour`.
+
+    Le natif construit UN SEUL noeud selecteur (`uVar12`) et le passe aux DEUX consommateurs : le
+    `TargetsSelector.op_Addition(target@0x178, uVar12)` de l'`AddEffect` ET le selecteur de cibles du
+    volet SPLASH. On le resout UNE fois ici et on l'injecte en `UnitSet` aux deux -- doctrine de collapse
+    S (slice-18/19). EXACT pour <=2 candidats (`_pick_randomly_n` rend tout le set SANS tirage), et c'est
+    la lecture i2 (« these units » = les memes que celles attaquees).
+    RESIDU (>2 candidats derriere la cible) : le natif re-evalue son `PickRandomly` a chaque `Select`
+    (potentiellement 2 sets differents + 2 tirages) ; le port n'en fait qu'un -- meme classe de residu que
+    le GAP #215 deja flagge sur `pick_n`.
+
+    `UnitsDirectlyBehind` = le noeud DEJA porte (mirror `IdunBattleLogic.Entities.DSLFactory$$
+    UnitsDirectlyBehind`) ; `PickRandomly` = `_pick_randomly_n` (== PlasmaCannon/Fragstorm). Tri par id
+    avant tirage = `OrderBy` natif (ordre de lecture)."""
+    from .loki import _pick_randomly_n
+    ents = entities_from_state(state, caster_id, target_id)
+    cands = sorted((u for u in UnitsDirectlyBehind().evaluate(ents) if u.get("id") is not None),
+                   key=lambda u: u["id"])
+    return _pick_randomly_n(state, cands, 2)
+
+
+def supercharge_tree(behind: list):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$ExecuteBehaviour`
+    (id 1103, darkaHellblaster -- MIRROR du DECOMPILE) :
+
+        primary   = AActiveAbility.MinMaxDamage(this)     # RandomAmount(ConfigVar 0xc, ConfigVar 0xd)
+        secondary = AActiveAbility.MinMaxDamage2(this)    # RandomAmount(ConfigVar 0x36, ConfigVar 0x37)
+        profile   = AActiveAbility.GetDamageProfile(this)                             # Plasma
+        hits      = GetHits(this)   [corps FOLDE affiche `ArmoriumCherubAbility$$GetHits`]
+                                                          # = GetNumberConstant(0x2f) = nrOfHits
+        hits2     = GetHitsToSecondaryTargets(this)  [corps FOLDE affiche
+                    `BringerOfDespairAbility$$GetHitsToBonusTarget`]
+                                                          # = GetNumberConstant(0x32) = nrOfHits_2
+        behind    = PickRandomly( UnitsDirectlyBehind(caster@0x160, target@0x178), 2 )
+        ExecuteAtomic(
+          op_BitwiseAnd(
+            op_BitwiseAnd(
+              AddEffect(0x4b8 Supercharge_ExtraPiercing, stateRef, source=caster@0x160,
+                        target = TargetsSelector.op_Addition(target@0x178, behind),
+                        TurnsFromRounds(1)),                                          # [1] EFFET
+              AttackWithAttackDamage(caster, target@0x178, primary,   Plasma, hits) ), # [2] MAIN
+            AttackWithAttackDamage(caster, behind,        secondary, Plasma, hits2) ), # [3] SPLASH
+          0x2a)
+
+    ORDRE : l'`AddEffect` est le PREMIER volet -> le bonus de percage est POSE AVANT les deux attaques,
+    donc les hits de Supercharge EUX-MEMES en beneficient (i2 : « ... all with +35% pierce ratio »).
+    CONFIRME LIVE (#112, MC1_67 au contact) : les 3 groupes `Supercharge_ExtraPiercing` (cible +
+    2 unites derriere, `Effect_RemainingTurns=2`) precedent les 2 groupes de degat dans la cascade.
+    Les DEUX volets d'attaque appellent `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+    (LU au decompile, pas au juge du template) -> `native_factory="attack"` = 2 tirages/coup a cc=0
+    (piege rngcrit-1202). Config 1103 : nrOfHits=1, nrOfHits_2=1, damageProfile=Plasma, range=3."""
+    behind_sel = UnitSet(behind)
+    # [1] `AddEffect(0x4b8, ..., op_Addition(target, behind), TurnsFromRounds(1))` -- +extraPierceRatio
+    #     Plasma sur la cible ET les unites derriere, jusqu'au debut du prochain tour du caster.
+    #     `scale_from_source=True` : la magnitude est un `ConfigVar(0x3f)` resolu contre l'AbilityState
+    #     de la SOURCE (`BaseEffect.GetAbilityState`, cf. `Supercharge_ExtraPiercingEffect$$
+    #     CreatePiercingBonusForAttack`).
+    eff = AddEffect(SUPERCHARGE_EXTRA_PIERCING, "Supercharge_ExtraPiercing",
+                    Union(Target(), behind_sel), duration_rounds=1, scale_from_source=True)
+    # [2] MAIN : minDmg/maxDmg, nrOfHits, Plasma, RANGED (range 3).
+    main = AttackWithAttackDamage(Target(), "Supercharge", "Plasma", is_melee=False,
+                                  native_factory="attack")
+    # [3] SPLASH : minDmg_2/maxDmg_2 (MinMaxDamage2) + nrOfHits_2, MEME profil Plasma.
+    splash = AttackWithAttackDamage(behind_sel, "Supercharge", "Plasma", is_melee=False,
+                                    min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2",
+                                    multi=True, native_factory="attack")
+    return AtomicGroup(op_and(op_and(eff, main), splash))
+
+
+class SuperchargeAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$ExecuteBehaviour` (id 1103,
+    darkaHellblaster « Sarquael » ; faction DarkAngels). Cast RANGED (range 3, cible ennemie).
+
+    i2 : « Deals 1x <minDmg-maxDmg> Plasma Damage to a target enemy within range 3 and 1x
+    <minDmg_2-maxDmg_2> Plasma Damage to up to two enemies in adjacent hexes behind the target, all with
+    +<extraPierceRatio>% pierce ratio. Until the beginning of Sarquael's next turn, any further hits that
+    deal Plasma Damage against these units also have +<extraPierceRatio>% pierce ratio. »
+
+    `execute_behaviour` DELEGUE a `supercharge_tree()` (mirror 1:1). Le +percage est porte par l'EFFET
+    `Supercharge_ExtraPiercing` (1208, `entities/effects/loki/damage_reduction.py`) : `EffectBonus.
+    ForPiercing(DamageProfileIs(Plasma) & OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))` -- l'effet vit
+    sur la VICTIME et bonifie le percage de QUI l'attaque en Plasma (canal DEFENSEUR, fusionne dans
+    `mods.extra_pierce` par `AttackDamageOperation._apply_defender_flat_reductions`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Supercharge)  # 1103
+    ABILITY_ID = "Supercharge"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        behind = _supercharge_behind(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        supercharge_tree(behind).execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        return {"ability": "Supercharge", "caster": caster_id, "target": target_id,
+                "main_attack": main,
+                "splash": [{"target": p["target"], "attack": p["attack"]}
+                           for p in atks if p.get("target") != target_id],
+                "behind": [u["id"] for u in behind],
+                "pierce_effect": [p["target"] for n, p in ectx.emitted if n == "AddEffect"],
+                "dsl": True}
+
+
+# =====================================================================================================
+# ExemplarOfHate (1140, darkaAsmodai « Asmodai ») -- #112
+# =====================================================================================================
+
+def _exemplar_capped_attack_vars(state: "State", caster_id: int) -> tuple:
+    """COLLAPSE des deux feuilles V `ConfigVar(0xd=maxDmg)` / `ConfigVar(0x4a=dmgPct)` que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$GetAttackDamage` passe a
+    `PercentageOfAttackCappedAtMax` (doctrine slice-23 : une formule `ConfigVar` sans consommateur
+    dynamique est calculee imperativement via `ability_var` et passee en SCALAIRE).
+
+    Les DEUX `ConfigVar` sont resolus contre la config de l'ABILITY QUI S'EXECUTE (`ability+0x60`) --
+    donc contre le niveau + le multiplier de rarete du CASTER (Asmodai), PAS de l'allie qui frappera.
+    Seule l'ATTACK du sujet (l'attaquant) est per-unite, et elle vit dans le noeud `StatAmount` de
+    l'arbre. Rend `(cap, pct)`.
+
+    VALIDE LIVE (#112) : Asmodai lvl50 mult180 -> cap = maxDmg = 5983, pct = dmgPct = 100 ;
+    `UnitStats_Attack_Override` mesure = 2008 = min(5983, round(Attack_CURRENT 2008 x 100 / 100))."""
+    from ..components import StatsComponent
+    from ...entities.effects.magnitude import ability_var
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    lvl = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None
+    mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100) if sc is not None else 100
+    cap = ability_var("ExemplarOfHate", "maxDmg", lvl, multiplier_pct=mult)   # rarity-scale
+    pct = ability_var("ExemplarOfHate", "dmgPct", lvl, multiplier_pct=mult)   # hors rarity-scale
+    return (int(cap or 0), int(pct or 0))
+
+
+def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
+                                cap: int, pct: int) -> list:
+    """COLLAPSE du selecteur AI-target `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ExemplarOfHateAbility$$GetAttacker` (kind S LOURD -- meme doctrine que `_finaljustice_target`).
+    Chaine native LUE :
+
+        possible = UnitsWhoCanAttack(
+                     UnitsFromFaction( Friends(caster@0x160, AllUnits@0x80 + caster@0x160), 10 ),
+                     target@0x178 )                       # == `...$$GetPossibleAttackers`
+        attacker = First( SortAttackersByDamagePredictionSelector(
+                            possible, target@0x178, UnitNormalAttackType(Subject@0x180),
+                            GetAttackDamage(...), AttackHits(Subject, target),
+                            NormalAttackDamageProfile(Subject, target) ), 1 )
+
+    - `IdunBattle.Entities.Selectors.UnitsWhoCanAttackTargetSelector$$Select` garde un candidat ssi
+      `GetBrokenTargetingRules(unit, unit.MainTile, target, unit.NormalAttackType).IsValid` (aucune regle
+      de ciblage cassee DEPUIS SA TUILE COURANTE). Port : unite VIVANTE dont la portee d'arme maximale
+      couvre la distance hex a la cible -- la regle DOMINANTE ; LoS/obscurcissement/hauteur = RESIDU flagge.
+    - `IdunBattle.Entities.Selectors.SortAttackersByDamagePredictionSelector$$Select` ->
+      `OrderByDescending(key)` avec (lambda `<Select>b__0`, LU) :
+          key(unit) = 0x7fffffff  si DamagePredictionResult.WillBeKill
+                      0x7ffffffe  si DamagePredictionResult.MightBeKill
+                      MinMaxDamage.Avg  sinon
+      Port : MEME structure de cle, la prediction etant batie comme celle de `_finaljustice_target`
+      (`get_attack_prediction` PRE-ARMURE armor=0/pierce=100, profil 0 -- cf. l'en-tete de
+      `services/damage_prediction`) mais avec `initial_damage` = l'OVERRIDE (le natif passe justement
+      `GetAttackDamage()` comme noeud de degat au selecteur de tri). `OrderByDescending` LINQ est STABLE
+      -> tie-break = ordre source, approxime par id croissant.
+
+    Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
+    from ..components import HealthComponent, OwnerComponent, PositionComponent, StatsComponent, UnitComponent
+    from ..damage_model import attacker_modifiers, select_weapon_pierce
+    from ...entities.effects import hits_bonus_from_effects
+    from ...services.damage_prediction import get_attack_prediction
+    from ...ai.action_generators import _faction
+    import gameconfig as GC
+    ce = state.get_entity(caster_id)
+    te = state.get_entity(target_id)
+    coc = ce.get_component(OwnerComponent) if ce is not None else None
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    thc = te.get_component(HealthComponent) if te is not None else None
+    if coc is None or tpc is None:
+        return []
+    tpos = (tpc.col, tpc.row)
+    thp = int(thc.hp) if (thc is not None and thc.hp is not None) else 0
+    scored = []
+    for uid, e in sorted(state.entities.items()):
+        uc = e.get_component(UnitComponent)
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        sc = e.get_component(StatsComponent)
+        if uc is None or oc is None or pc is None or sc is None:
+            continue
+        if oc.team != coc.team or not uc.alive:            # Friends(caster, AllUnits + caster)
+            continue
+        if _faction(uc.visual_id) != "DarkAngels":         # UnitsFromFaction(..., 10 = DarkAngels)
+            continue
+        # `UnitsWhoCanAttack` : la cible est-elle a portee d'UNE de ses armes depuis sa tuile courante ?
+        dist = hexgeo.distance((pc.col, pc.row), tpos)
+        rng = max([int(w.get("Range") or 1)
+                   for w in ((GC.unit(uc.visual_id) or {}).get("weapons") or [])] or [1])
+        if dist > rng:
+            continue
+        # Montant de l'override (== le noeud `GetAttackDamage` que le natif passe au selecteur de tri).
+        atk = int(sc.ctx.stat(StatType.ATTACK))
+        override = min(int(cap), _pct_of(atk, pct)) if cap else _pct_of(atk, pct)
+        ahc = e.get_component(HealthComponent)
+        _pierce, is_ranged, whits = select_weapon_pierce(sc.ctx, dist)
+        mods, active = attacker_modifiers(state, uid, ahc.hp if ahc else None, is_ranged=is_ranged)
+        hits = max(1, whits + sc.ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
+        pred = get_attack_prediction(
+            target_current_health=thp, initial_damage=override, hits=hits,
+            profile_type=0, armor=0, pierce_pct=100, mods=mods, spread_pct=20,
+            attacker_effects=active)                       # PRE-ARMURE (== `_finaljustice_target`)
+        rmin, rmax = pred.raw_health_damage.min, pred.raw_health_damage.max
+        if thp > 0 and rmin >= thp:
+            key = 0x7fffffff                               # WillBeKill
+        elif thp > 0 and rmax >= thp:
+            key = 0x7ffffffe                               # MightBeKill
+        else:
+            key = (rmin + rmax) // 2                       # MinMaxDamage.Avg
+        scored.append((uid, key))
+    scored.sort(key=lambda t: (-t[1], t[0]))               # OrderByDescending(key), tie-break id (stable)
+    return [uid for uid, _k in scored]
+
+
+def _pct_of(value: int, pct: int) -> int:
+    """`PercentageOf(StatAmount(unit, ATTACK, part), pct, mode 0)` — mirror IMPERATIF (arrondi Fix64
+    half-to-even, `AAmountFormula.RoundFix64Result` mode 0) utilise UNIQUEMENT pour la CLE DE TRI du
+    collapse `SortAttackersByDamagePrediction`. L'arbre, lui, porte le VRAI noeud
+    `percentage_of_attack_capped_at_max` (evalue a l'execution sur l'attaquant lie au slot sujet)."""
+    from fractions import Fraction
+    from ...dsl.base import _round_fix64
+    return _round_fix64(Fraction(int(value) * int(pct), 100), 0) if pct else 0
+
+
+def exemplar_of_hate_tree(attacker: list, cap: int, pct: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$ExecuteBehaviour`
+    (id 1140, darkaAsmodai -- MIRROR du DECOMPILE, ordre des `op_BitwiseAnd` LU dans le decompile) :
+
+        attacker = Cache( GetAttacker(entities), 1 )     # cf. `_exemplar_of_hate_attackers`
+        op_BitwiseAnd(
+          AddEffect(0x50d ExemplarOfHate_Target, stateRef, caster@0x160, target@0x178,
+                    TurnsFromRounds(2)),                                                  # [1] toujours
+          If( HasTrait(target@0x178, 0x7ea = Chaos),
+              op_BitwiseAnd(
+                AddEffect(0x429 Pinned, stateRef, caster@0x160, target@0x178, <duree ZERO>),   # [2]
+                op_BitwiseAnd(
+                  op_BitwiseAnd(
+                    AddStatOverrideEffect(attacker, 0x510, stat=0 ATTACK, GetAttackDamage(), 0, 1),  # [3]
+                    UseActiveAbility(attacker, target@0x178,
+                                     UnitNormalAttackType(attacker), <options>) ),                   # [4]
+                  RemoveEffect(attacker, Nullable(0x510)) ) ) )                                      # [5]
+
+    i2 : « Targets an enemy on the battlefield. For this round and the next, all friendly units deal
+    +<extraDmg> Damage against that enemy with melee or Overwatch attacks. If that enemy is Chaos, it
+    gets Suppressed and Asmodai or another friendly Dark Angel immediately performs a normal attack
+    against the target, dealing <dmgPct>% of its own damage, to a maximum of <maxDmg> Damage per hit. »
+
+    - [1] est INCONDITIONNEL (hors du `If`) : le debuff 2 rounds tombe meme sur une cible non-Chaos
+      (MESURE LIVE #112 : cible Chaos -> `ExemplarOfHate_Target` `Effect_RemainingTurns=4` = 2 rounds x
+      2 joueurs).
+    - Le `Pinned` (0x429) est pose SANS `TurnsFromRounds` (arg duree ZERO) -> duree =
+      `DefaultAmountOfRounds(0x429)` = 1 round, converti en tours par l'Operation (LIVE : `Effect_
+      RemainingTurns=2`). MEME patron que CrushingClaws/SpiritLeech.
+    - [3]-[5] = le triptyque override/attaque-libre/retrait, porte par l'ALLIE choisi (`attacker`).
+      Le montant est le VRAI noeud `percentage_of_attack_capped_at_max(Subject@0x180, CURRENT, cap, pct)`
+      -- evalue A L'EXECUTION sur l'Attack de CET allie, la feuille `AddStatOverrideEffect` liant l'unite
+      courante au slot SUJET (mirror `param_3[4] = current`). Seules les deux feuilles `ConfigVar` sont
+      collapsees en scalaires (`_exemplar_capped_attack_vars`, doctrine slice-23).
+      LIVE : `UnitStats_Attack_Override=2008` sur Asmodai (l'attaquant elu), puis `Loki_NormalAttack`
+      melee sur la cible, puis retrait de l'override (aucun `TemporaryStatOverride` residuel).
+
+    RESIDU NOMME (hors perimetre, generique) : le gate d'IMMUNITE d'effet
+    (`BaseEffect.EntityIsImmuneToEffect` + surcharges par effet) n'est PAS porte par
+    `AddEffectOperation`. MESURE LIVE #112 : `Pinned` n'est PAS pose sur une cible a trait
+    `TerminatorArmour` (i2 : « This unit cannot be Suppressed ») ; le port, lui, le posera."""
+    a_sel = UnitSet(attacker)
+    target_debuff = AddEffect(EXEMPLAR_OF_HATE_TARGET, "ExemplarOfHate_Target", Target(),
+                              duration_rounds=2, scale_from_source=True)
+    suppress = AddEffect(PINNED, "Pinned", Target(), duration_rounds=None)   # duree = DefaultAmountOfRounds
+    amount = percentage_of_attack_capped_at_max(Subject(), Const(int(cap)), Const(int(pct)),
+                                                stat_part=int(StatPart.CURRENT))  # param_3 = 0 (LU)
+    override = AddStatOverrideEffect(a_sel, TEMPORARY_STAT_OVERRIDE, int(StatType.ATTACK), amount,
+                                     name="TemporaryStatOverride")
+    free_attack = UseActiveAbility(a_sel, Target())        # UseActiveAbility(attacker, target, normalAttack)
+    clear = RemoveEffect(TEMPORARY_STAT_OVERRIDE, a_sel)
+    chaos_branch = op_and(suppress, op_and(op_and(override, free_attack), clear))
+    return op_and(target_debuff, If(HasGrandAlliance(Target(), CHAOS_FACTIONS), chaos_branch))
+
+
+class ExemplarOfHateAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$ExecuteBehaviour` (id 1140,
+    darkaAsmodai « Asmodai » ; faction DarkAngels). Cast NORMAL (cible ennemie, portee illimitee).
+
+    `execute_behaviour` DELEGUE a `exemplar_of_hate_tree()` (mirror 1:1). Les deux COLLAPSES S/V sont
+    resolus AVANT l'arbre (`_exemplar_of_hate_attackers` = le selecteur AI `GetAttacker` + son `Cache` ;
+    `_exemplar_capped_attack_vars` = les deux `ConfigVar` de `GetAttackDamage`), conformement a la
+    doctrine slice-18/19/23. Cible non-Chaos ou aucun attaquant DarkAngels a portee -> seul le debuff
+    0x50d est pose (pour une cible non-Chaos ; pour une cible Chaos sans attaquant, le `Pinned` tombe
+    quand meme -- c'est le premier volet du `&` interne)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ExemplarOfHate)  # 1140
+    ABILITY_ID = "ExemplarOfHate"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        cap, pct = _exemplar_capped_attack_vars(state, caster_id)
+        ranked = _exemplar_of_hate_attackers(state, caster_id, target_id, cap, pct)
+        attacker = ranked[:1]                              # `IdunBattleLogic.Entities.DSLFactory$$First(., 1)`
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        ents = entities_from_state(state, caster_id, target_id)
+        att_units = [u for u in ents.units if u.get("id") in attacker]
+        exemplar_of_hate_tree(att_units, cap, pct).execute(ents, ectx)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        ov = next((p for n, p in ectx.emitted if n == "AddStatOverrideEffect"), None)
+        return {"ability": "ExemplarOfHate", "caster": caster_id, "target": target_id,
+                "effects": [p["effect_type"] for n, p in ectx.emitted
+                            if n == "AddEffect" and p.get("placed")],
+                "attacker": attacker[0] if attacker else None,
+                "attack_override": (ov or {}).get("amount"),
+                "attack": (atk or {}).get("attack"), "dsl": True}
+
+
+# =====================================================================================================
+# CalibaniteGreatsword (1189, darkaCompanion « Forcas ») -- #112
+# =====================================================================================================
+
+def calibanite_greatsword_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility$$ExecuteBehaviour`
+    (id 1189, darkaCompanion -- MIRROR du DECOMPILE) :
+
+        If( HasEffect(Self@0x148, 0x57c CalibaniteGreatswordStrike, activeOnly=0, sourceFlags=6),
+            /* THEN -- posture STRIKE -> bascule SWEEP */
+            op_Addition( AddEffect(0x57d Sweep, stateRef, Self@0x148, dureeNode=0),
+                         RemoveStrikeEffects() ),
+            /* ELSE -- posture SWEEP (ou aucune) -> bascule STRIKE ; AddStrikeEffects INLINE */
+            op_Addition( op_Addition( op_Addition( AddEffect(0x57c Strike,  stateRef, Self@0x148),
+                                                   AddEffect(0x591 Strike_Overwatching, ...) ),
+                                       AddEffect(0x3f1 Overwatch_AutoAttack, ...) ),
+                         RemoveEffect(Self@0x148, Nullable(0x57d Sweep)) ) )
+
+    ou `...$$RemoveStrikeEffects` = `RemoveEffect(Self, 0x57c) + RemoveEffect(Self, 0x591) +
+    RemoveEffect(Self, 0x3f1) + RemoveEffect(Self, 0x57e CalibaniteGreatsword_StrikeHitReduction)` et
+    `...$$AddStrikeEffects` = les 3 `AddEffect` de la branche ELSE (le compilateur les a INLINEES dans
+    `ExecuteBehaviour` -- corps VERIFIE identique). `AddStrikeEffects` est AUSSI le corps de la triggered
+    `CalibaniteGreatsword_SetStartAbility` -> Forcas demarre la bataille en posture STRIKE.
+
+    `activeOnly = 0` est LU au decompile (`DSLFactory$$HasEffect(dsl, unitSel, effectType, activeOnly,
+    sourceFlags)` : les call-sites AnvilShield passent 1, celui-ci 0) -> `active_only=False` cote port.
+
+    L'ability est un TOGGLE PUR : aucune attaque, aucun degat, aucun tirage RNG. Toute la mecanique
+    OBSERVABLE (Sweep : les attaques normales frappent aussi les ennemis adjacents a la fois a Forcas et
+    a la cible ; Strike : overwatch en fin de tour avec un coup de moins) vit dans des abilities TRIGGERED
+    portees par ces effets (`CalibaniteGreatsword_NormalAttackAdditionalDamageAbility` 1316,
+    `CalibaniteGreatsword_StrikeOverwatchingEffect`) -- HORS de ce port (surface triggered separee).
+
+    Cast SELF (aucune cible requise ; `abilityTargets.fromHere` = [self]). 1189 est dans les DEUX
+    inventaires `NO_END_TURN_ABILITY_TYPES` / `NO_ABILITY_USED_FLAG_ABILITY_TYPES` (base.py) -> ne termine
+    pas le tour et ne pose pas le flag ActiveAbilityUsed (i2 : « This ability can be used once per turn ;
+    each use switches the active Stance and does not end Forcas' turn »).
+
+    MESURE LIVE #112 (2 casts consecutifs, runner isole MC1_67) :
+      * PRE  : Forcas porte `CalibaniteGreatswordStrike` (1404) seul ;
+      * cast 1 : +1405 Sweep, -1404 Strike ;
+      * cast 2 (tour suivant) : +1404 Strike, -1405 Sweep.
+    Les effets 0x591 et 0x3f1 n'apparaissent JAMAIS dans `decisionView.effects` -- mais ce n'est PAS une
+    preuve de non-pose : le hook `frida/hooks/game/effects.ts` DROPPE toute entree dont
+    `EffectComponent.IsActive @+0x5c` est nul (`readEffectsByUnit` : `if (!info.active || info.removed)
+    continue`), et l'overwatch de la posture Strike ne s'active qu'EN FIN DE TOUR (i2). Le port MIRRORE
+    donc le decompile (3 `AddEffect`).
+    RESIDU NOMME : le port n'a pas d'`ActiveCondition` pour 0x591/0x3f1 -> ils y sont ACTIFS des le cast,
+    alors que le natif les active plus tard. Consequence bornee a Forcas-en-posture-Strike : le trigger
+    d'effet `Overwatch_AutoAttack` (1009) du port peut declencher un overwatch plus TOT que le natif.
+    Point d'ancrage pour trancher : exposer `EffectComponent.IsActive` dans `decisionView.effects`."""
+    self_sel = Caster()                                    # Self@0x148 (Owner == Caster pour un cast actif)
+    to_sweep = op_add(
+        AddEffect(CG_SWEEP, "CalibaniteGreatswordSweep", self_sel, duration_rounds=None),
+        op_add(op_add(op_add(RemoveEffect(CG_STRIKE, self_sel),
+                             RemoveEffect(CG_STRIKE_OVERWATCHING, self_sel)),
+                      RemoveEffect(OVERWATCH_AUTO_ATTACK, self_sel)),
+               RemoveEffect(CG_STRIKE_HIT_REDUCTION, self_sel)))
+    to_strike = op_add(
+        op_add(op_add(AddEffect(CG_STRIKE, "CalibaniteGreatswordStrike", self_sel, duration_rounds=None),
+                      AddEffect(CG_STRIKE_OVERWATCHING, "CalibaniteGreatswordStrike_Overwatching",
+                                self_sel, duration_rounds=None)),
+               AddEffect(OVERWATCH_AUTO_ATTACK, "Overwatch_AutoAttack", self_sel, duration_rounds=None)),
+        RemoveEffect(CG_SWEEP, self_sel))
+    return If(HasEffect(self_sel, CG_STRIKE, 0, False), to_sweep, to_strike)
+
+
+class CalibaniteGreatswordAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility$$ExecuteBehaviour`
+    (id 1189, darkaCompanion « Forcas » ; faction DarkAngels). TOGGLE de POSTURE Strike <-> Sweep.
+
+    `execute_behaviour` DELEGUE a `calibanite_greatsword_tree()` (mirror 1:1). Cast SELF : `target_id`
+    est ignore (le natif n'utilise que `Self@0x148`). Aucun degat -> aucun tirage RNG consomme.
+    ⚠ Les constantes `damageProfile=Power` / `nrOfHits_2=3` et les variables `minDmg/maxDmg/nrOfHits` de
+    la config 1189 alimentent la TRIGGERED `CalibaniteGreatsword_NormalAttackAdditionalDamage` (1316,
+    volet Sweep), PAS cette active -- l'etiquette « NO-OP DAMAGE(Power) » de la couverture kit est
+    trompeuse : l'ExecuteBehaviour de 1189 ne porte AUCUNE attaque."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.CalibaniteGreatsword)  # 1189
+    ABILITY_ID = "CalibaniteGreatsword"
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        calibanite_greatsword_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        added = [p["effect_type"] for n, p in ectx.emitted if n == "AddEffect" and p.get("placed")]
+        removed = [p["effect_type"] for n, p in ectx.emitted if n == "RemoveEffect" and p.get("removed")]
+        return {"ability": "CalibaniteGreatsword", "caster": caster_id,
+                "stance": "Sweep" if CG_SWEEP in added else ("Strike" if CG_STRIKE in added else None),
+                "added": added, "removed": removed, "dsl": True}

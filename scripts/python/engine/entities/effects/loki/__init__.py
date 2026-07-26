@@ -41,7 +41,8 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
                                OverwhelmingWrathRangeDmgReductionEffect,
                                PsychicFortressDmgReductionEffect,
-                               VexillaMagnificaDmgReductionEffect, MarkerlightEffect)
+                               VexillaMagnificaDmgReductionEffect, MarkerlightEffect,
+                               ExemplarOfHateTargetEffect, SuperchargeExtraPiercingEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    FoulInfusionExtraHitsEffect, CyclicIonBlasterAdditionalHitsEffect,
                    FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
@@ -94,7 +95,7 @@ __all__ = [
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
     "OverwhelmingWrathRangeDmgReductionEffect", "PsychicFortressDmgReductionEffect",
     "VexillaMagnificaDmgReductionEffect",
-    "MarkerlightEffect",
+    "MarkerlightEffect", "ExemplarOfHateTargetEffect", "SuperchargeExtraPiercingEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
     "FoulInfusionExtraHitsEffect", "CyclicIonBlasterAdditionalHitsEffect",

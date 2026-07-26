@@ -103,6 +103,30 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   recrée exactement le fork que #120 vient de fermer. Seul consommateur connu aujourd'hui :
   SwornProtector/Kell.
 
+- **`PickRandomly` consomme du RNG MÊME quand le pool tient dans `n` — GAP #215 désormais CHIFFRÉ**
+  (`case-220/dark-angels.md`, item 1103, mesure #112) : sur `Supercharge` avec 2 unités derrière la
+  cible (pool = 2, n = 2), le dégât live s'aligne sur le port **décalé de +2 tirages** pour le volet
+  MAIN et **+5** pour le volet SPLASH. Or `_pick_randomly_n` (`abilities/loki/splash.py`) court-circuite
+  sans tirer dès que `len(items) <= n` (« le natif ne roll pas quand le set tient » — RÉFUTÉ par cette
+  mesure). Le même cast sur une cible SANS unité derrière est **bit-exact** (5618 == 5618) ⇒ la
+  divergence est purement dans le FLUX RNG, pas dans la formule de dégât. Non corrigé : le helper est
+  PARTAGÉ (PlasmaCannon / Fragstorm / BringerOfDespair — leurs tests actuels passent avec le
+  court-circuit), et le +1 tirage résiduel avant le splash n'est pas encore attribué (candidat : la
+  source de block supplémentaire `Daemon_ExtraBlock` de la cible). `[fable]` — chantier socle RNG.
+- **Gate d'IMMUNITÉ d'effet (`BaseEffect.EntityIsImmuneToEffect` + surcharges) non porté**
+  (`operations/effects.py` en-tête ; MESURE #112) : `AddEffectOperation` pose l'effet sans consulter
+  l'immunité. GROUND TRUTH live : `ExemplarOfHate` sur `blackAbaddon` (trait `TerminatorArmour`, i2
+  « This unit cannot be Suppressed ») ne pose PAS `Pinned` côté natif, alors que le port le pose.
+  Le socle générique existe (`ContaminatedEffect$$EntityIsImmuneToEffect` est déjà porté en dur dans
+  `effect_triggers.py`) — il manque le canal DÉCLARATIF par classe d'effet + son appel dans
+  `AddEffectOperation.execute`. Touche tous les poseurs de `Pinned`/`Stunned`. `[opus]`.
+- **`decisionView.effects` cache les effets INACTIFS** (`frida/hooks/game/effects.ts`,
+  `readEffectsByUnit` : `if (!info.active || info.removed) continue`) : impossible de confirmer live
+  qu'un `AddEffect` a réellement posé un effet dont l'`ActiveCondition` n'est pas encore satisfaite —
+  l'absence dans `decisionView` est ambiguë (non-posé vs posé-inactif). Rencontré sur
+  `CalibaniteGreatsword` (effets 0x591/0x3f1 du toggle Strike). Fix = exposer
+  `EffectComponent.IsActive @+0x5c` dans la charge utile (exige rebuild + reinject → à programmer
+  quand l'atelier est vide). `[opus]`.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,

@@ -311,6 +311,24 @@ class BaseEffect:
         → ConfigVar 0x46). Défaut None = effet sans réduction défensive (dégradation fidèle)."""
         return None
 
+    def create_piercing_bonus_for_attack(self, damage_profile: str | None = None,
+                                         is_melee: bool | None = None) -> EffectBonus | None:
+        """`<Effect>.CreatePiercingBonusForAttack` — slot d'interface DISTINCT de
+        `CreateEffectDamageBonusForAttack` : il alimente l'axe PERCAGE (`DamageModifiers` @+0x20), PAS le
+        scalaire degat. Mirror : `EffectBonus.ForPiercing(trigger, montant)`
+        (`IdunBattle.Entities.Effects.EffectBonus$$ForPiercing`).
+
+        Porte ici pour la variante **OwnerIsTarget** (l'effet vit sur la VICTIME et bonifie le percage de
+        QUI l'attaque) : `IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect$$CreatePiercingBonusForAttack`
+        = `ForPiercing(DamageProfileIs(GetDamageProfile(config)) & get_OwnerIsTarget,
+        ConfigVar(0x3f=extraPierceRatio))`. Agrege par `build_defender_modifiers_from_effects` (boucle des
+        effets de la CIBLE) puis fusionne dans le percage effectif par
+        `AttackDamageOperation._apply_defender_flat_reductions`.
+
+        `damage_profile` = NOM du profil du coup (gate `DamageProfileIs`) ; `is_melee` = nature du coup
+        (aucun call-site porte ne s'en sert encore). Defaut None = pas de bonus de percage."""
+        return None
+
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
                                                defender_attack: int = 0):
         """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour — source de

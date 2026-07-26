@@ -331,6 +331,17 @@ class RemoveEffect(AbilityBehaviour):
                         revert_change_stat(state, tgt, stat, src)
                     eff.stat_mod_source = None
                     eff.stat_mod_reverted = True
+                # `<Effect>.RevertInternal` part OVERRIDE (`ResetStat` xN = `ChangeStat` mode 4 /
+                # `Position(statType, part 8 = REMOVE_OVERRIDE)`) : symetrique de la part `ApplyInternal`
+                # override deja portee (`AddEffectOperation._apply_stat_overrides`). Jusqu'ici SEUL le
+                # vecteur MV71 (consommation par trigger) appelait `revert_stat_overrides` -> un effet a
+                # override retire par la feuille `RemoveEffect` (le couple `AddStatOverrideEffect(0x510)`
+                # / `RemoveEffect(0x510)` d'ExemplarOfHate et SternguardFocus, #112) laissait l'override
+                # COLLE. NO-OP STRICT pour tout effet sans `stat_override_stats` (= tous les effets
+                # anterieurs, qui n'en posent aucun par cette voie) -> zero regression.
+                if getattr(eff, "stat_override_stats", None):
+                    from ...operations.effects import AddEffectOperation
+                    AddEffectOperation.revert_stat_overrides(state, tgt, eff)
                 # `<Effect>.RevertInternal` part MODIFICATIONS D'ABILITY : rejoue les
                 # `AddUnitActiveAbilityModification` en `-delta` (cf. operations/ability_modifications.py).
                 revert_ability_modifications(state, eff)
@@ -585,80 +596,15 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
             ectx.emit("AddDynamicStatModifierEffect", source=src, target=tgt,
                       effect_type=self.effect_type, stat=self.stat_type, placed=eff is not None)
         return OperationResult.ok()
-
-
-class AddStatOverrideEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect(unitSel, effectType, statType,
-    amountNode, ...)` -> `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$Execute` --
-    MIRROR du DECOMPILE :
-
-        targets = (this+0x58).Select(entities, kind 0)
-        alt     = (this+0x50) ? (this+0x50).Select(entities, kind 1) : null   # 2e selecteur optionnel
-        foreach unit in targets :
-            entities.subject = unit
-            builder.amount = (this+0x68 /* amountNode */).Calculate(entities)
-            proc.<slot 0x10>(alt ?? unit, unit, builder, this+0x60 /* statType */, this+0x70 /* opts */)
-
-    -> pose sur la cible un effet porteur d'un OVERRIDE de stat (montant fige a la pose), != un
-    `StatModifier` ADDITIF (`AddStatOverrideEffect` ecrase la valeur ; cf. `MultiValueStatEntryEffect`,
-    la base de `InspiredToGreatness_OverrideLevelEffect`).
-
-    Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
-    InspiredToGreatnessAbility$$ExecuteBehaviour` =
-    `AddStatOverrideEffect(canReset, 0x49c = 1180 InspiredToGreatness_OverrideLevel,
-                           0x12 = 18 ACTIVE_ABILITY_LEVEL,
-                           Min(AbilityLevelAmount(owner, 0x43a), PrimaryActiveAbilityLevelAmount(canReset)))`
-    -- i2 : « For this second use, the ability is at the lowest of its own level and that of Inspired
-    to Greatness ».
-
-    PORT du STAT 18 : cote moteur, le niveau qui INDEXE les variables d'ability n'est PAS lu via
-    `UnitStats.get_stat(18)` (aucun consommateur) mais via `UnitContext.active_ability_level`
-    (`ability_var`/`ability_attack_params`). L'override est donc ecrit LA -- c'est le mirror
-    OBSERVABLE de `GetStat(unit, ACTIVE_ABILITY_LEVEL)`. La valeur precedente est conservee sur
-    l'instance d'effet (`overridden_prev`) pour un revert exact.
-    ⚠ RESIDU FLAGGE : le retrait natif (`InspiredToGreatness_OverrideLevelEffect$$
-    CreateRemoveEffectTrigger` = `On(0xc) & OwnerIsCaster`, i.e. au PROCHAIN cast du porteur) n'est pas
-    branche offline -> l'override PERSISTE apres la 2e utilisation. Sans consequence pratique (le
-    porteur n'a droit qu'a UNE utilisation supplementaire), mais c'est un ecart a lever si un
-    3e usage devenait possible.
-
-    `stat_type` != ACTIVE_ABILITY_LEVEL : aucun call-site porte -> l'effet est pose (presence fidele)
-    SANS override applique (flagge dans le payload `applied`). Emet 'AddStatOverrideEffect'. PUR."""
-    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name")
-
-    def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
-                 name: str | None = None):
-        self.unit_sel, self.effect_type = unit_sel, int(effect_type)
-        self.stat_type, self.amount, self.name = int(stat_type), amount, name
-
-    def execute(self, entities, ectx):
-        from ....entities.stats import StatType
-        from ...components import StatsComponent
-        from ...operations.effects import AddEffectOperation
-        state = ectx.state
-        src = (entities.caster or {}).get("id")
-        if state is None or state.effects is None:
-            return OperationResult.ok()
-        amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
-        for u in _units_of(self.unit_sel, entities):
-            uid = u.get("id") if isinstance(u, dict) else None
-            if uid is None:
-                continue
-            eff = AddEffectOperation.execute(state, source=src, target=uid,
-                                             effect_type=self.effect_type, name=self.name,
-                                             duration_override=None, value=amt)
-            applied = False
-            if eff is not None and self.stat_type == int(StatType.ACTIVE_ABILITY_LEVEL):
-                e = state.get_entity(int(uid))
-                sc = e.get_component(StatsComponent) if e is not None else None
-                if sc is not None and sc.ctx is not None:
-                    eff.overridden_prev = getattr(sc.ctx, "active_ability_level", None)
-                    sc.ctx.active_ability_level = amt      # OVERRIDE (mirror `GetStat(18)` cote port)
-                    applied = True
-            ectx.emit("AddStatOverrideEffect", unit=int(uid), effect_type=self.effect_type,
-                      stat=self.stat_type, amount=amt, placed=eff is not None, applied=applied)
-        return OperationResult.ok()
-
+# `AddStatOverrideEffect` a VECU ICI jusqu'a l'integration de #112 : deux agents en parallele
+# (#112 DarkAngels et #114 Tau) avaient porte le MEME noeud natif
+# `IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect` chacun de son cote, dans deux modules
+# differents. Les DEUX consommateurs important depuis le paquet `behaviours`, le second import
+# aurait MASQUE le premier -- silencieusement, et le test de chaque lot serait passe par chance
+# selon l'ordre des imports. Les deux implementations ont donc ete FUSIONNEES dans
+# `behaviours/stats.py` (mirror structurel le plus fidele : liaison du SUJET par unite avant
+# d'evaluer le noeud montant, duree, flag `is_modifiable`, revert par `stat_override_stats`),
+# augmentee de la specialisation `ACTIVE_ABILITY_LEVEL` qui vivait ici. Un seul foyer, cf. #120.
 
 def add_or_update_static_stat_modifier_effect(unit_sel: TargetsSelector, effect_type: int,
                                               stat_type: int, amount, name: str | None = None):
