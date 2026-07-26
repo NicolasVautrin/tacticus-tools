@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **63**
-- **NO-OP silencieux** (a porter) : **108**
-- Ventilation NO-OP : **DAMAGE**=71, **EFFECT/BUFF**=23, **SUMMON**=8, **HEAL**=3, **REPAIR**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **69**
+- **NO-OP silencieux** (a porter) : **102**
+- Ventilation NO-OP : **DAMAGE**=65, **EFFECT/BUFF**=23, **SUMMON**=8, **HEAL**=3, **REPAIR**=3
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (108)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (102)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -51,14 +51,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1154 | TacticalPrecision | DAMAGE(Bolter) | 4 | LN |
 | 1152 | UnstoppableMomentumReworked | DAMAGE(DirectDamage) | 4 | LN |
 | 1189 | CalibaniteGreatsword | DAMAGE(Power) | 3 | LN |
-| 1092 | DarkTalonStrike | DAMAGE(DirectDamage) | 3 | LN |
 | 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
 | 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
-| 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 2 | LN |
 | 1129 | BloodyFury | DAMAGE(Chain) | 2 | LN |
-| 1213 | DeathOnTheWind | DAMAGE(HeavyRound) | 2 | LN |
-| 1214 | Hailstrike | DAMAGE(Projectile) | 2 | LN |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1132 | KillMaimBurn | DAMAGE(Piercing) | 2 | LN |
@@ -67,7 +63,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1137 | MurderousSwing | DAMAGE(Piercing) | 2 | LN |
 | 1141 | OverwhelmingWrath | DAMAGE(Eviscerate) | 2 | LN |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
 | 1199 | DoomSiren | DAMAGE(DirectDamage) | 1 | L |
@@ -76,7 +71,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
 | 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
-| 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
 | 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
@@ -135,7 +129,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (63)
+## PORTED (registry) (69)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -154,12 +148,16 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
 | 1139 | SentinelDirectives | DAMAGE(Physical) | 4 | LN |
 | 1043 | ThunderousAssault | DAMAGE(Power) | 4 | LN |
+| 1092 | DarkTalonStrike | DAMAGE(DirectDamage) | 3 | LN |
 | 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
+| 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 2 | LN |
 | 1148 | DaemonicOrdnance | DAMAGE(Plasma) | 2 | LN |
+| 1213 | DeathOnTheWind | DAMAGE(HeavyRound) | 2 | LN |
 | 1188 | DevastatingRefrain | DAMAGE(Blast) | 2 | LN |
 | 1168 | EntropyCannons | DAMAGE(Energy) | 2 | LN |
 | 1078 | Fragstorm | DAMAGE(Blast) | 2 | NS |
 | 1147 | HadesAutocannons | DAMAGE(Flame) | 2 | LN |
+| 1214 | Hailstrike | DAMAGE(Projectile) | 2 | LN |
 | 1160 | HeavyRailRifle | DAMAGE(Piercing) | 2 | LN |
 | 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1159 | MacroPlasmaIncinerator | DAMAGE(Plasma) | 2 | LN |
@@ -174,6 +172,8 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1187 | ThriceBlessedConflagration | DAMAGE(Flame) | 2 | LN |
 | 1161 | TwinSmartMissileSystem | DAMAGE(Blast) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
+| 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
+| 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
 | 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |

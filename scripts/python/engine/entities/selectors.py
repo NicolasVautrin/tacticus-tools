@@ -238,7 +238,14 @@ class Friends(TargetsSelector):
 class Units(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Units(tiles)` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
     sélecteur source (`tiles` évalue → liste de positions). Généralise l'inline de SurroundingUnits.
-    (Mode d'occupation main/steppable = raffinement inerte offline : 1 unité par tuile.)"""
+    (Mode d'occupation main/steppable = raffinement inerte offline : 1 unité par tuile.)
+
+    ORDRE = celui des TUILES (le natif ITERE le sélecteur de tuiles et résout l'occupant de chacune),
+    PAS l'ordre des entités. Observable dès qu'un `Foreach` consomme le résultat : le beam de
+    `DarkTalonStrikeAbility$$ExecuteBehaviour` frappe la CIBLE puis les tuiles de la ligne en s'éloignant
+    (cascade live u79 @(5,5) puis u77 @(5,6)) — l'ordre d'entité aurait donné u77 d'abord et désynchronisé
+    `state.rng`. Dédoublonnage par id d'unité (première occurrence conservée) : une même tuile peut
+    apparaître deux fois dans une union de sélecteurs."""
     def __init__(self, tiles: TargetsSelector):
         self.tiles = tiles
 
@@ -250,7 +257,16 @@ class Units(TargetsSelector):
         # `ThriceBlessedConflagrationAbility$$GetTilesInLine`) rend UN element -> normalisation, sinon
         # `set(int)` leve. Domaine mixte accepte : id de tuile (int), position (col,row), dict d'unite.
         items = [] if raw is None else ([raw] if isinstance(raw, (dict, int, tuple)) else list(raw))
-        tset = set()
+        # Index position -> unite VIVANTE (occupation de tuile, #57m : un mort n'est plus DEBOUT sur sa
+        # tuile, cf. _within).
+        occupant: dict = {}
+        for u in ctx.units:
+            if not _is_alive(u):
+                continue
+            p = _pos(u)
+            if p is not None and p not in occupant:
+                occupant[p] = u
+        out, seen = [], set()
         for it in items:
             if isinstance(it, bool):
                 continue
@@ -262,10 +278,14 @@ class Units(TargetsSelector):
                 p = (it[0], it[1])
             else:
                 p = None
-            if p is not None:
-                tset.add((int(p[0]), int(p[1])))
-        # Occupation de tuile (#57m) : un mort n'est plus DEBOUT sur sa tuile (cf. _within).
-        return [u for u in ctx.units if _is_alive(u) and _pos(u) in tset]
+            if p is None:
+                continue
+            u = occupant.get((int(p[0]), int(p[1])))
+            if u is None or u.get("id") in seen:
+                continue
+            seen.add(u.get("id"))
+            out.append(u)
+        return out
 
 
 class UnitsOnTilesWithEffect(TargetsSelector):
@@ -527,16 +547,23 @@ class SortByFormula(TargetsSelector):
 
 class SortByDistance(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(source, refPoint)` → `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
-    position/unité, PAS forcément le caster). ASCENDANT, tri STABLE."""
+    position/unité, PAS forcément le caster). ASCENDANT, tri STABLE.
+
+    Domaine MIXTE (unité / id de tuile / position) des DEUX côtés : le natif trie des ENTITES et lit leur
+    `MainTile` (`DarkTalonStrikeAbility$$GetTilesInBestLine` trie les tuiles `AdjacentTiles(caster@0x160)`
+    par distance a `target@0x178`). `_tile_positions` normalise le refPoint ; `_entity_pos` chaque élément."""
     def __init__(self, source: TargetsSelector, ref_point: TargetsSelector):
         self.source, self.ref_point = source, ref_point
 
     def select(self, ctx):
-        rp = self.ref_point.evaluate(ctx)
-        if isinstance(rp, dict):
-            rp = _pos(rp)
+        board = getattr(ctx, "board", None)
+        rp_list = _tile_positions(self.ref_point, ctx, board)
+        rp = rp_list[0] if rp_list else None
         lst = list(self.source.evaluate(ctx))
-        return sorted(lst, key=lambda u: hexgeo.distance(_pos(u), rp) if _pos(u) is not None else (1 << 30))
+        if rp is None:
+            return lst
+        return sorted(lst, key=lambda u: (hexgeo.distance(p, rp) if (p := _entity_pos(u, board)) is not None
+                                          else (1 << 30)))
 
 
 class Alive(TargetsSelector):
@@ -1209,11 +1236,43 @@ class TilesBehindInLine(TargetsSelector):
     `_line_tiles`, `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine`) :
     `tile_k = cube(to) + k*dir`, `dir = cube(to) - cube(from)`, `k = 0..` -- la 1re tuile rendue EST `to`.
 
-    `max_count` = le `Direct(n)` natif quand il est fourni (Excruciating : `nrOfTiles`) ; None = pas de
-    borne -> on prolonge JUSQU'AU BORD du plateau (`board.id_at` absent). Retour list[int] (tile ids).
-    `from`/`to` normalises par `_tile_positions` (unite/id/position). board None -> []."""
-    def __init__(self, frm: TargetsSelector, to: TargetsSelector, max_count=None):
+    `max_count` = le `Direct(n)` natif quand il est fourni (Excruciating : `nrOfTiles` ; DeathOnTheWind :
+    `Get(nrOfTiles-1)`) ; None = pas de borne -> on prolonge JUSQU'AU BORD du plateau. Retour list[int]
+    (tile ids). `from`/`to` normalises par `_tile_positions` (unite/id/position). board None -> [].
+
+    GATE PAR TUILE — `IdunBattle.Core.Services.TileUtil$$IsTileValidForList(tile, refTile, checkWalkable,
+    checkElevation=1)` (MIRROR ; le 4e argument est le litteral `1` dans `GetTilesBehind`) :
+        if tileComponent+0x41 != 0            -> false
+        if !checkWalkable                     -> return tileComponent+0x40 == 0
+        if !TileExtensions.IsWalkable(tile)   -> false
+        if refTile != null                    -> return |elev(refTile) - elev(tile)| < 2
+    La ligne S'ARRETE au 1er echec (`return list`) — c'est un PREFIXE, pas un filtre.
+
+    `check_walkable` / `update_reference` = les DEUX bools de la struct `settings` que chaque call-site
+    alloue et passe a `IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine` (champs `+0x10` / `+0x11`),
+    relayes par `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` a
+    `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind(from, to, bool1, bool2, maxCount)` :
+      * `+0x10 = check_walkable` : gate `IsWalkable` **ET** — c'est la consequence NON EVIDENTE —
+        l'activation du gate d'ELEVATION (qui vit DANS la branche walkable de `IsTileValidForList`).
+      * `+0x11 = update_reference` : `GetTilesBehind` re-affecte la tuile de REFERENCE d'elevation a la
+        DERNIERE tuile ajoutee (marche pas-a-pas) au lieu de garder la tuile d'origine.
+    INVENTAIRE des call-sites (lu au decompile, PAS deduit) :
+      | ability | +0x10 | +0x11 |
+      | `DarkTalonStrikeAbility$$GetTilesInLine`            | 1 | 1 |
+      | `ExcruciatingFrequenciesAbility$$GetAffectedTiles`  | 1 | 1 |
+      | `DeathOnTheWindAbility$$GetTilesInLine`             | 0 | 1 |
+      | `ThriceBlessedConflagrationAbility$$GetTilesInLine` | 0 | 0 |
+    Defauts `False/False` = le comportement HISTORIQUE (ThriceBlessed, inchange).
+
+    RESIDU documente : la branche `check_walkable == False` du natif teste `tileComponent+0x40 == 0`
+    (drapeau de tuile SEUL, sans le composant MUR) ; le port utilise `board.walkable` (capture live de
+    `TileExtensions.IsWalkable`, qui FOND le drapeau de tuile ET le mur). Inerte pour ses deux call-sites
+    (`FilterContinuous(HasUnit & AreEnemies)` en aval : une tuile non-walkable ne porte pas d'unite)."""
+    def __init__(self, frm: TargetsSelector, to: TargetsSelector, max_count=None,
+                 check_walkable: bool = False, update_reference: bool = False):
         self.frm, self.to, self.max_count = frm, to, max_count
+        self.check_walkable = bool(check_walkable)
+        self.update_reference = bool(update_reference)
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
@@ -1231,17 +1290,32 @@ class TilesBehindInLine(TargetsSelector):
         n = self.max_count
         n = (n.evaluate(ctx) if hasattr(n, "evaluate") else n)
         n = int(n) if n is not None else None
+        ref = board.id_at(src[0][0], src[0][1])       # `lVar6` = MainTileEntity(from) au 1er tour
         out, k = [], 0
         while n is None or len(out) < n:
             p = hexgeo.from_cube(ax + dx * k, az + dz * k)
             t = board.id_at(p[0], p[1])
             if t is None:                      # sortie de plateau -> fin de ligne
                 break
+            if not self._is_tile_valid_for_list(board, t, ref):
+                break                          # `return list` natif : PREFIXE, pas un filtre
             out.append(t)
+            if self.update_reference:          # settings+0x11 : la reference d'elevation suit la ligne
+                ref = t
             k += 1
             if n is None and k > 64:           # garde-fou (plateau borne ; jamais atteint)
                 break
         return out
+
+    def _is_tile_valid_for_list(self, board, tile_id, ref_tile_id) -> bool:
+        """`IdunBattle.Core.Services.TileUtil$$IsTileValidForList` (cf. la docstring de la classe)."""
+        if not board.walkable(tile_id):
+            return False
+        if not self.check_walkable:
+            return True                        # branche `!checkWalkable` : PAS de gate d'elevation
+        if ref_tile_id is None:
+            return True
+        return abs(board.elevation(ref_tile_id) - board.elevation(tile_id)) < 2
 
 
 class FilterContinuous(TargetsSelector):
@@ -1264,6 +1338,24 @@ class FilterContinuous(TargetsSelector):
         return out
 
 
+def _entity_pos(item, board):
+    """Position (col,row) d'UN element du domaine MIXTE (dict d'unite / id de tuile / position) — mirror
+    du `EntityExtensions.GetMainTile(entity)` natif, qui rend la tuile d'une UNITE comme d'une TUILE.
+    None si non resolvable (board absent pour un id de tuile, unite sans position)."""
+    if isinstance(item, dict):
+        return _pos(item)
+    if isinstance(item, bool):
+        return None
+    if isinstance(item, int):
+        if board is None or item not in board.by_id:
+            return None
+        c = board.coord(item)
+        return (int(c[0]), int(c[1]))
+    if isinstance(item, (tuple, list)) and len(item) == 2 and all(isinstance(x, int) for x in item):
+        return (int(item[0]), int(item[1]))
+    return None
+
+
 def _tile_positions(sel: TargetsSelector, ctx, board) -> list:
     """Normalise l'evaluation d'un selecteur en liste de POSITIONS (col,row) : id de tuile (int) ->
     `board.coord`, position (col,row) -> telle quelle, dict d'unite -> sa position, liste -> chacun.
@@ -1280,16 +1372,7 @@ def _tile_positions(sel: TargetsSelector, ctx, board) -> list:
         items = list(v)
     out = []
     for it in items:
-        if isinstance(it, dict):
-            p = _pos(it)
-        elif isinstance(it, bool):
-            p = None
-        elif isinstance(it, int):
-            p = board.coord(it) if it in board.by_id else None
-        elif isinstance(it, (tuple, list)) and len(it) == 2:
-            p = (it[0], it[1])
-        else:
-            p = None
+        p = _entity_pos(it, board)             # domaine mixte unite / id de tuile / position
         if p is not None:
             out.append((int(p[0]), int(p[1])))
     return out

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 
+import hexgeo
+
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
                         _default_get_stat, resolve_unit, _units_of)
 
@@ -142,6 +144,71 @@ class Count(AAmountFormula):
 
     def calculate(self, ctx):
         return len(_units_of(self.selector, ctx))
+
+
+# Deltas CUBE unitaires -> index d'arete hexagonale (`IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor`,
+# MIRROR : cle = `100*x + 10*y + z`, seules les 6 valeurs ci-dessous mappent, tout le reste rend `null`).
+_EDGE_BY_CUBE_DELTA = {
+    (0, -1, 1): 0,     # key  -9
+    (1, -1, 0): 1,     # key  90 (0x5a)
+    (1, 0, -1): 2,     # key  99
+    (0, 1, -1): 3,     # key   9
+    (-1, 1, 0): 4,     # key -90
+    (-1, 0, 1): 5,     # key -99
+}
+
+
+def _connecting_edge(src, dst):
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$ConnectingEdge(a, b)` (MIRROR) : l'index d'ARETE (0..5) du
+    vecteur `b - a` en coordonnees CUBE, ou None si le delta n'est pas une direction hex UNITAIRE
+    (`CubeDirections.EdgeToNeighbor` rend `Nullable<Edge>` vide). `src`/`dst` = positions (col,row)."""
+    ax, ay, az = hexgeo.to_cube(src[0], src[1])
+    bx, by, bz = hexgeo.to_cube(dst[0], dst[1])
+    return _EDGE_BY_CUBE_DELTA.get((bx - ax, by - ay, bz - az))
+
+
+class AngleBetweenLines(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$AngleBetweenLines(a1, b1, a2, b2)` ->
+    `IdunBattle.Entities.Formulas.AngleBetweenLinesFormula$$Calculate` (MIRROR 1:1) :
+
+        v1 = BattleQuery.GetVector(a1, b1)          # slot iface 0x70
+        v2 = BattleQuery.GetVector(a2, b2)
+        return BattleQuery.GetAngleBetweenVectors(v1, v2)    # slot 0x71 = EdgeExtensions.GetAngleTo
+
+    - `IdunBattle.Core.Services.BattleQuery$$GetVector(a, b)` : `MainTile(a)` == `MainTile(b)` -> vecteur
+      NUL ; sinon `AxialCoordinate.ConnectingEdge(coordA, coordB)` -> `Position(edge)` si le delta cube est
+      une direction UNITAIRE, vecteur NUL sinon (`Position.Zero`, valeur d'arete 0).
+    - `IdunBattle.Utils.Hex.EdgeExtensions$$GetAngleTo(e1, e2)` (MIRROR EXACT) :
+      `d = |e1 - e2| ; a = d*60 ; if a > 120 : a = (6-d)*60` -> 0/60/120/180/120/60 = l'ecart ANGULAIRE
+      MINIMAL entre deux directions hex, en degres.
+
+    Robustesse a la convention de cube : le port et le natif peuvent numeroter les aretes differemment
+    (rotation/reflexion de la grille) — `|e1 - e2|` mod 6 est INVARIANT par rotation ET par reflexion,
+    donc l'angle rendu est le meme. Delta non unitaire / tuile identique -> arete 0 (mirror du
+    `Position.Zero` natif).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInBestLine`
+    (`AngleBetweenLines(caster@0x160, <voisine du caster la plus proche de la cible>, target@0x178,
+    subject@0x180)` = ecart entre la direction d'APPROCHE du Dark Talon et la direction du rayon)."""
+    def __init__(self, a1: TargetsSelector, b1: TargetsSelector,
+                 a2: TargetsSelector, b2: TargetsSelector):
+        self.a1, self.b1, self.a2, self.b2 = a1, b1, a2, b2
+
+    def calculate(self, ctx):
+        from .selectors import _tile_positions
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return 0
+
+        def _edge(na, nb):
+            pa = _tile_positions(na, ctx, board)
+            pb = _tile_positions(nb, ctx, board)
+            if not pa or not pb or pa[0] == pb[0]:
+                return 0                       # GetVector : MainTile identique -> Position.Zero
+            return _connecting_edge(pa[0], pb[0]) or 0     # delta non unitaire -> Position.Zero
+        d = abs(_edge(self.a1, self.b1) - _edge(self.a2, self.b2))
+        ang = d * 60
+        return (6 - d) * 60 if ang > 120 else ang          # EdgeExtensions.GetAngleTo
 
 
 # --- Accesseurs VALEUR (mirror `DSLFactory.X` -> formules natives : config / stat / compteurs). ---

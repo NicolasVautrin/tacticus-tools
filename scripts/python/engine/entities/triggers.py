@@ -64,12 +64,34 @@ class HasFlag(AbilityTrigger):
 class AreEqual(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$AreEqual(a,b)` : `a == b` (ctor générique 2-arg, singleton DAT_183200238 ;
     sémantique DÉDUITE du nom — eval résiduelle non décompilée. À confirmer si branché sur des enums/
-    objets non-int)."""
+    objets non-int).
+
+    Domaine ENTITÉ (#117) : le natif compare des RÉFÉRENCES d'entité, et un opérande peut être un
+    sélecteur qui rend une LISTE (`AreEqual(<cible courante>, Cache(Units(target@0x178)))` de
+    `DarkTalonStrikeAbility$$DamageUnit` : `Subject()` rend un dict, `Cache(Units(...))` une liste d'un
+    élément). On normalise les deux côtés par `_units_of` et on compare les ids DÈS QU'UN côté résout en
+    entité(s) ; sinon égalité brute (domaine scalaire/enum inchangé)."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
         self.a, self.b = a, b
 
     def should_trigger(self, ctx):
-        return self.a.evaluate(ctx) == self.b.evaluate(ctx)
+        va, vb = self.a.evaluate(ctx), self.b.evaluate(ctx)
+
+        def _ids(v):
+            if isinstance(v, dict):
+                items = [v]
+            elif isinstance(v, (list, tuple)) and not (
+                    len(v) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
+                items = list(v)
+            else:
+                return None
+            if not all(isinstance(x, dict) and x.get("id") is not None for x in items):
+                return None
+            return [x["id"] for x in items]
+        ia, ib = _ids(va), _ids(vb)
+        if ia is not None or ib is not None:
+            return ia is not None and ib is not None and ia == ib
+        return va == vb
 
 
 class AmountIsEqual(AbilityTrigger):
