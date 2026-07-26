@@ -62,7 +62,7 @@ Ordre obligatoire (détails CLAUDE.md « Workflow RL ») :
 - **`disposeRunner({ runnerId })`** / **`listRunners()`** (`launch.ts`).
 
 Coexistence (défaut) : `initAndStart`/`buildPatchedRunner` ne disposent
-**JAMAIS** les runners frères. Garde-ressource = cap dur **`MAX_RUNNERS=10`**
+**JAMAIS** les runners frères. Garde-ressource = cap dur **`MAX_RUNNERS`**
 (`runner-registry.ts`, budget gcRoot ~900 handles) : au cap le build **REFUSE**
 avec la liste des runnerIds actifs. Discipline : chaque acteur DISPOSE ses
 runners en fin de passe ; `rl_duel build` remplace le runner de SON

@@ -127,7 +127,7 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
 - **`--state-file` propre + `--runner` explicite** sur les commandes de pilotage — ne JAMAIS raisonner
   « je suis seul ».
 - **Coexistence par défaut** : un build ne touche jamais les runners frères ; il ne dispose que le
-  runner enregistré dans SON `--state-file`. Cap dur `MAX_RUNNERS=10` → au cap le build **REFUSE**
+  runner enregistré dans SON `--state-file`. Cap dur `MAX_RUNNERS` → au cap le build **REFUSE**
   (dispose TES runners, jamais ceux des autres).
 - **⚠ UN `SKIPPED` N'EST PAS UN SUCCÈS.** Au cap saturé, le build échoue → `pytest.skip` → une passe
   entière rend `sssssss`, des `s` qui *ressemblent* à du vert alors que **RIEN n'a été validé**

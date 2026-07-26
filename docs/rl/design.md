@@ -91,7 +91,7 @@ policy était une disposition **SILENCIEUSE** (zéro event `runner_disposed`). E
 (signature : `listRunners`=[] + `battleStatus ok:false` + `/api/selfplay/:id/await` → 502 instantané ;
 host-tracker stale). **Résolution structurelle (2026-07-03)** : la coexistence est devenue le DÉFAUT
 d'`initAndStart` (`--keep`/`keepExisting` supprimés — le footgun ne peut plus être commis) ; la
-garde-ressource gcRoot est reprise par le cap dur **`MAX_RUNNERS=10`** (`runner-registry.ts`) : au cap,
+garde-ressource gcRoot est reprise par le cap dur **`MAX_RUNNERS`** (`runner-registry.ts`) : au cap,
 le build REFUSE explicitement (liste des runnerIds) au lieu de nuker. Discipline compensatoire : chaque
 acteur **dispose ses runners en fin de passe** ; `rl_duel build` remplace le runner de SON
 `--state-file` (replace scopé par acteur). La **GATE d'adressabilité** du SETUP self-play (confirmer le

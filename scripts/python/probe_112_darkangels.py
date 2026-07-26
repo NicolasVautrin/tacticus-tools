@@ -85,7 +85,7 @@ def _contact_placement(bc, n_units):
 def build(sid, near=True, cap_wait_s=600):
     """Runner isole (seed BC + board MC1_67 + roster fixe). Rend le runnerId.
 
-    CAP SATURE (MAX_RUNNERS=10, partage entre agents) : on ATTEND qu'un slot se libere jusqu'a
+    CAP SATURE (MAX_RUNNERS, partage entre agents) : on ATTEND qu'un slot se libere jusqu'a
     `cap_wait_s` secondes au lieu d'echouer -- meme discipline que `tests/conftest.build_runner`
     (on ne dispose JAMAIS le runner d'un autre)."""
     import time

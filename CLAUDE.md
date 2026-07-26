@@ -141,7 +141,7 @@ volonté sans casser le jeu actif. Rappel des deux points les plus violés (dét
 
 2. **Build + pilotage** : `rl_duel build --seed <s> --state-file <propre> [--p-units/--a-units,
    --board/--board-pool, ...]` puis `view/act/play/aiturn` ou `engine_validate.py --runner <id>`.
-   Discipline runner (state-file propre, `--runner` explicite, coexistence/MAX_RUNNERS=10, dispose
+   Discipline runner (state-file propre, `--runner` explicite, coexistence/MAX_RUNNERS, dispose
    tes runners jamais ceux des autres) : `runner.md` §3.
 
 ## Sorties console Python — ASCII only (Windows cp1252)

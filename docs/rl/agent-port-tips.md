@@ -67,5 +67,5 @@ l'absence de la liste. Ne pas conclure « disparue » d'un scan decisionView.
 
 ## 9. Discipline runner (rappel)
 state-file à NOM UNIQUE en chemin ABSOLU, `--runner` explicite, dispose TES runners (jamais ceux des
-autres), MAX_RUNNERS=10. Session Frida PARTAGEE et warm : **jamais de reinject / restart host**. Froide
+autres), MAX_RUNNERS. Session Frida PARTAGEE et warm : **jamais de reinject / restart host**. Froide
 ou wedged -> STOP + reporte, aucune récupération toi-même.

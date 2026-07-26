@@ -421,7 +421,7 @@ def _myplayer(sid, rid, cid):
 
 
 def _build(state, board, p_units, a_units, hp_target="90000", cap_wait_s=900, poll_s=20):
-    """Build avec ATTENTE du cap MAX_RUNNERS=10 (session partagee entre agents : un refus de cap
+    """Build avec ATTENTE du cap MAX_RUNNERS (session partagee entre agents : un refus de cap
     n'est pas un echec du scenario -- cf. runner.md §3)."""
     args = [sys.executable, "rl_duel.py", "build", "--seed", "41171",
             "--state-file", str(state), "--board", board,

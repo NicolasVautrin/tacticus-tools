@@ -5,7 +5,7 @@
 # gameconfig.py, rl_duel.py, engine_agreement_stages.py et les probes. Ce script cree une
 # JUNCTION Windows <worktree>\data -> <arbre principal>\data (pas de droits admin requis,
 # meme volume). data/ reste PHYSIQUEMENT PARTAGE : les disciplines runner restent obligatoires
-# (state-file a NOM UNIQUE par agent, dispose ses propres runners, MAX_RUNNERS=10).
+# (state-file a NOM UNIQUE par agent, dispose ses propres runners, MAX_RUNNERS).
 #
 # Usage (depuis n'importe ou) :
 #   powershell -File C:\Users\nicolasv\tacticus-tools\scripts\setup-agent-worktree.ps1 [-WorktreePath <chemin>]

@@ -104,7 +104,7 @@ def main():
         r = R._rpc(sid, method, [body], timeout=t)
         return r.get("result") if isinstance(r, dict) and "result" in r else r
 
-    # attente bornee d'un slot libre (MAX_RUNNERS=10 partages ; je ne dispose JAMAIS ceux des autres)
+    # attente bornee d'un slot libre (MAX_RUNNERS partages ; je ne dispose JAMAIS ceux des autres)
     import time
     deadline = time.time() + 600
     rid = None

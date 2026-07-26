@@ -73,7 +73,7 @@ Tu ne t'auto-felicites pas. Apres le fix :
 Discipline runner (source unique = `.claude/skills/tacticus/references/runner.md`) : warmup
 `warmupGameSingletons({force:true})` si la session parait froide (tu ne peux PAS reinjecter,
 mais tu peux warmup ; `already-ready` -> STOP, jamais re-warmup), `--state-file` ABSOLU a nom
-UNIQUE + `--runner` explicite, MAX_RUNNERS=10 partages (garde <=2-3 runners vivants, dispose
+UNIQUE + `--runner` explicite, MAX_RUNNERS partages (garde <=2-3 runners vivants, dispose
 TES runners, jamais ceux des autres), `python` (pas `py`), depuis `scripts/python`, ASCII only
 (cp1252), JAMAIS `--l3` (hooks session-globaux, crash si un autre agent walke l'IA).
 Tests cibles, JAMAIS la suite complete.

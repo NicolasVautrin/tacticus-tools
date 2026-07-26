@@ -18,7 +18,7 @@
 - **Discipline runner SYSTÉMATIQUE — sans condition, seul ou pas** : la
   coexistence est le DÉFAUT côté hooks (un build ne dispose JAMAIS les runners
   frères ; `--keep`/`keepExisting` supprimés 2026-07-03) avec un cap dur
-  `MAX_RUNNERS=10` → au cap, le build REFUSE explicitement (liste des ids).
+  `MAX_RUNNERS` → au cap, le build REFUSE explicitement (liste des ids).
   Obligations par acteur : `--state-file` PROPRE (le build remplace le runner
   de CE state-file — replace scopé, c'est lui l'enregistrement de propriété ;
   sans `--state-file`, le défaut partagé `data/duel_state.json` est RÉSERVÉ à

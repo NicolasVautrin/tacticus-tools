@@ -218,7 +218,7 @@ Rappel minimal :
   puis `view/act/play` ou `engine_validate.py --runner <id>`. **`--board` OBLIGATOIRE** (ex. MC1_67 ;
   cf. runner.md). Si `data/boards/` ou `data/seed-bc.json` manquent (purge de `data/`) → `python
   dump_boards.py` régénère. Discipline : state-file propre, `--runner` explicite, dispose tes runners
-  (coexistence, cap MAX_RUNNERS=10).
+  (coexistence, cap MAX_RUNNERS).
 
 **Offsets validés (Tacticus 1.39.40)** :
 ```

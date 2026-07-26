@@ -2,10 +2,18 @@
 """probe_runner_cap.py — verifie le cap dur MAX_RUNNERS des builds runner.
 
 Depuis 2026-07-03 la coexistence est le DEFAUT (initAndStart ne dispose plus
-jamais les runners freres ; --keep/keepExisting supprimes). La garde-ressource
-gcRoot (~900 handles pinnes, cf. runner-registry.ts) est reprise par le cap dur
-MAX_RUNNERS : au cap, initAndStart doit REFUSER explicitement (message
-"runner cap reached" + liste des runnerIds actifs), jamais nuker ni reussir.
+jamais les runners freres ; --keep/keepExisting supprimes). Le cap dur
+MAX_RUNNERS prend le relais : au cap, initAndStart doit REFUSER explicitement
+(message "runner cap reached" + liste des runnerIds actifs), jamais nuker ni
+reussir.
+
+Ce que ce probe verifie n'a PAS change ; sa justification, si. Le cap valait 10
+parce qu'il etait derive d'un budget de handles suppose (« ~900 »). Ce budget a
+ete MESURE et REFUTE le 2026-07-26 (probe_132_gcroot_budget.py : 3 handles par
+bataille, build reussi a 5004 handles epingles, latence plate a 10 runners) ; le
+cap est passe a 50, borne desormais par la MEMOIRE (~3,6 Mo de tas manage par
+runner vivant), pas par les handles. Le contrat teste ici — refus explicite au
+cap, zero nuke — reste identique.
 
 Ce probe (parametrable, reutilisable — assertions generiques, pas de valeurs
 figees autres que le cap attendu) :
@@ -17,7 +25,7 @@ figees autres que le cap attendu) :
   4. DISPOSE tous les runners qu'il a crees (jamais ceux des autres acteurs).
 
 Usage :
-  python probe_runner_cap.py --state-file data/_coex_A.json [--expected-cap 10]
+  python probe_runner_cap.py --state-file data/_coex_A.json [--expected-cap 50]
 """
 from __future__ import annotations
 
@@ -42,7 +50,7 @@ def main(argv=None) -> int:
     ap.add_argument("--state-file", required=True,
                     help="state-file rl_duel existant (bc+playerUnits+seed) ; "
                          "chemin relatif = ancre racine repo")
-    ap.add_argument("--expected-cap", type=int, default=10,
+    ap.add_argument("--expected-cap", type=int, default=50,
                     help="valeur attendue de MAX_RUNNERS (runner-registry.ts)")
     ap.add_argument("--max-builds", type=int, default=None,
                     help="borne de securite (defaut: expected-cap + 2)")

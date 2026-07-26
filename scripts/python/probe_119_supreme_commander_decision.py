@@ -159,7 +159,7 @@ _CAP_MARKER = "runner cap reached"
 
 
 def build(sid, seed, p_units, a_units, extra, tag, board=BOARD):
-    """Build ISOLE (state-file propre a CE probe + PID). Au cap `MAX_RUNNERS=10` sature on ATTEND
+    """Build ISOLE (state-file propre a CE probe + PID). Au cap `MAX_RUNNERS` sature on ATTEND
     qu'un slot se libere (les autres agents disposent au fil de l'eau) plutot que d'echouer —
     meme discipline que `tests/conftest.py::build_runner`."""
     st = Path(tempfile.gettempdir()) / f"probe119_{tag}_{__import__('os').getpid()}.json"
@@ -531,7 +531,7 @@ MEASURE_ONLY = {"E"}
 def run_all(sid, only=None, keep=False):
     """Joue les scenarios demandes et rend `{tag: resultat}`.
 
-    Un SEUL runner vivant a la fois : chacun est dispose des sa mesure capturee (MAX_RUNNERS=10
+    Un SEUL runner vivant a la fois : chacun est dispose des sa mesure capturee (MAX_RUNNERS
     est partage entre agents). Reutilise tel quel par le test de garde
     `tests/engine/test_supreme_commander_decision_live.py`."""
     want = {x.strip() for x in only.split(",")} if only else None

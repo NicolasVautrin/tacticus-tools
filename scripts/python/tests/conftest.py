@@ -61,7 +61,7 @@ def _new_state_path() -> Path:
 
 # --- File d'attente sur le cap de runners (#77, volet client) -----------------
 #
-# Cote hooks, `initAndStart` REFUSE SEC quand MAX_RUNNERS=10 est atteint : pas de
+# Cote hooks, `initAndStart` REFUSE SEC quand MAX_RUNNERS est atteint : pas de
 # file d'attente, l'erreur remonte telle quelle. Le state-file n'est donc pas
 # ecrit -> le fixture rendait un `pytest.skip`. Or plusieurs agents worktree
 # partagent la MEME session Frida : le cap se sature en fonctionnement NORMAL, et
@@ -204,7 +204,7 @@ def pytest_runtest_makereport(item, call):
             f"\nRaison d'origine : {reason}\n"
             "\nA verifier, dans cet ordre : le jeu tourne ? une session Frida vivante\n"
             "(`/api/admin/status`, champ `.session` SINGULIER) ? le cap de runners\n"
-            "(MAX_RUNNERS=10) est-il sature par des runners a disposer ?\n"
+            "(MAX_RUNNERS) est-il sature par des runners a disposer ?\n"
             "Inspection sans jeu : TACTICUS_ALLOW_GREEN_SKIP=1.")
     return report
 

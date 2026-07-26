@@ -56,7 +56,7 @@ def _r(sid, m, b, t=90):
 
 
 def _build(state_path: Path, args_extra: list, retries: int = 40) -> int:
-    """`rl_duel build`. Le plafond MAX_RUNNERS=10 est PARTAGE entre agents : un `runner cap reached`
+    """`rl_duel build`. Le plafond MAX_RUNNERS est PARTAGE entre agents : un `runner cap reached`
     n'est pas une erreur du probe mais une contention -> on ATTEND un slot au lieu d'abandonner (on ne
     dispose JAMAIS le runner d'un autre)."""
     for attempt in range(max(1, retries)):

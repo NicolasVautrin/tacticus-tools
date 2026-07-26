@@ -1,8 +1,22 @@
 """#132 -- Le budget de handles GC : FUITE ou COUT PAR BATAILLE ? Et 900 existe-t-il ?
 
-CE QU'ON CHERCHE A TRANCHER
----------------------------
-`MAX_RUNNERS = 10` n'est pas un plafond memoire, c'est un budget de HANDLES,
+VERDICT (mesure du 2026-07-26, session 80, build gqfc5mff6c)
+------------------------------------------------------------
+  A     cout = **3 handles par bataille** (pas ~100), derive **0** sur 12 cycles.
+  B     build REUSSI avec **904** puis **5004** handles epingles et UNE seule
+        bataille vivante -> le seuil « ~900 » est REFUTE d'un facteur >5.
+  PUMP  0,173 s/decisionView a N=1 contre 0,120 s a N=10 -> un runner vivant NON
+        PILOTE ne coute rien ; la ressource partagee est le DEBIT de la pompe.
+  Controle de co-variance : le tas manage plafonne vers 290 Mo alors que le
+  process montait a 6,9 Go -> la croissance observee est NATIVE, hors sujet.
+  Consequence : `MAX_RUNNERS` est passe de 10 a 50, borne par la MEMOIRE
+  (~3,6 Mo de tas manage par runner vivant), plus par les handles.
+
+Le probe reste rejouable : c'est lui qui refera la mesure au prochain build.
+
+CE QU'IL FALLAIT TRANCHER
+--------------------------
+`MAX_RUNNERS` valait 10 : pas un plafond memoire, un budget de HANDLES
 derive le 2026-07-03 (6cedb27) d'un COMMENTAIRE ecrit le 2026-05-24 (62a0d52) :
 « ~100 pins par bataille, `IdunRunner.Initialize` echoue au-dela de ~900 pins ».
 Ce chiffre n'a JAMAIS ete re-mesure -- et il ne pouvait pas l'etre proprement :

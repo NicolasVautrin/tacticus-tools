@@ -1,9 +1,15 @@
 // Sonde GC managé IL2CPP — l'INSTRUMENT du protocole de mesure #132.
 //
-// Contexte : `MAX_RUNNERS = 10` n'est pas un plafond mémoire, c'est un budget de
-// HANDLES dérivé (2026-07-03) d'un COMMENTAIRE écrit le 2026-05-24 — « ~100 pins
-// par bataille, `IdunRunner.Initialize` échoue au-delà de ~900 » — JAMAIS
-// re-mesuré depuis. Ce module rend les trois grandeurs nécessaires pour trancher :
+// Contexte : `MAX_RUNNERS` valait 10 parce qu'il était dérivé (2026-07-03) d'un
+// COMMENTAIRE écrit le 2026-05-24 — « ~100 pins par bataille,
+// `IdunRunner.Initialize` échoue au-delà de ~900 » — jamais re-mesuré depuis.
+//
+// MESURÉ le 2026-07-26 avec ce module (probe_132_gcroot_budget.py) : coût réel
+// **3 handles par bataille**, dérive nulle sur 12 cycles, et un build RÉUSSIT
+// avec **5004 handles épinglés**. La dérivation était fausse ; le cap est passé
+// à 50, borné par la MÉMOIRE (~3,6 Mo de tas managé par runner vivant).
+//
+// Ce module reste l'instrument : il rend les trois grandeurs qui ont tranché.
 //
 //   gcStats        count (handles épinglés) + used/heap size du tas managé.
 //                  Le tas est le CONTRÔLE : si un échec d'Initialize coïncide

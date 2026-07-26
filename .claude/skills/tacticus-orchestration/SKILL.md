@@ -400,7 +400,7 @@ les artefacts désynchronisés en amont de chaque probe.
   devenaient polluables. Avec la junction, l'isolation redevient réelle : l'orchestrateur édite
   `master` librement pendant que les agents tournent (leurs imports viennent de LEUR checkout
   figé). `data/` reste PHYSIQUEMENT PARTAGÉ → disciplines runner inchangées (state-file à NOM
-  UNIQUE par agent en chemin absolu, disposer SES runners, MAX_RUNNERS=10, session Frida
+  UNIQUE par agent en chemin absolu, disposer SES runners, MAX_RUNNERS, session Frida
   globale via RPC). Vérifié : junction sans droits admin, `git status` du worktree ignore
   `data` (gitignore), suppression du worktree n'affecte pas la cible (rmdir = lien seul).
 
@@ -444,7 +444,7 @@ les artefacts désynchronisés en amont de chaque probe.
     runners concurrents, et les traces sont **par-runner distinctes** (OriginBuffers, mig #43 :
     buffers séparés par origine, purgés au dispose). L'agent et moi pouvons faire des RPC /
     monter des runners EN MÊME TEMPS sans se marcher dessus (disciplines mineures : ne pas
-    dépasser **MAX_RUNNERS=10**, **disposer MES runners** jamais ceux des autres).
+    dépasser **MAX_RUNNERS**, **disposer MES runners** jamais ceux des autres).
   - **⛔ LA SEULE VRAIE INTERDICTION pendant qu'un agent tourne : ne PAS (ré)injecter Frida**
     (`POST /api/admin/inject`) — ni **restart host** (qui auto-réinjecte). L'inject STOPPE la
     session courante et en ré-attache une neuve → ça **CASSE la session / le harnais que l'agent

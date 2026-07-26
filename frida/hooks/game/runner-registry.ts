@@ -9,10 +9,14 @@
 // Pinned-refs tracking: every transient IL2CPP allocation we keep alive
 // across an in-progress runner cycle (BC config, AddUnit/StartBattle/
 // CheatRunAI messages, …) is registered against the owning runner via
-// `pinForRunner`. `disposeRunner` then unpins all of them in one shot,
-// preventing gcRoot from accumulating ~100 pinned handles per battle
-// (which has been empirically shown to make `IdunRunner.Initialize`
-// fail with a native "system error" past ~900 pinned entries).
+// `pinForRunner`. `disposeRunner` then unpins all of them in one shot.
+//
+// L'en-tête annonçait ici « ~100 pins par bataille, `IdunRunner.Initialize`
+// échoue au-delà de ~900 » — chiffre écrit le 2026-05-24, jamais re-mesuré.
+// MESURÉ le 2026-07-26 (probe_132_gcroot_budget.py) : le coût réel est de
+// **3 handles par bataille**, et un build réussit avec **5004 handles
+// épinglés**. Le dépinglage groupé reste la bonne hygiène ; il ne protège
+// simplement pas d'un mur qui n'existe pas. Voir MAX_RUNNERS ci-dessous.
 
 import { RunnerHandle } from "./runner.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
@@ -44,13 +48,25 @@ interface Entry extends RunnerHandle {
 const byId = new Map<number, Entry>();
 let counter = 0;
 
-/** Hard cap on CONCURRENT managed runners. Replaces the old single-build
- *  dispose-all default of `initAndStart` (which silently nuked in-flight
- *  parallel runners — TF06) as the guard on the gcRoot handle budget
- *  (~100 pinned handles per battle; Initialize fails past ~900, see header).
- *  Past the cap, build RPCs REFUSE explicitly — callers own their runners
- *  and must dispose them at end of pass. */
-export const MAX_RUNNERS = 10;
+/** Plafond dur de runners CONCURRENTS. Remplace l'ancien défaut « un seul build,
+ *  dispose-all » d'`initAndStart` (qui nukait silencieusement les runners
+ *  parallèles en vol — TF06). Au-delà, les RPC de build REFUSENT explicitement :
+ *  chaque appelant possède ses runners et les dispose en fin de passe.
+ *
+ *  VALEUR MESURÉE, pas héritée (2026-07-26, probe_132_gcroot_budget.py) :
+ *  ce plafond a longtemps valu 10 parce qu'il était dérivé du budget de handles
+ *  annoncé en en-tête (« ~100 pins par bataille, échec au-delà de ~900 »). Les
+ *  trois manips ont réfuté cette dérivation :
+ *    - coût RÉEL = **3 handles par bataille**, dérive nulle sur 12 cycles ;
+ *    - un build RÉUSSIT avec **5004 handles épinglés** et une seule bataille
+ *      vivante (lest `gcPin`, qui découple enfin handles et batailles) ;
+ *    - la latence d'un `decisionView` est PLATE de 1 à 10 runners vivants
+ *      (0,173 s → 0,120 s) : un runner vivant NON PILOTÉ ne coûte pas de temps.
+ *  La seule grandeur qui borne vraiment est la MÉMOIRE : ~3,6 Mo de tas managé
+ *  par runner vivant. À 50, cela fait ~180 Mo — négligeable devant les ~290 Mo
+ *  de tas managé déjà en place. La ressource partagée qui reste est le DÉBIT de
+ *  la pompe Unity, mais elle se consomme en PILOTANT, pas en existant. */
+export const MAX_RUNNERS = 50;
 
 export function registerRunner(
     h: RunnerHandle, opts?: { autoDispose?: boolean; owner?: string },

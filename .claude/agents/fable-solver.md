@@ -82,7 +82,7 @@ Tu ne t'auto-felicites pas. Apres le fix :
 - liste explicitement ce qui n'est PAS couvert.
 Discipline runner (source unique = `.claude/skills/tacticus/references/runner.md`) : warmup
 `warmupGameSingletons({force:true})` si la session parait froide (tu ne peux PAS reinjecter,
-mais tu peux warmup), `--state-file` propre + `--runner` explicite, MAX_RUNNERS=10, dispose
+mais tu peux warmup), `--state-file` propre + `--runner` explicite, MAX_RUNNERS, dispose
 TES runners (jamais ceux des autres), `python` (pas `py`), depuis `scripts/python`, ASCII only
 (cp1252). Tests cibles, JAMAIS la suite complete.
 

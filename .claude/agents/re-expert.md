@@ -28,7 +28,7 @@ Méthodologie de validation complète (oracles, métriques, interprétation des 
 `docs/rl/validation.md`.
 
 - **Lancement de runner + warmup + choix de board + discipline** (rebuild avant chaque run,
-  `--state-file` propre + `--runner` explicite, coexistence/MAX_RUNNERS=10, dispose, `python`
+  `--state-file` propre + `--runner` explicite, coexistence/MAX_RUNNERS, dispose, `python`
   pas `py`, `scripts/python`, ASCII) = **`.claude/skills/tacticus/references/runner.md` —
   SOURCE UNIQUE**. Non négociable : warmup `force:true` avant tout RPC/build ; jamais « je suis
   seul » ; dispose TES runners en fin de passe, JAMAIS ceux des autres. Confrontation smoke :

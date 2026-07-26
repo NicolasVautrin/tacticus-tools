@@ -51,7 +51,7 @@ disciplines, trous connus par couche) — lis-la en début de mission.
   `--state-file` propre + `--runner` explicite, dispose, `python` pas `py`, `scripts/python`,
   stdout ASCII) = **`.claude/skills/tacticus/references/runner.md` — SOURCE UNIQUE**.
   Non négociable : warmup `force:true` avant tout RPC ; ne jamais raisonner « je suis seul » ;
-  dispose TES runners en fin de passe, JAMAIS ceux des autres (cap MAX_RUNNERS=10).
+  dispose TES runners en fin de passe, JAMAIS ceux des autres (cap MAX_RUNNERS).
 - Doute sur le périmètre du fix à juger → demander clarification, ne pas deviner.
 
 ## Outillage manquant

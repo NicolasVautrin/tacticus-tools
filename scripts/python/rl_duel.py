@@ -391,7 +391,7 @@ def cmd_build(sid: int, a) -> int:
     ]
     # Replace SCOPE par acteur : cote hooks la coexistence est le DEFAUT
     # (initAndStart ne dispose plus jamais les runners freres ; cap dur
-    # MAX_RUNNERS=10 sinon refus explicite). Rebuild = remplacer LE runner
+    # MAX_RUNNERS sinon refus explicite). Rebuild = remplacer LE runner
     # enregistre dans CE --state-file (celui que _save_state va ecraser),
     # pas les freres — sinon il deviendrait orphelin et mangerait le cap.
     if STATE.exists():
