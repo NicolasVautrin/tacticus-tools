@@ -364,9 +364,24 @@ python scripts/python/probe_va_citation_shapes.py scripts/python/engine   # taux
 
 Une citation qui ne résout plus = une mécanique à re-RE, pas un simple renommage.
 
-**Pas encore outillé, à faire à la main** : le diff `gameconfig` inter-build (séparer un
-rééquilibrage de valeurs d'un changement de mécanique) et la garde automatique qui refuse
-les artefacts désynchronisés en amont de chaque probe.
+**Étape 5 — comparer les gameconfig.** Les symboles disent ce que le CODE a changé, pas ce que
+les DONNÉES ont changé. Le gameconfig n'est ni dans le dépôt ni dans le répertoire du jeu : il
+est téléchargé au runtime dans `AppData/LocalLow/Snowprint/<produit>/gameconfig/<hash>.json`,
+**une copie par version, qui s'accumulent** — c'est cette accumulation qui sert d'historique.
+Celle qui fait foi est **la plus récemment écrite**.
+
+```bash
+python scripts/python/gameconfig.py --which              # quel instantané est lu (+ hash)
+python scripts/python/gameconfig_diff.py --list          # instantanés disponibles
+python scripts/python/gameconfig_diff.py <A.json> <B.json> [--section units]
+```
+
+`gameconfig_diff.py` aplatit chaque config en `chemin -> valeur feuille` et range les écarts
+selon le critère de #105 : **chemin ajouté/retiré ou valeur non numérique = mécanique**,
+**valeur numérique changée = rééquilibrage**.
+
+**Pas encore outillé, à faire à la main** : la garde automatique qui refuse les artefacts
+désynchronisés en amont de chaque probe.
 
 ## Agents (subagents) — TOUJOURS en worktree isolé
 

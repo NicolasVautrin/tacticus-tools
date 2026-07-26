@@ -28,13 +28,56 @@ import sys
 from pathlib import Path
 
 
+def _is_full_config(p: Path) -> bool:
+    """Le document porte-t-il bien une config complete ? On teste la PROPRIETE
+    (presence de la cle racine `clientGameConfig`) en lisant une tete de fichier,
+    au lieu de la deviner par la taille."""
+    try:
+        return '"clientGameConfig"' in p.open(encoding="utf-8").read(4096)
+    except OSError:
+        return False
+
+
 def _find_gameconfig() -> Path:
+    """L'instantane ACTIF = le plus RECEMMENT ECRIT.
+
+    Le jeu telecharge sa config au runtime et en garde une copie par version
+    dans `LocalLow/Snowprint/<produit>/gameconfig/<hash>.json` ; les versions
+    s'accumulent (4 presentes le 2026-07-26, du 24/06 au 14/07). Celle qui fait
+    foi est donc la DERNIERE ECRITE.
+
+    Le critere precedent — « le plus gros fichier » — etait un PROXY, et il est
+    tombe : mesure du 2026-07-26, l'instantane du 09/07 pesait 17 218 513 octets
+    contre 17 218 512 pour celui du 14/07. UN octet d'ecart, du a un
+    `enableHomeScreenPointOfInterestCarousel: False -> True` (5 caracteres -> 4).
+    Le depot a donc lu une config perimee, en silence. Sans consequence ici (le
+    diff des deux fichiers se reduit a ce seul flag d'UI, cf.
+    `gameconfig_diff.py`), mais c'etait un hasard, pas une garantie.
+    """
     base = Path.home() / "AppData" / "LocalLow" / "Snowprint"
-    cands = list(base.glob("*/gameconfig/*.json"))
+    cands = [p for p in base.glob("*/gameconfig/*.json") if _is_full_config(p)]
     if not cands:
         raise RuntimeError(f"gameconfig introuvable sous {base}")
-    # le full config = le plus gros fichier (ignore gameconfigupgrade.json & co)
-    return max(cands, key=lambda p: p.stat().st_size)
+    return max(cands, key=lambda p: p.stat().st_mtime)
+
+
+def identity() -> dict:
+    """Identite de l'instantane lu — de quoi AUDITER la source de verite.
+
+    Le vice du critere precedent n'etait pas tant de choisir le mauvais fichier
+    que de le faire sans rien dire : rien, nulle part, ne nommait la config
+    contre laquelle un port etait valide. `--which` rend ce choix visible.
+    """
+    p = _find_gameconfig()
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    st = p.stat()
+    return {
+        "path": str(p),
+        "bytes": st.st_size,
+        "mtime": st.st_mtime,
+        "clientGameConfigVersion": doc.get("clientGameConfigVersion"),
+        "fullConfigHash": doc.get("fullConfigHash"),
+    }
 
 
 @functools.lru_cache(maxsize=1)
@@ -424,7 +467,19 @@ def main(argv: list[str]) -> int:
       gameconfig.py --effect <name>... → recon d'un effet (decisionView.effects)
       gameconfig.py --ability <name>...→ carte d'une ability par nom
       gameconfig.py --trait <name>...  → carte d'un trait par nom
+      gameconfig.py --which            → quel instantané est lu (audit de la source de vérité)
     Sans argument : démo."""
+    if argv and argv[0] in ("--which", "-w"):
+        import datetime
+        info = identity()
+        mt = datetime.datetime.fromtimestamp(info["mtime"]).strftime("%Y-%m-%d %H:%M")
+        print("fichier : %s" % info["path"])
+        print("ecrit   : %s   (%d octets)" % (mt, info["bytes"]))
+        print("version : %s" % info["clientGameConfigVersion"])
+        print("hash    : %s" % info["fullConfigHash"])
+        print("critere : le plus RECEMMENT ECRIT parmi les configs completes")
+        print("comparer deux instantanes : python scripts/python/gameconfig_diff.py --list")
+        return 0
     if argv and argv[0] in ("--unit", "-u"):
         if len(argv) < 2:
             print("usage: gameconfig.py --unit <unitId|nom>...", file=sys.stderr)
