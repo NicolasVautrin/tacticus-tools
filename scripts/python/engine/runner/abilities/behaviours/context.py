@@ -276,9 +276,12 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
 
     # `ctx.stat_modifier_amount` (`CurrentStatModifierAmountFormula`, gate d'idempotence de
     # `AddOrUpdateStaticStatModifierEffect`) : contribution COURANTE, sur `stat_type`, de l'effet
-    # `effect_type` porte par l'unite = la `ValueModification` keyee par son `stat_mod_source`. 0 si
-    # l'effet n'est pas porte (ou n'a pas de cle de source).
+    # `effect_type` porte par l'unite = la `ValueModification` keyee par SA cle d'instance
+    # (`effect_stat_mod_key` : cle de pose, sinon cle DERIVEE du seed — meme invariant « une seule
+    # entree per_source par entite-effet » que le natif, #118). 0 si l'effet n'est pas porte ou n'a
+    # pose aucune stat-modification.
     def _stat_modifier_amount(unit, effect_type, stat_type):
+        from ....entities.effects import effect_stat_mod_key
         uid = (unit or {}).get("id")
         if uid is None or state.effects is None:
             return 0
@@ -292,7 +295,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         for eff in state.effects.by_unit.get(int(uid), []):
             if eff.consumed or eff.effect_type != int(effect_type):
                 continue
-            key = getattr(eff, "stat_mod_source", None)
+            key = effect_stat_mod_key(eff)
             if key is None:
                 continue
             total += int(comp.modification.get_modification_from_entity(key) or 0)

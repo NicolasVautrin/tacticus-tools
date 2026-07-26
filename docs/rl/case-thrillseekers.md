@@ -202,14 +202,20 @@ d'effet, stat-mods a timer, `ChangeEffectTurns`) : `test_damage_roll_live`, `tes
    `trait_damage_limits`, plus une validation d'overkill de prediction. **Chantier separe** ; sans
    lui, le port sous-estime l'overkill des porteurs *Thrilled* qui critent (donc l'utilite
    `OverkillUnitUtility` cote IA), jamais le contraire.
-2. **Effet stat-mod present AU SEED, non revertable.** Un `Thrilled` deja actif quand un `State` est
-   charge depuis `decisionView`/`combatSnapshot` porte un +15 **deja cuit dans le snapshot de stats**
-   et n'a aucune `ValueModification` cote port -> son expiration offline ne le retire pas. C'est un
-   angle mort **GENERIQUE** du port (il vaut pour tout stat-mod materialise par un behaviour puis
-   capte), **preexistant** a ce port et non aggrave par lui : avant, AUCUN stat-mod a timer n'etait
-   reverte, ni seede ni pose. Le fermer = attribuer les stat-mods du seed par
-   `statmod_source_key` et faire skipper `refresh_stat_modifier_effects` sur les instances a
-   `stat_mod_source` — chantier transverse (touche ActOfFaith, DoctrinaImperatives, AnvilShield…).
+2. ~~**Effet stat-mod present AU SEED, non revertable.**~~ **FERME** — cf.
+   `case-118-seeded-statmod-revert.md`. Verdict RE : le natif applique la stat-modification d'un
+   effet en `ValueModification` **par-source keyee par l'ENTITE-EFFET**
+   (`IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification` passe
+   `Entity(<effectEntity>)` en source du `ChangeStat`) et la retire au retrait
+   (`…$$RevertModification`, meme entite, `Position(stat, part 6)`). Le port divergeait
+   STRUCTURELLEMENT : l'attribution du seed calculait bien la cle `statmod_source_key` mais l'oubliait,
+   donc les consommateurs du retrait — qui exigeaient un `stat_mod_source` — ne faisaient rien.
+   Correctif : cle UNIQUE par instance (`effect_stat_mod_key`) lue par les trois consommateurs, defaut
+   `reverted_stats() = [get_stat_modification_stat()]`, et classe `ThrillSeekersEffect` (le capteur
+   n'expose ni le StatType ni le montant d'un effet). Mesure live : crit chance a l'expiration d'un
+   `Thrilled` SEEDE — LIVE 15 -> **0**, moteur AVANT 15 -> **15**, moteur APRES 15 -> **0** (2 couples
+   porteur x board). RESTE ouvert : les stat-mods **EAGER** seedes (ActOfFaith, DoctrinaImperatives),
+   dont la magnitude depend du `StatsComponent.ctx` que le seed n'a pas encore construit.
 3. **Granularite per-coup.** Le natif emet `On(6)` et `On(0xf)` PAR COUP ; le port les emet une fois
    par attaque (`is_first_hit=True`). Strictement equivalent pour ThrillSeekers (branche 1 gatee
    `IsFirstHitInSeries` -> seul le coup 0 compte ; branche 2 = refresh idempotent). Meme classe

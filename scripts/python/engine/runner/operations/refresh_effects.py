@@ -33,9 +33,17 @@ sous 35 % PV (GROUND TRUTH LIVE #100), et redescend s'il repasse au-dessus.
      DoctrinaImperatives, `AnvilShield_FrozenAttackerAdvantage`...) sont poses/revertes par
      `AddEffectOperation._apply_stat_mods` / la feuille `RemoveEffect` sous LEUR propre cle et sont
      donc SKIPPES ici.
-La cle de source utilisee est **exactement** celle du seed (`statmod_source_key`) et
+La cle de source utilisee est **exactement celle de l'instance** (`effect_stat_mod_key` : la cle de POSE
+si un chemin offline l'a renseignee, sinon la cle DERIVEE `statmod_source_key` = celle du seed) et
 `ValueModification.Modify` est un **replace par-source** -> re-appliquer la meme valeur est un NO-OP
 exact. Seule la bascule `is_active() == False` change quelque chose (retrait de la contribution).
+
+⚠ POURQUOI LA CLE D'INSTANCE ET PAS `statmod_source_key` EN DUR (#118) : le natif n'a qu'UNE entree
+`ValueModification.per_source` par entite-effet (la source du `ChangeStat` EST l'entite-effet, cf.
+`IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification`). Un effet pose par la feuille
+`AddStaticStatModifierEffect` porte deja sa contribution sous SA cle de pose ; si ce driver en creait une
+SECONDE sous la cle derivee, la contribution serait comptee DEUX FOIS (cas concret : `ThrillSeekers` 1434
+pose en combat puis un `refresh` declenche par le degat suivant -> +30 CritChance au lieu de +15).
 """
 from __future__ import annotations
 
@@ -43,7 +51,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import StatsComponent, HealthComponent
-from ...entities.effects import statmod_source_key
+from ...entities.effects import effect_stat_mod_key
 
 
 def _unit_state(state: State, unit_id: int) -> dict:
@@ -85,7 +93,9 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
                 continue
             if e.applied_stat_mods(getattr(sc, "ctx", None)):
                 continue                      # stat-mod EAGER : gere par AddEffect/RemoveEffect
-            src = statmod_source_key(e)
+            # UNE cle par instance (cf. en-tete) — jamais une 2e. Non-None ici : `stat` vient d'etre
+            # teste non-None, donc `effect_stat_mod_key` rend au minimum la cle derivee.
+            src = effect_stat_mod_key(e)
             if e.is_active(ustate):
                 amt = e.get_stat_modification_amount()
                 if amt:

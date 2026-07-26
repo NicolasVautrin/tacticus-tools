@@ -318,35 +318,47 @@ class ChangeEffectTurnsOperation:
 
 def revert_stat_mods_of_removed_effects(state: State) -> list:
     """Mirror `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` (ChangeStat part 6) au
-    RETRAIT d'un effet : quand une instance qui a APPLIQUE une `ValueModification` (cle `stat_mod_source`,
-    posee par `AddEffectOperation._apply_stat_mods` ou par la feuille `AddStaticStatModifierEffect`) est
-    retiree — expiree par son timer OU consommee — sa contribution doit SORTIR du `UnitStats`.
+    RETRAIT d'un effet : quand une instance qui a APPLIQUE une `ValueModification` est retiree — expiree
+    par son timer OU consommee — sa contribution doit SORTIR du `UnitStats`.
 
-    Cote natif c'est `<Effect>.RevertInternal` -> `ReverseModification` ; cote port, seule la feuille
-    `RemoveEffect` (retrait EXPLICITE) executait ce revert : une instance qui expirait sur son propre
-    timer gardait son stat-mod POUR TOUJOURS. Ce foyer ferme le trou pour le retrait par TIMER, avec la
-    MEME operation par-source (`revert_change_stat`) et la MEME part DATA (`reverted_stats()`), donc
-    strictement rien pour un effet sans `stat_mod_source` (le cas de tous les effets SEEDES, dont les
-    stat-mods sont deja cuits dans le snapshot de stats).
+    Cote natif c'est `IdunBattle.Operations.RemoveEffectOperation$$Execute` ->
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` ->
+    `IdunBattle.Operations.RefreshEffectsOperation$$RevertEffectsForTargets` -> le virtuel `RevertInternal`
+    de l'effet, qui pour la famille `AStatModifierEffect` EST `RevertModification` :
+    `ChangeStat(Entity(target), Position(stat, part 6), 4, <noeud vide>, Entity(<effectEntity>))` ->
+    `IdunBattle.Entities.Components.ValueModification$$ReverseModification` retire la contribution de
+    l'entite-effet. Il n'y a AUCUNE voie native ou un effet a stat-mod disparait en laissant sa
+    contribution : la source est l'entite-effet, elle part avec elle.
 
-    Idempotent : `stat_mod_source` est mis a None apres le revert (une 2e passe, ou un `RemoveEffect`
-    ulterieur sur la meme instance, est un no-op). Renvoie la liste des `(unit, effect_type, stat)`
-    revertes — diagnostic."""
+    CLE = `effect_stat_mod_key(e)` (cf. `entities/effects/__init__.py`) : la cle de POSE si un chemin
+    offline l'a renseignee, SINON la cle DERIVEE `statmod_source_key` — celle sous laquelle
+    l'ATTRIBUTION DU SEED (`stat_modifications_by_source` -> `seed_unit_stats(attributed=...)`) a ecrit la
+    contribution d'un effet CAPTE. C'est le correctif #118 : avant, ce foyer exigeait un
+    `stat_mod_source` et ne faisait donc **strictement rien** pour un effet SEEDE — un stat-mod a TIMER
+    deja actif au chargement du `State` (ex. `ThrillSeekers` 1434, +15 CritChance) restait applique POUR
+    TOUJOURS alors que le live le retire a l'expiration.
+
+    Idempotent : `stat_mod_reverted` marque l'instance (et `stat_mod_source` est efface quand il existait).
+    Renvoie la liste des `(unit, effect_type, stat)` revertes — diagnostic."""
     out: list = []
     if state.effects is None:
         return out
+    from ...entities.effects import effect_stat_mod_key
     from .stat_ops import revert_change_stat
     for uid, effs in state.effects.by_unit.items():
         for e in effs:
             if not (e.consumed or e.expired):
                 continue
-            src = getattr(e, "stat_mod_source", None)
+            if e.stat_mod_reverted:
+                continue                                 # deja reverte (pas de re-listing a chaque tick)
+            src = effect_stat_mod_key(e)
             if src is None:
                 continue
             for stat in (e.reverted_stats() or []):
                 revert_change_stat(state, int(uid), int(stat), src)
                 out.append((int(uid), e.effect_type, int(stat)))
             e.stat_mod_source = None                     # idempotence (pas de double ReverseModification)
+            e.stat_mod_reverted = True
     return out
 
 
