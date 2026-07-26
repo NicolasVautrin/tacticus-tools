@@ -326,8 +326,12 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   @181004fb0` / `ApplyRandomBlockDamage`) — n'affecte QUE le magnitude multi-coups cc=0, la structure DSL de
   1202 est live-exacte (gate dist==1, landing tile, mono-cible confirmés). `[fable]` (contredit une
   validation documentée + blast radius = toutes les attaques d'ability multi-hit cc=0).
-- **Bouclier × limites sur la voie ability** (`case-67` §5) : le natif cape le reste POST-part-bouclier,
-  le port cape avant le split. Identique tant que `shield = 0`. `[opus]`.
+- ~~**Bouclier × limites sur la voie ability**~~ — **LIVRÉ (#67b)** : `case-67` §6. `CalculateAbilityDamage`
+  retire `min(dmg, shield)` **avant** modificateurs ET limites, puis le ré-additionne → ce que le bouclier
+  absorbe échappe aux caps. Porté sous le gate `is_attack_damage_op == False` (la famille ATTACK, dont les
+  caps portent sur les cellules en amont de `CalculateDamageOperation`, garde l'ordre inverse). Confronté
+  live sur les 3 régimes (`shield = 0` bit-exact, `shield ≥ dmg`, `0 < shield < dmg`) —
+  `test_shield_ability_limits_live.py`, `probe_67b_shield_ability_limits.py`.
 - **`Impervious` (28)` / cap boss `0x5d4`** (`case-67` §5) : no-op documentés, porteurs = boss non
   spawnables en runner → **invalidables**, non portés (doctrine `feedback_no_unvalidatable_ability_ports`).
 - **FireOfAbsolution, volet feu-sur-cible** (`case-67` §5) : vecteur after-hit probabiliste non

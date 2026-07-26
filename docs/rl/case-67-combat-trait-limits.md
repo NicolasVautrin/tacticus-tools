@@ -99,10 +99,7 @@
 
 ## 5. Restes / résidus documentés
 
-- **Bouclier × limites (ability)** : `CalculateAbilityDamage` cape le reste POST-part-bouclier
-  (`iVar20 = min(dmg, shield)` ré-additionné) ; le port cape AVANT le split (= ordre
-  attaque/prédiction). Identique tant que shield=0 — à départager si un swarm/Resilient
-  BOUCLIER apparaît un jour.
+- **Bouclier × limites (ability)** — **RÉSOLU, cf. §6.**
 - **Coups post-mortem** : le natif cesse d'émettre (et probablement d'exécuter) les coups après
   la mort de la cible ; `_run_hits` continue de tirer les coups restants → dérive du flux MT
   APRÈS un kill mi-attaque dans une sim multi-actions offline (les replays per-action
@@ -113,3 +110,93 @@
 - **FireOfAbsolution** : le volet feu-sur-cible probabiliste (event `eff=5` dans l'action,
   ~1 run/2) n'est pas modélisé par `execute()` offline — vecteur after-hit d'ability séparé,
   hors périmètre limites (le feu-TUILE, lui, est porté #136/#30).
+
+## 6. #67b — ORDRE `part bouclier` × `limites`, voie ABILITY (résidu §5 fermé)
+
+### 6.1 Deux familles natives, deux ordres opposés
+
+Le dégât d'une ability ne passe pas par un pipeline unique : la **famille de factory** décide de
+l'opération, et les deux placent le split bouclier de part et d'autre de l'étage limites.
+
+- **Famille ABILITY** — `DSLFactory$$AttackWithAbilityDamage` → `AbilityDamageOperation$$ExecuteHit`,
+  qui appelle `DamagePrediction$$CalculateAbilityDamage` :
+
+  ```
+  dmg        = Math.Max(param_2, 0)                                  # le coup DÉJÀ résolu
+  shieldPart = Math.Min(dmg, UnitExtensions.GetShield(cible))        # `iVar20`
+  v          = CalculateBaseDamageWithAllModifiers(dmg - shieldPart) # `iVar17 - iVar20`
+  v          = Fix64.Max(v + flat, 0)
+  v          = ApplyTraitDamageLimitsToDamage(2, &v, &v, profil, cible, attaquant, 0, hp, …)
+  return       (int)(Fix64(shieldPart) + v)
+  ```
+
+  La part absorbée est retirée **avant** les modificateurs ET avant l'étage limites, puis
+  ré-additionnée : **ni les %-mods/perçage ni les caps (member-cap, Resilient, cap boss) ne mordent
+  sur ce que le bouclier encaisse.** Le total rendu repasse ensuite par le split shield-first de la
+  sub-op 0x42 (`calculate_damage_operation`), qui redonne exactement `shield_dmg = shieldPart` et
+  `health = v` (`min(shieldPart + v, shield) == shieldPart`).
+
+- **Famille ATTACK** — `DSLFactory$$AttackWithAttackDamage` → `AttackDamageOperation$$ExecuteHit` :
+  les caps portent sur les **cellules** en amont, et le split bouclier vit dans
+  `DamagePrediction$$CalculateDamageOperation` (slot 4), qui fait `Math.Max(0, dmg − shieldPart)`
+  **après** — ordre INVERSE. C'est celui que #67 a validé bit-exact ; il reste inchangé.
+
+Le discriminant porté est donc `is_attack_damage_op` — déjà le flag de famille du port (il gate le
+resolve slot-8, l'absence de crit et l'arrondi CBDWAM). Le résidu §5 ne concernait QUE la famille
+ABILITY : le port y appliquait l'ordre de la famille ATTACK.
+
+### 6.2 Port
+
+- `runner/operations/damage_hits.py` : `_ability_shield_split` (mirror de `CalculateAbilityDamage`)
+  + `_limits_scalar` (l'étage limites en cap scalaire, factorisé). Les deux branches de `_one_hit`
+  (bounds-mode `post_roll`, et amount/normal-like) choisissent l'ordre sur `is_attack_damage_op`.
+- `runner/operations/damage_ops.py` : `execute_normal_like` accepte `is_attack_damage_op`
+  (défaut `True` = historique inchangé) ; `execute_ability_attack` le threadait déjà.
+- `abilities/behaviours/combat.py` : le mode `amount` thread `native_factory != "ability"`, comme le
+  mode bornes le faisait déjà.
+
+### 6.3 Confrontabilité (le montage, établi avant d'écrire une ligne)
+
+Il faut simultanément : cible avec **bouclier ≠ 0**, **limite qui mord**, coup de la **famille ABILITY**.
+
+| rôle | unité | pourquoi |
+|---|---|---|
+| cible | `deathRotbone` | HERO du pool, trait `Resilient`, aucune réduction du dégât REÇU. **Chaos obligatoire** : mesuré le 2026-07-26, avec `astraYarrick` (Imperial) à 1 hex, ArcaneShield se protège LUI-MÊME — le natif ne retient pas un allié non-Chaos, contrairement au tooltip « then other friendly units » (écart port/natif, cf. §6.5). |
+| bouclier | `thousSorcerer` | passive `ArcaneShield` → bouclier (5483 au rank 17) à l'ami ≤ 2 hex **après son move**. Le move d'une unité ENNEMIE est accepté hors de son tour (§2.5) → pose **à la demande**, sans `endturn` intercalaire donc sans `EndTurnOperation$$RemoveOneTurnOnShields`. |
+| attaque | `tyranNeurothrope` / `SpiritLeech` (1104) | famille ABILITY (`native_factory="ability"`), RANGED r3, 1 coup, profil `Psychic` (perce 100 %, `NoBlocking`) → aucun tirage de block, aucune armure résiduelle : le coup isole l'étage contesté. |
+| érosion | `darkaAzrael` / `DarkTalonStrike` (1092) | ~4000-4900 sur le coup principal → ramène le bouclier sous le dégât de SpiritLeech **en un cast, dans le même tour** (unité distincte → le tour ne se clôt pas). |
+| témoin | `eldarRanger` | n'agit jamais → le cast ne clôt pas mon tour, donc le **bouclier restant reste lisible** après le coup. Sans lui, le bouclier `remaining=1` expire dans la foulée et le live rend 0 (run 366). |
+
+Régime du cap Resilient : `hp−1 < dégât` (il mord) ET `dégât < 2 × hp` (la porte overkill reste
+fermée, sinon le cap est bypassé) → `--hp-target` calé en conséquence.
+
+### 6.4 Validation LIVE (probe_67b, 3 régimes)
+
+Chaque run rejoue le MÊME état sous l'**ancien ordre** (famille ATTACK forcée) : sans cet écart, un
+« OK » ne prouverait rien.
+
+| régime | bouclier avant | live | offline (fix) | **ancien ordre** |
+|---|---|---|---|---|
+| `none` (shield = 0) | 0 | per-coup 1499, PV 1 | idem | idem — **bit-exact** |
+| `big` (shield ≥ dmg) | 5483 | per-coup 2738, bouclier → **2745** | idem | bouclier → **3984** |
+| `small` (0 < shield < dmg) | 369 | per-coup 3368, PV **1** | idem | PV **370** |
+
+- `big` : le natif consomme **2738** de bouclier (le coup ENTIER), pas 1499 (le cap) → la part
+  absorbée n'est pas soumise aux limites.
+- `small` : le cap porte sur le RESTE (2999 = hp−1) et non sur le total → la cible tombe à 1 PV, là
+  où l'ancien ordre lui en laissait 370 (exactement la part bouclier, 369, en trop).
+
+### 6.5 Résidus ouverts par ce cas (hors périmètre)
+
+- **Ciblage d'ArcaneShield** : le natif ne pose pas le bouclier sur un allié **non-Chaos** à portée
+  (il se le pose à lui-même) ; `_arcaneshield_target` retient n'importe quel allié (priorité 2). Le
+  tooltip i2 dit « then other friendly units » — c'est le tooltip qui ment, ou un prédicat de faction
+  non lu. À trancher au décompilé de `ArcaneShieldAbility$$CreateBehaviour` (sélecteur `SortByFormula`).
+- **Famille ATTACK en bounds-mode** (`execute_ability_attack`, `is_attack_damage_op=True`) : le port y
+  applique un cap SCALAIRE post-tirage avec `is_special=2`, alors que le natif de cette famille cape
+  les CELLULES en amont (mode 1). Inexercé (aucune cible à bouclier + limite sur ce vecteur), non
+  touché ici.
+- **Ordre réduction × bouclier sur `execute_normal_like`** : ce vecteur pré-réduit les bornes AVANT le
+  tirage, donc seul l'étage LIMITES a été déplacé derrière le bouclier ; le natif, lui, réduit aussi le
+  reste post-bouclier. Indiscernable tant que le nœud est mono-valeur (`spread_pct=0`, cas de tous les
+  appelants portés).

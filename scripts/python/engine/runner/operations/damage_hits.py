@@ -114,6 +114,57 @@ class _DamageHitsMixin:
             if capped_reductions else 0
         _rogne = [0]        # #67 : rogne cumule des cellules MIN des coups precedents (porte overkill)
 
+        def _limits_scalar(value: int) -> int:
+            """Etage LIMITES en cap SCALAIRE sur la valeur DONNEE (cellule degeneree du core, mode 2).
+            Cumule le rogne (`_rogne`, param_12 de la porte overkill) et calcule `IsOverkill` depuis
+            CETTE cellule -- mirror `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage(2, &v, &v, ...)`."""
+            if limits is None or value <= 0:
+                return value
+            rem = max(0, limits_hp - total)
+            ovk = force_overkill or (compute_prediction_overkill(rem, limits_hp, value, p12=_rogne[0])
+                                     if limits_hp > 0 else False)
+            capped = apply_trait_damage_limits_to_damage(value, current_health=rem,
+                                                         overkill=ovk, **limits)
+            _rogne[0] += max(0, value - capped)
+            return capped
+
+        def _ability_shield_split(raw: int, reduce_fn, flat: int) -> tuple:
+            """`IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` — mirror de l'ORDRE natif
+            (famille ABILITY = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ->
+            `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`, cf. `is_attack_damage_op`) :
+
+                dmg        = Math.Max(param_2, 0)                                   # degat DEJA resolu
+                shieldPart = Math.Min(dmg, UnitExtensions.GetShield(cible))         # `iVar20`
+                v          = CalculateBaseDamageWithAllModifiers(dmg - shieldPart)  # `iVar17 - iVar20`
+                v          = Fix64.Max(v + flat, 0)
+                v          = ApplyTraitDamageLimitsToDamage(2, &v, &v, ...)         # cap sur le RESTE
+                return       (int)(Fix64(shieldPart) + v)
+
+            La part BOUCLIER est donc retiree AVANT les modificateurs ET avant l'etage limites, puis
+            RE-ADDITIONNEE apres : ni les %-mods/percage ni les caps (member-cap, Resilient, cap boss)
+            ne mordent sur ce qui est absorbe par le bouclier. Le total rendu ici repasse ensuite par
+            le split shield-first de `calculate_damage_operation` (sub-op 0x42) qui redonne EXACTEMENT
+            `shield_dmg = shieldPart` et `health = v` (min(shieldPart + v, shield) == shieldPart).
+
+            RESIDU #67 §5 FERME : le port capait AVANT le split (= ordre de la famille ATTACK, ou les
+            limites capent les CELLULES en amont de `CalculateDamageOperation`) -> sur une cible a
+            bouclier NON NUL le cap Resilient/member rognait la part absorbee au lieu du reste, et la
+            cible encaissait `cap - shield` PV au lieu de `cap`. Identique bit-a-bit quand shield == 0.
+
+            `reduce_fn` = `CalculateBaseDamageWithAllModifiers` (mode bornes : le `post_roll` du caller) ;
+            `None` = le montant recu est DEJA reduit (mode `amount`/normal-like, ou la reduction precede
+            le tirage) -> seul l'etage LIMITES est deplace derriere le bouclier. `flat` = la reduction
+            CAPEE defenseur #91 (composante du meme CBDWAM natif -> post-bouclier elle aussi).
+            Renvoie `(shieldPart, rest)` PRE-limites (le caller cape `rest` puis re-additionne)."""
+            dmg = max(0, raw)
+            shield_part = min(dmg, max(0, shield))          # `Math.Min(local_65c, GetShield)`
+            rest = dmg - shield_part                        # `iVar17 - iVar20`
+            if reduce_fn is not None:
+                rest = reduce_fn(rest)                      # CalculateBaseDamageWithAllModifiers
+            if flat:
+                rest -= flat                                # #91 : reduction CAPEE defenseur (scalaire)
+            return shield_part, max(0, rest)                # `Fix64.Max(., 0)`
+
         def _one_hit_tail(idx: int, crit: bool, roll: int) -> bool:
             """Queue PARTAGÉE d'un coup : split combat (sub-op 0x42) + comptabilité + Maybe GetStuckIn.
             #72 : mirror `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances(param_4=failedList) -> une source de block
@@ -185,19 +236,24 @@ class _DamageHitsMixin:
                     # (hit_cr = bornes + critDamage, largeurs égales -> même modulo => numériquement ==
                     # l'ancien modèle bornes-décalées).
                     raw += hit_cr.min - hit_nc.min
-                roll = post_roll(raw)         # réduction perçage/armure/mods APRÈS le tirage
-                if capped_reductions:         # #91 : réduction CAPÉE défenseur (scalaire FLAT, D=centre)
-                    roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))
-                rolls.append(roll)            # rolls = tirage POST-mods PRE-limites
-                if limits is not None and roll > 0:
-                    # ABILITY : cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
-                    _rem = max(0, limits_hp - total)
-                    _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
-                                              if limits_hp > 0 else False)
-                    _pre = roll
-                    roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
-                                                               overkill=_ovk, **limits)
-                    _rogne[0] += max(0, _pre - roll)
+                _flat = (_capped_flat_cr if crit else _capped_flat_nc) if capped_reductions else 0
+                if is_attack_damage_op:
+                    # Famille ATTACK (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) : le
+                    # split bouclier vit dans `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`
+                    # (`Math.Max(0, dmg - shieldPart)`) AVAL, les caps sont poses en amont sur les
+                    # cellules -> cap sur le TOTAL, split apres. Inchange (#67, live bit-exact).
+                    roll = post_roll(raw)     # réduction perçage/armure/mods APRÈS le tirage
+                    if capped_reductions:     # #91 : réduction CAPÉE défenseur (scalaire FLAT, D=centre)
+                        roll = max(0, roll - _flat)
+                    rolls.append(roll)        # rolls = tirage POST-mods PRE-limites
+                    roll = _limits_scalar(roll)
+                else:
+                    # Famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` ->
+                    # `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`) : part bouclier
+                    # retiree AVANT mods + limites, re-additionnee apres (#67 §5, cf. `_ability_shield_split`).
+                    _sp, _rest = _ability_shield_split(raw, post_roll, _flat)
+                    rolls.append(_sp + _rest)     # rolls = POST-mods PRE-limites (== ci-dessus si shield==0)
+                    roll = _sp + _limits_scalar(_rest)
                 # (4) resolve slot 8 sur la cellule DÉGÉNÉRÉE -> 1 tirage GASPILLÉ, valeur inchangée
                 # (`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` : Next(v, v+1) SANS gate largeur-1). C'EST le
                 # tirage « fantôme » mesuré par #220/#205 — le fix du désync multi-coups cc=0.
@@ -239,9 +295,11 @@ class _DamageHitsMixin:
             # = rem frais, param_12 = ROGNE cumule des coups precedents (rogne de la cellule MIN :
             # 67081 coup2-cape/coup3-letal excluent p12=0 ET p12=brut-cumule). Seuil = 2x hp_depart
             # (overkillDmgPctOfHealth=100).
-            # RESIDU documente : cible bouclier + multi-membre/Resilient — CalculateAbilityDamage
-            # cape le reste POST-part-bouclier (iVar20=min(dmg,shield) re-additionne apres) alors
-            # qu'ici le cap precede le split ; identique tant que shield=0 (tous les cas valides).
+            # BOUCLIER x LIMITES (residu #67 §5, FERME) : la famille ABILITY passe le degat par
+            # `CalculateAbilityDamage`, qui retire `min(dmg, shield)` AVANT le core limites et le
+            # re-additionne apres -> le cap ne mord que sur le RESTE. Porte ici par
+            # `_ability_shield_split` sous le gate `not is_attack_damage_op` (la famille ATTACK, elle,
+            # cape en amont du split de `CalculateDamageOperation` : ordre inverse, inchange).
             if limits is not None and int(limits.get("is_special") or 1) == 1:
                 # ATTAQUE : cap des bornes AVANT le tirage (largeur du modulo = plage capee)
                 flat = (_capped_flat_cr if crit else _capped_flat_nc) if capped_reductions else 0
@@ -262,15 +320,14 @@ class _DamageHitsMixin:
                 if capped_reductions:         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
                     roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes)
                 rolls.append(roll)            # rolls = tirage POST-mods PRE-limites (cap lisible dans per_hit)
-                if limits is not None and roll > 0:
-                    # cap scalaire post-tirage (cellule degeneree, CalculateAbilityDamage)
-                    _rem = max(0, limits_hp - total)
-                    _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, roll, p12=_rogne[0])
-                                              if limits_hp > 0 else False)
-                    _pre = roll
-                    roll = apply_trait_damage_limits_to_damage(roll, current_health=_rem,
-                                                               overkill=_ovk, **limits)
-                    _rogne[0] += max(0, _pre - roll)
+                if is_attack_damage_op:
+                    roll = _limits_scalar(roll)          # cap sur le TOTAL, split bouclier en aval
+                else:
+                    # mode `amount`/normal-like de la famille ABILITY : la reduction PRECEDE deja le
+                    # tirage (bornes pre-reduites) -> seul l'etage LIMITES est deplace derriere le
+                    # bouclier (`reduce_fn=None`), le reste de `CalculateAbilityDamage` est inchange.
+                    _sp, _rest = _ability_shield_split(roll, None, 0)
+                    roll = _sp + _limits_scalar(_rest)
             return _one_hit_tail(idx, crit, roll)
 
         base_bonus = 0
