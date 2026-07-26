@@ -96,6 +96,22 @@ class BaseEffect:
     # Sert au cycle de vie (les enfants sont reverté quand le parent expire). §matérialisation composite.
     parent_type: int | None = None
     consumed: bool = False                   # retiré par le cycle de vie (one-shot / fin-de-tour)
+    # `EffectComponent` IsActive @+0x5c — l'ETAT ACTIF **PERSISTE** de CETTE instance d'effet, ecrit par
+    # `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect` (=1) et
+    # `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` (=0), c'est-a-dire par les feuilles
+    # DSL `ActivateEffect`/`DeactivateEffect` des `Triggered()` que l'effet enregistre dans son
+    # `CreateHandleTriggerAbilitiesInternal`. RELU par
+    # `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` AVANT d'evaluer le
+    # trigger de CIBLE de l'effet (et re-lu PAR CIBLE dans la boucle : une desactivation en cours de
+    # drain stoppe les cibles suivantes), et par `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect`
+    # quand `activeOnly` est pose.
+    # ⚠ A NE PAS CONFONDRE avec la METHODE `is_active(unit_state)` ci-dessous, qui est le mirror de
+    # `<Effect>.CreateActiveCondition` (la CONDITION, reevaluee a la lecture). Ici c'est le FLAG.
+    # Defaut True : un effet SEEDE est actif par construction — le canal de seed
+    # (`decisionView.units[].effects`, `readEffectsByUnit`) DROPPE deja les effets `IsActive == 0`
+    # (case-160/case-127 §80), donc « present == IsActive » cote seed, et ce defaut preserve
+    # exactement cette invariante.
+    active: bool = True
     # `AbilityVariablesMultiplierPercentage` de l'unité porteuse (BC, défaut 100). Le natif bake le
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability
     # affectées (`variablesAffectedByRarityBonus`) via `magnitude.ability_var(multiplier_pct=…)`. §17.21.

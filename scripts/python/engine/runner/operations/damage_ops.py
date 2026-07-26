@@ -372,6 +372,17 @@ class _DamageOpsMixin:
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce)
         if _ah is not None:
             death = death or _ah.get("death")
+        # `On(AttackDamageAttack = 10)` — 2e event de cloture d'`IdunBattle.Operations.
+        # FinishAttackOperation$$Execute`, gate `currentAttack@+0x2c` que CETTE operation vient de poser
+        # (`AttackDamageOperation$$Execute` : `*(lVar6 + 0x2c) = 1`). Emis a la SORTIE de l'operation
+        # parce que le vecteur de cloture du port (`after_hit_normal_attack`) vit au niveau MESSAGE et
+        # n'est PAS traverse par les attaques declenchees par un trigger — dont le TIR D'OVERWATCH, qui
+        # est justement le porteur du seul consommateur (cf. `attack_damage_attack_triggers`).
+        # `target_id` est ici la cible REELLEMENT frappee (#120bis, cf. le commentaire du champ `target`
+        # ci-dessous) : le natif emet cet event depuis l'AttackData de l'attaque effectivement resolue.
+        from .triggers.dispatch import attack_damage_attack_triggers   # lazy : cycle damage<->triggers
+        attack_damage_attack_triggers(state, attacker_id, target_id,
+                                      ranged=bool(_ranged), profile=_profile)
         # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
         # re-resolution d'`ExecuteInternal` a bascule l'attaque sur une remplacante (SwornProtector) :
         # les vecteurs AVAL du natif (after-hit d'`ExecuteHit`) portent l'AttackData de CETTE
@@ -673,6 +684,20 @@ class _DamageOpsMixin:
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
                                              profile=damage_profile, ability_type=ability_type,
                                              did_block=r["did_block"])
+        # `On(AttackDamageAttack = 10)` : `FinishAttackOperation$$Execute` l'emet APRES `On(9)` et
+        # SEULEMENT si `currentAttack@+0x2c` est pose, c'est-a-dire si l'attaque a traverse
+        # `AttackDamageOperation$$Execute`. Cote port, ce gate EST `is_attack_damage_op` (famille de
+        # factory : `AttackWithAttackDamage` vs `AttackWithAbilityDamage`). Une attaque d'ability de la
+        # famille ABILITY n'emet donc RIEN ici, comme le natif.
+        if is_attack_damage_op:
+            from .triggers.dispatch import attack_damage_attack_triggers
+            from .triggers.base import _is_ranged_position
+            # `ranged` POSITION-based, comme le vecteur frere `after_hit_ability_attack` (mirror
+            # `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack`) — aucun consommateur d'`On(10)` ne
+            # le lit aujourd'hui, mais le payload reste coherent entre les deux events de cloture.
+            attack_damage_attack_triggers(state, attacker_id, target_id,
+                                          ranged=_is_ranged_position(state, attacker_id, target_id),
+                                          profile=damage_profile)
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
                 "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

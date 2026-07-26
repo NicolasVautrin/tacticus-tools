@@ -1,6 +1,11 @@
 """Effet-triggers du namespace natif `IdunBattleLogic.Entities.Effects.*` — effets porteurs de leur
-propre trigger (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger). 1 classe par effet (VA citée) :
-- `Overwatch_AutoAttackEffect` — auto-attaque after-move.
+propre trigger (`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger). 1 classe par
+`Triggered()` natif (symbole cité) :
+- `Overwatch_AutoAttackEffect` — auto-attaque after-move (`RangedAutoAttackEffect$$CreateTargetTrigger`).
+- les TROIS `Triggered()` de `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`, qui
+  pilotent l'etat `EffectComponent.IsActive @+0x5c` de l'instance 1009 : activation au tour adverse,
+  desactivation au tour du porteur, desactivation des que le porteur attaque (« un seul tir par
+  activation », case-127 §8).
 - `ContaminatedEffect` — tile-effet posant le sous-effet -X% armure sur l'occupant.
 (Le DISPATCH itère ces classes via `EFFECT_TRIGGERS` dans `dispatch.py`.)"""
 from __future__ import annotations
@@ -75,10 +80,16 @@ def _ranged_auto_attack_is_active(state: State, owner_id: int) -> bool:
     Le NIVEAU natif de ce gate n'est PAS le trigger de tir (`CreateTargetTrigger`) : c'est l'etat
     `EffectComponent.IsActive @+0x5c` de l'instance d'effet, ecrit par `ActivateEffect`/`DeactivateEffect`
     et RELU par `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` avant
-    d'evaluer le trigger de cible. Le port n'a pas de flag `IsActive` par instance (case-160 : le canal de
-    seed `decisionView.units[].effects` DROPPE deja les effets `IsActive == 0`) -> on REPLIE la condition
-    d'activation dans le `matches` du tir, exactement comme le port repliait deja `AdditionalActivateTrigger`
-    (Pinned) avant #127. Le repli est observationnellement equivalent sur les vecteurs portes :
+    d'evaluer le trigger de cible.
+
+    Cette fonction est utilisee AUX DEUX NIVEAUX, et ce n'est pas une redondance :
+      * comme condition du trigger d'ACTIVATION (`RangedAutoAttackActivateOnTurnStart` -> ecrit le flag) ;
+      * REPLIEE dans le `matches` du TIR — exactement comme le port repliait deja
+        `AdditionalActivateTrigger` (Pinned) avant #127. Le repli reste indispensable : un replay-diff
+        SEEDE un etat mi-tour et dispatche directement l'after-move, sans jamais passer par un
+        `StartTurnOperation` (donc sans `On(0x12)`) ; sans lui, le seul flag rendrait le port permissif
+        sur ce regime, qui est celui de tous les tests de #127.
+    Le repli est observationnellement equivalent au flag sur les vecteurs portes :
 
       * `DoesNotHaveFlag(owner, ActiveAbilityUsed)` : le flag 2 n'est POSE que pendant le tour de l'owner
         (`IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution`) et n'est PURGE
@@ -90,10 +101,11 @@ def _ranged_auto_attack_is_active(state: State, owner_id: int) -> bool:
         (un move d'ennemi survenant PENDANT le tour de l'overwatcher — deplacement force — ne doit pas
         declencher l'overwatch, l'effet etant desactive depuis le debut de ce tour).
 
-    ⚠ NON PORTE ici (inventorie, case-127 §6) : le 3e `Triggered()` de la meme ArraySet
-    (`On(AttackDamageAttack=10, 1) & OwnerIsActor -> DeactivateEffect`) = « l'overwatch est CONSOMME des
-    que son porteur attaque » (donc apres SON PROPRE tir). Sans lui, un overwatcher offline peut tirer sur
-    PLUSIEURS movers ennemis dans le meme tour."""
+    Le 3e `Triggered()` de la meme ArraySet (`On(AttackDamageAttack=10, 1) & OwnerIsActor ->
+    DeactivateEffect`) = « l'overwatch est CONSOMME des que son porteur attaque » : il n'est PAS foldable
+    (il depend d'un EVENEMENT survenu PENDANT la fenetre, pas d'une condition constante) -> il est porte
+    en ECRITURE sur le flag `EffectComponent.IsActive @+0x5c` (`BaseEffect.active`), cf.
+    `RangedAutoAttackDeactivateOnAttack` plus bas."""
     if state.current_player_id is not None:                  # NOT IsTurnOf(owner@0x148)  (df@0xa0)
         ow = state.get_entity(owner_id)
         oc = ow.get_component(OwnerComponent) if ow is not None else None
@@ -113,6 +125,47 @@ def _ranged_auto_attack_is_active(state: State, owner_id: int) -> bool:
     return fl is None or not fl.has(UnitFlagsComponent.ACTIVE_ABILITY_USED)
 
 
+def _ranged_auto_attack_instances(state: State, owner_id: int) -> list:
+    """Les instances d'effet `Overwatch_AutoAttack` (1009) NON consommees portees par `owner_id` —
+    c'est-a-dire les entites-effet dont les 3 `Triggered()` de
+    `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` ecrivent
+    le `EffectComponent.IsActive @+0x5c` (`e.active`). Liste (et non instance unique) parce que le natif
+    raisonne PAR ENTITE-EFFET ; en pratique `AddEffectOperation` no-ope sur un meme-type deja present,
+    donc il y en a 0 ou 1. [] si l'etat n'a pas d'`EffectsState`."""
+    if state.effects is None:
+        return []
+    return [e for e in state.effects.by_unit.get(int(owner_id), [])
+            if not e.consumed and e.effect_type == OVERWATCH_AUTO_ATTACK]
+
+
+def _ranged_auto_attack_flag_is_set(state: State, owner_id: int) -> bool:
+    """Le flag `EffectComponent.IsActive @+0x5c` de l'instance 1009 du porteur — mirror EXACT du gate
+    que `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+    d'evaluer le trigger de CIBLE (`if (*(char *)(effectEntity + 0x5c) == 0) -> pas d'evaluation`), et
+    qu'il RELIT par cible dans sa boucle de drain (une desactivation en cours de drain stoppe les cibles
+    suivantes).
+
+    Aucune instance trouvee -> True : degradation PERMISSIVE (on ne fabrique pas un refus). Le cas se
+    presente quand l'etat n'a pas d'`EffectsState` ; si l'effet est reellement absent, c'est
+    `collect_effect_triggers` qui n'aura instancie aucun trigger."""
+    insts = _ranged_auto_attack_instances(state, owner_id)
+    return (not insts) or any(e.active for e in insts)
+
+
+def _set_ranged_auto_attack_active(state: State, owner_id: int, value: bool) -> bool:
+    """Ecrit `EffectComponent.IsActive @+0x5c` sur l'instance 1009 du porteur — mirror de
+    `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect` (`+0x5c = 1`) /
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` (`+0x5c = 0`, precede du gate
+    « deja inactif -> no-op »). Renvoie True si un flag a CHANGE (diagnostic ; permet aux behaviours
+    de ne rien emettre quand l'ecriture est un no-op, comme le natif)."""
+    changed = False
+    for e in _ranged_auto_attack_instances(state, owner_id):
+        if bool(e.active) != bool(value):
+            e.active = bool(value)
+            changed = True
+    return changed
+
+
 class OverwatchAutoAttack(EffectTrigger):
     """`Overwatch_AutoAttackEffect` (base `RangedAutoAttackEffect`) — auto-attaque after-move.
     Trigger de TIR `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateTargetTrigger =
@@ -125,13 +178,21 @@ class OverwatchAutoAttack(EffectTrigger):
     ⚠ Le tir n'est evalue par
     `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` que si l'instance
     d'effet est ACTIVE (`EffectComponent.IsActive @+0x5c`). Cet etat est pilote par les 3 `Triggered()` de
-    `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` ; sa
-    condition d'ACTIVATION est repliee ici par `_ranged_auto_attack_is_active` (#127) — c'est elle qui
-    porte `DoesNotHaveFlag(owner, ActiveAbilityUsed)` et `NOT HasEffect(owner, Pinned)`."""
+    `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`, portes
+    en trois classes soeurs (`RangedAutoAttack{ActivateOnTurnStart,DeactivateOnTurnStart,
+    DeactivateOnAttack}`) ; sa condition d'ACTIVATION est de plus repliee ici par
+    `_ranged_auto_attack_is_active` (#127) — c'est elle qui porte `DoesNotHaveFlag(owner,
+    ActiveAbilityUsed)` et `NOT HasEffect(owner, Pinned)` sur les etats SEEDES mi-tour."""
     event_id = EventTriggerType.UnitAfterMove
     effect_type = OVERWATCH_AUTO_ATTACK
 
     def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        # Gate `EffectComponent.IsActive @+0x5c` de l'instance — mirror EXACT du premier test de
+        # `EvaluateEffectTriggerTargets`, AVANT toute evaluation du trigger de cible. C'est lui qui
+        # porte le 3e `Triggered()` (« un seul tir par activation ») : le tir de l'overwatcher a
+        # desactive SON instance, donc le mover SUIVANT ne declenche plus rien.
+        if not _ranged_auto_attack_flag_is_set(state, self.owner_id):
+            return False
         mover = ev.actor_id                                   # l'unité qui vient de bouger
         ow = state.get_entity(self.owner_id)
         mv = state.get_entity(mover)
@@ -178,6 +239,99 @@ class OverwatchAutoAttack(EffectTrigger):
                                             is_overwatch=True)
         return {"effect": "Overwatch_AutoAttack", "attacker": self.owner_id,
                 "target": ev.actor_id, "result": res}
+
+
+# --- Les 3 `Triggered()` de `CreateHandleTriggerAbilitiesInternal` : l'ETAT ACTIF de l'instance -----
+#
+# `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` rend un
+# `ArraySet` de TROIS `Triggered()` qui ne font qu'une chose : ecrire `EffectComponent.IsActive @+0x5c`
+# de l'instance (`effect@0x150`). Lus 1:1 au decompile :
+#
+#   (1) On(0x12 = TurnStart_EffectActivation)                        # BaseEffect$$On -> DSLFactory$$On(.., false)
+#         & NOT IsTurnOf(owner@0x148)                                # df@0xa0
+#         & ( HasEffect(owner, IgnoreUsedAbilityInOverwatch = 0x516)
+#             | DoesNotHaveFlag(owner, ActiveAbilityUsed = 2) )
+#         & AdditionalActivateTrigger()                              # vtable +0x738 = NOT Pinned
+#       -> ActivateEffect(effect@0x150)
+#   (2) On(0x12, 1) & IsTurnOf(owner@0x148)   -> DeactivateEffect(effect@0x150)
+#   (3) On(10 = AttackDamageAttack, 1) & OwnerIsActor -> DeactivateEffect(effect@0x150)
+#
+# Chacun = UNE classe ci-dessous (1 `Triggered()` natif = 1 artefact offline), toutes enregistrees dans
+# `EFFECT_TRIGGERS[1009]` a cote du trigger de TIR (`OverwatchAutoAttack`) — l'`ArraySet` natif porte
+# bien N triggers pour un meme effet. Elles sont evaluees par
+# `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`, qui — contrairement
+# a `EvaluateEffectTriggerTargets` — n'applique AUCUN gate `IsActive` : c'est ce qui permet a (1) de
+# RE-ACTIVER une instance desactivee (sinon l'overwatch s'eteindrait definitivement). Le port fait pareil :
+# `collect_effect_triggers` ne filtre PAS sur `e.active`.
+#
+# ⚠ CONJOINT NON QUALIFIE : le 2e argument de `DSLFactory$$On(ctx, evt, bool)` selectionne un trigger
+# pre-construit du contexte (`ctx@+0x128` si false, `ctx@+0x98` si true, cf.
+# `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`). `ctx@+0x128` est la classe qu'un `is`-test de
+# `IdunBattle.Entities.Effects.BaseEffect$$NeedsRefreshing` traite comme trigger TRIVIAL (= toujours vrai) ;
+# `ctx@+0x98` (present sur (2) et (3), absent de (1)) n'est PAS qualifie — il est VRAI dans l'execution
+# reelle (ground truth live : le tir desactive bien l'overwatch), et le port ne le modelise pas.
+class RangedAutoAttackActivateOnTurnStart(EffectTrigger):
+    """`Triggered()` (1) — ACTIVE l'instance au debut d'un tour qui n'est PAS celui du porteur.
+    `matches` = la conjonction lue plus haut (`_ranged_auto_attack_is_active`) ; `execute_behaviour` =
+    `ActivateEffect(effect@0x150)` = `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect`
+    (`+0x5c = 1`). C'est le CONTREPOIDS de (2)/(3) : sans lui un overwatch consomme ne reviendrait
+    jamais."""
+    event_id = EventTriggerType.TurnStart_EffectActivation
+    effect_type = OVERWATCH_AUTO_ATTACK
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        return _ranged_auto_attack_is_active(state, self.owner_id)
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        if not _set_ranged_auto_attack_active(state, self.owner_id, True):
+            return None                                  # deja actif -> aucune ecriture (no-op)
+        return {"effect": "Overwatch_AutoAttack", "owner": self.owner_id, "activated": True}
+
+
+class RangedAutoAttackDeactivateOnTurnStart(EffectTrigger):
+    """`Triggered()` (2) — DESACTIVE l'instance au debut du tour DE SON PORTEUR (`IsTurnOf(owner@0x148)`,
+    df@0xa0). Observationnellement redondant avec le conjoint `NOT IsTurnOf(owner)` replie dans le
+    `matches` du tir, mais porte quand meme : 1 `Triggered()` natif = 1 classe, et c'est LUI qui explique
+    pourquoi 1009 est absent de `decisionView` pendant le tour de son porteur."""
+    event_id = EventTriggerType.TurnStart_EffectActivation
+    effect_type = OVERWATCH_AUTO_ATTACK
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        if state.current_player_id is None:              # etat sans tour courant -> conjoint inerte
+            return False
+        ow = state.get_entity(self.owner_id)
+        oc = ow.get_component(OwnerComponent) if ow is not None else None
+        return (oc is not None and oc.player is not None
+                and int(oc.player) == int(state.current_player_id))
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        if not _set_ranged_auto_attack_active(state, self.owner_id, False):
+            return None                                  # gate natif « deja inactif -> no-op »
+        return {"effect": "Overwatch_AutoAttack", "owner": self.owner_id, "deactivated": "turn_of_owner"}
+
+
+class RangedAutoAttackDeactivateOnAttack(EffectTrigger):
+    """`Triggered()` (3) — **UN SEUL TIR PAR ACTIVATION** : `On(AttackDamageAttack = 10, 1) &
+    OwnerIsActor -> DeactivateEffect(effect@0x150)`. Des que le PORTEUR de l'effet est l'ACTEUR d'une
+    attaque-a-degats, son overwatch est consomme.
+
+    `OwnerIsActor` = `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor`, qui construit son trigger
+    avec le couple (owner@0x148, actor@0x158) — donc « l'acteur de l'evenement est le porteur ».
+
+    GROUND TRUTH LIVE (case-127 §6.1) : au 1er deplacement ennemi entrant dans la portee, les DEUX
+    overwatchers tirent (`hp 400000 -> 385014`) et 1009 disparait des DEUX ; le deplacement SUIVANT ne
+    declenche RIEN (`delta 0`). Chaque overwatcher desactive SA propre instance via SON propre tir (le
+    tir est une attaque normale -> `AttackDamageOperation`), d'ou la disparition symetrique."""
+    event_id = EventTriggerType.AttackDamageAttack
+    effect_type = OVERWATCH_AUTO_ATTACK
+
+    def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        return int(ev.actor_id) == int(self.owner_id)    # OwnerIsActor (owner@0x148 == actor@0x158)
+
+    def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
+        if not _set_ranged_auto_attack_active(state, self.owner_id, False):
+            return None                                  # gate natif « deja inactif -> no-op »
+        return {"effect": "Overwatch_AutoAttack", "owner": self.owner_id, "deactivated": "owner_attacked"}
 
 
 class ContaminatedTileEffect(TileEffectTrigger):

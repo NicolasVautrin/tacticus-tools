@@ -42,10 +42,17 @@ class EffectsState:
         return cls(by_unit=bu)
 
     def active_effects(self, unit_id: int, unit_state: Mapping | None = None) -> list[BaseEffect]:
-        """Effets ACTIFS de l'unité = non consommés, non expirés, `is_active(state)` vrai. Renvoie des
-        instances `BaseEffect` (consommées par `build_attacker_modifiers_from_effects` / `hits_bonus_from_effects`)."""
+        """Effets ACTIFS de l'unité = non consommés, non expirés, flag `EffectComponent.IsActive @+0x5c`
+        (`e.active`) posé, ET `is_active(state)` (la `CreateActiveCondition`) vraie. Renvoie des
+        instances `BaseEffect` (consommées par `build_attacker_modifiers_from_effects` / `hits_bonus_from_effects`).
+
+        Les DEUX conjoints sont natifs et distincts : le FLAG est ce qu'ecrivent les feuilles DSL
+        `ActivateEffect`/`DeactivateEffect` (et ce que lit `EntityExtensions$$IsOwnerOfEffect` en mode
+        `activeOnly`) ; la CONDITION est reevaluee a la lecture (mirror de `CreateActiveCondition`, cf.
+        `runner/operations/refresh_effects.py`). Un effet desactive par une feuille ne contribue plus —
+        exactement comme il disparait de `decisionView.units[].effects` cote live."""
         return [e for e in self.by_unit.get(int(unit_id), [])
-                if not e.consumed and not e.expired and e.is_active(unit_state)]
+                if not e.consumed and not e.expired and e.active and e.is_active(unit_state)]
 
     def has_effect(self, unit_id: int, effect_type: int | None = None,
                    name: str | None = None) -> bool:

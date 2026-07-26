@@ -41,6 +41,9 @@ from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfF
                    _on_fire_damage_ability, _fire_of_absolution_after_attack)
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
+                              RangedAutoAttackActivateOnTurnStart,
+                              RangedAutoAttackDeactivateOnTurnStart,
+                              RangedAutoAttackDeactivateOnAttack,
                               OVERWATCH_AUTO_ATTACK, CONTAMINATED_TILE)
 from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           DecoysAndMisdirectionBuffFriendsAbility,
@@ -250,7 +253,14 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # **`ArraySet`** (N `Triggered(trigger, behaviour)` par effet) — ex. `PhoenixGem_CanReviveEffect
 # IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` en enregistre DEUX. Un dict 1->1 ne pouvait pas les porter.
 EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
-    OVERWATCH_AUTO_ATTACK: [OverwatchAutoAttack],
+    # 1009 : le trigger de TIR (`CreateTargetTrigger`, On(4)) + les TROIS `Triggered()` de
+    # `IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal` qui
+    # pilotent `EffectComponent.IsActive @+0x5c` de l'instance (activation au tour adverse, desactivation
+    # au tour du porteur, desactivation des que le porteur attaque = « un seul tir par activation »).
+    OVERWATCH_AUTO_ATTACK: [OverwatchAutoAttack,                      # On(4)    -> le TIR
+                            RangedAutoAttackActivateOnTurnStart,      # On(0x12) -> ActivateEffect
+                            RangedAutoAttackDeactivateOnTurnStart,    # On(0x12) -> DeactivateEffect
+                            RangedAutoAttackDeactivateOnAttack],      # On(10)   -> DeactivateEffect
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
     # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
@@ -598,6 +608,40 @@ def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int
     AUCUN autre trigger porte n'ecoute `event_id == 15`."""
     ev = TriggerEvent(EventTriggerType.DamageTaken, source_id, target_id,
                       ranged=False, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
+def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int,
+                                  ranged: bool, profile: Optional[str] = None) -> list[dict]:
+    """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.
+    FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque :
+
+        FUN_180026490(0x50, .., 9, entities)                     # On(9 = Attack)   : TOUJOURS
+        if (currentAttack@+0x2c != 0)
+            FUN_180026490(0x50, .., 10, entities)                # On(10)           : GATE
+
+    Le champ `+0x2c` du `currentAttack` est pose par `IdunBattle.Operations.AttackDamageOperation$$
+    Execute` (`*(undefined1 *)(lVar6 + 0x2c) = 1` juste apres `GetAttackHits`) — l'event 10 signifie
+    donc « cette attaque a comporte une ATTAQUE-A-DEGATS », par opposition a une attaque d'ability
+    resolue par `AbilityDamageOperation`. Cote port, ce gate est EXACTEMENT le drapeau
+    `is_attack_damage_op` deja threade par la facade d'attaque d'ability.
+
+    ⚠ SITE D'EMISSION (divergence structurelle ASSUMEE, documentee) : le port n'a pas de
+    `FinishAttackOperation` ; ses vecteurs de cloture `On(0x26)`/`On(9)` vivent au niveau MESSAGE
+    (`DamageHandler.visit_AttackUnitMessage` -> `after_hit_normal_attack`) et ne sont donc PAS
+    traverses par les attaques declenchees par un trigger — dont le TIR D'OVERWATCH lui-meme, qui
+    appelle directement `AttackDamageOperation.execute`. Emettre `On(10)` la aurait rate le seul
+    consommateur porte. Il est donc emis a la SORTIE des OPERATIONS d'attaque-a-degats (le foyer
+    natif du `+0x2c`), ce qui couvre tous les appelants. Consequence : une attaque native unique qui
+    enchainerait plusieurs `AttackDamageOperation` emettrait ici N fois au lieu d'1 — sans effet, le
+    seul consommateur (`RangedAutoAttackDeactivateOnAttack`) etant idempotent (`DeactivateEffect`
+    porte lui-meme le gate natif « deja inactif -> no-op »).
+
+    Consommateur porte : `RangedAutoAttackDeactivateOnAttack` (3e `Triggered()` de
+    `RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal`) = « un seul tir d'overwatch par
+    activation ». No-op pour toute unite sans effet 1009 actif."""
+    ev = TriggerEvent(EventTriggerType.AttackDamageAttack, attacker_id, target_id,
+                      ranged=ranged, profile=profile)
     return evaluate_trigger_operation(state, ev)
 
 
