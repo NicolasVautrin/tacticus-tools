@@ -180,6 +180,46 @@ class MartialKatahDmgReductionEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(red)))   # owner=défenseur (l'effet est sur la cible)
 
 
+class PrioritisedEfficiencyDmgReductionEffect(BaseEffect):
+    """`PrioritisedEfficiency_DmgReduction` (EffectType 0x5cb=**1483**) — volet DEFENSIF de la stance
+    « Fortify Takeover » du trait `PrioritisedEfficiency` (1059, x3 Votann). Jumeau exact de
+    `PrioritisedEfficiencyExtraDmgEffect` (extra_damage.py) : MEME trait, MEME source de config, face
+    opposee du pipeline. #121.
+
+    MIRROR 1:1 de
+    `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_DmgReductionEffect$$CreateEffectDamageMalusForDefense` :
+
+        EffectBonus.ForPercentDecrease( DSLFactory.get_OwnerIsTarget,
+                                        DSLFactory.ConfigConst(0x72, source@effet+0x60) )
+
+    Aucun autre noeud : PAS de gate `IsNormalAttack` (≠ `MartialKatah_DmgReduction` ci-dessus, meme
+    ConfigConst 0x72 mais gate normal-only), PAS de gate melee/profil, pas d'`ActiveCondition`.
+    ⇒ −`prioritisedEfficiencyDmgReductionPct` % (= 33) sur **TOUT** degat recu par le porteur, quel
+    que soit le vecteur — i2 : « Fortify Takeover: Takes -{[dmgReductionPct]}% Damage. »
+
+    `ConfigConst(0x72)` = constante `dmgReductionPct` de la config de la triggered derivee du trait
+    (`AbilityOrEffect(0x5ce = 1486 = TriggeredAbilityType.PrioritisedEfficiency)`, pose par le ctor
+    `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_DmgReductionEffect$$.ctor`) → gameconfig
+    `globalValues.traitVariables.prioritisedEfficiencyDmgReductionPct`. `owner_is_caster=False` :
+    l'effet vit sur le DEFENSEUR (`get_OwnerIsTarget`).
+
+    POSE (hors perimetre #121) :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.APrioritisedEfficiencyAbility$$GetSetDefensiveStanceBehaviour`
+    (`RemoveAllStanceEffects & AddEffect(1480 marqueur) & AddEffect(1483 CET effet) &
+    SetPersistentData(...)`) — substrat persistent-data absent du port, l'effet est SEEDE depuis
+    `decisionView.effects`."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        # ConfigConst(0x72) = trait var `prioritisedEfficiencyDmgReductionPct` (= 33). Le natif
+        # n'a QUE `get_OwnerIsTarget` -> aucun gate ici.
+        red = trait_var("PrioritisedEfficiency", "prioritisedEfficiencyDmgReductionPct")
+        if not red:
+            return None
+        return for_percent_decrease(False, abs(int(red)))   # owner=defenseur (l'effet est sur la cible)
+
+
 class VexillaMagnificaDmgReductionEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.VexillaMagnifica_DmgReductionEffect$$CreateDamageDefenseModifier` (active
     VexillaMagnifica 1183, custoVexilusPraetor — effet 0x567=1383, nom capté

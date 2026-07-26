@@ -66,6 +66,8 @@ from .loki import (
     PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
+    PrioritisedEfficiencyExtraDmgEffect,
+    PrioritisedEfficiencyDmgReductionEffect,
     RitesOfBattleExtraDmgEffect,
     ShadowInTheWarpLessDmgEffect,
     SmashaEadExtraDamageEffect,
@@ -425,6 +427,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CreatePiercingBonusForAttack` = ForAddition((OwnerIsCaster & CurrentAbilityIs(1206)) &
     # (HasTrait(target,1039)|HasTrait(target,1013)|HasTrait(target,5)), ConfigVar(0x3f=63 extraPierceRatio)).
     "GravitonRifle_ExtraPierce": GravitonRifleExtraPierceEffect,
+    # Trait PrioritisedEfficiency (0x423=1059, LES TROIS Votann : votanBeserk/votanIronmaster/votanUthar)
+    # -- systeme de STANCES a 5 effets (#121). Les DEUX effets porteurs de degat sont portes ici ; les
+    # deux MARQUEURS de stance (1479 HostileAcquisition / 1480 FortifyTakeover) n'ont AUCUNE methode
+    # native (ils ne servent qu'aux `HasEffect` des behaviours de stance et de GrimEfficiency) -> BaseEffect
+    # nu = fidele ; `PrioritisedEfficiency_ExtraMovement` (1482) = stat-mod MOVEMENT non porte (residu).
+    #  - 0x5c9=1481 ExtraDmg (stance « Hostile Acquisition ») :
+    #    `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+    #    = `ForPercentIncrease(get_OwnerIsCaster, ConfigConst(0xf))` -> +25 % (%-list ATTAQUANT, POST
+    #    percage/armure) sur TOUTES les attaques du porteur (normales ET abilities, melee ET distance).
+    #  - 0x5cb=1483 DmgReduction (stance « Fortify Takeover ») :
+    #    `...PrioritisedEfficiency_DmgReductionEffect$$CreateEffectDamageMalusForDefense`
+    #    = `ForPercentDecrease(get_OwnerIsTarget, ConfigConst(0x72))` -> -33 % sur TOUT degat recu.
+    "PrioritisedEfficiency_ExtraDmg": PrioritisedEfficiencyExtraDmgEffect,
+    "PrioritisedEfficiency_DmgReduction": PrioritisedEfficiencyDmgReductionEffect,
     # KanOpener : nom d'EffectType à confirmer avant inscription.
 }
 

@@ -1,6 +1,6 @@
 > Tranche de la campagne de classification [case-220](../case-220-classification-campaign.md) — protocole, sommaire et ledger §T (prerequis transverses) dans le fichier maitre.
 
-### §6.10 Votann (8 items après exclusion PrioritisedEfficiency x4 ; namespace natif « Loki » ; IronkinSteeljack COMBAT porté — reste 7 items)
+### §6.10 Votann (namespace natif « Loki ») — IronkinSteeljack / AugmentedAssault / GravitonRifle / AncestralFortune (volet actif) PORTES ; trait `PrioritisedEfficiency` volet DEGAT PORTE (#121)
 
 ```
 [1219 IronkinSteeljack | votanMemnyr]  — [opus] direct — PORTE + valide offline (etat reel), live-cast BLOQUE headless
@@ -166,6 +166,92 @@ HORS PERIMETRE (inchange) : `…AncestralFortune_CountResetAbility$$CreateTrigge
 (persistent-data compteur, ResetActiveAbility, predicat WasBlock/UnitBlocked) ; playbook
 `…AncestralFortunePlaybook$$MakeDamagePredictions`/`$$ShouldExecute`.
 ```
+
+```
+[PrioritisedEfficiency | trait 0x423=1059, LES TROIS Votann]  — VOLET DEGAT PORTE + VALIDE LIVE (#121)
+Systeme de STANCES a 5 effets (1479 marqueur HostileAcquisition, 1480 marqueur FortifyTakeover,
+1481 ExtraDmg, 1482 ExtraMovement, 1483 DmgReduction). i2 : « au debut de chaque tour et jusqu'a la fin
+de ce tour, l'unite gagne un effet selon sa stance ; quand un allie a PrioritisedEfficiency utilise une
+active, la stance bascule pour TOUS les allies portant le trait. Hostile Acquisition : +{[extraDmgPct]}%
+Damage with all attacks et +1 Movement. Fortify Takeover : -{[dmgReductionPct]}% Damage. »
+
+PORTE (les DEUX faces de degat, mirror 1:1) :
+  `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+      = EffectBonus.ForPercentIncrease( DSLFactory.get_OwnerIsCaster, DSLFactory.ConfigConst(0xf) )
+  `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_DmgReductionEffect$$CreateEffectDamageMalusForDefense`
+      = EffectBonus.ForPercentDecrease( DSLFactory.get_OwnerIsTarget, DSLFactory.ConfigConst(0x72) )
+-> `engine/entities/effects/loki/extra_damage.py::PrioritisedEfficiencyExtraDmgEffect` (jumeau EXACT de
+`RapidAssault_ExtraDamage`) et `.../damage_reduction.py::PrioritisedEfficiencyDmgReductionEffect`
+(jumeau de `MartialKatah_DmgReduction`, SANS son gate `IsNormalAttack`) ; factory.py 1481/1483.
+
+REPONSES AUX 4 QUESTIONS D'ETAGE (toutes LUES au decompile) :
+ * ATTAQUANT, pas reduction cible : le seul noeud de condition est `get_OwnerIsCaster`, et l'effet
+   n'expose AUCUN `CreateEffectDamageMalusForDefense` -> un porteur ATTAQUE ne gagne rien. (Le volet
+   defensif est l'effet SEPARE 1483, `get_OwnerIsTarget`, l'autre stance.)
+ * TOUTES les attaques : pas de `IsNormalAttack`, pas de `IsMeleeAttack`/`IsRangedAttack`, pas de
+   `HasTrait(cible,..)`, pas de `CreateActiveCondition`, pas de `CreateTargetSelector` -> attaque
+   NORMALE **et** attaques d'ABILITY, melee comme distance, prediction comme combat.
+ * ETAGE : `ForPercentIncrease` -> %-list du `DamageModifiers` ATTAQUANT
+   (`IdunBattle.Core.Services.DamageModifiers$$Add`), consommee par
+   `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` **APRES** percage/armure
+   (`...DamagePrediction$$CalculateBaseDamageWithAllModifiers`) et AVANT l'additif @+0x10 ; les
+   limites de trait (`ApplyTraitDamageLimitsTo*`) et le block restent en AVAL, inchanges.
+ * 25 n'est PAS un litteral : `ConfigConst(0xf)` -> `ConfigAmount$$Calculate` ->
+   `AbilityConfiguration$$GetNumberConstant(0xf)` de la config designee par la SOURCE de l'effet
+   (`AbilityOrEffect(0x5ce)` = **TriggeredAbilityType**.PrioritisedEfficiency=1486, PAS EffectType
+   1486 = AncestralFortune_ExtraBlockChance) = `globalValues.traitVariables
+   .prioritisedEfficiencyExtraDmgPct`. COMMENT ON LE SAIT malgre la DEDUPLICATION IL2CPP des deux
+   ctors (corps byte-identiques -> un seul code) : la table FRIDA (amont) attribue le RVA `f66060` a
+   `PrioritisedEfficiency_ExtraDmgEffect..ctor` et n'a AUCUNE ligne pour
+   `PrioritisedEfficiency_DmgReductionEffect..ctor`, tandis que ghidra (aval) a pose l'etiquette
+   `...PrioritisedEfficiency_DmgReductionEffect$$.ctor` sur `180f66060`. Les deux noms designent donc
+   le MEME corps, celui qui lit `BaseEffect(AbilityOrEffect(0x5ce), 1)` — piege classique : se fier a
+   la seule etiquette ghidra aurait fait croire que 1481 n'a pas de ctor lisible.
+   Clef 0xf = generique `extraDmgPct` (precedents `rapidAssaultExtraDmgPct`,
+   et 0x72 = `<trait>DmgReductionPct` chez MartialKatah) ; placeholders i2 `{[extraDmgPct]}` idem.
+
+DISCRIMINATION D'ETAGE — mesure qui invalide le cas nominal de #113 : `GetDamageWithPiercing` =
+`max(0, dmg-armure, dmg x percage/100)`. En regime PLANCHER-PERCAGE, +25 % pre-percage et post-percage
+donnent le MEME nombre. Sur `necroWarden` (armure 2008, percage 50, bornes [1595,2394]) les 4 coups
+sont dans ce regime -> ecart POST/PRE = 0 : le cas #113 prouvait la MAGNITUDE, pas l'ETAGE. Etat
+CRAFTE `genesMagus` (armure 1106) : 3 coups sur 4 basculent en regime ARMURE si le bonus est pose
+pre-percage -> ecarts 180/149/203 ; le live valide POST sur les 4 (1286/1256/1309/1081 bit-exact) et
+refute PRE sur les 3 discriminants. (`adeptRetributor`, armure 1205 : 2 coups discriminants, idem.)
+
+NON PORTE (residus nommes) :
+ * POSE/BASCULE des stances — `...APrioritisedEfficiencyAbility$$GetSetOffensiveStanceBehaviour`
+   (= `RemoveAllStanceEffects & AddEffect(1479) & AddEffect(1481) &
+   AddStaticStatModifierEffectToOwner(1482) & SetPersistentData`), `$$GetSetDefensiveStanceBehaviour`,
+   `$$GetRemoveAllStanceEffectsBehaviour`, `$$GetStanceDefiningUnit`, `$$GetSwitchStanceCounter`,
+   `$$GetShouldSwitchStance`, `$$IsTeamCurrentlyInOffensiveStance` + les 4 triggered
+   `PrioritisedEfficiency_{Init,UpdateStance,Counter,ResetCounter}Ability`. Trigger d'init =
+   `OnOwnerSpecificAbilityInit & AmountIsGreaterThanZero(CurrentPlayerTurnsStarted)` ; behaviour =
+   `If( AreEqual(self, GetStanceDefiningUnit) OR Not(HasEffect(stanceDefiner, 1480)), offensive,
+   defensive )` -> **stance OFFENSIVE par defaut** (ce que l'etat live capte montre). La bascule lit
+   `GetPersistentData`/`AmountIsOdd(GetSwitchStanceCounter)` : PREREQUIS = substrat persistent-data
+   (le MEME que FuryFromTheDelve / AncestralFortune-reset). En attendant, les effets sont SEEDES
+   depuis `decisionView.effects` (le replay live-confronte est donc exact ; une bataille 100 %
+   offline n'aurait pas la stance).
+ * 1482 `PrioritisedEfficiency_ExtraMovement` (stat-mod MOVEMENT, template Waaagh/BlackRage) :
+   ANOMALIE non tranchee — son ctor `...PrioritisedEfficiency_ExtraMovementEffect$$.ctor` construit
+   `StaticStatModifierEffect(AbilityOrEffect(0x50f), ...)` avec 0x50f = 1295 =
+   TriggeredAbilityType.**PriorityReclamation** (une AUTRE ability), alors que 1481/1483 pointent
+   bien sur 0x5ce. Tant que cette source n'est pas expliquee, le porter serait deviner la magnitude
+   -> laisse en residu (aucun effet sur le degat).
+ * Les marqueurs 1479/1480 restent `BaseEffect` nu : ils n'ont AUCUNE methode native (ils ne servent
+   qu'aux `HasEffect` des behaviours de stance et de `GrimEfficiency`) — les porter serait un
+   double-compte.
+GATE LEVE : `GrimEfficiency` (auras gatees `HasEffect(1479)`/`HasEffect(1480)`) n'est plus bloque par
+l'absence des marqueurs — ceux-ci sont SEEDES et lisibles ; il reste bloque par ses propres prerequis
+(aura rayon 2, pierce-ratio en aura).
+```
+
+**MAJ #121 (trait PrioritisedEfficiency, volet degat)** : le SHIM de mesure que #113 avait pose dans
+`test_votann_lot1_live.py` (contribution %-degat recablee a la main sur l'instance d'effet) est
+**SUPPRIME** ; la confrontation port/live des 3 actives Votann passe desormais par le pipeline complet.
+Nouveau fichier `tests/engine/runner/test_prioritised_efficiency_live.py` (etage discriminant, vecteur
+attaque NORMALE, orientation attaquant/defenseur, magnitude-config, inertie des marqueurs) et probe
+`scripts/python/probe_121_prioritised_efficiency.py` (phases `regime` / `normal` / `defense`).
 
 **MAJ #113 (lot 1 livré)** : `IronkinSteeljack` (1219), `AugmentedAssault` (1221), `GravitonRifle`
 (1206) et le VOLET ACTIF d'`AncestralFortune` (1207) sont PORTÉS et VALIDÉS LIVE, avec leurs 4 effets

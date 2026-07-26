@@ -76,7 +76,14 @@ mais un trait SANS aucune reference n'est PAS forcement un no-op.
 **D. AI-policy / synapse / meta (hors moteur de degat)** :
 - `InstinctiveBehaviour` (x23) : politique de ciblage AI hors synapse (DROPPED, cf. memoire instinctive_fatigue).
 - `Synapse` (x32) : "amis a <=2 hex ignorent Instinctive + BattleFatigue" -> contre Instinctive/Fatigue (aura AI/effet).
-- `PrioritisedEfficiency` (x7) : effet per-tour selon la stance (complexe, effet/AI).
+- `PrioritisedEfficiency` (x7) : effet per-tour selon la stance. **VOLET DEGAT FAIT #121** — les 2 effets
+  porteurs de degat sont portes et valides live : 1481 `ExtraDmg` (+`prioritisedEfficiencyExtraDmgPct`% =
+  25, %-list ATTAQUANT **post-percage/armure**, gate `get_OwnerIsCaster` SEUL -> toutes les attaques,
+  normales ET abilities) et 1483 `DmgReduction` (-33 % de TOUT degat recu, `get_OwnerIsTarget`).
+  RESTE : la POSE/BASCULE des stances (`APrioritisedEfficiencyAbility$$GetSetOffensiveStanceBehaviour` +
+  les 4 triggered) — prerequis **persistent-data** ; et 1482 `ExtraMovement` (source de config
+  `AbilityOrEffect(0x50f)` incoherente, cf. `case-220/votann.md`). Les marqueurs 1479/1480 n'ont aucune
+  methode native (inertes par construction). Details : `docs/rl/case-220/votann.md`.
 - `Boss` (x6), `PermaDeath` (x4), `NonAttacking` (x2) : flags meta/campagne/AI, pas de math de combat.
 
 ## Priorisation port (combat-math, valides spawnable)

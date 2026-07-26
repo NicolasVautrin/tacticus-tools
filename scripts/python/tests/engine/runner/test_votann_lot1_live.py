@@ -144,38 +144,23 @@ def _snap_unit(snap, uid):
     return next((u for u in (snap.get("units") or []) if u.get("entityId") == uid), {})
 
 
-# --- SHIM DE MESURE : le trait `PrioritisedEfficiency` est HORS PERIMETRE de #113 ---------------
-# Les TROIS porteurs Votann le portent, et sa stance « Hostile Acquisition » (celle du 1er tour) pose
-# l'effet `PrioritisedEfficiency_ExtraDmg` = **+prioritisedEfficiencyExtraDmgPct % (=25) de degat sur
-# toutes leurs attaques** (i2 + `globalValues.traitVariables`). Cet effet est bien PRESENT dans l'etat
-# rejoue (capte par `decisionView`), mais sa classe n'est pas portee -> `BaseEffect` nu = contribution
-# nulle : le port sous-estime TOUT total de degat Votann d'exactement ce facteur, quelle que soit
-# l'ability. Le porter ici serait sortir du perimetre (systeme de POSTURES a 5 effets x7 porteurs).
-#
-# On installe donc, DANS LE TEST, la seule contribution qui manque — valeur LUE du gameconfig, pas
-# ajustee — pour que la confrontation porte sur les etages QUE ce lot porte (bornes / coups / percage /
-# armure / crit / block). Si le total devient EXACT, l'ecart etait ENTIEREMENT ce facteur : c'est une
-# mesure d'etage, pas un scalaire fitte. Le residu reste explicite dans docs/rl/case-220/votann.md.
-_STANCE_EFFECT = "PrioritisedEfficiency_ExtraDmg"
+# --- Trait `PrioritisedEfficiency` : PORTE (#121) — plus AUCUN shim ------------------------------
+# Les TROIS porteurs Votann portent ce trait, et sa stance « Hostile Acquisition » (celle du 1er tour)
+# pose l'effet `PrioritisedEfficiency_ExtraDmg` (0x5c9=1481) = **+prioritisedEfficiencyExtraDmgPct %
+# (=25) de degat sur TOUTES leurs attaques**. #113 le neutralisait derriere un SHIM DE MESURE local
+# (contribution recablee a la main dans le test) ; #121 a porte la classe d'effet
+# (`PrioritisedEfficiencyExtraDmgEffect`, mirror de
+# `IdunBattle.Entities.Effects.Loki.PrioritisedEfficiency_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+# = `ForPercentIncrease(get_OwnerIsCaster, ConfigConst(0xf))`), le shim est SUPPRIME et la
+# confrontation port/live se fait desormais avec le pipeline COMPLET, sans aucune compensation.
+_PE_EXTRA_DMG = "PrioritisedEfficiency_ExtraDmg"
 
 
-def _stance_pct() -> int:
+def _pe_extra_dmg_pct() -> int:
+    """ORACLE de magnitude — `ConfigConst(0xf)` = `globalValues.traitVariables
+    .prioritisedEfficiencyExtraDmgPct`. Lu de la CONFIG, jamais un scalaire fige dans le test."""
     from engine.entities.effects.magnitude import trait_var
     return int(trait_var("PrioritisedEfficiency", "prioritisedEfficiencyExtraDmgPct") or 0)
-
-
-def _arm_stance_shim(st, unit_id) -> bool:
-    """Donne sa contribution %-degat a l'instance `PrioritisedEfficiency_ExtraDmg` deja presente sur
-    `unit_id`. Rend False si l'effet n'est pas la (rien a compenser)."""
-    from engine.services.effect_bonus import for_percent_increase
-    pct = _stance_pct()
-    hit = False
-    for e in ((st.effects.by_unit.get(int(unit_id)) or []) if st.effects is not None else []):
-        if (getattr(e, "name", "") or "") == _STANCE_EFFECT and not e.consumed:
-            e.create_effect_damage_bonus_for_attack = (
-                lambda *a, _p=pct, **k: for_percent_increase(True, _p))
-            hit = True
-    return hit
 
 
 def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_id, want_dist,
@@ -238,10 +223,10 @@ def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_
     for h in live_hits:
         h["dmg"], prev = prev - h["hp"], h["hp"]
 
-    def replay(drop_effects=(), stance=True):
-        """Etat-avant FRAIS (rng cale) + rejeu du MEME cast par le PORT. `drop_effects` = noms
-        d'effets a CONSOMMER avant le cast (contre-cas A/B : on retire le canal etudie).
-        `stance` = installe le SHIM de mesure `PrioritisedEfficiency_ExtraDmg` (cf. `_arm_stance_shim`)."""
+    def replay(drop_effects=()):
+        """Etat-avant FRAIS (rng cale) + rejeu du MEME cast par le PORT, AUCUNE compensation locale
+        (#121 : le shim de stance a ete retire, le trait est porte). `drop_effects` = noms d'effets a
+        CONSOMMER avant le cast (contre-cas A/B : on retire le canal etudie)."""
         st = load_state(dv0, ob0, snap0, board=board_obj)
         if isinstance(rng0, dict) and rng0.get("mt"):
             rng = IntBasedMersenneTwister()
@@ -253,8 +238,6 @@ def _scenario(rpc, build_runner, votann_bc, board, caster_vis, foe_vis, ability_
                 for e in lst:
                     if (getattr(e, "name", "") or "") in drop_effects:
                         e.consumed = True
-        if stance:
-            _arm_stance_shim(st, c["id"])
         from engine.runner.abilities.handler import ABILITY_CLASSES
         res = ABILITY_CLASSES[ability_id]().execute_behaviour(st, c["id"], tid)
         return st, res
@@ -312,18 +295,28 @@ def test_augmented_live_armor_delta_is_minus_armorReduction(augmented):
     assert a0 - a1 == want, f"live : FixedArmor {a0} -> {a1} (delta {a0 - a1}) != armorReduction {want}"
 
 
-def test_augmented_stance_shim_explains_the_whole_gap(augmented):
-    """DECOMPOSITION PAR ETAGE — le SEUL ecart port/live sur un cast Votann est le facteur
-    `PrioritisedEfficiency_ExtraDmg` (+25 %), hors perimetre de ce lot. Ce test le MESURE : sans le
-    shim le port sous-estime, avec le shim il colle. Si un jour l'ecart n'est plus exactement ce
-    facteur, c'est ICI que ca casse (et pas dans un total ajuste en douce)."""
-    _st_off, off = augmented["replay"](stance=False)
+def test_augmented_prioritised_efficiency_is_the_whole_gap(augmented):
+    """DECOMPOSITION PAR ETAGE, SANS SHIM (#121) — le SEUL ecart port/live d'un cast Votann etait la
+    contribution du trait `PrioritisedEfficiency`. Elle est desormais PORTEE
+    (`PrioritisedEfficiencyExtraDmgEffect`) : A/B en CONSOMMANT l'effet 1481 dans l'etat rejoue ->
+    sans lui le port sous-estime, avec lui il colle EXACTEMENT au live. Si un jour l'ecart n'est plus
+    ce facteur, c'est ICI que ca casse (et pas dans un total ajuste en douce)."""
+    _st_off, off = augmented["replay"](drop_effects=(_PE_EXTRA_DMG,))
     _st_on, on = augmented["replay"]()
-    assert _stance_pct() > 0, "gameconfig sans prioritisedEfficiencyExtraDmgPct"
-    assert _port_total(off) < _port_total(on), "le shim de stance n'a rien change -> effet absent ?"
+    assert _pe_extra_dmg_pct() > 0, "gameconfig sans prioritisedEfficiencyExtraDmgPct"
+    caster = _by_id(augmented["dv0"], augmented["caster_id"]) or {}
+    assert _PE_EXTRA_DMG in {e.get("name") for e in (caster.get("effects") or [])}, \
+        f"le caster ne porte pas {_PE_EXTRA_DMG} -> l'A/B ne teste rien"
+    assert _port_total(off) < _port_total(on), \
+        "consommer 1481 n'a rien change -> la classe d'effet n'atteint pas le cast"
     assert _port_total(on) == _live_total(augmented), (
-        f"port+stance {_port_total(on)} != live {_live_total(augmented)} "
-        f"(sans stance : {_port_total(off)}) -> l'ecart n'est PAS que la stance")
+        f"port {_port_total(on)} != live {_live_total(augmented)} "
+        f"(sans le trait : {_port_total(off)}) -> l'ecart n'est PAS que ce trait")
+
+
+# L'ETAGE du +25 %, sa magnitude-config, l'orientation attaquant/defenseur et le vecteur ATTAQUE
+# NORMALE sont couverts par le fichier dedie `test_prioritised_efficiency_live.py` (#121) — ils
+# exigent des etats CRAFTES (cible a armure basse), que le lot #113 n'a pas.
 
 
 def test_augmented_port_matches_live_total_and_armor(augmented):

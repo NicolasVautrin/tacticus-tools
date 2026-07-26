@@ -18,7 +18,8 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           (armure −, crit +, block +) + le canal PERÇAGE `GravitonRifle_ExtraPierce`."""
 from __future__ import annotations
 
-from .extra_damage import (RapidAssaultExtraDamageEffect, SmashaEadExtraDamageEffect,
+from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyExtraDmgEffect,
+                           SmashaEadExtraDamageEffect,
                            FeederTendrilsExtraDamageEffect, AvalancheOfMuscleExtraDamageEffect,
                            DecoysAndMisdirectionExtraDamageEffect,
                            LordOfTempestsExtraDamageEffect,
@@ -34,6 +35,7 @@ from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraD
                                 SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect,
                                 DefenderOfTheGreaterGoodExtraDmgEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
+                               PrioritisedEfficiencyDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
                                NightshroudDmgReductionEffect, NeuroparasiteEffect,
                                FightingRetreatDmgReductionEffect, ShadowInTheWarpLessDmgEffect,
@@ -76,7 +78,8 @@ from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCri
 
 __all__ = [
     # extra_damage (volet DIRECT)
-    "RapidAssaultExtraDamageEffect", "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
+    "RapidAssaultExtraDamageEffect", "PrioritisedEfficiencyExtraDmgEffect",
+    "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
     "AvalancheOfMuscleExtraDamageEffect",
     "DecoysAndMisdirectionExtraDamageEffect", "LordOfTempestsExtraDamageEffect",
     "CrushingStrikeEffect", "HeavyWeaponExtraDmgEffect", "RangedSpecialistEffect",
@@ -89,7 +92,8 @@ __all__ = [
     "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",
     "DefenderOfTheGreaterGoodExtraDmgEffect",
     # damage_reduction
-    "TerrifyingExtraDefenseEffect", "MartialKatahDmgReductionEffect", "TerminatorArmourReduceDmgEffect",
+    "TerrifyingExtraDefenseEffect", "MartialKatahDmgReductionEffect",
+    "PrioritisedEfficiencyDmgReductionEffect", "TerminatorArmourReduceDmgEffect",
     "GuardianOrganismDamageReductionEffect", "NightshroudDmgReductionEffect", "NeuroparasiteEffect",
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
