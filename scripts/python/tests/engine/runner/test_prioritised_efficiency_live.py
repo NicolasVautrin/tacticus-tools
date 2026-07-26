@@ -323,40 +323,58 @@ def test_stance_markers_stay_inert():
 # 2. ETAGE — le cas DISCRIMINANT (live)
 # ---------------------------------------------------------------------------------------------- #
 
-def _stage_candidates(d):
-    """Reconstruit COUP PAR COUP les DEUX placements candidats du bonus.
+def _reduce(value, mods):
+    """Etage de REDUCTION du port, en arithmetique Fix64 EXACTE (pas de modele flottant) :
+    `IdunBattle.Core.Services.DamageCalculations$$ApplyCappedModifiers` puis materialisation entiere
+    (`FixMath.NET.Fix64$$op_Explicit` = troncature, famille ATTACK)."""
+    from engine.services.damage_modifiers import apply_all_modifiers
+    return int(apply_all_modifiers(value, mods))
 
-    Le degat REDUIT sans bonus (`off`) et les bornes de config donnent le tirage BRUT `raw` :
-    `GetDamageWithPiercing(raw, p, a) = max(0, raw - a, raw x p/100)` -> `raw` vaut `off + a`
-    (regime ARMURE) ou `off x 100/p` (regime PLANCHER-PERCAGE) ; on retient la branche COHERENTE
-    (dans les bornes ET qui reproduit `off`). Puis :
-        POST (etage natif) : `round( GetDamageWithPiercing(raw, p, a) x (1 + pct/100) )`
-        PRE  (le leurre)   : `GetDamageWithPiercing( round(raw x (1 + pct/100)), p, a )`
-    Rend `(pierce, armor, rows)` avec `rows[i] = {raw, off, post, pre}` ; `raw=None` si irreconciliable."""
+
+def _mods_with_pct(pct):
+    from engine.services.damage_modifiers import DamageModifiers, add_modifier
+    from engine.services.effect_bonus import for_percent_increase
+    acc = DamageModifiers.empty()
+    if pct:
+        add_modifier(acc, for_percent_increase(True, pct))
+    return acc
+
+
+def _stage_candidates(d):
+    """Reconstruit COUP PAR COUP les DEUX placements candidats du bonus, SANS supposer le tirage.
+
+    Le tirage BRUT n'est pas expose (l'operation ne rend que le degat REDUIT). On ENUMERE donc tous
+    les tirages `r` des bornes de config qui reproduisent A LA FOIS le degat sans bonus (`off`) et le
+    degat avec bonus (`on`) via les primitives EXACTES du port — deux contraintes qui epinglent `r`
+    (une reconstruction arithmetique approchee se trompe de +-1 sur la troncature Fix64). Pour chaque
+    `r` retenu :
+        POST (etage natif) : `ApplyCappedModifiers( GetDamageWithPiercing(r, p, a), +pct% )`
+        PRE  (le leurre)   : `GetDamageWithPiercing( r x (1 + pct/100), p, a )` sans %-list
+    Rend `(pierce, armor, rows, on)` ; `rows[i] = {off, on, pre[]}` ou `pre` est l'ENSEMBLE des
+    valeurs qu'un placement pre-percage pourrait produire (vide = coup irreconciliable, ignore)."""
+    from engine.services import fix64 as _fxm
+    from engine.services.damage_modifiers import DamageModifiers
     _st_off, off = d["replay"](drop_effects=(PE_EXTRA_DMG,))
     _st_on, on = d["replay"]()
     pierce, armor = int(on.get("pierce") or 0), int(on.get("armor") or 0)
     bmin, bmax = int(on.get("base_min") or 0), int(on.get("base_max") or 0)
     pct = _pct()
+    mods_on, mods_off = _mods_with_pct(pct), DamageModifiers.empty()
+    mult = _fxm.mult_raw_from_float(1.0 + pct / 100.0)
+    per_off, per_on = (off.get("per_hit") or []), (on.get("per_hit") or [])
     rows = []
-    for v in (off.get("per_hit") or []):
-        raw = None
-        cands = ([int(round(v * 100.0 / pierce))] if pierce > 0 else []) + [int(v) + armor]
-        for cand in cands:
-            if not (bmin - 1 <= cand <= bmax + 1):
+    for i, v in enumerate(per_off):
+        want_on = int(per_on[i]) if i < len(per_on) else None
+        pre = set()
+        for r in range(max(0, bmin), bmax + 1):
+            base = get_damage_with_piercing(r, pierce, armor)
+            if _reduce(base, mods_off) != int(v):
                 continue
-            if abs(int(get_damage_with_piercing(cand, pierce, armor)) - int(v)) > 1:
+            if want_on is not None and _reduce(base, mods_on) != want_on:
                 continue
-            raw = cand
-            break
-        if raw is None:
-            rows.append({"raw": None, "off": int(v), "post": None, "pre": None})
-            continue
-        base = int(get_damage_with_piercing(raw, pierce, armor))
-        rows.append({"raw": raw, "off": int(v),
-                     "post": int(round(base * (1 + pct / 100.0))),
-                     "pre": int(get_damage_with_piercing(int(round(raw * (1 + pct / 100.0))),
-                                                         pierce, armor))})
+            boosted = _fxm.Fix64(_fxm.mul(_fxm.from_int(r), mult))
+            pre.add(_reduce(get_damage_with_piercing(boosted, pierce, armor), mods_off))
+        rows.append({"off": int(v), "on": want_on, "pre": sorted(pre)})
     return pierce, armor, rows, on
 
 
@@ -366,9 +384,9 @@ def test_state_is_actually_stage_discriminant(pe_ability):
     PLANCHER-PERCAGE les rend IDENTIQUES — c'est le cas de la cible armure-2008 de #113)."""
     pierce, armor, rows, _on = _stage_candidates(pe_ability)
     assert armor > 0 and pierce < 100, f"armure {armor} / percage {pierce} : etage indiscriminable"
-    known = [r for r in rows if r["raw"] is not None]
+    known = [r for r in rows if r["pre"] and r["on"] is not None]
     assert known, f"aucun coup reconcilie avec GetDamageWithPiercing (rows={rows})"
-    gaps = [abs(r["pre"] - r["post"]) for r in known]
+    gaps = [min(abs(p - r["on"]) for p in r["pre"]) for r in known]
     assert max(gaps) > 20, (
         f"aucun coup ne separe les deux etages (ecarts {gaps}, armure {armor}, percage {pierce}) "
         f"-- il faut une cible a armure PLUS BASSE, sinon le test suivant est vide")
@@ -381,21 +399,23 @@ def test_bonus_lands_after_pierce_and_armor_not_before(pe_ability):
     (`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`) — donc jamais
     sur les bornes de degat ni sur la valeur tiree avant reduction.
 
-    Sur les coups ou les deux placements different, le LIVE doit valider POST et REFUTER PRE."""
+    Sur les coups ou les deux placements different, le LIVE doit valider POST et REFUTER PRE — pour
+    TOUT tirage brut compatible avec l'observation (on ne choisit pas un tirage arrangeant)."""
     pierce, armor, rows, _on = _stage_candidates(pe_ability)
     live = pe_ability["live"]
     assert live, "events per-coup indisponibles"
     checked = 0
     for i, h in enumerate(live):
-        if i >= len(rows) or rows[i]["raw"] is None:
+        if i >= len(rows) or not rows[i]["pre"]:
             continue
         r = rows[i]
-        assert r["post"] == h["dmg"], (
-            f"coup {i} : placement POST-percage = {r['post']}, live = {h['dmg']} "
-            f"(raw {r['raw']}, percage {pierce}, armure {armor})")
-        if r["pre"] != r["post"]:
-            assert r["pre"] != h["dmg"], f"coup {i} : PRE-percage colle AUSSI ({r['pre']})"
-            checked += 1
+        assert r["on"] == h["dmg"], (
+            f"coup {i} : port (placement POST-percage) = {r['on']}, live = {h['dmg']} "
+            f"(percage {pierce}, armure {armor})")
+        if h["dmg"] not in r["pre"]:
+            checked += 1                      # ce coup REFUTE le placement pre-percage
+        elif len(r["pre"]) == 1:
+            continue                          # regime plancher-percage : les 2 etages coincident
     assert checked >= 1, (
         f"aucun coup DISCRIMINANT confronte au live (rows={rows}) -- l'etage n'est pas tranche")
 
