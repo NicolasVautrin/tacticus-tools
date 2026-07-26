@@ -252,6 +252,16 @@ return Fix64(0) + grp.Evaluate(case)   # grp = composite Tile(7)
 ```
 
 **Deux faits établis (décompilé = vérité) :**
+0. **(#128) La membership du composite `Tile(7)` est LUE au décompilé, plus supposée.**
+   `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility` résout un `UtilityType` via une **carte de
+   composition** `db+0x58` (`Dictionary<UtilityType, UtilityType[]>`) : 1 enfant ⇒ l'utilité seule,
+   `> 1` ⇒ `new ComposedUtility(children)` ; sinon `db+0x60` = fabrique de feuille.
+   `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` y écrit : **clé 7 (`Tile`) → tableau
+   de 0x1d = 29** (= `engine/utilities/tile.py::TILE_LEAF_IDS`), clé 0x22 (34 `Damage`) → 13,
+   clé 6 (`UnitMovement`) → `[7, 0x10 MinDistanceToClosestEnemy]`, clé 5 → `[6, 0x11]`, clé 0 → `[7, 1]`,
+   clé 0x20 → `[7, 0x21]`. Et `IdunBattle.AI.Playbook.BasePlaybook$$Init` pose `playbook+0x40 = param_8`
+   ⇒ **c'est LA MÊME base d'utilités que le sweep MOVE**, pas un profil par playbook (la BC n'a que
+   `Utilities.Default` et `Utilities.MovementSuggestion`, ce dernier réduit à `RangedAdjacentEnemy`).
 1. **Le terme = le composite `Tile(7)`** évalué sur un `UtilityMovementCase(caster, tuile-prédite)`.
    C'est EXACTEMENT ce que `engine/utilities/tile.py::tile_composite` porte déjà (sa docstring cite
    « scoré par `Weight[Tile=7]` dans `CalculateUtilityFromTilePrediction` »). Sur une carte plate,
@@ -271,7 +281,7 @@ return Fix64(0) + grp.Evaluate(case)   # grp = composite Tile(7)
 | off | méthode (via `il2cpp_method_get_name`) |
 |-----|----------------------------------------|
 | +0x2f8 | `get_CanHandleNullCasterTile` |
-| +0x318 | `get_IgnoreTileUtility` (le gate de `CalculateUtilityFromTilePrediction`) |
+| +0x318 | `get_IgnoreTileUtility` (le gate de `CalculateUtilityFromTilePrediction`) — **relu #128 : `Loki_NormalAttackPlaybook`, `ExcruciatingFrequenciesPlaybook` et `HealPlaybook` pointent TOUS le même stub `0x1802b15a0` = `32 c0 c3` (`xor al,al ; ret`) ⇒ FALSE, le terme de tuile s'applique toujours ; aucun symbole `*$$get_IgnoreTileUtility` n'existe = aucun override dans le build** |
 | +0x328 | `ShouldExecute` *(validation)* |
 | +0x338 | `CalculateCustomUtility` |
 | +0x348 | `CalculateCasterPositionUtility` (base = `Fix64(0)`) |
@@ -303,16 +313,35 @@ par cible, `GenerateAction`, et garde l'argmax dans un `Bucket` (tie-break = **p
 `ActiveAbilityActionGenerator.<GenerateActions>d__7.MoveNext @18119a3f0` :
 
 ```
+accumulator = new Bucket()                                  # <-- UN SEUL, AVANT la boucle d'abilities
 for each ability in GetUnitAbilitiesInOrder(tier):          # gate IsAbilityBlocked + get_CanCurrentlyBeUsed
-    playbook    = LoadPlaybook(abilityId)
-    accumulator = new Bucket()
-    for each TUILE in <movement-tiles enumerator @state+0x68>:    # tuiles de mouvement atteignables
+    playbook = LoadPlaybook(abilityId)
+    for each TUILE in <tiles enumerator @state+0x68>:       # = GenerateActionTiles (tuiles de MOUVEMENT)
         if valid(TUILE, ability):                           # FUN_18000c1b0(0x3f, ...)
             bucket_tile = playbook.Evaluate(unit, TUILE)     # = EvaluateInternal, caster = TUILE
             accumulator.Merge(bucket_tile)                   # Bucket.Merge @1813fc790
-    if no tiles:  accumulator.Merge(Evaluate(unit, NullPosition))   # evalue sur place
-    action = accumulator.ChooseAction()                     # @1813fc0d0
+    if count(tiles) == 0:                                   # SEULEMENT si AUCUNE tuile de mouvement
+        if playbook.CanHandleNullCasterTile:
+            accumulator.Merge(Evaluate(unit, NullPosition))  # evalue sur place
+    playbook.ResetCaches()
+action = accumulator.ChooseAction()                         # @1813fc0d0 — APRES toutes les abilities
 ```
+
+> **Correction #128** : l'accumulateur est créé **UNE fois avant** la boucle d'abilities et
+> `ChooseAction` n'est appelé **qu'une fois après** l'avoir épuisée (lu ligne à ligne dans
+> `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` :
+> le `Bucket` vit à `state+0x48`, alloué à l'état 0). ⇒ l'argmax est **INTER-ability** par utilité,
+> il n'y a PAS de « première ability qui sort gagne ». Le port (`ComparableAbilityGenerator.generate`,
+> bucket unique) est donc structurellement fidèle. La version précédente de ce pseudo-code (un
+> accumulateur PAR ability) était fausse.
+>
+> **Corollaire #128, mesuré live** : la liste de tuiles vient de
+> `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` = `IBattleQuery.slot+0xe` (tuiles de
+> MOUVEMENT) + ajouts par playbook. `GetMovableTilesFor` **exclut la tuile courante** ; la branche
+> `NullPosition` ne tire QUE si la liste est vide. ⇒ une unité qui a encore du déplacement **n'évalue
+> PAS** l'action depuis sa tuile d'origine. Le port, lui, la consomme (elle est ajoutée EXPRÈS dans
+> `attackPlans.ranked` par notre hook) → sur-génération de candidats. Preuve chiffrée et périmètre :
+> `docs/rl/case-128-tile-elevation-utility.md` §5.
 
 - **`Bucket.Merge`** = `AddAction(dest, src.action)` (argmax, `>` strict → premier sur égalité) + fusion
   récursive de l'arbre `SortedList<Key, sous-Bucket>`.
