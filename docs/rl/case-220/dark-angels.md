@@ -20,8 +20,10 @@ BACKLOG (confounds SHARED-pipeline découverts en validant — HORS ce port, can
        +/- bonus high-ground) NON appliqués aux attaques d'ABILITY. Mesuré : live PlasmaCannon = offline ×
        facteur SCALAIRE constant (×1.25 HeavyWeapon seul ; ×1.875 = HeavyWeapon × high-ground caster>cible).
        Affecte TOUTES les abilities ranged des casters HeavyWeapon. [candidat fable — cross-cutting, risque]
-  (ii) SPLASH desync per-coup (ratio non constant) : le `PickRandomly` natif consomme du rng même en piquant
-       tout (<=2 candidats), là où `_pick_randomly_n` court-circuite (GAP #215 partagé Fragstorm). [candidat]
+  (ii) SPLASH desync per-coup — FERMÉ (#130, case-130-pick-randomly-rng.md). Le `PickRandomly` natif consomme
+       `min(len(pool), amount)` tirages même en piquant tout ; `_pick_randomly_n` court-circuitait. Corrigé :
+       PlasmaCannon est désormais BIT-EXACT per-coup vs live sur la MAIN **et** le SPLASH (régimes pool=1 et
+       pool=2, comptage direct des genrand). Résidu : pool > 2 derrière (ordre d'énumération natif).
   (iii) armure : sans --hp-target, `defender_fixed_armor(necroWarden)`=2008 offline vs `RemainingArmor`=0 live
        (à confirmer : FixedArmor stale/profil Plasma). Contourné par --hp-target dans le test. [à vérifier]
 ```
@@ -45,11 +47,13 @@ défenseur avant `GetBaseDamageWithFixedPiercedArmor`).
 VALIDÉ LIVE (MC1_67 au contact, seed 112112) : cible SANS unité derrière → dégât **BIT-EXACT** (5618 ==
 5618) ; cible AVEC 2 unités derrière → les 3 effets 1208 (cible + les 2 derrière, `RemainingTurns=2`)
 posés AVANT les 2 volets de dégât, splash sur EXACTEMENT ces 2 unités.
-RÉSIDU MESURÉ (GAP #215 désormais CHIFFRÉ) : avec 2 unités derrière, le live s'aligne sur le port décalé
-de **+2 tirages** (volet MAIN) et **+5** (volet SPLASH) ⇒ le `PickRandomly` natif consomme 2 tirages
-MÊME quand le pool tient dans n (`_pick_randomly_n` court-circuite), + 1 tirage avant le splash (candidat :
-source de block supplémentaire `Daemon_ExtraBlock` de la cible). NON corrigé : `_pick_randomly_n` est
-PARTAGÉ (PlasmaCannon / Fragstorm / BringerOfDespair) — le corriger est un chantier socle à part entière.
+RÉSIDU (mesure #112, partiellement fermé par #130) : avec 2 unités derrière, le live s'alignait sur le port
+décalé de **+2 tirages** (volet MAIN) et **+5** (volet SPLASH). Les **+2** sont le `PickRandomly(.,2)`, qui
+consomme `min(len(pool), amount)` tirages MÊME quand le pool tient dans n — loi établie au décompilé et
+mesurée live par #130 (`case-130-pick-randomly-rng.md`), désormais portée dans `_pick_randomly_n` : le pick
+de `_supercharge_behind` précède l'`AddEffect` ET les deux volets, donc les +2 sont résorbés sur les deux.
+Le **+3 restant côté SPLASH seul** n'est PAS attribué (candidat : source de block supplémentaire
+`Daemon_ExtraBlock` de la cible) — à re-mesurer par décomposition d'étage, PAS par ajustement de tirages.
 ```
 ```
 [EnmityForTheUnworthy | darkaCompanion passif]  — [opus]+2 effets (passif le + facile)

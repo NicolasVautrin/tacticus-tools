@@ -45,8 +45,9 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
     `NextInternal(0, candidates.Count)` UNE fois (count=1). `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` a rng==1 prend la branche
     PUISSANCE-DE-2 qui CONSOMME un genrand (retourne 0) -- comme le wasted-resolve #220 `Next(v, v+1)` largeur-1.
     Donc la pick CONSOMME 1 tirage MEME a n==1 (critique : elle precede l'attaque -> la bit-exactness de
-    l'attaque en depend). `_pick_target` ci-dessous tire donc TOUJOURS `next_internal(0, n)` (contraste le helper
-    `_pick_randomly` de base.py, sans tirage a n==1, cale pour le SPAWN placement = derniere op sans desync).
+    l'attaque en depend). `_pick_target` ci-dessous tire donc TOUJOURS `next_internal(0, n)`. MEME LOI, meme
+    foyer : `abilities/loki/splash.py::_pick_randomly_n` (#130, confronte live) ; residu nomme = le helper
+    `_pick_randomly` de base.py/spawn.py, qui court-circuite encore a n==1.
 
 Config gameconfig `DestroyerHive` : attackRangeType=Melee (`is_melee=True`), nrOfHits=1, damageProfile="DirectDamage"
 (profil PiercingRatio 100 = pierce-100), minDmg/maxDmg courbes par niveau (`variablesAffectedByRarityBonus` ->

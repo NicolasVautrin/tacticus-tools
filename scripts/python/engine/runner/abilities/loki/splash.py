@@ -222,11 +222,13 @@ def fragstorm_tree() -> AtomicGroup:
     _adjacent_enemies_of)` + `_splash_ability_behaviour`) est REMPLACE par cet arbre (bit-exact BY CONSTRUCTION :
     meme pool id-trie, meme pick, meme rng).
 
-    ⚠ GAP #215 (RNG-exact) : le natif tire des HEXES (tuiles VIDES incluses -> un tirage peut tomber sur une
-    tuile vide = coup gaspille) et l'ORDRE/cout exact du tirage `PickRandomlySelector.Select` ne sont pas cales ;
-    le port tire des OCCUPANTS (id-tries, jamais de tuile vide) -> quand >4 tuiles adjacentes non-amies, les
-    unites touchees ET la conso `state.rng` peuvent differer. Structure fidele (soustraction des amis, cap 4) ;
-    RNG-exact = raffinement flagge."""
+    #130 : la LOI de consommation du pick est desormais exacte (`min(len(pool), 4)` tirages, bornes
+    decroissantes, MEME quand le pool tient dans 4 -- cf. `_pick_randomly_n`).
+    ⚠ RESIDU #215 restant, PROPRE A FRAGSTORM (le fix du helper ne le couvre PAS) : le natif tire des HEXES
+    (`AdjacentTiles(target) - Tiles(Friends)`, tuiles VIDES incluses -> un tirage peut tomber sur une tuile
+    vide = coup gaspille) la ou le port tire des OCCUPANTS -> le CARDINAL du pool differe, donc le nombre de
+    tirages ET les unites touchees. Structure fidele (soustraction des amis, cap 4) ; pool-en-hexes = cas a
+    part (il faut porter le selecteur en TUILES, pas seulement corriger le tirage)."""
     # nrOfTargets = GetNumberConstant(0x11), lue live du gameconfig ; 4 = valeur config/i2 (« up to 4 ») si absente.
     n_targets = int(((GC.ability("Fragstorm") or {}).get("constants") or {}).get("nrOfTargets") or 4)
     tgt = Target()
@@ -360,19 +362,44 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
 
 
 def _pick_randomly_n(state: "State", items: list, n: int) -> list:
-    """`PickRandomly(items, n)` — n éléments DISTINCTS (extension de `_pick_randomly` spawn.py à n). len<=n
-    → tous (le natif ne roll pas quand le set tient). Sinon tire n index SANS REMISE via `next_internal`
-    (coût/ordre RNG NON calibré → GAP flaggé : désync possible de `state.rng` ; cf. spawn.py). `state.rng`
-    None → subset trié déterministe `[:n]` (placement RNG-exact = raffinement, structure d'abord)."""
-    items = list(items)
+    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, amount)` ->
+    `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` — MIRROR 1:1 de la boucle native
+    (#130 / GAP #215 CLOS).
+
+    Boucle LUE au décompilé (`allowRepeat` = champ `+0x30` = FAUX pour toutes les factories
+    `PickRandomly`, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour`
+    qui passe `0` / `0x7fffffff`) :
+
+        result = []                                   # List<T>
+        i = result.Count                              # 0 hors forced-targets
+        while i < amount:
+            if candidates.Count < 1: return result    # SEULE sortie anticipée
+            idx = rng.NextInternal(0, candidates.Count)   # <-- 1 TIRAGE, INCONDITIONNEL
+            result.Add(candidates.ElementAt(idx))
+            candidates.RemoveAt(idx)                  # !allowRepeat
+            i += 1
+
+    -> **le natif tire `min(len(pool), n)` fois, bornes `len(pool)`, `len(pool)-1`, … 1 — MÊME quand le
+    pool tient déjà dans `n`** (il n'y a AUCUN court-circuit `pool.Count <= amount`). La dernière borne
+    vaut 1 : `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` à `range==1` prend la branche
+    PUISSANCE-DE-2 qui CONSOMME un `genrand_int32` et retourne 0 — un tirage « sans choix » reste un
+    tirage. Court-circuiter DÉSALIGNE tout le flux RNG en aval (dégât/crit/cible suivants).
+    MESURÉ LIVE (`probe_215_pick_randomly_rng.py`, PlasmaCannon 1150, deux régimes) :
+    pool=1 -> 1 `genrand` de plus que le port court-circuité ; pool=2 -> 2. Sous cette loi le per-coup
+    live/offline devient BIT-EXACT (ratio 1.0 partout) sur la main ET le splash.
+
+    L'ordre rendu est l'ordre de TIRAGE (le natif `Add`e dans l'ordre des picks). Un consommateur qui
+    mirror un `OrderBy` natif re-trie APRÈS (ex. `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+    trie la liste résolue quand `Count > 1`) — ce tri vit chez l'appelant, pas ici.
+
+    `state.rng` None (replay effet-seul, aucun flux à mirrorer) -> `pool[:n]` déterministe."""
+    pool = list(items)
     n = max(0, int(n))
-    if len(items) <= n:
-        return items
     if state.rng is None:
-        return items[:n]
-    pool, out = list(items), []
-    for _ in range(n):
-        out.append(pool.pop(state.rng.next_internal(0, len(pool))))
+        return pool[:n]
+    out: list = []
+    while len(out) < n and pool:                        # `while (i < amount) { if (Count < 1) break; … }`
+        out.append(pool.pop(state.rng.next_internal(0, len(pool))))   # NextInternal(0, candidates.Count)
     return out
 
 

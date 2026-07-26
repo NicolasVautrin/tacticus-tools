@@ -195,8 +195,10 @@ reproduit à l'identique (`BFS 3->3`) sur le commit de base `9cf5e40` avec le pa
 5. **`UnitsWithIds` compare `visualId`** (le port n'a pas d'id de config par-unité) : exact pour
    SupremeCommander dont `affectedUnitIds` liste les DEUX formes. Un futur consommateur ne listant
    qu'une forme exigerait un id de config dans le `State`.
-6. **`PickRandomly` RNG-exact** : gap connu #215 (ordre/coût du tirage non calé) → les TUILES de spawn
-   choisies offline peuvent différer du live. Aucune assertion du test n'en dépend.
+6. **`PickRandomly`** : le COÛT du tirage est calé depuis #130 (`min(|pool|, n)` tirages, bornes
+   décroissantes, même quand le pool tient — `case-130-pick-randomly-rng.md`). Résidu #215 restant :
+   l'ORDRE d'énumération natif du pool (non trié) → les TUILES de spawn choisies offline peuvent
+   différer du live. Aucune assertion du test n'en dépend.
 
 ---
 

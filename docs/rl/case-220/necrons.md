@@ -61,8 +61,10 @@ pool arène ; force-cast 1008 sur non-porteur = NO-OP (vérifié) → AUCUN cast
 CASTER-AGNOSTIQUE offline (config globale, précédent PlasmaGrenade summon-only). Tests
 test_harbinger_of_destruction_live.py (4 PASS) : routage handler 1008, ciblage rayon-2 (d1&d2 frappés, d3
 exclu), cap N−1 + exclude-target, caster-anchor, A/B bit-exact (tree==execute_ability_attack), params
-DirectDamage pierce 100 / nrOfHits 1. GAP #215 (résiduel, NON root-cause) : conso RNG du PickRandomly sous
-pool > N−1 non calée (déterministe en pool <= N−1, régime validé).
+DirectDamage pierce 100 / nrOfHits 1. Conso RNG du PickRandomly CALÉE depuis #130 (`min(|pool|, N−1)`
+tirages, bornes décroissantes, même quand le pool tient — la baseline A/B du test la reproduit
+explicitement ; cf. `case-130-pick-randomly-rng.md`). Résidu #215 restant, NON root-cause : sous
+pool > N−1, l'ordre d'énumération natif (non id-trié) décide QUELLES unités sont piquées.
 ```
 ```
 [1006 MultiThreatEliminator | necroDestroyer]  — [opus]+prérequis (candidat fable)

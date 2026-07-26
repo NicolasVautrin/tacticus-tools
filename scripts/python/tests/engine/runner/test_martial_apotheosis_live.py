@@ -323,10 +323,11 @@ def test_ma_ring1_not_radius2(ma_env):
 # ------------------------------------------------------------------ (D) A/B bit-exact + params
 
 def test_ma_ab_and_params(ma_env):
-    """A/B : pool==1 (deterministe) -> l'arbre == une sequence directe `execute_ability_attack` depuis le
-    MEME MT (bit-exact). Params confrontes a l'ORACLE CONFIG (cf. en-tete, aucun scalaire fige) : nb de
-    coups == `constants.nrOfHits`, percage == `PiercingRatio` du profil `constants.damageProfile`, melee,
-    chaque coup dans [bmin,bmax]."""
+    """A/B : pool==1 (cible deterministe) -> l'arbre == `PickRandomly(pool,1)` + une sequence directe
+    `execute_ability_attack` depuis le MEME MT (bit-exact). ATTENTION : le pick consomme 1 tirage MEME a
+    pool==1 (#130) -- la baseline le reproduit explicitement. Params confrontes a l'ORACLE CONFIG
+    (cf. en-tete, aucun scalaire fige) : nb de coups == `constants.nrOfHits`, percage == `PiercingRatio`
+    du profil `constants.damageProfile`, melee, chaque coup dans [bmin,bmax]."""
     from engine.runner.components import StatsComponent
     state = ma_env["build_state"]()
     board = ma_env["board"]
@@ -383,13 +384,19 @@ def test_ma_ab_and_params(ma_env):
     print(f"\n[MA D] [bmin,bmax]=[{bmin},{bmax}] pierce={pierce} hits={hits} port_per_hit={port_ph}")
     assert _hp(state, t_id) < hp0, "ennemi non endommage"
 
-    # baseline : rejoue depuis le MEME MT une sequence directe execute_ability_attack (2 coups Energy).
+    # baseline : rejoue depuis le MEME MT la sequence native = `PickRandomly(pool, 1)` PUIS l'attaque.
+    # Le pick consomme `min(len(pool), 1)` tirages MEME quand le pool tient dans `amount` (#130 :
+    # `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` n'a aucun court-circuit ; la borne
+    # 1 passe par la branche puissance-de-2 de `IntBasedMersenneTwister$$NextInternal`, qui consomme un
+    # `genrand_int32`). Une baseline sans ce tirage decrit un flux RNG qui n'existe pas.
     st2 = ma_env["build_state"]()   # #64 : build_state pose deja state.board (via load_state board=)
     if rng_snap is not None:
         r = IntBasedMersenneTwister(); r.mt = list(rng_snap["mt"]); r.mti = rng_snap["mti"]; st2.rng = r
     _park_others(st2, board, {cid, t_id}, C)
     _set_pos(st2, cid, *C)
     _set_pos(st2, t_id, *_pos(state, t_id))
+    if st2.rng is not None:
+        st2.rng.next_internal(0, 1)          # PickRandomly(pool={t_id}, 1) : 1 tirage, borne 1
     rr = AttackDamageOperation.execute_ability_attack(st2, cid, t_id, bmin, bmax, pierce, hits,
                                                       damage_profile=prof, is_melee=True)
     ref_ph = (rr or {}).get("per_hit")

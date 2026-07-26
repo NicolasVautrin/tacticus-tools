@@ -23,9 +23,12 @@ nulle pour un per-coup bit-exact SANS le gap d'arrondi pierce/armure) :
 
 GAP CONNU (hors port, #205/#215) : (a) le per-coup vs live peut desync apres le 1er coup d'une cible multi-
 coups quand un block-chance present LIVE mais non charge OFFLINE decale le rng (PRE-EXISTANT, prouve par A/B) ;
-(b) l'ordre/cout exact du tirage `PickRandomly` (pool >1) n'est pas cale. On asserte donc MAIN per-coup exact
-(pool bonus <=1 -> pas de tirage de pick avant le bonus... le MAIN precede TOUT pick) + A/B + les discriminants
-de CIBLAGE (caster-anchor, cap-1, exclude-target), PAS le per-coup exact du bonus sous pick multi-candidat.
+(b) quand le pool du pick a >1 candidat, l'ORDRE d'enumeration natif (non id-trie) decide QUI est pique --
+residu #215 restant. Le COUT du pick, lui, est cale depuis #130 : `PickRandomly` consomme `min(len(pool),
+amount)` tirages MEME quand le pool tient dans `amount` (aucun court-circuit au decompile), et la baseline
+A/B ci-dessous le reproduit explicitement. On asserte MAIN per-coup exact (le MAIN precede TOUT pick) + A/B
++ les discriminants de CIBLAGE (caster-anchor, cap-1, exclude-target), PAS le per-coup exact du bonus sous
+pick multi-candidat.
 
 Drive les positions (memoire « drive positions, don't blame geometry »). Lit l'etat LIVE, aucune RVA/tuile
 hardcodee, seed = simple generateur. ASCII-only.
@@ -291,11 +294,19 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
     off_bonus = bonus[0] if bonus else {}
     off_bonus_ph = (off_bonus.get("attack") or {}).get("per_hit") or []
 
-    # baseline degat scalee (armure 0 -> per-coup dans [bmin, bmax] ; pas de crit cc=0, pas de block)
+    # baseline degat scalee (armure 0 -> per-coup dans [bmin, bmax] ; pas de crit cc=0, pas de block).
+    # La sequence de reference DOIT inclure le `PickRandomly(bonusSel, 1)` qui SEPARE les deux volets :
+    # `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` consomme `min(len(pool), 1)`
+    # tirages MEME quand le pool tient dans `amount` (#130 -- aucun court-circuit au decompile ; la
+    # borne 1 passe par la branche puissance-de-2 de `IntBasedMersenneTwister$$NextInternal`, qui
+    # consomme un `genrand_int32`). Sans ce tirage la baseline decrit un flux RNG qui n'existe pas.
     st2 = load_state(dv, ob, snap, board=board); st2.rng = _seed_rng(s0)
     bmin, bmax, pierce, _ = ability_attack_params(st2, ang_id, "BringerOfDespair", "Power", ranged=False)
     ref_main = AttackDamageOperation.execute_ability_attack(st2, ang_id, t_id, bmin, bmax, pierce, 4,
                                                             damage_profile="Power", is_melee=True)
+    n_bonus_pool = len([e for e in adj_caster if e != t_id])          # pool du PickRandomly (cible retiree)
+    for i in range(min(n_bonus_pool, 1)):                             # min(len(pool), amount=1) tirages
+        st2.rng.next_internal(0, n_bonus_pool - i)                    # NextInternal(0, candidates.Count)
     ref_bonus = AttackDamageOperation.execute_ability_attack(st2, ang_id, b_id, bmin, bmax, pierce, 4,
                                                              damage_profile="Power", is_melee=True)
 

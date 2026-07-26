@@ -280,8 +280,16 @@ def _faction_id(state: State, unit_id: int) -> Optional[str]:
 
 def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
     """`PickRandomAmountSelector` (count=1) — choisit UN candidat. Ordre = ids triés (déterministe) ;
-    index = tirage RNG `next_internal(0, n)` quand n>1 (1 candidat ⇒ index 0, draw RNG à confirmer live).
-    ⚠ Le coût RNG exact + l'ordre natif des candidats = raffinement à valider live (n>1)."""
+    index = tirage RNG `next_internal(0, n)` quand n>1.
+
+    ⚠ RÉSIDU NOMMÉ (#130, hors périmètre de ce cas) : le court-circuit `n == 1` est FAUX au décompilé.
+    `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` n'a AUCUN court-circuit
+    « le pool tient dans amount » — il tire `min(len(pool), amount)` fois, donc **1 tirage même à
+    n==1** (`NextInternal(0,1)` prend la branche puissance-de-2 et consomme un `genrand_int32`).
+    Mesuré live (`probe_215_pick_randomly_rng.py`) et déjà appliqué par
+    `operations/triggers/loki/destroyer_hive.py::_pick_target`. Corrigé ICI = changement de flux RNG
+    pour Genestealer (`PickRandomly(decoys,1)`) et Psyker -> à traiter dans SON cas, avec ses tests
+    ciblés. Le foyer correct de la loi est `abilities/loki/splash.py::_pick_randomly_n`."""
     cands = sorted(candidates)
     n = len(cands)
     if n == 0:

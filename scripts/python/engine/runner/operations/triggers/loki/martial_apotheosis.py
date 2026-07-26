@@ -113,7 +113,9 @@ class MartialApotheosisAttackAbility(TriggeredAbility):
         entities = entities_from_state(state, self.owner_id)
         pool = sorted((u for u in martial_apotheosis_valid_targets().evaluate(entities)
                        if isinstance(u, dict) and u.get("id") is not None), key=lambda u: u["id"])
-        picked = _pick_randomly_n(state, pool, 1)           # PickRandomly(count=1) ; pool<=1 => deterministe
+        # `PickRandomly(count=1)` : consomme `min(len(pool), 1)` tirages -- 1 des qu'il y a un candidat,
+        # meme unique (#130 : aucun court-circuit dans `PickRandomAmountSelector$$Select`).
+        picked = _pick_randomly_n(state, pool, 1)
         if not picked:
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)

@@ -128,12 +128,13 @@ class HarbingerOfDestructionAbility(ActiveAbility):
     mirror le natif (PickRandomly evalue a la RESOLUTION du selecteur, avant tout coup). Les cibles pickees
     alimentent `harbinger_of_destruction_tree` via `UnitSet` (vehicule de collapse).
 
-    ⚠ GAP #215 (RNG-exact PickRandomly) : le natif tire dans l'ORDRE d'enumeration du pool (SurroundingTiles->
-    Units, PAS id-trie) et le cout/ordre exact de `PickRandomlySelector.Select` ne sont pas cales ; le port
-    id-trie le pool avant `_pick_randomly_n` -> quand `len(pool) > N-1`, l'ENSEMBLE pické ET la conso
-    `state.rng` peuvent differer. DETERMINISTE (aucun tirage de pick) quand `len(pool) <= N-1` : le pool tient
-    -> toutes les cibles additionnelles == le pool (== le natif : `PickRandomly` ne roll pas si le set tient).
-    Valide en `len(pool) <= N-1` ; residuel `len(pool) > N-1` = raffinement flagge (NON root-cause).
+    #130 (GAP #215 CLOS sur la CONSO) : `_pick_randomly_n` consomme `min(len(pool), N-1)` tirages -- MEME
+    quand le pool tient dans `N-1` (le natif n'a aucun court-circuit ; cf. `_pick_randomly_n`). Le pick
+    precede les coups -> sans lui TOUT le flux rng aval etait decale. Le SET, lui, reste le pool entier
+    quand `len(pool) <= N-1` (== natif).
+    ⚠ RESIDU #215 restant : quand `len(pool) > N-1`, le natif tire dans l'ORDRE d'enumeration du pool
+    (SurroundingTiles->Units, PAS id-trie) alors que le port id-trie -> l'ENSEMBLE pique peut differer
+    (la conso, elle, est exacte). Raffinement flagge (NON root-cause).
 
     Renvoie {ability, caster, target, main_attack, splash, dsl}. Termine le tour (1008 hors des frozensets
     base.py -> flags par defaut). `native_factory="attack"` (defaut) = 2 tirages/coup a cc=0 -> bit-exact BY

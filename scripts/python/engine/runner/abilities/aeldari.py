@@ -30,8 +30,8 @@ profil Psychic (pierce 100). Decision DEJA portee+validee (#122/#166, prediction
   dans la sequence `op_and`). Cible = 1 ennemi VIVANT tire au hasard adjacent (hex 1) a la cible
   (`PickRandomly(Alive(Enemies(AdjacentUnits(TargetTile()))), 1)`) — porte via la feuille `multi=True,
   pick_n=1` (fold du `PickRandomly` natif : pool trie par id -> `_pick_randomly_n(state.rng, 1)`, MEME conso
-  rng ; pas de tuile VIDE = pas de gap #215, la pool est des UNITES). Ordre RNG = main (hits) -> pick ->
-  secondary (hits).
+  rng = `min(len(pool),1)` tirages, y compris a 1 seul candidat -- #130 ; pas de tuile VIDE, la pool est des
+  UNITES). Ordre RNG = main (hits) -> pick -> secondary (hits).
 - `SetCache(cacheA)` (prime la pool PRE-main) FOLD : mono-cible (le main ne frappe QUE la cible, pas les
   voisins) + le cadavre GARDE sa position (`damage.py` : `alive=False` seulement, pas de retrait board) ->
   recalculer la pool POST-main via `TargetTile()`/`AdjacentUnits` rend le MEME ensemble (no-op observable,
@@ -140,8 +140,9 @@ def executioner_tree(n_hits: int):
     adjacents (hex 1) a la tuile de la cible (mirror `Damageable(Enemies(@0x160, AdjacentUnits(@0x190,1,3)))`
     + `Alive` du PickRandomly natif ; `AdjacentUnits` radius defaut 1). `TargetTile()` = tuile de la cible
     (@0x190 = role tuile-cible, distinct de @0x178=Target-unit mais MEME position ; le cadavre garde sa
-    tuile). `multi=True, pick_n=1` folde le `PickRandomly(., 1)` (tri par id -> `_pick_randomly_n`, no-draw si
-    <=1 candidat, == natif). `hits=n` (RoundsStarted) OVERRIDE la config `nrOfHits` sur les 2 feuilles.
+    tuile). `multi=True, pick_n=1` folde le `PickRandomly(., 1)` (tri par id -> `_pick_randomly_n`, qui tire
+    `min(len(pool),1)` fois : **1 tirage des qu'il y a >=1 candidat**, meme unique -- #130, le natif ne
+    court-circuite pas). `hits=n` (RoundsStarted) OVERRIDE la config `nrOfHits` sur les 2 feuilles.
     `native_factory="attack"` par defaut (XREF IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage). `If(IsDead(Target()))` s'evalue APRES le MAIN
     (sequence gauche->droite `op_and`) : le secondary ne fire que si le main a tue la cible. `Inform(0xc1)` et
     `SetCache` FOLDES (cf. en-tete)."""

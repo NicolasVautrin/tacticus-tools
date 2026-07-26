@@ -78,11 +78,12 @@ def bringer_of_despair_tree() -> AtomicGroup:
     de l'i2 est ABSENT de l'ExecuteBehaviour (aucun noeud effet) -> no-op degat (mecanique de trigger separee,
     hors face COMBAT).
 
-    ⚠ GAP #215 (RNG-exact PickRandomly) : l'ordre/cout exact du tirage `PickRandomlySelector.Select` n'est pas
-    cale ; `pick_n` tire des OCCUPANTS (jamais de tuile vide, CONTRASTE Fragstorm qui tire des HEXES) -> quand
-    >1 ennemi damageable adjacent au caster, l'ennemi touche ET la conso `state.rng` peuvent differer. Structure
-    fidele (ennemis-du-caster adjacents, cap 1, exclusion de la cible) ; RNG-exact du pick = raffinement flagge.
-    len(pool)<=1 -> `_pick_randomly_n` ne roll PAS (le cas 1v1 : 0 tirage de pick, bonus vide ou unique)."""
+    #130 (GAP #215 CLOS sur la CONSO) : `_pick_randomly_n` consomme desormais `min(len(pool), 1)` tirages,
+    donc **1 tirage des qu'il y a >=1 candidat** (y compris le cas 1v1 ou le bonus est l'unique ennemi
+    adjacent) -- le natif n'a AUCUN court-circuit « le pool tient dans amount » (cf. `_pick_randomly_n`).
+    Le pick precede les coups BONUS : sans lui, TOUT le flux rng du volet bonus etait decale.
+    ⚠ RESIDU #215 restant : quand >1 ennemi damageable adjacent au caster, l'ordre d'enumeration natif du
+    pool (non id-trie) decide QUI est pique -> l'ennemi touche peut differer (la CONSO, elle, est exacte)."""
     tgt = Target()
     main = AttackWithAttackDamage(tgt, "BringerOfDespair", "Power", is_melee=True)      # MinMaxDamage/Power/0x2f=4
     bonus_sel = Sub(Damageable(Enemies(AdjacentUnits(CasterTile(), Const(1)))), Target())  # adjacents-caster (ennemis, PV>0) − cible
