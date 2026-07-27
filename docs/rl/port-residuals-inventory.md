@@ -132,8 +132,14 @@ BlackTemplars / Custodes / EmperorsChildren / AdeptusAstartes → un port de ces
 **Le gisement à valeur la plus haute** : divergence d'état *invisible* (aucune erreur,
 `mutated=false`) en replay / self-play, sur des abilities que l'IA portée choisit réellement.
 
-**Compte re-dérivé : 15 en lineup** (+ 2 npc non confrontables). Source = `kit-coverage.md`
+**Compte re-dérivé : 13 en lineup** (+ 2 npc non confrontables). Source = `kit-coverage.md`
 régénéré, dont le critère `D` a été corrigé entre-temps.
+
+> **−2 le 2026-07-28** (`case-bl-1029-1020`) : `1020 HeraldOfTheApocalypse` et `1029 Drachnyen`
+> sont PORTÉES et confrontées live. Leur symptôme, qui était « non mesuré », l'est désormais —
+> c'était bien le pire cas du gisement : Herald **8450 + 7713 PV non infligés sur DEUX unités**,
+> Drachnyen PV du caster **non SETÉS** (10038 au lieu de 6480) + attaque normale jamais
+> dispatchée. Les deux étaient des NO-OP complets, pas des casts dégradés.
 
 > **La méthode de comptage de l'inventaire précédent a été RÉFUTÉE, et c'est important.** Il
 > annonçait 20 en comptant `_NONCOMPARABLE_ABILITIES` comme un 4ᵉ registre de décision. `8e8518e`
@@ -144,7 +150,8 @@ régénéré, dont le critère `D` a été corrigé entre-temps.
 > (« NC classée, utilité NC non portée », 1 occurrence : RadBombardment — **qui a depuis reçu sa
 > face combat**, donc l'occurrence a disparu).
 
-Les 15, tous à porteur **HERO du pool** :
+Les 13 restants, tous à porteur **HERO du pool** (les 2 fermés restent listés, barrés, pour que le
+sens de la marche se lise) :
 
 | id | ability | porteur | registre décision | symptôme | taille |
 |---|---|---|---|---|---|
@@ -156,8 +163,8 @@ Les 15, tous à porteur **HERO du pool** :
 | 1050 | HolyDuel | templChampion | NC | non mesuré | 1 ability (3 classes d'effet) |
 | 1038 | FoulInfusion | deathPutrifier | NC | non mesuré | 1 ability |
 | 1090 | GrapnelLauncher | spaceHound | NC | non mesuré | 1 ability (≥6 primitives) |
-| 1020 | HeraldOfTheApocalypse | blackHaarken | `REGISTRY` | non mesuré | 1 ability |
-| 1029 | Drachnyen | blackAbaddon | `REGISTRY` | non mesuré | 1 ability |
+| ~~1020~~ | ~~HeraldOfTheApocalypse~~ | blackHaarken | `REGISTRY` | **FERMÉ** (`case-bl-1029-1020`) — mesuré avant port : 8450 + 7713 PV non infligés sur 2 unités | — |
+| ~~1029~~ | ~~Drachnyen~~ | blackAbaddon | `REGISTRY` | **FERMÉ** (`case-bl-1029-1020`) — mesuré avant port : SetHealth muet (10038 au lieu de 6480) + attaque normale non dispatchée | — |
 | 1100 | SorcerousFacade | thousTzaangor | `REGISTRY` | non mesuré ; lire `case-171` (interaction attaque normale) | 1 ability |
 | 1177 | LightOfSanguinius | bloodDante | `REGISTRY` | non mesuré | 1 ability |
 | 1199 | DoomSiren | emperKakophonist | `REGISTRY` | non mesuré | 1 ability |

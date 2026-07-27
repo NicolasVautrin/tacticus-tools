@@ -55,7 +55,8 @@ from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, Vigilance
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility)
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
-                          DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat)
+                          DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
+                          DrachnyenAbility, HeraldOfTheApocalypseAbility)
 from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
 from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
@@ -172,6 +173,9 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- Lot #112 : DarkAngels lot 1 (artefact natif = `<Ability>.ExecuteBehaviour` => arbres DSL).
     SuperchargeAbility.ABILITY_TYPE: SuperchargeAbility,               # 1103 (darkaHellblaster Sarquael : AddEffect(1208 Supercharge_ExtraPiercing) sur cible + <=2 PickRandomly(UnitsDirectlyBehind) POSE AVANT les attaques (elles en beneficient), TurnsFromRounds(1) & 1x Plasma minDmg/maxDmg sur la cible & 1x Plasma minDmg_2/maxDmg_2 sur ces memes unites ; native_factory attack, ExecuteAtomic 0x2a)
     ExemplarOfHateAbility.ABILITY_TYPE: ExemplarOfHateAbility,         # 1140 (darkaAsmodai Asmodai : AddEffect(1293 ExemplarOfHate_Target, TurnsFromRounds(2)) INCONDITIONNEL & If(grand-alliance Chaos de la cible, Pinned(1065) duree DEFAUT & override d'Attack + attaque normale libre + retrait, portes par le MEILLEUR allie DarkAngels a portee -- collapse S GetAttacker/SortAttackersByDamagePrediction))
+    # --- case-bl-1029-1020 : les DEUX actives Black Legion HERO restees NO-OP (docs/rl/case-bl-1029-1020.md)
+    DrachnyenAbility.ABILITY_TYPE: DrachnyenAbility,                   # 1029 (blackAbaddon Abaddon : SetHealth(Min(MaxHealth, hp[level])) & AddEffect(1471 Drachnyen_ExtraAttack -> soi, permanent) & UseActiveAbility(attaque NORMALE dirigee sur la cible) ; la triggered 1485 qui en decoule = residu nomme)
+    HeraldOfTheApocalypseAbility.ABILITY_TYPE: HeraldOfTheApocalypseAbility,  # 1020 (blackHaarken Haarken : nrOfHits x Piercing sur la cible ET l'ennemi de la tuile DIRECTEMENT DERRIERE (TilesBehindInLine(CasterTile -> tuile cible, maxCount=2)) & AddEffect(1027 -> ces memes cibles) & TriggerAbility(BattleFatigue -> ennemis disque range=2 autour de la cible, cible incluse))
     CalibaniteGreatswordAbility.ABILITY_TYPE: CalibaniteGreatswordAbility,  # 1189 (darkaCompanion Forcas : TOGGLE de posture = If(HasEffect(Self,1404 Strike), AddEffect(1405 Sweep)+RemoveStrikeEffects(1404/1425/1009/1406), AddStrikeEffects(1404/1425/1009)+RemoveEffect(1405)) ; aucun degat, aucun tirage, ne finit pas le tour ; les observables Sweep/Overwatch vivent dans les TRIGGERED, hors port)
 }
 

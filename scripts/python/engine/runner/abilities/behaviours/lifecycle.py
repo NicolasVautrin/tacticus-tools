@@ -1,9 +1,10 @@
 """Feuilles DSL de fin-de-vie d'unite runner-couplees : `KillDeadUnits` (`KillUnitBehaviour`, finalise les
-DOWNED) et `RemoveUnit` (`RemoveUnitBehaviour`, despawn sans on-death). Namespace natif
-`Entities.Behaviours.*`.
+DOWNED), `RemoveUnit` (`RemoveUnitBehaviour`, despawn sans on-death) et `TriggerAbility`
+(`TriggerAbilityBehaviour`, declenchement DIRECT d'une ability TRIGGERED sur un set d'unites). Namespace
+natif `Entities.Behaviours.*`.
 
-C'est ICI qu'atterrira le sous-systeme REVIVE (7 variantes en-place/once/at-position, transverse case-220)
-et le noeud `TriggerAbility`."""
+C'est ICI qu'atterrira le sous-systeme REVIVE (7 variantes en-place/once/at-position, transverse
+case-220)."""
 from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
@@ -88,4 +89,67 @@ class RemoveUnit(AbilityBehaviour):
                 for eff in state.effects.by_unit.get(int(uid), []):
                     eff.consumed = True
             ectx.emit("RemoveUnit", unit=uid)
+        return OperationResult.ok()
+
+
+# Registre des abilities TRIGGERED declenchables DIRECTEMENT par le noeud `TriggerAbility` :
+# `TriggeredAbilityType (int) -> callable(state, owner_id) -> dict | None`. VIDE par defaut, et c'est un
+# CHOIX documente, pas un oubli : le seul call-site porte (HeraldOfTheApocalypse 1020 -> BattleFatigue
+# 0x401) declenche un behaviour dont le gate central N'A AUCUNE SOURCE OFFLINE (cf. `TriggerAbility`).
+# Une entree ici DOIT etre integralement sourcable (config gameconfig ou etat runner), sinon elle
+# INVENTE la mutation.
+TRIGGERED_ABILITY_BEHAVIOURS: dict[int, object] = {}
+
+
+class TriggerAbility(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$TriggerAbility(targets, abilityType, actor, caster, target,
+    <sel4>, groupType, flag)` -> `IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` : pour
+    CHAQUE unite du selecteur `targets_sel` (champ `+0x50`), DECLENCHE l'ability TRIGGERED `ability_type`
+    (`+0x58`) avec cette unite pour OWNER -- un declenchement DIRECT, qui court-circuite le `CreateTrigger`
+    de l'ability declenchee.
+
+    CHAMPS LUS au ctor (`IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$.ctor`, mapping
+    factory->ctor verifie) : `+0x50` targets · `+0x58` abilityType (int) · `+0x60`/`+0x68`/`+0x70`/`+0x78`
+    = les quatre selecteurs qui RE-CONSTRUISENT l'`AbilityEntities` passe a l'ability declenchee ·
+    `+0x80` groupType (3) · `+0x84` flag. `Execute` resout d'abord ces quatre selecteurs, puis itere
+    `targets` et appelle, par unite, le slot d'operation 0x56 avec `(unitId, abilityType, entities, flag)`.
+
+    CALL-SITE PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$
+    ExecuteBehaviour` -> `TriggerAbility(Enemies(Owner@0x148, SurroundingUnits(Target@0x178, range, 1, 1,
+    3)), 0x401 = TriggeredAbilityType.BattleFatigue, actor@0x158, caster@0x160, target@0x178, null, 3,
+    false)`.
+
+    CE QUE LE PORT FAIT, ET CE QU'IL NE FAIT PAS. La partie OBSERVABLE et sourcable -- QUELLES unites sont
+    declenchees -- est portee (resolution du selecteur, ordre de lecture = id comme partout ailleurs) et
+    emise (`TriggerAbility`, champ `targets`). Le DISPATCH passe par `TRIGGERED_ABILITY_BEHAVIOURS` ; une
+    ability absente du registre rend `dispatched: False` -- le gap est VISIBLE (meme doctrine que
+    `AbilityHandler.unported`), jamais muet.
+
+    ⚠ `BattleFatigue` (0x401) n'y est PAS, et c'est DELIBERE : `IdunBattleLogic.Entities.Abilities.Active.
+    Loki.BattleFatigueAbility$$CreateBehaviour` = `Repeat(numTriggers, If(NOT HasFlag(self, 9),
+    Maybe(GetFleeChance, self) -> Flee(...)))`, et `...$$GetFleeChance` = `ConditionalAmount(
+    TargetIsOverkilled, Direct(GetNumberConstant(0x33)), Direct(GetNumberConstant(0x2a)))` sur une
+    `AbilityConfiguration` ABSENTE du gameconfig (`GC.ability("BattleFatigue")` -> None). La chance n'est
+    donc pas sourcable offline : dispatcher reviendrait a faire fuir 0 % ou 100 % des cibles la ou le natif
+    tire une piece -- une mutation de POSITION massive et fausse a chaque cast (jusqu'a ~19 unites dans le
+    disque rayon 2). On resout et on TRACE le set declenche ; la fuite reste un residu nomme (le meme que
+    `runner/operations/behaviour.py` documente deja pour la voie trigger-sur-mort). PUR (stop=False)."""
+    __slots__ = ("targets_sel", "ability_type")
+
+    def __init__(self, targets_sel: TargetsSelector, ability_type: int):
+        self.targets_sel = targets_sel
+        self.ability_type = int(ability_type)
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        fn = TRIGGERED_ABILITY_BEHAVIOURS.get(self.ability_type)
+        targets = sorted({u["id"] for u in _units_of(self.targets_sel, entities)
+                          if isinstance(u, dict) and u.get("id") is not None})
+        results = []
+        for uid in targets:                                  # ordre de lecture = id (mirror OrderBy)
+            results.append(None if fn is None else fn(state, uid))
+        ectx.emit("TriggerAbility", ability_type=self.ability_type, targets=targets,
+                  dispatched=fn is not None, results=results)
         return OperationResult.ok()

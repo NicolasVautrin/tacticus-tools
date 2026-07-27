@@ -384,11 +384,22 @@ class SetHealth(AbilityBehaviour):
 
     DETERMINISTE (aucun rng). C'est le COUT self de BlackRage : Lucien tombe a 30% MaxHealth (HEAL s'il est
     DEJA sous 30%, cf. walk garde 31337 hp=1 -> 30%). Emet 'SetHealth'. PUR (stop=False). MESURE live (31337,
-    Lucien MaxHealth 15060) : hp 9035 -> 4518 = 15060*30//100 (SetAbsolute a 30%)."""
-    __slots__ = ("target_sel", "ability_id", "pct_var")
+    Lucien MaxHealth 15060) : hp 9035 -> 4518 = 15060*30//100 (SetAbsolute a 30%).
 
-    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct"):
+    `amount` (case BL-1029) = le NOEUD MONTANT natif, quand il n'est PAS le `PercentageOf(MaxHealth,
+    ConfigVar(hpPct))` de BlackRage. Le vrai invariant partage est le `ChangeStat(sel, Position(Health=5,0),
+    mode 0 = SetAbsolute, <noeud montant>)` : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    DrachnyenAbility$$GetSetHealthBehaviour` a EXACTEMENT la meme forme d'appel que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` (meme overload
+    `DSLFactory$$ChangeStat`, meme `Position(5,0,0)`, meme mode 0), seul le noeud montant differe :
+    `Min(StatAmount(Owner@0x148, Health=5, MAXIMUM=2), Direct(ConfigVar(0x1d = hp)))`. Fourni ->
+    `new_hp = int(amount.evaluate(entities))` (clampe >= 0) et `ability_id`/`pct_var` ne sont pas lus."""
+    __slots__ = ("target_sel", "ability_id", "pct_var", "amount")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str | None = None,
+                 pct_var: str = "hpPct", amount=None):
         self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
+        self.amount = amount
 
     def execute(self, entities, ectx):
         from fractions import Fraction
@@ -404,6 +415,11 @@ class SetHealth(AbilityBehaviour):
             e = state.get_entity(uid)
             hc = e.get_component(HealthComponent) if e is not None else None
             if hc is None or hc.hp_max is None:
+                continue
+            if self.amount is not None:                # noeud montant natif explicite (Drachnyen)
+                new_hp = max(0, int(self.amount.evaluate(entities)))
+                hc.hp = new_hp
+                ectx.emit("SetHealth", unit=uid, hp=new_hp, pct=None)
                 continue
             sc = e.get_component(StatsComponent)
             level = getattr(sc.ctx, "active_ability_level", None) if sc is not None else None

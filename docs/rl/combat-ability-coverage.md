@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **80**
-- **NO-OP silencieux** (a porter) : **91**
-- Ventilation NO-OP : **DAMAGE**=58, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **82**
+- **NO-OP silencieux** (a porter) : **89**
+- Ventilation NO-OP : **DAMAGE**=56, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
 
 ## Priorisation & templates de port
 
@@ -22,14 +22,12 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (91)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (89)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1115 | FearOfTheUnseen | DAMAGE(DirectDamage) | 7 | LN |
-| 1029 | Drachnyen | DAMAGE(Piercing) | 6 | LN |
 | 1088 | HellfyreMissileRack | DAMAGE(HeavyRound) | 6 | LN |
-| 1020 | HeraldOfTheApocalypse | DAMAGE(Piercing) | 6 | LN |
 | 1035 | PlagueWind | DAMAGE(Psychic) | 6 | LN |
 | 1026 | BasiliskBarrage | DAMAGE(Blast) | 5 | LN |
 | 1102 | Doombolt | DAMAGE(Psychic) | 5 | LN |
@@ -118,7 +116,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (80)
+## PORTED (registry) (82)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -126,7 +124,9 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1104 | SpiritLeech | DAMAGE(Psychic) | 7 | LN |
 | 1122 | CordClaw | DAMAGE(DirectDamage) | 6 | LN |
 | 1105 | CrushingClaws | DAMAGE(Piercing) | 6 | LN |
+| 1029 | Drachnyen | DAMAGE(Piercing) | 6 | LN |
 | 1008 | HarbingerOfDestruction | DAMAGE(DirectDamage) | 6 | LN |
+| 1020 | HeraldOfTheApocalypse | DAMAGE(Piercing) | 6 | LN |
 | 1006 | MultiThreatEliminator | DAMAGE(Gauss) | 6 | LN |
 | 1116 | RadBombardment | DAMAGE(Toxic) | 6 | LN |
 | 1022 | BringerOfDespair | DAMAGE(Power) | 5 | LN |

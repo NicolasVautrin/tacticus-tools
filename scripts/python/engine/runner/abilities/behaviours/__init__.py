@@ -36,7 +36,7 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `effects`   : `AddBondEffect`, `AddEffect`, `RemoveEffect`, `SetOnFire`, `CreateShield`.
 - `stats`     : `Heal`, `ChangeStat`, `SetHealth` (+ futur `AddStaticStatModifierEffect`).
 - `movement`  : `PushUnit`, `MoveUnit` (+ futur `ResetMovement`).
-- `lifecycle` : `KillDeadUnits`, `RemoveUnit` (+ futur REVIVE / `TriggerAbility`).
+- `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `TriggerAbility` (+ futur REVIVE).
 - `turnflow`  : `ResetTurn` (`ResetUnitTurnBehaviour`), `FinishTurn` (`FinishUnitTurnBehaviour`).
 - `ability_state` : `ResetActiveAbility` (`ResetActiveAbilityBehaviour` -> `ResetActiveAbilityOperation`).
 - `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute -> `ComputerActionOperation`).
@@ -63,7 +63,8 @@ from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, 
                     healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
                     AddStatOverrideEffect)
 from .movement import PushUnit, MoveUnit
-from .lifecycle import KillDeadUnits, RemoveUnit
+from .lifecycle import (KillDeadUnits, RemoveUnit, TriggerAbility,
+                        TRIGGERED_ABILITY_BEHAVIOURS)
 
 __all__ = [
     "entities_from_state", "LiveUnit",
@@ -79,5 +80,5 @@ __all__ = [
     "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
     "PushUnit", "MoveUnit",
-    "KillDeadUnits", "RemoveUnit",
+    "KillDeadUnits", "RemoveUnit", "TriggerAbility", "TRIGGERED_ABILITY_BEHAVIOURS",
 ]
