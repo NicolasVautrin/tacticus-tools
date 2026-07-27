@@ -52,9 +52,16 @@ canal **separe** `decisionView.mows`, le caster n'existait PAS cote moteur :
 
 ```
 decisionView.mows   = [{"casterId": 53, "visualId": "tauBroadside", ...}]
-combatSnapshot ids  = [49, 51, 54, 56]          <- EntityType.Unit only
+combatSnapshot ids  = [49, 51, 54, 56]          <- EntityType.Unit only (mesure d'ALORS)
 load_state entities = [49, 51, 54, 56]          <- caster 53 ABSENT
 ```
+
+> ⚠ **La ligne `EntityType.Unit only` est PERIMEE depuis `d9d0008` (2026-07-26)** :
+> `rpc-snapshot.ts:131` teste desormais `ty !== EntityType.Unit && ty !== EntityType.Machine`, donc
+> `combatSnapshot.allUnits` **inclut** la MoW (avec un champ `entityType`). Cela ne change rien au
+> verrou decrit ici (le caster manquait bien a l'epoque), mais cela cree un defaut NOUVEAU cote port :
+> la ligne Machine entre dans la boucle non filtree de `_load_stats_and_effects` et y ecrase le
+> `StatsComponent` de la MoW -- cf. `case-162` §4 et le residu **N7** de `port-residuals-inventory.md`.
 
 Consequence : tout port d'ability MoW etait **inconfrontable** (le cast live marchait, l'execution
 offline n'avait aucun caster). Le seul port MoW existant (`SporeMineLauncher`, case-220 §6.16)
@@ -185,14 +192,18 @@ Porteurs **absents du seed BC** (donc hors pool : `buildNormalizedBC` n'enumere 
 
 ## 8. Residus documentes
 
-- **Stats resolues de MoW non captables** : `combatSnapshot` (`allUnits`) et `statModSources`
-  (`targetUnits`) filtrent tous deux `ty === EntityType.Unit`. La MoW a pourtant
-  `Attack/CritChance/CritDamage/ExtraHits/ExtraPierce*/ExtraMaxDamage`. Base = 0 (gameconfig), donc le
-  seed a 0 est EXACT a l'init ; une **stat-modification posee en cours de combat sur la MoW** ne serait
-  pas captee. **Spec du changement `frida/hooks` requis** (non fait ici : rebuild+reinject interdits) :
-  elargir le filtre de `rpc-snapshot.ts` a `EntityType.Machine` pour `combatSnapshot.allUnits` (emission
-  d'une section `machines[]` ou inclusion dans `units[]` avec un marqueur), et idem pour les
-  `targetUnits` de `statModSources`. `GetStat` lui-meme est generique (aucun autre obstacle).
+- ~~**Stats resolues de MoW non captables**~~ -- **LEVE, la spec ci-dessous EST implementee**
+  (`d9d0008`, *#128 lot ATELIER VIDE*, 2026-07-26). `rpc-snapshot.ts:131` (`combatSnapshot.allUnits`) et
+  `:367` (`statModSources.targetUnits`) acceptent tous deux `EntityType.Machine`, et les deux charges
+  utiles portent un champ `entityType`. Mesure de l'auteur : « 10 units + 2 machines des deux cotes ».
+  Texte d'origine conserve pour trace : *« les deux filtrent `ty === EntityType.Unit` ; la MoW a pourtant
+  `Attack/CritChance/CritDamage/ExtraHits/ExtraPierce*/ExtraMaxDamage` ; base = 0 (gameconfig), donc le
+  seed a 0 est EXACT a l'init ; une stat-modification posee en cours de combat sur la MoW ne serait pas
+  captee. Spec : elargir le filtre de `rpc-snapshot.ts` a `EntityType.Machine` ... et idem pour les
+  `targetUnits` de `statModSources`. `GetStat` lui-meme est generique. »*
+  **Consequence non anticipee**, ouverte : la ligne Machine ainsi emise ecrase le `StatsComponent` de la
+  MoW cote port (`case-162` §4 ; residu **N7**). Et deux RPC seulement sont a l'origine de la corruption
+  de runner decrite en `case-162` §2 (residu **O7**).
 - ~~**Face DECISION MoW toujours bloquee**~~ -- **LEVE par R14** (`case-r14-mow-decision.md`). Le
   chemin natif dedie n'est pas `aiPlaybookPredict` mais `IdunBattle.AI.Tactics.DefaultMachineTactic`
   (routage `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` sur `IsMachine`) : generateurs

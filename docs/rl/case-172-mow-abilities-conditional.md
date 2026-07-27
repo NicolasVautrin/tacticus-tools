@@ -101,8 +101,12 @@ La phrase « l'ENGINE ne predit pas encore un MoW (combatSnapshot/Scene ne captu
   `MovementActionGenerator`, caster a `UnitPosition.NullPosition`, tuiles candidates VIDES. Porte
   (`engine.ai.tactic.DefaultMachineTactic` + `engine.ai.context.build_machine`), sweep 8/8 MoW,
   coincidence mesuree sur 1187. Aucune origine inventee.
-- **combatSnapshot reste `EntityType.Unit`-only** -> stats resolues de MoW non captables (spec
-  `frida/hooks` documentee dans `case-mow-offboard-cast` §8). Base gameconfig = 0 pour les 8 MoW.
+- ~~**combatSnapshot reste `EntityType.Unit`-only**~~ -- **PERIME** : `d9d0008` (2026-07-26) a elargi
+  `combatSnapshot.allUnits` ET `statModSources.targetUnits` a `EntityType.Machine`
+  (`rpc-snapshot.ts:131` et `:367`, + champ `entityType`). La spec de `case-mow-offboard-cast` §8 est
+  implementee. Base gameconfig = 0 pour les 8 MoW (inchange). ⚠ Effet de bord ouvert : la ligne Machine
+  ainsi emise ecrase le `StatsComponent` de la MoW cote port -> residu **N7** de
+  `port-residuals-inventory.md` (`case-162` §4).
 
 CLOTURE : le port (override pierce-0, base=avg generique, hits generique) est RE-PROUVE + committe, et STRUCTURELLEMENT
 IDENTIQUE aux 4 candidats param_8=null deja VALIDES LIVE sur ultraTitus blinde (1020 HeraldOfTheApocalypse / 1062
