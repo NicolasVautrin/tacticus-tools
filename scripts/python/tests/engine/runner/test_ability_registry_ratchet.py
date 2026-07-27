@@ -165,6 +165,27 @@ def test_liste_d_exemption_ne_peut_que_retrecir():
         % [(a, SANS_TARGETING_OPTIONS[a]) for a in perimees])
 
 
+def test_targeting_range_accompagne_toujours_le_masque():
+    """#241 -- pendant EXACT de la regle ci-dessus, sur l'axe PORTEE.
+
+    `rules` et `range` sortent du MEME appel de ctor -- `TargetingOptions..ctor(isSelfCasting,
+    range, forceMeleeTarget, rules, ...)`, ou de la MEME copie de preset statique. N'en poser qu'un
+    n'est pas un choix, c'est un oubli : `TargetingOptions.range is None` = « `TargetingRange` non
+    RE-lu » -> `get_range` rend None -> AUCUN gate de portee. Meme degradation permissive, meme
+    invisibilite en self-play.
+
+    Pas d'exemption ici, et il n'en faut pas : les 28 masques deja poses portent tous leur
+    `TargetingRange`, et il se lit dans la MEME ligne de decompile que le masque."""
+    manquants = sorted(a for a, cls in ABILITY_CLASSES.items()
+                       if getattr(cls, "TARGETING_OPTIONS", None) is not None
+                       and cls.TARGETING_OPTIONS.range is None)
+    assert not manquants, (
+        "abilities avec `TARGETING_OPTIONS` mais SANS `TargetingRange` -> le volet portee du filtre "
+        "n'est pas arme, le moteur accepte des casts hors portee que le natif REFUSE. Lire le 2e "
+        "argument de `<X>Ability$$.ctor` -> `TargetingOptions$$.ctor` (ou le `<preset>+0x08..0x1f` "
+        "du preset statique recopie) : %s" % [(a, _nom(a)) for a in manquants])
+
+
 def test_masques_poses_ne_portent_aucun_bit_inconnu():
     """Tout bit d'un masque pose doit se nommer dans `TargetingRule` (le mirror GENERE de
     `IdunBattle.Core.Services.TargetingRule` depuis `data/symbols/<build>/frida/enums.tsv`).

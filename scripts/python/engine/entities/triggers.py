@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import hexgeo
 
-from ..dsl.base import AbilityTrigger, _pos, _units_of, _is_alive, _same_entity, _c_mod
+from ..dsl.base import (AbilityTrigger, AAmountFormula, _pos, _units_of, _is_alive, _same_entity,
+                        _c_mod)
 
 
 class TriggerAnd(AbilityTrigger):
@@ -49,6 +50,56 @@ class Not(AbilityTrigger):
 
     def should_trigger(self, ctx):
         return not self.a.evaluate(ctx)
+
+
+class MaybeTrigger(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$Maybe(chance)` (surcharge a UN argument) ->
+    `IdunBattle.Entities.Triggers.MaybeTrigger$$.ctor` / `$$ShouldTrigger` : PREDICAT NON DETERMINISTE
+    (kind T) qui tire `NextBool(chance)`.
+
+    A NE PAS CONFONDRE avec le noeud EFFET homonyme `entities.behaviours.Maybe`
+    (`IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`, surcharges a 3/4 args de la meme factory) :
+    celui-la ENVELOPPE un behaviour, celui-ci est un PREDICAT compose par `op_BitwiseAnd`/`If`.
+
+    Mirror 1:1 de `MaybeTrigger$$ShouldTrigger` :
+        chance = <formule V>.Calculate(entities)                 # ici `ConfigConst(...)`
+        if (!ANonDeterministicAbilityTrigger.CanUseRandom(this)) return 99 < chance;
+        return DisallowablePseudoRNG.NextBool(this.rng@+0x18, chance);
+    Le RNG est un CHAMP de l'instance (`+0x18`, pose par la factory depuis `DSLFactory+0x18`), PAS une
+    entree du contexte -> le port le prend AU CONSTRUCTEUR, comme le natif. `rng=None` -> aucun tirage
+    possible : on rend False (no-op documente, meme regime degrade que le noeud EFFET `Maybe`).
+    La branche `CanUseRandom == false` (BC `DisableRandomness`) n'est PAS portee : le runner isole tourne
+    toujours avec le PRNG cale (`state.rng`), et aucun mode offline ne desarme le hasard.
+
+    `chance` = noeud VALEUR (`AAmountFormula`) ou int litteral. UN SEUL `next_bool` par evaluation."""
+    def __init__(self, rng, chance):
+        self.rng, self.chance = rng, chance
+
+    def should_trigger(self, ctx):
+        if self.rng is None:                         # rng non cale -> pas de tirage (no-op documente)
+            return False
+        ch = self.chance.evaluate(ctx) if isinstance(self.chance, AAmountFormula) else int(self.chance)
+        # `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool` (1 tirage genrand, cf. prng.py).
+        return bool(self.rng.next_bool(int(ch)))
+
+
+class IsFirstHitInSeries(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$IsFirstHitInSeries()` ->
+    `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (MIRROR 1:1) :
+
+        var v = entities.IsFirstHit;          // Nullable<bool>
+        return v.HasValue ? v.Value : false;
+
+    ou `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit` lit le `DamageAppliedResult` du
+    coup courant (champ +0x110) et rend `IdunBattle.Core.Services.DamageAppliedResult$$get_IsFirstHit`
+    = `hitIndex == 0`. Autrement dit : « le coup courant est le PREMIER de la serie de coups ».
+
+    Cote port, `ctx.is_first_hit` est pose par le vecteur qui evalue l'arbre (defaut None -> False,
+    mirror du `!HasValue`). Frere de `IsFirstHitGroupInAttack`
+    (`IdunBattleLogic.Entities.DSLFactory$$IsFirstHitGroupInAttack`, champ +0x118), NON porte."""
+    def should_trigger(self, ctx):
+        v = ctx.is_first_hit
+        return bool(v) if v is not None else False   # Nullable<bool> : `HasValue ? Value : false`
 
 
 class HasFlag(AbilityTrigger):

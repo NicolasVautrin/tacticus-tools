@@ -36,7 +36,8 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage,
                          ChainLeftOverHitsAttackDamage, Spawn)
@@ -159,10 +160,13 @@ class HarbingerOfDestructionAbility(ActiveAbility):
     #                         ou un ennemi attaquable. C'est ce bit qui explique la branche
     #                         `If(AreEqual(caster, target), ...)` de l'ExecuteBehaviour : le natif ACCEPTE
     #                         `target == caster` pour cette ability (d'ou `include_main=False`).
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x3c0` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `HarbingerOfDestruction.constants.range` = 2)
+    # + `forceMeleeTarget = False`.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.CasterMatchesDynamicRule
         | TR.TargetIsCasterOrEnemy
-    ))
+    ), range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
     def _params(self, state: "State", caster_id: int) -> tuple:
         """`(N, range)` lus du gameconfig au niveau du caster (mirror `GetVariableForLevel(config, 0x9a)` =
@@ -297,10 +301,12 @@ class ResurrectionOrbAbility(ActiveAbility):
     #                   SELF-CAST STRICT (le natif refuse tout target != caster).
     # `self_cast` = le BYTE `options+0x00`, ici le 2e argument du ctor (= 1) : il aiguille le cast
     # SUR SOI-MEME vers `TargetingQuery$$GetCasterNotAddedReason` au lieu du filtre statique.
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x60` = `overrideRange = 0`,
+    # `forceMeleeTarget = False` -- portee NULLE, coherent avec un cast SELF.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetHasFreeAdjacentTile
         | TR.TargetIsCaster
-    ), self_cast=True)
+    ), self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -431,11 +437,15 @@ class ChronometronAbility(ActiveAbility):
     #     0x6000000   AllowObscuredTarget  -> permissif (aucune contrainte de ligne de vue)
     # => l'ability accepte DEUX formes de cast : sur SOI (self-cast, forme naturelle -- l'arbre est
     # caster-ancre `Foreach(SurroundingEnemies(caster, range))`), ou sur un ENNEMI a portee.
+    # PORTEE (#241) : le ctor construit les `TargetingOptions` INLINE (aucun appel a
+    # `TargetingOptions..ctor`) mais recopie le `TargetingRange` statique `+0x18`
+    # (`useRangeFromConfig` -> `Chronometron.constants.range` = 2) ; `forceMeleeTarget =
+    # False`, `isSelfCasting = 1`.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetIsEnemy
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
-    ), self_cast=True)
+    ), self_cast=True, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
     def _params(self) -> tuple:
         """`(range, nrOfRounds)` = `GetNumberConstant(config, 0x16 / 0x45)` — DEUX constantes de config
@@ -542,7 +552,12 @@ class MultiThreatEliminatorAbility(ActiveAbility):
     #     0x2      TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason` (non surcharge
     #              ici -> defaut 0 = pas de refus dynamique, degradation PERMISSIVE assumee)
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x140` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `MultiThreatEliminator.constants.range` = 2)
+    # + `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def _params(self) -> tuple:
         """`(range, extraHit)` = `GetNumberConstant(config, 0x16 / 0x2b)`."""

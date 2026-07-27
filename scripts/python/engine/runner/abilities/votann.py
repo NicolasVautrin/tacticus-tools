@@ -24,7 +24,8 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect,
                          AddDynamicStatModifierEffect)
@@ -158,7 +159,12 @@ class IronkinSteeljackAbility(ActiveAbility):
     # Aucune regle du domaine UNITE -> aucun refus mesurable offline ; masque pose par FIDELITE.
     # ⚠ Le ctor est BYTE-IDENTIQUE a ceux d'AberrantHypermorph et de MasterOfTheTutelaries (meme
     # famille « summon sur hex libre adjacent »).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFree)
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x30` = `onlyAdjacent = True` +
+    # `overrideRange = 1` -> le filtre statique bascule sur `BattleQuery.AreEntitiesAdjacent`
+    # (adjacence, pas distance <= N) ; `forceMeleeTarget = False`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFree,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -234,7 +240,11 @@ class AugmentedAssaultAbility(ActiveAbility):
     # Masque effectif = `preset+0x28` = statics `+0x68` -> `0x4000`.
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x4000   TargetIsEnemy -> PORTE, et SEULE regle du masque (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x40` -> `TargetingRange` statique
+    # `+0x30` = `onlyAdjacent = True` + `overrideRange = 1` -> cible ADJACENTE obligatoire.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -297,7 +307,12 @@ class GravitonRifleAbility(ActiveAbility):
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     # NB la PORTEE (range 2) n'est PAS dans ce masque : le natif la teste hors bit, via
     # `IdunBattle.Core.Services.TargetingQuery$$GetRange` — volet NON PORTE (cf. targeting.py).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x140` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `GravitonRifle.constants.range` = 2) +
+    # `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -487,10 +502,13 @@ class AncestralFortuneAbility(ActiveAbility):
     # `self_cast=True`, coherent avec le SELF-CAST documente dans la docstring de la classe : le cast
     # sur Uthar lui-meme est aiguille vers `TargetingQuery$$GetCasterNotAddedReason`, pas vers le
     # filtre statique.
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x280` -> `TargetingRange`
+    # statique `+0x60` = `overrideRange = 0` (portee NULLE, cast SELF) + `forceMeleeTarget =
+    # False`.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.CasterMatchesDynamicRule
         | TR.CasterIsPossibleTarget
-    ), self_cast=True)
+    ), self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

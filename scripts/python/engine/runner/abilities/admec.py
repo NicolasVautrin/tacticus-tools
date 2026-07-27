@@ -23,7 +23,7 @@ from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import RANGED_BOOL_FALSE, TargetingOptions, custom_range
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon)
 
@@ -292,12 +292,17 @@ class RadBombardmentAbility(ActiveAbility):
     #                    TILE, cf. l'inventaire de `targeting.py`) -> inerte, et c'est deliberе.
     #     0xa0000000000  bits 37 et 39 : noms HORS du dump 32 bits de l'enum -> non decomposes, non
     #                    portes (meme regime que le bit 32 de Waaagh).
+    # PORTEE (#241) : `range = TargetingRange.CustomRange(1)` (le ctor construit le
+    # `TargetingRange` INLINE : `onlyAdjacent = False`, `overrideRange = 1`) et
+    # `forceMeleeTarget = False`. La cible etant une TUILE, le port ne sait pas resoudre sa
+    # position -> le gate de portee ne mord pas offline ; l'annotation reste exacte et
+    # s'activera le jour ou les tuiles seront des entites du `State`.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsTile
         | TR.AllowUntargetableTarget
         | TR.AllowUnwalkableTargetTile
-    ))
+    ), range=custom_range(1), force_melee_target=RANGED_BOOL_FALSE)
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:

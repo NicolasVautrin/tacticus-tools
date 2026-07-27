@@ -13,7 +13,8 @@ import gameconfig as GC
 import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import RULE_TARGET_IS_IN_RANGE, TargetingOptions
+from .targeting import (RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RULE_TARGET_IS_IN_RANGE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
 from ...dsl.base import Const
@@ -287,6 +288,11 @@ class WaaaghAbility(ActiveAbility):
     #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
     #     0x100000000 (bit 32, nom hors dump 32 bits)  -> predicat battleQuery slot 0x61, non porte
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> le volet
+    # generique de portee NE TESTE RIEN. C'est ce qui evite le FORK : la contrainte de
+    # distance de Waaagh vit ENTIEREMENT dans `get_dynamic_invalid_target_reason` ci-dessous
+    # (qui rend le meme code `TargetIsInRange`). `Waaagh.constants.range` (3) n'est PAS lue
+    # par le gate.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.CasterHasNotMoved
@@ -294,7 +300,7 @@ class WaaaghAbility(ActiveAbility):
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
         | TR.TargetIsNotAdjacent
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:
@@ -501,11 +507,14 @@ class SquigLaunchasAbility(ActiveAbility):
     #     0x40000000   AllowNullCasterTile -> permissif : le caster est une MACHINE OF WAR HORS PLATEAU
     #                  (ni Position ni Health), donc SANS tuile — sans ce bit le volet CASTER refuserait
     #                  tout cast de MoW (`GetInvalidCasterReason` : `casterTiles` vide -> 0x40000000).
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun
+    # test de portee. Indispensable ici : le caster est une MACHINE OF WAR (hors plateau,
+    # sans arme gameconfig) -- une portee basee sur l'arme n'aurait aucun sens pour elle.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsEnemy
         | TR.AllowNullCasterTile
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -618,6 +627,9 @@ class SquigMineAbility(ActiveAbility):
     # AUCUNE regle du domaine UNITE n'est armee ici : sur une cible-TUILE `_unit_of` rend None et la
     # cascade portee se tait — le masque est donc pose pour la FIDELITE (et pour que le jour ou le
     # domaine TILE sera porte, il morde tout seul), pas pour un refus mesurable aujourd'hui.
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun
+    # test de portee (meme MoW que SquigLaunchas ; `SquigMine.constants.range` = 2 n'est PAS
+    # celle du gate).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsTile
@@ -625,7 +637,7 @@ class SquigMineAbility(ActiveAbility):
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
         | TR.AllowNullCasterTile
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

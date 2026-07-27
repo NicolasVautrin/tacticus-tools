@@ -193,6 +193,12 @@ class DslContext:
     # CHAQUE unite du state). Defaut None -> False (degradation fidele : aucun ressuscite). Fourni par
     # `entities_from_state` (lit le `UnitFlagsComponent` de l'ECS runner).
     has_unit_flag: object | None = None
+    # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`,
+    # champ +0x110 = le `DamageAppliedResult` du coup courant) -> `Nullable<bool>` valant
+    # `DamageAppliedResult.get_IsFirstHit` = `hitIndex == 0`. Lu par le SEUL predicat
+    # `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` (`HasValue ? Value : false`).
+    # Defaut None = coup hors serie / index inconnu -> le predicat rend False (mirror du `!HasValue`).
+    is_first_hit: bool | None = None
     # Verdict `IdunBattle.Core.Services.BattleQuery$$EntityCanHaveActiveAbilityReset(unit, false)` --
     # consomme par le selecteur `UnitsThatCanHaveActiveAbilityReset` (InspiredToGreatness).
     # `can_have_active_ability_reset(unit) -> bool | None` ; None = verdict INCONNU (canal

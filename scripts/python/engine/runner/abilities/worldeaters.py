@@ -62,7 +62,7 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...dsl.effects import ExecutionContext
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage, SubtractHealthPercent
-from .targeting import TargetingOptions
+from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
@@ -133,7 +133,14 @@ class JakhalStimmsAbility(ActiveAbility):
     #            soi-meme et sur un allie. SEUL bit du masque : pas de TargetMatchesDynamicRule ici
     #            (contraste avec le preset +0x140), et 1131 n'a effectivement aucun
     #            `GetDynamicInvalidTargetReason` natif.
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x40` -> `TargetingRange` statique
+    # `+0x30` = `onlyAdjacent = True` + `overrideRange = 1` -> cible ADJACENTE obligatoire
+    # (`forceMeleeTarget = False`). C'est le MEME preset que les 0x4000 votann -- mais surtout
+    # PAS celui des 0x4002, dont le `TargetingRange` est `useRangeFromConfig` : les presets ne
+    # se generalisent pas plus sur la portee que sur le masque.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -853,8 +853,17 @@ class _DamageOpsMixin:
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
         # d'ABILITY à profil OnFire (ArmoriumCherub, splash FireOfAbsolution, BrazierOfHolyFire…). #136.
         # Idempotent (no-op si la tuile brûle déjà) → une pose post-attaque == per-coup pour le feu.
-        from .triggers import _on_fire_damage_ability, after_hit_ability_attack  # lazy : cycle damage<->triggers
+        from .triggers import (_on_fire_damage_ability, _on_toxic_damage_ability,   # lazy : cycle damage<->triggers
+                               after_hit_ability_attack)
         fire = _on_fire_damage_ability(state, attacker_id, target_id, damage_profile)
+        # POSE DE CONTAMINATION (`OnToxicDamageAbility` 1203) — MEME emetteur natif que le feu
+        # (`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, donc les DEUX familles
+        # d'attaque), mais behaviour CONDITIONNEL : `If(IsFirstHitInSeries() & Maybe(chance=25),
+        # AddEffect(0x4dc Contaminated, Tiles(Target())))`. Un `next_bool(25)` par SERIE de coups —
+        # ici une serie == un appel a `execute_ability_attack`, donc UNE fois par cible (ce que fait
+        # le natif : `IsFirstHitInSeries` ne laisse passer que le coup d'index 0 de chaque serie).
+        # Place APRES `_run_hits`/`_apply_damage_pipeline` = la position native du tirage.
+        toxic = _on_toxic_damage_ability(state, attacker_id, target_id, damage_profile)
         # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
@@ -885,7 +894,8 @@ class _DamageOpsMixin:
                                           ranged=_is_ranged_position(state, attacker_id, target_id),
                                           profile=damage_profile)
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
-                "pierce": profile_pierce, "armor": armor, "fire": fire, "after_hit": after_hit,
+                "pierce": profile_pierce, "armor": armor, "fire": fire, "toxic": toxic,
+                "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],
                 "crits": r["crits"], "rolls": r["rolls"], "per_hit": r["per_hit"],

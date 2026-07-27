@@ -176,6 +176,14 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
     'Traits']`), pose FireEffect(type 5) sur la tuile OCCUPEE COURANTE de la cible (`Tiles`=MainTile de la
     cible, PAS un ring). RNG-free.
 
+    JUMEAU : `OnToxicDamageAbility` (1203, `on_toxic_damage.py`) partage le vecteur, la forme du gate de
+    profil et la feuille de pose, mais son behaviour est CONDITIONNEL (`If(IsFirstHitInSeries() &
+    Maybe(chance), AddEffect(1244))`) -- cf. `case-1203-on-toxic-damage.md` §1 pour le diff complet.
+    ⚠ RESIDU (flagge, non corrige) : la surcharge `AddEffect` a 5 args utilisee ICI passe un selecteur
+    SOURCE **NUL** -> `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe sur la CIBLE
+    (la source du FEU est la TUILE, pas le caster). Le port passe encore le caster ; inerte tant qu'aucun
+    consommateur ne lit la source de l'effet 5.
+
     Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
     d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
     le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce

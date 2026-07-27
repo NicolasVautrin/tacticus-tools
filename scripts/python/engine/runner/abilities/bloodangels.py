@@ -38,7 +38,8 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import HasEffect, IsAlive
 from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .targeting import TargetingOptions, RULE_TARGET_HAS_FREE_ADJACENT_TILE
+from .targeting import (RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
+                        RULE_TARGET_HAS_FREE_ADJACENT_TILE)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
 
@@ -422,6 +423,10 @@ class HammerOfWrathAbility(ActiveAbility):
     #     0x4000      TargetIsEnemy             -> PORTE
     #     0x2000000   AllowObscuredTargetByElevation -> permissif (aucune contrainte portee ici)
     #     0x100000000 (bit 32, nom hors dump 32 bits) -> predicat battleQuery slot 0x61, non porte
+    # PORTEE (#241) : le preset `TargetingOptions` statique `+0x240` embarque le
+    # `TargetingRange` statique `+0x48` = `useWholeBoard` -> AUCUN test de portee dans le
+    # filtre statique. La constante `HammerOfWrath.constants.range` (5) n'est donc PAS la
+    # portee de ciblage : elle est consommee ailleurs, pas par `TargetingQuery$$GetRange`.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.CasterHasNotMoved
@@ -429,7 +434,7 @@ class HammerOfWrathAbility(ActiveAbility):
         | TR.TargetIsEnemy
         | TR.AllowObscuredTargetByElevation
         | TR.TargetIsNotAdjacent
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:

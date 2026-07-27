@@ -32,7 +32,7 @@ from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
                          PerformAIAction, LiveUnit)
@@ -269,7 +269,12 @@ class CultDemagogueAbility(ActiveAbility):
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x2      TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x180` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `CultDemagogue.constants.range` = 2) +
+    # `forceMeleeTarget = False` (PAS de clamp melee ; contraste avec le preset `+0x140`).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -431,12 +436,14 @@ class HeroicFusilladeAbility(ActiveAbility):
     #     0x2         TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
     #     0x4000      TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget      -> permissif
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun
+    # test de portee (l'overload PRESET+flags applique ENSUITE ne touche que `Rules`).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsEnemy
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -554,13 +561,15 @@ class VigilanceEternalAbility(ActiveAbility):
     #     0x200000000   bit 33 -> `UnitExtensions$$HasTrait(target, 0xd)` INTERDIT (la cible ne doit pas
     #                   porter ce trait). NON PORTE (aucun predicat de trait dans la cascade portee) ->
     #                   degradation PERMISSIVE : le port accepte une cible que le natif refuserait.
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun
+    # test de portee (meme forme PRESET+flags a 0 que HeroicFusillade).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsEnemy
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
         | TR.TargetIsNotAnObject
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
