@@ -410,6 +410,15 @@ def revert_stat_mods_of_removed_effects(state: State) -> list:
     deja actif au chargement du `State` (ex. `ThrillSeekers` 1434, +15 CritChance) restait applique POUR
     TOUJOURS alors que le live le retire a l'expiration.
 
+    R16 : #118 n'avait ferme QUE la forme MONO-STAT de la base. Les effets dont `ApplyModification` est
+    OVERRIDE (magnitude lue sur le `StatsComponent.ctx` du porteur : `ActOfFaithBuffEffect`,
+    `ProtectorImperativeEffect`, `AncestralFortune*`, `AugmentedAssault_ReduceArmor`,
+    `BlackRage_ExtraMove`, `Waaagh_ExtraMovement`) tombaient dans le MEME trou, par les DEUX bouts :
+    l'attribution du seed ne les voyait pas (leur contribution restait dans le residu opaque) et
+    `effect_stat_mod_key` rendait `None` (discriminant `get_stat_modification_stat`). Les deux bouts sont
+    fermes : l'attribution passe par `effect_stat_modifications` (point de verite unique des DEUX formes
+    natives) et le discriminant est `reverted_stats()`. Mesure : `probe_r16_eager_statmod_revert.py`.
+
     Idempotent : `stat_mod_reverted` marque l'instance (et `stat_mod_source` est efface quand il existait).
     Renvoie la liste des `(unit, effect_type, stat)` revertes — diagnostic."""
     out: list = []

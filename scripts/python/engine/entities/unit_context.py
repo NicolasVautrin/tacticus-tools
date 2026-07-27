@@ -173,17 +173,14 @@ class UnitContext:
         # et le 1er refresh offline la DOUBLERAIT. Membres morts lus du stat capté (numberOfMembers =
         # GetStat(20, Current) = restants ; delta = Current - Initial(+0x10=base)) — pas de dépendance
         # à hpMax. Attribution indépendante de la visibilité de l'effet dans decisionView.effects.
+        _swarm: dict = {}
         if stat_ids and "Swarm" in (cfg.get("traits") or []):
             _d_members = int((snap_unit.get("statDelta") or {}).get("numberOfMembers") or 0)
             _n_base = g("numberOfMembers") - _d_members
             _swarm_amt = -min(_n_base - 1, -_d_members) if (_n_base > 1 and _d_members < 0) else 0
             if _swarm_amt:
                 from .effects.loki.hits import SWARM_HIT_REDUCTION_SOURCE
-                attributed = attributed if attributed is not None else {}
-                _d = attributed.setdefault(int(StatType.EXTRA_HITS), {})
-                _d[SWARM_HIT_REDUCTION_SOURCE] = _d.get(SWARM_HIT_REDUCTION_SOURCE, 0) + _swarm_amt
-        unit_stats = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attributed)
-                      if stat_ids else UnitStats())
+                _swarm = {int(StatType.EXTRA_HITS): {SWARM_HIT_REDUCTION_SOURCE: _swarm_amt}}
         # Garantit que les 8 stats de base (propriétés) sont seedées même si `stat_ids` est absent /
         # incomplet : `ensure_seeded` est idempotent (ne touche pas un composant déjà seedé par
         # seed_unit_stats, qui porte delta + attribution). Les valeurs plates snapshot = base identité.
@@ -191,16 +188,27 @@ class UnitContext:
                           StatType.FIXED_ARMOR: g("fixedArmor"), StatType.EXTRA_HITS: g("extraHits"),
                           StatType.CRIT_CHANCE: g("critChance"), StatType.CRIT_DAMAGE: g("critDamage"),
                           StatType.BLOCK_CHANCE: g("blockChance"), StatType.BLOCK_DAMAGE: g("blockDamage")}
-        for _idx, _val in _core_snapshot.items():
-            unit_stats.ensure_seeded(_idx, _val)
-        return cls(
+
+        def _seed(attr):
+            """Un SEUL point de seed, rejoué à l'identique pour les deux passes ci-dessous : seule
+            l'ATTRIBUTION change. `seed_unit_stats` calcule `Initial = Current − delta` (indépendant de
+            l'attribution) puis ventile le delta entre les sources fournies, le reste en résidu opaque
+            ⇒ `get_stat(Current)` reproduit Current dans TOUS les cas."""
+            us = (seed_unit_stats(s, snap_unit.get("statDelta"), stat_ids, attr)
+                  if stat_ids else UnitStats())
+            for _idx, _val in _core_snapshot.items():
+                us.ensure_seeded(_idx, _val)
+            return us
+
+        _uc = snap_unit.get("unitConfig") or {}
+        ctx = cls(
             entity_id=snap_unit.get("entityId"), visual_id=snap_unit.get("visualId"),
             extra_hits_melee=g("extraHitsMelee"),
             extra_pierce=g("extraPierce"), extra_pierce_melee=g("extraPierceMelee"),
             extra_pierce_ranged=g("extraPierceRanged"),
             # activeAbilityLevel vit dans `unitConfig` (BattleQuery.GetUnitConfig), PAS dans `stats` →
             # indexe les variables[level] des ABILITIES (minDmg/maxDmg par niveau). Fallback stats/0.
-            active_ability_level=int((snap_unit.get("unitConfig") or {}).get("activeAbilityLevel")
+            active_ability_level=int(_uc.get("activeAbilityLevel")
                                      or s.get("activeAbilityLevel") or 0),
             # #60 : nrOfMembers de BASE (GroupUnitComponent+0x10, = part Initial du stat 20) — le stat
             # capté `numberOfMembers` est GetStat(20, Current) = membres RESTANTS (5→3 sur un swarm
@@ -216,5 +224,41 @@ class UnitContext:
             normal_hits=nh,
             normal_profile=prof_name, normal_profile_pierce=prof_pierce,
             normal_weapon_hits=max(1, w_hits), normal_ranged=ranged,
-            stats=unit_stats,
+            # PASSE 1 — seed avec l'attribution lisible SANS ctx (forme mono-stat de la base +
+            # Swarm). Les parts Initial/Current y sont DÉJÀ exactes : elles ne dépendent pas de
+            # l'attribution, seule la ventilation du delta en dépend.
+            stats=_seed({**(attributed or {}), **_swarm} if (attributed or _swarm) else None),
         )
+        if not (stat_ids and effects):
+            return ctx
+        # Ces deux champs vivent dans `unitConfig` (BattleQuery.GetUnitConfig), PAS dans `stats` — ils
+        # sont lus ICI (et plus seulement re-posés par l'appelant après retour) parce que la PASSE 2
+        # ci-dessous en dépend : la magnitude d'un stat-mod contextuel s'indexe sur le niveau d'ability
+        # et le multiplier de rareté du porteur. Portée STRICTEMENT limitée à la voie « avec effets »
+        # (`snapshot._load_stats_and_effects`/`_load_machine_stats`), qui re-pose ensuite les MÊMES
+        # valeurs ⇒ idempotent ; la voie prédiction (`playbook.scene`) passe `effects=None` et garde son
+        # comportement au bit près (elle tient le multiplier hors-ctx, dans `mult_by_id`).
+        if _uc.get("abilityVariablesMultiplier") is not None:
+            ctx.ability_variables_multiplier = int(_uc["abilityVariablesMultiplier"])
+        if _uc.get("passiveAbilityLevel"):
+            ctx.passive_ability_level = int(_uc["passiveAbilityLevel"])
+        # PASSE 2 (R16) — stat-mods dont la magnitude se lit SUR LE CTX (forme OVERRIDE d'
+        # `ApplyModification` : `ActOfFaithBuffEffect`, `ProtectorImperativeEffect`, `AncestralFortune*`,
+        # `AugmentedAssault_ReduceArmor`…). Ils n'étaient pas attribuables en passe 1 (le ctx n'existait
+        # pas encore) : leur contribution restait dans le résidu opaque `CAPTURED_SOURCE`, donc NON
+        # RETIRABLE — le buff d'un effet SEEDÉ ne redescendait jamais à son retrait, alors que le natif
+        # le reverte inconditionnellement (`AStatModifierEffect$$RevertModification`, même entité-effet
+        # en source). On ré-attribue en REJOUANT le MÊME seed : `get_stat(Current)` est inchangé (le
+        # montant sort du résidu et entre sous la clé `statmod_source_key`, celle-là même que
+        # `effect_stat_mod_key` retrouve au retrait), seule la VENTILATION du delta change.
+        # ⚠ MAGNITUDE APPROCHÉE = régime DÉJÀ en vigueur pour la forme mono-stat (#118) : pour un effet
+        # CROSS-UNITÉ la capture ne dit pas le niveau de la SOURCE, on prend celui du porteur et le
+        # résidu absorbe l'écart. Le revert retire alors la magnitude CALCULÉE — strictement mieux que
+        # l'état antérieur, où il ne retirait RIEN (buff conservé à vie, écart de 100 %).
+        from .effects import stat_modifications_by_source as _by_source   # lazy (cycle entities.effects)
+        full = _by_source(effects, stats_ctx=ctx)
+        if full != (attributed or {}):
+            for _idx, _d in _swarm.items():
+                full.setdefault(_idx, {}).update(_d)
+            ctx.stats = _seed(full)
+        return ctx

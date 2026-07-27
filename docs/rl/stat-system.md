@@ -209,8 +209,9 @@ Port (engine/entities/) :
 - `StatComponent.modify(source, amount)` / `revert(source)` ; `UnitStats.change_stat(statType, source,
   amount)` / `revert_stat(...)` = ChangeStat apply(5/9)/revert(6). Cree le composant si absent.
 - `BaseEffect.get_stat_modification_stat()` / `get_stat_modification_amount()` (homonymes, `None` defaut).
-- `effects.apply_effect_stat_modifications(unit_stats, effects, source_of=None)` = mirror ApplyModification
-  (itere les effets StatModifier, applique attribue par source). Revert = `unit_stats.revert_stat`.
+- `effects.apply_effect_stat_modifications(unit_stats, effects, source_of=None, stats_ctx=None)` = mirror
+  ApplyModification (itere les effets StatModifier, applique attribue par source). Revert =
+  `unit_stats.revert_stat`.
 - Valide en logique pure (SET/no-op-0/reverse iso + apply/revert canal).
 
 Seeding-attribution (FAIT) :
@@ -218,10 +219,33 @@ Seeding-attribution (FAIT) :
   applique les contributions attribuees PUIS le RESIDU `delta - Sigma attribuees` en `CAPTURED_SOURCE`
   -> `get_stat(Current)` reste EXACT ; `residu == 0` quand les effets modelises expliquent tout le delta
   = **validation non-circulaire** (Sigma magnitudes config == delta natif).
-- `effects.stat_modifications_by_source(effects, source_of=None)` -> le dict `attributed`.
+- `effects.stat_modifications_by_source(effects, source_of=None, stats_ctx=None)` -> le dict `attributed`.
 - `UnitContext.from_snapshot(..., effects=None)` calcule `attributed` si `effects` (BaseEffect materialises)
   fourni ; cable LIVE dans `runner/snapshot.py` (`load_state` materialise les effets par unite -> ctx.stats
   attribue). Prediction (scene.py) : opaque pour l'instant (la base = Current, correcte).
+
+Les DEUX formes d'`ApplyModification`, un seul point de verite (R16) :
+- natif, forme de BASE = `AStatModifierEffect$$ApplyModification` lit `GetStatModification()` (vtable
+  +0x728, ValueTuple<stat, amount, hidden> assemble par `AStatModifierEffect$$GetStatModification`
+  depuis les slots +0x748/+0x758) et emet UN `ChangeStat` ;
+- natif, forme OVERRIDE = la classe d'effet remplace `ApplyModification` et emet N `ChangeStat` (ex.
+  `Loki.ActOfFaithBuffEffect$$ApplyModification` : crit-chance + crit-damage, la 2e magnitude etant lue
+  sur la part INITIAL du crit-damage du PORTEUR).
+- port : `effects.effect_stat_modifications(eff, stats_ctx=None)` rend les `(StatType, montant)` des DEUX
+  formes -- `applied_stat_mods(stats_ctx)` (override) PRIME, sinon le couple `get_stat_modification_
+  stat`/`_amount` (base). L'override prime EXACTEMENT comme cote natif : c'est ce qui evite le
+  double-compte d'un effet qui declare les deux (`AnvilShield_FrozenAttackerAdvantage`).
+- ORDRE du seed : la forme OVERRIDE a besoin du ctx du porteur, qui n'existe pas encore quand
+  `from_snapshot` attribue -> `from_snapshot` seede en DEUX passes (les parts `Initial`/`Current` ne
+  dependent PAS de l'attribution, seule la VENTILATION du delta en depend, donc la 2e passe rejoue le
+  MEME `seed_unit_stats` avec l'attribution complete). Sans cette 2e passe la contribution restait dans
+  `CAPTURED_SOURCE` -> **non retirable** : le buff d'un effet SEEDE ne redescendait jamais a son retrait
+  (mesure : `probe_r16_eager_statmod_revert.py`, garde live
+  `tests/engine/runner/test_seeded_eager_statmod_revert_live.py`).
+- cle du revert : `effects.effect_stat_mod_key(eff)` = cle de POSE si un chemin offline l'a renseignee,
+  sinon la cle DERIVEE `statmod_source_key` ; le DISCRIMINANT est `reverted_stats()` (non vide), pas
+  `get_stat_modification_stat()` -- mirror du fait natif « la paire Apply/Revert construit son
+  `Position(stat, part)` depuis le MEME `GetStatModification()`, seule la part change ».
 
 Magnitude concrete (FAIT) : `RitesOfBattleExtraDmgEffect` (loki.py) — `GetDynamicStatModificationAmount
 @180f69810` = `ConfigVar(0x3f6, source, 8)` = `ability_var("RitesOfBattle","extraDmg",level)` (=9 @L1,
