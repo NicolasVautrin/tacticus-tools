@@ -265,7 +265,7 @@ def translate_type(ctype: str, enums: dict, classes: dict, box_primitive: bool =
     if ctype in enums:
         evals = enums[ctype]
         # Empty enum (no values captured) → downgrade to Integer.
-        if not any(not str(k).startswith('_') for k in evals):
+        if not evals:
             return 'Integer'
         queue_type(ctype, enums, classes)
         return java_fqn(ctype)
@@ -564,17 +564,16 @@ def emit_enum(fqn: str, evals: dict) -> str:
     lines.append('/** Generated from IL2CPP dump: ' + fqn + marker + ' */')
     lines.append(f'public enum {simple} {{')
 
-    # Sort by numeric key, keep collision-safe on name
+    # Sort by numeric value, keep collision-safe on name.
+    # Le dump est keye PAR NOM (nom -> valeur en decimal exact, chaine) : les noms sont
+    # uniques en C#, les valeurs non (alias, composites de flags).
     entries = []
     seen_names = set()
-    for k, v in evals.items():
-        if k.startswith('_'):
-            continue
+    for raw, v in evals.items():
         try:
-            i = int(k)
-        except ValueError:
+            i = int(v)
+        except (TypeError, ValueError):
             continue
-        raw = str(v)
         name = sanitize_identifier(raw)
         if name in seen_names:
             name = f'{name}_{i}'
@@ -582,26 +581,31 @@ def emit_enum(fqn: str, evals: dict) -> str:
         entries.append((i, name, raw))
     entries.sort(key=lambda e: e[0])
 
+    # Un enum de FLAGS adosse a `long` deborde `int` : le backing Java suit la largeur reelle.
+    wide = any(i < -(2 ** 31) or i > 2 ** 31 - 1 for i, _n, _r in entries)
+    jprim = 'long' if wide else 'int'
+    jsuffix = 'L' if wide else ''
+
     if not entries:
         # Empty marker — emit a placeholder UNKNOWN enum
         lines.append('    UNKNOWN(0);')
     else:
         for idx, (i, name, raw) in enumerate(entries):
             sep = ',' if idx < len(entries) - 1 else ';'
-            lines.append(f'    {name}({i}){sep}')
+            lines.append(f'    {name}({i}{jsuffix}){sep}')
 
     lines.append('')
-    lines.append('    private final int value;')
-    lines.append(f'    {simple}(int value) {{ this.value = value; }}')
+    lines.append(f'    private final {jprim} value;')
+    lines.append(f'    {simple}({jprim} value) {{ this.value = value; }}')
     if name_serialized:
         # Default enum serialization (name) is used — no @JsonValue needed.
-        lines.append('    public int value() { return value; }')
+        lines.append(f'    public {jprim} value() {{ return value; }}')
     else:
-        lines.append('    @JsonValue public int value() { return value; }')
+        lines.append(f'    @JsonValue public {jprim} value() {{ return value; }}')
     lines.append('    @JsonCreator public static ' + simple + ' fromValue(Object v) {')
     lines.append('        if (v == null) return null;')
     lines.append('        if (v instanceof Number n) {')
-    lines.append('            int iv = n.intValue();')
+    lines.append(f'            {jprim} iv = n.{jprim}Value();')
     lines.append(f'            for ({simple} e : values()) if (e.value == iv) return e;')
     lines.append('            return null;')
     lines.append('        }')

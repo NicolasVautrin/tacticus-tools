@@ -30,7 +30,8 @@
 //   interfaces = array of interface fullNames implemented (present only when non-empty)
 //   fields= [{n: fieldName, t: typeName, o: offset}]
 //
-// Enums:    fullName -> {value: "Name"}
+// Enums:    fullName -> {"Name": "value"}   valeur en DECIMAL EXACT (chaine), largeur reelle
+//           de l'enum (jusqu'a 64 bits). Keye par NOM : deux membres de meme valeur coexistent.
 //
 // Takes ~30-60s for a large game.
 
@@ -114,6 +115,44 @@ function classFullName(klass) {
 function typeName(type) {
     if (!type || type.isNull()) return "";
     try { return s(type_get_name(type)); } catch(e) { return ""; }
+}
+
+// Type SOUS-JACENT d'un enum : porte par son champ implicite `value__`.
+// Le lire est OBLIGATOIRE, pas un raffinement — cf. `readEnumLiteral`.
+function enumUnderlying(klass) {
+    var it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    var f;
+    while (!(f = class_get_fields(klass, it)).isNull()) {
+        if (s(field_get_name(f)) !== "value__") continue;
+        try { return typeName(field_get_type(f)); } catch(e) { return ""; }
+    }
+    return "";
+}
+
+// Valeur d'un literal d'enum, rendue en DECIMAL EXACT (chaine), selon la largeur reelle.
+//
+// POURQUOI la largeur : ce site lisait `readS32()` inconditionnellement. Sur un enum adosse a
+// `long` — tous les enums de FLAGS un peu fournis du jeu — chaque membre au-dessus du bit 31 a
+// ses 32 bits de poids faible NULS, donc tronquait vers 0 ; et comme le dictionnaire etait keye
+// PAR VALEUR, ils s'ecrasaient l'un l'autre. Mesure sur `IdunBattle.Core.Services.TargetingRule`
+// (build gqfc5mff6c) : douze membres reduits a UN SEUL, `TargetIsCasterOrEnemy`, range sous la
+// cle "0" parce qu'il etait le dernier ecrit. Perte SILENCIEUSE — d'ou les masques de ciblage
+// dont il a fallu renommer les bits a la main au decompile.
+//
+// POURQUOI une chaine : un flag 64 bits depasse 2^53, ou un Number JSON perd des bits de poids
+// faible. Le decimal exact traverse le JSON puis le TSV sans arrondi.
+function readEnumLiteral(buf, underlying) {
+    switch (underlying) {
+        case "System.SByte":  return buf.readS8().toString();
+        case "System.Byte":   return buf.readU8().toString();
+        case "System.Int16":  return buf.readS16().toString();
+        case "System.UInt16": return buf.readU16().toString();
+        case "System.UInt32": return buf.readU32().toString();
+        case "System.Int64":  return buf.readS64().toString();
+        case "System.UInt64": return buf.readU64().toString();
+        default:              return buf.readS32().toString();   // System.Int32 = defaut C#
+    }
 }
 
 // -- Probe which exports are available
@@ -261,6 +300,7 @@ for (var i = 0; i < asmCount; i++) {
         if (class_is_enum(klass)) {
             var enumValues = {};
             var hasValues = false;
+            var underlying = enumUnderlying(klass);
             var fit = Memory.alloc(Process.pointerSize);
             fit.writePointer(ptr(0));
             var f;
@@ -271,8 +311,10 @@ for (var i = 0; i < asmCount; i++) {
                     try {
                         valueBuf.writeS64(0);
                         field_static_get_value(f, valueBuf);
-                        var val = valueBuf.readS32();
-                        enumValues[val.toString()] = fname;
+                        // Keye par NOM (unique en C#), pas par valeur : deux membres de meme
+                        // valeur — un alias, un composite — sont tous deux CONSERVES au lieu
+                        // que le second efface le premier.
+                        enumValues[fname] = readEnumLiteral(valueBuf, underlying);
                         hasValues = true;
                     } catch(e) {}
                 }

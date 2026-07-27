@@ -110,7 +110,12 @@ def main() -> int:
     with (out_dir / 'enums.tsv').open('w', encoding='utf-8') as f:
         f.write(stamp + '\n')
         for name, values in enums.items():
-            v_str = ','.join(f'{v}={n}' for v, n in values.items())
+            # Le dump est keye PAR NOM (les noms sont uniques en C#, les valeurs non :
+            # alias et composites partagent une valeur). Le TSV, lui, garde sa forme
+            # historique `valeur=nom` -- son diff inter-build est un rapport de
+            # changement, qu'un changement de format rendrait illisible une fois.
+            # Deux membres de meme valeur y figurent donc tous les deux.
+            v_str = ','.join(f'{v}={n}' for n, v in values.items())
             f.write(f'{name}\t{v_str}\n')
     print(f'Wrote {len(enums)} enums')
     return 0
