@@ -686,16 +686,17 @@ def _supercharge_behind(state: "State", caster_id: int, target_id: int) -> list:
     #130 la CONSO rng du pick est exacte aussi (`min(len(pool),2)` tirages) ; c'est la lecture i2
     (« these units » = les memes que celles attaquees).
     RESIDU (>2 candidats derriere la cible) : le natif re-evalue son `PickRandomly` a chaque `Select`
-    (potentiellement 2 sets differents + 2 series de tirages) ; le port n'en fait qu'un -- meme classe de
-    residu que le GAP #215 restant sur `pick_n` (ordre d'enumeration du pool).
+    (potentiellement 2 sets differents + 2 series de tirages) ; le port n'en fait qu'un.
 
     `UnitsDirectlyBehind` = le noeud DEJA porte (mirror `IdunBattleLogic.Entities.DSLFactory$$
-    UnitsDirectlyBehind`) ; `PickRandomly` = `_pick_randomly_n` (== PlasmaCannon/Fragstorm). Tri par id
-    avant tirage = `OrderBy` natif (ordre de lecture)."""
+    UnitsDirectlyBehind`) ; `PickRandomly` = `_pick_randomly_n` (== PlasmaCannon/Fragstorm).
+    R28-1 (2026-07-27) : le pool est passe au tirage dans l'ORDRE SOURCE (enumeration CUBE de
+    `SurroundingTiles(target,1,1)`, portee par le noeud) et NON id-trie -- `PickRandomAmountSelector$$Select`
+    ne trie jamais son `candidates` ; l'`OrderBy` natif est celui d'`AttackBehaviour$$Execute`, APRES la
+    resolution du selecteur, et il vit deja dans la feuille (`multi=True`)."""
     from .loki import _pick_randomly_n
     ents = entities_from_state(state, caster_id, target_id)
-    cands = sorted((u for u in UnitsDirectlyBehind().evaluate(ents) if u.get("id") is not None),
-                   key=lambda u: u["id"])
+    cands = [u for u in UnitsDirectlyBehind().evaluate(ents) if u.get("id") is not None]
     return _pick_randomly_n(state, cands, 2)
 
 

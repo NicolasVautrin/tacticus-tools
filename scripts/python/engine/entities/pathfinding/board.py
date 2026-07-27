@@ -69,6 +69,30 @@ class Board:
     def neighbours(self, tid: int) -> list[int]:
         return self._adj.get(tid, [])
 
+    def neighbours_native(self, tid: int) -> list[int]:
+        """Voisins de `tid` dans l'**ORDRE D'ENUMERATION NATIF**, cad le champ BRUT `neighbours`
+        du `boardGraph` tel quel (ni trie, ni symetrise).
+
+        C'est l'ordre que rend `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles` ->
+        `IdunBattle.Core.Services.BattleQuery$$IterateAdjacentTiles` ->
+        `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` (liste d'adjacence STOCKEE sur la
+        tuile), donc l'ordre dans lequel `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`
+        remplit son `OrderedSet` -- et par consequent l'ordre du POOL que voit
+        `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` (qui fait
+        `source.Select(entities).ToList()` SANS aucun tri) et celui des `OrderBy` STABLES en aval.
+
+        CONTRASTE avec `neighbours()`, qui trie les ids ET symetrise les aretes : utile au
+        pathfinding (topologie), FAUX des que l'ordre est observable (tirage `PickRandomly`, tri
+        stable a egalite, `First`). Deja etabli/valide live par `fc23f1e` (case-130 SS5, 9/9
+        scenarios) et par le port DECISION `gauntlets_target` (#117).
+
+        Repli sur `neighbours()` (ids tries) quand le champ brut manque -- board construit a la
+        main dans les tests unitaires."""
+        raw = (self.by_id.get(tid) or {}).get("neighbours")
+        if not raw:
+            return self.neighbours(tid)
+        return [t for t in raw if t in self.by_id]
+
     def tile_at(self, col: int, row: int) -> dict | None:
         return self.by_coord.get((col, row))
 

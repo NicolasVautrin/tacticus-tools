@@ -135,9 +135,11 @@ class HarbingerOfDestructionAbility(ActiveAbility):
     quand le pool tient dans `N-1` (le natif n'a aucun court-circuit ; cf. `_pick_randomly_n`). Le pick
     precede les coups -> sans lui TOUT le flux rng aval etait decale. Le SET, lui, reste le pool entier
     quand `len(pool) <= N-1` (== natif).
-    ⚠ RESIDU #215 restant : quand `len(pool) > N-1`, le natif tire dans l'ORDRE d'enumeration du pool
-    (SurroundingTiles->Units, PAS id-trie) alors que le port id-trie -> l'ENSEMBLE pique peut differer
-    (la conso, elle, est exacte). Raffinement flagge (NON root-cause).
+    R28-1 (2026-07-27) : l'ORDRE du pool est desormais celui du natif -- `SurroundingEnemies` enumere par
+    TUILE dans l'ordre de `TileQuery$$IterateSurroundingTiles` (triple boucle CUBE), et le pick consomme
+    cet ordre TEL QUEL (le `sorted(key=id)` pre-tirage qui vivait ici n'avait aucun homologue natif :
+    `PickRandomAmountSelector$$Select` ne trie jamais son `candidates`). Observable des que
+    `len(pool) > N-1` : l'ENSEMBLE pique change.
 
     Renvoie {ability, caster, target, main_attack, splash, dsl}. Termine le tour (1008 hors des frozensets
     base.py -> flags par defaut). `native_factory="attack"` (defaut) = 2 tirages/coup a cc=0 -> bit-exact BY
@@ -192,10 +194,14 @@ class HarbingerOfDestructionAbility(ActiveAbility):
         # target != caster (cas reachable d'une ability ennemi-ciblee) -> N-1 picks + la cible ; sinon N.
         same = (int(target_id) == int(caster_id))
         n_pick = max(0, n_total if same else n_total - 1)
-        # pool (selecteur DSL PUR) -> id-trie (== l'OrderBy pre-pick du leaf) -> PickRandomly(N-1) folde
-        pool = sorted((u for u in harbinger_pool_selector(range_val).evaluate(entities)
-                       if isinstance(u, dict) and u.get("id") is not None), key=lambda u: u["id"])
-        picked = _pick_randomly_n(state, pool, n_pick)          # GAP #215 si len(pool) > n_pick ; sinon = pool
+        # pool (selecteur DSL PUR) dans l'ORDRE SOURCE -> PickRandomly(N-1) folde. R28-1 : le natif
+        # `PickRandomAmountSelector$$Select` fait `source.Select(entities).ToList()` et tire par
+        # `ElementAt(idx)` SANS aucun tri prealable -- l'id-tri qui etait ici n'avait pas d'homologue
+        # natif et decidait QUI etait pique des que |pool| > N-1. L'ordre source vient desormais de
+        # `SurroundingEnemies` = enumeration CUBE d'`IterateSurroundingTiles` (cf. `_tile_enum_rank`).
+        pool = [u for u in harbinger_pool_selector(range_val).evaluate(entities)
+                if isinstance(u, dict) and u.get("id") is not None]
+        picked = _pick_randomly_n(state, pool, n_pick)          # ordre source == natif ; conso exacte (#130)
         # additionnels != cible (le pool a deja soustrait Target() ; garde-fou par securite)
         additional = [u for u in picked if u.get("id") != target_id]
         ectx = ExecutionContext(state=state, rng=state.rng)

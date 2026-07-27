@@ -9,8 +9,15 @@
                  RandomAmount, Blast, nrOfHits_2 = GetNumberConstant(cfg, 0x32))
 Le splash SOUSTRAIT explicitement les tuiles a AMI-DU-CASTER (i2 « ... to up to 4 random hexes adjacent to the
 target, excluding hexes with friendly units ») -> ENEMIES-ONLY, a la DIFFERENCE de Stikkbomb (`AdjacentUnits`
-BRUT = friendly-fire). Porte = `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` +
-`pick_n=4` folde le PickRandomly dans la feuille.
+BRUT = friendly-fire).
+
+R28-2 (2026-07-27) : le pool du `PickRandomly` est un pool de **HEXES**, pas d'occupants -- `AdjacentTiles`
+rend des ENTITES-TUILE et la soustraction ne retire que les tuiles PORTANT un ami ; les tuiles VIDES restent
+dans le pool, donc un tirage peut tomber a cote (coup gaspille). Le port etait
+`Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` = pool d'OCCUPANTS : cardinal FAUX
+(donc nb de tirages faux) et ensemble touche FAUX (tout ennemi adjacent etait touche des qu'ils etaient <= 4).
+Le test assert desormais le POOL lui-meme (deterministe, avant tout tirage) et EXIGE qu'il contienne au moins
+une tuile VIDE -- sans quoi il ne separerait pas les deux modeles et le dit.
 
 On exerce l'ability avec un caster PROXY buildable (le vrai carrier Fragstorm = templSmnAggressor summon,
 non-buildable en lineup ; l'exclusion des amis ne depend que de l'ability + geometrie). On DRIVE un ALLIE du
@@ -149,6 +156,26 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
             hc.hp = hc.hp_max
     ally_hp0 = state.get_entity(ally).get_component(HealthComponent).hp
 
+    # === R28-2 : le POOL du PickRandomly est en HEXES (deterministe, evalue AVANT tout tirage) ===
+    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.runner.abilities.loki.splash import fragstorm_tree
+    ents = entities_from_state(state, caster_id, target)
+    leaf = fragstorm_tree().child.right                       # op_BitwiseAnd(main, splash) -> feuille splash
+    pool = leaf.target_sel.evaluate(ents)
+    ttile = board.id_at(*tp)
+    occupied_tiles = {board.id_at(*_pos(state, i)): i for i in live_ids
+                      if _pos(state, i) is not None and _alive(state, i)}
+    friend_tiles = {t for t, i in occupied_tiles.items() if _team(state, i) == ctm}
+    expected = [t for t in board.neighbours_native(ttile) if t not in friend_tiles]
+    assert pool == expected, (
+        f"pool splash {pool} != hexes attendus {expected} "
+        f"(`AdjacentTiles(target) - Tiles(Friends)` dans l'ordre BRUT `boardGraph.neighbours`)")
+    empty_in_pool = [t for t in pool if t not in occupied_tiles]
+    assert empty_in_pool, (
+        "setup NON discriminant : le pool ne contient AUCUNE tuile vide -> il ne separe pas le modele "
+        "'pool en hexes' (decompile) du modele 'pool en occupants' (ancien port) ; re-crafter la geometrie")
+    assert leaf.tile_domain is True and leaf.multi is True, "la feuille splash doit etre tile-domain multi"
+
     # === chemin DSL migre ===
     res = FragstormAbility().execute_behaviour(state, caster_id, target)
     splash_ids = sorted((x.get("target") for x in (res.get("splash") or [])))
@@ -164,9 +191,16 @@ def test_fragstorm_migration_enemies_only(live_session, rpc, build_runner):
     assert set(splash_ids).issubset(set(enemy_cands)), \
         f"splash {splash_ids} deborde des ennemis adjacents {enemy_cands} (friendly-fire indu ?)"
     assert ally not in splash_ids, "FIDELITE : l'allie du caster (ami) est dans le splash -> friendly-fire indu"
-    # cap PickRandomly(4) : exactement min(#candidats, 4) cibles
-    assert len(splash_ids) == min(len(enemy_cands), 4), \
-        f"splash {len(splash_ids)} != min(#cands {len(enemy_cands)}, 4)"
+    # cap PickRandomly(4) sur un pool de HEXES : AU PLUS min(#candidats, 4) cibles -- et STRICTEMENT
+    # moins des que le tirage tombe sur une tuile vide (R28-2 : coup gaspille, impossible sous l'ancien
+    # modele occupants, qui touchait TOUJOURS min(#cands, 4) unites).
+    assert len(splash_ids) <= min(len(enemy_cands), 4), \
+        f"splash {len(splash_ids)} > min(#cands {len(enemy_cands)}, 4)"
+    if len(pool) <= 4:                                        # le pool tient : TOUTES ses tuiles sont prises
+        assert set(splash_ids) == {occupied_tiles[t] for t in pool if t in occupied_tiles
+                                   and occupied_tiles[t] != target}, (
+            f"pool {pool} <= 4 -> le splash doit toucher TOUS les occupants non-cible du pool ; "
+            f"obtenu {splash_ids}")
     for x in (res.get("splash") or []):
         h = (x.get("attack") or {}).get("hits")
         assert h == cfg_hits2, (

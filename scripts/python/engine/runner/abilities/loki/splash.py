@@ -19,7 +19,8 @@ from ....dsl.effects import ExecutionContext
 from ....entities.behaviours import Foreach, If, AtomicGroup, op_add, op_and
 from ....entities.selectors import (Subject, Caster, Target, CasterTile, TargetTile, AdjacentEnemies,
                                     AdjacentUnits, And, Sub, UnitsWithoutTrait, AdjacentFriends, Alive,
-                                    SurroundingEnemies, Unobscured, Unique)
+                                    SurroundingEnemies, Unobscured, Unique, AdjacentTiles, Tiles,
+                                    Friends, Units)
 from ....entities.triggers import IsAlive
 from ....entities.traits.unit_trait import UnitTrait
 from ..behaviours import (AttackWithAttackDamage, AddEffect, AddBondEffect, PushUnit,
@@ -209,33 +210,42 @@ def fragstorm_tree() -> AtomicGroup:
     friendly units on them ». CONTRASTE Stikkbomb (`AdjacentUnits` BRUT = friendly-fire, i2 « units ») : ici le
     natif SOUSTRAIT explicitement les tuiles amies -> enemies-only (les seuls occupants restants d'un duel).
 
-    Port : SPLASH = `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))` = occupants VIVANTS
-    des tuiles adjacentes MOINS les amis-du-caster adjacents = la soustraction de tuiles native RESOLUE aux
-    occupants (== ennemis adjacents pour un duel 2-teams ; `_within` exclut deja la cible dist 0, `AdjacentFriends`
-    retire le caster). Le `PickRandomly(4)` est FOLDE dans la feuille via `pick_n` (tire 4 cibles DANS la
-    resolution du selecteur d'attaque, comme `multi=True` folde l'`OrderBy` ; `state.rng`, == l'imperatif
-    `_pick_randomly_n(_adjacent_enemies_of, 4)`). Plage `RandomAmount(minDmg/maxDmg)` PARTAGEE main/splash (memes
-    cles par defaut) ; seule la constante de coups differe (nrOfHits 0x2f=4 vs nrOfHits_2 0x32=2). Profil Blast,
-    RANGED (range 2). `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ;
-    `ExecuteAtomic` -> `AtomicGroup` (inline #201, == ScythingTalons, CONTRASTE Stikkbomb plain Execute). Ordre =
-    main PUIS splash (meme `state.rng`). L'imperatif `FragstormAbility.execute_behaviour` (`_pick_randomly_n(
-    _adjacent_enemies_of)` + `_splash_ability_behaviour`) est REMPLACE par cet arbre (bit-exact BY CONSTRUCTION :
-    meme pool id-trie, meme pick, meme rng).
+    Port (R28-2, 2026-07-27) : le SPLASH echantillonne des **HEXES**, pas des occupants —
+    `Sub(AdjacentTiles(TargetTile()), Tiles(Friends(Units(AdjacentTiles(TargetTile()))), as_ids=True))`
+    = les tuiles voisines de la cible MOINS celles portant un ami du caster, **tuiles VIDES INCLUSES**.
+    Le `PickRandomly(4)` est FOLDE dans la feuille (`multi=True, pick_n=4, tile_domain=True`) : elle tire
+    4 TUILES dans l'ordre source (`Board.neighbours_native`, R28-1), applique l'`OrderBy` sur l'id
+    d'entite-tuile, puis ne resout l'occupant qu'ENSUITE (`AttackDamageBehaviour$$ExecuteTarget`) — une
+    tuile piquee sans occupant est un COUP GASPILLE. Consequences MESURABLES vs l'ancien pool-en-occupants
+    (`Alive(Sub(AdjacentUnits, AdjacentFriends))`, en place jusqu'au 2026-07-27) : le CARDINAL du pool
+    passe de « nb d'ennemis adjacents » a « nb de tuiles voisines libres-ou-ennemies » (jusqu'a 6), donc
+    (a) le nombre de tirages `_pick_randomly_n` change -> tout le flux rng aval se decale, (b) l'ensemble
+    des unites touchees change (un ennemi adjacent peut n'etre PAS touche alors que l'ancien port le
+    touchait toujours des qu'ils etaient <= 4).
 
-    #130 : la LOI de consommation du pick est desormais exacte (`min(len(pool), 4)` tirages, bornes
-    decroissantes, MEME quand le pool tient dans 4 -- cf. `_pick_randomly_n`).
-    ⚠ RESIDU #215 restant, PROPRE A FRAGSTORM (le fix du helper ne le couvre PAS) : le natif tire des HEXES
-    (`AdjacentTiles(target) - Tiles(Friends)`, tuiles VIDES incluses -> un tirage peut tomber sur une tuile
-    vide = coup gaspille) la ou le port tire des OCCUPANTS -> le CARDINAL du pool differe, donc le nombre de
-    tirages ET les unites touchees. Structure fidele (soustraction des amis, cap 4) ; pool-en-hexes = cas a
-    part (il faut porter le selecteur en TUILES, pas seulement corriger le tirage)."""
+    `Friends(caster, AdjacentTiles(target), 3)` natif prend un selecteur de TUILES : le port compose
+    `Friends(Units(AdjacentTiles(...)))` (le natif `UnitsByTeamSelector` resout l'occupation de la meme
+    facon) puis `Tiles(..., as_ids=True)` pour revenir au domaine ID — `Tiles` rend des POSITIONS par
+    defaut, qui ne se soustraient PAS a des ids (cf. son docstring).
+
+    Plage `RandomAmount(minDmg/maxDmg)` PARTAGEE main/splash (memes cles par defaut) ; seule la constante
+    de coups differe (nrOfHits 0x2f=4 vs nrOfHits_2 0x32=2). Profil Blast, RANGED (range 2).
+    `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic`
+    -> `AtomicGroup` (inline #201, == ScythingTalons, CONTRASTE Stikkbomb plain Execute). Ordre = main
+    PUIS splash (meme `state.rng`).
+
+    #130 : la LOI de consommation du pick est exacte (`min(len(pool), 4)` tirages, bornes decroissantes,
+    MEME quand le pool tient dans 4 -- cf. `_pick_randomly_n`)."""
     # nrOfTargets = GetNumberConstant(0x11), lue live du gameconfig ; 4 = valeur config/i2 (« up to 4 ») si absente.
     n_targets = int(((GC.ability("Fragstorm") or {}).get("constants") or {}).get("nrOfTargets") or 4)
     tgt = Target()
     main = AttackWithAttackDamage(tgt, "Fragstorm", "Blast", is_melee=False)                        # RandomAmount/Blast/0x2f=4
-    splash_sel = Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))              # AdjacentTiles − Tiles(Friends) -> occupants non-amis
+    adj = AdjacentTiles(TargetTile())                                                                # AdjacentTiles(target@0x178)
+    friend_tiles = Tiles(Friends(Units(AdjacentTiles(TargetTile()))), as_ids=True)                   # Tiles(Friends(caster, adjTiles, 3))
+    splash_sel = Sub(adj, friend_tiles)                                                              # op_Subtraction -> HEXES (vides inclus)
     splash = AttackWithAttackDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
-                                     hits_key="nrOfHits_2", multi=True, pick_n=n_targets)            # MEME plage, PickRandomly(4), 0x32=2
+                                     hits_key="nrOfHits_2", multi=True, pick_n=n_targets,
+                                     tile_domain=True)                                               # MEME plage, PickRandomly(4), 0x32=2
     return AtomicGroup(op_and(main, splash))
 
 
@@ -391,6 +401,27 @@ def _pick_randomly_n(state: "State", items: list, n: int) -> list:
     L'ordre rendu est l'ordre de TIRAGE (le natif `Add`e dans l'ordre des picks). Un consommateur qui
     mirror un `OrderBy` natif re-trie APRÈS (ex. `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
     trie la liste résolue quand `Count > 1`) — ce tri vit chez l'appelant, pas ici.
+
+    ⚠ **`items` DOIT arriver dans l'ORDRE SOURCE** (R28-1). `candidates` natif =
+    `source.Select(entities).ToList()` : le sélecteur est évalué et sa liste consommée TELLE QUELLE,
+    aucun tri n'intervient avant la boucle de tirage. Un appelant qui id-trie son pool AVANT
+    `_pick_randomly_n` change donc QUI est piqué dès que `len(pool) > n` (la CONSO, elle, reste juste).
+    L'ordre source des sélecteurs d'occupation est celui des TUILES (`_tile_enum_rank`, `dsl/base.py`) :
+    `AdjacentTiles` = liste d'adjacence stockée (`Board.neighbours_native`), `SurroundingTiles` = triple
+    boucle CUBE d'`IterateSurroundingTiles`.
+
+    `AddForcedTargetsAndUpdateCandidates` (R28-3) — **NON PORTÉ, et c'est un verdict, pas un trou**.
+    `PickRandomAmountSelector$$Select` appelle bien `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates`
+    avant sa boucle (le champ `+0x38` qui la gate vaut `false` à tous les call-sites : `DSLFactory$$PickRandomly`
+    propage le 5e argument, et les `ExecuteBehaviour` lus passent `(…, 0, 0x7fffffff, false)`). Mais elle
+    PRÉ-REMPLIT `result` depuis `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(entities.Caster)` — la
+    liste de cibles FORCÉES du CASTER — et cette liste n'a **qu'un seul écrivain natif** :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.InstinctiveBehaviour_UpdateTargetAbility$$CreateBehaviour`
+    (unique XREF de `DSLFactory$$AddForcedAttackTarget`). Ses 23 porteurs = le trait `InstinctiveBehaviour`
+    (2021), tous des npc/summons Tyranides SANS active ability — donc aucun d'eux n'atteint jamais un
+    `PickRandomly`. Sur tout porteur confrontable la liste est VIDE, la fonction retourne immédiatement,
+    `i = result.Count = 0` et **aucun tirage n'est consommé** : porter la branche serait un no-op
+    spéculatif. À rouvrir SI un jour un porteur d'`InstinctiveBehaviour` gagne une ability à PickRandomly.
 
     `state.rng` None (replay effet-seul, aucun flux à mirrorer) -> `pool[:n]` déterministe."""
     pool = list(items)

@@ -221,7 +221,50 @@ def _pos(u):
     return (p["col"], p["row"]) if p else None
 
 
-def _within(units, center, radius, include_center=False):
+def _tile_enum_rank(board, center, radius, order) -> dict:
+    """{(col,row): index} = ORDRE D'ENUMERATION NATIF des tuiles parcourues par le selecteur
+    d'occupation (`Units(<selecteur de tuiles>)` -> `IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select`,
+    qui ITERE le selecteur de tuiles et resout l'occupant de chacune). Deux itérateurs natifs
+    DISTINCTS, d'ou le parametre `order` (c'est le SELECTEUR qui tranche, pas le rayon) :
+
+      * `order='adjacent'` — `AdjacentTiles` -> `BattleQuery$$GetAdjacentTiles` ->
+        `TileQuery$$IterateAdjacentTiles` = la liste d'adjacence STOCKEE sur la tuile, prise
+        telle quelle -> `Board.neighbours_native` (champ brut `boardGraph.neighbours`).
+      * `order='surrounding'` — `SurroundingTiles` -> `BattleQuery$$GetSurroundingTiles` ->
+        `TileQuery$$IterateSurroundingTiles` = TRIPLE BOUCLE en coordonnees CUBE
+        (`for x in [cx-r, cx+r] { for y in [cy-r, cy+r] { for z in [cz-r, cz+r] {
+        if (x+y+z == 0) yield GetTileEntityAt(ToAxial(x,y,z)) }}}`, DECOMPILE de
+        `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`).
+        `hexgeo.disk` enumere EXACTEMENT dans cet ordre (dx croissant puis dy croissant, dz
+        contraint) et `hexgeo.to_cube`/`from_cube` == `AxialCoordinate$$ToCubeCoordinate` /
+        `CubeCoordinate$$ToAxialCoordinate` (branche offset-parity 0) -> reutilise tel quel.
+
+    `order='adjacent'` avec un rayon != 1 n'a PAS d'homologue natif (`AdjacentTiles` est
+    ring-1 par construction ; le rayon est une extension du port) -> repli sur l'ordre cube.
+
+    Pourquoi ca compte : `PickRandomAmountSelector$$Select` tire par `ElementAt(idx)` DANS
+    l'ordre du `source.Select(entities).ToList()` — aucun tri n'intervient avant le tirage.
+    L'ordre source decide donc QUI est pique des que `|pool| > amount`, et il tranche a egalite
+    sous les `OrderBy` natifs, qui sont STABLES (cf. fc23f1e)."""
+    if board is None or center is None:
+        return {}
+    positions: list = []
+    if order == "adjacent" and int(radius) == 1:
+        tid = board.id_at(center[0], center[1])
+        if tid is not None:
+            for t in board.neighbours_native(tid):
+                c = board.by_id.get(t)
+                if c is not None:
+                    positions.append((c["col"], c["row"]))
+    else:
+        positions = list(hexgeo.disk(center[0], center[1], int(radius)))
+    rank: dict = {}
+    for i, p in enumerate(positions):
+        rank.setdefault((p[0], p[1]), i)
+    return rank
+
+
+def _within(units, center, radius, include_center=False, board=None, order=None):
     """Anneau/disque d'unites autour de `center` — cœur des selecteurs d'OCCUPATION (`Units(
     SurroundingTiles/AdjacentTiles(...))`, tous les call-sites). VIVANTS SEULEMENT (#57m) : le natif
     resout les unites PAR TUILE (`IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select` : selecteur de tuiles @+0x18
@@ -234,7 +277,16 @@ def _within(units, center, radius, include_center=False):
     `center` accepte les DEUX domaines (mirror natif : `AdjacentUnits`/`SurroundingUnits` prennent une
     ENTITE et le resolveur de tuiles en lit la `MainTile` — meme dualite que `AdjacentTiles`, deja
     documentee) : une POSITION `(col,row)` **ou** un dict d'unite (-> sa position). Un centre non
-    resolvable (unite sans position) -> aucun voisin."""
+    resolvable (unite sans position) -> aucun voisin.
+
+    `board`+`order` = ORDRE D'ENUMERATION NATIF (R28-1). Le natif ne parcourt PAS les entites : il
+    ITERE les TUILES du selecteur (`Units(AdjacentTiles/SurroundingTiles(...))`) et resout l'occupant
+    de chacune -> l'ordre de sortie est celui des TUILES, pas celui de `ctx.units`. Sans board (tests
+    unitaires, contextes offline sans graphe) l'ordre historique `ctx.units` est conserve : c'est une
+    DEGRADATION, jamais un mirror. Le tri est STABLE et l'ENSEMBLE est INCHANGE — une unite dont la
+    tuile n'apparait pas dans l'enumeration (arete d'adjacence absente du `boardGraph` alors que la
+    distance hex vaut 1) reste presente, en fin de liste : le natif, lui, ne la verrait pas du tout
+    (porte |delta elevation| < 2 d'`IterateAdjacentTiles`) -> RESIDU distinct, non traite ici."""
     if isinstance(center, dict):                      # entite -> MainTile (mirror UnitsOnTilesSelector)
         center = _pos(center)
     if center is None:
@@ -249,7 +301,13 @@ def _within(units, center, radius, include_center=False):
         d = hexgeo.distance(p, center)
         if d <= radius and (include_center or d > 0):
             out.append(u)
-    return out
+    if board is None or order is None or len(out) < 2:
+        return out
+    rank = _tile_enum_rank(board, center, radius, order)
+    if not rank:
+        return out
+    big = len(rank) + 1
+    return sorted(out, key=lambda u: rank.get(_pos(u), big))   # STABLE : hors-rang en fin, ordre garde
 
 
 def _round_fix64(value: Fraction, mode: int) -> int:

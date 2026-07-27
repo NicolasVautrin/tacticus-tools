@@ -4,7 +4,7 @@ declenches inline), `UseActiveAbility` (dispatch recursif d'une ability). Wrappe
 `runner/operations/damage.py` + `triggers/dispatch.py`. Namespace natif `Entities.Behaviours.*`."""
 from __future__ import annotations
 
-from ....dsl.base import TargetsSelector, resolve_unit, _units_of
+from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...components import StatsComponent
 from ..base import ability_attack_params
@@ -47,17 +47,26 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(selecteur, n)` natif quand il ENVELOPPE le selecteur de cibles
     d'une attaque (SPLASH de Fragstorm IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
     Comme `multi=True` folde l'`OrderBy`, `pick_n` folde le PickRandomly DANS la resolution du selecteur
-    d'attaque : apres `evaluate`+tri par id, on tire `n` cibles via `_pick_randomly_n(state.rng)` (== l'imperatif
-    `_pick_randomly_n(_adjacent_enemies_of, n)` -> bit-exact, meme pool id-trie/meme pick/meme rng), PUIS on
-    RE-TRIE par id : le `PickRandomly` vit dans le SELECTEUR (il rend l'ordre de tirage) et l'`OrderBy` de
-    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` s'applique APRES la resolution. Defaut None
-    = pas de tirage (toutes les cibles). Requiert `multi=True`.
-    #130 : la CONSOMMATION rng du pick est desormais EXACTE meme quand le pool tient dans `n`
+    d'attaque. ORDRE DES TROIS ETAGES, MIRROR STRICT (R28-1, decompile) :
+
+        candidates = source.Select(entities).ToList()   # PickRandomAmountSelector$$Select : AUCUN tri
+        picked     = <boucle de tirage sur `candidates`>
+        if (picked.Count > 1) picked.OrderBy(b__5_0)    # AttackBehaviour$$Execute, APRES la resolution
+
+    -> le port evalue le selecteur, TIRE dans l'ordre SOURCE (celui que rendent les selecteurs
+    d'occupation = l'ordre des TUILES, cf. `_tile_enum_rank`), PUIS trie par id. Le tri par id AVANT le
+    tirage qui existait ici jusqu'au 2026-07-27 n'avait aucun homologue natif : il ecrasait l'ordre
+    source et decidait donc QUI etait pique des que `|pool| > n`.
+    #130 : la CONSOMMATION rng du pick est EXACTE meme quand le pool tient dans `n`
     (`min(len(pool), n)` tirages, bornes decroissantes -- cf. `_pick_randomly_n`) ; confronte live
-    bit-exact sur PlasmaCannon (`probe_215_pick_randomly_rng.py`). ⚠ RESIDU #215 restant, NON couvert :
-    pour Fragstorm le natif tire des HEXES (`AdjacentTiles(target) - Tiles(Friends)`, tuiles VIDES incluses
-    = coup gaspille) la ou le port tire des OCCUPANTS -> le CARDINAL du pool differe, donc le nombre de
-    tirages aussi ; et quand `len(pool) > n` l'ordre d'enumeration natif (non id-trie) decide QUI est pique.
+    bit-exact sur PlasmaCannon (`probe_215_pick_randomly_rng.py`).
+
+    `tile_domain` = le selecteur de cibles rend des ENTITES-TUILE (ids), pas des unites -- Fragstorm :
+    `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)` echantillonne des HEXES, tuiles VIDES
+    INCLUSES. Le natif ne resout l'occupant qu'a `AttackDamageBehaviour$$ExecuteTarget`, APRES le
+    tirage et APRES l'`OrderBy` : une tuile piquee sans occupant est un COUP GASPILLE. Le port mirror
+    l'ordre exact : evaluate -> ids de tuile -> pick -> `OrderBy` par id de tuile -> occupant vivant de
+    chaque tuile (aucun -> rien) -> attaque. Requiert `multi=True` et un `state.board`.
 
     `amount` = FOLD du degat-node `Direct(amountFormula)` quand le natif passe une **valeur calculee** a
     `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
@@ -72,13 +81,15 @@ class AttackWithAttackDamage(AbilityBehaviour):
     Executioner `hits = IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
-                 "native_factory", "force_overkill", "hits_override", "level_slot")
+                 "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
-                 force_overkill: bool = False, hits_override=None, level_slot: str = "active"):
+                 force_overkill: bool = False, hits_override=None, level_slot: str = "active",
+                 tile_domain: bool = False):
+        self.tile_domain = bool(tile_domain)
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
         self.damage_override, self.multi, self.pick_n = damage_override, multi, pick_n
@@ -131,16 +142,38 @@ class AttackWithAttackDamage(AbilityBehaviour):
         caster = (entities.caster or {}).get("id")
         if state is None or caster is None:
             return OperationResult.ok()
-        if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
-            targets = sorted((u for u in _units_of(self.target_sel, entities) if (u or {}).get("id") is not None),
-                             key=lambda u: u.get("id"))     # OrderBy (b__5_0) = ordre de lecture == id
-            if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng), == imperatif
+        if self.multi and self.tile_domain:                 # selecteur d'ENTITES-TUILE (Fragstorm)
+            tiles = [t for t in _units_of(self.target_sel, entities) if isinstance(t, int)]
+            if self.pick_n is not None:                     # PickRandomly sur les HEXES, tuiles vides incluses
                 from ..loki import _pick_randomly_n
-                # `PickRandomly` vit DANS le selecteur -> il rend l'ordre de TIRAGE ; l'`OrderBy` de
-                # `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (`if (Count > 1)
-                # targets.OrderBy(b__5_0).ToList()`) s'applique APRES la resolution -> on re-trie.
-                targets = sorted(_pick_randomly_n(state, targets, int(self.pick_n)),
-                                 key=lambda u: u.get("id"))
+                tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
+            tiles = sorted(tiles)                           # OrderBy (b__5_0) sur l'id d'entite-tuile
+            # occupant VIVANT de chaque tuile piquee (`AttackDamageBehaviour$$ExecuteTarget` resout la
+            # cible APRES le tirage) ; tuile vide = COUP GASPILLE -> aucune attaque.
+            targets = []
+            board = state.board
+            occ = {}
+            if board is not None:
+                for u in entities.units:
+                    p = _pos(u) if _is_alive(u) else None
+                    if p is None:
+                        continue
+                    tid = board.id_at(p[0], p[1])
+                    if tid is not None and tid not in occ:
+                        occ[tid] = u
+            for t in tiles:
+                u = occ.get(t)
+                if u is not None and u.get("id") is not None:
+                    targets.append(u)
+        elif self.multi:                                   # AttackBehaviour.Execute : selecteur -> N cibles
+            targets = [u for u in _units_of(self.target_sel, entities)
+                       if (u or {}).get("id") is not None]   # ordre SOURCE (aucun tri avant le tirage)
+            if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng)
+                from ..loki import _pick_randomly_n
+                targets = _pick_randomly_n(state, targets, int(self.pick_n))
+            # `OrderBy` (b__5_0) de `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+            # (`if (Count > 1) targets.OrderBy(b__5_0).ToList()`) : APRES la resolution du selecteur.
+            targets = sorted(targets, key=lambda u: u.get("id"))
         else:                                              # collapse mono-cible (cible du message)
             tu = resolve_unit(self.target_sel, entities)
             targets = [tu] if tu and tu.get("id") is not None else []
