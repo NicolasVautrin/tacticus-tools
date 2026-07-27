@@ -101,7 +101,14 @@ class AdjacentTiles(TargetsSelector):
     entite-TUILE c'est ELLE-MEME. Le port accepte donc les DEUX domaines (`_tile_positions`), ce
     qu'exige un cast TILE-TARGET (`PlagueburstMortarAbility$$ExecuteBehaviour` :
     `AdjacentTiles(target@0x178)` ou `target@0x178` EST la tuile ciblee ; les call-sites unit-domain
-    historiques passent par le meme chemin, resultat inchange). Retour list[int]. board None -> []."""
+    historiques passent par le meme chemin, resultat inchange). Retour list[int]. board None -> [].
+
+    ORDRE (R28-1) : `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` accumule dans un
+    `OrderedSet` (ordre d'INSERTION) ce que rend `BattleQuery$$GetAdjacentTiles` = la liste
+    d'adjacence STOCKEE sur la tuile -> `Board.neighbours_native` (champ brut `boardGraph.neighbours`),
+    et **pas** `board.neighbours()` qui trie les ids et symetrise. Observable des qu'un
+    `PickRandomly`/`First`/tri stable consomme le resultat (== `_free_tiles_adjacent(native_order=True)`,
+    valide live par fc23f1e)."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 
@@ -114,7 +121,7 @@ class AdjacentTiles(TargetsSelector):
             tid = board.id_at(p[0], p[1])
             if tid is None:
                 continue
-            out.extend(board.neighbours(tid))
+            out.extend(board.neighbours_native(tid))
         return out
 
 

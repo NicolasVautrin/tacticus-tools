@@ -202,12 +202,9 @@ def _free_tiles_adjacent(state: State, target_id: int, exclude: set,
 
 def _adjacent_tiles(board, tile_id: int) -> list:
     """`IdunBattleLogic.Entities.DSLFactory$$AdjacentTiles(origin)` — voisins de `tile_id` dans
-    l'ORDRE d'itération natif (champ brut `neighbours` du `boardGraph`, cf. `_free_tiles_adjacent`).
-    Repli ids triés quand le champ brut manque (board de test)."""
-    raw = (board.by_id.get(tile_id) or {}).get("neighbours")
-    if not raw:
-        return sorted(board.neighbours(tile_id))
-    return [t for t in raw if t in board.by_id]
+    l'ORDRE d'itération natif. FOYER UNIQUE = `Board.neighbours_native` (champ brut `neighbours`
+    du `boardGraph`, cf. `_free_tiles_adjacent`) ; repli ids triés quand le champ brut manque."""
+    return board.neighbours_native(tile_id)
 
 
 def _pick_randomly_one(state: State, tiles: list):

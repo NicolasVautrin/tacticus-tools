@@ -11,7 +11,7 @@ import hexgeo
 
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...dsl.base import (TargetsSelector, Const, _pos, _within, _is_alive, _units_of, _effect_field,
-                         resolve_unit)
+                         resolve_unit, _tile_enum_rank)
 from ._shared import _entity_pos, _tile_positions
 
 
@@ -30,8 +30,10 @@ class SurroundingUnits(TargetsSelector):
         self.include_center = bool(include_center)
 
     def select(self, ctx):
+        # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`), cf. `_tile_enum_rank`
         return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
-                       include_center=self.include_center)
+                       include_center=self.include_center,
+                       board=getattr(ctx, "board", None), order="surrounding")
 
 
 class AdjacentEnemies(TargetsSelector):
@@ -41,7 +43,9 @@ class AdjacentEnemies(TargetsSelector):
         self.center, self.radius = center, radius or Const(1)
 
     def select(self, ctx):
-        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
+        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       board=getattr(ctx, "board", None), order="adjacent")
         ct = (ctx.caster or {}).get("team")
         return [u for u in ring if u.get("team") != ct]
 
@@ -59,7 +63,9 @@ class AdjacentUnits(TargetsSelector):
         self.center, self.radius = center, radius or Const(1)
 
     def select(self, ctx):
-        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
+        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       board=getattr(ctx, "board", None), order="adjacent")
 
 
 class Enemies(TargetsSelector):
@@ -203,7 +209,14 @@ class UnitsDirectlyBehind(TargetsSelector):
     `dist` = distance hex ; caster = `ctx.caster_pos` (tuile d'attaque balayée). Élévation :
     `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` garde si `GetElevationDifference(cand, target)
     <= maxDiff` (ctor +0x28 = 1 ici) → TOLÉRANCE ±1, pas une égalité stricte (prouvé step-11 :
-    78 elev1 derrière 82 elev2 inclus par le natif). Dégradé no-op sans `ctx.elev_by_pos`."""
+    78 elev1 derrière 82 elev2 inclus par le natif). Dégradé no-op sans `ctx.elev_by_pos`.
+
+    ORDRE (R28-1) : la chaîne part de `SurroundingTiles(target, 1, 1)`, donc l'énumération est celle de
+    `TileQuery$$IterateSurroundingTiles` (triple boucle CUBE, cf. `_tile_enum_rank`) — les filtres en aval
+    (`Enemies`, `TilesOnSameElevation`, `FromTrigger`) la PRÉSERVENT (chacun reconstruit une liste dans
+    l'ordre reçu). Ça décide QUI est piqué par le `PickRandomly(UnitsDirectlyBehind(...), 2)` de
+    PlasmaCannon/Supercharge dès qu'il y a > 2 candidats derrière la cible. Sans `ctx.board` : ordre
+    `ctx.units` (dégradation, pas un mirror)."""
 
     def select(self, ctx):
         tpos = _pos(ctx.target)
@@ -228,7 +241,14 @@ class UnitsDirectlyBehind(TargetsSelector):
                     continue
             if hexgeo.distance(cpos, p) > d_ct:                    # STRICT (AmountIsGreater) : « derrière » = plus loin
                 out.append(u)
-        return out
+        board = getattr(ctx, "board", None)
+        if board is None or len(out) < 2:
+            return out
+        rank = _tile_enum_rank(board, tpos, 1, "surrounding")       # SurroundingTiles(target, 1, 1)
+        if not rank:
+            return out
+        big = len(rank) + 1
+        return sorted(out, key=lambda u: rank.get(_pos(u), big))    # STABLE
 
 
 class Friends(TargetsSelector):
@@ -336,12 +356,24 @@ class Tiles(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Tiles(units)` → `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (ctor mislabelé
     "SortReverse", singleton distinct DAT_183278e98) : unités → leur MainTile. Retour list[position].
     `units` normalisé par `_units_of` (comme `AdjacentTiles`) : accepte une unité SEULE (dict, ex.
-    `Tiles(Target())` d'OnFireDamage) ou une liste — sans quoi itérer un dict nu rendrait ses CLÉS."""
-    def __init__(self, units: TargetsSelector):
-        self.units = units
+    `Tiles(Target())` d'OnFireDamage) ou une liste — sans quoi itérer un dict nu rendrait ses CLÉS.
+
+    `as_ids` — le natif rend des ENTITES-tuile ; le port a historiquement matérialisé la tuile par sa
+    POSITION `(col,row)`. `as_ids=True` (board requis) rend l'**ID d'entité-tuile**, ce qu'exige toute
+    composition avec un nœud tile-domain ID (`AdjacentTiles`, qui rend des ids) — sans quoi un
+    `op_Subtraction` compare des positions à des ids et ne soustrait RIEN (silencieusement). Call-site :
+    `FragstormAbility$$ExecuteBehaviour` = `AdjacentTiles(target) − Tiles(Friends(caster, …))`."""
+    def __init__(self, units: TargetsSelector, as_ids: bool = False):
+        self.units, self.as_ids = units, bool(as_ids)
 
     def select(self, ctx):
-        return [p for p in (_pos(u) for u in _units_of(self.units, ctx)) if p is not None]
+        pos = [p for p in (_pos(u) for u in _units_of(self.units, ctx)) if p is not None]
+        if not self.as_ids:
+            return pos
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        return [t for t in (board.id_at(p[0], p[1]) for p in pos) if t is not None]
 
 
 class First(TargetsSelector):
@@ -500,7 +532,9 @@ class AdjacentFriends(TargetsSelector):
         self.center, self.radius = center, radius or Const(1)
 
     def select(self, ctx):
-        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
+        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       board=getattr(ctx, "board", None), order="adjacent")
         ct = (ctx.caster or {}).get("team")
         return [u for u in ring if u.get("team") == ct]
 
@@ -529,7 +563,9 @@ class SurroundingEnemies(TargetsSelector):
         self.center, self.radius, self.reference = center, radius, reference
 
     def select(self, ctx):
-        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
+        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       board=getattr(ctx, "board", None), order="surrounding")
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         ct = (ref or {}).get("team")
         return [u for u in ring if u.get("team") != ct]
@@ -542,7 +578,9 @@ class SurroundingFriends(TargetsSelector):
         self.center, self.radius = center, radius
 
     def select(self, ctx):
-        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx))
+        # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
+        ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                       board=getattr(ctx, "board", None), order="surrounding")
         ct = (ctx.caster or {}).get("team")
         return [u for u in ring if u.get("team") == ct]
 
