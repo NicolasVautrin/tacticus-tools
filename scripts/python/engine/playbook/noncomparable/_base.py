@@ -12,6 +12,73 @@ from dataclasses import dataclass, field
 import gameconfig as _gc
 
 
+# ---------------------------------------------------------------------------------------------
+# TIERS `get_Priority` NATIFS (`IdunBattle.Entities.Abilities.AbilityPriority` :
+# 1000=First, 100=Early, 0=Normal, -100=Late, -1000=Last)
+#
+# `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` range chaque ActiveAbilityType
+# NonComparable dans `dict[playbook.get_Priority()]` (slot 0 de l'interface IPlaybook, dispatch
+# `FUN_180002560(0, DAT_1831d4f88, playbook)`) ; `GetDefaultActiveAbilityActionGenerators` cree UN
+# generateur par tier, dans l'ordre [1000, 100, 0, -100, -1000], evalues PREMIER-NON-NULL avant le
+# fallback Comparable. Le tier n'ordonne QUE les NonComparable : slot 1 `get_IsComparable` vrai
+# renvoie l'ability dans l'OrderedSet `special`, qui ignore la priorite.
+#
+# Cette table est le RESULTAT D'UN SWEEP EXHAUSTIF des 258 valeurs de l'enum ActiveAbilityType,
+# mesure par invocation du slot 0 de la vtable d'interface (`probe_170_playbook_priority.py`,
+# RPC `pbGate`), confirme par la voie independante `abilityPreferences` (0 divergence / 258) et,
+# pour trois d'entre elles, par les OCTETS du corps natif :
+#     TzeentchsFirestormPlaybook.get_Priority  b8 e8 03 00 00 c3  mov eax,0x3E8      ->  1000
+#     SquigMinePlaybook.get_Priority           b8 9c ff ff ff c3  mov eax,0xFFFFFF9C ->  -100
+#     ReanimationBeamPlaybook.get_Priority     b8 18 fc ff ff c3  mov eax,0xFFFFFC18 -> -1000
+#
+# TOUTE ability ABSENTE de cette table vaut 0 (`AbilityPriority.Normal`) -- c'est le cas de 236
+# des 258 ; l'absence est donc l'ecrasante majorite, mais elle n'est PAS une regle generale.
+#
+# ATTENTION -- ne JAMAIS re-deriver ces valeurs d'une recherche de symboles. Les corps
+# `mov eax,imm32 ; ret` sont dedupliques par IL2CPP : Ghidra n'en nomme AUCUN, et
+# `data/symbols/<build>/frida/methods.tsv` (indexe par RVA, sans doublon) n'expose qu'UN
+# proprietaire par corps -- d'ou les 3 seuls hits pour 22 surcharges reelles. C'est exactement
+# le faux negatif qui avait produit la conclusion erronee « aucun playbook n'override
+# get_Priority » (#115), corrigee par #170.
+NATIVE_PRIORITY: dict[int, int] = {
+    # 1000 = First
+    1070: 1000,   # BreathOfSilencePlaybook
+    1085: 1000,   # EreWeGoPlaybook
+    1109: 1000,   # DeathScreamPlaybook
+    1127: 1000,   # ArmouredMight_MovePlaybook
+    1155: 1000,   # TzeentchsFirestormPlaybook
+    1173: 1000,   # ArcScourgePlaybook
+    1192: 1000,   # NovaBoostPlaybook            (PORTE)
+    1200: 1000,   # SquigLaunchasPlaybook
+    1213: 1000,   # DeathOnTheWindPlaybook
+    # 100 = Early
+    1032: 100,    # CatalystPlaybook
+    1125: 100,    # GunnersKillOnSightPlaybook
+    1174: 100,    # SolarAtomizerPlaybook
+    1187: 100,    # ThriceBlessedConflagrationPlaybook   (PORTE)
+    # -100 = Late
+    1159: -100,   # MacroPlasmaIncineratorPlaybook
+    1201: -100,   # SquigMinePlaybook
+    1209: -100,   # InfernalCannonPlaybook
+    # -1000 = Last
+    1072: -1000,  # MyWillBeDonePlaybook
+    1084: -1000,  # DaGreatWaaaghPlaybook
+    1111: -1000,  # LivingBatteringRamPlaybook
+    1172: -1000,  # InvocationOfMachineVengeancePlaybook
+    1194: -1000,  # NovaShieldPlaybook           (PORTE)
+    1223: -1000,  # ReanimationBeamPlaybook
+}
+
+
+def native_priority(ability_id: int) -> int:
+    """Tier `get_Priority` natif d'une ability (0 = `AbilityPriority.Normal` par defaut).
+
+    POINT D'EXTENSION : tout nouveau playbook NonComparable pose `PRIORITY = native_priority(<id>)`
+    -- ou, si son ability est absente de `NATIVE_PRIORITY`, laisse le defaut 0. Le garde-fou
+    `probe_170_playbook_priority.py` echoue si une classe portee diverge de la mesure live."""
+    return NATIVE_PRIORITY.get(ability_id, 0)
+
+
 _CFG_CACHE: dict = {}
 
 
@@ -289,12 +356,14 @@ class NCContext:
 class NonComparablePlaybook:
     """`NonComparablePlaybook<T>` — playbook à heuristique ENTIÈRE écrite dans la feuille (summons,
     buffs, retraite), par opposition à `ComparablePlaybook<T>` (attaques/soins = somme pondérée sur
-    prédictions). Priorité Normal(0) pour tous les portés. Sous-classe = un playbook natif homonyme
-    (selector + leaf `EvaluateNonComparable` + MIN_UTILITY du cctor)."""
+    prédictions). Sous-classe = un playbook natif homonyme (selector + leaf `EvaluateNonComparable`
+    + MIN_UTILITY du cctor)."""
     ABILITY_ID: int = -1
     MIN_UTILITY: float = 0.0       # cctor du playbook -> gate Bucket.AddAction (util >= min)
     PRIORITY: int = 0              # get_Priority (slot0) -> tier NonComparable (dict[prio], IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists)
-    #                                les 4 portés = 0 (confirmé live via abilityPreferences/get_Priority)
+    #                                DEFAUT 0 = `AbilityPriority.Normal` (236 abilities / 258).
+    #                                22 playbooks SURCHARGENT le getter : poser alors
+    #                                `PRIORITY = native_priority(<ABILITY_ID>)` (table ci-dessus).
 
     def should_evaluate(self, ctx: NCContext) -> bool:
         """`IPlaybook` slot 4 `ShouldEvaluate(unit)` — gate AMONT du générateur

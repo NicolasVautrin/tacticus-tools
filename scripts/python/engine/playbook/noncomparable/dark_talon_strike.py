@@ -127,7 +127,7 @@ class DarkTalonStrikePlaybook(NonComparablePlaybook):
       `tile_id_by_pos[aim]` (entity-tuile, ce que l'agreement compare = 43). util = beam count.
     - MIN_UTILITY=2 (cctor) : n'aime QUE si >= 2 ennemis alignes ; sinon fallback Comparable.
     - position : sweep ORIGINE-FIRST keep-first -> cast EN PLACE (to=None) quand l'origine porte l'aim
-      max (cas s11 ; confirme par les castes en place de la tranche). PRIORITY=0 (#115).
+      max (cas s11 ; confirme par les castes en place de la tranche). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$.ctor = `NonComparablePlaybook(0x444)` -> 1er arg=ability_id.
 
     GATE D'ELEVATION (#124) : la ligne consomme `engine.battle_query.get_tiles_behind` (settings

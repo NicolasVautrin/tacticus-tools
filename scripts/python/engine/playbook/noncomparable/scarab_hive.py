@@ -30,7 +30,7 @@ class ScarabHivePlaybook(NonComparablePlaybook):
       = celle de HammerOfWrath (_displacement_bonus, #116) : GetAdjacentTiles(cible) filtre par CanAddUnit
       (walkable + vide, porte |dElev|<2). Occupation = epos U fpos U origine (TOUTES unites vivantes).
     - PAS de MIN_UTILITY explicite (Bucket ctor 2-arg IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$EvaluateNonComparable -> min defaut ; util 1 toujours admise).
-    - IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$.ctor = `NonComparablePlaybook(0x3ef)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115).
+    - IdunBattle.AI.Playbook.Loki.ScarabHivePlaybook$$.ctor = `NonComparablePlaybook(0x3ef)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - cible = ENNEMI eligible (kind unit) ; position = 1re tuile atteignable (movable order) d'ou la cible
       est castable (`cast_from_tiles`). Cibles multiples passant le gate -> util egale (1.0) -> le driver
       choose_action garde la 1re (mirror bucket keep-first sur l'ordre GetEligibleTargetsSelectable)."""

@@ -31,7 +31,7 @@ class TheQuickeningPlaybook(NonComparablePlaybook):
       - si `HasTriggeredAbility(caster, 0x4df=FuryOfTheAncients)` ET `caster.MainTile != position.MainTile`
         (le caster a DEJA bouge dans ce balayage) : `+1`.
     `MIN_UTILITY` = meme champ statique = 1 -> le gate discriminant est `GetNumAttackTargetsInPosition`.
-    `PRIORITY`=0 (#115). `GenerateAction(position, targetTile, util)` -> la cible emise est l'ID D'ENTITE
+    `PRIORITY`=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). `GenerateAction(position, targetTile, util)` -> la cible emise est l'ID D'ENTITE
     DE LA TUILE (`ctx.tile_id_by_pos`), pas un id d'unite.
 
     PORTE DE DECISION RESOLUE (#46, 2026-07-20) : le gate manquant = slot 4 `ShouldEvaluate(unit)`

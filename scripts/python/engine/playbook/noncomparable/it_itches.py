@@ -37,7 +37,7 @@ class ItItchesPlaybook(NonComparablePlaybook):
       `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$GetTargetUnits` = `Enemies(Target + AdjacentTilesIntersection(caster,
       target))` = la cible ELLE-MEME + les ennemis adjacents A LA FOIS a la cible et au caster.
     - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.ItItchesPlaybook$$.cctor = `Fix64.FromInt(1)` (toujours passe des que la cible est
-      poussable : elle compte pour 1) ; `PRIORITY`=0 (#115). `GenerateAction(position, element, util)`
+      poussable : elle compte pour 1) ; `PRIORITY`=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). `GenerateAction(position, element, util)`
       ou `element` = l'entite TUILE issue de la liste eligible (mirror : `ctx.tile_id_by_pos[T]`).
 
     Ecarts assumes : (1) le FLAG runtime `HasFlag(unit, 0x19)` d'`IsDisplaceable` n'est pas lisible

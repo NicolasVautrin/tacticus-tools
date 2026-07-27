@@ -26,11 +26,12 @@ from ..utilities.tile import tile_composite
 
 class BasePlaybook:
     """Racine `BasePlaybook`. `ability_id` = l'AbilityType (clé du registry). `priority` = le tier de
-    préférence (`get_Priority`, interface slot 0 ; défaut 0 = tier final). Les sous-classes concrètes
+    préférence (`get_Priority`, interface slot 0 ; défaut 0 = `AbilityPriority.Normal`, surchargé par
+    22 playbooks — cf. `engine.playbook.noncomparable.NATIVE_PRIORITY`). Les sous-classes concrètes
     (Comparable/NonComparable) définissent l'énumération + le scoring."""
 
     ability_id: int = -1
-    priority: int = 0                     # tier de préférence (0 = défaut/final)
+    priority: int = 0                     # tier de préférence (0 = AbilityPriority.Normal)
 
 
 # ── Terme de tuile Tile(7) partagé (`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromTilePrediction`) ────────────────

@@ -9,15 +9,26 @@ par un mecanisme generique (registre de classes + driver commun). Structure FIDE
     cree UN generator par tier [1000,100,0,-100,-1000] ; le tactic prend le PREMIER generator
     non-vide -> une NC qui passe son MIN_UTILITY prime sur toute Comparable, ET une NC de tier
     superieur prime sur une NC de tier inferieur PAR L'ORDRE (pas l'utilite). get_Priority = slot-0
-    de l'interface DAT_1831d4f88 (dispatch runtime FUN_180002560(0, interface, playbook)). #115 (RE
-    gqfc5mff6c) : AUCUN playbook n'override ce getter (search_symbols get_Priority / Playbook.*Priority
-    / Playbook$$get_ / IsComparable = 0 hit Playbook ; ni BasePlaybook, ni NonComparablePlaybook<T>,
-    ni ComparablePlaybook<T> ne le nomment -> il vit UNE fois sur le parent partage, jamais surcharge
-    par-leaf). => TOUTES les NonComparable partagent le MEME get_Priority de base = 0 (les 15 portees
-    inclus NovaBoost/NovaShield). L'ancien NovaBoost=1000/NovaShield=-1000 venait d'un idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40
-    (`mov eax,0x3E8`) stale/mal-attribue qui NE RESOUT PLUS dans ce build -> supprime. Consequence :
-    l'ordre inter-tier NC n'est PAS exerce (un seul tier 0 peuple) ; a l'interieur du tier 0, deux NC
-    d'une meme unite se departagent par UTILITE (choose_action argmax), pas par un tier fabrique.
+    de l'interface DAT_1831d4f88 (dispatch runtime FUN_180002560(0, interface, playbook)).
+
+    **22 playbooks SURCHARGENT `get_Priority`** (#170) ; les 235 autres ActiveAbilityType heritent
+    du defaut 0 = `AbilityPriority.Normal`. La table est `NATIVE_PRIORITY` (_base.py) ; les 22 sont
+    TOUTES NonComparable (`get_IsComparable` = False mesure), donc leur tier est REELLEMENT exerce.
+    Trois d'entre elles sont portees : NovaBoost 1192 = **1000**, ThriceBlessedConflagration 1187 =
+    **100**, NovaShield 1194 = **-1000**.
+
+    L'affirmation inverse de #115 (« AUCUN playbook n'override ce getter ») etait un FAUX NEGATIF
+    DE METHODE, pas une lecture : les corps `mov eax,imm32 ; ret` sont dedupliques par IL2CPP, donc
+    (a) Ghidra n'en NOMME aucun -- `search_symbols get_Priority` rend 0 hit Playbook meme quand 22
+    existent -- et (b) `data/symbols/<build>/frida/methods.tsv`, indexe par RVA et sans doublon
+    (121502 lignes, 0 RVA repetee), n'expose qu'UN proprietaire par corps partage : 3 lignes pour
+    22 surcharges. La mesure #170 invoque le slot 0 de la vtable d'interface, ability par ability,
+    sur les 257 valeurs de l'enum (`probe_170_playbook_priority.py`, RPC `pbGate`), recoupee par
+    `abilityPreferences` (0 divergence) et par les OCTETS de trois corps natifs.
+
+    Consequence pour le driver : l'ordre inter-tier NC EST exerce des qu'une unite porte l'une des
+    22 ; a l'interieur d'un tier, deux NC d'une meme unite se departagent par UTILITE
+    (choose_action argmax).
   - Le generator `ActiveAbilityActionGenerator.<GenerateActions>IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` BALAIE
     les positions candidates du caster (tuiles de move) et appelle par position
     `<Playbook>.EvaluateNonComparable(this, ctx, position)` : celui-ci cree un Bucket (MIN_UTILITY
@@ -47,6 +58,7 @@ from __future__ import annotations
 
 from ._base import (
     NCContext, NonComparablePlaybook, _PlanTargetPlaybook,
+    NATIVE_PRIORITY, native_priority,
     _unit_cfg, _traits, _has_valid_targets, _sweep_origin_first,
 )
 from .bloody_fury import BloodyFuryPlaybook
@@ -214,6 +226,7 @@ def choose_action(abilities: list, ctx: NCContext, priority: int | None = None) 
 # accessibles via `noncomparable.X` pour compat. Marque-les "used" (pyflakes).
 __all__ = [
     "NCContext", "NonComparablePlaybook", "_PlanTargetPlaybook",
+    "NATIVE_PRIORITY", "native_priority",
     "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon", "choose_action",
     "_unit_cfg", "_traits", "_has_valid_targets", "_sweep_origin_first",
     "_active_ability_levels", "_enemy_killed_by_normal_attack",

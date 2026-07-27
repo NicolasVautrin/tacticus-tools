@@ -11,7 +11,8 @@ class ScarabSummonPlaybook(NonComparablePlaybook):
     Pour CHAQUE cible éligible (`GetEligibleTargetsSelectable(MainTile(caster))` = tuiles de spawn ring-1
     libres adjacentes à SOI), `GenerateAction` à utilité CONSTANTE `Fix64.FromIntFraction(3,2)=1.5`.
     IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$.cctor : MIN_UTILITY=1 (`Fix64.FromInt(1)`). IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$.ctor : `NonComparablePlaybook(0x417)`
-    SANS priorité -> get_Priority=**0** (défaut). Le caster NE bouge PAS (spawn adjacent à soi, pas de move).
+    (le ctor ne porte PAS la priorité). get_Priority=**0** (`AbilityPriority.Normal` : 1047 hors
+    `NATIVE_PRIORITY`, sweep exhaustif #170). Le caster NE bouge PAS (spawn adjacent à soi, pas de move).
 
     GAP : `IdunBattle.AI.Playbook.Loki.ScarabSummonPlaybook$$GetUseProbability` (1.0 ou 1/2 selon un compteur runtime = `chance:50` gameconfig) =
     gate RNG NON modélisé offline -> le port décide TOUJOURS de se dédoubler dès qu'une tuile ring-1 est

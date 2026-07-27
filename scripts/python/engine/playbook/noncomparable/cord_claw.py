@@ -41,7 +41,7 @@ class CordClawPlaybook(NonComparablePlaybook):
       NB : ordre FORWARD (PAS inverse comme Gauntlets/SortReverseSelector -- chemin selecteur different).
     - MIN_UTILITY=1 : IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.cctor pose `Fix64.FromInt(1)` -> min-utilite du Bucket ctor (IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$EvaluateNonComparable)
       -> admission `count >= 1` (positions sans ennemi adjacent ecartees).
-    - IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.ctor = `NonComparablePlaybook(0x462)` -> 1er arg=ability_id ; PRIORITY=0 (defaut, #115)."""
+    - IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.ctor = `NonComparablePlaybook(0x462)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.CordClaw)  # 1122
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.CordClawPlaybook$$.cctor = Fix64(1) -> admission Bucket count>=1
     PRIORITY = 0

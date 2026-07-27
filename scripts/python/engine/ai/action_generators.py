@@ -24,14 +24,17 @@ chacun déléguant sa prédiction à `engine.playbook.prediction` (modèle objet
 argmax d'utilité faisable (`Bucket` `default`), seuil par-playbook comme gate.
 
 NB : sur seed777, les 4 NonComparable présentes (BloodyFury/Vexilla/FightingRetreat/AberrantHypermorph)
-sont priorité 0 -> seul le générateur #3 (dict[0]) tire côté NC. #115 (RE gqfc5mff6c) : AUCUN playbook
-n'override `get_Priority` (slot-0 de l'interface, dispatch `FUN_180002560(0, interface, playbook)` ;
-search_symbols get_Priority/Playbook.*Priority/IsComparable = 0 hit Playbook -> le getter vit UNE fois
-sur le parent partagé, jamais surchargé par-leaf) -> les 15 NonComparable portées partagent TOUTES le
-tier de base = 0. L'ORDRE inter-tier N'EST DONC JAMAIS exercé (un seul tier peuplé) ; l'ancien
-NovaBoost=1000/NovaShield=-1000 venait d'un idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 (`mov eax,0x3E8`) stale/mal-attribué qui NE RÉSOUT
-PLUS dans ce build -> corrigé à 0. Deux NonComparable d'une même unité se départagent alors par UTILITÉ
-(argmax intra-tier `choose_action`), pas par un tier fabriqué.
+sont priorité 0 -> seul le générateur #3 (dict[0]) tire côté NC. Mais l'ordre inter-tier EST exercé en
+général : **22 des 257 ActiveAbilityType surchargent `get_Priority`** (slot-0 de l'interface, dispatch
+`FUN_180002560(0, interface, playbook)`), toutes NonComparable — table
+`engine.playbook.noncomparable.NATIVE_PRIORITY`, sweep exhaustif #170. Trois sont portées : NovaBoost
+1192 = 1000, ThriceBlessedConflagration 1187 = 100, NovaShield 1194 = -1000. Dans un MÊME tier, deux
+NonComparable d'une même unité se départagent par UTILITÉ (argmax intra-tier `choose_action`).
+
+⚠ L'affirmation antérieure « AUCUN playbook n'override `get_Priority` » (#115) était un FAUX NÉGATIF de
+méthode : les corps `mov eax,imm32 ; ret` sont dédupliqués par IL2CPP, donc ni Ghidra ni `methods.tsv`
+(indexé par RVA, sans doublon) ne les exposent tous. Détail en tête de
+`engine/playbook/noncomparable/_base.py`.
 """
 from __future__ import annotations
 

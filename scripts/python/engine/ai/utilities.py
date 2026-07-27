@@ -35,7 +35,7 @@ class DislikeStartingTilesUtility(BaseUtility):
     non modelisee (chevauchement small-unit seul). Retour 0.0 jusqu'au cablage du poids + feetCount.
     ATTENTION (validateur R2) : ce terme n'est PAS neutre. Il PENALISE l'origine (0 ailleurs) = c'est le
     TIE-BREAKER natif origine-vs-move qui pousse l'unite HORS de sa tuile de depart. Le tier NonComparable
-    (#115 : tous a 0, aucun override get_Priority) et le CENTRE marque restent inchanges, MAIS le no-op
+    (`get_Priority`, cf. NATIVE_PRIORITY) et le CENTRE marque restent inchanges, MAIS le no-op
     (_WEIGHT=0) neutralise ce tie-breaker
     -> biais du port a RESTER sur place au lieu de bouger (couple au trou#6 R1 : origine evaluee en dernier
     cote natif). A confirmer live : si le poids BC DislikeStartingTiles est != 0, cabler `_WEIGHT`."""

@@ -25,7 +25,7 @@ class VigilanceEternalPlaybook(_PlanTargetPlaybook):
       Meme bypass que HammerOfWrath (`make_hammer_wrath_events`), ici sans override d'entrees.
     - cibles = `BasePlaybook.GetEligibleTargetsSelectable(ctx, position)` (ennemi avec un hex libre
       adjacent, a portee de mouvement 2 — gameconfig `range:2`).
-    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.VigilanceEternalPlaybook$$.cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115).
+    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.VigilanceEternalPlaybook$$.cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - `GenerateAction(position, targetTile, util)` : Tyrith se deplace sur l'hex libre (la tuile rankee
       du plan) puis frappe ; l'ability NE TERMINE PAS son tour (non modelise cote decision, le harnais
       compare une action a la fois).

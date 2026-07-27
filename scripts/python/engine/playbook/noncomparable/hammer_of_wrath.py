@@ -50,7 +50,7 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
       (voisins boardGraph, porte |Δelev|<2 comme #45, gate `can_add_unit`). FLAG : co-location trait 0x1b +
       tuiles walkable-mais-réservées non modélisées (borne INF, cf. `can_add_unit`).
     - MIN_UTILITY=1 (IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$.cctor) ; IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$.ctor = `NonComparablePlaybook(0x481)` -> 1er arg =
-      ability_id, PRIORITY=0 (cf. #115). GenerateAction(position, cible, util) + AddAction (argmax via base).
+      ability_id, PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). GenerateAction(position, cible, util) + AddAction (argmax via base).
     - IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$ShouldEvaluate = `!EnemyCouldBeKilledWithNormalAttack(killSure)` : le natif N'ÉVALUE PAS
       Hammer si l'attaque normale du caster sure-kill déjà un ennemi (économise la charge). Porté ci-dessous.
     - Trait 1003 = `Overwatch` (enum UnitTrait, dump.cs gqfc5mff6c:863979 ; PAS BigTarget=1017).

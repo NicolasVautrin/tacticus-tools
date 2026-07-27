@@ -31,7 +31,7 @@ class GrapnelLauncherPlaybook(NonComparablePlaybook):
     - cible = 1er ENNEMI eligible castable DEPUIS L'ORIGINE (`fromHere` d'abro`abilityTargets`) ; util
       const + origine-first -> keep-first garde la 1re cible de l'origine (u81 live). Origine-preference
       (cast en place, to=None) via `_first_cast_pos` : si aucune cible fromHere, 1re tuile de move.
-    - IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.ctor = `NonComparablePlaybook(0x442)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
+    - IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.ctor = `NonComparablePlaybook(0x442)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
     ABILITY_ID = int(ActiveAbilityType.GrapnelLauncher)  # 1090
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.GrapnelLauncherPlaybook$$.cctor = Fix64(1) ; util 1 constante toujours admise

@@ -245,12 +245,22 @@ par ability), désormais **déblocable** — c'est précisément ce que R15 atte
    `abilityTargets`), exactement comme `context.build` le fait pour les unités. Un
    `build_machine_from_state` aujourd'hui serait du code sans consommateur (une MoW n'est pas
    `ai_controlled`) et sans cibles.
-2. **`get_Priority` EST surchargé sur au moins 3 playbooks** — `TzeentchsFirestormPlaybook`,
-   **`SquigMinePlaybook`** (1201, MoW `orksRukkatrukk`) et `ReanimationBeamPlaybook`
-   (`methods.tsv`, retour `IdunBattle.Entities.Abilities.AbilityPriority`). Le `CLAUDE.md` et
-   `noncomparable/__init__.py` affirment « AUCUN playbook n'override `get_Priority` » (#115) : c'est
-   FAUX pour ces trois. Sans incidence tant qu'aucune des trois n'a de feuille portée, mais l'ordre
-   inter-tier deviendra exerçable dès le port de l'une d'elles.
+2. ~~**`get_Priority` EST surchargé sur au moins 3 playbooks**~~ → **FERMÉ par #170**, et le constat
+   était **doublement sous-estimé** :
+   - ce ne sont pas 3 playbooks mais **22** (les 3 vus dans `methods.tsv` n'étaient que les
+     représentants de RVA de corps dédupliqués — la table est indexée par RVA, sans doublon, donc
+     8 autres playbooks de tier 1000 partagent la ligne de `TzeentchsFirestormPlaybook`) ;
+   - l'incidence n'était **pas** nulle : **trois playbooks DÉJÀ PORTÉS** avaient un tier faux —
+     NovaBoost 1192 (0 → **1000**), ThriceBlessedConflagration 1187 (0 → **100**), NovaShield 1194
+     (0 → **-1000**). #115 avait explicitement *supprimé* les valeurs 1000/-1000 de NovaBoost et
+     NovaShield en les croyant issues d'un symbole stale : elles étaient justes.
+   - l'affirmation n'était **pas** dans `CLAUDE.md` (`git log -S "get_Priority" -- CLAUDE.md` = vide)
+     mais dans le code : `engine/ai/tactic.py`, `engine/ai/action_generators.py`,
+     `engine/playbook/noncomparable/__init__.py` + ~22 docstrings de feuilles.
+
+   Table de référence : `engine.playbook.noncomparable.NATIVE_PRIORITY` ;
+   garde live `scripts/python/probe_170_playbook_priority.py` ; garde offline du câblage
+   `tests/engine/test_nc_priority_tiers_offline.py`. Cf. [`case-170-get-priority.md`](case-170-get-priority.md).
 3. **Le gate `can_currently_be_used` n'est appliqué que sur la voie LIVE.**
    `state_bridge.build_from_state` fabrique ses abilities depuis gameconfig avec `usable: True` en
    dur et ne consomme pas l'`ActiveAbilitiesComponent` (désormais chargé pour les unités ET les

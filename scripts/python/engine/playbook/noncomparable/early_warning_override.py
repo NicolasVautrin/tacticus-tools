@@ -53,7 +53,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
       que sur util STRICTEMENT superieure -- ordre confirme par les castes en place Grapnel/DarkTalon).
     - MIN_UTILITY=1 (cctor) : positions a util < 1 rejetees ; l'ability ne fire QUE si un P atteint >= 1.
     - GATE nearest-enemy-within-9 (slot0x49=GetNearestEnemy) : modele par `min_E dist(origine,E) < 9`.
-    - IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.ctor = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut #115).
+    - IdunBattle.AI.Playbook.Loki.EarlyWarningOverridePlaybook$$.ctor = `NonComparablePlaybook(0x435)` -> 1er arg=ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
 
     FLAGS VALIDATEUR (approximations non exercees a s9) :
       * `IsTileInRangeOfAnyAbility` (slot0xc4) approxime par `dist(P,E) <= portee_arme_max(E)` : la vraie
