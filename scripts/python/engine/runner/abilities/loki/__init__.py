@@ -23,7 +23,8 @@ from __future__ import annotations
 
 from .summon import (ScarabHiveAbility, ScarabSummonAbility, GetEmRuntzAbility,
                      MasterOfTheTutelariesAbility, master_of_the_tutelaries_tree,
-                     SpawnTutelaryHorror, perform_ai_attack_from_current_position,
+                     SpawnTutelaryHorror, perform_ai_ability_unit_behaviour,
+                     perform_ai_attack_from_current_position, perform_ai_attack,
                      AberrantHypermorphAbility, aberrant_hypermorph_tree, SpawnAberrant,
                      scarab_hive_tree, scarab_summon_tree, getemruntz_taunt_tree, getemruntz_tree,
                      _summon_on_appearance_attack, _nearest_enemy)
@@ -46,7 +47,8 @@ __all__ = [
     # summon
     "ScarabHiveAbility", "ScarabSummonAbility", "GetEmRuntzAbility",
     "MasterOfTheTutelariesAbility", "master_of_the_tutelaries_tree",
-    "SpawnTutelaryHorror", "perform_ai_attack_from_current_position",
+    "SpawnTutelaryHorror", "perform_ai_ability_unit_behaviour",
+    "perform_ai_attack_from_current_position", "perform_ai_attack",
     "AberrantHypermorphAbility", "aberrant_hypermorph_tree", "SpawnAberrant",
     "scarab_hive_tree", "scarab_summon_tree", "getemruntz_taunt_tree", "getemruntz_tree",
     "_summon_on_appearance_attack", "_nearest_enemy",

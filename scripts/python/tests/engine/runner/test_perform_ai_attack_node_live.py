@@ -1,7 +1,10 @@
-"""GARDE DE-FORK — `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition` : UN corps.
+"""GARDE DE-FORK — `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : UN corps.
 
-Le noeud natif n'a qu'UNE implementation offline (`abilities/loki/summon.py::
-perform_ai_attack_from_current_position`) ; la feuille DSL `PerformAIAttack` et la free-attack de
+Le corps natif n'a qu'UNE implementation offline (`abilities/loki/summon.py::
+perform_ai_ability_unit_behaviour`), atteinte par les DEUX constructeurs `DSLFactory` homonymes
+(`perform_ai_attack_from_current_position` = `+0x70=0` / `+0x78=Direct(0)` ;
+`perform_ai_attack` = `+0x70`/`+0x78` fournis par l'appelant). La feuille DSL `PerformAIAttack`, la
+feuille `SpawnReplica` (ScarabSummon) et la free-attack de
 `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour` y
 delèguent. Ce fichier verrouille les DEUX proprietes qui rendaient les mirrors divergents, chacune par
 un scenario ou le comportement CHANGE l'observable :
@@ -25,6 +28,18 @@ B. **Dispatch after-hit INCONDITIONNEL.** Le noeud fait executer une VRAIE abili
    Teste sur les DEUX faces : la free-attack TheQuickening (B) ET la feuille DSL `PerformAIAttack`
    (on-appearance Poxwalkers, C).
 
+D+E. **La feuille `SpawnReplica` (ScarabSummon 1047) passe par le MEME corps.** Elle etait le fork
+   RESIDUEL laisse par la de-forkification : elle recablait `_nearest_enemy` +
+   `AttackDamageOperation.execute` a la main, donc SANS gate de portee (D) et SANS dispatch after-hit
+   (E). Les deux proprietes sont gardees SEPAREMENT, pour qu'un echec dise LAQUELLE a saute :
+     D = le double, spawne loin de tout ennemi, ne frappe PAS (arme de melee portee 1, ennemi >= 2) ;
+     E = le double, spawne AU CONTACT de Judh, declenche sa reaction `On(9)`.
+   Le noeud natif de cette feuille est `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (et non
+   `...FromCurrentPosition`) : `+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null` (i2 « which then
+   immediately takes a turn »). Le port THREADE ces deux champs mais ne porte ni `GenerateActionTiles`
+   ni le `MovementActionGenerator` -> il n'APPROCHE pas le double ; D verifie donc un MANQUE-A-AGIR
+   fidele (le natif non plus ne frappe pas a distance avec une arme de melee), pas un deplacement.
+
 METHODE : etat REEL (`load_state` : board + stats live), positions PILOTEES, MT calee (`dumpRng`).
 """
 from __future__ import annotations
@@ -44,6 +59,8 @@ ALLY = "bloodIntercessor"
 JUDH = "genesKelermorph"         # passif HypersensoryAbilities -> reaction On(9) & OwnerIsTarget
 FILLER = "necroWarden"
 BLIGHT = "deathBlightbringer"    # 1040 Poxwalkers -- on-appearance = la feuille DSL PerformAIAttack
+SPYDER = "necroSpyder"           # 1007 ScarabHive -- fabrique le porteur de 1047 (necroSmnSwarm)
+SWARM = "necroSmnSwarm"          # porteur de 1047 ScarabSummon ; arme MELEE portee 1 (5 hits Energy)
 QUICKENING = 1151
 HYPERSENSORY_FLAG = 1407         # `HypersensoryAbilities_HasBeenAttacked` (once/turn, pose par la reaction)
 FORCED_IN_MELEE = 0x529          # 1321
@@ -318,3 +335,169 @@ def test_perform_ai_attack_leaf_dispatches_after_hit(live_session, rpc, build_ru
         f"l'on-appearance n'a pas attaque Judh (attacks={attacks})")
     assert state.effects.has_effect(jid, effect_type=HYPERSENSORY_FLAG), (
         "Judh n'a PAS reagi a l'attaque du summon : la feuille DSL n'emet pas le vecteur after-hit")
+
+
+# =================================================================================================== #
+# D + E. La feuille `SpawnReplica` (ScarabSummon 1047) -- le fork RESIDUEL -- passe par le MEME corps.
+#        D = gate de portee ; E = dispatch after-hit. GARDES SEPAREES (un echec dit LAQUELLE saute).
+# =================================================================================================== #
+
+def _make_scarab(state, spyder_id):
+    """Materialise UN vrai `necroSmnSwarm` (le porteur de 1047) via l'Operation de spawn VALIDEE
+    LIVE-BIT-EXACT `SpawnUnitOperation.execute` (ScarabHive), sur une tuile libre adjacente au spyder
+    -- AUCUNE unite fabriquee a la main : owner/stats/traits sont ceux d'un scarab de partie."""
+    import gameconfig as GC
+    from engine.runner.operations.spawn import SpawnUnitOperation
+    vid = ((GC.ability("ScarabHive") or {}).get("constants") or {}).get("unitId")
+    ids = SpawnUnitOperation.execute(state, spyder_id, spyder_id, "ScarabHive", vid, 1)
+    if not ids:
+        return None
+    return ids[0] if state.get_entity(ids[0]).get_component(PositionComponent) is not None else None
+
+
+def _replica_run(state, scarab_id):
+    """Joue l'arbre natif de ScarabSummon depuis le scarab. Renvoie (replicas, on_appearance)."""
+    from engine.runner.abilities.loki import scarab_summon_tree
+    from engine.runner.abilities.behaviours import entities_from_state
+    from engine.dsl.effects import ExecutionContext
+    ectx = ExecutionContext(state=state, rng=state.rng)
+    scarab_summon_tree().execute(entities_from_state(state, scarab_id), ectx)
+    return ([p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"],
+            [p for n, p in ectx.emitted if n == "ReplicaOnAppearance"])
+
+
+def test_spawn_replica_gates_on_attack_range(live_session, rpc, build_runner):
+    """D -- GATE DE PORTEE. Le double d'un scarab (`necroSmnSwarm`, arme de MELEE portee 1) apparait
+    a >= 6 hex du premier ennemi : `IdunBattle.Core.Services.TargetingQuery$$GetRange` ne rend AUCUNE
+    cible legale, donc AUCUNE attaque.
+
+    ROUGE avant le fix : la feuille `SpawnReplica` recablait `_nearest_enemy` +
+    `AttackDamageOperation.execute` SANS gate -- le double frappait l'ennemi le plus proche a n'importe
+    quelle distance. DISCRIMINANT explicite : on prouve qu'une cible VIVANTE existe (donc que l'ancien
+    corps aurait tire) et qu'elle est HORS portee (donc que c'est bien le gate qui l'a arretee)."""
+    from engine.runner.abilities.loki import _nearest_enemy
+    from engine.runner.operations.triggers.base import _in_attack_range
+    state, board, dv = _setup(rpc, build_runner, "31337", f"{SPYDER},{ALLY}", f"{FILLER},{FILLER}")
+    taken = set()
+    spyder, ally = _pick(dv, SPYDER, taken), _pick(dv, ALLY, taken)
+    e1, e2 = _pick(dv, FILLER, taken), _pick(dv, FILLER, taken)
+    if not all((spyder, ally, e1, e2)):
+        pytest.skip("roster incomplet offline")
+    sid, aid, eid, e2id = spyder["id"], ally["id"], e1["id"], e2["id"]
+
+    # C = tuile du scarab, avec au moins une voisine libre ; ennemis parques a >= 4 de C (le double
+    # atterrit sur une voisine de C -> il reste a >= 3 de l'ennemi, tres au-dela de sa portee 1).
+    c_tile = ez = None
+    for cand in sorted(board.by_id):
+        if not (board.walkable(cand) and sum(1 for n in board.neighbours(cand)
+                                             if board.walkable(n)) >= 2):
+            continue
+        ez = next((z for z in (_far_tile(board, [cand], mind=m) for m in (8, 7, 6, 5, 4))
+                   if z is not None), None)
+        if ez is not None:
+            c_tile = cand
+            break
+    if c_tile is None or ez is None:
+        pytest.skip("aucune geometrie (C isolable a >= 4 des ennemis) sur ce board")
+    _place(state, eid, board, ez)
+    _place(state, e2id, board, ez)
+    # spyder + ally parques loin de C ET de la zone ennemie (le spyder doit garder une voisine libre)
+    park = _far_tile(board, [c_tile, ez], mind=3)
+    if park is None:
+        pytest.skip("pas de tuile de parking")
+    _place(state, sid, board, park)
+    _place(state, aid, board, ez)
+    scarab = _make_scarab(state, sid)
+    if scarab is None:
+        pytest.skip("scarab non materialise (pas de tuile libre adjacente au spyder)")
+    _place(state, scarab, board, c_tile)
+    print(f"\n[GATE/replica] scarab@{c_tile} ; ennemis@{ez} ; spyder@{park}")
+
+    hp0, hp0b = _hp(state, eid), _hp(state, e2id)
+    replicas, attacks = _replica_run(state, scarab)
+    assert replicas, "aucun double spawne : le scenario ne teste rien"
+    rid_ = replicas[0]
+    tgt = _nearest_enemy(state, rid_)
+    assert tgt is not None, ("aucun ennemi vivant visible du double -> scenario non discriminant "
+                             "(l'ancien corps sans gate n'aurait rien frappe non plus)")
+    assert not _in_attack_range(state, rid_, tgt), (
+        "l'ennemi le plus proche EST a portee -> le scenario ne discrimine pas le gate")
+    assert attacks == [], (
+        f"le double a ATTAQUE une cible hors de portee : le gate `_in_attack_range` "
+        f"(mirror TargetingQuery$$GetRange) n'est pas applique par la feuille SpawnReplica "
+        f"(attacks={attacks})")
+    assert _hp(state, eid) == hp0 and _hp(state, e2id) == hp0b, "un ennemi a subi du degat"
+
+
+def test_spawn_replica_dispatches_after_hit(live_session, rpc, build_runner):
+    """E -- DISPATCH AFTER-HIT. Le double apparait AU CONTACT de Judh (`genesKelermorph`,
+    `HypersensoryAbilities` = `On(9=Attack) & OwnerIsTarget`) : l'attaque du double etant une attaque
+    NORMALE complete cote natif (`IdunBattle.Operations.FinishAttackOperation$$Execute`), Judh reagit
+    et pose son drapeau once/turn 1407.
+
+    ROUGE avant le fix : la feuille appelait `AttackDamageOperation.execute` NU -- degat pose, mais
+    AUCUN trigger post-attaque. La tuile d'atterrissage est RENDUE DETERMINISTE en bloquant toutes les
+    voisines du scarab sauf une avec des allies (le tirage `PickRandomly(., 1)` reste consomme : pool
+    de taille 1 => 1 tirage, cf. loi #130)."""
+    state, board, dv = _setup(rpc, build_runner, "31337",
+                              f"{SPYDER},{ALLY},{ALLY},{ALLY},{ALLY}", f"{JUDH},{FILLER}")
+    taken = set()
+    spyder = _pick(dv, SPYDER, taken)
+    allies = [_pick(dv, ALLY, taken) for _ in range(4)]
+    judh, filler = _pick(dv, JUDH, taken), _pick(dv, FILLER, taken)
+    if not (spyder and judh and filler and all(allies)):
+        pytest.skip("roster incomplet offline")
+    sid, jid, fid = spyder["id"], judh["id"], filler["id"]
+    blockers = [spyder["id"]] + [a["id"] for a in allies]     # tous team JOUEUR = team du scarab
+
+    # (C, P, J) : P seule voisine LIBRE de C (les autres bloquees par des allies), J adjacent a P
+    # et NON voisin de C -> le double atterrit sur P, au contact de Judh, qui reste hors de portee
+    # du scarab lui-meme (d(C,J)=2).
+    trio = None
+    for c in sorted(board.by_id):
+        if not board.walkable(c):
+            continue
+        nb = [n for n in board.neighbours(c) if board.walkable(n)]
+        if not (2 <= len(nb) <= len(blockers) + 1):
+            continue
+        for p in nb:
+            js = [j for j in board.neighbours(p)
+                  if board.walkable(j) and j != c and j not in nb]
+            if js:
+                trio = (c, p, js[0], [n for n in nb if n != p])
+                break
+        if trio:
+            break
+    if trio is None:
+        pytest.skip("aucune geometrie (C, P, J) bloquable avec les allies disponibles")
+    c_tile, p_tile, j_tile, block_tiles = trio
+    park = _far_tile(board, [c_tile, p_tile, j_tile], mind=4)
+    if park is None:
+        pytest.skip("pas de tuile de parking")
+
+    _place(state, sid, board, park)                          # spyder au large -> voisine libre pour le spawn
+    for a in allies:
+        _place(state, a["id"], board, park)
+    _place(state, jid, board, j_tile)
+    _place(state, fid, board, park)                          # 2e ennemi loin -> Judh EST le plus proche
+    scarab = _make_scarab(state, sid)
+    if scarab is None:
+        pytest.skip("scarab non materialise (pas de tuile libre adjacente au spyder)")
+    _place(state, scarab, board, c_tile)
+    for tile, uid in zip(block_tiles, blockers):             # bloque toutes les voisines sauf P
+        _place(state, uid, board, tile)
+    print(f"\n[AFTERHIT/replica] scarab@{c_tile} ; libre P@{p_tile} ; judh@{j_tile} ; "
+          f"bloquees={block_tiles}")
+
+    assert not state.effects.has_effect(jid, effect_type=HYPERSENSORY_FLAG), "drapeau deja pose"
+    replicas, attacks = _replica_run(state, scarab)
+    assert len(replicas) == 1, f"attendu 1 double, obtenu {replicas}"
+    assert _tile_of(state, board, replicas[0]) == p_tile, (
+        "le double n'a pas atterri sur la seule tuile libre -> setup non deterministe")
+    assert any(a.get("target") == jid for a in attacks), (
+        f"le double n'a pas attaque Judh alors qu'il est ADJACENT (attacks={attacks})")
+    assert state.effects.has_effect(jid, effect_type=HYPERSENSORY_FLAG), (
+        "Judh n'a PAS reagi : la feuille SpawnReplica n'emet pas le vecteur after-hit On(9) "
+        "(l'ancien mirror appelait AttackDamageOperation.execute nu)")
+    assert attacks[0].get("after_hit") is not None, (
+        "le port ne remonte pas les triggers after-hit de l'attaque du double")

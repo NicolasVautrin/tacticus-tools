@@ -107,8 +107,8 @@ n'est qu'un CONSTRUCTEUR de `Entities.Behaviours.PerformAIAbilityUnitBehaviour` 
 |---|---|---|
 | `+0x50` | `unit` | selecteur d'ACTEURS, itere par `Execute` |
 | `+0x68` | Func cache du `<>c` de `DSLFactory` | resolveur de l'ability d'ATTAQUE (seul delta vs `PerformAIAbility`, ou il est fourni) |
-| `+0x70` / `+0x71` | `0` / `skipAtomicCheck` | drapeaux d'options |
-| `+0x78` | **`factory+0xb8` = `Direct(0)`** | l'option `Nullable<int>` de l'appel IA = **0** : c'est LITTERALEMENT le « FromCurrentPosition » (budget de deplacement nul). Le noeud cousin `PerformAIAttack` est le MEME behaviour avec ce noeud FOURNI par l'appelant (`PerformAIAttack(…,1,…)` de ForwardSpotter) |
+| `+0x70` / `+0x71` | `0` / `skipAtomicCheck` | drapeaux d'options — `+0x70` = `allowMoveAction` (cf. §7) |
+| `+0x78` | **`factory+0xb8` = `Direct(0)`** | l'option `Nullable<int>` de l'appel IA = **0** : c'est LITTERALEMENT le « FromCurrentPosition » (budget de deplacement nul). Le noeud cousin `PerformAIAttack` est le MEME behaviour avec `+0x70` et `+0x78` FOURNIS par l'appelant — **§7 corrige la lecture initiale** : tous ses call-sites passent `moveAmount = null` (pas `1`) |
 | `+0x80` / `+0x90` | `utilityEntity` / `customUtility` | surcharges d'UTILITE du choix de cible |
 | `+0x88` | `0` | -> `Execute` prend la branche « pas de cible imposee » (appel IA slot 0x37) : **c'est l'IA qui choisit la cible** |
 
@@ -159,6 +159,85 @@ mutation** : desactiver le clamp ou l'after-hit les fait tomber).
   ne cible pas les tuiles ennemies en jeu AI reel — la decision ne les valorise pas).
 - **`Reserve` / `SetCache` / `InvalidateCaches` / `EffectFromOwner(0x19)`** = plomberie DSL sans effet
   net observable (memoisation de tuile, reservation, invalidation de cache) -> non materialises.
+
+## 7. De-fork RESIDUEL : `SpawnReplica` (ScarabSummon 1047) et le noeud cousin `PerformAIAttack` (2026-07-27)
+
+Le §5 avait laisse UN call-site en dehors du corps unique : la feuille `SpawnReplica`
+(`abilities/behaviours/summon.py`) re-cablait `_nearest_enemy` + `AttackDamageOperation.execute` a la
+main. Elle delegue desormais, comme tout le monde, au corps unique — renomme
+`perform_ai_ability_unit_behaviour` (homonyme du corps natif `PerformAIAbilityUnitBehaviour$$Execute`),
+atteint par l'un des **deux** constructeurs `DSLFactory` :
+
+- `perform_ai_attack_from_current_position(state, unit)` -> `allow_move_action=False`, `move_amount=0` ;
+- `perform_ai_attack(state, unit, allow_move_action, move_amount)` -> valeurs de l'appelant.
+
+### Correction de RE : le litteral `1` de `PerformAIAttack(1)` n'est PAS un budget de deplacement
+
+`DSLFactory$$PerformAIAttack(unit, allowMoveAction, moveAmount, utilityEntity, customUtility)` — le `1`
+est le **2e** argument (`+0x70`, un `bool`), le budget est le **3e** (`+0x78`) et vaut **`0` = null** a
+TOUS les call-sites lus : `ScarabSummonAbility$$ExecuteBehaviour`, `ForwardSpotterAbility$$ExecuteBehaviour`,
+`HunterOfSoulsAbility$$CreateBehaviour`, `TheArdentBlade_TriggerAbility$$CreateBehaviour`,
+`AetherStrideAbility$$ExecuteBehaviour`, `CallInReinforcementsAbility$$CreateBehaviour` — tous
+`PerformAIAttack(<selecteur>, 1, 0, 0, 0)`.
+
+| champ | `...FromCurrentPosition` | `PerformAIAttack` |
+|---|---|---|
+| `+0x70` `allowMoveAction` | `0` (code en dur) | **`1`** (appelant) |
+| `+0x71` `skipAtomicCheck` | appelant | `0` (code en dur) |
+| `+0x78` `moveAmount` | `factory+0xb8` = `Direct(0)` | **`null`** (appelant, jamais renseigne) |
+| `+0x90` `customUtility` | appelant | `Func` liant un display-class dont la capture vaut `null` |
+
+**Ce que ces deux champs FONT**, chaine lue jusqu'au consommateur :
+`Execute` -> `AiControl$$ExecuteAbilityActionFor(unit, abilityId, options)` ->
+`DefaultAiUnitTactic$$CalculateAbilityActionForUnit` ->
+`DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`, ou
+
+- le `Nullable<int>` issu de `+0x78` part TEL QUEL dans
+  `ABaseAiUnitTactic$$GenerateActionTiles(unit, true, maxDistance)` = les tuiles depuis lesquelles
+  l'acteur peut AGIR (`0` = la tuile courante seule ; `null` = sa plage de deplacement normale) ;
+- `allowMoveAction` ajoute le `MovementActionGenerator` (`tactic+0x58`, ecrit par
+  `DefaultAiUnitTactic$$.ctor`) a la liste des generateurs -> l'IA peut choisir un DEPLACEMENT PUR.
+
+**i2 confirme, et c'est le discriminant le plus net** : `PerformAIAttack` => « which then immediately
+**takes a turn** » (ScarabSummon), « immediately **takes a turn** » (ForwardSpotter,
+CallInReinforcements) ; `...FromCurrentPosition` => « can immediately **attack**, but **cannot move
+this turn** » (AberrantHypermorph, GetEmRuntz).
+
+Ordre verifie au decompile de `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` : l'on-appearance
+(`options+0x18`) fire **AVANT** la pose du flag « cannot move » (slot `0x23`) — le flag ne gate donc
+pas l'attaque du double.
+
+### Divergences observables corrigees (chiffrees, seed 31337 / board MC1_67, `probe_r20_replica_rng_flow.py`)
+
+| regime | AVANT (fork) | APRES (corps unique) |
+|---|---|---|
+| double a >= 3 hex du 1er ennemi | **1 attaque, 4860 degats**, 6 tirages MT | **0 attaque**, **1 tirage** (le `PickRandomly` du placement) |
+| double AU CONTACT de Judh | 1 attaque, 4860 degats, 6 tirages, **`after_hit=False`** | 1 attaque, **4860 degats (identiques)**, **12 tirages**, **`after_hit=True`** (drapeau 1407 pose) |
+
+Lecture du flux MT (le total de degat est IDENTIQUE dans les deux colonnes -> l'etage degat n'a pas
+bouge) : 6 = 1 placement + 5 coups de l'arme du swarm. Hors portee, les 5 rolls disparaissent — c'etait
+un degat roule pour une attaque que le natif n'execute jamais. Au contact, les 6 tirages
+supplementaires sont ceux du vecteur after-hit (`On(9)` -> reaction Hypersensory de Judh), que le fork
+sautait. La nouvelle consommation est donc la consommation NATIVE dans les deux regimes.
+
+### Garde
+
+`tests/engine/runner/test_perform_ai_attack_node_live.py` sections **D** (gate de portee) et **E**
+(dispatch after-hit), **separees** pour qu'un echec dise laquelle des deux proprietes saute. Les deux
+ont ete **vues ROUGES** sur le code d'avant (D : « le double a ATTAQUE une cible hors de portee …
+total 7960 » ; E : « Judh n'a PAS reagi »). Tuile d'atterrissage rendue DETERMINISTE en bloquant toutes
+les voisines du scarab sauf une avec des allies.
+
+### Residu NOUVEAU, localise (candidat tache)
+
+`move_amount is None` ne fait PAS bouger le double : ni `ABaseAiUnitTactic$$GenerateActionTiles` ni le
+`MovementActionGenerator` ne sont portes. Le domaine d'action reste la tuile courante, donc un double
+hors portee ne fait RIEN la ou le natif l'aurait fait avancer puis frapper. C'est un **manque-a-agir**,
+jamais une attaque illegale. Il est visible dans `test_scarab_summon_migration_live.py`, dont la
+geometrie a du etre PILOTEE (le double tombait au hasard a 1 ou 2 hex de la cible) pour continuer a
+valider l'on-appearance plutot que ce residu. Les deux champs natifs sont **threades explicitement**
+dans `perform_ai_ability_unit_behaviour` (et remontes dans son diag) pour que le residu reste localise
+la, et non re-invente par un fork chez un appelant.
 - **Effet `ForcedInMelee (0x529)` : SEUL le clamp de portee est porte.** `TargetingQuery$$GetRange`
   bascule aussi son drapeau `isMelee` de retour (2e sortie de la fonction) — non lu par le port, dont la
   nature melee/ranged d'un coup se derive de la POSITION (`_is_ranged_position`, mirror

@@ -407,16 +407,20 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   §5. RESTE OUVERT (distinct) : le nœud cousin `PerformAIAction` — débloqueur commun de Waaagh (1058),
   SupremeCommander (1028), act-again BlackRage (event 0x16), refactor CultDemagogue, cf.
   `port-roadmap.md` §4.
-- **Nœud `DSLFactory$$PerformAIAttack(unit, …, amountNode, …)` : un corps câblé à la main subsiste**
-  (finding du de-fork ci-dessus). Ce nœud est le MÊME `PerformAIAbilityUnitBehaviour` que
-  `PerformAIAttackFromCurrentPosition`, à un seul champ près : `+0x78` (l'option `Nullable<int>` de
-  l'appel IA) y est **fourni par l'appelant** au lieu d'être épinglé à `factory+0xb8 = Direct(0)` — c'est
-  le budget de déplacement, d'où « FromCurrentPosition » = 0. ForwardSpotter (1143) passe déjà par la
-  feuille commune, mais **`SpawnReplica` (ScarabSummon 1047, on-appearance `PerformAIAttack(1)`)
-  ré-implémente `_nearest_enemy` + `AttackDamageOperation.execute` à la main, SANS gate de portée ni
-  dispatch after-hit** (`behaviours/summon.py`). À rabattre sur le corps unique une fois la sémantique
-  du budget de déplacement portée (aujourd'hui aucun étage du port ne fait bouger un summon avant son
-  attaque, donc l'amount est inerte — mais le gate et l'after-hit manquent). `[opus]`.
+- ~~**Nœud `DSLFactory$$PerformAIAttack` : un corps câblé à la main subsiste**~~ — **RÉSOLU
+  (2026-07-27)**. `SpawnReplica` (ScarabSummon 1047) délègue au corps unique, désormais nommé
+  `perform_ai_ability_unit_behaviour` (homonyme de `PerformAIAbilityUnitBehaviour$$Execute`) et atteint
+  par les DEUX constructeurs `DSLFactory` (`perform_ai_attack_from_current_position` /
+  `perform_ai_attack`). **Correction de RE** au passage : les deux nœuds diffèrent sur DEUX champs, pas
+  un — `+0x70 allowMoveAction` (0 vs 1) et `+0x78 moveAmount` (`Direct(0)` vs **`null`**) ; le littéral
+  `1` de `PerformAIAttack(1)` est le BOOL, pas un budget de 1. Mesuré (`probe_r20_replica_rng_flow.py`) :
+  hors portée 1 attaque / 4860 dégâts / 6 tirages MT → **0 attaque / 1 tirage** ; au contact
+  `after_hit=False` / 6 tirages → **`after_hit=True` / 12 tirages, dégât identique 4860**. Détail :
+  `case-217-thequickening` §7. **RESTE OUVERT (résidu nommé)** : `move_amount is None` ne fait pas
+  bouger l'acteur — ni `ABaseAiUnitTactic$$GenerateActionTiles` ni le `MovementActionGenerator`
+  (`DefaultAiUnitTactic$$.ctor`, `tactic+0x58`) ne sont portés, donc un double hors portée ne fait RIEN
+  là où le natif l'aurait fait avancer puis frapper (i2 « takes a turn »). Manque-à-agir, jamais une
+  attaque illégale. `[opus]`.
 - **Trait `Unstoppable` (1042), exemption movement-stop** (`case-205` — RE complet, verdict
   invalidable) : trait = membre de `NotBlockingMovementOfTraits @18155b370` {Mounted, Vehicle,
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending

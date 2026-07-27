@@ -1,7 +1,14 @@
 """Feuilles DSL de SPAWN/invocation : `Spawn` (`SpawnUnitBehaviour`), `PerformAIAttack`
 (`PerformAIAbilityUnitBehaviour`), `SpawnSummon` (ScarabHive), `SpawnReplica` (ScarabSummon). Wrappers
 MINCES au-dessus des Operations `runner/operations/spawn.py` + `damage.py`. Namespace natif
-`Entities.Behaviours.*`. cf. docstring du package (`__init__.py`)."""
+`Entities.Behaviours.*`. cf. docstring du package (`__init__.py`).
+
+Toute attaque d'IA declenchee par ces feuilles passe par le CORPS UNIQUE
+`../loki/summon.py::perform_ai_ability_unit_behaviour` (port de
+`IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`), atteint par l'un des deux
+constructeurs homonymes de ses noeuds `DSLFactory` : `perform_ai_attack_from_current_position`
+(`+0x70=0`, `+0x78=Direct(0)`) ou `perform_ai_attack` (`+0x70`/`+0x78` fournis par l'appelant). Aucune
+feuille ne recable cible/gate/attaque a la main."""
 from __future__ import annotations
 
 from dataclasses import replace
@@ -97,7 +104,13 @@ class Spawn(AbilityBehaviour):
 
 
 class PerformAIAttack(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
+    """/!\\ NOM TROMPEUR (historique) : cette feuille porte le noeud `...FromCurrentPosition`, PAS le noeud
+    natif homonyme `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (celui-la est consomme par
+    `SpawnReplica` plus bas, via `perform_ai_attack`). Les deux noeuds partagent le MEME
+    `PerformAIAbilityUnitBehaviour` et ne different que par `+0x70`/`+0x78` (cf.
+    `../loki/summon.py::perform_ai_ability_unit_behaviour`).
+
+    `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
     `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
     reutilise le MEME `Cache(GetSpawnTileSelector)` que le `Spawn` -> les grots tout juste spawnes) execute
     une attaque AI depuis SA position COURANTE (sans bouger). Port : `tile_selector` = le `Cache` PARTAGE
@@ -228,23 +241,34 @@ class SpawnReplica(AbilityBehaviour):
     noeud natif UNIQUE `Execute(Spawn(...))` (plain `AActiveAbility.Execute`, PAS `ExecuteAtomic`), DISTINCT
     du noeud ScarabHive (`SpawnSummon`) : `Spawn(self@0x160, tileSel, unitId=GetStringConstant(config,0)=
     necroSmnSwarm, SpawnUnitOptions.CopyOwner(caster))` ou les options portent UN sous-behaviour EMBARQUE :
-      +0x18 = `PerformAIAttack(1)` = le double attaque immediatement -- PAS de +0x10 AddEffect (ScarabSummon
-      n'a PAS l'effet persistant 0x4a3 de ScarabHive) ;
+      +0x18 = `PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)` = le double joue un TOUR d'IA immediatement --
+      PAS de +0x10 AddEffect (ScarabSummon n'a PAS l'effet persistant 0x4a3 de ScarabHive) ;
     tile-selecteur natif = `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, ..., 0x7fffffff)` (UNE tuile
     LIBRE adjacente a SOI). `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` spawn `count` clones -- count/placement/
     CopyOwner vivent DANS SpawnUnitBehaviour, HORS des DSL-selecteurs -- puis `TriggerSpawnedUnitBehaviours`
-    fire le sous-behaviour on-appearance PAR summon.
+    fire le sous-behaviour on-appearance PAR summon (AVANT de poser le flag « cannot move », lu au decompile
+    de `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` : le flag 0x23 est
+    applique APRES l'on-appearance, il ne le gate donc pas).
 
     Port : delegue le SPAWN a l'Operation VALIDEE `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone owner+stats du parent, count-1, tuiles libres adjacentes au caster ; cf.
     test_summon_spawn_live) -- MEME carve-out que `SpawnSummon` (on ne re-derive PAS le count/placement via
     des DSL-selecteurs : ils vivent dans SpawnUnitBehaviour et l'outcome est deja valide). ON-APPEARANCE =
-    `PerformAIAttack(1)` : chaque double attaque l'ennemi le plus proche (`_nearest_enemy` +
-    `AttackDamageOperation.execute`, approx du choix AI natif). Le tirage de degat consomme `state.rng` ->
-    no-op gracieux si rng non cale (la SEQUENCE reste fidele, seul le roll est differe au flux runner cale ;
-    mirror de l'ancien imperatif). Emet 'SpawnUnit'/'ReplicaOnAppearance'. Effet PUR (stop=False).
+    l'UNIQUE port du noeud, `perform_ai_attack(state, sid, allow_move_action=True, move_amount=None)`
+    (`../loki/summon.py`) : MEME corps `perform_ai_ability_unit_behaviour` que toutes les autres attaques
+    d'IA -- gate de portee `_in_attack_range` (mirror `IdunBattle.Core.Services.TargetingQuery$$GetRange`,
+    clamp `ForcedInMelee` inclus), attaque normale COMPLETE, puis dispatch after-hit `On(0x26)`/`On(8)`/`On(9)`.
+    `allow_move_action=True` / `move_amount=None` sont les DEUX champs (`+0x70`, `+0x78`) par lesquels ce noeud
+    differe de `...FromCurrentPosition` : ils sont threades explicitement, jamais re-inventes ici.
 
-    GAP (inchange) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas
-    porte -> recurrence non bornee offline."""
+    AVANT (fork residuel laisse par la de-forkification `7f47c29`) : cette feuille recablait `_nearest_enemy` +
+    `AttackDamageOperation.execute` A LA MAIN -- SANS gate de portee (le double frappait l'ennemi le plus proche
+    quelle que soit la distance, arme de melee comprise) et SANS dispatch after-hit (aucun trigger post-attaque
+    ne partait du double). Emet 'SpawnUnit'/'ReplicaOnAppearance'. Effet PUR (stop=False).
+
+    GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`/`LimitUnitDuplications`) n'est pas
+    porte -> recurrence non bornee offline ; le DEPLACEMENT du double avant son attaque (`move_amount=None` ->
+    `GenerateActionTiles` / `MovementActionGenerator` non portes) non plus -> residu documente sur
+    `perform_ai_ability_unit_behaviour`."""
     __slots__ = ("summon_ability", "count")
 
     def __init__(self, summon_ability: str, count: int):
@@ -253,8 +277,7 @@ class SpawnReplica(AbilityBehaviour):
     def execute(self, entities, ectx):
         import gameconfig as GC
         from ...operations.spawn import SpawnUnitOperation
-        from ...operations.damage import AttackDamageOperation
-        from ..loki import _nearest_enemy
+        from ..loki import perform_ai_attack
         state = ectx.state
         caster_id = (entities.caster or {}).get("id")
         if state is None or caster_id is None:
@@ -266,13 +289,12 @@ class SpawnReplica(AbilityBehaviour):
         spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, vid, self.count)
         for sid in spawned:
             ectx.emit("SpawnUnit", unit=sid)
-        # [on-appearance] PerformAIAttack : chaque double attaque l'ennemi le plus proche (roll consomme rng).
-        if state.rng is not None:
-            for sid in spawned:
-                tgt = _nearest_enemy(state, sid)
-                if tgt is None:
-                    continue
-                r = AttackDamageOperation.execute(state, sid, tgt)
-                if r is not None:
-                    ectx.emit("ReplicaOnAppearance", summon=sid, target=tgt, total=r.get("total"))
+        # [on-appearance] `PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)` -> LE noeud (corps unique) : les deux
+        # champs qui le distinguent de `...FromCurrentPosition` sont passes tels que lus au decompile
+        # (`+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null`).
+        for sid in spawned:
+            r = perform_ai_attack(state, sid, allow_move_action=True, move_amount=None)
+            if r is not None:
+                ectx.emit("ReplicaOnAppearance", summon=sid, target=r["target"],
+                          total=r.get("total"), after_hit=r.get("after_hit"))
         return OperationResult.ok()
