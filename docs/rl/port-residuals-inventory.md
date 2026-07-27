@@ -1,54 +1,68 @@
-# Inventaire des résidus de portage — confronté au CODE (2026-07-26)
+# Inventaire des résidus de portage — confronté au CODE (2026-07-27)
 
 > **Pourquoi ce fichier.** `backlog.md` décrit des INTENTIONS horodatées, `port-roadmap.md` un
-> découpage figé au 2026-07-23 : ni l'un ni l'autre ne décrit l'état du code. Trois entrées avaient
-> déjà été trouvées périmées le jour même (`getstuckin_combat_chance`, prérequis « canal pierce »
-> AdMec, FireOfAbsolution). Ce document est le résultat d'une **confrontation item par item au
-> commit courant** : chaque ligne porte un verdict **OUVERT / PÉRIMÉ / NON PERTINENT**, et seul
-> OUVERT produit une tâche dispatchable.
+> découpage figé : ni l'un ni l'autre ne décrit l'état du code. Ce document est le résultat d'une
+> **confrontation item par item au commit courant**. Chaque ligne porte un verdict
+> **OUVERT / PÉRIMÉ / NON CONFRONTABLE**, et seul OUVERT produit une tâche dispatchable.
 >
-> **Base de la mesure** : commit `fc23f1e` (`origin/master` au 3ᵉ rebase), build `gqfc5mff6c`,
-> session Frida 1 `running`, pool `rl_duel build --list-pool` rank 17 = **97 unités + 8 MoW**.
+> **Base de la mesure** : commit `6110d37` (`origin/master` au rebase avant PR ; l'inventaire a été
+> établi sur `e972c99` et **re-dérivé après rebase** — `6110d37` est un refactor de FORME des
+> masques de ciblage, sa propre preuve de non-régression montre les 28 masques strictement
+> identiques, et les trois audits re-joués rendent le même contenu au caractère près),
+> build `gqfc5mff6c`, session Frida 3
+> `running` (injectée le 2026-07-27 à 16:24 locale, **postérieure** au bundle `frida/dist/hooks.js`
+> du même jour 16:13 — les 3 fixes d'outillage de `3c7a7ae` sont donc ACTIFS dans cette session),
+> pool `rl_duel build --list-pool` rank 17 = **97 unités + 8 MoW**.
 >
-> **Démonstration en direct de l'utilité de ce document** : l'inventaire a d'abord été établi sur
-> `7f47c29` ; **trois rebases successifs** avant PR ont ramené 6 commits qui ont fermé **6 des
-> résidus que je venais d'inventorier comme OUVERTS** (+ un sous-item de R28) (R2 gate d'immunité, R3 overwatch un-tir,
-> R10 override de niveau 1180, R11 phase-2 EarlyWarningOverride, R18 bouclier × limites,
-> R22 EnvFireTile). Ils sont passés en §5.0 avec leur commit, et les **6 résidus neufs** que ces
-> commits nomment dans leurs case docs — absents de tout backlog — ont été ajoutés (N1-N6). Les
-> comptes des trois GISEMENTS, eux, sont **inchangés après les deux rebases** (aucun de ces commits
-> ne porte d'ability neuve) — re-vérifié à chaque fois en relançant les deux audits et les trois
-> dérivations.
+> **Ce que cette passe ajoute à la précédente** (`3f70c6d`, base `fc23f1e`) : **26 commits** se sont
+> intercalés. Ils ferment **6 résidus supplémentaires** (R19b, R21, R23, N3-câblage, plus deux
+> entrées `[fable]` du backlog qui étaient déjà fausses avant l'inventaire précédent : le crit-roll
+> `cc=0` et les coups post-mortem), et ils déplacent **tous** les comptes de gisement. Le compte
+> `TARGETING_OPTIONS`, qui EMPIRAIT structurellement, s'est **inversé** : 75 manquants → **53**.
 >
-> **Ce document n'est PAS auto-généré** — mais tous ses comptes le sont. Pour les re-dériver :
+> **Ce document n'est PAS auto-généré — mais tous ses comptes le sont.** Pour les re-dériver :
 > `python audit_combat_ability_coverage.py`, `python audit_kit_coverage.py` et
 > `python audit_passive_ability_coverage.py` depuis `scripts/python/` (le 3ᵉ interroge le pool
-> live ; les deux autres sont offline). Les fichiers générés (`combat-ability-coverage.md`,
-> `kit-coverage.md`, `passive-ability-coverage.md`) étaient **déjà à jour** au commit courant :
-> c'est `port-roadmap.md` (rédigé à la main) qui a dérivé.
+> live ; les deux autres sont offline). **`combat-ability-coverage.md` et `kit-coverage.md` étaient
+> PÉRIMÉS au commit courant** — les régénérer produit un diff de 81 insertions / 87 suppressions
+> (5 abilities portées sans régénération). `passive-ability-coverage.md`, lui, **était à jour** :
+> les auteurs des 4 ports de passifs l'ont régénéré (`3848490` en dernier) ; seul un compteur
+> interne de volume de code y bouge. Les trois sont régénérés dans le même commit que ce fichier.
 
 ---
 
-## 0. Recalage des chiffres — ce qui a bougé depuis les audits cités
+## 0. Recalage des chiffres — TOUT a bougé en 24 h
 
-| Chiffre | Valeur citée (backlog / roadmap) | Valeur RE-DÉRIVÉE (2026-07-26) | Sens |
+| Chiffre | Inventaire du 2026-07-26 (`fc23f1e`) | RE-DÉRIVÉ au 2026-07-27 (`e972c99`) | Sens |
 |---|---|---|---|
 | actives castables | 171 | **171** | inchangé |
-| actives portées COMBAT (`ABILITY_CLASSES`) | 16 (roadmap §intro) | **75** (registre : 76 entrées ; la 76ᵉ, 1076 `MV71SniperDroneSquadAttack`, n'est dans les `activeAbilities` d'aucune unité — attaque déléguée du drone) | +59 |
-| actives **NO-OP combat** | 96 | **96** | inchangé (les ports ont suivi les nouvelles entrées) |
-| actives **`[-D]`** (décision portée, combat NO-OP) | 27 | **20** dont **18** à porteur confrontable | −7 |
-| kits lineup avec du travail | 119 | **101** | −18 |
-| items manquants (kit-coverage) | 249 | **139** | −110 |
-| kits lineup COMPLETS | 4 | **22** | +18 |
-| abilities du registre **sans `TARGETING_OPTIONS`** | 60 | **75** sur 76 | **+15** (le gisement GROSSIT à chaque port) |
-| overlays `CalculateCustomUtility` portés | 2 | **6** (`playbook.REGISTRY` = 7 avec `Repair`) | +4 |
+| `ABILITY_CLASSES` (entrées du registre) | 76 | **81** | +5 |
+| actives portées COMBAT | 75 | **80** | +5 |
+| actives **NO-OP combat** | 96 | **91** | **−5** |
+| … dont **dispatchables** | 67 | **62** | −5 |
+| … dont **non pertinents** (npc + summon-env) | 29 | **29** | inchangé |
+| actives **`[-D]`** (décision portée, combat NO-OP) | 20 (méthode réfutée) | **15 lineup + 2 npc** | **−3** |
+| kits lineup | 123 | **123** | inchangé |
+| kits lineup **COMPLETS** | 22 | **28** | +6 |
+| kits **avec du travail** | 101 | **95** | −6 |
+| items manquants (kit-coverage) | 139 | **126** | −13 |
+| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **53 sur 81** | **−22 — la tendance s'INVERSE** |
+| registre **sans `ABILITY_ATTACK_TYPE`** | 3 (constaté le 2026-07-27 au matin) | **0 sur 81** | **fermé** |
+| passifs **portés** | 46 | **54** | +8 |
+| passifs **gap** | 150 | **142** | −8 |
+| passifs gap **confrontables** | 63 | **55** | −8 |
+| overlays `CalculateCustomUtility` **non portés** | 16 | **15** | −1 (correction de comptage, cf. R15) |
 
-**Le seul compte qui a EMPIRÉ est `TARGETING_OPTIONS`** : chaque ability portée depuis #115 est
-entrée au registre sans son masque de ciblage. C'est la dette qui s'accumule mécaniquement.
+**Les deux gisements « que notre propre cadence aggrave » ne l'aggravent plus.** `TARGETING_OPTIONS`
+a reculé de 22 en une journée (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `ff66741` 13
+Necrons/Orks/Votann/GenestealerCults, plus les masques posés en même temps que chaque nouveau port).
+`ABILITY_ATTACK_TYPE` est à **zéro manquant** : la garde `probe_120` étape 0 passe au commit courant.
+La règle de non-régression du `CLAUDE.md` a donc pris — c'est le seul endroit de ce document où la
+tendance s'est retournée, et il vaut de le noter avant que quiconque recopie « 60 restantes ».
 
 ---
 
-## 1. Gisement 1 — les 96 actives NO-OP en combat
+## 1. Gisement 1 — les 91 actives NO-OP en combat
 
 `AbilityHandler.visit_ActiveAbilityMessage` route tout `ActiveAbilityType` absent de
 `ABILITY_CLASSES` vers un **NO-OP silencieux** (`ported:False`, 0 dégât, 0 effet, aucune erreur).
@@ -57,195 +71,100 @@ entrée au registre sans son masque de ciblage. C'est la dette qui s'accumule m�
 
 | Verdict | N | Dispatchable ? |
 |---|---|---|
-| **HERO** — porteur lineup DANS le pool rank 17 | 52 | oui |
+| **HERO** — porteur lineup DANS le pool rank 17 | 47 | oui |
 | **MoW** — porteur MoW du pool (harnais débloqué, `a9714a4`) | 2 | oui |
 | **SUMMON** — porteur summon amené par un summoner du pool | 2 | oui |
 | **HERO (catalog_inject)** — lineup absent du seed BC, injectable (`ab98129`) | 11 | oui |
-| **SUMMON-ENV** — summon d'environnement, aucun summoner joueur | 8 | **NON PERTINENT** |
-| **NPC** — tous les porteurs sont npc | 21 | **NON PERTINENT** |
+| **SUMMON-ENV** — summon d'environnement, aucun summoner joueur | 8 | **NON CONFRONTABLE** |
+| **NPC** — tous les porteurs sont npc | 21 | **NON CONFRONTABLE** |
 
-⇒ **67 dispatchables, 29 non pertinents.** Taille par item = **1 ability**.
+⇒ **62 dispatchables, 29 non confrontables.** Taille par item = **1 ability**.
 
-> ⚠ **Correction de méthode** : la catégorie « SUMMON » se dérive de `constants.unitId` **ET**
-> `unitId_2/3/4`. Ne lire que `unitId` classe à tort `SlashingDive` (thousSmnScreamer) en non
-> confrontable, alors que `MasterOfTheTutelaries` (`thousInfernalMaster`, dans le pool) pose le
-> Screamer via `unitId_2`.
+**Les 5 sorties depuis l'inventaire précédent**, toutes de la catégorie HERO-pool (d'où 52 → 47) :
 
-> ⚠ **`catalog_inject` a fermé le verrou « porteur hors pool »** (`case-92`, 10 porteurs confrontés
-> live dont les 4 Votann, `thousDaemonPrince`, `necroReanimator`, `bloodTerminator`,
-> `necroChronomancer`). Toute mention « porteur hors pool ⇒ inconfrontable » antérieure au
-> 2026-07-25 est fausse.
+| id | ability | porteur | commit |
+|---|---|---|---|
+| 1036 | FrenziedFiring | blackObliterator | `d2be96e` (#125) |
+| 1116 | RadBombardment | admecDominus | `825f69f` (#128) |
+| 1041 | BrazierOfHolyFire | adeptCanoness | `825f69f` (#128) |
+| 1097 | Foehammer | spaceRockfist | `86fecad` (#131) |
+| 1153 | HammerOfWrath | bloodIntercessor | `86fecad` (#131) |
 
-### 1.a — NO-OP confrontables directement (pool rank 17) — 56
+**La liste nominative des 62 dispatchables et des 29 non confrontables n'est pas recopiée ici** :
+elle est intégralement dérivable de `docs/rl/combat-ability-coverage.md` (régénéré dans ce commit),
+et la ventilation par porteur est inchangée depuis l'inventaire précédent hors ces 5 lignes. La
+**correction de méthode** qui l'accompagne reste valable et mérite d'être répétée :
 
-Colonne `D` = face DÉCISION portée (un des trois registres, cf. §2).
+> ⚠ La catégorie « SUMMON » se dérive de `constants.unitId` **ET** `unitId_2/3/4`. Ne lire que
+> `unitId` classe à tort `SlashingDive` (1091, `thousSmnScreamer`) en non confrontable, alors que
+> `MasterOfTheTutelaries` (`thousInfernalMaster`, dans le pool) pose le Screamer via `unitId_2`.
 
-| id | ability | catégorie | faction | porteur | D | symbole natif |
-|---|---|---|---|---|---|---|
-| 1117 | DefendTheDivineWork | REPAIR | AdMec | admecManipulus | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour` |
-| 1116 | RadBombardment | DAMAGE/Toxic | AdMec | admecDominus | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$ExecuteBehaviour` |
-| 1068 | SilentDeath | DAMAGE/Piercing | Aeldari | eldarJainZar | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility$$ExecuteBehaviour` |
-| 1064 | Loki_SwoopingHawk | DAMAGE/Piercing | Aeldari | eldarAutarch | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$ExecuteBehaviour` (classe `...Loki.SwoopingHawkAbility`, dérivée de `DiveAttackAbilityBase`) |
-| 1063 | FireAndReposition | EFFECT | Aeldari | eldarRanger | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility$$ExecuteBehaviour` |
-| 1204 | LeadingTheCharge | DAMAGE/Power | AstraMilitarum | astraDreir | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility$$ExecuteBehaviour` |
-| 1027 | PsychicMaelstrom | DAMAGE/Psychic | AstraMilitarum | astraPrimarisPsy | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicMaelstromAbility$$ExecuteBehaviour` |
-| 1026 | BasiliskBarrage | DAMAGE/Blast | AstraMilitarum | astraOrdnance | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour` |
-| 1017 | FragBomb | DAMAGE/Blast | AstraMilitarum | astraBullgryn | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour` |
-| 1036 | FrenziedFiring | DAMAGE/HeavyRound | BlackLegion | blackObliterator | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$ExecuteBehaviour` |
-| 1029 | Drachnyen | DAMAGE/Piercing | BlackLegion | blackAbaddon | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$ExecuteBehaviour` |
-| 1020 | HeraldOfTheApocalypse | DAMAGE/Piercing | BlackLegion | blackHaarken | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility$$ExecuteBehaviour` |
-| 1061 | UnbreakableDuty | EFFECT | BlackTemplars | templAncient | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility$$ExecuteBehaviour` |
-| 1050 | HolyDuel | EFFECT | BlackTemplars | templChampion | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility$$ExecuteBehaviour` |
-| 1049 | CrusadeOfWrath | EFFECT | BlackTemplars | templHelbrecht | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility$$ExecuteBehaviour` |
-| 1048 | FragstormGrenadeLauncher | DAMAGE/Blast | BlackTemplars | templAggressor | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormGrenadeLauncherAbility$$ExecuteBehaviour` |
-| 1177 | LightOfSanguinius | DAMAGE/Melta | BloodAngels | bloodDante | D | `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour` |
-| 1175 | BloodChalice | HEAL | BloodAngels | bloodSanguinary | - | `IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$ExecuteBehaviour` |
-| ~~1153~~ | ~~HammerOfWrath~~ | DAMAGE/Power | BloodAngels | bloodIntercessor | D | **PORTEE case-226** (`HammerOfWrathAbility$$ExecuteBehaviour`, `bloodangels.py`) |
-| 1195 | TalonsOfTheEmperor | DAMAGE/Power | Custodes | custoAtlacoya | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility$$ExecuteBehaviour` |
-| 1191 | MartialInspiration | DAMAGE/Eviscerate | Custodes | custoBladeChampion | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$ExecuteBehaviour` |
-| 1184 | MomentShackle | DAMAGE/Bolter | Custodes | custoTrajann | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$ExecuteBehaviour` |
-| 1183 | VexillaMagnifica | DAMAGE/Physical | Custodes | custoVexilusPraetor | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility$$ExecuteBehaviour` |
-| 1038 | FoulInfusion | DAMAGE/Toxic | DeathGuard | deathPutrifier | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility$$ExecuteBehaviour` |
-| 1035 | PlagueWind | DAMAGE/Psychic | DeathGuard | deathTyphus | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour` |
-| 1199 | DoomSiren | DAMAGE/DirectDamage | EmperorsChildren | emperKakophonist | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour` |
-| 1197 | ExcruciatingFrequencies | DAMAGE/Blast | EmperorsChildren | emperNoiseMarine | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility$$ExecuteBehaviour` |
-| 1165 | MightFromBelow | DAMAGE/Psychic | Genestealers | genesPatriarch | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MightFromBelowAbility$$ExecuteBehaviour` |
-| 1164 | MindControl | EFFECT | Genestealers | genesMagus | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour` |
-| 1005 | AdaptiveStrategy | EFFECT | Necrons | necroWarden | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` |
-| 1171 | DakkaDakkaDakka | DAMAGE/Projectile | Orks | orksKillaKan | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$ExecuteBehaviour` |
-| 1152 | UnstoppableMomentumReworked | DAMAGE/DirectDamage | Orks | orksNob | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility$$ExecuteBehaviour` |
-| 1057 | GrotTank | SUMMON | Orks | orksBigMek | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility$$ExecuteBehaviour` |
-| 1041 | BrazierOfHolyFire | DAMAGE/Flame | Sisterhood | adeptCanoness | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour` |
-| 1039 | RitesOfRestoration | HEAL | Sisterhood | adeptHospitaller | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$ExecuteBehaviour` |
-| 1106 | WarHowl | EFFECT | SpaceWolves | spaceBlackmane | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$ExecuteBehaviour` |
-| ~~1097~~ | ~~Foehammer~~ | DAMAGE/Power | SpaceWolves | spaceRockfist | - | **PORTEE case-226** (`FoehammerAbility$$ExecuteBehaviour`, `spacewolves.py`) |
-| 1090 | GrapnelLauncher | DAMAGE/Physical | SpaceWolves | spaceHound | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` |
-| 1087 | ExemplarOfTheKauyon | DAMAGE/Blast | Tau | tauShadowsun | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour` |
-| 1069 | SeekerMissileFrequencyLock | DAMAGE/HeavyRound | Tau | tauMarksman | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour` |
-| 1102 | Doombolt | DAMAGE/Psychic | ThousandSons | thousAhriman | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$ExecuteBehaviour` |
-| 1101 | AttemptedPossession | EFFECT | ThousandSons | thousSorcerer | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility$$ExecuteBehaviour` |
-| 1100 | SorcerousFacade | DAMAGE/Psychic | ThousandSons | thousTzaangor | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$ExecuteBehaviour` |
-| 1088 | HellfyreMissileRack | DAMAGE/HeavyRound | ThousandSons | thousTerminator | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility$$ExecuteBehaviour` |
-| 1121 | ItItches | SUMMON | Tyranids | tyranParasite | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$ExecuteBehaviour` |
-| 1115 | FearOfTheUnseen | DAMAGE/DirectDamage | Tyranids | tyranDeathleaper | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour` |
-| 1154 | TacticalPrecision | DAMAGE/Bolter | Ultramarines | ultraTitus | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$ExecuteBehaviour` |
-| 1019 | StormOfWrath | DAMAGE/Psychic | Ultramarines | ultraTigurius | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility$$ExecuteBehaviour` |
-| 1141 | OverwhelmingWrath | DAMAGE/Eviscerate | WorldEaters | worldEightbound | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour` |
-| 1137 | MurderousSwing | DAMAGE/Piercing | WorldEaters | worldExecutions | D | `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$ExecuteBehaviour` |
-| 1132 | KillMaimBurn | DAMAGE/Piercing | WorldEaters | worldKharn | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility$$ExecuteBehaviour` |
-| 1129 | BloodyFury | DAMAGE/Chain | WorldEaters | worldTerminator | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility$$ExecuteBehaviour` |
-| 1144 | BioMinefield | SUMMON | Tyranids | tyranBiovore (**MoW**) | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility$$ExecuteBehaviour` |
-| 1158 | DutyEternal | SUMMON | Ultramarines | ultraDreadnought (**MoW**) | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour` — ⛔ bloqué **multi-hex** (`case-mow-offboard-cast` §6) |
-| 1091 | SlashingDive | DAMAGE/Power | ThousandSons | thousSmnScreamer ← thousInfernalMaster (**SUMMON**) | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.SlashingDiveAbility$$.ctor` (pas de `*Behaviour` nommé : lire le ctor) |
-| 1023 | Burrowers | EFFECT | Tyranids | tyranSmnRipperSwarm ← tyranParasite (**SUMMON**) | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility$$ExecuteBehaviour` |
+> ⚠ `catalog_inject` a fermé le verrou « porteur hors pool » (`case-92`, 10 porteurs confrontés live).
+> Toute mention « porteur hors pool ⇒ inconfrontable » antérieure au 2026-07-25 est fausse.
 
-### 1.b — NO-OP confrontables via `catalog_inject.py` — 11
-
-Porteurs lineup **absents du seed BC** : `python catalog_inject.py --units <id> --out <abs>.json`
-puis `rl_duel build --seed-bc <abs>.json`. Procédure validée live sur 10 porteurs (`case-92` §4).
-
-| id | ability | catégorie | faction | porteur | symbole natif |
-|---|---|---|---|---|---|
-| 1225 | StrikeFromTheShadows | DAMAGE/Bolter | AdeptusAstartes | astarCyrus | `IdunBattleLogic.Entities.Abilities.Active.Loki.StrikeFromTheShadowsAbility$$ExecuteBehaviour` |
-| 1228 | SternguardFocus | EFFECT | DarkAngels | darkaSternguard | `IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$ExecuteBehaviour` |
-| 1203 | DaemonicPatrons | EFFECT | EmperorsChildren | emperFlawlessBlade | `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour` |
-| 1198 | EuphoricStrikes | DAMAGE/Power | EmperorsChildren | emperExultant | `IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$ExecuteBehaviour` |
-| 1196 | LashOfTorment | DAMAGE/Eviscerate | EmperorsChildren | emperLucius | `IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility$$ExecuteBehaviour` |
-| 1224 | NanoscarabRepairProtocols | REPAIR | Necrons | necroReanimator (MoW) | `IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility$$ExecuteBehaviour` |
-| 1223 | ReanimationBeam | REPAIR | Necrons | necroReanimator (MoW) | `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility$$ExecuteBehaviour` |
-| 1211 | RitesOfMorkai | EFFECT | SpaceWolves | spaceWolfPriest | `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour` |
-| 1210 | ExemplarOfTheMontka | EFFECT | Tau | tauFarsight | `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility$$ExecuteBehaviour` |
-| 1209 | InfernalCannon | DAMAGE/Flame | ThousandSons | thousDaemonPrince (MoW) | `IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility$$ExecuteBehaviour` |
-| 1208 | AetherStride | SUMMON | ThousandSons | thousDaemonPrince (MoW) | `IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$ExecuteBehaviour` — suspicion multi-hex (jumeau DutyEternal) |
-
-### 1.c — NON PERTINENTS (aucun porteur atteignable) — 29
-
-**Ne pas y envoyer d'agent.** 21 npc-only + 8 summons d'environnement (posés par
-`EnvFactionSummons:<Faction>` / `ATemptingTrap`, qu'aucune unité jouable ne porte).
-
-NPC-only : `Maugetar` (eldarBossMauganRaUltra) · 1010 StormOfFlensingBlades · 1032 Catalyst ·
-1052 CallRipperSwarms · 1056 StranglethornCannon · 1093 MortarionsPlagueWind · 1094 TheLantern ·
-1095 ReapingScythe · 1107 Reveal · 1133 WarConstruct · 1170 ExplosivePresents ·
-1172 InvocationOfMachineVengeance · 1173 ArcScourge · 1174 SolarAtomizer · 1176 BlightGrenades ·
-1192 NovaBoost · 1193 NovaCharge · 1194 NovaShield · 1215 InstrumentsOfVengeance ·
-1216 MartialExemplar · 1217 TheLionsWrath.
-
-SUMMON-ENV (8) : 1011 TunnelingHorror (necroSmnDestroyer) · 1015 PrecisionShot (necroSmnDeathmark) ·
-1044 IncendiaryShells (templNeophyte) · 1053 DevoutPush (templInitiate) · 1080 HellfireShells
-(ultraSmnHeavyIntercessor — déjà constaté par `case-173`) · 1108 KissOfDeath (eldarSmnHarlequin) ·
-1185 ForwardObservers + 1186 WallOfMirrors (tauSmnStealthSuit).
-
-⚠ Ne PAS ajouter 1091 `SlashingDive` ici : son porteur `thousSmnScreamer` EST amené par
-`MasterOfTheTutelaries` (`thousInfernalMaster`, dans le pool) via `constants.unitId_2` — il est en
-§1.a. C'est le piège de la dérivation « `unitId` seul ».
+**Fichiers touchés par un item de ce gisement** : `engine/runner/abilities/handler.py` (**collision
+systématique**, cf. §7) + `engine/runner/abilities/<faction>.py`. **Pas de module** pour
+BlackTemplars / Custodes / EmperorsChildren / AdeptusAstartes → un port de ces factions en CRÉE un
+(zéro collision).
 
 ---
 
 ## 2. Gisement 2 — les actives `[-D]` : la décision CHOISIT, l'exécution NO-OP
 
-**C'est le gisement à valeur la plus haute** : divergence d'état *invisible* (aucune erreur,
+**Le gisement à valeur la plus haute** : divergence d'état *invisible* (aucune erreur,
 `mutated=false`) en replay / self-play, sur des abilities que l'IA portée choisit réellement.
 
-> ⚠ **`audit_kit_coverage.py` SOUS-COMPTE ce gisement.** Il ne consulte que DEUX registres de
-> décision (`playbook.noncomparable.PLAYBOOKS`, `playbook.REGISTRY`) et rate le TROISIÈME :
-> `engine/entities/abilities/active_ability.py::_SPECIAL_ABILITY_CLASSES` (mirrors
-> `AActiveAbility` par ability : prédictions multi-hit / dégât conditionnel) et
-> `_NONCOMPARABLE_ABILITIES`. Résultat : `kit-coverage.md` affiche 14 `[-D]`, le vrai compte est
-> **20**. C'est exactement le faux `[--]` déjà relevé sur 1191 MartialInspiration
-> (`port-roadmap.md` §3). **Correctif possible en 3 lignes** dans `audit_kit_coverage.py`
-> (`collect()`, champ `decision`) — item dispatchable à part entière, il rend l'audit fiable.
+**Compte re-dérivé : 15 en lineup** (+ 2 npc non confrontables). Source = `kit-coverage.md`
+régénéré, dont le critère `D` a été corrigé entre-temps.
 
-Les 20, tous à porteur confrontable sauf 2 :
+> **La méthode de comptage de l'inventaire précédent a été RÉFUTÉE, et c'est important.** Il
+> annonçait 20 en comptant `_NONCOMPARABLE_ABILITIES` comme un 4ᵉ registre de décision. `8e8518e`
+> a tranché : y figurer signifie seulement que le port **CLASSE** l'ability NonComparable (il
+> s'interdit de fabriquer un dégât depuis minDmg/maxDmg) ; son **UTILITÉ de décision** vit dans
+> `PLAYBOOKS` et reste à porter. Compter ce registre comme `D` commet l'erreur **symétrique** du
+> sous-comptage : déclarer porté ce qui ne l'est pas. L'audit le signale désormais à part
+> (« NC classée, utilité NC non portée », 1 occurrence : RadBombardment — **qui a depuis reçu sa
+> face combat**, donc l'occurrence a disparu).
 
-| id | ability | porteur | conf. | registre décision | symptôme | taille |
-|---|---|---|---|---|---|---|
-| 1129 | BloodyFury | worldTerminator | HERO | NC + `_SPECIAL` + NonComparable | non mesuré (structurel) | 1 ability (primitive `ChainLeftOverHitsAttackDamage`) |
-| 1153 | HammerOfWrath | bloodIntercessor | HERO | NC + NonComparable | non mesuré | 1 ability |
-| 1183 | VexillaMagnifica | custoVexilusPraetor | HERO | NC + NonComparable | non mesuré | 1 ability |
-| 1121 | ItItches | tyranParasite | HERO | NC + NonComparable | non mesuré | 1 ability (multi-étage positionnel) |
-| 1039 | RitesOfRestoration | adeptHospitaller | HERO | NC + NonComparable | non mesuré | 1 ability |
-| 1117 | DefendTheDivineWork | admecManipulus | HERO | NC | non mesuré | 1 ability |
-| 1050 | HolyDuel | templChampion | HERO | NC | non mesuré | 1 ability (3 classes d'effet) |
-| 1038 | FoulInfusion | deathPutrifier | HERO | NC | non mesuré | 1 ability |
-| 1090 | GrapnelLauncher | spaceHound | HERO | NC | non mesuré | 1 ability (≥6 primitives) |
-| 1020 | HeraldOfTheApocalypse | blackHaarken | HERO | `REGISTRY` (custom utility) | non mesuré | 1 ability |
-| 1029 | Drachnyen | blackAbaddon | HERO | `REGISTRY` | non mesuré | 1 ability |
-| 1100 | SorcerousFacade | thousTzaangor | HERO | `REGISTRY` | non mesuré ; lire `case-171` (interaction attaque normale) | 1 ability |
-| 1177 | LightOfSanguinius | bloodDante | HERO | `REGISTRY` | non mesuré | 1 ability |
-| 1199 | DoomSiren | emperKakophonist | HERO | `REGISTRY` | non mesuré | 1 ability |
-| 1116 | RadBombardment | admecDominus | HERO | `_NONCOMPARABLE` | non mesuré | 1 ability (sélecteur ligne runner) |
-| 1036 | FrenziedFiring | blackObliterator | HERO | `_SPECIAL` | **mesuré côté décision** (`case-61` : le port rendait 1 coup au lieu de la formule) — face combat toujours NO-OP | 1 ability |
-| 1137 | MurderousSwing | worldExecutions | HERO | `_SPECIAL` | **mesuré côté décision** (`case-108` : ×1,60 + 4 events) — face combat toujours NO-OP | 1 ability |
-| 1171 | DakkaDakkaDakka | orksKillaKan | HERO | `_SPECIAL` | non mesuré | 1 ability |
-| 1192 | NovaBoost | tauBossRiptide | **NPC** | NC | — | **NON PERTINENT** |
-| 1194 | NovaShield | tauBossRiptide | **NPC** | NC | — | **NON PERTINENT** |
+Les 15, tous à porteur **HERO du pool** :
 
-⇒ **18 dispatchables.** Les symboles natifs sont dans les tables §1.a.
+| id | ability | porteur | registre décision | symptôme | taille |
+|---|---|---|---|---|---|
+| 1129 | BloodyFury | worldTerminator | NC + `_SPECIAL` | non mesuré (structurel) | 1 ability (primitive `ChainLeftOverHitsAttackDamage`) |
+| 1183 | VexillaMagnifica | custoVexilusPraetor | NC | non mesuré | 1 ability |
+| 1121 | ItItches | tyranParasite | NC | non mesuré | 1 ability (multi-étage positionnel) |
+| 1039 | RitesOfRestoration | adeptHospitaller | NC | non mesuré | 1 ability |
+| 1117 | DefendTheDivineWork | admecManipulus | NC | non mesuré | 1 ability |
+| 1050 | HolyDuel | templChampion | NC | non mesuré | 1 ability (3 classes d'effet) |
+| 1038 | FoulInfusion | deathPutrifier | NC | non mesuré | 1 ability |
+| 1090 | GrapnelLauncher | spaceHound | NC | non mesuré | 1 ability (≥6 primitives) |
+| 1020 | HeraldOfTheApocalypse | blackHaarken | `REGISTRY` | non mesuré | 1 ability |
+| 1029 | Drachnyen | blackAbaddon | `REGISTRY` | non mesuré | 1 ability |
+| 1100 | SorcerousFacade | thousTzaangor | `REGISTRY` | non mesuré ; lire `case-171` (interaction attaque normale) | 1 ability |
+| 1177 | LightOfSanguinius | bloodDante | `REGISTRY` | non mesuré | 1 ability |
+| 1199 | DoomSiren | emperKakophonist | `REGISTRY` | non mesuré | 1 ability |
+| 1137 | MurderousSwing | worldExecutions | `_SPECIAL` | **mesuré côté décision** (`case-108` : ×1,60 + 4 events) — face combat toujours NO-OP | 1 ability |
+| 1171 | DakkaDakkaDakka | orksKillaKan | `_SPECIAL` | non mesuré | 1 ability |
 
-> **Piège de lecture à ne PAS reproduire** : `port-roadmap.md` §6.3 dit « MurderousSwing 1137 DÉJÀ
-> porté #108 » et §6.13 range DakkaDakkaDakka en « [opus]+prérequis » — dans les deux cas le port
-> #108 est **la face DÉCISION seule** (`entities/abilities/active_ability.py`). La face COMBAT
-> reste un NO-OP. Un tag « déjà porté » sans préciser la FACE est un faux constat.
+**NON CONFRONTABLES** : 1192 `NovaBoost` et 1194 `NovaShield` (`tauBossRiptide`, npc-only).
 
-**Fichiers touchés par un item de ce gisement** (base de la détection de collision) :
+**Sorties depuis l'inventaire précédent** : 1036 FrenziedFiring (`d2be96e`), 1116 RadBombardment
+(`825f69f`), 1153 HammerOfWrath (`86fecad`) — les trois ont reçu leur face COMBAT.
 
-- `engine/runner/abilities/handler.py` — **collision systématique** : *tout* port d'ability y ajoute
-  un import + une entrée `ABILITY_CLASSES`. Deux agents concurrents s'y croisent toujours.
-- `engine/runner/abilities/<faction>.py` — modules existants : `admec, aeldari, astramilitarum,
-  blacklegion, bloodangels, darkangels, deathguard, genestealer, necrons, orks, sisterhood,
-  spacewolves, tau, tyranids, ultramarines, votann, worldeaters` (+ `loki/*` pour l'historique).
-  **Pas de module** BlackTemplars / Custodes / EmperorsChildren / ThousandSons / AdeptusAstartes →
-  un port de ces factions en CRÉE un (zéro collision).
-- `engine/entities/effect_type.py`, `engine/entities/effects/factory.py` si l'ability pose un effet neuf.
-- `engine/runner/operations/triggers/dispatch.py` si elle exige un vecteur d'event neuf.
+> **Piège de lecture à ne PAS reproduire** : un tag « déjà porté » sans préciser la FACE est un
+> faux constat. `port-roadmap.md` §6.3 dit « MurderousSwing 1137 DÉJÀ porté #108 » — le port #108
+> est la face DÉCISION seule (`entities/abilities/active_ability.py`) ; la face COMBAT est un NO-OP.
+
+Symboles natifs : `IdunBattleLogic.Entities.Abilities.Active.Loki.<Nom>Ability$$ExecuteBehaviour`
+pour tous, sauf `MurderousSwing` et `LightOfSanguinius`
+(`IdunBattleLogic.Entities.Abilities.Active.<Nom>Ability$$ExecuteBehaviour`, sans `.Loki`).
 
 ---
 
-## 3. Gisement 3 — `TARGETING_OPTIONS` : 75 abilities du registre sur 76 sans masque
+## 3. Gisement 3 — `TARGETING_OPTIONS` : 53 abilities du registre sur 81 sans masque
 
-**Symptôme chiffré** : `ABILITY_CLASSES` = 76 entrées ; **1 seule** (`WaaaghAbility`, 1058) porte
-`TARGETING_OPTIONS`. Le backlog annonçait « 60 restantes » — le gisement a **grossi de 15** parce
-que chaque port depuis #115 entre au registre sans son masque.
+**Symptôme chiffré** : `ABILITY_CLASSES` = 81 entrées, **28** portent `TARGETING_OPTIONS`, **53**
+n'en ont pas. Le gisement RECULE pour la première fois (75 manquants la veille).
 
 **Conséquence exacte** (lue dans `engine/runner/abilities/targeting.py`) :
 `get_invalid_target_reason` et `get_invalid_caster_reason` commencent tous deux par
@@ -254,43 +173,69 @@ gate. Le port accepte donc des casts que
 `IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget` refuserait (ami/ennemi, cible ==
 caster, caster ayant bougé). Dégradation **permissive**, donc silencieuse en self-play.
 
-- **Symbole natif** : `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` (le masque est le
-  littéral passé par `<X>Ability$$.ctor` à `IdunBattle.Core.Services.TargetingOptions$$.ctor`) ;
-  cascade consommatrice : `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`.
-- **Piège documenté** (`targeting.py` docstring `TargetingOptions`) : l'overload **PRESET + flags**
-  (`TargetingOptions..ctor(&opts, &preset, <flags>, 0)`, ex.
-  `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor`) — le littéral
-  visible n'est PAS le masque effectif. Recopier ce littéral serait FAUX. Ne renseigner que les
-  masques EFFECTIFS lus.
+- **Symbole natif** : le masque est le littéral passé par `<X>Ability$$.ctor` à
+  `IdunBattle.Core.Services.TargetingOptions$$.ctor` ; cascade consommatrice :
+  `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`.
+- **Deux formes du piège, les DEUX mesurées** : (1) l'overload **PRESET + flags**
+  (`TargetingOptions..ctor(&opts, &preset, <flags>, 0)`) — le littéral visible n'est PAS le masque
+  effectif ; (2) les abilities qui **n'appellent AUCUN ctor** et recopient les 0x40 octets d'un
+  champ **statique**, le masque effectif étant la constante écrite par
+  `IdunBattle.Core.Services.TargetingOptions$$.cctor` à `<preset>+0x28`. Les presets ne sont pas
+  interchangeables (`statics+0x168` = `0x4002`, `statics+0x68` = `0x4000`) : sur 10 abilities d'un
+  même lot, 9 valaient `0x4002` et JakhalStimms `0x4000`. **Lire ability par ability.**
 - **Confrontabilité** : chaque ability du registre a déjà un porteur confrontable (elle est portée).
-- **Taille** : **1 sous-système** si pris en lot (1 ligne/ability, lecture du ctor décompilé) ;
-  se découpe naturellement par faction. La règle de non-régression est simple : un port qui entre
-  au registre pose son `TARGETING_OPTIONS` dans le même commit.
-- **Fichiers** : `engine/runner/abilities/<faction>.py` (attribut de classe) — **pas** `handler.py`,
-  donc collision faible ; garde possible dans `tests/engine/runner/`.
+- **Taille** : **1 lot par module** (1 ligne/ability, lecture du ctor décompilé) ; le découpage
+  naturel est le module de faction, qui est aussi la frontière de non-collision.
+- **Fichiers** : `engine/runner/abilities/<module>.py` (attribut de classe) — **pas** `handler.py`,
+  donc collision faible.
+- **Depuis `6110d37`, un masque s'écrit en FLAGS NOMMÉS, plus en littéral hexadécimal** : le mirror
+  `IntFlag` des 58 bits + 2 composites vit dans `engine/runner/abilities/targeting_rule.py`, et il
+  est **GÉNÉRÉ** par `gen_targeting_rule.py` depuis `data/symbols/<build>/frida/enums.tsv` — ne pas
+  le transcrire à la main. Ce commit a d'ailleurs corrigé deux paraphrases fausses posées à la main
+  (bit 57 `TargetIsCasterOrEnemy`, et bit 51 `TargetIsNotSteppable` documenté **à l'envers**) : un
+  masque écrit en hexadécimal laisse passer un bit faux sans trace.
+
+**Ventilation par module — c'est la carte de dispatch** (modules absents = 100 % couverts :
+`aeldari`, `darkangels`, `genestealer`, `necrons`, `orks`, `votann`, `worldeaters`) :
+
+| module | avec | sans | ids sans masque |
+|---|---|---|---|
+| `splash` | 0 | 6 | 1000 GauntletsOfUltramar, 1051 Stikkbomb, 1065 ScythingTalons, 1078 Fragstorm, 1098 PlasmaGrenade, 1105 CrushingClaws |
+| `strike` | 0 | 6 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw, 1163 BlackRage |
+| `blacklegion` | 0 | 5 | 1021 Incursion, 1022 BringerOfDespair, 1036 FrenziedFiringCombat, 1147 HadesAutocannons, 1148 DaemonicOrdnance |
+| `deathguard` | 0 | 5 | 1037 RevitalizingMalignancy, 1040 SpawnPoxwalkers, 1042 FlailSwing, 1168 EntropyCannons, 1169 PlagueburstMortar |
+| `summon` | 0 | 5 | 1007 ScarabHive, 1045 GetEmRuntz, 1047 ScarabSummon, 1096 MasterOfTheTutelaries, 1166 AberrantHypermorph |
+| `tau` | 0 | 5 | 1077 EarlyWarningOverride, 1081 FightingRetreat, 1082 InspiredToGreatness, 1160 HeavyRailRifle, 1161 TwinSmartMissileSystem |
+| `astramilitarum` | 0 | 4 | 1016 SendInTheNextWave, 1028 SupremeCommander, 1142 MalleusRocketLauncher, 1143 ForwardSpotter |
+| `sisterhood` | 1 | 4 | 1025 SkyStrike, 1062 SanctorumMissile, 1187 ThriceBlessedConflagration, 1188 DevastatingRefrain |
+| `ultramarines` | 0 | 4 | 1002 CombatRestoratives, 1003 DeathFromAbove, 1004 MortisRound, 1159 MacroPlasmaIncinerator |
+| `tyranids` | 0 | 2 | 1112 AlphaWarrior, 1145 SporeMineLauncher |
+| `admec` / `bloodangels` / `spacewolves` | 1 / 1 / 1 | 1 / 1 / 1 | 1139 SentinelDirectives · 1230 SavageEchoes · 1089 GreatFrostAxe |
+| `imperative` / `mv71` / `quickening` / `stormcaller` | 0 | 1 chacun | 1118 DoctrinaImperatives · 1076 MV71SniperDroneSquadAttack · 1151 TheQuickening · 1113 Stormcaller |
+
+⚠ `1151 TheQuickening` est précisément l'ability citée par la doctrine comme exemple de l'overload
+PRESET + flags : ne pas recopier son littéral visible.
 
 ---
 
-## 3bis. Gisement 4 — les PASSIFS (207), hors du périmètre demandé mais plus gros que les trois
+## 3bis. Gisement 4 — les PASSIFS (207) : le plus gros volume, et le plus invisible
 
-Non demandé par la tâche, mais il faut le nommer sinon la prochaine vague le rate : un **troisième
-audit** existe, `scripts/python/audit_passive_ability_coverage.py`, et son verdict est plus lourd
-que les trois gisements réunis.
-
-Re-dérivé au commit courant :
+Re-dérivé au commit courant (`audit_passive_ability_coverage.py`) :
 
 ```
 passifs=207 | enum : TriggeredAbilityType=206, ActiveAbilityType=1
-porte=46  zone-grise=11  gap=150
-confrontables : gap=63  zone-grise=7
-canaux : T=18, O=4, E=31, G=1, X=0, B=3
+porte=54  zone-grise=11  gap=142
+confrontables : gap=55  zone-grise=7
+canaux : T=23, O=6, E=35, G=1, X=0, B=3
 ```
 
-⇒ **63 passifs à porteur confrontable, non portés.** L'angle mort est **structurel** et vaut d'être
-répété ici : un passif n'est PAS une active non castable, c'est une `TriggeredAbilityType` — un
-objet d'un AUTRE enum. `audit_combat_ability_coverage.py` (le gisement 1) ne pouvait donc rien en
-voir, et l'intersection nom-à-nom actives/passifs est **VIDE**. Cas fondateur : `HeavyGravCannon`,
-qui expliquait un delta live/offline resté longtemps sans cause et n'apparaissait dans AUCUN audit.
+⇒ **55 passifs à porteur confrontable, non portés** (63 la veille — 8 fermés en 24 h par `b8af57a`
+DestroyTheWitch/MartialSuperiority, `5c45389` CosmicHorror/SpiritualLeader, `137ef85`
+RealityUnbound/TimeFlux-regen, `3848490` LionHelm/FearedInterrogator).
+
+L'angle mort est **structurel** et vaut d'être répété : un passif n'est PAS une active non castable,
+c'est une `TriggeredAbilityType` — un objet d'un AUTRE enum. `audit_combat_ability_coverage.py`
+(gisement 1) ne peut rien en voir, et l'intersection nom-à-nom actives/passifs est **VIDE**.
 
 ⚠ **Homonymie à TROIS faces** à qualifier systématiquement : `EffectType 1291 = HeavyGravCannon`
 (le nom CAPTÉ live) · `TriggeredAbilityType 1233 = HeavyGravCannon` (la CONFIG du passif) ·
@@ -302,165 +247,186 @@ Détail par passif (canal, verdict, porteur, confrontabilité) : `docs/rl/passiv
 
 ---
 
-## 4. Résidus NOMMÉS hors gisement — vérifiés OUVERTS au commit courant
+## 4. Résidus NOMMÉS — OUVERTS au commit courant
 
-Triés **symptôme mesuré > symptôme nommé > supposé**. Chacun a été relu dans le code ; la
-référence de ligne est le point d'ancrage.
+Chacun a été **relu dans le code d'aujourd'hui** ; la référence `fichier:ligne` est la preuve.
+Triés symptôme mesuré > symptôme nommé.
 
 ### 4.a — Symptôme MESURÉ (chiffres au dossier)
 
-| # | Résidu | Symptôme chiffré | Symbole natif | Porteur / conf. | Fichiers | Taille |
+| # | Résidu | Symptôme chiffré | Symbole natif | Porteur / chemin en bataille | Fichiers | Taille |
 |---|---|---|---|---|---|---|
-| R1 | **Tuile d'ORIGINE dans les candidats d'ability du port, pas du natif** — `state_bridge._plans_for_unit` fait `cand_tiles.append(origin)` (`ai/state_bridge.py:318`) | S3 (`C4_02`, `emperNoiseMarine`) : natif `69 tgt=77 to=(3,3)` = **exactement** l'argmax du port une fois l'origine retirée (39.961) ; port rend `69 tgt=79 to=(2,2)` (41.886) | `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` (= `IBattleQuery` slot +0xe, `GetMovableTilesFor` **exclut** la tuile courante) ; branche `NullPosition` de `ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7` seulement si la liste est vide | tout hero du pool | `engine/ai/state_bridge.py` | **1 sous-système** — touche TOUTE unité qui attaquerait sans bouger ⇒ exige une passe d'agreement complète, pas un smoke |
-| ~~R2~~ | ~~Gate d'IMMUNITÉ d'effet non porté~~ | **FERMÉ pendant la rédaction — cf. §5 (`42de74d`, #224)** | — | — | — | — |
-| ~~R3~~ | ~~OVERWATCH : un seul tir par activation~~ | **FERMÉ pendant la rédaction — cf. §5 (`7c412b8`, #127)** | — | — | — | — |
-| R4 | **Resolve slot-8 non matérialisé dans `execute_normal_like`** — `HitDamage.get_damage` court-circuite à `min == max` (`operations/damage_hits.py:49`) | splash Psyker : le live consomme **1 `genrand_int32` de plus que le port par volet splash** — constant, mesuré sur pool=1 et pool=2, absent quand le splash ne fire pas | `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)` **sans gate largeur-1** | astraPrimarisPsy / tout Psyker du pool | `engine/runner/operations/damage_hits.py`, `damage_ops.py` | **1 effet** — ⚠ conditionner à la FAMILLE de factory native, pas à la largeur des bornes (le porter inconditionnellement casse Stormcaller 3-hit bit-exact) |
-| R5 | **`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` échoue** | **REPRODUIT au commit `7f47c29`** (run du 2026-07-26, 1 failed / 2 passed) : `res={'moved': (6,5), 'kind':'ability', 'ability': 17, 'target': 79}`, `d_bfs 3->3`, `hp 8536->8536`, `atk(ranged=True, hits=3)`. Deux anomalies dans la même trace : le move ne réduit pas la distance BFS, ET 3 coups infligent 0 dégât. `ability: 17` = le NormalAttack ABSTRAIT, alors que l'attaque normale est un id CONCRET par unité | `IdunBattle.AI.Tactics.…` (pass IA générique) + route d'attaque | admecDestroyer / Skitarii Vanguard (summon), dans le pool via son summoner | `engine/ai/*` (pass générique), `engine/runner/abilities/base.py` (NormalAttackType) | **1 sous-système** — pré-existant, pas une régression |
-| R6 | **`execute_normal_like` et `additional_hits` restent TRONQUANTS** (`damage_ops.py:837-840` : `apply_all_modifiers(..., def_mods)` sans `round_materialize`, re-vérifié sur l'arbre rebasé) | la famille ATTACK d'`execute_ability_attack` a été basculée sur `Round(AwayFromZero)` le 2026-07-26 **sur mesure** (14 casts / 2 régimes d'armure : live == arrondi 14/14, == troncature 12/14, les 2 écarts exactement sur les fractions ≥ .5). Les deux autres vecteurs n'ont **aucune** mesure (note explicite `damage_ops.py:554`) | `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers` (slot 0x10 de `…$$CalculateBaseDamageWithAllModifiers`) : `Fix64.Round(Mul(v, multiplier), AwayFromZero)` **inconditionnel** dès qu'un `Nullable<DamageModifiers>` HasValue | régime discriminant : les DEUX %-list vides **ET** la branche perçage du plancher gagne (armure haute + perçage élevé) | `engine/runner/operations/damage_ops.py` | **1 effet** par vecteur, mais **chacun exige sa campagne de datapoints** |
-| R7 | **`execute_normal_like` ne threade pas `target_traits`** (`damage_ops.py:804-805` : `attacker_modifiers(...)` sans `target_traits` — re-vérifié sur l'arbre rebasé) | jumeau du prérequis levé pour `execute_ability_attack` le 2026-07-26, dont la mesure était **+443 = `extraDmg[50] × 160%`** de `HeavyGravCannon` (gate `HasTrait(target, 5=Mechanical)`) | `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` — un SEUL collecteur natif, pas un par famille | aucun porteur de `BeastSlayer`/`MartialKatah`/`CondemnorStake`/`HeavyGravCannon` n'a d'attaque `normal_like` confrontée aujourd'hui | `engine/runner/operations/damage_ops.py` | **1 effet** (+ idem `additional_hits`) |
-| R8 | **`--hp-target` remet `Armor`/`FixedArmor` à 0** (`rl_duel.py:349-359`) | mesuré : `adeptMorvenn` 2411 → 0, `necroWarden` 2008 → 0. **Le code le fait EXPRÈS** (commentaire « armure nulle → kill DÉTERMINISTE ») — le résidu réel est que `runner.md` ne le dit pas : il documente `--hp-target` comme « force `Health` ET `RemainingHealth` », point | — (outillage) | — | `.claude/skills/tacticus/references/runner.md` | **1 ligne de doc** — piège de mesure : tout test qui force les PV supprime SILENCIEUSEMENT l'étage armure, donc tout régime où la branche perçage du plancher mordrait |
+| **R1** | **Tuile d'ORIGINE dans les candidats d'ability du port, pas du natif** — `state_bridge.py:318` fait toujours `cand_tiles.append(origin)` | S3 (`C4_02`, `emperNoiseMarine`) : natif `69 tgt=77 to=(3,3)` = **exactement** l'argmax du port une fois l'origine retirée (39.961) ; port rend `69 tgt=79 to=(2,2)` (41.886) | `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` (= `IBattleQuery` slot +0xe ; `GetMovableTilesFor` **exclut** la tuile courante) ; branche `NullPosition` de `ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7` seulement si la liste est vide | tout hero du pool | `engine/ai/state_bridge.py` | **1 sous-système** — touche TOUTE unité qui attaquerait sans bouger ⇒ exige une passe d'agreement complète, pas un smoke |
+| **R5** | **`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` ROUGE** | **RE-REPRODUIT au commit `e972c99`** (2026-07-27, 1 failed / 2 passed) : `res={'moved': (6,5), 'kind':'ability', 'ability': 17, 'target': 79}`, `d_bfs 3->3`, `hp 8536->8536`, `atk(ranged=True, hits=3)` — trace **identique au caractère près** à celle du 2026-07-26. Deux anomalies dans la même trace : le move ne réduit pas la distance BFS, ET 3 coups infligent 0 dégât. `ability: 17` = le NormalAttack ABSTRAIT alors que l'attaque normale est un id CONCRET par unité (`NormalAttackType` @0x28) | pass IA générique + route d'attaque | admecDestroyer / Skitarii Vanguard — **SUMMON**, amené par son summoner du pool | `engine/ai/*` (pass générique), `engine/runner/abilities/base.py` | **1 sous-système** — pré-existant, pas une régression. Aucun marqueur `xfail`/`skip` : le test est nu |
+| **N6** | **`test_hailstrike_phase2_live` ROUGE — et plus large que documenté : 2 tests, pas 1** | **REPRODUIT au commit `e972c99`** (2 failed / 2 passed) : (a) `test_hailstrike_attack_trigger_live` — « le trigger 1507 n'a PAS fire offline (`after_hit=[]`) » ; (b) `test_hailstrike_pierce_envelope_live` — « dégât live **2700** hors des bornes du port AVEC le bonus **[1688, 2532]** ⇒ la magnitude du perçage portée est fausse ». Le second est un **symptôme de magnitude chiffré**, pas un simple test rouge | registre `ACTIVE_ABILITY_TRIGGERS` / gates du `CreateTrigger` (a) ; étage perçage (b) | darkaStormSpeeder (**MoW du pool**) / Hailstrike — cf. `case-117` | `engine/runner/abilities/darkangels.py`, `engine/runner/operations/triggers/*`, test associé | **1 ability** (diagnostic d'abord). Probe présente : `probe_123_hailstrike_phase2.py` |
+| **R4** | **Resolve slot-8 non matérialisé dans `execute_normal_like`** — `HitDamage.get_damage` court-circuite toujours à `min == max` (`damage_hits.py:49-50`) ; le seul resolve matérialisé (`damage_hits.py:269-270`) est enfermé dans la branche `post_roll is not None` (bounds-mode) | splash Psyker : le live consomme **1 `genrand_int32` de plus que le port par volet splash** — constant, mesuré sur pool=1 et pool=2, absent quand le splash ne fire pas. Avec `spread_pct=0` (tous les call-sites amount-mode, `combat.py:156-158`) → **0 tirage/coup côté port** là où le natif en consomme 1 | `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)` **sans gate largeur-1** | astraPrimarisPsy / tout Psyker du pool | `engine/runner/operations/damage_hits.py` (branche reduce-then-roll de `_run_hits`), `damage_ops.py::execute_normal_like` | **1 effet** — ⚠ conditionner à la FAMILLE de factory native, pas à la largeur des bornes (le porter inconditionnellement casse Stormcaller 3-hit bit-exact) |
+| **R6** | **`execute_normal_like` ET `additional_hits` restent TRONQUANTS** — `damage_ops.py:981-984` et `additional_hits.py:130-133` appellent `apply_all_modifiers(..., def_mods)` **sans** `round_materialize` (re-vérifié au commit courant) | la famille ATTACK d'`execute_ability_attack` a été basculée sur `Round(AwayFromZero)` **sur mesure** (14 casts / 2 régimes d'armure : live == arrondi 14/14, == troncature 12/14, les 2 écarts exactement sur les fractions ≥ .5). Les deux autres vecteurs n'ont **aucune** mesure | `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers` : `Fix64.Round(Mul(v, multiplier), AwayFromZero)` **inconditionnel** dès qu'un `Nullable<DamageModifiers>` HasValue | régime discriminant : les DEUX %-list vides **ET** la branche perçage du plancher gagne (armure haute + perçage élevé) | `engine/runner/operations/damage_ops.py`, `engine/runner/operations/additional_hits.py` | **1 effet par vecteur**, mais **chacun exige sa campagne de datapoints** |
+| **R7** | **`execute_normal_like` ne threade pas `target_traits`** — `damage_ops.py:948` passe bien `target_id=target_id` (fermé) mais **pas** `target_traits`, qui reste un paramètre distinct de `attacker_modifiers` (`damage_model.py:351-352`) | jumeau du prérequis levé pour `execute_ability_attack`, dont la mesure était **+443 = `extraDmg[50] × 160 %`** de `HeavyGravCannon` (gate `HasTrait(target, 5=Mechanical)`) | `IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack` — un SEUL collecteur natif, pas un par famille | aucun porteur de `BeastSlayer`/`MartialKatah`/`CondemnorStake`/`HeavyGravCannon` n'a d'attaque `normal_like` confrontée aujourd'hui | `engine/runner/operations/damage_ops.py` (+ idem `additional_hits`) | **1 effet** |
+| **R8** | **`--hp-target` remet `Armor`/`FixedArmor` à 0, et DEUX documentations le taisent** | mesuré : `adeptMorvenn` 2411 → 0, `necroWarden` 2008 → 0. Le code le fait EXPRÈS (`rl_duel.py:349-359`, « PV bas ET armure nulle → kill DÉTERMINISTE ») ; le résidu est documentaire, et il est sur **deux** supports : `runner.md:155` (« force `Health` ET `RemainingHealth` », zéro mention de l'armure) **et** l'aide argparse `rl_duel.py:1970` (même omission) | — (outillage) | — | `.claude/skills/tacticus/references/runner.md`, `scripts/python/rl_duel.py` (help) | **2 lignes de doc** — piège de mesure : tout test qui force les PV supprime SILENCIEUSEMENT l'étage armure, donc tout régime où la branche perçage du plancher mordrait |
 
 ### 4.b — Symptôme NOMMÉ (mécanique lue, pas encore chiffrée)
 
-| # | Résidu | Symbole natif | Porteur / conf. | Fichiers | Taille |
+| # | Résidu | Symbole natif | Porteur / chemin en bataille | Fichiers | Taille |
 |---|---|---|---|---|---|
-| R9 | **Magnitude de `Chronometron_ExtraDamage` (1550)** — effet POSÉ (visible `decisionView`) mais INERTE. Les 3 entrées manquent à `attacker_ctx` (`{id, is_normal_attack, faction}`) : équipe de l'attaquant vs équipe de la SOURCE de l'effet, trait `Mechanical` de l'attaquant, compteur `TimesEffectApplied` par instance | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (déjà confronté live, `case-92` §4) | `engine/runner/operations/damage_ops.py` (`attacker_ctx`), `engine/entities/effects/loki/*`, face prédiction | **1 sous-système** (élargissement d'`attacker_ctx` DEUX faces + compteur par instance) |
-| ~~R10~~ | ~~Retrait de `InspiredToGreatness_OverrideLevel` (1180)~~ — **FERMÉ pendant la rédaction, cf. §5.0 (`b6d174c`, #114 résidus Tau)** | — | — | — | — |
-| ~~R11~~ | ~~Phase 2 d'`EarlyWarningOverride` (effet 1145 inerte)~~ — **FERMÉ pendant la rédaction, cf. §5.0 (`b6d174c`)** | — | — | — | — |
-| R12 | **Les 2 derniers consommateurs de `DSLFactory.Revive`** : `FuelledByFury` (`ultraTitus`) et `GhostRevive`/`TimeFlux` (`thousTerminator`). Base REVIVE portée (`864a371`) ; reste 3 points nommés pour FuelledByFury (émetteur de `On(PendingDeathAdded=3)` non localisé, contexte `TriggeringAbilityIs(FinalJustice)` non threadé, pose de l'effet 1324) et pour GhostRevive un vecteur `On(PreUnitMove=31)` + un effet portant une TUILE + un revive **non in-place** | `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` (non porté, cf. `triggers/dispatch.py:836`) ; ancrage à hooker pour l'émetteur : `IdunBattle.MatchState$$AddDeath` ; `IdunBattle.Operations.…$$SetRevivePosition` | ultraTitus, thousTerminator — **HERO pool tous deux** | `engine/runner/operations/revive.py`, `operations/triggers/revive_effect.py`, `dispatch.py` | **2 abilities** (1 par consommateur) |
-| R13 | **`AdaptiveStrategy` (1005, `necroWarden`)** — ⚠ **un prérequis sur trois est TOMBÉ** : le sous-système OVERRIDE-ATTAQUE existe désormais (`AddStatOverrideEffect`, `abilities/behaviours/stats.py:281`, 1ᵉʳ user #112/#114). Restent (1) `RelentlessMarch` 1004 (sans lui la branche `If(ActorHasTriggeredAbility) TriggerAbility(…)` est un no-op structurel) et (2) les nœuds `TriggerAbility` + `ActorHasTriggeredAbility` | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` ; `…Loki.RelentlessMarchAbility$$CreateBehaviour` | necroWarden — **HERO pool** | `engine/runner/abilities/necrons.py`, `handler.py`, `entities/behaviours.py` | **1 ability + 1 passif** |
-| R14 | **Face DÉCISION des MoW** — `state_bridge._plans_for_unit` ne feede pas l'attaque d'une MoW à `_best_attack` (`origin=None`) ; `engine_decide(…, cid)` n'a aucune entrée pour un `casterId` de MoW (`_dv_units` les exclut). ⇒ AUCUNE ability de MoW n'est proposable, y compris celles dont la feuille NC est portée et validée live (1187 `ThriceBlessedConflagration`) | chemin natif dédié `aiPlaybookPredict` caster Machine (`case-172`) — ne PAS faire passer une entité sans position pour une unité | 8 MoW du pool | `engine/ai/state_bridge.py` (`_dv_units`, `_plans_for_unit`), `engine_validate.engine_decide`, `engine/playbook/scene.py` | **1 sous-système** — oracle utilisable : `aiStepDryRun` après `finish` des alliés (`aiDryRunAllUnits` n'itère que `EntityType.Unit`) |
-| R15 | **`CalculateCustomUtility` — overlays non portés** : le compte réel est **16**, pas 20 (`playbook.REGISTRY` = 7, dont 6 overlays loki + `Repair`). Les 4 portés depuis `case-27` sont 1020 / 1029 / 1100 / 1199 — ce qui a créé 4 nouveaux `[-D]` (décision portée, combat NO-OP) | par overlay, cf. `case-27` (VA + formule mirroir par ligne) | mixte ; ⚠ le blocage « porteur MoW hors-plateau » est **levé côté COMBAT** (`a9714a4`) et « porteur hors pool » **levé** (`ab98129`) — reste le blocage DÉCISION = R14 | `engine/playbook/loki_custom.py`, `engine/playbook/__init__.py` | **1 sous-système par débloqueur**, puis 1 overlay/ability |
-| R16 | **Stat-mods EAGER présents AU SEED : appliqués mais non revertables** — famille `ActOfFaith_Effect` (1017), `ProtectorImperative`/`ConquerorImperative` (1247/1248). Leur magnitude se calcule depuis le `StatsComponent.ctx` du porteur, or l'attribution du seed précède la création du `UnitStats` (`UnitContext.from_snapshot` : `attributed` avant `seed_unit_stats`) et ActOfFaith lit `StatPart.INITIAL` du crit-damage → **dépendance circulaire à démêler** | `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` (le volet des effets posés EN JEU est porté : `operations/effects.py::revert_stat_mods_of_removed_effects`) | adeptCanoness / adeptRetributor (ActOfFaith), admec* (Doctrina) — **pool** | `engine/runner/snapshot.py`, `engine/runner/operations/effects.py`, `engine/entities/stats.py` | **1 sous-système** — le débloqueur *alternatif* (exposer `StatModificationComponent`) exige rebuild+reinject : **hors périmètre**, mais le chemin offline ne l'exige pas |
-| R17 | **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** — natif = argmax d'utilité du picker ; port = ordre du sélecteur. Live observé : les 2 gardes de SupremeCommander agissent dans l'ORDRE INVERSE de leur spawn. Manque la sémantique des 8 ids de `UtilityBucket` (aucun dump d'enum) + le scoreur par-unité derrière le slot 1 | `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`, picker `operator+0x30`) ; `…DefaultGroupOperator$$.ctor` = 8 `IdunBattleLogic.AI.Utilities.UtilityBucket` (ids 0x4a/0x44/0x45/0x4c/0x4b/0x49/0x47/0x48) | astraCreed, orksWarboss — **pool** | `engine/runner/abilities/behaviours/summon.py`, `engine/ai/*` | **1 sous-système** — sans incidence tant que les unités du groupe sont interchangeables |
-| ~~R18~~ | ~~Bouclier × limites sur la voie ability~~ — **FERMÉ pendant la rédaction, cf. §5 (`21494b6`, #67b)**. Il a engendré N1-N3 | — | — | — | — |
-| N1 | **Ciblage d'`ArcaneShield` sur un allié NON-Chaos** : écart port/natif nommé par `21494b6` (`case-67` §6.5) | à relire dans `IdunBattleLogic.Entities.Abilities.…ArcaneShieldAbility` | thousSorcerer — **HERO pool** | `engine/runner/abilities/` (ThousandSons) | **1 effet** |
-| N2 | **Famille ATTACK en bounds-mode : cap SCALAIRE vs cap sur les CELLULES** (`case-67` §6.5) — les deux familles ont des ordres opposés ; le fix #67b est gaté sur `is_attack_damage_op`, la face ATTACK bounds-mode n'a pas été confrontée | `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` vs `…$$CalculateDamageOperation` (`Math.Max(0, dmg - shieldPart)`) | pool | `engine/runner/operations/damage.py`, `damage_ops.py` | **1 effet** |
-| N3 | **Ordre réduction × bouclier sur `execute_normal_like`** — indiscernable à `spread_pct = 0`, donc jamais mesuré (`case-67` §6.5) | idem N2 | pool | `engine/runner/operations/damage_ops.py` | **1 effet** — exige un montage à `spread_pct != 0` |
-| N5 | **Chaîne `&` derrière un `AddEffect` REFUSÉ** : confond non éliminé par #224 — quand la pose est abandonnée par le gate d'immunité, la suite de l'`op_and` est-elle exécutée ? (`case-224-effect-immunity-gate` §5) | `IdunBattle.Operations.AddEffectOperation$$Execute` (abandon avant matérialisation) | darkaAsmodai / blackAbaddon — **pool** (le montage #224 existe déjà) | `engine/runner/operations/effects.py`, `engine/entities/behaviours.py` | **1 effet** |
-| N6 | **`test_hailstrike_phase2_live` rouge** — échec PRÉ-EXISTANT, vérifié par stash et signalé **indépendamment par deux commits** (`7c412b8` et `ad5692e`) ⇒ ce n'est pas un artefact de branche. Jumeau de R5 : un test de garde rouge que personne ne possède | — | darkaStormSpeeder (MoW) / Hailstrike — cf. `case-117` | `engine/runner/abilities/darkangels.py`, test associé | **1 ability** (diagnostic d'abord) |
-| R19 | **Nature du coup, résidus** : (a) le mode `AttackRangeType.Both` (3) n'est pas modélisé — le port DÉCLARE la nature (`is_melee` du behaviour) là où le natif la CALCULE ; (b) famille ABILITY — la mesure #45f dit que le natif reçoit des modifiers ATTAQUANT **vides**, le port ne les vide pas (il se contente de rendre les gates inertes) ⇒ les bonus SANS gate de nature (`DecoysAndMisdirection`, `RapidAssault`) y passent encore | `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` = `AreUnitsInMelee(attPos, tgtPos)` pour ce mode ; `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` | pool | `engine/runner/operations/damage_ops.py`, `engine/services/damage_modifiers.py` | **1 effet** chacun |
-| R20 | **`SpawnReplica` ré-implémente `PerformAIAttack` à la main** — ScarabSummon 1047 on-appearance : `_nearest_enemy` + `AttackDamageOperation.execute` recodés, **sans gate de portée ni dispatch after-hit**, alors que le corps unique existe (`abilities/loki/summon.py::perform_ai_attack_from_current_position`, de-forké le 2026-07-26) | `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` — MÊME `PerformAIAbilityUnitBehaviour` que `…FromCurrentPosition` à un champ près : `+0x78` (budget de déplacement) fourni par l'appelant au lieu de `factory+0xb8 = Direct(0)` | necroSpyder (ScarabSummon) — **HERO pool** | `engine/runner/abilities/behaviours/summon.py`, `abilities/loki/summon.py` | **1 effet** (rabattre sur le corps unique ; l'amount reste inerte tant qu'aucun étage ne fait bouger un summon avant son attaque) |
-| R21 | **`UnitFlag.ArrivedAtFinalTile` (1) non posé par `MoveUnitOperation`** — `movement.py:98` n'appelle que `set_moved_flag` ; le flag n'est posé que par `FinishUnitTurnOperation` (`operations/turnflow.py:67-68`) | le natif l'ajoute juste après `SetMovedFlag`, gaté par l'option `MoveUnitOptions` @+0x0 | pool | `engine/runner/operations/movement.py` | **1 effet** — aucun consommateur porté n'en dépend aujourd'hui ; à câbler avec le reste des `MoveUnitOptions` |
-| ~~R22~~ | ~~Migration du DoT de tuile `EnvFireTile` vers la route `AbilityDamageOperation`~~ — **FERMÉ pendant la rédaction, cf. §5 (`ad5692e`)**. ⚠ ce résidu était classé « latent / numériquement équivalent » : **il était FAUX** — tick natif 25000 vs port 100000 sur `darkaTerminator`, et `astraYarrick` (Resilient) SURVIT à 1 PV côté natif alors que le port le TUAIT. Leçon : « latent » sans mesure ne veut rien dire | — | — | — | — |
-| N4 | **Le STADE natif du refus `TerminatorArmour` / `Pinned` n'est pas identifié** (`case-224-effect-immunity-gate` §5) : `PinnedEffect` n'override PAS `EntityIsImmuneToEffect`, et la base ne teste que le trait `Immune`, qu'aucune unité ne porte — le port #224 a fait un **collapse assumé**. Le comportement est live-correct sur 4 porteurs, mais le chemin natif exact reste inconnu | `IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` ; `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition = Not(HasTrait(0x40f))` | blackAbaddon / deathTyphus / blackObliterator — **pool** | `engine/entities/effects/*` | **1 effet** — ⚠ **candidat `fable`** (collapse assumé, le décompilé ne rend pas le stade) |
-| R23 | **`audit_kit_coverage.py` sous-compte la face DÉCISION** (cf. §2) : `collect()` ne lit que 2 des 3 registres → `[-D]` affiché 14 au lieu de 20, et des `[--]` faux (1191 MartialInspiration) | — (outillage) | — | `scripts/python/audit_kit_coverage.py` | **1 effet** (~3 lignes) — rend l'audit fiable pour toutes les vagues suivantes |
-| R24 | **`tests/conftest.py` écrit ses state-files dans `data/`** (`STATE_PREFIX = ROOT/"data"/"_pytest_duel_state"`, `conftest.py:52-53`) alors que `data/` est VERSIONNÉ depuis le 2026-07-26 (`data/` = ce qu'on LIT, `logs/` = ce qu'on ÉCRIT). Unlinkés au teardown, donc invisibles la plupart du temps — une passe interrompue les laisse dans `git status` | — (outillage) | — | `scripts/python/tests/conftest.py` | **1 ligne** — contournement en attendant : `TACTICUS_PYTEST_STATE_PREFIX=<worktree>/logs/runners/...` |
-| R25 | **3 constantes de gameplay encore FIGÉES dans les tests** (#96, lots A-D livrés) : `test_damage_crushingclaws_live.py:178` `main["hits"] == 2` (= `nrOfHits` de CrushingClaws) ; `test_fragstorm_migration_live.py` cap `nrOfTargets` (= `GetNumberConstant(cfg, 0x11)`) écrit en dur ; `test_jakhal_stimms_live.py:288` `exp_loss = round(hp0 * 25 / 100)` (`hpPct` en dur) | oracle = la CONFIG (`gameconfig.ability(id).constants`) — les 3 sont des valeurs BRUTES passées telles quelles aux nœuds DSL | — | `scripts/python/tests/engine/runner/` (3 fichiers), oracles centralisés dans `tests/engine/runner/_config_oracle.py` | **1 effet** (lot de 3 fichiers) |
-| R26 | **Rider OVERKILL de `ThrillSeekers`** (face PRÉDICTION) : le port passe `allow_flag=0` en dur (`services/trait_damage_limits.py::compute_prediction_overkill`) | `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` force son `allow_flag` à 1 quand l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET (`default_flag` OU le flag de crit) | emper* — **pool** | `engine/services/trait_damage_limits.py`, face prédiction | **1 effet** — biais UNILATÉRAL (le port sous-estime l'overkill des porteurs *Thrilled* qui critent, donc `OverkillUnitUtility`) |
-| R27 | **Seuil `should_evaluate` de BlackRage** : `playbook/noncomparable/black_rage.py:77` gate à `hp <= hpmax * 0.5` fixe, alors que la RE combat montre un `hpPct` **par niveau** (30 → 50 %) — correct seulement au niveau max | `IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$…` | bloodDeathCompany — **HERO pool** | `engine/playbook/noncomparable/black_rage.py` | **1 effet** — n'affecte pas la garde actuelle (Lucien caste à hp=1) |
-| R28 | **`PickRandomly` — ordre d'énumération du pool quand `len(pool) > amount`** : la LOI de consommation est close et bit-exacte (`_pick_randomly_n`, `abilities/loki/splash.py:396-403`, mirror 1:1) ; reste que le natif tire dans l'ordre du sélecteur source (ECS, non trié) et le port id-trie → **QUI** est piqué peut différer (Fragstorm, PlasmaCannon >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine). Sous-résidus frères : `Fragstorm` tire des **HEXES** pas des occupants (le cardinal du pool diffère) ; `AddForcedTargetsAndUpdateCandidates` non porté (`ignoreForcedTargets` @+0x38 FAUX partout → le natif pré-remplit le résultat avec `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(caster)`, ce qui RÉDUIT le nombre de tirages) ; ~~les 4 sites `First(…)` de placement~~ — **FERMÉ pendant la rédaction par `fc23f1e` (case-130 SS5)** : les 4 nœuds sont portés (`SortByDistance`, `SortTilesByUtilityForSummon`, `Randomize`+`SortByFormula`, `First`), le tirage parasite retiré, l'ordre SOURCE natif (`boardGraph.neighbours`) branché | `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` | pool | `engine/runner/abilities/loki/splash.py`, sélecteurs (⚠ `operations/spawn.py` vient d'être réécrit par `fc23f1e`) | **1 sous-système** réduit à 3 sous-items (porter l'ordre du sélecteur source + le sélecteur en tuiles + les forced-targets) |
-| R29 | **`case-61` — canal de coups des abilities, résidus** : (b) `On(PreAttack=5)` absent du vecteur ability (**fidèle** : le natif l'émet depuis `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteNormalAttack`) ⇒ sur ce vecteur `LetTheGalaxyBurn` ne s'arme que par `TargetHasTileEffect` ; (c) per-coup non bit-exact contre `templChampion` (même nb de coups, dégât différent — effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est bit-exact) ; (d) flag `Moved` absent de la face PRÉDICTION (×1,25 uniforme `HeavyWeapon_ExtraDmg` sur tout caster ranged déjà déplacé — débloqueur = exposer `UnitFlagsComponent`, **rebuild requis**) | — | pool | face prédiction | **1 effet** chacun — à promouvoir si un miss d'agreement les fait surface |
-| R30 | **Substrat MULTI-HEX** (une unité occupant N tuiles) — MESURÉ : `DutyEternal` (1158) spawn `ultraSmnDreadnought` sur **3 hexes** (1 squad, 3 `UnitFoot`) ; le moteur offline modélise 1 `PositionComponent` par unité | `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour` (`RemoveMachine` + `Spawn(ThreeTileUnitSpawnShape)`) | ultraDreadnought (MoW pool) ; probablement aussi `AetherStride` | `engine/runner/components.py`, `state.py`, pathfinding, ciblage | **1 sous-système** (N pieds par squad : occupation / adjacence / ciblage / blocage pathfinding) — **le plus gros de la liste** |
+| **R9** | **Magnitude de `Chronometron_ExtraDamage` (1550)** — effet POSÉ (visible `decisionView`) mais INERTE : `damage_model.py:440` construit `att_ctx = {"id", "is_normal_attack"}` (+ `faction` l.450) et **aucune** des 3 entrées requises (équipe attaquant vs `EffectSource`, trait `Mechanical`, compteur `TimesEffectApplied`). 1550 n'existe qu'en enum (`effect_type.py:684`) — **zéro classe d'effet**. Auto-documenté par le port : `necrons.py:399-405` | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (déjà confronté live, `case-92` §4) | `engine/runner/damage_model.py`, `engine/playbook/prediction/_shared.py`, `engine/entities/effects/{__init__,base,factory}.py`, nouveau module loki pour 1550 | **1 sous-système** (élargissement d'`attacker_ctx` sur les DEUX faces + compteur par instance) |
+| **R12** | **Les 2 derniers consommateurs de `DSLFactory.Revive`, tous deux OUVERTS** — ⚠ `137ef85` (« TimeFlux (regen) ») ne ferme PAS ce résidu : le port lui-même le dit, `dispatch.py:280-286` enregistre `"TimeFlux": [TimeFluxRegenAbility]` avec « le volet GHOST-REVIVE (`TimeFluxReviveAbility` = `GhostReviveAbility` 1186) reste un RESIDU ». `git log -S "GhostRevive"` = **aucun commit**. `FuelledByFury` (1251) : aucune classe, mention en commentaire seule (`dispatch.py:1115`) | `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` ; ancrage à hooker pour l'émetteur de `On(PendingDeathAdded=3)` : `IdunBattle.MatchState$$AddDeath` ; `IdunBattle.Operations.…$$SetRevivePosition` | ultraTitus, thousTerminator — **HERO pool tous deux** | `engine/runner/operations/triggers/loki/time_flux.py` (+ nouveau `fuelled_by_fury.py`), `triggers/dispatch.py`, `operations/revive.py`, `entities/effects/factory.py` | **2 abilities** (1 par consommateur) |
+| **R13** | **`AdaptiveStrategy` (1005, `necroWarden`)** — 1005 en enum seul (`active_ability_type.py:111`), absent d'`ABILITY_CLASSES`. Restent 2 prérequis sur 3 : (1) `RelentlessMarch` 1004 en enum seul (`triggered_ability_type.py:149`), aucune entrée `ABILITY_TRIGGERS`/`TRAIT_TRIGGERS` — sans lui la branche `If(ActorHasTriggeredAbility) TriggerAbility(…)` est un no-op structurel ; (2) les nœuds `TriggerAbility` et `ActorHasTriggeredAbility` **n'existent pas** (0 définition dans `engine/`, inlinés en impératif par `cosmic_horror.py:310` / `sworn_protector.py:266`). Prérequis (3) OVERRIDE-ATTAQUE **CONFIRMÉ LEVÉ** (`stats.py:281`) | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` ; `…Loki.RelentlessMarchAbility$$CreateBehaviour` | necroWarden — **HERO pool** | `engine/runner/abilities/behaviours/lifecycle.py` (nœud `TriggerAbility`), `engine/entities/triggers.py`, `triggers/dispatch.py` + module RelentlessMarch, `abilities/necrons.py` + `handler.py` | **1 ability + 1 passif** |
+| **R14** | **Face DÉCISION des MoW** — `state_bridge.py:423` : `if uc is None or is_machine_of_war(e): continue` dans `_dv_units` (idem `_obs_units` l.447). `snapshot.py:239-240` : une MoW n'a « PAS de PositionComponent (hors-plateau) » → `origin = None` → `_plans_for_unit` rend `evals=[]`, rien n'atteint `_best_attack`. `engine_validate.py:45-59` construit le ctx depuis `dv.units`, qui ne contient jamais de machine. ⇒ AUCUNE ability de MoW n'est proposable, **y compris** 1187 `ThriceBlessedConflagration` dont la feuille NC EST portée et enregistrée (`noncomparable/thrice_blessed_conflagration.py:144`) | chemin natif dédié `aiPlaybookPredict` caster Machine (`case-172`) — ne PAS faire passer une entité sans position pour une unité | 8 MoW du pool | `engine/ai/state_bridge.py`, `engine/runner/snapshot.py::_load_machines`, `engine/ai/context.py`, `engine_validate.py` | **1 sous-système** — oracle utilisable : `aiStepDryRun` après `finish` des alliés (`aiDryRunAllUnits` n'itère que `EntityType.Unit`) |
+| **R15** | **`CalculateCustomUtility` — overlays non portés : le compte réel est 15, pas 16 ni 21.** `REGISTRY` = **7** entrées : 6 posées par `loki_custom.py:283-286` (1014, 1177, 1020, 1029, 1199, **1100**) + `RepairPlaybook` (id 28) posée par `common.py:92` ; plus 1119 `Repair_GalvanicField` porté **hors** `loki_custom`. Sur les 22 overlays par-ability de `case-27`, **7 portés ⇒ 15 non portés**. ⚠ **`case-27-custom-utility.md:139` induit en erreur** : il classe 1100 `SorcerousFacade` « RE RESOLU, **non porté** (routage) », alors que `SorcerousFacadePlaybook` EST défini ET enregistré (`loki_custom.py:243-286`). Ce qui manque n'est pas l'overlay — c'est la **route de ciblage ALLIÉ** (le moteur route 1100 comme attaque d'ENNEMI à cause du `damageProfile`, quand le natif cible un allié Psyker). La ligne doit être re-libellée, sinon elle fait re-porter du code existant | par overlay, cf. `case-27` (formule mirroir par ligne) | mixte ; **4 des 15 sont npc** (1093, 1215, 1216, 1217) et 2 sont des verdicts fermés (1004 terme nul, `ProperKilly` dead-code sans id) ⇒ **9 réellement à débloquer** ; le blocage restant est la face DÉCISION MoW = **R14** | `engine/playbook/loki_custom.py`, `engine/ai/state_bridge.py`, + correction de `docs/rl/case-27-custom-utility.md` (l.139 et ventilation l.157-160) | **1 sous-système par débloqueur**, puis 1 overlay/ability |
+| **R16** | **Stat-mods EAGER présents AU SEED : appliqués mais non revertables.** Ordre : `unit_context.py:166-169` calcule `attributed` **avant** `seed_unit_stats` (l.185), et le `StatsComponent(ctx=ctx)` n'est posé qu'après retour (`snapshot.py:339`) — or la magnitude EAGER se lit sur ce ctx (`imperative.py:57-66`, `status.py:312`). Couverture du revert : `stat_modifications_by_source` (`effects/__init__.py:549-566`) ne lit QUE `get_stat_modification_stat/amount`, jamais `applied_stat_mods` ; et `effect_stat_mod_key` rend `None` pour un effet SEEDÉ ⇒ `revert_stat_mods_of_removed_effects` (`operations/effects.py:402-404`) **saute** la famille EAGER | `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification` (le volet des effets posés EN JEU est porté) | adeptCanoness / adeptRetributor (`ActOfFaith_Effect` 1017), admec* (`ProtectorImperative`/`ConquerorImperative` 1247/1248) — **pool** | `engine/entities/unit_context.py`, `engine/runner/snapshot.py`, `engine/entities/effects/__init__.py`, `engine/runner/operations/effects.py` | **1 sous-système** — le débloqueur *alternatif* (exposer `StatModificationComponent`) exige rebuild+reinject : **hors périmètre RE** |
+| **R17** | **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** — `summon_ai.py:225` : `uid = valid[0]   # PickNextUnit (utilite natif -> ordre selecteur)`, résidu écrit l.211-214 ; `collect_ai_controlled` l.57 rend `sorted(out)` = ordre d'id. Live observé : les 2 gardes de SupremeCommander agissent dans l'ORDRE INVERSE de leur spawn. Manque la sémantique des 8 ids de `UtilityBucket` (aucun dump d'enum) + le scoreur par-unité derrière le slot 1 | `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`, picker `operator+0x30`) ; `…DefaultGroupOperator$$.ctor` = 8 `IdunBattleLogic.AI.Utilities.UtilityBucket` (ids 0x4a/0x44/0x45/0x4c/0x4b/0x49/0x47/0x48) | astraCreed, orksWarboss — **pool** | `engine/runner/operations/summon_ai.py`, `engine/ai/bucket.py` | **1 sous-système** — sans incidence tant que les unités du groupe sont interchangeables |
+| **R19a** | **Mode `AttackRangeType.Both` (3) non modélisé** — `damage_ops.py:37-71` : `hits_channel_is_melee(...)` fait `return is_melee` (l.71) ; la table de vérité native est en commentaire (l.49-53) mais la valeur 3 n'est jamais calculée, l.62-65 le disent (« Le port ne modelise pas `Normal`(3) »). Le port DÉCLARE la nature là où le natif la CALCULE. `services/battle_query.py:26` porte bien `AreUnitsInMelee` mais n'est consommé que par la sélection d'arme (l.85) | `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` = `AreUnitsInMelee(attPos, tgtPos)` pour ce mode | pool | `engine/runner/operations/damage_ops.py`, `engine/services/battle_query.py`, `engine/runner/abilities/behaviours/combat.py` | **1 effet** |
+| **R20** | **`SpawnReplica` ré-implémente `PerformAIAttack` à la main** — `behaviours/summon.py:270-277` fait encore `_nearest_enemy` + `AttackDamageOperation.execute`, **sans gate de portée ni dispatch after-hit**, alors que le corps unique est appelé juste au-dessus (`summon.py:162` → `perform_ai_attack_from_current_position`, de-forké par `7f47c29`). Docstring l.241-242 assume encore l'approximation | `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` — MÊME `PerformAIAbilityUnitBehaviour` que `…FromCurrentPosition` à un champ près : `+0x78` (budget de déplacement) fourni par l'appelant au lieu de `factory+0xb8 = Direct(0)` | necroSpyder (ScarabSummon 1047) — **HERO pool** | `engine/runner/abilities/behaviours/summon.py` | **1 effet** (rabattre sur le corps unique ; l'amount reste inerte tant qu'aucun étage ne fait bouger un summon avant son attaque) |
+| **R24** | **`tests/conftest.py` écrit ses state-files dans `data/`** — `conftest.py:52-53` : `STATE_PREFIX = … ROOT/"data"/"_pytest_duel_state"` ; produits `data/_pytest_duel_state-<pid>-<n>.json`. Vérifié : `git check-ignore` rc=1 (**non ignoré**), et `.gitignore:3` dit explicitement « `data/` A LA RACINE EST VERSIONNE ». Un override existe (`TACTICUS_PYTEST_STATE_PREFIX`) mais le DÉFAUT reste `data/`. Unlinkés au teardown ⇒ invisibles la plupart du temps ; une passe interrompue les laisse dans `git status` | — (outillage) | — | `scripts/python/tests/conftest.py` | **1 ligne** |
+| **R25** | **3 constantes de gameplay FIGÉES dans les tests** — (a) `test_damage_crushingclaws_live.py:178` `assert len(off_ph) == main["hits"] == 2` — le fichier n'importe NI `_config_oracle` NI `gameconfig`, le `2` est un littéral ; (b) `test_fragstorm_migration_live.py:167-169` cap `nrOfTargets` en dur (résidu **assumé** en en-tête l.25) ; (c) `test_jakhal_stimms_live.py:288` `exp_loss = round(hp0 * 25 / 100)` (résidu **assumé** l.27). Le module `_config_oracle.py` EXISTE mais **n'expose aucun accesseur générique** `ability(id).constants[<clé>]` — les 3 tests utilisent des helpers `_cfg_hits` locaux | oracle = la CONFIG (`gameconfig.ability(id).constants`) | — | `scripts/python/tests/engine/runner/` (3 fichiers) + `_config_oracle.py` (accesseur générique à ajouter) | **1 effet** (lot de 3 fichiers + 1 accesseur) |
+| **R26** | **Rider OVERKILL de `ThrillSeekers`** (face PRÉDICTION) — `services/trait_damage_limits.py:243-245` : `is_overkill(..., allow_flag=0, ...)` en dur ; la signature `compute_prediction_overkill(cur_hp, max_hp, dmg_min, *, suppress=False, p12=0)` (l.230-231) n'a **aucun** paramètre trait/effet, et les 3 appelants ne passent rien. Non-porté explicite : `triggers/loki/thrill_seekers.py:90` | `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` force son `allow_flag` à 1 quand l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET (`default_flag` OU le flag de crit) | emper* — **pool** | `engine/services/trait_damage_limits.py`, `engine/runner/operations/damage_hits.py`, `engine/services/damage_prediction.py` | **1 effet** — biais UNILATÉRAL (le port sous-estime l'overkill des porteurs *Thrilled* qui critent, donc `OverkillUnitUtility`) |
+| **R27** | **Seuil `should_evaluate` de BlackRage** — `playbook/noncomparable/black_rage.py:77` : `return hp <= hpmax * 0.5`, littéral en dur (commentaire l.76 « ConfigVar 0x26 = 50% … Lucien-only »), aucune lecture indexée par niveau, alors que la RE combat montre un `hpPct` **par niveau** (30 → 50 %) — correct seulement au niveau max | `IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$…` | bloodDeathCompany — **HERO pool** | `engine/playbook/noncomparable/black_rage.py`, `engine/entities/effects/magnitude.py` | **1 effet** — n'affecte pas la garde actuelle (Lucien caste à hp=1) |
+| **R28** | **`PickRandomly` — 3 sous-items, TOUS OUVERTS** (le 4ᵉ, tri des placements, fermé par `fc23f1e`) : (1) **ordre d'énumération du pool** — le pool est id-trié AVANT le pick (`behaviours/combat.py:135-136` `sorted(..., key=id)`, même motif `necrons.py:190`, `astramilitarum.py:245`, `darkangels.py:672`) et `_pick_randomly_n` consomme l'ordre reçu tel quel : aucun mirror de l'ordre ECS source ; (2) **Fragstorm tire des OCCUPANTS pas des HEXES** — `loki/splash.py:236` `Alive(Sub(AdjacentUnits(TargetTile()), AdjacentFriends(TargetTile())))`, résidu auto-documenté l.227-231 ; (3) **`AddForcedTargetsAndUpdateCandidates` non porté** — la boucle `splash.py:373-380` commente `i = result.Count  # 0 hors forced-targets` et démarre `out = []` ; `abilities/targeting.py:79` liste `GetOnlyTargets` comme « NON (forced-targets) » | `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` ; `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets` | pool (Fragstorm, PlasmaCannon >2 derrière, BringerOfDespair >1 adjacent, Harbinger, Supercharge, SquigMine) | `engine/runner/abilities/loki/splash.py`, `engine/runner/abilities/behaviours/combat.py` + les call-sites qui id-trient | **1 sous-système** réduit à 3 sous-items |
+| **R30** | **Substrat MULTI-HEX** (une unité occupant N tuiles) — `components.py:178-185` : `PositionComponent.__slots__ = ("col","row")`, une seule tuile ; **aucune** classe `UnitFootComponent`, aucune liste de pieds dans `state.py`. Corollaire mesuré dans le code : `ai/utilities.py:35` « … (chevauchement small-unit seul). Retour 0.0 jusqu'au cablage du poids + feetCount ». `DutyEternal` 1158 = enum seul, absent d'`ABILITY_CLASSES` | `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour` (`RemoveMachine` + `Spawn(ThreeTileUnitSpawnShape)`) | ultraDreadnought (**MoW du pool**) ; probablement aussi `AetherStride` (thousDaemonPrince, catalog_inject) | `engine/runner/components.py`, `state.py`, `snapshot.py`, `utilities/tile.py`, pathfinding/occupance, `engine/ai/utilities.py` | **1 sous-système** — **le plus gros de la liste** |
+| **N1** | **Ciblage d'`ArcaneShield` sur un allié NON-Chaos** — `triggers/loki/arcane_shield.py:62` : `prio = 0 if (own_fac == own_fac) else (1 if fac in CHAOS_FACTIONS else 2)` ; le palier `2` retient un allié NON-Chaos alors que le montage de `21494b6` établit l'inverse. `git log 21494b6..HEAD -- arcane_shield.py` = **vide** (le fichier n'a pas bougé depuis que le résidu a été nommé). Le vecteur reste aussi approximé sur `On(4)` au lieu de `On(0x1c)` (l.115-118) | à relire dans `IdunBattleLogic.Entities.Abilities.…ArcaneShieldAbility` | thousSorcerer — **HERO pool** | `engine/runner/operations/triggers/loki/arcane_shield.py` | **1 effet** |
+| **N2** | **Famille ATTACK en bounds-mode : cap SCALAIRE là où le natif cape les CELLULES** — `damage_ops.py:796-797` : `execute_ability_attack` passe `_target_limits(..., is_special=2)` **inconditionnellement**, y compris à `is_attack_damage_op=True`. En bounds-mode la branche ATTACK de `_run_hits` (`damage_hits.py:240-249`) applique `roll = _limits_scalar(roll)` = cap SCALAIRE post-tirage ; le cap sur les CELLULES pré-tirage n'existe que sous `limits["is_special"] == 1` (`damage_hits.py:303-316`), atteint uniquement par `execute` et `additional_hits.py:146` | `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` vs `…$$CalculateDamageOperation` (`Math.Max(0, dmg − shieldPart)`) | pool | `engine/runner/operations/damage_ops.py`, `engine/runner/operations/damage_hits.py` | **1 effet** |
+| **N5** | **Chaîne `&` derrière un `AddEffect` REFUSÉ : la chaîne se POURSUIT** — `behaviours/effects.py:225-232` : la feuille `AddEffect` émet `placed=(eff is not None)` puis `return OperationResult.ok()` **sans condition**, aucun `stop` ; le combinateur `Seq` (`entities/behaviours.py:30-34`) ne court-circuite que `if r.stop`. Or le gate d'immunité (`operations/effects.py:137-138`) rend `None`, et son propre commentaire (l.133-135) énonce le comportement natif attendu : « pour un vecteur qui chaine (`op_add`/`&`), la suite de la chaine tombe avec (GROUND TRUTH #224 : la branche Chaos entière d'`ExemplarOfHate` est absente sur une cible `TerminatorArmour`) ». **Le port n'implémente pas cette chute** | `IdunBattle.Operations.AddEffectOperation$$Execute` (abandon avant matérialisation) | darkaAsmodai / blackAbaddon — **pool** (le montage #224 existe déjà) | `engine/runner/abilities/behaviours/effects.py`, `engine/runner/operations/effects.py`, `engine/entities/behaviours.py` | **1 effet** |
 
-### 4.c — Reste en VEILLE (à promouvoir seulement sur miss d'agreement)
+### 4.c — Résidus d'OUTILLAGE et de HARNAIS (confrontés pour la première fois)
+
+| # | Résidu | Constat au code | Fichiers | Taille |
+|---|---|---|---|---|
+| **O1** | **Aucune garde AUTOMATISÉE de synchro build ↔ `data/symbols/<HASH>` ↔ binaire chargé dans ghidra-mcp** | La procédure est **purement humaine** (`tacticus-orchestration/SKILL.md:303-319`, `CLAUDE.md:41-51` : 3 étapes manuelles). `ghidra_symbols.py:137-140` (`cmd_build`) ne fait qu'**imprimer** `loaded_build(g)`, aucune comparaison. Rien côté `frida/host` (`admin.ts:54-68` résout le PID sans confronter le hash). Le seul hook de session (`scripts/hooks/session-start.ps1`) ne vérifie aucun hash. ⚠ **Ce qui EST automatisé, mais sur un AUTRE axe** : `il2cpp_provenance.py::assert_matches` (l.109-122, message « DESYNCHRONISATION ») est **fail-closed** et consommé par `preprocess_il2cpp_dump.py:31,48-54` et `GhidraApplyIl2CppSymbols.java:94-136` — mais il cible `data/il2cpp_*.tsv`, **pas** `data/symbols/<HASH>/`, et rien ne l'appelle automatiquement | `scripts/python/ghidra_symbols.py`, `scripts/python/il2cpp_provenance.py`, `scripts/hooks/session-start.ps1` | **1 effet** — étendre `assert_matches` à `data/symbols/<HASH>` et l'accrocher au `SessionStart` |
+| **O2** | **Pas de drain à la demande des ai-traces** | `frida/hooks/features/ai-trace/state.ts:127-132` : `emit()` fait un `send({t:"ai_trace", …})` immédiat, **aucun buffer** côté agent. `frida/host/ai-trace-store.ts:62-84` écrit ligne à ligne dans `frida/data/ai-traces/<sessionId>-<iso>.jsonl` (docstring l.18 : « no in-memory aggregation, just write-through »). Routes existantes (`router.ts:788-834`) : `status` / `enable` / `disable` — **aucune route `drain`/`flush`/`consume`/`clear`**, aucun RPC de drain côté hooks. Les 8 consommateurs Python lisent le RÉPERTOIRE. **Finding annexe : `aiTraceStoreStatus` (l.100-114) n'est référencé par AUCUNE route ni aucun module — code mort** | `frida/host/ai-trace-store.ts`, `frida/host/router.ts`, `frida/hooks/features/ai-trace*` | **1 sous-système côté hooks** — ⚠ **exige rebuild + reinject**, donc à programmer quand l'atelier est vide |
+| **O3** | **Effets de TUILE : le seed est fidèle, l'ÉVOLUTION ne l'est pas** — `effects_state.py:84` : `on_turn_end(self, unit_id, attacked)` opère sur `self.by_unit` ⇒ les timers des effets portés par les TUILES ne sont **jamais** décrémentés. Une sim multi-tours offline ne fait pas expirer un feu de tuile. Le même trou couvre les **transitions** (gagner/perdre un effet en entrant/sortant d'une tuile, ramasser un power-up, FirstAid, fire-spread), et le gate `AreEqual(coverPatch, target)` de `LightCoverEffect` n'est pas porté (le port applique −2 dès que l'effet est matérialisé : correct en prédiction, **FAUX en runner-sim après un move**). Sources : `case-102` §5.3, `terrain-effects.md` §0 | `engine/entities/effects_state.py`, `engine/runner/state.py`, `engine/entities/effects/loki/*` (LightCover) | **1 sous-système** — le SEED est clos (`case-102`), c'est la DYNAMIQUE qui manque |
+| **O4** | **Résidus de PLACEMENT laissés par `case-130` SS5** — (a) **`MaybeTrigger` non porté** : `dispatch.py:1191` dit noir sur blanc « `Maybe(chance)` non modélisé -> DÉTERMINISTE (fire si …) », et **aucune** occurrence de `MaybeTrigger` dans `scripts/python`. Natif = `IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` = `rng.NextBool(chance)` quand `ANonDeterministicAbilityTrigger$$CanUseRandom`, donc **1 tirage** — tant qu'il manque, le comptage live de PileIn n'est pas confrontable ; (b) **`Swamp -> Thorns_DefenseReduction` (−25) porté en LOCAL** : `spawn.py:277 _PLACEMENT_TERRAIN_EFFECTS` au lieu de `utilities/tile.py:93 TERRAIN_TILE_EFFECTS`, la table partagée alimentant aussi le contexte de DÉGÂT et le scoring de MOUVEMENT ; (c) feuilles `Tile(7)` gatées sur l'unité dans le tri de placement (ctor replié par le linker, aucun scénario mesuré ne les réveille) ; (d) on-appearance `PerformAIAttackFromCurrentPosition` du grot SquigHound : écart **CONSTANT de 4 `genrand_int32`** mesuré sur ce vecteur (MC1_67/777 et C2_37/31337), étranger au placement | `engine/runner/operations/triggers/dispatch.py`, `engine/runner/operations/spawn.py`, `engine/utilities/tile.py`, `engine/runner/damage_model.py` | **1 effet chacun** ; (a) est le plus large (touche tout gate `Maybe`/`chance` du DSL) |
+| **O5** | **Résidus RNG du canal de coups d'ability (`case-61`)** — (b) `On(PreAttack=5)` absent du vecteur ability (**fidèle** : le natif l'émet depuis `ALoki_NormalAttackAbility$$ExecuteNormalAttack`) ⇒ sur ce vecteur `LetTheGalaxyBurn` ne s'arme que par `TargetHasTileEffect` ; (c) per-coup non bit-exact contre `templChampion` (même nb de coups, dégât différent — effets `MartialSuperiority`/`RapidAssault_ExtraDamage` de la cible ; le témoin `necroWarden` est bit-exact) ; (d) flag `Moved` absent de la face PRÉDICTION (×1,25 uniforme `HeavyWeapon_ExtraDmg` sur tout caster ranged déjà déplacé — débloqueur = exposer `UnitFlagsComponent`, **rebuild requis**). Plus, **distinct et chiffré** : conso RNG du canal #179 non bit-exacte — sur un cast de `FrenziedFiring`, les coups d'ARME sont bit-exacts (K=0, 2 seeds) mais les 2 coups additionnels diffèrent en valeur (port `[2735, 2553]` vs natif `[2481, 2754]`), désalignant tout ce qui suit la première attaque d'un volet AoE | face prédiction, `engine/runner/operations/additional_hits.py` | **1 effet chacun** — à promouvoir sur miss d'agreement |
+| **O6** | **`LetTheGalaxyBurn` : le résidu a CHANGÉ DE NATURE — ce n'est plus un écart de SEUIL** | Le seuil est **validé** : `probe_84_ltgb_chance.py`, 8 runners, branche A n=73 → **34,2 %** (== 33 % config), branche B **23/23**. Ce qui reste, documenté dans `triggers/loki/let_the_galaxy_burn.py:85-88`, est un **ORDRE de consommation RNG** : le natif place `Maybe` **AVANT** `!HasTileStatusEffect` dans la conjonction, le port évalue les gates déterministes d'abord et ne roule que si la pose est possible. Non confronté bit-exact | `engine/runner/operations/triggers/loki/let_the_galaxy_burn.py` | **1 effet** |
+
+### 4.d — Reste en VEILLE (à promouvoir seulement sur miss d'agreement)
 
 Vérifiés présents, sans symptôme actionnable aujourd'hui : résidus MV71 (`case-61bis` §6/§8/§9),
 per-player 1180 (`case-31`), `ReachedSummonCap` (`case-38` §4 — branche `IsActive` sans caller
-connu), `LordOfTempests` AddIce (`case-35` §4), `LivingMetal` swarm no-wake top-off (`case-203`
-§5, chemin jamais atteint sous le member-cap), les 2 résidus `move` (#17, nature RNG),
-arc arrière NON dégénéré du push (`case-push-distance` §5 — sans objet pour un pousseur adjacent),
-trait `Unstoppable` 1042 (à câbler DANS la tranche movement-stop #131/B4, sinon
-registered-but-dead), `#202` face DÉCISION Abraxas non confrontée oracle (au premier walk
-Thousand Sons), `#5` chantier `DslContext` live-state (architecture à poser).
+connu), `LordOfTempests` AddIce (`case-35` §4), `LivingMetal` swarm no-wake top-off (`case-203` §5),
+les 2 résidus `move` (#17, nature RNG), arc arrière NON dégénéré du push (`case-push-distance` §5 —
+sans objet pour un pousseur adjacent), trait `Unstoppable` 1042 (à câbler DANS la tranche
+movement-stop #131/B4, sinon registered-but-dead), `#202` face DÉCISION Abraxas non confrontée
+oracle, `#5` chantier `DslContext` live-state, chantier archi **DSL-effet** (`dsl-effect-nodes.md` —
+migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chantier, pas un résidu).
 
-### 4.d — HORS PÉRIMÈTRE de cet inventaire
+### 4.e — HORS PÉRIMÈTRE de cet inventaire
 
-- **`[fable]`** (non inventoriés, par consigne) : arbitrage Comparable `ExcruciatingFrequencies`
-  vs attaque normale ; étage d'ARRONDI quand la %-list est vide sur les vecteurs restants ; coups
-  post-mortem / dérive du flux MT ; crit-roll non tiré à cc=0 sur la voie ABILITY multi-hit.
+- **En cours de traitement par d'autres agents au moment de la rédaction** (délibérément NON
+  inventoriés, pour ne pas fabriquer de doublon de dispatch) : le jet de block `Daemon_ExtraBlock`,
+  le canal `OnToxicDamage` (1203), le gate de PORTÉE / `TargetIsInRange`.
 - **Bloqués par une fenêtre d'atelier vide** (exigent rebuild + reinject, donc pas du RE) :
   `StatModificationComponent`, `ChildComponent.ParentId`, `EffectComponent.IsActive`,
   `UnitFlagsComponent` dans `combatSnapshot`, stats résolues des MoW (`EntityType.Machine` dans
-  `combatSnapshot.allUnits` et `statModSources.targetUnits`).
-- **NON PERTINENTS** : `Impervious` (28) et cap boss `0x5d4` — tous les porteurs sont des boss npc.
+  `combatSnapshot.allUnits` et `statModSources.targetUnits`), **plus O2** (drain ai-trace).
+- **`[fable]` restants** : arbitrage Comparable `ExcruciatingFrequencies` vs attaque normale ;
+  étage d'ARRONDI quand la %-list est vide sur les vecteurs restants (= R6, tag mixte) ; **N4**
+  (ci-dessous).
+
+### 4.f — NON CONFRONTABLES
+
+| Item | Ventilation des porteurs | Verdict |
+|---|---|---|
+| **29 actives NO-OP** (§1) | 21 **npc-only** + 8 **summon-env** (posés par `EnvFactionSummons:<Faction>` / `ATemptingTrap`, qu'aucune unité jouable ne porte) | **NON CONFRONTABLE** — ne pas y envoyer d'agent |
+| **1192 NovaBoost / 1194 NovaShield** (§2) | `tauBossRiptide` = **npc** | **NON CONFRONTABLE** |
+| **4 overlays de R15** (1093, 1215, 1216, 1217) | tous **npc** | **NON CONFRONTABLE** |
+| **`Impervious` (28) / cap boss `0x5d4`** | tous les porteurs sont des **boss npc** | **NON CONFRONTABLE** |
+| **N4 — stade natif du refus `TerminatorArmour` / `Pinned`** | blackAbaddon / deathTyphus / blackObliterator = **pool** (donc le COMPORTEMENT est confrontable) — mais le **chemin natif** ne l'est pas : `PinnedEffect` n'override PAS `EntityIsImmuneToEffect`, la base ne teste que le trait `Immune` qu'aucune unité ne porte, et le seul artefact nommant le couple est `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition = Not(HasTrait(0x40f))` — or une ActiveCondition désactive, elle n'empêche pas la pose | **CANDIDAT `fable-solver`** — collapse assumé par #224, live-correct sur 4 porteurs, le décompilé ne rend pas le stade. **Ne PAS dispatcher en `[opus]`.** Point d'ancrage pour trancher : hook sur la valeur de retour du slot 40 d'`IEffect` dans `AddEffectOperation$$Execute`, ou sur `BaseUnitComponent$$HasTrait` (arg + résultat) |
 
 ---
 
 ## 5. PÉRIMÉS — à sortir du backlog / de la roadmap
 
-### 5.0 — Fermés PENDANT la rédaction de cet inventaire (rebase du 2026-07-26)
+### 5.1 — Fermés depuis l'inventaire précédent (`fc23f1e` → `e972c99`, 26 commits)
 
-Ces quatre-là étaient OUVERTS sur `7f47c29` et FERMÉS sur `21494b6`. Ils sont listés à part parce
-qu'ils **mesurent la vitesse de péremption** : 4 résidus fermés en une soirée. Un backlog relu à
-J+3 ment déjà.
-
-| Résidu inventorié | Commit | Ce qu'il laisse ouvert |
-|---|---|---|
-| **R2** gate d'immunité d'effet | `42de74d` (#224) | **N4** (stade natif du refus TerminatorArmour/Pinned — collapse assumé, candidat `fable`) et **N5** (chaîne `&` derrière un `AddEffect` refusé) |
-| **R3** overwatch un seul tir par activation | `7c412b8` (#127) | rien de nommé ; le port est passé par le flag natif `EffectComponent.IsActive @+0x5c` (`BaseEffect.active`) + le vecteur `On(AttackDamageAttack=10)` — pas par le marqueur ad hoc que le backlog suggérait |
-| **R18** bouclier × limites, voie ability | `21494b6` (#67b) | **N1** (ciblage ArcaneShield allié non-Chaos), **N2** (famille ATTACK bounds-mode), **N3** (ordre réduction × bouclier sur `execute_normal_like`) |
-| **R22** DoT de tuile `EnvFireTile` → route `AbilityDamageOperation` | `ad5692e` | rien de nommé. ⚠ le résidu était étiqueté « latent, numériquement équivalent » — **c'était faux** : 4× d'écart mesuré, et un kill fantôme sur un porteur `Resilient` |
-| **R10** retrait de `InspiredToGreatness_OverrideLevel` (1180) | `b6d174c` (#114 résidus Tau) | rien de nommé ; a produit les primitives réutilisables `is_active_ability`, vecteur `On(0xc)` |
-| **R11** phase 2 d'`EarlyWarningOverride` (effet 1145 inerte) | `b6d174c` | rien de nommé ; a produit `turns_until_unit_owner_turn`, `has_death_reason`, `UnitComponent.death_source` |
-| — | `7c412b8` + `ad5692e` | **N6** : `test_hailstrike_phase2_live` rouge, signalé indépendamment par les deux |
-
-| **R28**, sous-item « TRI natif des 4 sites de placement `First(…)` » | `fc23f1e` (case-130 SS5) | R28 reste ouvert sur ses **3 autres** sous-items (ordre du sélecteur source, Fragstorm en HEXES, `AddForcedTargetsAndUpdateCandidates`) |
-
-**Cadence mesurée pendant la rédaction de ce document** : **6 résidus entiers fermés** (R2, R3,
-R10, R11, R18, R22) **+ 1 sous-item** (R28/placement), et **6 résidus neufs** (N1-N6), en une
-soirée, sur **trois rebases successifs**. C'est le chiffre à retenir : un backlog relu à J+3 décrit
-un arbre qui n'existe plus. **Re-confronter avant de dispatcher n'est pas une précaution, c'est la
-seule façon d'obtenir une file juste** — et c'est pourquoi cet inventaire porte son commit de base
-en tête plutôt qu'une date.
-
-### 5.1 — Entrées à sortir du backlog / de la roadmap
-
-| Entrée | Verdict | Commit qui l'a fermée | Preuve |
+| Résidu | Verdict | Commit qui l'a fermé | Preuve au code |
 |---|---|---|---|
-| **`#PAI-c` — consommateurs de `PerformAIAction` restants** (Waaagh 1058, SendInTheNextWave 1016, Incursion 1021, Poxwalkers 1040, retrofit CultDemagogue 1179) | **PÉRIMÉ** | `3f7b9d1` (2026-07-25) « #94 consommateurs SPAWN/AI-CONTROL » | les 5 ids sont dans `ABILITY_CLASSES` (`WaaaghAbility`, `SendInTheNextWaveAbility`, `IncursionAbility`, `SpawnPoxwalkersAbility`, `CultDemagogueAbility`) |
-| **FireOfAbsolution, volet feu-sur-cible « non modélisé par `execute()` »** | **PÉRIMÉ** | `ac1144f` (2026-07-17) « #149 slice-14 DSL FireOfAbsolution » (+ `8b34e7f` fix friendly-fire) | `operations/triggers/loki/fire.py::fire_of_absolution_tree` porte les 3 volets, dont l'ignite `Foreach(AdjacentTiles(Target()), Maybe(30, SetOnFire(Fire)))` ; dispatché par `dispatch.py:623` `_fire_of_absolution_after_attack` |
-| **« Harnais cast-par-MoW hors-plateau — 17 items BLOQUÉS, `fable` (prouver le cast MoW en runner) »** (roadmap §4.1) | **PÉRIMÉ côté COMBAT** | `a9714a4` (2026-07-25) « débloqueur cast MoW hors-plateau » | 13/16 abilities MoW castent sans mise en scène (sweep `probe_mow_cast.py`), les 3 restantes étaient des prédicats de ciblage, **portés + validés** (`case-mow-targeting-predicates`). **Restent bloqués** : `DutyEternal` (multi-hex, R30) et la **face DÉCISION** (R14) |
-| **« 1169 PlagueburstMortar / 1148 DaemonicOrdnance / 1142 MalleusRocketLauncher — BLOQUÉ harnais »** (roadmap §5.2) | **PÉRIMÉ côté COMBAT** | `a9714a4` + `bf61e8b`/`34872ac`/`f4591dd` (#90) | les **trois** sont dans `ABILITY_CLASSES` (`PlagueburstMortarAbility`, `DaemonicOrdnanceAbility`, `MalleusRocketLauncherAbility`) |
-| **« porteur hors pool ⇒ inconfrontable »** (`case-27` lignes Chronometron 1226 / HealingBalms_Heal 1212 / SavageEchoes 1230 ; `case-220` §6.10 Votann ; `case-mow-offboard-cast` §7 `thousDaemonPrince`/`necroReanimator`) | **PÉRIMÉ** | `ab98129` (2026-07-25) « #92/#54 injection de porteurs au catalogue » | 10 porteurs confrontés live (4 Votann, 2 MoW, `adeptCelestine`, `bloodTerminator`, `tauFarsight`, `necroChronomancer`) ; 1226 et 1230 sont depuis PORTÉS |
-| **`#116-r` prérequis (2) « sous-système OVERRIDE-ATTAQUE (`AddStatOverrideEffect` + blueprint `StatOverrideEffect`) »** | **PÉRIMÉ (prérequis levé)** | `71dca97` (#112 ExemplarOfHate) et `d67b6ac` (#114 InspiredToGreatness) | `AddStatOverrideEffect` existe (`abilities/behaviours/stats.py:281`) et a deux users runner |
-| **`#217` « 27 actives `[-D]` »** | **CHIFFRE PÉRIMÉ** | ports #94/#112/#113/#114/#116/#117 | **20** au commit courant, dont 18 dispatchables (§2) |
-| **`#115` (a) « renseigner `TARGETING_OPTIONS` sur les 60 autres abilities du registre »** | **CHIFFRE PÉRIMÉ (à la hausse)** | — | **75** sur 76 (§3) |
-| **`case-27` « 20 résidus »** | **CHIFFRE PÉRIMÉ** | #112/#116 (overlays 1020/1029/1100/1199) | **16** ; `playbook.REGISTRY` = 7 |
-| **`port-roadmap.md` en-tête : « 119 kits avec du travail, 249 items, 16 abilities portées combat »** | **CHIFFRE PÉRIMÉ** | — | **101 kits / 139 items / 75 portées** — `kit-coverage.md` et `combat-ability-coverage.md` (générés) étaient DÉJÀ à jour |
-| **`port-roadmap.md` §3 P0 : 16 des 26 lignes sont PORTÉES** | **PÉRIMÉ ligne à ligne** | #94/#112/#113/#114/#116/#117/#204/#205… | portées (16) : 1113, 1163, 1151, 1002, 1037, 1082, 1166, 1016, 1040, 1021, 1077, 1122, 1202, 1000, 1092, 1081. Restent ouvertes (10) : 1153, 1191, 1117, 1039, 1121, 1038, 1090, 1129, 1183, 1050. Et le §3 **rate 8 `[-D]`** que l'inventaire §2 liste : 1020, 1029, 1036, 1100, 1116, 1137, 1171, 1199 |
-| **`port-roadmap.md` §5.2 : 1009 ResurrectionOrb, 1058 Waaagh, 1028 SupremeCommander, 1226 Chronometron, 1230 SavageEchoes** | **PÉRIMÉ** | `dbc9379`, `3f7b9d1`, `85b5d1f` | tous dans `ABILITY_CLASSES` |
-| **`getstuckin_combat_chance` code les deux chances en dur** | **PÉRIMÉ** (déjà barré au backlog) | `886335f` (2026-07-26) | — |
-| **`case-220` §6.17 prérequis « canal PIERCING attaquant »** | **PÉRIMÉ** (déjà corrigé dans `case-220/admec.md`) | `8341bd1` (#113) / `169b4b2` (#117) | le vrai prérequis manquant était `target_traits` non threadé, levé le 2026-07-26 |
+| **R23** — `audit_kit_coverage.py` sous-compte la face DÉCISION | **PÉRIMÉ** | `8e8518e` *fix(audit): audit_kit_coverage lit le 3e registre de DECISION* | `audit_kit_coverage.py:116-117` : `"decision": (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS or nm in _SPECIAL_ABILITY_CLASSES)`. Le commit tranche aussi, **contre** l'inventaire précédent, que `_NONCOMPARABLE_ABILITIES` n'est PAS un 4ᵉ registre |
+| **R19b** — famille ABILITY : modifiers attaquant non vidés | **PÉRIMÉ** | `86fecad` (#226 Foehammer / HammerOfWrath) | `damage_ops.py:582-583` : `if not is_attack_damage_op: mods = DamageModifiers()` — la struct ATTAQUANT est désormais ZÉROÉE, pas seulement « gates inertes ». Discriminant nommé et mesuré bit-exact : `RapidAssault` (effet 1229, `ForPercentIncrease` SANS gate). ⚠ nuance : `execute_normal_like` ne zéroe PAS (`damage_ops.py:948`) — sans conséquence aujourd'hui, aucun call-site `amount=` + `native_factory="ability"` n'existe |
+| **R21** — `UnitFlag.ArrivedAtFinalTile` non posé | **PÉRIMÉ** | `5c45389` (passifs Genestealers) | Le flag EST posé sur le chemin de move : `triggers/dispatch.py:984` (`fl.add(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)`) dans `arrived_at_final_tile_triggers`, appelée en queue d'`after_move_triggers` (l.890), elle-même appelée par `MovementHandler.visit_MoveUnitMessage` (`movement.py:126`). ⚠ l'affirmation « le flag n'est posé que par `FinishUnitTurnOperation` » est **fausse aujourd'hui** — le site de pose a été déplacé dans le dispatcher after-move (choix documenté `dispatch.py:963-968`) |
+| **N3** — ordre réduction × bouclier sur `execute_normal_like` | **PÉRIMÉ côté CÂBLAGE** (mesure toujours absente) | `21494b6` (#67b), qui a introduit le paramètre en même temps qu'il nommait le résidu | Thread complet : `damage_ops.py:907` → `_run_hits` (l.1006) → consommé `damage_hits.py:323-330`. Les feuilles le renseignent depuis `native_factory` (`combat.py:163`). **Code câblé = OUI, comportement mesuré = NON** (à `spread_pct=0` et `shield=0` les deux ordres sont indiscernables) |
+
+### 5.2 — Entrées du BACKLOG qui étaient DÉJÀ fausses avant l'inventaire précédent
+
+Ces deux-là sont les plus coûteuses de la liste : elles portent le tag **`[fable]`** au backlog, donc
+elles auraient consommé l'agent le plus cher sur un problème déjà résolu.
+
+| Entrée backlog | Verdict | Commit / preuve |
+|---|---|---|
+| **« Crit-roll NON tiré à cc=0 sur la voie ABILITY multi-hit → desync spread »** (`[fable]`, présenté comme « ROOT CAUSE MESURÉE ») | **PÉRIMÉ — et le diagnostic était FAUX** | `844298e` *fix(rl): cas fable rngcrit-1202 — le « crit-roll fantôme » #220/#205 = resolve slot-8 gaspillé, PAS un crit* (ancêtre de HEAD, vérifié). `damage_hits.py:207-224` porte le verdict RE : « Il n'existe AUCUN chemin consommant un tirage crit à cc=0 — ni par vecteur, ni par éligibilité » ; l'extra tirage est le `GetDamage` brut + le resolve dégénéré. Mesure : `probe_rngcrit_1202`, M3 bit-exact per-hit, 5 seeds × 2 cibles. **Les modèles « crit-roll par coup à cc=0 » sont RÉFUTÉS par la mesure** |
+| **« Coups post-mortem / dérive du flux MT »** (`[fable]`) | **PÉRIMÉ — réfuté par lecture du natif** | `case-125-rng-wasted-hits.md:41-43` : `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` est un `while (i < hits)` **plat** — le compteur est incrémenté dans TOUTES les branches, « il n'y a ni `break` ni test de mort de la cible ». Le natif **ET** le port roulent tous leurs coups. La vraie cause du symptôme (#116-d) était le report `GetLeftOverHits`, corrigé et gardé (`test_chain_leftover_hits_live.py`) |
+| **« Follow-up fidélité #147 : le reset ActOfFaith mappé sur `On(8)` fire aussi au crit d'attaque NORMALE »** | **PÉRIMÉ** | `94ae6d0` *fix(rl): #151 reset ActOfFaith = On(9)=Attack (ability-only), plus l'after-hit On(8) partagé*, complété par `a50496c` (fix ActOfFaith crit normal). État courant : `dispatch.py:781` « aucun consommateur actif depuis #151 — le reset ActOfFaith a migré sur On(9) ability-only » |
+| **« Le VERDICT du `Maybe` de `LetTheGalaxyBurn` diverge natif/port »** (écart de **seuil**) | **REFORMULÉ — l'écart de seuil est RÉFUTÉ** | `probe_84_ltgb_chance.py` (8 runners) : branche A n=73 → **34,2 %** contre 33 % config ; branche B **23/23**. Le résidu subsistant est un **ordre de consommation RNG** dans la conjonction — cf. **O6**, et il ne se dispatche pas de la même façon |
+
+### 5.3 — Entrées déjà sorties par l'inventaire précédent (rappel, ne pas re-dispatcher)
+
+`R2` gate d'immunité (`42de74d`, #224) · `R3` overwatch un-tir (`7c412b8`, #127) · `R10` retrait
+`InspiredToGreatness_OverrideLevel` 1180 + `R11` phase-2 `EarlyWarningOverride` (`b6d174c`, #114) ·
+`R18` bouclier × limites voie ability (`21494b6`, #67b) · `R22` DoT de tuile `EnvFireTile`
+(`ad5692e`) · `R28`/placement (`fc23f1e`, case-130 SS5) · `#PAI-c` consommateurs `PerformAIAction`
+(`3f7b9d1`) · FireOfAbsolution volet feu-sur-cible (`ac1144f` + `8b34e7f`) · harnais cast-MoW
+hors-plateau (`a9714a4`) · 1169/1148/1142 « BLOQUÉ harnais » (`a9714a4` + `bf61e8b`/`34872ac`/`f4591dd`) ·
+« porteur hors pool ⇒ inconfrontable » (`ab98129`) · prérequis OVERRIDE-ATTAQUE de #116-r
+(`71dca97` + `d67b6ac`) · `getstuckin_combat_chance` (`886335f`) · prérequis « canal PIERCING
+attaquant » de `case-220` §6.17 (`8341bd1` / `169b4b2`).
+
+### 5.4 — CHIFFRES périmés à corriger dans les docs sources
+
+| Document | Ce qu'il dit | Ce qui est vrai au commit courant |
+|---|---|---|
+| `backlog.md` #217 | « 20 au 2026-07-26, dont 18 à porteur confrontable » | **15 lineup + 2 npc** (§2) |
+| `backlog.md` #115 (a) | « les 60 autres abilities du registre » | **53 sur 81** (§3) |
+| `backlog.md` #27 / `case-27` | « 16 résidus » | **15**, et `case-27:139` se contredit sur 1100 SorcerousFacade (cf. R15) |
+| `backlog.md` #20 / `port-roadmap.md` | « 119 kits, 249 items, 16 abilities portées combat » | **95 kits / 126 items / 80 portées** |
+| Ce fichier, version du 2026-07-26 | « 96 NO-OP / 67 dispatchables », « 75 sans masque », « 63 passifs confrontables » | **91 / 62**, **53**, **55** |
+
+**Cadence mesurée sur 24 h** : **4 résidus fermés** (R19b, R21, R23, N3-câblage) + **2 entrées
+`[fable]` révélées déjà fausses** + **5 abilities** sorties du gisement 1 + **22 masques de ciblage**
++ **8 passifs**. Un backlog relu à J+1 ment déjà sur ses chiffres ; à J+3 il ment sur ses verdicts.
 
 ---
 
 ## 6. Ordre de dispatch conseillé (valeur décroissante)
 
-1. **R1 tuile d'origine** — symptôme mesuré, cause localisée à UNE ligne
-   (`state_bridge.py:317-318`), impact transverse. Exige une passe d'agreement complète, pas un
-   smoke : le prévoir dans la tâche.
-2. **Gisement 2 (§2), 18 items** — un agent par ability, un `[-D]` à la fois. Prioriser ceux dont
-   la face décision est déjà mesurée (1036 FrenziedFiring, 1137 MurderousSwing) : l'oracle existe.
-3. **R23** (3 lignes) — à faire AVANT la vague suivante : sans lui, l'audit continue de mentir sur
-   `[-D]` et sur les `[--]`.
-4. **R5** et **N6** — deux tests de garde ROUGES que personne ne possède, dont un re-reproduit ce
-   jour. Un test rouge toléré est un oracle perdu.
-5. **R4 resolve slot-8**, **R9 Chronometron**, **N1-N3** (les trois résidus laissés par #67b) —
-   symptômes mesurés ou cause nommée, taille contenue.
-6. **Gisement 4 (§3bis), 63 passifs confrontables** — le plus gros volume, et il est INVISIBLE des
-   deux audits historiques. À traiter en parallèle du gisement 1 (il ne touche PAS `handler.py`,
-   donc pas de collision avec les ports d'actives).
-7. **Gisement 3 (§3)** — par faction, ou en règle de non-régression sur chaque nouveau port.
-8. **Gisement 1 (§1), 49 items restants** (67 − les 18 du gisement 2) — piocher par faction ;
-   les 11 de §1.b n'ont plus d'obstacle de harnais.
-8. **R14 face décision MoW**, **R30 multi-hex** — sous-systèmes, à isoler.
-9. **R24, R25, R8** — dette d'outillage / de tests, très peu coûteuse.
+1. **R5 et N6 — deux tests de garde ROUGES, tous deux RE-REPRODUITS ce jour.** N6 est passé devant :
+   il porte désormais un **symptôme de magnitude chiffré** (live 2700 vs port [1688, 2532]) et non
+   plus un simple « test rouge ». Un test rouge toléré est un oracle perdu.
+2. **R1 tuile d'origine** — symptôme mesuré, cause localisée à UNE ligne (`state_bridge.py:318`),
+   impact transverse. Exige une passe d'agreement complète, pas un smoke : le prévoir dans la tâche.
+3. **Gisement 2 (§2), 15 items** — un agent par ability. Prioriser 1137 MurderousSwing, dont la face
+   décision est déjà mesurée : l'oracle existe.
+4. **R4 resolve slot-8**, **R9 Chronometron**, **N1**, **N2**, **N5** — symptômes mesurés ou cause
+   nommée, taille contenue. ⚠ **ne pas dispatcher R4 et N2 en même temps** (`damage_hits.py`).
+5. **Gisement 4 (§3bis), 55 passifs confrontables** — le plus gros volume, invisible des deux audits
+   historiques. À traiter en parallèle du gisement 1 : il ne touche PAS `handler.py`.
+6. **Gisement 3 (§3), 53 masques** — par module, en suivant la carte du §3 ; ou en règle de
+   non-régression sur chaque nouveau port. Les gros lots restants : `splash` (6), `strike` (6),
+   `blacklegion` (5), `deathguard` (5), `summon` (5), `tau` (5).
+7. **Gisement 1 (§1), 47 items restants** (62 − les 15 du gisement 2) — piocher par faction ; les 11
+   de la voie `catalog_inject` n'ont plus d'obstacle de harnais.
+8. **O1 garde de synchro**, **R24**, **R25**, **R8** — dette d'outillage / de tests, très peu
+   coûteuse, et O1 protège toute la chaîne RE.
+9. **R14 face décision MoW** (débloque aussi une partie de R15), **R30 multi-hex**, **O3 dynamique
+   des effets de tuile** — sous-systèmes, à isoler.
+10. **O4 (a) `MaybeTrigger`** — petit, mais il débloque le comptage RNG de tout gate `Maybe`/`chance`.
 
-**Ne PAS dispatcher `N4`** en `[opus]` : c'est un collapse assumé que le décompilé ne tranche pas
-— candidat `fable-solver`, et sans urgence (le comportement est live-correct sur 4 porteurs).
+**Ne PAS dispatcher `N4`** en `[opus]` : collapse assumé que le décompilé ne tranche pas — candidat
+`fable-solver`, et sans urgence (comportement live-correct sur 4 porteurs).
+**Ne PAS dispatcher O2** tant que l'atelier n'est pas vide (rebuild + reinject).
+
+---
 
 ## 7. Collisions entre agents concurrents
 
 | Fichier | Qui le touche | Risque |
 |---|---|---|
-| `engine/runner/abilities/handler.py` | **tout** port d'ability (gisements 1 et 2) | **ÉLEVÉ** — conflit textuel garanti si 2 agents portent en parallèle. Conflit trivial (2 lignes ajoutées), mais à résoudre par l'auteur au rebase |
-| `engine/runner/operations/damage_ops.py` | R4, R6, R7, R9, R19, N3 | **ÉLEVÉ** — 6 résidus s'y croisent. Ne pas dispatcher deux d'entre eux en même temps |
-| `engine/ai/state_bridge.py` | R1, R14 | **ÉLEVÉ** — R1 (`_plans_for_unit`) et R14 (`_dv_units`, `_plans_for_unit`) touchent la MÊME fonction. **Sérialiser** |
-| `engine/runner/operations/damage.py` | N2, R18 (fermé) | MOYEN |
-| `engine/runner/operations/effects.py`, `engine/entities/effects/factory.py` | N5, R16 | MOYEN — le canal d'immunité #224 vient d'y atterrir |
-| `engine/runner/operations/triggers/effect_triggers.py` | R11 | FAIBLE depuis #127 (R3 fermé) |
-| `engine/runner/operations/triggers/dispatch.py` | R12, tout vecteur d'event neuf | MOYEN |
-| `engine/runner/abilities/<faction>.py` | 1 par faction | FAIBLE — deux factions différentes ne se croisent pas |
-| `engine/entities/effect_type.py`, `entities/effects/factory.py` | tout effet neuf | FAIBLE (ajouts en fin de liste) |
-| `docs/rl/combat-ability-coverage.md`, `docs/rl/kit-coverage.md` | régénérés | **ne jamais fusionner un conflit** : régénérer (`audit_*.py`) |
+| `engine/runner/abilities/handler.py` | **tout** port d'ability (gisements 1 et 2) | **ÉLEVÉ** — conflit textuel garanti si 2 agents portent en parallèle. Trivial (2 lignes), mais à résoudre par l'auteur au rebase |
+| `engine/runner/operations/damage_ops.py` | R4, R6, R7, R9, R19a, N2 | **ÉLEVÉ** — 6 résidus s'y croisent. Ne pas en dispatcher deux ensemble |
+| `engine/runner/operations/damage_hits.py` | R4, N2, R26 | **ÉLEVÉ** — sérialiser |
+| `engine/ai/state_bridge.py` | R1, R14, R15 | **ÉLEVÉ** — R1 (`_plans_for_unit`) et R14 (`_dv_units` + `_plans_for_unit`) touchent la MÊME fonction. **Sérialiser** |
+| `engine/runner/abilities/loki/splash.py` | R28-1/2/3 | MOYEN — les 3 sous-items sont à faire ensemble |
+| `engine/runner/abilities/behaviours/combat.py` | R19a, R28-1 | MOYEN |
+| `engine/runner/operations/triggers/dispatch.py` | R12, R13, O4(a), tout vecteur d'event neuf | MOYEN |
+| `engine/runner/operations/effects.py`, `engine/entities/effects/factory.py` | N5, R16, R9 | MOYEN |
+| `engine/runner/abilities/<module>.py` | gisement 3 (1 lot par module), 1 port par faction | FAIBLE — deux modules différents ne se croisent pas |
+| `engine/entities/effect_type.py` | tout effet neuf | FAIBLE (ajouts en fin de liste) |
+| `docs/rl/combat-ability-coverage.md`, `kit-coverage.md`, `passive-ability-coverage.md` | régénérés par les audits | **ne jamais fusionner un conflit** : régénérer (`audit_*.py`) |
