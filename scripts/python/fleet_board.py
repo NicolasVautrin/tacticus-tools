@@ -68,19 +68,38 @@ def _prompt_size(u) -> int:
             + int(u.get("cache_read_input_tokens") or 0))
 
 
+def _texte_du_message(msg) -> str:
+    """Le `content` d'un message est soit une chaine, soit une liste de blocs typés."""
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(b.get("text", "") for b in c
+                         if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
 def scan(path: Path) -> dict:
     first = last = None
     first_ts = last_ts = None
     says: list[str] = []
     tools = 0
+    brief = ""
     for ln in path.open(encoding="utf-8", errors="replace"):
-        if '"usage"' not in ln and '"tool_use"' not in ln:
+        if '"usage"' not in ln and '"tool_use"' not in ln and '"user"' not in ln:
             continue
         try:
             rec = json.loads(ln)
         except Exception:
             continue                       # ligne tronquee (transcript en cours d'ecriture)
         msg = rec.get("message") or {}
+        # Le BRIEF n'est PAS dans le meta.json (qui ne porte que agentType / description /
+        # worktree* / toolUseId / spawnDepth) : c'est le PREMIER message `user` du transcript.
+        # Les suivants sont les relances par SendMessage -- on ne garde que le premier.
+        if msg.get("role") == "user" and not brief:
+            t = _texte_du_message(msg).strip()
+            if t and not t.startswith("<"):     # ecarte les injections systeme (<system-reminder>)
+                brief = t
         if msg.get("role") != "assistant":
             continue
         for blk in (msg.get("content") or []):
@@ -101,7 +120,7 @@ def scan(path: Path) -> dict:
             first, first_ts = sz, t
         last, last_ts = sz, t or last_ts
     return dict(first=first, last=last, first_ts=first_ts, last_ts=last_ts,
-                says=says, tools=tools)
+                says=says, tools=tools, brief=brief)
 
 
 # Un agent qui TRAVAILLE ecrit dans son transcript a chaque aller-retour d'outil. Au-dela de ce
@@ -136,6 +155,14 @@ def collect(include_done: bool) -> list[dict]:
         if not s["first"]:
             continue
         alive, silence = est_vif(s["last_ts"])
+        # ET le worktree doit EXISTER. Un transcript reste sur disque pour toujours ; son worktree,
+        # lui, est supprime au nettoyage -- c'est ce qui separe un agent d'aujourd'hui d'un agent
+        # d'il y a trois jours dont l'horodatage serait mal lu. Piege : `Path("")` vaut `Path(".")`,
+        # qui existe TOUJOURS, d'ou le test de chaine non vide. Un agent lance SANS worktree
+        # (`worktreePath` absent) reste juge sur la seule activite.
+        wtp = (meta.get("worktreePath") or "").strip()
+        if wtp and not Path(wtp).exists():
+            alive = False
         if not alive and not include_done:
             continue
         mins = ((s["last_ts"] - s["first_ts"]).total_seconds() / 60.0
@@ -147,7 +174,11 @@ def collect(include_done: bool) -> list[dict]:
             # < 30 s : le denominateur est trop petit pour que le quotient veuille dire quelque
             # chose (un seul aller-retour d'outil ferait 100 000 tok/min).
             rate=(work / mins) if mins > 0.5 else 0.0,
-            pct=100.0 * s["last"] / WINDOW, tools=s["tools"], says=s["says"][-2:]))
+            pct=100.0 * s["last"] / WINDOW, tools=s["tools"], says=s["says"][-2:],
+            # ni la date ni le brief ne sont dans le meta.json : le lancement est le PREMIER
+            # horodatage du transcript, l'atterrissage le DERNIER, le brief le 1er message `user`.
+            born=s["first_ts"], land=s["last_ts"], agent_type=meta.get("agentType") or "",
+            branch=meta.get("worktreeBranch") or "", brief=s["brief"]))
     rows.sort(key=lambda r: (-r["alive"], -r["ctx"]))
     return rows
 
@@ -261,16 +292,47 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
   .note p:last-child { margin-bottom:0; }
   code { font-family:var(--mono); font-size:.9em; background:var(--track); padding:1px 5px;
          border-radius:3px; }
+
+  /* --- tri, pastille de vol, brief deplie ------------------------------------------------- */
+  .sorts { display:inline-flex; align-items:center; gap:6px; font-size:.78rem;
+           color:var(--muted); letter-spacing:.02em; }
+  .sort { font:inherit; color:var(--muted); background:transparent; cursor:pointer;
+          border:1px solid var(--line); border-radius:999px; padding:3px 10px;
+          transition:color .12s, border-color .12s; }
+  .sort:hover { color:var(--ink); border-color:var(--muted); }
+  .sort[data-on="1"] { color:var(--ink); border-color:currentColor; font-weight:600; }
+  .sort[data-on="1"][data-dir="desc"]::after { content:' ↓'; }
+  .sort[data-on="1"][data-dir="asc"]::after  { content:' ↑'; }
+
+  /* la pastille ne clignote QUE si l'onglet est visible et que l'utilisateur accepte le mouvement */
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:7px;
+         background:var(--ok); vertical-align:middle; animation:pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  @media (prefers-reduced-motion:reduce) { .dot { animation:none } }
+
+  .figs.meta { margin-top:3px; font-size:.74rem; opacity:.72; }
+  .brief { margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; }
+  .brief summary { cursor:pointer; font-size:.76rem; color:var(--muted); letter-spacing:.02em; }
+  .brief summary:hover { color:var(--ink); }
+  .brief pre { margin:8px 0 0; padding:10px 12px; background:var(--track); border-radius:6px;
+               font-family:var(--mono); font-size:.74rem; line-height:1.5; color:var(--ink);
+               white-space:pre-wrap; overflow-wrap:anywhere; max-height:22em; overflow-y:auto; }
 </style>
 
 <div class="wrap">
   <header>
     <p class="eyebrow">tacticus-tools · campagne de portage</p>
     <h1>Ce que la flotte a mis dans sa fenêtre</h1>
-    <p class="lede">__N__ agents en vol, chacun avec sa propre fenêtre d'un million de tokens.
-    La jauge mesure ce qu'elle contient <em>maintenant</em> — pas ce qu'elle a coûté.</p>
+    <p class="lede">__N__ agents en vol sur __TOT__ affichés, chacun avec sa propre fenêtre d'un
+    million de tokens. La jauge mesure ce qu'elle contient <em>maintenant</em> — pas ce qu'elle a
+    coûté.</p>
     <div class="tools">
       <span class="stamp">Instantané du <time datetime="__ISO__">__STAMP__</time><span class="age" id="age"></span></span>
+      <span class="sorts">trier par
+        <button type="button" class="sort" data-key="ctx">contexte</button>
+        <button type="button" class="sort" data-key="born">lancement</button>
+        <button type="button" class="sort" data-key="land">atterrissage</button>
+      </span>
       <button type="button" id="reload"><span class="glyph" aria-hidden="true">⟳</span> Recharger</button>
     </div>
   </header>
@@ -312,15 +374,20 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
 <script>
 const ROWS = __PAYLOAD__, STAMP = new Date("__ISO__");
 const fmt = n => n.toLocaleString('fr-FR').replace(/\\u202f|\\u00a0/g, ' ');
-document.getElementById('fleet').innerHTML = ROWS.map(r => `
-  <div class="gauge" data-band="${r.band}">
+const carte = r => `
+  <div class="gauge" data-band="${r.band}" data-alive="${r.alive ? 1 : 0}">
     <div class="grow">
-      <div class="gname">${r.name}</div>
+      <div class="gname">${r.alive ? '<span class="dot" title="en vol"></span>' : ''}${r.name}</div>
       <div class="figs">
         <span><b>${fmt(r.ctx)}</b> ctx</span>
         <span><b>${fmt(r.rate)}</b> tok/min</span>
         <span>${r.minsLabel} de vol</span>
         <span>saturation&nbsp;<b>${r.etaLabel}</b></span>
+      </div>
+      <div class="figs meta">
+        <span>lancé <b>${r.bornLabel}</b></span>
+        <span>${r.alive ? 'dernier signe' : 'atterri'} <b>${r.landLabel}</b></span>
+        ${r.type ? `<span>${r.type}</span>` : ''}
       </div>
     </div>
     <div class="bar">
@@ -329,7 +396,32 @@ document.getElementById('fleet').innerHTML = ROWS.map(r => `
       <span class="pct">${r.pct} %</span>
     </div>
     ${r.says.length ? `<ul class="says">${r.says.map(s => `<li>${s}</li>`).join('')}</ul>` : ''}
-  </div>`).join('');
+    ${r.brief ? `<details class="brief"><summary>le brief envoyé</summary><pre>${r.brief}</pre></details>` : ''}
+  </div>`;
+
+// Tri : le critere est porte par le bouton (data-key), le sens par data-dir. « lancé » se lit
+// naturellement du plus ANCIEN au plus recent, les deux autres du plus GROS / plus RECENT.
+const CLES = { ctx: r => r.ctx, born: r => r.born, land: r => r.land };
+let cle = 'ctx', sens = -1;
+const fleet = document.getElementById('fleet');
+const dessine = () => {
+  const f = CLES[cle];
+  // les vifs restent EN TETE quel que soit le tri -- c'est eux qu'on surveille.
+  const t = ROWS.slice().sort((a, b) =>
+    (b.alive - a.alive) || (sens * (f(a) - f(b))));
+  fleet.innerHTML = t.map(carte).join('');
+  document.querySelectorAll('.sort').forEach(b => {
+    b.dataset.on = b.dataset.key === cle ? '1' : '0';
+    if (b.dataset.key === cle) b.dataset.dir = sens < 0 ? 'desc' : 'asc';
+  });
+};
+document.querySelectorAll('.sort').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.key;
+  sens = (k === cle) ? -sens : (k === 'born' ? 1 : -1);
+  cle = k;
+  dessine();
+}));
+dessine();
 
 // L'age vieillit tout seul : c'est lui qui dit si recharger sert a quelque chose. Au-dela de
 // 5 min, il passe en ambre -- un chiffre fige sans age visible se lit a tort comme du temps reel.
@@ -348,6 +440,14 @@ btn.addEventListener('click', () => { btn.dataset.busy = '1'; location.reload();
 """
 
 
+def _quand(t, now) -> str:
+    """« 08:12 » si c'est aujourd'hui, « 26/07 23:38 » sinon -- une flotte vit sur 2-3 jours."""
+    if not t:
+        return "--"
+    loc = t.astimezone()
+    return loc.strftime("%H:%M") if loc.date() == now.date() else loc.strftime("%d/%m %H:%M")
+
+
 def render(rows) -> str:
     now = datetime.now().astimezone()
     cards = []
@@ -362,6 +462,15 @@ def render(rows) -> str:
             "etaLabel": "--" if e is None else hm(e),
             "band": "crit" if r["pct"] >= 60 else ("warn" if r["pct"] >= 40 else "ok"),
             "says": [html.escape(s.replace("\n", " ").strip())[:320] for s in (r["says"] or [])],
+            "alive": bool(r["alive"]),
+            # epoch en secondes : c'est ce que le tri JS compare, sans reparser de date.
+            "born": r["born"].timestamp() if r["born"] else 0,
+            "land": r["land"].timestamp() if r["land"] else 0,
+            "bornLabel": _quand(r["born"], now), "landLabel": _quand(r["land"], now),
+            "type": html.escape(r["agent_type"]), "branch": html.escape(r["branch"]),
+            # le brief ENTIER : c'est la seule trace de ce qu'on a demande a l'agent, et il est
+            # replie derriere un <details> -- 2 a 4 Ko par agent, illisible deplie par defaut.
+            "brief": html.escape(r["brief"]),
         })
     fastest = max(cards, key=lambda c: c["rate"]) if cards else None
     withe = [(c, r) for c, r in zip(cards, rows) if eta(r) is not None]
@@ -371,7 +480,11 @@ def render(rows) -> str:
             .replace("__PAYLOAD__", json.dumps(cards, ensure_ascii=False))
             .replace("__ISO__", now.isoformat())
             .replace("__STAMP__", now.strftime("%d/%m a %H:%M"))
-            .replace("__N__", str(len(cards)))
+            # __N__ = les VIFS, pas `len(cards)` : avec `--all` les cartes portent tout l'historique
+            # des transcripts (394 mesures le 2026-07-27), et le titre annoncait donc « 394 agents
+            # en vol ». Le total, lui, est __TOT__.
+            .replace("__N__", str(sum(1 for r in rows if r["alive"])))
+            .replace("__TOT__", str(len(cards)))
             .replace("__MED__", ("%.1f" % med).replace(".", ","))
             .replace("__FRATE__", "{:,}".format(fastest["rate"]).replace(",", " ") if fastest else "--")
             .replace("__FNAME__", fastest["name"] if fastest else "--")
