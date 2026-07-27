@@ -119,6 +119,7 @@ from .loki import (
     LionHelmExtraBlockChanceEffect,
     FearedInterrogatorOwnerEffect,
     FearedInterrogatorTargetEffect,
+    HammerOfWrathConditionalDamageEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -448,6 +449,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "AnvilShield_AdditionalBlock": AnvilShieldAdditionalBlockEffect,
     "AnvilShield_BlockChanceBelowHealthCap": AnvilShieldBlockChanceBelowHealthCapEffect,
     "AnvilShield_FrozenAttackerAdvantage": AnvilShieldFrozenAttackerAdvantageEffect,
+    # HammerOfWrath_ConditionalDamage (0x534=1332) — MEME PATRON qu'`AnvilShield_BlockChanceBelowHealthCap` :
+    # owner-effect PERMANENT pose a l'init de l'ability (triggered 1258 `AOwnerEffectTriggeredAbility`),
+    # SANS contribution propre, dont l'`ActiveCondition` (`HealthPctIsBelowOrEqual(Self, ConfigConst(
+    # 0x4f=healthPct=50))`) est LUE par `HammerOfWrathAbility$$GetDoubleCondition` = `HasEffect(Self,
+    # 0x534, activeOnly=1)` pour DOUBLER les bornes de degat. Absent du seed live tant qu'il est inactif.
+    "HammerOfWrath_ConditionalDamage": HammerOfWrathConditionalDamageEffect,
     # Contaminated_Unit (0x4dd=1245) : sous-effet -X% FixedArmor pose sur une unite occupant/entrant une
     # tuile contaminee (0x4dc). Debuff stat FixedArmor (=16) ; magnitude X NON resolue (#132) -> value=None
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
@@ -627,6 +634,16 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # pose les DEUX effets sur le PORTEUR (`AddEffect(1294, source=Owner, targets=Owner)` &
     # `AddEffect(1295, source=Owner, targets=Owner)`) ; verifie live chez Asmodai, RIEN chez les cibles.
     "FearedInterrogator": ["FearedInterrogator_Owner", "FearedInterrogator_Target"],
+    # HammerOfWrath (actif de Mataneo `bloodIntercessor`) — la triggered DERIVEE 1258
+    # `HammerOfWrath_ConditionalDamage` est un `AOwnerEffectTriggeredAbility` : son `CreateBehaviour`
+    # (corps de BASE, `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour`) =
+    # `If(<cond>, AddEffect(0x534, AbilityState(owner), owner, owner, <duree ZEROE>))` sur le trigger
+    # `OnOwnerSpecificAbilityInit` -> owner-effect PERMANENT du porteur. Comme `AnvilShield_
+    # BlockChanceBelowHealthCap`, il est INACTIF au-dessus de healthPct (=50 %) donc ABSENT du seed
+    # live (`decisionView.effects` n'expose que les ACTIFS) : sans ce seed, le gate `HasEffect(Mataneo,
+    # 1332)` du node de degat serait mort dans tout runner ou Mataneo tombe sous 50 % APRES la capture.
+    # Idempotent (skip si deja capte). Cle = le NOM d'ability gameconfig du porteur.
+    "HammerOfWrath": ["HammerOfWrath_ConditionalDamage"],
 }
 
 

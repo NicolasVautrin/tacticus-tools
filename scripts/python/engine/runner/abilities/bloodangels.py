@@ -1,4 +1,5 @@
-"""Abilities Blood Angels -- SavageEchoes (1230, Cezare `bloodTerminator`).
+"""Abilities Blood Angels -- SavageEchoes (1230, Cezare `bloodTerminator`) et HammerOfWrath (1153,
+Mataneo `bloodIntercessor`, cf. la 2e section du module).
 
 Module DEDIE (org native = 1 classe par ability, `Abilities.Active.Loki.*` ; `loki/` et `behaviours.py`
 deja > seuil de split). RE ghidra gqfc5mff6c (VA citees). Case-220 §6.12 (docs/rl/case-220/blood-angels.md).
@@ -24,18 +25,27 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from ...dsl.base import AbilityTrigger
+import hexgeo
+
+from ...dsl.base import AbilityTrigger, Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_and, If
-from ...entities.selectors import Target, Caster, CanAddUnit, AdjacentTiles
+from ...entities.behaviours import op_and, If, AtomicGroup
+from ...entities.selectors import (Target, Caster, CanAddUnit, AdjacentTiles, AdjacentUnits,
+                                   Enemies, FixedTiles)
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ..components import HealthComponent, StatsComponent
+from ...entities.triggers import HasEffect, IsAlive
+from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .behaviours import entities_from_state, AttackWithAttackDamage, Heal
+from .targeting import TargetingOptions, RULE_TARGET_HAS_FREE_ADJACENT_TILE
+from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
 
 if TYPE_CHECKING:
     from ..state import State
+
+INFILTRATE_UNIT = int(EffectType.Infiltrate_UnitEffect)                  # 0x416=1046
+HOW_CONDITIONAL_DAMAGE = int(EffectType.HammerOfWrath_ConditionalDamage)  # 0x534=1332
 
 
 def _caster_level_mult(state: "State", caster_id: int):
@@ -159,3 +169,327 @@ class SavageEchoesAbility(ActiveAbility):
         return {"ability": "SavageEchoes", "caster": caster_id, "target": target_id,
                 "main_attack": main, "regenerate": regenerate, "extra_per_tile": extra,
                 "free_tiles_after": free_tiles, "heal_amount": heal_amount, "heals": heals, "dsl": True}
+
+
+# ====================== HammerOfWrath (bloodIntercessor «Mataneo», actif 1153) ======================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build gqfc5mff6c) :
+#
+#   Execute( op_BitwiseAnd( op_BitwiseAnd(
+#       AddEffect( 0x416 = Infiltrate_UnitEffect, AbilityStateReference,
+#                  source = Self@0x148, cible = Self@0x148, duree = Direct(1)@dsl+0xc0 ),      # [1]
+#       MoveUnit( caster@0x160,                                                                 # [2] CHARGE
+#           First( SortTilesByUtility(
+#                    Filter( CanAddUnit(AdjacentTiles(target@0x178)),
+#                            NOT( AmountIsGreater( MinDistance(It@0x180, CasterTiles@0x170),
+#                                                  Get(GetNumberConstant(0x16 = range)) ) ) ),
+#                    caster@0x160, UtilityDefinition(7 = Tile) ), 1 ),
+#           <options ZEROEES> ) ),
+#       If( IsAlive(caster@0x160),
+#           AtomicGroup( 0x1d, op_BitwiseAnd(
+#               AttackWithAbilityDamage( caster@0x160, target@0x178, GetDamage,                  # [3]
+#                   Nullable(GetDamageProfile()) = Power, GetHits() = GetNumberConstant(0x2f) = nrOfHits,
+#                   AbilityOrEffect(this@+0x10 = 1153) ),
+#               AttackWithAbilityDamage( caster@0x160, GetAdjacentTargets, GetDamage2,           # [4]
+#                   Nullable(GetDamageProfile2()) = Physical,
+#                   GetHitsToBonusTarget() = GetNumberConstant(0x32 = nrOfHits_2),
+#                   AbilityOrEffect(this@+0x10 = 1153) ) ) ) ) ) )
+#
+# avec (fonctions natives NOMMEES, decompilees une a une) :
+#   * `HammerOfWrathAbility$$GetDamage`  = ConditionalAmount( GetDoubleCondition,
+#                                              Multiply(MinMaxDamage,  Get(2)), MinMaxDamage )
+#   * `HammerOfWrathAbility$$GetDamage2` = ConditionalAmount( GetDoubleCondition,
+#                                              Multiply(MinMaxDamage2, Get(2)), MinMaxDamage2 )
+#   * `HammerOfWrathAbility$$GetDoubleCondition`  = HasEffect(Self@0x148, 0x534, activeOnly=1, flags=6)
+#   * `HammerOfWrathAbility$$GetAdjacentTargets`  = Enemies(caster@0x160, AdjacentUnits(target@0x178, 1))
+#   * `GetHits` / `GetHitsToBonusTarget` : corps DEDUPLIQUES IL2CPP (ghidra les affiche
+#     `ArmoriumCherubAbility$$GetHits` / `BringerOfDespairAbility$$GetHitsToBonusTarget`) =
+#     `GetNumberConstant(0x2f)` et `GetNumberConstant(0x32)` -- la STRUCTURE est lue, jamais le nom.
+#
+# Le `Multiply(MinMaxDamage, 2)` DOUBLE LES BORNES (pas la valeur tiree) : `IdunBattle.Entities.
+# Behaviours.AbilityDamageBehaviour$$GetDamage` teste si le node de degat implemente l'interface
+# min/max et, si oui, appelle ses slots `CalculateMin`/`CalculateMax` -- or `IdunBattle.Entities.
+# Formulas.MultiplyAmount` et `ConditionalAmount` implementent TOUS DEUX ces slots (symboles
+# `MultiplyAmount$$CalculateMin/Max`, `ConditionalAmount$$CalculateMin/Max`) et delegguent a leurs
+# operandes. Le port double donc `(bmin, bmax)` via `damage_override`.
+#
+# `HammerOfWrath_ConditionalDamage` (0x534=1332) est un OWNER-EFFECT permanent pose a l'INIT de
+# l'ability par la triggered 1258 (`AOwnerEffectTriggeredAbility$$CreateBehaviour` =
+# `If(<cond>, AddEffect(effectType, AbilityState(owner), owner, owner, <duree ZEROE>))`, trigger
+# `OnOwnerSpecificAbilityInit`), dont l'ACTIVE-CONDITION est
+# `IdunBattle.Entities.Effects.Loki.HammerOfWrath_ConditionalDamageEffect$$CreateActiveCondition` =
+# `HealthPctIsBelowOrEqual(Self@0x148, ConfigConst(1153, Self, 0x4f = healthPct))`. C'est le MEME
+# patron qu'`AnvilShield_BlockChanceBelowHealthCap` : l'entite-effet existe en permanence, seul son
+# flag `IsActive` bascule -> cf. `entities/effects/loki/status.py` + `ABILITY_INIT_OWNER_EFFECTS`.
+#
+# RESIDU NOMME (hors perimetre de CE port) : le passif `AggressiveOnslaught` (triggered 1248) invoque
+# 2 `bloodSmnIntercessor` quand Mataneo CHARGE. Son trigger est
+# `On(0xb = UnitAbility) & OwnerIsCaster & (IsPersistentData | IsCharging(caster, target))`
+# (`AggressiveOnslaught_SummonAbility$$CreateTrigger`) -- `On(0xb)` est emis par
+# `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` **APRES** l'execution de la
+# behaviour, donc APRES les deux volets d'attaque : le flux `state.rng` des coups de HammerOfWrath
+# n'est PAS pollue par le summon. La face COMBAT du summon n'est pas portee (seule sa face DECISION
+# l'est, `playbook/aggressive_onslaught.py`).
+
+
+def hammer_of_wrath_get_double_condition() -> HasEffect:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetDoubleCondition` — MIRROR :
+    `HasEffect(Self@0x148, 0x534 = HammerOfWrath_ConditionalDamage, activeOnly = 1, sourceFlags = 6)`.
+    Pour une ability ACTIVE, `Self@0x148` == le caster -> `Caster()`. `active_only=True` (defaut du port
+    == le `1` natif) fait respecter l'`ActiveCondition` de l'effet (HP% <= healthPct)."""
+    return HasEffect(Caster(), HOW_CONDITIONAL_DAMAGE)
+
+
+def hammer_of_wrath_get_adjacent_targets() -> Enemies:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetAdjacentTargets` — MIRROR :
+    `Enemies( caster@0x160, AdjacentUnits(target@0x178, 1) )` = les unites d'equipe != celle du caster a
+    distance hex 1 de la CIBLE (la cible elle-meme exclue, `_within` d>0). i2 : « 1x ... Physical Damage
+    to all enemies adjacent to it »."""
+    return Enemies(AdjacentUnits(Target(), Const(1)))
+
+
+def _how_pos_of(state: "State", uid: int):
+    e = state.get_entity(uid)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return (pc.col, pc.row) if pc is not None else None
+
+
+def _how_occupied_positions(state: "State") -> set:
+    """Occupation LIVE (unites VIVANTES) — `CanAddUnit` natif teste le CONTENU de tuile."""
+    occ: set = set()
+    for e in state.entities.values():
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or (uc is not None and not uc.alive):
+            continue
+        occ.add((pc.col, pc.row))
+    return occ
+
+
+def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
+    """COLLAPSE (doctrine slice-18/19) du selecteur de destination de la charge, mirror du DECOMPILE :
+
+        First( SortTilesByUtility(
+                 Filter( CanAddUnit(AdjacentTiles(target@0x178)),
+                         NOT( AmountIsGreater( MinDistance(It@0x180, CasterTiles@0x170),
+                                               Get(GetNumberConstant(0x16 = range)) ) ) ),
+                 caster@0x160, UtilityDefinition(7 = Tile) ), 1 )
+
+    -> tuile LIBRE + marchable ADJACENTE a la cible, a distance hex <= `range` de la tuile du caster,
+    la PLUS PROCHE du caster (tie-break id de tuile). i2 : « charges an enemy target that has a free
+    adjacent hex within movement range 5 ».
+
+    `MinDistance(It, CasterTiles)` = distance HEX (pas une longueur de chemin) entre la tuile candidate
+    et la tuile du caster (`@0x170` = `CasterTiles`, cf. `RadSaturationAbility$$CreateBehaviour`).
+
+    `SortTilesByUtility(sel, caster@0x160, UtilityDefinition(7 = Tile))` ->
+    `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = tri DECROISSANT par
+    `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` sur le composite **Tile(7)**, DEJA
+    PORTE (`engine/utilities/tile.py::TILE_UTILITY`, 29 feuilles). On l'appelle ICI au lieu de le
+    collapser en « la plus proche du caster » : sur une carte plate toutes les feuilles rendent 0 sauf
+    `ElevationUtility` (BC `Elevation.Multiplier=10`, `HighestElevation=+10`, `LowestElevation=-5`), et
+    c'est PRECISEMENT elle qui tranche.
+
+    ⚠ MESURE (#226, MC1_67, Mataneo @(4,7), cible necroWarden @(6,7)) : les deux tuiles libres du
+    ring-1 sont (5,7) elev 1 (a distance 1 du caster) et (6,6) elev **2** (a distance 2) — le natif
+    charge sur **(6,6)** (`Unit_Foot_Tile_Id_1 = 72`), donc SUR LA PLUS ELEVEE, pas sur la plus proche.
+    Le collapse « plus proche du caster » des ports frere (`SkyStrikeAbility$$ExecuteBehaviour`,
+    `HeroicFusilladeAbility$$ExecuteBehaviour`, `ForwardSpotterAbility$$PickTiles`) est donc REFUTE
+    par la mesure sur ce call-site ; ces trois-la gardent leur ancien collapse (hors perimetre).
+
+    Le tri est STABLE sur l'ordre du SELECTEUR (`board.neighbours(tuile-cible)` = l'ordre natif de
+    `AdjacentTiles`), ce qui donne le tie-break quand les utilites sont EGALES (carte plate).
+    `meta` par tuile = `{elevation, elevation_max, elevation_min}` avec min/max sur le **BOARD ENTIER**
+    (mirror `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 :
+    board-singleton, PAS le candidate-set) ; les autres feuilles rendent 0 faute de metadata — c'est la
+    degradation DEJA documentee de `utilities/tile.py`. Renvoie (col,row) ou None (aucune tuile ->
+    `MoveUnitBehaviour` no-op, garde `local_308 == 0`)."""
+    from ...utilities import tile_composite
+    from ... import weights as _weights
+    board = state.board
+    cpos = _how_pos_of(state, caster_id)
+    tpos = _how_pos_of(state, target_id)
+    if board is None or cpos is None or tpos is None:
+        return None
+    ttile = board.id_at(tpos[0], tpos[1])
+    if ttile is None:
+        return None
+    rng_max = ability_var("HammerOfWrath", "range", is_constant=True)   # GetNumberConstant(0x16) = 5
+    occ = _how_occupied_positions(state)
+    cands = []
+    for t in board.neighbours(ttile):                      # AdjacentTiles(target) — ORDRE DU SELECTEUR
+        pos = board.coord(t)
+        if pos in occ or not board.walkable(t):            # CanAddUnit : tuile LIBRE et marchable
+            continue
+        if rng_max is not None and hexgeo.distance(cpos, pos) > int(rng_max):
+            continue                                       # Filter(NOT(AmountIsGreater(MinDistance, range)))
+        cands.append(t)
+    if not cands:
+        return None
+    elevs = [d.get("elevation") for d in board.by_id.values() if d.get("elevation") is not None]
+    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+    wt = _weights.load()
+
+    def _u(t: int) -> float:
+        pos = board.coord(t)
+        return tile_composite(pos, {"elevation": board.elevation(t),
+                                    "elevation_max": emax, "elevation_min": emin}, {}, wt)
+    # tri DECROISSANT par utilite, STABLE -> l'ordre du selecteur tranche les egalites (carte plate)
+    cands.sort(key=_u, reverse=True)
+    return board.coord(cands[0])                            # First(sel, 1)
+
+
+def hammer_of_wrath_tree(dest, damage_override):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour`
+    (id 1153, `bloodIntercessor` « Mataneo » — MIRROR 1:1 ; cf. le bloc de decompile en tete de section) :
+
+        op_and( op_and( AddEffect(Infiltrate_UnitEffect, Caster(), duree = 1 TOUR),
+                        MoveUnit(Caster(), FixedTiles([dest])) ),
+                If( IsAlive(Caster()),
+                    AtomicGroup( op_and( AttackWithAttackDamage(Target(), Power, nrOfHits),
+                                         AttackWithAttackDamage(GetAdjacentTargets, Physical,
+                                                                nrOfHits_2, multi=True) ) ) ) )
+
+    ORDRE natif : Infiltrate -> CHARGE -> (attaque principale -> attaque des adjacents). La charge
+    precede les attaques, donc la position du caster au moment du degat est celle D'ARRIVEE (elevation
+    et adjacence lues post-move) ; le selecteur `GetAdjacentTargets` est evalue A L'ATTAQUE.
+
+    `native_factory="ability"` pour les DEUX volets : `HammerOfWrathAbility$$ExecuteBehaviour` appelle
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille ABILITY ->
+    `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, aucun crit, aucune
+    feuille positionnelle) — classe PAR LE DECOMPILE, jamais au juge. La classe Python porte le nom
+    `AttackWithAttackDamage` (mode BORNES) et c'est son flag `native_factory` qui designe l'Operation,
+    == le port SpiritLeech (1104), meme situation.
+
+    `duration_turns=1` pour l'Infiltrate : le 6e argument natif est le noeud `Direct(1)` du DSLFactory
+    (`dsl+0xc0`), DEJA en TOURS — pas un `TurnsFromRounds` (contraste Foehammer). i2 : « gains Infiltrate
+    until the end of this turn ».
+
+    `Infiltrate_UnitEffect` (1046) n'a pas de classe d'effet portee -> `BaseEffect` nu (effet PRESENT,
+    sans contribution) : degradation fidele §17.4. Il ne porte aucun terme de degat.
+
+    `AtomicGroup` = pass-through d'execution cote port (RE #201) ; il est conserve pour le mirror
+    STRUCTUREL. Aucun `KillDeadUnits` dans ce natif."""
+    infiltrate = AddEffect(INFILTRATE_UNIT, "Infiltrate_UnitEffect", Caster(),
+                           duration_rounds=None, duration_turns=1)      # Direct(1)@dsl+0xc0 = 1 TOUR
+    move = MoveUnit(Caster(), FixedTiles([dest] if dest is not None else []))
+    main = AttackWithAttackDamage(Target(), "HammerOfWrath", "Power", is_melee=True,
+                                  damage_override=damage_override,
+                                  native_factory="ability",   # -> `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+                                  ability_type=int(ActiveAbilityType.HammerOfWrath))
+    adjacent = AttackWithAttackDamage(hammer_of_wrath_get_adjacent_targets(), "HammerOfWrath",
+                                      "Physical", is_melee=True, multi=True,
+                                      min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2",
+                                      damage_override=damage_override,
+                                      native_factory="ability",
+                                      ability_type=int(ActiveAbilityType.HammerOfWrath))
+    return op_and(op_and(infiltrate, move),
+                  If(IsAlive(Caster()), AtomicGroup(op_and(main, adjacent))))
+
+
+class HammerOfWrathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour` (id 1153,
+    `bloodIntercessor` « Mataneo », Blood Angels) — cf. `hammer_of_wrath_tree()`.
+
+    i2 : « If Mataneo has not moved, he gains Infiltrate until the end of this turn, charges an enemy
+    target that has a free adjacent hex within movement range 5, dealing 2x <dmg> Power Damage to the
+    target and 1x <dmg> Physical Damage to all enemies adjacent to it. If Mataneo is at or below 50%
+    Health, doubles the damage dealt by this ability. »
+
+    ⚠ le « If Mataneo has not moved » de l'i2 n'est PAS une branche de l'`ExecuteBehaviour` (l'`AddEffect`
+    Infiltrate y est INCONDITIONNEL, lu au decompile) : c'est une condition de la couche de ciblage/UI, hors
+    de la face COMBAT. Le port mirror le DECOMPILE.
+
+    Turn-flags = defauts base (1153 ABSENT des overrides `NO_END_TURN`/`NO_ABILITY_USED_FLAG`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HammerOfWrath)   # 1153
+    ABILITY_ID = "HammerOfWrath"
+
+    # GATE DE CIBLE (#115). `HammerOfWrathAbility$$.ctor` n'appelle PAS `TargetingOptions..ctor` : il
+    # COPIE VERBATIM un PRESET statique de `IdunBattle.Core.Services.TargetingOptions` (struct 0x40 aux
+    # champs statiques `+0x240..0x27f`) puis `AActiveAbility..ctor(this, &opts, 0)`. Masque EFFECTIF LU
+    # dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : `*(statics + 0x268) = 0x102004032`
+    # (0x268 = 0x240 + 0x28 = le champ `rules`). Aucun flag OR'e apres la copie -> le preset EST le
+    # masque (ce n'est PAS l'overload « preset + flags »). Decomposition :
+    #     0x2         TargetMatchesDynamicRule  -> PORTE (`get_dynamic_invalid_target_reason` ci-dessous)
+    #     0x10        CasterHasNotMoved         -> PORTE (volet CASTER, `get_invalid_caster_reason`) ;
+    #                                              c'est le « If Mataneo has not moved » de l'i2
+    #     0x20        TargetHasFreeAdjacentTile -> SUBSUME par la regle dynamique (qui teste le MEME
+    #                                              predicat PLUS la contrainte de portee) ; le volet
+    #                                              statique reste non porte (cf. `targeting.py`)
+    #     0x4000      TargetIsEnemy             -> PORTE
+    #     0x2000000   AllowObscuredTargetByElevation -> permissif (aucune contrainte portee ici)
+    #     0x100000000 (bit 32, nom hors dump 32 bits) -> predicat battleQuery slot 0x61, non porte
+    TARGETING_OPTIONS = TargetingOptions(rules=0x102004032)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetDynamicInvalidTargetReason`
+        — MIRROR du decompile :
+
+            dc.ability = this ; dc.target = <cible> ; dc.range = GetNumberConstant(config, 0x16)
+            tiles = battleQuery.<slot 0x52>(casterTiles)
+            return (tiles != null && Enumerable.Any(tiles, dc.<lambda>)) ? 0 : 0x20
+
+        `0x20` = `TargetingRule.TargetHasFreeAdjacentTile` — et c'est EXACTEMENT le predicat que
+        l'`ExecuteBehaviour` re-utilise pour choisir sa tuile de charge
+        (`Filter(CanAddUnit(AdjacentTiles(target)), NOT(AmountIsGreater(MinDistance(It, CasterTiles),
+        Get(range))))`). On mirror donc en REUTILISANT le meme selecteur (`hammer_of_wrath_dest_tile`) :
+        s'il ne rend AUCUNE tuile, la cible est refusee. i2 : « charges an enemy target **that has a
+        free adjacent hex within movement range 5** ».
+
+        GROUND TRUTH LIVE (#226, MC1_67) : sur un necroWarden dont TOUTES les tuiles ring-1 sont
+        occupees, `abilityTargets(...).fromHere` EXCLUT la cible cote natif — et l'inclut des qu'une
+        tuile se libere (mesure : deplacer u81 hors de (5,8) rend u77 ET u81 legaux d'un coup).
+        Cible/caster non resolvables -> 0 (permissif, jamais de refus invente).
+
+        ###### RESIDU NOMME — le natif refuse EN PLUS une cible DEJA ADJACENTE (non porte) ######
+        MESURE (#226, meme runner, u83 DEPLACE autour de Mataneo @(4,7), 3 ennemis ecartes du champ) :
+            d=1 @(4,8) refuse · d=1 @(5,7) refuse · d=2 @(6,6) accepte · d=2 @(2,7) accepte
+            d=3 @(1,7) accepte · d=4 @(0,7) accepte · d=6 @(0,3) accepte
+        La bande acceptee est donc `d >= 2` (et PAS `d <= range` : d=6 passe, parce que la contrainte
+        `MinDistance(tuile, CasterTiles) <= range` porte sur la TUILE de charge, pas sur la cible).
+        AUCUNE lecture de la lambda ci-dessus ne produit ce refus a d=1 (a d=1 les tuiles libres du
+        ring-1 de la cible sont a distance <= 2 du caster, donc `Any` est VRAI). Le refus vient donc
+        d'un AUTRE etage de la cascade statique : HYPOTHESE = le bit **0x100000000** (bit 32,
+        `predicat battleQuery slot 0x61 sur les tuiles`, cf. l'inventaire de `targeting.py`) — que
+        `WaaaghAbility` (l'autre ability de CHARGE portee) porte AUSSI et qui n'y est pas porte non
+        plus. NON IMPLEMENTE ICI : le bit est une regle PARTAGEE de la cascade et je n'ai de mesure
+        que sur UNE ability ; l'implementer globalement risquerait de regresser Waaagh (live-valide
+        sans lui). Consequence : le port ACCEPTE un cast sur une cible deja adjacente que le natif
+        REFUSE (permissif, meme classe de residu que toutes les regles non portees de `targeting.py`)."""
+        if target_id is None:
+            return 0
+        dest = hammer_of_wrath_dest_tile(state, int(caster_id), int(target_id))
+        return 0 if dest is not None else int(RULE_TARGET_HAS_FREE_ADJACENT_TILE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        cond = hammer_of_wrath_get_double_condition()
+
+        def damage_override(_st, _caster, _target, bmin, bmax):
+            # `ConditionalAmount(GetDoubleCondition, Multiply(node, Get(2)), node)` — le predicat est
+            # RELU a chaque `GetDamage` (noeud lazy, `entities` = vue LiveUnit) ; `Multiply` double les
+            # DEUX bornes (`MultiplyAmount$$CalculateMin`/`$$CalculateMax` compositionnels).
+            return (2 * bmin, 2 * bmax) if cond.evaluate(entities) else (bmin, bmax)
+
+        dest = hammer_of_wrath_dest_tile(state, caster_id, target_id)   # collapse SortTilesByUtility+First
+        doubled = bool(cond.evaluate(entities))                          # diag (etat PRE-charge)
+        hammer_of_wrath_tree(dest, damage_override).execute(entities, ectx)
+        main_attack, splash, moved_to = None, [], None
+        for name, p in ectx.emitted:
+            if name == "MoveUnit":
+                moved_to = p.get("to") if p.get("moved") else None
+            elif name == "AttackWithAttackDamage":
+                if p.get("target") == target_id and main_attack is None:
+                    main_attack = p.get("attack")            # volet PRINCIPAL (1er emis)
+                else:
+                    splash.append({"target": p.get("target"), "attack": p.get("attack")})
+        return {"ability": "HammerOfWrath", "caster": caster_id, "target": target_id,
+                "main_attack": main_attack, "splash": splash, "moved_to": moved_to,
+                "dest": dest, "doubled": doubled, "dsl": True}

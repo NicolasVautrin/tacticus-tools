@@ -62,7 +62,7 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility)
-from .bloodangels import SavageEchoesAbility
+from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
@@ -72,7 +72,7 @@ from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, Fighting
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility)
 from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
-from .spacewolves import GreatFrostAxeAbility
+from .spacewolves import GreatFrostAxeAbility, FoehammerAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
 from .admec import SentinelDirectivesAbility, RadBombardmentAbility
@@ -127,6 +127,8 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     HarvesterOfSoulsAbility.ABILITY_TYPE: HarvesterOfSoulsAbility,     # 1067 (Maugan Ra eldarMauganRa Aeldari : ranged HeavyRound cible hits=If(HasMoved,2,3) + splash MinMaxDamage2 ennemis ring1-cible ∩ rayon-3 caster, native_factory attack, ExecuteAtomic, case-220 §6.19)
     SkyStrikeAbility.ABILITY_TYPE: SkyStrikeAbility,                   # 1025 (adeptCelestine Celestine Sisterhood : charge tuile libre adjacente (vole, sans reach) + attaque melee normale base Attack+extraDmg profil/coups arme melee, template VigilanceEternal, case-220)
     GreatFrostAxeAbility.ABILITY_TYPE: GreatFrostAxeAbility,           # 1089 (spaceWulfen : glace zone cible+ring1 + attaque melee 4x Piercing mono-cible ATTACK-family, case-220 SW)
+    FoehammerAbility.ABILITY_TYPE: FoehammerAbility,                   # 1097 (spaceRockfist Arjac SpaceWolves : Stunned(1162) cible + 1x Power ranged, degat + extraDmg x Count(heros morts/ressuscites), ATTACK-family, case-226)
+    HammerOfWrathAbility.ABILITY_TYPE: HammerOfWrathAbility,           # 1153 (bloodIntercessor Mataneo BloodAngels : Infiltrate self + CHARGE tuile libre adj-cible <=range + 2x Power cible & 1x Physical ennemis adj-cible, ABILITY-family, degat DOUBLE si effet 1332 actif (HP<=healthPct), case-226)
     SporeMineLauncherAbility.ABILITY_TYPE: SporeMineLauncherAbility,   # 1145 (tyranBiovore Biovore MoW Tyranids : spawn tyranSmnSporeMine sur tuile-cible directe WithStatsFromConfig, corps IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$ExecuteBehaviour = IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour MOINS on-appearance ; mine inerte offline FloatingDeath non porte, case-220 §6.16)
     AlphaWarriorAbility.ABILITY_TYPE: AlphaWarriorAbility,             # 1112 (tyranWingedPrime Winged Prime Tyranids : spawn tyranSmnWarrior sur tuile-cible WithStatsFromConfig + attaque a l'apparition, corps IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour = template IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour AberrantHypermorph ; gate IsInTeamSynapseRange live ABSENT, case-220 §6.16)
     JakhalStimmsAbility.ABILITY_TYPE: JakhalStimmsAbility,             # 1131 (worldJakhal Macer WorldEaters : 4x Physical melee cible + AoE intersection AdjacentUnits(caster) & AdjacentFriends(target) + self-loss 25% PV courant (ChangeStat Subtract, Execute separe) ; free action ; native_factory attack, ExecuteAtomic 0x2a, case-220 §6.3)

@@ -670,3 +670,45 @@ class WaaaghExtraHitsEffect(BaseEffect):
             return None
         n = ability_var("Waaagh", "extraHit", is_constant=True)   # ConfigConst(0x2b) = 1
         return for_addition(True, int(n)) if n else None
+
+
+class HammerOfWrathConditionalDamageEffect(BaseEffect):
+    """`HammerOfWrath_ConditionalDamage` (effet 0x534=1332, classe native
+    `IdunBattle.Entities.Effects.Loki.HammerOfWrath_ConditionalDamageEffect` -- base `BaseEffect`,
+    source `AbilityOrEffect 0x481` = HammerOfWrath, lu dans son `$$.ctor`).
+
+    POSE : owner-effect PERMANENT ajoute au PORTEUR a l'INIT de l'ability, par la triggered 1258
+    (`IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour` =
+    `If(<cond>, AddEffect(effectType, AbilityState(owner, abilityType), owner, owner, <duree ZEROE>))`,
+    trigger `IdunBattleLogic.Entities.DSLFactory$$OnOwnerSpecificAbilityInit`). Cote port :
+    `ABILITY_INIT_OWNER_EFFECTS["HammerOfWrath"]` (meme mecanisme que `AnvilShield`).
+
+    ACTIVE-CONDITION -- `IdunBattle.Entities.Effects.Loki.HammerOfWrath_ConditionalDamageEffect$$CreateActiveCondition` :
+        HealthPctIsBelowOrEqual( Self@0x148, ConfigConst(0x481 = 1153, Self, 0x4f = healthPct) )
+    ou `IdunBattleLogic.Entities.DSLFactory$$HealthPctIsBelowOrEqual(unit, pct)` alloue un
+    `IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger` sur la stat **5 = HEALTH**
+    -> `(current / max) <= (healthPct / 100)` en Fix64. `GetNumberConstant(0x4f)` =
+    `gameconfig.ability("HammerOfWrath").constants["healthPct"]` = 50. i2 : « If Mataneo is at or below
+    50% Health, doubles the damage dealt by this ability. »
+
+    AUCUNE contribution propre (ni stat-mod, ni EffectBonus) : sa SEULE fonction est d'etre LU par
+    `HammerOfWrathAbility$$GetDoubleCondition` = `HasEffect(Self, 0x534, activeOnly=1)`, qui gate le
+    `ConditionalAmount(cond, Multiply(MinMaxDamage, 2), MinMaxDamage)` du node de degat. C'est donc le
+    MEME patron que `AnvilShield_BlockChanceBelowHealthCap` (present en permanence, `IsActive` bascule
+    avec les PV) -- et, comme lui, il est ABSENT du seed live tant que la condition est fausse
+    (`decisionView.effects` n'expose que les effets ACTIFS, GROUND TRUTH #100).
+
+    Comparaison ENTIERE exacte (meme argument que `_regenerate_precondition` de SavageEchoes) :
+    `100*current <= healthPct*max` -- pour des PV entiers la division Fix64 ne bascule jamais autrement,
+    et l'egalite au bord (2*current == max) est rendue 0.5 exact -> `<=` vrai."""
+
+    def is_active(self, unit_state: "Mapping | None" = None) -> bool:
+        """`CreateActiveCondition` : `HealthPct(Self) <= GetNumberConstant(0x4f = healthPct)`.
+        `unit_state` = `{hp, max_hp}` (convention `PowerTripFullHealthEffect`/`AnvilShield...`).
+        PV non captes -> True (degradation fidele : on ne masque pas l'effet a tort)."""
+        s = unit_state or {}
+        hp, mx = s.get("hp"), s.get("max_hp")
+        pct = ability_var("HammerOfWrath", "healthPct", is_constant=True)   # GetNumberConstant(0x4f) = 50
+        if hp is None or mx is None or not mx or pct is None:
+            return True
+        return 100 * int(hp) <= int(pct) * int(mx)
