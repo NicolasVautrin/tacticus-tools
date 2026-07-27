@@ -46,6 +46,23 @@ class UnitComponent(Component):
     NB : logé ici (comme `times_attacked_this_turn`) alors que le foyer natif est un composant
     ActorStatistics dédié — résidu structurel documenté (case-202 §6).
 
+    `last_hit_damage_taken_this_turn` / `last_hit_damage_taken_last_turn` = mirror des DEUX champs
+    `ActorStatisticsComponent @+0x6c` et `@+0x70` (memes offsets, meme composant que le dict
+    `received_damage_this_turn` @+0x80 ci-dessus).
+      * ECRITURE, PAR COUP : `IdunBattle.Operations.ApplyDamageOperation$$Execute` ecrit
+        `stats[0x68] = stats[0x6c] = (int)*param_1` sur la VICTIME, ou `(int)*param_1` = 1er champ du
+        `DamageAppliedResult` = la SOMME des reductions REELLEMENT appliquees par CE coup
+        (`FillUpStatComponent.Reduce` sante + 2e pool + `ApplyDamageOperation$$ReduceShield`).
+        C'est donc le total du DERNIER COUP (PV + bouclier + armure-pool), PAS le total de l'attaque.
+      * ROULEMENT, au turn-start du PROPRIETAIRE : `IdunBattle.Operations.StartTurnOperation$$ResetUnit`
+        fait `stats[0x70] = stats[0x6c] ; stats[0x6c] = 0` JUSTE APRES
+        `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetReceivedDamageThisTurn`.
+        (`ActorStatisticsComponent$$ResetThisTurn` ne touche NI 0x6c NI 0x70.)
+      * LECTURE : `IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula$$Calculate` rend
+        `*(int *)(comp + 0x70)` -> noeud DSL `IdunBattleLogic.Entities.DSLFactory$$LastHitDamageTakenLastTurn`.
+        Consommateur porte : la regen `TimeFlux` de `thousTerminator` (« plus an additional amount
+        equal to the Damage of the last hit he received in the last enemy turn »).
+
     `revive_used_this_turn` = gate ONCE-PER-TURN du passif revive-en-place (`ReviveEffect`, ex.
     TaintedNarthecium de deathRotbone / Narthecium de l'Apothicaire, case-66). Mirror de la
     DÉSACTIVATION de l'effet (`DeactivateEffect`, 2e volet du `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour`
@@ -95,7 +112,8 @@ class UnitComponent(Component):
     """
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
-                 "death_source")
+                 "death_source", "last_hit_damage_taken_this_turn",
+                 "last_hit_damage_taken_last_turn")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -106,6 +124,11 @@ class UnitComponent(Component):
         self.times_attacked_this_turn = 0
         self.received_damage_this_turn: dict = {}
         self.revive_used_this_turn = False
+        # `ActorStatisticsComponent @+0x6c` / `@+0x70` — cf. la docstring de classe (bloc
+        # `last_hit_damage_taken_*`). Loges ici comme `received_damage_this_turn` (meme residu
+        # structurel : le foyer natif est l'ActorStatisticsComponent).
+        self.last_hit_damage_taken_this_turn = 0
+        self.last_hit_damage_taken_last_turn = 0
         self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
         self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
         self.death_source = None              # `Nullable<DamageSource>` @UnitComponent+0x108

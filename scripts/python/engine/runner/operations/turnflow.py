@@ -214,6 +214,19 @@ class StartTurnOperation:
             uc = e.get_component(UnitComponent)
             if uc is not None and uc.received_damage_this_turn:
                 uc.received_damage_this_turn.clear()
+            # ROULEMENT du « dernier coup encaisse » — mirror des DEUX instructions qui SUIVENT
+            # immediatement `ResetReceivedDamageThisTurn` dans
+            # `IdunBattle.Operations.StartTurnOperation$$ResetUnit` :
+            #     stats[0x70] = stats[0x6c] ;  stats[0x6c] = 0
+            # `@+0x70` est ce que rend `IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula
+            # $$Calculate` -> il vaut donc le degat du DERNIER COUP recu depuis le debut du tour
+            # PRECEDENT du proprietaire (typiquement : pendant le tour adverse). Meme portee que le
+            # reset du dict ci-dessus : PAR-UNITE DU JOUEUR ENTRANT uniquement.
+            # ⚠ ORDRE : ce roulement precede l'emission des 5 events 0x12..0x16 plus bas — c'est ce qui
+            # permet a la regen `TimeFlux` (`On(TurnStart_Other=0x13)`) de lire la bonne valeur.
+            if uc is not None:
+                uc.last_hit_damage_taken_last_turn = int(uc.last_hit_damage_taken_this_turn or 0)
+                uc.last_hit_damage_taken_this_turn = 0
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
         # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =

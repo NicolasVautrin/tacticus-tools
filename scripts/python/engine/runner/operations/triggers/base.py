@@ -192,12 +192,31 @@ FORCED_IN_MELEE = int(EffectType.ForcedInMelee)   # 1321 = 0x529 — clamp de po
 
 
 def _max_attack_range(ctx) -> int:
-    """Portée d'attaque MAX de l'unité = max(Range des armes) ; mêlée (Range absent) → 1."""
+    """Portée d'attaque MAX de l'unité — mirror de la branche ARME de
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange` :
+
+        if  (!HasAnyWeapon(u))     range = GetStat(u, RANGE=2)
+        elif(!HasRangedWeapon(u))  range = 1
+        else                       range = GetStat(u, EXTRA_RANGE=0x18) + FindLongestRangedWeapon(u).range
+
+    Le port dérive `HasRangedWeapon` / `FindLongestRangedWeapon` du gameconfig (max des `Range`
+    d'arme ; aucune arme portée → mêlée → 1) et ajoute le stat `EXTRA_RANGE` **uniquement sur la
+    branche ranged**, exactement comme le natif. Ce stat était jusqu'ici sans AUCUN consommateur dans
+    le moteur (no-op silencieux) ; premier poseur : le volet Range de `RealityUnbound` (effet 1206).
+    Le clamp `ForcedInMelee` (`Math.Min(1, range)`) et le cap final restent chez l'appelant
+    (`_in_attack_range`)."""
     import gameconfig as GC
+    from ....entities.stats import StatType
     gu = GC.unit(getattr(ctx, "visual_id", None) or "") or {}
     ranges = [int(w.get("Range") or 0) for w in (gu.get("weapons") or [])]
     mx = max(ranges) if ranges else 0
-    return mx if mx > 0 else 1
+    if mx <= 0:
+        return 1                                   # pas d'arme ranged -> branche `range = 1`
+    # `UnitStats.get_stat` rend 0 quand le StatType n'a pas de composant (mirror du `default -> 0`
+    # natif) -> aucune garde a ajouter ici ; `stats` est None sur un ctx degrade (capture partielle).
+    stats = getattr(ctx, "stats", None)
+    extra = int(stats.get_stat(int(StatType.EXTRA_RANGE)) or 0) if stats is not None else 0
+    return mx + extra
 
 
 def _forced_in_melee(state: State, unit_id: int) -> bool:

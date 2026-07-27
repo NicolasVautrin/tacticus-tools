@@ -346,7 +346,24 @@ class _DamageOpsMixin:
             #     -> live 17/18 coups = round, 0/18 = floor (le 18e = coup letal ecrete aux PV restants).
             # Le controle p=65 de case-117 etait bit-exact parce que ce regime n'est PAS discriminant
             # (2250x0.65 -> 1462.4999, 3376x0.65 -> 2194.4 : floor == round).
-            mm = get_base_damage_fix64(eff_attack, spread_pct=spread_pct)
+            # EXTRA_MAX_DAMAGE (stat 0x19=25) — 5e argument natif de
+            # `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` (`max += Fix64(param_5)` ;
+            # en mode max-out `min` prend AUSSI cette valeur). LU dans son UNIQUE appelant
+            # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` :
+            #     if (!IsMeleeAttack(...)) extra = GetStat(attaquant, 0x19, 0) ; else extra = 0 ;
+            # => le bonus ne mord QUE sur les attaques NON-MELEE (i2 RealityUnbound : « +181 Maximum
+            # Damage with his normal RANGED attacks »). Le port suit sa convention etablie
+            # `is_melee == not _ranged` (celle de `defender_modifiers` ci-dessus). Le parametre
+            # `extra_max` existait deja cote prediction mais AUCUN appelant ne le renseignait : le stat
+            # etait un no-op silencieux tant qu'aucun porteur ne le posait. Poseur : le volet
+            # ExtraMaxDamage de `RealityUnbound` (effet 1207, cf. triggers/loki/reality_unbound.py).
+            # ⚠ RECTIFICATION d'attribution : le bloc de commentaire ci-dessus (modele de crit) prete a
+            # `GetBaseDamageFix64` « param_4=isCrit / param_5=critBonus ». Lecture DIRECTE du decompile :
+            # `param_4 = IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage(...)` et
+            # `param_5 = GetStat(attaquant, 0x19)`. Le modele de crit du port (crit ajoute a la BASE,
+            # valide bit-exact live) est INCHANGE — seule la citation du symbole etait fausse.
+            _extra_max = int(ctx.stat(StatType.EXTRA_MAX_DAMAGE) or 0) if _ranged else 0
+            mm = get_base_damage_fix64(eff_attack, extra_max=_extra_max, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
                 mm.min + flat_add, pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True),
                 def_mods, round_materialize=True)
@@ -397,7 +414,8 @@ class _DamageOpsMixin:
             # `GetDamageSourceAbility(currentAbility = l'attaque normale, triggeringAbility)` : la voie
             # NORMALE porte le marqueur de kind 0x3f5 comme `currentAbility` (cf. `attack_type.py`).
             source_ability=AttackDamageOperation._damage_source_ability(
-                _normal_attack_kind(), triggering_ability))
+                _normal_attack_kind(), triggering_ability),
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
         # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(
@@ -416,7 +434,15 @@ class _DamageOpsMixin:
         # est justement le porteur du seul consommateur (cf. `attack_damage_attack_triggers`).
         # `target_id` est ici la cible REELLEMENT frappee (#120bis, cf. le commentaire du champ `target`
         # ci-dessous) : le natif emet cet event depuis l'AttackData de l'attaque effectivement resolue.
-        from .triggers.dispatch import attack_damage_attack_triggers   # lazy : cycle damage<->triggers
+        # `On(FinalDamage = 0x43 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+        # RegisterFinalDamage`, dont les xrefs sont EXHAUSTIVES : `IdunBattle.Operations.
+        # AttackDamageOperation$$Execute` (ici) et `IdunBattle.Operations.AbilityDamageOperation$$
+        # Execute` (cf. `execute_ability_attack`) — donc UNE fois par ATTAQUE / par degat d'ability,
+        # JAMAIS pour un DoT ni un knockback. Place a la SORTIE de l'operation d'attaque, donc APRES
+        # les coups additionnels (le compteur `received_damage_this_turn` que lisent ses consommateurs
+        # est deja incremente) et AVANT `On(9)`/`On(10)` de `FinishAttackOperation`.
+        from .triggers.dispatch import final_damage_triggers, attack_damage_attack_triggers  # lazy
+        final_damage_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         attack_damage_attack_triggers(state, attacker_id, target_id,
                                       ranged=bool(_ranged), profile=_profile)
         # `target` (#120bis) = la cible REELLEMENT frappee. Elle differe de celle du message quand la
@@ -775,7 +801,10 @@ class _DamageOpsMixin:
             r["shield_dmg"], r["armor_dmg"], is_attack=bool(is_attack_damage_op),
             # `GetDamageSourceAbility(currentAbility = l'ABILITY, triggeringAbility = null)` : une
             # ability n'est pas une attaque REGULIERE -> la source est l'ability elle-meme.
-            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None))
+            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None),
+            # `ApplyDamageOperation$$Execute` ecrit le « dernier coup encaisse » PAR COUP -> le
+            # chokepoint par-attaque du port recoit le DERNIER coup (cf. `_record_last_hit_damage_taken`).
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
         # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
         # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
         # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :
@@ -813,6 +842,15 @@ class _DamageOpsMixin:
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
                                              profile=damage_profile, ability_type=ability_type,
                                              did_block=r["did_block"])
+        # `On(FinalDamage = 0x43 = 67)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
+        # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
+        # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
+        # base commune `ADamageOperation` et les deux `Execute` l'appellent — contraste avec `On(10)`
+        # ci-dessous, qui est bien gate par famille.
+        from .triggers.dispatch import final_damage_triggers
+        from .triggers.base import _is_ranged_position as _irp
+        final_damage_triggers(state, attacker_id, target_id,
+                              ranged=_irp(state, attacker_id, target_id), profile=damage_profile)
         # `On(AttackDamageAttack = 10)` : `FinishAttackOperation$$Execute` l'emet APRES `On(9)` et
         # SEULEMENT si `currentAttack@+0x2c` est pose, c'est-a-dire si l'attaque a traverse
         # `AttackDamageOperation$$Execute`. Cote port, ce gate EST `is_attack_damage_op` (famille de
@@ -950,7 +988,8 @@ class _DamageOpsMixin:
         AttackDamageOperation._deplete_shield(shc, r)
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
-            r["shield_dmg"], r["armor_dmg"])
+            r["shield_dmg"], r["armor_dmg"],
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
