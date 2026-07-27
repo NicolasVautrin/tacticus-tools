@@ -232,8 +232,11 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   - **N4** le STADE natif du refus `TerminatorArmour`/`Pinned` n'est pas identifié : `PinnedEffect`
     n'override PAS `EntityIsImmuneToEffect` et la base ne teste que le trait `Immune`, qu'aucune unité
     ne porte → **collapse assumé** par #224 (`case-224-effect-immunity-gate` §5). `[fable]` ;
-  - **N5** chaîne `&` derrière un `AddEffect` REFUSÉ : quand la pose est abandonnée par le gate
-    d'immunité, la suite de l'`op_and` s'exécute-t-elle ? Confond non éliminé (`case-224` §5) `[opus]` ;
+  - ~~**N5**~~ **RÉFUTÉ** (2026-07-27, `case-n5-chain-after-refused-addeffect.md`) : la chaîne **ne
+    tombe pas**. `AddEffectBehaviour$$Execute` jette le retour de l'opération et rend un
+    `OperationResult` zéro-initialisé ⇒ `CombinedBehaviour$$Execute` ne court-circuite jamais sur une
+    pose d'effet. Le port était déjà conforme ; le « ground truth » était un confond (aucun DarkAngels
+    à portée). Doc corrigée + garde live ;
   - **N6** `test_hailstrike_phase2_live` **rouge** — échec PRÉ-EXISTANT vérifié par stash, signalé
     INDÉPENDAMMENT par `7c412b8` et `ad5692e` (donc pas un artefact de branche). `[opus]`.
 - **(RÉSOLU #224) Gate d'IMMUNITÉ d'effet** — canal déclaratif (`BaseEffect.can_be_immune_to` +
@@ -250,9 +253,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     (aucun groupe `AddEffect`). Le port COLLAPSE l'ActiveCondition dans le gate. Point d'ancrage pour
     trancher : hook sur la valeur de retour du slot 40 d'`IEffect` dans `AddEffectOperation$$Execute`,
     ou sur `BaseUnitComponent$$HasTrait` (arg + résultat). Cf. case-224 §4/§5.1.
-  - **RÉSIDU `[opus]`** : chaîne `&` derrière un `AddEffect` REFUSÉ — live, la branche Chaos entière
-    d'`ExemplarOfHate` tombe avec le `Pinned` refusé (`mutated=False`), le port la poursuit. CONFOND
-    non éliminé (élection d'attaquant DarkAngels à portée non forçable sur ce board). Cf. case-224 §5.2.
+  - ~~**RÉSIDU `[opus]`**~~ **CLOS** : chaîne `&` derrière un `AddEffect` REFUSÉ — elle **NE TOMBE
+    PAS** (décompilé + live). Le confond est levé en DÉPLOYANT le camp joueur au contact : `Pinned`
+    refusé ET override d'Attack + attaque libre exécutés (10038 → 7442 HP). Le port était conforme,
+    le commentaire d'`operations/effects.py` était faux. Cf. `case-n5-chain-after-refused-addeffect.md`.
 - **`decisionView.effects` cache les effets INACTIFS** (`frida/hooks/game/effects.ts`,
   `readEffectsByUnit` : `if (!info.active || info.removed) continue`) : impossible de confirmer live
   qu'un `AddEffect` a réellement posé un effet dont l'`ActiveCondition` n'est pas encore satisfaite —

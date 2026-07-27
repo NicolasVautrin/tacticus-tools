@@ -21,7 +21,17 @@ class Seq(AbilityBehaviour):
     et `IdunBattle.DSL.AbilityBehaviour$$op_Addition` allouent la MEME classe `CombinedBehaviour`, left@0x50 right@0x58) :
     sequence gauche->droite avec COURT-CIRCUIT. Exec left, `Combine` ; `if result.byte@+0x20 == 0`
     -> exec right, sinon STOP. Deux effets PURS -> flag 0 -> les deux s'executent (cf. le `op_Addition`
-    de GetEmRuntz joignant `(Spawn & PerformAIAttack)` et `Foreach(Taunt)`)."""
+    de GetEmRuntz joignant `(Spawn & PerformAIAttack)` et `Foreach(Taunt)`).
+
+    QUI peut poser le flag (N5) : SEULES les feuilles qui PROPAGENT le resultat de leur Operation --
+    `IdunBattle.Entities.Behaviours.DiscardHitBehaviour$$Execute` recopie les 8 slots rendus par son
+    operation dans son propre retour. Les feuilles qui JETTENT ce retour rendent un resultat
+    zero-initialise et ne peuvent JAMAIS court-circuiter : c'est le cas d'`AddEffectBehaviour` (et
+    d'`InformBehaviour`). Corollaire MESURE live : **un `AddEffect` REFUSE (immunite, cible morte,
+    cible nulle) ou NO-OP (effet deja present) ne fait PAS tomber la suite de la chaine `&`** --
+    `ExemplarOfHate` sur une cible `TerminatorArmour` refuse son `Pinned` et execute quand meme
+    l'override d'Attack, l'attaque libre et le retrait. `Combine` OU-propage le flag
+    (`IdunBattle.Core.OperationResult$$Combine` : `if (byte@+0x20 == 0) byte@+0x20 = other`)."""
     __slots__ = ("left", "right")
 
     def __init__(self, left: AbilityBehaviour, right: AbilityBehaviour):

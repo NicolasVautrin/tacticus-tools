@@ -229,6 +229,11 @@ class AddEffect(AbilityBehaviour):
                                              multiplier_pct=mult)
             ectx.emit("AddEffect", source=src, target=tgt, effect_type=self.effect_type,
                       placed=eff is not None, level=(None if lvl is None else int(lvl)))
+        # `stop` JAMAIS pose, quel que soit le sort de l'operation (refus d'immunite, cible morte,
+        # cible nulle, effet deja present) : `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute`
+        # ZERO-INITIALISE son `OperationResult` de retour et ne le reecrit jamais -- la valeur rendue par
+        # `IdunBattle.Operations.AddEffectOperation$$Execute` (l'entite-effet, `0` sur chaque gate) est
+        # appelee via le slot 0x10 du processeur et JETEE. Cf. `Seq` (entities/behaviours.py) et N5.
         return OperationResult.ok()
 
 
