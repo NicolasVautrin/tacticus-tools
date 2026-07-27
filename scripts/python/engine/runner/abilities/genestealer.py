@@ -32,6 +32,7 @@ from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
+from .targeting import TargetingOptions
 from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
                          PerformAIAction, LiveUnit)
 
@@ -260,6 +261,15 @@ class CultDemagogueAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CultDemagogue)  # 1179
 
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$.ctor`
+    # COPIE le PRESET STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x180` (pose par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor`), puis `AActiveAbility..ctor(this, &opts, 2, 0)`.
+    # Masque effectif = `preset+0x28` = statics `+0x1a8` -> `0x4002`.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2      TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
+    #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -406,6 +416,22 @@ class HeroicFusilladeAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.HeroicFusillade)  # 1180
     ABILITY_ID = "HeroicFusillade"
 
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$.ctor`
+    # utilise l'overload PRESET + flags — LE PIEGE. Sequence LUE au decompile :
+    #     TargetingOptions..ctor(&tmp, 0, &statsFromClass, 1, 0x6004002, 0, 0, 0)  # 7 params : flags DIRECTS
+    #     <copie integrale de tmp dans un 2e emplacement de pile `preset`>
+    #     TargetingOptions..ctor(&opts, &preset, 0)                                # 3 params : PRESET + flags
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # L'overload 3 params (`IdunBattle.Core.Services.TargetingOptions$$.ctor`) fait
+    # `*(this+0x28) = param_3 | *(preset+0x28)` -> Rules = `0 | 0x6004002` = `0x6004002`. Le litteral
+    # visible EST donc ici le masque effectif, mais UNIQUEMENT parce que les flags OR-es valent 0 : c'est
+    # le OR qui a ete lu, pas le litteral recopie a l'aveugle.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2         TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
+    #     0x4000      TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    #     0x6000000   AllowObscuredTarget      -> permissif
+    TARGETING_OPTIONS = TargetingOptions(rules=0x6004002)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -508,6 +534,21 @@ class VigilanceEternalAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.VigilanceEternal)  # 1202
     ABILITY_ID = "VigilanceEternal"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$.ctor`
+    # utilise le MEME schema PRESET + flags que HeroicFusillade (ctors jumeaux) :
+    #     TargetingOptions..ctor(&tmp, 0, &statsFromClass, 1, 0x206004002, 0, 0, 0)  # flags DIRECTS
+    #     TargetingOptions..ctor(&opts, &preset=tmp, 0)                              # PRESET + flags (OR 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # -> Rules = `0 | 0x206004002` = `0x206004002` (le OR a ete LU, cf. HeroicFusillade).
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2           TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF)
+    #     0x4000        TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    #     0x6000000     AllowObscuredTarget      -> permissif
+    #     0x200000000   bit 33 -> `UnitExtensions$$HasTrait(target, 0xd)` INTERDIT (la cible ne doit pas
+    #                   porter ce trait). NON PORTE (aucun predicat de trait dans la cascade portee) ->
+    #                   degradation PERMISSIVE : le port accepte une cible que le natif refuserait.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x206004002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

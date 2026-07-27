@@ -480,6 +480,21 @@ class SquigLaunchasAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.SquigLaunchas)   # 1200
     ABILITY_ID = SQUIG_LAUNCHAS_ID
 
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x40004002, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # Overload « flags DIRECTS » (5e argument -> `options+0x28`) : le litteral EST le masque effectif.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2          TargetMatchesDynamicRule -> `SquigLaunchasAbility$$GetDynamicInvalidTargetReason`
+    #                  (>= 1 Ork allie OU >= 2 allies adjacents a la cible ; cf. la docstring de la classe).
+    #                  NON surcharge cote port -> defaut 0 = pas de refus dynamique (PERMISSIF assume :
+    #                  le port n'a pas de face DECISION pour les MoW, cf. case-mow §4).
+    #     0x4000       TargetIsEnemy      -> PORTE (refus sur un allie)
+    #     0x40000000   AllowNullCasterTile -> permissif : le caster est une MACHINE OF WAR HORS PLATEAU
+    #                  (ni Position ni Health), donc SANS tuile — sans ce bit le volet CASTER refuserait
+    #                  tout cast de MoW (`GetInvalidCasterReason` : `casterTiles` vide -> 0x40000000).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x40004002)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -576,6 +591,22 @@ class SquigMineAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SquigMine)   # 1201
     ABILITY_ID = SQUIG_MINE_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x46001042, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # Overload « flags DIRECTS » (5e argument -> `options+0x28`) : le litteral EST le masque effectif.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2          TargetMatchesDynamicRule -> `SquigMineAbility$$GetDynamicInvalidTargetReason`
+    #                  (non porte -> defaut 0, PERMISSIF assume)
+    #     0x40         TargetIsTile        -> cast TILE-TARGET (le domaine TILE n'est pas porte)
+    #     0x1000       TargetTileIsFree    -> la tuile doit accepter une unite (`CanAddUnit`), NON PORTE
+    #     0x6000000    AllowObscuredTarget -> permissif
+    #     0x40000000   AllowNullCasterTile -> permissif (caster = MoW hors plateau, cf. SquigLaunchas)
+    # AUCUNE regle du domaine UNITE n'est armee ici : sur une cible-TUILE `_unit_of` rend None et la
+    # cascade portee se tait — le masque est donc pose pour la FIDELITE (et pour que le jour ou le
+    # domaine TILE sera porte, il morde tout seul), pas pour un refus mesurable aujourd'hui.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x46001042)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

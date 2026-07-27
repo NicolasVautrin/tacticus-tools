@@ -24,6 +24,7 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility
+from .targeting import TargetingOptions
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect,
                          AddDynamicStatModifierEffect)
 from .loki import perform_ai_attack_from_current_position
@@ -145,6 +146,19 @@ class IronkinSteeljackAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.IronkinSteeljack)  # 1219
     ABILITY_ID = "IronkinSteeljack"
 
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x1040, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # Overload « flags DIRECTS » (5e argument -> `options+0x28`) : le litteral EST le masque effectif
+    # (c'est le `0x1040` deja cite dans la docstring de `SpawnSteeljack`, ici LU au ctor et transcrit).
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x40     TargetIsTile     -> cast TILE-TARGET (domaine TILE non porte)
+    #     0x1000   TargetTileIsFree -> `CanAddUnit` sur la tuile visee, NON PORTE
+    # Aucune regle du domaine UNITE -> aucun refus mesurable offline ; masque pose par FIDELITE.
+    # ⚠ Le ctor est BYTE-IDENTIQUE a ceux d'AberrantHypermorph et de MasterOfTheTutelaries (meme
+    # famille « summon sur hex libre adjacent »).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x1040)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         board = state.board
@@ -213,6 +227,14 @@ class AugmentedAssaultAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.AugmentedAssault)   # 1221
     ABILITY_ID = "AugmentedAssault"
 
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility$$.ctor`
+    # COPIE le PRESET STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x40` (pose par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor`), puis `AActiveAbility..ctor(this, &opts, 0, 0)`.
+    # Masque effectif = `preset+0x28` = statics `+0x68` -> `0x4000`.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x4000   TargetIsEnemy -> PORTE, et SEULE regle du masque (refus sur soi-meme / un allie).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4000)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -264,6 +286,17 @@ class GravitonRifleAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GravitonRifle)   # 1206
     ABILITY_ID = "GravitonRifle"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility$$.ctor`
+    # COPIE le PRESET STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x140` (le MEME que
+    # MultiThreatEliminator, cf. necrons.py), puis `AActiveAbility..ctor(this, &opts, 2, 0)`.
+    # Masque effectif = `preset+0x28` = statics `+0x168` -> `0x4002`.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2      TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
+    #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    # NB la PORTEE (range 2) n'est PAS dans ce masque : le natif la teste hors bit, via
+    # `IdunBattle.Core.Services.TargetingQuery$$GetRange` — volet NON PORTE (cf. targeting.py).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -435,6 +468,25 @@ class AncestralFortuneAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.AncestralFortune)   # 1207
     ABILITY_ID = "AncestralFortune"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$.ctor`
+    # COPIE le PRESET STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x280` (pose par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor`), puis `AActiveAbility..ctor(this, &opts, 2, 0)`.
+    # Masque effectif = `preset+0x28` = statics `+0x2a8` -> `0x8004`.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x4      CasterMatchesDynamicRule -> volet CASTER (regle-delegue), NON PORTE
+    #     0x8000   bit 15 CanTargetCaster (`TargetingOptions$$get_CanTargetCaster` = `(rules >> 0xf) & 1`)
+    #              -> flag DECLARATIF : il n'apparait dans AUCUNE branche de
+    #              `TargetingQuery$$GetInvalidTargetReason` NI de `$$GetInvalidCasterReason` (verifie
+    #              exhaustivement au decompile des deux cascades) ; il ne sert qu'aux consommateurs de
+    #              ciblage (preview / IA). Coherent avec le SELF-CAST de l'ability.
+    # => masque FIDELE, mais AUCUNE regle de refus armee : le gate reste muet pour 1207, par construction
+    # native et non par trou de port.
+    # Le BYTE `options+0x00` du preset vaut **1** (`.cctor` : `*(statics + 0x280) = 1`) ->
+    # `self_cast=True`, coherent avec le SELF-CAST documente dans la docstring de la classe : le cast
+    # sur Uthar lui-meme est aiguille vers `TargetingQuery$$GetCasterNotAddedReason`, pas vers le
+    # filtre statique.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x8004, self_cast=True)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

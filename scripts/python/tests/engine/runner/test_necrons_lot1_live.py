@@ -251,6 +251,11 @@ def test_chronometron_poses_effects_on_surrounding_enemies_live(rpc, build_runne
     t_ally = board.by_id[ring[1]]
     _place(st, ally, t_ally["col"], t_ally["row"])
 
+    # SELF-CAST (cible == caster) -- c'est bien la forme NATIVE du cast de 1226 : son
+    # `ChronometronAbility$$.ctor` pose le byte `options+0x00 = 1`, la signature de
+    # `IdunBattle.Core.Services.TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions`. Le gate #115
+    # aiguille donc ce cast vers `TargetingQuery$$GetCasterNotAddedReason` (non porte -> 0), PAS vers
+    # le filtre statique : `TargetIsEnemy` (0x4000) du masque ne s'applique QU'A une cible TIERCE.
     diag = _cast(st, cid, cid, CHRONOMETRON)
     assert diag.get("ported") is True
     assert diag["range"] == rng_range
