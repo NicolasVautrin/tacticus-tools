@@ -422,7 +422,10 @@ def phase_mte(args):
         # discriminante et il ne faut rien en conclure.
         legacy_chain = []
         if args.counterfactual:
-            import engine.runner.operations.damage_ops as _dops
+            # #169 : `damage_ops` est un PACKAGE ; `hits_channel_is_melee` n'est consomme que par
+            # `execute_ability_attack`, qui le resout dans les globals de `damage_ops.ability`.
+            # Patcher le `__init__` du package serait un NO-OP SILENCIEUX (contre-cas == port).
+            import engine.runner.operations.damage_ops.ability as _dops
             from engine.runner.operations.triggers.base import _is_ranged_position
             _keep = _dops.hits_channel_is_melee
             _dops.hits_channel_is_melee = (

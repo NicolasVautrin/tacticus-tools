@@ -45,18 +45,22 @@ def _models(dv, ob, snap, rng0, board, att, tgt):
     FORCES : la garde reste discriminante quelle que soit la valeur par defaut du port."""
     from engine.runner.snapshot import load_state
     from engine.runner.operations.damage import AttackDamageOperation
-    from engine.runner.operations import damage_ops
+    # #169 : `damage_ops` est un PACKAGE ; `execute` (attaque NORMALE) resout `apply_all_modifiers`
+    # dans les globals de `damage_ops.normal`. Patcher le `__init__` du package serait un NO-OP
+    # SILENCIEUX -- les deux modeles rendraient les MEMES cellules ; c'est l'assertion
+    # `cells_f != cells_r` (garde de discrimination) qui l'attrape.
+    from engine.runner.operations.damage_ops import normal as damage_ops_normal
     from engine.services.damage_modifiers import apply_all_modifiers as _aam
 
     def _one(force):
         st = load_state(dv, ob, snap, board=board)
         st.rng = _seed_rng(rng0)
-        damage_ops.apply_all_modifiers = (
+        damage_ops_normal.apply_all_modifiers = (
             lambda v, m, round_materialize=False, _f=force: _aam(v, m, round_materialize=_f))
         try:
             return AttackDamageOperation.execute(st, att, tgt) or {}
         finally:
-            damage_ops.apply_all_modifiers = _aam
+            damage_ops_normal.apply_all_modifiers = _aam
 
     return _one(False), _one(True)
 

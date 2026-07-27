@@ -194,7 +194,12 @@ def test_ability_hits_channel_uses_declared_attack_nature_live(live_session, rpc
     applied = chain[0]["applied_hits"]
 
     # --- CONTRE-CAS (ancien predicat POSITIONNEL) : meme etat, meme RNG ---
-    import engine.runner.operations.damage_ops as dops
+    # #169 : `damage_ops` est un PACKAGE ; le SEUL consommateur de `hits_channel_is_melee` est
+    # `execute_ability_attack`, qui le resout dans les globals de `damage_ops.ability`. Patcher le
+    # `__init__` du package (ou `_channel`, deja importe par valeur) serait un NO-OP SILENCIEUX --
+    # le contre-cas rendrait la MEME chaine que le port et l'assertion `legacy != applied`
+    # ci-dessous (garde de discrimination) l'attraperait.
+    import engine.runner.operations.damage_ops.ability as dops
     from engine.runner.operations.triggers.base import _is_ranged_position
     keep = dops.hits_channel_is_melee
     dops.hits_channel_is_melee = lambda state, a, t, is_melee: not _is_ranged_position(state, a, t)

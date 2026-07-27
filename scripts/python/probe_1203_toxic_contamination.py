@@ -196,7 +196,10 @@ def _mesure_b(sid, rid, board):
     from engine.runner.messages import AttackUnitMessage
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import PositionComponent
-    import engine.runner.operations.triggers.dispatch as DP
+    # #169 : `dispatch` est un PACKAGE ; `after_hit_normal_attack` (et donc le symbole a
+    # neutraliser) vit dans `dispatch.attack`. Le `__init__` du package ne porte meme PAS
+    # `_on_toxic_damage_ability` -> viser `dispatch` rendrait un AttributeError.
+    import engine.runner.operations.triggers.dispatch.attack as DP
 
     armed_ok = disarmed_ok = placements = compared = 0
     for attempt in range(MAX_ATTACKS):
