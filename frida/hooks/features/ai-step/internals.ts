@@ -184,6 +184,12 @@ export function readAbilityState(ab: NativePointer): {
 // EntityExtensions.GetMainTile(entity, state) → la tile courante de l'unité
 // (GetMovableTilesFor exclut la tile d'origine ; on l'ajoute au set candidat
 // pour que « rester sur place et attaquer » soit rankée).
+// R1 : cet ajout est FIDÈLE, pas une commodité d'outillage — le tactic natif fait
+// exactement le même geste. ABaseAiUnitTactic$$GenerateActionTiles appelle
+// IBattleQuery+0xe = BattleQuery$$GetCurrentAndMovablePositionsFor, qui SEEDE son
+// OrderedSet avec GetUnitPosition(unit) puis UnionWith(GetMovablePositionsFor(...)).
+// Côté natif la position courante est donc candidate ET PREMIÈRE de l'énumération
+// (tie-break Bucket keep-first). cf. docs/rl/case-r1-origin-action-tile.md.
 export const entityExtClass = findClassAnywhere("IdunBattle.Entities", "EntityExtensions");
 export const getMainTileMi = entityExtClass
     ? findMethodByParamCount(entityExtClass, "GetMainTile", 2) : null;

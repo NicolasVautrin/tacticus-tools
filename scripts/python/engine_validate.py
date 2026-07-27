@@ -108,7 +108,12 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
     nat, eng, predictor)`. None (défaut) = comportement inchangé ; une exception de la
     sonde est loggée, jamais propagée (le walk d'agreement prime sur le diagnostic).
 
-    Retourne {pos:{n,exact,near}, ability:{n,match}, records:[…]}."""
+    Retourne {pos:{n,exact,near}, ability:{n,match}, stay:{n,match}, records:[…]}.
+
+    `stay` (R1) ferme l'angle mort de `pos` : quand le natif AGIT SANS BOUGER, `pos` ne compare
+    RIEN — un port qui déplace l'unité alors que le natif restait sur place restait donc invisible
+    (son `ability` matchait). `stay` compte ces chunks et vérifie que le moteur ne propose pas de
+    déplacement non plus."""
     # Prédicteur OFFLINE capturé 1×/runner (combatSnapshot cold) — nourrit le scoring d'attaque
     # d'engine_decide SANS aiPredict live. None si combatSnapshot KO (le scoring d'attaque saute alors).
     predictor = _scene.build_predictor(lambda m, b, t: _r(sid, m, b, t), rid)
@@ -116,6 +121,7 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
         log("[agreement] combatSnapshot KO — prédicteur offline indisponible (scoring attaque désactivé)")
     n_pos = n_pos_exact = n_pos_near = 0
     n_ab = n_ab_match = 0
+    n_stay = n_stay_match = 0
     records: list = []
     for step in range(steps):
         dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 40)
@@ -156,6 +162,28 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
                                 "engine_kind": eng["kind"]})
                 log(f"  step {step:2} u{uid}: pos native->{nat_to} engine->{eng_to} "
                     f"[{tag}] (eng={eng['kind']})")
+            else:
+                # STAY — le natif AGIT SANS BOUGER (aucun `MoveUnitMessage` dans le chunk). C'est
+                # l'ANGLE MORT historique de cette metrique : la branche `pos` ci-dessus ne se
+                # declenche QUE si le natif a bouge, donc un port qui deplace l'unite alors que le
+                # natif restait sur place passait INAPERCU (l'ability, elle, matchait). Le natif
+                # peut legitimement rester sur place meme avec un movable non vide : sa liste de
+                # positions candidates est `BattleQuery$$GetCurrentAndMovablePositionsFor` =
+                # {position COURANTE} UNION movable, et `Bucket$$AddAction` est keep-first.
+                # `eng_to is None` = pas de deplacement propose (idem `to == origine`).
+                if nat["ability"]:
+                    mrow = next((u for u in (dv.get("units") or []) if u.get("id") == uid), None)
+                    mpos = ((mrow or {}).get("pos") or {})
+                    org = (mpos["col"], mpos["row"]) if mpos.get("col") is not None else None
+                    stay_ok = (eng_to is None) or (org is not None and eng_to == org)
+                    n_stay += 1
+                    n_stay_match += int(stay_ok)
+                    records.append({"step": step, "uid": uid, "kind": "stay",
+                                    "native": org, "engine": eng_to, "match": stay_ok,
+                                    "engine_kind": eng["kind"]})
+                    if not stay_ok:
+                        log(f"  step {step:2} u{uid}: STAY native->sur place {org} "
+                            f"engine->{eng_to} [MISS] (eng={eng['kind']})")
             # ABILITY — SSI le natif a casté (in-place OU composé move+ability). C'est ICI que
             # les soins/attaques COMPOSÉS entrent enfin dans la métrique ability (fix §e).
             if nat["ability"]:
@@ -202,7 +230,8 @@ def run_agreement(sid: int, rid: int, steps: int, wt, log=print, probe=None) -> 
             _r(sid, "applyAction", {"runnerId": rid, "actions": acts}, 40)
 
     return {"pos": {"n": n_pos, "exact": n_pos_exact, "near": n_pos_near},
-            "ability": {"n": n_ab, "match": n_ab_match}, "records": records}
+            "ability": {"n": n_ab, "match": n_ab_match},
+            "stay": {"n": n_stay, "match": n_stay_match}, "records": records}
 
 
 def main(argv: list[str]) -> int:
@@ -225,7 +254,7 @@ def main(argv: list[str]) -> int:
 
     # Marche la trajectoire native + compare (SOURCE UNIQUE : run_agreement).
     res = run_agreement(sid, rid, a.steps, wt)
-    pos, ab = res["pos"], res["ability"]
+    pos, ab, stay = res["pos"], res["ability"], res["stay"]
 
     print()
     if pos["n"]:
@@ -233,6 +262,9 @@ def main(argv: list[str]) -> int:
               f"<=1hex={pos['near']} ({100*pos['near']//pos['n']}%)")
     if ab["n"]:
         print(f"[ability]     {ab['n']} casts : match={ab['match']} ({100*ab['match']//ab['n']}%)")
+    if stay["n"]:
+        print(f"[stay]        {stay['n']} sur place : match={stay['match']} "
+              f"({100*stay['match']//stay['n']}%)")
     if not pos["n"] and not ab["n"]:
         print("[agreement] aucun chunk décisionnel comparé")
     return 0

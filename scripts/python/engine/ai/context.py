@@ -52,7 +52,13 @@ class AiDecisionContext:
     fpos: list                        # positions alliées, self exclu (GetAdjacentFriends)
     origin: tuple | None              # (col,row) de l'unité active
     move_tiles: list                  # tuiles de mouvement atteignables (aiMovableTiles[uid])
-    reach_nc: list                    # origine + tuiles de move = positions candidates du caster
+    reach_nc: list                    # ALIAS de `action_tiles` (nom historique côté NonComparable) :
+    #                                   la MÊME liste native `tiles`, origine EN TÊTE
+    action_tiles: list                # `tiles` de `DefaultAiUnitTactic.<CalculateNextActionForUnit>d__5`
+    #                                   = `ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe
+    #                                   = `BattleQuery$$GetCurrentAndMovablePositionsFor` : position
+    #                                   COURANTE EN TÊTE puis les tuiles de move. L'ORDRE porte le
+    #                                   tie-break natif (Bucket keep-first) -> cf. `action_tiles_for`.
 
     # --- Santé / identités ---
     hp_cur_by_id: dict                # {id: hp courant} (GetStat 5 = Health)
@@ -200,6 +206,47 @@ def _enemies(units: list) -> list:
     return [u for u in units if not u.get("ctrl") and u.get("alive") and u.get("pos")]
 
 
+def action_tiles_for(origin: tuple | None, move_tiles: list) -> list:
+    """Positions candidates du caster — mirror EXACT, **ORDRE COMPRIS**, de la liste `tiles` que
+    `IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`
+    construit puis passe à CHAQUE générateur (`GenerateActions(unit, position, tiles)`).
+
+    Chaîne native, lue au décompilé (gqfc5mff6c) :
+
+    - `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` appelle `IBattleQuery` **slot
+      +0xe** avec `(unit, false, 0)`, puis, par ability de l'unité, `PlaybookDatabase.LoadPlaybook`
+      -> slot 1 du playbook = `FilterMovementTiles`. Ce hook ne peut que RESTREINDRE : le seul corps
+      existant, `IdunBattle.AI.Playbook.TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$FilterMovementTilesForMaxMovement`
+      (RunsAround / RunsAway / SaviorProtocols), re-remplit un OrderedSet depuis les positions DÉJÀ
+      présentes (argmax de longueur de chemin). Aucun playbook n'AJOUTE de position.
+    - **Le slot +0xe est `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`**,
+      pas `$$GetMovableTilesFor` (le 3e argument du call site vaut `0` : les deux `GetMovableTilesFor`
+      /`GetMovablePositionsFor` DÉRÉFÉRENCENT ce `MovementOptions*` — seul
+      `GetCurrentAndMovablePositionsFor` le copie par valeur et tolère 0 ; et c'est le seul à rendre
+      des `UnitPosition`, le type qu'énumère `FilterMovementTilesForMaxMovement`). Son corps :
+
+          var set = new OrderedSet<UnitPosition>(EntityExtensions.GetUnitPosition(unit));   // COURANTE
+          set.UnionWith(_movementQuery.GetMovablePositionsFor(unit, flag, default));
+          return set;
+
+      => la position COURANTE est dans l'ensemble, **et elle y est la PREMIÈRE** (graine de
+      l'`OrderedSet`, qui préserve l'ordre d'insertion) ; les tuiles de mouvement viennent après,
+      dans l'ordre de `GetMovableTilesFor` (qui, lui, exclut bien la tuile courante — d'où l'union).
+
+    L'ORDRE est ce qui compte : `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
+    seede le 1er ajouté et ne remplace que sur `>` STRICT (keep-first au tie). La position courante
+    étant énumérée en tête, **à utilité ÉGALE le natif reste sur place** ; il ne bouge que sur un
+    gain STRICT. C'est ce que `noncomparable._base._sweep_origin_first` observait live (#76,
+    deathRotbone RevitalizingMalignancy) — ce n'était pas une exception self-cast, c'est l'ordre
+    d'énumération natif.
+
+    Machine of War -> `[]` : `DefaultMachineTactic` passe `NullPosition()` + `new OrderedSet()`
+    littéralement, sans jamais appeler `GenerateActionTiles` (cf. `build_machine`)."""
+    tiles = [] if origin is None else [origin]
+    tiles += [t for t in ((x["col"], x["row"]) for x in move_tiles) if t != origin]
+    return tiles
+
+
 def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: int,
           wt: Any, predictor: dict | None, debug: bool = False) -> AiDecisionContext:
     """Une passe RPC -> `AiDecisionContext`. Reproduit exactement la tête de l'ancien `engine_decide`
@@ -269,14 +316,20 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     move_tiles = (mov_by_unit.get(uid) or {}).get("tiles") or []
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
-    # reach_nc = tuiles de MOVE puis ORIGINE (`NullPosition`) EN DERNIER : ORDRE BRUT du generateur
-    # `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (`Bucket.AddAction` keep-first `>`). NUANCE #76/#80 : le tie-break
-    # depend de `HasValidTargets(0x3f)` PAR tuile de move. SELF-cast (heals, NovaBoost) : self-cible
-    # position-independante -> le generateur gate les tuiles de move -> le natif RESTE EN PLACE au tie
-    # (CONFIRME LIVE #76) -> ces playbooks balaient `_sweep_origin_first` (origine d'abord), PAS cet ordre brut.
-    # TILE/other-target (NovaShield) : tuiles de move non gatees -> le natif BOUGE au tie -> sweep origine-LAST
-    # (cet ordre brut). Donc `reach_nc` reste origine-LAST ; les self-cast le reordonnent localement.
-    reach_nc = [(t["col"], t["row"]) for t in move_tiles] + ([origin] if origin is not None else [])
+    # `tiles` du tactic natif — ORIGINE EN TÊTE puis les tuiles de move
+    # (`ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
+    # `BattleQuery$$GetCurrentAndMovablePositionsFor`, cf. `action_tiles_for`). C'est cet ORDRE que
+    # TOUS les sweeps de position consomment : `Bucket$$AddAction` est keep-first (`>` strict), donc
+    # à utilité ÉGALE le natif reste sur place.
+    action_tiles = action_tiles_for(origin, move_tiles)
+    # `reach_nc` = LE MÊME objet natif (`tiles`), sous son nom historique côté NonComparable. Il était
+    # construit origine-LAST au motif que « l'ordre brut du générateur » plaçait la `NullPosition` en
+    # dernier — motif RÉFUTÉ par le décompilé (le slot +0xe est `GetCurrentAndMovablePositionsFor`,
+    # dont l'`OrderedSet` est SEEDÉ avec la position courante) et par la mesure (31337/C3_01 step 11 :
+    # Stormcaller, utilité position-INDÉPENDANTE, natif sur place en (2,3), port -> (2,4) = 1re tuile
+    # de move). `_sweep_origin_first` (#76) devient l'IDENTITÉ : ce n'était pas une exception self-cast,
+    # c'était déjà l'ordre natif.
+    reach_nc = action_tiles
 
     # Scene objet = predictor + sctx consolidés (+ élévation + effets de tuile FRAIS du pas — la glace
     # LordOfTempests s'accumule en bataille) — consommée par engine.playbook.prediction.
@@ -288,7 +341,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
         uid=uid, me=me, units=units, cur=cur, plans=plans,
         enemies=enemies, epos=epos, tgt_epos=tgt_epos, fpos=fpos, origin=origin,
-        move_tiles=move_tiles, reach_nc=reach_nc,
+        move_tiles=move_tiles, reach_nc=reach_nc, action_tiles=action_tiles,
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=obs_units,
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
@@ -382,7 +435,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
         uid=uid, me=me, units=units, cur=cur, plans={},
         enemies=enemies, epos=epos, tgt_epos=epos, fpos=fpos, origin=None,
-        move_tiles=[], reach_nc=[],
+        move_tiles=[], reach_nc=[], action_tiles=[],   # `NullPosition` + `new OrderedSet()` (cf. docstring)
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=obs_units,
         ab_name_by_id=ab_name_by_id, normal_ids=set(),
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,

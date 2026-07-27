@@ -102,24 +102,29 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **re-implémentation partielle** de `PredictAttackRaw` (extraMax, split bouclier per-coup, cap PV,
   trait-limits traités ailleurs) — dé-forker réellement les deux faces est un chantier à part. `[opus]`.
 
-- **La tuile d'ORIGINE est dans les candidats d'ability du port, pas dans ceux du natif** — remonté
-  et CHIFFRÉ par `case-128-tile-elevation-utility` §5 (RE + live). `ABaseAiUnitTactic$$
-  GenerateActionTiles` = `IBattleQuery.slot+0xe` (tuiles de MOUVEMENT, `GetMovableTilesFor` **exclut**
-  la tuile courante) ; `ActiveAbilityActionGenerator.<GenerateActions>d__7` ne tire la branche
-  `NullPosition` (= sur place) **que si la liste est vide**. Notre hook, lui, ajoute EXPRÈS l'origine
-  à `attackPlans.ranked`, et `_best_attack` la consomme sans filtre `movable`. Mesure S3 (`C4_02`,
-  `emperNoiseMarine`) : natif `69 tgt=77 to=(3,3)` = **exactement** l'argmax du port une fois le seul
-  candidat « origine » retiré (39.961) ; le port rend `69 tgt=79 to=(2,2)` (41.886). ⚠ tranche à part
-  entière : le changement touche TOUTE unité qui attaquerait sans bouger → exige une passe d'agreement
-  complète (`test_playbook_live` + batch multi-seed), pas un smoke. `[opus]`.
+- ~~**La tuile d'ORIGINE est dans les candidats d'ability du port, pas dans ceux du natif**~~ —
+  **PRÉMISSE RÉFUTÉE + ORDRE PORTÉ** (`case-r1-origin-action-tile.md`). Le slot +0xe n'est PAS
+  `GetMovableTilesFor` mais **`IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`**
+  (seul des trois candidats à ne PAS déréférencer son 3e argument, que le call site passe à `0` ; et
+  seul à rendre des `UnitPosition`, le type qu'énumère `FilterMovementTilesForMaxMovement`). Son
+  `OrderedSet` est SEEDÉ avec `GetUnitPosition(unit)` puis `UnionWith(movable)` : **l'origine EST
+  candidate, et PREMIÈRE**. Réfutation live indépendante : 10 chunks natifs « caste sans bouger » avec
+  un movable NON vide sur 3 couples. Ce qui divergeait réellement = l'**ORDRE** (`Bucket$$AddAction`
+  keep-first ⇒ à utilité ÉGALE le natif reste sur place, le port bougeait). Porté : origine en tête de
+  `reach_nc`/`action_tiles`/`_plans_for_unit` et du sweep `_best_attack`. Mesure : +1 `stay` sur
+  `C3_01`/31337 et sur le scénario crafté `C4_02`/4242 (Njal), 0 régression sur 4 couples.
+  **RESTE OUVERT** : R1-b (ordre RELATIF des tuiles de move — l'imposer est mesuré régressif) et la
+  divergence S3 de `case-128` §5, dont l'explication est tombée avec la prémisse.
 
 - **Arbitrage Comparable `ExcruciatingFrequencies` (1197) vs attaque NORMALE — RÉSIDU RÉDUIT**
   (`case-128-tile-elevation-utility` §6, qui a clos l'hypothèse « terme d'élévation » de
   `case-124` §7). Le terme `Tile(7)`/`Elevation` est un **mirror exact** (gate `get_IgnoreTileUtility`
   = `xor al,al ; ret`, `MakeFinalTilePrediction` = identité, membership 29 feuilles lue dans la carte
   de composition `UtilitiesDatabase+0x58`, BC `{Multiplier 10, Highest 10, Lowest -5}`) et le natif le
-  paie (mesure S3). L'étage dégât est **bit-exact** 18/18. Reste : sur l'état où 1197 est disponible,
-  natif = `1197@(4,1)` (port 27.977) contre `69@(3,3)` (port 37.05, origine déjà retirée) → il
+  paie (mesure S3). L'étage dégât est **bit-exact** 18/18. ⚠ le sous-cas « origine retirée » de ce
+  raisonnement s'appuyait sur une prémisse depuis RÉFUTÉE (cf. l'entrée R1 ci-dessus : l'origine EST
+  candidate côté natif) — le chiffre 37.05 reste, sa justification non. Reste : sur l'état où 1197 est
+  disponible, natif = `1197@(4,1)` (port 27.977) contre `69@(3,3)` (port 37.05) → il
   faudrait `u(1197) > 17.05` soit 2.1× la valeur du port. Seul étage non lu ligne à ligne :
   `Bucket<T>.Merge` / `ChooseAction` (arbre `SortedList<Key, sous-Bucket>` + admission
   `FUN_18004cc80(bucket, action)` appelée dans `EvaluateInternal`). `[fable]`.

@@ -292,18 +292,22 @@ def _turns_started_gate(ctx: "NCContext") -> bool:
 
 
 def _sweep_origin_first(ctx: "NCContext") -> list:
-    """Ordre de balayage des positions candidates pour un SELF-CAST (heal/repair/rites) : ORIGINE
-    D'ABORD, puis les tuiles de move.
+    """Ordre de balayage des positions candidates : ORIGINE D'ABORD, puis les tuiles de move.
 
     Le generateur natif `ActiveAbilityActionGenerator.<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` evalue chaque
     position dans un Bucket ; `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si
-    STRICTEMENT superieur (`System.TimeSpan.op_GreaterThan`) -> keep-first au tie. La `NullPosition`
-    (cast EN PLACE) est TOUJOURS evaluee. CONFIRME LIVE (#76, deathRotbone RevitalizingMalignancy) :
-    a utilite CONSTANTE (seul le caster blesse -> terme adjacents = 0) le natif RESTE EN PLACE (target
-    = MainTile origine), il ne bouge QUE si une tuile de move AMELIORE STRICTEMENT la somme de soin.
-    -> origine EN TETE du sweep + remplacement strict `>` = origine gagne le tie ; un move ne gagne
-    que sur gain strict. (Le port balayait `reach_nc` = [moves..., origine] -> gardait la 1re tuile de
-    move au tie -> divergence : bougeait pour rien.)"""
+    STRICTEMENT superieur (`System.TimeSpan.op_GreaterThan`) -> keep-first au tie. CONFIRME LIVE
+    (#76, deathRotbone RevitalizingMalignancy) : a utilite CONSTANTE le natif RESTE EN PLACE, il ne
+    bouge QUE si une tuile de move AMELIORE STRICTEMENT.
+
+    MECANISME CORRIGE (R1, decompile) : ce n'est PAS une specificite self-cast, et ce n'est PAS la
+    branche `NullPosition` (elle ne tire que si `tiles.Count == 0`). La liste `tiles` elle-meme
+    COMMENCE par la position courante : `ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe
+    = `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, dont l'`OrderedSet`
+    est SEEDE avec `GetUnitPosition(unit)` avant `UnionWith(movable)`. => `ctx.reach_nc` EST
+    desormais construit dans cet ordre (cf. `engine.ai.context.action_tiles_for`) et cette fonction
+    est l'IDENTITE. Conservee comme point d'ancrage documentaire + filet si `reach_nc` etait
+    reconstruit autrement par un appelant."""
     if ctx.origin is None:
         return list(ctx.reach_nc)
     return [ctx.origin] + [t for t in ctx.reach_nc if t != ctx.origin]
@@ -390,17 +394,22 @@ class NonComparablePlaybook:
 
 class _PlanTargetPlaybook(NonComparablePlaybook):
     """Base des abilities d'ATTAQUE NonComparable (BloodyFury, VexillaMagnifica, HammerOfWrath,
-    BlackRage, VigilanceEternal). Le generator natif `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` balaie les
-    POSITIONS candidates (ordre BRUT `reach_nc` : tuiles de move dans l'ordre du movable set natif,
-    puis `NullPosition`/origine EN DERNIER — cf. #76/#80) et, PAR position, les cibles eligibles ;
-    `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
-    -> au tie d'utilite, la PREMIERE position de l'ordre movable gagne (une utilite
-    position-INDEPENDANTE type BloodyFury retombe donc sur la 1re position legale de cet ordre).
+    BlackRage, VigilanceEternal, Stormcaller). Le generator natif `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`
+    balaie les POSITIONS candidates dans l'ordre de `ctx.reach_nc` = la liste `tiles` du tactic
+    (`ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
+    `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` : **position COURANTE en
+    tete**, puis les tuiles de move dans l'ordre du movable set natif) et, PAR position, les cibles
+    eligibles ; `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
+    -> au tie d'utilite, la PREMIERE position de cet ordre gagne, c'est-a-dire l'ORIGINE : une
+    utilite position-INDEPENDANTE (BloodyFury, Stormcaller) fait donc caster SANS BOUGER.
     L'eligibilite par position pour la paire (ability, cible) = les tuiles rankees du plan natif
     (`GetAllValidTargetsFromAllPossibleMovementTiles`) -> gate `P in ranked(tgt)`.
 
     Miss vecu (#32, 909 s17 VigilanceEternal) : l'ancien balayage en ordre RANKED du plan cassait
-    le tie 43.867 vers (4,2) (1re rankee) quand le natif prend (3,4) (1re du movable set)."""
+    le tie 43.867 vers (4,2) (1re rankee) quand le natif prend (3,4) (1re du movable set) — l'origine
+    n'y etait pas legale pour la paire, d'ou la 1re tuile de move.
+    Miss vecu (R1, 31337/C3_01 s11 Stormcaller) : `reach_nc` etait construit origine-LAST -> le port
+    prenait la 1re tuile de MOVE (2,4) la ou le natif restait en (2,3)."""
 
     def evaluate_non_comparable(self, tile: tuple, target, ctx: NCContext) -> float | None:
         raise NotImplementedError
@@ -417,7 +426,7 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
         if not pairs:
             return []
         best = None  # (target, tile, util)
-        for P in ctx.reach_nc:                      # moves (ordre natif) puis origine EN DERNIER
+        for P in ctx.reach_nc:                      # ORIGINE en tete puis moves (ordre natif)
             for tgt, rset in pairs:
                 if P not in rset:
                     continue                        # pas de cast (ability,tgt) depuis cette position

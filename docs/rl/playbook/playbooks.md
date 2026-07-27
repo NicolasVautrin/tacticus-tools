@@ -162,18 +162,16 @@ positions**.
   aux 4 self-cast (CombatRestoratives 1002, RevitalizingMalignancy 1037, DefendTheDivineWork 1117,
   RitesOfRestoration 1039) + `bq.is_adjacent` partagé. **Validé LIVE** (deathRotbone/ultraApothecary/
   admecManipulus self + →destroyer : tous in-place, MATCH target+ability natif).
-- **NovaBoost/NovaShield RÉCONCILIÉS (#80)** — par CLASSE de cible (le tie-break dépend de
-  `HasValidTargets(0x3f)` par-tuile-de-move ; sa fonction exacte est derrière un dispatch d'interface
-  `@180028910` = trampoline, NON lisible statiquement → résolution par **cohérence générateur + la classe
-  confirmée**, PAS par agreement arène-inagréable) :
-  - **NovaBoost = SELF-target** (util=1, cible=self) → MÊME classe que les self-cast heals → la self-cible
-    est position-indépendante → le générateur gate les tuiles de move → **RESTE EN PLACE** au tie (comme
-    deathRotbone #76). **FIX : `_sweep_origin_first`** (origine d'abord → `to=None`).
-  - **NovaShield = TILE-target** (marque un centre, cible kind=tile) → classe DIFFÉRENTE : les hex à marquer
-    existent depuis la plupart des positions → tuiles de move NON gatées → au tie **BOUGE** (keep-first) ; +
-    utilité position-dépendante (100·ennemis) → argmax non-trivial. **On GARDE origine-LAST.** *UNVERIFIED*
-    (arène-inagréable ; la classe tile-target n'a pas de confirmation live comme la self-target) → ne pas
-    asserter fermement.
+- ~~**NovaBoost/NovaShield RÉCONCILIÉS (#80) par CLASSE de cible**~~ — **la dichotomie tombe (R1).** Elle
+  supposait que l'ordre BRUT du générateur plaçait l'origine en DERNIER, et faisait dépendre le tie-break
+  de `HasValidTargets(0x3f)` par-tuile-de-move (fonction derrière un trampoline, jamais lue). Le décompilé
+  tranche autrement : la liste `tiles` vient de `IBattleQuery`+0xe =
+  `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, un `OrderedSet` **SEEDÉ avec la
+  position courante** ⇒ **origine PREMIÈRE pour TOUT le monde**, self-target comme tile-target. Il n'y a
+  donc qu'UNE classe d'ordre : `ctx.reach_nc` est origine-first (`engine.ai.context.action_tiles_for`), et
+  `_sweep_origin_first` en devient l'identité. Ce qui reste vrai de #80 : l'utilité de NovaShield DÉPEND de
+  la position (100·ennemis marqués) → son argmax est non-trivial et le tie-break n'y est que secondaire.
+  Détail et mesures : `docs/rl/case-r1-origin-action-tile.md`.
 
 ### MAJ #78 (2026-07-09) — InspiredToGreatness (tauAunShi) : refresh d'ability alliée level-weighted
 
