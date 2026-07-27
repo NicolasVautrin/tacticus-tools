@@ -526,9 +526,12 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
         amount = int(int(defender_fixed_armor) * int(pct) / 100)   # PercentageOf(FixedArmor, blockDmgPct)
         if amount <= 0:
             return None
-        # block_id = la chance (id natif dans failedList IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances) : une source EXCLUE apres son 1er
-        # echec sur un coup (exclusion inter-coups, cf. AttackDamageOperation._run_hits #72).
-        return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
+        # block_id = l'ENTITE-EFFET (`BlockChanceInfo.entityId`, cle du `failedBlockIds:
+        # List<BEntityId>` de IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances) :
+        # une source EXCLUE apres son 1er echec sur un coup (exclusion inter-coups, cf.
+        # AttackDamageOperation._run_hits #72). Offline = `effect_type` (cf. `block_source_id`).
+        return BlockSource(chance=int(chance), amount=amount,
+                           block_id=self.block_source_id(int(chance)))
 
 
 class DaemonExtraBlockEffect(BaseEffect):
@@ -551,7 +554,8 @@ class DaemonExtraBlockEffect(BaseEffect):
         amount = int(int(defender_attack) * int(pct) / 100)   # PercentageOf(Attack courant, pct)
         if amount <= 0:
             return None
-        return BlockSource(chance=int(chance), amount=amount, block_id=int(chance))
+        return BlockSource(chance=int(chance), amount=amount,
+                           block_id=self.block_source_id(int(chance)))
 
 
 class PsychicFortressExtraBlockEffect(BaseEffect):
@@ -583,7 +587,8 @@ class PsychicFortressExtraBlockEffect(BaseEffect):
                             multiplier_pct=self.ability_variables_multiplier)
         if not amount or int(amount) <= 0:
             return None
-        return BlockSource(chance=int(chance), amount=int(amount), block_id=int(chance))
+        return BlockSource(chance=int(chance), amount=int(amount),
+                           block_id=self.block_source_id(int(chance)))
 
 
 class FightingRetreatHitReductionEffect(BaseEffect):

@@ -350,6 +350,22 @@ class BaseEffect:
         (aucun call-site porte ne s'en sert encore). Defaut None = pas de bonus de percage."""
         return None
 
+    def block_source_id(self, fallback_chance: int = 0) -> int:
+        """`BlockChanceInfo.entityId` (@+0x0) de la source de block que CET effet pose — l'identite
+        testee par `Contains(failedBlockIds, entityId)` dans
+        `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances` et poussee par
+        `IdunBattle.Core.Services.BlockDamageInfo$$AddFailedBlockId` (signature Frida :
+        `failedBlockIds: System.Collections.Generic.List<IdunBattle.Core.BEntityId>`) apres un jet
+        rate. Natif = l'ENTITE-EFFET (la cle du dictionnaire par-entite du `MultiValueStatComponent`),
+        exactement comme la cle de `ValueModification` (cf. `effect_stat_mod_key`) ; offline l'entite
+        n'existe pas, l'identite stable est le `effect_type` (une seule instance d'un type ExtraBlock
+        par porteur : `DaemonAbility$$CreateUpdateEffectBehaviour` fait `RemoveEffect(0x40a)` AVANT
+        de re-poser). `fallback_chance` = repli (effet sans `effect_type` seede) ; il vaut l'ancien
+        comportement, donc jamais pire. **Ne PAS utiliser la chance comme id** : deux sources de meme
+        chance se confondraient dans l'exclusion inter-coups de `_run_hits` (un tirage perdu)."""
+        et = getattr(self, "effect_type", None)
+        return int(et) if et else int(fallback_chance)
+
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
                                                defender_attack: int = 0):
         """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour — source de
