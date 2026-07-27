@@ -5,7 +5,7 @@
 // Pattern:
 //   1. host POSTs /api/introspect/enums → calls `dumpEnums()` RPC
 //   2. agent walks the requested classes' static-literal fields, builds
-//      `{ EnumName: { intValue: name } }`
+//      `{ EnumName: { memberName: value } }` (valeur en decimal exact, chaine)
 //   3. host writes the result to `frida/assets/public/enums.json`
 //   4. front fetches `/assets/enums.json` at boot, caches in `state.enums`
 //
@@ -68,7 +68,7 @@ export function register(ctx: Ctx): void {
     });
 
     /** Dump one enum class — useful for ad-hoc debugging. Returns
-     * `{ values: { "0": "None", "1": "X", ... } }` or null if not found. */
+     * `{ values: { "None": "0", "X": "1", ... } }` or null if not found. */
     ctx.rpc.dumpEnum = (args: { asm: string; ns: string; cls: string }) => {
         const values = dumpEnum(args.asm, args.ns, args.cls);
         return { asm: args.asm, ns: args.ns, cls: args.cls, values };

@@ -97,7 +97,7 @@ Le host expose des routes typées qui wrap les RPC + persistance.
 | RPC | Args | Rôle |
 |-----|------|------|
 | `getGameVersion` | — | `{ version, identifier, productName, unityVersion }`. |
-| `dumpEnums` | — | `{ "Namespace.EnumName": { "0": "Value0", ... } }` pour la liste curated. |
+| `dumpEnums` | — | `{ "Namespace.EnumName": { "Value0": "0", ... } }` pour la liste curated. Keye par NOM, valeur en decimal exact (chaine) : un enum de flags 64 bits depasse `2^53`, et deux membres peuvent partager une valeur (alias, composite). |
 | `dumpEnum` | `{ asm, ns, cls }` | Un seul enum. |
 | `getUnitAssetMap` | — | `{ count, map }` — unitId → assetNaming. |
 | `dumpAllUnitVisuals` | — | Depuis IdunUniverse capturé. |

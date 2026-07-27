@@ -1,10 +1,9 @@
-// Dump IL2CPP enum classes — iterate static-literal fields, read their
-// int value via `il2cpp_field_static_get_value`. Returns a `{ value: name }`
-// map suitable for `send({ t:"enum-dump", name, values })` to the front.
+// Dump IL2CPP enum classes — iterate static-literal fields, read their value via
+// `il2cpp_field_static_get_value` A LA LARGEUR REELLE de l'enum. Returns a `{ name: value }`
+// map (valeur en decimal exact, chaine).
 //
-// Used to resolve numeric IDs in event tags (Effect_Id, AbilityType, …) to
-// their string name, which the front then maps to the i18n catalog
-// (`UnitEffects/<name>_Name`, etc.).
+// Sert a resoudre les ids numeriques des tags d'evenement (Effect_Id, AbilityType, …) vers
+// leur nom, et a GENERER les tables `hooks/data/*-names.ts`.
 
 import { IL2CPP_MODULE_NAME, findClass, findClassAnywhere, s } from "./helpers.js";
 
@@ -98,13 +97,13 @@ const FIELD_ATTRIBUTE_LITERAL = 0x40;
 const FIELD_ATTRIBUTE_STATIC = 0x10;
 
 /** Walk every static literal field of `klass` and read its value at the enum's real width.
- * Returns `{ "0": "None", "1": "StartMatch", ... }` (string keys for JSON
- * roundtrip — the front coerces back to int when looking up).
+ * Returns `{ "None": "0", "StartMatch": "1", ... }` — keye par NOM, valeur en DECIMAL EXACT
+ * (chaine : un flag 64 bits depasse 2^53, ou un Number JSON perdrait des bits de poids faible).
  *
- * La map reste keyee PAR VALEUR : c'est le contrat de ses consommateurs (le front resout un
- * id numerique vers un nom). Deux membres de MEME valeur — alias, composite de flags — s'y
- * ecrasent donc encore ; c'est une limite assumee de cette forme, distincte du bug de largeur
- * corrige ci-dessus. Le dump one-shot `scripts/frida/dump-il2cpp-full.js`, lui, keye par NOM. */
+ * Le keyage etait PAR VALEUR, pour le front, qui resolvait un id numerique vers un nom. Le front
+ * n'est plus utilise (2026-07-27), et ce contrat coutait deux choses : deux membres de meme valeur
+ * — alias, composite de flags — s'y ecrasaient, et il DIVERGEAIT du dump one-shot
+ * `scripts/frida/dump-il2cpp-full.js`. Un seul contrat pour la meme notion, desormais. */
 export function dumpEnum(
     asm: string, ns: string, cls: string,
 ): Record<string, string> | null {
@@ -128,7 +127,7 @@ export function dumpEnum(
         try {
             valBuf.writeS64(0);
             _fieldStaticGetValue!(f, valBuf);
-            out[readLiteral(valBuf, underlying)] = name;
+            out[name] = readLiteral(valBuf, underlying);
         } catch { /* skip unreadable */ }
     }
     return out;

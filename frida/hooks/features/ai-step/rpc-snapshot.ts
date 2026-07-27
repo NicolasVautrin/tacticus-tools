@@ -57,6 +57,10 @@ const COMBAT_STAT_IDS: Record<string, number> = {
     fixedArmor: 16,
     extraHits: 17, activeAbilityLevel: 18, numberOfMembers: 20,
     extraPierceMelee: 21, extraPierceRanged: 22, extraHitsMelee: 23,
+    // 24 ExtraRange : la table sautait de 23 a 25, et le trou etait INVISIBLE -- un port qui
+    // pose ce stat n'avait aucun moyen de l'observer. Constate le 2026-07-27 sur le volet
+    // Movement/Range de RealityUnbound, livre sans mesure faute de canal.
+    extraRange: 24,
     extraMaxDamage: 25, extraPierce: 26,
 };
 

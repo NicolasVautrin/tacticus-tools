@@ -283,6 +283,11 @@ export interface MowProjection {
     id: number;
     /** Parent Machine entityId — analog of UnitFoot.squadId. Carries HP/Owner. */
     machineId: number;
+    /** ALIAS de `machineId` : l'entite qui CASTE. Existe parce que le piege s'est
+     *  referme (2026-07-27) -- prendre `id` comme casterId fait refuser TOUT cast par
+     *  `TargetIsEnemy`, et le symptome (« faux refus » du gate de ciblage) ne designe
+     *  pas sa cause. `id` est la PLATEFORME d'ancrage, jamais l'acteur. */
+    casterId: number;
     entityType: number;
     /** Position of THIS platform on the grid. A MoW spans multiple
      * platforms (each on its own tile). */
@@ -737,6 +742,7 @@ export function projectMatchState(
             // entityId (keeps rows distinct + traceable either way).
             id: plat?.platformId ?? machineId,
             machineId,
+            casterId: machineId,
             entityType: EntityType.Machine,
             pos: plat?.pos ?? null,
             hp: m.hp,
