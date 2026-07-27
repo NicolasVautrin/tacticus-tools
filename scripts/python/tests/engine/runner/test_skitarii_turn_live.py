@@ -61,7 +61,12 @@ def _skitarii_weapons():
 
 
 def _load(rpc, build_runner, seed="777"):
-    """Runner LIVE -> etat offline (board natif evenq + snapshots + RNG cale). Mirror test_summon_ability_ports."""
+    """Runner LIVE -> etat offline (board natif evenq + snapshots + RNG cale). Mirror test_summon_ability_ports.
+
+    `tiles=tileMeta` est OBLIGATOIRE : sans ce canal, `state.effects` ne porte AUCUN effet de TUILE, donc
+    le gate #131 (`BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile` : une tuile
+    `BlockEnteringUnits`/Swamp est un cul-de-sac de la flood-fill) est un no-op SILENCIEUX et la passe IA
+    peut choisir une tuile de deplacement ILLEGALE (c'etait la cause du rouge de ce fichier, cf. case-r5)."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
@@ -70,11 +75,12 @@ def _load(rpc, build_runner, seed="777"):
     if not (isinstance(bg, dict) and bg.get("tiles")):
         pytest.skip("boardGraph indispo")
     board = Board(bg["tiles"], adjacency="evenq")
+    tiles = rpc("tileMeta", {"runnerId": rid}, 90)
     dec = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    state = load_state(dec, ob, snap, board=board)
+    state = load_state(dec, ob, snap, board=board, tiles=tiles)
     if _ok(s0) and s0.get("mt"):
         rng = IntBasedMersenneTwister(); rng.mt = list(s0["mt"]); rng.mti = s0["mti"]; state.rng = rng
     return state, board

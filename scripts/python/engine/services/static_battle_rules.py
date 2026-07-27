@@ -53,6 +53,36 @@ def is_tile_status_effect(effect_type) -> bool:
     return effect_type is not None and int(effect_type) in TILE_STATUS_EFFECT_TYPES
 
 
+# --- `StaticBattleRules.Effect` : traits EXEMPTS d'un effet de tuile qui bloque le mouvement ------
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$NotBlockingMovementOfTraits
+# (lu VERBATIM au decompile) :
+#     effectType in {0, 5, 0x11}  -> List{ 0, 0x405, 0x412 }     (Mounted, Vehicle, Unstoppable)
+#     effectType == 0x3a          -> List{ 0x1d }                (NightVision, face Darkness)
+#     sinon                       -> null
+# Consommee par `IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetTileBlockingReasons` : un effet de
+# tuile ne compte comme raison de blocage que si l'unite qui se deplace n'a AUCUN de ces traits
+# (predicat `Enumerable.Any(exemptTraits, t => HasTrait(unit, t))`).
+BLOCK_ENTERING_UNITS_EFFECT_TYPE = 0            # `BlockEnteringUnitsTileEffect` (Swamp, BrokenIce...)
+_MOVEMENT_BLOCKING_EFFECT_TYPES: frozenset = frozenset({0x00, 0x05, 0x11})
+_MOVEMENT_EXEMPT_TRAIT_IDS: tuple = (0, 0x405, 0x412)       # Mounted / Vehicle / Unstoppable
+_DARKNESS_EXEMPT_TRAIT_IDS: tuple = (0x1d,)                 # NightVision
+
+
+def not_blocking_movement_of_traits(effect_type) -> tuple:
+    """`StaticBattleRules.Effect$$NotBlockingMovementOfTraits(effectType)` — ids de trait pour
+    lesquels CET effet de tuile ne bloque PAS le mouvement. Tuple VIDE = aucun porteur exempte
+    (le natif rend `null` ; `Enumerable.Any` sur null leverait, donc le natif ne l'appelle que
+    pour les types qu'il connait -- cote port un tuple vide = « personne n'est exempte »)."""
+    if effect_type is None:
+        return ()
+    et = int(effect_type)
+    if et in _MOVEMENT_BLOCKING_EFFECT_TYPES:
+        return _MOVEMENT_EXEMPT_TRAIT_IDS
+    if et == 0x3a:
+        return _DARKNESS_EXEMPT_TRAIT_IDS
+    return ()
+
+
 def get_piercing_ratio(profile_piercing_ratio: int, profile_has_lascannon: bool,
                        attacker_has_heavy_weapon_or_emplacement: bool,
                        lascannon_bonus: int = W_LASCANNON_PIERCE_BONUS) -> int:

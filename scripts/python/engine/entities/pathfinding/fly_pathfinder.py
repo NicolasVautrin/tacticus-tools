@@ -58,8 +58,20 @@ def is_valid_path_node(
 def get_movable_positions(
     board: Board, start_id: int, depth: int,
     occupants: dict, moving_team: int,
+    can_continue=None,
 ) -> tuple[set, set]:
     """(visited, stop_set) pour une unité volante à portée `depth` — BFS partagé de
-    `walk_pathfinder` avec l'arête FLY (traverse par-dessus tout, arrêt sur tuile libre)."""
+    `walk_pathfinder` avec l'arête FLY (traverse par-dessus tout, arrêt sur tuile libre).
+
+    `can_continue` = gate d'EXPANSION #131 (`IdunBattle.Entities.Pathfinding.BasePathfinder
+    $$NodesInNextLevel`). Le gate lui-même vit dans `BasePathfinder` ⇒ il vaut pour TOUS les
+    pathfinders. Le PRÉDICAT, lui, est le slot virtuel `IsValidContinuePathTile` : celui que le
+    FlyPathfinder résout n'est **PAS ÉTABLI** — la table de symboles ne liste pas
+    `FlyPathfinder$$IsValidContinuePathTile`, mais IL2CPP déduplique les corps triviaux et
+    l'absence d'un symbole ne prouve RIEN (cf. CLAUDE.md « L'ABSENCE d'une méthode dans les tables
+    ne prouve RIEN ») ; le trancher demande d'invoquer le slot de vtable sur une instance. Le
+    paramètre est donc THREADÉ (l'appelant décide) et `state_bridge._move_tiles` passe aujourd'hui
+    le MÊME prédicat qu'en marche — résidu assumé, sans incidence tant qu'aucune unité volante ne
+    survole une tuile block-entering dans un scénario mesuré. None = pas de gate."""
     return _get_movable_positions(board, start_id, depth, occupants, moving_team,
-                                  edge=is_valid_path_node)
+                                  edge=is_valid_path_node, can_continue=can_continue)
