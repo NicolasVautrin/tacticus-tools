@@ -104,11 +104,19 @@ class Spawn(AbilityBehaviour):
 
 
 class PerformAIAttack(AbilityBehaviour):
-    """/!\\ NOM TROMPEUR (historique) : cette feuille porte le noeud `...FromCurrentPosition`, PAS le noeud
-    natif homonyme `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (celui-la est consomme par
-    `SpawnReplica` plus bas, via `perform_ai_attack`). Les deux noeuds partagent le MEME
-    `PerformAIAbilityUnitBehaviour` et ne different que par `+0x70`/`+0x78` (cf.
-    `../loki/summon.py::perform_ai_ability_unit_behaviour`).
+    """Feuille des DEUX noeuds `DSLFactory` qui construisent un `PerformAIAbilityUnitBehaviour` — ils ne
+    different que par les champs `+0x70 allowMoveAction` et `+0x78 moveAmount`, que la feuille PORTE
+    explicitement (defauts = ceux de `...FromCurrentPosition`, cf.
+    `../loki/summon.py::perform_ai_ability_unit_behaviour`) :
+      * `PerformAIAttack(<sel>)`                        -> `...FromCurrentPosition` (`0` / `Direct(0)`) :
+        GetEmRuntz 1045, SpawnPoxwalkers 1040, drones Tau ;
+      * `PerformAIAttack(<sel>, True, None)`            -> `DSLFactory$$PerformAIAttack` (`1` / `null`) :
+        `ForwardSpotterAbility$$ExecuteBehaviour` (`PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)`),
+        i2 « The Cadian Guardsman immediately **takes a turn** ».
+    Aujourd'hui les deux branches produisent le MEME observable (le port ne mirrore ni
+    `ABaseAiUnitTactic$$GenerateActionTiles` ni le `MovementActionGenerator` -> l'acteur n'approche pas) ;
+    les champs sont threades pour que ce residu reste dans le corps unique et que le call-site dise QUEL
+    noeud natif il mirrore.
 
     `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
     `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
@@ -129,8 +137,8 @@ class PerformAIAttack(AbilityBehaviour):
         `PerformAIAttackFromCurrentPosition(ActiveTarget@0x180)` = le summon fraichement pose, lie par le
         sous-behaviour on-appearance du `Spawn`) -> le dict d'unite est utilise TEL QUEL.
 
-    ACTION PAR ACTEUR : la feuille ne fait que RESOUDRE LE DOMAINE puis delegue a l'UNIQUE port du noeud,
-    `perform_ai_attack_from_current_position` (`../loki/summon.py` — cible `_nearest_enemy`, gate de portee
+    ACTION PAR ACTEUR : la feuille ne fait que RESOUDRE LE DOMAINE puis delegue a l'UNIQUE corps,
+    `perform_ai_ability_unit_behaviour` (`../loki/summon.py` — cible `_nearest_enemy`, gate de portee
     `_in_attack_range` mirror `IdunBattle.Core.Services.TargetingQuery$$GetRange` clamp `ForcedInMelee`
     inclus, attaque normale COMPLETE, puis dispatch after-hit `On(0x26)`/`On(8)`/`On(9)`). Il n'existe
     donc plus qu'UN corps pour ce noeud (de-fork : la feuille dupliquait auparavant cible+gate+attaque
@@ -144,13 +152,16 @@ class PerformAIAttack(AbilityBehaviour):
     a 9 hex de l'ennemi le plus proche frappait quand meme. Les call-sites anterieurs spawnent AU CONTACT
     (ForwardSpotter/SendInTheNextWave/Incursion : tuiles adjacentes a la CIBLE ; GetEmRuntz : tuiles
     adjacentes aux ennemis) -> gate inerte pour eux (0 regression)."""
-    __slots__ = ("tile_selector",)
+    __slots__ = ("tile_selector", "allow_move_action", "move_amount")
 
-    def __init__(self, tile_selector: TargetsSelector):
+    def __init__(self, tile_selector: TargetsSelector, allow_move_action: bool = False,
+                 move_amount: int | None = 0):
         self.tile_selector = tile_selector
+        self.allow_move_action = bool(allow_move_action)   # `+0x70` (defaut = ...FromCurrentPosition)
+        self.move_amount = move_amount                     # `+0x78` (defaut = `factory+0xb8` = Direct(0))
 
     def execute(self, entities, ectx):
-        from ..loki import perform_ai_attack_from_current_position
+        from ..loki import perform_ai_ability_unit_behaviour
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -172,7 +183,8 @@ class PerformAIAttack(AbilityBehaviour):
             if child is None:
                 continue
             cid = child.get("id")
-            r = perform_ai_attack_from_current_position(state, cid)   # <- LE noeud (corps unique)
+            r = perform_ai_ability_unit_behaviour(state, cid, self.allow_move_action,
+                                                  self.move_amount)   # <- LE corps unique
             if r is None:
                 continue
             tgt = r["target"]
