@@ -51,7 +51,7 @@ __all__ = [
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "piercing_bonus_from_effects",
     "apply_effect_stat_modifications", "stat_modifications_by_source", "statmod_source_key",
-    "effect_stat_mod_key",
+    "effect_stat_mod_key", "effect_stat_modifications",
 ]
 
 
@@ -538,53 +538,97 @@ def effect_stat_mod_key(eff):
          d'ActiveCondition (`runner/operations/refresh_effects.py`) ecrivent deja. Un effet SEEDE porte
          donc bien une modification par-source, RETIRABLE (c'est ce qui manquait : la cle etait calculee
          a l'attribution puis oubliee, donc l'expiration ne pouvait plus rien retirer) ;
-      3. `None` si l'effet ne declare aucune stat-modification (`get_stat_modification_stat() is None`)
-         ET n'a pas de cle de pose -> rien a reverter."""
+      3. `None` si l'effet ne modifie AUCUN stat -> rien a reverter.
+
+    DISCRIMINANT = `reverted_stats()` (R16). C'est le MEME predicat des deux cotes du natif : la paire
+    `ApplyModification`/`RevertModification` construit son `Position(stat, part)` depuis le MEME
+    `(**vtable+0x728)` = `GetStatModification()`, seule la `part` change (5|9 a l'apply, 6 au revert) —
+    « un `AStatModifierEffect` reverte TOUJOURS le stat qu'il modifie ». Le predicat precedent
+    (`get_stat_modification_stat() is not None`) ne voyait QUE la forme MONO-STAT de la base et rendait
+    donc `None` pour toute la famille dont le `ApplyModification` est OVERRIDE (multi-stat / magnitude
+    lue sur le ctx : `ActOfFaithBuffEffect`, `ProtectorImperativeEffect`, `AncestralFortune*`,
+    `AugmentedAssault_ReduceArmor`, `BlackRage_ExtraMove`, `Waaagh_ExtraMovement`...). `reverted_stats()`
+    couvre les DEUX formes (son defaut EST `[get_stat_modification_stat()]`)."""
     src = getattr(eff, "stat_mod_source", None)
     if src is not None:
         return src
-    return statmod_source_key(eff) if eff.get_stat_modification_stat() is not None else None
+    return statmod_source_key(eff) if eff.reverted_stats() else None
 
 
-def stat_modifications_by_source(effects, source_of=None) -> dict:
-    """Contributions stat-mod DÉCLARÉES par les effets actifs, groupées `{idxStatType: {source: amount}}`
-    — à passer à `stats.seed_unit_stats(attributed=...)` pour une modification **attribuée** (résidu
-    opaque réduit). Mirror de l'agrégation `AStatModifierEffect.ApplyModification` par (stat, source).
+def effect_stat_modifications(eff, stats_ctx=None) -> list:
+    """Les `(StatType, montant)` que l'APPLICATION de CET effet pose — **point de verite UNIQUE** des
+    stat-modifications d'un effet, pour les DEUX formes natives (R16 : avant, deux chemins portaient le
+    meme fait natif et un seul marchait selon la provenance de l'effet).
+
+    NATIF — une seule paire de virtuels :
+      • forme de BASE (mono-stat) : `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification`
+        lit `GetStatModification()` (`(**vtable+0x728)` -> ValueTuple<stat, amount, hidden> assemble par
+        `IdunBattle.Entities.Effects.AStatModifierEffect$$GetStatModification` depuis les slots +0x748
+        (`GetStatModificationStat`) et +0x758 (`GetStatModificationAmount`)) et emet UN `ChangeStat` ;
+      • forme OVERRIDE (multi-stat / magnitude contextuelle) : la classe d'effet remplace
+        `ApplyModification` et emet N `ChangeStat` (ex.
+        `IdunBattle.Entities.Effects.Loki.ActOfFaithBuffEffect$$ApplyModification` = crit-chance +
+        crit-damage, avec la part INITIAL du crit-damage du porteur en entree).
+
+    PORT : la forme OVERRIDE est `applied_stat_mods(stats_ctx)` (elle a besoin du `StatsComponent.ctx`
+    du porteur : niveau d'ability actif, multiplier de rarete, part INITIAL d'un autre stat) ; la forme
+    de BASE est le couple `get_stat_modification_stat`/`get_stat_modification_amount`. L'override PRIME
+    exactement comme cote natif (un `ApplyModification` surcharge remplace celui de la base) — c'est ce
+    qui evite le DOUBLE-COMPTE des effets qui declarent les deux (`AnvilShield_FrozenAttackerAdvantage`,
+    dont `applied_stat_mods` delegue justement a `get_stat_modification_amount`).
+
+    `stats_ctx = None` (appelant sans ctx du porteur) -> seule la forme de BASE est lisible ; les
+    magnitudes contextuelles ne sont PAS devinees (degradation fidele, pas d'invention). Montants nuls
+    filtres (mirror de la garde `if (param_3 != 0)` de
+    `IdunBattle.Entities.Components.ValueModification$$Modify` : `Modify(*, 0)` est un no-op natif)."""
+    if stats_ctx is not None:
+        mods = eff.applied_stat_mods(stats_ctx) or []
+        if mods:
+            return [(int(st), int(amt)) for st, amt in mods if amt]
+    st = eff.get_stat_modification_stat()
+    if st is None:
+        return []
+    amt = eff.get_stat_modification_amount()
+    return [(int(st), int(amt))] if amt else []
+
+
+def stat_modifications_by_source(effects, source_of=None, stats_ctx=None) -> dict:
+    """Contributions stat-mod des effets actifs, groupées `{idxStatType: {source: amount}}` — à passer à
+    `stats.seed_unit_stats(attributed=...)` pour une modification **attribuée** (résidu opaque réduit).
+    Mirror de l'agrégation `AStatModifierEffect.ApplyModification` par (stat, source).
     `source_of(effect) -> clé de source` (défaut : tuple stable `("statmod", effect_type, source, name)`).
-    No-op pour les effets non-StatModifier (stat `None` / amount `None`/0)."""
+
+    `stats_ctx` = le `UnitContext`/`StatsComponent.ctx` du PORTEUR (R16) : il débloque la forme OVERRIDE
+    d'`ApplyModification` (`applied_stat_mods`), dont la magnitude se lit justement sur ce ctx. Sans lui,
+    seule la forme mono-stat de la base est attribuée et la contribution des effets à magnitude
+    contextuelle reste dans le résidu opaque `CAPTURED_SOURCE` — donc NON RETIRABLE à leur retrait.
+    No-op pour les effets non-StatModifier (cf. `effect_stat_modifications`)."""
     out: dict = {}
     for e in _as_effects(effects):
-        st = e.get_stat_modification_stat()
-        if st is None:
-            continue
-        amt = e.get_stat_modification_amount()
-        if not amt:
+        mods = effect_stat_modifications(e, stats_ctx)
+        if not mods:
             continue
         src = source_of(e) if source_of else statmod_source_key(e)
-        d = out.setdefault(int(st), {})
-        d[src] = d.get(src, 0) + int(amt)
+        for st, amt in mods:
+            d = out.setdefault(int(st), {})
+            d[src] = d.get(src, 0) + int(amt)
     return out
 
 
-def apply_effect_stat_modifications(unit_stats, effects, source_of=None) -> list:
-    """Applique sur `unit_stats` (`UnitStats`) les stat-modifications DÉCLARÉES par les effets actifs
-    (`AStatModifierEffect` : `get_stat_modification_stat` + `get_stat_modification_amount`),
-    attribuées à la source de chaque effet — mirror de `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification (émet un `ChangeStat` sur la **modification** du stat, part 5/9). Réciproque =
+def apply_effect_stat_modifications(unit_stats, effects, source_of=None, stats_ctx=None) -> list:
+    """Applique sur `unit_stats` (`UnitStats`) les stat-modifications des effets actifs, attribuées à la
+    source de chaque effet — mirror de `IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification (émet un `ChangeStat` sur la **modification** du stat, part 5/9). Réciproque =
     `unit_stats.revert_stat` (`IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification, part 6).
 
     `source_of(effect) -> clé de source` (défaut : tuple stable `("statmod", effect_type, source,
-    name)`) sert au revert par-source. No-op pour les effets non-StatModifier (stat `None` /
-    amount `None`/0). Renvoie la liste des `(source, statType, amount)` appliqués (pour un revert
-    ultérieur exact ou une validation d'attribution vs `statDelta`)."""
+    name)`) sert au revert par-source ; `stats_ctx` = ctx du porteur (débloque la forme OVERRIDE, cf.
+    `effect_stat_modifications`). No-op pour les effets non-StatModifier. Renvoie la liste des
+    `(source, statType, amount)` appliqués (pour un revert ultérieur exact ou une validation
+    d'attribution vs `statDelta`)."""
     applied = []
     for e in _as_effects(effects):
-        st = e.get_stat_modification_stat()
-        if st is None:
-            continue
-        amt = e.get_stat_modification_amount()
-        if not amt:
-            continue
         src = source_of(e) if source_of else statmod_source_key(e)
-        unit_stats.change_stat(int(st), src, int(amt))
-        applied.append((src, int(st), int(amt)))
+        for st, amt in effect_stat_modifications(e, stats_ctx):
+            unit_stats.change_stat(int(st), src, int(amt))
+            applied.append((src, int(st), int(amt)))
     return applied

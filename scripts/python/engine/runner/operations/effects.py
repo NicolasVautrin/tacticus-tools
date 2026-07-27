@@ -410,7 +410,32 @@ def revert_stat_mods_of_removed_effects(state: State) -> list:
     deja actif au chargement du `State` (ex. `ThrillSeekers` 1434, +15 CritChance) restait applique POUR
     TOUJOURS alors que le live le retire a l'expiration.
 
+    R16 : #118 n'avait ferme QUE la forme MONO-STAT de la base. Les effets dont `ApplyModification` est
+    OVERRIDE (magnitude lue sur le `StatsComponent.ctx` du porteur : `ActOfFaithBuffEffect`,
+    `ProtectorImperativeEffect`, `AncestralFortune*`, `AugmentedAssault_ReduceArmor`,
+    `BlackRage_ExtraMove`, `Waaagh_ExtraMovement`) tombaient dans le MEME trou, par les DEUX bouts :
+    l'attribution du seed ne les voyait pas (leur contribution restait dans le residu opaque) et
+    `effect_stat_mod_key` rendait `None` (discriminant `get_stat_modification_stat`). Les deux bouts sont
+    fermes : l'attribution passe par `effect_stat_modifications` (point de verite unique des DEUX formes
+    natives) et le discriminant est `reverted_stats()`. Mesure : `probe_r16_eager_statmod_revert.py`.
+
+    CROISEMENT avec le retrait a echeance (O3) : le gate d'entree est `consumed OR expired`, donc ce
+    foyer voyait DEJA une instance dont le timer venait d'atteindre 0 — le passage de `expired` seul a
+    `expired ET consumed` ne change NI le tour NI le nombre de reverts. L'appelant
+    (`EndTurnOperation.execute`) tick d'abord toutes les entites puis appelle ce foyer : la contribution
+    sort donc dans le MEME passage que l'effet, mirror de `EndTurnOperation$$RefreshEffects` qui enfile
+    `RefreshEffect` (branche de retrait -> virtuel `RevertInternal`). Le seul membre du gisement EAGER a
+    porter un vrai timer est `Waaagh_ExtraMovement` (0x44b=1099, `duree@dsl+0xc0 = Direct(1)`) ; les
+    autres sont PERMANENTS et partent par une feuille `RemoveEffect`. Garde :
+    `tests/engine/runner/test_seeded_eager_statmod_expiry.py`.
+
     Idempotent : `stat_mod_reverted` marque l'instance (et `stat_mod_source` est efface quand il existait).
+    UNE SEULE fois, quel que soit l'ordre des deux foyers de retrait : la feuille `RemoveEffect` skippe
+    d'emblee un effet deja `consumed`, ce foyer skippe une instance deja `stat_mod_reverted`, et
+    `ValueModification$$ReverseModification` retire UNE cle (un 2e passage est structurellement un no-op).
+    Sans rapport avec le compteur `TimesApplied @+0x6c` de `UpdateExistingEffect` (R9), qui vit sur
+    l'AUTRE voie du gate « deja-present » d'`AddEffectOperation.execute` (celle qui `return None` sans
+    jamais materialiser ni appliquer de stat-mod).
     Renvoie la liste des `(unit, effect_type, stat)` revertes — diagnostic."""
     out: list = []
     if state.effects is None:

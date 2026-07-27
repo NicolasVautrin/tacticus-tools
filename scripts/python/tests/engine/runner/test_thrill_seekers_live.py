@@ -348,7 +348,12 @@ def test_thrill_seekers_expires_and_reverts_the_stat_mod(rpc, build_runner):
     off_present, off_rem = _off_eff(st, ada)
     print(f"[TS/expire] MOTEUR cc apres {TURNS} EndTurn = {ctx.stat(StatType.CRIT_CHANCE)} "
           f"(effet rem={off_rem})")
-    assert off_rem is not None and off_rem <= 0, f"MOTEUR: effet non expire (rem={off_rem})"
+    # A l'echeance l'effet N'EXISTE PLUS : `EffectComponent$$ShouldBeRemoved` (`HasTurns && Duration
+    # == 0`) fait prendre a `RefreshEffectsOperation$$RefreshEffect` la branche `DeactivateEffect` +
+    # retrait de l'entite-effet. Offline la marque est `consumed`, que `_off_eff` honore -> l'effet
+    # sort de la vue, il ne reste pas « visible a rem<=0 ». (Ce predicat attendait l'ancien
+    # comportement, ou seul `expired` etait pose ; corrige avec la dynamique d'expiration, O3.)
+    assert not off_present, f"MOTEUR: effet non retire a l'echeance (present={off_present})"
     assert ctx.stat(StatType.CRIT_CHANCE) == cc_on - EXTRA_CC, (
         f"MOTEUR: stat-mod NON reverte a l'expiration "
         f"(cc={ctx.stat(StatType.CRIT_CHANCE)}, attendu {cc_on - EXTRA_CC})")
@@ -402,8 +407,11 @@ def test_thrill_seekers_seeded_stat_mod_reverts_on_expiry(rpc, build_runner, car
         EndTurnOperation.execute(st, advance=True)
     off_present, off_rem = _off_eff(st, ada)
     off_cc = ctx.stat(StatType.CRIT_CHANCE)
-    print(f"[TS/seeded] MOTEUR apres {rem} EndTurn: rem={off_rem} cc={off_cc}")
-    assert off_rem is not None and off_rem <= 0, f"MOTEUR: effet seede non expire (rem={off_rem})"
+    print(f"[TS/seeded] MOTEUR apres {rem} EndTurn: present={off_present} rem={off_rem} cc={off_cc}")
+    # Meme point qu'au test precedent : a l'echeance l'entite-effet est RETIREE
+    # (`EffectComponent$$ShouldBeRemoved` -> `RefreshEffect` branche `DeactivateEffect`), donc absente
+    # de la vue -- et non « presente a rem<=0 ».
+    assert not off_present, f"MOTEUR: effet seede non retire a l'echeance (present={off_present})"
 
     # LIVE : meme sequence, l'oracle. La crit chance doit redescendre du MEME montant.
     for _ in range(int(rem) + 2):
