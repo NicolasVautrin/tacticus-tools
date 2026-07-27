@@ -11,6 +11,15 @@ python scripts/python/fleet_board.py $ARGUMENTS
 Passe `--open` pour ouvrir la page dans le navigateur, `--all` pour inclure les agents terminés.
 Sans argument : table console + écriture de `logs/fleet-board.html` (gitignoré).
 
+**Puis republie l'artefact partagé**, pour que le lien ne soit jamais périmé — il y a DEUX boards,
+et régénérer le fichier local ne met pas à jour celui de claude.ai :
+
+- outil `Artifact`, `file_path` = le HTML qui vient d'être écrit (`logs/fleet-board.html`, ou le
+  chemin passé via `-o`) ;
+- `url` = `https://claude.ai/code/artifact/9c22449f-022b-443d-b74e-76c0f5f3e150` — **toujours cette
+  URL**, sinon une nouvelle est créée à chaque fois et l'ancienne se fige ;
+- `favicon` = `🛩️` (le garder stable : l'utilisateur retrouve son onglet à son icône).
+
 Puis **rends compte en quelques lignes**, sans recopier la table entière — elle est déjà à l'écran.
 Ce qui vaut d'être dit :
 
