@@ -110,9 +110,37 @@ from ...entities.stats import StatType
 from ..components import StatsComponent, unit_has_moved
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage
+from .targeting import TargetingOptions
 
 if TYPE_CHECKING:
     from ..state import State
+
+
+# =================================================================================================== #
+# GATE DE CIBLE (#115) — les `TARGETING_OPTIONS` des 2 actives Aeldari portees.
+#
+# Le masque est le champ `Rules` (`options+0x28`) des `IdunBattle.Core.Services.TargetingOptions` que
+# le `<X>Ability$$.ctor` passe a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` (qui recopie la
+# struct dans `this+0x70..0xaf` et n'ECRASE que `+0x30`/`+0x38`, les deux regles-delegues : `Rules`
+# arrive INTACT jusqu'au filtre).
+#
+# LES DEUX ctors Aeldari sont de la forme PRESET COPIE : ils n'appellent AUCUN
+# `TargetingOptions..ctor`, ils recopient les 0x40 octets du champ STATIQUE de `TargetingOptions`
+# situe a l'offset +0x140 du bloc `<class>+0xb8`, sans AUCUN flag additionnel. Le masque est donc
+# celui qu'ecrit `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28` :
+# `*(statics + 0x168) = 0x4002`, valeur CONSTANTE lue dans ce cctor.
+# Ce n'est PAS la surcharge « preset + flags » (`TargetingOptions..ctor(&opts, &preset, <flags>)`, qui
+# fait `Rules <- preset.Rules | flags` et dont le litteral visible ne serait pas le masque effectif) :
+# ici la copie est integrale, il n'y a pas de flag a OR-er.
+#
+# Noms des bits : enum `IdunBattle.Core.Services.TargetingRule` VERBATIM
+# (`data/symbols/gqfc5mff6c/frida/enums.tsv`).
+#     0x2    TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason`. AUCUNE des deux
+#            abilities n'a de `GetDynamicInvalidTargetReason` natif (le slot vtable +0x480 reste celui
+#            de la base) -> le defaut 0 du port est le mirror EXACT, pas une degradation.
+#     0x4000 TargetIsEnemy            -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`) : refus sur
+#            soi-meme et sur un allie.
+# =================================================================================================== #
 
 
 def _rounds_started(state: "State", caster_id: int) -> int:
@@ -167,6 +195,13 @@ class ExecutionerAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Executioner)   # 1066
     ABILITY_ID = "Executioner"
+
+    # GATE DE CIBLE (#115) — PRESET COPIE (cf. le bloc en tete de module).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$.ctor` :
+    #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -241,6 +276,13 @@ class HarvesterOfSoulsAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.HarvesterOfSouls)   # 1067
     ABILITY_ID = "HarvesterOfSouls"
+
+    # GATE DE CIBLE (#115) — PRESET COPIE (cf. le bloc en tete de module).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$.ctor` :
+    #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

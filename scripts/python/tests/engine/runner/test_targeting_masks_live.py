@@ -1,0 +1,286 @@
+"""#115 -- GARDE des `TARGETING_OPTIONS` des actives DarkAngels / Aeldari / WorldEaters.
+
+`engine/runner/abilities/targeting.py` n'arme le gate de cible QUE si l'ability porte un
+`TARGETING_OPTIONS` (`options = getattr(ability, "TARGETING_OPTIONS", None)` ; `None` -> retour 0
+IMMEDIAT, aucun gate). Une ability entree au registre sans son masque fait donc accepter offline des
+casts que `IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget` REFUSE -- degradation
+PERMISSIVE, donc muette en self-play. Ce fichier GARDE les 10 masques poses sur les trois modules de
+faction (`darkangels.py`, `aeldari.py`, `worldeaters.py`).
+
+ORACLE = le LIVE : `abilityReason(casterId, abilityType, targetId)` rend le masque `TargetingRule`
+NATIF (`targetReason.hex` + noms de flags) via
+`IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`.
+
+CONTRAT DE FIDELITE (identique a `test_ability_target_gate_live.py`) :
+
+    natif == 0   =>  port == 0        STRICT (le port n'invente JAMAIS un refus)
+    natif != 0   =>  port == natif    (regle PORTEE)
+                 ou  port == 0        (regle NON PORTEE -> permissif, cf. targeting.py)
+    jamais       :   port != 0 et port != natif
+
+HORS PERIMETRE DU CONTRAT -- les raisons de DISPONIBILITE de l'ability. Le decompile de
+`AttackQuery$$GetInvalidTargetReason` (celui qu'appelle le RPC) montre DEUX sorties EN AMONT de la
+cascade `TargetingQuery` :
+
+    ability = ActiveAbilityComponent.GetOrNull(caster, abilityType)
+    if (ability == null || !ability.CanCurrentlyBeUsed || ability+0x44 == 0)  -> broken(0x1)
+    if (IsDamagedMachine(caster) && !IsMachinePrimaryAbilityType(...))        -> broken(0x1)
+    if (AttackQuery.IsAlreadyUsedThisTurn(...))                               -> broken(0x40000000000000)
+    sinon -> ability.GetInvalidTargetReason(...) = LE filtre des TargetingOptions
+
+`0x1` (`ValidRequest`) = cooldown / munitions epuisees / ability desactivee ; `0x40000000000000`
+(`AlreadyUseThisTurn`) = deja utilisee ce tour. Ni l'un ni l'autre n'est un `TargetingRule` de
+CIBLE : `is_invalid_target` porte le maillon SOUS cette porte (le port ne modelise ni cooldown ni
+munitions). Ces raisons sont donc exclues du contrat, EXPLICITEMENT et par leur code.
+
+PORTEURS (tous confrontables) : 5 HERO DarkAngels + la MACHINE OF WAR `darkaStormSpeeder` (absente
+du catalogue du seed BC -> injectee par `catalog_inject.py`, cf. runner.md 1bis), 2 HERO Aeldari,
+1 HERO WorldEaters.
+
+ASCII only. Le harnais indisponible = ECHEC (conftest), jamais un skip vert.
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from engine.entities.pathfinding.board import Board
+from engine.runner.abilities.handler import ABILITY_CLASSES
+from engine.runner.abilities.targeting import (RULE_TARGET_IS_ENEMY, RULE_TARGET_IS_FRIENDLY,
+                                               is_invalid_target)
+from engine.runner.snapshot import load_state
+
+PYDIR = Path(__file__).resolve().parents[3]            # scripts/python
+
+BOARD = "MC1_67"                                       # arene pvp, MoW-capable (slot MachineOfWar)
+FOES = "orksWarboss,orksNob,tyranWingedPrime,ultraInceptorSgt,eldarRanger"
+DA_UNITS = "darkaTerminator,darkaHellblaster,darkaAzrael,darkaAsmodai,darkaCompanion"
+EA_UNITS = "eldarFarseer,eldarMauganRa,worldJakhal,worldKharn,eldarAutarch"
+STORM_SPEEDER = "darkaStormSpeeder"
+WARMUP_ENDTURNS = 6                                    # purge les `initialCooldownTurns` du tour 1
+
+# Raisons de DISPONIBILITE rendues EN AMONT du filtre de cible (cf. l'en-tete) -> hors contrat.
+VALID_REQUEST = 0x1                                    # TargetingRule.ValidRequest
+ALREADY_USED_THIS_TURN = 0x40000000000000              # AlreadyUseThisTurn (bit 54)
+REQUEST_LEVEL_REASONS = frozenset({VALID_REQUEST, ALREADY_USED_THIS_TURN})
+
+# (abilityType, visualId du porteur, masque LU au `<X>Ability$$.ctor`, regle PORTEE attendue).
+# La 4e colonne est le coeur du test : `None` = le masque n'arme AUCUNE regle portee (masque pose
+# pour ce qu'il est, aucun refus offline) ; sinon c'est le `TargetingRule` que le port DOIT opposer
+# a au moins une cible que le natif refuse pour EXACTEMENT cette raison.
+DA_CASES = [
+    (1150, "darkaTerminator", 0x4002, RULE_TARGET_IS_ENEMY),          # PlasmaCannon
+    (1103, "darkaHellblaster", 0x4002, RULE_TARGET_IS_ENEMY),         # Supercharge
+    (1140, "darkaAsmodai", 0x6004000, RULE_TARGET_IS_ENEMY),          # ExemplarOfHate
+    (1214, STORM_SPEEDER, 0x200240000400, RULE_TARGET_IS_FRIENDLY),   # Hailstrike (cible ALLIEE)
+    (1092, "darkaAzrael", 0x80040, None),                             # DarkTalonStrike (domaine TILE)
+    (1213, STORM_SPEEDER, 0x40080042, None),                          # DeathOnTheWind (TILE + dyn.)
+    (1189, "darkaCompanion", 0x80, None),                             # CalibaniteGreatsword (AddCaster)
+]
+EA_CASES = [
+    (1066, "eldarFarseer", 0x4002, RULE_TARGET_IS_ENEMY),             # Executioner
+    (1067, "eldarMauganRa", 0x4002, RULE_TARGET_IS_ENEMY),            # HarvesterOfSouls
+    (1131, "worldJakhal", 0x4000, RULE_TARGET_IS_ENEMY),              # JakhalStimms
+]
+ALL_CASES = DA_CASES + EA_CASES
+
+
+def _casters_by_visual(dec: dict) -> dict:
+    """visualId -> id d'ACTEUR. Les MACHINES OF WAR ne sont PAS dans `decisionView.units` : elles
+    vivent dans `decisionView.mows`, et la cle d'acteur est `casterId` (entite `Machine` Type=6,
+    == `machineId`) -- c'est elle qu'attendent `abilityReason` et
+    `applyAction{kind:"ability", casterId}` (cf. `snapshot._machine_rows`)."""
+    out = {}
+    for u in (dec.get("units") or []):
+        out.setdefault(u.get("visualId"), u.get("id"))
+    for m in (dec.get("mows") or []):
+        if m.get("casterId") is not None:
+            out.setdefault(m.get("visualId"), m.get("casterId"))
+    return out
+
+
+def _measure(rpc, rid: int, cases: list) -> dict:
+    """Fige l'etat (dec/ob/snap/board), lit l'oracle natif pour chaque (ability, cible vivante) et
+    rejoue le gate OFFLINE sur un `State` NEUF par ability. Rend {(at, target_id): row}."""
+    dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    ob = rpc("observeBattle", {"runnerId": rid}, 40)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.fail("boardGraph indisponible -- rien n'a pu etre confronte", pytrace=False)
+    board = Board(bg["tiles"], adjacency="evenq")
+    casters = _casters_by_visual(dec)
+    alive = [u for u in (dec.get("units") or []) if u.get("alive")]
+    rows = {}
+    for at, vis, _rules, _expect in cases:
+        caster_id = casters.get(vis)
+        if caster_id is None:
+            pytest.fail(f"porteur {vis} (ability {at}) absent du runner {rid} -- le harnais n'a "
+                        f"pas monte la bataille voulue, aucune validation n'a eu lieu "
+                        f"(visualIds vus : {sorted(casters)})", pytrace=False)
+        state = load_state(dec, ob, snap, board=board)
+        klass = ABILITY_CLASSES[at]
+        for tgt in alive:
+            r = rpc("abilityReason", {"runnerId": rid, "casterId": caster_id,
+                                      "abilityType": at, "targetId": tgt["id"]}, 60) or {}
+            tr = r.get("targetReason") or {}
+            rows[(at, tgt["id"])] = {
+                "ability": at, "caster": caster_id, "target": tgt["id"],
+                "target_visual": tgt.get("visualId"),
+                "native": int(tr.get("hex") or "0x0", 16),
+                "names": list(tr.get("reasons") or []),
+                "port": is_invalid_target(state, int(caster_id), int(tgt["id"]), klass()),
+            }
+    return {"rid": rid, "rows": rows, "alive": [u["id"] for u in alive]}
+
+
+def _advance(rpc, rid: int, n: int = WARMUP_ENDTURNS) -> None:
+    """Purge les cooldowns initiaux (`initialCooldownTurns`, ex. PlasmaCannon `cd1`) : tant qu'ils
+    tiennent, le natif rend `ValidRequest` pour TOUTE cible et le filtre de cible n'est jamais
+    atteint -- l'oracle ne dirait alors rien du masque. Le runner est bati `--no-ai` : un `endturn`
+    ne bouge ni ne tue personne, la geometrie reste celle des spawns."""
+    for _ in range(n):
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+
+
+@pytest.fixture(scope="module")
+def masks_da(rpc, build_runner, tmp_path_factory):
+    """Bataille DarkAngels : les 5 HERO + la MoW `darkaStormSpeeder`. Cette derniere est une des 17
+    unites `lineup` absentes du catalogue du seed BC -> `catalog_inject.py` produit un seed BC
+    augmente (Units + configs d'ability), cf. runner.md 1bis."""
+    seed_bc = tmp_path_factory.mktemp("masks") / "seed-bc-storm.json"
+    p = subprocess.run([sys.executable, "catalog_inject.py", "--units", STORM_SPEEDER,
+                        "--out", str(seed_bc)], cwd=str(PYDIR), capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    if not seed_bc.exists():
+        pytest.fail(f"catalog_inject KO pour {STORM_SPEEDER} : {(p.stderr or p.stdout)[-400:]}",
+                    pytrace=False)
+    rid = build_runner("777", extra=["--board", BOARD, "--seed-bc", str(seed_bc),
+                                     "--p-units", DA_UNITS, "--p-mow", STORM_SPEEDER,
+                                     "--a-units", FOES, "--no-ai"])["rid"]
+    _advance(rpc, rid)
+    return _measure(rpc, rid, DA_CASES)
+
+
+@pytest.fixture(scope="module")
+def masks_ea(rpc, build_runner):
+    """Bataille Aeldari + WorldEaters : `eldarFarseer`, `eldarMauganRa`, `worldJakhal` (+ 2 unites
+    de remplissage, qui servent de cibles ALLIEES au volet `TargetIsEnemy`)."""
+    rid = build_runner("31337", extra=["--board", BOARD, "--p-units", EA_UNITS,
+                                       "--a-units", FOES, "--no-ai"])["rid"]
+    _advance(rpc, rid)
+    return _measure(rpc, rid, EA_CASES)
+
+
+@pytest.fixture(scope="module")
+def masks_all(masks_da, masks_ea):
+    """Les deux batailles vues comme UN jeu de mesures (les cles sont (abilityType, targetId), et
+    les deux runners n'ont aucune ability en commun)."""
+    rows = dict(masks_da["rows"])
+    rows.update(masks_ea["rows"])
+    return rows
+
+
+# ================================================================================================ #
+# 1. Le masque POSE est bien celui du ctor natif (offline, sans live)
+# ================================================================================================ #
+
+def test_every_mask_matches_the_literal_read_in_the_native_ctor():
+    """Transcription du masque, ability par ability. Les valeurs de droite sont LUES au decompile de
+    `<X>Ability$$.ctor` (build gqfc5mff6c) : soit le 5e argument de la surcharge 8 arguments de
+    `IdunBattle.Core.Services.TargetingOptions$$.ctor` (qui pose `Rules <- param5` tel quel), soit,
+    pour les ctors qui COPIENT un preset statique, la constante que
+    `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit a `<preset>+0x28`.
+
+    C'est CE test qui rougit si un masque est retire ou altere -- il ne depend d'aucun live."""
+    missing, wrong = [], []
+    for at, _vis, rules, _expect in ALL_CASES:
+        opts = getattr(ABILITY_CLASSES[at], "TARGETING_OPTIONS", None)
+        if opts is None:
+            missing.append(at)
+        elif int(opts.rules) != rules:
+            wrong.append((at, hex(int(opts.rules)), hex(rules)))
+    assert not missing, (
+        "TARGETING_OPTIONS ABSENT -- ces abilities entrent dans ABILITY_CLASSES sans masque, donc "
+        f"AUCUN gate de cible (degradation permissive muette) : {sorted(missing)}")
+    assert not wrong, f"masque different du litteral du ctor natif (at, port, natif) : {wrong}"
+
+
+# ================================================================================================ #
+# 2. Agrement avec l'oracle NATIF, cible par cible
+# ================================================================================================ #
+
+def test_port_never_refuses_what_the_native_accepts(masks_all):
+    """LA propriete « zero regression » : une regle non portee est permissive, donc poser un masque
+    ne peut JAMAIS faire refuser une cible que le natif accepte. C'est le sens dangereux (un refus
+    invente casse des casts legaux en silence)."""
+    bad = [(r["ability"], r["target"], r["target_visual"], hex(r["port"]))
+           for r in masks_all.values() if r["native"] == 0 and r["port"] != 0]
+    assert not bad, f"le port refuse des cibles que le natif ACCEPTE (at, uid, visual, port) : {bad}"
+
+
+def test_port_reason_is_the_native_reason_or_permissive(masks_all):
+    """Contrat de fidelite complet : le port rend soit EXACTEMENT la raison native (regle portee),
+    soit 0 (regle non portee) -- jamais une AUTRE raison non nulle. Un refus pour la mauvaise raison
+    passerait un test purement booleen accepte/refuse.
+
+    Les raisons de DISPONIBILITE (`ValidRequest`, `AlreadyUseThisTurn`) sont exclues : elles sont
+    rendues par `AttackQuery$$GetInvalidTargetReason` EN AMONT du filtre de cible (cf. en-tete)."""
+    wrong = [(r["ability"], r["target"], r["target_visual"], hex(r["port"]), hex(r["native"]),
+              r["names"])
+             for r in masks_all.values()
+             if r["native"] not in REQUEST_LEVEL_REASONS
+             and r["port"] != 0 and r["port"] != r["native"]]
+    assert not wrong, (
+        "le port refuse pour une raison DIFFERENTE du natif "
+        f"(at, uid, visual, port, natif, noms natifs) : {wrong}")
+
+
+# ================================================================================================ #
+# 3. Chaque masque qui ARME une regle portee produit un refus MESURE
+# ================================================================================================ #
+
+@pytest.mark.parametrize("at,vis,rules,expect", [c for c in ALL_CASES if c[3] is not None])
+def test_armed_mask_reproduces_a_native_refusal(masks_all, at, vis, rules, expect):
+    """Le coeur du travail : renseigner l'attribut ne suffit pas, il faut qu'un cast que le NATIF
+    refuse soit desormais refuse OFFLINE, pour la MEME raison.
+
+    `TargetIsEnemy` (0x4000) : le natif refuse soi-meme et les allies. `TargetIsFriendly` (0x400,
+    Hailstrike) : c'est l'inverse -- le natif refuse les ENNEMIS, et le caster etant une MACHINE, il
+    prend la branche `IsMachine(caster)` du bit 10 (`battleQuery.<slot 0x90>`), que le port rabat
+    sur le meme predicat d'equipe."""
+    hits = [r for r in masks_all.values()
+            if r["ability"] == at and r["native"] == expect and r["port"] == expect]
+    seen = sorted({(hex(r["native"]), tuple(r["names"])) for r in masks_all.values()
+                   if r["ability"] == at})
+    assert hits, (
+        f"ability {at} ({vis}, masque {hex(rules)}) : AUCUN refus natif {hex(expect)} reproduit "
+        f"a l'identique par le port -- le masque n'a rien arme. Raisons natives vues : {seen}")
+
+
+# ================================================================================================ #
+# 4. Les masques SANS bit porte : poses, et strictement sans effet
+# ================================================================================================ #
+
+@pytest.mark.parametrize("at,vis,rules", [(c[0], c[1], c[2]) for c in ALL_CASES if c[3] is None])
+def test_mask_without_ported_bit_arms_no_refusal(masks_all, at, vis, rules):
+    """DarkTalonStrike (`TargetIsTile` | `TargetTileHasEnemyUnit`), DeathOnTheWind (idem +
+    `TargetMatchesDynamicRule` + `AllowNullCasterTile`) et CalibaniteGreatsword (`AddCaster`) ne
+    posent AUCUN bit que la cascade offline consomme. Leur masque est pose parce que c'est la donnee
+    RE-lue -- et il ne doit RIEN refuser : c'est la contrepartie honnete du « trou declare ».
+
+    En particulier DeathOnTheWind porte bien `TargetMatchesDynamicRule` (0x2) et le natif surcharge
+    la regle (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = la cible doit avoir deja recu
+    une attaque ce tour) : elle N'EST PAS portee (le compteur
+    `UnitComponent.times_attacked_this_turn` n'est pas seede par `load_state`), donc le defaut 0 de
+    la base doit tenir -- la porter refuserait des cibles que le natif ACCEPTE."""
+    assert getattr(ABILITY_CLASSES[at], "TARGETING_OPTIONS", None) is not None, (
+        f"ability {at} ({vis}) : masque ABSENT alors qu'il a ete lu au ctor ({hex(rules)})")
+    refused = [(r["target"], r["target_visual"], hex(r["port"]), hex(r["native"]), r["names"])
+               for r in masks_all.values() if r["ability"] == at and r["port"] != 0]
+    assert not refused, (
+        f"ability {at} ({vis}, masque {hex(rules)}) : le port oppose un refus alors qu'AUCUN bit du "
+        f"masque n'est consomme par la cascade portee (uid, visual, port, natif, noms) : {refused}")

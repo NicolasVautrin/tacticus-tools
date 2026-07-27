@@ -39,9 +39,44 @@ from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAllia
 from .base import ActiveAbility
 from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
                          UseActiveAbility, entities_from_state)
+from .targeting import TargetingOptions
 
 if TYPE_CHECKING:
     from ..state import State
+
+
+# =================================================================================================== #
+# GATE DE CIBLE (#115) — les `TARGETING_OPTIONS` des 7 actives DarkAngels portees.
+#
+# Le masque est le champ `Rules` (`options+0x28`) des `IdunBattle.Core.Services.TargetingOptions` que
+# le `<X>Ability$$.ctor` passe a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor`. LU au
+# decompile, ability par ability — jamais deduit d'une autre. `AActiveAbility$$.ctor` recopie la
+# struct dans `this+0x70..0xaf` et n'ECRASE que `+0x30`/`+0x38` (les deux regles-delegues) : le champ
+# `Rules` arrive donc INTACT jusqu'au filtre, et le litteral du ctor EST le masque effectif.
+#
+# DEUX FORMES de ctor coexistent dans ce lot, et il faut les distinguer (c'est le piege documente
+# dans la docstring de `TargetingOptions`) :
+#
+#   (A) LITTERAL DIRECT — `TargetingOptions..ctor(&opts, <bool AddCasterMode>, &statsFromClass,
+#       <int>, <RULES>, 0, 0, 0)` : la surcharge 8 arguments pose `Rules <- param 5` tel quel
+#       (`IdunBattle.Core.Services.TargetingOptions$$.ctor` : `*(param_1 + 0x28) = param_5`).
+#       -> DarkTalonStrike, DeathOnTheWind, Hailstrike, ExemplarOfHate, CalibaniteGreatsword.
+#
+#   (B) PRESET STATIQUE COPIE — le ctor n'appelle AUCUN `TargetingOptions..ctor` : il recopie les
+#       0x40 octets d'un champ STATIQUE de `TargetingOptions` (bloc `<class>+0xb8`) directement dans
+#       la variable passee a `AActiveAbility..ctor`. Le masque est alors celui qu'ecrit
+#       `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`, VALEUR CONSTANTE lue
+#       dans ce cctor. -> PlasmaCannon, Supercharge (preset du bloc statique a l'offset +0x140,
+#       `cctor` : `*(statics + 0x168) = 0x4002`).
+#       Ce n'est PAS la surcharge « preset + flags » (`TargetingOptions..ctor(&opts, &preset,
+#       <flags>)`, qui fait `Rules <- preset.Rules | flags` et dont le litteral visible ne serait pas
+#       le masque effectif) : ici il n'y a AUCUN flag additionnel, la copie est integrale.
+#
+# Noms des bits < 32 : enum `IdunBattle.Core.Services.TargetingRule` VERBATIM
+# (`data/symbols/gqfc5mff6c/frida/enums.tsv`). Les bits >= 32 sont absents de ce dump (tronque a
+# 32 bits) -> nommes par leur ROLE lu au decompile de
+# `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` (surcharge 7 arguments).
+# =================================================================================================== #
 
 
 def _ability_profile(ability_id: str, key: str) -> str:
@@ -172,6 +207,18 @@ class PlasmaCannonAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlasmaCannon)  # 1150
     ABILITY_ID = "PlasmaCannon"
+
+    # GATE DE CIBLE (#115) — forme (B) PRESET COPIE.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$.ctor` :
+    #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit ce preset : `*(statics+0x168) = 0x4002`
+    # (= `<preset>+0x28` = `Rules`). Decomposition :
+    #     0x2    TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason` ; PlasmaCannon
+    #            n'a PAS de `GetDynamicInvalidTargetReason` natif (le slot vtable +0x480 reste celui de
+    #            la base) -> defaut 0 cote port = mirror exact.
+    #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -320,6 +367,21 @@ class DarkTalonStrikeAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.DarkTalonStrike)   # 1092
     ABILITY_ID = DARK_TALON_STRIKE_ID
 
+    # GATE DE CIBLE (#115) — forme (A) LITTERAL DIRECT.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 2, 0x80040, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # Decomposition (`TargetingRule`) :
+    #     0x40    TargetIsTile           -> NON PORTE (domaine TILE : le natif bascule la cible sur
+    #                                       `GetMainTile(target)` et exige `IsWalkable`).
+    #     0x80000 TargetTileHasEnemyUnit -> NON PORTE (domaine TILE : `IsEmptyOrSteppable(tuile)` ou
+    #                                       `!UnitsCanAttackEachOther(caster, occupant)` -> refus).
+    # AUCUN bit porte par la cascade offline => ce masque n'arme, a ce jour, aucun refus : il est pose
+    # pour ce qu'il est (la donnee RE-lue), et il s'activera de lui-meme le jour ou le volet TILE sera
+    # porte. La degradation reste PERMISSIVE (jamais de refus invente) — mesure live : le port rend 0
+    # sur toutes les cibles, y compris celles que le natif refuse en `TargetTileHasEnemyUnit`.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x80040)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         board = state.board
@@ -452,6 +514,27 @@ class DeathOnTheWindAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.DeathOnTheWind)   # 1213
     ABILITY_ID = DEATH_ON_THE_WIND_ID
 
+    # GATE DE CIBLE (#115) — forme (A) LITTERAL DIRECT.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathOnTheWindAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x40080042, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # Decomposition (`TargetingRule`) :
+    #     0x2        TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason`.
+    #     0x40       TargetIsTile             -> NON PORTE (domaine TILE).
+    #     0x80000    TargetTileHasEnemyUnit   -> NON PORTE (domaine TILE).
+    #     0x40000000 AllowNullCasterTile      -> PERMISSIF (le caster est une MACHINE OF WAR : sans ce
+    #                                            bit, `GetInvalidCasterReason` refuserait un caster aux
+    #                                            `casterTiles` vides).
+    # TROU DECLARE sur le bit 0x2 : le natif surcharge bien la regle
+    # (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = « la cible doit avoir DEJA recu >= 1
+    # attaque ce tour », `EntityExtensions.GetNumAttacksReceivedThisTurn(unit) != 0`), mais elle N'EST
+    # PAS portee : `UnitComponent.times_attacked_this_turn` n'est PAS seede par `load_state` (le RPC ne
+    # l'expose pas) -> sur un etat CHARGE il vaut 0 pour tout le monde, et la porter refuserait des
+    # cibles que le natif ACCEPTE (regression exactement interdite). Le defaut de base (0) laisse donc
+    # la regle permissive, comme pour toute regle non portee. Point d'ancrage pour la fermer : exposer
+    # `GetNumAttacksReceivedThisTurn` dans `combatSnapshot`/`decisionView`.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x40080042)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         from ...entities.effects.magnitude import ability_var
@@ -523,6 +606,27 @@ class HailstrikeAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Hailstrike)      # 1214
     ABILITY_ID = HAILSTRIKE_ID
+
+    # GATE DE CIBLE (#115) — forme (A) LITTERAL DIRECT.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.HailstrikeAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x200240000400, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # Decomposition (bits < 32 = noms `TargetingRule` ; bits >= 32 = role lu au decompile) :
+    #     0x400            TargetIsFriendly     -> PORTE. C'est le SEUL masque du lot qui refuse dans
+    #                                              l'AUTRE sens : Hailstrike se lance sur un ALLIE, un
+    #                                              ENNEMI est refuse. Le caster etant une MACHINE, le
+    #                                              natif prend la branche `IsMachine(caster)` du bit 10
+    #                                              (`battleQuery.<slot 0x90>(caster, target)`) qui tombe
+    #                                              sur le meme predicat d'equipe que `UnitsAreFriendly`.
+    #     0x40000000       AllowNullCasterTile  -> PERMISSIF (caster = MACHINE OF WAR).
+    #     0x200000000      bit 33               -> NON PORTE (`HasTrait(cible, 0xd)` INTERDIT).
+    #     0x200000000000   bit 45               -> non teste par les DEUX etages du gate
+    #                                              (`GetInvalidCasterReason` / `GetInvalidTargetReason`
+    #                                              7 args ne lisent jamais ce bit) : c'est le CODE DE
+    #                                              RAISON que rend le filtre quand la cible n'a pas
+    #                                              d'unite, contrainte INCONDITIONNELLE. Declaratif
+    #                                              dans le masque -> rien a porter.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x200240000400)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -633,6 +737,16 @@ class SuperchargeAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Supercharge)  # 1103
     ABILITY_ID = "Supercharge"
+
+    # GATE DE CIBLE (#115) — forme (B) PRESET COPIE (MEME preset que PlasmaCannon).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility$$.ctor` :
+    #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` (= `<preset>+0x28` = `Rules`).
+    #     0x2    TargetMatchesDynamicRule -> pas de `GetDynamicInvalidTargetReason` natif pour 1103 ->
+    #            defaut 0 (mirror exact).
+    #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -845,6 +959,17 @@ class ExemplarOfHateAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.ExemplarOfHate)  # 1140
     ABILITY_ID = "ExemplarOfHate"
 
+    # GATE DE CIBLE (#115) — forme (A) LITTERAL DIRECT.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x6004000, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # Decomposition (`TargetingRule`) :
+    #     0x4000    TargetIsEnemy      -> PORTE (refus sur soi-meme / un allie).
+    #     0x6000000 AllowObscuredTarget (= AllowObscuredTargetByElevation | ...ByWalls, valeur
+    #               COMPOSITE de l'enum) -> PERMISSIF : aucune contrainte de ligne de vue (coherent
+    #               avec « portee illimitee » du kit 1140).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x6004000)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -946,6 +1071,21 @@ class CalibaniteGreatswordAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CalibaniteGreatsword)  # 1189
     ABILITY_ID = "CalibaniteGreatsword"
+
+    # GATE DE CIBLE (#115) — forme (A) LITTERAL DIRECT.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 1, &statsFromClass, 1, 0x80, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # Le 2e argument (`options+0x00`) vaut 1 ici, contre 0 pour toutes les autres actives du module :
+    # c'est ce booleen que teste la surcharge 5 arguments de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` — a 1 et cible == caster, elle
+    # route vers `TargetingQuery$$GetCasterNotAddedReason` AU LIEU du filtre statique (c'est le regime
+    # d'un cast SELF, ce qu'est ce toggle de posture).
+    # Unique bit du masque : 0x80 `AddCaster` — et `GetCasterNotAddedReason` commence justement par
+    # `if (-1 < (char)Rules)` (bit 7 clair) : bit POSE = tous ses controles sont sautes, la cible est
+    # valide d'office. Aucun bit lu par le filtre statique => masque pose pour ce qu'il est, aucun
+    # refus arme (annotation exacte, comportement offline inchange).
+    TARGETING_OPTIONS = TargetingOptions(rules=0x80)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
