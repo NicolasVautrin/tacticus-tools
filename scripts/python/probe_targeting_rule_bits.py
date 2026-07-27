@@ -60,24 +60,44 @@ def from_ts() -> dict:
             for m in re.finditer(r'^\s*(\d+):\s*"([^"]+)",', txt, re.M)}
 
 
+def from_python() -> dict:
+    """Le module GENERE consomme par le registre. S'il derive du dump, tous les masques
+    nommes deviennent faux SILENCIEUSEMENT -- d'ou sa presence ici."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from engine.runner.abilities.targeting_rule import TargetingRule
+    out = {}
+    for m in TargetingRule:
+        v = int(m)
+        if v > 0 and not (v & (v - 1)):
+            out[v.bit_length() - 1] = m.name
+    return out
+
+
+def _confronte(gauche: dict, droite: dict, nom_g: str, nom_d: str) -> list:
+    return [(bit, gauche.get(bit), droite.get(bit))
+            for bit in sorted(set(gauche) | set(droite))
+            if gauche.get(bit) != droite.get(bit)]
+
+
 def main() -> int:
     build = build_hash()
-    dump, ts = from_dump(build), from_ts()
-    print("build=%s  dump=%d bits simples  table TS=%d" % (build, len(dump), len(ts)))
+    dump, ts, py = from_dump(build), from_ts(), from_python()
+    print("build=%s  dump=%d bits simples | table TS=%d | module Python=%d"
+          % (build, len(dump), len(ts), len(py)))
 
-    bad = []
-    for bit in sorted(set(dump) | set(ts)):
-        d, t = dump.get(bit), ts.get(bit)
-        if d != t:
-            bad.append((bit, t, d))
+    rc = 0
+    for droite, nom in ((ts, "table TS (hooks/data)"), (py, "module Python genere")):
+        bad = _confronte(dump, droite, "dump", nom)
+        if bad:
+            rc = 1
+            print("DIVERGENCES dump <-> %s -- les masques du registre sont SUSPECTS :" % nom)
+            for bit, d, x in bad:
+                print("  bit %-3d  dump=%-40s %s=%s" % (bit, d, nom, x))
+    if rc:
+        return rc
 
-    if bad:
-        print("DIVERGENCES (bit / table TS / dump) -- les masques du registre sont SUSPECTS :")
-        for bit, t, d in bad:
-            print("  bit %-3d  TS=%-40s dump=%s" % (bit, t, d))
-        return 1
-
-    print("OK: les %d bits concordent, aucun n'a bouge depuis kqkbjqfb6c" % len(ts))
+    print("OK: les %d bits concordent sur les TROIS sources" % len(dump))
+    print("    (dump du build courant, table ecrite a la main sous kqkbjqfb6c, module genere)")
     return 0
 
 

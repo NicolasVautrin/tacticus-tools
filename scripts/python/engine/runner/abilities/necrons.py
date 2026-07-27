@@ -37,6 +37,7 @@ from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, AttackWithAttackDamage,
                          ChainLeftOverHitsAttackDamage, Spawn)
 from .loki import _pick_randomly_n
@@ -158,7 +159,10 @@ class HarbingerOfDestructionAbility(ActiveAbility):
     #                         ou un ennemi attaquable. C'est ce bit qui explique la branche
     #                         `If(AreEqual(caster, target), ...)` de l'ExecuteBehaviour : le natif ACCEPTE
     #                         `target == caster` pour cette ability (d'ou `include_main=False`).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x200000000000004)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.CasterMatchesDynamicRule
+        | TR.TargetIsCasterOrEnemy
+    ))
 
     def _params(self, state: "State", caster_id: int) -> tuple:
         """`(N, range)` lus du gameconfig au niveau du caster (mirror `GetVariableForLevel(config, 0x9a)` =
@@ -293,7 +297,10 @@ class ResurrectionOrbAbility(ActiveAbility):
     #                   SELF-CAST STRICT (le natif refuse tout target != caster).
     # `self_cast` = le BYTE `options+0x00`, ici le 2e argument du ctor (= 1) : il aiguille le cast
     # SUR SOI-MEME vers `TargetingQuery$$GetCasterNotAddedReason` au lieu du filtre statique.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x8000000020, self_cast=True)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetHasFreeAdjacentTile
+        | TR.TargetIsCaster
+    ), self_cast=True)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -424,7 +431,11 @@ class ChronometronAbility(ActiveAbility):
     #     0x6000000   AllowObscuredTarget  -> permissif (aucune contrainte de ligne de vue)
     # => l'ability accepte DEUX formes de cast : sur SOI (self-cast, forme naturelle -- l'arbre est
     # caster-ancre `Foreach(SurroundingEnemies(caster, range))`), ou sur un ENNEMI a portee.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x6004000, self_cast=True)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+    ), self_cast=True)
 
     def _params(self) -> tuple:
         """`(range, nrOfRounds)` = `GetNumberConstant(config, 0x16 / 0x45)` — DEUX constantes de config
@@ -531,7 +542,7 @@ class MultiThreatEliminatorAbility(ActiveAbility):
     #     0x2      TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason` (non surcharge
     #              ici -> defaut 0 = pas de refus dynamique, degradation PERMISSIVE assumee)
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def _params(self) -> tuple:
         """`(range, extraHit)` = `GetNumberConstant(config, 0x16 / 0x2b)`."""

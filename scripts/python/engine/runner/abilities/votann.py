@@ -25,6 +25,7 @@ import gameconfig as GC
 
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect,
                          AddDynamicStatModifierEffect)
 from .loki import perform_ai_attack_from_current_position
@@ -157,7 +158,7 @@ class IronkinSteeljackAbility(ActiveAbility):
     # Aucune regle du domaine UNITE -> aucun refus mesurable offline ; masque pose par FIDELITE.
     # ⚠ Le ctor est BYTE-IDENTIQUE a ceux d'AberrantHypermorph et de MasterOfTheTutelaries (meme
     # famille « summon sur hex libre adjacent »).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x1040)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileIsFree)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -233,7 +234,7 @@ class AugmentedAssaultAbility(ActiveAbility):
     # Masque effectif = `preset+0x28` = statics `+0x68` -> `0x4000`.
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x4000   TargetIsEnemy -> PORTE, et SEULE regle du masque (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4000)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -296,7 +297,7 @@ class GravitonRifleAbility(ActiveAbility):
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     # NB la PORTEE (range 2) n'est PAS dans ce masque : le natif la teste hors bit, via
     # `IdunBattle.Core.Services.TargetingQuery$$GetRange` — volet NON PORTE (cf. targeting.py).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -486,7 +487,10 @@ class AncestralFortuneAbility(ActiveAbility):
     # `self_cast=True`, coherent avec le SELF-CAST documente dans la docstring de la classe : le cast
     # sur Uthar lui-meme est aiguille vers `TargetingQuery$$GetCasterNotAddedReason`, pas vers le
     # filtre statique.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x8004, self_cast=True)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.CasterMatchesDynamicRule
+        | TR.CasterIsPossibleTarget
+    ), self_cast=True)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

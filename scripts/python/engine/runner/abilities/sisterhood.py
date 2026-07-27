@@ -35,6 +35,7 @@ from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
 import hexgeo
@@ -494,7 +495,7 @@ class BrazierOfHolyFireAbility(ActiveAbility):
     #             target_reason`. Fidele, pas une degradation.
     #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie) ; coherent avec
     #             l'i2 « to a target enemy within range {[range]} ».
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -40,6 +40,7 @@ from .base import ActiveAbility
 from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
                          UseActiveAbility, entities_from_state)
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
     from ..state import State
@@ -218,7 +219,7 @@ class PlasmaCannonAbility(ActiveAbility):
     #            n'a PAS de `GetDynamicInvalidTargetReason` natif (le slot vtable +0x480 reste celui de
     #            la base) -> defaut 0 cote port = mirror exact.
     #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -380,7 +381,7 @@ class DarkTalonStrikeAbility(ActiveAbility):
     # pour ce qu'il est (la donnee RE-lue), et il s'activera de lui-meme le jour ou le volet TILE sera
     # porte. La degradation reste PERMISSIVE (jamais de refus invente) — mesure live : le port rend 0
     # sur toutes les cibles, y compris celles que le natif refuse en `TargetTileHasEnemyUnit`.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x80040)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -533,7 +534,12 @@ class DeathOnTheWindAbility(ActiveAbility):
     # cibles que le natif ACCEPTE (regression exactement interdite). Le defaut de base (0) laisse donc
     # la regle permissive, comme pour toute regle non portee. Point d'ancrage pour la fermer : exposer
     # `GetNumAttacksReceivedThisTurn` dans `combatSnapshot`/`decisionView`.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x40080042)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.TargetTileHasEnemyUnit
+        | TR.AllowNullCasterTile
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -626,7 +632,12 @@ class HailstrikeAbility(ActiveAbility):
     #                                              RAISON que rend le filtre quand la cible n'a pas
     #                                              d'unite, contrainte INCONDITIONNELLE. Declaratif
     #                                              dans le masque -> rien a porter.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x200240000400)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsFriendly
+        | TR.AllowNullCasterTile
+        | TR.TargetIsNotAnObject
+        | TR.TargetIsUnit
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -746,7 +757,7 @@ class SuperchargeAbility(ActiveAbility):
     #     0x2    TargetMatchesDynamicRule -> pas de `GetDynamicInvalidTargetReason` natif pour 1103 ->
     #            defaut 0 (mirror exact).
     #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -968,7 +979,11 @@ class ExemplarOfHateAbility(ActiveAbility):
     #     0x6000000 AllowObscuredTarget (= AllowObscuredTargetByElevation | ...ByWalls, valeur
     #               COMPOSITE de l'enum) -> PERMISSIF : aucune contrainte de ligne de vue (coherent
     #               avec « portee illimitee » du kit 1140).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x6004000)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -1085,7 +1100,7 @@ class CalibaniteGreatswordAbility(ActiveAbility):
     # `if (-1 < (char)Rules)` (bit 7 clair) : bit POSE = tous ses controles sont sautes, la cible est
     # valide d'office. Aucun bit lu par le filtre statique => masque pose pour ce qu'il est, aucun
     # refus arme (annotation exacte, comportement offline inchange).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x80)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.AddCaster)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

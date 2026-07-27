@@ -63,6 +63,7 @@ from ...dsl.effects import ExecutionContext
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage, SubtractHealthPercent
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
     from ..state import State
@@ -132,7 +133,7 @@ class JakhalStimmsAbility(ActiveAbility):
     #            soi-meme et sur un allie. SEUL bit du masque : pas de TargetMatchesDynamicRule ici
     #            (contraste avec le preset +0x140), et 1131 n'a effectivement aucun
     #            `GetDynamicInvalidTargetReason` natif.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4000)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

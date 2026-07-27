@@ -29,6 +29,7 @@ from ...dsl.effects import ExecutionContext
 from ..components import StatsComponent
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
 
 if TYPE_CHECKING:
@@ -244,7 +245,7 @@ class FoehammerAbility(ActiveAbility):
     #             n'en SURCHARGE PAS (aucun symbole `FoehammerAbility$$GetDynamicInvalidTargetReason`)
     #             -> le corps de base rend 0 == le defaut du port (aucun refus invente).
     #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

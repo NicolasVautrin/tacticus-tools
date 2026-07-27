@@ -14,6 +14,7 @@ import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import RULE_TARGET_IS_IN_RANGE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
@@ -286,7 +287,14 @@ class WaaaghAbility(ActiveAbility):
     #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
     #     0x100000000 (bit 32, nom hors dump 32 bits)  -> predicat battleQuery slot 0x61, non porte
-    TARGETING_OPTIONS = TargetingOptions(rules=0x106004012)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+        | TR.TargetIsNotAdjacent
+    ))
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:
@@ -493,7 +501,11 @@ class SquigLaunchasAbility(ActiveAbility):
     #     0x40000000   AllowNullCasterTile -> permissif : le caster est une MACHINE OF WAR HORS PLATEAU
     #                  (ni Position ni Health), donc SANS tuile — sans ce bit le volet CASTER refuserait
     #                  tout cast de MoW (`GetInvalidCasterReason` : `casterTiles` vide -> 0x40000000).
-    TARGETING_OPTIONS = TargetingOptions(rules=0x40004002)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsEnemy
+        | TR.AllowNullCasterTile
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -606,7 +618,14 @@ class SquigMineAbility(ActiveAbility):
     # AUCUNE regle du domaine UNITE n'est armee ici : sur une cible-TUILE `_unit_of` rend None et la
     # cascade portee se tait — le masque est donc pose pour la FIDELITE (et pour que le jour ou le
     # domaine TILE sera porte, il morde tout seul), pas pour un refus mesurable aujourd'hui.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x46001042)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.TargetTileIsFree
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+        | TR.AllowNullCasterTile
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

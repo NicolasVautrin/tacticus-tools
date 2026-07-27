@@ -33,6 +33,7 @@ from ..components import OwnerComponent, PositionComponent, UnitComponent, Stats
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, MoveUnit, ChangeStat,
                          PerformAIAction, LiveUnit)
 
@@ -268,7 +269,7 @@ class CultDemagogueAbility(ActiveAbility):
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x2      TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
     #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -430,7 +431,12 @@ class HeroicFusilladeAbility(ActiveAbility):
     #     0x2         TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF assume)
     #     0x4000      TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget      -> permissif
-    TARGETING_OPTIONS = TargetingOptions(rules=0x6004002)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -548,7 +554,13 @@ class VigilanceEternalAbility(ActiveAbility):
     #     0x200000000   bit 33 -> `UnitExtensions$$HasTrait(target, 0xd)` INTERDIT (la cible ne doit pas
     #                   porter ce trait). NON PORTE (aucun predicat de trait dans la cascade portee) ->
     #                   degradation PERMISSIVE : le port accepte une cible que le natif refuserait.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x206004002)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+        | TR.TargetIsNotAnObject
+    ))
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

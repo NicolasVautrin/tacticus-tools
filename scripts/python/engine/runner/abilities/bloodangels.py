@@ -39,6 +39,7 @@ from ...entities.triggers import HasEffect, IsAlive
 from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
 from .targeting import TargetingOptions, RULE_TARGET_HAS_FREE_ADJACENT_TILE
+from .targeting_rule import TargetingRule as TR
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
 
 if TYPE_CHECKING:
@@ -421,7 +422,14 @@ class HammerOfWrathAbility(ActiveAbility):
     #     0x4000      TargetIsEnemy             -> PORTE
     #     0x2000000   AllowObscuredTargetByElevation -> permissif (aucune contrainte portee ici)
     #     0x100000000 (bit 32, nom hors dump 32 bits) -> predicat battleQuery slot 0x61, non porte
-    TARGETING_OPTIONS = TargetingOptions(rules=0x102004032)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetHasFreeAdjacentTile
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.TargetIsNotAdjacent
+    ))
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:

@@ -111,6 +111,7 @@ from ..components import StatsComponent, unit_has_moved
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
     from ..state import State
@@ -201,7 +202,7 @@ class ExecutionerAbility(ActiveAbility):
     #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -282,7 +283,7 @@ class HarvesterOfSoulsAbility(ActiveAbility):
     #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
-    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

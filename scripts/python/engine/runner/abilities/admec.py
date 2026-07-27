@@ -24,6 +24,7 @@ from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
 from .targeting import TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon)
 
 if TYPE_CHECKING:
@@ -291,7 +292,12 @@ class RadBombardmentAbility(ActiveAbility):
     #                    TILE, cf. l'inventaire de `targeting.py`) -> inerte, et c'est deliberе.
     #     0xa0000000000  bits 37 et 39 : noms HORS du dump 32 bits de l'enum -> non decomposes, non
     #                    portes (meme regime que le bit 32 de Waaagh).
-    TARGETING_OPTIONS = TargetingOptions(rules=0xa0000000042)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.AllowUntargetableTarget
+        | TR.AllowUnwalkableTargetTile
+    ))
 
     def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
                                           target_id: Optional[int]) -> int:
