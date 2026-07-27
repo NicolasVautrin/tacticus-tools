@@ -148,33 +148,26 @@ Mesure : `load_state` -> `ctx.active_ability_level = 0`, `ctx.ability_variables_
 La « mesure B » du dossier (`test_entropy_cannons...` : `off_delta=20` contre `live_delta=1631`) est **le
 meme bug** : `minDmg`/`maxDmg` sont des tables per-niveau, lues a l'index 0 au lieu de 49.
 
-### Le correctif — NON APPLIQUE ICI
+### Le correctif — LIVRE EN #174
 
-Il vit dans `engine/runner/snapshot.py`, **territoire de l'agent R30 au moment de ce cas** : on s'arrete
-et on remonte. Forme attendue : dans `_load_stats_and_effects`, **sauter les lignes `entityType ==
-EntityType.Machine`** (leur `StatsComponent` est bati par `_load_machines`, avec le seul canal valable —
-l'`AbilityState` per-ability) ; et corriger l'en-tete perime de `_load_machines`. Les effets de MoW, eux,
-doivent continuer d'entrer dans le seed `EffectsState` (ils viennent de `decisionView.mows[].effects`,
-deja injectes dans `effects_by_id` juste avant la boucle — ce chemin-la est independant).
+Voir **`case-174-mow-level-index.md`** : correctif applique, INDEX prouve au decompile (le natif
+indexe a `Level.ToZeroBasedIndex() = level - 1`, pas « au niveau »), et rayon d'action MESURE — il
+etait plus large que ce dossier ne le disait (**5 tests de plus** dans `test_mow_targeting_predicate_live`
+et `test_hailstrike_phase2_live`, **2 de plus** dans `test_mow_caster_load_live`).
 
-**VERIFIE** (localement, patch d'une ligne applique puis REVERTE, rien de commite) : avec ce seul
-`continue` sur les lignes `entityType == Machine`, les **4 tests passent, 4/4**, sans aucun autre
-changement. Le contre-factuel du probe dit la meme chose par un autre chemin : re-poser
-`active_ability_level` sur le `ctx` restaure exactement les valeurs natives (4 / 7 / 5).
-
-Attention en l'appliquant : les effets de MoW doivent **continuer** d'entrer dans le seed
-`EffectsState`. Ils y entrent par `effects_by_id`, alimente depuis `decisionView.mows[].effects` **avant**
-la boucle — ce chemin est independant de la ligne `combatSnapshot` qu'on saute, donc le `continue` ne le
-touche pas (confirme par les tests, qui confrontent justement des empreintes d'effets portes par la MoW).
+Deux imprecisions de ce dossier-ci, corrigees la-bas : l'en-tete perime est celui de
+**`_load_machine_stats`** (pas `_load_machines`), et le `StatsComponent` de la MoW n'etait pas
+« REMPLACE » mais **PRE-EMPTE** (`_load_machine_stats` ne pose rien si un `StatsComponent` existe deja,
+et il tourne APRES la boucle).
 
 ---
 
 ## 5. Etat des suites apres ce cas
 
-| suite | avant | apres |
-|---|---|---|
-| `test_mow_effect_posers_live` | 0/8 | **7/8** (reste `squig_mine`, PORT-1) |
-| `test_mow_groups_bcd_live` | 1/7 (+1 skip) | **3/7** (+1 skip) — les 3 restants sont PORT-1 |
+| suite | avant | apres #162 | apres #174 |
+|---|---|---|---|
+| `test_mow_effect_posers_live` | 0/8 | **7/8** (reste `squig_mine`, PORT-1) | **8/8** |
+| `test_mow_groups_bcd_live` | 1/7 (+1 skip) | **3/7** (+1 skip) — les 3 restants sont PORT-1 | **6/7** (+1 skip) |
 
 Le skip de `test_twin_smart_missile_system_marked_target_is_attacked_live` est celui deja documente en
 #90 §6.4 residu 4 (le marquage n'a pas survecu jusqu'au 2e cast) — inchange, et **pas** un skip de
