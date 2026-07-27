@@ -114,10 +114,27 @@ from .loki import (
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
+    LionHelmExtraDmgEffect,
+    LionHelmExtraBlockDamageEffect,
+    LionHelmExtraBlockChanceEffect,
+    FearedInterrogatorOwnerEffect,
+    FearedInterrogatorTargetEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
+    # LionHelm (passif darkaAzrael, TriggeredAbilityType 1163) — 3 effets AURA poses sur AZRAEL.
+    # 1193 = +extraDmg aux attaques d'OVERWATCH des allies a <=2 hexes (canal aura-degat) ;
+    # 1214/1232 = stat-mods PROJETES BlockDamage/BlockChance (canal aura-statmod, cf.
+    # `runner/operations/aura_stat_mods.py`), 1232 restreint aux allies de FACTION DarkAngels.
+    "LionHelm_ExtraDmg": LionHelmExtraDmgEffect,
+    "LionHelm_ExtraBlockDamage": LionHelmExtraBlockDamageEffect,
+    "LionHelm_ExtraBlockChance": LionHelmExtraBlockChanceEffect,
+    # FearedInterrogator (passif darkaAsmodai, TriggeredAbilityType 1235) — 2 effets sur ASMODAI.
+    # 1295 = MARQUEUR (selecteur des ennemis eligibles, jamais materialise sur eux) ; 1294 = les deux
+    # bonus (+extraDmg, +extraHits si la cible est de grande-alliance Chaos).
+    "FearedInterrogator_Owner": FearedInterrogatorOwnerEffect,
+    "FearedInterrogator_Target": FearedInterrogatorTargetEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
     # CordClaw (Exitor-Rho, effet 0x4e2=1250) : apres cast 1122, +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
@@ -599,6 +616,17 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # capte). Sans ce seed, le gate `HasEffect(Arjac, 1200)` d'`ApplyStun` serait mort dans tout runner
     # demarrant Arjac a pleins PV. Idempotent : si Arjac demarre sous 35 %, l'effet est deja capte -> skip.
     "AnvilShield": ["AnvilShield_BlockChanceBelowHealthCap"],
+    # LionHelm (passif d'Azrael darkaAzrael, TriggeredAbilityType 1163) —
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LionHelmAbility$$CreateBehaviour` pose TROIS
+    # effets sur le PORTEUR (`AddEffect(1193, targets=Owner)` + 2 `AddDynamicStatModifierEffect(
+    # targets=Owner, ...)`), tous INCONDITIONNELS -> tous CAPTES par `decisionView.effects` sur un
+    # runner frais (verifie live). Le seed reste un filet (idempotent).
+    "LionHelm": ["LionHelm_ExtraDmg", "LionHelm_ExtraBlockChance", "LionHelm_ExtraBlockDamage"],
+    # FearedInterrogator (passif d'Asmodai darkaAsmodai, TriggeredAbilityType 1235) —
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FearedInterrogatorAbility$$CreateBehaviour`
+    # pose les DEUX effets sur le PORTEUR (`AddEffect(1294, source=Owner, targets=Owner)` &
+    # `AddEffect(1295, source=Owner, targets=Owner)`) ; verifie live chez Asmodai, RIEN chez les cibles.
+    "FearedInterrogator": ["FearedInterrogator_Owner", "FearedInterrogator_Target"],
 }
 
 
