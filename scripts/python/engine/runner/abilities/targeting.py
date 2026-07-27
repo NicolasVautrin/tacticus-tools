@@ -51,7 +51,8 @@ et le filtre statique invoque cette regle-delegue UNIQUEMENT si le bit `TargetMa
 
 => **GENERIQUE** = ce module (la cascade + les `TargetingOptions`), consomme par TOUTES les abilities.
    **PROPRE a une ability** = `get_dynamic_invalid_target_reason` (`ActiveAbility`, abilities/base.py),
-   un PATRON a instancier par ability qui pose le bit 0x2. 1re instanciation : Waaagh (1058), cf.
+   un PATRON a instancier par ability qui pose `TargetMatchesDynamicRule`. 1re instanciation :
+   Waaagh (1058), cf.
    `engine/runner/abilities/orks.py`.
 
 ------------------------------------------------------------------------------------------------
@@ -59,14 +60,14 @@ INVENTAIRE des regles du filtre statique (ordre NATIF de la cascade 7-args) et e
 Une regle NON PORTEE ne refuse JAMAIS (degradation PERMISSIVE — meme convention que « ability non
 portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne sait pas decider.
 
-TOUS LES NOMS CI-DESSOUS SONT CEUX DU DUMP du build courant. Ils l'ont ete tardivement : le
-dumper lisait les enums en `readS32()`, donc `TargetingRule` (64 bits) perdait ses 27 membres
-au-dessus du bit 31 -- ils tronquaient tous vers 0 et s'ecrasaient dans une map keyee par valeur.
-Cette table portait donc des PARAPHRASES entre parentheses (« machine-targeting »,
-« HasSteppableUnit »…) la ou le binaire avait un nom. Corrige le 2026-07-27 ;
-`scripts/python/probe_targeting_rule_bits.py` confronte desormais les 58 bits au dump du build
-courant et ECHOUE si l'un d'eux bouge -- ce qui invaliderait d'un coup tous les masques
-`TARGETING_OPTIONS` du registre.
+TOUS LES NOMS CI-DESSOUS SONT CEUX DE L'ENUM NATIF, et ce module n'en declare AUCUN : il les lit
+dans `engine/runner/abilities/targeting_rule.py`, mirror 1:1 GENERE par
+`scripts/python/gen_targeting_rule.py` depuis `data/symbols/<build>/frida/enums.tsv`. C'est la
+SEULE source de noms de bits du port -- une deuxieme table, meme juste le jour ou on l'ecrit,
+devient fausse au re-dump suivant sans que rien ne le dise. Trois gardes tiennent l'invariant :
+`test_ability_registry_ratchet.py` (aucune constante de ciblage declaree ailleurs, aucun bit cite
+par sa valeur brute, module genere == dump) et `probe_targeting_rule_bits.py` (qui y ajoute la
+table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
 
   bit  masque                nom (enum IdunBattle.Core.Services.TargetingRule)   port
   ---  --------------------  -------------------------------------------------  --------------------
@@ -78,8 +79,8 @@ courant et ECHOUE si l'un d'eux bouge -- ce qui invaliderait d'un coup tous les 
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
   23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON (forced-targets)
   18   0x40000               TargetIsDisplaceable                                NON
-  29   0x20000000            TargetIsTargetable (sauf bit 41                     OUI
-                             AllowUntargetableTarget)
+  29   0x20000000            TargetIsTargetable (sauf si                        OUI
+                             AllowUntargetableTarget est pose)
   51   0x8000000000000       TargetIsNotSteppable                                NON
   47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
@@ -101,13 +102,13 @@ courant et ECHOUE si l'un d'eux bouge -- ce qui invaliderait d'un coup tous les 
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
   57   0x200000000000000     TargetIsCasterOrEnemy (self OU ennemi attaquable)   OUI
 
-BITS QUI NE SONT PAS DES REGLES DE REFUS (verifie exhaustivement sur les DEUX cascades) : le bit 15
-`CanTargetCaster` (0x8000) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason` — c'est un
-flag DECLARATIF, lu par `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster` pour les
-consommateurs de ciblage (preview / IA). Un port qui en ferait une regle inventerait un refus. Meme
-famille : `get_IsTileTargeting` (bit 6), `get_IsUnitTargeting`, `get_IsEnemyTargeting` (bit 14 OU bit 57),
-`get_IsCasterOrEnemyTargeting` (bit 57), `get_IsActorTargeting` (bit 46) — des LECTURES du masque, pas des
-regles supplementaires.
+BITS QUI NE SONT PAS DES REGLES DE REFUS (verifie exhaustivement sur les DEUX cascades) :
+`CasterIsPossibleTarget` (bit 15) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason`
+— c'est un flag DECLARATIF, lu par `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster`
+pour les consommateurs de ciblage (preview / IA). Un port qui en ferait une regle inventerait un
+refus. Meme famille : `get_IsTileTargeting` (`TargetIsTile`), `get_IsUnitTargeting`,
+`get_IsEnemyTargeting` (`TargetIsEnemy` OU `TargetIsCasterOrEnemy`), `get_IsCasterOrEnemyTargeting`,
+`get_IsActorTargeting` (`TargetIsActor`) — des LECTURES du masque, pas des regles supplementaires.
 
 LE VOLET PORTEE (#241) — il n'est GATE PAR AUCUN BIT, donc son armement ne vient pas de `Rules`
 mais du champ `TargetingRange` des options (`options+0x08..0x1f`). Extrait VERBATIM du filtre
@@ -128,7 +129,7 @@ statique (surcharge 7 arguments, `range` = la valeur rendue par
 TROIS regimes, donc, et il faut les distinguer AVANT tout calcul de distance :
   * `UseWholeBoard`      -> **aucun** test de portee (le plateau entier est a portee) ;
   * `Range.OnlyAdjacent` -> test d'ADJACENCE, pas de distance <= N ;
-  * sinon                -> `hexDistance <= Range.Value` (ou `== Range.Value` sous le bit 9).
+  * sinon                -> `hexDistance <= Range.Value` (ou `== Range.Value` sous `TargetIsAtRange`).
 
 `GetRange` et sa decomposition : cf. la section dediee plus bas (`get_range`). ARMEMENT : le champ
 `TargetingOptions.range` du port vaut `None` tant que le `TargetingRange` de l'ability n'a pas ete
@@ -159,50 +160,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
+from .targeting_rule import TargetingRule as TR
+
 if TYPE_CHECKING:
     from ..state import State
 
-
-# --- `IdunBattle.Core.Services.TargetingRule` (enum FLAGS 64 bits, `options+0x28`) --------------
-# Valeurs VERBATIM du dump il2cpp (data/il2cpp_full.json, enums) pour les bits < 32 ; les bits >= 32
-# n'y figurent pas (le dump tronque l'enum a 32 bits) -> ceux-la sont nommes par leur ROLE lu au
-# decompile de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, prefixe `RULE_BIT`.
-RULE_VALID_REQUEST = 0x1                       # ValidRequest
-RULE_TARGET_MATCHES_DYNAMIC_RULE = 0x2         # TargetMatchesDynamicRule  <- le point d'extension
-RULE_CASTER_MATCHES_DYNAMIC_RULE = 0x4         # CasterMatchesDynamicRule
-RULE_CASTER_HAS_NOT_MOVED = 0x10               # CasterHasNotMoved
-RULE_TARGET_HAS_FREE_ADJACENT_TILE = 0x20      # TargetHasFreeAdjacentTile
-RULE_TARGET_IS_TILE = 0x40                     # TargetIsTile
-RULE_TARGET_IS_HEALABLE = 0x100                # TargetIsHealable
-RULE_TARGET_IS_AT_RANGE = 0x200                # TargetIsAtRange (portee EXACTE)
-RULE_TARGET_IS_FRIENDLY = 0x400                # TargetIsFriendly
-RULE_TARGET_TILE_IS_FREE = 0x1000              # TargetTileIsFree
-RULE_TARGET_IS_SUMMON = 0x2000                 # TargetIsSummon
-RULE_TARGET_IS_ENEMY = 0x4000                  # TargetIsEnemy
-RULE_TARGET_IS_REPAIRABLE = 0x10000            # TargetIsRepairable
-RULE_TARGET_TILE_IS_FREE_OR_ENEMY = 0x20000    # TargetTileIsFreeOrEnemy
-RULE_TARGET_IS_DISPLACEABLE = 0x40000          # TargetIsDisplaceable
-RULE_TARGET_TILE_HAS_ENEMY_UNIT = 0x80000      # TargetTileHasEnemyUnit
-RULE_ALLOW_STEPPABLE_UNIT = 0x100000           # AllowSteppableUnit
-RULE_CASTER_HAS_FREE_ADJACENT_TILE = 0x200000  # CasterHasFreeAdjacentTile
-RULE_TARGET_IS_ALLOWED_FOR_CASTER = 0x800000   # TargetIsAllowedForCaster (forced targets / Taunt)
-RULE_TARGET_IS_UNOBSCURED = 0x1000000          # TargetIsUnobscured
-RULE_ALLOW_OBSCURED_BY_ELEVATION = 0x2000000   # AllowObscuredTargetByElevation
-RULE_ALLOW_OBSCURED_BY_WALLS = 0x4000000       # AllowObscuredTargetByWalls
-RULE_ALLOW_OBSCURED_TARGET = 0x6000000         # AllowObscuredTarget (= les deux ci-dessus, valeur
-                                               #  COMPOSITE presente telle quelle dans l'enum)
-RULE_TARGET_IS_IN_RANGE = 0x8000000            # TargetIsInRange
-RULE_CASTER_CAN_MOVE = 0x10000000              # CasterCanMove
-RULE_TARGET_IS_TARGETABLE = 0x20000000         # TargetIsTargetable
-RULE_ALLOW_NULL_CASTER_TILE = 0x40000000       # AllowNullCasterTile
-RULE_CASTER_HAS_COMPLETED_ONE_TURN = 0x80000000  # CasterHasCompletedOneTurn
-# Bits >= 32 : le dump il2cpp TRONQUE l'enum a 32 bits alors que le champ est un `long` -> ces
-# masques sont nommes par le ROLE lu au decompile du filtre statique, prefixe `RULE_BITnn`.
-RULE_BIT39_TARGET_IS_CASTER = 0x8000000000         # la cible DOIT etre le caster (self-only)
-RULE_BIT41_ALLOW_NON_TARGETABLE = 0x20000000000    # desactive le controle IsTargetable
-# bit 57 : nomme par son getter `IdunBattle.Core.Services.TargetingOptions$$get_IsCasterOrEnemyTargeting`
-# (= `(rules >> 0x39) & 1`) -> « la cible doit etre le CASTER lui-meme OU un ennemi attaquable ».
-RULE_BIT57_CASTER_OR_ENEMY = 0x200000000000000
 
 # `UnitFlag` 0x11 : `IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(unit, 0x11)`.
 UNIT_FLAG_NOT_TARGETABLE = 0x11
@@ -761,11 +723,11 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
         if board is None:
             return 0                                  # adjacence NATIVE non calculable -> pas de gate
         ok = are_tiles_adjacent(board, board.id_at(src[0], src[1]), board.id_at(dst[0], dst[1]))
-        return 0 if ok else RULE_TARGET_IS_IN_RANGE
+        return 0 if ok else int(TR.TargetIsInRange)
     d = hexgeo.distance(src, dst)
-    if options.has(RULE_TARGET_IS_AT_RANGE):
-        return 0 if d == rr.value else RULE_TARGET_IS_AT_RANGE
-    return 0 if d <= rr.value else RULE_TARGET_IS_IN_RANGE
+    if options.has(TR.TargetIsAtRange):
+        return 0 if d == rr.value else int(TR.TargetIsAtRange)
+    return 0 if d <= rr.value else int(TR.TargetIsInRange)
 
 
 # ------------------------------------------------------------------------------------------------
@@ -805,10 +767,10 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     pas les UnitFlags) : sur un etat CHARGE la regle est donc inerte. Elle mord sur le chemin
     replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag` qui pose le flag."""
     options = getattr(ability, "TARGETING_OPTIONS", None)
-    if options is None or not options.has(RULE_CASTER_HAS_NOT_MOVED):
+    if options is None or not options.has(TR.CasterHasNotMoved):
         return 0
     from ..components import unit_has_moved
-    return RULE_CASTER_HAS_NOT_MOVED if unit_has_moved(state, int(caster_id)) else 0
+    return int(TR.CasterHasNotMoved) if unit_has_moved(state, int(caster_id)) else 0
 
 
 def _targets_the_caster(state: "State", caster_id: int, target_id: Optional[int],
@@ -829,7 +791,7 @@ def _targets_the_caster(state: "State", caster_id: int, target_id: Optional[int]
     TILE-targeting."""
     if target_id is not None and int(target_id) == int(caster_id):
         return True
-    return (not options.has(RULE_TARGET_IS_TILE)) and tuid is not None and tuid == int(caster_id)
+    return (not options.has(TR.TargetIsTile)) and tuid is not None and tuid == int(caster_id)
 
 
 def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
@@ -840,13 +802,13 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
 
     DECOMPILE (rules = `options+0x28`) :
 
-        if ((char)rules < 0) return valide;                       # bit 7 pose -> court-circuit
-        if (rules & 0x8) {                                        # bit 3 : regle-delegue caster
+        if ((char)rules < 0) return valide;                    # AddCaster pose -> court-circuit
+        if (rules & 0x8) {                                     # AddCasterIfMatchesDynamicRule
             r = options[+0x30].Invoke(caster, casterTiles); if (r) return broken(r);
-        } else if (rules & 0x400000) {                            # bit 22 CasterHasFreeAdjacentTile
+        } else if (rules & 0x400000) {                         # AddCasterIfAtLeastOneFreeTileInRange
             if (!HasFreeTilesInRange(1, caster, tiles, options, range)) return broken(0x400000);
-        } else if (options+0x00 == 0 && !(rules & 0x800)) {
-            if (rules & 0x8000)                                   # bit 15 CanTargetCaster
+        } else if (options+0x00 == 0 && !(rules & 0x800)) {    # AddCasterIfAtLeastOneTarget
+            if (rules & 0x8000)                                # CasterIsPossibleTarget
                 { r = <filtre statique>(target = caster); if (r invalide) return r; }
         } else {
             vt = TargetingQuery.GetValidTargets(caster, tiles, options, 1, 1);
@@ -862,8 +824,8 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
     porte depuis #241 — c'est l'enumeration. Rendre 0x800 « au juge » inventerait un refus ; rendre
     0 degrade du cote PERMISSIF, la convention de tout ce module.
 
-    EXCEPTION deja lue au decompile : `CalibaniteGreatsword` (0x80 `AddCaster`) prend le tout
-    premier court-circuit `if ((char)rules < 0) return valide;` — pour elle, 0 EST le verdict natif.
+    EXCEPTION deja lue au decompile : `CalibaniteGreatsword` (`AddCaster`) prend le tout premier
+    court-circuit `if ((char)rules < 0) return valide;` — pour elle, 0 EST le verdict natif.
 
     MESURE (probe `probe_targeting_masks_lot4.py`, Chronometron 1226 self-cast, ennemis hors du
     disque range 2) : le natif rend bien `0x800 AddCasterIfAtLeastOneTarget`. C'est le seul ecart
@@ -901,11 +863,12 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if options.self_cast and _targets_the_caster(state, caster_id, target_id, tuid, options):
         return get_caster_not_added_reason(state, caster_id, ability)
 
-    # bit 39 -- « la cible DOIT etre le caster » : `if (rules & 0x8000000000 && caster != GetUnit(target))`
-    if options.has(RULE_BIT39_TARGET_IS_CASTER) and tuid is not None and tuid != int(caster_id):
-        return RULE_BIT39_TARGET_IS_CASTER
+    # TargetIsCaster -- « la cible DOIT etre le caster » :
+    #   `if ((rules & TargetIsCaster) && caster != GetUnit(target)) -> broken(TargetIsCaster)`
+    if options.has(TR.TargetIsCaster) and tuid is not None and tuid != int(caster_id):
+        return int(TR.TargetIsCaster)
 
-    # bit 10 TargetIsFriendly -- mirror du decompile :
+    # TargetIsFriendly -- mirror du decompile :
     #   if (IsMachine(caster))  ok <- battleQuery.<slot 0x90>(caster, target)
     #   else if (IsUnit(caster) && IsUnit(target) && !HasEffect(TARGET, 0x67 FriendlyFire, active))
     #        ok <- UnitsAreFriendly(caster, target)
@@ -914,21 +877,21 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # `UnitsCanAttackEachOther`, qui lit celui de l'ATTAQUANT) -- une cible sous FriendlyFire n'est
     # plus « amie » de personne. La branche MACHINE (slot 0x90 direct) tombe sur le meme predicat
     # d'equipe offline.
-    if options.has(RULE_TARGET_IS_FRIENDLY) and tuid is not None:
+    if options.has(TR.TargetIsFriendly) and tuid is not None:
         ff = (state.effects is not None
               and state.effects.has_effect(tuid, effect_type=EFFECT_FRIENDLY_FIRE))
         if ff or not units_are_friendly(state, caster_id, tuid):
-            return RULE_TARGET_IS_FRIENDLY
+            return int(TR.TargetIsFriendly)
 
-    # bit 14 TargetIsEnemy -- `if (!UnitsCanAttackEachOther(caster, target)) -> broken(0x4000)`.
-    if options.has(RULE_TARGET_IS_ENEMY) and tuid is not None:
+    # TargetIsEnemy -- `if (!UnitsCanAttackEachOther(caster, target)) -> broken(TargetIsEnemy)`.
+    if options.has(TR.TargetIsEnemy) and tuid is not None:
         if not units_can_attack_each_other(state, caster_id, tuid):
-            return RULE_TARGET_IS_ENEMY
+            return int(TR.TargetIsEnemy)
 
-    # bit 29 TargetIsTargetable -- controle INVERSE : il s'applique SAUF si le bit 41 est pose.
-    if (not options.has(RULE_BIT41_ALLOW_NON_TARGETABLE)) and tuid is not None:
+    # TargetIsTargetable -- controle INVERSE : il s'applique SAUF si `AllowUntargetableTarget` est pose.
+    if (not options.has(TR.AllowUntargetableTarget)) and tuid is not None:
         if not is_targetable(state, tuid):
-            return RULE_TARGET_IS_TARGETABLE
+            return int(TR.TargetIsTargetable)
 
     # PORTEE -- SANS BIT DE GATE (cf. l'extrait du filtre en tete de module). Position NATIVE dans la
     # cascade : apres `TargetIsTargetable`/`TargetIsNotSteppable`/les regles `TargetHasNTiles`, AVANT
@@ -940,28 +903,28 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if reason:
         return reason
 
-    # bit 1 TargetMatchesDynamicRule -- LE POINT D'EXTENSION : la regle-delegue posee par
+    # TargetMatchesDynamicRule -- LE POINT D'EXTENSION : la regle-delegue posee par
     # `AActiveAbility$$.ctor` a `options+0x38` (`TargetingOptions.DynamicTargetingTargetRule` liee au
     # slot vtable +0x480) = le `GetDynamicInvalidTargetReason` de la sous-classe. Place ici comme
     # dans le natif : APRES les regles statiques, avant le retour « valide ».
-    if options.has(RULE_TARGET_MATCHES_DYNAMIC_RULE):
+    if options.has(TR.TargetMatchesDynamicRule):
         reason = int(ability.get_dynamic_invalid_target_reason(state, caster_id, target_id) or 0)
         if reason:
             return reason
 
-    # bit 57 CasterOrEnemyTargeting -- DERNIERE regle de la cascade native (juste avant le retour
+    # TargetIsCasterOrEnemy -- DERNIERE regle de la cascade native (juste avant le retour
     # « valide »), mirror du decompile :
     #     if ((rules >> 0x39) & 1) && caster != GetUnit(target)
-    #        && !UnitsCanAttackEachOther(caster, target)  ->  broken(0x200000000000000)
-    # = « la cible doit etre le CASTER LUI-MEME ou un ennemi attaquable ». C'est un TargetIsEnemy
-    # ASSOUPLI par la tolerance du self-cast -- a ne pas confondre avec le bit 14 (0x4000), qui refuse
+    #        && !UnitsCanAttackEachOther(caster, target)  ->  broken(TargetIsCasterOrEnemy)
+    # = « la cible doit etre le CASTER LUI-MEME ou un ennemi attaquable ». C'est un `TargetIsEnemy`
+    # ASSOUPLI par la tolerance du self-cast -- a ne pas confondre avec `TargetIsEnemy`, qui refuse
     # le self. Porteur du lot : HarbingerOfDestruction (1008), dont la branche
     # `If(AreEqual(caster, target), ...)` de l'ExecuteBehaviour est exactement la contrepartie de cette
     # tolerance. `tuid is None` (cible non-unite) -> le port ne sait pas decider : permissif, meme
     # convention que les autres regles du domaine UNITE.
-    if options.has(RULE_BIT57_CASTER_OR_ENEMY) and tuid is not None:
+    if options.has(TR.TargetIsCasterOrEnemy) and tuid is not None:
         if tuid != int(caster_id) and not units_can_attack_each_other(state, caster_id, tuid):
-            return RULE_BIT57_CASTER_OR_ENEMY
+            return int(TR.TargetIsCasterOrEnemy)
 
     return 0
 

@@ -38,8 +38,8 @@ import hexgeo
 
 from engine.entities.pathfinding.board import Board
 from engine.runner.abilities.handler import ABILITY_CLASSES, AbilityHandler
-from engine.runner.abilities.targeting import (RULE_TARGET_IS_ENEMY, RULE_TARGET_IS_IN_RANGE,
-                                               is_invalid_target)
+from engine.runner.abilities.targeting import is_invalid_target
+from engine.runner.abilities.targeting_rule import TargetingRule as TR
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.snapshot import load_state
 
@@ -297,17 +297,17 @@ def test_static_and_dynamic_refusals_are_distinguished(gate115):
     g = gate115
     for key, label in (("caster_id", "soi-meme"), ("ally_id", "un allie")):
         uid = g[key]
-        assert g["native"][uid]["target_hex"] == RULE_TARGET_IS_ENEMY, (
+        assert g["native"][uid]["target_hex"] == TR.TargetIsEnemy, (
             f"precondition natif : cast sur {label} attendu TargetIsEnemy, "
             f"lu {g['native'][uid]['target_names']}")
-        assert _offline_gate(g, uid) == RULE_TARGET_IS_ENEMY, (
+        assert _offline_gate(g, uid) == TR.TargetIsEnemy, (
             f"cast sur {label} : le port n'oppose pas le filtre STATIQUE TargetIsEnemy")
     if g["far_id"] is None:
         pytest.skip("pas d'ennemi hors du gate dans cette geometrie")
-    assert g["native"][g["far_id"]]["target_hex"] == RULE_TARGET_IS_IN_RANGE, (
+    assert g["native"][g["far_id"]]["target_hex"] == TR.TargetIsInRange, (
         "precondition natif : ennemi hors charge attendu TargetIsInRange, "
         f"lu {g['native'][g['far_id']]['target_names']}")
-    assert _offline_gate(g, g["far_id"]) == RULE_TARGET_IS_IN_RANGE, (
+    assert _offline_gate(g, g["far_id"]) == TR.TargetIsInRange, (
         "ennemi hors portee de charge : le port n'oppose pas la regle DYNAMIQUE de Waaagh")
 
 
@@ -384,13 +384,12 @@ def test_caster_has_not_moved_rule_matches_live(caster_moved115):
     rien -- c'est aussi la raison pour laquelle la regle est INERTE sur tout etat charge (donc sans
     aucun risque de regression sur les tests existants)."""
     from engine.entities.pathfinding.board import Board
-    from engine.runner.abilities.targeting import RULE_CASTER_HAS_NOT_MOVED
     from engine.runner.components import set_moved_flag
 
     d = caster_moved115
     assert d["before"] == 0, (
         f"precondition natif : casterReason non nul AVANT le move ({hex(d['before'])})")
-    assert d["after"] == RULE_CASTER_HAS_NOT_MOVED, (
+    assert d["after"] == TR.CasterHasNotMoved, (
         f"precondition natif : casterReason attendu CasterHasNotMoved APRES le move, "
         f"lu {hex(d['after'])}")
 
@@ -398,11 +397,11 @@ def test_caster_has_not_moved_rule_matches_live(caster_moved115):
     state = load_state(d["dec"], d["ob"], d["snap"], board=board)
     caster, tgt = int(d["caster_id"]), int(d["target_id"])
     assert is_invalid_target(state, caster, tgt, ABILITY_CLASSES[WAAAGH]()) != \
-        RULE_CASTER_HAS_NOT_MOVED, (
+        TR.CasterHasNotMoved, (
         "flag Moved non pose (load_state ne le seede pas) : la regle ne doit pas mordre")
     set_moved_flag(state, caster)                        # = ce que fait MoveUnitOperation offline
     assert is_invalid_target(state, caster, tgt, ABILITY_CLASSES[WAAAGH]()) == \
-        RULE_CASTER_HAS_NOT_MOVED, (
+        TR.CasterHasNotMoved, (
         "le port n'oppose pas CasterHasNotMoved a un Warboss qui vient de se deplacer")
 
 
@@ -441,7 +440,7 @@ def test_friendly_fire_effect_flips_the_enemy_rule(gate115):
     state = _fresh_state(g)
     assert units_can_attack_each_other(state, caster, enemy) is True
     assert units_can_attack_each_other(state, caster, ally) is False
-    assert is_invalid_target(state, caster, ally, ABILITY_CLASSES[WAAAGH]()) == RULE_TARGET_IS_ENEMY
+    assert is_invalid_target(state, caster, ally, ABILITY_CLASSES[WAAAGH]()) == TR.TargetIsEnemy
 
     state.effects.add_effect(caster, EffectFactory.create(
         {"name": "FriendlyFire", "effectType": EFFECT_FRIENDLY_FIRE}))
@@ -450,8 +449,8 @@ def test_friendly_fire_effect_flips_the_enemy_rule(gate115):
     assert units_can_attack_each_other(state, caster, ally) is True, (
         "sous FriendlyFire l'allie doit devenir attaquable")
     assert is_invalid_target(state, caster, enemy,
-                             ABILITY_CLASSES[WAAAGH]()) == RULE_TARGET_IS_ENEMY, (
+                             ABILITY_CLASSES[WAAAGH]()) == TR.TargetIsEnemy, (
         "sous FriendlyFire le filtre statique doit refuser l'ennemi")
     assert is_invalid_target(state, caster, ally,
-                             ABILITY_CLASSES[WAAAGH]()) != RULE_TARGET_IS_ENEMY, (
+                             ABILITY_CLASSES[WAAAGH]()) != TR.TargetIsEnemy, (
         "sous FriendlyFire le filtre statique ne doit plus refuser l'allie")

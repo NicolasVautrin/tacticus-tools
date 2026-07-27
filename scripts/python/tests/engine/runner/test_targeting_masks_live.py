@@ -49,8 +49,8 @@ import pytest
 
 from engine.entities.pathfinding.board import Board
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.abilities.targeting import (RULE_TARGET_IS_ENEMY, RULE_TARGET_IS_FRIENDLY,
-                                               is_invalid_target)
+from engine.runner.abilities.targeting import is_invalid_target
+from engine.runner.abilities.targeting_rule import TargetingRule as TR
 from engine.runner.snapshot import load_state
 
 PYDIR = Path(__file__).resolve().parents[3]            # scripts/python
@@ -63,27 +63,25 @@ STORM_SPEEDER = "darkaStormSpeeder"
 WARMUP_ENDTURNS = 6                                    # purge les `initialCooldownTurns` du tour 1
 
 # Raisons de DISPONIBILITE rendues EN AMONT du filtre de cible (cf. l'en-tete) -> hors contrat.
-VALID_REQUEST = 0x1                                    # TargetingRule.ValidRequest
-ALREADY_USED_THIS_TURN = 0x40000000000000              # AlreadyUseThisTurn (bit 54)
-REQUEST_LEVEL_REASONS = frozenset({VALID_REQUEST, ALREADY_USED_THIS_TURN})
+REQUEST_LEVEL_REASONS = frozenset({int(TR.ValidRequest), int(TR.AlreadyUseThisTurn)})
 
 # (abilityType, visualId du porteur, masque LU au `<X>Ability$$.ctor`, regle PORTEE attendue).
 # La 4e colonne est le coeur du test : `None` = le masque n'arme AUCUNE regle portee (masque pose
 # pour ce qu'il est, aucun refus offline) ; sinon c'est le `TargetingRule` que le port DOIT opposer
 # a au moins une cible que le natif refuse pour EXACTEMENT cette raison.
 DA_CASES = [
-    (1150, "darkaTerminator", 0x4002, RULE_TARGET_IS_ENEMY),          # PlasmaCannon
-    (1103, "darkaHellblaster", 0x4002, RULE_TARGET_IS_ENEMY),         # Supercharge
-    (1140, "darkaAsmodai", 0x6004000, RULE_TARGET_IS_ENEMY),          # ExemplarOfHate
-    (1214, STORM_SPEEDER, 0x200240000400, RULE_TARGET_IS_FRIENDLY),   # Hailstrike (cible ALLIEE)
-    (1092, "darkaAzrael", 0x80040, None),                             # DarkTalonStrike (domaine TILE)
-    (1213, STORM_SPEEDER, 0x40080042, None),                          # DeathOnTheWind (TILE + dyn.)
-    (1189, "darkaCompanion", 0x80, None),                             # CalibaniteGreatsword (AddCaster)
+    (1150, "darkaTerminator", 0x4002, TR.TargetIsEnemy),        # PlasmaCannon
+    (1103, "darkaHellblaster", 0x4002, TR.TargetIsEnemy),       # Supercharge
+    (1140, "darkaAsmodai", 0x6004000, TR.TargetIsEnemy),        # ExemplarOfHate
+    (1214, STORM_SPEEDER, 0x200240000400, TR.TargetIsFriendly), # Hailstrike (cible ALLIEE)
+    (1092, "darkaAzrael", 0x80040, None),                       # DarkTalonStrike (domaine TILE)
+    (1213, STORM_SPEEDER, 0x40080042, None),                    # DeathOnTheWind (TILE + dyn.)
+    (1189, "darkaCompanion", 0x80, None),                       # CalibaniteGreatsword (AddCaster)
 ]
 EA_CASES = [
-    (1066, "eldarFarseer", 0x4002, RULE_TARGET_IS_ENEMY),             # Executioner
-    (1067, "eldarMauganRa", 0x4002, RULE_TARGET_IS_ENEMY),            # HarvesterOfSouls
-    (1131, "worldJakhal", 0x4000, RULE_TARGET_IS_ENEMY),              # JakhalStimms
+    (1066, "eldarFarseer", 0x4002, TR.TargetIsEnemy),           # Executioner
+    (1067, "eldarMauganRa", 0x4002, TR.TargetIsEnemy),          # HarvesterOfSouls
+    (1131, "worldJakhal", 0x4000, TR.TargetIsEnemy),            # JakhalStimms
 ]
 ALL_CASES = DA_CASES + EA_CASES
 
@@ -287,9 +285,7 @@ def test_mask_without_ported_bit_arms_no_refusal(masks_all, at, vis, rules):
     CalibaniteGreatsword = `overrideRange` 0) et le natif LES REFUSE effectivement en
     `TargetIsInRange` (MESURE : 5 puis 9 cibles). Un refus de portee est donc attendu -- mais il
     reste soumis au contrat de fidelite : il doit valoir EXACTEMENT le code natif."""
-    from engine.runner.abilities.targeting import (RULE_TARGET_IS_AT_RANGE,
-                                                   RULE_TARGET_IS_IN_RANGE)
-    range_rules = {RULE_TARGET_IS_IN_RANGE, RULE_TARGET_IS_AT_RANGE}
+    range_rules = {int(TR.TargetIsInRange), int(TR.TargetIsAtRange)}
     assert getattr(ABILITY_CLASSES[at], "TARGETING_OPTIONS", None) is not None, (
         f"ability {at} ({vis}) : masque ABSENT alors qu'il a ete lu au ctor ({hex(rules)})")
     rows = [r for r in masks_all.values() if r["ability"] == at and r["port"] != 0]

@@ -38,6 +38,7 @@ import tempfile
 from pathlib import Path
 
 import rl_collect_batch as R
+from engine.runner.abilities.targeting_rule import TargetingRule as TR
 
 PYDIR = Path(__file__).resolve().parent
 
@@ -45,7 +46,6 @@ CASTER_VIS = "necroDestroyer"
 ABILITY = 1006                      # MultiThreatEliminator
 P_UNITS = ["necroDestroyer", "necroOverlord"]
 A_UNITS = ["darkaCompanion", "astraBullgryn", "eldarRanger"]
-RULE_TARGET_IS_IN_RANGE = 0x8000000
 
 
 def _unwrap(r):
@@ -173,13 +173,13 @@ def main() -> int:
                     nt, pt, names = _confront(rpc, rid, state, caster_id, tid_far, ability)
                     print("S2 (ennemi u%d ADJACENT, cible a dist 2) u%d : natif=0x%x port=0x%x [%s]"
                           % (tid_adj, tid_far, nt, pt, names))
-                    if nt != RULE_TARGET_IS_IN_RANGE:
+                    if nt != TR.TargetIsInRange:
                         print("  ATTENDU natif=TargetIsInRange (clamp melee) -- KO")
                         failures.append("S2 natif=0x%x != TargetIsInRange" % nt)
                     if pt != nt:
                         print("  le port ne reproduit PAS le clamp -- KO")
                         failures.append("S2 port=0x%x != natif=0x%x" % (pt, nt))
-                    if nt == RULE_TARGET_IS_IN_RANGE and pt == nt:
+                    if nt == TR.TargetIsInRange and pt == nt:
                         print("  OK : clamp melee reproduit (portee 2 -> adjacence)")
                     nt2, pt2, names2 = _confront(rpc, rid, state, caster_id, tid_adj, ability)
                     print("S2 (meme etat, cible ADJACENTE) u%d : natif=0x%x port=0x%x [%s]"

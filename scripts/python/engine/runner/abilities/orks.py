@@ -13,8 +13,7 @@ import gameconfig as GC
 import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import (RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RULE_TARGET_IS_IN_RANGE,
-                        TargetingOptions)
+from .targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
 from ...dsl.base import Const
@@ -287,7 +286,7 @@ class WaaaghAbility(ActiveAbility):
     #                                                    cf. probe_115_ability_reason.py)
     #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
-    #     0x100000000 (bit 32, nom hors dump 32 bits)  -> predicat battleQuery slot 0x61, non porte
+    #     0x100000000 TargetIsNotAdjacent             -> predicat battleQuery slot 0x61, non porte
     # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> le volet
     # generique de portee NE TESTE RIEN. C'est ce qui evite le FORK : la contrainte de
     # distance de Waaagh vit ENTIEREMENT dans `get_dynamic_invalid_target_reason` ci-dessous
@@ -322,13 +321,13 @@ class WaaaghAbility(ActiveAbility):
         etages de la behaviour n'ont pas commence) -> la branche `MOVEMENT + bonus` du `If` natif,
         exactement comme le natif qui evalue la meme formule avant toute execution."""
         if target_id is None or state.get_entity(int(target_id)) is None:
-            return RULE_TARGET_IS_IN_RANGE
+            return int(TR.TargetIsInRange)
         consts = (GC.ability(self.ABILITY_ID) or {}).get("constants") or {}
         extra_movement = int(consts.get("extraMovement") or 0)   # GetNumberConstant(0xe)
         move_range = waaagh_move_range(state, caster_id, extra_movement)
         tiles = waaagh_possible_movement_tiles_selector(move_range).evaluate(
             entities_from_state(state, caster_id, target_id))
-        return 0 if len(tiles) > 0 else RULE_TARGET_IS_IN_RANGE
+        return 0 if len(tiles) > 0 else int(TR.TargetIsInRange)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -38,8 +38,7 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import HasEffect, IsAlive
 from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .targeting import (RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
-                        RULE_TARGET_HAS_FREE_ADJACENT_TILE)
+from .targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
 
@@ -422,7 +421,7 @@ class HammerOfWrathAbility(ActiveAbility):
     #                                              statique reste non porte (cf. `targeting.py`)
     #     0x4000      TargetIsEnemy             -> PORTE
     #     0x2000000   AllowObscuredTargetByElevation -> permissif (aucune contrainte portee ici)
-    #     0x100000000 (bit 32, nom hors dump 32 bits) -> predicat battleQuery slot 0x61, non porte
+    #     0x100000000 TargetIsNotAdjacent       -> predicat battleQuery slot 0x61, non porte
     # PORTEE (#241) : le preset `TargetingOptions` statique `+0x240` embarque le
     # `TargetingRange` statique `+0x48` = `useWholeBoard` -> AUCUN test de portee dans le
     # filtre statique. La constante `HammerOfWrath.constants.range` (5) n'est donc PAS la
@@ -465,8 +464,8 @@ class HammerOfWrathAbility(ActiveAbility):
         `MinDistance(tuile, CasterTiles) <= range` porte sur la TUILE de charge, pas sur la cible).
         AUCUNE lecture de la lambda ci-dessus ne produit ce refus a d=1 (a d=1 les tuiles libres du
         ring-1 de la cible sont a distance <= 2 du caster, donc `Any` est VRAI). Le refus vient donc
-        d'un AUTRE etage de la cascade statique : HYPOTHESE = le bit **0x100000000** (bit 32,
-        `predicat battleQuery slot 0x61 sur les tuiles`, cf. l'inventaire de `targeting.py`) — que
+        d'un AUTRE etage de la cascade statique : HYPOTHESE = **`TargetIsNotAdjacent`**
+        (`predicat battleQuery slot 0x61 sur les tuiles`, cf. l'inventaire de `targeting.py`) — que
         `WaaaghAbility` (l'autre ability de CHARGE portee) porte AUSSI et qui n'y est pas porte non
         plus. NON IMPLEMENTE ICI : le bit est une regle PARTAGEE de la cascade et je n'ai de mesure
         que sur UNE ability ; l'implementer globalement risquerait de regresser Waaagh (live-valide
@@ -475,7 +474,7 @@ class HammerOfWrathAbility(ActiveAbility):
         if target_id is None:
             return 0
         dest = hammer_of_wrath_dest_tile(state, int(caster_id), int(target_id))
-        return 0 if dest is not None else int(RULE_TARGET_HAS_FREE_ADJACENT_TILE)
+        return 0 if dest is not None else int(TR.TargetHasFreeAdjacentTile)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

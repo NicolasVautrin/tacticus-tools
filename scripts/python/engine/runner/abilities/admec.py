@@ -290,8 +290,10 @@ class RadBombardmentAbility(ActiveAbility):
     #     0x40           TargetIsTile             -> cast TILE-TARGET (confirme live : `abilityTargets`
     #                    1116 rend `kind="tile"`). Regle NON portee par le filtre statique (domaine
     #                    TILE, cf. l'inventaire de `targeting.py`) -> inerte, et c'est deliberе.
-    #     0xa0000000000  bits 37 et 39 : noms HORS du dump 32 bits de l'enum -> non decomposes, non
-    #                    portes (meme regime que le bit 32 de Waaagh).
+    #     0x20000000000  AllowUntargetableTarget  -> INVERSE la regle `TargetIsTargetable` : ce n'est
+    #                    pas un refus, c'est une permission (cf. la cascade de `targeting.py`).
+    #     0x80000000000  AllowUnwalkableTargetTile -> permissif aussi (tuile non marchable acceptee) ;
+    #                    aucune regle du domaine TILE n'est portee, donc inerte.
     # PORTEE (#241) : `range = TargetingRange.CustomRange(1)` (le ctor construit le
     # `TargetingRange` INLINE : `onlyAdjacent = False`, `overrideRange = 1`) et
     # `forceMeleeTarget = False`. La cible etant une TUILE, le port ne sait pas resoudre sa

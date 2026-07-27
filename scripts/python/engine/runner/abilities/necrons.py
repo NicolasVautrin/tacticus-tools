@@ -157,7 +157,7 @@ class HarbingerOfDestructionAbility(ActiveAbility):
     # a `preset+0x28` = statics `+0x3e8` -> `0x200000000000004` (litteral LU dans le `.cctor`).
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x4                 CasterMatchesDynamicRule  -> volet CASTER (regle-delegue), NON PORTE
-    #     0x200000000000000   bit 57 CasterOrEnemyTargeting (`TargetingOptions$$get_IsCasterOrEnemyTargeting`
+    #     0x200000000000000   TargetIsCasterOrEnemy (`TargetingOptions$$get_IsCasterOrEnemyTargeting`
     #                         = `(rules >> 0x39) & 1`) -> PORTE : la cible doit etre le CASTER LUI-MEME
     #                         ou un ennemi attaquable. C'est ce bit qui explique la branche
     #                         `If(AreEqual(caster, target), ...)` de l'ExecuteBehaviour : le natif ACCEPTE
@@ -303,7 +303,7 @@ class ResurrectionOrbAbility(ActiveAbility):
     # n'est PAS l'overload preset+flags (qui, lui, a 3 params et fait `param_3 | preset.Rules`).
     # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x20          TargetHasFreeAdjacentTile  -> il faut un hex libre adjacent (ou spawner), NON PORTE
-    #     0x8000000000  bit 39 « la cible DOIT etre le caster » -> PORTE : ResurrectionOrb est un
+    #     0x8000000000  TargetIsCaster « la cible DOIT etre le caster » -> PORTE : ResurrectionOrb est un
     #                   SELF-CAST STRICT (le natif refuse tout target != caster).
     # `self_cast` = le BYTE `options+0x00`, ici le 2e argument du ctor (= 1) : il aiguille le cast
     # SUR SOI-MEME vers `TargetingQuery$$GetCasterNotAddedReason` au lieu du filtre statique.
