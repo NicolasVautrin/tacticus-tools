@@ -51,8 +51,10 @@ from engine.runner.state import State
 ACTIVE_LEVEL = 50
 MULT = 152
 # StatTypes captes par le RPC combatSnapshot (`statTypes`) -- sous-ensemble suffisant ici.
-STAT_IDS = {"attack": 0, "health": 5, "fixedArmor": 16, "critChance": 9, "critDamage": 10}
-BASE = {"attack": 1000, "health": 8000, "fixedArmor": 400, "critChance": 15, "critDamage": 250}
+STAT_IDS = {"attack": 0, "movement": 1, "health": 5, "fixedArmor": 16, "critChance": 9,
+            "critDamage": 10}
+BASE = {"attack": 1000, "movement": 4, "health": 8000, "fixedArmor": 400, "critChance": 15,
+        "critDamage": 250}
 
 
 def _snap_unit(entity_id: int, visual_id: str, delta: dict) -> dict:
@@ -128,6 +130,63 @@ def case_act_of_faith() -> bool:
                    {int(StatType.CRIT_CHANCE): cc, int(StatType.CRIT_DAMAGE): cd})
 
 
+def case_expiry_by_timer() -> bool:
+    """CROISEMENT avec O3 (`EffectsState.on_turn_end`) : le seul membre du gisement a porter un VRAI
+    timer est `Waaagh_ExtraMovement` (0x44b=1099, pose avec `duree@dsl+0xc0 = Direct(1)`). Depuis que le
+    retrait a echeance est effectif (mirror `EffectComponent$$RemoveOneTurn` + `$$ShouldBeRemoved`), un
+    stat-mod EAGER seede non retirable produisait un etat INCOHERENT -- effet absent de `has_effect`,
+    buff toujours applique. Ici on joue le VRAI foyer (`EndTurnOperation.execute` : tick de toutes les
+    entites PUIS `revert_stat_mods_of_removed_effects`), pas une sequence rejouee a la main.
+
+    Les autres membres sont PERMANENTS (`BlackRage_ExtraMove` 0x53e=1342 pose avec duree 0 ;
+    `AnvilShield_FrozenAttackerAdvantage` 0x4b1=1201 absent de `DefaultAmountOfRounds`, retire par son
+    trigger `On(UnitPostAbility)` ; `ProtectorImperative` 0x4df=1247 mesure `rem=0` live) -> le tick de
+    duree ne les concerne pas, leur retrait passe par une feuille `RemoveEffect`."""
+    from engine.runner.components import OwnerComponent, UnitComponent
+    from engine.runner.operations.turnflow import EndTurnOperation
+
+    amt = int(ability_var("Waaagh", "extraMovement", is_constant=True) or 0)
+    uid, rem0 = 55, 3
+    captured = [{"name": "Waaagh_ExtraMovement", "effectType": 1099, "level": 1,
+                 "remaining": rem0, "source": uid}]
+    stats = {k: BASE[k] for k in BASE}
+    stats["movement"] = BASE["movement"] + amt
+    su = {"entityId": uid, "visualId": "orksWarboss", "stats": stats,
+          "statDelta": {"movement": amt},
+          "unitConfig": {"activeAbilityLevel": ACTIVE_LEVEL, "abilityVariablesMultiplier": MULT}}
+    effs = EffectFactory.create_many(captured, MULT, None, ACTIVE_LEVEL)
+    ctx = UnitContext.from_snapshot(su, None, STAT_IDS, effs)
+    st = State()
+    ent = st.add_entity(uid)
+    ent.add_component(StatsComponent(ctx=ctx))
+    ent.add_component(OwnerComponent(player=3, team=1))
+    ent.add_component(UnitComponent(visual_id="orksWarboss", alive=True))
+    st.effects = EffectsState.seed({uid: captured}, {uid: MULT})
+    st.current_player_id = 3
+
+    print("== Waaagh_ExtraMovement 1099 SEEDE rem=%d, expiration par TIMER (MOVEMENT +%d)"
+          % (rem0, amt))
+    comp = ctx.stats.components[int(StatType.MOVEMENT)]
+    print("   per_source        = %s" % (comp.modification.per_source,))
+    print("   t0                : MOVEMENT=%d has_effect=%s"
+          % (ctx.stat(int(StatType.MOVEMENT)), st.effects.has_effect(uid, effect_type=1099)))
+    profile = []
+    for i in range(rem0 + 2):
+        e = st.effects.by_unit[uid][0]
+        EndTurnOperation.execute(st, advance=False)
+        mv = ctx.stat(int(StatType.MOVEMENT))
+        profile.append(mv)
+        print("   EndTurn %d (rem %s->%s) : MOVEMENT=%d has_effect=%-5s per_source=%s"
+              % (i + 1, e.remaining_turns if i == 0 else "-", e.remaining_turns, mv,
+                 st.effects.has_effect(uid, effect_type=1099), comp.modification.per_source))
+    want = [BASE["movement"] + amt] * (rem0 - 1) + [BASE["movement"]] * 3
+    ok = (profile == want)
+    print("   profil            : %s (attendu %s)" % (profile, want))
+    print("   VERDICT           : %s"
+          % ("UNE fois, au tick ou remaining atteint 0" if ok else "profil de revert FAUX"))
+    return ok
+
+
 def inventory() -> bool:
     """INVENTAIRE du gisement : toute classe du registre qui OVERRIDE `applied_stat_mods` doit rendre
     une cle de source retirable (`effect_stat_mod_key != None`) meme SEEDEE, sinon son buff resterait
@@ -157,6 +216,8 @@ def main() -> int:
     ok = case_protector()
     print("")
     ok = case_act_of_faith() and ok
+    print("")
+    ok = case_expiry_by_timer() and ok
     print("")
     ok = inventory() and ok
     print("")
