@@ -68,8 +68,18 @@ class FinishUnitTurnOperation:
         fl.add(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)
         newly_finished = not fl.has(UnitFlagsComponent.TURN_FINISHED)
         fl.add(UnitFlagsComponent.TURN_FINISHED)
-        return {"unit": int(unit_id), "found": True, "forced": bool(forced),
-                "newly_arrived": newly_arrived, "newly_finished": newly_finished}
+        out = {"unit": int(unit_id), "found": True, "forced": bool(forced),
+               "newly_arrived": newly_arrived, "newly_finished": newly_finished}
+        # `Add(ArrivedAtFinalTile=1)` nouvellement pose ET `!forced` -> le natif PUBLIE `On(0x1c)`.
+        # C'est la branche << l'unite n'a PAS bouge >> (si elle avait bouge, `MoveUnitOperation` aurait
+        # deja pose le flag ET emis l'event -- vecteur `after_move_triggers`). Le gate par flag est
+        # DANS `arrived_at_final_tile_triggers` (idempotent) : on ne l'appelle que sur `not forced`.
+        # Consommateur : `SpiritualLeaderAbility` (passif genesMagus). No-op si personne n'ecoute.
+        if newly_arrived and not forced:
+            from .triggers import arrived_at_final_tile_triggers
+            out["arrived_triggers"] = arrived_at_final_tile_triggers(
+                state, int(unit_id), gate_already_consumed=True)
+        return out
 
 
 def add_flags_after_ability_execution(state: State, caster_id: int,

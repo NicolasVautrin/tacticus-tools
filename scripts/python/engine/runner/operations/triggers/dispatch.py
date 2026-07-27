@@ -30,7 +30,7 @@ from typing import Optional
 
 from ...state import State
 from ...components import (StatsComponent, OwnerComponent, UnitComponent, HealthComponent,
-                          TriggeredAbilityComponent)
+                          TriggeredAbilityComponent, PositionComponent, UnitFlagsComponent)
 from ....dsl.event_trigger_type import EventTriggerType
 from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
                    PHASE_TRIGGER_CAP, _is_ranged_position)
@@ -89,6 +89,9 @@ from .loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,
 from .loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
+from .loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
+                                 CosmicHorrorOnMoveAbility)
+from .loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 
 # --- FinalJustice / overkill ----------------------------------------------------------------------
 OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
@@ -231,6 +234,25 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
     # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.
     "ListenUpMaggots": [ListenUpMaggotsAddEffectAbility],
+    # --- Genestealer Cults : les 2 passifs HERO restants du parc GS ------------------------------
+    # CosmicHorror (passif `genesPatriarch` << The Patermine >>) = DEUX abilities natives distinctes :
+    #   * `On(0x37=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(Steppable)` -> decoy sur la
+    #     tuile du mort + `Foreach(ennemis de l'anneau, Maybe(chance){ TriggerAbility(BattleFatigue)
+    #     & If(IsAlive, AddEffect(Pinned 1065)) })` -- UN SEUL Maybe pour les DEUX volets (le << 60 %
+    #     et 60 % >> de l'i2 est de la prose : le decompile n'a qu'un tirage par victime) ;
+    #   * `On(0x36=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(Decoy)` -> `Heal(self, hp)`
+    #     (le << marcher sur un decoy >> est en realite le CRUSH du decoy, qui passe par
+    #     `KillUnitOperation$$Execute` -> `On(0x36)`).
+    # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger).
+    "CosmicHorror": [CosmicHorrorOnKillAbility, CosmicHorrorOnMoveAbility],
+    # SpiritualLeader (passif `genesMagus` << Xybia >>) = `On(0x1c=ArrivedAtFinalTile) & OwnerIsActor`
+    # (fin d'activation : apres son 1er move, OU cloture de tour si elle n'a pas bouge -- les DEUX
+    # emetteurs natifs de 0x1c) -> decoy sur la meilleure tuile adjacente libre, puis si >=2 decoys
+    # adjacents (le neuf COMPTE, DSL lazy) summon d'un Neophyte sur l'un d'eux tire au hasard.
+    # Cf. loki/spiritual_leader.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpiritualLeaderAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetAdjacentDecoys).
+    "SpiritualLeader": [SpiritualLeaderAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
@@ -793,12 +815,120 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)` (aucun consommateur porté), `On(4=
     UnitAfterMove)` (overwatch) PUIS `On(0x1d=UnitPositionChanged_2)`. On dispatche `On(4)` puis `On(0x1d)` :
     ce dernier déclenche DecoysAndMisdirection (G2 — ennemi/allié qui marche sur un decoy allié crushé par
-    `_kill_steppable_units`, G1). No-op si aucun trigger ne matche (ou pas de board/rng)."""
+    `_kill_steppable_units`, G1). No-op si aucun trigger ne matche (ou pas de board/rng).
+
+    ORDRE NATIF COMPLET, lu au décompilé d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (les deux
+    events ENCADRANTS sont désormais portés, cf. les vecteurs dédiés ci-dessous) :
+        AddMoveEvent(s) -> **KillSteppableUnits** (-> `On(0x36=PostUnitKill)` par crushé)
+        -> UpdateCharging -> SetMovedFlag -> **Add(UnitFlag.ArrivedAtFinalTile=1)**
+        -> EvaluateAfterMoveTriggers (`On(0x24)` / `On(4)` / `On(0x1d)`)
+        -> si le flag 1 venait d'être AJOUTÉ : **`On(0x1c=ArrivedAtFinalTile)`**.
+    `post_unit_kill_triggers` est donc émis EN TÊTE (le crush précède) et
+    `arrived_at_final_tile_triggers` EN QUEUE (l'event 0x1c suit les after-move)."""
+    out = post_unit_kill_triggers_for_move(state, mover_id)
     ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
-    out = evaluate_trigger_operation(state, ev)
+    out += evaluate_trigger_operation(state, ev)
     # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
     ev2 = TriggerEvent(EventTriggerType.UnitPositionChanged_2, mover_id, mover_id, ranged=False, profile=None)
-    return out + evaluate_trigger_operation(state, ev2)
+    out += evaluate_trigger_operation(state, ev2)
+    return out + arrived_at_final_tile_triggers(state, mover_id)
+
+
+def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
+    """Vecteur `On(PostUnitKill = 0x36 = 54)` — **5e et DERNIER** des events de mort émis par
+    `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
+    par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)`).
+    `actor` = le TUEUR, `target`/`dying` = la victime.
+
+    Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x36) & OwnerIsActor & AreFriends &
+    HasTrait(target, Decoy)`) — le Patermine qui marche sur un decoy allié le CRUSHE
+    (`MoveUnitOperation$$KillSteppableUnits` -> `KillUnitOperation$$Execute` avec
+    `KillUnitOperationOptions$$ForSteppable`) et se soigne. No-op si rien ne matche."""
+    ev = TriggerEvent(EventTriggerType.PostUnitKill, killer_id, killed_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=killed_id)
+    return evaluate_trigger_operation(state, ev)
+
+
+def post_unit_kill_triggers_for_move(state: State, mover_id: int) -> list[dict]:
+    """`On(0x36)` pour les STEPPABLES que le move qui vient de s'exécuter a écrasés.
+
+    Le port crushe INLINE dans `movement.py::_kill_steppable_units` par un kill « propre » qui n'émet
+    AUCUN event (contrairement au natif, qui passe par `KillUnitOperation$$Execute` et en émet cinq).
+    On ré-identifie donc les crushés par CO-LOCALISATION — le même collapse que
+    `genestealer.py::_valid_dead_decoys` (déjà porté/validé pour G2) : une unité MORTE, `Steppable`,
+    sur la tuile du mover. Les positions étant exclusives, la tuile est libérée au crush puis
+    ré-occupée par le mover -> au plus un crushé par move, et un steppable mort d'un tour antérieur
+    est sur une AUTRE tuile.
+
+    RÉSIDU assumé : les 4 autres events de la séquence de mort d'un steppable crushé
+    (`On(1)`/`On(2)`/`On(0)`/`On(0x37)`) restent NON émis, et `On(0x36)` reste non émis pour les
+    morts par DÉGÂT (damage.py) et pour le crush par `ResurrectUnitOperation`/`AddUnitOperation`.
+    Aucun consommateur porté ne les lit ; à rouvrir si un port futur en dépend."""
+    from ....entities.traits import UnitTrait, has_trait
+    board = state.board
+    mover = state.get_entity(mover_id)
+    if board is None or mover is None:
+        return []
+    mpc = mover.get_component(PositionComponent)
+    if mpc is None:
+        return []
+    pos = (mpc.col, mpc.row)
+    out: list[dict] = []
+    for uid, e in sorted(state.entities.items()):
+        if uid == mover_id:
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is None or uc.alive:                        # le crushé est MORT
+            continue
+        pc = e.get_component(PositionComponent)
+        if pc is None or (pc.col, pc.row) != pos:         # ... et co-localisé avec le mover
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if not has_trait(traits or [], UnitTrait.Steppable):
+            continue
+        out += post_unit_kill_triggers(state, mover_id, uid)
+    return out
+
+
+def arrived_at_final_tile_triggers(state: State, unit_id: int,
+                                   gate_already_consumed: bool = False) -> list[dict]:
+    """Vecteur `On(ArrivedAtFinalTile = 0x1c = 28)` — « l'unité a terminé son activation ».
+
+    DEUX émetteurs natifs, tous deux lus au décompilé, tous deux gardés par le MÊME flag :
+      * `IdunBattle.Operations.MoveUnitOperation$$Execute` : `UnitFlagsComponent.Add(1)` puis, APRÈS
+        `EvaluateAfterMoveTriggers`, publie `On(0x1c)` SSI le flag venait d'être ajouté ;
+      * `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` : `Add(1)` puis publie `On(0x1c)`
+        SSI le flag venait d'être ajouté ET `!forced`.
+    => `On(0x1c)` fire AU PLUS UNE FOIS par activation : à la fin du 1er déplacement, ou à la clôture
+    du tour si l'unité n'a pas bougé. Le flag est purgé par `RemoveTurnFlags(new_activation=True)` au
+    début du tour suivant (`UnitFlagsComponent.remove_turn_flags`), ce qui ré-arme l'event.
+
+    Cette fonction porte le gate : elle POSE `ARRIVED_AT_FINAL_TILE` et n'émet que s'il était absent
+    (mirror du `bool` que rend `UnitFlagsComponent.Add`). Appelée (a) en queue d'`after_move_triggers`
+    — le port ne posait PAS ce flag au move, cette fonction le pose donc pour lui, ce qui est fidèle
+    à l'ordre observable (rien entre les deux ne le lit) ; et (b) par `FinishUnitTurnOperation.execute`,
+    qui pose lui-même le flag et a DÉJÀ calculé son `newly_arrived` -> il passe
+    `gate_already_consumed=True` pour ne pas re-tester un flag qu'il vient de poser.
+
+    Consommateur porté : `SpiritualLeaderAbility` (`On(0x1c) & OwnerIsActor`, passif de `genesMagus`).
+    `ArcaneShieldAbility` écoute le MÊME event côté natif mais reste routée sur `On(4)` (approximation
+    historique documentée dans `loki/arcane_shield.py`) — la migrer sur ce vecteur est un changement de
+    comportement (elle gagnerait le cas « n'a pas bougé ») HORS périmètre de ce port ; flaggé tel quel.
+    No-op si l'unité a déjà le flag (ou n'existe pas)."""
+    e = state.get_entity(unit_id)
+    if e is None:
+        return []
+    if not gate_already_consumed:
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is None:
+            fl = e.add_component(UnitFlagsComponent())
+        if fl.has(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE):  # `Add` natif a rendu FALSE -> pas d'event
+            return []
+        fl.add(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE)
+    ev = TriggerEvent(EventTriggerType.ArrivedAtFinalTile, unit_id, unit_id,
+                      ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
 
 
 def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict]:
