@@ -59,6 +59,9 @@ def _active_abilities(u: dict) -> List[ActiveAbility]:
             ability_type=int(a["id"]), kind=str(a.get("kind")),
             can_still_be_used=bool(a.get("usable", True)),
             remaining_cooldown=a.get("cooldown"), disabled=bool(a.get("disabled", False)),
+            # `AmmoCost`@0x38 / `HasEnoughAmmo`@0x40 -- 4e terme de `get_CanCurrentlyBeUsed`
+            # (mordant sur les MoW seules ; `ammoCost` est null sur toute unite reguliere).
+            ammo_cost=a.get("ammoCost"), has_ammo=bool(a.get("hasAmmo", True)),
             level=a.get("level"), multiplier=a.get("multiplier")))
     return out
 
@@ -238,6 +241,14 @@ def _load_machines(state: State, decision: dict) -> None:
         e.add_component(MachineComponent(slot=m.get("slot")))
         # PAS de PositionComponent (hors-plateau) ; PAS de HealthComponent (aucun HealthComponent
         # natif -> `unit_is_alive` rend True sur hp inconnu, ce qui EST la sémantique MoW).
+        # `ActiveAbilityComponent` EST dans le jeu de composants mesuré de l'entité Machine
+        # (`dumpEntityComponents`) — c'est lui que le générateur d'action lit
+        # (`ActiveAbilityActionGenerator$$GetUnitAbilitiesInOrder(this, activeAbilityComponent)`) et
+        # que `AddMachineOperation$$InitializeAbilitiesStatus` peuple. Sans lui, la face DÉCISION MoW
+        # n'a AUCUN état runtime d'ability offline (cooldown / munitions) — cf. R14.
+        actives = _active_abilities(m)
+        if actives:
+            e.add_component(ActiveAbilitiesComponent(abilities=actives))
         effs = _effect_names(m)
         if effs:
             e.add_component(EffectsOwnedComponent(effects=effs))

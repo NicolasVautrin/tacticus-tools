@@ -46,3 +46,58 @@ class DefaultAiUnitTactic:
         # MovementActionGenerator renvoie TOUJOURS une action -> ce filet n'est atteint que si la liste
         # de générateurs était vide (jamais en pratique).
         return {"kind": "move", "to": None}
+
+
+class DefaultMachineTactic:
+    """Le tactic des MACHINES OF WAR — `IdunBattle.AI.Tactics.DefaultMachineTactic`.
+
+    C'est le CHEMIN NATIF DÉDIÉ au caster `EntityType.Machine` : `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit`
+    route sur lui dès `IdunBattle.Entities.EntityExtensions$$IsMachine(actor)` (avant les branches
+    Boss / NonAttacking / défaut). Une MoW y arrive parce que
+    `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$CalculateNextActionForPlayer` AJOUTE
+    l'entité `PlayerComponent+0x78` (= l'id de machine, écrit par
+    `IdunBattle.Operations.AddMachineOperation$$Execute`) à la liste des entités du joueur.
+    REACHABILITY MESURÉE (session 4, runner MoW `adeptExorcist`) : `aiStepDryRun` rend
+    `ActiveAbilityMessage{casterId=<machineId>, abilityType=1188}`, `mutated:false`.
+
+    TROIS différences STRUCTURELLES avec `DefaultAiUnitTactic`, toutes lues au décompilé :
+
+    1. **Pas de `MovementActionGenerator`.** `DefaultMachineTactic$$.ctor` pose
+       `@tactic+0x60 = GetDefaultActiveAbilityActionGenerators(this)` DIRECTEMENT ; le ctor unité, lui,
+       construit en plus un `MovementActionGenerator` (@+0x58) et l'`Add`-e en queue. Corollaire lu :
+       `DefaultMachineTactic.<CalculateMovementForUnit>d__8$$MoveNext` renvoie une liste VIDE,
+       toujours — **une MoW ne bouge JAMAIS** (elle est hors-plateau).
+    2. **Position du caster = `IdunBattle.Core.UnitPosition$$NullPosition`** et **tuiles candidates =
+       `OrderedSet` VIDE** : `<CalculateNextActionForUnit>d__5$$MoveNext` appelle
+       `gen.GenerateActions(machine, NullPosition(), new OrderedSet())` là où le tactic unité passe
+       `GetUnitPosition(unit)` et `ABaseAiUnitTactic$$GenerateActionTiles(unit)`. Il ne fait NI le gate
+       `UnitExtensions.IsAlive`, NI `GetMainTile`. Côté générateur, un ensemble de positions VIDE fait
+       tomber `ActiveAbilityActionGenerator.<GenerateActions>d__7` dans sa branche `Count == 0` : UNE
+       seule évaluation, avec `NullPosition()`, et SANS le gate `HasValidTargets` (slot 0x3f) que la
+       branche par-tuile applique.
+    3. **Émission dédiée** : `DefaultMachineTactic$$GenerateInputMessagesFromUnitAction` (et non
+       `InputBuilder$$GenerateInputMessagesFromUnitAction`) — elle n'émet JAMAIS de `MoveUnitMessage` :
+       soit un `ActiveAbilityMessage{casterId=machine, targetId, abilityType}`, soit, si l'action est
+       nulle, le message de FIN d'activation de la machine.
+
+    Le port ne fabrique donc AUCUNE origine pour la MoW : `ctx.origin is None`, `ctx.move_tiles == []`,
+    `ctx.reach_nc == []` — c'est le mirror de `NullPosition` + tuiles vides, pas une dégradation."""
+
+    def __init__(self):
+        # `DefaultMachineTactic$$.ctor` : @tactic+0x60 = `GetDefaultActiveAbilityActionGenerators`
+        # SEUL — la MÊME liste [NC(1000), NC(100), NC(0), NC(-100), NC(-1000), Comparable(special)]
+        # que le tactic unité, **sans** le `MovementActionGenerator` terminal.
+        self.generators = [NonComparableGenerator(p) for p in NC_PRIORITY_TIERS] + [
+            ComparableAbilityGenerator(),
+        ]
+
+    def calculate_next_action(self, ctx) -> dict:
+        """`DefaultMachineTactic.<CalculateNextActionForUnit>d__5$$MoveNext` — PREMIÈRE action
+        non-nulle des générateurs ordonnés ; aucune ne sort -> `GenerateInputMessagesFromUnitAction`
+        est appelée avec une action NULLE et n'émet que le message de fin d'activation, d'où
+        `{kind: "finish"}` (JAMAIS `{kind:"move"}` : ce tactic n'a pas de générateur de mouvement)."""
+        for gen in self.generators:
+            action = gen.generate(ctx)
+            if action is not None:
+                return action
+        return {"kind": "finish", "to": None}

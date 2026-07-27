@@ -525,30 +525,57 @@ class ActiveAbility:
         CanStillBeUsed         @0x28  -> `can_still_be_used`   (l'ability a-t-elle encore une charge ?)
         RemainingCooldownTurns @0x2c  -> `remaining_cooldown`  (Nullable<int> ; None = pas de cooldown)
         IsDisabled             @0x35  -> `disabled`
+        AmmoCost               @0x38  -> `ammo_cost`           (Nullable<int> ; None = pas de cout)
+        HasEnoughAmmo          @0x40  -> `has_ammo`
         AbilityName            @0x44  -> `ability_type`        (ActiveAbilityType concret)
         _abilityState          @0x4c  -> `level` / `multiplier` (AbilityState PER-ABILITY, #100)
 
     `is_in_cooldown` = `IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown` =
     `RemainingCooldownTurns.HasValue && Value > 0`."""
     __slots__ = ("ability_type", "kind", "can_still_be_used", "remaining_cooldown", "disabled",
-                 "level", "multiplier")
+                 "ammo_cost", "has_ammo", "level", "multiplier")
 
     def __init__(self, ability_type: int, kind: str = "active", can_still_be_used: bool = True,
-                 remaining_cooldown=None, disabled: bool = False, level=None, multiplier=None):
+                 remaining_cooldown=None, disabled: bool = False, level=None, multiplier=None,
+                 ammo_cost=None, has_ammo: bool = True):
         self.ability_type = int(ability_type)
         self.kind = kind
         self.can_still_be_used = bool(can_still_be_used)
         self.remaining_cooldown = remaining_cooldown
         self.disabled = bool(disabled)
+        self.ammo_cost = ammo_cost
+        self.has_ammo = bool(has_ammo)
         self.level, self.multiplier = level, multiplier
 
     def is_in_cooldown(self) -> bool:
         """`IdunBattle.Entities.Components.ActiveAbility$$get_IsInCooldown` : `HasValue && Value > 0`."""
         return self.remaining_cooldown is not None and int(self.remaining_cooldown) > 0
 
+    def can_currently_be_used(self) -> bool:
+        """`IdunBattle.Entities.Components.ActiveAbility$$get_CanCurrentlyBeUsed` -- la propriete
+        COMPOSITE que le generateur d'action natif teste (`<GenerateActions>d__7`), a NE PAS confondre
+        avec `CanStillBeUsed`@0x28 (le seul champ que le canal live nomme `usable`) :
+
+            CanStillBeUsed(@0x28) && !IsDisabled(@0x35)
+              && (!RemainingCooldownTurns(@0x2c).HasValue || Value < 1)
+              && (!AmmoCost(@0x38).HasValue || HasEnoughAmmo(@0x40))
+
+        Le 4e terme (MUNITIONS) n'a de mordant que sur les MACHINES OF WAR : leurs abilities portent
+        un `munitionsCost` et le stock vit dans `BC.Player.Players[].MachineOfWarAmmo` (0 dans le seed
+        BC). Mesure live (runner MoW `adeptExorcist`, session 4) : `1187` = `usable:true, hasAmmo:false`
+        -> le natif ne la propose PAS et caste `1188` a la place. Sans ce terme, le port proposerait
+        1187."""
+        if not self.can_still_be_used or self.disabled:
+            return False
+        if self.remaining_cooldown is not None and int(self.remaining_cooldown) >= 1:
+            return False
+        if self.ammo_cost is not None and not self.has_ammo:
+            return False
+        return True
+
     def __repr__(self) -> str:                                        # pragma: no cover
         return (f"ActiveAbility({self.ability_type}, {self.kind}, usable={self.can_still_be_used}, "
-                f"cd={self.remaining_cooldown})")
+                f"cd={self.remaining_cooldown}, ammo={self.ammo_cost}/{self.has_ammo})")
 
 
 class ActiveAbilitiesComponent(Component):

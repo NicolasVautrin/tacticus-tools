@@ -221,7 +221,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # Vecu #45 777 s15 : u83 stunne (1165) -> le natif joue 69->87 (2.88) faute de mieux,
     # nous emettions Repair 28 self (30.06) -> miss "utility-logic" fantome.
     if me is not None:
-        kept = [a for a in (me.get("abilities") or []) if battle_query.can_use_ability(me, a)]
+        kept = [a for a in (me.get("abilities") or [])
+                if battle_query.can_use_ability(me, a)
+                and battle_query.can_currently_be_used(a)]
         if len(kept) != len(me.get("abilities") or []):
             me = {**me, "abilities": kept}
 
@@ -291,5 +293,99 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
+        tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
+        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos, debug=debug)
+
+
+def machine_row(dv: dict, uid: int) -> dict | None:
+    """La ligne `decisionView.mows` du caster `uid` (`casterId` == `machineId`, l'entité
+    `EntityType.Machine`). None si `uid` n'est pas une MACHINE OF WAR — c'est le DISCRIMINANT de
+    routage vers `DefaultMachineTactic` (mirror `IdunBattle.Entities.EntityExtensions$$IsMachine`,
+    testé par `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit`). Le canal `.mows` est
+    SÉPARÉ de `.units` côté natif : une Machine n'est jamais dans `decisionView.units`."""
+    return next((m for m in (dv.get("mows") or []) if m.get("casterId") == uid), None)
+
+
+def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
+                  wt: Any, predictor: dict | None, debug: bool = False) -> AiDecisionContext:
+    """`AiDecisionContext` d'un caster MACHINE OF WAR — mirror de
+    `IdunBattle.AI.Tactics.DefaultMachineTactic.<CalculateNextActionForUnit>d__5$$MoveNext`.
+
+    Ce qu'il fait DE MOINS que `build`, et pourquoi (tout est lu au décompilé) :
+
+    - **`origin = None`, `move_tiles = []`, `reach_nc = []`** — le tactic Machine appelle
+      `gen.GenerateActions(machine, UnitPosition.NullPosition(), new OrderedSet())` : la position du
+      caster est la position NULLE et l'ensemble des tuiles candidates est VIDE (là où le tactic unité
+      passe `GetUnitPosition(unit)` et `ABaseAiUnitTactic$$GenerateActionTiles`). On n'INVENTE donc
+      aucune tuile pour la MoW : elle n'a pas de `PositionComponent` (mesuré `dumpEntityComponents`).
+    - **`plans = {}`** — `decisionView.attackPlans` est une projection des plans d'attaque
+      POSITIONNELS ; sans tuile candidate il n'y a rien à ranker. Côté natif, la branche
+      `positions.Count == 0` de `ActiveAbilityActionGenerator.<GenerateActions>d__7` fait UNE
+      évaluation depuis `NullPosition()` — c'est aux playbooks (feuilles NonComparable) de produire la
+      cible, pas au sweep de tuiles.
+    - **pas d'appel `pathDistToEnemies`** — ce champ ne sert qu'au `MovementActionGenerator`, que
+      `DefaultMachineTactic$$.ctor` n'ajoute PAS (et `<CalculateMovementForUnit>d__8$$MoveNext` rend
+      une liste vide, toujours). `pathdist_by_pos = {}`.
+    - **`normal_ids = set()`** — les 8 MoW du pool ont `weapons=[]` en gameconfig : aucune attaque
+      normale, donc aucune entrée `kind == "normal"`.
+
+    Le reste (observeBattle / tileMeta / boardGraph / Scene) est la MÊME couture que `build` : ce sont
+    des lectures d'ENVIRONNEMENT, indépendantes du caster."""
+    units = dv.get("units") or []          # `.units` ne contient JAMAIS de Machine (canal séparé)
+    cur = dv.get("currentPlayer")
+    me = machine_row(dv, uid)
+    if me is None:
+        raise ValueError(f"build_machine: {uid} absent de decisionView.mows")
+    # `ctrl` recalculé PAR RAPPORT AU CAMP DE LA MACHINE (et non au joueur courant) : c'est le camp
+    # de l'acteur qui définit ami/ennemi pour ses sélecteurs (`Owner@0x148`).
+    my_team = me.get("team")
+    units = [{**u, "ctrl": (u.get("team") == my_team)} for u in units]
+    enemies = _enemies(units)
+    epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies]
+    hp_cur_by_id = {u.get("id"): u.get("hp") for u in units}
+    # Gate par ability du générateur natif : `CanUseAbility` (stun/taunt) ET la composite
+    # `ActiveAbility$$get_CanCurrentlyBeUsed` (cooldown + MUNITIONS). Sans le terme munitions, le
+    # port proposerait une ability que le natif refuse (mesuré : `1187 hasAmmo:false`).
+    kept = [a for a in (me.get("abilities") or [])
+            if battle_query.can_use_ability(me, a) and battle_query.can_currently_be_used(a)]
+    me = {**me, "abilities": kept}
+    ab_name_by_id = {x.get("id"): x.get("name") for x in kept}
+
+    obs = rpc("observeBattle", {"runnerId": rid}, 40)
+    obs_units = obs.get("units") or []
+    hpmax_by_id = {u.get("squadId"): (u.get("hpMax") or 0) for u in obs_units}
+    if predictor is not None:
+        hpmax_by_id.update(predictor.get("hpmax_eff_by_id") or {})
+
+    sctx = _step_context(predictor, dv) if predictor is not None else None
+    if sctx is not None:
+        sctx["hpmax_by_id"] = hpmax_by_id
+
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    tiles = tm.get("tiles") or []
+    elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation") for t in tiles}
+    is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary")) for t in tiles}
+    effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
+                      for t in tiles}
+    tile_id_by_pos = _board_tile_ids(rpc, rid)
+    neigh_by_pos = _board_neighbours(rpc, rid)
+    walkable_by_pos = _board_walkable(rpc, rid)
+    terrain_by_pos = _board_terrain(rpc, rid)
+
+    fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
+            if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
+    scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos,
+                                       tile_effects_by_pos=effects_by_pos)
+             if (predictor is not None and sctx is not None) else None)
+
+    return AiDecisionContext(
+        rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
+        uid=uid, me=me, units=units, cur=cur, plans={},
+        enemies=enemies, epos=epos, tgt_epos=epos, fpos=fpos, origin=None,
+        move_tiles=[], reach_nc=[],
+        hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=obs_units,
+        ab_name_by_id=ab_name_by_id, normal_ids=set(),
+        elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
+        effects_by_pos=effects_by_pos, pathdist_by_pos={},
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos, debug=debug)

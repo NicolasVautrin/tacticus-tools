@@ -44,18 +44,28 @@ _DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
 
 def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
                   predictor: dict | None = None) -> dict:
-    """Decision du moteur pour l'unite uid sur l'etat dv. Forme normalisee :
-    {kind:"move", to:(c,r)} ou {kind:"ability", target, ability, to:(c,r)}.
+    """Decision du moteur pour l'acteur uid sur l'etat dv. Forme normalisee :
+    {kind:"move", to:(c,r)} ou {kind:"ability", target, ability, to:(c,r)} ou {kind:"finish"}.
 
     HARNAIS MINCE : construit le contexte (couture RPC) puis delegue au spine natif porte
     (DefaultAiUnitTactic -> generateurs ordonnes -> premiere action non-nulle). Toute la logique de
     scoring/selection vit desormais dans engine/ai/ (context/bucket/action_generators/tactic) =
     mirroir du namespace natif IdunBattle.AI.
+
+    ROUTAGE PAR TYPE D'ACTEUR -- mirror `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit`, qui
+    teste `IdunBattle.Entities.EntityExtensions$$IsMachine(actor)` AVANT les branches Boss /
+    NonAttacking / defaut : un caster MACHINE OF WAR (present dans `decisionView.mows`, JAMAIS dans
+    `.units`) passe par `DefaultMachineTactic` + `build_machine` -- pas de mouvement, position du
+    caster = `UnitPosition.NullPosition`, tuiles candidates vides. Sans ce routage, un pas d'IA porte
+    par une MoW n'avait AUCUNE entree cote moteur (residu R14).
     """
     from engine.ai import context as _ai_ctx
-    from engine.ai.tactic import DefaultAiUnitTactic
-    ctx = _ai_ctx.build(lambda m, b, t: _r(sid, m, b, t), rid, dv, mov_by_unit, uid, wt,
-                        predictor, debug=_DEBUG)
+    from engine.ai.tactic import DefaultAiUnitTactic, DefaultMachineTactic
+    _rpc = lambda m, b, t: _r(sid, m, b, t)          # noqa: E731
+    if _ai_ctx.machine_row(dv, uid) is not None:     # `IsMachine(actor)` -> tactic dedie
+        mctx = _ai_ctx.build_machine(_rpc, rid, dv, uid, wt, predictor, debug=_DEBUG)
+        return DefaultMachineTactic().calculate_next_action(mctx)
+    ctx = _ai_ctx.build(_rpc, rid, dv, mov_by_unit, uid, wt, predictor, debug=_DEBUG)
     return DefaultAiUnitTactic().calculate_next_action(ctx)
 
 

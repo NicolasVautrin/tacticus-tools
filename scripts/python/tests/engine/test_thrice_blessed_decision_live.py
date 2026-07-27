@@ -14,13 +14,20 @@ pouvait JAMAIS etre proposee. La feuille portee mirrore :
         GenerateAction(position, T, util) + Bucket.AddAction     # argmax STRICT, keep-first au tie
 
 CE QUE CE TEST GARDE :
-  [A] CONFORMITE + ARGMAX SUR LES CIBLES -- sur un etat ou le natif CASTE REELLEMENT 1187, le port
-      rend la MEME ability sur la MEME cible, et cette cible n'est PAS la premiere eligible (un port
-      keep-first, ou un port qui ne compterait qu'un ennemi, se tromperait de cible).
+  [A] CONFORMITE + ARGMAX SUR LES CIBLES -- sur un etat ou le natif CASTE REELLEMENT 1187, le
+      MOTEUR COMPLET rend la MEME ability sur la MEME cible, et cette cible n'est PAS la premiere
+      eligible (un port keep-first, ou un port qui ne compterait qu'un ennemi, se tromperait de
+      cible). Depuis R14 la confrontation passe par `engine_decide` (routage caster Machine ->
+      `DefaultMachineTactic`), pas par la feuille isolee : c'est le CHEMIN qui est garde en plus de
+      la formule, et `to is None` verifie l'absence de generateur de mouvement.
   [B] LES QUIRKS DE GEOMETRIE (`SurroundingTiles` SANS porte d'elevation + settings de ligne 0/0) --
       la MEME feuille remise a la geometrie de DarkTalonStrike (`AdjacentTiles` + settings 1/1), ce
       qu'un copier-coller de la feuille 1092 produirait, rend une decision DIFFERENTE du natif.
       SKIP explicite si aucun board MoW-capable du pool ne porte la marche requise.
+  [C] LE GATE MUNITIONS (`ActiveAbility$$get_CanCurrentlyBeUsed`, 4e terme) -- sur le MEME montage
+      geometrique mais a `MachineOfWarAmmo = 0` (le defaut du seed BC), 1187 est `usable:true` mais
+      `hasAmmo:false` : le natif ne la caste PAS, et le moteur ne doit pas la proposer non plus.
+      Sans ce terme, le port proposerait 1187 la ou le natif choisit autre chose.
 
 Porteur : `adeptExorcist` (MACHINE OF WAR, Adepta Sororitas) -- present dans `--list-pool` (8 MoW
 spawnables). LEVIER MUNITIONS : le seed BC part a `BC.Player.Players[*].MachineOfWarAmmo = 0`,
@@ -158,22 +165,22 @@ def _native(rpc, rid, allies):
     return {"ability": None, "target": None, "caster": None}
 
 
-def _leaf(rpc, rid, cid, myplayer, elev, walk):
-    """La FEUILLE portee, sur l'etat LIVE. `engine_decide` ne peut PAS servir ici : son bridge
-    exclut les MACHINES OF WAR (`engine.ai.state_bridge._dv_units` : « MoW EXCLUES -- le natif ne
-    met que `EntityType.Unit` dans `decisionView.units` »), donc il n'a aucune entree pour le SEUL
-    porteur de 1187. Ce qui est confronte est exactement ce que calcule `EvaluateNonComparable`."""
-    from engine.playbook import noncomparable as NC
-    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 180)
-    units = [u for u in (dv.get("units") or []) if u.get("alive")]
-    epos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
-            if u.get("owner") != myplayer and u.get("pos")]
-    ctx = NC.NCContext(
-        uid=cid, origin=None, reach_nc=[], epos=epos, fpos=[], plan={}, hp_cur_by_id={},
-        ability_targets=lambda u, a: rpc("abilityTargets",
-                                         {"runnerId": rid, "unitId": u, "abilityType": a}, 120),
-        units=units, walkable_by_pos=walk, elev_by_pos=elev)
-    return NC.PLAYBOOKS[ABILITY].generate_candidates(ctx)
+def _leaf(rpc, sid, rid, cid):
+    """La decision du MOTEUR COMPLET pour le caster MACHINE OF WAR `cid`, sur l'etat LIVE.
+
+    Depuis R14, `engine_decide` ROUTE un caster Machine (present dans `decisionView.mows`, jamais
+    dans `.units`) vers `engine.ai.tactic.DefaultMachineTactic` + `engine.ai.context.build_machine`
+    -- mirror de `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` (branche
+    `IsMachine(actor)`). Ce qui est confronte n'est donc plus la feuille isolee mais TOUTE la face
+    DECISION : gate par ability (`ActiveAbility$$get_CanCurrentlyBeUsed`, munitions incluses), les 5
+    tiers NonComparable, puis le fallback Comparable -- et l'absence de generateur de MOUVEMENT.
+
+    Renvoie la forme normalisee `{kind, ability, target, to, util}` (`kind == "finish"` = aucun
+    generateur n'a produit d'action, mirror de `GenerateInputMessagesFromUnitAction(action=null)`)."""
+    from engine import weights
+    from engine_validate import engine_decide
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+    return engine_decide(sid, rid, dv, {}, cid, weights.load(), None)
 
 
 class _dark_talon_like:
@@ -276,8 +283,8 @@ def ammo_bc():
 
 # --------------------------------------------------------------------------- les tests
 
-def test_thrice_blessed_decision_live(rpc, build_runner, ammo_bc):
-    """[A] Sur un etat ou le natif CASTE 1187, le port rend la MEME ability sur la MEME cible --
+def test_thrice_blessed_decision_live(rpc, live_session, build_runner, ammo_bc):
+    """[A] Sur un etat ou le natif CASTE 1187, le MOTEUR rend la MEME ability sur la MEME cible --
     et cette cible est celle de l'ARGMAX, pas la premiere eligible."""
     rid = build_runner("4242", ["--board", "C1_02", "--seed-bc", str(ammo_bc),
                                 "--p-units", P_UNITS, "--a-units", A_UNITS, "--p-mow", MOW,
@@ -290,25 +297,32 @@ def test_thrice_blessed_decision_live(rpc, build_runner, ammo_bc):
              for u in s["allies"] if s["pos"].get(u)}
     u_strong = utils[s["strong"]]
 
-    got = _leaf(rpc, rid, s["cid"], s["myplayer"], s["elev"], s["walk"])
+    got = _leaf(rpc, live_session, rid, s["cid"])
     nat = _native(rpc, rid, [u for u in s["allies"]])
     ctx = (f"P={s['P']} chain={s['chain']} strong={s['strong']} utils={utils} ; "
            f"natif={nat} moteur={got}")
     assert nat["ability"] == ABILITY, f"le natif ne CASTE PAS 1187 -- l'etat ne prouve rien : {ctx}"
+    assert nat["caster"] == s["cid"], (
+        f"le caster natif n'est PAS la MACHINE OF WAR : l'oracle ne porte pas sur R14 -- {ctx}")
     assert all(u_strong > v for k, v in utils.items() if k != s["strong"]), (
         f"la cible de l'argmax ne DOMINE pas strictement : l'argmax n'est pas exerce -- {ctx}")
     assert u_strong >= TBC.ThriceBlessedConflagrationPlaybook.MIN_UTILITY, f"util < MIN -- {ctx}"
-    assert len(got) == 1, f"le port ne propose pas 1187 -- {ctx}"
-    assert (got[0]["ability"], got[0]["target"]) == (nat["ability"], nat["target"]), (
-        f"decision offline != natif -- {ctx}")
+    # R14 : la face DECISION d'une MoW est PROPOSABLE par le moteur complet (avant, `engine_decide`
+    # n'avait aucune entree pour un caster Machine -> `kind == "finish"` structurel).
+    assert got.get("kind") == "ability", f"le moteur ne PROPOSE rien pour la MoW -- {ctx}"
+    assert (got.get("ability"), got.get("target")) == (nat["ability"], nat["target"]), (
+        f"decision moteur != natif -- {ctx}")
+    assert got.get("to") is None, (
+        f"le tactic Machine n'a PAS de MovementActionGenerator : `to` doit rester None -- {ctx}")
     assert nat["target"] == s["strong"] and s["strong"] != min(s["allies"]), (
         f"le natif ne vise pas une cible de QUEUE de `fromHere` (ordre id croissant) : un port "
         f"keep-first passerait aussi, le test perdrait sa discriminance -- {ctx}")
-    assert got[0]["pred"] == float(u_strong), f"utilite offline != beam count -- {ctx}"
+    assert got.get("util") == float(u_strong), f"utilite moteur != beam count -- {ctx}"
 
 
 @pytest.mark.parametrize("board,seed", [("C1_38", "4242"), ("C1_25", "777")])
-def test_thrice_blessed_decision_elevation_step_live(rpc, build_runner, ammo_bc, board, seed):
+def test_thrice_blessed_decision_elevation_step_live(rpc, live_session, build_runner, ammo_bc,
+                                                     board, seed):
     """[B] Le ring de 1187 est `SurroundingTiles` (`IsTileValidForList(tile, src, 1, 0)` : walkable
     SANS porte d'elevation) et sa ligne a des settings `0/0` -- une MARCHE `>= 2` entre la cible et
     ses ennemis ne coupe donc RIEN. La meme feuille a la geometrie DarkTalonStrike (`AdjacentTiles`
@@ -320,15 +334,45 @@ def test_thrice_blessed_decision_elevation_step_live(rpc, build_runner, ammo_bc,
     for _ in range(2):
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
     s = _setup(rpc, rid, want_step=2)
-    got = _leaf(rpc, rid, s["cid"], s["myplayer"], s["elev"], s["walk"])
+    got = _leaf(rpc, live_session, rid, s["cid"])
     with _dark_talon_like():
-        mute = _leaf(rpc, rid, s["cid"], s["myplayer"], s["elev"], s["walk"])
+        mute = _leaf(rpc, live_session, rid, s["cid"])
     nat = _native(rpc, rid, s["allies"])
     ctx = (f"board={board} P={s['P']}(elev {s['elev'][s['P']]}) chain={s['chain']}"
            f"(elev {[s['elev'][c] for c in s['chain']]}) ; natif={nat} moteur={got} mute={mute}")
     assert nat["ability"] == ABILITY, f"le natif ne CASTE PAS 1187 sur ce relief -- {ctx}"
-    assert len(got) == 1 and (got[0]["ability"], got[0]["target"]) == \
-        (nat["ability"], nat["target"]), f"decision offline != natif -- {ctx}"
-    assert not mute or (mute[0]["ability"], mute[0]["target"]) != (nat["ability"], nat["target"]), (
+    assert nat["caster"] == s["cid"], f"le caster natif n'est PAS la MoW -- {ctx}"
+    assert got.get("kind") == "ability" and (got.get("ability"), got.get("target")) == \
+        (nat["ability"], nat["target"]), f"decision moteur != natif -- {ctx}"
+    assert (mute.get("ability"), mute.get("target")) != (nat["ability"], nat["target"]), (
         f"la geometrie DarkTalonStrike rend DEJA la decision native : les quirks (ring sans porte "
         f"d'elevation, settings 0/0) ne sont PAS exerces -- {ctx}")
+
+
+def test_thrice_blessed_ammo_gate_live(rpc, live_session, build_runner):
+    """[C] MEME montage que [A] mais SANS le levier munitions (seed BC par defaut,
+    `MachineOfWarAmmo = 0`). `1187` porte `munitionsCost = 1` -> le 4e terme de
+    `IdunBattle.Entities.Components.ActiveAbility$$get_CanCurrentlyBeUsed`
+    (`!AmmoCost.HasValue || HasEnoughAmmo`) la REFUSE alors que `CanStillBeUsed` (le champ que le
+    canal live nomme `usable`) reste VRAI. Le natif caste donc autre chose, et le moteur ne doit pas
+    proposer 1187 -- un port qui ne lirait que `usable` la proposerait."""
+    rid = build_runner("4242", ["--board", "C1_02",
+                                "--p-units", P_UNITS, "--a-units", A_UNITS, "--p-mow", MOW,
+                                "--hp-target", "90000", "--hp-player", "90000"])["rid"]
+    for _ in range(2):
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+    s = _setup(rpc, rid, want_step=None)
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+    m = next(x for x in (dv.get("mows") or []) if x.get("casterId") == s["cid"])
+    ab = next((a for a in (m.get("abilities") or []) if a.get("id") == ABILITY), None)
+    assert ab is not None, f"1187 absente des abilities de la MoW : {m}"
+    assert ab.get("ammoCost") and ab.get("hasAmmo") is False and ab.get("usable") is not False, (
+        f"l'etat n'exerce PAS le gate munitions (il faut ammoCost>0, hasAmmo=False, usable=True) : "
+        f"{ab}")
+    got = _leaf(rpc, live_session, rid, s["cid"])
+    nat = _native(rpc, rid, s["allies"])
+    ctx = f"ability_state={ab} ; natif={nat} moteur={got}"
+    assert nat["ability"] != ABILITY, f"le natif CASTE 1187 sans munitions -- {ctx}"
+    assert got.get("ability") != ABILITY, (
+        f"le moteur propose 1187 alors que la MoW n'a pas de munitions : le 4e terme de "
+        f"`get_CanCurrentlyBeUsed` n'est pas porte -- {ctx}")
