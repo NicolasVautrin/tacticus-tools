@@ -26,6 +26,8 @@ from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddStaticStatModifierEffect
 from .loki import _pick_randomly_n
+from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
     from ..state import State
@@ -152,6 +154,24 @@ class DoomSirenAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.DoomSiren)   # 1199
     ABILITY_ID = "DoomSiren"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor`
+    # n'appelle AUCUN `TargetingOptions..ctor` : il COPIE les 0x40 octets du PRESET STATIQUE
+    # `IdunBattle.Core.Services.TargetingOptions` **statics `+0x40`** (le MEME que
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$.ctor`), puis
+    # `AActiveAbility..ctor(this, &opts, 0, 0)`. Valeurs LUES dans
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor`, bloc qui ecrit `statics+0x40` :
+    #     statics+0x40 (= preset+0x00) = 0                  -> `isSelfCasting` = False
+    #     statics+0x48 (= preset+0x08) = TargetingRange statics+0x30 -> `RANGE_ADJACENT`
+    #                                    (`onlyAdjacent = True`, `overrideRange = 1`)
+    #     statics+0x60 (= preset+0x20) = 1                  -> `forceMeleeTarget` = RangedBool.False
+    #     statics+0x68 (= preset+0x28) = 0x4000             -> `Rules` = TargetIsEnemy
+    # Un SEUL bit de regle, et il est PORTE : `TargetIsEnemy` -> `UnitsCanAttackEachOther` (la cible
+    # doit etre attaquable par le caster). Coherent gameconfig : 1199 est `attackRangeType = Melee`,
+    # d'ou le `RANGE_ADJACENT` (cible ADJACENTE, portee 1) -- c'est CE volet qui refuse un cast a
+    # distance que le port acceptait jusqu'ici.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsEnemy, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def _nr_of_units(self) -> int:
         """`GetNumberConstant(config, 0x78)` = `constants.nrOfUnits` (CONSTANTE, pas une variable par
