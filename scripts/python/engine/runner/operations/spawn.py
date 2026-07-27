@@ -77,6 +77,19 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
         stats.ensure_seeded(st, sv(key + key_suffix))
     for st in (StatType.BLOCK_CHANCE, StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS):
         stats.ensure_seeded(st, 0)
+    # MOVEMENT(1) : stat de la CONFIGURATION de l'unite invoquee, PAS une variable `summon*`.
+    # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetStatsToOverride` ne rend qu'une LISTE de
+    # `StatModifier` (les deux listes `options+0x20` litterales et `options+0x28` (statType, IAmount)
+    # evaluees) : c'est un OVERRIDE PARTIEL pose SUR l'unite deja construite depuis sa
+    # `UnitConfiguration` -- aucune ability de summon ne porte de var `summonMovement`, donc le
+    # Movement natif du summon est celui de sa config (orksOrkBoys = 3, necroSmnSwarm = 4, ...).
+    # Sans ce seed, la stat vaut 0 et `engine.ai.state_bridge._move_range` retombait sur le fallback
+    # gameconfig -- correct A VIDE, mais FAUX des qu'un effet modifie MOVEMENT : le modificateur
+    # (ex. `Waaagh_ExtraMovement` 1099, +1) rendait `get_stat(MOVEMENT) = 1 > 0`, ce qui COURT-CIRCUITE
+    # le fallback et ecrase la portee (1 au lieu de 3+1). MESURE (probe_r21) : les Ork Boyz portes
+    # n'avaient que 5 tuiles d'action (l'anneau a 1 hex) et finissaient a dist <= 1 du caster, la ou
+    # le natif les envoie a dist 3.
+    stats.ensure_seeded(StatType.MOVEMENT, int(gu.get("Movement") or 0))
     return UnitContext(
         entity_id=entity_id, visual_id=visual_id,
         active_ability_level=int(caster_level or 0),   # niveau du caster -> propage aux self-summons (PileIn 2e gen)
