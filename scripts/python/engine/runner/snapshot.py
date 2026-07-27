@@ -32,6 +32,16 @@ from .components import (
 )
 
 
+# `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
+# (`frida/hooks/game/match-state.ts` : `Tile:0, Unit:1, Match:2, Effect:3, Player:4, UnitFoot:5,
+# Machine:6, MachinePlatform:7`). C'est le DISCRIMINANT exact « cette ligne est une MoW » dans
+# `combatSnapshot.units[]` / `statModSources.units[]`, qui remontent les DEUX types depuis `d9d0008`
+# (#128 « lot ATELIER VIDE »). ⚠ Le commentaire du hook lui-même dit « Machine INCLUSE (#93) » — #93
+# est la tâche SpiritLeech, PAS le commit qui a élargi le filtre. Ne pas recopier cette attribution :
+# elle a déjà induit en erreur (`git log -S "EntityType.Machine" -- <le hook>` tranche).
+_ENTITY_TYPE_MACHINE = 6
+
+
 def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
     """hp/hpMax par id d'UNITÉ (squadId == decisionView.id). PAS entityId."""
     out: Dict[int, Tuple[Optional[int], Optional[int]]] = {}
@@ -88,9 +98,13 @@ def _machine_ability_state(m: dict) -> tuple:
     """(level, multiplier) de la MoW = `AbilityState` PER-ABILITY (`ActiveAbility._abilityState` :
     `Level`@+0 / `VariableMultiplierPercentage`@+4, lu par `readAbilityState` — mirror de
     `IdunBattle.Entities.Components.ActiveAbility$$get_AbilityState`, l'override primant). C'est CE canal qui indexe les variables
-    config (minDmg/maxDmg/nrOfHits/summonHp…) des abilities de la MoW ; elle n'a pas d'équivalent
-    `BattleQuery.GetUnitConfig` (la clé du registre est une VisualId d'unité).
-    On prend la 1re active portant un état ; défaut (0, 100) = neutre."""
+    config (minDmg/maxDmg/nrOfHits/summonHp…) des abilities de la MoW — et le SEUL : le capteur
+    `unitConfig` rend `{"error": "visualId introuvable"}` sur une ligne Machine (mesuré), parce que
+    l'entité porte un `MachineComponent` là où le capteur cherche un `UnitComponent` ; il n'appelle
+    donc JAMAIS `BattleQuery.GetUnitConfig` pour une MoW (ce que ce registre répondrait n'est pas
+    mesuré — ne pas l'invoquer comme cause). On prend la 1re active portant un état ; défaut
+    (0, 100) = neutre. ⚠ Un niveau 0 n'existe pas nativement (`Idun.Shared.Level$$ToZeroBasedIndex`
+    LÈVE si `value <= 0`) : c'est une valeur de repli PORT, pas un état natif."""
     for ab in (m.get("abilities") or []):
         if ab.get("level") is not None or ab.get("multiplier") is not None:
             return (int(ab.get("level") or 0), int(ab.get("multiplier") or 100))
@@ -299,25 +313,41 @@ def _load_machines(state: State, decision: dict) -> None:
 
 def _load_machine_stats(state: State, decision: dict, snapshot: dict,
                         mult_by_id: Dict[int, int]) -> None:
-    """`StatsComponent` des MoW. `combatSnapshot` n'expose QUE `EntityType.Unit` (son `allUnits`
-    filtre `ty === EntityType.Unit`), donc aucune stat RÉSOLUE de MoW n'est lisible par RPC. On bâtit
-    le `UnitContext` par la MÊME chaîne que les unités (`UnitContext.from_snapshot`) avec un
-    `snap_unit` SYNTHÉTIQUE sans bloc `stats` : les 8 stats de base sont alors seedées à 0, ce qui est
-    la valeur gameconfig RÉELLE d'une MoW (`stats={Health:0,Damage:0,FixedArmor:0}`) — aucune valeur
-    inventée. Le canal utile (et le seul que la MoW ait) = `active_ability_level` /
-    `ability_variables_multiplier`, lus de l'`AbilityState` per-ability (cf. `_machine_ability_state`).
+    """`StatsComponent` des MoW — **le seul** chemin qui donne à une Machine son NIVEAU d'ability.
 
-    RÉSIDU DOCUMENTÉ : une stat-modification de MoW POSÉE EN COURS DE COMBAT (la MoW a bien
-    Attack/CritChance/CritDamage/ExtraHits/ExtraPierce*/ExtraMaxDamage) n'est pas captable tant que
-    `combatSnapshot`/`statModSources` filtrent `EntityType.Unit` (changement `frida/hooks` requis) ;
-    l'effet correspondant reste toutefois matérialisé dans `State.effects` (il vient de
-    `decisionView.mows[].effects`), donc sa part déclarée est calculable offline.
+    DEUX canaux, disjoints, et c'est tout l'enjeu :
+
+    • les STATS RÉSOLUES viennent de la ligne `EntityType.Machine` de `combatSnapshot` — elle EXISTE
+      (le capteur remonte `Unit` ET `Machine` depuis `d9d0008`/#128 ; l'affirmation inverse qui vivait dans cet
+      en-tête était PÉRIMÉE, et c'est elle qui a laissé passer #174). Mesure sur `deathCrawler` et
+      `orksRukkatrukk` : les 19 stats sont à **0**, `statDelta={}`, `shields=[]`, `healthMax=0` —
+      cohérent avec gameconfig (`stats={Health:0,Damage:0,FixedArmor:0}`, `weapons=[]`). On la
+      consomme quand même : le jour où une stat-modification est posée sur une MoW en cours de combat
+      (elle a bien Attack/CritChance/CritDamage/ExtraHits/ExtraPierce*/ExtraMaxDamage), `statDelta`
+      la portera et `seed_unit_stats` l'attribuera comme pour une unité. Machine ABSENTE du snapshot
+      (morte — le capteur filtre `IsAlive`) → ligne vide, les 8 stats de base retombent à 0, inchangé.
+
+    • le NIVEAU et le MULTIPLICATEUR viennent de l'`AbilityState` per-ability
+      (`IdunBattle.Entities.Components.ActiveAbility$$get_AbilityState`, cf. `_machine_ability_state`),
+      JAMAIS de `unitConfig` : la ligne Machine rend `{"error": "visualId introuvable"}` parce que
+      l'entité porte un `MachineComponent` et non un `UnitComponent` (deux FRÈRES dérivant de
+      `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`) — et le capteur cherche la VisualId
+      sur le second. On ÉCRASE donc l'`unitConfig` de la ligne par l'état lu du canal AbilityState.
+
+    C'est ce niveau qui INDEXE les variables : `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate`
+    → `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` →
+    `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`, qui prend
+    `idx = Math.Max(0, Idun.Shared.Level$$ToZeroBasedIndex(state.Level))` clampé à `len-1`
+    (`ToZeroBasedIndex` = `value - 1`, et LÈVE `InvalidOperationException` si `value <= 0` : le
+    niveau 0 n'existe pas nativement). Niveau 50 → index 49, jamais index 0.
 
     (Pas de `ablvl_by_id` : une MoW n'a AUCUNE passive en gameconfig — `passiveAbilities` absent sur
     les 8 MoW du pool — donc aucun niveau de passive à propager au seed d'effets.)"""
     import gameconfig as GC
     from ..entities import UnitContext, EffectFactory
 
+    snap_rows = {u.get("entityId"): u for u in (snapshot.get("units") or [])
+                 if u.get("entityType") == _ENTITY_TYPE_MACHINE}
     for m in _machine_rows(decision):
         mid = int(m["casterId"])
         ent = state.get_entity(mid)
@@ -327,7 +357,7 @@ def _load_machine_stats(state: State, decision: dict, snapshot: dict,
         level, mult = _machine_ability_state(m)
         effs = EffectFactory.create_many(m.get("effects") or [], mult, None, level)
         ctx = UnitContext.from_snapshot(
-            {"entityId": mid, "visualId": vis,
+            {**(snap_rows.get(mid) or {}), "entityId": mid, "visualId": vis,
              "unitConfig": {"activeAbilityLevel": level, "abilityVariablesMultiplier": mult}},
             GC.unit(vis), snapshot.get("statTypes"), effs)
         ctx.ability_variables_multiplier = mult
@@ -340,7 +370,12 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     """Peuple `StatsComponent` (par unité) + `State.effects` (EffectsState matérialisé)
     depuis `combatSnapshot` + `decisionView`. Jointure : `combatSnapshot.entityId` ==
     `decisionView.id` (== id d'unité ECS, cf. en-tête). Mirror de la chaîne validée
-    `predict_validate.build_samples` (UnitContext.from_snapshot + EffectsState.seed)."""
+    `predict_validate.build_samples` (UnitContext.from_snapshot + EffectsState.seed).
+
+    ⚠ `combatSnapshot.units[]` porte DEUX `entityType` (`d9d0008`/#128) : les `Unit` (jointes à
+    `decisionView.units[].id`) et les `Machine` (jointes à `decisionView.mows[].casterId`). La boucle
+    ci-dessous ne traite QUE les premières ; les MoW sont déléguées à `_load_machine_stats` — elles
+    n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174)."""
     import gameconfig as GC                      # données offline (traits/arme/profil)
     from ..entities import UnitContext, EffectsState, EffectFactory
 
@@ -356,6 +391,19 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     for su in (snapshot.get("units") or []):
         eid = su.get("entityId")
         if eid is None:
+            continue
+        # MACHINES OF WAR — on SAUTE la ligne ici, `_load_machine_stats` (fin de fonction) la reprend.
+        # `combatSnapshot` remonte `EntityType.Unit` ET `EntityType.Machine` (`d9d0008`/#128), mais l'entité
+        # Machine porte un `MachineComponent`, PAS un `UnitComponent` (les deux sont des frères issus
+        # de `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`) : le capteur cherche la VisualId
+        # sur `UnitComponent` et rend `unitConfig = {"error": "visualId introuvable"}` (mesuré). Bâtir
+        # le ctx ICI donne donc `active_ability_level = 0` / `ability_variables_multiplier = 100` — ET
+        # prive `_load_machine_stats` de son tour (il ne pose rien si un `StatsComponent` existe déjà).
+        # Toutes les variables per-niveau de la MoW se lisaient alors à l'INDEX 0, c.-à-d. au niveau 1
+        # (#174 : `SquigMine.nrOfTiles` 2 au lieu de 4, `EntropyCannons.minDmg` 28 au lieu de 2249).
+        # Le seul canal portant le niveau d'une Machine est son `AbilityState` per-ability
+        # (`IdunBattle.Entities.Components.ActiveAbility$$get_AbilityState`), cf. `_machine_ability_state`.
+        if su.get("entityType") == _ENTITY_TYPE_MACHINE:
             continue
         vis = vis_by_id.get(eid)
         su = {**su, "visualId": vis}

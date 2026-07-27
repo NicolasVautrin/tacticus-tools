@@ -262,10 +262,13 @@ def hades_autocannons_tree(range_: int, crit_amount: int, caster_id: int):
       (ordre = OrderBy par-entite, port = tri par id).
     - Profil `Flame` (PiercingRatio 25, trait OnFire), `nrOfHits`=6, `attackRangeType=Ranged` ->
       `is_melee=False`.
-    - Le buff crit est INERTE tant que la `CritChance` du caster est 0 (cas d'une MoW seedee a 0 :
-      `_load_machine_stats` ; `combatSnapshot` filtre `EntityType.Unit` -> la CritChance resolue d'une
-      MoW n'est pas captable, residu case-mow §8). Il est neanmoins porte 1:1 : des que la CritChance
-      devient > 0 (i2 : `DaemonicOrdnance` +20 %/usage), le +extraCritDmg s'applique par coup CRITIQUE."""
+    - Le buff crit est INERTE tant que la `CritChance` du caster est 0. C'est bien l'etat d'une MoW,
+      et ce n'est PLUS un residu de capture : depuis `d9d0008` (#128) `combatSnapshot` remonte AUSSI les lignes
+      `EntityType.Machine`, et `_load_machine_stats` les consomme (#174) -- la CritChance resolue
+      d'une MoW y est MESUREE a 0 (comme ses 18 autres stats), conforme a son gameconfig
+      (`stats={Health:0,Damage:0,FixedArmor:0}`). Le buff est neanmoins porte 1:1 : des que la
+      CritChance devient > 0 (i2 : `DaemonicOrdnance` +20 %/usage), le +extraCritDmg s'applique par
+      coup CRITIQUE."""
     from ...entities.behaviours import op_add
     from ...entities.stats import StatType
     from .behaviours import ChangeStat

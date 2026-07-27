@@ -18,6 +18,11 @@ ExtraMaxDamage / Machine / ActorStatistics -> **ni HealthComponent ni PositionCo
 TROIS volets :
   * LOADER : la MoW EST dans `state.entities` (cle = casterId == machineId), avec Unit/Owner/
     TriggeredAbility/Stats, SANS Position ni Health, et level/mult == l'`AbilityState` live.
+    ⚠ #174 : ce volet-la etait ROUGE en permanence (`level offline 0 != AbilityState live 50`)
+    parce que `_load_stats_and_effects` ECRASAIT le `StatsComponent` de la MoW avec un ctx bati
+    depuis la ligne `EntityType.Machine` de `combatSnapshot`, dont l'`unitConfig` est un objet
+    d'ERREUR. Une GARDE D'INDEX (`test_mow_ability_variable_indexes_at_level_minus_one`) couvre
+    desormais le NIVEAU LU lui-meme, pas seulement le resultat final d'une ability.
   * EXERCICE : une ability MoW DEJA PORTEE (SporeMineLauncher 1145, tyranBiovore) s'execute depuis le
     caster CHARGE (zero fabrication) et spawn sur l'equipe du caster.
   * CONFRONT LIVE : le meme cast natif produit le meme summon (equipe / tuile / hp).
@@ -25,6 +30,12 @@ TROIS volets :
     reste symetrique) et aucune entite n'est ajoutee sur un runner SANS MoW.
 
 Drive les positions ; lit l'etat LIVE ; state-file UNIQUE (chemin absolu + agent id) ; ASCII-only.
+
+⚠ MONTAGE (#162, applique ici seulement en #174) : le `combatSnapshot` qui alimente `load_state`
+est pris sur un runner JUMEAU des qu'une MoW est deployee -- ce RPC corrompt tout runner contenant
+une entite Machine (toute pose d'effet ulterieure y devient un no-op SILENCIEUX ; degats et spawns,
+eux, passent, ce qui explique que seul `test_effect_posed_on_mow_is_loaded` en souffrait). cf.
+`_twin_snapshot` et `docs/rl/case-162-mow-red-suites.md` §2.
 """
 from __future__ import annotations
 
@@ -42,9 +53,11 @@ from engine.runner.snapshot import diff, load_state, snapshot, snapshot_live
 AGENT_ID = "ad2ec6c90cf1a527c"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
-STATE = ROOT / "data" / f"_pytest_mowload_{AGENT_ID}.json"         # state-file UNIQUE
-STATE_NOMOW = ROOT / "data" / f"_pytest_mownone_{AGENT_ID}.json"
-STATE_GEN = ROOT / "data" / f"_pytest_mowgen_{AGENT_ID}.json"
+# SOUS `logs/`, PAS `data/` (VERSIONNE) : meme migration que les deux autres suites MoW (#162).
+STATE = ROOT / "logs" / f"_pytest_mowload_{AGENT_ID}.json"         # state-file UNIQUE
+STATE_NOMOW = ROOT / "logs" / f"_pytest_mownone_{AGENT_ID}.json"
+STATE_GEN = ROOT / "logs" / f"_pytest_mowgen_{AGENT_ID}.json"
+STATE_TWIN = ROOT / "logs" / f"_pytest_mowtwin_{AGENT_ID}.json"    # runner JUMEAU du snapshot (#162)
 
 CARRIER = "tyranBiovore"        # MoW du pool dont une ability (1145) est DEJA portee
 SPORE = 1145
@@ -53,9 +66,10 @@ BOARD = "C1_02"                 # board MoW-capable (slot MachineOfWarPosition d
 SEED = "4242"
 
 
-def _build(state_path: Path, extra: list[str]):
+def _build(state_path: Path, extra: list[str], board: str = BOARD, seed: str = SEED):
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
-        [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--board", BOARD,
+        [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
          "--p-units", "necroDestroyer,necroWarden", "--a-units", "necroDestroyer,necroWarden",
          "--state-file", str(state_path), *extra],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -81,7 +95,37 @@ def mow_runner(host, live_session):
         pass
 
 
-def _load(rpc, rid):
+def _twin_snapshot(rpc, extra, board_id, seed, replay=None):
+    """`combatSnapshot` pris sur un runner JUMEAU, JAMAIS sur le runner de mesure (HARNAIS-1 #162).
+
+    Le RPC `combatSnapshot`, appele sur un runner qui contient une entite MACHINE, laisse CE runner
+    dans un etat ou toute pose d'effet ulterieure est un NO-OP SILENCIEUX (le degat et les SPAWNS
+    passent, `AddEffect` n'ecrit plus rien, le cast rend `ok=true`). Mesures, contre-epreuves et
+    piste natif : `docs/rl/case-162-mow-red-suites.md` §2. La parade etait deja en place dans
+    `test_mow_effect_posers_live` et `test_mow_groups_bcd_live` ; elle manquait ICI, ce qui laissait
+    `test_effect_posed_on_mow_is_loaded` ROUGE en permanence (mesure #174).
+
+    Deux `rl_duel build` de MEMES arguments donnent un etat STRICTEMENT identique (snapshot,
+    `decisionView`, ids et PRNG egaux) -> on snapshotte un jumeau qu'on dispose aussitot.
+    `replay(rid)` y rejoue les actions deja jouees sur le runner de mesure."""
+    rid, err = _build(STATE_TWIN, list(extra), board=board_id, seed=seed)
+    if rid is None:
+        pytest.skip(f"build runner KO (jumeau du snapshot): {err}")
+    try:
+        if replay is not None:
+            replay(rid)
+        return rpc("combatSnapshot", {"runnerId": rid}, 90)
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+        except Exception:                                          # noqa: BLE001
+            pass
+
+
+def _load(rpc, rid, twin=None, replay=None):
+    """`twin=(extra, board, seed)` -> le snapshot vient d'un runner JUMEAU (obligatoire des qu'une
+    MoW est deployee, cf. `_twin_snapshot`). `twin=None` -> snapshot direct : legitime UNIQUEMENT
+    sur un runner SANS Machine (contre-epreuve #162 : la corruption ne survient que MoW presente)."""
     from engine.entities.pathfinding.board import Board
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -89,8 +133,12 @@ def _load(rpc, rid):
     board = Board(bg["tiles"], adjacency="evenq")
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    snap = (_twin_snapshot(rpc, twin[0], twin[1], twin[2], replay) if twin
+            else rpc("combatSnapshot", {"runnerId": rid}, 60))
     return load_state(dec, ob, snap, board=board), board, dec, ob
+
+
+TWIN_MOW = (["--p-mow", CARRIER], BOARD, SEED)
 
 
 def _mow(dec):
@@ -107,7 +155,7 @@ def test_mow_caster_is_loaded_offline(mow_runner):
     `applyAction`), avec le jeu de composants du natif : Unit(identite) / Owner / TriggeredAbility /
     Stats, et **NI Position NI Health** (hors-plateau, mesure `dumpEntityComponents`)."""
     rid, rpc = mow_runner
-    state, _board, dec, _ob = _load(rpc, rid)
+    state, _board, dec, _ob = _load(rpc, rid, TWIN_MOW)
     m = _mow(dec)
     cid = m["casterId"]
     ent = state.get_entity(cid)
@@ -141,11 +189,57 @@ def test_mow_caster_is_loaded_offline(mow_runner):
     assert "MachineOfWar" in (sc.ctx.traits or []), "trait MachineOfWar non porte"
 
 
+def test_mow_ability_variable_indexes_at_level_minus_one(mow_runner):
+    """GARDE d'INDEX (#174) — porte sur le NIVEAU LU, pas sur le resultat d'une ability.
+
+    Le natif n'indexe pas « au niveau » : `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`
+    prend `idx = Math.Max(0, Idun.Shared.Level$$ToZeroBasedIndex(abilityState.Level))` puis clampe a
+    `arr.Length - 1` ; `Idun.Shared.Level$$ToZeroBasedIndex` rend `value - 1` et LEVE
+    `InvalidOperationException` si `value <= 0` (le niveau 0 n'existe pas nativement). Chaine
+    appelante : `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` ->
+    `IdunBattle.Entities.Formulas.ConfigAmount$$GetAbilityState` (l'`AbilityState` de l'ENTITE) ->
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel`.
+
+    On confronte donc la valeur resolue DEPUIS LE CTX CHARGE a la table gameconfig BRUTE lue a
+    `level - 1`, et on EXIGE que l'index 0 donne autre chose : sans ce dernier point la garde ne
+    discriminerait pas #174 (ctx a 0 -> index 0) d'un autre defaut. Mesure : `summonHp[0] = 20`,
+    `summonHp[49] = 1109`, table strictement croissante -> l'index est PROUVE, pas ajuste."""
+    import gameconfig as GC
+    from engine.entities.effects.magnitude import ability_var
+    rid, rpc = mow_runner
+    state, _board, dec, _ob = _load(rpc, rid, TWIN_MOW)
+    m = _mow(dec)
+    ent = state.get_entity(m["casterId"])
+    sc = ent.get_component(StatsComponent) if ent is not None else None
+    ab = next((a for a in (m.get("abilities") or []) if a.get("id") == SPORE), None)
+    if ab is None or sc is None:
+        pytest.skip("ability 1145 ou StatsComponent absent")
+    lvl = int(sc.ctx.active_ability_level or 0)
+    mult = int(sc.ctx.ability_variables_multiplier or 100)
+    table = ((GC.ability("SporeMineLauncher") or {}).get("variables") or {}).get("summonHp")
+    affected = (GC.ability("SporeMineLauncher") or {}).get("variablesAffectedByRarityBonus") or []
+    assert isinstance(table, list) and table, "summonHp n'est pas une table per-niveau"
+    assert "summonHp" in affected, "summonHp devrait etre affectee par le multiplicateur de rarete"
+    idx = max(0, min(lvl - 1, len(table) - 1))
+    expected = round(table[idx] * mult / 100)
+    at_zero = round(table[0] * mult / 100)
+    got = ability_var("SporeMineLauncher", "summonHp", lvl, multiplier_pct=mult)
+    print(f"\n[MOW/index] level={lvl} (live AbilityState={ab['level']}) mult={mult} "
+          f"idx={idx} len={len(table)} table[idx]={table[idx]} table[0]={table[0]} "
+          f"-> resolu={got} attendu={expected} (index 0 donnerait {at_zero})")
+    assert lvl == ab["level"], f"niveau charge {lvl} != AbilityState live {ab['level']}"
+    assert idx == lvl - 1, f"index {idx} != level-1 ({lvl - 1}) -- ToZeroBasedIndex"
+    assert got == expected, f"variable resolue {got} != table[{idx}]*{mult}% = {expected}"
+    assert at_zero != expected, \
+        (f"garde NON DISCRIMINANTE : table[0] et table[{idx}] donnent la meme valeur -- "
+         f"changer de variable de reference")
+
+
 def test_canonical_form_stays_symmetric(mow_runner):
     """GARDE : la forme canonique reste diffable — `snapshot(state)` (qui contient desormais la MoW)
     == `snapshot_live` (qui l'emet aussi). Un desequilibre casserait tout replay-diff MoW."""
     rid, rpc = mow_runner
-    state, _board, dec, ob = _load(rpc, rid)
+    state, _board, dec, ob = _load(rpc, rid, TWIN_MOW)
     d = diff(snapshot_live(dec, ob), snapshot(state))
     print(f"\n[MOW/diff] {d}")
     assert d == [], f"forme canonique desequilibree apres chargement MoW: {d}"
@@ -184,7 +278,7 @@ def test_mow_ability_executes_from_loaded_caster(mow_runner):
     from engine.entities.effects.magnitude import ability_var
     from engine.runner.operations.summon_ai import _apply_active_ability
     rid, rpc = mow_runner
-    state, board, dec, ob = _load(rpc, rid)
+    state, board, dec, ob = _load(rpc, rid, TWIN_MOW)
     m = _mow(dec)
     cid = m["casterId"]
     ab = next((a for a in (m.get("abilities") or []) if a.get("id") == SPORE), None)
@@ -250,14 +344,16 @@ def test_mow_ability_executes_from_loaded_caster(mow_runner):
 GEN_P_MOW = "tauBroadside"        # HeavyRailRifle (1160) pose un effet SUR LA MoW elle-meme
 GEN_A_MOW = "blackForgefiend"     # 2e MoW, camp ADVERSE, autre faction
 GEN_BOARD = "C2_02"               # AUTRE board MoW-capable
+GEN_SEED = "31337"
 HEAVY_RAIL_RIFLE = 1160
+TWIN_GEN = (["--p-mow", GEN_P_MOW, "--a-mow", GEN_A_MOW], GEN_BOARD, GEN_SEED)
 
 
 @pytest.fixture(scope="module")
 def two_mow_runner(host, live_session):
     """Runner de GENERALISATION : DEUX MoW (une par camp), AUTRE board, AUTRES porteurs."""
     proc = subprocess.run(
-        [sys.executable, "rl_duel.py", "build", "--seed", "31337", "--board", GEN_BOARD,
+        [sys.executable, "rl_duel.py", "build", "--seed", GEN_SEED, "--board", GEN_BOARD,
          "--p-units", "necroDestroyer,necroWarden", "--a-units", "necroDestroyer,necroWarden",
          "--p-mow", GEN_P_MOW, "--a-mow", GEN_A_MOW, "--state-file", str(STATE_GEN)],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -280,7 +376,7 @@ def test_both_camps_mow_loaded(two_mow_runner):
     """GENERALISATION : DEUX MoW (une par camp), autre board, autres porteurs -> les DEUX sont
     chargees, avec la BONNE team/player, et la forme canonique reste equilibree."""
     rid, rpc = two_mow_runner
-    state, _board, dec, ob = _load(rpc, rid)
+    state, _board, dec, ob = _load(rpc, rid, TWIN_GEN)
     mows = dec.get("mows") or []
     print(f"\n[MOW/gen] mows={[(m['casterId'], m['visualId'], m['team'], m['slot']) for m in mows]}")
     assert len(mows) == 2, f"attendu 2 MoW deployees, vu {len(mows)}"
@@ -304,7 +400,7 @@ def test_effect_posed_on_mow_is_loaded(two_mow_runner):
     (`EffectsOwnedComponent`) ET en STRUCTURE (`State.effects`) — sans quoi aucun port 2-phases MoW
     n'est confrontable. AVANT le fix, ce cas etait invisible offline (aucune entite MoW)."""
     rid, rpc = two_mow_runner
-    state0, _b, dec0, _ob0 = _load(rpc, rid)
+    state0, _b, dec0, _ob0 = _load(rpc, rid, TWIN_GEN)
     m = next((x for x in (dec0.get("mows") or []) if x.get("visualId") == GEN_P_MOW), None)
     if m is None:
         pytest.skip(f"MoW {GEN_P_MOW} absente")
@@ -327,7 +423,15 @@ def test_effect_posed_on_mow_is_loaded(two_mow_runner):
     if act.get("error"):
         pytest.skip(f"cast HeavyRailRifle bloque: {act.get('error')}")
 
-    state1, _b1, dec1, ob1 = _load(rpc, rid)
+    # 2e chargement : le JUMEAU doit etre dans le MEME etat -> on lui REJOUE le cast (ids identiques
+    # entre deux builds de memes arguments, mesure #162). Sans ce replay le snapshot serait celui
+    # d'AVANT le cast, et l'effet 2-phases serait confronte contre un etat qui ne l'a pas encore.
+    def _replay(r):
+        rpc("applyAction", {"runnerId": r, "action": {
+            "kind": "ability", "casterId": cid, "abilityType": HEAVY_RAIL_RIFLE,
+            "targetId": tgt["targetId"]}}, 90)
+
+    state1, _b1, dec1, ob1 = _load(rpc, rid, TWIN_GEN, replay=_replay)
     ent1 = state1.get_entity(cid)
     assert ent1 is not None, "MoW disparue apres le cast"
     eff = ent1.get_component(EffectsOwnedComponent)

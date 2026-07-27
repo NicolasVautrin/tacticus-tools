@@ -38,7 +38,8 @@ from engine.runner.snapshot import load_state
 AGENT_ID = "a24478d7487d3"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
-STATE = ROOT / "data" / f"_pytest_mowpredicate_{AGENT_ID}.json"     # state-file UNIQUE
+# SOUS `logs/`, PAS `data/` (VERSIONNE) : meme migration que les autres suites MoW (#162/#174).
+STATE = ROOT / "logs" / f"_pytest_mowpredicate_{AGENT_ID}.json"     # state-file UNIQUE
 
 BOARD = "C1_02"                 # board MoW-capable (slot MachineOfWarPosition des 2 cotes)
 SEED = "4242"

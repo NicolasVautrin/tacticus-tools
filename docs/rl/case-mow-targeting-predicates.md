@@ -184,8 +184,10 @@ Mise en scene (drive-positions, jamais « bloque par la geometrie ») :
   de `AttackBehaviour.Execute` — hypothese, cf. §1.2).
 - **Confront NUMERIQUE par cible pour Hades** : les summons meurent (6 coups Flame >> leurs PV) ->
   le test confronte le SET frappe + l'issue par cible (mort/PV), pas une valeur intermediaire.
-- **Buff `extraCritDmg` de 1147 non observable** : la `CritChance` d'une MoW est seedee a 0 (residu
-  `case-mow-offboard-cast` §8, `combatSnapshot` filtre `EntityType.Unit`) -> aucun coup critique.
+- **Buff `extraCritDmg` de 1147 non observable** : la `CritChance` d'une MoW vaut 0 -> aucun coup
+  critique. Ce n'est plus une limite de CAPTURE (`combatSnapshot` remonte les lignes
+  `EntityType.Machine` depuis `d9d0008`/#128, consommees par `_load_machine_stats` depuis #174) : la CritChance
+  resolue d'une MoW est MESUREE a 0, comme ses 18 autres stats.
 - **Face DECISION** des 3 abilities : hors perimetre (les MoW sont volontairement exclues de
   `decisionView.units`, `case-mow-offboard-cast` §4/§8).
 - **`test_harvester_live` (2 cas) est ROUGE** — verifie sur base propre (patch stashe) : **echec

@@ -9,8 +9,9 @@ CHAINE (mesuree, pas deduite) :
   3. `_load_stats_and_effects` tourne APRES (`load_state` : `_load_machines` puis
      `_load_stats_and_effects`) et boucle sur `snapshot["units"]` SANS filtrer `entityType`.
      Or le RPC `combatSnapshot` inclut les entites `Machine` (`EntityType.Machine`, #93) --
-     l'en-tete de `_load_machines` affirme l'inverse (« combatSnapshot n'expose QUE
-     EntityType.Unit »), l'affirmation est PERIMEE.
+     l'en-tete de `_load_machine_stats` (et NON de `_load_machines`, l'attribution du dossier
+     #162 etait imprecise) affirmait l'inverse (« combatSnapshot n'expose QUE EntityType.Unit ») :
+     affirmation PERIMEE.
   4. Pour cette ligne Machine, `unitConfig` vaut `{"error": "visualId introuvable"}` (le registre
      `BattleQuery.GetUnitConfig` est keye par VisualId d'UNITE) -> aucun `abilityVariablesMultiplier`
      -> le `ctx` reconstruit N'A NI niveau NI multiplicateur, et `add_component` REMPLACE celui de
@@ -21,6 +22,10 @@ magnitudes per-level des MoW sont fausses -- `nrOfTiles`, `nrOfRounds`, `minDmg`
 
 Ce probe MESURE la chaine et montre le contre-factuel (re-poser le niveau restaure la valeur
 native). Il ne modifie AUCUN fichier du moteur. ASCII-only.
+
+>>> CORRIGE depuis #174 : le probe rend desormais `[verdict] pas d'ecrasement` -- il sert de
+    NON-REGRESSION. La preuve de l'INDEX (`level-1`) et la generalisation multi-board vivent dans
+    `probe_174_mow_level_index.py` / `probe_174_mow_level_generalize.py`.
 
     python probe_162_mow_ability_level.py --mow orksRukkatrukk --ability SquigMine --var nrOfTiles
     python probe_162_mow_ability_level.py --mow deathCrawler --ability PlagueburstMortar --var nrOfTiles

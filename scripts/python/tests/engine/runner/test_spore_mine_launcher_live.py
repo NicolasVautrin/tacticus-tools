@@ -51,7 +51,8 @@ from engine.runner.components import (OwnerComponent, PositionComponent, HealthC
 AGENT_ID = "afa8602ae92c07436"
 PYDIR = Path(__file__).resolve().parents[3]                       # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                        # racine repo
-STATE = ROOT / "data" / f"_pytest_sporemine_{AGENT_ID}.json"      # state-file UNIQUE (discipline runner)
+# SOUS `logs/`, PAS `data/` (VERSIONNE) : meme migration que les autres suites MoW (#162/#174).
+STATE = ROOT / "logs" / f"_pytest_sporemine_{AGENT_ID}.json"      # state-file UNIQUE (discipline runner)
 
 SPORE = 1145
 CARRIER = "tyranBiovore"
