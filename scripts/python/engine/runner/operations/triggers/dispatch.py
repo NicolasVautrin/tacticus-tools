@@ -876,10 +876,12 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
 
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     """Vecteur after-move (mirror `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → dispatch).
-    Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)` (aucun consommateur porté), `On(4=
-    UnitAfterMove)` (overwatch) PUIS `On(0x1d=UnitPositionChanged_2)`. On dispatche `On(4)` puis `On(0x1d)` :
-    ce dernier déclenche DecoysAndMisdirection (G2 — ennemi/allié qui marche sur un decoy allié crushé par
-    `_kill_steppable_units`, G1). No-op si aucun trigger ne matche (ou pas de board/rng).
+    Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)`, `On(4=UnitAfterMove)` (overwatch) PUIS
+    `On(0x1d=UnitPositionChanged_2)`. On dispatche les trois : `On(0x24)` déclenche la POSE de couverture
+    de la tuile d'arrivée (`LightCoverAbility`, tile-ability écoutant cet event — résidu O3, cf.
+    `triggers/tiles.py::light_cover_on_enter`) ; `On(0x1d)` déclenche DecoysAndMisdirection (G2 —
+    ennemi/allié qui marche sur un decoy allié crushé par `_kill_steppable_units`, G1). No-op si aucun
+    trigger ne matche (ou pas de board/rng).
 
     ORDRE NATIF COMPLET, lu au décompilé d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (les deux
     events ENCADRANTS sont désormais portés, cf. les vecteurs dédiés ci-dessous) :
@@ -890,6 +892,13 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     `post_unit_kill_triggers` est donc émis EN TÊTE (le crush précède) et
     `arrived_at_final_tile_triggers` EN QUEUE (l'event 0x1c suit les after-move)."""
     out = post_unit_kill_triggers_for_move(state, mover_id)
+    # `On(0x24 = UnitPositionChanged_1)` — PREMIER des trois events d'`EvaluateAfterMoveTriggers`.
+    # Consommateur porté : `LightCoverAbility` (tile-ability : la tuile de cover pose l'effet 1013 sur
+    # l'unité qui vient d'y arriver). Les tile-abilities ne sont pas dans le registre d'effet-triggers
+    # (elles sont portées par le tile-def, pas par un effet) → appel direct, comme `dry_bush_fire_spread`
+    # / `first_aid_heal`. No-op hors tuile de cover.
+    from .tiles import light_cover_on_enter
+    out += light_cover_on_enter(state, mover_id)
     ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
     out += evaluate_trigger_operation(state, ev)
     # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
@@ -998,14 +1007,19 @@ def arrived_at_final_tile_triggers(state: State, unit_id: int,
 def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict]:
     """Vecteur DÉPLACEMENT FORCÉ (push/pull) — mirror `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects`. APRÈS le `MoveUnit@0x7e` de la poussée, le natif émet (via `EvaluateTriggerOperation`, msg 0x52)
     la SÉQUENCE d'events `On(0x24=UnitPositionChanged_1)` -> `On(0x23=UnitDisplaced)` -> `On(0x1d=
-    UnitPositionChanged_2)`, tous {actor=pusher, target=pushed}. On dispatche `On(UnitDisplaced)` (actor=pusher,
-    target=pushed) : consommateur `RadSaturationAbility` (branche 2 `OwnerIsTarget` -> le Skitarii Vanguard POUSSÉ
-    contamine sa tuile d'ATTERRISSAGE ; le pushed a déjà bougé via `MoveUnitOperation` donc `Tiles(Caster())` =
-    sa tuile POST-push). Siblings `On(0x24)` / `On(0x1d)` = NON dispatchés ici (flaggés) : `0x24` sans consommateur
-    porté ; `0x1d`=DecoysAndMisdirection G2-sur-push = concern séparé (non validé). No-op si aucun trigger ne
-    matche. Appelé par `DisplaceUnitOperation.execute` (displace.py) après un push réussi."""
+    UnitPositionChanged_2)`, tous {actor=pusher, target=pushed}. On dispatche `On(0x24)` puis
+    `On(UnitDisplaced)` (actor=pusher, target=pushed) : `0x24` pose la couverture de la tuile
+    d'ATTERRISSAGE (`LightCoverAbility` — une unité POUSSÉE dans un buisson s'y met à couvert
+    exactement comme si elle y avait marché, résidu O3) ; `UnitDisplaced` a pour consommateur
+    `RadSaturationAbility` (branche 2 `OwnerIsTarget` -> le Skitarii Vanguard POUSSÉ contamine sa tuile
+    d'atterrissage ; le pushed a déjà bougé via `MoveUnitOperation` donc `Tiles(Caster())` = sa tuile
+    POST-push). Sibling `On(0x1d)` = NON dispatché ici (flaggé) : DecoysAndMisdirection G2-sur-push =
+    concern séparé (non validé). No-op si aucun trigger ne matche. Appelé par
+    `DisplaceUnitOperation.execute` (displace.py) après un push réussi."""
+    from .tiles import light_cover_on_enter     # `On(0x24)` — tile-ability, hors registre d'effets
+    out = light_cover_on_enter(state, pushed_id)
     ev = TriggerEvent(EventTriggerType.UnitDisplaced, pusher_id, pushed_id, ranged=False, profile=None)
-    return evaluate_trigger_operation(state, ev)
+    return out + evaluate_trigger_operation(state, ev)
 
 
 def tile_tick_triggers(state: State) -> list[dict]:

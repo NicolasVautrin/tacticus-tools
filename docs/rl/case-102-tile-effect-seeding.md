@@ -206,11 +206,16 @@ rapport), `test_runner_move_live.py` (2 + 1 xfail), `test_lightcover_gate_live.p
 2. **`tileMeta` ne rend pas l'id de tuile** : la jointure passe par `board.id_at(col,row)`. Ajouter
    `id` à la projection de `tileMeta` (`frida/hooks/features/ai-step/rpc-board.ts`) supprimerait la
    dépendance au board — non fait ici (changement de hook = reinject, hors périmètre).
-3. **Évolution des durées.** `EffectsState.on_turn_end(unit_id)` est appelé PAR UNITÉ : les timers des
-   effets **portés par les tuiles** ne sont pas décrémentés par le runner. Le seed les charge avec le
-   `remaining` live exact (donc un état rechargé est juste), mais une simulation multi-tours offline
-   ne fera pas expirer un feu de tuile. C'est le pendant, côté durée, du gap de transition tuile
-   documenté dans `terrain-effects.md` §0 (B1) — non traité ici (sujet : le vecteur de seeding).
+3. ~~**Évolution des durées.**~~ **RÉSOLU — `case-o3-tile-effect-dynamics.md`.** ⚠ Le constat écrit
+   ici était FAUX : `EffectsState.on_turn_end` est bien appelé par entité PORTEUSE, mais son appelant
+   `EndTurnOperation.execute` balaye **toutes** les clés de `by_unit`, ids d'entité-tuile compris —
+   les timers de tuile ÉTAIENT donc décrémentés (fidèle : `IdunBattle.Operations.EndTurnOperation$$
+   RefreshEffects` énumère TOUTES les entités-EFFET, sans distinction unité/tuile). Le vrai trou était
+   le **retrait** : rien ne supprimait l'instance arrivée à 0, et `has_effect` /
+   `collect_effect_triggers` ne filtrent que `consumed` (jamais `expired`) ⇒ le feu de tuile brûlait
+   pour toujours. Porté avec le clamp natif de `EffectComponent$$RemoveOneTurn` et le retrait sur
+   `EffectComponent$$ShouldBeRemoved`. La transition d'ENTRÉE (`LightCoverAbility`, `On(0x24)`) l'est
+   aussi ; le gap `terrain-effects.md` §0 (B1) est réduit d'autant.
 4. **`BlockEnteringUnits` (0) est désormais VISIBLE offline** sur les boards qui en portent (mesuré :
    `C1_02`). `terrain-effects.md` §2 affirmait le gate pathfinding bit-0x1 « INERTE car aucun board
    courant ne le porte » : c'est **faux**, et corrigé là-bas. Le pathfinder ne lit toujours pas cet
