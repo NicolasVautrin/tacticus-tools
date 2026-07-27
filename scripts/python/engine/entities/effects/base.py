@@ -96,6 +96,21 @@ class BaseEffect:
     # de l'effet parent qui l'a spawné (ex. Stunned 1162 parent de 1165/1166/1167). None = effet racine.
     # Sert au cycle de vie (les enfants sont reverté quand le parent expire). §matérialisation composite.
     parent_type: int | None = None
+    # `EffectComponent` TimesApplied @+0x6c — COMPTEUR D'APPLICATIONS de CETTE instance. Mirror 1:1 :
+    #   * `IdunBattle.Entities.Components.EffectComponent$$.ctor` ecrit **1** (`*(int*)(this+0x6c) = 1`,
+    #     juste a cote du Level @+0x68 qu'il initialise pareil) -> une instance FRAICHE vaut 1, PAS 0 ;
+    #   * `IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect` fait `+0x6c += 1` quand le
+    #     MEME type est RE-pose sur une cible qui le porte deja (branche `IsUpdatable(type)` + match
+    #     `EffectComponent.Type @+0x58` + match `ParentEffect @+0x70`).
+    # LU par `IdunBattle.Entities.Effects.BaseEffect$$GetTimesApplied` (retourne litteralement `+0x6c`)
+    # et par le noeud DSL `IdunBattleLogic.Entities.DSLFactory$$TimesEffectApplied` ->
+    # `IdunBattle.Entities.Formulas.TimesEffectAppliedFormula$$Calculate` (somme `+0x6c` sur les entites
+    # rendues par le selecteur). Consommateur porte : `Chronometron_ExtraDamageEffect` (magnitude
+    # `Multiply(ConfigVar, TimesEffectApplied(Effect@0x150))`).
+    # ⚠ N'est PAS expose par les evenements d'effet (seuls `+0x64` et `+0x68` partent dans les payloads
+    # 0x15/0x29) -> ABSENT du canal de seed `decisionView.effects` : le defaut natif 1 est aussi la
+    # seule valeur seedable.
+    times_applied: int = 1
     consumed: bool = False                   # retiré par le cycle de vie (one-shot / fin-de-tour)
     # `EffectComponent` IsActive @+0x5c — l'ETAT ACTIF **PERSISTE** de CETTE instance d'effet, ecrit par
     # `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect` (=1) et
@@ -321,6 +336,21 @@ class BaseEffect:
         du coup) `{id, ability_level, multiplier}` — pour les malus gated sur l'IDENTITÉ de l'attaquant
         (ex. Neuroparasite : `AreEqual(BondedEntity, damageSource)` = seul LE Neurothrope qui a infecté
         bénéficie du +dégât ; sa magnitude `ConfigVar(source ability state)` s'indexe sur SON niveau/mult).
+
+        CONTENU d'`attacker_ctx` — chaque clé = **UN nœud DSL natif porté sur `caster@0x160`** (l'attaquant
+        du coup dans le contexte d'évaluation d'un `DamageBonus`/`DamageMalus`), JAMAIS un besoin d'effet :
+          • `id`                → `Entity(caster@0x160)` (identité, gate `AreEqual`) ;
+          • `ability_level` / `multiplier` → l'`AbilityState` du caster (indexation `ConfigVar`) ;
+          • `is_normal_attack`  → `IsNormalAttack` ;
+          • `faction`           → `HasFaction(caster, <FactionId>)` ;
+          • `is_unit`           → `IsUnit(caster@0x160)` ;
+          • `team`              → l'équipe du caster, membre GAUCHE d'`AreFriends(caster, …)` ;
+          • `team_by_id`        → `{unit_id: team}`, requis pour résoudre le membre DROIT d'un
+                                  `AreFriends(caster, <autre nœud entité>)` — typiquement
+                                  `EffectSource(Effect@0x150)` = `eff.source`, qui n'est PAS l'attaquant ;
+          • `traits`            → `HasTrait(caster, …)` (noms gameconfig), dont `IsMechanical(caster)`
+                                  = `AmountIsEqualOrGreater(TraitAmount(caster, Mechanical), 1)`.
+        Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur devinée.
         Renvoie un `EffectBonus` (`PercentDecrease` de réduction OU `ForAddition` positif type Neuroparasite,
         gated par une condition d'effet) ou None.
 

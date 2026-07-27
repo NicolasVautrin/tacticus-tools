@@ -27,7 +27,10 @@ Chaîne native RE'd (VA citées) :
           → RemoveExistingEffect → IdunBattle.Operations.AddEffectOperation$$AddNewEffect :
               EffectComponent.SourceUnit @+0x10 = source
               EffectComponent.Target     @+0x14 = target
-              EffectComponent.Active     @+0x6c = 1
+              EffectComponent.TimesApplied @+0x6c = 1   (l'`Active` est @+0x5c — l'ancienne
+                 attribution « Active @+0x6c » de cette docstring était FAUSSE : `EffectComponent$$.ctor`
+                 initialise @+0x68 (Level) ET @+0x6c (TimesApplied) à 1, et c'est @+0x6c que lisent
+                 `BaseEffect$$GetTimesApplied` / `TimesEffectAppliedFormula$$Calculate` — corrigé R9)
               EffectComponent.Value      @+0x60/+0x64 (flag @+0x5d) = valeur (si portée)
               + ajout de l'entité-effet à la liste portée de la cible (EffectsOwnedComponent)
           → record msgs 0x30 (added) / 0x3f
@@ -46,6 +49,12 @@ from typing import Optional
 from ..state import State
 from ..components import EffectsOwnedComponent, StatsComponent
 from ...entities.effects import BaseEffect, EffectFactory, SAME_TURNS
+
+# `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsUpdatable` : la fonction
+# parcourt les GROUPES d'effets de la table statique et, si le type n'appartient a aucun groupe, sort sur
+# `return param_1 != 0x472` -- le SEUL type litteralement non-updatable du build (0x472 = 1138
+# `Wraithcannon_NormalAttack`, deja cite tel quel dans `runner/abilities/attack_type.py`).
+_EFFECT_NOT_UPDATABLE = 0x472
 
 
 # Table `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds (port 1:1 du switch décompilé).
@@ -198,6 +207,21 @@ class AddEffectOperation:
         # le no-op et on matérialise une NOUVELLE instance (reproduit l'observable additif live-validé).
         if not eff.stacks_stat_mod_on_add and state.effects.has_effect(
                 target, effect_type=effect_type, name=name):
+            # R9 — la SEULE ecriture que `IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect`
+            # fait AVANT tout le reste sur cette voie : `*(int*)(effComp + 0x6c) += 1` (le compteur
+            # `TimesApplied`, cf. `BaseEffect.times_applied`). Le no-op ci-dessus est l'equivalent
+            # observable du refresh POUR LA DUREE/LE NIVEAU ; il perdait le COMPTEUR, et c'est lui que
+            # multiplie `Chronometron_ExtraDamage`. On l'incremente donc sur l'instance deja portee, en
+            # mirror des DEUX gates natifs restants : type identique (`EffectComponent.Type @+0x58`) et
+            # meme effet PARENT (`@+0x70`) — le gate `IsUpdatable(type)` etant vrai pour tout type sauf
+            # `0x472` (`idun.…StaticBattleRules.Effect$$IsUpdatable` : `return param_1 != 0x472` en
+            # sortie de boucle). Inerte pour tout effet qui ne lit pas `times_applied`.
+            if int(effect_type) != _EFFECT_NOT_UPDATABLE:
+                for _e in state.effects.by_unit.get(int(target), []):
+                    if (not _e.consumed and _e.effect_type == effect_type
+                            and _e.parent_type == eff.parent_type):
+                        _e.times_applied = int(_e.times_applied or 1) + 1
+                        break
             return None
         # AddNewEffect : enregistrement sur la cible (liste structurée + liste de NOMS diffable).
         state.effects.add_effect(target, eff)

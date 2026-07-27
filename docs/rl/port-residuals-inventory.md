@@ -268,7 +268,7 @@ Triés symptôme mesuré > symptôme nommé.
 
 | # | Résidu | Symbole natif | Porteur / chemin en bataille | Fichiers | Taille |
 |---|---|---|---|---|---|
-| **R9** | **Magnitude de `Chronometron_ExtraDamage` (1550)** — effet POSÉ (visible `decisionView`) mais INERTE : `damage_model.py:440` construit `att_ctx = {"id", "is_normal_attack"}` (+ `faction` l.450) et **aucune** des 3 entrées requises (équipe attaquant vs `EffectSource`, trait `Mechanical`, compteur `TimesEffectApplied`). 1550 n'existe qu'en enum (`effect_type.py:684`) — **zéro classe d'effet**. Auto-documenté par le port : `necrons.py:399-405` | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (déjà confronté live, `case-92` §4) | `engine/runner/damage_model.py`, `engine/playbook/prediction/_shared.py`, `engine/entities/effects/{__init__,base,factory}.py`, nouveau module loki pour 1550 | **1 sous-système** (élargissement d'`attacker_ctx` sur les DEUX faces + compteur par instance) |
+| ~~**R9**~~ **FERMÉ** | ~~Magnitude de `Chronometron_ExtraDamage` (1550) — effet POSÉ mais INERTE~~ → **PORTÉ ET VALIDÉ LIVE** (cf. §R9-clos ci-dessous). `attacker_ctx` porte désormais `is_unit` / `team` / `team_by_id` / `traits` sur les DEUX faces ; `BaseEffect.times_applied` (= `EffectComponent+0x6c`) est modélisé ; classe `ChronometronExtraDamageEffect` + trigger de retrait `On(9)` | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (confronté live, `probe_r9_chronometron.py`) | `engine/runner/damage_model.py`, `engine/playbook/prediction/_shared.py`, `engine/entities/effects/{base,factory}.py` + `loki/damage_reduction.py`, `engine/runner/operations/{effects.py,triggers/loki/chronometron.py}` | — (clos) |
 | **R12** | **Les 2 derniers consommateurs de `DSLFactory.Revive`, tous deux OUVERTS** — ⚠ `137ef85` (« TimeFlux (regen) ») ne ferme PAS ce résidu : le port lui-même le dit, `dispatch.py:280-286` enregistre `"TimeFlux": [TimeFluxRegenAbility]` avec « le volet GHOST-REVIVE (`TimeFluxReviveAbility` = `GhostReviveAbility` 1186) reste un RESIDU ». `git log -S "GhostRevive"` = **aucun commit**. `FuelledByFury` (1251) : aucune classe, mention en commentaire seule (`dispatch.py:1115`) | `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` ; ancrage à hooker pour l'émetteur de `On(PendingDeathAdded=3)` : `IdunBattle.MatchState$$AddDeath` ; `IdunBattle.Operations.…$$SetRevivePosition` | ultraTitus, thousTerminator — **HERO pool tous deux** | `engine/runner/operations/triggers/loki/time_flux.py` (+ nouveau `fuelled_by_fury.py`), `triggers/dispatch.py`, `operations/revive.py`, `entities/effects/factory.py` | **2 abilities** (1 par consommateur) |
 | **R13** | **`AdaptiveStrategy` (1005, `necroWarden`)** — 1005 en enum seul (`active_ability_type.py:111`), absent d'`ABILITY_CLASSES`. Restent 2 prérequis sur 3 : (1) `RelentlessMarch` 1004 en enum seul (`triggered_ability_type.py:149`), aucune entrée `ABILITY_TRIGGERS`/`TRAIT_TRIGGERS` — sans lui la branche `If(ActorHasTriggeredAbility) TriggerAbility(…)` est un no-op structurel ; (2) les nœuds `TriggerAbility` et `ActorHasTriggeredAbility` **n'existent pas** (0 définition dans `engine/`, inlinés en impératif par `cosmic_horror.py:310` / `sworn_protector.py:266`). Prérequis (3) OVERRIDE-ATTAQUE **CONFIRMÉ LEVÉ** (`stats.py:281`) | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` ; `…Loki.RelentlessMarchAbility$$CreateBehaviour` | necroWarden — **HERO pool** | `engine/runner/abilities/behaviours/lifecycle.py` (nœud `TriggerAbility`), `engine/entities/triggers.py`, `triggers/dispatch.py` + module RelentlessMarch, `abilities/necrons.py` + `handler.py` | **1 ability + 1 passif** |
 | ~~**R14**~~ | ~~**Face DÉCISION des MoW**~~ — **FERMÉ le 2026-07-27** (`case-r14-mow-decision.md`) | chemin natif dédié = `IdunBattle.AI.Tactics.DefaultMachineTactic` (routé par `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` sur `IsMachine`), **pas** `aiPlaybookPredict` | 8 MoW du pool | `engine/ai/tactic.py`, `engine/ai/context.py`, `engine/battle_query.py`, `engine/runner/{components,snapshot}.py`, `engine_validate.py` | — |
@@ -286,6 +286,72 @@ Triés symptôme mesuré > symptôme nommé.
 | **N1** | **Ciblage d'`ArcaneShield` sur un allié NON-Chaos** — `triggers/loki/arcane_shield.py:62` : `prio = 0 if (own_fac == own_fac) else (1 if fac in CHAOS_FACTIONS else 2)` ; le palier `2` retient un allié NON-Chaos alors que le montage de `21494b6` établit l'inverse. `git log 21494b6..HEAD -- arcane_shield.py` = **vide** (le fichier n'a pas bougé depuis que le résidu a été nommé). Le vecteur reste aussi approximé sur `On(4)` au lieu de `On(0x1c)` (l.115-118) | à relire dans `IdunBattleLogic.Entities.Abilities.…ArcaneShieldAbility` | thousSorcerer — **HERO pool** | `engine/runner/operations/triggers/loki/arcane_shield.py` | **1 effet** |
 | **N2** | **Famille ATTACK en bounds-mode : cap SCALAIRE là où le natif cape les CELLULES** — `damage_ops.py:796-797` : `execute_ability_attack` passe `_target_limits(..., is_special=2)` **inconditionnellement**, y compris à `is_attack_damage_op=True`. En bounds-mode la branche ATTACK de `_run_hits` (`damage_hits.py:240-249`) applique `roll = _limits_scalar(roll)` = cap SCALAIRE post-tirage ; le cap sur les CELLULES pré-tirage n'existe que sous `limits["is_special"] == 1` (`damage_hits.py:303-316`), atteint uniquement par `execute` et `additional_hits.py:146` | `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage` vs `…$$CalculateDamageOperation` (`Math.Max(0, dmg − shieldPart)`) | pool | `engine/runner/operations/damage_ops.py`, `engine/runner/operations/damage_hits.py` | **1 effet** |
 | **N5** | **Chaîne `&` derrière un `AddEffect` REFUSÉ : la chaîne se POURSUIT** — `behaviours/effects.py:225-232` : la feuille `AddEffect` émet `placed=(eff is not None)` puis `return OperationResult.ok()` **sans condition**, aucun `stop` ; le combinateur `Seq` (`entities/behaviours.py:30-34`) ne court-circuite que `if r.stop`. Or le gate d'immunité (`operations/effects.py:137-138`) rend `None`, et son propre commentaire (l.133-135) énonce le comportement natif attendu : « pour un vecteur qui chaine (`op_add`/`&`), la suite de la chaine tombe avec (GROUND TRUTH #224 : la branche Chaos entière d'`ExemplarOfHate` est absente sur une cible `TerminatorArmour`) ». **Le port n'implémente pas cette chute** | `IdunBattle.Operations.AddEffectOperation$$Execute` (abandon avant matérialisation) | darkaAsmodai / blackAbaddon — **pool** (le montage #224 existe déjà) | `engine/runner/abilities/behaviours/effects.py`, `engine/runner/operations/effects.py`, `engine/entities/behaviours.py` | **1 effet** |
+
+#### R9-clos — `Chronometron_ExtraDamage` (1550) : d'INERTE à ACTIF, validé live sur les DEUX faces
+
+**Ce qui a été porté** (mirror de `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`) :
+
+    EffectBonus.ForAddition( OwnerIsTarget & IsUnit(caster@0x160)
+                               & AreFriends(caster@0x160, EffectSource(Effect@0x150)),
+                             Multiply( If(IsMechanical(caster@0x160), ConfigVar(9 = extraDmg_2),
+                                                                      ConfigVar(8 = extraDmg)),
+                                       TimesEffectApplied(Effect@0x150) ),
+                             AbilityOrEffect(0x4ca = 1226) )
+
+Le KIND est **ForAddition** (additif PLAT) : le corps inline écrit le montant au champ `+0x10` de la
+struct `EffectBonus`, le slot qu'écrit `IdunBattle.Entities.Effects.EffectBonus$$ForAddition`
+(`param_1[2] = amount`) — distinct de ForPercentIncrease (`+0x08`) / ForSubtraction (`+0x18`).
+
+**`attacker_ctx` est un contexte PARTAGÉ, nommé pour les NŒUDS natifs** (pas pour l'usage qu'en fait
+1550) — élargi sur les DEUX faces (`runner/damage_model.py::defender_modifiers` ET
+`playbook/prediction/_shared.py`), avec les MÊMES clés :
+
+| clé | nœud natif porté sur `caster@0x160` | source COMBAT | source PRÉDICTION |
+|---|---|---|---|
+| `is_unit` | `DSLFactory$$IsUnit(caster)` | présence d'un `UnitComponent` | présence dans `scene.vis_by_id` (dv = `EntityType.Unit`-only) |
+| `team` | membre GAUCHE d'`AreFriends(caster, …)` | `OwnerComponent.team` | `scene.team(att_id)` |
+| `team_by_id` | membre DROIT d'`AreFriends` quand ce n'est PAS l'attaquant (ici `EffectSource(Effect)` = `eff.source`) | walk ECS | `scene.team_by_id` |
+| `traits` | `HasTrait(caster, …)`, dont `IsMechanical(caster)` | `StatsComponent.ctx.traits` | traits gameconfig par `visualId` |
+
+⚠ `IsMechanical` porte sur l'**ATTAQUANT**, pas sur la cible (l'énoncé « trait `Mechanical` de la
+cible » de la fiche R9 initiale était une imprécision). Et le `3` du 3ᵉ argument de
+`DSLFactory$$IsMechanical` n'est **pas** un id de trait : c'est le mode de recherche partagé (le même
+`3` que `HasFaction(…, 0x14, 3)`) — la fonction construit
+`AmountIsEqualOrGreater(TraitAmount(caster, Mechanical), Value(1))`.
+
+**Compteur d'applications** : `BaseEffect.times_applied` = `EffectComponent+0x6c`.
+`IdunBattle.Entities.Components.EffectComponent$$.ctor` l'initialise à **1** (pas 0), et
+`IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect` fait `+0x6c += 1` sur la voie de
+RE-pose — voie que le port matérialisait par un simple no-op, qui perdait donc le compteur.
+Corollaire documentaire : l'en-tête d'`operations/effects.py` attribuait `Active` à `+0x6c` ; c'est
+faux (`Active` = `+0x5c`), corrigé.
+
+**Cycle de vie** : `$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget & IsUnit(caster) &
+AreFriends(caster, EffectSource)` → greffe générique de
+`BaseEffect$$CreateHandleTriggerAbilities` → `RemoveEffect(<cette instance>)`. C'est une **charge à
+usage unique**, consommée au 1ᵉʳ coup d'un allié du Chronomancer (`EFFECT_TRIGGERS[1550]`,
+`triggers/loki/chronometron.py`, même mold qu'`InspiredToGreatness_OverrideLevel`).
+
+**MESURE LIVE** (`probe_r9_chronometron.py`, runner isolé MC1_67, positions DRIVÉES, poseur
+`necroChronomancer` injecté par `catalog_inject`, level 50 × multiplier 180 %) :
+
+| branche | attaquant | AVANT (effet inerte) | APRÈS (port) | natif | prédiction (`aiPredict` Δ) |
+|---|---|---|---|---|---|
+| `IsMechanical` VRAI → `extraDmg_2` | `necroDestroyer` | −1197/coup | `[2009, 2203, 2001, 2281, 1934, 2161]` | **identique, 6/6 bit-exact** | Δ = 7182 = 1197 × 6 coups |
+| `IsMechanical` FAUX → `extraDmg` | `tauAunShi` | −898/coup | `[2357, 2416, 1989, 1961, 1945]` | **identique, 5/5 bit-exact** | Δ = 4490 = 898 × 5 coups |
+
+`1197 = extraDmg_2[L50]=665 × 1,8` ; `898 = extraDmg[L50]=499 × 1,8`. Le replay-diff **BASELINE**
+(avant tout cast) est bit-exact sur les DEUX couples → l'écart post-cast est imputable à
+Chronometron seul. 1550 disparaît de la cible après le coup allié, live ET offline.
+
+**Découverte COLLATÉRALE (gap NOUVEAU, orthogonal à R9)** — `FuelledByFury` (passif d'`ultraTitus`,
+`ultraTitus` fut le 1ᵉʳ attaquant non-Mechanical essayé) **n'est pas porté** : i2 verbatim « Deals
++{extraDmg} Damage with all attacks **for each time a friendly Character has used an active ability
+this battle** ». Le cast de Chronometron incrémente lui-même ce compteur ⇒ +248/coup mesurés
+(`FuelledByFury.extraDmg[L50] = 138 × 1,8 = 248,4`), qui s'ajoutent aux 898 de Chronometron. La
+BASELINE d'`ultraTitus` était bit-exacte (compteur à 0) : c'est bien un gap de PASSIF, pas de R9.
+Second candidat écarté : `darkaCompanion`, dont la BASELINE mismatche déjà (divergence pré-existante
+du couple, non diagnostiquée ici).
 
 ### 4.c — Résidus d'OUTILLAGE et de HARNAIS (confrontés pour la première fois)
 
@@ -399,8 +465,9 @@ attaquant » de `case-220` §6.17 (`8341bd1` / `169b4b2`).
    impact transverse. Exige une passe d'agreement complète, pas un smoke : le prévoir dans la tâche.
 3. **Gisement 2 (§2), 15 items** — un agent par ability. Prioriser 1137 MurderousSwing, dont la face
    décision est déjà mesurée : l'oracle existe.
-4. **R4 resolve slot-8**, **R9 Chronometron**, **N1**, **N2**, **N5** — symptômes mesurés ou cause
-   nommée, taille contenue. ⚠ **ne pas dispatcher R4 et N2 en même temps** (`damage_hits.py`).
+4. **R4 resolve slot-8**, ~~R9 Chronometron~~ (**CLOS**, cf. §R9-clos), **N1**, **N2**, **N5** —
+   symptômes mesurés ou cause nommée, taille contenue. ⚠ **ne pas dispatcher R4 et N2 en même temps**
+   (`damage_hits.py`).
 5. **Gisement 4 (§3bis), 55 passifs confrontables** — le plus gros volume, invisible des deux audits
    historiques. À traiter en parallèle du gisement 1 : il ne touche PAS `handler.py`.
 6. **Gisement 3 (§3), 53 masques** — par module, en suivant la carte du §3 ; ou en règle de
