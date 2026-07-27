@@ -129,6 +129,44 @@ class State:
             if c is not None:
                 yield e, c  # type: ignore[misc]
 
+    # --- OCCUPATION du plateau (empreinte-aware, #R30) ------------------------------------------ #
+    # Nativement une tuile n'est pas « la position d'une unite » : elle porte un
+    # `TileContentComponent` dont le contenu est une entite-PIED, et `IdunBattle.Entities.
+    # UnitExtensions$$GetUnit(tile, state)` remonte du pied a son unite via `UnitFootComponent.
+    # UnitId`. Consequence directe, VALIDEE LIVE (cast `DutyEternal` -> `boardGraph.occupantUnitId`
+    # marque les TROIS tuiles 31/32/41 avec le MEME id 107) : **toute tuile sous un pied est
+    # occupee, par l'UNITE proprietaire du pied**. Les deux methodes ci-dessous sont la porte
+    # unique de cette semantique cote port ; elles lisent l'empreinte, pas la seule main tile.
+
+    def unit_at(self, pos, alive_only: bool = True):
+        """`IdunBattle.Entities.UnitExtensions$$GetUnit(tile, state)` — l'entite UNITE dont un pied
+        occupe `pos` (col,row), ou None. `alive_only` reflete les appelants qui filtrent les morts
+        (une unite morte n'occupe plus sa tuile — cf. `decisionview_keeps_dead`) ; le passer a False
+        rend l'occupant brut. Premier trouve dans l'ordre d'insertion des entites (l'ECS natif n'a
+        qu'un contenu par tuile : le cas « deux occupants » n'existe pas)."""
+        from .components import UnitComponent, get_unit_feet     # lazy : cycle state<->components
+        p = (int(pos[0]), int(pos[1]))
+        for eid, e in self.entities.items():
+            uc = e.get_component(UnitComponent)
+            if uc is None or (alive_only and not uc.alive):
+                continue
+            if p in get_unit_feet(self, e):
+                return e
+        return None
+
+    def occupied_positions(self, alive_only: bool = True) -> set:
+        """Ensemble de TOUTES les tuiles occupees — **tous les pieds de toutes les unites**, pas
+        seulement leurs main tiles. C'est ce que consomme le gate de placement
+        `IdunBattle.Entities.TileExtensions$$CanAddUnit` (`TileContentComponent.IsEmpty`)."""
+        from .components import UnitComponent, get_unit_feet     # lazy : cycle state<->components
+        out: set = set()
+        for _eid, e in self.entities.items():
+            uc = e.get_component(UnitComponent)
+            if uc is None or (alive_only and not uc.alive):
+                continue
+            out.update(get_unit_feet(self, e))
+        return out
+
     def reset_trigger_phases(self) -> None:
         """#140 : `ResetPhase` de tous les `TriggeredAbilityComponent` (remet `times_this_phase` à 0). Le
         natif l'appelle à `EndPhaseOperation` (fin d'ACTIVATION, via `OperationProcessor`) ; le runner offline

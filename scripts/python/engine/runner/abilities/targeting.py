@@ -479,10 +479,10 @@ def ranged_bool_is_true(value: int, state: "State", unit_id) -> bool:
 
 
 def _tile_of(state: "State", entity_id):
-    """`(col, row)` de l'entite, ou None. Les unites MULTI-TUILES (`GetFeetCount` 3/7) ne sont pas
-    modelisees offline (une seule `PositionComponent`) : le port compare donc la tuile PRINCIPALE la
-    ou le natif prend le MIN sur toutes les tuiles occupees. Ecart possible d'au plus 1 hex, et
-    seulement pour un caster/cible multi-tuiles ; signale ici, non couvert."""
+    """La MAIN TILE `(col, row)` de l'entite, ou None (== `EntityExtensions$$GetMainTileId`, cf.
+    `components.get_main_tile`). Les consommateurs qui doivent voir l'EMPREINTE COMPLETE (portee,
+    adjacence : le natif y passe des LISTES de tuiles) utilisent `components.get_unit_feet` —
+    cf. `get_range_broken_rule` / `are_entities_adjacent` (#R30)."""
     from ..components import PositionComponent
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     pc = e.get_component(PositionComponent) if e is not None else None
@@ -680,8 +680,8 @@ def are_tiles_adjacent(board, src_tid, dst_tid) -> bool:
         2 niveaux ne sont PAS adjacentes.
 
     La surcharge LISTE (`AreTilesAdjacent(IList, IList)`, celle qu'appelle
-    `BattleQuery$$AreEntitiesAdjacent`) rend vrai des qu'UNE paire l'est ; offline chaque entite
-    n'occupe qu'une tuile (cf. `_tile_of`) -> une seule paire."""
+    `BattleQuery$$AreEntitiesAdjacent`) rend vrai des qu'UNE paire l'est — c'est
+    `are_entities_adjacent` ci-dessous, qui boucle sur les EMPREINTES (#R30)."""
     if src_tid is None or dst_tid is None:
         return False
     if abs(board.elevation(src_tid) - board.elevation(dst_tid)) >= 2:
@@ -709,25 +709,45 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
         sinon                     -> refus si `d > range.Value`.
 
     Cible sans position (tuile non modelisee, entite absente) -> 0 : on ne sait pas mesurer, donc on
-    n'invente pas de refus."""
-    import hexgeo
+    n'invente pas de refus.
+
+    #R30 : les DEUX branches raisonnent desormais sur les EMPREINTES completes (`GetTiles`), pas sur
+    la seule main tile — c'est litteralement ce que font les deux fonctions natives citees
+    (`AreEntitiesAdjacent` prend deux LISTES de tuiles, `GetDistance` prend deux LISTES et rend le
+    MINIMUM sur toutes les paires). Pour une unite a 1 pied l'empreinte vaut `[main tile]`, donc le
+    resultat est bit-a-bit celui d'avant."""
+    from ...services.movement_query import get_distance
+    from ..components import get_unit_feet
     rr = get_range(state, caster_id, options)
     if rr is None:
         return 0
-    src = _tile_of(state, caster_id)
-    dst = _tile_of(state, target_id)
-    if src is None or dst is None:
+    src_feet = get_unit_feet(state, int(caster_id)) if caster_id is not None else []
+    dst_feet = get_unit_feet(state, int(target_id)) if target_id is not None else []
+    if not src_feet or not dst_feet:
         return 0
     if rr.only_adjacent:
         board = state.board
         if board is None:
             return 0                                  # adjacence NATIVE non calculable -> pas de gate
-        ok = are_tiles_adjacent(board, board.id_at(src[0], src[1]), board.id_at(dst[0], dst[1]))
+        ok = are_entities_adjacent(board, src_feet, dst_feet)
         return 0 if ok else int(TR.TargetIsInRange)
-    d = hexgeo.distance(src, dst)
+    d = get_distance(src_feet, dst_feet)               # MIN sur toutes les paires de pieds
     if options.has(TR.TargetIsAtRange):
         return 0 if d == rr.value else int(TR.TargetIsAtRange)
     return 0 if d <= rr.value else int(TR.TargetIsInRange)
+
+
+def are_entities_adjacent(board, src_feet, dst_feet) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$AreEntitiesAdjacent` -> la surcharge LISTE de
+    `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(IList, IList)` : vrai des qu'UNE paire
+    (tuile source, tuile cible) est adjacente au sens `are_tiles_adjacent` (meme tuile incluse +
+    gate d'elevation). Empreintes a 1 pied -> une seule paire = comportement inchange."""
+    for s in (src_feet or ()):
+        sid = board.id_at(s[0], s[1])
+        for d in (dst_feet or ()):
+            if are_tiles_adjacent(board, sid, board.id_at(d[0], d[1])):
+                return True
+    return False
 
 
 # ------------------------------------------------------------------------------------------------

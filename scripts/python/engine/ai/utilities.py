@@ -26,13 +26,30 @@ from engine.utilities.utility_type import UtilityType
 class DislikeStartingTilesUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.DislikeStartingTilesUtility` (`UtilityType.DislikeStartingTiles=27`,
     dump.cs gqfc5mff6c). `IdunBattle.AI.Utilities.DislikeStartingTilesUtility$$EvaluateMovementInSteps` (`<…>IdunBattle.AI.Utilities.DislikeStartingTilesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`) : penalite
-    si l'empreinte de `pos` chevauche la tuile de DEBUT-DE-TOUR de l'unite (biais a quitter le spawn) :
-        startPos = EntityExtensions.GetTurnStartPosition(unit)   # = origin en decision (non encore bouge)
-        footprint = [pos] (+ empreinte adjacente si GetFeetCount == 7 : grosse unite)
-        if startPos in footprint: util += BaseUtility.GetUtilityValue(query, DislikeStartingTiles)
-    DATA-GAP (no-op cite, doctrine « pas d'invention ») : (1) poids `GetUtilityValue(DislikeStartingTiles)`
-    non identifie dans les weights BC charges ; (2) `GetFeetCount` non capture -> empreinte grosse-unite
-    non modelisee (chevauchement small-unit seul). Retour 0.0 jusqu'au cablage du poids + feetCount.
+    si l'empreinte de `pos` chevauche l'empreinte de DEBUT-DE-TOUR de l'unite (biais a quitter le spawn).
+    Mirror du decompile (#R30 -- corps RELU en entier) :
+
+        util  = Fix64.FromInt(0);
+        start = EntityExtensions.GetTurnStartPosition(unit, state);      // Nullable<UnitPosition>
+        n     = UnitExtensions.GetFeetCount(unit, state);
+        tiles = new List<TileEntity> { case.UnitPosition.MainTile };     // UnitPosition$$get_MainTile
+        if (n == 7) tiles.AddRange(battleQuery.GetAdjacentTiles(tiles, false, true, true));
+        if (start.HasValue && start.Value.ContainsAnyOf(tiles))
+            util += BaseUtility.GetUtilityValue(query, DislikeStartingTiles);
+        return util;
+
+    Deux points que la paraphrase « pos == origine » manquait :
+      * l'empreinte candidate part de la MAIN TILE de la `UnitPosition` (= `feet[0]`), et **n'est
+        etendue QUE si `GetFeetCount == 7`** (l'anneau des voisins). Une unite a **3** pieds n'etend
+        RIEN ici : le natif ne teste que sa main tile. C'est un quirk, pas un oubli ;
+      * le test final est un CHEVAUCHEMENT d'ensembles (`ContainsAnyOf`) entre l'empreinte de depart
+        et l'empreinte candidate, pas une egalite de tuiles.
+    Pour une unite a 1 pied les deux formulations coincident exactement (`{pos} inter {origin}`), donc
+    le comportement du cas nominal est inchange.
+
+    DATA-GAP RESTANT (no-op cite, doctrine « pas d'invention ») : le poids
+    `GetUtilityValue(DislikeStartingTiles)` n'est pas identifie dans les weights BC charges -> `_WEIGHT`
+    reste 0.0. Le trou `GetFeetCount`, lui, est COMBLE (substrat #R30).
     ATTENTION (validateur R2) : ce terme n'est PAS neutre. Il PENALISE l'origine (0 ailleurs) = c'est le
     TIE-BREAKER natif origine-vs-move qui pousse l'unite HORS de sa tuile de depart. Le tier NonComparable
     (`get_Priority`, cf. NATIVE_PRIORITY) et le CENTRE marque restent inchanges, MAIS le no-op
@@ -41,10 +58,31 @@ class DislikeStartingTilesUtility(BaseUtility):
     cote natif). A confirmer live : si le poids BC DislikeStartingTiles est != 0, cabler `_WEIGHT`."""
     UTILITY_TYPE = int(UtilityType.DislikeStartingTilesUtility)  # 27
 
+    def candidate_footprint(self, ctx, pos) -> list:
+        """`tiles` du corps natif : `[UnitPosition.MainTile]`, etendu de l'ANNEAU des voisins SI ET
+        SEULEMENT SI `GetFeetCount(unit) == 7`. `ctx.feet_count` = le compte porte par l'appelant
+        (absent -> 1, le cas nominal) ; `ctx.neigh_by_pos` fournit le voisinage natif."""
+        tiles = [pos]
+        if int(getattr(ctx, "feet_count", 1) or 1) != 7:
+            return tiles
+        neigh = getattr(ctx, "neigh_by_pos", None) or {}
+        for n in (neigh.get(pos) or ()):               # GetAdjacentTiles(tiles, false, true, true)
+            if n not in tiles:
+                tiles.append(n)
+        return tiles
+
     def evaluate(self, ctx, pos) -> float:
         _WEIGHT = 0.0  # TODO cabler BaseUtility.GetUtilityValue(query, DislikeStartingTiles) [poids BC] (R2)
-        overlaps_start = getattr(ctx, "origin", None) is not None and pos == ctx.origin  # empreinte small-unit
-        return _WEIGHT if overlaps_start else 0.0
+        # `start.Value.ContainsAnyOf(tiles)` : chevauchement de l'empreinte de DEBUT DE TOUR
+        # (`ctx.start_feet`, defaut = la seule `ctx.origin`) avec l'empreinte candidate.
+        start = getattr(ctx, "start_feet", None)
+        if not start:
+            origin = getattr(ctx, "origin", None)
+            start = [origin] if origin is not None else []
+        if not start:
+            return 0.0
+        footprint = self.candidate_footprint(ctx, pos)
+        return _WEIGHT if any(s in footprint for s in start) else 0.0
 
 
 class UtilitiesDatabase:
