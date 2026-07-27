@@ -80,7 +80,12 @@ tendance s'est retournée, et il vaut de le noter avant que quiconque recopie «
 
 ---
 
-## 1. Gisement 1 — les 91 actives NO-OP en combat
+## 1. Gisement 1 — les 89 actives NO-OP en combat
+
+> Re-dérivé le 2026-07-28 (`audit_combat_ability_coverage.py`) : **171** actives castables, **82**
+> portées, **89** NO-OP (91 la veille — `1017 FragBomb` et `1026 BasiliskBarrage` sont sorties du
+> gisement). Ventilation NO-OP : DAMAGE **56**, EFFECT/BUFF 21, SUMMON 7, REPAIR 3, HEAL 2. La
+> ventilation par confrontabilité ci-dessous date de la passe précédente et se re-dérive au besoin.
 
 `AbilityHandler.visit_ActiveAbilityMessage` route tout `ActiveAbilityType` absent de
 `ABILITY_CLASSES` vers un **NO-OP silencieux** (`ported:False`, 0 dégât, 0 effet, aucune erreur).
@@ -188,8 +193,11 @@ pour tous, sauf `MurderousSwing` et `LightOfSanguinius`
 
 ## 3. Gisement 3 — `TARGETING_OPTIONS` : 53 abilities du registre sur 81 sans masque
 
-**Symptôme chiffré** : `ABILITY_CLASSES` = 81 entrées, **28** portent `TARGETING_OPTIONS`, **53**
-n'en ont pas. Le gisement RECULE pour la première fois (75 manquants la veille).
+**Symptôme chiffré** (re-dérivé du code au 2026-07-28) : `ABILITY_CLASSES` = **83** entrées, **30**
+portent `TARGETING_OPTIONS`, **53** n'en ont pas. Le gisement RECULE (75 manquants le 2026-07-26,
+53 depuis) et **ne monte plus** : les deux entrées neuves du jour (1017 FragBomb, 1026
+BasiliskBarrage) sont arrivées AVEC leur masque, le cliquet
+(`tests/engine/runner/test_ability_registry_ratchet.py`) les ayant rejetées sans.
 
 **Conséquence exacte** (lue dans `engine/runner/abilities/targeting.py`) :
 `get_invalid_target_reason` et `get_invalid_caster_reason` commencent tous deux par
@@ -296,6 +304,7 @@ Triés symptôme mesuré > symptôme nommé.
 
 | # | Résidu | Symptôme chiffré | Symbole natif | Porteur / chemin en bataille | Fichiers | Taille |
 |---|---|---|---|---|---|---|
+| **R32** | **NEUF (2026-07-28)** — **le gate `IsCharging` n'est porté sur AUCUN des trois effets qui le portent** (`AvalancheOfMuscle_ExtraDamage` 1025, `BlackRage_ExtraDamage` 1343, `FeederTendrils_ExtraDamage` 1197). Le canal modifier du port est ÉVALUÉ EAGER : il ne sait pas exprimer « l'unité est entrée au contact ce tour », donc le bonus est simplement absent. Les deux fiches existantes le rangeaient en « magnitude négligeable » — **ce n'est plus vrai** : mesuré ici à **+45 %** du coup | **MESURÉ** (`probe_avalanche_charge_gate.py`, `astraBullgryn` passif niv. 50 / multiplicateur 180 % ⇒ `extraDmg = 599`) : caster ayant BOUGÉ ce tour → live **+599 par coup** sur les ennemis ADJACENTS au caster (ni sur l'allié adjacent, ni sur les ennemis à distance 2), offline **+0**. Sans charge : **bit-exact 4/4** (attaque normale) et **18/18** (FragBomb). Se reproduit à l'identique sur l'ATTAQUE NORMALE du porteur ⇒ résidu du PASSIF, indépendant du vecteur d'ability | `IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack` (`ForAddition(OwnerIsCaster & IsCharging, ConfigVar(8))`) ; jumeaux `…BlackRage_ExtraDamageEffect$$…` et `…FeederTendrils_ExtraDamageEffect$$…` | `astraBullgryn` (**HERO du pool**), `bloodDeathCompany`, Deathleaper | `engine/entities/effects/loki/status.py`, `engine/entities/effects/factory.py`, contexte d'attaque per-coup (`attacker_modifiers`) | **1 sous-système** — le débloqueur est COMMUN aux trois effets : threader « entré au contact ce tour » dans le ctx d'attaque |
 | ~~**R1**~~ | ~~Tuile d'ORIGINE dans les candidats d'ability du port, pas du natif~~ — **FERMÉ, PRÉMISSE RÉFUTÉE** : le slot +0xe est `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` (`OrderedSet` SEEDÉ avec `GetUnitPosition(unit)` puis `UnionWith(movable)`), donc **le natif MET l'origine dans ses candidats, en premier**. Le vrai écart était l'**ORDRE** du sweep (`Bucket$$AddAction` keep-first ⇒ à utilité égale le natif reste sur place) | réfutation live : **10** chunks natifs « caste sans bouger » avec movable NON vide (3 couples). Gain porté : `stay` 1/2 -> 2/2 (`C3_01`/31337, Stormcaller) et 8/9 -> 9/9 (crafté `C4_02`/4242, Njal) ; 0 régression sur 5 couples | `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe ; `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` | tout hero du pool | `engine/ai/{context,state_bridge,action_generators}.py`, `engine/playbook/noncomparable/_base.py` | **LIVRÉ** — cf. `case-r1-origin-action-tile.md` |
 | **R1-b** | **Ordre RELATIF des tuiles de move dans le sweep de position** — non porté | tie 192.851 entre deux tuiles de move (`C4_09`/999 pas 14) : le natif prend `(4,4)` = 1re **rankée** ; imposer l'ordre `aiMovableTiles` fait **régresser** pos 15/20 -> 14/20 | `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFromTiles` (slot 4 d'`IMovementQuery`) + l'`ExceptWith` de `$$GetMovablePositionsFor` — quel ordre l'`OrderedSet` porte-t-il ? | tout hero du pool | `engine/ai/action_generators.py` (`_best_attack`) | **1 sous-système** — symptôme chiffré au dossier, RE ciblée d'une seule fonction |
 | ~~**R5**~~ **FERMÉ 2026-07-27, PENDANT cette passe** (merge `17c2d74`, PR #151 — ma re-reproduction à `bec119f` était donc la DERNIÈRE : 1 failed / 2 passed, trace inchangée depuis 3 jours ; re-joué APRÈS rebase : **3 passed**) | ~~`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` ROUGE~~ -> **CAUSE RACINE TROUVEE ET PORTEE** (`case-r5-skitarii-turn.md`) : le gate d'expansion `BasePathfinder$$NodesInNextLevel` -> `WalkPathfinder$$IsValidContinuePathTile` (bit 0x1 = effet de tuile `BlockEnteringUnitsTileEffect`) n'etait pas porte -> la flood-fill traversait les Swamp -> la passe IA choisissait une tuile ILLEGALE ((6,5)), a portee du SEUL ennemi 79, d'ou le changement de cible et le `hp 8536->8536` de l'ennemi mesure. Residus ouverts : R5-a (arbitrage de TUILE, axe elevation/menace), R5-b (gate non cable sur 5 autres appelants + `_pathdist_to_enemies`), R5-c (dependance au canal `tiles=tileMeta`), R5-d (bit 0x2 `GetEffectiveDepth`), R5-e (`load_state` ne pose jamais `ai_controlled`) | Oracle natif fabrique (Vanguard REEL invoque live par ControlEdict, joue seul au turn-start) : natif = move (4,7) cible 77 ; le TEST avait raison. Agrement `aiMovableTiles` 5 boards 0 ecart. L'indice `ability: 17` est **REFUTE** comme cause (id concret = 69 `Loki_NormalAttack` pour Marshall ET Vanguard, mais aucun etage de la voie normale offline ne le consomme) | `BasePathfinder$$NodesInNextLevel`, `WalkPathfinder$$IsValidContinuePathTile`, `WalkPathfinder$$GetTileBlockingReasons`, `StaticBattleRules.Effect$$NotBlockingMovementOfTraits` | admecDestroyer / Skitarii Vanguard -- SUMMON | `engine/entities/pathfinding/{walk_pathfinder,tile_blocking,fly_pathfinder}.py`, `engine/services/static_battle_rules.py`, `engine/ai/state_bridge.py` | -- (clos) |
@@ -469,15 +478,16 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
 
 | Section | Ouvertes | Détail |
 |---|---|---|
-| §4.a — symptôme MESURÉ | **5** | R1-b · R4 · R6 · R7 · **N8** (~~N7~~ et ~~N6~~ **FERMÉS**, #174) |
+| §4.a — symptôme MESURÉ | **6** | R1-b · R4 · R6 · R7 · **N8** · **R32** (neuf 2026-07-28, gate `IsCharging`) — (~~N7~~ et ~~N6~~ **FERMÉS**, #174) |
 | §4.b — symptôme NOMMÉ | **11** | R12 · R13 · R15 · R17 · R19a · R25 · R26 · R27 · R30 (reformulé) · N1 · N2 |
 | §4.c — outillage / harnais | **4** | O2 · O4 (b, c, d) · O5 · **O7** |
-| **Total résidus NOMMÉS** | **20** | dont **6 relus au code cette passe**, **8 hors intersection**, **3 neufs (dont N7 déjà fermé)**, **1 reformulé** |
+| **Total résidus NOMMÉS** | **21** | dont **6 relus au code cette passe**, **8 hors intersection**, **4 neufs (dont N7 déjà fermé)**, **1 reformulé** |
 | §4.d — veille | 13 | **non re-confrontés** (aucune colonne Fichiers, cf. l'encadré du §4.d) |
 | §4.f — NON CONFRONTABLES | 4 lots | hors compte : 29 actives npc/summon-env, 1192/1194, 4 overlays R15, `Impervious`, plus **N4** (candidat `fable-solver`) |
 
-Gisements (inchangés, re-dérivés) : **62** actives dispatchables (dont **15** en `[-D]`), **53**
-masques de ciblage, **55** passifs à porteur confrontable.
+Gisements (re-dérivés du code au 2026-07-28, après le port 1017/1026) : **89** actives NO-OP au
+total, **60** dispatchables (dont **15** en `[-D]`), **53** masques de ciblage manquants sur **83**
+entrées de registre, **55** passifs à porteur confrontable.
 
 **Mouvement de cette passe** : 27 ouvertes avant → **22** après. −5 fermetures (`R8`, `R24`, `O1` par
 `3eee6c0` ; puis **`R5`** et **`R20`**, mergées PENDANT la passe — cf. l'encadré ci-dessous),

@@ -108,7 +108,9 @@ class AdjacentTiles(TargetsSelector):
     d'adjacence STOCKEE sur la tuile -> `Board.neighbours_native` (champ brut `boardGraph.neighbours`),
     et **pas** `board.neighbours()` qui trie les ids et symetrise. Observable des qu'un
     `PickRandomly`/`First`/tri stable consomme le resultat (== `_free_tiles_adjacent(native_order=True)`,
-    valide live par fc23f1e)."""
+    valide live par fc23f1e). 2e consommateur confronte live : le splash de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour`, itere par un
+    `SortedAttackSeries` SANS `OrderBy` -> l'ordre fixe la sequence de tirages de degat."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 

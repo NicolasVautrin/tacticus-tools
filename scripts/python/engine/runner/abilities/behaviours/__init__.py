@@ -47,7 +47,8 @@ from .context import entities_from_state, LiveUnit, _unit_dict
 from .summon import Spawn, PerformAIAttack, SpawnSummon, SpawnReplica
 from .ai_control import PerformAIAction
 from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
-                     UseActiveAbility, InformWeapon, ChainLeftOverHitsAttackDamage)
+                     UseActiveAbility, InformWeapon, ChainLeftOverHitsAttackDamage,
+                     SortedAttackSeries)
 from .effects import (AddBondEffect, AddEffect, IncreaseEffectLevel, add_effect_or_increase_level,
                       RemoveEffect, ActivateEffect, SetOnFire, CreateShield, ChangeEffectTurns,
                       AddStaticStatModifierEffect, AddDynamicStatModifierEffect,
@@ -70,7 +71,7 @@ __all__ = [
     "entities_from_state", "LiveUnit",
     "Spawn", "PerformAIAttack", "SpawnSummon", "SpawnReplica", "PerformAIAction",
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
-    "InformWeapon", "ChainLeftOverHitsAttackDamage",
+    "InformWeapon", "ChainLeftOverHitsAttackDamage", "SortedAttackSeries",
     "AddBondEffect", "AddEffect", "IncreaseEffectLevel", "add_effect_or_increase_level",
     "RemoveEffect", "ActivateEffect", "SetOnFire", "CreateShield", "ChangeEffectTurns",
     "ResetTurn", "FinishTurn", "ResetActiveAbility",

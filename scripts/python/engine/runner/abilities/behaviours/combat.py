@@ -67,6 +67,14 @@ class AttackWithAttackDamage(AbilityBehaviour):
     tirage et APRES l'`OrderBy` : une tuile piquee sans occupant est un COUP GASPILLE. Le port mirror
     l'ordre exact : evaluate -> ids de tuile -> pick -> `OrderBy` par id de tuile -> occupant vivant de
     chaque tuile (aucun -> rien) -> attaque. Requiert `multi=True` et un `state.board`.
+    2e consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour`
+    (`AttackWithAbilityDamage(caster@0x160, <tuiles d'impact des obus>, ...)`), qui exerce en plus
+    deux proprietes du meme etage : les **DOUBLONS sont conserves** (`allowRepeat=1` -> deux obus sur
+    la meme tuile = deux attaques sur son occupant ; `sorted` les garde adjacents) et les tuiles VIDES
+    sont MESUREES live (tag `Damage_Empty_Target_Tile_Id`) -> emit DIAGNOSTIQUE `AttackEmptyTile`.
+    RESIDU NOMME : les deux gates par-cible d'`AbilityDamageBehaviour` -- `UnitExtensions.IsTargetable`
+    et `HasTrait(0x40e = UnitTrait.Invincible)` -- ne sont PAS portes (l'occupant resolu est deja
+    VIVANT ; aucun porteur d'`Invincible` dans un roster de duel).
 
     `amount` = FOLD du degat-node `Direct(amountFormula)` quand le natif passe une **valeur calculee** a
     `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
@@ -165,6 +173,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 u = occ.get(t)
                 if u is not None and u.get("id") is not None:
                     targets.append(u)
+                else:
+                    # Tuile SANS occupant : `AbilityDamageBehaviour$$Execute` n'attaque pas et n'emet
+                    # que l'operation VISUELLE 0x25 (tag live `Damage_Empty_Target_Tile_Id`). Porte en
+                    # emit DIAGNOSTIQUE (aucune mutation) -> les tests peuvent confronter au live les
+                    # obus tombes a vide (BasiliskBarrage 1026), qui sont le gros du signal quand la
+                    # zone est peu peuplee.
+                    ectx.emit("AttackEmptyTile", caster=caster, tile=t)
         elif self.multi:                                   # AttackBehaviour.Execute : selecteur -> N cibles
             targets = [u for u in _units_of(self.target_sel, entities)
                        if (u or {}).get("id") is not None]   # ordre SOURCE (aucun tri avant le tirage)
@@ -223,6 +238,75 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     force_overkill=self.force_overkill)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
+        return OperationResult.ok()
+
+
+class SortedAttackSeries(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$SortedAttackSeries(actor, sel1, atk1, sel2, atk2, source)` ->
+    `IdunBattle.Entities.Behaviours.SortedAttackSeriesBehaviour$$Execute` -- MIRROR du decompile.
+
+    CHAMPS (mapping factory -> `.ctor` LU) : `+0x50` selecteur d'ACTEUR · `+0x58` tableau de 2 paires
+    `(selecteur, behaviour)` (`[0] = (sel1, atk1)`, `[1] = (sel2, atk2)`) · `+0x60..0x70` `AbilityOrEffect`.
+
+    `$$GetAttacks(entities)` (MIRROR) :
+
+        dict = new Dictionary<UnitEntity, List<behaviour>>()
+        foreach (sel, beh) in pairs:                 # DANS L'ORDRE DU TABLEAU
+            if sel == null or beh == null: continue
+            foreach u in sel.Select(entities):       # DANS L'ORDRE DU SELECTEUR
+                if dict.TryGetValue(u, out l): l.Add(beh) else dict[u] = [beh]
+        return dict
+
+    `$$Execute(entities, proc)` (MIRROR) :
+
+        foreach (unit, behs) in GetAttacks(entities):        # ordre d'INSERTION du Dictionary
+            foreach beh in behs:
+                actor = (+0x50).SelectSingle(entities)
+                if unit != prevUnit:                          # frontiere de SERIE
+                    if prevUnit != null: proc.Op(0x3b, prevActor, prevUnit, ctx)   # EndAttackSeries
+                    proc.Op(0x3a, actor, unit, ctx)                                # StartAttackSeries
+                entities[slot 4] = unit                       # == ActiveTarget@0x180
+                result.Combine(beh.Execute(entities))
+        if prevUnit != null: proc.Op(0x3b, ...)
+
+    DEUX consequences STRUCTURELLES, et c'est tout l'interet du noeud :
+      1. **AUCUN `OrderBy`** (contraste `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`, qui
+         trie quand `Count > 1`) : l'ordre d'attaque -- donc la SEQUENCE DE TIRAGES `state.rng` -- est
+         l'ordre d'INSERTION, c'est-a-dire selecteur 1 puis selecteur 2, chacun dans SON ordre.
+      2. **la cible est passee par `ActiveTarget@0x180`** : les behaviours d'attaque du tableau ciblent
+         `ActiveTarget()`, que ce noeud RELIE avant chaque execution (une unite presente dans les DEUX
+         selecteurs recevrait les DEUX attaques, consecutivement).
+    Les operations `0x3a`/`0x3b` (Start/EndAttackSeries) sont des bornes d'ANIMATION : aucune mutation
+    d'etat, aucun tirage -> non portees (meme classe de no-op structurel que `InformWeapon`/`Inform`).
+
+    `pairs` = liste de `(TargetsSelector, AbilityBehaviour)`. Emet 'SortedAttackSeries' (ordre resolu,
+    diagnostic). PUR."""
+    __slots__ = ("pairs",)
+
+    def __init__(self, pairs):
+        self.pairs = list(pairs)
+
+    def execute(self, entities, ectx):
+        from dataclasses import replace
+        order: list = []                                   # ids, dans l'ORDRE D'INSERTION du Dictionary
+        by_id: dict = {}
+        for sel, beh in self.pairs:                        # `GetAttacks` : parcours du tableau +0x58
+            if sel is None or beh is None:
+                continue
+            for u in _units_of(sel, entities):
+                uid = (u or {}).get("id")
+                if uid is None:
+                    continue
+                if uid not in by_id:
+                    by_id[uid] = (u, [])
+                    order.append(uid)
+                by_id[uid][1].append(beh)
+        for uid in order:
+            u, behs = by_id[uid]
+            ents = replace(entities, active_target=u)      # `entities[slot 4] = unit` (ActiveTarget)
+            for beh in behs:
+                beh.execute(ents, ectx)
+        ectx.emit("SortedAttackSeries", order=list(order))
         return OperationResult.ok()
 
 
