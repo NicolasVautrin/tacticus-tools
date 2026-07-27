@@ -85,6 +85,81 @@ class ExemplarOfHateTargetEffect(BaseEffect):
         return for_addition(False, int(v)) if v else None      # owner=cible -> additif au degat RECU
 
 
+class ChronometronExtraDamageEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect` (effet **1550 = 0x60e**) — pose
+    sur CHAQUE ennemi du disque rayon 2 autour du caster par
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility$$ExecuteBehaviour`
+    (`necroChronomancer` « Thothmek », active 1226).
+
+    `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`
+    (MIRROR du DECOMPILE, corps INLINE) :
+
+        trigger =   get_OwnerIsTarget
+                  & IsUnit(caster@0x160)
+                  & AreFriends(caster@0x160, EffectSource(Effect@0x150))
+        montant =   Multiply( If( IsMechanical(caster@0x160),
+                                  ConfigVar(9 = extraDmg_2),      # branche VRAIE
+                                  ConfigVar(8 = extraDmg) ),      # branche FAUSSE
+                              TimesEffectApplied(Effect@0x150) )
+        source  =   Nullable<AbilityOrEffect>(0x4ca = 1226 Chronometron)
+
+    KIND = **ForAddition** (additif PLAT, pas un pourcentage) : le corps inline ecrit le montant au champ
+    `+0x10` de la struct `EffectBonus`, EXACTEMENT le slot qu'ecrit
+    `IdunBattle.Entities.Effects.EffectBonus$$ForAddition` (`param_1[2] = amount`) — distinct de
+    ForPercentIncrease (`+0x08`), ForSubtraction (`+0x18`), ForOverride (`+0x28`). Meme lecture que
+    `ExemplarOfHateTargetEffect` ci-dessus.
+
+    Malgre le nom natif « ...ForAttack », le trigger est `OwnerIsTarget` : l'effet vit sur la VICTIME et
+    MAJORE le degat qu'elle RECOIT -> canal PORT `create_effect_damage_malus_for_defense` (meme mold que
+    `ExemplarOfHateTargetEffect` / `NeuroparasiteEffect`, qui documentent l'additif POSITIF cote defenseur).
+
+    LES TROIS ENTREES, et d'ou elles viennent (residu transverse R9 — c'etait le trou : l'effet etait
+    MATERIALISE mais INERTE faute de contexte) :
+      1. `AreFriends(caster, EffectSource(Effect))` = l'attaquant est un ALLIE du Chronomancer.
+         `EffectSource(Effect@0x150)` = `IdunBattleLogic.Entities.DSLFactory$$EffectSource` sur l'entite-effet
+         COURANTE = `EffectComponent.SourceUnit @+0x10` = `self.source` cote port. On resout SON equipe via
+         `attacker_ctx["team_by_id"]` (l'attaquant, lui, donne `attacker_ctx["team"]`).
+      2. `IsMechanical(caster)` = `IdunBattleLogic.Entities.DSLFactory$$IsMechanical`, qui construit
+         `AmountIsEqualOrGreater(TraitAmountSelector(caster, Mechanical), Value(1))` — le `3` du 3e argument
+         est le mode de recherche partage (`HasFaction(…, 0x14, 3)` le passe aussi), PAS un id de trait.
+         => `HasTrait(caster, Mechanical)`, lu dans `attacker_ctx["traits"]`.
+         ⚠ Le gate porte sur l'**ATTAQUANT**, pas sur la cible.
+      3. `TimesEffectApplied(Effect)` = `EffectComponent.TimesApplied @+0x6c` de CETTE instance
+         (`BaseEffect.times_applied`, defaut natif **1**) — cf. son commentaire dans `base.py`.
+
+    CYCLE DE VIE — c'est une CHARGE A USAGE UNIQUE, pas un buff persistant :
+    `...$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget & IsUnit(caster) & AreFriends(caster,
+    EffectSource)` -> l'effet est CONSOMME a la fin du 1er coup d'un allie du Chronomancer (porte par
+    `runner/operations/triggers/loki/chronometron.py`, `EFFECT_TRIGGERS[1550]`).
+
+    MAGNITUDE : `ConfigVar` resolu contre l'`AbilityState` de la SOURCE (le Chronomancer) -> l'`AddEffect`
+    du port passe `scale_from_source=True`. `extraDmg` ET `extraDmg_2` sont dans
+    `variablesAffectedByRarityBonus` -> les deux subissent le multiplier de rarete du poseur."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        ac = attacker_ctx or {}
+        if ac.get("id") is None or not ac.get("is_unit"):      # IsUnit(caster@0x160)
+            return None
+        # AreFriends(caster@0x160, EffectSource(Effect@0x150)) — l'attaquant et le POSEUR de l'effet.
+        a_team = ac.get("team")
+        s_team = (ac.get("team_by_id") or {}).get(self.source) if self.source is not None else None
+        if a_team is None or s_team is None or a_team != s_team:
+            return None                                        # equipe inconnue -> gate muet (fidele)
+        # If(IsMechanical(caster), ConfigVar(9=extraDmg_2), ConfigVar(8=extraDmg))
+        var = "extraDmg_2" if "Mechanical" in (ac.get("traits") or ()) else "extraDmg"
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else self.ability_level)                        # Chronometron = ability ACTIVE du poseur
+        v = ability_var("Chronometron", var, lvl, multiplier_pct=self.ability_variables_multiplier)
+        if not v:
+            return None
+        n = int(self.times_applied or 0)                       # Multiply(…, TimesEffectApplied(Effect))
+        if n <= 0:
+            return None
+        return for_addition(False, int(v) * n)                 # owner=cible -> additif au degat RECU
+
+
 class SuperchargeExtraPiercingEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.Supercharge_ExtraPiercingEffect` (effet **1208=0x4b8**) — pose sur
     la cible ET les <=2 unites derriere elle par

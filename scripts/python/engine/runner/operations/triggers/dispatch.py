@@ -91,6 +91,8 @@ from .loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trai
 from .loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
 from .loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,   # #114 residu 2
                                          ITG_OVERRIDE_LEVEL)
+from .loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
+                                CHRONOMETRON_EXTRA_DAMAGE)
 from .loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
                                         EWO_REACTIVATE_OVERWATCH)
@@ -356,6 +358,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # -> `BaseEffect$$GetRemoveEffectBehaviour` = `RemoveEffect(<cette instance>)`. Borne l'override de
     # `ACTIVE_ABILITY_LEVEL` au PROCHAIN CAST D'ACTIF du porteur.
     ITG_OVERRIDE_LEVEL: [InspiredToGreatnessOverrideLevelRemove],    # 1180 -> retrait On(0xc)
+    # Chronometron_ExtraDamage (residu R9, effet 1550 pose par l'active 1226 de `necroChronomancer` sur
+    # chaque ennemi du disque rayon 2) : meme greffe generique que 1180 --
+    # `Chronometron_ExtraDamageEffect$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget &
+    # IsUnit(caster) & AreFriends(caster, EffectSource)` -> `RemoveEffect(<cette instance>)`. C'est ce
+    # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
+    # et non un buff persistant. Cf. loki/chronometron.py.
+    CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
     # EarlyWarningOverride_ReactivateOverwatch (#114 residu 3, effet 1145 pose par l'active 1077 de
     # tauCrisis) : `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` rend un ArraySet
     # de DEUX `Triggered()` -> DEUX classes. (1) `On(1=PreUnitDeath) & OwnerIsActor & NOT IsTurnOf(owner)

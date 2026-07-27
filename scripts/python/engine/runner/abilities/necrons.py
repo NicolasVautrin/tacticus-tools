@@ -400,22 +400,23 @@ class ChronometronAbility(ActiveAbility):
     `necroChronomancer` est hors du seed BC capture) : « necroChronomancer 1226 Chronometron -> effets 1065
     Pinned + 1550 Chronometron_ExtraDamage ».
 
-    RESIDU DOCUMENTE (hors perimetre de CE port, tache separee) : la CONTRIBUTION AU DEGAT de l'effet 1550.
+    CONTRIBUTION AU DEGAT de l'effet 1550 : PORTEE (residu transverse R9 ferme).
     `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` =
-        EffectBonus( OwnerIsTarget & IsUnit(caster@0x160)
-                       & AreFriends(caster@0x160, EffectSource(Effect@0x150)),
-                     Multiply( If(IsMechanical(caster@0x160), ConfigVar(9 = extraDmg_2),
-                                                              ConfigVar(8 = extraDmg)),
-                               TimesEffectApplied(Effect@0x150) ),
-                     AbilityOrEffect(0x4ca = 1226) )
+        EffectBonus.ForAddition( OwnerIsTarget & IsUnit(caster@0x160)
+                                   & AreFriends(caster@0x160, EffectSource(Effect@0x150)),
+                                 Multiply( If(IsMechanical(caster@0x160), ConfigVar(9 = extraDmg_2),
+                                                                          ConfigVar(8 = extraDmg)),
+                                           TimesEffectApplied(Effect@0x150) ),
+                                 AbilityOrEffect(0x4ca = 1226) )
     et `$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget & IsUnit(caster) & AreFriends(caster,
     EffectSource)` (l'effet est CONSOMME au 1er coup d'un allie du Chronomancer). Les TROIS entrees dont
-    depend la magnitude — equipe de l'ATTAQUANT vs equipe de la SOURCE de l'effet, trait `Mechanical` de
-    l'attaquant, compteur `TimesEffectApplied` — sont ABSENTES du contexte que le port passe au hook
-    defenseur (`attacker_ctx` = {id, is_normal_attack, faction}). Les cabler est un chantier transverse
-    (elargissement d'`attacker_ctx` cote prediction ET runner + compteur d'applications par instance
-    d'effet), volontairement NON entrepris ici : l'effet est MATERIALISE (visible `decisionView`) mais
-    INERTE — degradation fidele documentee (« present != applique »), pas une invention de magnitude."""
+    depend la magnitude sont desormais dans l'`attacker_ctx` PARTAGE des deux faces (combat
+    `damage_model.defender_modifiers` + prediction `playbook/prediction/_shared.py`) : `team` +
+    `team_by_id` (`AreFriends(caster, EffectSource)`), `traits` (`IsMechanical(caster)`), et le compteur
+    `EffectComponent.TimesApplied @+0x6c` porte par l'instance (`BaseEffect.times_applied`).
+    Classe d'effet : `entities/effects/loki/damage_reduction.py::ChronometronExtraDamageEffect` (canal
+    `create_effect_damage_malus_for_defense`, mold `OwnerIsTarget` d'ExemplarOfHate) ; trigger de
+    retrait : `runner/operations/triggers/loki/chronometron.py` (`EFFECT_TRIGGERS[1550]`)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Chronometron)   # 1226
     ABILITY_ID = "Chronometron"

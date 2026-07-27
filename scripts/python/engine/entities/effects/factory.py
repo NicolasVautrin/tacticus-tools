@@ -46,6 +46,7 @@ from .loki import (
     MartialKatahDmgReductionEffect,
     MarkerlightEffect,
     ExemplarOfHateTargetEffect,
+    ChronometronExtraDamageEffect,
     SuperchargeExtraPiercingEffect,
     MasterOfTheTutelariesEffect,
     MV71InitialDmgEffect,
@@ -249,6 +250,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ExemplarOfHate_Target (1293, pose par 1140) = additif `OwnerIsTarget & (IsMeleeAttack |
     # IsOverwatchAttack)` x `ConfigVar(8=extraDmg)` -> +degat PLAT recu en melee (moitie overwatch = residu).
     "ExemplarOfHate_Target": ExemplarOfHateTargetEffect,
+    # Chronometron_ExtraDamage (1550, pose par l'active 1226 de `necroChronomancer` sur CHAQUE ennemi du
+    # disque rayon 2) — MEME mold `OwnerIsTarget` : additif PLAT au degat RECU, gate sur l'ATTAQUANT
+    # (`IsUnit` & `AreFriends(caster, EffectSource)`), magnitude
+    # `If(IsMechanical(caster), extraDmg_2, extraDmg) x TimesEffectApplied` ; CONSOMME au 1er coup allie
+    # (`CreateRemoveEffectTrigger` = `On(9) & …`, cf. `EFFECT_TRIGGERS[1550]`). Residu transverse R9.
+    "Chronometron_ExtraDamage": ChronometronExtraDamageEffect,
     # Supercharge_ExtraPiercing (1208, pose par 1103) = `ForPiercing(DamageProfileIs(Plasma) &
     # OwnerIsTarget, ConfigVar(0x3f=extraPierceRatio))` -> +percage Plasma contre la victime (axe @0x20).
     "Supercharge_ExtraPiercing": SuperchargeExtraPiercingEffect,

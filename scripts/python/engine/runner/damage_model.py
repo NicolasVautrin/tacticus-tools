@@ -448,6 +448,28 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             if _auc is not None:
                 from ..ai.action_generators import _faction
                 att_ctx["faction"] = _faction(_auc.visual_id)
+            # ── Nœuds DSL natifs portes sur `caster@0x160` (l'ATTAQUANT du coup) : `IsUnit(caster)`,
+            # `AreFriends(caster, <noeud entite>)` et `HasTrait(caster, …)`. Contexte PARTAGE avec la
+            # PREDICTION (`playbook/prediction/_shared.py`), MEMES cles, MEME semantique — le fork
+            # combat/prediction est ce que plusieurs residus de l'inventaire decrivent.
+            #  * `is_unit`     = `IdunBattleLogic.Entities.DSLFactory$$IsUnit(caster@0x160)` : l'attaquant
+            #    est une ENTITE-UNITE (presence d'un `UnitComponent`), pas une tuile/entite-effet.
+            #  * `team`        = equipe de l'attaquant (`OwnerComponent.team`) = membre GAUCHE d'
+            #    `IdunBattleLogic.Entities.DSLFactory$$AreFriends` (-> `IdunBattle.Entities.Triggers.
+            #    AreEntityFriendsAbilityTrigger$$ShouldTrigger` = `battleQuery.AreFriends(a, b)`).
+            #  * `team_by_id`  = {unit_id: team} — le membre DROIT d'`AreFriends` n'est PAS toujours
+            #    l'attaquant (`EffectSource(Effect@0x150)` = le POSEUR de l'effet, cf. Chronometron) :
+            #    sans resolveur d'equipe par entite, ce gate est INCALCULABLE. Meme cle/forme que le
+            #    `team_by_id` deja threade par `attack_hits_context` (axe COUPS).
+            #  * `traits`      = noms de traits gameconfig de l'attaquant (`StatsComponent.ctx.traits`),
+            #    lus par `HasTrait(caster, …)` / `IsMechanical(caster)`.
+            att_ctx["is_unit"] = _auc is not None
+            _aoc = _ae.get_component(OwnerComponent) if _ae is not None else None
+            att_ctx["team"] = _aoc.team if _aoc is not None else None
+            att_ctx["traits"] = target_trait_names(state, attacker_id)
+            att_ctx["team_by_id"] = {int(uid): oc.team
+                                     for uid, e in state.entities.items()
+                                     for oc in (e.get_component(OwnerComponent),) if oc is not None}
     # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
     # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load

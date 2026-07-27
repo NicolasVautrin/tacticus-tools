@@ -169,6 +169,20 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     att_ctx = {"id": att_id, "ability_level": scene.ablvl_by_id.get(att_id), "multiplier": scene.mult(att_id),
                "is_normal_attack": is_normal_attack,
                "faction": _fac(scene.vis_by_id.get(att_id))}
+    # R9 : les TROIS noeuds DSL natifs restants portes sur `caster@0x160` — `IsUnit(caster)`,
+    # `AreFriends(caster, <noeud entite>)`, `HasTrait(caster, …)`. MEMES CLES / MEME SEMANTIQUE que la
+    # face COMBAT (`damage_model.defender_modifiers`) : elargir un seul cote recreerait le fork
+    # « ce que le moteur fait != ce que la prediction annonce ». La SOURCE differe par necessite
+    # (Scene cold-refreshee ici, ECS live la-bas), exactement comme `defense_stat` (#197).
+    #  * `is_unit`    : `dv.units` est `EntityType.Unit`-only par construction -> l'attaquant present
+    #    dans `scene.vis_by_id` EST une unite (les MoW ont leur canal separe, cf. Scene.from_state).
+    #  * `team`/`team_by_id` : `scene.team(att_id)` / `scene.team_by_id` (le meme dict que la formule
+    #    de COUPS thread deja sous ce nom).
+    #  * `traits`     : noms gameconfig par visualId (meme resolveur que `att_traits` des auras).
+    att_ctx["is_unit"] = scene.vis_by_id.get(att_id) is not None
+    att_ctx["team"] = scene.team(att_id)
+    att_ctx["team_by_id"] = scene.team_by_id
+    att_ctx["traits"] = frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ())
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
