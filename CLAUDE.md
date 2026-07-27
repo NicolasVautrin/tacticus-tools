@@ -278,9 +278,13 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   REFUSE (ami/ennemi, cible == caster, caster ayant bougé). La dégradation est **permissive** :
   ni erreur, ni crash — donc invisible en self-play, et c'est exactement le trou qu'un
   entraînement irait exploiter.
-- **Dette MESURÉE** : `ABILITY_CLASSES` = 76 entrées, **1 seule** (`WaaaghAbility`, 1058) porte son
-  masque. Le compte est passé de 60 à 75 manquants : c'est le SEUL gisement que notre propre
-  cadence de portage aggrave, chaque nouveau port l'alimentant.
+- **Dette MESURÉE le 2026-07-28** (compte re-dérivé du code, pas hérité) : `ABILITY_CLASSES` =
+  **81 entrées**, **28** portent leur masque, **53 manquantes**. La tendance s'est **INVERSÉE** :
+  75 manquantes → 53, la cadence de portage RÉSORBE désormais ce gisement au lieu de l'alimenter
+  (tranche A de 10 masques livrée par `89518da`). Le pendant `ABILITY_ATTACK_TYPE` est à **0
+  manquant** — son cliquet tient.
+  ⚠ Ces chiffres se périment vite : les re-dériver (`ABILITY_CLASSES` × `getattr(c,
+  "TARGETING_OPTIONS", None)`) plutôt que citer cette ligne.
 - **Source du masque** : le littéral passé par `<X>Ability$$.ctor` à
   `IdunBattle.Core.Services.TargetingOptions$$.ctor`. **Piège** : l'overload **PRESET + flags**
   (`TargetingOptions..ctor(&opts, &preset, <flags>, 0)`, ex.
