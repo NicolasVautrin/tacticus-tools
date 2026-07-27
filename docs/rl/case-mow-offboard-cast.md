@@ -201,9 +201,19 @@ Porteurs **absents du seed BC** (donc hors pool : `buildNormalizedBC` n'enumere 
   seed a 0 est EXACT a l'init ; une stat-modification posee en cours de combat sur la MoW ne serait pas
   captee. Spec : elargir le filtre de `rpc-snapshot.ts` a `EntityType.Machine` ... et idem pour les
   `targetUnits` de `statModSources`. `GetStat` lui-meme est generique. »*
-  **Consequence non anticipee**, ouverte : la ligne Machine ainsi emise ecrase le `StatsComponent` de la
-  MoW cote port (`case-162` §4 ; residu **N7**). Et deux RPC seulement sont a l'origine de la corruption
-  de runner decrite en `case-162` §2 (residu **O7**).
+  Cote PORT, la ligne Machine est desormais consommee par `_load_machine_stats` (**#174**).
+  Mesure sur `deathCrawler`/`orksRukkatrukk`/`tyranBiovore` : les **19 stats resolues valent 0**,
+  `statDelta={}`, `shields=[]`, `healthMax=0` -- le seed a 0 etait donc bien EXACT, et une
+  stat-modification posee en cours de combat serait desormais captee par `statDelta`.
+  ⚠ Ce que la ligne Machine NE porte PAS : `unitConfig` (elle rend `{"error": "visualId introuvable"}`,
+  l'entite portant un `MachineComponent` la ou le capteur cherche un `UnitComponent` -- deux FRERES
+  derivant de `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`, la comparaison du capteur
+  etant une egalite de classe). Le niveau d'ability d'une MoW ne vient donc QUE de son `AbilityState`
+  per-ability.
+  **Consequence non anticipee** : la ligne Machine ainsi emise ecrasait le `StatsComponent` de la
+  MoW cote port (`case-162` §4 ; residu **N7**) -- **FERME par #174**
+  (`case-174-mow-level-index.md`). La corruption de runner par ces memes RPC (`case-162` §2, residu
+  **O7**) reste OUVERTE : c'est la tache **#175**, elle exige un rebuild+reinject.
 - ~~**Face DECISION MoW toujours bloquee**~~ -- **LEVE par R14** (`case-r14-mow-decision.md`). Le
   chemin natif dedie n'est pas `aiPlaybookPredict` mais `IdunBattle.AI.Tactics.DefaultMachineTactic`
   (routage `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` sur `IsMachine`) : generateurs
