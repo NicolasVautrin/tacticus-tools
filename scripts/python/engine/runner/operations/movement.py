@@ -96,6 +96,14 @@ class MoveUnitOperation(Operation):
         # au composant natif -> fork de port : deux representations du meme flag, l'une jamais posee par
         # le move, l'autre jamais lue par le gate no-move.)
         set_moved_flag(state, self.unit_id)
+        # AURA stat-mod PROJETEE — `UpdateEffectTargets` : le selecteur d'un `AStatModifierEffect` a
+        # projection est purement GEOMETRIQUE, donc un move le change. Le natif re-evalue et
+        # applique/reverte la `ValueModification` chez les cibles. GROUND TRUTH live (statModSources,
+        # LionHelm) : l'allie eloigne PERD ses +797 blockDamage, il les RETROUVE en revenant.
+        # No-op strict sans porteur d'aura stat-mod (le mover ET les cibles du porteur sont re-evalues,
+        # d'ou l'appel non scope : bouger le PORTEUR change l'ensemble de ses cibles).
+        from .aura_stat_mods import refresh_aura_stat_modifiers
+        refresh_aura_stat_modifiers(state)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

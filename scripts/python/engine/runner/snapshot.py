@@ -184,6 +184,14 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # l'appelant aurait posé après le retour de load_state — l'init/seed n'a jamais lu le board.
     if board is not None:
         state.board = board
+    # AURA stat-mod PROJETEE (`AStatModifierEffect.ApplyModification` sur les cibles-selecteur d'un
+    # effet porte par une AUTRE unité, ex. LionHelm +BlockDamage/+BlockChance aux alliés ≤2 hexes
+    # d'Azrael) : la part est DÉJÀ dans le `combatSnapshot` de la cible, mais NON attribuée (l'effet
+    # vit sur le porteur) → elle dort dans `CAPTURED_SOURCE` et rien ne peut la retirer quand la cible
+    # sort du rayon. On la RE-ATTRIBUE sous la clé de l'effet, à somme constante (`GetStat(Current)`
+    # inchangé). NO-OP strict tant qu'aucun porteur d'aura stat-mod n'est en jeu.
+    from .operations.aura_stat_mods import attribute_aura_stat_modifiers
+    attribute_aura_stat_modifiers(state)
     return state
 
 

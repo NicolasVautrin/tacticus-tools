@@ -17,7 +17,10 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
 - `votann.py`           — Leagues of Votann (#113) : les 3 `DynamicStatModifierEffect` GÉNÉRIQUES du lot
                           (armure −, crit +, block +) + le canal PERÇAGE `GravitonRifle_ExtraPierce`.
 - `darkangels.py`       — Dark Angels (case-117 phase 2) : canal PERÇAGE `Hailstrike_ExtraPierce` (1509,
-                          porteur != source -> scaling resolu contre la SOURCE)."""
+                          porteur != source -> scaling resolu contre la SOURCE).
+- `dark_angels_passives.py` — passifs `LionHelm` (1163, darkaAzrael : aura +dmg overwatch + aura
+                          stat-mod block) et `FearedInterrogator` (1235, darkaAsmodai : marqueur de
+                          cible + bonus degat/coups)."""
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyExtraDmgEffect,
@@ -84,8 +87,14 @@ from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
                      AncestralFortuneExtraBlockChanceEffect, GravitonRifleExtraPierceEffect)
 from .darkangels import HailstrikeExtraPierceEffect
+from .dark_angels_passives import (LionHelmExtraDmgEffect, LionHelmExtraBlockDamageEffect,
+                                   LionHelmExtraBlockChanceEffect,
+                                   FearedInterrogatorOwnerEffect, FearedInterrogatorTargetEffect)
 
 __all__ = [
+    # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
+    "LionHelmExtraDmgEffect", "LionHelmExtraBlockDamageEffect", "LionHelmExtraBlockChanceEffect",
+    "FearedInterrogatorOwnerEffect", "FearedInterrogatorTargetEffect",
     # extra_damage (volet DIRECT)
     "RapidAssaultExtraDamageEffect", "PrioritisedEfficiencyExtraDmgEffect",
     "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",

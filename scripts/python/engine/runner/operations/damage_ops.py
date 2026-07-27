@@ -206,7 +206,10 @@ class _DamageOpsMixin:
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
-                                          target_id=target_id, damage_profile=_profile)
+                                          target_id=target_id, damage_profile=_profile,
+                                          # LionHelm_ExtraDmg : gate `IsOverwatchAttack` de l'aura
+                                          # ALLIEE (meme flag que le bonus de percage Hailstrike).
+                                          is_overwatch=bool(is_overwatch))
         # #58 : feuille positionnelle ELEVATION (+surplomb) ajoutee au `mods` de l'attaquant, comme la
         # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
         # REELLES depuis l'ECS/board).

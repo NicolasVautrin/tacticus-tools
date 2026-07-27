@@ -166,11 +166,38 @@ def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
     return (_unit_gameconfig(state, unit_id) or {}).get("GrandAllianceId")
 
 
+def marked_effect_types_for_target(state: State, att_id: int, target_id: Optional[int]) -> frozenset:
+    """`HasEffect(Target@0x178, <EffectType>, targetType = EffectTargetType.Both)` — l'ensemble des
+    EffectTypes dont la CIBLE du coup est une **cible-selecteur** d'un effet porte par l'ATTAQUANT.
+
+    Certains effets natifs ne se materialisent JAMAIS sur la cible : ils vivent sur leur porteur et leur
+    `CreateTargetSelector` designe a la demande les entites « marquees » (verifie live sur
+    `FearedInterrogator_Target` 1295 : liste chez `darkaAsmodai`, ABSENT de `decisionView.effects` des
+    ennemis marques). Le gate `HasEffect(Target, ...)` de leur effet frere doit donc RE-EVALUER le
+    selecteur, exactement comme les canaux d'aura le font pour la geometrie.
+
+    Interface duck-typed `marks_target(state, owner_id, target_id) -> bool` (seuls les effets concernes
+    la portent, meme regime que `TARGETING_OPTIONS`) -> `frozenset()` strict pour tout le reste."""
+    if target_id is None or state.effects is None:
+        return frozenset()
+    out = set()
+    for e in (state.effects.by_unit.get(int(att_id)) or []):
+        if e.consumed or e.expired or not e.active:
+            continue
+        fn = getattr(e, "marks_target", None)
+        if fn is None:
+            continue
+        if fn(state, int(att_id), int(target_id)):
+            out.add(int(e.effect_type) if e.effect_type is not None else e.name)
+    return frozenset(out)
+
+
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
                                     target_armor_reduced: Optional[bool],
                                     damage_profile: Optional[str] = None,
                                     target_id: Optional[int] = None,
-                                    target_traits=None) -> None:
+                                    target_traits=None,
+                                    is_overwatch: bool = False) -> None:
     """AURA ALLIÉE +dégât FLAT projetée sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
     de ses ALLIÉS à portée (canal AURA côté SOURCE : l'effet vit sur le porteur et se projette sur ses amis quand
     EUX attaquent). `ConquerorImperative` (#23) : +extraDmg aux amis Mechanical ring-1 vs cible à armure réduite ;
@@ -216,6 +243,9 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": state.board,
+           # LionHelm_ExtraDmg (#passifs DA) : `IsOverwatchAttack` du gate d'aura — MEME flag que celui
+           # deja threade jusqu'a `Hailstrike_ExtraPierce` (`AttackDamageOperation.execute(is_overwatch=)`).
+           "is_overwatch": bool(is_overwatch),
            "is_melee": is_melee, "target_armor_reduced": target_armor_reduced,
            # CIBLE du coup — les auras dont le gate natif porte sur la CIBLE (`HasTrait(Target@0x178,
            # …)`) en ont besoin : `DestroyTheWitch_ExtraDamage` (aura melee vs **Psyker**,
@@ -321,7 +351,8 @@ def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None,
                        is_normal_attack: bool = True, damage_profile: Optional[str] = None,
-                       trigger_ability_type: Optional[int] = None):
+                       trigger_ability_type: Optional[int] = None,
+                       is_overwatch: bool = False):
     """`DamageModifiers` de l'attaquant depuis ses EFFETS actifs (None-safe). `is_ranged` = nature du coup
     (propagée aux bonus gated `IsRangedAttack`, ex. HeavyWeapon_ExtraDmg). `has_moved` (#60/#101) = l'unité
     a-t-elle BOUGE ce tour — LU SUR LE FLAG NATIF `UnitFlag.Moved` du `UnitFlagsComponent` (`unit_has_moved`,
@@ -363,12 +394,23 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         # attaquant sans position de la famille ATTACK (HadesAutocannons 1147, blackForgefiend).
         att_ctx = dict(att_ctx or {})
         att_ctx["trigger_ability_type"] = int(trigger_ability_type)
+    # Gates portant sur la CIBLE et re-evalues depuis l'ECS (meme regime que `target_armor_reduced`) :
+    #  * `marked_effect_types` = `HasEffect(Target, <EffectType>, Both)` pour les effets-MARQUEUR non
+    #    materialises sur la cible (FearedInterrogator_Target 1295) ;
+    #  * `tgt_grand_alliance`  = `HasTrait(Target, 0x7ea = 2026 Chaos)` (derive de `GrandAllianceId`,
+    #    comme les gates Imperial/Chaos de RitesOfBattle/BeaconOfRage).
+    if target_id is not None:
+        from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
+        att_ctx = dict(att_ctx or {})
+        att_ctx["marked_effect_types"] = marked_effect_types_for_target(state, unit_id, target_id)
+        att_ctx["tgt_grand_alliance"] = grand_alliance_of(state, target_id)
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
     _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar,
                                     damage_profile=damage_profile,
-                                    target_id=target_id, target_traits=target_traits)
+                                    target_id=target_id, target_traits=target_traits,
+                                    is_overwatch=is_overwatch)
     return mods, active
 
 
@@ -616,9 +658,15 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
             target_effects = effs
         else:
             aura_sources.append((uid, pos_by_id.get(uid), team_by_id.get(uid), effs))
+    # Gates CIBLE du canal COUPS, memes deux entrees que le canal DEGAT (`attacker_modifiers`) :
+    # `HasEffect(Target, <EffectType>, Both)` re-evalue (marqueurs non materialises) + grande-alliance
+    # de la cible (`HasTrait(Target, 0x7ea = Chaos)` de `FearedInterrogator_Owner.CreateEffectHitsBonusForAttack`).
+    from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": team_by_id.get(tgt_id), "is_melee": is_melee,
-             "pos_by_id": pos_by_id, "team_by_id": team_by_id}
+             "pos_by_id": pos_by_id, "team_by_id": team_by_id,
+             "marked_effect_types": marked_effect_types_for_target(state, att_id, tgt_id),
+             "tgt_grand_alliance": grand_alliance_of(state, tgt_id)}
     return board, aura_sources, target_effects
 
 
