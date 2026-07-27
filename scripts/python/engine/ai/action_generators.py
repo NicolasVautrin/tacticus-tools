@@ -180,6 +180,18 @@ class ComparableAbilityGenerator(ActionGenerator):
         porte +1 -> elle bat tout actif Comparable à Δ(pair+tile) < 1 ; couvre l'ancien tie exact
         step-9 seed777 (69 vs 1067 même u_full) ET 2468 s18 (69 vs 1191, Δpair=0.75))."""
         plan = ctx.plans.get(ctx.uid) or {}
+        # R1 — ORIGINE EN TETE DU SWEEP DE POSITION. `ActiveAbilityActionGenerator.<GenerateActions>d__7`
+        # boucle sur la liste `tiles` de `DefaultAiUnitTactic.<CalculateNextActionForUnit>d__5`, produite
+        # par `ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
+        # `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, dont l'`OrderedSet`
+        # est SEEDE avec `GetUnitPosition(unit)` avant `UnionWith(GetMovablePositionsFor(...))` :
+        # **la position COURANTE est la PREMIERE**. `Bucket$$AddAction` etant keep-first (`>` STRICT),
+        # a utilite EGALE le natif RESTE SUR PLACE.
+        # PORTEE VOLONTAIREMENT LIMITEE A CE QUI EST PROUVE : seul le rang de l'ORIGINE est impose ici.
+        # L'ordre RELATIF des tuiles de move reste celui de `ranked` -- le natif les tire de
+        # `GetMovablePositionsFromTiles` (apres un `ExceptWith`), dont l'ordre n'est PAS celui de
+        # `aiMovableTiles` : l'imposer a ete MESURE REGRESSIF (C4_09/999 pas 14, tie 192.851 entre deux
+        # tuiles de move, natif -> (4,4) = 1re RANKEE ; pos 15/20 -> 14/20). Cf. residu R1-b.
         best = None       # (u, u_full, tgt, ab, tile)
         best_key = None
         # #57g : tie-break natif INTRA-POSITION. `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` compare les cibles en
@@ -212,8 +224,12 @@ class ComparableAbilityGenerator(ActionGenerator):
             # (`EvaluateInternal` boucle les cibles à position fixe). `ranked[0]` seul est FAUX pour les
             # spéciales (classement dMin/dMax-based, arbitraire) -> balayer TOUTES. Argmax STRICT `>`.
             pair_best = None   # (u_action, u_full, u, pred, aoe, tile, bk)
-            for rk in ranked:
-                tile = (rk.get("col"), rk.get("row"))
+            # ORIGINE d'abord (si l'attaque y est legale), puis les tuiles rankees dans leur ordre.
+            rk_tiles = [(rk.get("col"), rk.get("row")) for rk in ranked]
+            org = ctx.origin
+            sweep = ([org] if org is not None and org in rk_tiles else []) \
+                + [t for t in rk_tiles if t != org]
+            for tile in sweep:
                 if tile[0] is None:
                     continue
                 cand = pb.calculate_action_utility(ctx, tile, tgt, ab)

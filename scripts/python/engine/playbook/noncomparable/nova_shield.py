@@ -25,16 +25,15 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     = argmax STRICT `>`, gate util >= 1. Cible native = le CENTRE marqué (kind=tile).
     HYPOTHÈSE(trench) : flag isTrench non capturé -> ring géométrique complet (biais <=6 sur Count,
     écrasé par 100*enemies).
-    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). R1 (#80) : NovaShield est
-    TILE-target (marque un CENTRE hex, cible kind=tile) -> classe DIFFERENTE des self-cast heals/NovaBoost.
-    Le generateur `<GenerateActions>d__7 IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` gate les tuiles de move par `HasValidTargets(0x3f)` :
-    pour une TILE-target les hex a marquer existent depuis la plupart des positions -> les tuiles de move NE
-    sont PAS gatees comme un self-cast -> au tie keep-first la 1re tuile de move gagne (le natif BOUGE). De
-    plus l'utilite DEPEND de la position (100*ennemis marques) -> argmax non-trivial, le tie-break n'est que
-    secondaire. => on GARDE le sweep origine-LAST (`ctx.reach_nc`). [UNVERIFIED : arene-inagreable +
-    `HasValidTargets` derriere dispatch d'interface ; la classe TILE-target n'a PAS de confirmation live comme
-    la classe self-target #76 -> ne PAS asserter fermement.] R2 : `DislikeStartingTilesUtility` no-op (poids
-    BC non confirmé, arene-inagreable)."""
+    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). L'ancienne note « classe
+    TILE-target -> le natif BOUGE au tie -> sweep origine-LAST », deja marquee [UNVERIFIED], est
+    RETIREE : elle reposait sur l'idee que l'ordre brut du generateur mettait l'origine en dernier.
+    Le decompile dit l'inverse — la liste `tiles` vient de `ABaseAiUnitTactic$$GenerateActionTiles`
+    -> `IBattleQuery`+0xe = `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`,
+    dont l'`OrderedSet` est SEEDE avec la position COURANTE. Il n'y a donc pas deux classes d'ordre :
+    `ctx.reach_nc` est origine-FIRST pour tout le monde (R1). Reste vrai et inchange : l'utilite
+    DEPEND ici de la position (100*ennemis marques), donc le tie-break n'est que secondaire.
+    R2 : `DislikeStartingTilesUtility` no-op (poids BC non confirmé, arene-inagreable)."""
     ABILITY_ID = int(ActiveAbilityType.NovaShield)  # 1194
     MIN_UTILITY = 1.0
     PRIORITY = native_priority(1194)   # -1000 = AbilityPriority.Last (surcharge mesuree, #170)

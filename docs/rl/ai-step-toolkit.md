@@ -178,7 +178,12 @@ tiles → résultat vide. **Il FAUT passer l'id concret.**
 ainsi qu'on les rank (l'attaque normale EST une ability, juste typée par unité).
 
 `EntityExtensions.GetMainTile(IEntity entity, IMatchState state)` → tile courante (à
-ajouter au set candidat ; `GetMovableTilesFor` exclut la tile d'origine).
+ajouter au set candidat ; `GetMovableTilesFor` exclut la tile d'origine). C'est exactement ce que fait
+le TACTIC natif : `ABaseAiUnitTactic$$GenerateActionTiles` passe par `IBattleQuery`+0xe =
+`IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, qui SEEDE son `OrderedSet`
+avec `GetUnitPosition(unit)` avant l'union — l'ajout du hook n'est donc PAS une sur-génération, et la
+position courante est la PREMIÈRE de l'énumération (tie-break keep-first, cf.
+`docs/rl/case-r1-origin-action-tile.md`).
 
 ## En cours / next
 

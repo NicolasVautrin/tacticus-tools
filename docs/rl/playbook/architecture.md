@@ -356,13 +356,17 @@ action = accumulator.ChooseAction()                         # @1813fc0d0 — APR
 > bucket unique) est donc structurellement fidèle. La version précédente de ce pseudo-code (un
 > accumulateur PAR ability) était fausse.
 >
-> **Corollaire #128, mesuré live** : la liste de tuiles vient de
-> `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` = `IBattleQuery.slot+0xe` (tuiles de
-> MOUVEMENT) + ajouts par playbook. `GetMovableTilesFor` **exclut la tuile courante** ; la branche
-> `NullPosition` ne tire QUE si la liste est vide. ⇒ une unité qui a encore du déplacement **n'évalue
-> PAS** l'action depuis sa tuile d'origine. Le port, lui, la consomme (elle est ajoutée EXPRÈS dans
-> `attackPlans.ranked` par notre hook) → sur-génération de candidats. Preuve chiffrée et périmètre :
-> `docs/rl/case-128-tile-elevation-utility.md` §5.
+> **Corollaire, corrigé par R1** (l'ancienne rédaction « le natif n'évalue PAS l'action depuis sa
+> tuile d'origine » était FAUSSE) : la liste de tuiles vient de
+> `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` = `IBattleQuery.slot+0xe` =
+> **`IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`** — un `OrderedSet`
+> **SEEDÉ avec `GetUnitPosition(unit)`** puis `UnionWith(GetMovablePositionsFor(...))`, puis
+> éventuellement RESTREINT par le slot 1 des playbooks (`FilterMovementTiles`, qui n'ajoute jamais).
+> ⇒ **la tuile courante EST candidate, et elle est la PREMIÈRE de l'énumération** ; combinée au
+> tie-break `>` STRICT ci-dessous, cela veut dire qu'**à utilité égale le natif reste sur place**. La
+> branche `NullPosition` de `<GenerateActions>d__7` ne tire, elle, que si la liste est vide — c'est un
+> cas distinct (unité qui a déjà bougé / immobilisée), pas le mécanisme du « rester sur place ».
+> Réfutation live et mesures : `docs/rl/case-r1-origin-action-tile.md`.
 
 - **`Bucket.Merge`** = `AddAction(dest, src.action)` (argmax, `>` strict → premier sur égalité) + fusion
   récursive de l'arbre `SortedList<Key, sous-Bucket>`.

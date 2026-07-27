@@ -11,9 +11,10 @@ Faits cles (map de la passe RE / agent) :
  - `scene = Scene.from_state(state)` : le `StatsComponent.ctx` d'une unite EST le meme `UnitContext` que le
    predicteur cache ; `State.effects` EST l'`EffectsState` ; `State.board` = elevation + adjacence hex.
  - `plans` = enumeration offline {uid: {evals:[{abilityId,targetId,rankCount,ranked:[{col,row}]}]}} pour
-   l'attaque normale ET les abilities ACTIVES d'attaque (SLICE 2). L'ORDRE de rank est INDIFFERENT :
-   `_best_attack` fait un argmax STRICT sur le SET de tuiles atteignables -> on n'a pas a porter le heuristique
-   `GetBest`, seulement le SET (tuiles de move d'ou l'attaque est legale, portee = `_ability_reach`).
+   l'attaque normale ET les abilities ACTIVES d'attaque (SLICE 2). On n'a pas a porter le heuristique
+   `GetBest`, seulement le SET (origine + tuiles de move d'ou l'attaque est legale, portee =
+   `_ability_reach`) : `_best_attack` fait un argmax STRICT et impose LUI-MEME le rang de l'ORIGINE
+   (seul rang qui porte un tie-break natif, cf. R1). L'ordre relatif des autres tuiles est indifferent.
  - `ability_targets` (SLICE 2) = `ability_targets_offline` (heal/repair/summon/Nova) : enumere l'UNION des cibles
    legales sur toutes les tuiles-caster, mirror `IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` /
    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` (kind/portee derives de gameconfig, cf. `_ability_kind`).
@@ -312,10 +313,24 @@ def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
     `decisionView.attackPlans[uid]` REDUITE a ce que le spine lit (`_best_attack` : abilityId/targetId/rankCount/
     ranked[(col,row)] ; les nombres de degat sont debug-only). Ordre de `ranked` indifferent (argmax strict).
 
-    SLICE 2 : attaque normale (portee=max arme) + abilities ACTIVES d'attaque (portee propre `_ability_reach`)."""
-    cand_tiles = [(t["col"], t["row"]) for t in move_tiles]
-    if origin is not None:
-        cand_tiles.append(origin)
+    SLICE 2 : attaque normale (portee=max arme) + abilities ACTIVES d'attaque (portee propre `_ability_reach`).
+
+    ORIGINE INCLUSE ET EN TETE (R1). Ce n'est pas un ajout d'outillage : le natif LUI-MEME met la
+    position courante dans les candidats, en premier -- `ABaseAiUnitTactic$$GenerateActionTiles` ->
+    `IBattleQuery`+0xe = `BattleQuery$$GetCurrentAndMovablePositionsFor` (OrderedSet SEEDE avec
+    `GetUnitPosition(unit)`, puis `UnionWith(GetMovablePositionsFor(...))`). La couture LIVE fait
+    pareil (`projection.ts::computeAttackPlans` ajoute la `mainTile` au set avant de ranker) : garder
+    l'origine ICI maintient la PARITE offline/live. `plans` sert AUSSI d'oracle geometrique (« depuis
+    quelles tuiles l'attaque est-elle legale ») a `noncomparable._base._get_num_attack_targets_in_position`
+    et a `hammer_of_wrath`/`holy_duel` -- l'en retirer les casserait.
+
+    ORDRE : seul le rang de l'ORIGINE compte, et `ComparableAbilityGenerator._best_attack` le RE-IMPOSE
+    de toute facon (il balaie l'origine d'abord, puis les `ranked` dans leur ordre) -- le tie-break
+    keep-first du `Bucket` ne depend donc pas de cette liste. On met quand meme l'origine en tete ici
+    pour que la forme offline soit le mirror exact de l'ensemble natif. L'ordre RELATIF des tuiles de
+    move reste, lui, indifferent (cf. residu R1-b : l'ordre natif exact n'est pas etabli)."""
+    cand_tiles = [] if origin is None else [origin]
+    cand_tiles += [t for t in ((x["col"], x["row"]) for x in move_tiles) if t != origin]
     evals: list = []
     for (aid, reach) in _attack_abilities(vid):
         for en in enemies:
@@ -480,7 +495,7 @@ def build_from_state(state, uid: int, debug: bool = False):
     """`State`(runner) -> `AiDecisionContext` pour l'unite `uid` (offline). Tous les champs derives des
     composants/board/gameconfig ; `predictor`/`sctx`=None (le spine lit `ctx.scene`). Voir en-tete pour les
     gaps documentes."""
-    from engine.ai.context import AiDecisionContext, _enemies
+    from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
 
     me_ent = state.get_entity(uid)
     if me_ent is None:
@@ -509,7 +524,12 @@ def build_from_state(state, uid: int, debug: bool = False):
         me["abilities"] = abilities
 
     move_tiles = _move_tiles(state, uid, vid or "", my_team, origin)
-    reach_nc = [(t["col"], t["row"]) for t in move_tiles] + ([origin] if origin is not None else [])
+    # `tiles` du tactic natif (`ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
+    # `BattleQuery$$GetCurrentAndMovablePositionsFor`) : ORIGINE EN TETE puis les tuiles de move.
+    # MEME helper que la couture LIVE `context.build` -> meme ensemble ET meme ORDRE de sweep.
+    # `reach_nc` est l'ALIAS historique de cette meme liste (cf. `context.build`).
+    action_tiles = action_tiles_for(origin, move_tiles)
+    reach_nc = action_tiles
 
     scene = Scene.from_state(state)
     hp_cur_by_id = dict(scene.hp_by_id)
@@ -543,7 +563,7 @@ def build_from_state(state, uid: int, debug: bool = False):
         rpc=_rpc, rid=0, wt=_weights(), predictor=None, sctx=None, scene=scene,
         uid=uid, me=me, units=units, cur=getattr(state, "current_player_id", None), plans=plans,
         enemies=enemies, epos=epos, tgt_epos=tgt_epos, fpos=fpos, origin=origin,
-        move_tiles=move_tiles, reach_nc=reach_nc,
+        move_tiles=move_tiles, reach_nc=reach_nc, action_tiles=action_tiles,
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=_obs_units(state),
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos={}, effects_by_pos={},

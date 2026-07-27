@@ -147,7 +147,18 @@ l'attaque NORMALE. Le choix de TUILE du natif devient une mesure directe du term
 2. **L'ordre des cibles du port est bon a 0.25 pres.** Depuis (3,3) le natif prend 77 (`u=8.961`) et pas
    79 (`u=8.710`) : le port classe ces deux candidats dans le MEME ordre, avec une marge de 0.25 sur ~40.
 
-## 5. L'etage reellement divergent : la TUILE D'ORIGINE est dans les candidats du port, pas dans ceux du natif
+## 5. ~~L'etage reellement divergent : la TUILE D'ORIGINE est dans les candidats du port, pas dans ceux du natif~~ — **SECTION REFUTEE**
+
+> ⚠ **CETTE SECTION EST FAUSSE dans son MECANISME** (verdict R1, `case-r1-origin-action-tile.md`).
+> Le slot `IBattleQuery`+0xe n'est PAS `GetMovableTilesFor` mais
+> `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, dont l'`OrderedSet` est
+> SEEDE avec `GetUnitPosition(unit)` avant `UnionWith(movable)` : **le natif MET l'origine dans ses
+> candidats, en premier**. Refutation live : 10 chunks natifs « caste sans bouger » avec un movable
+> NON vide (3 couples board/seed). La coincidence numerique du §5 (« argmax sans l'origine = action
+> native ») reste vraie ; son explication ne l'est pas, et l'ecart S3 n'est PAS un tie (1.925), donc
+> l'ordre de sweep ne l'explique pas davantage. **La divergence S3 reste OUVERTE** — piste nommee au
+> §7 de ce document et reprise dans `case-r1-origin-action-tile.md` §5 (le x1.25 positionnel du degat
+> depuis l'ORIGINE). Le texte d'origine est conserve ci-dessous comme trace de la mesure.
 
 Sur S3 le natif descend a `39.961` alors que la tuile d'ORIGINE (2,2) offre au port `41.886` — et (2,2)
 n'est pas moins bonne en tuile (e3, `Tile(7)=30`) ni en degat (elle est la MEILLEURE : natif
@@ -175,11 +186,10 @@ Chaine native (RE) :
 **Chiffre du verdict (S3)** : `argmax` du port en retirant le seul candidat « tuile d'origine » =
 `ab=69 tgt=77 to=(3,3) u=39.961` = **exactement l'action native** (ability + cible + tuile).
 
-⚠ **NON PORTE ici, deliberement.** Retirer l'origine de l'ensemble de candidats change la decision de
-TOUTE unite qui aurait attaque sans bouger : c'est un changement large, qui demande une passe d'agreement
-complete (`test_playbook_live` + batch multi-seed) pour etre valide, pas un smoke. Il est documente ici
-avec sa preuve pour etre traite comme une tranche a part entiere. **Un port speculatif non validable dans
-le perimetre de ce cas serait pire que le residu.**
+⚠ **NON PORTE ici, deliberement** — et c'est ce qui a evite une regression : la tranche dediee (R1) a
+etabli au decompile que le retrait de l'origine aurait ete un FORK, pas un fix (cf. l'encadre en tete
+de section). Ce qui a ete porte a la place, c'est l'ORDRE (origine EN TETE du sweep) :
+`case-r1-origin-action-tile.md`.
 
 ## 6. Residu NON ferme (candidat `fable-solver`)
 
@@ -218,7 +228,8 @@ encore vivre.
 
 ## 7. Ce qui n'est PAS couvert
 
-- La correction §5 (tuile d'origine) : **diagnostiquee et chiffree, pas portee** (tranche a part).
+- La correction §5 (tuile d'origine) : **diagnostic REFUTE** par la tranche R1
+  (`case-r1-origin-action-tile.md`) ; ce qui a ete porte est l'ORDRE de sweep, pas un retrait.
 - Le residu §6 : non ferme.
 - Le regime de mesure est volontairement extreme (`--hp-target 90000`) pour maximiser le poids relatif du
   terme de tuile. En HP realistes les utilites de degat (~200-500) ecrasent le terme (10-50) et l'ecart
