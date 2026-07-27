@@ -433,7 +433,44 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (`if ((metadata>>0x30)==0) { ...block/evade... }`). AUCUN tirage block consomme => 0 tirage RNG (le
         natif ne roule pas le block). Sans ce gate, l'offline sur-roulait un block spurious sur les attaques
         Psychic (seed 123 u95 astraPrimarisPsy -> u79 genesKelermorph BeastSlayer : off 1569 vs live 2873).
-        Cable dans les 3 vecteurs (execute/execute_ability_attack/execute_normal_like) via `damage_profile`."""
+        Cable dans les 3 vecteurs (execute/execute_ability_attack/execute_normal_like) via `damage_profile`.
+
+        #221 : l'`Attack` COURANTE du defenseur est THREADEE aux sources d'effet. Le natif construit la
+        liste par `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances(attacker, defender,
+        failedBlockIds)` = `defender.GetMultiValueStat(7)` -> `IdunBattle.Entities.Components.
+        MultiValueStatComponent$$GetAllValues`, qui ajoute D'ABORD l'entree PAR DEFAUT
+        `{entityId 0, GetStatPart(comp7, Current)}` (= le scalaire GetStat(7)) puis les entrees
+        PAR-ENTITE du dictionnaire (une par effet ExtraBlock). L'amount d'une entree vient de
+        `IdunBattle.Entities.UnitExtensions$$GetBlockDamageForBlockChance` = `comp8.GetValueByEntity(
+        entityId)` avec fallback `comp8.GetDefaultEntry()` (= GetStat(8)).
+        `Daemon_ExtraBlock` (0x40a) est pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.
+        DaemonAbility$$CreateUpdateEffectBehaviour` = `AddExtraBlockEffectToOwner(0x40a,
+        Direct(GetNumberConstant(0x2d=daemonBlockChance)), GetBlockDamage())` avec
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonAbility$$GetBlockDamage` =
+        `PercentageOf(StatAmount(Self@0x148, statType=0=Attack, statPart=0=Current),
+        Direct(GetNumberConstant(0x36=daemonBlockDamagePercentage)))`. Sans cette Attack, l'amount
+        tombait a 0 -> `DaemonExtraBlockEffect.create_effect_block_source_for_defense` renvoyait None
+        -> la source DISPARAISSAIT et le port SAUTAIT le jet de block que le natif roule
+        (+1 tirage natif par attaque contre toute unite Daemon, et desync RNG de tout l'aval).
+        `ctx.attack` == `GetStat(ATTACK=0, Current)` == le `StatAmount` du DSL (fold documente : le
+        natif fige l'amount dans le MultiValueStat a la pose et le RAFRAICHIT sur l'event 0x3b via
+        `DaemonAbility$$GetUpdateEffectCondition` = `Not(AmountIsEqual(MultiStatValueFromEffect(0x40a,
+        8), GetBlockDamage()))` -- l'entree vaut donc TOUJOURS l'Attack courante).
+
+        `block_id` = le `BEntityId` natif de la source (`BlockChanceInfo.entityId` @+0x0, la cle du
+        `failedBlockIds: List<BEntityId>` teste par `Contains`), PAS la chance : entree par defaut =
+        **0** (les 4 octets bas laisses a zero par `GetAllValues`), source d'effet = son entite-effet
+        (offline : son `effect_type`, cf. `BaseEffect.block_source_id`). Deux sources de MEME chance
+        (ex. defenseur Daemon dont le scalaire vaudrait 25) etaient auparavant confondues par le filtre
+        d'exclusion inter-coups de `_run_hits` -> un tirage perdu des le coup 2.
+
+        TRI : `CalculateBlockChances` termine par `list.Sort(DamageCalculations.<>c.
+        <CalculateBlockChances>b__15_0)` dont le corps est `mov eax,[r8+8]; sub eax,[rdx+8]; ret` =
+        `b.blockDamage - a.blockDamage` => **decroissant par AMOUNT**. C'est l'ordre dans lequel
+        `ApplyRandomBlockDamage` tente les sources, donc l'ordre des tirages. Tri STABLE ici (Python)
+        -> a amount egal, l'ordre pre-tri (base puis effets, = l'ordre de `GetAllValues`) est conserve ;
+        le `List.Sort` natif est un introsort NON stable, ecart possible seulement a >=3 sources de
+        meme amount (jamais observe -- residu documente)."""
         if damage_profile is not None:
             import gameconfig as GC
             _dp_traits = (GC.damage_profile(damage_profile) or {}).get("Traits") or []
@@ -445,10 +482,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         block_amount = int(getattr(tsc.ctx, "block_damage", 0) or 0)
         sources = []
         if block_chance > 0 and block_amount > 0:
-            # block_id = la CHANCE (= `local_88`, l'id natif dans failedList/Contains IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances) : distingue
-            # les sources pour l'exclusion apres-echec inter-coups (cf. _run_hits #72).
-            sources.append(BlockSource(chance=block_chance, amount=block_amount, block_id=block_chance))
-        sources.extend(defender_effect_block_sources(tgt_active_effects, defender_armor))
+            # entree PAR DEFAUT de `GetAllValues` : entityId = 0, chance = GetStat(7), amount = GetStat(8).
+            sources.append(BlockSource(chance=block_chance, amount=block_amount, block_id=0))
+        sources.extend(defender_effect_block_sources(
+            tgt_active_effects, defender_armor,
+            defender_attack=int(getattr(tsc.ctx, "attack", 0) or 0)))
+        # `list.Sort((a,b) => b.blockDamage - a.blockDamage)` de CalculateBlockChances (decroissant).
+        sources.sort(key=lambda s: -int(s.amount or 0))
         return sources or None
 
     @staticmethod

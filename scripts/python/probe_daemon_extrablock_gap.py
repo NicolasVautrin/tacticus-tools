@@ -1,16 +1,20 @@
-"""CHIFFRAGE du gap ADJACENT decouvert en validant BrazierOfHolyFire : contre une cible portant
-`Daemon_ExtraBlock` (1034, pose par le trait `Daemon` 0x3fb), le NATIF consomme UN tirage de plus que
-le port au 1er coup d'une attaque d'ability -> desync RNG des le coup 2. Ce gap est dans l'ETAGE
-PARTAGE `AttackDamageOperation` (il ne depend d'aucune ability en particulier).
+"""#221 -- ETAT des sources de block d'une cible portant `Daemon_ExtraBlock` (1034), vu par le PORT.
 
-MESURE (`probe_brazier_daemon_offset.py`, board MC1_67, seed 777, caster adeptCanoness) -- meme suite de
-valeurs `v1..v8` produite par le rng dans les trois runs :
+Ce probe a servi a CHIFFRER le gap (le port ne voyait AUCUNE source contre un Daemon, donc sautait le
+jet de block que le natif roule -- desync RNG de tout l'aval de l'attaque) ; il sert maintenant a
+verifier d'un coup d'oeil que la source EST la, avec la chance et le montant attendus.
+
+MESURE d'origine (`probe_brazier_daemon_offset.py`, board MC1_67, seed 777, caster adeptCanoness) --
+meme suite de valeurs `v1..v8` produite par le rng dans les trois runs :
     necroWarden      (NON Daemon, 2 coups) : live = v1, v3            -> 2 tirages/coup, port == live
-    worldEightbound  (Daemon,     4 coups) : live = v1, v4, v6, v8    -> +1 tirage APRES le 1er coup
+    worldEightbound  (Daemon,     4 coups) : live = v1, v4, v6, v8    -> +1 tirage AU 1er coup
     blackObliterator (Daemon,     4 coups) : live = v1, v4, v6, v8    -> idem
 
-Ce probe LIT l'etat offline de la cible pour montrer POURQUOI le port ne tire pas : quelles sources de
-block il voit (`defender_effect_block_sources` + le scalaire `GetStat(7/8)`). ASCII only.
+Il imprime les effets ACTIFS offline, l'Attack COURANTE (= le `StatAmount(Self, 0, Current)` de
+`IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonAbility$$GetBlockDamage`), les sources d'effet,
+et le FOYER REEL `AttackDamageOperation._block_sources` (= mirror de
+`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances` : entree par defaut GetStat(7/8)
++ entrees par-entite, triees decroissant par amount). ASCII only.
 
 Usage : python probe_daemon_extrablock_gap.py [--target worldEightbound]
 """
@@ -27,6 +31,8 @@ import rl_collect_batch as R
 from engine.entities.pathfinding.board import Board
 from engine.entities.effects import defender_effect_block_sources
 from engine.runner.components import StatsComponent
+from engine.runner.damage_model import defender_fixed_armor
+from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.snapshot import load_state
 
 PYDIR = Path(__file__).resolve().parent
@@ -73,10 +79,18 @@ def main():
         effs = st.effects.active_effects(tid) if st.effects is not None else []
         print("PORT effets ACTIFS offline : %s"
               % [(int(getattr(e, "effect_type", 0) or 0), getattr(e, "name", None)) for e in effs])
-        srcs = defender_effect_block_sources(effs, {"owner_id": tid})
+        print("PORT stat Attack COURANTE du defenseur (StatAmount(Self,0,Current)) = %s" % ctx.attack)
+        srcs = defender_effect_block_sources(effs, defender_fixed_armor(st, tid),
+                                             defender_attack=int(ctx.attack or 0))
         print("PORT defender_effect_block_sources -> %s" % (srcs,))
+        # FOYER REEL consomme par les 3 vecteurs de degat (mirror CalculateBlockChances : entree par
+        # defaut GetStat(7/8) + entrees par-entite, triees decroissant par amount).
+        full = AttackDamageOperation._block_sources(sc, effs, defender_fixed_armor(st, tid))
+        print("PORT AttackDamageOperation._block_sources -> %s" % (full,))
+        print("PORT tirages de block attendus au 1er coup = %d"
+              % len([s for s in (full or []) if s.chance > 0 and s.amount > 0]))
         print("VERDICT : le port %s de source de block pour cette cible."
-              % ("DISPOSE" if (srcs or (getattr(ctx, "block_chance", 0) or 0) > 0) else "NE DISPOSE PAS"))
+              % ("DISPOSE" if full else "NE DISPOSE PAS"))
         return 0
     finally:
         try:

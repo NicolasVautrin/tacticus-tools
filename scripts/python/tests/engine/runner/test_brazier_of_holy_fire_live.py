@@ -280,16 +280,15 @@ def _dispose(rpc, ctx):
 
 def _assert_common(ctx, want_hits: int, target_vis: str, compare_hits=None):
     """Assertions PARTAGEES par les deux geometries : execution reelle, nb de coups == oracle config,
-    degat per-coup bit-exact live==offline, feu sur la tuile de la cible.
+    degat per-coup bit-exact live==offline sur TOUS les coups, feu sur la tuile de la cible.
 
-    `compare_hits` = nombre de coups confrontes BIT-EXACT (None = tous). La geometrie DAEMON n'en
-    confronte qu'UN, pour une raison MESUREE et EXTERIEURE a ce port -- cf. `test_brazier_daemon_
-    target_live` et `probe_daemon_extrablock_gap.py` : une cible Daemon porte `Daemon_ExtraBlock`
-    (1034), pour laquelle le NATIF roule un jet de block que le port SAUTE (l'etage partage
-    `AttackDamageOperation._block_sources` appelle `defender_effect_block_sources(effets, armure)`
-    SANS l'Attack courante du defenseur, dont `DaemonExtraBlockEffect.create_effect_block_source_for_
-    defense` a besoin -> il rend None). Un tirage d'ecart => les coups 2+ decalent. Le NOMBRE de coups
-    et le 1er coup, eux, restent confrontables -- et c'est EXACTEMENT ce que ce port decide."""
+    `compare_hits` = nombre de coups confrontes BIT-EXACT (None = tous, le regime des DEUX geometries).
+    La geometrie DAEMON n'en confrontait qu'UN tant que le port SAUTAIT le jet de block de
+    `Daemon_ExtraBlock` (1034) que le natif roule -- un tirage d'ecart, donc les coups 2+ decalaient.
+    Ce gap est FERME (#221 : `AttackDamageOperation._block_sources` thread l'Attack courante du
+    defenseur a `defender_effect_block_sources`, mirror de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonAbility$$GetBlockDamage`) -> les 4 coups
+    sont confrontes."""
     last, live, tid = ctx["last"], ctx["live"], ctx["tid"]
     assert last.get("ported") is True, (
         f"BrazierOfHolyFire (1041) non execute (no-op) : last={last} ; "
@@ -364,20 +363,18 @@ def test_brazier_daemon_target_live(live_session, rpc):
     -> le CENTRE compte). C'est le scenario DISCRIMINANT : un port qui lirait `nrOfHits` en dur (ou qui
     inverserait les deux branches du ConditionalAmount) passe le test non-Daemon et TOMBE ici.
 
-    PORTEE DE LA CONFRONTATION DE DEGAT, et pourquoi elle s'arrete au 1er coup ICI. Mesure du
-    2026-07-27 (`probe_brazier_daemon_offset.py`, board MC1_67, seed 777 -- MEME suite de valeurs
-    `v1..v8` tiree du rng dans les trois runs) :
-        necroWarden      (NON Daemon, 2 coups) : live = v1, v3         -> 2 tirages/coup, port == live
-        worldEightbound  (Daemon,     4 coups) : live = v1, v4, v6, v8 -> +1 tirage APRES le 1er coup
+    PORTEE DE LA CONFRONTATION DE DEGAT : les 4 coups, bit-exact. Mesure du 2026-07-27
+    (`probe_brazier_daemon_offset.py`, board MC1_67, seed 777 -- MEME suite de valeurs `v1..v8` tiree
+    du rng dans les trois runs) :
+        necroWarden      (NON Daemon, 2 coups) : live = v1, v3         -> 2 tirages/coup
+        worldEightbound  (Daemon,     4 coups) : live = v1, v4, v6, v8 -> +1 tirage au 1er coup
         blackObliterator (Daemon,     4 coups) : live = v1, v4, v6, v8 -> idem
     Le tirage surnumeraire est le JET DE BLOCK que le natif roule parce que toute unite Daemon porte
-    `Daemon_ExtraBlock` (1034). Le port ne le roule PAS : l'etage PARTAGE
-    `AttackDamageOperation._block_sources` appelle `defender_effect_block_sources(effets, armure)` sans
-    l'Attack COURANTE du defenseur, dont `DaemonExtraBlockEffect.create_effect_block_source_for_defense`
-    a besoin (`amount = defender_attack * daemonBlockDamagePercentage / 100`, None si 0) -> aucune source
-    -> aucun tirage. GAP ADJACENT, hors du perimetre de ce port (il touche TOUTE attaque multi-coups
-    contre un Daemon, quelle que soit l'ability) -> backlog. Chiffrage reproductible :
-    `probe_daemon_extrablock_gap.py`."""
+    `Daemon_ExtraBlock` (1034), pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonAbility$$
+    CreateUpdateEffectBehaviour`. Il n'est roule QU'AU 1er coup : la source echoue, son `BEntityId` part
+    dans `failedBlockIds` et `IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`
+    l'exclut des coups suivants (d'ou v4->v6->v8 a 2 tirages). #221 a ferme le gap ; ce test GARDE la
+    fermeture. Chiffrage reproductible : `probe_daemon_extrablock_gap.py`."""
     target_vis = "blackObliterator"
     assert _has_daemon(target_vis), f"{target_vis} n'a plus le trait Daemon : geometrie 2 non discriminante"
     ctx = _run(rpc, target_vis)
@@ -386,7 +383,7 @@ def test_brazier_daemon_target_live(live_session, rpc):
         assert want != int(_const("nrOfHits")), (
             "nrOfHits_2 == nrOfHits dans la config : la branche Daemon n'est plus observable, ce test "
             "ne discrimine plus rien")
-        _assert_common(ctx, want, target_vis, compare_hits=1)
+        _assert_common(ctx, want, target_vis)   # #221 : les 4 coups, plus de bridage
         tid = ctx["tid"]
         # (5) MARQUAGE 1075 : la cible EST un Daemon et le centre est INCLUS -> elle se marque elle-meme.
         marked_off = {m["target"] for m in (ctx["last"].get("marked") or []) if m.get("placed")}

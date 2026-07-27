@@ -1,10 +1,14 @@
-"""Localise l'ETAGE de la desync BrazierOfHolyFire (1041) vs cible DAEMON : combien de tirages
+"""#221 -- Localise l'ETAGE d'une desync BrazierOfHolyFire (1041) vs cible DAEMON : combien de tirages
 `state.rng` separent la sequence PORT de la sequence LIVE, et OU.
 
 Methode : depuis l'etat rng capture AVANT le cast live, on rejoue l'attaque offline en PRE-CONSOMMANT
-k tirages (k = 0..6) et on cherche le k pour lequel les coups 2..N du port collent aux coups 2..N du
-live. Un k > 0 qui recolle designe « le natif tire k fois de plus (ou de moins) entre le coup 1 et le
-coup 2 » -- on remonte ensuite a l'etage. ASCII only.
+k tirages (k = 0..6) et on cherche le k pour lequel les coups du port collent au live. Un k > 0 qui
+recolle designe « le natif tire k fois de plus (ou de moins) » -- on remonte ensuite a l'etage.
+
+Depuis #221 le PORT matche a k=0 (le jet de block de `Daemon_ExtraBlock` est roule). La serie
+`[legacy sans Attack]` rejoue, sur les MEMES donnees et le MEME etat rng, le comportement d'AVANT
+(`DaemonExtraBlockEffect` neutralise) : elle chiffre l'ecart dans un seul run et garde le probe
+discriminant. ASCII only.
 
 Usage : python probe_brazier_daemon_offset.py [--target blackObliterator]
 """
@@ -19,6 +23,7 @@ from collections import deque
 from pathlib import Path
 
 import rl_collect_batch as R
+from engine.entities.effects.loki.hits import DaemonExtraBlockEffect
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
@@ -152,6 +157,26 @@ def main():
             ph = (atk or {}).get("per_hit") or []
             tag = "  <== MATCH" if ph == live else ""
             print("k=%d off=%s%s" % (k, ph, tag))
+        # variante LEGACY (#221) : `_block_sources` SANS l'Attack du defenseur -> la source
+        # `Daemon_ExtraBlock` disparait et le port saute le jet de block. Rejoue ICI, sur les MEMES
+        # donnees et le MEME etat rng, pour chiffrer l'ecart avant/apres dans un seul run.
+        _orig = DaemonExtraBlockEffect.create_effect_block_source_for_defense
+        DaemonExtraBlockEffect.create_effect_block_source_for_defense = (
+            lambda self, defender_fixed_armor=0, defender_attack=0: None)
+        try:
+            for k in range(0, 3):
+                st = load_state(dv, ob, snap, board=bd)
+                st.rng = _rng(s0)
+                for _ in range(k):
+                    st.rng.next_internal(0, 100)
+                atk = AttackDamageOperation.execute_ability_attack(
+                    st, cid, tid, bmin, bmax, pierce_eff, len(live) or 4, damage_profile="Flame",
+                    is_melee=False, ability_type=ABILITY, is_attack_damage_op=True)
+                ph = (atk or {}).get("per_hit") or []
+                tag = "  <== MATCH" if ph == live else ""
+                print("[legacy sans Attack] k=%d off=%s%s" % (k, ph, tag))
+        finally:
+            DaemonExtraBlockEffect.create_effect_block_source_for_defense = _orig
         # variante FAMILLE "ability" (1 tirage/coup) pour trancher la classification de factory
         for k in range(0, 3):
             st = load_state(dv, ob, snap, board=bd)

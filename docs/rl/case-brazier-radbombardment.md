@@ -200,17 +200,20 @@ gardes `test_sentinel_directives_live` + `test_sanctorum_missile_live`, rejoués
 - **Les deux** : `abilityTargets` n'a pas été confronté aux nouveaux `TARGETING_OPTIONS` (le gate est
   posé, mais aucun test ne vérifie qu'un cast ILLÉGAL est bien refusé par le port).
 
-## 7. Gaps ADJACENTS mesurés (backlog, NON corrigés ici)
+## 7. Gaps ADJACENTS mesurés (étages PARTAGÉS)
 
-Les deux sont dans des étages PARTAGÉS et touchent bien plus que ces deux abilities ; les corriger
-change la conso RNG d'un grand nombre d'attaques → travail à part, avec sa propre re-validation.
+Tous deux touchent bien plus que ces deux abilities et changent la conso RNG d'un grand nombre
+d'attaques → traités à part, avec leur propre re-validation.
 
-1. **`Daemon_ExtraBlock` (1034) inerte côté COMBAT** — `AttackDamageOperation._block_sources` appelle
-   `defender_effect_block_sources(effets, armure)` **sans** l'Attack courante du défenseur, dont
-   `DaemonExtraBlockEffect.create_effect_block_source_for_defense` a besoin (`amount = defender_attack ×
-   daemonBlockDamagePercentage / 100`, `None` si 0) → le port saute le jet de block que le natif roule.
-   **+1 tirage natif par attaque contre toute unité Daemon.** Reproduction :
-   `probe_daemon_extrablock_gap.py`, `probe_brazier_daemon_offset.py`.
+1. **`Daemon_ExtraBlock` (1034) inerte côté COMBAT — FERMÉ (#221, `case-221-daemon-extrablock-rng.md`)**.
+   `AttackDamageOperation._block_sources` appelait `defender_effect_block_sources(effets, armure)`
+   **sans** l'Attack courante du défenseur, dont `DaemonExtraBlockEffect.create_effect_block_source_
+   for_defense` a besoin (`amount = defender_attack × daemonBlockDamagePercentage / 100`, `None` si 0)
+   → le port sautait le jet de block que le natif roule (**+1 tirage natif par attaque contre toute
+   unité Daemon**). L'Attack est désormais threadée ; la confrontation de dégât de la géométrie 2 de
+   ce case porte donc sur les **4 coups** (le bridage `compare_hits=1` est levé). Reproduction :
+   `probe_daemon_extrablock_gap.py`, `probe_brazier_daemon_offset.py` (qui rejoue aussi la variante
+   « legacy » pour chiffrer l'écart).
 2. **`OnToxicDamageAbility` (1203) non porté** — `CreateBehaviour` =
    `If(IsFirstHitInSeries() & Maybe(ConfigConst(1203, Self@0x148, 0x2a)), AddEffect(0x4dc, …, Tiles(target)))`.
    Le `Maybe` consomme **UN tirage par CIBLE** d'une attaque de profil `Toxic`. Jumeau exact du canal
