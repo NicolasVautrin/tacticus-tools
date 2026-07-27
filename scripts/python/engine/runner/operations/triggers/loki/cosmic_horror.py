@@ -28,7 +28,7 @@ splittees par l'EVENEMENT. RE (decompile ghidra, build gqfc5mff6c) :
     Other enemies surrounding the defeated unit have a 60% chance to be Suppressed for 1 round, and
     have a 60% chance to trigger Battle Fatigue a second time, if they have it. »
 
-    /!\ DIVERGENCE PROSE vs DECOMPILE, tranchee par le DECOMPILE : l'i2 annonce DEUX chances de 60 %
+    ATTENTION -- DIVERGENCE PROSE vs DECOMPILE, tranchee par le DECOMPILE : l'i2 annonce DEUX chances de 60 %
     independantes ; le natif n'a qu'UN SEUL `Maybe(body, chance)` qui englobe les DEUX volets
     (BattleFatigue ET Pinned). Un ennemi rate le tirage -> il ne subit NI l'un NI l'autre ; il le
     passe -> il subit les DEUX. Un seul `next_bool` par victime.
@@ -277,8 +277,7 @@ class CosmicHorrorOnKillAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         import gameconfig as GC
-        from ..dispatch import evaluate_trigger_operation                   # noqa: F401  (cycle-safe)
-        from ..spawn import spawn_decoy
+        from ...spawn import spawn_decoy
         victim = ev.dying_id if ev.dying_id is not None else ev.target_id
         # (1) `Spawn(caster, tile, GetStringConstant(config, 8=unitToSpawn), ForSteppable())`.
         consts = (GC.ability(ABILITY_ID) or {}).get("constants") or {}
@@ -314,7 +313,7 @@ class CosmicHorrorOnKillAbility(TriggeredAbility):
         `BattleFatigue` (1015), qui est ce qui lui accorde la triggered 1025."""
         if not has_trait(_traits_of(state, enemy_id), FATIGUE_TRAIT):
             return None
-        from ..behaviour import BattleFatigueAbility
+        from ...behaviour import BattleFatigueAbility
         return BattleFatigueAbility(enemy_id).execute_behaviour(state, ev)
 
     @staticmethod
