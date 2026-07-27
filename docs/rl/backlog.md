@@ -280,13 +280,32 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **Ce qui manque** : la sémantique des 8 ids (aucun dump d'enum `UtilityBucket`) + le scoreur
   par-unité derrière le slot 1. Sans incidence tant que les unités du groupe sont interchangeables
   (Ork Boyz clones, gardes de Creed). `[opus]`.
-- **`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` échoue** — **RE-REPRODUIT au
-  commit `7f47c29` (2026-07-26, 1 failed / 2 passed)** : `res={'moved': (6,5), 'kind': 'ability',
-  'ability': 17, 'target': 79}`, `d_bfs 3->3`, `hp 8536->8536`, `atk(ranged=True, hits=3)`. Deux
-  anomalies dans la MÊME trace : le move ne réduit pas la distance BFS, **et** 3 coups infligent 0
-  dégât. Indice non exploité : `ability: 17` est le `NormalAttack` ABSTRAIT alors que l'attaque
-  normale est un `ActiveAbilityType` CONCRET par unité (`NormalAttackType` @0x28). Pré-existant, pas
-  une régression. `[opus]`.
+- ~~**`test_skitarii_turn_live::test_skitarii_played_by_generic_ai_pass` echoue**~~ -> **FERME le
+  2026-07-27** (`case-r5-skitarii-turn.md`). Cause racine UNIQUE pour les deux anomalies : le gate
+  d'expansion `IdunBattle.Entities.Pathfinding.BasePathfinder$$NodesInNextLevel` ->
+  `IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidContinuePathTile` (bit 0x1 = effet de tuile
+  `BlockEnteringUnitsTileEffect`, pose sur les Swamp) n'etait pas porte : la flood-fill offline
+  traversait les marecages et la passe IA choisissait une tuile de deplacement ILLEGALE ((6,5)), a
+  portee du SEUL ennemi 79 -- d'ou `d_bfs 3->3` ET `hp 8536->8536` sur l'ennemi mesure. Oracle natif
+  fabrique pour l'occasion (Vanguard REEL invoque live par `ControlEdict`, joue seul au turn-start) :
+  natif = move (4,7), cible 77 -- **le test avait raison**. L'indice `ability: 17` est REFUTE comme
+  cause (l'id concret est 69 `Loki_NormalAttack` pour le Marshall ET le Vanguard, mais aucun etage de
+  la voie normale offline ne le consomme). Agrement `aiMovableTiles` sur 5 boards, 0 ecart.
+- **`snapshot.load_state` ne pose JAMAIS `ai_controlled` -> `run_ai_control_pass` est un no-op
+  silencieux sur tout etat charge du LIVE** (mesure 2026-07-27, `probe_r5b_vanguard_native.py`) : un
+  Skitarii Vanguard REEL (invoque live par `ControlEdict`, entite u104, trait `Summon`) recharge par
+  `load_state` rend `UnitComponent.ai_controlled = False` et `collect_ai_controlled(player) == []`.
+  Seul le spawn OFFLINE (`operations/spawn._spawn_config_grot`) pose le flag -- donc la passe
+  AI-control ne s'exerce QUE sur des summons fabriques offline, jamais sur ceux d'une bataille
+  chargee. Source du flag cote natif : trait `Summon` (2) / `Unit_IsSummoned` de la cascade de spawn.
+  Fichier : `engine/runner/snapshot.py`. `[opus]`.
+- **Arbitrage de TUILE de la passe IA : elevation sur-valorisee quand la tuile est ADJACENTE a un
+  second ennemi** (residu R5-a, `case-r5-skitarii-turn.md` §8) : geometrie MC1_67, Vanguard (3,7),
+  ennemis (6,8)+(6,7) -> natif choisit (4,7) (plat, u_full port 24.10), le port choisit (6,6)
+  (elevation 2 : degat predit x1.5 ET +15 d'utilite de tuile, u_full 48.64). CONTRE-MESURE le meme
+  jour : sur une geometrie ou la tuile elevee n'est PAS adjacente a un second ennemi, port et natif
+  choisissent la MEME tuile (3,6) -> suspecter un terme de MENACE dans
+  `CalculateUtilityFromTilePrediction`, pas le bonus d'elevation lui-meme. `[opus]`.
 
 - **BlackRage décision : seuil `should_evaluate` hp<=50% vs `hpPct` per-level (30→50%)** (`case-217-
   blackrage`, candidat remonté par PR #12) : le playbook décision gate à 0.5 fixe alors que la RE combat

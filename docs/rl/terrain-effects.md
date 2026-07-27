@@ -139,24 +139,37 @@ walkable=TRUE + dans aiMovableTiles, SyncPvp_Arctic_06). Le blocage = pose de `B
 - **Swamp** `SwampBlockMovement` (PassiveAbilityType 5, desc @1809cdf10) = env-ability du board ; pose
   `BlockEnteringUnits` SOUS CONDITION (non identifiee) -> ne bloque PAS par defaut (empirique).
 
-**Gate pathfinding natif** : `NodesInNextLevel @180ee28b0` gate l'expansion sur `IsValidContinuePathTile
-@180f2ee30 = GetTileBlockingReasons @180f2e9d0 == 0` (sauf start) : bit 0x1 = effet block-entering,
-bit 0x4 = occupant ennemi. => une tuile block-entering ne peut etre ni TRAVERSEE ni un STOP. Le predicat
-d'arete `IsValidPathNode @180f2ee50` NE regarde PAS l'effet (juste walkable comp+0x10 + elev + !ennemi).
+**Gate pathfinding natif** : `IdunBattle.Entities.Pathfinding.BasePathfinder$$NodesInNextLevel` gate
+l'expansion sur `IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidContinuePathTile` =
+`IdunBattle.Entities.Pathfinding.WalkPathfinder$$GetTileBlockingReasons == 0` (sauf start) : bit 0x1 =
+effet block-entering, bit 0x2 = « l'hex FINIT le mouvement » (`WalkPathfinder$$GetEffectiveDepth` ->
+`Min(1, depth)`), bit 0x4 = occupant ennemi. Le predicat d'arete
+`IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsValidPathNode` NE regarde PAS l'effet (juste
+walkable comp+0x10 + elev + !ennemi).
 
-**Port** : `walk_pathfinder.py` est FIDELE pour nos boards (walkable+elev+!ennemi = bits 0x4 + walkable).
-Le SEUL manque = le gate bit-0x1 (`BlockEnteringUnitsTileEffect` sur la tuile).
+⚠ **CORRECTION (2026-07-27, case-r5)** : la phrase « une tuile block-entering ne peut etre ni TRAVERSEE
+ni un STOP » etait **FAUSSE sur la moitie STOP**. Le gate est UNIQUEMENT sur l'EXPANSION : mesure live
+`MC1_67` a portee forcee 1/2/3, les tuiles Swamp (4,6) et (1,6) SONT dans `aiMovableTiles` — on peut
+s'y ARRETER, on ne peut pas CONTINUER au-dela. C'est un CUL-DE-SAC, pas un mur.
 
-⚠ **CORRECTION (#102)** : l'affirmation « INERTE car aucun board courant ne le porte » est **FAUSSE**.
+**Port — FAIT (2026-07-27, case-r5, #131 volet bit-0x1)** : `walk_pathfinder.get_reachable_levels`
+accepte un `can_continue` (mirror du gate de `NodesInNextLevel`), `entities/pathfinding/tile_blocking.py`
+le derive de `State.effects.by_unit[tile_entity_id]` (+ exemption
+`static_battle_rules.not_blocking_movement_of_traits` = Mounted/Vehicle/Unstoppable), et
+`ai/state_bridge._move_tiles` le pose. Agrement `aiMovableTiles` 5 boards, 0 ecart dans les deux sens
+(cf. case-r5 §6). Reste NON porte : le bit 0x2 (aucun datapoint sur la condition qui le pose).
+
+⚠ **La pose de l'effet est CONDITIONNELLE — ne JAMAIS gater sur le TERRAIN.** Mesure du 2026-07-27 :
+`MC1_67`/`MC1_64`/`C2_26`/`C1_47` ont des tuiles block-entering ; `PVP_desert_04` n'en a AUCUNE live.
+Un gate sur `tileDefId == 'Swamp'` sur-bloquerait. Le port lit l'EFFET (EffectType 0), jamais le
+tile-def. La CONDITION de pose de `SwampBlockMovement` reste a RE.
+
+⚠ **CORRECTION (#102)** : l'affirmation « INERTE car aucun board courant ne le porte » etait **FAUSSE**.
 Mesure live (`tileMeta`, board `C1_02`, des la construction du runner) : les tuiles **Swamp** portent
 `BlockEnteringUnits` (EffectType 0) **et** `Thorns_DefenseReduction` (0xb). Ces effets etaient
 invisibles offline tant que `load_state` ne seedait pas les effets de tuile ; ils le sont desormais
-(`state.effects.by_unit[tile_id]`). L'argument « impossible a valider live » ne tient donc plus — le
-port du gate reste A FAIRE (#131), mais il est CONFRONTABLE. Port futur = gater l'expansion/stop dans
-`get_reachable_levels`/`get_movable_positions` sur la presence de l'effet 0 (+ exemption trait via
-`NotBlockingMovementOfTraits`). ⚠ Ne PAS en deduire que le Swamp bloque : le static-block est refute
-live (Swamp walkable=TRUE et dans aiMovableTiles) — c'est la CONDITION de pose/l'exemption de traits
-qui reste a RE.
+(`state.effects.by_unit[tile_id]`) — **a condition d'appeler `load_state(..., tiles=tileMeta)`** :
+sans ce canal le gate #131 est un no-op SILENCIEUX.
 
 ### ICE dynamique (0x11) — #133, MECANIQUE RE'd 2026-07-16 (carrier jouable Arjac + Stormcaller)
 
