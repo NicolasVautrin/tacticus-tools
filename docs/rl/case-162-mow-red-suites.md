@@ -156,9 +156,15 @@ l'`AbilityState` per-ability) ; et corriger l'en-tete perime de `_load_machines`
 doivent continuer d'entrer dans le seed `EffectsState` (ils viennent de `decisionView.mows[].effects`,
 deja injectes dans `effects_by_id` juste avant la boucle — ce chemin-la est independant).
 
-Une fois ce correctif applique, les 4 tests ci-dessus doivent passer sans autre changement : le
-contre-factuel du probe (re-poser `active_ability_level` sur le `ctx`) restaure exactement les valeurs
-natives (4 / 7 / 5).
+**VERIFIE** (localement, patch d'une ligne applique puis REVERTE, rien de commite) : avec ce seul
+`continue` sur les lignes `entityType == Machine`, les **4 tests passent, 4/4**, sans aucun autre
+changement. Le contre-factuel du probe dit la meme chose par un autre chemin : re-poser
+`active_ability_level` sur le `ctx` restaure exactement les valeurs natives (4 / 7 / 5).
+
+Attention en l'appliquant : les effets de MoW doivent **continuer** d'entrer dans le seed
+`EffectsState`. Ils y entrent par `effects_by_id`, alimente depuis `decisionView.mows[].effects` **avant**
+la boucle — ce chemin est independant de la ligne `combatSnapshot` qu'on saute, donc le `continue` ne le
+touche pas (confirme par les tests, qui confrontent justement des empreintes d'effets portes par la MoW).
 
 ---
 
