@@ -227,6 +227,21 @@ class AbilityHandler:
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
         # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
         self._pre_unit_ability(msg)
+        # #133 GATE ACTEUR-MORT **POST-`On(0x2b)`** — mirror du test qui suit IMMEDIATEMENT
+        # l'evenement dans `ActiveAbilityOperation$$ExecuteInternal` (lu verbatim au decompile) :
+        #     FUN_180026490(0x4d, .., 0x2b);
+        #     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state)) return 0;
+        # Le natif teste DEUX FOIS la mort du caster : en TETE d'operation (#70, deja porte) et ICI,
+        # parce que la cascade de triggers reveillee par `0x2b` peut l'avoir TUE entre-temps. C'est
+        # exactement ce que fait la riposte `MartialSuperiority` (« before the enemy attack
+        # executes ») : si elle tue l'attaquant, l'attaque entrante est ANNULEE. `options@0x4a` = le
+        # flag « caster mort autorise » des `AbilityOptions` : aucune voie du port ne le pose ->
+        # gate toujours actif ici. Inerte pour toute cascade qui ne tue pas le caster.
+        if unit_is_dead(self.state.get_entity(int(msg.caster_id))):
+            self.last = {"ability_type": msg.ability_type, "ported": ability is not None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "actor_dead": True, "actor_dead_after_pre_ability": True}
+            return
         # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans
         # `ActiveAbilityOperation$$ExecuteInternal` : si une AUTRE unite occupe desormais la tuile
         # visee (SwornProtector : Kell echange sa place avec Creed pendant la cascade), le natif

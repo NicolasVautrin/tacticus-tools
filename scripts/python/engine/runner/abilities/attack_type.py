@@ -149,6 +149,18 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1221: AbilityAttackType.DirectTargetAttack,   # AugmentedAssaultAbility
     1230: AbilityAttackType.DirectTargetAttack,   # SavageEchoesAbility
     1103: AbilityAttackType.DirectTargetAttack,   # SuperchargeAbility (lot #112, litteral 0 relu)
+    # FrenziedFiring (1036, Volk blackObliterator) : entree dans `ABILITY_CLASSES` par le lot #61
+    # (face COMBAT du volet AoE) SANS son litteral -> l'etape 0 du garde-fou
+    # `probe_120_pre_unit_ability_fork` echouait (« ability portee sans AbilityAttackType lu »).
+    # Litteral RELU : `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$.ctor`
+    # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
+    # (⚠ le `&opts` y est un PRESET lu d'un champ STATIQUE de la classe, PAS un litteral inline :
+    #  ses `TARGETING_OPTIONS` restent donc NON renseignes -- les deviner serait pire que l'absence.)
+    1036: AbilityAttackType.DirectTargetAttack,   # FrenziedFiringAbility
+    # BrazierOfHolyFire (1041) : MEME cas que 1036, entree au registre par le lot #128 sans son
+    # litteral. `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
+    # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 0 = DirectTargetAttack (opts = PRESET statique).
+    1041: AbilityAttackType.DirectTargetAttack,   # BrazierOfHolyFireAbility
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
     1007: AbilityAttackType.SummonAndAttackTarget,   # ScarabHiveAbility
@@ -198,6 +210,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AbilityHasAttackType(0|1)` de SwornProtector, contrairement aux deux autres.
     1140: AbilityAttackType.Others,   # ExemplarOfHateAbility
     1189: AbilityAttackType.Others,   # CalibaniteGreatswordAbility
+    # RadBombardment (1116), lot #128 : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # RadBombardmentAbility$$.ctor` = `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others.
+    # (Ici le `&opts` EST un litteral inline : `TargetingOptions..ctor(&opts, 0, CustomRange(1), 1,
+    #  0xa0000000042, 0, 0, 0)` -- mais le masque est deja pose par le lot #128, on ne le double pas.)
+    1116: AbilityAttackType.Others,   # RadBombardmentAbility
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de
@@ -226,6 +243,25 @@ def ability_is_attack(ability_type: Optional[int]) -> bool:
     `...SwornProtector_ProtectAbility$$CreateTrigger`."""
     return (ability_has_attack_type(ability_type, AbilityAttackType.DirectTargetAttack)
             or ability_has_attack_type(ability_type, AbilityAttackType.SummonAndAttackTarget))
+
+
+def ability_is_direct_target_attack(ability_type: Optional[int]) -> bool:
+    """`IdunBattleLogic.Entities.DSLFactory$$IsDirectTargetAttack(df, sel)` -- MIRROR du decompile :
+
+        AbilityHasAttackTypeTrigger(sel, 0 = DirectTargetAttack, df@0x50, df@0x40)
+        | IsNormalAttack(df, sel)
+
+    (DISJONCTION `AbilityTrigger.op_BitwiseOr`, lue verbatim). A NE PAS confondre avec
+    `ability_is_attack` ci-dessus, qui est la disjonction *DirectTargetAttack | SummonAndAttackTarget*
+    de SwornProtector -- `IsDirectTargetAttack` prend l'autre branche (attaque NORMALE) et EXCLUT
+    `SummonAndAttackTarget`.
+
+    Consommateurs natifs (les 2 seuls call-sites, `list_xrefs`) :
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MartialSuperiorityAbility$$CreateTrigger`
+      * `IdunBattle.Entities.Effects.CounterAttackEffect$$GetDirectTargetAbilityTrigger`
+    -- les deux batissent le MEME idiome `IsDirectTargetAttack(@0x130) & !IsDirectTargetAttack(@0x140)`."""
+    return (ability_has_attack_type(ability_type, AbilityAttackType.DirectTargetAttack)
+            or is_normal_attack(ability_type))
 
 
 def is_regular_attack(ability_type: Optional[int]) -> bool:

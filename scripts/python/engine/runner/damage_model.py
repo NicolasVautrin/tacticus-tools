@@ -168,7 +168,9 @@ def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
 
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
                                     target_armor_reduced: Optional[bool],
-                                    damage_profile: Optional[str] = None) -> None:
+                                    damage_profile: Optional[str] = None,
+                                    target_id: Optional[int] = None,
+                                    target_traits=None) -> None:
     """AURA ALLIÉE +dégât FLAT projetée sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
     de ses ALLIÉS à portée (canal AURA côté SOURCE : l'effet vit sur le porteur et se projette sur ses amis quand
     EUX attaquent). `ConquerorImperative` (#23) : +extraDmg aux amis Mechanical ring-1 vs cible à armure réduite ;
@@ -214,9 +216,36 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
            "board": state.board,
-           "is_melee": is_melee, "target_armor_reduced": target_armor_reduced}
+           "is_melee": is_melee, "target_armor_reduced": target_armor_reduced,
+           # CIBLE du coup — les auras dont le gate natif porte sur la CIBLE (`HasTrait(Target@0x178,
+           # …)`) en ont besoin : `DestroyTheWitch_ExtraDamage` (aura melee vs **Psyker**,
+           # IdunBattle.Entities.Effects.Loki.DestroyTheWitch_ExtraDamageEffect$$CreateEffectDamageBonusForAttack).
+           # Symetrique du ctx de l'agregateur DEFENSE (`aura_defense_damage_malus_from_units`), qui
+           # portait deja `tgt_traits`. None (appelant sans cible) -> ces gates rendent None.
+           "tgt_id": target_id,
+           "tgt_traits": target_traits,
+           "t_pos": _unit_pos(state, target_id),
+           "tgt_team": _unit_team(state, target_id)}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
+
+
+def _unit_pos(state: State, unit_id: Optional[int]):
+    """`(col,row)` de l'unité, ou None (unité absente / sans position — ex. MoW hors-plateau)."""
+    if unit_id is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return (pc.col, pc.row) if pc is not None else None
+
+
+def _unit_team(state: State, unit_id: Optional[int]):
+    """Équipe de l'unité, ou None."""
+    if unit_id is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    return oc.team if oc is not None else None
 
 
 def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
@@ -337,7 +366,9 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
-    _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar, damage_profile=damage_profile)
+    _apply_ally_attack_damage_auras(state, unit_id, mods, is_ranged, tar,
+                                    damage_profile=damage_profile,
+                                    target_id=target_id, target_traits=target_traits)
     return mods, active
 
 

@@ -75,6 +75,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
                      MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect,
                      BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
+from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
+                                DestroyTheWitchExtraDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
@@ -131,6 +133,8 @@ __all__ = [
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
+    # destroy_the_witch (passif templHelbrecht 1091 : +1 MOVEMENT gate Psyker ennemi + aura melee)
+    "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)
