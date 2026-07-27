@@ -192,7 +192,10 @@ def _run_models(dv, ob, snap, rng0, board, att, tgt):
     UNE SEULE VARIABLE change entre les deux -> l'ecart observe EST celui de cet etage.
     """
     from engine.runner.operations.damage import AttackDamageOperation
-    from engine.runner.operations import damage_ops
+    # #169 : `damage_ops` est un PACKAGE ; `execute` (attaque NORMALE) resout `apply_all_modifiers`
+    # dans les globals de `damage_ops.normal`. Patcher le `__init__` du package serait un NO-OP
+    # SILENCIEUX (le probe rendrait deux modeles IDENTIQUES en ne mesurant plus rien).
+    from engine.runner.operations.damage_ops import normal as damage_ops_normal
     from engine.services.damage_modifiers import apply_all_modifiers as _aam
 
     global _EVENTS
@@ -201,12 +204,12 @@ def _run_models(dv, ob, snap, rng0, board, att, tgt):
         global _EVENTS
         _EVENTS = []
         st = _offline_state(dv, ob, snap, rng0, board, spy=True)
-        damage_ops.apply_all_modifiers = (
+        damage_ops_normal.apply_all_modifiers = (
             lambda v, m, round_materialize=False, _f=force: _aam(v, m, round_materialize=_f))
         try:
             r = AttackDamageOperation.execute(st, att, tgt) or {}
         finally:
-            damage_ops.apply_all_modifiers = _aam
+            damage_ops_normal.apply_all_modifiers = _aam
         return r, list(_EVENTS)
 
     # Les DEUX modeles sont FORCES (et non « le port tel quel » vs « le port patche ») : le probe

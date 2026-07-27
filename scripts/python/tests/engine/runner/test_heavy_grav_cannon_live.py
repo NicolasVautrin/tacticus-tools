@@ -220,7 +220,12 @@ def _apply_hypothesis(state, cid, hyp: str) -> bool:
 def _offline(dv, ob, snap, board, s0, cid, tid, moves, hyp: str, force_round=None):
     """Rejoue le cast OFFLINE sur le MEME etat et le MEME flux RNG. `force_round` (None = defaut du
     port) force la materialisation finale de `apply_all_modifiers` -> garde (3)."""
-    from engine.runner.operations import damage_ops
+    # #169 : `damage_ops` est un PACKAGE ; ce cast passe par le vecteur d'ABILITY bounds-mode
+    # (`execute_ability_attack`), qui resout `apply_all_modifiers` dans les globals de
+    # `damage_ops.ability`. Patcher le `__init__` du package serait un NO-OP SILENCIEUX -- la
+    # garde (3) ne verrait plus AUCUN ecart entre ARRONDI et TRONCATURE et se skipperait
+    # (`force_round` inerte), c.-a-d. un vert qui ne mesure plus rien.
+    from engine.runner.operations.damage_ops import ability as damage_ops_ability
     from engine.services.damage_modifiers import apply_all_modifiers as _aam
     st = load_state(dv, ob, snap, board=board)
     if moves > 0:
@@ -231,12 +236,12 @@ def _offline(dv, ob, snap, board, s0, cid, tid, moves, hyp: str, force_round=Non
     st.rng = _seed_rng(s0)
     runner = Runner(st).install_default_handlers(20)
     if force_round is not None:
-        damage_ops.apply_all_modifiers = (
+        damage_ops_ability.apply_all_modifiers = (
             lambda v, m, round_materialize=False, _f=force_round: _aam(v, m, round_materialize=_f))
     try:
         runner.apply(ActiveAbilityMessage(caster_id=cid, target_id=tid, ability_type=ABILITY))
     finally:
-        damage_ops.apply_all_modifiers = _aam
+        damage_ops_ability.apply_all_modifiers = _aam
     last = runner.ability_handler.last or {}
     return ((last.get("attack") or {}).get("per_hit") or []), last
 
