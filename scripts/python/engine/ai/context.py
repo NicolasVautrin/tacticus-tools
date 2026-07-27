@@ -81,6 +81,14 @@ class AiDecisionContext:
     #                                   lit via epos/fpos/origine (frais), PAS le occupantUnitId caché (#116)
     terrain_by_pos: dict              # {(col,row): tileDefId} (boardGraph, statique) — covers HÉBERGÉS par
     #                                   le terrain sommés par TileEffects(9) Loop2 (DryBush->LightCover, case-37)
+    # Deux attributs de TUILE que `tileMeta` remonte DÉJÀ et que le port jetait (#175) : sans eux les
+    # feuilles Tile(7) qui les gatent restent muettes même quand `ctx.unit_traits` est peuplé.
+    is_territory_by_pos: dict = field(default_factory=dict)
+    #     {(col,row): bool} <- tileMeta.isTerritory = `TileComponent+0x2e`, l'octet que lit
+    #     `IdunBattle.Entities.TileExtensions$$IsTerritoryTile` -> feuille CapturePoint(24) (+/-300)
+    tile_effect_type_ids_by_pos: dict = field(default_factory=dict)
+    #     {(col,row): [EffectType]} <- tileMeta.effects[].effectType = `EffectComponent+0x58` ->
+    #     feuilles DespoiledGround(28, 0x5c4), Contaminated(25, 0x4dc), MoltenForm(23, 5/10)
 
     debug: bool = False
 
@@ -201,6 +209,25 @@ def _board_walkable(rpc: Callable[..., dict], rid: int) -> dict:
     return m
 
 
+def _tile_attribute_maps(tiles: list) -> tuple:
+    """`(is_territory_by_pos, tile_effect_type_ids_by_pos)` depuis les tuiles `tileMeta` (#175).
+
+    `isTerritory` = `TileComponent+0x2e` (lu par `IdunBattle.Entities.TileExtensions$$IsTerritoryTile`)
+    et `effects[].effectType` = `EffectComponent+0x58` (comparé à `0x5c4` par
+    `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`)
+    étaient tous deux déjà remontés par le RPC et jetés par le port : `effects_by_pos` ne gardait que
+    le NOM (clé de poids BC de la feuille TileEffects(9)), jamais le type."""
+    terr, tids = {}, {}
+    for t in tiles:
+        p = (t.get("col"), t.get("row"))
+        terr[p] = bool(t.get("isTerritory"))
+        ids = [int(e["effectType"]) for e in (t.get("effects") or [])
+               if e.get("effectType") is not None]
+        if ids:
+            tids[p] = ids
+    return terr, tids
+
+
 def _enemies(units: list) -> list:
     """Unités adverses vivantes positionnées (ctrl=False => adverse)."""
     return [u for u in units if not u.get("ctrl") and u.get("alive") and u.get("pos")]
@@ -297,6 +324,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary")) for t in tiles}
     effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
                       for t in tiles}
+    is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
     # #26 — ennemis CIBLABLES retenus par le RPC (miroir natif COMPLET des filtres `FindClosestEnemy`
@@ -347,7 +375,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
-        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos, debug=debug)
+        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
+        is_territory_by_pos=is_territory_by_pos,
+        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos, debug=debug)
 
 
 def machine_row(dv: dict, uid: int) -> dict | None:
@@ -420,6 +450,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary")) for t in tiles}
     effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
                       for t in tiles}
+    is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
     tile_id_by_pos = _board_tile_ids(rpc, rid)
     neigh_by_pos = _board_neighbours(rpc, rid)
     walkable_by_pos = _board_walkable(rpc, rid)
@@ -441,4 +472,6 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos={},
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
-        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos, debug=debug)
+        walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
+        is_territory_by_pos=is_territory_by_pos,
+        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos, debug=debug)

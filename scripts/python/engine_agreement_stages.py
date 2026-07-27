@@ -87,6 +87,7 @@ from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#4
                             repair_amount_config, repair_utility)  # IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions)
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
 from engine.utilities.tile import (terrain_tile_effects,  # noqa: E402  (covers terrain TileEffects, case-37)
+                                   apply_tile_attributes,  # noqa: E402  (isTerritory / effectType, #175)
                                    triggered_abilities_attack_utility)  # noqa: E402  (feuille 2 attack, #45-s18)
 from engine.utilities.move import MIN_DIST_UTILITY  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
@@ -462,6 +463,9 @@ class StageProbe:
             _effs += terrain_tile_effects(ctx.terrain_by_pos.get(c))
             if _effs:
                 meta["effects"] = _effs
+            # isTerritory / effects[].effectType (#175) — MEME complement que `engine.move` et
+            # `playbook.base.tile_utility` : sans lui ce mirror de mesure divergerait du moteur.
+            apply_tile_attributes(meta, c, leaf_ctx)
             tile_u = tile_composite(c, meta, leaf_ctx, ctx.wt)
             mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.tgt_epos or ctx.epos, ctx.wt,
                                                         ctx.pathdist_by_pos)

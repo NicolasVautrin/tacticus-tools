@@ -41,7 +41,8 @@ def tile_utility(ctx, pos) -> float:
     TriggeredAbilities(2) incluse : natif (3,4)=25=30elev-25effets+20trig vs (4,3)=40=30+10trig).
     Meta et leaf_ctx MIRROIR de `engine.move` (élévation min/max BOARD, effets dynamiques + covers
     terrain, kit passif + fpos via `tile_leaf_ctx`). Sur carte plate ≈ 0. Bonus additif."""
-    from ..utilities.tile import terrain_tile_effects, tile_leaf_ctx   # lazy : évite tout cycle
+    from ..utilities.tile import (terrain_tile_effects, tile_leaf_ctx,   # lazy : évite tout cycle
+                                  apply_tile_attributes)
     meta: dict = {}
     e = ctx.elev_by_pos.get(pos)
     if e is not None:
@@ -54,7 +55,9 @@ def tile_utility(ctx, pos) -> float:
     _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos))  # covers (case-37)
     if _effs:
         meta["effects"] = _effs
-    return tile_composite(pos, meta, tile_leaf_ctx(ctx), ctx.wt)
+    leaf_ctx = tile_leaf_ctx(ctx)
+    apply_tile_attributes(meta, pos, leaf_ctx)   # isTerritory / effects[].effectType (cf. tile.py)
+    return tile_composite(pos, meta, leaf_ctx, ctx.wt)
 
 
 class ComparablePlaybook(BasePlaybook):

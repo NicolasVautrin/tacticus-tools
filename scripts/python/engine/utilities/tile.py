@@ -18,9 +18,11 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   effects : [effect_name]                                  (TileEffects 9 — effets DYNAMIQUES (Loop1) + covers
                                                             HÉBERGÉS par le terrain (Loop2 : DryBush->LightCover)) [ACTIF]
   is_temporary : bool                                      (TemporaryTile 13 — via tileMeta) [ACTIF]
-  is_territory : bool                                      (CapturePoint 24 — via tileMeta.isTerritory)
+  is_territory : bool                                      (CapturePoint 24 — via tileMeta.isTerritory) [ACTIF #175,
+                                                            mais 0 tuile territoire hors ruleset Territories]
   occupant_is_powerup : bool                               (PowerUp 26)
   tile_effect_type_ids : [int]                             (Contaminated 1244 / MoltenForm 5,10 / DespoiledGround 1476)
+                                                           [ACTIF #175 — via tileMeta.effects[].effectType]
   effect_target_ids : [int]                                (EnvEndBombardment 1359/1360)
   pending_summons : [{type_id:int, owner_is_enemy:bool}]   (TilePendingBlockableSummon 1094)
   door : {linked:bool, closed:bool}                        (SummonDislikeDoorOpening 29 / HeroLikeDoorOpening 30)
@@ -33,16 +35,25 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   neighbor_effect_names : {adjacent|surrounding1|ranged2 -> [effect_name]}   (UnitEffects 10/11/12)
 
 `ctx` (PAR UNITÉ/DÉCISION, constant sur toutes les tuiles d'une décision) — clés consommées :
-  unit_traits : [int]                 (2 summon, 5, 13, 16 hero, 26, 1006, 1019, 2026 …)
+  unit_traits : [int]                 (2 summon, 5, 13 object, 16 hero, 26/1006/2026 grande-alliance,
+                                       1019 daemon …) [ACTIF #175 — `unit_trait_ids(visualId)`]
   unit_triggered_abilities : [int]    (1120 SaviorProtocols, 1221 MoltenForm, 1181 GuardianOrganism …)
   unit_faction : int                  (9 T'au-style, 15 GSC-style …)
   friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
   unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
+Il porte AUSSI des CARTES par-position (`elev_by_pos`, `neigh_by_pos`, `is_territory_by_pos`,
+`tile_effect_type_ids_by_pos`) : la carte est constante sur la décision, la valeur lue dépend de la
+tuile — `apply_tile_attributes` en dérive les deux clés `meta` correspondantes.
 
-Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14) :
+Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14 et docs/rl/case-175-tile-unit-traits.md) :
 - ACTIVES (metadata dispo) : Elevation(8), SteppableUnit(19), TileEffects(9, partiel), TemporaryTile(13),
-  TriggeredAbilities(2) (dispatcher playbook, case-36 — via ctx.unit_triggered_abilities/friend_positions).
-- PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les 22 autres `*Utility`.
+  TriggeredAbilities(2) (dispatcher playbook, case-36 — via ctx.unit_triggered_abilities/friend_positions),
+  DespoiledGround(28) et MoltenForm(23) (#175 — `ctx.unit_traits` + `meta.tile_effect_type_ids`).
+- PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les autres `*Utility`.
+  ⚠ #175 : leur ctx de TRAIT est désormais peuplé — ce qui reste manquant est la metadata PAR TUILE
+  (`occupant_is_powerup`, `door`, `attract_mechanicals_neighbor`, `movetowards_hexdist`, …), qu'AUCUN
+  RPC ne remonte à ce jour. `is_territory` fait exception : il est plombé, mais vaut `False` partout
+  tant que la BC n'est pas en ruleset Territories (mesuré : 0 tuile territoire sur les seeds arène).
 - NON portées comme simples leaves : RangedAdjacentEnemy(15)=0 dans Default ; TriggeredAbilitiesNonOwner(4)/
   UnitSpecificBehaviours(3) = dispatchers restants du moteur Playbook (séparé).
 """
@@ -633,10 +644,20 @@ def tile_leaf_ctx(ctx) -> dict:
     ni `me` ni `hpmax_by_id` -> kit vide = feuille silencieuse (comportement pré-case-49) ; ses
     champs partagés (enemies/elev/scene) passent tels quels."""
     from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
+    from ..entities.traits.unit_trait import unit_trait_ids               # lazy : idem
     me = getattr(ctx, "me", None) or {}
     uid = getattr(ctx, "uid", None)
     friend_units, enemy_units = _adjacent_units(ctx, uid)
     return {"unit_triggered_abilities": triggered_ability_ids(me.get("visualId")),
+            # IDS `UnitTrait` du MOVER — l'argument que les 7 feuilles à gate de trait passent à
+            # `IdunBattle.Entities.UnitExtensions$$HasTrait(case.unit@+0x10, <traitId>)` (le `case`
+            # porte l'unité qui évalue la tuile : `CapturePointTileUtility.<d__3>`, `PowerUpTile
+            # Utility.<d__2>`, `DespoiledGroundUtility.<d__5>`, `SummonDislikeDoorOpeningUtility
+            # .<d__2>`, `HeroDoorOpeningUtility.<d__2>`, `AttractMechanicalsUtility.<d__1>`,
+            # `MoveTowardsUnitUtility.<d__15>`). Source = `unit_trait_ids` (kit gameconfig +
+            # pseudo-trait de grande-alliance) — cf. sa docstring pour les DEUX collections natives
+            # non observables offline (traits retirés / accordés en bataille).
+            "unit_traits": unit_trait_ids(me.get("visualId")),
             "friend_positions": ctx.fpos,
             # {pos,traits} vivants self-exclu — branches AMIS(B1)/ENNEMIS(B2) de AdjacentUnitPreference
             # (#57i : traits pour les filtres, ex. FabricatorClaw garde les amis Mechanical).
@@ -646,8 +667,43 @@ def tile_leaf_ctx(ctx) -> dict:
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
+            # Cartes PAR-POSITION des attributs de TUILE que `tileMeta` remonte déjà et que les deux
+            # constructeurs de `meta` jetaient (cf. `apply_tile_attributes`). Même statut que
+            # `elev_by_pos`/`neigh_by_pos` ci-dessus : la CARTE est constante sur la décision, la
+            # valeur lue dépend de la tuile candidate.
+            "is_territory_by_pos": getattr(ctx, "is_territory_by_pos", None),
+            "tile_effect_type_ids_by_pos": getattr(ctx, "tile_effect_type_ids_by_pos", None),
             "scene": getattr(ctx, "scene", None),
             "hpmax_by_id": getattr(ctx, "hpmax_by_id", None) or {}}
+
+
+def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
+    """Complète le `meta` PAR-TUILE avec les deux attributs de tuile que le RPC `tileMeta` remonte
+    DÉJÀ et que les deux constructeurs de `meta` (`engine.move` et `engine.playbook.base.
+    tile_utility`) jetaient — sans eux, les feuilles qui les gatent restent muettes quoi qu'on
+    mette dans `ctx` :
+
+    - `is_territory` <- `tileMeta.isTerritory` = `TileComponent+0x2e`, l'octet EXACT que lit
+      `IdunBattle.Entities.TileExtensions$$IsTerritoryTile` (appelé par
+      `IdunBattle.AI.Utilities.CapturePointTileUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext`
+      sur `case.position.MainTile`) ;
+    - `tile_effect_type_ids` <- `tileMeta.effects[].effectType` = `EffectComponent+0x58`, le champ
+      que `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`
+      compare à `0x5c4` en énumérant l'`EffectsOwnedComponent` de la tuile (même substrat pour
+      `ContaminatedUtility` 0x4dc et `MoltenForm_TilesUtility` 5/10).
+
+    Écrit en place et rend `meta` (les clés absentes des cartes ne sont PAS posées : une carte non
+    fournie laisse la feuille dégrader à 0, comme aujourd'hui)."""
+    lc = leaf_ctx or {}
+    terr = lc.get("is_territory_by_pos")
+    if terr is not None and pos in terr:
+        meta["is_territory"] = bool(terr[pos])
+    tids = lc.get("tile_effect_type_ids_by_pos")
+    if tids:
+        ids = tids.get(pos)
+        if ids:
+            meta["tile_effect_type_ids"] = ids
+    return meta
 
 
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,

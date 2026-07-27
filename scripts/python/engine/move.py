@@ -20,7 +20,7 @@ import os
 
 from .weights import Weights
 from .utilities import tile_composite
-from .utilities.tile import terrain_tile_effects
+from .utilities.tile import terrain_tile_effects, apply_tile_attributes
 from .utilities.move import MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401 (UNIT_MOVEMENT = record membership)
 
 
@@ -73,6 +73,9 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             _effs += terrain_tile_effects(terrain_by_pos.get(c))
         if _effs:
             meta["effects"] = _effs
+        # Attributs de TUILE remontés par `tileMeta` (isTerritory / effects[].effectType) —
+        # transportés par le `leaf_ctx` sous forme de cartes par-position (cf. `apply_tile_attributes`).
+        apply_tile_attributes(meta, c, leaf_ctx)
         # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
         # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.
         tile_u = 0.0 if tile_off else tile_composite(c, meta, leaf_ctx or {}, wt)
