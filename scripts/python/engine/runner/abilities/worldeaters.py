@@ -62,6 +62,7 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...dsl.effects import ExecutionContext
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage, SubtractHealthPercent
+from .targeting import TargetingOptions
 
 if TYPE_CHECKING:
     from ..state import State
@@ -104,6 +105,34 @@ class JakhalStimmsAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.JakhalStimms)   # 1131
     ABILITY_ID = "JakhalStimms"
+
+    # GATE DE CIBLE (#115). Le masque est le champ `Rules` (`options+0x28`) des
+    # `IdunBattle.Core.Services.TargetingOptions` que le ctor passe a
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` (lequel recopie la struct dans
+    # `this+0x70..0xaf` et n'ECRASE que `+0x30`/`+0x38`, les deux regles-delegues : `Rules` arrive
+    # INTACT jusqu'au filtre).
+    #
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$.ctor` est de la forme
+    # PRESET COPIE : il n'appelle AUCUN `TargetingOptions..ctor`, il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` situe a l'offset +0x40 du bloc `<class>+0xb8` :
+    #     opts <- <TargetingOptions statics>+0x40 .. +0x7f     (copie integrale, aucun flag ajoute)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit ce preset : `*(statics+0x68) = 0x4000`
+    # (= `<preset>+0x28` = `Rules`) — valeur CONSTANTE lue dans ce cctor. Ce n'est PAS la surcharge
+    # « preset + flags » (`TargetingOptions..ctor(&opts, &preset, <flags>)`, qui fait
+    # `Rules <- preset.Rules | flags`) : ici il n'y a aucun flag a OR-er.
+    #
+    # NB le preset de JakhalStimms (+0x40) est DIFFERENT de celui des actives DarkAngels/Aeldari
+    # (+0x140, `Rules = 0x4002`) : meme forme de ctor, masque distinct — d'ou la lecture ability par
+    # ability plutot qu'une regle « toutes les offensives valent 0x4002 ».
+    #
+    # Decomposition (enum `IdunBattle.Core.Services.TargetingRule` VERBATIM,
+    # `data/symbols/gqfc5mff6c/frida/enums.tsv`) :
+    #     0x4000 TargetIsEnemy -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`) : refus sur
+    #            soi-meme et sur un allie. SEUL bit du masque : pas de TargetMatchesDynamicRule ici
+    #            (contraste avec le preset +0x140), et 1131 n'a effectivement aucun
+    #            `GetDynamicInvalidTargetReason` natif.
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4000)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
