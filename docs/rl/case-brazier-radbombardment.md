@@ -195,15 +195,18 @@ gardes `test_sentinel_directives_live` + `test_sanctorum_missile_live`, rejoués
   friendly-fire du marquage (aucun Daemon allié dans les rosters testés).
 - **1116** : le friendly-fire de la ligne (le natif ne filtre PAS l'équipe — non mis en scène), le
   terme `TotalRepairActionsAmount` (toujours 0 offline), la troncature `- Blocking` sur un board à murs
-  (MC1_67 n'en présente pas sur les lignes testées), et l'écart de conso RNG dû au canal `OnToxic`
-  au-delà de la 1ʳᵉ cible.
+  (MC1_67 n'en présente pas sur les lignes testées). ~~L'écart de conso RNG dû au canal `OnToxic`
+  au-delà de la 1ʳᵉ cible~~ est FERMÉ (cf. §7.2) : le dégât per-coup est désormais confronté sur toutes
+  les cibles.
 - **Les deux** : `abilityTargets` n'a pas été confronté aux nouveaux `TARGETING_OPTIONS` (le gate est
   posé, mais aucun test ne vérifie qu'un cast ILLÉGAL est bien refusé par le port).
 
-## 7. Gaps ADJACENTS mesurés (étages PARTAGÉS)
+## 7. Gaps ADJACENTS mesurés (étages PARTAGÉS) — les DEUX sont FERMÉS
 
 Tous deux touchent bien plus que ces deux abilities et changent la conso RNG d'un grand nombre
-d'attaques → traités à part, avec leur propre re-validation.
+d'attaques → ils ont été traités à part, avec leur propre re-validation. Ils formaient les **deux
+moitiés du même étage RNG** (les tirages que le port sautait pendant une attaque) et ont été
+re-confrontés ENSEMBLE le 2026-07-27.
 
 1. **`Daemon_ExtraBlock` (1034) inerte côté COMBAT — FERMÉ (#221, `case-221-daemon-extrablock-rng.md`)**.
    `AttackDamageOperation._block_sources` appelait `defender_effect_block_sources(effets, armure)`
@@ -214,7 +217,10 @@ d'attaques → traités à part, avec leur propre re-validation.
    ce case porte donc sur les **4 coups** (le bridage `compare_hits=1` est levé). Reproduction :
    `probe_daemon_extrablock_gap.py`, `probe_brazier_daemon_offset.py` (qui rejoue aussi la variante
    « legacy » pour chiffrer l'écart).
-2. **`OnToxicDamageAbility` (1203) non porté** — `CreateBehaviour` =
-   `If(IsFirstHitInSeries() & Maybe(ConfigConst(1203, Self@0x148, 0x2a)), AddEffect(0x4dc, …, Tiles(target)))`.
-   Le `Maybe` consomme **UN tirage par CIBLE** d'une attaque de profil `Toxic`. Jumeau exact du canal
-   `OnFire` (5), lui porté — l'asymétrie EST le gap.
+2. **`OnToxicDamageAbility` (1203) — FERMÉ (`case-1203-on-toxic-damage.md`)**.
+   `CreateBehaviour` = `If(IsFirstHitInSeries() & Maybe(ConfigConst(1203, Self@0x148, 0x2a)),
+   AddEffect(0x4dc, …, Tiles(target)))` : le ET natif COURT-CIRCUITE, donc le `Maybe` consomme
+   **UN tirage par SÉRIE de coups**, c.-à-d. une fois par cible d'une attaque de profil `Toxic`.
+   Le canal est porté (`triggers/loki/on_toxic_damage.py`) et câblé sur les deux vecteurs d'attaque
+   → la confrontation per-coup de `test_rad_bombardment_live` n'est plus bornée à la 1ʳᵉ cible
+   (`compare_damage_targets` revenu au défaut = TOUTES les cibles, géométrie 2 verte).

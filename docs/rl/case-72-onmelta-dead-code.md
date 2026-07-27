@@ -6,7 +6,11 @@ Audit DamageTrait : `DamageTrait.OnMelta(5)` est porte par le profil de degat `M
 verifie). Le `TriggeredAbilityType.OnOnMeltaDamageAbility = 1211` est DEFINI mais l'ability n'est portee
 NULLE PART, alors que ses deux jumeaux le sont :
 - OnFire (profil `Flame`) -> `OnFireDamageAbility` PORTE (pose feu on-hit, `triggers/loki/fire.py`).
-- OnToxic (profil `Toxic`) -> `OnToxicDamageAbility` PORTE (pose Contaminated, #137).
+- OnToxic (profil `Toxic`) -> `OnToxicDamageAbility` PORTE (pose Contaminated sous
+  `IsFirstHitInSeries & Maybe(chance=25)`, `triggers/loki/on_toxic_damage.py` ;
+  cf. `case-1203-on-toxic-damage.md`). NB : au moment de CET audit la mention « PORTE » etait une
+  ERREUR de constat -- le canal n'a ete porte qu'ensuite ; le verdict DEAD-CODE de Melta, lui, est
+  independant (il repose sur la lecture du `CreateTrigger` de 1211, cf. plus bas).
 
 Tache taguee `[opus?]` (effet Melta non encore RE) avec escape-hatch explicite. **Verdict : DEAD-CODE**
 (l'ability ne fire jamais dans le build actif) -> **NON porte** (le porter divergerait du live).

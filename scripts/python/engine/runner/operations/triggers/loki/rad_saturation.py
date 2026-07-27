@@ -16,9 +16,14 @@ build gqfc5mff6c) :
     -> `DefaultAmountOfRounds(1244)=2` (effects.py `_DEFAULT_ROUNDS[0x4dc]=2`).
 
 Port = arbre DSL `AddEffect(Contaminated=1244, "Contaminated", Tiles(Caster()))` (mirror 1:1 de la feuille ;
-`Tiles(Caster())` = MainTile du caster = sa propre tuile). RadSaturation est le **1er poseur** de l'effet de
-TUILE `Contaminated` (1244) du port -- `OnToxicDamageAbility` (1203, l'autre source on-hit Toxic) n'est PAS
-porte. La machinerie AVAL est deja portee (`ContaminatedTileEffect` IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal, effect_triggers.py) : une fois
+`Tiles(Caster())` = MainTile du caster = sa propre tuile). RadSaturation a ete le **1er poseur** de l'effet de
+TUILE `Contaminated` (1244) du port ; l'AUTRE source, `OnToxicDamageAbility` (1203, on-hit sur tout coup de
+profil `Toxic`), est desormais portee aussi (`on_toxic_damage.py`, case-1203-on-toxic-damage.md).
+⚠ RESIDU (flagge, non corrige) : le natif appelle ICI la MEME surcharge `AddEffect` a 5 args que 1203, donc
+avec un selecteur SOURCE **NUL** -> `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe sur
+la CIBLE : la source de l'effet est la TUILE, pas le caster. Le port passe encore le caster
+(`source_from_target` absent) ; sans consommateur de cette source aujourd'hui, l'ecart est inerte.
+La machinerie AVAL est deja portee (`ContaminatedTileEffect` IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal, effect_triggers.py) : une fois
 la tuile porteuse de 1244, elle pose `Contaminated_Unit` (1245, -30% FixedArmor, 1 round, RE #132) sur
 l'occupant a l'entree `On(4)` / au tick `On(0x12)`, sauf immunise (ContagionsOfNurgle / Mechanical).
 

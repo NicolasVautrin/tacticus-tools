@@ -224,7 +224,8 @@ beaucoup de primitives sont portees "inline" par ability (active_ability.py comp
 | AtomicGroup | 180de9390, de9490, de9410 | 18+15+5 | groupe atomique (transaction) | MANQUANT |
 | PickRandomly | 180df8e70, df8db0 | 84+20 | choix aleatoire pondere | MANQUANT (tres fort refcount) |
 | Randomize | 180df9820 | 46 | randomise l'ordre | MANQUANT (fort refcount) |
-| Maybe | 180df6610, df6470, df6540, df6350 | 14+11+8+7 | behaviour probabiliste (chance%) | MANQUANT |
+| Maybe | 180df6610, df6470, df6540, df6350 | 14+11+8+7 | DEUX familles homonymes : surcharges 3/4-args -> `MaybeBehaviour` (EFFET) ; surcharges 1/2-args (`df6350`, `df6470`) -> `MaybeTrigger` (PREDICAT, PRNG en champ `+0x18`) | PORTÉ : EFFET = `entities/behaviours.py::Maybe` ; PREDICAT = `entities/triggers.py::MaybeTrigger` (case-1203) |
+| IsFirstHitInSeries | 180df3a70 | 4 | predicat « coup d'index 0 de la serie » (`AbilityEntities.IsFirstHit` = `DamageAppliedResult.hitIndex == 0`) | PORTÉ `entities/triggers.py::IsFirstHitInSeries` (case-1203). Frere `IsFirstHitGroupInAttack` (180df3a20, champ +0x118) MANQUANT |
 | Inform / InformWeapon / InformList | 180df2380(+df2450,df2300,df2510,df24b0,df25e0), df2010(+df2260), df1f60 | 15+14+12+6+5+4 / 9+3 / 5 | emet une info/event | MANQUANT (fort refcount cumule) |
 | OnDeath / OnPreDeath(2) / OnDeathEvent | 180df7c40, df7f10(+df7ee0), df7ad0 | 17+19+6+5 | hooks de mort | MANQUANT |
 | OnOwnerSpecificAbilityInit / OnNormalAttackOrSmite | 180df7db0, df7c70 | 20+4 | hooks d'init | OnNormalAttackOrSmite PORTÉ collapsé (#35 `lord_of_tempests.py` : `On(38) \| (On(9) & kind==0x3f5)` — la branche 2 = le MÊME nœud DAT_18322f680+DirectAbilitySelector(1013) que la branche 2 d'IsNormalAttack, cf. dsl-wave3) ; OnOwnerSpecificAbilityInit MANQUANT |
