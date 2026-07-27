@@ -251,6 +251,29 @@ class TotalTimesAttacked(AAmountFormula):
         return ctx.times_attacked or 0
 
 
+class LastHitDamageTakenLastTurn(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$LastHitDamageTakenLastTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula$$Calculate` : resout le selecteur,
+    prend l'`ActorStatisticsComponent` de l'unite et rend **`*(int *)(comp + 0x70)`** — le degat du
+    DERNIER COUP encaisse pendant le tour PRECEDENT du proprietaire.
+
+    Substrat (cf. `runner/components.py`, champs `last_hit_damage_taken_*`) : `@+0x6c` est ecrit PAR
+    COUP par `IdunBattle.Operations.ApplyDamageOperation$$Execute`, puis roule dans `@+0x70` par
+    `IdunBattle.Operations.StartTurnOperation$$ResetUnit` au debut du tour du proprietaire. La cle
+    `lastHitDamageTakenLastTurn` du dict d'unite DSL est produite par
+    `runner/abilities/behaviours/context.py::_unit_dict`. Unite hors-`State` (dict fige de la face
+    PREDICTION) -> 0, meme regime que `TotalTimesAttacked`/`TotalAttacksMade`.
+
+    Consommateur porte : la regen `TimeFlux` de `thousTerminator`
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.TimeFluxAbility$$CreateBehaviour`)."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("lastHitDamageTakenLastTurn", 0) or 0)
+
+
 class TimesRepaired(AAmountFormula):
     """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
     DakkaDakkaDakka `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` : +extraHits coups par réparation). NON capté offline →

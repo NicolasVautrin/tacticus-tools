@@ -65,6 +65,10 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # `Parent` (`IdunBattle.Entities.Selectors.ParentSelector$$Select` ->
         # `IdunBattle.Entities.UnitExtensions$$GetParent`). None pour toute unite du roster initial.
         "parentId": getattr(uc, "parent_id", None) if uc is not None else None,
+        # `ActorStatisticsComponent @+0x70` — lu par le noeud formule `LastHitDamageTakenLastTurn`
+        # (`IdunBattle.Entities.Formulas.LastHitDamageTakenLastTurnFormula$$Calculate`). 0 par defaut.
+        "lastHitDamageTakenLastTurn": (int(getattr(uc, "last_hit_damage_taken_last_turn", 0) or 0)
+                                       if uc is not None else 0),
         "_traits": traits,
     }
 

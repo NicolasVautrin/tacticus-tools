@@ -274,7 +274,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                total: int, profile: Optional[str],
                                shield_dmg: int = 0, armor_dmg: int = 0,
                                is_attack: bool = True,
-                               source_ability=None) -> Optional[list]:
+                               source_ability=None, last_hit: Optional[int] = None) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -305,6 +305,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)
+        AttackDamageOperation._record_last_hit_damage_taken(
+            state, target_id, total, shield_dmg, armor_dmg, last_hit)
         AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
         # #100 : `IdunBattle.Operations.RefreshEffectsOperation` (volet stat-modifier) — les PV viennent
         # de changer, donc les `CreateActiveCondition` qui lisent `StatAmount(Self, HEALTH, CURRENT_PCT)`
@@ -337,6 +339,40 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             return                                  # profil inconnu -> pas de cle (fidele : enum natif)
         d = uc.received_damage_this_turn
         d[pid] = d.get(pid, 0) + 1
+
+    @staticmethod
+    def _record_last_hit_damage_taken(state: State, target_id: int, health: int,
+                                      shield: int = 0, armor: int = 0,
+                                      last_hit: Optional[int] = None) -> None:
+        """Mirror des DEUX ecritures que `IdunBattle.Operations.ApplyDamageOperation$$Execute` fait
+        sur l'`ActorStatisticsComponent` de la VICTIME (`local_528` = le composant de `param_4`) :
+
+            *(int *)(stats + 0x68) = (int)*param_1;   # lastHitDamageTaken (all-time, non porte)
+            *(int *)(stats + 0x6c) = (int)*param_1;   # lastHitDamageTaken THIS TURN  <- porte ici
+
+        `(int)*param_1` = 1er champ du `DamageAppliedResult` = la SOMME des reductions REELLEMENT
+        appliquees par CE COUP (`FillUpStatComponent$$Reduce` sante + 2e pool +
+        `IdunBattle.Operations.ApplyDamageOperation$$ReduceShield`) -> `last_hit` = `per_hit[-1]` de
+        `AttackDamageOperation._run_hits` (qui somme exactement PV + bouclier + armure-pool par coup).
+
+        GRANULARITE : le natif ecrit PAR COUP, le port n'a qu'un chokepoint PAR ATTAQUE -> les callers
+        qui connaissent la decomposition passent `last_hit` (le DERNIER coup) ; ceux qui n'ont qu'un
+        coup unique (DoT `execute_direct`, knockback `displace`) laissent None et la degenerescence
+        `health + shield + armor` est alors EXACTE. Un caller multi-coups qui oublierait `last_hit`
+        surestimerait (total de l'attaque au lieu du dernier coup) -- c'est pour ca que la valeur est
+        explicite, jamais devinee.
+
+        Le roulement `@+0x6c -> @+0x70` est fait au turn-start du proprietaire
+        (`StartTurnOperation.execute`, mirror `IdunBattle.Operations.StartTurnOperation$$ResetUnit`).
+        Consommateur : la regen `TimeFlux` (`LastHitDamageTakenLastTurn`)."""
+        # INCONDITIONNEL — la chaine de gardes au-dessus de l'ecriture native (remontee au decompile :
+        # `if (local_768 != 0)` puis 4 tests de NON-NULLITE de pointeurs) ne contient AUCUN
+        # `if (degat > 0)` : un coup entierement bloque ECRASE la valeur precedente par 0.
+        amount = int(last_hit) if last_hit is not None else int(health) + int(shield) + int(armor)
+        ent = state.get_entity(target_id)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is not None:
+            uc.last_hit_damage_taken_this_turn = amount
 
     @staticmethod
     def _apply_max_out(state: State, attacker_id: int, hit_nc: "HitDamage",

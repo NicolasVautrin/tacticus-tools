@@ -50,6 +50,9 @@ from .genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
                           AmbushSummonAbility, EnvAmbushResurrectAbility,
                           HypersensoryMoveAndSpawnDecoyAbility)
 from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
+from .loki.reality_unbound import (RealityUnboundAbility,            # passif thousTzaangor (2 volets)
+                                   RealityUnboundExtraMaxDamageAbility)
+from .loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
 from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 from .loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
@@ -261,6 +264,26 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/spiritual_leader.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpiritualLeaderAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetAdjacentDecoys).
     "SpiritualLeader": [SpiritualLeaderAbility],
+    # RealityUnbound (passif `thousTzaangor` << Yazaghor >>) = DEUX volets, DEUX classes natives,
+    # DEUX events -- le passif accorde les deux :
+    #   * `RealityUnboundAbility` : `On(9=Attack)` & >=3 ennemis DISTINCTS ayant recu du Psychic ce
+    #     tour & `Not(HasEffect(self, 1205))` -> +extraMovement MOVEMENT (1205) et +extraRange
+    #     EXTRA_RANGE (1206), 1 tour. Son `CreateTrigger` est un fold ICF vers
+    #     `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$GetTrigger` (parametre
+    #     par l'effectType 0x4b5) -- MEME corps que WeaverOfFate, aucune parente.
+    #   * `RealityUnboundExtraMaxDamageAbility` : `On(0x43=FinalDamage)` &
+    #     `HasTakenDamageOfDamageProfileThisTurnAmountOfTimes(target, Psychic, times=1)` (EGALITE
+    #     STRICTE = 1re instance seulement = « each DIFFERENT enemy ») & `AreEnemies` ->
+    #     +extraMaxDmg EXTRA_MAX_DAMAGE (1207, EMPILABLE), 1 tour.
+    # Cf. loki/reality_unbound.py + entities/effects/loki/reality_unbound.py.
+    "RealityUnbound": [RealityUnboundAbility, RealityUnboundExtraMaxDamageAbility],
+    # TimeFlux (passif `thousTerminator` << Toth >>) -- volet REGEN SEUL :
+    # `OwnerIsActor & On(0x13=TurnStart_Other)` -> `Heal(self, Min(Sum(hpToHeal,
+    # LastHitDamageTakenLastTurn(self)), maxHpToHeal))`. Le volet GHOST-REVIVE
+    # (`TimeFluxReviveAbility` = `GhostReviveAbility`(1186)) reste un RESIDU : il exige
+    # `On(PreUnitMove=31)`, un effet portant une TUILE et un revive NON in-place
+    # (case-66-revive-in-place.md §8.2). Cf. loki/time_flux.py.
+    "TimeFlux": [TimeFluxRegenAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
@@ -504,6 +527,31 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
     consommateur porte (la pose d'Ice est idempotente : `AddEffectOperation` no-op si la tuile est deja
     glacee). A raffiner si un consommateur per-coup apparait."""
     ev = TriggerEvent(EventTriggerType.UnitBlocked, attacker_id, target_id,
+                      ranged=ranged, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
+def final_damage_triggers(state: State, attacker_id: int, target_id: int,
+                          ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
+    """Vecteur `On(FinalDamage = 0x43 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+    RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_180026490(0x50, .., 0x43, entities)`.
+
+    XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
+    et `IdunBattle.Operations.AbilityDamageOperation$$Execute` — et RIEN d'autre. L'evenement part donc
+    UNE fois par ATTAQUE (resp. par degat d'ability), a la SORTIE de l'operation, **jamais** pour un
+    DoT (`execute_direct`) ni un knockback (`displace`). Les deux call-sites du port sont a la meme
+    place (cf. `damage_ops.py`).
+
+    L'`AbilityEntities` construit par `RegisterFinalDamage` est
+    `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target = param_4 = la VICTIME,
+     casterTiles = GetTiles(attaquant), targetTiles = GetTiles(victime))` -> cote port
+    `actor_id = attaquant` et `target_id = victime`, exactement comme les autres vecteurs d'attaque.
+
+    SEUL consommateur porte : `RealityUnboundExtraMaxDamageAbility` (`thousTzaangor`), dont le gate
+    `HasTakenDamageOfDamageProfileThisTurnAmountOfTimes(target, Psychic, times=1)` exige que le
+    compteur `received_damage_this_turn` de la victime soit DEJA incremente -> ce vecteur doit rester
+    APRES `_apply_damage_pipeline`. Aucun autre trigger du registre n'ecoute `event_id == 67`."""
+    ev = TriggerEvent(EventTriggerType.FinalDamage, attacker_id, target_id,
                       ranged=ranged, profile=profile)
     return evaluate_trigger_operation(state, ev)
 

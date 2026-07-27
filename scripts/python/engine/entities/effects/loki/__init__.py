@@ -77,6 +77,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
                      WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
+from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
+                              RealityUnboundExtraMaxDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
 from .ability_modifications import ListenUpMaggotsEffect
 from .votann import (AugmentedAssaultReduceArmorEffect, AncestralFortuneExtraCritChanceEffect,
@@ -130,6 +132,7 @@ __all__ = [
     "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
     "ActOfFaithBuffEffect", "ThrillSeekersEffect", "TauntedEffect", "PinnedEffect",
+    "RealityUnboundMovementEffect", "RealityUnboundRangeEffect", "RealityUnboundExtraMaxDamageEffect",
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",

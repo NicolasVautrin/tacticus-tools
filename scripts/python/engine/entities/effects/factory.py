@@ -11,6 +11,9 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki import (
     ActOfFaithBuffEffect,
+    RealityUnboundMovementEffect,
+    RealityUnboundRangeEffect,
+    RealityUnboundExtraMaxDamageEffect,
     AnvilShieldAdditionalBlockEffect,
     AnvilShieldBlockChanceBelowHealthCapEffect,
     AnvilShieldFrozenAttackerAdvantageEffect,
@@ -287,6 +290,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Le nom capte est le membre d'enum `EffectType` (cf. `EFFECT_TYPE_NAMES[1434] = "ThrillSeekers"`),
     # identique a celui que passe la feuille `AddStaticStatModifierEffect` a la pose en combat.
     "ThrillSeekers": ThrillSeekersEffect,
+    # RealityUnbound (passif `thousTzaangor`) — les TROIS `StaticStatModifierEffect` generiques du
+    # passif, declares pour que l'attribution du seed pose leur `ValueModification` par-source (donc
+    # que l'expiration la retire, #118) ; 1207 porte en plus `stacks_stat_mod_on_add` (cumul « for
+    # each different enemy unit »). Cf. `entities/effects/loki/reality_unbound.py`.
+    "RealityUnbound_Movement": RealityUnboundMovementEffect,          # 1205 : +1 MOVEMENT, 1 tour
+    "RealityUnbound_Range": RealityUnboundRangeEffect,                # 1206 : +1 EXTRA_RANGE, 1 tour
+    "RealityUnbound_ExtraMaxDamage": RealityUnboundExtraMaxDamageEffect,  # 1207 : +extraMaxDmg, EMPILABLE
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     "Pinned": PinnedEffect,             # 1065 (UI « Suppressed ») — stat-mod Movement (matérialisé seul)
