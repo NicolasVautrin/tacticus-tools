@@ -125,7 +125,8 @@ C'est le seul defaut de MOTEUR du cas, et il en explique **quatre** echecs plus 
 2. `_load_machines` pose donc un `StatsComponent` CORRECT sur l'entite Machine.
 3. `load_state` appelle `_load_machines` **puis** `_load_stats_and_effects`. Ce dernier boucle sur
    `snapshot["units"]` **sans filtrer `entityType`** — or le RPC `combatSnapshot` **inclut** les entites
-   `Machine` depuis #93. L'en-tete de **`_load_machine_stats`** (et non de `_load_machines` : cette
+   `Machine` depuis `d9d0008` (#128 ; le « #93 » ecrit ici puis recopie dans `snapshot.py` etait FAUX
+   — #93 est la tache SpiritLeech). L'en-tete de **`_load_machine_stats`** (et non de `_load_machines` : cette
    attribution-ci etait imprecise, corrigee en #174) affirme le contraire (« `combatSnapshot` n'expose
    QUE `EntityType.Unit` (son `allUnits` filtre `ty === EntityType.Unit`) ») : **l'affirmation est
    PERIMEE**, le hook teste `ty !== EntityType.Unit && ty !== EntityType.Machine`.

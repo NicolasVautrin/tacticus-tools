@@ -35,7 +35,10 @@ from .components import (
 # `EntityType.Machine` — l'enum d'entité du `MatchState` natif, projeté tel quel par les capteurs
 # (`frida/hooks/game/match-state.ts` : `Tile:0, Unit:1, Match:2, Effect:3, Player:4, UnitFoot:5,
 # Machine:6, MachinePlatform:7`). C'est le DISCRIMINANT exact « cette ligne est une MoW » dans
-# `combatSnapshot.units[]` / `statModSources.units[]`, qui remontent les DEUX types depuis #93.
+# `combatSnapshot.units[]` / `statModSources.units[]`, qui remontent les DEUX types depuis `d9d0008`
+# (#128 « lot ATELIER VIDE »). ⚠ Le commentaire du hook lui-même dit « Machine INCLUSE (#93) » — #93
+# est la tâche SpiritLeech, PAS le commit qui a élargi le filtre. Ne pas recopier cette attribution :
+# elle a déjà induit en erreur (`git log -S "EntityType.Machine" -- <le hook>` tranche).
 _ENTITY_TYPE_MACHINE = 6
 
 
@@ -315,7 +318,7 @@ def _load_machine_stats(state: State, decision: dict, snapshot: dict,
     DEUX canaux, disjoints, et c'est tout l'enjeu :
 
     • les STATS RÉSOLUES viennent de la ligne `EntityType.Machine` de `combatSnapshot` — elle EXISTE
-      (le capteur remonte `Unit` ET `Machine` depuis #93 ; l'affirmation inverse qui vivait dans cet
+      (le capteur remonte `Unit` ET `Machine` depuis `d9d0008`/#128 ; l'affirmation inverse qui vivait dans cet
       en-tête était PÉRIMÉE, et c'est elle qui a laissé passer #174). Mesure sur `deathCrawler` et
       `orksRukkatrukk` : les 19 stats sont à **0**, `statDelta={}`, `shields=[]`, `healthMax=0` —
       cohérent avec gameconfig (`stats={Health:0,Damage:0,FixedArmor:0}`, `weapons=[]`). On la
@@ -369,7 +372,7 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     `decisionView.id` (== id d'unité ECS, cf. en-tête). Mirror de la chaîne validée
     `predict_validate.build_samples` (UnitContext.from_snapshot + EffectsState.seed).
 
-    ⚠ `combatSnapshot.units[]` porte DEUX `entityType` (#93) : les `Unit` (jointes à
+    ⚠ `combatSnapshot.units[]` porte DEUX `entityType` (`d9d0008`/#128) : les `Unit` (jointes à
     `decisionView.units[].id`) et les `Machine` (jointes à `decisionView.mows[].casterId`). La boucle
     ci-dessous ne traite QUE les premières ; les MoW sont déléguées à `_load_machine_stats` — elles
     n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174)."""
@@ -390,7 +393,7 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
         if eid is None:
             continue
         # MACHINES OF WAR — on SAUTE la ligne ici, `_load_machine_stats` (fin de fonction) la reprend.
-        # `combatSnapshot` remonte `EntityType.Unit` ET `EntityType.Machine` (#93), mais l'entité
+        # `combatSnapshot` remonte `EntityType.Unit` ET `EntityType.Machine` (`d9d0008`/#128), mais l'entité
         # Machine porte un `MachineComponent`, PAS un `UnitComponent` (les deux sont des frères issus
         # de `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`) : le capteur cherche la VisualId
         # sur `UnitComponent` et rend `unitConfig = {"error": "visualId introuvable"}` (mesuré). Bâtir

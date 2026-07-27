@@ -186,7 +186,7 @@ Mise en scene (drive-positions, jamais « bloque par la geometrie ») :
   le test confronte le SET frappe + l'issue par cible (mort/PV), pas une valeur intermediaire.
 - **Buff `extraCritDmg` de 1147 non observable** : la `CritChance` d'une MoW vaut 0 -> aucun coup
   critique. Ce n'est plus une limite de CAPTURE (`combatSnapshot` remonte les lignes
-  `EntityType.Machine` depuis #93, consommees par `_load_machine_stats` depuis #174) : la CritChance
+  `EntityType.Machine` depuis `d9d0008`/#128, consommees par `_load_machine_stats` depuis #174) : la CritChance
   resolue d'une MoW est MESUREE a 0, comme ses 18 autres stats.
 - **Face DECISION** des 3 abilities : hors perimetre (les MoW sont volontairement exclues de
   `decisionView.units`, `case-mow-offboard-cast` §4/§8).

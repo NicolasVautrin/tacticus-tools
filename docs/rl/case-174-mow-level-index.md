@@ -13,7 +13,8 @@ table strictement croissante.
 
 `_load_stats_and_effects` (`engine/runner/snapshot.py`) bouclait sur `combatSnapshot.units` **sans
 filtrer `entityType`**. Or le capteur (`frida/hooks/features/ai-step/rpc-snapshot.ts`) teste
-`ty !== EntityType.Unit && ty !== EntityType.Machine` : il remonte les DEUX types depuis #93, et
+`ty !== EntityType.Unit && ty !== EntityType.Machine` : il remonte les DEUX types depuis `d9d0008`
+(#128 « lot ATELIER VIDE »), et
 etiquette chaque ligne d'un champ `entityType`.
 
 Pour une ligne Machine, `unitConfig` vaut `{"error": "visualId introuvable"}`. **La cause exacte
@@ -117,11 +118,12 @@ Effet de bord VOULU du correctif : la MoW recupere aussi son `visual_id` et ses 
 
 | ou | ce qui etait ecrit | etat reel |
 |---|---|---|
-| `_load_machine_stats` (en-tete) | « `combatSnapshot` n'expose QUE `EntityType.Unit` » | FAUX depuis #93 |
-| `_load_machine_stats` (residu) | « non captable tant que `combatSnapshot`/`statModSources` filtrent `EntityType.Unit` » | les DEUX incluent `Machine` depuis #93 |
+| `_load_machine_stats` (en-tete) | « `combatSnapshot` n'expose QUE `EntityType.Unit` » | FAUX depuis `d9d0008` |
+| `_load_machine_stats` (residu) | « non captable tant que `combatSnapshot`/`statModSources` filtrent `EntityType.Unit` » | les DEUX incluent `Machine` depuis `d9d0008` |
 | `_machine_ability_state` | « pas d'equivalent `GetUnitConfig` (la cle du registre est une VisualId d'unite) » | le capteur ne trouve pas de `UnitComponent` et n'appelle jamais `GetUnitConfig` |
 | `blacklegion.hades_autocannons_tree` | « `combatSnapshot` filtre `EntityType.Unit` -> CritChance de MoW non captable » | captable, et MESUREE a 0 |
-| `case-mow-offboard-cast.md` §8 | residu « stats resolues de MoW non captables » + spec du hook a faire | le hook a ete fait (#93) ; residu LEVE |
+| `case-mow-offboard-cast.md` §8 | residu « stats resolues de MoW non captables » + spec du hook a faire | le hook a ete fait (`d9d0008`) ; residu LEVE — la « consequence non anticipee » N7 qui y etait notee OUVERTE est ce cas-ci, donc FERMEE |
+| *ce dossier, 1re redaction* | « depuis **#93** » (recopie de `case-162` et du commentaire du hook) | **FAUX** : #93 = tache SpiritLeech. Le filtre vient de `d9d0008` (#128), tranche par `git log -S "EntityType.Machine" -- frida/hooks/features/ai-step/rpc-snapshot.ts`. Corrige au rebase, sur arbitrage du conflit avec la PR #154 |
 | `case-mow-targeting-predicates.md` | idem, par renvoi | idem |
 | `case-162-mow-red-suites.md` §4 | en-tete perime attribue a `_load_machines` ; « REMPLACE » | c'est `_load_machine_stats` ; et c'est une PRE-EMPTION |
 
@@ -147,6 +149,26 @@ avant/apres (meme session, correctif stashe puis restaure) :
 
 **Total : 14 tests passent de rouge a vert** (11 par le correctif moteur, 1 par la garde ajoutee,
 2 par la reparation de harnais). Le dossier #162 n'en annoncait que 4.
+
+### Trois « ecarts de magnitude inexpliques » distincts, UNE cause
+
+Le point le plus important du cas. Chacun avait ete inventorie separement, avec un sous-systeme
+suspect DIFFERENT :
+
+| symptome | ou il etait classe | sous-systeme suspecte | cause reelle |
+|---|---|---|---|
+| `EntropyCannons` : `off_delta=20` vs `live_delta=1631` | `case-162` « mesure B » | inexplique | `minDmg[0]` au lieu de `minDmg[49]` |
+| `Hailstrike` : live **2700** hors des bornes portees **[1688, 2532]** | residu **N6**, `port-residuals-inventory` §4.a, **rang 1 du dispatch** | « etage percage », `engine/runner/abilities/darkangels.py` | idem — le porteur `darkaStormSpeeder` est une **MoW** |
+| `nrOfTiles` 2/3 au lieu de 4/7, `nrOfRounds` 1 au lieu de 5 | residu **N7** | correctement identifie | idem |
+
+**N6 est ferme par ce cas sans une seule ligne touchee dans `darkangels.py`.** Il etait decrit comme
+« le dernier test de garde ROUGE, RE-REPRODUIT pour la 3e journee consecutive, chiffres inchanges
+malgre les 50 insertions de `darkangels.py` » — l'invariance des chiffres a travers les modifications
+de `darkangels.py` etait justement l'indice que la cause n'y etait pas.
+
+**Regle a retenir : un ecart de magnitude sur un porteur MoW doit faire suspecter le NIVEAU LU avant
+l'etage de calcul.** Le niveau est un facteur commun a toutes les variables du kit ; un etage de
+calcul, lui, n'affecterait qu'une famille.
 
 ## 6. Harnais repare au passage
 

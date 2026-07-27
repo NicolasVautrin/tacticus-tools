@@ -3,7 +3,7 @@
 Ce probe MESURE trois choses distinctes que #162 avait melangees :
 
   [A] Ce que la ligne `EntityType.Machine` de `combatSnapshot` porte REELLEMENT (elle y est depuis
-      #93). On imprime `unitConfig`, `stats`, `statDelta`, `shields`, `abilityStates` : c'est le seul
+      `d9d0008`/#128). On imprime `unitConfig`, `stats`, `statDelta`, `shields`, `abilityStates` : le seul
       moyen de savoir ce qu'on PERD en sautant cette ligne dans `_load_stats_and_effects`.
 
   [B] Le niveau que `load_state` finit par poser sur le `StatsComponent` de la MoW, confronte au
