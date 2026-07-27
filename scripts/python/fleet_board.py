@@ -4,9 +4,13 @@
     python scripts/python/fleet_board.py --open     # ... et l'ouvre dans le navigateur
     python scripts/python/fleet_board.py --all      # inclut les agents TERMINES
 
-Boucle de rafraichissement : relancer la commande, puis recharger l'onglet (le bouton de la page
-fait `location.reload()`). C'est le SEUL vrai refresh possible -- un artefact publie sur claude.ai
-est sandboxe et ne peut pas relire ces transcripts, qui vivent sur le disque local.
+Boucle de rafraichissement : RELANCER CETTE COMMANDE, puis recharger l'onglet. C'est le SEUL vrai
+refresh possible -- un artefact publie sur claude.ai est sandboxe et ne peut pas relire ces
+transcripts, qui vivent sur le disque local.
+
+(Il y avait un bouton « Recharger » dans la page : retire. Il ne faisait qu'un `location.reload()`,
+qui reaffiche le MEME HTML fige a la generation -- un geste qui promet une mise a jour et n'en
+produit aucune est pire que pas de bouton du tout.)
 
 CE QU'ON MESURE, et pourquoi ce n'est PAS la somme des tokens :
   - Le bloc `usage` d'un message assistant decrit UNE requete. La taille de son PROMPT est
@@ -266,16 +270,6 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
            font-variant-numeric:tabular-nums; }
   .age { color:var(--ink); opacity:.8; }
   .age[data-stale="1"] { color:var(--warn); opacity:1; }
-  #reload { font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--panel);
-            border:1px solid var(--line); border-radius:3px; padding:6px 13px; cursor:pointer;
-            display:inline-flex; align-items:center; gap:8px;
-            transition:border-color .15s, color .15s; }
-  #reload:hover { border-color:var(--accent); color:var(--accent); }
-  #reload:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  #reload .glyph { font-size:14px; line-height:1; display:inline-block; }
-  #reload[data-busy="1"] .glyph { animation:spin .8s linear infinite; }
-  @keyframes spin { to { transform:rotate(360deg); } }
-  @media (prefers-reduced-motion:reduce) { #reload[data-busy="1"] .glyph { animation:none; } }
   .summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:1px;
              background:var(--line); border:1px solid var(--line); margin:26px 0 30px; }
   .cell { background:var(--panel); padding:14px 16px; }
@@ -362,7 +356,6 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
         <button type="button" class="sort" data-key="born">lancement</button>
         <button type="button" class="sort" data-key="land">atterrissage</button>
       </span>
-      <button type="button" id="reload"><span class="glyph" aria-hidden="true">⟳</span> Recharger</button>
     </div>
   </header>
 
@@ -396,8 +389,8 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
     <p>À ne pas confondre avec le total de tokens facturés, qui compte <em>N fois</em> le même
     contexte relu à chaque requête : il mesure la dépense, pas le remplissage.</p>
     <p><strong>Rafraîchir :</strong> relancer <code>python scripts/python/fleet_board.py</code>,
-    puis recharger. Le bouton ne fait que recharger la page — il ne peut pas recalculer, les
-    transcripts sont des fichiers locaux.</p>
+    puis recharger l'onglet. Cette page ne peut pas se recalculer seule : elle lit des transcripts
+    qui vivent sur le disque local, et elle est servie depuis un bac à sable.</p>
   </div>
 </div>
 
@@ -468,9 +461,6 @@ const tick = () => {
   ageEl.dataset.stale = m >= 5 ? '1' : '0';
 };
 tick(); setInterval(tick, 20000);
-
-const btn = document.getElementById('reload');
-btn.addEventListener('click', () => { btn.dataset.busy = '1'; location.reload(); });
 </script>
 """
 
