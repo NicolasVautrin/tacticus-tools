@@ -74,10 +74,8 @@ if TYPE_CHECKING:
 #       <flags>)`, qui fait `Rules <- preset.Rules | flags` et dont le litteral visible ne serait pas
 #       le masque effectif) : ici il n'y a AUCUN flag additionnel, la copie est integrale.
 #
-# Noms des bits < 32 : enum `IdunBattle.Core.Services.TargetingRule` VERBATIM
-# (`data/symbols/gqfc5mff6c/frida/enums.tsv`). Les bits >= 32 sont absents de ce dump (tronque a
-# 32 bits) -> nommes par leur ROLE lu au decompile de
-# `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` (surcharge 7 arguments).
+# Noms des bits : enum `IdunBattle.Core.Services.TargetingRule` VERBATIM, via le mirror GENERE
+# `engine/runner/abilities/targeting_rule.py` (SEULE source de noms de bits du port).
 # =================================================================================================== #
 
 
@@ -631,7 +629,7 @@ class HailstrikeAbility(ActiveAbility):
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.HailstrikeAbility$$.ctor` :
     #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x200240000400, 0, 0, 0)
     #     AActiveAbility..ctor(this, &opts, 2, 0)
-    # Decomposition (bits < 32 = noms `TargetingRule` ; bits >= 32 = role lu au decompile) :
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
     #     0x400            TargetIsFriendly     -> PORTE. C'est le SEUL masque du lot qui refuse dans
     #                                              l'AUTRE sens : Hailstrike se lance sur un ALLIE, un
     #                                              ENNEMI est refuse. Le caster etant une MACHINE, le
@@ -639,8 +637,8 @@ class HailstrikeAbility(ActiveAbility):
     #                                              (`battleQuery.<slot 0x90>(caster, target)`) qui tombe
     #                                              sur le meme predicat d'equipe que `UnitsAreFriendly`.
     #     0x40000000       AllowNullCasterTile  -> PERMISSIF (caster = MACHINE OF WAR).
-    #     0x200000000      bit 33               -> NON PORTE (`HasTrait(cible, 0xd)` INTERDIT).
-    #     0x200000000000   bit 45               -> non teste par les DEUX etages du gate
+    #     0x200000000      TargetIsNotAnObject  -> NON PORTE (`HasTrait(cible, 0xd)` INTERDIT).
+    #     0x200000000000   TargetIsUnit         -> non teste par les DEUX etages du gate
     #                                              (`GetInvalidCasterReason` / `GetInvalidTargetReason`
     #                                              7 args ne lisent jamais ce bit) : c'est le CODE DE
     #                                              RAISON que rend le filtre quand la cible n'a pas

@@ -558,8 +558,8 @@ class VigilanceEternalAbility(ActiveAbility):
     #     0x2           TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF)
     #     0x4000        TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000     AllowObscuredTarget      -> permissif
-    #     0x200000000   bit 33 -> `UnitExtensions$$HasTrait(target, 0xd)` INTERDIT (la cible ne doit pas
-    #                   porter ce trait). NON PORTE (aucun predicat de trait dans la cascade portee) ->
+    #     0x200000000   TargetIsNotAnObject -> `UnitExtensions$$HasTrait(target, 0xd)` INTERDIT (la cible
+    #                   ne doit pas porter ce trait). NON PORTE (aucun predicat de trait dans la cascade) ->
     #                   degradation PERMISSIVE : le port accepte une cible que le natif refuserait.
     # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun
     # test de portee (meme forme PRESET+flags a 0 que HeroicFusillade).

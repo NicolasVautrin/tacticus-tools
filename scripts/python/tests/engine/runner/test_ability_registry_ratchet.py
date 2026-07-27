@@ -42,6 +42,9 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 from engine.runner.abilities import ABILITY_CLASSES
 from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
@@ -210,3 +213,127 @@ def test_masques_poses_ne_portent_aucun_bit_inconnu():
     assert not fautifs, (
         "masques portant un bit ABSENT de l'enum TargetingRule (transcription fautive, ou enum "
         "deplace au dernier build -- rejouer probe_targeting_rule_bits.py) : %s" % fautifs)
+
+
+# --- SOURCE UNIQUE des regles de ciblage (#164) ---------------------------------------------------
+# Le port a longtemps lu ses regles depuis DEUX endroits : le module GENERE `targeting_rule.py`
+# (mirror 1:1 du dump) et ~31 constantes `RULE_*` ECRITES A LA MAIN dans `targeting.py`. Deux
+# sources pour la meme information, c'est une divergence SILENCIEUSE en attente : rien n'obligeait
+# la copie manuelle a suivre le dump, et trois de ses constantes portaient un nom INVENTE
+# (`RULE_BIT39_...`, `RULE_BIT41_...`, `RULE_BIT57_...`) faute d'avoir le nom natif sous la main.
+# Les deux tests qui suivent interdisent la re-apparition d'une seconde source.
+PY_ROOT = Path(__file__).resolve().parents[3]           # scripts/python
+MODULE_GENERE = PY_ROOT / "engine" / "runner" / "abilities" / "targeting_rule.py"
+
+
+def _nom_normalise(ident: str) -> str:
+    """`RULE_TARGET_IS_IN_RANGE` -> `TARGETISINRANGE`, pour confronter un identifiant Python
+    UPPER_SNAKE au nom PascalCase d'un membre de l'enum."""
+    for prefixe in ("TARGETING_RULE_", "RULE_"):
+        if ident.startswith(prefixe):
+            ident = ident[len(prefixe):]
+            break
+    return ident.replace("_", "")
+
+
+def _sources_python() -> list:
+    return [p for p in PY_ROOT.rglob("*.py") if p != MODULE_GENERE]
+
+
+def test_aucune_constante_de_ciblage_declaree_hors_du_module_genere():
+    """UNE seule source de noms de bits : `engine/runner/abilities/targeting_rule.py`, GENERE par
+    `scripts/python/gen_targeting_rule.py` depuis `data/symbols/<build>/frida/enums.tsv`.
+
+    Rougit sur toute RE-DECLARATION d'une constante de ciblage ailleurs, sous deux formes :
+
+      * un identifiant prefixe `RULE_` / `TARGETING_RULE_` affecte a un entier -- la forme exacte
+        des 31 constantes supprimees, et de la copie locale qui vivait dans
+        `probe_range_gate_melee_clamp.py` ;
+      * un identifiant NON prefixe dont le nom ET la valeur retombent sur un membre de l'enum
+        (ex. `TARGET_IS_ENEMY = 0x4000`) -- le contournement evident de la regle ci-dessus.
+
+    Le mode de defaillance garde ici n'est pas l'erreur : c'est la copie qui reste JUSTE aujourd'hui
+    et devient FAUSSE au prochain re-dump, sans que rien ne le dise."""
+    par_nom = {m.name.upper(): int(m) for m in TargetingRule}
+    par_nom["ALLOWOBSCUREDTARGET"] = int(TargetingRule.AllowObscuredTarget)   # composite, non itere
+
+    fautifs = []
+    for chemin in _sources_python():
+        try:
+            arbre = ast.parse(chemin.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, (ast.Assign, ast.AnnAssign)):
+                continue
+            valeur = noeud.value
+            if not (isinstance(valeur, ast.Constant) and isinstance(valeur.value, int)
+                    and not isinstance(valeur.value, bool)):
+                continue
+            cibles = noeud.targets if isinstance(noeud, ast.Assign) else [noeud.target]
+            for cible in cibles:
+                if not isinstance(cible, ast.Name):
+                    continue
+                ident = cible.id
+                prefixe = ident.startswith("RULE_") or ident.startswith("TARGETING_RULE_")
+                homonyme = par_nom.get(_nom_normalise(ident)) == valeur.value
+                if prefixe or homonyme:
+                    fautifs.append("%s:%d  %s = %#x"
+                                   % (chemin.relative_to(PY_ROOT).as_posix(),
+                                      cible.lineno, ident, valeur.value))
+    assert not fautifs, (
+        "constantes de ciblage declarees HORS du module genere -- il y a de nouveau DEUX sources "
+        "pour la meme information, et rien n'oblige la copie a suivre le dump. Importer "
+        "`from engine.runner.abilities.targeting_rule import TargetingRule as TR` et citer "
+        "`TR.<NomNatif>` : %s" % fautifs)
+
+
+def test_aucun_bit_de_ciblage_cite_par_sa_valeur_brute():
+    """Pendant du test precedent, sur l'autre facon de contourner la source unique : ne pas
+    declarer de constante du tout et ecrire le litteral au point d'usage (`options.has(0x4000)`).
+
+    Le symptome que ca produit se lit dans nos propres traces : la tache #166 decrivait le refus
+    d'une cible deja adjacente comme « le bit `0x100000000` », faute de pouvoir le nommer. Le
+    module genere le nomme : `TargetIsNotAdjacent`."""
+    fautifs = []
+    for chemin in _sources_python():
+        try:
+            arbre = ast.parse(chemin.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for noeud in ast.walk(arbre):
+            if not (isinstance(noeud, ast.Call) and isinstance(noeud.func, ast.Attribute)
+                    and noeud.func.attr == "has"):
+                continue
+            receveur = noeud.func.value
+            if not (isinstance(receveur, ast.Name) and receveur.id in ("options", "opts")):
+                continue
+            for arg in noeud.args:
+                if (isinstance(arg, ast.Constant) and isinstance(arg.value, int)
+                        and not isinstance(arg.value, bool)):
+                    fautifs.append("%s:%d  options.has(%#x)"
+                                   % (chemin.relative_to(PY_ROOT).as_posix(),
+                                      noeud.lineno, arg.value))
+    assert not fautifs, (
+        "bits de ciblage cites par leur VALEUR BRUTE au point d'usage -- un lecteur ne peut pas "
+        "verifier un masque qu'il doit decoder de tete. Citer `TR.<NomNatif>` : %s" % fautifs)
+
+
+def test_module_genere_concorde_avec_le_dump_du_build_courant():
+    """L'autre moitie de la source unique : la source EST unique, encore faut-il qu'elle soit a
+    jour. Le module est GENERE, donc il peut dater d'un build anterieur sans que rien ne le dise --
+    et tous les masques `TARGETING_OPTIONS` du registre deviennent faux d'un coup, en silence.
+
+    Meme confrontation que `scripts/python/probe_targeting_rule_bits.py` (dont ce test reutilise les
+    lecteurs), mais DANS la suite : un probe qu'on oublie de lancer ne garde rien."""
+    import probe_targeting_rule_bits as P
+
+    build = P.build_hash()
+    dump, genere = P.from_dump(build), P.from_python()
+    ecarts = [(bit, dump.get(bit), genere.get(bit))
+              for bit in sorted(set(dump) | set(genere))
+              if dump.get(bit) != genere.get(bit)]
+    assert not ecarts, (
+        "le module GENERE `targeting_rule.py` a derive du dump du build %s -- regenerer "
+        "(`python scripts/python/gen_targeting_rule.py`) et RELIRE les masques du registre, "
+        "qui sont tous suspects : %s" % (build, ecarts))
