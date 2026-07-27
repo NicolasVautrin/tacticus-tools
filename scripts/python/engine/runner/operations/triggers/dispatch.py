@@ -38,7 +38,8 @@ from .loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfF
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
                    ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility,
                    LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
-                   _on_fire_damage_ability, _fire_of_absolution_after_attack)
+                   _on_fire_damage_ability, _fire_of_absolution_after_attack,
+                   _on_toxic_damage_ability)
 from .tiles import dry_bush_fire_spread
 from .effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               RangedAutoAttackActivateOnTurnStart,
@@ -780,8 +781,9 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
     conservé (aucun consommateur actif depuis #151 — le reset ActOfFaith a migré sur On(9) ability-only, donc
     NE fire PLUS sur un crit d'attaque normale). `ranged`/`profile` = nature du coup primaire. Ajoute le passif
-    `SquigHound` (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil (`OnFireDamageAbility`).
-    No-op si rien ne matche."""
+    `SquigHound` (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil
+    (`OnFireDamageAbility` -> Fire 5 si le profil porte `OnFire` ; `OnToxicDamageAbility` -> Contaminated
+    1244 si le profil porte `OnToxic`, sous `IsFirstHitInSeries & Maybe(chance)`). No-op si rien ne matche."""
     ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
@@ -791,6 +793,12 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
     out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour
+    # OnToxicDamageAbility (1203) IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility$$CreateBehaviour
+    # — JUMEAU de la pose de feu (meme vecteur natif `On(0x10)` d'`ADamageOperation$$EvaluateAfterHitTriggers`,
+    # meme feuille `AddEffect(Tiles(Target()))`), mais CONDITIONNEL : `If(IsFirstHitInSeries() &
+    # Maybe(chance=25), AddEffect(0x4dc Contaminated))`. Consomme UN `next_bool` par serie de coups
+    # (= par attaque), APRES les tirages degat/crit/block du coup -> ordre `state.rng` du natif.
+    out = out + _on_toxic_damage_ability(state, attacker_id, target_id, profile)
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour (Vindicta)
     out = out + _squighound_after_attack(state, attacker_id, target_id)
     # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` a la FIN de CHAQUE attaque

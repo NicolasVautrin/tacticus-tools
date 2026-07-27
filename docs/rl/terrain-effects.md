@@ -416,10 +416,24 @@ Les 6 traits de profil natifs <-> gameconfig : id1=OnFire=Flame, id4=OnToxic=Tox
 
 **Point d'insertion runner** = `triggers.py` `after_hit_normal_attack` (event 0x26 deja porte, MEME site que 0x10).
 FIRE = portable proprement (inconditionnel, RNG-free, per-attaque suffit car anti-boucle rend les repeats no-op).
-TOXIC = plus dur : le runner emet after-hit 1x/ATTAQUE (agrege), pas per-coup -> `IsFirstHitInSeries` non fidele
-sans index de coup propage ; + `Maybe(25%)` = RNG a ordonner (risque de desync du stream si mal place). PIEGES
-validator : (1) granularite per-coup vs per-attaque (Toxic 1er-coup) ; (2) proba 25% RNG (source globalValues, ne
-pas hardcoder) ; (3) tuile-cible unique (pas ring), a confirmer live ; (4) anti-boucle NOT(TriggeringEffectIs).
+
+**TOXIC : PORTE ET VALIDE LIVE** (`triggers/loki/on_toxic_damage.py` ; case-doc
+`case-1203-on-toxic-damage.md`). Les 4 pieges annonces sont tranches :
+(1) granularite per-coup vs per-attaque -> le ET natif COURT-CIRCUITE (`MultipleAbilityTrigger$$
+ShouldTrigger` : le droit n'est evalue que si le gauche est vrai), donc le natif ne tire QU'AU coup
+d'index 0 de chaque serie ; le vecteur per-attaque du port EST ce coup -> `is_first_hit=True` pose
+explicitement, meme compte de tirages (1 par serie, donc 1 par cible) ;
+(2) proba 25 % lue en config (`globalValues.toxicDamageContaminationChance`), ancree par test sur la
+constante BC `Abilities.PassiveAbilities.OnToxicDamageAbility.Constants.chance` — jamais hardcodee ;
+(3) tuile-cible unique CONFIRMEE live (`Tiles(Target())` = MainTile de la cible) ;
+(4) anti-boucle structurelle (l'effet de tuile 1244 n'inflige aucun degat `Toxic`) + gate
+`already-present` d'`AddEffectOperation`.
+Point de placement du tirage : APRES les tirages degat/crit/block du coup, cable sur les DEUX vecteurs
+(`after_hit_normal_attack` et `execute_ability_attack`) — verifie par la disparition du « tirage de
+retard » de `test_rad_bombardment_live` (geometrie 2 cibles) et par
+`probe_1203_toxic_contamination.py` (canal arme 1/1 vs desarme 0/1 face au live).
+SOURCE de l'effet pose = la TUILE elle-meme (la surcharge `AddEffect` a 5 args passe un selecteur SOURCE
+NUL et `AddEffectBehaviour$$Execute` retombe sur la cible), PAS le caster.
 
 ### 6.6 FireOfAbsolution (passif Vindicta) + ArmoriumCherub (actif 1014) — PORTE + VALIDE LIVE (2026-07-13)
 

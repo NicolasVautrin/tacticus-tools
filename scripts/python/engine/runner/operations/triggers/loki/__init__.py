@@ -39,6 +39,8 @@ from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljus
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
                             PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
 from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
+from .on_toxic_damage import (on_toxic_damage_tree, _on_toxic_damage_ability,
+                              CONTAMINATED_TILE as TOXIC_CONTAMINATED_TILE, TOXIC_CHANCE_KEY)
 from .lord_of_tempests import (LordOfTempestsAddIceAbility, lord_of_tempests_add_ice_tree,
                                ICE_TILE, SMITE_KIND)
 from .suppressive_fire import (SuppressiveFireAddEffectAbility, suppressive_fire_tree,
@@ -77,6 +79,9 @@ __all__ = [
     "CONTROLEDICT_PROTECTOR", "CONTROLEDICT_CONQUEROR",
     # rad_saturation (S4b GAP — passif du Skitarii Vanguard)
     "RadSaturationAbility", "rad_saturation_tree", "RADSAT_CONTAMINATED_TILE",
+    # on_toxic_damage (1203 — jumeau d'OnFireDamage : pose Contaminated 1244 on-hit, gate
+    # `IsFirstHitInSeries & Maybe(chance=25)`, 1 tirage par serie de coups)
+    "on_toxic_damage_tree", "_on_toxic_damage_ability", "TOXIC_CONTAMINATED_TILE", "TOXIC_CHANCE_KEY",
     # lord_of_tempests (#35 — passif AddIce de Njal)
     "LordOfTempestsAddIceAbility", "lord_of_tempests_add_ice_tree", "ICE_TILE", "SMITE_KIND",
     # suppressive_fire (#74 — trait SuppressiveFire 1010 -> triggered 1044 pose Pinned 1065)

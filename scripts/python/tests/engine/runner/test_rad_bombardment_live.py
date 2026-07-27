@@ -311,18 +311,24 @@ def _dispose(rpc, ctx):
 def _assert_common(ctx, want_targets: int, compare_damage_targets=None):
     """`compare_damage_targets` = nombre de CIBLES dont le degat est confronte BIT-EXACT (None = toutes).
 
-    Au-dela de la 1re cible, la confrontation est bornee pour une raison MESUREE et EXTERIEURE a ce port :
-    le profil `Toxic` porte le DamageTrait `OnToxic` (4), qui arme
-    `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility` (1203) --
+    HISTORIQUE (leve) : la confrontation etait bornee a la 1re cible parce que le profil `Toxic` porte le
+    DamageTrait `OnToxic` (4), qui arme `IdunBattleLogic.Entities.Abilities.Damage.Loki.
+    OnToxicDamageAbility` (1203) --
         CreateTrigger   = On(0x10, 1) & DamageProfileHasTrait(4) & !TriggeringEffectIs(0x4dc)
         CreateBehaviour = If( IsFirstHitInSeries() & Maybe(ConfigConst(1203, Self@0x148, 0x2a = chance)),
                               AddEffect(0x4dc = Contaminated, stateRef, Tiles(target@0x178)) )
-    Le `Maybe` consomme UN tirage AU PREMIER COUP DE CHAQUE SERIE, donc une fois PAR CIBLE. Ce canal
-    on-hit n'est PAS porte (cf. `triggers/loki/rad_saturation.py` : « OnToxicDamageAbility (1203),
-    l'autre source on-hit Toxic, n'est PAS porte ») -> le port a un tirage de retard des la 2e cible.
-    GAP ADJACENT (il touche TOUTE attaque de profil Toxic, quelle que soit l'ability) -> backlog.
-    Ce qui reste PLEINEMENT confrontable, et que ce port decide : le nombre de coups, l'ENSEMBLE des
-    cibles, leur ORDRE, la geometrie de la ligne, les deux volets d'effet."""
+    Le `Maybe` consomme UN tirage AU PREMIER COUP DE CHAQUE SERIE, donc une fois PAR CIBLE ; ce canal
+    n'etant PAS porte, le port avait un tirage de retard des la 2e cible. Il l'est desormais
+    (`triggers/loki/on_toxic_damage.py`) -> plus de borne : les DEUX geometries confrontent le degat
+    per-coup sur TOUTES les cibles. `compare_damage_targets` reste en parametre pour pouvoir re-borner
+    explicitement si un AUTRE canal non porte reapparaissait.
+
+    DEUX POSEURS DE `Contaminated` DEPUIS CE PORT : le volet `AddEffect(GetAffectedTiles())` de
+    RadBombardment **et** le canal on-hit 1203 (qui contamine la tuile de chaque cible TOUCHEE, avant que
+    le volet de l'ability n'y passe -- `op_Addition` gauche->droite : attaques, PUIS Pinned, PUIS
+    Contaminated). Cote LIVE les deux sont indistinguables (une tuile est contaminee ou non) ; cote port
+    la tuile posee par 1203 devient un no-op `placed=False` pour le volet de l'ability. L'ensemble
+    offline confronte est donc l'UNION des deux canaux -- exactement ce que le natif produit."""
     last, live_seq = ctx["last"], ctx["live_seq"]
     assert last.get("ported") is True, (
         f"RadBombardment (1116) non execute (no-op) : last={last} ; "
@@ -348,8 +354,11 @@ def _assert_common(ctx, want_targets: int, compare_damage_targets=None):
         f"degat per-coup offline {off_seq[:n]} != live {live_seq[:n]} (sur les {k} premieres cibles) : "
         f"un etage du coup diverge (bornes MinMaxDamage, percage du profil Toxic, famille de factory)")
 
-    # (2) GEOMETRIE : l'ensemble des tuiles Contaminated live == l'ensemble offline
+    # (2) GEOMETRIE : l'ensemble des tuiles Contaminated live == l'ensemble offline (UNION des DEUX
+    # poseurs, cf. la docstring : volet `AddEffect(GetAffectedTiles())` + canal on-hit 1203).
     off_cont = {p["target"] for p in (last.get("contaminated") or []) if p.get("placed")}
+    off_cont |= {t["placed_on_tile"] for atk in (last.get("attacks") or [])
+                 for t in (((atk.get("attack") or {}).get("toxic")) or [])}
     assert off_cont == ctx["cont_new"], (
         f"tuiles Contaminated offline {sorted(off_cont)} != live {sorted(ctx['cont_new'])} -- "
         f"GetAffectedTiles diverge (longueur AffectedTileAmount, sens de TilesBehindInLine, settings "
@@ -405,7 +414,10 @@ def test_rad_bombardment_two_targets_ordered_live(live_session, rpc):
     try:
         n = len({t for t, _ in ctx["live_seq"]})
         assert n >= 2, f"la ligne n'a touche que {n} unite(s) : geometrie 2 non atteinte"
-        _assert_common(ctx, want_targets=n, compare_damage_targets=1)
+        # `compare_damage_targets` par defaut (= TOUTES les cibles) depuis le port de 1203 : le tirage
+        # `Maybe` du canal on-hit Toxic est desormais consomme par cible, donc le MT offline ne prend
+        # plus un tirage de retard a partir de la 2e cible (cf. la docstring de `_assert_common`).
+        _assert_common(ctx, want_targets=n)
         # ORDRE explicite : la 1re cible frappee doit etre la PLUS ELOIGNEE du caster (SortReverse).
         board, last = ctx["board"], ctx["last"]
         order = []
