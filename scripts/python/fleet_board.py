@@ -256,7 +256,10 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
     --accent:#5b57c9; --ok:#3f8f5e; --warn:#c1841f; --crit:#c0453a; --track:#e8ecf3;
   }
   body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans);
-         line-height:1.5; -webkit-font-smoothing:antialiased; }
+         line-height:1.5; -webkit-font-smoothing:antialiased;
+         /* garde-fou : le corps ne doit JAMAIS defiler horizontalement. Un debordement lateral
+            sur mobile detourne le geste et donne l'impression que le defilement vertical est mort. */
+         overflow-x:hidden; }
   .wrap { max-width:1080px; margin:0 auto; padding:clamp(20px,4vw,52px) clamp(16px,3vw,32px) 72px; }
   header { border-bottom:2px solid var(--ink); padding-bottom:18px; }
   .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
@@ -337,9 +340,13 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
   .brief { margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; }
   .brief summary { cursor:pointer; font-size:.76rem; color:var(--muted); letter-spacing:.02em; }
   .brief summary:hover { color:var(--ink); }
+  /* PAS de `max-height` + `overflow-y:auto` ici : un scroller IMBRIQUE est un piege tactile. Sur
+     mobile, un doigt qui atterrit dans le bloc est capture par lui et ne fait plus defiler la PAGE
+     -- le defilement parait casse alors que rien ne l'empeche. Le brief est deja replie dans un
+     <details> : quand on l'ouvre, on veut le lire en entier, pas dans une lucarne de 22 em. */
   .brief pre { margin:8px 0 0; padding:10px 12px; background:var(--track); border-radius:6px;
                font-family:var(--mono); font-size:.74rem; line-height:1.5; color:var(--ink);
-               white-space:pre-wrap; overflow-wrap:anywhere; max-height:22em; overflow-y:auto; }
+               white-space:pre-wrap; overflow-wrap:anywhere; }
 </style>
 
 <div class="wrap">
