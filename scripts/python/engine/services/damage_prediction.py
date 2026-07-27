@@ -575,3 +575,34 @@ def get_attack_prediction(
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
         target_limits=target_limits, extra_groups=extra_groups,
         defender_block_amount=defender_block_amount, attacker_effects=attacker_effects)
+
+
+# --------------------------------------------------------------------------------------------------
+# #169 : les deux definitions ci-dessous ARRIVENT VERBATIM de `runner/operations/triggers/dispatch.py`
+# (scission du module >1000 lignes). Elles n'ont jamais releve du DISPATCH : c'est du DEGAT, et le
+# symbole natif qu'elles mirrorent (`IdunBattle.Core.Services.DamagePrediction$$IsOverkill`) est un
+# membre de la classe dont CE module est le mirror. Le re-export depuis
+# `runner/operations/triggers/dispatch/__init__.py` est conserve (`triggers/__init__.py` l'expose,
+# et `probe_deathnova` / `operations/damage.py` l'importent par la).
+#
+# /!\ FORK DE PORT SIGNALE, NON CORRIGE (hors perimetre d'un deplacement) : `trait_damage_limits.py`
+# porte un SECOND `is_overkill`, de signature differente (7 parametres), qui mirrore LA MEME fonction
+# native -- son propre docstring `_overkill_threshold_pct` le dit (<< MEME global que le `is_overkill`
+# death-riposte [...], meme fn native [...] IsOverkill >>). Les deux forks vivent desormais dans le
+# meme dossier `services/`, ce qui les rend confrontables ; les unifier est un travail de RE.
+# --------------------------------------------------------------------------------------------------
+
+# --- FinalJustice / overkill ----------------------------------------------------------------------
+OVERKILL_PCT_KEY = "overkillDmgPctOfHealth"  # globalValues = 100 → overkill ssi dmg-PV >= 100%*PV (dmg>=2*PV)
+
+
+def is_overkill(hp_before, damage) -> bool:
+    """`IdunBattle.Core.Services.DamagePrediction$$IsOverkill : coup létal OVERKILL ssi l'excès `(dmg - PV)` >=
+    `overkillDmgPctOfHealth`% du PV (=100% → `dmg >= 2*PV`). `CanBeOverkilled` (= NOT trait 0x1b) non
+    porté offline (aucun nom de trait dispo ; worldKharn ne l'a pas) → supposé True. No-op (False) si
+    dégât inconnu ou PV<=0."""
+    import gameconfig as GC
+    if damage is None or hp_before is None or hp_before <= 0:
+        return False
+    pct = int(GC.global_value(OVERKILL_PCT_KEY) or 100)
+    return (int(damage) - int(hp_before)) * 100 >= pct * int(hp_before)
