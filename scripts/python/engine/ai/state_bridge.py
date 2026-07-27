@@ -410,8 +410,23 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
 
 def _dv_units(state) -> list:
     """`units` façon decisionView (ctrl attribue plus bas par team) : id/alive/pos/team/hp/visualId/effects.
-    MoW EXCLUES : le natif ne met que `EntityType.Unit` dans `decisionView.units` (les Machines vivent
-    dans le canal separe `.mows`) -- cf. `_load_machines`."""
+
+    MoW EXCLUES, et c'est FIDELE (pas le residu R14) : le natif ne met que `EntityType.Unit` dans
+    `decisionView.units` -- les Machines vivent dans le canal SEPARE `.mows` (cf. `_load_machines`) et
+    ont leur PROPRE chemin de decision, `IdunBattle.AI.Tactics.DefaultMachineTactic`, sur lequel
+    `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` route des `IsMachine(actor)`. Le port de
+    ce chemin est `engine.ai.context.build_machine` + `engine.ai.tactic.DefaultMachineTactic` (routage
+    dans `engine_validate.engine_decide`) : position du caster = `UnitPosition.NullPosition`, tuiles
+    candidates VIDES, aucun `MovementActionGenerator`. Glisser une MoW ICI lui inventerait une origine
+    et contaminerait le raisonnement positionnel de toutes les vraies unites.
+
+    RESIDU (voie 100% OFFLINE) : `build_from_state` n'a pas de jumeau Machine parce que le seam de
+    ciblage offline `ability_targets_offline` mirrore
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetAllValidTargetsFromAllPossibleMovementTiles` -- il ancre
+    les cibles aux tuiles-caster (origine + move), donc il rend VIDE pour un caster sans position.
+    L'eligibilite d'une ability de MoW vient de ses `TargetingOptions` + `GetAllTargets` (filtre
+    STATIQUE non porte, tache #115) ; tant qu'il manque, la face DECISION MoW se confronte par la voie
+    LIVE (RPC `abilityTargets`), comme le fait `context.build` pour les unites."""
     from engine.runner.components import EffectsOwnedComponent, is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():
@@ -436,7 +451,7 @@ def _dv_units(state) -> list:
 
 def _obs_units(state) -> list:
     """`observeBattle.units` façon runner : squadId/teamId/visualId/hp/hpMax/isDead/col/row.
-    MoW EXCLUES (canal separe `.mows` cote natif, cf. `_dv_units`)."""
+    MoW EXCLUES (canal separe `.mows` cote natif + chemin de decision dedie, cf. `_dv_units`)."""
     from engine.runner.components import is_machine_of_war
     out: list = []
     for eid, e in state.entities.items():

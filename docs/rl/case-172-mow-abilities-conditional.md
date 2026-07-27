@@ -94,8 +94,13 @@ La phrase « l'ENGINE ne predit pas encore un MoW (combatSnapshot/Scene ne captu
   (level/mult = `AbilityState` per-ability) -> un port d'ability MoW s'execute et se confronte au live.
   Sweep : 13 des 16 abilities MoW du pool castent live sans mise en scene (les 3 autres = predicats de
   ciblage montables, PROUVE pour SquigLaunchas).
-- **DECISION : toujours bloquee** (`_plans_for_unit` / `origin=None`) — volontairement (mirrorer le
-  chemin natif dedie, pas faire passer une entite sans position pour une unite).
+- **DECISION : DEBLOQUEE par R14** (`case-r14-mow-decision.md`). Le chemin natif dedie n'est PAS
+  `aiPlaybookPredict` (qui est le harnais oracle de PREDICTION monte ici) mais le tactic
+  `IdunBattle.AI.Tactics.DefaultMachineTactic`, sur lequel
+  `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` route des `IsMachine(actor)` : pas de
+  `MovementActionGenerator`, caster a `UnitPosition.NullPosition`, tuiles candidates VIDES. Porte
+  (`engine.ai.tactic.DefaultMachineTactic` + `engine.ai.context.build_machine`), sweep 8/8 MoW,
+  coincidence mesuree sur 1187. Aucune origine inventee.
 - **combatSnapshot reste `EntityType.Unit`-only** -> stats resolues de MoW non captables (spec
   `frida/hooks` documentee dans `case-mow-offboard-cast` §8). Base gameconfig = 0 pour les 8 MoW.
 

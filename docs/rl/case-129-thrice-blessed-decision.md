@@ -225,18 +225,15 @@ incapable de passer sur un copier-coller de la feuille 1092.**
 
 ## 5. Ce qui n'est PAS couvert
 
-- **Le DRIVER de decision offline n'active pas les MACHINES OF WAR — residu NOMME, hors #129.**
-  `engine.ai.state_bridge._dv_units` (« MoW EXCLUES — le natif ne met que `EntityType.Unit` dans
-  `decisionView.units` ») et le canal live `decisionView` separent `.units` de `.mows` :
-  `engine_decide(…, cid)` n'a donc **aucune entree** pour un `casterId` de MoW. La feuille est
-  enregistree dans `PLAYBOOKS` et confrontee au natif via un `NCContext` bati depuis les RPC
-  (exactement ce que `EvaluateNonComparable` calcule : ability + cible + utilite), mais le chemin
-  `engine_decide -> NonComparableGenerator -> feuille` reste inatteignable pour une MoW.
-  **Candidat de suite** : cabler `decisionView.mows` dans le bridge de decision (points d'accroche :
-  `engine/ai/state_bridge.py::_dv_units`, la construction de `ctx.me`/`ctx.origin`/`ctx.reach_nc`
-  dans `engine_validate.engine_decide`, et le fait qu'une MoW n'a NI position NI mouvement — le
-  sweep de positions doit degenerer en `NullPosition` seule). Tant que ce cablage n'existe pas,
-  AUCUNE ability de MoW ne peut etre proposee par le moteur, 1187 comme les 7 autres porteurs.
+- ~~**Le DRIVER de decision offline n'active pas les MACHINES OF WAR**~~ — **FERME par R14**
+  (`case-r14-mow-decision.md`, 2026-07-27). `engine_decide` route desormais un `casterId` de MoW vers
+  le tactic natif DEDIE `IdunBattle.AI.Tactics.DefaultMachineTactic` (mirror de
+  `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit`, branche `IsMachine`) : generateurs
+  d'ability SANS `MovementActionGenerator`, caster a `UnitPosition$$NullPosition`, tuiles candidates
+  VIDES. Le chemin `engine_decide -> NonComparableGenerator -> feuille 1187` est ATTEINT et confronte
+  (`test_thrice_blessed_decision_live.py` passe par `engine_decide`, plus par un `NCContext` bati a
+  la main). L'exclusion des MoW de `_dv_units`/`_obs_units` est CONSERVEE : elle etait fidele (canal
+  `.mows` separe cote natif), pas le blocage.
 - **AIM depuis l'ORIGINE uniquement** (`fromHere`) : le natif balaie aussi les positions de MOVE.
   Inerte ici — la MoW ne se deplace pas, et l'utilite de 1187 est position-INDEPENDANTE (ancree a
   la tuile de la CIBLE). Le seul effet possible serait un set de cibles plus large apres

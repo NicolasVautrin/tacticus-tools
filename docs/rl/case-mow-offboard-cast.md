@@ -122,10 +122,12 @@ cf. case-172), pas d'une stat d'unite.
   **equilibre** (sans quoi tout replay-diff MoW signalerait « absente a gauche »).
 
 `engine/playbook/scene.py` + `engine/ai/state_bridge.py` (`_dv_units`, `_obs_units`)
-- **les MoW sont EXCLUES** de la face DECISION : le natif ne met que `EntityType.Unit` dans
-  `decisionView.units` / `observeBattle.units` (canal `.mows` separe), et la decision MoW native a son
-  propre chemin de resolution de caster Machine (case-172, `aiPlaybookPredict`). Zero contamination de
-  l'agreement.
+- **les MoW sont EXCLUES** de ces deux canaux, et ca reste vrai apres R14 : le natif ne met que
+  `EntityType.Unit` dans `decisionView.units` / `observeBattle.units` (canal `.mows` separe). La face
+  DECISION MoW a son PROPRE tactic (`IdunBattle.AI.Tactics.DefaultMachineTactic`, cf.
+  `case-r14-mow-decision`), branche par `engine.ai.context.build_machine` +
+  `engine_validate.engine_decide` -- jamais en glissant une entite sans position dans `dv.units`.
+  Zero contamination de l'agreement.
 
 ## 5. Les 3 abilities « 0 cible » = predicats de ciblage, pas un verrou
 
@@ -191,11 +193,16 @@ Porteurs **absents du seed BC** (donc hors pool : `buildNormalizedBC` n'enumere 
   elargir le filtre de `rpc-snapshot.ts` a `EntityType.Machine` pour `combatSnapshot.allUnits` (emission
   d'une section `machines[]` ou inclusion dans `units[]` avec un marqueur), et idem pour les
   `targetUnits` de `statModSources`. `GetStat` lui-meme est generique (aucun autre obstacle).
-- **Face DECISION MoW toujours bloquee** : `state_bridge._plans_for_unit` ne feede pas l'attaque d'une
-  MoW a `_best_attack` (`origin=None`). C'est le blocage nomme par `case-27` pour les 3 overlays
-  `CalculateCustomUtility` de porteur MoW (PlagueburstMortar / DaemonicOrdnance / Malleus). **Non leve**
-  par ce debloqueur (qui est cote COMBAT) et volontairement : mirrorer la decision MoW demande le
-  chemin natif dedie (case-172), pas de faire passer une entite sans position pour une unite.
+- ~~**Face DECISION MoW toujours bloquee**~~ -- **LEVE par R14** (`case-r14-mow-decision.md`). Le
+  chemin natif dedie n'est pas `aiPlaybookPredict` mais `IdunBattle.AI.Tactics.DefaultMachineTactic`
+  (routage `IdunBattle.Core.Services.AiQuery$$GetUnitTacticForUnit` sur `IsMachine`) : generateurs
+  d'ability SANS `MovementActionGenerator`, caster a `UnitPosition.NullPosition`, tuiles candidates
+  VIDES. Porte (`engine.ai.tactic.DefaultMachineTactic` + `engine.ai.context.build_machine` + routage
+  dans `engine_validate.engine_decide`) ; sweep 8/8 MoW sans violation d'invariant, coincidence
+  mesuree sur 1187. `_plans_for_unit` reste inchange et n'etait PAS le chemin : une MoW n'a aucune
+  tuile candidate, donc aucun plan d'attaque positionnel. Ce qui reste pour les 3 overlays
+  `CalculateCustomUtility` de porteur MoW (PlagueburstMortar / DaemonicOrdnance / Malleus) est le
+  PORT de leur feuille de decision -- 1187 est la seule des 16 abilities MoW a en avoir une.
 - **Multi-hex** (§6) : verrou distinct.
 
 ## 9. Validation

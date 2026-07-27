@@ -505,6 +505,37 @@ def can_use_ability(unit: dict, ability: dict) -> bool:
     return True
 
 
+def can_currently_be_used(ability: dict) -> bool:
+    """`IdunBattle.Entities.Components.ActiveAbility$$get_CanCurrentlyBeUsed` sur une entree
+    d'ability du canal `decisionView` (`readAbilityState`, qui lit LITTERALEMENT ces champs) :
+
+        CanStillBeUsed(@0x28) && !IsDisabled(@0x35)
+          && (!RemainingCooldownTurns(@0x2c).HasValue || Value < 1)
+          && (!AmmoCost(@0x38).HasValue || HasEnoughAmmo(@0x40))
+
+    C'est le gate que `ActiveAbilityActionGenerator.<GenerateActions>d__7` applique par ability AVANT
+    tout `LoadPlaybook` -- le port ne lisait jusqu'ici que le PREMIER terme (`usable`), donc il etait
+    strictement PLUS PERMISSIF que le natif sur le cooldown et les munitions.
+
+    Le terme MUNITIONS n'a de mordant que sur les MACHINES OF WAR (`ammoCost` est null sur toute
+    unite reguliere) : mesure live session 4, runner MoW `adeptExorcist` -- `1187` est
+    `usable:true, hasAmmo:false` (stock `MachineOfWarAmmo` = 0 au seed BC) et le natif caste `1188`.
+
+    L'attaque NORMALE (`kind == 'normal'`) n'a pas d'objet `ActiveAbility` derriere (ni `usable`, ni
+    cooldown, ni munitions) -> jamais gatee, comme dans `can_use_ability`."""
+    a = ability or {}
+    if a.get("kind") == "normal":
+        return True
+    if a.get("usable") is False or a.get("disabled") is True:
+        return False
+    cd = a.get("cooldown")
+    if cd is not None and int(cd) >= 1:
+        return False
+    if a.get("ammoCost") is not None and a.get("hasAmmo") is False:
+        return False
+    return True
+
+
 def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:
