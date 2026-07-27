@@ -110,6 +110,19 @@ class UnitComponent(Component):
     `+0x18 Nullable<AbilityOrEffect>` (lu par `IdunBattle.Operations.DamageSource$$IsFromAbility`).
     Cote port : `(killer_id, damage_reason, ability_or_effect|None)`, None tant que l'unite est vivante.
 
+    `damaged_units_this_phase` = mirror de la `List<BEntityId>` @`ActorStatisticsComponent + 0x48`
+    (l'ATTAQUANT y accumule les unites auxquelles il a inflige des degats pendant la PHASE courante).
+    C'est LA source du selecteur `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select`
+    (`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)`), qui resout son selecteur
+    `attacker`, prend ce composant sur chaque attaquant et rend les ENTITES correspondantes.
+    Le champ 0x48 est REMIS A ZERO par `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase` --
+    la MEME fonction, la MEME boucle d'entites, que le `TriggeredAbilityComponent$$ResetPhase` deja
+    porte : le port mappe donc le boundary de phase au MEME endroit (`State.reset_trigger_phases`,
+    appelee par `Runner.apply` sur chaque action top-level). Consommateur : le volet OVERKILL de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour`.
+    NB : loge ici (comme `times_attacked_this_turn`/`received_damage_this_turn`) alors que le foyer
+    natif est l'`ActorStatisticsComponent` -- MEME residu structurel documente (case-202 §6).
+
     `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
     ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
     {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
@@ -134,7 +147,7 @@ class UnitComponent(Component):
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
-                 "last_hit_damage_taken_last_turn", "feet")
+                 "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -154,6 +167,7 @@ class UnitComponent(Component):
         self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
         self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
         self.death_source = None              # `Nullable<DamageSource>` @UnitComponent+0x108
+        self.damaged_units_this_phase: list = []   # `ActorStatisticsComponent+0x48` (cf. docstring)
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`
@@ -415,6 +429,12 @@ class UnitFlagsComponent(Component):
     TURN_FINISHED = 3           # UnitFlag.TurnFinished
     NO_ACTION_AVAILABLE = 4     # UnitFlag.NoActionAvailable
     FLED = 9                    # UnitFlag.Fled — « a fui » ce tour
+    OVERKILLED = 8              # UnitFlag.Overkilled — pose par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+                                # +0x17d5 (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` — le
+                                # `mov edx,8` precede immediatement le call, lu au desassemblage) ; RETIRE par
+                                # `IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0` (Remove(8)).
+                                # Lu par `IdunBattleLogic.Entities.DSLFactory$$HasFlag(unit, 8)` — volet
+                                # OVERKILL de `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour`.
     TELEPORTED = 12             # UnitFlag.Teleported
     AMBUSH_CONSUMED = 14        # flag 0xe (UnitPostAbility) — G3 : Ambush ré-suscité UNE fois ; posé par
                                 # `ResurrectUnitOperation` (Add 0xe), testé `Not(HasFlag 0xe)` par les 2 triggers

@@ -205,6 +205,12 @@ class DslContext:
     # `ActiveAbilitiesComponent` absent) -> le selecteur le propage au lieu d'inventer un False.
     # Defaut None (accesseur non branche) = meme ignorance. Fourni par `entities_from_state`.
     can_have_active_ability_reset: object | None = None
+    # Unites qu'un ATTAQUANT a endommagees pendant la PHASE courante (mirror de la `List<BEntityId>`
+    # @`ActorStatisticsComponent + 0x48`, lue par
+    # `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select`) :
+    # `units_damaged_this_phase(attacker_unit) -> list[dict d'unite]`. Defaut None -> selecteur degrade []
+    # (documente par noeud). Fourni par `entities_from_state` (lit `UnitComponent.damaged_units_this_phase`).
+    units_damaged_this_phase: object | None = None
 
 
 class Const(AAmountFormula):

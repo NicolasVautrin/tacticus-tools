@@ -71,7 +71,7 @@ from ...entities.damage_profile_type import DamageProfileType
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import UnitComponent, ShieldComponent, unit_is_dead
+from ..components import UnitComponent, ShieldComponent, UnitFlagsComponent, unit_is_dead
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
                                  defender_effect_block_sources)
 from .damage_hits import HitDamage, _DamageHitsMixin
@@ -230,6 +230,20 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
         overkill = is_overkill(hp_before, damage)
+        # `UnitFlag.Overkilled (8)` — le natif le pose dans `IdunBattle.Operations.ApplyDamageOperation$$
+        # Execute+0x17d5` (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` : le `mov edx,8`
+        # precede immediatement le call a `IdunBattle.Entities.Components.UnitFlagsComponent$$Add`), donc
+        # AVANT le kill. Cote port l'overkill n'est resolu qu'ici (`is_overkill(hp_before, damage)`, meme
+        # regle que les gates on-death deja portes) -> on pose le flag ICI, en tete de la sequence de mort
+        # et AVANT tout vecteur `On(...)`. DIVERGENCE D'ORDRE NOMMEE : un consommateur natif qui lirait le
+        # flag ENTRE l'application du degat et le kill le verrait plus tot ; aucun consommateur porte n'est
+        # dans cette fenetre (`DoomSiren` lit le flag APRES tout son volet d'attaque).
+        if overkill:
+            fl = tgt.get_component(UnitFlagsComponent) if tgt is not None else None
+            if fl is None and tgt is not None:
+                fl = tgt.add_component(UnitFlagsComponent())
+            if fl is not None:
+                fl.add(UnitFlagsComponent.OVERKILLED)
         # `KillUnitOperation$$RecordDeathReason` : la `DamageSource` de la victime est enregistree
         # AVANT `On(1)` -- c'est la seule raison pour laquelle `HasDeathReason` peut matcher sur ce
         # vecteur (`AReactivateOverwatchEffect$$LegitDeathReasons`, #114).
@@ -307,6 +321,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             state, target_id, profile, total, shield_dmg, armor_dmg)
         AttackDamageOperation._record_last_hit_damage_taken(
             state, target_id, total, shield_dmg, armor_dmg, last_hit)
+        AttackDamageOperation._register_damaged_this_phase(
+            state, attacker_id, target_id, total, shield_dmg, armor_dmg)
         AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
         # #100 : `IdunBattle.Operations.RefreshEffectsOperation` (volet stat-modifier) — les PV viennent
         # de changer, donc les `CreateActiveCondition` qui lisent `StatAmount(Self, HEALTH, CURRENT_PCT)`
@@ -373,6 +389,32 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = ent.get_component(UnitComponent) if ent is not None else None
         if uc is not None:
             uc.last_hit_damage_taken_this_turn = amount
+
+    @staticmethod
+    def _register_damaged_this_phase(state: State, attacker_id: Optional[int], target_id: int,
+                                     health: int, shield: int = 0, armor: int = 0) -> None:
+        """Alimente la `List<BEntityId>` @`ActorStatisticsComponent + 0x48` de l'ATTAQUANT (« unites
+        endommagees pendant CETTE phase ») -- la source du selecteur
+        `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select`
+        (`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)`). Cote port la liste vit
+        sur le `UnitComponent` de l'attaquant (`damaged_units_this_phase`, meme residu structurel que
+        `received_damage_this_turn`, case-202 §6) et se vide au boundary de phase
+        (`State.reset_trigger_phases`, mirror `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase`
+        qui `Clear()` CE champ dans la MEME boucle que `TriggeredAbilityComponent$$ResetPhase`).
+
+        MEME gate que `_register_received_damage` (du degat a REELLEMENT ete inflige : sante OU bouclier
+        OU armure) : le call-site natif exact (l'op enqueue par le pipeline) n'est pas isolable aux xrefs
+        -- residu documente, sans effet observable tant que le seul consommateur porte (DoomSiren) tourne
+        APRES son propre volet d'attaque. Liste SANS doublon (`OrderedSet`-like : un meme cible frappee
+        par plusieurs coups n'y figure qu'une fois), ordre = ordre de premiere frappe."""
+        if attacker_id is None or (health <= 0 and shield <= 0 and armor <= 0):
+            return
+        ent = state.get_entity(int(attacker_id))
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            return
+        if int(target_id) not in uc.damaged_units_this_phase:
+            uc.damaged_units_this_phase.append(int(target_id))
 
     @staticmethod
     def _apply_max_out(state: State, attacker_id: int, hit_nc: "HitDamage",

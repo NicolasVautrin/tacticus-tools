@@ -509,6 +509,48 @@ class AllDeadOrResurrectedUnits(TargetsSelector):
         return out
 
 
+class UnitsDamagedThisPhase(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitsDamagedThisPhase(attacker)` ->
+    `IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select` — MIRROR du decompile :
+
+        result = OrderedSet<IEntity>()
+        foreach att in attackerSelector.Select(entities):        # champ +0x18 = le selecteur `attacker`
+            stats = att.GetComponent<ActorStatisticsComponent>() # meme paire de statics que
+                                                                 # `ApplyDamageOperation$$RecordHitStatistics`
+            foreach id in stats.<champ 0x48>:                    # List<BEntityId> « endommagees cette phase »
+                e = state.GetEntity(id)
+                if (e != null && EntityExtensions.IsUnit(e)) result.Add(e)
+        return result
+
+    Le champ 0x48 est un `List<BEntityId>` alloue par `ActorStatisticsComponent$$.ctor` et **vide par
+    `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase`** — la MEME boucle qui appelle
+    `TriggeredAbilityComponent$$ResetPhase`, d'ou le mapping de phase du port (`State.reset_trigger_phases`,
+    appelee en tete de `Runner.apply`).
+
+    Port : `ctx.units_damaged_this_phase(att)` (fourni par `entities_from_state`, lit
+    `UnitComponent.damaged_units_this_phase`). L'accesseur absent -> [] (degradation fidele). `attacker`
+    normalise par `_units_of` (un noeud-role `Caster()` rend un dict -> `[dict]`). Dedup par id (l'`OrderedSet`
+    natif), ordre = ordre d'insertion (premiere frappe).
+
+    Consommateur porte : le volet OVERKILL de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$ExecuteBehaviour`."""
+    def __init__(self, attacker: TargetsSelector):
+        self.attacker = attacker
+
+    def select(self, ctx):
+        fn = ctx.units_damaged_this_phase
+        if fn is None:
+            return []
+        out, seen = [], set()
+        for att in _units_of(self.attacker, ctx):
+            for u in (fn(att) or []):
+                uid = u.get("id") if isinstance(u, dict) else None
+                if uid is not None and uid not in seen:
+                    seen.add(uid)
+                    out.append(u)
+        return out
+
+
 def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits(source)` — MIRROR du décompilé (composition PURE
     de primitives déjà portées, comme `get_spawn_tile_selector`) :
