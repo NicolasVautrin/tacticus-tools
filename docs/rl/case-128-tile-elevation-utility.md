@@ -18,11 +18,17 @@ Aucun changement `frida/hooks`, aucun rebuild, aucun reinject.
 - **Le terme est porte FIDELEMENT** (§2, §3). Il n'est ni mal value, ni mal pondere, ni mal signe.
 - **Il n'est meme pas l'agent de la divergence** : sur un etat ou il est le SEUL discriminant, le natif
   paie exactement le meme `+10/niveau` que le port (§4, mesure S3).
-- **Le port sur-genere des candidats** : il score l'action depuis la tuile d'ORIGINE du caster, que
-  l'enumeration native ne contient pas quand l'unite a encore du deplacement (§5). Sur l'etat S3, retirer
-  ce seul candidat rend EXACTEMENT la reponse native.
-- **Residu non ferme** : sur l'etat S1 (1197 disponible), l'ecart subsiste apres retrait de l'origine —
-  candidat `fable-solver` (§6).
+- ~~**Le port sur-genere des candidats**~~ — **REFUTE** (R1, `case-r1-origin-action-tile.md`). Le natif
+  MET la tuile d'ORIGINE dans ses candidats, et elle y est la PREMIERE : le slot `IBattleQuery`+0xe est
+  `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, dont l'`OrderedSet` est SEEDE
+  avec `GetUnitPosition(unit)` avant `UnionWith(movable)`. 10 contre-exemples live. La coincidence
+  numerique du §5 (« argmax sans l'origine = action native ») reste vraie, son MECANISME est faux — et le
+  retrait de l'origine aurait ete un FORK, pas un fix. Ce qui a ete porte a la place est l'ORDRE du sweep
+  (origine EN TETE). Detail et encadre : §5.
+- **Residu non ferme** : la divergence S3 reste OUVERTE, et son explication du §5 ne tient plus (l'ecart
+  est de 1.925, donc ce n'est pas un tie que l'ordre trancherait). Piste nommee au §7 (le x1.25
+  positionnel du degat predit depuis l'ORIGINE) et reprise dans `case-r1-origin-action-tile.md` §5. Sur
+  l'etat S1 (1197 disponible), l'ecart subsiste egalement — candidat `fable-solver` (§6).
 
 ## 2. Le terme, lu au decompile (chaine complete)
 

@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **207/207 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1904 assignations ecartees dans 257 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (5889 symboles distincts) de la PROSE (2723 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1964 assignations ecartees dans 262 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (6035 symboles distincts) de la PROSE (2858 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, move, playbook, predict, runner, services, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -64,7 +64,7 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 - Passifs distincts dans le parc (lineup 123 / npc 481 / summons 65) : **207**
 - **PORTES** (>=1 canal structurel) : **54** (26 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **11**
-- **GAPS** (mention seule + absent) : **142** = 41 mention + 101 absent
+- **GAPS** (mention seule + absent) : **142** = 43 mention + 99 absent
 - Passifs portes par >=1 unite **confrontable** : **116** ; parmi eux, **55 gaps** et **7 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=23, **O**=6, **E**=35, **G**=1, **X**=0, **B**=3
@@ -219,8 +219,8 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | RedRampage | L-=1 N=1 | - | GAP-MENTION | **.** | - |
 | RefusalToBeOutdone | L-=1 | - | GAP-ABSENT | - | - |
 | RepairEnthusiast | S?=1 N=1 | - | GAP-ABSENT | - | - |
-| RunsAround | N=1 | - | GAP-ABSENT | - | - |
-| RunsAway | N=1 | - | GAP-ABSENT | - | - |
+| RunsAround | N=1 | - | GAP-MENTION | **.** | - |
+| RunsAway | N=1 | - | GAP-MENTION | **.** | - |
 | SelfRepairMechanismReworked | N=1 | - | GAP-ABSENT | - | - |
 | Shrapnel | S?=1 N=2 | - | GAP-ABSENT | - | - |
 | ShroudPsalm | N=1 | - | GAP-ABSENT | - | - |
