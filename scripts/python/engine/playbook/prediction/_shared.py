@@ -288,7 +288,13 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            "damage_profile": damage_profile,
            "tgt_id": tgt_id,
            "t_pos": scene.pos(tgt_id) if tgt_id is not None else None,
-           "tgt_team": scene.team(tgt_id) if tgt_id is not None else None}
+           "tgt_team": scene.team(tgt_id) if tgt_id is not None else None,
+           # Traits gameconfig de la CIBLE -- gate `HasTrait(Target@0x178, ...)` des auras dont la
+           # condition porte sur la cible : `DestroyTheWitch_ExtraDamage` (aura melee vs **Psyker**,
+           # IdunBattle.Entities.Effects.Loki.DestroyTheWitch_ExtraDamageEffect$$CreateEffectDamageBonusForAttack).
+           # Symetrique du `tgt_traits` que l'agregateur DEFENSE passait deja.
+           "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ())
+           if tgt_id is not None else None}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

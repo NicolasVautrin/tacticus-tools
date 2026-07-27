@@ -174,6 +174,21 @@ class _DamageOpsMixin:
         _target_tiles = get_tiles(state, target_id)
         pre_unit_ability_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                   profile=_profile, ability_type=1013)
+        # #133 GATE ACTEUR-MORT **POST-`On(0x2b)`** — mirror du test qui suit IMMEDIATEMENT
+        # l'evenement dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (lu
+        # verbatim au decompile) :
+        #     FUN_180026490(0x4d, .., 0x2b);
+        #     if (options@0x4a == 0 && IsUnit(caster) && IsDead(caster, state)) return 0;
+        # Le natif teste DEUX FOIS la mort du caster : en TETE d'operation (#70, deja porte au niveau
+        # MESSAGE dans `DamageHandler.visit_AttackUnitMessage`) et ICI, parce que la cascade de
+        # triggers reveillee par `0x2b` peut l'avoir TUE entre-temps. C'est exactement ce que fait la
+        # riposte `MartialSuperiority` (« before the enemy attack executes ») : si elle tue
+        # l'attaquant, l'attaque entrante est ANNULEE (0 tirage RNG, 0 degat, aucun after-hit).
+        # `options@0x4a` = le flag « caster mort autorise » des `AbilityOptions` : aucune voie du port
+        # ne le pose -> gate toujours actif. Inerte pour toute cascade qui ne tue pas l'attaquant.
+        from ..components import unit_is_dead                  # lazy : coherent avec les autres gates
+        if unit_is_dead(state.get_entity(attacker_id)):
+            return None
         # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans
         # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`. L'attaque normale EST une
         # active ability (`ALoki_NormalAttackAbility`) : elle traverse le MEME etage que le cast, et

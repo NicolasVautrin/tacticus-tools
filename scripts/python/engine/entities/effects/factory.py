@@ -109,6 +109,8 @@ from .loki import (
     GravitonRifleExtraPierceEffect,
     HailstrikeExtraPierceEffect,
     HeavyGravCannonEffect,
+    DestroyTheWitchExtraMoveEffect,
+    DestroyTheWitchExtraDamageEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -157,6 +159,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # prennent +extraDmg[ablvl]xmult des attaques normales des amis du porteur (extraDmg_2 Aeldari,
     # toutes attaques) (IdunBattle.Entities.Effects.Loki.Doom_extraDmgEffect$$CreateEffectDamageBonusForAttack, selector IdunBattle.Entities.Effects.Loki.Doom_extraDmgEffect$$CreateTargetSelector ring-exact). #57c.
     "Doom_extraDmg": DoomExtraDmgEffect,
+    # DestroyTheWitch (Helbrecht templHelbrecht, passif TriggeredAbilityType 0x443=1091 ; les DEUX
+    # owner-effects de `DestroyTheWitchAbility$$CreateBehaviour`) :
+    #  - 0x440=1088 ExtraMove   : StaticStatModifierEffect +extraMovement(=1) sur MOVEMENT ;
+    #  - 0x441=1089 ExtraDamage : aura +extraDmg[ablvl]xmult additif sur les attaques MELEE de
+    #    Helbrecht ET de ses allies HEX-ADJACENTS contre une cible **Psyker**
+    #    (IdunBattle.Entities.Effects.Loki.DestroyTheWitch_ExtraDamageEffect$$CreateEffectDamageBonusForAttack
+    #    + $$CreateTargetSelector = Unique(SurroundingFriends(Owner,1) + Owner)).
+    # Les DEUX partagent la MEME `CreateActiveCondition` (corps natif FONDU par IL2CPP -- les deux
+    # tables de symboles en nomment chacune un representant DIFFERENT ; ground truth live : les deux
+    # effets apparaissent/disparaissent ENSEMBLE avec la presence d'un Psyker ENNEMI). Cf.
+    # `loki/destroy_the_witch.py`.
+    "DestroyTheWitch_ExtraMove": DestroyTheWitchExtraMoveEffect,
+    "DestroyTheWitch_ExtraDamage": DestroyTheWitchExtraDamageEffect,
     # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpotterReworkedAbility$$CreateBehaviour) : aura
     # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
     # rayon 2 (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack).

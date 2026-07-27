@@ -53,6 +53,7 @@ from .loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (t
 from .loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 from .loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from .loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
+from .loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 (passif templChampion)
 from .loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from .loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
@@ -230,6 +231,13 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # SwornProtector_Protect (passif `astraSmnKell`, triggered 1075) = MEME event : a chaque attaque
     # suivante visant Creed, Kell re-echange sa position avec lui et encaisse.
     "SwornProtector_Protect": [SwornProtectorProtectSwitchAbility],
+    # MartialSuperiority (passif `templChampion` << Brother Jaeger >>, triggered 0x444=1092) = MEME
+    # event `On(PreUnitAbility=0x2b)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
+    # ADVERSE, il frappe l'attaquant 2x profil Power AVANT que l'attaque ne s'execute
+    # (`MartialSuperiorityAbility$$CreateTrigger`/`$$CreateBehaviour`, cible = `Actor@0x158` ==
+    # `$$GetInitialTarget`). Si la riposte TUE l'attaquant, le gate acteur-mort POST-`On(0x2b)` de
+    # `ActiveAbilityOperation$$ExecuteInternal` annule l'attaque entrante. Cf. loki/martial_superiority.py.
+    "MartialSuperiority": [MartialSuperiorityRiposteAbility],
     # ListenUpMaggots (passif `astraSmnKell`, triggered 1063) = `On(AbilityInit=0x21)` : pose l'effet
     # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
     # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.
