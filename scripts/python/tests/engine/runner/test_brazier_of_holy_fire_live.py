@@ -1,5 +1,5 @@
 """BrazierOfHolyFire (actif 1041, `adeptCanoness` -- Canoness, HERO Adepta Sororitas) : face COMBAT
-portee -> arbre DSL, confrontee au LIVE sur DEUX geometries DISCRIMINANTES (case-224).
+portee -> arbre DSL, confrontee au LIVE sur DEUX geometries DISCRIMINANTES (case-brazier-radbombardment).
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
 (DECOMPILE, mirror 1:1 -- cf. `abilities/sisterhood.py`) :

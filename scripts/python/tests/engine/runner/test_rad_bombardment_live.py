@@ -1,5 +1,5 @@
 """RadBombardment (actif 1116, `admecDominus` -- Dominus, HERO AdeptusMechanicus) : face COMBAT portee
--> arbre DSL, confrontee au LIVE sur DEUX geometries (1 puis >= 2 unites alignees) -- case-224.
+-> arbre DSL, confrontee au LIVE sur DEUX geometries (1 puis >= 2 unites alignees) -- case-brazier-radbombardment.
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$ExecuteBehaviour` (DECOMPILE,
 mirror 1:1 -- cf. `abilities/admec.py`) :
