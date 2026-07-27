@@ -1,247 +1,224 @@
 # LionHelm (darkaAzrael) + FearedInterrogator (darkaAsmodai) — RE + port
 
-> Etat : **RE TERMINEE ET CONFIRMEE EN GHIDRA + VTABLE RUNTIME**, port non encore ecrit
-> (mise en veille reseau 2026-07-27). Les deux passifs etaient classes GAP-ABSENT par
-> `docs/rl/passive-ability-coverage.md` (items #23 et #10 de la file dispatchable).
+Deux passifs classes **GAP-ABSENT** par `docs/rl/passive-ability-coverage.md` (items #23 et #10 de la
+file dispatchable). **Les deux sont PORTES et VALIDES LIVE** (build `gqfc5mff6c`).
 
-## 0. Confirmation d'existence (l'avertissement de l'audit)
+Canal de port : `ABILITY_INIT_OWNER_EFFECTS` (pose) + `EFFECT_CLASSES` (comportement) — **pas**
+`ABILITY_TRIGGERS`. Le seul artefact natif de chaque ability est un `CreateBehaviour` DSL qui pose des
+effets sur le PORTEUR a l'init ; leur `CreateTrigger` est le corps herite/deduplique
+`On(AbilityInit) & OwnerIsActor` (meme famille qu'AnvilShield). Aucune des deux n'est une ability
+ACTIVE -> aucune entree `ABILITY_CLASSES`, donc **pas de `TARGETING_OPTIONS` a poser**.
 
-Les deux symboles annonces par la file existent bien en ghidra et portent la mecanique que
-leur nom suggere :
+## 0. Piege de RE a retenir — `methods.tsv` est DEDUPE PAR ADRESSE
 
-- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LionHelmAbility$$CreateBehaviour`
-- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FearedInterrogatorAbility$$CreateBehaviour`
+`data/symbols/<build>/frida/methods.tsv` compte **121 501 lignes pour 121 501 adresses distinctes,
+0 doublon**, alors que le binaire fait de l'**identical code folding** : plusieurs methodes au corps
+identique partagent une adresse et **une seule survit** dans la table.
 
-Les deux sont des **arbres DSL** (`DSLFactory.AddEffect` / `AddDynamicStatModifierEffect`) :
-aucune logique imperative dans l'ability, tout vit dans les classes d'EFFET.
+- `LionHelm_ExtraDmgEffect.CreateTargetSelector` en est **ABSENT** — et il EXISTE.
+- `LionHelm_ExtraBlockDamageEffect.CreateTargetSelector` y figure a la RVA `f4bf30`, que **ghidra
+  nomme `PathOfCommandExtraDmgEffect$$CreateTargetSelector`** : les deux tables ne conservent pas le
+  meme nom, ce qui PROUVE le partage de corps.
 
-### Piege de methode rencontre — `data/symbols/<build>/frida/methods.tsv` est DEDUPE PAR ADRESSE
-
-Mesure : 121 501 lignes, **121 501 adresses distinctes, 0 doublon**. Or le binaire fait de
-l'**identical code folding** : plusieurs methodes au corps identique partagent une adresse et
-**une seule survit** dans la table. Consequence directe et verifiee ici :
-
-- `LionHelm_ExtraDmgEffect.CreateTargetSelector` est **ABSENT** de `methods.tsv` ;
-- `LionHelm_ExtraBlockDamageEffect.CreateTargetSelector` y est a la RVA `f4bf30`, que
-  **ghidra nomme `PathOfCommandExtraDmgEffect$$CreateTargetSelector`** — les deux tables
-  ne survivent pas sur le meme nom, ce qui PROUVE le partage de corps.
-
-=> **L'absence d'un symbole dans `methods.tsv` n'est PAS une preuve d'absence de la methode.**
-Le depart se fait par la **VTABLE RUNTIME** (`resolveVtableSlot`, read-only, RPC `introspect.ts`),
-slot `+0x538` = `CreateTargetSelector` (lu depuis
+=> **L'absence d'un symbole dans `methods.tsv` n'est PAS une preuve d'absence de la methode.** Le
+depart se lit sur la **VTABLE RUNTIME** : RPC `resolveVtableSlot` (read-only, `introspect.ts`), slot
+`+0x538` = `CreateTargetSelector` (offset lu dans
 `IdunBattle.Entities.Effects.BaseEffect$$CreateTargetSelectorAndCache`, qui fait
 `(**(vtable+0x538))(this, *(vtable+0x540))`).
 
-Releve vtable (build `gqfc5mff6c`) :
-
-| classe d'effet | slot 0x538 -> VA | selecteur effectif |
+| classe d'effet | slot 0x538 | selecteur effectif |
 |---|---|---|
 | `LionHelm_ExtraDmgEffect` | `180f4bf30` | `SurroundingFriends(owner, ConfigConst(range))` |
 | `LionHelm_ExtraBlockDamageEffect` | `180f4bf30` | idem (MEME corps) |
 | `LionHelm_ExtraBlockChanceEffect` | `180f55cf0` | idem + `UnitsFromFaction(DarkAngels)` |
-| `FearedInterrogator_OwnerEffect` | `180e03180` | **defaut** (= le porteur seul) |
+| `FearedInterrogator_OwnerEffect` | `180e03180` | **defaut** (le porteur seul, comme `SmashaEadEffect`) |
 | `FearedInterrogator_TargetEffect` | `180f48cb0` | selecteur dedie (cf. §2) |
-| `SmashaEadEffect` (temoin SELF) | `180e03180` | **defaut** |
 
-`180e03180` = corps par defaut partage par tous les effets SELF -> il discrimine proprement
-AURA vs SELF.
+## 1. LionHelm — `TriggeredAbilityType` **1163** (0x48b), porteur `darkaAzrael` (HERO, dans le pool)
 
-## 1. LionHelm — `TriggeredAbilityType` **1163** (0x48b), porteur `darkaAzrael` (HERO, pool)
-
-Config gameconfig : `variables = {extraDmg[65]=437, blockDmg[65]=582, blockChance[65]=20}`,
+gameconfig : `variables = {extraDmg[65]=437, blockDmg[65]=582, blockChance[65]=20}`,
 `constants = {range: 2}`, `variablesAffectedByRarityBonus = [extraDmg, blockDmg]`
-(**blockChance N'EST PAS scale par la rarete**).
+(**`blockChance` n'est PAS scale par la rarete** — confirme live : +20 exact la ou `blockDmg` est
+scale x1.8 sur le meme porteur).
 
-i2 : « Friendly units within 2 hexes block an additional 582 Damage when they Block and deal
-+437 Damage with attacks triggered by Overwatch. Other friendly Dark Angels within 2 hexes also
-have their Block chance increased by +20% »
+i2 : « Friendly units within 2 hexes block an additional 582 Damage when they Block and deal +437
+Damage with attacks triggered by Overwatch. Other friendly Dark Angels within 2 hexes also have their
+Block chance increased by +20% »
 
 ### `LionHelmAbility$$CreateBehaviour` (mirror 1:1)
 
 ```
-AddEffect( EffectType.LionHelm_ExtraDmg = 1193 (0x4a9),
-           abilityState = AbilityStateReference,
-           targets      = Owner@0x148,
-           turns        = null )
-+ AddDynamicStatModifierEffect( targets   = Owner@0x148,
-                                effectType= EffectType.LionHelm_ExtraBlockChance = 1232 (0x4d0),
-                                statType  = StatType.BlockChance = 7,
-                                turns = null, isHidden = false )
-+ AddDynamicStatModifierEffect( targets   = Owner@0x148,
-                                effectType= EffectType.LionHelm_ExtraBlockDamage = 1214 (0x4be),
-                                statType  = StatType.BlockDamage = 8,
-                                turns = null, isHidden = false )
+  AddEffect( EffectType.LionHelm_ExtraDmg = 1193, AbilityStateReference,
+             targets = Owner@0x148, turns = null )
++ AddDynamicStatModifierEffect( Owner@0x148, EffectType.LionHelm_ExtraBlockChance = 1232,
+                                StatType.BlockChance = 7, turns = null, isHidden = false )
++ AddDynamicStatModifierEffect( Owner@0x148, EffectType.LionHelm_ExtraBlockDamage = 1214,
+                                StatType.BlockDamage = 8, turns = null, isHidden = false )
 ```
 
-(les trois combines par `AbilityBehaviour.op_Addition`). **Les trois effets-entites vivent sur
-AZRAEL** ; la projection se fait par le `CreateTargetSelector` de chaque effet (mold AURA cote
-SOURCE, identique a SpotterReworked / LordOfTheHost / DefenderOfTheGreaterGood).
+Les trois effets-entites vivent sur **AZRAEL** (verifie live : `decisionView` d'un runner frais liste
+les 3 chez lui et RIEN chez ses allies) ; c'est leur `CreateTargetSelector` qui projette.
 
-⚠ Qualification d'enum obligatoire ici — les memes ids nomment autre chose ailleurs :
-`EffectType 1214 = LionHelm_ExtraBlockDamage` mais `ActiveAbilityType 1214 = Hailstrike` ;
-`EffectType 1193 = LionHelm_ExtraDmg` mais `TriggeredAbilityType 1193 = SynapticInsight` ;
+⚠ Qualification d'enum : `EffectType 1214 = LionHelm_ExtraBlockDamage` mais `ActiveAbilityType 1214 =
+Hailstrike` ; `EffectType 1193 = LionHelm_ExtraDmg` mais `TriggeredAbilityType 1193 = SynapticInsight` ;
 `EffectType 1232 = LionHelm_ExtraBlockChance` mais `TriggeredAbilityType 1232 = EnvDefenderHealthBuff`.
 
-### Volet 1 — `LionHelm_ExtraDmgEffect` (EffectType 1193)
+### Volet 1 — `LionHelm_ExtraDmgEffect` (1193), AURA de DEGAT
 
-`.ctor` = `BaseEffect(AbilityOrEffect(TriggeredAbilityType.LionHelm = 1163), hasAutomaticActivation = true)`.
-
-Selecteur (vtable, corps `180f4bf30`) :
-`SurroundingFriends(unit = Owner@0x148, range = AbilityConfiguration.GetNumberConstant(0x16 = range) = 2,
-unique = true, unitSelectionType = OnlyAliveAndTargetable(3))` — **self EXCLU**.
-
-`IdunBattle.Entities.Effects.Loki.LionHelm_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` :
+`.ctor` = `BaseEffect(AbilityOrEffect(LionHelm 1163), hasAutomaticActivation = true)`.
+Selecteur = `SurroundingFriends(Owner, GetNumberConstant(0x16 = range) = 2, unique = true,
+OnlyAliveAndTargetable)` — **self EXCLU, aucun filtre de faction**.
 
 ```
 amount = ConfigVar( AbilityVariableType.extraDmg = 8, GetAbilityState(this), config@0x60 )
-A      = HasEffect( Caster@0x160, EffectType.Overwatch_AutoAttack = 1009 (0x3f1),
-                    onlyActive = false, targetType = EffectTargetType.Both = 6 )
+A      = HasEffect( Caster@0x160, EffectType.Overwatch_AutoAttack = 1009, false, Both )
          & IsOverwatchAttack()
-B      = HasEffect( Caster@0x160, EffectType.GrimRetribution_CounterAttack = 1213 (0x4bd),
-                    onlyActive = false, targetType = Both )
+B      = HasEffect( Caster@0x160, EffectType.GrimRetribution_CounterAttack = 1213, false, Both )
          & CurrentAbilityIs( AbilityOrEffect(TriggeredAbilityType.GrimRetribution = 1177) )
-gate   = get_OwnerIsCaster & (A | B)
-return   EffectBonus.ForAddition( gate, amount, source = AbilityOrEffect(LionHelm 1163) )
+return   EffectBonus.ForAddition( get_OwnerIsCaster & (A | B), amount,
+                                  source = AbilityOrEffect(LionHelm 1163) )
 ```
 
-Canal = ADDITIF PRE-PERCAGE PAR COUP (`DamageModifiers.additive`), comme LordOfTheHost /
-SpotterReworked. Cote port : `create_aura_attack_damage_bonus_for_ally`.
+Canal PORT = `create_aura_attack_damage_bonus_for_ally` (additif PRE-percage PAR COUP, comme
+`LordOfTheHost_ExtraDamage`). Le gate `IsOverwatchAttack` est le flag `is_overwatch` deja threade
+jusqu'a `Hailstrike_ExtraPierce` ; il descend desormais aussi jusqu'au ctx d'aura
+(`damage_ops.execute` -> `damage_model.attacker_modifiers` -> `_apply_ally_attack_damage_auras`).
+Le conjoint `HasEffect(Caster, Overwatch_AutoAttack)` est STRUCTURELLEMENT satisfait cote port :
+`is_overwatch=True` n'est pose que par le vecteur `Overwatch_AutoAttackEffect`.
 
-**Le gate `IsOverwatchAttack` n'est pas encore threade dans le ctx de l'agregateur AURA**
-(`engine/runner/damage_model.py::_apply_ally_attack_damage_auras` -> `ctx`) : il faut y ajouter
-`is_overwatch`, deja disponible en amont dans
-`engine/runner/operations/damage_ops.py::_DamageOpsMixin.execute(..., is_overwatch=...)`
-(le meme flag alimente deja `ability_pierce_effect_bonus`). Chaine a etendre :
-`damage_ops.execute` -> `damage_model.attacker_modifiers` -> `_apply_ally_attack_damage_auras`.
+**RESIDU FLAGGE — branche B** : elle exige l'effet `GrimRetribution_CounterAttack` (1213) ET
+`CurrentAbilityIs(GrimRetribution 1177)`. Le passif `GrimRetribution` de `darkaHellblaster` n'est PAS
+porte (GAP-ABSENT, item #13 de la file) -> l'ability 1177 n'existe pas offline : la branche ne peut ni
+fire ni etre confrontee. A cabler AVEC GrimRetribution. Consequence = MANQUE possible, jamais un
+sur-compte. (NB : l'effet 1213 EST bien present live sur Sarquael — mesure du 2026-07-27 — donc la
+branche deviendra active des que GrimRetribution sera porte.)
 
-i2 ne mentionne QUE l'Overwatch ; le decompile porte AUSSI la branche B (contre-attaque
-`GrimRetribution` de `darkaHellblaster`, passif lui-meme non porte -> branche B inerte
-aujourd'hui, mais elle se porte quand meme, gate `CurrentAbilityIs(1177)` + presence de
-l'effet 1213).
+### Volets 2 et 3 — les DEUX `ADynamicStatModifierEffect`, AURA STAT-MOD PROJETEE
 
-### Volet 2 — `LionHelm_ExtraBlockDamageEffect` (EffectType 1214)
+`.ctor` commun : `ADynamicStatModifierEffect( AbilityOrEffect(LionHelm 1163), unitEffectType = null,
+canBeImmuneTo = false, keepOnRevive = true, isMultiply = false )`.
 
-`.ctor` = `ADynamicStatModifierEffect( sourceAbility = AbilityOrEffect(LionHelm 1163),
-unitEffectType = null, canBeImmuneTo = false, keepOnRevive = true, isMultiply = false )`.
+| effet | selecteur | `GetDynamicStatModificationAmount` | stat |
+|---|---|---|---|
+| `_ExtraBlockDamage` (1214) | `SurroundingFriends(Owner, range=2, unique, OnlyAliveAndTargetable)` | `ConfigVar(LionHelm, EffectSource(effect), blockDmg = 20)` | `BlockDamage = 8` |
+| `_ExtraBlockChance` (1232) | idem + `UnitsFromFaction(UnitFaction.DarkAngels = 10)` | `ConfigVar(LionHelm, EffectSource(effect), blockChance = 21)` | `BlockChance = 7` |
 
-Selecteur = `SurroundingFriends(Owner, range = 2, unique, OnlyAliveAndTargetable)` (self exclu).
+La magnitude s'indexe sur l'`AbilityState` de la **SOURCE** (`EffectSource`), jamais du buffe.
 
-`IdunBattle.Entities.Effects.Loki.LionHelm_ExtraBlockDamageEffect$$GetDynamicStatModificationAmount(owner, target, effect)` :
+**Ce que la mesure live a REVELE** (`statModSources`, runner `MC1_67`, Azrael ablvl 50 / mult 180) :
 
 ```
-ConfigVar( abilityType = TriggeredAbilityType.LionHelm = 1163,
-           unit        = EffectSource( Get(effect) ),        // = AZRAEL, jamais le buffe
-           variableType= AbilityVariableType.blockDmg = 20 (0x14) )
+darkaHellblaster (Dark Angels, dist 1)        blockChance +20 (source 97) . blockDamage +797 (source 98)
+ultraApothecary  (Ultramarines, dist 1)       blockDamage +797 SEUL      -> le gate faction MORD
+darkaTerminator  (Deep Strike, TeleportingIn) RIEN                       -> OnlyAliveAndTargetable MORD
+darkaAzrael      (le porteur)                 RIEN                       -> SurroundingFriends exclut la source
 ```
+`blockDmg[50] = 443 x 1.8 = 797` exact ; `blockChance[50] = 20` NON scale. Et l'aura est
+**RE-EVALUEE A CHAQUE MOUVEMENT** (l'allie eloigne perd les +797, il les retrouve en revenant).
 
-Stat modifie : `StatType.BlockDamage = 8`. Montant scale par le multiplicateur de rarete
-d'AZRAEL (`blockDmg` est dans `variablesAffectedByRarityBonus`).
+**Consequence de port** — la part est DEJA dans le `combatSnapshot` de la cible (elle est dans
+`GetStat`), mais **non attribuee** : `UnitContext.from_snapshot` ne sait attribuer qu'aux effets
+PORTES PAR CETTE UNITE, or l'effet vit sur le porteur de l'aura. Elle dormait donc dans
+`CAPTURED_SOURCE` et **rien ne pouvait la retirer** quand la cible sortait du rayon. D'ou le module
+neuf `engine/runner/operations/aura_stat_mods.py` :
 
-### Volet 3 — `LionHelm_ExtraBlockChanceEffect` (EffectType 1232)
+- `attribute_aura_stat_modifiers(state)` — appele en fin de `snapshot.load_state` : deplace la part
+  du residu opaque vers la cle de l'effet, **a somme constante** (`GetStat(Current)` inchange au seed,
+  zero regression) ;
+- `refresh_aura_stat_modifiers(state)` — appele par `MoveUnitOperation.execute` (mirror
+  `UpdateEffectTargets`) : re-evalue le selecteur, applique/reverte.
 
-`.ctor` identique (meme `ADynamicStatModifierEffect(...)`).
-
-`IdunBattle.Entities.Effects.Loki.LionHelm_ExtraBlockChanceEffect$$CreateTargetSelector` :
-```
-UnitsFromFaction( SurroundingFriends(Owner@0x148, GetNumberConstant(0x16 = range), true, OnlyAliveAndTargetable),
-                  faction = UnitFaction.DarkAngels = 10,
-                  unitSelectionType = OnlyAliveAndTargetable )
-```
-`IdunBattle.Entities.Effects.Loki.LionHelm_ExtraBlockChanceEffect$$GetDynamicStatModificationAmount` :
-`ConfigVar(LionHelm 1163, EffectSource(effect), AbilityVariableType.blockChance = 21 (0x15))`.
-Stat modifie : `StatType.BlockChance = 7`. **PAS de scaling rarete** (blockChance hors
-`variablesAffectedByRarityBonus`).
-
-### Question OUVERTE a trancher live (avant d'ecrire les volets 2/3)
-
-Les volets 2/3 sont des `AStatModifierEffect` : le natif MATERIALISE une `ValueModification`
-sur le `UnitStats` de chaque cible-selecteur. Or le seed offline lit `combatSnapshot`
-(`GetStat` deja resolu) -> si un allie est a portee au moment du build, sa `blockChance` /
-`blockDamage` seedee **contient deja** la contribution LionHelm. Ajouter naivement un canal
-aura de block DOUBLE-COMPTERAIT.
-
-Mesure a faire (2 builds, board `MC1_67`) : `combatSnapshot` de l'allie
-(a) a distance <= 2 d'Azrael, (b) a distance 3 — comparer `blockChance` / `blockDamage`.
-Puis DEPLACER l'allie in/out de portee et re-lire `combatSnapshot` pour voir si le natif
-re-evalue (RefreshEffects) ou fige.
+Interface duck-typed (`getattr`, meme regime que `TARGETING_OPTIONS`) : `aura_stat_modification_stat`
+/ `_amount` / `_targets`. **Aucun effet preexistant ne la porte -> les deux points de cablage sont des
+no-op stricts hors porteur.**
 
 ## 2. FearedInterrogator — `TriggeredAbilityType` **1235** (0x4d3), porteur `darkaAsmodai` (HERO, pool)
 
-Config gameconfig : `variables = {extraDmg[65]=728, extraHits[65]=2}`,
-`variablesAffectedByRarityBonus = [extraDmg]` (**extraHits non scale**), pas de constants.
+gameconfig : `variables = {extraDmg[65]=728, extraHits[65]=2}`,
+`variablesAffectedByRarityBonus = [extraDmg]` (**`extraHits` non scale**), pas de constants.
 
-i2 : « Deals +728 Damage against enemies that are Suppressed, Stunned, or that are adjacent to
-another friendly Dark Angel. Scores 2 additional hits if the enemy is also Chaos. »
+i2 : « Deals +728 Damage against enemies that are Suppressed, Stunned, or that are adjacent to another
+friendly Dark Angel. Scores 2 additional hits if the enemy is also Chaos. »
 
 ### `FearedInterrogatorAbility$$CreateBehaviour` (mirror 1:1)
 
 ```
-AddEffect( EffectType.FearedInterrogator_Owner  = 1294 (0x50e), AbilityStateReference,
-           source = Owner@0x148, targets = Owner@0x148, options = default )
-&
-AddEffect( EffectType.FearedInterrogator_Target = 1295 (0x50f), AbilityStateReference,
-           source = Owner@0x148, targets = Owner@0x148, options = default )
+  AddEffect( EffectType.FearedInterrogator_Owner  = 1294, AbilityStateReference,
+             source = Owner@0x148, targets = Owner@0x148, options = default )
+& AddEffect( EffectType.FearedInterrogator_Target = 1295, AbilityStateReference,
+             source = Owner@0x148, targets = Owner@0x148, options = default )
 ```
-(combines par `AbilityBehaviour.op_BitwiseAnd`). Les deux effets-entites vivent sur ASMODAI ;
-`_Target` se projette sur les ENNEMIS via son selecteur, `_Owner` reste sur Asmodai (selecteur
-DEFAUT `180e03180`).
 
-`.ctor` (corps partage par les deux classes) =
-`BaseEffect(AbilityOrEffect(TriggeredAbilityType.FearedInterrogator = 1235), hasAutomaticActivation = true)`.
+Verifie live : les DEUX sont chez `darkaAsmodai`, **AUCUN chez les ennemis marques**. Le marqueur
+n'est donc PAS un effet a lire cote cible — c'est un SELECTEUR a re-evaluer.
+`.ctor` commun (corps partage) = `BaseEffect(AbilityOrEffect(FearedInterrogator 1235), true)`.
 
 ### `FearedInterrogator_TargetEffect$$CreateTargetSelector` — le MARQUEUR
 
 ```
 A       = ValidNormalAttackTargets( unit = Owner@0x148, unitTile = Tiles(Owner@0x148),
                                     range = null, ignoreRule = null, additionalRule = null )
-friends = UnitsFromFaction( Friends(of = Owner@0x148, entities = <all>@0x80,
-                                    selectionType = OnlyAliveAndTargetable),
-                            UnitFaction.DarkAngels = 10, OnlyAliveAndTargetable )
-          - Owner@0x148                                  // « ANOTHER friendly Dark Angel »
-E       = EntitiesWithAnyEffect( A, [ EffectType.Stunned = 1162 (0x48a),
-                                      EffectType.Pinned  = 1065 (0x429) ] )
+friends = UnitsFromFaction( Friends(Owner, <all>@0x80, OnlyAliveAndTargetable),
+                            UnitFaction.DarkAngels = 10, OnlyAliveAndTargetable ) - Owner@0x148
+E       = EntitiesWithAnyEffect( A, [ EffectType.Stunned = 1162, EffectType.Pinned = 1065 ] )
 B       = AdjacentUnits( friends, unique = true, OnlyAliveAndTargetable )
 return    Unique( E + (A & B) )
 ```
 
-- « Suppressed » de l'i2 = `EffectType.Pinned` (1065) — meme effet que pose SuppressiveFire (#74).
-- Le marqueur ne se pose QUE sur des cibles d'attaque normale LEGALES d'Asmodai
-  (`ValidNormalAttackTargets`) : c'est un gate de PORTEE reel, absent du texte i2.
+- « Suppressed » de l'i2 = `EffectType.Pinned` (1065), le meme effet que pose SuppressiveFire (#74).
+- Le texte i2 **TAIT** le gate `ValidNormalAttackTargets` : le marqueur ne se pose que sur des cibles
+  d'attaque normale legales d'Asmodai. C'est un vrai gate du decompile.
+- `- Owner` = « **ANOTHER** friendly Dark Angel ».
 
 ### `FearedInterrogator_OwnerEffect` — les deux bonus (selecteur DEFAUT = Asmodai seul)
 
-`IdunBattle.Entities.Effects.Loki.FearedInterrogator_OwnerEffect$$CreateEffectDamageBonusForAttack` :
 ```
-amount = ConfigVar( AbilityVariableType.extraDmg = 8, GetAbilityState(this), config@0x60 )
-gate   = get_OwnerIsCaster
-       & HasEffect( Target@0x178, EffectType.FearedInterrogator_Target = 1295,
-                    onlyActive = false, targetType = Both )
-return   EffectBonus.ForAddition( gate, amount )
-```
-
-`IdunBattle.Entities.Effects.Loki.FearedInterrogator_OwnerEffect$$CreateEffectHitsBonusForAttack` :
-```
-amount = ConfigVar( AbilityVariableType.extraHits = 19 (0x13), GetAbilityState(this), config@0x60 )
-gate   = get_OwnerIsCaster
-       & HasEffect( Target@0x178, FearedInterrogator_Target 1295, false, Both )
-       & HasTrait( Target@0x178, UnitTrait 0x7ea = 2026 = grande-alliance Chaos )
-return   EffectBonus.ForAddition( gate, amount )
+CreateEffectDamageBonusForAttack :
+    ForAddition( get_OwnerIsCaster & HasEffect(Target@0x178, 1295, false, Both),
+                 ConfigVar(extraDmg = 8, GetAbilityState(this), config@0x60) )
+CreateEffectHitsBonusForAttack :
+    ForAddition( get_OwnerIsCaster & HasEffect(Target@0x178, 1295, false, Both)
+                 & HasTrait(Target@0x178, UnitTrait 0x7ea = 2026 = grande-alliance Chaos),
+                 ConfigVar(extraHits = 19, GetAbilityState(this), config@0x60) )
 ```
 
-=> cote port : **SELF** effect sur Asmodai, canaux
-`create_effect_damage_bonus_for_attack` + `create_effect_hits_bonus_for_attack`, dont le gate
-est un PREDICAT sur la CIBLE (« la cible satisfait le selecteur de `_Target` »). Le gate trait
-2026 = grande-alliance Chaos, deja derive de `GrandAllianceId` ailleurs dans le moteur
-(RitesOfBattle / BeaconOfRage).
+`get_OwnerIsCaster` est satisfait STRUCTURELLEMENT (ces hooks ne sont appeles que sur les effets de
+l'ATTAQUANT). `HasEffect(Target, 1295, Both)` est re-evalue par
+`damage_model.marked_effect_types_for_target` (interface duck-typed `marks_target`) et threade dans
+les DEUX canaux (degat via `att_ctx`, coups via le `board` de `build_hits_board`), avec
+`tgt_grand_alliance` pour le gate Chaos (derive de `GrandAllianceId`, comme RitesOfBattle/BeaconOfRage).
 
-## 3. Plan de validation (2 cas discriminants par passif, dont UN NEGATIF)
+## 3. Validation live — 2 discriminants minimum par passif, dont un NEGATIF
 
-| passif | cas POSITIF | cas NEGATIF (le passif ne mord PAS) |
+| test | cas | resultat |
 |---|---|---|
-| LionHelm ExtraDmg | `darkaHellblaster` (trait Overwatch) a <= 2 hexes d'Azrael, overwatch declenche par un mover ennemi -> +extraDmg/coup | (a) meme overwatch avec Azrael a distance 3 ; (b) attaque NORMALE du meme allie a <= 2 hexes (gate `IsOverwatchAttack` faux) ; (c) overwatch d'AZRAEL lui-meme (self exclu du selecteur) |
-| LionHelm block | allie a <= 2 (blockDmg) / allie Dark Angels a <= 2 (blockChance) | allie a distance 3 ; allie NON-DarkAngels a <= 2 (blockDmg oui, blockChance non) |
-| FearedInterrogator | Asmodai attaque un ennemi Pinned/Stunned -> +extraDmg ; ennemi Pinned ET Chaos -> +extraDmg ET +extraHits | ennemi ni Pinned/Stunned ni adjacent a un autre Dark Angel ami -> AUCUN bonus ; ennemi Pinned NON-Chaos -> +extraDmg mais PAS +extraHits |
+| `test_lion_helm_block_aura_live.py` | ami DA <=2 / ami non-DA <=2 / ami hors rayon / porteur | offline == live **a chaque etape** (seed, sortie de rayon, retour) ; gates faction + rayon + self prouves discriminants |
+| `test_lion_helm_overwatch_aura_live.py` | Azrael dist 1 vs dist 11 de l'overwatcher | replay-diff **bit-exact des deux cotes** ; ecart in/out live == ecart offline == **749** (= extraDmg[50] x 1.8 x 1.25 HeavyWeapon) |
+| `test_feared_interrogator_live.py` | NEG / POS_DMG (non-Chaos) / POS_HITS (Chaos) | replay-diff **bit-exact sur les 3** ; marqueur absent/present ; 4 coups sans Chaos vs 6 avec ; degat par coup strictement superieur quand marque |
 
-Patron de test = `tests/engine/runner/test_psychic_fortress_aura_live.py` (replay-diff
-`off_ph == live_ph` au coup pres + assertion sur la presence/absence du modifier) et
-`tests/engine/runner/test_overwatch_live.py` (declenchement de l'overwatch par un move drive).
+Probes de mesure (versionnes) : `scripts/python/probe_lionhelm_block_aura.py`,
+`probe_lionhelm_overwatch.py`, `probe_feared_interrogator.py`.
+
+### Piege de mesure rencontre — un replay-diff RNG-DESALIGNE ment
+
+Une premiere recette (teleports directs + `--hp-player` + `--no-ai`, overwatcher `darkaHellblaster`)
+donnait un ecart in/out **live de 599** contre **749 offline**, ce qui suggerait que le natif
+n'appliquerait PAS les %-modifiers a l'additif. C'etait **FAUX** : dans cette recette le replay
+offline consommait un tirage MT different du live (fractions 0.899 vs 0.040 dans les DEUX
+geometries), donc les valeurs absolues n'etaient pas comparables. Rejoue avec la recette
+**prouvee alignee** de `test_overwatch_live.py` (approche pas-a-pas, `dumpRng` juste avant le pas
+declencheur), le replay-diff est **bit-exact** et l'ecart vaut **749 des deux cotes** : le natif
+multiplie bien l'additif par les %-modifiers, comme `LordOfTheHost`.
+**Regle** : ne jamais conclure d'un ECART entre deux runs si le replay-diff de chaque run n'est pas
+d'abord bit-exact.
+
+## 4. Ce qui n'est PAS couvert
+
+- **Branche B de `LionHelm_ExtraDmg`** (contre-attaque `GrimRetribution`) : residu flagge, non cablable
+  tant que GrimRetribution n'est pas porte (cf. §1).
+- **Face PREDICTION** : les gates cible (`marked_effect_types`, `tgt_grand_alliance`) et le flag
+  `is_overwatch` sont threades sur la face COMBAT (runner). La face prediction/playbook ne les porte
+  pas encore -> l'IA SOUS-ESTIME ces bonus (manque conservateur, jamais un sur-compte).
+- **Aura stat-mod hors mouvement** : `refresh_aura_stat_modifiers` est cable au `MoveUnitOperation`
+  (le selecteur est purement geometrique) et au seed. Un changement de cible du selecteur sans move
+  (mort d'un allie, atterrissage d'un deep-strike) n'est pas re-evalue.
