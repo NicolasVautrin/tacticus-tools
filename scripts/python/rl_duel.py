@@ -1967,9 +1967,12 @@ def main(argv: list[str]) -> int:
                     help="build: idem --block-target mais pour les p-units (block de BASE du caster — "
                          "requis pour exercer un gate qui lit StatAmount(self, BlockChance, INITIAL))")
     ap.add_argument("--hp-target", type=int, default=None,
-                    help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe)")
+                    help="build: force Health+RemainingHealth des a-units (PV bas = kill déterministe) "
+                         "ET MET Armor/FixedArmor A 0 — piège de mesure : cela SUPPRIME l'étage armure, "
+                         "donc tout régime où la branche perçage du plancher mordrait")
     ap.add_argument("--hp-player", type=int, default=None,
-                    help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur)")
+                    help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur) — "
+                         "MET AUSSI Armor/FixedArmor a 0, même piège de mesure")
     ap.add_argument("--dmg-target", type=int, default=None,
                     help="build: force le stat Damage des a-units (frappe adverse écrasante — "
                          "seul levier pour tuer une unité INVOQUÉE, dont les PV viennent du kit "

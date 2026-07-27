@@ -47,10 +47,17 @@ ROOT = Path(__file__).resolve().parents[3]           # racine repo
 # deporter les state-files ailleurs. `TACTICUS_PYTEST_STATE` (chemin ABSOLU d'un
 # .json) est accepte pour compatibilite — son suffixe est retire et le chemin
 # sert de prefixe, on ne revient PAS a un fichier unique.
+#
+# SOUS `logs/`, PAS `data/` (2026-07-27) : `data/` est VERSIONNE depuis f467e64 et ne
+# contient que des ENTREES (symbols, boards, seed-bc, i2). Un state-file y est une
+# SORTIE, et `git check-ignore` le confirmait non ignore -- une passe interrompue
+# laissait `data/_pytest_duel_state-<pid>-<n>.json` dans `git status`, exactement ce
+# que le garde-fou « rien de produit par un run ne va dans data/ » doit rendre visible.
 _state_env = os.environ.get("TACTICUS_PYTEST_STATE_PREFIX") \
     or os.environ.get("TACTICUS_PYTEST_STATE")
 STATE_PREFIX = (Path(_state_env).with_suffix("") if _state_env
-                else ROOT / "data" / "_pytest_duel_state")
+                else ROOT / "logs" / "_pytest_duel_state")
+STATE_PREFIX.parent.mkdir(parents=True, exist_ok=True)
 _state_seq = itertools.count()
 
 

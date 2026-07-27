@@ -47,9 +47,13 @@ class GhidraDown(RuntimeError):
 class GhidraMCP:
     """Client MCP/HTTP minimal — juste ce qu'il faut pour interroger les symboles."""
 
-    def __init__(self, url: str = MCP_URL):
+    def __init__(self, url: str = MCP_URL, timeout: float = 120):
         self.url = url
         self.session = None
+        # 120 s convient a un `dump` (des dizaines de milliers de symboles pagines). Un appelant
+        # qui ne fait qu'INTERROGER (ex. la garde de synchro au demarrage de session) doit pouvoir
+        # BORNER son attente : sans ca, un serveur a moitie mort bloque l'appelant deux minutes.
+        self.timeout = timeout
 
     def _post(self, payload: dict) -> str:
         h = dict(_HDRS)
@@ -58,7 +62,7 @@ class GhidraMCP:
         req = urllib.request.Request(self.url, data=json.dumps(payload).encode(),
                                      headers=h, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 if not self.session:
                     self.session = r.headers.get("Mcp-Session-Id")
                 return r.read().decode("utf-8", "replace")

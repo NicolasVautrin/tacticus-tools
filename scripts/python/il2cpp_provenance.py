@@ -130,8 +130,16 @@ def main() -> int:
     args = ap.parse_args()
 
     repo = Path(__file__).resolve().parents[2]
-    paths = ([Path(a) for a in args.artifacts] or
-             [repo / "data" / ("il2cpp_%s.tsv" % k) for k in ("methods", "classes", "enums")])
+    # DEFAUT = les tables VERSIONNEES sous `data/symbols/<HASH>/frida/`. L'ancien defaut visait
+    # `data/il2cpp_*.tsv` a la racine -- des fichiers SUPPRIMES depuis que les tables sont
+    # versionnees : la verification par defaut ne verifiait donc plus rien (elle echouait sur
+    # « artefact absent », ce qui se lit comme un probleme de chemin, pas comme un defaut d'outil).
+    # Pour la garde des TROIS axes (binaire / coherence interne / ghidra) : `symbols_sync.py`.
+    paths = ([Path(a) for a in args.artifacts]
+             or sorted((repo / "data" / "symbols").glob("*/frida/*.tsv")))
+    if not paths:
+        print("aucune table versionnee sous data/symbols/*/frida/ -- rien a verifier")
+        return 1
     dll = Path(args.dll) if args.dll else None
 
     rc = 0

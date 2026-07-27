@@ -152,7 +152,7 @@ Leviers **réels** de `rl_duel.py build` (vérifiés dans l'argparse, ne pas en 
 | besoin | levier |
 |---|---|
 | qui est là, dans quel camp | `--p-units` / `--a-units`, `--p-mow` / `--a-mow`, `--roster` |
-| faire DURER la bataille (saturer un cap de summons, voir N tours) | `--hp-target` (ennemi), `--hp-player` (mon camp) — force `Health` ET `RemainingHealth` |
+| faire DURER la bataille (saturer un cap de summons, voir N tours) | `--hp-target` (ennemi), `--hp-player` (mon camp) — force `Health` ET `RemainingHealth`, **et met `Armor`/`FixedArmor` à 0**. ⚠ **Piège de mesure** : forcer les PV supprime donc SILENCIEUSEMENT l'étage armure (mesuré : `adeptMorvenn` 2411 → 0, `necroWarden` 2008 → 0), et avec lui tout régime où la branche perçage du plancher mordrait. Pour mesurer l'armure, ne pas forcer les PV |
 | TUER à la demande — en particulier une unité **INVOQUÉE** | `--dmg-target` : force le stat `Damage` des a-units. Les PV d'un summon viennent du **kit du summoner**, pas du roster : `--hp-target`/`--hp-player` ne l'atteignent PAS |
 | géométrie (adjacence, ligne, portée, spawns) | `--board` / `--board-pool`, puis **drive des positions** par `applyAction move` — cf. « Choisir le board » ci-dessous |
 | niveau / magnitudes | `--rank` |
