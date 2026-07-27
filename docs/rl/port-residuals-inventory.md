@@ -54,18 +54,18 @@
 | Chiffre | Inventaire du 2026-07-26 (`fc23f1e`) | RE-DÉRIVÉ au 2026-07-27 (`e972c99`, re-confirmé `bec119f`) | Sens |
 |---|---|---|---|
 | actives castables | 171 | **171** | inchangé |
-| `ABILITY_CLASSES` (entrées du registre) | 76 | **81** | +5 |
-| actives portées COMBAT | 75 | **80** | +5 |
-| actives **NO-OP combat** | 96 | **91** | **−5** |
-| … dont **dispatchables** | 67 | **62** | −5 |
+| `ABILITY_CLASSES` (entrées du registre) | 76 | **83** | +7 |
+| actives portées COMBAT | 75 | **82** | +7 |
+| actives **NO-OP combat** | 96 | **89** | **−7** |
+| … dont **dispatchables** | 67 | **60** | −7 |
 | … dont **non pertinents** (npc + summon-env) | 29 | **29** | inchangé |
 | actives **`[-D]`** (décision portée, combat NO-OP) | 20 (méthode réfutée) | **15 lineup + 2 npc** | **−3** |
 | kits lineup | 123 | **123** | inchangé |
 | kits lineup **COMPLETS** | 22 | **28** | +6 |
 | kits **avec du travail** | 101 | **95** | −6 |
 | items manquants (kit-coverage) | 139 | **126** | −13 |
-| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **53 sur 81** | **−22 — la tendance s'INVERSE** |
-| registre **sans `ABILITY_ATTACK_TYPE`** | 3 (constaté le 2026-07-27 au matin) | **0 sur 81** | **fermé** |
+| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **53 sur 83** | **−22 — la tendance s'INVERSE** |
+| registre **sans `ABILITY_ATTACK_TYPE`** | 3 (constaté le 2026-07-27 au matin) | **0 sur 83** | **fermé** |
 | passifs **portés** | 46 | **54** | +8 |
 | passifs **gap** | 150 | **142** | −8 |
 | passifs gap **confrontables** | 63 | **55** | −8 |
@@ -94,16 +94,16 @@ tendance s'est retournée, et il vaut de le noter avant que quiconque recopie «
 
 | Verdict | N | Dispatchable ? |
 |---|---|---|
-| **HERO** — porteur lineup DANS le pool rank 17 | 47 | oui |
+| **HERO** — porteur lineup DANS le pool rank 17 | 45 | oui |
 | **MoW** — porteur MoW du pool (harnais débloqué, `a9714a4`) | 2 | oui |
 | **SUMMON** — porteur summon amené par un summoner du pool | 2 | oui |
 | **HERO (catalog_inject)** — lineup absent du seed BC, injectable (`ab98129`) | 11 | oui |
 | **SUMMON-ENV** — summon d'environnement, aucun summoner joueur | 8 | **NON CONFRONTABLE** |
 | **NPC** — tous les porteurs sont npc | 21 | **NON CONFRONTABLE** |
 
-⇒ **62 dispatchables, 29 non confrontables.** Taille par item = **1 ability**.
+⇒ **60 dispatchables, 29 non confrontables.** Taille par item = **1 ability**.
 
-**Les 5 sorties depuis l'inventaire précédent**, toutes de la catégorie HERO-pool (d'où 52 → 47) :
+**Les 7 sorties depuis l'inventaire précédent**, toutes de la catégorie HERO-pool (d'où 52 → 45) :
 
 | id | ability | porteur | commit |
 |---|---|---|---|
@@ -112,8 +112,15 @@ tendance s'est retournée, et il vaut de le noter avant que quiconque recopie «
 | 1041 | BrazierOfHolyFire | adeptCanoness | `825f69f` (#128) |
 | 1097 | Foehammer | spaceRockfist | `86fecad` (#131) |
 | 1153 | HammerOfWrath | bloodIntercessor | `86fecad` (#131) |
+| 1035 | PlagueWind | deathTyphus | `case-psychic-aoe` (#152) |
+| 1102 | Doombolt | thousAhriman | `case-psychic-aoe` (#152) |
 
-**La liste nominative des 62 dispatchables et des 29 non confrontables n'est pas recopiée ici** :
+Les DEUX dernières entrent **avec** leur `TARGETING_OPTIONS` et leur `ABILITY_ATTACK_TYPE` (masques
+LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : preset `statics+0x180` → `0x4002`
+pour 1035, preset `statics+0x3c0` → `0x200000000000004` pour 1102) : le gisement
+« sans `TARGETING_OPTIONS` » reste donc à **53**, il ne remonte pas.
+
+**La liste nominative des 60 dispatchables et des 29 non confrontables n'est pas recopiée ici** :
 elle est intégralement dérivable de `docs/rl/combat-ability-coverage.md` (régénéré dans ce commit),
 et la ventilation par porteur est inchangée depuis l'inventaire précédent hors ces 5 lignes. La
 **correction de méthode** qui l'accompagne reste valable et mérite d'être répétée :

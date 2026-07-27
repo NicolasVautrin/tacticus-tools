@@ -6,8 +6,33 @@ FEUILLE du graphe -- personne n'importe depuis lui a l'interieur du package."""
 from __future__ import annotations
 
 from ...dsl.base import TargetsSelector
-from .units import Enemies, UnitsWithoutTrait
+from .units import Enemies, Sub, Units, UnitsWithoutTrait
 from .tiles import AdjacentTiles, AllUnits, CanAddUnit, Caster, TileIntersect, TileUnique
+
+
+def adjacent_units(source: TargetsSelector) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(source, mode, mask)` — MIRROR TEXTUEL du
+    decompile (la factory native n'alloue AUCUN selecteur dedie, elle COMPOSE) :
+
+        AdjacentTiles(source) -> Units(<ces tuiles>, mode, mask) -> op_Subtraction(<ces unites>, source)
+
+    donc : les occupants (VIVANTS, cf. `Units`) des tuiles hex-adjacentes a CHAQUE entite de `source`,
+    MOINS les entites de `source` elles-memes.
+
+    Pourquoi ce helper A COTE de la classe `AdjacentUnits` (units.py) : cette derniere passe par
+    `_within(units, center, radius)`, qui n'accepte qu'UN centre (dict ou position) -- suffisant pour
+    tous ses call-sites historiques (`AdjacentUnits(TargetTile())`), mais IMPOSSIBLE des que la source
+    est un ENSEMBLE. Le natif, lui, itere le selecteur de tuiles : la bande TERTIAIRE de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour` passe
+    justement l'ENSEMBLE des cibles secondaires (`AdjacentUnits(Cache(<secondaires>), 1, 3)`).
+    On mirror donc la COMPOSITION native, qui est exacte pour un centre comme pour N :
+    l'exclusion finale est `- source` (appartenance a l'ensemble), PAS « distance > 0 » -- une unite
+    de `source` adjacente a une AUTRE unite de `source` est bien retiree ici, alors qu'un `d > 0`
+    par-centre l'aurait gardee.
+
+    board absent -> `AdjacentTiles` rend [] -> ensemble vide (degradation deja documentee du domaine
+    tuile)."""
+    return Sub(Units(AdjacentTiles(source)), source)
 
 
 def get_spawn_tile_selector() -> TargetsSelector:

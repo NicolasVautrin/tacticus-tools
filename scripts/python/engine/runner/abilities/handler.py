@@ -53,7 +53,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
-                         EntropyCannonsAbility, PlagueburstMortarAbility)
+                         EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
+from .thousandsons import DoomboltAbility
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
@@ -179,6 +180,9 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- case-bl-1029-1020 : les DEUX actives Black Legion HERO restees NO-OP (docs/rl/case-bl-1029-1020.md)
     DrachnyenAbility.ABILITY_TYPE: DrachnyenAbility,                   # 1029 (blackAbaddon Abaddon : SetHealth(Min(MaxHealth, hp[level])) & AddEffect(1471 Drachnyen_ExtraAttack -> soi, permanent) & UseActiveAbility(attaque NORMALE dirigee sur la cible) ; la triggered 1485 qui en decoule = residu nomme)
     HeraldOfTheApocalypseAbility.ABILITY_TYPE: HeraldOfTheApocalypseAbility,  # 1020 (blackHaarken Haarken : nrOfHits x Piercing sur la cible ET l'ennemi de la tuile DIRECTEMENT DERRIERE (TilesBehindInLine(CasterTile -> tuile cible, maxCount=2)) & AddEffect(1027 -> ces memes cibles) & TriggerAbility(BattleFatigue -> ennemis disque range=2 autour de la cible, cible incluse))
+    # --- Famille PSYCHIC (case-psychic-aoe) : deux AoE Psychic HERO, jusqu'ici NO-OP offline. ---
+    PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
+    DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
     CalibaniteGreatswordAbility.ABILITY_TYPE: CalibaniteGreatswordAbility,  # 1189 (darkaCompanion Forcas : TOGGLE de posture = If(HasEffect(Self,1404 Strike), AddEffect(1405 Sweep)+RemoveStrikeEffects(1404/1425/1009/1406), AddStrikeEffects(1404/1425/1009)+RemoveEffect(1405)) ; aucun degat, aucun tirage, ne finit pas le tour ; les observables Sweep/Overwatch vivent dans les TRIGGERED, hors port)
 }
 

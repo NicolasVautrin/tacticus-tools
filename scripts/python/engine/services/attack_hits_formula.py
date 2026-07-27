@@ -117,7 +117,20 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # is_melee=None (contexte inconnu) -> False -> pas d'ExtraHitsMelee (conservateur, mêlée seule).
     base_default = get_default_attack_hits(int(weapon_hits), int(extra_hits), int(extra_hits_melee),
                                            bool(is_melee))
-    hits_pre = max(1, base_default + eff_hits)   # base APRES PowerTrip, AVANT GetStuckIn
+    # PLANCHER — mirror BORNE du natif. `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`
+    # ne plancher JAMAIS a 1 : il termine par `System.Math.Max(hits, 0)` (et sa base est elle-meme
+    # `Math.Max(weapon + ExtraHits + ExtraHitsMelee, 0)`). Le « minimum 1 coup » observe sur
+    # LightCover/Parry vient du CLAMP PAR-EFFET `hits = Math.Max(hits, Math.Min(base, cap))`, que ce
+    # port approxime historiquement par un `max(1, ...)` global.
+    # Cette approximation est CORRECTE tant que la base est >= 1, et FAUSSE quand elle vaut 0 : le
+    # clamp natif est borne par la BASE (`Math.Min(base, cap)` = 0 si base = 0), donc rien ne peut
+    # remonter au-dessus de 0. MESURE LIVE (probe_psychic_aoe --case db-4, Doombolt 1102 : 3 coups
+    # repartis sur 4 cibles -> la 4e recoit une base de 0) : le natif ne lui porte AUCUN coup, le port
+    # lui en portait 1 (1603 de degat fantome). D'ou `min(1, base_default)` : identique partout ou la
+    # base est >= 1 (aucune regression), et 0 quand la base est 0 (le seul regime ou les deux
+    # divergent). Le port INTEGRAL des caps par-effet reste un chantier separe (composant PARTAGE).
+    _floor = min(1, base_default)
+    hits_pre = max(_floor, base_default + eff_hits)   # base APRES PowerTrip, AVANT GetStuckIn
     board = {**(board or {}), "base_hits": hits_pre}
     # (2) GetStuckIn = behaviour d'exec chance-gate (`AddBonusHitsToCurrentHitGroupBehaviour IdunBattle.Entities.Behaviours.AddBonusHitsToCurrentHitGroupBehaviour$$Execute`) :
     # DETERMINISTE en prediction (fold ICI), chance-roll a l'EXECUTION en combat (porte #62c dans
@@ -139,7 +152,7 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     _cam_ap, _cam_tp = board.get("attack_pos"), board.get("t_pos")
     _cam_dist = (hexgeo.distance(tuple(_cam_ap), tuple(_cam_tp))
                  if (_cam_ap is not None and _cam_tp is not None) else None)
-    hits = max(1, hits
+    hits = max(_floor, hits            # `Math.Max(·, 0)` natif, borne par la BASE (cf. `_floor`)
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
                                                   defender_on_cover=defender_on_cover,
                                                   dist=_cam_dist)

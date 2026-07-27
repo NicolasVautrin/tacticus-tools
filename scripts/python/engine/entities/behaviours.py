@@ -196,6 +196,32 @@ class AtomicGroup(AbilityBehaviour):
         return self.child.execute(entities, ectx)   # inline (RE #201 : AtomicGroup PAS différé)
 
 
+class Group(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$Group(child, targetsSelector, groupId)` ->
+    `IdunBattle.Entities.Behaviours.GroupBehaviour$$Execute` — MIRROR du decompile :
+
+        targets = (+0x68).Select(entities)              # selecteur de cibles du groupe (VUE)
+        (+0x70).<slot 0>(groupId@+0x60, targets, ...)   # OUVRE le groupe de presentation
+        if (+0x50) : (+0x50).Execute(entities)          # <- le CHILD, execute INLINE
+        if (+0x58) : <callback de fermeture>
+        return <resultat VIDE>                          # jamais de court-circuit
+
+    => cote ETAT, c'est un PASS-THROUGH strict (aucune mutation propre, aucun `stop`) : le groupe
+    n'existe que pour la couche VUE/timeline (meme statut que `AtomicGroup` cote port, cf. #201).
+    Le noeud est porte pour le MIRROR STRUCTUREL des arbres qui l'utilisent -- 3 bandes de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour`
+    (`Group(bande1, Target, 0x4b) & Group(bande2, Target, 0x4c) & Group(bande3, Target, 0x4d)`).
+    `group_id` / `targets_sel` sont conserves comme METADONNEE (jamais evalues : le selecteur ne sert
+    qu'a la vue, l'evaluer offline ajouterait un effet de bord de `Cache` inexistant cote etat)."""
+    __slots__ = ("child", "group_id", "targets_sel")
+
+    def __init__(self, child: AbilityBehaviour, group_id: int = 0, targets_sel=None):
+        self.child, self.group_id, self.targets_sel = child, int(group_id), targets_sel
+
+    def execute(self, entities, ectx):
+        return self.child.execute(entities, ectx)    # pass-through (le groupe est un artefact de VUE)
+
+
 class ChainBehaviour(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$ChainBehaviour` -> `Entities.Behaviours.ChainBehaviourBehaviour` : BOUCLE
     BORNEE qui REJOUE `body` au plus `times` fois, en RE-CONSTRUISANT a CHAQUE ITERATION le selecteur

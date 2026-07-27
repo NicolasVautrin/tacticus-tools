@@ -109,6 +109,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   restant est bien le canal, pas le vecteur. Garde INCONDITIONNELLE en place
   (`test_black_legion_1029_1020_live.py`), plus de gate conditionnel.
 
+- **Caps PAR-EFFET de la formule de coups** (`case-psychic-aoe` §3, remonté par le port Doombolt).
+  `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` ne plancher **jamais** à 1 : il termine
+  par `System.Math.Max(hits, 0)`, et le « minimum 1 coup » observé (LightCover/Parry) vient du clamp
+  `hits = Math.Max(hits, Math.Min(base, cap))` posé **par effet**. Le port approxime encore ce clamp
+  par un `max(1, …)` global dans `services/attack_hits_formula.py`. Le seul régime où l'approximation
+  était FAUSSE — base de coups **0** — est corrigé (plancher borné par la base, mesuré live sur
+  Doombolt `db-4`). **Reste faux** : une base ≥ 1 ramenée sous 1 par un malus **sans** cap rendrait 1
+  côté port là où le natif rendrait 0. Non mesuré, aucun consommateur actuel ne l'atteint. Le fix =
+  porter le `cap` par effet dans `hits_malus_from_defender_effects`/`hits_bonus_from_effects` (RE des
+  caps natifs) plutôt qu'un plancher global.
+- **Canal CASTER-dynamique du gate de ciblage** (`case-psychic-aoe` §5.1). `abilities/targeting.py`
+  porte le bit `0x2` (`TargetMatchesDynamicRule`, méthode `get_dynamic_invalid_target_reason`) mais
+  PAS le bit `0x4` (`CasterMatchesDynamicRule`, slot vtable `this+0x470`). 1er consommateur repéré :
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$GetDynamicInvalidCasterReason`
+  (refuse le cast quand `GetTargets()` est vide → `actionConsumed = false`). Observable perdue = le
+  turn-flag d'un cast sans cible, jamais le dégât.
+- **`PsychicStalk`** (passif `thousAhriman`, effets 1215/1216/1435 ; triggered 1179) absent du
+  registre `runner/operations/triggers/dispatch/registry.py` (`case-psychic-aoe` §5.3). Inerte tant
+  qu'aucun hex ne brûle ; par ricochet, le terme `Count(hexes en Feu)` du nombre de coups de Doombolt
+  n'a pas pu être confronté live à une valeur ≠ 0.
+
 - **Les vecteurs COMBAT autres que l'attaque normale TRONQUENT encore leurs bornes réduites**
   (`case-131-normal-attack-bounds-materialization` §5, remonté par le fix #131). Les cellules
   min/max d'un coup viennent de `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` (slot 4

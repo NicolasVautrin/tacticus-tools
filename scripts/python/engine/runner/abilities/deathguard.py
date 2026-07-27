@@ -27,10 +27,11 @@ import hexgeo
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_add, op_and, AtomicGroup
-from ...entities.selectors import (ActiveTarget, Caster, CasterTile, AdjacentTiles, AdjacentUnits,
-                                   Enemies, Filter, FixedTileIds, Friends, Subject, Union, Unique,
-                                   Units, UnitsWithoutTrait, UnitsWithTrait, Target)
+from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
+from ...entities.selectors import (ActiveTarget, Cache, Caster, CasterTile, AdjacentTiles,
+                                   AdjacentUnits, adjacent_units, Enemies, Filter, FixedTileIds,
+                                   Friends, Sub, Subject, Union, Unique, Units, UnitsWithoutTrait,
+                                   UnitsWithTrait, Target)
 from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, IsInTeamAura,
                                   TriggerAnd, TriggerOr)
 from ...entities.formulas import StatAmount
@@ -41,6 +42,8 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
+from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
                         AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
 
@@ -600,3 +603,169 @@ class PlagueburstMortarAbility(ActiveAbility):
         return {"ability": PLAGUEBURST_MORTAR_ID, "caster": caster_id, "target": target_id,
                 "tile": tile_id, "attacks": attacks, "pinned": pinned, "contaminated": contaminated,
                 "nr_of_tiles": n_tiles, "picked_tiles": picked, "dsl": True}
+
+
+# ===================== PlagueWind (deathTyphus « Typhus », actif 1035) =====================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour` — MIRROR du
+# DECOMPILE (le lambda `<ExecuteBehaviour>b__0` de son `DisplayClass1_0` n'est que le
+# `AActiveAbility.Execute(this, behaviour@+0x18, entities@+0x20)` differe par l'AtomicGroup) :
+#
+#     t1 = Cache( target@0x178 )                                                  # cible PRINCIPALE
+#     t2 = Cache( Enemies(caster@0x160, AdjacentUnits(t1, 1, 3), 3) )              # SECONDAIRES
+#     t3 = Cache( Unique(Enemies(caster@0x160, AdjacentUnits(t2, 1, 3), 3))
+#                 op_Subtraction t1
+#                 op_Subtraction t2 )                                             # TERTIAIRES
+#     d1 = MinMaxDamage (this, level) = RandomAmount(var 0x0c minDmg  , var 0x0d maxDmg  )
+#     d2 = MinMaxDamage2(this, level) = RandomAmount(var 0x36 minDmg_2, var 0x37 maxDmg_2)
+#     d3 = MinMaxDamage3(this, level) = RandomAmount(var 0x38 minDmg_3, var 0x39 maxDmg_3)
+#     a_i = AttackWithAbilityDamage( caster@0x160, t_i, d_i,
+#                                    GetDamageProfile(config, 0) = Psychic,
+#                                    GetNumberConstant(config, 0x2f) = nrOfHits,   # LA MEME pour les 3
+#                                    AbilityOrEffect(this+0x10 = 0x40b = 1035) )
+#     b  = Group(a1, target@0x178, 0x4b) & Group(a2, target@0x178, 0x4c) & Group(a3, target@0x178, 0x4d)
+#     ExecuteAtomic( 0x4a, <lambda qui Execute(b)>, target@0x178 )
+#
+# TROIS bandes concentriques (i2 : « ... to a target within 2 hexes. Any enemies ADJACENT to the
+# initial target ... Any FURTHER enemies adjacent to AT LEAST ONE secondary target ... »), chacune
+# avec SA PROPRE plage de degat et le MEME nombre de coups. Aucun effet pose, aucun spawn : l'ability
+# EST ces trois attaques.
+#
+# ⚠ FAMILLE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (et NON
+# `...$$AttackWithAttackDamage`) — classification par la CALLEE du decompile, jamais au juge
+# (rngcrit-1202) : `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$
+# ExecuteHits`, 1 tirage par coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench), et
+# l'ordre « bouclier x limites » de `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`
+# (le cap porte sur le RESTE post-bouclier, #67b/#120).
+
+PLAGUE_WIND_ID = "PlagueWind"
+
+
+def plague_wind_target_selectors() -> tuple:
+    """Les TROIS `Cache` de `PlagueWindAbility$$ExecuteBehaviour` (t1/t2/t3), dans l'ordre ou le
+    decompile les construit. Rendus a part pour que l'ability puisse LIRE leur memo apres execution
+    (ventilation du diagnostic par bande) sans re-deriver la geometrie.
+
+      * `t1` = `Cache(Target())` — la cible du message (`target@0x178`).
+      * `t2` = `Cache(Enemies(AdjacentUnits(t1)))` — ennemis DU CASTER occupant les hexes adjacents a
+        la cible. `adjacent_units` = mirror TEXTUEL de la factory native (`Units(AdjacentTiles(s)) - s`,
+        cf. `entities/selectors/composites.py`) : aucun filtre `Alive` ajoute, c'est `Units`
+        (= `UnitsOnTilesSelector`) qui ne rend que les unites DEBOUT.
+      * `t3` = `Cache( Unique(Enemies(AdjacentUnits(t2))) - t1 - t2 )` — ennemis adjacents a AU MOINS
+        UN secondaire, prives de la cible et des secondaires. C'est CE call-site qui exige le helper
+        `adjacent_units` (la source est un ENSEMBLE, cf. sa docstring : l'exclusion native est
+        « appartenance a la source », pas « distance > 0 » par-centre).
+
+    MEMOISATION (le `Cache` natif n'est PAS un pass-through) : chaque noeud est evalue PARESSEUSEMENT,
+    a l'execution de SA bande. `t2` est donc fige APRES le degat de la bande 1 et `t3` APRES celui de
+    la bande 2 — exactement comme le natif. Consequence portee et VOULUE : un secondaire tue par la
+    bande 2 reste dans le memo `t2` (l'ensemble est fige) et sa TUILE sert encore d'ancre a `t3` ;
+    il est de toute facon retire par le `- t2` final. Les noeuds sont reconstruits A CHAQUE cast
+    -> memo PAR-CAST, comme les `Cache` alloues dans `ExecuteBehaviour`."""
+    t1 = Cache(Target())                                                 # Cache(target@0x178)
+    t2 = Cache(Enemies(adjacent_units(t1)))                              # Cache(Enemies(AdjacentUnits(t1)))
+    t3 = Cache(Sub(Sub(Unique(Enemies(adjacent_units(t2))),              # Unique(Enemies(AdjacentUnits(t2)))
+                        t1),                                             #   op_Subtraction t1
+                   t2))                                                  #   op_Subtraction t2
+    return t1, t2, t3
+
+
+def plague_wind_tree(selectors: Optional[tuple] = None) -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour`
+    (id 1035, deathTyphus) — MIRROR 1:1 du decompile (cf. le bloc ci-dessus).
+
+    DEGAT : trois plages DISTINCTES (`minDmg`/`maxDmg`, `minDmg_2`/`maxDmg_2`, `minDmg_3`/`maxDmg_3`
+    = variables 0xc/0xd, 0x36/0x37, 0x38/0x39 — LU dans `IdunBattle.Entities.Abilities.AActiveAbility$$
+    MinMaxDamage`, `...$$MinMaxDamage2`, `...$$MinMaxDamage3`), toutes dans
+    `variablesAffectedByRarityBonus` (scaling `AbilityVariablesMultiplier` via `ability_var`). Le
+    nombre de coups est la MEME constante `GetNumberConstant(0x2f)=nrOfHits`=1 pour les trois bandes
+    (le decompile relit litteralement `0x2f` a chacun des trois call-sites). Profil `Psychic`
+    (PiercingRatio 100, trait `NoBlocking`), `attackRangeType=Ranged` -> `is_melee=False`.
+
+    `multi=True` sur les trois : le natif passe TOUJOURS par `IdunBattle.Entities.Behaviours.
+    AttackBehaviour$$Execute` (resolution de la LISTE + `OrderBy`), y compris pour la bande 1 dont
+    l'ensemble est un singleton -> le mode multi est le mirror exact (et un no-op pour la bande 1).
+
+    `Group(..., 0x4b/0x4c/0x4d)` = les groupes de PRESENTATION natifs (`GroupBehaviour` = pass-through
+    d'etat) ; `AtomicGroup` = l'`ExecuteAtomic(0x4a)` (inline, #201). Portes pour le mirror structurel :
+    aucun n'a d'effet observable sur l'etat ni sur `state.rng`."""
+    t1, t2, t3 = selectors if selectors is not None else plague_wind_target_selectors()
+    band1 = AttackWithAttackDamage(t1, PLAGUE_WIND_ID, "Psychic", is_melee=False, multi=True,
+                                   native_factory="ability",              # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage
+                                   ability_type=int(ActiveAbilityType.PlagueWind))
+    band2 = AttackWithAttackDamage(t2, PLAGUE_WIND_ID, "Psychic", is_melee=False, multi=True,
+                                   min_key="minDmg_2", max_key="maxDmg_2",   # MinMaxDamage2 (0x36/0x37)
+                                   native_factory="ability",
+                                   ability_type=int(ActiveAbilityType.PlagueWind))
+    band3 = AttackWithAttackDamage(t3, PLAGUE_WIND_ID, "Psychic", is_melee=False, multi=True,
+                                   min_key="minDmg_3", max_key="maxDmg_3",   # MinMaxDamage3 (0x38/0x39)
+                                   native_factory="ability",
+                                   ability_type=int(ActiveAbilityType.PlagueWind))
+    return AtomicGroup(op_and(op_and(Group(band1, 0x4b, t1), Group(band2, 0x4c, t1)),
+                              Group(band3, 0x4d, t1)))
+
+
+class PlagueWindAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$ExecuteBehaviour` (id 1035,
+    `deathTyphus` « Typhus », Death Guard/Chaos — HERO, present dans `rl_duel build --list-pool`).
+
+    AoE CONCENTRIQUE a TROIS bandes, ancree sur la CIBLE (range 2) :
+      1. la cible                                -> 1x Psychic `minDmg`  /`maxDmg`
+      2. les ennemis ADJACENTS a la cible        -> 1x Psychic `minDmg_2`/`maxDmg_2`
+      3. les ennemis adjacents a >=1 SECONDAIRE  -> 1x Psychic `minDmg_3`/`maxDmg_3`
+         (cible et secondaires exclus)
+    Profil `Psychic` (pierce 100, `NoBlocking`), famille ABILITY (pas de crit, 1 tirage/coup).
+    Behaviour = arbre DSL `plague_wind_tree()` (mirror 1:1 du decompile). Termine le tour (1035 hors
+    des frozensets de `base.py` -> flags par defaut).
+
+    Diag : `{attacks, main, secondary, tertiary}` — la ventilation par bande vient des memos `Cache`
+    (l'ensemble EXACT que chaque bande a frappe), pas d'un re-calcul de geometrie."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.PlagueWind)   # 1035
+    ABILITY_ID = PLAGUE_WIND_ID
+
+    # MASQUE — `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$.ctor` n'appelle
+    # AUCUN `TargetingOptions$$.ctor` : il RECOPIE les 0x40 octets du champ STATIQUE `statics+0x180`
+    # puis fait `AActiveAbility..ctor(this, &opts, 0, 0)`. Le masque EFFECTIF est donc la constante
+    # ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`
+    # (= `statics+0x1a8`) : **0x4002** (LU, pas deduit ; meme preset-classe que Foehammer 1097).
+    #     0x4000  TargetIsEnemy            -> gate porte (`units_can_attack_each_other`)
+    #     0x0002  TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`. PlagueWind
+    #             n'en SURCHARGE aucun (aucun symbole `PlagueWindAbility$$GetDynamicInvalidTarget
+    #             Reason` : le slot vtable +0x480 reste le defaut d'`AActiveAbility`, qui rend 0)
+    #             -> le defaut 0 de `ActiveAbility.get_dynamic_invalid_target_reason` est FIDELE.
+    # PORTEE — le preset copie son `TargetingRange` (`<preset>+0x08..0x1f`) depuis le statique
+    # `TargetingRange statics+0x18` (le cctor lit `*(lVar3+0x18)/+0x20/+0x28`) = `RANGE_FROM_CONFIG`
+    # (`useRangeFromConfig = true`) -> `SetConfigValuesInTargetingOptions` y pose
+    # `overrideRange = GetNumberConstant(0x16 range)` = 2 (config 1035). `forceMeleeTarget` =
+    # `*(preset+0x20)` = **1** = `RANGED_BOOL_FALSE` (⚠ l'enum natif est INVERSE : True=0, False=1)
+    # -> aucun clamp RangedInMelee.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetIsEnemy | TR.TargetMatchesDynamicRule),
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        selectors = plague_wind_target_selectors()     # noeuds NEUFS -> memos par-cast (== le natif)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        plague_wind_tree(selectors).execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
+                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+
+        def _ids(cache_node) -> set:
+            """Ids memoises par un `Cache` APRES execution (`_cached` = le slot +0x28 natif)."""
+            memo = cache_node._cached
+            if memo is None:
+                return set()
+            items = [memo] if isinstance(memo, dict) else list(memo)
+            return {u.get("id") for u in items if isinstance(u, dict)}
+
+        main_ids, sec_ids, ter_ids = (_ids(s) for s in selectors)
+        return {"ability": PLAGUE_WIND_ID, "caster": caster_id, "target": target_id,
+                "attacks": atks,
+                "main": [a for a in atks if a["target"] in main_ids],
+                "secondary": [a for a in atks if a["target"] in sec_ids],
+                "tertiary": [a for a in atks if a["target"] in ter_ids],
+                "dsl": True}
