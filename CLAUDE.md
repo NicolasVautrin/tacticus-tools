@@ -111,6 +111,27 @@ est le garde-fou à passer avant.
 `FUN_<addr>` (le « symbole » n'y est que l'adresse déguisée) et les thunks de la table
 d'imports. Les lister plutôt que les maquiller.
 
+### L'ABSENCE d'une méthode dans les tables ne prouve RIEN
+
+**`frida/methods.tsv` et `ghidra/functions.tsv` sont indexées par ADRESSE**, et IL2CPP
+**déduplique les corps triviaux** (`mov eax,imm32 ; ret`, `xor eax,eax ; ret`, un `ret` nu…).
+Un corps partagé par N classes n'a donc qu'**UN SEUL propriétaire** dans la table. S'y ajoute
+que les **bases génériques** (`Playbook<T>`, `NonComparablePlaybook<T>`…) sont **absentes du
+dump**, donc un getter hérité n'y est pas lisible non plus.
+
+⇒ **« `<Classe>$$<Méthode>` n'apparaît pas dans la table » ne permet JAMAIS de conclure
+« la classe ne surcharge pas ».** Ghidra ne nommera aucun de ces corps non plus.
+
+**Mesuré (2026-07-27)** : `methods.tsv` = 121 502 lignes, **0 RVA répétée** ; `get_Priority`
+y occupe **3 lignes pour 22 surcharges réelles**. C'est exactement ce faux négatif qui avait
+fait écrire « aucun override n'existe » — puis **supprimer** deux valeurs justes en les
+croyant périmées.
+
+**Comment conclure pour de vrai** : invoquer le **slot de vtable** sur l'instance (runtime,
+cf. `reference_il2cpp_methodptr_uninit_class`), balayer **toutes** les valeurs d'enum
+concernées plutôt que les classes trouvées, et recouper par une seconde source indépendante.
+Détail de la méthode : `docs/rl/case-170-get-priority.md`.
+
 ## Workflow RL — runner isolé
 
 > **Le LANCEMENT DE RUNNER est centralisé dans `.claude/skills/tacticus/references/runner.md`**
