@@ -396,7 +396,7 @@ const carte = r => `
       <span class="pct">${r.pct} %</span>
     </div>
     ${r.says.length ? `<ul class="says">${r.says.map(s => `<li>${s}</li>`).join('')}</ul>` : ''}
-    ${r.brief ? `<details class="brief"><summary>le brief envoyé</summary><pre>${r.brief}</pre></details>` : ''}
+    ${r.brief ? `<details class="brief"><summary>le brief envoyé${r.briefCut ? ' — début' : ''}</summary><pre>${r.brief}${r.briefCut ? '\\n\\n[…] tronqué : agent atterri, voir son rapport final.' : ''}</pre></details>` : ''}
   </div>`;
 
 // Tri : le critere est porte par le bouton (data-key), le sens par data-dir. « lancé » se lit
@@ -468,9 +468,12 @@ def render(rows) -> str:
             "land": r["land"].timestamp() if r["land"] else 0,
             "bornLabel": _quand(r["born"], now), "landLabel": _quand(r["land"], now),
             "type": html.escape(r["agent_type"]), "branch": html.escape(r["branch"]),
-            # le brief ENTIER : c'est la seule trace de ce qu'on a demande a l'agent, et il est
-            # replie derriere un <details> -- 2 a 4 Ko par agent, illisible deplie par defaut.
-            "brief": html.escape(r["brief"]),
+            # Le brief est la seule trace de ce qu'on a demande a l'agent. ENTIER pour un agent EN
+            # VOL (on veut pouvoir relire sa consigne pendant qu'il travaille) ; TRONQUE pour un
+            # agent atterri, dont le rapport final dit mieux que son brief. Sans cette coupe, `--all`
+            # pese 2 Mo (395 briefs) et la publication de l'artefact expire.
+            "brief": html.escape(r["brief"] if r["alive"] else r["brief"][:700]),
+            "briefCut": (not r["alive"]) and len(r["brief"]) > 700,
         })
     fastest = max(cards, key=lambda c: c["rate"]) if cards else None
     withe = [(c, r) for c, r in zip(cards, rows) if eta(r) is not None]
