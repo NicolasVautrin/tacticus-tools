@@ -2,13 +2,14 @@
 par le TERRAIN (tile-def), pas par une unité. 1 fonction par ability native (VA citée) :
 - `DryBushFireSpreadAbility` — propagation du feu entre tuiles DryBush au tick d'environnement.
 - `FirstAidHealAbility` (#130) — heal-on-tile au début du tour (à porter).
-- `ThornsBlockMovementAbility` (#198) — stat-mod DEFENSE de tuile posé/retiré à l'entrée/sortie."""
+- `ThornsBlockMovementAbility` (#198) — stat-mod DEFENSE de tuile posé/retiré à l'entrée/sortie.
+- `LightCoverAbility` (résidu O3) — pose de l'effet de couverture 1013 à l'ENTRÉE sur la tuile."""
 from __future__ import annotations
 
 from ...state import State
 from ...components import (PositionComponent, UnitComponent, OwnerComponent, StatsComponent,
                           HealthComponent)
-from ....entities.traits import UnitTrait, has_trait
+from ....entities.traits import UnitTrait, has_trait, has_any_trait
 from .loki import FIRE_TILE
 
 # Propagation DryBush->DryBush (RE #127, `DryBushFireSpreadAbility`IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Tiles.DryBushFireSpreadAbility$$CreateTrigger). La proba est le
@@ -206,3 +207,74 @@ def apply_tile_defense_on_move(state: State, unit_id: int,
         comp.modification.modify(CAPTURED_SOURCE, new)
     return {"tile_defense": unit_id, "from": from_terr, "to": to_terr,
             "delta": delta, "defense_now": comp.get_current_value()}
+
+
+# --- LightCover (DryBush) : pose de l'effet de couverture a l'ENTREE sur la tuile (residu O3) -------
+# `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$.cctor` remplit la liste STATIQUE de
+# `UnitTrait` EXCLUS lue par le `UnitsWithoutTraits` de `UnitsThatNeedEffect` : `Add(0x3f9)` `Add(0x405)`
+# `Add(0)` = **BigTarget(1017), Vehicle(1029), Mounted(0)** -- ces unites ne beneficient PAS du cover.
+LIGHT_COVER_EXCLUDED_TRAITS = (UnitTrait.BigTarget, UnitTrait.Vehicle, UnitTrait.Mounted)
+
+
+def light_cover_on_enter(state: State, mover_id: int) -> list[dict]:
+    """`LightCoverAbility` (Abilities.Tiles.Loki) — MIRROR 1:1 du decompile (build `gqfc5mff6c`) :
+
+        `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateTrigger` =
+            ( On(0x19=MatchInit) | On(0x33=UnitAdded) | On(0x24=UnitPositionChanged_1)
+              | On(0x2e=UnitRevived) | On(0x2f=UnitResurrected) )
+            & NOT AmountIsZero( UnitsThatNeedEffect )
+        `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour` =
+            AddEffect( 0x3f5 = 1013 LightCover, AbilityStateReference, UnitsThatNeedEffect )
+        `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect` =
+            UnitsWithoutTraits( EntitiesWithoutEffects( Units(coverPatch@0x148, 1, 3), [0x3f5] ),
+                                <liste statique du cctor>, 3 )
+
+    C'est la face MANQUANTE du residu O3 (evolution des effets de TUILE) : le gate compute-time
+    `AreEqual(coverPatch, target)` de `IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffect
+    HitsBonusForAttack` (porte, cf. `entities/effects/loki/hits.py`) neutralise deja l'effet quand
+    l'unite QUITTE le cover -- c'est le comportement natif (ground truth live : l'effet est CONSERVE,
+    seul le gate tombe). Mais rien ne le POSAIT quand une unite ENTRE sur une tuile de cover pendant
+    le runner-sim : le seed ne connait que les unites deja posees au chargement. Sans ce vecteur, une
+    cible qui court se mettre a couvert continuait d'encaisser tous ses coups ranged.
+
+    VECTEUR : `On(0x24 = UnitPositionChanged_1)`, le PREMIER des trois events qu'emet
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` (0x24 -> 0x4 -> 0x1d) --
+    d'ou l'appel en TETE d'`after_move_triggers`. `coverPatch@0x148` = la tuile PORTEUSE de l'ability,
+    identifiee par son `tileDefId` (`LIGHT_COVER_TILE_ID` = "DryBush", le seul terrain hote sur ce
+    build) : la tuile CONCERNEE par le move est celle ou le mover vient d'arriver.
+
+    DUREE : la surcharge `AddEffect` a 4 arguments ne passe AUCUN noeud de duree ->
+    `DefaultAmountOfRounds(1013)` est NULL (1013 hors table) -> duree 0 = **PERMANENT**, exactement ce
+    que rend le capteur live (`remaining = 0`). Le retrait n'est donc PAS un timer : c'est le gate
+    compute-time. No-op si pas de board / hors tuile de cover / mover mort / trait exclu / effet deja
+    present (`EntitiesWithoutEffects(0x3f5)`, redondant avec le gate deja-present d'`AddEffectOperation`
+    mais mirrore explicitement)."""
+    from ....entities.effects.loki.hits import LIGHT_COVER_TILE_ID   # tile-def hote de l'ability
+    from ....entities.effect_type import EffectType
+    board = state.board
+    if board is None or state.effects is None:
+        return []
+    e = state.get_entity(mover_id)
+    pc = e.get_component(PositionComponent) if e is not None else None
+    if pc is None:
+        return []
+    uc = e.get_component(UnitComponent)
+    if uc is not None and not uc.alive:
+        return []
+    if board.terrain_at(pc.col, pc.row) != LIGHT_COVER_TILE_ID:   # `coverPatch` = la tuile porteuse
+        return []
+    sc = e.get_component(StatsComponent)
+    traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+    if has_any_trait(traits or [], LIGHT_COVER_EXCLUDED_TRAITS):  # `UnitsWithoutTraits(<cctor>)`
+        return []
+    et = int(EffectType.LightCover)                                # 0x3f5 = 1013
+    if state.effects.has_effect(mover_id, effect_type=et):         # `EntitiesWithoutEffects(0x3f5)`
+        return []
+    tile_id = board.id_at(pc.col, pc.row)
+    from ..effects import AddEffectOperation                       # lazy : evite le cycle triggers<->effects
+    eff = AddEffectOperation.execute(state, source=tile_id, target=mover_id,
+                                     effect_type=et, name="LightCover")
+    if eff is None:
+        return []
+    return [{"tile_effect": "LightCover", "tile": tile_id, "unit": int(mover_id),
+             "on_event": 0x24}]

@@ -9,15 +9,21 @@ combat, en PREDICTION (oracle/damage view) ET dans le RUNNER offline (sim multi-
 - **Prediction (etat courant)** : les effets de tuile sont DEJA captes — `decisionView.effects`
   (IsActive-filtered) porte `LightCover`/`Trench`/... ; `combatSnapshot.statDelta`/shields portent les
   boosts power-up + boucliers. => la prediction est correcte SAUF la ou le port IGNORE un effet capte.
-- **Runner multi-step** : le runner materialise les effets UNE FOIS au build (snapshot) et ne modelise
-  AUCUNE transition tuile (gagner/perdre un effet en entrant/sortant d'une tuile, ramasser un power-up,
-  heal FirstAid, fire-spread). => gap analogue #123, mais generalise a toutes les mecaniques de tuile.
+- **Runner multi-step** : les transitions de tuile sont portees UNE PAR UNE (jamais une infra
+  generique) — a ce jour : stat-mod DEFENSE enter/leave (#198), pose de la couverture a l'ENTREE
+  (residu O3), fire-spread (#127), FirstAid (#130). RESTENT hors port : pickup de power-up (#B2),
+  BrokenIce, ShrubBonusDefense.
 - **SEED des effets de TUILE : RESOLU (#102, `case-102-tile-effect-seeding.md`)**. `load_state(...,
   tiles=tileMeta)` charge desormais les effets portes par les TUILES (meme cle entite-tuile que la pose
   `AddEffectOperation`). Avant, un etat offline recharge mi-bataille repartait d'un plateau VIERGE ->
-  toute mecanique tile-driven etait INCONFRONTABLE. Ne couvre PAS l'evolution des durees (le tick
-  `on_turn_end` est per-UNITE) ni les transitions ci-dessus : le seed rend l'etat de depart fidele, il
-  ne simule pas la suite.
+  toute mecanique tile-driven etait INCONFRONTABLE.
+- **EVOLUTION des effets de TUILE : RESOLU (residu O3, `case-o3-tile-effect-dynamics.md`)**. Le tick de
+  duree natif (`IdunBattle.Operations.EndTurnOperation$$RefreshEffects`) itere TOUTES les entites-EFFET
+  — aucune distinction unite/tuile — puis RETIRE celles dont `EffectComponent$$ShouldBeRemoved`
+  (`HasTurns && Duration == 0`). Le port decremente desormais avec le clamp natif de
+  `EffectComponent$$RemoveOneTurn` et RETIRE a echeance (avant : le feu de tuile brulait pour
+  toujours, `has_effect` ne filtrant que `consumed`). La POSE de la couverture a l'entree est portee
+  au meme endroit (`LightCoverAbility`, `On(0x24=UnitPositionChanged_1)`).
 
 Preuve empirique (runner C1_25/SyncPvp_Arctic_06) : `LightCover` et `Trench` sont IsActive-gate sur
 "actuellement sur la tuile" — l'effet DISPARAIT de `decisionView.effects` des que l'unite quitte la
@@ -51,9 +57,14 @@ arene `MC1_67` = 3 DryBush. Recette board-finding : skill `runner.md` 2bis.
 `bonus = ForAdditionWithMinimum(gate, Direct(-hitsReduction=GetNumberConstant(0x2c)), min=Direct(1))`.
 Magnitude `globalValues.lightCoverHitReduction=2`. Autres : `IsUnitAffected @1811c1690`,
 `UnitsThatNeedEffect @1811c1830`, `IsTallGrass @180ec6210`. Port : `engine/entities/effects/loki.py
-LightCoverEffect` (via `hits_malus_from_defender_effects`). Le gate `AreEqual(coverPatch,target)` n'est
-PAS porte (le port applique -2 des que l'effet est materialise) — OK en prediction (effet=IsActive=on-cover)
-mais FAUX en runner-sim (effet perime apres move). Fix fidele = gate compute-time sur cover_hexes.
+LightCoverEffect` (via `hits_malus_from_defender_effects`). Le gate `AreEqual(coverPatch,target)` EST
+porte (A3, flag compute-time `defender_on_cover` = terrain de la cible == DryBush) : hors-cover le -2
+tombe, l'effet restant PRESENT — c'est le comportement natif (ground truth live). La POSE a l'ENTREE
+est portee elle aussi (residu O3, `light_cover_on_enter`) : `CreateTrigger` = `(On(0x19=MatchInit) |
+On(0x33=UnitAdded) | On(0x24=UnitPositionChanged_1) | On(0x2e=UnitRevived) | On(0x2f=UnitResurrected))
+& NOT AmountIsZero(UnitsThatNeedEffect)` ; `UnitsThatNeedEffect` = `UnitsWithoutTraits(
+EntitiesWithoutEffects(Units(coverPatch), [0x3f5]), <cctor: BigTarget 1017 / Vehicle 1029 /
+Mounted 0>)`. Seul `On(0x24)` est cable (move + push) ; spawn/revive sur cover = residu documente.
 
 ### Trench — NO-OP (gap prediction reel)
 `CalculateTrenchReduction @181004830` (decompile lu) : reduction -TrenchReductionPercentage (BC Damage
@@ -261,6 +272,11 @@ Elevation `CalculateElevationBonusModifier @181003ea0` (+50% surplomb, porte). R
   live 63/63 tuiles sur SyncPvp_Arctic_06 (Trench 13/DryBush 7/Block 6/Swamp 2/Grass 35). [prerequis de A3
   + tout B ; consomme par le gate LightCover A3 via `state.board.terrain_at`]
 - B1. LightCover/Trench/Shrub : add/remove effet on enter/leave terrain (MoveUnitOperation).
+  **[LightCover : DONE — residu O3, `case-o3-tile-effect-dynamics.md`]** POSE a l'ENTREE via
+  `On(0x24=UnitPositionChanged_1)` (move ET push), gate de traits du `.cctor` porte, valide live
+  (pose + non-pose sur BigTarget + composition 6->4 coups). Le "remove on leave" n'existe PAS cote
+  natif pour LightCover : l'effet est CONSERVE et neutralise par le gate compute-time (A3). RESTENT :
+  Trench, Shrub, et les 4 autres events de `CreateTrigger` (spawn/revive sur cover).
 - B2. Power-up pickup on-move (APowerUpAbility -> stat boost / armor / shield / bomb).
 - B3. FirstAid heal-on-tile (turn/step trigger).
 - B4. Thorns/Swamp/BrokenIce : blocage mouvement (pathfinding).

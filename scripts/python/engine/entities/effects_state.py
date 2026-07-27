@@ -82,9 +82,35 @@ class EffectsState:
                 e.consumed = True
 
     def on_turn_end(self, unit_id: int, attacked: bool) -> None:
-        """Fin de tour de l'unité : retrait des effets « removed-after-attack » si elle a attaqué, puis
-        décrément des timers (expiration quand `remaining_turns` atteint 0), puis CASCADE composite :
-        un effet PARENT disparu (expiré/consommé) retire ses ENFANTS (lien `parent_type`).
+        """Fin de tour de l'ENTITÉ PORTEUSE (unité **ou tuile** — cf. ci-dessous) : retrait des effets
+        « removed-after-attack » si elle a attaqué, puis décrément des timers, puis RETRAIT des instances
+        arrivées à 0, puis CASCADE composite : un effet PARENT disparu (expiré/consommé) retire ses
+        ENFANTS (lien `parent_type`).
+
+        DOMAINE — `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` n'itère PAS les unités : il
+        énumère **TOUTES les entités-EFFET du state** (la MÊME collection générique que consomme
+        `IdunBattle.Entities.EntityExtensions$$GetEffectsBySourceUnit`, et dont il lit directement
+        l'`EffectComponent`). Il n'y a donc AUCUNE distinction porteur-unité / porteur-tuile dans le tick
+        de durée. L'appelant (`EndTurnOperation.execute`, `runner/operations/turnflow.py`) balaye pour
+        cette raison TOUTES les clés de `by_unit`, ids d'entité-tuile compris (#102).
+
+        DÉCRÉMENT — `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn` =
+        `if (0 < Duration@+0x64) Duration -= 1` : le compteur est **CLAMPÉ à 0**, il ne descend jamais
+        sous zéro. Le gate d'entrée du natif est `!Removed@+0x5f && HasTurns@+0x5d` — une instance déjà
+        retirée ne tick plus, une instance permanente (`HasTurns` faux, ici `remaining_turns is None`)
+        non plus.
+
+        RETRAIT — `IdunBattle.Entities.Components.EffectComponent$$ShouldBeRemoved` =
+        `HasTurns && Duration == 0`. C'est le prédicat que teste
+        `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` (enfilée par la fin de
+        `EndTurnOperation$$RefreshEffects`) pour prendre la branche `DeactivateEffect` + retrait de
+        l'entité-effet : à 0, l'effet **N'EXISTE PLUS**, il ne peut donc plus ni être vu par un gate de
+        présence, ni déclencher ses triggers. Offline, la marque de retrait est `consumed` — la SEULE
+        que TOUS les lecteurs honorent (`has_effect`, `collect_effect_triggers`, `active_effects`) ;
+        `expired` n'est lu que par `active_effects`/`refresh_stat_modifier_effects`, d'où le trou
+        MESURÉ (résidu O3) : un effet à timer arrivé à échéance restait visible de `has_effect` et
+        continuait d'être collecté comme effet-trigger — pour une tuile, dont c'est le SEUL chemin de
+        lecture, le feu (`FireEffect` 5) brûlait pour toujours et re-tickait son DoT à chaque tour.
 
         Mirror du cycle de vie natif d'un effet composite (ex. Stunned 1162) : à l'expiration du parent,
         `<Effect>.RevertInternal` (IdunBattle.Entities.Effects.Loki.StunnedEffect$$RevertInternal) fait `RemoveEffect` de ses enfants permanents (1166/1167)
@@ -94,8 +120,12 @@ class EffectsState:
         for e in lst:
             if e.removed_after_attack and attacked:
                 e.consumed = True
-            if e.remaining_turns is not None:
+            if e.remaining_turns is None or e.consumed:
+                continue                       # gate natif `!Removed && HasTurns`
+            if e.remaining_turns > 0:          # `RemoveOneTurn` : décrément CLAMPÉ à 0
                 e.remaining_turns -= 1
+            if e.remaining_turns <= 0:         # `ShouldBeRemoved` -> DeactivateEffect + retrait
+                e.consumed = True
         # cascade : tant qu'un parent vient de disparaître, consommer ses enfants (point fixe — gère un
         # éventuel chaînage parent->enfant->petit-enfant ; aujourd'hui 1 niveau pour Stunned).
         while True:
