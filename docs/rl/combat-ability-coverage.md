@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **75**
-- **NO-OP silencieux** (a porter) : **96**
-- Ventilation NO-OP : **DAMAGE**=63, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **80**
+- **NO-OP silencieux** (a porter) : **91**
+- Ventilation NO-OP : **DAMAGE**=58, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
 
 ## Priorisation & templates de port
 
@@ -22,17 +22,15 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (96)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (91)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1115 | FearOfTheUnseen | DAMAGE(DirectDamage) | 7 | LN |
-| 1036 | FrenziedFiring | DAMAGE(HeavyRound) | 7 | LN |
 | 1029 | Drachnyen | DAMAGE(Piercing) | 6 | LN |
 | 1088 | HellfyreMissileRack | DAMAGE(HeavyRound) | 6 | LN |
 | 1020 | HeraldOfTheApocalypse | DAMAGE(Piercing) | 6 | LN |
 | 1035 | PlagueWind | DAMAGE(Psychic) | 6 | LN |
-| 1116 | RadBombardment | DAMAGE(Toxic) | 6 | LN |
 | 1026 | BasiliskBarrage | DAMAGE(Blast) | 5 | LN |
 | 1102 | Doombolt | DAMAGE(Psychic) | 5 | LN |
 | 1017 | FragBomb | DAMAGE(Blast) | 5 | LN |
@@ -40,7 +38,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1069 | SeekerMissileFrequencyLock | DAMAGE(HeavyRound) | 5 | LN |
 | 1068 | SilentDeath | DAMAGE(Piercing) | 5 | LN |
 | 1100 | SorcerousFacade | DAMAGE(Psychic) | 5 | LN |
-| 1041 | BrazierOfHolyFire | DAMAGE(Flame) | 4 | LN |
 | 1171 | DakkaDakkaDakka | DAMAGE(Projectile) | 4 | LN |
 | 1087 | ExemplarOfTheKauyon | DAMAGE(Blast) | 4 | LN |
 | 1038 | FoulInfusion | DAMAGE(Toxic) | 4 | LN |
@@ -67,9 +64,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1198 | EuphoricStrikes | DAMAGE(Power) | 1 | L |
 | 1197 | ExcruciatingFrequencies | DAMAGE(Blast) | 1 | L |
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
-| 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
-| 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
 | 1177 | LightOfSanguinius | DAMAGE(Melta) | 1 | L |
@@ -123,20 +118,23 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (75)
+## PORTED (registry) (80)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
+| 1036 | FrenziedFiring | DAMAGE(HeavyRound) | 7 | LN |
 | 1104 | SpiritLeech | DAMAGE(Psychic) | 7 | LN |
 | 1122 | CordClaw | DAMAGE(DirectDamage) | 6 | LN |
 | 1105 | CrushingClaws | DAMAGE(Piercing) | 6 | LN |
 | 1008 | HarbingerOfDestruction | DAMAGE(DirectDamage) | 6 | LN |
 | 1006 | MultiThreatEliminator | DAMAGE(Gauss) | 6 | LN |
+| 1116 | RadBombardment | DAMAGE(Toxic) | 6 | LN |
 | 1022 | BringerOfDespair | DAMAGE(Power) | 5 | LN |
 | 1180 | HeroicFusillade | DAMAGE(Projectile) | 5 | LN |
 | 1004 | MortisRound | DAMAGE(HeavyRound) | 5 | LN |
 | 1065 | ScythingTalons | DAMAGE(Bio) | 5 | NS |
 | 1014 | ArmoriumCherub | DAMAGE(Flame) | 4 | LN |
+| 1041 | BrazierOfHolyFire | DAMAGE(Flame) | 4 | LN |
 | 1042 | FlailSwing | DAMAGE(Power) | 4 | LN |
 | 1000 | GauntletsOfUltramar | DAMAGE(Bolter) | 4 | LN |
 | 1062 | SanctorumMissile | DAMAGE(Blast) | 4 | LN |
@@ -169,8 +167,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1161 | TwinSmartMissileSystem | DAMAGE(Blast) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
 | 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
+| 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |
 | 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
+| 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
 | 1066 | Executioner | EFFECT/BUFF | 6 | LN |
