@@ -77,7 +77,8 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
                      ActOfFaithBuffEffect, ThrillSeekersEffect, TauntedEffect, PinnedEffect,
                      MV71InitialDmgEffect, MV71ResetInitialDmgEffect, MasterOfTheTutelariesEffect,
                      BlackRageExtraMoveEffect, BlackRageExtraDamageEffect, BlackRageAutomaticUnitEffect,
-                     WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect)
+                     WaaaghExtraMovementEffect, WaaaghExtraDamageEffect, WaaaghExtraHitsEffect,
+                     HammerOfWrathConditionalDamageEffect)
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
 from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
@@ -145,6 +146,7 @@ __all__ = [
     "MV71InitialDmgEffect", "MV71ResetInitialDmgEffect", "MasterOfTheTutelariesEffect",
     "BlackRageExtraMoveEffect", "BlackRageExtraDamageEffect", "BlackRageAutomaticUnitEffect",
     "WaaaghExtraMovementEffect", "WaaaghExtraDamageEffect", "WaaaghExtraHitsEffect",
+    "HammerOfWrathConditionalDamageEffect",
     # destroy_the_witch (passif templHelbrecht 1091 : +1 MOVEMENT gate Psyker ennemi + aura melee)
     "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
     # imperative

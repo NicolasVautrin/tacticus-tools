@@ -33,6 +33,20 @@ def _grand_alliance_trait(visual_id: str | None) -> str | None:
     return ga if ga in _GRAND_ALLIANCE_TRAITS else None
 
 
+@functools.lru_cache(maxsize=None)
+def _config_traits(visual_id: str | None) -> frozenset:
+    """Traits STATIQUES d'une unite lus de gameconfig — MEME source que `UnitContext.from_snapshot`
+    (`traits=list(cfg.get("traits"))`). Sert de repli quand l'unite n'a PAS de `StatsComponent`
+    (cf. `_unit_dict`). Cache (statique par visualId)."""
+    if not visual_id:
+        return frozenset()
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return frozenset()
+    return frozenset((_GC.unit(visual_id) or {}).get("traits") or ())
+
+
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
     """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
     `unit` que consomment les selecteurs DSL. `entity` optionnel (evite un `get_entity` redondant)."""
@@ -44,7 +58,15 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     uc = e.get_component(UnitComponent)
     sc = e.get_component(StatsComponent)
     hc = e.get_component(HealthComponent)
-    traits = set(getattr(sc.ctx, "traits", None) or ()) if sc is not None else set()
+    # REPLI GAMECONFIG quand l'unite n'a pas de `StatsComponent` — cas d'un CADAVRE : `_load_stats_and_
+    # effects` ne pose le composant que pour les entrees de `combatSnapshot.units`, et une unite MORTE en
+    # est absente ; son dict sortait donc SANS trait, alors que `decisionView` la garde et que le natif,
+    # lui, teste les flags d'une entite morte (`UnitsWithFlagSelector` sur `AllDeadUnitsSelector`).
+    # MESURE (#226, Foehammer) : `Count(UnitsWithTrait(AllDeadOrResurrectedUnits, Hero))` rendait 0 avec
+    # un heros mort au sol -> bonus `extraDmg x deadHeroes` PERDU (live 2142 vs port 343). La source du
+    # repli est EXACTEMENT celle du chemin vivant (`UnitContext.traits = gameconfig.unit(vis).traits`).
+    traits = (set(getattr(sc.ctx, "traits", None) or ()) if sc is not None
+              else set(_config_traits(uc.visual_id if uc is not None else None)))
     # Trait d'ALLIANCE (Imperial/Chaos/Xenos) inne, DERIVE de la GrandAlliance (cf. `_grand_alliance_trait`)
     # : requis par le split RevitalizingMalignancy (WithoutTrait Imperial / WithTrait Chaos) + l'exclusion
     # Imperial de CombatRestoratives. CONFIRME LIVE (case-220 : deathBlightbringer Chaos +6980,

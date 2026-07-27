@@ -161,6 +161,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # litteral. `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
     # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 0 = DirectTargetAttack (opts = PRESET statique).
     1041: AbilityAttackType.DirectTargetAttack,   # BrazierOfHolyFireAbility
+    # Foehammer (1097, Arjac spaceRockfist) et HammerOfWrath (1153, Mataneo bloodIntercessor), lot
+    # #226. Litteraux RELUS : `...FoehammerAbility$$.ctor` et `...HammerOfWrathAbility$$.ctor` font
+    # tous deux `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
+    # (`&opts` = un PRESET statique de `TargetingOptions` dans les DEUX cas -- mais ici le masque
+    #  EFFECTIF a bien ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
+    #  (`statics+0x168` = 0x4002 pour 1097, `statics+0x268` = 0x102004032 pour 1153), donc leurs
+    #  `TARGETING_OPTIONS` sont renseignes -- contraste 1036/1041 ci-dessus.)
+    1097: AbilityAttackType.DirectTargetAttack,   # FoehammerAbility
+    1153: AbilityAttackType.DirectTargetAttack,   # HammerOfWrathAbility
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
     1007: AbilityAttackType.SummonAndAttackTarget,   # ScarabHiveAbility

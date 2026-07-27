@@ -565,6 +565,22 @@ class _DamageOpsMixin:
                                               is_ranged=_ranged, is_normal_attack=False,
                                               target_traits=_tgt_traits,
                                               trigger_ability_type=(ability_type if is_attack_damage_op else None))
+            # #226 — STRUCT ATTAQUANT ZEROEE POUR LA FAMILLE ABILITY (generalisation de la mesure #45f,
+            # desormais LUE AU DECOMPILE). `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`
+            # ne construit QUE les mods DEFENSEUR (slot d'interface 0xf) et passe a
+            # `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` un
+            # `DamageModifiers` ATTAQUANT **memset a 0** (`local_498..uStack_460 = 0` juste avant l'appel) :
+            # il n'existe AUCUN appel a `CalculateAttackerModifiersForPrediction` sur ce vecteur. #45f avait
+            # deja gate les feuilles POSITIONNELLES (elevation/trench) et les threads `is_ranged`/
+            # `trigger_ability_type`/`target_traits` sur cette base, mais les bonus attaquant issus des EFFETS
+            # NON GATES (et les auras alliees) continuaient de passer -- invisible tant qu'aucun porteur
+            # ability-family n'en avait.
+            # DISCRIMINANT MESURE (#226, HammerOfWrath / `bloodIntercessor` Mataneo, porteur du trait
+            # `RapidAssault` -> effet 1229 `ForPercentIncrease(get_OwnerIsCaster, 25)` SANS aucun gate) :
+            # offline = round(live x 1.25) sur les 4 coups des DEUX volets (main 1930/1544, 2144/1715 ;
+            # splash 2309/1847, 2415/1932) ; struct zeroee -> bit-exact.
+            if not is_attack_damage_op:
+                mods = DamageModifiers()
         # #45f (fable, cause racine du residu x1.5 GreatFrostAxe case-220) : les feuilles POSITIONNELLES
         # (elevation +ElevationBonus=50% si elev(att) > elev(cible), gate effet 0x423 ; trench -50%) du
         # builder de mods ATTAQUANT s'appliquent a la famille ATTACK **SEULEMENT** — gate par FAMILLE de

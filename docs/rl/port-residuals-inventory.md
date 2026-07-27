@@ -100,7 +100,7 @@ Colonne `D` = face DÉCISION portée (un des trois registres, cf. §2).
 | 1048 | FragstormGrenadeLauncher | DAMAGE/Blast | BlackTemplars | templAggressor | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormGrenadeLauncherAbility$$ExecuteBehaviour` |
 | 1177 | LightOfSanguinius | DAMAGE/Melta | BloodAngels | bloodDante | D | `IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility$$ExecuteBehaviour` |
 | 1175 | BloodChalice | HEAL | BloodAngels | bloodSanguinary | - | `IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$ExecuteBehaviour` |
-| 1153 | HammerOfWrath | DAMAGE/Power | BloodAngels | bloodIntercessor | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour` |
+| ~~1153~~ | ~~HammerOfWrath~~ | DAMAGE/Power | BloodAngels | bloodIntercessor | D | **PORTEE case-226** (`HammerOfWrathAbility$$ExecuteBehaviour`, `bloodangels.py`) |
 | 1195 | TalonsOfTheEmperor | DAMAGE/Power | Custodes | custoAtlacoya | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility$$ExecuteBehaviour` |
 | 1191 | MartialInspiration | DAMAGE/Eviscerate | Custodes | custoBladeChampion | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility$$ExecuteBehaviour` |
 | 1184 | MomentShackle | DAMAGE/Bolter | Custodes | custoTrajann | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$ExecuteBehaviour` |
@@ -118,7 +118,7 @@ Colonne `D` = face DÉCISION portée (un des trois registres, cf. §2).
 | 1041 | BrazierOfHolyFire | DAMAGE/Flame | Sisterhood | adeptCanoness | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour` |
 | 1039 | RitesOfRestoration | HEAL | Sisterhood | adeptHospitaller | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$ExecuteBehaviour` |
 | 1106 | WarHowl | EFFECT | SpaceWolves | spaceBlackmane | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility$$ExecuteBehaviour` |
-| 1097 | Foehammer | DAMAGE/Power | SpaceWolves | spaceRockfist | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.FoehammerAbility$$ExecuteBehaviour` |
+| ~~1097~~ | ~~Foehammer~~ | DAMAGE/Power | SpaceWolves | spaceRockfist | - | **PORTEE case-226** (`FoehammerAbility$$ExecuteBehaviour`, `spacewolves.py`) |
 | 1090 | GrapnelLauncher | DAMAGE/Physical | SpaceWolves | spaceHound | D | `IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility$$ExecuteBehaviour` |
 | 1087 | ExemplarOfTheKauyon | DAMAGE/Blast | Tau | tauShadowsun | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour` |
 | 1069 | SeekerMissileFrequencyLock | DAMAGE/HeavyRound | Tau | tauMarksman | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour` |
