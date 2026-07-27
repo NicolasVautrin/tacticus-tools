@@ -377,7 +377,17 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return None
         return entity_can_have_active_ability_reset(state, int(uid), False)
 
+    # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
+    # pendant son activation courante. Moitie runtime du predicat
+    # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
+    # composant manque (degradation fidele : personne n'a charge).
+    def _charged_units(unit):
+        from ...components import charged_unit_ids
+        uid = (unit or {}).get("id")
+        return charged_unit_ids(state, int(uid)) if uid is not None else set()
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+                      charged_units=_charged_units,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

@@ -89,14 +89,15 @@ class AttackWithAttackDamage(AbilityBehaviour):
     Executioner `hits = IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
-                 "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain")
+                 "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
+                 "force_crit")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
-                 tile_domain: bool = False):
+                 tile_domain: bool = False, force_crit: bool = False):
         self.tile_domain = bool(tile_domain)
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
@@ -143,6 +144,13 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # s'evaluer A L'EXECUTION contre l'`entities` du behaviour, ce qu'exige un arbre dont un `Cache` a ete
         # FIGE en amont par un `SetCache` (FrenziedFiring : `SetCache(hitsNode) & Attack(..., hits=hitsNode)`).
         self.hits_override = hits_override
+        # `force_crit` = octet **+5** du `Nullable<AttackOptions>` (8e arg d'`AttackWithAttackDamage`,
+        # le meme struct dont l'octet +4 porte `force_overkill`) : « always crit ». Le natif
+        # (`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) SAUTE alors `RollCritical` ->
+        # chaque coup est critique SANS tirage, meme a `CouldCrit` faux. Defaut False. Mode bornes
+        # uniquement (route par `execute_ability_attack`). Porteur : TacticalPrecision (1154) branche
+        # CHARGE -- i2 « This attack is always a Crit and deals an additional +extraCritDmg ».
+        self.force_crit = force_crit
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -235,7 +243,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
                     is_attack_damage_op=(self.native_factory != "ability"),
-                    force_overkill=self.force_overkill)
+                    force_overkill=self.force_overkill, force_crit=self.force_crit)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

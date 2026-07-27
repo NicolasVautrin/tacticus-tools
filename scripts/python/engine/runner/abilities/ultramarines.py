@@ -45,8 +45,8 @@ from ...dsl.base import Const, resolve_unit
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.formulas import If as FormulaIf
-from ...entities.selectors import (Caster, CasterTile, AdjacentUnits, FixedTileIds, Friends,
-                                   TilesInTriangleShape, TilesOnSameElevation, Union,
+from ...entities.selectors import (Caster, CasterTile, AdjacentEnemies, AdjacentUnits, FixedTileIds,
+                                   Friends, TilesInTriangleShape, TilesOnSameElevation, Union,
                                    UnitsWithTrait, Sub, Unique, Target, Walkable)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType

@@ -205,6 +205,14 @@ class DslContext:
     # `ActiveAbilitiesComponent` absent) -> le selecteur le propage au lieu d'inventer un False.
     # Defaut None (accesseur non branche) = meme ignorance. Fourni par `entities_from_state`.
     can_have_active_ability_reset: object | None = None
+    # Liste des unites que `unit` a CHARGEES ce tour (`UnitComponent + 0x190`, un `List<int>` d'ids
+    # alimente par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` et vide par
+    # `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`). C'est la MOITIE runtime du predicat
+    # `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` = `AreEntitiesAdjacent(caster,
+    # target) && chargedUnitIds(caster).Contains(target.Id)`. `charged_units(unit) -> set[int]` ;
+    # defaut None -> ensemble VIDE (degradation fidele : personne n'a charge). Fourni par
+    # `entities_from_state` (lit le `UnitComponent` de l'ECS runner).
+    charged_units: object | None = None
 
 
 class Const(AAmountFormula):

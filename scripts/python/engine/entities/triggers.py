@@ -613,6 +613,44 @@ class IsAdjacent(AbilityTrigger):
         return any(x is not None and y is not None and hexgeo.distance(x, y) == 1 for x in pa for y in pb)
 
 
+class IsCharging(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$IsCharging(a, b)` -> predicat dont l'`Evaluate` appelle le
+    slot `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)`. MIRROR du decompile de
+    CETTE methode (2 termes, `&`) :
+
+        return AreEntitiesAdjacent(caster, target)
+               && GetComponent<UnitComponent>(caster).ChargedUnitIds@+0x190.Contains(target.Id)
+
+    Le 2e terme est ecrit par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` (toute unite
+    devenue NOUVELLEMENT adjacente pendant un pas de deplacement) et vide par
+    `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` -> « a charge cette unite CE TOUR ».
+
+    ⚠ « a charge » n'est donc PAS « a bouge » : une unite qui bouge SANS arriver au contact de la
+    cible, ou qui etait DEJA adjacente avant son pas, n'est pas en charge. Les effets extra-degat du
+    lot SmashaEad/AvalancheOfMuscle/FeederTendrils modelisent ce meme noeud par `has_moved` (canal
+    modifier, cf. `entities/effects/loki/extra_damage.py`) : approximation ANTERIEURE, plus large que
+    ce predicat — non touchee ici (leurs 4 datapoints live restent valides), residu nomme.
+
+    `ctx.charged_units` absent -> ensemble vide -> False (degradation fidele)."""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+        self.a, self.b = a, b
+
+    def should_trigger(self, ctx):
+        us_a = [u for u in _units_of(self.a, ctx) if isinstance(u, dict)]
+        us_b = [u for u in _units_of(self.b, ctx) if isinstance(u, dict)]
+        acc = getattr(ctx, "charged_units", None)
+        for ua in us_a:
+            charged = set(acc(ua)) if acc is not None else set()
+            pa = _pos(ua)
+            for ub in us_b:
+                pb = _pos(ub)
+                if pa is None or pb is None or hexgeo.distance(pa, pb) != 1:
+                    continue                          # AreEntitiesAdjacent
+                if ub.get("id") in charged:           # ChargedUnitIds.Contains(target.Id)
+                    return True
+        return False
+
+
 class IsInRange(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsInRange(a, b, range)` → `IdunBattle.Entities.Triggers.IsInRangeAbilityTrigger$$ShouldTrigger` : `dist(a, b) <= range`. ⚠ ordre
     exact des args factory (slots +0x28/+0x18/+0x20) = structure prouvée, mapping à confirmer au câblage."""

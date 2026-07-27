@@ -64,7 +64,8 @@ class _DamageHitsMixin:
                   shield: int = 0, armor_pool: int = 0, armor_pct: int = 0, post_roll=None,
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
                   limits: Optional[dict] = None, limits_hp: int = 0,
-                  is_attack_damage_op: bool = True, force_overkill: bool = False) -> dict:
+                  is_attack_damage_op: bool = True, force_overkill: bool = False,
+                  force_crit: bool = False) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -93,6 +94,27 @@ class _DamageHitsMixin:
         `if not overkill: cap = curHP-1`). N'affecte QUE le cap Resilient (member-cap/boss/impervious ne lisent
         PAS `overkill`) -> NO-OP sur cible non-Resilient (zero regression) ET aucune conso RNG supplementaire
         (change seulement la VALEUR capee, pas le nombre de tirages). Porteur unique : FlailSwing (1042).
+
+        `force_crit` (defaut False) = flag « always crit » du `Nullable<AttackOptions>` (8e arg de
+        `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, **octet +5 de la struct
+        d'options**) -> chaque coup est CRITIQUE **sans tirage**. RE (mirror
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`) :
+
+            local_628 = <slot 4 de BaseUnitComponent+0x68> ? 1 : message[+0x2c]
+            if (message[+0x29] == 0) {            # flag « never crit »
+                if (local_628 == 0) isCrit = RollCritical(...)      # <- 1 tirage possible
+                # sinon : isCrit reste a 1, AUCUN appel a RollCritical
+            } else isCrit = 0
+
+        et `AttackDamageBehaviour$$ExecuteTarget` remplit `message[+0x2c]` depuis `options + 5`
+        (packing lu : msg+0x28<-opt+3, +0x29<-opt+1, +0x2a<-opt+2, +0x2b<-opt+4, **+0x2c<-opt+5**,
+        +0x2e<-opt+0, +0x2f<-opt+6 ; l'octet +4 est celui qu'utilise FlailSwing pour l'overkill, ce
+        qui CALE le mapping). Consequences portees, toutes deux necessaires :
+          * le crit est acquis meme si `CouldCrit` est faux (cc = 0 : le cas de TOUS les porteurs
+            actuels) -> le caller doit fournir des bornes crit (`hit_cr`) meme sans `crit_enabled` ;
+          * AUCUN tirage crit n'est consomme (le natif SAUTE `RollCritical`) -> a cc >= 1 le port
+            ne doit pas rouler non plus, sous peine de desynchroniser le flux RNG.
+        Porteur : TacticalPrecision (1154, branche CHARGE ; i2 « This attack is always a Crit »).
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
         did_crit = did_block = did_evade = False
@@ -228,7 +250,8 @@ class _DamageHitsMixin:
                 # (1) VALEUR = tirage BRUT dans les bornes config (GetDamage-top, struct min<max).
                 raw = hit_nc.get_damage(rng)
                 # (2) crit-roll APRÈS le tirage de valeur (gate cc<1 -> 0 tirage, cf. bloc ci-dessus).
-                crit = roll_critical(rng, crit_chance) if crit_enabled else False
+                # `force_crit` = flag options+5 : le natif SAUTE `RollCritical` -> crit acquis, 0 tirage.
+                crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
                 crits.append(crit)
                 if crit:
                     # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` -> `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : critBonus
@@ -269,7 +292,7 @@ class _DamageHitsMixin:
                 if is_attack_damage_op:
                     rng.next_internal(max(0, roll), max(0, roll) + 1)
                 return _one_hit_tail(idx, crit, roll)
-            crit = roll_critical(rng, crit_chance) if crit_enabled else False
+            crit = True if force_crit else (roll_critical(rng, crit_chance) if crit_enabled else False)
             crits.append(crit)
             hd = hit_cr if crit else hit_nc
             # #67 : etage LIMITES du natif (`IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`) — MEME etage
