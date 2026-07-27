@@ -652,3 +652,22 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   attribuer les stat-mods du seed par `statmod_source_key` ET faire skipper
   `refresh_stat_modifier_effects` sur les instances à `stat_mod_source`. Transverse (ActOfFaith,
   DoctrinaImperatives, AnvilShield…) → à promouvoir si un miss d'agreement le fait surface. `[opus]`.
+
+- **Deplacement MULTI-HEX non confrontable** (`case-R30-multihex-substrate.md` SS6.4) — le substrat
+  d'empreinte est pose et valide live (empreinte, ancre, occupance, portee), et les POSITIONS
+  legales d'une unite a N pieds sont portees
+  (`engine/services/movement_query.py::get_movable_positions_from_tiles`, mirror de
+  `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFromTiles` + `$$IsValidUnitFeetList`).
+  Mais `MoveUnitOperation` ne deplace toujours qu'UNE tuile, et le seul porteur multi-hex du build
+  (`ultraSmnDreadnought`, spawne par `DutyEternal`/`AetherStride`) a `Movement = 0` — donc AUCUN
+  scenario live ne peut confronter le move a N pieds. Le canal existe pourtant deja cote hooks
+  (`MoveUnitMessage.UnitFeetPositions`, `buildMoveMsg` accepte un footprint). A rouvrir des qu'un
+  porteur multi-hex MOBILE apparait ; d'ici la, porter le move serait speculatif. `[opus]`.
+- **Empreinte a 7 pieds = code MORT dans `gqfc5mff6c`** (`case-R30-multihex-substrate.md` SS6.2) —
+  l'enum `TargetingRule` declare `CasterHas7Tiles`/`TargetHas7Tiles`, et `IsValidUnitFeetList` /
+  `GetPossibleTileListsFromMovableTiles` / `DislikeStartingTilesUtility` portent tous une branche 7,
+  mais les XREFS de `DSLFactory$$ThreeTileUnitSpawnShape` sont EXHAUSTIVES (DutyEternal +
+  AetherStride) et il n'existe AUCUN producteur d'empreinte a 7. Les branches sont portees fidele
+  mais inexercables ; le seul point non resolu est le resolveur de CENTRE
+  (`<IBattleQuery slot 0x5d>(tiles)`, symbole non nomme) — le port applique la definition
+  geometrique que la branche impose ensuite. A rouvrir si un build introduit un porteur 7. `[opus]`.

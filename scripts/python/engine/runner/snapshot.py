@@ -28,6 +28,7 @@ from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
     TriggeredAbilityComponent, MachineComponent, ActiveAbility, ActiveAbilitiesComponent,
+    set_unit_feet,
 )
 
 
@@ -176,6 +177,7 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         if actives:
             e.add_component(ActiveAbilitiesComponent(abilities=actives))
     _load_machines(state, decision)
+    _load_feet(state, observe)
     if snapshot is not None:
         _load_stats_and_effects(state, decision, snapshot)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
@@ -196,6 +198,47 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     from .operations.aura_stat_mods import attribute_aura_stat_modifiers
     attribute_aura_stat_modifiers(state)
     return state
+
+
+def _load_feet(state: State, observe: dict) -> None:
+    """Seed de l'EMPREINTE MULTI-HEX (#R30) depuis `observeBattle` — ORDRE DES PIEDS INCLUS.
+
+    Le canal expose UNE LIGNE PAR PIED : `projectMatchState` « project one entry per visible piece,
+    walking UnitFoot -> Tile for pos and UnitFoot -> Unit for HP/Owner » (match-state.ts). Chaque
+    ligne porte l'`entityId` du PIED et le `squadId` de l'UNITE. Mesure live (Galatian, 3 pieds) :
+
+        entityId=108 squadId=107 (2,1)   entityId=109 squadId=107 (2,2)   entityId=110 squadId=107 (3,2)
+
+    L'ORDRE se DERIVE de l'`entityId` croissant, et ce n'est pas une convention arbitraire :
+    `IdunBattle.Operations.AddUnitOperation$$Execute` cree les pieds DANS la boucle qui les ajoute
+    (`id = PlayerIdGenerator.Next(); foot = Blueprints.UnitFoot(id); state.AddEntity(foot);
+    unitComponent.AddFoot(foot.Id)`), et le generateur d'ids est monotone -> **entityId croissant ==
+    ordre d'`AddFoot` == ordre de `_feet`**, donc `feet[0]` = la vraie main tile
+    (`IdunBattle.Entities.EntityExtensions$$GetMainTileId`).
+
+    ⚠ ET C'EST POURQUOI ON NE PART PAS DE `decisionView.units[].pos` : le projecteur emet une ligne
+    par PIED et `decisionView` DEDUPLIQUE par unite -> pour Galatian il rend (3,2), c'est-a-dire le
+    DERNIER pied, PAS la main tile (2,1). Un port qui prendrait `pos` pour l'ancre se tromperait
+    d'un a deux hexes sur toute unite multi-hex. `set_unit_feet` recale donc la
+    `PositionComponent` sur `feet[0]`.
+
+    On ne materialise `UnitComponent.feet` que pour les unites qui ont PLUS D'UN pied — une unite a
+    1 pied garde `feet = None` et sa `PositionComponent` n'est pas touchee : un etat charge est
+    bit-a-bit celui d'avant ce seed."""
+    rows: dict = {}
+    for u in (observe.get("units") or []):
+        uid, eid = u.get("squadId"), u.get("entityId")
+        if uid is None or u.get("col") is None or u.get("row") is None:
+            continue
+        rows.setdefault(int(uid), []).append((eid if eid is not None else 0,
+                                              (u["col"], u["row"])))
+    for uid, feet in rows.items():
+        if len(feet) < 2:
+            continue                                  # unite mono-tuile : cas NOMINAL, on ne touche pas
+        if state.get_entity(uid) is None:
+            continue
+        feet.sort(key=lambda x: x[0])                 # entityId croissant == ordre de `_feet`
+        set_unit_feet(state, uid, [t for _eid, t in feet])
 
 
 def _load_machines(state: State, decision: dict) -> None:

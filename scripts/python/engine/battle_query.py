@@ -10,6 +10,57 @@ from __future__ import annotations
 
 import hexgeo
 
+# --- `IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` -----------
+# Rend `new List<>(new HashSet{tile, t1, t2})` = l'ancre PUIS les deux tuiles de la direction
+# demandee (ordre d'INSERTION du HashSet, conserve par le ctor de List). Le natif lit (col,row)
+# dans le `PositionComponent` de l'ancre et branche sur la PARITE de la COLONNE (`col & 1`), puis
+# switch sur les 6 directions. Les deux tables ci-dessous sont la transcription LITTERALE de ce
+# switch (deltas `(dcol, drow)` appliques a l'ancre) ; chaque paire est bien constituee de deux
+# voisins ADJACENTS ENTRE EUX de l'ancre dans le repere odd-q de `hexgeo` (verifie par le
+# self-test du module de tests) -> l'aire est toujours un TRIANGLE de 3 tuiles mutuellement
+# voisines, ce qu'exige `MovementQuery$$IsValidUnitFeetList(3, ...)`.
+_TRIANGLE_EVEN_COL = {
+    0: ((-1, +1), (0, +1)),
+    1: ((0, +1), (+1, +1)),
+    2: ((-1, +1), (-1, 0)),
+    3: ((+1, +1), (+1, 0)),
+    4: ((-1, 0), (0, -1)),
+    5: ((0, -1), (+1, 0)),
+}
+_TRIANGLE_ODD_COL = {
+    0: ((-1, 0), (0, +1)),
+    1: ((+1, 0), (0, +1)),
+    2: ((-1, 0), (-1, -1)),
+    3: ((+1, -1), (+1, 0)),
+    4: ((-1, -1), (0, -1)),
+    5: ((+1, -1), (0, -1)),
+}
+
+
+def get_tiles_in_triangle_shape(anchor: tuple, direction: int) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetTilesInTriangleShape(tile, direction)` — mirror :
+
+        var set = new HashSet<TileEntity> { tile };
+        var pos = tile.GetComponent<PositionComponent>();      // (col, row)
+        if (direction <= 5) {
+            (t1, t2) = <switch parite(col) x direction>;        // deux GetTileAt(col', row')
+            if (t1 != null) set.Add(t1);
+            if (t2 != null) set.Add(t2);
+        }
+        return new List<TileEntity>(set);
+
+    Le port rend les 3 COORDONNEES sans les clipper au plateau : le natif, lui, laisse tomber une
+    tuile hors-plateau (`GetTileAt` -> null) et rend alors une aire de 2 elements, que
+    `CorrectArea` refuse (`area.Count != 3`). L'appelant (`spawn_tile_shape.correct_area`) refuse
+    de la meme facon toute coordonnee absente du board -> comportement identique.
+    `direction > 5` -> l'aire se reduit a `[tile]` (le natif saute le switch)."""
+    col, row = int(anchor[0]), int(anchor[1])
+    if direction > 5 or direction < 0:
+        return [(col, row)]
+    table = _TRIANGLE_ODD_COL if (col & 1) else _TRIANGLE_EVEN_COL
+    (d1c, d1r), (d2c, d2r) = table[int(direction)]
+    return [(col, row), (col + d1c, row + d1r), (col + d2c, row + d2r)]
+
 
 def is_adjacent(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
     """`pos` est-il sur une tuile ADJACENTE à `tile` selon l'adjacence NATIVE ?

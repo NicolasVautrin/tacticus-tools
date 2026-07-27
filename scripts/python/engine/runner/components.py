@@ -109,17 +109,39 @@ class UnitComponent(Component):
     `+0x00 KillerId` · `+0x14 DamageReason` (0=Ability, 1=Knockback, 2=Steppable) ·
     `+0x18 Nullable<AbilityOrEffect>` (lu par `IdunBattle.Operations.DamageSource$$IsFromAbility`).
     Cote port : `(killer_id, damage_reason, ability_or_effect|None)`, None tant que l'unite est vivante.
+
+    `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
+    ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
+    {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
+    (`UnitComponent$$ClearFeet` puis un `UnitComponent$$AddFoot` PAR TUILE, dans l'ordre de la
+    liste de tuiles recue). Le port n'ayant ni entite-tuile ni entite-pied, la chaine
+    `pied -> UnitFootComponent.TileId -> tuile` est COLLAPSEE en un `(col,row)` (meme collapse
+    que `PositionComponent`) : `feet` = la liste ORDONNEE des tuiles de l'empreinte.
+
+      * `None` = unite a UN pied -- le cas NOMINAL de tout le moteur : l'empreinte est alors
+        `[PositionComponent]` et rien ne change (cf. `get_unit_feet`). On ne materialise la liste
+        que pour les unites MULTI-HEX, ce qui garde les ~200 sites qui lisent `PositionComponent`
+        strictement inchanges.
+      * `feet[0]` est la MAIN TILE (`IdunBattle.Entities.EntityExtensions$$GetMainTileId` prend
+        `_feet[0]` puis lit le `TileId` de CE pied), et c'est l'INVARIANT que `set_unit_feet`
+        maintient : `feet[0] == (PositionComponent.col, PositionComponent.row)`.
+      * tailles supportees = **1, 3, 7**, declarees par l'enum `IdunBattle.Core.Services.
+        TargetingRule` (`CasterHas1/3/7Tiles`, `TargetHas1/3/7Tiles`) et imposees par
+        `IdunBattle.Core.Services.MovementQuery$$IsValidUnitFeetList`. Seul le **3** a un
+        producteur dans ce build (`DSLFactory.ThreeTileUnitSpawnShape` <- `DutyEternalAbility` /
+        `AetherStrideAbility`).
     """
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
-                 "last_hit_damage_taken_last_turn")
+                 "last_hit_damage_taken_last_turn", "feet")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
         self.visual_id = visual_id
         self.alive = alive
         self.ai_controlled = ai_controlled
+        self.feet: Optional[List[tuple]] = None      # `_feet` @+0x78 ; None = 1 pied (cf. docstring)
         self.turn_defeated = None
         self.times_attacked_this_turn = 0
         self.received_damage_this_turn: dict = {}
@@ -132,6 +154,23 @@ class UnitComponent(Component):
         self.pending_revive = None            # `Nullable<ReviveData>` @UnitComponent+0xa8
         self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
         self.death_source = None              # `Nullable<DamageSource>` @UnitComponent+0x108
+
+    def add_foot(self, tile: tuple) -> None:
+        """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`
+        (`OrderedSet` -> pas de doublon, ORDRE d'insertion conserve) + invalidation du cache
+        d'enumerateur @+0x80. Le port ajoute la TUILE du pied (collapse documente en tete)."""
+        t = (int(tile[0]), int(tile[1]))
+        if self.feet is None:
+            self.feet = []
+        if t not in self.feet:                       # OrderedSet.Add : idempotent
+            self.feet.append(t)
+
+    def clear_feet(self) -> None:
+        """`IdunBattle.Entities.Components.UnitComponent$$ClearFeet` = `_feet.Clear()` +
+        invalidation du cache @+0x80. Appele par `AddUnitOperation$$Execute` AVANT de reposer les
+        pieds. Ici : liste VIDE (et non `None` -- `None` veut dire « un seul pied a la
+        PositionComponent », ce qui n'est pas la meme chose qu'une unite sans pied)."""
+        self.feet = []
 
 
 class OwnerComponent(Component):
@@ -711,6 +750,109 @@ def get_ability_stat_modification(entity, key) -> int:
         return 0
     comp = entity.get_component(ActiveAbilityModificationsComponent)
     return comp.get(key) if comp is not None else 0
+
+
+# --- EMPREINTE MULTI-HEX (`UnitComponent._feet` + `UnitFootComponent`) --------------------------- #
+# Mirror des accesseurs natifs de l'empreinte. Ils sont la SEULE porte d'entree du port sur « quelles
+# tuiles cette entite occupe » ; la geometrie qui les consomme (distance min-sur-les-pieds, validite
+# d'une liste de pieds, positions de mouvement) vit dans `engine.services.movement_query`.
+
+def get_unit_feet(state, unit_id) -> List[tuple]:
+    """`IdunBattle.Entities.UnitExtensions$$GetUnitFeet(entity, state)` (== la liste que rend
+    `IdunBattle.Entities.EntityExtensions$$GetTiles` / `$$IterateTiles`) : les TUILES des pieds de
+    l'unite, DANS L'ORDRE des pieds.
+
+    Natif : `GetUnitFeetIds` iterate `UnitComponent.GetFeetEnumerator()` (= `_feet` @+0x78) et rend
+    l'id de chaque pied ; `GetUnitFeet` les resout en entites. `IterateTiles` fait le meme parcours
+    et rend la TUILE de chaque pied (`UnitFootComponent.TileId`), en sautant les pieds sans tuile.
+
+    Port :
+      * `UnitComponent.feet` materialise (unite MULTI-HEX) -> la liste telle quelle ;
+      * `feet is None` (cas NOMINAL, un pied) -> `[(col,row)]` du `PositionComponent` ;
+      * ni l'un ni l'autre (entite sans position : MACHINE OF WAR hors plateau, entite non-unite)
+        -> `[]`, exactement comme le natif (`GetUnitFeetIds` rend une liste vide si l'entite n'est
+        pas une unite, et une MoW porte un `MachineComponent`, pas un `UnitComponent`).
+
+    Accepte un id d'entite OU une `Entity` (le natif prend l'`IEntity`)."""
+    e = state.get_entity(int(unit_id)) if isinstance(unit_id, int) else unit_id
+    if e is None:
+        return []
+    uc = e.get_component(UnitComponent)
+    feet = getattr(uc, "feet", None) if uc is not None else None
+    if feet is not None:
+        return list(feet)
+    pc = e.get_component(PositionComponent)
+    return [] if pc is None else [(pc.col, pc.row)]
+
+
+def get_feet_count(state, unit_id) -> int:
+    """`IdunBattle.Entities.UnitExtensions$$GetFeetCount(entity, state)` =
+    `GetUnitFeetIds(entity, state).Count`. **C'est un compte COURANT** (le nombre de pieds
+    reellement poses), pas une propriete de config : aucun champ de gameconfig ne porte la taille
+    d'une unite -- elle est fixee au spawn par la liste de tuiles passee a `AddUnitOperation`.
+
+    Lecteurs natifs (xrefs) : `MovementQuery$$GetMovablePositionsFor`,
+    `TargetingQuery$$GetInvalidTargetReason` / `$$GetInvalidCasterReason` (les regles
+    `CasterHas1/3/7Tiles` et `TargetHas1/3/7Tiles`), `BattleQuery$$IsTileInRangeOfAnyAbility`,
+    `BasePlaybook$$GetEligibleTargetsEntities`, `DislikeStartingTilesUtility`,
+    `ResurrectUnitOperation`, `TheQuickeningAbility$$GetDynamicInvalidTargetReason`."""
+    return len(get_unit_feet(state, unit_id))
+
+
+def get_main_tile(state, unit_id) -> Optional[tuple]:
+    """`IdunBattle.Entities.EntityExtensions$$GetMainTileId(entity, state)` -> la tuile, mirror :
+
+        if (entity == null) return 0;
+        if (entity.TryGetComponent<UnitFootComponent>(out foot)) return foot.TileId;   // un PIED
+        if (entity.TryGetComponent<UnitComponent>(out unit)) {
+            if (unit._feet == null || unit._feet.Count == 0) return 0;
+            return GetMainTileId(state.GetEntity(unit._feet[0]), state);               // recursion
+        }
+        if (EntityExtensions.IsTile(entity)) return entity.Id;                          // une TUILE
+        return 0;
+
+    => **la main tile est la tuile du PREMIER pied**. Le port lit `feet[0]` s'il existe, sinon la
+    `PositionComponent` (identiques par construction, cf. `set_unit_feet`). `None` = pas de tuile
+    (l'entite n'est pas sur le plateau)."""
+    feet = get_unit_feet(state, unit_id)
+    return feet[0] if feet else None
+
+
+def set_unit_feet(state, unit_id: int, feet) -> List[tuple]:
+    """Pose l'empreinte COMPLETE d'une unite — mirror de la boucle de pose de
+    `IdunBattle.Operations.AddUnitOperation$$Execute` :
+
+        unitComponent.ClearFeet();
+        foreach (tile in tiles) {
+            foot = Blueprints.UnitFoot(nextId); state.AddEntity(foot);
+            unitComponent.AddFoot(foot.Id);
+            foot.GetComponent<UnitFootComponent>().UnitId = unit.Id;
+        }
+
+    ECRIVAIN UNIQUE de l'empreinte cote port : il pose `UnitComponent.feet` **et** recale la
+    `PositionComponent` sur `feet[0]` (la main tile), pour que les deux representations ne puissent
+    pas diverger. Une liste d'UN element repose `feet = None` -> l'unite redevient exactement une
+    unite mono-tuile (aucun etat multi-hex residuel apres, p.ex., un retrait de pieds).
+    Renvoie l'empreinte posee."""
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return []
+    tiles = [(int(t[0]), int(t[1])) for t in (feet or [])]
+    uc = e.get_component(UnitComponent)
+    if uc is None:
+        uc = e.add_component(UnitComponent(visual_id=None, alive=True))
+    uc.clear_feet()
+    for t in tiles:
+        uc.add_foot(t)
+    if len(uc.feet) <= 1:
+        uc.feet = None                       # un pied = cas NOMINAL, pas de liste materialisee
+    if tiles:
+        pc = e.get_component(PositionComponent)
+        if pc is None:
+            e.add_component(PositionComponent(tiles[0][0], tiles[0][1]))
+        else:
+            pc.col, pc.row = tiles[0]        # main tile = feet[0] (`GetMainTileId`)
+    return get_unit_feet(state, unit_id)
 
 
 # --- Lien PARENT / ENFANTS (`ParentComponent`) --------------------------------------------------- #
