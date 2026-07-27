@@ -74,7 +74,9 @@ class FinishUnitTurnOperation:
         # C'est la branche << l'unite n'a PAS bouge >> (si elle avait bouge, `MoveUnitOperation` aurait
         # deja pose le flag ET emis l'event -- vecteur `after_move_triggers`). Le gate par flag est
         # DANS `arrived_at_final_tile_triggers` (idempotent) : on ne l'appelle que sur `not forced`.
-        # Consommateur : `SpiritualLeaderAbility` (passif genesMagus). No-op si personne n'ecoute.
+        # Consommateurs : `SpiritualLeaderAbility` (passif genesMagus) et `ArcaneShieldAbility` (passif
+        # thousSorcerer -- c'est PAR ICI que Thaumachus obtient son bouclier quand il ne bouge pas).
+        # No-op si personne n'ecoute.
         if newly_arrived and not forced:
             from .triggers import arrived_at_final_tile_triggers
             out["arrived_triggers"] = arrived_at_final_tile_triggers(

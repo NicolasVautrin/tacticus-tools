@@ -14,57 +14,158 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent, _unit_tile, _hex_dist, _faction_id
 
-# Grand-alliance « Chaos » (cf. GrandAlliance) — 5 factions Chaos des 22 du jeu (priorité de ciblage
-# ArcaneShield : ThousandSons > autres Chaos > autres > soi). Stable (lore WH40K).
-CHAOS_FACTIONS = frozenset({
-    "BlackLegion", "DeathGuard", "ThousandSons", "WorldEaters", "EmperorsChildren",
-})
-ARCANESHIELD_RANGE = 2          # `ArcaneShield.constants.range` = 2 (rayon de l'ami ciblé)
+ARCANESHIELD_ID = "ArcaneShield"
+ARCANESHIELD_RANGE = 2          # DEFAUT de `ArcaneShield.constants.range` (= 2 dans le gameconfig lu).
 ARCANESHIELD_TRAIT_EXCLUDE = UnitTrait.Steppable  # `UnitsWithoutTrait(0x1b=27=Steppable)` : exclus du ciblage.
 # ⚠ FIX #135 : etait `0x1b` (int) compare a `ctx.traits` (NOMS gameconfig) -> `27 in [strings]` toujours False
 #   (gate mort : les allies Steppable/tokens etaient ciblables a tort). Gate desormais via `has_trait` (#146 :
 #   mapping id<->nom centralise dans UnitTrait -> plus de comparaison int-vs-str possible).
 
+# `Multiply(AverageDistance(Caster@0x148, Units(It@0x180)), Get(3))` du terme
+# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Distance` : la distance pese 3
+# par hex dans le score de tri. C'est CE poids qui fait dominer la distance sur la faction (poids 1).
+ARCANESHIELD_DISTANCE_WEIGHT = 3
+# `Get(range * 3 + 4)` du terme `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Owner` :
+# la penalite du CASTER, calibree pour depasser STRICTEMENT le pire score d'un autre candidat
+# (`3*range + 1 + 1`). C'est ainsi que le natif realise le « lastly casting it on himself » — pas par un
+# palier de priorite, mais par une constante additive qui le relegue toujours dernier.
+ARCANESHIELD_OWNER_PENALTY_OFFSET = 4
+# `GrandAllianceId` dont `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` derive le pseudo-trait
+# `UnitTrait.Chaos` (0x7ea = 2026) teste par `...ArcaneShieldAbility$$Chaos`.
+ARCANESHIELD_CHAOS_ALLIANCE = "Chaos"
 
-def _arcaneshield_target(state: State, owner_id: int) -> int:
-    """`SurroundingFriends(range, sans trait 0x1b) → SortByFormula(faction, distance) → First(1)` sinon
-    soi. Priorité : même faction (ThousandSons) > autre Chaos > autre > soi ; tie-break distance puis id.
-    Sans board (pas d'adjacence) → soi."""
+
+def _arcaneshield_range() -> int:
+    """`GetNumberConstant(config, 0x16)` = `AbilityConstantType 22 = range` — le rayon de
+    `SurroundingFriends`, ET la base de la penalite `Owner` (`range * 3 + 4`)."""
+    import gameconfig as GC
+    return int(((GC.ability(ARCANESHIELD_ID) or {}).get("constants") or {}).get("range")
+               or ARCANESHIELD_RANGE)
+
+
+def _arcaneshield_candidates(state: State, owner_id: int) -> list[tuple[int, int]]:
+    """Pool de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour`
+    (collapse S), lu verbatim au decompile :
+
+        Randomize( UnitsWithoutTrait(
+                     SurroundingFriends(Caster@0x148, GetNumberConstant(0x16 = range),
+                                        unique = true, UnitSelectionType.OnlyAliveAndTargetable = 3),
+                     trait = 0x1b = 27 = Steppable,
+                     UnitSelectionType.OnlyAliveAndTargetable = 3) )
+        op_Addition Caster@0x148
+
+    Rend `[(distance_hex, entity_id)]`. Points qui tranchent une lecture fautive :
+      - `SurroundingFriends` ne filtre NI sur la faction NI sur le trait Chaos : **un allie non-Chaos
+        est un candidat legitime** (il ne porte qu'une penalite de +1 dans le score). C'est la reponse
+        au residu N1, qui soutenait l'inverse ;
+      - le CASTER n'est PAS dans `SurroundingFriends` (= `SurroundingTiles(range) - Tiles(self)`) : il
+        est rajoute a la main par `TargetsSelector.op_Addition`, donc toujours candidat de dernier
+        recours, avec `distance = 0` ;
+      - `OnlyAliveAndTargetable` : le volet « Targetable » retire les unites en Deep Strike
+        (`TeleportStrike_TeleportingIn`) — meme collapse `_is_targetable` que le port LionHelm, ou il
+        a ete MESURE live (`entities/effects/loki/dark_angels_passives.py`).
+
+    RESIDU RNG assume : `Randomize` = `PickRandomAmountSelector(amount = 0x7fffffff)` consomme
+    `len(pool)` tirages et melange le pool AVANT le tri stable ; les EX AEQUO de score sont donc
+    departages au HASARD cote natif. Le port collapse ce melange en ordre d'id CROISSANT (meme choix,
+    et meme motif, que `genestealer.py`) : le tri ne departage pas comme le natif sur ex aequo, mais
+    aucun tirage parasite n'est injecte dans le flux PRNG partage."""
+    from .....entities.effects.loki.dark_angels_passives import _is_targetable
     board = state.board
     owner = state.get_entity(owner_id)
     if board is None or owner is None:
-        return owner_id
+        return []
     oc = owner.get_component(OwnerComponent)
     ot = _unit_tile(state, board, owner_id)
     if oc is None or ot is None:
-        return owner_id
-    own_fac = _faction_id(state, owner_id)
-    cands: list[tuple[int, int, int]] = []
-    for eid, e in state.entities.items():
+        return []
+    rng = _arcaneshield_range()
+    out: list[tuple[int, int]] = []
+    for eid, e in sorted(state.entities.items()):        # collapse deterministe du `Randomize`
         if eid == owner_id:
-            continue
+            continue                                     # `SurroundingTiles(range) - Tiles(self)`
         c = e.get_component(OwnerComponent)
         u = e.get_component(UnitComponent)
-        if c is None or c.team != oc.team:               # amis uniquement
+        if c is None or c.team != oc.team:               # `Friends` : meme equipe
             continue
-        if u is not None and not u.alive:
+        if u is not None and not u.alive:                # `OnlyAlive`
+            continue
+        if not _is_targetable(state, eid):               # volet `Targetable` d'OnlyAliveAndTargetable
             continue
         sc = e.get_component(StatsComponent)
-        if sc is not None and has_trait(sc.ctx.traits, ARCANESHIELD_TRAIT_EXCLUDE):  # UnitsWithoutTrait(0x1b)
-            continue
+        if sc is not None and has_trait(sc.ctx.traits, ARCANESHIELD_TRAIT_EXCLUDE):
+            continue                                     # `UnitsWithoutTrait(0x1b = Steppable)`
         t = _unit_tile(state, board, eid)
         if t is None:
             continue
-        d = _hex_dist(board, ot, t, ARCANESHIELD_RANGE)  # dans le rayon
+        d = _hex_dist(board, ot, t, rng)                 # `SurroundingFriends(., range)`
         if d is None:
             continue
-        fac = _faction_id(state, eid)
-        prio = 0 if (own_fac is not None and fac == own_fac) else (1 if fac in CHAOS_FACTIONS else 2)
-        cands.append((prio, d, eid))
-    if cands:
-        cands.sort()                                     # (priorité, distance, id)
-        return cands[0][2]
-    return owner_id                                      # « lastly casting it on himself »
+        out.append((d, eid))
+    out.append((0, owner_id))                            # `op_Addition Caster@0x148`
+    return out
+
+
+def _arcaneshield_score(state: State, owner_id: int, cand_id: int, dist: int, rng: int) -> int:
+    """`Sum(Distance, Faction, Chaos, Owner)` — les QUATRE termes de la formule de tri, chacun expose
+    par un symbole natif dedie (mirror 1:1) :
+
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Distance
+            = Multiply( AverageDistance(Caster@0x148, Units(It@0x180, unique, onlyAlive)), Get(3) )
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Faction
+            = ConditionalAmount( IsSameFaction(Caster@0x148, It@0x180), Zero, Get(1) )
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Chaos
+            = ConditionalAmount( HasTrait(It@0x180, 0x7ea = 2026 = UnitTrait.Chaos), Zero, Get(1) )
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$Owner
+            = ConditionalAmount( op_LogicalNot(AreEqual(Caster@0x148, Units(It@0x180))),
+                                 Zero, Get(range * 3 + 4) )
+
+    `Zero` = `DSLFactory+0xb8`, la premiere des cinq constantes-formules posees par
+    `IdunBattleLogic.Entities.DSLFactory$$.ctor` (`+0xb8..+0xd8` = 0, 1, 2, 100, -1).
+    `IdunBattle.Entities.Formulas.ConditionalAmount$$Calculate` evalue le trigger `+0x10` puis prend
+    `+0x18` (`formulaTrue`) si VRAI, `+0x20` (`formulaFalse`) sinon — d'ou « penalite quand la
+    condition est FAUSSE » pour Faction/Chaos, et « penalite quand le candidat EST le caster » pour
+    Owner.
+
+    ⚠ C'est un SCORE ADDITIF, pas un ordre lexicographique a paliers : la distance pese 3, la faction
+    et le trait Chaos pesent 1 chacun. **Un allie non-Chaos a distance 1 (score 5) passe donc DEVANT
+    un ThousandSons a distance 2 (score 6).** Le port historique triait `(palier_faction, distance)`
+    et choisissait l'inverse.
+
+    `UnitTrait.Chaos` n'est dans la liste `traits` d'AUCUN kit gameconfig : c'est un pseudo-trait
+    DERIVE de la grande alliance (`idun.Idun.Source.Shared.GrandAlliance$$GetTrait` : "Imperial"->26,
+    "Xenos"->1006, "Chaos"->2026), injecte dans la `BattleConfiguration` par la couche meta. Un
+    `has_trait(ctx.traits, 2026)` naif serait TOUJOURS faux et la branche serait morte -> on passe par
+    `grand_alliance_of` (le maillon deja porte, utilise par les passifs Dark Angels)."""
+    from .....entities.effects.loki.dark_angels_passives import grand_alliance_of
+    own_fac = _faction_id(state, owner_id)
+    fac = _faction_id(state, cand_id)
+    score = ARCANESHIELD_DISTANCE_WEIGHT * int(dist)                       # $$Distance
+    if not (own_fac is not None and fac == own_fac):                       # $$Faction
+        score += 1
+    if grand_alliance_of(state, cand_id) != ARCANESHIELD_CHAOS_ALLIANCE:   # $$Chaos
+        score += 1
+    if cand_id == owner_id:                                                # $$Owner
+        score += rng * ARCANESHIELD_DISTANCE_WEIGHT + ARCANESHIELD_OWNER_PENALTY_OFFSET
+    return score
+
+
+def _arcaneshield_target(state: State, owner_id: int) -> int:
+    """`First( SortByFormula(pool, Sum(Distance, Faction, Chaos, Owner), ascending = true), 1 )`.
+
+    `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : champ `+0x28` (`ascending`) == 0 ->
+    `Enumerable.OrderByDescending`, sinon `Enumerable.OrderBy` — le call-site passe `1`, donc tri
+    ASCENDANT (le plus PETIT score gagne) et STABLE (les ex aequo gardent l'ordre SOURCE). Le tri
+    Python `sorted` est stable lui aussi : la cle est le SCORE SEUL, l'ordre source venant de
+    `_arcaneshield_candidates`.
+
+    Sans board (pas d'adjacence) -> soi, comme le pool reduit au seul `op_Addition Caster`."""
+    cands = _arcaneshield_candidates(state, owner_id)
+    if not cands:
+        return owner_id
+    rng = _arcaneshield_range()
+    best = sorted(cands, key=lambda c: _arcaneshield_score(state, owner_id, c[1], c[0], rng))
+    return best[0][1]
 
 
 def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
@@ -80,7 +181,8 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     if sc is None:
         return None
     ctx = sc.ctx
-    amount = int(ability_var("ArcaneShield", "shieldHp", int(getattr(ctx, "passive_ability_level", 0) or 0),
+    amount = int(ability_var(ARCANESHIELD_ID, "shieldHp",
+                             int(getattr(ctx, "passive_ability_level", 0) or 0),
                              multiplier_pct=int(getattr(ctx, "ability_variables_multiplier", 100) or 100)) or 0)
     if amount <= 0:
         return None
@@ -93,12 +195,12 @@ def _arcaneshield_grant(state: State, owner_id: int) -> Optional[dict]:
     # `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields` (1 par EndTurn) = MEME cadence que le tick d'effets.
     from ....abilities.base import convert_rounds_to_turns
     dur = convert_rounds_to_turns(state, 1)
-    CreateShield(Target(), amount, duration=dur, source="ArcaneShield").execute(  # TurnsFromRounds(1)
+    CreateShield(Target(), amount, duration=dur, source=ARCANESHIELD_ID).execute(  # TurnsFromRounds(1)
         entities_from_state(state, owner_id, target), ectx)
     p = next((p for (n, p) in ectx.emitted if n == "CreateShield"), None)
     if p is None:
         return None
-    return {"ability": "ArcaneShield", "owner": owner_id, "target": target, "amount": amount,
+    return {"ability": ARCANESHIELD_ID, "owner": owner_id, "target": target, "amount": amount,
             "remaining": dur, "shield_total": p.get("shield_total")}
 
 
@@ -106,21 +208,41 @@ class ArcaneShieldAbility(TriggeredAbility):
     """`ArcaneShieldAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateTrigger CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateBehaviour CreateBehaviour) — bouclier de
     Thaumachus (`thousSorcerer`, ThousandSons, passive `ArcaneShield`).
 
-    Natif : `CreateTrigger = On(0x1c) & OwnerIsActor & OwnerIsCaster` — `0x1c` = activation TERMINÉE de
-    l'owner (APRÈS son move, OU fin de tour s'il ne bouge pas). Behaviour = accorde un bouclier `shieldHp`
-    (variable rareté → `× AbilityVariablesMultiplier`) durée **1 round** à l'ami le plus proche dans le
-    rayon (`range`=2 ; `UnitsWithoutTrait(0x1b)`), préféré ThousandSons > autres Chaos > autres > **soi**
-    (sinon soi) → `CreateShield` (`AddOrUpdateShield`).
+    TRIGGER natif, lu verbatim :
 
-    ⚠ APPROXIMATION du VECTEUR : le runner n'a pas d'event « activation terminée » (0x1c). On le modélise
-    sur le vecteur **after-move** (`On(4)`) quand le MOVER EST l'owner (= cas « après son move », le plus
-    courant). Le cas « fin de tour sans déplacement » n'est pas couvert (raffinement = vecteur 0x1c propre
-    avec la boucle d'activation). La sélection multi-amis (priorité faction) est portée mais validée
-    seulement sur le cas SOLO (target = soi). Behaviour/cible = `_arcaneshield_grant`/`_arcaneshield_target`."""
-    event_id = EventTriggerType.UnitAfterMove
+        On(0x1c, ownerNeedsToBeAlive = 1)
+          op_BitwiseAnd get_OwnerIsActor
+          op_BitwiseAnd get_OwnerIsCaster
+
+    `0x1c = 28 = EventTriggerType.ArrivedAtFinalTile` = « l'unite a TERMINE son activation ». Il n'y a
+    AUCUNE branche `On(4 = UnitAfterMove)` cote natif — le port l'approximait ainsi, ce qui privait
+    Thaumachus de son bouclier quand il finissait son tour SANS bouger. Les deux emetteurs natifs de
+    `On(0x1c)` (tous deux gardes par le MEME flag `UnitFlag.ArrivedAtFinalTile`, donc AU PLUS UN fire
+    par activation — pas de double pose quand l'unite bouge PUIS finit son tour) :
+
+      * `IdunBattle.Operations.MoveUnitOperation$$Execute` : `Add(1)` puis, APRES
+        `EvaluateAfterMoveTriggers`, publie `On(0x1c)` SSI le flag venait d'etre AJOUTE ;
+      * `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` : `Add(1)` puis publie `On(0x1c)`
+        SSI le flag venait d'etre ajoute ET `!forced` — la cloture de tour d'une unite qui n'a PAS
+        bouge.
+
+    Cote port, le vecteur `arrived_at_final_tile_triggers` (`triggers/dispatch/move_death.py`, apporte
+    par `SpiritualLeader`) porte deja ces deux points d'emission et le gate par flag.
+
+    `get_OwnerIsCaster` : sur CE vecteur, l'event est publie avec `actor == target == l'unite qui
+    termine son activation` et il n'existe pas de caster distinct -> la clause coincide avec
+    `get_OwnerIsActor`, deja materialisee par `matches`. (Meme lecture que `SpiritualLeaderAbility`,
+    qui n'a que `get_OwnerIsActor` sur le meme event.)
+
+    BEHAVIOUR : accorde un bouclier `shieldHp` (variable rarete -> `x AbilityVariablesMultiplier`)
+    duree `TurnsFromRounds(1)` a l'ami de MEILLEUR score dans le rayon (`range` = 2 ;
+    `UnitsWithoutTrait(Steppable)` ; `OnlyAliveAndTargetable`), le caster restant le dernier recours.
+    Le classement est un SCORE ADDITIF `3*distance + faction + chaos + owner` — cf.
+    `_arcaneshield_score` : **la distance domine la faction**."""
+    event_id = EventTriggerType.ArrivedAtFinalTile
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        if ev.actor_id != self.owner_id:                 # OwnerIsActor : l'owner vient de bouger
+        if ev.actor_id != self.owner_id:                 # get_OwnerIsActor (== get_OwnerIsCaster ici)
             return False
         owner = state.get_entity(self.owner_id)
         uc = owner.get_component(UnitComponent) if owner is not None else None

@@ -373,6 +373,25 @@ def build_runner(host, live_session):
     _release_runners({"test", "class", "module", "session"})
 
 
+@pytest.fixture(scope="module")
+def arcaneshield_stage(build_runner, rpc):
+    """MONTAGE `ArcaneShield` (Thaumachus) : roster MIXTE + positions DRIVEES — cf.
+    `tests/engine/runner/_arcane_shield_stage.py` pour le detail du roster et les scores attendus.
+
+    Owner `thousSorcerer` + trois amis choisis pour SEPARER les trois termes non-distance du score de
+    tri natif (`Sum(3*distance, faction, chaos, owner)`) : un ThousandSons (meme faction), un autre
+    Chaos, un non-Chaos. `stage.load()` rend un `State` neuf par scenario, `stage.place(state, {role:
+    distance})` impose la geometrie voulue.
+
+    Portee MODULE : le runner est monte une fois par fichier de test qui s'en sert, les scenarios se
+    partagent les memes captures live (un montage = une bataille, pas une par assertion)."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "engine", "runner"))
+    from _arcane_shield_stage import build_stage        # noqa: E402
+    return build_stage(build_runner, rpc)
+
+
 @pytest.fixture(scope="session")
 def live_runner(build_runner):
     """runnerId d'une bataille LIVE isolée (auto-disposée). Lecture seule côté

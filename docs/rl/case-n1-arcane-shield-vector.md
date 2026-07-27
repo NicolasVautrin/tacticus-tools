@@ -1,13 +1,13 @@
 # N1 — `ArcaneShield` (Thaumachus / `thousSorcerer`) : vecteur `On(0x1c)` + formule de tri additive
 
-**Etat : RE TERMINEE, PORT NON ENCORE ECRIT.** Ce document fige la lecture du decompile
-(build `gqfc5mff6c`) avant toute edition de code, pour que rien ne soit a re-lire.
+**FERME.** Le vecteur est recable sur `On(0x1c=ArrivedAtFinalTile)` et le classement de la cible est
+un score ADDITIF. RE au decompile du build `gqfc5mff6c` ; portage, mesure et gardes livres.
 
 ---
 
 ## 1. Critere binaire n°1 — le bouclier est-il accorde en fin de tour SANS deplacement ?
 
-**OUI cote natif. Le port dit NON aujourd'hui.**
+**OUI cote natif. Le port historique disait NON.**
 
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArcaneShieldAbility$$CreateTrigger` (lu verbatim) :
 
@@ -16,9 +16,9 @@
       op_BitwiseAnd get_OwnerIsCaster
 
 `0x1c = 28 = EventTriggerType.ArrivedAtFinalTile`. Il n'y a **aucune** branche `On(4=UnitAfterMove)`
-dans le trigger natif. Le port
-(`engine/runner/operations/triggers/loki/arcane_shield.py`, `event_id = EventTriggerType.UnitAfterMove`)
-est donc route sur le MAUVAIS event, et la docstring l'assumait deja comme une approximation.
+dans le trigger natif. Le port etait route sur le MAUVAIS event
+(`engine/runner/operations/triggers/loki/arcane_shield.py`, `event_id = EventTriggerType.UnitAfterMove`),
+et sa docstring l'assumait comme une approximation.
 
 Les deux emetteurs natifs de `On(0x1c)`, deja lus et deja PORTES (apportes par `SpiritualLeader`) :
 
@@ -33,11 +33,11 @@ Les deux emetteurs natifs de `On(0x1c)`, deja lus et deja PORTES (apportes par `
 a la cloture de son tour si elle n'a pas bouge. Le gate par flag interdit la double pose. Le flag est
 purge par `RemoveTurnFlags(new_activation=True)` au debut du tour suivant, ce qui re-arme l'event.
 
-Cote port, le vecteur EXISTE DEJA, porte et valide : `arrived_at_final_tile_triggers` (module
-`triggers/dispatch`, appele (a) en queue d'`after_move_triggers` et (b) par
-`FinishUnitTurnOperation.execute` avec `gate_already_consumed=True`). Le travail n'est donc PAS de
-construire un vecteur, mais de **recabler `ArcaneShieldAbility.event_id`** de
-`EventTriggerType.UnitAfterMove` vers `EventTriggerType.ArrivedAtFinalTile`.
+Cote port, le vecteur EXISTAIT DEJA, porte et valide : `arrived_at_final_tile_triggers`
+(`triggers/dispatch/move_death.py`, appele (a) en queue d'`after_move_triggers` et (b) par
+`FinishUnitTurnOperation.execute` avec `gate_already_consumed=True`). Le correctif n'a donc pas
+construit de vecteur : il **recable `ArcaneShieldAbility.event_id`** sur
+`EventTriggerType.ArrivedAtFinalTile`.
 
 ---
 
@@ -54,7 +54,7 @@ construire un vecteur, mais de **recabler `ArcaneShieldAbility.event_id`** de
    `UnitSelectionType.OnlyAliveAndTargetable`, jamais sur la faction ni sur le trait Chaos. Le trait
    Chaos n'est qu'une **penalite additive de +1** dans le score de tri.
 
-**Mais le port se trompe quand meme, autrement, et plus gravement** : il n'y a **AUCUN ordre
+**Mais le port se trompait quand meme, autrement, et plus gravement** : il n'y a **AUCUN ordre
 lexicographique a 4 paliers**. Le natif construit un **score ADDITIF** ou la DISTANCE domine.
 
 ### `ArcaneShieldAbility$$CreateBehaviour` — arbre lu verbatim
@@ -130,12 +130,12 @@ Les quatre termes ont chacun leur symbole natif dedie, ce qui confirme la lectur
 | non-Chaos a distance 2           | 8     |
 | le caster lui-meme (distance 0)  | 10    |
 
-Deux consequences que le port actuel rate :
+Deux consequences que le port historique ratait :
 
   * **La DISTANCE domine la faction** (poids 3 contre 1). Un allie **non-Chaos a distance 1** (5)
-    passe DEVANT un **ThousandSons a distance 2** (6). Le port, qui trie lexicographiquement
-    `(prio_faction, distance, id)`, choisit l'inverse. **C'est le scenario discriminant a monter
-    live.**
+    passe DEVANT un **ThousandSons a distance 2** (6). Le tri lexicographique
+    `(prio_faction, distance, id)` choisissait l'inverse. **C'est le scenario discriminant du lot**,
+    monte et mesure au §4.
   * Le terme `Owner` (`range*3 + 4 = 10`) est calibre pour depasser strictement le pire score
     possible d'un autre candidat (`3*range + 1 + 1 = 8`) : le caster est **toujours dernier**, ce qui
     realise le « lastly casting it on himself ». Ce n'est pas un palier, c'est une penalite calibree.
@@ -156,38 +156,91 @@ correspondance est `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` :
 
 Or `UnitContext.from_snapshot` remplit `ctx.traits` depuis le **gameconfig** (`traits=list(cfg.get(
 "traits") or [])`). Porter `HasTrait(It, Chaos)` naivement contre `ctx.traits` donnerait donc un
-predicat **uniformement FAUX** — un +1 constant sur tous les candidats, donc inerte... sauf qu'il
-n'est PAS inerte : il changerait le classement des non-Chaos face aux Chaos. Le port fidele doit
-deriver le trait d'alliance de `GrandAllianceId` (mirror de `GrandAlliance$$GetTrait`), comme le fait
-la BC. C'est ce que le port actuel approxime avec sa constante `CHAOS_FACTIONS` (5 factions Chaos
-codees en dur) — approximation qui *coincide* avec la verite tant que `GrandAllianceId == "Chaos"`
-equivaut a « faction dans cette liste », mais qui n'est pas la source natif.
+predicat **uniformement FAUX** — et ce ne serait pas inerte : un +1 constant sur tous les candidats
+changerait le classement des non-Chaos face aux Chaos.
+
+Le port derive donc le trait d'alliance de `GrandAllianceId`, comme le fait la BC, **via le maillon
+deja porte** `grand_alliance_of` (`engine/entities/effects/loki/dark_angels_passives.py`) — le meme
+que les passifs Dark Angels, dont la docstring documente deja ce piege mot pour mot. La constante
+`CHAOS_FACTIONS` locale a `arcane_shield.py` (5 factions Chaos codees en dur) a ete SUPPRIMEE : elle
+coincidait avec la verite, mais n'etait pas la source native, et dupliquait un maillon existant.
 
 `IsSameFaction` reste, lui, un test de `FactionId` (helper porte `_faction_id`).
 
-### Residu RNG identifie
+### Residu RNG assume
 
 `Randomize(pool)` = `PickRandomAmountSelector(amount = 0x7fffffff)` (cf. `case-130-pick-randomly-rng.md`)
 consomme `len(pool)` tirages et melange le pool AVANT le tri stable. Les ex aequo de score sont donc
-departages **au hasard** cote natif, la ou le port departage par `eid`. A trancher au moment du
-port : collapse deterministe (comme `genestealer.py`, qui l'assume explicitement) ou mirror RNG
-(`spawn.py::_randomize`). Le choix a une consequence sur le flux PRNG en aval.
+departages **au hasard** cote natif.
+
+**Choix du port : collapse deterministe** (ordre d'id croissant), meme choix et meme motif que
+`genestealer.py`. Consommer `len(pool)` tirages ici decalerait le flux PRNG partage en aval
+(crit/block/degat suivants) sur un chemin qu'aucune mesure ne valide, et le port historique ne les
+consommait pas davantage — le collapse n'introduit donc aucune regression. Ce qui reste non fidele :
+le DEPARTAGE des ex aequo (jamais le NOMBRE de tirages, qui est nul des deux cotes).
+
+### Residus non couverts
+
+  * `AverageDistance` est approxime par la distance hex du board (`_hex_dist`, BFS sur
+    `board.neighbours`) et non par `IdunBattle.Entities.Components.PositionComponent$$Distance` —
+    residu commun a tout le port, deja documente (`case-122-hits-malus-ability-vector.md`).
+  * `CreateShield(..., stackable = true)` : le 7e argument natif est lu mais le port empile via
+    `ShieldComponent.add_or_update_shield`, dont la semantique de cumul same-source n'a pas ete
+    re-confrontee ici (inchangee par ce lot).
 
 ---
 
-## 3. Prochain geste (a la reprise, apres retour de la session Frida)
+## 3. Ce qui a ete porte
 
-1. `git fetch origin && git rebase origin/master` — `#169` a scinde `dispatch.py` en package
-   `triggers/dispatch/` (`registry.py` / `core.py` / `attack.py` / `ability.py` / `move_death.py` /
-   `turn.py`). Re-localiser au grep : l'entree `TRAIT_TRIGGERS["ArcaneShield"]` et le vecteur
-   `arrived_at_final_tile_triggers`.
-2. Recabler `ArcaneShieldAbility.event_id` -> `EventTriggerType.ArrivedAtFinalTile` (aucune autre
-   ligne de dispatch ne devrait bouger : le vecteur existe et est deja emis aux deux points).
-3. Remplacer le tri lexicographique de `_arcaneshield_target` par le **score additif** ci-dessus,
-   avec le trait `Chaos` derive de `GrandAllianceId`.
-4. Fixture nommee reutilisable (roster ThousandSons + 1 autre Chaos + 1 non-Chaos, positions
-   drivees, board fixe, seed fixe) + garde live :
-   (a) owner qui bouge PUIS finit son tour -> UN seul bouclier ;
-   (b) owner qui finit son tour SANS bouger -> bouclier accorde (doit etre ROUGE avant le fix) ;
-   (c) multi-amis -> non-Chaos a distance 1 prefere a ThousandSons a distance 2.
-5. Corriger l'entree N1 de `docs/rl/port-residuals-inventory.md` (cette seule ligne).
+1. `ArcaneShieldAbility.event_id` -> `EventTriggerType.ArrivedAtFinalTile`. Aucune autre ligne de
+   dispatch n'a bouge : le vecteur `arrived_at_final_tile_triggers` existait et etait deja emis aux
+   deux points natifs. Les commentaires qui affirmaient le contraire (`dispatch/registry.py`,
+   `dispatch/move_death.py`, `operations/turnflow.py`, `abilities/behaviours/effects.py`) sont
+   corriges — c'etaient des fausses verites lisibles.
+2. `_arcaneshield_target` decompose en trois fonctions mirror : `_arcaneshield_candidates` (le pool
+   `SurroundingFriends -> UnitsWithoutTrait -> Randomize op_Addition Caster`), `_arcaneshield_score`
+   (les quatre termes `$$Distance` / `$$Faction` / `$$Chaos` / `$$Owner`), et le
+   `First(SortByFormula(..., ascending))` lui-meme.
+3. `range` n'est plus une constante gravee : il est lu de `ArcaneShield.constants.range`
+   (`GetNumberConstant(config, 0x16)`), ce qui suit aussi la penalite `Owner` (`range*3 + 4`).
+4. Le volet `Targetable` d'`OnlyAliveAndTargetable` est porte (reutilise `_is_targetable`, mesure
+   live du port LionHelm) — il ne l'etait pas.
+
+## 4. Mesure (probe `scripts/python/probe_n1_arcane_shield_target.py`, runner MC1_67 / seed 777)
+
+Montage : `thousSorcerer` (owner) + `thousTzaangor` (ThousandSons) + `worldJakhal` (WorldEaters) +
+`astraDreir` (AstraMilitarum) vs `necroWarden`. `range = 2`, penalite owner = `10`.
+
+**Vecteur** — bouclier `5483`, duree `2` tours (`ConvertRoundsToTurns(TurnsFromRounds(1))`, 2 joueurs) :
+
+    FinishUnitTurnOperation (n'a PAS bouge) : newly_arrived=True  -> 1 pose  (shield 0 -> 5483)
+    after_move_triggers     (a bouge)       :                        1 pose  (shield 0 -> 5483)
+    puis FinishUnitTurnOperation            : newly_arrived=False -> 0 pose  (shield 5483 -> 5483)
+
+**Classement** — score decompose par candidat, et cible du port courant vs tri historique :
+
+| configuration                                      | scores (role : total)                              | port | historique | verdict |
+|----------------------------------------------------|----------------------------------------------------|------|------------|---------|
+| `non_chaos` d1, `same_faction` d2, `other_chaos` d2 | non_chaos 5, same 6, other 7, owner 10             | **non_chaos** | same_faction | **DIVERGE** |
+| tous a d2                                          | same 6, other 7, non_chaos 8, owner 10             | same_faction | same_faction | identique |
+| `other_chaos` d1, `non_chaos` d1, `same_faction` d2 | other 4, non_chaos 5, same 6, owner 10             | **other_chaos** | same_faction | **DIVERGE** |
+| `non_chaos` d1 seul                                | non_chaos 5, owner 10                              | non_chaos | non_chaos | identique |
+
+**2 configurations sur 4** ou le port historique se trompait de cible.
+
+## 5. Gardes
+
+`scripts/python/tests/engine/runner/test_arcaneshield_vector_live.py` (6 tests) sur le montage
+`arcaneshield_stage` (fixture nommee, `tests/conftest.py` -> `tests/engine/runner/_arcane_shield_stage.py`) :
+fin de tour sans deplacement, non-doublement move+cloture, les trois configurations de classement
+(parametrees), et le caster comme dernier recours (les deux moities : le pire ami possible le bat ;
+le rayon vide le retient).
+
+Le test « fin de tour sans deplacement » a ete vu ROUGE en re-posant `event_id =
+EventTriggerType.UnitAfterMove` :
+
+    AssertionError: fin de tour SANS deplacement : ArcaneShield n'a PAS ete accorde
+    (grants=[], shield allie 0->0). Le trigger natif est On(0x1c=ArrivedAtFinalTile), emis par
+    FinishUnitTurnOperation$$Execute quand l'unite n'a pas bouge -- un port route sur
+    On(4=UnitAfterMove) rate ce cas.
+    assert 0 == 1

@@ -33,7 +33,9 @@ from .betrayer import (TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
                        _betrayer_stop_tile, _betrayer_take_turn,
                        THEBETRAYER_EFFECT, THEBETRAYER_RANGE, THEBETRAYER_PROFILE)
 from .arcane_shield import (ArcaneShieldAbility, _arcaneshield_target, _arcaneshield_grant,
-                            CHAOS_FACTIONS, ARCANESHIELD_RANGE, ARCANESHIELD_TRAIT_EXCLUDE)
+                            _arcaneshield_candidates, _arcaneshield_score, _arcaneshield_range,
+                            ARCANESHIELD_RANGE, ARCANESHIELD_TRAIT_EXCLUDE,
+                            ARCANESHIELD_DISTANCE_WEIGHT, ARCANESHIELD_OWNER_PENALTY_OFFSET)
 from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljustice_attack,
                             _normal_attack_health_range, _damage_utility_weights)
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
@@ -70,7 +72,9 @@ __all__ = [
     "THEBETRAYER_EFFECT", "THEBETRAYER_RANGE", "THEBETRAYER_PROFILE",
     # arcane_shield
     "ArcaneShieldAbility", "_arcaneshield_target", "_arcaneshield_grant",
-    "CHAOS_FACTIONS", "ARCANESHIELD_RANGE", "ARCANESHIELD_TRAIT_EXCLUDE",
+    "_arcaneshield_candidates", "_arcaneshield_score", "_arcaneshield_range",
+    "ARCANESHIELD_RANGE", "ARCANESHIELD_TRAIT_EXCLUDE",
+    "ARCANESHIELD_DISTANCE_WEIGHT", "ARCANESHIELD_OWNER_PENALTY_OFFSET",
     # final_justice
     "FinalJusticeAbility", "_finaljustice_target", "_finaljustice_attack",
     "_normal_attack_health_range", "_damage_utility_weights",

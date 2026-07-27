@@ -716,9 +716,12 @@ class CreateShield(AbilityBehaviour):
     portees (aucun usage Groupe 3). `source` = `AbilityOrEffect(self.Id)` natif (attribution / stack same-source).
 
     Seul usage porte (Groupe 3) : ArcaneShield `CreateShield(Cache(First(SortByFormula(Randomize(Units
-    WithoutTrait(SurroundingFriends(self,range),0x1b)) .Otherwise self, Sum(dist,faction,chaos,not-self),
+    WithoutTrait(SurroundingFriends(self,range),0x1b)) op_Addition self, Sum(3*dist,faction,chaos,is-self),
     asc))), ConfigVar(0x27=shieldHp), self.Id, TurnsFromRounds(1))` = Thaumachus accorde un bouclier 1 round
-    a l'ami prefere (faction > distance > pas-soi) sinon soi. Le selecteur AI-target LOURD (kind S :
+    a l'ami de MEILLEUR SCORE, le caster restant dernier recours. ⚠ le classement est un score ADDITIF ou
+    la DISTANCE DOMINE (poids 3 contre 1 pour faction et pour le trait Chaos), PAS un ordre lexicographique
+    « faction puis distance » — cf. `triggers/loki/arcane_shield.py::_arcaneshield_score`. Le selecteur
+    AI-target LOURD (kind S :
     SurroundingFriends -> UnitsWithoutTrait -> Randomize -> SortByFormula -> First) reste IMPERATIF
     (`_arcaneshield_target`) et est COLLAPSE en `Target()` ; le montant `ConfigVar(0x27)` (formule V,
     `shieldHp[level] x mult%`) est calcule IMPERATIVEMENT (`ability_var`) et passe comme SCALAIRE -- meme
