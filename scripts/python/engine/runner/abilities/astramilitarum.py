@@ -452,11 +452,17 @@ def forward_spotter_tree(tiles: list) -> Spawn:
     sous-behaviour ON-APPEARANCE `PerformAIAttack(ActiveTarget@0x180)` -- le Cadian fraichement pose
     execute immediatement une attaque IA. Les tuiles sont le collapse de `PickTiles` (cf. ci-dessus).
 
-    ⚠ Le on-appearance est un `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (routine IA depuis la
-    position du summon), PAS un `UseNormalAttackIfAble(target)` dirige (contraste SendInTheNextWave) :
-    le natif ne lui passe QUE l'acteur (`@0x180`), aucune cible."""
+    ⚠ Le on-appearance est un `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (routine IA = un TOUR
+    complet du summon), PAS un `PerformAIAttackFromCurrentPosition` ni un `UseNormalAttackIfAble(target)`
+    dirige (contraste SendInTheNextWave) : le natif ne lui passe QUE l'acteur (`@0x180`), aucune cible.
+    Le decompile donne `PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)` -> `+0x70 allowMoveAction = 1`,
+    `+0x78 moveAmount = null` : la feuille les porte explicitement (i2 « The Cadian Guardsman immediately
+    takes a turn », a opposer au « cannot move this turn » des noeuds FromCurrentPosition). Observable
+    inchange aujourd'hui (le port n'APPROCHE pas l'acteur -- residu localise dans le corps unique
+    `perform_ai_ability_unit_behaviour`)."""
     return Spawn(FixedTileIds(tiles), FORWARD_SPOTTER_ID,
-                 on_appearance=PerformAIAttack(ActiveTarget()))
+                 on_appearance=PerformAIAttack(ActiveTarget(), allow_move_action=True,
+                                               move_amount=None))
 
 
 class ForwardSpotterAbility(ActiveAbility):

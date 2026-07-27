@@ -72,6 +72,47 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
     if not hive_spawned:
         pytest.skip("ScarabHive n'a pas spawne de swarm (prerequis)")
     swarm_id = hive_spawned[0]                      # le swarm-parent qui va s'auto-dedoubler
+
+    # === GEOMETRIE PILOTEE ===
+    # Le double atterrit sur UNE tuile TIREE parmi les voisines LIBRES du parent
+    # (`PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1)`), et son on-appearance passe par le corps
+    # unique `perform_ai_ability_unit_behaviour`, qui GATE l'attaque sur la portee d'arme
+    # (`IdunBattle.Core.Services.TargetingQuery$$GetRange` = 1 : le swarm n'a qu'une arme de MELEE).
+    # On rend donc la tuile d'atterrissage DETERMINISTE (une seule voisine libre, les autres bloquees par
+    # des ALLIES) et ADJACENTE a la cible. Sans ce pilotage, le double tombait au hasard a 1 ou 2 hex de
+    # l'ennemi et le test mesurait le residu « le port n'APPROCHE pas le double » (le natif, lui, joue un
+    # TOUR complet : `PerformAIAttack` = `+0x70 allowMoveAction=1`, `+0x78 moveAmount=null`), au lieu de
+    # l'on-appearance qu'il veut valider.
+    blockers = [spyder_id] + list(hive_spawned[1:])          # tous ALLIES du swarm (aucun ennemi de plus)
+    trio = None
+    for c in sorted(board.by_id):
+        if not board.walkable(c):
+            continue
+        nb = [n for n in board.neighbours(c) if board.walkable(n)]
+        if not (2 <= len(nb) <= len(blockers) + 1):
+            continue
+        for p in nb:
+            js = [j for j in board.neighbours(p) if board.walkable(j) and j != c and j not in nb]
+            if js:
+                trio = (c, p, js[0], [n for n in nb if n != p])
+                break
+        if trio:
+            break
+    if trio is None:
+        pytest.skip("aucune geometrie (parent, tuile libre unique, cible adjacente) sur ce board")
+    c_tile, p_tile, j_tile, block_tiles = trio
+
+    def _put(uid, tile):
+        pc = state.get_entity(uid).get_component(PositionComponent)
+        pc.col, pc.row = board.coord(tile)
+
+    _put(swarm_id, c_tile)
+    for tile, uid in zip(block_tiles, blockers):
+        _put(uid, tile)
+    _put(enemy_id, j_tile)
+    print(f"\n[SCARABSUMMON geo] parent@{c_tile} ; seule libre P@{p_tile} ; cible@{j_tile} ; "
+          f"bloquees={block_tiles}")
+
     sowner = state.get_entity(swarm_id).get_component(OwnerComponent)
     spc = state.get_entity(swarm_id).get_component(PositionComponent)
     assert spc is not None, "swarm-parent sans position"
@@ -114,6 +155,8 @@ def test_scarab_summon_migration_is_dsl_tree(live_session, rpc, build_runner):
         assert uc is not None and uc.visual_id == SUMMON_VIS, f"clone {sid} n'est pas un {SUMMON_VIS}"
         assert oc.team == sowner.team and oc.player == sowner.player, "clone owner != swarm-parent (CopyOwner)"
         assert pc is not None and board.id_at(pc.col, pc.row) in swarm_neigh, "clone PAS adjacent au swarm-parent"
+        assert board.id_at(pc.col, pc.row) == p_tile, (
+            "le clone n'a pas atterri sur la SEULE voisine libre -> geometrie pilotee non tenue")
 
     # === on-appearance : l'ennemi le plus proche perd des PV, sum(attacks.total) == somme des PV perdus ===
     attacks = res.get("attacks") or []

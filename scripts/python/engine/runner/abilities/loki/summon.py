@@ -59,21 +59,29 @@ def scarab_summon_tree() -> SpawnReplica:
         Execute( Spawn(self@0x160, PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1),
                        unitId=GetStringConstant(config,0)=necroSmnSwarm,
                        SpawnUnitOptions.CopyOwner(caster)
-                         .onAppearance = PerformAIAttack(1)) )
+                         .onAppearance = PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)) )
     UN SEUL noeud `Spawn` (plain `Execute`, PAS `ExecuteAtomic`) portant UN sous-behaviour EMBARQUE (+0x18
     on-appearance) — PAS de +0x10 effet (contrairement a ScarabHive : ScarabSummon n'a pas l'effet persistant
     0x4a3). Le count-1, le placement (`PickRandomly(CanAddUnit(AdjacentTiles(self)))` = 1 tuile LIBRE adjacente
     a SOI) et `CopyOwner` (clone owner+stats du parent) vivent DANS `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`,
     HORS des DSL-selecteurs.
 
+    L'on-appearance est le noeud `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` — le MEME
+    `PerformAIAbilityUnitBehaviour` que `...FromCurrentPosition`, a `+0x70` (`allowMoveAction = 1`) et `+0x78`
+    (budget de deplacement = **null**, la ou `...FromCurrentPosition` pose `factory+0xb8 = Direct(0)`) pres.
+    D'ou l'i2 « which then immediately **takes a turn** » : le double PEUT se DEPLACER avant d'agir, contrairement
+    aux summons de GetEmRuntz/AberrantHypermorph (« cannot move this turn »).
+
     Port = feuille `SpawnReplica` (cf. behaviours.py) qui delegue le SPAWN a l'Operation VALIDEE
     `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone owner+stats du parent, tuiles
-    libres adjacentes au caster) puis l'ON-APPEARANCE `PerformAIAttack(1)` = chaque double attaque l'ennemi le
-    plus proche (`_nearest_enemy` + `AttackDamageOperation.execute`, approx du choix AI natif). L'imperatif
-    `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables a la main) est REMPLACE par cet
-    arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled + AddEffect(0x4a3) + attaque de
-    la CIBLE ; ici CopyOwner clone-du-parent + attaque AI du double, sans effet). GAP (inchange) : le cap de
-    duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non bornee offline."""
+    libres adjacentes au caster) puis l'ON-APPEARANCE via le CORPS UNIQUE `perform_ai_attack(..., True, None)`
+    (gate de portee `_in_attack_range` + attaque normale complete + dispatch after-hit ; cible approximee par
+    `_nearest_enemy`). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
+    a la main) est REMPLACE par cet arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled +
+    AddEffect(0x4a3) + attaque de la CIBLE ; ici CopyOwner clone-du-parent + tour AI du double, sans effet).
+    GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non
+    bornee offline ; le DEPLACEMENT du double avant son attaque non plus (residu documente sur
+    `perform_ai_ability_unit_behaviour`)."""
     return SpawnReplica("ScarabSummon", 1)
 
 
@@ -142,31 +150,45 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
         damage_profile=prof, is_melee=ctx.is_melee)
 
 
-def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:
-    """**L'UNIQUE port du noeud natif `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition`**
-    (un acteur). Tous ses call-sites passent par ici : la feuille DSL `PerformAIAttack` (domaine TUILE ou
-    UNITE, cf. `../behaviours/summon.py`), les on-appearance embarques dans `SpawnUnitOptions+0x18`
-    (MasterOfTheTutelaries/AberrantHypermorph/AlphaWarrior/IronkinSteeljack/Screamer) et la free-attack
-    de `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`.
+def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_action: bool,
+                                      move_amount: Optional[int]) -> Optional[dict]:
+    """**L'UNIQUE port du corps natif `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`**
+    (un acteur), partage par les DEUX noeuds `DSLFactory` qui l'instancient — cf. les deux constructeurs
+    homonymes juste en dessous (`perform_ai_attack_from_current_position`, `perform_ai_attack`). Tous les
+    call-sites passent par ici : la feuille DSL `PerformAIAttack` (domaine TUILE ou UNITE, cf.
+    `../behaviours/summon.py`), les on-appearance embarques dans `SpawnUnitOptions+0x18`
+    (MasterOfTheTutelaries/AberrantHypermorph/AlphaWarrior/IronkinSteeljack/Screamer/ScarabSummon) et la
+    free-attack de `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$GetTriggerAttackBehaviour`.
 
-    STRUCTURE NATIVE (decompile) — le noeud n'est qu'un CONSTRUCTEUR :
-      `PerformAIAttackFromCurrentPosition(unit, utilityEntity, customUtility, skipAtomicCheck)` alloue un
-      `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour` dont les champs sont
+    STRUCTURE NATIVE (decompile) — les noeuds `DSLFactory` ne sont que des CONSTRUCTEURS ; ils allouent un
+    `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour` dont les champs sont
         `+0x50` = `unit`            (le selecteur d'ACTEURS, itere par `Execute`) ;
         `+0x68` = le `Func<IEntity,int>` CACHE du `<>c` de `DSLFactory` (= resolveur de l'ability
-                  d'ATTAQUE de l'acteur ; c'est le SEUL point qui distingue ce noeud de
+                  d'ATTAQUE de l'acteur ; c'est le point qui distingue ces noeuds de
                   `IdunBattleLogic.Entities.DSLFactory$$PerformAIAbility`, ou le Func est fourni) ;
-        `+0x70` = 0 ; `+0x71` = `skipAtomicCheck` ;
-        `+0x78` = **`factory+0xb8` = `Direct(0)`** -> l'option `Nullable<int>` de l'appel IA vaut **0** :
-                  c'est LITTERALEMENT le « FromCurrentPosition » (budget de deplacement nul). Le noeud
-                  cousin `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` est le MEME behaviour avec
-                  ce noeud d'amount FOURNI PAR L'APPELANT (ex. `PerformAIAttack(..., 1, ...)` de
-                  ForwardSpotter / `PerformAIAttack(1)` de ScarabSummon) ;
+        `+0x70` = **`allowMoveAction`** (bool) ; `+0x71` = `skipAtomicCheck` ;
+        `+0x78` = **le noeud d'AMOUNT du budget de deplacement** (`IAmount`, evalue par `Execute` en un
+                  `Nullable<int>` : noeud absent => `null`) ;
         `+0x80` = `utilityEntity`, `+0x90` = `customUtility` (surcharges d'UTILITE du choix de cible) ;
-        `+0x88` = 0 -> `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` prend la
-                  branche « pas de cible imposee » (appel IA slot 0x37, options `{_, skipAtomic, true,
-                  Nullable(0), customUtility}`) : **c'est l'IA qui CHOISIT la cible**, aucune contrainte
-                  d'adjacence n'est cablee dans le noeud.
+        `+0x88` = 0 -> `Execute` prend la branche « pas de cible imposee » (appel IA slot 0x37, options
+                  `{allowMoveAction, skipAtomic, true, Nullable<int> moveAmount, customUtility}`) :
+                  **c'est l'IA qui CHOISIT la cible**, aucune contrainte d'adjacence n'est cablee.
+
+    CE QUE FONT LES DEUX CHAMPS QUI VARIENT — chaine lue jusqu'au consommateur :
+      `Execute` -> `IdunBattle.Core.Services.AiControl$$ExecuteAbilityActionFor(unit, abilityId, options)`
+      -> `IdunBattle.AI.Tactics.DefaultAiUnitTactic$$CalculateAbilityActionForUnit` ->
+      `IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`, ou :
+        * le `Nullable<int>` (issu de `+0x78`) est passe TEL QUEL a
+          `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles(unit, true, maxDistance)` = la
+          plage de tuiles depuis lesquelles l'acteur peut AGIR. `0` => la tuile COURANTE seule ;
+          `null` => la plage de deplacement NORMALE de l'unite (elle peut donc s'approcher) ;
+        * `allowMoveAction` (issu de `+0x70`) ajoute le `MovementActionGenerator` (`tactic+0x58`, ecrit
+          par `IdunBattle.AI.Tactics.DefaultAiUnitTactic$$.ctor`) a la liste des generateurs d'action :
+          l'IA peut alors choisir un DEPLACEMENT PUR si aucune attaque n'est bonne.
+      i2 confirme la lecture, et c'est le discriminant le plus net : `PerformAIAttack` => « which then
+      immediately **takes a turn** » (ScarabSummon), « The Cadian Guardsman immediately **takes a turn** »
+      (ForwardSpotter, CallInReinforcements) ; `...FromCurrentPosition` => « can immediately **attack**,
+      but **cannot move this turn** » (AberrantHypermorph, GetEmRuntz).
 
     CE QUI EN DECOULE, ET QUI EST LE MEME POUR TOUS LES APPELANTS :
       * **attaque NORMALE COMPLETE** via `AttackDamageOperation.execute` (selection d'arme par distance ->
@@ -174,23 +196,33 @@ def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Opt
         InfernalPacts/WeaverOfFate incluses) ;
       * **dispatch after-hit INCONDITIONNEL** : l'IA execute une VRAIE ability d'attaque, donc
         `IdunBattle.Operations.FinishAttackOperation$$Execute` emet `On(0x26)`/`On(8)`/`On(9)` comme sur
-        n'importe quelle attaque normale. AUCUN champ du noeud ne le gate. MESURE live (diag 202c) : le
+        n'importe quelle attaque normale. AUCUN champ du behaviour ne le gate. MESURE live (diag 202c) : le
         bonus InfernalPacts PSYCHIC (summon Daemon adjacent a Abraxas) met Psychic dans le SET de profils
         -> CHAQUE attaque de summon adjacent a Abraxas re-declenche un Screamer (trigger 1173 sur `On(9)`).
-        C'est la PREUVE live que le vecteur after-hit part depuis ce noeud ;
+        C'est la PREUVE live que le vecteur after-hit part depuis ce corps ;
       * **domaine de cible = CONTEXTE, jamais un choix du port** : la portee utilisable est celle de
         `IdunBattle.Core.Services.TargetingQuery$$GetRange`, qui clampe `Math.Min(1, range)` si l'acteur
         porte `ForcedInMelee (0x529)`. La free-attack de TheQuickening pose cet effet AVANT d'appeler ce
-        noeud -> son domaine se REDUIT tout seul a l'adjacence, sans variante de code (`_in_attack_range`
+        corps -> son domaine se REDUIT tout seul a l'adjacence, sans variante de code (`_in_attack_range`
         porte le clamp, cf. `operations/triggers/base.py::_forced_in_melee`).
 
-    RESIDU (commun a tous les appelants) : le choix de cible est approxime par `_nearest_enemy` (le moteur
-    d'utilite IA natif n'est pas mirrore) ; gate « if able » = `_in_attack_range` (mirror `GetRange`).
-    None si pas de cible legale (l'acteur n'attaque pas — fidele : l'IA ne produit aucune action).
-    TheQuickening passe en plus un `customUtility` (lambda du display-class de l'ability) qui ne peut que
-    reordonner des cibles EQUIVALENTES en portee — non mirrore, meme classe de residu."""
+    RESIDUS (communs a tous les appelants) : le choix de cible est approxime par `_nearest_enemy` (le
+    moteur d'utilite IA natif n'est pas mirrore) ; gate « if able » = `_in_attack_range` (mirror
+    `GetRange`) evalue depuis la tuile COURANTE. TheQuickening passe en plus un `customUtility` (lambda du
+    display-class de l'ability) qui ne peut que reordonner des cibles EQUIVALENTES en portee — non
+    mirrore, meme classe de residu.
+
+    RESIDU PROPRE A `move_amount is None` (branche `PerformAIAttack`) : ni `GenerateActionTiles` ni le
+    `MovementActionGenerator` ne sont portes -> le port n'APPROCHE PAS l'acteur. Le domaine d'action reste
+    la tuile courante (identique a `move_amount == 0`), donc un acteur hors portee ne fait RIEN la ou le
+    natif le ferait avancer (puis attaquer, ou seulement avancer si `allow_move_action`). C'est un
+    MANQUE-A-AGIR, jamais une attaque illegale : le natif non plus ne frappe pas a 5 hex avec une arme de
+    melee. Les deux champs sont threades explicitement (et remontes dans le diag) pour que ce residu soit
+    localise ici, et non re-invente par un fork chez un appelant. None si pas de cible legale."""
     from ...operations.triggers.base import _in_attack_range
     tgt = _nearest_enemy(state, unit_id)
+    # `GenerateActionTiles(unit, true, move_amount)` : `0` = la tuile courante seule ; `None` = la plage
+    # de deplacement normale -> NON PORTEE (cf. RESIDU ci-dessus), on retombe sur la tuile courante.
     if tgt is None or not _in_attack_range(state, unit_id, tgt):
         return None
     r = AttackDamageOperation.execute(state, unit_id, tgt)
@@ -206,7 +238,39 @@ def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Opt
     after = after_hit_normal_attack(state, unit_id, tgt, bool(r.get("ranged")),
                                     r.get("profile"), is_crit=bool(r.get("did_crit")),
                                     profiles=profs, did_block=bool(r.get("did_block")))
-    return {"summon": unit_id, "target": tgt, "total": r.get("total"), "after_hit": after}
+    return {"summon": unit_id, "target": tgt, "total": r.get("total"), "after_hit": after,
+            "move_amount": move_amount, "allow_move_action": bool(allow_move_action)}
+
+
+def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:
+    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(unit, utilityEntity,
+    customUtility, skipAtomicCheck)` — CONSTRUCTEUR : il pose `+0x70 = 0` (pas de deplacement pur) et
+    `+0x78 = factory+0xb8`, le singleton **`Direct(0)`** alloue par
+    `IdunBattleLogic.Entities.DSLFactory$$.ctor` (meme famille que `+0xc0 = Direct(1)`). Budget de
+    deplacement **0** : c'est LITTERALEMENT le « FromCurrentPosition ».
+
+    Le corps est `perform_ai_ability_unit_behaviour` — il n'y a qu'UN corps pour les deux noeuds."""
+    return perform_ai_ability_unit_behaviour(state, unit_id, allow_move_action=False, move_amount=0)
+
+
+def perform_ai_attack(state: "State", unit_id: int, allow_move_action: bool,
+                      move_amount: Optional[int]) -> Optional[dict]:
+    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack(unit, allowMoveAction, moveAmount,
+    utilityEntity, customUtility)` — CONSTRUCTEUR du noeud COUSIN : MEME
+    `PerformAIAbilityUnitBehaviour` que `...FromCurrentPosition`, mais `+0x70` et `+0x78` viennent de
+    L'APPELANT (et `+0x71 skipAtomicCheck` retombe a 0).
+
+    LES CINQ call-sites natifs passent le MEME couple, lu au decompile :
+    `PerformAIAttack(<selecteur>, 1, 0, 0, 0)` — `ScarabSummonAbility$$ExecuteBehaviour` (@0x180),
+    `ForwardSpotterAbility$$ExecuteBehaviour` (@0x180), `HunterOfSoulsAbility$$CreateBehaviour` (@0x148),
+    `TheArdentBlade_TriggerAbility$$CreateBehaviour`, `AetherStrideAbility$$ExecuteBehaviour`,
+    `CallInReinforcementsAbility$$CreateBehaviour`. Donc **`allowMoveAction = true`** et
+    **`moveAmount = null`** (le litteral `1` de `PerformAIAttack(1)` est le BOOL `+0x70`, PAS un budget de
+    deplacement de 1 — piege de lecture : c'est le 2e argument, l'amount est le 3e et vaut 0/nul).
+
+    Le corps est `perform_ai_ability_unit_behaviour` — il n'y a qu'UN corps pour les deux noeuds."""
+    return perform_ai_ability_unit_behaviour(state, unit_id, allow_move_action=bool(allow_move_action),
+                                             move_amount=move_amount)
 
 
 def _nearest_enemy(state: "State", unit_id: int) -> Optional[int]:
@@ -280,8 +344,13 @@ class ScarabSummonAbility(ActiveAbility):
     sous-behaviour embarqué `+0x18 = PerformAIAttack(1)` on-appearance — cf. la feuille `SpawnReplica`), en
     remplacement du portage impératif (spawn + boucle on-appearance câblés à la main). La feuille délègue le
     SPAWN à l'Operation VALIDÉE `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone
-    owner+stats du parent, count-1, tuiles libres adjacentes à SOI) puis l'on-appearance `PerformAIAttack(1)`
-    (chaque double attaque l'ennemi le plus proche — approx du choix AI natif ; cible AI-exacte = raffinement).
+    owner+stats du parent, count-1, tuiles libres adjacentes à SOI) puis l'on-appearance
+    `PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)` — routé sur le CORPS UNIQUE
+    `perform_ai_ability_unit_behaviour` via `perform_ai_attack(state, sid, True, None)` : gate de portée
+    (`_in_attack_range`, mirror `TargetingQuery$$GetRange`) + attaque normale complète + dispatch after-hit
+    `On(0x26)`/`On(8)`/`On(9)`. Avant le de-fork résiduel, cette feuille recâblait `_nearest_enemy` +
+    `AttackDamageOperation.execute` À LA MAIN — sans gate de portée (le double frappait un ennemi à 5 hex avec
+    une arme de mêlée) et sans vecteur after-hit (aucun trigger post-attaque ne partait du double).
 
     Chance gameconfig = 50 ; playbook `ScarabSummonPlaybook`. ⚠ DISTINCT de `ScarabHiveAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour (id
     1007, necroSpyder) = spawn summoner-scaled `WithStatsFromConfig` + AddEffect(0x4a3) + attaque de la CIBLE ;
