@@ -17,6 +17,11 @@ offline et le PRNG natif (gap connu, hors perimetre de cette tranche) -- ce qui 
 CIBLAGE (qui prend des coups), c'est-a-dire exactement ce que ces 5 arbres decident.
 
 Drive les positions ; lit l'etat LIVE ; state-files UNIQUES (chemin absolu + agent id) ; ASCII-only.
+
+⚠ MONTAGE (#162) : le `combatSnapshot` qui alimente `load_state` est pris sur un runner JUMEAU, JAMAIS
+sur le runner de mesure — ce RPC corrompt tout runner ou une MoW est deployee (toute pose d'effet
+ulterieure y devient un no-op SILENCIEUX ; le degat, lui, passe). cf. `_twin_snapshot` et
+`docs/rl/case-162-mow-red-suites.md`.
 """
 from __future__ import annotations
 
@@ -32,8 +37,11 @@ from engine.runner.operations.summon_ai import _apply_active_ability
 AGENT_ID = "a143b810b752ef04b"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
-STATE = ROOT / "data" / f"_pytest_mowbcd_{AGENT_ID}.json"
-STATE_GEN = ROOT / "data" / f"_pytest_mowbcd_gen_{AGENT_ID}.json"
+# SOUS `logs/`, PAS `data/` (cf. le meme bloc dans `test_mow_effect_posers_live`).
+STATE = ROOT / "logs" / f"_pytest_mowbcd_{AGENT_ID}.json"
+STATE_GEN = ROOT / "logs" / f"_pytest_mowbcd_gen_{AGENT_ID}.json"
+# state-file DEDIE au runner JUMEAU du snapshot (cf. `_twin_snapshot`).
+STATE_TWIN = ROOT / "logs" / f"_pytest_mowbcd_twin_{AGENT_ID}.json"
 
 BOARD = "C1_02"          # board MoW-capable (slot MachineOfWarPosition des deux cotes)
 GEN_BOARD = "C2_02"
@@ -79,7 +87,37 @@ def _seed_rng(s):
     return rng
 
 
-def _load(rpc, rid):
+def _twin_snapshot(rpc, extra, board_id, seed, p_units, a_units, replay=None):
+    """`combatSnapshot` pris sur un runner JUMEAU, JAMAIS sur le runner de mesure (#162).
+
+    DEFAUT D'OUTILLAGE MESURE : le RPC `combatSnapshot`, appele sur un runner qui contient une
+    entite MACHINE (MoW deployee), laisse CE runner dans un etat ou toute pose d'effet ulterieure
+    est un NO-OP SILENCIEUX -- le degat passe normalement, `AddEffect` n'ecrit plus rien, et le
+    cast rend `ok=true`. Detail des mesures et des contre-epreuves : le meme bloc dans
+    `test_mow_effect_posers_live.py` et `docs/rl/case-162-mow-red-suites.md`.
+
+    Parade : deux `rl_duel build` de MEMES arguments donnent un etat STRICTEMENT identique
+    (snapshot, `decisionView`, ids et PRNG egaux) -> on snapshotte un jumeau qu'on dispose
+    aussitot. `replay(rid)` rejoue sur le jumeau les actions deja jouees sur le runner de mesure
+    (fins de tour, 1er cast...), sans quoi l'etat snapshotte ne serait pas celui qu'on confronte."""
+    rid, err = _build(STATE_TWIN, list(extra), board=board_id, seed=seed,
+                      p_units=p_units, a_units=a_units)
+    if rid is None:
+        pytest.skip(f"build runner KO (jumeau du snapshot): {err}")
+    try:
+        if replay is not None:
+            replay(rid)
+        return rpc("combatSnapshot", {"runnerId": rid}, 90)
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+        except Exception:                                          # noqa: BLE001
+            pass
+
+
+def _load(rpc, rid, twin_extra, board_id=BOARD, seed=SEED,
+          p_units="necroDestroyer,necroWarden", a_units="necroDestroyer,necroWarden",
+          replay=None):
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -88,7 +126,7 @@ def _load(rpc, rid):
     board = Board(bg["tiles"], adjacency="evenq")
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    snap = _twin_snapshot(rpc, twin_extra, board_id, seed, p_units, a_units, replay)
     s0 = rpc("dumpRng", {"runnerId": rid}, 30)
     state = load_state(dec, ob, snap, board=board)
     if isinstance(s0, dict) and s0.get("mt"):
@@ -190,7 +228,12 @@ def _cast_live(rpc, rid, caster, ability, tgt):
     else:
         action["to"] = {"col": tgt["col"], "row": tgt["row"]}
     r = rpc("applyAction", {"runnerId": rid, "action": action}, 90) or {}
-    return (r.get("actions") or [{}])[0]
+    # Une erreur de NIVEAU RPC (`{ok:false, error}` sans clef `actions`) etait AVALEE (cf. le
+    # meme durcissement dans `test_mow_effect_posers_live`) : le test poursuivait sur une
+    # empreinte live VIDE et accusait le port.
+    if r.get("ok") is False or not r.get("actions"):
+        return {"error": f"applyAction KO: {str(r)[:300]}"}
+    return r["actions"][0]
 
 
 def _confront(rpc, ability, carrier, state_path=STATE, board_id=BOARD, extra=None, endturn=0,
@@ -198,13 +241,18 @@ def _confront(rpc, ability, carrier, state_path=STATE, board_id=BOARD, extra=Non
               prefer_center=False):
     """Monte le runner, choisit la cible, execute OFFLINE puis LIVE ; rend
     (diag, off_delta, live_delta, off_hurt, live_hurt, ctx)."""
-    rid, err = _build(state_path, list(extra or []) + ["--p-mow", carrier], board=board_id,
+    build_extra = list(extra or []) + ["--p-mow", carrier]
+    rid, err = _build(state_path, build_extra, board=board_id,
                       p_units=p_units, a_units=a_units)
     if rid is None:
         pytest.skip(f"build MoW {carrier} KO: {err}")
-    for _ in range(endturn):
-        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-    state, board, dec, _ob = _load(rpc, rid)
+
+    def _endturns(r):
+        for _ in range(endturn):
+            rpc("applyAction", {"runnerId": r, "action": {"kind": "endturn"}}, 60)
+    _endturns(rid)
+    state, board, dec, _ob = _load(rpc, rid, build_extra, board_id, SEED, p_units, a_units,
+                                   replay=_endturns if endturn else None)
     m = next((x for x in (dec.get("mows") or []) if x.get("visualId") == carrier), None)
     if m is None:
         rpc("disposeRunner", {"runnerId": rid}, 20)
@@ -311,7 +359,15 @@ def test_twin_smart_missile_system_marked_target_is_attacked_live(rpc_):
         rpc_("disposeRunner", {"runnerId": rid}, 20)
         pytest.skip(f"1161 non re-castable en 6 tours -- 2e cast non couvert (trace={trace})")
 
-    state, board, dec2, _ob = _load(rpc_, rid)
+    # Le snapshot est pris sur un JUMEAU (cf. `_twin_snapshot`) : on lui REJOUE la meme sequence
+    # (1er cast + les `len(trace)` fins de tour) pour qu'il soit dans l'etat qu'on confronte.
+    def _replay(r):
+        _cast_live(rpc_, r, caster, 1161, tgt)
+        for _ in range(len(trace)):
+            rpc_("applyAction", {"runnerId": r, "action": {"kind": "endturn"}}, 60)
+
+    state, board, dec2, _ob = _load(rpc_, rid, ["--p-mow", "tauBroadside"], GEN_BOARD, SEED,
+                                    replay=_replay)
     marked = [uid for uid, effs in _offline_footprint(state).items()
               if MARKERLIGHT in effs and uid in {u.get("id") for u in (dec2.get("units") or [])}]
     if not marked:

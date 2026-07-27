@@ -9,6 +9,16 @@ Correctif 100 % Python (`scripts/python/**`) — aucun changement `frida/hooks`,
 Contexte amont : `docs/rl/case-mow-offboard-cast.md` (la MoW est une entite ECS offline —
 `MachineComponent`, `_load_machines`, effets MoW dans le seed `EffectsState`).
 
+> **SUITE — `docs/rl/case-162-mow-red-suites.md` (2026-07-27).** Les deux suites livrees ici sont
+> passees au ROUGE (13 echecs). Diagnostic : **deux defauts de HARNAIS** (le RPC `combatSnapshot`
+> corrompt le runner des qu'une MoW y est deployee -> toute pose d'effet ulterieure devient un no-op
+> silencieux ; un import prive casse par le passage de `selectors.py` au package `selectors/`), puis,
+> une fois le montage repare, **un defaut de PORT** : le `StatsComponent` d'une MoW est ECRASE par
+> `_load_stats_and_effects`, donc toutes ses variables per-niveau sont lues au niveau 1
+> (`SquigMine.nrOfTiles` 2 au lieu de 4, `PlagueburstMortar.nrOfTiles` 3 au lieu de 7,
+> `ThriceBlessedConflagration.nrOfRounds` 1 au lieu de 5). Les resultats des §4 et §6.3 ci-dessous
+> valent donc pour le montage de l'epoque ; l'etat courant des suites est dans le case-doc #162.
+
 ---
 
 ## 1. Gate de confrontabilite — les 10 sont confrontables

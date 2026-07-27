@@ -20,6 +20,11 @@ Deux volets de GENERALISATION (non utilises pour construire le port) :
   * DevastatingRefrain caste depuis une tuile CENTRALE (4 tuiles marquees, aucune coupee par un bord).
 
 Drive les positions ; lit l'etat LIVE ; state-files UNIQUES (chemin absolu + agent id) ; ASCII-only.
+
+⚠ MONTAGE (#162) : le `combatSnapshot` qui alimente `load_state` est pris sur un runner JUMEAU, JAMAIS
+sur le runner de mesure — ce RPC corrompt tout runner ou une MoW est deployee (toute pose d'effet
+ulterieure y devient un no-op SILENCIEUX ; le degat, lui, passe). cf. `_twin_snapshot` et
+`docs/rl/case-162-mow-red-suites.md`.
 """
 from __future__ import annotations
 
@@ -35,8 +40,14 @@ from engine.runner.operations.summon_ai import _apply_active_ability
 AGENT_ID = "aeb0914f7e7a1d2a0"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
-STATE = ROOT / "data" / f"_pytest_mowposer_{AGENT_ID}.json"        # runner courant (scoped replace)
-STATE_GEN = ROOT / "data" / f"_pytest_mowposer_gen_{AGENT_ID}.json"
+# SOUS `logs/`, PAS `data/` : `data/` est VERSIONNE et ne contient que des ENTREES ; un
+# state-file y est une SORTIE (le conftest a fait cette migration le 2026-07-27, ces deux
+# fichiers-ci l'avaient ratee -- une passe interrompue laissait 4 `??` dans `git status`).
+STATE = ROOT / "logs" / f"_pytest_mowposer_{AGENT_ID}.json"        # runner courant (scoped replace)
+STATE_GEN = ROOT / "logs" / f"_pytest_mowposer_gen_{AGENT_ID}.json"
+# state-file DEDIE au runner JUMEAU du snapshot (cf. `_twin_snapshot`) : un `build` ne dispose
+# que le runner enregistre dans SON state-file -- le partager avec STATE tuerait le runner de mesure.
+STATE_TWIN = ROOT / "logs" / f"_pytest_mowposer_twin_{AGENT_ID}.json"
 
 EFF_SQUIG_MINE = 1441    # EffectType.SquigMine_Tile (marquage de tuile de 1201)
 BOARD = "C1_02"          # board MoW-capable (slot MachineOfWarPosition des deux cotes)
@@ -74,7 +85,40 @@ def rpc_(host, live_session):
     return _rpc
 
 
-def _load(rpc, rid):
+def _twin_snapshot(rpc, extra, board_id, seed, endturn=0):
+    """`combatSnapshot` pris sur un runner JUMEAU, JAMAIS sur le runner de mesure (#162).
+
+    DEFAUT D'OUTILLAGE MESURE : appeler le RPC `combatSnapshot` sur un runner qui contient une
+    entite MACHINE (une MoW deployee) laisse CE runner dans un etat ou toute pose d'effet
+    ulterieure est un NO-OP SILENCIEUX -- l'action est bien consommee et le DEGAT passe
+    normalement (mesure : 6180 PV identiques avec et sans), mais `AddEffect` n'ecrit plus rien.
+    Ni erreur ni exception : le cast rend `ok=true` avec seulement les events d'ouverture. Ca
+    frappait les casts de MoW comme ceux d'UNITE (`ThunderousAssault` ne posait plus `Stunned`),
+    et seulement quand une MoW etait sur le plateau (meme runner sans MoW : intact). Contre-
+    epreuves : `decisionView`, `observeBattle`, `boardGraph`, `tileMeta`, `dumpRng`,
+    `abilityTargets`, `statModSources` et `aiPlaybookPredict` (caster = la MoW) ne corrompent
+    PAS ; la corruption n'est pas reversible (elle survit aux fins de tour).
+
+    Parade : deux `rl_duel build` de MEMES arguments donnent un etat STRICTEMENT identique
+    (mesure : `combatSnapshot`, `decisionView`, ids d'entites et etat du PRNG egaux) -> le
+    snapshot est pris sur un jumeau qu'on dispose aussitot. `endturn` rejoue sur le jumeau la
+    meme avance de tour que sur le runner de mesure, sans quoi l'etat snapshotte ne serait pas
+    celui qu'on confronte. cf. `docs/rl/case-162-mow-red-suites.md`."""
+    rid, err = _build(STATE_TWIN, list(extra), board=board_id, seed=seed)
+    if rid is None:
+        pytest.skip(f"build runner KO (jumeau du snapshot): {err}")
+    try:
+        for _ in range(endturn):
+            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+        return rpc("combatSnapshot", {"runnerId": rid}, 90)
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+        except Exception:                                          # noqa: BLE001
+            pass
+
+
+def _load(rpc, rid, twin_extra, board_id=BOARD, seed=SEED, endturn=0):
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -83,7 +127,7 @@ def _load(rpc, rid):
     board = Board(bg["tiles"], adjacency="evenq")
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    snap = _twin_snapshot(rpc, twin_extra, board_id, seed, endturn)
     return load_state(dec, ob, snap, board=board), board, dec, ob
 
 
@@ -168,7 +212,12 @@ def _cast_live(rpc, rid, caster, ability, tgt):
     else:
         action["to"] = {"col": tgt["col"], "row": tgt["row"]}
     r = rpc("applyAction", {"runnerId": rid, "action": action}, 90) or {}
-    return (r.get("actions") or [{}])[0]
+    # Une erreur de NIVEAU RPC (`{ok:false, error}` sans clef `actions`) etait AVALEE : le
+    # `(actions or [{}])[0]` rendait `{}`, donc `act.get("error")` etait None, donc le test
+    # continuait et echouait plus loin sur une empreinte live VIDE -- en accusant le port.
+    if r.get("ok") is False or not r.get("actions"):
+        return {"error": f"applyAction KO: {str(r)[:300]}"}
+    return r["actions"][0]
 
 
 def _hp_offline(state) -> dict:
@@ -188,12 +237,13 @@ def _confront(rpc, ability, carrier, kind, state_path=STATE, board_id=BOARD, ext
     """Monte le runner, choisit la cible, execute OFFLINE puis LIVE, rend
     (diag_offline, delta_offline, delta_live, contexte). `pick_tile(board, tiles)` = selecteur de
     tuile-cible personnalise (scenarios discriminants) parmi les tuiles LEGALES."""
-    rid, err = _build(state_path, list(extra or []) + ["--p-mow", carrier], board=board_id)
+    build_extra = list(extra or []) + ["--p-mow", carrier]
+    rid, err = _build(state_path, build_extra, board=board_id)
     if rid is None:
         pytest.skip(f"build MoW {carrier} KO: {err}")
     for _ in range(endturn):
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-    state, board, dec, _ob = _load(rpc, rid)
+    state, board, dec, _ob = _load(rpc, rid, build_extra, board_id, SEED, endturn)
     m = next((x for x in (dec.get("mows") or []) if x.get("visualId") == carrier), None)
     if m is None:
         pytest.skip(f"MoW {carrier} non deployee")
@@ -339,7 +389,10 @@ def test_malleus_rocket_launcher_confront_live(rpc_):
 def _raw_triangle(board, pos, direction):
     """Triangle GEOMETRIQUE pur (`BattleQuery.GetTilesInTriangleShape` sans aucun filtre) : la tuile +
     ses 2 voisines du coin `direction`. Sert d'oracle « avant filtres » aux scenarios discriminants."""
-    from engine.entities.selectors import neighbour_at, _TRIANGLE_SHAPE_DIRECTIONS
+    # `_TRIANGLE_SHAPE_DIRECTIONS` est PRIVE : il vit dans le module qui le definit et n'est pas
+    # re-exporte par le package. `selectors.py` est devenu le package `selectors/` -> l'import a
+    # plat (`from engine.entities.selectors import ...`) ne le trouvait plus (ImportError).
+    from engine.entities.selectors.geometry import neighbour_at, _TRIANGLE_SHAPE_DIRECTIONS
     ids = [board.id_at(pos[0], pos[1])]
     ids += [board.id_at(*neighbour_at(pos[0], pos[1], k))
             for k in _TRIANGLE_SHAPE_DIRECTIONS[direction]]
@@ -398,13 +451,13 @@ def test_machine_side_branch_flips_live(rpc_, host, live_session):
     basculer sur le triplet de directions COMPLEMENTAIRE (`{0,2,4}` = {S,NE,NW}) et
     `MacroPlasmaIncinerator` sur l'autre coin de triangle. Aucun des deux cas n'a servi a batir le port
     (mesure de construction = MoW slot 2, joueur courant = son proprietaire)."""
-    rid, err = _build(STATE_GEN, ["--p-mow", "ultraDreadnought", "--a-mow", "adeptExorcist"],
-                      board=GEN_BOARD, seed="31337")
+    gen_extra = ["--p-mow", "ultraDreadnought", "--a-mow", "adeptExorcist"]
+    rid, err = _build(STATE_GEN, gen_extra, board=GEN_BOARD, seed="31337")
     if rid is None:
         pytest.skip(f"build 2 MoW KO: {err}")
     try:
         rpc_("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-        state, board, dec, _ob = _load(rpc_, rid)
+        state, board, dec, _ob = _load(rpc_, rid, gen_extra, GEN_BOARD, "31337", endturn=1)
         mows = {m["visualId"]: m for m in (dec.get("mows") or [])}
         if "adeptExorcist" not in mows:
             pytest.skip("MoW adverse non deployee")
