@@ -371,22 +371,34 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
     return sorted(out)
 
 
-def _pick_randomly_n(state: "State", items: list, n: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, amount)` ->
+def _pick_randomly_n(state: "State", items: list, n: int,
+                     allow_repeat: bool = False, max_repeats: int = 0x7fffffff) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, amount, allowRepeat, maxRepeats)` ->
     `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` — MIRROR 1:1 de la boucle native
     (#130 / GAP #215 CLOS).
 
-    Boucle LUE au décompilé (`allowRepeat` = champ `+0x30` = FAUX pour toutes les factories
-    `PickRandomly`, cf. `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour`
-    qui passe `0` / `0x7fffffff`) :
+    Boucle LUE au décompilé (`allowRepeat` = champ `+0x30`, `maxRepeats` = `+0x34` ; mapping des
+    arguments lu dans `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$.ctor` :
+    `(entities, source, amount, rng, allowRepeat -> +0x30, maxRepeats -> +0x34, skipForced -> +0x38)`).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour` passe
+    `0`/`0x7fffffff` (SANS repetition) ;
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour` passe
+    **`1`/`0x7fffffff`** pour ses TROIS tirages d'obus -> AVEC repetition et cap jamais atteint, donc
+    le pool ne retrecit JAMAIS : deux obus peuvent tomber sur la MEME tuile (confirme live : un obus
+    sur la tuile-cible tire deux fois = 2x `nrOfHits` coups sur son occupant).
+
+    Boucle native (branche `allowRepeat` LUE : le pool ne perd l'element que lorsqu'il apparait
+    `maxRepeats` fois dans le resultat) :
 
         result = []                                   # List<T>
         i = result.Count                              # 0 hors forced-targets
         while i < amount:
             if candidates.Count < 1: return result    # SEULE sortie anticipée
             idx = rng.NextInternal(0, candidates.Count)   # <-- 1 TIRAGE, INCONDITIONNEL
-            result.Add(candidates.ElementAt(idx))
-            candidates.RemoveAt(idx)                  # !allowRepeat
+            pick = candidates.ElementAt(idx)
+            result.Add(pick)
+            if (!allowRepeat)                       candidates.RemoveAt(idx)
+            elif (result.Count(x => x == pick) == maxRepeats) candidates.RemoveAt(idx)
             i += 1
 
     -> **le natif tire `min(len(pool), n)` fois, bornes `len(pool)`, `len(pool)-1`, … 1 — MÊME quand le
@@ -423,14 +435,23 @@ def _pick_randomly_n(state: "State", items: list, n: int) -> list:
     `i = result.Count = 0` et **aucun tirage n'est consommé** : porter la branche serait un no-op
     spéculatif. À rouvrir SI un jour un porteur d'`InstinctiveBehaviour` gagne une ability à PickRandomly.
 
-    `state.rng` None (replay effet-seul, aucun flux à mirrorer) -> `pool[:n]` déterministe."""
+    `state.rng` None (replay effet-seul, aucun flux à mirrorer) -> `pool[:n]` déterministe (mode
+    `allow_repeat` : cycle sur le pool, meme cardinal rendu)."""
     pool = list(items)
     n = max(0, int(n))
     if state.rng is None:
+        if allow_repeat and pool:
+            return [pool[i % len(pool)] for i in range(n)]
         return pool[:n]
     out: list = []
     while len(out) < n and pool:                        # `while (i < amount) { if (Count < 1) break; … }`
-        out.append(pool.pop(state.rng.next_internal(0, len(pool))))   # NextInternal(0, candidates.Count)
+        idx = state.rng.next_internal(0, len(pool))     # NextInternal(0, candidates.Count)
+        pick = pool[idx]
+        out.append(pick)
+        if not allow_repeat:
+            pool.pop(idx)                               # `!allowRepeat -> RemoveAt(idx)`
+        elif out.count(pick) == int(max_repeats):       # `allowRepeat` : retire au maxRepeats-ieme
+            pool.pop(idx)
     return out
 
 

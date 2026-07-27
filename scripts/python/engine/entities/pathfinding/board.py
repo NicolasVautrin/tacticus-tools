@@ -87,7 +87,14 @@ class Board:
         scenarios) et par le port DECISION `gauntlets_target` (#117).
 
         Repli sur `neighbours()` (ids tries) quand le champ brut manque -- board construit a la
-        main dans les tests unitaires."""
+        main dans les tests unitaires.
+
+        2e consommateur (2026-07-28) : `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour`
+        attaque `Units(AdjacentTiles(target))` via un `SortedAttackSeries` qui itere le selecteur DANS SON
+        ORDRE (aucun `OrderBy`) -> l'ordre des unites splash fixe la sequence de tirages de degat.
+        MESURE LIVE (`probe_fragbomb_splash.py`, MC1_67, cible tuile 44) : ordre natif
+        `[45, 53, 52, 43, 34, 35]`, coups splash live `53, 52, 43, 35` = l'ordre natif prive du caster
+        (45) et de la tuile vide (34) ; l'ordre trie aurait donne `35, 43, 52, 53`."""
         raw = (self.by_id.get(tid) or {}).get("neighbours")
         if not raw:
             return self.neighbours(tid)

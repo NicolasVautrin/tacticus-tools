@@ -23,9 +23,14 @@ from ...entities.behaviours import AtomicGroup, Inform, op_add
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Caster, CasterTile,
-                                   FixedTileIds, SurroundingFriends, Target, UnitsWithIds)
-from .behaviours import (AddBondEffect, AddEffect, Spawn, PerformAIAction, PerformAIAttack,
-                         UseActiveAbility, entities_from_state)
+                                   FixedTileIds, Sub, SurroundingFriends, Target, Units,
+                                   UnitsWithIds)
+from ...entities.stats import StatType
+from ... import battle_query
+from .targeting import (RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
+from .targeting_rule import TargetingRule as TR
+from .behaviours import (AddBondEffect, AddEffect, AttackWithAttackDamage, Spawn, PerformAIAction,
+                         PerformAIAttack, SortedAttackSeries, UseActiveAbility, entities_from_state)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -492,3 +497,335 @@ class ForwardSpotterAbility(ActiveAbility):
         spawned = [p["unit"] for nm, p in ectx.emitted if nm == "SpawnUnit"]
         attacks = [p for nm, p in ectx.emitted if nm == "PerformAIAttack"]
         return {"spawned": spawned, "attacks": attacks, "tiles": tiles, "count": n, "dsl": True}
+
+
+# =================================================================================================== #
+# FragBomb (1017, `astraBullgryn` -- « Kut Skoden », HERO) -- patron DAMAGE(Blast) main + splash, mais
+# plombe par un `SortedAttackSeries` (et NON par un `op_Addition` de deux `AttackWithAttackDamage`).
+# =================================================================================================== #
+
+FRAG_BOMB_ID = "FragBomb"
+FB_CONST_NR_OF_HITS = 0x2f       # GetNumberConstant(0x2f) -> "nrOfHits"   = 6  (volet principal)
+FB_CONST_NR_OF_HITS_2 = 0x32     # GetNumberConstant(0x32) -> "nrOfHits_2" = 3  (volet splash)
+
+
+def frag_bomb_tree() -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour`
+    (id 1017, `astraBullgryn`) -- MIRROR 1:1 du DECOMPILE :
+
+        profile = Direct( GetDamageProfile(config, 0) )                          # Blast
+        h1      = GetNumberConstant(config, 0x2f)                                # nrOfHits   = 6
+        h2      = GetNumberConstant(config, 0x32)                                # nrOfHits_2 = 3
+        splash  = AdjacentUnits(Target@0x178, 0, 3) - Caster@0x160
+                  # = Units(AdjacentTiles(target), 0, 3) - target - caster   [IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits]
+        dmg     = MinMaxDamage(this, entities)                                   # minDmg/maxDmg[level]
+        main    = AttackDamage(Caster@0x160, ActiveTarget@0x180, dmg, profile, Get(h1), <AbilityOrEffect>)
+        splashA = AttackDamage(Caster@0x160, ActiveTarget@0x180, dmg, profile, Get(h2), <AbilityOrEffect>)
+        ExecuteAtomic( SortedAttackSeries(Caster@0x160, Units(Target@0x178,1,1), main,
+                                          splash, splashA, <AbilityOrEffect>), entities, 0x43 )
+
+    TROIS points de fidelite qui distinguent ce patron du splash « classique » (Stikkbomb/PlasmaGrenade) :
+
+    1. **`SortedAttackSeries`, pas `op_Addition`** : la factory native n'est PAS
+       `AttackWithAttackDamage(selecteur-multi)`. Le noeud regroupe les attaques PAR CIBLE puis les joue
+       dans l'ORDRE D'INSERTION -- il n'y a **AUCUN `OrderBy`** (contraste
+       `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`, qui trie des que `Count > 1`). L'ordre
+       des cibles splash, donc la sequence de tirages `state.rng`, est celui du SELECTEUR.
+    2. **Ordre du selecteur = ordre NATIF du voisinage** (`AdjacentTiles` -> `Board.neighbours_native`
+       = table de directions de `BattleQuery$$GetAdjacentTiles`), pas l'ordre trie par id. C'est deja
+       la loi INCONDITIONNELLE d'`AdjacentTiles` (R28-1) ; ce call-site en est le 2e confront live.
+       MESURE (probe_fragbomb_splash, MC1_67, cible sur la tuile 44, voisins natifs
+       `[45, 53, 52, 43, 34, 35]`) : coups splash live dans l'ordre `53, 52, 43, 35` = l'ordre natif
+       prive du caster (45) et de la tuile vide (34) ; l'ordre trie aurait donne `35, 43, 52, 53`.
+    3. **FRIENDLY-FIRE** : le selecteur est `AdjacentUnits` BRUT (aucun wrapper `Enemies(...)`), moins la
+       cible et le CASTER -- exactement l'i2 (« ALL units adjacent to the target hex, except Kut Skoden
+       himself »). MESURE LIVE : l'allie `astraCreed` adjacent a la cible a bien encaisse 3 coups.
+
+    Volet principal et volet splash PARTAGENT la plage `MinMaxDamage(minDmg/maxDmg)` et le profil
+    `GetDamageProfile(0)` = Blast (la config 1017 n'a AUCUNE variable `_2`) ; seule la constante de coups
+    differe. `attackRangeType = Melee` -> `is_melee=True`. Factory `AttackDamage` = `AttackDamageBehaviour`
+    NU (famille ATTACK, crit/block) -> `native_factory="attack"` (defaut)."""
+    main_sel = Units(Target())                                       # `Units(Target@0x178, 1, 1)`
+    splash_sel = Sub(Sub(Units(AdjacentTiles(Target())), Target()), Caster())
+    main = AttackWithAttackDamage(ActiveTarget(), FRAG_BOMB_ID, "Blast", is_melee=True,
+                                  ability_type=int(ActiveAbilityType.FragBomb))
+    splash = AttackWithAttackDamage(ActiveTarget(), FRAG_BOMB_ID, "Blast", is_melee=True,
+                                    hits_key="nrOfHits_2",
+                                    ability_type=int(ActiveAbilityType.FragBomb))
+    return AtomicGroup(SortedAttackSeries([(main_sel, main), (splash_sel, splash)]))
+
+
+class FragBombAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$ExecuteBehaviour` (id 1017,
+    `astraBullgryn` « Kut Skoden », Astra Militarum, HERO). Cast UNIT-TARGET, MELEE (cible adjacente).
+
+    Kit gameconfig 1017 : `damageProfile=Blast`, `nrOfHits=6`, `nrOfHits_2=3`, `minDmg`/`maxDmg`[level]
+    (rarity-affected). AUCUNE variable `_2` -> plage de degat PARTAGEE entre la cible et le splash.
+
+    OBSERVABLE (mesure live, runner MC1_67, cible entouree) : la cible encaisse **6** coups Blast ;
+    **CHAQUE** unite adjacente a la tuile ciblee -- ALLIES DU CASTER COMPRIS, caster exclu -- en encaisse
+    **3**. AVANT ce port, 1017 etait absente d'`ABILITY_CLASSES` : `visit_ActiveAbilityMessage` rendait
+    `ported:False` -> **0 degat, aucune erreur** (divergence d'etat SILENCIEUSE de 6 + 3xN coups).
+
+    Flags de tour : defauts base (1017 absente des overrides) -> termine le tour + ActiveAbilityUsed.
+    Retour : {main_attack, splash, order, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FragBomb)   # 1017
+    ABILITY_ID = FRAG_BOMB_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x30>                     # copie de 0x18 octets
+    #     TargetingOptions..ctor(&opts, 0, &preset, 1, 0x80040, 0, 0)
+    # Overload « FLAGS DIRECTS » a 7 arguments (`IdunBattle.Core.Services.TargetingOptions$$.ctor`,
+    # celui qui ecrit `+0x28 <- param_5` SANS OR) -> le litteral **EST** le masque effectif. Ce n'est
+    # PAS l'overload piege « PRESET + flags » a 3 arguments, dont le corps fait `+0x28 = flags |
+    # preset[+0x28]` : celui-ci ne recoit qu'un `TargetingRange` de 0x18 octets, qui n'a pas de +0x28.
+    #   0x80040 = TargetIsTile | TargetTileHasEnemyUnit
+    #   forceMeleeTarget = param_4 = 1 = RangedBool.False
+    #   range = `TargetingRange$$.cctor` statics+0x30 = onlyAdjacent + overrideRange=1 -> RANGE_ADJACENT,
+    #           coherent avec `attackRangeType = Melee` de la config 1017.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsTile
+        | TR.TargetTileHasEnemyUnit
+    ), range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        frag_bomb_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]
+        order = next((p["order"] for n, p in ectx.emitted if n == "SortedAttackSeries"), [])
+        return {"ability": FRAG_BOMB_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "splash": splash, "order": order, "dsl": True}
+
+
+# =================================================================================================== #
+# BasiliskBarrage (1026, `astraOrdnance` -- « Thaddeus Noble », HERO) -- BARRAGE d'obus sur des TUILES.
+# Patron unique du lot : les cibles ne sont pas des unites mais des TUILES tirees au sort, en TROIS
+# tranches (guaranteed / maybe / miss) dont les cardinaux dependent du nb de tours entames par le caster.
+# =================================================================================================== #
+
+BASILISK_ID = "BasiliskBarrage"
+BB_CONST_NR_OF_PROJECTILES = 0x1f     # GetNumberConstant(0x1f) -> "nrOfProjectiles"   = 5 (total)
+BB_CONST_NR_OF_PROJECTILES_2 = 0x38   # GetNumberConstant(0x38) -> "nrOfProjectiles_2" = 3
+BB_CONST_NR_OF_HITS = 0x2f            # GetNumberConstant(0x2f) -> "nrOfHits"          = 2 (par obus)
+# `PickRandomly(..., allowRepeat=1, maxRepeats=0x7fffffff)` : les TROIS tirages d'obus de 1026 passent
+# ces litteraux (contraste Fragstorm `0`/`0x7fffffff`) -> pool JAMAIS retreci, doublons possibles.
+BB_MAX_REPEATS = 0x7fffffff
+
+
+def basilisk_num_shells(state: "State", caster_id: int) -> tuple:
+    """`BasiliskBarrageAbility$$GetNumShells{Guaranteed,Miss,Maybe}` -- MIRROR des trois formules :
+
+        total      = Direct( GetNumberConstant(0x1f) = nrOfProjectiles )                # $$GetNumShellsTotal
+        guaranteed = Min( Max( Zero@0xb8, Difference( StatAmount(Caster@0x160, 0xc = TurnsStarted),
+                                                      One@0xc0 ) ),
+                          total )                                                       # $$GetNumShellsGuaranteed
+        miss       = Max( Zero@0xb8, Difference( Difference( total,
+                                                             Direct(GetNumberConstant(0x38)
+                                                                    = nrOfProjectiles_2) ),
+                                                 guaranteed ) )                         # $$GetNumShellsMiss
+        maybe      = Max( Zero@0xb8, Difference( total, Sum(guaranteed, miss) ) )       # $$GetNumShellsMaybe
+
+    (`DSLFactory@0xb8` = `Direct(0)` et `@0xc0` = `Direct(1)`, poses par
+    `IdunBattleLogic.Entities.DSLFactory$$.ctor` -- LUS, pas devines.)
+
+    Soit, avec la config 1026 (`nrOfProjectiles=5`, `nrOfProjectiles_2=3`) : `guaranteed` = nb de ROUNDS
+    TERMINES par le caster (`TurnsStarted - 1`, plafonne a 5), `miss` = `max(0, 2 - guaranteed)`,
+    `maybe` = le reste. C'est exactement l'i2 : « {nrOfProjectiles_2} randomly hit the target hex or
+    surrounding hexes and the remaining 2 hit the hexes surrounding those. For each round that has ended,
+    1 more of the shells hits the target hex, starting with the shells hitting the outer hexes. »
+
+    Rend `(guaranteed, maybe, miss, total)`."""
+    consts = (GC.ability(BASILISK_ID) or {}).get("constants") or {}
+    total = int(consts.get("nrOfProjectiles") or 0)
+    second = int(consts.get("nrOfProjectiles_2") or 0)
+    ce = state.get_entity(caster_id)
+    csc = ce.get_component(StatsComponent) if ce is not None else None
+    cctx = csc.ctx if csc is not None else None
+    turns = int((cctx.stat(StatType.TURNS_STARTED) if cctx is not None else 0) or 0)
+    guaranteed = min(max(0, turns - 1), total)
+    miss = max(0, (total - second) - guaranteed)
+    maybe = max(0, total - (guaranteed + miss))
+    return guaranteed, maybe, miss, total
+
+
+def basilisk_tiles_at_distance(state: "State", pos: tuple, distance: int) -> list:
+    """`IdunBattleLogic.Entities.DSLFactory$$TilesAtDistance(source, d)` ->
+    `IdunBattle.Entities.Selectors.TilesAtDistanceSelector$$Select` -> slot 0x62 =
+    `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance(tile, d, false)` :
+
+        surrounding = GetSurroundingTiles(tile, d, requireEmptyOrSteppable=false, checkWalkable=0,
+                                          unitFilter=0, includeSelf=1)
+        return surrounding.Where(t => PositionComponent.Distance(t, tile) == d)   # anneau EXACT
+
+    -> disque cube puis filtre `== d`. **L'ORDRE compte** (il decide quelle tuile `ElementAt(idx)` du
+    `PickRandomly` designe) et c'est celui de la triple boucle cube ASCENDANTE de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, deja mirroree
+    par `battle_query.get_surrounding_tiles`. Les tuiles OCCUPEES restent dans le pool
+    (`requireEmptyOrSteppable=false`) -- confirme live (des obus tombent sur des tuiles habitees).
+
+    CONFRONTE LIVE (probe_basilisk_shell_rng, 7 seeds, MC1_67) : cet ordre est le SEUL des 24
+    permutations du pool ring-2 qui reproduise 7/7 les tuiles d'impact rejouees depuis le MT capture.
+
+    ⚠ FILTRE DU POOL = `isWall`, **PAS** `walkable`. `IsTileValidForList(tile, ref, checkWalkable=0, 0)`
+    se reduit, dans cette branche, a `TileComponent+0x41 == 0 && TileComponent+0x40 == 0` : ni la porte
+    `IsWalkable` (occupation + mur) ni la porte d'elevation ne s'appliquent. `+0x40` est le champ que
+    `IdunBattle.Entities.TileExtensions$$IsWalkable` lit comme MUR -> substrat offline = `isWall` du
+    `boardGraph` (`walkable`, lui, est `BattleQuery.IsWalkableTile` = mur **ET** occupation : trop
+    restrictif ici). GROUND TRUTH : board `C3_01` a 14 tuiles `walkable=false` / `isWall=false`, et le
+    LIVE fait tomber un obus sur l'une d'elles (tuile 41, ring-1 de la cible) -- un filtre `walkable`
+    l'excluait du pool et DESYNCHRONISAIT tout le tirage. RESIDU : `+0x41` (2e drapeau de tuile) n'a
+    aucun substrat offline distinct -> non filtre."""
+    board = state.board
+    if board is None or pos is None:
+        return []
+    def _exists(p):
+        return board.id_at(p[0], p[1]) is not None
+    def _not_wall(p):
+        tid = board.id_at(p[0], p[1])
+        return tid is not None and not bool(board.by_id.get(tid, {}).get("isWall"))
+    out = []
+    for p in battle_query.get_surrounding_tiles(pos, radius=int(distance), include_center=True,
+                                                check_walkable=False, walkable_at=_not_wall,
+                                                tile_exists=_exists):
+        if hexgeo.distance(pos, p) != int(distance):
+            continue
+        tid = board.id_at(p[0], p[1])
+        if tid is not None:
+            out.append(tid)
+    return out
+
+
+def basilisk_shell_tiles(state: "State", caster_id: int, target_id: int) -> list:
+    """COLLAPSE des TROIS `PickRandomly` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour` -- MIRROR :
+
+        missTiles  = TilesAtDistance(Target@0x178, Direct(2))                    # $$GetPossibleTargetTilesMiss
+        maybeTiles = TargetTiles@0x190 op_Addition TilesAtDistance(Target@0x178, Direct(1))
+                                                                                 # $$GetPossibleTargetTilesMaybe
+        guarTiles  = TargetTiles@0x190                                            # $$GetPossibleTargetTileGuaranteed
+        sel = ( Cache(PickRandomly(missTiles,  numShellsMiss,       1, 0x7fffffff, false))
+              + Cache(PickRandomly(maybeTiles, numShellsMaybe,      1, 0x7fffffff, false)) )
+              + Cache(PickRandomly(guarTiles,  numShellsGuaranteed, 1, 0x7fffffff, false))
+
+    L'ORDRE des tirages (miss, PUIS maybe, PUIS guaranteed) est celui de l'`op_Addition`
+    `(miss + maybe) + guar`, evalue de gauche a droite -- il fixe la sequence `state.rng`.
+    CONFRONTE LIVE (probe_basilisk_shell_rng, 7 seeds) : des 6 ordres possibles x 3 hypotheses de pool,
+    seul ce couple (ordre miss/maybe/guar + pools dans l'ordre cube natif, `TargetTiles` EN TETE du pool
+    « maybe ») rejoue 7/7 les tuiles d'impact depuis le MT capture avant le cast.
+
+    Le tirage vit ICI (et non dans un noeud SELECTEUR) parce que seul le niveau ability voit `state.rng`
+    -- meme doctrine de collapse que `send_in_the_next_wave_spawn_tiles` / le `pick_n` des feuilles.
+    `Cache` = no-op offline (chaque pool n'est resolu qu'une fois).
+
+    Rend la liste des tuiles d'IMPACT (une entree par obus, DOUBLONS COMPRIS : `allowRepeat=1`)."""
+    from .loki.splash import _pick_randomly_n
+    board = state.board
+    te = state.get_entity(target_id) if target_id is not None else None
+    tpc = te.get_component(PositionComponent) if te is not None else None
+    if board is None or tpc is None:
+        return []
+    tp = (tpc.col, tpc.row)
+    ttile = board.id_at(tp[0], tp[1])
+    if ttile is None:
+        return []
+    guaranteed, maybe, miss, _total = basilisk_num_shells(state, caster_id)
+    pool_miss = basilisk_tiles_at_distance(state, tp, 2)
+    pool_maybe = [ttile] + basilisk_tiles_at_distance(state, tp, 1)
+    pool_guar = [ttile]
+    tiles = _pick_randomly_n(state, pool_miss, miss, allow_repeat=True, max_repeats=BB_MAX_REPEATS)
+    tiles += _pick_randomly_n(state, pool_maybe, maybe, allow_repeat=True, max_repeats=BB_MAX_REPEATS)
+    tiles += _pick_randomly_n(state, pool_guar, guaranteed, allow_repeat=True,
+                              max_repeats=BB_MAX_REPEATS)
+    return tiles
+
+
+def basilisk_barrage_tree(tiles: list) -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour`
+    (id 1026, `astraOrdnance`) -- MIRROR :
+
+        dmg   = MinMaxDamage(this, entities)                                    # minDmg/maxDmg[level]
+        prof  = GetDamageProfile(config, 0)                                     # Blast
+        hits  = GetNumberConstant(config, 0x2f)                                 # nrOfHits = 2 / obus
+        atk   = AttackWithAbilityDamage(Caster@0x160, <tuiles d'impact>, dmg, prof, hits, <AbilityOrEffect>)
+        Execute( AtomicGroup(0x54, atk), entities )
+
+    `AttackWithAbilityDamage` = `AttackBehaviour(caster, tuiles, AbilityDamageBehaviour(...))` ->
+    `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : famille ABILITY (1 tirage/coup, AUCUN
+    crit) -> `native_factory="ability"` (meme classification que PlasmaGrenade, rngcrit-1202). Le
+    selecteur de cibles est TILE-domain -> mode `tile_domain=True` de la feuille (tri par id de tuile,
+    doublons conserves, tuile vide = op visuelle seule). `attackRangeType=Ranged` -> `is_melee=False`.
+
+    `AtomicGroup(0x54, ...)` inline (#201) ; plain `Execute` (PAS `ExecuteAtomic`)."""
+    return AtomicGroup(AttackWithAttackDamage(
+        FixedTileIds(tiles), BASILISK_ID, "Blast", is_melee=False,
+        native_factory="ability", multi=True, tile_domain=True,
+        ability_type=int(ActiveAbilityType.BasiliskBarrage)))
+
+
+class BasiliskBarrageAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$ExecuteBehaviour` (id 1026,
+    `astraOrdnance` « Thaddeus Noble », Astra Militarum, HERO). Cast UNIT-TARGET, SANS contrainte de
+    portee (i2 : « on any target on the battlefield »).
+
+    Kit gameconfig 1026 : `damageProfile=Blast`, `nrOfHits=2`, `nrOfProjectiles=5`,
+    `nrOfProjectiles_2=3`, `minDmg`/`maxDmg`[level] (rarity-affected).
+
+    MECANIQUE (RE + mesure live) : le cast lance `nrOfProjectiles` OBUS sur des TUILES, en trois tranches
+    (cf. `basilisk_num_shells`) : `guaranteed` sur la tuile CIBLE, `maybe` sur {tuile cible} u anneau 1,
+    `miss` sur l'anneau 2 -- tirage AVEC REMISE (deux obus peuvent tomber sur la meme tuile). Chaque obus
+    inflige `nrOfHits` coups Blast a l'occupant de sa tuile ; un obus sur tuile VIDE ne fait rien
+    (operation visuelle seule). Une unite touchee par k obus encaisse donc `k x nrOfHits` coups.
+    `guaranteed` croit d'1 par round termine (via `TurnsStarted` du caster).
+
+    MESURE LIVE (tour 1, cible entouree, MC1_67) : 5 obus = 2 sur l'anneau 2 + 3 sur {cible} u anneau 1,
+    chacun 2 coups Blast ; les unites touchees recoivent en plus `Pinned`/Suppressed (trait
+    `SuppressiveFire` du carrier -- i2 : « The Suppressive Fire trait applies also to this ability »),
+    canal deja porte cote trigger.
+
+    AVANT ce port, 1026 etait absente d'`ABILITY_CLASSES` : `ported:False` -> **0 degat, aucune erreur**.
+
+    Flags de tour : defauts base (1026 absente des overrides). Le gate « si Thaddeus n'a pas bouge »
+    (trait `HeavyWeapon` du carrier) vit dans la couche de DISPONIBILITE d'ability, hors face COMBAT.
+    Retour : {tiles, shells, attacks, empty, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BasiliskBarrage)   # 1026
+    ABILITY_ID = BASILISK_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x48>
+    #     TargetingOptions..ctor(&opts, 0, &preset, 1, 0x80050, 0, 0)
+    # Meme overload « FLAGS DIRECTS » que 1017 (cf. la note la-bas) -> litteral = masque effectif.
+    #   0x80050 = CasterHasNotMoved | TargetIsTile | TargetTileHasEnemyUnit
+    #   range = `TargetingRange$$.cctor` statics+0x48 = useWholeBoard -> RANGE_WHOLE_BOARD : le volet
+    #           generique de portee NE TESTE RIEN (i2 : « on any target on the battlefield »).
+    # `CasterHasNotMoved` EST le gate i2 « If Thaddeus Noble has not moved » : il vit dans le MASQUE
+    # DE CIBLAGE, pas dans une couche de disponibilite separee -- confirmation croisee de la lecture.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.CasterHasNotMoved
+        | TR.TargetIsTile
+        | TR.TargetTileHasEnemyUnit
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        guaranteed, maybe, miss, total = basilisk_num_shells(state, caster_id)
+        tiles = basilisk_shell_tiles(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        basilisk_barrage_tree(tiles).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [{"target": p["target"], "attack": p["attack"]}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        empty = [p["tile"] for n, p in ectx.emitted if n == "AttackEmptyTile"]
+        return {"ability": BASILISK_ID, "caster": caster_id, "target": target_id,
+                "tiles": tiles, "attacks": attacks, "empty": empty,
+                "shells": {"guaranteed": guaranteed, "maybe": maybe, "miss": miss, "total": total},
+                "dsl": True}

@@ -119,6 +119,8 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1025: AbilityAttackType.DirectTargetAttack,   # SkyStrikeAbility
     1042: AbilityAttackType.DirectTargetAttack,   # FlailSwingAbility
     1043: AbilityAttackType.DirectTargetAttack,   # ThunderousAssaultAbility
+    1017: AbilityAttackType.DirectTargetAttack,   # FragBombAbility
+    1026: AbilityAttackType.DirectTargetAttack,   # BasiliskBarrageAbility
     1051: AbilityAttackType.DirectTargetAttack,   # StikkbombAbility
     1062: AbilityAttackType.DirectTargetAttack,   # SanctorumMissileAbility
     1065: AbilityAttackType.DirectTargetAttack,   # ScythingTalonsAbility

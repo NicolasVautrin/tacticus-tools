@@ -52,6 +52,15 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`AvalancheOfMuscle_ExtraDamage` (1025, passif `astraBullgryn`) — gate `IsCharging` non porté**
+  (`case-astramilitarum-fragbomb-basilisk` §4). MESURÉ (`probe_avalanche_charge_gate.py`) : quand le
+  porteur A BOUGÉ pendant le tour, le natif ajoute `+extraDmg[niveau passif] × multiplicateur` FLAT par
+  coup sur les ennemis **adjacents au caster** — au niveau 50 / 180 % = **+599 par coup**, sur l'attaque
+  NORMALE comme sur FragBomb (1017). Sans charge : bit-exact 4/4 et 18/18. Même gate, même canal
+  (modifier EAGER) que les résidus déjà nommés `BlackRage_ExtraDamage` / `FeederTendrils_ExtraDamage` —
+  le débloqueur est COMMUN : exprimer « l'unité est entrée au contact ce tour » dans le contexte
+  d'attaque per-coup. Magnitude NON négligeable ici (+599 sur ~1300 = +45 %). `[opus]`.
+
 - **Le tier `get_Priority` n'est encore *observable* sur aucun porteur** (`case-170-get-priority` §6).
   22 abilities ont un tier ≠ 0 (`engine.playbook.noncomparable.NATIVE_PRIORITY`), 3 sont portées
   (NovaBoost 1192 = 1000, ThriceBlessedConflagration 1187 = 100, NovaShield 1194 = -1000), mais
