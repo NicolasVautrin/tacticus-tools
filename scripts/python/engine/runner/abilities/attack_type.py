@@ -170,6 +170,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     #  `TARGETING_OPTIONS` sont renseignes -- contraste 1036/1041 ci-dessus.)
     1097: AbilityAttackType.DirectTargetAttack,   # FoehammerAbility
     1153: AbilityAttackType.DirectTargetAttack,   # HammerOfWrathAbility
+    # PlagueWind (1035, Typhus deathTyphus), case-psychic-aoe. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
+    # (`&opts` = PRESET statique `TargetingOptions statics+0x180` ; son masque EFFECTIF a bien ete lu
+    #  dans le `cctor` (`statics+0x1a8` = 0x4002) -> ses `TARGETING_OPTIONS` sont renseignes.)
+    1035: AbilityAttackType.DirectTargetAttack,   # PlagueWindAbility
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     1003: AbilityAttackType.SummonAndAttackTarget,   # DeathFromAboveAbility
     1007: AbilityAttackType.SummonAndAttackTarget,   # ScarabHiveAbility
@@ -209,6 +215,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1214: AbilityAttackType.Others,   # HailstrikeAbility
     1219: AbilityAttackType.Others,   # IronkinSteeljackAbility
     1226: AbilityAttackType.Others,   # ChronometronAbility
+    # Doombolt (1102, Ahriman thousAhriman), case-psychic-aoe. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others. Coherent avec la nature
+    # de l'ability (AoE de zone : les coups sont REPARTIS sur tous les ennemis a portee, la « cible »
+    # du message n'etant qu'une priorite d'ordre), et avec son masque, qui n'a PAS `TargetIsEnemy`.
+    1102: AbilityAttackType.Others,   # DoomboltAbility
     # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
     1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility

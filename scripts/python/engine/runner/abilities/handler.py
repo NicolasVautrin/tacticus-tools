@@ -53,7 +53,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    GauntletsOfUltramarAbility, AberrantHypermorphAbility, CordClawAbility)
 from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
-                         EntropyCannonsAbility, PlagueburstMortarAbility)
+                         EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility)
+from .thousandsons import DoomboltAbility
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat)
 from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
@@ -172,6 +173,9 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- Lot #112 : DarkAngels lot 1 (artefact natif = `<Ability>.ExecuteBehaviour` => arbres DSL).
     SuperchargeAbility.ABILITY_TYPE: SuperchargeAbility,               # 1103 (darkaHellblaster Sarquael : AddEffect(1208 Supercharge_ExtraPiercing) sur cible + <=2 PickRandomly(UnitsDirectlyBehind) POSE AVANT les attaques (elles en beneficient), TurnsFromRounds(1) & 1x Plasma minDmg/maxDmg sur la cible & 1x Plasma minDmg_2/maxDmg_2 sur ces memes unites ; native_factory attack, ExecuteAtomic 0x2a)
     ExemplarOfHateAbility.ABILITY_TYPE: ExemplarOfHateAbility,         # 1140 (darkaAsmodai Asmodai : AddEffect(1293 ExemplarOfHate_Target, TurnsFromRounds(2)) INCONDITIONNEL & If(grand-alliance Chaos de la cible, Pinned(1065) duree DEFAUT & override d'Attack + attaque normale libre + retrait, portes par le MEILLEUR allie DarkAngels a portee -- collapse S GetAttacker/SortAttackersByDamagePrediction))
+    # --- Famille PSYCHIC (case-psychic-aoe) : deux AoE Psychic HERO, jusqu'ici NO-OP offline. ---
+    PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
+    DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
     CalibaniteGreatswordAbility.ABILITY_TYPE: CalibaniteGreatswordAbility,  # 1189 (darkaCompanion Forcas : TOGGLE de posture = If(HasEffect(Self,1404 Strike), AddEffect(1405 Sweep)+RemoveStrikeEffects(1404/1425/1009/1406), AddStrikeEffects(1404/1425/1009)+RemoveEffect(1405)) ; aucun degat, aucun tirage, ne finit pas le tour ; les observables Sweep/Overwatch vivent dans les TRIGGERED, hors port)
 }
 

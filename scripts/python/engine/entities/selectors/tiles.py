@@ -38,6 +38,24 @@ class AllUnits(TargetsSelector):
                 if bool(u.get("alive", True)) and (u.get("hp") or 0) > 0]
 
 
+class AllTiles(TargetsSelector):
+    """`IdunBattle.Entities.Selectors.AllTilesSelector` — le slot PARTAGE `factory+0x78` que
+    `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` alloue (`AllTilesSelector..ctor(uVar2, ctx,
+    0, 0)` -> `*(factory + 0x78) = uVar2`) : TOUTES les tuiles du plateau, en domaine ID.
+
+    C'est la source des selecteurs board-wide de TUILES ; unique consommateur porte :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$NrOfHitsFormula`
+    (`Count(EntitiesWithAnyEffect(AllTiles@0x78, Fire=5, sourceFlag=6))` = « +1 coup par hex EN FEU »).
+
+    Ordre = celui de `board.by_id` (ordre d'insertion du dump) ; le seul consommateur en prend le
+    CARDINAL, donc l'ordre n'est pas observable. board None -> []."""
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        return list(board.by_id.keys())
+
+
 class Children(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Children` = `Entities.Selectors.AllAliveMachinesSelector` (IdunBattle.Entities.Selectors.AllAliveMachinesSelector$$.ctor) SCOPÉ
     aux enfants (summons) produits par CE cast (natif `factory+0x148`). Port = l'accumulateur `ctx.children`

@@ -323,6 +323,13 @@ class _AbilityAttack:
         # une ability RANGED castee au contact taisait `Camouflage_HitReduction`/`BigTarget`/`LightCover`
         # et sur-appliquait `Parry`. Positions/board absents -> on GARDE la base brute (aucune
         # sur-application).
+        # BASE de coups DEMANDEE par l'appelant (avant tout passage par la formule). Elle borne le
+        # plancher : `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` termine par
+        # `System.Math.Max(hits, 0)` et son clamp par-effet est `Math.Max(hits, Math.Min(base, cap))`
+        # -> avec une base de 0, RIEN ne peut remonter au-dessus de 0. Cf. le bloc `_floor` de
+        # `services/attack_hits_formula.py` (mesure live Doombolt, case-psychic-aoe §3). Base >= 1 ->
+        # plancher 1, comportement historique STRICTEMENT inchange.
+        _hits_floor = min(1, int(hits))
         _ap_h = att.get_component(PositionComponent) if att is not None else None
         _tp_h = tgt.get_component(PositionComponent)
         if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
@@ -351,7 +358,7 @@ class _AbilityAttack:
                 tile_effects_by_pos=tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)]),
                 attacker_persistent_data=persistent_data_keys(att),
                 is_normal_attack=False)     # gate `IsNormalAttack` (PowerTrip) : vecteur ABILITY
-        hits = max(1, int(hits))
+        hits = max(_hits_floor, int(hits))  # `Math.Max(·, 0)` natif, borne par la BASE (cf. ci-dessus)
         # 2e volet du garde-fou rng (cf. l'entree) : crit-roll et block sont les deux SEULS tirages
         # restants de ce vecteur, et ils ne sont connus qu'ici.
         if state.rng is None and (crit_enabled or block_sources):
