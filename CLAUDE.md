@@ -266,6 +266,28 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor`) — le littéral
   visible n'est PAS le masque effectif. Ne renseigner que les masques EFFECTIVEMENT lus ; recopier
   le littéral sans vérifier l'overload produit un masque FAUX, pire que l'absence.
+- **Deuxième forme du piège, MESURÉE le 2026-07-27 (PR #126)** : certaines abilities
+  **n'appellent AUCUN ctor** — elles recopient les 0x40 octets d'un champ **statique** de
+  `TargetingOptions`, et le masque effectif est la constante écrite par
+  `IdunBattle.Core.Services.TargetingOptions$$.cctor` à `<preset>+0x28`. Les presets ne sont pas
+  interchangeables (`statics+0x168` = `0x4002`, `statics+0x68` = `0x4000`) : sur 10 abilities d'un
+  même lot, 9 valaient `0x4002` et JakhalStimms `0x4000`. **Lire ability par ability, ne jamais
+  généraliser « toutes les offensives valent X ».**
+
+### Même règle pour `ABILITY_ATTACK_TYPE` — l'autre donnée obligatoire du registre
+
+**Une ability qui entre dans `ABILITY_CLASSES` pose AUSSI son littéral `AbilityAttackType`,
+DANS LE MÊME COMMIT.** C'est le pendant exact de la règle ci-dessus, sur l'axe DÉGÂT.
+
+- **Pourquoi** : le garde-fou `probe_120` étape 0 le vérifie — et il **échouait sur `origin/master`**
+  le 2026-07-27, sur trois abilities entrées sans leur littéral : `1036 FrenziedFiring` (`d2be96e`),
+  puis `1041 BrazierOfHolyFire` et `1116 RadBombardment` (`825f69f`). Les deux dernières n'ont été
+  découvertes **qu'au re-jeu après rebase** d'un autre agent : le trou ne s'était vu dans aucune des
+  deux PR qui l'avaient creusé.
+- **Même signature de dégradation** que `TARGETING_OPTIONS` : ni erreur ni crash, et **le seul
+  gisement que notre propre cadence de portage aggrave** — chaque nouveau port l'alimente.
+- **Comment** : relire le littéral au décompilé (jamais le déduire du nom de l'ability ni du profil
+  de dégât), et faire passer `probe_120` avant d'ouvrir la PR.
 
 !include .claude/skills/tacticus-re-port/SKILL.md
 
