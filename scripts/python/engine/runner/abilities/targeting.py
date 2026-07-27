@@ -88,7 +88,15 @@ portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne s
   32   0x100000000           (predicat battleQuery slot 0x61 sur les tuiles)     NON
   42   0x40000000000         (predicat battleQuery slot 0x7f)                    NON
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
-  57   0x200000000000000     (nom hors dump 32 bits)                             NON
+  57   0x200000000000000     CasterOrEnemyTargeting (self OU ennemi attaquable)  OUI
+
+BITS QUI NE SONT PAS DES REGLES DE REFUS (verifie exhaustivement sur les DEUX cascades) : le bit 15
+`CanTargetCaster` (0x8000) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason` — c'est un
+flag DECLARATIF, lu par `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster` pour les
+consommateurs de ciblage (preview / IA). Un port qui en ferait une regle inventerait un refus. Meme
+famille : `get_IsTileTargeting` (bit 6), `get_IsUnitTargeting`, `get_IsEnemyTargeting` (bit 14 OU bit 57),
+`get_IsCasterOrEnemyTargeting` (bit 57), `get_IsActorTargeting` (bit 46) — des LECTURES du masque, pas des
+regles supplementaires.
 
 POURQUOI LA PORTEE N'EST PAS PORTEE ICI : elle n'est PAS gatee par un bit — le natif la teste pour
 toute ability dont `options+0x0d` est nul, avec la valeur rendue par
@@ -156,6 +164,9 @@ RULE_CASTER_HAS_COMPLETED_ONE_TURN = 0x80000000  # CasterHasCompletedOneTurn
 # masques sont nommes par le ROLE lu au decompile du filtre statique, prefixe `RULE_BITnn`.
 RULE_BIT39_TARGET_IS_CASTER = 0x8000000000         # la cible DOIT etre le caster (self-only)
 RULE_BIT41_ALLOW_NON_TARGETABLE = 0x20000000000    # desactive le controle IsTargetable
+# bit 57 : nomme par son getter `IdunBattle.Core.Services.TargetingOptions$$get_IsCasterOrEnemyTargeting`
+# (= `(rules >> 0x39) & 1`) -> « la cible doit etre le CASTER lui-meme OU un ennemi attaquable ».
+RULE_BIT57_CASTER_OR_ENEMY = 0x200000000000000
 
 # `UnitFlag` 0x11 : `IdunBattle.Entities.UnitExtensions$$IsTargetable` = `!HasFlag(unit, 0x11)`.
 UNIT_FLAG_NOT_TARGETABLE = 0x11
@@ -182,12 +193,22 @@ class TargetingOptions:
     recopierait le litteral d'une telle ability serait FAUX -> ne poser `TARGETING_OPTIONS` que sur
     les abilities dont le masque EFFECTIF a ete lu.
 
+    `self_cast` = le BYTE a `options+0x00` (2e argument de l'overload « flags directs »). Ce n'est
+    PAS un bit de `Rules` : c'est l'AIGUILLAGE de l'overload 5 arguments de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` (cf. `_target_is_caster` et
+    `get_caster_not_added_reason` plus bas). Nomme d'apres la factory native
+    `IdunBattle.Core.Services.TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions`, qui le pose a
+    1 en meme temps que `Rules = TargetIsEnemy` et un `Range` : « ability SELF-CASTEE, legale s'il
+    existe au moins un ennemi a portee ». Porteurs du registre : ResurrectionOrb (1009),
+    Chronometron (1226), AncestralFortune (1207).
+
     Les autres champs natifs (`Range` Nullable<int> @+0x10 alimente par
     `AActiveAbility$$SetConfigValuesInTargetingOptions`, les deux regles-delegues @+0x30/+0x38, les
     bornes de stats) ne sont pas modelises : les regles qui les consomment ne sont pas portees (cf.
     l'inventaire en tete), sauf la regle dynamique dont le port passe par la METHODE de l'ability
     (`get_dynamic_invalid_target_reason`) plutot que par un champ delegue."""
     rules: int = 0
+    self_cast: bool = False
 
     def has(self, rule: int) -> bool:
         return bool(int(self.rules) & int(rule))
@@ -312,6 +333,63 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     return RULE_CASTER_HAS_NOT_MOVED if unit_has_moved(state, int(caster_id)) else 0
 
 
+def _targets_the_caster(state: "State", caster_id: int, target_id: Optional[int],
+                        tuid: Optional[int], options: "TargetingOptions") -> bool:
+    """AIGUILLAGE SELF-CAST de l'overload 5 arguments de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` — mirror du decompile :
+
+        if (target != caster) {
+            if (!(rules & 0x40) || GetMainTile(target) != caster) {
+                if ((rules & 0x40) || GetUnit(target) != caster) goto <filtre statique>;
+            }
+        }
+        return GetCasterNotAddedReason(caster, casterTiles, options, range);
+
+    (le terme `GetMainTile(target) != caster` compare une TUILE au CASTER : il est structurellement
+    toujours vrai, c'est une ecriture defensive du decompilateur.) Ne reste donc que : la cible EST
+    le caster — directement, ou parce qu'elle resout a l'unite du caster et que l'ability n'est pas
+    TILE-targeting."""
+    if target_id is not None and int(target_id) == int(caster_id):
+        return True
+    return (not options.has(RULE_TARGET_IS_TILE)) and tuid is not None and tuid == int(caster_id)
+
+
+def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` — la branche que prend le
+    natif quand une ability SELF-CASTEE (`options+0x00 != 0`) est castee SUR SON PROPRE CASTER.
+    NON PORTEE -> 0 (permissif), pour la meme raison que la portee : sa decision depend d'un etage
+    non porte.
+
+    DECOMPILE (rules = `options+0x28`) :
+
+        if ((char)rules < 0) return valide;                       # bit 7 pose -> court-circuit
+        if (rules & 0x8) {                                        # bit 3 : regle-delegue caster
+            r = options[+0x30].Invoke(caster, casterTiles); if (r) return broken(r);
+        } else if (rules & 0x400000) {                            # bit 22 CasterHasFreeAdjacentTile
+            if (!HasFreeTilesInRange(1, caster, tiles, options, range)) return broken(0x400000);
+        } else if (options+0x00 == 0 && !(rules & 0x800)) {
+            if (rules & 0x8000)                                   # bit 15 CanTargetCaster
+                { r = <filtre statique>(target = caster); if (r invalide) return r; }
+        } else {
+            vt = TargetingQuery.GetValidTargets(caster, tiles, options, 1, 1);
+            if (vt.AllTargets.Count == 0) return broken(0x800);   # AddCasterIfAtLeastOneTarget
+        }
+        return valide;
+
+    POURQUOI 0 : sur le chemin qui nous concerne (`options+0x00 != 0`, et aucune des 3 abilities
+    self-castees du registre ne pose les bits 3 / 7 / 22), le verdict est
+    `GetValidTargets(...).AllTargets.Count == 0`. `GetValidTargets` enumere TOUTES les cibles
+    legales, donc consomme `IdunBattle.Core.Services.TargetingQuery$$GetRange` — le volet PORTEE,
+    explicitement NON PORTE (cf. l'inventaire en tete : un `GetRange` approximatif refuserait des
+    casts LEGAUX). Rendre 0x800 « au juge » inventerait un refus ; rendre 0 degrade du cote
+    PERMISSIF, la convention de tout ce module.
+
+    MESURE (probe `probe_targeting_masks_lot4.py`, Chronometron 1226 self-cast, ennemis hors du
+    disque range 2) : le natif rend bien `0x800 AddCasterIfAtLeastOneTarget`. C'est le seul ecart
+    connu, et il est du BON cote (le port accepte un cast que le natif refuse)."""
+    return 0
+
+
 def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optional[int],
                               ability) -> int:
     """`IdunBattle.Entities.Abilities.AActiveAbility$$GetInvalidTargetReason` (-> ...WithRules ->
@@ -329,6 +407,15 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
         return 0
     target_unit = _unit_of(state, target_id)
     tuid = None if target_unit is None else int(target_id)
+
+    # AIGUILLAGE SELF-CAST -- AVANT le filtre statique, comme le natif : l'overload 5 arguments
+    # BRANCHE sur `GetCasterNotAddedReason` (et n'evalue JAMAIS la cascade) des lors que
+    # `options+0x00 != 0` ET que la cible est le caster. Sans ce branchement le port appliquerait le
+    # filtre statique a un self-cast et refuserait sur `TargetIsEnemy` un cast que le natif JUGE PAR
+    # UN AUTRE CHEMIN -- exactement le FAUX REFUS que le gate doit eviter (mesure : Chronometron
+    # 1226, natif `0x800`, port `0x4000` avant ce correctif).
+    if options.self_cast and _targets_the_caster(state, caster_id, target_id, tuid, options):
+        return get_caster_not_added_reason(state, caster_id, ability)
 
     # bit 39 -- « la cible DOIT etre le caster » : `if (rules & 0x8000000000 && caster != GetUnit(target))`
     if options.has(RULE_BIT39_TARGET_IS_CASTER) and tuid is not None and tuid != int(caster_id):
@@ -367,6 +454,20 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
         reason = int(ability.get_dynamic_invalid_target_reason(state, caster_id, target_id) or 0)
         if reason:
             return reason
+
+    # bit 57 CasterOrEnemyTargeting -- DERNIERE regle de la cascade native (juste avant le retour
+    # « valide »), mirror du decompile :
+    #     if ((rules >> 0x39) & 1) && caster != GetUnit(target)
+    #        && !UnitsCanAttackEachOther(caster, target)  ->  broken(0x200000000000000)
+    # = « la cible doit etre le CASTER LUI-MEME ou un ennemi attaquable ». C'est un TargetIsEnemy
+    # ASSOUPLI par la tolerance du self-cast -- a ne pas confondre avec le bit 14 (0x4000), qui refuse
+    # le self. Porteur du lot : HarbingerOfDestruction (1008), dont la branche
+    # `If(AreEqual(caster, target), ...)` de l'ExecuteBehaviour est exactement la contrepartie de cette
+    # tolerance. `tuid is None` (cible non-unite) -> le port ne sait pas decider : permissif, meme
+    # convention que les autres regles du domaine UNITE.
+    if options.has(RULE_BIT57_CASTER_OR_ENEMY) and tuid is not None:
+        if tuid != int(caster_id) and not units_can_attack_each_other(state, caster_id, tuid):
+            return RULE_BIT57_CASTER_OR_ENEMY
 
     return 0
 
