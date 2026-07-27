@@ -27,7 +27,7 @@ import html
 import json
 import subprocess
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 WINDOW = 1_000_000                    # fenetre du modele (opus 1M)
@@ -104,29 +104,29 @@ def scan(path: Path) -> dict:
                 says=says, tools=tools)
 
 
-def locked_worktrees() -> set[str]:
-    """Worktrees VERROUILLES = agents qui tournent encore.
+# Un agent qui TRAVAILLE ecrit dans son transcript a chaque aller-retour d'outil. Au-dela de ce
+# silence il est arrete -- mesure du 2026-07-27 sur 15 agents : les vivants etaient TOUS a 12 min
+# ou moins, les morts TOUS a 30 min ou plus, aucun entre les deux. 15 min tombe dans ce trou et
+# laisse passer un test live long (le plus lent mesure : ~12 min).
+SILENCE_MORT_MIN = 15.0
 
-    Le simple fait que le repertoire existe ne suffit pas : un agent TERMINE garde son worktree
-    jusqu'au nettoyage (typiquement un sous-agent lance par un autre agent). Le harnais pose un
-    `git worktree lock` pour la duree du vol -- c'est le seul signal qui separe « en vol » de
-    « fini, pas encore nettoye ». Repli sur l'existence du repertoire si git n'est pas joignable."""
-    try:
-        out = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=str(REPO),
-                             capture_output=True, text=True, timeout=20).stdout
-    except Exception:
-        return set()
-    locked, cur = set(), None
-    for ln in out.splitlines():
-        if ln.startswith("worktree "):
-            cur = str(Path(ln[9:].strip()).resolve()).lower()
-        elif ln.startswith("locked") and cur:
-            locked.add(cur)
-    return locked
+
+def est_vif(last_ts) -> tuple[bool, float]:
+    """VIF = a ecrit recemment dans son transcript. Rend (vif, minutes de silence).
+
+    NE PAS revenir au `git worktree lock` : mesure du 2026-07-27, 0 verrou pose sur 15 agents
+    dont 8 travaillaient. Le verrou n'est pose qu'au LANCEMENT (outil Agent) ; une reprise par
+    `SendMessage` n'en pose aucun -- le critere devient donc aveugle des la premiere reprise, et
+    il l'est SILENCIEUSEMENT (tout le monde affiche « fini »). L'existence du repertoire ne vaut
+    pas mieux : un agent arrete garde son worktree jusqu'au nettoyage.
+    """
+    if last_ts is None:
+        return False, float("inf")
+    silence = (datetime.now(timezone.utc) - last_ts).total_seconds() / 60.0
+    return silence < SILENCE_MORT_MIN, silence
 
 
 def collect(include_done: bool) -> list[dict]:
-    locked = locked_worktrees()
     rows = []
     for p in sorted(project_dir().glob("*/subagents/agent-*.jsonl")):
         aid = p.stem.replace("agent-", "")
@@ -135,20 +135,14 @@ def collect(include_done: bool) -> list[dict]:
         s = scan(p)
         if not s["first"]:
             continue
-        # VIF = worktree VERROUILLE (cf. locked_worktrees). Piege : `Path("")` vaut `Path(".")`,
-        # qui existe TOUJOURS -- sans le test de chaine non-vide, tout agent lance sans worktree
-        # passe pour vif (mesure : 193 « en vol » au lieu de 11).
-        wtp = (meta.get("worktreePath") or "").strip()
-        alive = bool(wtp) and Path(wtp).exists()
-        if alive and locked:                       # signal fin, seulement si git a repondu
-            alive = str(Path(wtp).resolve()).lower() in locked
+        alive, silence = est_vif(s["last_ts"])
         if not alive and not include_done:
             continue
         mins = ((s["last_ts"] - s["first_ts"]).total_seconds() / 60.0
                 if s["first_ts"] and s["last_ts"] else 0.0)
         work = max(0, s["last"] - s["first"])
         rows.append(dict(
-            id=aid, name=meta.get("description") or aid, alive=alive,
+            id=aid, name=meta.get("description") or aid, alive=alive, silence=silence,
             base=s["first"], ctx=s["last"], work=work, mins=mins,
             # < 30 s : le denominateur est trop petit pour que le quotient veuille dire quelque
             # chose (un seul aller-retour d'outil ferait 100 000 tok/min).
