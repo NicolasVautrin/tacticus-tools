@@ -118,7 +118,11 @@ GROUPS = {
         # les allies au contact du caster (doctrine « deplace les unites », jamais « bloque par la
         # geometrie de spawn »).
         "close_in": True,
-        "cases": [("thousAhriman", 1102, "Doombolt(stub bit57)", 0x200000000000004)],
+        # Le stub reproduit AUSSI le `TargetingRange` du preset `+0x3c0` (`useRangeFromConfig` ->
+        # `Doombolt.constants.range` = 2) et `forceMeleeTarget = False` : sans cela le port n'aurait
+        # pas de gate de portee la ou le natif en a un, et les lignes « natif=TargetIsInRange »
+        # passeraient pour des permissifs au lieu d'etre confrontees.
+        "cases": [("thousAhriman", 1102, "Doombolt(stub bit57)", 0x200000000000004, "Doombolt")],
     },
 }
 
@@ -126,7 +130,9 @@ GROUPS = {
 # par l'une d'elles ET que le port refuse par une autre, ce n'est PAS une divergence de verdict : le
 # natif s'arrete a la PREMIERE regle rompue de SA cascade, et celle-ci precede la regle portee.
 UNPORTED_RULES = (
-    0x8000000,          # TargetIsInRange (portee : depend de `TargetingQuery$$GetRange`)
+    # 0x8000000 TargetIsInRange N'EST PLUS ICI (#241) : le volet portee est porte
+    # (`TargetingQuery$$GetRange` + `MovementUtil$$AreTilesAdjacent`). Le laisser masquerait
+    # desormais de VRAIES divergences -- c'est precisement ce que ce probe doit voir.
     0x2,                # TargetMatchesDynamicRule quand l'ability ne surcharge pas le predicat
     0x200000000,        # bit 33 : HasTrait(0xd) interdit
     0x800000,           # TargetIsAllowedForCaster (forced targets / Taunt)
@@ -137,12 +143,19 @@ UNPORTED_RULES = (
 
 class _StubAbility:
     """Porteur de masque SANS behaviour -- sert a confronter une REGLE de `targeting.py` quand
-    l'ability qui la porte n'est pas dans `ABILITY_CLASSES` (cf. le groupe `bit57`)."""
-    __slots__ = ("TARGETING_OPTIONS",)
+    l'ability qui la porte n'est pas dans `ABILITY_CLASSES` (cf. le groupe `bit57`).
 
-    def __init__(self, rules, self_cast=False):
-        from engine.runner.abilities.targeting import TargetingOptions
-        self.TARGETING_OPTIONS = TargetingOptions(rules=int(rules), self_cast=bool(self_cast))
+    Porte AUSSI le `TargetingRange` et l'`ABILITY_ID` (#241) : sans eux le stub n'aurait PAS de
+    gate de portee la ou le vrai ctor en a un, et la confrontation serait faussee en amont de la
+    regle qu'on vise."""
+    __slots__ = ("TARGETING_OPTIONS", "ABILITY_ID")
+
+    def __init__(self, rules, self_cast=False, rng=None, force_melee=None, ability_id=None):
+        from engine.runner.abilities.targeting import RANGED_BOOL_FALSE, TargetingOptions
+        self.ABILITY_ID = ability_id
+        self.TARGETING_OPTIONS = TargetingOptions(
+            rules=int(rules), self_cast=bool(self_cast), range=rng,
+            force_melee_target=RANGED_BOOL_FALSE if force_melee is None else int(force_melee))
 
     def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
         return 0
@@ -389,7 +402,9 @@ def run_group(sid, name, cfg, board, seed, tmpdir):
             vis, ab_id, ab_name = case[0], case[1], case[2]
             stub_rules = case[3] if len(case) > 3 else None
             if stub_rules is not None:
-                ability = _StubAbility(stub_rules)
+                from engine.runner.abilities.targeting import RANGE_FROM_CONFIG
+                ability = _StubAbility(stub_rules, rng=RANGE_FROM_CONFIG,
+                                       ability_id=(case[4] if len(case) > 4 else None))
             else:
                 klass = ABILITY_CLASSES.get(ab_id)
                 if klass is None:

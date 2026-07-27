@@ -314,6 +314,10 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
 - **En cours de traitement par d'autres agents au moment de la rédaction** (délibérément NON
   inventoriés, pour ne pas fabriquer de doublon de dispatch) : le jet de block `Daemon_ExtraBlock`,
   le canal `OnToxicDamage` (1203), le gate de PORTÉE / `TargetIsInRange`.
+  **Le gate de PORTÉE est FERMÉ** (#241, `case-241-range-gate.md`) : `TargetingQuery$$GetRange` est
+  porté, les 28 masques du registre portent leur `TargetingRange`, et le cliquet du registre exige
+  désormais les deux. Ce qui reste à cet endroit de la cascade : la **ligne de vue**
+  (`GetTilesObscuringTerrain`), et `GetValidTargets` (dont dépend `GetCasterNotAddedReason`).
 - **Bloqués par une fenêtre d'atelier vide** (exigent rebuild + reinject, donc pas du RE) :
   `StatModificationComponent`, `ChildComponent.ParentId`, `EffectComponent.IsActive`,
   `UnitFlagsComponent` dans `combatSnapshot`, stats résolues des MoW (`EntityType.Machine` dans

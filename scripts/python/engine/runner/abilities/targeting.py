@@ -82,8 +82,9 @@ courant et ECHOUE si l'un d'eux bouge -- ce qui invaliderait d'un coup tous les 
                              AllowUntargetableTarget)
   51   0x8000000000000       TargetIsNotSteppable                                NON
   47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON
-   -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  NON (cf. ci-dessous)
-                             TargetIsInRange (bit 27, 0x8000000)
+   -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
+                             TargetIsInRange (bit 27, 0x8000000) ; variante
+                             EXACTE sous le bit 9 TargetIsAtRange (0x200)
    -   (non gate)            `GetTilesObscuringTerrain` (ligne de vue)           NON
   13   0x2000                TargetIsSummon (`HasTrait(2)`)                      NON
   50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON
@@ -108,13 +109,38 @@ famille : `get_IsTileTargeting` (bit 6), `get_IsUnitTargeting`, `get_IsEnemyTarg
 `get_IsCasterOrEnemyTargeting` (bit 57), `get_IsActorTargeting` (bit 46) — des LECTURES du masque, pas des
 regles supplementaires.
 
-POURQUOI LA PORTEE N'EST PAS PORTEE ICI : elle n'est PAS gatee par un bit — le natif la teste pour
-toute ability dont `options+0x0d` est nul, avec la valeur rendue par
-`IdunBattle.Core.Services.TargetingQuery$$GetRange` (config `GetNumberConstant(0x16)` PLUS les
-modificateurs de portee de l'unite). Un port approximatif de `GetRange` refuserait des casts
-LEGAUX (regression silencieuse en self-play) ; le porter demande sa propre RE. Reste donc
-NON PORTE, et explicitement : Waaagh, lui, exprime bien une contrainte de distance — mais par son
-`GetDynamicInvalidTargetReason` (qui rend justement `TargetIsInRange`), pas par ce volet.
+LE VOLET PORTEE (#241) — il n'est GATE PAR AUCUN BIT, donc son armement ne vient pas de `Rules`
+mais du champ `TargetingRange` des options (`options+0x08..0x1f`). Extrait VERBATIM du filtre
+statique (surcharge 7 arguments, `range` = la valeur rendue par
+`IdunBattle.Core.Services.TargetingQuery$$GetRange`) :
+
+    if (!ignoreRangeChecks) {                        # param 6, faux sur le chemin ExecuteInternal
+        if (!range.OnlyAdjacent) {                   # Range+0x04
+            if (!options.Range.UseWholeBoard) {      # options+0x0d
+                d = movementQuery.GetDistance(casterTiles, target);
+                if ((rules & 0x200 TargetIsAtRange) == 0) { if (range.Value < d) -> broken(TargetIsInRange) }
+                else                                  { if (d != range.Value)   -> broken(TargetIsAtRange) }
+            }
+        } else if (!battleQuery.AreEntitiesAdjacent(casterTiles, target)) -> broken(TargetIsInRange)
+        <ligne de vue : GetTilesObscuringTerrain, NON PORTEE>
+    }
+
+TROIS regimes, donc, et il faut les distinguer AVANT tout calcul de distance :
+  * `UseWholeBoard`      -> **aucun** test de portee (le plateau entier est a portee) ;
+  * `Range.OnlyAdjacent` -> test d'ADJACENCE, pas de distance <= N ;
+  * sinon                -> `hexDistance <= Range.Value` (ou `== Range.Value` sous le bit 9).
+
+`GetRange` et sa decomposition : cf. la section dediee plus bas (`get_range`). ARMEMENT : le champ
+`TargetingOptions.range` du port vaut `None` tant que le `TargetingRange` de l'ability n'a pas ete
+LU au ctor decompile — et `None` = aucun gate de portee, meme convention permissive que le reste du
+module. Un `TargetingRange` DEVINE refuserait des casts LEGAUX, c'est-a-dire l'exacte regression que
+ce volet doit eviter : on ne renseigne que ce qu'on a lu.
+
+NE PAS DOUBLER WAAAGH : son `TargetingRange` est le preset `UseWholeBoard`
+(`IdunBattle.Core.Services.TargetingRange$$.cctor`, statics+0x48) -> le volet generique ne teste
+RIEN pour lui. Sa contrainte de distance vit ENTIEREMENT dans son
+`WaaaghAbility$$GetDynamicInvalidTargetReason` (qui rend justement `TargetIsInRange`). Meme lecture
+pour les 8 autres porteurs `UseWholeBoard` du registre.
 
 VOLET CASTER : `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` tourne AVANT le
 volet cible (overload 5 args). Une seule de ses regles est portee — `CasterHasNotMoved` (0x10),
@@ -130,7 +156,7 @@ abilities de resurrection).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -186,14 +212,106 @@ UNIT_FLAG_NOT_TARGETABLE = 0x11
 # AMIS (et seulement eux).
 EFFECT_FRIENDLY_FIRE = 0x67
 
+# `IdunBattle.Entities.Enum.EffectType.ForcedInMelee` = 0x529 : lu par
+# `IdunBattle.Core.Services.TargetingQuery$$GetRange` — le porteur ne porte plus qu'a 1 (adjacence).
+EFFECT_FORCED_IN_MELEE = 0x529
+
+# `IdunBattle.Core.Services.RangedBool` (enum, dump VERBATIM) — un booleen a DEUX valeurs constantes
+# et deux valeurs CALCULEES sur le caster ; resolu par
+# `IdunBattle.Core.Services.RangedBoolExtensions$$IsTrue`.
+RANGED_BOOL_TRUE = 0
+RANGED_BOOL_FALSE = 1
+RANGED_BOOL_IF_RANGED_CASTER = 2
+RANGED_BOOL_IF_NOT_RANGED_CASTER = 3
+
+# `IdunBattle.Entities.Enum.UnitTrait.Ranged` = 0xb ; `.Steppable` = 0x1b — lus respectivement par
+# `IdunBattle.Entities.UnitExtensions$$IsRanged` et `IdunBattle.Entities.TileExtensions$$HasSteppableUnit`.
+UNIT_TRAIT_RANGED = 0xb
+UNIT_TRAIT_STEPPABLE = 0x1b
+
+# `IdunBattle.Configuration.AbilityConstantType.range` = 0x16 — la constante que
+# `IdunBattle.Entities.Abilities.AActiveAbility$$SetConfigValuesInTargetingOptions` recopie dans
+# `options.Range.OverrideRange` quand `UseRangeFromConfig` est pose. Cle gameconfig : `constants.range`.
+ABILITY_CONSTANT_RANGE = "range"
+
+
+@dataclass(frozen=True)
+class TargetingRange:
+    """`IdunBattle.Core.Services.TargetingRange` — la struct de 0x18 octets logee a
+    `TargetingOptions+0x08`. Champs et offsets lus au ctor
+    (`IdunBattle.Core.Services.TargetingRange$$.ctor(onlyAdjacent, useRangeFromConfig,
+    useWholeBoard, overrideRange, overrideRangeFunc)`) :
+
+        +0x00  RangedBool onlyAdjacent          (int)
+        +0x04  bool       useRangeFromConfig
+        +0x05  bool       useWholeBoard          <- le fameux `options+0x0d` du filtre statique
+        +0x08  Nullable<int> overrideRange
+        +0x10  GetRange   overrideRangeFunc      (delegue ; AUCUN porteur du registre ne le pose)
+
+    `overrideRangeFunc` n'est pas modelise : le seul chemin qui l'alimente est
+    `IdunBattle.Core.Services.TargetingRange$$CustomRange(GetRange)`, qu'aucun `<X>Ability$$.ctor`
+    du registre n'appelle (les 28 masques ont ete relus un par un). Le jour ou un porteur l'utilise,
+    son `TargetingRange` restera `None` (= non RE-lu = pas de gate) tant qu'on ne l'aura pas lu."""
+    only_adjacent: int = RANGED_BOOL_FALSE
+    use_range_from_config: bool = False
+    use_whole_board: bool = False
+    override_range: Optional[int] = None
+
+
+# --- Les 5 `TargetingRange` STATIQUES, ecrits par `IdunBattle.Core.Services.TargetingRange$$.cctor`
+#     dans le bloc de statiques de la classe. Le dump il2cpp ne porte pas les NOMS des champs
+#     statiques -> on les designe par leur OFFSET dans ce bloc (offset RELATIF, comme les presets
+#     `TargetingOptions` deja cites dans `darkangels.py`), et on les NOMME par leur contenu.
+RANGE_ADJACENT_IF_MELEE_CASTER = TargetingRange(only_adjacent=RANGED_BOOL_IF_NOT_RANGED_CASTER)
+"""statics+0x00 — `onlyAdjacent = IfNotRangedCaster`, rien d'autre : un caster de MELEE ne touche
+que l'adjacence, un caster RANGED retombe sur la portee d'arme. Profil de l'attaque normale."""
+
+RANGE_FROM_CONFIG = TargetingRange(use_range_from_config=True)
+"""statics+0x18 — `useRangeFromConfig = true` : `AActiveAbility$$SetConfigValuesInTargetingOptions`
+pose `overrideRange = AbilityConfiguration.GetNumberConstant(0x16 range)`."""
+
+RANGE_ADJACENT = TargetingRange(only_adjacent=RANGED_BOOL_TRUE, override_range=1)
+"""statics+0x30 — `onlyAdjacent = True` + `overrideRange = 1` : cible ADJACENTE, point."""
+
+RANGE_WHOLE_BOARD = TargetingRange(use_whole_board=True)
+"""statics+0x48 — `useWholeBoard = true` : le filtre statique NE TESTE PAS la portee."""
+
+RANGE_SELF = TargetingRange(override_range=0)
+"""statics+0x60 — `overrideRange = 0` : portee nulle (self / cast sans cible distante)."""
+
+
+def custom_range(value: int) -> TargetingRange:
+    """`IdunBattle.Core.Services.TargetingRange$$CustomRange(int range)` — mirror du decompile :
+    `{ onlyAdjacent = False, useRangeFromConfig = false, useWholeBoard = false,
+       overrideRange = Nullable(range), overrideRangeFunc = null }`."""
+    return TargetingRange(only_adjacent=RANGED_BOOL_FALSE, override_range=int(value))
+
+
+@dataclass(frozen=True)
+class Range:
+    """`IdunBattle.Core.Services.TargetingQuery.Range` — la valeur de retour de
+    `TargetingQuery$$GetRange`, 8 octets : `{ int Value @+0x00 ; bool OnlyAdjacent @+0x04 }`.
+    (Le filtre statique lit le champ `@+0x04` pour choisir entre `AreEntitiesAdjacent` et la
+    comparaison de distance — c'est ce qui fixe l'ordre des deux champs.)"""
+    value: int = 0
+    only_adjacent: bool = False
+
 
 @dataclass(frozen=True)
 class TargetingOptions:
     """`IdunBattle.Core.Services.TargetingOptions` — la struct de 0x40 octets que chaque
     `<X>Ability$$.ctor` passe a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor`.
 
-    Seul le champ REELLEMENT consomme par ce port est modelise : `rules` = le masque de flags
-    `TargetingRule` a `options+0x28` (le litteral que le decompile du ctor donne, ex. Waaagh
+    Layout LU sur `IdunBattle.Core.Services.TargetingOptions$$.ctor` (surcharge « flags directs »,
+    `.ctor(isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+    getDynamicInvalidTargetReason)`), qui ecrit :
+
+        +0x00 <- isSelfCasting (byte)      +0x20 <- forceMeleeTarget (RangedBool)
+        +0x08 <- range (TargetingRange)    +0x28 <- rules (TargetingRule, 64 bits)
+                 (3 qwords, 0x08..0x1f)    +0x30/+0x38 <- les deux regles-delegues
+
+    `rules` = le masque de flags `TargetingRule` a `options+0x28` (le litteral que le decompile du
+    ctor donne, ex. Waaagh
     `TargetingOptions..ctor(&opts, 0, &statsFromClass, 1, 0x106004012, 0, 0, 0)`).
 
     ATTENTION AUX SURCHARGES DU CTOR : certaines abilities utilisent l'overload « PRESET + flags »
@@ -212,13 +330,19 @@ class TargetingOptions:
     existe au moins un ennemi a portee ». Porteurs du registre : ResurrectionOrb (1009),
     Chronometron (1226), AncestralFortune (1207).
 
-    Les autres champs natifs (`Range` Nullable<int> @+0x10 alimente par
-    `AActiveAbility$$SetConfigValuesInTargetingOptions`, les deux regles-delegues @+0x30/+0x38, les
-    bornes de stats) ne sont pas modelises : les regles qui les consomment ne sont pas portees (cf.
-    l'inventaire en tete), sauf la regle dynamique dont le port passe par la METHODE de l'ability
-    (`get_dynamic_invalid_target_reason`) plutot que par un champ delegue."""
+    `range` / `force_melee_target` = les deux entrees du volet PORTEE (cf. `get_range`). `range` a
+    `None` pour DEFAUT DELIBERE : « `TargetingRange` non RE-lu » -> aucun gate de portee. Les deux se
+    lisent dans le MEME appel de ctor et se posent donc ENSEMBLE, jamais l'un sans l'autre (les
+    presets `TargetingOptions` statiques portent les deux aussi : `<preset>+0x08..0x1f` et
+    `<preset>+0x20`, ecrits par `IdunBattle.Core.Services.TargetingOptions$$.cctor`).
+
+    Les autres champs natifs (les deux regles-delegues @+0x30/+0x38) ne sont pas modelises : la
+    regle dynamique passe par la METHODE de l'ability (`get_dynamic_invalid_target_reason`) plutot
+    que par un champ delegue, et la regle-delegue CASTER (@+0x30) n'est pas portee."""
     rules: int = 0
     self_cast: bool = False
+    range: Optional[TargetingRange] = None
+    force_melee_target: int = RANGED_BOOL_FALSE
 
     def has(self, rule: int) -> bool:
         return bool(int(self.rules) & int(rule))
@@ -298,6 +422,350 @@ def is_targetable(state: "State", entity_id) -> bool:
     e = state.get_entity(int(entity_id)) if entity_id is not None else None
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return not (fl is not None and fl.has(UNIT_FLAG_NOT_TARGETABLE))
+
+
+# ------------------------------------------------------------------------------------------------
+# VOLET PORTEE — `IdunBattle.Core.Services.TargetingQuery$$GetRange` et ses dependances
+# ------------------------------------------------------------------------------------------------
+
+def _visual_id(state: "State", unit_id) -> Optional[str]:
+    """`visualId` gameconfig de l'entite (le `StatsComponent.ctx` d'abord, le `UnitComponent`
+    ensuite — meme resolution que `_faction_id` cote triggers)."""
+    from ..components import StatsComponent, UnitComponent
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    if e is None:
+        return None
+    sc = e.get_component(StatsComponent)
+    if sc is not None and getattr(sc.ctx, "visual_id", None):
+        return sc.ctx.visual_id
+    uc = e.get_component(UnitComponent)
+    return uc.visual_id if uc is not None else None
+
+
+def _unit_traits(state: "State", unit_id) -> tuple:
+    """Traits gameconfig de l'unite (noms). `BaseUnitComponent$$HasTrait` cote natif ; offline le
+    porteur des traits INNES est le kit gameconfig, deja materialise dans `UnitContext.traits`."""
+    import gameconfig as GC
+    vid = _visual_id(state, unit_id)
+    if not vid:
+        return ()
+    return tuple((GC.unit(vid) or {}).get("traits") or ())
+
+
+def unit_weapon_range(visual_id: Optional[str], stats) -> Optional[int]:
+    """LES TROIS BRANCHES D'ARME de `IdunBattle.Core.Services.TargetingQuery$$GetRange` — la portee
+    « naturelle » d'une unite, AVANT tout override des `TargetingOptions`. Mirror du decompile :
+
+        if (!UnitExtensions.HasAnyWeapon(caster))    range = GetStat(caster, StatType.Range = 2)
+        else if (!UnitExtensions.HasRangedWeapon(c)) range = 1
+        else {
+            w     = TargetingQuery.FindLongestRangedWeapon(caster)   # max Range parmi les NON-melee
+            bonus = w.Select(_ => _.Range.Value) ?? 1
+            range = GetStat(caster, StatType.ExtraRange = 0x18) + bonus
+        }
+
+    `stats` = un porteur de `get_stat(StatType)` (`UnitContext` ou `UnitStats`) ; None -> extra 0.
+
+    **`None` = NON OBSERVABLE**, et c'est la 1re branche : `StatType.Range` (2, marque
+    `[Obsolete] Idun Concept`) n'est PAS dans le catalogue de `combatSnapshot` -> `get_stat(2)`
+    rendrait 0, ce qui n'est pas la valeur native mais l'absence de mesure. Or 81 unites du
+    gameconfig n'ont AUCUNE arme (les Machines of War et les objets de decor) : rendre 0 pour elles
+    ferait refuser TOUTES leurs cibles. On rend donc None, que l'appelant traduit en « pas de gate ».
+
+    Source d'arme = gameconfig (`weapons[].Range`, absent = arme de MELEE) : c'est le meme substrat
+    que `WeaponsComponent`, dont le natif tire `HasAnyWeapon` / `HasRangedWeapon` /
+    `FindLongestRangedWeapon`."""
+    import gameconfig as GC
+    from ...entities.stats import StatType
+    weapons = ((GC.unit(visual_id or "") or {}).get("weapons")) or []
+    if not weapons:
+        return None                                   # branche `!HasAnyWeapon` : non observable
+    ranged = [int(w.get("Range") or 0) for w in weapons if w.get("Range")]
+    if not ranged:
+        return 1                                      # branche `!HasRangedWeapon` -> melee
+    extra = int(stats.get_stat(int(StatType.EXTRA_RANGE)) or 0) if stats is not None else 0
+    return max(ranged) + extra
+
+
+def unit_is_ranged(state: "State", unit_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsRanged` = `HasTrait(unit, 0xb Ranged)
+    || WeaponsComponent.HasRangedWeapon(unit)`. Le trait 0xb n'est porte par AUCUNE unite du
+    gameconfig (constat #161) -> en pratique le predicat se reduit a « possede une arme a Range »,
+    mais les deux termes sont ecrits."""
+    import gameconfig as GC
+    from ...entities.traits.unit_trait import UnitTrait
+    traits = _unit_traits(state, unit_id)
+    if UnitTrait.Ranged.name in traits:
+        return True
+    vid = _visual_id(state, unit_id)
+    weapons = ((GC.unit(vid or "") or {}).get("weapons")) or []
+    return any(w.get("Range") for w in weapons)
+
+
+def ranged_bool_is_true(value: int, state: "State", unit_id) -> bool:
+    """`IdunBattle.Core.Services.RangedBoolExtensions$$IsTrue(RangedBool, unit)` — mirror exact :
+    `True -> true`, `False -> false`, `IfRangedCaster -> IsRanged(unit)`,
+    `IfNotRangedCaster -> !IsRanged(unit)` (le natif leve `ArgumentOutOfRangeException` au-dela)."""
+    v = int(value)
+    if v == RANGED_BOOL_TRUE:
+        return True
+    if v == RANGED_BOOL_FALSE:
+        return False
+    if v == RANGED_BOOL_IF_RANGED_CASTER:
+        return unit_is_ranged(state, unit_id)
+    return not unit_is_ranged(state, unit_id)         # IfNotRangedCaster
+
+
+def _tile_of(state: "State", entity_id):
+    """`(col, row)` de l'entite, ou None. Les unites MULTI-TUILES (`GetFeetCount` 3/7) ne sont pas
+    modelisees offline (une seule `PositionComponent`) : le port compare donc la tuile PRINCIPALE la
+    ou le natif prend le MIN sur toutes les tuiles occupees. Ecart possible d'au plus 1 hex, et
+    seulement pour un caster/cible multi-tuiles ; signale ici, non couvert."""
+    from ..components import PositionComponent
+    e = state.get_entity(int(entity_id)) if entity_id is not None else None
+    pc = e.get_component(PositionComponent) if e is not None else None
+    return None if pc is None else (pc.col, pc.row)
+
+
+def _has_forced_in_melee(state: "State", unit_id) -> bool:
+    """`EntityExtensions.HasEffect(caster, state, 0x529 ForcedInMelee, activeOnly = false)` lu par
+    `GetRange` juste avant le cap final. Poseur porte : le trigger de free-attack de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility` (pose puis retire dans le
+    meme cast)."""
+    if state.effects is None or unit_id is None:
+        return False
+    return bool(state.effects.has_effect(int(unit_id), effect_type=EFFECT_FORCED_IN_MELEE))
+
+
+def should_apply_ranged_in_melee(state: "State", caster_id: int) -> bool:
+    """`IdunBattle.Core.Services.AttackQuery$$ShouldApplyRangedInMelee(caster, casterTiles,
+    ignoreTrait)` -> `IdunBattle.Core.Services.DamageCalculations$$ShouldApplyRangedInMelee`.
+
+    `GetRange` l'appelle avec **`ignoreTrait = 1`** (litteral du call-site ; le thunk d'`AttackQuery`
+    se contente de forwarder R9 et d'injecter `this.state` en 3e argument — VERIFIE a l'octet, la
+    lecture Ghidra `uStack…28 = 0` designe le slot `MethodInfo*`, pas `ignoreTrait`). Le gate
+    `HasTrait(0xb Ranged)` est donc COURT-CIRCUITE ici : contrairement au chemin PREDICTION
+    (`CalculateRangedInMeleeReduction`, `ignoreTrait = 0`, inerte faute de porteur du trait #161),
+    ce chemin-ci MORD pour tout caster. Mirror du decompile :
+
+        if (casterTiles == null || casterTiles.Count == 0) return false;
+        if (!HasTrait(caster, 0xb) && !ignoreTrait) return false;
+        foreach (tile in casterTiles)
+          foreach (adj in <tuiles adjacentes de tile>)
+            u = GetUnit(adj, state);
+            if (u != null && IsUnit(u) && !IsFriend(caster, u, state)
+                && !TileExtensions.HasSteppableUnit(adj, state)
+                && DamageCalculations.CanMeleeAttackOverElevationDifference(tile, adj)
+                && IsTargetable(u) && IsAlive(u, state))  return true;
+        return false;
+
+    Offline : adjacence = `board.neighbours` (graphe evenq, la meme adjacence que tout le port),
+    `HasSteppableUnit` = l'occupant porte `UnitTrait.Steppable` (0x1b),
+    `CanMeleeAttackOverElevationDifference` = `|dElevation| < 2` (litteral `iVar1 < 2`).
+    Sans `state.board` on ne sait pas decider -> False (aucun clamp invente)."""
+    from ...entities.traits.unit_trait import UnitTrait
+    from ..components import OwnerComponent, PositionComponent, UnitComponent
+    board = state.board
+    if board is None:
+        return False
+    src = _tile_of(state, caster_id)
+    if src is None:
+        return False
+    src_tid = board.id_at(src[0], src[1])
+    if src_tid is None:
+        return False
+    caster = state.get_entity(int(caster_id))
+    c_owner = caster.get_component(OwnerComponent) if caster is not None else None
+    if c_owner is None:
+        return False
+    src_elev = board.elevation(src_tid)
+    neigh = set(board.neighbours(src_tid))
+    for uid, ent in state.entities.items():
+        if int(uid) == int(caster_id):
+            continue
+        uc = ent.get_component(UnitComponent)
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if uc is None or oc is None or pc is None:
+            continue                                   # `IsUnit(u)`
+        if oc.team == c_owner.team:
+            continue                                   # `!IsFriend(caster, u)`
+        if not uc.alive:
+            continue                                   # `IsAlive(u, state)`
+        tid = board.id_at(pc.col, pc.row)
+        if tid is None or tid not in neigh:
+            continue
+        if UnitTrait.Steppable.name in (_unit_traits(state, uid) or ()):
+            continue                                   # `!HasSteppableUnit(adj, state)`
+        if abs(src_elev - board.elevation(tid)) >= 2:
+            continue                                   # `CanMeleeAttackOverElevationDifference`
+        if not is_targetable(state, uid):
+            continue
+        return True
+    return False
+
+
+def _ability_config_range(ability) -> Optional[int]:
+    """`AbilityConfiguration.GetNumberConstant(0x16)` = `int.Parse(GetStringConstant(range))`.
+    `AbilityConstantType` 0x16 = `range` -> cle `constants.range` de gameconfig-abilities."""
+    import gameconfig as GC
+    aid = getattr(ability, "ABILITY_ID", None)
+    if not aid:
+        return None
+    raw = ((GC.ability(aid) or {}).get("constants") or {}).get(ABILITY_CONSTANT_RANGE)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def set_config_values_in_targeting_options(options: "TargetingOptions",
+                                           ability) -> "TargetingOptions":
+    """`IdunBattle.Entities.Abilities.AActiveAbility$$SetConfigValuesInTargetingOptions` — appele par
+    `AActiveAbility$$GetInvalidTargetReason` AVANT la query, sur la copie locale des options :
+
+        if (this.Configuration != null && options.Range.UseRangeFromConfig
+            && !options.Range.OverrideRange.HasValue)
+            options.Range.OverrideRange = Configuration.GetNumberConstant(0x16 range);
+
+    Note l'ordre : l'`OverrideRange` deja pose par le ctor GAGNE sur la config (aucune ability du
+    registre ne pose les deux, mais le mirror garde la garde)."""
+    rng = options.range
+    if rng is None or not rng.use_range_from_config or rng.override_range is not None:
+        return options
+    cfg = _ability_config_range(ability)
+    if cfg is None:
+        return options
+    return replace(options, range=replace(rng, override_range=cfg))
+
+
+def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Optional[Range]:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetRange(caster, casterTiles, options)` — mirror :
+
+        if (casterTiles == null || casterTiles.Count == 0)   return default(Range);
+        if (options.Range.UseWholeBoard)                     return <Range sans OnlyAdjacent>;
+        onlyAdjacent = RangedBoolExtensions.IsTrue(options.Range.OnlyAdjacent, caster);
+        if      (!HasAnyWeapon(caster))    v = GetStat(caster, Range);
+        else if (!HasRangedWeapon(caster)) v = 1;
+        else                               v = GetStat(caster, ExtraRange) + longestRangedWeapon.Range;
+        v = options.Range.OverrideRange.GetValueOrDefault(v);
+        if (options.Range.OverrideRangeFunc != null) v = OverrideRangeFunc(caster);
+        if (HasEffect(caster, 0x529 ForcedInMelee)) { v = Math.Min(1, v); onlyAdjacent = true; }
+        if (RangedBoolExtensions.IsTrue(options.ForceMeleeTarget, caster)
+            && attackQuery.ShouldApplyRangedInMelee(caster, casterTiles, true))
+            { v = Math.Min(1, v); onlyAdjacent = true; }
+        return new Range(Math.Min(v, <cap>), onlyAdjacent);
+
+    (Le `<cap>` final est un `Nullable<int>` local que le decompile n'ecrit JAMAIS -> `int.MaxValue`,
+    donc `Math.Min` neutre. Idem pour la garde `!<cap>.HasValue` du court-circuit `UseWholeBoard`,
+    toujours vraie.)
+
+    Rend **None quand le port ne sait pas decider** — `TargetingRange` non RE-lu, caster sans tuile,
+    portee d'arme non observable (cf. `unit_weapon_range`), ou `UseWholeBoard` (le filtre statique ne
+    teste alors RIEN). Dans tous ces cas l'appelant NE POSE AUCUN REFUS : c'est la seule degradation
+    admissible ici, un `Range` devine refuserait des casts LEGAUX.
+
+    L'ORDRE compte et il est respecte : la valeur d'abord (arme -> override -> config), les deux
+    CLAMPS de melee ensuite. Un clamp applique avant l'override serait ecrase par lui."""
+    from ..components import StatsComponent
+    rng = options.range
+    if rng is None:
+        return None                                   # `TargetingRange` non RE-lu -> pas de gate
+    if _tile_of(state, caster_id) is None:
+        return None                                   # `casterTiles` vide / caster hors plateau
+    if rng.use_whole_board:
+        return None                                   # le filtre saute le test de portee
+
+    only_adjacent = ranged_bool_is_true(rng.only_adjacent, state, caster_id)
+
+    if rng.override_range is not None:
+        value = int(rng.override_range)
+    else:
+        e = state.get_entity(int(caster_id))
+        sc = e.get_component(StatsComponent) if e is not None else None
+        value = unit_weapon_range(_visual_id(state, caster_id),
+                                  sc.ctx if sc is not None else None)
+        if value is None:
+            return None                               # portee d'arme NON OBSERVABLE -> pas de gate
+
+    if _has_forced_in_melee(state, caster_id):
+        value = min(1, value)
+        only_adjacent = True
+    if ranged_bool_is_true(options.force_melee_target, state, caster_id):
+        if should_apply_ranged_in_melee(state, caster_id):
+            value = min(1, value)
+            only_adjacent = True
+    return Range(value=value, only_adjacent=only_adjacent)
+
+
+def are_tiles_adjacent(board, src_tid, dst_tid) -> bool:
+    """`IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent(tileA, tileB)` — mirror EXACT du
+    decompile, et il ne dit PAS « distance hex == 1 » :
+
+        dElev    = |tileB.Position.Elevation - tileA.Position.Elevation|;
+        adjacent = (tileA == tileB) ? true : tileA.Connectivity.IsNeighbour(tileB);
+        return dElev < 2 && adjacent;
+
+    DEUX quirks que la paraphrase « dist == 1 » manque, et les deux ont ete MESURES :
+      * **la MEME tuile compte comme adjacente** (`tileA == tileB` court-circuite le test de
+        voisinage). C'est ce qui fait que le natif, pour `IronkinSteeljack` casse SUR SA PROPRE
+        TUILE, passe la portee et rend `TargetTileIsFree` (0x1000) — la ou un port en `dist == 1`
+        rendait `TargetIsInRange` (BIT-DIFF mesure par `probe_targeting_masks_lot4.py --groups
+        steeljack, u81 caster) ;
+      * **l'adjacence est GATEE EN ELEVATION** (`|dElev| < 2`) : deux tuiles voisines separees par
+        2 niveaux ne sont PAS adjacentes.
+
+    La surcharge LISTE (`AreTilesAdjacent(IList, IList)`, celle qu'appelle
+    `BattleQuery$$AreEntitiesAdjacent`) rend vrai des qu'UNE paire l'est ; offline chaque entite
+    n'occupe qu'une tuile (cf. `_tile_of`) -> une seule paire."""
+    if src_tid is None or dst_tid is None:
+        return False
+    if abs(board.elevation(src_tid) - board.elevation(dst_tid)) >= 2:
+        return False
+    if int(src_tid) == int(dst_tid):
+        return True
+    return int(dst_tid) in board.neighbours(int(src_tid))
+
+
+def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[int],
+                          options: "TargetingOptions") -> int:
+    """LE VOLET PORTEE du filtre statique (surcharge 7 arguments de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`), sur le chemin
+    `ignoreRangeChecks = false` — le seul emprunte par
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`. Rend le `TargetingRule` rompu
+    ou 0 :
+
+      * `range.OnlyAdjacent` -> `battleQuery.AreEntitiesAdjacent(casterTiles, target)` (lui-meme
+        `IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`, cf. `are_tiles_adjacent` : MEME
+        TUILE incluse + gate d'elevation) ; faux -> `TargetIsInRange` ;
+      * sinon `d = movementQuery.GetDistance(casterTiles, target)` = MIN des
+        `IdunBattle.Utils.Hex.CubeCoordinate$$Distance` entre tuiles source et tuiles cible
+        (`hexgeo.distance` offline, meme convention evenq que `Board`) ;
+        `rules & TargetIsAtRange` -> refus si `d != range.Value` (portee EXACTE) ;
+        sinon                     -> refus si `d > range.Value`.
+
+    Cible sans position (tuile non modelisee, entite absente) -> 0 : on ne sait pas mesurer, donc on
+    n'invente pas de refus."""
+    import hexgeo
+    rr = get_range(state, caster_id, options)
+    if rr is None:
+        return 0
+    src = _tile_of(state, caster_id)
+    dst = _tile_of(state, target_id)
+    if src is None or dst is None:
+        return 0
+    if rr.only_adjacent:
+        board = state.board
+        if board is None:
+            return 0                                  # adjacence NATIVE non calculable -> pas de gate
+        ok = are_tiles_adjacent(board, board.id_at(src[0], src[1]), board.id_at(dst[0], dst[1]))
+        return 0 if ok else RULE_TARGET_IS_IN_RANGE
+    d = hexgeo.distance(src, dst)
+    if options.has(RULE_TARGET_IS_AT_RANGE):
+        return 0 if d == rr.value else RULE_TARGET_IS_AT_RANGE
+    return 0 if d <= rr.value else RULE_TARGET_IS_IN_RANGE
 
 
 # ------------------------------------------------------------------------------------------------
@@ -386,13 +854,16 @@ def get_caster_not_added_reason(state: "State", caster_id: int, ability) -> int:
         }
         return valide;
 
-    POURQUOI 0 : sur le chemin qui nous concerne (`options+0x00 != 0`, et aucune des 3 abilities
-    self-castees du registre ne pose les bits 3 / 7 / 22), le verdict est
-    `GetValidTargets(...).AllTargets.Count == 0`. `GetValidTargets` enumere TOUTES les cibles
-    legales, donc consomme `IdunBattle.Core.Services.TargetingQuery$$GetRange` — le volet PORTEE,
-    explicitement NON PORTE (cf. l'inventaire en tete : un `GetRange` approximatif refuserait des
-    casts LEGAUX). Rendre 0x800 « au juge » inventerait un refus ; rendre 0 degrade du cote
-    PERMISSIF, la convention de tout ce module.
+    POURQUOI 0 : sur le chemin qui nous concerne (`options+0x00 != 0`), le verdict est
+    `GetValidTargets(...).AllTargets.Count == 0`, et
+    `IdunBattle.Core.Services.TargetingQuery$$GetValidTargets` n'est PAS porte : il ENUMERE toutes
+    les cibles legales du plateau (`GetPossibleTargetsForOptions` + la cascade complete, y compris
+    les regles que ce module ne porte pas). Ce n'est plus la portee qui bloque — `GetRange` est
+    porte depuis #241 — c'est l'enumeration. Rendre 0x800 « au juge » inventerait un refus ; rendre
+    0 degrade du cote PERMISSIF, la convention de tout ce module.
+
+    EXCEPTION deja lue au decompile : `CalibaniteGreatsword` (0x80 `AddCaster`) prend le tout
+    premier court-circuit `if ((char)rules < 0) return valide;` — pour elle, 0 EST le verdict natif.
 
     MESURE (probe `probe_targeting_masks_lot4.py`, Chronometron 1226 self-cast, ennemis hors du
     disque range 2) : le natif rend bien `0x800 AddCasterIfAtLeastOneTarget`. C'est le seul ecart
@@ -415,6 +886,9 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     options = getattr(ability, "TARGETING_OPTIONS", None)
     if options is None:
         return 0
+    # `AActiveAbility$$GetInvalidTargetReason` commence par ca, sur SA copie des options : la portee
+    # de config est resolue AVANT que la query ne calcule `GetRange`.
+    options = set_config_values_in_targeting_options(options, ability)
     target_unit = _unit_of(state, target_id)
     tuid = None if target_unit is None else int(target_id)
 
@@ -455,6 +929,16 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if (not options.has(RULE_BIT41_ALLOW_NON_TARGETABLE)) and tuid is not None:
         if not is_targetable(state, tuid):
             return RULE_TARGET_IS_TARGETABLE
+
+    # PORTEE -- SANS BIT DE GATE (cf. l'extrait du filtre en tete de module). Position NATIVE dans la
+    # cascade : apres `TargetIsTargetable`/`TargetIsNotSteppable`/les regles `TargetHasNTiles`, AVANT
+    # la ligne de vue puis tout le bloc `TargetIsSummon`/`TargetIsHero`/... et la regle dynamique.
+    # L'ordre n'est pas cosmetique : c'est lui qui fixe la RAISON rendue quand plusieurs regles sont
+    # rompues (le natif s'arrete a la premiere). `get_range_broken_rule` rend 0 des que le port ne
+    # sait pas mesurer.
+    reason = get_range_broken_rule(state, caster_id, target_id, options)
+    if reason:
+        return reason
 
     # bit 1 TargetMatchesDynamicRule -- LE POINT D'EXTENSION : la regle-delegue posee par
     # `AActiveAbility$$.ctor` a `options+0x38` (`TargetingOptions.DynamicTargetingTargetRule` liee au

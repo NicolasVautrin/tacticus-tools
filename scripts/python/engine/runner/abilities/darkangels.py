@@ -39,7 +39,8 @@ from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAllia
 from .base import ActiveAbility
 from .behaviours import (AddEffect, AddStatOverrideEffect, AttackWithAttackDamage, RemoveEffect,
                          UseActiveAbility, entities_from_state)
-from .targeting import TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
@@ -219,7 +220,13 @@ class PlasmaCannonAbility(ActiveAbility):
     #            n'a PAS de `GetDynamicInvalidTargetReason` natif (le slot vtable +0x480 reste celui de
     #            la base) -> defaut 0 cote port = mirror exact.
     #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : le preset `TargetingOptions` statique `+0x140` embarque le
+    # `TargetingRange` statique `+0x18` (`useRangeFromConfig`) et `forceMeleeTarget = True`
+    # -> portee = `PlasmaCannon.constants.range` (3), clampee a 1 des que le caster a un
+    # ennemi au contact.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -381,7 +388,12 @@ class DarkTalonStrikeAbility(ActiveAbility):
     # pour ce qu'il est (la donnee RE-lue), et il s'activera de lui-meme le jour ou le volet TILE sera
     # porte. La degradation reste PERMISSIVE (jamais de refus invente) — mesure live : le port rend 0
     # sur toutes les cibles, y compris celles que le natif refuse en `TargetTileHasEnemyUnit`.
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit)
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x18` (`useRangeFromConfig` ->
+    # `DarkTalonStrike.constants.range` = 2), `forceMeleeTarget = IfRangedCaster` (clamp a 1
+    # seulement si le caster est RANGED et a un ennemi au contact).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsTile | TR.TargetTileHasEnemyUnit,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -534,12 +546,14 @@ class DeathOnTheWindAbility(ActiveAbility):
     # cibles que le natif ACCEPTE (regression exactement interdite). Le defaut de base (0) laisse donc
     # la regle permissive, comme pour toute regle non portee. Point d'ancrage pour la fermer : exposer
     # `GetNumAttacksReceivedThisTurn` dans `combatSnapshot`/`decisionView`.
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> le
+    # filtre statique NE TESTE PAS la portee (`forceMeleeTarget = False`, jamais consulte).
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsTile
         | TR.TargetTileHasEnemyUnit
         | TR.AllowNullCasterTile
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -632,12 +646,14 @@ class HailstrikeAbility(ActiveAbility):
     #                                              RAISON que rend le filtre quand la cible n'a pas
     #                                              d'unite, contrainte INCONDITIONNELLE. Declaratif
     #                                              dans le masque -> rien a porter.
+    # PORTEE (#241) : `TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun test de
+    # portee.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetIsFriendly
         | TR.AllowNullCasterTile
         | TR.TargetIsNotAnObject
         | TR.TargetIsUnit
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -757,7 +773,11 @@ class SuperchargeAbility(ActiveAbility):
     #     0x2    TargetMatchesDynamicRule -> pas de `GetDynamicInvalidTargetReason` natif pour 1103 ->
     #            defaut 0 (mirror exact).
     #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : meme preset `+0x140` que PlasmaCannon -> `useRangeFromConfig`
+    # (`Supercharge.constants.range` = 3) + `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -979,11 +999,13 @@ class ExemplarOfHateAbility(ActiveAbility):
     #     0x6000000 AllowObscuredTarget (= AllowObscuredTargetByElevation | ...ByWalls, valeur
     #               COMPOSITE de l'enum) -> PERMISSIF : aucune contrainte de ligne de vue (coherent
     #               avec « portee illimitee » du kit 1140).
+    # PORTEE (#241) : `TargetingRange` statique `+0x48` = `useWholeBoard` -> aucun test de
+    # portee, ce qui CONFIRME au binaire la « portee illimitee » du kit 1140.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetIsEnemy
         | TR.AllowObscuredTargetByElevation
         | TR.AllowObscuredTargetByWalls
-    ))
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -1100,7 +1122,15 @@ class CalibaniteGreatswordAbility(ActiveAbility):
     # `if (-1 < (char)Rules)` (bit 7 clair) : bit POSE = tous ses controles sont sautes, la cible est
     # valide d'office. Aucun bit lu par le filtre statique => masque pose pour ce qu'il est, aucun
     # refus arme (annotation exacte, comportement offline inchange).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.AddCaster)
+    # `self_cast=True` : le commentaire ci-dessus decrivait deja le `1` du ctor, mais le
+    # litteral portait le defaut `False` -- corrige avec #241. Sans effet observable ici (le
+    # seul bit du masque, `AddCaster`, n'est lu par AUCUNE regle du filtre statique, et
+    # `get_caster_not_added_reason` rend 0), mais le champ doit dire ce que dit le ctor.
+    # PORTEE (#241) : `range = TargetingRange` statique `+0x60` = `overrideRange = 0`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.AddCaster,
+                                         self_cast=True,
+                                         range=RANGE_SELF,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
