@@ -30,7 +30,7 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
       `Healable(owner + AdjacentFriends(owner,1))` = self (non-Mecanique) + amis adjacents non-Mecaniques).
       MIN_UTILITY=1 (Bucket du cctor). Sweep reach_nc (adjacence -> depend de la position -> le caster va
       la ou il soigne le plus).
-    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
+    PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.RitesOfRestoration)  # 1039
     MIN_UTILITY = 1.0
     PRIORITY = 0
@@ -107,7 +107,7 @@ class CombatRestorativesPlaybook(NonComparablePlaybook):
       montant `hpToHeal` (magnitude != utilite dans ce regime NonComparable). Un allie plein -> 0.
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.CombatRestorativesPlaybook$$.cctor). Sweep reach_nc (le caster
       va la ou la somme des fractions manquantes adjacentes est max), argmax STRICT.
-    PRIORITY=0 CONFIRME (#115 : aucun playbook n'override get_Priority -> defaut base NonComparable=0)."""
+    PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.CombatRestoratives)  # 1002
     MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.CombatRestorativesPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -171,7 +171,7 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
       normalAttack).usable ET fromHereCount>0` (`fromHere` = GetValidTargets à position FIXE) — calculé 1x
       par cible (position-indép du sweep). `ability_targets` absent -> +0.5 omis (borne inf, pré-#77).
     - MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.DefendTheDivineWorkPlaybook$$.cctor). Sweep reach_nc, argmax STRICT.
-    PRIORITY=0 CONFIRME (#115 : aucun override get_Priority)."""
+    PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.DefendTheDivineWork)  # 1117
     MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.DefendTheDivineWorkPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -224,7 +224,7 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
       non-Mecanique (`Healable`). (Chaos ne soigne pas les Imperials ni les machines.)
     - util(T) = `Σ (1 - RemainingPercentage_health IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage)` sur ces cibles (= Σ missing/max). Meme
       formule que CombatRestoratives. MIN_UTILITY = `Fix64.FromIntFraction(9,10) = 0.9` (IdunBattle.AI.Playbook.Loki.RevitalizingMalignancyPlaybook$$.cctor).
-      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 CONFIRME (#115)."""
+      Sweep reach_nc, argmax STRICT ; self-cast (MainTile-id). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
     MIN_UTILITY = 0.9      # IdunBattle.AI.Playbook.Loki.RevitalizingMalignancyPlaybook$$.cctor : Fix64.FromIntFraction(9,10)
     PRIORITY = 0
@@ -284,7 +284,7 @@ class InspiredToGreatnessPlaybook(NonComparablePlaybook):
       `Fix64.FromInt(Level.ToZeroBasedIndex(AbilityState.Level))` = NIVEAU zero-based de cette ability.
       Les allies dont l'active est PRETE (usable) NE contribuent PAS. `Bucket.AddAction` argmax STRICT ->
       l'IA refresh l'ability EN COOLDOWN de plus HAUT NIVEAU.
-    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` IdunBattle.AI.Playbook.Loki.InspiredToGreatnessPlaybook$$.ctor, SANS min explicite). PRIORITY=0 CONFIRME (#115).
+    - MIN_UTILITY=0 (ctor `NonComparablePlaybook(0x43a)` IdunBattle.AI.Playbook.Loki.InspiredToGreatnessPlaybook$$.ctor, SANS min explicite). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - Data offline : eligibilite = `abilityTargets` (jeu) ; cooldown = entree active de `dv.units[ally]
       .abilities` (`usable`) ; niveau = `combatSnapshot.unitConfig.activeAbilityLevel` (cfg+0xb8 ;
       `GetStat(18)`=null en snapshot -> via unitConfig). Le level ne departage QUE plusieurs allies en

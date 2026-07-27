@@ -3,15 +3,18 @@ from __future__ import annotations
 
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
+from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first, native_priority
 
 
 class NovaBoostPlaybook(NonComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.NovaBoostPlaybook$$EvaluateNonComparable` : util = `Fix64.FromInt(1)` CONSTANTE par
     cible éligible (self ; marque les hex adjacents au caster). IdunBattle.AI.Playbook.Loki.NovaBoostPlaybook$$.cctor : MIN_UTILITY=1.
-    IdunBattle.AI.Playbook.Loki.NovaBoostPlaybook$$.ctor (id 0x4a8=1192 = 1er arg = ABILITY_ID, PAS priorite). Tier get_Priority=**0** (#115 :
-    aucun override get_Priority -> defaut base NonComparable=0 ; l'ancien 1000 venait d'un idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40
-    `mov eax,0x3E8` stale/mal-attribue qui ne resout plus dans gqfc5mff6c).
+    IdunBattle.AI.Playbook.Loki.NovaBoostPlaybook$$.ctor (id 0x4a8=1192 = 1er arg = ABILITY_ID, PAS priorite). Tier get_Priority=**1000**
+    (`AbilityPriority.First`) : `NovaBoostPlaybook` SURCHARGE le slot 0 de l'interface IPlaybook.
+    MESURE #170 (sweep exhaustif des 257 ActiveAbilityType, invocation du slot 0 via `pbGate` +
+    voie independante `abilityPreferences`, 0 divergence) ; `get_IsComparable` = False, donc le tier
+    est REELLEMENT exerce. Le 0 pose par #115 etait un FAUX NEGATIF de methode : les corps
+    `mov eax,imm32 ; ret` sont dedupliques par IL2CPP, invisibles a une recherche de symboles.
 
     STATUT : DECOMPILE-PROVEN, **ARENE-INAGREABLE** (Riptide non spawnable au rank 17 -> pas de test
     d'agreement live ; le mecanisme repose sur le decompile, tiers tranches a l'octet par le validateur).
@@ -31,7 +34,7 @@ class NovaBoostPlaybook(NonComparablePlaybook):
       vide -> le natif n'émet rien) est modélisé ci-dessous."""
     ABILITY_ID = int(ActiveAbilityType.NovaBoost)  # 1192
     MIN_UTILITY = 1.0
-    PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS 1000 (source idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 stale)
+    PRIORITY = native_priority(1192)   # 1000 = AbilityPriority.First (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self._has_eligible_target(ctx):

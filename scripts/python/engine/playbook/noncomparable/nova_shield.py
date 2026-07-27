@@ -6,12 +6,16 @@ from engine.ai.utilities import get_movement_utility
 from engine.utilities.utility_type import UtilityType
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook
+from ._base import NCContext, NonComparablePlaybook, native_priority
 
 
 class NovaShieldPlaybook(NonComparablePlaybook):
-    """`IdunBattle.AI.Playbook.Loki.NovaShieldPlaybook$$EvaluateNonComparable` (tier get_Priority=**0** — #115 : aucun
-    override get_Priority, defaut base NonComparable ; l'ancien -1000 = idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 stale ; id 0x4aa=1194).
+    """`IdunBattle.AI.Playbook.Loki.NovaShieldPlaybook$$EvaluateNonComparable` (id 0x4aa=1194 ; tier
+    get_Priority=**-1000** = `AbilityPriority.Last` : `NovaShieldPlaybook` SURCHARGE le slot 0 de
+    l'interface IPlaybook — MESURE #170, sweep exhaustif des 257 ActiveAbilityType par invocation du
+    slot 0 (`pbGate`) + voie independante `abilityPreferences`, 0 divergence ; `get_IsComparable` =
+    False donc le tier est REELLEMENT exerce. Le 0 pose par #115 etait un FAUX NEGATIF de methode :
+    les corps `mov eax,imm32 ; ret` sont dedupliques par IL2CPP, invisibles a un grep de symboles).
     IdunBattle.AI.Playbook.Loki.NovaShieldPlaybook$$.cctor : MIN_UTILITY=1. Marque un hex CENTRE + son ring-1 (hors trench), dégât AoE différé.
     Par (casterPos ∈ reach, center ∈ cibles-éligibles) :
         marked(center) = {center} ∪ neighbors(center) \\ trench          # IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$GetMarkedTiles
@@ -33,7 +37,7 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     BC non confirmé, arene-inagreable)."""
     ABILITY_ID = int(ActiveAbilityType.NovaShield)  # 1194
     MIN_UTILITY = 1.0
-    PRIORITY = 0          # #115 : get_Priority de base (aucun override) = 0, PAS -1000 (source idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 stale)
+    PRIORITY = native_priority(1194)   # -1000 = AbilityPriority.Last (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         centers = self._eligible_mark_centers(ctx)

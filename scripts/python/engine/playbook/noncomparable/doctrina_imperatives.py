@@ -42,7 +42,7 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
     (`_sweep_origin_first` -> to=None)."""
     ABILITY_ID = int(ActiveAbilityType.DoctrinaImperatives)   # 1118
     MIN_UTILITY = 1.0
-    PRIORITY = 0          # get_Priority de base NonComparable (aucun override lu)
+    PRIORITY = 0          # AbilityPriority.Normal : 1118 hors NATIVE_PRIORITY (sweep #170)
     UTILITY = 100.0       # GenerateAction(..., Fix64.FromInt(100)) IdunBattle.AI.Playbook.Loki.DoctrinaImperativesPlaybook$$EvaluateNonComparable
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:

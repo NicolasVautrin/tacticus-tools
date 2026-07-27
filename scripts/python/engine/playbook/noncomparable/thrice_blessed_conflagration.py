@@ -17,7 +17,7 @@ from __future__ import annotations
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook
+from ._base import NCContext, NonComparablePlaybook, native_priority
 
 
 def _line_enemy_count(aim: tuple, direction: tuple, enemy_set: set,
@@ -121,8 +121,15 @@ class ThriceBlessedConflagrationPlaybook(NonComparablePlaybook):
         GenerateAction(position, T, util) + Bucket.AddAction   (argmax STRICT `>`, keep-first au tie)
 
     `IdunBattle.AI.Playbook.Loki.ThriceBlessedConflagrationPlaybook$$.ctor` =
-    `NonComparablePlaybook<T>(0x4a3)` -> 1er arg = ability_id. PRIORITY = 0 (#115 : aucun playbook
-    n'override `get_Priority`).
+    `NonComparablePlaybook<T>(0x4a3)` -> 1er arg = ability_id. PRIORITY = **100**
+    (`AbilityPriority.Early`) : `ThriceBlessedConflagrationPlaybook` SURCHARGE le slot 0 de
+    l'interface IPlaybook. MESURE #170 (sweep exhaustif des 257 ActiveAbilityType, invocation du
+    slot 0 via `pbGate` + voie independante `abilityPreferences`, 0 divergence) ; `get_IsComparable`
+    = False, donc le tier est REELLEMENT exerce -- 1187 est evaluee AVANT toute NonComparable de
+    tier 0 de la meme unite, quelle que soit son utilite. C'est le cas SUR SON PORTEUR :
+    `adeptExorcist` porte AUSSI `DevastatingRefrain` (1188), NonComparable de tier 0 (mesure). Le 0
+    pose par #115 etait un FAUX NEGATIF de methode (corps `mov eax,0x64 ; ret` deduplique par
+    IL2CPP, invisible a un grep de symboles).
 
     - cible = une UNITE ALLIEE (le buff `ThriceBlessedConflagration_ExtraPctDamage` 1401 /
       `_RangedExtraPctDamage` 1436 se pose sur elle) ; le DEGAT part sur la ligne d'ennemis issue de
@@ -143,7 +150,7 @@ class ThriceBlessedConflagrationPlaybook(NonComparablePlaybook):
         multi-tuiles confronte)."""
     ABILITY_ID = int(ActiveAbilityType.ThriceBlessedConflagration)   # 0x4a3 = 1187
     MIN_UTILITY = 1.0     # `ThriceBlessedConflagrationPlaybook$$.cctor` = Fix64.FromInt(1)
-    PRIORITY = 0
+    PRIORITY = native_priority(1187)   # 100 = AbilityPriority.Early (surcharge mesuree, #170)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         # PAS de gate `ctx.origin is None` (contraste DarkTalonStrike, dont l'angle a besoin du

@@ -38,7 +38,7 @@ class SendInTheNextWavePlaybook(NonComparablePlaybook):
     - cible = argmax Attack parmi les ennemis eligibles (`abilityTargets`), keep-first au tie ; emise SSI
       son Attack >= MIN (== max global). Sinon aucun candidat.
     - position = `_first_cast_pos` (origine-preference #76 : cast en place si castable, sinon 1re tuile de
-      move d'ou la cible est castable). PRIORITY=0 (#115). IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$.ctor = `NonComparablePlaybook(0x3f8)`.
+      move d'ou la cible est castable). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$.ctor = `NonComparablePlaybook(0x3f8)`.
     - ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=Fix64(1) -> True constant ; pas d'override)."""
     ABILITY_ID = int(ActiveAbilityType.SendInTheNextWave)  # 1016
     MIN_UTILITY = 0.0     # DYNAMIQUE (GetHighestEnemyAttackStat) -> calcule dans generate_candidates

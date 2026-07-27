@@ -37,7 +37,7 @@ class FoulInfusionPlaybook(NonComparablePlaybook):
       d'amis (filtre trait Nurgle 0x7ea) vient de `abilityTargets` (natif) -> pas de trait code en dur.
     - cible = SOI (`ctx.uid`) = param_2 du GenerateAction (le caster). VALIDE LIVE (miss tgt=91=self).
     - MIN_UTILITY=2 ; sweep `_sweep_origin_first` (origine d'abord, argmax STRICT `>`) -> reste en place au
-      tie (comme les heals #76). IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.ctor = `NonComparablePlaybook(0x40e)` ; PRIORITY=0 (#115)."""
+      tie (comme les heals #76). IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.ctor = `NonComparablePlaybook(0x40e)` ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.FoulInfusion)  # 1038
     MIN_UTILITY = 2.0     # IdunBattle.AI.Playbook.Loki.FoulInfusionPlaybook$$.cctor = Fix64.FromInt(2) -> gate effectif #amis-adj(self exclu) >= 2
     PRIORITY = 0

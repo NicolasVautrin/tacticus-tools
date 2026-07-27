@@ -42,7 +42,9 @@ class GauntletsOfUltramarPlaybook(NonComparablePlaybook):
       IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$.cctor ; le compte total = `Enemies(Entity(unit), AllAliveMachines@+0x80, 2)`
       board-WIDE. => Gauntlets ne caste QUE si son compte atteint `min(3, #ennemis restants)`.
     - IdunBattle.AI.Playbook.Loki.GauntletsOfUltramarPlaybook$$.ctor = `NonComparablePlaybook(1000)` : 1er arg = ABILITY_ID (PAS priorité) ; aucun
-      `get_Priority` override -> PRIORITY=0 (défaut). [#115 : 1er arg ctor = ability_id, confirmé ici.]
+      `get_Priority` override -> PRIORITY=0 (défaut `AbilityPriority.Normal` ; 1000 est hors
+      `NATIVE_PRIORITY`, sweep exhaustif #170 — le ctor ne porte JAMAIS la priorité, seul un override
+      du getter la change).
     - POSITION (#117) : sweep ORIGINE D'ABORD (`_sweep_origin_first`) + remplacement STRICT `>`
       (Bucket.AddAction keep-first IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction, NullPosition toujours évaluée) => à ÉGALITÉ d'arc le caster
       CASTE EN PLACE (origine), ne BOUGE que sur gain STRICT. Mirror #76/#80. VALIDÉ LIVE (natif (3,5)=(4,5)

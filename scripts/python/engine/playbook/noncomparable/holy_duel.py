@@ -57,7 +57,7 @@ class HolyDuelPlaybook(NonComparablePlaybook):
       Attack parmi les ennemis eligibles (`abilityTargets`), keep-first au tie.
     - MIN_UTILITY=0 (IdunBattle.AI.Playbook.Loki.HolyDuelPlaybook$$.ctor = `NonComparablePlaybook(0x41a)` SANS min ; Attack > 0 toujours admise).
     - position : util POSITION-INDEPENDANTE -> 1re tuile d'ou la cible est castable (origine-preference
-      #76 via `cast_from_tiles`). VALIDE LIVE (cast in-place a origine). PRIORITY=0 (#115)."""
+      #76 via `cast_from_tiles`). VALIDE LIVE (cast in-place a origine). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170)."""
     ABILITY_ID = int(ActiveAbilityType.HolyDuel)  # 1050
     MIN_UTILITY = 0.0     # ctor NonComparablePlaybook(0x41a) sans min -> 0 ; util = Attack (toujours > 0)
     PRIORITY = 0

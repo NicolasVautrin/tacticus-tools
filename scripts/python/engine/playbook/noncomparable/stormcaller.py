@@ -23,7 +23,7 @@ class StormcallerPlaybook(_PlanTargetPlaybook):
     - zone = `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$GetAddIceTiles` = `AdjacentTiles(Target) + Target` = la tuile
       de la cible + son ring-1. `AdjacentTiles` passe par `IterateAdjacentTiles` -> porte d'elevation
       `|delta elev| < 2` (cf. `bq.is_adjacent`).
-    - `MIN_UTILITY` = champ statique [0] du cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115). Le gate
+    - `MIN_UTILITY` = champ statique [0] du cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). Le gate
       MIN est structurellement toujours passe (la cible vivante est elle-meme dans la zone) -> le SEUL
       gate discriminant est `WillNormalAttackKill`.
 

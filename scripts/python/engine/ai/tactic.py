@@ -9,12 +9,18 @@ Ordre natif (RE confirmé, cf. action_generators.py) : le flag `slot1` sépare N
 -> `dict[get_Priority]` de Comparable (slot1=TRUE, attaque normale incluse) -> OrderedSet `special`.
 `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators` construit :
   `[ NC(1000), NC(100), NC(0), NC(-100), NC(-1000), Comparable(special), Movement ]`.
-Notre port MIRRORE cet ordre exact. #115 (RE gqfc5mff6c) : AUCUN playbook n'override `get_Priority`
-(interface slot-0, dispatch `FUN_180002560(0,...)` IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists) -> les 15 NonComparable portées
-partagent TOUTES le tier de base = 0 -> seul `NC(0)` tire côté NC. Les 5 tiers restent présents
-structurellement (mirror du natif), mais l'ordre inter-tier NC n'est jamais exercé (un seul tier peuplé) ;
-à l'intérieur de `NC(0)`, deux NonComparable d'une même unité se départagent par UTILITÉ (argmax
-`choose_action`), PAS par un tier fabriqué (l'ancien NovaBoost=1000/NovaShield=-1000 = idun.tests.TestLegendaryEventProgression$$GetLiveEventState+0x40 stale)."""
+Notre port MIRRORE cet ordre exact. **22 des 257 ActiveAbilityType ont un tier `get_Priority` ≠ 0**
+(interface slot-0, dispatch `FUN_180002560(0,...)` IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists) — table
+`engine.playbook.noncomparable.NATIVE_PRIORITY`, mesurée par sweep exhaustif (#170). Trois sont
+portées : NovaBoost 1192 = 1000, ThriceBlessedConflagration 1187 = 100, NovaShield 1194 = -1000 ;
+les autres playbooks portés héritent du défaut 0. Les 5 tiers sont donc RÉELLEMENT exercés dès
+qu'une unité porte l'une des 22 ; à l'intérieur d'un tier, deux NonComparable d'une même unité se
+départagent par UTILITÉ (argmax `choose_action`).
+
+⚠ L'affirmation antérieure « AUCUN playbook n'override `get_Priority` » (#115) était un FAUX NÉGATIF
+de méthode : les corps `mov eax,imm32 ; ret` sont dédupliqués par IL2CPP, donc invisibles à une
+recherche de symboles Ghidra et réduits à un seul propriétaire dans `methods.tsv` (indexé par RVA).
+Cf. la note complète en tête de `engine/playbook/noncomparable/_base.py`."""
 from __future__ import annotations
 
 from engine.ai.action_generators import (

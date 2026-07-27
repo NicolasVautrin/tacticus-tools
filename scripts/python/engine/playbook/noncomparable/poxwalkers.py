@@ -24,7 +24,7 @@ class SpawnPoxwalkersPlaybook(NonComparablePlaybook):
     - position : utilite POSITION-INDEPENDANTE (1.5 partout ou self est eligible = toute position) ->
       `Bucket.AddAction` keep-first au tie -> 1re position du sweep = ORIGINE -> cast EN PLACE (to=None).
       VALIDE LIVE (natif caste 1040 sur place a (1,2)=origine ; ncEvaluate n'a que la position courante).
-    - IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.ctor = `NonComparablePlaybook(0x410)` -> 1er arg = ability_id ; PRIORITY=0 (defaut #115).
+    - IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.ctor = `NonComparablePlaybook(0x410)` -> 1er arg = ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - ShouldEvaluate (base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate) lit `IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$GetUseProbability = GetStat(unit,0xc=TurnsStarted)
       * Fix64.FromIntFraction(1,5)` = TurnsStarted*0.2 : porte ALEATOIRE (prob>=1 <=> turnsStarted>=5 ->
       True deterministe ; sinon tirage RNG). Comme BlackRage/ItItches (#44 §5), la porte RNG N'EST PAS

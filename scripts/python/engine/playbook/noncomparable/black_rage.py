@@ -20,7 +20,7 @@ class BlackRagePlaybook(_PlanTargetPlaybook):
       `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent` (= `prob x ForDamagePrediction`, composite
       Damage case 0x22). Porte via `make_normal_attack_predictions` (meme chemin PredictAttack normal
       que `WillNormalAttackKill`) + `calculate_utility_from_damage_event`.
-    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$.cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (#115).
+    - `MIN_UTILITY` = IdunBattle.AI.Playbook.Loki.BlackRagePlaybook$$.cctor = `Fix64.FromInt(1)` ; `PRIORITY`=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - Le COUT de l'ability (Lucien tombe a 50% PV, `GetSetHealthBehaviour`) N'ENTRE PAS dans l'utilite :
       le natif n'emet AUCUN event self-negatif ici (contrairement au chemin Comparable `GetHealthToLose`).
 

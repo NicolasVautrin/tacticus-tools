@@ -10,7 +10,7 @@ from ._base import NCContext, NonComparablePlaybook, _traits, _turns_started_gat
 class HeroicFusilladePlaybook(NonComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.HeroicFusilladePlaybook$$EvaluateNonComparable` (id 0x49c=1180, Judh genesKelermorph).
     NonComparable (IdunBattle.AI.Playbook.Loki.HeroicFusilladePlaybook$$.ctor = `NonComparablePlaybook(0x49c)`). IdunBattle.AI.Playbook.Loki.HeroicFusilladePlaybook$$.cctor : MIN_UTILITY=1.
-    PRIORITY=0 (aucun override get_Priority, #115).
+    PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
 
     Utilité CONSTANTE = `Fix64.FromInt(1)` par cible éligible qui passe DEUX gates (VA IdunBattle.AI.Playbook.Loki.HeroicFusilladePlaybook$$EvaluateNonComparable) :
       - gate1 `HasTrait(item.entity, 0x10=Hero)` — la cible est un Héros (en arène quasi tous les

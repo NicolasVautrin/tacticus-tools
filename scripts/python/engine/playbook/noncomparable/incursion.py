@@ -43,7 +43,7 @@ class IncursionPlaybook(NonComparablePlaybook):
     - gate par cible = `adjacent_addable_count(pos-cible) >= 2` (primitive ScarabHive : GetAdjacentTiles ∩
       CanAddUnit, occupation = epos U fpos U origine). cibles sans >= 2 tuiles libres SAUTEES.
     - cible = argmax PV parmi les eligibles passant le gate, keep-first ; emise SSI PV >= MIN (== max global).
-    - position = `_first_cast_pos` (origine-preference #76). PRIORITY=0 (#115). IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$.ctor =
+    - position = `_first_cast_pos` (origine-preference #76). PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170). IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$.ctor =
       `NonComparablePlaybook(0x3fd)`. ShouldEvaluate = base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate (GetUseProbability=1 -> True)."""
     ABILITY_ID = int(ActiveAbilityType.Incursion)  # 1021
     MIN_UTILITY = 0.0     # DYNAMIQUE (GetHighestUtility) -> calcule dans generate_candidates
