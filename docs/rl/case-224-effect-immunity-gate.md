@@ -187,11 +187,15 @@ plus le mirror LITTÉRAL de l'`ActiveCondition` (utile pour un `Pinned` SEEDÉ).
    trancherait : un hook sur `AddEffectOperation$$Execute` lisant la valeur de retour du slot 40 sur
    l'effet-DEF, ou sur `BaseUnitComponent$$HasTrait` (arg + résultat) pour la cible ; l'un ou l'autre
    dit en une mesure si `HasTrait(abaddon, 25)` est vrai en runtime. Impossible sans réinjection.
-2. **Chaîne `&` derrière un `AddEffect` refusé** : live, sur `blackAbaddon`, toute la branche Chaos
-   d'`ExemplarOfHate` (Pinned + override d'Attack + attaque libre) est absente et `mutated = False`,
-   alors que le port continue la chaîne. **CONFOND non éliminé** : l'élection d'attaquant DarkAngels
-   à portée n'a pas pu être forcée (le déplacement de l'allié comme celui de la cible ont été refusés
-   par le runner sur ce board). Non asserté dans les tests, non porté.
+2. ~~**Chaîne `&` derrière un `AddEffect` refusé**~~ — **CLOS le 2026-07-27, le résidu était un
+   CONFOND** (`case-n5-chain-after-refused-addeffect.md`). L'abandon s'arrête à l'OPÉRATION : il ne
+   remonte ni à l'itération du sélecteur-cible ni au combinateur. `AddEffectBehaviour$$Execute` jette
+   la valeur de retour de l'opération et rend un `OperationResult` zéro-initialisé, que
+   `CombinedBehaviour$$Execute` lit comme « ne pas court-circuiter ». La branche Chaos paraissait
+   absente parce qu'**aucun DarkAngels n'était à portée** — avec le camp joueur DÉPLOYÉ au contact,
+   `Pinned` est refusé ET l'override + l'attaque libre s'exécutent (cible 10038 → 7442 HP). Le port
+   était donc déjà conforme ; c'est le commentaire d'`operations/effects.py` qui était faux (corrigé),
+   et une garde live verrouille désormais les deux sens.
 3. **5 des 7 classes `CanBeImmuneTo == true` ne sont pas portées** (§1.3) : tant qu'elles n'ont pas de
    classe côté port, `effect_def` rend `BaseEffect` ⇒ jamais immune. Inoffensif (aucune unité du
    roster ne porte `Immune`), à reprendre au portage de ces effets de tuile.

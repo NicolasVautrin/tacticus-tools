@@ -139,10 +139,18 @@ class AddEffectOperation:
         # `IEffect` slot 40 ; le MÊME appel qu'expose `IdunBattle.Core.Services.BattleQuery$$IsUnitImmuneTo`).
         # PLACEMENT = celui du natif : APRÈS le message pre-add 0x3e et le gate cible-nulle, AVANT le gate
         # cible-MORTE et AVANT toute matérialisation. Vrai ⇒ `return 0` : aucune entité-effet, aucun
-        # événement d'ajout — et, pour un vecteur qui chaîne (`op_add`/`&`), la suite de la chaîne tombe
-        # avec (GROUND TRUTH #224 : la branche Chaos entière d'`ExemplarOfHate` est absente sur une cible
-        # `TerminatorArmour`). Le PRÉDICAT est DÉCLARATIF, porté par la classe d'effet
+        # événement d'ajout. Le PRÉDICAT est DÉCLARATIF, porté par la classe d'effet
         # (`BaseEffect.entity_is_immune_to_effect` + surcharges) — jamais recâblé ici.
+        # ⚠ L'ABANDON S'ARRÊTE À CETTE OPÉRATION — il ne remonte NI à l'itération du sélecteur-cible NI
+        # au combinateur parent. `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` JETTE la
+        # valeur de retour (appel via le slot 0x10 du processeur) et rend un `OperationResult`
+        # zéro-initialisé, que `IdunBattle.DSL.CombinedBehaviour$$Execute` lit comme « ne pas
+        # court-circuiter » (byte @+0x20). Une chaîne `op_add`/`&` derrière un `AddEffect` refusé
+        # CONTINUE donc — MESURÉ (N5, `probe_n5_chain_after_refused_addeffect.py`) : `ExemplarOfHate`
+        # sur `blackAbaddon` (`TerminatorArmour`, caster au contact) → `Pinned` refusé MAIS override
+        # d'Attack + attaque libre + retrait exécutés, cible 10038 → 7442 HP. L'ancienne lecture
+        # inverse (case-224 §5.2, « la branche Chaos entière est absente ») était un CONFOND : aucun
+        # attaquant DarkAngels n'était à portée dans ce montage.
         if entity_is_immune_to_effect(state, target, effect_type, name=name):
             return None
         if state.effects is None:
