@@ -146,22 +146,43 @@ gate FUN_18004cc80       :  action != null && (minUtilityDifference absent OU U 
 >
 > **Carte des tiers (sweep 0..1300, gqfc5mff6c)** — **seules 22 abilities / 1300 ont un tier ≠ 0** :
 >
+> > ✅ **RE-MESURÉE ET CONFIRMÉE par #170** (2026-07-27), par une voie INDÉPENDANTE de celle qui
+> > l'avait produite : invocation directe du **slot 0 de la vtable d'interface** (`pbGate`,
+> > `probe_170_playbook_priority.py`) sur les **257 valeurs de l'enum `ActiveAbilityType`** (et non
+> > une plage 0..1300 arbitraire — 1230 est le plus grand id de production, au-delà il n'y a que les
+> > `Test*` 9001..9018 et `STRIPPED`). **0 divergence sur 257** entre `pbGate` et
+> > `abilityPreferences`. Les 22 sont **toutes NonComparable** (`get_IsComparable` slot 1 lu sur AL
+> > = False) — donc leur tier est réellement exercé. Trois d'entre elles ont en outre été vérifiées
+> > **aux octets** : `TzeentchsFirestormPlaybook.get_Priority` = `b8 e8 03 00 00 c3`
+> > (`mov eax,0x3E8` → 1000), `SquigMinePlaybook` = `mov eax,0xFFFFFF9C` → -100,
+> > `ReanimationBeamPlaybook` = `mov eax,0xFFFFFC18` → -1000.
+> >
+> > La table vit désormais dans le port : `engine.playbook.noncomparable.NATIVE_PRIORITY`.
+> > ⚠ **Ne jamais la re-dériver d'une recherche de symboles** : ces corps sont dédupliqués par
+> > IL2CPP, Ghidra n'en nomme aucun et `methods.tsv` (indexé par RVA, sans doublon) n'en expose
+> > qu'un propriétaire par corps partagé — c'est ce faux négatif qui avait produit la conclusion
+> > erronée de #115 (« aucun playbook n'override `get_Priority` »).
+>
 > | Priority | # | abilities |
 > |---|---|---|
-> | **0** (défaut) | 1278 | toutes attaques normales + la plupart des dégâts/soins (69, 1171, 1067, 1081, 1129, 1150, 1183…) |
+> | **0** (défaut) | 1278 ids balayés ; **235 valeurs d'enum réelles** (#170) | toutes attaques normales + la plupart des dégâts/soins (69, 1171, 1067, 1081, 1129, 1150, 1183…) |
 > | **1000** | 9 | EreWeGo(1085), BreathOfSilence(1070), DeathScream(1109), ArmouredMight_Move(1127), TzeentchsFirestorm(1155), ArcScourge(1173), NovaBoost(1192), SquigLaunchas(1200), DeathOnTheWind(1213) |
 > | **100** | 4 | Catalyst(1032), GunnersKillOnSight(1125), SolarAtomizer(1174), ThriceBlessedConflagration(1187) |
 > | **-100** | 3 | MacroPlasmaIncinerator(1159), SquigMine(1201), InfernalCannon(1209) |
 > | **-1000** | 6 | MyWillBeDone(1072), DaGreatWaaagh(1084), LivingBatteringRam(1111), InvocationOfMachineVengeance(1172), NovaShield(1194), ReanimationBeam(1223) |
 >
-> ⚠ **Le moteur VIOLE ce modèle** : `engine_decide` fait un **argmax plat** + tie-break codé en dur
-> « **spécial>normal** » — PAS le tier-first-non-null. MAIS **les mismatches seed-777 sont TOUS tier-0**
-> (69, 1171, 1067, 1081, 1129, 1150, 1183 = Priority 0) → **ce ne sont PAS des désaccords de TIER, mais de
-> WITHIN-TIER** : le playbook natif de `1171` (DakkaDakka) a renvoyé NULL (gate bespoke §3.3) OU l'utilité
-> within-tier diffère, alors que le moteur préfère `1171` (spécial>normal). ⇒ le fix ability = **(1)** porter
-> le tier-first-non-null (**table de 22 abilities ≠ 0** ci-dessus, hardcodable — cheap, mais ne corrige QUE
-> les batailles avec ces 22 abilities) **+ (2)** les **gates bespoke par-playbook (§3.3)** = le vrai levier
-> des 30 % (la majorité des abilities étant tier-0). Les deux entremêlés ; (2) domine.
+> **(1) tier-first-non-null : PORTÉ.** `engine.ai.tactic.DefaultAiUnitTactic` construit
+> `[NC(1000), NC(100), NC(0), NC(-100), NC(-1000), Comparable, Movement]` et prend la première action
+> non-nulle ; `choose_action(priority=P)` ne voit que les playbooks de tier `P`. Le mécanisme est
+> gardé par `tests/engine/test_nc_priority_tiers_offline.py` (vu ROUGE sur mutants avant d'être vert).
+> Jusqu'à #170 il était **inerte** : les 35 playbooks portés valaient tous `PRIORITY = 0`, donc un seul
+> tier était peuplé. Trois portent désormais leur vraie valeur (NovaBoost 1192 = 1000,
+> ThriceBlessedConflagration 1187 = 100, NovaShield 1194 = -1000).
+>
+> **(2) gates bespoke par-playbook (§3.3)** = le vrai levier des 30 % de mismatch (la majorité des
+> abilities étant tier-0) — les mismatches seed-777 sont TOUS tier-0 (69, 1171, 1067, 1081, 1129,
+> 1150, 1183) : ce ne sont PAS des désaccords de TIER mais de **WITHIN-TIER** (le playbook natif de
+> `1171` DakkaDakka a renvoyé NULL, ou l'utilité within-tier diffère). C'est (2) qui domine.
 
 ### 2.3bis Le GATE par-action (`ShouldExecute`) — RE complet
 

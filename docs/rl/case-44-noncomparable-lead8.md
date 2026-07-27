@@ -9,7 +9,12 @@ déblocage n'était donc pas un décodage d'événement mais un **portage de pla
 ## 1. RE par playbook (décompilé = vérité)
 
 Toutes les `MIN_UTILITY` viennent du `.cctor` du playbook et valent `Fix64.FromInt(1)` ;
-`get_Priority` n'est surchargé par aucun playbook (#115) → `PRIORITY = 0` pour les 5.
+aucune des 5 abilities (1113, 1121, 1151, 1163, 1202) ne figure dans la table
+`engine.playbook.noncomparable.NATIVE_PRIORITY` → `PRIORITY = 0` (`AbilityPriority.Normal`) pour
+les 5. ⚠ La justification originelle (« `get_Priority` n'est surchargé par aucun playbook », #115)
+est FAUSSE et a été corrigée par **#170** : 22 playbooks le surchargent. La valeur 0 de ces cinq-là
+reste juste, mais elle vient désormais d'une **mesure exhaustive** (invocation du slot 0 de la
+vtable d'interface sur les 257 `ActiveAbilityType`), pas d'une généralité.
 Éligibilité commune = `BasePlaybook.GetEligibleTargetsSelectable @18111f0d0` =
 `IBattleQuery` slot `0x41` `GetValidTargets(unit, UnitPosition(position), abilityType)` puis
 `ListExtensions.Remove(<prédicat BasePlaybook>)` → **légalité PAR POSITION**, pas l'union des

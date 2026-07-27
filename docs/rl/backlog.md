@@ -52,6 +52,16 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Le tier `get_Priority` n'est encore *observable* sur aucun porteur** (`case-170-get-priority` §6).
+  22 abilities ont un tier ≠ 0 (`engine.playbook.noncomparable.NATIVE_PRIORITY`), 3 sont portées
+  (NovaBoost 1192 = 1000, ThriceBlessedConflagration 1187 = 100, NovaShield 1194 = -1000), mais
+  **aucune unité ne porte deux NonComparable PORTÉES de tiers différents** — l'ordre inter-tier
+  n'est donc gardé que par un test à playbooks stub, pas par un agrément live. Le débloqueur est
+  nommé : porter **`DevastatingRefrain` 1188** (NonComparable, tier 0 mesuré), la seconde active de
+  `adeptExorcist` qui porte déjà 1187 au tier 100 — le couple devient alors le scénario d'agrément
+  naturel du tier (à cible disponible pour les deux, le natif doit émettre 1187 quelle que soit
+  l'utilité de 1188). Les 19 autres abilities de la table ne sont pas portées. `[opus]`.
+
 - **Le VERDICT du `Maybe` de `LetTheGalaxyBurn` diverge natif/port** (`case-61` §6, mesuré par
   `probe_61d_frenzy_aoe_combat.py`). Depuis que `On(PreAttack=5)` est émis sur le vecteur ability, le
   *tirage* est consommé des DEUX côtés — l'alignement `state.rng` est préservé — mais le prédicat ne
