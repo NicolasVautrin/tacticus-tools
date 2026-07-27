@@ -62,23 +62,38 @@ class MaybeTrigger(AbilityTrigger):
     celui-la ENVELOPPE un behaviour, celui-ci est un PREDICAT compose par `op_BitwiseAnd`/`If`.
 
     Mirror 1:1 de `MaybeTrigger$$ShouldTrigger` :
-        chance = <formule V>.Calculate(entities)                 # ici `ConfigConst(...)`
+        chance = <formule V>.Calculate(entities)                 # ici `ConfigConst(...)` @+0x20
         if (!ANonDeterministicAbilityTrigger.CanUseRandom(this)) return 99 < chance;
         return DisallowablePseudoRNG.NextBool(this.rng@+0x18, chance);
     Le RNG est un CHAMP de l'instance (`+0x18`, pose par la factory depuis `DSLFactory+0x18`), PAS une
-    entree du contexte -> le port le prend AU CONSTRUCTEUR, comme le natif. `rng=None` -> aucun tirage
-    possible : on rend False (no-op documente, meme regime degrade que le noeud EFFET `Maybe`).
-    La branche `CanUseRandom == false` (BC `DisableRandomness`) n'est PAS portee : le runner isole tourne
-    toujours avec le PRNG cale (`state.rng`), et aucun mode offline ne desarme le hasard.
+    entree du contexte -> le port le prend AU CONSTRUCTEUR, comme le natif.
 
-    `chance` = noeud VALEUR (`AAmountFormula`) ou int litteral. UN SEUL `next_bool` par evaluation."""
+    ## `CanUseRandom` (RE `IdunBattle.DSL.ANonDeterministicAbilityTrigger$$CanUseRandom`, O4a)
+        return state@+0x10.IsRandomAllowed && rng@+0x18.IsAllowed@+0x20;
+    Les DEUX facteurs sont lus :
+      - `IdunBattle.Core.IMatchState$$get_IsRandomAllowed` = `!<slot 0xb>` (le state en SIMULATION rend
+        false) ;
+      - `DisallowablePseudoRNG+0x20` = le flag `IsAllowed`, pose a 1 par
+        `IdunBattle.Utils.PRNG.DisallowablePseudoRNG$$.ctor`, mis a 0 par
+        `IdunBattleLogic.Entities.DSLFactory$$SetDisallowRandom` et remis a 1 par
+        `IdunBattleLogic.Entities.DSLFactory$$SetAllowRandom` -- dont l'UNIQUE call-site (xrefs) est
+        `IdunBattle.AI.Playbook.BasePlaybook$$Evaluate`, c.-a-d. l'IA qui EVALUE ses options.
+    Autrement dit `CanUseRandom == false` == **on est du cote DECISION/PREDICTION**, et le natif y
+    substitue au tirage le predicat DETERMINISTE `99 < chance` (donc vrai SSI `chance >= 100`) -- la
+    meme regle que celle deja ground-truthee cote formule de coups (`traits/combat.py` : « Maybe(chance)
+    en PREDICTION : compte SSI chance == 100 »). Cote port, l'absence de PRNG (`rng is None`) EST cette
+    situation : aucun flux de tirages n'est cale, on est hors execution de bataille -> on rend `99 < ch`
+    (mirror), et non plus `False` (l'ancienne degradation, qui divergeait des `chance >= 100`).
+
+    `chance` = noeud VALEUR (`AAmountFormula`) ou int litteral. UN SEUL `next_bool` par evaluation,
+    et AUCUN tirage sur la branche `!CanUseRandom`."""
     def __init__(self, rng, chance):
         self.rng, self.chance = rng, chance
 
     def should_trigger(self, ctx):
-        if self.rng is None:                         # rng non cale -> pas de tirage (no-op documente)
-            return False
         ch = self.chance.evaluate(ctx) if isinstance(self.chance, AAmountFormula) else int(self.chance)
+        if self.rng is None:                         # !CanUseRandom -> `return 99 < chance` (0 tirage)
+            return 99 < int(ch)
         # `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextBool` (1 tirage genrand, cf. prng.py).
         return bool(self.rng.next_bool(int(ch)))
 
