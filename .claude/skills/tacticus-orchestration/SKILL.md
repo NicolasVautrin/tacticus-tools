@@ -541,6 +541,50 @@ adversariale de son PROPRE fix, livraison **PAR PULL REQUEST**) :
   tourné en rond, changer de famille de modèle vaut mieux que relancer le même.
 
 
+## Gabarit de BRIEF — les clauses non négociables
+
+Ce gabarit n'existait qu'implicitement (dans la tête de l'orchestrateur), et il dérivait d'un lot
+à l'autre. Il est posé ici, versionné. Chaque clause vient d'un défaut **mesuré**, pas d'une
+préférence de style.
+
+1. **Le CRITÈRE de décision d'abord** — une question BINAIRE, avant toute méthode. L'agent doit
+   pouvoir dire « oui » ou « non », et savoir ce qui tranche (décompilé, pas expérience live).
+2. **Séparer VÉRIFIÉ et HÉRITÉ, dans la phrase.** Ce que l'orchestrateur a constaté lui-même dans
+   la session (avec `fichier:ligne`) vs ce qu'il recopie d'un autre agent ou d'une fiche. Le second
+   se marque **« hérité, à re-confronter »**.
+   *Pourquoi* : mesuré le 2026-07-27 — **10 briefs sur 11 portaient une prémisse matériellement
+   fausse**, presque toutes recopiées d'un inventaire écrit à un instant donné. L'orchestrateur est
+   le vecteur de transmission ; c'est sur lui que la clause pèse, pas sur l'agent.
+3. **Démentir explicitement une fiche fausse** quand on l'a constaté (« ne cherche pas ce bug, il
+   n'existe pas », avec la ligne réelle en regard). Vécu sur N1 : la fiche allègue une tautologie
+   `own_fac == own_fac` qui n'est pas dans le code.
+4. **Déclarer le TERRITOIRE des agents en vol**, fichier par fichier, et ce qui est LIBRE.
+   *Pourquoi* : c'est la sérialisation en amont qui tient — 13 PR mergées pour **un seul** conflit
+   (une ligne de doc).
+5. **Le montage livré en FIXTURE NOMMÉE ET RÉUTILISABLE**, jamais inline. Le montage (roster,
+   positions drivées, board, seed) est l'unité de valeur réelle, pas le test ; re-crafté à chaque
+   fois, il se perd. Coût marginal nul au moment où l'agent l'écrit, zéro rétro-travail.
+6. **Une garde vue ROUGE avant le fix, par MUTATION adversariale** — casser son propre mécanisme et
+   vérifier que la garde tombe. Message rouge rapporté **verbatim**. Une garde qu'on n'a jamais vue
+   rougir ne prouve rien.
+7. **Mesure, pas argument** : avant/après chiffrés. Et un lot où les deux hypothèses donnent le même
+   résultat ne conclut RIEN — le dire et refaire le montage.
+8. **La PR qui ferme un résidu MET À JOUR SA LIGNE D'INVENTAIRE** (`docs/rl/port-residuals-inventory.md`),
+   dans le même commit.
+   *Pourquoi* : mesuré le 2026-07-28 — les PR #151 et #152 ont chacune fermé une entrée **nominative**
+   de l'inventaire sans y toucher. Un document corrigé uniquement par ses passes de re-confrontation
+   **ment structurellement entre deux passes**, et c'est précisément ce mensonge qui alimente la
+   clause 2. Trente secondes contre une prémisse fausse dans le brief suivant.
+9. **Rebase sur `origin/master` AVANT d'ouvrir la PR, puis RE-JEU des tests** par l'auteur. La
+   divergence, c'est la durée de vie de l'agent (2-3 h), pas la latence de merge.
+10. **Discipline de fin** : écrire tôt (un worktree propre est auto-supprimé à la pause et l'agent
+    repart dans l'arbre principal sans le savoir) ; ne jamais injecter ni redémarrer le host ; ASCII
+    strict en sortie console ; citer les symboles Ghidra, jamais une VA absolue.
+
+**Côté orchestrateur, après un merge** : la tranche à rejouer est celle qui **OBSERVE** le
+comportement changé, pas celle que l'auteur cite. (Vécu : #138 mergée sur un rouge — le test qui
+encodait l'ancien comportement était dans une autre tranche.)
+
 ## Références chargées avec ce skill
 
 <!-- Conventions des hooks : ne sert QUE si on edite frida/hooks/* — pas au portage Python. -->
