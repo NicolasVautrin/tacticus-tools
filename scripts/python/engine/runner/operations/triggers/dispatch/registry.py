@@ -74,6 +74,7 @@ from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch
 from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
                                  CosmicHorrorOnMoveAbility)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
+from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -262,6 +263,16 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `On(PreUnitMove=31)`, un effet portant une TUILE et un revive NON in-place
     # (case-66-revive-in-place.md §8.2). Cf. loki/time_flux.py.
     "TimeFlux": [TimeFluxRegenAbility],
+    # BarbedOvipositor (passif `tyranParasite` << Parasite of Mortrex >>) = `On(0=UnitDeath) &
+    # OwnerIsActor & AreEnemies & Not(IsObjectOrSteppable(target)) & Not(TriggeringAbilityIs(
+    # TriggeredAbilityType.ItsGonnaBlow=1080)) & Not(HasTrait(target, 5=Mechanical))` -> `Spawn(owner,
+    # PickRandomly(CanAddUnit(Tiles(target)),1).Otherwise(PickRandomly(CanAddUnit(AdjacentTiles(
+    # target)),1)), "tyranSmnRipperSwarm", WithStatsFromConfig)` : chaque kill QUALIFIANT du Parasite
+    # pose un Ripper Swarm sur l'hex du mort. Aucun cap de summons dans l'arbre natif, AUCUNE
+    # on-appearance (le Ripper n'attaque PAS a l'apparition -- contraste l'actif `ItItches`).
+    # Cf. loki/barbed_ovipositor.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger /
+    # ...$$CreateBehaviour).
+    "BarbedOvipositor": [BarbedOvipositorSummonAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

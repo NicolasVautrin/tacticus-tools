@@ -242,14 +242,17 @@ Re-dérivé au commit courant (`audit_passive_ability_coverage.py`) :
 
 ```
 passifs=207 | enum : TriggeredAbilityType=206, ActiveAbilityType=1
-porte=54  zone-grise=11  gap=142
-confrontables : gap=55  zone-grise=7
-canaux : T=23, O=6, E=35, G=1, X=0, B=3
+porte=55  zone-grise=11  gap=141
+confrontables : gap=54  zone-grise=7
+canaux : T=24, O=6, E=35, G=1, X=0, B=3
 ```
 
-⇒ **55 passifs à porteur confrontable, non portés** (63 la veille — 8 fermés en 24 h par `b8af57a`
-DestroyTheWitch/MartialSuperiority, `5c45389` CosmicHorror/SpiritualLeader, `137ef85`
-RealityUnbound/TimeFlux-regen, `3848490` LionHelm/FearedInterrogator).
+⇒ **54 passifs à porteur confrontable, non portés** (63 l'avant-veille, 55 la veille — 9 fermés par
+`b8af57a` DestroyTheWitch/MartialSuperiority, `5c45389` CosmicHorror/SpiritualLeader, `137ef85`
+RealityUnbound/TimeFlux-regen, `3848490` LionHelm/FearedInterrogator, et **BarbedOvipositor**
+(`tyranParasite`, canal **T**) — summon-on-kill confronté live sur ses DEUX faces : Ripper Swarm sur
+la tuile du mort à **6282 PV** == `WithStatsFromConfig` (L50 ×180 %), et **0 summon** sur une victime
+`Mechanical`. La cadence de fermeture de ce gisement est donc de l'ordre de 4-5/jour.
 
 L'angle mort est **structurel** et vaut d'être répété : un passif n'est PAS une active non castable,
 c'est une `TriggeredAbilityType` — un objet d'un AUTRE enum. `audit_combat_ability_coverage.py`

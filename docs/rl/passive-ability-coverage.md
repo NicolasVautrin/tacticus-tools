@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **207/207 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1964 assignations ecartees dans 262 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (6035 symboles distincts) de la PROSE (2858 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1964 assignations ecartees dans 274 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (6067 symboles distincts) de la PROSE (2895 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, move, playbook, predict, runner, services, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -62,22 +62,21 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 123 / npc 481 / summons 65) : **207**
-- **PORTES** (>=1 canal structurel) : **54** (26 %)
+- **PORTES** (>=1 canal structurel) : **55** (27 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **11**
-- **GAPS** (mention seule + absent) : **142** = 43 mention + 99 absent
-- Passifs portes par >=1 unite **confrontable** : **116** ; parmi eux, **55 gaps** et **7 zone-grise** -> c'est la FILE reelle.
+- **GAPS** (mention seule + absent) : **141** = 46 mention + 95 absent
+- Passifs portes par >=1 unite **confrontable** : **116** ; parmi eux, **54 gaps** et **7 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=23, **O**=6, **E**=35, **G**=1, **X**=0, **B**=3
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=24, **O**=6, **E**=35, **G**=1, **X**=0, **B**=3
 
 ## Tableaux par valeur
 
 Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif non couvert porte par une unite spawnable vaut plus qu'un passif npc-seul.
 
-### GAPS **confrontables** -- non couverts ET portes par une unite spawnable (55)
+### GAPS **confrontables** -- non couverts ET portes par une unite spawnable (54)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
 |---|---|---|---|---|---|---|
-| BarbedOvipositor | L+=1 N=6 | tyranParasite | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateBehaviour` |
 | Boltstorm | L+=1 N=3 | templAggressor | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility` |
 | CamoCloak | L+=1 S?=1 N=5 | ultraEliminatorSgt | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Active.Loki.CamoCloakAbility$$CreateBehaviour` |
 | ChampionOfTheFeast | L+=1 N=3 | templSwordBrother | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateBehaviour` |
@@ -155,7 +154,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | BattleFocus | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | BossEndFightUndefeated | N=2 | - | GAP-MENTION | **.** | - |
 | Bounce | N=2 | - | GAP-ABSENT | - | - |
-| CallInReinforcements | S?=1 N=1 | - | GAP-ABSENT | - | - |
+| CallInReinforcements | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | CloudOfFlies | N=1 | - | GAP-MENTION | **.** | - |
 | Conceal | N=1 | - | GAP-ABSENT | - | - |
 | CrazedFocus | N=1 | - | GAP-ABSENT | - | - |
@@ -179,9 +178,9 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | HealingBalms | L-=1 | - | GAP-MENTION | **.** | - |
 | HeavyBoltPistol | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | HostOfPlagues | N=1 | - | GAP-ABSENT | - | - |
-| HunterOfSouls | S?=1 | - | GAP-ABSENT | - | - |
+| HunterOfSouls | S?=1 | - | GAP-MENTION | **.** | - |
 | HuntersInstincts | N=1 | - | GAP-MENTION | **.** | - |
-| ItsGonnaBlow | N=1 | - | GAP-ABSENT | - | - |
+| ItsGonnaBlow | N=1 | - | GAP-MENTION | **.** | - |
 | Lifewards | S?=1 | - | GAP-MENTION | **.** | - |
 | LivingLightning | L-=1 N=5 | - | GAP-ABSENT | - | - |
 | MischiefMakers | S?=1 N=1 | - | GAP-ABSENT | - | - |
@@ -246,7 +245,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | VoltagheistField | S?=1 N=2 | - | ZONE-GRISE | **R** | predict |
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 
-### PORTES (54)
+### PORTES (55)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -255,6 +254,7 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 | ArcaneShield | L+=1 N=4 | thousSorcerer | PORTE | **T**=ArcaneShieldAbility | runner |
 | AstartesBanner | L+=1 N=3 | templAncient | PORTE | **E**=AstartesBanner_ExtraHit | effects |
 | AvalancheOfMuscle | L+=1 N=4 | astraBullgryn | PORTE | **E**=AvalancheOfMuscle_ExtraDamage | effects |
+| BarbedOvipositor | L+=1 N=6 | tyranParasite | PORTE | **T**=BarbedOvipositorSummonAbility | runner |
 | BeaconOfRage | L+=1 N=1 | worldEightbound | PORTE | **E**=BeaconOfRage_ExtraDamage,BeaconOfRage_FriendlyExtraDamage | effects |
 | CondemnorStake | L+=1 N=3 | adeptCanoness | PORTE | **E**=CondemnorStake_ExtraDmg | effects |
 | ControlEdict | L+=1 N=5 | admecMarshall | PORTE | **T**=ControlEdictAbility | playbook, runner |
@@ -307,65 +307,64 @@ Tri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. Un passif
 
 ## FILE DISPATCHABLE
 
-Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 porteur `L+`/`M`/`S+`) : **55 items**. Le symbole natif est resolu PAR NOM dans `data/symbols/<build>/frida/methods.tsv` -- **a confirmer en ghidra avant tout port** (`search_symbols_by_name`), ce n'est pas une preuve d'existence de la mecanique.
+Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 porteur `L+`/`M`/`S+`) : **54 items**. Le symbole natif est resolu PAR NOM dans `data/symbols/<build>/frida/methods.tsv` -- **a confirmer en ghidra avant tout port** (`search_symbols_by_name`), ce n'est pas une preuve d'existence de la mecanique.
 
 | # | passif | porteurs spawnables | ventilation | verdict | symbole natif (a confirmer) |
 |---|---|---|---|---|---|
-| 1 | **BarbedOvipositor** | tyranParasite | L+=1 N=6 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateBehaviour` |
-| 2 | **Boltstorm** | templAggressor | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility` |
-| 3 | **CamoCloak** | ultraEliminatorSgt | L+=1 S?=1 N=5 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.CamoCloakAbility$$CreateBehaviour` |
-| 4 | **ChampionOfTheFeast** | templSwordBrother | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateBehaviour` |
-| 5 | **CursedPlagueBell** | deathBlightbringer | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$CreateBehaviour` |
-| 6 | **Deathwing** | darkaTerminator | L+=1 N=2 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DeathwingAbility$$CreateBehaviour` |
-| 7 | **EnmityForTheUnworthy** | darkaCompanion | L+=1 N=2 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnmityForTheUnworthyAbility$$CreateBehaviour` |
-| 8 | **FirstAmongTraitors** | blackAbaddon | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.FirstAmongTraitorsAbility` |
-| 9 | **FuelledByFury** | ultraTitus | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour` |
-| 10 | **GrimRetribution** | darkaHellblaster | L+=1 N=2 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimRetributionAbility` |
-| 11 | **HatefulAssault** | blackTerminator | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.HatefulAssaultAbility$$CreateBehaviour` |
-| 12 | **HazeOfCorruption** | deathBlightlord | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` |
-| 13 | **HeadClaimer** | blackHaarken | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
-| 14 | **InescapableAccuracy** | eldarMauganRa | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracyAbility$$CreateBehaviour` |
-| 15 | **InescapableDeath** | necroDestroyer | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
-| 16 | **KustomForceFieldReworked** | orksBigMek | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KustomForceFieldReworkedAbility$$CreateBehaviour` |
-| 17 | **LegacyOfCombat** | custoBladeChampion | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
-| 18 | **LegendaryCommander** | custoTrajann | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
-| 19 | **LightImUp** | orksWarboss | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility$$CreateBehaviour` |
-| 20 | **MedicusMinistorum** | adeptHospitaller | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.MedicusMinistorumAbility$$CreateBehaviour` |
-| 21 | **ObsessiveAnnunciation** | emperKakophonist | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObsessiveAnnunciationAbility` |
-| 22 | **OptimizedGait** | admecRuststalker | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
-| 23 | **Possession** | blackPossession | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.PossessionAbility$$CreateBehaviour` |
-| 24 | **PsychicStalk** | thousAhriman | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` |
-| 25 | **RelentlessMarch** | necroWarden | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.RelentlessMarchAbility$$CreateBehaviour` |
-| 26 | **SagaOfTheWarriorBorn** | spaceBlackmane | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_InitAbility` |
-| 27 | **SanguinaryPriest** | bloodSanguinary | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SanguinaryPriestAbility$$CreateBehaviour` |
-| 28 | **SavageKiller** | spaceWulfen | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SavageKillerAbility$$CreateBehaviour` |
-| 29 | **SereneUnifier** | tauAunShi | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility$$CreateBehaviour` |
-| 30 | **ShockAssault** | ultraInceptorSgt | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.ShockAssaultAbility$$CreateBehaviour` |
-| 31 | **Skullsmasher** | worldJakhal | L+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Skullsmasher_TriggerStunAbility$$CreateBehaviour` |
-| 32 | **StructuralAnalyser** | tauDarkstrider | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` |
-| 33 | **SummaryExecution** | astraYarrick | L+=1 N=6 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.SummaryExecutionAbility$$CreateBehaviour` |
-| 34 | **SynapticLinchpin** | tyranWingedPrime | L+=1 N=7 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility$$CreateBehaviour` |
-| 35 | **TerrorsLament** | eldarJainZar | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrorsLamentAbility$$CreateBehaviour` |
-| 36 | **ToughToKill** | astraDreir | L+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ToughToKill_CritAbility` |
-| 37 | **TrophyTaker** | worldExecutions | L+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TrophyTakerAbility$$CreateBehaviour` |
-| 38 | **UnwaveringSentinel** | custoKyrus | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.UnwaveringSentinelAbility$$CreateBehaviour` |
-| 39 | **VisionsOfHeresy** | bloodDeathCompany | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VisionsOfHeresy_AttackAbility$$CreateBehaviour` |
-| 40 | **WireweaveNet** | eldarRanger | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WireweaveNetAbility$$CreateBehaviour` |
-| 41 | **WrathfulDevotion** | worldTerminator | L+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WrathfulDevotionAbility$$CreateBehaviour` |
-| 42 | **AdrenalGlands** | tyranNpc1Hormagaunt, tyranSmnHormagaunt | S+=2 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdrenalGlandsAbility` |
-| 43 | **HungeringSwarm** | tyranNpc1Hormagaunt, tyranSmnHormagaunt | S+=2 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.HungeringSwarmAbility` |
-| 44 | **ReanimationProtocols** | necroSmnSwarm, necroSmnWarrior | S+=2 S?=1 N=6 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationProtocolsAbility$$CreateBehaviour` |
-| 45 | **AncientFury** | ultraSmnDreadnought | S+=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
-| 46 | **CursedOfTheWalkingPox** | deathPoxwalker | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility$$CreateBehaviour` |
-| 47 | **FlamesOfMutation** | thousSmnBlueHorror | S+=1 S?=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FlamesOfMutationAbility$$CreateBehaviour` |
-| 48 | **FloatingDeath** | tyranSmnSporeMine | S+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_InitAbility$$CreateBehaviour` |
-| 49 | **FragLance** | astraSmnDeathRider | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FragLanceAbility` |
-| 50 | **Hypermorph** | genesSmnAberrant | S+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypermorphAbility$$CreateBehaviour` |
-| 51 | **Ramshackle** | orksGrotTank | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RamshackleAbility` |
-| 52 | **RedThirst** | bloodSmnIntercessor | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` |
-| 53 | **ReinforcedHiveNode** | tyranSmnWarrior | S+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ReinforcedHiveNodeAbility$$CreateBehaviour` |
-| 54 | **Split** | thousSmnPinkHorror | S+=1 S?=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility$$CreateBehaviour` |
-| 55 | **UnstoppableFerocity** | blackSmnBloodletter | S+=1 S?=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableFerocityAbility` |
+| 1 | **Boltstorm** | templAggressor | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility` |
+| 2 | **CamoCloak** | ultraEliminatorSgt | L+=1 S?=1 N=5 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.CamoCloakAbility$$CreateBehaviour` |
+| 3 | **ChampionOfTheFeast** | templSwordBrother | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateBehaviour` |
+| 4 | **CursedPlagueBell** | deathBlightbringer | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$CreateBehaviour` |
+| 5 | **Deathwing** | darkaTerminator | L+=1 N=2 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DeathwingAbility$$CreateBehaviour` |
+| 6 | **EnmityForTheUnworthy** | darkaCompanion | L+=1 N=2 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnmityForTheUnworthyAbility$$CreateBehaviour` |
+| 7 | **FirstAmongTraitors** | blackAbaddon | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.FirstAmongTraitorsAbility` |
+| 8 | **FuelledByFury** | ultraTitus | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour` |
+| 9 | **GrimRetribution** | darkaHellblaster | L+=1 N=2 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimRetributionAbility` |
+| 10 | **HatefulAssault** | blackTerminator | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.HatefulAssaultAbility$$CreateBehaviour` |
+| 11 | **HazeOfCorruption** | deathBlightlord | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` |
+| 12 | **HeadClaimer** | blackHaarken | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.HeadClaimerAbility$$CreateBehaviour` |
+| 13 | **InescapableAccuracy** | eldarMauganRa | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.InescapableAccuracyAbility$$CreateBehaviour` |
+| 14 | **InescapableDeath** | necroDestroyer | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility` |
+| 15 | **KustomForceFieldReworked** | orksBigMek | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KustomForceFieldReworkedAbility$$CreateBehaviour` |
+| 16 | **LegacyOfCombat** | custoBladeChampion | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegacyOfCombatAbility$$CreateBehaviour` |
+| 17 | **LegendaryCommander** | custoTrajann | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour` |
+| 18 | **LightImUp** | orksWarboss | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility$$CreateBehaviour` |
+| 19 | **MedicusMinistorum** | adeptHospitaller | L+=1 N=3 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.MedicusMinistorumAbility$$CreateBehaviour` |
+| 20 | **ObsessiveAnnunciation** | emperKakophonist | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObsessiveAnnunciationAbility` |
+| 21 | **OptimizedGait** | admecRuststalker | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
+| 22 | **Possession** | blackPossession | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.PossessionAbility$$CreateBehaviour` |
+| 23 | **PsychicStalk** | thousAhriman | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PsychicStalk_ApplyFireTileAbility$$CreateBehaviour` |
+| 24 | **RelentlessMarch** | necroWarden | L+=1 N=5 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.RelentlessMarchAbility$$CreateBehaviour` |
+| 25 | **SagaOfTheWarriorBorn** | spaceBlackmane | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_InitAbility` |
+| 26 | **SanguinaryPriest** | bloodSanguinary | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SanguinaryPriestAbility$$CreateBehaviour` |
+| 27 | **SavageKiller** | spaceWulfen | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SavageKillerAbility$$CreateBehaviour` |
+| 28 | **SereneUnifier** | tauAunShi | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility$$CreateBehaviour` |
+| 29 | **ShockAssault** | ultraInceptorSgt | L+=1 N=3 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.ShockAssaultAbility$$CreateBehaviour` |
+| 30 | **Skullsmasher** | worldJakhal | L+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.Skullsmasher_TriggerStunAbility$$CreateBehaviour` |
+| 31 | **StructuralAnalyser** | tauDarkstrider | L+=1 N=4 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` |
+| 32 | **SummaryExecution** | astraYarrick | L+=1 N=6 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.SummaryExecutionAbility$$CreateBehaviour` |
+| 33 | **SynapticLinchpin** | tyranWingedPrime | L+=1 N=7 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility$$CreateBehaviour` |
+| 34 | **TerrorsLament** | eldarJainZar | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrorsLamentAbility$$CreateBehaviour` |
+| 35 | **ToughToKill** | astraDreir | L+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ToughToKill_CritAbility` |
+| 36 | **TrophyTaker** | worldExecutions | L+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TrophyTakerAbility$$CreateBehaviour` |
+| 37 | **UnwaveringSentinel** | custoKyrus | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.UnwaveringSentinelAbility$$CreateBehaviour` |
+| 38 | **VisionsOfHeresy** | bloodDeathCompany | L+=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VisionsOfHeresy_AttackAbility$$CreateBehaviour` |
+| 39 | **WireweaveNet** | eldarRanger | L+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WireweaveNetAbility$$CreateBehaviour` |
+| 40 | **WrathfulDevotion** | worldTerminator | L+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WrathfulDevotionAbility$$CreateBehaviour` |
+| 41 | **AdrenalGlands** | tyranNpc1Hormagaunt, tyranSmnHormagaunt | S+=2 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdrenalGlandsAbility` |
+| 42 | **HungeringSwarm** | tyranNpc1Hormagaunt, tyranSmnHormagaunt | S+=2 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.HungeringSwarmAbility` |
+| 43 | **ReanimationProtocols** | necroSmnSwarm, necroSmnWarrior | S+=2 S?=1 N=6 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationProtocolsAbility$$CreateBehaviour` |
+| 44 | **AncientFury** | ultraSmnDreadnought | S+=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
+| 45 | **CursedOfTheWalkingPox** | deathPoxwalker | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedOfTheWalkingPoxAbility$$CreateBehaviour` |
+| 46 | **FlamesOfMutation** | thousSmnBlueHorror | S+=1 S?=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FlamesOfMutationAbility$$CreateBehaviour` |
+| 47 | **FloatingDeath** | tyranSmnSporeMine | S+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_InitAbility$$CreateBehaviour` |
+| 48 | **FragLance** | astraSmnDeathRider | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FragLanceAbility` |
+| 49 | **Hypermorph** | genesSmnAberrant | S+=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypermorphAbility$$CreateBehaviour` |
+| 50 | **Ramshackle** | orksGrotTank | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RamshackleAbility` |
+| 51 | **RedThirst** | bloodSmnIntercessor | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` |
+| 52 | **ReinforcedHiveNode** | tyranSmnWarrior | S+=1 N=4 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ReinforcedHiveNodeAbility$$CreateBehaviour` |
+| 53 | **Split** | thousSmnPinkHorror | S+=1 S?=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility$$CreateBehaviour` |
+| 54 | **UnstoppableFerocity** | blackSmnBloodletter | S+=1 S?=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableFerocityAbility` |
 
 > Rappel de dispatch : un passif **`S+`** se confronte en spawnant son **summoner** (qui, lui, est dans le pool) -- ne jamais le classer « non confrontable ». Les `S?` sont a re-qualifier a la main (leur spawn n'est pas exprime dans `constants`).
 
