@@ -131,7 +131,10 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
-    # ArcaneShield (Thaumachus) = bouclier après activation (modélisé after-move quand mover==owner).
+    # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
+    # ArrivedAtFinalTile) & OwnerIsActor & OwnerIsCaster` -> vecteur `arrived_at_final_tile_triggers`
+    # (après son 1er move, OU à la clôture de son tour s'il n'a pas bougé). Cible = `First(SortByFormula(
+    # pool, Sum(3*distance, faction, chaos, owner), ASC), 1)` — score ADDITIF où la distance domine.
     "ArcaneShield": [ArcaneShieldAbility],
     # DecoysAndMisdirection (Isaak genesPrimus, G2) = 2 abilities-triggers step-on-decoy : DamageEnemies
     # (ennemi qui marche sur un decoy allié -> Blast) + BuffFriends (allié -> +582 dmg fin-de-tour + decoy).

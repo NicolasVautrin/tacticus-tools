@@ -128,11 +128,10 @@ def arrived_at_final_tile_triggers(state: State, unit_id: int,
     qui pose lui-même le flag et a DÉJÀ calculé son `newly_arrived` -> il passe
     `gate_already_consumed=True` pour ne pas re-tester un flag qu'il vient de poser.
 
-    Consommateur porté : `SpiritualLeaderAbility` (`On(0x1c) & OwnerIsActor`, passif de `genesMagus`).
-    `ArcaneShieldAbility` écoute le MÊME event côté natif mais reste routée sur `On(4)` (approximation
-    historique documentée dans `loki/arcane_shield.py`) — la migrer sur ce vecteur est un changement de
-    comportement (elle gagnerait le cas « n'a pas bougé ») HORS périmètre de ce port ; flaggé tel quel.
-    No-op si l'unité a déjà le flag (ou n'existe pas)."""
+    Consommateurs portés : `SpiritualLeaderAbility` (`On(0x1c) & OwnerIsActor`, passif de `genesMagus`)
+    et `ArcaneShieldAbility` (`On(0x1c) & OwnerIsActor & OwnerIsCaster`, passif de `thousSorcerer` —
+    MIGRÉE sur ce vecteur, résidu N1 : elle était approximée sur `On(4)` et ratait donc le cas « finit
+    son tour sans avoir bougé »). No-op si l'unité a déjà le flag (ou n'existe pas)."""
     e = state.get_entity(unit_id)
     if e is None:
         return []
