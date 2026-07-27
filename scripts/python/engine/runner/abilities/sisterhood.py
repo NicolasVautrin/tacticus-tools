@@ -18,20 +18,23 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add, op_and, If
-from ...entities.formulas import Count
+from ...entities.formulas import ConditionalAmount, Const as _AmountConst, Count
 from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, Enemies,
                                    FilterContinuous, FixedTileIds, PickFirstN, SortByFormula,
-                                   Subject, Sub, SurroundingTiles, Tiles, TilesBehindInLine, Units,
+                                   Subject, Sub, SurroundingTiles, SurroundingUnits, Tiles,
+                                   TilesBehindInLine, Units, UnitsWithTrait,
                                    TileFromVector, TileUnique, Unobscured, FixedTiles, Union)
-from ...entities.triggers import (Not, AreEnemies, HasFaction, HasUnit, IsAlive, IsAdjacent,
+from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit, IsAlive, IsAdjacent,
                                   TriggerAnd, IsPositionMachineForCurrentPlayer)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
+from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
+from .targeting import TargetingOptions
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
 import hexgeo
@@ -335,6 +338,188 @@ class SkyStrikeAbility(ActiveAbility):
         atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"ability": "SkyStrike", "caster": caster_id, "target": target_id,
                 "move": moved, "attack": atk, "dsl": True}
+
+
+# ============ BrazierOfHolyFire (1041, `adeptCanoness` -- Canoness, HERO Sisterhood) ==============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE ; `AActiveAbility.Execute` PLAIN, aucun `ExecuteAtomic`) :
+#
+#   dmg    = MinMaxDamage(this, entities)                                      # minDmg(0xc)/maxDmg(0xd)
+#   prof   = GetDamageProfile(config@0x60, 0)                                  # constants.damageProfile
+#   hits   = GetNumberOfHits(target@0x178)                                     # cf. ci-dessous
+#   attack = AttackWithAttackDamage( caster@0x160, target@0x178, dmg, prof, hits,
+#                                    AbilityOrEffect(this+0x10 = 0x411 = 1041), <options ZERO> )
+#   fire   = AddEffect( 5 = Fire, AbilityStateReference, TargetTiles@0x190 )   # surcharge 4-ARGS
+#   dae    = UnitsWithTrait( SurroundingUnits(target@0x178, ConfigConst(0x44), 1, 1, 3), 0x3fb, 3 )
+#   mark   = AddEffect( 0x433 = 1075 BrazierOfHolyFire_ExtraDmg, AbilityStateReference,
+#                       source = caster@0x160, targets = dae, TurnsFromRounds(2) )
+#   AActiveAbility.Execute( (attack op_BitwiseAnd fire) op_BitwiseAnd mark, entities )
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetNumberOfHits(u)` (MIRROR,
+# corps INLINE dans ExecuteBehaviour) :
+#   ConditionalAmount( HasTrait(u, 0x3fb = 1019 Daemon),
+#                      ConfigConst(0x32) /*si Daemon*/, ConfigConst(0x2f) /*sinon*/ )
+# -> l'argument passe est `target@0x178` : la CIBLE Daemon prend `nrOfHits_2` coups, sinon `nrOfHits`.
+# (Ordre des arguments de `IdunBattleLogic.Entities.DSLFactory$$ConditionalAmount(cond, ifTrue, ifFalse)`
+#  == celui du port, cf. `entities/formulas.py::ConditionalAmount`.)
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetEffectTargets` = le MEME
+# `dae` (expose pour la preview) -> confirme la lecture du selecteur.
+#
+# CLES DE CONFIG -- les index d'AbilityVariableType sont tranches PAR ELIMINATION, pas devines : la config
+# 1041 n'a que 5 constantes (`damageProfile`, `range`, `range_2`, `nrOfHits`, `nrOfHits_2`) et
+# `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LEVE si la cle manque -> les trois
+# index lus (0x2f, 0x32, 0x44) sont forcement 3 de ces 5 noms. `0x2f = nrOfHits` est ancre par
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits` (RadBombardment n'a QUE
+# `nrOfHits` en config et n'appelle QUE 0x2f) ; `0x32` est donc `nrOfHits_2` (l'autre branche du
+# ConditionalAmount de coups) ; `0x44` est le rayon de `SurroundingUnits`, et le tooltip i2 le NOMME :
+# « ALL Daemons within {[range_2]} hexes of the target » -> `0x44 = range_2`. (Le dump `AbilityVariableType`
+# de `data/symbols/<build>/frida/enums.tsv` ne contient NI `nrOfHits_2` NI `range_2` -- il est incomplet
+# sur cette enum ; on ne s'appuie donc PAS dessus.) `range` et `range_2` valent 2 tous les deux -> le
+# choix est de toute facon numeriquement inerte, mais on lit le BON nom.
+#
+# VOLET 3 = POSE SEULE. `BrazierOfHolyFire_ExtraDmg` (1075) est un effet de VULNERABILITE consomme par le
+# pipeline de degat : `IdunBattle.Entities.Effects.Loki.BrazierOfHolyFire_ExtraDmgEffect$$
+# CreateEffectDamageBonusForAttack` = `ForPercentIncrease( get_OwnerIsTarget,
+# ConditionalAmount(HasTrait(target@0x178, 0x19 = 25 Immune), ConfigVar(0x48 = extraDmgPct_2),
+# ConfigVar(10 = extraDmgPct)) )` (source `AbilityOrEffect(0x411 = 1041)`). Cette PHASE 2 (le +X% encaisse
+# par le porteur) N'EST PAS portee -- l'effet se materialise en `BaseEffect` generique, inerte cote degat.
+# GAP chiffre au backlog ; le CAST, lui, est complet.
+
+BRAZIER_ID = "BrazierOfHolyFire"
+BRAZIER_EXTRA_DMG = int(EffectType.BrazierOfHolyFire_ExtraDmg)      # 0x433 = 1075
+FIRE = int(EffectType.Fire)                                         # 5
+TRAIT_DAEMON = int(UnitTrait.Daemon)                                # 0x3fb = 1019
+
+
+def brazier_effect_targets(range_2: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetEffectTargets`
+    (MIRROR 1:1) = `UnitsWithTrait( SurroundingUnits(target@0x178, ConfigConst(0x44 = range_2), 1, 1, 3),
+    0x3fb = Daemon, 3 )`.
+
+    `SurroundingUnits(center, radius, param_4, param_5, param_6)` -> `Units(SurroundingTiles(center,
+    **param_5**, radius))` : le call-site passe `param_5 = 1` -> **centre INCLUS** (la CIBLE elle-meme
+    compte si elle est Daemon), exactement comme
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets`. AUCUN filtre
+    d'equipe (le natif ne wrappe pas dans `Enemies`) -> les Daemons ALLIES sont marques aussi, ce que
+    l'i2 dit mot pour mot (« ALL Daemons within {[range_2]} hexes of the target »)."""
+    return UnitsWithTrait(SurroundingUnits(Target(), _AmountConst(int(range_2)), include_center=True),
+                          TRAIT_DAEMON)
+
+
+def brazier_number_of_hits(nr_of_hits: int, nr_of_hits_2: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetNumberOfHits`
+    (MIRROR 1:1) = `ConditionalAmount( HasTrait(target@0x178, Daemon), ConfigConst(0x32 = nrOfHits_2),
+    ConfigConst(0x2f = nrOfHits) )` -- noeud VALEUR, rendu ici comme arbre pour que la structure soit
+    lisible ; la classe d'ability l'EVALUE (`.evaluate(entities)`) et passe l'entier a la feuille
+    d'attaque, qui n'accepte qu'un `hits` scalaire (meme collapse que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits` -> `aeldari._rounds_started`
+    et que `HarvesterOfSouls`). Les deux `ConfigConst` sont resolus par l'ORACLE gameconfig (`ability_var`,
+    constantes) parce que le `DslContext` du runner ne porte pas de `config` -- meme convention que
+    ThriceBlessed/PlagueburstMortar."""
+    return ConditionalAmount(HasTrait(Target(), TRAIT_DAEMON),
+                             _AmountConst(int(nr_of_hits_2)), _AmountConst(int(nr_of_hits)))
+
+
+def brazier_of_holy_fire_tree(hits: int, range_2: int, profile: str):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
+    (MIRROR 1:1) :
+
+        op_BitwiseAnd( op_BitwiseAnd(
+            AttackWithAttackDamage(caster@0x160, target@0x178, MinMaxDamage, GetDamageProfile, hits),
+            AddEffect(5 = Fire, stateRef, TargetTiles@0x190) ),
+          AddEffect(1075, stateRef, source = caster@0x160, GetEffectTargets(), TurnsFromRounds(2)) )
+
+    - **ATTAQUE** : famille **ATTACK** -- `IdunBattleLogic.Entities.Abilities.Active.Loki.
+      BrazierOfHolyFireAbility$$ExecuteBehaviour+0x187` appelle
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (surcharge PARTAGEE avec
+      SentinelDirectives/ScythingTalons/Executioner ; VERIFIE par `list_xrefs`, ABSENT des xrefs de
+      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`) -> `native_factory="attack"`
+      = 2 tirages/coup a cc=0. MONO-cible (`target@0x178`), profil `Flame`, RANGED
+      (`attackRangeType=Ranged`, range 2).
+    - **FEU** : `AddEffect` surcharge **4-args** -> selecteur SOURCE natif NULL -> la source EST la CIBLE
+      de la pose, ici la TUILE (`AddEffectBehaviour$$Execute` : `lVar14 = <cible>; if (<source>) ...`)
+      -> `source_from_target=True`. Cible = `TargetTiles@0x190` = `Tiles(Target())` (la MainTile de la
+      cible). Options ZERO -> duree DEFAUT `DefaultAmountOfRounds(5) = 2` rounds, convertie par
+      `AddEffectOperation` -> `duration_rounds=None`.
+    - **MARQUAGE** : `AddEffect` surcharge 6-args AVEC source explicite `caster@0x160` (defaut du port)
+      et duree `TurnsFromRounds(2)` -> `duration_rounds=2`. Cibles = `brazier_effect_targets`.
+    - ORDRE (`op_BitwiseAnd`, gauche->droite) : attaque, PUIS feu, PUIS marquage -> le marquage ne
+      beneficie PAS a l'attaque de ce cast (il vaut pour les coups SUIVANTS), et le feu est pose sur la
+      tuile meme si la cible meurt."""
+    tgt = Target()
+    attack = AttackWithAttackDamage(tgt, BRAZIER_ID, profile, is_melee=False, hits=int(hits),
+                                    native_factory="attack",
+                                    ability_type=int(ActiveAbilityType.BrazierOfHolyFire))
+    fire = AddEffect(FIRE, EffectType.Fire.name, Tiles(tgt), duration_rounds=None,
+                     source_from_target=True)
+    mark = AddEffect(BRAZIER_EXTRA_DMG, EffectType.BrazierOfHolyFire_ExtraDmg.name,
+                     brazier_effect_targets(range_2), duration_rounds=2)
+    return op_and(op_and(attack, fire), mark)
+
+
+class BrazierOfHolyFireAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
+    (id 1041, `adeptCanoness` -- Canoness, HERO Adepta Sororitas) -- cf. le bloc de commentaire ci-dessus.
+
+    Kit gameconfig 1041 : `damageProfile=Flame`, `range=2`, `range_2=2`, `nrOfHits=2`, `nrOfHits_2=4`,
+    `minDmg`/`maxDmg`[level] (rarity-affected), `extraDmgPct`/`extraDmgPct_2`[level] (magnitudes de
+    l'effet 1075, consommees par l'EFFET pas par ce behaviour), `attackRangeType=Ranged`.
+
+    OBSERVABLE DU CAST : (1) `nrOfHits` coups Flame sur la cible -- `nrOfHits_2` si elle a le trait
+    Daemon ; (2) la TUILE de la cible prend `Fire` (5) ; (3) tous les Daemons (toutes equipes) a <=
+    `range_2` hex de la cible, CIBLE INCLUSE, prennent `BrazierOfHolyFire_ExtraDmg` (1075) pour
+    `TurnsFromRounds(2)`.
+
+    Turn-flags = defauts base (1041 absent des deux frozensets d'override -> termine le tour +
+    ActiveAbilityUsed). Retour : {attack, hits, fire, marked, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BrazierOfHolyFire)   # 1041
+    ABILITY_ID = BRAZIER_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
+    # n'appelle AUCUNE des trois surcharges de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+    # (VERIFIE par `list_xrefs` : absent des trois) : il COPIE un PRESET STATIQUE, les 0x40 octets a
+    # `TargetingOptions.<champs statiques> + 0x140`, puis passe la copie a
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, 0, 0)`.
+    # Le masque est donc le champ `+0x28` de CE preset, ecrit par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` (table de presets de 0x40 octets ; l'entree
+    # +0x140 pose `+0x20 = 0` et `+0x28 = 0x4002`) -> masque EFFECTIF **0x4002**.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2     TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`. 1041 NE
+    #             SURCHARGE PAS ce virtuel (les seuls membres de la classe sont `.ctor`,
+    #             `ExecuteBehaviour`, `GetNumberOfHits`, `GetEffectTargets`) -> il herite du defaut
+    #             de base (= 0, aucun refus), ce que rend deja `ActiveAbility.get_dynamic_invalid_
+    #             target_reason`. Fidele, pas une degradation.
+    #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie) ; coherent avec
+    #             l'i2 « to a target enemy within range {[range]} ».
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(target_id) is None:
+            return None
+        # ORACLE des trois `ConfigConst` (`GetNumberConstant`, valeurs BRUTES : le natif ne les scale
+        # PAS par le niveau -- `constants`, pas `variables`). Collapse impose par la feuille d'attaque
+        # (`hits` scalaire) et par `SurroundingUnits` (rayon scalaire).
+        nr = int(ability_var(BRAZIER_ID, "nrOfHits", is_constant=True) or 1)
+        nr2 = int(ability_var(BRAZIER_ID, "nrOfHits_2", is_constant=True) or nr)
+        range_2 = int(ability_var(BRAZIER_ID, "range_2", is_constant=True) or 0)
+        import gameconfig as GC
+        profile = ((GC.ability(BRAZIER_ID) or {}).get("constants") or {}).get("damageProfile") or "Flame"
+        entities = entities_from_state(state, caster_id, target_id)
+        hits = int(brazier_number_of_hits(nr, nr2).evaluate(entities))   # GetNumberOfHits(target)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        brazier_of_holy_fire_tree(hits, range_2, profile).execute(entities, ectx)
+        atk = next((p.get("attack") for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        posed = [{"target": p.get("target"), "effect": p.get("effect_type"),
+                  "source": p.get("source"), "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": BRAZIER_ID, "caster": caster_id, "target": target_id,
+                "attack": atk, "hits": hits, "range_2": range_2, "profile": profile,
+                "fire": [p for p in posed if p["effect"] == FIRE],
+                "marked": [p for p in posed if p["effect"] == BRAZIER_EXTRA_DMG], "dsl": True}
 
 
 # =================================================================================================== #

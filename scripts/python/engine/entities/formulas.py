@@ -259,6 +259,52 @@ class TimesRepaired(AAmountFormula):
         return getattr(ctx, "times_repaired", 0) or 0
 
 
+class RoundsStarted(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$RoundsStarted(selecteur)` ->
+    `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` : **SOMME** de `UnitComponent.
+    turnsStarted@+0x58` sur les unites du selecteur (le decompile ITERE le selecteur et accumule
+    `component+0x58` -- ce n'est pas un `First`, contraste
+    `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate` qui resout UNE entite et lit
+    `GetStat(unit, 0xc)`). Meme grandeur que le noeud `UnitTurnsStarted` (stat 12 TURNS_STARTED,
+    maintenue offline par `StartTurnOperation`), d'ou la meme source de lecture ici.
+
+    Consommateurs portes : `IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility$$GetHits`
+    (via le collapse `aeldari._rounds_started`, qui AJOUTE un plancher `max(1, .)` propre a ce
+    call-site) et `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$AffectedTileAmount`
+    (`Sum(Get(1), RoundsStarted(caster@0x160), TotalRepairActionsAmount(...))`). Ce noeud-ci N'A PAS de
+    plancher : le natif somme, point."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        from .stats import StatType
+        gs = ctx.get_stat or _default_get_stat
+        return sum(int(gs(u, int(StatType.TURNS_STARTED), 0, None) or 0)
+                   for u in _units_of(self.selector, ctx))
+
+
+class TotalRepairActionsAmount(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$TotalRepairActionsAmount(selecteur)` ->
+    `IdunBattle.Entities.Formulas.TotalRepairActionsAmountFormula$$Calculate` : SOMME d'un compteur
+    runtime per-unite (`component+0xe8`) sur les unites du selecteur -- « combien de fois cette unite
+    a-t-elle REPARE/soigne ». DISTINCT de `TimesRepaired` (`TimesRepairedFormula$$Calculate`, qui lit
+    `+0xd0` sur UNE entite = « combien de fois cette unite a ETE reparee »).
+
+    RESIDU DOCUMENTE : ce compteur n'est capte par AUCUN canal offline (ni `combatSnapshot`, ni
+    `decisionView`) et le runner porte ne l'incremente nulle part (les feuilles `Repair`/`RepairOrHeal`
+    de `behaviours/stats.py` ne tiennent pas de compteur). Le noeud lit donc `u["_repair_actions"]`
+    (pose par un futur canal) et rend **0** a defaut -- valeur EXACTE tant qu'aucun allie Mechanic n'a
+    soigne, ce qui est le regime de tout runner frais. Consommateur : le 3e terme de
+    `RadBombardmentAbility$$AffectedTileAmount` (i2 : « +1 hex chaque fois qu'un Mechanic ami restaure
+    la Sante d'une unite »)."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        return sum(int((u or {}).get("_repair_actions", 0) or 0)
+                   for u in _units_of(self.selector, ctx))
+
+
 class TotalAttacksMade(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$TotalAttacksMade` = `Entities.Formulas.TotalAttacksMadeFormula` (IdunBattle.Entities.Formulas.TotalAttacksMadeFormula$$Calculate) :
     nb d'attaques faites par `unit` (compteur runtime). Port on-appearance : la feuille `PerformAIAttack`
