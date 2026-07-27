@@ -59,25 +59,35 @@ INVENTAIRE des regles du filtre statique (ordre NATIF de la cascade 7-args) et e
 Une regle NON PORTEE ne refuse JAMAIS (degradation PERMISSIVE — meme convention que « ability non
 portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne sait pas decider.
 
+TOUS LES NOMS CI-DESSOUS SONT CEUX DU DUMP du build courant. Ils l'ont ete tardivement : le
+dumper lisait les enums en `readS32()`, donc `TargetingRule` (64 bits) perdait ses 27 membres
+au-dessus du bit 31 -- ils tronquaient tous vers 0 et s'ecrasaient dans une map keyee par valeur.
+Cette table portait donc des PARAPHRASES entre parentheses (« machine-targeting »,
+« HasSteppableUnit »…) la ou le binaire avait un nom. Corrige le 2026-07-27 ;
+`scripts/python/probe_targeting_rule_bits.py` confronte desormais les 58 bits au dump du build
+courant et ECHOUE si l'un d'eux bouge -- ce qui invaliderait d'un coup tous les masques
+`TARGETING_OPTIONS` du registre.
+
   bit  masque                nom (enum IdunBattle.Core.Services.TargetingRule)   port
   ---  --------------------  -------------------------------------------------  --------------------
    6   0x40                  TargetIsTile                                        NON (domaine TILE)
-  44   0x100000000000        (machine-targeting, nom hors dump 32 bits)          NON
-  46   0x400000000000        (unit-or-machine, idem)                             NON
-  39   0x8000000000          (self-only : `caster != GetUnit(target)` => refus)  OUI
+  44   0x100000000000        TargetIsMachine                                     NON
+  46   0x400000000000        TargetIsActor                                       NON
+  39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
   23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON (forced-targets)
   18   0x40000               TargetIsDisplaceable                                NON
-  29   0x20000000            TargetIsTargetable (sauf bit 41)                    OUI
-  51   0x8000000000000       (HasSteppableUnit)                                  NON
-  47/48/49                   (filtres FeetCount 1 / 3 / 7)                       NON
+  29   0x20000000            TargetIsTargetable (sauf bit 41                     OUI
+                             AllowUntargetableTarget)
+  51   0x8000000000000       TargetIsNotSteppable                                NON
+  47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  NON (cf. ci-dessous)
-                             TargetIsInRange (0x8000000)
+                             TargetIsInRange (bit 27, 0x8000000)
    -   (non gate)            `GetTilesObscuringTerrain` (ligne de vue)           NON
   13   0x2000                TargetIsSummon (`HasTrait(2)`)                      NON
-  50   0x4000000000000       (`HasTrait(0x10)` requis)                           NON
-  33   0x200000000           (`HasTrait(0xd)` interdit)                          NON
+  50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON
+  33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON
    8   0x100                 TargetIsHealable                                    NON
   16   0x10000               TargetIsRepairable                                  NON
    5   0x20                  TargetHasFreeAdjacentTile                           NON
@@ -85,10 +95,10 @@ portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne s
   12   0x1000                TargetTileIsFree (`CanAddUnit`)                     NON (domaine TILE)
   17   0x20000               TargetTileIsFreeOrEnemy                             NON (domaine TILE)
   19   0x80000               TargetTileHasEnemyUnit                              NON (domaine TILE)
-  32   0x100000000           (predicat battleQuery slot 0x61 sur les tuiles)     NON
-  42   0x40000000000         (predicat battleQuery slot 0x7f)                    NON
+  32   0x100000000           TargetIsNotAdjacent (battleQuery slot 0x61)         NON
+  42   0x40000000000         TargetIsNotAdjacentToEnemy (battleQuery slot 0x7f)  NON
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
-  57   0x200000000000000     CasterOrEnemyTargeting (self OU ennemi attaquable)  OUI
+  57   0x200000000000000     TargetIsCasterOrEnemy (self OU ennemi attaquable)   OUI
 
 BITS QUI NE SONT PAS DES REGLES DE REFUS (verifie exhaustivement sur les DEUX cascades) : le bit 15
 `CanTargetCaster` (0x8000) n'apparait NI dans le filtre cible NI dans `GetInvalidCasterReason` — c'est un
