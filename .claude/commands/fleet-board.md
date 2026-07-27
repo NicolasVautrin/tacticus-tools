@@ -16,8 +16,10 @@ et régénérer le fichier local ne met pas à jour celui de claude.ai :
 
 - outil `Artifact`, `file_path` = le HTML qui vient d'être écrit (`logs/fleet-board.html`, ou le
   chemin passé via `-o`) ;
-- `url` = `https://claude.ai/code/artifact/9c22449f-022b-443d-b74e-76c0f5f3e150` — **toujours cette
+- `url` = `https://claude.ai/code/artifact/5572fbd1-7257-4444-9bac-f451d8fd9037` — **toujours cette
   URL**, sinon une nouvelle est créée à chaque fois et l'ancienne se fige ;
+  (l'URL précédente `9c22449f-…` est MORTE : un `/login` a rebasculé sur un compte qui ne possède
+  pas l'artefact, et un artefact ne se récupère pas — il se republie, donc le lien change.)
 - `favicon` = `🛩️` (le garder stable : l'utilisateur retrouve son onglet à son icône).
 
 Puis **rends compte en quelques lignes**, sans recopier la table entière — elle est déjà à l'écran.

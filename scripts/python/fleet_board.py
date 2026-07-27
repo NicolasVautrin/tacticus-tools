@@ -401,9 +401,12 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(rows), encoding="utf-8")
     alive = sum(1 for r in rows if r["alive"])
-    print("\n%d agents (%d en vol) -> %s" % (len(rows), alive, out))
+    # URI `file:///` ENTRE PARENTHESES : c'est la seule forme cliquable dans Claude Code, et elle
+    # evite d'avoir a recopier un chemin Windows a la main pour ouvrir la page.
+    uri = out.resolve().as_uri()
+    print("\n%d agents (%d en vol) -> (%s)" % (len(rows), alive, uri))
     if a.open:
-        webbrowser.open(out.resolve().as_uri())
+        webbrowser.open(uri)
 
 
 if __name__ == "__main__":
