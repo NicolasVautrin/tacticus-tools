@@ -103,13 +103,27 @@ class Sub(TargetsSelector):
     """`TargetsSelector.op_Subtraction` : a \\ b par id. Le natif `op_Subtraction` accepte un SELECTEUR **ou
     une ENTITE** en 2e operande (ex. `AdjacentUnits(target) − caster − target` de FireOfAbsolution
     IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour) : on normalise les DEUX operandes via `_units_of` (un noeud-role `Caster()`/`Target()` ->
-    dict -> `[dict]`), pour soustraire aussi bien une liste qu'une unite seule."""
+    dict -> `[dict]`), pour soustraire aussi bien une liste qu'une unite seule.
+
+    DOMAINE MIXTE (natif : `op_Subtraction` travaille sur des ENTITES ECS, unites comme TUILES) : la cle
+    de comparaison est l'`id` pour un dict d'unite, et l'ELEMENT LUI-MEME pour un id de tuile (int) ou une
+    position `(col,row)` -- le natif compare des references d'entite, sans distinguer le domaine.
+    Consommateur tile-domain : `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$GetAffectedTiles`
+    (`SortReverse(TilesBehindInLine(...)) op_Subtraction Blocking(...)`)."""
     def __init__(self, a: TargetsSelector, b: TargetsSelector):
         self.a, self.b = a, b
 
+    @staticmethod
+    def _key(x):
+        """Cle d'identite d'une entite du domaine MIXTE : `id` d'un dict d'unite, sinon l'element brut
+        (id de tuile / position) -- une liste devient un tuple pour rester hashable."""
+        if isinstance(x, dict):
+            return x.get("id")
+        return tuple(x) if isinstance(x, list) else x
+
     def select(self, ctx):
-        bset = {u.get("id") for u in _units_of(self.b, ctx)}
-        return [u for u in _units_of(self.a, ctx) if u.get("id") not in bset]
+        bset = {self._key(u) for u in _units_of(self.b, ctx)}
+        return [u for u in _units_of(self.a, ctx) if self._key(u) not in bset]
 
 
 class Union(TargetsSelector):

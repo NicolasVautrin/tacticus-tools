@@ -160,10 +160,11 @@ class AddEffect(AbilityBehaviour):
     (FleshmetalGuns 1067/1212/1221, TerrifyingCrescendo 1424).
     """
     __slots__ = ("effect_type", "name", "target_sel", "duration_rounds", "level", "scale_from_source",
-                 "duration_turns", "source_ref")
+                 "duration_turns", "source_ref", "source_from_target")
 
     def __init__(self, effect_type: int, name: str, target_sel: TargetsSelector, duration_rounds=1,
-                 level=None, scale_from_source: bool = False, duration_turns=None, source_ref=None):
+                 level=None, scale_from_source: bool = False, duration_turns=None, source_ref=None,
+                 source_from_target: bool = False):
         self.effect_type, self.name = effect_type, name
         self.target_sel, self.duration_rounds = target_sel, duration_rounds
         self.level, self.scale_from_source = level, scale_from_source
@@ -174,6 +175,21 @@ class AddEffect(AbilityBehaviour):
         # `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$ExecuteBehaviour` passe
         # `target@0x178` comme source de son effet de TUILE Contaminated -> d'ou le parametre.
         self.source_ref = source_ref
+        # `source_from_target` = mirror du FALLBACK natif quand le selecteur SOURCE est NULL. Lu dans
+        # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` : `+0x60` (source) et `+0x68`
+        # (cibles) sont deux selecteurs ; la boucle sur les cibles fait
+        #     `lVar14 = <cible courante>; if (<resultat du selecteur source> != 0) lVar14 = <ce resultat>;`
+        # puis passe `lVar14` en SOURCE a l'operation. Autrement dit : **selecteur source absent =>
+        # la source EST la cible**, PAS le caster.
+        # Le declenche : la surcharge 4-args `IdunBattleLogic.Entities.DSLFactory$$AddEffect(effectType,
+        # stateRef, targets)`, qui passe litteralement `0` en `+0x60` (les surcharges 6-args, elles,
+        # posent une source explicite). Call-sites portes : le FEU de
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
+        # (`AddEffect(5 Fire, stateRef, TargetTiles@0x190)`) et le CONTAMINATED de
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$ExecuteBehaviour`
+        # (`AddEffect(0x4dc, stateRef, GetAffectedTiles())`) -> chaque TUILE est sa propre source.
+        # Defaut False = comportement historique (source = caster), INCHANGE pour tous les autres.
+        self.source_from_target = bool(source_from_target)
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -186,9 +202,11 @@ class AddEffect(AbilityBehaviour):
                 (raw[0] if isinstance(raw, (list, tuple)) and raw and not (
                     len(raw) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in raw))
                  else raw), state)
+        elif self.source_from_target:
+            src = None                                        # resolue PAR CIBLE dans la boucle (fallback natif)
         else:
             src = (entities.caster or {}).get("id")           # AbilityStateReference = caster (source)
-        if state is None or src is None:
+        if state is None or (src is None and not self.source_from_target):
             return OperationResult.ok()
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon `ConvertRoundsToTurns(rounds)`
@@ -202,6 +220,8 @@ class AddEffect(AbilityBehaviour):
             tgt = _add_effect_target_id(elem, state)          # unit dict->id | (col,row)->tile id | int->tile id
             if tgt is None:
                 continue
+            if self.source_from_target:                       # selecteur SOURCE natif NULL -> source = cible
+                src = tgt
             eff = AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
                                              name=self.name, duration_override=dur,
                                              level=(None if lvl is None else int(lvl)),

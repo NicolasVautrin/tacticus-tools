@@ -66,7 +66,7 @@ from .bloodangels import SavageEchoesAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
-                         ThriceBlessedConflagrationAbility)
+                         ThriceBlessedConflagrationAbility, BrazierOfHolyFireAbility)
 from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, FightingRetreatAbility,
                   EarlyWarningOverrideAbility, InspiredToGreatnessAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
@@ -75,7 +75,7 @@ from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
 from .spacewolves import GreatFrostAxeAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility
 from .worldeaters import JakhalStimmsAbility
-from .admec import SentinelDirectivesAbility
+from .admec import SentinelDirectivesAbility, RadBombardmentAbility
 from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility)
 
@@ -131,6 +131,8 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     AlphaWarriorAbility.ABILITY_TYPE: AlphaWarriorAbility,             # 1112 (tyranWingedPrime Winged Prime Tyranids : spawn tyranSmnWarrior sur tuile-cible WithStatsFromConfig + attaque a l'apparition, corps IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$ExecuteBehaviour = template IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$ExecuteBehaviour AberrantHypermorph ; gate IsInTeamSynapseRange live ABSENT, case-220 §6.16)
     JakhalStimmsAbility.ABILITY_TYPE: JakhalStimmsAbility,             # 1131 (worldJakhal Macer WorldEaters : 4x Physical melee cible + AoE intersection AdjacentUnits(caster) & AdjacentFriends(target) + self-loss 25% PV courant (ChangeStat Subtract, Execute separe) ; free action ; native_factory attack, ExecuteAtomic 0x2a, case-220 §6.3)
     SentinelDirectivesAbility.ABILITY_TYPE: SentinelDirectivesAbility,  # 1139 (admecDestroyer Sy-Gex AdeptusMechanicus : 1x Physical ranged cible + AddEffect Pinned/Suppressed, quasi-clone SpiritLeech sans heal/conditional, native_factory attack, ne finit pas le tour, case-220 §6.17)
+    BrazierOfHolyFireAbility.ABILITY_TYPE: BrazierOfHolyFireAbility,   # 1041 (adeptCanoness Canoness Sisterhood : ConditionalAmount(HasTrait(cible, Daemon), nrOfHits_2=4, nrOfHits=2) coups Flame mono-cible native_factory attack & AddEffect(5 Fire -> TUILE de la cible, source = la tuile, surcharge 4-args) & AddEffect(1075 BrazierOfHolyFire_ExtraDmg -> UnitsWithTrait(SurroundingUnits(cible, range_2, includeCenter), Daemon), TurnsFromRounds(2)) ; case-224)
+    RadBombardmentAbility.ABILITY_TYPE: RadBombardmentAbility,         # 1116 (admecDominus Dominus AdeptusMechanicus, cast TILE-TARGET CustomRange(1) : ligne droite depuis l'aim de Sum(Get(1), RoundsStarted(caster), TotalRepairActionsAmount(amis Mechanic)) tuiles (SortReverse - Blocking) -> Foreach(occupants, 1x Toxic famille ABILITY) & AddEffect(1065 Pinned -> ces occupants) & AddEffect(1244 Contaminated -> les tuiles, source = la tuile) ; case-224)
     SupremeCommanderAbility.ABILITY_TYPE: SupremeCommanderAbility,     # 1028 (astraCreed Creed AstraMilitarum : ExecuteAtomic(Spawn nrOfSummons gardes hex libres adjacents WithStatsFromConfig) puis Execute(PerformAIAction(UnitsWithIds(SurroundingFriends(range), affectedUnitIds), asGroup=1, resetTurnFlags=1)) — 1er consommateur du debloqueur PerformAIAction, case-perform-ai-action)
     WaaaghAbility.ABILITY_TYPE: WaaaghAbility,                         # 1058 (orksWarboss Orks : 5 Execute successifs IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour — Spawn(2 Ork Boyz adjacents) / buff 1099+1100+1101 (caster + allies adjacents + TOUS les allies Orks, 1 round) / charge MoveUnit(movement+extraMovement) / attaque normale si adjacent / PerformAIAction(Friends(UnitsWithVisualId(orksOrkBoys)) BOARD-WIDE, asGroup=1, resetTurnFlags=1) — 2e consommateur PerformAIAction, tache #94)
     SendInTheNextWaveAbility.ABILITY_TYPE: SendInTheNextWaveAbility,   # 1016 (astraYarrick AstraMilitarum : Spawn(min(nrOfSummons + allies morts, maxSummons[level]) Cadians sur tuiles libres <=2 hex de la cible, priorite AttackTilesForTarget) + on-appearance UseNormalAttackIfAble(cible) — case-220 P0-SUMMON, tache #94)

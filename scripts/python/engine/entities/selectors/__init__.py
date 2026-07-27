@@ -46,7 +46,8 @@ from .accessors import (  # noqa: F401
 )
 
 from .geometry import (  # noqa: F401
-    neighbour_at, TilesInTriangleShape, TileFromVector, Walkable, TilesOnSameElevation,
+    neighbour_at, TilesInTriangleShape, TileFromVector, Walkable, Blocking, SortReverse,
+    TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, Otherwise, TilesBehindInLine,
     FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null,
     EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
@@ -68,7 +69,8 @@ __all__ = [
     "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",
     "CasterTile", "TargetTile", "FixedTiles", "FixedTileIds", "OwnerTile", "Subject", "Actor",
     "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
-    "TilesInTriangleShape", "TileFromVector", "Walkable", "TilesOnSameElevation",
+    "TilesInTriangleShape", "TileFromVector", "Walkable", "Blocking", "SortReverse",
+    "TilesOnSameElevation",
     "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
     "Entity", "Nothing", "Null", "EffectSource", "EffectFromOwner", "EffectsFromUnitSource",

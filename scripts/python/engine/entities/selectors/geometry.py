@@ -113,6 +113,52 @@ class Walkable(TargetsSelector):
         return [t for t in self.source.evaluate(ctx) if board.walkable(t)]
 
 
+class SortReverse(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$SortReverse` -> `IdunBattle.Entities.Selectors.SortReverseSelector$$Select`
+    = `System.Linq.Enumerable.Reverse(source).ToList()` — INVERSION pure de l'ordre du selecteur source
+    (aucun filtre, aucune cle de tri malgre le nom).
+
+    L'ORDRE est OBSERVABLE des qu'un consommateur itere sans re-trier : `IdunBattle.Entities.Behaviours.
+    AbilityDamageBehaviour$$Execute` (famille ABILITY) enumere son selecteur TEL QUEL — contraste
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (famille ATTACK) qui pose un
+    `OrderBy(b__5_0)` quand `Count > 1`. Consommateur porte :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$GetAffectedTiles`
+    (la ligne de tir est parcourue de la tuile la PLUS LOINTAINE vers l'aim)."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        v = self.source.evaluate(ctx)
+        if v is None:
+            return []
+        return list(reversed(list(v)))
+
+
+class Blocking(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$Blocking` : garde les tuiles BLOQUANTES = le COMPLEMENT
+    exact de `Walkable` sur le meme predicat de tuile.
+
+    RE (structure, PAS le nom) : `IdunBattleLogic.Entities.DSLFactory$$Blocking` et
+    `IdunBattleLogic.Entities.DSLFactory$$Walkable` allouent la MEME classe de selecteur (meme
+    singleton de type) et n'appellent qu'UN ctor commun, avec un seul argument different -- le dernier
+    litteral : `Walkable` passe **0**, `Blocking` passe **1**. Ghidra mislabelle ce ctor gshared
+    `EffectWithTypeSelector$$.ctor` (il est FOLDE : `AtIndex`/`IsMechanical`/`MechanicalUnits`/
+    `TilesWithTriggeredAbility`/`UnitsWithTriggeredAbility` l'appellent aussi) -- on lit donc la
+    STRUCTURE (`+0x18 = selecteur source`, `+0x20 = le litteral`), jamais le nom.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$GetAffectedTiles`
+    = `SortReverse(TilesBehindInLine(...)) op_Subtraction Blocking(<le meme selecteur>)` -> la ligne de
+    tir PRIVEE de ses tuiles bloquantes. Ordre de `source` preserve (comme `Walkable`)."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        return [t for t in self.source.evaluate(ctx) if not board.walkable(t)]
+
+
 class TilesOnSameElevation(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$TilesOnSameElevation` -> `IdunBattle.Entities.Selectors.TilesOnSameElevationSelector$$Select` :
     garde les tuiles de `tiles` dont l'ECART D'ELEVATION avec la tuile d'ANCRAGE (selecteur @+0x18, une
