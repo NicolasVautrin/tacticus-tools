@@ -10,7 +10,9 @@ fichier GARDE le gate porte (`engine/runner/abilities/targeting.py`), des DEUX c
     DEUX rejets partagent la meme observable live a 2 evenements ; c'est le code de raison qui les
     distingue, donc c'est LUI qu'on assert.
   * EXECUTION : une cible LEGALE traverse le gate et la behaviour s'execute integralement (le gate
-    ne doit RIEN retirer a un cast legal -- non-regression).
+    ne doit RIEN retirer a un cast legal -- non-regression). C'est la SEULE face qui atteigne du
+    code consommateur de RNG (4e etage = l'attaque de charge ; 5e = `PerformAIAction`, les Ork Boyz
+    jouent) : l'etat de replay est donc cale sur le flux MT natif (`dumpRng`), cf. `_fresh_state`.
 
 ORACLE = le LIVE, et pas seulement un booleen : `abilityReason(casterId, abilityType, targetId)`
 rend le masque `TargetingRule` NATIF (`targetReason.hex` + les noms de flags). L'agrement est teste
@@ -41,6 +43,7 @@ from engine.runner.abilities.handler import ABILITY_CLASSES, AbilityHandler
 from engine.runner.abilities.targeting import is_invalid_target
 from engine.runner.abilities.targeting_rule import TargetingRule as TR
 from engine.runner.messages import ActiveAbilityMessage
+from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.snapshot import load_state
 
 CASTER = "orksWarboss"
@@ -127,9 +130,17 @@ def gate115(rpc, build_runner):
         pytest.skip("aucune cible legale de Waaagh atteinte (geometrie)")
 
     # --- etat FIGE, pre-cast : c'est CE snapshot que le moteur offline rejouera pour chaque cible.
+    # `dumpRng` EN FAIT PARTIE (RPC read-only) : un etat de replay n'est complet que si le flux MT
+    # du runner l'accompagne. La face EXECUTION rejoue les 5 etages de `WaaaghAbility$$ExecuteBehaviour`,
+    # dont DEUX consomment `state.rng` : le 4e (attaque de charge -> `AttackDamageOperation.execute`,
+    # MESURE : 3 coups, rolls [1604,1527,1608]) et le 5e (`PerformAIAction` ->
+    # `ComputerActionOperation$$Execute` -> `AiControl$$ExecuteFor` : les Ork Boyz jouent, et attaquent
+    # des que la geometrie le permet). Le capturer ICI, entre `combatSnapshot` et les casts live, garde
+    # l'etat (dec/ob/snap/rng) COHERENT a un seul instant.
     d0 = dv()
     ob0 = rpc("observeBattle", {"runnerId": rid}, 40)
     snap0 = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
     wb, ally = find(d0, CASTER), find(d0, ALLY)
     if wb is None or ally is None or not ally.get("alive"):
         pytest.skip("caster/allie absent apres l'approche")
@@ -150,7 +161,7 @@ def gate115(rpc, build_runner):
             "target_names": list((r.get("targetReason") or {}).get("reasons") or []),
             "caster_hex": int(((r.get("casterReason") or {}).get("hex") or "0x0"), 16)}
 
-    out = {"rid": rid, "board": board, "dec0": d0, "ob0": ob0, "snap0": snap0,
+    out = {"rid": rid, "board": board, "dec0": d0, "ob0": ob0, "snap0": snap0, "rng0": rng0,
            "caster_id": wb["id"], "ally_id": ally["id"], "alive_ids": alive_ids,
            "legal_ids": legal, "far_id": (far or {}).get("id"), "native": native,
            "self_cast": cast(wb["id"], wb["id"]),
@@ -235,8 +246,27 @@ def caster_moved115(rpc, build_runner):
 
 
 def _fresh_state(g):
-    """Etat offline NEUF depuis le snapshot PRE-CAST (chaque cible repart du meme etat)."""
-    return load_state(g["dec0"], g["ob0"], g["snap0"], board=g["board"])
+    """Etat offline NEUF depuis le snapshot PRE-CAST (chaque cible repart du meme etat), **flux MT
+    CALE sur le natif** (`dumpRng` du meme instant fige).
+
+    `load_state` ne seede PAS le RNG (aucun de ses trois payloads ne le porte) -> `state.rng is None`,
+    et `AttackDamageOperation.execute` (mirror de la resolution d'attaque normale) REFUSE alors de
+    tirer : `ValueError: state.rng non cale`. C'est une garde VOULUE -- degrader en silence
+    fabriquerait un << pas de degat >> qu'un replay-diff lirait comme un resultat. Les rejets, eux,
+    sortent en amont de toute behaviour : ils n'ont jamais eu besoin du flux, ce qui explique que
+    seule la face EXECUTION le reclame.
+
+    Caler ICI (et pas dans le seul test d'execution) tient la promesse de la fonction : l'etat rendu
+    est REJOUABLE, quel que soit le chemin que la cible ouvre."""
+    state = load_state(g["dec0"], g["ob0"], g["snap0"], board=g["board"])
+    dump = g["rng0"]
+    assert isinstance(dump, dict) and dump.get("mt"), (
+        f"dumpRng inexploitable ({str(dump)[:120]}) : l'etat de replay serait sans flux MT")
+    rng = IntBasedMersenneTwister()
+    rng.mt = list(dump["mt"])                 # uint[624] @+0x20 (cf. RPC dumpRng)
+    rng.mti = dump["mti"]                     # index de lecture @+0x28
+    state.rng = rng
+    return state
 
 
 def _offline_gate(g, target_id) -> int:
@@ -368,6 +398,15 @@ def test_legal_cast_still_executes_the_full_behaviour_offline(gate115):
     assert last.get("spawned"), "cast legal : aucun Ork Boy invoque offline (etage Spawn)"
     assert last.get("buffed"), "cast legal : aucun buff pose offline (etage Buff)"
     assert last.get("flags") is not None, "cast legal : flags de tour non poses"
+    # ETAGE 4 (`GetAttackBehaviour` : `If(IsAdjacent(caster,target), UseActiveAbility(...))`). La cible
+    # vient de `fromHere` -> le natif la dit CHARGEABLE ce tour-ci, donc l'etage MOVE amene forcement le
+    # Warboss au contact (la destination est prise dans `CanAddUnit(AdjacentTiles(target))`) et l'attaque
+    # DOIT partir. On l'assert parce que c'est la SEULE assertion que le flux MT rend discriminante :
+    # sur un etat charge sans `dumpRng`, `UseActiveAbility` degrade en `attack=None` (garde `state.rng is
+    # None`, combat.py) -- un no-op SILENCIEUX qui laissait ce test vert en n'executant que 4 etages sur 5.
+    assert last.get("attack"), (
+        "cast legal : l'etage ATTAQUE de charge n'a pas resolu de coup (etat de replay sans flux MT, "
+        "ou le MOVE n'a pas amene le caster au contact)")
     live = g["legal_cast"]
     assert live.get("mutated") is True and live.get("actionConsumed") is True, (
         f"le live n'a pas execute le cast legal : {live}")
