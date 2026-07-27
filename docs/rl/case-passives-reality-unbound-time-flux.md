@@ -1,7 +1,8 @@
 # case — passifs `RealityUnbound` (thousTzaangor) et `TimeFlux` (thousTerminator)
 
-> **ETAT : RE COMPLETE, PORT NON ECRIT** (mise en veille reseau du 2026-07-27). Ce document
-> est l'etat FINAL de la retro-ingenierie ; le port et sa validation live restent a faire.
+> **ETAT : LIVRE.** Les deux passifs sont portes et VALIDES LIVE, chacun avec son cas
+> discriminant NEGATIF (§5). Reste un residu nomme : le volet GHOST-REVIVE de `TimeFlux` (§4),
+> deja classe `[fable]` par `docs/rl/case-220/thousand-sons.md`.
 
 Build RE : `gqfc5mff6c`. Toutes les VA en hex natif (RVA = VA - 0x180000000, calculee en code).
 Les deux items sortent de la file de `docs/rl/passive-ability-coverage.md` (GAP-ABSENT, porteurs
@@ -270,7 +271,31 @@ Heal( source = self@0x148, targets = self@0x148,
 
 ---
 
-## 3. Plan de port (a executer)
+## 2bis. Ce qui rendait le port NO-OP, et comment c'est leve
+
+Poser les stat-mods n'aurait RIEN change : **ni `EXTRA_MAX_DAMAGE` (0x19) ni `EXTRA_RANGE` (0x18)
+n'avaient de consommateur dans `engine/`** (grep : seules les definitions d'enum de
+`entities/stats.py`). Les deux foyers natifs ont ete LUS et mirrores :
+
+| stat | foyer natif LU | mirror cote port |
+|---|---|---|
+| `EXTRA_MAX_DAMAGE` 0x19 | `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` : `if (!IsMeleeAttack(...)) extra = GetStat(attaquant, 0x19) ; else 0`, passe en **5e argument** de `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` (`max += Fix64(extra)` ; en mode max-out `min` le prend aussi) | `damage_ops.py::_reduced_bounds` -> `get_base_damage_fix64(extra_max=...)`, gate `_ranged`. Le parametre `extra_max` EXISTAIT deja cote prediction mais **aucun appelant ne le renseignait**. |
+| `EXTRA_RANGE` 0x18 | `IdunBattle.Core.Services.TargetingQuery$$GetRange` : `range = GetStat(u, 0x18) + FindLongestRangedWeapon(u).range`, **branche ranged uniquement** (`!HasAnyWeapon` -> `GetStat(RANGE=2)` ; `!HasRangedWeapon` -> `1`) | `triggers/base.py::_max_attack_range` |
+
+`MOVEMENT` (1) etait deja consomme (`state_bridge._move_range`).
+
+⚠ **Rectification d'attribution** : un commentaire de `damage_ops.py` pretait a
+`GetBaseDamageFix64` « param_4 = isCrit / param_5 = critBonus ». Lecture directe du decompile :
+`param_4 = IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage(...)` et
+`param_5 = GetStat(attaquant, 0x19)`. Le modele de crit du port (crit ajoute a la BASE, valide
+bit-exact live) est INCHANGE — seule la citation du symbole etait fausse.
+
+Le vecteur `On(FinalDamage = 67)` n'existait pas non plus : cree
+(`triggers/dispatch.py::final_damage_triggers`) et pose aux **deux seuls** call-sites natifs de
+`IdunBattle.Operations.ADamageOperation$$RegisterFinalDamage` (xrefs exhaustives :
+`AttackDamageOperation$$Execute` et `AbilityDamageOperation$$Execute`).
+
+## 3. Port livre
 
 | fichier | nature | contenu |
 |---|---|---|
@@ -281,17 +306,75 @@ Heal( source = self@0x148, targets = self@0x148,
 | `engine/runner/components.py` | ajout | 2 champs `last_hit_damage_taken_*` |
 | `engine/runner/operations/damage.py` + `damage_ops.py` | ajout | ecriture du last-hit + emission `On(FinalDamage)` sur les 2 seules voies natives |
 
-**Criteres de validation (2 cas discriminants par passif, dont un cas NEGATIF)** :
+## 5. VALIDATION LIVE (ground truth mesure, runner isole board MC1_67 rank 17)
 
-- `RealityUnbound` / Movement+Range : (+) 3 ennemis distincts ayant pris du Psychic ce tour ->
-  +1 Move et +1 Range pour 1 tour ; (-) **2** ennemis seulement -> AUCUN effet 1205/1206
-  (c'est le gate `>= 3` qui doit se trahir).
-- `RealityUnbound` / ExtraMaxDamage : (+) 1er coup Psychic sur un ennemi -> +extraMaxDmg ;
-  (-) 2e coup Psychic sur le MEME ennemi -> **aucun bonus supplementaire** (gate
-  `times == 1`, egalite stricte).
-- `TimeFlux` : (+) Toth encaisse un coup au tour adverse -> au debut de SON tour, heal =
-  `min(hpToHeal + degat du DERNIER coup, maxHpToHeal)` ; (-) tour adverse SANS coup recu ->
-  heal = `hpToHeal` seul (et non le residu du tour d'avant).
+Probes commites : `scripts/python/probe_ru_reality_unbound.py`, `scripts/python/probe_tf_time_flux.py`.
+Garde : `scripts/python/tests/engine/runner/test_reality_unbound_time_flux_live.py` (2 tests, PASS).
+
+### 5.1 `RealityUnbound` — porteur au level 50, multiplicateur 180 -> `extraMaxDmg = 299`
+
+| scenario | effets sur Yazaghor (natif) | `ApplyCounter` x `Amount` | total stat 0x19 | 1205/1206 |
+|---|---|---|---|---|
+| **3 ennemis DISTINCTS** Psychic | `[1207, 1205, 1206, 1185]` | **3 x 299** | **897** | POSES |
+| **2 ennemis distincts** (CAS NEGATIF) | `[1207]` | **2 x 299** | **598** | **ABSENTS** |
+| aucun coup Psychic porte | `[]` | 0 | 0 | absents |
+
+- **Le cas NEGATIF discrimine exactement le gate `>= 3`** : le stack ExtraMaxDamage monte bien a 2,
+  et pourtant Move/Range ne sont PAS poses. Temoin INDEPENDANT du seuil : l'effet 1185
+  (`WeaverOfFate`, meme trigger natif `WeaverOfFateAbility$$GetTrigger`, mecanisme deja valide #202)
+  est present dans le cas 3 et absent dans le cas 2.
+- **La magnitude offline est bit-exacte** : `ability_var('RealityUnbound','extraMaxDmg', 50, mult=180)
+  = 299` == l'`Amount` natif de la stat-modification.
+- **STACK — rectification de la RE §1.8** : le natif n'empile PAS par N entites-effet mais par un
+  **COMPTEUR** `statMod.ApplyCounter` sur UNE SEULE entite (une seule entree 1207, `level: 1`).
+  Le port empile par N instances (`stacks_stat_mod_on_add`) : **observable IDENTIQUE** sur le total
+  du stat (N x 299), divergence de REPRESENTATION deja assumee et documentee pour `ActOfFaith`.
+
+### 5.2 `TimeFlux` volet regen — `hpToHeal = 1197`, `maxHpToHeal = 5983` (level 50, mult 180)
+
+Le regen est mesure **ISOLE** : au tour ennemi, un `endturn` FLIPPE vers le porteur et declenche le
+turn-start ; le delta de PV sur ce flip est le regen SEUL (aucun degat pendant un flip).
+
+| scenario | mesure |
+|---|---|
+| **CAS NEGATIF** — tour adverse SANS aucune action | regen = **1197** = `hpToHeal` EXACT |
+| **CAS POSITIF** — attaque adverse PILOTEE (pas `aiturn`), degat total **2346** | regen = **1718** = 1197 + **521** |
+
+- Le cas NEGATIF prouve que le terme `LastHitDamageTakenLastTurn` vaut 0 sans coup encaisse : le port
+  ne porte donc pas un bonus INCONDITIONNEL, et le roulement `@+0x6c -> @+0x70` remet bien a zero.
+- Le cas POSITIF prouve le point le plus fragile du port : **le terme vaut le DERNIER COUP (521), PAS
+  le total de l'attaque (2346)**. Un port qui aurait pris le total aurait rendu 3543 au lieu de 1718.
+  C'est exactement ce que dit la RE (`ApplyDamageOperation$$Execute` ecrit `stats[0x6c]` PAR COUP),
+  et pourquoi le port passe `r["per_hit"][-1]` et non `r["total"]`.
+
+### 5.3 Piege de MESURE (a ne pas re-decouvrir)
+
+`thousSorcerer` a **DEUX armes** : Flame en MELEE et Psychic a **Range 2**. Un probe qui colle le
+sorcier a distance 1 declenche une attaque **Flame** : aucun compteur
+`receivedDamageThisTurn[Psychic]` ne bouge, et RIEN ne fire — pas meme `WeaverOfFate`, pourtant
+valide. Symptome trompeur (« le passif n'existe pas »). Le probe vise donc explicitement la distance
+**2**, jamais la tuile la plus proche.
+
+### 5.4 Non-regression (tests CIBLES rejoues)
+
+`test_damage_roll_live.py` + `test_runner_attack_live.py` (4 PASS) — le chemin `_reduced_bounds` est
+modifie ; `test_thrill_seekers_live.py` + `test_damage_crit_live.py` (7 PASS) — pose de stat-mod par
+trigger et branche crit. Total **11 PASS**, plus les 2 tests de garde neufs.
+
+### 5.5 Ce qui n'est PAS couvert
+
+- **Gate `times == 1` (volet B), face negative** : le scenario « 2 coups Psychic sur la MEME cible »
+  n'a pas pu etre monte (les deux attaques pilotees ont echoue faute de tuile a distance 2 sur ce
+  board/seed). La face POSITIVE est validee (le compteur monte d'exactement 1 par ennemi distinct :
+  2 ennemis -> `ApplyCounter` 2, 3 ennemis -> 3), ce qui contraint fortement le gate sans le prouver.
+- **Seeding depuis `decisionView.effects`** : les classes d'effet 1205/1206/1207 declarent leur
+  couple (stat, montant) pour que l'attribution du seed soit revertable (#118), mais un effet CAPTE
+  a mi-accumulation ne connait pas son `ApplyCounter` -> le montant seede vaut 1 cran.
+- **`statModSources` n'expose PAS `EXTRA_RANGE` (24)** : sa table `statTypes` saute de 23 a 25. Le
+  stat-mod 1206 est bien pose (visible dans `effects[].statMod`), mais son total n'est pas lisible
+  par ce RPC. Limite d'OUTIL, pas de moteur.
+- **Face PREDICTION** : `extra_max` reste a 0 dans les appelants de `predict_attack_raw` (le port
+  cable le COMBAT). Inerte tant qu'aucun autre porteur ne pose le stat.
 
 ---
 
