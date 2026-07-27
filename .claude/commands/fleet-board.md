@@ -37,7 +37,17 @@ Rappels de lecture, pour ne pas mal interpréter les chiffres :
   contexte relu et vaut ~40× plus.
 - `tok/min` **retranche le socle système** (~55 K : prompt, outils, `CLAUDE.md`, brief). Sans cette
   soustraction un agent lancé il y a deux minutes afficherait une vitesse énorme sans avoir rien lu.
-- « En vol » se lit sur le **verrou** du worktree : un agent terminé garde le sien jusqu'au nettoyage.
+- **Trois états, et aucun ne se lit sur le verrou du worktree.** « En vol » = a écrit dans son
+  transcript il y a moins de 15 min. « EN ATTENTE » = silencieux **mais son worktree existe encore**
+  — arrêté, reprenable par `SendMessage` avec son contexte intact. « Fini » = plus de worktree,
+  masqué sauf `--all`.
+  Ne pas revenir au `git worktree lock` : il n'est posé qu'au **lancement**, jamais par une reprise
+  via `SendMessage` — le critère devient donc aveugle dès la première reprise, et il l'est
+  *silencieusement* (tout le monde s'affiche « fini »). Mesure du 2026-07-27 : 0 verrou sur 15 agents
+  dont 8 travaillaient.
+- L'état « EN ATTENTE » dit « worktree conservé », **pas** « travail à reprendre » : un agent dont la
+  PR est déjà mergée y figure aussi, en attendant son nettoyage. Pour trancher, regarder si sa
+  branche est déjà dans `origin/master`.
 
 Pour rafraîchir : relancer la commande, puis recharger l'onglet. La page ne peut pas se recalculer
 seule — elle est publiée sur claude.ai, sandboxée, et les transcripts sont des fichiers locaux.

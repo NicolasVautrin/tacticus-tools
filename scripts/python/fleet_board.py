@@ -129,6 +129,10 @@ def scan(path: Path) -> dict:
 # laisse passer un test live long (le plus lent mesure : ~12 min).
 SILENCE_MORT_MIN = 15.0
 
+# Ordre d'affichage des trois etats. « attente » passe AVANT « fini » parce que c'est le seul des
+# deux sur lequel il reste une decision a prendre : reprendre l'agent, ou recuperer sa branche.
+RANG = {"vif": 0, "attente": 1, "fini": 2}
+
 
 def est_vif(last_ts) -> tuple[bool, float]:
     """VIF = a ecrit recemment dans son transcript. Rend (vif, minutes de silence).
@@ -161,15 +165,26 @@ def collect(include_done: bool) -> list[dict]:
         # qui existe TOUJOURS, d'ou le test de chaine non vide. Un agent lance SANS worktree
         # (`worktreePath` absent) reste juge sur la seule activite.
         wtp = (meta.get("worktreePath") or "").strip()
-        if wtp and not Path(wtp).exists():
+        has_wt = bool(wtp) and Path(wtp).exists()
+        if wtp and not has_wt:
             alive = False
-        if not alive and not include_done:
+        # TROIS etats, pas deux -- et le WORKTREE est le discriminant du troisieme.
+        #
+        # Un agent SUSPENDU (arrete, mais repris plus tard par `SendMessage` avec son contexte
+        # intact) GARDE son worktree ; un agent fini ET nettoye ne l'a plus. Le silence, lui, ne
+        # sait pas les distinguer : un agent en pause ne peut pas ecrire dans son transcript, donc
+        # il tombe dans le meme sac que celui qui a atterri il y a trois jours. Resultat mesure le
+        # 2026-07-27 : SIX branches d'agents portant 9 abilities dormaient sur disque sans que le
+        # board les montre -- et elles ont failli etre supprimees comme des worktrees perimes.
+        state = "vif" if alive else ("attente" if has_wt else "fini")
+        if state == "fini" and not include_done:
             continue
         mins = ((s["last_ts"] - s["first_ts"]).total_seconds() / 60.0
                 if s["first_ts"] and s["last_ts"] else 0.0)
         work = max(0, s["last"] - s["first"])
         rows.append(dict(
-            id=aid, name=meta.get("description") or aid, alive=alive, silence=silence,
+            id=aid, name=meta.get("description") or aid, alive=alive, state=state,
+            wt=wtp if has_wt else "", silence=silence,
             base=s["first"], ctx=s["last"], work=work, mins=mins,
             # < 30 s : le denominateur est trop petit pour que le quotient veuille dire quelque
             # chose (un seul aller-retour d'outil ferait 100 000 tok/min).
@@ -179,7 +194,7 @@ def collect(include_done: bool) -> list[dict]:
             # horodatage du transcript, l'atterrissage le DERNIER, le brief le 1er message `user`.
             born=s["first_ts"], land=s["last_ts"], agent_type=meta.get("agentType") or "",
             branch=meta.get("worktreeBranch") or "", brief=s["brief"]))
-    rows.sort(key=lambda r: (-r["alive"], -r["ctx"]))
+    rows.sort(key=lambda r: (RANG[r["state"]], -r["ctx"]))
     return rows
 
 
@@ -194,14 +209,24 @@ def eta(r):
     return None if r["rate"] <= 0 else (WINDOW - r["ctx"]) / r["rate"]
 
 
+ETIQ = {"vif": "en vol", "attente": "ATTENTE", "fini": "-"}
+
+
 def console(rows) -> None:
-    print("%-34s %-4s %9s %9s %9s %7s %9s %6s %8s"
-          % ("agent", "vif", "contexte", "base sys", "travail", "min", "tok/min", "%fen", "sature"))
+    print("%-34s %-8s %9s %9s %9s %7s %9s %6s %8s"
+          % ("agent", "etat", "contexte", "base sys", "travail", "min", "tok/min", "%fen", "sature"))
     for r in rows:
         e = eta(r)
-        print("%-34s %-4s %9d %9d %9d %7.0f %9.0f %6.1f %8s"
-              % (r["name"][:34], "oui" if r["alive"] else "-", r["ctx"], r["base"], r["work"],
+        print("%-34s %-8s %9d %9d %9d %7.0f %9.0f %6.1f %8s"
+              % (r["name"][:34], ETIQ[r["state"]], r["ctx"], r["base"], r["work"],
                  r["mins"], r["rate"], r["pct"], "--" if e is None else hm(e)))
+    n_att = sum(1 for r in rows if r["state"] == "attente")
+    if n_att:
+        print("\n%d agent(s) EN ATTENTE -- arretes, worktree conserve, reprenables par SendMessage :"
+              % n_att)
+        for r in rows:
+            if r["state"] == "attente":
+                print("   %-34s silence %s   %s" % (r["name"][:34], hm(r["silence"]), r["wt"]))
 
 
 TPL = """<title>Flotte d'agents — occupation de contexte</title>
@@ -309,6 +334,10 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
          background:var(--ok); vertical-align:middle; animation:pulse 2.4s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
   @media (prefers-reduced-motion:reduce) { .dot { animation:none } }
+  /* EN ATTENTE : creux et FIXE. Il ne clignote pas parce qu'il ne se passe rien -- mais il est la,
+     parce qu'il reste une decision a prendre dessus (reprendre, ou recuperer sa branche). */
+  .dot.wait { background:transparent; border:2px solid var(--warn); width:9px; height:9px;
+              box-sizing:border-box; animation:none; }
 
   .figs.meta { margin-top:3px; font-size:.74rem; opacity:.72; }
   .brief { margin-top:10px; border-top:1px dashed var(--line); padding-top:8px; }
@@ -339,6 +368,7 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
 
   <dl class="summary">
     <div class="cell"><dt>en vol</dt><dd>__N__<small>agents isolés</small></dd></div>
+    <div class="cell"><dt>en attente</dt><dd>__ATT__<small>worktree conservé</small></dd></div>
     <div class="cell"><dt>remplissage médian</dt><dd>__MED__ %<small>de 1 M</small></dd></div>
     <div class="cell"><dt>le plus rapide</dt><dd>__FRATE__<small>__FNAME__ · tok/min</small></dd></div>
     <div class="cell"><dt>saturation la plus proche</dt><dd>__ETA__<small>__ENAME__</small></dd></div>
@@ -375,9 +405,10 @@ TPL = """<title>Flotte d'agents — occupation de contexte</title>
 const ROWS = __PAYLOAD__, STAMP = new Date("__ISO__");
 const fmt = n => n.toLocaleString('fr-FR').replace(/\\u202f|\\u00a0/g, ' ');
 const carte = r => `
-  <div class="gauge" data-band="${r.band}" data-alive="${r.alive ? 1 : 0}">
+  <div class="gauge" data-band="${r.band}" data-alive="${r.alive ? 1 : 0}" data-state="${r.state}">
     <div class="grow">
-      <div class="gname">${r.alive ? '<span class="dot" title="en vol"></span>' : ''}${r.name}</div>
+      <div class="gname">${r.state === 'vif' ? '<span class="dot" title="en vol"></span>'
+          : r.state === 'attente' ? '<span class="dot wait" title="en attente — worktree conservé, reprenable"></span>' : ''}${r.name}</div>
       <div class="figs">
         <span><b>${fmt(r.ctx)}</b> ctx</span>
         <span><b>${fmt(r.rate)}</b> tok/min</span>
@@ -386,7 +417,8 @@ const carte = r => `
       </div>
       <div class="figs meta">
         <span>lancé <b>${r.bornLabel}</b></span>
-        <span>${r.alive ? 'dernier signe' : 'atterri'} <b>${r.landLabel}</b></span>
+        <span>${r.state === 'vif' ? 'dernier signe' : r.state === 'attente' ? 'en pause depuis' : 'atterri'} <b>${r.landLabel}</b></span>
+        ${r.state === 'attente' && r.branch ? `<span>branche <b>${r.branch}</b></span>` : ''}
         ${r.type ? `<span>${r.type}</span>` : ''}
       </div>
     </div>
@@ -406,9 +438,12 @@ let cle = 'ctx', sens = -1;
 const fleet = document.getElementById('fleet');
 const dessine = () => {
   const f = CLES[cle];
-  // les vifs restent EN TETE quel que soit le tri -- c'est eux qu'on surveille.
+  // l'ETAT prime sur le critere de tri : vifs d'abord (on les surveille), puis ceux EN ATTENTE
+  // (une decision reste a prendre dessus), puis le reste. Sans ca, un agent en pause se noie dans
+  // l'historique des termines des qu'on trie par contexte.
+  const RANG = { vif: 0, attente: 1, fini: 2 };
   const t = ROWS.slice().sort((a, b) =>
-    (b.alive - a.alive) || (sens * (f(a) - f(b))));
+    (RANG[a.state] - RANG[b.state]) || (sens * (f(a) - f(b))));
   fleet.innerHTML = t.map(carte).join('');
   document.querySelectorAll('.sort').forEach(b => {
     b.dataset.on = b.dataset.key === cle ? '1' : '0';
@@ -462,7 +497,7 @@ def render(rows) -> str:
             "etaLabel": "--" if e is None else hm(e),
             "band": "crit" if r["pct"] >= 60 else ("warn" if r["pct"] >= 40 else "ok"),
             "says": [html.escape(s.replace("\n", " ").strip())[:320] for s in (r["says"] or [])],
-            "alive": bool(r["alive"]),
+            "alive": bool(r["alive"]), "state": r["state"],
             # epoch en secondes : c'est ce que le tri JS compare, sans reparser de date.
             "born": r["born"].timestamp() if r["born"] else 0,
             "land": r["land"].timestamp() if r["land"] else 0,
@@ -472,8 +507,10 @@ def render(rows) -> str:
             # VOL (on veut pouvoir relire sa consigne pendant qu'il travaille) ; TRONQUE pour un
             # agent atterri, dont le rapport final dit mieux que son brief. Sans cette coupe, `--all`
             # pese 2 Mo (395 briefs) et la publication de l'artefact expire.
-            "brief": html.escape(r["brief"] if r["alive"] else r["brief"][:700]),
-            "briefCut": (not r["alive"]) and len(r["brief"]) > 700,
+            # ENTIER tant qu'il reste une decision a prendre -- donc aussi pour un agent EN ATTENTE,
+            # dont la consigne est exactement ce qu'on relit avant de decider de le reprendre.
+            "brief": html.escape(r["brief"] if r["state"] != "fini" else r["brief"][:700]),
+            "briefCut": r["state"] == "fini" and len(r["brief"]) > 700,
         })
     fastest = max(cards, key=lambda c: c["rate"]) if cards else None
     withe = [(c, r) for c, r in zip(cards, rows) if eta(r) is not None]
@@ -487,6 +524,7 @@ def render(rows) -> str:
             # des transcripts (394 mesures le 2026-07-27), et le titre annoncait donc « 394 agents
             # en vol ». Le total, lui, est __TOT__.
             .replace("__N__", str(sum(1 for r in rows if r["alive"])))
+            .replace("__ATT__", str(sum(1 for r in rows if r["state"] == "attente")))
             .replace("__TOT__", str(len(cards)))
             .replace("__MED__", ("%.1f" % med).replace(".", ","))
             .replace("__FRATE__", "{:,}".format(fastest["rate"]).replace(",", " ") if fastest else "--")
