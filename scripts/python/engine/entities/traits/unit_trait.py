@@ -17,6 +17,7 @@ passent desormais un `UnitTrait` typé, jamais un int ni un str libre.
 """
 from __future__ import annotations
 
+import functools
 from collections.abc import Iterable
 from enum import IntEnum
 
@@ -151,6 +152,80 @@ def has_any_trait(trait_names: "Iterable[str] | None",
     feu `UnitsWithoutTraits([Steppable, Immune])` cote complementaire)."""
     names = trait_names or []
     return any(trait_name(t) in names for t in traits)
+
+
+# ── Le SET DE TRAITS d'une unite (source unique) ─────────────────────────────────────────────
+# `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, traitId)` delegue a
+# `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, qui interroge TROIS collections du
+# composant : `+0x50` (traits RETIRES -> court-circuit False), `+0x40` (traits de BASE) et `+0x48`
+# (traits ACCORDES en bataille). Offline, le substrat de la liste de BASE est le kit gameconfig
+# (`UnitContext.traits = gameconfig.unit(vis).traits`, meme source que `runner/abilities/behaviours/
+# context.py::_config_traits` et `runner/abilities/targeting.py::_unit_traits`), plus le pseudo-trait
+# de GRANDE-ALLIANCE. Les deux autres collections (retires / accordes en bataille) ne sont PAS
+# observables offline -> limite ASSUMEE, pas une invention.
+GRAND_ALLIANCE_TRAITS: frozenset = frozenset({"Imperial", "Chaos", "Xenos"})
+
+
+@functools.lru_cache(maxsize=None)
+def grand_alliance_trait_name(visual_id: "str | None") -> "str | None":
+    """Trait d'ALLIANCE d'une unite, DERIVE de sa GrandAlliance — mirror de
+    `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` ("Imperial"->0x1a=26, "Xenos"->0x3ee=1006,
+    "Chaos"->0x7ea=2026). Le NOM du trait == le `GrandAllianceId` gameconfig
+    (== `UnitTrait.Imperial/Xenos/Chaos.name`).
+
+    ⚠ Ce pseudo-trait est ABSENT de `gameconfig.unit().traits` (AUCUNE unite ne le porte) : la couche
+    META l'injecte dans la BattleConfiguration. C'est LA source unique du projet — les sites qui en ont
+    besoin (`runner/abilities/behaviours/context.py`, `utilities/tile.py`) delegent ICI plutot que de
+    re-deriver la table (un 3e mapping serait un fork de port). None si l'alliance n'a pas de trait
+    dedie. Cache (statique par unite)."""
+    if not visual_id:
+        return None
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    ga = (_GC.unit(visual_id) or {}).get("GrandAllianceId")
+    return ga if ga in GRAND_ALLIANCE_TRAITS else None
+
+
+@functools.lru_cache(maxsize=None)
+def unit_trait_names(visual_id: "str | None") -> frozenset:
+    """NOMS des traits d'une unite : kit gameconfig + pseudo-trait de grande-alliance. Le pendant
+    offline de la liste de BASE lue par `BaseUnitComponent$$HasTrait`. Cache (statique par unite)."""
+    if not visual_id:
+        return frozenset()
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return frozenset()
+    names = set((_GC.unit(visual_id) or {}).get("traits") or ())
+    ga = grand_alliance_trait_name(visual_id)
+    if ga is not None:
+        names.add(ga)
+    return frozenset(names)
+
+
+@functools.lru_cache(maxsize=None)
+def unit_trait_ids(visual_id: "str | None") -> tuple:
+    """IDS natifs `UnitTrait` des traits d'une unite (kit gameconfig + grande-alliance), TRIES.
+
+    C'est la forme que consomment les tests `HasTrait(unit, <id>)` portes tels quels — notamment les
+    feuilles `IdunBattle.AI.Utilities.*Utility` du composite Tile(7), qui comparent des IDS
+    (`HasTrait(unit, 2)` summon, `0xd` Object, `0x10` Hero, `0x7ea` Chaos, ...).
+
+    LOUDER-ON-BUG (meme parti que `trait_name`) : un nom gameconfig absent de l'enum leve
+    `ValueError` au lieu d'etre ignore — le catalogue est mesure COMPLET
+    (`docs/rl/unit-trait-coverage.md` : aucun trait porte n'echappe a l'enum), donc un nom inconnu
+    signale un enum perime, exactement le silence qu'on refuse."""
+    out = []
+    for n in unit_trait_names(visual_id):
+        try:
+            out.append(int(UnitTrait[n]))
+        except KeyError:
+            raise ValueError(
+                f"trait gameconfig '{n}' (unite {visual_id!r}) absent de l'enum UnitTrait "
+                f"-- mirror a remettre a jour (cf. docs/rl/unit-trait-coverage.md)") from None
+    return tuple(sorted(out))
 
 
 def units_without_trait(units: "Iterable", trait: "UnitTrait | int | str",

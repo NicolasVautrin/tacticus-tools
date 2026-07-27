@@ -7,30 +7,18 @@ from __future__ import annotations
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent)
-from ....entities.traits.unit_trait import UnitTrait, has_trait
+from ....entities.traits.unit_trait import UnitTrait, has_trait, grand_alliance_trait_name
 
 
 import functools
 
 
-_GRAND_ALLIANCE_TRAITS = frozenset({"Imperial", "Chaos", "Xenos"})
-
-
-@functools.lru_cache(maxsize=None)
-def _grand_alliance_trait(visual_id: str | None) -> str | None:
-    """Trait d'ALLIANCE d'une unite, DERIVE de sa GrandAlliance (mirror `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` : "Imperial"->0x1a=26, "Xenos"->0x3ee=1006, "Chaos"->0x7ea=2026). Le NOM du trait ==
-    le `GrandAllianceId` gameconfig (== `UnitTrait.Imperial/Xenos/Chaos.name`) -> ajoutable tel quel au
-    set de traits (resolu par `_has_trait` -> `UnitTrait(id).name in traits`). ABSENT de
-    `gameconfig.unit().traits` (0 unite le porte) : c'est un trait de bataille inne non expose offline
-    ni dans le combatSnapshot. None si l'alliance n'a pas de trait dedie. Cache (statique par unite)."""
-    if not visual_id:
-        return None
-    try:
-        import gameconfig as _GC
-    except Exception:
-        return None
-    ga = (_GC.unit(visual_id) or {}).get("GrandAllianceId")
-    return ga if ga in _GRAND_ALLIANCE_TRAITS else None
+# Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
+# `entities/traits/unit_trait.py` (le module d'autorite du mapping id <-> nom), parce qu'elle est
+# consommee par DEUX substrats — le contexte DSL runner (ici) et le `ctx` des feuilles Tile(7)
+# (`utilities/tile.py::tile_leaf_ctx`). Un 2e mapping "Imperial/Xenos/Chaos -> 26/1006/2026" aurait
+# ete un fork de port. Alias conserve : les appelants de ce module ne changent pas.
+_grand_alliance_trait = grand_alliance_trait_name
 
 
 @functools.lru_cache(maxsize=None)
