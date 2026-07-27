@@ -110,7 +110,7 @@ from ...entities.stats import StatType
 from ..components import StatsComponent, unit_has_moved
 from .base import ActiveAbility
 from .behaviours import entities_from_state, AttackWithAttackDamage
-from .targeting import TargetingOptions
+from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:
@@ -202,7 +202,12 @@ class ExecutionerAbility(ActiveAbility):
     #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x140` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` = la constante `range` de la config d'ability,
+    # ici 2) + `forceMeleeTarget = True` (clamp a 1 si un ennemi est au contact du caster).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -283,7 +288,11 @@ class HarvesterOfSoulsAbility(ActiveAbility):
     #     opts <- <TargetingOptions statics>+0x140 .. +0x17f    (copie des 0x40 octets, aucun flag ajoute)
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # `TargetingOptions$$.cctor` : `*(statics+0x168) = 0x4002` = TargetMatchesDynamicRule | TargetIsEnemy.
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : meme preset `+0x140` -> `useRangeFromConfig`
+    # (`HarvesterOfSouls.constants.range` = 3) + `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -34,7 +34,7 @@ from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
@@ -495,7 +495,12 @@ class BrazierOfHolyFireAbility(ActiveAbility):
     #             target_reason`. Fidele, pas une degradation.
     #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie) ; coherent avec
     #             l'i2 « to a target enemy within range {[range]} ».
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x140` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `BrazierOfHolyFire.constants.range` = 2) +
+    # `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

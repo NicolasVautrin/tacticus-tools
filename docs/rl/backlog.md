@@ -592,8 +592,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   lue au ctor décompilé — attention à l'overload « preset + flags » dont le littéral n'est PAS le
   masque effectif) et instancier leur `GetDynamicInvalidTargetReason` quand le bit `0x2` est posé ;
   (b) porter les règles du filtre statique laissées permissives (inventaire exhaustif et motif de
-  chaque non-port en tête de `engine/runner/abilities/targeting.py` — la **portée**
-  (`TargetingQuery$$GetRange`) et le domaine TILE sont les deux gros morceaux) ;
+  chaque non-port en tête de `engine/runner/abilities/targeting.py`). La **portée**
+  (`TargetingQuery$$GetRange`) est FERMÉE depuis #241 (`case-241-range-gate.md`) ; restent le
+  **domaine TILE** (le gros morceau) et la **ligne de vue** (`GetTilesObscuringTerrain`), testée au
+  même endroit de la cascade ;
   (c) `IsValidCaster`, `IsAbilityBlocked`, cooldown, mode atomique et
   `IsDeadUnitAndNotAllowedByAbility` restent non portés. `[opus]`.
 - **Rider OVERKILL de `ThrillSeekers`** (`case-thrillseekers` §Résidus 1) — trait PORTÉ et validé live

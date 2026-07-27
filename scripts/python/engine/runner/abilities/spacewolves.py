@@ -28,7 +28,7 @@ from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .targeting import TargetingOptions
+from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
 
@@ -245,7 +245,12 @@ class FoehammerAbility(ActiveAbility):
     #             n'en SURCHARGE PAS (aucun symbole `FoehammerAbility$$GetDynamicInvalidTargetReason`)
     #             -> le corps de base rend 0 == le defaut du port (aucun refus invente).
     #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy)
+    # PORTEE (#241) : preset `TargetingOptions` statique `+0x140` -> `TargetingRange`
+    # statique `+0x18` (`useRangeFromConfig` -> `Foehammer.constants.range` = 2) +
+    # `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -270,17 +270,36 @@ def test_mask_without_ported_bit_arms_no_refusal(masks_all, at, vis, rules):
     """DarkTalonStrike (`TargetIsTile` | `TargetTileHasEnemyUnit`), DeathOnTheWind (idem +
     `TargetMatchesDynamicRule` + `AllowNullCasterTile`) et CalibaniteGreatsword (`AddCaster`) ne
     posent AUCUN bit que la cascade offline consomme. Leur masque est pose parce que c'est la donnee
-    RE-lue -- et il ne doit RIEN refuser : c'est la contrepartie honnete du « trou declare ».
+    RE-lue -- et il ne doit RIEN refuser PAR UN BIT : c'est la contrepartie honnete du « trou
+    declare ».
 
     En particulier DeathOnTheWind porte bien `TargetMatchesDynamicRule` (0x2) et le natif surcharge
     la regle (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = la cible doit avoir deja recu
     une attaque ce tour) : elle N'EST PAS portee (le compteur
     `UnitComponent.times_attacked_this_turn` n'est pas seede par `load_state`), donc le defaut 0 de
-    la base doit tenir -- la porter refuserait des cibles que le natif ACCEPTE."""
+    la base doit tenir -- la porter refuserait des cibles que le natif ACCEPTE.
+
+    EXCEPTION AJOUTEE PAR #241 -- le volet PORTEE. Le titre « aucun bit consomme » ne vaut que pour
+    les regles GATEES PAR UN BIT ; la portee, elle, n'en a pas : le natif la teste pour toute ability
+    dont `options.Range.UseWholeBoard` est faux, avec la valeur de
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange`. Deux des trois cas de ce test ont un
+    `TargetingRange` NON `UseWholeBoard` (DarkTalonStrike = `useRangeFromConfig` 2 ;
+    CalibaniteGreatsword = `overrideRange` 0) et le natif LES REFUSE effectivement en
+    `TargetIsInRange` (MESURE : 5 puis 9 cibles). Un refus de portee est donc attendu -- mais il
+    reste soumis au contrat de fidelite : il doit valoir EXACTEMENT le code natif."""
+    from engine.runner.abilities.targeting import (RULE_TARGET_IS_AT_RANGE,
+                                                   RULE_TARGET_IS_IN_RANGE)
+    range_rules = {RULE_TARGET_IS_IN_RANGE, RULE_TARGET_IS_AT_RANGE}
     assert getattr(ABILITY_CLASSES[at], "TARGETING_OPTIONS", None) is not None, (
         f"ability {at} ({vis}) : masque ABSENT alors qu'il a ete lu au ctor ({hex(rules)})")
-    refused = [(r["target"], r["target_visual"], hex(r["port"]), hex(r["native"]), r["names"])
-               for r in masks_all.values() if r["ability"] == at and r["port"] != 0]
-    assert not refused, (
+    rows = [r for r in masks_all.values() if r["ability"] == at and r["port"] != 0]
+    by_bit = [(r["target"], r["target_visual"], hex(r["port"]), hex(r["native"]), r["names"])
+              for r in rows if r["port"] not in range_rules]
+    assert not by_bit, (
         f"ability {at} ({vis}, masque {hex(rules)}) : le port oppose un refus alors qu'AUCUN bit du "
-        f"masque n'est consomme par la cascade portee (uid, visual, port, natif, noms) : {refused}")
+        f"masque n'est consomme par la cascade portee (uid, visual, port, natif, noms) : {by_bit}")
+    divergent = [(r["target"], r["target_visual"], hex(r["port"]), hex(r["native"]), r["names"])
+                 for r in rows if r["port"] in range_rules and r["port"] != r["native"]]
+    assert not divergent, (
+        f"ability {at} ({vis}) : refus de PORTEE non concordant avec le natif "
+        f"(uid, visual, port, natif, noms) : {divergent}")

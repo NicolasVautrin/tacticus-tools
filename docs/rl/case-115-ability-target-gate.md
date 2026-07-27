@@ -87,7 +87,8 @@ chaque non-port, vit en tête de `engine/runner/abilities/targeting.py`. Résum�
 | `0x4000` | `TargetIsEnemy` | **oui** | `UnitsCanAttackEachOther` |
 | `0x20000000` | `TargetIsTargetable` (sauf bit 41) | **oui** | `!HasFlag(unit, 0x11)` |
 | `0x2` | `TargetMatchesDynamicRule` | **oui** | délègue à l'ability |
-| — | portée (`GetRange`) + ligne de vue | non | non gaté par un bit ; `GetRange` demande sa propre RE |
+| — | **portée** (`GetRange`) | **oui** (#241) | non gaté par un bit mais par `TargetingOptions.Range` ; cf. `case-241-range-gate.md` |
+| — | ligne de vue (`GetTilesObscuringTerrain`) | non | même emplacement de cascade que la portée, non porté |
 | `0x40`/`0x1000`/`0x20000`/`0x80000` | domaine TILE | non | la cible-tuile n'est pas une entité du `State` |
 | `0x800000` | `TargetIsAllowedForCaster` (Taunt) | non | `GetOnlyTargets` non porté |
 | … | 15 autres | non | cf. le tableau du module |
@@ -232,11 +233,10 @@ consommateurs de sélecteurs de charge (HeroicFusillade, VigilanceEternal, SkySt
 - **60 des 61 abilities du registre n'ont pas de `TARGETING_OPTIONS`** ⇒ pas de gate pour elles.
   C'est le travail d'instanciation restant (1 ligne par ability + son prédicat dynamique quand le
   bit `0x2` est posé), pas un défaut du maillon.
-- **Les règles du filtre statique laissées permissives** (inventaire en tête de `targeting.py`). Les
-  deux gros morceaux : la **portée** (elle n'est pas gatée par un bit, et
-  `TargetingQuery$$GetRange` demande sa propre RE — un port approximatif refuserait des casts
-  légaux, régression silencieuse en self-play) et le **domaine TILE** (une cible-tuile n'est pas une
-  entité du `State`).
+- **Les règles du filtre statique laissées permissives** (inventaire en tête de `targeting.py`). Le
+  gros morceau restant est le **domaine TILE** (une cible-tuile n'est pas une entité du `State`).
+  La **portée**, elle, est portée depuis #241 (`case-241-range-gate.md`) ; il reste à ses côtés la
+  **ligne de vue** (`GetTilesObscuringTerrain`), testée au même endroit de la cascade.
 - **`ActiveAbilityOperation$$IsDeadUnitAndNotAllowedByAbility`** : le natif refuse une cible-unité
   MORTE sauf si l'ability l'autorise (virtuel slot 0x11). L'inventaire des overrides n'a pas été
   relevé ; le porter avec un défaut « refuse » casserait les abilities de résurrection. Conséquence
