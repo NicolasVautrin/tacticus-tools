@@ -19,166 +19,35 @@ ASCII-only. Skip si pas de session / geometrie non cooperative.
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pytest
 
 import hexgeo
 
-from engine.runner.snapshot import load_state
-from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.components import HealthComponent, PositionComponent, UnitComponent
 from engine.entities.effects.magnitude import ability_var
 
+sys.path.insert(0, os.path.dirname(__file__))      # tests/engine/runner -> import du helper sibling
 
-def _upos(u):
-    p = u.get("pos") or {}
-    return (p.get("col"), p.get("row"))
-
-
-def _board(rpc, rid):
-    from engine.entities.pathfinding.board import Board
-    bg = rpc("boardGraph", {"runnerId": rid}, 60)
-    if not (isinstance(bg, dict) and bg.get("tiles")):
-        pytest.skip("boardGraph indispo")
-    return Board(bg["tiles"], adjacency="evenq")
-
-
-def _legal_targets(rpc, rid, uid, ability):
-    """Cibles LEGALES de `ability` pour l'unite `uid`, telles que le NATIF les publie (`abilityTargets`
-    -> `GetDynamicInvalidTargetReason` de la classe d'ability). C'est la SEULE porte fiable : p.ex.
-    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetDynamicInvalidTargetReason` n'accepte une cible que s'il existe au moins
-    une tuile de CHARGE (`GetPossibleMovementTiles` non vide) -> un simple critere de distance ne suffit
-    pas (verifie live : cible a dist 2 REFUSEE, cible a dist 5 ACCEPTEE)."""
-    at = rpc("abilityTargets", {"runnerId": rid}, 90)
-    out = []
-    for u in (at.get("units") or []):
-        if u.get("unitId") != uid:
-            continue
-        for a in (u.get("abilities") or []):
-            if a.get("abilityId") != int(ability):
-                continue
-            for t in (a.get("targets") or []):
-                if t.get("targetId") is not None:
-                    out.append(t["targetId"])
-    return out
-
-
-def _drive_until_castable(rpc, rid, caster_vis, enemy_vis, ability, tries=16, max_dist=None):
-    """Rapproche le caster de l'ennemi, tour par tour, JUSQU'A ce que le natif publie une cible legale
-    pour `ability` (et, si `max_dist` est donne, que la distance soit <= max_dist).
-    Renvoie (caster_live, target_id). Skip si jamais castable.
-
-    `max_dist` sert aux abilities dont la porte de TARGETING est PLUS LARGE que la garde d'EXECUTION :
-    `IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility$$GetNextSpawnTile` exige `IsInRange(caster, target, range=2)` alors que
-    `abilityTargets` accepte la cible bien au-dela (verifie live : cible legale a dist 5, 0 summon)."""
-    for _ in range(tries):
-        dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-        c = next((u for u in (dv.get("units") or []) if u.get("visualId") == caster_vis), None)
-        e = next((u for u in (dv.get("units") or []) if u.get("visualId") == enemy_vis), None)
-        if c is None or e is None:
-            pytest.skip(f"{caster_vis}/{enemy_vis} absent")
-        cp, ep = _upos(c), _upos(e)
-        if cp[0] is None or ep[0] is None:
-            pytest.skip("positions absentes")
-        if dv.get("currentPlayer") != c.get("owner"):
-            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-            continue
-        d = hexgeo.distance(cp, ep)
-        tgts = _legal_targets(rpc, rid, c["id"], ability)
-        if tgts and (max_dist is None or d <= max_dist):
-            return c, (e["id"] if e["id"] in tgts else tgts[0])
-        mov = rpc("aiMovableTiles", {"runnerId": rid}, 60)
-        mu = next((m for m in (mov.get("units") or []) if m.get("unitId") == c["id"]), None)
-        best = None
-        for t in (mu or {}).get("tiles") or []:
-            if t.get("col") is None:
-                continue
-            dd = hexgeo.distance((t["col"], t["row"]), ep)
-            if best is None or dd < best[0]:
-                best = (dd, (t["col"], t["row"]))
-        if best is None or best[0] >= d:
-            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-            continue
-        rpc("applyAction", {"runnerId": rid, "action": {
-            "kind": "move", "unitId": c["id"], "to": {"col": best[1][0], "row": best[1][1]}}}, 60)
-        if _legal_targets(rpc, rid, c["id"], ability) and (max_dist is None or best[0] <= max_dist):
-            dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-            c = next(u for u in dv["units"] if u.get("visualId") == caster_vis)
-            tg = _legal_targets(rpc, rid, c["id"], ability)
-            return c, (e["id"] if e["id"] in tg else tg[0])
-        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-    pytest.skip(f"{caster_vis} : aucune cible legale pour {ability} (geometrie)")
-
-
-def _cast_and_replay(rpc, rid, board, caster_id, target_id, ability, ability_cls, new_vis):
-    """Capture l'etat-avant, caste LIVE, rejoue le PORT sur le MEME etat-avant (rng cale)."""
-    dv0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-    ob0 = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
-    s0 = rpc("dumpRng", {"runnerId": rid}, 30)
-    ids_before = {u["id"] for u in dv0["units"]}
-    tgt0 = next((u for u in dv0["units"] if u["id"] == target_id), None)
-    tgt_hp0 = (tgt0 or {}).get("hp")
-
-    act = rpc("applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "casterId": caster_id, "targetId": target_id,
-        "abilityType": ability}}, 120)
-    a0 = ((act or {}).get("actions") or [{}])[0]
-    if not a0.get("mutated"):
-        pytest.skip(f"cast live non mute (ability {ability} refusee : {a0.get('error')})")
-    dv1 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-    dv1_units = dv1.get("units") or []
-    # Filet : si la bataille s'est TERMINEE au cast (cible tuee), `decisionView` ne publie plus d'unites
-    # -> on lit les apparitions dans les `changes` de l'action (source PRIMAIRE, publiee par le runner).
-    live_new = [u for u in dv1_units if u["id"] not in ids_before]
-    live_summons = [u for u in live_new if u.get("visualId") in new_vis]
-    appeared = [ch for ch in (a0.get("changes") or []) if ch.get("appeared")]
-    tgt1 = next((u for u in dv1_units if u["id"] == target_id), None)
-    live_tgt_delta = (tgt_hp0 or 0) - ((tgt1 or {}).get("hp") or 0)
-    if tgt1 is None:                                  # bataille finie -> delta lu dans les changes
-        ch = next((c for c in (a0.get("changes") or []) if c.get("squadId") == target_id), None)
-        if ch is not None:
-            live_tgt_delta = -(ch.get("hpDelta") or 0)
-    live_effects = {ef.get("name") for u in dv1_units if u["id"] == caster_id
-                    for ef in (u.get("effects") or [])}
-
-    def _fresh():
-        st = load_state(dv0, ob0, snap, board=board)
-        if isinstance(s0, dict) and s0.get("mt"):
-            rng = IntBasedMersenneTwister()
-            rng.mt = list(s0["mt"])
-            rng.mti = s0["mti"]
-            st.rng = rng
-        return st
-
-    state = _fresh()
-    port_hp0 = state.get_entity(target_id).get_component(HealthComponent).hp
-    res = ability_cls().execute_behaviour(state, caster_id, target_id)
-    port_tgt_delta = port_hp0 - state.get_entity(target_id).get_component(HealthComponent).hp
-    return {"res": res, "state": state, "fresh": _fresh, "dv0": dv0, "act": a0,
-            "live_summons": live_summons, "live_appeared": appeared,
-            "live_tgt_delta": live_tgt_delta,
-            "port_tgt_delta": port_tgt_delta, "live_effects": live_effects}
+from _summon_montage import (upos as _upos, board_of as _board,        # noqa: E402
+                             drive_until_castable as _drive_until_castable,
+                             cast_and_replay as _cast_and_replay,
+                             port_spawn_positions, waaagh_scenario, waaagh_ally_scenario)
 
 
 # ============================================================================================== #
 # Waaagh (1058, orksWarboss) — 2e consommateur de PerformAIAction (asGroup=1, resetTurnFlags=1)
 # ============================================================================================== #
 
-WAAAGH_CASTER = "orksWarboss"
-WAAAGH_ENEMY = "necroWarden"
-BOY_VIS = {"orksOrkBoys", "orksNpc2OrkBoy"}      # config id / visualId (cf. VisualUnitIdFromUnitId)
+# Roster / board / seed : `_summon_montage` (source unique) — le montage est une FABRIQUE
+# reutilisable, pas un bloc inline recopie par chaque test.
 
 
 @pytest.fixture(scope="session")
 def waaagh(rpc, build_runner):
-    from engine.runner.abilities.orks import WaaaghAbility
-    rid = build_runner("31337", extra=["--p-units", WAAAGH_CASTER,
-                                       "--a-units", f"{WAAAGH_ENEMY},necroDestroyer"])["rid"]
-    board = _board(rpc, rid)
-    c, tid = _drive_until_castable(rpc, rid, WAAAGH_CASTER, WAAAGH_ENEMY, 1058)
-    d = _cast_and_replay(rpc, rid, board, c["id"], tid, 1058, WaaaghAbility, BOY_VIS)
-    d.update({"rid": rid, "caster_id": c["id"], "caster_pos": _upos(c), "enemy_id": tid})
-    return d
+    return waaagh_scenario(rpc, build_runner)
 
 
 def test_waaagh_spawn_count_matches_live(waaagh):
@@ -561,34 +430,13 @@ def test_poxwalkers_on_appearance_perform_ai_attack(poxwalkers):
 # GENERALISATION ? scenarios CRAFTES qui n'ont PAS servi a construire le port.
 # ============================================================================================== #
 
-WAAAGH_ALLY = "orksNob"        # Hero Orks : MEME faction (donc BUFFE) mais visualId != orksOrkBoys
-GEN_BOARD = "C3_01"
-
-
 @pytest.fixture(scope="session")
 def waaagh_ally(rpc, build_runner):
-    """Board + roster DIFFERENTS : le Warboss + un allie ORK (orksNob) amene ADJACENT. Il doit etre
-    BUFFE (meme faction -> `UnitsFromFaction(Friends, Orks)`) mais PAS pousse a agir (le selecteur de
-    `PerformAIAction` filtre sur le visualId `orksOrkBoys` via `UnitsWithVisualId`)."""
-    from engine.runner.abilities.orks import WaaaghAbility
-    rid = build_runner("777", extra=["--p-units", f"{WAAAGH_CASTER},{WAAAGH_ALLY}",
-                                     "--a-units", f"{WAAAGH_ENEMY},necroDestroyer",
-                                     "--board", GEN_BOARD])["rid"]
-    board = _board(rpc, rid)
-    c, tid = _drive_until_castable(rpc, rid, WAAAGH_CASTER, WAAAGH_ENEMY, 1058)
-    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-    ally = next((u for u in dv["units"] if u.get("visualId") == WAAAGH_ALLY), None)
-    if ally is None:
-        pytest.skip("allie ork absent")
-    ally_pos_before = _upos(ally)
-    d = _cast_and_replay(rpc, rid, board, c["id"], tid, 1058, WaaaghAbility, BOY_VIS)
-    dv1 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
-    ally1 = next((u for u in (dv1.get("units") or []) if u["id"] == ally["id"]), None)
-    d.update({"rid": rid, "caster_id": c["id"], "ally_id": ally["id"],
-              "ally_pos_before": ally_pos_before,
-              "ally_pos_after": _upos(ally1) if ally1 else None,
-              "ally_effects": {ef.get("name") for ef in (ally1 or {}).get("effects") or []}})
-    return d
+    """Board + roster DIFFERENTS (`_summon_montage.waaagh_ally_scenario`) : le Warboss + un allie ORK
+    (orksNob). Il doit etre BUFFE (meme faction -> `UnitsFromFaction(Friends, Orks)`) mais PAS pousse
+    a agir (le selecteur de `PerformAIAction` filtre sur le visualId `orksOrkBoys` via
+    `UnitsWithVisualId`)."""
+    return waaagh_ally_scenario(rpc, build_runner)
 
 
 def test_waaagh_ork_ally_is_buffed_not_forced_to_act(waaagh_ally):
@@ -612,6 +460,74 @@ def test_waaagh_ork_ally_is_buffed_not_forced_to_act(waaagh_ally):
     if d["ally_effects"]:
         assert want <= d["ally_effects"], (
             f"live : l'allie Ork n'est pas buffe ({sorted(d['ally_effects'])})")
+
+
+def test_waaagh_summon_movement_stat_matches_live(waaagh_ally):
+    """GRANDEUR, pas geometrie : la stat MOVEMENT d'un Ork Boy PORTE == le `movement` du MEME summon
+    cote NATIF (`combatSnapshot` POST-cast).
+
+    `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetStatsToOverride` ne rend qu'une LISTE de
+    `StatModifier` (les deux listes `options+0x20` litterales et `options+0x28` (statType, IAmount)
+    evaluees) : c'est un override PARTIEL applique SUR l'unite deja construite depuis sa
+    `UnitConfiguration`. Aucune ability de summon ne porte de var `summonMovement` -> le Movement du
+    summon est celui de SA CONFIG, plus les modificateurs d'effet. Ici l'etage BUFF pose
+    `Waaagh_ExtraMovement` (1099, +1) sur tous les allies de faction Orks, Ork Boyz compris :
+    le natif publie donc `movement = base + 1` avec `statDelta.movement = 1`.
+
+    Ce test est INDEPENDANT de la geometrie (aucun skip conditionne a la disposition des unites) :
+    il confronte directement la valeur que le port doit reproduire."""
+    from engine.runner.components import StatsComponent
+    from engine.entities.stats import StatType
+    d = waaagh_ally
+    if not d["live_summons"] or not d["res"]["spawned"]:
+        pytest.skip("pas d'Ork Boy (live ou port)")
+    live_mv = {d["live_new_stats"].get(u["id"], {}).get("movement")
+               for u in d["live_summons"]} - {None}
+    if not live_mv:
+        pytest.skip("combatSnapshot ne publie pas `movement` pour les summons frais")
+    port_mv = set()
+    for gid in d["res"]["spawned"]:
+        sc = d["state"].get_entity(gid).get_component(StatsComponent)
+        assert sc is not None, f"port : Ork Boy {gid} sans StatsComponent"
+        port_mv.add(int(sc.ctx.get_stat(int(StatType.MOVEMENT))))
+    assert port_mv == live_mv, (
+        f"port MOVEMENT {sorted(port_mv)} != natif movement {sorted(live_mv)} -- la stat de "
+        f"deplacement du summon n'est pas seedee depuis sa config (base + modificateurs d'effet)")
+    assert min(port_mv) > 1, (
+        f"port MOVEMENT {sorted(port_mv)} <= 1 : le summon ne porte que le BONUS d'effet, pas sa "
+        f"base de config")
+
+
+def test_waaagh_summons_leave_spawn_ring_alt_board(waaagh_ally):
+    """GENERALISATION du discriminant de deplacement sur le montage ALTERNATIF (board C3_01, seed
+    777, roster a 2 heros -- aucun des trois n'a servi a construire le port) : les Ork Boyz frais
+    quittent l'anneau de spawn LIVE **et** PORT.
+
+    Deux mesures, la seconde etant celle que la geometrie ne peut pas offrir gratuitement :
+      * distance finale au caster >= 2 (les tuiles de spawn sont des hex ADJACENTS au caster) ;
+      * DISTANCE PARCOURUE > 1 depuis la tuile d'APPARITION (`port_spawn_positions`) -- un summon
+        dont la portee de deplacement serait tombee a 1 ne peut pas la franchir."""
+    d = waaagh_ally
+    if not d["live_appeared"] or not d["res"]["spawned"]:
+        pytest.skip("pas d'Ork Boy (live ou port)")
+    live_d = [hexgeo.distance((ch["to"]["col"], ch["to"]["row"]), d["caster_pos"])
+              for ch in d["live_appeared"] if ch.get("to")]
+    if not live_d or max(live_d) < 2:
+        pytest.skip(f"live : aucun Ork Boy n'a quitte l'anneau (dists={live_d}) -> pas de discriminant")
+    spawn_pos = port_spawn_positions(d)
+    port_d, travelled = [], []
+    for gid in d["res"]["spawned"]:
+        pc = d["state"].get_entity(gid).get_component(PositionComponent)
+        if pc is None:
+            continue
+        port_d.append(hexgeo.distance((pc.col, pc.row), d["caster_pos"]))
+        if gid in spawn_pos:
+            travelled.append(hexgeo.distance(spawn_pos[gid], (pc.col, pc.row)))
+    assert port_d and max(port_d) >= 2, (
+        f"port : aucun Ork Boy n'a quitte l'anneau (dists={port_d}, live={live_d})")
+    assert travelled and max(travelled) > 1, (
+        f"port : distance PARCOURUE depuis la tuile d'apparition {travelled} <= 1 -- la portee de "
+        f"deplacement du summon est tombee a 1 (spawn={spawn_pos})")
 
 
 def test_waaagh_target_damage_live_and_port(waaagh):
