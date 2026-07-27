@@ -413,7 +413,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   par les DEUX constructeurs `DSLFactory` (`perform_ai_attack_from_current_position` /
   `perform_ai_attack`). **Correction de RE** au passage : les deux nœuds diffèrent sur DEUX champs, pas
   un — `+0x70 allowMoveAction` (0 vs 1) et `+0x78 moveAmount` (`Direct(0)` vs **`null`**) ; le littéral
-  `1` de `PerformAIAttack(1)` est le BOOL, pas un budget de 1. Mesuré (`probe_r20_replica_rng_flow.py`) :
+  `1` de `PerformAIAttack(1)` est le BOOL, pas un budget de 1. La feuille DSL `PerformAIAttack` porte
+  désormais les deux champs, ce qui a révélé un **second** call-site mal routé, corrigé au passage :
+  `ForwardSpotter` (1143) mirrore le nœud `PerformAIAttack`, pas `...FromCurrentPosition` (delta
+  observable nul, fix de label). Mesuré (`probe_r20_replica_rng_flow.py`) :
   hors portée 1 attaque / 4860 dégâts / 6 tirages MT → **0 attaque / 1 tirage** ; au contact
   `after_hit=False` / 6 tirages → **`after_hit=True` / 12 tirages, dégât identique 4860**. Détail :
   `case-217-thequickening` §7. **RESTE OUVERT (résidu nommé)** : `move_amount is None` ne fait pas

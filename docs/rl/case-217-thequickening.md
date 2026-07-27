@@ -207,6 +207,23 @@ Ordre verifie au decompile de `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours`
 (`options+0x18`) fire **AVANT** la pose du flag « cannot move » (slot `0x23`) — le flag ne gate donc
 pas l'attaque du double.
 
+### Second call-site du meme noeud : `ForwardSpotter` (1143) etait route sur le mauvais constructeur
+
+La feuille DSL `PerformAIAttack` (`abilities/behaviours/summon.py`) sert DEUX noeuds natifs distincts.
+Elle les routait tous sur `...FromCurrentPosition`, alors que
+`ForwardSpotterAbility$$ExecuteBehaviour` appelle `PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)`
+(le commentaire du port le disait deja). Elle porte desormais les deux champs
+(`allow_move_action`, `move_amount`), defauts = ceux de `...FromCurrentPosition` :
+
+| call-site porte | noeud natif | champs |
+|---|---|---|
+| GetEmRuntz 1045, SpawnPoxwalkers 1040, drones Tau | `...FromCurrentPosition` | `False` / `0` (defauts) |
+| ForwardSpotter 1143 | `PerformAIAttack` | `True` / `None` |
+| ScarabSummon 1047 (feuille `SpawnReplica`) | `PerformAIAttack` | `True` / `None` |
+
+Delta observable NUL aujourd'hui (les deux branches agissent depuis la tuile courante, cf. le residu
+ci-dessous) : c'est un fix de FIDELITE DE LABEL, qui evite que la feuille contredise le corps unique.
+
 ### Divergences observables corrigees (chiffrees, seed 31337 / board MC1_67, `probe_r20_replica_rng_flow.py`)
 
 | regime | AVANT (fork) | APRES (corps unique) |
