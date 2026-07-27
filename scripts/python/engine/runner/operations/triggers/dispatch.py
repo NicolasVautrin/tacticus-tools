@@ -1219,13 +1219,33 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
     2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger `On(0x17)` &
        `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour) — chaque
        grot (passif `PileIn`) du `player_id`, a PV PLEINS et owner >=2 tours finis, s'auto-dédouble avec proba
-       `chance − chance_2 × (#grots amis)` = 75 − 5×n. `Maybe(chance)` non modélisé -> DÉTERMINISTE (fire si
-       chance>0, cap naturel n=15). Double = `execute_pilein_replica`. Snapshot AVANT la boucle (« acts on its
-       NEXT turn »).
+       `chance − chance_2 × (#grots amis)` = 75 − 5×n. Double = `execute_pilein_replica`. Snapshot AVANT la
+       boucle (« acts on its NEXT turn »).
 
-    (PileIn reste BESPOKE — pas dans `ABILITY_TRIGGERS` -> pas de double-fire par le dispatch generique.)"""
+       GATE `Maybe(chance)` (O4a) — le behaviour natif se termine par
+           `If( Maybe(Difference(Direct(chance), Multiply(Count(Friends(UnitsWithSameVisualId(Self))),
+                                                          Direct(chance_2)))),
+                Spawn(Self@0x148, <tuile>, summonId, options),
+                Nothing() )`
+       ou `Maybe` a UN argument -> `IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` (le PREDICAT,
+       pas le noeud EFFET homonyme). CONSEQUENCE RNG, et c'est tout l'enjeu : le selecteur de tuile
+       `First(SortByFormula(Randomize(CanAddUnit(AdjacentTiles(Self))), ...), 1)` est un argument du
+       `Spawn`, donc de la branche THEN du `If` -> `IdunBattle.Entities.Behaviours.IfBehaviour$$Execute`
+       ne l'evalue QUE si le `Maybe` a reussi. Le compte natif par grot candidat est donc
+       **1 `next_bool(chance)`, PUIS `len(pool)` tirages du `Randomize` SEULEMENT en cas de succes** —
+       la ou le port DETERMINISTE d'avant ne tirait PAS le `Maybe` et payait le `Randomize` a tous les
+       coups. Le cap naturel `chance <= 0` (n >= 15 grots) est conserve : `next_bool(<=0)` est toujours
+       faux, mais le natif le tire quand meme (le `Maybe` est evalue avant tout test de chance) -> on
+       laisse le tirage se faire et c'est son verdict qui tranche.
+
+    (PileIn reste BESPOKE — pas dans `ABILITY_TRIGGERS` -> pas de double-fire par le dispatch generique.
+     RESIDU ASSUME : seul le gate `Maybe` est un noeud DSL ; le reste du behaviour (Count/Difference/
+     Multiply, le selecteur de tuile) demeure impératif dans `spawn.py`.)"""
     import gameconfig as GC
     from ..spawn import SpawnUnitOperation
+    from ....entities.triggers import MaybeTrigger
+    from ....dsl.base import Const
+    from ...abilities.behaviours import entities_from_state
     # 1. dispatch generique On(TurnEnd) : RadSaturation (fin de tour si pas bouge) + tout futur ability-trigger TurnEnd.
     ev = TriggerEvent(EventTriggerType.TurnEnd, -1, -1, ranged=False, profile=None, player_id=player_id)
     out: list[dict] = evaluate_trigger_operation(state, ev)
@@ -1258,7 +1278,11 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
                 and (u2 := e2.get_component(UnitComponent)) is not None and u2.alive and u2.visual_id == vid
                 and (o2 := e2.get_component(OwnerComponent)) is not None and o2.team == team)
         chance = chance0 - chance_2 * n        # `Difference(75, Multiply(count, 5))`
-        if chance <= 0:                        # cap naturel : 0 % dès n>=15 grots
+        # `If( Maybe(chance), Spawn(...), Nothing() )` — le PREDICAT `MaybeTrigger` (1 `next_bool`),
+        # evalue AVANT le selecteur de tuile du `Spawn` (qui, lui, consomme `len(pool)` tirages via
+        # `Randomize`). Echec -> branche `Nothing()` : ni spawn, ni tirage de placement.
+        ents = entities_from_state(state, gid, gid)          # AbilityEntities du trigger (Self@0x148)
+        if not MaybeTrigger(state.rng, Const(int(chance))).should_trigger(ents):
             continue
         spawned = SpawnUnitOperation.execute_pilein_replica(state, gid)
         if spawned:

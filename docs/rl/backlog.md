@@ -167,11 +167,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     `First`), le tirage parasite retiré, l'ordre SOURCE natif (`boardGraph.neighbours`) branché ;
     comptage ET tuile mesurés live (9/9 tuiles, comptage exact hors résidus nommés). Ce qui reste,
     plus étroit :
-    - **`MaybeTrigger` non porté** (`IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` =
-      `rng.NextBool(chance)` quand `ANonDeterministicAbilityTrigger$$CanUseRandom`, donc **1 tirage**) :
-      le bloc PileIn de `operations/triggers/dispatch.py` traite `Maybe(…)` comme DÉTERMINISTE. Tant
-      qu'il manque, le comptage live de PileIn n'est pas confrontable (le tirage manquant précède le
-      placement). Touche tout gate `Maybe`/`chance` du DSL. `[opus]`.
+    - ~~**`MaybeTrigger` non porté**~~ — **FAIT (`case-o4a-maybe-trigger-rng.md`)** : le gate PileIn
+      est câblé sur le nœud `MaybeTrigger` (1 `next_bool` par grot candidat, `Randomize` de placement
+      SEULEMENT sur succès, mirror de `If(Maybe(chance), Spawn, Nothing)`), et la branche
+      `!CanUseRandom` (`99 < chance`) est portée. Comptage live bit-exact : **4/4 datapoints**
+      (le port d'avant : 0/4, et il créait un grot FANTÔME quand le tirage échouait).
+      **Deux gaps DÉCOUVERTS par cette mesure, restés ouverts** :
+      - **`load_state` ne seede pas `state.turn_counts`** (`engine/runner/snapshot.py`) : il n'est
+        alimenté que par `StartTurnOperation` (`operations/turnflow.py`) quand le port joue lui-même
+        les tours ⇒ tout état chargé d'un snapshot live a `{}`, ce qui rend FAUX le gate
+        `OwnerHasFinishedMinTurns(2)` de PileIn **et** celui d'Ambush
+        (`operations/triggers/genestealer.py`) — les deux sont des NO-OP silencieux depuis un
+        snapshot. `[opus]`.
+      - **`OwnerHasFinishedMinTurns` est PER-UNITÉ, pas per-JOUEUR** :
+        `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` résout
+        son sélecteur en UNE entité puis compare `min <= IdunBattle.Entities.UnitExtensions$$
+        GetTurnsFinished(unit)` (champ `+0x5c` de l'unité). Le port lit
+        `state.turn_counts[player_id]` — un grot fraîchement spawné est donc jugé éligible côté port
+        alors que le natif le refuse. Débloqueur : un compteur de tours finis PAR UNITÉ, **et** son
+        exposition côté hook (`combatSnapshot` ne le porte pas ⇒ **rebuild + reinject requis**).
+        `[opus]`, à programmer quand l'atelier est vide.
     - **Feuilles `Tile(7)` gatées sur l'unité, dans le tri de placement** : le sélecteur `unit` du
       `UtilityMovementCase` construit par `DSLFactory$$SortTilesByUtilityForSummon` n'est pas
       identifiable au décompilé (ctor replié par le linker), donc le port n'alimente que les feuilles

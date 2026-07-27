@@ -393,15 +393,14 @@ nœuds : `First(SortTilesByUtilityForSummon(…), 1)` ne tire RIEN, à aucune ta
 4. ~~Le TRI natif des quatre sites de placement `First(…)`.~~ **CLOS (SS5, cf. section dédiée
    ci-dessus)** : les quatre nœuds sont portés, le tirage parasite retiré, comptage ET tuile mesurés
    live. Restent ouverts, plus étroits :
-   - **PileIn : comptage live non confrontable** tant que `MaybeTrigger` n'est pas porté. Le gate de
-     l'ability est `Maybe(Difference(Direct(chance), Multiply(Count, Direct(chance_2))))`, et
-     `IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` fait
-     `rng.NextBool(chance)` (donc **1 tirage**) dès que
-     `IdunBattle.DSL.ANonDeterministicAbilityTrigger$$CanUseRandom` est vrai. Le dispatch
-     `operations/triggers/dispatch.py` (bloc PileIn) traite `Maybe` comme DÉTERMINISTE (fire si
-     `chance > 0`) → il manque ce tirage AVANT le placement, ce qui confond toute comparaison de
-     compteur sur ce vecteur. Le nœud de placement, lui, est porté et sa loi (`len(pool)` tirages,
-     bornes décroissantes) est celle de #130, déjà mesurée live sur le foyer `_pick_randomly_n`.
+   - ~~**PileIn : comptage live non confrontable**~~ — **CLOS (`case-o4a-maybe-trigger-rng.md`)**. Le
+     gate `Maybe(Difference(Direct(chance), Multiply(Count, Direct(chance_2))))` est câblé sur le nœud
+     `MaybeTrigger` (`IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger` = `rng.NextBool(chance)`
+     sous `IdunBattle.DSL.ANonDeterministicAbilityTrigger$$CanUseRandom`). Le point de RE qui manquait :
+     le sélecteur de tuile est un ARGUMENT du `Spawn`, donc de la branche THEN du `If` — le
+     `Randomize` (`len(pool)` tirages, loi de #130) n'est évalué QUE si le `Maybe` a réussi. Comptage
+     live mesuré : gate réussi → **5 = 1 + 4** (port 5, port d'avant 4) ; gate échoué → **1** et
+     **0 spawn** (port 1/0, port d'avant **4 tirages et 1 spawn fantôme**). 4 datapoints, port 4/4.
    - **La fonction d'utilité de `SortTilesByUtilityForSummon` est réduite aux feuilles PURE-TUILE**
      (Elevation 8, TileEffects 9 via le terrain) : le sélecteur `unit` du `UtilityMovementCase` n'a pas
      pu être identifié (ctor replié par le linker — Ghidra le nomme `AllAliveMachinesSelector`), donc

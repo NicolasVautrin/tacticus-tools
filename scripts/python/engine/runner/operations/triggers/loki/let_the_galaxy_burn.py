@@ -82,10 +82,13 @@ branche B n=23 -> **23/23** a 5 coups. Le +1 est exactement correle a l'appariti
   effet 1478 `DespoiledGround_ExtraDamagePct`). Consequence OFFLINE : la branche B du gate ne
   s'auto-alimente pas (aucun DespoiledGround n'apparait offline) -- elle reste atteignable par tout
   AUTRE tile-effect (Fire/Ice/Contaminated...) et par le contexte LIVE threade.
-- **Ordre de conso RNG** : le natif place `Maybe` AVANT `!HasTileStatusEffect` dans la conjonction ; le
-  port evalue les gates DETERMINISTES d'abord et ne roll que si la pose est possible (evite de
-  consommer le RNG sur une branche impossible). Non confronte bit-exact (le porteur n'est de toute
-  facon pas bit-exact live, cf. `test_bringer_of_despair_live.py`).
+- **Ordre de conso RNG : RESOLU (O4a)**. Le natif place `Maybe` AVANT `!HasTileStatusEffect` dans la
+  conjonction (`MultipleAbilityTrigger$$ShouldTrigger` = gauche puis droite) ; le port l'evalue
+  desormais DANS CET ORDRE, avec la primitive du natif (`MaybeTrigger` -> `NextBool(chance)`, borne
+  99). Ce qui a change, mesurable : (a) un tirage est consomme meme quand la cible est deja sur une
+  tuile a status-effect (branche B), alors que l'ancien port n'en consommait AUCUN ; (b) le verdict
+  d'un meme etat MT peut differer -- l'ancien port tirait `next_internal(0, 100) < 33` (33/100, borne
+  100) la ou le natif fait `next_internal(1, 100) <= 33` (33/99).
 """
 from __future__ import annotations
 
@@ -93,8 +96,11 @@ from typing import Optional
 
 from ....state import State
 from ....components import PositionComponent, PersistentDataComponent
+from ....abilities.behaviours import entities_from_state
 from .....entities.effects.loki.hits import LET_THE_GALAXY_BURN_PERSISTENT_KEY
 from .....entities.effects.magnitude import trait_var
+from .....entities.triggers import MaybeTrigger
+from .....dsl.base import Const
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
 
@@ -141,16 +147,19 @@ class LetTheGalaxyBurnArmAbility(TriggeredAbility):
             return False
         if ev.target_id is None or state.get_entity(ev.target_id) is None:
             return False
+        # ORDRE NATIF (O4a) : la conjonction est `((On(5) & OwnerIsCaster) & Maybe(chance))
+        # & !HasTileStatusEffect(Targets@0x190)`, et `IdunBattle.DSL.MultipleAbilityTrigger$$ShouldTrigger`
+        # evalue GAUCHE puis (si vrai) DROITE. Le `Maybe` passe donc AVANT le gate de tuile : le tirage
+        # est consomme meme quand la cible est deja sur une tuile a status-effect (pose impossible).
+        pct = trait_var("LetTheGalaxyBurn", "LetTheGalaxyBurnChancePct")
+        # `Maybe(ConfigConst 0x2a)` -> `MaybeTrigger` : `NextBool(chance)` (== `next_internal(1,100)
+        # <= chance`, borne 99), PAS `next_internal(0,100) < chance` (borne 100) — primitive du natif.
+        ents = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
+        if not MaybeTrigger(state.rng, Const(int(pct or 0))).should_trigger(ents):
+            return False
         # !HasTileStatusEffect(Targets@0x190) : gate EXCLUSIF -- deja sur une tuile a effet => pas de pose
         # (le coup partira quand meme, par l'autre branche du gate de `CreateAdditionalHits`).
-        if _target_tile_effects(state, ev.target_id):
-            return False
-        # Maybe(ConfigConst 0x2a = traitVariables.LetTheGalaxyBurnChancePct) — evalue EN DERNIER (cf.
-        # « ordre de conso RNG » dans l'entete du module).
-        pct = trait_var("LetTheGalaxyBurn", "LetTheGalaxyBurnChancePct")
-        if not pct or state.rng is None:
-            return False
-        return state.rng.next_internal(0, 100) < int(pct)
+        return not _target_tile_effects(state, ev.target_id)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour` = `SetPersistentData(0x5ca, Self@0x148, Get(<statique>),
