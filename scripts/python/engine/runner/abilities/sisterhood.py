@@ -34,6 +34,7 @@ from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
+from .targeting import TargetingOptions
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
 import hexgeo
@@ -476,6 +477,24 @@ class BrazierOfHolyFireAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.BrazierOfHolyFire)   # 1041
     ABILITY_ID = BRAZIER_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
+    # n'appelle AUCUNE des trois surcharges de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+    # (VERIFIE par `list_xrefs` : absent des trois) : il COPIE un PRESET STATIQUE, les 0x40 octets a
+    # `TargetingOptions.<champs statiques> + 0x140`, puis passe la copie a
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, 0, 0)`.
+    # Le masque est donc le champ `+0x28` de CE preset, ecrit par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` (table de presets de 0x40 octets ; l'entree
+    # +0x140 pose `+0x20 = 0` et `+0x28 = 0x4002`) -> masque EFFECTIF **0x4002**.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2     TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`. 1041 NE
+    #             SURCHARGE PAS ce virtuel (les seuls membres de la classe sont `.ctor`,
+    #             `ExecuteBehaviour`, `GetNumberOfHits`, `GetEffectTargets`) -> il herite du defaut
+    #             de base (= 0, aucun refus), ce que rend deja `ActiveAbility.get_dynamic_invalid_
+    #             target_reason`. Fidele, pas une degradation.
+    #     0x4000  TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie) ; coherent avec
+    #             l'i2 « to a target enemy within range {[range]} ».
+    TARGETING_OPTIONS = TargetingOptions(rules=0x4002)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

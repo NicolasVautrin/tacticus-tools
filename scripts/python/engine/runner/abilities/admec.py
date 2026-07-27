@@ -23,6 +23,7 @@ from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
+from .targeting import TargetingOptions
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon)
 
 if TYPE_CHECKING:
@@ -274,6 +275,64 @@ class RadBombardmentAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.RadBombardment)   # 1116
     ABILITY_ID = RAD_BOMBARDMENT_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$.ctor` :
+    #     range = TargetingRange.CustomRange(1)
+    #     TargetingOptions..ctor(&opts, 0, &range, 1, 0xa0000000042, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # La surcharge appelee est celle a 7 arguments (VERIFIEE par `list_xrefs` : le call-site pointe sur
+    # l'overload « FLAGS DIRECTS », dont le decompile pose `*(options + 0x28) = param_5`) -- PAS
+    # l'overload PRESET+flags (qui ferait `+0x28 = flags | preset.+0x28`). Le litteral EST donc le
+    # masque effectif : **0xa0000000042**. Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2            TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, PORTE
+    #                    ci-dessous (mirror du virtuel natif).
+    #     0x40           TargetIsTile             -> cast TILE-TARGET (confirme live : `abilityTargets`
+    #                    1116 rend `kind="tile"`). Regle NON portee par le filtre statique (domaine
+    #                    TILE, cf. l'inventaire de `targeting.py`) -> inerte, et c'est deliberе.
+    #     0xa0000000000  bits 37 et 39 : noms HORS du dump 32 bits de l'enum -> non decomposes, non
+    #                    portes (meme regime que le bit 32 de Waaagh).
+    TARGETING_OPTIONS = TargetingOptions(rules=0xa0000000042)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile :
+
+            if (target == ListExtensions.FirstOrDefault(casterTiles))  return 1;
+            <AbilityEntities{caster, casterTiles, target}>
+            tiles = GetAffectedTiles().Select(entities);
+            return Count(tiles) == 0 ? 2 : 0;
+
+        = (1) on ne peut pas viser SA PROPRE tuile (l'aim doit designer une direction, pas le caster) ;
+        (2) sinon le cast n'est legal que si la ligne calculee depuis CET aim n'est pas VIDE -- une
+        ligne peut etre vide quand la 1re tuile est bloquante (`- Blocking`) ou hors plateau.
+        `casterTiles.FirstOrDefault()` = la MainTile du caster (une unite mono-tuile n'en a qu'une ;
+        pour un BigTarget le natif prend la PREMIERE -- reduction NOTEE, le port lit la MainTile).
+
+        N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose (cf.
+        `TARGETING_OPTIONS`). Les codes rendus sont des `TargetingRule` bruts, comme dans le natif."""
+        from ..components import PositionComponent
+        board = state.board
+        if board is None or target_id is None:
+            return 0                       # pas de plateau -> aucun refus INVENTE (degradation permissive)
+        ce = state.get_entity(caster_id)
+        cpc = ce.get_component(PositionComponent) if ce is not None else None
+        if cpc is None:
+            return 0
+        caster_tile = board.id_at(cpc.col, cpc.row)
+        aim = int(target_id) if int(target_id) in board.by_id else None
+        if aim is None:
+            te = state.get_entity(target_id)
+            tpc = te.get_component(PositionComponent) if te is not None else None
+            aim = board.id_at(tpc.col, tpc.row) if tpc is not None else None
+        if aim is None:
+            return 0
+        if aim == caster_tile:             # target == casterTiles.FirstOrDefault()
+            return 1
+        entities = entities_from_state(state, caster_id)
+        n_tiles = int(rad_bombardment_affected_tile_amount().evaluate(entities))
+        tiles = rad_bombardment_affected_tiles(aim, n_tiles).evaluate(entities)
+        return 0 if tiles else 2
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
