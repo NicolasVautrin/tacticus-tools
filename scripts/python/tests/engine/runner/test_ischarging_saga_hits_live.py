@@ -1,4 +1,4 @@
-"""CLIQUET `IsCharging` du canal COUPS (case-r33) -- `SagaOfTheWarriorBorn_Owner` (1223, Ragnar).
+"""CLIQUET `IsCharging` du canal COUPS (case-ischarging-hits) -- `SagaOfTheWarriorBorn_Owner` (1223, Ragnar).
 
 Le canal COUPS (`CreateEffectHitsBonusForAttack`) n'etait porte sur AUCUN de ses consommateurs
 gates par `IdunBattleLogic.Entities.DSLFactory$$IsCharging`. Le premier a entrer est

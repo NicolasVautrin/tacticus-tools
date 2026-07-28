@@ -1,4 +1,4 @@
-# case-r33 — l'inventaire REEL des consommateurs d'`IsCharging`, et le port du canal COUPS
+# case-ischarging-hits — l'inventaire REEL des consommateurs d'`IsCharging`, et le port du canal COUPS
 
 > **Build** `gqfc5mff6c`. Suite de `case-231` (socle) et `case-r32` (retrofit du canal DEGAT).
 > Ici on ne retrofite RIEN : on **re-enumere** les consommateurs, et on constate que le tas
@@ -230,7 +230,7 @@ peut donc pas accorder le bonus.
 
 ### Mesure COMBAT — la garde vue ROUGE, verbatim
 
-`probe_r33_saga_hits.py`, `MC1_67` / seed 777, Ragnar rank 17 (`extraHits[50] = 3`, non scale par
+`probe_ischarging_saga_hits.py`, `MC1_67` / seed 777, Ragnar rank 17 (`extraHits[50] = 3`, non scale par
 le multiplier — seule `extraCritDmg` est dans `variablesAffectedByRarityBonus`) :
 
 | regime | live | offline AVANT | offline APRES |
@@ -244,7 +244,7 @@ NOMBRE de coups, pas a leur valeur — decomposition par etage, aucun scalaire f
 
 ### Mesure PREDICTION — 4 regimes, bornes forcees distinctes partout
 
-`probe_r33_saga_prediction.py` (`aiPlaybookPredict`, l'oracle de DECISION — pas le preview
+`probe_ischarging_saga_prediction.py` (`aiPlaybookPredict`, l'oracle de DECISION — pas le preview
 `aiPredict`). `off+chg` / `off-chg` = gate FORCE : leur ecart rend chaque MATCH probant.
 
 | cas | montage | natif | offline | `off+chg` | `off-chg` |

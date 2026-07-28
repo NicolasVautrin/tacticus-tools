@@ -312,7 +312,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack = ForAddition(OwnerIsCaster &
     # IsCharging, ConfigVar(0x13 = extraHits)) -- DEUX noeuds, ni IsNormalAttack ni IsMeleeAttack).
     # Gate = foyer partage `is_charging_attack(att_ctx)`. MESURE live : 10 coups en charge vs 7 en
-    # decalage adjacent. La face CRIT du meme effet reste NON portee (residu N14, case-r33 §7). #r33.
+    # decalage adjacent. La face CRIT du meme effet reste NON portee (residu N14, case-ischarging-hits §7).
     "SagaOfTheWarriorBorn_Owner": SagaOfTheWarriorBornOwnerEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,

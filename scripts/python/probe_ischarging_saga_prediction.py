@@ -1,7 +1,7 @@
-"""Probe case-r33 -- face PREDICTION du gate `IsCharging` sur le canal COUPS
+"""Probe case-ischarging-hits -- face PREDICTION du gate `IsCharging` sur le canal COUPS
 (`SagaOfTheWarriorBorn_Owner` 1223, `spaceBlackmane` <<Ragnar>>).
 
-Le COMBAT est verrouille par `tests/engine/runner/test_r33_saga_charge_hits_live.py`. Ici on
+Le COMBAT est verrouille par `tests/engine/runner/test_ischarging_saga_hits_live.py`. Ici on
 confronte la chaine de DECISION : `aiPlaybookPredict(col,row)` (l'oracle du playbook, PAS le preview
 `aiPredict`) contre `make_normal_attack_predictions` offline, sur les MEMES tuiles.
 
@@ -21,7 +21,7 @@ Chaque ligne imprime les bornes `off+chg` / `off-chg` (gate FORCE) : un MATCH n'
 les deux bornes DIFFERENT -- sinon il serait le MATCH trivial « aucun bonus des deux cotes ».
 
 Usage (depuis scripts/python, session warmee) :
-    python probe_r33_saga_prediction.py [--seed 777] [--board MC1_67]
+    python probe_ischarging_saga_prediction.py [--seed 777] [--board MC1_67]
 
 ASCII only (console cp1252).
 """
@@ -99,7 +99,7 @@ def main(argv):
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--state-file",
                     default=str(Path(__file__).resolve().parents[2] /
-                                "logs" / "runners" / "probe-r33-pred.json"))
+                                "logs" / "runners" / "probe-ischarging-saga-pred.json"))
     a = ap.parse_args(argv)
 
     sid = R._resolve_session()

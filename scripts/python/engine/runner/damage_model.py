@@ -719,7 +719,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              "pos_by_id": pos_by_id, "team_by_id": team_by_id,
              "marked_effect_types": marked_effect_types_for_target(state, att_id, tgt_id),
              "tgt_grand_alliance": grand_alliance_of(state, tgt_id),
-             # `IsCharging` (case-r33) sur le canal COUPS : MEME cle et MEME foyer que le canal
+             # `IsCharging` (case-ischarging-hits) sur le canal COUPS : MEME cle et MEME foyer que le canal
              # DEGAT (`attacker_modifiers`), pose ICI parce que `build_hits_board` est la facade
              # COMBAT PARTAGEE des DEUX vecteurs d'attaque (normale `damage_ops/normal.py` et
              # ability famille ATTACK `damage_ops/ability.py`) -- un seul point de calcul, pas un

@@ -995,7 +995,7 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
     CANDIDAT ajouterait). C'est le MEME foyer que le canal degat de `case-r32`.
     ⚠ Ce n'est PAS `HasFlag(UnitFlag.Moved)` : `MoveUnitOperation$$UpdateCharging` n'inscrit que les
     unites devenues NOUVELLEMENT adjacentes, donc un caster qui bouge vers une cible DEJA adjacente
-    a `Moved` VRAI et `IsCharging` FAUX. MESURE live (`test_r33_saga_charge_hits_live.py`, Ragnar
+    a `Moved` VRAI et `IsCharging` FAUX. MESURE live (`test_ischarging_saga_hits_live.py`, Ragnar
     rank 17) : regime CHARGE = **10 coups** natifs (7 arme + 3), regime STEP_ADJACENT = **7**. Un
     port gate par `has_moved` rendrait 10 dans les DEUX.
 

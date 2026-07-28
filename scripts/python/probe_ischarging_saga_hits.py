@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""probe case-r33 -- MESURE du canal COUPS gate `IsCharging` : `SagaOfTheWarriorBorn_Owner` (1223).
+"""probe case-ischarging-hits -- MESURE du canal COUPS gate `IsCharging` : `SagaOfTheWarriorBorn_Owner` (1223).
 
-Ce probe ne GARDE rien (le cliquet est `tests/engine/runner/test_r33_saga_charge_hits_live.py`).
+Ce probe ne GARDE rien (le cliquet est `tests/engine/runner/test_ischarging_saga_hits_live.py`).
 Il MESURE, regime par regime, le NOMBRE DE COUPS que `spaceBlackmane` <<Ragnar>> porte a sa cible,
 live et en rejeu offline :
 
@@ -17,7 +17,7 @@ Le nombre de coups est l'observable DIRECTE (`len(per_hit)`), pas un scalaire de
 DISCRET, donc un ecart ne peut pas etre absorbe par du bruit d'armure ou de percage.
 
 Usage (depuis scripts/python, session warmee) :
-    python probe_r33_saga_hits.py [--seed 777] [--board MC1_67] [--regimes CHARGE,STEP_ADJACENT]
+    python probe_ischarging_saga_hits.py [--seed 777] [--board MC1_67] [--regimes CHARGE,STEP_ADJACENT]
 
 ASCII only (console cp1252).
 """
@@ -69,7 +69,7 @@ def main() -> int:
     rid = a.runner
     state_file = None
     if rid is None:
-        fd, state_file = tempfile.mkstemp(prefix="r33_saga_", suffix=".json")
+        fd, state_file = tempfile.mkstemp(prefix="ischarging_saga_", suffix=".json")
         os.close(fd)
         Path(state_file).unlink(missing_ok=True)
         argv = [sys.executable, "rl_duel.py", "build", "--seed", str(a.seed),

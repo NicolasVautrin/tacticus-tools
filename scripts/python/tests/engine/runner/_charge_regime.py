@@ -89,7 +89,7 @@ class ChargeRegimeHarness:
         self.my_player = None
         # TRACE du montage : chaque `place()` REEL est un `MoveUnitOperation` natif, donc un appel a
         # `UpdateCharging`. Sans cette trace, une charge posee PAR LE MONTAGE se lit comme un ecart
-        # de port (mesure case-r33). Format : (unit_id, from_pos, to_pos, moved).
+        # de port (mesure case-ischarging-hits). Format : (unit_id, from_pos, to_pos, moved).
         self.trace: list = []
         self.endturns = 0
 
@@ -131,7 +131,7 @@ class ChargeRegimeHarness:
 
         ⚠ `force_cycle=True` : passer par UN CYCLE COMPLET meme si c'est DEJA mon tour.
 
-        CONFOND MESURE (case-r33, reproduit deux fois a l'identique) : les `place()` du montage sont
+        CONFOND MESURE (case-ischarging-hits, reproduit deux fois a l'identique) : les `place()` du montage sont
         de VRAIS `MoveUnitOperation`, donc ils appellent `UpdateCharging` -- amener le caster d'une
         tuile a distance 2 vers une tuile adjacente a la cible CHARGE cette cible, avant meme le pas
         « officiel » du regime. Tant que `reach_my_turn` rendait la main sans aucun `endturn` (cas ou
@@ -216,7 +216,7 @@ class ChargeRegimeHarness:
                               a la MEME cible (la cible n'est donc jamais « nouvellement adjacente »).
           * `NO_STEP`       : caster pose adjacent, aucun pas (controle negatif).
 
-        ⚠ ORDRE DES POSES -- NE PAS L'INVERSER (confond MESURE, case-r33, reproduit 2x a l'identique).
+        ⚠ ORDRE DES POSES -- NE PAS L'INVERSER (confond MESURE, case-ischarging-hits, reproduit 2x a l'identique).
         Un `place()` est un `MoveUnitOperation` natif COMPLET : il appelle `UpdateCharging`, qui
         ECRIT dans la liste `ChargedUnitIds` **DE L'UNITE QUI BOUGE**. Poser la cible d'abord puis
         amener le CASTER a cote d'elle fait donc CHARGER la cible **par le montage**, avant meme le

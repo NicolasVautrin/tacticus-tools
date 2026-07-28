@@ -79,7 +79,7 @@ def is_not_charging(att_ctx) -> bool:
 
 
 def is_charging_attack(att_ctx) -> bool:
-    """Forme POSITIVE du même gate : le coup est-il PROUVÉ en charge (case-r33) ?
+    """Forme POSITIVE du même gate : le coup est-il PROUVÉ en charge (case-ischarging-hits) ?
 
     Même prédicat, même clé `att_ctx["is_charging"]`, même foyer `battle_query.is_charging` —
     seule la polarité de la dégradation change, et c'est VOULU :
