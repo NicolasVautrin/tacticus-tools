@@ -93,14 +93,122 @@ prédiction 10/10, utilité 10/10 ; step 12 u91 ab=1163 MATCH). Tests ciblés : 
 2. **BlackRage_AutomaticUnit (1344) — mécanisme act-again non modélisé.** L'effet est posé ; la triggered
    `BlackRage_ActivationAbility` (`PerformAIAction` sur event 0x16) = tranche triggered dédiée (nécessite le
    vecteur On(0x16) + un re-tour d'action offline).
-3. **Tuile de charge — `SortTilesByUtility` collapsé** en « adjacente-à-la-cible la plus proche du caster »
-   (véhicule `FixedTiles`, doctrine slice-18/19). L'ordre EXACT de la métrique d'utilité par tuile n'est pas
-   reproduit → la tuile peut différer d'un hex adjacent équivalent (l'attaque connecte identiquement).
-4. **Attaque normale offline non bit-exacte dans la probe** — artefact de désalignement rng multi-étage (cf.
+3. **Attaque normale offline non bit-exacte dans la probe** — artefact de désalignement rng multi-étage (cf.
    E) ; le dispatch réel (`UseActiveAbility → AttackDamageOperation.execute`) est le pipeline d'attaque normale
    déjà validé bit-exact ailleurs.
+4. **`UseActiveAbility` — sujet natif `Alive(caster@0x160)`, port `Caster()` nu.** Sans effet sur ce chemin
+   (les 5 sélecteurs d'options du `MoveUnit` sont NULS, donc aucun after-move ne peut tuer le caster entre
+   la charge et l'attaque), mais l'écart structurel est noté.
 
-## 5. Finding annexe (candidat, HORS scope combat — non modifié)
+*(Le résidu « tuile de charge — `SortTilesByUtility` collapsé » a été LEVÉ par #206 :
+`black_rage_possible_movement_tiles_selector` + `first_tile_by_utility(MovementSuggestion)` sont des
+mirrors 1:1 — cf. `case-206-black-rage-waaagh-movement-suggestion.md`.)*
+
+## 5. Gate de cible — masque + règle dynamique (#210)
+
+BlackRage entrait dans `ABILITY_CLASSES` **sans `TARGETING_OPTIONS`**. Or
+`get_invalid_target_reason` / `get_invalid_caster_reason` commencent par
+`options = getattr(ability, "TARGETING_OPTIONS", None)` ; `None` ⇒ retour 0 immédiat, **aucun gate**.
+Le moteur acceptait donc des casts que `IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget`
+REFUSE — dégradation permissive, ni erreur ni crash, invisible en self-play.
+
+### 5.1 Le masque, relu sur BlackRage (jamais hérité de Waaagh)
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$.ctor` :
+
+```
+lVar1 = <bloc de statiques de IdunBattle.Core.Services.TargetingRange>
+<copie des 0x18 octets de lVar1+0x48>                       # preset useWholeBoard
+TargetingOptions..ctor(&opts, 0, &<copie>, 1, 0x106004012, 0, 0, 0)
+AActiveAbility..ctor(this, &opts, 2, 0)
+```
+
+C'est l'overload **FLAGS DIRECTS** (8 arguments), **pas** l'overload « preset + flags » : le littéral
+`0x106004012` **EST** le masque effectif, et le `TargetingRange` n'est pas un champ statique recopié en
+bloc mais l'argument `range` du ctor. Les deux pièges connus sont donc écartés par lecture, pas par
+présomption. Le ctor se trouve être **byte-identique** à
+`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$.ctor` (même bloc de statiques, même
+offset `+0x48`, même littéral) — constat *a posteriori*, pas la source du port.
+
+| bit | nom `IdunBattle.Core.Services.TargetingRule` | effet porté |
+|---|---|---|
+| `0x2` | `TargetMatchesDynamicRule` | consulte `get_dynamic_invalid_target_reason` (§5.2) |
+| `0x10` | `CasterHasNotMoved` | volet CASTER — Lucien ne peut pas caster après s'être déplacé |
+| `0x4000` | `TargetIsEnemy` | refus sur soi-même / un allié |
+| `0x6000000` | `AllowObscuredTarget…` | permissif (aucune contrainte de ligne de vue) |
+| `0x100000000` | `TargetIsNotAdjacent` | refus d'une cible DÉJÀ au contact, **avant** la règle dynamique |
+
+`range` = le `TargetingRange` statique `+0x48` = `useWholeBoard` ⇒ le volet PORTÉE générique **ne teste
+rien** ; toute la contrainte de distance vit dans la règle dynamique, qui rend le même code
+`TargetIsInRange`.
+
+### 5.2 La règle dynamique
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetDynamicInvalidTargetReason` :
+
+```
+tiles = BlackRageAbility.GetPossibleMovementTiles()
+ents  = AbilityEntities(caster, caster, target, 0, 0, 0, casterTiles, ...)
+return Count( tiles.Evaluate(ents) ) > 0 ? 0 : 0x8000000        # TargetingRule.TargetIsInRange
+```
+
+Jumeau structurel de `WaaaghAbility$$GetDynamicInvalidTargetReason`, à une différence de FORME près :
+le natif appelle ici `GetPossibleMovementTiles()` **sans argument** (la cible vient du sélecteur
+`factory+0x178` de l'arbre), là où Waaagh lui passe `Get(target)`. Les deux voient la même cible.
+
+Le prédicat **n'est pas une distance** : « il existe au moins une tuile LIBRE et marchable hex-adjacente
+à la cible, ATTEIGNABLE par le caster en `MOVEMENT + extraMovement` pas ». Le sélecteur consommé est
+`black_rage_possible_movement_tiles_selector` (le mirror 1:1 livré par #206), et la portée
+`_black_rage_move_range` — au moment du gate l'effet 1342 n'est pas encore posé, donc la branche
+`MOVEMENT + bonus` du `If` natif, exactement comme le natif qui évalue la formule avant toute exécution.
+
+### 5.3 Mesure (probe `probe_210_blackrage_targeting.py`)
+
+Oracle = `abilityReason` (masque `TargetingRule` NATIF) ; port rejoué sur le MÊME état figé en DEUX
+versions : **APRÈS** (le registre) et **AVANT** (`TARGETING_OPTIONS = None` + règle dynamique du défaut
+d'`ActiveAbility` = l'état de `master`). Quatre états figés, chacun avec sa capture.
+
+| cas | natif | port APRÈS | port AVANT (`master`) |
+|---|---|---|---|
+| S1 ennemi loin (d=11) — règle DYNAMIQUE | `0x8000000 TargetIsInRange` | `0x8000000` | **`0x0`** |
+| S1 cible AMIE | `0x4000 TargetIsEnemy` | `0x4000` | **`0x0`** |
+| S1 cible = LE CASTER | `0x4000 TargetIsEnemy` | `0x4000` | **`0x0`** |
+| S2 ennemi chargeable (d=2) | `0x0` | `0x0` | `0x0` |
+| S3 ennemi AU CONTACT (d=1) | `0x100000000 TargetIsNotAdjacent` | `0x100000000` | **`0x0`** |
+| S4a caster ayant bougé (état chargé) | `0x10 CasterHasNotMoved` | `0x10` | **`0x0`** |
+| S4b idem + `set_moved_flag` (chemin replay) | `0x10 CasterHasNotMoved` | `0x10` | **`0x0`** |
+
+**7/7 d'accord, et 6 cas où le natif REFUSE alors que `master` rendait 0** — c'est-à-dire six casts
+illégaux que le moteur acceptait.
+
+`S4a`/`S4b` couvrent les **deux chemins de pose** du flag `UnitFlag.Moved` : le snapshot
+(`snapshot._load_unit_flags` ← `combatSnapshot.units[].unitFlags`) et le replay offline
+(`set_moved_flag`, mirror d'`IdunBattle.Entities.UnitExtensions$$SetMovedFlag` qu'appelle
+`MoveUnitOperation`).
+
+> **Deux fiches corrigées au passage.** Les docstrings de `components.unit_has_moved` et de
+> `get_invalid_caster_reason` affirmaient que `load_state` ne seede PAS le `UnitFlagsComponent`, donc
+> que la règle `CasterHasNotMoved` est **inerte sur un état chargé**. C'est **périmé** depuis
+> `f02e30f` (`_load_unit_flags`), et `S4a` le mesure : sans aucune pose manuelle, le port rend `0x10`
+> en accord avec l'oracle. Trouvé **au re-jeu après rebase** — `f02e30f` n'était pas dans le commit de
+> base de cette tranche.
+
+### 5.4 Généralisation — le prédicat n'est pas monotone en distance
+
+`probe_210_blackrage_targeting.py --sweep 8` déplace Lucien de proche en proche et confronte natif/port
+sur chaque ennemi vivant, à chaque position. **48 points sur deux montages, 0 désaccord** :
+
+| montage | verdicts natifs par distance |
+|---|---|
+| `MC1_67` / seed 777 | d=1 `0x100000000` · **d=2 `0x0` ET `0x8000000`** · d=3 `0x8000000` · **d=6 `0x0`** · d=7/10/11 `0x8000000` |
+| `C1_74` / seed 31337 | d=1 `0x100000000` · **d=2 `0x0` ET `0x8000000`** · d=3 `0x0` · **d=5 `0x0`** · **d=6 `0x8000000`** |
+
+Deux signatures qu'un collapse « `hexDistance <= portée` » ne peut pas produire : à **distance égale**
+(d=2) le natif accepte une cible et en refuse une autre, et le verdict **n'est pas monotone** (d=3
+refusé mais d=6 accepté sur `MC1_67` ; d=5 accepté mais d=6 refusé sur `C1_74`). Le port suit sur les
+48 points.
+
+## 6. Finding annexe (candidat, HORS scope combat — non modifié)
 
 Le playbook DÉCISION porté (`should_evaluate`) gate sur `hp <= hpmax*0.5` et sa docstring dit « 50% ». La RE
 combat montre que **hpPct est PER-LEVEL (30%→50%)** : `GetHealthPercentageAfterUse @1811ba570 = ConfigVar(

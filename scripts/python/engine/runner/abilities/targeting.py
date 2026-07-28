@@ -1005,9 +1005,12 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     `CasterMatchesDynamicRule` (0x4, regle-delegue `options+0x30` = slot vtable +0x470), les filtres
     de `FeetCount` et les bits 52/53.
 
-    NB `unit_has_moved` lit le `UnitFlagsComponent`, que `load_state` ne seede PAS (le RPC n'expose
-    pas les UnitFlags) : sur un etat CHARGE la regle est donc inerte. Elle mord sur le chemin
-    replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag` qui pose le flag."""
+    NB `unit_has_moved` lit le `UnitFlagsComponent`. ⚠ FICHE CORRIGEE (2026-07-28, #210) : la regle
+    n'est PLUS inerte sur un etat CHARGE -- `load_state` seede ce flag depuis
+    `combatSnapshot.units[].unitFlags` (`snapshot._load_unit_flags`, introduit par `f02e30f`). MESURE :
+    `probe_210_blackrage_targeting.py` cas `S4a` -- Lucien bouge LIVE, on capture, et le port rend
+    `CasterHasNotMoved` en accord avec l'oracle `abilityReason`, sans pose manuelle. Elle mord aussi
+    sur le chemin replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag`."""
     options = getattr(ability, "TARGETING_OPTIONS", None)
     if options is None or not options.has(TR.CasterHasNotMoved):
         return 0
