@@ -19,13 +19,23 @@ Dans chaque paire on tue avec la MEME attaque, le MEME degat et les MEMES PV -- 
 change. `overkill_revive_case` (#R33) = le montage B, a observable INDEPENDANT (porte revive
 `Narthecium` « unless Overkilled ») et tueur SANS `ThrillSeekers`, qui ATTRIBUE l'observation a
 `isCritical` puis isole `isForceOverkill` (regime `revive-flail`). Consommateur des deux :
-`test_overkill_gate_live.py`."""
+`test_overkill_gate_live.py`.
+
+`overkill_decision_source_case` / `overkill_decision_utility_case` / `overkill_decision_rank_case`
+(#R34) — MEME forme, MEME endroit, mais sur la face DECISION de l'overkill : ce ne sont PAS des
+jumelles du montage crescendo (qui mesure le chokepoint de MORT), elles mesurent le canal
+`MightCrit@+0xb1` -> `MightBeOverkill` -> `PossibleOverkill` (utilite 37). Les trois etages vivent
+dans `scripts/python/probe_r34_overkill_decision.py` : SOURCE du flag (`CouldCrit(attaquant)` +
+producteur offline), CANAL d'utilite (formule ISOLEE : les deux cotes sur predictions NATIVES,
+scoreur natif = `pairUtility`), CLASSEMENT (bascule d'argmax entre deux cibles). Consommateur :
+`test_overkill_decision_live.py`."""
 from __future__ import annotations
 
 import pytest
 
 import probe_psychic_aoe as P
 import probe_178_overkill_gate as OVK
+import probe_r34_overkill_decision as DEC
 
 
 @pytest.fixture
@@ -82,4 +92,64 @@ def overkill_revive_case(live_session):
                 pytest.skip(f"montage overkill-revive KO ({case}): {r['error']}")
             cache[case] = r
         return cache[case]
+    return _case
+
+
+# ── #R34 — face DECISION de l'overkill (`MightBeOverkill` lit `MightCrit@+0xb1`) ────────────────
+
+@pytest.fixture(scope="module")
+def overkill_decision_source_case(live_session):
+    """SOURCE du flag : `pred.mightCrit` LIVE vs `CouldCrit(attaquant)` (stats `combatSnapshot`) ET
+    producteur OFFLINE (`composite_fields()["mightCrit"]`) vs le flag de l'event NATIF.
+
+    TROIS regimes de crit -- `100,1` (les deux conjonctions vraies), `100,0` et `0,1` (une seule) :
+    c'est ce qui interdit de conclure d'une correlation triviale « tout a 1 / tout a 0 ». Portee
+    MODULE (un build par regime)."""
+    cache: dict = {}
+
+    def _case(seed: int = 34011) -> dict:
+        if "r" not in cache:
+            cache["r"] = DEC.run_source(
+                seed=seed, verbose=True,
+                regimes=(("crit-on", "100,1"), ("chance-only", "100,0"), ("dmg-only", "0,1")))
+        return cache["r"]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def overkill_decision_utility_case(live_session):
+    """CANAL d'utilite, formule ISOLEE : les DEUX cotes sont nourris des MEMES predictions NATIVES
+    (`aiPlaybookPredict`), le natif etant le scoreur invoque en direct (`pairUtility`). Regime
+    LETAL SOUS LE SEUIL impose et VERIFIE. Portee MODULE (3 builds : tune + 2 regimes)."""
+    cache: dict = {}
+
+    def _case(seed: int = 34101) -> dict:
+        if "r" not in cache:
+            r = DEC.run_utility(seed=seed, verbose=True)
+            if "error" in r:
+                pytest.skip(f"montage overkill-decision KO : {r['error']}")
+            cache["r"] = r
+        return cache["r"]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def overkill_decision_rank_case(live_session):
+    """CLASSEMENT : deux cibles descendues dans DEUX bandes d'overkill differentes -> l'argmax du
+    port d'AVANT (`isCritical = 0`) et celui du natif DIVERGENT, et le port d'APRES rejoint le
+    natif. Le pas de descente est du meme ordre que la largeur de bande -> le probe re-tente sur
+    plusieurs seeds. Portee MODULE (couteux : 2 builds + une descente pilotee par seed essaye)."""
+    cache: dict = {}
+
+    def _case(seed: int = 34201) -> dict:
+        if "r" not in cache:
+            r = {}
+            for k in (0, 7, 13, 29):
+                r = DEC.run_rank(seed=seed + k, verbose=True)
+                if r.get("flip") or r.get("error"):
+                    break
+            if r.get("error"):
+                pytest.skip(f"montage overkill-rank KO : {r['error']}")
+            cache["r"] = r
+        return cache["r"]
     return _case

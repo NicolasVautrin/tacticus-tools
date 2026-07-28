@@ -159,6 +159,12 @@ def _fields_from_native_event(ev: dict, block_amount: int = 0) -> dict:
             "healthDmgMax": min(ev.get("healthDmgMax") or 0, hp),
             "rawHealthDmgMin": raw_min, "rawHealthDmgMax": raw_max,
             "forceOverkill": bool(ev.get("forceOverkill")),
+            # #R34 : `MightCrit` (event+0xb9 = `DamagePredictionResult.MightCrit@+0xb1`) — le 3e
+            # argument `isCritical` de `MightBeOverkill`. Sans cette cle, la formule offline
+            # nourrie des predictions NATIVES sous-comptait `PossibleOverkill` (15.0 EXACT, mesure
+            # probe_r34) sur tout attaquant `CouldCrit` face a une cible letale-sous-le-seuil ->
+            # un ecart d'etage UTILITE classe « logic » alors que le feed etait bon.
+            "mightCrit": bool(ev.get("mightCrit")),
             "shieldDmgMin": ev.get("shieldDmgMin") or 0,
             "shieldDmgMax": ev.get("shieldDmgMax") or 0,
             "limitedByMinHp": bool(ev.get("limitedByMinHp")),

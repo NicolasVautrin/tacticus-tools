@@ -118,6 +118,8 @@ def will_be_overkill(pred) -> bool:
     # `IsOverkill(result@+0x00, healthDmg, **0**, result@+0xb2, result@+0xb3, hasValue(result@+0xb4),
     # value(result@+0xb4), null)` — la borne GARANTIE passe `isCritical = 0` EN DUR (litteral lu au
     # decompile) : elle ne parie pas sur un crit. C'est `MightBeOverkill` qui passe `MightCrit@+0xb1`.
+    # ⚠ #R34 : NE PAS « harmoniser » les deux bornes en y cablant `pred["mightCrit"]` — l'asymetrie
+    # est NATIVE (garantie vs optimiste) et une garde la verrouille (`test_overkill_decision_live`).
     allow = 1 if pred.get("forceOverkill") else 0
     return bool(is_overkill(hp, will_min, is_critical=0, is_force_overkill=allow,
                             is_prevent_overkill=0, allow_overkill=1,
@@ -138,20 +140,23 @@ def might_be_overkill(pred) -> bool:
         raw_max = pred.get("healthDmgMax") or 0
     # `IsOverkill(result@+0x00, result@+0x28, **result@+0xb1 = MightCrit**, result@+0xb2,
     # result@+0xb3, hasValue(result@+0xb4), value(result@+0xb4), null)` — lecture VERBATIM du
-    # decompile : la borne OPTIMISTE passe le flag `MightCrit`, la ou `WillBeOverkill` passe **0 en
-    # dur**. Le port passe 0 des DEUX cotes.
+    # decompile (args re-derives au desassemblage du site d'appel, #R34) : la borne OPTIMISTE passe
+    # le flag `MightCrit`, la ou `WillBeOverkill` passe **0 en dur**.
     #
-    # RESIDU NOMME (#R33, face DECISION -- HORS du perimetre du cas, qui porte sur le chokepoint de
-    # MORT) : `is_critical=0` ici sous-estime la borne optimiste sur tout kill CRITIQUE sous le
-    # seuil (`PV <= dmg < 2 x PV`), exactement le regime mesure live cote COMBAT
-    # (`probe_178_overkill_gate.py --case crit`). Le flag est DEJA lu par le hook
-    # (`frida/hooks/features/ai-step/rpc-predict.ts` : `mightCrit: b.add(0xb1)`), mais le `pred`
-    # que consomme cette fonction est CONSTRUIT par `playbook/probable_damage_event.py`, qui ne
-    # pose PAS la cle -> la cabler d'abord cote producteur, sinon `.get("mightCrit")` reste None et
-    # le « fix » serait un canal lu jamais ecrit. Consommateurs impactes : `OverkillUnitUtility`
-    # (utilite 37) et `DoomSirenPlaybook.CalculateCustomUtility`.
+    # #R34 -- LE FLAG EST DESORMAIS LU. Le corps prive RENVOIE `isCritical` dans le cas « letal mais
+    # SOUS le seuil » (`pct < overkillDmgPctOfHealth`) : un coup CRITIQUE qui tue sans doubler les PV
+    # EST un overkill. A `is_critical=0` la borne OPTIMISTE sous-estimait donc `PossibleOverkill`
+    # (utilite 37) sur TOUT kill critique dans `[PV, 2 x PV)`. MESURE (probe_r34, formule ISOLEE --
+    # memes predictions natives des deux cotes) : natif 148.2903 vs port 133.2903 = **exactement
+    # PossibleOverkill (15.0)**, et 0 ecart dans le regime sans crit.
+    # Producteurs de la cle : `playbook/probable_damage_event.py::composite_fields` (<- `dp.might_crit`,
+    # pose par `services/damage_prediction.attacker_could_crit`) et `engine_agreement_stages.
+    # _fields_from_native_event` (<- `mightCrit` du decodeur natif). `.get(...)` absent/None -> 0 =
+    # l'ancien comportement, pour les producteurs qui ne posent pas la cle (cf. residu nomme
+    # `runner/operations/damage_utility.py`, doc case-r34).
     allow = 1 if pred.get("forceOverkill") else 0
-    return bool(is_overkill(hp, raw_max, is_critical=0, is_force_overkill=allow,
+    return bool(is_overkill(hp, raw_max, is_critical=1 if pred.get("mightCrit") else 0,
+                            is_force_overkill=allow,
                             is_prevent_overkill=0, allow_overkill=1,
                             overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 

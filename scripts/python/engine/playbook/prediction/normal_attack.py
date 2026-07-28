@@ -59,7 +59,8 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof),  # #69 gate NoBlocking
-        attacker_effects=scene.effects(att_id))   # #202 : PredictAttackRaw universel
+        attacker_effects=scene.effects(att_id),   # #202 : PredictAttackRaw universel
+        attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
 
 
 def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
@@ -87,7 +88,8 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof),  # #69 gate NoBlocking
-        attacker_effects=scene.effects(att_id))   # #202 : PredictAttackRaw universel
+        attacker_effects=scene.effects(att_id),   # #202 : PredictAttackRaw universel
+        attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
 
 
 def _normal_attack_followup_prediction(scene, att_id, tgt_id, is_melee, weapon_found):
@@ -289,7 +291,8 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         target_limits=_target_damage_limits(scene, tgt_id, prof_name),
         extra_groups=_extra_groups,
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof_name),  # #69 gate NoBlocking
-        attacker_effects=att_effects)   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
+        attacker_effects=att_effects,   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
+        attacker_ctx=ctx)               # #R34 : MightCrit = CouldCrit(attaquant), meme foyer
     ev = ProbableDamageEvent(target=tgt_id, prediction=res)
     if meta:
         return ev, {"mv71": True, "tile": tile_pos, "base": attack_base, "hits": hits,
@@ -477,7 +480,8 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
         target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id, prof_name),
         extra_groups=_extra_groups,
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof_name),  # #69 gate NoBlocking
-        attacker_effects=att_effects)   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
+        attacker_effects=att_effects,   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)
+        attacker_ctx=ctx)               # #R34 : MightCrit = CouldCrit(attaquant), meme foyer
     # #57c-C : override PredictAttack des attaques normales de boss (Gulgortz/LightImUp, Ghazghkull/
     # ProperKilly) — prediction ADDITIONNELLE sur scenario VIERGE sommee via DamagePredictionResult.add
     # (IdunBattle.Core.Services.DamagePredictionResult$$Add), cf. bloc _RANGED_FOLLOWUP_PASSIVES ci-dessus.
