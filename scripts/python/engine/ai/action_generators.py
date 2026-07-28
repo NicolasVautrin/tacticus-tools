@@ -174,108 +174,170 @@ class ComparableAbilityGenerator(ActionGenerator):
     prédiction déléguée à PV + Σ + Tile(7) + gate ShouldExecute). Sweep de position par paire
     (ability,cible) [argmax tile STRICT] -> argmax inter-ability -> pool attaque+soin -> `Bucket.ChooseAction`."""
 
+    def _action_utility(self, ctx, pb, ab, tgt, tile):
+        """Utilité d'ACTION d'un candidat (ability, cible, tuile) — un tour de la boucle CIBLE de
+        `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal`.
+
+        Renvoie `(u_action, u_full, u, pred, aoe, bk)` ou None (le natif ne pousse rien dans son
+        `Bucket` quand `CalculateActionUtility` rend un `Nullable` vide).
+
+        `u_action` = `BucketAction.Utility` = `u_full + CalculateCustomUtility` (#64 : base 0
+        `…ComparablePlaybook…$$CalculateCustomUtility`, NormalAttack +1
+        `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`).
+        Le custom est SOMMÉ DANS `…$$CalculateActionUtility` (avant le terme Tile), donc AVANT tout
+        argmax -> il doit entrer dans CE comparatif, pas être ajouté après (sinon un custom
+        POSITION-dépendant — Drachnyen `IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility` — ne peut jamais changer la tuile choisie)."""
+        cand = pb.calculate_action_utility(ctx, tile, tgt, ab)
+        if cand is None:
+            return None
+        u_full = cand["u_full"]
+        u_val = cand["u"]
+        if ab == _SPIRITLEECH_ID:
+            # #84 : SpiritLeech (Comparable) SOMME un terme LIFESTEAL (Σ HealUtility sur self + amis
+            # Tyranids adjacents à `tile`) au dégât dans `CalculateActionUtility`. Position-dépendant.
+            ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
+            u_full += ls
+            u_val += ls
+        u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
+        return (u_action, u_full, u_val, cand["pred"], cand["aoe"], cand["bk"])
+
+    def _sweep_tiles(self, ctx, rk_tiles_union) -> list:
+        """Positions candidates DANS L'ORDRE NATIF (R1-b). Mirror de la liste `tiles` que
+        `IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`
+        passe à chaque générateur, c.-à-d. `ctx.action_tiles` (cf. `engine.ai.context.action_tiles_for`).
+
+        Chaîne d'ORDRE, lue au décompilé (gqfc5mff6c) et CONFIRMÉE live :
+
+        - `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` seede un
+          `OrderedSet<UnitPosition>` avec `GetUnitPosition(unit)` puis `UnionWith(GetMovablePositionsFor(…))`
+          -> ORIGINE EN TÊTE ;
+        - `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFor` = `GetMovableTilesFor` puis
+          `UnionWith(EntityExtensions.IterateTiles(unit))` (⚠ **UnionWith**, pas `ExceptWith` : c'est le
+          MÊME method-info que le `param_8.UnionWith(accumulé)` final d'`…$$AnyOrFillMoveableTiles`, dont
+          la cible est un `OrderedSet` VIDE — un `ExceptWith` y rendrait toujours l'ensemble vide) puis
+          `GetMovablePositionsFromTiles(tiles, feetCount)` ;
+        - `IdunBattle.Core.Services.MovementQuery$$GetMovablePositionsFromTiles` à `feetCount == 1` =
+          `IdunBattle.Core.UnitPositionExtensions$$ToUnitPositionList` = boucle `for i in 0..Count-1` sur
+          la LISTE de l'`OrderedSet` -> ORDRE PRÉSERVÉ ;
+        - `idun.shared.collections.OrderedSetu003C__Il2CppFullySharedGenericTypeu003E` EST une `List<T>`
+          (+ `HashSet<T>` @+0x28) : `$$Add` = `hashSet.Add` puis `List.Add` (ordre d'INSERTION),
+          `$$UnionWith` -> `$$SyncListWithSet` APPEND les manquants dans l'ordre de la source, et
+          `$$RemoveExtraEntriesFromList` supprime À REBOURS par `List.RemoveAt` (ordre des survivants
+          préservé).
+        ⇒ ordre natif = `[origine] + ordre d'insertion de GetMovableTilesFor` = EXACTEMENT ce que le RPC
+        `aiMovableTiles` expose (il appelle le MÊME `GetMovableTilesFor` et lit la MÊME `List<T>`).
+
+        CONFIRMÉ LIVE (`probe_r1b_native_sweep_order.py`, C4_09/999 pas 14, `templAncient`) : la séquence
+        des tuiles caster vues par `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+        est `[(5,5),(5,6),(6,4),(4,4),(4,3),(3,5),(3,6),(5,3),(3,3),(2,4),(2,6)]` = `action_tiles`
+        À L'IDENTIQUE, et ce N'EST PAS l'ordre `ranked` (`GetBestTileToAttackFrom`, qui classe par une
+        utilité de MOUVEMENT et ne sert nulle part dans le générateur d'action).
+
+        `rk_tiles_union` = les tuiles LÉGALES vues dans les `ranked` du plan ; celles qui manqueraient à
+        `action_tiles` sont mises en queue (ne doit pas arriver : `ranked` est construit sur
+        `GetMovableTilesFor` + `mainTile`, cf. `projection.ts::computeAttackPlans`)."""
+        at = [t for t in (ctx.action_tiles or []) if t and t[0] is not None]
+        seen = set(at)
+        return at + [t for t in rk_tiles_union if t and t[0] is not None and t not in seen]
+
     def _best_attack(self, ctx):
-        """Sweep attaque : renvoie `best = (u, u_action, target, ability, tile)` ou None. Argmax
-        inter-ability sur l'utilité d'ACTION `u_full + CalculateCustomUtility` (#64 : la normale
-        porte +1 -> elle bat tout actif Comparable à Δ(pair+tile) < 1 ; couvre l'ancien tie exact
-        step-9 seed777 (69 vs 1067 même u_full) ET 2468 s18 (69 vs 1191, Δpair=0.75))."""
+        """Sweep attaque : renvoie `best = (u, u_action, target, ability, tile)` ou None.
+
+        MIRROR 1:1 des TROIS boucles imbriquées natives, keep-first (`>` STRICT) à chaque étage :
+
+            `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`
+                foreach ability in `…ActiveAbilityActionGenerator$$GetUnitAbilitiesInOrder`   <- MAJEURE
+                    foreach position in `tiles`                                               <- MÉDIANE
+                        `Bucket.Merge`(bucket, playbook.Evaluate(unit, position, ctx))
+            `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal`
+                    foreach target in `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities` <- MINEURE
+                        if (utility > best) best = action
+            `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction`
+                seede le 1er ajouté, ne remplace que sur `>` STRICT.
+
+        C'est la POSITION qui domine la CIBLE, pas l'inverse : à utilité d'action égale entre deux
+        (cible, tuile) d'une même ability, c'est la TUILE énumérée la première qui gagne. L'ordre des
+        tuiles vient de `_sweep_tiles` (origine en tête puis l'ordre de `GetMovableTilesFor`).
+
+        L'utilité comparée est celle d'ACTION `u_full + CalculateCustomUtility` (#64 : la normale porte
+        +1 -> elle bat tout actif Comparable à Δ(pair+tile) < 1 ; couvre l'ancien tie exact step-9
+        seed777 (69 vs 1067 même u_full) ET 2468 s18 (69 vs 1191, Δpair=0.75))."""
         plan = ctx.plans.get(ctx.uid) or {}
-        # R1 — ORIGINE EN TETE DU SWEEP DE POSITION. `ActiveAbilityActionGenerator.<GenerateActions>d__7`
-        # boucle sur la liste `tiles` de `DefaultAiUnitTactic.<CalculateNextActionForUnit>d__5`, produite
-        # par `ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
-        # `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`, dont l'`OrderedSet`
-        # est SEEDE avec `GetUnitPosition(unit)` avant `UnionWith(GetMovablePositionsFor(...))` :
-        # **la position COURANTE est la PREMIERE**. `Bucket$$AddAction` etant keep-first (`>` STRICT),
-        # a utilite EGALE le natif RESTE SUR PLACE.
-        # PORTEE VOLONTAIREMENT LIMITEE A CE QUI EST PROUVE : seul le rang de l'ORIGINE est impose ici.
-        # L'ordre RELATIF des tuiles de move reste celui de `ranked` -- le natif les tire de
-        # `GetMovablePositionsFromTiles` (apres un `ExceptWith`), dont l'ordre n'est PAS celui de
-        # `aiMovableTiles` : l'imposer a ete MESURE REGRESSIF (C4_09/999 pas 14, tie 192.851 entre deux
-        # tuiles de move, natif -> (4,4) = 1re RANKEE ; pos 15/20 -> 14/20). Cf. residu R1-b.
-        best = None       # (u, u_full, tgt, ab, tile)
+        best = None       # (u, u_action, tgt, ab, tile)
         best_key = None
-        # #57g : tie-break natif INTRA-POSITION. `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` compare les cibles en
-        # STRICT `op_GreaterThan` dans l'ordre d'énumération de `IterateSurroundingTiles` (lex cube
-        # (x,y) croissant, cf. bq.iterate_surrounding_tiles_order_key) -> à utilité égale DEPUIS LA
-        # MÊME tuile d'attaque, la cible au plus petit rang cube gagne (12345 s15 : t83(2,-7) bat
-        # t81(2,-6) à 167.8599 exact). Tie inter-positions (tuiles d'attaque différentes) = ordre du
-        # sweep de positions natif, NON LU -> comportement premier-énuméré conservé (non exercé).
-        best_rank = None  # rang cube-loop de la tuile de la cible du best courant
+        # #57g : ordre d'énumération des CIBLES (boucle MINEURE). `EvaluateInternal` compare en STRICT
+        # `op_GreaterThan` dans l'ordre de `IterateSurroundingTiles` (lex cube (x,y) croissant, cf.
+        # bq.iterate_surrounding_tiles_order_key) -> à utilité égale DEPUIS LA MÊME tuile d'attaque, la
+        # cible au plus petit rang cube gagne (12345 s15 : t83(2,-7) bat t81(2,-6) à 167.8599 exact).
+        # Ici le tri des `evals` par ce rang REND cette règle structurelle (keep-first suffit).
         tgt_pos_by_id = {e.get("id"): (e["pos"]["col"], e["pos"]["row"])
                          for e in (ctx.enemies or [])
                          if isinstance(e, dict) and (e.get("pos") or {}).get("col") is not None}
-        dbg = []
+        # Regroupement ABILITY-MAJEUR : `plan["evals"]` est déjà produit ability-major puis cible
+        # (`projection.ts::computeAttackPlans` boucle `abilities` x `enemies`) — mirror de l'ordre de
+        # `GetUnitAbilitiesInOrder`. On préserve l'ordre de PREMIÈRE apparition de chaque ability.
+        by_ab: dict = {}
+        ab_order: list = []
         for ev in (plan.get("evals") or []):
-            if not ev.get("rankCount"):
+            if not ev.get("rankCount") or not (ev.get("ranked") or []):
                 continue
-            ranked = ev.get("ranked") or []
-            if not ranked:
-                continue
-            tgt, ab = ev.get("targetId"), ev.get("abilityId")
+            ab = ev.get("abilityId")
             # #15 : une ability NonComparable (ex. HeroicFusillade 1180) est rangée par
             # `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` dans le tier NonComparable SEUL (flag IsComparable) ->
             # JAMAIS évaluée par le tier Comparable, même si elle figure dans les attackPlans (dégât).
             # Sans ce skip, le fallback générique la repêcherait ici alors que son playbook NC a gaté (=[]).
             if playbooks.is_noncomp(ab):
                 continue
+            if ab not in by_ab:
+                by_ab[ab] = []
+                ab_order.append(ab)
+            by_ab[ab].append(ev)
+        dbg = []
+        for ab in ab_order:
             # LoadPlaybook : attaque normale -> NormalAttackPlaybook ; sinon fallback/spéciale.
             pb = NORMAL_ATTACK_PLAYBOOK if ab in ctx.normal_ids else get_playbook_or_default(ab)
-            # SWEEP DE POSITION par paire (ability, cible) : chaque cible depuis CHAQUE tuile candidate
-            # (`EvaluateInternal` boucle les cibles à position fixe). `ranked[0]` seul est FAUX pour les
-            # spéciales (classement dMin/dMax-based, arbitraire) -> balayer TOUTES. Argmax STRICT `>`.
-            pair_best = None   # (u_action, u_full, u, pred, aoe, tile, bk)
-            # ORIGINE d'abord (si l'attaque y est legale), puis les tuiles rankees dans leur ordre.
-            rk_tiles = [(rk.get("col"), rk.get("row")) for rk in ranked]
-            org = ctx.origin
-            sweep = ([org] if org is not None and org in rk_tiles else []) \
-                + [t for t in rk_tiles if t != org]
-            for tile in sweep:
-                if tile[0] is None:
+            evs = sorted(
+                by_ab[ab],
+                key=lambda ev: (0, bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[ev["targetId"]]))
+                if ev.get("targetId") in tgt_pos_by_id else (1, ()))
+            legal = {ev.get("targetId"): {(rk.get("col"), rk.get("row"))
+                                          for rk in (ev.get("ranked") or [])}
+                     for ev in evs}
+            # union des tuiles LEGALES, dans l'ordre `ranked` de premiere apparition (deterministe :
+            # `legal` est un set, il ne peut pas porter d'ordre) -- ne sert qu'au filet de queue.
+            union, seen_u = [], set()
+            for ev in evs:
+                for rk in (ev.get("ranked") or []):
+                    t = (rk.get("col"), rk.get("row"))
+                    if t not in seen_u:
+                        seen_u.add(t)
+                        union.append(t)
+            for tile in self._sweep_tiles(ctx, union):
+                # `EvaluateInternal` à POSITION FIXE : argmax sur les cibles, keep-first STRICT.
+                tile_best = None   # (u_action, u_full, u, pred, aoe, tgt, bk)
+                for ev in evs:
+                    tgt = ev.get("targetId")
+                    if tile not in legal[tgt]:
+                        continue          # attaque illégale depuis cette tuile -> pas d'action générée
+                    cand = self._action_utility(ctx, pb, ab, tgt, tile)
+                    if cand is None:
+                        continue
+                    u_action, u_full, u_val, cpred, caoe, cbk = cand
+                    if tile_best is None or u_action > tile_best[0]:
+                        tile_best = (u_action, u_full, u_val, cpred, caoe, tgt, cbk)
+                if tile_best is None:
                     continue
-                cand = pb.calculate_action_utility(ctx, tile, tgt, ab)
-                if cand is None:
-                    continue
-                u_full = cand["u_full"]
-                u_val = cand["u"]
-                if ab == _SPIRITLEECH_ID:
-                    # #84 : SpiritLeech (Comparable) SOMME un terme LIFESTEAL (Σ HealUtility sur self + amis
-                    # Tyranids adjacents à `tile`) au dégât dans `CalculateActionUtility`. Position-dépendant.
-                    ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
-                    u_full += ls
-                    u_val += ls
-                # #64/#27 : le natif compare des utilités d'ACTION (`BucketAction.Utility` = u_full +
-                # `CalculateCustomUtility` ; base 0 IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility, NormalAttack +1 IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility). L3 2468 s18 :
-                # 69 = 20.981+40+1 = 61.981 bat 1191 = 21.728+40+0 = 61.728. L'ancien tie-break exact
-                # `(u_full, is_normal)` était l'ombre de ce +1 (seuil natif PLUS LARGE, jamais fitté).
-                # Le custom est SOMMÉ DANS `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` (avant le terme Tile),
-                # donc AVANT l'argmax par tuile de `EvaluateInternal` -> il doit entrer dans CE
-                # comparatif, pas être ajouté après (sinon un custom POSITION-dépendant — Drachnyen
-                # IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility, count d'ennemis adjacents à la tuile d'attaque — ne peut jamais changer
-                # la tuile choisie). Neutre pour les customs constants (ArmoriumCherub, NormalAttack…).
-                u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
-                if pair_best is None or u_action > pair_best[0]:
-                    pair_best = (u_action, u_full, u_val, cand["pred"], cand["aoe"], tile, cand["bk"])
-            if pair_best is None:
-                continue
-            u_action, u_full, u, pred, aoe, tile, bk = pair_best
-            key = u_action
-            if ctx.debug:
-                p = pred or {}
-                dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"), p.get("kill"),
-                            p.get("healthDmgMax"), p.get("hpBefore"), f"aoe{len(aoe)}", tile,
-                            ("sh", p.get("shieldDmgMin"), p.get("shieldDmgMax")), ("bk", bk)))
-            rank = (bq.iterate_surrounding_tiles_order_key(tgt_pos_by_id[tgt])
-                    if tgt in tgt_pos_by_id else None)
-            if best_key is None or key > best_key:
-                best = (u, u_action, tgt, ab, tile)
-                best_key = key
-                best_rank = rank
-            elif (key == best_key and best is not None and ab == best[3] and tile == best[4]
-                  and rank is not None and best_rank is not None and rank < best_rank):
-                # tie exact même ability + même tuile d'attaque -> la cible énumérée PLUS TÔT par
-                # l'EvaluateInternal natif gagne (inter-ability = boucle générateur, hors périmètre)
-                best = (u, u_action, tgt, ab, tile)
-                best_rank = rank
+                u_action, u_full, u, pred, aoe, tgt, bk = tile_best
+                if ctx.debug:
+                    p = pred or {}
+                    dbg.append((ab, tgt, round(u, 1), round(u_full, 1), p.get("killSure"),
+                                p.get("kill"), p.get("healthDmgMax"), p.get("hpBefore"),
+                                f"aoe{len(aoe)}", tile,
+                                ("sh", p.get("shieldDmgMin"), p.get("shieldDmgMax")), ("bk", bk)))
+                # `Bucket.Merge` -> `AddAction` : keep-first, remplacement sur `>` STRICT.
+                if best_key is None or u_action > best_key:
+                    best = (u, u_action, tgt, ab, tile)
+                    best_key = u_action
         if ctx.debug:
             ab_ids = [a.get("id") for a in ((ctx.me or {}).get("abilities") or [])]
             print(f"    [dbg u{ctx.uid}] abilities={ab_ids} attack_cands(ab,tgt,util,kS,k,dmax,hp)={dbg}",
