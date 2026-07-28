@@ -110,8 +110,9 @@ class SentinelDirectivesAbility(ActiveAbility):
     #     range            = `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
     #     forceMeleeTarget = 0 = RangedBool.True   <- le SEUL du lot a `True` avec SanctorumMissile
     #     rules            = 0x100004000 = TargetIsEnemy | TargetIsNotAdjacent
-    # `TargetIsNotAdjacent` (bit 32) : le tir est INTERDIT sur une cible au contact. NON portee au
-    # filtre statique -> degradation permissive (le port ne refusera pas ce cas).
+    # `TargetIsNotAdjacent` (bit 32) : le tir est INTERDIT sur une cible au contact. PORTEE au
+    # filtre statique depuis #243 (`targeting.py`, `battleQuery` slot 0x61) -> le port refuse ce cas
+    # avec le MEME code que le natif.
     TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAdjacent,
                                          range=RANGE_FROM_CONFIG,
                                          force_melee_target=RANGED_BOOL_TRUE)

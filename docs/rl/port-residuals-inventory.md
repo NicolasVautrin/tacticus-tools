@@ -255,6 +255,39 @@ après #181) et **ne monte plus** : les entrées neuves arrivent AVEC leur masqu
 > Garde live : `tests/engine/runner/test_ability_target_gate_lot181_live.py` (26 tests) confronte
 > chaque masque à `abilityReason` **et** mesure le ROUGE AVANT (sans masque, le port acceptait).
 
+> **#243 (2026-07-28) — l'autre moitié du gisement : un masque POSÉ ne sert à rien tant que la
+> RÈGLE n'est pas dans la cascade.** Les bits `TargetIsNotAdjacent` (32) et
+> `TargetIsNotAdjacentToEnemy` (42) étaient déclarés par 4 masques (1058, 1139, 1153 ; 1145) et
+> **ne refusaient jamais rien**. Les deux prédicats sont DÉRIVABLES de l'état que le port possède
+> déjà (positions + adjacence + équipes) et sont portés dans le maillon générique
+> (`engine/runner/abilities/targeting.py`), pas en special-case :
+> `battleQuery.<slot 0x61>(targetTiles, casterTiles)` = `MovementUtil$$AreTilesAdjacent(IList,
+> IList)` pour le bit 32 ; `battleQuery.<slot 0x7f>(targetTiles, caster, false)` =
+> `BattleQuery$$GetAdjacentEnemies` → `IterateAdjacentTiles(…, false, true, true)` +
+> `CountOrGetUnitsOnTiles(enemyOf: joueur du CASTER)` pour le bit 42. Les index de slot sont LUS sur
+> les lambdas de `RecordedSimulationRequestsBattleQuery` (`…DisplayClass118_0`/`…154_0`), qui
+> ré-appellent l'inner par le même index — c'est la seule lecture qui les donne sans deviner.
+>
+> **Ce que la mesure a imposé EN PLUS, et c'est la leçon** : porter une règle sans porter celles qui
+> la PRÉCÈDENT produit un refus pour la MAUVAISE raison (le natif s'arrête à la PREMIÈRE règle
+> rompue). Trois maillons antérieurs ont donc dû entrer avec : `TargetHasFreeAdjacentTile` (bit 5,
+> slot 0x51 `GetFreeAdjacentTiles`), `TargetTileIsFree` (bit 12, `TileExtensions$$CanAddUnit(t,
+> state, 1, 0, 0)`) et la branche `TargetIsTile` du DÉBUT du filtre (tuile-cible non marchable →
+> le natif rend le **littéral 1**, c'est-à-dire `ValidRequest` : cette valeur n'est donc PAS toujours
+> « ability indisponible », et un oracle qui l'exclurait du contrat à l'aveugle masquerait un vrai
+> désaccord).
+>
+> **Chiffres** (`probe_243_not_adjacent.py`, MC1_67/777 puis C3_30/31337) : **4 trous permissifs
+> fermés** (1153 et 1139 à d=1, 1145 sur une tuile voisine d'un ennemi, 1145 sur une tuile occupée)
+> **+ 1 violation de contrat préexistante corrigée** — pour une cible AU CONTACT, Waaagh rendait
+> `TargetIsInRange` (sa règle dynamique) là où le natif rend `TargetIsNotAdjacent` ; aucune géométrie
+> de test n'amenait un ennemi à d=1 du Warboss, le désaccord était donc latent. Après : **0 refus
+> inventé, 0 refus pour la mauvaise raison** sur 18 couples (3 casters × 6 unités) + 3 tuiles, et
+> **0/0 sur 88 couples** du second montage (autres porteurs des bits 5 et 12 : 1003, 1009, 1112,
+> 1201). Gardes : `tests/engine/runner/test_targeting_adjacency_rules_live.py` (22 tests) + fixture
+> `_not_adjacent_stage.py`. Résidu restant du bloc : `CasterHasFreeAdjacentTile` (bit 21) — **aucun
+> porteur au registre**, donc rien à valider ; le porter serait spéculatif.
+
 > **case-231 (2026-07-28)** : les deux masques du lot viennent d'un **preset statique** — leur
 > `.ctor` n'appelle AUCUN `TargetingOptions$$.ctor`, il recopie 0x40 octets. Le masque effectif est
 > la constante écrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` à `<preset>+0x28` :

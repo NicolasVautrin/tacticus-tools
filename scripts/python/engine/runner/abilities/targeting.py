@@ -71,7 +71,9 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
 
   bit  masque                nom (enum IdunBattle.Core.Services.TargetingRule)   port
   ---  --------------------  -------------------------------------------------  --------------------
-   6   0x40                  TargetIsTile                                        NON (domaine TILE)
+   6   0x40                  TargetIsTile -> tuile-cible NON MARCHABLE (rend le  OUI
+                             litteral 1 = `ValidRequest`), sauf sous le bit 43
+                             AllowUnwalkableTargetTile
   44   0x100000000000        TargetIsMachine                                     NON
   46   0x400000000000        TargetIsActor                                       NON
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
@@ -92,13 +94,13 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON
    8   0x100                 TargetIsHealable                                    NON
   16   0x10000               TargetIsRepairable                                  NON
-   5   0x20                  TargetHasFreeAdjacentTile                           NON
-  21   0x200000              CasterHasFreeAdjacentTile                           NON
-  12   0x1000                TargetTileIsFree (`CanAddUnit`)                     NON (domaine TILE)
+   5   0x20                  TargetHasFreeAdjacentTile (battleQuery slot 0x51)   OUI
+  21   0x200000              CasterHasFreeAdjacentTile                           NON (aucun porteur)
+  12   0x1000                TargetTileIsFree (`CanAddUnit`)                     OUI (cible TUILE)
   17   0x20000               TargetTileIsFreeOrEnemy                             NON (domaine TILE)
   19   0x80000               TargetTileHasEnemyUnit                              NON (domaine TILE)
-  32   0x100000000           TargetIsNotAdjacent (battleQuery slot 0x61)         NON
-  42   0x40000000000         TargetIsNotAdjacentToEnemy (battleQuery slot 0x7f)  NON
+  32   0x100000000           TargetIsNotAdjacent (battleQuery slot 0x61)         OUI
+  42   0x40000000000         TargetIsNotAdjacentToEnemy (battleQuery slot 0x7f)  OUI
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
   57   0x200000000000000     TargetIsCasterOrEnemy (self OU ennemi attaquable)   OUI
 
@@ -751,6 +753,226 @@ def are_entities_adjacent(board, src_feet, dst_feet) -> bool:
 
 
 # ------------------------------------------------------------------------------------------------
+# VOLET ADJACENCE — les deux regles `...NotAdjacent...` (bits 32 et 42)
+#
+# Elles ne sont PAS le meme predicat, et le decompile les separe par deux slots d'interface
+# DISTINCTS de `IBattleQuery` (slots LUS sur les lambdas du decorateur
+# `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery`, qui re-appellent l'inner par le
+# MEME index — c'est la seule lecture qui donne l'index sans deviner) :
+#
+#   slot 0x5f / 0x60 / 0x61 = les trois surcharges de `BattleQuery$$AreEntitiesAdjacent`
+#       (`...u003Cu003Ec__DisplayClass116_0/117_0/118_0$$u003CAreEntitiesAdjacentu003Eb__0`)
+#   slot 0x7c / 0x7d / 0x7e / 0x7f = les quatre surcharges de `BattleQuery$$GetAdjacentEnemies`
+#       (`...u003Cu003Ec__DisplayClass151_0..154_0$$u003CGetAdjacentEnemiesu003Eb__0`)
+#
+# Le filtre statique appelle le slot 0x60 pour la PORTEE `OnlyAdjacent` (`(casterTiles, target)`),
+# le slot 0x61 pour le bit 32 (`(targetTiles, casterTiles)` : deux LISTES) et le slot 0x7f pour le
+# bit 42 (`(targetTiles, caster, false)`).
+# ------------------------------------------------------------------------------------------------
+
+def entity_tiles(state: "State", entity_id) -> list:
+    """`IdunBattle.Entities.EntityExtensions$$GetTiles(entity, state)` = la materialisation en LISTE
+    de `IdunBattle.Entities.EntityExtensions$$IterateTiles`, dont le `MoveNext`
+    (`...EntityExtensions.u003CIterateTilesu003Ed__17$$MoveNext`) a TROIS branches, dans cet ordre :
+
+        if (entity.Has<UnitFootComponent>()) yield state.GetEntity(foot.TileId);      // UN pied
+        else if (entity.Has<TileComponent>()) yield entity;                            // la TUILE
+        else if (entity.Has<UnitComponent>())                                          // l'EMPREINTE
+            foreach (f in unit._feet) { t = f.Tile; if (t.Id != 0) yield t; }
+
+    C'EST CETTE FONCTION que le filtre statique applique a la CIBLE (`local_a0`) et au CASTER
+    (`casterTiles`), donc la seule qui rende `[la tuile]` quand la cible EST une tuile (ability
+    tile-target). `components.get_unit_feet` mirror `GetUnitFeetIds`, qui ne couvre QUE la 3e
+    branche et rend `[]` sur une tuile : s'en servir ici DESARMERAIT les deux regles d'adjacence
+    pour toute ability tile-target (le seul porteur du bit 42, `SporeMineLauncher` 1145, cible une
+    TUILE).
+
+    Port : il n'existe pas d'entite-PIED (l'empreinte vit dans `UnitComponent.feet`), donc la 1re
+    branche n'a pas d'equivalent ; restent EMPREINTE puis TUILE du board. Les deux espaces d'ids
+    sont DISJOINTS — `boardGraph` et `decisionView` projettent le MEME `MatchState` natif, ou une
+    tuile et une unite sont deux entites distinctes — l'ordre entre les deux branches est donc sans
+    effet. `[]` = le port ne sait pas resoudre -> aucun refus (convention permissive du module)."""
+    if entity_id is None:
+        return []
+    from ..components import get_unit_feet
+    feet = get_unit_feet(state, int(entity_id))
+    if feet:
+        return feet
+    board = state.board
+    if board is not None and int(entity_id) in board.by_id:
+        return [board.coord(int(entity_id))]
+    return []
+
+
+def _current_player_team(state: "State", entity_id):
+    """`IdunBattle.Entities.EntityExtensions$$GetCurrentPlayer(entity, state)` puis
+    `player.Player.Team` (`+0x20` -> `+0x24`), tels que `UnitExtensions$$IsEnemy` les lit. Le natif
+    rabat toute resolution manquante sur `0` ; le port rend `None`, que l'appelant compare comme une
+    valeur ordinaire — deux `None` restent EGAUX, donc le verdict est le meme."""
+    from ..components import OwnerComponent
+    e = state.get_entity(int(entity_id)) if entity_id is not None else None
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    return None if oc is None else oc.team
+
+
+def units_are_enemies(state: "State", a_id, b_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsEnemy(a, b, state)` — mirror du decompile :
+
+        if (a == null || b == null) return false;
+        teamA = (GetCurrentPlayer(a)?.Player is null) ? 0 : GetCurrentPlayer(a).Player.Team;
+        teamB = (GetCurrentPlayer(b)?.Player is null) ? 0 : GetCurrentPlayer(b).Player.Team;
+        return teamA != teamB;
+
+    ⚠ CE N'EST PAS `not units_are_friendly`. `units_are_friendly` mirror le slot 0x90
+    `TargetingQuery$$UnitsAreFriendly` et rend `False` des qu'un `OwnerComponent` manque — le nier
+    INVENTERAIT un ennemi la ou le natif, lui, compare deux equipes rabattues a `0` et conclut
+    « pas ennemis ». C'est bien `IsEnemy` que consomme `BattleQuery$$CountOrGetUnitsOnTiles`."""
+    if a_id is None or b_id is None:
+        return False
+    return _current_player_team(state, a_id) != _current_player_team(state, b_id)
+
+
+def tile_can_add_unit(state: "State", coord) -> bool:
+    """`IdunBattle.Entities.TileExtensions$$CanAddUnit(tile, state, allowSteppable, ignoreReserved,
+    ignoreContent)` pour le triplet `(1, 0, 0)` — le SEUL que le filtre statique utilise (bit 12
+    `TargetTileIsFree`) et aussi celui du lambda de filtrage de `BattleQuery$$GetFreeAdjacentTiles`
+    (`...BattleQuery$$u003CGetFreeAdjacentTilesu003Eb__96_0` : `CanAddUnit(tile, state, 1, 0, 0)`).
+    Mirror du decompile, pour ces arguments :
+
+        if (tile == null || !tile.Has<TileComponent>())      return false;
+        if (tile.<+0x40>.Blocker != 0)                       return false;   # folde dans `walkable`
+        if (tile.Position.NotWalkable != 0)                  return false;   # folde dans `walkable`
+        if (!ignoreContent) {                                                # ici : toujours
+            if (content.IsEmpty())                           ok = true;
+            else ok = GetUnit(tile).HasTrait(0x1b Steppable);                # allowSteppable = 1
+            if (!ok)                                         return false;
+        }
+        if (ignoreReserved) return true;                                     # ici : non
+        return tile.Position.<+0x2c> == 0;                                   # RESERVEE ?
+
+    Offline : `Board.walkable` EST `BattleQuery.IsWalkableTile` = `TileExtensions$$IsWalkable`, qui
+    folde deja les deux premiers rejets (cf. `frida/hooks/features/ai-step/rpc-board.ts`) ;
+    l'occupation vient de `state.unit_at` (empreinte-aware, morts exclus). Le dernier terme
+    (`Position+0x2c`, tuile RESERVEE) n'est capte par aucun RPC -> non modelise, donc PERMISSIF :
+    une tuile walkable-vide-mais-reservee est rendue placable ici alors que le natif la refuse.
+    C'est la MEME limitation, deja assumee et documentee, que `engine/battle_query.can_add_unit`
+    (le pendant DECISION de ce predicat) -- pas un nouveau residu."""
+    from ...entities.traits.unit_trait import UnitTrait
+    board = state.board
+    if board is None or coord is None:
+        return False
+    tid = board.id_at(int(coord[0]), int(coord[1]))
+    if tid is None or not board.walkable(tid):
+        return False
+    occ = state.unit_at((int(coord[0]), int(coord[1])))
+    if occ is not None:
+        return UnitTrait.Steppable.name in (_unit_traits(state, occ.id) or ())
+    return True
+
+
+def get_free_adjacent_tiles(state: "State", entity_id) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(IEntity)` — le slot 0x51 de
+    `IBattleQuery` (index LU sur
+    `...RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass101_0$$u003CGetFreeAdjacentTilesu003Eb__0`,
+    qui re-appelle l'inner par ce meme index). Mirror du decompile :
+
+        tiles = BattleQuery$$GetAdjacentTiles(entity, requireEmptyOrSteppable: true,
+                                              requireWalkable: true[, allowTemporary: true]);
+        tiles.FilterInPlace(t => TileExtensions.CanAddUnit(t, state, true, false, false));
+        return tiles;
+
+    Les deux pre-filtres de `GetAdjacentTiles` sont SUBSUMES par `CanAddUnit` (vide-ou-steppable +
+    walkable), et `allowTemporary` ne filtre rien ; les deux surcharges natives de
+    `GetFreeAdjacentTiles` (slots 0x51 et 0x52, qui ne different QUE par ce flag) coincident donc
+    offline -- le port ne modelise pas `TileExtensions$$IsTemporary`. Reste la porte d'ELEVATION de
+    `TileQuery$$IterateAdjacentTiles` (`|dElev| < 2`), portee ici. Rend des `(col,row)`."""
+    board = state.board
+    if board is None:
+        return []
+    out: list = []
+    for t in (entity_tiles(state, entity_id) or ()):
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            continue
+        elev = board.elevation(tid)
+        for nid in board.neighbours(tid):
+            if abs(elev - board.elevation(nid)) >= 2:
+                continue
+            coord = board.coord(nid)
+            if coord in out or not tile_can_add_unit(state, coord):
+                continue
+            out.append(coord)
+    return out
+
+
+def get_adjacent_enemies(state: "State", tiles, unit_id,
+                         only_non_steppable: bool = False) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IList<Tile> tiles, IEntity unit,
+    bool onlyNonSteppable)` — la surcharge du slot 0x7f de `IBattleQuery`. Chaine native, mirror :
+
+        players = state.GetEntity(unit.OwnerComponent.CurrentPlayerEntityId)
+        BattleQuery$$GetUnitsOnTiles( BattleQuery$$IterateAdjacentTiles(tiles, false, true, true),
+                                      friendOf: null, enemyOf: players, onlyNonSteppable )
+          -> `BattleQuery$$CountOrGetUnitsOnTiles` (collecte dans un `OrderedSet`) :
+               foreach (tile in tiles) {
+                   u = UnitExtensions.GetUnit(tile, state);        if (u == null) continue;
+                   if (onlyNonSteppable && IsSteppable(u))         continue;
+                   if (friendOf != null && !IsFriend(u, friendOf)) continue;
+                   if (enemyOf  != null && !IsEnemy(u, enemyOf))   continue;
+                   set.Add(u);
+               }
+
+    `IterateAdjacentTiles(tiles, a=false, b=true, c=true)` delegue par tuile a
+    `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles(tile, a, b, c)`, dont le `MoveNext`
+    (`...TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`) lit ses trois flags ainsi (mapping
+    des DEUX ctors d'iterateur, `+0x41/+0x43/+0x45` recopies en `+0x40/+0x42/+0x44`) :
+
+        a = requireEmptyOrSteppable = FALSE -> les tuiles OCCUPEES sont incluses (c'est le but ici)
+        b = requireWalkable         = TRUE  -> `TileExtensions$$IsWalkable(tile, true)` exige
+        c = allowTemporary          = TRUE  -> les tuiles temporaires ne sont PAS filtrees
+
+    puis la porte d'ELEVATION `|tile.Elevation - adj.Elevation| < 2` — la MEME que
+    `MovementUtil$$AreTilesAdjacent` (cf. `are_tiles_adjacent`). L'iterateur parcourt la liste
+    d'adjacence STOCKEE sur la tuile (`Connectivity`), donc la tuile SOURCE n'est jamais rendue :
+    contrairement a `are_tiles_adjacent`, « la meme tuile » ne compte PAS ici.
+
+    Le call-site du filtre statique passe `onlyNonSteppable = 0` : une unite `Steppable` adjacente
+    COMPTE. Le parametre est mirrore quand meme (le natif l'expose, d'autres surcharges le posent).
+
+    `state.unit_at` est le mirror etabli d'`UnitExtensions$$GetUnit(tile, state)` (occupant
+    empreinte-aware ; il exclut les morts, comme la convention `decisionview_keeps_dead` du port —
+    le natif, lui, RETIRE les tuiles d'un cadavre, donc les deux disent la meme chose).
+
+    Sans `state.board` le port ne sait pas enumerer l'adjacence -> liste VIDE : aucun refus invente,
+    convention permissive du module."""
+    from ...entities.traits.unit_trait import UnitTrait
+    board = state.board
+    if board is None or not tiles or unit_id is None:
+        return []
+    out: list = []
+    for t in (tiles or ()):
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            continue
+        elev = board.elevation(tid)
+        for nid in board.neighbours(tid):
+            if abs(elev - board.elevation(nid)) >= 2:
+                continue                                   # porte d'ELEVATION (|dElev| < 2)
+            if not board.walkable(nid):
+                continue                                   # `requireWalkable = true`
+            occ = state.unit_at(board.coord(nid))          # `UnitExtensions$$GetUnit(tile, state)`
+            if occ is None:
+                continue
+            if only_non_steppable and UnitTrait.Steppable.name in (_unit_traits(state, occ.id) or ()):
+                continue
+            if not units_are_enemies(state, unit_id, occ.id):
+                continue                                   # `IsEnemy(u, enemyOf)`
+            if occ not in out:
+                out.append(occ)                            # `OrderedSet.Add` (dedup)
+    return out
+
+
+# ------------------------------------------------------------------------------------------------
 # La cascade
 # ------------------------------------------------------------------------------------------------
 
@@ -883,6 +1105,27 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     if options.self_cast and _targets_the_caster(state, caster_id, target_id, tuid, options):
         return get_caster_not_added_reason(state, caster_id, ability)
 
+    # BRANCHE `TargetIsTile` DU DEBUT DU FILTRE -- la toute PREMIERE regle de refus de la cascade,
+    # avant meme `TargetIsCaster`. VERBATIM :
+    #     if ((rules & 0x40 TargetIsTile) != 0) {
+    #         mainTile = EntityExtensions.GetMainTile(target, state);
+    #         if (!TileExtensions.IsWalkable(mainTile, true)
+    #             && (rules & AllowUnwalkableTargetTile) == 0)  -> GenericBrokenTargetingRule(1)
+    #     }
+    # ⚠ LE CODE RENDU EST LE LITTERAL `1`, c'est-a-dire `TargetingRule.ValidRequest` : le natif
+    # REUTILISE cette valeur pour « tuile-cible non marchable ». Elle n'a donc PAS toujours le sens
+    # « ability indisponible » que lui donne `AttackQuery$$GetInvalidTargetReason` en amont de la
+    # cascade -- une lecture d'oracle qui exclurait `0x1` du contrat sans regarder d'ou il vient
+    # masquerait un vrai desaccord (MESURE `probe_243_not_adjacent.py --case generalise` : 5 tuiles
+    # de C3_30 ou le natif rend `0x1` alors que la cible est parfaitement resolvable).
+    if options.has(TR.TargetIsTile) and not options.has(TR.AllowUnwalkableTargetTile):
+        board = state.board
+        tt = entity_tiles(state, target_id)
+        if board is not None and tt:
+            tid = board.id_at(int(tt[0][0]), int(tt[0][1]))
+            if tid is not None and not board.walkable(tid):
+                return int(TR.ValidRequest)
+
     # TargetIsCaster -- « la cible DOIT etre le caster » :
     #   `if ((rules & TargetIsCaster) && caster != GetUnit(target)) -> broken(TargetIsCaster)`
     if options.has(TR.TargetIsCaster) and tuid is not None and tuid != int(caster_id):
@@ -922,6 +1165,70 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     reason = get_range_broken_rule(state, caster_id, target_id, options)
     if reason:
         return reason
+
+    # TargetHasFreeAdjacentTile -- « la cible doit avoir au moins une tuile LIBRE au contact » :
+    #     if ((rules & 0x20) && battleQuery.<slot 0x51>(target).Count == 0) -> broken(0x20)
+    # Position NATIVE : APRES la portee/ligne de vue et le bloc `TargetIsSummon`/`TargetIsHero`/
+    # `TargetIsNotAnObject`/`TargetIsHealable`/`TargetIsRepairable`, AVANT le bloc TUILE puis les deux
+    # regles d'adjacence. PORTEE ICI, et pas ailleurs, parce que c'est cet ORDRE qui tranche : sur
+    # HammerOfWrath (masque 0x102004032, qui porte les DEUX bits) le natif rend `0x20` et non
+    # `0x100000000` pour une cible adjacente ET encerclee -- MESURE par `probe_243_not_adjacent.py`
+    # (necroWarden u81, d=1, natif 0x20 ; sans cette regle le port rendait 0x100000000, soit un refus
+    # pour la MAUVAISE raison). Le predicat est le meme que celui de la regle DYNAMIQUE de
+    # HammerOfWrath, qui rend d'ailleurs le meme code -- ce que le natif fait DEUX fois aussi.
+    if options.has(TR.TargetHasFreeAdjacentTile) and state.board is not None:
+        if entity_tiles(state, target_id) and not get_free_adjacent_tiles(state, target_id):
+            return int(TR.TargetHasFreeAdjacentTile)
+
+    # TargetTileIsFree -- « la TUILE ciblee doit pouvoir accueillir une unite » :
+    #     if ((rules & 0x1000) && !TileExtensions.CanAddUnit(mainTile(target), state, 1, 0, 0))
+    #        -> broken(0x1000)
+    # (`mainTile(target)` = `pcVar12`, que la branche `TargetIsTile` du debut du filtre pose a
+    # `GetMainTile(target)`.) Porte UNIQUEMENT quand la cible est une TUILE du board : c'est le seul
+    # cas qu'exercent les quatre porteurs du bit (1112, 1145, 1201, 1219), et une cible que le port
+    # ne sait pas resoudre en tuile ne doit pas produire de refus invente. Comme le bit 5, il est ici
+    # pour l'ORDRE : il precede `TargetIsNotAdjacentToEnemy` (bit 42), donc une tuile OCCUPEE et
+    # voisine d'un ennemi doit rendre 0x1000, pas 0x40000000000.
+    if options.has(TR.TargetTileIsFree) and state.board is not None and target_id is not None:
+        if int(target_id) in state.board.by_id:
+            if not tile_can_add_unit(state, state.board.coord(int(target_id))):
+                return int(TR.TargetTileIsFree)
+
+    # TargetIsNotAdjacent -- « la cible ne doit PAS etre AU CONTACT du caster ». VERBATIM du filtre
+    # statique (surcharge 7 arguments) :
+    #     if ((rules >> 0x20) & 1) {
+    #         if (battleQuery.<slot 0x61>(targetTiles, casterTiles)) -> broken(0x100000000)
+    #     }
+    # `targetTiles` = `EntityExtensions.GetTiles(target, state)` (le `local_a0` calcule en TETE de
+    # la fonction), `casterTiles` = le 2e argument de l'appelant. Le slot 0x61 est la surcharge
+    # LISTE x LISTE d'`AreEntitiesAdjacent` -> `MovementUtil$$AreTilesAdjacent(IList, IList)` =
+    # exactement `are_entities_adjacent` (meme tuile incluse + porte d'elevation), deja consomme par
+    # le volet `only_adjacent` de la portee. Le sens est INVERSE de celui-la : ici l'adjacence
+    # REFUSE. Position NATIVE : apres tout le bloc TUILE (`TargetTileIsFree`/`...FreeOrEnemy`/
+    # `...HasEnemyUnit`), AVANT `TargetIsNotAdjacentToEnemy` puis la regle dynamique -- c'est ce qui
+    # fixe la RAISON rendue quand la cible est A LA FOIS adjacente et refusee par la regle dynamique
+    # de l'ability (mesure #226 sur HammerOfWrath : d=1 refuse, d>=2 accepte).
+    if options.has(TR.TargetIsNotAdjacent):
+        board = state.board
+        src = entity_tiles(state, caster_id)
+        dst = entity_tiles(state, target_id)
+        if board is not None and src and dst and are_entities_adjacent(board, dst, src):
+            return int(TR.TargetIsNotAdjacent)
+
+    # TargetIsNotAdjacentToEnemy -- « la cible ne doit avoir AUCUN ENNEMI DU CASTER au contact ».
+    # VERBATIM du filtre statique, juste apres le bloc precedent :
+    #     if ((rules >> 0x2a) & 1) {
+    #         units = battleQuery.<slot 0x7f>(targetTiles, caster, false);
+    #         if (units.Count > 0) -> broken(0x40000000000)
+    #     }
+    # (le `GetTiles(target)` y transite par un corps IL2CPP DEDUPLIQUE `return param_1;` — une
+    # IDENTITE, que ghidra etiquette `idun.tests.TestItemModel$$GetNextLevelItemModel` ; ce n'est PAS
+    # une extraction de premiere tuile.) « Ennemi » = `IsEnemy(occupant, joueur du CASTER)`, pas
+    # « ennemi de la cible » : sur une ability tile-target (SporeMineLauncher 1145) la tuile n'a pas
+    # de camp, c'est le caster qui donne le referentiel. Detail du predicat : `get_adjacent_enemies`.
+    if options.has(TR.TargetIsNotAdjacentToEnemy):
+        if get_adjacent_enemies(state, entity_tiles(state, target_id), caster_id):
+            return int(TR.TargetIsNotAdjacentToEnemy)
 
     # TargetMatchesDynamicRule -- LE POINT D'EXTENSION : la regle-delegue posee par
     # `AActiveAbility$$.ctor` a `options+0x38` (`TargetingOptions.DynamicTargetingTargetRule` liee au

@@ -286,7 +286,9 @@ class WaaaghAbility(ActiveAbility):
     #                                                    cf. probe_115_ability_reason.py)
     #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-meme / un allie)
     #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
-    #     0x100000000 TargetIsNotAdjacent             -> predicat battleQuery slot 0x61, non porte
+    #     0x100000000 TargetIsNotAdjacent             -> PORTE (#243 ; battleQuery slot 0x61) : une
+    #                                                    cible DEJA au contact du Warboss est
+    #                                                    refusee AVANT la regle dynamique
     # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> le volet
     # generique de portee NE TESTE RIEN. C'est ce qui evite le FORK : la contrainte de
     # distance de Waaagh vit ENTIEREMENT dans `get_dynamic_invalid_target_reason` ci-dessous

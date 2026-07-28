@@ -432,7 +432,9 @@ class HammerOfWrathAbility(ActiveAbility):
     #                                              statique reste non porte (cf. `targeting.py`)
     #     0x4000      TargetIsEnemy             -> PORTE
     #     0x2000000   AllowObscuredTargetByElevation -> permissif (aucune contrainte portee ici)
-    #     0x100000000 TargetIsNotAdjacent       -> predicat battleQuery slot 0x61, non porte
+    #     0x100000000 TargetIsNotAdjacent       -> PORTE (#243 ; battleQuery slot 0x61) : la cible
+    #                                              DEJA au contact est refusee, AVANT la regle
+    #                                              dynamique ci-dessous
     # PORTEE (#241) : le preset `TargetingOptions` statique `+0x240` embarque le
     # `TargetingRange` statique `+0x48` = `useWholeBoard` -> AUCUN test de portee dans le
     # filtre statique. La constante `HammerOfWrath.constants.range` (5) n'est donc PAS la
@@ -467,21 +469,20 @@ class HammerOfWrathAbility(ActiveAbility):
         tuile se libere (mesure : deplacer u81 hors de (5,8) rend u77 ET u81 legaux d'un coup).
         Cible/caster non resolvables -> 0 (permissif, jamais de refus invente).
 
-        ###### RESIDU NOMME — le natif refuse EN PLUS une cible DEJA ADJACENTE (non porte) ######
+        ###### LE REFUS A d=1 : `TargetIsNotAdjacent`, PORTE DEPUIS #243 (residu #226 ferme) ######
         MESURE (#226, meme runner, u83 DEPLACE autour de Mataneo @(4,7), 3 ennemis ecartes du champ) :
             d=1 @(4,8) refuse · d=1 @(5,7) refuse · d=2 @(6,6) accepte · d=2 @(2,7) accepte
             d=3 @(1,7) accepte · d=4 @(0,7) accepte · d=6 @(0,3) accepte
         La bande acceptee est donc `d >= 2` (et PAS `d <= range` : d=6 passe, parce que la contrainte
         `MinDistance(tuile, CasterTiles) <= range` porte sur la TUILE de charge, pas sur la cible).
         AUCUNE lecture de la lambda ci-dessus ne produit ce refus a d=1 (a d=1 les tuiles libres du
-        ring-1 de la cible sont a distance <= 2 du caster, donc `Any` est VRAI). Le refus vient donc
-        d'un AUTRE etage de la cascade statique : HYPOTHESE = **`TargetIsNotAdjacent`**
-        (`predicat battleQuery slot 0x61 sur les tuiles`, cf. l'inventaire de `targeting.py`) — que
-        `WaaaghAbility` (l'autre ability de CHARGE portee) porte AUSSI et qui n'y est pas porte non
-        plus. NON IMPLEMENTE ICI : le bit est une regle PARTAGEE de la cascade et je n'ai de mesure
-        que sur UNE ability ; l'implementer globalement risquerait de regresser Waaagh (live-valide
-        sans lui). Consequence : le port ACCEPTE un cast sur une cible deja adjacente que le natif
-        REFUSE (permissif, meme classe de residu que toutes les regles non portees de `targeting.py`)."""
+        ring-1 de la cible sont a distance <= 2 du caster, donc `Any` est VRAI). Le refus vient d'un
+        AUTRE etage de la cascade statique — l'hypothese `TargetIsNotAdjacent` a ete CONFIRMEE au
+        decompile (#243) : le bit 32 gate `battleQuery.<slot 0x61>(targetTiles, casterTiles)` et
+        rompt sur l'ADJACENCE. Il est desormais porte dans le maillon GENERIQUE (`targeting.py`),
+        pas ici : c'est une regle PARTAGEE, que `WaaaghAbility` (l'autre ability de CHARGE portee)
+        porte aussi. Ordre natif : le bit 32 est evalue AVANT cette regle dynamique, donc une cible
+        adjacente rend `TargetIsNotAdjacent` et non `TargetHasFreeAdjacentTile`."""
         if target_id is None:
             return 0
         dest = hammer_of_wrath_dest_tile(state, int(caster_id), int(target_id))
