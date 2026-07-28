@@ -67,7 +67,11 @@ ESCORT = "orksNob"
 ENEMY = "necroWarden"
 GROT = "orksGrot"                 # le porteur du passif PileIn (kind = summons)
 GROTS_WANTED = 1                  # 1 seul porteur : port et natif s'accordent alors sur la population
-MIN_AGE = 3                       # tours (de MES tours) a laisser vieillir un porteur avant mesure
+MIN_AGE = 1                       # tours (de MES tours) a laisser vieillir un porteur avant mesure.
+                                  # 1 = le SEUIL NATIF (`GetTurnsFinished >= 2`, et le bump
+                                  # d'EndTurn precede `On(0x17)` -> age 1 suffit). La marge de 3
+                                  # d'avant compensait le gate per-JOUEUR du port ; elle rendait la
+                                  # mesure rare (PileIn se dedouble, la population depasse 1 vite).
 VERBOSE = False                   # --verbose : dump des unites/candidats a chaque tour
 
 
@@ -215,7 +219,9 @@ class _DeterministicPileIn:
 
 def _pilein_candidates(st, player):
     """Les grots que le gate DETERMINISTE de PileIn retiendrait (mirror des gates NON-Maybe :
-    passif PileIn, vivant, meme joueur, PV pleins)."""
+    passif PileIn, vivant, meme joueur, PV pleins). DIAGNOSTIC : le gate d'AGE
+    (`OwnerHasFinishedMinTurns(2)`) est volontairement EXCLU ici -- `load_state` ne seede pas
+    `turns_finished` (residu N11), donc l'appliquer sur l'etat charge ne dirait rien de vrai."""
     import gameconfig as GC
     from engine.runner.components import UnitComponent, OwnerComponent, HealthComponent
     out = []
@@ -246,21 +252,32 @@ def _pilein_units_live(dv, player):
     return out
 
 
-def _port_replay_endturn(dv, ob, snap, board, player, rng_before, turns_done, deterministic: bool):
+def _port_replay_endturn(dv, ob, snap, board, player, rng_before, ages, deterministic: bool):
     """Rejoue le VOLET PileIn du `endturn` par le port reel, sur le MEME etat MT que le live.
     Rend (nb genrand, nb grots dedoubles).
 
-    `turns_done` est POSE A LA MAIN sur `state.turn_counts` : GAP MESURE ici -- `load_state`
-    (`engine/runner/snapshot.py`) ne seede PAS `turn_counts`, qui n'est alimente que par
-    `StartTurnOperation` quand le port joue lui-meme les tours. Tout etat charge depuis un snapshot
-    live a donc `turn_counts == {}`, ce qui rend faux le gate `OwnerHasFinishedMinTurns(2)` de PileIn
-    (et celui d'Ambush, `triggers/genestealer.py`). Sans ce seeding, le volet PileIn du port est un
-    NO-OP silencieux et il n'y a rien a confronter."""
+    `ages` = {unitId du porteur -> nb de MES fins de tour deja traversees} = son `turnsFinished`
+    AVANT le bump du tour mesure. On pose `turnsFinished = age + 1` parce que le natif bumpe
+    `BaseUnitComponent + 0x5c` (boucle d'`IdunBattle.Operations.EndTurnOperation$$Execute` sur
+    `PlayerComponent.CurrentlyOwnedUnitIds`) AVANT d'executer les trigger-abilities `On(0x17)`,
+    alors que ce replay appelle le VECTEUR seul.
+
+    GAP MESURE ici -- `load_state` (`engine/runner/snapshot.py`) ne seede PAS `turnsFinished`, et
+    AUCUN RPC ne l'expose : ce n'est pas un `StatType` (l'enum s'arrete a 26 sans lui), donc
+    `combatSnapshot` ne peut pas l'atteindre via `GetStat`. Tout etat charge depuis un snapshot part
+    donc a 0 pour toutes les unites -> sans ce seeding, le volet PileIn du port est un NO-OP
+    silencieux et il n'y a rien a confronter. Le compteur JOUEUR `state.turn_counts`
+    (`TurnComponent + 0x38`) n'est PAS non plus seede, mais il n'entre plus dans ce gate."""
     from engine.runner.snapshot import load_state
+    from engine.runner.components import UnitComponent
     from engine.runner.operations.triggers.dispatch import end_turn_summon_triggers
 
     st = load_state(dv, ob, snap, board=board)
-    st.turn_counts[int(player)] = int(turns_done)          # cf. docstring : gap de `load_state`
+    for uid, age in (ages or {}).items():                  # cf. docstring : gap de `load_state`
+        e = st.get_entity(uid)
+        uc = e.get_component(UnitComponent) if e is not None else None
+        if uc is not None:
+            uc.turns_finished = int(age) + 1
     st.rng = CountingRng(rng_before["mt"], rng_before["mti"])
     if deterministic:
         with _DeterministicPileIn():
@@ -379,14 +396,15 @@ def case_pilein(rpc, seed, max_turns):
             cands = _pilein_candidates(st, mine)
             # `OwnerHasFinishedMinTurns(2)` est PER-UNITE cote natif (RE :
             # `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` ->
-            # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(unit)`), pas per-JOUEUR comme le
-            # port le lit (`state.turn_counts[player]`). Pour que port et natif s'accordent sur la
-            # POPULATION eligible -- seule facon de confronter le COMPTE de tirages -- on ne mesure
-            # qu'au premier `endturn` ou TOUS les porteurs vivants ont >= MIN_AGE de mes tours.
+            # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(unit)`) -- et le port le lit
+            # desormais pareil (`UnitComponent.turns_finished`, `BaseUnitComponent + 0x5c`).
+            # L'AGE de chaque porteur (nb de MES fins de tour deja traversees) est l'observable qui
+            # seede ce compteur cote port (cf. `_port_replay_endturn`) : `load_state` ne peut pas.
             ages = {uid: my_turns - birth.get(uid, my_turns) for uid in live_grots}
-            # UN SEUL porteur, assez vieux : c'est la seule configuration ou port et natif ont la
-            # MEME population eligible (le natif dedouble tout seul des le tour suivant, et les
-            # nouveau-nes ne sont pas eligibles cote natif alors que le port les compte).
+            # UN SEUL porteur, assez vieux : garde la mesure LISIBLE (le natif dedouble tout seul
+            # des le tour suivant, et un nouveau-ne ferait varier le nombre de candidats en cours
+            # de mesure). MIN_AGE >= 1 suffirait maintenant que le gate est per-unite des deux
+            # cotes ; on garde la marge.
             ready = len(live_grots) == 1 and all(a >= MIN_AGE for a in ages.values())
             if VERBOSE:
                 mineu = [(u.get("id"), u.get("visualId")) for u in (dv.get("units") or [])
@@ -413,9 +431,9 @@ def case_pilein(rpc, seed, max_turns):
             dv2 = dview()
             after_grots = _pilein_units_live(dv2, mine)
             live_n = count_genrand(rng_before, rng_after)
-            n1, sp1 = _port_replay_endturn(dv, ob, snap, board, mine, rng_before, my_turns,
+            n1, sp1 = _port_replay_endturn(dv, ob, snap, board, mine, rng_before, ages,
                                            deterministic=False)
-            n0, sp0 = _port_replay_endturn(dv, ob, snap, board, mine, rng_before, my_turns,
+            n0, sp0 = _port_replay_endturn(dv, ob, snap, board, mine, rng_before, ages,
                                            deterministic=True)
             live_spawn = len(after_grots - live_grots)
             row = {"turn": turn, "cands": len(cands), "grots_before": len(live_grots),

@@ -71,9 +71,23 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
        `player_id` scope l'`OwnerIsActor`.
     2. Passif d'auto-dédoublement `PileInAbility` (BESPOKE : trigger IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger `On(0x17)` &
        `OwnerHasFinishedMinTurns(2)` & `IsUnitWithStatAmount(Health Cur==Max)` ; behaviour IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour) — chaque
-       grot (passif `PileIn`) du `player_id`, a PV PLEINS et owner >=2 tours finis, s'auto-dédouble avec proba
-       `chance − chance_2 × (#grots amis)` = 75 − 5×n. Double = `execute_pilein_replica`. Snapshot AVANT la
-       boucle (« acts on its NEXT turn »).
+       grot (passif `PileIn`) du `player_id`, a PV PLEINS et ayant lui-meme fini >=2 tours, s'auto-dédouble
+       avec proba `chance − chance_2 × (#grots amis)` = 75 − 5×n. Double = `execute_pilein_replica`.
+       Snapshot AVANT la boucle (« acts on its NEXT turn »).
+
+       GATE `OwnerHasFinishedMinTurns(2)` — PER-UNITE, et sur `turnsFinished`. Chaine native :
+       `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns(2)` construit un
+       `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger` (selecteur = `factory+0x148`
+       = Self/Owner, amount = 2 @+0x18, unitSelectionType = 3 @+0x28) dont le
+       `UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` fait
+       `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(selecteur.Select(entities)) >= amount` —
+       donc le compteur de l'UNITE-PORTEUR (`UnitComponent + 0x5c`), jamais celui du JOUEUR.
+       Le port lisait `state.turn_counts[player]` (`TurnComponent + 0x38`, granularite JOUEUR) : deux
+       erreurs a la fois, l'une PERMISSIVE (un grot ne d'un `GetEmRuntz` au tour 5 passait le gate des
+       sa 1re fin de tour, alors que le natif lui demande d'en finir DEUX), l'autre BLOQUANTE (un runner
+       monte depuis un snapshot a `turn_counts == {}` -> gate faux pour TOUT LE MONDE, PileIn mort).
+       Le compteur juste vit maintenant sur `UnitComponent.turns_finished` (bumpe par
+       `turnflow._bump_turns_finished`, mirror d'`EndTurnOperation.Execute`).
 
        GATE `Maybe(chance)` (O4a) — le behaviour natif se termine par
            `If( Maybe(Difference(Direct(chance), Multiply(Count(Friends(UnitsWithSameVisualId(Self))),
@@ -102,9 +116,8 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
     # 1. dispatch generique On(TurnEnd) : RadSaturation (fin de tour si pas bouge) + tout futur ability-trigger TurnEnd.
     ev = TriggerEvent(EventTriggerType.TurnEnd, -1, -1, ranged=False, profile=None, player_id=player_id)
     out: list[dict] = evaluate_trigger_operation(state, ev)
-    # 2. PileIn (bespoke) — gate min-turns propre a PileIn (n'affecte pas le dispatch generique ci-dessus).
-    if state.turn_counts.get(int(player_id), 0) < PILEIN_MIN_OWNER_TURNS:
-        return out
+    # 2. PileIn (bespoke). Le gate `OwnerHasFinishedMinTurns(2)` est PER-PORTEUR (cf. docstring) ->
+    # il vit dans la boucle de selection des candidats, pas en sortie anticipee du vecteur.
     consts = (GC.ability("PileIn") or {}).get("constants") or {}
     chance0 = int(consts.get("chance") or 75)
     chance_2 = int(consts.get("chance_2") or 5)
@@ -119,6 +132,9 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
         if oc.player != int(player_id):
             continue
         if "PileIn" not in ((GC.unit(uc.visual_id) or {}).get("passiveAbilities") or []):
+            continue
+        # `OwnerHasFinishedMinTurns(2)` -> `GetTurnsFinished(owner) >= 2` (`UnitComponent + 0x5c`).
+        if int(uc.turns_finished or 0) < PILEIN_MIN_OWNER_TURNS:
             continue
         if hc.hp < hc.hp_max:                  # `IsUnitWithStatAmount(Health Cur==Max)` = PV PLEINS
             continue

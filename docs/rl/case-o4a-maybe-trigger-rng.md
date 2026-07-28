@@ -177,24 +177,24 @@ d'avant, 28 verts après :
 
 ## 6. Ce qui N'EST PAS couvert (découvert par la mesure)
 
-Deux gaps **distincts de ce cas**, mis au jour en montant la confrontation, et laissés ouverts
-(inscrits au backlog) :
+Deux gaps **distincts de ce cas** ont été mis au jour en montant la confrontation. Ils ont été
+tranchés depuis, dans `case-n8-owner-has-finished-min-turns.md` :
 
-1. **`load_state` ne seede pas `state.turn_counts`** — il n'est alimenté que par
-   `StartTurnOperation` (`engine/runner/operations/turnflow.py`) quand le port joue lui-même les
-   tours. Tout état chargé depuis un snapshot live a donc `turn_counts == {}`, ce qui rend faux le
-   gate `OwnerHasFinishedMinTurns(2)` de PileIn **et** celui d'Ambush
-   (`operations/triggers/genestealer.py`) : NO-OP silencieux. Le probe et le test live le contournent
-   en posant `turn_counts` à la main, et le disent.
-2. **`OwnerHasFinishedMinTurns` est PER-UNITÉ, pas per-JOUEUR.**
+1. **`OwnerHasFinishedMinTurns` est PER-UNITÉ, et sur `turnsFinished`** —
    `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` résout son
    sélecteur en UNE entité puis compare `min <= IdunBattle.Entities.UnitExtensions$$
-   GetTurnsFinished(unit)` (champ `+0x5c`). Le port lit un compteur de JOUEUR : un grot fraîchement
-   spawné y est éligible alors que le natif le refuse. **Observable** : sur seed 777, le natif ne
-   dédouble pas le grot né au tour courant, le port si. Débloqueur = un compteur de tours finis par
-   unité **et** son exposition côté hook (`combatSnapshot` ne le porte pas ⇒ rebuild + reinject).
-   C'est pourquoi la mesure ne compare que des configurations à **un seul** porteur assez âgé, où les
-   deux populations coïncident.
+   GetTurnsFinished(unit)` (`BaseUnitComponent + 0x5c`). **PORTÉ** : `UnitComponent.turns_finished`
+   + `turnflow._bump_turns_finished` (mirror de la boucle d'`EndTurnOperation$$Execute`, exécutée
+   AVANT `On(0x17)`).
+2. **`load_state` ne seede pas `state.turn_counts`** — exact, mais **sans conséquence** : plus aucun
+   consommateur ne dépend de sa valeur absolue (l'unique lecteur restant, `EnvAmbushResurrectAbility`,
+   en prend une DIFFÉRENCE avec `turn_defeated`, lui-même écrit depuis ce compteur). Le gap de seed
+   réel est le compteur PER-UNITÉ, et c'est un gap de **hooks** : `BaseUnitComponent + 0x5c` n'est
+   pas un `StatType`, donc `combatSnapshot`/`GetStat` ne peut pas l'atteindre (résidu **N11**).
+
+Le probe et le test live posent donc `turns_finished` à la main, depuis l'âge OBSERVÉ du grot, et le
+disent. C'est aussi pourquoi la mesure de ce cas-ci ne compare que des configurations à **un seul**
+porteur assez âgé : elle garde le nombre de candidats constant pendant la mesure.
 
 Également hors périmètre, et inchangé :
 
