@@ -278,16 +278,6 @@ def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
 
 _TILE_UTILITY_WEIGHTS = None       # poids `BattleConfiguration.Utilities` (statiques par bataille)
 
-# Terrain STATIQUE -> abilities de tuile HÉBERGÉES que la feuille `TileEffectsUtility` (9) somme
-# (Loop2), EN PLUS de `utilities/tile.py::TERRAIN_TILE_EFFECTS` (qui ne connaît que DryBush).
-# `Swamp` héberge `ThornsBlockMovementAbility` (case-198 §RE ; case-102 : « Swamp =
-# BlockEnteringUnits(0) + Thorns_DefenseReduction(0xb) ») -> poids `Default.TileEffects
-# .Thorns_DefenseReduction` = -25. MESURÉ ici et pas ailleurs : la table partagée alimente aussi le
-# contexte de DÉGÂT et le scoring de MOUVEMENT (blast radius hors périmètre case-130 SS5).
-_PLACEMENT_TERRAIN_EFFECTS: dict[str, tuple] = {
-    "Swamp": ("Thorns_DefenseReduction",),
-}
-
 
 def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int) -> list:
     """`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`
@@ -324,11 +314,17 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
 
     ⚠ Cette réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre
     source DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit
-    exprès la géométrie) la valident, et ont au passage forcé l'ajout de `Swamp ->
-    Thorns_DefenseReduction` (-25) à `TERRAIN_TILE_EFFECTS` — sans lui le modèle posait le summon sur
-    une Swamp élevée que le natif évite. Ce qui reste NON couvert : les feuilles gatées sur l'unité
-    (aucun scénario ne les a encore réveillées) et les terrains dont on ne connaît pas les abilities
-    hébergées."""
+    exprès la géométrie) la valident, et ont au passage forcé la prise en compte du `Swamp ->
+    Thorns_DefenseReduction` (-25) — sans lui le modèle posait le summon sur une Swamp élevée que le
+    natif évite. Ce qui reste NON couvert : les feuilles gatées sur l'unité (aucun scénario ne les a
+    encore réveillées) et les terrains dont on ne connaît pas les abilities hébergées.
+
+    Les effets de la tuile candidate sont lus comme partout ailleurs (#155, foyer unique
+    `utilities/tile.py`) : canal DYNAMIQUE `state.effects.by_unit[tileId]` = Loop1 de
+    `TileEffectsUtility` (l'entité-tuile porte ses effets exactement comme une unité, case-102), puis
+    `terrain_tile_effects(terrain, dynamique)` pour Loop2 + le repli statique du Loop1 non hydraté.
+    C'est le MÊME appel que `runner/damage_model.py::_positional_att_ctx` et
+    `runner/abilities/loki/mv71.py::_pick_tile` — plus de table de placement parallèle."""
     board = state.board
     if board is None or not tiles:
         return list(tiles)
@@ -347,9 +343,13 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     def _u(t) -> float:
         info = board.by_id.get(t) or {}
         terr = board.tile_def_id(t)
+        effs: list = []
+        if state.effects is not None:                  # Loop1 : effets DYNAMIQUES de l'entite-tuile
+            effs += [e.name for e in state.effects.by_unit.get(int(t), [])
+                     if not e.consumed and e.name]
+        effs += terrain_tile_effects(terr, effs)       # Loop2 + repli Loop1 non hydrate (#155)
         meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
-                "effects": (terrain_tile_effects(terr)
-                            + list(_PLACEMENT_TERRAIN_EFFECTS.get(terr or "", ())))}
+                "effects": effs}
         return tile_composite(t, meta, {}, wt)
 
     util = {t: _u(t) for t in tiles}

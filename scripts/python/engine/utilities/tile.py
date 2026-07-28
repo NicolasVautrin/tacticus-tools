@@ -84,32 +84,66 @@ TILE_LEAF_IDS = [
 # Pénalité constante (Fix64) appliquée aux tuiles temporaires — RE'd, PAS un poids BC.
 TEMPORARY_TILE_PENALTY = -10000.0
 
-# Terrain STATIQUE (`tileDefId` de la BC) -> effets de cover HÉBERGÉS que la feuille TileEffects(9) somme.
-# `TileEffectsUtility.<d__1>.IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` a DEUX boucles sur la tuile candidate : Loop1 = effets
-# DYNAMIQUES (EffectsOwnedComponent, ex. Fire/Ice ; = `meta.effects` via tileMeta) ; **Loop2 = abilities
-# HÉBERGÉES sur la tuile** (collection `DAT_1831b9908`, `Unit.get_Id` = `AbilityType`, poids
-# `Default.TileEffects.<AbilityName>`). Le +9 LightCover d'une DryBush vient de LOOP2 (verdict re-expert :
-# `LightCoverAbility` IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour est une `Abilities.Tiles.Loki.*` hébergée par le terrain DryBush, PAS un
-# effet dynamique — une DryBush VIDE rend +9). Offline la seule source de cover statique = le terrain
-# (`tileDefId`, boardGraph). DryBush->LightCover VALIDÉ L3 (909 s4 (3,2)=+9 EXACT, pas +DryBush_DefenseBonus
-# => DryBush n'héberge que LightCover pour cette feuille). cf. docs/rl/terrain-effects.md §2 + case-37.
-# ⚠ INCOMPLET, et on sait par quoi : `Swamp` héberge lui aussi une ability de tuile
-# (`ThornsBlockMovementAbility`, description localisée `SwampBlockMovement` — cf. case-198 §RE et
-# case-102 « Swamp = BlockEnteringUnits(0) + Thorns_DefenseReduction(0xb) »), donc Loop2 devrait y
-# sommer `Default.TileEffects.Thorns_DefenseReduction` (-25). MESURÉ live sur le tri de placement des
-# summons (case-130 SS5) — mais PAS ajouté ici : cette table alimente AUSSI le contexte de DÉGÂT
-# (`runner/damage_model.py::tile_effects_context`, où une Swamp porte déjà ces noms comme effets
-# DYNAMIQUES) et le scoring de MOUVEMENT ; l'y poser sans valider ces deux fronts est hors périmètre.
-# Le site qui l'a mesuré le porte donc localement (`runner/operations/spawn.py`) — unification au backlog.
-TERRAIN_TILE_EFFECTS: dict[str, tuple] = {
+# ── FOYER UNIQUE « terrain STATIQUE (`tileDefId` de la BC) -> noms sommés par la feuille TileEffects(9) »
+# `TileEffectsUtility.<d__1>.IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` a DEUX boucles sur la tuile candidate, et
+# elles n'ont NI la même source NI le même espace de noms (relu au décompilé, case-155) :
+#
+#   Loop1 — `GetComponent<EffectsOwnedComponent>(mainTile)` puis, par effet possédé,
+#           `name = ((EffectType)EffectComponent+0x58).ToString()` ; poids `Default.TileEffects.<EffectType>`,
+#           MULTIPLIÉ par `TileEffectsUtility$$GetStatusEffectMultiplier` UNIQUEMENT si
+#           `StaticBattleRules.Effect$$IsTileStatusEffect` (sinon poids BRUT). C'est le canal des effets
+#           DYNAMIQUES portés par l'ENTITÉ-TUILE (Fire/Ice… ET Thorns, cf. plus bas).
+#   Loop2 — collection `DAT_1831b9908` de la tuile, `Unit.get_Id(ability)` -> `ActiveAbilityType.ToString()` ;
+#           poids `Default.TileEffects.<AbilityName>`, SANS multiplicateur. C'est le canal des abilities
+#           HÉBERGÉES par le terrain.
+#
+# `TERRAIN_HOSTED_ABILITIES` = Loop2. Le +9 LightCover d'une DryBush en vient (verdict re-expert :
+# `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour` = `AddEffect(0x3f5,
+# state, UnitsThatNeedEffect())` -> l'effet est posé sur les UNITÉS, la TUILE n'en porte aucun ; une
+# DryBush VIDE rend quand même +9, donc le poids ne peut venir que de Loop2). VALIDÉ L3 (909 s4 (3,2)=+9
+# EXACT, pas +DryBush_DefenseBonus => DryBush n'héberge que LightCover pour cette feuille).
+# cf. docs/rl/terrain-effects.md §2 + case-37.
+TERRAIN_HOSTED_ABILITIES: dict[str, tuple] = {
     "DryBush": ("LightCover",),
 }
 
+# `TERRAIN_TILE_OWNED_EFFECTS` = REPLI STATIQUE de Loop1, PAS une seconde table de terrain-effects.
+# `IdunBattleLogic.Entities.Abilities.Tiles.ThornsBlockMovementAbility$$CreateBehaviour` (l'ability
+# hébergée par `Swamp`, description localisée `SwampBlockMovement`) =
+#     `AddBlockEnteringUnitsEffect(0) & AddStaticStatModifierEffectToOwner(0xb, 3, Direct(const 0x14))`
+# — le second POSE l'effet `Thorns_DefenseReduction` (0xb) **sur la tuile elle-même** (« ToOwner »). Une
+# Swamp porte donc ce nom dans son `EffectsOwnedComponent` (MESURÉ live C1_02, case-102 : Swamp =
+# `BlockEnteringUnits`(0) + `Thorns_DefenseReduction`(0xb)) et c'est **Loop1**, pas Loop2, qui en somme
+# le `Default.TileEffects.Thorns_DefenseReduction` = -25 (aucune clé BC `SwampBlockMovement` /
+# `ThornsBlockMovement` n'existe -> `HasUtilityValue` est FAUX pour Loop2 sur une Swamp).
+# ⇒ le canal JUSTE est le canal dynamique. Ce repli n'existe que parce que `load_state(tiles=…)` est
+# OPT-IN (case-102 §5.1) : un état non hydraté ne porte aucun effet de tuile, et la Swamp perdrait son
+# -25 alors que le natif l'a TOUJOURS (l'ability de terrain le pose au setup de la bataille).
+# `terrain_tile_effects` ne l'ajoute donc QUE si le canal dynamique ne l'a pas déjà rendu — jamais en
+# double. `BlockEnteringUnits` n'y figure pas EXPRÈS : aucun poids `Default.TileEffects` ne le nomme
+# (Loop1 le rejette sur `HasUtilityValue`), et le faire entrer dans les listes offline réveillerait le
+# gate pathfinding non porté (#131, cf. case-102 §5.4).
+TERRAIN_TILE_OWNED_EFFECTS: dict[str, tuple] = {
+    "Swamp": ("Thorns_DefenseReduction",),
+}
 
-def terrain_tile_effects(terrain: str | None) -> list:
-    """Noms d'effets de cover HÉBERGÉS par le terrain statique (`tileDefId`) — sommés par TileEffects(9)
-    via son Loop2 (tile-hosted abilities). Vide si le terrain n'héberge aucun cover à poids BC."""
-    return list(TERRAIN_TILE_EFFECTS.get(terrain or "", ()))
+
+def terrain_tile_effects(terrain: str | None, dynamic=None) -> list:
+    """Noms que le TERRAIN statique (`tileDefId`) apporte à la feuille TileEffects(9), en COMPLÉMENT du
+    canal dynamique de l'appelant :
+
+      * toujours — les abilities HÉBERGÉES (Loop2) : `TERRAIN_HOSTED_ABILITIES` ;
+      * en repli — les effets que l'ability hébergée pose SUR LA TUILE (Loop1 :
+        `TERRAIN_TILE_OWNED_EFFECTS`), et seulement ceux que `dynamic` ne porte PAS déjà.
+
+    `dynamic` = les noms d'effets que l'appelant a lus sur l'entité-tuile (`state.effects.by_unit[tid]`,
+    `tileMeta`/`ctx.effects_by_pos`, `scene.tile_effects_by_pos`). Le passer est ce qui rend le repli
+    INOFFENSIF : sans lui un état hydraté compterait le -25 de la Swamp DEUX fois. Tous les call-sites
+    qui disposent du canal dynamique DOIVENT le passer."""
+    out = list(TERRAIN_HOSTED_ABILITIES.get(terrain or "", ()))
+    have = set(dynamic or ())
+    out += [n for n in TERRAIN_TILE_OWNED_EFFECTS.get(terrain or "", ()) if n not in have]
+    return out
 
 
 # ── Helpers PARTAGES (petites primitives réutilisées par plusieurs feuilles) ─────────────────────────

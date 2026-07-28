@@ -52,7 +52,8 @@ def tile_utility(ctx, pos) -> float:
         meta["is_temporary"] = ctx.is_temporary_by_pos[pos]
     _effs = list(ctx.effects_by_pos.get(pos) or [])          # feuille TileEffects (ex. Thorns=-25)
     # ctx POLYMORPHE : NCContext (NovaShield via get_movement_utility) n'a pas `terrain_by_pos`.
-    _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos))  # covers (case-37)
+    # covers hebergés (case-37) + repli Loop1 non hydraté ; `_effs` = canal dynamique (#155)
+    _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos), _effs)
     if _effs:
         meta["effects"] = _effs
     leaf_ctx = tile_leaf_ctx(ctx)

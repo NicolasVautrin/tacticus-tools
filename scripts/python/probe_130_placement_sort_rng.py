@@ -211,20 +211,21 @@ _WT = None
 def _tile_utility(board, tile_id, emax, emin):
     """Composite `Tile(7)` (`engine/utilities/tile.py`) evalue sur la seule metadata que le board du
     runner porte : elevation (+ min/max BOARD ENTIER, cf. `ElevationUtility$$LoadRelevantTileElevations`)
-    et covers HEBERGES par le terrain statique (Loop2 de `TileEffectsUtility`). C'est EXACTEMENT ce
-    que porte `operations/spawn.py::_sort_tiles_by_utility_for_summon` -- recopie ici pour pouvoir
-    CONSTRUIRE une geometrie ou le tri par utilite et l'ordre source DESACCORDENT (`--discriminate`),
-    donc pour rendre le scenario live discriminant au lieu de tautologique."""
+    et effets apportes par le terrain statique (`terrain_tile_effects` : Loop2 des abilities HEBERGEES
+    + repli Loop1 pour les effets qu'une ability de terrain pose SUR la tuile, #155). C'est EXACTEMENT
+    ce que porte `operations/spawn.py::_sort_tiles_by_utility_for_summon` sur un etat NON hydrate
+    (`load_state` sans `tiles=`) -- recopie ici pour pouvoir CONSTRUIRE une geometrie ou le tri par
+    utilite et l'ordre source DESACCORDENT (`--discriminate`), donc pour rendre le scenario live
+    discriminant au lieu de tautologique."""
     global _WT
     from engine.utilities.tile import tile_composite, terrain_tile_effects
-    from engine.runner.operations.spawn import _PLACEMENT_TERRAIN_EFFECTS
     if _WT is None:
         from engine.weights import load
         _WT = load()
     t = board.by_id.get(tile_id) or {}
     terr = board.tile_def_id(tile_id)
     meta = {"elevation": t.get("elevation"), "elevation_max": emax, "elevation_min": emin,
-            "effects": terrain_tile_effects(terr) + list(_PLACEMENT_TERRAIN_EFFECTS.get(terr or "", ()))}
+            "effects": terrain_tile_effects(terr)}
     return tile_composite(tile_id, meta, {}, _WT)
 
 
