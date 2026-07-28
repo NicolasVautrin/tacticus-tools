@@ -77,6 +77,62 @@ class ContaminatedEffect(BaseEffect):
         return super().entity_is_immune_to_effect(trait_names)
 
 
+class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect` — le DEBUFF d'armure
+    de l'aura `ContagionsOfNurgle` (trait 0x7eb = 2027), en DEUX instances de la MEME classe native.
+
+    `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$.ctor` =
+    `ADynamicStatModifierEffect(AbilityOrEffect(0x431), stat = 0, 0, 1, 1)` puis
+    `this+0x488 = <cle de constante>`, `this+0x48c = <min>`, `this+0x490 = <max>`. Les DEUX seules
+    constructions (`IdunBattle.Core.Services.EffectsDatabase` b__14_93 / b__14_94) :
+
+        effet 0x42f = 1071  ContagionsOfNurgle_ArmorReduction1 : ctor(0x41, min=1, max=1)
+        effet 0x430 = 1072  ContagionsOfNurgle_ArmorReduction2 : ctor(0x42, min=2, max=0x7fffffff)
+
+    `$$GetStatModificationAmount` = `AbilityConfiguration.GetNumberConstant(config, this+0x488)` ->
+    les variables de trait `contagionsOfNurgleArmorOneAura` (-20) / `contagionsOfNurgleArmorTwoOrMoreAuras`
+    (-40) du gameconfig -- LUES, jamais ecrites en dur.
+    `$$CreateActiveCondition` = `AmountIsEqualOrGreater(ContagionsOfNurgleAmount(EffectSource, owner),
+    Get(min)) & AmountIsEqualOrGreater(Get(max), ContagionsOfNurgleAmount(...))` : l'instance n'est
+    ACTIVE que si le nombre d'auras Contagion ENNEMIES contenant le porteur tombe dans `[min, max]`.
+    `$$GetStatModificationStat` = **FixedArmor (16)** (arg `stat` du ctor `ADynamicStatModifierEffect`).
+
+    Le stat-layer du port applique `get_stat_modification_amount()` en ADDITIF : le poseur
+    (`operations/triggers/loki/contagions_of_nurgle.py`) materialise donc le -X% en DELTA PLAT
+    pre-calcule `-round(FixedArmor x |pct| / 100)` et le range dans `value` -- MEME convention que
+    `ContaminatedUnitEffect` (l'autre `ADynamicStatModifierEffect` FixedArmor deja porte).
+    MESURE live (case-dpw) : `astraSmnKell` FixedArmor 1496, une seule aura -> 1496 - 299 = **1197**
+    (`combatSnapshot` post-attaque), et `astraCreed` 6000 -> 4800."""
+
+    stat_mod_source = None   # cle de source ChangeStat (revert par-source, symetrique de reverted_stats)
+
+    def get_stat_modification_stat(self) -> int | None:
+        return 16                                    # StatType.FixedArmor (arg du ctor natif)
+
+    def get_stat_modification_amount(self) -> int | None:
+        # Delta PLAT pre-calcule a la pose (= -round(FixedArmor_courant x |pct| / 100)), range dans
+        # `value` par le vecteur poseur. None = effet PRESENT mais stat-inerte -> aucune attribution
+        # (cas des instances CAPTEES depuis `decisionView.effects`, dont la contribution est DEJA
+        # cuite dans le `GetStat` du `combatSnapshot` : l'appliquer une 2e fois la doublerait).
+        return self.value
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """`AStatModifierEffect$$ApplyInternal -> ApplyModification` (part 5/9) : le `ChangeStat` EAGER
+        pose a l'application. C'est la forme que `AddEffectOperation._apply_stat_mods` EXECUTE (la
+        paire `get_stat_modification_*` seule ne sert qu'a l'ATTRIBUTION du delta au chargement) ->
+        sans elle le debuff serait PRESENT mais n'entrerait jamais dans `GetStat(FixedArmor)` du
+        runner. `value` None (instance CAPTEE) -> [] = aucune double-application."""
+        from ...stats import StatType
+        if not self.value:
+            return []
+        return [(int(StatType.FIXED_ARMOR), int(self.value))]
+
+    def reverted_stats(self) -> "list":
+        """`RevertInternal` — annule le `ChangeStat` FixedArmor (lu par la feuille `RemoveEffect`)."""
+        from ...stats import StatType
+        return [StatType.FIXED_ARMOR]
+
+
 class ContaminatedUnitEffect(BaseEffect):
     """`Contaminated_Unit` (effet 0x4dd=1245, `ContaminatedStatModifierEffect`, IdunBattle.Entities.Effects.Loki.ContaminatedStatModifierEffect$$.ctor =
     ADynamicStatModifierEffect FixedArmor) — SOUS-effet pose sur une UNITE occupant/entrant une tuile

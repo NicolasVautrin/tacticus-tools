@@ -161,6 +161,7 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
     tinfo = board.by_id.get(tile) if board is not None else None
     if tinfo is not None:
         e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    on_unit_added(state, e.id)          # `On(UnitAdded)` (no-op sur un token sans armure)
     return e.id
 
 
@@ -410,7 +411,32 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                   (board.by_id.get(t) for t in feet_tiles) if bt is not None]
         if coords:
             set_unit_feet(state, e.id, coords)
+    # `On(UnitAdded)` — APRES la pose ET apres le recalage multi-hex (`set_unit_feet` deplace la
+    # `PositionComponent` sur la main tile, et les gates de PORTEE du vecteur la lisent).
+    on_unit_added(state, e.id)
     return e.id
+
+
+def on_unit_added(state: State, unit_id: Optional[int]) -> list:
+    """VECTEUR `On(UnitAdded = 0x33)` — mirror du point d'emission natif (`AddUnitOperation`) : une
+    unite vient d'ENTRER en bataille, les triggers qui ecoutent cet evenement s'executent MAINTENANT,
+    avec l'unite deja POSEE (position incluse — les gates de portee en dependent).
+
+    Le port n'a pas de bus d'evenements pour ce vecteur : ce foyer TIENT LIEU de dispatch et doit
+    etre appele par TOUT site qui cree une unite (a la fin, une fois la position posee). Un seul
+    consommateur porte a ce jour :
+      * `ContagionsOfNurgle_AddEffectToNewUnit_Ability` (case-dpw) — le debuff d'armure de l'aura
+        Contagion se pose sur l'unite qui apparait DEDANS. MESURE : `astraSmnKell`, invoque par
+        `SwornProtector` au contact de `deathPutrifier`, a `FixedArmor` 1496 -> **1197** live.
+    Renvoie la liste des retours de vecteur (vide = no-op). None-safe."""
+    if unit_id is None:
+        return []
+    from .triggers.loki.contagions_of_nurgle import apply_on_unit_added
+    out = []
+    r = apply_on_unit_added(state, int(unit_id))
+    if r is not None:
+        out.append(r)
+    return out
 
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 — vérifié par BattleFatigueAbility (behaviour.py, meme const, #158)
@@ -615,6 +641,7 @@ class SpawnUnitOperation:
                 if tinfo is not None:
                     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
                     chosen.add(tile)
+            on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
             spawned.append(e.id)
         # NB on-appearance (`UseNormalAttackIfAble`) = tranche ultérieure (les ids spawnés sont renvoyés ;
         # `Entity`/`State` ont __slots__ → pas de marqueur posé ici).
@@ -668,6 +695,7 @@ class SpawnUnitOperation:
                 if tinfo is not None:
                     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
                     chosen.add(tile)
+            on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
             spawned.append(e.id)
         return spawned
 
@@ -722,6 +750,7 @@ class SpawnUnitOperation:
         tinfo = board.by_id.get(tile) if board is not None else None
         if tinfo is not None:
             e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+        on_unit_added(state, e.id)      # `On(UnitAdded)` — APRES la pose
         return [e.id]
 
     @staticmethod
