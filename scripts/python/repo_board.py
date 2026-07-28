@@ -43,15 +43,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-OUT = REPO / "logs" / "repo-board.html"
+# Le NOM DU FICHIER est l'identite de l'artefact publie : republier le meme chemin conserve
+# l'URL, un chemin different en cree une neuve. Ne pas le renommer sans republier derriere.
+OUT = REPO / "logs" / "repo-registry.html"
 
 # Artefact genere, versionne expres, mais ce n'est pas du code ecrit -- cf. docstring.
 EXCLUDE = ":(exclude)data/symbols"
 
 
 def sh(args: list[str], cwd: Path = REPO) -> str:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace").stdout
+    """Rend stdout, et REMONTE stderr en cas d'echec.
+
+    Sans ca, un `gh` qui echoue rend une chaine vide et l'appelant ne peut qu'ACCUSER l'auth --
+    diagnostic faux vu le 2026-07-28 sur un simple `HTTP 502: Bad Gateway` de l'API GitHub.
+    """
+    r = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0 and not r.stdout.strip():
+        raise SystemExit("%s a echoue (rc=%d) : %s"
+                         % (args[0], r.returncode, (r.stderr or "").strip()[:300]))
+    return r.stdout
 
 
 def project_dir() -> Path:
@@ -100,13 +111,20 @@ def load_prs() -> list[dict]:
 
 
 # ---------------------------------------------------------------- 2. transcripts
-def _cost(u) -> tuple[int, int]:
-    """Rend (output, cost-weighted). Ponderation billing : cw*1.25 + cr*0.10 (cf. session-tokens)."""
-    o = int(u.get("output_tokens") or 0)
-    i = int(u.get("input_tokens") or 0)
-    cw = int(u.get("cache_creation_input_tokens") or 0)
-    cr = int(u.get("cache_read_input_tokens") or 0)
-    return o, int(i + cw * 1.25 + cr * 0.10 + o)
+def _ctx(u) -> int:
+    """Tokens de CONTEXTE d'un tour = `input + cache_creation + cache_read`.
+
+    C'est la taille du PROMPT envoye, ni plus ni moins : ce que le modele a du lire pour repondre.
+    L'`output` en est exclu (c'est ce qu'il a ecrit, pas ce qu'il a lu), et aucune ponderation de
+    facturation n'est appliquee (pas de cw*1.25 / cr*0.10) -- on compte des tokens, pas des euros.
+
+    Somme sur une journee, ce total compte N FOIS le meme contexte relu d'un tour a l'autre. C'est
+    voulu : c'est precisement la charge de lecture du jour. Ne pas le confondre avec l'occupation
+    de fenetre du fleet-board, qui est le prompt d'UN SEUL tour (le dernier).
+    """
+    return (int(u.get("input_tokens") or 0)
+            + int(u.get("cache_creation_input_tokens") or 0)
+            + int(u.get("cache_read_input_tokens") or 0))
 
 
 def load_tokens(pdir: Path) -> tuple[dict, dict]:
@@ -139,16 +157,14 @@ def load_tokens(pdir: Path) -> tuple[dict, dict]:
                 t = _ts(rec.get("timestamp"))
                 if not t:
                     continue
-                out, cost = _cost(u)
+                ctx = _ctx(u)
                 day = t.astimezone().strftime("%Y-%m-%d")
-                by_day[day]["out"] += out
-                by_day[day]["cost"] += cost
+                by_day[day]["ctx"] += ctx
                 by_day[day]["turns"] += 1
                 if aid:
-                    by_day[day]["agent_out"] += out
+                    by_day[day]["agent_ctx"] += ctx
                     a = by_agent[aid]
-                    a["out"] += out
-                    a["cost"] += cost
+                    a["ctx"] += ctx
                     a["turns"] += 1
                     if not a.get("first") or t < a["first"]:
                         a["first"] = t
@@ -219,8 +235,7 @@ def build(since: str) -> dict:
         pr["agent"] = m["name"] if m else ""
         pr["agent_id"] = m["id"] if m else ""
         a = tok_agent.get(pr["agent_id"]) if pr["agent_id"] else None
-        pr["agent_out"] = a["out"] if a else 0
-        pr["agent_cost"] = a["cost"] if a else 0
+        pr["agent_ctx"] = a["ctx"] if a else 0
         pr["agent_mins"] = ((a["last"] - a["first"]).total_seconds() / 60.0
                             if a and a.get("first") and a.get("last") else 0.0)
         if m:
@@ -233,14 +248,17 @@ def build(since: str) -> dict:
         g, t = git_day.get(d, {}), tok_day.get(d, {})
         opened = [p for p in prs if p["day"] == d]
         merged = [p for p in prs if p["merged_day"] == d]
+        ctx, commits, add = t.get("ctx", 0), g.get("commits", 0), g.get("add", 0)
         rows.append(dict(
             day=d, opened=len(opened), merged=len(merged),
             closed=len([p for p in opened if p["state"] == "CLOSED"]),
-            commits=g.get("commits", 0), add=g.get("add", 0), dele=g.get("del", 0),
-            out=t.get("out", 0), cost=t.get("cost", 0), turns=t.get("turns", 0),
-            agent_out=t.get("agent_out", 0),
+            commits=commits, add=add, dele=g.get("del", 0),
+            ctx=ctx, turns=t.get("turns", 0), agent_ctx=t.get("agent_ctx", 0),
             pr_add=sum(p["add"] for p in merged),
-            cost_per_pr=(t.get("cost", 0) / len(merged)) if merged else 0))
+            # Les deux ratios demandes. Denominateur nul -> 0, jamais une division qui explose ni
+            # un « infini » qui polluerait les echelles de barres.
+            ctx_per_commit=(ctx / commits) if commits else 0,
+            ctx_per_line=(ctx / add) if add else 0))
     return dict(days=rows, prs=prs, joined=joined, net=git_net, since=since,
                 agents=tok_agent, project_dir=str(pdir))
 
@@ -251,18 +269,21 @@ def n(x) -> str:
 
 
 def console(data: dict) -> None:
-    print("%-12s%7s%7s%9s%10s%10s%13s%12s" % (
-        "jour", "PR+", "PR ok", "commits", "+lignes", "-lignes", "cost-w tok", "tok/PR"))
+    hdr = "%-12s%9s%16s%10s%14s%12s%7s%7s"
+    print(hdr % ("jour", "commits", "context", "+lignes",
+                 "ctx/commit", "ctx/ligne", "PR+", "PR ok"))
     tot = defaultdict(int)
     for r in data["days"]:
-        for k in ("opened", "merged", "commits", "add", "dele", "out", "cost"):
+        for k in ("opened", "merged", "commits", "add", "dele", "ctx"):
             tot[k] += r[k]
-        print("%-12s%7d%7d%9d%10d%10d%13s%12s" % (
-            r["day"], r["opened"], r["merged"], r["commits"], r["add"], r["dele"],
-            n(r["cost"]), n(r["cost_per_pr"]) if r["merged"] else "-"))
-    print("%-12s%7d%7d%9d%10d%10d%13s%12s" % (
-        "TOTAL", tot["opened"], tot["merged"], tot["commits"], tot["add"], tot["dele"],
-        n(tot["cost"]), n(tot["cost"] / tot["merged"]) if tot["merged"] else "-"))
+        print(hdr % (r["day"], r["commits"], n(r["ctx"]), n(r["add"]),
+                     n(r["ctx_per_commit"]) if r["commits"] else "-",
+                     n(r["ctx_per_line"]) if r["add"] else "-",
+                     r["opened"], r["merged"]))
+    print(hdr % ("TOTAL", tot["commits"], n(tot["ctx"]), n(tot["add"]),
+                 n(tot["ctx"] / tot["commits"]) if tot["commits"] else "-",
+                 n(tot["ctx"] / tot["add"]) if tot["add"] else "-",
+                 tot["opened"], tot["merged"]))
     prs = data["prs"]
     merged = [p for p in prs if p["state"] == "MERGED"]
     ttm = sorted(p["ttm"] for p in merged if p["ttm"] is not None)

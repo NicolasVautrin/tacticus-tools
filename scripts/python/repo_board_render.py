@@ -104,28 +104,31 @@ h2{ font-size:13px; font-family:var(--mono); letter-spacing:.1em; text-transform
                 font-family:var(--sans); margin-top:3px; }
 
 /* --- registre 2 : le journal ----------------------------------------------------------- */
-.ledger{ border-top:1px solid var(--line); }
-.day{ display:grid; grid-template-columns:104px 1fr 128px; gap:16px; align-items:center;
-      padding:11px 0; border-bottom:1px solid var(--line); }
-.day.head{ border-bottom:1px solid var(--ink); padding-bottom:7px; }
-.day.head span{ font-family:var(--mono); font-size:10px; letter-spacing:.1em;
-                text-transform:uppercase; color:var(--muted); }
-.dlabel{ font-family:var(--mono); font-size:12.5px; font-variant-numeric:tabular-nums; }
+/* Grille commune a l'en-tete et aux lignes : une seule declaration, sinon les colonnes
+   derivent des que l'une des deux est retouchee. */
+.ledger{ border-top:1px solid var(--line) }
+.day{ display:grid; gap:14px; align-items:center; padding:10px 0;
+      border-bottom:1px solid var(--line);
+      grid-template-columns:74px minmax(120px,1fr) 68px 88px 104px 92px; }
+.day.head{ border-bottom:1px solid var(--ink); padding-bottom:7px }
+.day.head span{ font-family:var(--mono); font-size:9.5px; letter-spacing:.09em;
+                text-transform:uppercase; color:var(--muted) }
+.day.head span.r{ text-align:right }
+.dlabel{ font-family:var(--mono); font-size:12.5px; font-variant-numeric:tabular-nums }
 .dlabel b{ font-weight:600 }
 .dlabel i{ font-style:normal; color:var(--muted); display:block; font-size:10.5px }
-.bars{ display:grid; gap:4px; min-width:0 }
-.brow{ display:grid; grid-template-columns:1fr 78px; gap:10px; align-items:center }
+.bars{ display:grid; gap:3px; min-width:0 }
 .bar{ height:9px; background:var(--track); border-radius:2px; overflow:hidden }
+.bar.thin{ height:4px }
 .bar i{ display:block; height:100%; border-radius:2px }
-.b-open i{ background:var(--accent) }
-.b-merge i{ background:var(--ok) }
-.b-cost i{ background:var(--muted); opacity:.5 }
-.bnum{ font-family:var(--mono); font-size:11px; color:var(--muted);
-       font-variant-numeric:tabular-nums; }
-.bnum b{ color:var(--ink); font-weight:600 }
-.dcost{ font-family:var(--mono); font-size:12.5px; text-align:right;
-        font-variant-numeric:tabular-nums; }
-.dcost i{ font-style:normal; display:block; font-size:10.5px; color:var(--muted) }
+.b-ctx i{ background:var(--accent) }
+/* Le ratio ctx/ligne est une EFFICACITE : plus la barre est courte, mieux c'est. Elle est donc
+   volontairement discrete -- c'est une trace de tendance sous la quantite, pas une quantite. */
+.b-eff i{ background:var(--muted); opacity:.45 }
+.num{ font-family:var(--mono); font-size:12.5px; text-align:right;
+      font-variant-numeric:tabular-nums }
+.num.dim{ color:var(--muted) }
+.num i{ font-style:normal; display:block; font-size:10px; color:var(--muted) }
 
 /* --- registre 3 : les PR --------------------------------------------------------------- */
 .controls{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 14px;
@@ -206,7 +209,7 @@ function draw(){
         : p.state === 'CLOSED' ? 'fermee' : 'ouverte'}</span></td>
     <td class="ttl">${p.title}</td>
     <td class="ag">${p.agent || '<span class="none">branche hors worktree</span>'}</td>
-    <td class="num">${p.agent_cost ? FMT(Math.round(p.agent_cost/1000)) + ' k' : '-'}</td>
+    <td class="num">${p.agent_ctx ? FMT(Math.round(p.agent_ctx/1e6)) + ' M' : '-'}</td>
     <td class="num">${p.agent_mins ? hm(p.agent_mins) : '-'}</td>
     <td class="num">+${FMT(p.add)}</td>
     <td class="num">-${FMT(p.dele)}</td>
@@ -245,47 +248,51 @@ def page(data: dict) -> str:
     ttms = sorted(p["ttm"] for p in merged if p["ttm"] is not None)
     med = ttms[len(ttms) // 2] if ttms else None
     p90 = ttms[int(len(ttms) * 0.9)] if ttms else None
-    tot_cost = sum(d["cost"] for d in days)
+    tot_ctx = sum(d["ctx"] for d in days)
     tot_add = sum(d["add"] for d in days)
     tot_commits = sum(d["commits"] for d in days)
+    tot_turns = sum(d["turns"] for d in days)
     agents_with_pr = len({p["agent_id"] for p in prs if p["agent_id"]})
-    per_pr = tot_cost / len(merged) if merged else 0
+    # Ratios GLOBAUX = somme/somme, PAS la moyenne des ratios quotidiens : une journee a 2 commits
+    # peserait autant qu'une journee a 82 et le chiffre ne voudrait plus rien dire.
+    ctx_per_commit = tot_ctx / tot_commits if tot_commits else 0
+    ctx_per_line = tot_ctx / tot_add if tot_add else 0
 
-    mx_pr = max([max(d["opened"], d["merged"]) for d in days] + [1])
-    mx_cost = max([d["cost"] for d in days] + [1])
+    mx_ctx = max([d["ctx"] for d in days] + [1])
+    mx_eff = max([d["ctx_per_line"] for d in days] + [1])
 
     # --- registre 2 : une ligne reglee par jour -----------------------------------------
-    ledger = ['<div class="day head"><span>jour</span><span>PR ouvertes / mergees'
-              ' &middot; tokens</span><span style="text-align:right">commits</span></div>']
+    ledger = ['<div class="day head"><span>jour</span><span>context</span>'
+              '<span class="r">commits</span><span class="r">+lignes</span>'
+              '<span class="r">ctx / commit</span><span class="r">ctx / ligne</span></div>']
     for d in days:
-        wo = 100.0 * d["opened"] / mx_pr
-        wm = 100.0 * d["merged"] / mx_pr
-        wc = 100.0 * d["cost"] / mx_cost
         dt = datetime.strptime(d["day"], "%Y-%m-%d")
+        wc = 100.0 * d["ctx"] / mx_ctx
+        we = 100.0 * d["ctx_per_line"] / mx_eff
         ledger.append(
             '<div class="day">'
             f'<div class="dlabel"><b>{dt.strftime("%d/%m")}</b>'
             f'<i>{["lun","mar","mer","jeu","ven","sam","dim"][dt.weekday()]}</i></div>'
             '<div class="bars">'
-            f'<div class="brow"><div class="bar b-open"><i style="width:{wo:.1f}%"></i></div>'
-            f'<div class="bnum"><b>{d["opened"]}</b> ouvertes</div></div>'
-            f'<div class="brow"><div class="bar b-merge"><i style="width:{wm:.1f}%"></i></div>'
-            f'<div class="bnum"><b>{d["merged"]}</b> mergees</div></div>'
-            f'<div class="brow"><div class="bar b-cost"><i style="width:{wc:.1f}%"></i></div>'
-            f'<div class="bnum">{compact(d["cost"])} tok</div></div>'
+            f'<div class="bar b-ctx"><i style="width:{wc:.1f}%"></i></div>'
+            f'<div class="bar thin b-eff"><i style="width:{we:.1f}%"></i></div>'
+            f'<div class="num dim" style="text-align:left">{compact(d["ctx"])}</div>'
             '</div>'
-            f'<div class="dcost">{d["commits"]}<i>+{n(d["add"])} lignes</i></div>'
+            f'<div class="num">{d["commits"] or "-"}</div>'
+            f'<div class="num">{("+" + n(d["add"])) if d["add"] else "-"}</div>'
+            f'<div class="num">{compact(d["ctx_per_commit"]) if d["commits"] else "-"}</div>'
+            f'<div class="num">{compact(d["ctx_per_line"]) if d["add"] else "-"}</div>'
             '</div>')
 
     cols = [("num", "PR"), ("state", "etat"), ("title", "titre"), ("agent", "agent"),
-            ("agent_cost", "cout tok"), ("agent_mins", "duree"), ("add", "+"), ("dele", "-"),
+            ("agent_ctx", "context"), ("agent_mins", "duree"), ("add", "+"), ("dele", "-"),
             ("files", "fichiers"), ("ttm", "latence merge"), ("day", "ouverte le")]
     thead = "".join(
         f'<th data-key="{k}"{" aria-sort=\'descending\'" if k == "num" else ""}>'
         f'<button type="button">{esc(lbl)}</button></th>' for k, lbl in cols)
 
     js_rows = [dict(num=p["num"], title=esc(p["title"]), state=p["state"],
-                    agent=esc(p["agent"]), agent_cost=p["agent_cost"],
+                    agent=esc(p["agent"]), agent_ctx=p["agent_ctx"],
                     agent_mins=round(p["agent_mins"]) or None, add=p["add"], dele=p["dele"],
                     files=p["files"], ttm=round(p["ttm"]) if p["ttm"] is not None else None,
                     day=p["day"]) for p in prs]
@@ -308,25 +315,24 @@ def page(data: dict) -> str:
 
 <h2>Le solde</h2>
 <dl class="summary">
+  <div class="cell"><dt>context</dt><dd>{compact(tot_ctx)}<small>tokens lus, sur
+    {n(tot_turns)} tours</small></dd></div>
+  <div class="cell"><dt>commits</dt><dd>{n(tot_commits)}<small>hors data/symbols</small></dd></div>
+  <div class="cell"><dt>lignes ajoutees</dt><dd>{compact(tot_add)}<small>churn de scission
+    compris</small></dd></div>
+  <div class="cell"><dt>context / commit</dt><dd>{compact(ctx_per_commit)}<small>somme sur somme,
+    pas moyenne de moyennes</small></dd></div>
+  <div class="cell"><dt>context / ligne</dt><dd>{compact(ctx_per_line)}<small>plus c'est bas,
+    mieux c'est</small></dd></div>
   <div class="cell"><dt>pull requests</dt><dd>{len(prs)}<small>{len(merged)} mergees,
     {len(closed)} fermees sans merge</small></dd></div>
-  <div class="cell"><dt>taux de merge</dt><dd>{100*len(merged)//max(1,len(prs))}&nbsp;%<small>
-    ce qui est propose et retenu</small></dd></div>
-  <div class="cell"><dt>latence de merge</dt><dd>{hm(med)}<small>mediane &middot; p90 {hm(p90)}
-    </small></dd></div>
-  <div class="cell"><dt>cout pondere</dt><dd>{compact(tot_cost)}<small>tokens
-    equivalents-entree</small></dd></div>
-  <div class="cell"><dt>par PR mergee</dt><dd>{compact(per_pr)}<small>tendance, pas un cout
-    unitaire</small></dd></div>
-  <div class="cell"><dt>agents livreurs</dt><dd>{agents_with_pr}<small>identifies par leur
-    branche</small></dd></div>
 </dl>
 
 <h2>Le journal</h2>
-<p class="sub">Une ligne par jour. Les deux premieres barres comptent les PR&nbsp;: ouvertes en
-sarcelle, mergees en vert &mdash; elles ne se contiennent pas l'une l'autre, une PR ouverte un
-jour peut etre mergee le lendemain. La troisieme barre est le cout en tokens, a l'echelle du
-jour le plus lourd.</p>
+<p class="sub">Une ligne par jour. La barre pleine est le <strong>context</strong> &mdash; les
+tokens que les modeles ont eu a lire ce jour-la, a l'echelle du jour le plus lourd. Le filet gris
+dessous est le ratio <strong>context&nbsp;/&nbsp;ligne</strong>&nbsp;: c'est une efficacite, donc
+une barre courte est un bon jour.</p>
 <div class="ledger">{"".join(ledger)}</div>
 
 <h2>Le registre des PR</h2>
