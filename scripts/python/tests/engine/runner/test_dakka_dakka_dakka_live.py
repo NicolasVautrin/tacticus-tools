@@ -87,29 +87,31 @@ BUILD_FRAGILE = NO_NOISE + ["--hp-target", "600"]      # (C) : la cible MEURT ->
 # factory), ce canal `On(8)` est CABLE cote port sur le vecteur ABILITY -- il roule donc pendant ce
 # cast, exactement comme le natif.
 #
-# ⚠ LE MONTAGE DOIT SE PLACER LA OU LES DEUX GATES COINCIDENT, et ce n'est PAS trivial :
-#   * gate NATIF  = `GetStuckInAbility$$CreateTrigger` -> `!(MinDistance > 2)`, une distance **HEX** ;
-#   * gate PORTE  = `damage_model.getstuckin_combat_chance` -> `_cheby(attack_pos, t_pos) > 2`, un
-#                   proxy **CHEBYSHEV** sur (col, row).
-# Les deux ne coincident pas partout. MESURE (`probe_ddd_1171_getstuckin.py`, 3 regimes) :
+# LES DEUX GATES COINCIDENT DESORMAIS PARTOUT, et le montage n'a plus a se placer nulle part :
+#   * gate NATIF  = `GetStuckInAbility$$CreateTrigger` -> `!(MinDistance > 2)`, une distance **HEX**
+#     (`DSLFactory$$MinDistance` -> `MinDistanceFormula$$Calculate` -> `PositionComponent$$Distance`
+#     = `AxialCoordinate$$ToCubeCoordinate` x2 + `CubeCoordinate$$Distance`) ;
+#   * gate PORTE  = `damage_model.getstuckin_combat_chance` et son jumeau PREDICTION
+#     `GetStuckInTrait.as_attacker_bonus_hits`, tous deux sur `entities.traits.combat.min_distance`
+#     = `hexgeo.distance` -- **le meme mirror sur les deux faces**.
+#
+# HISTORIQUE DE LA MESURE QUI A FERME LE GAP (`probe_ddd_1171_getstuckin.py`, 3 regimes). Le port
+# mesurait alors en CHEBYSHEV sur (col, row), qui SOUS-ESTIME toujours la distance hex :
 #
 #   dist demandee | caster  cible  | hex | cheby | gate porte | gate natif | prefixe commun
 #   ------------- | ------  -----  | --- | ----- | ---------- | ---------- | --------------
 #   2             | (1,0)   (0,1)  |  2  |   1   | ACTIF (30) | ACTIF      | **6 / 6**
-#   3             | (1,0)   (0,2)  |  3  |   2   | ACTIF (30) | INACTIF    | 2 / 6
+#   3             | (1,0)   (0,2)  |  3  |   2   | ACTIF (30) | INACTIF    | 2 / 6      <- divergeait
 #   4             | (1,0)   (0,3)  |  4  |   3   | INACTIF    | INACTIF    | (hors portee)
 #
-# Le seul regime qui casse est celui ou hex et cheby DIVERGENT -- c'est un desaccord de PREDICAT de
-# portee, PREEXISTANT et EXTERIEUR a ce port (il vit dans `engine/runner/damage_model.py`, dont le
-# docstring revendique le proxy cheby, et dans son jumeau prediction
-# `GetStuckInTrait.as_attacker_bonus_hits`). Il n'etait pas OBSERVABLE avant #177 parce que le port
-# ne roulait jamais ce `Maybe` sur une attaque d'ability : les deux cotes n'en tiraient aucun, et
-# l'egalite tenait PAR COMPENSATION.
-#
-# On mesure donc a **distance 2**, ou les deux gates disent ACTIF : le flux MT est alors le meme des
-# deux cotes, l'egalite per-coup mesure ce port SEUL, et le test exerce EN PLUS le canal after-hit
-# cable par #177. (Ce n'est pas un relachement : l'assertion reste l'egalite BIT-EXACTE sur 6 coups.)
-GETSTUCKIN_AGREED_DIST = 2
+# La ligne « dist 3 » est desormais VERTE (`test_min_distance_metric_live.py` la garde sur son propre
+# axe, avec un temoin), d'ou les DEUX distances ci-dessous plutot qu'une seule :
+#   * 2 -> les deux gates ACTIFS : exerce EN PLUS le canal after-hit cable par #177 ;
+#   * 3 -> les deux gates INACTIFS : c'est EXACTEMENT la bande qui divergeait, et la seule ou une
+#          regression de metrique se verrait. La garder ici est ce qui empeche le gap de revenir
+#          par le montage qui l'avait revele.
+GETSTUCKIN_DISTS = (2, 3)
+GETSTUCKIN_AGREED_DIST = GETSTUCKIN_DISTS[0]   # cas B/C/D : la distance n'y est pas le sujet
 
 
 def _cfg(key):
@@ -217,13 +219,18 @@ def _assert_live_mutated(live):
 
 # ------------------------------------------------------------------ (A) volee principale
 
-def test_dakka_main_volley_live_equals_offline(ability_cast_harness):
+@pytest.mark.parametrize("target_dist", GETSTUCKIN_DISTS)
+def test_dakka_main_volley_live_equals_offline(ability_cast_harness, target_dist):
     """(A) La cible SURVIT -> `numLeft == 0`, aucun volet leftover, et le per-coup OFFLINE est
     IDENTIQUE au per-coup LIVE, coup par coup. Le nombre de coups est confronte a
     `constants.nrOfHits` (oracle config) : `GetNumHits` = `Min(nrOfHits + TimesRepaired*extraHits,
-    maxNrOfHits)` et `TimesRepaired` vaut 0 au cast."""
+    maxNrOfHits)` et `TimesRepaired` vaut 0 au cast.
+
+    Joue aux DEUX distances de `GETSTUCKIN_DISTS` : a 2 le gate `GetStuckIn` est ACTIF des deux
+    cotes (le canal after-hit de #177 est exerce), a 3 il est INACTIF des deux cotes -- et c'est
+    la bande ou le port divergeait tant qu'il mesurait en Chebyshev."""
     h = ability_cast_harness(p_units=SNAPPA, a_units=ENEMIES, extra=BUILD_TANKY)
-    geom = _setup(h, target_dist=GETSTUCKIN_AGREED_DIST)
+    geom = _setup(h, target_dist=target_dist)
     if geom is None:
         pytest.skip("geometrie non montable sur ce board")
     snappa, target, others = geom
@@ -239,7 +246,7 @@ def test_dakka_main_volley_live_equals_offline(ability_cast_harness):
 
     off_main = ((last.get("main_attack") or {}).get("per_hit")) or []
     live_main = _live_damage(live, target)
-    print("\n[DDD A] snappa=u%d cible=u%d autres=%s" % (snappa, target, others))
+    print("\n[DDD A dist=%d] snappa=u%d cible=u%d autres=%s" % (target_dist, snappa, target, others))
     print("[DDD A] live=%s" % live_main)
     print("[DDD A] off =%s" % off_main)
     print("[DDD A] hits=%s numLeft=%s picked=%s" % (last.get("hits"), last.get("num_left"),

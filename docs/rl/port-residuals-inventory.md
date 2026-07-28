@@ -282,16 +282,21 @@ littéraux** (`TARGETING_OPTIONS` = preset `TargetingOptions` statique `+0x140` 
 même montage : `ported=False`, `flags={ability_used_flag: True, turn_finished: True}` (le cast est
 ACCEPTÉ et consomme le tour) et **cible 500000 → 500000, caster 9037 → 9037** — zéro mutation.
 
-> ### ⚠ TROUVÉ EN CHEMIN, hors périmètre de ce port : `GetStuckIn` est gaté par un proxy
-> **Chebyshev** là où le natif lit une distance **hex**
+> ### ~~⚠ TROUVÉ EN CHEMIN : `GetStuckIn` est gaté par un proxy **Chebyshev** là où le natif lit
+> une distance **hex**~~ — **FERMÉ** (`case-mindistance-metric.md`)
 >
 > `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger` =
-> `On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)` — **`MinDistance` est une distance HEX**. Le
-> port gate ce trait par `_cheby(attack_pos, t_pos) > 2` (`engine/runner/damage_model.py::
-> getstuckin_combat_chance`, dont le docstring revendique le proxy ; même proxy dans le jumeau
-> PRÉDICTION `GetStuckInTrait.as_attacker_bonus_hits`). Les deux ne coïncident pas partout.
+> `On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)`. **Verdict tranché au décompilé** :
+> `IdunBattleLogic.Entities.DSLFactory$$MinDistance` construit
+> `IdunBattle.Entities.Formulas.MinDistanceFormula`, dont `Calculate` prend le `Min` sur les paires
+> de `IdunBattle.Entities.Components.PositionComponent$$Distance` =
+> `IdunBattle.Utils.Hex.AxialCoordinate$$ToCubeCoordinate` ×2 puis
+> `IdunBattle.Utils.Hex.CubeCoordinate$$Distance` = `Max(|dx|,|dy|,|dz|)` — **distance HEX pure,
+> aucun pathfinding**. La glose « pathfinding » venait du natif HOMONYME
+> `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` (utilité IA de
+> MOUVEMENT), qui, lui, demande bien une route au pathfinding et en lit la longueur.
 >
-> **Mesure** (`scripts/python/probe_ddd_1171_getstuckin.py`, trois régimes, une commande) :
+> **Mesure de découverte** (`scripts/python/probe_ddd_1171_getstuckin.py`, trois régimes) :
 >
 > | dist demandée | caster | cible | hex | cheby | gate porté | gate natif | préfixe commun |
 > |---|---|---|---|---|---|---|---|
@@ -299,18 +304,34 @@ ACCEPTÉ et consomme le tour) et **cible 500000 → 500000, caster 9037 → 9037
 > | 3 | (1,0) | (0,2) | **3** | **2** | **ACTIF (30)** | **INACTIF** | **2 / 6** |
 > | 4 | (1,0) | (0,3) | 4 | 3 | INACTIF | INACTIF | (hors portée) |
 >
-> Le seul régime qui casse est **exactement** celui où hex et cheby divergent : le port roule un
-> `Maybe(chance)` que le natif ne roule pas, et la séquence décroche au rang du 1er jet du trait.
+> **Ampleur, re-dérivée** (`probe_min_distance_metric.py --stage offline`) : `hex >= cheby`
+> **toujours** (0 violation sur un balayage exhaustif 24×24, écart jusqu'à 12) ⇒ le proxy
+> SOUS-ESTIME, donc sur `!(MinDistance > 2)` il **OUVRE ce que le natif FERME** — dégradation
+> PERMISSIVE. Ce n'était pas un cas de coin : sur MC1_67, **46,6 %** des paires de tuiles jouables
+> ont une distance différente et **5,82 %** font diverger le gate `<= 2`. Les 12 patrons
+> discriminants dépendent de la **parité de la colonne de départ** (asymétrie odd-q).
 >
-> **Ce n'est ni un défaut de ce port ni un défaut de la PR #177.** #177 (`EvaluateAfterHitTriggers`
-> est inconditionnel, aucun gate de famille) a **raison** : le natif roule bien ce canal sur le
-> vecteur ABILITY — le régime `dist=2`, où les deux gates disent ACTIF, est **bit-exact 6/6**. #177
-> a seulement rendu le défaut OBSERVABLE : avant elle, le port ne roulait jamais ce `Maybe` sur une
-> attaque d'ability, donc aucun des deux côtés n'en tirait et l'égalité tenait **par compensation**.
+> **Ce n'était ni un défaut du port 1171 ni un défaut de la PR #177.** #177
+> (`EvaluateAfterHitTriggers` inconditionnel, aucun gate de famille) a **raison** ; elle a seulement
+> rendu le défaut OBSERVABLE — avant elle le port ne roulait jamais ce `Maybe` sur une attaque
+> d'ability, donc aucun des deux côtés n'en tirait et l'égalité tenait **par compensation**.
 >
-> **Non corrigé ici, délibérément** : le prédicat vit dans un canal PARTAGÉ combat + prédiction,
-> hors du périmètre de ce cas. À trancher au décompilé (`MinDistance` = distance hex minimale entre
-> EMPREINTES, cf. `are_entities_adjacent` / #R30) par qui prendra le sujet.
+> **Corrigé sur les DEUX faces** — `entities.traits.combat.min_distance` (`hexgeo.distance`) est
+> désormais le mirror unique, consommé par `getstuckin_combat_chance` (COMBAT) et
+> `GetStuckInTrait.as_attacker_bonus_hits` (PRÉDICTION). `test_dakka_dakka_dakka_live.py` mesure
+> maintenant aux **deux** distances (`GETSTUCKIN_DISTS = (2, 3)`), la 3 étant précisément la bande
+> qui divergeait — et elle est DISCRIMINANTE (vue rouge sous mutation).
+>
+> **Piste « min sur les EMPREINTES » (cf. `are_entities_adjacent` / #R30) : RÉFUTÉE au décompilé
+> pour le nœud DSL.** `MinDistanceFormula$$Calculate` fait `GetComponent<PositionComponent>` sur
+> chaque élément rendu par les sélecteurs et n'appelle **jamais** `EntityExtensions$$IterateTiles`
+> ni `GetTiles` — alors que les deux natifs qui, eux, veulent l'empreinte les appellent
+> explicitement (`MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy`,
+> `BattleQuery$$AreEntitiesAdjacent` → `MovementUtil$$AreTilesAdjacent(GetTiles(a), GetTiles(b))`).
+> Le `Min` porte donc sur le **produit cartésien des deux sélecteurs** : l'empreinte n'entre en jeu
+> que si le sélecteur est un sélecteur de TUILES (`CasterTiles@0x170`, cf. `bloodangels.py`), et le
+> trigger `GetStuckIn` passe `owner@0x160` / `target@0x178` = des UNITÉS ⇒ **une seule paire**.
+> ⚠ Non distingué LIVE (aucun porteur `GetStuckIn` du pool n'est multi-tuile).
 
 > **Résidu nommé, hérité de ce port** : le nœud `If(AreEqual(Cache(First(picked,1)), It@0x180),
 > Sum(q, rem), q)` de `$$GetLeftoverHitsPerTargetFormula` distribue le RESTE de la division entière à
