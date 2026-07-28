@@ -176,7 +176,10 @@ caster → la même réponse porte la bascule de tour, puis `LivingMetalRepair` 
 **+12000** (10 % des PV max) et deux ripostes partent. Confronter ce champ à un rejeu offline qui n'a
 joué QUE l'attaque compare deux points différents du pipeline et fabrique un faux « bug de port »
 chiffré. L'étage propre est le `UnitStats_RemainingHealth` du **dernier événement de dégât** :
-`116065 / 112308 / 109230 / 106098` côté natif, `106098` côté port — exact.
+`116065 / 112308 / 109230 / 106098` côté natif, `106098` côté port — exact. Contre-épreuve sur l'autre
+couple (`C1_25` / 31337 / `orksNob`+`tyranTyrantGuard`, aucun soin de début de tour) : PV après
+**109873 des deux côtés** — l'écart ne survit pas au changement de cibles, donc il n'était pas dans
+l'application des dégâts.
 
 ### Ce que la fiche `R32` disait, et pourquoi c'était faux
 

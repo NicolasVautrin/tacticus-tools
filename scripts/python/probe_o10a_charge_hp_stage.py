@@ -28,6 +28,11 @@ reponse porte donc la bascule de tour (`Match_PreviousPlayerId` 3 -> `Match_Curr
 puis le groupe **`LivingMetalRepair`** de `necroOverlord` la remonte a 118098 (+12000 = 10 % des PV
 max) et deux ripostes (`Passive_Ability_Type` 1045) repartent sur le caster.
 
+CONTRE-EPREUVE (meme probe, `--seed 31337 --board C1_25 --a-units orksNob,tyranTyrantGuard`) : PV
+APRES **live 109873 == offline 109873**, delta identique des deux cotes. Le confond est donc bien la
+CASCADE de ce montage-la (le soin Necron), pas l'application des degats -- si le port appliquait mal,
+l'ecart survivrait au changement de cibles.
+
 CE QU'IL FAUT EN RETENIR : `applyAction.units[]` est l'etat de FIN DE CASCADE. Le confronter a un
 rejeu offline qui n'a joue QUE l'attaque compare deux points differents du pipeline et fabrique un
 faux « bug de port » chiffre (ici 12000 PV). L'etage PROPRE, celui que le port doit egaler, est le
