@@ -18,14 +18,26 @@ VAs : AddMarkerlight @1811a2a00/@1811a2ac0 ; AddDamageBuff @1811a2910 ; effet ad
 Risques : ordre pose-Markerlight vs calcul +728 du même coup ; anneau T'au range-2 vs adjacent.
 ```
 ```
-[SereneUnifier | tauAunShi passif]  — [opus]+prérequis
+[SereneUnifier | tauAunShi passif]  — effet 1169 PORTE+VALIDE (#192) / POSE encore [opus]+prérequis
 VAs : CreateTrigger @18119fba0 ; CreateBehaviour @18119f3f0 ; mods @18119f1e0/@18119f340/@18119f2a0 ;
       SenseOfStone @180f6b230
-Turn-start d'Aun'Shi, sélecteur self+adjacents+T'au range-2, round-cycling Modulo(PlayerTurnsStarted,3) :
-tour1 → 1169 SenseOfStone (−% dégât reçu) ; tour2 → 1170 ZephyrsGrace (+1 MOVEMENT) ; tour3 → 1171
-StormOfFire (+582 ATTACK). Durée TurnsFromRounds(1) (persiste si Aun'Shi tombe). Templates : les 3
-effets (damage_reduction/status/stat-mod) ; trigger turn-start (LivingMetal). Prérequis : behaviour
-turn-start→buff-sur-SÉLECTEUR (les portés ciblent le porteur seul) ; Modulo(PlayerTurnsStarted,3).
+Turn-start d'Aun'Shi (`On(0x13) & <cond@0xa0> & get_OwnerIsCaster`), sélecteur
+`(AdjacentFriends(owner,1) + owner) + UnitsFromFaction(SurroundingFriends(owner, ConfigConst(0x16)=2)
+− AdjacentFriends(owner,1), Tau=9)` = self + adjacents (toute faction) + T'au range-2 ; round-cycling
+`Modulo(PlayerTurnsStarted, 3)` : **==1** → `AddEffect(0x491=1169 SenseOfStone)` ; **==2** →
+`AddStaticStatModifierEffect(0x492=1170 ZephyrsGrace, stat 1 = MOVEMENT, ConfigConst(0xe)=extraMovement=1)` ;
+**==0** → `AddStaticStatModifierEffect(0x493=1171 StormOfFire, stat 0 = ATTACK, ConfigVar(8)=extraDmg)`.
+(+ les 3 jumeaux _Visual 0x498/0x499/0x49a posés sur Aun'Shi SEUL, cosmétiques.) Durée
+TurnsFromRounds(1) (persiste si Aun'Shi tombe).
+**FAIT (#192)** : 1169 = `SereneUnifierSenseOfStoneEffect` (`loki/damage_reduction.py`), mirror 1:1 de
+`IdunBattle.Entities.Effects.Loki.SereneUnifierSenseOfStoneEffect$$CreateEffectDamageMalusForDefense` =
+`ForPercentDecrease(get_OwnerIsTarget, ConfigVar(0x46 = dmgReductionPct))`, AUCUN gate (ni mêlée/ranged,
+ni profil, ni normal-only) — jumeau structurel de `VexillaMagnifica_DmgReduction`. C'est un effet
+MATÉRIALISÉ sur chaque bénéficiaire (canal DÉFENSEUR standard), PAS une aura source-side : il n'existe
+aucun `...SenseOfStoneEffect$$CreateTargetSelector`. Validé LIVE sur les DEUX faces (facteur 2,000 → 1,000).
+RESTE : la POSE (behaviour turn-start + cycle Modulo) ; 1170/1171 sont des `AddStaticStatModifierEffect`
+GÉNÉRIQUES (pas de classe d'effet native — cf. table de symboles), donc ils suivront la pose, pas un port
+d'effet. Prérequis inchangés : behaviour turn-start→buff-sur-SÉLECTEUR ; Modulo(PlayerTurnsStarted,3).
 Risques : offset 1-indexé (bon buff au bon round) ; persistance post-mort.
 ```
 ```

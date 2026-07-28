@@ -61,10 +61,12 @@ ABILITY = 1137
 # RECU. ⚠ CE CRITERE NE SUFFIT PAS : il regarde ce que l'unite s'applique A ELLE-MEME, pas ce
 # qu'un ALLIE lui donne. DEUX rosters ont ete ECARTES PAR LA MESURE (2026-07-28), pour des raisons
 # differentes :
-#   * `tauAunShi` : les DEUX cibles portaient `SereneUnifierSenseOfStone` (aura d'equipe) -> le
-#     degat LIVE valait EXACTEMENT la MOITIE du degat offline sur chacune. L'effet 1169 est dans
-#     l'enum du port mais n'a AUCUNE classe (`BaseEffect` nu = aucune contribution) : residu
-#     PREEXISTANT, exterieur a ce port -- mais banc de mesure inutilisable.
+#   * `tauAunShi` : les DEUX cibles portaient `SereneUnifierSenseOfStone` (pose d'equipe au turn-start
+#     d'Aun'Shi) -> le degat LIVE valait EXACTEMENT la MOITIE du degat offline sur chacune. RESOLU
+#     par #192 : l'effet 1169 a desormais sa classe (`SereneUnifierSenseOfStoneEffect`), l'agrement
+#     est bit-exact avec Aun'Shi en jeu (`probe_192_sense_of_stone.py`). Le roster reste neanmoins
+#     ECARTE ICI : `SereneUnifierSenseOfStone` n'existe qu'APRES un turn-start d'Aun'Shi, or ce
+#     montage cast SANS aucun `endturn` -- le banc serait donc muet sur l'aura, pas propre grace a elle.
 #   * `genesMagus` : son summon `genesSmnDecoy` apparait quand il se DEPLACE, et il se pose sur une
 #     tuile LIBRE du ring 1 du caster -> il entre dans `AdjacentEnemies(caster)` et fait varier le
 #     `Count` sans qu'on l'ait demande.

@@ -26,6 +26,7 @@ from .loki import (
     ContaminatedEffect,
     ContaminatedUnitEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
+    SereneUnifierSenseOfStoneEffect,
     VexillaMagnificaDmgReductionEffect,
     StunnedDamageModifierEffect,
     BigTargetAdjacentEffect,
@@ -336,6 +337,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # rarity-scalé) à TOUT dégât reçu par le porteur (IdunBattle.Entities.Effects.Loki.VexillaMagnifica_DmgReductionEffect$$CreateDamageDefenseModifier ForPercentDecrease OwnerIsTarget SEUL,
     # aucun gate profil/mêlée). #29 lead 2.
     "VexillaMagnifica_DmgReduction": VexillaMagnificaDmgReductionEffect,
+    # SereneUnifierSenseOfStone (0x491=1169, phase 1 du cycle du passif SereneUnifier 0x479=1145 de
+    # `tauAunShi`) : -dmgReductionPct% (=50 des L50, non rarity-scale) a TOUT degat recu par le porteur
+    # (`IdunBattle.Entities.Effects.Loki.SereneUnifierSenseOfStoneEffect$$CreateEffectDamageMalusForDefense`
+    # ForPercentDecrease OwnerIsTarget SEUL, ConfigVar 0x46 -- jumeau structurel de VexillaMagnifica).
+    # L'effet est MATERIALISE sur chaque beneficiaire par l'`AddEffect` du behaviour turn-start
+    # (self + amis adjacents + amis T'au a <=2), donc capte dans SA liste `decisionView.effects` : canal
+    # DEFENSEUR standard, PAS un canal aura. Sans cette entree l'effet retombait sur `BaseEffect` nu ->
+    # tout banc embarquant Aun'Shi sur-predisait le degat d'un facteur 2,000 EXACT (#192).
+    "SereneUnifierSenseOfStone": SereneUnifierSenseOfStoneEffect,
     "ActOfFaith_Effect": ActOfFaithBuffEffect,  # buff crit empilable (1017) — stack seedé = cc/cd_delta 0
     # « Thrilled » (1434, trait ThrillSeekers) : StaticStatModifierEffect CRIT_CHANCE +extraCritChance,
     # a TIMER (TurnsFromRounds(nrOfRounds)). Le declarer ici = l'attribution du seed pose sa
