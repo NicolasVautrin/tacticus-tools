@@ -15,18 +15,20 @@ MECANIQUE (Melee, 4 coups Eviscerate PiercingRatio 50) : degat/coup = roll(minDm
 count(tuiles adjacentes LIBRES du caster) ; self-heal de `hp` SI le HP du caster etait <= 50% de son MaxHealth
 AVANT l'attaque. `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, 2 tirages/coup a cc=0 -- XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour+0x21b == template ArmoriumCherub IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$ExecuteBehaviour+0x17d ; cas rngcrit-1202).
 
-PORTEUR HORS POOL + RESIDU DE CAST LIVE (documente) : `bloodTerminator` (Cezare) est absent du seed BC capture
--> on l'INJECTE (bloc Unit clone d'une unite BloodAngels + `ActiveAbilities=[1230]`, `PassiveAbilities=[]` pour
-isoler SavageEchoes de RedRampage 1551 non porte) via `--seed-bc` (N'ECRIT JAMAIS le seed partage).
+PORTEUR HORS POOL : `bloodTerminator` (Cezare) est absent du seed BC capture -> on l'INJECTE via
+`catalog_inject.write_augmented_seed_bc` (bloc `Units` + configs `Abilities`, `ActiveAbilities=[1230]` pour
+isoler SavageEchoes de RedRampage 1551 non portee) et `--seed-bc` (N'ECRIT JAMAIS le seed partage).
 buildNormalizedBC le normalise (ActiveAbilityLevel 50, mult 180) et il spawne AVEC SavageEchoes reconnue
-(decisionView/abilityTargets). MAIS le cast LIVE de 1230 leve une exception native `system error` :
-`IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` (throwFlag=0) THROW quand la config du porteur INJECTE n'a
-PAS la variable exotique demandee (extraDmg index 8, hp 0x1d, healthPct 0x4f) -- ces arrays ne sont pas
-materialisees pour une unite HORS de la progression roster. Preuve : le MEME porteur injecte caste 1014
-(ArmoriumCherub, qui ne lit QUE minDmg/maxDmg/nrOfHits) SANS erreur ; seule SavageEchoes (variables exotiques)
-throw. C'est une limite du HARNAIS (injection out-of-pool), PAS un bug du port -- une vraie Cezare (config
-complete) l'executerait. Le cast live est donc un RESIDU documente ; on le TENTE (forward-compatible) mais on
-n'y ASSERTE rien.
+(decisionView/abilityTargets). Le cast LIVE de 1230 REUSSIT et est ASSERTE (volet E) : le port est confronte
+au natif de bout en bout, plus seulement offline.
+
+  (#226 -- ce que l'ancien « residu de cast live » etait vraiment.) Le cast levait « system error » tant que
+  le seed BC injecte n'embarquait QUE le bloc Unit : `BattleConfiguration.Abilities` du seed capture ne porte
+  que les abilities des unites de CETTE bataille, donc `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel`
+  tournait sur une config NULLE. Ce n'etait ni le rang du porteur, ni des arrays de variables « non
+  materialisees hors progression roster » (les deux diagnostics anterieurs, FAUX). Mesure a bloc Unit
+  CONSTANT (`probe_226_seed_bc_ability_configs.py`) : sans les configs `ok=False errors=['system error']` ;
+  avec les configs `ok=True hits=[3825, 3598, 3975, 3445]`.
 
 VALIDATION (etat LIVE reel : board dumpe, positions drivees, stats/level/mult du porteur spawne, rng dumpRng) :
   A. WIRING BIT-IDENTIQUE : le PORT `execute_behaviour` (arbre DSL) emet EXACTEMENT les memes per-hit qu'un appel
@@ -37,6 +39,9 @@ VALIDATION (etat LIVE reel : board dumpe, positions drivees, stats/level/mult du
   B. DISCRIMINANT extraDmg x count : un baseline SANS le bonus (bornes config seules) DIVERGE (count>0) -> le
      bonus `extraDmg x free-tiles` est reel et correctement porte.
   C. COUNT node : `CanAddUnit(AdjacentTiles(Self))` == free-tiles calcule a la main sur le board LIVE.
+  E. CAST LIVE : le cast natif de 1230 REUSSIT (`ok`), rend `nrOfHits` coups, et (si crit_chance=0) les
+     montants sont BIT-EXACTS avec le per-hit du port sous le meme rng. C'est la garde de non-regression
+     de #226 : un seed BC injecte sans ses configs d'ability rendrait `ok=False errors=['system error']`.
   D. self-heal : (d1) HP plein -> regenerate FALSE, heal 0 ; (d2) boundary EXACTE au seuil config
      `constants.healthPct` (thr+1 PV / thr / thr-1 -> False/True/True, granularite 1 PV)
      (`StatPercentageIsBelowOrEqual IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` : current/max <= healthPct/100) + amount == gameconfig `hp` x mult.
@@ -59,7 +64,6 @@ ASCII only. Skip propre si pas de session / seed BC sans unite clonable / geomet
 """
 from __future__ import annotations
 
-import copy
 import json
 import subprocess
 import sys
@@ -133,23 +137,26 @@ def _live_hits_from_events(res, tgt_id, hp0):
 
 
 def _write_injected_seed_bc(tag: str):
-    """Injecte `bloodTerminator` (clone d'une unite BloodAngels, `ActiveAbilities=[1230]`,
-    `PassiveAbilities=[]`) dans une COPIE du seed BC. N'ecrit JAMAIS le seed partage. None si pas de base."""
-    from rl_collect_batch import _load_seed_bc
-    seed = _load_seed_bc()
-    units = seed.get("Units") or []
-    base = next((u for u in units if u.get("VisualId") == "bloodDeathCompany"), None)
-    if base is None:
+    """Seed BC augmente de `bloodTerminator` -- bloc `Units` **ET** configs `Abilities`
+    (`SavageEchoes`, `RedRampage`) -- via `catalog_inject.write_augmented_seed_bc`, le mirror de
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration`. N'ECRIT JAMAIS le seed
+    partage. `ActiveAbilities` est restreint a 1230 pour ISOLER SavageEchoes de la passive RedRampage
+    (1551, non portee) ; les CONFIGS restent toutes posees (une config non portee est inerte).
+    None si le seed BC de reference est absent.
+
+    PAS DE CLONE DE BLOC UNIT (etat anterieur) : `BC.Abilities` du seed capture ne porte QUE les
+    abilities des unites de CETTE bataille -- ni SavageEchoes ni RedRampage. Sans elles le porteur se
+    deploie et expose son ability, mais le cast FAUTE (`GetVariableForLevel` sur config nulle ->
+    « system error »). Mesure #226 (`probe_226_seed_bc_ability_configs.py`, MEME bloc Unit, seules
+    les configs changent) : sans configs `ok=False errors=['system error']` / avec configs
+    `ok=True hits=[3825, 3598, 3975, 3445]`."""
+    import catalog_inject as CI
+    if not CI.SEED_BC.exists():
         return None
-    inj = copy.deepcopy(base)
-    inj.update({"Id": CASTER_VIS, "VisualId": CASTER_VIS, "QuestUnitId": CASTER_VIS,
-                "ActiveAbilities": [ABILITY], "PassiveAbilities": [],
-                "ConfigId": {"PureId": CASTER_VIS, "Rarity": None, "Level": None,
-                             "IsBorrowed": False, "IsPvpOpponent": False}})
-    p = ROOT / "logs" / "runners" / f"savage-seedbc-{tag}.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({**seed, "Units": units + [inj]}), encoding="utf-8")
-    return p
+    path, _units, _abilities = CI.write_augmented_seed_bc(
+        ROOT / "logs" / "runners" / f"savage-seedbc-{tag}.json",
+        [CASTER_VIS], restrict_abilities={CASTER_VIS: ([ABILITY], [])})
+    return path
 
 
 def _build(tag: str):
@@ -254,7 +261,7 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
     tag = uuid.uuid4().hex[:8]
     rid, state_file, bc_file = _build(tag)
     if rid == -1:
-        pytest.skip("seed BC sans unite BloodAngels clonable")
+        pytest.skip("seed BC de reference absent (data/seed-bc.json)")
     if rid < 0:
         pytest.skip("build runner KO (seed-bc injection)")
     try:
@@ -331,20 +338,23 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
         assert res.get("regenerate") is False, f"HP plein -> regenerate={res.get('regenerate')} (attendu False)"
         assert (res.get("heal_amount") or 0) == 0, f"heal={res.get('heal_amount')} alors que regenerate=False"
 
-        # cast LIVE TENTE (residu documente : la config injectee out-of-pool leve `system error`)
+        # (E) cast LIVE -- ASSERTE depuis #226 : le seed BC injecte porte les configs d'ability, donc
+        # `GetVariableForLevel` ne tourne plus sur une config nulle. Un `system error` ici = regression
+        # du harnais d'injection (bloc Unit sans ses configs), PAS une limite du jeu.
         cast = rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": cid, "targetId": tid, "abilityType": ABILITY},
             "captureEvents": True}, 120)
-        if _ok(cast):
-            live_hits = _live_hits_from_events(cast, tid, _hp_ob(ob0, tid))
-            print(f"[savage] cast LIVE OK (config materialisee !) per-hit={live_hits}")
-            if len(live_hits) == want_hits and int(getattr(csc.ctx, "crit_chance", 0) or 0) == 0:
-                assert port_ph == live_hits, f"PORT {port_ph} != LIVE {live_hits} (bit-exact cc=0)"
-        else:
-            errs = [a.get("error") for a in (cast.get("actions") or [])]
-            print(f"[savage] RESIDU cast live (out-of-pool config): errs={errs} "
-                  f"-- GetVariableForLevel throw sur variable exotique (extraDmg/hp/healthPct) non "
-                  f"materialisee ; wiring valide offline (A/B/C) contre le decompile")
+        errs = [a.get("error") for a in (cast.get("actions") or []) if a.get("error")]
+        assert _ok(cast), (
+            f"cast LIVE de {ABILITY} KO: errs={errs}. 'system error' = faute d'invoke il2cpp -- le seed "
+            f"BC injecte n'embarque probablement plus les configs d'ability (cf. #226 / "
+            f"catalog_inject.write_augmented_seed_bc)")
+        live_hits = _live_hits_from_events(cast, tid, _hp_ob(ob0, tid))
+        assert len(live_hits) == want_hits, \
+            f"cast LIVE : {len(live_hits)} coups {live_hits} != oracle config nrOfHits={want_hits}"
+        if int(getattr(csc.ctx, "crit_chance", 0) or 0) == 0:
+            assert port_ph == live_hits, f"PORT {port_ph} != LIVE {live_hits} (bit-exact cc=0)"
+        print(f"[savage] cast LIVE OK per-hit={live_hits} (port={port_ph})")
     finally:
         _cleanup(rpc, rid, state_file, bc_file)
 
@@ -362,7 +372,7 @@ def test_savage_echoes_regenerate_heal(live_session, rpc):
     tag = uuid.uuid4().hex[:8]
     rid, state_file, bc_file = _build(tag)
     if rid == -1:
-        pytest.skip("seed BC sans unite BloodAngels clonable")
+        pytest.skip("seed BC de reference absent (data/seed-bc.json)")
     if rid < 0:
         pytest.skip("build runner KO (seed-bc injection)")
     try:

@@ -27,12 +27,18 @@ FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
   - `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason` (eligibilite, HORS ExecuteBehaviour) : gate DidMove(caster) -> une
     Celestine DEJA bougee ET non-adjacente ne peut PAS caster (reason 0x10). CONFIRME LIVE (b1/b2 ci-dessous).
 
-PORTEUR HORS POOL + RESIDU DE CAST LIVE (documente, idem SavageEchoes) : adeptCelestine est absente du seed BC
-capture -> on l'INJECTE (clone d'une unite Sisterhood + `ActiveAbilities=[1025]`). Elle spawne AVEC SkyStrike
-reconnue (abilityTargets `fromHere` non-vide quand NON bougee). MAIS le cast LIVE de 1025 ECHOUE
-(`AbilityConfiguration.GetVariableForLevel(8=extraDmg)` THROW pour une unite injectee dont l'array n'est pas
-materialise -- MEME limite que SavageEchoes ; l'eligibilite passe, l'EXECUTION throw). Le cast live est un RESIDU
-documente : on le TENTE (forward-compat) mais on n'ASSERTE rien sur le degat live.
+PORTEUR HORS POOL : adeptCelestine est absente du seed BC capture -> on l'INJECTE via
+`catalog_inject.write_augmented_seed_bc` (bloc `Units` + configs `Abilities`, `ActiveAbilities=[1025]`). Elle
+spawne AVEC SkyStrike reconnue (abilityTargets `fromHere` non-vide quand NON bougee) et le cast LIVE de 1025
+REUSSIT (volet E).
+
+  (#226 -- ce que l'ancien « residu de cast live » etait vraiment.) Le cast levait « system error » tant que le
+  seed BC injecte n'embarquait QUE le bloc Unit : `BattleConfiguration.Abilities` du seed capture ne porte que
+  les abilities des unites de CETTE bataille, donc `AbilityConfiguration.GetVariableForLevel(8=extraDmg)`
+  tournait sur une config NULLE. Ce n'etait ni le rang du porteur ni un array « non materialise hors
+  progression roster » (diagnostics anterieurs, FAUX). Mesure a bloc Unit CONSTANT
+  (`probe_226_seed_bc_ability_configs.py`) : sans configs `ok=False errors=['system error']` ; avec configs
+  `ok=True hits=[3188, 2660, 3249]`.
 
 CE QUE LE TEST VALIDE :
   (A) A/B BIT-EXACT (deterministe, etat live-capture) : l'arbre `sky_strike_tree` (attaque) == un appel DIRECT
@@ -44,12 +50,16 @@ CE QUE LE TEST VALIDE :
       -> AUCUN move.
   (D) GATE has-not-moved (LIVE) : Celestine NON bougee + tuile libre adjacente a la cible -> castable ; Celestine
       BOUGEE + non-adjacente -> NON castable (reason 0x10). Discriminant de `GetDynamicInvalidTargetReason`.
+      AUCUN cast n'y est emis : un cast consommerait l'action de Celestine et rendrait (b2) vacuous (elle
+      serait refusee pour « a deja agi », pas pour le gate).
+  (E) CAST LIVE (runner DEDIE, garde de non-regression #226) : le cast natif de 1025 REUSSIT et rend
+      `MeleeWeaponHits` coups TOUS EGAUX (node de degat degenere). Un seed BC injecte sans ses configs
+      d'ability rendrait `ok=False errors=['system error']`.
 
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. Skip si build/injection/geometrie/adeptCelestine indispo.
 """
 from __future__ import annotations
 
-import copy
 import json
 import subprocess
 import sys
@@ -63,7 +73,6 @@ import hexgeo
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 ROOT = PYDIR.parents[1]                                     # racine repo
 CASTER_VIS = "adeptCelestine"
-CLONE_BASE = "adeptCanoness"                                # unite Sisterhood du seed BC a cloner
 ABILITY = 1025
 A_UNITS = "necroWarden,necroWarden,necroOverlord"
 
@@ -191,23 +200,28 @@ def _find_adjacent_pair(board):
 # ------------------------------------------------------------------ injection seed BC
 
 def _write_injected_seed_bc(tag: str):
-    """Injecte `adeptCelestine` (clone d'une unite Sisterhood du seed BC, `ActiveAbilities=[1025]`,
-    `PassiveAbilities=[]`) dans une COPIE du seed BC. N'ecrit JAMAIS le seed partage. None si pas de base."""
-    from rl_collect_batch import _load_seed_bc
-    seed = _load_seed_bc()
-    units = seed.get("Units") or []
-    base = next((u for u in units if u.get("VisualId") == CLONE_BASE), None)
-    if base is None:
+    """Seed BC augmente d'`adeptCelestine` -- bloc `Units` **ET** configs `Abilities` (`SkyStrike`,
+    `GeminaeSuperia`) -- via `catalog_inject.write_augmented_seed_bc`, le mirror de
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration`. N'ECRIT JAMAIS le seed
+    partage. `ActiveAbilities` est restreint a 1025 pour ISOLER SkyStrike de la passive GeminaeSuperia
+    (non portee) ; les CONFIGS restent toutes posees (une config non portee est inerte).
+    None si le seed BC de reference est absent.
+
+    PAS DE CLONE DE BLOC UNIT (etat anterieur) -- deux defauts, mesures par
+    `probe_226_seed_bc_ability_configs.py` :
+      1. sans les configs d'ability, le cast natif rend `ok=False errors=['system error']`
+         (`IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` sur config nulle) ;
+      2. le clone portait les STATS de l'unite clonee : SkyStrike = `Sum(StatAmount(Attack), extraDmg)`
+         donc l'Attack d'une Canoness deguisee, pas celle de Celestine. La synthese, elle, laisse
+         `buildNormalizedBC` recalculer les stats du VRAI porteur (clone `hits=[3188, 2660, 3249]` vs
+         synthese `hits=[3334, 3156, 2477]` sur le meme montage)."""
+    import catalog_inject as CI
+    if not CI.SEED_BC.exists():
         return None
-    inj = copy.deepcopy(base)
-    inj.update({"Id": CASTER_VIS, "VisualId": CASTER_VIS, "QuestUnitId": CASTER_VIS,
-                "ActiveAbilities": [ABILITY], "PassiveAbilities": [],
-                "ConfigId": {"PureId": CASTER_VIS, "Rarity": None, "Level": None,
-                             "IsBorrowed": False, "IsPvpOpponent": False}})
-    p = ROOT / "logs" / "runners" / f"sky-seedbc-{tag}.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps({**seed, "Units": units + [inj]}), encoding="utf-8")
-    return p
+    path, _units, _abilities = CI.write_augmented_seed_bc(
+        ROOT / "logs" / "runners" / f"sky-seedbc-{tag}.json",
+        [CASTER_VIS], restrict_abilities={CASTER_VIS: ([ABILITY], [])})
+    return path
 
 
 # ------------------------------------------------------------------ fixture
@@ -222,7 +236,7 @@ def sky_state(rpc):
     tag = uuid.uuid4().hex[:8]
     bc_file = _write_injected_seed_bc(tag)
     if bc_file is None:
-        pytest.skip("pas d'unite Sisterhood clonable dans le seed BC")
+        pytest.skip("seed BC de reference absent (data/seed-bc.json)")
     state_file = ROOT / "logs" / "runners" / f"sky-test-{tag}.json"
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),
@@ -458,23 +472,8 @@ def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
     fh1 = _fromhere(cel["id"])
     assert target["id"] in fh1, f"Celestine NON bougee devrait pouvoir caster SkyStrike sur {target['id']}: {fh1}"
 
-    # cast LIVE tente (RESIDU documente : out-of-pool extraDmg throw -> souvent ok=False ; non asserte)
-    cast = rpc("applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "casterId": cel["id"], "targetId": target["id"], "abilityType": ABILITY},
-        "captureEvents": True}, 120)
-    # si le cast a REUSSI (config materialisee), confronter le nb de coups au port ; sinon (residu) skip l'assert.
-    if _ok(cast):
-        live = {}
-        for act in (cast.get("actions") or []):
-            for e in (act.get("events") or []):
-                td = e.get("tags")
-                if td:
-                    td = json.loads(td) if isinstance(td, str) else td
-                    if "Amount" in td and td.get("Active_Ability_Type") == ABILITY:
-                        live.setdefault(td.get("Target_Id"), []).append(td.get("Amount"))
-        if live.get(target["id"]):
-            # forward-compat : si un jour le cast passe, tous les coups egaux (no-spread)
-            assert len(set(live[target["id"]])) == 1, f"coups live NON egaux (spread ?): {live[target['id']]}"
+    # AUCUN cast ici : il consommerait l'action de Celestine et (b2) refuserait pour « a deja agi »
+    # au lieu du gate has-not-moved -> assertion vacuous. Le cast live vit dans le test (E), runner dedie.
 
     # (b2) Celestine BOUGEE (dist 2, non-adjacente) -> NON castable
     d2 = [t for t in walk if hexgeo.distance(board.coord(t), tc) == 2 and t != T
@@ -482,7 +481,6 @@ def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
           and board.coord(t) not in [board.coord(n) for n in board.neighbours(T)]]
     if not d2:
         pytest.skip("pas de tuile dist2 pour deplacer Celestine (b2)")
-    # re-lire Celestine (peut avoir bouge/charge si le cast a reussi) ; sinon toujours au spawn
     dvc = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
     cel_c = next((u for u in (dvc.get("units") or []) if u.get("id") == cel["id"] and u.get("alive")), None)
     if cel_c is None:
@@ -491,3 +489,89 @@ def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
     fh2 = _fromhere(cel["id"])
     assert target["id"] not in fh2, \
         f"Celestine BOUGEE non-adjacente NE devrait PAS pouvoir caster (gate has-not-moved): {fh2}"
+
+
+def test_skystrike_cast_live(rpc):
+    """(E) GARDE #226 : le cast LIVE de 1025 par une Celestine INJECTEE REUSSIT.
+
+    Runner DEDIE (celui de `sky_state` sert au gate (D) et un cast y consommerait l'action de Celestine).
+    Ce test tombe -- `ok=False errors=['system error']` -- si le seed BC injecte reperd ses configs
+    d'ability (`BC.Abilities`), c'est-a-dire si quelqu'un re-clone un bloc `Units` a la main au lieu
+    d'appeler `catalog_inject.write_augmented_seed_bc`. Le nb de coups (`MeleeWeaponHits`) et le
+    NO-SPREAD (node de degat degenere) sont confrontes au natif."""
+    from engine.entities.pathfinding.board import Board
+
+    tag = uuid.uuid4().hex[:8]
+    bc_file = _write_injected_seed_bc(tag)
+    if bc_file is None:
+        pytest.skip("seed BC de reference absent (data/seed-bc.json)")
+    state_file = ROOT / "logs" / "runners" / f"sky-cast-{tag}.json"
+    proc = subprocess.run(
+        [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),
+         "--seed-bc", str(bc_file), "--board", "MC1_67", "--roster", "1",
+         "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "90000"],
+        cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    rid = None
+    try:
+        if not state_file.exists():
+            pytest.skip(f"build runner KO: {(proc.stderr or proc.stdout or '')[-300:]}")
+        rid = json.loads(state_file.read_text())["runnerId"]
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        if not (isinstance(bg, dict) and bg.get("tiles")):
+            pytest.skip("boardGraph indispo")
+        board = Board(bg["tiles"], adjacency="native_sym")
+        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        units = dv.get("units") or []
+        cel = next((u for u in units if u.get("visualId") == CASTER_VIS and u.get("alive")), None)
+        if cel is None:
+            pytest.skip("Celestine absente du build (injection KO)")
+        if dv.get("currentPlayer") != cel.get("owner"):
+            pytest.skip("le tour n'est pas au camp de Celestine")
+        target = next((u for u in units if u.get("owner") != cel.get("owner") and u.get("alive")), None)
+        if target is None:
+            pytest.skip("aucun ennemi")
+        # cible COLLEE a Celestine : gate `Not(IsAdjacent)` faux -> aucun move, on isole l'ATTAQUE.
+        cp = cel.get("pos") or {}
+        occ = {((u.get("pos") or {}).get("col"), (u.get("pos") or {}).get("row"))
+               for u in units if u.get("alive")}
+        here = board.id_at(cp.get("col"), cp.get("row"))
+        dest = next((n for n in board.neighbours(here)
+                     if board.walkable(n) and board.coord(n) not in occ), None)
+        if dest is None:
+            pytest.skip("aucune tuile libre adjacente a Celestine")
+        dc = board.coord(dest)
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": target["id"], "to": {"col": dc[0], "row": dc[1]}}}, 60)
+
+        cast = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": cel["id"], "targetId": target["id"], "abilityType": ABILITY},
+            "captureEvents": True}, 120)
+        errs = [a.get("error") for a in (cast.get("actions") or []) if a.get("error")]
+        assert _ok(cast), (
+            f"cast LIVE de {ABILITY} KO: errs={errs}. 'system error' = faute d'invoke il2cpp -- le seed BC "
+            f"injecte n'embarque probablement plus les configs d'ability (cf. #226 / "
+            f"catalog_inject.write_augmented_seed_bc)")
+        hits = []
+        for act in (cast.get("actions") or []):
+            for e in (act.get("events") or []):
+                td = e.get("tags")
+                if not td:
+                    continue
+                td = json.loads(td) if isinstance(td, str) else td
+                if "Amount" in td and td.get("Active_Ability_Type") == ABILITY \
+                        and td.get("Target_Id") == target["id"]:
+                    hits.append(td.get("Amount"))
+        assert hits, f"cast ok mais aucun coup capture sur la cible: {cast.get('actions')}"
+        assert len(set(hits)) == 1, f"coups live NON egaux (le node de degat doit etre degenere): {hits}"
+        print(f"[sky-cast] cast LIVE OK hits={hits}")
+    finally:
+        if rid is not None:
+            try:
+                rpc("disposeRunner", {"runnerId": rid}, 20)
+            except Exception:
+                pass
+        for p in (state_file, bc_file):
+            try:
+                p.unlink()
+            except Exception:
+                pass

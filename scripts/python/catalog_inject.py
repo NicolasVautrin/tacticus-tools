@@ -44,6 +44,9 @@ USAGE
 
 Le seed BC PARTAGE (`data/seed-bc.json`) n'est JAMAIS modifie : on ecrit un fichier a part que
 `rl_duel build --seed-bc` (et `rl_collect_batch._load_seed_bc(path)`) consomme deja.
+
+DEPUIS UN TEST / PROBE PYTHON : appeler `write_augmented_seed_bc(<out>, [<ids>])` (pas le CLI en
+subprocess, pas un clone de bloc Unit a la main -- cf. la docstring de cette fonction et #226).
 """
 from __future__ import annotations
 
@@ -352,6 +355,48 @@ def augment(seed_bc: dict, unit_ids, rank: int = 17, ability_level: int = 50,
             if G.ability(t) is None and t not in pas_node:
                 unresolved.append(t)
     return out, added, added_abilities, sorted(set(unresolved))
+
+
+def write_augmented_seed_bc(out_path, unit_ids, *, seed_bc: dict | None = None,
+                            rank: int = 17, ability_level: int = 50,
+                            ability_mult_pct: int | None = None,
+                            restrict_abilities: dict | None = None):
+    """POINT D'ENTREE des tests/probes qui ont besoin d'un porteur hors seed BC.
+
+    Ecrit en `out_path` une COPIE du seed BC augmentee de `unit_ids` -- bloc `Units` **ET** configs
+    `Abilities` (cf. `augment`). Rend `(Path, unites ajoutees, configs d'ability ajoutees)`.
+    Le seed BC PARTAGE n'est jamais touche.
+
+    NE JAMAIS RE-CLONER UN BLOC UNIT A LA MAIN. Le motif « `copy.deepcopy` d'une entree `Units`
+    existante + reecriture des ids » produit un porteur qui se deploie, expose ses abilities au
+    `decisionView`... et FAUTE au cast : `BattleConfiguration.Abilities` du seed capture ne contient
+    QUE les abilities des unites de CETTE bataille, donc
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` s'execute sur une config
+    nulle et l'appelant rend « system error ». MESURE #226 (bloodTerminator / SavageEchoes 1230,
+    board MC1_67, seed 777) -- meme bloc Unit, seules les configs changent :
+        bloc Unit clone, 0 config      -> cast ok=False errors=['system error']
+        bloc Unit clone + les configs  -> cast ok=True  hits=[3825, 3598, 3975, 3445]
+        `write_augmented_seed_bc`      -> cast ok=True  hits=[3825, 3598, 3975, 3445]  (bit-identique)
+    Ce « system error » avait ete impute au RANG du porteur puis a des arrays de variables « non
+    materialises hors progression roster » : les deux diagnostics sont FAUX.
+
+    `restrict_abilities` = `{unit_id: (actives, passives)}` -- ids d'ability a GARDER sur l'entree
+    `Units` quand on veut ISOLER une ability (ex. tester SavageEchoes sans la passive RedRampage).
+    Les CONFIGS restent toutes posees : une config qu'aucune unite ne porte est inerte.
+    """
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, added, added_ab, _unresolved = augment(seed, unit_ids, rank, ability_level,
+                                               ability_mult_pct)
+    for uid, keep in (restrict_abilities or {}).items():
+        act, pas = keep
+        for u in bc["Units"]:
+            if u.get("Id") == uid:
+                u["ActiveAbilities"] = list(act)
+                u["PassiveAbilities"] = list(pas)
+    p = Path(out_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, added, added_ab
 
 
 def missing_from_seed_bc(seed_bc: dict) -> list:
