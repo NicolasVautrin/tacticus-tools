@@ -136,7 +136,12 @@ Attack) + AddEffect(Pinned)`, aucune branche conditionnelle, aucune élection d'
 | `blackPossession` | Chaos, Hero, LetTheGalaxyBurn, Psyker | présent (`entity=100 source=Pinned`) | `1065 Pinned rem=2` |
 
 L'attaque, elle, a lieu dans les DEUX cas (dégât 903 / 3109) : seule la pose de `Pinned` diffère.
-Aucun événement d'ajout ⇒ l'opération a bien **abandonné**, l'effet n'est pas « posé mais inactif ».
+
+> ⚠ **L'inférence tirée de ce tableau était FAUSSE, et c'est le cœur du cas.** On lisait « aucun
+> événement d'ajout ⇒ l'opération a **abandonné**, l'effet n'est pas posé-mais-inactif ». Le pas de
+> trop : un effet **inactif n'applique aucune modification**, donc n'émet **aucun** groupe
+> d'événement — l'absence d'événement ne distingue pas « pas posé » de « posé et inerte ». Réfuté
+> par mesure directe le 2026-07-28, cf. §4.
 
 **GÉNÉRALISATION** (`--generalise`) — 2e porteur du trait, autre faction, **sans** `Resilient` (⇒ ce
 n'est pas un artefact de `blackAbaddon`), et 2e contrôle :
@@ -154,39 +159,75 @@ cible sans le trait).
 
 ---
 
-## 4. Le point dur : `TerminatorArmour` ↔ `Pinned`
+## 4. `TerminatorArmour` ↔ `Pinned` : il n'y a JAMAIS eu de refus de pose
 
-**Le décompilé ne l'explique pas.** `PinnedEffect` **n'override PAS** `EntityIsImmuneToEffect` (vtable
-runtime : le slot pointe sur le corps de `BaseEffect`), et la base ne teste que `UnitTrait.Immune` —
-**qu'aucune unité du gameconfig ne porte** (0 sur l'ensemble des kits), et que `blackAbaddon` n'a ni
-dans le seed BC ni dans la BC normalisée du runner.
+**RÉSOLU le 2026-07-28 par mesure directe** (hook `frida/hooks/features/effect-immunity-observe.ts`,
+session 15, même montage `sentinel` qu'en §3). Le discriminant est le couple de compteurs
+`AddEffectOperation$$Execute` vs `BaseEffect$$EntityIsImmuneToEffect` :
 
-Le seul artefact natif qui NOMME le couple est
-`IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` =
-`Not(DSLFactory.HasTrait(Self, 0x40f = 1039 = UnitTrait.TerminatorArmour))` — cohérent avec l'i2
-(« This unit cannot be Suppressed ») et avec `case-74-suppressivefire.md` §54. Mais une
-`ActiveCondition` DÉSACTIVE ; elle n'empêche pas la pose — or la mesure §3 montre un REFUS de pose.
+| observable, cast `SentinelDirectives` sur `blackAbaddon` | valeur mesurée |
+|---|---|
+| `AddEffectOperation$$Execute(effectType=1065 Pinned)` appelé | **oui** |
+| son abandon (valeur de retour nulle) | **NON** — retval non nul, une entité-effet EST allouée |
+| `EntityIsImmuneToEffect` appelé sur `PinnedEffect` | oui, **retour `false`** |
+| `HasTrait(blackAbaddon, 0x19 = Immune)` | **`false`** |
 
-Pistes écartées (toutes vérifiées) : `AddEffectBehaviour$$Execute` (ne filtre que `HasFlag(target,
-Dead)`), les 4 surcharges de `DSLFactory$$AddEffect` (construisent toutes le même behaviour),
-`OperationProcessor$$AddEffect` (appel direct), `UpdateExistingEffect` (exige un effet du même type
-déjà présent), un `AddTrait(Immune)` quelque part (aucun call-site : les seuls `DSLFactory$$AddTrait`
-passent 0x418 / 0x421 / 0x41a, plus l'`EnhancementAddTrait` config-driven).
+Donc **le gate d'immunité n'a rien refusé** : la pose ABOUTIT, et c'est bien l'`ActiveCondition` qui
+rend l'effet inerte — exactement la lecture (2) que §3 avait écartée sur une inférence fautive.
 
-**Décision de portage** : le port COLLAPSE l'`ActiveCondition` lue dans le gate d'immunité de
-`PinnedEffect` (`entity_is_immune_to_effect`), parce que c'est le seul câblage qui reproduit
-l'observable MESURÉ sans inventer de symbole natif. La branche générique
-`HasTrait(Immune) && CanBeImmuneTo` reste rendue par la base. `PinnedEffect.is_active()` porte en
-plus le mirror LITTÉRAL de l'`ActiveCondition` (utile pour un `Pinned` SEEDÉ).
+L'étage natif complet, du haut vers le bas :
+
+1. `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` =
+   `Not(DSLFactory.HasTrait(Self, 0x40f = 1039 = UnitTrait.TerminatorArmour))` — cohérent avec l'i2
+   (« This unit cannot be Suppressed ») et avec `case-74-suppressivefire.md` §54.
+2. `IdunBattle.Entities.Effects.BaseEffect$$CreateActiveConditionAndCache` construit cet arbre **une
+   seule fois** et le mémoïse dans le champ de l'effet à `+0x90` (slot de vtable `+0x518`).
+3. `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` **évalue** l'arbre et rend le
+   booléen d'activation. Sa structure, dans l'ordre :
+   - un paramètre de FORÇAGE (`1` ⇒ actif, `2` ⇒ inactif, autre valeur non nulle ⇒
+     `ArgumentOutOfRangeException`) ;
+   - un verrou en `EffectComponent+0x5e` : s'il est posé, **inactif** sans rien évaluer ;
+   - **pas d'arbre** (ou pas d'implémentation de l'interface) ⇒ le flag COURANT `+0x5c` est conservé
+     tel quel ;
+   - sinon l'arbre est évalué contre un contexte de 0x130 octets, et son résultat est rendu.
+
+`+0x5c` est le flag `EffectComponent.IsActive` déjà porté par #138 : ce n'est donc pas une donnée
+neuve, c'est **son producteur** qui manquait.
+
+Pistes écartées à l'époque, et qui restent justement écartées — elles cherchaient toutes un refus qui
+n'existe pas : `AddEffectBehaviour$$Execute` (ne filtre que `HasFlag(target, Dead)`), les 4
+surcharges de `DSLFactory$$AddEffect`, `OperationProcessor$$AddEffect`, `UpdateExistingEffect`, un
+`AddTrait(Immune)` quelque part (aucun call-site).
+
+**État du port (inchangé à ce commit, et c'est délibéré)** : `PinnedEffect.entity_is_immune_to_effect`
+COLLAPSE encore l'`ActiveCondition` dans le gate d'immunité. Le collapse est faux sur le MÉCANISME
+mais rend le bon observable dans le cas courant. Le retirer seul introduirait une **régression** :
+`PinnedEffect.is_active(unit_state)` lit `unit_state["traits"]`, or presque tous les appelants d'
+`EffectsState.active_effects` passent `{"hp": ...}` **sans `traits`** (seul `refresh_effects.py`
+construit `traits`) ⇒ traits inconnus ⇒ actif ⇒ le `×0.70` de
+`PinnedEffect$$CreateEffectDamageBonusForAttack` s'appliquerait à un porteur `TerminatorArmour`.
+Le chantier de sortie est décrit en §5.1.
 
 ---
 
 ## 5. Résidus nommés
 
-1. **Stade natif du refus `TerminatorArmour`/`Pinned`** (§4) — **candidat fable-solver**. Ce qui
-   trancherait : un hook sur `AddEffectOperation$$Execute` lisant la valeur de retour du slot 40 sur
-   l'effet-DEF, ou sur `BaseUnitComponent$$HasTrait` (arg + résultat) pour la cible ; l'un ou l'autre
-   dit en une mesure si `HasTrait(abaddon, 25)` est vrai en runtime. Impossible sans réinjection.
+1. **Défaire le collapse de `PinnedEffect.entity_is_immune_to_effect`** — le stade natif est
+   désormais IDENTIFIÉ (§4), c'est le PORT qui reste à faire, et il n'est pas local. Il faut, dans le
+   même changement, sinon on régresse :
+   - retirer la surcharge `entity_is_immune_to_effect` de `PinnedEffect` (garder celle de
+     `ContaminatedEffect`, qui elle est un vrai override natif) ;
+   - faire porter `traits` par l'`unit_state` passé à `EffectsState.active_effects` **à tous** les
+     call-sites qui décident d'une contribution — `damage_model.py` (5 sites), `damage_ops/ability.py`,
+     `additional_hits.py`, `components.py`, `playbook/scene.py`, `abilities/base.py` (ce dernier ne
+     passe même pas d'`unit_state`) ;
+   - garde de non-régression MESURABLE : sur `blackAbaddon` porteur d'un `Pinned` inerte, le dégât
+     qu'il inflige doit rester **inchangé** (pas de `×0.70`), et `has_effect(1065)` doit rendre
+     **vrai** (le natif a bien alloué l'entité-effet).
+
+   Critère binaire du chantier : après le fix, poser `Pinned` sur une cible `TerminatorArmour` crée
+   l'effet ET ne change aucun nombre ; le retirer de l'état (comportement actuel) ne satisfait que la
+   seconde moitié.
 2. ~~**Chaîne `&` derrière un `AddEffect` refusé**~~ — **CLOS le 2026-07-27, le résidu était un
    CONFOND** (`case-n5-chain-after-refused-addeffect.md`). L'abandon s'arrête à l'OPÉRATION : il ne
    remonte ni à l'itération du sélecteur-cible ni au combinateur. `AddEffectBehaviour$$Execute` jette

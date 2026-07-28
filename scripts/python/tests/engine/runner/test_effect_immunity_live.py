@@ -181,6 +181,12 @@ def test_gate_does_not_over_immunise(sentinel_runner):
     st = load_state(dv, ob, cs, board=board)
     src = bv["admecDestroyer"]["id"]
 
+    # ATTENTION -- les 2 assertions `immune x PINNED` ci-dessous verrouillent une APPROXIMATION, pas
+    # le natif. MESURE 2026-07-28 : le natif POSE l'effet (`AddEffectOperation$$Execute` rend une
+    # entite NON nulle) et `EntityIsImmuneToEffect` y rend FALSE ; c'est l'`ActiveCondition`
+    # (`RefreshEffectsOperation$$ShouldBeActive`) qui le rend inerte. Quand le chantier de
+    # case-224 §5.1 defera le collapse, ces 2 lignes DOIVENT passer a False / `is not None` -- ce
+    # n'est pas un test a contourner, c'est l'attendu qui change avec le cablage.
     assert entity_is_immune_to_effect(st, immune, PINNED, name="Pinned") is True
     assert entity_is_immune_to_effect(st, immune, STUNNED, name="Stunned") is False
     assert entity_is_immune_to_effect(st, control, PINNED, name="Pinned") is False

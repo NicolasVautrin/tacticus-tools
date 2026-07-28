@@ -556,18 +556,23 @@ class PinnedEffect(BaseEffect):
     artefact natif qui nomme le couple `TerminatorArmour` ↔ `Pinned` est
     `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` =
     `Not(DSLFactory.HasTrait(Self, 0x40f = 1039 = UnitTrait.TerminatorArmour))` (i2 TerminatorArmour :
-    « This unit cannot be Suppressed »). GROUND TRUTH LIVE (#224, deux abilities × deux cibles, runner
-    isolé MC1_67) : sur une cible `TerminatorArmour` la pose est **REFUSÉE** — aucun groupe `AddEffect`,
-    aucune entité-effet, et la chaîne `&` d'`ExemplarOfHate` AVORTE derrière — alors qu'elle passe sur la
-    même cible sans le trait. Ce n'est donc PAS « posé mais inactif ».
+    « This unit cannot be Suppressed »).
 
-    ⚠ COLLAPSE ASSUMÉ + RÉSIDU NOMMÉ : `PinnedEffect` **n'override PAS**
-    `EntityIsImmuneToEffect` côté natif (vtable runtime de la classe : le slot pointe sur le corps de
-    `BaseEffect`), et la base ne teste que `UnitTrait.Immune` — qu'AUCUNE unité du roster ne porte. Le
-    STAGE natif exact par lequel `TerminatorArmour` fait échouer l'opération n'est donc pas identifié
-    (candidat fable-solver, cf. `docs/rl/case-224-effect-immunity-gate.md` §5). Le port COLLAPSE
-    l'ActiveCondition lue dans le gate d'immunité, parce que c'est le seul câblage qui reproduit
-    l'observable MESURÉ (refus de pose) sans inventer de symbole natif.
+    ⚠ COLLAPSE ASSUMÉ, et on sait désormais QU'IL EST FAUX SUR LE MÉCANISME. MESURÉ le 2026-07-28
+    (hook `frida/hooks/features/effect-immunity-observe.ts`, montage `sentinel` sur `blackAbaddon`) :
+    `IdunBattle.Operations.AddEffectOperation$$Execute(1065)` **est appelé et n'abandonne PAS** (valeur de retour NON nulle
+    ⇒ l'entité-effet est allouée), et `IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` rend **`false`**
+    avec `HasTrait(cible, 0x19 = Immune)` **faux**. Le natif POSE donc l'effet et le laisse INERTE via
+    l'`ActiveCondition`, évaluée par `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` (qui écrit le flag
+    `EffectComponent.IsActive @+0x5c`). La lecture « refus de pose » de #224 venait d'une inférence
+    fautive : un effet inactif n'émet AUCUN groupe d'événement, donc l'absence d'événement ne
+    distingue pas « pas posé » de « posé et inerte ».
+
+    Le collapse est CONSERVÉ pour l'instant, délibérément : le retirer seul régresserait, parce que
+    `is_active(unit_state)` lit `unit_state["traits"]` et que presque tous les appelants d'
+    `EffectsState.active_effects` passent `{"hp": ...}` sans `traits` ⇒ le ×0.70 ci-dessous
+    s'appliquerait à un porteur `TerminatorArmour`. Chantier de sortie + critère binaire :
+    `docs/rl/case-224-effect-immunity-gate.md` §4 et §5.1.
 
     ⚠ Contribution NON portée restante (présent ≠ appliqué, §17.4) : la réduction de Movement
     (le mouvement n'est pas dans le chemin de combat/dégât porté)."""

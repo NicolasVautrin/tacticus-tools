@@ -24,6 +24,7 @@ import * as overwatchFix from "./features/overwatch-fix/index.js";
 import * as bucketAudit from "./features/bucket-audit.js";
 import * as dumpComposed from "./features/dump-composed.js";
 import * as dispatchObserve from "./features/dispatch-observe.js";
+import * as effectImmunityObserve from "./features/effect-immunity-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
@@ -391,6 +392,9 @@ export function wireRpc(ctx: Ctx): void {
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, triggerTrace, dslTrace, dslCtorTrace,
+     // effectImmunityObserve = diag on-demand (#151) : le register n'arme RIEN,
+     // et sa sonde `traitProbe` touche un chemin CHAUD (`UnitExtensions$$HasTrait`).
+     effectImmunityObserve,
      gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }
