@@ -13,7 +13,8 @@ from __future__ import annotations
 from ....services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
 from ....services.damage_modifiers import apply_all_modifiers
 from ...state import State
-from ...components import StatsComponent, HealthComponent, UnitComponent
+from ...components import (StatsComponent, HealthComponent, UnitComponent,
+                           unit_prevents_overkill)
 from ...damage_model import (attacker_modifiers, defender_modifiers, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
                              defender_fixed_armor)
@@ -160,6 +161,10 @@ class _NormalLike:
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0),
+                                            # #195 : `HasFlag(defender, 0x13)` — le 5e argument
+                                            # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
+                                            # lit lui-meme sur son parametre `defender`.
+                                            prevent_overkill=unit_prevents_overkill(state, target_id),
                                             # famille de factory native : pilote l'ordre bouclier x limites
                                             is_attack_damage_op=is_attack_damage_op)
         AttackDamageOperation._deplete_shield(shc, r)

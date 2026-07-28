@@ -65,6 +65,7 @@ class _DamageHitsMixin:
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
                   limits: Optional[dict] = None, limits_hp: int = 0,
                   is_attack_damage_op: bool = True, force_overkill: bool = False,
+                  prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
@@ -109,6 +110,17 @@ class _DamageHitsMixin:
         `if not overkill: cap = curHP-1`). N'affecte QUE le cap Resilient (member-cap/boss/impervious ne lisent
         PAS `overkill`) -> NO-OP sur cible non-Resilient (zero regression) ET aucune conso RNG supplementaire
         (change seulement la VALEUR capee, pas le nombre de tirages). Porteur unique : FlailSwing (1042).
+
+        `prevent_overkill` (defaut False, #195) = `UnitExtensions.HasFlag(defender, 0x13)`, que le natif
+        lit LUI-MEME dans `ApplyTraitDamageLimitsToDamage` (son 5e parametre est `defender`) juste avant
+        `IsOverkill` -- l'INVERSE de `force_overkill` : flag pose => JAMAIS d'overkill => le cap Resilient
+        MORD. Threade ici pour que la face COMBAT lise le meme argument natif que la face PREDICTION
+        (`predict_attack_raw(target_prevents_overkill=)`) : un seul cote cable recreerait un fork.
+        ⚠ AXE QUIESCENT AUJOURD'HUI, et c'est une MESURE, pas une supposition : `overkill` n'est consomme
+        que par `ApplyResilientTraitDamageLimit`, donc il faudrait une cible portant A LA FOIS le trait
+        `Resilient` ET `UnitFlag.PreventOverkill`. Le seul poseur du flag est `FuelledByFury_BlockOverkill`
+        (`ultraTitus`), qui n'a pas `Resilient` -- aucun scenario ne distingue donc ce gate sur la face
+        COMBAT. Il est porte pour la fidelite, pas parce qu'il a ete confronte.
 
         `force_crit` (defaut False) = flag « always crit » du `Nullable<AttackOptions>` (8e arg de
         `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, **octet +5 de la struct
@@ -164,7 +176,8 @@ class _DamageHitsMixin:
             if limits is None or value <= 0:
                 return value
             rem = max(0, limits_hp - total)
-            ovk = force_overkill or (compute_prediction_overkill(rem, limits_hp, value, p12=_rogne[0])
+            ovk = force_overkill or (compute_prediction_overkill(rem, limits_hp, value, p12=_rogne[0],
+                                                                 suppress=prevent_overkill)
                                      if limits_hp > 0 else False)
             capped = apply_trait_damage_limits_to_damage(value, current_health=rem,
                                                          overkill=ovk, **limits)
@@ -351,7 +364,9 @@ class _DamageHitsMixin:
                 lo_pre = max(0, hd.min - flat)
                 hi_pre = max(0, hd.max - flat)
                 _rem = max(0, limits_hp - total)
-                _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, lo_pre, p12=_rogne[0])
+                _ovk = force_overkill or (compute_prediction_overkill(_rem, limits_hp, lo_pre,
+                                                                      p12=_rogne[0],
+                                                                      suppress=prevent_overkill)
                                           if limits_hp > 0 else False)
                 lo = apply_trait_damage_limits_to_damage(lo_pre, current_health=_rem,
                                                          overkill=_ovk, **limits)

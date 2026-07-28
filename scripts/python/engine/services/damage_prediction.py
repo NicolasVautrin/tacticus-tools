@@ -71,6 +71,19 @@ class DamagePredictionResult:
     # (slot 6) n'y sont appelés) — ce flag est publié POUR `MightBeOverkill`, seul consommateur.
     might_crit: bool = False
     force_overkill: bool = False   # ForceOverkill @0xB2 (trait force-overkill ; défaut False, non porté baseline)
+    # PreventOverkill@0xB3 (#195) — `UnitExtensions.HasFlag(defender, 0x13)` = `UnitFlag.PreventOverkill`
+    # (=19, `enums.tsv`), posé par le SEUL écrivain du binaire
+    # `IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$ApplyInternal`
+    # (`UnitFlagsComponent.Add(target, 0x13)`) et retiré par son `$$RevertInternal`.
+    # C'est le 5e argument `isPreventOverkill` que `DamagePredictionResult$$WillBeOverkill` ET
+    # `$$MightBeOverkill` passent à la surcharge privée d'`IsOverkill` (lecture VERBATIM :
+    # `IsOverkill(result@+0x00, <borne>, <0 | MightCrit@+0xb1>, ForceOverkill@+0xb2, **result@+0xb3**,
+    # HasValue(result@+0xb4), Value(result@+0xb4), null)`) — SYMÉTRIQUE, là où `isCritical` ne l'est
+    # pas (#R34). Le port passait 0 EN DUR aux deux bornes -> `OverkillUnit` (37) sur-comptait de
+    # PossibleOverkill sur toute cible portant le flag. MESURE #195 (probe_195, formule ISOLÉE) :
+    # natif 133.2826 vs port 148.2826 sur `ultraTitus` = **exactement 15.0 = PossibleOverkill**, et
+    # 0.0000 sur `genesPrimus` aux MÊMES bornes RAW [4812, 7224].
+    prevent_overkill: bool = False
     applied_hits: int = 0
     # #54A : mirror de `list[0]@0x50` (scénarios de BLOCK, mergés par index dans `IdunBattle.Core.Services.DamagePredictionResult$$Add`) =
     # le scénario « TOUS les coups bloqués » : Σ_coup max(0, rawMin_coup − blockAmount). None = pas de
@@ -358,6 +371,7 @@ def predict_attack_raw(
         target_current_health: int = 0, target_shield: int = 0,
         target_limits: dict | None = None,
         predefined: MinMaxDamage | None = None, might_crit: bool = False,
+        target_prevents_overkill: bool = False,
         attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
     """`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
@@ -465,7 +479,15 @@ def predict_attack_raw(
         # over-kill massif -> skip (HP), modere -> cape (HP-1). max_health peuple par le vrai moteur
         # (engine/ai/context.py observeBattle) ; None dans le harnais de sonde -> flag inerte (cap deja off).
         _maxhp = int(target_limits.get("max_health") or 0)
-        _ovk = compute_prediction_overkill(_rem, _maxhp, lo) if (lo and _maxhp > 0) else False
+        # #195 : `suppress` = le 5e argument `isPreventOverkill`, que le natif calcule DANS
+        # `ApplyTraitDamageLimitsToDamage` (lecture VERBATIM du décompilé, `defender` = son 5e
+        # paramètre) : `uVar1 = UnitExtensions.HasFlag(defender, 0x13)` puis
+        # `IsOverkill(initialHealth, accum, isCrit, isForcedOverkill, uVar1, cfg@+0x30, cfg@+0x34,
+        # minimumHealth)`, dont le verdict est passé aux DEUX `ApplyResilientTraitDamageLimit`.
+        # Flag posé => PAS d'overkill => le cap Resilient MORD (la cible reste à 1 PV) là où le
+        # port le bypassait. C'est le MÊME flag que la face utilité (@0xB3), à un étage différent.
+        _ovk = (compute_prediction_overkill(_rem, _maxhp, lo, suppress=bool(target_prevents_overkill))
+                if (lo and _maxhp > 0) else False)
         if lo:
             lo = apply_trait_damage_limits_to_damage(lo, current_health=_rem, overkill=_ovk,
                                                      **target_limits)
@@ -501,7 +523,12 @@ def predict_attack_raw(
         # #R34 : `MightCrit@+0xB1` = `CouldCrit(attacker)`, évalué ICI (foyer natif). Le paramètre
         # `might_crit` reste accepté pour les chemins ALIMENTÉS (flag déjà lu live, ex. `predict.py`
         # `WeaponBase.might_crit` <- `combatSnapshot.normalAttack.mightCrit`) -> `or`.
-        applied_hits=1, might_crit=bool(might_crit) or attacker_could_crit(attacker_ctx))
+        applied_hits=1, might_crit=bool(might_crit) or attacker_could_crit(attacker_ctx),
+        # #195 : PreventOverkill@0xB3 = un fait de la CIBLE (`HasFlag(defender, 0x13)`), publié tel
+        # quel dans le résultat pour `WillBeOverkill`/`MightBeOverkill`. `Add` ne fusionne AUCUN des
+        # quatre flags @0xB0..@0xB3 : la valeur du coup 1 vaut pour l'attaque entière — et c'est
+        # exact, tous les coups d'une attaque partagent la même cible.
+        prevent_overkill=bool(target_prevents_overkill))
 
 
 def get_multi_hit_attack_prediction(
@@ -511,6 +538,7 @@ def get_multi_hit_attack_prediction(
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         target_shield: int = 0, might_crit: bool = False,
         target_limits: dict | None = None,
+        target_prevents_overkill: bool = False,
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
         attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
@@ -545,8 +573,9 @@ def get_multi_hit_attack_prediction(
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            target_limits=target_limits, might_crit=might_crit, attacker_effects=attacker_effects,
-            attacker_ctx=attacker_ctx))
+            target_limits=target_limits, might_crit=might_crit,
+            target_prevents_overkill=target_prevents_overkill,
+            attacker_effects=attacker_effects, attacker_ctx=attacker_ctx))
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
@@ -578,6 +607,7 @@ def get_multi_hit_attack_prediction(
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=_gtl, predefined=_pre, might_crit=might_crit,
+                target_prevents_overkill=target_prevents_overkill,
                 attacker_effects=attacker_effects, attacker_ctx=attacker_ctx)
         for _j in range(max(0, int(_grp.get("count", 0)))):
             result.add(_with_block(_ghit(result.default_block_scenario())))
@@ -593,6 +623,7 @@ def get_attack_prediction(
         mods: DamageModifiers | None = None, hit_mult: int = 1,
         reduction_min: int = 0, reduction_max: int = 0, spread_pct: int = 20,
         might_crit: bool = False, target_shield: int = 0, target_limits: dict | None = None,
+        target_prevents_overkill: bool = False,
         shield_raw: MinMaxDamage | None = None,
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
@@ -613,7 +644,8 @@ def get_attack_prediction(
         profile_type=profile_type, armor=armor, pierce_pct=pierce_pct, extra_max=extra_max,
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
-        target_limits=target_limits, extra_groups=extra_groups,
+        target_limits=target_limits, target_prevents_overkill=target_prevents_overkill,
+        extra_groups=extra_groups,
         defender_block_amount=defender_block_amount, attacker_effects=attacker_effects,
         attacker_ctx=attacker_ctx)
 

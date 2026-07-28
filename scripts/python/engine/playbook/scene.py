@@ -84,10 +84,31 @@ class Scene:
     # champ -> table VIDE, degradation RESTRICTIVE (le bonus de charge est omis, jamais invente). Gap
     # d'outillage nomme : le point d'ancrage a hooker est `UnitComponent+0x190` cote `combatSnapshot`.
     charged_by_id: dict = field(default_factory=dict)
+    # PreventOverkill PER-UNITE (#195) : {uid: `UnitExtensions.HasFlag(u, 0x13)`} — le 5e argument
+    # `isPreventOverkill` que le natif passe à `IsOverkill` DEUX FOIS sur la face décision (dans
+    # `ApplyTraitDamageLimitsToDamage`, où il lit `HasFlag(defender, 0x13)` juste avant l'appel ; et
+    # via `DamagePredictionResult.PreventOverkill@+0xb3` que lisent `WillBeOverkill`/`MightBeOverkill`).
+    # Rempli par `from_state` depuis l'ECS (`unit_prevents_overkill` : composant de flags d'abord,
+    # effet 1354 ensuite). VIDE côté `from_predictor_sctx` — AUCUN RPC n'expose `UnitFlagsComponent`
+    # (gap d'outillage nommé, tâche O5) : l'accesseur retombe alors sur la DÉRIVATION PAR L'EFFET,
+    # qui est le même invariant (cf. `effects_prevent_overkill`), pas une approximation.
+    prevent_overkill_by_id: dict = field(default_factory=dict)
 
     def charged(self, uid) -> set:
         """Ids que `uid` a CHARGES ce tour (vide si non capte)."""
         return self.charged_by_id.get(uid) or set()
+
+    def prevents_overkill(self, uid) -> bool:
+        """`UnitExtensions.HasFlag(uid, 0x13)` = `UnitFlag.PreventOverkill` (=19) — la cible ne peut
+        PAS être overkillée (#195). Table renseignée (`from_state`) → lecture ECS ; sinon dérivation
+        depuis les effets ACTIFS de l'unité, seule source disponible côté live."""
+        v = self.prevent_overkill_by_id.get(uid)
+        if v is not None:
+            return bool(v)
+        if self.eff_state is None:
+            return False
+        from ..runner.components import effects_prevent_overkill
+        return effects_prevent_overkill(self.effects(uid))
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -101,10 +122,11 @@ class Scene:
         les tables per-unité ne couvrent que les entités à `StatsComponent`."""
         from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                          HealthComponent, UnitComponent, ShieldComponent,
-                                         EffectsOwnedComponent, is_machine_of_war)
+                                         EffectsOwnedComponent, is_machine_of_war,
+                                         unit_prevents_overkill)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
-        defstat_by_id, charged_by_id = {}, {}
+        defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -147,6 +169,8 @@ class Scene:
             # case-r32 : `UnitComponent.ChargedUnitIds@+0x190` tel que l'ECS le porte MAINTENANT.
             if getattr(uc, "charged_unit_ids", None):
                 charged_by_id[eid] = {int(i) for i in uc.charged_unit_ids}
+            # #195 : `HasFlag(u, 0x13)` LU de l'ECS (composant de flags d'abord, effet 1354 ensuite).
+            prevent_overkill_by_id[eid] = unit_prevents_overkill(state, eid)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -174,7 +198,8 @@ class Scene:
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
             elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
-            turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id)
+            turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id,
+            prevent_overkill_by_id=prevent_overkill_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 

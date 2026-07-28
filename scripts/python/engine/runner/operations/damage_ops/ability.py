@@ -17,7 +17,7 @@ from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
-                           persistent_data_keys)
+                           persistent_data_keys, unit_prevents_overkill)
 from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_board,
                              apply_elevation_bonus, apply_trench_reduction,
                              ice_crit_damage_addition, target_trait_names,
@@ -423,6 +423,10 @@ class _AbilityAttack:
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, damage_profile, is_special=2),
                                             limits_hp=int(thc.hp or 0),
+                                            # #195 : `HasFlag(defender, 0x13)` — le 5e argument
+                                            # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
+                                            # lit lui-meme sur son parametre `defender`.
+                                            prevent_overkill=unit_prevents_overkill(state, target_id),
                                             # famille de factory native (cf. _one_hit) : True =
                                             # AttackWithAttackDamage (resolve gaspille) ; False =
                                             # AttackWithAbilityDamage (AbilityDamageOperation, sans).

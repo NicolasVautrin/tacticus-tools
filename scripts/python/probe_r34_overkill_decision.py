@@ -72,7 +72,7 @@ def _r(sid, m, b, t=90):
 
 
 def build(state_file: Path, seed: int, p_units, a_units, *, hp_target=None,
-          crit_spec=None, rank=17, no_ai=False, armor_target=None) -> int:
+          crit_spec=None, rank=17, no_ai=False, armor_target=None, block_target=None) -> int:
     """`rl_duel build` -- board FIXE (variable experimentale choisie, cf. runner.md §2)."""
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
@@ -89,6 +89,13 @@ def build(state_file: Path, seed: int, p_units, a_units, *, hp_target=None,
         # toucher la prediction IA, qui est PRE-ARMURE -> c'est le levier qui rend la descente de
         # PV FINE (sinon un seul coup du remplissage tue la cible et le montage ne demarre pas).
         cmd += ["--armor-target", str(armor_target)]
+    if block_target is not None:
+        # #195 : le block du DEFENSEUR alimente `list[0]@0x50` (scenario « tous coups bloques »),
+        # que le decodeur natif n'expose PAS -- `_fields_from_native_event` le RECALCULE depuis le
+        # kit, et son `block_amount` vaut 0 par defaut. Une cible a block non nul (ex. `BeastSlayer`
+        # de `ultraTitus`) ferait donc diverger `killSure` pour une raison ETRANGERE au terme
+        # mesure. On le met a zero quand la montage compare natif et port sur le composite entier.
+        cmd += ["--block-target", str(block_target)]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
     if not state_file.exists():

@@ -1105,6 +1105,18 @@ def can_be_overkilled(entity) -> bool:
 PREVENT_OVERKILL_EFFECT = 1354      # `EffectType.FuelledByFury_BlockOverkill` (0x54a)
 
 
+def effects_prevent_overkill(active_effects) -> bool:
+    """Volet EFFET de `UnitExtensions.HasFlag(target, 0x13)` : une instance ACTIVE de l'effet 1354
+    est-elle portee ? FOYER UNIQUE de cette derivation -- `unit_prevents_overkill` (face ECS,
+    composant d'abord) et `Scene.prevents_overkill` (face PREDICTION, ou l'etat n'est pas un
+    `State`) l'appellent tous deux, pour qu'il n'existe pas DEUX ports d'un meme flag natif.
+    L'appelant fournit deja les effets ACTIFS (gate `EffectComponent.IsActive` + condition), qui
+    est exactement l'invariant du couple `ApplyInternal`/`RevertInternal` -- cf.
+    `unit_prevents_overkill` pour la demonstration."""
+    return any(int(getattr(e, "effect_type", -1) or -1) == PREVENT_OVERKILL_EFFECT
+               for e in (active_effects or []))
+
+
 def unit_prevents_overkill(state, unit_id) -> bool:
     """`UnitExtensions.HasFlag(target, 0x13)` — le `suppress` de la surcharge d'instance de
     `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` (`UnitFlag.PreventOverkill`, cf.
@@ -1141,9 +1153,8 @@ def unit_prevents_overkill(state, unit_id) -> bool:
     if eff is None:
         return False
     hc = entity.get_component(HealthComponent)
-    return any(int(getattr(e, "effect_type", -1) or -1) == PREVENT_OVERKILL_EFFECT
-               for e in eff.active_effects(int(unit_id),
-                                           {"hp": hc.hp if hc is not None else None}))
+    return effects_prevent_overkill(
+        eff.active_effects(int(unit_id), {"hp": hc.hp if hc is not None else None}))
 
 
 def unit_is_dead(entity) -> bool:

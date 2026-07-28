@@ -58,6 +58,7 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
+        target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof),  # #69 gate NoBlocking
         attacker_effects=scene.effects(att_id),   # #202 : PredictAttackRaw universel
         attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
@@ -87,6 +88,7 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=None, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof),
+        target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof),  # #69 gate NoBlocking
         attacker_effects=scene.effects(att_id),   # #202 : PredictAttackRaw universel
         attacker_ctx=ctx)                         # #R34 : MightCrit = CouldCrit(attaquant)
@@ -289,6 +291,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
         mods=mods, hit_mult=tgt_hit_mult, target_shield=scene.shield(tgt_id),
         target_limits=_target_damage_limits(scene, tgt_id, prof_name),
+        target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
         extra_groups=_extra_groups,
         defender_block_amount=defender_prediction_block_amount(scene, tgt_id, prof_name),  # #69 gate NoBlocking
         attacker_effects=att_effects,   # #202 : max-out evalue DANS predict_attack_raw (foyer natif)

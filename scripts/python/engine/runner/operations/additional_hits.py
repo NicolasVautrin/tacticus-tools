@@ -14,7 +14,7 @@ pleine bataille, `damage` est entierement charge)."""
 from __future__ import annotations
 
 from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
-                          OwnerComponent)
+                          OwnerComponent, unit_prevents_overkill)
 from ..damage_model import target_trait_names
 from ..state import State
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
@@ -282,7 +282,10 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # l'index CONTINU de l'ATTAQUE (`currentAttack+0x30`). Voir la docstring.
             bonus_hit_chance=bonus_hit_chance, hit_index0=hit_index,
             limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
-            limits_hp=int(thc.hp or 0))
+            limits_hp=int(thc.hp or 0),
+            # #195 : `HasFlag(defender, 0x13)` — le 5e argument `isPreventOverkill` que
+            # `ApplyTraitDamageLimitsToDamage` lit lui-meme sur son parametre `defender`.
+            prevent_overkill=unit_prevents_overkill(state, target_id))
         hit_index = r["next_hit_index"]
         AttackDamageOperation._deplete_shield(shc, r)
         d = AttackDamageOperation._apply_damage_pipeline(

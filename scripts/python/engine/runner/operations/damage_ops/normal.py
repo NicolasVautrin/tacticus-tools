@@ -16,7 +16,7 @@ from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
-                           persistent_data_keys)
+                           persistent_data_keys, unit_prevents_overkill)
 from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
@@ -363,7 +363,11 @@ class _Normal:
                                             # mode 1 = attaque (wrapper IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage/IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToAttackDamage)
                                             limits=AttackDamageOperation._target_limits(
                                                 tgt, thc, _profile, is_special=1),
-                                            limits_hp=int(thc.hp or 0))
+                                            limits_hp=int(thc.hp or 0),
+                                            # #195 : `HasFlag(defender, 0x13)` — le 5e argument
+                                            # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
+                                            # lit lui-meme sur son parametre `defender`.
+                                            prevent_overkill=unit_prevents_overkill(state, target_id))
         AttackDamageOperation._deplete_shield(shc, r)
         death = AttackDamageOperation._apply_damage_pipeline(           # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], _profile,

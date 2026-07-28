@@ -120,9 +120,12 @@ def will_be_overkill(pred) -> bool:
     # decompile) : elle ne parie pas sur un crit. C'est `MightBeOverkill` qui passe `MightCrit@+0xb1`.
     # ⚠ #R34 : NE PAS « harmoniser » les deux bornes en y cablant `pred["mightCrit"]` — l'asymetrie
     # est NATIVE (garantie vs optimiste) et une garde la verrouille (`test_overkill_decision_live`).
+    # ⚠ L'asymetrie porte sur `isCritical` SEUL : le 5e argument `result@+0xb3` (PreventOverkill),
+    # lui, est passe par les DEUX bornes — cf. `might_be_overkill` (#195).
     allow = 1 if pred.get("forceOverkill") else 0
     return bool(is_overkill(hp, will_min, is_critical=0, is_force_overkill=allow,
-                            is_prevent_overkill=0, allow_overkill=1,
+                            is_prevent_overkill=1 if pred.get("preventOverkill") else 0,
+                            allow_overkill=1,
                             overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 
@@ -154,10 +157,24 @@ def might_be_overkill(pred) -> bool:
     # _fields_from_native_event` (<- `mightCrit` du decodeur natif). `.get(...)` absent/None -> 0 =
     # l'ancien comportement, pour les producteurs qui ne posent pas la cle (cf. residu nomme
     # `runner/operations/damage_utility.py`, doc case-r34).
+    #
+    # #195 -- `isPreventOverkill` (5e arg) = `result@+0xb3` = `HasFlag(cible, 0x13)`, lu par les DEUX
+    # bornes (contrairement a `isCritical`). Le corps prive ne teste `pct` QUE `if (!isPreventOverkill
+    # && targetInitialHealth <= healthDamage)` : flag pose => retour 0 quelle que soit la sur-frappe.
+    # Le port passait 0 EN DUR -> `OverkillUnit` (37) sur-comptait sur toute cible portant le flag.
+    # MESURE #195 (probe_195_prevent_overkill_decision, formule ISOLEE -- memes predictions natives
+    # des deux cotes) : `ultraTitus` natif 133.2826 vs port 148.2826 = **exactement PossibleOverkill
+    # (15.0)**, et 0 ecart sur `genesPrimus` aux MEMES bornes RAW [4812, 7224].
+    # Producteurs de la cle : `playbook/probable_damage_event.py::composite_fields` (<-
+    # `dp.prevent_overkill`, pose au foyer natif `predict_attack_raw` depuis
+    # `Scene.prevents_overkill`) et `engine_agreement_stages._fields_from_native_event` (<-
+    # `preventOverkill` du decodeur natif, event+0xBB). Cle absente/None -> 0 = l'ancien
+    # comportement, pour les producteurs qui ne la posent pas.
     allow = 1 if pred.get("forceOverkill") else 0
     return bool(is_overkill(hp, raw_max, is_critical=1 if pred.get("mightCrit") else 0,
                             is_force_overkill=allow,
-                            is_prevent_overkill=0, allow_overkill=1,
+                            is_prevent_overkill=1 if pred.get("preventOverkill") else 0,
+                            allow_overkill=1,
                             overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 

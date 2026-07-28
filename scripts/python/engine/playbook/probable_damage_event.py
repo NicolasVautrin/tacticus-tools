@@ -43,7 +43,9 @@ class ProbableDamageEvent:
         (`WillBeOverkill`/`MightBeOverkill` via `IsOverkill`, #84). `forceOverkill` = @0xB2,
         `mightCrit` = @0xB1 (#R34 : le 3ᵉ argument `isCritical` que `MightBeOverkill` passe à
         `IsOverkill`, et que le corps privé RENVOIE dans le cas « létal mais sous le seuil » ;
-        `WillBeOverkill`, lui, passe 0 EN DUR — le port posait 0 des deux côtés)."""
+        `WillBeOverkill`, lui, passe 0 EN DUR — le port posait 0 des deux côtés),
+        `preventOverkill` = @0xB3 (#195 : le 5ᵉ argument `isPreventOverkill`, celui-là passé par les
+        DEUX bornes — `HasFlag(cible, 0x13)`, posé par `FuelledByFury_BlockOverkillEffect`)."""
         dp = self.prediction
         r = dp.accurate_health_damage
         rr = dp.raw_health_damage
@@ -58,7 +60,7 @@ class ProbableDamageEvent:
         return {"hpBefore": hp, "shieldBefore": dp.shield,
                 "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
                 "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
-                "mightCrit": dp.might_crit,
+                "mightCrit": dp.might_crit, "preventOverkill": dp.prevent_overkill,
                 "shieldDmgMin": s.min, "shieldDmgMax": s.max,
                 "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
                 "blockRawMin": bmin,

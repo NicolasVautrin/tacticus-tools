@@ -104,6 +104,7 @@ class FuryOfTheAncientsPlaybook:
             profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce,
             armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult, spread_pct=0,
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
+            target_prevents_overkill=scene.prevents_overkill(tgt_id),   # #195 : HasFlag(cible, 0x13)
             attacker_effects=scene.effects(uid),   # #202 : max-out evalue DANS predict_attack_raw
             attacker_ctx=actx)                     # #R34 : MightCrit = CouldCrit(attaquant)
 

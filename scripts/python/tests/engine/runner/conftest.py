@@ -36,6 +36,7 @@ import pytest
 import probe_psychic_aoe as P
 import probe_178_overkill_gate as OVK
 import probe_r34_overkill_decision as DEC
+import probe_195_prevent_overkill_decision as PVO
 
 
 @pytest.fixture
@@ -152,4 +153,39 @@ def overkill_decision_rank_case(live_session):
                 pytest.skip(f"montage overkill-rank KO : {r['error']}")
             cache["r"] = r
         return cache["r"]
+    return _case
+
+
+# ── #195 — l'AUTRE argument de la face DECISION (`isPreventOverkill` = result@+0xb3) ────────────
+
+@pytest.fixture(scope="module")
+def prevent_overkill_channel_case(live_session):
+    """CANAL : `preventOverkill` prend-il DEUX valeurs ? Meme runner, meme attaquant, deux cibles --
+    `ultraTitus` (porteur du flag 0x13) et `genesPrimus` (temoin). Sans deux valeurs distinctes, le
+    champ est INDISCERNABLE d'un champ mort et aucun test d'egalite ne peut faire la difference.
+    Portee MODULE (un seul build pour les deux cibles)."""
+    cache: dict = {}
+
+    def _case(seed: int = 19501) -> dict:
+        if "r" not in cache:
+            cache["r"] = PVO.run_canal(seed=seed, verbose=True)
+        return cache["r"]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def prevent_overkill_utility_case(live_session):
+    """UTILITE, formule ISOLEE (meme forme que `overkill_decision_utility_case`, autre argument) :
+    `pairUtility` NATIF vs le terme degat du PORT nourri des MEMES events natifs, en variante AVEC
+    et SANS la cle `preventOverkill`. Regime LETAL SOUS LE SEUIL + crit force, tune par cible (les
+    bornes RAW dependent de la cible). Portee MODULE (2 builds par cible : tune + mesure)."""
+    cache: dict = {}
+
+    def _case(victim: str, seed: int = 19601) -> dict:
+        if victim not in cache:
+            r = PVO.run_utility(victim, seed=seed, verbose=True)
+            if r.get("error"):
+                pytest.skip(f"montage prevent-overkill KO ({victim}) : {r['error']}")
+            cache[victim] = r
+        return cache[victim]
     return _case
