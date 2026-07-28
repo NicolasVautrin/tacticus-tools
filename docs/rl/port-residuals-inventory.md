@@ -51,13 +51,30 @@
 > quatre gisements. Ce n'est donc pas une table à re-mesurer à chaque passe : c'est une table à
 > re-JOUER (30 s), et son immobilité est elle-même l'information.
 
-| Chiffre | Inventaire du 2026-07-26 (`fc23f1e`) | RE-DÉRIVÉ au 2026-07-27 (`e972c99`, re-confirmé `bec119f`) | Sens |
-|---|---|---|---|
-| actives castables | 171 | **171** | inchangé |
-| `ABILITY_CLASSES` (entrées du registre) | 76 | **83** | +7 |
-| actives portées COMBAT | 75 | **82** | +7 |
-| actives **NO-OP combat** | 96 | **89** | **−7** |
-| … dont **dispatchables** | 67 | **60** | −7 |
+| Chiffre | Inventaire du 2026-07-26 (`fc23f1e`) | RE-DÉRIVÉ au 2026-07-27 (`e972c99`, re-confirmé `bec119f`) | RE-DÉRIVÉ au 2026-07-28 (case-231, `0627635`+2) | Sens |
+|---|---|---|---|---|
+| actives castables | 171 | **171** | 171 | inchangé |
+| `ABILITY_CLASSES` (entrées du registre) | 76 | **83** | **89** | +6 |
+| actives portées COMBAT | 75 | **82** | *non re-dérivé* | — |
+| actives **NO-OP combat** | 96 | **89** | *non re-dérivé* | — |
+| … dont **dispatchables** | 67 | **60** | *non re-dérivé* | — |
+
+> ⚠ Seule la ligne `ABILITY_CLASSES` a été re-dérivée le 2026-07-28 (`len(ABILITY_CLASSES)`, une
+> ligne). Les trois suivantes viennent des audits (`audit_combat_ability_coverage.py`) et **n'ont
+> pas été re-jouées par ce commit** — les laisser à leur valeur du 27 serait affirmer une
+> immobilité non mesurée, d'où le *non re-dérivé*. Écart notable : **83 → 89 en une journée**, dont
+> **2** viennent de case-231 et **4** d'autres lots mergés entre-temps.
+
+> **case-231 (2026-07-28)** : +2 entrées = `1154 TacticalPrecision` (`ultraTitus`) et
+> `1184 MomentShackle` (`custoTrajann`), toutes deux **avec** `TARGETING_OPTIONS` **et**
+> `ABILITY_ATTACK_TYPE`. Ce qu'elles apportent au-delà de deux abilities, ce sont **deux primitives
+> partagées** : le prédicat `IsCharging` (`BattleQuery$$IsCharging` = adjacence **ET**
+> `UnitComponent.ChargedUnitIds@+0x190`, alimenté par `MoveUnitOperation$$UpdateCharging`, vidé par
+> `FinishUnitTurnOperation$$Execute`) et le flag `force_crit` (octet **+5** du
+> `Nullable<AttackOptions>`, le même struct dont l'octet +4 porte `force_overkill`). ⚠ **`IsCharging`
+> n'est PAS `HasMoved`** — le lot d'effets `SmashaEad`/`AvalancheOfMuscle`/`FeederTendrils`
+> (`entities/effects/loki/extra_damage.py`) modélise toujours ce nœud par `has_moved` : approximation
+> **plus large**, antérieure, **non touchée** ici → résidu à rabattre (cf. §4.b, entrée `N9`).
 | … dont **non pertinents** (npc + summon-env) | 29 | **29** | inchangé |
 | actives **`[-D]`** (décision portée, combat NO-OP) | 20 (méthode réfutée) | **15 lineup + 2 npc** | **−3** |
 | kits lineup | 123 | **123** | inchangé |
@@ -198,13 +215,21 @@ pour tous, sauf `MurderousSwing` et `LightOfSanguinius`
 
 ---
 
-## 3. Gisement 3 — `TARGETING_OPTIONS` : 53 abilities du registre sur 81 sans masque
+## 3. Gisement 3 — `TARGETING_OPTIONS` : 53 abilities du registre sur 89 sans masque
 
-**Symptôme chiffré** (re-dérivé du code au 2026-07-28) : `ABILITY_CLASSES` = **83** entrées, **30**
+**Symptôme chiffré** (re-dérivé du code au 2026-07-28) : `ABILITY_CLASSES` = **89** entrées, **36**
 portent `TARGETING_OPTIONS`, **53** n'en ont pas. Le gisement RECULE (75 manquants le 2026-07-26,
-53 depuis) et **ne monte plus** : les deux entrées neuves du jour (1017 FragBomb, 1026
-BasiliskBarrage) sont arrivées AVEC leur masque, le cliquet
+53 depuis) et **ne monte plus** : les entrées neuves du jour (1017 FragBomb, 1026 BasiliskBarrage,
+puis 1154 TacticalPrecision et 1184 MomentShackle) sont arrivées AVEC leur masque, le cliquet
 (`tests/engine/runner/test_ability_registry_ratchet.py`) les ayant rejetées sans.
+
+> **case-231 (2026-07-28)** : les deux masques du lot viennent d'un **preset statique** — leur
+> `.ctor` n'appelle AUCUN `TargetingOptions$$.ctor`, il recopie 0x40 octets. Le masque effectif est
+> la constante écrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` à `<preset>+0x28` :
+> `statics+0x40` = `TargetIsEnemy` (1154), `statics+0x280` =
+> `CasterIsPossibleTarget | CasterMatchesDynamicRule` (1184). C'est la **2ᵉ forme du piège**
+> documentée ci-dessous, et elle se lit — le `cctor` porte aussi le `TargetingRange` (`RANGE_ADJACENT`
+> / `RANGE_SELF`) et le `isSelfCasting`. Détail : `docs/rl/case-231-ischarging-forcecrit.md` §5.
 
 **Conséquence exacte** (lue dans `engine/runner/abilities/targeting.py`) :
 `get_invalid_target_reason` et `get_invalid_caster_reason` commencent tous deux par
@@ -327,6 +352,7 @@ Triés symptôme mesuré > symptôme nommé.
 
 | # | Résidu | Symbole natif | Porteur / chemin en bataille | Fichiers | Taille |
 |---|---|---|---|---|---|
+| **N9** | **NEUF (2026-07-28, case-231)** — **Le lot extra-dégât `IsCharging` modélisé par `has_moved`** : `entities/effects/loki/extra_damage.py` gate `SmashaEad` / `FeederTendrils` / `AvalancheOfMuscle` sur `has_moved` (« l'unité s'est-elle déplacée »). Le prédicat natif est **strictement plus étroit** : `AreEntitiesAdjacent(caster, target) && ChargedUnitIds@+0x190.Contains(target.Id)`, où la liste ne retient que les unités devenues **NOUVELLEMENT adjacentes** pendant le pas. Une unité qui bouge sans arriver au contact, ou qui était **déjà adjacente avant son pas**, n'a PAS chargé — le port accorde donc le bonus dans des cas où le natif ne l'accorde pas. Le vrai nœud est désormais porté (`entities/triggers.py::IsCharging` + `components.update_charging`, confronté live par `test_case231_charge_forcecrit_live.py` sur un scénario où les deux modèles DIVERGENT) : il reste à y rabattre les trois effets. Biais **UNILATÉRAL** (le port sur-accorde) | `IdunBattle.Core.Services.BattleQuery$$IsCharging` ; `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` ; `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` (la purge) | orksNob (SmashaEad), astraBullgryn (AvalancheOfMuscle), tyranDeathleaper (FeederTendrils) — **HERO pool tous trois** | `engine/entities/effects/loki/extra_damage.py`, `engine/entities/effects/loki/status.py` (l.527-535, la note qui annonçait ce branchement) | **1 effet** (3 classes, un seul gate) |
 | ~~**R9**~~ **FERMÉ** | ~~Magnitude de `Chronometron_ExtraDamage` (1550) — effet POSÉ mais INERTE~~ → **PORTÉ ET VALIDÉ LIVE** (cf. §R9-clos ci-dessous). `attacker_ctx` porte désormais `is_unit` / `team` / `team_by_id` / `traits` sur les DEUX faces ; `BaseEffect.times_applied` (= `EffectComponent+0x6c`) est modélisé ; classe `ChronometronExtraDamageEffect` + trigger de retrait `On(9)` | `IdunBattle.Entities.Effects.Loki.Chronometron_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` (+ `$$CreateRemoveEffectTrigger` = `On(9)`, effet CONSOMMÉ au 1ᵉʳ coup allié) | necroChronomancer — **catalog_inject** (confronté live, `probe_r9_chronometron.py`) | `engine/runner/damage_model.py`, `engine/playbook/prediction/_shared.py`, `engine/entities/effects/{base,factory}.py` + `loki/damage_reduction.py`, `engine/runner/operations/{effects.py,triggers/loki/chronometron.py}` | — (clos) |
 | **R12** | **VALIDE** (relu à `bec119f`, puis **RE-ANCRÉ après #169** — `triggers/dispatch.py` est devenu un PACKAGE) — **Les 2 derniers consommateurs de `DSLFactory.Revive`, tous deux OUVERTS** : `triggers/dispatch/registry.py:261` enregistre toujours `"TimeFlux": [TimeFluxRegenAbility]` seul, avec le résidu GHOST-REVIVE écrit juste au-dessus ; `git log -S "GhostRevive"` ne rend toujours **aucun commit de port**. `FuelledByFury` (1251) : aucune classe, mention en commentaire seule (`triggers/dispatch/move_death.py:265`). ⚠ **RAPPEL utile** : la face DÉGÂT de `FuelledByFury` est un gap SÉPARÉ, chiffré par la mesure de R9 (+248/coup sur `ultraTitus`, `extraDmg[L50]=138 × 1,8`) — deux facettes du même passif, deux tranches | `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` ; ancrage à hooker pour l'émetteur de `On(PendingDeathAdded=3)` : `IdunBattle.MatchState$$AddDeath` ; `IdunBattle.Operations.…$$SetRevivePosition` | ultraTitus, thousTerminator — **HERO pool tous deux** | `engine/runner/operations/triggers/loki/time_flux.py` (+ nouveau `fuelled_by_fury.py`), `triggers/dispatch.py`, `operations/revive.py`, `entities/effects/factory.py` | **2 abilities** (1 par consommateur) |
 | **R13** | **VALIDE** (relu à `bec119f`, références EXACTES : `1005 in ABILITY_CLASSES` = `False`, aucune classe `TriggerAbility`/`ActorHasTriggeredAbility` dans `engine/`) — **`AdaptiveStrategy` (1005, `necroWarden`)** : 1005 en enum seul (`active_ability_type.py:111`), absent d'`ABILITY_CLASSES`. Restent 2 prérequis sur 3 : (1) `RelentlessMarch` 1004 en enum seul (`triggered_ability_type.py:149`), aucune entrée `ABILITY_TRIGGERS`/`TRAIT_TRIGGERS` — sans lui la branche `If(ActorHasTriggeredAbility) TriggerAbility(…)` est un no-op structurel ; (2) les nœuds `TriggerAbility` et `ActorHasTriggeredAbility` **n'existent pas** (0 définition dans `engine/`, inlinés en impératif par `cosmic_horror.py:310` / `sworn_protector.py:266`). Prérequis (3) OVERRIDE-ATTAQUE **CONFIRMÉ LEVÉ** (`stats.py:281`) | `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$ExecuteBehaviour` ; `…Loki.RelentlessMarchAbility$$CreateBehaviour` | necroWarden — **HERO pool** | `engine/runner/abilities/behaviours/lifecycle.py` (nœud `TriggerAbility`), `engine/entities/triggers.py`, `triggers/dispatch.py` + module RelentlessMarch, `abilities/necrons.py` + `handler.py` | **1 ability + 1 passif** |

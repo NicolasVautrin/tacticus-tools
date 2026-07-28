@@ -56,6 +56,8 @@ from ...entities.stats import StatType
 from ...entities.triggers import IsPositionMachineForCurrentPlayer
 from ..components import StatsComponent, OwnerComponent, PositionComponent
 from .base import ActiveAbility, convert_rounds_to_turns
+from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
                          AttackWithAttackDamage, PushUnit)
 
@@ -459,3 +461,135 @@ class MacroPlasmaIncineratorAbility(ActiveAbility):
         posed = [{"target": p["target"], "effect": p["effect_type"]}
                  for n, p in ectx.emitted if n == "AddEffect"]
         return {"tile": tile_id, "turns": turns, "posed": posed, "dsl": True}
+
+
+# =================================================================================================== #
+# TacticalPrecision (1154, `ultraTitus` -- Titus, Ultramarines) -- case-231
+# Patron « BRANCHE CONDITIONNELLE » : l'ability execute l'UN OU L'AUTRE de deux volets d'attaque
+# selon un predicat d'etat (la CHARGE), et le volet charge encadre son attaque d'un buff crit NET-NUL.
+# Seule ability du registre a poser le flag `force_crit` du `Nullable<AttackOptions>`.
+# =================================================================================================== #
+
+TACTICAL_PRECISION_ID = "TacticalPrecision"
+VAR_TP_EXTRA_CRIT_DMG = 0x42     # GetVariableForLevel(0x42) -> AbilityVariableType 66 = extraCritDmg
+
+
+def tactical_precision_tree(crit_amount: int, caster_id: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$ExecuteBehaviour`
+    — MIRROR du DECOMPILE :
+
+        charging = IsCharging( caster@0x160, target@0x178 )                       # [cond]
+        attack1  = AttackWithAttackDamage( caster@0x160, target@0x178,
+                       MinMaxDamage(minDmg 0xc / maxDmg 0xd),
+                       Nullable(GetDamageProfile()) = Bolter,
+                       Direct(GetHits() = ConfigConst(0x2f) = nrOfHits = 1),
+                       AbilityOrEffect(*this+0x10 = 0x482 = 1154),
+                       Nullable(AttackOptions{ octet +5 = 1 })  )                 # <- ALWAYS CRIT
+        crit     = ConfigVar( 0x42 = extraCritDmg, level, config@0x60 )
+        add      = ChangeStat( owner@0x148, Position(10 = CriticalDamage, 0), mode 2 = Add,
+                               Direct(crit) )
+        sub      = ChangeStat( owner@0x148, Position(10, 0),                mode 3 = Subtract,
+                               Direct(crit) )
+        adjacent = AdjacentEnemies( caster@0x160, 1, 3 )       # == `..$$GetNonChargingAttackTargets`
+        attack2  = AttackWithAttackDamage( caster@0x160, adjacent,
+                       MinMaxDamage2(minDmg_2 0x36 / maxDmg_2 0x37),
+                       Nullable(GetDamageProfile2()) = Chain,  # == `..$$GetNonChargingAttackDamageProfile`
+                       Direct(GetHits2() = ConfigConst(0x32) = nrOfHits_2 = 3),
+                       AbilityOrEffect(1154), Nullable(<defaut>) )                # PAS de force-crit
+        inform   = Inform( 0xc0, charging )
+        ExecuteAtomic( inform & If(charging, (add & attack1) & sub, attack2) )
+
+    ORDRE du volet charge (lu, pas devine) : `op_BitwiseAnd(op_BitwiseAnd(add, attack1), sub)` — le
+    buff CriticalDamage encadre l'attaque, exactement comme `hades_autocannons_tree` /
+    `HeroicFusilladeAbility` (source de `ChangeStat` PARTAGEE entre l'add et le revert -> net-nul).
+
+    LES DEUX VOLETS SONT EXCLUSIFS (`If` avec branche `else`), ce qui rend l'ability DISCRIMINANTE :
+    en charge = 1 coup Bolter FORCE-CRIT sur la SEULE cible ; sans charge = 3 coups Chain sur TOUS
+    les ennemis adjacents au CASTER (la cible du message n'a alors aucun statut particulier).
+
+    `force_crit` : l'octet +5 du `Nullable<AttackOptions>` (8e argument natif) — cf. `_run_hits`.
+    Il vaut i2 « This attack is always a Crit and deals an additional +extraCritDmg Crit Damage » :
+    le crit est ACQUIS (aucun `RollCritical`, donc aucun tirage) et le `+extraCritDmg` vient du
+    couple ChangeStat qui l'encadre, pas du flag.
+
+    `native_factory = "attack"` pour les DEUX volets : le decompile appelle
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (overload `hits` entier ->
+    `Direct(hits)`), pas `AttackWithAbilityDamage`. Profil `Bolter` / `Chain`, `attackRangeType`
+    = Melee -> `is_melee=True` des deux cotes."""
+    from ...entities.triggers import IsCharging
+    from ...entities.behaviours import If as IfBehaviour, Inform
+    from .behaviours import ChangeStat
+    charging = IsCharging(Caster(), Target())
+    src = (f"{TACTICAL_PRECISION_ID}_CritDamage", caster_id)        # source PARTAGEE add<->revert
+    crit_add = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src, amount=int(crit_amount))
+    crit_revert = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "revert", src)
+    attack_charge = AttackWithAttackDamage(
+        Target(), TACTICAL_PRECISION_ID, "Bolter", is_melee=True,
+        ability_type=int(ActiveAbilityType.TacticalPrecision), force_crit=True)
+    attack_no_charge = AttackWithAttackDamage(
+        AdjacentEnemies(Caster(), Const(1)), TACTICAL_PRECISION_ID, "Chain", is_melee=True,
+        min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2", multi=True,
+        ability_type=int(ActiveAbilityType.TacticalPrecision))
+    branch_charge = op_and(op_and(crit_add, attack_charge), crit_revert)
+    return AtomicGroup(op_and(Inform(0xc0),
+                              IfBehaviour(charging, branch_charge, attack_no_charge)))
+
+
+class TacticalPrecisionAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$ExecuteBehaviour`
+    (id 1154, `ultraTitus` « Titus », Ultramarines). Arbre DSL `tactical_precision_tree` (mirror 1:1).
+
+    i2 : « Attacks a targeted adjacent enemy. If Titus has charged that enemy this turn, he deals
+    1x <Bolter> Damage to it. This attack is always a Crit and deals an additional +<extraCritDmg>
+    Crit Damage. If Titus did not charge the targeted enemy this turn, he instead deals 3x <Chain>
+    Damage to all adjacent enemies. »
+
+    LE PIVOT EST `IsCharging`, PAS `HasMoved` — mirror de
+    `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` =
+    `AreEntitiesAdjacent(caster, target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`,
+    ou la liste est alimentee par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` (unites
+    devenues NOUVELLEMENT adjacentes pendant un pas) et videe par
+    `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`. Titus qui bouge SANS arriver au
+    contact de la cible, ou qui etait DEJA adjacent avant de bouger, n'est PAS en charge.
+
+    TARGETING (#241) : le ctor n'appelle AUCUN `TargetingOptions$$.ctor` — il recopie les 0x40
+    octets du PRESET statique `<TargetingOptions statics>+0x40`, dont
+    `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit :
+      `+0x00 isSelfCasting = 0` · `+0x08 range <- TargetingRange statics+0x30` (= `RANGE_ADJACENT`)
+      · `+0x20 forceMeleeTarget = 1 (RangedBool.False)` · **`+0x28 rules = TargetIsEnemy`**.
+    `AbilityAttackType` = 3e argument d'`AActiveAbility..ctor(this, &opts, 0, 0)` = 0 =
+    DirectTargetAttack (cf. `attack_type.py`).
+
+    HORS PERIMETRE, nommes : le triggered `TacticalPrecision_ResetAbility$$CreateTrigger`
+    (`(On(0x2e revive) | On(0x2f resurrect)) & OwnerIsTarget` -> re-arme l'ability, i2 « can be used
+    again in this battle ») et le passif `FuelledByFury`.
+    Diag : {charging, main_attack, splash, crit_amount}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.TacticalPrecision)   # 1154
+    ABILITY_ID = TACTICAL_PRECISION_ID
+    TARGETING_OPTIONS = TargetingOptions(rules=int(TR.TargetIsEnemy), self_cast=False,
+                                         range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        # `ConfigVar(0x42)` LU AU CAST (le natif l'evalue dans ExecuteBehaviour et le fige dans les
+        # deux noeuds ChangeStat).
+        crit = int(ability_var(self.ABILITY_ID, "extraCritDmg", level, multiplier_pct=mult) or 0)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        tactical_precision_tree(crit, caster_id).execute(entities, ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        charging = any(n == "ChangeStat" for n, _ in ectx.emitted)   # le volet charge a-t-il tourne ?
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "charging": charging, "crit_amount": crit,
+                "main_attack": main,
+                "attacks": [{"target": p.get("target"), "total": p.get("total")} for p in atks],
+                "dsl": True}

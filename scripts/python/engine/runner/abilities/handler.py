@@ -63,7 +63,8 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
-                           MacroPlasmaIncineratorAbility)
+                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility)
+from .custodes import MomentShackleAbility
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility)
@@ -184,6 +185,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
     DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
     CalibaniteGreatswordAbility.ABILITY_TYPE: CalibaniteGreatswordAbility,  # 1189 (darkaCompanion Forcas : TOGGLE de posture = If(HasEffect(Self,1404 Strike), AddEffect(1405 Sweep)+RemoveStrikeEffects(1404/1425/1009/1406), AddStrikeEffects(1404/1425/1009)+RemoveEffect(1405)) ; aucun degat, aucun tirage, ne finit pas le tour ; les observables Sweep/Overwatch vivent dans les TRIGGERED, hors port)
+    # --- case-231 : socle `IsCharging` (BattleQuery$$IsCharging = adjacence + ChargedUnitIds@+0x190)
+    #     + `force_crit` (octet +5 du Nullable<AttackOptions>). Les DEUX abilities du lot.
+    TacticalPrecisionAbility.ABILITY_TYPE: TacticalPrecisionAbility,   # 1154 (ultraTitus Titus : If(IsCharging(caster,cible), ChangeStat(+extraCritDmg) & 1x Bolter FORCE-CRIT sur la cible & ChangeStat(revert), 3x Chain sur TOUS les AdjacentEnemies(caster)) ; ExecuteAtomic, branches EXCLUSIVES)
+    MomentShackleAbility.ABILITY_TYPE: MomentShackleAbility,           # 1184 (custoTrajann Trajann : self-cast Heal(hpToHeal) & AddDynamicStatModifierEffect(1391 BlockChance) & (1392 BlockDamage) & AddEffect(1393 marqueur de la triggered MomentShackle_Attack), TurnsFromRounds(nrOfRounds=1) ; aucun degat)
 }
 
 
