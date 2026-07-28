@@ -172,34 +172,65 @@ def main() -> int:
               for u in (ob.get("units") or [])))
 
     # LE test : le natif accepte-t-il encore un cast de l'AUTRE ability de la MoW retiree ?
-    reason = rpc(sid, "abilityReason", {"runnerId": rid, "casterId": caster,
-                                        "abilityType": MACRO_PLASMA, "targetId": None})
-    print("[B] abilityReason(1159) apres retrait:", json.dumps(reason)[:300])
-    for _ in range(8):                      # 1159 a initialCooldownTurns=1 -> laisser tourner
-        v = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
-        rw = next((m for m in (v.get("mows") or []) if m.get("casterId") == caster), None)
-        ab = next((x for x in ((rw or {}).get("abilities") or [])
-                   if x.get("id") == MACRO_PLASMA), None)
-        ready = ab and ab.get("usable") and not (ab.get("cooldown") or 0)
-        if ready and (owner is None or v.get("currentPlayer") == owner):
-            break
-        rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}})
-    tgt = next(iter(sorted(board.by_coord)))
-    r2 = rpc(sid, "applyAction", {"runnerId": rid, "action": {
-        "kind": "ability", "casterId": caster, "abilityType": MACRO_PLASMA,
-        "to": {"col": tgt[0], "row": tgt[1]}}})
-    a2 = r2.get("actions") or []
-    print(f"[B] cast 1159 APRES retrait -> ok={r2.get('ok')} "
-          f"mutated={a2[0].get('mutated') if a2 else None} "
-          f"consumed={a2[0].get('actionConsumed') if a2 else None} "
-          f"posed={len(a2[0].get('changes') or []) if a2 else None}")
-
+    # ANTI-CONFOND OBLIGATOIRE : un refus peut venir du RETRAIT *ou* d'une fenetre fermee
+    # (cooldown / ce n'est pas le tour du proprietaire). On mesure donc la FENETRE au moment du
+    # cast, et on double d'un runner de CONTROLE ou 1158 n'est jamais caste.
+    ok_after, win_after = _try_macro_plasma(sid, rid, caster, owner, board, "APRES retrait")
     rpc(sid, "disposeRunner", {"runnerId": rid})
     try:
         state_file.unlink()
     except OSError:
         pass
+
+    print("\n=== B-controle : MEME cast 1159, MoW NON retiree (1158 jamais caste) ===")
+    rid2, sf2 = build(a.seed, a.board, make_bc())
+    if rid2 is None:
+        return 2
+    v2 = rpc(sid, "decisionView", {"runnerId": rid2, "allAbilities": True})
+    m2 = [m for m in (v2.get("mows") or []) if m.get("visualId") == MOW]
+    g2 = rpc(sid, "boardGraph", {"runnerId": rid2})
+    ok_ctrl, win_ctrl = _try_macro_plasma(sid, rid2, m2[0]["casterId"], m2[0].get("owner"),
+                                          Board(g2["tiles"]), "CONTROLE")
+    rpc(sid, "disposeRunner", {"runnerId": rid2})
+    try:
+        sf2.unlink()
+    except OSError:
+        pass
+
+    print(f"\n[VERDICT B] 1159 apres retrait : mute={ok_after} (fenetre {win_after}) | "
+          f"controle sans retrait : mute={ok_ctrl} (fenetre {win_ctrl})")
+    print("[VERDICT B] le RETRAIT est la cause SSI (controle mute) ET (apres-retrait ne mute pas)")
     return 0
+
+
+def _try_macro_plasma(sid, rid, caster, owner, board, label):
+    """Tente `MacroPlasmaIncinerator` (1159) avec la MoW `caster`, en OUVRANT d'abord la fenetre
+    (cooldown a 0 + tour du proprietaire) et en la RAPPORTANT : sans ca, un refus est
+    inattribuable (retrait vs fenetre fermee). Rend `(mutated, fenetre_ouverte)`."""
+    window = False
+    for _ in range(12):
+        v = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+        rw = next((m for m in (v.get("mows") or []) if m.get("casterId") == caster), None)
+        ab = next((x for x in ((rw or {}).get("abilities") or [])
+                   if x.get("id") == MACRO_PLASMA), None)
+        ready = bool(ab and ab.get("usable") and ab.get("hasAmmo", True)
+                     and not (ab.get("cooldown") or 0))
+        if ready and (owner is None or v.get("currentPlayer") == owner):
+            window = True
+            break
+        rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}})
+    tgt = sorted(board.by_coord)[len(board.by_coord) // 2]
+    r = rpc(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": caster, "abilityType": MACRO_PLASMA,
+        "to": {"col": tgt[0], "row": tgt[1]}}})
+    acts = r.get("actions") or []
+    act = acts[0] if acts else {}
+    print(f"[B/{label}] fenetre_ouverte={window} cible={tgt} -> ok={r.get('ok')} "
+          f"mutated={act.get('mutated')} consumed={act.get('actionConsumed')} "
+          f"changes={len(act.get('changes') or [])} events={len(act.get('events') or [])}")
+    if act.get("changes"):
+        print(f"[B/{label}] changes:", json.dumps(act["changes"])[:300])
+    return bool(act.get("mutated")), window
 
 
 if __name__ == "__main__":

@@ -210,11 +210,11 @@ def galatian(rpc, build_runner):
     pre_ob = rpc("observeBattle", {"runnerId": rid})
 
     # VERDICTS de la REGLE DYNAMIQUE (#91), tuile par tuile, AVANT le cast : c'est le seul moment ou
-    # la MoW peut encore etre interrogee. `abilityReason` natif == `GetInvalidTargetReason`, dont la
-    # derniere marche est `DutyEternalAbility$$GetDynamicInvalidTargetReason`.
+    # la MoW peut encore etre interrogee.
     pre_state = load_state(pre_dv, pre_ob, board=board)
     from engine.runner.abilities.ultramarines import DutyEternalAbility
     probe = DutyEternalAbility()
+    occ_now = set(_occupants(rpc, rid))
     reasons = []
     for pos in sorted(board.by_coord)[:DYNAMIC_RULE_SAMPLE]:
         tid = board.id_at(pos[0], pos[1])
@@ -226,8 +226,25 @@ def galatian(rpc, build_runner):
             "pos": pos, "tile": tid,
             "native": " ".join(str(x) for x in (native.get("reasons") or [])),
             "port": probe.get_dynamic_invalid_target_reason(pre_state, caster, tid),
-            "area": STS.get_area(board, set(_occupants(rpc, rid)), pos),
+            "area": STS.get_area(board, occ_now, pos),
         })
+
+    # L'ORACLE de la regle dynamique n'est PAS `abilityReason` (mesure probe_91 : il rend
+    # `reasons: []` pour TOUTE tuile, y compris celles que le natif refuse -> canal aveugle sur une
+    # cible-TUILE de MoW). L'oracle est le CAST lui-meme : un refus rend `actionConsumed = False`
+    # (case-111). On tente donc un cast sur une tuile SANS aire -- inoffensif par construction
+    # puisqu'il est refuse, ce que ce test verifie justement.
+    dead_tile = next((p for p in sorted(board.by_coord)
+                      if board.id_at(p[0], p[1]) is not None
+                      and not STS.get_area(board, occ_now, p)), None)
+    dead_cast = None
+    if dead_tile is not None:
+        r0 = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": caster, "abilityType": DUTY_ETERNAL,
+            "to": {"col": dead_tile[0], "row": dead_tile[1]}}})
+        a0 = (r0.get("actions") or [{}])[0]
+        dead_cast = {"pos": dead_tile, "consumed": a0.get("actionConsumed"),
+                     "mutated": a0.get("mutated"), "spawned": a0.get("spawned")}
 
     res = rpc("applyAction", {"runnerId": rid, "action": {
         "kind": "ability", "casterId": caster, "abilityType": DUTY_ETERNAL,
@@ -249,7 +266,7 @@ def galatian(rpc, build_runner):
             # #91 -- de quoi rejouer le cast COTE PORT sur l'etat PRE-cast, et confronter la face
             # DECISION (regle dynamique) tuile par tuile.
             "caster": caster, "pre": (pre_dv, pre_ob), "reasons": reasons,
-            "mow_before": mows[0]}
+            "dead_cast": dead_cast, "mow_before": mows[0]}
 
 
 # ------------------------------------------------------------------------ FORME de l'empreinte
@@ -441,11 +458,12 @@ def test_port_cast_matches_native_footprint_and_summon(rpc, galatian):
 
 
 def test_port_cast_removes_the_machine(galatian):
-    """`RemoveMachine(caster@0x160)` -> `RemoveMachineOperation$$Execute` : la MoW quitte la
-    bataille. Cote port : `MachineComponent.removed`, `UnitComponent.alive = False`, et AUCUNE de
-    ses abilities n'est plus utilisable (`ActiveAbility.can_currently_be_used`). C'est le pendant
-    exact de l'i2 « Galatian can no longer be used as a Machine of War for the rest of the battle »
-    -- et il tombe sur `MacroPlasmaIncinerator` (1159) aussi, pas seulement sur 1158."""
+    """`RemoveMachine(caster@0x160)` -> `RemoveMachineOperation$$Execute` : la MoW est DETACHEE de
+    sa plateforme. Cote port, le SEUL etat pose est `MachineComponent.removed` -- l'operation
+    native ne touche ni `ActiveAbilityComponent` ni les PV, et la mesure (probe_91) confirme que
+    `decisionView.mows` continue d'exposer `usable: true`. Eteindre `CanStillBeUsed` ou poser
+    `alive = False` fabriquerait un etat natif FAUX : ce test VERROUILLE le fait qu'on ne le fait
+    pas."""
     from engine.runner.components import (MachineComponent, UnitComponent,
                                           ActiveAbilitiesComponent)
     state, diag = _port_cast(galatian)
@@ -453,27 +471,66 @@ def test_port_cast_removes_the_machine(galatian):
         f"RemoveMachine n'a pas vise le caster : {diag}"
     mow = state.get_entity(galatian["caster"])
     assert mow.get_component(MachineComponent).removed is True
-    assert mow.get_component(UnitComponent).alive is False
+    uc = mow.get_component(UnitComponent)
+    assert uc is None or uc.alive is True, "le natif ne TUE pas la machine, il la detache"
     ac = mow.get_component(ActiveAbilitiesComponent)
     if ac is not None:
-        assert ac.abilities, "la MoW doit porter ses abilities (seed decisionView)"
-        for a in ac.abilities:
-            assert not a.can_currently_be_used(), \
-                f"ability {a.ability_type} encore utilisable apres RemoveMachine"
+        assert any(a.can_currently_be_used() for a in ac.abilities), \
+            ("`RemoveMachineOperation` ne touche PAS `ActiveAbilityComponent` -- le refus de cast "
+             "vit dans le gate d'operation, pas dans un champ d'ability (cf. probe_91)")
 
 
-def test_native_machine_is_gone_after_the_cast(rpc, galatian):
-    """Contrepartie LIVE du test precedent -- ce que le NATIF montre de la MoW retiree : plus
-    aucune de ses abilities n'est castable. On lit `decisionView.mows` APRES le cast."""
-    after = rpc("decisionView", {"runnerId": galatian["rid"], "allAbilities": True})
-    row = next((m for m in (after.get("mows") or [])
-                if m.get("casterId") == galatian["caster"]), None)
-    if row is None:
-        return                                     # la MoW a DISPARU de la vue : verdict encore + net
-    usable = [a for a in (row.get("abilities") or [])
-              if a.get("usable") and a.get("hasAmmo", True) and not (a.get("cooldown") or 0)]
-    assert not usable, \
-        f"la MoW retiree expose encore des abilities castables : {json.dumps(usable)[:300]}"
+def test_port_gate_refuses_any_cast_from_a_removed_machine(galatian):
+    """Le REFUS lui-meme, cote port : apres `RemoveMachine`, `AbilityHandler.
+    visit_ActiveAbilityMessage` doit rendre un NO-OP complet sur N'IMPORTE QUELLE ability de cette
+    MoW -- 1158 comme 1159. Meme rang et meme forme que le gate acteur-mort (#70) : aucune
+    behaviour, aucun flag, `last['machine_removed']`."""
+    from engine.runner.abilities.handler import AbilityHandler
+    from engine.runner.messages import ActiveAbilityMessage
+    state, _diag = _port_cast(galatian)
+    tile = galatian["board"].id_at(galatian["anchor"][0], galatian["anchor"][1])
+    for ability in (DUTY_ETERNAL, 1159):
+        h = AbilityHandler(state)
+        h.visit_ActiveAbilityMessage(ActiveAbilityMessage(galatian["caster"], tile, ability))
+        assert h.last.get("machine_removed") is True, \
+            f"ability {ability} non gatee apres RemoveMachine : {h.last}"
+
+
+def test_native_refuses_casts_from_the_removed_machine(rpc, galatian):
+    """Contrepartie LIVE. Le NATIF refuse le cast de l'AUTRE ability (`MacroPlasmaIncinerator`
+    1159) une fois la MoW retiree -- et le discriminant est `actionConsumed`, PAS `mutated` (1159
+    est un poseur d'effets de tuile : il ne change ni position ni PV meme quand il PASSE).
+
+    Le CONTROLE POSITIF (meme cast, meme fenetre, MoW NON retiree -> `actionConsumed = True`) vit
+    dans `probe_91_duty_eternal.py` : c'est lui qui etablit que la cause du refus est le RETRAIT et
+    non une fenetre fermee. Ici on GARDE le verdict, on ne le re-mesure pas.
+
+    On verifie aussi le CONSTAT qui interdit d'utiliser `decisionView` comme oracle : la MoW y
+    reste `usable: true`."""
+    rid, caster = galatian["rid"], galatian["caster"]
+    owner = galatian["mow_before"].get("owner")
+    window = False
+    for _ in range(2 * MAX_ROUNDS):
+        v = rpc("decisionView", {"runnerId": rid, "allAbilities": True})
+        row = next((m for m in (v.get("mows") or []) if m.get("casterId") == caster), None)
+        ab = next((x for x in ((row or {}).get("abilities") or []) if x.get("id") == 1159), None)
+        if ab and ab.get("usable") and ab.get("hasAmmo", True) and not (ab.get("cooldown") or 0) \
+                and (owner is None or v.get("currentPlayer") == owner):
+            window = True
+            break
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}})
+    assert window, "fenetre de cast 1159 jamais ouverte -- un refus serait inattribuable"
+    # CONSTAT : le projecteur ment sur le retrait (il lit `ActiveAbilityComponent`, intact).
+    assert ab.get("usable") is True, \
+        "si decisionView cessait d'exposer `usable`, l'oracle du port serait a revoir"
+    tiles = sorted(galatian["board"].by_coord)
+    tgt = tiles[len(tiles) // 2]
+    r = rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": caster, "abilityType": 1159,
+        "to": {"col": tgt[0], "row": tgt[1]}}})
+    act = (r.get("actions") or [{}])[0]
+    assert act.get("actionConsumed") is False, \
+        (f"le natif a CONSOMME un cast de la MoW retiree : {json.dumps(act)[:300]}")
 
 
 def test_port_cast_grants_the_stationary_trait(galatian):
@@ -517,29 +574,86 @@ def test_port_cast_transfers_no_triggered_ability_when_caster_has_none(galatian)
 
 # ------------------------------------------------- face DECISION : la REGLE DYNAMIQUE de l'ability
 
-def test_dynamic_rule_agrees_with_native_tile_by_tile(galatian):
+def test_dynamic_rule_refusal_is_confirmed_by_the_native_cast(galatian):
     """`DutyEternalAbility$$GetDynamicInvalidTargetReason` = « la tuile visee est legale SSI une
-    aire triangulaire de 3 tuiles existe autour d'elle ». Confrontation TUILE PAR TUILE du verdict
-    du port contre `abilityReason` natif (= `GetInvalidTargetReason`, dont la derniere marche EST
-    cette regle).
+    aire triangulaire de 3 tuiles existe autour d'elle ».
 
-    Le test EXIGE que l'echantillon porte les DEUX verdicts : sans tuile refusee il ne prouverait
-    rien (un port qui dirait toujours « valide » passerait)."""
+    ORACLE : le CAST, pas `abilityReason`. Un cast refuse rend `actionConsumed = False` et ne
+    spawne rien (case-111) -- c'est la signature du refus silencieux. Le fixture a tente un cast
+    sur une tuile SANS aire (le port la refuse avec la raison 2) : le natif doit le refuser aussi,
+    ET le cast sur l'ancre CHOISIE (aire de 3) doit, lui, avoir REUSSI -- les deux faces du meme
+    predicat, mesurees sur la meme bataille."""
+    dead = galatian["dead_cast"]
+    assert dead is not None, "aucune tuile sans aire sur ce board -- test non discriminant"
+    assert dead["consumed"] is False, \
+        f"le natif a CONSOMME un cast sur {dead['pos']} (aire vide) : {dead}"
+    assert not dead["spawned"], f"le natif a spawne sur une tuile sans aire : {dead}"
+    # ...et la face POSITIVE : la meme ability, sur une ancre a aire valide, a bien spawne 3 pieds.
+    assert galatian["actions"][0].get("spawned"), "la face positive du predicat n'a pas ete exercee"
+
+
+def test_ability_reason_is_blind_to_the_dynamic_rule_here(galatian):
+    """CONSTAT D'OUTILLAGE, verrouille pour que personne ne re-tente cet oracle : sur une cible
+    TUILE avec un caster MACHINE, `abilityReason` rend `reasons: []` -- y compris sur les tuiles
+    que le natif REFUSE (test precedent). Il ne descend donc PAS jusqu'a
+    `GetDynamicInvalidTargetReason`, et un port valide contre lui serait valide contre rien.
+
+    Si ce test se met a ECHOUER, c'est une BONNE nouvelle : le canal s'est mis a rendre la raison,
+    et la confrontation tuile-par-tuile redevient possible (elle serait plus fine que le cast)."""
     rows = galatian["reasons"]
     assert rows, "aucun verdict collecte"
-    accepted = [r for r in rows if not r["port"]]
-    refused = [r for r in rows if r["port"]]
-    assert accepted and refused, \
-        (f"echantillon non discriminant : {len(accepted)} acceptees / {len(refused)} refusees "
-         f"-- augmenter DYNAMIC_RULE_SAMPLE")
-    bad = []
-    for r in rows:
-        native_refuses = bool(r["native"].strip())
-        port_refuses = bool(r["port"])
-        if native_refuses != port_refuses:
-            bad.append((r["pos"], r["native"], r["port"], r["area"]))
-    assert not bad, ("desaccord natif/port sur la legalite de la tuile : "
-                     + "; ".join(f"{p} natif='{n}' port={q} aire={a}" for p, n, q, a in bad))
+    refused_by_port = [r for r in rows if r["port"]]
+    assert refused_by_port, \
+        f"echantillon non discriminant : aucune tuile refusee -- augmenter DYNAMIC_RULE_SAMPLE"
+    assert all(not r["native"].strip() for r in rows), \
+        ("`abilityReason` rend desormais une raison -- re-brancher la confrontation tuile-par-tuile "
+         + json.dumps([(r["pos"], r["native"]) for r in rows if r["native"].strip()])[:300])
+
+
+# ------------------------------------ GENERALISATION : ce que l'empreinte change EN AVAL du cast
+
+def test_every_foot_blocks_the_dsl_can_add_unit_selector(galatian):
+    """GENERALISATION -- une unite multi-hex posee change ce que les AUTRES abilities peuvent
+    faire. Le noeud DSL `CanAddUnit` (consomme par tous les spawns : GetEmRuntz, SupremeCommander,
+    ScarabSummon...) doit exclure **les TROIS** pieds, pas seulement la main tile : le natif
+    `TileExtensions$$CanAddUnit` lit `TileContentComponent`, et une tuile sous un pied est occupee.
+
+    Sans la lecture par empreinte, deux tuiles sur trois resteraient « libres » cote port et un
+    summon s'y poserait -- une divergence qui ne se voit dans AUCUN test de DutyEternal lui-meme."""
+    from engine.entities.selectors import AllTiles, CanAddUnit
+    from engine.runner.abilities.behaviours import entities_from_state
+    state, diag = _port_cast(galatian)
+    free = set(CanAddUnit(AllTiles()).evaluate(entities_from_state(state, galatian["caster"])))
+    for f in galatian["predicted"]:
+        tid = state.board.id_at(f[0], f[1])
+        assert tid not in free, \
+            f"le pied {f} (tuile {tid}) est vu LIBRE par `CanAddUnit` alors que Galatian l'occupe"
+
+
+def test_footprint_blocks_a_second_three_tile_shape(galatian):
+    """GENERALISATION -- meme predicat, vu par le PRODUCTEUR : une fois Galatian pose,
+    `ThreeUnitSpawnTileShapeSelector$$CorrectArea` ne doit plus accepter AUCUNE aire qui chevauche
+    son empreinte (`CanAddUnit(tile, state, 1, 0, 0)` par tuile de l'aire).
+
+    C'est le scenario que seul le multi-hex distingue : une aire qui ne toucherait QUE `feet[1]` ou
+    `feet[2]` serait acceptee par un port mono-tuile."""
+    from engine.entities.selectors import ThreeTileUnitSpawnShape
+    from engine.entities.selectors import FixedTileIds
+    from engine.runner.abilities.behaviours import entities_from_state
+    state, _diag = _port_cast(galatian)
+    entities = entities_from_state(state, galatian["caster"])
+    feet = set(galatian["predicted"])
+    tested = 0
+    for pos in sorted(state.board.by_coord):
+        tid = state.board.id_at(pos[0], pos[1])
+        if tid is None:
+            continue
+        area = {state.board.coord(t) for t in
+                ThreeTileUnitSpawnShape(FixedTileIds([tid])).evaluate(entities)}
+        assert not (area & feet), \
+            f"aire acceptee en {pos} : {sorted(area)} chevauche l'empreinte {sorted(feet)}"
+        tested += 1
+    assert tested > 10, "balayage trop maigre pour conclure"
 
 
 def test_dynamic_rule_refuses_exactly_when_no_area_exists(galatian):

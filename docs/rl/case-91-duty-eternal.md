@@ -121,11 +121,73 @@ enveloppe un sélecteur de TUILE et rend l'empreinte — l'ability ne recâble r
 
 `IdunBattle.Operations.RemoveMachineOperation$$Execute` (gate `EntityExtensions$$IsMachine`) :
 `RemoveMachineFromPlatform`, remise à zéro d'un champ de la plateforme, **event `0x2e`** portant
-`{0x88: HasFlag(entity, 6)}`, puis `RemoveEffects(entity)`. Côté port, la conséquence
-observable est unique et suffisante : **la MoW ne peut plus caster** (ni `DutyEternal`, ni
-`MacroPlasmaIncinerator`) pour le reste de la bataille — c'est exactement ce que dit l'i2.
+`{0x88: HasFlag(entity, 6)}`, puis `RemoveEffects(entity)`. **Elle ne détruit pas l'entité et ne
+touche NI `ActiveAbilityComponent` NI les PV** : elle DÉTACHE la machine de sa plateforme.
 
-## 7. Ce que le port ne couvre PAS (résidus nommés)
+### Ce que le décompilé ne dit pas — et qu'il a fallu MESURER
+
+Le décompilé donne la mutation ; il ne dit pas ce que le détachement rend **observable**. Deux
+hypothèses plausibles s'affrontaient, et l'une d'elles a été **réfutée** (`probe_91_duty_eternal.py`,
+avec runner de CONTRÔLE) :
+
+| canal | après `RemoveMachine` | verdict |
+|---|---|---|
+| `decisionView.mows` | la MoW est **toujours là**, ses DEUX abilities à `usable: true, hasAmmo: true, cooldown: null` | **ne dit rien du retrait** — cohérent : le projecteur lit `ActiveAbilityComponent`, que l'opération ne touche pas |
+| `observeBattle.units` | la machine est absente | non concluant (une MoW hors plateau n'y est jamais) |
+| `applyAction` → `mutated` | `False` **des deux côtés** | **piège** : 1159 est un poseur d'effets de tuile, il ne change ni position ni PV *même quand il passe* |
+| `applyAction` → **`actionConsumed`** | **`False`** après retrait, **`True`** sur le runner de CONTRÔLE (même fenêtre cooldown/tour ouverte, 1158 jamais casté) | **LE discriminant** |
+
+Conséquence directe sur le port : **éteindre `CanStillBeUsed` / poser `alive = False` sur la MoW
+aurait fabriqué un état natif FAUX** (c'était la première version, réfutée par la mesure). Le port
+pose donc le seul état que l'opération pose (`MachineComponent.removed` + `RemoveEffects`), et le
+REFUS vit là où le natif le rend observable : en tête d'opération d'ability
+(`AbilityHandler.visit_ActiveAbilityMessage`, gate `machine_removed` — même rang et même forme que
+le gate acteur-mort #70 : aucune behaviour, aucun flag de tour, aucun vecteur d'événement).
+
+### `abilityReason` est AVEUGLE à la règle dynamique ici
+
+Même méthode, même surprise, sur la face DÉCISION : `abilityReason({casterId: <MoW>,
+abilityType: 1158, targetId: <tile id>})` rend **`reasons: []` pour les 63 tuiles du board**,
+y compris celles que le natif refuse. Ce n'est donc **pas** un oracle utilisable pour cette règle.
+
+L'oracle est le **cast lui-même** : sur une tuile sans aire valide, `applyAction` rend
+`ok: true, mutated: false, spawned: 0, actionConsumed: false` — le refus silencieux de
+`ActiveAbilityOperation` (case-111) ; sur l'ancre choisie, `mutated: true, spawned: 3`.
+Le port refuse **exactement** les tuiles à aire vide (23 sur 63 dans la mesure MC1_67), avec le
+code littéral `2` = `TargetingRule.TargetMatchesDynamicRule`.
+
+`test_ability_reason_is_blind_to_the_dynamic_rule_here` verrouille ce constat : **s'il échoue un
+jour, c'est une bonne nouvelle** (le canal s'est mis à rendre la raison, et la confrontation
+tuile-par-tuile — plus fine que le cast — redevient possible).
+
+## 7. Validation
+
+**20 tests live** dans `scripts/python/tests/engine/runner/test_multihex_dutyeternal_live.py`
+(les 7 de R30 — inchangés et toujours verts — plus 13 neufs), **18 tests offline** dans
+`test_multihex_substrate.py`, et le probe de mesure `scripts/python/probe_91_duty_eternal.py`.
+
+**Vues rouges confirmées** — chaque mutation fait tomber exactement le(s) test(s) censé(s) la voir :
+
+| mutation | tests qui tombent | chiffre |
+|---|---|---|
+| `spawn_as_single_unit=False` | `..._spawns_one_unit_on_the_whole_footprint`, `..._matches_native_footprint` | port `[(1,2)]` vs natif `[(1,2), (2,1), (2,2)]` |
+| `AddTrait(Stationary)` → un autre trait | `..._grants_the_stationary_trait` | traits du summon sans `Stationary` |
+| règle dynamique → `return 0` | `..._refuses_exactly_when_no_area_exists`, `..._reason_is_blind...` | `(0,0)` sans aire : port rend 0 au lieu de 2 |
+| `RemoveMachine` retiré de l'arbre | `..._removes_the_machine`, `..._gate_refuses_any_cast...` | `machine_removed` absent |
+| `CanAddUnit` ignore les pieds | `..._every_foot_blocks_the_dsl_can_add_unit_selector` | pied `(2,1)` (tuile 31) vu LIBRE |
+| `ThreeTileUnitSpawnShape` ignore les pieds | `..._footprint_blocks_a_second_three_tile_shape` | aire `[(2,1),(2,2),(3,2)]` acceptée sur l'empreinte |
+
+**Généralisation craftée** (ce que l'empreinte change EN AVAL du cast, hors de DutyEternal
+elle-même) : une fois Galatian posé, ni le nœud DSL `CanAddUnit` — consommé par TOUS les spawns
+(GetEmRuntz, SupremeCommander, ScarabSummon…) — ni le producteur `ThreeTileUnitSpawnShape` ne
+doivent accepter une seule des trois tuiles. Les deux mutations ci-dessus montrent que c'est bien
+`feet` (et non `pos`) qui les en empêche.
+
+**Non-régression re-jouée** : `test_summon_spawn_live` + `test_mow_caster_load_live` +
+`test_mow_effect_posers_live` (16), `test_summon_ability_ports_live` +
+`test_mow_targeting_predicate_live` (9), `test_multihex_substrate` (18). Tous verts.
+
+## 8. Ce que le port ne couvre PAS (résidus nommés)
 
 * **`AddTriggeredAbility` conditionnel** — le bloc est porté (structure lue), mais sa branche
   n'est **atteignable que si le caster porte au moins une triggered ability**. Le seul candidat
@@ -138,3 +200,21 @@ observable est unique et suffisante : **la MoW ne peut plus caster** (ni `DutyEt
   un plateau à power-ups).
 * **L'event `0x2e` de `RemoveMachineOperation`** et son tag `0x88` ne sont pas matérialisés : le
   port n'a pas de bus d'events de plateforme MoW.
+* **Le CONTRÔLE POSITIF du refus de cast** (MoW *non* retirée → `actionConsumed = True`) vit dans
+  le **probe**, pas dans le test : le rejouer dans le test coûterait un second runner par passe.
+  C'est lui qui établit la causalité ; le test ne garde que le verdict.
+* **`AetherStride` (1208, `thousDaemonPrince`)** — l'autre consommateur de
+  `ThreeTileUnitSpawnShape` — profite désormais de tout le substrat *et* du producteur, mais son
+  porteur est hors seed BC (voie `catalog_inject`) : **non exercé**, donc non porté ici.
+
+## 9. Ce que ce cas ferme, au-delà de l'ability
+
+* **R30 §6.3** (`HasTrait(0x418)` non reproduit dans `movement_query.get_movable_positions_for`) :
+  **FERMÉ**. Le gate n'était pas porté faute de porteur du trait dans l'état du port — or
+  `AddTrait(ActiveTarget, 0x418)` en crée un. Le gate est désormais en tête de fonction, mirror du
+  natif, lisant les traits à la source unique (`StatsComponent.ctx.traits`).
+* **L'occupance par pied dans les nœuds DSL** : `CanAddUnit` raisonnait sur `pos`, pas sur
+  l'empreinte. Inerte tant qu'aucune unité multi-hex n'existait dans l'état du port — donc un
+  faux-négatif qui se serait réveillé silencieusement au premier `DutyEternal`.
+* **`_unit_dict` expose `feet`** (mirror `EntityExtensions$$GetTiles`, toujours une liste, jamais
+  `None`) : c'est la porte d'entrée des sélecteurs DSL sur l'empreinte, qui n'existait pas.
