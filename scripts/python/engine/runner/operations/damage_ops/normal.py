@@ -184,6 +184,18 @@ class _Normal:
         if tp is not None:
             from ..triggers.dispatch import pre_attack_triggers   # lazy : cycle damage<->triggers
             pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
+        # #227 SNAPSHOT DES ENTREES D'ETAT DU GATE `LetTheGalaxyBurn`, pris ICI = juste apres
+        # `On(PreAttack=5)` et AVANT le premier coup. C'est l'etat que le natif voit : la tuile de la
+        # cible est FIGEE par `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`
+        # (`AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`, cf. `_target_tiles`
+        # ci-dessus), donc les status-effects qu'une SOUS-OPERATION de cette meme attaque pose en
+        # cours de route (ex. `FleshMetalGuns_TileEffectAbility` sur `On(0x10 = DamageDealt)`, #85)
+        # ne l'arment PAS. Lire la tuile au moment du canal #179 (apres la boucle d'arme) armait le
+        # coup la ou le natif ne l'arme pas -- MESURE : montage `case-159` WarpHail seeds 12345 et
+        # 31337, live 6 coups d'arme + 2 coups du cycle, offline 6 + 1 + 2.
+        _ltgb_tfx = (tile_status_effects_by_pos(state, [(tp.col, tp.row)])
+                     if tp is not None else None)
+        _ltgb_pd = persistent_data_keys(att)
         if ap is not None and tp is not None:
             _board, _auras, _tgt_eff = build_hits_board(
                 state, attacker_id, target_id, (ap.col, ap.row), (tp.col, tp.row), is_melee=not _ranged)
@@ -390,9 +402,8 @@ class _Normal:
                 # (`HasTileStatusEffect`) et le flag pose par `On(PreAttack=5)` juste au-dessus.
                 attack_hit_damage=(int(ctx.stat(StatType.ATTACK)), int(ctx.stat(StatType.ATTACK))),
                 t_pos=(tp.col, tp.row) if tp is not None else None,
-                tile_effects_by_pos=(tile_status_effects_by_pos(state, [(tp.col, tp.row)])
-                                     if tp is not None else None),
-                persistent_data=persistent_data_keys(att)),
+                # snapshot PRE-attaque (cf. le bloc `_ltgb_tfx` plus haut) : la tuile figee.
+                tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
             # profil de l'ATTAQUE : ce qu'emprunte un groupe dont le `profileType` est NULL.

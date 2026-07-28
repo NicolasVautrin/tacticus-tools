@@ -350,6 +350,14 @@ class _AbilityAttack:
         _hits_floor = min(1, int(hits))
         _ap_h = att.get_component(PositionComponent) if att is not None else None
         _tp_h = tgt.get_component(PositionComponent)
+        # #227 SNAPSHOT DES ENTREES D'ETAT DU GATE `LetTheGalaxyBurn` — pris ICI, juste apres
+        # `On(PreAttack=5)` et AVANT le premier coup (MEME position que la facade normale). La tuile
+        # de la cible est FIGEE par `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`
+        # : un status-effect pose PENDANT l'attaque (`FleshMetalGuns_TileEffectAbility` sur
+        # `On(0x10 = DamageDealt)`, #85) n'arme donc PAS le coup. Cf. `damage_ops/normal.py`.
+        _ltgb_tfx = (tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)])
+                     if _tp_h is not None else None)
+        _ltgb_pd = persistent_data_keys(att)
         if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
             _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
             _board_h, _auras_h, _tgt_eff_h = build_hits_board(
@@ -490,11 +498,10 @@ class _AbilityAttack:
                     # `ExecuteHit`, pas sur l'AttackData enregistree).
                     attack_hit_damage=(int(base_min), int(base_max)),
                     t_pos=(_tp_h.col, _tp_h.row) if _tp_h is not None else None,
-                    tile_effects_by_pos=(tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)])
-                                         if _tp_h is not None else None),
-                    # `IsPersistentData` : `On(PreAttack=5)` EST emis par ce vecteur (famille ATTACK,
-                    # cf. plus haut) -> les DEUX branches du gate sont armables ici.
-                    persistent_data=persistent_data_keys(att)),
+                    # snapshot PRE-attaque (cf. le bloc `_ltgb_tfx` plus haut). `IsPersistentData` :
+                    # `On(PreAttack=5)` EST emis par ce vecteur (famille ATTACK, cf. plus haut) ->
+                    # les DEUX branches du gate sont armables ici.
+                    tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd),
                 mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
                 extra_pierce=ctx.extra_pierce,
                 attack_profile=damage_profile,

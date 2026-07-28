@@ -135,6 +135,25 @@ tuile à status-effect : sur-prédiction d'un coup entier. Corrigé.
 | gate threadé dans `attack_hits_with_modifiers` (`tile_effects_by_pos`, `attacker_persistent_data`) | gate threadé dans `collect_additional_hit_groups` (`t_pos`, `tile_effects_by_pos`, `persistent_data`) **+** `attack_hit_damage` |
 | — | `execute_additional_hits` : `profile is None` → profil de l'attaque (`attack_profile`) ; groupes sans profil exécutés **en premier** |
 
+### 3.1 QUAND le gate est évalué — un piège révélé par le re-jeu après rebase
+
+Les entrées du gate (`tile_effects_by_pos`, `persistent_data`) sont **figées juste après
+`On(PreAttack = 5)`**, avant le premier coup, et ce snapshot est passé au canal #179 — et non relues
+au moment de la collecte des groupes (qui, elle, a lieu après la boucle d'arme).
+
+C'est ce que voit le natif : la tuile de la cible est **gelée** par
+`IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`
+(`AbilityEntities@+0x38 = EntityExtensions.GetTiles(finalTarget)`, déjà mirroré par `_target_tiles`,
+#120bis). Un status-effect posé **pendant** l'attaque par une sous-opération de la même attaque —
+typiquement `FleshMetalGuns_TileEffectAbility` sur `On(0x10 = DamageDealt)`, porté par `#85` — n'arme
+donc **pas** le coup.
+
+**Mesure** (montage `case-159` WarpHail, `blackObliterator`, seeds 12345 et 31337) : live = 6 coups
+d'arme + 2 coups du cycle ; en relisant la tuile tardivement, le port produisait 6 + **1** + 2. Avec
+le snapshot pré-attaque : offline == live, 5/5 sur
+`test_additional_hits_amount_bounds_live.py`. Ce montage n'était discriminant qu'**après** l'arrivée
+de `#85` sur `master` — d'où l'importance du re-jeu post-rebase.
+
 `attack_hit_damage` = le `HitDamage` BRUT de l'attaque : `(ATTACK, ATTACK)` sur le vecteur normal
 (`damage_ops/normal.py`), `(base_min, base_max)` **avant max-out** sur le vecteur ability
 (`damage_ops/ability.py` — le natif applique `IsAttackMaxOutDamage` dans `ExecuteHit`, pas sur
