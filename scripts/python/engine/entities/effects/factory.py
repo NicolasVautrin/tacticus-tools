@@ -25,6 +25,7 @@ from .loki import (
     BlessingsOfKhorneModifiersEffect,
     ContaminatedEffect,
     ContaminatedUnitEffect,
+    ContagionsOfNurgleArmorReductionEffect,
     DespoiledGroundEffect,
     DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
@@ -518,6 +519,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # tant que non mesure live (present mais inerte-stat). Pose par le vecteur tile-effect ContaminatedTileEffect
     # (#128, triggers.py). Nom capte = effect-type-names.ts:368.
     "Contaminated_Unit": ContaminatedUnitEffect,
+    # ContagionsOfNurgle_ArmorReduction1/2 (0x42f=1071 / 0x430=1072) : les DEUX instances de
+    # `ContagionsOfNurgle_ArmorReduction_Effect` (une aura / deux-ou-plus). Debuff FixedArmor (=16),
+    # magnitude = variable de trait (-20 / -40 %), materialisee en DELTA PLAT par le vecteur poseur
+    # `operations/triggers/loki/contagions_of_nurgle.py` (case-dpw). Noms captes = effect-type-names.
+    "ContagionsOfNurgle_ArmorReduction1": ContagionsOfNurgleArmorReductionEffect,
+    "ContagionsOfNurgle_ArmorReduction2": ContagionsOfNurgleArmorReductionEffect,
     # Contaminated (0x4dc=1244) : l'effet de TUILE lui-meme. Porte pour son point d'extension
     # IMMUNITE (`ContaminatedEffect$$EntityIsImmuneToEffect` : ContagionsOfNurgle | Mechanical |
     # base) — canal unique consulte par le gate de `AddEffectOperation` ET par le vecteur

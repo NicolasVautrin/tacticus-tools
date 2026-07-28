@@ -136,6 +136,17 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
     # ETAGE ARMURE du DEFENSEUR, decompose : ce que le snapshot porte, ce que l'ECS rend apres
     # rechargement, et ce que le foyer `defender_fixed_armor` rend au moment de l'attaque.
     from engine.runner.damage_model import defender_fixed_armor
+    from engine.runner.components import PositionComponent, UnitComponent
+    ents = []
+    for uid, ent in st.entities.items():
+        _p = ent.get_component(PositionComponent)
+        _u = ent.get_component(UnitComponent)
+        _s = ent.get_component(StatsComponent)
+        ents.append({"id": uid, "vis": getattr(_u, "visual_id", None),
+                     "alive": getattr(_u, "alive", None),
+                     "pos": (_p.col, _p.row) if _p is not None else None,
+                     "fixed_armor": int(_s.ctx.stat(StatType.FIXED_ARMOR)) if _s is not None else None,
+                     "attack": int(_s.ctx.stat(StatType.ATTACK)) if _s is not None else None})
     te = st.get_entity(tid)
     tsc = te.get_component(StatsComponent) if te is not None else None
     tgt_arm = {"ctx_fixed_armor": int(tsc.ctx.stat(StatType.FIXED_ARMOR)) if tsc is not None else None,
@@ -145,7 +156,7 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
                if st.effects is not None else []}
     return {"rolls": rolls, "cell": cell.get("weapon"), "cell_crit": cell.get("weapon_crit"),
             "cells": cell.get("all"), "tgt_arm": tgt_arm, "red_args": red_args,
-            "target": last.get("target"),
+            "target": last.get("target"), "entities": ents, "tid": int(tid),
             "attack": int(sc.ctx.stat(StatType.ATTACK)) if sc is not None else None,
             "pierce": last.get("pierce"), "armor": last.get("armor"),
             "per_hit": list(last.get("per_hit") or []),
@@ -219,6 +230,25 @@ def _run_seed(rpc, seed, args):
             "captureEvents": True}, 120)
         rng1 = rpc("dumpRng", {"runnerId": rid}, 30)
         n_native = _genrand_steps(rng0, rng1)
+        dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+
+        def _roster(_dv, _snap):
+            """(id, visualId, position, FixedArmor, effets) AVANT/APRES -- c'est l'etage qui compte :
+            le re-routage `SwornProtector` (#120bis) DEPLACE des unites PENDANT l'attaque, donc
+            l'armure du defenseur REEL peut changer entre le snapshot et la resolution."""
+            arm = {u.get("entityId"): (u.get("stats") or {}).get("fixedArmor")
+                   for u in (_snap.get("units") or [])}
+            out = []
+            for u in (_dv.get("units") or []):
+                p = u.get("pos") or {}
+                out.append({"id": u.get("id"), "vis": u.get("visualId"),
+                            "pos": [p.get("col"), p.get("row")],
+                            "alive": u.get("alive"),
+                            "fixedArmor": arm.get(u.get("id")),
+                            "eff": [e.get("effectType") for e in (u.get("effects") or ())]})
+            return out
+        roster_before, roster_after = _roster(dv, snap), _roster(dv2, snap2)
         rows = []
         for act in (res.get("actions") or []):
             for ev in (act.get("events") or []):
@@ -242,6 +272,7 @@ def _run_seed(rpc, seed, args):
         tgt_sms = next((u for u in (sms.get("units") or []) if u.get("entityId") == tid
                         or u.get("unitId") == tid), None)
         return {"seed": seed, "live": live, "off": off, "moved": moved, "n_native": n_native,
+                "roster_before": roster_before, "roster_after": roster_after,
                 "raw": _raw_stream(rng0, 6),
                 "cst_full": cst_snap, "tgt_full": tgt_snap,
                 "cst_stats": (cst_snap or {}).get("stats"),
@@ -291,7 +322,10 @@ def main():
         print("   cellules        = %s" % (off["cells"],))
         print("   armure cible    = %s" % json.dumps(off["tgt_arm"]))
         print("   args reduction  = %s" % json.dumps(off["red_args"]))
-        print("   cible attaquee  = %s (msg tid) " % (off["target"],))
+        print("   cible attaquee  = %s (msg tid = %s)" % (off["target"], off["tid"]))
+        print("   entites ECS     = %s" % json.dumps(off["entities"]))
+        print("   roster AVANT    = %s" % json.dumps(row["roster_before"]))
+        print("   roster APRES    = %s" % json.dumps(row["roster_after"]))
         if args.dump_stats:
             print("   snapshot att.   = %s" % json.dumps(row["cst_full"])[:1600])
             print("   snapshot cible  = %s" % json.dumps(row["tgt_full"])[:1600])
