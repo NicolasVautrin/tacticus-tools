@@ -71,7 +71,8 @@ from ...entities.damage_profile_type import DamageProfileType
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import UnitComponent, ShieldComponent, UnitFlagsComponent, unit_is_dead
+from ..components import (UnitComponent, ShieldComponent, UnitFlagsComponent, unit_is_dead,
+                          can_be_overkilled, unit_prevents_overkill)
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
                                  defender_effect_block_sources)
 from .damage_hits import HitDamage, _DamageHitsMixin
@@ -226,18 +227,29 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import (after_death_triggers, is_overkill, unit_defeated_triggers,
+        from .triggers import (after_death_triggers, unit_is_overkill, unit_defeated_triggers,
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
-        overkill = is_overkill(hp_before, damage)
+        # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
+        # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
+        # `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` : elle applique DEUX gates
+        # d'unite AVANT la formule (`CanBeOverkilled` = pas de trait Steppable, et `HasFlag(target, 0x13)`
+        # = `UnitFlag.PreventOverkill`). Le port appelait ici un doublon 2-args qui les avait perdus : il
+        # declarait « overkill » des `dmg >= 2*PV`, y compris sur une cible que le natif refuse d'overkiller.
+        overkill = unit_is_overkill(
+            hp_before, damage,
+            can_be_overkilled=can_be_overkilled(tgt),
+            prevent_overkill=unit_prevents_overkill(state, target_id))
         # `UnitFlag.Overkilled (8)` — le natif le pose dans `IdunBattle.Operations.ApplyDamageOperation$$
         # Execute+0x17d5` (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` : le `mov edx,8`
         # precede immediatement le call a `IdunBattle.Entities.Components.UnitFlagsComponent$$Add`), donc
-        # AVANT le kill. Cote port l'overkill n'est resolu qu'ici (`is_overkill(hp_before, damage)`, meme
-        # regle que les gates on-death deja portes) -> on pose le flag ICI, en tete de la sequence de mort
-        # et AVANT tout vecteur `On(...)`. DIVERGENCE D'ORDRE NOMMEE : un consommateur natif qui lirait le
-        # flag ENTRE l'application du degat et le kill le verrait plus tot ; aucun consommateur porte n'est
-        # dans cette fenetre (`DoomSiren` lit le flag APRES tout son volet d'attaque).
+        # AVANT le kill. Cote port l'overkill n'est resolu qu'ici -> on pose le flag ICI, en tete de la
+        # sequence de mort et AVANT tout vecteur `On(...)`. DIVERGENCE D'ORDRE NOMMEE : un consommateur
+        # natif qui lirait le flag ENTRE l'application du degat et le kill le verrait plus tot ; aucun
+        # consommateur porte n'est dans cette fenetre (`DoomSiren` lit le flag APRES tout son volet
+        # d'attaque). DIVERGENCE DE GRANULARITE NOMMEE (pre-existante) : le natif calcule `didOverkill`
+        # PAR COUP dans `CalculateDamageOperation` ; le port n'a qu'un chokepoint PAR ATTAQUE
+        # (`_apply_damage_pipeline`), donc `hp_before`/`damage` sont ceux de l'attaque entiere.
         if overkill:
             fl = tgt.get_component(UnitFlagsComponent) if tgt is not None else None
             if fl is None and tgt is not None:

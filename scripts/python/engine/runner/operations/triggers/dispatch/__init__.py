@@ -35,17 +35,18 @@ fichiers en dependent). Une FACE par sous-module :
   - `move_death` : vecteurs mouvement, kill, mort, revive, resurrection ;
   - `turn`       : tile-tick, debut et fin de tour.
 
-`OVERKILL_PCT_KEY` et `is_overkill` ont quitte ce fichier pour
-`engine/services/damage_prediction.py` (mirror de
-`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` -- notion de DEGAT, pas de
-dispatch). Ils restent re-exportes ici : `triggers/__init__.py` les expose.
+`OVERKILL_PCT_KEY` et la famille `IsOverkill` ont quitte ce fichier pour
+`engine/services/` (notion de DEGAT, pas de dispatch). #178 : le FOYER UNIQUE est
+`services/trait_damage_limits.py` (`is_overkill` = surcharge 7-args privee,
+`unit_is_overkill` = surcharge d'INSTANCE, celle du chemin COMBAT) ; ils restent
+re-exportes ici via `services/damage_prediction.py` : `triggers/__init__.py` les expose.
 
 Les 4 registres sont re-exportes par VALEUR (meme objet dict) : une MUTATION faite par
 un consommateur externe porte ; un REBIND ne porterait pas -- aucun site connu n'en fait.
 """
 from __future__ import annotations
 
-from .....services.damage_prediction import OVERKILL_PCT_KEY, is_overkill
+from .....services.damage_prediction import OVERKILL_PCT_KEY, is_overkill, unit_is_overkill
 from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
                        EFFECT_TRIGGERS)
 from .core import (collect_triggered_abilities, collect_effect_triggers,
@@ -67,7 +68,7 @@ from .turn import (tile_tick_triggers, start_turn_triggers, turn_start_other_tri
                    PILEIN_MIN_OWNER_TURNS, end_turn_summon_triggers)
 
 __all__ = [
-    "OVERKILL_PCT_KEY", "is_overkill",
+    "OVERKILL_PCT_KEY", "is_overkill", "unit_is_overkill",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "_trigger_phase_component", "_squighound_after_attack", "unit_blocked_triggers",

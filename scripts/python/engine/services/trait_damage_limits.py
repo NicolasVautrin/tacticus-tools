@@ -202,9 +202,32 @@ def apply_impervious_trait_damage_limit(dmg: int, target_has_impervious: bool,
 
 def is_overkill(current_health: int, damage: int, default_flag: int,
                 allow_flag: int, suppress: int, cond: int, threshold_pct: int) -> int:
-    """IdunBattle.Core.Services.DamagePrediction$$IsOverkill : le degat depasse-t-il la sante d'un ratio > seuil ?
-    (param_1=currentHealth, param_2=damage, param_7=threshold%). Simplifie : renvoie 1 si overkill
-    au-dela du seuil, sinon default/0. (Gate `cond`=param_6 ; `suppress`=param_5.)"""
+    """`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — **surcharge PRIVEE 7-args** (celle qui
+    porte la FORMULE). Le degat depasse-t-il la sante d'un ratio >= seuil ?
+    (param_1=currentHealth, param_2=damage, param_7=threshold%). Renvoie 1 si overkill au-dela du seuil,
+    sinon `default_flag`/0. (Gate `cond`=param_6 ; `suppress`=param_5 ; `allow_flag`=param_4 = « des que
+    letal, overkill ».)
+
+    ⚠ TROIS surcharges natives homonymes existent, et c'est CE corps que les trois atteignent :
+      * la 7-args PRIVEE (ci-dessous)  <- LE calcul ;
+      * la surcharge d'INSTANCE `(this, target, damage, extraDamage, default, allow, healthOverride)`,
+        qui ajoute les GATES d'unite avant de deleguer ici -> portee par `unit_is_overkill` ;
+      * une surcharge mince `(this, currentHealth, damage, default, allow, suppress)` qui ne fait que
+        resoudre `cond`/`threshold` depuis la config DI (`this+0x10 @+0x30/@+0x34`) et deleguer ici.
+    FOYER UNIQUE (case #178) : il n'y a plus qu'UN corps de `IsOverkill` cote port. L'ancien doublon
+    2-args de `services/damage_prediction.py` etait la surcharge d'INSTANCE **prive de ses trois gates**
+    (`CanBeOverkilled`, `PreventOverkill`, `allow_flag`) -- il ne voyait donc jamais qu'un cas particulier.
+
+    `cond`/`threshold_pct` sont les DEUX MOITIES d'UN `Nullable<int>` (hasValue, value) -- lecture
+    verbatim des trois appelants : `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill` et
+    `IdunBattle.Core.Services.DamagePredictionResult$$MightBeOverkill` passent `HasValue(result@+0xb4)`
+    puis `GetValueOrDefault(result@+0xb4)` ; la surcharge d'instance passe `cfg@+0x30` puis `cfg@+0x34`.
+    Seuil NUL => `cond` faux => JAMAIS d'overkill. Un 8e argument (autre `Nullable<int>`, un override
+    global) court-circuite tout le corps quand il porte une valeur >= 1 : 0 offline (cf.
+    `_overkill_threshold_pct`).
+
+    `current_health > 0` = garde de port (le natif divise par `param_1` en Fix64 ; PV<=0 n'atteint jamais
+    ce chemin, la cible etant deja morte)."""
     if not cond:
         return 0
     if damage >= current_health:
@@ -215,6 +238,69 @@ def is_overkill(current_health: int, damage: int, default_flag: int,
         if damage >= current_health:
             return default_flag if pct < threshold_pct else 1
     return 0
+
+
+def unit_is_overkill(current_health: int, damage: int, *,
+                     can_be_overkilled: bool = True, extra_damage: int = 0,
+                     prevent_overkill: bool = False, default_flag: int = 0,
+                     allow_flag: int = 0, cond: int = 1) -> bool:
+    """`IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — **surcharge d'INSTANCE**
+    `(this, IEntity target, int damage, int extraDamage, bool default, bool allow, Nullable<int>
+    healthOverride)`. C'est LA porte du chemin COMBAT : son corps est INLINE dans
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation`, dont le resultat est ecrit en
+    `didOverkill` du `DamageAppliedResult` (@+0x13) et consomme par
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute+0x17d5` -> `UnitFlagsComponent.Add(target, 8)`
+    (= `UnitFlag.Overkilled`, lu par le noeud DSL `IdunBattleLogic.Entities.DSLFactory$$TargetIsOverkilled`
+    = `HasFlagAbilityTrigger(target, 8)`).
+
+    Mirror du corps natif, dans l'ordre :
+
+        if (!UnitExtensions.CanBeOverkilled(target)) return false;      // trait Steppable 0x1b
+        damage += extraDamage;
+        currentHealth = UnitExtensions.GetStat(target, Health = 5);
+        if (healthOverride.HasValue) { ... }                            // cf. RESIDU ci-dessous
+        suppress = UnitExtensions.HasFlag(target, 0x13);                // UnitFlag.PreventOverkill = 19
+        return IsOverkill(currentHealth, damage, default, allow, suppress, cfg@+0x30, cfg@+0x34);
+
+    `cond`/`threshold_pct` = les deux moities du `Nullable<int>` de config DI
+    (`DamagePrediction+0x10`, hasValue@+0x30 / value@+0x34) : `cond` = 1 en bataille reelle (VERDICT RE,
+    cf. `_overkill_threshold_pct`), seuil = le MEME global `overkillDmgPctOfHealth`
+    (=100 -> overkill ssi `dmg >= 2*PV`).
+
+    Les DEUX lectures d'entite du natif arrivent ici en booleens deja resolus, parce que `services/` ne
+    connait pas les entites du runner -- leurs mirrors vivent avec les autres `UnitExtensions`
+    (`runner/components.py`) : `can_be_overkilled` = `IdunBattle.Entities.UnitExtensions$$CanBeOverkilled`,
+    `prevent_overkill` = `UnitExtensions.HasFlag(target, 0x13)`.
+
+    Les deux gates sont ATTEINTS, pas decoratifs :
+      * `prevent_overkill` -- MESURE LIVE (#178, `probe_178_overkill_gate.py --case titus`) : `ultraTitus`
+        porte `FuelledByFury_BlockOverkill` des le deploiement ; 1452 de degat sur 400 PV le TUE sans le
+        marquer overkill, la ou la MEME attaque sur `genesPrimus` (400 PV) le marque. Le corps 2-args
+        supprime repondait « overkill » dans les DEUX cas.
+      * `can_be_overkilled` -- port du gate natif, mais QUIESCENT en pratique : les porteurs `Steppable`
+        mesures (`genesSmnDecoy`, objets de terrain npc) ont `hpMax == 0` et naissent `isDead`, donc le
+        chokepoint de mort ne les atteint pas (`hp_before <= 0` -> pas de sequence de mort). Le gate est
+        porte parce que le natif le porte, pas parce qu'un scenario le distingue aujourd'hui.
+
+    RESIDUS NOMMES (champs du `DamageData` natif que le port ne transporte pas jusqu'ici) :
+      * `healthOverride` (`Nullable<int>`) : branche de PREDICTION contre une sante hypothetique
+        (`damage += (v - hp) + unitComponent@+0x24 ; hp = v`). Offline le Nullable est TOUJOURS vide ->
+        branche non prise, no-op fidele.
+      * `default_flag` (`DamageData@+0x1c`) / `allow_flag` (`DamageData@+0x2c`) : le chokepoint porte
+        (`AttackDamageOperation._fire_death_if_killed`) ne recoit pas le struct de degat -> 0/0. Le seul
+        porteur connu d'un flag « always overkilled » est `FlailSwing` (1042), dont le port cable deja
+        `force_overkill` sur l'AUTRE consommateur du flag (le cap Resilient d'
+        `ApplyTraitDamageLimitsToDamage`) ; le cabler AUSSI ici demanderait de faire descendre le flag
+        jusqu'au chokepoint de mort -- residu documente, pas une deviation silencieuse."""
+    if current_health is None or damage is None:
+        return False                      # garde de port : le natif n'a jamais de degat/PV nul
+    if not can_be_overkilled:
+        return False
+    total = int(damage) + int(extra_damage)
+    return bool(is_overkill(current_health=int(current_health), damage=total,
+                            default_flag=default_flag, allow_flag=allow_flag,
+                            suppress=1 if prevent_overkill else 0, cond=cond,
+                            threshold_pct=_overkill_threshold_pct()))
 
 
 def _overkill_threshold_pct() -> int:

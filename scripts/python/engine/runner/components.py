@@ -445,6 +445,15 @@ class UnitFlagsComponent(Component):
                                 # `ResurrectUnitOperation` (Add 0xe), testé `Not(HasFlag 0xe)` par les 2 triggers
                                 # Ambush → résurrection one-shot. PERMANENT : survit à `remove_turn_flags` (pas un
                                 # flag de tour), donc re-mourir ne re-déclenche PAS une 2e résurrection.
+    PREVENT_OVERKILL = 19       # flag 0x13 (`UnitFlag.PreventOverkill`, enums.tsv) — pose par
+                                # `IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$
+                                # ApplyInternal` (`UnitFlagsComponent.Add(u, 0x13)`) et retire par son
+                                # `$$RevertInternal`. Lu par la surcharge d'INSTANCE de
+                                # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` (`suppress`) :
+                                # tant qu'il est pose, la cible ne peut pas etre overkillee (ultraTitus,
+                                # i2 « the first time each turn that Titus is defeated he cannot be
+                                # Overkilled »). Offline il est DERIVE de l'effet porteur — cf.
+                                # `unit_prevents_overkill`.
     TURN_FINISHED_FORCED = 27   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):
@@ -1037,6 +1046,73 @@ def charged_unit_ids(state, unit_id: int) -> set:
     e = state.get_entity(unit_id)
     uc = e.get_component(UnitComponent) if e is not None else None
     return set(int(i) for i in (uc.charged_unit_ids or ())) if uc is not None else set()
+
+
+def can_be_overkilled(entity) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$CanBeOverkilled` = `!BaseUnitComponent.HasTrait(u, 0x1b)`
+    (0x1b = 27 = `UnitTrait.Steppable`) ; unite SANS `BaseUnitComponent` -> True (le natif retourne 1
+    quand `GetBaseUnitComponent` rend null). C'est le PREMIER gate de la surcharge d'instance de
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` : une unite Steppable n'est JAMAIS overkillee,
+    quel que soit le degat.
+
+    Porteurs Steppable ATTEIGNABLES en runner (donc gate vivant, pas du code mort) : les DEUX summons
+    `astarSmnHaywireMine` (Cyrus) et `genesSmnDecoy` -- ce dernier est pose par `Ambush_SummonAbility`
+    a la mort de tout porteur du trait `Ambush` (genesPrimus/genesKelermorph/genesMagus/genesBiophagus,
+    tous dans le pool) --, plus les objets de terrain npc (loot/powerups).
+
+    Les noms de traits viennent de `StatsComponent.ctx.traits` (NOMS gameconfig), meme convention que
+    tous les `HasTrait(target, ...)` portes ; ctx absent -> pas de trait connu -> True (degradation
+    fidele : le natif rend True quand le composant de base manque)."""
+    from ..entities.traits.unit_trait import UnitTrait, has_trait
+    if entity is None:
+        return True
+    sc = entity.get_component(StatsComponent)
+    traits = getattr(getattr(sc, "ctx", None), "traits", None) if sc is not None else None
+    return not has_trait(traits, UnitTrait.Steppable)
+
+
+PREVENT_OVERKILL_EFFECT = 1354      # `EffectType.FuelledByFury_BlockOverkill` (0x54a)
+
+
+def unit_prevents_overkill(state, unit_id) -> bool:
+    """`UnitExtensions.HasFlag(target, 0x13)` — le `suppress` de la surcharge d'instance de
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` (`UnitFlag.PreventOverkill`, cf.
+    `UnitFlagsComponent.PREVENT_OVERKILL`).
+
+    Le flag est LU ici et DERIVE de l'effet qui le pose. Le binaire n'a qu'UN couple ecrivain, et il
+    ENCADRE exactement la duree de vie de l'effet :
+      * `IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$ApplyInternal`
+        -> `UnitFlagsComponent.Add(target, 0x13)` ;
+      * `IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$RevertInternal`
+        -> `UnitFlagsComponent.Remove(target, 0x13)`.
+    (Recherche litterale au decompile : `UnitFlagsComponent__Add(...,0x13,0)` n'a QUE cette occurrence.)
+    L'effet lui-meme est active/desactive par ses propres triggers
+    (`...$$CreateHandleTriggerAbilitiesInternal` : `On(0x21)&OwnerIsActor -> ActivateEffect`,
+    `On(0x12) -> ActivateEffect`, `On(0x2e)&OwnerIsTarget -> DeactivateEffect`) -> le flag vaut
+    exactement « une instance ACTIVE de l'effet 1354 est portee ». Offline, `EffectsState.active_effects`
+    applique DEJA le meme couple flag `EffectComponent.IsActive` + `CreateActiveCondition` : la
+    derivation est donc le MEME invariant, pas une approximation (meme schema que
+    `group_unit_stat_part`, qui derive le champ « membres restants » de l'etat PV).
+
+    Le composant reste interroge en PREMIER pour tout futur poseur imperatif du flag.
+
+    MESURE LIVE (#178) : `ultraTitus` (i2 << The first time each turn that Titus is defeated he cannot
+    be Overkilled >>) porte `FuelledByFury_BlockOverkill` des le deploiement ; un coup de 1452 sur
+    400 PV le TUE sans le marquer overkill (le crescendo de son tueur ne monte pas), la ou la MEME
+    attaque sur `genesPrimus` (400 PV) le marque."""
+    entity = state.get_entity(int(unit_id)) if state is not None else None
+    if entity is None:
+        return False
+    fl = entity.get_component(UnitFlagsComponent)
+    if fl is not None and fl.has(UnitFlagsComponent.PREVENT_OVERKILL):
+        return True
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return False
+    hc = entity.get_component(HealthComponent)
+    return any(int(getattr(e, "effect_type", -1) or -1) == PREVENT_OVERKILL_EFFECT
+               for e in eff.active_effects(int(unit_id),
+                                           {"hp": hc.hp if hc is not None else None}))
 
 
 def unit_is_dead(entity) -> bool:
