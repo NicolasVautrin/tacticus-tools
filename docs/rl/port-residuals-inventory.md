@@ -102,7 +102,7 @@
 | kits lineup **COMPLETS** | 22 | **28** | +6 |
 | kits **avec du travail** | 101 | **95** | −6 |
 | items manquants (kit-coverage) | 139 | **126** | −13 |
-| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **40 sur 91** (après #181) | **−35 — la tendance s'INVERSE** |
+| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **38 sur 94** (après #222 item 1) | **−37 — la tendance s'INVERSE** |
 | registre **sans `ABILITY_ATTACK_TYPE`** | 3 (constaté le 2026-07-27 au matin) | **0 sur 83** | **fermé** |
 | passifs **portés** | 46 | **54** | +8 |
 | passifs **gap** | 150 | **142** | −8 |
@@ -115,8 +115,8 @@ Necrons/Orks/Votann/GenestealerCults, **`#181` 13 Ultramarines/Sisterhood/Tyrani
 AdMec/BloodAngels**, plus les masques posés en même temps que chaque nouveau port).
 `ABILITY_ATTACK_TYPE` est à **zéro manquant** : la garde `probe_120` étape 0 passe au commit courant.
 
-> **Re-dérivé au 2026-07-28, APRÈS #181** (`probe_181_targeting_gaps.py`, une commande) :
-> `ABILITY_CLASSES` = **91**, sans `TARGETING_OPTIONS` = **40**, sans `ABILITY_ATTACK_TYPE` = **0**
+> **Re-dérivé au 2026-07-29, APRÈS le masque 1014** (`probe_181_targeting_gaps.py`, une commande) :
+> `ABILITY_CLASSES` = **94**, sans `TARGETING_OPTIONS` = **38**, sans `ABILITY_ATTACK_TYPE` = **0**
 > (`probe_120` étape 0 : « littéral de ctor manquant: aucun »). Les entrées neuves portent toutes
 > leurs deux littéraux — c'est désormais le **cliquet**
 > `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus la seule discipline, et

@@ -7,7 +7,8 @@ from typing import Optional, TYPE_CHECKING
 from fractions import Fraction
 
 from ..base import ActiveAbility
-from ..targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from ..targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                         RANGED_BOOL_TRUE, TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 from ...components import StatsComponent
 from ....entities.stats import StatType
@@ -341,6 +342,34 @@ class ArmoriumCherubAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ArmoriumCherub)  # 1014
     ABILITY_ID = "ArmoriumCherub"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) — forme de ctor = **PRESET STATIQUE COPIE** (aucun appel a
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`, donc AUCUN litteral de masque n'est visible
+    # dans le ctor de l'ability). `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$.ctor`
+    # recopie les 0x40 octets du champ STATIQUE de `TargetingOptions` a l'offset +0x140 du bloc
+    # `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0, 0)      # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Le masque EFFECTIF est donc la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`, soit `*(statics+0x168)`
+    # = **0x4002**. Ce n'est PAS la surcharge « preset + flags » (`TargetingOptions..ctor(&opts,
+    # &preset, <flags>, 0)`, qui ferait `Rules <- preset.Rules | flags`) : la copie est integrale,
+    # il n'y a aucun flag a OR-er.
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`, noms VERBATIM du mirror genere) :
+    #     0x2     TargetMatchesDynamicRule  -> consulte `GetDynamicInvalidTargetReason` ; la classe
+    #                                          n'en fournit AUCUN corps propre (ses seuls corps sont
+    #                                          `...ArmoriumCherubAbility$$.ctor`,
+    #                                          `...$$ExecuteBehaviour` et le `...$$GetHits` gshared)
+    #                                          -> defaut `AActiveAbility` = 0 = aucun refus.
+    #     0x4000  TargetIsEnemy             -> PORTE (refus sur soi-meme / un allie).
+    # PORTEE : le meme preset `+0x140` porte `TargetingRange` <- `TargetingRange` statique `+0x18`
+    # (`useRangeFromConfig`) -> `SetConfigValuesInTargetingOptions` pose `OverrideRange` =
+    # `GetNumberConstant(0x16 range)` = `ArmoriumCherub.constants.range` = **2** ; et
+    # `forceMeleeTarget` (`<preset>+0x20`) = 0 = `RangedBool.True` -> clamp a 1 + `onlyAdjacent`
+    # quand `ShouldApplyRangedInMelee` (un ennemi vivant, ciblable et non-Steppable est au contact
+    # de Vindicta). MEME preset que Executioner / HarvesterOfSouls / PlasmaCannon.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
