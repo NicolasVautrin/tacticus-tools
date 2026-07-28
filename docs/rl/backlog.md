@@ -397,16 +397,29 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   mono-valeur) passe encore `target_traits=None` à `attacker_modifiers` → `BeastSlayer_ExtraDmg`,
   `MartialKatah_DmgBonus`, `CondemnorStake_ExtraDmg` et `HeavyGravCannon` y restent muets. Le natif n'a
   qu'UN collecteur (`IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack`), donc c'est bien un
-  gap ; non corrigé faute de mesure live sur CE vecteur (aucun porteur de ces effets n'a d'attaque
-  `normal_like` confrontée). Même remarque pour `additional_hits`. `[opus]`.
-- **Matérialisation finale : `execute_normal_like` et `additional_hits` restent TRONQUANTS**
-  (`apply_all_modifiers`, résidu nommé). Le 3ᵉ larron de la liste, `execute_ability_attack` famille
-  ATTACK, a été **basculé sur `Round(AwayFromZero)`** le 2026-07-26 sur mesure (`probe_hgc_1291
-  --case round`, 14 casts / 2 régimes d'armure : live == arrondi 14/14, == troncature 12/14, les 2
-  écarts tombant exactement sur les tirages à partie fractionnaire ≥ .5 → réfute l'hypothèse « additif
-  oublié »). Les deux autres vecteurs attendent la même campagne : le régime discriminant exige que les
-  DEUX %-list soient vides ET que la branche perçage du plancher l'emporte (armure haute + perçage
-  élevé). `[opus]`.
+  gap ; non corrigé faute de mesure live sur CE vecteur. **VERROU RE-VÉRIFIÉ 2026-07-28 : RÉEL** — les
+  effets gatés `target_traits` sont **5** (les 4 ci-dessus + `DestroyTheWitch`) ; `execute_normal_like`
+  n'a que 2 routes live (splash Psyker / on-appearance d'un summon) et **aucun `lineup` n'est à la fois
+  Psyker et porteur d'un des 5**, ni aucun summon du pool (un summon ne porte que SES propres traits
+  dérivés). Le porter serait spéculatif. ⚠ **La phrase « Même remarque pour `additional_hits` » était
+  FAUSSE** : `execute_additional_hits` ne construit pas de mods, il reçoit ceux de
+  `execute`/`execute_ability_attack`, qui threadent tous deux `target_traits`. `[opus]`.
+- ~~**Matérialisation finale : `execute_normal_like` et `additional_hits` restent TRONQUANTS**~~
+  **FERMÉ 2026-07-28 (R6)** — les deux vecteurs ARRONDISSENT désormais, comme les deux autres. Ce
+  n'étaient pas trois lois mais UNE : les deux voies natives de coups additionnels et
+  `execute_normal_like` retombent toutes sur `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`,
+  donc sur le slot 0x10 `CalculateBaseDamageWithModifiers` = `Round(AwayFromZero)`. Mesures :
+  `normal_like` **30/30** arrondi (0/30 troncature) + témoin branche-armure 12/12 ; `additional_hits`
+  **14/14** arrondi (10/14 troncature). Le prérequis « branche perçage gagnante » a exigé un levier
+  NEUF, `rl_duel build --armor-target`. Détail :
+  `docs/rl/case-r6-materialisation-normal-like-additional-hits.md`.
+  - **RÉSIDUS NEUFS chiffrés par cette mesure**, tous deux hors périmètre R6 :
+    **R6-b** ordre du canal `additional_hits` pour un groupe `predefined` (natif =
+    roll-then-reduce 2 tirages/coup, port = reduce-then-roll 1 tirage/coup ; 1ᵉʳ coup reproduit
+    **11/11** par l'ordre natif et **0/11** par le port) — c'est #202-B, désormais chiffré ; et
+    **R6-c** bornes COMBAT des groupes `amount` (natif = `RandomAmount(minDmg,maxDmg)`, port =
+    `amount ± 20 %` ; groupe live `[267,277,243]` **au-dessus** de la borne haute du port, mesuré sur
+    `tauCrisis`/`CyclicIonBlaster`). Cf. `port-residuals-inventory.md` §4.a. `[opus]`.
 - **`rl_duel build --hp-target` remet le `FixedArmor` des a-units à 0** (mesuré 2026-07-26,
   `probe_hgc_1291 --case band` : `adeptMorvenn` 2411 → 0 et `necroWarden` 2008 → 0, seule variable entre
   les deux runs). **VÉRIFIÉ 2026-07-26 : c'est VOULU côté code** (`rl_duel.py`, branche `hp_target` :

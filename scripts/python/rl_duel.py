@@ -366,6 +366,23 @@ def cmd_build(sid: int, a) -> int:
                 u["RemainingHealth"] = a.hp_player
                 u["Armor"] = 0
                 u["FixedArmor"] = 0
+    if getattr(a, "armor_target", None) is not None:
+        # ARMURE de la cible, forcée à une valeur CHOISIE (`Armor` + `FixedArmor` des a-units).
+        # C'est le pendant MANQUANT de `--hp-target`, qui met l'armure à 0 et supprime donc
+        # silencieusement l'étage armure (piège de mesure documenté dans runner.md §3).
+        # POURQUOI ce levier existe : la branche PERÇAGE du plancher natif
+        # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing`
+        # (`max(0, d - armure, d x pierce%)`) ne l'emporte QUE si `armure > d x (1 - pierce/100)` —
+        # c'est le SEUL régime où le dégât réduit reste FRACTIONNAIRE, donc le seul où la
+        # matérialisation finale (`Fix64.Round(., AwayFromZero)` vs `op_Explicit`) est OBSERVABLE.
+        # Sur les profils à perçage BAS (Physical = 1 %), aucune armure du roster ne suffit :
+        # sans ce levier la mesure R6 du canal `additional_hits` était INATTEIGNABLE.
+        # Une valeur BASSE force au contraire la branche ARMURE (dégât ENTIER) = régime TÉMOIN
+        # non discriminant.
+        for u in bc.get("Units", []):
+            if u.get("VisualId") in a_set:
+                u["Armor"] = a.armor_target
+                u["FixedArmor"] = a.armor_target
     if getattr(a, "dmg_target", None):
         # Frappe ADVERSE écrasante : `Damage` des a-units (la normalisation rend un chiffre bas —
         # ~30 dmg/coup mesuré, insuffisant pour tuer une unité INVOQUÉE dont les PV viennent du kit
@@ -1973,6 +1990,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--hp-player", type=int, default=None,
                     help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur) — "
                          "MET AUSSI Armor/FixedArmor a 0, même piège de mesure")
+    ap.add_argument("--armor-target", type=int, default=None,
+                    help="build: force Armor+FixedArmor des a-units a la valeur donnee (pendant "
+                         "de --hp-target, qui les met a 0). HAUTE = la branche PERCAGE du plancher "
+                         "l'emporte -> degat FRACTIONNAIRE, seul regime ou la materialisation "
+                         "finale (Round vs troncature) est observable ; BASSE = branche ARMURE, "
+                         "degat entier, regime TEMOIN non discriminant")
     ap.add_argument("--dmg-target", type=int, default=None,
                     help="build: force le stat Damage des a-units (frappe adverse écrasante — "
                          "seul levier pour tuer une unité INVOQUÉE, dont les PV viennent du kit "
