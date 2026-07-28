@@ -130,7 +130,14 @@ class ReviveUnitOperation:
                 set_hp = min(set_hp, int(hc.hp_max))     # Min(amount, maxHP)
             hc.hp = set_hp
         # flags IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE.
-        # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/8/0x14 = internes non suivis).
+        # Le port modelise l'etat de vie via `uc.alive` (les flags ECS 0xf/0x14 = internes non suivis) ;
+        # `Remove(8)` est PORTE depuis que `UnitFlag.Overkilled` est materialise (pose par le pipeline de
+        # degat, lu par `HasFlag(unit, 8)` du volet OVERKILL de DoomSiren) -- sans lui, une unite revive
+        # apres overkill (TaintedNarthecium `ReviveOnOverkill`) resterait marquee overkillee.
+        from ..components import UnitFlagsComponent
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is not None:
+            fl.remove(UnitFlagsComponent.OVERKILLED)
         uc.alive = True
         # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : IN-PLACE -> position inchangee (aucune ecriture de PositionComponent).
         # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=46) du

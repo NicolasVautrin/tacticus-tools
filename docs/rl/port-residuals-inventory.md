@@ -75,6 +75,13 @@
 a reculé de 22 en une journée (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `ff66741` 13
 Necrons/Orks/Votann/GenestealerCults, plus les masques posés en même temps que chaque nouveau port).
 `ABILITY_ATTACK_TYPE` est à **zéro manquant** : la garde `probe_120` étape 0 passe au commit courant.
+
+> **Re-dérivé au 2026-07-28, APRÈS rebase (case #154, DoomSiren 1199 + FearOfTheUnseen 1115)** :
+> `ABILITY_CLASSES` = **89**, sans `TARGETING_OPTIONS` = **53** (INCHANGÉ malgré +8 entrées depuis la
+> mesure précédente), sans `ABILITY_ATTACK_TYPE` = **0** (`probe_120` étape 0 : « littéral de ctor
+> manquant: aucun »). Les entrées neuves portent toutes leurs deux littéraux — c'est désormais le
+> **cliquet** `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus la seule
+> discipline. Le gisement `[-D]` passe de **15 à 14** en lineup (1199 en sort).
 La règle de non-régression du `CLAUDE.md` a donc pris — c'est le seul endroit de ce document où la
 tendance s'est retournée, et il vaut de le noter avant que quiconque recopie « 60 restantes ».
 
@@ -179,14 +186,19 @@ sens de la marche se lise) :
 | ~~1029~~ | ~~Drachnyen~~ | blackAbaddon | `REGISTRY` | **FERMÉ** (`case-bl-1029-1020`) — mesuré avant port : SetHealth muet (10038 au lieu de 6480) + attaque normale non dispatchée | — |
 | 1100 | SorcerousFacade | thousTzaangor | `REGISTRY` | non mesuré ; lire `case-171` (interaction attaque normale) | 1 ability |
 | 1177 | LightOfSanguinius | bloodDante | `REGISTRY` | non mesuré | 1 ability |
-| 1199 | DoomSiren | emperKakophonist | `REGISTRY` | non mesuré | 1 ability |
 | 1137 | MurderousSwing | worldExecutions | `_SPECIAL` | **mesuré côté décision** (`case-108` : ×1,60 + 4 events) — face combat toujours NO-OP | 1 ability |
 | 1171 | DakkaDakkaDakka | orksKillaKan | `_SPECIAL` | non mesuré | 1 ability |
 
 **NON CONFRONTABLES** : 1192 `NovaBoost` et 1194 `NovaShield` (`tauBossRiptide`, npc-only).
 
 **Sorties depuis l'inventaire précédent** : 1036 FrenziedFiring (`d2be96e`), 1116 RadBombardment
-(`825f69f`), 1153 HammerOfWrath (`86fecad`) — les trois ont reçu leur face COMBAT.
+(`825f69f`), 1153 HammerOfWrath (`86fecad`) — les trois ont reçu leur face COMBAT. **Depuis le
+2026-07-28 : 1199 `DoomSiren` (`emperKakophonist`) sort de ce gisement** — face COMBAT portée
+(`engine/runner/abilities/emperorschildren.py`), validée live (`test_doom_siren_live.py`, 4 tests).
+Le compte du gisement passe donc de **15 à 14** en lineup. Dans le même lot, **1115
+`FearOfTheUnseen` (`tyranDeathleaper`)** quitte les NO-OP combat (elle n'était pas dans cette table :
+son registre de décision est vide) — `engine/runner/abilities/tyranids.py`, validée live
+(`test_fear_of_the_unseen_live.py`).
 
 > **Piège de lecture à ne PAS reproduire** : un tag « déjà porté » sans préciser la FACE est un
 > faux constat. `port-roadmap.md` §6.3 dit « MurderousSwing 1137 DÉJÀ porté #108 » — le port #108

@@ -150,6 +150,9 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1168: AbilityAttackType.DirectTargetAttack,   # EntropyCannonsAbility
     1169: AbilityAttackType.DirectTargetAttack,   # PlagueburstMortarAbility
     1180: AbilityAttackType.DirectTargetAttack,   # HeroicFusilladeAbility
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
+    1199: AbilityAttackType.DirectTargetAttack,   # DoomSirenAbility
     1200: AbilityAttackType.DirectTargetAttack,   # SquigLaunchasAbility
     1201: AbilityAttackType.DirectTargetAttack,   # SquigMineAbility
     1202: AbilityAttackType.DirectTargetAttack,   # VigilanceEternalAbility
@@ -216,6 +219,10 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1163: AbilityAttackType.Others,   # BlackRageAbility
     1166: AbilityAttackType.Others,   # AberrantHypermorphAbility
     1179: AbilityAttackType.Others,   # CultDemagogueAbility
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2, 0)` : 3e argument = 2 = Others (poseur d'effets, le
+    # DirectDamage vit dans l'effet 1239, pas dans l'attaque du cast).
+    1115: AbilityAttackType.Others,   # FearOfTheUnseenAbility
     1187: AbilityAttackType.Others,   # ThriceBlessedConflagrationAbility
     1188: AbilityAttackType.Others,   # DevastatingRefrainAbility
     1206: AbilityAttackType.Others,   # GravitonRifleAbility

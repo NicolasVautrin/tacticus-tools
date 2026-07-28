@@ -28,10 +28,20 @@ from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
 
-from .base import ActiveAbility
-from .behaviours import entities_from_state
+from .base import ActiveAbility, convert_rounds_to_turns
+from .behaviours import entities_from_state, AddEffect, TriggerAbility
+from .targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting_rule import TargetingRule as TR
 from ..components import OwnerComponent, StatsComponent
+from ...dsl.base import Const
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.behaviours import If as IfBehaviour, op_add
+from ...entities.effect_type import EffectType
+from ...entities.effects.magnitude import ability_var
+from ...entities.selectors import (Caster, Enemies, SurroundingUnits,
+                                   non_steppable_or_object_units)
+from ...entities.triggers import HasUnitFlag, Not
+from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 
 if TYPE_CHECKING:
@@ -272,3 +282,165 @@ class AlphaWarriorAbility(ActiveAbility):
                    for n, p in ectx.emitted if n == "SummonOnAppearance"]
         return {"summon": "tyranSmnWarrior", "spawned": spawned, "attacks": attacks,
                 "tile": tile_id, "dsl": True}
+
+
+# ================== FearOfTheUnseen (Deathleaper `tyranDeathleaper`, actif 1115) ==================
+#
+# Indices de config (`AbilityConfiguration.Get*`) lus au decompile de
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour` :
+FEAR_CONST_RANGE = 0x16                 # GetNumberConstant(0x16) -> `constants.range` = 2
+FEAR_PINNED = int(EffectType.Pinned)                                  # 0x429 = 1065 (UI "Suppressed")
+FEAR_TELEPORTING_IN = int(EffectType.FearOfTheUnseen_TeleportingIn)   # 0x4d6 = 1238
+FEAR_EXTRA_DAMAGE = int(EffectType.FearOfTheUnseen_ExtraDamage)       # 0x4d7 = 1239
+FEAR_BATTLE_FATIGUE = int(TriggeredAbilityType.BattleFatigue)         # 0x401 = 1025
+UNIT_FLAG_MOVED = 0                     # `IdunBattle.Entities.Enum.UnitFlag.Moved`
+
+
+def fear_of_the_unseen_enemies_selector(range_val: int):
+    """Selecteur des ennemis affectes -- MIRROR 1:1 du 1er etage de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour`
+    (identique dans son jumeau `$$SuppressAndTriggerBattleFatigue`) :
+
+        SurroundingUnits(Self@0x148, GetNumberConstant(0x16 = range), unique=1, includeCenter=1, sel=3)
+        |> NonSteppableOrObjectUnits(., 3)
+        |> Enemies(Self@0x148, ., 3)
+
+    - `includeCenter = 1` -> le DISQUE inclut la tuile du caster ; le `Enemies` qui suit l'evacue de
+      toute facon (team != Self), donc l'observable est "les ennemis a distance hex <= range".
+    - `NonSteppableOrObjectUnits` = `(src & UnitsWithoutTrait(src, 0x1b Steppable)) &
+      UnitsWithoutTrait(src, 0xd Object)` : ni decoy/mine traversable, ni objet de plateau.
+    - i2 : "all enemies within 2 hexes get Suppressed and trigger Battle Fatigue, if they have it"."""
+    return Enemies(non_steppable_or_object_units(
+        SurroundingUnits(Caster(), Const(range_val), include_center=True)))
+
+
+def fear_of_the_unseen_tree(range_val: int, self_effect_turns: int):
+    """Arbre COMPLET de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du DECOMPILE :
+
+        notMoved = op_LogicalNot( HasFlag(Self@0x148, 0 = Moved) )
+        enemies  = <fear_of_the_unseen_enemies_selector>
+        trigger  = TriggerAbility(enemies, 0x401 = BattleFatigue, actor@0x158, caster@0x160,
+                                  target@0x178, unitFeetTiles = null, selectionType = 3,
+                                  ignoreUnitHavingAbility = false)
+        suppress = AddEffect(0x429 = Pinned, abilityStateRef, source = caster@0x160, targets = enemies,
+                             options = <struct ZERO-initialisee>)
+        Execute( ( If(notMoved, suppress op_Addition trigger, null)
+                   op_Addition AddEffect(0x4d6 TeleportingIn, stateRef, Self@0x148, turns) )
+                 op_Addition AddEffect(0x4d7 ExtraDamage,   stateRef, Self@0x148, turns) )
+
+    avec, pour LES DEUX effets self, `turns = Sum(TurnsFromRounds(1), Direct(1))`.
+
+    POINTS DE FIDELITE :
+    - **`Execute` PLAIN, pas `ExecuteAtomic`** (contraste DoomSiren 0x2a) -- aucun groupe atomique.
+    - **Le gate `!Moved` ne couvre QUE le volet ennemis** (suppress + BattleFatigue). Les DEUX effets
+      SELF sont poses INCONDITIONNELLEMENT : ils sont a l'EXTERIEUR du `If` dans l'arbre natif.
+      L'i2 ("If the Deathleaper has not moved this turn ...") ne decrit que le premier volet.
+    - **Duree des effets self** : `Sum(TurnsFromRounds(1), Direct(1))` -- le `TurnsFromRounds(1)` est
+      converti par `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (#98, facteur = nb de
+      joueurs non-Environment), PUIS `+1` en TOURS. Le port FOLDE ce noeud VALEUR (RNG-libre,
+      state-only) au moment du cast et passe le resultat en `duration_turns` (deja en tours, donc NON
+      reconverti par `_resolve_duration`).
+    - **`AddEffect(Pinned)` sans noeud de duree** (le 5e argument natif est une struct d'options
+      ZERO-initialisee, PAS un `TurnsFromRounds`) -> duree DEFAUT `DefaultAmountOfRounds(1065)`,
+      exactement comme le Pinned de CrushingClaws. D'ou `duration_rounds=None`.
+    - **`scale_from_source` sur 1239** : sa magnitude vient de `ConfigVar(minDmg/maxDmg,
+      AbilityStateFromEffect)` -> l'effet doit resoudre ses variables contre le niveau d'ability et le
+      multiplier de rarete du POSEUR (meme canal que FleshmetalGuns/TerrifyingCrescendo).
+
+    `range_val` = `GetNumberConstant(config, 0x16)` resolu par la classe ; `self_effect_turns` = le
+    `Sum(TurnsFromRounds(1), Direct(1))` deja folde."""
+    enemies = fear_of_the_unseen_enemies_selector(range_val)
+    suppress = AddEffect(FEAR_PINNED, "Pinned", enemies, duration_rounds=None)
+    trigger = TriggerAbility(enemies, FEAR_BATTLE_FATIGUE)
+    not_moved = Not(HasUnitFlag(Caster(), UNIT_FLAG_MOVED))
+    volet_ennemis = IfBehaviour(not_moved, op_add(suppress, trigger))
+    teleporting = AddEffect(FEAR_TELEPORTING_IN, "FearOfTheUnseen_TeleportingIn", Caster(),
+                            duration_rounds=None, duration_turns=self_effect_turns)
+    extra_damage = AddEffect(FEAR_EXTRA_DAMAGE, "FearOfTheUnseen_ExtraDamage", Caster(),
+                             duration_rounds=None, duration_turns=self_effect_turns,
+                             scale_from_source=True)
+    return op_add(op_add(volet_ennemis, teleporting), extra_damage)
+
+
+class FearOfTheUnseenAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$ExecuteBehaviour`
+    (id 1115, `tyranDeathleaper` "Deathleaper", HERO Tyranids).
+
+    i2 : "If the Deathleaper has not moved this turn and is not in Deep Strike, all enemies within
+    {range} hexes get Suppressed and trigger Battle Fatigue, if they have it. The Deathleaper vanishes
+    and cannot be targeted or damaged for 1 round. In its next turn, its attacks deal an additional
+    {nrOfHits}x {minDmg}-{maxDmg} Direct Damage [...]"
+
+    LE CAST NE FAIT AUCUN DEGAT. C'est un POSEUR D'EFFETS pur (meme famille que les MoW effect-posers,
+    cf. `docs/rl/case-90-mow-effect-posers.md`) : le DirectDamage annonce par la config 1115 vit dans
+    la PHASE 2, l'effet `FearOfTheUnseen_ExtraDamage` (1239), qui declare des COUPS ADDITIONNELS sur
+    les attaques MELEE du porteur via le canal #179 (`IdunBattle.Entities.Effects.Loki.
+    FearOfTheUnseen_ExtraDamageEffect$$CreateAdditionalHits` -> `EffectAdditionalHits$$Create`).
+    Cf. `engine/entities/effects/loki/hits.py::FearOfTheUnseenExtraDamageEffect`.
+
+    Arbre : `fear_of_the_unseen_tree` (mirror 1:1, cf. sa docstring).
+
+    RESIDUS NOMMES (hors ExecuteBehaviour, donc hors de ce port) :
+      * `FearOfTheUnseen_TeleportingIn` (1238) est POSE (l'effet existe sur le porteur, diffable) mais
+        reste un `BaseEffect` nu : sa mecanique -- untargetable + teleport libre au tour suivant, base
+        native `BlockUnitMovementEffect`, `$$GetMovingEffectType` -> 0x4d9 = 1241
+        `FearOfTheUnseen_Moving`, `$$GetAdditionalRemoveTriggers` = `AmountIsEqual(EffectRemainingTurns
+        (Effect@0x150), dsl@0xc0 = 1)`, et le pathfinder dedie
+        `IdunBattle.Entities.Pathfinding.FearOfTheUnseenPathfinder$$IsValidTeleportTile` -- est un
+        sous-systeme MOUVEMENT separe, non porte.
+      * `$$GetDynamicInvalidCasterReason` = `IsTeleporting(caster) ? 4 : 0` : cette regle-delegue
+        CASTER n'est PAS invoquee par la cascade de REFUS (le bit `CasterMatchesDynamicRule` 0x4
+        n'est pas dans le masque), elle l'est par le constructeur de LISTE de cibles via
+        `AddCasterIfMatchesDynamicRule` (0x8), etage non porte (`get_caster_not_added_reason` rend 0,
+        permissif documente). Consequence : offline, un cast depuis le Deep Strike n'est pas refuse
+        alors que le natif le refuse -- ecart du cote PERMISSIF, nomme.
+      * Le `Maybe(GetFleeChance)` de `BattleFatigueAbility$$CreateBehaviour` garde son residu
+        pre-existant : la feuille `TriggerAbility` (behaviours/lifecycle.py) RESOUT et TRACE le set
+        declenche mais ne DISPATCHE pas 1025 -- `GetFleeChance` lit une `AbilityConfiguration` absente
+        du gameconfig, donc dispatcher ferait fuir 0 % ou 100 % des cibles la ou le natif tire une
+        piece. Meme residu que la voie trigger-sur-mort (`runner/operations/behaviour.py`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.FearOfTheUnseen)   # 1115
+    ABILITY_ID = "FearOfTheUnseen"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility$$.ctor`
+    # appelle l'overload FLAGS DIRECTS (aucun preset statique) :
+    #     TargetingOptions..ctor(&opts, 1, &range, 1, 0x18, 0, 0, 0)
+    # soit `isSelfCasting = 1`, `range = <copie de TargetingRange statics+0x60>`,
+    # `forceMeleeTarget = 1` (RangedBool.False), `Rules = 0x18`, les deux regles-delegues a 0
+    # (elles sont ECRASEES juste apres par `AActiveAbility..ctor`).
+    #   TargetingRange statics+0x60 = `RANGE_SELF` (`overrideRange = 0`) -> portee NULLE, coherent
+    #   avec un self-cast (la config 1115 n'a pas d'`attackRangeType`).
+    #   Rules 0x18 = `AddCasterIfMatchesDynamicRule` (0x8) | `CasterHasNotMoved` (0x10).
+    #     - 0x10 est PORTE (`get_invalid_caster_reason`) : un caster qui a BOUGE ce tour ne peut plus
+    #       caster -- pendant "gate de legalite" du `If(!HasFlag(Moved))` interne a la behaviour.
+    #     - 0x8 route le verdict vers `GetCasterNotAddedReason`, non porte (cf. les residus ci-dessus).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.AddCasterIfMatchesDynamicRule | TR.CasterHasNotMoved,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def _range(self) -> int:
+        """`GetNumberConstant(config, 0x16)` = `constants.range` (CONSTANTE, pas une variable par
+        niveau). Defaut 1 si absente (aucune portee inventee)."""
+        return int(ability_var(self.ABILITY_ID, "range", is_constant=True) or 1)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # `Sum(TurnsFromRounds(1), Direct(1))` folde ICI (noeud VALEUR pur : aucun rng, seul le nb de
+        # joueurs du tour-order entre en jeu) -> duree deja exprimee en TOURS.
+        turns = convert_rounds_to_turns(state, 1) + 1
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        fear_of_the_unseen_tree(self._range(), turns).execute(entities, ectx)
+        posed = [{"unit": p.get("target"), "effect": p.get("effect_type"), "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        # `TriggerAbility` emet `targets` (le SET declenche) + `dispatched` — cf. sa docstring dans
+        # `behaviours/lifecycle.py` : `BattleFatigue` n'est volontairement PAS dispatchee (sa chance de
+        # fuite n'a aucune source offline), on ne trace donc que les unites concernees.
+        fatigue = [t for n, p in ectx.emitted if n == "TriggerAbility"
+                   for t in (p.get("targets") or [])]
+        return {"ability": "FearOfTheUnseen", "caster": caster_id, "target": target_id,
+                "effects": posed, "battle_fatigue": fatigue, "self_effect_turns": turns, "dsl": True}
+

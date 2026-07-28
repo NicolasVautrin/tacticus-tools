@@ -32,7 +32,7 @@ from .units import (  # noqa: F401
     UnitsOnTilesWithEffect, Tiles, First, Unique, UnitsWithIds, UnitsWithTrait,
     UnitsWithoutTrait, hero_units, AllDeadOrResurrectedUnits, non_steppable_or_object_units,
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
-    Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured,
+    Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
 )
 
 from .tiles import (  # noqa: F401
@@ -64,7 +64,8 @@ __all__ = [
     "Unique", "UnitsWithIds", "UnitsWithTrait", "UnitsWithoutTrait", "hero_units",
     "AllDeadOrResurrectedUnits", "non_steppable_or_object_units", "AdjacentFriends",
     "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
-    "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "Caster", "AllUnits", "AllTiles", "Children",
+    "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "UnitsDamagedThisPhase",
+    "Caster", "AllUnits", "AllTiles", "Children",
     "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",
     "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",
     "CasterTile", "TargetTile", "FixedTiles", "FixedTileIds", "OwnerTile", "Subject", "Actor",

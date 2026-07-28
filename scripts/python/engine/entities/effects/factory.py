@@ -78,6 +78,7 @@ from .loki import (
     SmashaEadExtraDamageEffect,
     SquigHoundAdditionalHitsEffect,
     CordClawAdditionalHitsEffect,
+    FearOfTheUnseenExtraDamageEffect,
     FoulInfusionExtraHitsEffect,
     CyclicIonBlasterAdditionalHitsEffect,
     FleshmetalGunsFocusedMaliceEffect,
@@ -142,6 +143,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # CordClaw (Exitor-Rho, effet 0x4e2=1250) : apres cast 1122, +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
     # DirectDamage a toutes ses attaques (IdunBattle.Entities.Effects.Loki.CordClaw_AdditionalHitsEffect$$CreateAdditionalHits, canal #179). #57c.
     "CordClaw_AdditionHits": CordClawAdditionalHitsEffect,
+    # FearOfTheUnseen (Deathleaper `tyranDeathleaper`, effet 0x4d7=1239 pose sur LUI-MEME par le cast de
+    # 1115) : +nrOfHits=3 coups PREDEFINED [minDmg,maxDmg] DirectDamage a ses attaques MELEE
+    # (`IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_ExtraDamageEffect$$CreateAdditionalHits`, trigger
+    # OwnerIsCaster & IsMeleeAttack, canal #179). Le nom capte est le membre d'enum `EffectType`.
+    "FearOfTheUnseen_ExtraDamage": FearOfTheUnseenExtraDamageEffect,
     # FoulInfusion (Pestillian, effet 0x432=1074 sur CHAQUE unite Chaos dans l'aura au cast) :
     # +nrOfHits=1 coup Toxic de ConfigVar(dmg)[state du cast] aux attaques normales (IdunBattle.Entities.Effects.Loki.FoulInfusion_ExtraHitsEffect$$CreateAdditionalHits,
     # canal #179 GLOBAL : trigger IsMeleeAttack&OwnerIsCaster indecidable en display -> TRUE,

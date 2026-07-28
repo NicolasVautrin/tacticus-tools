@@ -173,7 +173,16 @@ class State:
         n'a pas d'OperationProcessor → on mappe le boundary sur chaque ACTION top-level appliquée (`Runner.apply`).
         Plus fin que le per-activation natif mais STRICTEMENT SÛR (ne bloque jamais un trigger légitime) et
         inobservable (les compteurs restent << 51/activation) ; borne l'auto-récursion des triggers
-        générateurs d'attaque DANS une même cascade d'action (le reset est AVANT la cascade, pas dedans)."""
-        from .components import TriggeredAbilityComponent      # lazy : évite le cycle state<->components
+        générateurs d'attaque DANS une même cascade d'action (le reset est AVANT la cascade, pas dedans).
+
+        MEME BOUNDARY, MEME BOUCLE que le natif : `IdunBattle.Operations.EndPhaseOperation$$ResetEntityPhase`
+        parcourt les entites et, sur CHACUNE, (a) `Clear()` la `List<BEntityId>` @`ActorStatisticsComponent
+        + 0x48` (« unites endommagees cette phase ») puis (b) appelle `TriggeredAbilityComponent$$ResetPhase`.
+        Le port fait donc les DEUX ici — la liste `UnitComponent.damaged_units_this_phase` alimente le
+        selecteur `UnitsDamagedThisPhase` (volet OVERKILL de DoomSiren)."""
+        from .components import TriggeredAbilityComponent, UnitComponent   # lazy : cycle state<->components
         for _e, comp in self.with_component(TriggeredAbilityComponent):
             comp.reset_phase()
+        for _e, uc in self.with_component(UnitComponent):
+            if uc.damaged_units_this_phase:
+                uc.damaged_units_this_phase.clear()   # `List.Clear()` @ResetEntityPhase (champ 0x48)

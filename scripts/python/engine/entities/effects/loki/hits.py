@@ -81,6 +81,58 @@ class CordClawAdditionalHitsEffect(BaseEffect):
         return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
 
 
+class FearOfTheUnseenExtraDamageEffect(BaseEffect):
+    """`FearOfTheUnseen_ExtraDamageEffect` (effet 0x4d7=1239, `tyranDeathleaper` « Deathleaper ») — pose
+    sur LUI-MEME par le cast de `FearOfTheUnseen` (0x45b=1115) : jusqu'a l'expiration, ses attaques
+    MELEE infligent `nrOfHits` coups additionnels HETEROGENES [minDmg,maxDmg] au profil
+    `damageProfile` (= DirectDamage, pierce 100). i2 : « In its next turn, its attacks deal an additional
+    3x 873-1091 Direct Damage ».
+
+    Natif : `IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_ExtraDamageEffect$$CreateAdditionalHits`
+    -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {
+        trigger  = `get_OwnerIsCaster` op_BitwiseAnd `IsMeleeAttack`,
+        damage   = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, 0)`
+                   = `RandomAmount(ConfigVar(0xc=minDmg, AbilityStateFromEffect),
+                                   ConfigVar(0xd=maxDmg, AbilityStateFromEffect))`,
+        additionalHitsType = 1,
+        profile  = `GetDamageProfile(config, 0).Value` = `constants.damageProfile` = DirectDamage,
+        hits     = `Get(GetNumberConstant(config, 0x2f = nrOfHits))`,
+        forceOverkill = true,
+        predictionDamage = `GetMinMaxDamage(this, 1)` = `Average(minDmg, maxDmg)` (canal display) }
+    `.ctor` = `BaseEffect(AbilityOrEffect(0x45b = 1115 FearOfTheUnseen), 1)` -> les `ConfigVar` sont lues
+    sur la config de l'ABILITY 1115, indexees par l'`AbilityStateFromEffect` (= le niveau d'ability de la
+    SOURCE, donc `ability_level` cote port, propage par `scale_from_source` a la pose).
+
+    Canal #179 STANDARD du PORTEUR, forme PREDEFINED [min,max] (== SquigHound/CordClaw : la face COMBAT
+    resout le noeud `RandomAmount`). `minDmg`/`maxDmg` sont dans `variablesAffectedByRarityBonus` ->
+    x multiplier de rarete. Gate `ctx["is_melee"]` requis (noeud `IsMeleeAttack` du trigger) ;
+    `OwnerIsCaster` = le porteur EST l'attaquant, ce que le canal porteur garantit deja.
+
+    RESIDU NOMME : `forceOverkill = true` (6e argument d'`EffectAdditionalHits.Create`) n'est PAS
+    transporte par le canal `additional_hit_groups` (aucun consommateur ne le lit) -> les coups bonus ne
+    bypassent PAS le cap Resilient (`ApplyResilientTraitDamageLimit`). NO-OP sur toute cible
+    non-Resilient (le cas courant) ; a plomber le jour ou un scenario Resilient l'exerce."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        if not ctx or ctx.get("is_melee") is not True:      # noeud IsMeleeAttack du trigger
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("FearOfTheUnseen", "minDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("FearOfTheUnseen", "maxDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("FearOfTheUnseen", "nrOfHits", is_constant=True)   # numberConstant 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("FearOfTheUnseen") or {}).get("constants") or {}) \
+                .get("damageProfile") or "DirectDamage"
+        except Exception:
+            profile = "DirectDamage"
+        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+
+
 class FoulInfusionExtraHitsEffect(BaseEffect):
     """`FoulInfusion_ExtraHitsEffect` (effet 0x432=1074, deathPutrifier Pestillian) — au cast de
     FoulInfusion (1038), Pestillian ET les unites Chaos dans son aura de Contagion recoivent CET

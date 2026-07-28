@@ -377,7 +377,24 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return None
         return entity_can_have_active_ability_reset(state, int(uid), False)
 
+    # `ctx.units_damaged_this_phase` : mirror de la `List<BEntityId>` @`ActorStatisticsComponent + 0x48`
+    # de l'ATTAQUANT (`IdunBattle.Entities.Formulas.UnitsDamagedThisPhaseSelector$$Select` prend ce
+    # composant sur chaque attaquant selectionne et resout les ENTITES). Cote port la liste vit sur le
+    # `UnitComponent` de l'attaquant (`damaged_units_this_phase`) ; on rend les vues `LiveUnit` deja
+    # construites (meme identite d'objet que `ctx.units`, donc les predicats aval lisent le state LIVE).
+    _by_id = {u.get("id"): u for u in units}
+
+    def _units_damaged_this_phase(unit):
+        from ...components import UnitComponent as _UC
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        uc = e.get_component(_UC) if e is not None else None
+        if uc is None:
+            return []
+        return [_by_id[t] for t in uc.damaged_units_this_phase if t in _by_id]
+
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+                      units_damaged_this_phase=_units_damaged_this_phase,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

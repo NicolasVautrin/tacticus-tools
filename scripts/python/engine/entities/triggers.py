@@ -127,6 +127,30 @@ class HasFlag(AbilityTrigger):
         return self.flag in ctx.flags
 
 
+class HasUnitFlag(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$HasFlag(unit, flag)` ->
+    `IdunBattle.Entities.Conditions.HasFlagAbilityTrigger$$.ctor(unit, flag, want=1)` : l'UNITE selectionnee
+    porte-t-elle le drapeau `IdunBattle.Entities.Enum.UnitFlag` ? C'est le jumeau UNIT-DOMAIN du noeud
+    `HasFlag` ci-dessus (qui, lui, teste un flag SCALAIRE du contexte de decision, `ctx.flags` -- ex. le
+    `HasFlag(@+0x160)` d'`HarvesterOfSouls`, sans operande-unite).
+
+    Port : `ctx.has_unit_flag(unit, flag)` (le MEME accesseur que `AllDeadOrResurrectedUnits`, branche par
+    `entities_from_state` sur le `UnitFlagsComponent` de l'ECS runner). Selecteur normalise par `_units_of`
+    (`Any` sur les unites resolues, comme `IsAlive`/`IsDead`) ; accesseur absent -> False (degradation
+    fidele : flag absent).
+
+    Consommateurs portes : `DoomSirenAbility` (`HasFlag(It@0x180, 8 = Overkilled)`) et
+    `FearOfTheUnseenAbility` (`NOT HasFlag(Self@0x148, 0 = Moved)`)."""
+    def __init__(self, unit: AbilityTrigger, flag):
+        self.unit, self.flag = unit, int(flag)
+
+    def should_trigger(self, ctx):
+        fn = ctx.has_unit_flag
+        if fn is None:
+            return False
+        return any(bool(fn(u, self.flag)) for u in _units_of(self.unit, ctx))
+
+
 class AreEqual(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$AreEqual(a,b)` : `a == b` (ctor générique 2-arg, singleton DAT_183200238 ;
     sémantique DÉDUITE du nom — eval résiduelle non décompilée. À confirmer si branché sur des enums/
