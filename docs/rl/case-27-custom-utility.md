@@ -143,6 +143,17 @@ terme custom (la prediction est deja assuree par `prediction.py`, ecarts de dega
   offline SANS le handler reste FIGE a 7576-11364). Paire d'utilite : natif 24.10252990666777 vs offline
   24.102529915669475 (ecart 9e-9, arrondi Fix64) contre 15.7828 avant le fix. `probe_216_savage_prediction.py`
   + garde `tests/engine/test_savage_echoes_prediction_live.py`.
+- **Le compte est pris a la POSITION REELLE du caster, PAS a la tuile candidate du balayage IA** —
+  RE : `Owner@0x148` est un selecteur d'ENTITE, dont le natif prend la MainTile reelle
+  (`EntityExtensions$$GetTiles`) ; la tuile candidate vit dans `CasterTile@0x168`/`CasterTiles@0x170`, que
+  cet arbre n'utilise pas (la struct de contexte de `GenerateMultiHitAttackPredictions` porte bien les deux :
+  l'entite caster ET `casterPosition` + sa `MainTile`). CONFRONTE LIVE
+  (`probe_216_savage_candidate_tile.py`) : caster REEL en (1,0) ou 3 tuiles adjacentes sont libres, tuile
+  CANDIDATE (0,0) ou il n'y en a qu'1 -> `pairUtility(col=0,row=0)` natif = **28.25572481378913**, soit la
+  valeur du compte **3** (identique au montage a free=3 du probe principal), et non celle du compte 1 ;
+  offline 28.255724809173028. Le port lit donc `_pos(caster)` et JAMAIS `ctx.caster_pos` — c'est voulu.
+  Consequence de gameplay : le bonus ne recompense pas la tuile ou l'IA va se poser, il photographie le
+  degagement AVANT le deplacement.
 - **Prerequis de harnais leve dans le meme commit** : `decisionView` nomme les abilities via
   `frida/hooks/data/ability-names.ts` (map GENEREE, figee dans le bundle injecte). 1230 n'y est pas
   -> l'ability sortait en placeholder `"id:1230"`, le predicteur offline cle sa recherche gameconfig
