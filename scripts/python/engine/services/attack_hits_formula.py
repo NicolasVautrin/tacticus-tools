@@ -75,7 +75,7 @@ from __future__ import annotations
 import hexgeo
 
 from ..entities.effects import (hits_bonus_from_effects, hits_malus_from_defender_effects,
-                                 aura_hits_malus_for_defense, aura_hits_bonus_for_attack)
+                                 aura_hits_malus_for_defense)
 from ..entities.traits import attacker_bonus_hits
 from .damage_prediction import get_default_attack_hits
 
@@ -134,12 +134,11 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     # hits` -> gater `attacker_bonus_hits` ne perd que GetStuckIn cote formule (cf. entete BITE 2).
     bonus_hits = attacker_bonus_hits(trait_objects, board) if include_bonus_hit_behaviours else 0
     hits = hits_pre + bonus_hits
-    # AURA COUPS côté ATTAQUANT (AstartesBanner IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits : +extraHits mêlée si un allié porteur est dans
-    # le rayon 2) — SYMÉTRIQUE de l'aura défenseur. ctx att-centrique dérivé de `board`.
-    att_ctx = {"att_id": board.get("att_id"), "att_pos": board.get("attack_pos"),
-               "att_team": (board.get("team_by_id") or {}).get(board.get("att_id")),
-               "is_melee": is_melee}
-    # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / MasterAnnihilator +1. Le gate
+    # #204 — l'aura COUPS côté ATTAQUANT (AstartesBanner) a QUITTÉ cette formule : son artefact natif
+    # est `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
+    # (canal #179), donc `additional_hit_groups` / `runner/operations/additional_hits.py`. Le canal
+    # `aura_hits_bonus_for_attack` n'avait aucun AUTRE alimenteur : supprimé avec lui.
+    # (3) malus défenseur : LightCover -2 ranged / Parry -1 mêlée / Camouflage. Le gate
     # compute-time `defender_on_cover` (A3, #113) empêche LightCover de sur-appliquer un effet périmé en
     # runner-sim (cible ayant quitté sa tuile de cover) ; None (prédiction) = applique-sur-présence.
     # Distance AVERAGE(Caster,Target) hex (branches Camouflage dist>2 -> -2 / dist<=2 -> -1),
@@ -152,6 +151,5 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                + hits_malus_from_defender_effects(target_effects, is_melee, damage_profile,
                                                   defender_on_cover=defender_on_cover,
                                                   dist=_cam_dist)
-               + aura_hits_malus_for_defense(aura_sources, board)
-               + aura_hits_bonus_for_attack(aura_sources, att_ctx))
+               + aura_hits_malus_for_defense(aura_sources, board))
     return hits

@@ -890,37 +890,73 @@ class CamouflageHitReductionEffect(BaseEffect):
 
 
 class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
-    """`MasterAnnihilator_AdditionalHitEffect` (effet `MasterAnnihilator_extraHit` — DEBUFF posé par
-    Vitruvius sur SA cible d'attaque normale ; i2 : « Attacks by any friendly unit against the
-    affected enemy score an additional hit, except attacks that deal Psychic Damage »).
-    - hits IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits : `EffectAdditionalHits.Create(OwnerIsTarget & !AreEqual(
-      CurrentAttackDamageProfile, 0xd=Psychic), count=ConfigConst(0x2f nrOfHits=1),
-      dmg=FirstHitInCurrentAttackDamageRange capé ConfigVar(0xd maxDmg))` = **+1 coup reçu par le
-      porteur (attaques non-Psychic)**. Les attaquants = ennemis du porteur = alliés du poseur (le
-      gate « friendly unit » de l'i2 est structurel, pas dans le trigger).
-    ⚠ CAP du coup bonus (dmg <= maxDmg[lvl] ex. 5456) non modélisé (per-coup observé << cap) — TODO.
-    GROUND TRUTH step-6 seed777 : u86→u94 ranged = 5 coups (3 arme + 1 PowerTrip + 1 MA) vs 4 sur
-    les cibles non marquées (88/96).
+    """`MasterAnnihilator_AdditionalHitEffect` (effet `MasterAnnihilator_extraHit` 0x4e1=1249 — DEBUFF
+    pose par `admecDominus` << Vitruvius >> sur SA cible d'attaque normale, cf.
+    `runner/operations/triggers/loki/master_annihilator.py` ; i2 : « Attacks by any friendly unit
+    against the affected enemy score an additional hit, except attacks that deal Psychic Damage »).
+    Les attaquants qui en beneficient = les ENNEMIS du porteur = les allies du poseur (le gate
+    « friendly unit » de l'i2 est structurel, pas dans le trigger).
 
-    ⚠ RESIDU NOMME (#227, MEME FORK que `LetTheGalaxyBurnEffect` avant sa correction) : l'artefact
-    natif est un descripteur `EffectAdditionalHits` du canal #179 (degat =
-    `FirstHitInCurrentAttackDamageRange`, cape a `ConfigVar(0xd)`), PAS un `+1` de la formule de
-    coups — le port le rend ici en `create_effect_hits_malus_for_defense`. Consequence MESUREE sur
-    LetTheGalaxyBurn : sur le vecteur ATTAQUE NORMALE le coup natif est une CONSTANTE
-    (`HitDamage` degenere) la ou ce modele TIRE dans la cellule d'arme ; sur le vecteur ABILITY les
-    deux modeles coincident. Non corrige ici : cible DEFENSEUR (`OwnerIsTarget`) + cap `maxDmg`,
-    donc son propre montage live (porteur = Vitruvius). Le 3e usager du meme noeud est
-    `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
-    (porte, lui, en `create_aura_hits_bonus_for_attack`) — meme fork, meme reserve."""
+    ## Canal — GROUPE du canal #179, PAS un terme de la formule de coups (#204, fork ferme)
+    `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits`
+    -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` avec :
+      - condition = `get_OwnerIsTarget & !AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)` ;
+      - roll (param_3) et display (param_8) = `FirstHitInCurrentAttackDamageRange` (le MEME noeud,
+        deux instances) ;
+      - profil (param_5) = `CONCAT44(0, 0xffffffff)` -> **NULL**, a l'octet pres le meme littéral que
+        `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` -> le groupe
+        est execute par `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithout
+        DamageProfileType` (INLINE, donc AVANT les groupes a profil) et emprunte le profil de l'ARME ;
+      - count (param_6) = `ConfigConst(0x2f = nrOfHits)` = 1 ;
+      - cap (param_9) = `ConfigVar(0xd = maxDmg)` (cf. « CAP » plus bas).
 
-    def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
-                                             damage_profile: str | None = None,
-                                             defender_on_cover: bool | None = None,
-                                             dist: int | None = None) -> EffectBonus | None:
-        if damage_profile == "Psychic":     # !AreEqual(profil, 0xd=Psychic) (IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits)
+    `FirstHitInCurrentAttackDamageRange` rend le `IdunBattle.Core.HitDamage` de l'AttackData de
+    l'attaque COURANTE, pris BRUT ; `IdunBattle.Core.HitDamage$$GetDamage` court-circuite quand
+    `min == max` -> sur une attaque NORMALE la valeur du coup est une CONSTANTE = base d'attaque
+    reduite. Chaine complete et consequences par vecteur : `docs/rl/case-227-let-the-galaxy-burn-
+    canal179.md` §2 (le port ci-dessous en est le mirror exact).
+
+    GROUND TRUTH LIVE #204 (`probe_204_ah_channel.py --case master` ; `admecDominus` pose sur
+    `bloodSanguinary`, l'attaquant temoin `ultraApothecary` frappe en melee, MC1_67, armure cible 0) :
+    l'evenement supplementaire vaut **4617 sur 5/5 attaques armees** = la stat ATTACK de
+    l'attaquant A L'UNITE, quand les coups d'ARME de la meme campagne prennent **8 valeurs distinctes
+    sur 8 coups** (3832 .. 5503). Le contrefactuel « +1 coup d'ARME » (l'ancien port) devrait tirer
+    4617 pile dans `[0.8A, 1.2A] = [3694, 5540]` : 0/5.
+
+    ## CAP `ConfigVar(0xd = maxDmg)` — transporte, INERTE dans tout regime spawnable
+    `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits` evalue le noeud cap (slot 1) et le range
+    en `Nullable<int>` dans l'`AdditionalHits` (+0x20) ; `IdunBattle.Operations.AdditionalHitsFrom
+    Effects$$GetAdditionalHitsData` le recopie tel quel dans l'`AdditionalHitsData`. Le seul
+    consommateur LU est la face PREDICTION (`IdunBattle.Entities.Abilities.AActiveAbility$$
+    GetEffectAdditionalHitPrediction`, qui le passe au slot 0x26 de `DamagePrediction`) ; la voie
+    COMBAT sans profil ne lit de cet enregistrement que le COUNT et le profil. MESURE #204
+    (`probe_204_cap_and_stat.py`) : `maxDmg` a le niveau d'ability 50 du roster spawnable, multiplier
+    de rarete 180 %, vaut **7477**, au-dessus de toute stat ATTACK atteignable (max observe 5022) ->
+    **strictement no-op**. Non porte, pour ne pas figer une semantique non lue ; a rouvrir si un
+    regime ou `reduce(base) > cap` devient atteignable."""
+
+    def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
+        c = ctx or {}
+        # `get_OwnerIsTarget` : le porteur du marqueur EST la cible de l'attaque courante.
+        if c.get("owner_id") is None or c.get("owner_id") != c.get("tgt_id"):
+            return None
+        # `!AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)`. Profil INCONNU (None) -> le noeud
+        # `AreEqual` ne peut pas etre VRAI hors d'une attaque -> pas d'exclusion (degradation fidele).
+        if c.get("damage_profile") == "Psychic":
             return None
         n = ability_var("MasterAnnihilator", "nrOfHits", is_constant=True)   # ConfigConst 0x2f (=1)
-        return for_addition(True, int(n)) if n else None
+        if not n:
+            return None
+        # `FirstHitInCurrentAttackDamageRange` = le `HitDamage` BRUT de l'attaque courante. Absent =
+        # aucune attaque en cours (face PREDICTION) -> le noeud rend 0 -> coup a 0 degat = no-op
+        # numerique -> on n'emet PAS de groupe (mirror #227).
+        hd = c.get("attack_hit_damage")
+        if hd is None:
+            return None
+        mn, mx = int(hd[0]), int(hd[1])
+        if mn <= 0 and mx <= 0:
+            return None
+        return {"count": int(n), "min": mn, "max": mx, "profile": None}
 
 
 # Cle du sac `PersistentDataComponent` armee par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateBehaviour`
@@ -1090,23 +1126,51 @@ class AstartesBannerExtraHitEffect(BaseEffect):
     leurs attaques MÊLÉE (i2 : « Other friendly units within 2 hexes score an additional hit with their melee
     attacks. This additional hit can deal a maximum of 5456 Damage »). L'effet est POSSÉDÉ par le PORTEUR
     (capté dans SA liste d'effets, comme BigTarget) ; bénéficiaires = SurroundingFriends (exclut self).
-    - hits `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits` : `ForAddition(OwnerIsCaster & IsMeleeAttack, ConfigVar(0xd=
-      extraHits, sourceAbilityState))` + cap dégât 5456 sur le coup ajouté (FirstHitInCurrentAttackDamageRange
-      + max). ⚠ CAP 5456 du coup ajouté NON porté (refine : ne mord que si dégât/coup > 5456 ; le +1 coup
-      COUNT est l'effet principal, GROUND TRUTH ultraApothecary 1->2 @seed999 via AstartesBanner de templAncient).
-    - cible `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateTargetSelector` : `SurroundingFriends(range=ConfigConst 0x16=2, exclut self)`.
-    Canal AURA côté SOURCE (`create_aura_hits_bonus_for_attack`, agrégé par `aura_hits_bonus_for_attack`),
-    SYMÉTRIQUE de BigTarget (défenseur). Magnitude `extraHits` indexée sur le niveau d'ability du PORTEUR
-    (`GetAbilityState` -> `self.ability_level`). Ctx aura = {owner_id/pos/team, att_id/att_pos/att_team, is_melee}."""
+    - hits `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits` :
+      `EffectAdditionalHits.Create(OwnerIsCaster & IsMeleeAttack, roll = FirstHitInCurrentAttack
+      DamageRange, profil = -1 (NULL), count = ConfigConst(0x64 = extraHits), display =
+      FirstHitInCurrentAttackDamageRange, cap = ConfigVar(0xd = maxDmg))`.
+      ⚠ IDs RE-LUS (#204) : `ConfigConst(0x64)` = **extraHits** et `ConfigVar(0xd)` = **maxDmg**
+      (`IdunBattle.Configuration.AbilityConstantType` / `...AbilityVariableType`) — l'ancienne
+      docstring lisait `ConfigVar(0xd = extraHits)`, ce qui confondait le COUNT et le CAP.
+      GROUND TRUTH ultraApothecary 1->2 @seed999 via AstartesBanner de templAncient.
+    - cible `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateTargetSelector` : `SurroundingFriends(Self@0x148, ConfigConst 0x16 = range = 2, exclut self)`.
 
-    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
+    ## Canal — GROUPE du canal #179, PAS un terme de la formule de coups (#204, fork ferme)
+    Le natif appelle `CreateAdditionalHits` (marqueur du canal #179), pas
+    `CreateEffectHitsBonusForAttack` (marqueur de la formule de coups). Le corps INLINE de
+    `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` y ecrit le MEME layout que chez
+    `LetTheGalaxyBurnEffect` / `MasterAnnihilator_AdditionalHitEffect`, avec le MEME littéral de
+    profil (`0xffffffff` -> NULL) : groupe execute par `IdunBattle.Operations.AttackDamage
+    Operation$$ExecuteAdditionalHitsWithoutDamageProfileType` (INLINE, donc avant les groupes a
+    profil), au profil de l'ARME. `FirstHitInCurrentAttackDamageRange` rend le
+    `IdunBattle.Core.HitDamage` de l'AttackData COURANTE, degenere sur une attaque normale -> valeur
+    CONSTANTE (`IdunBattle.Core.HitDamage$$GetDamage` court-circuite sur `min == max`). Detail de la
+    chaine : `docs/rl/case-227-let-the-galaxy-burn-canal179.md` §2.
+
+    GROUND TRUTH LIVE #204 (`probe_204_ah_channel.py --case astartes` ; `templAncient` a <= 2 hex de
+    `ultraApothecary`, qui frappe `bloodSanguinary` en melee, MC1_67, armure cible 0) : l'evenement
+    supplementaire vaut **4617 sur 5/5 attaques armees** = la stat ATTACK de l'attaquant A L'UNITE,
+    quand les coups d'ARME de la meme campagne prennent **8 valeurs distinctes sur 8 coups**
+    (3832 .. 5027). Contrefactuel « +1 coup d'ARME » (l'ancien port) : 0/5.
+
+    ## CAP `ConfigVar(0xd = maxDmg)` — meme statut que chez `MasterAnnihilatorAdditionalHitEffect`
+    Transporte par `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits` (+0x20 de l'`AdditionalHits`),
+    lu par la seule face PREDICTION ; MESURE #204 : 7477 au niveau d'ability 50 du roster spawnable
+    (multiplier 180 %), au-dessus de toute stat ATTACK atteignable -> strictement no-op. Non porte.
+
+    Ctx du canal (monte par `collect_additional_hit_groups` puis `aura_additional_hits_from_allies`) :
+    {owner_id/pos/team, att_id/att_pos/att_team, is_melee, attack_hit_damage, tgt_id, damage_profile}."""
+
+    def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
         c = ctx or {}
         if not c.get("is_melee"):                          # IsMeleeAttack
             return None
+        # `get_OwnerIsCaster` : le BENEFICIAIRE (une cible du `SurroundingFriends`) est l'attaquant.
         if c.get("att_id") == c.get("owner_id"):           # SurroundingFriends exclut le porteur (self)
             return None
         if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
-            return None                                    # bénéficiaires = ALLIÉS du porteur
+            return None                                    # beneficiaires = ALLIES du porteur
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return None
@@ -1114,8 +1178,18 @@ class AstartesBannerExtraHitEffect(BaseEffect):
         rng = ability_var("AstartesBanner", "range", is_constant=True)   # ConfigConst 0x16 (=2)
         if hexgeo.distance(op, ap) > int(rng if rng else 2):             # SurroundingFriends(range)
             return None
-        n = ability_var("AstartesBanner", "extraHits", is_constant=True)  # constante extraHits (=1)
-        return for_addition(True, int(n)) if n else None
+        n = ability_var("AstartesBanner", "extraHits", is_constant=True)  # ConfigConst 0x64 (=1)
+        if not n:
+            return None
+        # `FirstHitInCurrentAttackDamageRange` — absent = hors `OngoingAttack` (face PREDICTION) ->
+        # le noeud rend 0 -> coup a 0 degat = no-op numerique -> aucun groupe (mirror #227).
+        hd = c.get("attack_hit_damage")
+        if hd is None:
+            return None
+        mn, mx = int(hd[0]), int(hd[1])
+        if mn <= 0 and mx <= 0:
+            return None
+        return {"count": int(n), "min": mn, "max": mx, "profile": None}
 
 
 class SagaOfTheWarriorBornOwnerEffect(BaseEffect):

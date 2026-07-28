@@ -46,7 +46,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
-    "aura_hits_bonus_for_attack", "additional_hit_groups", "aura_defense_damage_malus_from_units",
+    "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
     "piercing_bonus_from_effects",
@@ -272,9 +272,11 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
                                      defender_on_cover: bool | None = None,
                                      dist: int | None = None) -> int:
     """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
-    ex. LightCover IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : -2 ranged ; Parry IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : -1 mêlée ; MasterAnnihilator
-    IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits : +1 non-Psychic). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
+    ex. LightCover IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : -2 ranged ; Parry IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : -1 mêlée ;
+    Camouflage/Diminutive). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
     `OwnerIsTarget` ; plancher min=1 appliqué chez le consommateur (`max(1, …)`).
+    #204 — `MasterAnnihilator_AdditionalHitEffect` N'EST PLUS ici : son artefact natif est
+    `CreateAdditionalHits` (canal #179), pas `CreateEffectHitsBonusForAttack`.
     `defender_on_cover` = gate compute-time des effets de TUILE (LightCover `AreEqual(coverPatch,target)`,
     #113) : None=applique-sur-présence (prédiction), True/False=cible sur/hors sa tuile de cover (combat).
     Retour signé (à ADDITIONNER aux hits)."""
@@ -311,24 +313,13 @@ def aura_hits_malus_for_defense(units_effects, ctx) -> int:
     return total
 
 
-def aura_hits_bonus_for_attack(units_effects, ctx) -> int:
-    """Σ des bonus de COUPS projetés sur l'ATTAQUANT par des effets AURA possédés par ses ALLIÉS à portée
-    (`create_aura_hits_bonus_for_attack`, ex. AstartesBannerExtraHitEffect IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits : +extraHits mêlée aux
-    alliés dans le rayon 2 du porteur, exclut self). SYMÉTRIQUE de `aura_hits_malus_for_defense` (défenseur).
-    `units_effects` = itérable de (owner_id, owner_pos, owner_team, effets du porteur) ; `ctx` = {att_id,
-    att_pos, att_team, is_melee}. Retour >= 0 (à ADDITIONNER aux hits)."""
-    total = 0
-    for owner_id, owner_pos, owner_team, effects in (units_effects or []):
-        octx = {**(ctx or {}), "owner_id": owner_id, "owner_pos": owner_pos, "owner_team": owner_team}
-        for e in _as_effects(effects):
-            hb = e.create_aura_hits_bonus_for_attack(octx)
-            if hb is None:
-                continue
-            if hb.kind == "Addition":
-                total += hb.value
-            elif hb.kind == "Subtraction":
-                total -= hb.value
-    return total
+# #204 — `aura_hits_bonus_for_attack` a ETE SUPPRIME (agregateur + hook `create_aura_hits_bonus_
+# for_attack`). Son unique alimenteur, `AstartesBannerExtraHitEffect`, appelle en natif
+# `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
+# (canal #179), pas `CreateEffectHitsBonusForAttack` : il est passe a
+# `create_aura_additional_hits_for_ally` / `aura_additional_hits_from_allies`. Meme motif que la
+# sortie de `tile_effects_by_pos`/`persistent_data` d'`attack_hits_with_modifiers` en #227 : un
+# canal sans alimenteur natif est un gate MORT, donc un piege.
 
 
 def aura_attack_bonus_from_allies(carriers, ctx) -> int:

@@ -507,7 +507,10 @@ class _AbilityAttack:
                     # snapshot PRE-attaque (cf. le bloc `_ltgb_tfx` plus haut). `IsPersistentData` :
                     # `On(PreAttack=5)` EST emis par ce vecteur (famille ATTACK, cf. plus haut) ->
                     # les DEUX branches du gate sont armables ici.
-                    tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd),
+                    tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd,
+                    # #204 `MasterAnnihilator_AdditionalHitEffect` : noeud
+                    # `AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)` du gate.
+                    damage_profile=damage_profile),
                 mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
                 extra_pierce=ctx.extra_pierce,
                 attack_profile=damage_profile,

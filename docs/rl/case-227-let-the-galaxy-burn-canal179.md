@@ -244,11 +244,14 @@ d'un coup plein (≈ +25 % sur une attaque à 4 coups) exactement dans le régim
 
 ## 6. Ce qui n'est PAS couvert
 
-- **`MasterAnnihilator_AdditionalHitEffect` et `AstartesBanner_AdditionalHitsEffect`** : même nœud
-  `FirstHitInCurrentAttackDamageRange`, **même fork de port** (rendus en `hits_malus_for_defense` /
-  `aura_hits_bonus_for_attack`). Leur correction demande son propre montage live (porteurs
-  `blackPossession` « Vitruvius » côté défenseur avec un cap `ConfigVar(0xd)`, et l'aura Astartes) :
-  hors périmètre d'un cas « un seul sujet », résidus **nommés** dans les docstrings.
+- ~~**`MasterAnnihilator_AdditionalHitEffect` et `AstartesBanner_AdditionalHitsEffect`**~~ —
+  **FERMÉ par `case-204-ah-master-annihilator-astartes-banner.md`** : même nœud, même fork, corrigé
+  de la même façon (les deux passent à `create_aura_additional_hits_for_ally`, le canal
+  `aura_hits_bonus_for_attack` a été supprimé faute d'alimenteur). Mesuré live sur les deux porteurs
+  — **`admecDominus` « Vitruvius »** (et non `blackPossession`, cité à tort ici) et `templAncient` —
+  avec le même protocole : événement supplémentaire **constant** (4617 = stat ATTACK, 5/5) contre
+  **8 valeurs distinctes sur 8** pour les coups d'arme. Le cap `ConfigVar(0xd = maxDmg)` reste
+  **non porté** : mesuré inerte (7477 contre une ATTACK max atteignable de 5022), cf. §2.3 du cas.
 - **Le crit sur un coup de groupe** : `execute_additional_hits` passe `crit_chance=0`,
   `crit_enabled=False` pour TOUS les groupes du canal, alors que le natif fait passer ces coups par
   `AttackDamageOperation$$ExecuteHit`, qui roule un crit. Résidu **préexistant** du canal, pas

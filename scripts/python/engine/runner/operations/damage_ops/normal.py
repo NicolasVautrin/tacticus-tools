@@ -406,7 +406,10 @@ class _Normal:
                 attack_hit_damage=(int(ctx.stat(StatType.ATTACK)), int(ctx.stat(StatType.ATTACK))),
                 t_pos=(tp.col, tp.row) if tp is not None else None,
                 # snapshot PRE-attaque (cf. le bloc `_ltgb_tfx` plus haut) : la tuile figee.
-                tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd),
+                tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd,
+                # #204 `MasterAnnihilator_AdditionalHitEffect` : noeud
+                # `AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)` du gate.
+                damage_profile=_profile),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
             # profil de l'ATTAQUE : ce qu'emprunte un groupe dont le `profileType` est NULL.

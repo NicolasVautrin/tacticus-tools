@@ -157,14 +157,21 @@ def item1_master_annihilator(state, dec, board):
                    if e.effect_type == MARK and not e.consumed and (src is None or e.source == src))
     print("  VERDICT: e1 actifs=%d (attendu 0) | e2 source-vitruvius=%d (attendu 1) "
           "| e3 source-AUTRE=%d (attendu 1 = NON retire)" % (_n(e1), _n(e2, vit), _n(e3, other)))
-    # MAGNITUDE : le marqueur pose est-il ACTIF (canal +1 coup recu, non-Psychic) ?
+    # MAGNITUDE : le marqueur pose est-il ACTIF ? #204 -- son canal n'est plus la FORMULE de coups
+    # (`create_effect_hits_malus_for_defense`) mais le canal #179 des groupes de coups additionnels
+    # (`create_aura_additional_hits_for_ally`, condition `OwnerIsTarget`), l'artefact natif etant
+    # `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits`.
     mk = next((e for e in state.effects.by_unit.get(e2, [])
                if e.effect_type == MARK and not e.consumed), None)
     if mk is not None:
-        b_phys = mk.create_effect_hits_malus_for_defense(is_melee=True, damage_profile="Physical")
-        b_psy = mk.create_effect_hits_malus_for_defense(is_melee=True, damage_profile="Psychic")
-        print("  MAGNITUDE marqueur pose : Physical -> %s (attendu +1) | Psychic -> %s (attendu None)"
-              % (getattr(b_phys, "hits_bonus", b_phys), b_psy))
+        base = {"owner_id": e2, "tgt_id": e2, "attack_hit_damage": (1000, 1000)}
+        g_phys = mk.create_aura_additional_hits_for_ally({**base, "damage_profile": "Physical"})
+        g_psy = mk.create_aura_additional_hits_for_ally({**base, "damage_profile": "Psychic"})
+        g_other = mk.create_aura_additional_hits_for_ally(
+            {**base, "owner_id": e1, "damage_profile": "Physical"})   # OwnerIsTarget faux
+        print("  MAGNITUDE marqueur pose (canal #179) : Physical -> %s (attendu count=1, "
+              "min=max=1000, profile=None) | Psychic -> %s (attendu None) | non-cible -> %s "
+              "(attendu None)" % (g_phys, g_psy, g_other))
 
 
 # ----------------------------------------------------------------------------------------------
