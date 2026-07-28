@@ -236,8 +236,12 @@ seule mesure du vecteur normal.
 
 ## 4. Ce qui n'est PAS couvert
 
-- **R6-c — les descripteurs `amount` restants.** Le même étage est encore faux pour les
-  descripteurs dont le nœud ROLL n'a pas été câblé. RE **lue** ici, prescription exacte :
+- ~~**R6-c — les descripteurs `amount` restants.**~~ **FERMÉ depuis**, cf.
+  `case-r6c-amount-group-bounds.md` : les trois descripteurs sont portés et validés live (8/8 sur
+  l'axe VALEUR, 8/8 sur l'axe CONSOMMATION), et le blocage invoqué ci-dessous (« pas de
+  confrontation live montée sur leur porteur ») ne tenait pas — les trois porteurs sont HERO et
+  directement présents dans `--list-pool`. La prescription lue ici s'est révélée **exacte** sur les
+  deux formes. Ce qui suit reste la RE d'origine, conservée pour la traçabilité :
   - `CyclicIonBlaster_AdditionalHitsEffect$$CreateAdditionalHits` (verbatim) —
     `rollNode = ConditionalAmount(cond, RandomAmount(Sum(minDmg, extraDmg), Sum(maxDmg, extraDmg)),
     RandomAmount(minDmg, maxDmg))`, `displayNode = ConditionalAmount(cond, Sum(minDmg, extraDmg),
@@ -253,8 +257,7 @@ seule mesure du vecteur normal.
     **dégénérées** `[v, v]`, ce qui change **aussi la consommation** (`GetDamage` gate `min == max`
     → 0 tirage). Correction plus lourde que les deux précédentes, et non mesurée.
 
-  Aucune de ces trois n'a été portée : pas de confrontation live montée sur leur porteur → pas de
-  port spéculatif.
+  (Les trois ont depuis été portées et confrontées live — `case-r6c-amount-group-bounds.md`.)
 - **Le volet `DespoiledGround`** (effet 1476 + `DespoiledGround_ExtraDamagePct` 1478) reste non
   porté ; il coûte **1 tirage** au natif, en fin d'attaque (mesuré, §2.c). Inchangé par ce cas,
   mais désormais chiffré.

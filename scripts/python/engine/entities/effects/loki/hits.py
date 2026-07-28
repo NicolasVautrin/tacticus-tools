@@ -143,8 +143,23 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
     count = GetNumberConstant(0x2f)=nrOfHits (=1), profile = GetDamageProfile(config) = Toxic (p70)}.
     Le trigger est EVALUE en prediction (mesure 2468 s14 : les 3 effets u91/u162/u166 ne contribuent
     PAS a la prediction RANGED de u89 — le +2992 venait d'ExplosiveMaladies) : canal #179 standard
-    du PORTEUR, gate `ctx["is_melee"]` requis (IsMeleeAttack). `amount` seul -> spread ±20% pipeline.
-    NON exerce bit-exact live (porte 1:1 du decompile ; s'active quand u91/poxwalkers attaquent MELEE)."""
+    du PORTEUR, gate `ctx["is_melee"]` requis (IsMeleeAttack).
+
+    R6-c — CELLULE COMBAT **DEGENEREE**, PAS un spread ±20%. L'appel natif est lu verbatim :
+    `EffectAdditionalHits$$Create(&out, cond, ConfigVar(0xb), 1, profile, Direct(nrOfHits), 0,
+    **0**, 0)` — le 8e argument (`param_8` = noeud DISPLAY) est **ZERO**, donc
+    `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` execute son repli
+    `if (param_8 != 0) param_3 = param_8; param_1[2] = param_3` : `minNode` (+0x10, DISPLAY)
+    retombe sur `amountNode` (+0x08, ROLL), et ce noeud unique est un **SCALAIRE**
+    (`IdunBattleLogic.Entities.DSLFactory$$ConfigVar` -> `IdunBattle.Entities.Formulas.ConfigAmount`,
+    qui n'a pas de `CalculateMin`/`CalculateMax` propres). La face COMBAT
+    (`BaseEffect$$AdditionalHits`, `useDisplay = false`) lit donc slot 2 ET slot 3 du MEME noeud
+    scalaire => `MinMaxDamage(v, v)`. Consequence sur la CONSOMMATION, et pas seulement sur la
+    valeur : `IdunBattle.Core.HitDamage$$GetDamage` ouvre sur
+    `if (*param_1 == param_1[1]) return *param_1;` -> **0 tirage** au lieu de 1.
+    La face PREDICTION est INCHANGEE (`amount` reste la cle lue en premier par
+    `playbook/prediction/normal_attack.py`, et le natif y etale `(amount, amount)` a ±20 % via
+    `DamageCalculations$$CalculateDamageSpread`)."""
 
     def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
         if not ctx or ctx.get("is_melee") is not True:      # trigger IsMeleeAttack (evalue)
@@ -160,7 +175,10 @@ class FoulInfusionExtraHitsEffect(BaseEffect):
                 or "Toxic"
         except Exception:
             profile = "Toxic"
-        return [{"count": int(count), "amount": int(amt), "profile": profile}]
+        # R6-c : `amount` = face PREDICTION (noeud DISPLAY) ; `min`/`max` = face COMBAT (noeud ROLL,
+        # ICI LE MEME noeud scalaire) -> cellule DEGENEREE, 0 tirage `GetDamage`. Cf. docstring.
+        return [{"count": int(count), "amount": int(amt),
+                 "min": int(amt), "max": int(amt), "profile": profile}]
 
 
 class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
@@ -179,32 +197,62 @@ class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
     PREDICTION (#57e, 54321 s19 u77->t93 + varTrace) : le display n'evalue QUE le noeud MIN (2
     resolutions var 0xc minDmg etat {50,180} -> 599 ; JAMAIS 0xd ni 8) et laisse le pipeline etaler :
     amount 599 x ±20% x %-mods attaquant (1.33 RangedSpecialist x 0.7 Pinned) x pierce Particle 35
-    (armure haute) = [156,234]/coup x3 = nat [1098,1644] - arme [630,942] EXACT -> forme « amount »
-    (spread pipeline, comme FoulInfusion), PAS predefined [min,max]. Multiplier = GLOBAL de l'unite
-    (varTrace mult=180 ; pas le per-ability #68). Gate +extraDmg = cible Markerlight (effet 1122) OU
-    trait Mechanical, via ctx tgt_effect_names/tgt_traits (branche non exercee : t93 ni l'un ni
-    l'autre -> flag validator). Face COMBAT (RandomAmount reel) non confrontee -> flag validator."""
+    (armure haute) = [156,234]/coup x3 = nat [1098,1644] - arme [630,942] EXACT -> le noeud DISPLAY
+    n'evalue QUE le MIN, puis le pipeline etale. Multiplier = GLOBAL de l'unite (varTrace mult=180 ;
+    pas le per-ability #68).
+
+    R6-c — LES DEUX NOEUDS SONT DISTINCTS ; la face COMBAT tire dans [minDmg, maxDmg], PAS
+    `minDmg ±20%`. `CyclicIonBlaster_AdditionalHitsEffect$$CreateAdditionalHits` lu verbatim
+    (l'ordre des `DSLFactory` du corps natif) :
+
+        cond    = HasEffect(target@0x178, 0x462 Markerlight, 1, 6) | HasTrait(target@0x178, 5 Mechanical)
+        ROLL    = ConditionalAmount(cond, RandomAmount(Sum(minDmg, extraDmg), Sum(maxDmg, extraDmg)),
+                                          RandomAmount(minDmg, maxDmg))          # -> param_3, +0x08
+        DISPLAY = ConditionalAmount(cond, Sum(minDmg, extraDmg), minDmg)         # -> param_8, +0x10
+
+    `IdunBattle.Entities.Formulas.ConditionalAmount$$CalculateMin` evalue la condition puis DELEGUE
+    `CalculateMin` a la branche retenue (`this+0x18` si vraie, `this+0x20` sinon), et
+    `IdunBattle.Entities.Formulas.RandomAmount$$CalculateMin`/`CalculateMax` rendent `Calculate` de
+    leur sous-noeud `+0x10`/`+0x18`. La face COMBAT (`BaseEffect$$AdditionalHits`, `useDisplay =
+    false`, slots 2/3 du noeud ROLL) obtient donc **[minDmg, maxDmg]**, ou **[minDmg + extraDmg,
+    maxDmg + extraDmg]** quand `cond` tient.
+
+    Le port ne rendait que `amount` (= la valeur du noeud DISPLAY, donc le MIN) : la face COMBAT
+    etalait ce MIN a ±20 %, soit `[479, 719]` la ou le natif tire dans `[599, 898]` a mult 180 —
+    d'ou la signature R6-c « groupe live AU-DESSUS de la borne haute du port » (`tauCrisis`, profil
+    Particle p35, armure 6000 : live `[267, 277, 243]` contre `[235, 235, 208]` porte, cellule
+    reduite plafonnee a 252). Que `amount == min` du groupe ici est une PROPRIETE DU DESCRIPTEUR
+    (branche fausse du DISPLAY = `minDmg` nu), pas une regle du canal.
+    La face PREDICTION est INCHANGEE : `playbook/prediction/normal_attack.py` lit `amount` EN
+    PREMIER."""
 
     def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
         lvl = self.ability_level if self.ability_level is not None else self.level
         mn = ability_var("CyclicIonBlaster", "minDmg", lvl,
                          multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("CyclicIonBlaster", "maxDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
         count = ability_var("CyclicIonBlaster", "nrOfHits", is_constant=True)  # numberConstant 0x2f
-        if mn is None or mn <= 0 or not count or count <= 0:
+        if mn is None or mn <= 0 or mx is None or mx <= 0 or not count or count <= 0:
             return None
         c = ctx or {}
+        extra = 0
         if ("Markerlight" in (c.get("tgt_effect_names") or ()) or
                 "Mechanical" in (c.get("tgt_traits") or ())):
-            extra = ability_var("CyclicIonBlaster", "extraDmg", lvl,
-                                multiplier_pct=self.ability_variables_multiplier)
-            mn = int(mn) + int(extra or 0)      # noeud min du Conditional = Sum(minDmg, extraDmg)
+            # branche VRAIE du ConditionalAmount : `Sum(minDmg, extraDmg)` / `Sum(maxDmg, extraDmg)`
+            # — le meme `extraDmg` (ConfigVar 8) alimente les DEUX bornes du `RandomAmount`.
+            extra = int(ability_var("CyclicIonBlaster", "extraDmg", lvl,
+                                    multiplier_pct=self.ability_variables_multiplier) or 0)
         try:
             import gameconfig as _GC
             profile = ((_GC.ability("CyclicIonBlaster") or {}).get("constants") or {}).get("damageProfile") \
                 or "Particle"
         except Exception:
             profile = "Particle"
-        return [{"count": int(count), "amount": int(mn), "profile": profile}]
+        # R6-c : `min`/`max` = noeud ROLL (face COMBAT) ; `amount` = noeud DISPLAY (face
+        # PREDICTION) = la borne MIN de la meme branche. Cf. docstring.
+        return [{"count": int(count), "min": int(mn) + extra, "max": int(mx) + extra,
+                 "amount": int(mn) + extra, "profile": profile}]
 
 
 class _BaseFleshmetalGunsEffect(BaseEffect):
@@ -321,9 +369,22 @@ class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
     adjacence re-evaluee a la TUILE CANDIDATE.
 
     VALIDE bit-exact live (probe #57c-C, 2468 s14) : u89 (Ork, ranged, NON porteur) a (2,3) adjacent
-    de u91 -> +1 coup de extraDmg[50]x1.8=2992, roll ±20% PUIS x1.5 CrushingStrike (les %-mods
-    attaquant S'APPLIQUENT au coup folde) = delta [3591, 5385] ; a (0,3) non adjacent -> rien.
-    i2 : « Enemies defeated by affected attacks are always overkilled » (flag overkill non porte)."""
+    de u91 -> +1 coup de extraDmg[50]x1.8=2992 ; a (0,3) non adjacent -> rien.
+    i2 : « Enemies defeated by affected attacks are always overkilled » (flag overkill non porte).
+
+    R6-c — CELLULE COMBAT **DEGENEREE**, PAS un spread ±20%. Ici `EffectAdditionalHits$$Create` est
+    INLINE par le compilateur dans `ExplosiveMaladies_ExtraRangedAttackEffect$$CreateAdditionalHits`,
+    et le repli `param_8 == 0` y est deja resolu — les deux champs recoivent LE MEME noeud :
+        param_1[0] = OwnerIsCaster & IsRangedAttack   (condition)
+        param_1[1] = ConfigVar(8 = extraDmg)          (+0x08 ROLL)
+        param_1[2] = ConfigVar(8 = extraDmg)          (+0x10 DISPLAY, meme objet)
+        param_1[3] = Get(GetNumberConstant(0x2f))     (count)
+        +0x30 = 1 (forceOverkill)                     +0x34 = 1 (additionalHitsType)
+    Ce noeud unique est un SCALAIRE (`IdunBattle.Entities.Formulas.ConfigAmount`), donc les slots
+    2 et 3 lus par la face COMBAT rendent la MEME valeur -> `MinMaxDamage(v, v)`, et
+    `IdunBattle.Core.HitDamage$$GetDamage` court-circuite sur `min == max` : **0 tirage** au lieu
+    de 1. La face PREDICTION est INCHANGEE (`amount` reste lu en premier, spread ±20 % pipeline —
+    c'est bien lui qui a produit le delta [3591, 5385] mesure en #57c-C)."""
 
     _VARIANT_IS_MELEE = False        # ExtraRanged : IsRangedAttack ; ExtraMelee : IsMeleeAttack
 
@@ -354,7 +415,10 @@ class _ExplosiveMaladiesAuraHitsBase(BaseEffect):
                 .get("affectedDamageProfile") or "Blast"     # GetAffectedDamageProfile
         except Exception:
             profile = "Blast"
-        return {"count": int(count), "amount": int(amt), "profile": profile}
+        # R6-c : `amount` = face PREDICTION (noeud DISPLAY) ; `min`/`max` = face COMBAT (noeud ROLL,
+        # ICI LE MEME noeud scalaire) -> cellule DEGENEREE, 0 tirage `GetDamage`. Cf. docstring.
+        return {"count": int(count), "amount": int(amt),
+                "min": int(amt), "max": int(amt), "profile": profile}
 
 
 class ExplosiveMaladiesExtraRangedAttackEffect(_ExplosiveMaladiesAuraHitsBase):
