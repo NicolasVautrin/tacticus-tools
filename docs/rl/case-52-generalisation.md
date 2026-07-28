@@ -852,3 +852,107 @@ comme seed du fallback HEX de MinDist(16) quand pathDist=-1 (le SET est fidele, 
 - non testables en runner (pas de porteur spawnable) : Environment/IsIrrelevantObject -- mais ce
   sont des INVOCATIONS natives (pas des formules portees), le risque se limite au cablage, couvert
   par les tests ci-dessus (meme pattern de garde).
+
+## #17-s5 -- VERDICT FINAL du residu `MinDist#76` : FERME cote LIVE, DEPLACE cote OFFLINE
+
+Le residu ouvert par #57k (« 12345 s5 u89 : natif -700 sur (0,4) ET (1,4), nous -600 sur (1,4) »)
+a ete **re-mesure au TERME**, pas seulement a l'issue du pas. Probe :
+`scripts/python/probe_17_s5_mindist.py` (`--focus-step`). Garde :
+`tests/engine/test_min_distance_move_leaf_live.py`.
+
+### 1. Face LIVE (`engine.ai.context.build`) -- ECART FERME, 14/14 tuiles bit-exactes
+
+Seed 12345 / MC1_67, pas 5 (u89), `wMin = MinDistanceToClosestEnemy.PerTileDistance = -100` :
+
+| tuile | index movable | `pathDist` NATIF (RPC) | port LIVE | terme |
+|---|---|---|---|---|
+| (0,4) | 10 | 7 | 7 | **-700** |
+| (1,4) | 11 | 7 | 7 | **-700** |
+
+et 12 autres tuiles, **toutes egales** (11/11, 10/10, 9/9, 8/8...). `closestResolved=true` : la
+selection d'ennemi a bien eu lieu. Les 3 ennemis retenus par les filtres natifs sont
+`(77,6,8) (81,5,8) (83,4,8)` contre **5** ennemis au total -- les deux occupants de (6,6)/(6,7)
+sont exclus : **c'est le fix #57l (`IsTargetable`) en action**, mesure et non suppose.
+
+**Le « tie » de la fiche est un VRAI tie, et son departage n'a rien d'aleatoire** : les deux
+tuiles valent -670 au composite (`Elevation +30` + `MinDist -700`), et le natif prend **(0,4),
+index 10**, avant **(1,4), index 11**, dans l'ordre du movable set -> **premier-gagne**. La garde
+`test_move_tie_is_broken_by_movable_set_order` le verifie LIVE et **echoue si aucun tie n'est
+rencontre** (pas de vert vide).
+
+### 2. Face OFFLINE (`state_bridge.build_from_state`) -- l'ecart -700/-600 SUBSISTE
+
+Meme etat de decision, meme pas : le port OFFLINE rend **-600 sur (0,4) ET (1,4)**, et diverge sur
+**14/14 tuiles**, toujours d'exactement **un pas** (-100 de terme).
+
+Decomposition par etage (BFS mono-source par ennemi ciblable ; arete = walkable + porte
+d'elevation) :
+
+| tuile | `pathDist` NATIF | BFS(e81)+1 | BFS(e83)+1 | offline `state_bridge` |
+|---|---|---|---|---|
+| (0,4) | 7 | 7 | 7 | 6 |
+| (1,4) | 7 | 7 | 7 | 6 |
+| (1,0) | 11 | 11 | 11 | 10 |
+
+`BFS+1 == d_natif` sur **les 14 tuiles**, pour e81 comme pour e83. **Cause unique** : le natif lit
+`route+0x18` (= `List._size`) du `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null)`
+appele par `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` --
+un nombre de **NOEUDS**, extremites incluses, donc `aretes + 1`. `state_bridge
+._pathdist_to_enemies` compte des **ARETES**. L'ecart est cet offset, rien d'autre : la seconde
+divergence structurelle (min sur TOUS les ennemis vs ClosestEnemy FIGE) n'est **pas discriminante
+ici** (e81 et e83 rendent la meme distance sur les 14 tuiles) -- elle reste ouverte, non confrontee.
+
+⚠ **Piege de mesure** : `load_state(dv, obs, snap)` **sans `board=`** laisse `state.board is None`,
+`_pathdist_to_enemies` rend `{}` et la feuille retombe sur le **fallback HEX** -- on mesure alors
+autre chose que la face offline (l'ecart paraissait de 2 sur (4,0)/(4,1), et l'inventaire des
+causes s'en trouvait fausse). Passer `board=Board(boardGraph["tiles"], adjacency="native_sym")`.
+
+### 3. Ce que l'offset change -- et ce qu'il ne change PAS
+
+`MovementActionGenerator.generate` est un **argmax pur sur les tuiles** : un offset UNIFORME de
+-100 ne deplace aucun argmax. Sur ce datapoint l'ecart offline est donc **sans effet sur la
+decision** -- c'est un ecart de VALEUR du terme, exactement le genre de trou qu'aucune statistique
+d'agrement ne peut voir. Il devient liant des que l'uniformite tombe : une tuile sans `pathDist`
+retombe sur le fallback hex (autre echelle) -- et le natif, lui, ne fait PAS de fallback hex (§4).
+
+### 4. RE complementaire lue a cette occasion (feuille + selecteur d'ennemi)
+
+`MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`, in extenso :
+
+```
+u = Fix64.FromInt(0)
+if case.Unit == null                                -> yield 0
+if UnitExtensions.IsNonAttacking(case.Unit)         -> yield 0
+if case.ClosestEnemy == null
+   or !UnitCanBeDamagedUtility.UnitCanBeDamaged(case.Unit, case.ClosestEnemy)   -> yield 0
+d = GetMinDistanceToEnemy(this, case.Unit, case.Tile.MainTile, case.ClosestEnemy)  # Nullable<int>
+u = d.HasValue ? Fix64.FromInt(d.Value) * GetUtilityValue(this, PerTileDistance)
+               : <constante statique, statics+0x20 d'une classe non identifiee>
+```
+
+Deux ecarts de port DISTINCTS de l'offset, non fermes :
+- **quand `d` n'a pas de valeur**, le natif rend une **constante statique**, pas une distance HEX ;
+  notre fallback hex est une invention de port (utile, mais ce n'est pas le natif) ;
+- `GetMinDistanceToEnemy` force **`PathfinderType = 1`** en litteral, y compris pour une unite
+  VOLANTE, alors que `_pathdist_to_enemies` bascule sur `fly_is_valid_path_node` si le mover vole.
+
+`MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`, structure confirmee :
+
+```
+best = null ; bestDist = int.MinValue
+onlyTargets = UnitExtensions.GetOnlyTargets(unit)                  # une fois, a l'init
+foreach e in StateExtensions.GetAllEnemyUnitsOfUnit(state, unit):
+    if CurrentOwnerIsEnvironment(e) || !IsTargetable(e) || IsIrrelevantObject(e) || IsDead(e): continue
+    if onlyTargets.Count >= 1 && !onlyTargets.Contains(e.id): continue
+    d = GetDistanceToEnemy(this, unit, unitPosition, e)             # Nullable<int>
+    if d.HasValue && d.Value > 0 && (best == null || d.Value < bestDist):   # STRICT -> premier-gagne
+        best = e ; bestDist = d.Value
+return best
+```
+
+Le filtre **`d > 0`** et le **`<` STRICT** (donc premier-gagne dans l'ordre de
+`GetAllEnemyUnitsOfUnit`) n'etaient pas consignes. `GetDistanceToEnemy` a **deux branches** -- une
+distance de service (`<IBattleQuery> +0xb` sur les `UnitPosition`) et une `GetPath(...).Count` --
+choisies par un appel dont la source n'a pas ete identifiee : **non tranche**, et non discriminant
+sur ce datapoint (e81 et e83 donnent le meme resultat). Le RPC `pathDistToEnemies` choisit le
+ClosestEnemy par la distance de CHEMIN ; c'est une hypothese, pas une lecture.

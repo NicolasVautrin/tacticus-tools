@@ -11,6 +11,16 @@ MinDistanceToClosestEnemy=16`) :
   - `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` : MIN sur les tuiles de FOOTPRINT du **ClosestEnemy** (UN seul
     ennemi fige) de la distance de CHEMIN (`IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie,
     null).Count`, PAS hex ; Count INCLUT la tuile de depart) de `tuile` a chaque tuile ennemie.
+    Precisions RE (#17, 2026-07-29) : la valeur lue est `route+0x18` = `List._size`, donc un compte
+    de **NOEUDS** (extremites incluses) = `aretes + 1` -- une flood-fill qui compte des ARETES rend
+    UN DE MOINS ; `PathfinderType = 1` est un **litteral**, meme pour une unite VOLANTE ; et le
+    `Nullable<int>` rendu est NUL quand aucune tuile de l'ennemi n'est joignable.
+  - Gates de la feuille, avant tout calcul (`<EvaluateMovementInSteps>` in extenso) : `case.Unit ==
+    null` -> 0 ; `IdunBattle.Entities.UnitExtensions$$IsNonAttacking(case.Unit)` -> 0 ;
+    `case.ClosestEnemy == null` ou `IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged(case.Unit, case.ClosestEnemy)`
+    faux -> 0. Et si `d` n'a PAS de valeur, le natif rend une **constante statique** (`statics+0x20`
+    d'une classe non identifiee), **PAS** une distance hex : notre fallback hex ci-dessous est une
+    approximation de PORT, pas le natif.
   - **ClosestEnemy = `MovementActionGenerator.<FindClosestEnemy>IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`** : argmin
     (depuis la position COURANTE) SUR LES ENNEMIS CIBLABLES uniquement -- filtres COMPLETS (#26, ordre
     natif) : `!CurrentOwnerIsEnvironment` (`IdunBattle.Entities.EntityExtensions$$CurrentOwnerIsEnvironment` = Owner.Type==2, joueur Environment/neutre),
@@ -24,6 +34,17 @@ MinDistanceToClosestEnemy=16`) :
     non-atterri) est NON-CIBLABLE -> exclue du ClosestEnemy. 12345 s5 (case-52 §#57l) : sans le filtre,
     un Dante deep-strike (plus proche par chemin) ecrasait le ClosestEnemy -> (1,4) valait d=6 vers
     Dante au lieu de d=7 vers l'ennemi ciblable -> move (1,4) au lieu de (0,4).
+    Structure confirmee (#17) : `bestDist` part de `int.MinValue`, le candidat exige `d > 0`, et la
+    comparaison `d < bestDist` est STRICTE -> **premier-gagne** dans l'ordre de
+    `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit`.
+  - ⚠ **Les deux sources de `pathdist_by_pos` ne sont PAS equivalentes** (mesure du 2026-07-29,
+    case-52 §#17-s5). Source LIVE (RPC `pathDistToEnemies`) : bit-exacte au natif -- 14/14 tuiles au
+    pas s5 de la seed 12345, tie -700/-700 sur (0,4)/(1,4) inclus ; garde
+    `tests/engine/test_min_distance_move_leaf_live.py`. Source OFFLINE
+    (`state_bridge._pathdist_to_enemies`) : rend **UN DE MOINS sur chaque tuile** (BFS d'ARETES vs
+    Count de NOEUDS) et prend le min sur TOUS les ennemis ciblables au lieu du seul ClosestEnemy
+    fige -> tache `#17-off` du backlog. Sans effet sur l'argmax tant que TOUTES les tuiles ont un
+    `pathDist` (translation uniforme), liant des qu'une tuile retombe sur le fallback hex.
 
 Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)** (composition
 LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`, doc §13.8/13.11). C'est

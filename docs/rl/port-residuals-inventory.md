@@ -789,7 +789,9 @@ du couple, non diagnostiquée ici).
 Vérifiés présents (à la passe précédente), sans symptôme actionnable aujourd'hui : résidus MV71 (`case-61bis` §6/§8/§9),
 per-player 1180 (`case-31`), `ReachedSummonCap` (`case-38` §4 — branche `IsActive` sans caller
 connu), `LordOfTempests` AddIce (`case-35` §4), `LivingMetal` swarm no-wake top-off (`case-203` §5),
-les 2 résidus `move` (#17, nature RNG), arc arrière NON dégénéré du push (`case-push-distance` §5 —
+les 2 résidus `move` (#17, nature RNG — ⚠ le 3ᵉ item que #17 portait, le `MinDist#76` du pas s5, est
+sorti de cette ligne le 2026-07-29 : **fermé côté LIVE** et sa moitié OFFLINE promue en tâche
+`#17-off`, cf. `case-52` §#17-s5), arc arrière NON dégénéré du push (`case-push-distance` §5 —
 sans objet pour un pousseur adjacent), trait `Unstoppable` 1042 (à câbler DANS la tranche
 movement-stop #131/B4, sinon registered-but-dead), `#202` face DÉCISION Abraxas non confrontée
 oracle, `#5` chantier `DslContext` live-state, chantier archi **DSL-effet** (`dsl-effect-nodes.md` —
