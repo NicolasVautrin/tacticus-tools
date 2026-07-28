@@ -488,7 +488,10 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
   livrés** : le jet de block `Daemon_ExtraBlock` (`fda9142`, `case-221-daemon-extrablock-rng.md` ;
   `DaemonExtraBlockEffect` enregistré `effects/factory.py:299` + seed du trait 0x3fb l.572-574) ; le
   canal `OnToxicDamage` (1203) (`175f006` ; `TriggeredAbilityType.OnToxicDamageAbility = 1203`,
-  émetteur `damage_ops/ability.py:430`, `triggers/dispatch/attack.py:207-218`) ; le gate de PORTÉE (#241,
+  émetteur `damage_ops/ability.py:430`, `triggers/dispatch/attack.py:207-218`) — **re-confronté depuis**
+  au décompilé et au live : port conforme à `OnToxicDamageAbility$$CreateTrigger`/`$$CreateBehaviour`,
+  résidu de GRANULARITÉ tranché (« série » = les coups sur UNE cible, cf. `case-1203` §5.1) et 2ᵉ porteur
+  RANGED confronté (`case-1203` §5.2) ; le gate de PORTÉE (#241,
   `case-241-range-gate.md`). Ce qui reste à cet endroit de la cascade : la **ligne de vue**
   (`GetTilesObscuringTerrain`), et `GetValidTargets` (dont dépend `GetCasterNotAddedReason`).
 - **Bloqués par une fenêtre d'atelier vide** (exigent rebuild + reinject, donc pas du RE) :

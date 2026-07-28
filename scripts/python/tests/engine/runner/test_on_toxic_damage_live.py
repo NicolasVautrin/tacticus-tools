@@ -57,9 +57,20 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))      # tests/engine/runner -> import du helper sibling
+
+from _on_hit_tile_effect_replay import replay_on_hit_tile_effect   # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[5]           # racine repo (scripts/python/tests/engine/runner)
 SEED_BC = ROOT / "data" / "seed-bc.json"
 CARRIER_VIS = "genesBiophagus"                        # Hollan — arme MELEE `Toxic` 1 coup (HERO, --list-pool)
+# 2e porteur, RANGED (r2) : le gate natif porte sur le PROFIL du coup, pas sur sa portee — confronter
+# les DEUX chemins evite qu'un cablage present sur un seul passe pour general. `admecMarshall` porte
+# AUSSI une arme `Physical` (2 coups) : le test verifie donc le profil du coup effectivement joue.
+RANGED_CARRIER_VIS = "admecMarshall"
 ESCORT_VIS = "adeptHospitaller"                       # 2e unite de mon camp : garde une activation (pas de tick)
 CONTAMINATED = int(EffectType.Contaminated)           # 0x4dc = 1244 (effet de TUILE)
 TOXIC_PROFILE = "Toxic"
@@ -368,6 +379,60 @@ def test_toxic_normal_attack_agrees_with_live(live_session, rpc, build_runner, a
         f"{compared} attaques Toxic confrontees SANS aucune contamination live : le test ne prouve alors "
         f"que le NON-declenchement. Avec chance={GC.global_value(TOXIC_CHANCE_KEY)}%% c'est improbable "
         f"(mais deterministe par seed) -- change le seed du build si ce cas se fige")
+
+
+def test_toxic_ranged_carrier_agrees_with_live(live_session, rpc, build_runner):
+    """GENERALISATION du canal a un SECOND porteur, RANGED : `admecMarshall` (arme `Toxic` 1 coup,
+    range 2). Le test (5) ci-dessus ne confronte que `genesBiophagus` (arme MELEE) -- or le gate natif
+    est `DamageProfileHasTrait(OnToxic = 4)` sur le PROFIL du coup, jamais sur sa portee : si le canal
+    n'etait cable que sur le chemin melee, ce test le verrait et l'autre non.
+
+    Montage : `_on_hit_tile_effect_replay.replay_on_hit_tile_effect` (fixture NOMMEE, partagee avec
+    les autres poses on-hit de tile-effect). Elle encapsule les deux pieges qui produisent des faux
+    verts -- gate d'activation `toActivate` (et pas seulement `currentPlayer`) et « placer d'abord,
+    tirer ensuite » -- et marque `noop=True` tout coup non joue cote live plutot que de le compter
+    comme un ecart.
+
+    Trois choses sont exigees, et la 3e est celle qui discrimine la MAGNITUDE :
+      - PV de la cible identiques (le coup lui-meme ne diverge pas -> le reste est interpretable) ;
+      - **etat MT identique apres l'attaque** : le canal consomme EXACTEMENT le meme nombre de
+        tirages que le natif. C'est l'oracle de CONSOMMATION du couple
+        `IsFirstHitInSeries() & Maybe(chance)` -- un tirage de trop ou de moins desynchronise tout
+        ce qui suit dans la bataille ;
+      - au moins UNE pose confrontee, sinon le test ne prouverait que le NON-declenchement."""
+    conf, rid = replay_on_hit_tile_effect(
+        rpc, build_runner, carrier_vis=RANGED_CARRIER_VIS, effect_type=CONTAMINATED,
+        p_units=f"{RANGED_CARRIER_VIS},{ESCORT_VIS}", a_units=PLAIN_FOES)
+    real = [c for c in conf if not c.get("noop")]
+    print(f"[toxic ranged] confrontations={len(real)} (noop ignores={len(conf) - len(real)}) "
+          f"poses={sum(1 for c in real if c['live_effect'])}")
+    for c in real:
+        print(f"[toxic ranged] profile={c['profile']} hits={c['hits']} hp live={c['live_hp']} "
+              f"off={c['off_hp']} effect live={c['live_effect']} off={c['off_effect']} "
+              f"mt_same={c['mt_same']} mti {c['mti_before']}->off {c['mti_off']}/live {c['mti_live']}")
+
+    assert real, (f"aucune attaque de {RANGED_CARRIER_VIS} confrontee au live -- le canal ranged "
+                  f"n'a rien valide (drive sans contact, ou toutes les tentatives no-op)")
+    for c in real:
+        assert c["profile"] == TOXIC_PROFILE, (
+            f"le coup offline n'a pas le profil {TOXIC_PROFILE} (got {c['profile']}) -- la selection "
+            f"d'arme a change ({RANGED_CARRIER_VIS} porte AUSSI une arme Physical), ce test ne "
+            f"confronte plus le canal OnToxic")
+        assert c["off_hp"] == c["live_hp"], (
+            f"PV cible offline {c['off_hp']} != live {c['live_hp']} : le coup lui-meme diverge")
+        assert c["off_effect"] == c["live_effect"], (
+            f"contamination de la tuile {c['tile']} : offline={c['off_effect']} "
+            f"live={c['live_effect']} -- le canal `OnToxicDamageAbility` (1203) diverge sur le "
+            f"chemin RANGED (declenchement absent, chance differente, ou tirage mal place)")
+        assert c["mt_same"], (
+            f"etat MT divergent apres l'attaque (mti avant={c['mti_before']} off={c['mti_off']} "
+            f"live={c['mti_live']}) : le canal ne consomme pas le MEME nombre de tirages que le "
+            f"natif -- `IsFirstHitInSeries() & Maybe(chance)` doit en consommer EXACTEMENT UN par "
+            f"serie de coups, et le ET natif COURT-CIRCUITE aux coups 2..N")
+    assert any(c["live_effect"] for c in real), (
+        f"{len(real)} attaques Toxic ranged confrontees SANS aucune contamination live : le test ne "
+        f"prouve alors que le NON-declenchement (deterministe par seed -- changer le seed si ce cas "
+        f"se fige)")
 
 
 def _drive_to_contact(rpc, rid, board):
