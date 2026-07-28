@@ -73,8 +73,16 @@ export function registerViewSnapshot(ctx: Ctx): void {
      *  chargement de la BattleConfig) ; faction/class/profil/traits viennent de gameconfig,
      *  effets de decisionView. Read-only. body: { runnerId } */
     ctx.rpc.combatSnapshot = (
-        body?: { runnerId?: number },
+        body?: { runnerId?: number; debugOnly?: string[] },
     ): Promise<unknown> => queueOnMainThread(() => {
+        // DIAGNOSTIC #175 — `debugOnly` restreint le snapshot aux sous-lectures NOMMÉES, pour
+        // isoler laquelle empoisonne un runner contenant une Machine (toute pose d'effet
+        // ultérieure y devient un no-op silencieux). Absent => comportement NORMAL, inchangé :
+        // c'est un levier de mesure, pas un mode de fonctionnement.
+        // On ne référence QUE les sous-lectures qui INVOQUENT du natif — `readShields` est une
+        // lecture mémoire pure (aucun `invokeMethod`), elle ne peut rien muter, donc pas de bouton.
+        const only: string[] | null = Array.isArray(body?.debugOnly) ? body!.debugOnly! : null;
+        const wants = (part: string): boolean => only === null || only.indexOf(part) >= 0;
         let runner: NativePointer; let label: string;
         if (typeof body?.runnerId === "number") {
             try { runner = getRunner(body.runnerId).runner; }
@@ -154,6 +162,31 @@ export function registerViewSnapshot(ctx: Ctx): void {
             let reachable = 0;
             for (const t of allUnits) {
                 if (t.e.equals(attacker)) continue;
+                // #175 — NE JAMAIS prédire contre une MACHINE. Un seul appel
+                // `GetNormalAttackPrediction(attaquant, cible = Machine, pos)` suffit à rendre
+                // TOUTE pose d'effet ultérieure sur CE runner un no-op SILENCIEUX (l'action est
+                // consommée, `applyAction` rend ok=true, le dégât passe, mais `AddEffect` n'écrit
+                // plus rien). La sortie muette est le gate d'immunité de
+                // `IdunBattle.Operations.AddEffectOperation$$Execute` — l'appel d'interface slot
+                // +0x28 sur la définition d'effet : c'est sa SEULE sortie qui ne logue pas, les
+                // deux autres (cible nulle, `UnitExtensions$$HasFlag(cible, 6)`) tracent.
+                //
+                // BISSECTÉ live (`probe_175_combatsnapshot_machine.py`), pas supposé — et ça a
+                // RÉFUTÉ le correctif que la fiche #175 proposait. Mesures :
+                //   readNormalAttack SEULE                  -> NO-OP  (suffit à empoisonner)
+                //   les 5 autres sous-lectures, chacune     -> POSE
+                //   GetUnitPosition seul, sans prédiction   -> POSE
+                //   MoW exclue comme ATTAQUANTE (le fix proposé) -> NO-OP  <- INERTE
+                //   MoW exclue comme CIBLE (ci-dessous)     -> POSE
+                // Le vecteur est donc la Machine en CIBLE, pas en attaquant : gater sur
+                // l'attaquant aurait livré un correctif qui ne corrige rien, sans rien signaler.
+                //
+                // Ce qu'on perd : rien. Le dégât de base d'arme est indépendant de la cible (cf.
+                // le commentaire de tête), et l'attaquant garde toutes les cibles UNIT. Ce qu'on
+                // ne sait pas encore : POURQUOI le natif se comporte ainsi (le prédicteur cache
+                // délègue, cf. `CachedDamagePredictionQuery$$GetNormalAttackPrediction`) — c'est
+                // un CONTOURNEMENT mesuré, pas une réparation du natif.
+                if (t.entityType === EntityType.Machine) continue;
                 let boxed: NativePointer;
                 try { boxed = invokeMethod(getNormPredMi.info, dpq, [attacker, t.e, posPtr]); }
                 catch { continue; }
@@ -261,11 +294,13 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // dégât par-cible non exposés comme effets nommés, ex. le +50% sur worldTerminator). Emis
             // pour NOMMER le modifier par capture (INPUT), pas pour deviner.
             const statDelta: Record<string, number> = {};
-            for (const k of Object.keys(STAT_IDS)) {
-                stats[k] = getStat(e, k);
-                const init = getStatP(e, k, partBufInit);
-                if (init !== null && stats[k] !== null && stats[k] !== init) {
-                    statDelta[k] = (stats[k] as number) - init;
+            if (wants("stats")) {
+                for (const k of Object.keys(STAT_IDS)) {
+                    stats[k] = getStat(e, k);
+                    const init = getStatP(e, k, partBufInit);
+                    if (init !== null && stats[k] !== null && stats[k] !== init) {
+                        statDelta[k] = (stats[k] as number) - init;
+                    }
                 }
             }
             // #45b' : MaxHealth EFFECTIF (StatPart=2 = agrégat base+modifications, clamp cape
@@ -274,25 +309,29 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // struct MaximumValue@0x14 (observeBattle.hpMax) est la BASE : il rate les bumps
             // mid-bataille (TwistedScience +2992 sur u87, 777 s15 — utilité native 2.8836
             // reconstruite exacte avec 14036). DYNAMIQUE -> refresh par pas côté Python.
-            const healthMax = getStatP(e, "health", partBufMax);
+            const healthMax = wants("stats") ? getStatP(e, "health", partBufMax) : null;
             // AbilityState PER-ABILITY (#100) : {level, multiplier} de chaque entrée ActiveAbility
             // (_abilityState @0x4c, Override @0x58 prime — cf. internals.readAbilityState). C'est le
             // couple que le natif passe au playbook (5e arg MakeDamagePredictions) et qui indexe les
             // variables config (TryGetVariableArrayForLevel @181577510) — le global unitConfig
             // (activeAbilityLevel×abilityVariablesMultiplier) est un AUTRE canal (u80 : 65×120 vs 50×180).
-            const abilityStates = unitAbilityTypes(e, true)
-                .filter((a) => a.level !== undefined)
-                .map((a) => ({ id: a.id, name: a.name, kind: a.kind,
-                    level: a.level, multiplier: a.multiplier }));
+            const abilityStates = wants("abilityStates")
+                ? unitAbilityTypes(e, true)
+                    .filter((a) => a.level !== undefined)
+                    .map((a) => ({ id: a.id, name: a.name, kind: a.kind,
+                        level: a.level, multiplier: a.multiplier }))
+                : [];
             units.push({
                 entityId: id, entityType,
-                ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
+                ctrl: wants("ctrl") ? invokeBool(isCtrlByCurMi, [e, statePtr]) : null,
                 // #N11 : compteur PER-UNITÉ de tours termines (`UnitExtensions.GetTurnsFinished`),
                 // lu par le gate `OwnerHasFinishedMinTurns`. `null` = non mesuré (methode
                 // irresolue), a distinguer de `0` = a fini zero tour.
-                turnsFinished: invokeInt(getTurnsFinishedMi, [e]),
+                turnsFinished: wants("turnsFinished")
+                    ? invokeInt(getTurnsFinishedMi, [e]) : null,
                 stats, statDelta, healthMax,
-                normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
+                normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
+                unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
             });
         }
