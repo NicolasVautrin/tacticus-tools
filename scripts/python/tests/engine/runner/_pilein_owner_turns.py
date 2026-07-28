@@ -90,6 +90,39 @@ def count_genrand(before, after, cap=4000):
     return None
 
 
+def minimal_pilein_state(n_grots=1, player=0, turn_counts=None, turns_finished=0, rng=None):
+    """`State` minimal : `n_grots` porteurs de `PileIn` vivants a PV PLEINS + un non-grot du meme
+    joueur + un ennemi. Pas de board -> `execute_pilein_replica` no-ope, ce qui ISOLE le cout PRNG
+    du seul GATE (meme montage que `test_maybe_trigger_rng_live`).
+
+    Partage entre `test_pilein_owner_turns_live` (le gate `OwnerHasFinishedMinTurns`) et
+    `test_endturn_order_live` (l'ORDRE `On(0x17)` vs `RefreshEffects`) : les deux ont besoin du
+    MEME plateau minimal, et le dupliquer ferait diverger deux montages qui doivent rester egaux."""
+    from engine.runner.components import OwnerComponent, HealthComponent
+    from engine.runner.state import State
+    st = State()
+    st.rng = rng
+    st.current_player_id = player
+    if turn_counts is not None:
+        st.turn_counts.update(turn_counts)
+    for i in range(n_grots):
+        e = st.add_entity(100 + i)
+        uc = UnitComponent(visual_id=GROT_VISUAL, alive=True)
+        uc.turns_finished = int(turns_finished)
+        e.add_component(uc)
+        e.add_component(OwnerComponent(team=player, player=player))
+        e.add_component(HealthComponent(hp=1000, hp_max=1000))
+    ally = st.add_entity(200)
+    ally.add_component(UnitComponent(visual_id=CARRIER, alive=True))
+    ally.add_component(OwnerComponent(team=player, player=player))
+    ally.add_component(HealthComponent(hp=1000, hp_max=1000))
+    foe = st.add_entity(300)
+    foe.add_component(UnitComponent(visual_id=ENEMY, alive=True))
+    foe.add_component(OwnerComponent(team=player + 1, player=player + 1))
+    foe.add_component(HealthComponent(hp=1000, hp_max=1000))
+    return st
+
+
 def pilein_units(dv, player):
     """Ids des unites VIVANTES de `player` portant le passif `PileIn` (les grots)."""
     return {u["id"] for u in (dv.get("units") or [])

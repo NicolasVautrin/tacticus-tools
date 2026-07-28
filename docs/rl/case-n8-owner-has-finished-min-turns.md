@@ -198,9 +198,11 @@ AssertionError: assert 0 == (0 + 1)
   lecteurs de `GetTurnsFinished`, sont face DÉCISION et hors périmètre.
 - **L'overload FORMULE de `OwnerHasFinishedMinTurns`** (`amount: IAmountFormula`, `unitSelectionType`)
   n'a pas de call-site porté : seul l'overload `int` (celui de PileIn) est exercé.
-- **L'ORDRE `RefreshEffects` vs `On(0x17)`** : le natif exécute les triggers `On(0x17)` **avant**
-  `RefreshEffects`, alors que `EndTurnOperation.execute` tique les effets **avant** PileIn. Écart
-  d'ordre PRÉ-EXISTANT, non touché ici (il ne mord que si un DoT entame les PV du grot au tour même,
-  ce qu'aucune des six mesures n'a produit — colonne `PV` = OUI partout).
+- ~~**L'ORDRE `RefreshEffects` vs `On(0x17)`**~~ — **CORRIGÉ le 2026-07-28**, cf.
+  `case-n8b-endturn-order.md`. Le constat était juste (le natif exécute `On(0x17)` **avant**
+  `RefreshEffects`) ; la justification donnée ici était fausse : `RefreshEffects` n'inflige **aucun
+  dégât** (c'est `EffectComponent.RemoveOneTurn` + events + `RefreshEffectsOperation`), donc
+  l'écart ne pouvait pas « mordre par un DoT ». Ce qu'il changeait réellement : **l'état des effets
+  que voient les gates du vecteur**.
 - **Le champ `unitSelectionType` (`+0x28`, valeur 3)** du trigger n'est lu nulle part dans
   `ShouldTrigger` : rôle non déterminé, non porté.
