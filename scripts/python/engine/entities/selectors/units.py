@@ -575,16 +575,31 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
 
 
 class AdjacentFriends(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(caster)` = symétrique d'`AdjacentEnemies` (finit par
-    `Friends`) : alliés (team == caster) à dist <= radius du caster, self exclu."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
+    """`IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(X)` = symétrique d'`AdjacentEnemies` (finit par
+    `Friends`) : alliés à dist <= radius du centre, self exclu.
+
+    ⚠ La REFERENCE d'équipe est le 2e argument de `Friends`, PAS le caster. La surcharge 4-args LUE au
+    décompilé est `AdjacentFriends(factory, X, p3, p4)` =
+    `Friends(reference = X, Units(AdjacentTiles(X), p3, p4) - X, p4)` : la référence EST le centre.
+    Tant que le centre est le caster (tous les call-sites portés jusqu'ici), `team == ctx.caster.team`
+    est exact — d'où le collapse historique, conservé en défaut (`reference=None`).
+    `reference` EXPLICITE = la forme générale, requise dès que le centre n'est pas le caster :
+    `AdjacentFriends(Target@0x178, 1, 3)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
+    = les alliés DE LA CIBLE, c'est-à-dire les ENNEMIS du caster quand les deux camps s'opposent — le
+    collapse caster y rendrait exactement le camp INVERSE. (Même paramètre, même rôle et même défaut que
+    `SurroundingEnemies.reference`.)"""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None,
+                 reference: TargetsSelector | None = None):
         self.center, self.radius = center, radius or Const(1)
+        self.reference = reference
 
     def select(self, ctx):
         # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
                        board=getattr(ctx, "board", None), order="adjacent")
-        ct = (ctx.caster or {}).get("team")
+        ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
+        ct = (ref or {}).get("team")
         return [u for u in ring if u.get("team") == ct]
 
 

@@ -237,14 +237,20 @@ et il ne l'est pas ici : **natif 5 tirages contre 3 au port** (résidu NEUF, cf.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **RÉSIDU NEUF, mesuré par la généralisation §6.b, NON traité ici** : sur le montage
-  `deathBlightlord` (mêlée nue sur Creed, `SwornProtector` déclenché), le natif consomme **5**
-  `genrand_int32` là où le port en consomme **3**. Les DEUX tirages en trop sont EN AMONT des coups
-  d'arme — le 1ᵉʳ coup du port (`1132` seed 777) n'est pas le 1ᵉʳ live (`1250`), mais le **3ᵉ** coup
-  du port vaut exactement le **1ᵉʳ** live (`1250`), signature d'un décalage de 2 tirages à l'entrée.
-  Le montage `foul` de §6.a, qui invoque AUSSI Kell, est lui parfaitement aligné (3 = 3) : le
-  surplus est donc propre à `deathBlightlord` (effets `1375` / `1147` sur le porteur) et **pas** au
-  spawn de Kell. À reprendre comme cas propre.
+* ~~**RÉSIDU NEUF, mesuré par la généralisation §6.b**~~ — **CLOS par
+  `case-207-haze-of-corruption-target-finder.md`**. Sur le montage `deathBlightlord` (mêlée nue sur
+  Creed, `SwornProtector` déclenché), le natif consommait **5** `genrand_int32` contre **3** au port,
+  les deux tirages manquants EN AMONT des coups (les 3 valeurs live sortent de la MÊME cellule
+  `[890, 1934]`, sur `raw[2..4]`). L'étage est
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility` :
+  `On(0x2b = PreUnitAbility) & get_OwnerIsCaster` →
+  `PickRandomly(Damageable(AdjacentEnemies(Self@0x148, 1, 3) & AdjacentFriends(Target@0x178, 1, 3)), 2)`
+  = `min(|pool|, 2)` tirages AVANT tout coup. Deux tirages ici parce que `SwornProtector` fait
+  ré-émettre `On(0x2b)` par la ré-entrée `ExecuteForReplacedTarget` (#120bis) et que le pool vaut
+  **1 à chaque émission** : c'est **1 + 1**, pas un forfait de 2. ⚠ La piste « effets `1375` / `1147`
+  sur le porteur » notée ici était FAUSSE (`TerminatorArmour_Visual` / `TerminatorArmour_ReduceDmg`,
+  purement défensifs) ; et le montage `foul` de §6.a est aligné simplement parce que `deathPutrifier`
+  ne porte pas `HazeOfCorruption`. Port désormais 5/5 sur 4 seeds, per-coup bit-exact.
 
 * La variante **`_ArmorReduction2` (−40 %, 2 auras ou plus)** n'a aucun montage : il faudrait DEUX
   porteurs `ContagionsOfNurgle` ennemis chevauchants. La fenêtre `[2, 0x7fffffff]` est lue au
