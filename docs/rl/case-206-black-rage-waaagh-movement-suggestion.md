@@ -202,8 +202,9 @@ géométries jouées live, décomposition par terme).
 * **Les deux call-sites `TheBetrayer_TakeTurn`** (`$$CreateBehaviour` et `$$GetMovementTile`) gardent
   leur collapse : le natif y enveloppe l'appel d'un `SortByFormula(…, MinPathLength)`, cas
   structurellement différent. Hors périmètre de ce cas, à traiter à part.
-* **Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id` — résidu #201 §5,
-  inchangé.
+* ~~**Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id`~~ — **FERMÉ par
+  `case-205-summon-sort-tiles-unit-null.md`** : son `dc.unit` vaut **`null`** (ce n'était pas « un
+  ensemble »), le foyer prend un `parent_id` et chaque feuille porte sa dégradation nommée.
 * **`BlackRage` n'a toujours pas de `TARGETING_OPTIONS`** (une des entrées manquantes du registre) et
   ne porte pas `get_dynamic_invalid_target_reason`. Le gate natif est pourtant désormais trivial à
   poser : `BlackRageAbility$$GetDynamicInvalidTargetReason` est le JUMEAU EXACT de celui de Waaagh —

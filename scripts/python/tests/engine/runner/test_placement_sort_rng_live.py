@@ -202,3 +202,106 @@ def test_utility_sort_scenario_really_discriminates(measured):
         f"tuiles M0 {r['m0_tiles']} == live {r['live_tiles']} : la geometrie craftee ne fait PAS "
         f"desaccorder le tri et l'ordre source -- le tri `SortTilesByUtilityForSummon` n'est pas "
         f"confronte (re-crafter, pas un verdict).")
+
+
+# ------------------------------------------ case-205 : QUEL SUJET dans le `UtilityMovementCase` ?
+
+CASE205_BOARDS = ("MC1_67", "C4_09")        # elevation + Swamp d'un cote, DryBush de l'autre
+
+
+@pytest.fixture(scope="module")
+def summon_subject(live_session, rpc):
+    """case-205 -- le `dc.unit` du call-site SUMMON vaut **null**, il n'est ni un ENSEMBLE, ni un
+    representant de l'ensemble.
+
+    Le montage CHERCHE lui-meme, sur l'etat live, une geometrie ou deux lectures du sujet
+    DIVERGENT, et ECHOUE (pas `skip`) s'il n'en trouve aucune :
+      * H_NULL  = le port livre (`parent_id=` seul) : `case.unit == null` -> la feuille
+        `TriggeredAbilities(2)` rend 0, mirror du `if (case.unit != null)` natif ;
+      * H_FIRST = `case.unit` = une unite de repli tiree de l'ensemble (ici `templAncient`, porteur
+        d'`AstartesBanner` 1106 = `5 x |amis a r<=2 de la candidate|`) -- l'hypothese qu'il fallait
+        REFUTER, et la plus plausible a priori (`SelectMachine` rend le PREMIER de la liste).
+    Le scan exige EN PLUS que le terme de TUILE VARIE et que la tete H_NULL soit STRICTEMENT
+    meilleure : sur plateau plat le composite est constant et TOUT collapse a l'air juste.
+    `H_PARENT` est mesure aussi, mais il coincide ici avec H_NULL (le passif de `admecMarshall`
+    n'est dans aucun playbook de mouvement porte) -- il est refute au DECOMPILE, pas ici."""
+    import uuid as _uuid
+    import probe_205_summon_tile_subject as P205
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+
+    out = []
+    for i, bname in enumerate(CASE205_BOARDS):
+        sf = P205.ROOT / "logs" / "runners" / ("t205-%d-%s.json" % (i, _uuid.uuid4().hex[:8]))
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        rid = P205.build(777 + i, bname, sf)
+        if rid is None:
+            continue
+        try:
+            bg = rpc("boardGraph", {"runnerId": rid}, 60)
+            board = Board(bg["tiles"], adjacency="native_sym")
+            dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+            ob = rpc("observeBattle", {"runnerId": rid}, 60)
+            snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
+            st = load_state(dv, ob, snap, board=board)
+            mine = dv.get("currentPlayer")
+            ids = {u.get("visualId"): u["id"] for u in (dv.get("units") or [])
+                   if u.get("alive") and u.get("owner") == mine}
+            cid, bid = ids.get(P205.CASTER_VIS), ids.get(P205.BANNER_VIS)
+            eid = next((u["id"] for u in (dv.get("units") or [])
+                        if u.get("alive") and u.get("owner") != mine
+                        and u.get("visualId") == P205.ENEMY_VIS), None)
+            if cid is None or bid is None or eid is None:
+                continue
+            others = [v for v in ids.values() if v not in (cid, bid)]
+            geoms = P205.scan(st, board, cid, bid, eid, others, limit=1, strict=True)
+            if not geoms:
+                continue
+            live = P205.run_case(rpc, rid, board, geoms[0], verbose=False)
+            if live is None:
+                continue
+            st2 = load_state(live["dv"], live["ob"], live["snap"], board=board)
+            pool = P205._pool(st2, live["cid"])
+            out.append({
+                "board": bname,
+                "pool": [(t, board.coord(t)) for t in pool],
+                "h_null": P205._rank(st2, pool, parent_id=live["cid"])[0],
+                "h_first": P205._rank(st2, pool, unit_id=live["bid"])[0],
+                "h_parent": P205._rank(st2, pool, unit_id=live["cid"])[0],
+                "native": live["tile"],
+            })
+        finally:
+            try:
+                rpc("disposeRunner", {"runnerId": rid}, 20)
+            except Exception:
+                pass
+            try:
+                sf.unlink()
+            except Exception:
+                pass
+    assert len(out) >= 2, (
+        f"case-205 : {len(out)} montage(s) discriminant(s) obtenu(s) sur {len(CASE205_BOARDS)} boards. "
+        f"Il en faut au moins DEUX ou le terme de tuile VARIE (elevation / DryBush / Swamp) : sur "
+        f"plateau plat le composite est constant et n'importe quel sujet donne la meme tuile.")
+    return out
+
+
+def test_summon_case_unit_is_null_not_a_stand_in(summon_subject):
+    """LE CRITERE DU CAS : la tuile ou le natif POSE le summon est celle du composite evalue avec
+    `case.unit == null` (`SortTilesByUtilityForSummon` -> `parent_id` seul). Rougirait si quelqu'un
+    recablait un sujet de repli (l'ensemble `AllAliveMachines`, sa tete, ou le parent) dans le
+    `UtilityMovementCase` de ce call-site."""
+    for r in summon_subject:
+        assert r["h_null"] == r["native"], (
+            f"board {r['board']} : port(H_NULL)=t{r['h_null']} vs natif=t{r['native']} ; "
+            f"pool={r['pool']} -- le sujet du call-site SUMMON n'est pas reproduit.")
+
+
+def test_summon_subject_scenario_refutes_a_stand_in(summon_subject):
+    """ANTI-TAUTOLOGIE : sur CHAQUE montage, l'hypothese « le sujet est une unite tiree de
+    l'ensemble » designe une AUTRE tuile que le natif. Sans ca le montage ne distinguerait pas les
+    deux lectures et la garde ne garderait rien -- le test le DIT au lieu de passer."""
+    for r in summon_subject:
+        assert r["h_first"] != r["native"], (
+            f"board {r['board']} : H_FIRST=t{r['h_first']} == natif : la geometrie ne fait PAS "
+            f"diverger les deux lectures du sujet (re-crafter, pas un verdict).")

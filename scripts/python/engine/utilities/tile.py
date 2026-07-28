@@ -41,6 +41,9 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   unit_faction : int                  (9 T'au-style, 15 GSC-style …)
   friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
   unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
+  is_spawning : bool                  (`IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning`
+                                       = `case.unit == null && case.parent != null` — le call-site SUMMON
+                                       `SortTilesByUtilityForSummon` n'a PAS de sujet, cf. case-205)
 Il porte AUSSI des CARTES par-position (`elev_by_pos`, `neigh_by_pos`, `is_territory_by_pos`,
 `tile_effect_type_ids_by_pos`) : la carte est constante sur la décision, la valeur lue dépend de la
 tuile — `apply_tile_attributes` en dérive les deux clés `meta` correspondantes.
@@ -269,26 +272,36 @@ class UnitEffectsRangedUtility(AUnitEffectsUtility):
 class CapturePointTileUtility(BaseUtility):
     """`CapturePointTileUtility` (IdunBattle.AI.Utilities.CapturePointTileUtility$$.ctor ; UtilityType.CapturePoint=24) ; IdunBattle.AI.Utilities.CapturePointTileUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : sur tuile
     TERRITOIRE (flag tile+0x2e = HasTrait(2 summon)||HasTrait(13)) → flag(summon) →
-    summons_dislike_capture_points(-300) ; sinon heroes_on_capture_points(+300). `meta.is_territory` + `ctx.unit_traits`."""
+    summons_dislike_capture_points(-300) ; sinon heroes_on_capture_points(+300). `meta.is_territory` + `ctx.unit_traits`.
+
+    ⚠ case-205 — le gate natif n'est PAS `HasTrait(unit,2) || HasTrait(unit,13)` seul : le décompilé
+    ouvre sur `if (case.unit == null) { if (case.parent != null) flag = TRUE; }`, c'est-à-dire
+    `IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning` INLINÉ. Sujet ABSENT + parent présent
+    (le call-site `SortTilesByUtilityForSummon`) ⇒ le natif traite la tuile comme évaluée POUR UN SUMMON,
+    donc `summons_dislike_capture_points`, et NON 0."""
     UTILITY_TYPE = int(UtilityType.CapturePoint)  # 24
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("is_territory"):
             return 0.0
-        flag = _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)
+        flag = (bool((ctx or {}).get("is_spawning"))          # `case.unit == null && case.parent != null`
+                or _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13))
         key = "summons_dislike_capture_points" if flag else "heroes_on_capture_points"
         return wt.sub("CapturePoint", key)
 
 
 class PowerUpTileUtility(BaseUtility):
     """`PowerUpTileUtility` (IdunBattle.AI.Utilities.PowerUpTileUtility$$.ctor ; UtilityType.PowerUp=26) ; IdunBattle.AI.Utilities.PowerUpTileUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : -300 si l'occupant de la
-    tuile EstPowerUp ET flag(trait 2||13). `meta.occupant_is_powerup` + `ctx.unit_traits`."""
+    tuile EstPowerUp ET flag(trait 2||13). `meta.occupant_is_powerup` + `ctx.unit_traits`.
+    Même gate que `CapturePointTileUtility`, `IsSpawning` INLINÉ compris (case-205) : sujet ABSENT +
+    parent présent ⇒ flag TRUE."""
     UTILITY_TYPE = int(UtilityType.PowerUp)  # 26
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("occupant_is_powerup"):
             return 0.0
-        if not (_has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)):
+        if not (bool((ctx or {}).get("is_spawning"))
+                or _has(ctx, "unit_traits", 2) or _has(ctx, "unit_traits", 13)):
             return 0.0
         return wt.sub("PowerUp", "summons_dislike_tiles_with_powerups")
 
@@ -356,10 +369,14 @@ class EnvEndBombardmentUtility(BaseUtility):
 class DespoiledGroundUtility(BaseUtility):
     """`DespoiledGroundUtility` (IdunBattle.AI.Utilities.DespoiledGroundUtility$$.ctor ; UtilityType.DespoiledGround=28) ; IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext : si tuile
     tile-effect type 1476 (0x5c4) → trait 2026 (Chaos) → ChaosAffectedUnit(-5) ; trait 26 ou 1006
-    (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`."""
+    (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`.
+    Première instruction du corps natif : `if (case.unit == null) yield break;` — sujet ABSENT ⇒ AUCUN
+    step émis, donc 0 (case-205)."""
     UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 28
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
+            return 0.0
         if 1476 not in _eff_ids(meta, "tile_effect_type_ids"):
             return 0.0
         if _has(ctx, "unit_traits", 2026):
@@ -372,14 +389,20 @@ class DespoiledGroundUtility(BaseUtility):
 class SummonDislikeDoorOpeningUtility(BaseUtility):
     """`SummonDislikeDoorOpeningUtility` (IdunBattle.AI.Utilities.SummonDislikeDoorOpeningUtility$$.ctor ; UtilityType.SummonDislikeDoorOpening=29) ; IdunBattle.AI.Utilities.SummonDislikeDoorOpeningUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext :
     -50 si l'unité est "affected" (AI-controlled OU human+trait 2) ET la tuile est une PORTE FERMÉE.
-    `meta.door={linked,closed}` + `ctx.unit_is_ai/unit_traits`."""
+    `meta.door={linked,closed}` + `ctx.unit_is_ai/unit_traits`.
+
+    ⚠ case-205 — le gate natif complet est `case.parent != null || !IsControlledByHumanPlayer(case.unit)
+    || HasTrait(case.unit, 2)` : le test de PARENT vient EN PREMIER et court-circuite le reste. Sur tous
+    les call-sites portés, `parent != null` ⟺ `SortTilesByUtilityForSummon` (les call-sites de charge
+    passent un `ownerSel` NUL), donc `ctx.is_spawning` le reproduit exactement."""
     UTILITY_TYPE = int(UtilityType.SummonDislikeDoorOpening)  # 29
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         door = (meta or {}).get("door") or {}
         if not (door.get("linked") and door.get("closed")):
             return 0.0
-        affected = bool((ctx or {}).get("unit_is_ai")) or _has(ctx, "unit_traits", 2)
+        affected = (bool((ctx or {}).get("is_spawning"))          # `case.parent != null`
+                    or bool((ctx or {}).get("unit_is_ai")) or _has(ctx, "unit_traits", 2))
         if not affected:
             return 0.0
         return wt.sub("SummonDislikeDoorOpening", "Dislike")
@@ -389,10 +412,14 @@ class HeroDoorOpeningUtility(BaseUtility):
     """`HeroDoorOpeningUtility` (IdunBattle.AI.Utilities.HeroDoorOpeningUtility$$.ctor ; UtilityType.HeroLikeDoorOpening=30) ; IdunBattle.AI.Utilities.HeroDoorOpeningUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : UNIQUEMENT
     unité hero (trait 16). PAS de poids BC (constantes). branche A (player flag==0) : -50 si la tuile est
     une porte fermée. branche B (flag!=0) : (10 - cost)*10, cost = min coût CHEMIN vers la porte fermée la
-    plus proche. `ctx.player_door_mode` + `meta.door` + `meta.hero_door_nearest_cost`."""
+    plus proche. `ctx.player_door_mode` + `meta.door` + `meta.hero_door_nearest_cost`.
+    Gate natif en tête : `if (case.unit == null || !HasTrait(case.unit, 0x10)) yield return 0;` — sujet
+    ABSENT ⇒ 0 (case-205)."""
     UTILITY_TYPE = int(UtilityType.HeroLikeDoorOpening)  # 30
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (ctx or {}).get("is_spawning"):            # `case.unit == null`
+            return 0.0
         if not _has(ctx, "unit_traits", 16):
             return 0.0
         if (ctx or {}).get("player_door_mode", 0) == 0:
@@ -536,10 +563,16 @@ class TriggeredAbilitiesUtility(BaseUtility):
     QUI BOUGE (`case.unit@0x10` → AbilitiesComponent), `IdunBattle.AI.PlaybookDatabase$$LoadPlaybook(abilityType)` (singleton par type, null → skip), Σ des `CalculateMovementUtilityInSteps` (famille
     `AdjacentUnitPreferenceTriggeredAbilityPlaybook` : `engine/playbook/adjacent_unit_preference.py`).
     `ctx.unit_triggered_abilities` (kit passif du mover — `triggered_ability_ids(visualId)`) +
-    `ctx.friend_positions` (allies vivants self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90)."""
+    `ctx.friend_positions` (allies vivants self-exclu = `ctx.fpos`). Cf. case-36 (909 s4/s19 : 30/90).
+
+    ⚠ case-205 — tout le corps natif est gardé par `if (case.unit != null) { … }` ; sujet ABSENT ⇒ le
+    seul step émis est le `u = Fix64.FromInt(0)` initial. C'est le régime du call-site SUMMON
+    (`SortTilesByUtilityForSummon`), et c'est bien **0** — pas un dispatch sur une unité de repli."""
     UTILITY_TYPE = int(UtilityType.TriggeredAbilities)  # 2
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
+        if (ctx or {}).get("is_spawning"):            # `if (case.unit != null)` du natif — sujet ABSENT
+            return 0.0
         ab_ids = (ctx or {}).get("unit_triggered_abilities") or ()
         if not ab_ids:
             return 0.0
@@ -681,9 +714,14 @@ class TileDistanceUtility(BaseUtility):
     reproduisait ; ce que le collapse rendait FAUX, c'est le régime inverse (`Tile(7)` départage → il
     DOMINE, cf. `docs/rl/case-201-movement-suggestion-tiledistance.md`).
 
-    `ctx["self_pos"]` = la position de `case.units` (l'unité passée au sélecteur = `dc.units`), posée
+    `ctx["self_pos"]` = la position de `case.unit` (l'unité passée au sélecteur = `dc.unit`), posée
     par `runner_tile_leaf_ctx`/`tile_leaf_ctx`. Absente → 0.0 : c'est la branche `c.units == null` du
-    natif, et le port ne modélise pas `dc.owner` (résidu nommé, cf. le call-site SUMMON)."""
+    natif. La branche de REPLI `else if (c.owner != null) DistanceTo(c, c.owner)` n'est PAS portée :
+    elle n'est atteignable que si `case.unit` est nul ET `case.parent` non nul, c'est-à-dire sur le
+    seul call-site `SortTilesByUtilityForSummon` (case-205) — or ses six occurrences passent toutes
+    `UtilityDefinition(7 = Tile)`, jamais `0x20 = MovementSuggestion`, donc `TileDistance(33)` n'y est
+    jamais évaluée. Porter la position du parent serait spéculatif tant qu'aucun call-site ne
+    l'exerce ; résidu NOMMÉ, cf. case-205 §5."""
     UTILITY_TYPE = int(UtilityType.TileDistance)  # 33
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
@@ -723,13 +761,16 @@ _SORT_WEIGHTS: Weights | None = None
 
 
 def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
-                          utility_type: int = int(UtilityType.Tile)) -> list:
+                          utility_type: int = int(UtilityType.Tile),
+                          parent_id: int | None = None) -> list:
     """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
 
     Le natif, remis en C# depuis le décompilé :
 
-        dc.tiles = this.tiles.Select(entities) ; dc.units = this.units.Select(entities)
-        dc.owner = this.owner.Select(entities) ; dc.dict = new Dictionary<Tile, Fix64>()
+        dc.tiles  = this.tiles.SelectTiles(entities)          // IList<IEntity>
+        dc.unit   = this.unit.<Select*>(entities, 0)          // IEntity SINGULIER, null si rien
+        dc.parent = this.parent?.<Select*>(entities, 0)       // IEntity, null si le sélecteur est nul
+        dc.dict   = new Dictionary<Tile, Fix64>()
         foreach (tile in dc.tiles)
             dc.dict[tile] = UtilityDecider.CalculateUtility(tile, this.definition.Buckets[0], cache)
         return dc.tiles.OrderBy(dc.<Select>b__0).ToList()      // b__0 = Fix64.op_UnaryNegation(dict[t])
@@ -749,7 +790,8 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         -> **poids 1** ;
       * `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` = Σ `Weight × Σ steps` de
         `<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
-        `utility.EvaluateMovementInSteps(new UtilityMovementCase(dc.units, tile, null, null, dc.owner))`.
+        `utility.EvaluateMovementInSteps(new UtilityMovementCase(dc.unit, tile, null, null, dc.parent))`
+        (signature du ctor : `unit, movementPosition, closestEnemy, abilityType, parent`).
 
     `utility_type` = le littéral d'utilité du call-site, résolu par `UTILITY_BY_TYPE` (mirror de
     `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility`). La plupart des call-sites portés passent
@@ -759,12 +801,22 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     carte de composition relue dans `UtilitiesDatabase$$InitializeUtilities`). Les DEUX passent
     désormais par ici — le contournement « ce call-site ne passe pas par le foyer » est LEVÉ.
 
-    `unit_id` = le sélecteur d'unités `dc.units` du natif (`caster@0x160` sur les call-sites de
+    `unit_id` = le sélecteur d'unités `dc.unit` du natif (`caster@0x160` sur les call-sites de
     charge). Il est passé au `UtilityMovementCase`, donc les feuilles GATÉES SUR L'UNITÉ le voient :
-    `runner_tile_leaf_ctx` en dérive le `ctx` par-décision. **`unit_id=None` reproduit l'ancienne
-    dégradation** (ctx vide → ces feuilles rendent 0) et reste le mode du call-site SUMMON
-    (`SortTilesByUtilityForSummon`, dont `dc.units` est `AllAliveMachinesSelector` — un ENSEMBLE, pas
-    l'unité qui bouge).
+    `runner_tile_leaf_ctx` en dérive le `ctx` par-décision.
+
+    `parent_id` = le sélecteur `parent` du natif (`dc.parent`), 4ᵉ argument de
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`.
+    **`unit_id=None` + `parent_id` renseigné EST le call-site SUMMON** : case-205 a établi au décompilé
+    que son `dc.unit` vaut **`null`** — et non « un ENSEMBLE d'unités » comme le supposait le résidu
+    #165b §4. Le sélecteur d'unités que `SortTilesByUtilityForSummon` construit est bien un
+    `IdunBattle.Entities.Selectors.AllAliveMachinesSelector`, mais avec son provider (`+0x18`) **NUL** ;
+    et `IdunBattle.AI.Utilities.UtilityMovementCase` porte deux accesseurs dédiés à ce cas —
+    `get_IsSpawning` (= `unit == null && parent != null`) et `get_UnitOrParent` (= `unit ?? parent`).
+    Le ctx produit porte donc `is_spawning=True` et AUCUNE clé de sujet : chaque feuille applique sa
+    propre dégradation NOMMÉE (0 pour `TriggeredAbilities(2)`/`DespoiledGround(28)`/
+    `HeroLikeDoorOpening(30)`, `IsSpawning` INLINÉ ⇒ « traité comme un summon » pour `CapturePoint(24)`/
+    `PowerUp(26)`/`SummonDislikeDoorOpening(29)`).
 
     ⚠ case-165b — cette clé n'est PAS cosmétique : sur `SkyStrikeAbility$$ExecuteBehaviour`
     (`adeptCelestine`, passif `GeminaeSuperia` 1048) la feuille `TriggeredAbilities(2)` ajoute
@@ -806,7 +858,7 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
     emax = max(elevs) if elevs else None
     emin = min(elevs) if elevs else None
     fx = getattr(state, "effects", None)
-    leaf_ctx = runner_tile_leaf_ctx(state, unit_id)
+    leaf_ctx = runner_tile_leaf_ctx(state, unit_id, parent_id)
 
     def _u(t) -> float:
         info = board.by_id.get(t) or {}
@@ -829,17 +881,18 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
 
 
 def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
-                          utility_type: int = int(UtilityType.Tile)):
-    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(<utility_type>)), 1)` — la MEILLEURE
-    tuile au sens du composite demandé, égalités tranchées par l'ordre du sélecteur source (tri stable).
-    `unit_id` = `dc.units` du sélecteur, `utility_type` = le littéral du call-site (cf.
-    `sort_tiles_by_utility`).
+                          utility_type: int = int(UtilityType.Tile),
+                          parent_id: int | None = None):
+    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(<utility_type>), <parent>), 1)` — la
+    MEILLEURE tuile au sens du composite demandé, égalités tranchées par l'ordre du sélecteur source
+    (tri stable). `unit_id` = `dc.unit`, `parent_id` = `dc.parent`, `utility_type` = le littéral du
+    call-site (cf. `sort_tiles_by_utility`).
     Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
-    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type)
+    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type, parent_id)
     return ranked[0] if ranked else None
 
 
-def runner_tile_leaf_ctx(state, unit_id: int | None) -> dict:
+def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = None) -> dict:
     """Dict `ctx` PAR-DÉCISION des feuilles `Tile(7)`, construit depuis un `State` de RUNNER —
     jumeau de `tile_leaf_ctx` (qui, lui, part d'un `AiDecisionContext` côté DÉCISION).
 
@@ -850,7 +903,12 @@ def runner_tile_leaf_ctx(state, unit_id: int | None) -> dict:
     `DespoiledGround(28)`, `HeroLikeDoorOpening(30)`, …) le VOIENT. Tant que ce dict était vide,
     elles rendaient toutes 0 — c'était le « non couvert » de case-165, et la cause du résidu §4.
 
-    `unit_id is None` → `{}` (dégradation d'avant, conservée pour le call-site SUMMON).
+    `unit_id is None` = `case.unit == null`. Deux régimes, distingués par le PARENT (case-205) :
+      * `parent_id` renseigné → `{"is_spawning": True}` — le call-site `SortTilesByUtilityForSummon`.
+        Aucune clé de sujet n'est produite (il n'y a PAS de sujet), et `is_spawning` est ce que les
+        feuilles lisent là où le natif inline
+        `IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning` ;
+      * `parent_id` nul → `{}` (ni sujet ni parent : aucune feuille gatée ne peut rien rendre).
 
     Clés produites (mêmes noms/formes que `tile_leaf_ctx`) : `unit_triggered_abilities`,
     `unit_traits`, `uid`, `self_pos`, `friend_units`/`enemy_units` (`{pos, vis, traits, effects}`,
@@ -861,7 +919,9 @@ def runner_tile_leaf_ctx(state, unit_id: int | None) -> dict:
     `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
     `tile_effect_type_ids_by_pos` (le `meta` de ce foyer ne les porte pas non plus)."""
     if unit_id is None:
-        return {}
+        # `case.unit == null` : PAS de sujet. `is_spawning` = `get_IsSpawning` = unit null ET parent
+        # non nul -- c'est la signature EXACTE du call-site SortTilesByUtilityForSummon (case-205).
+        return {"is_spawning": True} if parent_id is not None else {}
     from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
     from ..entities.triggered_ability_type import triggered_ability_ids
     from ..entities.traits.unit_trait import unit_trait_ids
@@ -903,6 +963,8 @@ def runner_tile_leaf_ctx(state, unit_id: int | None) -> dict:
     return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
             "unit_traits": unit_trait_ids(my_vis),
             "uid": unit_id,
+            # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
+            "is_spawning": False,
             "self_pos": (mpc.col, mpc.row) if mpc is not None else None,
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
@@ -971,6 +1033,9 @@ def tile_leaf_ctx(ctx) -> dict:
             if _t not in kit:
                 kit.append(_t)
     return {"unit_triggered_abilities": kit,
+            # Face DECISION : le `case.unit` est TOUJOURS le mover (le sweep part d'une unite
+            # existante), donc jamais le regime `IsSpawning` du call-site SUMMON (case-205).
+            "is_spawning": False,
             # IDS `UnitTrait` du MOVER — l'argument que les 7 feuilles à gate de trait passent à
             # `IdunBattle.Entities.UnitExtensions$$HasTrait(case.unit@+0x10, <traitId>)` (le `case`
             # porte l'unité qui évalue la tuile : `CapturePointTileUtility.<d__3>`, `PowerUpTile
