@@ -236,7 +236,7 @@ summon** dans ce gisement :
 
 | # | id | ability | faction | porteur HERO (pool) | npc | MoW / summon | taille décompilé `ExecuteBehaviour` |
 |---|---|---|---|---|---|---|---|
-| 1 | 1171 | DakkaDakkaDakka | Orks | `orksKillaKan` « Snappawrecka » ✅ | 3 | — | ~1 730 o + 4 helpers |
+| ~~1~~ | ~~1171~~ | ~~DakkaDakkaDakka~~ | Orks | `orksKillaKan` « Snappawrecka » ✅ | 3 | — | **FERMÉ** (case-decision-noop) |
 | 2 | 1137 | MurderousSwing | WorldEaters | `worldExecutions` « Tarvakh » ✅ | 1 | — | ~816 o + 3 helpers |
 | 3 | 1129 | BloodyFury | WorldEaters | `worldTerminator` « Wrask » ✅ | 1 | — | ~864 o + 4 helpers |
 | 4 | 1183 | VexillaMagnifica | Custodes | `custoVexilusPraetor` « Aesoth » ✅ | 0 | — | ~1 120 o |
@@ -273,7 +273,25 @@ par cast, pondéré par le caractère INCONDITIONNEL de cet écart :
 | 11 | 1038 | buff « +1× 2 037 Toxic sur les attaques normales » au caster et à tous les alliés Chaos sous son aura Contagion, 2 rounds + **attaque normale immédiate** sur un ennemi adjacent tiré au hasard | partiellement — pose d'effet d'aura, attaque normale libre |
 | 12 | 1117 | repair 4 365 PV sur le caster et tous les alliés adjacents | oui — **clone structurel** de `CombatRestoratives` (1002) et `RevitalizingMalignancy` (1037) |
 
-**Le porté par ce cas** : **#1, `1171 DakkaDakkaDakka`** (cf. `docs/rl/case-dakka-dakka-dakka.md`).
+**PORTÉ ET FERMÉ par ce cas : #1, `1171 DakkaDakkaDakka`.** Face COMBAT dans
+`engine/runner/abilities/orks.py` (`DakkaDakkaDakkaAbility`), entrée au registre **avec ses deux
+littéraux** (`TARGETING_OPTIONS` = preset `TargetingOptions` statique `+0x140` → `0x4002` +
+`RANGE_FROM_CONFIG` + `forceMeleeTarget=True`, le MÊME que 1006/1206 ; `ABILITY_ATTACK_TYPE` = 0
+`DirectTargetAttack`, littéral du `AActiveAbility..ctor`). Garde live :
+`tests/engine/runner/test_dakka_dakka_dakka_live.py` (4 tests). ROUGE mesuré AVANT le port, sur le
+même montage : `ported=False`, `flags={ability_used_flag: True, turn_finished: True}` (le cast est
+ACCEPTÉ et consomme le tour) et **cible 500000 → 500000, caster 9037 → 9037** — zéro mutation.
+
+> **Résidu nommé, hérité de ce port** : le nœud `If(AreEqual(Cache(First(picked,1)), It@0x180),
+> Sum(q, rem), q)` de `$$GetLeftoverHitsPerTargetFormula` distribue le RESTE de la division entière à
+> la première cible piquée. `It@0x180` = `ActiveTarget` = **slot 4** de l'`AbilityEntities`
+> (`AbilityEntities$$.ctor` : `param_1[4] = param_3`), et NI `AttackBehaviour$$Execute` (qui n'écrit
+> que les slots 1 = actor et 2 = target) NI `AttackDamageBehaviour$$ExecuteTarget` (qui évalue le
+> nœud de coups contre l'`entities` reçu tel quel) ne le lient — **lu au décompilé**. Le port évalue
+> le prédicat tel quel ⇒ toutes les cibles reçoivent `q`, et `rem` (0..cnt−1 coups) n'est pas
+> distribué. Écart borné par `cnt − 1` coups, **nul** dès que `numLeft` est divisible par `cnt`
+> (dont tout le cas `cnt == 1`). Fermer ce résidu = RE du slot 4 d'un cast top-level.
+
 Les 11 autres restent ouverts et sont dispatchables **sans re-RE** : porteur, gate, symbole natif
 (`IdunBattleLogic.Entities.Abilities.Active.Loki.<Nom>Ability$$ExecuteBehaviour`, sauf
 `MurderousSwing` et `LightOfSanguinius` qui sont sous

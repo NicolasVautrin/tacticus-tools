@@ -58,7 +58,7 @@ from .thousandsons import DoomboltAbility
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
-from .orks import WaaaghAbility, SquigLaunchasAbility, SquigMineAbility
+from .orks import (WaaaghAbility, SquigLaunchasAbility, SquigMineAbility, DakkaDakkaDakkaAbility)
 from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
@@ -193,6 +193,8 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     #     + `force_crit` (octet +5 du Nullable<AttackOptions>). Les DEUX abilities du lot.
     TacticalPrecisionAbility.ABILITY_TYPE: TacticalPrecisionAbility,   # 1154 (ultraTitus Titus : If(IsCharging(caster,cible), ChangeStat(+extraCritDmg) & 1x Bolter FORCE-CRIT sur la cible & ChangeStat(revert), 3x Chain sur TOUS les AdjacentEnemies(caster)) ; ExecuteAtomic, branches EXCLUSIVES)
     MomentShackleAbility.ABILITY_TYPE: MomentShackleAbility,           # 1184 (custoTrajann Trajann : self-cast Heal(hpToHeal) & AddDynamicStatModifierEffect(1391 BlockChance) & (1392 BlockDamage) & AddEffect(1393 marqueur de la triggered MomentShackle_Attack), TurnsFromRounds(nrOfRounds=1) ; aucun degat)
+    # --- case-decision-noop : gisement `[-D]` (la DECISION choisit, l'EXECUTION etait un NO-OP). ---
+    DakkaDakkaDakkaAbility.ABILITY_TYPE: DakkaDakkaDakkaAbility,       # 1171 (orksKillaKan « Snappawrecka » Orks : Min(nrOfHits + TimesRepaired*extraHits, maxNrOfHits) coups Projectile ranged sur la cible & If(NumLeftOverHits(cible), attaque des coups GASPILLES repartis (Divide Floor + reste a la 1re) sur PickRandomly(Damageable(Unobscured(SurroundingEnemies(caster, range_2))), RandomAmount(1, Min(numLeft, Count))) ) & If(IsAlive(caster), ChangeStat(caster, Health, Subtract, PercentageOf(StatAmount(caster, Health, MAXIMUM), healthPct))))
 }
 
 
