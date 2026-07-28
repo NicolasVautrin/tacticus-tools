@@ -23,7 +23,8 @@ from typing import Optional, Tuple
 
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
-                         UnitComponent, unit_has_moved, unit_has_teleported)
+                         UnitComponent, unit_has_moved, unit_has_teleported,
+                         unit_state_for_effects)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -125,8 +126,7 @@ def defender_fixed_armor(state: State, target_id: int) -> int:
         pc = ent.get_component(PositionComponent)
         if oc is None or pc is None or oc.team != toc.team:
             continue                                      # Friends du porteur = même équipe que le défenseur
-        hc = ent.get_component(HealthComponent)
-        effs = state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        effs = state.effects.active_effects(uid, unit_state_for_effects(state, uid))
         if not effs:
             continue
         sc = ent.get_component(StatsComponent)
@@ -220,7 +220,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         hc = ent.get_component(HealthComponent)
         if hc is not None and hc.hp is not None and hc.hp <= 0:
             continue                                      # porteur mort -> aura éteinte
-        effs = state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        effs = state.effects.active_effects(uid, unit_state_for_effects(state, uid))
         if effs:
             carriers.append((uid, (pc.col, pc.row), oc.team, effs))
     if not carriers:
@@ -391,7 +391,7 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     clé absente -> branche base.
     Les AURAS ALLIÉES +dégât (incr. C2 : `create_aura_attack_damage_bonus_for_ally` des alliés à portée,
     Conqueror/BeaconOfRage) sont ajoutées ici (`_apply_ally_attack_damage_auras`) — mirror combat de la prédiction."""
-    active = (state.effects.active_effects(unit_id, {"hp": hp})
+    active = (state.effects.active_effects(unit_id, unit_state_for_effects(state, unit_id))
               if state.effects is not None else [])
     has_moved = unit_has_moved(state, unit_id)
     tar = defender_armor_reduced(state, target_id) if target_id is not None else None
@@ -470,7 +470,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     dans l'att_ctx -> gate `IsNormalAttack` des malus défenseur (ex. MartialKatah_DmgReduction -20% #105 :
     réduit UNIQUEMENT les attaques normales reçues par son porteur, no-op sur les spéciales). Symétrique de la
     prédiction (`_add_positional_and_defender_mods`). None (caller historique) => ctx sans flag => gate no-op."""
-    active = (state.effects.active_effects(unit_id, {"hp": hp})
+    active = (state.effects.active_effects(unit_id, unit_state_for_effects(state, unit_id))
               if state.effects is not None else [])
     att_ctx = None
     if attacker_id is not None or is_normal_attack is not None:
@@ -541,7 +541,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
         hc = e.get_component(HealthComponent)
         if hc is not None and hc.hp is not None and hc.hp <= 0:
             continue                                        # porteur mort -> aura éteinte
-        ceff = (state.effects.active_effects(uid, {"hp": hc.hp if hc else None})
+        ceff = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         if ceff:
             carriers.append((uid, (pc.col, pc.row), oc.team, ceff))
@@ -582,9 +582,7 @@ def apply_elevation_bonus(state: State, mods, attacker_id: int, target_id: int) 
         return
 
     def _has_no_elev(uid: int) -> bool:
-        e = state.get_entity(uid)
-        hc = e.get_component(HealthComponent) if e is not None else None
-        effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        effs = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         return any(getattr(ef, "effect_type", None) == EFFECT_NO_ELEVATION for ef in effs)
 
@@ -616,8 +614,7 @@ def apply_trench_reduction(state: State, mods, attacker_id: int, target_id: int,
     pt = et.get_component(PositionComponent) if et is not None else None
     if pa is None or pt is None:
         return
-    hc = et.get_component(HealthComponent) if et is not None else None
-    tgt_eff = (state.effects.active_effects(target_id, {"hp": hc.hp if hc is not None else None})
+    tgt_eff = (state.effects.active_effects(target_id, unit_state_for_effects(state, target_id))
                if state.effects is not None else [])
     target_has_trench = any(getattr(e, "name", None) == "Trench" for e in tgt_eff)   # HasEffect(cible, Trench 0x423)
     sc = ea.get_component(StatsComponent) if ea is not None else None
@@ -691,7 +688,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe). PAS
     de `faction_of`/visual_id : le comptage par faction de GetStuckIn est retiré, aucun consommateur ne le
     lit — et `visual_id` ne distinguerait pas 2 instances du même type en miroir (danger connu)."""
-    from .components import PositionComponent, OwnerComponent, HealthComponent, UnitComponent
+    from .components import PositionComponent, OwnerComponent, UnitComponent
     pos_by_id: dict = {}
     team_by_id: dict = {}
     aura_sources = []
@@ -706,12 +703,11 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
             continue
         pc = e.get_component(PositionComponent)
         oc = e.get_component(OwnerComponent)
-        hc = e.get_component(HealthComponent)
         if pc is not None:
             pos_by_id[uid] = (pc.col, pc.row)
         if oc is not None:
             team_by_id[uid] = oc.team
-        effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        effs = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         if uid == tgt_id:
             target_effects = effs
@@ -798,9 +794,7 @@ def normal_attack_per_hit_range(state: State, unit_id: int) -> Optional[dict]:
     if sc is None:
         return None
     ctx = sc.ctx
-    hc = e.get_component(HealthComponent) if e is not None else None
-    hp = hc.hp if hc is not None else None
-    active = (state.effects.active_effects(unit_id, {"hp": hp})
+    active = (state.effects.active_effects(unit_id, unit_state_for_effects(state, unit_id))
               if state.effects is not None else [])
     mods = build_attacker_modifiers_from_effects(active)
     # armure=0 & perçage=100 → réduction = identité ⇒ la plage retournée est BRUTE (pré-armure),

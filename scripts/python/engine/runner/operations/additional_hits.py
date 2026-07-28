@@ -13,8 +13,8 @@ LAZY de la classe (rompt le cycle module `damage` <-> `additional_hits` — au m
 pleine bataille, `damage` est entierement charge)."""
 from __future__ import annotations
 
-from ..components import (StatsComponent, HealthComponent, PositionComponent, UnitComponent,
-                          OwnerComponent, unit_prevents_overkill)
+from ..components import (StatsComponent, PositionComponent, UnitComponent,
+                          OwnerComponent, unit_prevents_overkill, unit_state_for_effects)
 from ..damage_model import target_trait_names
 from ..state import State
 from ...services.damage_prediction import get_base_damage_fix64, apply_pierce_and_modifiers
@@ -129,10 +129,9 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
         uc = e.get_component(UnitComponent)
         pc = e.get_component(PositionComponent)
         oc = e.get_component(OwnerComponent)
-        hc = e.get_component(HealthComponent)
         if uc is None or pc is None or oc is None or not uc.alive:
             continue
-        effs = (state.effects.active_effects(uid, {"hp": hc.hp if hc is not None else None})
+        effs = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         if not effs:
             continue

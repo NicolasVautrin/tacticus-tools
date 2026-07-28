@@ -50,59 +50,17 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import StatsComponent, HealthComponent, OwnerComponent, UnitComponent
+from ..components import (StatsComponent, enemy_psykers_alive as _enemy_psykers_alive,
+                          unit_state_for_effects)
 from ...entities.effects import effect_stat_mod_key
 
-
-def _enemy_psykers_alive(state: State, unit_id: int) -> Optional[int]:
-    """`Enemies( Owner, UnitsWithTrait(AllUnits@0x80, 0x3ea = 1002 Psyker, 3) )` — le CARDINAL du
-    sélecteur natif que `AmountIsEqualOrGreater(…, One@0xc0)` compare à 1 dans la
-    `CreateActiveCondition` de `DestroyTheWitch_ExtraMove`/`_ExtraDamage` (corps FONDU, cf.
-    `entities/effects/loki/destroy_the_witch.py`).
-
-    `AllUnits@0x80` = le sélecteur battlefield-wide (`DSLFactory$$InitializeShared` +0x80,
-    identifié par `WarHowlAbility$$OtherBuffTargets` = `Friends(owner, @0x80 − owner)` = « tous les
-    AUTRES alliés du plateau »). `Enemies(owner, …)` filtre `team != team(owner)` ; les unités
-    MORTES ne sont plus sur le plateau. None si l'équipe du porteur est inconnue (clé alors ABSENTE
-    du `unit_state` ⇒ prédicat dégradé en VRAI, cf. `_enemy_psyker_on_battlefield`)."""
-    from .triggers.base import _unit_trait_names
-    ent = state.get_entity(unit_id)
-    oc = ent.get_component(OwnerComponent) if ent is not None else None
-    if oc is None:
-        return None
-    n = 0
-    for uid, e in state.entities.items():
-        eoc = e.get_component(OwnerComponent)
-        if eoc is None or eoc.team == oc.team:              # Enemies(owner, …)
-            continue
-        uc = e.get_component(UnitComponent)
-        if uc is not None and not uc.alive:
-            continue
-        if "Psyker" in (_unit_trait_names(state, uid) or ()):   # UnitsWithTrait(0x3ea)
-            n += 1
-    return n
-
-
-def _unit_state(state: State, unit_id: int) -> dict:
-    """`{hp, max_hp, traits, enemy_psykers_alive}` — l'argument `unit_state` des `is_active()`
-    (mirror des `StatAmount(Self, HEALTH, CURRENT/CURRENT_PCT)` des `CreateActiveCondition`).
-    `traits` = les NOMS de traits gameconfig du porteur, pour les `CreateActiveCondition` qui sont
-    des prédicats de TRAIT (`PinnedEffect` = `Not(HasTrait(TerminatorArmour))`, #224) ; absent ⇒
-    trait inconnu ⇒ `HasTrait` faux. `enemy_psykers_alive` = le cardinal battlefield-wide lu par la
-    `CreateActiveCondition` de `DestroyTheWitch_*` (cf. `_enemy_psykers_alive`)."""
-    ent = state.get_entity(unit_id)
-    hc = ent.get_component(HealthComponent) if ent is not None else None
-    from .triggers.base import _unit_trait_names
-    traits = _unit_trait_names(state, unit_id)
-    out: dict = {}
-    if hc is not None:
-        out["hp"], out["max_hp"] = hc.hp, hc.hp_max
-    if traits:
-        out["traits"] = traits
-    n = _enemy_psykers_alive(state, unit_id)
-    if n is not None:
-        out["enemy_psykers_alive"] = n
-    return out
+# `_enemy_psykers_alive` / `_unit_state` : le CORPS vit dans `runner/components.py` (`enemy_psykers_alive`
+# / `unit_state_for_effects`) depuis #208 — foyer UNIQUE du contexte d'évaluation des
+# `CreateActiveCondition`, atteignable par TOUS les appelants d'`active_effects` sans cycle d'import
+# (`components` n'importe que `state`). Les deux noms restent exportés ici : c'est la face
+# `RefreshEffectsOperation` de la même donnée, et des tests/probes les importent sous ces noms.
+_unit_state = unit_state_for_effects
+__all__ = ["refresh_stat_modifier_effects", "_unit_state", "_enemy_psykers_alive"]
 
 
 def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -> list:

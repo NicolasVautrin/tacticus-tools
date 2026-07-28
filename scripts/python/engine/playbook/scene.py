@@ -97,6 +97,10 @@ class Scene:
     # triggers de `FuelledByFury_BlockOverkillEffect` posent et retirent le flag en cours de
     # bataille) -> re-capturé par pas via `refresh_shields`.
     prevent_overkill_by_id: dict = field(default_factory=dict)
+    # Cache PAR EQUIPE du cardinal `Enemies(Owner, UnitsWithTrait(AllUnits, Psyker))` (#208) —
+    # calcule a la demande par `_enemy_psykers_alive`, valable pour TOUTE la duree de vie de la
+    # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
+    _psykers_by_team: dict = field(default_factory=dict)
 
     def charged(self, uid) -> set:
         """Ids que `uid` a CHARGES ce tour (vide si non capte)."""
@@ -287,9 +291,50 @@ class Scene:
     def hpmax(self, uid):
         return self.hpmax_by_id.get(uid)
 
+    def _enemy_psykers_alive(self, uid):
+        """`Enemies( Owner, UnitsWithTrait(AllUnits, 0x3ea = 1002 Psyker, 3) )` — face PRÉDICTION du
+        MÊME sélecteur que `runner.components.enemy_psykers_alive` (un nœud natif, deux substrats :
+        l'ECS côté runner, les tables de Scene ici). None si l'équipe du porteur est inconnue ⇒ clé
+        ABSENTE du `unit_state` ⇒ prédicat dégradé en VRAI (`_enemy_psyker_on_battlefield`)."""
+        team = self.team_by_id.get(uid)
+        if team is None:
+            return None
+        if team in self._psykers_by_team:
+            return self._psykers_by_team[team]
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if u.get("team") == team or not u.get("alive"):     # Enemies(owner, …) + vivantes
+                continue
+            c = self.ctx_by_id.get(oid)
+            if c is not None and "Psyker" in (getattr(c, "traits", None) or ()):
+                n += 1
+        self._psykers_by_team[team] = n
+        return n
+
+    def unit_state(self, uid) -> dict:
+        """`unit_state` COMPLET de l'unité — le contexte d'évaluation des `CreateActiveCondition`
+        (`BaseEffect.is_active`), pendant PRÉDICTION de `runner.components.unit_state_for_effects`.
+        MÊMES clés, MÊME sémantique d'absence (clé manquante = donnée inconnue ⇒ dégradation fidèle
+        propre à chaque condition). Sans `traits`, une condition de TRAIT (`PinnedEffect` =
+        `Not(HasTrait(TerminatorArmour))`) rendrait VRAI et l'effet contribuerait à tort (#208)."""
+        out: dict = {"hp": self.hp_by_id.get(uid)}
+        mx = self.hpmax_by_id.get(uid)
+        if mx is not None:
+            out["max_hp"] = mx
+        c = self.ctx_by_id.get(uid)
+        traits = (getattr(c, "traits", None) or []) if c is not None else []
+        if traits:
+            out["traits"] = traits
+        n = self._enemy_psykers_alive(uid)
+        if n is not None:
+            out["enemy_psykers_alive"] = n
+        return out
+
     def effects(self, uid) -> list:
-        """Effets ACTIFS de l'unité (matérialisés, gate HP courant) — `EffectsState.active_effects`."""
-        return self.eff_state.active_effects(uid, {"hp": self.hp_by_id.get(uid)})
+        """Effets ACTIFS de l'unité (matérialisés, gate `EffectComponent.IsActive` + condition) —
+        `EffectsState.active_effects`, avec le contexte COMPLET (`unit_state`)."""
+        return self.eff_state.active_effects(uid, self.unit_state(uid))
 
     def faction(self, uid):
         c = self.ctx_by_id.get(uid)

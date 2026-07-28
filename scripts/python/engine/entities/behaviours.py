@@ -29,8 +29,11 @@ class Seq(AbilityBehaviour):
     zero-initialise et ne peuvent JAMAIS court-circuiter : c'est le cas d'`AddEffectBehaviour` (et
     d'`InformBehaviour`). Corollaire MESURE live : **un `AddEffect` REFUSE (immunite, cible morte,
     cible nulle) ou NO-OP (effet deja present) ne fait PAS tomber la suite de la chaine `&`** --
-    `ExemplarOfHate` sur une cible `TerminatorArmour` refuse son `Pinned` et execute quand meme
-    l'override d'Attack, l'attaque libre et le retrait. `Combine` OU-propage le flag
+    `ExemplarOfHate` sur une cible `TerminatorArmour` execute son `Pinned`, l'override d'Attack,
+    l'attaque libre et le retrait. (⚠ #208 : sur cette cible-la le `Pinned` n'est PAS refuse, il est
+    POSE puis rendu INERTE par sa `CreateActiveCondition` -- l'exemple reste valable pour la chaine,
+    ce n'etait juste pas un refus. Le refus, lui, reste atteignable par les autres branches du gate.)
+    `Combine` OU-propage le flag
     (`IdunBattle.Core.OperationResult$$Combine` : `if (byte@+0x20 == 0) byte@+0x20 = other`)."""
     __slots__ = ("left", "right")
 
