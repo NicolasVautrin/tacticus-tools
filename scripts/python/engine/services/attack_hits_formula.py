@@ -85,8 +85,6 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                board: dict, is_melee: bool | None, damage_profile: str | None,
                                include_bonus_hit_behaviours: bool = False,
                                defender_on_cover: bool | None = None,
-                               tile_effects_by_pos: dict | None = None,
-                               attacker_persistent_data=None,
                                is_normal_attack: bool = True) -> int:
     """`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` : nb de coups d'une attaque normale. `board` =
     {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee, pos_by_id, team_by_id} (base_hits pose ici) ;
@@ -95,22 +93,20 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
     [le coup bonus est ajoute a l'EXECUTION par `_run_hits`, PAS ici], cf. entete BITE 2)
     -> +malus defenseur/aura, plancher 1.
 
-    `tile_effects_by_pos` ({(col,row): [noms]}, tileMeta) et `attacker_persistent_data` (les cles
-    `PersistentDataComponent` de l'ATTAQUANT) completent le contexte CIBLE que le canal (1) exige depuis
-    #84 : `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` gate son +1 coup sur
-    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` (la cible se tient sur une tuile a status-effect) OU
-    `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` (flag intra-attaque arme au `On(PreAttack=5)`). Les deux sont des
-    entrees d'ETAT que la formule native lit via son `AbilityEntities` ; ici elles sont threadees
-    explicitement par les DEUX facades. Non fournies -> le bonus no-op (degradation fidele)."""
-    # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule + les 2 entrees
-    # d'etat ci-dessus. Un seul dict = un seul point d'enrichissement pour les futurs gates cible.
-    att_hits_ctx = {**(board or {}), "tile_effects_by_pos": tile_effects_by_pos,
-                    "persistent_data": attacker_persistent_data}
+    #227 — `LetTheGalaxyBurn` N'EST PLUS un terme de cette formule. Son artefact natif est un
+    descripteur `IdunBattle.Entities.Effects.EffectAdditionalHits` (canal #179), PAS un
+    `EffectHitsBonusForAttack` : il est desormais porte par `additional_hit_groups` /
+    `runner/operations/additional_hits.py`, qui recoit lui-meme `tile_effects_by_pos` /
+    `persistent_data` (le gate) et le `HitDamage` de l'attaque (le degat). Les deux parametres
+    correspondants ont donc quitte cette signature — ils n'avaient AUCUN autre consommateur."""
+    # Contexte de l'attaque passe aux effets du canal (1) : le `board` de la formule. Un seul dict =
+    # un seul point d'enrichissement pour les futurs gates cible.
+    att_hits_ctx = {**(board or {})}
     # `is_normal_attack` = nature du VECTEUR (attaque normale vs attaque d'ABILITY), threade jusqu'aux
     # bonus dont le trigger natif porte le noeud `IsNormalAttack` (`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack`) —
     # aujourd'hui `IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack`
-    # (`IsNormalAttack & OwnerIsCaster`). Les autres bonus/malus du canal n'ont PAS ce gate (LetTheGalaxyBurn,
-    # FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget, AstartesBanner) :
+    # (`IsNormalAttack & OwnerIsCaster`). Les autres bonus/malus du canal n'ont PAS ce gate
+    # (FightingRetreat_HitReduction, Parry, LightCover, Camouflage, Diminutive, BigTarget, AstartesBanner) :
     # ils s'appliquent aux DEUX vecteurs. Defaut True = attaque normale (comportement historique inchange).
     eff_hits = hits_bonus_from_effects(attacker_effects, bool(is_normal_attack), att_ctx=att_hits_ctx)
     # base = `IdunBattle.Core.Services.DamagePrediction$$GetDefaultAttackHits` : weapon + ExtraHits(0x11) + (melee ? ExtraHitsMelee(0x17)).

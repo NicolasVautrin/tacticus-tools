@@ -418,16 +418,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                                       target_effects=tgt_effects, aura_sources=aura_sources, board=board,
                                       is_melee=is_melee, damage_profile=prof_name,
                                       include_bonus_hit_behaviours=True,  # prediction folde GetStuckIn (deterministe)
-                                      defender_on_cover=_on_cover,
-                                      # #84 : contexte CIBLE du canal (1) -- `HasTileStatusEffect(Targets)`
-                                      # IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect (status-effects DYNAMIQUES de la tuile de la cible,
-                                      # tileMeta FRAIS du pas). Le second volet du gate LetTheGalaxyBurn
-                                      # (`IsPersistentData`) est un flag INTRA-ATTAQUE arme au
-                                      # `On(PreAttack=5)` : la PREDICTION n'execute aucun behaviour, donc
-                                      # il est TOUJOURS faux ici -- ce n'est pas une omission mais le
-                                      # comportement natif MESURE (#62/#65 : contribution 0 tant que la
-                                      # cible n'est pas sur un hex-effect).
-                                      tile_effects_by_pos=scene.tile_effects_by_pos)
+                                      # #227 : `LetTheGalaxyBurn` a QUITTE cette formule (son
+                                      # artefact natif est un descripteur `EffectAdditionalHits`,
+                                      # canal #179). Cote PREDICTION il ne contribue RIEN :
+                                      # `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditional
+                                      # HitsFromEffectsForPrediction` tourne hors `OngoingAttack`,
+                                      # donc `FirstHitInCurrentAttackDamageRange` rend 0 -> coup a
+                                      # 0 degat. Cf. `LetTheGalaxyBurnEffect`.
+                                      defender_on_cover=_on_cover)
     # MkXGravis (trait CIBLE 0x3f5) : l'armure est traversee 2× → hit_mult=2 dans predict_attack_raw
     # (IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor). No-op (=1) pour toute cible sans trait hit-twice.
     tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_tgt_traits))

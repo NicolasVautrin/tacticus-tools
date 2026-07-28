@@ -10,20 +10,30 @@ Chaine PORTEE (decompile ghidra, build gqfc5mff6c) :
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` = `... + ClearPersistentData(0x5ca, Self, key)`
     (le volet `AddEffect(0x5c4=1476 DespoiledGround)` du meme behaviour = VOLET 2, non porte).
 
+⚠ #227 -- LE COUP SURNUMERAIRE EST UN GROUPE DU CANAL #179, PAS UN COUP D'ARME. Le degat du
+descripteur est `FirstHitInCurrentAttackDamageRange` = le `IdunBattle.Core.HitDamage` de l'AttackData
+de l'attaque courante (liste `currentAttack@+0x50`, alimentee par `IdunBattle.Operations.
+AttackDamageOperation$$ExecuteHits`). Pour une attaque NORMALE ce `HitDamage` est DEGENERE, donc
+`IdunBattle.Core.HitDamage$$GetDamage` court-circuite (gate `min == max`) et le coup vaut une
+CONSTANTE ; pour une ability bounds-mode il est NON degenere, donc le coup est TIRE (c'est pourquoi
+l'ancien modele « +1 coup d'ARME » etait fortuitement juste sur ce vecteur-la, cf. case-bl-1029-1020).
+
 Ce que ces tests PROUVENT, en confrontant le NATIF (aucune constante de coups en dur -- la base est
 MESUREE sur le live, et les assertions portent sur des RELATIONS) :
-  (1) LIVE, les DEUX branches du gate : cible sur tuile SANS status-effect -> le nb de coups oscille
-      entre `base` et `base+1` (roll 33 %) ; cible sur tuile AVEC status-effect -> `base+1`
-      SYSTEMATIQUE. Et JAMAIS `base+2` (count node NULL = 1 coup, pas N).
+  (1) LIVE, les DEUX branches du gate : cible sur tuile SANS status-effect -> le nb d'evenements de
+      degat oscille entre `base` et `base+1` (roll 33 %) ; cible sur tuile AVEC status-effect ->
+      `base+1` SYSTEMATIQUE. Et JAMAIS `base+2` (count node NULL = 1 coup, pas N). PLUS : sur les
+      attaques armees, le DERNIER evenement est CONSTANT alors que les coups d'arme VARIENT.
   (2) OFFLINE, que le maillon est POSE **et** LU (anti no-op silencieux) : rejouer N attaques via le
       Runner produit la meme oscillation `{base, base+1}` a la meme frequence, le flag persistant est
       TOUJOURS efface apres l'attaque (Reset), et deux COUNTERFACTUELS load-bearing :
         - effet 1477 retire de l'attaquant  -> plus AUCUN `base+1` ;
-        - tuile de la cible forcee a un status-effect -> `base+1` a 100 % ET aucune pose (gate exclusif).
-  (3) que le canal est bien branche cote PREDICTION : la formule PARTAGEE
-      `attack_hits_with_modifiers` (facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`) rend `base+1`
-      quand `tile_effects_by_pos` porte un effet sur la tuile de la cible, `base` sinon -- c'est
-      EXACTEMENT le threading qui manquait (sans lui, l'IA sous-estimerait l'attaque d'un porteur).
+        - tuile de la cible forcee a un status-effect -> `base+1` a 100 % ET aucune pose (gate
+          exclusif), le coup de groupe valant alors une CONSTANTE.
+  (3) le CONTRAT DU CANAL, les deux faces : la formule de coups partagee
+      `attack_hits_with_modifiers` (facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits`)
+      ne bouge PLUS, et `additional_hit_groups` rend un groupe d'UN coup a profil NULL -- rien du
+      tout quand aucune attaque n'est en cours, ce qui EST la face PREDICTION.
 
 Drive les positions (memoire « drive positions, don't blame geometry »). Lit l'etat LIVE ; aucune
 tuile/RVA hardcodee. ASCII-only.
@@ -161,7 +171,7 @@ def test_ltgb_live_gate_two_branches(rpc, ltgb_runner):
         res = rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": aid, "targetId": tid, "abilityType": norm["id"]}}, 60)
         a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
-        n = 0
+        amounts = []
         for e in (a0.get("events") or []):
             td = e.get("tags")
             if not td:
@@ -169,17 +179,17 @@ def test_ltgb_live_gate_two_branches(rpc, ltgb_runner):
             td = json.loads(td) if isinstance(td, str) else td
             if "Amount" in td and td.get("Target_Id") == tid \
                     and td.get("Active_Ability_Type") == norm["id"]:
-                n += 1
-        if n:
-            rows.append((tuple(fx_before), n))
+                amounts.append(int(td["Amount"]))
+        if amounts:
+            rows.append((tuple(fx_before), amounts))
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
 
     if len(rows) < 6:
         pytest.skip(f"pas assez d'attaques live exploitables ({len(rows)})")
-    hits = [n for _fx, n in rows]
+    hits = [len(a) for _fx, a in rows]
     base = min(hits)
-    a_rows = [n for fx, n in rows if not fx]
-    b_rows = [n for fx, n in rows if fx]
+    a_rows = [len(a) for fx, a in rows if not fx]
+    b_rows = [len(a) for fx, a in rows if fx]
     print(f"\n[LTGB live] base={base} n={len(rows)} | A(sans tile-fx) n={len(a_rows)} {a_rows} "
           f"| B(avec tile-fx) n={len(b_rows)} {b_rows}")
 
@@ -187,6 +197,23 @@ def test_ltgb_live_gate_two_branches(rpc, ltgb_runner):
         f"le canal ajoute autre chose que +1 coup: comptes observes {sorted(set(hits))} (base={base})"
     assert a_rows and min(a_rows) == base, \
         f"branche A: aucun echantillon a la base -> le gate 'sans tile-effect' ne serait pas conditionnel ({a_rows})"
+
+    # #227 -- LE COUP SURNUMERAIRE EST UNE CONSTANTE (vecteur ATTAQUE NORMALE). Il sort d'un GROUPE
+    # du canal #179, execute APRES la boucle d'arme, dont le `HitDamage` est celui de l'AttackData
+    # -- DEGENERE pour une attaque normale, donc `IdunBattle.Core.HitDamage$$GetDamage` court-circuite
+    # (gate `min == max`) : il ne reste que la reduction. Les coups d'ARME de la MEME attaque, eux,
+    # sont tires. C'est le contrefactuel qui refute le modele « +1 coup d'ARME ».
+    armed = [a for _fx, a in rows if len(a) == base + 1]
+    if len(armed) >= 2:
+        lasts = [a[-1] for a in armed]
+        weapon = sorted({v for _fx, a in rows for v in a[:base]})
+        print(f"[LTGB live] dernier evenement des attaques ARMEES : {lasts} "
+              f"(coups d'ARME observes : [{weapon[0]}..{weapon[-1]}], {len(weapon)} valeurs distinctes)")
+        assert len(set(lasts)) == 1, \
+            (f"le coup surnumeraire live VARIE {sorted(set(lasts))} -> il serait TIRE ; le natif rend "
+             f"une constante (HitDamage degenere de l'attaque normale)")
+        assert len(weapon) > 1, "coups d'arme tous identiques -> le contrefactuel n'est pas discriminant"
+
     if not b_rows:
         pytest.skip("branche TargetHasTileEffect jamais atteinte sur ce run (roll 33% + expiration)")
     assert all(n == base + 1 for n in b_rows), \
@@ -228,21 +255,30 @@ def _melee_setup(st, board, aid, tid):
 
 
 def _replay(st, board, aid, tid, n):
-    """Rejoue n attaques normales via le Runner (= le chemin qui emet PreAttack(5) puis Attack(9))."""
+    """Rejoue n attaques normales via le Runner (= le chemin qui emet PreAttack(5) puis Attack(9)).
+
+    Rend `(evenements_de_degat, valeurs_du_groupe_#179, flags_non_effaces)`. #227 : le coup
+    `LetTheGalaxyBurn` n'est PAS un coup d'arme -- c'est un GROUPE du canal #179 (descripteur
+    `IdunBattle.Entities.Effects.EffectAdditionalHits`, execute par `IdunBattle.Operations.
+    AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` APRES la boucle d'arme).
+    L'observable comparable au LIVE est donc la SOMME des deux canaux : coups d'arme + coups de
+    groupe, dans cet ordre."""
     thc = _melee_setup(st, board, aid, tid)
     runner = Runner(st).install_default_handlers(20)
-    hits, leaked = [], 0
+    hits, grp, leaked = [], [], 0
     for _ in range(n):
         thc.hp = 10 ** 9
         runner.apply(AttackUnitMessage(attacker_id=aid, target_id=tid))
         last = runner.damage_handler.last
         if last is None:
             break
-        hits.append(last["hits"])
+        ah = (last.get("additional_hits") or {}).get("per_hit") or []
+        hits.append(last["hits"] + len(ah))
+        grp += list(ah)
         pdc = st.entities[aid].get_component(PersistentDataComponent)
         if pdc is not None and pdc.data:
             leaked += 1
-    return hits, leaked
+    return hits, grp, leaked
 
 
 def test_ltgb_offline_arm_read_and_clear(ltgb_state):
@@ -257,14 +293,17 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
     assert "LetTheGalaxyBurn" in (sc.ctx.traits or []), \
         f"le porteur n'a pas le trait offline (traits={sc.ctx.traits})"
 
-    hits, leaked = _replay(st, board, aid, tid, OFFLINE_N)
+    hits, grp, leaked = _replay(st, board, aid, tid, OFFLINE_N)
     base = min(hits)
     k = sum(1 for h in hits if h > base)
     pct = 100.0 * k / max(1, len(hits))
     print(f"\n[LTGB offline] n={len(hits)} base={base} distinct={sorted(set(hits))} "
-          f"base+1={k} ({pct:.1f}%) flags_non_effaces={leaked}")
+          f"base+1={k} ({pct:.1f}%) flags_non_effaces={leaked} groupe#179 distinct={sorted(set(grp))}")
 
     assert set(hits) <= {base, base + 1}, f"comptes offline hors {{base, base+1}}: {sorted(set(hits))}"
+    # #227 : le coup surnumeraire sort du canal #179 (et d'un SEUL groupe d'UN coup), pas de la
+    # formule de coups -> autant de coups de groupe que d'attaques a base+1.
+    assert len(grp) == k, f"{k} attaques a base+1 mais {len(grp)} coups de groupe #179"
     assert leaked == 0, \
         f"{leaked} attaques laissent le flag persistant pose -> `ClearPersistentData` IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour non atteint"
     # La chance est un tirage : borne LARGE autour du 33 % de config (n=300 -> +-8 pts a 3 sigma).
@@ -275,7 +314,7 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
     st2 = ltgb_state["build_state"]()
     st2.effects.by_unit[aid] = [e for e in st2.effects.by_unit.get(aid, [])
                                 if e.name != "LetTheGalaxyBurn"]
-    hits2, _ = _replay(st2, board, aid, tid, 120)
+    hits2, _g2, _ = _replay(st2, board, aid, tid, 120)
     print(f"[LTGB offline] sans l'effet 1477 : distinct={sorted(set(hits2))}")
     assert set(hits2) == {base}, \
         f"le +1 subsiste sans l'effet LetTheGalaxyBurn -> il vient d'ailleurs ({sorted(set(hits2))})"
@@ -290,20 +329,44 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
     # un status de tuile pour le natif, et n'arme donc pas le gate.
     st3.effects.by_unit.setdefault(int(ttile), []).append(
         BaseEffect(name="Fire", effect_type=5))          # un status-effect de TUILE quelconque
-    hits3, leaked3 = _replay(st3, board, aid, tid, 60)
+    hits3, grp3, leaked3 = _replay(st3, board, aid, tid, 60)
     print(f"[LTGB offline] cible sur tuile a status-effect : distinct={sorted(set(hits3))} "
-          f"flags_poses={leaked3}")
+          f"flags_poses={leaked3} groupe#179 distinct={sorted(set(grp3))}")
     assert set(hits3) == {base + 1}, \
         f"branche TargetHasTileEffect non deterministe offline: {sorted(set(hits3))}"
     assert leaked3 == 0, "le trigger a pose le flag alors que la cible est deja sur une tuile a effet"
+    # #227 -- LE point du cas : sur le vecteur ATTAQUE NORMALE, la VALEUR du coup de groupe est une
+    # CONSTANTE. Le noeud `FirstHitInCurrentAttackDamageRange` rend le `IdunBattle.Core.HitDamage`
+    # de l'AttackData, DEGENERE pour une attaque normale -> `IdunBattle.Core.HitDamage$$GetDamage`
+    # court-circuite (gate `min == max`) et il ne reste que la reduction, deterministe. L'ancien
+    # modele (« +1 coup d'ARME ») TIRAIT dans la cellule d'arme : c'est exactement ce que cette
+    # assertion interdit de reintroduire.
+    assert len(set(grp3)) == 1, \
+        (f"le coup de groupe LetTheGalaxyBurn VARIE offline ({sorted(set(grp3))}) -> le port tire "
+         f"la ou le natif rend une constante (HitDamage degenere)")
 
 
 # ------------------------------------------------------------------ (3) FACE PREDICTION (threading)
 
-def test_ltgb_prediction_channel_is_wired(ltgb_state):
-    """La formule PARTAGEE `attack_hits_with_modifiers` (= facade `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` cote decision) doit rendre `base+1` quand la tuile de la CIBLE porte un status-effect.
-    Sans le threading `tile_effects_by_pos` (l'objet de #84), elle rendrait `base` -> l'IA
-    sous-estimerait de 1/base l'attaque de tout porteur Black Legion."""
+def test_ltgb_is_an_additional_hits_group_not_a_hits_bonus(ltgb_state):
+    """#227 -- CONTRAT DU CANAL, les deux faces.
+
+    L'artefact natif est un descripteur `IdunBattle.Entities.Effects.EffectAdditionalHits` (canal
+    #179), PAS un `EffectHitsBonusForAttack`. Deux consequences GARDEES ici :
+
+    (a) `attack_hits_with_modifiers` (= facade `IdunBattle.Core.Services.DamagePrediction$$
+        GetAttackHits`, PARTAGEE combat/prediction) ne doit RIEN ajouter -- meme quand la tuile de
+        la cible porte un status-effect. Le +1 ne passe plus par la formule de coups.
+    (b) `additional_hit_groups` rend UN groupe d'UN coup, `profile` NULL (= profil de l'arme), de
+        degat `[HitDamage.min, HitDamage.max]` de l'attaque courante -- et RIEN quand ce
+        `attack_hit_damage` est absent, ce qui est TOUJOURS le cas cote PREDICTION
+        (`IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditionalHitsFromEffectsForPrediction`
+        tourne hors `OngoingAttack` -> `FirstHitInCurrentAttackDamageRange` rend 0 -> coup a 0
+        degat = no-op numerique).
+
+    Le gate lui-meme (les DEUX branches + le filtre `IsTileStatusEffect`) est re-garde ici, sur son
+    nouveau porteur."""
+    from engine.entities.effects import additional_hit_groups
     board = ltgb_state["board"]
     st = ltgb_state["build_state"]()
     aid = _find_by_vis(st, CARRIER)
@@ -318,33 +381,48 @@ def test_ltgb_prediction_channel_is_wired(ltgb_state):
     _pierce, _ranged, whits = select_weapon_pierce(sc.ctx, 1)
     hb, auras, tgt_eff = build_hits_board(st, aid, tid, a_pos, t_pos, is_melee=True)
     att_eff = st.effects.active_effects(aid, {"hp": None})
+    atk = int(sc.ctx.stat(StatType.ATTACK))
+    armed_keys = frozenset({LET_THE_GALAXY_BURN_PERSISTENT_KEY})
 
-    def calc(tfx):
-        return attack_hits_with_modifiers(
-            weapon_hits=whits, extra_hits=sc.ctx.stat(StatType.EXTRA_HITS),
-            extra_hits_melee=sc.ctx.extra_hits_melee,
-            attacker_effects=att_eff, trait_objects=sc.ctx.trait_objects(),
-            target_effects=tgt_eff, aura_sources=auras, board=hb,
-            is_melee=True, damage_profile="Power",
-            include_bonus_hit_behaviours=True, tile_effects_by_pos=tfx)
+    # --- (a) la FORMULE DE COUPS ne doit plus bouger, quel que soit l'etat de la tuile ---
+    hits = attack_hits_with_modifiers(
+        weapon_hits=whits, extra_hits=sc.ctx.stat(StatType.EXTRA_HITS),
+        extra_hits_melee=sc.ctx.extra_hits_melee,
+        attacker_effects=att_eff, trait_objects=sc.ctx.trait_objects(),
+        target_effects=tgt_eff, aura_sources=auras, board=hb,
+        is_melee=True, damage_profile="Power", include_bonus_hit_behaviours=True)
+    assert hits == whits + sc.ctx.stat(StatType.EXTRA_HITS) + sc.ctx.extra_hits_melee, \
+        (f"la formule de coups rend {hits} != base d'arme -> un terme LetTheGalaxyBurn y subsiste "
+         f"(il doit vivre dans le canal #179)")
 
-    base = calc(None)                                    # pas de contexte tuile -> pas de bonus
-    empty = calc({t_pos: []})                            # tuile connue SANS effet -> pas de bonus
-    onfx = calc({t_pos: ["DespoiledGround"]})            # tuile a status-effect -> +1
-    other = calc({(t_pos[0] + 1, t_pos[1] + 1): ["Fire"]})   # effet sur une AUTRE tuile -> pas de bonus
+    # --- (b) le CANAL #179 : gate x contexte ---
+    def grp(**over):
+        ctx = {"is_melee": True, "t_pos": t_pos, "tile_effects_by_pos": None,
+               "persistent_data": (), "attack_hit_damage": (atk, atk)}
+        ctx.update(over)
+        return list(additional_hit_groups(att_eff, ctx))
+
+    g_armed = grp(persistent_data=armed_keys)                    # branche IsPersistentData
+    g_tile = grp(tile_effects_by_pos={t_pos: ["DespoiledGround"]})   # branche TargetHasTileEffect
+    g_none = grp()                                               # aucune branche -> rien
+    g_pred = grp(persistent_data=armed_keys, attack_hit_damage=None)  # face PREDICTION
+    g_other = grp(tile_effects_by_pos={(t_pos[0] + 1, t_pos[1] + 1): ["Fire"]})
     # #102 : une tuile porte AUSSI des effets qui ne sont PAS des status (Swamp -> BlockEnteringUnits
     # + Thorns_DefenseReduction, mesures live C1_02). `HasTileStatusEffect` les EXCLUT via le set
-    # `StaticBattleRules.Effect$$IsTileStatusEffect` -> ils ne doivent PAS armer le +1. Sans ce
-    # filtre, le seed des effets de tuile (#102) sur-appliquerait le bonus sur tout board a Swamp.
-    nonstatus = calc({t_pos: ["BlockEnteringUnits", "Thorns_DefenseReduction", "Melta_ExtraDmg"]})
-    print(f"\n[LTGB pred] base={base} empty={empty} on_tile_fx={onfx} other_tile={other} "
-          f"non_status={nonstatus}")
+    # `StaticBattleRules.Effect$$IsTileStatusEffect` -> ils ne doivent PAS armer le coup.
+    g_nonstatus = grp(tile_effects_by_pos={
+        t_pos: ["BlockEnteringUnits", "Thorns_DefenseReduction", "Melta_ExtraDmg"]})
+    print(f"\n[LTGB canal] hits_formule={hits} ATTACK={atk} armed={g_armed} tile={g_tile} "
+          f"none={g_none} pred={g_pred} other={g_other} nonstatus={g_nonstatus}")
 
-    assert empty == base, "un contexte tuile VIDE ne doit rien ajouter"
-    assert other == base, "un status-effect sur une AUTRE tuile ne doit rien ajouter (gate = tuile de la CIBLE)"
-    assert nonstatus == base, \
-        (f"des effets de tuile NON-status (BlockEnteringUnits/Thorns_DefenseReduction/Melta_ExtraDmg) "
-         f"arment le +1 ({nonstatus} vs {base}) -> `IsTileStatusEffect` n'est pas applique")
-    assert onfx == base + 1, \
-        (f"la prediction n'inclut PAS le coup additionnel LetTheGalaxyBurn quand la cible est sur une "
-         f"tuile a status-effect ({onfx} vs {base + 1}) -> canal non threade")
+    for name, g in (("IsPersistentData", g_armed), ("TargetHasTileEffect", g_tile)):
+        assert g == [{"count": 1, "min": atk, "max": atk, "profile": None}], \
+            (f"branche {name}: groupe #179 attendu (1 coup, [{atk},{atk}], profil NULL), obtenu {g}")
+    assert g_none == [], f"aucune branche armee -> aucun groupe, obtenu {g_none}"
+    assert g_other == [], "un status-effect sur une AUTRE tuile ne doit rien armer (gate = tuile de la CIBLE)"
+    assert g_nonstatus == [], \
+        ("des effets de tuile NON-status (BlockEnteringUnits/Thorns_DefenseReduction/Melta_ExtraDmg) "
+         "arment le coup -> `IsTileStatusEffect` n'est pas applique")
+    assert g_pred == [], \
+        ("face PREDICTION (aucune attaque en cours -> `FirstHitInCurrentAttackDamageRange` = 0) : "
+         f"le port emet un groupe {g_pred} -> il sur-predirait un coup PLEIN")

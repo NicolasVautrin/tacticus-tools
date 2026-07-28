@@ -65,14 +65,30 @@ def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mu
 
 
 def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int,
-                                  att_active, is_melee: bool, tgt_active) -> list:
+                                  att_active, is_melee: bool, tgt_active,
+                                  attack_hit_damage: "Optional[tuple]" = None,
+                                  t_pos: "Optional[tuple]" = None,
+                                  tile_effects_by_pos: "Optional[dict]" = None,
+                                  persistent_data=None) -> list:
     """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
     cote ECS — enumeration GLOBALE des effets declarant des coups additionnels HETEROGENES (canal
     #179) : (a) effets du PORTEUR (`additional_hit_groups`, ex. SquigHound/CordClaw/FoulInfusion) ;
     (b) effets-AURA hostes sur d'AUTRES unites VIVANTES (`create_aura_additional_hits_for_ally`,
     ex. ExplosiveMaladies/InfernalPacts) — adjacence evaluee aux positions REELLES de l'ECS, mirror
     du refresh natif `PreAttack(5)` (l'aura est reevaluee au moment de l'attaque, IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$GetRefreshTriggers).
-    Retour [] strict (aucun carrier -> no-op, AUCUNE conso RNG)."""
+    Retour [] strict (aucun carrier -> no-op, AUCUNE conso RNG).
+
+    #227 — trois entrees d'ETAT supplementaires, exigees par `LetTheGalaxyBurnEffect` (le natif les
+    lit sur l'`AbilityEntities` que `GetAdditionalHitsFromEffectsInternal` recoit ; ici elles sont
+    threadees explicitement par les deux facades COMBAT) :
+      - `attack_hit_damage` = `(min, max)` BRUTS du `IdunBattle.Core.HitDamage` de l'AttackData de
+        CETTE attaque = ce que rend `IdunBattle.Entities.Formulas.
+        FirstHitInCurrentAttackDamageRange$$CalculateMin/Max` (la liste `currentAttack@+0x50` est
+        alimentee par `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` avec les 16
+        premiers octets de l'AttackData, dont le champ 0 EST ce `HitDamage`) ;
+      - `t_pos` + `tile_effects_by_pos` = noeud `HasTileStatusEffect(Targets@0x190)` ;
+      - `persistent_data` = cles du `PersistentDataComponent` de l'ATTAQUANT -> `IsPersistentData`.
+    Non fournies -> les descripteurs qui en dependent se taisent (aucun autre n'y touche)."""
     import gameconfig as GC
     att = state.get_entity(attacker_id)
     ap = att.get_component(PositionComponent) if att is not None else None
@@ -86,7 +102,12 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
     ah_ctx = {"is_melee": is_melee,
               "tgt_traits": frozenset(target_trait_names(state, target_id) or ()),
               "tgt_effect_names": frozenset(
-                  n for n in (getattr(e, "name", None) for e in (tgt_active or [])) if n)}
+                  n for n in (getattr(e, "name", None) for e in (tgt_active or [])) if n),
+              # #227 : etat lu par `LetTheGalaxyBurnEffect` (gate + degat), cf. docstring.
+              "attack_hit_damage": attack_hit_damage,
+              "t_pos": t_pos,
+              "tile_effects_by_pos": tile_effects_by_pos,
+              "persistent_data": persistent_data}
     groups = list(additional_hit_groups(att_active, ah_ctx))
     carriers = []
     for uid, e in state.entities.items():
@@ -123,7 +144,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             groups: list, mods, def_mods, armor: int, hit_mult: int,
                             block_sources, shc, spread_pct: int = 20,
                             extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
-                            hit_index0: int = 0) -> "Optional[dict]":
+                            hit_index0: int = 0,
+                            attack_profile: "Optional[str]" = None) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -234,10 +256,28 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     death = None
     out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
     hit_index = int(hit_index0)      # `currentAttack+0x30` — CONTINU d'un groupe a l'autre (R6-b')
+    # #227 ORDRE DES DEUX CALL-SITES NATIFS. Un descripteur dont le `profileType` est un
+    # `Nullable<DamageProfileType>` NULL (`EffectAdditionalHits$$Create(param_5 = -1)`, ex.
+    # `LetTheGalaxyBurnEffect`) n'est PAS execute par la meme fonction que les autres :
+    #   - profil NULL -> `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithout
+    #     DamageProfileType` (il filtre justement sur ce champ), appelee INLINE par
+    #     `IdunBattle.Operations.AttackDamageOperation$$Execute` (son SEUL appelant, xref) ;
+    #   - profil pose -> `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$
+    #     Execute`, une SOUS-OPERATION planifiee, donc executee APRES le corps de l'`Execute`.
+    # D'ou : groupes sans profil D'ABORD, tri STABLE (l'ordre d'enumeration des effets est conserve
+    # a l'interieur de chaque famille). MESURE case-159 §2.c : le coup LetTheGalaxyBurn (1 tirage)
+    # tombe bien AVANT les 2 coups du groupe FleshmetalGuns (4 tirages).
+    groups = ([g for g in groups if g.get("profile") is None]
+              + [g for g in groups if g.get("profile") is not None])
     for g in groups:
         if int(thc.hp or 0) <= 0:
             break
+        # profil NULL -> le coup emprunte le profil de l'ATTAQUE (percage, trait NoBlocking et
+        # `RegisterDamage` de l'arme) : c'est ce que fait `ExecuteHits` quand le `Nullable` du
+        # groupe n'a pas de valeur (il retombe sur le profil deja porte par l'AttackData).
         g_profile = g.get("profile")
+        if g_profile is None:
+            g_profile = attack_profile
         dp = GC.damage_profile(g_profile) or {}
         g_pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(extra_pierce or 0)))
         # BI-CANAL (#202-B, RE COMPLETEE par #159) — c'est ICI que se joue le `useDisplay` natif.

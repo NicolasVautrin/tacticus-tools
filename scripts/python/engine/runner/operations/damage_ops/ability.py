@@ -350,6 +350,14 @@ class _AbilityAttack:
         _hits_floor = min(1, int(hits))
         _ap_h = att.get_component(PositionComponent) if att is not None else None
         _tp_h = tgt.get_component(PositionComponent)
+        # #227 SNAPSHOT DES ENTREES D'ETAT DU GATE `LetTheGalaxyBurn` — pris ICI, juste apres
+        # `On(PreAttack=5)` et AVANT le premier coup (MEME position que la facade normale). La tuile
+        # de la cible est FIGEE par `IdunBattle.Operations.ActiveAbilityOperation$$GetAbilityEntities`
+        # : un status-effect pose PENDANT l'attaque (`FleshMetalGuns_TileEffectAbility` sur
+        # `On(0x10 = DamageDealt)`, #85) n'arme donc PAS le coup. Cf. `damage_ops/normal.py`.
+        _ltgb_tfx = (tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)])
+                     if _tp_h is not None else None)
+        _ltgb_pd = persistent_data_keys(att)
         if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
             _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
             _board_h, _auras_h, _tgt_eff_h = build_hits_board(
@@ -369,12 +377,6 @@ class _AbilityAttack:
                 # plus bas (R6-b'') -- exactement comme la facade combat de l'attaque normale.
                 include_bonus_hit_behaviours=False,
                 defender_on_cover=_on_cover_h,
-                # #84 : memes DEUX entrees d'etat que la facade normale pour le gate LetTheGalaxyBurn.
-                # `IsPersistentData` reste faux sur ce vecteur (le natif n'emet PAS `On(PreAttack=5)`
-                # depuis le chemin ability -- il est emis par `ExecuteNormalAttack`) ; seule la branche
-                # `TargetHasTileEffect` peut armer le +1 ici. Fidele, documente en residu (case-61).
-                tile_effects_by_pos=tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)]),
-                attacker_persistent_data=persistent_data_keys(att),
                 is_normal_attack=False)     # gate `IsNormalAttack` (PowerTrip) : vecteur ABILITY
         hits = max(_hits_floor, int(hits))  # `Math.Max(·, 0)` natif, borne par la BASE (cf. ci-dessus)
         # 2e volet du garde-fou rng (cf. l'entree) : crit-roll et block sont les deux SEULS tirages
@@ -485,9 +487,24 @@ class _AbilityAttack:
                 state, attacker_id, target_id, tgt, thc,
                 collect_additional_hit_groups(
                     state, attacker_id, target_id, active, bool(is_melee),
-                    state.effects.active_effects(target_id) if state.effects is not None else []),
+                    state.effects.active_effects(target_id) if state.effects is not None else [],
+                    # #227 `LetTheGalaxyBurn` sur CE vecteur : meme canal #179, mais l'AttackData
+                    # d'une ability bounds-mode porte un `HitDamage` NON degenere -> le groupe TIRE
+                    # dans `[base_min, base_max]` BRUTS (puis reduce + resolve). C'est EXACTEMENT ce
+                    # que produisait l'ancien modele « +1 coup d'arme » : meme valeur, meme
+                    # consommation RNG -- d'ou le bit-exact de `case-bl-1029-1020` §5.4, qui n'est
+                    # donc PAS en contradiction avec la mesure du vecteur normal (case-159 §3.2).
+                    # Bornes AVANT max-out (le natif applique `IsAttackMaxOutDamage` dans
+                    # `ExecuteHit`, pas sur l'AttackData enregistree).
+                    attack_hit_damage=(int(base_min), int(base_max)),
+                    t_pos=(_tp_h.col, _tp_h.row) if _tp_h is not None else None,
+                    # snapshot PRE-attaque (cf. le bloc `_ltgb_tfx` plus haut). `IsPersistentData` :
+                    # `On(PreAttack=5)` EST emis par ce vecteur (famille ATTACK, cf. plus haut) ->
+                    # les DEUX branches du gate sont armables ici.
+                    tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd),
                 mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
                 extra_pierce=ctx.extra_pierce,
+                attack_profile=damage_profile,
                 # R6-b'' : les sous-operations de groupe partagent l'`OngoingAttack` de CETTE
                 # attaque (`GetCurrentAttackOrDefault` = `Peek`) -> MEME site d'evaluation du
                 # `Maybe` et index CONTINU, threade depuis la sortie de la phase d'arme (coups

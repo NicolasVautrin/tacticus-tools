@@ -935,10 +935,14 @@ class HeraldOfTheApocalypseAbility(ActiveAbility):
         herald_of_the_apocalypse_tree(range_).execute(
             entities_from_state(state, caster_id, target_id), ectx)
         # `clean_min`/`clean_max` = plage NON-CRIT de l'attaque (x coups) telle que la calcule le
-        # pipeline porte : c'est l'ORACLE DE MAGNITUDE du confront live (le per-coup exact n'est pas
-        # comparable des que `LetTheGalaxyBurn` decale le flux RNG -- cf. le test de garde).
+        # pipeline porte : c'est l'ORACLE DE MAGNITUDE du confront live.
+        # `additional_hits` (#227) = les coups des groupes du canal #179 emis APRES les coups d'arme
+        # par la MEME `IdunBattle.Operations.AttackDamageOperation$$Execute` -- dont le coup
+        # `LetTheGalaxyBurn` du porteur. Sans cette cle, la sequence d'evenements de degat rendue par
+        # ce diag est TRONQUEE et le confront per-coup vs live est faussement rouge.
         attacks = [{"target": p.get("target"), "total": p.get("total"),
                     "per_hit": (p.get("attack") or {}).get("per_hit"),
+                    "additional_hits": (p.get("attack") or {}).get("additional_hits"),
                     "clean_min": (p.get("attack") or {}).get("clean_min"),
                     "clean_max": (p.get("attack") or {}).get("clean_max")}
                    for n, p in ectx.emitted if n == "AttackWithAttackDamage"]

@@ -900,7 +900,18 @@ class MasterAnnihilatorAdditionalHitEffect(BaseEffect):
       gate « friendly unit » de l'i2 est structurel, pas dans le trigger).
     ⚠ CAP du coup bonus (dmg <= maxDmg[lvl] ex. 5456) non modélisé (per-coup observé << cap) — TODO.
     GROUND TRUTH step-6 seed777 : u86→u94 ranged = 5 coups (3 arme + 1 PowerTrip + 1 MA) vs 4 sur
-    les cibles non marquées (88/96)."""
+    les cibles non marquées (88/96).
+
+    ⚠ RESIDU NOMME (#227, MEME FORK que `LetTheGalaxyBurnEffect` avant sa correction) : l'artefact
+    natif est un descripteur `EffectAdditionalHits` du canal #179 (degat =
+    `FirstHitInCurrentAttackDamageRange`, cape a `ConfigVar(0xd)`), PAS un `+1` de la formule de
+    coups — le port le rend ici en `create_effect_hits_malus_for_defense`. Consequence MESUREE sur
+    LetTheGalaxyBurn : sur le vecteur ATTAQUE NORMALE le coup natif est une CONSTANTE
+    (`HitDamage` degenere) la ou ce modele TIRE dans la cellule d'arme ; sur le vecteur ABILITY les
+    deux modeles coincident. Non corrige ici : cible DEFENSEUR (`OwnerIsTarget`) + cap `maxDmg`,
+    donc son propre montage live (porteur = Vitruvius). Le 3e usager du meme noeud est
+    `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
+    (porte, lui, en `create_aura_hits_bonus_for_attack`) — meme fork, meme reserve."""
 
     def create_effect_hits_malus_for_defense(self, is_melee: bool | None = None,
                                              damage_profile: str | None = None,
@@ -942,8 +953,47 @@ class LetTheGalaxyBurnEffect(BaseEffect):
       - count  = **noeud NULL** (param_6=0, la ou `MasterAnnihilator_AdditionalHitEffect
         .IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` passe `ConfigConst(0x2f=nrOfHits)`) -> defaut **1** ;
       - cap    = NULL (param_9=0 ; MasterAnnihilator, lui, cape a `ConfigVar(0xd=maxDmg)`).
-    => coup additionnel a degat/profil de l'ARME = **+1 coup ordinaire** : MEME canal que
-    MasterAnnihilator, cote ATTAQUANT (`OwnerIsCaster`) au lieu de defenseur (`OwnerIsTarget`).
+    => c'est un **GROUPE DU CANAL #179** (coups additionnels), PAS un `+1` de la formule de coups :
+    l'artefact natif est un descripteur `EffectAdditionalHits`, comme SquigHound/CordClaw. MEME canal
+    que MasterAnnihilator, cote ATTAQUANT (`OwnerIsCaster`) au lieu de defenseur (`OwnerIsTarget`).
+
+    ## `FirstHitInCurrentAttackDamageRange` — ce que le noeud rend VRAIMENT (#227, chaine LUE)
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` fait, APRES chaque coup,
+    `List.Add(currentAttack@+0x50, <les 16 premiers octets de l'AttackData>)`, et le champ 0 de
+    l'AttackData est son `IdunBattle.Core.HitDamage` (c'est LUI que
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` passe a
+    `IdunBattle.Core.HitDamage$$GetDamage` en TETE de coup). Les trois accesseurs du noeud lisent
+    `FirstOrDefault` de cette liste :
+      - `IdunBattle.Entities.Formulas.FirstHitInCurrentAttackDamageRange$$CalculateMin` -> `.min` ;
+      - `...$$CalculateMax` -> `.max` ;
+      - `...$$Calculate` (slot 4, canal DISPLAY) -> `HitDamage$$GetDamage(., rng, useAverage=0)`.
+    Liste VIDE / pas d'attaque en cours -> les trois rendent **0**.
+    => le degat du groupe est le `HitDamage` **de l'ATTAQUE COURANTE** (constant d'un coup a
+    l'autre : c'est un champ de l'AttackData, pas une valeur par coup), pris **BRUT**, avant
+    spread/percage. `IdunBattle.Core.HitDamage$$GetDamage` (lu verbatim) :
+        `if (min == max) return min ; if (useAverage) return (min+max)/2 ; return rng.Range(min, max+1)`
+
+    ## LA CONSEQUENCE, ET POURQUOI ELLE DIFFERE PAR VECTEUR (la tension case-159 §3.3, LEVEE)
+      - **attaque NORMALE** : l'AttackData porte un `HitDamage` **DEGENERE** (min == max = la base
+        d'attaque ; c'est ce qui donne 1 tirage/coup et non 2). Le groupe herite donc d'une cellule
+        degeneree -> `GetDamage` court-circuite (0 tirage) et la valeur du coup est
+        `reduce(base)` : **DETERMINISTE**, un seul tirage consomme (le resolve slot-8 gaspille).
+      - **ability bounds-mode famille ATTACK** : l'AttackData porte `[minDmg, maxDmg]` NON degenere
+        -> `GetDamage` TIRE (1) puis reduce puis resolve (1) = 2 tirages, valeur ALEATOIRE.
+    Les deux constats herites etaient donc VRAIS ET COMPATIBLES : `case-bl-1029-1020` §5.4 mesurait
+    le vecteur ABILITY, ou l'ancien modele « +1 coup d'ARME » produit EXACTEMENT la meme valeur et la
+    meme consommation que le groupe (roll dans les memes bornes brutes, meme reduce, meme resolve) ;
+    `case-159` §3.2 mesurait le vecteur NORMAL, ou le port TIRAIT dans la cellule d'arme la ou le
+    natif rend une constante. Mesure case-159 : 7e event live = **1133** sur 4 seeds (cellule d'arme
+    reduite `(906, 1359)`) et **906** sur la cellule `(725, 1087)` — soit exactement `reduce(base)`,
+    la cellule reduite valant `(reduce(0.8 base), reduce(1.2 base))`.
+
+    ## Face PREDICTION
+    `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditionalHitsFromEffectsForPrediction` tourne
+    HORS de toute `OngoingAttack` -> `currentAttack@+0x50` est vide -> le noeud rend **0** sur ses
+    trois accesseurs -> le groupe predit est un coup a **0 degat** (no-op numerique), et le nb de
+    coups de `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` n'est PAS augmente (ce n'est
+    pas un `EffectHitsBonusForAttack`). Cote port : `attack_hit_damage` absent -> aucun groupe.
 
     ## Les DEUX branches du gate (exclusives par construction)
     Le trigger de POSE `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` =
@@ -960,17 +1010,15 @@ class LetTheGalaxyBurnEffect(BaseEffect):
     `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`, `AddEffect(0x5c4=1476)`).
     Corrobore le confound deja documente sur `test_bringer_of_despair_live.py` (Angrax 5 = 4 + 1).
 
-    ## Contexte requis (`att_ctx`)
-    Le gate a besoin de la CIBLE, que le canal `hits` ne portait pas : `att_ctx` = le `board` de
-    `AttackHitsWithModifiersFormula` (`services/attack_hits_formula.py`) enrichi de
-    `tile_effects_by_pos` (tileMeta -> `HasTileStatusEffect`) et `persistent_data` (les cles posees sur
-    l'ATTAQUANT -> `IsPersistentData`). Contexte ABSENT (None) -> les deux branches sont fausses ->
-    aucune contribution (degradation fidele « present != applique », = l'etat PREDICTION mesure #62/#65 :
-    contribution native 0 tant que la cible n'est pas sur un hex-effect)."""
+    ## Contexte requis (`ctx` du canal #179, monte par `collect_additional_hit_groups`)
+    Le gate a besoin de la CIBLE et de l'etat de l'attaquant : `t_pos` + `tile_effects_by_pos`
+    (tileMeta -> `HasTileStatusEffect`) et `persistent_data` (les cles posees sur l'ATTAQUANT ->
+    `IsPersistentData`). Le degat a besoin d'`attack_hit_damage` = le `HitDamage` BRUT de l'attaque
+    courante. Contexte ABSENT (None) -> aucune contribution (degradation fidele « present !=
+    applique », = l'etat PREDICTION mesure #62/#65 : contribution native 0)."""
 
-    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
-                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
-        c = att_ctx or {}
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
         # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` — GENERIQUE au sens
         # « n'importe LEQUEL des status de tuile », PAS « n'importe quel effet porte par la tuile » :
         # `IdunBattle.Entities.Triggers.HasTileStatusEffectTrigger$$ShouldTrigger` appelle
@@ -989,8 +1037,22 @@ class LetTheGalaxyBurnEffect(BaseEffect):
         armed = LET_THE_GALAXY_BURN_PERSISTENT_KEY in (c.get("persistent_data") or ())
         if not (on_tile_fx or armed):
             return None
-        # count = noeud NULL IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits -> 1 coup (defaut natif ; GROUND TRUTH live 4 -> 5).
-        return for_addition(True, 1)
+        # `FirstHitInCurrentAttackDamageRange` = le `HitDamage` BRUT de l'attaque courante (cf.
+        # docstring). Absent = aucune attaque en cours (face PREDICTION) -> le noeud rend 0 ->
+        # coup a 0 degat = no-op numerique -> on n'emet PAS de groupe.
+        hd = c.get("attack_hit_damage")
+        if hd is None:
+            return None
+        mn, mx = int(hd[0]), int(hd[1])
+        if mn <= 0 and mx <= 0:
+            return None
+        # count  = noeud NULL IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits -> 1 coup (defaut natif ; GROUND TRUTH live 4 -> 5).
+        # profil = Nullable NULL -> le groupe est execute par `IdunBattle.Operations.
+        #          AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` au profil
+        #          de l'ATTAQUE (percage/block/RegisterDamage de l'arme), cf. `execute_additional_hits`.
+        # min/max = noeud ROLL **et** noeud DISPLAY (le natif passe le MEME noeud en param_3 et
+        #          param_8) : pas de cle `amount` a fournir, les deux faces lisent la meme chose.
+        return [{"count": 1, "min": mn, "max": mx, "profile": None}]
 
 
 class BigTargetAdjacentEffect(BaseEffect):

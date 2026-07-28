@@ -208,29 +208,35 @@ normale (documenté : « attaque normale → struct dégénéré → 1 tirage/co
 est le `RandomlyResolveMinMaxDamage` (slot 8) **gaspillé** — 1 tirage, valeur déterministe. Le
 compte de §2.c (13 = 1 + 6 + **1** + 4 + 1) ne ferme qu'avec ce modèle.
 
-**Non porté ici** : le corriger déplace `LetTheGalaxyBurn` de la formule de coups vers le canal
-#179 **sur les DEUX faces** (la prédiction native le reçoit aussi comme groupe, via
-`AActiveAbility$$GetAdditionalHitsFromEffectsForPrediction`) et touche `attack_hits_formula`,
-`hits_bonus_from_effects` et `playbook/prediction/normal_attack.py` — c'est un cas à part entière,
-pas l'item (b) tel que soumis (dont le critère est tranché : verdict identique). Le résidu est
-inscrit au backlog avec ce chiffrage.
+**Non porté ici, PORTÉ depuis** — c'était un cas à part entière, traité par **`case-227`** :
+`LetTheGalaxyBurn` a quitté la formule de coups pour le canal #179 sur les DEUX faces, `attack_hits_
+formula` a perdu ses deux entrées d'état (elles sont passées à `collect_additional_hit_groups`), et
+la face prédiction ne compte plus le coup (le nœud rend 0 hors `OngoingAttack`).
 
-### 3.3 ⚠ Tension à lever avant de porter — un 2ᵉ datapoint dit l'INVERSE sur l'autre vecteur
+### 3.3 Tension avec l'autre vecteur — **LEVÉE, et le résidu est PORTÉ** (`case-227`)
 
 `case-bl-1029-1020` §5.4 rapporte `blackHaarken` (lui aussi porteur du trait 1058)
 **bit-exact per-coup dans le régime où le `Maybe` ARME** (`{77:[1738,1979,1846]}`), c'est-à-dire
 avec le modèle « +1 coup d'ARME » du port — mais sur le vecteur **ABILITY**
 (`HeraldOfTheApocalypse`), là où §3.2 mesure le vecteur **NORMAL**.
 
-Les deux ne sont pas nécessairement contradictoires : `FirstHitInCurrentAttackDamageRange` rend la
-`HitDamage` **du premier coup de l'attaque courante**, et cette `HitDamage` n'est pas la même selon
-le vecteur — **dégénérée** pour l'attaque normale (reduce-then-roll), **non dégénérée** pour
-l'ability bounds-mode famille ATTACK (roll-then-reduce). Le groupe LTGB serait donc déterministe
-sur l'un et rouleur sur l'autre, ce qui rendrait le port fortuitement juste côté ability.
+**Les deux constats sont VRAIS et COMPATIBLES**, et la mécanique qui les réconcilie est lue au
+décompilé dans `case-227` : `FirstHitInCurrentAttackDamageRange` rend le `IdunBattle.Core.HitDamage`
+de l'`AttackData` de l'attaque courante (liste `currentAttack@+0x50`, alimentée par
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHits`), et `IdunBattle.Core.HitDamage$$GetDamage`
+porte un gate `min == max`. Ce `HitDamage` est **dégénéré** pour une attaque normale (→ valeur
+déterministe, 1 tirage) et **non dégénéré** pour une ability bounds-mode famille ATTACK (→ valeur
+tirée, 2 tirages) : le modèle « +1 coup d'ARME » y produit exactement la même valeur et la même
+consommation, d'où le bit-exact **fortuit** côté ability.
 
-**C'est une HYPOTHÈSE, non mesurée.** Quiconque porte (b) doit monter le montage **croisé** (les
-deux vecteurs, le même porteur si possible) et re-jouer les DEUX gardes ; ne pas porter sur la
-seule mesure du vecteur normal.
+Le port est passé au canal #179 (`case-227`), validé sur les DEUX vecteurs : dernier événement live
+constant à **1909** sur 24 attaques armées (vecteur normal), et
+`test_black_legion_1029_1020_live.py` **10/10** per-coup bit-exact (vecteur ability).
+
+⚠ La caractérisation « `round((min+max)/2)` de la cellule d'arme » du §3.2 est une **coïncidence
+numérique** : la valeur native est `reduce(base d'attaque)`, et la cellule réduite vaut
+`(reduce(0,8·base), reduce(1,2·base))` — le milieu coïncide parce que le spread est symétrique. Ne
+pas porter la moyenne : porter le `HitDamage`.
 
 ---
 

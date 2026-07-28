@@ -365,7 +365,7 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
     """
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
-              bonus_hit_chance=None, hit_index0=0):
+              bonus_hit_chance=None, hit_index0=0, attack_profile=None):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.entities.damage_trait import DamageTrait
@@ -375,8 +375,15 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
         if not groups or thc is None or int(thc.hp or 0) <= 0:
             return None
         out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
+        # #227 : meme convention que le port livre -- profil NULL = profil de l'ATTAQUE (le groupe
+        # passe par `ExecuteAdditionalHitsWithoutDamageProfileType`, execute AVANT les groupes a
+        # profil). L'ORDRE et la MATERIALISATION restent les seules variables de ce contrefactuel.
+        groups = ([g for g in groups if g.get("profile") is None]
+                  + [g for g in groups if g.get("profile") is not None])
         for g in groups:
             g_profile = g.get("profile")
+            if g_profile is None:
+                g_profile = attack_profile
             dp = GC.damage_profile(g_profile) or {}
             g_pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(extra_pierce or 0)))
             if "min" in g and "max" in g:
