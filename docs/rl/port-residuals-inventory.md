@@ -282,6 +282,36 @@ littéraux** (`TARGETING_OPTIONS` = preset `TargetingOptions` statique `+0x140` 
 même montage : `ported=False`, `flags={ability_used_flag: True, turn_finished: True}` (le cast est
 ACCEPTÉ et consomme le tour) et **cible 500000 → 500000, caster 9037 → 9037** — zéro mutation.
 
+> ### ⚠ TROUVÉ EN CHEMIN, hors périmètre de ce port : `GetStuckIn` est gaté par un proxy
+> **Chebyshev** là où le natif lit une distance **hex**
+>
+> `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger` =
+> `On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)` — **`MinDistance` est une distance HEX**. Le
+> port gate ce trait par `_cheby(attack_pos, t_pos) > 2` (`engine/runner/damage_model.py::
+> getstuckin_combat_chance`, dont le docstring revendique le proxy ; même proxy dans le jumeau
+> PRÉDICTION `GetStuckInTrait.as_attacker_bonus_hits`). Les deux ne coïncident pas partout.
+>
+> **Mesure** (`scripts/python/probe_ddd_1171_getstuckin.py`, trois régimes, une commande) :
+>
+> | dist demandée | caster | cible | hex | cheby | gate porté | gate natif | préfixe commun |
+> |---|---|---|---|---|---|---|---|
+> | 2 | (1,0) | (0,1) | 2 | 1 | ACTIF (30) | ACTIF | **6 / 6** |
+> | 3 | (1,0) | (0,2) | **3** | **2** | **ACTIF (30)** | **INACTIF** | **2 / 6** |
+> | 4 | (1,0) | (0,3) | 4 | 3 | INACTIF | INACTIF | (hors portée) |
+>
+> Le seul régime qui casse est **exactement** celui où hex et cheby divergent : le port roule un
+> `Maybe(chance)` que le natif ne roule pas, et la séquence décroche au rang du 1er jet du trait.
+>
+> **Ce n'est ni un défaut de ce port ni un défaut de la PR #177.** #177 (`EvaluateAfterHitTriggers`
+> est inconditionnel, aucun gate de famille) a **raison** : le natif roule bien ce canal sur le
+> vecteur ABILITY — le régime `dist=2`, où les deux gates disent ACTIF, est **bit-exact 6/6**. #177
+> a seulement rendu le défaut OBSERVABLE : avant elle, le port ne roulait jamais ce `Maybe` sur une
+> attaque d'ability, donc aucun des deux côtés n'en tirait et l'égalité tenait **par compensation**.
+>
+> **Non corrigé ici, délibérément** : le prédicat vit dans un canal PARTAGÉ combat + prédiction,
+> hors du périmètre de ce cas. À trancher au décompilé (`MinDistance` = distance hex minimale entre
+> EMPREINTES, cf. `are_entities_adjacent` / #R30) par qui prendra le sujet.
+
 > **Résidu nommé, hérité de ce port** : le nœud `If(AreEqual(Cache(First(picked,1)), It@0x180),
 > Sum(q, rem), q)` de `$$GetLeftoverHitsPerTargetFormula` distribue le RESTE de la division entière à
 > la première cible piquée. `It@0x180` = `ActiveTarget` = **slot 4** de l'`AbilityEntities`

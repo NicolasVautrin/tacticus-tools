@@ -83,13 +83,33 @@ BUILD_FRAGILE = NO_NOISE + ["--hp-target", "600"]      # (C) : la cible MEURT ->
 # every 2 hits this unit scores with an attack against an enemy **within range 2**, it has a
 # {chance}% chance to score an additional hit >>. Ce trait tire un `Maybe(chance)` TOUS LES 2 COUPS,
 # donc DANS le flux MT de l'ability, et il est EXTERIEUR a `DakkaDakkaDakkaAbility$$ExecuteBehaviour`.
-# MESURE (probe_ddd_1171_cast.py, cible a distance 2) : les 2 premiers coups sont bit-exacts puis la
-# sequence decroche -- live [1341, 1363, 1351, 1639, 1550, 1550] vs offline
-# [1341, 1363, 1481, 1402, 1389, 1550] -- exactement au rang du 1er jet du trait.
-# On le NEUTRALISE par la GEOMETRIE plutot que par une tolerance : la cible est placee a distance
-# **3** (la portee de l'ability, `constants.range`), donc HORS du gate `range 2` du trait. Le flux MT
-# redevient celui des seuls degats de l'ability, et l'egalite per-coup mesure alors le port SEUL.
-GETSTUCKIN_FREE_DIST = 3
+# Depuis la PR #177 (`EvaluateAfterHitTriggers` est inconditionnel et vaut pour les DEUX familles de
+# factory), ce canal `On(8)` est CABLE cote port sur le vecteur ABILITY -- il roule donc pendant ce
+# cast, exactement comme le natif.
+#
+# ⚠ LE MONTAGE DOIT SE PLACER LA OU LES DEUX GATES COINCIDENT, et ce n'est PAS trivial :
+#   * gate NATIF  = `GetStuckInAbility$$CreateTrigger` -> `!(MinDistance > 2)`, une distance **HEX** ;
+#   * gate PORTE  = `damage_model.getstuckin_combat_chance` -> `_cheby(attack_pos, t_pos) > 2`, un
+#                   proxy **CHEBYSHEV** sur (col, row).
+# Les deux ne coincident pas partout. MESURE (`probe_ddd_1171_getstuckin.py`, 3 regimes) :
+#
+#   dist demandee | caster  cible  | hex | cheby | gate porte | gate natif | prefixe commun
+#   ------------- | ------  -----  | --- | ----- | ---------- | ---------- | --------------
+#   2             | (1,0)   (0,1)  |  2  |   1   | ACTIF (30) | ACTIF      | **6 / 6**
+#   3             | (1,0)   (0,2)  |  3  |   2   | ACTIF (30) | INACTIF    | 2 / 6
+#   4             | (1,0)   (0,3)  |  4  |   3   | INACTIF    | INACTIF    | (hors portee)
+#
+# Le seul regime qui casse est celui ou hex et cheby DIVERGENT -- c'est un desaccord de PREDICAT de
+# portee, PREEXISTANT et EXTERIEUR a ce port (il vit dans `engine/runner/damage_model.py`, dont le
+# docstring revendique le proxy cheby, et dans son jumeau prediction
+# `GetStuckInTrait.as_attacker_bonus_hits`). Il n'etait pas OBSERVABLE avant #177 parce que le port
+# ne roulait jamais ce `Maybe` sur une attaque d'ability : les deux cotes n'en tiraient aucun, et
+# l'egalite tenait PAR COMPENSATION.
+#
+# On mesure donc a **distance 2**, ou les deux gates disent ACTIF : le flux MT est alors le meme des
+# deux cotes, l'egalite per-coup mesure ce port SEUL, et le test exerce EN PLUS le canal after-hit
+# cable par #177. (Ce n'est pas un relachement : l'assertion reste l'egalite BIT-EXACTE sur 6 coups.)
+GETSTUCKIN_AGREED_DIST = 2
 
 
 def _cfg(key):
@@ -148,27 +168,30 @@ def _setup(h, target_dist, move_others=False):
     target_id = ens[0]["id"]
     others = [e["id"] for e in ens[1:]]
 
-    if move_others:
-        # Deplacer le CASTER pres du GROUPE ennemi : tuile libre a `target_dist` de la cible et a
-        # <= `range_2` d'au moins un autre ennemi (le pool du volet leftover).
-        tpos = (ens[0]["pos"]["col"], ens[0]["pos"]["row"])
-        opos = [(u["pos"]["col"], u["pos"]["row"]) for u in ens[1:]]
-        dest = None
-        for c in h.free_neighbours(tpos, target_dist, exclude=[u["id"] for u in h.alive()]):
-            if any(hexgeo.distance(c, o) <= rng2 for o in opos):
-                dest = c
-                break
-        if dest is None or not h.place(snappa["id"], dest):
-            return None
-        dv = h.reach_my_turn()
-        if dv is None or snappa["id"] not in (dv.get("toActivate") or []):
-            return None
-        return snappa["id"], target_id, others
-
     slots = h.free_neighbours(C, target_dist, exclude=[u["id"] for u in h.alive()])
     if not slots or not h.place(target_id, slots[0]):
         return None
     placed = [slots[0]]
+    if move_others:
+        # Cas (C) : peupler le POOL du volet leftover avec **UN SEUL** autre ennemi -- deux `move`
+        # adverses sur trois, donc la 3e unite garde son activation et le tour NE BASCULE PAS
+        # (bouger les trois faisait skipper le cas sur << cast live NON MUTANT >>).
+        #
+        # CONTRAINTE OBLIGATOIRE, mesuree : cet ennemi ne doit PAS etre adjacent au caster. Le masque
+        # de 1171 porte `forceMeleeTarget = True` -> `TargetingQuery$$GetRange` fait
+        # `if (ForceMeleeTarget && ShouldApplyRangedInMelee(caster)) { v = Min(1, v); }` : un caster
+        # ranged AU CONTACT voit sa portee ramenee a **1**, et la cible a distance 2 sort de portee
+        # -> cast refuse EN SILENCE.
+        dest = None
+        for r in range(2, rng2 + 1):               # >= 2 : jamais au contact du caster
+            free = [c for c in h.free_neighbours(C, r, exclude=[u["id"] for u in h.alive()])
+                    if c not in placed]
+            if free:
+                dest = free[0]
+                break
+        if dest is None or not h.place(others[0], dest):
+            return None
+        placed.append(dest)
     dv = h.reach_my_turn()                         # tour NEUF pour le caster (cf. `place`)
     if dv is None or snappa["id"] not in (dv.get("toActivate") or []):
         # Le caster n'a plus d'activation ce tour-la (les `move` en ont consomme) -> tout cast serait
@@ -200,7 +223,7 @@ def test_dakka_main_volley_live_equals_offline(ability_cast_harness):
     `constants.nrOfHits` (oracle config) : `GetNumHits` = `Min(nrOfHits + TimesRepaired*extraHits,
     maxNrOfHits)` et `TimesRepaired` vaut 0 au cast."""
     h = ability_cast_harness(p_units=SNAPPA, a_units=ENEMIES, extra=BUILD_TANKY)
-    geom = _setup(h, target_dist=GETSTUCKIN_FREE_DIST)
+    geom = _setup(h, target_dist=GETSTUCKIN_AGREED_DIST)
     if geom is None:
         pytest.skip("geometrie non montable sur ce board")
     snappa, target, others = geom
@@ -247,7 +270,7 @@ def test_dakka_self_loss_is_pct_of_max_health(ability_cast_harness):
     doit etre la MEME dans les deux cas (elle est indexee sur le MAX) -- un port qui lirait le PV
     COURANT rendrait deux valeurs differentes, et c'est exactement ce que ce test refuse."""
     h = ability_cast_harness(p_units=SNAPPA, a_units=ENEMIES, extra=BUILD_TANKY)
-    geom = _setup(h, target_dist=GETSTUCKIN_FREE_DIST)
+    geom = _setup(h, target_dist=GETSTUCKIN_AGREED_DIST)
     if geom is None:
         pytest.skip("geometrie non montable sur ce board")
     snappa, target, _others = geom
@@ -293,7 +316,7 @@ def test_dakka_leftover_hits_live_equals_offline(ability_cast_harness):
     `RandomAmount` + `PickRandomly` -- donc aussi la preuve que la consommation MT du port est calee
     (un tirage de trop ou de moins decalerait tous les degats suivants)."""
     h = ability_cast_harness(p_units=SNAPPA, a_units=ENEMIES, extra=BUILD_FRAGILE)
-    geom = _setup(h, target_dist=GETSTUCKIN_FREE_DIST, move_others=True)
+    geom = _setup(h, target_dist=GETSTUCKIN_AGREED_DIST, move_others=True)
     if geom is None:
         pytest.skip("geometrie non montable sur ce board")
     snappa, target, others = geom
@@ -363,7 +386,7 @@ def test_dakka_unported_is_a_silent_noop(ability_cast_harness, monkeypatch):
     rendre `ok=True` sans rien muter). Le MEME snapshot rejoue avec le registre INTACT mute -- si le
     montage etait rate, les deux branches rendraient 0."""
     h = ability_cast_harness(p_units=SNAPPA, a_units=ENEMIES, extra=BUILD_TANKY)
-    geom = _setup(h, target_dist=GETSTUCKIN_FREE_DIST)
+    geom = _setup(h, target_dist=GETSTUCKIN_AGREED_DIST)
     if geom is None:
         pytest.skip("geometrie non montable sur ce board")
     snappa, target, _others = geom
