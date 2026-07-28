@@ -15,7 +15,9 @@ from .base import BaseUtility, ComposedUtility  # noqa: F401
 from .utility_type import UtilityType  # noqa: F401
 from .damage import (  # noqa: F401
     damage_composite, DamageUtility, KillUnitUtility, OverkillUnitUtility, DAMAGE_UTILITY)
-from .tile import tile_composite, TILE_LEAVES, TILE_LEAF_IDS, TILE_UTILITY  # noqa: F401
+from .tile import (  # noqa: F401
+    tile_composite, TILE_LEAVES, TILE_LEAF_IDS, TILE_UTILITY,
+    sort_tiles_by_utility, first_tile_by_utility)
 from .move import MinDistanceToClosestEnemyUtility, MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401
 from .heal import HealUtility, HEAL_UTILITY  # noqa: F401
 from .repair import RepairedAmountUtility, REPAIR_UTILITY  # noqa: F401

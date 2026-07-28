@@ -26,6 +26,7 @@ from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Cast
                                    FixedTileIds, Sub, SurroundingFriends, Target, Units,
                                    UnitsWithIds)
 from ...entities.stats import StatType
+from ...utilities.tile import sort_tiles_by_utility
 from ... import battle_query
 from .targeting import (RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -401,14 +402,18 @@ class MalleusRocketLauncherAbility(ActiveAbility):
 #        (distance 1) et la portee max du summon `astraSmnGuardsman` est 2 (arme Las, gameconfig) ->
 #        TOUTES passent -> selecteur == `base`.
 #    Les deux lectures CONVERGENT sur le meme ensemble -> l'ambiguite ne change AUCUN observable.
-#  * `SortTilesByUtilityForSummon(sel, 7, owner)` = `SortTilesByUtility(sel, <units>, UtilityDefinition(7),
-#    owner)` -> `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = un tri par
-#    `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` (moteur d'utilite IA COMPLET, cle =
-#    `-utilite`). NON PORTE : meme collapse que SkyStrike/HeroicFusillade. Le referent `owner@0x148` etant
-#    ici une MoW SANS POSITION, le collapse « la plus proche du caster » des autres call-sites n'a meme pas
-#    de sens -> on conserve l'ORDRE DU SELECTEUR (voisinage natif `board.neighbours`, deterministe).
-#    RESIDU EXPLICITE : quand `|base| > nrOfSummons`, la TUILE choisie peut differer du live ; le POOL et le
-#    CARDINAL, eux, sont exacts (meme classe de residu que le GAP RNG #215 de PickRandomly).
+#
+# TRI PORTE (#165) : `SortTilesByUtilityForSummon(sel, 7, owner@0x148)` -> surcharge
+# `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(dsl, tiles, int, parent)` qui
+# construit `AllAliveMachinesSelector` + `UtilityDefinition(7 = Tile)` et delegue a
+# `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` ->
+# `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = tri DECROISSANT **stable** par
+# `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` sur le composite `Tile(7)`. C'est
+# EXACTEMENT le sortilege deja porte et LIVE-VALIDE pour le placement des summons
+# (`runner/operations/spawn.py::_sort_tiles_by_utility_for_summon`, case-130 SS5) : les deux appellent
+# desormais le FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility`. Le referent `owner@0x148`
+# n'alimente que des feuilles gatees sur l'unite (non plombees) -> INERTE cote port, y compris ici ou
+# c'est une MoW SANS POSITION.
 # =================================================================================================== #
 
 FORWARD_SPOTTER_ID = "ForwardSpotter"
@@ -423,12 +428,17 @@ def forward_spotter_num_summons() -> int:
 
 
 def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int) -> list:
-    """COLLAPSE de `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles`
+    """MIRROR de `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles`
     (cf. le bloc ci-dessus) : `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target))
     .Otherwise-filtre, 7, owner), nrOfSummons)`.
 
-    Rendu = les `n` premieres tuiles LIBRES (walkable + inoccupees par un vivant) ADJACENTES a la tuile
-    ciblee, dans l'ordre du voisinage natif. `target_id` = une UNITE (l'ability cible une unite ennemie,
+    Rendu = les `n` MEILLEURES tuiles LIBRES (walkable + inoccupees par un vivant) ADJACENTES a la
+    tuile ciblee, au sens du composite `Tile(7)` (#165 : le tri EST porte, cf. le foyer
+    `engine/utilities/tile.py::sort_tiles_by_utility`). Le tri etant STABLE, les egalites (carte plate)
+    sont tranchees par l'ordre du SELECTEUR SOURCE = `AdjacentTilesSelector$$Select` ->
+    `BattleQuery$$GetAdjacentTiles`, donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni
+    triee ni symetrisee ; ordre etabli case-130 SS5 / #117 / FragBomb) -- et NON `board.neighbours`
+    (ids tries) que ce port utilisait. `target_id` = une UNITE (l'ability cible une unite ennemie,
     cf. `ForwardSpotterAbility$$GetDynamicInvalidTargetReason` : `IsUnit(target) && target != caster`)."""
     board = state.board
     te = state.get_entity(target_id) if target_id is not None else None
@@ -447,8 +457,8 @@ def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int)
         t = board.id_at(pc.col, pc.row)
         if t is not None:
             occ.add(t)
-    free = [t for t in board.neighbours(tid) if t not in occ and board.walkable(t)]
-    return free[:max(0, int(n))]
+    free = [t for t in board.neighbours_native(tid) if t not in occ and board.walkable(t)]
+    return sort_tiles_by_utility(state, free)[:max(0, int(n))]      # SortTilesByUtilityForSummon + First(n)
 
 
 def forward_spotter_tree(tiles: list) -> Spawn:
