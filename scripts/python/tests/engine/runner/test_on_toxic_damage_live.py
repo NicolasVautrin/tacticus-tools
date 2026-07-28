@@ -51,8 +51,8 @@ from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
 from engine.runner.components import HealthComponent, PositionComponent, UnitComponent
 from engine.runner.messages import AttackUnitMessage
-from engine.runner.operations.triggers.loki.on_toxic_damage import (TOXIC_CHANCE_KEY,
-                                                                    _on_toxic_damage_ability)
+from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
+from engine.runner.operations.triggers.loki.on_toxic_damage import TOXIC_CHANCE_KEY
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
@@ -162,6 +162,20 @@ def _mt_state(rng):
     return (list(rng.mt), rng.mti)
 
 
+def _toxic_via_bus(state, att, tgt, profile, is_first_hit=True):
+    """Emet le vecteur `On(DamageDealt = 0x10)` -- le SEUL chemin du canal 1203 depuis le DE-FORK
+    (registre `GLOBAL_TRIGGERS`, cf. `OnToxicDamageAbility`). Ce canal etait auparavant appele
+    imperativement depuis `after_hit_normal_attack` ; le tester par son VECTEUR exerce desormais la
+    chaine reelle (dispatch + gates du `CreateTrigger`), pas une fonction contournee.
+
+    Filtre sur `placement` pour isoler CE consommateur des deux autres auditeurs du meme vecteur
+    (`FleshmetalGunsTileEffectAbility`, `OnFireDamageAbility`) -- aucun des deux ne matche ici
+    (`genesBiophagus` n'a pas `FleshmetalGuns` ; le profil `Toxic` ne porte pas `OnFire`), donc le
+    compte de tirages reste celui du seul `Maybe` de 1203."""
+    out = damage_dealt_triggers(state, att, tgt, profile=profile, is_first_hit=is_first_hit)
+    return [r for r in (out or []) if r.get("placement") == "OnToxicDamage"]
+
+
 # --------------------------------------------------------------------- (1) ancrage de la magnitude
 
 def test_toxic_chance_is_config_driven_and_matches_battle_config():
@@ -216,7 +230,7 @@ def test_toxic_hit_rolls_exactly_once_and_matches_the_predicted_roll(live_sessio
 
     chance = int(GC.global_value(TOXIC_CHANCE_KEY))
     expect_placed, mt_expected = _oracle_after_one_roll(state, chance)
-    out = _on_toxic_damage_ability(state, att, tgt, TOXIC_PROFILE)
+    out = _toxic_via_bus(state, att, tgt, TOXIC_PROFILE)
     placed = state.effects.has_effect(tile, effect_type=CONTAMINATED)
     print(f"[toxic roll] chance={chance} predicted={expect_placed} placed={placed} "
           f"mti={state.rng.mti} want_mti={mt_expected[1]} out={out}")
@@ -254,7 +268,7 @@ def test_non_toxic_profile_places_nothing_and_rolls_nothing(live_session, rpc, b
     tile = _tile_of(state, board, tgt)
 
     mt0 = _mt_state(state.rng)
-    out = _on_toxic_damage_ability(state, att, tgt, "Power")
+    out = _toxic_via_bus(state, att, tgt, "Power")
     print(f"[toxic gate] out={out} mti={state.rng.mti} want={mt0[1]}")
 
     assert out == [], f"coup non-Toxic : pose rapportee {out}"
@@ -279,7 +293,7 @@ def test_toxic_rolls_again_but_places_nothing_on_already_contaminated_tile(live_
     assert state.effects.has_effect(tile, effect_type=CONTAMINATED), "pre-contamination KO"
 
     _verdict, mt_expected = _oracle_after_one_roll(state, int(GC.global_value(TOXIC_CHANCE_KEY)))
-    out = _on_toxic_damage_ability(state, att, tgt, TOXIC_PROFILE)
+    out = _toxic_via_bus(state, att, tgt, TOXIC_PROFILE)
     print(f"[toxic already] out={out} mti={state.rng.mti} want={mt_expected[1]}")
 
     assert _mt_state(state.rng) == mt_expected, (

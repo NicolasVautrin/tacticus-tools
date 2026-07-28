@@ -22,7 +22,7 @@ from __future__ import annotations
 from .psyker import (PsykerExtraAttackAbility, psyker_smite_tree,
                      PSYKER_OWNER_SUPPRESS, PSYKER_TARGET_SUPPRESS, PSYCHIC_PROFILE)
 from .fire import (FireTileDoT, env_fire_tile_tree, on_fire_damage_tree, fire_of_absolution_tree,
-                   _is_immune_to_fire, _on_fire_damage_ability, _fire_of_absolution_after_attack,
+                   _is_immune_to_fire, OnFireDamageAbility, _fire_of_absolution_after_attack,
                    FIRE_TILE, FIRE_DMG_PCT_KEY, FIRE_IMMUNE_TRAITS, FIRE_PROFILE,
                    FIRE_OF_ABSOLUTION_IGNITE_CHANCE)
 from .act_of_faith import (ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
@@ -41,7 +41,7 @@ from .final_justice import (FinalJusticeAbility, _finaljustice_target, _finaljus
 from .control_edict import (ControlEdictAbility, _adjacent_mechanical_summons,
                             PROTECTOR as CONTROLEDICT_PROTECTOR, CONQUEROR as CONTROLEDICT_CONQUEROR)
 from .rad_saturation import RadSaturationAbility, rad_saturation_tree, CONTAMINATED_TILE as RADSAT_CONTAMINATED_TILE
-from .on_toxic_damage import (on_toxic_damage_tree, _on_toxic_damage_ability,
+from .on_toxic_damage import (on_toxic_damage_tree, OnToxicDamageAbility,
                               CONTAMINATED_TILE as TOXIC_CONTAMINATED_TILE, TOXIC_CHANCE_KEY)
 from .lord_of_tempests import (LordOfTempestsAddIceAbility, lord_of_tempests_add_ice_tree,
                                ICE_TILE, SMITE_KIND)
@@ -58,7 +58,7 @@ __all__ = [
     "PSYKER_OWNER_SUPPRESS", "PSYKER_TARGET_SUPPRESS", "PSYCHIC_PROFILE",
     # fire
     "FireTileDoT", "env_fire_tile_tree", "on_fire_damage_tree", "fire_of_absolution_tree",
-    "_is_immune_to_fire", "_on_fire_damage_ability", "_fire_of_absolution_after_attack",
+    "_is_immune_to_fire", "OnFireDamageAbility", "_fire_of_absolution_after_attack",
     "FIRE_TILE", "FIRE_DMG_PCT_KEY", "FIRE_IMMUNE_TRAITS", "FIRE_PROFILE",
     "FIRE_OF_ABSOLUTION_IGNITE_CHANCE",
     # act_of_faith
@@ -85,7 +85,7 @@ __all__ = [
     "RadSaturationAbility", "rad_saturation_tree", "RADSAT_CONTAMINATED_TILE",
     # on_toxic_damage (1203 — jumeau d'OnFireDamage : pose Contaminated 1244 on-hit, gate
     # `IsFirstHitInSeries & Maybe(chance=25)`, 1 tirage par serie de coups)
-    "on_toxic_damage_tree", "_on_toxic_damage_ability", "TOXIC_CONTAMINATED_TILE", "TOXIC_CHANCE_KEY",
+    "on_toxic_damage_tree", "OnToxicDamageAbility", "TOXIC_CONTAMINATED_TILE", "TOXIC_CHANCE_KEY",
     # lord_of_tempests (#35 — passif AddIce de Njal)
     "LordOfTempestsAddIceAbility", "lord_of_tempests_add_ice_tree", "ICE_TILE", "SMITE_KIND",
     # suppressive_fire (#74 — trait SuppressiveFire 1010 -> triggered 1044 pose Pinned 1065)

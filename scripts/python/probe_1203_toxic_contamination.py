@@ -139,7 +139,9 @@ def _mesure_a(sid, rid, board):
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import UnitComponent, OwnerComponent
-    from engine.runner.operations.triggers.loki.on_toxic_damage import _on_toxic_damage_ability
+    # DE-FORK : le canal 1203 n'est plus une fonction appelee imperativement, c'est un consommateur du
+    # vecteur `On(DamageDealt = 0x10)` (registre `GLOBAL_TRIGGERS`). On l'exerce donc par son VECTEUR.
+    from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
 
     dv = _rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 150)
     ob = _rpc(sid, "observeBattle", {"runnerId": rid}, 60)
@@ -171,7 +173,8 @@ def _mesure_a(sid, rid, board):
     for n, fn in origs.items():
         setattr(IntBasedMersenneTwister, n, _wrap(n, fn))
     mt_before = (list(st.rng.mt), st.rng.mti)
-    out = _on_toxic_damage_ability(st, att, tgt, "Toxic")
+    out = [r for r in (damage_dealt_triggers(st, att, tgt, profile="Toxic", is_first_hit=True) or [])
+           if r.get("placement") == "OnToxicDamage"]
     for n, fn in origs.items():
         setattr(IntBasedMersenneTwister, n, fn)
 
@@ -196,10 +199,11 @@ def _mesure_b(sid, rid, board):
     from engine.runner.messages import AttackUnitMessage
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import PositionComponent
-    # #169 : `dispatch` est un PACKAGE ; `after_hit_normal_attack` (et donc le symbole a
-    # neutraliser) vit dans `dispatch.attack`. Le `__init__` du package ne porte meme PAS
-    # `_on_toxic_damage_ability` -> viser `dispatch` rendrait un AttributeError.
-    import engine.runner.operations.triggers.dispatch.attack as DP
+    # DE-FORK : le canal 1203 est desormais une entree du registre GLOBAL. Le « desarmer » = le RETIRER
+    # de `GLOBAL_TRIGGERS` (le dict/liste est re-exporte PAR VALEUR, donc une mutation porte), au lieu
+    # de neutraliser un symbole dans `dispatch.attack`.
+    from engine.runner.operations.triggers.dispatch import registry as REG
+    from engine.runner.operations.triggers.loki import OnToxicDamageAbility
 
     armed_ok = disarmed_ok = placements = compared = 0
     for attempt in range(MAX_ATTACKS):
@@ -238,16 +242,15 @@ def _mesure_b(sid, rid, board):
         Runner(st_a).install_default_handlers(20).apply(AttackUnitMessage(uid, tgt))
         armed = st_a.effects.has_effect(tile, effect_type=CONTAMINATED)
 
-        # canal DESARME = l'etat du depot AVANT ce port (aucun handler pour 1203). L'attaque NORMALE
-        # passe par `dispatch.after_hit_normal_attack`, qui resout le symbole dans SON module -> c'est
-        # bien `dispatch._on_toxic_damage_ability` qu'il faut neutraliser.
-        saved = DP._on_toxic_damage_ability
-        DP._on_toxic_damage_ability = lambda *a, **k: []
+        # canal DESARME = l'etat du depot AVANT ce port (aucun handler pour 1203) : on RETIRE l'entree
+        # du registre GLOBAL, que `core.collect_global_triggers` relit a chaque dispatch.
+        saved = list(REG.GLOBAL_TRIGGERS)
+        REG.GLOBAL_TRIGGERS[:] = [c for c in saved if c is not OnToxicDamageAbility]
         st_d = _fresh()
         try:
             Runner(st_d).install_default_handlers(20).apply(AttackUnitMessage(uid, tgt))
         finally:
-            DP._on_toxic_damage_ability = saved
+            REG.GLOBAL_TRIGGERS[:] = saved
         disarmed = st_d.effects.has_effect(tile, effect_type=CONTAMINATED)
 
         compared += 1

@@ -465,7 +465,13 @@ class _AbilityAttack:
             # (`AttackOptions@+4`, 8e arg d'`AttackWithAttackDamage` ; porteur FlailSwing 1042) ->
             # `DealDamageInfo@+0x2c`, lu par la surcharge d'instance d'`IsOverkill`. Le port ne le
             # cablait QUE sur le cap Resilient ; il decide AUSSI `UnitFlag.Overkilled`.
-            hits_result=r, is_force_overkill=bool(force_overkill))
+            hits_result=r, is_force_overkill=bool(force_overkill),
+            # `On(0x10)` : cet appel EST la serie de coups portee sur CETTE cible, donc il contient le
+            # coup d'index 0 -> `IsFirstHitInSeries` VRAI (mirror `AbilityEntities+0x110`). Sur une
+            # ability MULTI-CIBLES, `execute_ability_attack` est appelee une fois PAR cible, et
+            # `IdunBattle.Operations.ADamageOperation$$SetupHitGroup` construit lui aussi un groupe par
+            # cible -> un tirage 1203 par cible, des deux cotes.
+            is_first_hit=True)
         # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
         # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
         # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :
@@ -510,22 +516,15 @@ class _AbilityAttack:
                 # `Maybe` et index CONTINU, threade depuis la sortie de la phase d'arme (coups
                 # bonus compris). Strictement le cablage de `damage_ops/normal.py` (R6-b').
                 bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"])
-        # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
-        # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
-        # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
-        # d'ABILITY à profil OnFire (ArmoriumCherub, splash FireOfAbsolution, BrazierOfHolyFire…). #136.
-        # Idempotent (no-op si la tuile brûle déjà) → une pose post-attaque == per-coup pour le feu.
-        from ..triggers import (_on_fire_damage_ability, _on_toxic_damage_ability,   # lazy : cycle damage<->triggers
-                               after_hit_ability_attack)
-        fire = _on_fire_damage_ability(state, attacker_id, target_id, damage_profile)
-        # POSE DE CONTAMINATION (`OnToxicDamageAbility` 1203) — MEME emetteur natif que le feu
-        # (`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`, donc les DEUX familles
-        # d'attaque), mais behaviour CONDITIONNEL : `If(IsFirstHitInSeries() & Maybe(chance=25),
-        # AddEffect(0x4dc Contaminated, Tiles(Target())))`. Un `next_bool(25)` par SERIE de coups —
-        # ici une serie == un appel a `execute_ability_attack`, donc UNE fois par cible (ce que fait
-        # le natif : `IsFirstHitInSeries` ne laisse passer que le coup d'index 0 de chaque serie).
-        # Place APRES `_run_hits`/`_apply_damage_pipeline` = la position native du tirage.
-        toxic = _on_toxic_damage_ability(state, attacker_id, target_id, damage_profile)
+        # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
+        # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
+        # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+        # DEPUIS `_apply_damage_pipeline` ci-dessus -- c.-a-d. AVANT le traitement de la mort, alors
+        # que ce point-ci est APRES. L'ecart est OBSERVABLE et a ete arbitre LIVE (bus 6/6 vs
+        # imperatif 3/6, cf. la docstring de `damage_dealt_triggers`). Les deux abilities sont
+        # desormais des consommatrices GLOBALES du bus (`GLOBAL_TRIGGERS`), donc couvertes pour les
+        # DEUX familles d'attaque sans cablage par famille.
+        from ..triggers import after_hit_ability_attack          # lazy : cycle damage<->triggers
         # VECTEUR AFTER-HIT (ability/splash) : dispatch générique — reset ActOfFaith au crit (#138) + tout
         # after-hit trigger (#140 : splash Psyker sur ability/splash psychique, chain borné par le cap).
         # `ranged` = POSITION-based (calculé dans after_hit_ability_attack, mirror IsRangedAttack).
@@ -555,8 +554,12 @@ class _AbilityAttack:
             attack_damage_attack_triggers(state, attacker_id, target_id,
                                           ranged=_is_ranged_position(state, attacker_id, target_id),
                                           profile=damage_profile)
+        # NB (de-fork) : les cles diagnostiques `fire`/`toxic` ont disparu de ce retour -- la pose
+        # on-hit ne passe plus par ici mais par le bus `On(0x10)` emis dans `_apply_damage_pipeline`.
+        # L'observable reste `state.effects` (la tuile porte l'effet), qui est la VRAIE source et celle
+        # que le live expose (`tileMeta`) ; les tests confrontent desormais l'etat, pas un champ de diag.
         return {"hits": hits, "total": r["total"], "base_min": base_min, "base_max": base_max,
-                "pierce": profile_pierce, "armor": armor, "fire": fire, "toxic": toxic,
+                "pierce": profile_pierce, "armor": armor,
                 "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,
                 "did_crit": r["did_crit"], "did_block": r["did_block"], "did_evade": r["did_evade"],

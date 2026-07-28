@@ -13,8 +13,7 @@ from ....state import State
 from ....components import UnitComponent
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggerEvent, _is_ranged_position
-from ..loki import (_on_fire_damage_ability, _on_toxic_damage_ability,
-                    _fire_of_absolution_after_attack)
+from ..loki import _fire_of_absolution_after_attack
 from .core import evaluate_trigger_operation
 # DEPENDANCE CROISEE (etait une simple resolution intra-module avant #169) :
 # `after_hit_normal_attack` clot l'attaque normale par le `On(UnitPostAbility=0xe)` de la face
@@ -163,7 +162,9 @@ def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int
 
 def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int,
                           profile: Optional[str] = None,
-                          ranged: bool = False) -> list[dict]:
+                          ranged: bool = False,
+                          is_first_hit: Optional[bool] = None,
+                          triggering_effect: Optional[int] = None) -> list[dict]:
     """Vecteur `On(DamageDealt=0x10=16)` (#85) — DERNIER des TROIS events qu'emet
     `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x3a=PreDamageTaken)` ->
     `On(0xf=DamageTaken)` -> `On(0x10=DamageDealt)`. **CE N'EST PAS** `IdunBattle.Operations.
@@ -178,17 +179,28 @@ def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int
     `get_OwnerIsCaster` lisible « le porteur EST l'attaquant » et `Tiles(Target@0x178)` = la tuile de la
     victime.
 
-    CONSOMMATEURS NATIFS de `On(0x10)` (les trois lus au decompile) :
+    CONSOMMATEURS NATIFS de `On(0x10)` — les TROIS lus au decompile, et les TROIS branches ici depuis
+    le DE-FORK :
       * `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger`
         = `On(0x10) & get_OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail)` -> pose DespoiledGround
-        (0x5c4) sur la tuile de la victime. **SEUL consommateur branche sur ce vecteur** (#85).
+        (0x5c4) sur la tuile de la victime (#85, registre `ABILITY_TRIGGERS["FleshmetalGuns"]`) ;
       * `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger`
         = `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT TriggeringEffectIs(5)` ;
-      * son jumeau `OnToxicDamageAbility`.
-      Ces DEUX derniers restent appeles IMPERATIVEMENT depuis `after_hit_normal_attack`
-      (`_on_fire_damage_ability` / `_on_toxic_damage_ability`) : ils sont deja portes ET live-valides a
-      cette place, et le Toxic consomme un `next_bool` dont l'ORDRE vs les tirages de degat est calibre
-      la-bas. Les re-router ici deplacerait ce tirage => hors perimetre #85, flagge.
+      * son jumeau `OnToxicDamageAbility` (1203). Ces deux-la sont des abilities GLOBALES (aucun
+        predicat d'owner dans leur `CreateTrigger`) -> registre `GLOBAL_TRIGGERS`.
+
+    DE-FORK (ce commit). Les deux `Abilities.Damage.Loki` etaient appelees IMPERATIVEMENT depuis
+    `after_hit_normal_attack` et `execute_ability_attack`, c.-a-d. APRES la resolution complete de
+    l'attaque -- donc APRES les vecteurs de MORT. Le natif, lui, emet `On(0x10)` dans
+    `ApplyDamageOperation$$Execute`, AVANT que la mort ne soit traitee (`VerifyDeaths` ->
+    `IdunBattle.Operations.KillUnitOperation$$Execute`). LA DIFFERENCE EST OBSERVABLE, et elle a ete
+    ARBITREE LIVE (`probe_o10_rng_order.py` : `tyranParasite`, arme `Toxic` + passif `BarbedOvipositor`
+    dont le behaviour tire un `PickRandomly` sur `On(0=UnitDeath)`, victime `astraBullgryn` one-shottee ;
+    6 confrontations / 3 seeds) -> **ordre BUS d'accord avec le natif 6/6, ordre imperatif 3/6**, avec
+    des desaccords DANS LES DEUX SENS (2 contaminations manquees, 1 de trop) = la signature d'une
+    PERMUTATION de tirages. L'etat MT final etant IDENTIQUE dans les deux ordres (meme cardinalite), un
+    critere « delta mti » seul aurait conclu a tort « rien ne bouge » : c'est le VERDICT DE POSE qui
+    tranche.
 
     GATE. Le natif emet `On(0x10)` a l'INTERIEUR du meme bloc que `On(0xf)` (`0 < reduction REELLEMENT
     appliquee || !HealthComponent.IsUnitWithHealthStat(cible)`), sous UN conjoint supplementaire
@@ -198,10 +210,18 @@ def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int
     (residu FLAGGE : il ne peut que RESTREINDRE l'emission native, jamais l'elargir).
 
     GRANULARITE : le natif emet par `ApplyDamageOperation` (= par COUP), le port une fois par GROUPE de
-    degat resolu — meme approximation, meme foyer et meme justification que `damage_taken_triggers`
-    (la pose d'un tile-effect est idempotente : `AddEffectOperation` no-ope si la tuile le porte deja)."""
+    degat resolu. Pour une POSE de tile-effect c'est sans consequence (idempotent) ; pour le TIRAGE de
+    1203 ca l'est aussi, parce que son gate natif `IsFirstHitInSeries` ne laisse passer que le coup
+    d'index 0 : le port thread donc `is_first_hit` = « CE GROUPE contient le coup d'index 0 », ce qui
+    reproduit exactement le compte natif (un tirage par serie/cible) sans avoir a derouler les coups.
+
+    `triggering_effect` = `TriggeringEffectIs(<effectType>)`, le gate anti-boucle des deux abilities de
+    profil. None = « ce degat ne vient pas d'un effet » (cas des attaques). RESIDU : les degats de DoT
+    de tuile (`execute_ability_attack` depuis `FireTileDoT`) ne le threadent pas encore -- inerte, la
+    re-pose du meme effet sur la meme tuile etant un no-op `already-present`."""
     ev = TriggerEvent(EventTriggerType.DamageDealt, source_id, target_id,
-                      ranged=ranged, profile=profile)
+                      ranged=ranged, profile=profile, is_first_hit=is_first_hit,
+                      triggering_effect=triggering_effect)
     return evaluate_trigger_operation(state, ev)
 
 
@@ -247,9 +267,10 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
     conservé (aucun consommateur actif depuis #151 — le reset ActOfFaith a migré sur On(9) ability-only, donc
     NE fire PLUS sur un crit d'attaque normale). `ranged`/`profile` = nature du coup primaire. Ajoute le passif
-    `SquigHound` (spawn de grot après attaque) + la POSE on-hit des tile-effects de profil
-    (`OnFireDamageAbility` -> Fire 5 si le profil porte `OnFire` ; `OnToxicDamageAbility` -> Contaminated
-    1244 si le profil porte `OnToxic`, sous `IsFirstHitInSeries & Maybe(chance)`). No-op si rien ne matche."""
+    `SquigHound` (spawn de grot après attaque). La POSE on-hit des tile-effects de profil
+    (`OnFireDamageAbility` -> Fire 5 ; `OnToxicDamageAbility` -> Contaminated 1244) N'EST PLUS ICI : elle a
+    migré sur son vecteur natif `On(DamageDealt = 0x10)` (`damage_dealt_triggers`), émis de l'INTÉRIEUR du
+    pipeline de dégât, donc AVANT les vecteurs de mort. No-op si rien ne matche."""
     ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
@@ -258,13 +279,12 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     ev_ah = TriggerEvent(EventTriggerType.AttackHit, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = out + evaluate_trigger_operation(state, ev_ah)        # On(8) after-hit (vecteur natif ; sans conso #151)
-    out = out + _on_fire_damage_ability(state, attacker_id, target_id, profile)  # OnFireDamageAbility IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour
-    # OnToxicDamageAbility (1203) IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility$$CreateBehaviour
-    # — JUMEAU de la pose de feu (meme vecteur natif `On(0x10)` d'`ADamageOperation$$EvaluateAfterHitTriggers`,
-    # meme feuille `AddEffect(Tiles(Target()))`), mais CONDITIONNEL : `If(IsFirstHitInSeries() &
-    # Maybe(chance=25), AddEffect(0x4dc Contaminated))`. Consomme UN `next_bool` par serie de coups
-    # (= par attaque), APRES les tirages degat/crit/block du coup -> ordre `state.rng` du natif.
-    out = out + _on_toxic_damage_ability(state, attacker_id, target_id, profile)
+    # DE-FORK : `OnFireDamageAbility` (1016) et `OnToxicDamageAbility` (1203) NE SONT PLUS appelees ici.
+    # Leur vecteur natif est `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.
+    # ApplyDamageOperation$$Execute` -- c.-a-d. AVANT le traitement de la mort, alors que ce point-ci
+    # est APRES. Elles sont desormais consommatrices du bus (`damage_dealt_triggers`, registre
+    # `GLOBAL_TRIGGERS`). Ce n'etait pas un deplacement cosmetique : l'ordre a ete arbitre LIVE
+    # (cf. la docstring de `damage_dealt_triggers` -- bus 6/6 vs imperatif 3/6).
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour (Vindicta)
     out = out + _squighound_after_attack(state, attacker_id, target_id)
     # On(9=Attack) : event GENERIQUE emis par `FinishAttackOperation IdunBattle.Operations.FinishAttackOperation$$Execute` a la FIN de CHAQUE attaque

@@ -48,9 +48,9 @@ from __future__ import annotations
 
 from .....services.damage_prediction import OVERKILL_PCT_KEY, is_overkill, unit_is_overkill
 from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
-                       EFFECT_TRIGGERS)
+                       EFFECT_TRIGGERS, GLOBAL_TRIGGERS)
 from .core import (collect_triggered_abilities, collect_effect_triggers,
-                   evaluate_trigger_operation, _trigger_phase_component)
+                   collect_global_triggers, evaluate_trigger_operation, _trigger_phase_component)
 from .attack import (_squighound_after_attack, unit_blocked_triggers, final_damage_triggers,
                      pre_attack_triggers, pre_attack_hit_triggers, damage_taken_triggers,
                      damage_dealt_triggers,
@@ -71,6 +71,7 @@ from .turn import (tile_tick_triggers, start_turn_triggers, turn_start_other_tri
 __all__ = [
     "OVERKILL_PCT_KEY", "is_overkill", "unit_is_overkill",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
+    "GLOBAL_TRIGGERS", "collect_global_triggers",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",
     "_trigger_phase_component", "_squighound_after_attack", "unit_blocked_triggers",
     "final_damage_triggers", "pre_attack_triggers", "pre_attack_hit_triggers",
