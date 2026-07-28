@@ -174,7 +174,8 @@ d'être vue verte. Fichier : `scripts/python/tests/engine/runner/test_tile_effec
    chemin (`apply_tile_defense_on_move`, #198) ; `BrokenIceAbility`, `ShrubBonusDefenseAbility` et le
    pickup de power-up (#B2) restent hors port. Ce commit ne construit **pas** d'infra générique de
    tile-ability-trigger : il porte l'ability nommée, comme les deux précédentes.
-3. **`DespoiledGround` (1476)** — explicitement hors périmètre (cf. §6).
+3. ~~**`DespoiledGround` (1476)** — explicitement hors périmètre (cf. §6).~~ **Porté depuis (#85)**,
+   cf. §6 et `docs/rl/case-85-despoiled-ground.md`.
 4. **Ordre exact du retrait vs les autres étapes de `EndTurnOperation`.** Le natif retire dans une
    opération `RefreshEffects` **enfilée** après le tick ; le port marque `consumed` inline dans le
    tick. Aucun observable ne les distingue aujourd'hui (le retrait précède de toute façon le
@@ -189,16 +190,19 @@ d'être vue verte. Fichier : `scripts/python/tests/engine/runner/test_tile_effec
 
 ## 6. Réconciliation avec la tâche #85 (« Infra effets de TUILE mutables »)
 
-**Réduite, pas fermée.** #85 visait `DespoiledGround` (volet 2 de `LetTheGalaxyBurn`) + 2 artefacts.
-Ce commit livre la brique de CYCLE DE VIE qui manquait — un effet de tuile à timer vieillit, meurt et
-disparaît des gates et des triggers, exactement comme côté natif — et le vecteur d'entrée `On(0x24)`.
-`DespoiledGround` reste bloqué sur **deux** manques qui lui sont propres et qui ne sont pas touchés
-ici (`case-222` §2) :
+**Réduite ici, FERMÉE depuis (#85).** Ce commit-ci livre la brique de CYCLE DE VIE qui manquait — un
+effet de tuile à timer vieillit, meurt et disparaît des gates et des triggers, exactement comme côté
+natif — et le vecteur d'entrée `On(0x24)`. Les **deux** manques propres à `DespoiledGround` qu'il ne
+touchait pas ont été portés et confrontés live par **#85**
+(`docs/rl/case-85-despoiled-ground.md`) :
 
-- le vecteur **`On(0x10 = DamageDealt)`** n'existe pas dans le dispatch porté, alors que
-  `FleshMetalGuns_TileEffectAbility` s'y accroche (`On(0x10) & OwnerIsCaster & HasEffect(Self, 0x4c5)`) ;
-- la **classe d'effet 1476** n'est pas portée (seule sa durée l'est : `_DEFAULT_ROUNDS[0x5c4] = 2`,
-  `runner/operations/effects.py`).
+- ~~le vecteur **`On(0x10 = DamageDealt)`** n'existe pas dans le dispatch porté~~ → porté
+  (`dispatch/attack.py::damage_dealt_triggers`). ⚠ Émetteur RECTIFIÉ au passage : c'est
+  `IdunBattle.Operations.ApplyDamageOperation$$Execute` (séquence `0x3a` → `0xf` → `0x10`), **pas**
+  `ADamageOperation$$EvaluateAfterHitTriggers`, qui n'émet que `0x3d` et `8` ;
+- ~~la **classe d'effet 1476** n'est pas portée~~ → portée, avec 1478 et le DoT d'environnement
+  (`EnvDespoiledGroundTileAbility`).
 
-Ce que #85 gagne : une fois ces deux maillons posés, le `DespoiledGround` ainsi placé **expirera
-correctement** — ce qui n'aurait pas été le cas avant ce commit.
+Le pari de ce commit est **VÉRIFIÉ** : le `DespoiledGround` posé par le vecteur de #85 expire au
+**même tour** que le natif (mesure : extinction au tour 3 des deux côtés, trace de décrément
+`4 → 3 → 2 → 1 → absent` identique) — précisément grâce à la brique livrée ici.

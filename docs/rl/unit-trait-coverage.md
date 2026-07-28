@@ -61,8 +61,10 @@ mais un trait SANS aucune reference n'est PAS forcement un no-op.
   PAS le canal heterogene FleshmetalGuns), gate `OwnerIsCaster & (TargetHasTileEffect | IsPersistentData)`.
   Pose du flag = `On(PreAttack=5) & Maybe(33%) & !HasTileStatusEffect(cible)` @1811076f0 ; clear en fin
   d'attaque @1811078a0. Valide live (34.2 % / 100 % sur les 2 branches). Cf. `case-84-let-the-galaxy-burn.md`.
-  **VOLET 2 RESTANT** : `AddEffect(0x5c4=1476 DespoiledGround)` sur les tuiles des cibles (+ 1478
-  `DespoiledGround_ExtraDamagePct`) -- le spawn hex-effect.
+  **VOLET 2** : les classes 1476 `DespoiledGround` / 1478 `DespoiledGround_ExtraDamagePct`, le DoT
+  d'environnement (`EnvDespoiledGroundTileAbility`) et le vecteur `On(0x10 = DamageDealt)` sont
+  PORTES + VALIDES LIVE (#85, `case-85-despoiled-ground.md`). Reste le seul `AddEffect(0x5c4)` de
+  `LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` -- cablage sans prerequis manquant desormais.
 - `Explodes` (x15) : "explose a la mort, 25% max HP en Direct Damage aux adjacents" -> death-nova (cf. HarbingerOfDestruction
   1008 porte #44 ; verifier si le TRAIT wire l'ability ou si c'est un gap).
 - `PutridExplosion` (x6) : idem Explodes en Toxic, epargne DeathGuard adjacents.

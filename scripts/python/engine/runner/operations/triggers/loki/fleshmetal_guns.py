@@ -162,9 +162,18 @@ def fleshmetal_guns_tile_effect_tree():
     d'override -> `DefaultAmountOfRounds(0x5c4) = 2` rounds, converties en TOURS par
     `AddEffectOperation` (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`, #98).
     Le gate de DECLENCHEMENT (`get_OwnerIsCaster` + `HasEffect(Self, 0x4c5)`) reste UPSTREAM
-    (`CreateTrigger`, hors `CreateBehaviour`), dans `matches`. RNG-free (AddEffect inconditionnel)."""
+    (`CreateTrigger`, hors `CreateBehaviour`), dans `matches`. RNG-free (AddEffect inconditionnel).
+
+    `source_from_target=True` = le FALLBACK natif de `IdunBattle.Entities.Behaviours.AddEffectBehaviour
+    $$Execute` quand le selecteur SOURCE est NUL (la surcharge 4-args passe litteralement `0` en `+0x60`)
+    : **la source EST la cible**, donc la TUILE. GROUND TRUTH LIVE (`probe_85_despoiled_ground.py`,
+    runner 354) : apres l'attaque de Volk (u81) la tuile (4,3) porte `DespoiledGround` avec
+    **`source = 51` = l'id de CETTE tuile**, pas 81. Le port rendait 81 avant cette mesure.
+    ⚠ La MEME surcharge est utilisee par `OnFireDamageAbility` : le residu « le port passe encore le
+    caster » que `on_fire_damage_tree` flagge est donc CONFIRME par cette mesure (meme forme, meme
+    fallback) — non corrige ici, hors perimetre #85."""
     return AddEffect(_DESPOILED_GROUND, EffectType.DespoiledGround.name, Tiles(Target()),
-                     duration_rounds=None)
+                     duration_rounds=None, source_from_target=True)
 
 
 class FleshmetalGunsTileEffectAbility(TriggeredAbility):

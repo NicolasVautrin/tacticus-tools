@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import hexgeo
 
-from ..dsl.base import (AbilityTrigger, AAmountFormula, _pos, _units_of, _is_alive, _same_entity,
-                        _c_mod)
+from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, _pos, _units_of, _is_alive,
+                        _same_entity, _c_mod)
 
 
 class TriggerAnd(AbilityTrigger):
@@ -310,13 +310,10 @@ class IsTurnOf(AbilityTrigger):
         self.unit = unit
 
     def should_trigger(self, ctx):
-        cur = getattr(ctx, "current_player_id", None)
+        cur = ctx.current_player_id
         if cur is None:
             return False
-        for u in _units_of(self.unit, ctx):
-            if u is not None and (u.get("player") if hasattr(u, "get") else None) == cur:
-                return True
-        return False
+        return any((u or {}).get("player") == cur for u in _units_of(self.unit, ctx))
 
 
 class AreFriends(AbilityTrigger):

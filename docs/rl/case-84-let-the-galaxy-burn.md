@@ -153,10 +153,17 @@ l'effet reste un `create_effect_*` pur, et l'état persistant vit dans un compos
 
 ## 5. Résidus (explicites)
 
-1. **Volet 2 non porté** : `AddEffect(0x5c4 = 1476 DespoiledGround)` sur les tuiles des cibles (+ l'effet
-   `1478 DespoiledGround_ExtraDamagePct`). Conséquence offline : la branche B ne s'auto-alimente pas
-   (aucun `DespoiledGround` n'apparaît en simulation pure) — elle reste atteignable par tout **autre**
-   tile-effect (Fire / Ice / Contaminated…) et par le contexte LIVE threadé.
+1. **Volet 2 non porté** : `AddEffect(0x5c4 = 1476 DespoiledGround)` sur les tuiles des cibles.
+   ⚠ **Ses deux PRÉREQUIS sont levés depuis #85** (`case-85-despoiled-ground.md`) : la classe d'effet
+   1476 ET l'effet `1478 DespoiledGround_ExtraDamagePct` sont portés, et le vecteur
+   `On(0x10 = DamageDealt)` existe. Ce qui reste est le seul câblage de ce `AddEffect`-là.
+   Conséquence offline **tant qu'il n'est pas câblé** : la branche B ne s'auto-alimente pas PAR CE
+   KIT (elle l'est en revanche par `FleshMetalGuns_TileEffectAbility` depuis #85, et par tout autre
+   tile-effect Fire / Ice / Contaminated, ainsi que par le contexte LIVE threadé).
+   ⚠ **Piège de mesure démontré (#85)** : `blackObliterator` porte les DEUX poseurs de 1476
+   (`LetTheGalaxyBurn` en trait ET `FleshmetalGuns` en passif) — la SOURCE de l'instance observée
+   live change selon celui qui a gagné la course (la TUILE pour FleshMetalGuns, l'unité pour LTGB).
+   Ne jamais attribuer une pose de 1476 à un kit sur la seule base de sa présence.
 2. **Attaques d'ABILITY** : le gate natif est `OwnerIsCaster` sans `IsNormalAttack`, et le ground truth
    Angrax (BringerOfDespair = ability, 5 = 4 + 1) montre que le +1 s'y applique aussi. Le port ne câble
    le canal que sur l'attaque NORMALE (`AttackDamageOperation.execute`) : `execute_ability_attack`
