@@ -81,7 +81,7 @@
 | kits lineup **COMPLETS** | 22 | **28** | +6 |
 | kits **avec du travail** | 101 | **95** | −6 |
 | items manquants (kit-coverage) | 139 | **126** | −13 |
-| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **53 sur 83** | **−22 — la tendance s'INVERSE** |
+| registre **sans `TARGETING_OPTIONS`** | 75 sur 76 | **40 sur 91** (après #181) | **−35 — la tendance s'INVERSE** |
 | registre **sans `ABILITY_ATTACK_TYPE`** | 3 (constaté le 2026-07-27 au matin) | **0 sur 83** | **fermé** |
 | passifs **portés** | 46 | **54** | +8 |
 | passifs **gap** | 150 | **142** | −8 |
@@ -89,16 +89,19 @@
 | overlays `CalculateCustomUtility` **non portés** | 16 | **15** | −1 (correction de comptage, cf. R15) |
 
 **Les deux gisements « que notre propre cadence aggrave » ne l'aggravent plus.** `TARGETING_OPTIONS`
-a reculé de 22 en une journée (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `ff66741` 13
-Necrons/Orks/Votann/GenestealerCults, plus les masques posés en même temps que chaque nouveau port).
+a reculé de 35 en deux jours (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `ff66741` 13
+Necrons/Orks/Votann/GenestealerCults, **`#181` 13 Ultramarines/Sisterhood/Tyranids/SpaceWolves/
+AdMec/BloodAngels**, plus les masques posés en même temps que chaque nouveau port).
 `ABILITY_ATTACK_TYPE` est à **zéro manquant** : la garde `probe_120` étape 0 passe au commit courant.
 
-> **Re-dérivé au 2026-07-28, APRÈS rebase (case #154, DoomSiren 1199 + FearOfTheUnseen 1115)** :
-> `ABILITY_CLASSES` = **89**, sans `TARGETING_OPTIONS` = **53** (INCHANGÉ malgré +8 entrées depuis la
-> mesure précédente), sans `ABILITY_ATTACK_TYPE` = **0** (`probe_120` étape 0 : « littéral de ctor
-> manquant: aucun »). Les entrées neuves portent toutes leurs deux littéraux — c'est désormais le
-> **cliquet** `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus la seule
-> discipline. Le gisement `[-D]` passe de **15 à 14** en lineup (1199 en sort).
+> **Re-dérivé au 2026-07-28, APRÈS #181** (`probe_181_targeting_gaps.py`, une commande) :
+> `ABILITY_CLASSES` = **91**, sans `TARGETING_OPTIONS` = **40**, sans `ABILITY_ATTACK_TYPE` = **0**
+> (`probe_120` étape 0 : « littéral de ctor manquant: aucun »). Les entrées neuves portent toutes
+> leurs deux littéraux — c'est désormais le **cliquet**
+> `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus la seule discipline, et
+> il a MORDU pour de vrai sur #181 (les 13 masques ont fait échouer le test tant qu'ils n'étaient pas
+> sortis de la liste d'exemption). Le gisement `[-D]` passe de **15 à 14** en lineup (1199 en sort).
+> *(Mesure intermédiaire du matin, conservée pour la tendance : 89 entrées / 53 sans masque.)*
 La règle de non-régression du `CLAUDE.md` a donc pris — c'est le seul endroit de ce document où la
 tendance s'est retournée, et il vaut de le noter avant que quiconque recopie « 60 restantes ».
 
@@ -142,7 +145,8 @@ tendance s'est retournée, et il vaut de le noter avant que quiconque recopie «
 Les DEUX dernières entrent **avec** leur `TARGETING_OPTIONS` et leur `ABILITY_ATTACK_TYPE` (masques
 LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : preset `statics+0x180` → `0x4002`
 pour 1035, preset `statics+0x3c0` → `0x200000000000004` pour 1102) : le gisement
-« sans `TARGETING_OPTIONS` » reste donc à **53**, il ne remonte pas.
+« sans `TARGETING_OPTIONS` » ne remonte donc pas de leur fait (il était à **53** à ce moment-là ;
+**40** depuis #181 — cf. §3).
 
 **La liste nominative des 60 dispatchables et des 29 non confrontables n'est pas recopiée ici** :
 elle est intégralement dérivable de `docs/rl/combat-ability-coverage.md` (régénéré dans ce commit),
@@ -227,13 +231,23 @@ pour tous, sauf `MurderousSwing` et `LightOfSanguinius`
 
 ---
 
-## 3. Gisement 3 — `TARGETING_OPTIONS` : 53 abilities du registre sur 89 sans masque
+## 3. Gisement 3 — `TARGETING_OPTIONS` : 40 abilities du registre sur 91 sans masque
 
-**Symptôme chiffré** (re-dérivé du code au 2026-07-28) : `ABILITY_CLASSES` = **89** entrées, **36**
-portent `TARGETING_OPTIONS`, **53** n'en ont pas. Le gisement RECULE (75 manquants le 2026-07-26,
-53 depuis) et **ne monte plus** : les entrées neuves du jour (1017 FragBomb, 1026 BasiliskBarrage,
-puis 1154 TacticalPrecision et 1184 MomentShackle) sont arrivées AVEC leur masque, le cliquet
-(`tests/engine/runner/test_ability_registry_ratchet.py`) les ayant rejetées sans.
+**Symptôme chiffré** (re-dérivé du code après #181, `probe_181_targeting_gaps.py`) :
+`ABILITY_CLASSES` = **91** entrées, **51** portent `TARGETING_OPTIONS`, **40** n'en ont pas.
+Le gisement RECULE franchement (75 manquants le 2026-07-26, 53 le 2026-07-28 au matin, **40**
+après #181) et **ne monte plus** : les entrées neuves arrivent AVEC leur masque, le cliquet
+(`tests/engine/runner/test_ability_registry_ratchet.py`) les rejetant sans.
+
+> **#181 (2026-07-28)** : **13 masques** posés d'un coup — `ultramarines` (1002, 1003, 1004, 1159),
+> `sisterhood` (1025, 1062, 1187, 1188), `tyranids` (1112, 1145), `spacewolves` (1089),
+> `admec` (1139), `bloodangels` (1230). Ces six modules passent à **100 % couverts**. Les deux
+> formes du ctor sont représentées (flags directs ×9, preset statique ×4 : `TO+0x80` pour 1004,
+> `TO+0x140` pour 1062, `TO+0x40` pour 1089 et 1230), et **aucun masque du lot n'est déductible d'un
+> autre** — `SporeMineLauncher` (1145, `0x40046001042`) est `SquigMine` (1201, `0x46001042`) **plus**
+> le bit 42 `TargetIsNotAdjacentToEnemy`, et 1003 impose l'adjacence là où son porteur a une arme r3.
+> Garde live : `tests/engine/runner/test_ability_target_gate_lot181_live.py` (26 tests) confronte
+> chaque masque à `abilityReason` **et** mesure le ROUGE AVANT (sans masque, le port acceptait).
 
 > **case-231 (2026-07-28)** : les deux masques du lot viennent d'un **preset statique** — leur
 > `.ctor` n'appelle AUCUN `TargetingOptions$$.ctor`, il recopie 0x40 octets. Le masque effectif est
@@ -272,23 +286,26 @@ caster, caster ayant bougé). Dégradation **permissive**, donc silencieuse en s
   (bit 57 `TargetIsCasterOrEnemy`, et bit 51 `TargetIsNotSteppable` documenté **à l'envers**) : un
   masque écrit en hexadécimal laisse passer un bit faux sans trace.
 
-**Ventilation par module — c'est la carte de dispatch** (modules absents = 100 % couverts :
-`aeldari`, `darkangels`, `genestealer`, `necrons`, `orks`, `votann`, `worldeaters`) :
+**Ventilation par module — c'est la carte de dispatch** (re-dérivée après #181 ;
+modules absents = **100 % couverts** : `admec`, `aeldari`, `bloodangels`, `darkangels`,
+`genestealer`, `necrons`, `orks`, `sisterhood`, `spacewolves`, `tyranids`, `ultramarines`,
+`votann`, `worldeaters`) :
 
-| module | avec | sans | ids sans masque |
-|---|---|---|---|
-| `splash` | 0 | 6 | 1000 GauntletsOfUltramar, 1051 Stikkbomb, 1065 ScythingTalons, 1078 Fragstorm, 1098 PlasmaGrenade, 1105 CrushingClaws |
-| `strike` | 0 | 6 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw, 1163 BlackRage |
-| `blacklegion` | 0 | 5 | 1021 Incursion, 1022 BringerOfDespair, 1036 FrenziedFiringCombat, 1147 HadesAutocannons, 1148 DaemonicOrdnance |
-| `deathguard` | 0 | 5 | 1037 RevitalizingMalignancy, 1040 SpawnPoxwalkers, 1042 FlailSwing, 1168 EntropyCannons, 1169 PlagueburstMortar |
-| `summon` | 0 | 5 | 1007 ScarabHive, 1045 GetEmRuntz, 1047 ScarabSummon, 1096 MasterOfTheTutelaries, 1166 AberrantHypermorph |
-| `tau` | 0 | 5 | 1077 EarlyWarningOverride, 1081 FightingRetreat, 1082 InspiredToGreatness, 1160 HeavyRailRifle, 1161 TwinSmartMissileSystem |
-| `astramilitarum` | 0 | 4 | 1016 SendInTheNextWave, 1028 SupremeCommander, 1142 MalleusRocketLauncher, 1143 ForwardSpotter |
-| `sisterhood` | 1 | 4 | 1025 SkyStrike, 1062 SanctorumMissile, 1187 ThriceBlessedConflagration, 1188 DevastatingRefrain |
-| `ultramarines` | 0 | 4 | 1002 CombatRestoratives, 1003 DeathFromAbove, 1004 MortisRound, 1159 MacroPlasmaIncinerator |
-| `tyranids` | 0 | 2 | 1112 AlphaWarrior, 1145 SporeMineLauncher |
-| `admec` / `bloodangels` / `spacewolves` | 1 / 1 / 1 | 1 / 1 / 1 | 1139 SentinelDirectives · 1230 SavageEchoes · 1089 GreatFrostAxe |
-| `imperative` / `mv71` / `quickening` / `stormcaller` | 0 | 1 chacun | 1118 DoctrinaImperatives · 1076 MV71SniperDroneSquadAttack · 1151 TheQuickening · 1113 Stormcaller |
+| module | sans | ids sans masque |
+|---|---|---|
+| `splash` | 6 | 1000 GauntletsOfUltramar, 1051 Stikkbomb, 1065 ScythingTalons, 1078 Fragstorm, 1098 PlasmaGrenade, 1105 CrushingClaws |
+| `strike` | 6 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw, 1163 BlackRage |
+| `blacklegion` | 5 | 1021 Incursion, 1022 BringerOfDespair, 1036 FrenziedFiringCombat, 1147 HadesAutocannons, 1148 DaemonicOrdnance |
+| `deathguard` | 5 | 1037 RevitalizingMalignancy, 1040 SpawnPoxwalkers, 1042 FlailSwing, 1168 EntropyCannons, 1169 PlagueburstMortar |
+| `summon` | 5 | 1007 ScarabHive, 1045 GetEmRuntz, 1047 ScarabSummon, 1096 MasterOfTheTutelaries, 1166 AberrantHypermorph |
+| `tau` | 5 | 1077 EarlyWarningOverride, 1081 FightingRetreat, 1082 InspiredToGreatness, 1160 HeavyRailRifle, 1161 TwinSmartMissileSystem |
+| `astramilitarum` | 4 | 1016 SendInTheNextWave, 1028 SupremeCommander, 1142 MalleusRocketLauncher, 1143 ForwardSpotter |
+| `imperative` / `mv71` / `quickening` / `stormcaller` | 1 chacun | 1118 DoctrinaImperatives · 1076 MV71SniperDroneSquadAttack · 1151 TheQuickening · 1113 Stormcaller |
+
+> Les modules de **faction** sont désormais tous couverts. Ce qui reste est concentré dans les
+> modules de **PATRON partagé** (`splash`, `strike`, `summon` = 17 des 40) plus `blacklegion`,
+> `deathguard`, `tau` et `astramilitarum`. Un lot par module reste le bon découpage : ces
+> modules-là sont les plus exposés à la collision entre agents, à dispatcher un seul à la fois.
 
 ⚠ `1151 TheQuickening` est précisément l'ability citée par la doctrine comme exemple de l'overload
 PRESET + flags : ne pas recopier son littéral visible.
@@ -536,9 +553,13 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
 | §4.d — veille | 13 | **non re-confrontés** (aucune colonne Fichiers, cf. l'encadré du §4.d) |
 | §4.f — NON CONFRONTABLES | 4 lots | hors compte : 29 actives npc/summon-env, 1192/1194, 4 overlays R15, `Impervious`, plus **N4** (candidat `fable-solver`) |
 
-Gisements (re-dérivés du code au 2026-07-28, après le port 1017/1026) : **89** actives NO-OP au
-total, **60** dispatchables (dont **15** en `[-D]`), **53** masques de ciblage manquants sur **83**
+Gisements (re-dérivés du code au 2026-07-28, après #181) : **89** actives NO-OP au
+total, **60** dispatchables (dont **15** en `[-D]`), **40** masques de ciblage manquants sur **91**
 entrées de registre, **55** passifs à porteur confrontable.
+
+> ⚠ Seule la ligne « masques de ciblage » a été re-dérivée par #181
+> (`probe_181_targeting_gaps.py`) ; les trois autres viennent des audits antérieurs et **n'ont pas
+> été re-jouées** — les re-dériver avant de s'en servir pour dispatcher.
 
 **Mouvement de cette passe** : 27 ouvertes avant → **22** après. −5 fermetures (`R8`, `R24`, `O1` par
 `3eee6c0` ; puis **`R5`** et **`R20`**, mergées PENDANT la passe — cf. l'encadré ci-dessous),

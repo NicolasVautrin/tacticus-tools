@@ -56,7 +56,8 @@ from ...entities.stats import StatType
 from ...entities.triggers import IsPositionMachineForCurrentPlayer
 from ..components import StatsComponent, OwnerComponent, PositionComponent
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import RANGE_ADJACENT, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
                          AttackWithAttackDamage, PushUnit)
@@ -118,6 +119,21 @@ class CombatRestorativesAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CombatRestoratives)  # 1002
     ABILITY_ID = ABILITY_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » (overload 8 args de `IdunBattle.Core.Services.TargetingOptions$$.ctor`,
+    # `*(this+0x28) = param_5`), le litteral EST le masque :
+    #   TargetingOptions..ctor(&opts, 1, &<TargetingRange statics>+0x30, 1, 0x8500, 0, 0, 0)
+    #     isSelfCasting    = 1
+    #     range            = `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x8500 = TargetIsHealable | TargetIsFriendly | CasterIsPossibleTarget
+    # (le heal ne touche QUE des allies BLESSES adjacents ; `CasterIsPossibleTarget` + le self-cast
+    # portent le « + le caster lui-meme » de l'arbre `Union(Friends(AdjacentUnits), Caster())`.)
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsHealable
+        | TR.TargetIsFriendly
+        | TR.CasterIsPossibleTarget),
+        self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -199,6 +215,19 @@ class MortisRoundAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.MortisRound)  # 1004
     ABILITY_ID = MORTIS_ROUND_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility$$.ctor` -- FORME « PRESET
+    # STATIQUE » : AUCUN `TargetingOptions$$.ctor` n'est appele, le ctor recopie les 0x40 octets du
+    # preset `<TargetingOptions statics>+0x80`. Masque = ce que
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` y ecrit :
+    #   +0x80 isSelfCasting = 0
+    #   +0x88 range <- `TargetingRange` statics+0x00 = RANGE_ADJACENT_IF_MELEE_CASTER
+    #   +0xa0 forceMeleeTarget = 2 = RangedBool.IfRangedCaster
+    #   +0xa8 rules = 0x4000 = TargetIsEnemy
+    # (le meme preset qu'un tir « normal » : l'Eliminator Sergeant est RANGED, donc `onlyAdjacent`
+    # retombe sur la portee d'arme, et `IfRangedCaster` re-clampe a 1 quand `ShouldApplyRangedInMelee`.)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT_IF_MELEE_CASTER,
+                                         force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -362,6 +391,20 @@ class DeathFromAboveAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.DeathFromAbove)  # 1003
     ABILITY_ID = DEATH_FROM_ABOVE_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x30, 1, 0x4020, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x4020 = TargetHasFreeAdjacentTile | TargetIsEnemy
+    # `TargetHasFreeAdjacentTile` (0x20) est le pendant EXACT du `CanAddUnit(AdjacentTiles(target))`
+    # de `..DeathFromAboveAbility$$GetPossibleSpawnTiles` : sans tuile libre autour de la cible, aucun
+    # Inceptor ne pourrait atterrir. NON PORTE au filtre statique (cf. l'inventaire de
+    # `targeting.py`) -> degradation permissive, jamais un refus invente.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -447,6 +490,20 @@ class MacroPlasmaIncineratorAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.MacroPlasmaIncinerator)   # 1159
     ABILITY_ID = MACRO_PLASMA_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x46000040, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x46000040 = TargetIsTile | AllowObscuredTarget | AllowNullCasterTile
+    # Profil de MoW : cible TUILE, aucun test de portee (`UseWholeBoard`), ligne de vue desarmee, et
+    # `AllowNullCasterTile` parce qu'une Machine of War n'a pas de tuile de caster au sens unite.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsTile
+        | TR.AllowObscuredTarget
+        | TR.AllowNullCasterTile),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

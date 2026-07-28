@@ -34,7 +34,8 @@ from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
 
@@ -138,6 +139,20 @@ class SanctorumMissileAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SanctorumMissile)  # 1062
     ABILITY_ID = "SanctorumMissile"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$.ctor` -- FORME
+    # « PRESET STATIQUE » : AUCUN `TargetingOptions$$.ctor`, copie des 0x40 octets du preset
+    # `<TargetingOptions statics>+0x140`. Masque = ce que
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` y ecrit :
+    #   +0x140 isSelfCasting = 0
+    #   +0x148 range <- `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
+    #   +0x160 forceMeleeTarget = 0 = RangedBool.True
+    #   +0x168 rules = 0x4002 = TargetMatchesDynamicRule | TargetIsEnemy
+    # `TargetMatchesDynamicRule` (0x2) : `..SanctorumMissileAbility$$GetDynamicInvalidTargetReason`
+    # n'est PAS porte -> `get_dynamic_invalid_target_reason` garde le defaut 0 (permissif, jamais un
+    # refus invente ; meme convention que les autres porteurs du bit).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -312,6 +327,21 @@ class SkyStrikeAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SkyStrike)  # 1025
     ABILITY_ID = "SkyStrike"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x6004002, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x6004002 = TargetMatchesDynamicRule | TargetIsEnemy | AllowObscuredTarget
+    # `UseWholeBoard` : la contrainte de distance N'EST PAS dans le volet portee generique -- elle est
+    # dans le predicat dynamique (`..SkyStrikeAbility$$GetDynamicInvalidTargetReason`, meme patron que
+    # `WaaaghAbility` : « existe-t-il une tuile d'atterrissage ? »), NON porte -> defaut 0 (permissif).
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTarget),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -618,6 +648,22 @@ class DevastatingRefrainAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.DevastatingRefrain)   # 1188
     ABILITY_ID = DEVASTATING_REFRAIN_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » (le ctor construit d'abord ses deux `List<int>` @+0xf0/+0xf8, puis) :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x10000040000040, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x10000040000040
+    #                      = TargetIsTile | AllowNullCasterTile | CasterHas2TurnsLeft
+    # `CasterHas2TurnsLeft` (bit 52) et `AllowNullCasterTile` (bit 30) sont des regles du volet
+    # CASTER, NON portees (cf. `get_invalid_caster_reason`, seul `CasterHasNotMoved` l'est) ->
+    # degradation permissive. Cible TUILE, aucun test de portee.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsTile
+        | TR.AllowNullCasterTile
+        | TR.CasterHas2TurnsLeft),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -766,6 +812,18 @@ class ThriceBlessedConflagrationAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ThriceBlessedConflagration)   # 1187
     ABILITY_ID = THRICE_BLESSED_ID
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$.ctor` --
+    # FORME « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x40000400, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x40000400 = TargetIsFriendly | AllowNullCasterTile
+    # `TargetIsFriendly` (0x400) SEUL -- pas de `TargetIsEnemy` : le cast ne vise QUE des allies,
+    # et le port le gate (le seul bit porte des deux). Aucun test de portee (`UseWholeBoard`).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsFriendly | TR.AllowNullCasterTile,
+                                         range=RANGE_WHOLE_BOARD,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

@@ -278,11 +278,14 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   REFUSE (ami/ennemi, cible == caster, caster ayant bougé). La dégradation est **permissive** :
   ni erreur, ni crash — donc invisible en self-play, et c'est exactement le trou qu'un
   entraînement irait exploiter.
-- **Dette MESURÉE le 2026-07-28** (compte re-dérivé du code, pas hérité) : `ABILITY_CLASSES` =
-  **81 entrées**, **28** portent leur masque, **53 manquantes**. La tendance s'est **INVERSÉE** :
-  75 manquantes → 53, la cadence de portage RÉSORBE désormais ce gisement au lieu de l'alimenter
-  (tranche A de 10 masques livrée par `89518da`). Le pendant `ABILITY_ATTACK_TYPE` est à **0
-  manquant** — son cliquet tient.
+- **Dette MESURÉE le 2026-07-28, après #181** (compte re-dérivé du code, pas hérité —
+  `python scripts/python/probe_181_targeting_gaps.py`) : `ABILITY_CLASSES` = **91 entrées**,
+  **51** portent leur masque, **40 manquantes**. La tendance s'est **INVERSÉE** : 75 → 53 → 40,
+  la cadence de portage RÉSORBE désormais ce gisement au lieu de l'alimenter (`89518da` 10 masques,
+  `ff66741` 13, `#181` 13). **Tous les modules de FACTION sont couverts** ; ce qui reste est
+  concentré dans les modules de PATRON partagé (`splash`, `strike`, `summon`) plus `blacklegion`,
+  `deathguard`, `tau`, `astramilitarum`. Le pendant `ABILITY_ATTACK_TYPE` est à **0 manquant** —
+  son cliquet tient.
   ⚠ Ces chiffres se périment vite : les re-dériver (`ABILITY_CLASSES` × `getattr(c,
   "TARGETING_OPTIONS", None)`) plutôt que citer cette ligne.
 - **Source du masque** : le littéral passé par `<X>Ability$$.ctor` à

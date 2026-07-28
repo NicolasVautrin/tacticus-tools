@@ -57,7 +57,11 @@ from engine.runner.components import (OwnerComponent, PositionComponent, HealthC
 AGENT_ID = "af9c9499961ce9958"
 PYDIR = Path(__file__).resolve().parents[3]                        # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                         # racine repo
-STATE = ROOT / "data" / f"_pytest_alphawarrior_{AGENT_ID}.json"    # state-file UNIQUE (discipline runner)
+# `data/` = ce qu'on LIT (VERSIONNE), `logs/` = ce qu'on ECRIT (gitignore) -- cf. CLAUDE.md et
+# .gitignore. Ce state-file est une SORTIE de run : depose dans `data/` il apparaissait dans
+# `git status` de tout agent ayant joue ce fichier (constate le 2026-07-28), avec le risque qu'un
+# `git add` large l'embarque dans une PR. `logs/` meurt avec le worktree, ce qui est l'intention.
+STATE = ROOT / "logs" / f"_pytest_alphawarrior_{AGENT_ID}.json"    # state-file UNIQUE (discipline runner)
 
 ALPHA = 1112
 CARRIER = "tyranWingedPrime"
@@ -76,6 +80,9 @@ def alpha(host, live_session):
     created: list[int] = []
 
     def _build(seed: str = SEED):
+        # `logs/` est GITIGNORE, donc absent d'un checkout frais (worktree d'agent) : le creer ici
+        # plutot que de dependre d'un run anterieur.
+        STATE.parent.mkdir(parents=True, exist_ok=True)
         proc = subprocess.run(
             [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", BOARD,
              "--p-units", CARRIER, "--a-units", ENEMY, "--state-file", str(STATE)],
