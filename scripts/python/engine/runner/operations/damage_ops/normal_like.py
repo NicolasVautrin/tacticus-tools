@@ -104,11 +104,39 @@ class _NormalLike:
             # #75 (case-68 MAJ 13) : additif ForAddition ATTAQUANT = PRÉ-perçage en COMBAT.
             # `flat_add` (#45f) = EffectBonus.addition PER-BRANCHE (Ice crit-only) : POST-spread
             # PRE-perçage, sans polluer `mods` (applique aux deux branches).
+            # R6 MATERIALISATION DES BORNES REDUITES = `Fix64$$Round(., AwayFromZero)`, PAS la
+            # troncature -- MEME etage, MEME fonction native que l'attaque NORMALE (#131) et que
+            # l'ability bounds-mode famille ATTACK (campagne HeavyGravCannon). Ce vecteur porte le
+            # mode `amount` de la feuille `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
+            # ET le `UseNormalAttackIfAble` on-appearance d'un summon : famille ATTACK dans les deux
+            # cas -> `IdunBattle.Operations.AttackDamageOperation$$Execute` -> `ExecuteHits` ->
+            # `ExecuteHit`, dont la cellule vient du slot 4
+            # `IdunBattle.Core.Services.DamagePrediction$$PredictAttack` (cache -> `PredictAttackRaw`)
+            # resolu par le slot 8 `IdunBattle.Core.Services.DamagePrediction$$
+            # RandomlyResolveMinMaxDamage`. Le dernier etage de `CalculateBaseDamageWithAllModifiers`
+            # est le MULTIPLICATEUR (slot 0x10 -> `IdunBattle.Core.Services.DamageCalculations$$
+            # CalculateBaseDamageWithModifiers`), LU verbatim :
+            #     v = Mul(dmg, multiplier) ; v <= 0 -> 0 ; 0 < v < 1 -> 1 ; sinon Round(v, 1)
+            # traverse des qu'un `Nullable<DamageModifiers>` HasValue. Tronquer ici etait donc un
+            # FORK DE PORT (une operation native, deux facades offline dont une fausse).
+            # MESURE LIVE (probe_r6_round_materialize --case normal_like ; `ultraInceptorSgt` caste
+            # DeathFromAbove -> l'`ultraSmnInceptor` frappe 6x Bolter pierce 20 sur `necroWarden`
+            # force en regime percage-dominant, bornes brutes [798,1196] -> cellules [159,239]
+            # tronquees vs [160,239] arrondies) : 5 seeds x 6 coups, live == ARRONDI **30/30**,
+            # live == troncature **0/30** ; GENERALISATION regime MIXTE (armure 800 : bord bas en
+            # branche percage, bord haut en branche armure) +18/18 arrondi, 0/18 troncature ;
+            # TEMOIN (armure 300 -> branche `d - armure` des DEUX cotes, valeurs ENTIERES) :
+            # 2 seeds x 6 coups, les deux modeles coincident ET valent le live 12/12 -- ce qui
+            # REFUTE « l'arrondi collait par chance » / « un additif oublie ».
+            # BILAN : 60 coups, live == arrondi 60/60, live == troncature 12/60.
+            # STRICTEMENT NO-OP hors regime discriminant (valeur deja entiere -> Round == identite).
             mm = get_base_damage_fix64(eff_base, spread_pct=spread_pct)
             lo = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.min + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.min + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True),
+                def_mods, round_materialize=True)
             hi = apply_all_modifiers(apply_pierce_and_modifiers(
-                mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True), def_mods)
+                mm.max + flat_add, profile_pierce, armor, mods, attacker_additive_pre=True),
+                def_mods, round_materialize=True)
             return HitDamage(lo, hi)
 
         # #45f : bonus crit-sur-Ice per-coup-CRIT (cf. execute_ability_attack, meme mirror IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack).

@@ -22,6 +22,49 @@ from ...services.damage_modifiers import apply_all_modifiers
 from ...entities.effects import additional_hit_groups, aura_additional_hits_from_allies
 
 
+def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mult: int = 1) -> int:
+    """ETAGE DE REDUCTION d'UN coup du canal #179 (percage/armure + %-mods attaquant/defenseur +
+    MATERIALISATION finale) -- FOYER UNIQUE, extrait pour que la garde live puisse confronter
+    EXACTEMENT ce que le port materialise (`test_additional_hits_rounding_live`).
+
+    Mirror de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
+    dans le per-coup `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, qui est le MEME
+    pour les coups d'arme et pour les coups additionnels (les deux voies natives y retombent :
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
+    -> `ExecuteHits`, et `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileType
+    Operation$$Execute` -> slot 0x3c `Core.Services.OperationProcessor$$AttackDamage` ->
+    `IdunBattle.Operations.AttackDamageOperation$$Execute` -> `ExecuteHits`).
+
+    R6 -- MATERIALISATION = `Fix64$$Round(., AwayFromZero)`, PAS la troncature `op_Explicit`.
+    `ExecuteHit` resout sa cellule par le slot 4 `IdunBattle.Core.Services.DamagePrediction$$
+    PredictAttack` (cache -> `PredictAttackRaw`) puis le slot 8 `RandomlyResolveMinMaxDamage` ;
+    le dernier etage de `CalculateBaseDamageWithAllModifiers` est le MULTIPLICATEUR (slot 0x10 ->
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`), LU verbatim :
+        v = Mul(dmg, multiplier) ; v <= 0 -> 0 ; 0 < v < 1 -> 1 ; sinon Round(v, AwayFromZero)
+    -- INCONDITIONNEL des qu'un `Nullable<DamageModifiers>` HasValue. C'est le MEME etage que
+    l'attaque normale (#131) et que l'ability bounds-mode famille ATTACK (HeavyGravCannon) : un
+    coup additionnel ne peut pas materialiser autrement que les coups d'arme de la MEME `ExecuteHit`.
+    MESURE LIVE (probe_r6_round_materialize --case ah_matrix ; `orksRuntherd`/`SquigHound`, groupe
+    predefined [2660,3988] profil Physical pierce 1, cible forcee a 6000 d'armure par
+    `rl_duel build --armor-target` -- aucune armure du roster n'y suffisait) : 11 seeds, 14 coups
+    reproduits, live == ARRONDI **14/14**, live == troncature **10/14**, les 4 ecarts tombant
+    EXACTEMENT sur les tirages a partie fractionnaire >= .5 (ce qui refute « additif oublie », qui
+    aurait donne un +1 systematique). Meme signature que la campagne HeavyGravCannon.
+    STRICTEMENT NO-OP hors regime discriminant (valeur deja entiere -> Round == identite).
+
+    ⚠ RESIDU AMONT, DISTINCT ET NON TRAITE ICI (#202-B, « conso RNG discriminante, A CONFIRMER
+    LIVE ») : pour un groupe PREDEFINED, le descripteur natif porte un `HitDamage` NON DEGENERE,
+    donc `ExecuteHit` commence par `IdunBattle.Core.HitDamage$$GetDamage` (1 tirage BRUT) puis
+    gaspille le resolve slot-8 = ROLL-THEN-REDUCE a 2 tirages/coup, alors que ce port fait
+    REDUCE-THEN-ROLL a 1 tirage/coup. MESURE : le 1er coup de chaque groupe est reproduit 11/11 par
+    roll-then-reduce et 0/11 par reduce-then-roll. Cet etage est AMONT (il decide QUEL tirage sort),
+    orthogonal a la materialisation (qui decide COMMENT il se materialise)."""
+    return apply_all_modifiers(
+        apply_pierce_and_modifiers(value, g_pierce, armor, mods, hit_mult=hit_mult,
+                                   attacker_additive_pre=True),
+        def_mods, round_materialize=True)
+
+
 def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int,
                                   att_active, is_melee: bool, tgt_active) -> list:
     """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
@@ -127,10 +170,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         else:
             mm = get_base_damage_fix64(g.get("amount") or 0, spread_pct=spread_pct)
             g_min, g_max = mm.min, mm.max
-        lo = apply_all_modifiers(apply_pierce_and_modifiers(
-            g_min, g_pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
-        hi = apply_all_modifiers(apply_pierce_and_modifiers(
-            g_max, g_pierce, armor, mods, hit_mult=hit_mult, attacker_additive_pre=True), def_mods)
+        lo = reduce_group_damage(g_min, g_pierce, armor, mods, def_mods, hit_mult=hit_mult)
+        hi = reduce_group_damage(g_max, g_pierce, armor, mods, def_mods, hit_mult=hit_mult)
         hd = HitDamage(lo, hi)
         hd, _ = AttackDamageOperation._apply_max_out(state, attacker_id, hd, hd)
         shield_total = shc.get_total_shield() if shc is not None else 0

@@ -209,9 +209,23 @@ def apply_all_modifiers(value: int, mods: DamageModifiers, round_materialize: bo
     +1 systématique). Les validations bit-exact « avec la troncature » de ce vecteur portaient toutes sur
     des régimes NON discriminants (valeur entière).
 
-    ⚠ RESTENT tronquants (résidu nommé, chiffré) : `execute_normal_like`, `additional_hits`. Même
-    suspicion (même `PredictAttackRaw` natif avec `predefined`), même prérequis de mesure : il faut un
-    régime à %-list vides + branche perçage gagnante. Pas de porteur confronté à ce jour."""
+    **R6 (2026-07-28) — `execute_normal_like` ET `additional_hits` BASCULENT AUSSI** : les trois
+    derniers vecteurs COMBAT arrondissent donc désormais, comme le natif. Ce n'étaient pas trois lois
+    mais UNE SEULE : `execute_normal_like` (mode `amount` d'`AttackWithAttackDamage` + le
+    `UseNormalAttackIfAble` on-appearance d'un summon) et les DEUX voies de coups additionnels
+    (`IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` ->
+    `ExecuteHits` ; `IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`
+    -> slot 0x3c `Core.Services.OperationProcessor$$AttackDamage` ->
+    `IdunBattle.Operations.AttackDamageOperation$$Execute` -> `ExecuteHits`) retombent sur le MÊME
+    per-coup `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` que l'attaque d'arme, donc sur
+    le MÊME slot 0x10. Le prérequis de mesure (%-list vides + branche perçage gagnante) a été fabriqué
+    par le levier NEUF `rl_duel build --armor-target` — aucune armure du roster ne suffisait sur un
+    profil à perçage bas. MESURES : `normal_like` (DeathFromAbove/`ultraSmnInceptor`, Bolter p20,
+    cellules [159,239] tronquées vs [160,239] arrondies) = live == arrondi **30/30**, == troncature
+    **0/30**, plus un TÉMOIN non discriminant (branche armure) 12/12 sur les deux modèles ;
+    `additional_hits` (SquigHound, predefined [2660,3988], Physical p1, armure 6000) = live == arrondi
+    **14/14**, == troncature **10/14**, les 4 écarts tombant exactement sur frac >= .5.
+    Détail : `docs/rl/case-r6-materialisation-normal-like-additional-hits.md`."""
     v_raw = apply_capped_modifiers(value, mods).raw
     if mods.additive:
         v_raw = v_raw + _fx.from_number(mods.additive)
