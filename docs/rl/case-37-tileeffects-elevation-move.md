@@ -68,6 +68,9 @@ latent pour un board tout-négatif, non rencontré.)*
 
 - **`engine/utilities/tile.py`** : `TERRAIN_TILE_EFFECTS = {"DryBush": ("LightCover",)}` + helper
   `terrain_tile_effects(terrain)` ; docstrings ElevationUtility (min/max board-entier) + module.
+  *(Renommé `TERRAIN_HOSTED_ABILITIES` par `case-155`, qui a rattaché cette table à la boucle native
+  dont elle vient — Loop2, les abilities HÉBERGÉES — et lui a adjoint le repli Loop1
+  `TERRAIN_TILE_OWNED_EFFECTS` ; le helper prend un 2e argument `dynamic`.)*
 - **`engine/ai/context.py`** : `_board_terrain(rpc, rid)` (`{(col,row): tileDefId}` depuis le boardGraph CACHÉ
   — 0 RPC en plus) + champ `terrain_by_pos` de `AiDecisionContext`.
 - **`engine/ai/state_bridge.py`** : `_board_topology_maps` rend aussi `terrain_by_pos` (depuis `state.board`,

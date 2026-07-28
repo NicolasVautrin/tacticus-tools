@@ -303,7 +303,7 @@ def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
         if state.effects is not None:                            # effets dynamiques posés SUR la tuile (Ice/Fire…)
             names += [x.name for x in state.effects.by_unit.get(int(tid), [])
                       if not x.consumed and x.name]
-        names += terrain_tile_effects(board.terrain_at(p[0], p[1]))
+        names += terrain_tile_effects(board.terrain_at(p[0], p[1]), names)   # #155 : `names` = canal dyn.
         tfx[tuple(p)] = names
     return {"att_pos": pos, "tile_effects_by_pos": tfx}
 

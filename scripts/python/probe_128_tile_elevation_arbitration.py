@@ -73,7 +73,7 @@ def _tile_breakdown(ctx, wt, pos):
     if pos in ctx.is_temporary_by_pos:
         meta["is_temporary"] = ctx.is_temporary_by_pos[pos]
     effs = list(ctx.effects_by_pos.get(pos) or [])
-    effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos))
+    effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos), effs)
     if effs:
         meta["effects"] = effs
     parts = []

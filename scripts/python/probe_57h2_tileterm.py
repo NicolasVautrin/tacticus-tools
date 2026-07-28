@@ -92,7 +92,7 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, tiles: list) ->
             if pos in ctx.is_temporary_by_pos:
                 meta["is_temporary"] = ctx.is_temporary_by_pos[pos]
             _effs = list(ctx.effects_by_pos.get(pos) or [])
-            _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos))
+            _effs += terrain_tile_effects((getattr(ctx, "terrain_by_pos", None) or {}).get(pos), _effs)
             if _effs:
                 meta["effects"] = _effs
             total = tile_utility(ctx, pos)

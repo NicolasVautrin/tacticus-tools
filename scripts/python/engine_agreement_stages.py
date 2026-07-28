@@ -473,7 +473,7 @@ class StageProbe:
             # TileEffects(9) : effets DYNAMIQUES (tileMeta, Loop1) + covers HÉBERGÉS par le terrain
             # (Loop2 : DryBush->LightCover, case-37).
             _effs = list(ctx.effects_by_pos.get(c) or [])
-            _effs += terrain_tile_effects(ctx.terrain_by_pos.get(c))
+            _effs += terrain_tile_effects(ctx.terrain_by_pos.get(c), _effs)   # #155 : canal dyn. passé
             if _effs:
                 meta["effects"] = _effs
             # isTerritory / effects[].effectType (#175) — MEME complement que `engine.move` et

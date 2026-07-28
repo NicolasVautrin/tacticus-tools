@@ -70,7 +70,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
         # par le terrain (Loop2 : DryBush->LightCover). case-37.
         _effs = list(effects_by_pos.get(c) or []) if effects_by_pos else []
         if terrain_by_pos:
-            _effs += terrain_tile_effects(terrain_by_pos.get(c))
+            _effs += terrain_tile_effects(terrain_by_pos.get(c), _effs)   # #155 : `_effs` = canal dyn.
         if _effs:
             meta["effects"] = _effs
         # Attributs de TUILE remontés par `tileMeta` (isTerritory / effects[].effectType) —

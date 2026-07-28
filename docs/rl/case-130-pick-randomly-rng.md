@@ -337,12 +337,13 @@ u(t24) = 25 < 30 et le modèle retrouve le live. Re-joué sur la géométrie d'o
 correction, pool `t17(u20) t26(u30) t25(u30)`) le live pose sur `t26` — donc le natif départage bien
 par l'utilité, il ne suit pas l'ordre source.
 
-⚠ Ce `Swamp -> Thorns_DefenseReduction` est porté **localement**
-(`operations/spawn.py::_PLACEMENT_TERRAIN_EFFECTS`), pas dans la table partagée
-`utilities/tile.py::TERRAIN_TILE_EFFECTS` : celle-ci alimente aussi le contexte de DÉGÂT
-(`runner/damage_model.py::tile_effects_context`, où une Swamp porte déjà ces noms comme effets
-DYNAMIQUES) et le scoring de MOUVEMENT — l'y poser sans valider ces deux fronts est hors périmètre.
-Unification = backlog.
+⚠ Ce `Swamp -> Thorns_DefenseReduction` a d'abord été porté **localement**
+(`operations/spawn.py::_PLACEMENT_TERRAIN_EFFECTS`), en marge de la table partagée
+`utilities/tile.py::TERRAIN_TILE_EFFECTS`. **`case-155` a fermé ce fork** : la RE des deux boucles de
+`TileEffectsUtility` montre que le −25 n'est PAS de la même nature que le +9 DryBush — il vient du
+canal DYNAMIQUE (Loop1 : `ThornsBlockMovementAbility$$CreateBehaviour` le pose SUR la tuile), pas des
+abilities hébergées (Loop2). Le foyer est unique depuis, et le site de placement lit `state.effects`
+comme les autres.
 
 ### Ce qui a été corrigé
 
@@ -407,9 +408,10 @@ nœuds : `First(SortTilesByUtilityForSummon(…), 1)` ne tire RIEN, à aucune ta
      aucune clé `ctx` d'unité n'est fournie et les feuilles gatées sur l'unité rendent 0. Aucun
      scénario mesuré ne les réveille à ce jour ; le jour où l'une d'elles décide, il faudra trancher
      le sélecteur.
-   - **`Swamp -> Thorns_DefenseReduction` vit en local** dans `operations/spawn.py` au lieu de la table
-     partagée `utilities/tile.py::TERRAIN_TILE_EFFECTS` (blast radius dégât + mouvement) — unification
-     à faire, avec validation des deux fronts.
+   - ~~**`Swamp -> Thorns_DefenseReduction` vit en local** dans `operations/spawn.py`~~ — **CLOS
+     (`case-155-swamp-fork-maybetrigger.md`)** : foyer unique dans `utilities/tile.py`, les deux
+     boucles natives distinguées, le site de placement branché sur le canal dynamique. Mesuré live :
+     hydraté ≡ non hydraté ≡ live, et témoin sans le −25 → le port place sur la Swamp.
    - **Les deux sites `_pick_randomly_one`** (`execute_self_replica`, `execute_master_of_tutelaries_screamer`)
      gardent le pool en ordre d'IDS (`native_order=False`) : leur loi de consommation est exacte
      (SS4), leur ORDRE SOURCE reste l'approximation du §6 ci-dessous.

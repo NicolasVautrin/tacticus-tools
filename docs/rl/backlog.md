@@ -254,10 +254,16 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
       `UtilityMovementCase` construit par `DSLFactory$$SortTilesByUtilityForSummon` n'est pas
       identifiable au décompilé (ctor replié par le linker), donc le port n'alimente que les feuilles
       PURE-TUILE. Aucun scénario mesuré ne réveille les autres — à rouvrir sur un cas où l'une décide.
-    - **`Swamp -> Thorns_DefenseReduction` (−25) porté en local** (`spawn.py::_PLACEMENT_TERRAIN_EFFECTS`)
-      au lieu de `utilities/tile.py::TERRAIN_TILE_EFFECTS` : la table partagée alimente aussi le
-      contexte de DÉGÂT (`runner/damage_model.py::tile_effects_context`) et le scoring de MOUVEMENT.
-      Unifier exige de valider ces deux fronts. `[opus]`.
+    - ~~**`Swamp -> Thorns_DefenseReduction` (−25) porté en local** (`spawn.py::_PLACEMENT_TERRAIN_EFFECTS`)~~
+      — **FAIT (`case-155-swamp-fork-maybetrigger.md`)** : le fork est fermé par la RE des DEUX boucles
+      de `TileEffectsUtility`. Le −25 n'est pas un « terrain-effect » comme le +9 DryBush : c'est un
+      effet que `ThornsBlockMovementAbility$$CreateBehaviour` pose **sur la tuile** (donc **Loop1**,
+      canal dynamique), là où LightCover est une ability **hébergée** (**Loop2**). Le foyer unique vit
+      dans `utilities/tile.py` (`TERRAIN_HOSTED_ABILITIES` = Loop2, `TERRAIN_TILE_OWNED_EFFECTS` =
+      repli Loop1 dédupliqué contre le canal dynamique) ; les 8 call-sites l'appellent, la table de
+      placement parallèle a disparu et le site de placement lit désormais `state.effects`. Mesuré
+      live : régimes hydraté et non hydraté CONVERGENT (même tri, même tuile, tous deux = live) ;
+      témoin sans le −25 → le port place sur la Swamp.
     - **On-appearance `PerformAIAttackFromCurrentPosition` du grot SquigHound non portée** : écart
       CONSTANT de 4 `genrand_int32` mesuré sur ce vecteur (MC1_67/777 et C2_37/31337), étranger au
       placement. `[opus]`.

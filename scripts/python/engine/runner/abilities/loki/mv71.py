@@ -258,7 +258,7 @@ def _pick_tile(state: "State", caster_id: int, target_id: int, unit_id: str,
             if state.effects is not None:                   # effets dynamiques poses SUR la tuile (Fire/Ice…)
                 effs += [e.name for e in state.effects.by_unit.get(int(tid), [])
                          if not e.consumed and e.name]
-            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]))   # covers heberges
+            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]), effs)  # covers heberges (#155)
             elev = (board.by_id.get(tid) or {}).get("elevation")
             u = (_tile7_utility(pos, elev, emm, effs, adj, coc.team, unit_id)
                  + _spawn_tile_utility_0x37(pos, cpos, adj, coc.team))
@@ -349,7 +349,7 @@ def pick_tile_scene(scene, att_id: int, tgt_id: int, unit_id: str, max_summons: 
         for tid, pos in cands:
             adj = _adj(tid)
             effs = list((scene.tile_effects_by_pos or {}).get(pos) or ())   # dynamiques (tileMeta du pas)
-            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]))
+            effs += terrain_tile_effects(board.terrain_at(pos[0], pos[1]), effs)   # #155 : canal dyn.
             elev = (board.by_id.get(tid) or {}).get("elevation")
             u = (_tile7_utility(pos, elev, emm, effs, adj, caster_team, unit_id)
                  + _spawn_tile_utility_0x37(pos, tuple(parent_pos), adj, caster_team))
