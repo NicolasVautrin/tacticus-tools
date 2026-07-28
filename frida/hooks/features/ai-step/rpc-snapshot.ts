@@ -7,6 +7,7 @@ import {
     findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
+import { dumpEnum } from "../../il2cpp/enum-dump.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
@@ -64,6 +65,36 @@ const COMBAT_STAT_IDS: Record<string, number> = {
     extraRange: 24,
     extraMaxDamage: 25, extraPierce: 26,
 };
+
+// --- UnitFlag PAR UNITÉ (O5) — mirror de `IdunBattle.Entities.UnitExtensions$$HasFlag` ---
+//
+// `IdunBattle.Entities.Components.UnitFlagsComponent` range ses flags dans un
+// `idun.shared.collections.OrderedSet<UnitFlag>` @+0x10 (cf. son `$$.ctor`), et son `$$Has` n'y
+// accède QUE par un appel d'interface FULLY-SHARED générique. La disposition interne de ce set
+// n'est donc pas lisible de façon fiable depuis Frida — on ne la lit PAS. On invoque à la place la
+// fonction NOMMÉE que le jeu appelle lui-même (`HasFlag(unit, flag)` : c'est littéralement la ligne
+// `uVar1 = UnitExtensions.HasFlag(defender, 0x13)` d'`ApplyTraitDamageLimitsToDamage`), une fois
+// par valeur d'enum. Read-only intégral.
+const hasFlagMi = unitExtClass ? findMethodByParamCount(unitExtClass, "HasFlag", 2) : null;
+
+// Valeurs de `IdunBattle.Entities.Enum.UnitFlag`, LUES AU RUNTIME (`dumpEnum` — littéraux de la
+// métadonnée IL2CPP), jamais recopiées dans une table du dépôt : une RENUMÉROTATION au prochain
+// build se propage alors toute seule. Une constante en dur, elle, resterait syntaxiquement valide
+// et deviendrait FAUSSE en silence — c'est exactement le mode de panne que le diff `enums.tsv` de
+// la procédure de MAJ sert à rattraper, et qu'on préfère ne pas créer. Mémoïsé : `dumpEnum` parcourt
+// les champs de la classe, inutile de le refaire à chaque unité.
+let unitFlagTypesCache: Record<string, number> | null = null;
+function unitFlagTypes(): Record<string, number> {
+    if (unitFlagTypesCache) return unitFlagTypesCache;
+    const raw = dumpEnum("IdunSharedAssembly.dll", "IdunBattle.Entities.Enum", "UnitFlag") ?? {};
+    const out: Record<string, number> = {};
+    for (const k of Object.keys(raw)) {
+        const v = parseInt(raw[k], 10);
+        if (Number.isFinite(v)) out[k] = v;
+    }
+    unitFlagTypesCache = out;
+    return out;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerViewSnapshot(ctx: Ctx): void {
@@ -285,6 +316,29 @@ export function registerViewSnapshot(ctx: Ctx): void {
             return out;
         };
 
+        // FLAGS de l'unité (O5) : ids de `UnitFlag` actuellement POSÉS, par invocation de
+        // `HasFlag(unit, flag)` sur chaque valeur d'enum. Valeurs DÉDUPLIQUÉES (un enum C# admet
+        // des alias de même valeur ; deux noms ne font qu'un seul flag).
+        //
+        // `null` (et non `[]`) quand la mesure n'a PAS pu se faire — méthode irrésolue ou enum vide.
+        // La distinction est le tout du canal : `[]` dit « lu, aucun flag posé », `null` dit « pas
+        // lu ». Les rabattre l'un sur l'autre ferait passer un capteur MORT pour une unité sans
+        // flags, et le consommateur offline retomberait silencieusement sur un défaut au lieu de
+        // garder sa dérivation de repli (même discipline que `invokeInt`, cf. `internals.ts`).
+        const flagTypes = wants("unitFlags") ? unitFlagTypes() : {};
+        const flagValues = Array.from(new Set(Object.keys(flagTypes).map((k) => flagTypes[k])))
+            .sort((a, b) => a - b);
+        const flagBuf = Memory.alloc(4);
+        const readUnitFlags = (e: NativePointer): number[] | null => {
+            if (!hasFlagMi || flagValues.length === 0) return null;
+            const out: number[] = [];
+            for (const v of flagValues) {
+                flagBuf.writeS32(v);
+                if (invokeBool(hasFlagMi, [e, flagBuf])) out.push(v);
+            }
+            return out;
+        };
+
         const units: Array<Record<string, unknown>> = [];
         for (const { e, id, entityType } of allUnits) {
             const stats: Record<string, number | null> = {};
@@ -330,12 +384,20 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 turnsFinished: wants("turnsFinished")
                     ? invokeInt(getTurnsFinishedMi, [e]) : null,
                 stats, statDelta, healthMax,
+                // O5 : `UnitFlagsComponent` de l'unité, projeté en ids `UnitFlag` posés. Sans lui,
+                // la face DÉCISION offline n'avait AUCUN accès live aux flags (`PreventOverkill`
+                // =19, `Moved` =0, `Untargetable` =17, `DisableTriggers` =18…) et devait les
+                // DÉRIVER de leurs effets poseurs. `null` = non mesuré, `[]` = mesuré sans flag.
+                unitFlags: wants("unitFlags") ? readUnitFlags(e) : null,
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
             });
         }
-        return { ok: true, runner: label, statTypes: STAT_IDS, units };
+        // `unitFlagTypes` = {nom: id} de l'enum, au MÊME titre que `statTypes` : le consommateur
+        // nomme les ids qu'il lit sans recopier de table chez lui.
+        return { ok: true, runner: label, statTypes: STAT_IDS,
+            unitFlagTypes: wants("unitFlags") ? flagTypes : null, units };
     });
 
     /** PER-SOURCE STAT-MODIFICATION breakdown — la sonde DÉFINITIVE pour SOURCER un

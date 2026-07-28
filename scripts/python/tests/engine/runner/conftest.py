@@ -37,6 +37,7 @@ import probe_psychic_aoe as P
 import probe_178_overkill_gate as OVK
 import probe_r34_overkill_decision as DEC
 import probe_195_prevent_overkill_decision as PVO
+import probe_o5_unit_flags as O5
 
 
 @pytest.fixture
@@ -188,4 +189,40 @@ def prevent_overkill_utility_case(live_session):
                 pytest.skip(f"montage prevent-overkill KO ({victim}) : {r['error']}")
             cache[victim] = r
         return cache[victim]
+    return _case
+
+
+# ── O5 — `UnitFlagsComponent` expose live (`combatSnapshot.unitFlags`) ──────────────────────────
+
+@pytest.fixture(scope="module")
+def unit_flags_accord_case(live_session):
+    """ACCORD A TROIS SOURCES sur `UnitFlag.PreventOverkill` (=19) : la lecture ECS neuve
+    (`combatSnapshot.unitFlags`), la DERIVATION par l'effet actif 1354 (`effects_prevent_overkill`,
+    la voie que le port empruntait faute de canal) et le `preventOverkill` de l'event natif
+    (`result@+0xb3`, #190). Porteur `ultraTitus` / temoin `genesPrimus`. C'est cet accord qui
+    autorise a SUBSTITUER la lecture a la derivation. Portee MODULE (un seul build)."""
+    cache: dict = {}
+
+    def _case(seed: int = 50101) -> dict:
+        if "r" not in cache:
+            r = O5.run_accord(seed=seed, verbose=True)
+            if r.get("error"):
+                pytest.skip(f"montage unit-flags KO : {r['error']}")
+            cache["r"] = r
+        return cache["r"]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def unit_flags_moved_case(live_session):
+    """LE CANAL SUIT L'ETAT : `UnitFlag.Moved` (=0) sur la MEME unite, avant puis apres un
+    `MoveUnitOperation` reel. Sans cette garde, une table de flags FIGEE au build passerait la
+    garde d'accord (le porteur porte son flag des le deploiement et ne le lache jamais). Portee
+    MODULE (un build + un mouvement)."""
+    cache: dict = {}
+
+    def _case(seed: int = 50201) -> dict:
+        if "r" not in cache:
+            cache["r"] = O5.run_moved(seed=seed, verbose=True)
+        return cache["r"]
     return _case

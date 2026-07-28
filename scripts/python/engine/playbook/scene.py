@@ -89,9 +89,13 @@ class Scene:
     # `ApplyTraitDamageLimitsToDamage`, où il lit `HasFlag(defender, 0x13)` juste avant l'appel ; et
     # via `DamagePredictionResult.PreventOverkill@+0xb3` que lisent `WillBeOverkill`/`MightBeOverkill`).
     # Rempli par `from_state` depuis l'ECS (`unit_prevents_overkill` : composant de flags d'abord,
-    # effet 1354 ensuite). VIDE côté `from_predictor_sctx` — AUCUN RPC n'expose `UnitFlagsComponent`
-    # (gap d'outillage nommé, tâche O5) : l'accesseur retombe alors sur la DÉRIVATION PAR L'EFFET,
-    # qui est le même invariant (cf. `effects_prevent_overkill`), pas une approximation.
+    # effet 1354 ensuite) ET, depuis O5, côté live par `combatSnapshot.unitFlags` — la LECTURE
+    # DIRECTE de `UnitFlagsComponent` (`HasFlag` invoqué par valeur d'enum). La dérivation par
+    # l'effet reste le REPLI, pour un hook antérieur à O5 : elle porte le même invariant, mais
+    # c'est une SECONDE expression d'un fait qui existe tel quel dans l'ECS — et le composant a un
+    # `Add` public, donc un futur poseur impératif la rendrait fausse en silence. DYNAMIQUE (les
+    # triggers de `FuelledByFury_BlockOverkillEffect` posent et retirent le flag en cours de
+    # bataille) -> re-capturé par pas via `refresh_shields`.
     prevent_overkill_by_id: dict = field(default_factory=dict)
 
     def charged(self, uid) -> set:
@@ -100,8 +104,9 @@ class Scene:
 
     def prevents_overkill(self, uid) -> bool:
         """`UnitExtensions.HasFlag(uid, 0x13)` = `UnitFlag.PreventOverkill` (=19) — la cible ne peut
-        PAS être overkillée (#195). Table renseignée (`from_state`) → lecture ECS ; sinon dérivation
-        depuis les effets ACTIFS de l'unité, seule source disponible côté live."""
+        PAS être overkillée (#195). Table renseignée → lecture du composant de flags (ECS offline
+        via `from_state`, `combatSnapshot.unitFlags` live depuis O5) ; sinon REPLI sur la dérivation
+        depuis les effets ACTIFS de l'unité (hook antérieur à O5)."""
         v = self.prevent_overkill_by_id.get(uid)
         if v is not None:
             return bool(v)
@@ -225,7 +230,10 @@ class Scene:
             defstat_by_id=predictor.get("defstat_by_id") or {},
             turns_started_by_id=predictor.get("turns_started_by_id") or {},
             attack_cur_by_id=predictor.get("attack_cur_by_id") or {},
-            extra_hits_cur_by_id=predictor.get("extra_hits_cur_by_id") or {})
+            extra_hits_cur_by_id=predictor.get("extra_hits_cur_by_id") or {},
+            # O5 : flags d'unité LUS (`combatSnapshot.unitFlags`). Table vide = hook antérieur à
+            # O5 -> l'accesseur retombe sur la dérivation par l'effet 1354, comportement d'avant.
+            prevent_overkill_by_id=predictor.get("prevent_overkill_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -438,7 +446,11 @@ def build_predictor(rpc, rid):
             "extra_hits_cur_by_id": {
                 u["entityId"]: int((u.get("stats") or {}).get("extraHits") or 0)
                 for u in (snap.get("units") or [])
-                if (u.get("stats") or {}).get("extraHits") is not None}}
+                if (u.get("stats") or {}).get("extraHits") is not None},
+            # O5 : `UnitFlag.PreventOverkill` LU du composant de flags. DYNAMIQUE (les triggers de
+            # `FuelledByFury_BlockOverkillEffect` le posent/retirent en bataille) -> re-capturé
+            # par pas via `refresh_shields`, comme les autres axes vivants ci-dessus.
+            "prevent_overkill_by_id": _prevent_overkill_from_snapshot(snap)}
 
 
 def build_board(rpc, rid):
@@ -466,6 +478,27 @@ def _hpmax_eff_from_snapshot(units) -> dict:
     IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` lit pour combinedMax. {} si le capteur manque (vieux hooks)."""
     return {u["entityId"]: int(u["healthMax"]) for u in (units or [])
             if u.get("healthMax") is not None}
+
+
+def _prevent_overkill_from_snapshot(snap) -> dict:
+    """{uid: `UnitExtensions.HasFlag(u, PreventOverkill)`} depuis `combatSnapshot.unitFlags` (O5) —
+    la lecture DIRECTE de `UnitFlagsComponent`, là où le port devait jusqu'ici DÉRIVER le flag de
+    l'effet 1354 qui le pose.
+
+    L'id du flag est pris dans `unitFlagTypes`, que le hook rend AU RUNTIME (littéraux de l'enum
+    `IdunBattle.Entities.Enum.UnitFlag`), et n'est PAS écrit en dur ici : une renumérotation au
+    prochain build se propage seule, au lieu de rendre cette lecture fausse en silence.
+
+    Une unité n'entre dans la table QUE si sa mesure a eu lieu (`unitFlags` non `None`). Sur un hook
+    antérieur à O5 la table reste donc VIDE et `Scene.prevents_overkill` retombe sur la dérivation
+    par l'effet — le comportement d'avant, à l'identique. `[]` (lu, aucun flag posé) donne bien
+    `False` : c'est exactement la distinction `null`/`[]` que le hook maintient exprès."""
+    fid = (snap.get("unitFlagTypes") or {}).get("PreventOverkill")
+    if fid is None:
+        return {}
+    return {u["entityId"]: (int(fid) in u["unitFlags"])
+            for u in (snap.get("units") or [])
+            if u.get("entityId") is not None and u.get("unitFlags") is not None}
 
 
 def _defense_stats_from_snapshot(units) -> dict:
@@ -508,6 +541,10 @@ def refresh_shields(predictor, rpc, rid):
         u["entityId"]: int((u.get("stats") or {}).get("fixedArmor") or 0)
         for u in (snap.get("units") or [])}
     predictor["defstat_by_id"] = _defense_stats_from_snapshot(snap.get("units"))
+    # O5 : re-capture des flags d'unité (`UnitFlag.PreventOverkill`). DYNAMIQUE — les triggers de
+    # `FuelledByFury_BlockOverkillEffect` (`On(0x21)&OwnerIsActor`, `On(0x12)` -> ActivateEffect ;
+    # `On(0x2e)&OwnerIsTarget` -> DeactivateEffect) posent et retirent le flag EN COURS de bataille.
+    predictor["prevent_overkill_by_id"] = _prevent_overkill_from_snapshot(snap)
     # #45b' : re-capture MaxHealth EFFECTIF (part 2) — DYNAMIQUE (bump TwistedScience
     # mid-bataille : u87 777 s15 base 11044 -> 14036 apres le cast 1167 du pas 1).
     predictor["hpmax_eff_by_id"] = _hpmax_eff_from_snapshot(snap.get("units"))
