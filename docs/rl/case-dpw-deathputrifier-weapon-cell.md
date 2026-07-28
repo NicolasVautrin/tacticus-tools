@@ -1,0 +1,222 @@
+# case dpw — les BORNES de la cellule d'ARME de `deathPutrifier` en mêlée
+
+**Critère (binaire)** : quelles sont les BORNES que le natif utilise pour l'attaque d'arme mêlée de
+`deathPutrifier`, et d'où vient l'écart avec celles du port ?
+
+| | bornes de la cellule d'arme (réduites) | largeur |
+|---|---|---|
+| **PORT** (avant) | `[2248, 3373]` | 1126 |
+| **NATIF** | **`[2248, 3621]`** | **1374** |
+
+Le BAS est **identique**, seul le HAUT diffère (+248). Le terme qui les sépare est
+**l'armure du défenseur RÉEL** : `1496` côté port contre **`1197`** côté natif — l'écart est le
+debuff `ContagionsOfNurgle_ArmorReduction1` (−20 % de `FixedArmor`) que le natif pose sur
+`astraSmnKell` **au moment où il APPARAÎT dans l'aura Contagion**, et que le port ne posait pas.
+
+---
+
+## 0. Le symptôme, et pourquoi son signe alterne
+
+Résidu relevé par R6-c (`case-r6c-amount-group-bounds.md` §4), montage `foul` (le porteur caste
+`FoulInfusion` 1038 puis attaque en mêlée), board `MC1_67`, `--crit 0,0 --block-target 0,0
+--hp-target 90000 --armor-target 6000` :
+
+| seed | live | offline (avant) |
+|---|---|---|
+| 777 | 3219 | 2333 |
+| 12345 | 3529 | 2649 |
+| 314159 | 2923 | 2505 |
+| 88 | **2750** | **3170** |
+
+L'écart CHANGE DE SIGNE sur le seed 88. C'est la signature d'une divergence de **BORNES** et non
+d'un facteur : le tirage est `lo + (r mod W)`, donc une largeur `W` différente change le RÉSIDU du
+modulo, pas seulement l'échelle.
+
+L'étage de réduction est
+`idun.…StaticBattleRules.Damage$$GetDamageWithPiercing` =
+`max(0, d − armure, d × perçage%)` — une fonction **affine par morceaux**. Baisser l'armure fait
+basculer le HAUT de la cellule de la branche PERÇAGE vers la branche ARMURE **sans toucher le
+BAS** : la cellule s'élargit par le haut. C'est exactement la forme observée.
+
+C'est aussi pourquoi le GROUPE de coups additionnels du même coup (`FoulInfusion_ExtraHits`,
+valeur brute 2792, profil Toxic) était **bit-exact malgré l'armure fausse** : `2792 − 1496` et
+`2792 − 1197` sont tous deux inférieurs à `0.7 × 2792 = 1954.4`, donc la branche perçage l'emporte
+des DEUX côtés et sa valeur est **armure-indépendante** (`1954` sur les 4 seeds). L'argument
+« l'armure est juste puisque le groupe l'est » de `case-r6c` §4 ne tenait donc pas : ce montage-là
+n'était pas discriminant sur l'armure.
+
+---
+
+## 1. Résolution de la cellule NATIVE — sans modèle
+
+`probe_dpw_weapon_cell.py` rejoue la MÊME attaque offline sur le MÊME flux RNG (aligné : natif 3
+tirages = port 3) et enregistre chaque `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal`.
+Le coup d'arme vaut `LO + (r mod W)` avec `r = genrand_int32() >> 1` — CONNU des deux côtés. On
+BALAIE alors `(LO, W)` et on retient ceux qui reproduisent les 4 valeurs live **à l'unité** :
+
+```
+solutions A (cellule): [(2248, 3621, 1374)]   total 1
+```
+
+**Unique sur 4 flux.** Une cellule qui tient sur 4 résidus de modulo différents n'est pas un
+scalaire fitté.
+
+## 2. Décomposition par étage — ce qui est identique, ce qui diffère
+
+Cellule d'arme du port (`damage_ops/normal.py::_reduced_bounds`), arguments capturés au replay :
+
+```
+value=3212  pierce=70  armor=1496  pct_list=[]  additive=0  extra_pierce=0  armor_pen=0
+value=4818  pierce=70  armor=1496  ...
+```
+
+* `base` = `GetStat(Attack)` = **4015** (`combatSnapshot`) → `IdunBattle.Core.Services.
+  DamagePrediction$$GetBaseDamageFix64` → pré-perçage `[3212, 4818]` (spread ±20 % symétrique,
+  `IdunBattle.Core.Services.DamageCalculations$$CalculateDamageSpread` =
+  `Round(base × DamageSpreadPercentage/100)`).
+* Le BAS natif (2248) est `Round(0.7 × 3212)` : il **PINCE** `pierce = 70` et `base = 4015`. Un
+  perçage différent ferait bouger le bas ; une base différente aussi. Les deux sont donc JUSTES.
+* Aucun `%`-mod ni additif : le coup du groupe vaut exactement `Round(2792 × 0.7) = 1954`.
+* `ExtraMaxDamage` (le SEUL terme natif qui gonfle le HAUT sans toucher le BAS,
+  `GetBaseDamageFix64` : `max += FromInt(param_5)`) est **écarté par le décompilé** :
+  `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` fait
+  `if (!IsMeleeAttack(...)) extra = GetStat(attaquant, 0x19) ; else extra = 0`, et
+  `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` rend VRAI dès que
+  `GetAbilityAttackRangeType == 1` (l'arme unique de `deathPutrifier` est mêlée). `GetStat(0x19)`
+  vaut 0 de toute façon (`combatSnapshot.extraMaxDamage`).
+
+Reste **l'armure**. `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor`
+(lu verbatim) :
+
+```
+armure = Math.Max( GetStat(defender, 0x10 = FixedArmor) − (int)<penetration>, 0 )
+repeat n:  damage = GetDamageWithPiercing(damage, perçage, armure)
+```
+
+`4818 − 3621 = 1197` : la seule armure qui rend `[2248, 3621]` est **1197** (et elle est unique —
+le bas exige `armure ≥ 964` pour rester sur la branche perçage).
+
+## 3. Le défenseur RÉEL n'est pas la cible du message — et son armure change PENDANT l'attaque
+
+Le montage est un 1v1 `deathPutrifier` vs `astraCreed`… mais `astraCreed` porte **`SwornProtector`**.
+Roster live capté par le probe, AVANT / APRÈS l'attaque :
+
+```
+AVANT  77 astraCreed (6,8) armor 4800 eff[1071] | 79 deathPutrifier (5,8) eff[1070,1225,1074]
+APRÈS  77 astraCreed (6,7) armor 4800 eff[1071] | 79 deathPutrifier (5,8) …
+       99 astraSmnKell (6,8) armor 1197 eff[1062, 1071]
+```
+
+L'attaque réveille `On(PreUnitAbility = 0x2b)` → `SwornProtectorAbility` INVOQUE Kell puis
+`SwornProtector_Protect` échange les positions ; la re-résolution de cible d'
+`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (#120bis) envoie alors les coups sur
+**Kell**. Le port fait déjà tout ça (`cible attaquée = <Kell>` au replay).
+
+Ce que le port ne faisait PAS : Kell **apparaît à 1 hex de `deathPutrifier`**, donc DANS son aura
+Contagion — et le natif lui pose immédiatement le debuff d'armure : `1496 → 1197`
+(= `1496 − round(1496 × 20/100)`). Côté port Kell gardait `1496`.
+
+## 4. La RE du vecteur manquant
+
+### 4.1 `IdunBattleLogic.Entities.Abilities.Active.Loki.ContagionsOfNurgle_AddEffectToNewUnit_Ability`
+
+```
+$$CreateTrigger =
+    ( On(0x33 = UnitAdded) | On(0x2f = UnitResurrected) | On(0x2e = UnitRevived) )
+    & op_LogicalNot( AreEqual(owner@0x148, target@0x178) )
+    & AreEnemies(owner@0x148, target@0x178)
+
+$$CreateBehaviour =
+    sel = Cache( FromTrigger(target@0x178, op_LogicalNot(HasEffect(target@0x178, 0x42f, 0, 6))), 1 )
+    AddEffect(0x42f = 1071, AbilityStateReference, owner@0x148, sel, <ZERO>)
+  & AddEffect(0x430 = 1072, AbilityStateReference, owner@0x148, sel, <ZERO>)
+```
+
+Le frère `ContagionsOfNurgle_AddEffectInitially_Ability` (trigger `OnOwnerSpecificAbilityInit(0x431)`)
+pose la MÊME paire sur `Enemies(owner)` à l'init de bataille.
+
+### 4.2 `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect`
+
+`.ctor` = `ADynamicStatModifierEffect(AbilityOrEffect(0x431), FixedArmor, …)` puis
+`+0x488 = <clé de constante>`, `+0x48c = <min>`, `+0x490 = <max>`. Les DEUX seules constructions
+(`IdunBattle.Core.Services.EffectsDatabase` `b__14_93` / `b__14_94`) :
+
+| effet | ctor | variable de trait | fenêtre active |
+|---|---|---|---|
+| `0x42f` = 1071 `_ArmorReduction1` | `(0x41, 1, 1)` | `contagionsOfNurgleArmorOneAura` = **−20** | exactement 1 aura |
+| `0x430` = 1072 `_ArmorReduction2` | `(0x42, 2, 0x7fffffff)` | `contagionsOfNurgleArmorTwoOrMoreAuras` = **−40** | 2 auras ou plus |
+
+```
+$$GetStatModificationAmount = AbilityConfiguration.GetNumberConstant(config, this+0x488)
+$$CreateActiveCondition =
+      AmountIsEqualOrGreater( ContagionsOfNurgleAmount(EffectSource(effect@0x150), owner@0x148),
+                              Get(this+0x48c) )
+    & AmountIsEqualOrGreater( Get(this+0x490), ContagionsOfNurgleAmount(…) )
+$$CalculateRange(unit) = s = GetStat(unit, 0xc = TurnsStarted) ; s > 2 ? (s > 4 ? 3 : 2) : 1
+$$GetMaxRange = Direct(3)
+```
+
+`CalculateRange` était DÉJÀ portée (`abilities/deathguard.contagions_of_nurgle_range`, partagée avec
+`SpawnPoxwalkersAbility`) — le port la réutilise, il ne la re-dérive pas.
+
+## 5. Le port
+
+* `engine/entities/effects/loki/status.py` : `ContagionsOfNurgleArmorReductionEffect`
+  (`get_stat_modification_stat` = FixedArmor ; `applied_stat_mods` = le `ChangeStat` EAGER posé à
+  l'application ; `reverted_stats` = son symétrique). Le delta est PLAT et pré-calculé
+  `-round(FixedArmor × |pct| / 100)` — même convention que `ContaminatedUnitEffect`, l'autre
+  `ADynamicStatModifierEffect` FixedArmor déjà porté.
+  ⚠ **`applied_stat_mods` est OBLIGATOIRE** : `AddEffectOperation._apply_stat_mods` n'exécute QUE
+  cette forme. La paire `get_stat_modification_*` seule ne sert qu'à l'ATTRIBUTION du delta au
+  chargement (`stat_modifications_by_source`) — l'effet serait PRÉSENT mais n'entrerait jamais dans
+  le `GetStat(FixedArmor)` du runner (mesuré : `defender_fixed_armor` rendait encore 1496 après la
+  pose).
+* `engine/runner/operations/triggers/loki/contagions_of_nurgle.py` : le vecteur, avec le compte
+  d'auras (collapse de `ContagionsOfNurgleAmount`) et la sélection de variante par la fenêtre
+  `[min, max]` de `CreateActiveCondition`.
+* `engine/runner/operations/spawn.py` : `on_unit_added(state, unit_id)` — le foyer `On(UnitAdded)`
+  du port, appelé par les **5** sites de création d'unité, APRÈS la pose de la position (les gates
+  de portée en dépendent).
+
+### Ce qui n'est PAS porté, et pourquoi
+
+* **`AddEffectInitially`** (`OnOwnerSpecificAbilityInit`) : DÉLIBÉRÉMENT absent. Le runner ne rejoue
+  pas l'init de bataille, il recharge un `combatSnapshot` où le debuff est DÉJÀ cuit dans
+  `GetStat(FixedArmor)` (mesure : `astraCreed` 6000 → 4800) et l'effet 1071 déjà matérialisé par
+  `decisionView.effects`. Le porter appliquerait le −20 % une seconde fois.
+* **La paire `AddEffect(1071) & AddEffect(1072)`** est collapsée à l'instance ACTIVE. Observable
+  identique : `decisionView.effects` de Kell ne liste que `1071` dans le montage à UNE aura, et le
+  stat-layer n'applique de toute façon qu'une modification.
+* **Le cycle de vie** : l'effet n'est posé qu'à l'APPARITION. Il n'est ni re-évalué quand l'aura
+  grandit (`CalculateRange` monte à 2 puis 3), ni retiré quand l'unité en sort, ni basculé
+  1071 ↔ 1072. Le natif tient ce cycle par sa condition ACTIVE, que le port ne matérialise pas.
+* **`UnitResurrected` / `UnitRevived`** : branches non câblées (aucun montage).
+* **`ContagionsOfNurgleAmount`** (slot 0x93 d'`IBattleQuery`) est COLLAPSÉ en « nombre de porteurs
+  vivants du trait `ContagionsOfNurgle` ENNEMIS, à distance hex ≤ `CalculateRange(porteur)` ». Le
+  corps natif du slot n'est pas lu ; le collapse rend le bon compte (1) sur le montage mesuré.
+
+---
+
+## 6. La mesure
+
+```
+python probe_dpw_weapon_cell.py --seeds 777,12345,314159,88          # confront live/offline
+python probe_dpw_weapon_cell.py --seeds 777,12345,314159,88 --solve  # + résolution de la cellule
+python -m pytest tests/engine/runner/test_contagions_of_nurgle_new_unit_live.py -q
+```
+
+---
+
+## 7. Ce qui n'est PAS couvert
+
+* La variante **`_ArmorReduction2` (−40 %, 2 auras ou plus)** n'a aucun montage : il faudrait DEUX
+  porteurs `ContagionsOfNurgle` ennemis chevauchants. La fenêtre `[2, 0x7fffffff]` est lue au
+  décompilé, la magnitude au gameconfig, mais rien n'est confronté live.
+* Le **cycle de vie** de l'effet (croissance d'aura, sortie d'aura, bascule 1071 ↔ 1072) — cf. §5.
+* La face **PRÉDICTION** : `engine/services/…` lit l'armure du défenseur par le même
+  `GetStat(FixedArmor)`, donc elle hérite du fix quand l'unité est SEEDÉE depuis un snapshot ; une
+  unité spawnée EN COURS de simulation n'entre dans la prédiction que via l'ECS, donc par le même
+  canal. Aucun montage de prédiction n'a été confronté ici.
+* Le champ `armor` du dict rendu par `AttackDamageOperation.execute` est ÉCRASABLE par une
+  sous-attaque de la cascade after-hit : ne PAS s'en servir comme mesure de l'armure du coup (piège
+  rencontré ici — `defender_fixed_armor` est le foyer fiable).

@@ -49,7 +49,7 @@ from probe_r6c_ah_bounds import _drive_foul_melee, MALADIES_CARRIER        # noq
 # --------------------------------------------------------------------------- offline instrumente
 
 
-def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
+def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved, disable_contagion=False):
     """Rejoue l'attaque OFFLINE sur le MEME flux et rend :
         {rolls: [(lo, hi, r, out)], cell: (min, max), attack: GetStat(Attack),
          pierce, armor, per_hit, n_genrand}
@@ -129,9 +129,11 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
     oua_calls = []
 
     def _spy_oua(st_, uid_):
-        r = _orig_oua(st_, uid_)
+        # CONTREFACTUEL : `disable_contagion` NEUTRALISE le vecteur `On(UnitAdded)` -- l'unite qui
+        # apparait dans l'aura ne recoit PAS le debuff d'armure. C'est le port d'AVANT ce cas.
+        r = None if disable_contagion else _orig_oua(st_, uid_)
         oua_calls.append({"unit": uid_, "n_dfa": len(dfa_calls), "res": r})
-        return r
+        return r or []
 
     _sp.on_unit_added = _spy_oua
     orig = AttackDamageOperation._run_hits      # resolu par MRO (mixin) -> fonction nue
@@ -290,13 +292,17 @@ def _run_seed(rpc, seed, args):
             return None
         live = [int(td["Amount"]) for td in rows]
         off = _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved)
+        # Contrefactuel = le MEME rejeu, vecteur `On(UnitAdded)` NEUTRALISE (port d'avant ce cas).
+        off_cf = _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved,
+                                   disable_contagion=True)
         cst_snap = next((u for u in (snap.get("units") or []) if u.get("entityId") == cid), None)
         cst_sms = next((u for u in (sms.get("units") or []) if u.get("entityId") == cid
                         or u.get("unitId") == cid), None)
         tgt_snap = next((u for u in (snap.get("units") or []) if u.get("entityId") == tid), None)
         tgt_sms = next((u for u in (sms.get("units") or []) if u.get("entityId") == tid
                         or u.get("unitId") == tid), None)
-        return {"seed": seed, "live": live, "off": off, "moved": moved, "n_native": n_native,
+        return {"seed": seed, "live": live, "off": off, "off_cf": off_cf,
+                "moved": moved, "n_native": n_native,
                 "roster_before": roster_before, "roster_after": roster_after,
                 "raw": _raw_stream(rng0, 6),
                 "cst_full": cst_snap, "tgt_full": tgt_snap,
@@ -345,6 +351,8 @@ def main():
         print("   ATTACK offline  = %s   -> cellule ARME port = %s (crit %s)"
               % (off["attack"], off["cell"], off["cell_crit"]))
         print("   cellules        = %s" % (off["cells"],))
+        print("   arme CONTREFACT = %s (armure %s, cellule %s)"
+              % (row["off_cf"]["per_hit"], row["off_cf"]["dfa"], row["off_cf"]["cell"]))
         print("   armure cible    = %s" % json.dumps(off["tgt_arm"]))
         print("   args reduction  = %s" % json.dumps(off["red_args"]))
         print("   defender_armor  = %s" % json.dumps(off["dfa"]))
@@ -364,8 +372,9 @@ def main():
         print("[dpw] aucun montage exploitable")
         return 1
     print()
-    print("[dpw] BILAN %d montages : ARME alignee %d/%d"
-          % (len(rows), sum(1 for r in rows if r["live"][:1] == r["off"]["per_hit"][:1]), len(rows)))
+    print("[dpw] BILAN %d montages : ARME alignee %d/%d | contrefactuel (vecteur neutralise) %d/%d"
+          % (len(rows), sum(1 for r in rows if r["live"][:1] == r["off"]["per_hit"][:1]), len(rows),
+             sum(1 for r in rows if r["live"][:1] == r["off_cf"]["per_hit"][:1]), len(rows)))
     if args.solve:
         _solve(rows, args)
     return 0

@@ -42,10 +42,12 @@ MESURE D'ORIGINE (`probe_r6c_ah_bounds.py`, flux RNG cale par `dumpRng`) :
   * foul     (deathPutrifier melee)                4/4 valeur ET conso (natif 3, contrefactuel 4)
 Cf. `docs/rl/case-r6c-amount-group-bounds.md`.
 
-⚠ Le montage `foul` porte un residu ORTHOGONAL, hors perimetre : la VALEUR du coup d'ARME de
-`deathPutrifier` diverge (ecart de SIGNE VARIABLE sur 4 seeds -> divergence de BORNES de cellule
-d'arme, pas un facteur), alors que le FLUX reste aligne et que le groupe du meme coup est
-bit-exact. La garde ancre donc sur le GROUPE et sur la CONSOMMATION, jamais sur le coup d'arme.
+⚠ Le montage `foul` portait un residu ORTHOGONAL (VALEUR du coup d'ARME de `deathPutrifier`
+divergente, ecart de SIGNE VARIABLE) : RESOLU depuis, cf. `case-dpw-deathputrifier-weapon-cell.md`
+(l'attaque est re-resolue sur `astraSmnKell`, qui APPARAIT dans l'aura Contagion et y prend
+`ContagionsOfNurgle_ArmorReduction1` -> armure 1496 -> 1197). La garde de CE fichier reste ancree
+sur le GROUPE et sur la CONSOMMATION -- le coup d'arme a sa garde propre
+(`test_contagions_of_nurgle_new_unit_live.py`).
 """
 from __future__ import annotations
 

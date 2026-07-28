@@ -183,26 +183,17 @@ n'est pas simplement insensible.
 
 ## 4. Ce qui n'est PAS couvert
 
-- **Résidu NEUF, orthogonal, mesuré ici — la cellule d'ARME de `deathPutrifier` en mêlée.** Sur le
-  montage `foul`, le groupe est bit-exact mais la **valeur du coup d'arme** diverge :
-
-  | seed | live | offline |
-  |---|---|---|
-  | 777 | 3219 | 2333 |
-  | 12345 | 3529 | 2649 |
-  | 314159 | 2923 | 2505 |
-  | 88 | **2750** | **3170** |
-
-  L'écart **change de signe** (seed 88) : ce n'est donc ni un multiplicateur ni un flat oublié,
-  mais une divergence des **bornes de la cellule d'arme** (même modulo, cellule différente). Le
-  **flux reste aligné** (natif 3 = offline 3) et le groupe du même coup — qui partage profil
-  (Toxic, p24) et armure — est exact : armure et %-mods défenseur sont donc **justes**, et le
-  suspect est en **amont** de la réduction (dégât de base / stat d'attaque du porteur). Effets
-  portés au moment de la mesure : `1070 ExplosiveMaladies_ExtraRangedAttack`,
-  `1225 ExplosiveMaladies_ExtraMeleeAttack`, `1074 FoulInfusion_ExtraHits`. Point d'ancrage pour
-  qui reprendra : RPC `statModSources` sur le porteur juste avant l'attaque, et le trait
-  `ContagionsOfNurgle` comme premier suspect. **Non traité ici** : hors du critère du cas, qui
-  porte sur le groupe.
+- ~~**Résidu NEUF, orthogonal — la cellule d'ARME de `deathPutrifier` en mêlée.**~~ **RÉSOLU**
+  (`docs/rl/case-dpw-deathputrifier-weapon-cell.md`, port live 4/4, contrefactuel 0/4). Le
+  montage `foul` donnait, sur le coup d'arme, live `3219/3529/2923/2750` contre offline
+  `2333/2649/2505/3170` — écart de **signe variable** (seed 88), donc bien une divergence de
+  **BORNES** : cellule native `[2248, 3621]` (résolue, unique, sur 4 flux) contre `[2248, 3373]`
+  au port. ⚠ **L'argument « le groupe est bit-exact donc l'armure est juste » écrit ici était
+  FAUX** : la valeur du groupe (2792 brut, profil Toxic p70) tombe des DEUX côtés sur la branche
+  PERÇAGE de `max(0, d − armure, d × 70 %)`, donc elle est **armure-indépendante** — ce montage
+  n'était pas discriminant sur l'armure. Le terme réel : l'attaque est re-résolue sur
+  `astraSmnKell` (invoqué par `SwornProtector`, #120bis), qui APPARAÎT dans l'aura Contagion de
+  `deathPutrifier` et y prend `ContagionsOfNurgle_ArmorReduction1` (−20 % ⇒ armure 1496 → **1197**).
 - **La branche `Markerlight`** de `cond` (effet `0x462`) n'est pas exercée : les deux montages
   passent par `HasTrait(target, 5 Mechanical)`. Les deux disjoints alimentent le **même**
   `ConditionalAmount`, donc la branche testée est la même — mais le gate `HasEffect(..., 1, 6)`
