@@ -12,9 +12,29 @@ REPONSE MESUREE (2026-07-29) : **NON -- NON PERTINENT**. Un seul porteur dans to
   * **aucun summoner** -- 0 des 559 abilities du gameconfig ne cite son id (ses 308 occurrences dans
     le gameconfig sont des `waves[].army` de campagne PvE, pas des aretes de summon) ;
   * meme injecte au catalogue `BC.Units` par `catalog_inject.py`, **refuse par le natif**
-    `IStatsFormula.StatsUsingProgressionIndexFor` a TOUS les ranks 0..20 (`v2 patch: system error`).
-    CONTRE-EPREUVE indispensable, faite : `thousDaemonPrince` injecte par le MEME outil dans le MEME
-    seed BC ENTRE dans `normalized` -> le refus est une propriete du NPC, pas de la voie d'injection.
+    `IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor` a TOUS les ranks 0..20
+    (`v2 patch: system error`). CONTRE-EPREUVE indispensable, faite : `thousDaemonPrince` injecte par
+    le MEME outil dans le MEME seed BC ENTRE dans `normalized` -> le refus est une propriete de
+    l'unite, pas de la voie d'injection.
+
+CAUSE DU REFUS -- LUE au decompile, pas deduite (la deduction « le NPC n'a pas de table de
+progression » est FAUSSE et ce probe la refute) :
+
+    if (ContainsIndex(<cfg+0x40>+0x80 /* ou +0x88 si isMow */, progressionIndex))
+         v = list[progressionIndex]+0x28;          // <- branche qui NE THROW PAS (index absent -> 0)
+    else v = 0;
+    Dictionary.get_Item(<cfg+0x40>+0x10, unitId);  // <- L'EXCEPTION EST ICI (KeyNotFound)
+
+C'est un lookup PAR UNITID. Le hook (`frida/hooks/features/normalize-bc/json-build.ts`) ne passe a la
+formule que `(unitId, isMow, rank, progressionIndex, items)` -- JAMAIS le bloc `UnitConfiguration`
+injecte. Donc AUCUN enrichissement du seed BC ne peut lever ce refus. `--buckets` le confirme par
+prediction : `lineup` -> True ; `npc` et `summons` -> False.
+
+⚠ NE PAS CONFONDRE avec le « system error » de #226 (`case-220/blood-angels`), qui a une tout autre
+cause et est, LUI, reparable : celui-la est leve par `AbilityConfiguration$$GetVariableForLevel` AU
+CAST parce que `BC.Abilities` n'a pas la config de l'ability (`catalog_inject` la pose desormais).
+Le notre est leve A LA NORMALISATION, avant tout spawn. Meme libelle (`system error` = exception
+managee remontee par l'invoke IL2CPP), diagnostics opposes : distinguer par l'APPELANT.
 
 Le domaine de la branche est par ailleurs FERME au decompile (`classes.tsv` / `enums.tsv`) :
 `GhostReviveAbility` a EXACTEMENT deux sous-classes (`TimeFluxReviveAbility` 0x4a2 = 1186 ->
@@ -30,10 +50,12 @@ sous-classe de `GhostReviveAbility`.
 
 USAGE
     python probe_228_echoes_carriers.py
-    python probe_228_echoes_carriers.py --seed-bc <bc.json>          # + verdict natif au rank 17
-    python probe_228_echoes_carriers.py --seed-bc <bc.json> --ranks  # + balayage rank 0..20
-    # le seed BC porteur se fabrique par :
-    #   python catalog_inject.py --units thousNpc4Terminator --out <abs>.json
+    python probe_228_echoes_carriers.py --seed-bc <bc.json>            # + verdict natif au rank 17
+    python probe_228_echoes_carriers.py --seed-bc <bc.json> --ranks    # + balayage rank 0..20
+    python probe_228_echoes_carriers.py --seed-bc <bc.json> --buckets  # + generalisation par bucket
+    # le seed BC se fabrique par (les ids de --buckets doivent y etre injectes) :
+    #   python catalog_inject.py --units thousNpc4Terminator,necroNpc1Warrior,ultraSmnInceptor,\
+    #       necroSmnSwarm,thousDaemonPrince --out <abs>.json
 
 Sortie ASCII pure (console cp1252).
 """
@@ -52,6 +74,12 @@ ABILITY = "EchoesFromTheWarp"
 # ce pourrait etre l'outil d'injection qui produit une entree invalide.
 CONTROL_UNIT = "thousDaemonPrince"
 RANKS = (0, 1, 3, 5, 8, 11, 14, 17, 19, 20)
+# `--buckets` : PREDICTION issue de la lecture du decompile (lookup par unitId dans un Dictionary qui
+# ne couvre que le roster JOUEUR). Si elle tombe, c'est la lecture qui est fausse -- pas le contraire.
+BUCKET_SAMPLE = ("thousNpc4Terminator", "necroNpc1Warrior",      # npc      -> attendu False
+                 "ultraSmnInceptor", "necroSmnSwarm",           # summons  -> attendu False
+                 "thousDaemonPrince")                            # lineup   -> attendu True
+BUCKET_EXPECTED = {"lineup": True, "npc": False, "summons": False}
 
 
 def _units_with(passive: str):
@@ -172,6 +200,24 @@ def main():
     v = _normalize_verdict(seed, CONTROL_UNIT, rank=17)
     print("  [controle] %-12s rank=17 in_normalized=%s  <- doit valoir True si %s est injecte"
           % (CONTROL_UNIT, v["in_normalized"], CONTROL_UNIT))
+
+    if "--buckets" not in sys.argv:
+        return
+    print()
+    print("== generalisation par bucket (la porte est-elle le BUCKET ?) ==")
+    idx = GC._index()
+    bad = 0
+    for uid in BUCKET_SAMPLE:
+        bucket = next((b for b in ("lineup", "npc", "summons") if uid in idx[b]), "?")
+        got = _normalize_verdict(seed, uid, rank=17)["in_normalized"]
+        exp = BUCKET_EXPECTED.get(bucket)
+        ok = (exp is None) or (got == exp)
+        bad += 0 if ok else 1
+        print("  %-22s bucket=%-8s in_normalized=%-5s attendu=%-5s %s"
+              % (uid, bucket, got, exp, "OK" if ok else "*** PREDICTION FAUSSE ***"))
+    print("  -> %s" % ("prediction tenue : la porte est le BUCKET (lineup seul), pas le bloc BC"
+                       if bad == 0 else
+                       "%d ecart(s) : la lecture du decompile est a refaire" % bad))
 
 
 if __name__ == "__main__":

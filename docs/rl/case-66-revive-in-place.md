@@ -597,12 +597,47 @@ C'est le **seul** porteur du parc (lineup + npc + summons confondus). Les 308 oc
 dans le gameconfig sont des `waves[].army` de campagne PvE, pas des aretes de summon.
 
 La troisieme colonne merite d'etre lue : la voie `catalog_inject.py` (qui a debloque `bloodTerminator`,
-`adeptCelestine`, `thousDaemonPrince`…) **ne le debloque pas**. Injecte au catalogue `BC.Units`, il est
-refuse par `IStatsFormula.StatsUsingProgressionIndexFor` a **tous** les ranks — la formule de
-progression JOUEUR n'a rien a calculer pour une unite dont les stats sont une table de campagne.
-**Contre-epreuve faite** (sans quoi le refus pourrait etre un artefact de l'outil) : `thousDaemonPrince`
+`adeptCelestine`, `thousDaemonPrince`…) **ne le debloque pas**, et pour une raison STRUCTURELLE.
+
+**Contre-epreuve d'abord** (sans quoi le refus pourrait etre un artefact de l'outil) : `thousDaemonPrince`
 injecte par le MEME outil dans le MEME seed BC **entre** dans `normalized` (107 vs 106, skipped 69 vs 70).
-Le refus est donc une propriete de ce NPC, pas de la voie d'injection.
+Le refus est donc une propriete de l'unite, pas de la voie d'injection.
+
+**Cause, LUE et non deduite** — `IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor` :
+
+    if (ContainsIndex(<cfg+0x40>+0x80 /* ou +0x88 si isMow */, progressionIndex))
+         v = list[progressionIndex]+0x28;          // <- branche qui NE THROW PAS (index absent -> 0)
+    else v = 0;
+    Dictionary.get_Item(<cfg+0x40>+0x10, unitId);  // <- L'EXCEPTION EST ICI (cle absente)
+
+⚠ La cause n'est donc PAS « le porteur n'a pas de table de progression » : la branche `ContainsIndex`
+retombe proprement sur `0`. C'est un **lookup par unitId** dans un `Dictionary` qui leve
+`KeyNotFoundException` sur cle absente. Corollaire dur : le refus depend **du seul unitId**, jamais du
+bloc `UnitConfiguration` injecte — le hook ne passe a la formule que `(unitId, isMow, rank,
+progressionIndex, items)`, pas le bloc BC (`frida/hooks/features/normalize-bc/json-build.ts`). **Aucun
+enrichissement du seed BC ne peut lever ce refus.**
+
+**Generalisation mesuree** (5 unites injectees par le MEME `catalog_inject` dans le MEME seed BC, rank 17) :
+
+| bucket gameconfig | echantillon | `in_normalized` |
+|---|---|---|
+| `lineup` | `thousDaemonPrince` | **True** |
+| `npc` | `thousNpc4Terminator`, `necroNpc1Warrior` | **False** (`system error`) |
+| `summons` | `ultraSmnInceptor`, `necroSmnSwarm` | **False** (`system error`) |
+
+Le dictionnaire couvre donc `lineup` — ni `npc`, ni `summons`. Cela explique d'un coup pourquoi
+`catalog_inject` debloque `bloodTerminator` / `adeptCelestine` / `thousDaemonPrince` (tous `lineup`,
+seulement **absents du seed BC capture** parce que le compte du joueur ne les possedait pas) et ne
+debloquera JAMAIS un npc. Et cela confirme au passage que `--list-pool` **n'est pas la porte des
+summons** (qui sont pourtant confrontables via leur summoner) — exactement ce que dit le gate du
+CLAUDE.md ; ici la porte SUMMON est fermee par le graphe de summon, pas par cette mesure.
+
+⚠ **NE PAS CONFONDRE avec le « system error » de #226** (`case-220/blood-angels`), qui a une tout autre
+cause et est, LUI, reparable : celui-la est leve par `AbilityConfiguration$$GetVariableForLevel` **au
+CAST**, parce que `BC.Abilities` n'a pas la config de l'ability — `catalog_inject` la pose desormais.
+Le notre est leve **a la NORMALISATION**, avant tout spawn, par un appelant different. Meme libelle
+(`system error` = exception managee remontee par l'invoke IL2CPP), diagnostics opposes : le distinguer
+par l'APPELANT, jamais par le libelle.
 
 **Verdict** : gate de confrontabilite HERO/MoW/SUMMON — les trois portes sont fermees, la seule
 categorie restante est NPC. L'item n'est pas « bloque », il est **NON PERTINENT**. Aucun port : un port
