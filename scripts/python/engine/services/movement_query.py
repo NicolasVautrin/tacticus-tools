@@ -251,9 +251,20 @@ def get_movable_positions_for(board, state, unit_id: int, movable_tiles: Iterabl
 
     `movable_tiles` = le resultat de `GetMovableTilesFor` (le pathfinding, deja porte ailleurs) ;
     on n'ajoute ici que les deux etapes propres a l'empreinte : l'union avec les tuiles courantes
-    et le regroupement en positions a N pieds. Le gate `HasTrait(0x418)` n'est PAS reproduit ici
-    (il appartient a l'appelant qui connait les traits ; le noter plutot que le deviner faux)."""
-    from ..runner.components import get_feet_count, get_unit_feet
+    et le regroupement en positions a N pieds.
+
+    LE GATE `HasTrait(0x418)` EST DESORMAIS REPRODUIT (#91, il etait le residu R30 §6.3). Il ne
+    l'etait pas parce qu'aucun porteur du trait n'existait dans l'etat du port ; c'est
+    `AddTrait(ActiveTarget, 0x418)` -- le sous-behaviour on-appearance de `DutyEternalAbility$$
+    ExecuteBehaviour` -- qui en cree un. Les traits sont lus a la SOURCE UNIQUE du port
+    (`StatsComponent.ctx.traits`, cf. `entities/traits/unit_trait.py`) ; une entite sans
+    `StatsComponent` n'est pas gatee (meme convention permissive qu'ailleurs)."""
+    from ..runner.components import get_feet_count, get_unit_feet, StatsComponent
+    from ..entities.traits.unit_trait import UnitTrait, has_trait
+    e = state.get_entity(int(unit_id)) if state is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if sc is not None and has_trait(getattr(sc.ctx, "traits", None), UnitTrait.Stationary):
+        return []                       # `if (HasTrait(unit, 0x418)) return new OrderedSet<>()`
     tiles = list(movable_tiles)
     for t in get_unit_feet(state, unit_id):
         if t not in tiles:

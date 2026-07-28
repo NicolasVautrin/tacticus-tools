@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
-from ...components import UnitComponent
+from ...components import UnitComponent, MachineComponent, is_machine_of_war
 
 
 class KillDeadUnits(AbilityBehaviour):
@@ -89,6 +89,65 @@ class RemoveUnit(AbilityBehaviour):
                 for eff in state.effects.by_unit.get(int(uid), []):
                     eff.consumed = True
             ectx.emit("RemoveUnit", unit=uid)
+        return OperationResult.ok()
+
+
+class RemoveMachine(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$RemoveMachine(factory, sel)` ->
+    `IdunBattle.Entities.Behaviours.RemoveMachineBehaviour$$Execute` : resout son selecteur `+0x50`
+    (= `caster@0x160` au seul call-site porte) et appelle l'operation
+    `IdunBattle.Operations.RemoveMachineOperation$$Execute(entity, removeEffects=1, ...)`.
+
+    L'operation native, lue au decompile : gate `IdunBattle.Entities.EntityExtensions$$IsMachine`
+    (une entite qui n'est PAS une machine -> log + retour, aucune mutation), puis
+    `RemoveMachineFromPlatform`, remise a zero d'un champ de la plateforme, event `0x2e` portant
+    `{0x88: HasFlag(entity, 6)}`, enfin `RemoveEffects(entity)`. **Elle ne detruit pas l'entite et
+    ne touche NI `ActiveAbilityComponent` NI les PV** : elle la DETACHE de sa plateforme.
+
+    CE QUE LA MESURE AJOUTE AU DECOMPILE (probe_91, anti-confond a runner de CONTROLE) -- le
+    decompile ne dit PAS ce que le detachement rend observable, il fallait le mesurer :
+      * `decisionView.mows` continue d'exposer la MoW **avec `usable: true`** sur ses DEUX abilities
+        (coherent : le projecteur lit `ActiveAbilityComponent`, intact) -> ce canal ne dit RIEN du
+        retrait, et un port qui eteindrait `CanStillBeUsed` fabriquerait un etat natif FAUX ;
+      * mais le cast est bel et bien REFUSE : `applyAction` rend `actionConsumed = False`
+        (signature du refus silencieux, cf. case-111), la ou le meme cast sur un runner de CONTROLE
+        (MoW NON retiree, MEME fenetre cooldown/tour ouverte) rend `actionConsumed = True`.
+        C'est `actionConsumed` -- PAS `mutated` -- qui discrimine : 1159 est un poseur d'effets de
+        tuile, il ne change ni position ni PV meme quand il passe.
+
+    Port : `MachineComponent.removed = True` (le detachement) + consommation des effets portes
+    (`RemoveMachineOperation$$RemoveEffects`). RIEN D'AUTRE -- ni `alive = False`, ni extinction des
+    abilities : les deux seraient des inventions que la mesure ci-dessus REFUTE. Le refus de cast
+    est pose la ou le natif le pose, en tete d'operation d'ability (`AbilityHandler.
+    visit_ActiveAbilityMessage`, gate `machine_removed`). Une entite qui n'est PAS une MoW est
+    ignoree, comme le gate natif.
+
+    ⚠ Ce que le port ne materialise PAS : l'event `0x2e` et son tag `0x88` (le port n'a pas de bus
+    d'events de plateforme MoW) -- residu nomme, cf. docs/rl/case-91-duty-eternal.md §7.
+
+    CALL-SITE PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$
+    ExecuteBehaviour` -> `RemoveMachine(caster@0x160) & Spawn(...)`. Emet 'RemoveMachine'. PUR."""
+    __slots__ = ("units_sel",)
+
+    def __init__(self, units_sel: TargetsSelector):
+        self.units_sel = units_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.units_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(int(uid))
+            if not is_machine_of_war(e):          # gate natif `EntityExtensions$$IsMachine`
+                continue
+            e.get_component(MachineComponent).removed = True     # `RemoveMachineFromPlatform`
+            if state.effects is not None:         # `RemoveMachineOperation$$RemoveEffects`
+                for eff in state.effects.by_unit.get(int(uid), []):
+                    eff.consumed = True
+            ectx.emit("RemoveMachine", machine=int(uid))
         return OperationResult.ok()
 
 

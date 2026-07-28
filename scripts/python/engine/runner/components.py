@@ -247,14 +247,22 @@ class MachineComponent(Component):
     lien retour `MachinePlatformComponent.MachineId` (Nullable @+0x14 hasValue / @+0x18 value).
 
     Le port n'a pas de type d'entité : `UnitComponent` porte l'identité (rôle `BaseUnitComponent`) et
-    CE composant marque la nature Machine + le slot."""
-    __slots__ = ("slot",)
+    CE composant marque la nature Machine + le slot.
+
+    `removed` (#91) = la MoW a été RETIRÉE de la bataille par
+    `IdunBattle.Operations.RemoveMachineOperation$$Execute` (`RemoveMachineFromPlatform` + event
+    `0x2e` + `RemoveEffects`). Le natif ne détruit pas l'entité : il la détache de sa plateforme, ce
+    qui la rend indisponible pour le reste du combat (i2 `DutyEternal` : « Galatian can no longer be
+    used as a Machine of War for the rest of the battle »). Le port matérialise ce détachement par
+    ce drapeau — c'est le pendant `MachineComponent` du `alive=False` d'une unité."""
+    __slots__ = ("slot", "removed")
     SLOT_NONE = 0
     SLOT_TOP = 1
     SLOT_BOTTOM = 2
 
-    def __init__(self, slot: Optional[int] = None):
+    def __init__(self, slot: Optional[int] = None, removed: bool = False):
         self.slot = slot
+        self.removed = bool(removed)
 
 
 def is_machine_of_war(entity) -> bool:

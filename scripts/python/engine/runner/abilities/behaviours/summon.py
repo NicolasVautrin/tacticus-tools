@@ -54,14 +54,33 @@ class Spawn(AbilityBehaviour):
     `entities.children`. Sans ca, un etage AVAL du meme arbre (ex. le `PerformAIAction(UnitsWithId(...))`
     de CultDemagogue IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour, 3e terme d'un UNIQUE `op_Addition`) ne verrait AUCUN summon = NO-OP
     SILENCIEUX. L'enfant est une `LiveUnit` (pos/hp/alive re-lus du state) -> les gardes `AllUnits`/`Alive`
-    en aval lisent l'etat courant, comme le natif."""
-    __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance")
+    en aval lisent l'etat courant, comme le natif.
+
+    `spawn_as_single_unit` = le champ `SpawnUnitOptions+0x60`, le bit qui fait BASCULER
+    `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` sur son AUTRE branche. Lu verbatim
+    au decompile :
+
+        if (options.<+0x60> == 0)                        // branche par DEFAUT
+            foreach (tile in tiles) AddUnit(unitConfig, [tile], player, 2, options);   // N unites
+        else
+            AddUnit(unitConfig, GetTileIds(tiles), player, 2, options);                // UNE unite
+
+    `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$GetTileIds` aplatit TOUTE la collection de
+    tuiles en UNE liste d'ids, que `AddUnitOperation$$Execute` consomme par `ClearFeet` + un
+    `AddFoot` PAR tuile -> **UNE unite a N pieds**. C'est le SEUL producteur d'empreinte multi-hex
+    du binaire, et son seul consommateur dans `gqfc5mff6c` est `DutyEternalAbility$$
+    ExecuteBehaviour` (`*(opts + 0x60) = 1`). `False` (defaut) = branche par defaut, strictement
+    inchangee pour les call-sites anterieurs."""
+    __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance",
+                 "spawn_as_single_unit")
 
     def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
-                 on_appearance: AbilityBehaviour | None = None):
+                 on_appearance: AbilityBehaviour | None = None,
+                 spawn_as_single_unit: bool = False):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
         self.on_appearance = on_appearance
+        self.spawn_as_single_unit = bool(spawn_as_single_unit)   # `SpawnUnitOptions+0x60`
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -82,11 +101,18 @@ class Spawn(AbilityBehaviour):
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
         from ...operations.triggers.dispatch import ability_init_triggers   # lazy : cycle spawn<->triggers
-        for tile in tiles:                                # itere les tuiles EN INTERNE (natif)
+        # `SpawnUnitBehaviour$$Execute` branche `options+0x60` : soit une unite PAR tuile (defaut),
+        # soit UNE unite sur `GetTileIds(tiles)` (toutes les tuiles = ses PIEDS). Le port exprime les
+        # deux par la MEME boucle : la 2e branche n'a qu'UNE iteration, dont l'ancre est `tiles[0]`
+        # (== la main tile) et dont `feet_tiles` porte l'empreinte COMPLETE, dans l'ordre.
+        spawns = ([(tiles[0], list(tiles))] if (self.spawn_as_single_unit and tiles)
+                  else [(t, None) for t in tiles])
+        for tile, feet in spawns:                         # itere les tuiles EN INTERNE (natif)
             gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
                                      oc.team if oc is not None else None,
                                      oc.player if oc is not None else None,
-                                     parent_id=caster_id)     # `Unit_Parent_Id` (mirror live)
+                                     parent_id=caster_id,     # `Unit_Parent_Id` (mirror live)
+                                     feet_tiles=feet)
             if gid is not None:
                 child = LiveUnit(state, gid)              # vue LIVE (mirror de la ref d'etat native)
                 child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,

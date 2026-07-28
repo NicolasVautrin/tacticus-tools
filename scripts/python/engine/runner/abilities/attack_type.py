@@ -234,6 +234,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1145: AbilityAttackType.Others,   # SporeMineLauncherAbility
     1151: AbilityAttackType.Others,   # TheQuickeningAbility
     1159: AbilityAttackType.Others,   # MacroPlasmaIncineratorAbility
+    # DutyEternal (1158, Galatian ultraDreadnought MoW), case-91. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others (l'ability ne fait AUCUN
+    # degat : elle retire la MoW et pose un summon a 3 pieds). Le `&opts` y est un litteral INLINE
+    # (forme « flags directs », masque 0x20000040000042) -> ses `TARGETING_OPTIONS` sont posees.
+    1158: AbilityAttackType.Others,   # DutyEternalAbility
     1163: AbilityAttackType.Others,   # BlackRageAbility
     1166: AbilityAttackType.Others,   # AberrantHypermorphAbility
     1179: AbilityAttackType.Others,   # CultDemagogueAbility

@@ -63,7 +63,8 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
-                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility)
+                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility,
+                           DutyEternalAbility)
 from .custodes import MomentShackleAbility
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
@@ -159,6 +160,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # cf. docs/rl/case-90-mow-effect-posers.md.
     HeavyRailRifleAbility.ABILITY_TYPE: HeavyRailRifleAbility,         # 1160 (tauBroadside Tau MoW : AddEffect(1334 PendingTarget -> cible) & AddEffect(1333 PendingAttack -> la MoW) ; unit-target)
     MacroPlasmaIncineratorAbility.ABILITY_TYPE: MacroPlasmaIncineratorAbility,  # 1159 (ultraDreadnought Ultramarines MoW : AddEffect(1335 Tile -> triangle Walkable/SameElevation autour de la tuile ciblee) & AddEffect(1336 AutoAttack -> la MoW), TurnsFromRounds(1) ; tile-target)
+    DutyEternalAbility.ABILITY_TYPE: DutyEternalAbility,               # 1158 (ultraDreadnought Ultramarines MoW : RemoveMachine(caster) & Spawn(ThreeTileUnitSpawnShape(tuile ciblee), "ultraSmnDreadnought", opts+0x60=1 -> UNE unite a 3 PIEDS) ; on-appearance AddTrait(0x418 Stationary) [& AddTriggeredAbility(1re triggered du caster)] ; tile-target -- SEULE ability multi-hex du build, cf. case-91)
     DevastatingRefrainAbility.ABILITY_TYPE: DevastatingRefrainAbility,  # 1188 (adeptExorcist Sisterhood MoW : AddEffect(1403 Attack -> la MoW) + AddBondEffect(1402 Target -> tuile ciblee + 3 voisines {3,1,5}/{0,2,4} selon le cote) ; tile-target)
     SquigMineAbility.ABILITY_TYPE: SquigMineAbility,                   # 1201 (orksRukkatrukk Orks MoW : AddEffect(1441 SquigMine_Tile -> tuile ciblee + PickRandomly(nrOfTiles) dans le disque range=2 libre/sans-mine), TurnsFromRounds(nrOfRounds) ; tile-target)
     MalleusRocketLauncherAbility.ABILITY_TYPE: MalleusRocketLauncherAbility,  # 1142 (astraOrdnanceBattery AstraMilitarum MoW : Inform + AddBondEffect(1308) + AddEffect(1309 PendingTarget) + AddEffect(1310 SpottedTarget), tous sur la TUILE ciblee ; tile-target)
@@ -219,11 +221,30 @@ class AbilityHandler:
         # execution : aucune behaviour, aucun degat, AUCUN flag de tour (le natif retourne 0 en amont du
         # `AddFlagsAfterAbilityExecution`). MEME gate que l'attaque normale (#139, cf. damage.py). Inerte pour
         # tout caster vivant (les casts legitimes partent d'unites vivantes) -> zero regression. cf. case-70.
-        from ..components import unit_is_dead
+        from ..components import unit_is_dead, MachineComponent
         caster = self.state.get_entity(int(msg.caster_id))
         if unit_is_dead(caster):
             self.last = {"ability_type": msg.ability_type, "ported": None,
                          "caster": msg.caster_id, "target": msg.target_id, "actor_dead": True}
+            return
+        # #91 GATE MACHINE RETIREE -- une Machine of War que `IdunBattle.Operations.
+        # RemoveMachineOperation$$Execute` a detachee de sa plateforme ne caste PLUS, ni l'ability
+        # qui l'a retiree ni l'AUTRE (i2 DutyEternal : « Galatian can no longer be used as a
+        # Machine of War for the rest of the battle »).
+        #
+        # SOURCE = la MESURE, pas une lecture de decompile : `RemoveMachineOperation` ne touche ni
+        # `ActiveAbilityComponent` ni l'entite, et `decisionView.mows` continue d'exposer
+        # `usable: true` -- donc aucun champ natif ne porte ce refus. Ce qui le porte est
+        # OBSERVABLE et a ete mesure avec anti-confond (`probe_91_duty_eternal.py`, runner de
+        # CONTROLE a fenetre cooldown/tour IDENTIQUE) : cast de 1159 apres retrait ->
+        # `actionConsumed = False` ; le meme cast sans retrait -> `actionConsumed = True`.
+        # Le no-op est donc pose ICI, au meme rang que le gate acteur-mort : aucune behaviour,
+        # aucun flag de tour, aucun vecteur d'evenement -- exactement la signature d'un refus.
+        mc = caster.get_component(MachineComponent) if caster is not None else None
+        if mc is not None and getattr(mc, "removed", False):
+            self.last = {"ability_type": msg.ability_type, "ported": None,
+                         "caster": msg.caster_id, "target": msg.target_id,
+                         "machine_removed": True}
             return
         klass = ABILITY_CLASSES.get(int(msg.ability_type))
         ability = klass() if klass is not None else None

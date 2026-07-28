@@ -76,6 +76,59 @@ class TilesInTriangleShape(TargetsSelector):
         return out
 
 
+class ThreeTileUnitSpawnShape(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLFactory$$ThreeTileUnitSpawnShape(inner)` ->
+    `IdunBattle.Entities.Selectors.ThreeUnitSpawnTileShapeSelector$$Select` — mirror :
+
+        tile = inner.Select(ctx);                       // l'ANCRE (la tuile CIBLEE par le cast)
+        return tile == null ? new List<TileEntity>() : GetArea(tile);
+
+    `GetArea` essaie les directions dans l'ordre litteral `[1, 0, 5, 4, 3, 2]` et retient la
+    PREMIERE aire qui passe `CorrectArea` (3 tuiles, libres, voisines deux a deux, meme
+    elevation) ; aucune -> liste VIDE, et c'est CE vide que
+    `...DutyEternalAbility$$GetDynamicInvalidTargetReason` traduit en refus (raison 2).
+
+    Le corps geometrique vit dans `engine.services.spawn_tile_shape` (porte en #R30, tables de
+    forme dans `engine.battle_query`) : ce noeud n'est QUE l'enveloppe DSL qui manquait — R30
+    avait porte le selecteur comme FONCTION, pas comme noeud d'arbre, si bien qu'aucune ability
+    ne pouvait le consommer sans recabler la geometrie a la main.
+
+    XREFS natives EXHAUSTIVES du noeud : `DutyEternalAbility` et `AetherStrideAbility`.
+
+    OCCUPATION : `CorrectArea` appelle `TileExtensions$$CanAddUnit(tile, state, 1, 0, 0)` -> une
+    tuile sous N'IMPORTE QUEL pied est occupee ; on lit donc l'empreinte (`unit["feet"]`) de
+    chaque unite VIVANTE de `ctx.units`, comme le noeud `CanAddUnit`. Retour list[int] (tile ids),
+    **ancre d'abord** — l'ordre est OBSERVABLE : `AddUnitOperation` fait un `AddFoot` par tuile
+    dans cet ordre, donc `feet[0] == ancre == main tile`. board None -> []."""
+    def __init__(self, inner: TargetsSelector):
+        self.inner = inner
+
+    def select(self, ctx):
+        from ...services.spawn_tile_shape import get_area
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        occ = set()
+        for u in ctx.units:
+            if not _is_alive(u):
+                continue
+            feet = (u or {}).get("feet")
+            if not feet:
+                p = _pos(u)
+                feet = [] if p is None else [p]
+            for f in feet:
+                occ.add((int(f[0]), int(f[1])))
+        anchors = _tile_positions(self.inner, ctx, board)
+        if not anchors:                                   # `tile == null` -> liste VIDE
+            return []
+        out = []
+        for t in get_area(board, occ, anchors[0]):        # `Select` du natif = UNE tuile (l'ancre)
+            tid = board.id_at(t[0], t[1])
+            if tid is not None:
+                out.append(tid)
+        return out
+
+
 class TileFromVector(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$TileFromVector` -> `IdunBattle.Entities.Selectors.TileFromVectorSelector$$Select` : pour CHAQUE
     tuile de `tiles`, la VOISINE dans la direction hex `direction` (`IdunBattle.Utils.Hex.AxialCoordinate$$NeighbourAt`). Le natif abandonne si le noeud-vecteur (Nullable @+0x28) n'a pas de valeur, et n'ajoute

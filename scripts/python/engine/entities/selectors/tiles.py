@@ -163,7 +163,14 @@ class TileUnique(TargetsSelector):
 class CanAddUnit(TargetsSelector):
     """`DSLFactory.CanAddUnit(tiles)` : garde les tuiles ou une unite PEUT etre ajoutee = `walkable`
     ET LIBRE (aucun occupant VIVANT). Occupation = tuiles des `ctx.units` vivants (mirror du
-    `_occupied_tiles(state)` imperatif). Ordre de `source` preserve. board None -> []."""
+    `_occupied_tiles(state)` imperatif). Ordre de `source` preserve. board None -> [].
+
+    OCCUPATION PAR PIED (#91) : le natif `IdunBattle.Entities.TileExtensions$$CanAddUnit` lit le
+    `TileContentComponent` de la tuile -- une tuile sous N'IMPORTE QUEL pied est occupee (#R30 §1).
+    On lit donc l'EMPREINTE (`unit["feet"]`, mirror `EntityExtensions$$GetTiles`), pas la seule
+    `PositionComponent`. Strictement equivalent pour une unite mono-tuile (`feet == [pos]`) ; sans
+    ca, un Galatian pose au sol par `DutyEternal` ne bloquait que sa MAIN TILE et le port acceptait
+    de spawner sur ses deux autres pieds."""
     def __init__(self, source: TargetsSelector):
         self.source = source
 
@@ -175,12 +182,14 @@ class CanAddUnit(TargetsSelector):
         for u in ctx.units:
             if not _is_alive(u):
                 continue
-            p = _pos(u)
-            if p is None:
-                continue
-            t = board.id_at(p[0], p[1])
-            if t is not None:
-                occ.add(t)
+            feet = (u or {}).get("feet")
+            if not feet:                                  # unite hors plateau / dict sans empreinte
+                p = _pos(u)
+                feet = [] if p is None else [p]
+            for f in feet:
+                t = board.id_at(f[0], f[1])
+                if t is not None:
+                    occ.add(t)
         return [t for t in self.source.evaluate(ctx) if t not in occ and board.walkable(t)]
 
 
