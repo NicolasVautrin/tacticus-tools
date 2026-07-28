@@ -262,9 +262,38 @@ def _has_repair_magnitude(cfg: dict) -> bool:
     return any(k.startswith("hpToRepair") for k in (cfg.get("variables") or {}))
 
 
+def _refuses_all_enemy_targets(ability_id: int) -> bool:
+    """VETO NATIF de la route ENNEMIE : le masque `TargetingOptions` RE-LU de l'ability refuse-t-il
+    TOUTE cible ennemie (`TargetIsFriendly` / `TargetIsCaster`) ? Masque non lu -> False (aucun veto,
+    la classification gameconfig garde la main -- meme convention permissive que
+    `engine.runner.abilities.targeting`).
+
+    POURQUOI CE VETO EXISTE : le generateur d'action offline construit ses tuiles legales par la
+    SEULE distance hex, la ou son homologue natif
+    `IdunBattle.Core.Services.AttackQuery$$GetBestTileToAttackFrom` filtre CHAQUE tuile candidate par
+    `AttackQuery.GetInvalidTargetReason(unit, new UnitPosition(tile), target, ability)` et n'en garde
+    aucune quand la cascade rompt. Une ability `TargetIsFriendly` (ex. 1100 SorcerousFacade) rompt
+    sur TOUS les ennemis : le natif ne rend AUCUNE tuile, donc AUCUNE paire (ability, ennemi). Sans
+    ce veto le moteur en fabrique une par ennemi -- des actions que le natif REFUSE.
+
+    Strictement SOUSTRACTIF, et c'est voulu : jamais de PROMOTION vers la route ennemie (un masque
+    qui porte `TargetIsEnemy` sans `damageProfile` reste hors de `_best_attack`, cf. le residu
+    « masque enemy mais non routee » de `probe_217_phantom_action_routing.py`)."""
+    from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
+    opts = targeting_options_for(ability_id)
+    return opts is not None and refuses_all_enemy_targets(opts)
+
+
 def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
-    """ATTAQUE (produit du degat) ssi `constants.damageProfile` present ET l'ability n'est PAS deja routee
-    vers un playbook NonComparable (NovaBoost/NovaShield portent un damageProfile mais sont buff/tile)."""
+    """ATTAQUE (produit du degat, ciblee sur un ENNEMI) ssi le masque natif ne l'interdit pas ET
+    `constants.damageProfile` present ET l'ability n'est PAS deja routee vers un playbook
+    NonComparable (NovaBoost/NovaShield portent un damageProfile mais sont buff/tile).
+
+    Le masque natif passe AVANT la signature gameconfig : `damageProfile` dit « cette ability produit
+    du degat », il ne dit RIEN du camp de la cible. 1100 SorcerousFacade porte un `damageProfile`
+    (Psychic) et cible pourtant un ALLIE Psyker (`SorcerousFacadeAbility$$.ctor`, rules=0x402)."""
+    if _refuses_all_enemy_targets(ability_id):
+        return False
     if not (cfg.get("constants") or {}).get("damageProfile"):
         return False
     from engine.playbook.noncomparable import is_noncomp
@@ -285,8 +314,22 @@ def _ability_reach(vid: str, ability_id: int, cfg: dict) -> int:
 
 def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     """KIND de cible derive offline : 'enemy' (attaque) / 'ally' (heal) / 'machine' (repair) / 'tile' (summon)
-    / 'self' (residuel). Cf. §2(c) de la RE : exact pour les 4 premieres, defaut self pour le reste."""
+    / 'self' (residuel). Cf. §2(c) de la RE : exact pour les 4 premieres, defaut self pour le reste.
+
+    Le masque natif RE-lu PRIME quand il porte `TargetIsFriendly` : c'est le camp que la cascade
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` impose (tout non-allie rompt),
+    et donc le seul domaine que `GetPossibleTargetsForOptions` laisse survivre. Sans ca, une ability
+    ALLIEE a `damageProfile` (1100 SorcerousFacade) retombait sur 'enemy'. La restriction FINE
+    eventuelle (regle dynamique de l'ability) n'est pas appliquee ici quand la classe d'ability n'est
+    pas portee -> l'ensemble rendu est un SUR-ENSEMBLE des allies, degradation permissive assumee."""
     c = cfg.get("constants") or {}
+    if _refuses_all_enemy_targets(ability_id):
+        from engine.runner.abilities.targeting import targeting_options_for
+        from engine.runner.abilities.targeting_rule import TargetingRule as _TR
+        _opts = targeting_options_for(ability_id)
+        if _opts is not None and _opts.has(_TR.TargetIsFriendly):
+            return "ally"
+        return "self"                                  # `TargetIsCaster` : la cible DOIT etre le caster
     if _is_attack_ability(ability_id, cfg):
         return "enemy"
     if int(ability_id) in HEAL_ABILITY_IDS or _has_heal_magnitude(cfg):
