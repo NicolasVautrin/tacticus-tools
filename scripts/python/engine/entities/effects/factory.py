@@ -25,6 +25,8 @@ from .loki import (
     BlessingsOfKhorneModifiersEffect,
     ContaminatedEffect,
     ContaminatedUnitEffect,
+    DespoiledGroundEffect,
+    DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
     SereneUnifierSenseOfStoneEffect,
     VexillaMagnificaDmgReductionEffect,
@@ -521,6 +523,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # base) — canal unique consulte par le gate de `AddEffectOperation` ET par le vecteur
     # tile-effect. Nom capte = effect-type-names.ts (`EffectType.Contaminated`). #224.
     "Contaminated": ContaminatedEffect,
+    # DespoiledGround (0x5c4=1476) : l'effet de TUILE lui-meme (#85). MEME patron que `Contaminated` /
+    # `Fire` : marqueur sans contribution propre, tout l'observable vit dans l'ability d'environnement
+    # qui le lit (`EnvDespoiledGroundTileAbility` -> `DespoiledGroundTileDoT`). Porte pour que le
+    # tile-effect pose par `FleshMetalGuns_TileEffectAbility` soit une VRAIE instance (nom capte, duree
+    # `DefaultAmountOfRounds(0x5c4)=2` rounds -> tours, expiration par `on_turn_end`).
+    "DespoiledGround": DespoiledGroundEffect,
+    # DespoiledGround_ExtraDamagePct (0x5c6=1478) : le buff +15 % degat (BC `DespoiledGroundExtraDmgPct`)
+    # pose sur l'unite CHAOS qui demarre son tour sur une tuile DespoiledGround, actif contre les cibles
+    # Xenos (1006) ou Imperial (26). Nom capte = effect-type-names.ts.
+    "DespoiledGround_ExtraDamagePct": DespoiledGroundExtraDamagePctEffect,
     # Leagues of Votann (#113) — les TROIS stat-mods sont des `DynamicStatModifierEffect` GENERIQUES
     # (aucune classe native dediee) instancies par des lambdas de `EffectsDatabase$$InitializeEffects` :
     # magnitude = `ConfigVar(<abilityId>, EffectSource, <varKey>)`, signe = le champ `isNegative` (+0x4a4)

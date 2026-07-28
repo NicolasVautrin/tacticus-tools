@@ -290,6 +290,35 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class IsTurnOf(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLFactory$$IsTurnOf(selector)` = `new <DAT_18320cc68>(selector,
+    matchState@+0x10)` — ctor gshared 2-champs MISLABELE par ghidra
+    (`Idun.Source.IdunBattle.Logic.Entities.Triggers.HasUsedActiveAbilityThisTurnTrigger$$.ctor` :
+    STRUCTURE lue, jamais le nom, cf. l'en-tete de `dsl/base.py`). Semantique : « l'unite selectionnee
+    appartient au joueur dont c'est LE TOUR » (`TurnComponent.CurrentPlayer`).
+
+    Deux call-sites natifs deja portes (imperativement) confirment cette lecture :
+      * `FleshMetalGunsAbility$$CreateTrigger` = `On(0x16=TurnStart_Actions) & IsTurnOf(Self@0x148)` —
+        la rotation d'armes ne fire qu'au debut du tour de SON porteur (ground truth live case-222 §B) ;
+      * `IdunBattle.Entities.Effects.FirstAidHealEffect$$CreateTargetTrigger` =
+        `On(0x13) & IsTurnOf(Units(tile))` — l'ennemi debout sur une tuile FirstAid n'est PAS soigne a
+        MON tour.
+
+    `ctx.current_player_id is None` (contexte sans tour courant : prediction, arbre purement numerique)
+    -> **False**, degradation conservatrice (on ne fabrique pas un declenchement)."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def should_trigger(self, ctx):
+        cur = getattr(ctx, "current_player_id", None)
+        if cur is None:
+            return False
+        for u in _units_of(self.unit, ctx):
+            if u is not None and (u.get("player") if hasattr(u, "get") else None) == cur:
+                return True
+        return False
+
+
 class AreFriends(AbilityTrigger):
     """`DSLFactory.AreFriends(a, b) @...` : les deux entités sont-elles ALLIÉES (MÊME équipe) ? Mirror du
     test `_friendly_imperial` impératif du `matches` ActOfFaith (`oc.team == oown.team`, live-validé) —

@@ -54,12 +54,25 @@ Nothing()
 - Les 3 `RemoveEffect` INCONDITIONNELS AVANT les 3 `If` = pas de double-pose ; l'effet du tour precedent
   part meme si aucune branche ne matche.
 
-### Volet `FleshMetalGuns_TileEffectAbility` (DespoiledGround) -- NON porte ici
-`IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger` = `On(0x10=DamageDealt) & OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail,
-srcflag 6)` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour` = `AddEffect(0x5c4=1476, stateRef, Tiles(Target@0x178))` = pose
-l'effet de TUILE DespoiledGround sous la cible pendant le round WarpHail. Prerequis ABSENT : le vecteur
-`On(DamageDealt=16)` n'existe pas dans le dispatch porte -> residu documente (hors perimetre << la pose
-manque >> : l'effet de tuile 1476 n'est pas porte non plus).
+### Volet `FleshMetalGuns_TileEffectAbility` (DespoiledGround) -- PORTE (#85)
+`IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger` = `On(0x10=DamageDealt) & get_OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail,
+srcflag 6)` ; `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateBehaviour` = `AddEffect(0x5c4=1476, stateRef, Tiles(Target@0x178), 0)` = pose
+l'effet de TUILE DespoiledGround sous la cible pendant le round WarpHail. i2
+`UnitEffects/FleshmetalGunsWarpHail_Description` : « Ranged attacks ... and add Despoiled Ground to the
+hex of attacked units. »
+
+Les DEUX prerequis ont ete leves par #85 : le vecteur `On(DamageDealt=0x10)` existe desormais
+(`dispatch/attack.py::damage_dealt_triggers`, emis par le chokepoint `_apply_damage_pipeline` en mirror
+de `IdunBattle.Operations.ApplyDamageOperation$$Execute`), et la classe d'effet 1476 est portee
+(`entities/effects/loki/status.py::DespoiledGroundEffect` + son DoT d'environnement
+`triggers/loki/despoiled_ground.py`).
+
+⚠ Le `AddEffect` natif est **la MEME surcharge, avec les MEMES arguments**, que celle d'
+`IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour`
+(`AddEffect(factory, <type>, stateRef, Tiles(target@0x178), 0, 0)`) : le 5e argument NUL = **aucun noeud
+de duree** -> `DefaultAmountOfRounds(0x5c4)` = 2 rounds, converti en tours par `AddEffectOperation`.
+L'arbre porte ci-dessous est donc le JUMEAU EXACT d'`on_fire_damage_tree` (meme feuille, meme selecteur
+tile-domain, meme absence d'override de duree) -- y compris son residu de SOURCE deja documente la-bas.
 """
 from __future__ import annotations
 
@@ -70,7 +83,7 @@ from ....components import OwnerComponent
 from ....abilities.behaviours import AddEffect, RemoveEffect, entities_from_state
 from .....entities.behaviours import op_add, If as IfBehaviour
 from .....entities.formulas import UnitTurnsStarted
-from .....entities.selectors import Caster
+from .....entities.selectors import Caster, Target, Tiles
 from .....entities.triggers import Modulo
 from .....entities.effect_type import EffectType
 from .....dsl.base import Const
@@ -128,3 +141,64 @@ class FleshmetalGunsRotationAbility(TriggeredAbility):
         removed = sum(int(p.get("removed") or 0) for n, p in ectx.emitted if n == "RemoveEffect")
         return {"ability": "FleshmetalGuns", "unit": int(self.owner_id),
                 "placed": placed, "removed": removed}
+
+
+# --- Volet TILE-EFFECT : pose de DespoiledGround pendant le round WarpHail (#85) -------------------
+_WARP_HAIL = int(EffectType.FleshmetalGunsWarpHail)          # 0x4c5 = 1221 (gate du CreateTrigger)
+_DESPOILED_GROUND = int(EffectType.DespoiledGround)          # 0x5c4 = 1476 (l'effet de TUILE pose)
+_ON_DAMAGE_DEALT = int(EventTriggerType.DamageDealt)         # 0x10 = 16
+
+
+def fleshmetal_guns_tile_effect_tree():
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$
+    CreateBehaviour` (MIRROR 1:1 du DECOMPILE) :
+
+        AddEffect( effectType = 0x5c4 = 1476 (DespoiledGroundEffect),
+                   source     = AbilityStateReference,
+                   target     = Tiles(target@0x178) )            # TILE-domain, AUCUN noeud de duree
+
+    = le JUMEAU strict d'`on_fire_damage_tree` (meme surcharge native `AddEffect(f, <type>, stateRef,
+    Tiles(target), 0, 0)`, meme feuille tile-domain `Tiles(Target())`). `duration_rounds=None` = pas
+    d'override -> `DefaultAmountOfRounds(0x5c4) = 2` rounds, converties en TOURS par
+    `AddEffectOperation` (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`, #98).
+    Le gate de DECLENCHEMENT (`get_OwnerIsCaster` + `HasEffect(Self, 0x4c5)`) reste UPSTREAM
+    (`CreateTrigger`, hors `CreateBehaviour`), dans `matches`. RNG-free (AddEffect inconditionnel)."""
+    return AddEffect(_DESPOILED_GROUND, EffectType.DespoiledGround.name, Tiles(Target()),
+                     duration_rounds=None)
+
+
+class FleshmetalGunsTileEffectAbility(TriggeredAbility):
+    """`FleshMetalGuns_TileEffectAbility` (`$$CreateTrigger` = `On(0x10 = DamageDealt) &
+    get_OwnerIsCaster & HasEffect(Self@0x148, 0x4c5 = WarpHail)` ; `$$CreateBehaviour` =
+    `AddEffect(0x5c4, stateRef, Tiles(Target@0x178))`) — pendant le tour WarpHail de Volk
+    (`blackObliterator`), CHAQUE degat qu'il inflige DESPOILE la tuile de sa victime.
+
+    `get_OwnerIsCaster` : l'`AbilityEntities` de `On(0x10)` est construit par
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute` avec **caster == actor == la SOURCE du degat**
+    (cf. `dispatch/attack.py::damage_dealt_triggers`) -> le predicat se lit `ev.actor_id == owner_id`.
+
+    `HasEffect(Self, 0x4c5)` : le 4e argument natif (`0`) est le flag ACTIVE-ONLY (rectification #100) —
+    a 0, la simple PRESENCE suffit ; on ne filtre donc PAS sur `e.active`. L'effet 1221 est pose/retire
+    par `FleshmetalGunsRotationAbility` au debut de chaque tour de Volk (`turnsStarted % 3 == 0`).
+
+    Le retour porte `placed` = la pose a-t-elle REELLEMENT eu lieu (la tuile ne portait pas deja 1476) —
+    `AddEffectOperation` no-ope sinon, exactement comme la re-pose de FEU d'`OnFireDamageAbility`."""
+    event_id = _ON_DAMAGE_DEALT
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if int(ev.actor_id) != int(self.owner_id):        # get_OwnerIsCaster (caster == actor sur 0x10)
+            return False
+        if state.effects is None or getattr(state, "board", None) is None:
+            return False
+        return state.effects.has_effect(self.owner_id, effect_type=_WARP_HAIL)   # HasEffect(Self, 0x4c5)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        fleshmetal_guns_tile_effect_tree().execute(
+            entities_from_state(state, self.owner_id, ev.target_id), ectx)
+        placed = [p["target"] for n, p in ectx.emitted if n == "AddEffect" and p.get("placed")]
+        if not placed:                                    # tuile deja despoilee -> no-op (idempotent)
+            return None
+        return {"tile_effect": "DespoiledGround", "placed_on_tile": placed[0],
+                "by": int(self.owner_id), "on": int(ev.target_id),
+                "placement": "FleshMetalGuns_TileEffect"}

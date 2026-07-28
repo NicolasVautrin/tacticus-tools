@@ -78,6 +78,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, ContaminatedUnitEffect,
+                     DespoiledGroundEffect, DespoiledGroundExtraDamagePctEffect,
                      StandVigilExtraArmorEffect,
                      BlessingsOfKhorneModifiersEffect, StunnedEffect, StunnedDamageModifierEffect,
                      ActOfFaithBuffEffect, ThrillSeekersEffect, TauntedEffect, PinnedEffect,
@@ -151,6 +152,7 @@ __all__ = [
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedEffect", "ContaminatedUnitEffect",
+    "DespoiledGroundEffect", "DespoiledGroundExtraDamagePctEffect",
     "StandVigilExtraArmorEffect",
     "BlessingsOfKhorneModifiersEffect", "StunnedEffect", "StunnedDamageModifierEffect",
     "ActOfFaithBuffEffect", "ThrillSeekersEffect", "TauntedEffect", "PinnedEffect",
