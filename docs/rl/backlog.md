@@ -370,9 +370,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     gaté sur `is_attack_damage_op`, cette face n'a pas été confrontée (`case-67` §6.5) `[opus]` ;
   - **N3** ordre réduction × bouclier sur `execute_normal_like` — indiscernable à `spread_pct = 0`,
     donc jamais mesuré (`case-67` §6.5) `[opus]` ;
-  - **N4** le STADE natif du refus `TerminatorArmour`/`Pinned` n'est pas identifié : `PinnedEffect`
-    n'override PAS `EntityIsImmuneToEffect` et la base ne teste que le trait `Immune`, qu'aucune unité
-    ne porte → **collapse assumé** par #224 (`case-224-effect-immunity-gate` §5). `[fable]` ;
+  - ~~**N4**~~ **RÉSOLU (#208, 2026-07-28)** — il n'y a **jamais eu de refus** : le natif POSE
+    `Pinned` sur un porteur `TerminatorArmour` et le laisse INERTE
+    (`PinnedEffect$$CreateActiveCondition`, évaluée par `RefreshEffectsOperation$$ShouldBeActive`).
+    Le collapse dans `entity_is_immune_to_effect` est DÉFAIT et le `unit_state` des
+    `CreateActiveCondition` a désormais un constructeur UNIQUE
+    (`runner.components.unit_state_for_effects` / `Scene.unit_state`).
+    Cf. `case-224-effect-immunity-gate` §4/§5 ;
   - ~~**N5**~~ **RÉFUTÉ** (2026-07-27, `case-n5-chain-after-refused-addeffect.md`) : la chaîne **ne
     tombe pas**. `AddEffectBehaviour$$Execute` jette le retour de l'opération et rend un
     `OperationResult` zéro-initialisé ⇒ `CombinedBehaviour$$Execute` ne court-circuite jamais sur une
@@ -386,25 +390,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `AddEffectOperation.execute`, et migration du portage EN DUR de Contaminated. Validé live sur les
   DEUX branches. Détail, inventaire des 7 classes `CanBeImmuneTo` et résidus :
   `docs/rl/case-224-effect-immunity-gate.md`.
-  - **RÉSIDU `[fable]`** : le STADE natif par lequel `TerminatorArmour` fait ÉCHOUER la pose de
-    `Pinned` n'est pas identifié — `PinnedEffect` n'override PAS `EntityIsImmuneToEffect` (vtable
-    runtime), la base ne teste que `UnitTrait.Immune` (qu'aucune unité du roster ne porte) et le seul
-    artefact qui nomme le couple est `PinnedEffect$$CreateActiveCondition = Not(HasTrait(0x40f))` — or
-    une ActiveCondition désactive, elle n'empêche pas la pose, alors que la mesure montre un REFUS
-    (aucun groupe `AddEffect`). Le port COLLAPSE l'ActiveCondition dans le gate. Point d'ancrage pour
-    trancher : hook sur la valeur de retour du slot 40 d'`IEffect` dans `AddEffectOperation$$Execute`,
-    ou sur `BaseUnitComponent$$HasTrait` (arg + résultat). Cf. case-224 §4/§5.1.
+  - ~~**RÉSIDU `[fable]`**~~ **CLOS (#208, 2026-07-28)** : `TerminatorArmour` ne fait PAS échouer la
+    pose de `Pinned` — la prémisse était fausse. `AddEffectOperation$$Execute` aboutit (retour non
+    nul, mesuré #151), `EntityIsImmuneToEffect` y rend `false`, et le canal
+    `decisionView { includeInactive: true }` publie l'effet 1065 avec `active: false`. La lecture
+    « refus » venait d'une inférence : un effet INACTIF n'applique rien, donc n'émet aucun groupe
+    d'événement, donc « pas de groupe » ne distingue pas « pas posé » de « posé et inerte ».
+    Fix livré : collapse défait, `CreateActiveCondition` évaluée à la lecture avec un `unit_state`
+    COMPLET (foyer unique). Cf. case-224 §4/§5.
   - ~~**RÉSIDU `[opus]`**~~ **CLOS** : chaîne `&` derrière un `AddEffect` REFUSÉ — elle **NE TOMBE
     PAS** (décompilé + live). Le confond est levé en DÉPLOYANT le camp joueur au contact : `Pinned`
     refusé ET override d'Attack + attaque libre exécutés (10038 → 7442 HP). Le port était conforme,
     le commentaire d'`operations/effects.py` était faux. Cf. `case-n5-chain-after-refused-addeffect.md`.
-- **`decisionView.effects` cache les effets INACTIFS** (`frida/hooks/game/effects.ts`,
-  `readEffectsByUnit` : `if (!info.active || info.removed) continue`) : impossible de confirmer live
-  qu'un `AddEffect` a réellement posé un effet dont l'`ActiveCondition` n'est pas encore satisfaite —
-  l'absence dans `decisionView` est ambiguë (non-posé vs posé-inactif). Rencontré sur
-  `CalibaniteGreatsword` (effets 0x591/0x3f1 du toggle Strike). Fix = exposer
-  `EffectComponent.IsActive @+0x5c` dans la charge utile (exige rebuild + reinject → à programmer
-  quand l'atelier est vide). `[opus]`.
+- ~~**`decisionView.effects` cache les effets INACTIFS**~~ **CLOS** — l'outil existe depuis `d9d0008`
+  et n'avait jamais été utilisé : `decisionView { includeInactive: true }` publie les effets
+  posés-mais-inactifs AVEC leur flag `active` (`readEffectsByUnit`, `frida/hooks/game/effects.ts`).
+  C'est ce canal qui a tranché #208 (`probe_208_pinned_inactive.py`) — l'absence dans le canal par
+  DÉFAUT n'est plus ambiguë : on lit les deux canaux et on les compare. **Rien à rebuilder.**
+  Règle qui en découle : côté port, `by_unit` ≙ canal `includeInactive`, `active_effects` ≙ canal par
+  défaut — comparer un port à `decisionView` par défaut, c'est comparer à `active_effects`.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,

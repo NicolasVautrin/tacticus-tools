@@ -123,7 +123,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ....state import State
-from ....components import OwnerComponent, StatsComponent
+from ....components import OwnerComponent, StatsComponent, unit_state_for_effects
 from ....abilities.base import turns_until_unit_owner_turn
 from ....abilities.behaviours import (ActivateEffect, AddStaticStatModifierEffect, RemoveEffect,
                                       entities_from_state)
@@ -294,7 +294,8 @@ class EarlyWarningOverrideHitReductionPurge(EffectTrigger):
         # se lit sur `EffectsState.active_effects`, qui conjugue le FLAG `EffectComponent.IsActive
         # @+0x5c` (#127) et la `CreateActiveCondition` -- exactement les deux conjoints natifs.
         active = any(int(e.effect_type) == OVERWATCH_AUTO_ATTACK
-                     for e in state.effects.active_effects(int(self.owner_id)))
+                     for e in state.effects.active_effects(
+                         int(self.owner_id), unit_state_for_effects(state, int(self.owner_id))))
         return not active
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

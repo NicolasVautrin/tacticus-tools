@@ -823,8 +823,9 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
   > — `_load_stats_and_effects` boucle sans filtrer `entityType` parce que la doc jurait que
   > `combatSnapshot` n'émettait que des `Unit`.
 - **`[fable]` restants** : arbitrage Comparable `ExcruciatingFrequencies` vs attaque normale ;
-  étage d'ARRONDI quand la %-list est vide sur les vecteurs restants (= R6, tag mixte) ; **N4**
-  (ci-dessous).
+  étage d'ARRONDI quand la %-list est vide sur les vecteurs restants (= R6, tag mixte).
+  (~~**N4**~~ **FERMÉ** 2026-07-28 par `[opus]` #208 — cf. §4.f : la question « quel stade natif
+  REFUSE » était mal posée, il n'y a pas de refus.)
 
 ### 4.f — NON CONFRONTABLES
 
@@ -836,7 +837,7 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
 | **`Impervious` (28) / cap boss `0x5d4`** | tous les porteurs sont des **boss npc** | **NON CONFRONTABLE** |
 | **`ObeisanceGenerators` (1121, effet 1128)** — consommateur d'`IsCharging`, face COUPS **DÉFENSEUR** | **AUCUN porteur** : balayage des **669** unités (lineup 123 + npc 481 + summons 65) — zéro `activeAbilities`/`passiveAbilities`, zéro `traits`, zéro `relicAbilities`, zéro item. Le nom n'existe qu'aux **2** emplacements de définition du gameconfig (`/units/abilities/ObeisanceGenerators`, `/units/abilityPowerModifiers/ObeisanceGenerators`) | **NON PERTINENT — donnée enregistrée mais MORTE.** Le canal natif existe (`ForAdditionWithMinimum(OwnerIsTarget & IsCharging(caster, owner) & IsMeleeAttack, ConditionalAmount(HasTrait(caster, 2), −c(0x4b), −c(0x2c)), min 1)`) mais personne ne le porte en bataille. Ne pas y envoyer d'agent (`case-ischarging-hits` §4) |
 | **`SabreOfSacrifice` (1478)** — consommateur d'`IsCharging`, face TRIGGER | **npc + relique** : `/units/npc/astraNpcDreir/relicAbilities[0]` et `/items/R_Crit_SabreOfSacrifice/abilityId`. `astraDreir` (le hero du pool) ne la porte **pas**, et `rl_duel.py` ne monte aucun équipement (`relic` : 0 occurrence) | **NON PERTINENT** — hors du domaine confrontable du runner, pas « bloqué » (`case-ischarging-hits` §4) |
-| **N4 — stade natif du refus `TerminatorArmour` / `Pinned`** | blackAbaddon / deathTyphus / blackObliterator = **pool** (donc le COMPORTEMENT est confrontable) — mais le **chemin natif** ne l'est pas : `PinnedEffect` n'override PAS `EntityIsImmuneToEffect`, la base ne teste que le trait `Immune` qu'aucune unité ne porte, et le seul artefact nommant le couple est `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition = Not(HasTrait(0x40f))` — or une ActiveCondition désactive, elle n'empêche pas la pose | **CANDIDAT `fable-solver`** — collapse assumé par #224, live-correct sur 4 porteurs, le décompilé ne rend pas le stade. **Ne PAS dispatcher en `[opus]`.** Point d'ancrage pour trancher : hook sur la valeur de retour du slot 40 d'`IEffect` dans `AddEffectOperation$$Execute`, ou sur `BaseUnitComponent$$HasTrait` (arg + résultat) |
+| ~~**N4 — stade natif du refus `TerminatorArmour` / `Pinned`**~~ **FERMÉ 2026-07-28 (#208)** | blackAbaddon / deathTyphus / blackObliterator = **pool** | **RÉSOLU, et la QUESTION était mal posée : il n'y a jamais eu de refus.** `AddEffectOperation$$Execute` aboutit, `EntityIsImmuneToEffect` rend `false` — le natif POSE `Pinned` et le laisse INERTE via `PinnedEffect$$CreateActiveCondition`, évaluée par `RefreshEffectsOperation$$ShouldBeActive` (flag `EffectComponent.IsActive @+0x5c`). Le décompilé disait donc juste depuis le début ; c'est l'OBSERVABLE qui trompait, parce que `decisionView` DROPPE par défaut les effets inactifs. **Instrument : `decisionView { includeInactive: true }`, déjà livré par `d9d0008` et jamais utilisé** (`probe_208_pinned_inactive.py`). Fix : collapse défait + `unit_state` des `CreateActiveCondition` à foyer UNIQUE (`runner.components.unit_state_for_effects` / `Scene.unit_state`). Cf. `case-224-effect-immunity-gate.md` §4/§4bis |
 
 ### 4.g — COMPTE NET des entrées OUVERTES après cette passe
 
@@ -848,7 +849,7 @@ migration des `execute_*` impératifs vers des arbres de nœuds ; c'est un chant
 | §4.c — outillage / harnais | **4** | O2 · O4 (b, c, d) · O5 · **O7** |
 | **Total résidus NOMMÉS** | **21** | dont **6 relus au code cette passe**, **8 hors intersection**, **4 neufs (dont N7 déjà fermé)**, **1 reformulé** |
 | §4.d — veille | 13 | **non re-confrontés** (aucune colonne Fichiers, cf. l'encadré du §4.d) |
-| §4.f — NON CONFRONTABLES | 4 lots | hors compte : 29 actives npc/summon-env, 1192/1194, 4 overlays R15, `Impervious`, plus **N4** (candidat `fable-solver`) |
+| §4.f — NON CONFRONTABLES | 4 lots | hors compte : 29 actives npc/summon-env, 1192/1194, 4 overlays R15, `Impervious` (~~**N4**~~ **FERMÉ** 2026-07-28, #208 — il n'y avait pas de refus à expliquer) |
 
 Gisements (re-dérivés du code au 2026-07-28, après #181) : **89** actives NO-OP au
 total, **60** dispatchables (dont **15** en `[-D]`), **40** masques de ciblage manquants sur **91**
@@ -1072,8 +1073,10 @@ leur source** (le `.ts` du hook, le décompilé, le `git log -S`) au lieu de les
     **découvert** et laissé ouvert est désormais une entrée à part entière : **N8** (seed de
     `state.turn_counts` + `OwnerHasFinishedMinTurns` PER-UNITÉ).
 
-**Ne PAS dispatcher `N4`** en `[opus]` : collapse assumé que le décompilé ne tranche pas — candidat
-`fable-solver`, et sans urgence (comportement live-correct sur 4 porteurs).
+~~**Ne PAS dispatcher `N4`**~~ — **N4 est FERMÉ (#208, 2026-07-28)**, et sa leçon vaut au-delà du cas :
+le décompilé n'a jamais été en défaut ; c'est l'OBSERVABLE qui l'était. Avant de classer un item
+« que le décompilé ne tranche pas », vérifier que le CANAL DE MESURE ne filtre pas la donnée
+cherchée (`decisionView` droppe les effets inactifs, `includeInactive: true` les rend).
 **Ne PAS dispatcher O2 ni O7** tant que l'atelier n'est pas vide (rebuild + reinject). O7 est le plus
 urgent des deux : il **corrompt silencieusement** tout runner portant une MoW, et la parade actuelle
 (runner jumeau) est un contournement de test, pas un correctif.

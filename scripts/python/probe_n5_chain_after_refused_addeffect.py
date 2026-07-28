@@ -27,6 +27,13 @@ Le contre-cas `blackPossession` (Chaos SANS le trait) donne Pinned + degat dans 
 Troisieme montage (`ally`) : GENERALISATION -- le caster est ECARTE (d=2, arme melee) et l'attaquant
 elu est l'ALLIE RANGED. Meme verdict, avec un porteur d'attaque DIFFERENT du caster.
 
+⚠ CORRECTION #208 (2026-07-28) : sur `blackAbaddon`, le `Pinned` n'est PAS refuse -- il est POSE puis
+rendu INERTE par `PinnedEffect$$CreateActiveCondition` (`probe_208_pinned_inactive.py` :
+`decisionView includeInactive` publie 1065 avec `active=False`). L'observable « Pinned pose ? » lu
+ici est en fait « Pinned CONTRIBUE ? » (un effet inactif n'applique rien, donc n'emet aucun groupe).
+Le VERDICT DE CE PROBE est intact -- la chaine tient -- et il l'est meme a plus forte raison :
+`AddEffectBehaviour$$Execute` jette la valeur de retour de l'operation dans TOUS les cas.
+
 Usage (depuis scripts/python, session Frida chaude) :
     python probe_n5_chain_after_refused_addeffect.py [immune|control|ally|all]
 

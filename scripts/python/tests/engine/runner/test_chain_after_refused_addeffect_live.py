@@ -1,7 +1,15 @@
-"""N5 -- la chaine `&` derriere un `AddEffect` REFUSE par le gate d'immunite NE TOMBE PAS.
+"""N5 -- la chaine `&` derriere un `AddEffect` qui n'ABOUTIT PAS (refus, no-op, cible nulle) NE TOMBE PAS.
 
 CRITERE : quand `IdunBattle.Operations.AddEffectOperation$$Execute` abandonne (gate
 `EntityIsImmuneToEffect`, cf. case-224), la SUITE de la chaine `op_BitwiseAnd` s'execute-t-elle ?
+
+⚠ MONTAGE CORRIGE (#208) : le couple `Pinned` x `TerminatorArmour` utilise ici comme exemple de
+« refus » n'en est PAS un -- l'effet est POSE puis rendu INERTE par sa `CreateActiveCondition`
+(mesure `probe_208_pinned_inactive.py` : `decisionView includeInactive` publie 1065, `active=False`).
+Cela ne change RIEN a la conclusion sur la chaine (`AddEffectBehaviour$$Execute` jette la valeur de
+retour de l'operation dans TOUS les cas), mais le verrou structurel exerce desormais un VRAI refus
+(trait `Immune` accorde sur l'etat charge), et l'axe `Pinned` des tests live se lit sur le canal
+ACTIF des deux cotes.
 
 REPONSE (decompile + live) : OUI. Deux artefacts natifs l'etablissent, et rien ne les contredit :
 
@@ -50,7 +58,7 @@ from engine.entities.selectors import Target
 from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.behaviours.effects import AddEffect
 from engine.runner.abilities.darkangels import ExemplarOfHateAbility
-from engine.runner.components import HealthComponent
+from engine.runner.components import HealthComponent, unit_state_for_effects
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.snapshot import load_state
 
@@ -92,6 +100,15 @@ def _port_hp(state, uid):
     e = state.get_entity(int(uid))
     hc = e.get_component(HealthComponent) if e is not None else None
     return None if hc is None else hc.hp
+
+
+def _port_active(state, uid) -> set:
+    """EffectTypes ACTIFS (flag `EffectComponent.IsActive` + `CreateActiveCondition`) -- le pendant
+    EXACT du canal live qui emet un groupe d'evenement / que publie `decisionView` par defaut."""
+    if state.effects is None:
+        return set()
+    return {e.effect_type
+            for e in state.effects.active_effects(int(uid), unit_state_for_effects(state, int(uid)))}
 
 
 def _group_sources(action) -> list:
@@ -137,7 +154,12 @@ def _run(sid, layout, victim_visual):
                 "override": "TemporaryStatOverride" in srcs,
                 "attack": any(s and "NormalAttack" in s for s in srcs),
                 "damaged": (hp0.get(tgt) or (0,))[0] != (hp1.get(tgt) or (0,))[0]}
-        port_v = {"pinned": PINNED in (port.get("effects") or []),
+        # AXE `pinned` = « l'effet CONTRIBUE-t-il ? », pas « a-t-il ete pose ? ». Cote LIVE c'est
+        # l'emission d'un groupe `Pinned` (un effet INACTIF n'applique rien, donc n'emet rien) ; le
+        # pendant EXACT cote port est `active_effects`, PAS la liste des poses (#208 : sur une cible
+        # `TerminatorArmour` le natif POSE l'effet et le laisse inerte -- mesure probe_208).
+        port_v = {"pinned": PINNED in _port_active(st, tgt),
+                  "placed": PINNED in (port.get("effects") or []),
                   "override": port.get("attack_override") is not None,
                   "attack": port.get("attack") is not None,
                   "damaged": php0 != php1}
@@ -149,20 +171,29 @@ def _run(sid, layout, victim_visual):
 
 # ------------------------------------------------------- (1) le CRITERE, live + port
 
-def test_chain_survives_refused_addeffect(live_session, enemy_layout):
-    """Cible `TerminatorArmour` : `AddEffect(Pinned)` REFUSE, et la suite du `&` (override d'Attack ->
-    attaque libre -> retrait) S'EXECUTE QUAND MEME -- live ET port.
+def test_chain_survives_inert_addeffect(live_session, enemy_layout):
+    """Cible `TerminatorArmour` : `AddEffect(Pinned)` ne CONTRIBUE PAS, et la suite du `&` (override
+    d'Attack -> attaque libre -> retrait) S'EXECUTE QUAND MEME -- live ET port.
 
-    C'est l'assertion qui DISTINGUE « la chaine tombe » de « l'effet n'est pas pose » : sans le volet
-    `attack`/`damaged`, le test ne testerait que le gate d'immunite deja porte (case-224)."""
+    C'est l'assertion qui DISTINGUE « la chaine tombe » de « l'effet ne contribue pas » : sans le volet
+    `attack`/`damaged`, le test ne testerait que l'etage effet.
+
+    ⚠ #208 : ici l'`AddEffect` n'est PAS refuse -- il ABOUTIT, et c'est sa `CreateActiveCondition`
+    (`PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(Self, TerminatorArmour))`) qui le rend
+    inerte (mesure `probe_208_pinned_inactive.py` : `decisionView includeInactive` publie 1065 avec
+    `active=False`). Pour la CHAINE cela ne change rien -- `AddEffectBehaviour$$Execute` jette de
+    toute facon la valeur de retour de l'operation -- mais le port doit desormais rendre `placed=True`
+    ET `actif=False`, ce que les deux assertions ci-dessous verrouillent separement. Le VRAI refus
+    d'immunite est exerce par le verrou structurel plus bas."""
     live, port = _run(live_session, enemy_layout, IMMUNE_VICTIM)
-    assert live["pinned"] is False, "LIVE: Pinned pose sur une cible TerminatorArmour"
+    assert live["pinned"] is False, "LIVE: Pinned CONTRIBUE sur une cible TerminatorArmour"
     assert live["attack"] and live["damaged"], \
-        "LIVE: la chaine est TOMBEE derriere l'AddEffect refuse (%s)" % live
+        "LIVE: la chaine est TOMBEE derriere l'AddEffect inerte (%s)" % live
     assert live["override"], "LIVE: pas d'AddStatOverrideEffect -> chaine interrompue avant l'attaque"
-    assert port["pinned"] is False, "PORT: Pinned pose sur une cible TerminatorArmour"
+    assert port["placed"] is True, "PORT: la pose a ete abandonnee (gate d'immunite fantome, #208)"
+    assert port["pinned"] is False, "PORT: Pinned ACTIF sur une cible TerminatorArmour"
     assert port["attack"] and port["override"], \
-        "PORT: la chaine est TOMBEE derriere l'AddEffect refuse (%s)" % port
+        "PORT: la chaine est TOMBEE derriere l'AddEffect inerte (%s)" % port
 
 
 # ------------------------------------------------------- (2) cas NOMINAL (AddEffect qui aboutit)
@@ -182,7 +213,7 @@ def test_chain_survives_placed_addeffect(live_session, enemy_layout):
 def test_chain_survives_refused_addeffect_with_ally_attacker(live_session, enemy_layout):
     """MEME critere, porteur d'attaque DIFFERENT : le caster est ECARTE (d=2, arme melee) et
     l'attaquant elu par `ExemplarOfHateAbility$$GetAttacker` est l'ALLIE RANGED `darkaHellblaster`
-    (portee 3). La chaine doit tenir sur CET allie, sur une cible dont le `Pinned` est refuse."""
+    (portee 3). La chaine doit tenir sur CET allie, sur une cible dont le `Pinned` reste inerte."""
     import hexgeo
     sid = live_session
     anchor = enemy_layout[IMMUNE_VICTIM]
@@ -208,7 +239,7 @@ def test_chain_survives_refused_addeffect_with_ally_attacker(live_session, enemy
         srcs = _group_sources(res)
         print("\n[ally] port attacker=%s (caster=%s ally=%s) live=%s" % (
             port.get("attacker"), caster, ally, srcs))
-        assert "Pinned" not in srcs, "LIVE: Pinned pose sur une cible TerminatorArmour"
+        assert "Pinned" not in srcs, "LIVE: Pinned CONTRIBUE sur une cible TerminatorArmour"
         assert "TemporaryStatOverride" in srcs and any(s and "NormalAttack" in s for s in srcs), \
             "LIVE: chaine tombee alors que l'attaquant elu est un ALLIE (%s)" % srcs
         assert port.get("attacker") == ally, \
@@ -235,7 +266,7 @@ def test_seq_does_not_short_circuit_on_any_addeffect_outcome(live_session, enemy
     """VERROU STRUCTUREL, purement offline (aucun cast live) : la sonde placee DERRIERE l'`AddEffect`
     s'execute dans les TROIS issues de `AddEffectOperation` qui rendent `None` cote port --
 
-      * REFUS d'immunite     (`Pinned` sur `TerminatorArmour`) ;
+      * REFUS d'immunite     (`Pinned` sur une cible portant le trait `Immune`) ;
       * effet DEJA PRESENT   (2e pose du meme type -- `UpdateExistingEffect` cote natif : ce n'est
                               PAS un refus, il incremente `TimesApplied`) ;
       * cible NULLE          (selecteur sans cible -> aucune iteration).
@@ -254,8 +285,19 @@ def test_seq_does_not_short_circuit_on_any_addeffect_outcome(live_session, enemy
         caster = bv["darkaAsmodai"]["id"]
         immune, control = bv[IMMUNE_VICTIM]["id"], bv[CONTROL_VICTIM]["id"]
 
+        # CRAFT du refus d'immunite REEL -- `BaseEffect$$EntityIsImmuneToEffect` =
+        # `HasTrait(entity, 0x19 = Immune) && this.CanBeImmuneTo`, et `PinnedEffect.CanBeImmuneTo`
+        # est vrai. AUCUNE unite du roster spawnable ne porte `Immune` (inventaire case-224 §1.3), or
+        # le natif PEUT l'accorder en bataille (`AddTraitOperation` ecrit la collection
+        # `BaseUnitComponent+0x48`) : on l'accorde donc ICI, sur l'etat charge, pour exercer le gate
+        # lui-meme. ⚠ #208 : le trait `TerminatorArmour` NE convient PAS pour ce role -- il ne refuse
+        # RIEN, il DESACTIVE (mesure `probe_208_pinned_inactive.py`).
+        from engine.runner.components import StatsComponent
+        _sc = st.get_entity(immune).get_component(StatsComponent)
+        _sc.ctx.traits = list(_sc.ctx.traits or []) + ["Immune"]
+
         placed, probed = _chain_probe(st, caster, immune, PINNED, "Pinned")
-        assert placed is False, "le gate d'immunite ne mord plus (case-224)"
+        assert placed is False, "le gate d'immunite ne mord plus (HasTrait(Immune) && CanBeImmuneTo)"
         assert probed, "REFUS D'IMMUNITE: la chaine `&` a ete court-circuitee"
 
         placed, probed = _chain_probe(st, caster, control, STUNNED, "Stunned")

@@ -51,7 +51,11 @@ elle-meme) -> pose Pinned sur l'UNITE cible, source=le porteur, duree DEFAUT (1 
 `PinnedEffect` (`entities/effects/loki/status.py`, valide live) : `ChangeStat(4=Movement,
 -EffectConfig(1)=PinnedMovementReduction)` (la cible ne peut plus avancer) + malus degat ATTAQUANT du
 porteur x0.70 (`ForPercentIncrease(OwnerIsCaster, -EffectConfig(0)=PinnedDmgReductionPct=30)`).
-ActiveCondition `Not(HasTrait(0x40f=1039=TerminatorArmour))` -> les Terminators sont Pinned-immunes.
+ActiveCondition `Not(HasTrait(0x40f=1039=TerminatorArmour))` -> sur un Terminator l'effet est POSE
+puis INERTE (il n'est PAS refuse : mesure #208, `decisionView { includeInactive: true }` le publie
+avec `active: false`). C'est `RefreshEffectsOperation$$ShouldBeActive` qui evalue cette condition et
+ecrit `EffectComponent.IsActive @+0x5c` ; cf. `case-224-effect-immunity-gate.md` §4/§4bis. Le
+discriminant (4) de `test_suppressive_fire_live.py` verrouille les deux canaux sur ce vecteur.
 
 ## Port (mirror 1:1)
 `engine/runner/operations/triggers/loki/suppressive_fire.py::SuppressiveFireAddEffectAbility`

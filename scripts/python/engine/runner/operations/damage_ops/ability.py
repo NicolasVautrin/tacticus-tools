@@ -17,7 +17,7 @@ from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
-                           persistent_data_keys, unit_prevents_overkill)
+                           persistent_data_keys, unit_prevents_overkill, unit_state_for_effects)
 from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_board,
                              apply_elevation_bonus, apply_trench_reduction,
                              ice_crit_damage_addition, target_trait_names,
@@ -493,7 +493,9 @@ class _AbilityAttack:
                 state, attacker_id, target_id, tgt, thc,
                 collect_additional_hit_groups(
                     state, attacker_id, target_id, active, bool(is_melee),
-                    state.effects.active_effects(target_id) if state.effects is not None else [],
+                    (state.effects.active_effects(target_id,
+                                                  unit_state_for_effects(state, target_id))
+                     if state.effects is not None else []),
                     # #227 `LetTheGalaxyBurn` sur CE vecteur : meme canal #179, mais l'AttackData
                     # d'une ability bounds-mode porte un `HitDamage` NON degenere -> le groupe TIRE
                     # dans `[base_min, base_max]` BRUTS (puis reduce + resolve). C'est EXACTEMENT ce

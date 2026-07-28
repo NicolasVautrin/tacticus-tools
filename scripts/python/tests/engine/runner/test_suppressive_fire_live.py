@@ -7,10 +7,14 @@ Port : `engine/runner/operations/triggers/loki/suppressive_fire.py`
 (status.py, deja porte+valide live).
 
 DRIVE POSITIONS (doctrine) : `_approach` avance jusqu'a mon tour (endturn adverse -> cible stationnaire)
-puis rapproche le porteur a la distance hex voulue de la cible. Deux discriminants :
+puis rapproche le porteur a la distance hex voulue de la cible. Quatre discriminants :
   1. RANGED (d==2, la cible est NON-adjacente = IsRangedAttack) -> Pinned pose LIVE == offline.
   2. MELEE  (d==1, la cible est ADJACENTE = position melee) -> AUCUN Pinned LIVE == offline (gate ranged).
   3. NON-CARRIER (offline, structurel) : un attaquant SANS le trait -> AUCUN Pinned (gate trait/registre).
+  4. CIBLE `TerminatorArmour` (#208) : l'effet EST pose, et il est INACTIF -- generalisation du cas
+     `PinnedEffect$$CreateActiveCondition` a un AUTRE POSEUR que `SentinelDirectives` (ici un trigger
+     de trait). Les deux canaux se correspondent : `decisionView` par defaut == `active_effects`
+     (absent), `decisionView includeInactive` == `by_unit` (present).
 
 Cible = astraYarrick (Resilient, durable, non-Terminator, non-carrier) `--hp-target 200000` : survit ->
 lecture propre de decisionView.effects (le Pinned apparait comme delta pre/post attaque). ASCII only.
@@ -30,6 +34,7 @@ import hexgeo
 
 CARRIER = "tauDarkstrider"          # Tau sniper : arme Pulse (Range 2), trait SuppressiveFire
 TARGET = "astraYarrick"            # Resilient (durable), non-Terminator (Pinnable), non-carrier
+TERMINATOR_TARGET = "blackAbaddon"  # TerminatorArmour -> Pinned POSE mais INERTE (#208, cas 4)
 PINNED = 1065                      # EffectType.Pinned (0x429) — UI « Suppressed »
 RANGE = 2                          # portee de l'arme Pulse -> ranged a d==2, melee a d==1
 PYDIR = Path(__file__).resolve().parents[3]            # scripts/python
@@ -72,9 +77,11 @@ def _normal_id(caster):
     return n["id"] if n else None
 
 
-def _approach(rpc, rid, board, lo, hi, max_iter=30):
+def _approach(rpc, rid, board, lo, hi, max_iter=30, target_vis=None):
     """Amene le porteur a distance hex [lo..hi] de la cible (endturn adverse = cible immobile).
-    Renvoie (caster_id, target_id, normal_ability_id, my_player) ou None."""
+    Renvoie (caster_id, target_id, normal_ability_id, my_player) ou None.
+    `target_vis` = visualId de la cible (defaut `TARGET`) — parametre pour le discriminant (4)."""
+    target_vis = target_vis or TARGET
     def tile_of(u):
         cr = _cr(u)
         return board.id_at(cr[0], cr[1]) if cr else None
@@ -101,7 +108,7 @@ def _approach(rpc, rid, board, lo, hi, max_iter=30):
         dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
         units = dv.get("units") or []
         caster = _find(units, CARRIER)
-        tgt = _find(units, TARGET)
+        tgt = _find(units, target_vis)
         if caster is None or tgt is None:
             return None
         if my is None:
@@ -352,6 +359,74 @@ def test_suppressive_fire_non_carrier_no_pin_offline(live_session, rpc):
         assert _off_pinned(st2, tid) is not None, (
             "controle positif KO : le porteur SuppressiveFire n'a pas pose Pinned en ranged offline")
         print("[SF non-carrier] gate trait OK : non-porteur -> pas de Pinned ; porteur -> Pinned (meme geometrie d=2)")
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+        except Exception:
+            pass
+        try:
+            sf.unlink()
+        except Exception:
+            pass
+
+
+# ====================================================== (4) cible TerminatorArmour : POSE mais INERTE
+
+def test_suppressive_fire_terminator_armour_pins_but_inert(live_session, rpc):
+    """GENERALISATION #208 par un AUTRE POSEUR que `SentinelDirectives` (ici un TRIGGER de trait, pas
+    un cast d'active) : sur une cible `TerminatorArmour`, l'effet 1065 est bel et bien CREE, et il est
+    INACTIF -- `PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(Self, 0x40f))`, evaluee par
+    `RefreshEffectsOperation$$ShouldBeActive` (flag `EffectComponent.IsActive @+0x5c`).
+
+    Les deux canaux, des deux cotes :
+      live `decisionView` par defaut (DROPPE les inactifs) == port `active_effects` -> ABSENT ;
+      live `decisionView includeInactive` (publie tout)    == port `by_unit`        -> PRESENT.
+    C'est le mecanisme, pas un refus de pose : le gate d'immunite ne connait que le trait `Immune`."""
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.components import unit_state_for_effects
+
+    rid, sf, err = _build("777", CARRIER, f"{TERMINATOR_TARGET},necroWarden")
+    if rid is None:
+        pytest.skip(f"build KO: {err}")
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        if not (isinstance(bg, dict) and bg.get("tiles")):
+            pytest.skip("boardGraph indispo")
+        board = Board(bg["tiles"], adjacency="evenq")
+        placed = _approach(rpc, rid, board, lo=2, hi=RANGE, target_vis=TERMINATOR_TARGET)
+        if placed is None:
+            pytest.skip("porteur pas amene a distance ranged (2) de la cible TerminatorArmour")
+        cid, tid, nid, my = placed
+
+        st_pre, dv_pre = _offline_state(rpc, rid, board)
+        if st_pre.get_entity(cid) is None or st_pre.rng is None or st_pre.effects is None:
+            pytest.skip("etat offline pre-attaque incomplet")
+        assert _pinned_of(dv_pre.get("units"), tid) is None, "cible deja Pinned avant l'attaque (live)"
+
+        res = _cast_normal(rpc, rid, cid, tid, nid)
+        assert _cast_ok(res), f"attaque live KO: {str(res)[:250]}"
+        dv_def = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        dv_all = rpc("decisionView",
+                     {"runnerId": rid, "allAbilities": True, "includeInactive": True}, 120)
+        live_def = _pinned_of(dv_def.get("units"), tid)
+        live_all = _pinned_of(dv_all.get("units"), tid)
+
+        runner = Runner(st_pre).install_default_handlers(20)
+        runner.apply(AttackUnitMessage(cid, tid))
+        off_carried = _off_pinned(st_pre, tid)
+        off_active = [e for e in st_pre.effects.active_effects(
+            int(tid), unit_state_for_effects(st_pre, int(tid))) if e.effect_type == PINNED]
+
+        print(f"[SF terminator] live def={live_def is not None} all={live_all is not None}"
+              f"(active={None if live_all is None else live_all.get('active')}) | "
+              f"port carried={off_carried is not None} active={len(off_active)}")
+        assert live_all is not None, "LIVE : 1065 absent MEME du canal includeInactive (pas de pose)"
+        assert bool(live_all.get("active")) is False, "LIVE : 1065 ACTIF sur un porteur TerminatorArmour"
+        assert live_def is None, "LIVE : 1065 publie par le canal actif-only"
+        assert off_carried is not None, "PORT : aucune entite-effet 1065 (pose abandonnee a tort)"
+        assert not off_active, "PORT : 1065 ACTIF sur un porteur TerminatorArmour (x0.70 fantome)"
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)

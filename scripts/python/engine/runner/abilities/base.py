@@ -100,7 +100,7 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
     `unit_ctx_of` (déposé dans le ctx) = mirror de `BaseEffect$$GetAbilityState` pour les effets dont la
     SOURCE n'est pas le porteur : la magnitude `ConfigVar` s'indexe sur l'état d'ability de CELUI QUI A
     POSÉ l'effet (la Storm Speeder pour Hailstrike), pas sur celui de l'attaquant qui le porte."""
-    from ..components import StatsComponent, UnitComponent
+    from ..components import StatsComponent, UnitComponent, unit_state_for_effects
     from ...entities.effects import piercing_bonus_from_effects
     if state is None or caster_id is None:
         return 0
@@ -110,7 +110,8 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
         return 0
     effects = None
     if state.effects is not None:
-        effects = state.effects.active_effects(caster_id)
+        effects = state.effects.active_effects(
+            caster_id, unit_state_for_effects(state, caster_id))
     if not effects:
         effects = getattr(csc.ctx, "active_effects", None)
     if not effects:

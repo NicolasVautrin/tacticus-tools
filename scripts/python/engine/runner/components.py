@@ -8,7 +8,8 @@ les ÉCRIRA (tranche move/damage/effects) ; ici on porte la sémantique des cham
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict, Hashable, List, Optional
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Dict, Hashable, Iterator, List, Optional
 
 from .state import Component
 
@@ -1181,9 +1182,8 @@ def unit_prevents_overkill(state, unit_id) -> bool:
     eff = getattr(state, "effects", None)
     if eff is None:
         return False
-    hc = entity.get_component(HealthComponent)
     return effects_prevent_overkill(
-        eff.active_effects(int(unit_id), {"hp": hc.hp if hc is not None else None}))
+        eff.active_effects(int(unit_id), unit_state_for_effects(state, int(unit_id))))
 
 
 def unit_is_dead(entity) -> bool:
@@ -1198,3 +1198,125 @@ def unit_is_dead(entity) -> bool:
     if fl is not None and fl.has(UnitFlagsComponent.FLED):
         return False
     return True
+
+
+# ── Contexte d'évaluation des `CreateActiveCondition` (#208) ──────────────────────────────────────
+# `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` évalue l'arbre mémoïsé de l'effet
+# (`BaseEffect$$CreateActiveConditionAndCache`, champ `+0x90`) contre un CONTEXTE de 0x130 octets,
+# et rend le booléen qu'il écrit dans `EffectComponent.IsActive @+0x5c`. Côté port, la condition est
+# ré-évaluée A LA LECTURE (`EffectsState.active_effects` -> `BaseEffect.is_active(unit_state)`) : le
+# `unit_state` ci-dessous EST ce contexte. Il n'y a donc QU'UN constructeur — tout appelant d'
+# `active_effects` passe par lui (doctrine anti-fork « 1 nœud natif -> 1 porte offline »).
+#
+# ⚠ POURQUOI CE FOYER EXISTE (#208, régression MESURÉE). Les appelants construisaient chacun un
+# `{"hp": ...}` ad hoc : les clés MANQUANTES (`traits`, `max_hp`, `enemy_psykers_alive`) dégradent
+# CHAQUE prédicat en VRAI, donc un effet dont la condition est FAUSSE contribuait quand même. C'est
+# exactement ce qui obligeait `PinnedEffect` à collapser sa `CreateActiveCondition` dans le gate
+# d'IMMUNITÉ (`entity_is_immune_to_effect`) — un mécanisme faux qui rendait le bon observable.
+
+
+def enemy_psykers_alive(state, unit_id: int) -> Optional[int]:
+    """`Enemies( Owner, UnitsWithTrait(AllUnits@0x80, 0x3ea = 1002 Psyker, 3) )` — le CARDINAL du
+    sélecteur natif que `AmountIsEqualOrGreater(…, One@0xc0)` compare à 1 dans la
+    `CreateActiveCondition` de `DestroyTheWitch_ExtraMove`/`_ExtraDamage` (corps FONDU, cf.
+    `entities/effects/loki/destroy_the_witch.py`).
+
+    `AllUnits@0x80` = le sélecteur battlefield-wide (`DSLFactory$$InitializeShared` +0x80,
+    identifié par `WarHowlAbility$$OtherBuffTargets` = `Friends(owner, @0x80 − owner)` = « tous les
+    AUTRES alliés du plateau »). `Enemies(owner, …)` filtre `team != team(owner)` ; les unités
+    MORTES ne sont plus sur le plateau. None si l'équipe du porteur est inconnue (clé alors ABSENTE
+    du `unit_state` ⇒ prédicat dégradé en VRAI, cf. `_enemy_psyker_on_battlefield`)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    if oc is None:
+        return None
+    n = 0
+    for uid, e in state.entities.items():
+        eoc = e.get_component(OwnerComponent)
+        if eoc is None or eoc.team == oc.team:              # Enemies(owner, …)
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
+                  else None) or ()
+        if "Psyker" in traits:                              # UnitsWithTrait(0x3ea)
+            n += 1
+    return n
+
+
+class UnitEffectStateView(Mapping):
+    """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
+
+    Clés (chacune n'est PRÉSENTE que si l'ECS peut la renseigner — une clé ABSENTE = « donnée
+    inconnue », et c'est ce que chaque `is_active` traite en dégradation fidèle) :
+
+      * `hp` / `max_hp` — `HealthComponent` ; lus par les conditions `StatAmount(Self, HEALTH,
+        CURRENT/CURRENT_PCT)` (`AnvilShield_BlockChanceBelowHealthCap`, `PowerTrip_FullHealth`) ;
+      * `traits` — `StatsComponent.ctx.traits` (NOMS gameconfig, même convention que tous les
+        `HasTrait(...)` portés) ; lus par les conditions de TRAIT
+        (`PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(Self, 0x40f = TerminatorArmour))`) ;
+      * `enemy_psykers_alive` — cardinal battlefield-wide, PARESSEUX (O(entités), cf.
+        `enemy_psykers_alive`) : il n'est calculé que si un effet le LIT réellement. La clé est
+        présente dès que l'équipe du porteur est connue, absente sinon.
+
+    La paresse n'est pas une optimisation gratuite : `active_effects` est appelé dans des boucles
+    par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
+
+    __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy")
+
+    def __init__(self, state, unit_id: int) -> None:
+        self._state = state
+        self._uid = int(unit_id)
+        ent = state.get_entity(self._uid) if state is not None else None
+        eager: Dict[str, object] = {}
+        hc = ent.get_component(HealthComponent) if ent is not None else None
+        if hc is not None:
+            eager["hp"], eager["max_hp"] = hc.hp, hc.hp_max
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
+                  else None) or []
+        if traits:
+            eager["traits"] = traits
+        self._eager = eager
+        oc = ent.get_component(OwnerComponent) if ent is not None else None
+        self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
+        self._psy: Optional[int] = None
+
+    def __getitem__(self, key):
+        if key in self._eager:
+            return self._eager[key]
+        if key == "enemy_psykers_alive" and self._has_psy:
+            if self._psy is None:
+                self._psy = enemy_psykers_alive(self._state, self._uid)
+            return self._psy
+        raise KeyError(key)
+
+    def __iter__(self) -> Iterator[str]:
+        yield from self._eager
+        if self._has_psy:
+            yield "enemy_psykers_alive"
+
+    def __len__(self) -> int:
+        return len(self._eager) + (1 if self._has_psy else 0)
+
+    def __repr__(self) -> str:                    # diagnostic (ASCII)
+        return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
+
+
+def unit_state_for_effects(state, unit_id: int) -> UnitEffectStateView:
+    """LE constructeur du `unit_state` passé à `EffectsState.active_effects` / `BaseEffect.is_active`
+    (mirror du contexte d'évaluation de `RefreshEffectsOperation$$ShouldBeActive`). Tout appelant
+    runner l'utilise — aucun `{"hp": ...}` ad hoc, sinon les conditions non-HP se dégradent en VRAI
+    en silence (#208).
+
+    LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits`,
+    `OwnerComponent`, `UnitComponent.alive`. En particulier **PAS `UnitFlagsComponent`** — le seed de
+    flags de `load_state` (`snapshot._load_unit_flags`, case-o10) et cette vue écrivent/lisent des
+    composants DISJOINTS, il n'y a donc ni double écriture ni contrainte d'ordre d'init entre eux.
+    Le SEUL point de contact est `unit_prevents_overkill` ci-dessus, qui interroge le composant de
+    flags d'ABORD et ne retombe sur la dérivation par l'effet 1354 qu'ensuite : le seed rend ce repli
+    moins fréquent, il ne le rend pas faux — et il reste indispensable pour un effet posé OFFLINE en
+    cours de bataille, que le snapshot n'a jamais vu."""
+    return UnitEffectStateView(state, unit_id)

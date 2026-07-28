@@ -552,46 +552,48 @@ class PinnedEffect(BaseEffect):
     profils). GROUND TRUTH : 54321 s16 u81 bloodIntercessor Pinned -> t89, natif 2192/3288 =
     off 3132/4698 × 0.700 EXACT (probe_57b_x070.py).
 
-    IMMUNITÉ « cannot be Suppressed » (#224). `get_CanBeImmuneTo` = **true** (vtable runtime) et le SEUL
-    artefact natif qui nomme le couple `TerminatorArmour` ↔ `Pinned` est
+    « cannot be Suppressed » (#224 → #208) — CE N'EST PAS UNE IMMUNITÉ DE POSE. Le SEUL artefact natif
+    qui nomme le couple `TerminatorArmour` ↔ `Pinned` est
     `IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` =
     `Not(DSLFactory.HasTrait(Self, 0x40f = 1039 = UnitTrait.TerminatorArmour))` (i2 TerminatorArmour :
-    « This unit cannot be Suppressed »).
+    « This unit cannot be Suppressed »), et il est porté par `is_active` ci-dessous — PAS par le gate
+    d'immunité, qui n'a jamais rien refusé ici.
 
-    ⚠ COLLAPSE ASSUMÉ, et on sait désormais QU'IL EST FAUX SUR LE MÉCANISME. MESURÉ le 2026-07-28
-    (hook `frida/hooks/features/effect-immunity-observe.ts`, montage `sentinel` sur `blackAbaddon`) :
-    `IdunBattle.Operations.AddEffectOperation$$Execute(1065)` **est appelé et n'abandonne PAS** (valeur de retour NON nulle
-    ⇒ l'entité-effet est allouée), et `IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` rend **`false`**
-    avec `HasTrait(cible, 0x19 = Immune)` **faux**. Le natif POSE donc l'effet et le laisse INERTE via
-    l'`ActiveCondition`, évaluée par `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` (qui écrit le flag
-    `EffectComponent.IsActive @+0x5c`). La lecture « refus de pose » de #224 venait d'une inférence
-    fautive : un effet inactif n'émet AUCUN groupe d'événement, donc l'absence d'événement ne
-    distingue pas « pas posé » de « posé et inerte ».
+    MESURE DIRECTE 2026-07-28 (hook `frida/hooks/features/effect-immunity-observe.ts`, montage
+    `sentinel` sur `blackAbaddon`) : `IdunBattle.Operations.AddEffectOperation$$Execute(1065)` **est
+    appelé et n'abandonne PAS** (valeur de retour NON nulle ⇒ l'entité-effet EST allouée), et
+    `IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` y rend **`false`** avec
+    `HasTrait(cible, 0x19 = Immune)` **faux**. Le natif POSE l'effet et le laisse INERTE via
+    l'`ActiveCondition`, évaluée par `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive`
+    qui écrit `EffectComponent.IsActive @+0x5c`. Recoupement indépendant : `decisionView` DROPPE les
+    effets dont `IsActive` est faux (`readEffectsByUnit`, `frida/hooks/game/effects.ts`) — d'où
+    l'absence de 1065 sur la cible ; avec `includeInactive: true`, l'effet EST publié, `active: false`.
+    La lecture « refus de pose » de #224 venait d'une inférence fautive : un effet inactif n'émet
+    aucun groupe d'événement, donc l'absence d'événement ne distingue pas « pas posé » de
+    « posé et inerte ».
 
-    Le collapse est CONSERVÉ pour l'instant, délibérément : le retirer seul régresserait, parce que
-    `is_active(unit_state)` lit `unit_state["traits"]` et que presque tous les appelants d'
-    `EffectsState.active_effects` passent `{"hp": ...}` sans `traits` ⇒ le ×0.70 ci-dessous
-    s'appliquerait à un porteur `TerminatorArmour`. Chantier de sortie + critère binaire :
-    `docs/rl/case-224-effect-immunity-gate.md` §4 et §5.1.
+    `get_CanBeImmuneTo` reste **true** (vtable runtime) : la branche générique
+    `HasTrait(Immune) && CanBeImmuneTo` de la base mord bel et bien pour cet effet — c'est le trait
+    `Immune` (0x19), PAS `TerminatorArmour`. Aucune surcharge d'`EntityIsImmuneToEffect` n'existe pour
+    `PinnedEffect` dans le binaire (`search_symbols_by_name EntityIsImmuneToEffect` = 2 corps :
+    `BaseEffect` et `ContaminatedEffect`) — donc aucune ici non plus (#208 : le collapse est DÉFAIT).
 
     ⚠ Contribution NON portée restante (présent ≠ appliqué, §17.4) : la réduction de Movement
     (le mouvement n'est pas dans le chemin de combat/dégât porté)."""
 
     can_be_immune_to = True                          # `get_CanBeImmuneTo` -> stub partagé `return 1`
 
-    def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
-        # COLLAPSE de `PinnedEffect$$CreateActiveCondition` (cf. docstring) — la branche générique
-        # `HasTrait(Immune) && CanBeImmuneTo` reste rendue par la base.
-        if has_trait(trait_names, UnitTrait.TerminatorArmour):
-            return True
-        return super().entity_is_immune_to_effect(trait_names)
-
     def is_active(self, unit_state: Mapping | None = None) -> bool:
         """`IdunBattle.Entities.Effects.Loki.PinnedEffect$$CreateActiveCondition` = `Not(HasTrait(
-        0x40f = TerminatorArmour))` — mirror LITTÉRAL. Utile pour un `Pinned` SEEDÉ (capté sur une unité
-        qui a acquis le trait après coup) : la voie de POSE, elle, est déjà fermée par
-        `entity_is_immune_to_effect`. `unit_state` sans clé `traits` ⇒ traits inconnus ⇒ actif (mirror du
-        `HasTrait` faux sur une entité sans composant d'unité)."""
+        Self, 0x40f = TerminatorArmour))` — mirror LITTÉRAL, et le SEUL porteur du « cannot be
+        Suppressed ». L'effet EXISTE sur un porteur `TerminatorArmour` (`has_effect` vrai, comme le
+        natif) mais ne contribue à RIEN : `EffectsState.active_effects` l'exclut, donc ni le ×0.70
+        ci-dessous ni aucune autre lecture d'effet actif ne le voit.
+
+        `unit_state` sans clé `traits` ⇒ traits inconnus ⇒ actif — mirror du `HasTrait` faux sur une
+        entité sans composant d'unité. ⚠ C'est une dégradation PERMISSIVE : tout appelant runner doit
+        passer `components.unit_state_for_effects(state, uid)` (foyer unique, #208), et la face
+        prédiction `Scene.unit_state(uid)`. Un `{"hp": ...}` ad hoc réintroduirait le ×0.70 fantôme."""
         return not has_trait((unit_state or {}).get("traits"), UnitTrait.TerminatorArmour)
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,

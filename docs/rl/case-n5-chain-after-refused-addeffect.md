@@ -5,6 +5,15 @@ DOCUMENTATION du port. Corrigée + verrouillée par une garde live.
 **Touche** : le combinateur `Seq` (`op_and`/`op_add`) et la feuille `AddEffect` — donc tout arbre DSL
 qui chaîne une pose d'effet avec autre chose.
 
+> ⚠ **Le MONTAGE de ce cas a été re-qualifié par #208 (2026-07-28), pas sa conclusion.** Le couple
+> `Pinned` × `TerminatorArmour` employé ici comme exemple d'`AddEffect` « refusé » n'en est pas un :
+> le natif POSE l'effet et le laisse INERTE (`decisionView { includeInactive: true }` publie 1065
+> avec `active: false` — `probe_208_pinned_inactive.py`). Ce qu'on lisait comme « Pinned refusé »
+> était « Pinned ne CONTRIBUE pas » (un effet inactif n'applique rien, donc n'émet aucun groupe).
+> La conclusion **tient a fortiori** : `AddEffectBehaviour$$Execute` jette la valeur de retour de
+> l'opération dans TOUS les cas, refus compris. La garde structurelle exerce désormais un VRAI refus
+> (trait `Immune` accordé sur l'état chargé) en plus des deux autres issues à `None`.
+
 ---
 
 ## 1. La question
