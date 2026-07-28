@@ -285,11 +285,19 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     Délègue au FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility` (mirror du `Select`,
     tri DÉCROISSANT stable par le composite `Tile(7)`, ZÉRO tirage) — c'est le MÊME sélecteur natif
     que celui des charges/spawns d'ability, donc UN SEUL port (#165). Le sélecteur d'unités diffère,
-    et depuis case-165b la distinction n'est PLUS inerte : sur les autres call-sites `dc.units` est
+    et depuis case-165b la distinction n'est PLUS inerte : sur les autres call-sites `dc.unit` est
     le CASTER, il est passé au foyer (`unit_id=`) et il réveille les feuilles gatées sur l'unité.
-    ICI c'est `AllAliveMachinesSelector` — un ENSEMBLE d'unités, pas l'unité qui bouge — donc aucun
-    `unit_id` n'est passé et ces feuilles restent muettes. RÉSIDU NOMMÉ : porter la résolution
-    d'`AllAliveMachinesSelector` en `dc.units` (le `case.unit` du natif est alors une collection).
+
+    ICI, `dc.unit` vaut **`null`** — case-205, tranché au décompilé, et NON « un ENSEMBLE d'unités »
+    comme le supposait le résidu #165b §4. `SortTilesByUtilityForSummon` construit bien un
+    `IdunBattle.Entities.Selectors.AllAliveMachinesSelector`, mais avec un provider NUL, et
+    `IdunBattle.AI.Utilities.UtilityMovementCase` traite explicitement ce cas
+    (`get_IsSpawning` = `unit == null && parent != null`, `get_UnitOrParent` = `unit ?? parent`).
+    On passe donc `parent_id=caster_id` — le `parent` natif, 3ᵉ argument de
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` — et AUCUN `unit_id` : le foyer
+    produit un ctx `{"is_spawning": True}`, que chaque feuille consomme selon SA propre dégradation
+    (0 pour `TriggeredAbilities(2)` / `DespoiledGround(28)` / `HeroLikeDoorOpening(30)` ; flag summon
+    pour `CapturePoint(24)` / `PowerUp(26)` / `SummonDislikeDoorOpening(29)`).
 
     ⚠ La réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre source
     DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit exprès la
@@ -302,10 +310,10 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     DYNAMIQUE `state.effects.by_unit[tileId]` = Loop1 de `TileEffectsUtility` (l'entité-tuile porte
     ses effets exactement comme une unité, case-102), puis `terrain_tile_effects(terrain, dynamique)`
     pour Loop2 + le repli statique du Loop1 non hydraté — d'où le passage de `state` (et non du seul
-    `board`) au foyer. `caster_id` n'est PAS lu (le natif n'utilise pas le caster pour cette
-    surcharge) — gardé pour la signature d'appel."""
+    `board`) au foyer. `caster_id` EST le `parent` natif (case-205) : il ne devient un sujet à AUCUN
+    moment, mais sa PRÉSENCE est ce qui arme `IsSpawning`."""
     from ...utilities.tile import sort_tiles_by_utility   # lazy : évite le cycle utilities<->runner
-    return sort_tiles_by_utility(state, tiles)
+    return sort_tiles_by_utility(state, tiles, parent_id=caster_id)
 
 
 def _randomize(state: State, tiles: list) -> list:

@@ -412,8 +412,9 @@ class MalleusRocketLauncherAbility(ActiveAbility):
 # EXACTEMENT le sortilege deja porte et LIVE-VALIDE pour le placement des summons
 # (`runner/operations/spawn.py::_sort_tiles_by_utility_for_summon`, case-130 SS5) : les deux appellent
 # desormais le FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility`. Le referent `owner@0x148`
-# n'alimente que des feuilles gatees sur l'unite (non plombees) -> INERTE cote port, y compris ici ou
-# c'est une MoW SANS POSITION.
+# est le `parent` du `UtilityMovementCase` : case-205 a etabli que le `dc.unit` de cette surcharge vaut
+# **null**, donc `get_IsSpawning` (= unit null ET parent non nul) est VRAI ici. Le port le transmet en
+# `parent_id=` ; seule la PRESENCE du parent compte (ici une MoW SANS POSITION).
 # =================================================================================================== #
 
 FORWARD_SPOTTER_ID = "ForwardSpotter"
@@ -427,7 +428,8 @@ def forward_spotter_num_summons() -> int:
     return int(consts.get("nrOfSummons") or 0)
 
 
-def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int) -> list:
+def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int,
+                               owner_id: Optional[int] = None) -> list:
     """MIRROR de `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$PickTiles`
     (cf. le bloc ci-dessus) : `First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(target))
     .Otherwise-filtre, 7, owner), nrOfSummons)`.
@@ -458,11 +460,13 @@ def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int)
         if t is not None:
             occ.add(t)
     free = [t for t in board.neighbours_native(tid) if t not in occ and board.walkable(t)]
-    # PAS d'`unit_id` : `SortTilesByUtilityForSummon` fixe `dc.units` a
-    # `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` — un ENSEMBLE d'unites, pas l'unite qui
-    # bouge. Les feuilles gatees sur l'unite restent donc muettes sur ce call-site (case-165b : le
-    # ctx par-unite n'est cable QUE la ou `dc.units` est le caster). Residu nomme.
-    return sort_tiles_by_utility(state, free)[:max(0, int(n))]      # SortTilesByUtilityForSummon + First(n)
+    # PAS d'`unit_id`, mais le `parent` (`owner@0x148`) : case-205 a etabli au decompile que le
+    # `dc.unit` de `SortTilesByUtilityForSummon` vaut **null** (et non « un ENSEMBLE d'unites »
+    # comme le supposait le residu case-165b). Le foyer produit alors le ctx `{"is_spawning": True}`
+    # = `IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning`, et chaque feuille applique SA
+    # degradation nommee. Ici `owner@0x148` est une MoW SANS position : seule sa PRESENCE compte.
+    return sort_tiles_by_utility(state, free,
+                                 parent_id=owner_id)[:max(0, int(n))]   # ForSummon + First(n)
 
 
 def forward_spotter_tree(tiles: list) -> Spawn:
@@ -504,7 +508,7 @@ class ForwardSpotterAbility(ActiveAbility):
         if target_id is None or state.get_entity(caster_id) is None:
             return None
         n = forward_spotter_num_summons()
-        tiles = forward_spotter_pick_tiles(state, target_id, n)
+        tiles = forward_spotter_pick_tiles(state, target_id, n, owner_id=caster_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         forward_spotter_tree(tiles).execute(
             entities_from_state(state, caster_id, target_id), ectx)

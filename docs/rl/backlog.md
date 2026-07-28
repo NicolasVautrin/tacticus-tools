@@ -333,9 +333,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
       posé à `UtilityMovementCase+0x10` par la surcharge « tile » du ctor), le foyer prend un
       `unit_id` et `runner_tile_leaf_ctx` en dérive le `ctx`. C'est ce terme
       (`GeminaeSuperiaPlaybook` = `10 × |CanAddUnit(AdjacentTiles(tuile))|`) qui fermait le résidu
-      #165 §4. **Reste ouvert le seul call-site SUMMON** (`SortTilesByUtilityForSummon`) : son
-      `dc.units` est `AllAliveMachinesSelector`, un ENSEMBLE d'unités — porter sa résolution
-      (le `case.unit` natif y est une collection) est le résidu restant.
+      #165 §4. ~~Reste ouvert le seul call-site SUMMON~~ — **FAIT
+      (`case-205-summon-sort-tiles-unit-null.md`)**, et la question posée n'était pas la bonne : le
+      `dc.unit` de `SortTilesByUtilityForSummon` n'est **pas** une collection, il vaut **`null`**
+      (`UtilityMovementCase$$get_IsSpawning` = `unit == null && parent != null`,
+      `$$get_UnitOrParent` = `unit ?? parent`). Chaque feuille a sa dégradation NOMMÉE — 0 pour
+      `TriggeredAbilities(2)`/`DespoiledGround(28)`/`HeroLikeDoorOpening(30)`, flag summon
+      (`IsSpawning` inliné) pour `CapturePoint(24)`/`PowerUp(26)`/`SummonDislikeDoorOpening(29)`.
+      Le foyer prend un `parent_id` ; 2 montages live (MC1_67 Swamp+élévation, C4_09 DryBush)
+      confirment le port et RÉFUTENT « le sujet est un représentant de l'ensemble ». Ce qui reste,
+      plus étroit :
+      - les trois feuilles à `IsSpawning` sont JUSTES mais **dormantes** dans ce foyer (le `meta` du
+        tri ne porte ni `is_territory`, ni `occupant_is_powerup`, ni `door` ; 0 tuile territoire sur
+        les seeds arène) ;
+      - `H_PARENT` n'est réfuté qu'au **décompilé** : aucun summoner du pool ne porte un passif
+        enregistré dans `TRIGGERED_MOVE_PLAYBOOKS`, donc le live ne peut pas le séparer de `H_NULL` ;
+      - `TileDistance(33)` sur `dc.parent` (branche `else if (c.owner != null)`) non portée : aucun
+        call-site SUMMON ne passe `0x20 = MovementSuggestion` ;
+      - `SteppableUnit(19)` en spawn : le natif passe `case.unit = null` à `UnitExtensions$$IsEnemy`
+        sans garde ; valeur non tranchée, feuille muette des deux côtés.
     - ~~**`Swamp -> Thorns_DefenseReduction` (−25) porté en local** (`spawn.py::_PLACEMENT_TERRAIN_EFFECTS`)~~
       — **FAIT (`case-155-swamp-fork-maybetrigger.md`)** : le fork est fermé par la RE des DEUX boucles
       de `TileEffectsUtility`. Le −25 n'est pas un « terrain-effect » comme le +9 DryBush : c'est un

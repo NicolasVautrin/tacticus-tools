@@ -104,11 +104,14 @@ cherche une geometrie ou le terme `OwnerInAdjacentTile` renverse l'argmax).
 
 ## 4. Ce qui n'est PAS couvert
 
-* **Le call-site SUMMON** (`SortTilesByUtilityForSummon` : `spawn.py::_sort_tiles_by_utility_for_summon`,
-  `astramilitarum.forward_spotter_pick_tiles`) reste sans `unit_id` : son `dc.units` est
-  `IdunBattle.Entities.Selectors.AllAliveMachinesSelector`, un ENSEMBLE d'unites et non l'unite qui
-  bouge. Residu nomme : porter la resolution de ce selecteur (le `case.unit` natif y est une
-  collection, et les feuilles gatees le consomment via `HasTrait`/`Friends`).
+* ~~**Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id` : son `dc.units` est
+  `AllAliveMachinesSelector`, un ENSEMBLE d'unites~~ — **REPRIS ET CORRIGE par
+  `case-205-summon-sort-tiles-unit-null.md`.** Ce constat etait FAUX : `dc.unit` est un `IEntity`
+  SINGULIER (ctor `SortTilesByUtilitySelector..ctor(tiles, **unit**, utilityDefinition, parent, …)`)
+  et il vaut **`null`** sur ce call-site — le `AllAliveMachinesSelector` y est construit avec son
+  provider (`+0x18`) NUL. Le natif modelise ce cas avec `UtilityMovementCase$$get_IsSpawning`
+  (= `unit == null && parent != null`) et `$$get_UnitOrParent` (= `unit ?? parent`), et chaque
+  feuille applique SA propre degradation. Le foyer prend desormais un `parent_id`.
 * **Le 3e terme (`GEMINAESUPERIA_AdjacentAliveSummon`, +30 par Geminae adjacente) n'est pas
   confronte live** : aucune des 5 geometries n'avait de Geminae invoquee sur le plateau. Le corps
   est porte (mirror du decompile), la valeur ne l'est pas.

@@ -187,9 +187,12 @@ speculatif. `BlackRage` et `Waaagh` sont fermes par
   (−50) — feuille non portee (=0 chez nous), gatee sur « le caster a une arme ranged » (Tyrith est
   melee) et, sur ce pool, **constante** (toutes les candidates sont adjacentes a la cible, donc
   toutes auraient le −50) : elle ne peut pas deplacer l'argmax de ce call-site.
-* **Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id` : son `dc.units` est
-  `AllAliveMachinesSelector`, un ENSEMBLE. `TileDistance` y tomberait sur la branche `c.owner`, non
-  modelisee -> `0.0`. Residu deja nomme par case-165b §4, inchange.
+* ~~**Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id` : son `dc.units` est
+  `AllAliveMachinesSelector`, un ENSEMBLE~~ — **CORRIGE par `case-205-summon-sort-tiles-unit-null.md`** :
+  `dc.unit` y vaut **`null`** (selecteur construit avec un provider NUL), pas « un ensemble ». Le foyer
+  prend un `parent_id` et le ctx porte `is_spawning`. La branche `c.owner` de `TileDistance` reste
+  non modelisee, mais elle est INATTEIGNABLE : les six call-sites `ForSummon` passent tous
+  `UtilityDefinition(7 = Tile)`, jamais `0x20`. Residu nomme, cf. case-205 §5.
 * Les feuilles de `Tile(7)` dormantes faute de metadata par-tuile (case-165b §4) le restent.
 
 ## 6. Cliquet
