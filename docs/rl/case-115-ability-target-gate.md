@@ -235,7 +235,7 @@ consommateurs de sélecteurs de charge (HeroicFusillade, VigilanceEternal, SkySt
 
 ## 7. Ce qui n'est PAS couvert
 
-- **40 des 91 abilities du registre n'ont pas de `TARGETING_OPTIONS`** (compte du 2026-07-28,
+- **38 des 94 abilities du registre n'ont pas de `TARGETING_OPTIONS`** (compte du 2026-07-29,
   à re-dériver) ⇒ pas de gate pour elles. C'est le travail d'instanciation restant (1 ligne par
   ability + son prédicat dynamique quand le bit `0x2` est posé), pas un défaut du maillon.
   Ventilation à jour : `docs/rl/port-residuals-inventory.md` §3.

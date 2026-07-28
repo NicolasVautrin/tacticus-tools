@@ -51,9 +51,10 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-28 (#181) : 91 abilities au registre, 51 avec masque, ces 40 sans.
+# Etat au 2026-07-29 (#222 item 1) : 94 abilities au registre, 56 avec masque, ces 38 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
-#  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels.)
+#  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
+#  ArmoriumCherub par #222.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -69,7 +70,9 @@ from engine.runner.abilities.targeting_rule import TargetingRule
 SANS_TARGETING_OPTIONS: dict[int, str] = {
     1000: "GauntletsOfUltramarAbility",
     1007: "ScarabHiveAbility",
-    1014: "ArmoriumCherubAbility",
+    # 1014 ArmoriumCherubAbility RESORBEE (#222) -- forme « PRESET STATIQUE COPIE » :
+    # `...ArmoriumCherubAbility$$.ctor` recopie `TargetingOptions statics+0x140` et le masque
+    # effectif est `*(statics+0x168)` = 0x4002, lu dans `TargetingOptions$$.cctor`.
     1016: "SendInTheNextWaveAbility",
     1018: "ValkyrieStrikeAbility",
     1021: "IncursionAbility",
