@@ -124,6 +124,53 @@ class AiDecisionContext:
             _ACTIVE_LEVEL_CACHE[self.rid] = m
         return m
 
+    def live_triggered_ability_ids(self, unit_id: int) -> list:
+        """Ids de `TriggeredAbilityType` REELLEMENT portes par `unit_id` en bataille — lecture du
+        `TriggeredAbilityComponent` via le RPC `unitAbilityStates`.
+
+        C'est la SOURCE du dispatcher natif : `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.
+        u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` itere l'AbilitiesComponent ECS, pas le
+        gameconfig. La difference porte : `passiveAbilities` du gameconfig IGNORE les abilities
+        accordees par TRAIT et par RELIQUE. Cas mesure (N13, `C4_09`/31337 pas 22) : admecMarshall
+        porte la relique `KardiocoreGalvanus` (1457), absente de son kit gameconfig, dont le
+        playbook vaut +5 par ami adjacent a la tuile candidate.
+
+        LECTURE DU CHAMP : le RPC ne nomme PAS le type ; il dumpe `raw` = 12 int32 lus a partir de
+        `TriggeredAbility+0x10`, et l'id est `raw[0]` (= le champ `AbilityName`). Verifie par
+        recoupement sur la MEME structure : `level`/`mult`, exposes separement par le RPC depuis
+        `+0x20`/`+0x24`, retombent exactement sur `raw[4]`/`raw[5]` -> la base est bien `+0x10`.
+        Mesure de controle (C4_09/31337) : u84 admecMarshall = [1200 ControlEdict, **1457
+        KardiocoreGalvanus** (relique), 1201] ; u94 ultraCalgar = [1014 RitesOfBattle, 1186, 1024] ;
+        u96 spaceStormcaller = [1194 LordOfTempests, ...] -- chaque `raw[0]` retombe sur le passif
+        gameconfig connu, plus les ids que le gameconfig ignore.
+
+        Cache par (rid, unit_id) : le kit declenche est pose au spawn (AbilityFactory) et ne bouge
+        qu'au grain d'un `AddTraitOperation` en cours de bataille — meme niveau de fraicheur que
+        `_unit_ability_config`. RPC indisponible / unite absente -> `[]`, et l'appelant retombe sur
+        le gameconfig (degradation = comportement d'avant ce cablage)."""
+        if not self.rid:
+            # Contexte OFFLINE (`state_bridge`, rid=0) : son seam RPC ne sert qu'`abilityTargets`
+            # et rend `{"units": []}` pour tout le reste. On ne l'appelle pas -> l'appelant retombe
+            # sur le gameconfig. C'est le residu N13-b (kit declenche offline sans traits/reliques).
+            return []
+        key = (self.rid, int(unit_id))
+        got = _TRIGGERED_KIT_CACHE.get(key)
+        if got is None:
+            got = []
+            try:
+                r = self.rpc("unitAbilityStates",
+                             {"runnerId": self.rid, "unitId": int(unit_id)}, 40) or {}
+                for u in (r.get("units") or []):
+                    for t in (u.get("triggered") or []):
+                        raw = (t or {}).get("raw") or []
+                        v = raw[0] if raw else None      # TriggeredAbility.AbilityName @+0x10
+                        if isinstance(v, int) and v > 0 and v not in got:
+                            got.append(v)
+            except Exception:
+                got = []
+            _TRIGGERED_KIT_CACHE[key] = got
+        return got
+
     def active_ability_levels(self) -> dict:
         """`{unitId: activeAbilityLevel}` (stat 18 / unitConfig+0xB8). Source du NIVEAU d'ability ACTIVE
         pour `InspiredToGreatnessPlaybook` (util = level zero-based)."""
@@ -144,6 +191,8 @@ _BOARD_NEIGH_CACHE: dict = {}      # {rid: {(col,row): [voisins ordre natif]}} �
 _BOARD_WALKABLE_CACHE: dict = {}   # {rid: {(col,row): walkable}} — board statique, dérivé (#116)
 _BOARD_TERRAIN_CACHE: dict = {}    # {rid: {(col,row): tileDefId}} — terrain statique, dérivé (case-37)
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
+_TRIGGERED_KIT_CACHE: dict = {}    # {(rid, unitId): [TriggeredAbilityType]} — unitAbilityStates, 1 fetch/unite
+#                                    (kit DECLENCHE reel : passifs + trait-granted + RELIQUES, cf. N13)
 
 
 def _board_graph_tiles(rpc: Callable[..., dict], rid: int) -> list:

@@ -14,8 +14,12 @@ Ce que le montage produit (`SweepOrderCase`) pour un couple (board, seed, pas) :
     d'action natif ;
   * `tie_tiles` = les tuiles a utilite d'action MAXIMALE pour la paire (ability, cible) retenue :
     c'est LA situation ou l'ordre decide. `len(tie_tiles) <= 1` => le montage ne conclut rien.
-  * la decision NATIVE du pas (ability, cible, tuile) -- pour le rapport, pas pour l'assertion :
-    une divergence de tuile peut venir de l'utilite (terme de tuile) et pas de l'ordre.
+  * la decision NATIVE du pas (ability, cible, tuile) -- pour le rapport ET, depuis N13, pour
+    l'assertion d'AGREEMENT de tuile : c'est le seul confront LIVE du terme de tuile qui ne
+    demande pas d'armer les hooks RVA de `scorer-damage-trace` ;
+  * `tile_terms` = le composite Tile(7) du PORT par tuile candidate (`playbook.base.tile_utility`),
+    ce qui rend la SEPARATION des tuiles lisible sans hook (residu N13 : le port EGALISAIT des
+    tuiles que le natif separe).
 
 ASCII only.
 """
@@ -49,6 +53,7 @@ class SweepOrderCase:
     native_tile: tuple | None
     native_ability: int | None
     native_target: int | None
+    tile_terms: dict               # {(col,row): Tile(7) du PORT} sur `action_tiles` (N13)
 
 
 def _walk_to(rpc, rid: int, step: int) -> None:
@@ -143,10 +148,16 @@ def build_sweep_order_case(rpc, build_runner, seed: str, board: str, step: int,
                 ranked_union.append(t)
 
     best = ComparableAbilityGenerator()._best_attack(ctx)
+    # Composite Tile(7) du PORT par tuile candidate : MEME fonction que celle qu'appelle
+    # `_action_utility` (`playbook.base.tile_utility` = `ComparablePlaybook<T>$$
+    # CalculateUtilityFromTilePrediction`), donc ce que le port SEPARE (ou EGALISE) reellement.
+    from engine.playbook.base import tile_utility as _tile_u
+    tile_terms = {t: _tile_u(ctx, t) for t in (ctx.action_tiles or [])}
     return SweepOrderCase(
         rid=rid, step=step, uid=uid, visual_id=me.get("visualId"), origin=origin, ctx=ctx,
         action_tiles=list(ctx.action_tiles or []), ranked_union=ranked_union,
         tie_tiles=_tie_tiles(ctx, best), best=best,
         native_tile=((nat_move["to"]["col"], nat_move["to"]["row"]) if nat_move else origin),
         native_ability=(nat_ab or {}).get("abilityType"),
-        native_target=(nat_ab or {}).get("targetId"))
+        native_target=(nat_ab or {}).get("targetId"),
+        tile_terms=tile_terms)

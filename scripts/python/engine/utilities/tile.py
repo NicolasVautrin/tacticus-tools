@@ -609,9 +609,11 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
 
 
 def _adjacent_units(ctx, uid):
-    """{pos,traits} des AMIS (ctrl, self-exclu) et ENNEMIS (non-ctrl) vivants positionnés — mirror des
-    query natives `GetAdjacentFriends`/`GetAdjacentEnemies` du corps AdjacentUnitPreference (#57i). Les
-    traits (gameconfig) alimentent les filtres `FilterAdjacent*` (ex. FabricatorClaw = Mechanical=5).
+    """{pos,traits,effects} des AMIS (ctrl, self-exclu) et ENNEMIS (non-ctrl) vivants positionnés —
+    mirror des query natives `GetAdjacentFriends`/`GetAdjacentEnemies` du corps AdjacentUnitPreference
+    (#57i). Les traits (gameconfig) alimentent les filtres `FilterAdjacent*` (ex. FabricatorClaw =
+    Mechanical=5) ; les `effects` (noms bruts du `EffectsOwnedComponent`, cf. decisionView) alimentent
+    la famille `AUnitEffectsUtility` (feuilles 10/11/12, cf. `apply_tile_attributes`).
     getattr-tolerant : un contexte sans `units` (NCContext) rend deux listes vides -> feuille silencieuse."""
     import gameconfig as GC
     friends, enemies = [], []
@@ -620,7 +622,9 @@ def _adjacent_units(ctx, uid):
         if not (u.get("alive") and pos):
             continue
         rec = {"pos": (pos["col"], pos["row"]),
-               "traits": frozenset(((GC.unit(u.get("visualId")) or {}).get("traits")) or ())}
+               "traits": frozenset(((GC.unit(u.get("visualId")) or {}).get("traits")) or ()),
+               "effects": tuple(e.get("name") if isinstance(e, dict) else e
+                                for e in (u.get("effects") or ()))}
         if u.get("ctrl"):
             if u.get("id") != uid:
                 friends.append(rec)
@@ -648,7 +652,21 @@ def tile_leaf_ctx(ctx) -> dict:
     me = getattr(ctx, "me", None) or {}
     uid = getattr(ctx, "uid", None)
     friend_units, enemy_units = _adjacent_units(ctx, uid)
-    return {"unit_triggered_abilities": triggered_ability_ids(me.get("visualId")),
+    mp = me.get("pos") or {}
+    self_pos = (mp["col"], mp["row"]) if mp.get("col") is not None else None
+    # Kit DECLENCHE du mover. Le natif itere l'AbilitiesComponent ECS (donc passifs de kit +
+    # abilities accordees par TRAIT + RELIQUES) ; `triggered_ability_ids` ne connait que les
+    # `passiveAbilities` du gameconfig. On UNIONNE avec la lecture live du
+    # `TriggeredAbilityComponent` (`ctx.live_triggered_ability_ids`, RPC `unitAbilityStates`)
+    # quand le contexte l'expose : union et pas remplacement, pour qu'une lecture live partielle
+    # ne puisse jamais RETIRER un id que le port evaluait deja (N13).
+    kit = list(triggered_ability_ids(me.get("visualId")))
+    _live_fn = getattr(ctx, "live_triggered_ability_ids", None)
+    if callable(_live_fn) and uid is not None:
+        for _t in (_live_fn(uid) or ()):
+            if _t not in kit:
+                kit.append(_t)
+    return {"unit_triggered_abilities": kit,
             # IDS `UnitTrait` du MOVER — l'argument que les 7 feuilles à gate de trait passent à
             # `IdunBattle.Entities.UnitExtensions$$HasTrait(case.unit@+0x10, <traitId>)` (le `case`
             # porte l'unité qui évalue la tuile : `CapturePointTileUtility.<d__3>`, `PowerUpTile
@@ -664,6 +682,11 @@ def tile_leaf_ctx(ctx) -> dict:
             "friend_units": friend_units,
             "enemy_units": enemy_units,
             "uid": uid,
+            # Origine de l'unite qui evalue. Les corps `friends_in_range.py` (AstartesBanner 1106,
+            # KardiocoreGalvanus 1457) comptent les amis AUTOUR de la tuile candidate SANS exclure
+            # `case.unit` : l'unite est encore SUR SON ORIGINE pendant tout le sweep, elle compte
+            # donc pour elle-meme des que cette origine tombe dans le voisinage evalue (N13).
+            "self_pos": self_pos,
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
@@ -692,6 +715,26 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
       compare à `0x5c4` en énumérant l'`EffectsOwnedComponent` de la tuile (même substrat pour
       `ContaminatedUtility` 0x4dc et `MoltenForm_TilesUtility` 5/10).
 
+    - `neighbor_effect_names` <- les EFFETS PORTES par les AMIS du voisinage de la tuile candidate,
+      la donnee que consomme la famille `AUnitEffectsUtility` (feuilles 10/11/12). Les trois
+      `GetSourceUnits` concrets donnent les trois voisinages, TOUS `MINUS` le selecteur de l'unite
+      qui evalue (`IdunBattle.DSL.TargetsSelector$$op_Subtraction`), donc self EXCLU :
+        * `IdunBattle.AI.Utilities.UnitEffectsAdjacentUtility$$GetSourceUnits`
+          = `IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(..., 1)`   -> ring-1
+            (`IterateAdjacentTiles` -> porte d'elevation `|Delta| < 2`, cf. `battle_query.is_adjacent`)
+        * `IdunBattle.AI.Utilities.UnitEffectsSurroundingUtility$$GetSourceUnits`
+          = `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(..., 1, 1, 3)` -> DISQUE r=1
+        * `IdunBattle.AI.Utilities.UnitEffectsRangedUtility$$GetSourceUnits`
+          = `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(..., 2, 1, 3)` -> DISQUE r=2
+      Le corps partage `IdunBattle.AI.Utilities.AUnitEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
+      itere ces unites, puis leur `EffectsOwnedComponent`, prend `EffectType.ToString()` de chaque
+      effet et somme `HasUtilityValue(nom) ? GetUtilityValue(nom) : 0` dans la categorie BC de la
+      sous-classe. Ces trois feuilles etaient PORTEES mais DORMANTES : `meta.neighbor_effect_names`
+      n'etait plombe par AUCUN appelant (residu N13, `C4_09`/31337 pas 22 : `PathOfCommand_ExtraDmg`
+      porte par l'Autarch a 2 hex valait +10 natif, 0 cote port).
+      ⚠ Les 2e/3e arguments litteraux de `SurroundingFriends` (1, 3) ne sont pas resolus : le
+      voisinage MESURE (disque hex plein, r=2, self exclu) suffit a reproduire la mesure.
+
     Écrit en place et rend `meta` (les clés absentes des cartes ne sont PAS posées : une carte non
     fournie laisse la feuille dégrader à 0, comme aujourd'hui)."""
     lc = leaf_ctx or {}
@@ -703,6 +746,26 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
         ids = tids.get(pos)
         if ids:
             meta["tile_effect_type_ids"] = ids
+    friends = lc.get("friend_units")
+    if friends:
+        from .. import battle_query as _bq            # lazy : utilities <- battle_query
+        import hexgeo as _hex
+        elev = lc.get("elev_by_pos")
+        adj, sur1, rng2 = [], [], []
+        for u in friends:
+            p, effs = u.get("pos"), (u.get("effects") or ())
+            if not (p and effs):
+                continue
+            d = _hex.distance((pos[0], pos[1]), (p[0], p[1]))
+            if _bq.is_adjacent(pos, p, elev):
+                adj.extend(effs)
+            if d <= 1:
+                sur1.extend(effs)
+            if d <= 2:
+                rng2.extend(effs)
+        if adj or sur1 or rng2:
+            meta["neighbor_effect_names"] = {"adjacent": adj, "surrounding1": sur1,
+                                             "ranged2": rng2}
     return meta
 
 

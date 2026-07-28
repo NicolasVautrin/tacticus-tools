@@ -85,14 +85,30 @@ def _first_seen(seq_tiles):
     return out
 
 
+def _dry_signature(dry):
+    """Empreinte d'un pas natif : (unite activee, messages). Sert de GARDE contre le no-op
+    d'`applyAction` (ok=True sans muter) : deux pas consecutifs a empreinte IDENTIQUE = l'etat
+    n'a pas bouge, la trajectoire est fausse et tout ce qu'on mesurerait ensuite est du bruit."""
+    msgs = ((dry.get("action") or {}).get("messages") or [])
+    return (dry.get("activatedUnitId"),
+            tuple(sorted(json.dumps(m, sort_keys=True) for m in msgs)))
+
+
 def run(sid, rid, target_step):
     # --- avance jusqu'au pas cible sur la trajectoire NATIVE -------------------
     uid = None
+    prev_sig = None
     for step in range(target_step):
         dry = _r(sid, "aiStepDryRun", {"runnerId": rid}, 60)
         if not dry.get("ok") or not dry.get("hasNext"):
             print(f"native epuise au pas {step} ({dry.get('error')})")
             return 1
+        sig = _dry_signature(dry)
+        if sig == prev_sig:
+            print(f"GARDE NO-OP : pas {step} identique au precedent (u{dry.get('activatedUnitId')}) "
+                  f"-- applyAction n'a rien mute, mesure ABANDONNEE")
+            return 1
+        prev_sig = sig
         _apply_native(sid, rid, dry)
 
     # --- etat de DECISION du pas cible ---------------------------------------
@@ -127,6 +143,17 @@ def run(sid, rid, target_step):
     print(f"\n===== PAS {target_step} : u{uid} ({(me or {}).get('visualId')}) origin={origin} =====")
     print(f"  natif : move={nat_tile if nat_move else None} "
           f"ability={(nat_ab or {}).get('abilityType')} tgt={(nat_ab or {}).get('targetId')}")
+
+    # --- ROSTER (correlation des feuilles de tuile qui comptent des unites voisines) ----------
+    # `alive` vient de decisionView (les CADAVRES y restent -- cf. decisionview_keeps_dead) :
+    # c'est le champ que lit le port (`engine.ai.context._enemies`/`fpos`), pas une absence.
+    print("\n  UNITES (id / visualId / camp / pos / alive / effets) :")
+    for u in (dv.get("units") or []):
+        p = u.get("pos") or {}
+        effs = [e.get("name") if isinstance(e, dict) else e for e in (u.get("effects") or [])]
+        print(f"    u{u.get('id'):<4} {str(u.get('visualId')):<22} "
+              f"{'ALLY ' if u.get('ctrl') else 'ENEMY'} "
+              f"pos=({p.get('col')},{p.get('row')}) alive={bool(u.get('alive'))} eff={effs}")
 
     move_tiles = [(t["col"], t["row"]) for t in ((mov_by_unit.get(uid) or {}).get("tiles") or [])]
     action_tiles = ([origin] if origin else []) + [t for t in move_tiles if t != origin]
@@ -179,6 +206,65 @@ def run(sid, rid, target_step):
     for c in (comp.get("composites") or []):
         print(f"    ptr={c.get('ptr')} count={c.get('count')}")
         print(f"      children={c.get('children')}")
+
+    # --- DECOMPOSITION PAR ETAGE du terme de tuile ------------------------------------------
+    # Tile(7) = SOMME des feuilles du composite. Les hooks existants en donnent DEUX
+    # (`Elevation` via scorerElevTrace, `TileEffects` via scorerLeafTrace) + le TOTAL
+    # (scorerTileTermTrace). Le RESTE = X, la somme des feuilles NON instrumentees --
+    # c'est exactement le residu N13 (0..25 par tuile, position-dependant). On ne fitte
+    # AUCUN scalaire : on isole l'etage, on le nomme ensuite au decompile.
+    def _by_tile(entries, ck, rk, vk):
+        out = {}
+        for e in entries:
+            t = (e.get(ck), e.get(rk))
+            if t[0] is None or t[0] < 0:
+                continue
+            out.setdefault(t, set()).add(round(float(e.get(vk) or 0.0), 4))
+        return out
+
+    # NB : le champ `ret` du hook de feuille generique n'est PAS fiable (registre non nettoye
+    # sur ces corps d'iterateur) -- on ne le filtre PAS ; la valeur yieldee, elle, est stable
+    # sur les 2 events emis par tuile (verifie : ensembles a 1 element).
+    tt = _by_tile(tents, "casterCol", "casterRow", "tileTerm")
+    el = _by_tile(eents, "col", "row", "leaf")
+    te = _by_tile([e for e in lents if e.get("leaf") == "TileEffects"], "col", "row", "value")
+    print("\n  DECOMPOSITION Tile(7) par tuile (X = total - Elevation - TileEffects) :")
+    print("    tuile      Tile(7)      Elevation   TileEffects   X(residu)")
+    for t in native_order:
+        def one(d, default=None):
+            v = d.get(t)
+            if not v:
+                return default
+            return sorted(v)[0] if len(v) == 1 else sorted(v)
+        vt, ve, vf = one(tt), one(el), one(te, 0.0)
+        x = (vt - ve - vf) if isinstance(vt, float) and isinstance(ve, float) \
+            and isinstance(vf, float) else None
+        print(f"    {str(t):<10} {str(vt):<12} {str(ve):<11} {str(vf):<13} {x}")
+
+    # --- VOISINAGE par tuile candidate : de quoi confronter TOUTE feuille qui compte des
+    # unites autour de la tuile (TriggeredAbilities(2) AdjacentUnitPreference R1,
+    # AstartesBanner/FirstAmongTraitors R=range hex, KustomForceField/Savior R1, ...).
+    # `selfIn2` = le MOVER lui-meme (il est encore a son origine pendant l'evaluation :
+    # les queries natives sont par TUILE, elles ne l'excluent pas d'office).
+    import hexgeo   # noqa: E402
+    alive = [u for u in (dv.get("units") or [])
+             if u.get("alive") and (u.get("pos") or {}).get("col") is not None]
+    mine = bool((me or {}).get("ctrl"))
+    others = [u for u in alive if u.get("id") != uid]
+    friends = [u for u in others if bool(u.get("ctrl")) == mine]
+    foes = [u for u in others if bool(u.get("ctrl")) != mine]
+    print("\n  VOISINAGE par tuile (d = hexgeo.distance, unites VIVANTES, self exclu) :")
+    print("    tuile      amis<=1 amis<=2 enn<=1 enn<=2 d(origine)  | distance a chaque ami")
+    hdr = "  ".join(f"u{u.get('id')}" for u in friends)
+    print(f"    {'':<10} {'':<38}| {hdr}")
+    for t in native_order:
+        def cnt(us, rad):
+            return sum(1 for u in us
+                       if hexgeo.distance(t, (u["pos"]["col"], u["pos"]["row"])) <= rad)
+        ds = "  ".join(f"{hexgeo.distance(t, (u['pos']['col'], u['pos']['row'])):>3}"
+                       for u in friends)
+        print(f"    {str(t):<10} {cnt(friends,1):<7} {cnt(friends,2):<7} {cnt(foes,1):<6} "
+              f"{cnt(foes,2):<6} {hexgeo.distance(t, origin) if origin else -1:<11} | {ds}")
     return 0
 
 

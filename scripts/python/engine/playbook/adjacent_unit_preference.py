@@ -152,6 +152,8 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 
 
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
+from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
+                               KardiocoreGalvanusPlaybook)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -159,6 +161,11 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.MartialApotheosis): MartialApotheosisPlaybook(),   # 1045 (#57i, branche ennemis)
     int(TriggeredAbilityType.FabricatorClawArray): FabricatorClawArrayPlaybook(),  # 1006 (#57i, amis mecaniques)
     int(TriggeredAbilityType.FuryOfTheAncients): FuryOfTheAncientsPlaybook(),   # 1247 (#32)
+    # N13 — famille « corps propre » (`friends_in_range.py`) : elles COMPTENT les amis autour de la
+    # tuile candidate, SELF INCLUS. C'est le terme qui manquait au composite Tile(7) et qui
+    # fabriquait les faux ties du sweep de position (case-n13).
+    int(TriggeredAbilityType.AstartesBanner): AstartesBannerPlaybook(),         # 1106
+    int(TriggeredAbilityType.KardiocoreGalvanus): KardiocoreGalvanusPlaybook(),  # 1457 (RELIQUE)
 }
 
 

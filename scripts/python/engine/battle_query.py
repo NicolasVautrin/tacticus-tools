@@ -93,6 +93,45 @@ def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None
     return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))
 
 
+def is_surrounding(tile: tuple, pos: tuple, radius: int,
+                   include_center_tile: bool = True) -> bool:
+    """`pos` est-il dans le DISQUE de rayon `radius` autour de `tile` au sens de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` ?
+
+    L'itérateur natif est PUREMENT GEOMETRIQUE — triple boucle cube
+    `for x in cx-R..cx+R: for y in cy-R..cy+R: for z in cz-R..cz+R: if (x+y+z == 0)` puis
+    `CubeCoordinate.ToAxialCoordinate` + `StateExtensions.GetTileEntityAt` — c'est-a-dire le
+    disque hex EXACT de rayon R. Trois differences DECISIVES avec `is_adjacent` (qui, lui,
+    mirror `IterateAdjacentTiles`) :
+      * AUCUNE porte d'elevation : le `abs(elev(a)-elev(b)) < 2` d'`IterateAdjacentTiles`
+        n'existe pas dans ce corps ;
+      * la tuile CENTRALE est emise sauf si le flag `d__6+0x52` est faux (`... || tile !=
+        d__6+0x38`) -> parametre `include_center_tile` ;
+      * le filtre `IsEmptyOrSteppable` (`d__6+0x50`) est optionnel et n'est PAS pose par le
+        chemin `GetSurroundingUnits` (il retirerait toutes les tuiles occupees, donc toutes
+        les unites cherchees).
+    """
+    d = hexgeo.distance((tile[0], tile[1]), (pos[0], pos[1]))
+    if d == 0:
+        return bool(include_center_tile)
+    return d <= int(radius)
+
+
+def count_surrounding(tile: tuple, positions: list, radius: int,
+                      include_center_tile: bool = True) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetSurroundingFriends(unit, tile, range, flag).Count`
+    — nombre d'unites de `positions` dans le disque `is_surrounding`.
+
+    Le natif enchaine `GetSurroundingFriends` -> `GetSurroundingUnits` (disque + `GetUnit` par
+    tuile, doublons absorbes par l'`OrderedSet`) -> `ListExtensions.FilterInPlace(estAmiDe unit)`.
+    `positions` porte donc DEJA le filtre de camp ; l'appelant decide s'il y inclut l'unite qui
+    evalue (le natif ne l'exclut PAS : `GetSurroundingUnits` ne retire que les ENNEMIS via
+    `UnitExtensions.IsEnemy`, cf. `AstartesBannerPlaybook` qui ne fait aucun test `!= case.unit`
+    la ou `FirstAmongTraitorsPlaybook`, lui, en fait un explicite)."""
+    return sum(1 for p in (positions or [])
+               if is_surrounding(tile, p, radius, include_center_tile))
+
+
 def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
                 charged_unit_ids, elev_by_pos: dict | None = None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` — MIRROR du decompile,
