@@ -259,6 +259,24 @@ necessaires** : A tombe sans le terme CANDIDAT (la prediction native SIMULE le p
 terme REEL. **C2 est le regime discriminant** : le natif rend 9856, un gate `has_moved` aurait rendu
 14080.
 
+### Epreuve du fix par MUTATION adversariale
+
+Le gate est remplace par le proxy — `build_hits_board` pose `unit_has_moved(state, att_id)` a la
+place de `battle_query_is_charging(...)`, tout le reste inchange. Resultat : **exactement** les deux
+tests `STEP_ADJACENT` tombent (les deux boards), `CHARGE` et `NO_STEP` restent VERTS.
+
+```
+AssertionError: STEP_ADJACENT : le port sur-applique le +extraHits (gate `has_moved` ?) --
+live n=7 [1197, 1522, 1567, 1471, 1326, 1305, 1653]
+offline n=10 [1197, 1522, 1567, 1471, 1326, 1305, 1653, 1453, 1587, 1676]
+
+AssertionError: STEP_ADJACENT (C1_25/31337) : live n=7 [1204, 1220, 1126, 1403, 979, 1156, 1289]
+offline n=10 [1204, 1220, 1126, 1403, 979, 1156, 1289, 1038, 1121, 1038]
+```
+
+La garde discrimine donc le GATE, et rien d'autre : ni la magnitude, ni le canal, ni le niveau.
+Mutation revertee (`git diff` vide apres coup).
+
 ---
 
 ## 6bis. Le harnais mentait — et il aurait fait conclure a un port faux
