@@ -55,7 +55,12 @@ from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvD
                                     DESPOILED_GROUND_TILE)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
-from ..loki.fuelled_by_fury import FuelledByFuryExtraDamageAbility   # compteur 1323 (passif ultraTitus)
+from ..loki.fuelled_by_fury import (FuelledByFuryExtraDamageAbility,  # compteur 1323 (passif ultraTitus)
+                                    FuelledByFuryReviveAbility,       # #88 A1 : self-revive On(3)
+                                    FuelledByFuryCanReviveActivateOnAbilityInit,
+                                    FuelledByFuryCanReviveActivateOnTurnStart,
+                                    FuelledByFuryCanReviveDeactivateOnRevive,
+                                    FUELLED_BY_FURY_CAN_REVIVE)       # marqueur 1324
 from ..loki.anvil_shield import (AnvilShieldApplyIceAbility,          # lot POSE (passif spaceRockfist)
                                 AnvilShieldApplyStunAbility,          # #100 volet Stun on-block
                                 AnvilShieldFrozenAttackerAdvantageAbility,   # #100 volet +block glace
@@ -210,7 +215,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # & AreFriends(Owner, caster) & HasTrait(caster, 0x10=Hero) & !HasTrait(caster, 0x419=MachineOfWar)
     # & IsActiveAbilityCountedAsUsed(false)` -> `If(HasEffect, IncreaseEffectLevel(+1, SANS cap),
     # AddEffect(1323))`. Cf. loki/fuelled_by_fury.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateBehaviour).
-    "FuelledByFury": [FuelledByFuryExtraDamageAbility],
+    # + volet REVIVE (#88 residu A1) : `FuelledByFury_ReviveAbility` = `On(3=PendingDeathAdded) &
+    # HasEffect(self, 1324 actif) & AreEqual(caster, self) & TriggeringAbilityIs(1024=FinalJustice)` ->
+    # `Revive(self, self, ConfigVar('hp'), healType=0, sourceId=1251)`. Le passif porte les DEUX
+    # triggered-abilities (l'`ArraySet` du marqueur 1324 n'enregistre, lui, que ses 3 triggers d'etat).
+    "FuelledByFury": [FuelledByFuryExtraDamageAbility, FuelledByFuryReviveAbility],
     # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3d) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
@@ -380,6 +389,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
                              PhoenixGemRemoveMarkerOnRevive,         # On(0x2e) -> RemoveEffect(1451)
                              PhoenixGemRemoveMarkerOnResurrect],     # On(0x2f) -> RemoveEffect(1451)
+    # FuelledByFury_CanRevive 1324 (#88 A1, marqueur POSE PAR LE JEU a l'init d'ultraTitus -- donc capte
+    # tel quel par le snapshot live) : l'`ArraySet` d'`IdunBattle.Entities.Effects.Loki.
+    # FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` n'enregistre QUE les 3
+    # triggers qui pilotent son etat ACTIF (`EffectComponent.IsActive @+0x5c`) -- l'ability de revive,
+    # elle, est portee par le PASSIF (`ABILITY_TRIGGERS["FuelledByFury"]`). Contraste PhoenixGem : ici
+    # c'est une DESACTIVATION (once-per-TURN, re-armee au tick 0x12), pas un retrait definitif.
+    FUELLED_BY_FURY_CAN_REVIVE: [FuelledByFuryCanReviveActivateOnAbilityInit,    # On(0x21) -> Activate
+                                 FuelledByFuryCanReviveActivateOnTurnStart,     # On(0x12) -> Activate
+                                 FuelledByFuryCanReviveDeactivateOnRevive],     # On(0x2e) -> Deactivate
     # AnvilShield_FrozenAttackerAdvantage (#100, effet 0x4b1=1201 pose par le volet `On(0x2b)`) : son
     # SEUL trigger propre est `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect
     # $$CreateTargetTrigger` = `On(0xe=UnitPostAbility) & AreEqual(target@0x178, EffectSource(this))` ->

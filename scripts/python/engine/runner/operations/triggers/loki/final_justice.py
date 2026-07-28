@@ -116,6 +116,14 @@ class FinalJusticeAbility(TriggeredAbility):
     SAUF si le coup fatal l'a OVERKILL (dmg >= 2*PV ; cf. `is_overkill`). `fire_on_death` car l'owner est
     déjà `alive=False` au moment du dispatch MORT (bypass du gate vivant, comme `CanGetAbilityTrigger`)."""
     event_id = EventTriggerType.PreUnitDeath
+    # `TriggeredAbilityType.FinalJustice = 0x400 = 1024` — l'id que
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` inscrit dans l'`AbilityEntities`
+    # AVANT le behaviour : les kills portes par la riposte le transportent donc, et c'est EXACTEMENT ce
+    # que teste `TriggeringAbilityIs(AbilityOrEffect(0x400))` du
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateTrigger`
+    # (i2 : « the first time each turn he defeats an enemy **with an attack triggered by Final
+    # Vengeance** »). Cf. `dispatch/core.py` (foyer d'ecriture) et `triggers/base.py`.
+    TRIGGERED_ABILITY_ID = 1024
     fire_on_death = True
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

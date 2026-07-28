@@ -1,6 +1,11 @@
 # case-66 — Sous-systeme REVIVE-EN-PLACE (base `ReviveEffect`) + TaintedNarthecium
 
-**Statut : DEBLOQUEUR LIVRE + RETROFIT #79 LIVRE + FERMETURE #88/#89.** Primitive `ReviveEffect`
+**Statut : DEBLOQUEUR LIVRE + RETROFIT #79 LIVRE + FERMETURE #88/#89 + RESIDU A1 LIVRE (#88, 2026-07-28).**
+Le residu **A1 `FuelledByFury`** (§8.1) est PORTE et VALIDE LIVE : les 3 << blocages >> de sa fiche
+etaient PERIMES ou faux — l'emetteur d'`On(PendingDeathAdded = 3)` est
+`IdunBattle.Operations.RecordKillOperation$$Execute`, le `TriggeringAbility` a desormais un foyer
+unique, et l'effet 1324 est CAPTE live (rien a poser). Le residu **A2 `GhostRevive`/`TimeFlux`** (§8.2)
+a sa RE **complete** (emetteur d'`On(PreUnitMove)` inclus) mais son port reste a faire. Primitive `ReviveEffect`
 (revive-en-place) + `ReviveUnitOperation` portees et validees sur le carrier phare **deathRotbone**
 (passif `TaintedNarthecium`). Le retrofit #79 a porte **Narthecium** (LIVE-validee end-to-end),
 **RitesOfMorkai**, **ReanimationBeam** et **PhoenixGem** (mirror + offline, carriers non montables).
@@ -325,13 +330,12 @@ behaviour du revive. Discriminant desormais exprimable (et teste) : un revive ve
 Corollaire structurel : `EFFECT_TRIGGERS` mappe un `effectType` vers une **LISTE** de triggers, mirror de
 l'`ArraySet` que renvoie `CreateHandleTriggerAbilitiesInternal`.
 
-## 8. Residus / hors-perimetre (RE fait, port NON tente)
+## 8. Les deux consommateurs HORS famille `ReviveEffect` (#88 A1 / A2)
 
-Deux consommateurs appellent bien `DSLFactory.Revive` → `ReviveUnitOperation`, mais ne sont **pas** des
-sous-classes de `ReviveEffect` : leur port n'est pas un retrofit « filtre + vars + gate », c'est un
-chantier propre. Aucun port speculatif n'a ete ecrit.
+Ils appellent bien `DSLFactory.Revive` → `ReviveUnitOperation`, mais ne sont **pas** des sous-classes de
+`ReviveEffect` : ce n'est pas un retrofit « filtre + vars + gate », c'est un chantier propre par item.
 
-### 8.1 `FuelledByFury` (`ultraTitus`, hero **dans le pool** ⇒ validable LIVE le jour du port)
+### 8.1 `FuelledByFury` (`ultraTitus`) — **PORTE ET VALIDE LIVE (#88 A1, 2026-07-28)**
 
 i2 (authoritatif) : « The first time each turn that Titus is defeated he cannot be **Overkilled**.
 The first time each turn **he defeats an enemy with an attack triggered by Final Vengeance** he is
@@ -339,66 +343,151 @@ immediately revived with a maximum of {hp} Health. » — `ultraTitus.traits = [
 **FinalJustice**]`, `passiveAbilities = [FuelledByFury]`.
 
 Arbres LUS :
-- `FuelledByFury_ReviveAbility.CreateTrigger @180f81250` =
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateTrigger` =
   `On(3 = PendingDeathAdded) & HasEffect(self@0x148, 0x52c = 1324 EffectType.FuelledByFury_CanRevive, 1, 6)
-   & AreEqual(caster@0x160, self@0x148)  [= OwnerIsCaster explicite]
-   & TriggeringAbilityIs(AbilityOrEffect(0x400 = 1024 = TriggeredAbilityType.FinalJustice))`
-- `FuelledByFury_ReviveAbility.CreateBehaviour @180f810c0` =
+   & AreEqual(caster@0x160, self@0x148) & TriggeringAbilityIs(AbilityOrEffect(0x400 = 1024 =
+   TriggeredAbilityType.FinalJustice))`
+- `...FuelledByFury_ReviveAbility$$CreateBehaviour` =
   `Revive(self@0x148, self@0x148, ConfigVar(0x1d='hp', abilityState@0x20), healType=0,
    Nullable(AbilityOrEffect(this.Id = 1251)), 0, priority=0, 0)` — **self-revive inconditionnel**.
-- `FuelledByFury_CanReviveEffect.CreateHandleTriggerAbilitiesInternal @180f4ab10` = `ArraySet{`
-  `On(0x21=AbilityInit) & OwnerIsActor → ActivateEffect(self@0x150)`,
-  `On(0x12=TurnStart_EffectActivation) → ActivateEffect(self@0x150)`  [= le « first time each TURN »],
-  `On(0x2e=UnitRevived) & OwnerIsTarget & CurrentAbilityIs(0x4e3=1251) → DeactivateEffect(self@0x150)` `}`
-  — meme forme que PhoenixGem (§7.4) : le vecteur `On(0x2e)` est desormais dispatche par le port.
+- `IdunBattle.Entities.Effects.Loki.FuelledByFury_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal`
+  = `ArraySet{ On(0x21=AbilityInit) & OwnerIsActor → ActivateEffect(self@0x150) ;
+  On(0x12=TurnStart_EffectActivation) → ActivateEffect(self@0x150)  [le « first time each TURN »] ;
+  On(0x2e=UnitRevived) & OwnerIsTarget & CurrentAbilityIs(0x4e3=1251) → DeactivateEffect(self@0x150) }`.
 
-**Ce qui manque encore** (3 points, aucun n'est devinable) :
-1. **L'EMETTEUR de `On(PendingDeathAdded = 3)` n'est PAS localise.** `FuelledByFury_ReviveAbility` en est
-   l'**unique** consommateur du binaire (verifie : recherche litterale de `DSLFactory__On(...,3,0,0)` →
-   1 seul hit). L'enqueue de la mort est `MatchState.AddDeath @181009f90` (dedup par unit id, `Queue`
-   @`MatchState+0x10`, drainee par `VerifyDeaths` §7.2) mais elle n'a que des xrefs DATA (appel par slot
-   d'interface) ⇒ son call-site n'est pas resolvable statiquement. **Point d'ancrage a hooker** si besoin :
-   `MatchState.AddDeath @181009f90` (attach + lecture de l'adresse de retour = le call-site emetteur).
-   Sans ca, poser le vecteur dans le port serait speculatif (or il DOIT venir strictement AVANT `On(1)`,
-   puisque l'enqueue precede le drain `VerifyDeaths`).
-2. **`TriggeringAbilityIs` n'a pas de contexte dans le port** : il faudrait propager « l'ability qui a
-   declenche l'attaque » (natif : le champ `TriggeringAbility` de l'`AbilityEntities` passe de proche en
-   proche) jusqu'au pipeline de degat, pour que la riposte `FinalJusticeAbility` marque ses kills.
-3. **La pose de l'effet 1324** (`InitAbility` / owner-effect du passif) et le volet
-   `FuelledByFury_BlockOverkillEffect` (@180f4aac0 / `ApplyInternal @180f4a7c0` /
-   `CreateHandleTriggerAbilitiesInternal @180f4a850`, « cannot be Overkilled ») ne sont pas portes.
+**Les 3 << blocages >> de la fiche d'origine, tranches un par un :**
 
-NB : ce residu est le **cas d'usage canonique de la garde §7.2** — Titus meurt, sa riposte FinalJustice
-tue un ennemi pendant `On(1)`, un revive est pose sur Titus, et sa propre mort est annulee.
+1. **L'emetteur d'`On(PendingDeathAdded = 3)` EST LOCALISE** :
+   `IdunBattle.Operations.RecordKillOperation$$Execute` (appele par
+   `Core.Services.OperationProcessor$$RecordKill`). Sequence lue : gate `UnitFlagsComponent.Has(dying, 6)`
+   → compteurs de kills du `PlayerComponent` (`+0x90`, `+0x94`) → `UnitFlagsComponent.Add(dying, 0xf)` →
+   `MatchState.AddDeath(killer, dying, …)` → **publie `On(3)`** avec le triplet d'entites
+   `(killer, killer, dying)`. La file n'etant drainee que par
+   `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` → `KillUnitOperation$$Execute`, **`On(3)`
+   precede STRICTEMENT `On(1)`**.
+   *Comment il a ete trouve* (methode reutilisable, cf. `probe_88_event_emitters.py` /
+   `probe_88_dispatch_scan.py` / `probe_88_on3_publishers.py`) : la publication d'un evenement de
+   trigger n'a **pas une forme d'appel unique** — l'`eventType` est tantot en `r9d` (thunk
+   `FUN_180026490`, 55 sites, 48 des 77 `EventTriggerType`), tantot en 9e argument (`FUN_180028f50`),
+   tantot en 5e argument d'un slot d'interface **INLINE** (`MoveUnitOperation$$
+   EvaluateArrivedAtFinalTileTrigger`, `RecordKillOperation$$Execute`). Ne scanner qu'une forme donne un
+   FAUX NEGATIF — c'est exactement ce qui avait fait conclure « non localise ». Le balayage qui a
+   tranche cherche l'immediat dans **tous** les slots d'argument de pile (`C7 44 24 N imm32`) **et** en
+   `r9d`, avec des **temoins obligatoires** (`0x1c`, `0x2f`, `0x2c`) pour prouver que le scan voit bien
+   les sites inlines. ⚠ le code IL2CPP vit dans la section **`il2cpp`**, pas `.text`.
+2. **`TriggeringAbilityIs` a desormais un contexte** : `AbilityEntities.TriggeringAbility` est ecrit par
+   `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`, qui pose
+   `Nullable<AbilityOrEffect>(ability.Id)` **avant** d'executer le behaviour (puis une 2e fois avant
+   `On(0xd)`). Foyer UNIQUE cote port : `triggers/dispatch/core.py::evaluate_trigger_operation`
+   (sauvegarde/restaure `state.triggering_ability` autour de `execute_behaviour` — l'imbrication native
+   est ainsi reproduite). Chaque classe declare son id via `TRIGGERED_ABILITY_ID` (ici `FinalJustice`
+   = 1024). Non renseigne = None → gate positif faux, gate negatif vrai (degradation NOMMEE).
+3. **La pose de l'effet 1324 n'a jamais eu besoin d'etre portee** : le jeu la fait a l'init de l'unite
+   (`On(0x21=AbilityInit) → ActivateEffect`), donc le snapshot live la CAPTE — `ultraTitus` arrive dans
+   le runner avec `FuelledByFury_BlockOverkill` **et** `FuelledByFury_CanRevive`. Le port n'a qu'a
+   enregistrer les 3 triggers d'etat sous `EFFECT_TRIGGERS[1324]` et lire `BaseEffect.active`.
 
-### 8.2 `TimeFlux` / `GhostRevive` (`thousTerminator`, hero **dans le pool**)
+**BUG REEL leve au passage — la riposte `FinalJustice` etait un NO-OP SILENCIEUX offline.** Le gate
+acteur-mort de `damage_ops/normal.py` (#133, mirror de `if (options@0x4a == 0 && IsUnit(caster) &&
+IsDead(caster)) return 0` d'`ActiveAbilityOperation$$ExecuteInternal`) supposait qu'« aucune voie du
+port ne pose ce flag » — or `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` FORCE
+un octet a `1` dans les `AbilityOptions` qu'il assemble (`uStack_210._0_2_ =
+CONCAT11(*(behaviour + 0xa8), 1)` — le SEUL octet en dur d'une struct autrement recopiee champ par
+champ). Mesure live : `ultraTitus` a `hp = 0` porte bel et bien sa riposte, pour **10502** de degat, et
+TUE. Le trou n'etait visible dans AUCUN test : `test_finaljustice_live` appelle `after_death_triggers`
+sur un Kharn encore VIVANT dans l'ECS, donc le gate ne s'y arme jamais. Corrige par
+`allow_dead_caster`, pose **uniquement** par la feuille `UseActiveAbility` (mirror de l'unique poseur
+natif) ; toutes les autres voies gardent le gate.
+
+**Port** : `triggers/loki/fuelled_by_fury.py` (`FuelledByFuryReviveAbility` +
+`FuelledByFuryCanReviveActivateOnAbilityInit` / `...OnTurnStart` / `...DeactivateOnRevive`),
+vecteur `dispatch/move_death.py::pending_death_added_triggers` appele en tete de
+`damage.py::_fire_death_if_killed`, registres `ABILITY_TRIGGERS["FuelledByFury"]` (2 abilities) et
+`EFFECT_TRIGGERS[1324]` (3 triggers d'etat).
+
+**Validation** — `probe_88_fuelled_by_fury_revive.py`, DEUX regimes LIVE a MEME geometrie et MEME coup
+fatal (`hp_player = 12721`, coup mesure `14967` ⇒ letal et NON-overkill), seule la PV des ennemis change :
+
+| regime | riposte | live | port |
+|---|---|---|---|
+| ennemis a 5251 PV | tue `astraBullgryn` | Titus **VIVANT**, `hp = 7477`, tuile INCHANGEE `(2,2)` | idem, `hp = 7477` |
+| ennemis a 31506 PV | ne tue personne | Titus **MORT**, `hp = 0` | idem |
+
+`7477 == round(FuelledByFury.hp[L50] = 4154 x 180 %)` = `ability_var('FuelledByFury','hp', …)`, au PV pres.
+Gardes : `tests/engine/runner/test_fuelled_by_fury_revive_live.py` (5 tests — face positive, face
+« pas de kill », face « marqueur desarme », face « TriggeringAbility absent », re-armement au tick de
+tour). Zero-reg cible : finaljustice / martial_superiority / fuelled_by_fury / revive_cancels_death (13),
+famille revive (34), death_nova / ambush / act_of_faith / overwatch (12) — **59 PASS** ; `probe_120` OK.
+
+**Residu NOMME** : `FuelledByFury_BlockOverkillEffect` (`EffectType.FuelledByFury_BlockOverkill` = 1354,
+present LIVE sur Titus au meme titre que 1324) — le volet « cannot be Overkilled » de l'i2. Artefacts :
+`IdunBattle.Entities.Effects.Loki.FuelledByFury_BlockOverkillEffect$$ApplyInternal` / `$$RevertInternal`
+/ `$$CreateHandleTriggerAbilitiesInternal`. MECANIQUE DISTINCTE (pose du flag `UnitFlag.PreventOverkill`
+lu par `IsOverkill`), pas un morceau du revive. Second residu : le NOM du slot d'interface 8 lu par
+`EvaluateTriggerOperation$$CanGetAbilityTrigger` (le « fire-on-death » natif) n'est pas resolu — sa
+valeur VRAIE pour cette ability est etablie par la mesure live, pas par une lecture.
+
+### 8.2 `TimeFlux` / `GhostRevive` (`thousTerminator`, hero **dans le pool**) — RE **COMPLETE**, port NON tente
 
 i2 : « When Toth **moves**, he leaves a **time ghost** behind on the hex he moved from. The time ghost
-vanishes if the hex becomes occupied by another unit or if … » (+ le volet regeneration, deja distinct).
+vanishes if the hex becomes occupied by another unit or if … » (+ le volet regeneration, deja distinct
+et deja porte — `triggers/loki/time_flux.py::TimeFluxRegenAbility`).
 
-Arbres LUS :
-- `GhostReviveAbility.CreateTrigger @180f83800` = `<trigger de base @factory+0xa0> & On(0x1f = PreUnitMove, 1)
-  & OwnerIsCaster`.
-- `GhostReviveAbility.CreateBehaviour @180f83600` =
+**Le blocage (a) de la fiche d'origine est LEVE** : l'emetteur d'`On(PreUnitMove = 31)` est
+`IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers` (+ un second site, dans
+`IdunBattle.Operations.MoveUnitOperation$$Execute` lui-meme) — les deux passent `eventType = 0x1f` en
+`r9d` au thunk `FUN_180026490`, avec `AbilityEntities.ctor(mover, mover, mover, …)`. Le port a deja
+`MoveUnitOperation` ; il ne manque que le vecteur (aucun autre consommateur porte ne l'attend, donc
+l'ajouter SEUL serait un vecteur registered-but-dead — a poser AVEC le ghost).
+
+Arbres LUS (spec complete, prete a recopier) :
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GhostReviveAbility$$CreateTrigger` =
+  `<trigger de base factory@0xa0> & On(0x1f = PreUnitMove, 1) & OwnerIsCaster`.
+- `...GhostReviveAbility$$CreateBehaviour` =
   `tile = CurrentTurnStartTile(sel@0x160)` ;
   `cond = AmountIsEqual(CurrentTurnStartTile(sel@0x160), Direct(0))
         | HasBeenRevivedByAbility(sel@0x160, AbilityOrEffect(this.Id@0x60))
         | NOT(OwnerIsCaster)
         | TileHasTriggeredAbility(tile, 0x1d)` ;
   `If(cond, Nothing(), AddEffect(this.Id@0x60, AbilityStateReference, sel@0x160, tile, default))`.
-- `TimeFluxReviveAbility..ctor @1811a88a0` = la meme classe parametree par
-  `EffectType.TimeFlux_Revive = 0x4a2 = 1186` (le ctor de base est nomme
+- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TimeFluxReviveAbility$$.ctor` = la meme classe
+  parametree par `EffectType.TimeFlux_Revive = 0x4a2 = 1186` (le ctor de base est nomme
   `EnvDefenderHealthBuffAbility..ctor` par ICF — **ne pas se fier au nom**).
-- Le revive lui-meme vit dans **`GhostEffect`** : `CreateTargetTrigger @180f4bb90` /
-  `CreateTargetTriggerBehaviour @180f4b680` / `CreateHandleTriggerAbilitiesInternal @180f4b1f0`
-  (meme patron que `ReviveEffect`, mais l'effet porte une TUILE).
+- `IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTrigger` =
+  `OnPreDeath(ignoreOverkill = 1) & AreEqual(EffectSource(self@0x150), target@0x178)`
+  ⇒ **even if Overkilled**, et seul le POSEUR du ghost peut le declencher.
+- `...GhostEffect$$CreateTargetTriggerBehaviour` =
+  `src   = EffectSource(Get(effect))` ;
+  `cond  = NOT(IsAlive(src)) & NOT(HasFlag(src, 6)) & NOT(HasBeenRevivedByAbility(src, AbilityOrEffect(effectType)))` ;
+  `amount = <si la config porte une variable 'hp' et que le champ Nullable @0x14..0x2c vaut 0x485>
+            ? Direct(GetVariableForLevel(config@0x60, 0x1d = 'hp', abilityState))
+            : StatAmount(src, Health = 5, max = 3)` ;
+  `If(cond, Revive(src, src, amount, healType = 2, Nullable(AbilityOrEffect(effectType)),
+                   **tiles = Owner@0x148** (= la TUILE porteuse du ghost), 0, 0)
+           + BaseEffect.GetRemoveEffectBehaviour())`.
+  ⇒ le 7e argument de `DSLFactory.Revive` (le selecteur de TUILES) est ici **non nul** : c'est LA
+  difference avec tous les revives deja portes, et donc le seul endroit du sous-systeme ou la position
+  change (`ReviveUnitOperation$$SetRevivePosition`).
+- `...GhostEffect$$CreateHandleTriggerAbilitiesInternal` = `ArraySet` de **CINQ** retraits
+  (`GetRemoveEffectBehaviour` a chaque fois) — c'est la « condition de disparition » de l'i2 :
+  1. `On(0x1f = PreUnitMove, 1) & AreEqual(caster@0x160, EffectSource)` — Toth rebouge : l'ancien ghost part ;
+  2. `On(0x33 = UnitAdded, 1) & NOT AreEqual(caster, EffectSource) & Contains(sel@0x190, Owner@0x148)
+     & NOT HasTrait(caster, 0x1b)` — une AUTRE unite APPARAIT sur la tuile du ghost ;
+  3. `On(0x24 = UnitPositionChanged_1, 1) & NOT AreEqual(caster, EffectSource) & Contains(sel@0x190, Owner@0x148)`
+     — une autre unite ARRIVE sur la tuile du ghost ;
+  4. `OnDeath(1) & AreEqual(EffectSource, target@0x178) & NOT IsEffectActive(self@0x150)` ;
+  5. `On(0x25 = UnitRemoved, 1) & AreEqual(EffectSource, target@0x178)`.
 
-**Ce qui manque** : (a) un vecteur `On(PreUnitMove = 31)` (aucun dispatch dans le port) ; (b) un effet
-qui porte une TUILE (le ghost) avec sa condition de disparition ; (c) un revive **NON in-place** — le
-port de `ReviveUnitOperation` est in-place par construction, il faudrait mirrorer
-`SetRevivePosition @180e936e0` parametree par la tuile du ghost (la `ReviveData` transporte deja la
-liste de tuiles : c'est le champ `Nullable<List<...>>` construit par `ReviveBehaviour.Execute` a partir
-du selecteur `@param_2+0x90`).
+**Ce qui reste a FAIRE** (aucune inconnue de RE ; c'est du travail de port, de la taille de §8.1) :
+(a) poser le vecteur `On(PreUnitMove = 31)` ; (b) porter le ghost = un effet dont le PORTEUR est une
+TUILE (substrat deja present : `TileEffectTrigger`, `AddEffect(..., Tiles(...))` de Fire / Contaminated
+/ DespoiledGround) plus ses 5 retraits et les 4 noeuds neufs `CurrentTurnStartTile`,
+`HasBeenRevivedByAbility`, `TileHasTriggeredAbility`, `IsEffectActive` ; (c) un revive **NON in-place** —
+`operations/revive.py` est in-place par construction : il faut transporter la liste de tuiles dans la
+`ReviveData` (champ `Nullable<List<…>>` bati par `ReviveBehaviour.Execute` depuis le selecteur
+`@param_2+0x90`) et mirrorer `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` (qui publie
+au passage `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, donc peut
+lui-meme retirer un ghost — cf. retrait n°3).
 
 NB : `RitesOfRestoration` (deja porte) = **Resurrect** (tile-choice/ambush), sous-systeme DISTINCT
 (`ResurrectUnitOperation`) — NE PAS confondre avec Revive-en-place.
