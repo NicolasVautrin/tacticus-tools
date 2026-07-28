@@ -60,6 +60,21 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Gisement « playbooks de MOUVEMENT » : 43 restants, dont 32 à porteur spawnable TEL QUEL**
+  (`case-193c` §1 et §6 — chiffres RE-DÉRIVABLES par `probe_193b_carrier_pool_crosscheck.py`, qui lit
+  le pool en LIVE). Le rang A de `case-193` §5 reste la file la plus rentable (3 lignes + une entrée
+  au registre par item) — mais **relire chaque `GetAdjacent*Utility` au décompilé** avant de le
+  traiter comme un 3-lignes : `case-193c` §3 en distingue TROIS formes, et `CursedPlagueBell` (1071),
+  le 3ᵉ plus gros poids du rang A, n'en est pas un (§7). `[opus]`.
+- **`SpiritualLeader` (1275) et `ExplosiveMaladies` (1068) : clé BC EFFECTIVE non résolue**
+  (`case-193c` §7). Leur structure est tranchée au décompilé (filtre `HasTrait(0x41d)` + lookup plat
+  pour la 1ʳᵉ ; deux clés gatées `HasRangedWeapon` / `HasTrait(0x7ea)` pour la 2ᵈᵉ), mais **aucune clé
+  de `Utilities.Default.TriggeredAbilities` ne matche leur préfixe** : soit le terme vaut 0, soit la
+  clé ne suit pas la convention de nommage. Résoudre les littéraux `DAT_*` avant de conclure.
+- **`darkaSmnWatcher` (porteur de `WatchedOver` 1524) : chemin d'octroi non établi** — aucune
+  `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
+  gisement dans ce cas.
+
 - **Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)** — `case-dpw` §5/§7. Le
   vecteur `On(UnitAdded)` est porté (une unité qui APPARAÎT dans une aura Contagion ennemie prend
   le −20 %), mais l'effet n'est **ni re-évalué quand l'aura grandit** (`CalculateRange` = 1/2/3

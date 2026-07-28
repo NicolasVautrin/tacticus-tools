@@ -87,6 +87,11 @@ chemin, 9 items tombaient à tort en « porteur indirect » — dont `Kardiocore
 
 ## 4. Le compte qui compte
 
+> ⚠ **Ce compte est celui du 2026-07-28 AVANT #193c.** Depuis, `FearedInterrogator` (1235) et
+> `HatefulAssault` (1038) sont portés : `PORTE` = **10**, gisement = **43**, dont **32** spawnables
+> tel quel. Re-dériver (`probe_193_move_playbook_inventory.py`, `probe_193b_carrier_pool_crosscheck.py`)
+> plutôt que citer ce bloc.
+
 ```
 NATIF    108   = 84 corps propres + 24 corps hérités
 PORTE      8
@@ -225,5 +230,11 @@ kit.
   valable (cf. `CLAUDE.md`, gate de confrontabilité) : le seed BC devrait coïncider avec le pool,
   mais « devrait » n'est pas « est ». **Le chiffre « gisement réel = 45 » n'est donc pas mesuré sur
   sa face porteur** — le recroiser avant d'en faire un plan de dispatch.
+  → **FAIT : `docs/rl/case-193c-playbooks-mouvement-gates-par-voisin.md` §1**
+  (`probe_193b_carrier_pool_crosscheck.py`, pool LIVE rank 17 = 97 + 8 MoW). Verdict : **34 des 45
+  ont un porteur spawnable TEL QUEL** (31 `POOL-HERO` + 3 `SUMMON-HERO`) ; les 11 autres ont un
+  chemin nommé (5 + 3 `catalog_inject`, 2 portail Environment) sauf `darkaSmnWatcher`. **Zéro
+  désaccord** entre la gate offline et le pool live, dans les DEUX sens (31/31 `lineup-direct` en
+  pool, 5/5 `lineup-inject` hors pool) : le « 45 » tenait, il est maintenant MESURÉ.
 * **Le cap `vtbl+0x228/0x238`** du corps commun (jamais observé liant) reste non répliqué, inchangé
   par ce cas.
