@@ -386,7 +386,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              "pos_by_id": {uid: scene.pos_by_id[uid] for uid in _alive_ids},
              "team_by_id": scene.team_by_id,
              # faction par unite — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance, #98)
-             "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids}}
+             "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids},
+             # `IsCharging` (case-ischarging-hits) sur le canal COUPS — MEME valeur que celle deja calculee pour
+             # le canal DEGAT (`_att_ctx` ci-dessus) : un seul appel a `_prediction_is_charging` par
+             # candidat, donc un seul mirror d'`UpdateCharging` sur la tuile evaluee. Consommateur :
+             # `SagaOfTheWarriorBorn_Owner` (1223, +extraHits en charge).
+             "is_charging": _att_ctx["is_charging"]}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in _alive_ids if uid != tgt_id]

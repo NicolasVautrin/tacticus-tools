@@ -650,10 +650,15 @@ class IsCharging(AbilityTrigger):
     `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` -> « a charge cette unite CE TOUR ».
 
     ⚠ « a charge » n'est donc PAS « a bouge » : une unite qui bouge SANS arriver au contact de la
-    cible, ou qui etait DEJA adjacente avant son pas, n'est pas en charge. Les effets extra-degat du
-    lot SmashaEad/AvalancheOfMuscle/FeederTendrils modelisent ce meme noeud par `has_moved` (canal
-    modifier, cf. `entities/effects/loki/extra_damage.py`) : approximation ANTERIEURE, plus large que
-    ce predicat — non touchee ici (leurs 4 datapoints live restent valides), residu nomme.
+    cible, ou qui etait DEJA adjacente avant son pas, n'est pas en charge.
+
+    Les CONSOMMATEURS de ce noeud passent tous par le foyer `engine/battle_query.py::is_charging`
+    (jamais par une re-derivation locale) : canal DEGAT `AvalancheOfMuscle` 1025 / `FeederTendrils`
+    (case-r32, gate `effects/base.py::is_not_charging`) et canal COUPS `SagaOfTheWarriorBorn_Owner`
+    1223 (case-ischarging-hits, gate `effects/base.py::is_charging_attack`). L'ancienne approximation par
+    `has_moved` du canal modifier a ete RETIREE le 2026-07-28 — ne pas la reintroduire : elle
+    sur-accordait (mesure `+599`/coup sur `astraBullgryn`). L'inventaire complet des 16 xrefs du
+    noeud, avec ce qui reste non porte, vit dans `docs/rl/case-ischarging-hits-channel.md`.
 
     `ctx.charged_units` absent -> ensemble vide -> False (degradation fidele)."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger):

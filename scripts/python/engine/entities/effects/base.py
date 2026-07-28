@@ -78,6 +78,25 @@ def is_not_charging(att_ctx) -> bool:
     return (att_ctx or {}).get("is_charging") is False
 
 
+def is_charging_attack(att_ctx) -> bool:
+    """Forme POSITIVE du même gate : le coup est-il PROUVÉ en charge (case-ischarging-hits) ?
+
+    Même prédicat, même clé `att_ctx["is_charging"]`, même foyer `battle_query.is_charging` —
+    seule la polarité de la dégradation change, et c'est VOULU :
+
+    * `is_not_charging` (ci-dessus) sert des consommateurs qui EXISTAIENT avant le gate
+      (`AvalancheOfMuscle`, `FeederTendrils`) ; leur contexte historique n'avait pas la clé et
+      laissait passer — le retrofit a conservé cette polarité pour ne rien changer là où le
+      contexte n'est pas threadé ;
+    * `is_charging_attack` sert les consommateurs NOUVEAUX, où « contexte inconnu » doit rendre
+      **aucune contribution** (« présent ≠ appliqué », la dégradation par défaut du port). Sur ce
+      canal c'est aussi le plus FIDÈLE : `BattleQuery$$IsCharging` commence par
+      `AreEntitiesAdjacent(caster, target)` — sans positions, le natif rend FAUX, jamais VRAI.
+
+    Aligné en polarité sur `is_melee_attack` / `is_ranged_attack` : VRAI seulement si PROUVÉ."""
+    return (att_ctx or {}).get("is_charging") is True
+
+
 @dataclass
 class SubEffectSpec:
     """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des

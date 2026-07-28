@@ -87,6 +87,11 @@ class ChargeRegimeHarness:
     def __init__(self, rpc, rid, board):
         self.rpc, self.rid, self.board = rpc, rid, board
         self.my_player = None
+        # TRACE du montage : chaque `place()` REEL est un `MoveUnitOperation` natif, donc un appel a
+        # `UpdateCharging`. Sans cette trace, une charge posee PAR LE MONTAGE se lit comme un ecart
+        # de port (mesure case-ischarging-hits). Format : (unit_id, from_pos, to_pos, moved).
+        self.trace: list = []
+        self.endturns = 0
 
     # ------------------------------------------------------------------ lecture d'etat live
 
@@ -118,30 +123,62 @@ class ChargeRegimeHarness:
 
     # ------------------------------------------------------------------ pilotage
 
-    def reach_my_turn(self, max_end_turns=12):
+    def reach_my_turn(self, max_end_turns=12, force_cycle=False):
         """Enchaine des `endturn` jusqu'a mon tour. Purge au passage les flags de tour du caster
         (`StartTurnOperation$$ResetUnit`) ET ses `ChargedUnitIds` (vides par
         `FinishUnitTurnOperation$$Execute`) : l'etat de depart est donc « n'a pas bouge, n'a rien
-        charge », ce qu'exige tout montage de charge."""
+        charge », ce qu'exige tout montage de charge.
+
+        ⚠ `force_cycle=True` : passer par UN CYCLE COMPLET meme si c'est DEJA mon tour.
+
+        CONFOND MESURE (case-ischarging-hits, reproduit deux fois a l'identique) : les `place()` du montage sont
+        de VRAIS `MoveUnitOperation`, donc ils appellent `UpdateCharging` -- amener le caster d'une
+        tuile a distance 2 vers une tuile adjacente a la cible CHARGE cette cible, avant meme le pas
+        « officiel » du regime. Tant que `reach_my_turn` rendait la main sans aucun `endturn` (cas ou
+        c'etait deja mon tour, typiquement apres un scenario precedent sur le MEME runner), cette
+        charge residuelle SURVIVAIT au snapshot. Cote offline elle est INVISIBLE : `load_state` ne
+        seede pas `UnitComponent+0x190` (aucun RPC ne l'expose, cf. `case-r32` §7) -- l'ecart se lit
+        alors comme « le port n'applique pas le bonus » alors que c'est le MONTAGE qui a triche.
+        Signature exacte : regime `STEP_ADJACENT`, `charged=[]` offline mais le natif porte les coups
+        de charge (mesure `C1_25`/31337 : live n=10, offline n=7).
+
+        Le cycle force garantit un `FinishUnitTurnOperation$$Execute` sur le caster entre les
+        placements et le snapshot -> liste VIDE, flag `Moved` purge, quel que soit l'ordre des
+        scenarios sur un runner partage."""
         dv = self.dview()
         if self.my_player is None:
             mine = self.alive(dv)
             self.my_player = mine[0].get("owner") if mine else None
+        if force_cycle and dv.get("currentPlayer") == self.my_player:
+            # Sortir de mon tour : c'est CE `endturn` qui declenche le `FinishUnitTurn` de mes
+            # unites, donc la purge des `ChargedUnitIds` posees par les placements.
+            self.rpc("applyAction", {"runnerId": self.rid, "action": {"kind": "endturn"}}, 40)
+            self.endturns += 1
+            dv = self.dview()
         for _ in range(max_end_turns):
             if dv.get("currentPlayer") == self.my_player:
                 return dv
             self.rpc("applyAction", {"runnerId": self.rid, "action": {"kind": "endturn"}}, 40)
+            self.endturns += 1
             dv = self.dview()
         return dv if dv.get("currentPlayer") == self.my_player else None
 
     def place(self, unit_id, coord):
         """Pose `unit_id` sur `coord` (`applyAction` ne verifie NI propriete NI portee : les DEUX
-        camps sont pilotables). RELIT la position -> True SSI le pas a reellement eu lieu."""
+        camps sont pilotables). RELIT la position -> True SSI le pas a reellement eu lieu.
+
+        Chaque pose REUSSIE est tracee (`self.trace`) avec sa position de DEPART : un `place` est un
+        `MoveUnitOperation` natif COMPLET, donc il appelle `UpdateCharging` et peut CHARGER une cible
+        avant meme le pas du regime. La trace est ce qui permet de le voir."""
+        before = next((x for x in self.alive() if x.get("id") == unit_id), None)
+        from_pos = _upos(before) if before is not None else None
         self.rpc("applyAction", {"runnerId": self.rid, "action": {
             "kind": "move", "unitId": unit_id,
             "to": {"col": int(coord[0]), "row": int(coord[1])}}}, 40)
         u = next((x for x in self.alive() if x.get("id") == unit_id), None)
-        return u is not None and _upos(u) == (int(coord[0]), int(coord[1]))
+        moved = u is not None and _upos(u) == (int(coord[0]), int(coord[1]))
+        self.trace.append((int(unit_id), from_pos, (int(coord[0]), int(coord[1])), bool(moved)))
+        return moved
 
     def free_tiles(self, center, radius, exclude=()):
         """Tuiles MARCHABLES a distance hex EXACTEMENT `radius` de `center`, libres de toute unite
@@ -178,6 +215,23 @@ class ChargeRegimeHarness:
           * `STEP_ADJACENT` : caster pose ADJACENT a la cible, pas vers une AUTRE tuile adjacente
                               a la MEME cible (la cible n'est donc jamais « nouvellement adjacente »).
           * `NO_STEP`       : caster pose adjacent, aucun pas (controle negatif).
+
+        ⚠ ORDRE DES POSES -- NE PAS L'INVERSER (confond MESURE, case-ischarging-hits, reproduit 2x a l'identique).
+        Un `place()` est un `MoveUnitOperation` natif COMPLET : il appelle `UpdateCharging`, qui
+        ECRIT dans la liste `ChargedUnitIds` **DE L'UNITE QUI BOUGE**. Poser la cible d'abord puis
+        amener le CASTER a cote d'elle fait donc CHARGER la cible **par le montage**, avant meme le
+        pas du regime -- et cette charge est INVISIBLE cote offline (`load_state` ne seede pas
+        `UnitComponent+0x190`, aucun RPC ne l'expose). Signature observee : regime `STEP_ADJACENT`,
+        `charged=[]` offline mais le natif porte les coups de charge (`C1_25`/31337 : live n=10,
+        offline n=7) -- ca se lit comme « le port n'applique pas le bonus » alors que c'est le
+        MONTAGE qui a triche. Aucun `endturn` ne repare : la purge est
+        `FinishUnitTurnOperation$$Execute`, PAR UNITE et sur son activation, pas une fin de tour
+        d'equipe.
+
+        L'ordre correct est donc : (1) GARER la cible LOIN de l'ancre, (2) ecarter les autres
+        ennemis, (3) poser le CASTER (la cible est hors de portee d'adjacence -> sa liste reste
+        vide), (4) AMENER la cible sur l'ancre -- c'est ELLE qui bouge, donc c'est SA liste qui est
+        ecrite, et `IsCharging(caster, target)` ne lit que celle du CASTER.
         """
         dv = self.dview()
         me = self.by_visual(caster_visual, dv)
@@ -195,39 +249,53 @@ class ChargeRegimeHarness:
                    and len([c for c in self.free_tiles(self.board.coord(t), 1,
                                                        exclude=(tgt["id"], me["id"]))]) >= 3]
         for anchor in anchors:
-            if not self.place(tgt["id"], anchor):
+            # (1) GARAGE de la cible : a distance hex >= 4 de l'ancre, donc a >= 2 de TOUTE tuile
+            # que le caster occupera (ring1/ring2 de l'ancre) -> aucun pas du caster ne peut
+            # l'ajouter a sa liste `ChargedUnitIds`. Si aucun garage n'existe, cette ancre est
+            # inutilisable (on ne monte PAS un scenario qu'on ne peut pas garder honnete).
+            park = self.free_tiles(anchor, 4, exclude=(tgt["id"],))
+            if not park or not self.place(tgt["id"], park[0]):
                 continue
-            # Les AUTRES ennemis sont ecartes a >= 3 : ils ne doivent ni etre charges par le pas,
-            # ni encaisser de splash, ni polluer `ChargedUnitIds`.
+            # (2) Les AUTRES ennemis sont ecartes : ni charges par le pas, ni encaisseurs de splash.
             for other in ens:
                 if other["id"] == tgt["id"]:
                     continue
                 far = self.free_tiles(anchor, 4, exclude=(other["id"],))
                 if far:
                     self.place(other["id"], far[0])
-            ring1 = self.free_tiles(anchor, 1, exclude=(me["id"],))
+            ring1 = self.free_tiles(anchor, 1, exclude=(me["id"], tgt["id"]))
+
+            def _seal(start, step_to):
+                """(3) caster pose, puis (4) la CIBLE rejoint l'ancre. Rend le plan, ou None."""
+                if not self.place(me["id"], start):
+                    return None
+                if not self.place(tgt["id"], anchor):      # c'est la CIBLE qui bouge -> SA liste
+                    return None
+                return {"caster": me["id"], "target": tgt["id"], "start": start,
+                        "step_to": step_to, "regime": regime, "anchor": anchor}
+
             if regime == CHARGE:
-                ring2 = self.free_tiles(anchor, 2, exclude=(me["id"],))
+                ring2 = self.free_tiles(anchor, 2, exclude=(me["id"], tgt["id"]))
                 for start in ring2:
                     for step_to in ring1:
                         if hexgeo.distance(start, step_to) != 1:
                             continue          # pas d'UN hex (portee de mouvement minimale)
-                        if self.place(me["id"], start):
-                            return {"caster": me["id"], "target": tgt["id"], "start": start,
-                                    "step_to": step_to, "regime": regime, "anchor": anchor}
+                        plan = _seal(start, step_to)
+                        if plan is not None:
+                            return plan
             elif regime == STEP_ADJACENT:
                 for start in ring1:
                     for step_to in ring1:
                         if step_to == start or hexgeo.distance(start, step_to) != 1:
                             continue
-                        if self.place(me["id"], start):
-                            return {"caster": me["id"], "target": tgt["id"], "start": start,
-                                    "step_to": step_to, "regime": regime, "anchor": anchor}
+                        plan = _seal(start, step_to)
+                        if plan is not None:
+                            return plan
             else:   # NO_STEP
                 for start in ring1:
-                    if self.place(me["id"], start):
-                        return {"caster": me["id"], "target": tgt["id"], "start": start,
-                                "step_to": None, "regime": regime, "anchor": anchor}
+                    plan = _seal(start, None)
+                    if plan is not None:
+                        return plan
         return None
 
     def run(self, caster_visual, regime, enemy_index=0):
@@ -236,15 +304,29 @@ class ChargeRegimeHarness:
         Rend `{...arrange, snapshot, rng_after_step, live_per_hit, ability_type, moved}` ou None si
         la geometrie ou le tour n'ont pas pu etre obtenus. Le snapshot est pris AVANT le pas : c'est
         la seule facon d'avoir un offline qui rejoue LUI-MEME `UpdateCharging`."""
+        self.trace, self.endturns = [], 0
         plan = self.arrange(caster_visual, regime, enemy_index=enemy_index)
         if plan is None:
             return None
-        if self.reach_my_turn() is None:
+        # `force_cycle=True` OBLIGATOIRE ici : les `place()` d'`arrange` chargent potentiellement la
+        # cible (ce sont de vrais `MoveUnitOperation`). Sans cycle complet, cette charge residuelle
+        # entre dans le snapshot cote LIVE et reste invisible cote OFFLINE. cf. `reach_my_turn`.
+        if self.reach_my_turn(force_cycle=True) is None:
             return None
         # Re-verifie la geometrie APRES les endturns (une cascade a pu deplacer/tuer quelqu'un).
         dv = self.dview()
         pos = {u["id"]: _upos(u) for u in self.alive(dv)}
-        if pos.get(plan["caster"]) != plan["start"] or pos.get(plan["target"]) is None:
+        if pos.get(plan["caster"]) != plan["start"] or pos.get(plan["target"]) != plan["anchor"]:
+            return None
+        # GARDE DE REGIME -- la geometrie doit dire ce que le regime PROMET, sinon le verdict porte
+        # sur autre chose que ce que le test croit mesurer :
+        #   CHARGE        : depart NON adjacent, arrivee adjacente ;
+        #   STEP_ADJACENT : depart DEJA adjacent, arrivee encore adjacente (rien de nouveau) ;
+        #   NO_STEP       : adjacent, aucun pas.
+        d0 = hexgeo.distance(plan["start"], plan["anchor"])
+        d1 = hexgeo.distance(plan["step_to"], plan["anchor"]) if plan["step_to"] else d0
+        expect = {CHARGE: (2, 1), STEP_ADJACENT: (1, 1), NO_STEP: (1, 1)}[regime]
+        if (d0, d1) != expect:
             return None
         plan["ability_type"] = self.normal_attack_type(plan["caster"], dv)
         if plan["ability_type"] is None:
@@ -272,6 +354,8 @@ class ChargeRegimeHarness:
         plan["live_ok"] = bool(_ok(res) and a0.get("ok"))
         plan["live_per_hit"] = hits
         plan["live_raw"] = res
+        plan["trace"] = list(self.trace)
+        plan["endturns"] = self.endturns
         return plan
 
     # ------------------------------------------------------------------ rejeu offline

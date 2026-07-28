@@ -70,6 +70,7 @@ from .loki import (
     RangedSpecialistEffect,
     PinnedEffect,
     PowerTripFullHealthEffect,
+    SagaOfTheWarriorBornOwnerEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
     PrioritisedEfficiencyExtraDmgEffect,
@@ -306,6 +307,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Daemon (trait, effet 1034) : 25% chance de bloquer 50% de l'Attack COURANTE du defenseur —
     # pilote WillBeKill/WillBeOverkill de la prediction (scenario block list[0]@0x50). #54A.
     "Daemon_ExtraBlock": DaemonExtraBlockEffect,
+    # SagaOfTheWarriorBorn (spaceBlackmane <<Ragnar>>, passif ; effet 0x4c7=1223) : +extraHits[level
+    # passif] coups a TOUTE attaque du porteur EN CHARGE (IdunBattle.Entities.Effects.Loki.
+    # SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack = ForAddition(OwnerIsCaster &
+    # IsCharging, ConfigVar(0x13 = extraHits)) -- DEUX noeuds, ni IsNormalAttack ni IsMeleeAttack).
+    # Gate = foyer partage `is_charging_attack(att_ctx)`. MESURE live : 10 coups en charge vs 7 en
+    # decalage adjacent. La face CRIT du meme effet reste NON portee (residu N14, case-ischarging-hits §7).
+    "SagaOfTheWarriorBorn_Owner": SagaOfTheWarriorBornOwnerEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
