@@ -449,8 +449,9 @@ pour tous, sauf `MurderousSwing` et `LightOfSanguinius`
 
 ## 3. Gisement 3 — `TARGETING_OPTIONS` : 40 abilities du registre sur 91 sans masque
 
-**Symptôme chiffré** (re-dérivé du code après #181, `probe_181_targeting_gaps.py`) :
-`ABILITY_CLASSES` = **91** entrées, **51** portent `TARGETING_OPTIONS`, **40** n'en ont pas.
+**Symptôme chiffré** — ⚠ **à RE-DÉRIVER, jamais à citer** : `python scripts/python/probe_181_targeting_gaps.py`.
+Dernière mesure (2026-07-28, après #210) : `ABILITY_CLASSES` = **94** entrées, **55** portent
+`TARGETING_OPTIONS`, **39** n'en ont pas (les chiffres ci-dessous datent de #181 : 91 / 51 / 40).
 Le gisement RECULE franchement (75 manquants le 2026-07-26, 53 le 2026-07-28 au matin, **40**
 après #181) et **ne monte plus** : les entrées neuves arrivent AVEC leur masque, le cliquet
 (`tests/engine/runner/test_ability_registry_ratchet.py`) les rejetant sans.
@@ -543,7 +544,7 @@ modules absents = **100 % couverts** : `admec`, `aeldari`, `bloodangels`, `darka
 | module | sans | ids sans masque |
 |---|---|---|
 | `splash` | 6 | 1000 GauntletsOfUltramar, 1051 Stikkbomb, 1065 ScythingTalons, 1078 Fragstorm, 1098 PlasmaGrenade, 1105 CrushingClaws |
-| `strike` | 6 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw, 1163 BlackRage |
+| `strike` | 5 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw (~~1163 BlackRage~~ posé par #210) |
 | `blacklegion` | 5 | 1021 Incursion, 1022 BringerOfDespair, 1036 FrenziedFiringCombat, 1147 HadesAutocannons, 1148 DaemonicOrdnance |
 | `deathguard` | 5 | 1037 RevitalizingMalignancy, 1040 SpawnPoxwalkers, 1042 FlailSwing, 1168 EntropyCannons, 1169 PlagueburstMortar |
 | `summon` | 5 | 1007 ScarabHive, 1045 GetEmRuntz, 1047 ScarabSummon, 1096 MasterOfTheTutelaries, 1166 AberrantHypermorph |

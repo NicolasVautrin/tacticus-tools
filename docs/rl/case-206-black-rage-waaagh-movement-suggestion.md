@@ -205,13 +205,12 @@ géométries jouées live, décomposition par terme).
 * ~~**Le call-site SUMMON** (`SortTilesByUtilityForSummon`) reste sans `unit_id`~~ — **FERMÉ par
   `case-205-summon-sort-tiles-unit-null.md`** : son `dc.unit` vaut **`null`** (ce n'était pas « un
   ensemble »), le foyer prend un `parent_id` et chaque feuille porte sa dégradation nommée.
-* **`BlackRage` n'a toujours pas de `TARGETING_OPTIONS`** (une des entrées manquantes du registre) et
-  ne porte pas `get_dynamic_invalid_target_reason`. Le gate natif est pourtant désormais trivial à
-  poser : `BlackRageAbility$$GetDynamicInvalidTargetReason` est le JUMEAU EXACT de celui de Waaagh —
-  `Count(GetPossibleMovementTiles.Evaluate(ents)) > 0 ? 0 : 0x8000000` (`TargetIsInRange`) — et
-  `black_rage_possible_movement_tiles_selector` le rend disponible. Non fait ici parce que le masque
-  manque : sans `TargetMatchesDynamicRule` dans `TARGETING_OPTIONS`, la règle dynamique n'est jamais
-  consultée, donc la poser seule serait inerte. **À livrer ensemble**, hors périmètre de ce cas.
+* ~~**`BlackRage` n'a toujours pas de `TARGETING_OPTIONS`**~~ — **LEVÉ (2026-07-28, #210)**. Le masque
+  (`0x106004012`, overload FLAGS DIRECTS, `range = useWholeBoard`) et la règle dynamique
+  (`Count(GetPossibleMovementTiles.Evaluate(ents)) > 0 ? 0 : 0x8000000`) sont livrés ENSEMBLE, comme
+  l'exigeait ce résidu. Le sélecteur de pool porté ici est exactement ce que la règle consomme : le
+  gate refuse désormais une cible non chargeable ce tour-ci. Détail, mesures et scénarios de
+  généralisation : `case-217-blackrage.md` §5.
 * **`UseActiveAbility` de BlackRage** : le sujet natif est `Alive(caster@0x160)`, le port passe
   `Caster()` nu. Sans effet sur ce chemin (le move ne déclenche aucun after-move — les 5 sélecteurs
   d'options de `MoveUnit` sont NULS —, donc le caster ne peut pas mourir entre la charge et

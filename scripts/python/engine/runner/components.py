@@ -1019,9 +1019,15 @@ def unit_has_moved(state, unit_id: int) -> bool:
     `UnitFlagsComponent`), pose par `set_moved_flag` et purge par `RemoveTurnFlags(new_activation=1)`
     du `StartTurnOperation` — PAR JOUEUR ENTRANT, pas globalement. Consommateurs : le gate no-move de
     `HeavyWeapon_ExtraDmg`/`CrushingStrike` (via `attacker_modifiers`), la branche fin-de-tour de
-    `RadSaturation`, le `GetHits` d'HarvesterOfSouls. Composant absent = flag absent = n'a pas bouge
-    (etat charge par `load_state` : le RPC n'expose pas les UnitFlags -> une fixture qui SAIT que
-    l'unite a bouge doit poser le flag, cf. tests live)."""
+    `RadSaturation`, le `GetHits` d'HarvesterOfSouls. Composant absent = flag absent = n'a pas bouge.
+
+    ⚠ FICHE CORRIGEE (2026-07-28, #210) : sur un etat CHARGE, `load_state` SEEDE desormais ce flag
+    (`snapshot._load_unit_flags` <- `combatSnapshot.units[].unitFlags`, introduit par `f02e30f`) -- la
+    mention anterieure « le RPC n'expose pas les UnitFlags -> une fixture qui SAIT que l'unite a bouge
+    doit poser le flag » est PERIMEE. MESURE : `probe_210_blackrage_targeting.py` cas `S4a` (Lucien
+    bouge live, capture, etat charge) -> le port rend `CasterHasNotMoved` en accord avec le natif,
+    SANS pose manuelle. La pose manuelle (`set_moved_flag`) ne reste necessaire que sur un etat
+    construit hors snapshot."""
     e = state.get_entity(unit_id)
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))

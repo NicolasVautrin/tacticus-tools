@@ -103,7 +103,6 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1151: "TheQuickeningAbility",          # overload PRESET + flags (cf. le piege ci-dessus)
     1160: "HeavyRailRifleAbility",
     1161: "TwinSmartMissileSystemAbility",
-    1163: "BlackRageAbility",
     1166: "AberrantHypermorphAbility",
     1168: "EntropyCannonsAbility",
     1169: "PlagueburstMortarAbility",

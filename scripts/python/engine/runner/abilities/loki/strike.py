@@ -7,6 +7,8 @@ from typing import Optional, TYPE_CHECKING
 from fractions import Fraction
 
 from ..base import ActiveAbility
+from ..targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from ..targeting_rule import TargetingRule as TR
 from ...components import StatsComponent
 from ....entities.stats import StatType
 from ....entities.effect_type import EffectType
@@ -627,6 +629,68 @@ class BlackRageAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.BlackRage)   # 1163
     ABILITY_ID = "BlackRage"
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$.ctor` :
+    #     lVar1 = <statiques de `IdunBattle.Core.Services.TargetingRange`> ;
+    #     <copie des 0x18 octets de `lVar1 + 0x48`>                        # preset `useWholeBoard`
+    #     TargetingOptions..ctor(&opts, 0, &<copie>, 1, 0x106004012, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)
+    # -> overload « FLAGS DIRECTS » (8 arguments : isSelfCasting=0, range=&preset, forceMeleeTarget=1
+    # = `RangedBool.False`, rules=0x106004012), PAS l'overload « preset + flags » : le littéral EST
+    # le masque effectif. Le ctor est BYTE-IDENTIQUE à celui de
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$.ctor` (même bloc de statiques,
+    # même offset 0x48, même littéral) — mais il a été RELU sur BlackRage, pas hérité de Waaagh.
+    # Décomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2         TargetMatchesDynamicRule        -> consulte GetDynamicInvalidTargetReason
+    #     0x10        CasterHasNotMoved               -> PORTE (volet CASTER : Lucien ne peut pas
+    #                                                    caster BlackRage après s'être déplacé)
+    #     0x4000      TargetIsEnemy                   -> PORTE (refus sur soi-même / un allié)
+    #     0x6000000   AllowObscuredTarget             -> permissif (aucune contrainte de ligne de vue)
+    #     0x100000000 TargetIsNotAdjacent             -> PORTE : une cible DEJA au contact de Lucien
+    #                                                    est refusée AVANT la règle dynamique
+    # PORTEE (#241) : `range` = `TargetingRange` statique `+0x48` = `useWholeBoard` -> le volet
+    # générique de portée NE TESTE RIEN. La contrainte de distance de BlackRage vit ENTIEREMENT dans
+    # `get_dynamic_invalid_target_reason` ci-dessous (qui rend le même code `TargetIsInRange`).
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetIsEnemy
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+        | TR.TargetIsNotAdjacent
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state, caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetDynamicInvalidTargetReason`
+        — MIRROR du décompilé :
+
+            tiles = BlackRageAbility.GetPossibleMovementTiles()
+            ents  = AbilityEntities(caster, caster, target, 0, 0, 0, casterTiles, ...)
+            return Count( tiles.Evaluate(ents) ) > 0 ? 0 : 0x8000000
+
+        `0x8000000` = `TargetingRule.TargetIsInRange` : BlackRage exprime sa contrainte de DISTANCE
+        ici (et pas par le volet portée générique du filtre statique, désarmé par `useWholeBoard`).
+        Le prédicat : il existe au moins une tuile LIBRE et marchable hex-adjacente à la cible,
+        atteignable par le caster en `MOVEMENT + extraMovement` pas — autrement dit **la cible doit
+        être chargeable ce tour-ci, sans bouger d'abord**.
+
+        JUMEAU STRUCTUREL de `WaaaghAbility$$GetDynamicInvalidTargetReason` (même forme, même code
+        rendu), à une différence de FORME près relevée au décompilé : le natif appelle ici
+        `GetPossibleMovementTiles()` SANS argument (la cible est prise du sélecteur `factory+0x178`
+        de l'arbre), là où Waaagh lui passe `Get(target)` — les deux voient la MEME cible, celle de
+        l'`AbilityEntities` construit juste après.
+
+        La portée est lue par `_black_rage_move_range` (= `UnitMovementRangeWithBonus(caster, 0x53e
+        = 1342, ConfigConst(0xe))`) : au moment du GATE l'effet 1342 n'est PAS encore posé (aucune
+        des trois phases de la behaviour n'a commencé) -> la branche `MOVEMENT + bonus` du `If`
+        natif, exactement comme le natif qui évalue la même formule avant toute exécution."""
+        if target_id is None or state.get_entity(int(target_id)) is None:
+            return int(TR.TargetIsInRange)
+        move_range = _black_rage_move_range(state, caster_id)
+        tiles = black_rage_possible_movement_tiles_selector(move_range).evaluate(
+            entities_from_state(state, caster_id, target_id))
+        return 0 if len(tiles) > 0 else int(TR.TargetIsInRange)
 
     def execute_behaviour(self, state, caster_id, target_id):
         if target_id is None:
