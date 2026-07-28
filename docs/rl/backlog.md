@@ -858,3 +858,35 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   mais inexercables ; le seul point non resolu est le resolveur de CENTRE
   (`<IBattleQuery slot 0x5d>(tiles)`, symbole non nomme) — le port applique la definition
   geometrique que la branche impose ensuite. A rouvrir si un build introduit un porteur 7. `[opus]`.
+
+---
+
+## Fiches PERIMEES ou REFUTEES — NE PAS re-dispatcher
+
+Verdicts etablis par re-derivation depuis le code, **sans commit de fix associe** : leur seule trace
+durable est ici. Chacun porte sa methode de re-verification — les re-derivier plutot que citer cette
+liste si le doute revient.
+
+- **PlagueWind (1035) + Doombolt (1102)** — PERIMES (2026-07-28, ripgrep sur
+  `engine/runner/abilities/`) : 22 et 46 occurrences, deja portes, livres par PR #161. Le grep qui
+  concluait « absents » utilisait un glob PowerShell `**` **non recursif** — d'ou le faux negatif.
+- **HammerOfWrath (1153) + Foehammer (1097)** — PERIMES (meme mesure) : 41 et 36 occurrences, et
+  `test_hammer_of_wrath_live` existe deja.
+- **DestroyTheWitch + MartialSuperiority** — PERIMES (meme mesure) :
+  `entities/effects/loki/destroy_the_witch.py` (19) et `runner/operations/triggers/loki/martial_superiority.py`
+  (13) existent **et sont cables au registre**.
+- **« Crit sur un coup de groupe »** — PERIME *et* **REFUTE** (2026-07-28). Le constat herite disait
+  « `execute_additional_hits` passe `crit_chance=0, crit_enabled=False` pour TOUS les groupes ; le
+  natif fait passer ces coups par le tirage ». Or : (1) `additional_hits.py` ne contient AUCUNE de ces
+  deux affectations ; (2) l'unique mise a `(0, 0, False)` est dans `damage_ops/ability.py` et elle est
+  **GATEE sur `if not is_attack_damage_op`** — famille ABILITY seulement ; (3) elle mirroire le
+  decompile : `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` n'a **aucun** chemin crit (pas de `RollCritical`,
+  `AttackHit` construit `isCrit=0`, `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage` est 0-RNG) ; (4) elle est
+  MESUREE (`probe_45f --case scrit`, Njal Stormcaller force a `--crit 100,700`) : live `crits=[0,0,0]`
+  et 1 tirage/coup, contre l'offline non-gate qui brulait 1 crit-roll/coup + ajoutait un crit flat.
+  **Condition de reouverture** : un contre-exemple MESURE sur la famille ATTACK, pas une relecture.
+
+> **Lecon commune aux quatre.** Trois d'entre elles ont ete dispatchees ou allaient l'etre sur un
+> constat que personne n'avait re-confronte. Le registre de taches decrit des **intentions
+> horodatees**, pas l'etat du code. Toute fiche se re-derive AVANT dispatch — et le grep qui sert a
+> le faire doit etre `rg`, jamais un glob PowerShell `**` (non recursif, faux negatifs silencieux).
