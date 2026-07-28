@@ -502,8 +502,8 @@ Arbres LUS (spec complete, prete a recopier) :
    `EchoesFromTheWarpAbility$$.ctor` = `...(this, 0x504 = 1284)`. Le behaviour compare le champ
    `source` de l'effet a `0x485 = 1157 TriggeredAbilityType.TimeFlux` **a la construction de
    l'arbre** : egal -> `Direct(GetVariableForLevel(config, 'hp'))` (branche TimeFlux, portee) ;
-   different -> `StatAmount(src, Health, max)` (branche EchoesFromTheWarp, **non portee** — porteur
-   non etabli, hors perimetre #213).
+   different -> `StatAmount(src, Health, max)` (branche EchoesFromTheWarp). Verdict de cette
+   seconde branche : **NON PERTINENT** — cf. §8.4.
 
 **Port** (fichiers) :
 
@@ -551,11 +551,70 @@ unite, deplacement du ghost au 2e move). Zero-reg cible : famille revive (42), m
 - **Double move dans le MEME tour sur la MEME tuile de debut de tour** : `AddEffectOperation` no-ope
   (effet deja present) puis le retrait n°1 le supprime -> plus de ghost. Cas de bord (une unite ne
   bouge qu'une fois par tour, flag `UnitFlag.Moved`).
-- **Branche `StatAmount(src, Health, max)` du fork d'amount** (`EchoesFromTheWarp`, effet 1284) : non
-  portee, porteur non etabli.
+- ~~**Branche `StatAmount(src, Health, max)` du fork d'amount** (`EchoesFromTheWarp`, effet 1284)~~ —
+  **FERME (#228, 2026-07-29)** : porteur etabli et **NON PERTINENT**, cf. §8.4.
 
 NB : `RitesOfRestoration` (deja porte) = **Resurrect** (tile-choice/ambush), sous-systeme DISTINCT
 (`ResurrectUnitOperation`) — NE PAS confondre avec Revive-en-place.
+
+### 8.4 La branche `StatAmount` du fork d'`amount` — NON PERTINENT (#228, porteur NPC pur)
+
+Le residu « branche `StatAmount(src, Health, max)` non portee, porteur non etabli » laisse par #213
+est **ferme sans port** : le porteur est etabli, il est NPC, et rien ne l'amene en bataille.
+
+**Le fork, relu au decompile** (`IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour`).
+Deux `Nullable.get_HasValue` en cascade deballent le champ `source` de l'effet
+(`Nullable<AbilityOrEffect>`, `this+0x14..0x2c`), puis :
+
+    if (source == 0x485)   // 1157 = TriggeredAbilityType.TimeFlux
+        amount = Direct(AbilityConfiguration.GetVariableForLevel(config@0x60, 0x1d = 'hp', abilityState));
+    else                   // <- inclut le cas Nullable VIDE (les deux gardes HasValue tombent ici)
+        amount = DSLFactory.StatAmount(src, 5 = Health, 3 = max);
+    ... Revive(src, src, amount, ...) + BaseEffect.GetRemoveEffectBehaviour()
+
+La branche `else` est donc AUSSI le defaut quand la source est absente — mais aucun poseur du
+binaire ne pose ce `GhostEffect` sans source (les deux `AddEffect` passent un `AbilityStateReference`).
+
+**Fermeture du domaine — la branche n'a qu'UN chemin d'acces** (`data/symbols/<build>/frida/classes.tsv`
++ `enums.tsv`, re-derives) :
+
+| ce qu'on ferme | mesure |
+|---|---|
+| sous-classes de `GhostReviveAbility` | **2** : `TimeFluxReviveAbility` (0x4a2 = 1186), `EchoesFromTheWarpAbility` (0x504 = 1284) |
+| sous-classes de `GhostEffect` | **0** |
+| `EffectType` du couple | 1186 = `TimeFlux_Revive`, 1284 = `EchoesFromTheWarp_Revive` — pas d'autre |
+| `TriggeredAbilityType` | 1157 = `TimeFlux`, 1219 = `EchoesFromTheWarp` |
+
+⇒ seul `EchoesFromTheWarp` (1219 / effet 1284) prend la branche `StatAmount`.
+
+**Ventilation des porteurs** (`probe_228_echoes_carriers.py`, re-derivee du gameconfig + du natif) :
+
+| porteur | bucket | `--list-pool` rank 17 (97 reg. + 8 MoW) | summoner | `buildNormalizedBC` (catalogue injecte) |
+|---|---|---|---|---|
+| `thousNpc4Terminator` (« Scarab Occult Terminator », ThousandSons) | **npc** | **absent** | **AUCUN** (0 des 559 abilities ne le cite) | **REFUSE aux ranks 0,1,3,5,8,11,14,17,19,20** — `v2 patch: system error` |
+
+C'est le **seul** porteur du parc (lineup + npc + summons confondus). Les 308 occurrences de son id
+dans le gameconfig sont des `waves[].army` de campagne PvE, pas des aretes de summon.
+
+La troisieme colonne merite d'etre lue : la voie `catalog_inject.py` (qui a debloque `bloodTerminator`,
+`adeptCelestine`, `thousDaemonPrince`…) **ne le debloque pas**. Injecte au catalogue `BC.Units`, il est
+refuse par `IStatsFormula.StatsUsingProgressionIndexFor` a **tous** les ranks — la formule de
+progression JOUEUR n'a rien a calculer pour une unite dont les stats sont une table de campagne.
+**Contre-epreuve faite** (sans quoi le refus pourrait etre un artefact de l'outil) : `thousDaemonPrince`
+injecte par le MEME outil dans le MEME seed BC **entre** dans `normalized` (107 vs 106, skipped 69 vs 70).
+Le refus est donc une propriete de ce NPC, pas de la voie d'injection.
+
+**Verdict** : gate de confrontabilite HERO/MoW/SUMMON — les trois portes sont fermees, la seule
+categorie restante est NPC. L'item n'est pas « bloque », il est **NON PERTINENT**. Aucun port : un port
+sans porteur spawnable serait invalidable, donc speculatif (regle « no unvalidatable ability ports »).
+
+**Ce qui rouvrirait la fiche** : `thousNpc4Terminator` promu jouable par un futur build (il apparaitrait
+alors dans `--list-pool`), ou une 3e sous-classe de `GhostReviveAbility` portee par un hero. Le probe
+re-derive les deux en un run — ne pas recopier les chiffres ci-dessus, les recalculer.
+
+**Note pour un port eventuel** (si la fiche rouvre) : `StatAmount(src, Health = 5, max = 3)` porte le
+piege deja paye en `case-envfire-tile-ability-route` — `HEALTH` est une stat *fill-up*, `Maximum` doit
+etre route sur le `HealthComponent` (`hp_max`), pas sur la valeur COURANTE.
 
 ### 8.3 Technique reutilisable : lire une vtable **sans** classe initialisee
 

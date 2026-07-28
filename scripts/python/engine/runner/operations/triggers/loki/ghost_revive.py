@@ -15,8 +15,10 @@ TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
    `...TimeFluxReviveAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x4a2 = 1186)` ; le ctor de
    base est nomme `EnvDefenderHealthBuffAbility..ctor` par ICF -- **ne PAS se fier au nom**.
    DEUXIEME instanciation dans ce build (classes.tsv) :
-   `...EchoesFromTheWarpAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x504 = 1284)` -- hors
-   perimetre #213 (porteur non etabli), mais c'est ELLE qui explique le fork d'amount ci-dessous.
+   `...EchoesFromTheWarpAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x504 = 1284)` -- NON
+   PORTEE et NON PERTINENTE (#228, case-66 §8.4 : son unique porteur `thousNpc4Terminator` est un
+   NPC pur), mais c'est ELLE qui explique le fork d'amount ci-dessous. `GhostReviveAbility` a
+   EXACTEMENT ces deux sous-classes et `GhostEffect` n'en a AUCUNE (classes.tsv, re-derive).
 
        `GhostReviveAbility$$CreateTrigger` =
            <cache factory@0xa0 = OwnerIsActor> & On(0x1f = PreUnitMove, 1) & OwnerIsCaster
@@ -54,9 +56,13 @@ TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
                null )
 
    Le fork d'`amount` est resolu A LA CONSTRUCTION de l'arbre (comparaison de champs, pas de noeud) :
-   la branche `Direct('hp')` est celle de `TimeFlux_Revive` (source = le passif TimeFlux = 1157), la
-   branche `StatAmount(max)` celle d'`EchoesFromTheWarp`. Confirmation croisee : `TimeFlux.hp`
-   (2401 @ L65) existe au gameconfig et n'est lue par AUCUN autre arbre (cf. `time_flux.py`).
+   deux `Nullable.get_HasValue` deballent le champ `source` de l'effet (`Nullable<AbilityOrEffect>`
+   @+0x14..0x2c), puis `if (source == 0x485 = 1157 TriggeredAbilityType.TimeFlux)` -> `Direct('hp')`,
+   `else` -> `StatAmount(src, 5 = Health, 3 = max)`. Le `else` couvre AUSSI le cas `Nullable` VIDE --
+   sans consommateur : les deux `AddEffect` du binaire passent un `AbilityStateReference`.
+   La branche `Direct('hp')` est celle de `TimeFlux_Revive` (portee ICI), la branche `StatAmount`
+   celle d'`EchoesFromTheWarp` (1284) -- NON PERTINENTE (#228, cf. plus haut). Confirmation croisee :
+   `TimeFlux.hp` (2401 @ L65) existe au gameconfig et n'est lue par AUCUN autre arbre (`time_flux.py`).
 
    Le 7e argument de `DSLFactory.Revive` (`targetsTile`) est ici **NON NUL** -- c'est LA difference
    avec les six revives deja portes, et le seul endroit du sous-systeme ou la position change.
@@ -310,8 +316,14 @@ class GhostEffectRevive(TileEffectTrigger):
         mult = 100 if eff is None else int(eff.ability_variables_multiplier or 100)
         # Branche `Direct(GetVariableForLevel(config, 0x1d='hp', abilityState))` du fork d'amount :
         # c'est celle de `TimeFlux_Revive` (source = 1157). La branche `StatAmount(src, Health, max)`
-        # appartient a l'AUTRE instanciation de `GhostEffect` (`EchoesFromTheWarp`, effet 1284), hors
-        # perimetre #213 -> non portee (aucun porteur etabli).
+        # appartient a l'AUTRE instanciation de `GhostEffect` (`EchoesFromTheWarp`, effet 1284) et
+        # reste NON PORTEE -- non par manque de RE mais parce qu'elle est NON PERTINENTE (#228) : son
+        # unique porteur `thousNpc4Terminator` est un NPC hors pool, sans summoner, et refuse par
+        # `IStatsFormula.StatsUsingProgressionIndexFor` a tous les ranks meme injecte au catalogue
+        # `BC.Units`. Un port serait invalidable en runner. Detail : `docs/rl/case-66-revive-in-place`
+        # §8.4 ; re-derivation : `probe_228_echoes_carriers.py`.
+        # NB : cette classe n'est enregistree que pour `effect_type = 1186` (`EFFECT_TRIGGERS`), donc
+        # le fork natif est ici DEJA resolu -- aucun test de source a faire au runtime.
         # `tiles_sel = Caster()` = `Owner@0x148` : dans le contexte d'un effet-trigger le port pose
         # `caster = owner` (collapse documente de `entities_from_state`), et l'owner est ICI la TUILE.
         Revive(Target(), ABILITY_ID, "hp", lvl, mult,
