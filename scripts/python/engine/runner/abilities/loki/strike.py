@@ -7,17 +7,20 @@ from typing import Optional, TYPE_CHECKING
 from fractions import Fraction
 
 from ..base import ActiveAbility
-from ...components import StatsComponent, PositionComponent
+from ...components import StatsComponent
 from ....entities.stats import StatType
 from ....entities.effect_type import EffectType
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effects.magnitude import ability_var
-from ....dsl.base import _round_fix64
+from ....dsl.base import Const, _round_fix64
 from ....dsl.effects import ExecutionContext
 from ....dsl.event_trigger_type import EventTriggerType   # #209 : EvaluateAbilities(EventTriggerType) node
 from ....entities.behaviours import AtomicGroup, op_add, op_and
 from ....entities.selectors import (Caster, Target, CasterTile, TargetTile, Union, UnitsFromFaction,
-                                    AdjacentFriends, Alive, Cache, FixedTiles)
+                                    AdjacentFriends, Alive, Cache, FixedTiles,
+                                    tiles_unit_can_move_to_charge_target)
+from ....utilities.tile import first_tile_by_utility
+from ....utilities.utility_type import UtilityType
 from ..behaviours import (AttackWithAttackDamage, AddEffect, EvaluateAbilities, PushUnit, MoveUnit,
                           KillDeadUnits, AddBondEffect, Heal, SetHealth, UseActiveAbility,
                           entities_from_state)
@@ -470,78 +473,151 @@ class CordClawAbility(ActiveAbility):
                 "main_attack": main, "self_buff_placed": placed, "dsl": True}
 
 
-def _black_rage_charge_positions(state, caster_id, target_id) -> list:
-    """Collapse de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` = `TilesUnitCanMoveToChargeTarget(caster@0x160,
-    target@0x178, UnitMovementRangeWithBonus(0x53e, ConfigConst 0xe))` PUIS `SortTilesByUtility(...,0x20)`
-    -> `First(...,1)` (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour`). Sélecteur AI/pathfinding LOURD (kind S) -> COLLAPSE
-    impératif (doctrine slice-18/19, véhicule `FixedTiles`) : tuiles ADJACENTES à la cible, ORDONNÉES par
-    proximité au caster (charge la plus courte = mirror fidèle du choix de charge — au contact toute tuile
-    adjacente donne la MÊME attaque mêlée). La feuille `MoveUnit` filtre libre+walkable (`CanAddUnit` live) et
-    prend la 1re -> le caster charge au contact. La reachability (range de charge) est déjà garantie par la
-    DÉCISION (`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetDynamicInvalidTargetReason`) au moment du cast. RÉSIDU documenté : l'ordre EXACT
-    de `SortTilesByUtility` (métrique d'utilité par tuile) n'est pas reproduit -> la tuile de charge peut
-    différer d'un hex adjacent équivalent (l'attaque connecte identiquement)."""
-    import hexgeo
+def _black_rage_move_range(state, caster_id: int) -> int:
+    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus(caster@0x160, 0x53e=1342,
+    ConfigConst(0xe = extraMovement))`, lu par
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` —
+    MIRROR 1:1 (MÊME nœud, MÊME forme que `orks.py::waaagh_move_range`, seul l'EffectType diffère) :
+
+        If( HasEffect(caster, 1342), StatAmount(caster, MOVEMENT(1), Current),
+                                     Sum(<idem>, bonus) )
+
+    ANTI-DOUBLE-COMPTE : à l'exécution de la phase C, l'effet 1342 est DÉJÀ posé (phase B `ExecuteAtomic`
+    précède) -> la portée est la stat MOVEMENT *déjà bonifiée* par le stat-mod de
+    `BlackRageExtraMoveEffect.applied_stat_mods` ; sinon MOVEMENT + `extraMovement`. Les deux branches
+    coïncident donc, et la fidélité du stat-mod est DIRECTEMENT observable sur la portée de charge."""
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    stats = getattr(sc.ctx, "stats", None) if sc is not None else None
+    mv = int(stats.get_stat(int(StatType.MOVEMENT), 0)) if stats is not None else 0
+    has_eff = (state.effects is not None
+               and state.effects.has_effect(caster_id, effect_type=BLACK_RAGE_EXTRA_MOVE))
+    if has_eff:
+        return mv
+    bonus = ability_var("BlackRage", "extraMovement", is_constant=True) or 0   # ConfigConst(0xe) = 1
+    return mv + int(bonus)
+
+
+def black_rage_possible_movement_tiles_selector(move_range: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` —
+    MIRROR du décompilé, ARBRE DSL (plus aucune logique recâblée à la main) :
+
+        TilesUnitCanMoveToChargeTarget( caster@0x160, casterTile@0x168, target@0x178,
+                                        UnitMovementRangeWithBonus(caster, 0x53e=1342,
+                                                                   ConfigConst(0xe)),
+                                        canReachOnly = 0 )
+        = CanAddUnit(AdjacentTiles(target)) op_BitwiseAnd MovableTilesInRange(caster, casterTile,
+                                                                             range, canReachOnly=0)
+
+    `canReachOnly=0` (comme Waaagh ; CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) ->
+    l'ensemble « movable » est le `visited` du BFS et non le `stop_set` ; la différence (tuiles
+    traversables mais occupées) est de toute façon éliminée par le `CanAddUnit(AdjacentTiles(target))`.
+
+    #206 — le pool COLLAPSÉ qui vivait ici (`board.neighbours(tuile de la cible)`, ring-1 NU) est
+    SUPPRIMÉ : il ignorait `MovableTilesInRange`, donc il proposait des tuiles hors de portée de charge
+    (le commentaire « la reachability est déjà garantie par la DÉCISION » ne vaut que pour l'EXISTENCE
+    d'une tuile atteignable, pas pour TOUTES les voisines). Ce résidu était sans conséquence tant que le
+    tri collapsé prenait la plus PROCHE du caster ; il devient décisif dès que le tri est celui du natif.
+
+    `move_range` arrive DÉJÀ CALCULÉ (`_black_rage_move_range`) et est présenté au nœud par un `Const` :
+    c'est LA valeur du 4e argument natif."""
+    return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
+                                                Const(int(move_range)), can_reach_only=False)
+
+
+def _black_rage_charge_tile(state, caster_id, target_id, move_range: int):
+    """Sélecteur de destination de la phase C de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` :
+
+        `First( SortTilesByUtility( BlackRageAbility.GetPossibleMovementTiles(),
+                                    caster@0x160, 0x20 ), 1 )`
+
+    Le littéral d'utilité est **0x20 = 32 = `UtilityType.MovementSuggestion`** (relu au décompilé :
+    `SortTilesByUtility(factory, pool, caster@0x160, 0x20)` = la surcharge int de
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit `UtilityDefinition..ctor(0x20)`
+    et délègue à la surcharge objet avec `ownerSel` NUL), PAS le `7 = Tile` des ports frères.
+    `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` compose la clé `0x20` en
+    `[Tile(7), TileDistance(33)]` — les DEUX enfants sont portés (#201, `engine/utilities/tile.py`).
+
+    #206 — le COLLAPSE « tuiles ADJACENTES à la cible ordonnées par proximité au caster » est SUPPRIMÉ :
+    il ne reproduisait le natif que dans le régime où `Tile(7)` est PLAT (alors `TileDistance = -d/10`,
+    seul terme non nul, ordonne bien par distance croissante) et il INVERSAIT le natif dès que `Tile(7)`
+    départageait — `Tile(7)` est à valeurs entières (Elevation 10/niveau, TileEffects +-9/-25) et domine
+    toujours `|TileDistance| <= 0.2` sur un pool de charge. Même correction, même call-site que
+    `_vigilance_move_dest_tile` / `waaagh_charge_tile` (cf.
+    `docs/rl/case-201-movement-suggestion-tiledistance.md`). Renvoie une (col,row) ou None."""
     board = getattr(state, "board", None)
-    ce = state.get_entity(caster_id)
-    te = state.get_entity(target_id)
-    if board is None or ce is None or te is None:
-        return []
-    cpc = ce.get_component(PositionComponent)
-    tpc = te.get_component(PositionComponent)
-    if cpc is None or tpc is None:
-        return []
-    cpos = (cpc.col, cpc.row)
-    ttid = board.id_at(tpc.col, tpc.row)
-    if ttid is None:
-        return []
-    positions = []
-    for tid in board.neighbours(ttid):
-        t = board.by_id.get(tid)
-        if t is not None:
-            positions.append((t["col"], t["row"]))
-    positions.sort(key=lambda p: hexgeo.distance(cpos, p))     # SortTilesByUtility -> First : charge la plus courte
-    return positions
+    if board is None or state.get_entity(caster_id) is None or state.get_entity(target_id) is None:
+        return None
+    cands = black_rage_possible_movement_tiles_selector(move_range).evaluate(
+        entities_from_state(state, caster_id, target_id))
+    if not cands:
+        return None
+    # `caster@0x160` = `dc.units` du sélecteur -> `case.units`, l'unité dont `TileDistanceUtility`
+    # mesure l'éloignement (et que lisent les feuilles gatées sur l'unité, case-165b).
+    best = first_tile_by_utility(state, cands, unit_id=caster_id,
+                                 utility_type=int(UtilityType.MovementSuggestion))
+    return board.coord(best) if best is not None else None
 
 
-def black_rage_tree(charge_positions) -> "op_add":
-    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` (id 1163, bloodDeathCompany « Lucien » —
-    MIRROR du DÉCOMPILE) — TROIS phases (Execute / ExecuteAtomic / Execute) enchaînées :
-        A. Execute( SetHealth(caster, hpPct% MaxHealth) )                       # IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour
-        B. ExecuteAtomic( AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage)
-                          & AddEffect(1344 AutomaticUnit) )                     # 3 self-buffs, durée ZÉRO (remaining=0)
-        C. Execute( MoveUnit(caster -> chargeTile) & UseActiveAbility(caster, target, NormalAttack) )
+def black_rage_set_health_tree() -> SetHealth:
+    """Phase A de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` :
+    `Execute( ChangeStat(caster@0x160, Position(Health=5,0), PercentageOf(StatAmount(caster, Health, Max),
+    ConfigVar(0x26 = hpPct)), mode 3 = SetAbsolute) )` =
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour`. Coût self :
+    Lucien tombe à `hpPct` % de sa MaxHealth."""
+    return SetHealth(Caster(), "BlackRage", "hpPct")
 
-    Port : `op_add( op_add( SetHealth, AtomicGroup(buffs) ), op_and(MoveUnit, UseActiveAbility) )`. `SetHealth`
-    = coût self (Lucien -> 30% MaxHealth). Les 3 `AddEffect` posent les self-buffs (`Caster()`, durée 0 =
-    permanent, remaining=0 live) : ExtraMove applique +1 MOVEMENT (feuille -> effet `applied_stat_mods`),
-    ExtraDamage/AutomaticUnit = marqueurs (résidus documentés côté classe d'effet). `MoveUnit(Caster(),
-    FixedTiles(charge))` = la CHARGE (collapse de `SortTilesByUtility(TilesUnitCanMoveToChargeTarget)->First`),
-    puis `UseActiveAbility(Caster(), Target())` = l'attaque NORMALE au contact (dispatch `AttackDamageOperation.
-    execute` = attaque normale ECS, mêlée post-move). Ordre gauche->droite (Seq, effets PURS stop=False) =
-    l'ordre natif setHealth -> buffs -> charge -> attaque (les buffs AVANT l'attaque : le natif l'exige pour
-    le bonus ExtraDamage-on-charge). `AtomicGroup` = inline (RE #201, pass-through). NB : `AddStaticStatModifier
-    Effect(1342)` natif est FOLDÉ dans `AddEffect(1342)` + la classe `BlackRageExtraMoveEffect` (qui DÉCLARE le
-    stat-mod MOVEMENT) : même Operation `AddEffectOperation` en aval, même observable (statModSources)."""
-    set_health = SetHealth(Caster(), "BlackRage", "hpPct")
-    buffs = AtomicGroup(op_and(op_and(
+
+def black_rage_buffs_tree() -> AtomicGroup:
+    """Phase B de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` :
+    `ExecuteAtomic( AddStaticStatModifierEffect(caster@0x160, 0x53e, stat=MOVEMENT(1),
+    ConfigConst(0xe)) & AddEffect(0x53f, AbilityStateReference, caster, caster)
+    & AddEffect(0x540, <idem>) )` — 3 self-buffs, durée ZÉRO (remaining=0 live).
+
+    ExtraMove(1342) applique +1 MOVEMENT (feuille -> `BlackRageExtraMoveEffect.applied_stat_mods`),
+    ExtraDamage(1343)/AutomaticUnit(1344) = marqueurs (résidus documentés côté classe d'effet). NB :
+    `AddStaticStatModifierEffect(1342)` natif est FOLDÉ dans `AddEffect(1342)` + la classe
+    `BlackRageExtraMoveEffect` (qui DÉCLARE le stat-mod MOVEMENT) : même Operation `AddEffectOperation`
+    en aval, même observable (statModSources). `AtomicGroup` = inline (RE #201, pass-through)."""
+    return AtomicGroup(op_and(op_and(
         AddEffect(BLACK_RAGE_EXTRA_MOVE, "BlackRage_ExtraMove", Caster(), 0),        # durée 0 -> permanent (remaining=0)
         AddEffect(BLACK_RAGE_EXTRA_DAMAGE, "BlackRage_ExtraDamage", Caster(), 0)),
         AddEffect(BLACK_RAGE_AUTOMATIC_UNIT, "BlackRage_AutomaticUnit", Caster(), 0)))
-    charge = op_and(MoveUnit(Caster(), FixedTiles(charge_positions)),
-                    UseActiveAbility(Caster(), Target()))
-    return op_add(op_add(set_health, buffs), charge)
+
+
+def black_rage_charge_tree(dest) -> "op_and":
+    """Phase C de `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` :
+    `Execute( MoveUnit(caster@0x160, First(SortTilesByUtility(GetPossibleMovementTiles, caster, 0x20), 1),
+    <options nulles>) op_BitwiseAnd UseActiveAbility(Alive(caster@0x160), target@0x178,
+    UnitNormalAttackType(caster)) )`.
+
+    `MoveUnit` = la CHARGE (destination = `_black_rage_charge_tile`, calculée APRÈS la phase B pour que
+    `UnitMovementRangeWithBonus` voie l'effet 1342 déjà posé, exactement comme le natif dont les
+    sélecteurs sont PARESSEUX). `UseActiveAbility(Caster(), Target())` = l'attaque NORMALE au contact
+    (dispatch `AttackDamageOperation.execute`, mêlée post-move). Le `Alive(caster)` natif du sujet de
+    `UseActiveAbility` n'est pas modélisé (résidu : le caster ne peut pas mourir entre le move et
+    l'attaque sur ce chemin — le move ne déclenche aucun overwatch, options NULLES)."""
+    return op_and(MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])),
+                  UseActiveAbility(Caster(), Target()))
 
 
 class BlackRageAbility(ActiveAbility):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` (id 1163, bloodDeathCompany « Lucien », #217) — MIRROR
-    du DÉCOMPILE, arbre DSL 3 phases (`black_rage_tree`) :
-        SetHealth(caster -> 30% MaxHealth)               # coût self (IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour ; hpPct=30)
-      + [ AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage) & AddEffect(1344 AutomaticUnit) ]  # 3 self-buffs
-      + [ MoveUnit(caster -> charge) & UseActiveAbility(caster, target, NormalAttack) ]              # charge + attaque
+    du DÉCOMPILE, TROIS exécutions top-level SUCCESSIVES (`Execute` / `ExecuteAtomic` / `Execute`) :
+        A. Execute( SetHealth(caster -> hpPct% MaxHealth) )   # IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour ; hpPct=30
+        B. ExecuteAtomic( AddEffect(1342 ExtraMove) & AddEffect(1343 ExtraDamage)
+                          & AddEffect(1344 AutomaticUnit) )   # 3 self-buffs
+        C. Execute( MoveUnit(caster -> charge) & UseActiveAbility(caster, target, NormalAttack) )
 
     Sélecteurs natifs : caster = `factory+0x160`, target = `factory+0x178` (l'ENNEMI chargé). Les effets +
     SetHealth ciblent le CASTER (self) ; l'attaque NORMALE frappe la cible AU CONTACT (après la charge).
+
+    TROIS exécutions top-level -> le contexte `entities` est RE-MATÉRIALISÉ entre chacune (l'`AbilityEntities`
+    natif porte une réf d'état : les sélecteurs de l'étage N voient les mutations des étages < N), et la
+    DESTINATION de charge est lue APRÈS la phase B — c'est ce qui fait voir à
+    `UnitMovementRangeWithBonus(caster, 1342, extraMovement)` l'effet 1342 DÉJÀ posé (#206 ; même
+    ordonnancement que `orks.py::WaaaghAbility`).
 
     VALIDÉ live (31337, Lucien MaxHealth 15060 vs tyranTyrantGuard) : hp 9035 -> 4518 (=30% Max), pose 1342/
     1343/1344 (remaining=0), movement +1 (statModSources source-de-l'effet), charge tuile adjacente (5,8),
@@ -555,9 +631,15 @@ class BlackRageAbility(ActiveAbility):
     def execute_behaviour(self, state, caster_id, target_id):
         if target_id is None:
             return None
-        charge = _black_rage_charge_positions(state, caster_id, target_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        black_rage_tree(charge).execute(entities_from_state(state, caster_id, target_id), ectx)
+        # A) Execute(SetHealth)
+        black_rage_set_health_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        # B) ExecuteAtomic(3 self-buffs) — pose 1342, qui bonifie MOVEMENT.
+        black_rage_buffs_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        # C) Execute(MoveUnit & UseActiveAbility) — portée et destination LUES APRÈS le buff.
+        move_range = _black_rage_move_range(state, caster_id)
+        dest = _black_rage_charge_tile(state, caster_id, target_id, move_range)
+        black_rage_charge_tree(dest).execute(entities_from_state(state, caster_id, target_id), ectx)
         set_hp = next((p for n, p in ectx.emitted if n == "SetHealth"), None)
         effects = [p.get("effect_type") for n, p in ectx.emitted if n == "AddEffect"]
         moved = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)

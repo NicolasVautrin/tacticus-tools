@@ -580,3 +580,227 @@ def test_sky_strike_landing_tile_follows_tile_utility(rpc, build_runner, sky_bc)
           f"collapse={board2.coord(old2[0])} port={port2} live={live_after}")
     assert live_after == port2, (f"atterrissage live {live_after} != port {port2} "
                                  f"(l'ancien collapse aurait donne {board2.coord(old2[0])})")
+
+
+# ------------------------------------------------------------- #206 : le litteral 0x20 (BlackRage)
+#
+# `BlackRageAbility$$ExecuteBehaviour` et `WaaaghAbility$$ExecuteBehaviour` appellent
+# `First(SortTilesByUtility(<Ability>.GetPossibleMovementTiles(), caster@0x160, 0x20), 1)` : le
+# composite est `MovementSuggestion(32) = [Tile(7), TileDistance(33)]` (#201), PAS le `7 = Tile` des
+# trois ports ci-dessus. Ces DEUX call-sites gardaient leur collapse « la plus proche du caster »
+# apres #201 ; ces tests sont leur CLIQUET, sur le MEME principe que les trois precedents : une
+# geometrie ou collapse et utilite DIVERGENT, confrontee au NATIF.
+BR_BUILD = ["--p-units", "bloodDeathCompany", "--a-units", "necroWarden", "--no-ai"]
+BR_ABILITY = 1163
+WA_BUILD = ["--p-units", "orksWarboss", "--a-units", "necroWarden", "--no-ai"]
+WA_ABILITY = 1058
+
+
+def _ms_legacy_nearest(board, pool, cpos):
+    """L'ANCIEN collapse des deux call-sites : la tuile du pool la plus PROCHE du caster."""
+    return board.coord(_nearest(board, cpos, pool)) if pool else None
+
+
+def _ms_port(state, pool, caster):
+    """Le port #206 : `First(SortTilesByUtility(pool, caster, 0x20), 1)`."""
+    from engine.utilities.tile import first_tile_by_utility
+    from engine.utilities.utility_type import UtilityType
+    best = first_tile_by_utility(state, pool, unit_id=caster,
+                                 utility_type=int(UtilityType.MovementSuggestion))
+    return state.board.coord(best) if best is not None else None
+
+
+def _ms_pick_geometry(state, board, caster, target, pool_fn, range_fn):
+    """(cpos, tpos) ou l'ancien collapse et le tri `MovementSuggestion(32)` divergent AVEC des
+    `Tile(7)` DISTINCTS -- c'est-a-dire ou un terme ENTIER (elevation, effet de tuile) renverse
+    l'ordre, et pas seulement le tie-break. Un cas a `Tile(7)` egal ne testerait que l'ordre du
+    selecteur source et laisserait passer le collapse sur toute carte plate."""
+    from engine.utilities.tile import TILE_UTILITY, runner_tile_leaf_ctx, terrain_tile_effects
+    from engine.weights import load as load_weights
+    wt = load_weights()
+    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+
+    def tile7(st, t, ctx):
+        info = board.by_id.get(t) or {}
+        effs = list(terrain_tile_effects(board.tile_def_id(t), []))
+        return TILE_UTILITY.evaluate(board.coord(t), {"elevation": info.get("elevation"),
+                                                      "elevation_max": emax, "elevation_min": emin,
+                                                      "effects": effs}, ctx, wt)
+
+    keep_c, keep_t = _pos(state, caster), _pos(state, target)
+    walk = [t for t in sorted(board.by_id) if board.walkable(t)]
+    found = []
+    try:
+        for ttile in walk:
+            tpos = board.coord(ttile)
+            _set_pos(state, target, *tpos)
+            for ctile in walk:
+                if ctile == ttile:
+                    continue
+                cpos = board.coord(ctile)
+                mr = range_fn(state, caster)
+                # `TargetIsNotAdjacent` -> dist >= 2 ; pool non vide -> dist <= portee + 1
+                if not 2 <= hexgeo.distance(cpos, tpos) <= mr + 1:
+                    continue
+                _set_pos(state, caster, *cpos)
+                pool = pool_fn(state, caster, target, mr)
+                if len(pool) < 2:
+                    continue
+                near = _ms_legacy_nearest(board, pool, cpos)
+                port = _ms_port(state, pool, caster)
+                if port is None or near is None or near == port:
+                    continue
+                ctx = runner_tile_leaf_ctx(state, caster)
+                if abs(tile7(state, board.id_at(*near), ctx)
+                       - tile7(state, board.id_at(*port), ctx)) < 1e-9:
+                    continue                    # egalite de Tile(7) : ne testerait que l'ordre source
+                found.append((cpos, tpos))
+    finally:
+        _set_pos(state, caster, *keep_c)
+        _set_pos(state, target, *keep_t)
+    if not found:
+        return None
+    found.sort(key=lambda g: hexgeo.distance(keep_c, g[0]) + hexgeo.distance(keep_t, g[1]))
+    return found[0]
+
+
+def _br_pool(state, caster, target, mr):
+    from engine.runner.abilities.loki.strike import black_rage_possible_movement_tiles_selector
+    from engine.runner.abilities.behaviours import entities_from_state
+    return black_rage_possible_movement_tiles_selector(mr).evaluate(
+        entities_from_state(state, caster, target))
+
+
+def _br_range(state, caster):
+    from engine.runner.abilities.loki.strike import _black_rage_move_range
+    return _black_rage_move_range(state, caster)
+
+
+def _wa_pool(state, caster, target, mr):
+    from engine.runner.abilities.orks import waaagh_possible_movement_tiles_selector
+    from engine.runner.abilities.behaviours import entities_from_state
+    return waaagh_possible_movement_tiles_selector(mr).evaluate(
+        entities_from_state(state, caster, target))
+
+
+def _wa_range(state, caster):
+    import gameconfig as GC
+    from engine.runner.abilities.orks import waaagh_move_range
+    extra = int(((GC.ability("Waaagh") or {}).get("constants") or {}).get("extraMovement") or 0)
+    return waaagh_move_range(state, caster, extra)
+
+
+def _cast(rpc, rid, caster, target, ability, tries=8):
+    """Caste et rend (action, position du caster APRES) lue dans le retour d'`applyAction`
+    (`units[].squadId/pos`) : quand l'action termine la bataille, `decisionView` ne liste plus
+    l'unite et `_live_pos` rendrait `None` -- un faux negatif. `mutated == False` sans `error` =
+    ce n'est pas le tour du camp du caster -> `endturn` et on retente."""
+    act0, res = {}, {}
+    for _ in range(tries):
+        res = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": int(caster), "targetId": int(target),
+            "abilityType": int(ability)}}, 120) or {}
+        act0 = (res.get("actions") or [{}])[0]
+        if not act0.get("error") and act0.get("mutated"):
+            break
+        _endturn(rpc, rid)
+    after = None
+    for u in (res.get("units") or []):
+        if int(u.get("squadId", -1)) == int(caster):
+            p = u.get("pos") or {}
+            after = (p.get("col"), p.get("row"))
+            break
+    return act0, after
+
+
+def _summon_tiles(act0):
+    """Tuiles ou les summons du cast ont ATTERRI (`Unit_IsSummoned` + `Unit_Foot_Tile_Id_*` dans les
+    events). Waaagh SPAWNE avant de bouger : le pool que le natif trie est le pool POST-SPAWN."""
+    out = set()
+    for ev in (act0.get("events") or []):
+        tags = ev.get("tags")
+        if not tags:
+            continue
+        try:
+            d = json.loads(tags) if isinstance(tags, str) else dict(tags)
+        except Exception:
+            continue
+        if not d.get("Unit_IsSummoned"):
+            continue
+        for k, v in d.items():
+            if k.startswith("Unit_Foot_Tile_Id"):
+                out.add(int(v))
+    return out
+
+
+def test_black_rage_charge_tile_follows_movement_suggestion(rpc, build_runner):
+    """`BlackRageAbility$$ExecuteBehaviour` : la charge atterrit sur la meilleure tuile au sens
+    `MovementSuggestion(32)`, PAS sur la plus proche du caster."""
+    rid = build_runner("206206", extra=BR_BUILD, board=BOARD)["rid"]
+    state, board, dv = _load(rpc, rid)
+    caster, target = _uid_by_vis(dv, "bloodDeathCompany"), _uid_by_vis(dv, "necroWarden")
+    assert caster is not None and target is not None, "roster attendu absent du runner"
+
+    geo = _ms_pick_geometry(state, board, caster, target, _br_pool, _br_range)
+    assert geo is not None, f"aucune geometrie discriminante sur {BOARD} -- le test ne prouverait rien"
+    cpos, tpos = geo
+    if not _drive_to(rpc, rid, {caster: cpos, target: tpos}):
+        pytest.skip(f"geometrie non atteignable (caster={_live_pos(rpc, rid, caster)} "
+                    f"cible={_live_pos(rpc, rid, target)}, vise {cpos}/{tpos})")
+
+    state2, board2, _dv2 = _load(rpc, rid)
+    mr = _br_range(state2, caster)
+    pool2 = _br_pool(state2, caster, target, mr)
+    near2, port2 = _ms_legacy_nearest(board2, pool2, cpos), _ms_port(state2, pool2, caster)
+    assert port2 is not None and near2 is not None and port2 != near2, \
+        f"geometrie live non discriminante (pool={pool2} port={port2} collapse={near2})"
+
+    act0, live_after = _cast(rpc, rid, caster, target, BR_ABILITY)
+    assert not act0.get("error") and act0.get("mutated"), \
+        f"cast 1163 sans effet: err={act0.get('error')} mutated={act0.get('mutated')}"
+    print(f"\n[206 BR] pool={[(board2.coord(t), board2.elevation(t)) for t in pool2]} "
+          f"collapse={near2} port={port2} live={live_after}")
+    assert live_after == port2, (f"charge live {live_after} != port {port2} "
+                                 f"(l'ancien collapse aurait donne {near2})")
+    assert live_after != near2, "le natif suivrait la distance -- collapse NON refute"
+
+
+def test_waaagh_charge_tile_follows_movement_suggestion(rpc, build_runner):
+    """`WaaaghAbility$$ExecuteBehaviour` : idem BlackRage, MAIS l'etage MOVE (`Group(moveB,0x23)`)
+    s'execute APRES l'etage SPAWN (`Group(spawnB,0x22)`) -- les 2 Ork Boyz atterrissent sur des
+    tuiles adjacentes au CASTER, qui recouvrent souvent le pool de charge. Le pool que le natif
+    TRIE est donc le pool POST-SPAWN : on l'ampute des tuiles de spawn (lues dans les events) avant
+    de confronter, sinon on mesurerait le TIRAGE et non le TRI."""
+    rid = build_runner("206207", extra=WA_BUILD, board=BOARD)["rid"]
+    state, board, dv = _load(rpc, rid)
+    caster, target = _uid_by_vis(dv, "orksWarboss"), _uid_by_vis(dv, "necroWarden")
+    assert caster is not None and target is not None, "roster attendu absent du runner"
+
+    geo = _ms_pick_geometry(state, board, caster, target, _wa_pool, _wa_range)
+    assert geo is not None, f"aucune geometrie discriminante sur {BOARD} -- le test ne prouverait rien"
+    cpos, tpos = geo
+    if not _drive_to(rpc, rid, {caster: cpos, target: tpos}):
+        pytest.skip(f"geometrie non atteignable (caster={_live_pos(rpc, rid, caster)} "
+                    f"cible={_live_pos(rpc, rid, target)}, vise {cpos}/{tpos})")
+
+    state2, board2, _dv2 = _load(rpc, rid)
+    mr = _wa_range(state2, caster)
+    pool2 = _wa_pool(state2, caster, target, mr)
+    assert len(pool2) >= 2, f"pool live trop petit ({pool2})"
+
+    act0, live_after = _cast(rpc, rid, caster, target, WA_ABILITY)
+    assert not act0.get("error") and act0.get("mutated"), \
+        f"cast 1058 sans effet: err={act0.get('error')} mutated={act0.get('mutated')}"
+    pool3 = [t for t in pool2 if t not in _summon_tiles(act0)]
+    if not pool3:
+        pytest.skip("les Ork Boyz ont occupe TOUT le pool de charge -- rien a departager")
+    near3, port3 = _ms_legacy_nearest(board2, pool3, cpos), _ms_port(state2, pool3, caster)
+    print(f"\n[206 WA] pool_post_spawn={[(board2.coord(t), board2.elevation(t)) for t in pool3]} "
+          f"collapse={near3} port={port3} live={live_after}")
+    assert live_after == port3, (f"charge live {live_after} != port {port3} "
+                                 f"(l'ancien collapse aurait donne {near3})")
+    if near3 == port3:
+        pytest.skip("spawns Ork Boyz : le pool restant ne discrimine plus collapse vs utilite")
+    assert live_after != near3, "le natif suivrait la distance -- collapse NON refute"
+
