@@ -15,8 +15,10 @@ FINDINGS DECOMPILE :
     dist==1 + precedent TheBetrayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour.
   - `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
     Direct(GetNumberConstant(0x16)=range=2), reachOnly=1)` = `CanAddUnit(AdjacentTiles(target))
-    op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)` == collapse `_move_dest_tile`
-    HeroicFusillade (surround_radius=1, move_range=2). `SortTilesByUtility(0x20)` -> tuile la plus proche.
+    op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)` == meme pool que
+    HeroicFusillade (surround_radius=1, move_range=2). Le TRI en aval est
+    `SortTilesByUtility(..., 0x20 = MovementSuggestion)` = composite `[Tile(7), TileDistance(33)]`
+    (#201) -- PAS « la tuile la plus proche », qui n'en etait qu'un cas particulier.
   - ATTAQUE mono-cible melee (profil Power, pierce 40%, 3 hits) ; gate = les DEUX vivants ; PAS de splash/crit.
 
 VALIDATION : deterministe-sur-etat-live (comme HeroicFusillade). BUILD un runner (Tyrith + 2 ennemis),
@@ -311,3 +313,191 @@ def test_vig_single_target_no_splash(vig_state):
     assert res is not None and res["attack"] is not None
     # e2 (ennemi voisin de la cible) NON touche : attaque mono-cible
     assert _hp(state, e2) == hp_e0, f"e2 voisin endommage alors que l'attaque est mono-cible (hp {hp_e0} -> {_hp(state, e2)})"
+
+
+# ============ #201 : la TUILE d'atterrissage suit `MovementSuggestion(32)` ====================
+#
+# CLIQUET des DEUX moities du composite. Chaque test CHERCHE lui-meme une geometrie ou le tri
+# livre diverge d'un tri de REFERENCE, echoue si aucune n'existe (un test non discriminant ne
+# prouverait rien), DRIVE les positions LIVE, caste 1202 et confronte la tuile ou le natif POSE
+# Tyrith. Aucune fixture gelee : les deux references sont recalculees sur l'etat live.
+
+VIG_BOARD = "MC1_67"
+VIG_ABILITY = 1202
+VIG_LIVE_BUILD = ["--p-units", "custoKyrus", "--a-units", "necroWarden", "--no-ai"]
+
+
+def _vig_live_load(rpc, rid):
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="evenq")
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    ob = rpc("observeBattle", {"runnerId": rid}, 40)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    return load_state(dv, ob, snap, board=board), board, dv
+
+
+def _vig_uid(dv, vis):
+    for u in (dv.get("units") or []):
+        if u.get("visualId") == vis and u.get("alive"):
+            return int(u["id"])
+    return None
+
+
+def _vig_live_pos(rpc, rid, uid):
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90) or {}
+    for u in (dv.get("units") or []):
+        if int(u.get("id")) == int(uid):
+            p = u.get("pos") or {}
+            return (p.get("col"), p.get("row"))
+    return None
+
+
+def _vig_drive(rpc, rid, wanted, max_turns=18):
+    for _ in range(max_turns):
+        if all(_vig_live_pos(rpc, rid, u) == p for u, p in wanted.items()):
+            return True
+        mov = rpc("aiMovableTiles", {"runnerId": rid}, 60) or {}
+        for mu in (mov.get("units") or []):
+            uid = int(mu.get("unitId") or -1)
+            if uid not in wanted:
+                continue
+            dest = tuple(wanted[uid])
+            cur = ((mu.get("pos") or {}).get("col"), (mu.get("pos") or {}).get("row"))
+            if cur == dest:
+                continue
+            reach = [(t.get("col"), t.get("row")) for t in (mu.get("tiles") or [])
+                     if t.get("col") is not None]
+            if not reach:
+                continue
+            step = min(reach, key=lambda p: (hexgeo.distance(p, dest), p))
+            if step != cur:
+                rpc("applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": uid,
+                    "to": {"col": int(step[0]), "row": int(step[1])}}}, 90)
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
+    return all(_vig_live_pos(rpc, rid, u) == p for u, p in wanted.items())
+
+
+def _vig_pool(state, caster, target):
+    from engine.runner.abilities.genestealer import (_charge_candidate_tiles,
+                                                     VIGIL_SURROUND_RADIUS)
+    return _charge_candidate_tiles(state, caster, target, VIGIL_SURROUND_RADIUS, MOVE_RANGE)
+
+
+def _vig_ref_legacy(board, pool, cpos):
+    """Le port d'AVANT #201 : `min` sur `(hexdist(caster, tuile), tileId)`."""
+    return board.coord(sorted(pool, key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))[0])
+
+
+def _vig_ref_tile7(state, pool, caster):
+    """L'AUTRE moitie du composite, seule (`UtilityDefinition(7)`)."""
+    from engine.utilities.tile import first_tile_by_utility
+    from engine.utilities.utility_type import UtilityType
+    best = first_tile_by_utility(state, pool, unit_id=caster, utility_type=int(UtilityType.Tile))
+    return state.board.coord(best) if best is not None else None
+
+
+def _vig_pick_geometry(state, board, caster, target, ref_fn):
+    """(cpos, tpos) ou `_vigilance_move_dest_tile` (le port LIVRE) diverge de `ref_fn`, avec un pool
+    >= 2 et une distance caster<->cible dans [2, MOVE_RANGE+1] (gate `Not(IsAdjacent)` + pool non
+    vide). Rend la moins chere a atteindre depuis les positions courantes."""
+    from engine.runner.abilities.genestealer import _vigilance_move_dest_tile
+    keep_c, keep_t = _pos(state, caster), _pos(state, target)
+    walk = [t for t in sorted(board.by_id) if board.walkable(t)]
+    found = []
+    try:
+        for ttile in walk:
+            tpos = board.coord(ttile)
+            _set_pos(state, target, *tpos)
+            for ctile in walk:
+                if ctile == ttile:
+                    continue
+                cpos = board.coord(ctile)
+                if not 2 <= hexgeo.distance(cpos, tpos) <= MOVE_RANGE + 1:
+                    continue
+                _set_pos(state, caster, *cpos)
+                pool = _vig_pool(state, caster, target)
+                if len(pool) < 2:
+                    continue
+                port = _vigilance_move_dest_tile(state, caster, target, MOVE_RANGE)
+                ref = ref_fn(state, board, pool, caster, cpos)
+                if port is None or ref is None or port == ref:
+                    continue
+                found.append((cpos, tpos, ref, port))
+    finally:
+        _set_pos(state, caster, *keep_c)
+        _set_pos(state, target, *keep_t)
+    if not found:
+        return None
+    found.sort(key=lambda g: hexgeo.distance(keep_c, g[0]) + hexgeo.distance(keep_t, g[1]))
+    return found[0]
+
+
+def _vig_cast_and_land(rpc, rid, caster, target, tries=8):
+    act0 = {}
+    for _ in range(tries):
+        res = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": int(caster), "targetId": int(target),
+            "abilityType": VIG_ABILITY}}, 120)
+        act0 = ((res or {}).get("actions") or [{}])[0]
+        if not act0.get("error") and act0.get("mutated"):
+            break
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
+    assert not act0.get("error") and act0.get("mutated"), \
+        f"cast 1202 sans effet: err={act0.get('error')} mutated={act0.get('mutated')}"
+    return _vig_live_pos(rpc, rid, caster)
+
+
+def _vig_confront(rpc, build_runner, seed, ref_fn, ref_label):
+    rid = build_runner(seed, extra=VIG_LIVE_BUILD, board=VIG_BOARD)["rid"]
+    state, board, dv = _vig_live_load(rpc, rid)
+    caster, target = _vig_uid(dv, TYRITH_VIS), _vig_uid(dv, "necroWarden")
+    assert caster is not None and target is not None, "roster attendu absent du runner"
+
+    geo = _vig_pick_geometry(state, board, caster, target, ref_fn)
+    assert geo is not None, (f"aucune geometrie ou le tri livre diverge de {ref_label} sur "
+                             f"{VIG_BOARD} -- le test ne prouverait rien")
+    cpos, tpos, _ref, _port = geo
+    if not _vig_drive(rpc, rid, {caster: cpos, target: tpos}):
+        pytest.skip(f"geometrie non atteignable (vise {cpos}/{tpos}, "
+                    f"obtenu {_vig_live_pos(rpc, rid, caster)}/{_vig_live_pos(rpc, rid, target)})")
+
+    # re-derive TOUT sur l'etat LIVE effectif (pas de valeur gelee)
+    from engine.runner.abilities.genestealer import _vigilance_move_dest_tile
+    state2, board2, _dv2 = _vig_live_load(rpc, rid)
+    pool2 = _vig_pool(state2, caster, target)
+    port2 = _vigilance_move_dest_tile(state2, caster, target, MOVE_RANGE)
+    ref2 = ref_fn(state2, board2, pool2, caster, cpos)
+    assert port2 is not None and ref2 is not None and port2 != ref2, \
+        f"geometrie live non discriminante (pool={[board2.coord(t) for t in pool2]} " \
+        f"port={port2} {ref_label}={ref2})"
+
+    live_after = _vig_cast_and_land(rpc, rid, caster, target)
+    print(f"\n[201] pool={[(board2.coord(t), board2.elevation(t)) for t in pool2]} "
+          f"{ref_label}={ref2} port={port2} live={live_after}")
+    assert live_after == port2, (f"atterrissage live {live_after} != port {port2} "
+                                 f"({ref_label} aurait donne {ref2})")
+    assert live_after != ref2, f"le natif suit {ref_label} -- la moitie testee est REFUTEE"
+
+
+def test_vig_landing_tile_refutes_closest_tile_collapse(rpc, build_runner):
+    """MOITIE `Tile(7)` du composite : sur une geometrie ou l'ancien collapse « la plus PROCHE du
+    caster » et le tri `MovementSuggestion(32)` divergent, le natif suit le TRI. Prouve que le
+    collapse historique de `_vigilance_move_dest_tile` etait faux des que `Tile(7)` departage."""
+    _vig_confront(rpc, build_runner, "201201",
+                  lambda st, bd, pool, cid, cpos: _vig_ref_legacy(bd, pool, cpos),
+                  "collapse-plus-proche")
+
+
+def test_vig_landing_tile_needs_tiledistance_leaf(rpc, build_runner):
+    """MOITIE `TileDistance(33)` du composite : sur une geometrie ou `Tile(7)` SEUL et le composite
+    complet divergent (donc `Tile(7)` est ex aequo et c'est `-d/10` qui tranche), le natif suit le
+    composite. Interdit de conclure « le fix marche parce que Tile(7) domine » : sans cette feuille,
+    le tri stable rendrait la premiere tuile de l'ordre source."""
+    _vig_confront(rpc, build_runner, "201202",
+                  lambda st, bd, pool, cid, cpos: _vig_ref_tile7(st, pool, cid),
+                  "Tile(7)-seul")

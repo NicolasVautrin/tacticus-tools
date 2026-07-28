@@ -148,6 +148,9 @@ mécaniquement l'essentiel du positioning.
    passé au décideur `FUN_1800051a0`. La feuille distance du move-action est BIEN MinDist(16) —
    notre port est correct. `MovementSuggestion(32)`/`TileDistance(33)` est un AUTRE consommateur
    (`GetUtility(32)` d'`IdunRunner.Initialize`), PAS le décideur de move-action → ne pas swapper.
+   ⚠ **Toujours vrai après #201**, qui a porté `TileDistance(33)` et le composite `MovementSuggestion(32)` :
+   ils ne sont câblés QUE sur le call-site `SortTilesByUtility(…, 0x20)` de `VigilanceEternalAbility$$ExecuteBehaviour`
+   (`utility_type` explicite ; le défaut du foyer reste `Tile(7)`). Le move-action generator n'y touche pas.
    **✅ RÉSOLU (2026-07-19) via capture L3 `ai-trace` (utility_score par tuile) — c'est le MinDist,
    pas l'Elevation.** Scores NATIFS par tuile (seed 909) : s5 (5,5) Elev=20/MinDist=**−300** total −280
    (natif) vs (6,4) Elev=30/MinDist=**−400** total −370 ; s19 (4,3) Elev=30/**−400** −370 (natif) vs

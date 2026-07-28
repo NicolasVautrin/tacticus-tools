@@ -30,6 +30,7 @@ from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
 from ...utilities.tile import first_tile_by_utility
+from ...utilities.utility_type import UtilityType
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
@@ -542,25 +543,30 @@ def _vigilance_move_dest_tile(state: "State", caster_id: int, target_id: int, mo
 
         First( SortTilesByUtility( GetPossibleMovementTiles, caster@0x160, 0x20 ), 1 )
 
-    ⚠ Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`**, PAS le `7 = Tile` des
-    ports freres (SkyStrike / HeroicFusillade / ForwardSpotter / HammerOfWrath) : la carte de
-    composition de l'`UtilitiesDatabase` (case-128 §2) donne `32 -> [7 = Tile, 33 = TileDistance]`.
-    `TileDistanceUtility` n'est PAS portee -> ce call-site NE PEUT PAS passer par le foyer
-    `first_tile_by_utility` (il n'y trouverait que la moitie du composite, et la moitie manquante est
-    justement le terme de DISTANCE qui domine le choix ici).
+    Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`**, PAS le `7 = Tile` des
+    ports freres (SkyStrike / HeroicFusillade / ForwardSpotter / HammerOfWrath). Relu au decompile
+    (#201) : `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` ecrit, pour la cle
+    `0x20`, un tableau de DEUX `UtilityType` -> `[0] = 7` (Tile) puis `[1] = 0x21` (TileDistance), et
+    `UtilitiesDatabase$$GetUtility` en fait un `ComposedUtility` de ces deux enfants.
 
-    Le COLLAPSE « la tuile la plus PROCHE du caster » est donc CONSERVE ici, et il n'est pas gratuit :
-    il est LIVE-VALIDE (#220, MC1_67, custoKyrus vs necroWarden -> landing (0,1) port == live) et il
-    approxime precisement le terme `TileDistance(33)` absent. RESIDU NOMME (#165) : porter
-    `TileDistanceUtility` (33) puis le composite `MovementSuggestion(32)` = `[Tile(7), TileDistance(33)]`,
-    et brancher ce call-site sur le foyer. Renvoie (col,row) ou None."""
+    Les DEUX enfants sont desormais portes (`engine/utilities/tile.py`), donc ce call-site passe par le
+    FOYER `first_tile_by_utility(..., utility_type=MovementSuggestion)` comme ses freres. Le collapse
+    « la tuile la plus PROCHE du caster » qui vivait ici est SUPPRIME : il ne reproduisait le natif que
+    dans le regime ou `Tile(7)` est PLAT (alors `TileDistance` -- seul terme non nul, `-d/10` --
+    ordonne effectivement par distance croissante) et il INVERSAIT le natif des que `Tile(7)`
+    departageait, puisque `Tile(7)` est a valeurs entieres et domine toujours `|TileDistance| <= 0.2`
+    sur un pool de charge. Il portait en prime un tie-break INVENTE (`, t` = id de tuile) la ou le natif
+    laisse le tri STABLE rendre l'ordre du selecteur source. Cf.
+    `docs/rl/case-201-movement-suggestion-tiledistance.md`. Renvoie (col,row) ou None."""
     board = state.board
-    cpos = _pos_of(state, caster_id)
     cands = _charge_candidate_tiles(state, caster_id, target_id, VIGIL_SURROUND_RADIUS, move_range)
-    if board is None or cpos is None or not cands:
+    if board is None or not cands:
         return None
-    cands.sort(key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))   # collapse MovementSuggestion(32)
-    return board.coord(cands[0])
+    # `caster@0x160` = `dc.units` du selecteur -> `case.units`, l'unite dont `TileDistanceUtility`
+    # mesure l'eloignement (et que lisent les feuilles gatees sur l'unite, case-165b).
+    best = first_tile_by_utility(state, cands, unit_id=caster_id,
+                                 utility_type=int(UtilityType.MovementSuggestion))
+    return board.coord(best) if best is not None else None
 
 
 def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_range: int):

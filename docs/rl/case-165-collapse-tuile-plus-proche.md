@@ -42,7 +42,7 @@ Litteral d'utilite LU call-site par call-site :
 | **HeroicFusillade (1180)** | **quirk porte** | `_hf_move_dest_tile` appelle le foyer `first_tile_by_utility` ; le pool est extrait dans `_charge_candidate_tiles` (partage avec VigilanceEternal) et l'ORDRE du selecteur y est desormais PRESERVE (il passait par un `set()`, qui le detruisait) |
 | **SkyStrike (1025)** | **quirk porte** | `_sky_strike_dest_tile` : tri `Tile(7)` + ordre source `board.neighbours_native` (mirror d'`AdjacentTilesSelector`) au lieu de `hexgeo.disk` |
 | **ForwardSpotter (1143)** | **quirk porte** | `forward_spotter_pick_tiles` : `sort_tiles_by_utility(...)[:n]` + `neighbours_native` au lieu de `board.neighbours` (ids TRIES) sans tri |
-| VigilanceEternal (1202) | **residu nomme** (hors perimetre du cas, mais SEPARE du fork) | son utilite est `MovementSuggestion(32)` = `[Tile(7), TileDistance(33)]` (carte de composition de l'`UtilitiesDatabase`, case-128 §2). `TileDistanceUtility` n'est PAS portee -> le collapse « plus proche » est CONSERVE (il approxime le terme de distance manquant, et il est live-valide #220). `_vigilance_move_dest_tile` le porte explicitement, avec le residu documente |
+| VigilanceEternal (1202) | **quirk porte** (etait un residu nomme ; **ferme par #201**) | son utilite est `MovementSuggestion(32)` = `[Tile(7), TileDistance(33)]`. `TileDistanceUtility` est desormais portee et le composite enregistre dans `UTILITY_BY_TYPE` -> `_vigilance_move_dest_tile` appelle le foyer `first_tile_by_utility(..., utility_type=MovementSuggestion)` et le collapse « plus proche » (+ son tie-break invente par id de tuile) est SUPPRIME. Le collapse n'etait juste que dans le regime `Tile(7)` PLAT ; mesure : 344 couples divergents / 847 sur `MC1_67`. Detail + 5 geometries live : `case-201-movement-suggestion-tiledistance.md` |
 | HammerOfWrath (1153) | **de-forke** (etait deja correct sur le tri) | branche sur le foyer ; son ordre source passe de `board.neighbours` a `board.neighbours_native` (mirror d'`AdjacentTilesSelector`, etabli case-130 SS5 / #117 / FragBomb) |
 
 Le natif n'a **qu'un** `SortTilesByUtilitySelector$$Select` : le port n'en a donc **qu'un**, le foyer
@@ -113,8 +113,10 @@ Le cliquet `test_sky_strike_landing_tile_follows_tile_utility` garde le patron E
   un `OrderedSet` depuis un slot d'iface `battleQuery+0x65`, PAS depuis la liste d'adjacence stockee
   d'`AdjacentTilesSelector` -> l'ordre n'est pas prouve identique. Il n'est observable qu'a **utilite
   EGALE** (carte plate) ; le scenario valide, lui, est departage par l'utilite.
-* **`TileDistanceUtility` (33)** et donc le composite `MovementSuggestion(32)` de VigilanceEternal :
-  non portes (residu nomme au §2).
+* ~~**`TileDistanceUtility` (33)** et donc le composite `MovementSuggestion(32)` de VigilanceEternal~~
+  — **FERME par #201** (`case-201-movement-suggestion-tiledistance.md`) : les deux moities sont
+  portees et confrontees live. Restent a `0x20` sans port du composite : `TheBetrayer_TakeTurn`
+  (×2), `BlackRage` (1163) et `Waaagh` (×2) — litteraux relus, residus nommes en #201 §5.
 * Les feuilles de `Tile(7)` **gatees sur l'unite** sur le call-site SUMMON
   (`SortTilesByUtilityForSummon`) : son `dc.units` est `AllAliveMachinesSelector`, un ENSEMBLE
   d'unites, et il ne recoit donc pas d'`unit_id` -> elles y rendent toujours 0 (cf. case-165b §4).

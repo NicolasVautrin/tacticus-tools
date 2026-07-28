@@ -642,11 +642,88 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
 
 
+# ── `TileDistance(33)` : la SŒUR de `Tile(7)` dans le composite `MovementSuggestion(32)` (#201) ──────
+class TileDistanceUtility(BaseUtility):
+    """`IdunBattle.AI.Utilities.TileDistanceUtility` (`IdunBattle.AI.Utilities.TileDistanceUtility$$.ctor` ;
+    UtilityType.TileDistance=33). Mirror 1:1 de
+    `IdunBattle.AI.Utilities.TileDistanceUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` +
+    `IdunBattle.AI.Utilities.TileDistanceUtility$$DistanceTo`, remis en C# depuis le décompilé :
+
+        IEnumerator<Fix64> EvaluateMovementInSteps(UtilityMovementCase c) {
+            if (c.units != null)      yield return DistanceTo(c, c.units);   // case+0x10
+            else if (c.owner != null) yield return DistanceTo(c, c.owner);   // case+0x30
+            else                      yield return Fix64.FromInt(0);
+        }
+        Fix64 DistanceTo(UtilityMovementCase c, IEntity caseUnit) {
+            ITile from = caseUnit.GetMainTile(this.entities);   // this+0x10 = entities
+            ITile to   = c.position.MainTile;                   // case+0x18 = UnitPosition(tuile candidate)
+            int d = this.battleQuery.<slot 0x6b = GetDistance>(from, to);   // this+0x20 = battleQuery
+            return Fix64.FromInt(-d) / Fix64.FromInt(10);
+        }
+
+    Trois points que le décompilé TRANCHE et qu'il ne faut pas deviner :
+
+    * **AUCUN poids BC.** Le corps ne lit ni `HasUtilityValue` ni `GetUtilityValue` : le facteur `-1/10`
+      est une CONSTANTE de code (à l'inverse d'`ElevationUtility`, dont le 10 vient de
+      `Utilities.Default.Elevation.Multiplier`). Rien à câbler dans `Weights`.
+    * **SIGNE NÉGATIF** : plus la candidate est loin de l'unité, PIRE elle est.
+    * **DISTANCE HEX, pas coût de chemin** : le slot `0x6b` du `battleQuery` retombe sur
+      `IdunBattle.Core.Services.MovementQuery$$GetDistance`, qui prend le MIN sur les paires de
+      `IdunBattle.Utils.Hex.CubeCoordinate$$Distance` des tuiles des deux entités. Pour deux entités
+      mono-tuile (`GetMainTile` en amont) = `hexgeo.distance` exactement.
+
+    ⚠ **ORDRE DE GRANDEUR — c'est le cœur du comportement** : sur un pool de charge (`move_range` = 2)
+    `d ∈ {1, 2}`, donc ce terme vaut `{-0.1, -0.2}`. Il ne peut JAMAIS renverser un écart de `Tile(7)`,
+    dont les feuilles sont à valeurs entières (Elevation 10/niveau, TileEffects ±9/−25, playbooks
+    10/30/…). Sa fonction est donc EXACTEMENT de **départager les ex æquo de `Tile(7)`** — et sur un
+    plateau plat, où `Tile(7)` est constant, il départage TOUT : le classement devient « la plus proche
+    de l'unité d'abord ». C'est ce régime-là que le collapse historique de `_vigilance_move_dest_tile`
+    reproduisait ; ce que le collapse rendait FAUX, c'est le régime inverse (`Tile(7)` départage → il
+    DOMINE, cf. `docs/rl/case-201-movement-suggestion-tiledistance.md`).
+
+    `ctx["self_pos"]` = la position de `case.units` (l'unité passée au sélecteur = `dc.units`), posée
+    par `runner_tile_leaf_ctx`/`tile_leaf_ctx`. Absente → 0.0 : c'est la branche `c.units == null` du
+    natif, et le port ne modélise pas `dc.owner` (résidu nommé, cf. le call-site SUMMON)."""
+    UTILITY_TYPE = int(UtilityType.TileDistance)  # 33
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        from_pos = (ctx or {}).get("self_pos")
+        if from_pos is None or tile is None:
+            return 0.0
+        import hexgeo as _hex                      # lazy : utilities <- hexgeo (module top-level)
+        d = _hex.distance((from_pos[0], from_pos[1]), (tile[0], tile[1]))
+        return -float(d) / 10.0
+
+
+# Composite `MovementSuggestion(32)` = INSTANCE `ComposedUtility` de DEUX enfants, exactement comme
+# `Tile(7)` est une instance de 29 : la carte de composition vit dans
+# `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities`, qui remplit le
+# `Dictionary<UtilityType, UtilityType[]>` de `UtilitiesDatabase+0x58`. L'entrée `0x20` y reçoit un
+# tableau de DEUX éléments écrits l'un après l'autre : `[0] = 7` (Tile) puis `[1] = 0x21` (TileDistance).
+# `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility` mappe ensuite chaque sous-type par
+# `IdunBattle.Core.Services.UtilitiesDatabase.u003Cu003Ec__DisplayClass16_0$$u003CGetUtilityu003Eb__0`
+# (= `GetUtility(sousType, MÊME collection)`) et, `Count > 1`, construit un `ComposedUtility`.
+# `IdunBattle.AI.Utilities.ComposedUtility.u003CEvaluateMovementInStepsu003Ed__8$$MoveNext` somme les
+# enfants SANS pondération (`Fix64.op_Addition` nu) — le seul poids de la chaîne est le
+# `WeightedUtility.Weight = 1` du bucket, appliqué au composite ENTIER.
+MOVEMENT_SUGGESTION_UTILITY = ComposedUtility(
+    [TILE_UTILITY, TileDistanceUtility()], utility_type=UtilityType.MovementSuggestion)
+
+# Mirror de `UtilitiesDatabase$$GetUtility` réduit aux types que les call-sites portés demandent.
+# `SortTilesByUtility` construit `UtilityDefinition(<literal>)` -> `Buckets[0].Utilities[0] =
+# WeightedUtility(<literal>, weight=1)`, et l'utilité résolue est l'entrée de cette table.
+UTILITY_BY_TYPE: dict[int, ComposedUtility] = {
+    int(UtilityType.Tile): TILE_UTILITY,                                # 7  — SkyStrike/HeroicFusillade/…
+    int(UtilityType.MovementSuggestion): MOVEMENT_SUGGESTION_UTILITY,   # 32 — VigilanceEternal
+}
+
+
 # ── FOYER UNIQUE du sélecteur `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector` ─────────────
 _SORT_WEIGHTS: Weights | None = None
 
 
-def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None) -> list:
+def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
+                          utility_type: int = int(UtilityType.Tile)) -> list:
     """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
 
     Le natif, remis en C# depuis le décompilé :
@@ -674,11 +751,13 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         `<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
         `utility.EvaluateMovementInSteps(new UtilityMovementCase(dc.units, tile, null, null, dc.owner))`.
 
-    TOUS les call-sites portés passent `UtilityDefinition(7 = Tile)` -> l'utilité est le composite
-    `Tile(7)` = `TILE_UTILITY` (29 feuilles). ⚠ Le call-site `VigilanceEternalAbility$$ExecuteBehaviour`
-    passe `UtilityDefinition(0x20 = MovementSuggestion)`, qui est le composite `[Tile(7),
-    TileDistance(33)]` (carte de composition de l'`UtilitiesDatabase`, case-128 §2) : `TileDistance`
-    n'étant PAS porté, ce call-site NE PASSE PAS par ici.
+    `utility_type` = le littéral d'utilité du call-site, résolu par `UTILITY_BY_TYPE` (mirror de
+    `IdunBattle.Core.Services.UtilitiesDatabase$$GetUtility`). La plupart des call-sites portés passent
+    `UtilityDefinition(7 = Tile)` -> composite `Tile(7)` = `TILE_UTILITY` (29 feuilles).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` passe
+    `UtilityDefinition(0x20 = MovementSuggestion)` -> composite `[Tile(7), TileDistance(33)]` (#201,
+    carte de composition relue dans `UtilitiesDatabase$$InitializeUtilities`). Les DEUX passent
+    désormais par ici — le contournement « ce call-site ne passe pas par le foyer » est LEVÉ.
 
     `unit_id` = le sélecteur d'unités `dc.units` du natif (`caster@0x160` sur les call-sites de
     charge). Il est passé au `UtilityMovementCase`, donc les feuilles GATÉES SUR L'UNITÉ le voient :
@@ -720,6 +799,9 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
             from ..weights import load as _load_weights
             _SORT_WEIGHTS = _load_weights()
         wt = _SORT_WEIGHTS
+    utility = UTILITY_BY_TYPE.get(int(utility_type))
+    if utility is None:
+        raise KeyError("SortTilesByUtility: UtilityType %r hors UTILITY_BY_TYPE" % (utility_type,))
     elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
     emax = max(elevs) if elevs else None
     emin = min(elevs) if elevs else None
@@ -739,19 +821,21 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int 
         # autres constructeurs de composite (`engine.move`, `playbook.base.tile_utility`) et celui
         # qu'attendent les playbooks de la feuille TriggeredAbilities(2) (`hexgeo`/`battle_query`).
         # Inerte tant que `leaf_ctx` était vide (aucune feuille active ne lit `tile`), décisif dès
-        # que `unit_id` est fourni.
-        return tile_composite(board.coord(t), meta, leaf_ctx, wt)
+        # que `unit_id` est fourni. `TileDistance(33)` (composite 32) le lit TOUJOURS.
+        return utility.evaluate(board.coord(t), meta, leaf_ctx, wt)
 
     util = {t: _u(t) for t in tiles}
     return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DÉCROISSANT, stable
 
 
-def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None):
-    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(7)), 1)` — la MEILLEURE tuile au
-    sens du composite `Tile(7)`, égalités tranchées par l'ordre du sélecteur source (tri stable).
-    `unit_id` = `dc.units` du sélecteur (cf. `sort_tiles_by_utility`).
+def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None,
+                          utility_type: int = int(UtilityType.Tile)):
+    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(<utility_type>)), 1)` — la MEILLEURE
+    tuile au sens du composite demandé, égalités tranchées par l'ordre du sélecteur source (tri stable).
+    `unit_id` = `dc.units` du sélecteur, `utility_type` = le littéral du call-site (cf.
+    `sort_tiles_by_utility`).
     Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
-    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id)
+    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id, utility_type)
     return ranked[0] if ranked else None
 
 
