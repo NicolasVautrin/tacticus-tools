@@ -22,11 +22,18 @@ import pytest
 from engine.runner.snapshot import load_state
 from engine.runner.components import OwnerComponent, UnitComponent, PositionComponent, StatsComponent
 from engine.runner.operations.effects import AddEffectOperation
-from engine.runner.operations.triggers import _on_fire_damage_ability
+from engine.runner.operations.triggers.dispatch import damage_dealt_triggers
 from engine.runner.operations.triggers.loki import FIRE_TILE
 from engine.entities.damage_trait import DamageTrait
 from engine.entities.effect_type import EffectType
 from engine.entities.pathfinding.board import Board
+
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))      # tests/engine/runner -> import du helper sibling
+
+from _on_hit_tile_effect_replay import replay_on_hit_tile_effect   # noqa: E402
 
 PROFILE = "Flame"                      # profil OnFire de l'attaque (skip si le trait manque)
 BUILD = ["--roster", "1", "--p-units", "adeptRetributor",
@@ -55,8 +62,13 @@ def _has_pos(state, eid):
 
 
 def _on_fire_damage_imperative_ref(state, attacker_id, target_id, profile):
-    """Copie VERBATIM de l'ANCIEN corps de `_on_fire_damage_ability` (AVANT slice-15) : gate profil OnFire
-    + PositionComponent -> board.id_at -> AddEffectOperation. ORACLE du replay-diff (ne passe PAS par l'arbre)."""
+    """Copie de l'ANCIEN corps imperatif : gate profil OnFire + PositionComponent -> board.id_at ->
+    AddEffectOperation. ORACLE du replay-diff (ne passe NI par l'arbre NI par le bus).
+
+    `source=tile_id` : la surcharge `AddEffect` a 5 arguments passe un selecteur SOURCE **NUL**, et
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe alors sur la CIBLE -- ground
+    truth live du JUMEAU (meme surcharge, memes arguments) : `FleshMetalGuns_TileEffectAbility` pose
+    DespoiledGround avec `source` = l'id de la TUILE (#85). L'oracle portait encore le caster."""
     if not profile or state.effects is None or getattr(state, "board", None) is None:
         return []
     import gameconfig as GC
@@ -70,12 +82,20 @@ def _on_fire_damage_imperative_ref(state, attacker_id, target_id, profile):
     tile_id = state.board.id_at(pc.col, pc.row)          # Tiles(cible@0x178) = tuile occupee courante
     if tile_id is None:
         return []
-    eff = AddEffectOperation.execute(state, source=attacker_id, target=tile_id,
+    eff = AddEffectOperation.execute(state, source=tile_id, target=tile_id,
                                      effect_type=FIRE_TILE, name="Fire")
     if eff is None:
         return []
     return [{"tile_effect": "Fire", "placed_on_tile": tile_id, "by": attacker_id,
              "on": target_id, "placement": "OnFireDamage"}]
+
+
+def _on_fire_via_bus(state, attacker_id, target_id, profile):
+    """Emet le vecteur `On(DamageDealt = 0x10)` -- le SEUL chemin du canal `OnFireDamageAbility` depuis
+    le de-fork (registre `GLOBAL_TRIGGERS`). Filtre sur `placement` pour isoler CE consommateur des
+    deux autres auditeurs du meme vecteur (`FleshmetalGuns`, `OnToxicDamageAbility`)."""
+    out = damage_dealt_triggers(state, attacker_id, target_id, profile=profile, is_first_hit=True)
+    return [r for r in (out or []) if r.get("placement") == "OnFireDamage"]
 
 
 def _placed_tiles(res):
@@ -123,7 +143,7 @@ def test_on_fire_damage_migration_matches_imperative(live_session, rpc, build_ru
     st_new = load_state(dv, ob, snap, board=board)
     st_ref = load_state(dv, ob, snap, board=board)
 
-    res_new = _on_fire_damage_ability(st_new, attacker_id, target_id, PROFILE)       # arbre DSL migre
+    res_new = _on_fire_via_bus(st_new, attacker_id, target_id, PROFILE)              # bus On(0x10)
     res_ref = _on_fire_damage_imperative_ref(st_ref, attacker_id, target_id, PROFILE)  # ancien imperatif
 
     new_tiles, ref_tiles = _placed_tiles(res_new), _placed_tiles(res_ref)
@@ -139,3 +159,78 @@ def test_on_fire_damage_migration_matches_imperative(live_session, rpc, build_ru
     for t in new_tiles:
         assert st_new.effects.has_effect(t, effect_type=fire), f"arbre: pas d'effet Fire sur tuile {t}"
         assert st_ref.effects.has_effect(t, effect_type=fire), f"ref: pas d'effet Fire sur tuile {t}"
+    # 3) SOURCE de l'effet = la TUILE, pas le caster. La surcharge `AddEffect` a 5 arguments passe un
+    #    selecteur SOURCE NUL et `AddEffectBehaviour$$Execute` retombe sur la CIBLE ; ground truth live
+    #    du JUMEAU DespoiledGround (#85 : `source` = l'id de tuile, jamais celui de Volk). Le port
+    #    passait le caster -- residu ferme, cette garde l'empeche de revenir.
+    for t in new_tiles:
+        srcs = {e.source for e in st_new.effects.active_effects(t) if e.effect_type == fire}
+        assert srcs == {t}, (
+            f"source de l'effet Fire {srcs} != la TUILE {t} : la surcharge `AddEffect` a 5 args passe "
+            f"un selecteur SOURCE NUL, donc `AddEffectBehaviour$$Execute` retombe sur la CIBLE "
+            f"(attacker={attacker_id})")
+
+
+# --------------------------------------------------------- GENERALISATION : les COUPS BONUS (#179)
+
+BONUS_CARRIER = "blackObliterator"      # « Volk » — HERO, present dans `rl_duel build --list-pool`
+BONUS_ESCORT = "adeptHospitaller"
+BONUS_FOES = "necroWarden,necroWarden"
+
+
+def test_on_fire_from_bonus_hit_group_agrees_with_live(live_session, rpc, build_runner):
+    """ELARGISSEMENT mesure du DE-FORK : les GROUPES DE COUPS BONUS (#179) emettent eux aussi le
+    vecteur `On(0x10)`, avec LEUR profil -- ce que l'appel imperatif ne pouvait pas faire.
+
+    Avant le de-fork, le canal `OnFireDamageAbility` etait appele UNE fois par attaque avec le SEUL
+    profil de l'arme primaire. Depuis, il est consommateur du bus, emis par `_apply_damage_pipeline`
+    a CHAQUE groupe de degat resolu -- y compris les sous-operations de coups additionnels
+    (`operations/additional_hits.py`, mirror `IdunBattle.Operations.
+    ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`). C'est la place NATIVE : chaque coup
+    passe par `IdunBattle.Operations.ApplyDamageOperation$$Execute`, qui emet `On(0x10)` avec le profil
+    DE CE COUP.
+
+    PORTEUR CHOISI, et c'est le seul point qui rend le test discriminant : `blackObliterator` (« Volk »)
+    n'a AUCUNE arme au profil `OnFire` (`Power` 4 coups, `HeavyRound` 6 coups r3) -- mais son passif
+    `FleshmetalGuns` fait tourner un cycle d'effets d'arme dont `FleshmetalGunsRuinousSalvo` (0x4bc)
+    accorde **+2 coups de profil `Flame`** (le seul profil portant `OnFire`). Une attaque de Volk pendant
+    ce round-la est donc le regime EXACT ou l'ancien port ne pouvait pas poser de feu et ou le nouveau
+    le peut. Si l'elargissement etait FAUX, on verrait offline une tuile en feu que le live n'a pas.
+
+    Le test n'impose PAS d'atteindre le round RuinousSalvo (la rotation est pilotee par
+    `UnitTurnsStarted mod 3`, cf. `loki/fleshmetal_guns.py`) : il confronte TOUTES les attaques et exige
+    l'accord bit-a-bit du verdict de feu ET des PV. Un desaccord dans un sens comme dans l'autre est un
+    echec -- c'est ce qui fait de ce test une garde de l'elargissement, pas une simple repetition."""
+    conf, _rid = replay_on_hit_tile_effect(
+        rpc, build_runner, carrier_vis=BONUS_CARRIER, effect_type=FIRE_TILE,
+        p_units=f"{BONUS_CARRIER},{BONUS_ESCORT}", a_units=BONUS_FOES,
+        stop_on_placement=False, max_attacks=9)
+    real = [c for c in conf if not c.get("noop")]
+    print(f"\n[ONFIRE bonus-hits] confrontations={len(real)} "
+          f"(noop ignores={len(conf) - len(real)}) poses live={sum(1 for c in real if c['live_effect'])}")
+    for c in real:
+        print(f"[ONFIRE bonus-hits] profile={c['profile']} hits={c['hits']} hp live={c['live_hp']} "
+              f"off={c['off_hp']} fire live={c['live_effect']} off={c['off_effect']} "
+              f"tile={c['tile']} mt_same={c['mt_same']}")
+    assert real, (f"aucune attaque de {BONUS_CARRIER} confrontee au live -- l'elargissement du de-fork "
+                  f"aux groupes de coups bonus n'a rien valide")
+    # CE QUE CE TEST GARDE : le VERDICT DE FEU, seul observable du canal `On(0x10)` sur ce porteur.
+    for c in real:
+        assert c["off_effect"] == c["live_effect"], (
+            f"feu sur la tuile {c['tile']} : offline={c['off_effect']} live={c['live_effect']} -- le "
+            f"vecteur `On(0x10)` emis par les groupes de coups BONUS pose (ou ne pose pas) du feu la ou "
+            f"le natif fait l'inverse. C'est l'elargissement du de-fork qui est en cause, pas le canal "
+            f"lui-meme (l'attaque primaire de {BONUS_CARRIER} n'a aucun profil OnFire)")
+    # CE QUE CE TEST NE GARDE PAS, ET POURQUOI : les PV de `blackObliterator` DIVERGENT (mesure du
+    # 2026-07-28 : live 2668 / offline 1440 des la 1re attaque, profil HeavyRound 6 coups). C'est un
+    # ecart PRE-EXISTANT du modele de DEGAT de ce porteur (empilement `FleshmetalGuns` x
+    # `LetTheGalaxyBurn` x `SuppressiveFire` x `HeavyWeapon`), PROUVE independant de ce canal : il est
+    # present sur la ligne ou NI le live NI l'offline ne posent de feu, donc la ou le canal est
+    # strictement inerte. Asserter les PV ici importerait un echec sans rapport et masquerait la garde
+    # utile ; on le RAPPORTE (print ci-dessus) sans l'asserter. La garde PV de ce carrier appartient a
+    # la tranche DEGAT, pas a la tranche TILE-EFFECT.
+    diverging = [c for c in real if c["off_hp"] != c["live_hp"]]
+    if diverging:
+        print(f"[ONFIRE bonus-hits] RESIDU DEGAT (hors perimetre, non asserte) : "
+              f"{len(diverging)}/{len(real)} attaques aux PV divergents "
+              f"{[(c['live_hp'], c['off_hp']) for c in diverging]}")

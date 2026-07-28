@@ -15,7 +15,8 @@ from ..base import TriggeredAbility, EffectTrigger
 from ..loki import (PsykerExtraAttackAbility, ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
                    FinalJusticeAbility, TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility,
                    ArcaneShieldAbility, ControlEdictAbility, RadSaturationAbility,
-                   LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE)
+                   LordOfTempestsAddIceAbility, FireTileDoT, FIRE_TILE,
+                   OnFireDamageAbility, OnToxicDamageAbility)
 from ..effect_triggers import (OverwatchAutoAttack, ContaminatedTileEffect,
                               RangedAutoAttackActivateOnTurnStart,
                               RangedAutoAttackDeactivateOnTurnStart,
@@ -309,6 +310,25 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # n'est pose -> l'inscription inconditionnelle est fidele. Cf. loki/hailstrike.py.
     "Hailstrike": [HailstrikeAttackAbility],
 }
+
+# --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
+# Les abilities `IdunBattleLogic.Entities.Abilities.Damage.Loki.*` ne sont portees par AUCUNE unite :
+# leur `CreateTrigger` ne teste que le PROFIL DU COUP, jamais un owner (`get_OwnerIs*` absent). Elles
+# sont donc inscrites UNE SEULE FOIS pour la bataille -- une inscription par entite les ferait firer N
+# fois par evenement, ce que la mesure live REFUTE (exactement UN `NextBool` par serie de coups pour le
+# canal 1203, oracle = etat MT). Cf. `core.collect_global_triggers`.
+#
+#   OnFireDamageAbility  (1016) : On(0x10) & DamageProfileHasTrait(1 = OnFire)  & !TriggeringEffectIs(5)
+#                                 -> AddEffect(5 = Fire, Tiles(Target()))            [INCONDITIONNEL]
+#   OnToxicDamageAbility (1203) : On(0x10) & DamageProfileHasTrait(4 = OnToxic) & !TriggeringEffectIs(0x4dc)
+#                                 -> If(IsFirstHitInSeries & Maybe(chance=25), AddEffect(0x4dc))
+#
+# Le 3e membre de la famille, `OnMeltaDamageAbility` (1211), n'a PAS de `CreateTrigger` dans ce build
+# (`case-72-onmelta-dead-code.md`) : DEAD-CODE, volontairement absent de ce registre.
+GLOBAL_TRIGGERS: list[type[TriggeredAbility]] = [
+    OnFireDamageAbility,
+    OnToxicDamageAbility,
+]
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
 # ⚠ La valeur est une LISTE : cote natif, `BaseEffect.CreateHandleTriggerAbilitiesInternal` renvoie un

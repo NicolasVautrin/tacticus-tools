@@ -387,7 +387,10 @@ class _Normal:
             # #R33 : decomposition per-coup (crit / denied) pour `didOverkill` — le natif evalue
             # `IsOverkill` A CHAQUE coup. L'attaque normale n'a pas de flag `isForceOverkill`
             # (`AttackOptions@+4` n'est pose que par la voie DSL `AttackWithAttackDamage`).
-            hits_result=r)
+            hits_result=r,
+            # `On(0x10)` : la PHASE D'ARME contient le coup d'index 0 -> `IsFirstHitInSeries` VRAI
+            # (payload `AbilityEntities+0x110`, lu par `OnToxicDamageAbility`).
+            is_first_hit=True)
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
         # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(

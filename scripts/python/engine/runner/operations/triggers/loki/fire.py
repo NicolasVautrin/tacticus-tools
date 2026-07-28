@@ -26,7 +26,7 @@ from .....entities.behaviours import Foreach, Maybe, Inform, op_and
 from .....dsl.base import Const
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
-from ..base import TileEffectTrigger, TriggerEvent, _unit_trait_names
+from ..base import TileEffectTrigger, TriggeredAbility, TriggerEvent, _unit_trait_names
 
 # --- Fire (tile-effect DoT, EnvFireTileAbility, Active.Loki) ---------------------------------------
 FIRE_TILE = int(EffectType.Fire)  # 5 — effet de TUILE (posé par attaque Flame, `OnFireDamageAbility`IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour).
@@ -164,51 +164,71 @@ def on_fire_damage_tree(fire_effect_type: int):
     # converti par `AddEffectOperation`). Le port passait le defaut positionnel `duration_rounds=1`,
     # qui ECRASAIT la duree par defaut (feu a 1 tour) et divergeait de l'AUTRE chemin de pose du MEME
     # effet (`SetOnFire` de FireOfAbsolution, qui n'override rien). Corrige : `duration_rounds=None`.
-    return AddEffect(fire_effect_type, "Fire", Tiles(Target()), duration_rounds=None)
+    # `source_from_target=True` : le selecteur SOURCE de cette surcharge est NUL ->
+    # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe sur la CIBLE, donc la source
+    # du FEU est la TUILE et non le caster. GROUND TRUTH live du JUMEAU (meme surcharge, memes arguments)
+    # : `FleshMetalGuns_TileEffectAbility` pose DespoiledGround avec `source` = l'id de la tuile
+    # (#85, `probe_85_despoiled_ground.py`). Le port passait encore le caster -- residu ferme ici.
+    return AddEffect(fire_effect_type, "Fire", Tiles(Target()), duration_rounds=None,
+                     source_from_target=True)
 
 
-def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
-                            profile: Optional[str]) -> list[dict]:
-    """`OnFireDamageAbility` (Damage.Loki) — pose du FEU on-hit. Trigger IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger =
-    `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT(TriggeringEffectIs(5))` ; Behaviour IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour =
-    `AddEffect(5=FireEffect, source, Tiles(cible@0x178))` INCONDITIONNEL (arbre DSL `on_fire_damage_tree()`,
-    mirror 1:1). => si l'arme du coup porte le trait de profil `OnFire` (gameconfig `damage_profile[...][
-    'Traits']`), pose FireEffect(type 5) sur la tuile OCCUPEE COURANTE de la cible (`Tiles`=MainTile de la
-    cible, PAS un ring). RNG-free.
+class OnFireDamageAbility(TriggeredAbility):
+    """`OnFireDamageAbility` (TriggeredAbilityType 1016, `Abilities.Damage.Loki`) — pose du FEU on-hit,
+    branchee sur le BUS `On(DamageDealt = 0x10)`.
+
+        IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger
+            On(0x10, 1) & DamageProfileHasTrait(1 = OnFire) & !TriggeringEffectIs(5)
+        IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour
+            AddEffect(5 = FireEffect, AbilityStateReference, Tiles(target@0x178))   # INCONDITIONNEL
+
+    ABILITY GLOBALE (`owner_is_global`) : le `CreateTrigger` ne porte AUCUN predicat d'owner -- il ne
+    teste que le PROFIL du coup, donc le canal vaut pour n'importe quel attaquant. Inscription UNIQUE
+    (`dispatch/registry.py::GLOBAL_TRIGGERS`), cf. `collect_global_triggers`.
+
+    VECTEUR (de-fork) : ce canal etait appele IMPERATIVEMENT depuis `after_hit_normal_attack` et
+    `execute_ability_attack`, c.-a-d. APRES la resolution complete de l'attaque. Il est desormais
+    consommateur du bus `On(0x10)`, emis par le chokepoint `AttackDamageOperation._apply_damage_pipeline`
+    en mirror d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` -- donc AVANT le traitement de la
+    mort (`VerifyDeaths` -> `IdunBattle.Operations.KillUnitOperation$$Execute`). Cette place n'est pas
+    cosmetique : elle est ARBITREE LIVE sur le jumeau Toxic (`probe_o10_rng_order.py`, 6 confrontations,
+    3 seeds -- ordre BUS 6/6 d'accord avec le natif, ordre imperatif 3/6).
 
     JUMEAU : `OnToxicDamageAbility` (1203, `on_toxic_damage.py`) partage le vecteur, la forme du gate de
     profil et la feuille de pose, mais son behaviour est CONDITIONNEL (`If(IsFirstHitInSeries() &
     Maybe(chance), AddEffect(1244))`) -- cf. `case-1203-on-toxic-damage.md` §1 pour le diff complet.
-    ⚠ RESIDU (flagge, non corrige) : la surcharge `AddEffect` a 5 args utilisee ICI passe un selecteur
-    SOURCE **NUL** -> `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe sur la CIBLE
-    (la source du FEU est la TUILE, pas le caster). Le port passe encore le caster ; inerte tant qu'aucun
-    consommateur ne lit la source de l'effet 5.
 
-    Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
-    d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
-    le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
-    vecteur, donc jamais de re-pose en cascade). Emetteur natif = `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
-    per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par
-    ABILITY (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi).
+    SOURCE de l'effet pose = la TUILE, pas le caster : la surcharge `AddEffect` a 5 arguments passe un
+    selecteur SOURCE **NUL**, et `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` retombe
+    alors sur la CIBLE. GROUND TRUTH live du jumeau DespoiledGround (#85, `probe_85_despoiled_ground.py`
+    runners 365/8514 : `source` = l'id de la TUILE, jamais celui du caster) -- meme surcharge, memes
+    arguments. Porte ici par `source_from_target=True` (le port passait le caster).
 
-    Le gate ci-dessous (`profile`/`board`/`effects` + `DamageProfileHasTrait(OnFire)`) = la CONDITION DE
-    DECLENCHEMENT (CreateTrigger, hors CreateBehaviour) ; le CreateBehaviour lui-meme = l'arbre delegue."""
-    if not profile or state.effects is None or getattr(state, "board", None) is None:
-        return []
-    traits = (GC.damage_profile(profile) or {}).get("Traits") or []
-    if DamageTrait.OnFire.name not in traits:            # DamageProfileHasTrait(DamageTrait.OnFire=1) [gate trigger]
-        return []
-    # behaviour = arbre DSL `on_fire_damage_tree()` (mirror 1:1 de IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateBehaviour) :
-    # AddEffect(5=Fire, Tiles(Target())). La feuille route vers AddEffectOperation.execute(target=tile_id,
-    # FIRE_TILE, "Fire") -> MEME Operation/args que l'ancien imperatif (bit-exact BY CONSTRUCTION). `placed`
-    # de l'emit distingue la pose reelle du no-op deja-en-feu (== l'ancien `if eff is not None`).
-    ectx = ExecutionContext(state=state, rng=state.rng)
-    on_fire_damage_tree(FIRE_TILE).execute(entities_from_state(state, attacker_id, target_id), ectx)
-    placed = [p["target"] for n, p in ectx.emitted if n == "AddEffect" and p.get("placed")]
-    if not placed:                                       # tuile deja en feu -> no-op (anti-boucle AddEffect)
-        return []
-    return [{"tile_effect": "Fire", "placed_on_tile": placed[0], "by": attacker_id,
-             "on": target_id, "placement": "OnFireDamage"}]
+    ANTI-BOUCLE : le `!TriggeringEffectIs(5)` du trigger est desormais PORTE (`ev.triggering_effect`),
+    et `AddEffectOperation` no-ope de toute facon si la tuile brule deja."""
+    event_id = int(EventTriggerType.DamageDealt)         # 0x10 = 16
+    owner_is_global = True
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        if not ev.profile or state.effects is None or getattr(state, "board", None) is None:
+            return False
+        traits = (GC.damage_profile(ev.profile) or {}).get("Traits") or []
+        if DamageTrait.OnFire.name not in traits:        # DamageProfileHasTrait(DamageTrait.OnFire = 1)
+            return False
+        return ev.triggering_effect != FIRE_TILE          # !TriggeringEffectIs(5)
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        # behaviour = arbre DSL `on_fire_damage_tree()` (mirror 1:1 de `$$CreateBehaviour`) :
+        # AddEffect(5 = Fire, Tiles(Target())). `ev.actor_id` = la SOURCE du degat (caster == actor dans
+        # l'`AbilityEntities` que construit `ApplyDamageOperation`), `ev.target_id` = la VICTIME.
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        on_fire_damage_tree(FIRE_TILE).execute(
+            entities_from_state(state, ev.actor_id, ev.target_id), ectx)
+        placed = [p["target"] for n, p in ectx.emitted if n == "AddEffect" and p.get("placed")]
+        if not placed:                                   # tuile deja en feu -> no-op (gate already-present)
+            return None
+        return {"tile_effect": "Fire", "placed_on_tile": placed[0], "by": ev.actor_id,
+                "on": ev.target_id, "placement": "OnFireDamage"}
 
 
 def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):

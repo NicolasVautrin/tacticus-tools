@@ -173,7 +173,10 @@ class _NormalLike:
             r["shield_dmg"], r["armor_dmg"],
             last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
             # #R33 : decomposition per-coup (crit / denied) pour `didOverkill`.
-            hits_result=r)
+            hits_result=r,
+            # `On(0x10)` : cet appel EST la serie de coups sur CETTE cible -> il contient le coup
+            # d'index 0 (`IsFirstHitInSeries` VRAI, mirror `AbilityEntities+0x110`).
+            is_first_hit=True)
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).

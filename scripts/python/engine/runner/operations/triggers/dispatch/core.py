@@ -48,6 +48,28 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
     return out
 
 
+def collect_global_triggers() -> list[TriggeredAbility]:
+    """Volet GLOBAL du registre : les abilities `IdunBattleLogic.Entities.Abilities.Damage.Loki.*`,
+    inscrites UNE SEULE FOIS pour la bataille et non par entité.
+
+    Leur `CreateTrigger` ne porte AUCUN prédicat d'owner -- il ne teste que le PROFIL du coup :
+        IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger
+            On(0x10, 1) & DamageProfileHasTrait(1 = OnFire)  & !TriggeringEffectIs(5)
+        IdunBattleLogic.Entities.Abilities.Damage.Loki.OnToxicDamageAbility$$CreateTrigger
+            On(0x10, 1) & DamageProfileHasTrait(4 = OnToxic) & !TriggeringEffectIs(0x4dc)
+    Elles se déclenchent donc pour N'IMPORTE QUEL attaquant dont le coup porte le trait, ce qui est
+    exactement ce qu'un registre par-entité ne sait pas exprimer.
+
+    CARDINALITE -- l'inscription est UNIQUE, et c'est une MESURE, pas une hypothèse : le canal 1203
+    consomme EXACTEMENT un `NextBool` par série de coups en live (`test_on_toxic_damage_live.py`,
+    oracle = l'état MT). Une inscription par unité en consommerait un PAR unité du plateau.
+    RESIDU DOCUMENTE : le SITE natif de cette inscription unique n'est pas RE'd
+    (`IdunBattleLogic.Core.Services.Caches.AbilityAndEffectCache$$AddEntity` n'ajoute que les
+    abilities PORTEES par l'entité) ; c'est la cardinalité observée qui fonde ce registre."""
+    from .registry import GLOBAL_TRIGGERS
+    return [cls(None) for cls in GLOBAL_TRIGGERS]
+
+
 def collect_effect_triggers(state: State) -> list[EffectTrigger]:
     """Mirror du registre `AbilityAndEffectCache` (volet effet-trigger) : itère les effets ACTIFS portés
     par chaque unité (via `state.effects`) et, pour chaque effet d'un type enregistré, instancie son
@@ -95,13 +117,14 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
     triggers-disabled non porté) → cap-phase (`<0x33`, ability-triggers) → `matches` → behaviour.
     Renvoie la liste des résultats (diagnostic)."""
     out: list[dict] = []
-    registry = collect_triggered_abilities(state) + collect_effect_triggers(state)
+    registry = (collect_triggered_abilities(state) + collect_global_triggers()
+                + collect_effect_triggers(state))
     for entry in registry:
         # Un tile-effect écoute souvent PLUSIEURS events (`event_ids`) ; sinon `event_id` unique.
         if entry.event_id != ev.event_id and ev.event_id not in getattr(entry, "event_ids", ()):
             continue
-        if getattr(entry, "owner_is_tile", False):
-            pass                                           # owner = TUILE : pas de gate unit-entity/alive
+        if getattr(entry, "owner_is_tile", False) or getattr(entry, "owner_is_global", False):
+            pass                                           # owner = TUILE ou AUCUN : pas de gate alive
         else:
             owner = state.get_entity(entry.owner_id)
             if owner is None:
@@ -116,7 +139,10 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         # EvaluateEffectTrigger (sans ce cap). Borne l'auto-récursion (splash Psyker qui re-déclenche le
         # splash Psyker via le vecteur after-hit). Clé = type d'ability-trigger (1 par trait-trigger).
         # `mark_as_triggered` AVANT le behaviour → la récursion voit le compteur incrémenté.
-        if isinstance(entry, TriggeredAbility) and not getattr(entry, "owner_is_tile", False):
+        # Le cap est PAR OWNER (`TriggeredAbilityComponent` de l'unité porteuse) -> il ne s'applique
+        # ni aux tile-effects ni aux abilities GLOBALES (`owner_id is None`, aucun composant à porter).
+        if (isinstance(entry, TriggeredAbility) and not getattr(entry, "owner_is_tile", False)
+                and not getattr(entry, "owner_is_global", False)):
             tac = _trigger_phase_component(state, entry.owner_id)
             if tac is not None:
                 pkey = type(entry).__name__

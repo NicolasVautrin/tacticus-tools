@@ -79,6 +79,15 @@ class TriggeredAbility:
     event_id: int = -1
     fire_on_death: bool = False     # ability « fire-on-death » : owner = l'unité MOURANTE (alive=False) —
                                     # bypass du gate « owner vivant » (CanGetAbilityTrigger). Ex. FinalJustice.
+    owner_is_global: bool = False   # ability de la famille `Abilities.Damage.Loki` : son `CreateTrigger` ne
+                                    # porte AUCUN prédicat d'owner (`get_OwnerIs*`), et le canal se déclenche
+                                    # sur le PROFIL du coup, jamais sur une unité. Elle est donc inscrite UNE
+                                    # SEULE FOIS pour la bataille (`GLOBAL_TRIGGERS`), et non par entité :
+                                    # une inscription par unité la ferait firer N fois par événement, ce que
+                                    # la mesure live REFUTE (exactement UN `NextBool` par série de coups,
+                                    # `test_on_toxic_damage_live.py`). `owner_id` vaut None -> les gates
+                                    # unit-entity/alive et le cap PAR PHASE (compteur porté par le
+                                    # `TriggeredAbilityComponent` de l'owner) ne s'appliquent pas.
 
     def __init__(self, owner_id: int):
         self.owner_id = owner_id

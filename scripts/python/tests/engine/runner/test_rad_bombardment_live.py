@@ -287,7 +287,8 @@ def _run(rpc, a_units, want_targets, seed="777"):
         last = runner.ability_handler.last or {}
         return {"rid": rid, "sf": sf, "board": board, "cid": cid, "aim": aim, "aim_tile": aim_tile,
                 "live_seq": live_seq, "last": last, "st": st, "runner": runner,
-                "cont_new": cont_post - cont_pre, "eff_pre": eff_pre, "eff_post": eff_post}
+                "cont_new": cont_post - cont_pre, "cont_pre": cont_pre,
+                "eff_pre": eff_pre, "eff_post": eff_post}
     except BaseException:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)
@@ -356,9 +357,15 @@ def _assert_common(ctx, want_targets: int, compare_damage_targets=None):
 
     # (2) GEOMETRIE : l'ensemble des tuiles Contaminated live == l'ensemble offline (UNION des DEUX
     # poseurs, cf. la docstring : volet `AddEffect(GetAffectedTiles())` + canal on-hit 1203).
-    off_cont = {p["target"] for p in (last.get("contaminated") or []) if p.get("placed")}
-    off_cont |= {t["placed_on_tile"] for atk in (last.get("attacks") or [])
-                 for t in (((atk.get("attack") or {}).get("toxic")) or [])}
+    # DEPUIS LE DE-FORK, le 2e poseur (canal on-hit 1203) passe par le vecteur `On(0x10)` et n'est plus
+    # rapporte dans le retour de l'attaque (la cle diagnostique `toxic` a disparu). On lit donc l'ETAT --
+    # la VRAIE source, et celle que le live expose (`tileMeta`) : TOUTES les tuiles portant
+    # `Contaminated` offline, moins celles qui l'etaient deja avant le cast. C'est strictement PLUS
+    # exigeant que l'ancienne union de deux champs de diagnostic (une pose non rapportee ne peut plus
+    # passer inapercue).
+    off_all = {int(t) for t, effs in (ctx["st"].effects.by_unit or {}).items()
+               if any(e.effect_type == CONTAMINATED and not e.consumed for e in effs)}
+    off_cont = off_all - ctx["cont_pre"]
     assert off_cont == ctx["cont_new"], (
         f"tuiles Contaminated offline {sorted(off_cont)} != live {sorted(ctx['cont_new'])} -- "
         f"GetAffectedTiles diverge (longueur AffectedTileAmount, sens de TilesBehindInLine, settings "

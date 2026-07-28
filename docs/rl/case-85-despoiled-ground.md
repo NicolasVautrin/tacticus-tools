@@ -253,14 +253,17 @@ Blast radius par construction :
 
 1. **Le conjoint `hitInfo+0x94` du gate de `On(0x10)`** (§2.3) : non modélisé. Il ne peut que
    RESTREINDRE l'émission native ; aucun régime observé ne l'a exercé.
-2. **`OnFireDamageAbility` / `OnToxicDamageAbility` restent appelés impérativement** depuis
-   `after_hit_normal_attack` au lieu d'être routés sur le nouveau bus `On(0x10)`. Ils y sont déjà
-   portés ET live-validés, et le Toxic consomme un `next_bool` dont l'ordre vs les tirages de dégât
-   est calibré là-bas : les re-router déplacerait ce tirage. Hors périmètre, flaggé.
-3. **La source de l'effet posé par `OnFireDamageAbility`** : la mesure de §2.4 confirme le résidu
-   déjà flaggé (le natif met la TUILE, le port met le caster). Correction à 1 ligne
-   (`source_from_target=True`), non faite ici — même surcharge native, mais autre effet et autres
-   tests de garde.
+2. ~~**`OnFireDamageAbility` / `OnToxicDamageAbility` restent appelés impérativement**~~ — **FERMÉ**,
+   et le renvoi était trop optimiste. Les deux sont désormais routés sur le bus `On(0x10)` (registre
+   GLOBAL). La crainte « les re-router déplacerait ce tirage » était fondée sur le fait ET fausse sur
+   la conclusion : le tirage **était déjà au mauvais endroit**. Mesuré live sur le régime où les deux
+   ordres divergent (une attaque `Toxic` qui TUE + une mort qui consomme un tirage) — l'ordre BUS
+   concorde avec le natif **6/6**, l'ordre impératif **3/6**, avec des désaccords dans les deux sens.
+   L'état MT final étant identique dans les deux ordres, un critère « delta `mti` » ne l'aurait jamais
+   vu. Détail : `case-o10-defork-damage-dealt.md`.
+3. ~~**La source de l'effet posé par `OnFireDamageAbility`**~~ — **FERMÉ** dans le même commit :
+   `on_fire_damage_tree` passe `source_from_target=True`, avec une garde dédiée dans
+   `test_on_fire_damage_migration_live.py` (la mesure de §2.4 servait précisément d'oracle).
 4. **`LetTheGalaxyBurn` volet 2** (`LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` →
    `AddEffect(0x5c4)`) : toujours non porté. Ses DEUX prérequis (vecteur + classe d'effet) sont
    désormais levés — c'est devenu un câblage simple, mais c'est un autre artefact natif.

@@ -358,7 +358,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                is_attack: bool = True,
                                source_ability=None, last_hit: Optional[int] = None,
                                hits_result: Optional[dict] = None,
-                               is_force_overkill: bool = False) -> Optional[list]:
+                               is_force_overkill: bool = False,
+                               is_first_hit: Optional[bool] = None,
+                               triggering_effect: Optional[int] = None) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -366,6 +368,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (`_refresh_swarm`, On(UnitMemberDeath=48)). Avant ce foyer, chaque vecteur inlinait le meme bloc
         x4 (divergence structurelle vs le chokepoint natif). `is_attack=False` = degat DIRECT (DoT) :
         pas de `_record_attacked` (un DoT n'est PAS une attaque, compteur HasBeenAttackedAmountThisTurn).
+
+        `is_first_hit` / `triggering_effect` = payload du vecteur `On(DamageDealt = 0x10)` emis ci-dessous
+        (mirror du champ `AbilityEntities+0x110` et du gate `TriggeringEffectIs` natif). `is_first_hit=True`
+        signifie « ce GROUPE de degat contient le coup d'index 0 » : la phase d'arme d'une attaque et la
+        1re serie sur une cible le portent ; un groupe de coups ADDITIONNELS (#179, index de sortie > 0)
+        ne le porte pas. `None` (defaut) = aucun index de coup dans cet evenement (degat DIRECT / DoT /
+        knockback) -> `IsFirstHitInSeries` FAUX, mirror du `Nullable<int>` vide natif.
         Renvoie la liste d'events de mort (ou None si pas de mort / pas de HP)."""
         if thc is None or thc.hp is None:
             return None
@@ -386,9 +395,16 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # emis DANS LE MEME BLOC que `On(0xf)` et donc sous le meme gate « reduction REELLEMENT
             # appliquee > 0 ». (Le conjoint natif supplementaire `local_7e8 == 0` — degat SANTE demande
             # >= 1 ET octet `hitInfo+0x94` nul — n'est PAS modelise : residu flagge, il ne peut que
-            # RESTREINDRE l'emission native.) Consommateur porte : `FleshmetalGunsTileEffectAbility`
-            # (pose DespoiledGround 0x5c4 sur la tuile de la victime pendant le round WarpHail).
-            damage_dealt_triggers(state, attacker_id, target_id, profile=profile)
+            # RESTREINDRE l'emission native.) Consommateurs portes : `FleshmetalGunsTileEffectAbility`
+            # (pose DespoiledGround 0x5c4 pendant le round WarpHail) et, DEPUIS LE DE-FORK, les deux
+            # abilities GLOBALES de profil `OnFireDamageAbility` (1016) / `OnToxicDamageAbility` (1203)
+            # — qui etaient appelees IMPERATIVEMENT apres l'attaque, donc APRES les vecteurs de mort
+            # emis quelques lignes plus bas. Cette place-ci est la place NATIVE, et l'ecart est
+            # OBSERVABLE (arbitrage live : ordre bus 6/6 vs ordre imperatif 3/6, cf. la docstring de
+            # `damage_dealt_triggers`). `is_first_hit` = « CE groupe de degat contient le coup d'index
+            # 0 » -> reproduit le gate natif `IsFirstHitInSeries` sans derouler les coups.
+            damage_dealt_triggers(state, attacker_id, target_id, profile=profile,
+                                  is_first_hit=is_first_hit, triggering_effect=triggering_effect)
         death = AttackDamageOperation._fire_death_if_killed(
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
             # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que

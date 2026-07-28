@@ -105,12 +105,17 @@ Nœuds DSL neufs (namespace `IdunBattle.Entities.Triggers`, dans `engine/entitie
 - `IsFirstHitInSeries()` — lit `ctx.is_first_hit`, nouveau champ `Nullable<bool>` du `DslContext`
   (défaut `None` → prédicat faux, mirror du `!HasValue`).
 
-Câblage — les deux émetteurs d'attaque, exactement là où `OnFireDamageAbility` est déjà branché :
+Câblage — **PÉRIMÉ depuis le DE-FORK** (`case-o10-defork-damage-dealt.md`). Le canal n'est plus
+appelé impérativement depuis les deux émetteurs d'attaque : c'est une **entrée du registre GLOBAL**
+(`OnToxicDamageAbility`, `dispatch/registry.py::GLOBAL_TRIGGERS`) qui consomme le vecteur
+`On(DamageDealt = 0x10)`, émis par `_apply_damage_pipeline` en mirror d'
+`IdunBattle.Operations.ApplyDamageOperation$$Execute`.
 
-| vecteur | fichier | position |
-|---|---|---|
-| attaque NORMALE | `operations/triggers/dispatch.py::after_hit_normal_attack` | juste après `_on_fire_damage_ability` |
-| attaque d'ABILITY / splash | `operations/damage_ops.py::execute_ability_attack` | après `_run_hits` + `_apply_damage_pipeline`, à côté de la pose de feu ; remonté dans le retour sous la clé `toxic` |
+L'ancienne place (après la résolution complète de l'attaque) était **APRÈS les vecteurs de mort**,
+alors que le natif émet `On(0x10)` **AVANT** (`VerifyDeaths` → `KillUnitOperation`). Sur le régime où
+les deux ordres divergent (attaque `Toxic` létale + mort qui consomme un tirage — `tyranParasite` /
+`BarbedOvipositor`), l'ordre BUS concorde avec le live **6/6**, l'ancien ordre **3/6**. Le compte de
+tirages, lui, était déjà bon : c'est l'ORDRE qui était faux, et l'état MT ne pouvait pas le montrer.
 
 ---
 
@@ -286,14 +291,17 @@ existe (faire jouer le summon par la passe IA, ou porter/valider la branche Conq
 
 ---
 
-## 6. Résidu ADJACENT (non corrigé ici, hors périmètre)
+## 6. Résidu ADJACENT — **à moitié fermé**
 
-**`OnFireDamageAbility` et `RadSaturationAbility` posent leur effet avec `source = caster` côté port,
+**`OnFireDamageAbility` et `RadSaturationAbility` posaient leur effet avec `source = caster` côté port,
 alors que le décompilé donne `source = la tuile`.** Les trois call-sites (`OnFire`, `RadSaturation`,
 `OnToxic`) utilisent la **même** surcharge `AddEffect` à 5 arguments, qui passe littéralement `0` en
 sélecteur SOURCE (`AddEffectBehaviour+0x60`) ; `AddEffectBehaviour$$Execute` retombe alors sur la cible
-courante. `RadBombardment` (surcharge 4 args, même conclusion) porte déjà `source_from_target=True`, et
-ce port le fait pour `OnToxic` — restent les deux autres.
+courante. `RadBombardment` (surcharge 4 args, même conclusion) porte déjà `source_from_target=True`.
+
+**`OnFireDamageAbility` est corrigé** (`source_from_target=True` dans `on_fire_damage_tree`, garde
+dédiée dans `test_on_fire_damage_migration_live.py` — cf. `case-o10-defork-damage-dealt.md` §3.1).
+**Reste `RadSaturationAbility`.**
 
 Impact observable aujourd'hui : nul pour le port (aucun consommateur de la source de `Fire` (5) ou de
 `Contaminated` (1244) — ni `EffectsFromUnitSource`, ni remove-by-source, ni scaling). Il le deviendrait

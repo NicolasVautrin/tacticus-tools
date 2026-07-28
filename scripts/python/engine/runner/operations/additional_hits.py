@@ -344,11 +344,17 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # #195 : `HasFlag(defender, 0x13)` — le 5e argument `isPreventOverkill` que
             # `ApplyTraitDamageLimitsToDamage` lit lui-meme sur son parametre `defender`.
             prevent_overkill=unit_prevents_overkill(state, target_id))
+        g_first_hit = (hit_index == 0)      # index d'ENTREE du groupe (avant `_run_hits`)
         hit_index = r["next_hit_index"]
         AttackDamageOperation._deplete_shield(shc, r)
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
-            r["shield_dmg"], r["armor_dmg"], is_attack=False)
+            r["shield_dmg"], r["armor_dmg"], is_attack=False,
+            # `On(0x10)` : un groupe de coups ADDITIONNELS partage l'`OngoingAttack` de l'attaque (donc
+            # son compteur `+0x30`, threade par `hit_index0`). Il ne contient le coup d'index 0 que si
+            # la phase d'arme n'a rien emis avant lui -> `IsFirstHitInSeries` FAUX dans le cas usuel,
+            # et donc AUCUN tirage 1203 sur ces coups (mirror du court-circuit natif).
+            is_first_hit=g_first_hit)
         death = death or d
         out["groups"] += 1
         # coups REELLEMENT emis (R6-b' : un succes du `Maybe` defere un coup bonus DANS ce groupe,
