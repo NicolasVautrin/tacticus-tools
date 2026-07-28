@@ -57,7 +57,7 @@ qui est une xref a part entiere. « percage » designe en realite une **ActiveCo
 | 6 | `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1223 | **PORTE PAR CE CAS** | juste |
 | 7 | `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` | CRIT | effet 1223 | **oui** | **juste** (`case-ischarging-crit-channel`, `N14` ferme) |
 | 8 | `IdunBattle.Entities.Effects.Loki.RedThirst_ExtraDamageAndHitEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1322 | non | absent (canal absent) |
-| 9 | `IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1032 | non | absent (canal absent) |
+| 9 | `IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1032 | **oui** | **juste** (`case-n16-unstoppable-ferocity`) |
 | 10 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObeisanceGenerators_HitReductionEffect$$CreateEffectHitsBonusForAttack` | COUPS **defenseur** | effet 1128 | non | **NON PERTINENT** (§4) |
 | 11 | `IdunBattle.Entities.Effects.Loki.FragLanceEffect$$CreateAdditionalHits` | COUPS ADDITIONNELS (attaque separee) | effet 1475 | non | absent (canal absent) |
 | 12 | `IdunBattle.Entities.Effects.Loki.BloodChalice_ExtraPiercingEffect$$CreateActiveCondition` | ACTIVE-CONDITION | effet 1369 | non | absent (effet absent) |
@@ -329,9 +329,14 @@ fois. `test_ischarging_extra_damage_live.py` (5 tests) a ete rejoue sur le monta
   `SagaOfTheWarriorBorn_KillAbility$$CreateBehaviour` =
   `AddEffect(0x4c8, AbilityStateReference, source = owner@0x148, targets = UnitsFromFaction(Friends(owner@0x148, <radius @+0x80>, 1) - owner@0x148, 0xd, 1))`
   sur trigger `OnDeath(1) & get_OwnerIsActor & HasTrait(target@0x178, 0x10)`. RE faite, port non fait.
-* **Les 4 items confrontables restants du canal COUPS / ADDITIONNELS / ActiveCondition** (1322,
-  1032, 1475, 1369) — residu **`N13`** : RE faite (§2), porteurs identifies (§3), aucun porte.
-  Chacun est une tranche a part entiere.
+* **Les items confrontables restants du canal COUPS / ADDITIONNELS / ActiveCondition** — residu
+  **`N16`** : RE faite (§2), porteurs identifies (§3). **1032 `UnstoppableFerocity_Owner` est porte
+  et valide live** (`case-n16-unstoppable-ferocity`) ; il en reste **3** (1322, 1475, 1369), chacun
+  une tranche a part entiere. Le port de 1032 a etabli au passage un fait de MONTAGE qui vaut pour
+  les deux autres porteurs summon (1322, 1475) : **un summon ne se pilote pas** — il est auto-active
+  par l'IA, son activation est consommee par son deplacement, et `applyAction {kind:"ability"}` rend
+  `mutated=False`. La validation d'un porteur summon passe par l'OBSERVATION des `changes` de
+  l'`applyAction endturn`, pas par le pilotage de `_charge_regime`.
 * **Les deux faces TRIGGER d'`AggressiveOnslaught`** (`SetPersistentData` + `On(0xb)`) : la face
   COMBAT du summon n'existe pas offline (seule sa face DECISION est portee,
   `playbook/aggressive_onslaught.py`), donc le gate n'a rien a garder.

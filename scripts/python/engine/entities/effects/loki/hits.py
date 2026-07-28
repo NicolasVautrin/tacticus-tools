@@ -1061,6 +1061,58 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
         return int(n) if n else None
 
 
+class UnstoppableFerocityOwnerEffect(BaseEffect):
+    """`UnstoppableFerocity_OwnerEffect` (effet 0x408=1032, `blackSmnBloodletter` <<Bloodletter>>,
+    summon d'Archimatos `blackPossession`) — axe COUPS, gate `IsCharging`. MIRROR de
+    `IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack` :
+
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(caster@0x160, target@0x178),
+                                 Direct( AbilityConfiguration.GetNumberConstant(config@+0x60,
+                                                                               0x2b = extraHit) ),
+                                 <AbilityOrEffect recopie de effect+0x14..+0x2c> )
+
+    DEUX noeuds trigger, pas trois — **aucun** `IsNormalAttack`, **aucun** `IsMeleeAttack` : meme
+    forme exacte que `SagaOfTheWarriorBornOwnerEffect` (1223), dont ce port est le calque. Le bonus
+    vaut donc pour TOUTE attaque du porteur en charge. `get_OwnerIsCaster` est deja porte par le
+    canal : ces effets ne sont interroges que sur l'ATTAQUANT
+    (`hits_bonus_from_effects(attacker_effects, ...)`).
+
+    ⚠ L'`IsCharging` de CET effet prend `caster@0x160` (pas `owner@0x148` comme 1223) en 1er argument.
+    Sous `OwnerIsCaster` les deux designent la meme entite -> semantique identique ; la difference est
+    notee parce qu'elle est REELLE au decompile, pas parce qu'elle change quoi que ce soit.
+
+    GATE — foyer PARTAGE, aucun predicat re-derive ici : `effects/base.py::is_charging_attack` lit la
+    cle `att_ctx["is_charging"]`, calculee par `engine/battle_query.py::is_charging`
+    (`AreEntitiesAdjacent(caster,target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`) --
+    cote COMBAT dans `runner/damage_model.py::build_hits_board`, cote PREDICTION dans
+    `playbook/prediction/normal_attack.py`. Ce n'est PAS `HasFlag(UnitFlag.Moved)` :
+    `MoveUnitOperation$$UpdateCharging` n'inscrit que les unites devenues NOUVELLEMENT adjacentes,
+    donc un caster qui se decale vers une cible DEJA adjacente a `Moved` VRAI et `IsCharging` FAUX.
+
+    MAGNITUDE = `GetNumberConstant(config, 0x2b)` = la CONSTANTE `extraHit` de l'ability source
+    (`ABondEffect..ctor(this, 1, 0, AbilityOrEffect(0x40b = TriggeredAbilityType.UnstoppableFerocity))`,
+    recopiee en `effect+0x14..+0x2c`), = **1**. Une constante, donc : ni indexee par niveau, ni dans
+    `variablesAffectedByRarityBonus` -> jamais scalee par le multiplier de rarete (meme forme que
+    `PowerTrip_FullHealth`, `extraHit` cle 0x2b elle aussi). i2 : « Scores one additional hit when
+    <charging> ».
+
+    HORS PERIMETRE, nomme : la SECONDE clause de l'i2 (« Scores one additional hit when attacking an
+    enemy Psyker ») est un effet SEPARE, `UnstoppableFerocity_ExtraHit` (0x4a8=1192) =
+    `ForAddition(HasTrait(target@0x178, 0x3ea) & get_OwnerIsCaster, Direct(1))` — meme ability source
+    0x40b, aucun noeud `IsCharging`. Non porte ici (l'inventaire le classe NON CONFRONTABLE) ; il faut
+    donc mesurer 1032 sur une cible **NON Psyker**, sinon les deux +1 se confondent."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
+        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging).
+        # PAS de gate is_normal_attack / is_melee : le decompile n'a QUE ces deux noeuds.
+        if not is_charging_attack(att_ctx):
+            return None
+        n = ability_var("UnstoppableFerocity", "extraHit",
+                        is_constant=True)          # GetNumberConstant(config, 0x2b)
+        return for_addition(True, int(n)) if n else None
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

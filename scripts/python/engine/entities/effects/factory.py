@@ -71,6 +71,7 @@ from .loki import (
     PinnedEffect,
     PowerTripFullHealthEffect,
     SagaOfTheWarriorBornOwnerEffect,
+    UnstoppableFerocityOwnerEffect,
     PowerTripIgnoreArmorEffect,
     RapidAssaultExtraDamageEffect,
     PrioritisedEfficiencyExtraDmgEffect,
@@ -314,6 +315,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Gate = foyer partage `is_charging_attack(att_ctx)`. MESURE live : 10 coups en charge vs 7 en
     # decalage adjacent. La face CRIT du meme effet reste NON portee (residu N14, case-ischarging-hits §7).
     "SagaOfTheWarriorBorn_Owner": SagaOfTheWarriorBornOwnerEffect,
+    # UnstoppableFerocity (`blackSmnBloodletter`, summon d'Archimatos `blackPossession` ; passif du
+    # summon, effet 0x408=1032) : +extraHit (constante = 1) coup a TOUTE attaque du porteur EN CHARGE
+    # (`IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack`
+    # = ForAddition(get_OwnerIsCaster & IsCharging(caster@0x160, target@0x178),
+    #   Direct(GetNumberConstant(config@+0x60, 0x2b = extraHit))) -- DEUX noeuds, ni IsNormalAttack ni
+    # IsMeleeAttack : meme forme que 1223). Gate = foyer partage `is_charging_attack(att_ctx)`.
+    # Le nom capte est le membre d'enum `EffectType` (`effect-type-names.ts:157`), suffixe `Effect`
+    # COMPRIS -- il differe de la classe native seulement par le `_` (cf. 1192 juste au-dessus).
+    # La 2e clause i2 (« +1 hit vs Psyker ») est l'effet SEPARE 0x4a8=1192, non porte.
+    "UnstoppableFerocity_OwnerEffect": UnstoppableFerocityOwnerEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
