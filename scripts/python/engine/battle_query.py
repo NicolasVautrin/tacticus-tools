@@ -93,6 +93,62 @@ def count_adjacent(tile: tuple, positions: list, elev_by_pos: dict | None = None
     return sum(1 for p in (positions or []) if is_adjacent(tile, p, elev_by_pos))
 
 
+def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
+                charged_unit_ids, elev_by_pos: dict | None = None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` — MIRROR du decompile,
+    DEUX termes joints par `&` :
+
+        return AreEntitiesAdjacent(caster, target)
+               && GetComponent<UnitComponent>(caster).ChargedUnitIds@+0x190.Contains(target.Id)
+
+    FOYER UNIQUE du predicat de CHARGE cote port (case-231 pour le socle, case-r32 pour ce cablage).
+    Les DEUX faces l'appellent : le COMBAT lui passe la liste reelle du `UnitComponent`
+    (`components.charged_unit_ids`, alimentee par `MoveUnitOperation$$UpdateCharging` et videe par
+    `FinishUnitTurnOperation$$Execute`), la PREDICTION lui passe la liste que le pas CANDIDAT
+    produirait (meme mirror d'`UpdateCharging`, applique a la tuile evaluee).
+
+    ⚠ « charger » n'est PAS « avoir bouge » (`UnitFlag.Moved`) : une unite qui bouge SANS arriver au
+    contact, ou qui etait DEJA adjacente avant son pas, n'a pas charge — `UpdateCharging` n'ajoute que
+    les unites NOUVELLEMENT adjacentes. Le proxy `has_moved` est donc strictement PLUS LARGE (il
+    sur-accorde), et c'est exactement l'ecart que ce foyer supprime.
+
+    `AreEntitiesAdjacent` = `MovementUtil$$AreTilesAdjacent(GetTiles(caster), GetTiles(target))`, dont
+    l'overload scalaire vaut `abs(elev(b) - elev(a)) < 2 && (a == b || ConnectivityComponent(a).
+    IsNeighbour(b))` -> `is_adjacent` ci-dessus (distance hex 1 + porte d'elevation quand elle est
+    connue). `elev_by_pos=None` degrade en hex pur, MEME niveau d'approximation que le socle
+    (`components.update_charging` et le noeud DSL `entities.triggers.IsCharging` comparent en hex pur).
+
+    Position manquante (unite hors plateau) -> False (le natif deref `MainTile` et sortirait ; la
+    degradation fidele est « pas de charge »)."""
+    if caster_pos is None or target_pos is None or target_id is None:
+        return False
+    if not is_adjacent(caster_pos, target_pos, elev_by_pos):        # AreEntitiesAdjacent
+        return False
+    return int(target_id) in {int(i) for i in (charged_unit_ids or ())}   # ChargedUnitIds.Contains
+
+
+def newly_adjacent_ids(old_pos, new_pos, positions_by_id: dict) -> set:
+    """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` — volet PUREMENT GEOMETRIQUE : les ids
+    ADJACENTS a la position d'ARRIVEE qui ne l'etaient PAS a la position de DEPART.
+
+        before = GetAdjacentUnits(oldPosition, unit) ; after = GetAdjacentUnits(newPosition, unit)
+        foreach u in after: if (!before.Contains(u)) ChargedUnitIds.Add(u.Id)
+
+    `positions_by_id` = {id: (col,row)} des AUTRES unites (l'unite qui bouge en est exclue par le
+    natif via son parametre `unit`). `old_pos=None` (unite sans MainTile avant le pas, ex. spawn) ->
+    `before` vide, mirror du `MainTile == null` natif.
+
+    Le pendant ECS de cette geometrie vit dans `runner.components.update_charging` (il MUTE le
+    `UnitComponent`) ; ici on ne rend que l'ensemble, ce dont la face PREDICTION a besoin pour savoir
+    ce qu'un pas CANDIDAT chargerait sans muter quoi que ce soit."""
+    def _adj(p):
+        if p is None:
+            return set()
+        return {int(i) for i, q in (positions_by_id or {}).items()
+                if q is not None and hexgeo.distance(tuple(p), tuple(q)) == 1}
+    return _adj(new_pos) - _adj(old_pos)
+
+
 def in_arc(tile: tuple, pos: tuple, elev_by_pos: dict | None = None) -> bool:
     """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) ? ring-1 = `is_adjacent` (dist hex 1,
     porte d'élévation `|Δelev| < 2`) ; ring-2 = dist hex EXACTEMENT 2 (`Unobscured` PASSE-TOUT v1

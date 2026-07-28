@@ -75,6 +75,19 @@ class Scene:
     # `ctx.stat(EXTRA_HITS)` (fige a l'hydratation — au SPAWN pour un summon #53) devient stale des
     # que des membres meurent. Capture combatSnapshot (stats.extraHits), refresh par-pas.
     extra_hits_cur_by_id: dict = field(default_factory=dict)
+    # ChargedUnitIds PER-UNITE (case-r32) : {uid: set(ids charges CE TOUR)} — mirror de
+    # `UnitComponent.ChargedUnitIds@+0x190`, le 2e terme de `IdunBattle.Core.Services.BattleQuery$$IsCharging`.
+    # Alimente par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging`, vide par
+    # `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`. `from_state` le lit de l'ECS (donc une
+    # prediction faite sur un etat que le runner offline a fait EVOLUER voit les charges deja acquises,
+    # comme le natif). ⚠ `from_predictor_sctx` / etat rechargé par `load_state` : AUCUN RPC n'expose ce
+    # champ -> table VIDE, degradation RESTRICTIVE (le bonus de charge est omis, jamais invente). Gap
+    # d'outillage nomme : le point d'ancrage a hooker est `UnitComponent+0x190` cote `combatSnapshot`.
+    charged_by_id: dict = field(default_factory=dict)
+
+    def charged(self, uid) -> set:
+        """Ids que `uid` a CHARGES ce tour (vide si non capte)."""
+        return self.charged_by_id.get(uid) or set()
 
     @classmethod
     def from_state(cls, state) -> "Scene":
@@ -91,7 +104,7 @@ class Scene:
                                          EffectsOwnedComponent, is_machine_of_war)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
-        defstat_by_id = {}
+        defstat_by_id, charged_by_id = {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -131,6 +144,9 @@ class Scene:
                 if ctx.stats is not None and int(_ST.TURNS_STARTED) in ctx.stats.components:
                     turns_started_by_id[eid] = ctx.stats.get_stat(int(_ST.TURNS_STARTED))
             shield_by_id[eid] = shc.get_total_shield() if shc is not None else 0
+            # case-r32 : `UnitComponent.ChargedUnitIds@+0x190` tel que l'ECS le porte MAINTENANT.
+            if getattr(uc, "charged_unit_ids", None):
+                charged_by_id[eid] = {int(i) for i in uc.charged_unit_ids}
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -158,7 +174,7 @@ class Scene:
             units=units, hp_by_id=hp_by_id, pos_by_id=pos_by_id, team_by_id=team_by_id,
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
             elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
-            turns_started_by_id=turns_started_by_id)
+            turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 

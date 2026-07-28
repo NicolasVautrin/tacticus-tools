@@ -55,6 +55,29 @@ def is_ranged_attack(is_ranged: "bool | None") -> bool:
     return is_ranged is True
 
 
+def is_not_charging(att_ctx) -> bool:
+    """Gate `IsCharging` du canal modifier : le coup est-il PROUVÉ hors-charge (case-r32) ?
+
+    Le prédicat natif est `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` =
+    `AreEntitiesAdjacent(caster,target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`.
+    Il est évalué UNE fois par coup et threadé dans `att_ctx["is_charging"]` par le contexte
+    d'attaque (combat : `runner.damage_model.battle_query_is_charging` ; prédiction : le mirror
+    d'`UpdateCharging` sur la tuile CANDIDATE). Foyer UNIQUE du gate — les trois effets qui portent
+    ce nœud (`AvalancheOfMuscle_ExtraDamage` 1025, `FeederTendrils_ExtraDamage` 1197,
+    `BlackRage_ExtraDamage` 1343) l'appellent, aucun ne re-dérive la condition.
+
+    ⚠ Ce n'est PAS `HasFlag(UnitFlag.Moved)` — les deux prédicats existent nativement et ne se
+    recouvrent pas : `UpdateCharging` n'inscrit que les unités devenues **NOUVELLEMENT adjacentes**
+    pendant le pas, donc un caster qui bouge vers une cible DÉJÀ adjacente a `Moved` VRAI et
+    `IsCharging` FAUX. C'est l'ancien proxy `has_moved`, qui sur-accordait (mesuré +599/coup sur
+    `astraBullgryn` L50 mult 180 %, cf. `test_ischarging_extra_damage_live.py`).
+
+    Tri-état, aligné sur `is_melee_attack`/`is_ranged_attack` en INTENTION mais pas en polarité : la
+    clé ABSENTE (contexte d'attaque sans cible — prédictions internes type FinalJustice) laisse
+    passer, comme le faisait `has_moved=None`. Seul un `False` EXPLICITE ferme le gate."""
+    return (att_ctx or {}).get("is_charging") is False
+
+
 @dataclass
 class SubEffectSpec:
     """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des

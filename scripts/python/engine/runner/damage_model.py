@@ -348,6 +348,26 @@ def tile_status_effects_by_pos(state: State, positions) -> Optional[dict]:
     return out
 
 
+def battle_query_is_charging(state: State, caster_id: int, target_id: int) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` cote COMBAT — pont ECS vers
+    le foyer `engine.battle_query.is_charging` (le predicat lui-meme y vit, cf. sa docstring).
+
+    Ne fait QUE lire l'ECS et deleguer : positions (`PositionComponent`) + la liste
+    `UnitComponent.ChargedUnitIds@+0x190` via `components.charged_unit_ids`. Aucune re-implementation
+    du predicat ici — la face PREDICTION appelle le MEME foyer avec la liste qu'un pas CANDIDAT
+    produirait (`battle_query.newly_adjacent_ids`)."""
+    from ..battle_query import is_charging as _bq_is_charging
+    from .components import charged_unit_ids
+
+    def _pos(uid):
+        e = state.get_entity(uid)
+        pc = e.get_component(PositionComponent) if e is not None else None
+        return (pc.col, pc.row) if pc is not None else None
+
+    return _bq_is_charging(_pos(caster_id), _pos(target_id), target_id,
+                           charged_unit_ids(state, int(caster_id)))
+
+
 def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged: Optional[bool] = None,
                        target_traits=None, target_id: Optional[int] = None,
                        is_normal_attack: bool = True, damage_profile: Optional[str] = None,
@@ -404,6 +424,16 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         att_ctx = dict(att_ctx or {})
         att_ctx["marked_effect_types"] = marked_effect_types_for_target(state, unit_id, target_id)
         att_ctx["tgt_grand_alliance"] = grand_alliance_of(state, target_id)
+        # `IsCharging` (case-r32) = `BattleQuery$$IsCharging(caster, target)` : adjacence ET
+        # `ChargedUnitIds@+0x190.Contains(target.Id)`. C'est le gate des trois effets extra-degat
+        # de charge (AvalancheOfMuscle 1025, FeederTendrils 1197, BlackRage 1343). La liste est
+        # remplie par `MoveUnitOperation$$UpdateCharging` (unites NOUVELLEMENT adjacentes du pas)
+        # et videe par `FinishUnitTurnOperation$$Execute` -> portee « ce tour ». Il REMPLACE le
+        # proxy `has_moved`, qui sur-accordait : un caster qui bouge vers une cible DEJA adjacente
+        # avant son pas a `Moved` VRAI et `IsCharging` FAUX (mesure : +599/coup de trop).
+        # ⚠ `has_moved` reste threade tel quel — il porte l'AUTRE predicat natif, `HasFlag(Moved)`
+        # (HeavyWeapon_ExtraDmg, CrushingStrike) : les deux existent, ne pas les confondre.
+        att_ctx["is_charging"] = battle_query_is_charging(state, unit_id, target_id)
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
