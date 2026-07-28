@@ -70,6 +70,14 @@ function callInt(mi: { info: NativePointer } | null): number | null {
 // quel que soit le nombre de pixels. C'est pour ca que diviser la surface par 9 a fait tomber la
 // PUISSANCE (18,6 W -> 6,6 W) sans bouger le pourcentage d'utilisation.
 //
+// ⚠ CE N'EST VRAI QU'A CADENCE LIBRE, et la nuance a ete mesuree le 2026-07-28 (12 echantillons
+// par point, meme scene, cadence bridee a 30 fps) :
+//     1 806 080 px -> 36,3 % / 6,4 W        1 024 000 px -> 21,2 % / 5,5 W
+// soit un rapport d'utilisation de 1,71 pour un rapport de surface de 1,76. UNE FOIS LA CADENCE
+// FIXEE, l'utilisation redevient donc proportionnelle a la SURFACE -- le nombre de reveils ne
+// varie plus, c'est leur DUREE qui porte le signal. Les deux leviers ne sont pas substituables :
+// la cadence enleve les reveils inutiles, la surface raccourcit ceux qui restent.
+//
 // On intercepte donc les deux setters et on REECRIT leur argument : quoi que le jeu se reimpose,
 // il obtient la valeur bridee. `Interceptor.attach` + reecriture de `args[0]` suffit (pas besoin
 // de `replace` : on ne reimplemente rien, et Frida detache tout seul au unload).
@@ -90,7 +98,6 @@ function callInt(mi: { info: NativePointer } | null): number | null {
 // ⚠ Ca ne vaut PAS a n'importe quelle valeur : a 10 fps le plancher passe a 100 ms et depasserait
 // le cout du transport. 30 fps est mesure, en dessous ne l'est pas.
 //
-// Le bridage reste ON-DEMAND, jamais arme au register.
 let vsListener: InvocationListener | null = null;
 let fpsListener: InvocationListener | null = null;
 let clampedVSync: number | null = null;
@@ -107,7 +114,80 @@ function clampArg0(mi: { ptr: NativePointer } | null, get: () => number | null,
     });
 }
 
+// --- AUTO-ARM au register --------------------------------------------------------------------
+//
+// POURQUOI ON DEROGE ICI a la regle « le register n'arme rien » (controller.ts, incident du
+// 2026-07-10) : cette regle vise les Interceptor sur des chemins de degat ULTRA-CHAUDS
+// (`ExecuteHit`, getters de serialisation a 27 000 appels/s) dont la surcharge de trampoline
+// destabilise IL2CPP pendant le churn reinject/warmup. `set_vSyncCount` / `set_targetFrameRate`
+// sont a l'exact oppose : appeles AU PLUS UNE FOIS PAR FRAME, sur du code UnityEngine sans rapport
+// avec le moteur de bataille. Le cout mesure du bridage sur le harnais est NUL (106,4 ms/RPC bride
+// contre 134,8 ms a 90 Hz, cf. plus haut) -- l'auto-arm ne peut donc pas ralentir un probe.
+//
+// CE QUE CA REPARE : le bridage vit dans des `InvocationListener`, donc il MEURT a chaque reinject
+// -- et un reinject est un geste courant. Sans auto-arm il fallait le reposer a la main, et
+// l'oubli est SILENCIEUX (le GPU repart a 33 %, rien ne le signale).
+//
+// ON N'AUTO-ARME QUE LA CADENCE, PAS LA RESOLUTION. La resolution, elle, SURVIT au reinject (elle
+// vit dans le process Unity, le jeu ne la reimpose pas -- c'est pourquoi un `SetResolution`
+// one-shot suffit) ; au prochain LANCEMENT c'est le `.ps1` qui prend le relais via les prefs. Et
+// surtout `SetResolution` est le seul appel de ce module qui ait deja tue le process : on ne le
+// declenche pas tout seul au demarrage.
+//
+// QUAND : pas au load du script (les metadonnees IL2CPP peuvent ne pas etre pretes -> faute 0x2c),
+// mais via `queueOnMainThread`, donc a la 1re frame drainee par le pump -- main thread, runtime
+// pret. Si les setters ne resolvent pas encore, on RE-QUEUE (jusqu'a AUTOARM_TRIES frames).
+//
+// OBSERVABLE : un auto-arm qui echoue en silence serait exactement le defaut qu'on combat.
+// `renderBudget` (lecture seule) rend donc `autoArm: {done, attempts, error}` -- un `done:false`
+// avec un `error` se voit d'un coup d'oeil.
+const AUTOARM_VSYNC = 0;    // 0 = vSync desactive (sinon Unity IGNORE targetFrameRate)
+const AUTOARM_FPS = 30;     // valeur MESUREE (cf. plus haut) ; plus bas n'est pas mesure
+const AUTOARM_TRIES = 30;
+
+const autoArm = { done: false, attempts: 0, error: null as string | null };
+// Un reglage EXPLICITE de l'appelant fait autorite : si un RPC a touche aux clamps avant que le
+// pump n'ait draine l'auto-arm, celui-ci s'abstient -- sinon il ecraserait un choix delibere
+// (typiquement un `clampFrameRate: null` pose pour un probe qui veut le plein regime).
+let clampsTouchedByRpc = false;
+
+function tryAutoArm(): void {
+    if (autoArm.done || clampsTouchedByRpc) return;
+    autoArm.attempts += 1;
+    try {
+        const appK = klass("UnityEngine", "Application");
+        const qualK = klass("UnityEngine", "QualitySettings");
+        const setFps = appK ? findMethodByParamCount(appK, "set_targetFrameRate", 1) : null;
+        const setVs = qualK ? findMethodByParamCount(qualK, "set_vSyncCount", 1) : null;
+        if (!setFps || !setVs) {
+            autoArm.error = "setters non resolus (Application/QualitySettings)";
+            if (autoArm.attempts < AUTOARM_TRIES) void queueOnMainThread(tryAutoArm);
+            return;
+        }
+        clampedVSync = AUTOARM_VSYNC;
+        clampedFps = AUTOARM_FPS;
+        vsListener = clampArg0(setVs, () => clampedVSync);
+        fpsListener = clampArg0(setFps, () => clampedFps);
+        // Le clamp ne mord qu'au PROCHAIN appel du setter par le jeu. Comme il les reimpose a
+        // chaque frame, c'est immediat -- mais on pose quand meme les valeurs tout de suite, pour
+        // que le cas « le jeu ne les rappelle pas » (pause, scene sans rendu) soit couvert aussi.
+        const b0 = Memory.alloc(4); b0.writeS32(AUTOARM_VSYNC);
+        const b1 = Memory.alloc(4); b1.writeS32(AUTOARM_FPS);
+        invokeMethod(setVs.info, null, [b0]);
+        invokeMethod(setFps.info, null, [b1]);
+        autoArm.done = true;
+        autoArm.error = null;
+    } catch (e) {
+        autoArm.error = (e as Error).message;
+        if (autoArm.attempts < AUTOARM_TRIES) void queueOnMainThread(tryAutoArm);
+    }
+}
+
 export function register(ctx: Ctx): void {
+    // Arme le bridage de CADENCE des la 1re frame drainee (cf. le bloc AUTO-ARM). Pas ici et
+    // maintenant : au load du script, IL2CPP peut ne pas etre pret.
+    void queueOnMainThread(tryAutoArm);
+
     /** LIT (et optionnellement REGLE) le budget de rendu du process VIVANT.
      *  Sans argument : lecture seule. body: { width?, height?, fullscreen?=false,
      *  targetFrameRate?, vSyncCount? } */
@@ -198,6 +278,7 @@ export function register(ctx: Ctx): void {
         // BRIDAGE (on-demand) : `clampVSync` / `clampFrameRate`. `null` explicite = retirer le
         // bridage de cet axe. Sans les clefs, on ne touche a rien -- le bridage en place SURVIT.
         if (body && "clampVSync" in body) {
+            clampsTouchedByRpc = true;
             clampedVSync = typeof body.clampVSync === "number" ? body.clampVSync : null;
             if (clampedVSync === null && vsListener) { vsListener.detach(); vsListener = null; }
             else if (clampedVSync !== null && !vsListener) {
@@ -207,6 +288,7 @@ export function register(ctx: Ctx): void {
             applied.push("clampVSync");
         }
         if (body && "clampFrameRate" in body) {
+            clampsTouchedByRpc = true;
             clampedFps = typeof body.clampFrameRate === "number" ? body.clampFrameRate : null;
             if (clampedFps === null && fpsListener) { fpsListener.detach(); fpsListener = null; }
             else if (clampedFps !== null && !fpsListener) {
@@ -223,6 +305,10 @@ export function register(ctx: Ctx): void {
             (s.width !== null && s.height !== null) ? s.width * s.height : null;
         return { ok: errors.length === 0, before, after, applied, errors,
             pixelsBefore: px(before), pixelsAfter: px(after),
-            clamps: { vSync: clampedVSync, frameRate: clampedFps } };
+            clamps: { vSync: clampedVSync, frameRate: clampedFps },
+            // Rendu MEME quand tout va bien : c'est le seul endroit d'ou l'on voit qu'un auto-arm
+            // a echoue (`done:false` + `error`), sinon la panne serait exactement le defaut
+            // silencieux que l'auto-arm vient supprimer.
+            autoArm: { ...autoArm, overriddenByRpc: clampsTouchedByRpc } };
     });
 }

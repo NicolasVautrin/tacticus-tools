@@ -55,10 +55,16 @@ import * as gcProbe from "./features/gc-probe.js";
 // hit-trace = Interceptor sur AttackDamageOperation$$ExecuteHit (chemin de dégât
 // ULTRA-CHAUD) : le register n'arme RIEN, l'armement est on-demand (hitTraceArm).
 import * as hitTrace from "./features/hit-trace.js";
-// render-budget = pilotage A CHAUD de la surface de rendu (le jeu est un hote de CALCUL, pas un
-// objet a regarder). Le register n'ARME RIEN et ne CHANGE RIEN : il expose un RPC en lecture
-// seule par defaut. Complementaire de `scripts/tacticus-screen-prefs.ps1`, qui regle la
-// resolution AU DEMARRAGE (prefs Unity) et exige, lui, que le jeu soit ferme.
+// render-budget = pilotage A CHAUD du budget de rendu (le jeu est un hote de CALCUL, pas un objet
+// a regarder). SEULE DEROGATION a la regle ci-dessus : ce register AUTO-ARME le bridage de CADENCE
+// (vSync=0, 30 fps) a la 1re frame drainee. Ce n'est pas la classe de hook que l'incident du
+// 2026-07-10 proscrit -- `set_vSyncCount`/`set_targetFrameRate` sont appeles au plus UNE FOIS PAR
+// FRAME, hors du moteur de bataille, et le cout mesure sur le harnais est nul. Sans auto-arm le
+// bridage mourait a chaque reinject, en silence (GPU 18,6 % -> 33 %, rien ne le signale).
+// La RESOLUTION, elle, n'est jamais posee toute seule : elle survit au reinject, et `SetResolution`
+// est le seul appel de ce module qui ait deja tue le process.
+// Complementaire de `scripts/tacticus-screen-prefs.ps1`, qui regle la resolution AU DEMARRAGE
+// (prefs Unity) et exige, lui, que le jeu soit ferme.
 import * as renderBudget from "./features/render-budget.js";
 
 export interface Ctx {
