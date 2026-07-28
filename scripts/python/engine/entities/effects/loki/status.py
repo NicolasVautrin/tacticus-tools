@@ -104,13 +104,33 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
     MESURE live (case-dpw) : `astraSmnKell` FixedArmor 1496, une seule aura -> 1496 - 299 = **1197**
     (`combatSnapshot` post-attaque), et `astraCreed` 6000 -> 4800."""
 
+    stat_mod_source = None   # cle de source ChangeStat (revert par-source, symetrique de reverted_stats)
+
     def get_stat_modification_stat(self) -> int | None:
         return 16                                    # StatType.FixedArmor (arg du ctor natif)
 
     def get_stat_modification_amount(self) -> int | None:
         # Delta PLAT pre-calcule a la pose (= -round(FixedArmor_courant x |pct| / 100)), range dans
-        # `value` par le vecteur poseur. None = effet PRESENT mais stat-inerte (unite sans stats).
+        # `value` par le vecteur poseur. None = effet PRESENT mais stat-inerte -> aucune attribution
+        # (cas des instances CAPTEES depuis `decisionView.effects`, dont la contribution est DEJA
+        # cuite dans le `GetStat` du `combatSnapshot` : l'appliquer une 2e fois la doublerait).
         return self.value
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """`AStatModifierEffect$$ApplyInternal -> ApplyModification` (part 5/9) : le `ChangeStat` EAGER
+        pose a l'application. C'est la forme que `AddEffectOperation._apply_stat_mods` EXECUTE (la
+        paire `get_stat_modification_*` seule ne sert qu'a l'ATTRIBUTION du delta au chargement) ->
+        sans elle le debuff serait PRESENT mais n'entrerait jamais dans `GetStat(FixedArmor)` du
+        runner. `value` None (instance CAPTEE) -> [] = aucune double-application."""
+        from ...stats import StatType
+        if not self.value:
+            return []
+        return [(int(StatType.FIXED_ARMOR), int(self.value))]
+
+    def reverted_stats(self) -> "list":
+        """`RevertInternal` — annule le `ChangeStat` FixedArmor (lu par la feuille `RemoveEffect`)."""
+        from ...stats import StatType
+        return [StatType.FIXED_ARMOR]
 
 
 class ContaminatedUnitEffect(BaseEffect):

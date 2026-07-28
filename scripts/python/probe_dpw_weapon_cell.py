@@ -112,6 +112,28 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
                          attacker_additive_pre=attacker_additive_pre)
 
     _dn.apply_pierce_and_modifiers = _spy_red
+    # Et l'ETAGE AMONT : quelle CIBLE, quelle armure, a quel moment (le re-routage `SwornProtector`
+    # #120bis change la cible EN COURS d'attaque -- l'armure lue doit etre celle de la remplacante).
+    _orig_dfa = _dn.defender_fixed_armor
+    dfa_calls = []
+
+    def _spy_dfa(st_, tgt_):
+        v = _orig_dfa(st_, tgt_)
+        dfa_calls.append({"target": int(tgt_), "armor": int(v)})
+        return v
+
+    _dn.defender_fixed_armor = _spy_dfa
+    # Et le VECTEUR `On(UnitAdded)` : quand la pose du debuff Contagion a-t-elle lieu, et sur qui ?
+    from engine.runner.operations import spawn as _sp
+    _orig_oua = _sp.on_unit_added
+    oua_calls = []
+
+    def _spy_oua(st_, uid_):
+        r = _orig_oua(st_, uid_)
+        oua_calls.append({"unit": uid_, "n_dfa": len(dfa_calls), "res": r})
+        return r
+
+    _sp.on_unit_added = _spy_oua
     orig = AttackDamageOperation._run_hits      # resolu par MRO (mixin) -> fonction nue
 
     def _spy(rngo, hit_nc, hit_cr, *a, **kw):
@@ -130,6 +152,8 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
     finally:
         del AttackDamageOperation._run_hits
         _dn.apply_pierce_and_modifiers = _orig_app
+        _dn.defender_fixed_armor = _orig_dfa
+        _sp.on_unit_added = _orig_oua
     last = last if isinstance(last, dict) else {}
     e = st.get_entity(cid)
     sc = e.get_component(StatsComponent) if e is not None else None
@@ -156,6 +180,7 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved):
                if st.effects is not None else []}
     return {"rolls": rolls, "cell": cell.get("weapon"), "cell_crit": cell.get("weapon_crit"),
             "cells": cell.get("all"), "tgt_arm": tgt_arm, "red_args": red_args,
+            "dfa": dfa_calls, "oua": oua_calls,
             "target": last.get("target"), "entities": ents, "tid": int(tid),
             "attack": int(sc.ctx.stat(StatType.ATTACK)) if sc is not None else None,
             "pierce": last.get("pierce"), "armor": last.get("armor"),
@@ -322,6 +347,8 @@ def main():
         print("   cellules        = %s" % (off["cells"],))
         print("   armure cible    = %s" % json.dumps(off["tgt_arm"]))
         print("   args reduction  = %s" % json.dumps(off["red_args"]))
+        print("   defender_armor  = %s" % json.dumps(off["dfa"]))
+        print("   on_unit_added   = %s" % json.dumps(off["oua"]))
         print("   cible attaquee  = %s (msg tid = %s)" % (off["target"], off["tid"]))
         print("   entites ECS     = %s" % json.dumps(off["entities"]))
         print("   roster AVANT    = %s" % json.dumps(row["roster_before"]))
