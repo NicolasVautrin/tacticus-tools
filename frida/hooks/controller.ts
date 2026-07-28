@@ -55,6 +55,11 @@ import * as gcProbe from "./features/gc-probe.js";
 // hit-trace = Interceptor sur AttackDamageOperation$$ExecuteHit (chemin de dégât
 // ULTRA-CHAUD) : le register n'arme RIEN, l'armement est on-demand (hitTraceArm).
 import * as hitTrace from "./features/hit-trace.js";
+// render-budget = pilotage A CHAUD de la surface de rendu (le jeu est un hote de CALCUL, pas un
+// objet a regarder). Le register n'ARME RIEN et ne CHANGE RIEN : il expose un RPC en lecture
+// seule par defaut. Complementaire de `scripts/tacticus-screen-prefs.ps1`, qui regle la
+// resolution AU DEMARRAGE (prefs Unity) et exige, lui, que le jeu soit ferme.
+import * as renderBudget from "./features/render-budget.js";
 
 export interface Ctx {
     rpc: Record<string, (...args: any[]) => unknown>;
@@ -380,6 +385,6 @@ export function wireRpc(ctx: Ctx): void {
      // messageTrace AVANT moveOptions — il set scoringRunnerId/applySeq.
      messageTrace, moveOptions, winnerCapture, aiStep, abilityPrefs, modifierObserve,   // modifierObserve = diag on-demand (jamais auto-arme)
      scorerDamageTrace, triggerTrace, dslTrace, dslCtorTrace,
-     gcProbe, hitTrace]
+     gcProbe, hitTrace, renderBudget]
         .forEach((f) => f.register(ctx));
 }
