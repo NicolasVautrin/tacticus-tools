@@ -56,10 +56,28 @@ _FEARED = _LONG + [
     "--p-units", "darkaAsmodai,darkaTerminator,darkaCompanion,orksNob,spaceWulfen",
     "--a-units", "worldKharn,templChampion,eldarJainZar,tyranDeathleaper,custoTrajann"]
 
+# --- #211 CursedPlagueBell (1071, `deathBlightbringer`) : le seul concret qui gate les DEUX faces.
+# Ses deux montages sont VOLONTAIREMENT sans `--hp-*` : le porteur est active tot et la geometrie
+# discriminante apparait avant le pas 30 (mesure `probe_211_cursed_plague_bell.py`) ; gonfler les PV
+# reecrit la trajectoire et deplace le pas.
+#   `_CPB_FRIEND` : 2 amis de grande alliance Chaos (deathBlightlord, thousSorcerer) + 2 hors Chaos
+#     -> le gate `HasTrait(u, 0x7ea)` separe des tuiles a nombre d'amis adjacents EGAL.
+#   `_CPB_ENEMY`  : AUCUN ami Chaos (la face amie est muette, le terme ne vient que des ennemis) et
+#     un melange melee-Psychic (bloodMephiston, astraPrimarisPsy -> 10) / Psychic de PORTEE
+#     (thousAhriman -> 0, c'est le gate `WeaponProfile$$get_IsMelee`) / non-Psychic (-> 0).
+_CPB_FRIEND = [
+    "--p-units", "deathBlightbringer,deathBlightlord,thousSorcerer,astraBullgryn,necroWarden",
+    "--a-units", "bloodMephiston,astraPrimarisPsy,thousAhriman,tauMarksman,orksNob"]
+_CPB_ENEMY = [
+    "--p-units", "deathBlightbringer,astraBullgryn,necroWarden,orksNob,eldarRanger",
+    "--a-units", "bloodMephiston,astraPrimarisPsy,thousAhriman,tauMarksman,templChampion"]
+
 CASES = [("MC1_67", "777", 34, "blackTerminator", 1038, "enemy_units", _HATEFUL),
          ("C4_09", "31337", 31, "blackTerminator", 1038, "enemy_units", _HATEFUL),
          ("MC1_67", "777", 28, "darkaAsmodai", 1235, "friend_units", _FEARED),
-         ("C4_09", "999", 26, "darkaAsmodai", 1235, "friend_units", _FEARED)]
+         ("C4_09", "999", 26, "darkaAsmodai", 1235, "friend_units", _FEARED),
+         ("MC1_67", "777", 25, "deathBlightbringer", 1071, "friend_units", _CPB_FRIEND),
+         ("MC1_67", "2468", 19, "deathBlightbringer", 1071, "enemy_units", _CPB_ENEMY)]
 
 
 @pytest.fixture(scope="module", params=CASES, ids=lambda c: "%s-%s-s%d-%s" % (c[0], c[1], c[2], c[3]))

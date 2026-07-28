@@ -63,12 +63,15 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
-- **Gisement « playbooks de MOUVEMENT » : 43 restants, dont 32 à porteur spawnable TEL QUEL**
-  (`case-193c` §1 et §6 — chiffres RE-DÉRIVABLES par `probe_193b_carrier_pool_crosscheck.py`, qui lit
-  le pool en LIVE). Le rang A de `case-193` §5 reste la file la plus rentable (3 lignes + une entrée
-  au registre par item) — mais **relire chaque `GetAdjacent*Utility` au décompilé** avant de le
-  traiter comme un 3-lignes : `case-193c` §3 en distingue TROIS formes, et `CursedPlagueBell` (1071),
-  le 3ᵉ plus gros poids du rang A, n'en est pas un (§7). `[opus]`.
+- **Gisement « playbooks de MOUVEMENT » : 42 restants, dont 31 à porteur spawnable TEL QUEL**
+  (`case-193c` §1 et §6, moins `CursedPlagueBell` 1071 porté par `case-211` — chiffres
+  RE-DÉRIVABLES par `probe_193b_carrier_pool_crosscheck.py`, qui lit le pool en LIVE). Le rang A de
+  `case-193` §5 reste la file la plus rentable (3 lignes + une entrée au registre par item) — mais
+  **relire chaque `GetAdjacent*Utility` au décompilé** avant de le traiter comme un 3-lignes :
+  `case-193c` §3 en distingue TROIS formes, et l'exception annoncée (`CursedPlagueBell`) a coûté une
+  RE complète — deux gates, dont un qui lit le `WeaponsComponent` du voisin, et un trait qui
+  n'existe dans AUCUN `traits` du gameconfig (`case-211` §1.3). Restent en tête de file
+  `MedicusMinistorum` (15), `Deathwing` (10), `TaintedNarthecium`. `[opus]`.
 - **`SpiritualLeader` (1275) et `ExplosiveMaladies` (1068) : clé BC EFFECTIVE non résolue**
   (`case-193c` §7). Leur structure est tranchée au décompilé (filtre `HasTrait(0x41d)` + lookup plat
   pour la 1ʳᵉ ; deux clés gatées `HasRangedWeapon` / `HasTrait(0x7ea)` pour la 2ᵈᵉ), mais **aucune clé

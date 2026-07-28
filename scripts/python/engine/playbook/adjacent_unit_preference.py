@@ -181,18 +181,33 @@ def _unit_faction(unit: dict) -> str | None:
     return (GC.unit(unit.get("vis") or "") or {}).get("FactionId")
 
 
+def _unit_weapons(unit: dict) -> tuple:
+    """Le `List<WeaponProfile>` que le natif lit sur le `WeaponsComponent` du voisin.
+
+    Le natif passe par le composant ECS ; le pendant offline est le `weapons` du gameconfig. Ce
+    n'est PAS une approximation de commodité : `UnitConfiguration.Weapons` du BattleConfiguration
+    (ce que la bataille consomme) est le décalque du gameconfig — mesuré sur `data/seed-bc.json`,
+    **246 armes / 175 unités, 0 divergence** sur `DamageProfileType` ET sur `IsMelee`
+    (`probe_211_cursed_plague_bell.py --offline-only`). Ce que ce substrat ne voit pas, ce sont les armes
+    AJOUTÉES/MODIFIÉES en cours de bataille par un effet — même limite que `_unit_faction`."""
+    import gameconfig as GC
+    return tuple(((GC.unit(unit.get("vis") or "") or {}).get("weapons")) or ())
+
+
+def _weapon_is_melee(w: dict) -> bool:
+    """`IdunShared.Battle.WeaponProfile$$get_IsMelee` = `!Range.HasValue || Range.Value < 2` : une
+    arme SANS `Range` est melee, et **`Range == 1` le serait aussi**. Le seuil est donc `>= 2`, pas
+    « `Range` présent » — les deux coïncident sur ce gameconfig (0 arme à `Range == 1`, compté), mais
+    c'est le décompilé qui fait foi, pas la coïncidence."""
+    r = w.get("Range")
+    return r is None or int(r) < 2
+
+
 def _has_ranged_weapon(unit: dict) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$HasRangedWeapon(u, minRange=null)` ->
     `IdunBattle.Entities.Components.WeaponsComponent$$HasRangedWeapon` : `true` dès qu'UNE arme
-    n'est pas `IsMelee` (le `minRange` nul court-circuite la comparaison de portée).
-
-    `IdunShared.Battle.WeaponProfile$$get_IsMelee` = `!Range.HasValue || Range.Value < 2` : une arme
-    SANS `Range` est melee, et **`Range == 1` le serait aussi**. Le seuil est donc `>= 2`, pas
-    « `Range` présent » — les deux coïncident sur ce gameconfig (0 arme à `Range == 1`, compté), mais
-    c'est le décompilé qui fait foi, pas la coïncidence."""
-    import gameconfig as GC
-    weapons = ((GC.unit(unit.get("vis") or "") or {}).get("weapons")) or ()
-    return any(int(w.get("Range") or 0) >= 2 for w in weapons)
+    n'est pas `IsMelee` (le `minRange` nul court-circuite la comparaison de portée)."""
+    return any(not _weapon_is_melee(w) for w in _unit_weapons(unit))
 
 
 class FearedInterrogatorPlaybook(AdjacentToOwnerNonOwnerPlaybook):
@@ -236,6 +251,96 @@ class HatefulAssaultPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return wt.sub("TriggeredAbilities", key)
 
 
+# Les trois traits que `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` DÉRIVE du `GrandAllianceId`
+# (`UnitTrait` : Imperial=26=0x1a, Xenos=1006=0x3ee, Chaos=2026=0x7ea) — homonymes de l'id d'alliance.
+# Ils ne sont PAS dans le `traits` du gameconfig : c'est le BattleConfiguration qui les ajoute, et
+# `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` recopie ce `UnitConfiguration.Traits`
+# (config+0xd0) dans le `BaseUnitComponent.Traits` (+0x40) que `HasTrait` interroge. Mesuré sur
+# `data/seed-bc.json` : les 175 unités ont EXACTEMENT ce trait en plus de leur `traits` gameconfig.
+_GRAND_ALLIANCE_TRAITS = frozenset(("Imperial", "Xenos", "Chaos"))
+
+
+def _has_trait(unit: dict, trait: str) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$HasTrait(u, <UnitTrait>)` ->
+    `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` :
+
+        if (RemovedTraits(+0x50).Contains(t)) return false;
+        return Traits(+0x40).Contains(t) || AddedTraits(+0x48).Contains(t);
+
+    Côté offline, `unit["traits"]` (gameconfig) couvre `Traits(+0x40)` SAUF le trait d'alliance,
+    qui n'existe que dans le BC — d'où la seconde branche. Les traits accordés/retirés en cours de
+    bataille (`AddTraitOperation`, +0x48/+0x50) ne sont pas dans ce substrat : même limite que
+    `_unit_faction`, et même limite que le `filter_adjacent_friend` de `FabricatorClawArrayPlaybook`
+    qui lit déjà `unit["traits"]`."""
+    if trait in (unit.get("traits") or ()):
+        return True
+    if trait not in _GRAND_ALLIANCE_TRAITS:
+        return False
+    import gameconfig as GC
+    return (GC.unit(unit.get("vis") or "") or {}).get("GrandAllianceId") == trait
+
+
+def _cursed_plague_bell_damage_profile() -> str:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$GetDamageProfile`
+    = `AbilityConfiguration.GetAffectedDamageProfile().GetValueOrDefault(<DamageProfileType>)`, où le
+    littéral de défaut lu au décompilé est `0xd` = 13 = `Psychic`
+    (`IdunBattle.Entities.Enum.DamageProfileType`).
+
+    `IdunBattle.Configuration.AbilityConfiguration$$GetAffectedDamageProfile` = la constante
+    d'ability `affectedDamageProfile` (`GetEnumConstant`), qui vaut `"Psychic"` pour
+    `CursedPlagueBell` au gameconfig courant. On la RELIT plutôt que de figer `Psychic` : le natif la
+    relit aussi, et le défaut ne s'applique que si la constante disparaît."""
+    import gameconfig as GC
+    consts = ((GC.ability("CursedPlagueBell") or {}).get("constants")) or {}
+    return consts.get("affectedDamageProfile") or "Psychic"     # DamageProfileType.Psychic (0xd)
+
+
+class CursedPlagueBellPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`CursedPlagueBellPlaybook` (`IdunBattle.AI.Playbook.Loki.CursedPlagueBellPlaybook$$.ctor` :
+    ability 0x42f=1071 CursedPlagueBell — passif `deathBlightbringer`/Corrodius, HERO du pool).
+
+    Les DEUX faces sont surchargées, et chacune LIT son argument `unit` :
+
+    `IdunBattle.AI.Playbook.Loki.CursedPlagueBellPlaybook$$GetAdjacentFriendUtility` :
+
+        if (!UnitExtensions.HasTrait(unit, 0x7ea)) return 0;      // UnitTrait.Chaos
+        return ctx["CursedPlagueBell_AdjacentChaosFriend"];        // 20 BC
+
+    `IdunBattle.AI.Playbook.Loki.CursedPlagueBellPlaybook$$GetAdjacentEnemyUtility` :
+
+        weapons = unit.<WeaponsComponent>.Weapons;
+        if (!Enumerable.Any(weapons, this.<GetAdjacentEnemyUtility>b__4_0)) return 0;
+        return ctx["CursedPlagueBell_AdjacentPsychicEnemy"];       // 10 BC
+
+    avec `IdunBattle.AI.Playbook.Loki.CursedPlagueBellPlaybook$$u003CGetAdjacentEnemyUtilityu003Eb__4_0` :
+
+        return w.DamageProfile == _ability.GetDamageProfile() && w.IsMelee;
+
+    ⚠ Le prédicat exige les DEUX conditions : profil `Psychic` ET arme de MÊLÉE. Un psyker à arme
+    psychique de PORTÉE (`Range >= 2`) ne compte pas — c'est ce que le seuil de
+    `IdunShared.Battle.WeaponProfile$$get_IsMelee` tranche, et c'est le piège de cet item : le nom de
+    la clé BC (`..._AdjacentPsychicEnemy`) ne dit RIEN de la contrainte de mêlée.
+    ⚠ Le poids ne s'applique qu'UNE FOIS par voisin (`Any`, pas `Count`) même si le voisin porte
+    plusieurs armes melee Psychic.
+
+    Aucun `FilterAdjacent*` n'est surchargé : le bloc de code de la classe est CONTIGU
+    (`GetAdjacentEnemyUtility`, `GetAdjacentFriendUtility`, `b__4_0`, `.ctor`) entre les blocs
+    `CosmicHorrorPlaybook` et `DaRevolushunPlaybook`, sans trou. Pas de
+    `CalculateAttackUtilityInStepsInternal` non plus : ce playbook ne pèse QUE le mouvement."""
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        if not _has_trait(unit, "Chaos"):                          # HasTrait(unit, 0x7ea)
+            return 0.0
+        return wt.sub("TriggeredAbilities", "CursedPlagueBell_AdjacentChaosFriend")
+
+    def get_adjacent_enemy_utility(self, unit: dict, wt) -> float:
+        profile = _cursed_plague_bell_damage_profile()
+        if not any(w.get("DamageProfile") == profile and _weapon_is_melee(w)
+                   for w in _unit_weapons(unit)):                  # Enumerable.Any(.., b__4_0)
+            return 0.0
+        return wt.sub("TriggeredAbilities", "CursedPlagueBell_AdjacentPsychicEnemy")
+
+
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
@@ -259,6 +364,9 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # Porteurs POOL-HERO au rank courant (`rl_duel build --list-pool`) : darkaAsmodai, blackTerminator.
     int(TriggeredAbilityType.FearedInterrogator): FearedInterrogatorPlaybook(),  # 1235 (gate faction)
     int(TriggeredAbilityType.HatefulAssault): HatefulAssaultPlaybook(),          # 1038 (2 poids)
+    # #211 — le premier concret qui surcharge les DEUX faces, et le premier dont le gate ennemi lit
+    # le `WeaponsComponent` du voisin (profil de degat x melee). Porteur POOL-HERO : deathBlightbringer.
+    int(TriggeredAbilityType.CursedPlagueBell): CursedPlagueBellPlaybook(),      # 1071 (Chaos / Psychic-melee)
 }
 
 

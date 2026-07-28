@@ -275,6 +275,10 @@ plus gros poids intacts (`CursedPlagueBell` 20+10, `MedicusMinistorum` 15, `Deat
   et filtre par `System.Linq.Enumerable.Any` sur un lambda
   (`u003CGetAdjacentEnemyUtilityu003Eb__4_0` : profil d'arme == profil de l'ability **et**
   `WeaponProfile.get_IsMelee`). À porter avec sa propre RE, pas dans un lot de 3-lignes.
+  **-> fait, avec sa propre RE : `docs/rl/case-211-cursed-plague-bell.md`.** L'avertissement était
+  fondé : le trait `Chaos` n'existe dans AUCUN `traits` du gameconfig (il vient du `GrandAllianceId`
+  via `idun.Idun.Source.Shared.GrandAlliance$$GetTrait`), et le gate ennemi exige `IsMelee` EN PLUS
+  du profil — deux pièges qu'un lot de 3-lignes aurait tous les deux manqués.
 * **`SpiritualLeader` (1275) et `ExplosiveMaladies` (1068)**, que #193 §5 listait « à trancher au
   décompilé » : tranché ici pour la STRUCTURE, pas pour la valeur. `SpiritualLeader` override bien
   un `FilterAdjacentFriends` (garde les amis à `HasTrait(u, 0x41d)`) et son accesseur est un lookup
