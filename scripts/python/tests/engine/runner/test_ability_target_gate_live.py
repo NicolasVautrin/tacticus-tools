@@ -417,13 +417,14 @@ def test_caster_has_not_moved_rule_matches_live(caster_moved115):
     par les `TargetingOptions` de Waaagh) : le natif ACCEPTE le cast tant que le Warboss n'a pas
     bouge, et le REFUSE des qu'il s'est deplace. Le port doit rendre le MEME code.
 
-    Le flag `Moved` n'est PAS expose par les RPC -> `load_state` ne le seede pas : on le pose
-    explicitement (`set_moved_flag`, l'UNIQUE poseur du port, appele par `MoveUnitOperation`) pour
-    reproduire l'etat que le live vient d'atteindre. Sans ce cablage manuel le test ne testerait
-    rien -- c'est aussi la raison pour laquelle la regle est INERTE sur tout etat charge (donc sans
-    aucun risque de regression sur les tests existants)."""
+    Le flag `Moved` est SEEDE par `load_state` depuis `combatSnapshot.units[].unitFlags`
+    (`snapshot._load_unit_flags`, case-o10 SS 6) : l'etat recharge reproduit donc TOUT SEUL celui que
+    le live vient d'atteindre, et la regle mord sans aucun cablage manuel. Avant ce seed elle etait
+    INERTE sur tout etat charge -- une degradation PERMISSIVE (le port acceptait un cast que le natif
+    REFUSE), exactement le trou qu'un entrainement irait exploiter. Le contrefactuel est desormais
+    construit par RETRAIT explicite du flag."""
     from engine.entities.pathfinding.board import Board
-    from engine.runner.components import set_moved_flag
+    from engine.runner.components import set_moved_flag, UnitFlagsComponent
 
     d = caster_moved115
     assert d["before"] == 0, (
@@ -435,9 +436,21 @@ def test_caster_has_not_moved_rule_matches_live(caster_moved115):
     board = Board(d["bg"]["tiles"], adjacency="evenq")
     state = load_state(d["dec"], d["ob"], d["snap"], board=board)
     caster, tgt = int(d["caster_id"]), int(d["target_id"])
+    # (1) SEED BRUT == NATIF : le caster a bouge live, l'etat charge le sait, la regle mord -- c'est
+    #     l'accord direct avec `d["after"]` mesure ci-dessus.
+    assert is_invalid_target(state, caster, tgt, ABILITY_CLASSES[WAAAGH]()) == \
+        TR.CasterHasNotMoved, (
+        "l'etat charge n'oppose pas CasterHasNotMoved alors que le natif le fait (d['after']) : "
+        "`load_state` ne seede plus `UnitFlag.Moved` depuis `combatSnapshot.units[].unitFlags`")
+    # (2) CONTREFACTUEL : flag retire -> la regle ne mord plus (== `d["before"] == 0`).
+    fl = state.get_entity(caster).get_component(UnitFlagsComponent)
+    assert fl is not None and fl.has(UnitFlagsComponent.MOVED), (
+        "le seed n'a pas pose UnitFlag.Moved -> le contrefactuel ci-dessous ne prouverait rien")
+    fl.remove(UnitFlagsComponent.MOVED)
     assert is_invalid_target(state, caster, tgt, ABILITY_CLASSES[WAAAGH]()) != \
         TR.CasterHasNotMoved, (
-        "flag Moved non pose (load_state ne le seede pas) : la regle ne doit pas mordre")
+        "flag Moved retire : la regle ne doit plus mordre (sinon elle ne lit pas le flag)")
+    # (3) RE-POSE par le poseur du port : meme verdict que le seed.
     set_moved_flag(state, caster)                        # = ce que fait MoveUnitOperation offline
     assert is_invalid_target(state, caster, tgt, ABILITY_CLASSES[WAAAGH]()) == \
         TR.CasterHasNotMoved, (

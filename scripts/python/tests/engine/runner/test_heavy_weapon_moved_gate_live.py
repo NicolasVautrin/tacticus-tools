@@ -45,7 +45,7 @@ import hexgeo
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
 from engine.runner.prng import IntBasedMersenneTwister
-from engine.runner.components import set_moved_flag
+from engine.runner.components import set_moved_flag, UnitFlagsComponent
 from engine.runner.abilities.base import ability_attack_params
 from engine.runner.operations.damage import AttackDamageOperation
 
@@ -206,8 +206,21 @@ def _cast(rpc, rid, cid, tid):
 
 def _offline(dv, ob, snap, board, s0, cid, tid, moved_flag: bool):
     st = load_state(dv, ob, snap, board=board)
-    if moved_flag:
+    # LES DEUX HYPOTHESES SONT POSEES EXPLICITEMENT. Depuis `snapshot._load_unit_flags` (case-o10 SS 6),
+    # `load_state` SEEDE `UnitFlag.Moved` depuis `combatSnapshot.units[].unitFlags` : l'etat recharge
+    # porte donc deja le flag REEL. Ne rien faire ne construit plus l'hypothese « n'a pas bouge » -- il
+    # faut RETIRER le flag, sinon les deux branches rendent la meme valeur et le contrefactuel (donc
+    # tout le pouvoir discriminant du test) s'evapore EN SILENCE. C'est ce qu'a montre le premier
+    # re-jeu apres le fix : `live == off_true` passait, `off_false != off_true` tombait.
+    if moved_flag is None:
+        pass                             # SEED BRUT : l'etat tel que `load_state` le rend, rien de pose
+    elif moved_flag:
         set_moved_flag(st, cid)          # `SetMovedFlag` : le caster porte `UnitFlag.Moved`
+    else:
+        fl = st.get_entity(cid).get_component(UnitFlagsComponent)
+        if fl is not None:               # `RemoveTurnFlags(new_activation=1)` retire Moved+Teleported
+            fl.remove(UnitFlagsComponent.MOVED)
+            fl.remove(UnitFlagsComponent.TELEPORTED)
     st.rng = _seed_rng(s0)
     bmin, bmax, pierce, hits = ability_attack_params(st, cid, "SentinelDirectives", "Physical",
                                                      ranged=True)
@@ -261,6 +274,18 @@ def _run_case(rpc, seed, move_caster: bool):
         hi, lo = (off_true, off_false) if not moved else (off_false, off_true)
         assert lo[0] < hi[0] and abs(hi[0] / lo[0] - 1.25) < 0.01, (
             f"ratio bonus {hi[0]}/{lo[0]} != 1.25 (+heavyWeaponExtraDmg=25%)")
+        # LE FLAG VIENT DU SEED, PAS DE LA FIXTURE (case-o10 SS 6). `load_state` SEUL -- sans aucune
+        # pose ni retrait manuel -- doit deja reproduire le live, dans les DEUX regimes. Sans cette
+        # assertion, les deux cas ci-dessus continueraient de passer si
+        # `snapshot._load_unit_flags` etait supprime (ils posent le flag eux-memes) : c'est
+        # exactement le trou par lequel un replay-diff a sur-evalue le degat de `blackObliterator`
+        # de +25% (live 5868 / offline 7096) sans qu'aucun test ne bronche.
+        off_seed = _offline(dv, ob, snap, board, s0, cid, tid, moved_flag=None)
+        print(f"[HWGATE moved={moved}] off(seed brut, aucune pose)={off_seed}")
+        assert off_seed == live, (
+            f"seed brut {off_seed} != live {live} (moved={moved}) : `load_state` ne reconstruit pas "
+            f"`UnitFlag.Moved` depuis `combatSnapshot.units[].unitFlags` -- tout replay-diff d'une "
+            f"attaque suivant un deplacement re-diverge de +25% en silence")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)
