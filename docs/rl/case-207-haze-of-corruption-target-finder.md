@@ -140,16 +140,15 @@ une intersection sur une émission UNIQUE ne donnerait qu'un seul bond, alors qu
 
 ### Ce qui n'est PAS porté, et pourquoi
 
-* **La charge utile de l'effet `0x435` = 1077 `HazeOfCorruption_DamageTransfer`** :
-  `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$GetLeftOverDamages` /
-  `$$GetLeftOverDamagesFromEntity` / `$$CreateTargetTrigger` / `$$CreateTargetTriggerBehaviour`
-  (report du dégât excédentaire + 1 coup Toxic `extraDmg` sur le relais quand la cible est défaite).
-  Le port POSE le bond — c'est ce que le natif fait, et c'est MESURÉ — mais aucun consommateur ne le
-  lit : `EffectFactory.create` retombe sur `BaseEffect` pour un nom non enregistré, donc l'effet est
-  inerte. **Le volet RNG, lui, est complet** : il tient tout entier dans le target-finder.
+* ~~**La charge utile de l'effet `0x435` = 1077 `HazeOfCorruption_DamageTransfer`**~~ — **PORTÉE
+  DEPUIS, cf. `docs/rl/case-209-haze-of-corruption-damage-transfer.md`** : le report vaut
+  `demandé − appliqué` pour le coup fatal et la BASE nominale pour tout coup tombant ensuite sur le
+  cadavre (coup Toxic bonus de `HazeCorruption_BonusHitAbility` compris — orthographe native **sans le
+  « Of »**, ce qui l'avait fait manquer ici). Bit-exact 6/6 montages.
 * `SetPersistentData(AbilityOrEffect(Id), Self, Get(<clé>), EntityId(Target))` : pas de couche
-  « persistent data » d'ability côté port → no-op documenté (c'est la mémoire de la cible INITIALE que
-  lirait le volet damage-transfer ci-dessus).
+  « persistent data » d'ability côté port → no-op documenté (c'est le repli de `GetLeftOverDamages`
+  quand le contexte n'a pas de leftovers ; sur un montage à un relais la source de l'effet EST déjà la
+  cible initiale, cf. case-209 §3).
 * `Damageable` = `UnitsWithoutTrait(0x40e, 3)` côté natif ; le port garde son collapse PRÉ-EXISTANT
   « vivant et PV > 0 » (nœud partagé, hors périmètre de ce cas).
 * ORDRE du pool quand `len(pool) > 2` : résidu #215 standing. Le port rend l'ordre `AdjacentTiles`
@@ -226,11 +225,9 @@ d'`AdjacentFriends` (retour au collapse caster) → le test de pool rougit.
 
 ## 5. Ce qui n'est PAS couvert
 
-* Le **transfert de dégât** lui-même (§3, « ce qui n'est pas porté ») : aucun montage n'a fait mourir
-  la cible sous le coup, donc la charge utile de 1077 n'est ni portée ni confrontée. Un porteur de
-  `HazeOfCorruption` qui DÉFAIT sa cible reste donc, côté port, sans dégât reporté ni coup Toxic
-  additionnel. **Résidu nommé, chiffrable, à ouvrir en cas propre** — il n'entre pas dans le flux RNG
-  de ce cas.
+* ~~Le **transfert de dégât** lui-même~~ — **RÉSOLU par case-209** (`docs/rl/case-209-haze-of-corruption-damage-transfer.md`).
+  Le montage qui manquait ici : mêmes unités, `--hp-target` abaissé pour que la cible tombe sous le
+  coup. Reste ouvert de ce volet : le flux RNG du report (natif 8 vs port 6) et la chaîne à 2 relais.
 * Le régime `len(pool) > 2` (3 candidats ou plus) : la CONSOMMATION est exacte par construction
   (`min(k, 2)`), mais **QUI** est piqué dépend de l'ordre source — résidu #215, non mesuré ici.
 * Le déclenchement sur une ability **non-attaque** du porteur (le trigger n'a aucun gate d'attaque) :
