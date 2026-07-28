@@ -336,10 +336,100 @@ Probes livrés : `probe_208_pinned_inactive.py` (les DEUX canaux `decisionView` 
 `exposureView`, 3 montages), `probe_224_effect_immunity.py` (mesure live, 4 montages),
 `probe_224_can_be_immune_to.py` (inventaire vtable de `get_CanBeImmuneTo`).
 
-**Ce qui n'est PAS couvert** : (a) un `Pinned` inerte ne peut pas arriver par `load_state`, puisque
-la capture `decisionView` par défaut le droppe — seule la pose OFFLINE l'exerce (le seed pourrait le
-faire en passant `includeInactive`, non fait ici) ; (b) le contrôle de généralisation
+**Ce qui n'est PAS couvert** : ~~(a) un `Pinned` inerte ne peut pas arriver par `load_state`~~
+**COUVERT (#219, 2026-07-29)** — cf. §7 ; (b) le contrôle de généralisation
 `blackObliterator` donne un ratio 0.583 et non 0.70 — mesure PUREMENT live (aucun port en jeu),
 confond non chassé (l'attaque du montage lui fait perdre des membres d'escouade) ; la valeur exacte
 de ×0.70 est établie sur `blackPossession` ; (c) les 5 classes `CanBeImmuneTo == true` non portées
 (résidu §5.3, inchangé).
+
+---
+
+## 7. #219 — le SEED des effets inertes (`load_state`)
+
+Suite directe de §6 (a). Le canal `includeInactive` existait, mais **la capture qui alimente
+`load_state` ne le demandait pas** : un effet POSÉ-INERTE présent dans le `MatchState` natif n'avait
+aucune entité-effet côté port. Deux conséquences, toutes deux mesurées :
+
+1. `has_effect` rendait **faux** là où le natif a l'entité (`EntitiesWithAnyEffectSelector$$Select`
+   la compte, cf. §4) ;
+2. les `Triggered()` qui **pilotent** le flag n'avaient **aucune instance à activer**. Pour
+   `Overwatch_AutoAttack` (1009), dont l'activité est *purement* le flag (pas de
+   `CreateActiveCondition`), une unité capturée overwatch-désarmé ne pouvait **plus jamais** s'armer
+   dans l'état chargé : `collect_effect_triggers` n'instancie rien pour un effectType absent.
+   C'est aussi ce trou que la table `factory.ABILITY_INIT_OWNER_EFFECTS` bouche à la main pour trois
+   owner-effects conditionnels (`AnvilShield_BlockChanceBelowHealthCap`,
+   `HammerOfWrath_ConditionalDamage`, `HypersensoryAbilities_MinimalHealth`).
+
+### Ce qui est livré
+
+| Pièce | Rôle |
+|---|---|
+| `snapshot.decision_view_seed_body(rid, …)` | la porte **NOMMÉE** du canal, à passer à n'importe quel wrapper RPC : `rpc("decisionView", decision_view_seed_body(rid, allAbilities=True))` |
+| `EffectFactory.create` lit `captured["active"]` | le flag natif atterrit sur l'instance `BaseEffect`. **Clé absente → `True`** (canal par défaut, et pose OFFLINE d'`AddEffectOperation` : le natif crée l'entité-effet ACTIVE et délègue l'inertie à `CreateActiveCondition`) |
+| `_effect_names` filtre `active is not False` | la vue NOMS (`EffectsOwnedComponent`) reste **active-only** quel que soit le canal → un `diff(snapshot_live(…), snapshot(state))` dont les deux côtés n'ont pas été captés par le même canal ne signale **aucun** écart fantôme |
+
+La correspondance de §4 est donc **portée par le flag**, plus par une absence :
+
+    canal `decisionView` par DÉFAUT      ==  `EffectsState.active_effects` (+ vue NOMS)
+    canal `decisionView includeInactive` ==  `EffectsState.by_unit`
+
+### Pourquoi une PORTE et pas un défaut global
+
+Coût de VOLUME mesuré (`probe_219_seed_inactive_effects.py --cost`, 5v5 MC1_67) : **+909 o /
++3,84 % / +6 entrées** au déploiement, **+435 o / +2,33 % / +3 entrées** après un tour d'IA —
+négligeable. Ce n'est **pas** le volume qui interdit le défaut global, ce sont **deux** choses :
+
+- faire de `includeInactive` le défaut du RPC **supprimerait le canal actif-only comme référence
+  lisible** : un test comparant `active_effects` au live comparerait silencieusement au mauvais
+  canal (et casserait `test_effect_immunity_live` / `probe_208`, qui LISENT les deux) ;
+- les entrées ajoutées ne sont pas cosmétiques : à t0 sur un 5v5 ce sont
+  `Overwatch_AutoAttack` ×3, `GrimRetribution_CounterAttack`,
+  `CalibaniteGreatswordStrike_Overwatching`, `PlasmaCannon_Visual` — des owner-effects passifs
+  qui entrent dans `by_unit` de **toute** bataille seedée. Les deux effets à flag enregistrés dans
+  `EFFECT_TRIGGERS` (1009 et `FuelledByFury_CanRevive` 1324) le lisent correctement (vérifié :
+  `_ranged_auto_attack_flag_is_set`, `_can_revive_is_armed`), mais l'inventaire n'est pas exhaustif
+  sur les ~60 effectTypes enregistrés — un défaut global serait un rayon de souffle non validable
+  en une passe. La porte laisse le choix **explicite** au site de capture.
+
+### Validation
+
+`tests/engine/runner/test_load_state_inactive_effects_live.py` (**10 tests, ~30 s**) — deux familles
+d'effet, deux observables :
+
+- **`Pinned` 1065** (`SentinelDirectives` casté LIVE sur `blackAbaddon`) : prémisse live (défaut →
+  absent, `includeInactive` → présent `active:false`), puis état chargé → `by_unit` contient 1065
+  avec `active is False`, `active_effects` ne le contient pas, et la plage d'attaque normale des
+  DEUX cibles est **identique** entre les deux seeds (1808/1808 sur l'inerte, 1351/1351 sur le
+  contrôle) ;
+- **`Overwatch_AutoAttack` 1009** (aucun cast, 5v5 fraîche) : l'instance désarmée n'entre que par le
+  canal large ; `active_effects` l'exclut ; le tick `On(0x12)` du tour ADVERSE la **ré-active** (et
+  elle remonte alors dans `active_effects`) ; le trigger de tir matche ensuite sur un ennemi déplacé
+  au contact — là où l'état seedé par le canal par défaut n'a **aucun** trigger 1009 à évaluer.
+- **mécanisme pur** : `EffectFactory.create` sur les trois formes de la clé ; forme de la porte.
+
+**Contre-épreuve (mutation du fix)** — flag ignoré (`active = None`) → 3 tests rouges
+(`…seeds_the_inert_effect_with_its_flag`, `…inactive_overwatch_is_seeded_only_by_the_wide_channel`,
+`…effect_factory_reads_the_active_flag`) ; filtre de `_effect_names` retiré → le test de symétrie
+tombe, la vue NOMS gagnant `Pinned`, `TerminatorArmour_ReduceDmg`, `TerminatorArmour_Visual`,
+`Overwatch_AutoAttack`. À noter : les deux volets `Pinned` **chiffrés** restent verts sous mutation —
+`PinnedEffect.is_active` (la `CreateActiveCondition` de #208) les rattrape. Le flag est
+load-bearing pour les effets **sans** `CreateActiveCondition`, ce que couvre le volet 1009.
+
+**Généralisation** (`probe_219_seed_inactive_effects.py --generalise`) : 2ᵉ porteur du trait, AUTRE
+faction, sans `Resilient` (`deathTyphus`) + 2ᵉ contrôle (`blackObliterator`) → même dichotomie,
+plages 2167/2167 et 761/761.
+
+**Gardes rejouées, toutes VERTES** : `test_effect_immunity_live` + `test_load_state_tile_effects_live`
++ `test_runner_state_live` (14) · `test_suppressive_fire_live` +
+`test_chain_after_refused_addeffect_live` (8) · les 3 fichiers overwatch (5) ·
+`test_effect_duration_rounds_live` + `test_seeded_eager_statmod_expiry` +
+`test_tile_effect_dynamics_live` (15) · `test_damage_roll_live` + `test_runner_attack_live` (4).
+
+**Ce qui n'est PAS couvert** : (a) les ~283 sites de capture existants continuent d'utiliser le canal
+par défaut — la porte est disponible, la migration est site par site (aucun n'en a besoin
+aujourd'hui : leurs états n'exercent pas d'effet inerte, et le comportement est strictement
+inchangé) ; (b) l'inventaire « quels effectTypes enregistrés dans `EFFECT_TRIGGERS` lisent
+réellement `e.active` » n'est fait que pour 1009 et 1324 — à compléter avant toute activation
+globale ; (c) le canal jumeau `tileMeta` (`readEffectsByTile`) a le même drapeau, non exercé ici :
+`EffectFactory` le lira de la même façon, mais aucun montage à effet de TUILE inerte n'a été trouvé.

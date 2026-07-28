@@ -165,10 +165,14 @@ class BaseEffect:
     # quand `activeOnly` est pose.
     # ⚠ A NE PAS CONFONDRE avec la METHODE `is_active(unit_state)` ci-dessous, qui est le mirror de
     # `<Effect>.CreateActiveCondition` (la CONDITION, reevaluee a la lecture). Ici c'est le FLAG.
-    # Defaut True : un effet SEEDE est actif par construction — le canal de seed
-    # (`decisionView.units[].effects`, `readEffectsByUnit`) DROPPE deja les effets `IsActive == 0`
-    # (case-160/case-127 §80), donc « present == IsActive » cote seed, et ce defaut preserve
-    # exactement cette invariante.
+    # Defaut True, et le SEED peut desormais l'ECRASER : `EffectFactory.create` lit la cle `active`
+    # du capte quand la source la publie. Canal `decisionView` par DEFAUT -> les entrees a
+    # `IsActive == 0` sont DROPPEES par `readEffectsByUnit` (case-160/case-127 SS 80), donc
+    # « present == IsActive » et le defaut True est exact. Canal `decisionView { includeInactive:
+    # true }` -> les entrees inertes SONT publiees, `active: false` compris, et c'est cette valeur
+    # qui atterrit ici. Meme defaut pour la pose OFFLINE (`AddEffectOperation`), dont le `captured`
+    # n'a pas de cle `active` : le natif cree l'entite-effet ACTIVE et delegue l'inertie a
+    # `<Effect>.CreateActiveCondition` (la METHODE `is_active` ci-dessous).
     active: bool = True
     # `AbilityVariablesMultiplierPercentage` de l'unité porteuse (BC, défaut 100). Le natif bake le
     # scaling dans la config par-unité ; ici l'effet le porte pour scaler ses variables d'ability

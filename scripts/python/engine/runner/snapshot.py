@@ -53,8 +53,53 @@ def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
     return out
 
 
+def decision_view_seed_body(runner_id: int, **extra) -> dict:
+    """Corps du RPC `decisionView` **destiné au SEED** de `load_state` — la porte NOMMÉE du canal
+    `includeInactive`, à passer telle quelle à n'importe quel wrapper RPC
+    (`rpc("decisionView", decision_view_seed_body(rid, allAbilities=True))`).
+
+    POURQUOI une porte plutôt qu'un défaut global : les DEUX canaux du capteur
+    `readEffectsByUnit` (`frida/hooks/game/effects.ts`) ont chacun un pendant EXACT côté port, et
+    c'est cette correspondance qu'il faut pouvoir lire des deux côtés —
+
+        `decisionView` par DÉFAUT      ≙  `EffectsState.active_effects` (+ `EffectsOwnedComponent`)
+        `decisionView includeInactive` ≙  `EffectsState.by_unit`
+
+    Faire de `includeInactive` le défaut du RPC supprimerait le canal ACTIF-ONLY comme référence
+    lisible : un test comparant `active_effects` au live comparerait alors silencieusement au mauvais
+    canal. La porte garde donc le choix EXPLICITE au site de capture.
+
+    Sans elle, un effet POSÉ mais INERTE (`EffectComponent.IsActive @+0x5c` faux — p.ex. `Pinned`
+    1065 sur un porteur `TerminatorArmour`, cf. `docs/rl/case-224-effect-immunity-gate.md`) est
+    DROPPÉ par le capteur : l'état chargé n'a AUCUNE entité-effet pour lui, là où le natif en a une.
+    `has_effect` rendait donc faux, et les `Triggered()` qui pilotent le flag (`ActivateEffect` /
+    `DeactivateEffect` — p.ex. les trois de `RangedAutoAttackEffect$$
+    CreateHandleTriggerAbilitiesInternal` pour `Overwatch_AutoAttack` 1009) n'avaient AUCUNE instance
+    à ré-activer sur un état seedé. C'est aussi ce trou que la table de compensation
+    `factory.ABILITY_INIT_OWNER_EFFECTS` bouche à la main pour trois owner-effects conditionnels
+    (`AnvilShield_BlockChanceBelowHealthCap`, `HammerOfWrath_ConditionalDamage`,
+    `HypersensoryAbilities_MinimalHealth`) — le seed reste idempotent, la table redevient un filet.
+
+    COÛT MESURÉ (2026-07-28, `probe_219_seed_inactive_effects.py --cost`, runner 5v5 MC1_67) :
+    **+909 octets / +3,84 % / +6 entrées** au déploiement, **+435 octets / +2,33 % / +3 entrées**
+    après un tour d'IA. Les entrées ajoutées à t0 sont des owner-effects passifs
+    (`Overwatch_AutoAttack` ×3, `GrimRetribution_CounterAttack`,
+    `CalibaniteGreatswordStrike_Overwatching`, `PlasmaCannon_Visual`)."""
+    return {"runnerId": int(runner_id), "includeInactive": True, **extra}
+
+
 def _effect_names(u: dict) -> List[str]:
-    return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])) if n)
+    """Noms d'effets ACTIFS de la ligne — la vue NOMS d'`EffectsOwnedComponent` (diff structurel).
+
+    Le filtre sur `active` rend cette vue INDÉPENDANTE du canal de capture : une ligne venue de
+    `decisionView` par défaut et la même ligne venue de `decision_view_seed_body` produisent la MÊME
+    liste. C'est ce qui permet de seeder par le canal `includeInactive` sans qu'un
+    `diff(snapshot_live(...), snapshot(state))` dont les deux côtés n'ont pas été captés par le même
+    canal ne signale des écarts fantômes. Les inertes ne sont pas perdus : ils vivent dans le canal
+    STRUCTURÉ `State.effects.by_unit`, avec leur flag (cf. `EffectFactory.create`).
+    Clé `active` absente (canal par défaut) → l'entrée est active par construction."""
+    return sorted(n for n in (e.get("name") for e in (u.get("effects") or [])
+                              if e.get("active") is not False) if n)
 
 
 def _active_abilities(u: dict) -> List[ActiveAbility]:
@@ -115,6 +160,15 @@ def _machine_ability_state(m: dict) -> tuple:
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
                board=None, tiles=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
+
+    CANAL DE CAPTURE — `decision` accepte les DEUX canaux du capteur `readEffectsByUnit`. Capté par
+    `decision_view_seed_body(rid, …)` (canal `includeInactive`), l'état charge AUSSI les effets POSÉS
+    mais INERTES, avec leur flag `EffectComponent.IsActive @+0x5c` : ils entrent dans
+    `State.effects.by_unit` (donc `has_effect` les voit, et les `Triggered()` d'activation ont une
+    instance à ré-activer) et restent HORS d'`active_effects` (donc ils ne contribuent à aucun
+    nombre). Capté par le canal par DÉFAUT, ils sont simplement absents — comportement historique,
+    strictement inchangé. La vue NOMS (`EffectsOwnedComponent`) est active-only dans les deux cas
+    (cf. `_effect_names`), donc le choix du canal ne déplace AUCUN diff.
 
     `snapshot` (combatSnapshot) optionnel : s'il est fourni, peuple en plus le
     `StatsComponent` (stats RÉSOLUES + arme normale, via `UnitContext`) de chaque unité

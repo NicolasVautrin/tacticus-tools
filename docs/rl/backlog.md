@@ -429,6 +429,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   DÉFAUT n'est plus ambiguë : on lit les deux canaux et on les compare. **Rien à rebuilder.**
   Règle qui en découle : côté port, `by_unit` ≙ canal `includeInactive`, `active_effects` ≙ canal par
   défaut — comparer un port à `decisionView` par défaut, c'est comparer à `active_effects`.
+  - ~~**`load_state` ne seede pas les effets INACTIFS**~~ **CLOS (#219, 2026-07-29)** —
+    `snapshot.decision_view_seed_body(rid, …)` est la porte NOMMÉE du canal (à passer au RPC
+    `decisionView` quand la capture alimente `load_state`), et `EffectFactory.create` lit désormais
+    la clé `active` du capté (absente → `True` : canal par défaut ET pose offline). La vue NOMS
+    (`EffectsOwnedComponent`, `_effect_names`) reste active-only → le choix du canal ne déplace
+    aucun `diff`. **Coût du canal MESURÉ** : +909 o / +3,84 % / +6 entrées d'effet à t0 sur un 5v5,
+    +435 o / +2,33 % / +3 après un tour d'IA — négligeable en VOLUME. Ce n'est donc pas le volume
+    qui interdit un défaut global mais (i) la perte du canal actif-only comme référence lisible et
+    (ii) le rayon de souffle des owner-effects passifs ajoutés à `by_unit` de toute bataille seedée
+    (`Overwatch_AutoAttack` ×3, `GrimRetribution_CounterAttack`,
+    `CalibaniteGreatswordStrike_Overwatching`, `PlasmaCannon_Visual`). D'où une PORTE explicite,
+    pas un flag global. Détail + validation : `case-224-effect-immunity-gate.md` §7.
+    - **RÉSIDU `[opus]`** : inventorier, parmi les effectTypes de `EFFECT_TRIGGERS`, ceux dont le
+      `matches` lit réellement `e.active` (vérifié pour 1009 et 1324 seulement). C'est le
+      pré-requis d'une activation globale du canal au seed.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,
