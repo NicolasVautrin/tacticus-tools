@@ -240,9 +240,19 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         g_profile = g.get("profile")
         dp = GC.damage_profile(g_profile) or {}
         g_pierce = max(0, min(100, int(dp.get("PiercingRatio") or 0) + int(extra_pierce or 0)))
-        # bi-canal (mesure 202b) : la face COMBAT resout le noeud RandomAmount du descripteur
-        # (field[1] -> plage DIRECTE min/max) ; `amount` (field[2] Average) = canal PREDICTION.
-        # Un groupe amount-seul (ex. FoulInfusion ConfigVar) prend le spread ±20% standard.
+        # BI-CANAL (#202-B, RE COMPLETEE par #159) — c'est ICI que se joue le `useDisplay` natif.
+        # `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this, entities, useDisplay)` pose
+        #     min = max = minNode.<slot 4>            (noeud DISPLAY)     si useDisplay
+        #     min = amountNode.<slot 2> ; max = amountNode.<slot 3>       sinon (FACE COMBAT)
+        # et `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamage
+        # ProfileType` passe l'octet EXPLICITEMENT A ZERO -> la face COMBAT lit TOUJOURS le noeud
+        # ROLL. D'ou la PRECEDENCE ci-dessous, qui EST le mirror de ce gate : `min`/`max` (noeud
+        # ROLL) l'emportent des qu'ils existent ; `amount` (noeud DISPLAY) n'est le repli que pour
+        # les descripteurs dont les DEUX noeuds sont le MEME (`EffectAdditionalHits$$Create`
+        # param_8 = 0 -> minNode retombe sur amountNode : FoulInfusion `ConfigVar(0xb)`,
+        # ExplosiveMaladies `ConfigVar(8)`), et le spread ±20% qu'on lui applique alors reste un
+        # RESIDU NOMME (R6-c : leur noeud ROLL est un SCALAIRE, donc une cellule DEGENEREE cote
+        # natif -- 0 tirage `GetDamage` -- et non une plage ±20%).
         if "min" in g and "max" in g:
             g_min, g_max = int(g.get("min") or 0), int(g.get("max") or 0)
         else:

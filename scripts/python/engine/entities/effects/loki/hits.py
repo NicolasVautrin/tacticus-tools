@@ -263,9 +263,29 @@ class _BaseFleshmetalGunsEffect(BaseEffect):
                 .get("damageProfile" + sfx) or self._FALLBACK_PROFILE
         except Exception:
             profile = self._FALLBACK_PROFILE
-        # display natif = noeud Average (midpoint des vars INT-resolues) + spread pipeline ±20%
-        # (cf. docstring de la base) -> forme "amount" du canal #179, midpoint possiblement x.5.
-        return [{"count": int(count), "amount": (int(mn) + int(mx)) / 2, "profile": profile}]
+        # #159 (a) — LES DEUX NOEUDS (cf. `BaseEffect.additional_hit_groups`, contrat du dict) :
+        #   `amount` = noeud DISPLAY `Average(ConfigVar(keyMin), ConfigVar(keyMax))` (face
+        #              PREDICTION ; le pipeline etale ensuite a +-20 %) ;
+        #   `min`/`max` = noeud ROLL `RandomAmount(ConfigVar(keyMin), ConfigVar(keyMax))` (face
+        #              COMBAT, `useDisplay = false`).
+        # Les deux sortent du MEME helper natif `IdunBattle.Entities.Effects.BaseEffect$$
+        # GetMinMaxDamage(this, useAverage, keyMin, keyMax)`, lu verbatim :
+        #     a = ConfigVar(keyMin, AbilityStateFromEffect(...)) ; b = ConfigVar(keyMax, ...)
+        #     return useAverage ? DSLFactory.Average(a, b) : DSLFactory.RandomAmount(a, b)
+        # et `IdunBattle.Entities.Effects.Loki.BaseFleshmetalGunsEffect$$CreateAdditionalHits`
+        # l'appelle DEUX FOIS (`..., 0, ...` = roll -> param_3 ; `..., 1, ...` = display -> param_8).
+        # Le port ne rendait que `amount` : la face COMBAT etalait donc la MOYENNE a +-20 % au lieu
+        # de tirer dans [minDmg, maxDmg]. NON DISCRIMINANT sur Melta/Flame (paires +-20 % exactes
+        # autour de leur moyenne) mais FAUX sur WarpHail, dont la paire est ASYMETRIQUE :
+        # natif [698, 1096] (largeur 399) vs port [718, 1076] (largeur 359) a mult 180.
+        # MESURE LIVE (`probe_159_ah_bounds.py`, blackObliterator vs necroWarden, board MC1_67,
+        # flux RNG cale par `dumpRng`) : le groupe live est reproduit **8/8** par les bornes ROLL
+        # et **0/8** par `amount +-20 %`, 8/8 montages discriminants -- 6 seeds sur WarpHail
+        # (largeur 399 vs 359) et 2 sur Melta (500 vs 499 : un ecart d'UNE cellule suffit a
+        # decorreler les tirages, donc un fix ajuste au scalaire s'y serait trahi).
+        # Cf. `docs/rl/case-159-rng-canal179-et-maybe-ltgb.md`.
+        return [{"count": int(count), "min": int(mn), "max": int(mx),
+                 "amount": (int(mn) + int(mx)) / 2, "profile": profile}]
 
 
 class FleshmetalGunsFocusedMaliceEffect(_BaseFleshmetalGunsEffect):
