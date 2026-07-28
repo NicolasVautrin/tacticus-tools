@@ -38,7 +38,8 @@ from rl_collect_batch import _resolve_session, _rpc                        # noq
 from engine.runner.snapshot import load_state                              # noqa: E402
 from engine.runner.prng import IntBasedMersenneTwister                     # noqa: E402
 from engine.runner.components import UnitComponent, HealthComponent        # noqa: E402
-from engine.runner.operations.triggers import pre_unit_death_2_triggers, is_overkill  # noqa: E402
+from engine.runner.operations.triggers import (pre_unit_death_2_triggers,  # noqa: E402
+                                               unit_is_overkill)
 
 STATE = Path(r"C:\Users\nicolasv\AppData\Local\Temp\claude"
              r"\C--Users-nicolasv-tacticus-tools\b2170732-95be-4660-9594-e3e86a19af08"
@@ -352,7 +353,10 @@ def main():
     # flag overkill THREADE au vecteur offline : borne basse observable de la prediction (aucun
     # consommateur de `On(2)` ne le lit -- les DEUX novas passent `a=1` = pas de gate -- mais on le
     # thread quand meme pour que le probe teste bien la MEME valeur des deux cotes).
-    ovk = is_overkill(hpc, dmin if dmin is not None else hpc)
+    # #178 : `unit_is_overkill` = surcharge d'INSTANCE (celle du chemin combat). Le porteur de nova
+    # (`Explodes`/`PutridExplosion`) n'est ni Steppable ni porteur de `UnitFlag.PreventOverkill` ->
+    # les deux gates sont vrais/faux par defaut, la valeur threadee est inchangee.
+    ovk = unit_is_overkill(hpc, dmin if dmin is not None else hpc)
     print("[nova] coup letal : classification=%s -> overkill threade au port=%s" % (ovk_class, ovk))
     print("[nova] LIVE nova par cible : %s" % {("u%d" % k): v for k, v in sorted(live_nova.items())})
 
