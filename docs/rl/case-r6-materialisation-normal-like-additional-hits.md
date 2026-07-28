@@ -155,6 +155,12 @@ tirages non discriminants.
 
 ## 5. Ce qui n'est PAS couvert (et le résidu NEUF que la mesure a révélé)
 
+> **MAJ 2026-07-28 — ce résidu est FERMÉ** : l'ordre est porté et validé sur DEUX cas
+> discriminants (axe largeur du modulo + axe consommation, deux porteurs), cf.
+> `case-r6b-additional-hits-roll-order.md`. Le sous-résidu du 2ᵉ coup décrit plus bas est isolé et
+> résolu au décompilé sous le nom **R6-b'** (`GetStuckIn` × `CurrentHitIndex` continu). Le texte
+> ci-dessous est conservé tel qu'il décrivait l'état au moment de la mesure R6.
+
 **RÉSIDU NEUF, chiffré — l'ORDRE du canal `additional_hits` pour un groupe `predefined`.**
 `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` commence par
 `IdunBattle.Core.HitDamage$$GetDamage` sur le struct de l'`AttackData` : pour un groupe dont le

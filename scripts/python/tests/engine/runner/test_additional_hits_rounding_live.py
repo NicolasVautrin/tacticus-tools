@@ -14,16 +14,14 @@ per-coup que l'attaque d'arme --
 `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers` =
 `Fix64.Round(Mul(v, multiplier), AwayFromZero)`. => MEME arrondi que l'attaque normale (#131).
 
-⚠ POURQUOI CETTE GARDE REJOUE UNE VARIANTE D'ORDRE, ET PAS LE PORT TEL QUEL. Le port resout ce
-canal en REDUCE-THEN-ROLL (bornes pre-reduites, `post_roll=None`, 1 tirage/coup) alors que le
-descripteur natif d'un groupe PREDEFINED porte un `HitDamage` NON DEGENERE : `ExecuteHit` commence
-par `IdunBattle.Core.HitDamage$$GetDamage` (1 tirage BRUT) puis resout la cellule degeneree au
-slot 8 (1 tirage gaspille) = ROLL-THEN-REDUCE, 2 tirages/coup. MESURE (probe_r6, 11 seeds,
-`orksRuntherd`/SquigHound) : le PREMIER coup de chaque groupe est reproduit 11/11 par
-roll-then-reduce et 0/11 par reduce-then-roll. Cet ecart d'ORDRE est le residu #202-B (« conso RNG
-discriminante, A CONFIRMER LIVE ») -- il est AMONT et ORTHOGONAL a la materialisation. Cette garde
-le neutralise (`additional_hits_variant`) pour verrouiller l'etage AVAL, qui est le sujet de R6 ;
-le jour ou l'ordre est porte, elle continue de tenir et le port lui-meme deviendra bit-exact.
+⚠ POURQUOI CETTE GARDE REJOUE UNE VARIANTE D'ORDRE, ET PAS LE PORT TEL QUEL. L'etage AMONT (quel
+tirage sort) et l'etage AVAL (comment il se materialise) doivent se mesurer SEPAREMENT -- les
+melanger, c'est fitter deux etages avec un scalaire. Cette garde NEUTRALISE l'ordre
+(`additional_hits_variant("roll_then_reduce", ...)`) pour ne verrouiller que l'AVAL, sujet de R6.
+Depuis R6-b (2026-07-28) l'ordre du port EST roll-then-reduce, donc la variante rejouee coincide
+avec le port livre ; la neutralisation reste ecrite explicitement pour que cette garde continue de
+porter sur le SEUL etage materialisation si l'amont rebouge. L'ordre a sa propre garde :
+`test_additional_hits_roll_order_live.py`.
 
 MONTAGE : `orksRuntherd` (passif `SquigHound` -> effet 0x50c, 2 coups PREDEFINED [minDmg,maxDmg]
 profil Physical PiercingRatio 1) attaque au CONTACT une cible forcee en regime PERCAGE-DOMINANT
