@@ -4,8 +4,30 @@
 par-dessus `u_full` dans l'assemblage du `BucketAction` :
 `u_action = u_full + CalculateCustomUtility` (port : `engine/ai/action_generators.py::_best_attack`).
 Il n'apparait PAS dans `pairUtility` (preuve L3 #64) ; il ne pese que dans le CHOIX final d'action
-(concurrence serree). Enumeration ghidra exhaustive re-verifiee le 2026-07-25, build `gqfc5mff6c` :
-**27 symboles** (inventaire complet plus bas — c'est le point d'entree pour decouper les passes).
+(concurrence serree).
+
+## Inventaire — comment il a ete RE-DERIVE (tranche 3, 2026-07-28)
+
+L'enumeration ghidra rendait **27 symboles**. Elle est INCOMPLETE, et la table de symboles ne peut
+pas le dire : IL2CPP **deduplique les corps identiques**, et `methods.tsv` est indexee par ADRESSE —
+un corps partage par N classes n'y a qu'UN SEUL proprietaire (cf. `docs/rl/case-170-get-priority.md`).
+
+Contre-mesure appliquee : **balayage du SLOT DE VTABLE au runtime**, classe par classe
+(`probe_27_custom_utility_inventory.py` : `findClassesNamed("Playbook")` -> `resolveVtableSlot` sur
+TOUTE la vtable, pas sur un offset fige). Resultat sur le build `gqfc5mff6c` :
+
+- **377** classes `*Playbook*` vues au runtime, **101** portent un slot `CalculateCustomUtility` ;
+- **27 corps DISTINCTS** — l'enumeration ghidra etait juste sur les corps ;
+- mais **28 classes overridantes** : `IdunBattle.AI.Playbook.Loki.AmuletOfTheVoidwyrmPlaybook`
+  partage le corps de `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility`
+  (et aussi son `MakeDamagePredictions`) — **invisible de `methods.tsv` comme de ghidra**.
+- Le slot n'est PAS au meme offset partout : **0x338** pour les playbooks d'ACTIVE (94 classes),
+  mais 0x548 / 0x5a8 / 0x668 / 0x7b8 pour 7 playbooks de TRIGGERED/passif (AmuletOfTheVoidwyrm,
+  ControlEdict, OmnissiahsBlessing, FoulInfusion, RedRampage, UnbreakableDuty, PrehensilePincerTail).
+  Un balayage a offset FIGE les rate tous — c'est pour ca que le sweep couvre toute la vtable, et que
+  le controle de bornes est fait (`probe_27_vtable_dump.py` : la vtable d'AmuletOfTheVoidwyrmPlaybook
+  est coherente jusqu'a 0x5a8 puis devient du bruit -> 0x548 est bien DEDANS, pas une lecture
+  hors-vtable dans la classe voisine).
 
 ## Deja couverts (hors #27)
 
@@ -69,7 +91,7 @@ natif (`aiDryRunAllUnits`, read-only, per-unite) une fois les autres etages veri
 (une seule entree bascule la condition, geometrie et paires FIGEES) donne le signe, la condition
 exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
-## PORTES (5) — `engine/playbook/loki_custom.py`
+## PORTES (6) — `engine/playbook/loki_custom.py`
 
 | Ability (id) | VA | Formule mirroir | Poids (seed-bc) | Porteur | Validation |
 |---|---|---|---|---|---|
@@ -80,8 +102,50 @@ exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
 | **DoomSiren** (1199) | @18112cd30 | `W(DefinitelyOverkill) * #(preds WillBeOverkill) + W(TargetHasAdjacentEnemy) * [count(GetAdjacentEnemies(tuile de la CIBLE, caster)) > 0]` | `DoomSiren_DefinitelyOverkill` = **40** ; `DoomSiren_TargetHasAdjacentEnemy` = **50** | emperKakophonist `Adamatar` [hero, `--list-pool`] | **A/B causal live** (probe #27-2, runner 339) : cible + tuile d'attaque FIGEES, seul un 2e ennemi passe loin -> adjacent a la cible ; natif bascule 69 -> **1199**, moteur idem ; contre-epreuve custom=0 -> moteur 69 dans les DEUX bras. Encadrement 100 % natif : **0.624 < C < 1.096** (cf. Validation). |
 
-Les cinq HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
+| **SavageEchoes** (1230) | @1811586d0 | `GetRegenerateCondition(ability).Evaluate(entities) ? 0 : W` — la condition est `DSLFactory.HealthPctIsBelowOrEqual(caster@0x160, ConfigConst(0x4f = healthPct))` = `StatPercentageIsBelowOrEqualAbilityTrigger(caster, Health=5, thr)`, dont `ShouldTrigger` compare le **RATIO** `GetStat(u,stat,0)/GetStat(u,stat,2)` a `thr/100` (PAS un pourcentage arrondi). Terme CONSTANT sur (tuile, cible), variable avec les PV du CASTER. | `SavageEchoes_DislikesAboveHealthPct` = **-10** ; seuil `SavageEchoes.constants.healthPct` = **50** | bloodTerminator `Cezare` [lineup, HORS catalogue seed BC -> amene par `catalog_inject.py --units bloodTerminator`] | **A/B causal live** (`probe_27_3_savage_ab.py`, board MC1_67, caster (4,8) / cible (5,8) FIGES, `--hp-target 60000 --armor-target 4000`) : les DEUX `pairUtility` natifs sont BIT-IDENTIQUES entre les bras (6.3564547803252935 / 12.049598339945078) -> confond de prediction MESURE et NUL ; seul le PV% du caster varie. 100 % -> natif **69**, moteur **69** ; 49.64 % -> natif **1230**, moteur **1230**. Contre-epreuve custom=0 : moteur **1230 dans les DEUX bras** -> terme NECESSAIRE. |
+
+Les six HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
 terme custom (la prediction est deja assuree par `prediction.py`, ecarts de degat = hors perimetre).
+
+### Notes de fidelite du port SavageEchoes (tranche 3)
+
+- **Le seuil est un RATIO, pas un pourcentage arrondi.**
+  `IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` calcule
+  `Fix64(GetStat(u, stat, 0)) / Fix64(GetStat(u, stat, 2)) <= Fix64.Round(thr/100*100)/100` — le seul
+  arrondi porte sur le SEUIL (normalise a 2 decimales), jamais sur les PV. Le port n'emprunte donc PAS
+  le `round(cur/max*100)` de `GetStat(Health, part=1)` qu'utilisent BloodChalice et LightOfSanguinius
+  (un autre appel natif). **Mesure discriminante** : a `1675/3337 = 50.19 %` le natif rend W (condition
+  FAUSSE) alors qu'un pourcentage arrondi aurait donne `round(50.19) = 50 <= 50` -> 0. A
+  `1638/3300 = 49.64 %` il rend 0. Le port lit `cur` dans `ctx.hp_cur_by_id` (= `part 0`) et `max`
+  dans `ctx.hpmax_by_id` (= `part 2`, overlay `combatSnapshot`), exactement les deux `GetStat` natifs.
+- **Comment le montage a ete rendu DISCRIMINANT** (le regime se cherche, il ne se suppose pas) : a PV
+  et armure par defaut, SavageEchoes ecrase l'attaque normale de +32 d'utilite de paire — un terme de
+  -10 n'y change rien, et l'A/B ne peut pas contredire le port. Deux leviers, aucun scalaire fitte :
+  `--hp-target 60000` (les utilites sont ~ degat/PVmax : l'ECART absolu se contracte) puis
+  `--armor-target 4000` (le plancher percage fait diverger Eviscerate-50 % de Power-40 %, ce qui
+  remonte 1230 juste au-dessus de 69). L'ecart offline tombe alors dans la fenetre `(1, 11)` ou le
+  poids -10 de la BC decide — et le natif ET le moteur basculent ensemble.
+- **Residu de PREDICTION nomme (hors #27)** : l'utilite de paire OFFLINE de 1230 sous-estime la
+  native (7.8931 vs 12.0496 dans le montage a armure ; 15.7828 vs 24.1025 sans armure). Cause lue au
+  decompile : `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour`
+  construit la formule de degat comme
+  `Sum(MinMaxDamage, Multiply(Get(ConfigVar 8 = extraDmg), Count(CanAddUnit(AdjacentTiles(owner@0x148)))))`
+  — un bonus `extraDmg x (nb de tuiles adjacentes au CASTER ou une unite peut etre placee)` que le
+  chemin generique de `prediction/abilities.py` ne modelise pas (mesure sans armure : natif
+  11572-17352 vs offline 7576-11364, soit +3996 min = 2 tuiles libres x 4 coups x 277 x 1.8).
+  Debloqueur : un handler `_savage_echoes_inputs` dans `_MAKE_DMG_INPUT_OVERRIDES`. Ce residu ne
+  bloque PAS le terme custom (le montage ci-dessus le rend decisif malgre lui) mais il decale la
+  magnitude — il faut le fermer avant de compter sur 1230 dans un walk complet.
+- **Prerequis de harnais leve dans le meme commit** : `decisionView` nomme les abilities via
+  `frida/hooks/data/ability-names.ts` (map GENEREE, figee dans le bundle injecte). 1230 n'y est pas
+  -> l'ability sortait en placeholder `"id:1230"`, le predicteur offline cle sa recherche gameconfig
+  sur ce NOM, `make_damage_predictions` rendait `[]` et l'ability n'etait **jamais candidate** —
+  silencieusement. `engine/ai/context.py::_ability_name` replie sur `ActiveAbilityType(id).name`
+  (source independante, meme nom que la cle gameconfig). Portee MESUREE
+  (`probe_27_3_ability_names.py`) : **8 ids sur 331** sont absents de la map des hooks — 1215/1216/1217
+  (npc-only), 1223/1224 (MoW), 1220 (aucune entree gameconfig), 1228 et 1230 (heros hors catalogue de
+  la seed BC). Le repli est donc inerte partout ailleurs, et il rend confrontables exactement les
+  porteurs amenes par `catalog_inject.py`.
 
 ### Notes de fidelite du port DoomSiren
 
@@ -111,14 +175,16 @@ un custom POSITION-dependant ne pouvait alors JAMAIS changer la tuile choisie. L
 desormais `u_full + custom(tuile)`. Neutre par construction sur les customs constants (garde
 d'agreement ci-dessous : 0 regression).
 
-## INVENTAIRE EXHAUSTIF des overrides `CalculateCustomUtility` (27 symboles, build `gqfc5mff6c`)
+## INVENTAIRE EXHAUSTIF des overrides `CalculateCustomUtility` (27 corps / 28 classes, build `gqfc5mff6c`)
 
-Enumeration ghidra `search_symbols_by_name("CalculateCustomUtility", functions_only)` du 2026-07-25 :
-**27 symboles** = 1 base + 4 mutualises (attaque normale / heal) + **22 overrides par-ability**.
+**27 corps DISTINCTS** = 1 base + 4 mutualises (attaque normale / heal) + **22 corps par-ability** ;
+**28 classes** overridantes (le 23e override par-ability, `AmuletOfTheVoidwyrmPlaybook`, PARTAGE le
+corps de `PlasmaGrenadePlaybook` — cf. la section « comment il a ete re-derive »).
 Ce tableau est le **livrable de decoupe** : il dit, pour chaque override, QUI le porte, si ce porteur
-est CONFRONTABLE (gate HERO/MoW via `rl_duel build --list-pool` / SUMMON via son invocateur / NPC =
-non pertinent), et quel VERROU exact reste a lever. Une passe suivante ne doit PAS re-derouler la
-recon : elle part d'ici.
+est CONFRONTABLE (gate HERO/MoW via `rl_duel build --list-pool` — un porteur `lineup` ABSENT du
+catalogue de la seed BC reste confrontable via `catalog_inject.py`, cf. SavageEchoes / SUMMON via son
+invocateur / NPC = non pertinent), et quel VERROU exact reste a lever. Une passe suivante ne doit PAS
+re-derouler la recon : elle part d'ici.
 
 ### Etat par override
 
@@ -136,7 +202,8 @@ recon : elle part d'ici.
 | 10 | `DoomSirenPlaybook` @18112cd30 | DoomSiren (1199) | emperKakophonist | hero (pool) | **PORTE** (#27-2) | — |
 | 11 | `Repair_GalvanicFieldPlaybook` @181155520 | Repair_GalvanicField (1119) | admecManipulus (granted par le passif GalvanicField) | hero | **DEJA PORTE** hors loki_custom (`_repair_galvanic_candidates`, #85) | — (verdict tranche 1 « dead-code » CORRIGE) |
 | 12 | `MortisRoundPlaybook` @18114d190 | MortisRound (1004) | ultraEliminatorSgt | hero (pool) | **terme MESURE NUL** (< 0.012), non porte | evaluateur du composite `UtilityAttackCase.Base` (slot 5 du service #0x36) ; re-mesurer sur board a elevation |
-| 13 | `SorcerousFacadePlaybook` @18115b9d0 | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **RE RESOLU, non porte** (routage) | le moteur route 1100 comme ATTAQUE d'ENNEMI (`damageProfile` present) alors que le natif cible un **allie Psyker** (echange de positions). Debloqueur : route de ciblage ALLIE pour 1100 (`ability_targets` + generateur dedie facon `_bespoke_candidates`) |
+| 13 | `SorcerousFacadePlaybook` @18115b9d0 | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **RE RESOLU, NON PORTE — non-conformite MESUREE puis RETIREE (#27-3)** | le moteur route 1100 comme ATTAQUE d'ENNEMI (`damageProfile` present) alors que le natif cible un **allie Psyker** (echange de positions). Debloqueur : route de ciblage ALLIE pour 1100 (`ability_targets` + generateur dedie facon `_bespoke_candidates`) |
+| 13bis | `AmuletOfTheVoidwyrmPlaybook` (corps PARTAGE avec `PlasmaGrenadePlaybook` @181151040) | AmuletOfTheVoidwyrm (passif, hors `ActiveAbilityType`) | — | passif/triggered | **residu — DECOUVERT en tranche 3** | corps identique a PlasmaGrenade (penalite de tir ami : `GenerateMultiHitAttackPredictions` sur les AMIS de la requete `battleQuery.<0x7c>`, somme NEGEE) -> meme verrou multi-hit (#4). Invisible de `methods.tsv` ET de ghidra (dedup IL2CPP) ; slot de vtable a **0x548**, pas 0x338 |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
 | 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** (face DECISION) | MoW absentes de `decisionView.units` / `attackPlans` (pas de PositionComponent) -> jamais feedees a `_best_attack` — **confirme live runner 336** : `observeBattle.mows` = 2 machines, `aiDryRunAllUnits` ne propose rien pour elles. Debloqueur : modeliser les MoW comme unites de decision (position derivee de `MachineComponent.Position`). NB : la face **COMBAT** de 1169 est portee et validee par **#90** — c'est bien le seul volet DECISION qui manque |
 | 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom |
@@ -146,20 +213,40 @@ recon : elle part d'ici.
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
 | 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit | summon de `ATemptingTrap` | **residu** | `damageProfile` absent -> ability non-degat ciblant un ENNEMI, aucune route offline. Formule : `(aucun ennemi n'a de markerlight ? W(=200) : 0) + RemainingPercentage(cible) * W(=40)` |
 | 22 | `HealingBalms_HealPlaybook` @181142dc0 | HealingBalms_Heal (1212) | spaceWolfPriest (sous-ability du PASSIF HealingBalms) | hero **hors pool** | **residu** | pas d'entree gameconfig active ; voie « heal declenche par un passif » non modelisee |
-| 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero **hors pool** | **residu** | porteur non possede au rank courant ; + evaluateur de CONDITION (`SavageEchoesAbility.GetRegenerateCondition` -> `Evaluate(entities)`). NB : l'id 1230 EXISTE cote moteur (verdict tranche 1 « aucun id » CORRIGE) |
+| 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `MortarionsPlagueWindPlaybook` @18114ca30 | MortarionsPlagueWind (1093) | deathBossMortarion | **npc** | **non pertinent** | — |
 | 25 | `InstrumentsOfVengeancePlaybook` @1811460d0 | InstrumentsOfVengeance (1215) | darkaBossLion | **npc** | **non pertinent** | — |
 | 26 | `MartialExemplarPlaybook` @18114ae20 | MartialExemplar (1216) | darkaBossLion | **npc** | **non pertinent** | — |
 | 27 | `TheLionsWrathPlaybook` @18116aba0 | TheLionsWrath (1217) | darkaBossLion | **npc** | **non pertinent** | — |
 
-### Ventilation (les 22 overrides par-ability)
+### Ventilation (les 23 overrides par-ability, apres re-derivation tranche 3)
 
-- **PORTES / couverts : 6** — 1014, 1177, 1020, 1029, **1199**, 1119.
+- **PORTES / couverts : 7** — 1014, 1177, 1020, 1029, 1199, 1119, **1230**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 10** — 1100, 1169, 1148, 1051/1142, 1098, 1226, 1053, 1185, 1212, 1230.
+- **Residus a debloquer : 10** — 1100, 1169, 1148, 1051/1142, 1098, 1226, 1053, 1185, 1212,
+  **AmuletOfTheVoidwyrm**.
 
-### Les 5 VERROUS qui tiennent les 10 residus
+**Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
+`_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
+
+| ability | `damageProfile` | atteint `_best_attack` ? | porteur |
+|---|---|---|---|
+| 1004 MortisRound | oui | oui | ultraEliminatorSgt [pool] |
+| 1169 / 1148 / 1142 | oui | oui | MoW (deathCrawler / blackForgefiend / astraOrdnanceBattery) |
+| 1051 Stikkbomb | oui | oui | orksOrkBoys [summon d'orksWarboss, en pool] |
+| 1098 PlasmaGrenade | oui | oui | eldarSmnGuardian [summon SANS invocateur] |
+| 1230 SavageEchoes | oui | oui | bloodTerminator [catalog_inject] |
+| **1226 Chronometron** | **NON** | **non** | necroChronomancer [catalog_inject] |
+| **1053 DevoutPush** | **NON** | **non** | templInitiate [summon d'environnement] |
+| **1185 ForwardObservers** | **NON** | **non** | tauSmnStealthSuit [summon d'`ATemptingTrap`] |
+| **1212 HealingBalms_Heal** | pas d'entree gameconfig | **non** | spaceWolfPriest (sous-ability d'un PASSIF) |
+
+Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2 **n'existe plus**
+(`catalog_inject.py` complete `BC.Units` ET `BC.Abilities`) ; ce qui reste bloquant pour 1226 / 1053 /
+1185 / 1212 est la ROUTE (aucun `damageProfile` -> jamais candidate offline).
+
+### Les VERROUS qui tiennent les 10 residus
 
 1. **MoW non modelisees comme unites de DECISION** (1169, 1148, et la face MoW de 1142) — le blocage
    le plus rentable : 3 overrides d'un coup, et `PlagueburstMortar` est deja un patron PORTE
@@ -171,11 +258,14 @@ recon : elle part d'ici.
 2. **Routes d'ability non-attaque** (`damageProfile` absent, ou cible ALLIEE) — 1100, 1226, 1053, 1185,
    1212. Le gate `state_bridge._is_attack_ability` est la seule porte vers `_best_attack` ; toute
    ability qui ne produit pas de degat (ou qui cible un allie) n'a aucune route offline.
-3. **Porteur hors `--list-pool` au rank courant** — 1226, 1230, 1212 (necroChronomancer,
-   bloodTerminator, spaceWolfPriest). Levable sans code : acquerir/monter l'unite.
-4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098.
+3. ~~**Porteur hors `--list-pool` au rank courant**~~ — **VERROU SUPPRIME (tranche 3)**. Le porteur
+   `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
+   `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
+   (1230). Restent 1226 et 1212, bloques par le verrou 2 (route), plus par le catalogue.
+4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098,
+   **AmuletOfTheVoidwyrm** (corps partage avec 1098).
 5. **Evaluateurs manquants** : composite `UtilityAttackCase.Base` (1004), DSL de forme
-   `TilesInTriangleShape` (1148), DSL selecteur d'ability (1226), evaluateur de condition (1230).
+   `TilesInTriangleShape` (1148), DSL selecteur d'ability (1226).
 
 ### `SorcerousFacade` (1100) — RE COMPLETE (verrou identifie, port refuse)
 
@@ -197,20 +287,40 @@ rend `Fix64(0)` des que `case.ClosestEnemy == null` (3e garde, AVANT tout `GetMi
 se reduit a sa feuille **Tile(7)**. Le mirror exact est donc `base.tile_utility(target_tile) -
 base.tile_utility(caster_tile)` — deja disponible dans le moteur, aucun sous-systeme a porter.
 
-**Pourquoi le port est quand meme REFUSE** : `SorcerousFacadeAbility` cible un **allie Psyker**
+**Pourquoi le port est REFUSE** : `SorcerousFacadeAbility` cible un **allie Psyker**
 (i2 : « Target a friendly Psyker... then switches positions with the targeted Psyker »), donc le
 `target` recu par `CalculateCustomUtility` est un ALLIE. Le moteur, lui, route 1100 vers
-`_best_attack` avec des cibles ENNEMIES (`constants.damageProfile = Psychic` present). Porter la
-formule maintenant l'appliquerait a la mauvaise cible : terme de +/-30 (une marche d'elevation vaut
-~10 sur MC1_67) applique dans une direction sans rapport avec le natif — **regression garantie** sur
-tout walk contenant thousTzaangor (present dans `--list-pool`). Le port est donc conditionne au
-debloqueur #2 (route de ciblage ALLIE), pas a un sous-systeme d'utilite.
+`_best_attack` avec des cibles ENNEMIES (`constants.damageProfile = Psychic` present). Le port est
+donc conditionne au debloqueur #2 (route de ciblage ALLIE), pas a un sous-systeme d'utilite.
+
+**Ce refus a ete CONTREDIT PAR LE CODE puis RETABLI (tranche 3).** Le commit `8f4295c` (#27-2)
+annoncait le refus dans son message ET dans cette fiche, mais **enregistrait quand meme**
+`SorcerousFacadePlaybook` dans `loki_custom._register_all()`. Deux mesures live l'ont tranche
+(runner arene MC1_67, `thousTzaangor` + `thousSorcerer` [Psyker] + 3 ennemis rapproches) :
+
+1. **Cote natif** — `abilityTargets(unit=thousTzaangor)` rend pour 1100 exactement **UNE** cible
+   legale : `targetId` = le **thousSorcerer ALLIE** (`targets` ET `fromHere`), jamais un ennemi. Le
+   natif n'evalue donc JAMAIS ce terme sur une cible ennemie. (Le gate suplementaire « il faut un
+   ennemi a portee » est visible aussi : sans ennemi proche, 1100 rend 0 cible.)
+2. **Cote moteur** — `state_bridge._plans_for_unit` produit bien trois paires `(1100, ennemi)` et les
+   dispatche a `SorcerousFacadePlaybook`, dont le terme y valait **-10.0 / -25.0 / +20.0** selon
+   l'ennemi (`probe_27_3_facade_route.py`) : NON NUL et NON CONSTANT, un biais de +/-45 sur une
+   action que le natif refuse.
+
+`SorcerousFacadePlaybook` est donc **retiree du registre** (le custom de 1100 retombe sur la base
+`Fix64(0)`), et `probe_custom_utility_27.py` porte desormais un **cliquet** qui echoue si l'id 1100
+y revient. Le RE ci-dessus reste valable et sera re-branche le jour ou la route de ciblage ALLIE
+existera.
 
 ## Validation
 
 - **Garde d'agreement CIBLEE, zero regression** (`engine_agreement_stages.py --build`) :
   - seed **31337** : prediction 10/10, utilite 10/10, ability **13/13**, move **18/18** (100%) ;
-  - seeds **777 + 12345** : prediction 21/21, utilite 21/21, ability **26/26**, move **32/32** (100%).
+  - seeds **777 + 12345**, re-joues en tranche 3 : prediction **17/21**, utilite 21/21, ability
+    **26/26**, move **31/32**. Ces chiffres sont **INFERIEURS a ceux de la tranche 2** (21/21 et
+    32/32) — la derive est **PRE-EXISTANTE sur `origin/master`**, pas causee par #27-3 : la MEME passe
+    jouee avec les modifications `engine/` mises de cote (`git stash`) rend **exactement les memes
+    17/21 - 21/21 - 26/26 - 31/32**. Le delta de #27-3 sur ces seeds est donc STRICTEMENT NUL.
   Ces seeds exercent le sweep de tuiles de TOUTES les abilities -> ils couvrent le correctif
   structurel `_best_attack` (custom entre dans l'argmax par tuile).
 - **ArmoriumCherub** : live-matched (runner 132 step 13). Dispatch + custom appliques.
@@ -247,9 +357,37 @@ debloqueur #2 (route de ciblage ALLIE), pas a un sous-systeme d'utilite.
   Le natif joue DoomSiren spontanement (step 10, `ab=1199 tgt=86`) et le moteur MATCH. A/B avant/apres
   le port **STRICTEMENT identique** (positioning 16/17 exact, 17/17 <=1hex ; ability 11/14) : aucune
   regression, et aucun gain sur ce walk (le cast de step 10 etait deja l'argmax sans le custom).
-- **Garde de forme OFFLINE** : `probe_custom_utility_27.py` (dispatch 1014/1177/1020/1029/1199, valeurs
-  des 5 formules, POSITION-dependance de Drachnyen, ancrage sur la CIBLE de DoomSiren, et mirror
-  `will_be_overkill`).
+- **SavageEchoes (1230)** — A/B causal live (`probe_27_3_savage_ab.py`, board MC1_67,
+  `--hp-target 60000 --armor-target 4000 --hp-player 3300`, caster (4,8) / cible tauCrisis (5,8)
+  FIGES). Seule variable : le PV% du CASTER (une frappe de tauCrisis, `TerminatorArmour` incluse).
+
+  | mesure @tuile (4,8) | bras A (3300/3300 = 100 %) | bras B (1638/3300 = 49.64 %) |
+  |---|---|---|
+  | `pairUtility(69, cible)` natif | 6.3564547803252935 | **6.3564547803252935** (bit-identique) |
+  | `pairUtility(1230, cible)` natif | 12.049598339945078 | **12.049598339945078** (bit-identique) |
+  | choix natif (`aiDryRunAllUnits`) | **69** | **1230** |
+  | choix moteur | **69** | **1230** |
+  | choix moteur, custom force a 0 | **1230** (= divergence -> terme NECESSAIRE) | 1230 |
+
+  Les DEUX paires natives sont bit-identiques entre les bras : le heal `ForRegenerate` n'entre PAS
+  dans la prediction du playbook -> **le confond est mesure et NUL** (contrairement a DoomSiren, ou il
+  fallait le chiffrer). Encadrement sans fitting (`u_action = pair + tile + custom`, meme tuile donc
+  meme terme Tile ; custom(69) = +1 deja etabli) : bras A `6.35645 + 1 > 12.04960 + C_A` =>
+  **C_A < -4.69315** ; bras B `12.04960 + C_B > 6.35645 + 1` => **C_B > -4.69315**. Le port rend
+  -10 et 0. Sur le montage SANS armure (`--hp-target 60000` seul) les paires natives valent
+  15.892803575843573 / 24.10252990666777 et l'encadrement devient **C_A < -7.2097 < C_B**.
+
+  **Seuil borne a 4 points** (meme montage, `--hp-player` varie) : 100 % / 51.12 % / 50.68 % /
+  50.19 % -> natif **69** ; 49.64 % -> natif **1230**. Le point 50.19 % EXCLUT un pourcentage arrondi
+  (`round(50.19) = 50 <= 50` aurait bascule) : le natif compare bien le RATIO a `healthPct/100`.
+- **Garde de forme OFFLINE** : `probe_custom_utility_27.py` (dispatch 1014/1177/1020/1029/1199/1230,
+  valeurs des 6 formules, POSITION-dependance de Drachnyen, ancrage sur la CIBLE de DoomSiren, mirror
+  `will_be_overkill`, les 4 bornes de ratio mesurees de SavageEchoes, et le **cliquet 1100 absent du
+  registre**).
+- **Inventaire** : `probe_27_custom_utility_inventory.py` (balayage de vtable, 2 sources croisees),
+  `probe_27_slot_offsets.py` (les 7 playbooks hors 0x338), `probe_27_vtable_dump.py` (controle de
+  bornes), `probe_27_residual_triage.py` (route de dispatch + porteurs), `probe_27_3_ability_names.py`
+  (les 8 ids absents de la map des hooks).
 
 ### Non couvert (explicite)
 
@@ -275,8 +413,18 @@ debloqueur #2 (route de ciblage ALLIE), pas a un sous-systeme d'utilite.
   precisement pour eteindre kill/overkill et isoler le terme d'adjacence. Il reste de plus soumis a
   l'ecart d'AoE documente (le compte offline porte sur la cible principale seulement).
 - **SorcerousFacade (1100)** : formule RESOLUE mais NON portee (cible allie vs route ennemie du
-  moteur) — cf. l'inventaire. Aucun code n'a ete ajoute pour 1100 : le comportement du moteur sur
-  thousTzaangor est INCHANGE.
+  moteur) — cf. l'inventaire. Depuis la tranche 3, plus AUCUN code n'est actif pour 1100 : le custom
+  y retombe sur la base `Fix64(0)`. Ce qui reste NON couvert, c'est l'action FANTOME elle-meme : le
+  moteur continue de proposer `(1100, ennemi)` que le natif refuse (`_is_attack_ability` ne regarde
+  que `damageProfile`). Ce n'est pas un residu de #27 mais du routage de ciblage.
+- **SavageEchoes, prediction de degat** : le residu `extraDmg x Count(CanAddUnit(AdjacentTiles(caster)))`
+  (cf. « Notes de fidelite ») laisse l'utilite de paire offline SOUS la native. Le terme custom reste
+  decisif dans le montage exerce, mais **en bataille reelle cet ecart de prediction domine** — comme
+  pour Drachnyen, le fermer est prioritaire devant ce terme pour l'agreement.
+- **SavageEchoes, face COMBAT** : non portee (1230 n'est pas dans `ABILITY_CLASSES`) — #27 ne couvre
+  que la face DECISION. Aucun `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` n'est donc requis ni ajoute.
+- **AmuletOfTheVoidwyrm** : override DECOUVERT en tranche 3, non porte (verrou multi-hit) et son
+  porteur n'a pas ete ventile hero/summon/npc — a faire avant toute tentative de port.
 - **MoW (1169/1148/1142)** : blocage confirme live (runner 336) — les machines deploient mais
   n'existent pas comme unites de decision cote moteur.
 
@@ -302,13 +450,28 @@ recette qui marche, sans hook :
 **Avant de porter un `CalculateCustomUtility`, trancher la ROUTE DE DISPATCH offline, pas la formule.**
 Un override natif ne pese QUE s'il atteint `_best_attack` : verifier `constants.damageProfile` +
 `not is_noncomp` (script `_dispatch`), puis le TYPE de porteur (MoW = pas d'unite de decision cote
-moteur ; porteur hors `--list-pool` = non confrontable) et le TYPE de sous-selecteur du corps
-(constante / iteration directe d'unites / adjacence deja portee `count_adjacent` / **arbre DSL** /
-**BattleQuery a token** / **multi-hit** / **utilite de deplacement**). Seuls constante +
-iteration-directe + adjacence-portee se portent sans sous-systeme. Ce triage EN AMONT evite les ports
-speculatifs : sur les 22 overrides par-ability, **6 sont portes/couverts, 2 fermes sans port, 4 non
-pertinents (npc), 10 residus** tenus par **5 verrous** nommes (MoW non modelisees, routes d'ability
-non-attaque, porteur hors pool, multi-hit, evaluateurs manquants) — cf. l'inventaire (roadmap de reprise).
+moteur ; porteur hors CATALOGUE = `catalog_inject.py`, PAS « non confrontable ») et le TYPE de
+sous-selecteur du corps (constante / iteration directe d'unites / adjacence deja portee
+`count_adjacent` / condition de STAT deja lisible du ctx / **arbre DSL** / **BattleQuery a token** /
+**multi-hit** / **utilite de deplacement**). Ce triage EN AMONT evite les ports
+speculatifs : sur les 23 overrides par-ability, **7 sont portes/couverts, 2 fermes sans port, 4 non
+pertinents (npc), 10 residus** tenus par **4 verrous** nommes (MoW non modelisees, routes d'ability
+non-attaque, multi-hit, evaluateurs manquants) — cf. l'inventaire (roadmap de reprise).
+
+**L'inventaire d'un override se re-derive au SLOT DE VTABLE, jamais a la table de symboles.** Les
+27 symboles ghidra decrivent 27 CORPS, pas 27 classes : la dedup IL2CPP a fondu
+`AmuletOfTheVoidwyrmPlaybook` dans `PlasmaGrenadePlaybook` (meme `CalculateCustomUtility` ET meme
+`MakeDamagePredictions`), et aucune des deux tables ne pouvait le montrer. Deux precautions rendent
+le balayage concluant : (a) **ne pas figer l'offset du slot** — il vaut 0x338 sur les playbooks
+d'ACTIVE mais 0x548/0x5a8/0x668/0x7b8 sur ceux de TRIGGERED, et un offset fige rate 7 classes en
+silence ; (b) **verifier les bornes** — les `Il2CppClass` sont contigus en memoire, donc lire
+au-dela d'une vtable retombe sur la classe voisine et peut rendre un `MethodInfo` parfaitement nomme
+(faux positif). Dumper la vtable entiere et regarder ou les noms deviennent du bruit tranche.
+
+**Un « porteur hors `--list-pool` » n'est pas un verrou.** Trois abilities dormaient derriere ce
+motif ; `catalog_inject.py --units <id>` complete `BC.Units` ET `BC.Abilities` et le runner deploie
+l'unite normalement (fait pour bloodTerminator/SavageEchoes). Ne classer « non confrontable » qu'un
+porteur NPC, ou un summon sans invocateur.
 
 **Le gate de dispatch peut mentir sur la NATURE de la cible.** `damageProfile` present ne veut pas dire
 « ability qui cible un ennemi » : `SorcerousFacade` (1100) porte un `damageProfile=Psychic` mais cible un
@@ -341,3 +504,22 @@ la cible) : impossible de les separer geometriquement. La parade : (a) ecraser l
 pour rendre la contribution AoE petite DEVANT une constante non-scalable (le +1 de l'attaque normale), puis
 (b) MESURER cette contribution au `pairUtility` natif (+0.4727) et montrer qu'elle est strictement
 inferieure a l'ecart a franchir (1.0963). Le confond n'est pas suppose negligeable : il est chiffre.
+
+**Le regime discriminant se FABRIQUE : deux leviers qui rapprochent les utilites, aucun qui fitte.**
+Un terme de +/-10 est inobservable quand l'ability domine l'attaque normale de +32 d'utilite de paire.
+Les deux leviers utilises sur SavageEchoes, dans cet ordre : (1) **`--hp-target` eleve** — l'utilite de
+degat est ~ `degat/PVmax`, donc gonfler les PV de la cible contracte l'ECART ABSOLU entre deux abilities
+sans toucher a leur ordre ; (2) **`--armor-target` eleve** — le plancher percage
+(`max(0, d - armure, d x pierce%)`) fait diverger deux profils de percage differents (Eviscerate 50 %
+vs Power 40 %), ce qui **inverse** l'ecart offline et l'amene dans la fenetre ou le poids de la BC
+decide. Aucune constante n'est ajustee : on deplace le POINT DE MESURE jusqu'a ce que la sortie
+observable (le choix d'ability) devienne sensible au terme, puis on verifie que natif ET moteur y
+basculent ensemble, et que forcer le terme a 0 les fait DIVERGER.
+
+**Une ability que `decisionView` nomme `id:<n>` est INVISIBLE au predicteur offline — et le silence est
+total.** La map `frida/hooks/data/ability-names.ts` est GENEREE et figee dans le bundle injecte ; un id
+absent sort en placeholder, le predicteur cle sa recherche gameconfig sur ce NOM, `make_damage_predictions`
+rend `[]`, et l'ability n'est jamais candidate : ni erreur, ni desaccord de degat, juste une action qui
+n'existe pas cote moteur. Signature a reconnaitre : `ctx.ab_name_by_id[id]` commence par `id:`. Le repli
+sur `ActiveAbilityType(id).name` (source independante) coute 3 lignes ; sa portee se MESURE (8 ids sur
+331 ici) avant de l'introduire, pour ne pas debloquer en masse des abilities jamais validees.

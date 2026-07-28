@@ -24,10 +24,11 @@ que bespoke.py ; valeurs de la seed-bc citees en commentaire pour lecture.
 """
 from __future__ import annotations
 
+import gameconfig as _gc
 import hexgeo
 
 from .common import DefaultActiveAbilityPlaybook
-from .base import register, tile_utility
+from .base import register
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..utilities.damage import will_be_overkill
@@ -240,49 +241,102 @@ class DoomSirenPlaybook(_CustomOnlyPlaybook):
         return u
 
 
-class SorcerousFacadePlaybook(_CustomOnlyPlaybook):
-    """`IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility` :
+class SavageEchoesPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$CalculateCustomUtility` :
 
-        u1 = services[7].EvaluateMovement(new UtilityMovementCase(unit, GetMainTile(target), null, null, null));
-        u2 = services[7].EvaluateMovement(new UtilityMovementCase(unit, position,             null, null, null));
-        return u1 - u2;
+        cond = SavageEchoesAbility.GetRegenerateCondition(this.ability);   // slot 5 = Evaluate
+        return cond.Evaluate(entities) ? Fix64(0)
+                                       : GetUtilityValue("SavageEchoes_DislikesAboveHealthPct");
 
-    SorcerousFacade ECHANGE le caster et sa cible : le terme note « combien il est bon d'etre LA OU
-    EST LA CIBLE » moins « combien il est bon d'etre sur la tuile d'attaque ». Terme
-    POSITION-DEPENDANT (il entre dans l'argmax par tuile de `_best_attack`).
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetRegenerateCondition`
+    = `DSLFactory.HealthPctIsBelowOrEqual(caster@0x160, ConfigConst(0x4f))`
+    = `new IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger(caster, 5, thr)`
+    (`IdunBattleLogic.Entities.DSLFactory$$HealthPctIsBelowOrEqual` — le `5` est le `StatType.Health`).
+    `0x4f` = `IdunBattle.Configuration.AbilityConstantType.healthPct` -> gameconfig `SavageEchoes.
+    constants.healthPct` = 50 (l'enum est resolue depuis `data/symbols/<build>/frida/enums.tsv`,
+    aucune valeur codee en dur ici : le seuil est relu du gameconfig).
 
-    RE DECISIF — le `UtilityMovementCase` est construit avec **ClosestEnemy = null** (3e argument du
-    ctor `IdunBattle.AI.Utilities.UtilityMovementCase$$.ctor`, champ @0x20 ; meme forme que
-    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility`).
-    Or `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
-    rend `Fix64(0)` des que `case.ClosestEnemy == null` (3e garde, avant tout `GetMinDistanceToEnemy`).
-    => la feuille MinDistanceToClosestEnemy(16) du composite est INERTE sur ce chemin, et le composite
-    de mouvement se REDUIT a sa feuille Tile(7). Mirror exact = `base.tile_utility` (le MEME
-    `tile_composite` que le sweep move et que le terme Tile de `CalculateActionUtility`).
+    C'est la MEME condition DSL que le `If(...)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour`, qui gate le
+    `Heal(caster, caster, ConfigVar(0x1d), HealBehaviourOptions.ForRegenerate)` : au-dessus du seuil le
+    cast GASPILLE la regeneration -> l'IA la DEPRECIE de `W` (negatif). Terme CONSTANT sur (tuile,
+    cible) : il arbitre SavageEchoes CONTRE les autres actions, pas l'argmax intra-ability.
 
-    Consequence : sur terrain PLAT et sans effets de tuile, le terme vaut 0 ; il devient decisif des
-    que l'elevation / les effets de tuile / la feuille TriggeredAbilities(2) different entre la tuile
-    de la cible et la tuile d'attaque. Aucun poids `ActiveAbilities` dedie (le terme est une DIFFERENCE
-    d'utilites de tuile, ponderees par la categorie Tile de la BC).
+    COMPARAISON EXACTE (`…StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`) : le natif ne
+    passe PAS par `GetStat(Health, part=1)` (le pourcentage ARRONDI qu'utilisent BloodChalice et
+    LightOfSanguinius) — il compare le RATIO Fix64 `GetStat(u, stat, 0) / GetStat(u, stat, 2)` au
+    seuil `Fix64.Round(thr/100 * 100)/100` (= `thr/100`, normalise a 2 decimales). Mirror : `cur/max
+    <= thr/100`, avec `cur` = `ctx.hp_cur_by_id` (part 0 = courant) et `max` = `ctx.hpmax_by_id`
+    (part 2 = max EFFECTIF, overlay combatSnapshot). La distinction est MESUREE, pas supposee (cf.
+    ci-dessous 1675/3337 = 50.19 %).
 
-    Porteur thousTzaangor `Tzaangor Shaman` [hero, present dans `rl_duel --list-pool`].
-    (`IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$ShouldExecute` — gate supplementaire
-    `!WillNormalAttackKill` + comparaison aux tuiles de deplacement — n'est PAS porte ici : #27 ne
-    couvre que le terme custom.)"""
-    ability_id = int(ActiveAbilityType.SorcerousFacade)  # 1100
+    Poids seed-bc : `SavageEchoes_DislikesAboveHealthPct` = -10.
+    Porteur bloodTerminator `Cezare` [lineup] — ABSENT du catalogue de la seed BC (unite non encore
+    possedee) mais amene en runner par `catalog_inject.py --units bloodTerminator` (#92).
+
+    Live (#27 tranche 3, `probe_27_3_savage_ab.py`, board MC1_67, `--hp-target 60000`) : caster en
+    (4,8) et cible tauCrisis en (5,8) FIGES, seul le PV% du CASTER varie.
+
+      | PV% caster | pairUtility(69) natif | pairUtility(1230) natif | choix natif |
+      |---|---|---|---|
+      | 100 % (3300/3300) | 15.892803575843573 | 24.10252990666777 | **69** |
+      | 51.1 % (1738/3400) | 15.892803575843573 | 24.10252990666777 | **69** |
+      | 50.68 % (1708/3370) | 15.892803575843573 | 24.10252990666777 | **69** |
+      | 50.19 % (1675/3337) | 15.892803575843573 | 24.10252990666777 | **69** |
+      | 49.64 % (1638/3300) | 15.892803575843573 | 24.10252990666777 | **1230** |
+
+    Les DEUX utilites de paire natives sont BIT-IDENTIQUES dans tous les bras -> le heal
+    `ForRegenerate` n'entre PAS dans la prediction du playbook, le confond est MESURE et NUL. Le
+    basculement s'explique donc uniquement par le custom. Encadrement (custom(69) = +1 constant,
+    meme tuile donc terme Tile identique) : `15.8928 + 1 > 24.1025 + C_haut` => **C_haut < -7.2097** ;
+    `24.1025 + C_bas > 15.8928 + 1` => **C_bas > -7.2097**. Le port rend -10 et 0.
+    Le couple 50.19 % (natif = W) / 49.64 % (natif = 0) EXCLUT un pourcentage arrondi
+    (`round(50.19) = 50 <= 50` aurait bascule) : c'est bien le ratio exact."""
+    ability_id = int(ActiveAbilityType.SavageEchoes)  # 1230
+    W_KEY = "SavageEchoes_DislikesAboveHealthPct"
+    CONFIG_ID = "SavageEchoes"          # entree gameconfig portant `constants.healthPct`
+
+    def _regenerate_condition(self, ctx) -> bool | None:
+        """`SavageEchoesAbility.GetRegenerateCondition(...).Evaluate(entities)` = ratio PV du CASTER
+        <= `constants.healthPct` / 100. None = stats du caster illisibles (condition non evaluable)."""
+        cur = ctx.hp_cur_by_id.get(ctx.uid)
+        mx = ctx.hpmax_by_id.get(ctx.uid)
+        if cur is None or not mx:
+            return None
+        thr = (_gc.ability(self.CONFIG_ID) or {}).get("constants") or {}
+        pct = thr.get("healthPct")
+        if pct is None:
+            return None
+        return (float(cur) / float(mx)) <= (float(pct) / 100.0)
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
-        tpos = _main_tile_of(ctx, target)
-        if tpos is None:
-            return 0.0
-        return tile_utility(ctx, tpos) - tile_utility(ctx, caster_tile)
+        cond = self._regenerate_condition(ctx)
+        if cond is None or cond:
+            return 0.0                                        # Fix64(0)
+        return ctx.wt.sub("ActiveAbilities", self.W_KEY)       # -10
 
 
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
+#
+# SorcerousFacade (1100) N'EST PAS ENREGISTREE, et c'est DELIBERE (#27 tranche 3).
+# `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility` vaut
+# `EvaluateMovement(UtilityMovementCase(unit, GetMainTile(TARGET), null, ...))` moins la meme chose sur
+# la tuile d'attaque — soit, apres reduction du composite a sa feuille Tile(7) (RE relue en tranche 2 :
+# `UtilityMovementCase.ClosestEnemy == null` desarme `MinDistanceToClosestEnemyUtility`),
+# `tile_utility(tuile de la CIBLE) - tile_utility(tuile d'attaque)`. Mais le natif ne l'evalue JAMAIS
+# sur un ennemi : `SorcerousFacadeAbility` cible un ALLIE Psyker (echange de positions). MESURE live
+# (#27-3, runner arene, thousTzaangor + thousSorcerer + 3 ennemis) : `abilityTargets` natif rend pour
+# 1100 exactement UNE cible legale, l'ALLIE (`targetId` = le Psyker ami), jamais un ennemi. Cote
+# moteur, `state_bridge._is_attack_ability` route 1100 vers `_best_attack` avec des cibles ENNEMIES
+# (`constants.damageProfile = Psychic`), et le terme y prenait des valeurs NON NULLES et NON
+# CONSTANTES (-10.0 / -25.0 / +20.0 sur les 3 ennemis du meme montage) : un biais de +-45 applique a
+# une action que le natif refuse. Le verrou reel est la ROUTE DE CIBLAGE ALLIE de 1100, pas la
+# formule ; tant qu'elle n'existe pas, le terme reste NON VALIDABLE et donc non porte (le custom
+# retombe sur la base `ComparablePlaybook<T>` = Fix64(0)). cf. docs/rl/case-27-custom-utility.md.
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
-                DoomSirenPlaybook, SorcerousFacadePlaybook):
+                DoomSirenPlaybook, SavageEchoesPlaybook):
         register(cls())
 
 
