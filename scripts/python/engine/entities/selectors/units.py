@@ -202,7 +202,14 @@ class UnitsDirectlyBehind(TargetsSelector):
     = `amount > threshold`), et NON `AmountIsEqualOrGreater` (IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger `<=` = `>=`) comme le laissait
     croire le ctor foldé `AmountIsEqualOrGreaterAbilityTrigger___ctor` (ghidra fusionne les ctors qui
     stockent 2 champs → nom faux). La formule = `DAT_18324e3c0` = classe construite par
-    `IdunBattleLogic.Entities.DSLFactory$$MinDistance` (distance hex entre MainTiles). Donc : un candidat À DISTANCE
+    `IdunBattleLogic.Entities.DSLFactory$$MinDistance` — **distance HEX, jamais un pathfinding** :
+    `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` prend le `Min` sur toutes les paires
+    (a de selA, b de selB) de `IdunBattle.Entities.Components.PositionComponent$$Distance`, qui est
+    `AxialCoordinate$$ToCubeCoordinate` ×2 puis `CubeCoordinate$$Distance = Max(|dx|,|dy|,|dz|)`.
+    Le `Min` sur les paires est ce qui donne son sens au préfixe `Min-` : pour un sélecteur d'UNITÉ il
+    n'y a qu'un `PositionComponent` (donc une seule paire), mais pour un sélecteur de TUILES (ex.
+    `CasterTiles@0x170`) il balaie l'empreinte entière. Mirror : `entities.traits.combat.min_distance`
+    pour le cas 1↔1. Donc : un candidat À DISTANCE
     ÉGALE du caster que la cible (unité LATÉRALE, delta 0 sur l'anneau) est EXCLU (`2 > 2` faux) ; seul
     l'« away » strictement plus loin (delta +1) passe. Confirmé LIVE (test_plasma_cannon_lateral_live,
     probe_udb_case48) : lateral d(caster)==d_ct EXCLU du splash, away d(caster)==d_ct+1 INCLUS.

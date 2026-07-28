@@ -36,14 +36,10 @@ from ..entities.effects import (
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
 )
-from ..entities.traits.combat import GetStuckInTrait
+from ..entities.traits.combat import GetStuckInTrait, min_distance
 from ..entities.effects.magnitude import trait_var
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
-
-
-def _cheby(a: Tuple[int, int], b: Tuple[int, int]) -> int:
-    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
 
 
 def select_weapon(ctx, dist: Optional[int]):
@@ -728,8 +724,9 @@ def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,
     attaquant/cible. Mirror `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance` + gate trigger `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger`
     (`On(8) & IsOdd & OwnerIsCaster & !(MinDistance > 2)`).
 
-    Actif ssi l'attaquant PORTE GetStuckIn ET `hex_dist(caster,target) <= 2` (proxy cheby, MEME que la
-    prediction `GetStuckInTrait.as_attacker_bonus_hits`). Chance = `If(orks_adj(cible) >= 2 OU
+    Actif ssi l'attaquant PORTE GetStuckIn ET `min_distance(caster, target) <= 2` -- distance HEX,
+    MEME primitive que la face PREDICTION (`GetStuckInTrait.as_attacker_bonus_hits`) : les deux faces
+    du meme gate natif partagent le meme mirror. Chance = `If(orks_adj(cible) >= 2 OU
     amis_adj(caster) >= 4, ConfigConst(0x33)=100, ConfigConst(0x2a)=30)`.
 
     GAP DOCUMENTE (case-62c point 4) : la branche `orks_adj(cible) >= 2` (faction Orks=5) N'EST PAS
@@ -745,7 +742,7 @@ def getstuckin_combat_chance(state: State, att_id: int, tgt_id: int,
         return None
     if not any(isinstance(t, GetStuckInTrait) for t in sc.ctx.trait_objects()):
         return None
-    if _cheby(attack_pos, t_pos) > 2:            # !(MinDistance > 2) = cible a <=2 hex (trigger structurel)
+    if min_distance(attack_pos, t_pos) > 2:      # !(MinDistance > 2) = cible a <=2 hex (trigger structurel)
         return None
     oc = att.get_component(OwnerComponent)
     caster_team = oc.team if oc is not None else None

@@ -8,12 +8,40 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+import hexgeo
+
 from .base import BaseTrait
 
 
-def _cheby(a, b):
-    """Proxy distance (Chebyshev sur coordonnées offset) du MinDistance natif (pathfinding) — §17.21."""
-    return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+def min_distance(a, b) -> int:
+    """`IdunBattleLogic.Entities.DSLFactory$$MinDistance` restreint au cas UNE entite <-> UNE entite
+    (la forme qu'en prend le trigger `GetStuckIn`). **Distance HEX, PAS un pathfinding** — chaine LUE
+    au decompile, appelant par appelant :
+
+        DSLFactory$$MinDistance(ctx, selA, selB)  construit `IdunBattle.Entities.Formulas.MinDistanceFormula`
+        `MinDistanceFormula$$Calculate` : `Min` sur TOUTES les paires (a de selA, b de selB) de
+            `IdunBattle.Entities.Components.PositionComponent$$Distance(pb, pa)`
+        `PositionComponent$$Distance` : `IdunBattle.Utils.Hex.AxialCoordinate$$ToCubeCoordinate` sur
+            chacun des deux, puis `IdunBattle.Utils.Hex.CubeCoordinate$$Distance` = `Max(|dx|,|dy|,|dz|)`
+        `AxialCoordinate$$ToCubeCoordinate` : `off = col + (col & 1)` (branche flag==0, celle que pose
+            `PositionComponent$$.ctor`) ; `x = col ; z = row - off/2 ; y = -(x+z)`
+
+    AUCUN graphe, aucune file, aucun cout de terrain, aucun obstacle : geometrie hexagonale pure en
+    coordonnees cube, convention offset odd-q = exactement `hexgeo.to_cube` (`(|dx|+|dy|+|dz|)/2` et
+    `Max(|dx|,|dy|,|dz|)` sont EGAUX sur tout cube valide, ou x+y+z=0).
+
+    ⚠ Le natif HOMONYME `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy`
+    (utilite IA de MOUVEMENT), LUI, demande une ROUTE au pathfinding et en lit la longueur — c'est la
+    glose « pathfinding » d'`engine/utilities/move.py`, qui vaut pour CE natif-la et pas pour le noeud
+    DSL. La confondre avait fait ecrire ici un proxy Chebyshev sur coordonnees OFFSET, qui n'est PAS
+    la distance hex : `hex >= cheby` TOUJOURS (0 violation sur un balayage exhaustif 24x24, ecart
+    jusqu'a 12), donc sur un gate `!(MinDistance > 2)` le proxy OUVRAIT ce que le natif FERME —
+    degradation PERMISSIVE et silencieuse. MESURE sur le board MC1_67 : 46,6 % des paires de tuiles
+    jouables ont une distance differente, et **5,82 % font diverger le gate `<= 2`**.
+    Divergence prouvee LIVE (`probe_min_distance_metric.py --stage live`, seed 777, caster (4,6)
+    cible (6,8) : hex=3, cheby=2) : le natif FERME le gate (live bit-exact avec le modele `no_maybe`)
+    la ou le proxy le laissait OUVERT (`shipped` MISMATCH sur 3 des 6 coups)."""
+    return hexgeo.distance((a[0], a[1]), (b[0], b[1]))
 
 
 class GetStuckInTrait(BaseTrait):
@@ -50,7 +78,8 @@ class GetStuckInTrait(BaseTrait):
     La GÉOMÉTRIE du trigger vit ICI (contrat BaseTrait « chaque trait lit le ctx dont il a besoin »),
     pas chez l'appelant générique. `ctx` (board, fourni par `make_normal_attack_predictions` — prédiction) =
     {att_id, tgt_id, attack_pos (post-move), t_pos, pos_by_id, team_by_id, base_hits (série APRÈS PowerTrip)} ;
-    portée/adjacence = proxy cheby (§17.21) ; le caster est compté à sa tuile d'ATTAQUE. Sans positions → 0
+    portée = `min_distance` (distance HEX, mirror du nœud DSL — cf. sa docstring), adjacence =
+    `hexgeo.distance == 1` ; le caster est compté à sa tuile d'ATTAQUE. Sans positions → 0
     (pas d'invention). NB : le comptage par faction (orks adjacents) ne s'évalue plus (n'affecte pas la
     prédiction, cf. plus bas) → PAS de `faction_of`/visual_id dans le ctx."""
 
@@ -59,7 +88,7 @@ class GetStuckInTrait(BaseTrait):
         apos, tpos = c.get("attack_pos"), c.get("t_pos")
         if not apos or not tpos:
             return 0
-        if _cheby(apos, tpos) > 2:                # !(MinDistance>2) = cible à <=2 hex (trigger structurel)
+        if min_distance(apos, tpos) > 2:          # !(MinDistance>2) = cible à <=2 hex (trigger structurel)
             return 0
         # Maybe(chance) EN PRÉDICTION : compté SSI `GetBonusHitChance == 100` (branche chance_2 :
         # orks_adj >= 2 OU amis_adj >= 4 autour de la CIBLE, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance). C'est le verdict ORIGINEL du
@@ -76,7 +105,6 @@ class GetStuckInTrait(BaseTrait):
         # IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance : AdjacentUnits(target, ring 1) -> UnitsFromFaction(Orks=5) >= 2
         # OU Friends(caster) >= 4 -> chance_2 (=100) ; sinon chance (=30). Adjacence HEX (hexgeo, parité
         # validée vs boardGraph) ; l'attaquant est compté à sa tuile d'ATTAQUE (attack_pos).
-        import hexgeo
         att_id, tgt_id = c.get("att_id"), c.get("tgt_id")
         team_by_id = c.get("team_by_id") or {}
         faction_by_id = c.get("faction_by_id") or {}
