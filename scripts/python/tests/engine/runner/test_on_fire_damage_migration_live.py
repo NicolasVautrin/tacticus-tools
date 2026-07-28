@@ -221,16 +221,31 @@ def test_on_fire_from_bonus_hit_group_agrees_with_live(live_session, rpc, build_
             f"vecteur `On(0x10)` emis par les groupes de coups BONUS pose (ou ne pose pas) du feu la ou "
             f"le natif fait l'inverse. C'est l'elargissement du de-fork qui est en cause, pas le canal "
             f"lui-meme (l'attaque primaire de {BONUS_CARRIER} n'a aucun profil OnFire)")
-    # CE QUE CE TEST NE GARDE PAS, ET POURQUOI : les PV de `blackObliterator` DIVERGENT (mesure du
-    # 2026-07-28 : live 2668 / offline 1440 des la 1re attaque, profil HeavyRound 6 coups). C'est un
-    # ecart PRE-EXISTANT du modele de DEGAT de ce porteur (empilement `FleshmetalGuns` x
-    # `LetTheGalaxyBurn` x `SuppressiveFire` x `HeavyWeapon`), PROUVE independant de ce canal : il est
-    # present sur la ligne ou NI le live NI l'offline ne posent de feu, donc la ou le canal est
-    # strictement inerte. Asserter les PV ici importerait un echec sans rapport et masquerait la garde
-    # utile ; on le RAPPORTE (print ci-dessus) sans l'asserter. La garde PV de ce carrier appartient a
-    # la tranche DEGAT, pas a la tranche TILE-EFFECT.
+    # LES PV, DESORMAIS GARDES -- mais SEULEMENT quand `mt_same` (case-o10 SS 6, RESOLU).
+    # L'ecart historique (live 2668 / offline 1440 des la 1re attaque) N'ETAIT PAS un ecart du modele
+    # de degat : `drive_to_firing_position` DEPLACE Volk avant de tirer, et `load_state` ne
+    # reconstruisait pas `UnitFlag.Moved` -> le gate no-move de
+    # `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` ne mordait
+    # jamais et l'offline accordait un +25% ranged que le natif refuse (l'offline rendait EXACTEMENT
+    # la meme valeur qu'immobile -- signature d'un gate aveugle). Ferme par
+    # `snapshot._load_unit_flags` (seed depuis `combatSnapshot.units[].unitFlags`).
+    #
+    # POURQUOI GATER SUR `mt_same` PLUTOT QU'ASSERTER TOUT : `mt_same` signifie que l'offline a
+    # consomme EXACTEMENT les memes tirages que le live, donc que la SEQUENCE DE COUPS concorde ; les
+    # PV doivent alors concorder aussi, et c'est precisement le regime ou l'ecart de magnitude vivait.
+    # Les confrontations `mt_same=False` relevent d'un AUTRE residu, de CARDINALITE (le groupe
+    # FleshmetalGuns/LetTheGalaxyBurn manque parfois offline : live 9 coups / offline 8 ou 6) --
+    # documente a part, et qu'on ne veut pas importer ici.
+    for c in real:
+        if not c["mt_same"]:
+            continue
+        assert c["off_hp"] == c["live_hp"], (
+            f"PV cible offline={c['off_hp']} live={c['live_hp']} alors que le flux MT est IDENTIQUE "
+            f"(memes tirages, meme sequence de coups) : la magnitude par coup diverge. Suspect n1 = "
+            f"un gate d'etat de l'ATTAQUANT non reconstruit par `load_state` (c'est `UnitFlag.Moved` "
+            f"qui a produit ce symptome, cf. case-o10 SS 6)")
     diverging = [c for c in real if c["off_hp"] != c["live_hp"]]
     if diverging:
-        print(f"[ONFIRE bonus-hits] RESIDU DEGAT (hors perimetre, non asserte) : "
+        print(f"[ONFIRE bonus-hits] RESIDU DE CARDINALITE (mt_same=False, hors perimetre) : "
               f"{len(diverging)}/{len(real)} attaques aux PV divergents "
               f"{[(c['live_hp'], c['off_hp']) for c in diverging]}")

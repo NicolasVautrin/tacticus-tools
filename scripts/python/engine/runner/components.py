@@ -1026,6 +1026,27 @@ def unit_has_moved(state, unit_id: int) -> bool:
     return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))
 
 
+def unit_has_teleported(state, unit_id: int) -> bool:
+    """`HasFlag(unit, UnitFlag.Teleported = 0xc)` — pendant de `unit_has_moved`, pose par
+    `set_moved_flag` quand le deplacement etait un TELEPORT (et par le capteur O5 de
+    `combatSnapshot.unitFlags` sur un etat recharge, cf. `snapshot._load_unit_flags`).
+
+    UNIQUE consommateur porte : la branche `| HasFlag(Self@0x148, 0xc)` du trigger de
+    `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`, lue verbatim :
+
+        OwnerIsCaster & IsRangedAttack
+          & ((df@0xa0 & !HasFlag(Self, 3 = TurnFinished)) | !df@0xa0)
+          & (!HasFlag(Self, 0 = Moved) | HasFlag(Self, 0xc = Teleported))
+
+    -> un porteur `HeavyWeapon` qui s'est TELEPORTE garde son +25% ranged, alors qu'un deplacement
+    ordinaire le lui retire. A NE PAS generaliser : la condition soeur
+    `IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateActiveCondition` est
+    `!HasFlag(Self, 0)` **seul**, sans branche Teleported (decompile relu)."""
+    e = state.get_entity(unit_id)
+    fl = e.get_component(UnitFlagsComponent) if e is not None else None
+    return bool(fl is not None and fl.has(UnitFlagsComponent.TELEPORTED))
+
+
 def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
     """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging(this, unit, newPosition, oldPosition,
     unitComponent)` — MIRROR du decompile :

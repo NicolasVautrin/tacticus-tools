@@ -23,7 +23,7 @@ from typing import Optional, Tuple
 
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
-                         UnitComponent, unit_has_moved)
+                         UnitComponent, unit_has_moved, unit_has_teleported)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -400,6 +400,17 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # la prédiction (qui le lit du tileMeta frais). Seul consommateur d'att_ctx à ce jour ; les unités
     # sans effet positionnel sont inchangées (les autres bonus ignorent att_ctx).
     att_ctx = _positional_att_ctx(state, unit_id)
+    # Branche `| HasFlag(Self@0x148, 0xc = Teleported)` du trigger de
+    # `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` : le +25%
+    # ranged survit a un deplacement qui etait un TELEPORT. Threade dans `att_ctx` (le contexte
+    # per-coup, comme `is_charging`/`trigger_ability_type`) et non en parametre nomme : `has_moved`
+    # est PARTAGE par tous les effets, alors que cette branche n'appartient QU'A HeavyWeapon
+    # (`CrushingStrikeEffect$$CreateActiveCondition` = `!HasFlag(Self, 0)` seul). Cle absente cote
+    # PREDICTION (ou `has_moved` designe une tuile candidate, pas un flag) -> `.get()` rend None =
+    # comportement anterieur strictement inchange.
+    if has_moved:
+        att_ctx = dict(att_ctx or {})
+        att_ctx["has_teleported"] = unit_has_teleported(state, unit_id)
     if trigger_ability_type is not None:
         # #47 : l'ability déclenchante vit dans le MÊME contexte que la position (mirror AbilityEntities
         # — un seul struct de contexte per-coup côté natif, cf. IdunBattle.Entities.Effects.BaseEffect$$DamageBonusForAttack).

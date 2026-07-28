@@ -464,9 +464,18 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         # FLAG NATIF (`components.unit_has_moved` = `UnitFlagsComponent.Has(unit, UnitFlag.Moved)`, posé
         # par `set_moved_flag` dans MoveUnitOperation) -> `attacker_modifiers` passe un bool défini : le
         # bonus s'annule si l'unité a bougé ce tour. None (contexte hors combat/prédiction) → bonus
-        # appliqué (fallback). ⚠ Un état rechargé par `load_state` NE connaît PAS le flag (aucun RPC ne
-        # l'expose) : une fixture qui SAIT que le caster a bougé doit poser le flag (cf. tests live).
-        if has_moved:
+        # appliqué (fallback).
+        # Un état rechargé par `load_state` connaît DÉSORMAIS le flag : `combatSnapshot.units[].
+        # unitFlags` (capteur O5 de `rpc-snapshot.ts`, qui invoque `IdunBattle.Entities.
+        # UnitExtensions$$HasFlag`) est seedé par `snapshot._load_unit_flags`. Avant ce câblage RIEN
+        # ne peuplait le `UnitFlagsComponent` sur un état rechargé (`set_moved_flag` n'est appelé que
+        # par `MoveUnitOperation`, voie offline) : tout replay-diff d'une attaque SUIVANT un
+        # déplacement accordait ce +25% que le natif refuse (case-o10 §6, mesuré live 5868 / offline
+        # 7096 sur `blackObliterator` — l'offline rendait la MÊME valeur qu'immobile).
+        # `| HasFlag(Self, 0xc = Teleported)` (décompilé relu) : un déplacement qui était un TELEPORT
+        # ne retire PAS le bonus. Threadé par `attacker_modifiers` dans `att_ctx` — clé absente
+        # (prédiction, appelants historiques) → branche `has_moved` seule, comme avant.
+        if has_moved and not (att_ctx or {}).get("has_teleported"):
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
         if pct is None:

@@ -28,6 +28,7 @@ from .components import (
     UnitComponent, OwnerComponent, PositionComponent, HealthComponent,
     EffectsOwnedComponent, StatsComponent, ShieldComponent, ShieldInstance,
     TriggeredAbilityComponent, MachineComponent, ActiveAbility, ActiveAbilitiesComponent,
+    UnitFlagsComponent,
     set_unit_feet,
 )
 
@@ -193,6 +194,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     _load_machines(state, decision)
     _load_feet(state, observe)
     if snapshot is not None:
+        # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
+        # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
+        _load_unit_flags(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
@@ -364,6 +368,52 @@ def _load_machine_stats(state: State, decision: dict, snapshot: dict,
         ctx.active_ability_level = level
         mult_by_id[mid] = mult
         ent.add_component(StatsComponent(ctx=ctx))
+
+
+def _load_unit_flags(state: State, snapshot: dict) -> None:
+    """Seede le `UnitFlagsComponent` de CHAQUE entite depuis `combatSnapshot.units[].unitFlags`.
+
+    MIRROR : `IdunBattle.Entities.Components.UnitFlagsComponent` (un `OrderedSet<UnitFlag>` @+0x10).
+    Le capteur (`rpc-snapshot.ts`, section O5) ne lit PAS ce set en memoire — il invoque la fonction
+    NOMMEE `IdunBattle.Entities.UnitExtensions$$HasFlag(unit, flag)` une fois par valeur d'enum, et
+    rend la LISTE des ids poses ; `combatSnapshot.unitFlagTypes` donne le mapping nom -> id lu au
+    RUNTIME (`dumpEnum`), donc `Moved` reste juste apres une renumerotation.
+
+    POURQUOI (case-o10 SS 6, residu `blackObliterator`). `components.unit_has_moved` est le LECTEUR
+    UNIQUE de `HasFlag(unit, UnitFlag.Moved)`, et jusqu'ici RIEN ne le peuplait sur un etat recharge :
+    `set_moved_flag` n'est appele que par `MoveUnitOperation` (voie self-play/rollout OFFLINE). Dans un
+    REPLAY-DIFF monte depuis un snapshot LIVE, toute unite ayant DEJA bouge etait donc vue
+    « n'a pas bouge » — le gate no-move de
+    `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`
+    (`... & (!HasFlag(Self, 0 = Moved) | HasFlag(Self, 0xc = Teleported))`) ne mordait JAMAIS et le
+    +25% ranged etait accorde a chaque coup.
+
+    MESURE (`probe_o10_volk_stage_split.py`, seed 777, board MC1_67, `blackObliterator` vs
+    `necroWarden`, meme etat MT) : Volk DEPLACE puis tirant -> live 5868 / offline 7096 (l'offline
+    rendait EXACTEMENT la meme valeur que sans deplacement, signature d'un gate aveugle) ; Volk NON
+    deplace -> live 7096 == offline 7096. Meme sequence de coups et `mt_same=True` dans les deux cas :
+    l'ecart n'etait ni un compte de coups ni une conso RNG, mais ce seul flag.
+
+    Portee : TOUTES les lignes du snapshot (`EntityType.Unit` ET `EntityType.Machine` — une MoW porte
+    un `UnitFlagsComponent`, cf. `dumpEntityComponents`). Champ absent (capteur plus ancien) ou liste
+    vide -> AUCUN composant pose = flag absent = « n'a pas bouge », soit exactement le comportement
+    anterieur : la degradation reste retro-compatible."""
+    for su in (snapshot.get("units") or []):
+        eid = su.get("entityId")
+        flags = su.get("unitFlags")
+        if eid is None or not isinstance(flags, list) or not flags:
+            continue
+        ent = state.get_entity(eid)
+        if ent is None:
+            continue
+        fl = ent.get_component(UnitFlagsComponent)
+        if fl is None:
+            fl = ent.add_component(UnitFlagsComponent())
+        for f in flags:
+            try:
+                fl.add(int(f))
+            except (TypeError, ValueError):
+                continue
 
 
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> None:

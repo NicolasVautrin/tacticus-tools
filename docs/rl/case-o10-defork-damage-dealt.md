@@ -211,8 +211,15 @@ Il est **conforme au natif** mais **non confronte** : le porteur n'est pas activ
    resolu. Pour la pose d'un tile-effect c'est sans consequence (idempotent) ; pour le tirage 1203
    non plus, parce que `IsFirstHitInSeries` ne laisse passer que le coup d'index 0. Un futur
    consommateur de `On(0x10)` qui aurait besoin des coups 2..N exigerait un vrai index de coup.
-6. **Les PV de `blackObliterator` divergent** (live 2668 / offline 1440 sur la 1re attaque du
-   montage §4) — ecart **PRE-EXISTANT** du modele de DEGAT de ce porteur, **prouve independant de ce
-   canal** : il est present sur la ligne ou ni le live ni l'offline ne posent de feu, donc la ou le
-   canal est strictement inerte. Il n'est pas asserte par la garde d'elargissement (qui porte sur le
-   verdict de feu) et appartient a la tranche DEGAT.
+6. ~~**Les PV de `blackObliterator` divergent** (live 2668 / offline 1440 sur la 1re attaque du
+   montage §4)~~ — **RESOLU**, cf. `case-o10-volk-moved-flag.md`. Ce constat etait juste sur un
+   point (independant de ce canal) et trompeur sur l'autre : ce n'etait **pas** un ecart du modele
+   de DEGAT. `drive_to_firing_position` DEPLACE Volk avant de tirer, et `load_state` ne
+   reconstruisait pas `UnitFlag.Moved` (`combatSnapshot.units[].unitFlags` existait deja mais
+   n'etait consomme que pour `PreventOverkill`) : le gate no-move de
+   `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` ne mordait
+   jamais et l'offline accordait un +25 % ranged que le natif refuse. Ferme par
+   `snapshot._load_unit_flags` ; les PV sont desormais **assertes** par la garde d'elargissement
+   quand `mt_same` (memes tirages => meme sequence de coups). Residu SEPARE, toujours ouvert : la
+   CARDINALITE des groupes #179 de ce porteur (live 9 coups / offline 8 ou 6 sur les attaques
+   suivantes) — backlog.
