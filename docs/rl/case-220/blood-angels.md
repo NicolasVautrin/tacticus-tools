@@ -28,6 +28,18 @@ healthPct) ne sont pas matérialisées pour un porteur hors-progression-roster. 
 caste 1014 (ArmoriumCherub, variables standard) sans erreur. Une vraie Cezare (config complète) l'exécuterait ;
 la machinerie per-coup partagée est live-validée ailleurs (VigilanceEternal/CordClaw). Tooling ajouté :
 `rl_duel --seed-bc <path>` (valider un porteur hors-pool sans toucher le seed BC partagé).
+FACE DÉCISION (#216, séparément) : `SavageEchoesPlaybook.MakeDamagePredictions @181158870` passe CE MÊME
+`GetDamage` en 6e arg de `GenerateMultiHitAttackPredictions` (les 3 autres args sont génériques : profil
+`Nullable` NON vide, hits `ArmoriumCherubAbility.GetHits`, cibles `Entity(target)` mono-cible) — le chemin de
+prédiction générique s'arrêtait à `MinMaxDamage`, donc l'IA sous-évaluait 1230. Porté par
+`_savage_echoes_inputs` ; l'arbre est MUTUALISÉ (`entities/abilities/active_ability.py::SavageEchoesAbility.
+get_damage_formula`), `execute_behaviour` l'évalue désormais aussi (min puis max) au lieu d'un `flat` impératif
+parallèle. Bit-exact live vs `aiPlaybookPredict` sur 4 comptes de tuiles libres (2/5/4/3).
+CAUSE RÉELLE DU RÉSIDU, mesurée en #216 : ce n'est PAS « porteur hors progression roster » — c'est la CONFIG
+D'ABILITY absente du BC injecté. `catalog_inject.py --units bloodTerminator` ajoute l'unité ET ses configs
+(`SavageEchoes`, `RedRampage`) ; avec elle, `GetVariableForLevel(8)` ne throw plus et le playbook natif répond
+(le clone nu de `test_savage_echoes_live.py::_write_injected_seed_bc` n'ajoute QUE le bloc Unit). Débloqueur du
+cast live : construire le runner depuis un seed `catalog_inject` — non fait ici (hors périmètre #216).
 ```
 ```
 [1301 LordOfTheHost volet ExtraHit 1377 | bloodDante passif]  — [opus]+prérequis

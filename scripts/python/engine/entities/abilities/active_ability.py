@@ -522,6 +522,58 @@ class FrenziedFiringAbility(AActiveAbility):
                        dsl.Const(int(max_hits)))
 
 
+class SavageEchoesAbility(AActiveAbility):
+    """`SavageEchoesAbility` (bloodTerminator « Cezare », id 1230). Le playbook
+    `IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$MakeDamagePredictions` n'est PAS generique : il
+    passe en 6e arg de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`
+    la formule `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage`
+    (arbre ci-dessous), et NON la `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` generique.
+    Les 3 AUTRES arguments sont, eux, generiques (lus au decompile du playbook) :
+      * profil = `IdunBattle.Entities.Abilities.AActiveAbility$$GetDamageProfile` -> `Nullable` NON vide
+        (= `damageProfile` config = Eviscerate) : AUCUN quirk `param_8 = null` facon #164/#165 ;
+      * hits  = `IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility$$GetHits`
+        = `GetNumberConstant(0x2f = nrOfHits)` = le chemin generique `get_special_hits` ;
+      * cibles = `IdunBattleLogic.Entities.DSLFactory$$Entity(target)` -> MONO-CIBLE (aucun batch AoE).
+    Seule la BASE diverge donc, et c'est `_savage_echoes_inputs` qui la fournit."""
+
+    @staticmethod
+    def get_damage_formula(min_max: int, extra_dmg: int):
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage` — MIRROR 1:1
+        du DECOMPILE, en ARBRE DSL (source UNIQUE des deux faces : la PREDICTION
+        (`_savage_echoes_inputs`) et le COMBAT (`runner/abilities/bloodangels.py`) EVALUENT CET arbre,
+        aucun recalcul imperatif parallele) :
+
+            Sum( MinMaxDamage(minDmg 0xc, maxDmg 0xd),                   # base config
+                 Multiply( Get(GetVariableForLevel(config, 8 = extraDmg)),
+                           Count( CanAddUnit( AdjacentTiles(Owner@0x148) ) ) ) )
+
+        = la base config PLUS `extraDmg x (nb de tuiles adjacentes au porteur ou une unite PEUT etre
+        ajoutee)`. `CanAddUnit` = `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select` ->
+        `IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility` = tuile MARCHABLE et LIBRE (aucun
+        pied d'unite vivante). Plus Cezare est degage, plus il frappe fort.
+
+        SUJET = `Owner` (slot factory `+0x148`, cf. la carte `DSLFactory$$InitializeShared` :
+        `0x148 Owner · 0x158 Actor · 0x160 Caster · 0x168 CasterTile · 0x178 Target`) — pour une ability
+        ACTIVE l'Owner EST le caster, d'ou le noeud `Caster()` du port (le port n'expose pas de noeud
+        `Owner` distinct ; meme convention que le mirror COMBAT deja livre).
+        ⚠ C'est un selecteur d'ENTITE : le natif en prend la MainTile REELLE
+        (`EntityExtensions$$GetTiles`), PAS la tuile candidate `casterPosition` du balayage IA — celle-ci
+        vit dans les slots `CasterTile/CasterTiles@0x168/0x170`, que cet arbre n'utilise pas. Le compte
+        est donc le MEME pour toutes les tuiles candidates d'un tour, et le port le mirrore en lisant la
+        position du dict d'unite (`_entity_pos`), jamais `ctx.caster_pos`.
+
+        `min_max` et `extra_dmg` sont RESOLUS PAR L'APPELANT depuis SA source (meme convention que
+        `FrenziedFiringAbility.get_hits_for_original_target`) : la PREDICTION passe l'avg
+        `MinMaxDamage(avgFlag)` = `get_damage()` generique — c'est le SEUL etage ou l'arbre est evalue,
+        `GenerateMultiHitAttackPredictions` reduisant la formule a UN scalaire (`FUN_1800250d0` sur
+        `param_6`) avant `PredictAttack` ; le COMBAT passe la borne min PUIS la borne max
+        (`IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage`, Calculate index 2/3), le
+        terme `Multiply(...)` etant identique sur les deux bornes."""
+        return dsl.Sum(dsl.Get(int(min_max)),
+                       dsl.Multiply(dsl.Get(int(extra_dmg)),
+                                    dsl.Count(dsl.CanAddUnit(dsl.AdjacentTiles(dsl.Caster())))))
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
@@ -531,6 +583,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "Executioner": ExecutionerAbility,
     "MultiThreatEliminator": MultiThreatEliminatorAbility,
     "FrenziedFiring": FrenziedFiringAbility,
+    "SavageEchoes": SavageEchoesAbility,
 }
 
 

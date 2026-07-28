@@ -296,12 +296,52 @@ def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     return {"hits_override": hits, **aoe}
 
 
+def _savage_echoes_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$MakeDamagePredictions` (ability 1230,
+    bloodTerminator « Cezare ») — SURCHARGE la BASE : le playbook ne passe PAS la
+    `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` generique en 6e arg de
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`,
+    mais la formule PROPRE de l'ability,
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage` :
+
+        Sum( MinMaxDamage(minDmg 0xc, maxDmg 0xd),                   # = `ab.get_damage()` (avg)
+             Multiply( Get(GetVariableForLevel(config, 8 = extraDmg)),
+                       Count( CanAddUnit( AdjacentTiles(Owner@0x148) ) ) ) )
+
+    Le terme `extraDmg x <nb de tuiles adjacentes LIBRES du porteur>` etait IGNORE par le chemin de
+    prediction generique (qui s'arrete a `MinMaxDamage`), alors que la face COMBAT le porte deja
+    (`runner/abilities/bloodangels.py`) — l'IA SOUS-evaluait donc systematiquement SavageEchoes.
+
+    Les 3 autres entrees du call-site sont generiques (relues au decompile du playbook, aucune n'est
+    surchargee) : profil = `AActiveAbility$$GetDamageProfile` -> `Nullable` NON vide (Eviscerate, PAS le
+    quirk `param_8 = null` de #164/#165) ; hits = `ArmoriumCherubAbility$$GetHits`
+    = `GetNumberConstant(0x2f = nrOfHits)` ; cibles = `DSLFactory$$Entity(target)` -> mono-cible.
+
+    L'ARBRE est celui de `SavageEchoesAbility.get_damage_formula` (DEFINITION UNIQUE, partagee avec la
+    face COMBAT — un seul artefact natif, un seul port). Ce handler ne fait que lui fournir son
+    `DslContext` (units/caster/board de la SCENE) et les deux valeurs resolues : `ab.get_damage()`
+    (l'avg config rarity-scaled) et `extraDmg` au niveau PER-ABILITY.
+
+    Board/positions absents -> `{}` = base generique (degradation fidele, aucune sur-prediction),
+    meme convention que `_frenzied_firing_inputs`."""
+    board = getattr(scene, "board", None)
+    by_id = {u.get("id"): u for u in (scene.units or [])}
+    caster = by_id.get(caster_id)
+    if board is None or caster is None or scene.pos(caster_id) is None:
+        return {}
+    lvl, mult = ab.level, ab.multiplier
+    extra = cfg.get_variable_for_level("extraDmg", lvl, 0, mult)   # var 8 = extraDmg (rarity-scaled)
+    dctx = dsl.DslContext(units=scene.units, caster=caster, target=by_id.get(target_id), board=board)
+    base = SavageEchoesAbility.get_damage_formula(ab.get_damage(), extra).evaluate(dctx)
+    return {"base_override": int(base)}
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
                              1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
-                             1036: _frenzied_firing_inputs}
+                             1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
