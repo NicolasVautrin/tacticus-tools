@@ -150,7 +150,19 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
                 if tac.get_times_triggered_this_phase(pkey) >= PHASE_TRIGGER_CAP:
                     continue                                           # cap atteint cette phase → skip
                 tac.mark_as_triggered(pkey)
-        r = entry.execute_behaviour(state, ev)
+        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit
+        # `Nullable<AbilityOrEffect>(ability.Id)` dans l'`AbilityEntities` **avant** d'executer le
+        # behaviour -> tout ce que le behaviour engendre (attaque, degat, mort) porte cet id, et c'est
+        # lui que lit `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`. Foyer UNIQUE du port :
+        # ici. La sauvegarde/restauration reproduit l'imbrication native (une triggered-ability declenchee
+        # DANS le behaviour d'une autre ecrase le champ pour SA duree, puis rend la main).
+        prev_trig = getattr(state, "triggering_ability", None)
+        if entry.TRIGGERED_ABILITY_ID is not None:
+            state.triggering_ability = int(entry.TRIGGERED_ABILITY_ID)
+        try:
+            r = entry.execute_behaviour(state, ev)
+        finally:
+            state.triggering_ability = prev_trig
         if r is not None:
             out.append(r)
     return out

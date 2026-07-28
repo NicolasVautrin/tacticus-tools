@@ -37,7 +37,8 @@ class _Normal:
     @staticmethod
     def execute(state: State, attacker_id: int, target_id: int,
                 spread_pct: int = 20, is_overwatch: bool = False,
-                triggering_ability: Optional[int] = None) -> Optional[dict]:
+                triggering_ability: Optional[int] = None,
+                allow_dead_caster: bool = False) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
         l'ECS : tire CHAQUE coup sur la plage BRUTE (`stat Attack` ± spread) avec le MT du
         runner (`state.rng`), réduit (perçage de l'arme par distance + armure cible, mods
@@ -133,10 +134,24 @@ class _Normal:
         # triggers reveillee par `0x2b` peut l'avoir TUE entre-temps. C'est exactement ce que fait la
         # riposte `MartialSuperiority` (« before the enemy attack executes ») : si elle tue
         # l'attaquant, l'attaque entrante est ANNULEE (0 tirage RNG, 0 degat, aucun after-hit).
-        # `options@0x4a` = le flag « caster mort autorise » des `AbilityOptions` : aucune voie du port
-        # ne le pose -> gate toujours actif. Inerte pour toute cascade qui ne tue pas l'attaquant.
+        # `options@0x4a` = le flag « caster mort autorise » des `AbilityOptions`.
+        #
+        # ⚠ #88 -- CE FLAG EST POSE PAR UNE VOIE DU PORT, ET SON ABSENCE RENDAIT `FinalJustice`
+        # SILENCIEUSEMENT INERTE. `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute`
+        # (la feuille `DSLFactory$$UseActiveAbility`, seule voie du death-rattle FinalJustice) assemble
+        # ses `AbilityOptions` en RECOPIANT champ par champ les siens (`behaviour+0x68..0xac`) -- SAUF
+        # un octet, force au LITTERAL `1` (`uStack_210._0_2_ = CONCAT11(*(behaviour + 0xa8), 1)`).
+        # MESURE LIVE qui tranche (probe_88_fuelled_by_fury_revive) : `ultraTitus` a `hp = 0` porte bel
+        # et bien sa riposte FinalJustice, pour 10502 de degat, et TUE. Le gate ci-dessous, porte pour
+        # `MartialSuperiority` (#133), l'avalait donc entierement des que la mort passait par le VRAI
+        # chokepoint `_fire_death_if_killed` (qui pose `alive=False` + `hp=0` avant `On(1)`). Le trou
+        # n'etait visible dans AUCUN test : `test_finaljustice_live` appelle `after_death_triggers`
+        # sur un Kharn encore VIVANT dans l'ECS.
+        # `allow_dead_caster=True` n'est donc PAS une derogation de confort : c'est le mirror du flag,
+        # pose par le SEUL appelant qui le pose cote natif (`UseActiveAbility`). Toutes les autres
+        # voies (attaque normale d'un message, overwatch, re-entrees) gardent le gate.
         from ...components import unit_is_dead                  # lazy : coherent avec les autres gates
-        if unit_is_dead(state.get_entity(attacker_id)):
+        if not allow_dead_caster and unit_is_dead(state.get_entity(attacker_id)):
             return None
         # #120bis RE-RESOLUTION DE CIBLE — mirror du bloc qui suit IMMEDIATEMENT le `0x2b` dans
         # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`. L'attaque normale EST une
@@ -151,7 +166,8 @@ class _Normal:
             return execute_for_replaced_target(
                 state, attacker_id, _new_target,
                 lambda t: AttackDamageOperation.execute(state, attacker_id, t, spread_pct,
-                                                        is_overwatch=is_overwatch))
+                                                        is_overwatch=is_overwatch,
+                                                        allow_dead_caster=allow_dead_caster))
         ahc = att.get_component(HealthComponent)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),

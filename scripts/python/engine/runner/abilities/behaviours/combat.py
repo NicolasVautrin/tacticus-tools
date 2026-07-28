@@ -731,6 +731,14 @@ class UseActiveAbility(AbilityBehaviour):
             # le wiring d'ability reste utilisable pour un replay EFFET-SEUL (load_state sans dumpRng), la
             # SEQUENCE (setHealth/buffs/move) restant fidele ; le dispatch normal `AttackDamageOperation.
             # execute` leverait sinon (ValueError rng non cale). Un replay de DEGAT cale rng (dumpRng) avant.
-            res = None if state.rng is None else AttackDamageOperation.execute(state, sid, tid, self.spread_pct)
+            # `allow_dead_caster=True` = le LITTERAL `1` que `IdunBattle.Entities.Behaviours.
+            # UseActiveAbilityBehaviour$$Execute` force dans les `AbilityOptions` qu'il assemble
+            # (`uStack_210._0_2_ = CONCAT11(*(behaviour + 0xa8), 1)` -- le SEUL octet en dur d'une
+            # struct autrement recopiee champ par champ) : cette voie autorise un caster MORT, et
+            # c'est indispensable au death-rattle FinalJustice (mesure live #88 : Titus a hp=0
+            # porte sa riposte pour 10502 et tue). Sans lui, le gate acteur-mort de
+            # `damage_ops/normal.py` (#133 MartialSuperiority) avalait toute la riposte.
+            res = None if state.rng is None else AttackDamageOperation.execute(
+                state, sid, tid, self.spread_pct, allow_dead_caster=True)
             ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res)
         return OperationResult.ok()

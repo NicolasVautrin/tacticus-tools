@@ -280,7 +280,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if uc is not None:
             uc.alive = False
         from .triggers import (after_death_triggers, unit_defeated_triggers,
-                               pre_unit_death_2_triggers, unit_death_triggers)
+                               pre_unit_death_2_triggers, unit_death_triggers,
+                               pending_death_added_triggers)
         from .revive import kill_unit_revive_gate
         # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
         # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
@@ -316,9 +317,19 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # AVANT `On(1)` -- c'est la seule raison pour laquelle `HasDeathReason` peut matcher sur ce
         # vecteur (`AReactivateOverwatchEffect$$LegitDeathReasons`, #114).
         AttackDamageOperation._record_death_reason(state, target_id, attacker_id, source_ability)
+        # `On(PendingDeathAdded = 3)` — emis par `IdunBattle.Operations.RecordKillOperation$$Execute`
+        # (`Core.Services.OperationProcessor$$RecordKill`), qui ENREGISTRE le kill puis ENQUEUE la mort
+        # (`MatchState.AddDeath`). La file n'est drainee que plus tard par
+        # `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` -> `KillUnitOperation$$Execute`, qui
+        # emet `On(1)` : `On(3)` PRECEDE donc strictement `On(1)` pour une meme mort, d'ou sa place ici.
+        # {acteur = caster = le TUEUR, cible = la VICTIME} + le `TriggeringAbility` courant.
+        # Consommateur porte : `FuelledByFury_ReviveAbility` (Titus se revive quand SA riposte
+        # FinalJustice tue) -- et c'est ce revive-la qui, pose sur Titus pendant SON `On(1)`, fait
+        # ECHOUER la garde `kill_unit_revive_gate` plus bas et ANNULE sa propre mort.
+        out = pending_death_added_triggers(state, target_id, attacker_id)
         # `IdunBattle.Operations.KillUnitOperation$$Execute` emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36. Les quatre
         # premiers sont portes, DANS CET ORDRE (le 5e, PostUnitKill=0x36, n'a pas de consommateur porte).
-        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        out = out + after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(1)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(2), NI On(0), NI On(55), NI On(54).

@@ -87,7 +87,7 @@ class State:
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
-                 "turn_counts", "turn_order_player_count")
+                 "turn_counts", "turn_order_player_count", "triggering_ability")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -110,6 +110,21 @@ class State:
         # permanent) ; None = canal absent -> `convert_rounds_to_turns` retombe sur l'identite (etats
         # construits a la main dans les tests unitaires : comportement historique preserve).
         self.turn_order_player_count: Optional[int] = None
+        # `AbilityEntities.TriggeringAbility` (le champ que lit
+        # `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`) -- l'`AbilityOrEffect` de la
+        # TRIGGERED-ABILITY en cours d'execution. Ecrit par
+        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`, qui pose
+        # `Nullable<AbilityOrEffect>(ability.Id @ability+0x10)` dans l'`AbilityEntities` **AVANT**
+        # d'executer le behaviour (puis une seconde fois apres, avant d'emettre `On(0xd)`) : tout ce que
+        # le behaviour engendre (attaque, degat, mort) porte donc cet id. Cote port, le foyer UNIQUE de
+        # cette ecriture est `triggers/dispatch/core.py::evaluate_trigger_operation` (sauvegarde/restaure
+        # autour de `execute_behaviour`, ce qui reproduit l'imbrication native). None = hors
+        # triggered-ability (attaque normale, active castee) -> aucun gate `TriggeringAbilityIs` ne fire.
+        # PORTEE PARTIELLE ASSUMEE : seules les classes qui declarent `TRIGGERED_ABILITY_ID` alimentent
+        # ce champ ; les autres le laissent a None (degradation permissive sur un `NOT
+        # TriggeringAbilityIs`, restrictive sur un gate positif -- aucun consommateur porte n'en depend
+        # aujourd'hui hors `FuelledByFury` <- `FinalJustice`).
+        self.triggering_ability: Optional[int] = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:

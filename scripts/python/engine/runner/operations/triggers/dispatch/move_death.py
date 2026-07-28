@@ -179,6 +179,46 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
     return evaluate_trigger_operation(state, ev)
 
 
+def pending_death_added_triggers(state: State, dying_id: int,
+                                 killer_id: Optional[int]) -> list[dict]:
+    """Vecteur `On(PendingDeathAdded = 3)` — emis par
+    `IdunBattle.Operations.RecordKillOperation$$Execute` (appele par
+    `Core.Services.OperationProcessor$$RecordKill`), la toute PREMIERE etape de la mort : celle qui
+    ENREGISTRE le kill, avant meme que la mort ne soit drainee.
+
+    Sequence LUE dans `RecordKillOperation$$Execute` :
+        gate `UnitFlagsComponent.Has(dying, 6)` -> return (deja retire)
+        -> compteurs de kills du joueur (`PlayerComponent+0x90`, `+0x94` si le kill est de type 2)
+        -> `UnitFlagsComponent.Add(dying, 0xf)`            (marque « mort en attente »)
+        -> `MatchState.AddDeath(killer, dying, ...)`       (ENQUEUE, slot 1 de l'interface MatchState)
+        -> **publie `On(3)`** {a = killer, b = killer, c = dying}
+
+    La file remplie par `AddDeath` n'est drainee que plus tard, par
+    `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(0xc)` -> `KillUnit` ->
+    `IdunBattle.Operations.KillUnitOperation$$Execute`, qui emet `On(1)`) : **`On(3)` precede donc
+    STRICTEMENT `On(1)`** pour une meme mort. Le port respecte cet ordre en appelant ce vecteur en tete
+    de `damage.py::_fire_death_if_killed`.
+
+    Le triplet d'entites du publieur (3 arguments avant l'`eventType`, meme forme que
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluateArrivedAtFinalTileTrigger`) est ici
+    `(killer, killer, dying)` -> le **TUEUR** est l'acteur ET le caster, la VICTIME est la cible.
+    C'est ce qui permet a `FuelledByFury_ReviveAbility` de tester `AreEqual(caster@0x160, self@0x148)`
+    = « c'est MOI qui viens de tuer ».
+
+    `triggering_ability` = `state.triggering_ability`, le champ que
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` a pose si le coup fatal a ete porte
+    DANS le behaviour d'une triggered-ability (cf. `dispatch/core.py`). C'est ce que lit
+    `TriggeringAbilityIs`. No-op si aucun trigger ne matche.
+
+    RESIDU NOMME : le port ne modelise ni le flag `0xf` pose ici, ni les compteurs de kills du
+    `PlayerComponent` -- aucun consommateur porte ne les lit."""
+    ev = TriggerEvent(EventTriggerType.PendingDeathAdded,
+                      killer_id if killer_id is not None else dying_id, dying_id,
+                      ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
+                      triggering_ability=getattr(state, "triggering_ability", None))
+    return evaluate_trigger_operation(state, ev)
+
+
 def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[int],
                               overkill: bool = False) -> list[dict]:
     """Vecteur `On(PreUnitDeath_2 = 2)` — event NATIF DISTINCT de `PreUnitDeath(1)` et de

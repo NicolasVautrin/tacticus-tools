@@ -29,7 +29,7 @@ class TriggerEvent:
     aussi pour rester compatibles avec le dispatch générique)."""
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
-                 "triggering_effect", "is_first_hit")
+                 "triggering_effect", "is_first_hit", "triggering_ability")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -37,7 +37,8 @@ class TriggerEvent:
                  player_id: Optional[int] = None, overkill: bool = False,
                  ability_type: Optional[int] = None, profiles=None,
                  triggering_effect: Optional[int] = None,
-                 is_first_hit: Optional[bool] = None):
+                 is_first_hit: Optional[bool] = None,
+                 triggering_ability: Optional[int] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -70,6 +71,16 @@ class TriggerEvent:
         # ici = « pas d'index de coup dans cet evenement » = `IsFirstHitInSeries` FAUX. Consommateur :
         # ThrillSeekers (branche 1).
         self.is_first_hit = is_first_hit
+        # `TriggeringAbilityIs(AbilityOrEffect)` (`IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`)
+        # = le champ `TriggeringAbility` de l'`AbilityEntities`, DISTINCT de `CurrentAbility`
+        # (`ability_type` ci-dessus, lu par `CurrentAbilityIs`). Il designe la TRIGGERED-ABILITY dont
+        # l'execution a engendre cet evenement -- ecrit par
+        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` avant le behaviour et donc herite
+        # par tout ce que le behaviour declenche. Consommateur porte :
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateTrigger`
+        # (`TriggeringAbilityIs(0x400 = 1024 TriggeredAbilityType.FinalJustice)`). None = evenement hors
+        # triggered-ability.
+        self.triggering_ability = triggering_ability
 
 
 class TriggeredAbility:
@@ -77,6 +88,12 @@ class TriggeredAbility:
     écouté (`On(event_id)`) ; `owner_id` = entité porteuse. `matches` = condition `CreateTrigger` ;
     `execute_behaviour` = PossibleTargets + CreateBehaviour. Sous-classes = un trigger concret."""
     event_id: int = -1
+    # `AbilityOrEffect(this.Id)` de CETTE triggered-ability (`TriggeredAbilityType`), tel que
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` l'ecrit dans l'`AbilityEntities`
+    # AVANT d'executer le behaviour -> c'est ce que lit `TriggeringAbilityIs` sur tout evenement engendre
+    # par ce behaviour. None = id non renseigne (le port ne threade alors AUCUN `TriggeringAbility` pour
+    # cette ability : gate positif faux, gate negatif vrai). Cf. `dispatch/core.py`.
+    TRIGGERED_ABILITY_ID: Optional[int] = None
     fire_on_death: bool = False     # ability « fire-on-death » : owner = l'unité MOURANTE (alive=False) —
                                     # bypass du gate « owner vivant » (CanGetAbilityTrigger). Ex. FinalJustice.
     owner_is_global: bool = False   # ability de la famille `Abilities.Damage.Loki` : son `CreateTrigger` ne
@@ -106,6 +123,9 @@ class EffectTrigger:
     `execute_behaviour` = le behaviour (`HandleTriggerAbilities`). Sous-classe = un effet-trigger concret."""
     event_id: int = -1
     effect_type: int = -1
+    # cf. `TriggeredAbility.TRIGGERED_ABILITY_ID` : un effet-trigger est lui aussi execute par
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` cote natif.
+    TRIGGERED_ABILITY_ID: Optional[int] = None
 
     def __init__(self, owner_id: int):
         self.owner_id = owner_id
