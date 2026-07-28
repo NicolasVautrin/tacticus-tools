@@ -283,9 +283,12 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
 
     Délègue au FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility` (mirror du `Select`,
     tri DÉCROISSANT stable par le composite `Tile(7)`, ZÉRO tirage) — c'est le MÊME sélecteur natif
-    que celui des charges/spawns d'ability, donc UN SEUL port (#165). Le sélecteur d'unités
-    (`AllAliveMachinesSelector` ici, `caster` sur les autres call-sites) n'alimente que des feuilles
-    gatées sur l'unité, non plombées : la distinction est INERTE côté port.
+    que celui des charges/spawns d'ability, donc UN SEUL port (#165). Le sélecteur d'unités diffère,
+    et depuis case-165b la distinction n'est PLUS inerte : sur les autres call-sites `dc.units` est
+    le CASTER, il est passé au foyer (`unit_id=`) et il réveille les feuilles gatées sur l'unité.
+    ICI c'est `AllAliveMachinesSelector` — un ENSEMBLE d'unités, pas l'unité qui bouge — donc aucun
+    `unit_id` n'est passé et ces feuilles restent muettes. RÉSIDU NOMMÉ : porter la résolution
+    d'`AllAliveMachinesSelector` en `dc.units` (le `case.unit` du natif est alors une collection).
 
     ⚠ La réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre source
     DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit exprès la

@@ -284,10 +284,15 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         seed du compteur **PER-UNITÉ** : gap de **hooks** (résidu **N11** de
         `port-residuals-inventory.md`) — `+0x5c` n'est pas un `StatType`, `combatSnapshot` ne peut
         donc pas l'atteindre ⇒ capteur à écrire, **rebuild + reinject requis**.
-    - **Feuilles `Tile(7)` gatées sur l'unité, dans le tri de placement** : le sélecteur `unit` du
-      `UtilityMovementCase` construit par `DSLFactory$$SortTilesByUtilityForSummon` n'est pas
-      identifiable au décompilé (ctor replié par le linker), donc le port n'alimente que les feuilles
-      PURE-TUILE. Aucun scénario mesuré ne réveille les autres — à rouvrir sur un cas où l'une décide.
+    - **Feuilles `Tile(7)` gatées sur l'unité, dans le tri de placement** — **RÉSOLU pour les
+      call-sites dont `dc.units` est le CASTER** (`case-165b-tile7-unit-gated-leaf.md`) : le
+      sélecteur est lu dans `SortTilesByUtilitySelector$$Select` (`dc.units = this.units.Select(…)`,
+      posé à `UtilityMovementCase+0x10` par la surcharge « tile » du ctor), le foyer prend un
+      `unit_id` et `runner_tile_leaf_ctx` en dérive le `ctx`. C'est ce terme
+      (`GeminaeSuperiaPlaybook` = `10 × |CanAddUnit(AdjacentTiles(tuile))|`) qui fermait le résidu
+      #165 §4. **Reste ouvert le seul call-site SUMMON** (`SortTilesByUtilityForSummon`) : son
+      `dc.units` est `AllAliveMachinesSelector`, un ENSEMBLE d'unités — porter sa résolution
+      (le `case.unit` natif y est une collection) est le résidu restant.
     - ~~**`Swamp -> Thorns_DefenseReduction` (−25) porté en local** (`spawn.py::_PLACEMENT_TERRAIN_EFFECTS`)~~
       — **FAIT (`case-155-swamp-fork-maybetrigger.md`)** : le fork est fermé par la RE des DEUX boucles
       de `TileEffectsUtility`. Le −25 n'est pas un « terrain-effect » comme le +9 DryBush : c'est un

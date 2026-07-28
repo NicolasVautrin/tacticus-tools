@@ -355,16 +355,127 @@ SKY_VIS = "adeptCelestine"
 SKY_ABILITY = 1025
 
 
+def _sky_pool(state, board, target):
+    """Le pool `CanAddUnit(AdjacentTiles(target))` DANS L'ORDRE DU SELECTEUR — meme construction que
+    `_sky_strike_dest_tile` (c'est lui qu'on veut re-trier de deux facons)."""
+    from engine.runner.abilities.sisterhood import _sk_occupied_positions, _sk_pos_of
+    tpos = _sk_pos_of(state, target)
+    ttile = board.id_at(*tpos) if tpos else None
+    if ttile is None:
+        return []
+    occ = _sk_occupied_positions(state)
+    return [t for t in board.neighbours_native(ttile)
+            if board.coord(t) not in occ and board.walkable(t)]
+
+
+def _sky_pick_geometry_geminae(state, board, caster, target):
+    """(cpos, tpos, sans_unite, avec_unite) — geometrie ou le terme de la feuille
+    `TriggeredAbilities(2)` du composite RENVERSE le classement (case-165b).
+
+    `sans_unite` = `first_tile_by_utility(..., unit_id=None)` : le tri REDUIT (Elevation +
+    TileEffects seulement), c'est-a-dire EXACTEMENT le port d'avant case-165b. `avec_unite` =
+    `_sky_strike_dest_tile`, qui passe `caster@0x160` comme `dc.units` et reveille le
+    `GeminaeSuperiaPlaybook` (10 x |CanAddUnit(AdjacentTiles(tuile))|). Le terme etant CONSTANT en
+    plein plateau, on ne trouve de divergence qu'au voisinage TRONQUE (bord / tuiles occupees) —
+    c'est le sens meme du cas."""
+    from engine.runner.abilities.sisterhood import _sky_strike_dest_tile
+    from engine.utilities.tile import first_tile_by_utility
+    keep_c, keep_t = _pos(state, caster), _pos(state, target)
+    walk = [t for t in sorted(board.by_id) if board.walkable(t)]
+    found = []
+    try:
+        for ttile in walk:
+            tpos = board.coord(ttile)
+            _set_pos(state, target, *tpos)
+            for ctile in walk:
+                cpos = board.coord(ctile)
+                if ctile == ttile or not 2 <= hexgeo.distance(cpos, tpos) <= 4:
+                    continue
+                _set_pos(state, caster, *cpos)
+                pool = _sky_pool(state, board, target)
+                if len(pool) < 2:
+                    continue
+                before = first_tile_by_utility(state, pool)          # dc.units ABSENT (port d'avant)
+                after = _sky_strike_dest_tile(state, caster, target)  # dc.units = le caster
+                if before is None or after is None or board.coord(before) == after:
+                    continue
+                found.append((cpos, tpos, board.coord(before), after))
+    finally:
+        _set_pos(state, caster, *keep_c)
+        _set_pos(state, target, *keep_t)
+    if not found:
+        return None
+    found.sort(key=lambda g: hexgeo.distance(keep_c, g[0]) + hexgeo.distance(keep_t, g[1]))
+    return found[0]
+
+
+def test_sky_strike_landing_tile_follows_unit_gated_leaf(rpc, build_runner, sky_bc):
+    """case-165b — le composite `Tile(7)` du tri VOIT `dc.units` (`caster@0x160`).
+
+    `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` construit
+    `UtilityMovementCase(dc.units, tile, null, null, dc.owner)` : les feuilles gatees sur l'unite
+    recoivent donc le caster. Pour `adeptCelestine` (passif `GeminaeSuperia` 1048) la feuille
+    `TriggeredAbilities(2)` dispatche vers
+    `IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__3$$MoveNext`
+    = `10 x |CanAddUnit(AdjacentTiles(tuile))|` (+10 si `OwnerInAdjacentTile`, +30 par Geminae
+    adjacente). Ce test monte une geometrie ou ce terme RENVERSE le classement d'`ElevationUtility`
+    et confronte au natif."""
+    extra = ["--seed-bc", str(sky_bc), "--p-units", SKY_VIS, "--a-units", "necroWarden", "--no-ai"]
+    rid = build_runner("1651652", extra=extra, board=BOARD)["rid"]
+    state, board, dv = _load(rpc, rid)
+    caster = _uid_by_vis(dv, SKY_VIS)
+    target = _uid_by_vis(dv, "necroWarden")
+    if caster is None:
+        pytest.skip("adeptCelestine absente du build (injection KO)")
+    assert target is not None
+
+    geo = _sky_pick_geometry_geminae(state, board, caster, target)
+    assert geo is not None, (f"aucune geometrie ou la feuille gatee sur l'unite departage sur {BOARD}"
+                             " -- le test ne prouverait rien")
+    cpos, tpos, before_tile, after_tile = geo
+    assert before_tile != after_tile
+
+    if not _drive_to(rpc, rid, {caster: cpos, target: tpos}):
+        pytest.skip(f"geometrie non atteignable (caster={_live_pos(rpc, rid, caster)} "
+                    f"cible={_live_pos(rpc, rid, target)}, vise {cpos}/{tpos})")
+
+    state2, board2, _dv2 = _load(rpc, rid)
+    from engine.runner.abilities.sisterhood import _sky_strike_dest_tile
+    from engine.utilities.tile import first_tile_by_utility
+    pool2 = _sky_pool(state2, board2, target)
+    port2 = _sky_strike_dest_tile(state2, caster, target)
+    before2 = first_tile_by_utility(state2, pool2)
+    assert port2 is not None and before2 is not None and board2.coord(before2) != port2, \
+        f"geometrie live NON discriminante (pool={pool2} avec={port2} sans={before2})"
+
+    act0 = {}
+    for _ in range(8):
+        res = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": int(caster), "targetId": int(target),
+            "abilityType": SKY_ABILITY}}, 120)
+        act0 = ((res or {}).get("actions") or [{}])[0]
+        if not act0.get("error") and act0.get("mutated"):
+            break
+        _endturn(rpc, rid)
+    assert not act0.get("error") and act0.get("mutated"), \
+        f"cast 1025 sans effet: err={act0.get('error')} mutated={act0.get('mutated')}"
+
+    live_after = _live_pos(rpc, rid, caster)
+    print(f"\n[165b SKY] pool={[(board2.coord(t), board2.elevation(t)) for t in pool2]} "
+          f"sans_dc_units={board2.coord(before2)} avec={port2} live={live_after}")
+    assert live_after == port2, (f"atterrissage live {live_after} != port {port2} "
+                                 f"(sans le terme gate sur l'unite : {board2.coord(before2)})")
+
+
 def _sky_pick_geometry(state, board, caster, target):
     """(cpos, tpos, collapse, port) ou l'ancien collapse (ring-1 `hexgeo.disk`, trie par distance au
     caster) et le port #165 (`neighbours_native` + tri `Tile(7)`) divergent, divergence tranchee par
     l'utilite. Contraintes : caster NON adjacent (sinon le gate `Not(IsAdjacent)` supprime le move) et
     AUCUNE contrainte de portee (Celestine vole).
 
-    ⚠ On EXIGE une cible a 6 voisins et un caster PROCHE (dist <= 3). Une cible au BORD avec un caster
-    tres eloigne produit une divergence MESUREE que le composite porte n'explique pas (residu nomme,
-    cf. `docs/rl/case-165-collapse-tuile-plus-proche.md` §4) : ce test garde le patron etabli, il
-    n'arbitre pas ce residu."""
+    ⚠ On EXIGE une cible a 6 voisins et un caster PROCHE (dist <= 3) : c'est le patron ELEVATION/COVER
+    etabli par #165, que ce test garde tel quel. La cible au BORD avec caster lointain est l'objet du
+    test `..._follows_unit_gated_leaf` ci-dessus (case-165b), qui exerce l'AUTRE terme."""
     from engine.runner.abilities.sisterhood import _sky_strike_dest_tile
     keep_c, keep_t = _pos(state, caster), _pos(state, target)
     walk = [t for t in sorted(board.by_id) if board.walkable(t)]
