@@ -645,6 +645,70 @@ class OverwhelmingWrathRangeDmgReductionEffect(BaseEffect):
         return for_percent_decrease(False, abs(int(pct)))   # owner=défenseur (l'effet est sur la cible)
 
 
+class SereneUnifierSenseOfStoneEffect(BaseEffect):
+    """`SereneUnifierSenseOfStoneEffect` (EffectType 0x491=1169, nom capte "SereneUnifierSenseOfStone")
+    — phase 1 du cycle du passif `SereneUnifier` (TriggeredAbilityType 0x479=1145) de `tauAunShi`
+    (Aun'Shi). i2 : « Aun'Shi and friendly units around him take -{dmgReductionPct}% Damage. » #192.
+
+    MIRROR 1:1 de
+    `IdunBattle.Entities.Effects.Loki.SereneUnifierSenseOfStoneEffect$$CreateEffectDamageMalusForDefense` :
+
+        EffectBonus.ForPercentDecrease( DSLFactory.get_OwnerIsTarget,
+                                        DSLFactory.ConfigVar(0x46, GetAbilityState(effet), mult@+0x60),
+                                        Nullable<AbilityOrEffect>(0x479 = 1145 SereneUnifier) )
+
+    Aucun autre noeud : PAS de gate melee/ranged, PAS de gate profil de degat, PAS de gate normal-only,
+    pas d'`ActiveCondition`. ⇒ −`dmgReductionPct`% sur **TOUT** degat recu par le porteur, quel que soit
+    le vecteur. Jumeau STRUCTUREL EXACT de `VexillaMagnificaDmgReductionEffect` ci-dessus (meme
+    `ForPercentDecrease(OwnerIsTarget seul, ConfigVar 0x46)`), et de la famille `PrioritisedEfficiency_
+    DmgReduction` (meme forme, ConfigConst au lieu de ConfigVar).
+
+    ⚠ CE N'EST PAS UNE AURA cote SOURCE, malgre le libelle « aura d'equipe ». Le decompile tranche :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility$$CreateBehaviour` pose la
+    phase 1 par `AddEffect(0x491, AbilityStateReference, source = owner@0x160, targets = <selecteur>,
+    TurnsFromRounds(1))` — l'effet est donc **MATERIALISE sur CHAQUE beneficiaire** (il apparait dans
+    SA liste `decisionView.units[].effects`, `source` = Aun'Shi), et son unique noeud de declenchement
+    est `get_OwnerIsTarget`. Canal PORT = `create_effect_damage_malus_for_defense` STANDARD (l'effet vit
+    sur le DEFENSEUR), PAS `create_aura_defense_damage_malus_for_ally` : il n'existe AUCUN
+    `SereneUnifierSenseOfStoneEffect$$CreateTargetSelector`, la selection est faite UNE FOIS a la pose.
+    Selecteur natif (pour memoire, il appartient a la POSE) :
+    `(AdjacentFriends(owner, 1) + owner) + UnitsFromFaction(SurroundingFriends(owner, ConfigConst(0x16)
+    = range = 2) − AdjacentFriends(owner, 1), UnitFaction.Tau = 9)` = Aun'Shi LUI-MEME + ses amis
+    adjacents (TOUTE faction) + ses amis T'au a distance 2. Mesure #192 : les 3 beneficiaires attendus
+    portent bien 1169 avec `src` = Aun'Shi.
+
+    MAGNITUDE : `ConfigVar(0x46)` = `dmgReductionPct` de la config de `SereneUnifier` (25 → 50, plateau
+    a 50 des L50 ; **HORS** `variablesAffectedByRarityBonus` = ['extraDmg'] ⇒ multiplier INERTE, il est
+    passe pour la forme comme sur `VexillaMagnifica`). SereneUnifier est le PASSIF d'Aun'Shi ⇒
+    `ability_level` (passiveAbilityLevel), fallback `level`.
+
+    RESIDU (identique a `FightingRetreatDmgReductionEffect`) : le natif indexe `ConfigVar` sur
+    l'`AbilityState` de la **SOURCE** (Aun'Shi, `AddEffect` passe SON `AbilityStateReference`) ; l'effet
+    seede depuis `decisionView.effects` porte, lui, le niveau du **PORTEUR** (`EffectFactory.create`).
+    Sur un roster homogene (tous les heros au meme palier, cas des runners) les deux coincident ;
+    ils divergeraient sur un banc a paliers melanges. La POSE (behaviour turn-start + cycle
+    `Modulo(PlayerTurnsStarted, 3)`) n'est pas portee — l'effet est CONSOMME tel qu'il est capte, comme
+    `VexillaMagnifica_DmgReduction` / `PrioritisedEfficiency_DmgReduction`.
+
+    GROUND TRUTH #192 (`probe_192_sense_of_stone.py`, MC1_67 seed 20137, cast 1137 MurderousSwing de
+    `worldExecutions` sur 2 cibles) : banc AVEC porteur mais AVANT le turn-start adverse (1169 absent)
+    = rapport offline/live 1,0000 ; MEME banc apres 2 `endturn` (1169 present, rem=1, src=Aun'Shi) =
+    **2,0000 EXACT sur les DEUX cibles** ; banc temoin (porteur remplace par une vanille, MEMES 2
+    `endturn`) = 1,0000. 2,0000 = 1/(1−50/100) avec `dmgReductionPct[L50] = 50`."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        # ConfigVar(0x46) = `dmgReductionPct` de SereneUnifier. Le natif n'a QUE `get_OwnerIsTarget`
+        # -> aucun gate ici (ni melee/ranged, ni profil, ni normal-only).
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var("SereneUnifier", "dmgReductionPct", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        return for_percent_decrease(False, abs(int(pct)))   # owner=defenseur (l'effet est sur la cible)
+
+
 class PsychicFortressDmgReductionEffect(BaseEffect):
     """`PsychicFortress_DmgReductionEffect` (effet 0x3f2=1010, passif PsychicFortress de Tigurius
     ultraTigurius ; base `ADamageDefenseModifierAbilityEffect(1000=0x3e8=PsychicFortress AbilityOrEffect)`,

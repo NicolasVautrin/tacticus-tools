@@ -15,8 +15,10 @@ confronte au degat LIVE du MEME cast :
 C'est l'etage 5 qui rend le diagnostic possible : le facteur etant LINEAIRE en la base, un ecart
 LIVE/OFFLINE d'un rapport CONSTANT sur DEUX cibles d'armures differentes ne peut PAS venir du
 noeud de degat -- il vient d'un modificateur que le port ne porte pas. Mesure du 2026-07-28 :
-rapport 2,000 exact sur les deux cibles -> `SereneUnifierSenseOfStone` (aura d'equipe de
-`tauAunShi`, effet 1169 sans classe d'effet portee = `BaseEffect` nu). Roster change, rapport 1,000.
+rapport 2,000 exact sur les deux cibles -> `SereneUnifierSenseOfStone` (effet 1169 de `tauAunShi`,
+alors sans classe d'effet portee = `BaseEffect` nu). Roster change, rapport 1,000.
+Ce residu est CLOS depuis #192 (classe `SereneUnifierSenseOfStoneEffect` +
+`probe_192_sense_of_stone.py` : rapport 1,000 avec Aun'Shi en jeu, sur les DEUX faces).
 
 ASCII only (cp1252). Usage :
   python probe_ms1137_stage.py --k 2

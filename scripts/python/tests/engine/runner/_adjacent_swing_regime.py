@@ -18,8 +18,14 @@ Ce que le montage garantit, et pourquoi chaque point compte (chacun a ete PAYE p
   * **le caster est verifie dans `toActivate`** avant le cast : un cast hors-tour est refuse EN
     SILENCE (`ok=True`, aucune mutation) -- signature IDENTIQUE au no-op qu'on veut mesurer.
   * **le roster adverse est choisi sans AURA d'equipe** : `unit_map.py vanilla-target` ne regarde que
-    ce qu'une unite s'applique A ELLE-MEME. Avec `tauAunShi`, les DEUX cibles portaient
-    `SereneUnifierSenseOfStone` et le degat LIVE valait EXACTEMENT la moitie de l'offline.
+    ce qu'une unite s'applique A ELLE-MEME -- il ne voit RIEN de ce qu'un ALLIE lui donne, et c'est
+    la lecon durable du cas `tauAunShi` (les DEUX cibles portaient `SereneUnifierSenseOfStone` et le
+    degat LIVE valait EXACTEMENT la moitie de l'offline). ⚠ Le VOLET « effet non porte » de ce cas
+    est CLOS depuis #192 : 1169 a desormais sa classe (`SereneUnifierSenseOfStoneEffect`,
+    `loki/damage_reduction.py`) et l'agrement est bit-exact avec Aun'Shi en jeu. Le critere de choix
+    du roster, lui, reste valable : un banc doit rester exempt d'aura d'equipe **non portee**, et le
+    test de cette propriete n'est pas `vanilla-target` mais la lecture des effets CAPTES sur les
+    cibles au moment de la mesure.
 
 Le montage lui-meme vit dans `scripts/python/probe_murderous_swing_1137.py` (invocable en ligne de
 commande) ; cette fixture n'en est que la PORTE pytest -- meme forme que `psychic_aoe_case` /

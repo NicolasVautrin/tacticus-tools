@@ -50,6 +50,7 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                DaughterOfTheAbyssOwnerDmgReductionEffect,
                                OverwhelmingWrathRangeDmgReductionEffect,
                                PsychicFortressDmgReductionEffect,
+                               SereneUnifierSenseOfStoneEffect,
                                VexillaMagnificaDmgReductionEffect, MarkerlightEffect,
                                ExemplarOfHateTargetEffect, ChronometronExtraDamageEffect,
                                SuperchargeExtraPiercingEffect)
@@ -125,6 +126,7 @@ __all__ = [
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
     "OverwhelmingWrathRangeDmgReductionEffect", "PsychicFortressDmgReductionEffect",
+    "SereneUnifierSenseOfStoneEffect",
     "VexillaMagnificaDmgReductionEffect",
     "MarkerlightEffect", "ExemplarOfHateTargetEffect", "ChronometronExtraDamageEffect",
     "SuperchargeExtraPiercingEffect",

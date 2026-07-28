@@ -403,13 +403,22 @@ et **cible 500000 → 500000, caster 9537 → 9537** — zéro mutation, alors q
 >    `[0, 0, extraDmg]`, 3ᵉ coup **7 846** au lieu de 4 854 ; sous l'hypothèse `Cache` la 3ᵉ cible
 >    SURVIVRAIT, or le natif la TUE. C'est la MORT (pas le montant, clampé aux PV) qui tranche.
 
-> **Résidu NOMMÉ, trouvé en chemin et hors périmètre** : `SereneUnifierSenseOfStone` (effet 1169,
-> aura d'équipe d'`tauAunShi`) est dans l'enum du port mais n'a **aucune classe d'effet** →
-> `BaseEffect` nu, aucune contribution. Mesure : avec Aun'Shi dans le camp adverse, le dégât LIVE de
-> 1137 valait **exactement la MOITIÉ** du dégât offline, sur les deux cibles à la fois (facteur 2,000
-> reproductible). Ce n'est ni un défaut de ce port ni un défaut du canal de dégât — le port est
-> bit-exact dès que l'aura est absente — mais tout banc de mesure qui embarque un porteur d'aura
-> défensive d'équipe est faussé sans le dire. À fermer par qui prendra les auras défensives.
+> **Résidu NOMMÉ, trouvé en chemin et hors périmètre — ✅ FERMÉ (#192)** : `SereneUnifierSenseOfStone`
+> (effet 1169, posé par le passif `SereneUnifier` d'`tauAunShi`) était dans l'enum du port sans
+> **aucune classe d'effet** → `BaseEffect` nu, aucune contribution. Mesure d'origine : avec Aun'Shi
+> dans le camp adverse, le dégât LIVE de 1137 valait **exactement la MOITIÉ** du dégât offline, sur
+> les deux cibles à la fois (facteur 2,000 reproductible).
+> **Porté** : `SereneUnifierSenseOfStoneEffect` (`engine/entities/effects/loki/damage_reduction.py`),
+> mirror 1:1 de `IdunBattle.Entities.Effects.Loki.SereneUnifierSenseOfStoneEffect$$CreateEffectDamageMalusForDefense`
+> = `ForPercentDecrease(get_OwnerIsTarget, ConfigVar(0x46 = dmgReductionPct))`, **sans aucun gate**.
+> Ce n'était PAS une aura source-side : le behaviour turn-start
+> (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SereneUnifierAbility$$CreateBehaviour`) fait un
+> `AddEffect` sur un **sélecteur**, donc l'effet est MATÉRIALISÉ sur chaque bénéficiaire et emprunte le
+> canal DÉFENSEUR standard. Validé sur les DEUX faces (`probe_192_sense_of_stone.py`,
+> `tests/engine/runner/test_sense_of_stone_live.py`) : facteur 2,000 → **1,000 bit-exact**.
+> **Leçon de banc qui, elle, reste vraie** : `unit_map.py vanilla-target` ne voit que ce qu'une unité
+> s'applique à ELLE-MÊME — jamais ce qu'un allié lui donne. Un banc de mesure se qualifie en lisant les
+> effets **captés sur les cibles au moment de la mesure**, pas en filtrant le roster.
 
 Les 10 autres restent ouverts et sont dispatchables **sans re-RE** : porteur, gate, symbole natif
 (`IdunBattleLogic.Entities.Abilities.Active.Loki.<Nom>Ability$$ExecuteBehaviour`, sauf
