@@ -375,7 +375,14 @@ class _Normal:
             collect_additional_hit_groups(
                 state, attacker_id, target_id, active, not _ranged, _def_active),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
-            spread_pct=spread_pct, extra_pierce=ctx.extra_pierce)
+            spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
+            # R6-b' : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` est la
+            # DERNIERE instruction de CHAQUE `IdunBattle.Operations.AttackDamageOperation$$
+            # ExecuteHit` -- y compris ceux des sous-operations de groupe, qui partagent
+            # l'`OngoingAttack` (donc son compteur `+0x30`) via `GetCurrentAttackOrDefault`.
+            # On THREADE le meme `bonus_hit_chance` et l'index de sortie de la phase d'arme
+            # (`next_hit_index`, coups bonus compris) : un seul site d'evaluation du `Maybe`.
+            bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"])
         if _ah is not None:
             death = death or _ah.get("death")
         # `On(AttackDamageAttack = 10)` — 2e event de cloture d'`IdunBattle.Operations.

@@ -122,7 +122,8 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
 def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt, thc,
                             groups: list, mods, def_mods, armor: int, hit_mult: int,
                             block_sources, shc, spread_pct: int = 20,
-                            extra_pierce: int = 0) -> "Optional[dict]":
+                            extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
+                            hit_index0: int = 0) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -169,12 +170,51 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     2e coup est lui aussi reproduit, c'est TOUJOURS la variante AVEC le resolve gaspille (3/3 ;
     `resolve=False` echoue sur les 3).
 
-    ⚠ RESIDU CHIFFRE, LAISSE OUVERT (R6-b') : sur CE porteur le 2e coup n'est reproduit que
-    **3/5** (777 : live 37 vs port 39 ; 314159 : live 33 vs port 35). `orksRuntherd` porte
-    `GetStuckIn`, dont le behaviour est un `Maybe(chance)` evalue par
-    `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` — derniere instruction de
-    CHAQUE `ExecuteHit`, y compris ceux d'un groupe ; le port ne roule ce `Maybe` que sur les
-    coups d'ARME d'index impair (`bonus_hit_chance` n'est PAS passe ici).
+    R6-b' — RESIDU FERME : le `Maybe` after-hit est ROULE SUR LES COUPS D'UN GROUPE comme sur
+    les coups d'ARME, avec le MEME compteur d'index, CONTINU a travers les sous-operations.
+    Chaine natif LUE (gqfc5mff6c), de l'index au tirage :
+
+      * `IdunBattle.Core.OngoingAttack$$.ctor` initialise `+0x30` (index de coup) et `+0x34`
+        (compteur de series) a 0. L'objet est POUSSE **une seule fois par attaque** sur la pile
+        `MatchState+0x60` (`IdunBattle.Core.MatchState$$StartAttack`, appelee par
+        `IdunBattle.Operations.StartAttackOperation$$Execute`) et depile par
+        `IdunBattle.Core.MatchState$$FinishAttack` ;
+      * toute sous-operation le RECUPERE par `Peek` : `IdunBattle.Operations.ADamageOperation$$
+        GetCurrentAttackOrDefault` -> `IdunBattle.Core.Services.BattleQuery$$
+        GetCurrentAttackOrDefault` -> `IdunBattle.Core.MatchState$$GetCurrentAttack` ;
+      * `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` relit `currentAttack+0x30`
+        FRAIS a chaque tour de boucle et le passe a `ExecuteHit` ; `IdunBattle.Operations.
+        ADamageOperation$$UpdateCurrentAttackAfterHit` fait `currentAttack+0x30 += 1` apres
+        CHAQUE coup (`+0x34 += 1` seulement en fin de serie) ;
+      * DERNIERE instruction d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (appel
+        INCONDITIONNEL, xref) : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
+        qui construit `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` avec cet index en
+        `Nullable<int>` au champ **+0x110** puis dispatche l'event **`On(8)`** (et `On(0x3d)` si
+        crit) ; `IdunBattle.Entities.Formulas.CurrentHitIndexFormula$$Calculate` lit exactement
+        `AbilityEntities+0x110` ;
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger` =
+        `On(8) & AmountIsOdd(CurrentHitIndex()) & OwnerIsCaster & !(MinDistance(caster,target) >
+        Direct(2))` ; `...GetStuckInAbility$$CreateBehaviour` = `Maybe(AddBonusHitsToCurrentHitGroup
+        (..., AbilityOrEffect(0x4d2)), GetBonusHitChance())` -> 1 `NextBool(chance)`
+        (`IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`) a chaque passage du trigger ;
+      * la voie GROUPES (`ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` -> slot
+        0x3c -> `AttackDamageOperation$$Execute` -> `ExecuteHits`) passe donc par le MEME
+        `OngoingAttack` : l'index n'y repart PAS de 0.
+
+    D'ou `bonus_hit_chance` + `hit_index0` : MEME site d'evaluation que les coups d'arme
+    (`damage_hits._run_hits`), threade — AUCUN deuxieme site (le fork de port que #110 avait deja
+    coute). `hit_index0` entre a `r["next_hit_index"]` de la phase d'arme (coups bonus compris) et
+    se THREADE de groupe en groupe. `bonus_hit_chance is None` -> strict no-op (attaquant sans
+    GetStuckIn, ou cible a plus de 2 hex).
+    Consequence portee gratuitement, et FIDELE : un succes pendant un groupe defere un coup bonus
+    DANS CE GROUPE (le natif a une boucle de fin sur `hitGroup+0x58` par sous-operation, et
+    `SetupHitGroup` cree un hitGroup PAR sous-operation).
+
+    RESIDU RESTANT, VECTEUR ABILITY : `damage_ops/ability.py` ne passe `bonus_hit_chance` NI aux
+    coups d'arme NI ici, alors que le trigger natif n'a aucun gate `IsNormalAttack` — une attaque
+    d'ability de la famille ATTACK (`AttackWithAttackDamage`) d'un porteur GetStuckIn a <=2 hex
+    roule le `Maybe` cote natif. Non ouvert ici : ce serait porter la face ARME du vecteur ability,
+    hors perimetre R6-b' (et un demi-portage — groupes sans coups d'arme — serait INCOHERENT).
 
     A CONFIRMER LIVE (case-202 §7) : (1) gate `hp > 0` (cible morte pendant la phase d'arme ->
     sous-operations non emises) ; (2) `failed_block` remis a zero entre phase d'arme et groupes
@@ -190,6 +230,7 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     from ...entities.damage_trait import DamageTrait
     death = None
     out = {"groups": 0, "hits": 0, "total": 0, "per_hit": [], "rolls": [], "profiles": []}
+    hit_index = int(hit_index0)      # `currentAttack+0x30` — CONTINU d'un groupe a l'autre (R6-b')
     for g in groups:
         if int(thc.hp or 0) <= 0:
             break
@@ -234,18 +275,25 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # slot-8 gaspille) ; `is_attack_damage_op=True` = famille ATTACK, les DEUX voies
             # natives de coups additionnels retombant sur `AttackDamageOperation$$ExecuteHits`.
             post_roll=_reduce, is_attack_damage_op=True,
+            # R6-b' : MEME site d'evaluation du `Maybe` after-hit que les coups d'arme, avec
+            # l'index CONTINU de l'ATTAQUE (`currentAttack+0x30`). Voir la docstring.
+            bonus_hit_chance=bonus_hit_chance, hit_index0=hit_index,
             limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
             limits_hp=int(thc.hp or 0))
+        hit_index = r["next_hit_index"]
         AttackDamageOperation._deplete_shield(shc, r)
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
             r["shield_dmg"], r["armor_dmg"], is_attack=False)
         death = death or d
         out["groups"] += 1
-        out["hits"] += max(0, int(g.get("count") or 0))
+        # coups REELLEMENT emis (R6-b' : un succes du `Maybe` defere un coup bonus DANS ce groupe,
+        # donc `count` seul sous-compte).
+        out["hits"] += len(r["per_hit"])
         out["total"] += r["total"]
         out["per_hit"] += r["per_hit"]
         out["rolls"] += r["rolls"]
         out["profiles"].append(g_profile)
     out["death"] = death
+    out["next_hit_index"] = hit_index
     return out if out["groups"] else None

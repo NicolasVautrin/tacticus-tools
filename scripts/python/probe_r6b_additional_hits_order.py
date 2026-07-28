@@ -121,7 +121,8 @@ def _extra_rolls_variant(k):
     que ce soit -- les coups sont donc emis un par un (`count=1`), ce qui n'est PAS le
     decoupage natif (l'etage limites/rogne et la failedList sont per-ATTAQUE)."""
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
-              block_sources, shc, spread_pct=20, extra_pierce=0):
+              block_sources, shc, spread_pct=20, extra_pierce=0,
+              bonus_hit_chance=None, hit_index0=0):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.runner.operations.additional_hits import reduce_group_damage
