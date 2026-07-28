@@ -713,6 +713,67 @@ class TerrifyingCrescendoExtraDmgEffect(BaseEffect):
         return for_addition(True, int(per) * int(crescendo))   # Multiply(ConfigVar(extraDmg), EffectLevel)
 
 
+class FuelledByFuryExtraDamageEffect(BaseEffect):
+    """`FuelledByFury_ExtraDamage` (EffectType 0x52b=1323, nom capte "FuelledByFury_ExtraDamage" ;
+    passif triggered `FuelledByFury` 0x4e3=1251 d'`ultraTitus` << Titus >>, Ultramarines/Imperial) --
+    i2 : << Deals +153 Damage with all attacks for each time a friendly Character has used an active
+    ability this battle. >> #1323.
+
+    TROISIEME membre de la fratrie `Multiply(ConfigVar(8=extraDmg), EffectLevel)` apres BeaconOfRage
+    (1298) et TerrifyingCrescendo (1424) -- et c'est FuelledByFury qui en porte le corps PARTAGE :
+    `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$GetCurrentExtraDamage`
+    (refcount 10) = `Multiply(ConfigVar(8, GetAbilityState(effet), effet+0x60), EffectLevel(effet@0x150))`,
+    dont TerrifyingCrescendo HERITE.
+
+    - degat `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` :
+      `EffectBonus.ForAddition(DSLFactory.get_OwnerIsCaster, GetCurrentExtraDamage())` -- bonus FLAT
+      additif (AUCUN `ForPercent*`), meme canal additif que BeaconOfRage/SmashaEad
+      (`IdunBattle.Core.Services.DamageModifiers$$Add`, applique par coup). Le noeud `get_OwnerIsCaster`
+      est le SEUL de la conjonction : PAS de gate `IsRangedAttack` (contrairement a TerrifyingCrescendo),
+      PAS de `IsNormalAttack`, PAS de `IsMeleeAttack`, PAS de gate sur un trait de la cible -- d'ou le
+      i2 << with ALL attacks >> (normale ET ability, melee ET distance).
+    - magnitude : `extraDmg[abilityLevel PASSIF] x multiplier x EffectLevel`. `extraDmg` = variables
+      `FuelledByFury` (2 (L1) -> 138 (L50) -> 153 (L65)), DANS `variablesAffectedByRarityBonus` ->
+      scale par le multiplier de rarete de l'unite (comme TerrifyingCrescendo, contrairement a
+      BeaconOfRage). Le << 248/coup >> observe = `round(138 x 180/100)` = extraDmg[L50] x mult 180 %,
+      pour UN stack ; i2 << +153 >> = extraDmg[L65] a mult 100 %.
+    - `EffectLevel` = le compteur d'abilities actives alliees, accumule par la face TRIGGER
+      (`runner/operations/triggers/loki/fuelled_by_fury.py`, mirror de
+      `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger`
+      + `$$CreateBehaviour`). Le niveau abouti arrive TEL QUEL dans `decisionView.effects[].level`
+      (comme BeaconOfRage / TerrifyingCrescendo) -> on lit `self.level` sans re-calcul offline.
+      AUCUN cap : `IncreaseEffectLevel(Owner@0x148, 0x52b, amount=NULL, max=NULL)` -- l'amount NULL
+      retombe sur `df@0xc0 = Const(1)` (`IdunBattleLogic.Entities.DSLFactory$$IncreaseEffectLevel`) et
+      le `max` NULL desactive le clamp d'`IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute`.
+    - niveau/level inconnu -> inerte (degradation fidele, meme regle que ses deux jumeaux).
+
+    Les deux autres membres de la famille FuelledByFury sont HORS de cette classe : `FuelledByFury_
+    BlockOverkill` (1354, `UnitFlag.PreventOverkill`) vit dans `runner/components.py` (#178), et
+    `FuelledByFury_CanRevive` (1324) n'est pas porte (backlog #66-r2)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # trigger natif = `get_OwnerIsCaster` SEUL (aucun autre noeud dans
+        # `...FuelledByFury_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`) -> tous profils,
+        # normale ET ability, melee ET distance. `OwnerIsCaster` est vrai par construction sur ce
+        # canal (`_attacker_effect_bonuses` n'itere que les effets de l'ATTAQUANT).
+        fury = self.level                              # EffectLevel (stack), sans cap natif
+        if not fury or int(fury) <= 0:
+            return None
+        if self.ability_level is None:                 # ConfigVar sans AbilityState -> pas de magnitude
+            return None
+        per = ability_var("FuelledByFury", "extraDmg", self.ability_level,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not per:
+            return None
+        return for_addition(True, int(per) * int(fury))   # Multiply(ConfigVar(extraDmg), EffectLevel)
+
+
 # Traits CIBLE qualifiant `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` :
 # TROIS noeuds `DSLFactory$$HasTrait(factory, factory+0x178 = target, X)` fusionnes par
 # `IdunBattle.DSL.AbilityTrigger$$op_BitwiseOr`. `IdunBattle.Entities.Enum.UnitTrait` (dump enums
