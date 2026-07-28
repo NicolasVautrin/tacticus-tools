@@ -125,17 +125,24 @@ terme custom (la prediction est deja assuree par `prediction.py`, ecarts de dega
   `--armor-target 4000` (le plancher percage fait diverger Eviscerate-50 % de Power-40 %, ce qui
   remonte 1230 juste au-dessus de 69). L'ecart offline tombe alors dans la fenetre `(1, 11)` ou le
   poids -10 de la BC decide — et le natif ET le moteur basculent ensemble.
-- **Residu de PREDICTION nomme (hors #27)** : l'utilite de paire OFFLINE de 1230 sous-estime la
-  native (7.8931 vs 12.0496 dans le montage a armure ; 15.7828 vs 24.1025 sans armure). Cause lue au
-  decompile : `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$ExecuteBehaviour`
-  construit la formule de degat comme
-  `Sum(MinMaxDamage, Multiply(Get(ConfigVar 8 = extraDmg), Count(CanAddUnit(AdjacentTiles(owner@0x148)))))`
-  — un bonus `extraDmg x (nb de tuiles adjacentes au CASTER ou une unite peut etre placee)` que le
-  chemin generique de `prediction/abilities.py` ne modelise pas (mesure sans armure : natif
-  11572-17352 vs offline 7576-11364, soit +3996 min = 2 tuiles libres x 4 coups x 277 x 1.8).
-  Debloqueur : un handler `_savage_echoes_inputs` dans `_MAKE_DMG_INPUT_OVERRIDES`. Ce residu ne
-  bloque PAS le terme custom (le montage ci-dessus le rend decisif malgre lui) mais il decale la
-  magnitude — il faut le fermer avant de compter sur 1230 dans un walk complet.
+- **Prediction de degat de 1230 : FERMEE (#216).** L'utilite de paire OFFLINE sous-estimait la native
+  (7.8931 vs 12.0496 dans le montage a armure ; 15.7828 vs 24.1025 sans armure) parce que le chemin
+  generique de `prediction/abilities.py` s'arretait a `MinMaxDamage`. L'artefact natif de la PREDICTION
+  est `IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$MakeDamagePredictions`, qui passe en 6e arg de
+  `GenerateMultiHitAttackPredictions` la formule PROPRE
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage` =
+  `Sum(MinMaxDamage, Multiply(Get(ConfigVar 8 = extraDmg), Count(CanAddUnit(AdjacentTiles(Owner@0x148)))))`
+  — un bonus `extraDmg x (nb de tuiles adjacentes au CASTER ou une unite peut etre placee)`. Les trois
+  AUTRES arguments du call-site sont generiques (profil `GetDamageProfile` -> `Nullable` NON vide, PAS le
+  quirk `param_8 = null` de #164/#165 ; hits `ArmoriumCherubAbility$$GetHits` = `GetNumberConstant(0x2f)` ;
+  cibles `DSLFactory$$Entity(target)` -> mono-cible). Porte par le handler `_savage_echoes_inputs`
+  (`_MAKE_DMG_INPUT_OVERRIDES[1230]`), qui evalue l'arbre PARTAGE `SavageEchoesAbility.get_damage_formula`
+  — le MEME que la face COMBAT (`runner/abilities/bloodangels.py`), un seul artefact natif, un seul port.
+  VALIDE LIVE bit-exact contre `aiPlaybookPredict` sur 4 montages a compte de tuiles libres PILOTE
+  (2 / 5 / 4 / 3 : natif 11572-17352 / 17556-26336 / 15560-23340 / 13564-20344, offline IDENTIQUE ;
+  offline SANS le handler reste FIGE a 7576-11364). Paire d'utilite : natif 24.10252990666777 vs offline
+  24.102529915669475 (ecart 9e-9, arrondi Fix64) contre 15.7828 avant le fix. `probe_216_savage_prediction.py`
+  + garde `tests/engine/test_savage_echoes_prediction_live.py`.
 - **Prerequis de harnais leve dans le meme commit** : `decisionView` nomme les abilities via
   `frida/hooks/data/ability-names.ts` (map GENEREE, figee dans le bundle injecte). 1230 n'y est pas
   -> l'ability sortait en placeholder `"id:1230"`, le predicteur offline cle sa recherche gameconfig
@@ -417,12 +424,9 @@ existera.
   y retombe sur la base `Fix64(0)`. Ce qui reste NON couvert, c'est l'action FANTOME elle-meme : le
   moteur continue de proposer `(1100, ennemi)` que le natif refuse (`_is_attack_ability` ne regarde
   que `damageProfile`). Ce n'est pas un residu de #27 mais du routage de ciblage.
-- **SavageEchoes, prediction de degat** : le residu `extraDmg x Count(CanAddUnit(AdjacentTiles(caster)))`
-  (cf. « Notes de fidelite ») laisse l'utilite de paire offline SOUS la native. Le terme custom reste
-  decisif dans le montage exerce, mais **en bataille reelle cet ecart de prediction domine** — comme
-  pour Drachnyen, le fermer est prioritaire devant ce terme pour l'agreement.
-- **SavageEchoes, face COMBAT** : non portee (1230 n'est pas dans `ABILITY_CLASSES`) — #27 ne couvre
-  que la face DECISION. Aucun `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` n'est donc requis ni ajoute.
+- **SavageEchoes, face COMBAT** : portee depuis (case-220 §blood-angels, `ABILITY_CLASSES[1230]`) — #27
+  ne couvrait que la face DECISION. La **prediction de degat** de 1230, elle, est FERMEE par #216
+  (cf. « Notes de fidelite ») : ce n'est plus un non-couvert.
 - **AmuletOfTheVoidwyrm** : override DECOUVERT en tranche 3, non porte (verrou multi-hit) et son
   porteur n'a pas ete ventile hero/summon/npc — a faire avant toute tentative de port.
 - **MoW (1169/1148/1142)** : blocage confirme live (runner 336) — les machines deploient mais

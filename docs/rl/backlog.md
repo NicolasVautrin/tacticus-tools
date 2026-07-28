@@ -686,11 +686,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Le verrou « porteur hors `--list-pool` » **n'existe plus** (`catalog_inject.py`). Chaque item nomme
   son débloqueur exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe. Biais
   visible seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
-- **`SavageEchoes` (1230), prédiction de dégât** (`case-27` §Notes de fidélité) : la formule native
-  `SavageEchoesAbility$$ExecuteBehaviour` ajoute `extraDmg × Count(CanAddUnit(AdjacentTiles(caster)))`
-  à `MinMaxDamage` ; le chemin générique de `prediction/abilities.py` l'ignore → utilité de paire
-  offline SOUS la native (7.89 vs 12.05 mesuré). Débloqueur : un handler `_savage_echoes_inputs` dans
-  `_MAKE_DMG_INPUT_OVERRIDES`. `[opus]`, petit.
 - **Action FANTÔME `SorcerousFacade` (1100) sur cible ENNEMIE** (`case-27` §SorcerousFacade) :
   `state_bridge._is_attack_ability` ne regarde que `constants.damageProfile`, donc le moteur génère des
   paires `(1100, ennemi)` que le natif REFUSE (`abilityTargets` natif ne rend que l'ALLIÉ Psyker).
