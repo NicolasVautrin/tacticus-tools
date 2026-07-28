@@ -40,16 +40,16 @@ restored **cannot exceed 4365 Health**. »
   `IdunBattle.Operations.ApplyDamageOperation$$Execute` (valeur = total du coup, PV + bouclier +
   armure-pool) et roule dans `@+0x70` par `IdunBattle.Operations.StartTurnOperation$$ResetUnit`.
 
-## Volet GHOST-REVIVE (NON porte — residu)
+## Volet GHOST-REVIVE (PORTE ailleurs — `loki/ghost_revive.py`, #213)
 
 Classe native DISTINCTE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TimeFluxReviveAbility$$.ctor`
 = `GhostReviveAbility` parametree par `EffectType.TimeFlux_Revive = 0x4a2 = 1186` (le ctor affiche
-`EnvDefenderHealthBuffAbility..ctor` est un fold ICF — **ne pas se fier au nom**). Arbres deja LUS et
-documentes par `docs/rl/case-66-revive-in-place.md` §8.2. Trois debloqueurs manquants, aucun
-devinable : (a) vecteur `On(PreUnitMove = 31)` absent du port ; (b) effet portant une TUILE (le
-ghost) avec sa condition de disparition ; (c) revive **NON in-place** (`SetRevivePosition`
-parametree par la tuile du ghost). Reste classe `[fable]` par `docs/rl/case-220/thousand-sons.md`.
-La variable `TimeFlux.hp` (=2401) appartient a CE volet et n'est PAS lue ici.
+`EnvDefenderHealthBuffAbility..ctor` est un fold ICF — **ne pas se fier au nom**). Les DEUX
+triggered-abilities sont derivees du MEME passiveAbility `TimeFlux`, d'ou les deux entrees de
+`ABILITY_TRIGGERS["TimeFlux"]`. Arbres in extenso + les cinq retraits du ghost :
+`loki/ghost_revive.py` ; RE de reference : `docs/rl/case-66-revive-in-place.md` §8.2.
+La variable `TimeFlux.hp` (=2401 @L65) appartient a CE volet et n'est PAS lue ici : c'est le PV de
+resurrection (`3290 = round(hp[L50] = 1828 x 180 %)`, live-valide).
 
 DOCTRINE #149 : le `CreateTrigger` est COLLAPSE dans `matches()` ; le `CreateBehaviour` est un VRAI
 ARBRE DSL (`Min`/`Sum`/`Const`/`LastHitDamageTakenLastTurn` + feuille `Heal`, qui appelle

@@ -46,12 +46,15 @@ cible-sur-tuile-en-feu dans les hooks bonus. Risques : l'aura (statDelta inexpli
 condition évaluée au calc-time.
 ```
 ```
-[TimeFlux | thousTerminator passif]  — regen [opus] isolable / ghost+revive [fable]
+[TimeFlux | thousTerminator passif]  — LES DEUX VOLETS SONT PORTÉS ET VALIDÉS LIVE
 VAs : CreateBehaviour @1811a8690 ; CreateTrigger @1811a8850 ; ReviveAbility @1811a88a0 (effet 1186)
-Regen turn-start = Heal(self, Min(873 + LastHitDamageTakenLastTurn, 4365), ForRegenerate) —
-[opus] avec le sélecteur LastHitDamageTakenLastTurn. Le reste = TIME GHOST spatial (posé sur l'hex
-quitté, invalidé si occupé) + REVIVE à la position du ghost à la 1re mort (2401 HP, survit à
-l'Overkill) = substrat neuf → [fable] (rejoint le sous-système REVIVE, variante at-position).
+Regen turn-start = Heal(self, Min(873 + LastHitDamageTakenLastTurn, 4365), ForRegenerate) — LIVRÉ
+(#133, `triggers/loki/time_flux.py`). TIME GHOST + REVIVE at-position — LIVRÉ (#213,
+`triggers/loki/ghost_revive.py`) : le classement [fable] « substrat neuf » est PÉRIMÉ, les trois
+pièces (vecteur On(PreUnitMove), effet porté par une TUILE, `SetRevivePosition`) ont été portées
+d'affilée. Correctif de RE : le ghost est posé sur `CurrentTurnStartTile` (`UnitComponent+0x18c`),
+PAS sur « l'hex quitté » ; le PV de résurrection est `3290 = round(hp[L50] x 180 %)` au rank 17
+(2401 est la valeur L65 du tooltip). Détail : `case-66-revive-in-place` §8.2.
 ```
 ```
 [1101 AttemptedPossession | thousSorcerer]  — [fable]
@@ -79,8 +82,8 @@ multi-hex).
 ```
 
 **Synthèse TS** : couvert = ArcaneShield ; [opus]+prérequis = RealityUnbound (le + léger), Doombolt,
-HellfyreMissileRack, PsychicStalk (aura à risque) + TimeFlux/regen ; **[fable]** =
-AttemptedPossession, TimeFlux/ghost-revive ; BLOQUÉ MoW = InfernalCannon, AetherStride. Transverses :
+HellfyreMissileRack, PsychicStalk (aura à risque) ; **LIVRÉ** = TimeFlux (regen #133 + ghost-revive
+#213) ; **[fable]** = AttemptedPossession ; BLOQUÉ MoW = InfernalCannon, AetherStride. Transverses :
 HasTakenDamageOfDamageProfileThisTurn (wrapper dict #202, quasi-gratuit) ; distribution-égale de
 hits ; PerformAIAbility généralisé (unités ennemies + move). HYPOTHÈSES : stats 0x18/0x19 ; effets
-5 vs 6 ; move des summons possédés ; logique ghost non isolée.
+5 vs 6 ; move des summons possédés ; logique ghost non isolée (LEVEE #213 : le ghost EST isole, cf. case-66 §8.2).

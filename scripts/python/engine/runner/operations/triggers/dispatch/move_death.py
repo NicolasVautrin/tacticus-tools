@@ -18,6 +18,76 @@ from ..base import TriggerEvent
 from .core import evaluate_trigger_operation
 
 
+def pre_move_triggers(state: State, mover_id: int) -> list[dict]:
+    """Vecteur `On(PreUnitMove = 0x1f = 31)` — emis par
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluatePreMoveTriggers`, dont le corps est aussi
+    INLINE dans `IdunBattle.Operations.MoveUnitOperation$$Execute` (d'ou l'absence d'xref CODE vers
+    la fonction nommee : c'est le meme code, recopie par l'optimiseur).
+
+    PLACE EXACTE dans le pipeline natif du move, LUE au decompile d'`Execute` : apres les sept gates
+    de validation (`IsAllowedToMove`, `UnitIsOnTiles`, `TilesAreWalkable`, `TilesMatchUnitFeetCount`,
+    `IsDisallowedEmptyPosition`, `IsPositionReservedForOtherUnit`, `IsPositionReservedForDrafting`) et
+    apres `SetReservation`, mais **AVANT** `CalculatePaths`, `MoveUnit` (l'ecriture de la position),
+    `AddMoveEvent`, `KillSteppableUnits`, `UpdateCharging`, `SetMovedFlag` et
+    `EvaluateAfterMoveTriggers`. Autrement dit : l'unite est ENCORE sur sa tuile de depart quand cet
+    evenement part. Le port l'emet donc en TETE de `MoveUnitOperation.execute`.
+
+    `AbilityEntities.ctor(mover, mover, mover, …)` -> **actor = caster = target = le mover** (lu au
+    decompile). L'emission est gardee cote natif par l'octet `MoveUnitOptions@+0x12` (nul a tous les
+    call-sites du port -> event TOUJOURS emis, meme regime que `SetMovedFlag`).
+
+    Consommateurs portes :
+      * `GhostReviveAbility`/`TimeFluxReviveAbility` (#213) : Toth qui bouge laisse un time-ghost sur
+        sa tuile de DEBUT DE TOUR ;
+      * 1er des cinq retraits de `GhostEffect` : un ghost dont le poseur rebouge disparait.
+    No-op si aucun trigger ne matche."""
+    ev = TriggerEvent(EventTriggerType.PreUnitMove, mover_id, mover_id, ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_position_changed_1_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(UnitPositionChanged_1 = 0x24 = 36)` — PREMIER des trois events qu'emet
+    `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers`, egalement emis par
+    `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` (push) et par
+    `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` (revive NON in-place, #213).
+
+    Le port l'appelait jusqu'ici en BESPOKE (`light_cover_on_enter`, une tile-ability hors registre).
+    Ce foyer ajoute le dispatch GENERIQUE du meme event, pour les EFFET-triggers qui l'ecoutent :
+      * 3e des cinq retraits de `GhostEffect` — `On(0x24) & NOT AreEqual(caster, EffectSource) &
+        Contains(TargetTiles@0x190, Owner@0x148)` : une AUTRE unite arrive sur la tuile du ghost, le
+        ghost disparait (c'est le « the time ghost vanishes if the hex becomes occupied » de l'i2).
+    `TargetTiles@0x190` = la tuile d'ARRIVEE : le port la derive de la `PositionComponent` de
+    `unit_id`, qui est deja ecrite a ce stade (le natif emet ces events APRES `MoveUnit`).
+    No-op si aucun trigger ne matche."""
+    ev = TriggerEvent(EventTriggerType.UnitPositionChanged_1, unit_id, unit_id,
+                      ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_position_changed_2_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(UnitPositionChanged_2 = 0x1d = 29)` — TROISIEME et dernier event
+    d'`EvaluateAfterMoveTriggers`, emis aussi par `ReviveUnitOperation$$SetRevivePosition`.
+    Consommateur porte : `DecoysAndMisdirection_BuffFriends` (G2). Foyer partage avec
+    `after_move_triggers` (qui l'emettait deja inline)."""
+    ev = TriggerEvent(EventTriggerType.UnitPositionChanged_2, unit_id, unit_id,
+                      ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_removed_triggers(state: State, unit_id: int) -> list[dict]:
+    """Vecteur `On(UnitRemoved = 0x25 = 37)` — 5e et dernier retrait de `GhostEffect`
+    (`On(0x25) & AreEqual(EffectSource, target@0x178)` : le poseur du ghost QUITTE le plateau, le
+    ghost part avec lui).
+
+    RESIDU ASSUME, et c'est le point important : le port n'a AUCUN emetteur de cet evenement --
+    `IdunBattle.Operations.RemoveUnitOperation` n'est pas porte (rien ne retire une unite du plateau
+    dans le runner isole : les morts restent en place, `alive=False`). Ce vecteur existe donc pour
+    que le trigger correspondant soit ENREGISTRE et testable, mais il n'est appele par aucun site de
+    production -- a brancher le jour ou un `RemoveUnitOperation` sera porte."""
+    ev = TriggerEvent(EventTriggerType.UnitRemoved, unit_id, unit_id, ranged=False, profile=None)
+    return evaluate_trigger_operation(state, ev)
+
+
 def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     """Vecteur after-move (mirror `IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers → dispatch).
     Le natif émet, dans l'ordre, `On(0x24=UnitPositionChanged_1)`, `On(4=UnitAfterMove)` (overwatch) PUIS
@@ -43,11 +113,13 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
     # / `first_aid_heal`. No-op hors tuile de cover.
     from ..tiles import light_cover_on_enter
     out += light_cover_on_enter(state, mover_id)
+    # ... et le dispatch GENERIQUE du meme `On(0x24)` pour les effet-triggers qui l'ecoutent (#213 :
+    # retrait n°3 de `GhostEffect` -- une autre unite arrive sur la tuile du ghost).
+    out += unit_position_changed_1_triggers(state, mover_id)
     ev = TriggerEvent(EventTriggerType.UnitAfterMove, mover_id, mover_id, ranged=False, profile=None)
     out += evaluate_trigger_operation(state, ev)
     # G2 : `On(0x1d=UnitPositionChanged_2)` émis APRÈS `On(4)` par le même `EvaluateAfterMoveTriggers` natif.
-    ev2 = TriggerEvent(EventTriggerType.UnitPositionChanged_2, mover_id, mover_id, ranged=False, profile=None)
-    out += evaluate_trigger_operation(state, ev2)
+    out += unit_position_changed_2_triggers(state, mover_id)
     return out + arrived_at_final_tile_triggers(state, mover_id)
 
 
@@ -161,6 +233,9 @@ def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict
     `DisplaceUnitOperation.execute` (displace.py) après un push réussi."""
     from ..tiles import light_cover_on_enter     # `On(0x24)` — tile-ability, hors registre d'effets
     out = light_cover_on_enter(state, pushed_id)
+    # dispatch GENERIQUE du meme `On(0x24)` (retrait n°3 de `GhostEffect`, #213) : une unite POUSSEE
+    # sur la tuile d'un ghost le fait disparaitre exactement comme si elle y avait marche.
+    out += unit_position_changed_1_triggers(state, pushed_id)
     ev = TriggerEvent(EventTriggerType.UnitDisplaced, pusher_id, pushed_id, ranged=False, profile=None)
     return out + evaluate_trigger_operation(state, ev)
 

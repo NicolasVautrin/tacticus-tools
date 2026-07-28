@@ -114,6 +114,27 @@ class UnitComponent(Component):
     Port : `None` = pas de revive en attente ; sinon un dict `{amount, heal_type, source, priority}`
     (cf. `operations/revive.py`).
 
+    `current_turn_start_tile` = mirror du champ `UnitComponent + 0x18c` (un `int` d'id de TUILE).
+    ECRIT par `IdunBattle.Operations.StartTurnOperation$$Execute`, dans la boucle sur
+    `PlayerComponent.CurrentlyOwnedUnitIds` du joueur ENTRANT et juste apres le bump de
+    `turnsStarted@+0x58` : `mainTile = EntityExtensions.GetMainTile(unit) ; comp[0x18c] =
+    (mainTile != null) ? mainTile.Id : 0`. C'est donc la tuile ou l'unite se trouvait au DEBUT DE SON
+    PROPRE TOUR -- PAS la tuile qu'elle vient de quitter. RELU par
+    `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select` (`IdunBattleLogic.Entities.
+    DSLFactory$$CurrentTurnStartTile`), qui rend une liste VIDE quand le champ vaut 0 -- ce que le
+    port represente par `None`. Consommateur porte : `GhostReviveAbility`/`TimeFluxReviveAbility`
+    (le time-ghost de `thousTerminator` est pose sur CETTE tuile, cf. `triggers/loki/ghost_revive.py`).
+
+    `revived_by_abilities` = mirror du `HashSet<AbilityOrEffect>` @`ActorStatisticsComponent + 0xe0`.
+    ECRIT par `IdunBattle.Operations.ReviveUnitOperation$$Execute` : si la `ReviveData` porte un
+    `sourceId` (`Nullable<AbilityOrEffect>`), l'operation l'AJOUTE a ce set juste apres `SetHealth`
+    et AVANT les flags. RELU par `Idun.Source.IdunBattle.Logic.Entities.Triggers.
+    HasBeenRevivedAbilityTrigger$$ShouldTrigger` (`IdunBattleLogic.Entities.DSLFactory$$
+    HasBeenRevivedByAbility(unit, source)`) = `set.Contains(source)`. AUCUN reset natif (ni
+    turn-start, ni phase) -> c'est un registre de BATAILLE : le gate « une seule resurrection par
+    ability » de `GhostEffect` et de `GhostReviveAbility`. Port : set d'ids `AbilityOrEffect`
+    (l'`EffectType` 1186 pour le ghost).
+
     `parent_id` = mirror du lien PARENT natif (`ParentComponent`, champ id @+0x10 ; observable live
     `Unit_Parent_Id` emis au spawn d'un summon). C'est ce que lit le selecteur
     `IdunBattle.Entities.Selectors.ParentSelector$$Select` (-> `IdunBattle.Entities.UnitExtensions$$GetParent`),
@@ -175,7 +196,7 @@ class UnitComponent(Component):
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
-                 "charged_unit_ids")
+                 "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -205,6 +226,14 @@ class UnitComponent(Component):
         # `update_charging` / `IdunBattle.Core.Services.BattleQuery$$IsCharging`). Videe par
         # `FinishUnitTurnOperation` (fin d'activation) -> semantique « charge CE TOUR ».
         self.charged_unit_ids: list = []
+        # `int` @UnitComponent+0x18c — cf. la docstring de classe (bloc `current_turn_start_tile`).
+        # None = aucun turn-start n'a encore tourne pour cette unite (mirror du 0 natif : le
+        # selecteur `CurrentTurnStartTile` rend alors une liste VIDE).
+        self.current_turn_start_tile: Optional[int] = None
+        # `HashSet<AbilityOrEffect>` @ActorStatisticsComponent+0xe0 — cf. la docstring de classe
+        # (bloc `revived_by_abilities`). Loge ici comme `last_hit_damage_taken_*` (meme residu
+        # structurel : le foyer natif est l'ActorStatisticsComponent).
+        self.revived_by_abilities: set = set()
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`

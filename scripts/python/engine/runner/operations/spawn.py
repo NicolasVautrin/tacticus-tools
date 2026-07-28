@@ -436,6 +436,12 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
       * `ContagionsOfNurgle_AddEffectToNewUnit_Ability` (case-dpw) — le debuff d'armure de l'aura
         Contagion se pose sur l'unite qui apparait DEDANS. MESURE : `astraSmnKell`, invoque par
         `SwornProtector` au contact de `deathPutrifier`, a `FixedArmor` 1496 -> **1197** live.
+      * (#213) le 2e des cinq retraits de `GhostEffect` — `On(0x33) & NOT AreEqual(caster,
+        EffectSource) & Contains(TargetTiles@0x190, Owner@0x148) & NOT HasTrait(caster, 0x1b =
+        Steppable)` : une unite qui APPARAIT sur la tuile d'un time-ghost le dissipe, sauf si elle est
+        Steppable (un decoy/spore-mine posé là ne compte pas). Ce consommateur-la passe par le
+        DISPATCH GENERIQUE ajoute ci-dessous (c'est un effet-trigger du registre `EFFECT_TRIGGERS`,
+        pas une fonction bespoke).
     Renvoie la liste des retours de vecteur (vide = no-op). None-safe."""
     if unit_id is None:
         return []
@@ -444,6 +450,13 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
     r = apply_on_unit_added(state, int(unit_id))
     if r is not None:
         out.append(r)
+    # DISPATCH GENERIQUE `On(UnitAdded = 0x33 = 51)` : `AbilityEntities.ctor(added, added, added)`
+    # -> actor = caster = target = l'unite qui vient d'apparaitre.
+    from .triggers import TriggerEvent, evaluate_trigger_operation
+    from ...dsl.event_trigger_type import EventTriggerType
+    out += evaluate_trigger_operation(
+        state, TriggerEvent(EventTriggerType.UnitAdded, int(unit_id), int(unit_id),
+                            ranged=False, profile=None))
     return out
 
 

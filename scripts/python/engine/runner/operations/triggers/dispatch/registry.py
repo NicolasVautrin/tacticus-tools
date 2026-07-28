@@ -30,6 +30,11 @@ from ..loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (
 from ..loki.reality_unbound import (RealityUnboundAbility,            # passif thousTzaangor (2 volets)
                                    RealityUnboundExtraMaxDamageAbility)
 from ..loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
+from ..loki.ghost_revive import (GhostReviveAbility,                 # #213 (volet ghost-revive)
+                                 GhostEffectRevive, GhostRemoveOnSourceMoves,
+                                 GhostRemoveOnUnitAdded, GhostRemoveOnUnitEnters,
+                                 GhostRemoveOnSourceDeathInactive, GhostRemoveOnSourceRemoved,
+                                 GHOST_EFFECT)
 from ..loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 from ..loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from ..loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
@@ -296,13 +301,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     +extraMaxDmg EXTRA_MAX_DAMAGE (1207, EMPILABLE), 1 tour.
     # Cf. loki/reality_unbound.py + entities/effects/loki/reality_unbound.py.
     "RealityUnbound": [RealityUnboundAbility, RealityUnboundExtraMaxDamageAbility],
-    # TimeFlux (passif `thousTerminator` << Toth >>) -- volet REGEN SEUL :
-    # `OwnerIsActor & On(0x13=TurnStart_Other)` -> `Heal(self, Min(Sum(hpToHeal,
-    # LastHitDamageTakenLastTurn(self)), maxHpToHeal))`. Le volet GHOST-REVIVE
-    # (`TimeFluxReviveAbility` = `GhostReviveAbility`(1186)) reste un RESIDU : il exige
-    # `On(PreUnitMove=31)`, un effet portant une TUILE et un revive NON in-place
-    # (case-66-revive-in-place.md §8.2). Cf. loki/time_flux.py.
-    "TimeFlux": [TimeFluxRegenAbility],
+    # TimeFlux (passif `thousTerminator` << Toth >>) -- le natif derive DEUX triggered-abilities du
+    # MEME passiveAbility, et ce registre en est le mirror :
+    #   * `TimeFluxAbility` (REGEN) : `OwnerIsActor & On(0x13=TurnStart_Other)` -> `Heal(self,
+    #     Min(Sum(hpToHeal, LastHitDamageTakenLastTurn(self)), maxHpToHeal))` -- loki/time_flux.py ;
+    #   * `TimeFluxReviveAbility` = `GhostReviveAbility(effectType=1186)` (POSE DU GHOST, #213) :
+    #     `OwnerIsActor & On(0x1f=PreUnitMove) & OwnerIsCaster` -> `If(<4 gates>, Nothing(),
+    #     AddEffect(1186, source=self, targets=CurrentTurnStartTile(self)))` -- loki/ghost_revive.py.
+    "TimeFlux": [TimeFluxRegenAbility, GhostReviveAbility],
     # BarbedOvipositor (passif `tyranParasite` << Parasite of Mortrex >>) = `On(0=UnitDeath) &
     # OwnerIsActor & AreEnemies & Not(IsObjectOrSteppable(target)) & Not(TriggeringAbilityIs(
     # TriggeredAbilityType.ItsGonnaBlow=1080)) & Not(HasTrait(target, 5=Mechanical))` -> `Spawn(owner,
@@ -439,4 +445,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `RemoveEffect(1146)`. Cf. loki/reactivate_overwatch.py.
     EWO_REACTIVATE_OVERWATCH: [EarlyWarningOverrideReactivateOverwatch,   # 1145 -> re-entree + -1 coup
                                EarlyWarningOverrideHitReductionPurge],   # 1145 -> purge du 1146
+    # TimeFlux_Revive 1186 (#213) -- le time-ghost de `thousTerminator`, effet dont le PORTEUR est une
+    # TUILE. SIX entrees : le `CreateTargetTrigger`/`CreateTargetTriggerBehaviour` de `GhostEffect`
+    # (la resurrection NON in-place, `OnPreDeath(ignoreOverkill=1) & AreEqual(EffectSource, target)`)
+    # + les CINQ `Triggered()` de son `CreateHandleTriggerAbilitiesInternal`, qui sont la « condition
+    # de disparition » de l'i2. Cf. loki/ghost_revive.py pour les arbres in extenso.
+    GHOST_EFFECT: [GhostEffectRevive,                    # On(1)    -> Revive(tiles=Owner) + RemoveEffect
+                   GhostRemoveOnSourceMoves,             # On(0x1f) -> le poseur rebouge
+                   GhostRemoveOnUnitAdded,               # On(0x33) -> une autre unite APPARAIT dessus
+                   GhostRemoveOnUnitEnters,              # On(0x24) -> une autre unite ARRIVE dessus
+                   GhostRemoveOnSourceDeathInactive,     # On(0)    -> poseur mort, effet INACTIF
+                   GhostRemoveOnSourceRemoved],          # On(0x25) -> poseur retire du plateau
 }

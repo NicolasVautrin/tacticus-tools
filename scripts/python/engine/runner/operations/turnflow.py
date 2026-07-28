@@ -48,7 +48,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
-                          UnitFlagsComponent)
+                          UnitFlagsComponent, PositionComponent)
 from ...entities.stats import StatType
 from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
                        first_aid_heal)
@@ -250,6 +250,20 @@ class StartTurnOperation:
             if uc is not None:
                 uc.last_hit_damage_taken_last_turn = int(uc.last_hit_damage_taken_this_turn or 0)
                 uc.last_hit_damage_taken_this_turn = 0
+            # #213 : `UnitComponent + 0x18c` = la TUILE de debut de tour. Mirror des DEUX lignes qui
+            # suivent le bump de `turnsStarted@+0x58` dans la MEME boucle native
+            # (`IdunBattle.Operations.StartTurnOperation$$Execute`) :
+            #     mainTile = EntityExtensions.GetMainTile(unit) ;
+            #     unitComponent[0x18c] = (mainTile != null) ? mainTile.Id : 0 ;
+            # Portee identique au reste de la boucle : les unites du joueur ENTRANT seulement. Le
+            # filtre `alive` mirroir le `RemoveAll(<defait>)` de
+            # `PlayerComponent$$get_CurrentlyOwnedUnitIds` (une unite morte n'est plus dans la liste,
+            # donc sa tuile de debut de tour n'est PAS reecrite). Relu par le selecteur
+            # `CurrentTurnStartTile` (ghost de `thousTerminator`, cf. `triggers/loki/ghost_revive.py`).
+            if uc is not None and uc.alive and state.board is not None:
+                pc = e.get_component(PositionComponent)
+                uc.current_turn_start_tile = (state.board.id_at(pc.col, pc.row)
+                                              if pc is not None else None)
         # #128 tile-effects ROUND-TICK : StartTurn emet la SEQUENCE d'events 0x12->0x13->0x14->0x15->0x16
         # (VERIFIE IdunBattle.Operations.StartTurnOperation$$Execute : 5 emissions FUN_180026490(...,0x12/0x13/0x14/0x15/0x16) en fin d'Execute ;
         # l'ancien "0x12/0x14/0x16" etait INCOMPLET). Mapping effets : 0x12 = Contaminated re-apply ; 0x13 =

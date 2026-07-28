@@ -1,11 +1,14 @@
 # case-66 — Sous-systeme REVIVE-EN-PLACE (base `ReviveEffect`) + TaintedNarthecium
 
-**Statut : DEBLOQUEUR LIVRE + RETROFIT #79 LIVRE + FERMETURE #88/#89 + RESIDU A1 LIVRE (#88, 2026-07-28).**
-Le residu **A1 `FuelledByFury`** (§8.1) est PORTE et VALIDE LIVE : les 3 << blocages >> de sa fiche
+**Statut : SOUS-SYSTEME REVIVE COMPLET — DEBLOQUEUR + RETROFIT #79 + FERMETURE #88/#89 + RESIDU A1
+(#88, 2026-07-28) + RESIDU A2 (#213, 2026-07-29).** Les DEUX consommateurs hors-famille sont
+desormais portes et valides live. **A1 `FuelledByFury`** (§8.1) : les 3 << blocages >> de sa fiche
 etaient PERIMES ou faux — l'emetteur d'`On(PendingDeathAdded = 3)` est
 `IdunBattle.Operations.RecordKillOperation$$Execute`, le `TriggeringAbility` a desormais un foyer
-unique, et l'effet 1324 est CAPTE live (rien a poser). Le residu **A2 `GhostRevive`/`TimeFlux`** (§8.2)
-a sa RE **complete** (emetteur d'`On(PreUnitMove)` inclus) mais son port reste a faire. Primitive `ReviveEffect`
+unique, et l'effet 1324 est CAPTE live (rien a poser). **A2 `GhostRevive`/`TimeFlux`** (§8.2) : le
+SEUL revive NON-IN-PLACE du binaire, porte avec son vecteur `On(PreUnitMove)`, son effet porte par une
+TUILE (5 retraits) et le mutateur `SetRevivePosition` — VALIDE LIVE sur deux couples (board, seed) ou
+la tuile de mort et la tuile de revive DIFFERENT. Primitive `ReviveEffect`
 (revive-en-place) + `ReviveUnitOperation` portees et validees sur le carrier phare **deathRotbone**
 (passif `TaintedNarthecium`). Le retrofit #79 a porte **Narthecium** (LIVE-validee end-to-end),
 **RitesOfMorkai**, **ReanimationBeam** et **PhoenixGem** (mirror + offline, carriers non montables).
@@ -427,7 +430,7 @@ lu par `IsOverkill`), pas un morceau du revive. Second residu : le NOM du slot d
 `EvaluateTriggerOperation$$CanGetAbilityTrigger` (le « fire-on-death » natif) n'est pas resolu — sa
 valeur VRAIE pour cette ability est etablie par la mesure live, pas par une lecture.
 
-### 8.2 `TimeFlux` / `GhostRevive` (`thousTerminator`, hero **dans le pool**) — RE **COMPLETE**, port NON tente
+### 8.2 `TimeFlux` / `GhostRevive` (`thousTerminator`, hero **dans le pool**) — **PORTE ET VALIDE LIVE (#213, 2026-07-29)**
 
 i2 : « When Toth **moves**, he leaves a **time ghost** behind on the hex he moved from. The time ghost
 vanishes if the hex becomes occupied by another unit or if … » (+ le volet regeneration, deja distinct
@@ -478,16 +481,78 @@ Arbres LUS (spec complete, prete a recopier) :
   4. `OnDeath(1) & AreEqual(EffectSource, target@0x178) & NOT IsEffectActive(self@0x150)` ;
   5. `On(0x25 = UnitRemoved, 1) & AreEqual(EffectSource, target@0x178)`.
 
-**Ce qui reste a FAIRE** (aucune inconnue de RE ; c'est du travail de port, de la taille de §8.1) :
-(a) poser le vecteur `On(PreUnitMove = 31)` ; (b) porter le ghost = un effet dont le PORTEUR est une
-TUILE (substrat deja present : `TileEffectTrigger`, `AddEffect(..., Tiles(...))` de Fire / Contaminated
-/ DespoiledGround) plus ses 5 retraits et les 4 noeuds neufs `CurrentTurnStartTile`,
-`HasBeenRevivedByAbility`, `TileHasTriggeredAbility`, `IsEffectActive` ; (c) un revive **NON in-place** —
-`operations/revive.py` est in-place par construction : il faut transporter la liste de tuiles dans la
-`ReviveData` (champ `Nullable<List<…>>` bati par `ReviveBehaviour.Execute` depuis le selecteur
-`@param_2+0x90`) et mirrorer `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` (qui publie
-au passage `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, donc peut
-lui-meme retirer un ghost — cf. retrait n°3).
+**Trois PRECISIONS de RE ajoutees par le portage** (#213), toutes lues au decompile :
+
+1. **La tuile n'est PAS « the hex he moved from » de l'i2 — c'est la tuile de DEBUT DE TOUR.**
+   `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select` resout son selecteur, prend
+   le `UnitComponent` de l'entite et lit **`+0x18c`** (un id de tuile, `0` -> liste VIDE). Ce champ a
+   un ecrivain UNIQUE : `IdunBattle.Operations.StartTurnOperation$$Execute`, dans sa boucle sur
+   `PlayerComponent.CurrentlyOwnedUnitIds` du joueur ENTRANT, juste apres le bump de
+   `turnsStarted@+0x58` (`mainTile = GetMainTile(unit) ; comp[0x18c] = mainTile?.Id : 0`). Les deux
+   formulations coincident tant que l'unite ne bouge qu'une fois par tour.
+2. **`HasBeenRevivedByAbility` a un substrat, et c'est un registre de BATAILLE.**
+   `Idun.Source.IdunBattle.Logic.Entities.Triggers.HasBeenRevivedAbilityTrigger$$ShouldTrigger` lit
+   `ActorStatisticsComponent + 0xe0 .Contains(source)`. Le set est alimente par
+   `IdunBattle.Operations.ReviveUnitOperation$$Execute` (`if (sourceId.HasValue) set.Add(...)`, entre
+   `SetHealth` et les flags) et **n'est remis a zero NULLE PART** (ni turn-start, ni phase) : le gate
+   `NOT HasBeenRevivedByAbility(self, 1186)`, present DEUX fois (pose du ghost + behaviour de
+   resurrection), est donc un « une seule fois par bataille ».
+3. **`GhostEffect` a DEUX instanciations**, et c'est ce qui explique le fork d'`amount` :
+   `TimeFluxReviveAbility$$.ctor` = `GhostReviveAbility..ctor(this, 0x4a2 = 1186)` et
+   `EchoesFromTheWarpAbility$$.ctor` = `...(this, 0x504 = 1284)`. Le behaviour compare le champ
+   `source` de l'effet a `0x485 = 1157 TriggeredAbilityType.TimeFlux` **a la construction de
+   l'arbre** : egal -> `Direct(GetVariableForLevel(config, 'hp'))` (branche TimeFlux, portee) ;
+   different -> `StatAmount(src, Health, max)` (branche EchoesFromTheWarp, **non portee** — porteur
+   non etabli, hors perimetre #213).
+
+**Port** (fichiers) :
+
+| Fichier | Contenu |
+|---|---|
+| `triggers/loki/ghost_revive.py` | `GhostReviveAbility` (pose) + `GhostEffectRevive` (resurrection, `TileEffectTrigger`) + les CINQ classes de retrait |
+| `operations/revive.py` | `_set_revive_position` (mirror `SetRevivePosition`), `revive_position` dans la `ReviveData`, enregistrement `revived_by_abilities` |
+| `triggers/revive_effect.py` | la feuille `Revive` accepte le 7e argument `targetsTile` (nul chez tous les autres consommateurs) |
+| `triggers/dispatch/move_death.py` | vecteurs `pre_move_triggers` (`On 0x1f`), `unit_position_changed_1/2_triggers` (`On 0x24`/`0x1d`), `unit_removed_triggers` (`On 0x25`) |
+| `operations/movement.py` | `On(PreUnitMove)` emis **en tete** d'`execute` (place native lue : avant `CalculatePaths`/`MoveUnit`) ; `after_move_triggers` dispatche desormais `On(0x24)` en GENERIQUE |
+| `operations/spawn.py` | `on_unit_added` dispatche `On(0x33)` en GENERIQUE (retrait n°2) |
+| `operations/turnflow.py` + `components.py` | `UnitComponent.current_turn_start_tile` (@+0x18c) et `revived_by_abilities` (@ActorStats+0xe0) |
+
+**Validation** — `probe_213_ghost_revive.py`, **DEUX couples (board, seed)**, montage ou la tuile de
+MORT et la tuile de REVIVE DIFFERENT (sans quoi un revive in-place serait indetectable) :
+
+| couple | A (debut de tour) | B (mort) | ghost pose | pos apres mort | hp |
+|---|---|---|---|---|---|
+| `MC1_67` / 31337 | (1,2) | (3,2) | (1,2) | **(1,2)** live ET port | **3290** live ET port |
+| `C4_09` / 777 | (3,3) | (4,3) | (3,3) | **(3,3)** live ET port | **3290** live ET port |
+
+`3290 == round(TimeFlux.hp[L50] = 1828 x 180 %)` = `ability_var('TimeFlux','hp', …)`.
+⚠ **Piege de mesure rencontre et neutralise** : avec UN SEUL adversaire, le runner bascule de tour
+juste apres le revive et la REGEN `TimeFlux` s'ajoute -> le live rendait **4487 = 3290 + 1197**
+(`hpToHeal[L50] x 180 %`). Ce n'etait PAS une divergence de montant mais un confond de PORTEE DE
+MESURE ; une 2e unite adverse qui garde son action le supprime. Decomposer l'etage a suffi a le voir
+(la somme tombait EXACTEMENT juste) — ne jamais fitter le scalaire.
+
+Gardes : `tests/engine/runner/test_ghost_revive_live.py` (5 tests — face positive A!=B, « pas de move
+-> pas de ghost », once-per-battle via `revived_by_abilities`, dissipation par arrivee d'une autre
+unite, deplacement du ghost au 2e move). Zero-reg cible : famille revive (42), mouvement/decoys/push
+(21 + 1 xfail pre-existant), tuiles/turnflow/spawn (27) = **90 PASS** ; `probe_120` OK.
+
+**RESIDUS NOMMES** :
+- **`On(UnitRemoved = 0x25)` n'a aucun emetteur cote port** (`RemoveUnitOperation` non porte : dans le
+  runner isole les morts restent en place) -> le retrait n°5 est enregistre et testable via
+  `unit_removed_triggers`, mais aucun site de production ne l'atteint.
+- **`TileHasTriggeredAbility(tile, 29 = BrokenIce)`** : la table `TriggeredAbilityType -> tileDefId`
+  vit dans les Unity assets de tuile (hors gameconfig) -> le gate est structurellement present mais
+  toujours FAUX. Il ne peut refuser un ghost a tort que sur un board a glace brisee (40 boards en
+  portent, cf. l'inventaire terrain de `runner.md`).
+- **`UnitComponent + 0x18c` n'est pas capte** par `combatSnapshot` -> un `load_state` frais part a
+  `None` et le 1er move ne pose PAS de ghost tant qu'un `StartTurnOperation` n'a pas tourne. Point
+  d'ancrage a hooker si on veut le capter : `UnitComponent+0x18c` cote `combatSnapshot`.
+- **Double move dans le MEME tour sur la MEME tuile de debut de tour** : `AddEffectOperation` no-ope
+  (effet deja present) puis le retrait n°1 le supprime -> plus de ghost. Cas de bord (une unite ne
+  bouge qu'une fois par tour, flag `UnitFlag.Moved`).
+- **Branche `StatAmount(src, Health, max)` du fork d'amount** (`EchoesFromTheWarp`, effet 1284) : non
+  portee, porteur non etabli.
 
 NB : `RitesOfRestoration` (deja porte) = **Resurrect** (tile-choice/ambush), sous-systeme DISTINCT
 (`ResurrectUnitOperation`) — NE PAS confondre avec Revive-en-place.
