@@ -41,8 +41,8 @@ import hexgeo
 from engine.playbook.scene import Scene
 from engine.runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                       HealthComponent, UnitComponent)
-from engine.entities.pathfinding.walk_pathfinder import (get_movable_positions,
-                                                         get_path_node_counts)
+from engine.entities.pathfinding.walk_pathfinder import get_movable_positions
+from engine.entities.pathfinding.ignore_terrain_pathfinder import get_path_node_counts
 from engine.entities.pathfinding.tile_blocking import make_can_continue
 from engine.entities.pathfinding.fly_pathfinder import (
     is_like_flying, get_movable_positions as fly_get_movable_positions)
@@ -221,10 +221,13 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
          `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null)` dont il lit `route+0x18` =
          `List._size` : un compte de **NOEUDS**, extremites incluses (`aretes + 1`).
 
-    ⚠ `PathfinderType = 1` est un **LITTERAL** : le natif mesure cette distance au pathfinder de
-    MARCHE **meme pour une unite VOLANTE** (seul `MovementActionGenerator$$GetDistanceToEnemy`, qui
-    choisit le ClosestEnemy, derive son type de l'unite : `(movementType == 3) + 1`). D'ou l'absence
-    de `fly_is_valid_path_node` ici, alors que `_move_tiles` l'utilise bien.
+    ⚠ `PathfinderType = 1` est un **LITTERAL** : le natif mesure cette distance avec le MEME
+    pathfinder pour tout le monde, y compris une unite VOLANTE (seul
+    `MovementActionGenerator$$GetDistanceToEnemy`, qui choisit le ClosestEnemy, derive son type de
+    l'unite : `(movementType == 3) + 1`). D'ou l'absence de `fly_is_valid_path_node` ici, alors que
+    `_move_tiles` l'utilise bien. Et le type 1 n'est PAS le `WalkPathfinder` de `_move_tiles` : c'est
+    `ignore_terrain_pathfinder` (aucun blocage par occupant, cout `10 + IsFilled`) — cf. son en-tete,
+    la difference est MESUREE, pas supposee.
 
     Ecarts de port ASSUMES, faute de source offline : le footprint de l'ennemi est reduit a sa tuile
     principale (`PositionComponent`, comme le RPC live qui lit `GetMainTile`) — exact pour toute
@@ -237,15 +240,7 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
     otile = board.id_at(origin[0], origin[1])
     if otile is None:
         return {}
-    occ = _occupants(state)
-    me = state.get_entity(uid)
-    sc = me.get_component(StatsComponent) if me is not None else None
-    traits = (sc.ctx.traits if sc is not None else None) or []
-    # `WeightCost` majore a 10000 le cout d'une tuile block-entering (bit 0x1 de
-    # `GetTileBlockingReasons`) sans la rendre infranchissable : `GetPath` passe par
-    # `GetValidNeighbours`, PAS par le gate `IsValidContinuePathTile` de `NodesInNextLevel`.
-    _cc = make_can_continue(state.effects, traits)
-    _blocked = (lambda tid: not _cc(tid)) if _cc is not None else None
+    occ = _occupants(state)                   # `IsFilled` du `WeightCost` (PAS un gate de passage)
 
     best_counts = None
     best_dist = None
@@ -253,7 +248,7 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
         etile = board.id_at(c, r)
         if etile is None:
             continue
-        counts = get_path_node_counts(board, etile, occ, my_team, blocked=_blocked)
+        counts = get_path_node_counts(board, etile, occ)
         d = counts.get(otile)
         if d is None or d <= 0:               # `d.HasValue && d.Value > 0`
             continue
