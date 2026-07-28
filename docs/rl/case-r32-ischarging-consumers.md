@@ -150,6 +150,37 @@ proxy), **les deux** tests `STEP_ADJACENT` tombent — `MC1_67` `[3935,…]` vs 
 `[2642, 2046, 2770, 2669]` vs `[2241, 1645, 2369, 2268]` — tandis que les régimes `CHARGE` et
 `NO_STEP` restent verts. La garde discrimine donc bien le gate, et rien d'autre.
 
+### Le verrou de l'ère-proxy a dû être RETIRÉ, pas réparé (#o10-a, 2026-07-28)
+
+`test_avalanche_of_muscle_live.py` — le premier verrou live de l'effet 1025, écrit avec le port — est
+passé ROUGE avec ce commit et l'est resté trois jours sans que personne le voie (aucune passe ciblée ne
+couvrait ce fichier). Bisect : `64d875d` 3 PASSED, `964dd15` 3 FAILED. Ce n'est pas le code qui a
+régressé — c'est ce fichier qui encodait le modèle réfuté, **et sa méthode ne pouvait pas être
+réparée** :
+
+* il rejouait l'attaque offline depuis un snapshot pris **APRÈS** le pas, en **déclarant** la charge
+  par `set_moved_flag`. Or le 2e terme du prédicat vit dans `UnitComponent.ChargedUnitIds@+0x190`,
+  qu'aucun RPC n'expose (§7) : `load_state` ne peut pas le seeder, donc un snapshot post-pas ne peut
+  **jamais** porter la charge. Le régime CHARGE y est structurellement irréproductible ;
+* il n'exerçait que `CHARGE` et « déjà adjacent, aucun pas » — exactement les **deux régimes où proxy
+  et prédicat coïncident**. D'où trois ans de vert sans valeur discriminante : le régime qui sépare les
+  deux modèles (`STEP_ADJACENT`) n'y était pas exprimable.
+
+Fichier supprimé ; le verrou vivant de 1025 est `test_ischarging_extra_damage_live.py`. Ses deux
+garanties propres (non-vacuité de la magnitude, matérialisation sur les PV) y sont reprises par
+`test_charge_bonus_is_not_vacuous`.
+
+**Piège de mesure levé au passage** (`probe_o10a_charge_hp_stage.py`) : `applyAction.units[].hp` est
+l'état de **FIN DE CASCADE**, pas de fin d'attaque. Sur ce montage, l'attaque est la dernière action du
+caster → la même réponse porte la bascule de tour, puis `LivingMetalRepair` remonte `necroOverlord` de
+**+12000** (10 % des PV max) et deux ripostes partent. Confronter ce champ à un rejeu offline qui n'a
+joué QUE l'attaque compare deux points différents du pipeline et fabrique un faux « bug de port »
+chiffré. L'étage propre est le `UnitStats_RemainingHealth` du **dernier événement de dégât** :
+`116065 / 112308 / 109230 / 106098` côté natif, `106098` côté port — exact. Contre-épreuve sur l'autre
+couple (`C1_25` / 31337 / `orksNob`+`tyranTyrantGuard`, aucun soin de début de tour) : PV après
+**109873 des deux côtés** — l'écart ne survit pas au changement de cibles, donc il n'était pas dans
+l'application des dégâts.
+
 ### Ce que la fiche `R32` disait, et pourquoi c'était faux
 
 `R32` annonçait « offline **+0** » et « le gate n'est porté sur AUCUN des trois ». Les deux sont des

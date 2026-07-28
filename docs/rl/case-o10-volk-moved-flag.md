@@ -169,6 +169,15 @@ l'identique sur la base) : `test_avalanche_of_muscle_live.py` — 3 echecs, mess
 sans le fix (`aucun delta positif charge vs no-charge [0,0,0,0]`, `bonus_per_hit: 599`). Le gate
 `IsCharging` de cet effet ne discrimine plus sur ce montage. **Hors perimetre, mais reel.**
 
+> **FERME le 2026-07-28 (#o10-a).** Ce n'etait pas le CODE : c'etait l'ATTENDU. Bisect —
+> `64d875d` 3 PASSED, `964dd15` (case-r32) 3 FAILED. `964dd15` a remplace le proxy `has_moved` par le
+> predicat natif `IdunBattle.Core.Services.BattleQuery$$IsCharging` sans retirer le test qui gatait par
+> le proxy. Le fichier a ete SUPPRIME : sa methode (snapshot APRES le pas + charge DECLAREE par
+> `set_moved_flag`) est structurellement incapable de reproduire le 2e terme du predicat
+> (`UnitComponent.ChargedUnitIds@+0x190`, qu'aucun RPC n'expose), et il n'exercait que les deux regimes
+> ou proxy et predicat COINCIDENT. Le verrou vivant du meme effet 1025 est
+> `test_ischarging_extra_damage_live.py` (3 regimes dont le DISCRIMINANT, 2 couples board/seed).
+
 ## 6. Ce qui n'est PAS couvert
 
 1. **Residu de CARDINALITE du canal #179 sur ce meme porteur** (distinct, ANTERIEUR, inchange par ce

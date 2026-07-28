@@ -28,10 +28,13 @@ IsNormalAttack, pas ici) → jumeau de FeederTendrils MOINS le gate normal-attac
 coup (attacker_additive_pre) ; extraDmg (seule var, idx8, dans variablesAffectedByRarityBonus ;
 [L1]=6..[L65]=437) x multiplier GLOBAL. Port : AvalancheOfMuscleExtraDamageEffect (extra_damage.py) +
 factory "AvalancheOfMuscle_ExtraDamage" ; enum 1025 déjà présent (effect_type.py).
-VALIDÉ (test_avalanche_of_muscle_live.py, astraBullgryn L50 mult180, bonus=+599/coup=round(333x1.8)) :
-CHARGE bit-exact off==live [3178,3303,3287,4002] (off_nocharge = -599/coup) ; NO-CHARGE bit-exact off==live
-sans bonus [3313,2782,3045,3539] (off_charge = +599). Multiplier GLOBAL confirmé (pas le piège per-ability
-#68 : sinon la magnitude divergerait). Risque #68/#75 LEVÉ pour ce passif.
+VALIDÉ (test_ischarging_extra_damage_live.py, astraBullgryn L50 mult180, bonus=+599/coup=round(333x1.8)) :
+bit-exact off==live dans les TROIS régimes de charge, sur DEUX couples (board, seed) — CHARGE (arrive au
+contact) avec bonus, STEP_ADJACENT (bouge vers une cible déjà adjacente) et NO_STEP sans bonus. Multiplier
+GLOBAL confirmé (pas le piège per-ability #68 : sinon la magnitude divergerait). Risque #68/#75 LEVÉ.
+⚠ Le gate n'est PAS `HasFlag(UnitFlag.Moved)` mais `BattleQuery$$IsCharging` (case-r32) : le premier
+verrou de ce port, `test_avalanche_of_muscle_live.py`, gatait par ce proxy et n'exerçait donc que les deux
+régimes où les deux modèles COÏNCIDENT ; il a été retiré le 2026-07-28 (#o10-a).
 ```
 ```
 [ToughToKill | astraDreir passif]  — [opus]+prérequis
