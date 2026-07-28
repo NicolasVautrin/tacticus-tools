@@ -190,6 +190,10 @@ BlackTemplars / Custodes / EmperorsChildren / AdeptusAstartes → un port de ces
 **Compte re-dérivé : 13 en lineup** (+ 2 npc non confrontables). Source = `kit-coverage.md`
 régénéré, dont le critère `D` a été corrigé entre-temps.
 
+> **Le compte qui fait foi est celui de §2.1**, re-dérivé du CODE par
+> `python scripts/python/probe_decision_noop_gap.py` — pas celui de cette ligne ni de `kit-coverage.md`.
+> Au 2026-07-28, après le port de `1137` : **10 items réels restants**.
+
 > **−2 le 2026-07-28** (`case-bl-1029-1020`) : `1020 HeraldOfTheApocalypse` et `1029 Drachnyen`
 > sont PORTÉES et confrontées live. Leur symptôme, qui était « non mesuré », l'est désormais —
 > c'était bien le pire cas du gisement : Herald **8450 + 7713 PV non infligés sur DEUX unités**,
@@ -224,7 +228,20 @@ régénéré, dont le critère `D` a été corrigé entre-temps.
 > décision vit dans le 3ᵉ registre. C'est l'erreur qu'a commise la première passe de cette
 > dérivation ; la table §2 ci-dessus, elle, les avait bien. **Toujours les trois registres.**
 >
-> **Sur les 15, 12 sont des items réels et confrontables** :
+> **RE-DÉRIVATION du 2026-07-28 (case-decision-noop, après le port de `1137`)** — le script est
+> désormais AU DÉPÔT : `python scripts/python/probe_decision_noop_gap.py` (il refait le croisement
+> des trois registres et signale ce que deux registres rateraient). Ne PAS décrémenter ce compte à
+> la main : le re-dériver.
+>
+> ```
+> exec (ABILITY_CLASSES) = 93 | decision (union des 3 registres) = 49
+> DECIDENT sans EXECUTER = 13 -> [28, 1038, 1039, 1050, 1090, 1100, 1117, 1121,
+>                                 1129, 1177, 1183, 1192, 1194]
+> ```
+>
+> **10 items réels restants** (13 bruts − `28 Repair` dormant − `1192`/`1194` npc-only).
+>
+> **Sur les 15 de la dérivation initiale, 12 étaient des items réels et confrontables** :
 > * `28 Repair` est un **TAG de playbook générique, pas une ability** — `RepairPlaybook.ability_id =
 >   ActiveAbilityType.Repair`, mais **aucune** entrée `abilities` du gameconfig ne s'appelle
 >   `Repair` (les repairs concrets ont leur propre id, ex. `NanoscarabRepairProtocols`). Les deux
@@ -246,7 +263,7 @@ summon** dans ce gisement :
 | # | id | ability | faction | porteur HERO (pool) | npc | MoW / summon | taille décompilé `ExecuteBehaviour` |
 |---|---|---|---|---|---|---|---|
 | ~~1~~ | ~~1171~~ | ~~DakkaDakkaDakka~~ | Orks | `orksKillaKan` « Snappawrecka » ✅ | 3 | — | **FERMÉ** (case-decision-noop) |
-| 2 | 1137 | MurderousSwing | WorldEaters | `worldExecutions` « Tarvakh » ✅ | 1 | — | ~816 o + 3 helpers |
+| ~~2~~ | ~~1137~~ | ~~MurderousSwing~~ | WorldEaters | `worldExecutions` « Tarvakh » ✅ | 1 | — | **FERMÉ** (case-decision-noop) |
 | 3 | 1129 | BloodyFury | WorldEaters | `worldTerminator` « Wrask » ✅ | 1 | — | ~864 o + 4 helpers |
 | 4 | 1183 | VexillaMagnifica | Custodes | `custoVexilusPraetor` « Aesoth » ✅ | 0 | — | ~1 120 o |
 | 5 | 1177 | LightOfSanguinius | BloodAngels | `bloodDante` « Dante » ✅ | 0 | — | ~1 470 o + `GetDamage` |
@@ -270,7 +287,7 @@ par cast, pondéré par le caractère INCONDITIONNEL de cet écart :
 | # | id | ce que le natif fait, que le port ne fait pas | socle déjà porté ? |
 |---|---|---|---|
 | 1 | 1171 | **6 coups garantis** (jusqu'à 16) × 1455-1819 Projectile pierce 15 ≈ **9 800 PV non infligés par cast**, sans condition ; puis report des coups gaspillés sur des ennemis tirés ≤3 hex ; **et** le caster ne perd pas ses 15 % de PV **max** ⇒ l'action est *gratuite* offline (double faussage : gain absent **et** coût absent) | oui — `ChainLeftOverHitsAttackDamage` (1006), `SubtractHealthPercent` (1131) |
-| 2 | 1137 | 1 coup Piercing 80 ≈ 2 910 sur **TOUS** les ennemis adjacents (+1 746 si un seul est touché) ⇒ écart = n_adjacents × ~2 910 | oui — splash multi-cible (1131) ; face décision déjà mesurée (`case-108`) |
+| ~~2~~ | ~~1137~~ | ~~1 coup Piercing 80 sur **TOUS** les ennemis adjacents (+extraDmg si un seul est touché)~~ | **FERMÉ** — écart MESURÉ avant le port : **7 906 PV non infligés** sur un seul adjacent, **11 662** sur deux |
 | 3 | 1129 | 1 coup Chain ≈ 2 800, **+1 coup par attaque reçue dans la bataille** (cap 8) + report des coups gaspillés | oui — `ChainLeftOverHitsAttackDamage` (1006). ⚠ **dépendance** : `TotalTimesAttacked` (compteur de BATAILLE, natif @+0x34) n'est pas entretenu offline — `UnitComponent.times_attacked_this_turn` est remis à 0 à chaque tour (`reset_times_attacked`) et n'est donc PAS le même compteur. Sans lui le port rend le coup de base |
 | 4 | 1183 | ≈ 3 640 Physical sur la cible **et** un second ennemi adjacent, `Stunned` 1 round sur les deux, `-66 %` dégâts subis sur le caster 1 round ; cooldown 2 rounds | partiellement — pose d'effet + splash |
 | 5 | 1177 | `Infiltrate` self + **CHARGE** vers un hex libre adjacent ≤5 + 5× Melta pierce 75 ≈ 3 800 + debuff -30 % dégâts sur la cible et son ring-1 (doublé contre les alliés ≤50 % PV) | oui — charge (1025/1153), pose d'effet |
@@ -352,7 +369,43 @@ ACCEPTÉ et consomme le tour) et **cible 500000 → 500000, caster 9037 → 9037
 > distribué. Écart borné par `cnt − 1` coups, **nul** dès que `numLeft` est divisible par `cnt`
 > (dont tout le cas `cnt == 1`). Fermer ce résidu = RE du slot 4 d'un cast top-level.
 
-Les 11 autres restent ouverts et sont dispatchables **sans re-RE** : porteur, gate, symbole natif
+**PORTÉ ET FERMÉ par ce cas : #2, `1137 MurderousSwing`** (case-decision-noop, 2026-07-28). Face
+COMBAT dans `engine/runner/abilities/worldeaters.py` (`MurderousSwingAbility`), entrée au registre
+**avec ses deux littéraux** (`TARGETING_OPTIONS` = preset `TargetingOptions` statique `+0x40` →
+`Rules = 0x4000 TargetIsEnemy` + `RANGE_ADJACENT` + `forceMeleeTarget = RangedBool.False`, le MÊME
+preset que 1131 — relu ability par ability, jamais généralisé ; `ABILITY_ATTACK_TYPE` = 0
+`DirectTargetAttack`, littéral du `AActiveAbility..ctor`). Garde live :
+`tests/engine/runner/test_murderous_swing_live.py` (5 tests) + fixture nommée
+`_adjacent_swing_regime.py`. ROUGE mesuré AVANT le port, sur le même montage :
+`ported=False`, `flags={ability_used_flag: True, turn_finished: True}` (cast ACCEPTÉ, tour consommé)
+et **cible 500000 → 500000, caster 9537 → 9537** — zéro mutation, alors que le MÊME cast LIVE mutait
+(`mutated=True`, 84 événements, 7 906 de dégât).
+
+> **Deux pièges de RE payés sur cet item, et ils se généralisent :**
+>
+> 1. **`AmountIsGreater` est STRICT, et le ctor MENT.** `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater`
+>    appelle un ctor que ghidra étiquette `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$.ctor` —
+>    **corps trivial DÉDUPLIQUÉ** (les deux classes ont le même ctor à 2 champs). La classe réelle ne se lit que
+>    sur le `ShouldTrigger` : `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` rend `b < a` (STRICT),
+>    `...AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` rend `b <= a`. Conclure sur le nom du ctor
+>    donnait `Count >= 1` = toujours vrai ⇒ un `extraDmg` **jamais appliqué**, l'exact contraire de l'i2
+>    et de la mesure `case-108`. C'est le cas d'école de « l'absence/le nom dans les tables ne prouve rien ».
+> 2. **Le `Count` est RÉÉVALUÉ PAR CIBLE** (aucun `Cache` natif ; `AttackDamageBehaviour$$ExecuteTarget`
+>    évalue le nœud de dégât une fois par cible, alors que le set est matérialisé UNE fois par
+>    `AttackBehaviour$$Execute`). Quand des cibles meurent en cours de cast, les suivantes basculent
+>    MULTI → SINGLE **dans le même cast**. Mesuré live : trois adjacents à 4 855 PV → deltas
+>    `[0, 0, extraDmg]`, 3ᵉ coup **7 846** au lieu de 4 854 ; sous l'hypothèse `Cache` la 3ᵉ cible
+>    SURVIVRAIT, or le natif la TUE. C'est la MORT (pas le montant, clampé aux PV) qui tranche.
+
+> **Résidu NOMMÉ, trouvé en chemin et hors périmètre** : `SereneUnifierSenseOfStone` (effet 1169,
+> aura d'équipe d'`tauAunShi`) est dans l'enum du port mais n'a **aucune classe d'effet** →
+> `BaseEffect` nu, aucune contribution. Mesure : avec Aun'Shi dans le camp adverse, le dégât LIVE de
+> 1137 valait **exactement la MOITIÉ** du dégât offline, sur les deux cibles à la fois (facteur 2,000
+> reproductible). Ce n'est ni un défaut de ce port ni un défaut du canal de dégât — le port est
+> bit-exact dès que l'aura est absente — mais tout banc de mesure qui embarque un porteur d'aura
+> défensive d'équipe est faussé sans le dire. À fermer par qui prendra les auras défensives.
+
+Les 10 autres restent ouverts et sont dispatchables **sans re-RE** : porteur, gate, symbole natif
 (`IdunBattleLogic.Entities.Abilities.Active.Loki.<Nom>Ability$$ExecuteBehaviour`, sauf
 `MurderousSwing` et `LightOfSanguinius` qui sont sous
 `IdunBattleLogic.Entities.Abilities.Active.<Nom>Ability$$…`), écart observable et socle déjà

@@ -141,6 +141,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1113: AbilityAttackType.DirectTargetAttack,   # StormcallerAbility
     1122: AbilityAttackType.DirectTargetAttack,   # CordClawAbility
     1131: AbilityAttackType.DirectTargetAttack,   # JakhalStimmsAbility
+    # MurderousSwing (1137) : `IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility$$.ctor`
+    # -> `AActiveAbility..ctor(this, &opts, 0, 0)`. Litteral RELU au decompile ; il vaut `0` bien que
+    # l'arbre soit un splash MULTI-cible self-centre (on transcrit le 3e argument du ctor, jamais la
+    # forme du ciblage).
+    1137: AbilityAttackType.DirectTargetAttack,   # MurderousSwingAbility
     1139: AbilityAttackType.DirectTargetAttack,   # SentinelDirectivesAbility
     1147: AbilityAttackType.DirectTargetAttack,   # HadesAutocannonsAbility
     1148: AbilityAttackType.DirectTargetAttack,   # DaemonicOrdnanceAbility
