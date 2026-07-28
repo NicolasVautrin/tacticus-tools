@@ -187,9 +187,20 @@ def _on_fire_damage_ability(state: State, attacker_id: int, target_id: int,
     Anti-boucle : `AddEffectOperation` no-op si la tuile brule deja (== porte native `already-present`
     d'AddEffect) ; le `NOT(TriggeringEffectIs(5))` du trigger est structurellement satisfait ici (on est dans
     le vecteur ATTAQUE, pas un tick de feu -> `FireTileDoT` inflige son DoT en direct, sans repasser par ce
-    vecteur, donc jamais de re-pose en cascade). Emetteur natif = `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
-    per-coup (message after-hit `On(8)`, PAS NormalAttack 0x26). NB : attaque NORMALE uniquement — la pose par
-    ABILITY (BrazierOfHolyFire) passe par AbilityDamageOperation, non cable dans ce vecteur -> gap (#136 suivi).
+    vecteur, donc jamais de re-pose en cascade).
+
+    ⚠ FORK DE VECTEUR (mesure, cf. `case-o3-tile-effect-dynamics.md` §« de-fork On(0x10) ») — les deux
+    phrases suivantes sont vraies EN MEME TEMPS, et c'est exactement le probleme :
+      * le trigger NATIF de cette ability ecoute `On(DamageDealt = 0x10)`, emis par
+        `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `On(0x3a)` -> `On(0xf)` ->
+        `On(0x10)`), **PAR COUP**, sous le gate « reduction de PV REELLEMENT appliquee > 0 » ;
+      * le port, lui, n'accroche PAS ce canal a son bus `On(0x10)` (`dispatch/attack.py::
+        damage_dealt_triggers`) : il l'appelle IMPERATIVEMENT depuis les deux vecteurs d'attaque, ou
+        l'evenement le plus proche est l'after-hit `On(8)` de `IdunBattle.Operations.ADamageOperation$$
+        EvaluateAfterHitTriggers` (qui, lui, n'emet bien que `0x3d` puis `8` -- aucun `0x10`).
+    Consequence : le point d'accrochage offline est PAR ATTAQUE (et non par coup), APRES la resolution
+    complete de l'attaque (et non a l'interieur d'`ApplyDamageOperation`), et SANS le gate `applied > 0`.
+    NB : attaque NORMALE **et** ABILITY -- les deux voies appellent ce canal depuis #136.
 
     Le gate ci-dessous (`profile`/`board`/`effects` + `DamageProfileHasTrait(OnFire)`) = la CONDITION DE
     DECLENCHEMENT (CreateTrigger, hors CreateBehaviour) ; le CreateBehaviour lui-meme = l'arbre delegue."""
