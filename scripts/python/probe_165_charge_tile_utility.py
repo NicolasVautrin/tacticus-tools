@@ -31,6 +31,15 @@ from engine.utilities.tile import sort_tiles_by_utility
 _STRICT = False        # --strict : ne garder que les divergences ou l'UTILITE departage
 
 
+class _BoardOnlyState:
+    """Porteur minimal pour `sort_tiles_by_utility` en mode 100 % OFFLINE (`--plan`) : un dump BC n'a
+    pas d'entites-effets, donc le canal DYNAMIQUE (Loop1) est vide et seul le terrain statique joue."""
+    __slots__ = ("board", "effects")
+
+    def __init__(self, board):
+        self.board, self.effects = board, None
+
+
 def _load_board(board_id: str):
     """Rend (dump, EngineBoard) pour un id de board dumpe (cherche dans les 3 pools)."""
     for kind in ("pvp", "syncPvp", "global"):
@@ -105,7 +114,7 @@ def plan(board_id: str, max_rows: int) -> None:
         ring = [t for t in _ring1(bd, ttile) if bd.walkable(t)]
         if len(ring) < 2:
             continue
-        ranked = sort_tiles_by_utility(bd, ring)
+        ranked = sort_tiles_by_utility(_BoardOnlyState(bd), ring)
         best_util = ranked[0]
         # STRICT : on ne garde que les geometries ou l'utilite DEPARTAGE (elevations distinctes).
         # A utilite EGALE le choix vient de l'ordre du selecteur, non representatif dans ce dump.

@@ -252,7 +252,15 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
     L'ordre du SELECTEUR SOURCE (= le tie-break a utilite EGALE, cas carte plate) est celui
     d'`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` -> `BattleQuery$$GetAdjacentTiles`,
     donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni triee ni symetrisee) — et NON le
-    parcours `hexgeo.disk` que ce port utilisait."""
+    parcours `hexgeo.disk` que ce port utilisait.
+
+    ⚠ RESIDU MESURE (#165 §4) : sur une cible au BORD (4 voisins) avec un caster TRES eloigne
+    (Celestine @(1,0), cible @(6,7), MC1_67), le natif atterrit sur (5,7) e1 la ou ce port rend
+    (6,6) e2 — chemin natif d'UNE etape, donc bien la destination choisie et pas un arret en route.
+    Les deux geometries de reference (cover-tranche @(2,7)->(4,6) et elevation-seule @(2,2)->(0,1))
+    donnent, elles, port == natif. Pistes non tranchees : une feuille de `Tile(7)` gatee sur l'unite
+    (`dc.units` = le caster), ou le Loop1 de `TileEffectsUtility` (effets DYNAMIQUES de tuile non
+    hydrates offline). Candidat fable-solver."""
     board = state.board
     cpos = _sk_pos_of(state, caster_id)
     tpos = _sk_pos_of(state, target_id)

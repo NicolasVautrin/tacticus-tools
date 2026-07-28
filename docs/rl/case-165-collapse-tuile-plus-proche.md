@@ -54,22 +54,26 @@ Le selecteur d'unites (`caster` ici, `AllAliveMachinesSelector` cote summon) n'a
 gatees sur l'unite, non plombees offline -> la distinction est **INERTE** cote port ; c'est la
 degradation deja documentee de `utilities/tile.py`.
 
-## 3. Validation LIVE — 3 geometries ou collapse et tri DIVERGENT
+## 3. Validation LIVE — 4 geometries ou collapse et tri DIVERGENT
 
 Harnais : `scripts/python/probe_165_charge_tile_utility.py` (`--plan` offline, `--live-scan` /
 `--live-scan-spawn` / `--live-scan-sky` pour CONSTRUIRE la divergence, `--strict` pour ne garder que
 les cas ou l'UTILITE departage — les egalites, elles, ne testent que l'ordre source).
+Cliquet : `tests/engine/runner/test_charge_tile_utility_live.py` (3 tests, geometrie discriminante
+RE-CHERCHEE a chaque run puis drivee par `applyAction`, confront a la tuile natif).
 
 | ability | board | geometrie (drivee par `act move`) | collapse (AVANT) | port (APRES) | **natif LIVE** |
 |---|---|---|---|---|---|
 | HeroicFusillade 1180 | MC1_67 | Judh @(3,4), necroWarden @(5,5) ; pool = (4,4)e2 / (4,5)e1 / (5,4)e3 | (4,4) e2 | (5,4) e3 | **(5,4)** (`Unit_Foot_Tile_Id_1 = 61`) |
 | ForwardSpotter 1143 | C3_01 | MoW `astraOrdnanceBattery`, cible u80 @(2,2) ; ring-1 libre = (1,2)e1 / (1,3)e1 / (2,1)e0 / (2,3)e2 / (3,3)e1 | (1,2) e1 | (2,3) e2 | **(2,3)** (`Unit_Foot_Tile_Id_1 = 33` au spawn) |
-| SkyStrike 1025 | MC1_67 | Celestine @(2,7), necroWarden @(4,6) ; ring-1 libre = (3,7)e1 / (3,6)e2 DryBush / (4,7)e1 / (4,5)e1 / (5,6)e1 / (5,7)e1 | (3,7) e1 | (3,6) e2 | **(3,6)** (`Unit_Foot_Tile_Id_1 = 45`) |
+| SkyStrike 1025 (COVER tranche) | MC1_67 | Celestine @(2,7), necroWarden @(4,6) ; ring-1 = (3,7)e1 / **(3,6)e2 DryBush** / (4,7)e1 / (4,5)e1 / (5,6)e1 / (5,7)e1 | (3,7) e1 | (3,6) e2 | **(3,6)** (tuile 45) |
+| SkyStrike 1025 (ELEVATION seule) | MC1_67 | Celestine @(2,2), necroWarden @(0,1) ; ring-1 TOUT Grass = (0,0)e3 / (0,2)e3 / (1,1)e3 / **(1,2)e2** (la plus PROCHE) | (1,2) e2 | (1,1) e3 | **(1,1)** e3 |
 
-Les trois cas sont **discriminants par construction** : l'ancien port aurait donne une AUTRE tuile.
+Les quatre cas sont **discriminants par construction** : l'ancien port aurait donne une AUTRE tuile.
 Deux boards distincts (MC1_67, C3_01), trois porteurs de familles differentes (hero / MoW / hero
-injecte). Le cas SkyStrike exerce en prime la feuille `TileEffectsUtility` (la tuile gagnante est une
-DryBush, +9 LightCover en plus de l'elevation).
+injecte). Le 3e cas exerce la feuille `TileEffectsUtility` (cover DryBush +9) ; le 4e isole
+`ElevationUtility` (terrain uniforme, seule l'elevation departage) et refute le collapse SANS
+l'aide du cover.
 
 **Porteur SkyStrike** : `adeptCelestine` est HORS du seed BC ; injecte par
 `python catalog_inject.py --units adeptCelestine --out <abs>.json` puis `rl_duel build --seed-bc`.
@@ -77,7 +81,33 @@ Le « `system error` au cast de 1025 » que la docstring du port signalait comme
 plus** : `catalog_inject` pose AUSSI `BC.Abilities` (cf. `runner.md` §1bis), le cast passe et fait ses
 3 coups. Residu leve.
 
-## 4. Ce qui n'est PAS couvert
+## 4. RESIDU MESURE — SkyStrike sur une cible au BORD, caster tres eloigne
+
+Une 5e geometrie CONTREDIT le composite porte, et elle est documentee telle quelle (mesuree, pas
+supposee) :
+
+| geometrie | ring-1 libre (tout Grass) | port `Tile(7)` | **natif LIVE** |
+|---|---|---|---|
+| Celestine @(1,0) (dist **11**), necroWarden @**(6,7)** — cible au BORD, 4 voisins seulement | (5,7)e1 / **(6,6)e2** / (5,8)e1 / (6,8)e1 | (6,6) e2 | **(5,7) e1** (= la plus PROCHE) |
+
+Le chemin natif est UNE seule etape (`Unit_Foot_Tile_Id_1 = (5,7)`, `Is_Last_Tile=1`) : ce n'est donc
+PAS un arret en cours de route vers (6,6), c'est bien la destination CHOISIE. Ce que ce cas exclut :
+ce n'est pas « SkyStrike ignore l'elevation » (le 4e cas du §3, cover-neutre et caster PROCHE, la
+suit), ni « le collapse etait juste » (les cas 3 et 4 le refutent).
+
+Ce qui reste ouvert — deux pistes, aucune tranchee :
+* une feuille de `Tile(7)` **gatee sur l'unite** (`dc.units` = le caster est passe au
+  `UtilityMovementCase`), muette offline faute de `ctx` ;
+* le **Loop1 de `TileEffectsUtility`** (effets DYNAMIQUES de l'entite-tuile) : le necroWarden porte
+  `RelentlessMarch_DangerZone` ; si cet effet marque des tuiles et que `state.effects.by_unit[tileId]`
+  n'est pas hydrate pour elles, le port est aveugle a une penalite que le natif applique.
+
+**Candidat fable-solver** (mesure reproductible ci-dessus + les deux pistes). Ce n'est PAS une raison
+de revenir au collapse : celui-ci est refute par les cas 3 et 4, et le mirror structurel reste la
+bonne base. Le cliquet `test_sky_strike_landing_tile_follows_tile_utility` EXIGE explicitement une
+cible a 6 voisins et un caster a distance <= 3 — il garde le patron etabli, il n'arbitre pas ce residu.
+
+## 5. Ce qui n'est PAS couvert
 
 * **L'ordre source de `SurroundingTiles`** (HeroicFusillade) : le port garde `hexgeo.disk`
   (`_surrounding_free_tiles`). `IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select` remplit
@@ -85,7 +115,9 @@ plus** : `catalog_inject` pose AUSSI `BC.Abilities` (cf. `runner.md` §1bis), le
   d'`AdjacentTilesSelector` -> l'ordre n'est pas prouve identique. Il n'est observable qu'a **utilite
   EGALE** (carte plate) ; le scenario valide, lui, est departage par l'utilite.
 * **`TileDistanceUtility` (33)** et donc le composite `MovementSuggestion(32)` de VigilanceEternal :
-  non portes (residu nomme ci-dessus).
+  non portes (residu nomme au §2).
+* Le cas SkyStrike « cible au BORD / caster lointain » du §4 : le port y rend une AUTRE tuile que le
+  natif. Aucun autre call-site n'a ete confronte dans cette configuration.
 * Les feuilles de `Tile(7)` **gatees sur l'unite** : elles rendent 0 (aucun `ctx` n'est passe), comme
   partout ailleurs dans `utilities/tile.py`.
 * Le tri ne consomme **aucun** tirage : verifie au decompile (`OrderBy` LINQ), non re-mesure ici.
