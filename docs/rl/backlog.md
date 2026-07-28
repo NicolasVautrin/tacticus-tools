@@ -100,13 +100,17 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   AdjacentFriends(Target)), 2)`, soit `min(|pool|, 2)` tirages AVANT tout coup. Il y en a **deux**
   ici parce que `SwornProtector` fait ré-émettre `On(0x2b)` par la ré-entrée #120bis — **1 + 1**,
   pas un forfait. Port 5/5 sur 4 seeds, échelle `k = 0/1/2` → 3/4/5 natif == port.
-- **`HazeOfCorruption_DamageTransfer` (1077) : le bond est POSÉ, sa charge utile ne l'est pas** —
-  `case-207` §5. `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$GetLeftOverDamages`
-  / `$$CreateTargetTriggerBehaviour` (report du dégât excédentaire + 1 coup Toxic `extraDmg` sur le
-  relais quand la cible est défaite) n'a **aucun consommateur** côté port : quand `deathBlightlord`
-  DÉFAIT sa cible, le port ne reporte rien. Hors du flux RNG (le tirage est tout entier dans le
-  target-finder), donc invisible sur les comptes de `genrand` — il faut un montage où la cible MEURT
-  sous le coup pour le chiffrer. `[opus]`.
+- ~~**`HazeOfCorruption_DamageTransfer` (1077) : la charge utile, puis son flux RNG**~~ — **CLOS en
+  deux temps.** Le DÉGÂT d'abord (`case-209-haze-of-corruption-damage-transfer.md`, bit-exact 6/6),
+  puis le FLUX RNG (`case-haze-rng-flow.md`) : l'écart résiduel « natif 8 / port 6 » recouvrait
+  **quatre** défauts, dont deux se compensaient en nombre mais pas en position — gate de
+  `On(DamageDealt = 0x10)` lu comme celui de `On(0xf)` (le natif ne teste QUE `local_7e8 == 0`,
+  c.-à-d. le dégât **DEMANDÉ** ≥ 1, donc il émet sur un cadavre), résolve slot-8 manquant sur la
+  branche reduce-then-roll, `IsFirstHitInSeries` posé à VRAI sur chaque transfert alors que les N
+  feuilles partagent UNE série, et `LeftOverDamage` de montant **0** filtrée alors qu'`AddLeftoverHit`
+  n'a aucun gate de montant. Après correctif : **natif == port sur 5 régimes × 2 seeds**, avec un
+  témoin indépendant du compte (la pose de `Contaminated`, prédite par la résolution du flux en
+  `NextBool[1,99]`, concorde live == port **19/19**, bornes 25/26 exercées des deux côtés).
 
 - **`AvalancheOfMuscle_ExtraDamage` (1025, passif `astraBullgryn`) — gate `IsCharging` non porté**
   (`case-astramilitarum-fragbomb-basilisk` §4). MESURÉ (`probe_avalanche_charge_gate.py`) : quand le
@@ -372,19 +376,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     - **On-appearance `PerformAIAttackFromCurrentPosition` du grot SquigHound non portée** : écart
       CONSTANT de 4 `genrand_int32` mesuré sur ce vecteur (MC1_67/777 et C2_37/31337), étranger au
       placement. `[opus]`.
-- **Resolve slot-8 non matérialisé dans `execute_normal_like`** (`operations/damage_ops.py` →
-  `damage_hits.py::HitDamage.get_damage`, MESURÉ par `probe_130_pick_randomly_one_rng.py`) :
-  `get_damage` court-circuite à `min == max` et ne tire rien, alors que
-  `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` appelle `Next(v, v+1)`
-  **sans gate largeur-1** — le port ne matérialise ce resolve que dans la branche ability bounds-mode
-  (`is_attack_damage_op`, cf. le commentaire de `_run_hits`). GROUND TRUTH : sur le splash Psyker
-  (montant plat `PercentageOf(StatAmount(Attack), psykerExtraDmg)`, bornes dégénérées), le live consomme
-  **1 `genrand_int32` de plus que le port par volet splash** — constant, mesuré sur les régimes pool=1 et
-  pool=2, absent quand le splash ne fire pas. Invisible sur le dégât du coup lui-même (montant plat) mais
-  **désynchronise tout ce qui consomme après**. Touche tout vecteur `StatAmount`/`PercentageOf` routé par
-  `execute_normal_like`. Attention : le porter inconditionnellement casserait les vecteurs
-  `AbilityDamageOperation` (Stormcaller 3-hit bit-exact SANS resolve, cf. `probe_217`) — la condition est
-  la FAMILLE de factory native, pas la largeur des bornes. `[opus]`.
+- ~~**Resolve slot-8 non matérialisé dans `execute_normal_like`**~~ — **CLOS**
+  (`case-haze-rng-flow.md` §2.2). `damage_hits.py::_one_hit`, branche `post_roll is None`, appelle
+  désormais `next_internal(min, max+1)` **sans gate largeur-1** (mirror du slot 8
+  `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`, décompilé relu : son
+  corps ne teste que le PRNG) au lieu d'`IdunBattle.Core.HitDamage$$GetDamage`, qui porte bien un
+  `if (min == max) return min;` — mais qui est l'AUTRE étage (le jet dans les bornes BRUTES) et
+  l'autre famille. Le gate est `is_attack_damage_op` = la **FAMILLE de factory**, comme l'exigeait
+  la note : `AbilityDamageOperation$$ExecuteHits` appelle `HitDamage$$GetDamage` **directement**
+  (xref) et garde son court-circuit → Stormcaller intact. **NO-OP dès que la cellule est large.**
+  Contre-épreuve jouée dans les DEUX sens sur le montage d'origine
+  (`probe_130_pick_randomly_one_rng.py`, splash Psyker) : ancien code `k=1 → live 3 / port 2` et
+  `k=2 → live 3 / port 2` (le delta 1 annoncé) ; nouveau code **delta 0 aux trois régimes**, soit
+  l'« attendu » que le probe imprimait sans l'atteindre.
 - **Résidus NEUFS engendrés par la vague du 2026-07-26 (#67b / #224 / #127 / EnvFireTile)** — nommés
   dans les case docs, absents d'ici jusque-là. Détail, porteurs et fichiers :
   `port-residuals-inventory.md` §4 (N1-N6).
