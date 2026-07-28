@@ -115,9 +115,13 @@ def will_be_overkill(pred) -> bool:
         raw_min = pred.get("healthDmgMin") or 0   # fallback capped (chemins runner/move sans champs raw)
     _bmin = pred.get("blockRawMin")
     will_min = _bmin if _bmin is not None else raw_min
+    # `IsOverkill(result@+0x00, healthDmg, **0**, result@+0xb2, result@+0xb3, hasValue(result@+0xb4),
+    # value(result@+0xb4), null)` — la borne GARANTIE passe `isCritical = 0` EN DUR (litteral lu au
+    # decompile) : elle ne parie pas sur un crit. C'est `MightBeOverkill` qui passe `MightCrit@+0xb1`.
     allow = 1 if pred.get("forceOverkill") else 0
-    return bool(is_overkill(hp, will_min, default_flag=0, allow_flag=allow, suppress=0, cond=1,
-                            threshold_pct=_overkill_threshold_pct()))
+    return bool(is_overkill(hp, will_min, is_critical=0, is_force_overkill=allow,
+                            is_prevent_overkill=0, allow_overkill=1,
+                            overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 
 def might_be_overkill(pred) -> bool:
@@ -132,9 +136,24 @@ def might_be_overkill(pred) -> bool:
     raw_max = pred.get("rawHealthDmgMax")
     if raw_max is None:
         raw_max = pred.get("healthDmgMax") or 0
+    # `IsOverkill(result@+0x00, result@+0x28, **result@+0xb1 = MightCrit**, result@+0xb2,
+    # result@+0xb3, hasValue(result@+0xb4), value(result@+0xb4), null)` — lecture VERBATIM du
+    # decompile : la borne OPTIMISTE passe le flag `MightCrit`, la ou `WillBeOverkill` passe **0 en
+    # dur**. Le port passe 0 des DEUX cotes.
+    #
+    # RESIDU NOMME (#R33, face DECISION -- HORS du perimetre du cas, qui porte sur le chokepoint de
+    # MORT) : `is_critical=0` ici sous-estime la borne optimiste sur tout kill CRITIQUE sous le
+    # seuil (`PV <= dmg < 2 x PV`), exactement le regime mesure live cote COMBAT
+    # (`probe_178_overkill_gate.py --case crit`). Le flag est DEJA lu par le hook
+    # (`frida/hooks/features/ai-step/rpc-predict.ts` : `mightCrit: b.add(0xb1)`), mais le `pred`
+    # que consomme cette fonction est CONSTRUIT par `playbook/probable_damage_event.py`, qui ne
+    # pose PAS la cle -> la cabler d'abord cote producteur, sinon `.get("mightCrit")` reste None et
+    # le « fix » serait un canal lu jamais ecrit. Consommateurs impactes : `OverkillUnitUtility`
+    # (utilite 37) et `DoomSirenPlaybook.CalculateCustomUtility`.
     allow = 1 if pred.get("forceOverkill") else 0
-    return bool(is_overkill(hp, raw_max, default_flag=0, allow_flag=allow, suppress=0, cond=1,
-                            threshold_pct=_overkill_threshold_pct()))
+    return bool(is_overkill(hp, raw_max, is_critical=0, is_force_overkill=allow,
+                            is_prevent_overkill=0, allow_overkill=1,
+                            overkill_dmg_pct_of_health=_overkill_threshold_pct()))
 
 
 class OverkillUnitUtility(BaseUtility):

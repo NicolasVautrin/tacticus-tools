@@ -584,9 +584,14 @@ def get_attack_prediction(
 # `(hp_before, damage) -> bool`, presente comme mirror de
 # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`. Le decompile tranche : il n'y a PAS deux
 # fonctions natives homonymes independantes, mais UNE FAMILLE de trois surcharges qui convergent toutes
-# vers le MEME corps de calcul (la 7-args privee). Le corps 2-args etait la surcharge d'INSTANCE
-# AMPUTEE de ses trois gates (`CanBeOverkilled`, `PreventOverkill`, `allow_flag`) -> il repondait « vrai »
+# vers le MEME corps de calcul (la privee). Le corps 2-args etait la surcharge d'INSTANCE
+# AMPUTEE de ses gates (`CanBeOverkilled`, `PreventOverkill`, `isForceOverkill`) -> il repondait « vrai »
 # la ou le natif repond « faux ».
+# #R33 : la signature native complete est desormais lue (methods.tsv) et le corps porte les NOMS natifs
+# -- `isCritical` / `isForceOverkill` / `deniedDamage` / `targetMinimumHealth`, la ou le port n'avait que
+# des placeholders opaques. Les trois premiers descendent maintenant jusqu'au chokepoint de mort
+# (`AttackDamageOperation._did_overkill`), et `isCritical` y CHANGE le verdict : un crit letal sous le
+# seuil EST un overkill (mesure live, `probe_178_overkill_gate.py --case crit`).
 #
 # FOYER UNIQUE = `services/trait_damage_limits.py` (qui portait deja le mirror 1:1 de la 7-args, le seuil
 # et `compute_prediction_overkill`, et dont CE module est deja consommateur -- l'inverse serait un cycle).

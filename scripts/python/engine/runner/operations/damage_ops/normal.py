@@ -367,7 +367,11 @@ class _Normal:
             # NORMALE porte le marqueur de kind 0x3f5 comme `currentAbility` (cf. `attack_type.py`).
             source_ability=AttackDamageOperation._damage_source_ability(
                 _normal_attack_kind(), triggering_ability),
-            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
+            # #R33 : decomposition per-coup (crit / denied) pour `didOverkill` — le natif evalue
+            # `IsOverkill` A CHAQUE coup. L'attaque normale n'a pas de flag `isForceOverkill`
+            # (`AttackOptions@+4` n'est pose que par la voie DSL `AttackWithAttackDamage`).
+            hits_result=r)
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
         # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(

@@ -71,8 +71,9 @@ from ...entities.damage_profile_type import DamageProfileType
 from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
-from ..components import (UnitComponent, ShieldComponent, UnitFlagsComponent, unit_is_dead,
-                          can_be_overkilled, unit_prevents_overkill)
+from ..components import (UnitComponent, ShieldComponent, UnitFlagsComponent, HealthComponent,
+                          unit_is_dead, can_be_overkilled, unit_prevents_overkill)
+from ...services.trait_damage_limits import unit_is_overkill
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
                                  defender_effect_block_sources)
 from .damage_hits import HitDamage, _DamageHitsMixin
@@ -181,9 +182,60 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                            None if source_ability is None else int(source_ability))
 
     @staticmethod
+    def _did_overkill(state: State, target_id: int, tgt, hp_before, damage,
+                      hits_result=None, is_force_overkill: bool = False) -> bool:
+        """`didOverkill` du chemin COMBAT — RE-JOUE la sequence des coups, parce que le natif appelle
+        `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` (surcharge d'INSTANCE, inlinee dans
+        `...$$CalculateDamageOperation`) **UNE FOIS PAR COUP**, et que
+        `IdunBattle.Operations.ApplyDamageOperation$$Execute+0x17d5` pose `UnitFlag.Overkilled (8)` des
+        qu'UN coup rend vrai. Deux des trois arguments qui decident VARIENT d'un coup a l'autre :
+
+            IsOverkill(target, hitDamage       = degat SANTE de CE coup,
+                               deniedDamage    = degat REFUSE par l'etage limites aux coups PRECEDENTS,
+                               isCritical      = crit de CE coup,
+                               isForceOverkill = flag d'attaque (constant sur l'attaque),
+                               targetHealthBeforeAttack = PV au debut de l'attaque,
+                               minimumHealth   = plancher Hypersensory de la cible)
+
+        et la surcharge d'instance re-agrege elle-meme le degat des coups precedents
+        (`hitDamage += targetHealthBeforeAttack.Value - currentHealth`) : l'argument compare est donc le
+        CUMUL. On boucle ici sur `(degat sante du coup, denied AVANT le coup, crit du coup)`.
+
+        `hits_result` = le dict rendu par `_run_hits` (`per_hit_health` / `crits` / `denied_before`).
+        Absent (DoT, knockback, coups additionnels) -> degenerescence en UN coup non-critique sans
+        denied : strictement l'ancien comportement."""
+        cbo = can_be_overkilled(tgt)
+        if not cbo or hp_before is None or damage is None:
+            return False
+        prv = unit_prevents_overkill(state, target_id)
+        thc = tgt.get_component(HealthComponent) if tgt is not None else None
+        floor = getattr(thc, "minimal_health", None) if thc is not None else None
+        seq = None
+        if hits_result:
+            hh = hits_result.get("per_hit_health") or []
+            cr = hits_result.get("crits") or []
+            db = hits_result.get("denied_before") or []
+            if hh:
+                seq = [(int(hh[i]),
+                        int(db[i]) if i < len(db) else 0,
+                        bool(cr[i]) if i < len(cr) else False) for i in range(len(hh))]
+        if not seq:
+            seq = [(int(damage), 0, False)]
+        cum = 0
+        for health_dmg, denied_before, crit in seq:
+            cum += health_dmg
+            if unit_is_overkill(hp_before, cum, can_be_overkilled=cbo,
+                                denied_damage=denied_before, prevent_overkill=prv,
+                                is_critical=crit, is_force_overkill=is_force_overkill,
+                                target_minimum_health=floor):
+                return True
+        return False
+
+    @staticmethod
     def _fire_death_if_killed(state: State, target_id: int, attacker_id: int,
                              hp_before, hp_after, tgt, damage=None,
-                             source_ability=None) -> Optional[list]:
+                             source_ability=None, hits_result=None,
+                             is_force_overkill: bool = False) -> Optional[list]:
         """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance la
         SÉQUENCE d'événements de mort. `damage` = dégât LÉTAL total du coup (pour le flag OVERKILL =
         `dmg >= 2*PV`). No-op si pas de mort.
@@ -227,7 +279,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import (after_death_triggers, unit_is_overkill, unit_defeated_triggers,
+        from .triggers import (after_death_triggers, unit_defeated_triggers,
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
         # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
@@ -236,10 +288,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # d'unite AVANT la formule (`CanBeOverkilled` = pas de trait Steppable, et `HasFlag(target, 0x13)`
         # = `UnitFlag.PreventOverkill`). Le port appelait ici un doublon 2-args qui les avait perdus : il
         # declarait « overkill » des `dmg >= 2*PV`, y compris sur une cible que le natif refuse d'overkiller.
-        overkill = unit_is_overkill(
-            hp_before, damage,
-            can_be_overkilled=can_be_overkilled(tgt),
-            prevent_overkill=unit_prevents_overkill(state, target_id))
+        # #R33 — les TROIS champs restants du `DealDamageInfo` natif descendent maintenant jusqu'ici :
+        # `isCritical` (@+0x1c), `isForceOverkill` (@+0x2c) et `deniedDamage` (@+0x18). Le premier est
+        # le plus lourd : `IsOverkill` RENVOIE `isCritical` dans le cas « letal mais sous le seuil »,
+        # donc tout crit qui tue sans doubler les PV EST un overkill -- le port, qui passait 0 en dur,
+        # ne marquait jamais ces morts-la. cf. `_did_overkill`.
+        overkill = AttackDamageOperation._did_overkill(
+            state, target_id, tgt, hp_before, damage,
+            hits_result=hits_result, is_force_overkill=is_force_overkill)
         # `UnitFlag.Overkilled (8)` — le natif le pose dans `IdunBattle.Operations.ApplyDamageOperation$$
         # Execute+0x17d5` (`if (result.didOverkill) UnitFlagsComponent.Add(target, 8)` : le `mov edx,8`
         # precede immediatement le call a `IdunBattle.Entities.Components.UnitFlagsComponent$$Add`), donc
@@ -300,7 +356,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                total: int, profile: Optional[str],
                                shield_dmg: int = 0, armor_dmg: int = 0,
                                is_attack: bool = True,
-                               source_ability=None, last_hit: Optional[int] = None) -> Optional[list]:
+                               source_ability=None, last_hit: Optional[int] = None,
+                               hits_result: Optional[dict] = None,
+                               is_force_overkill: bool = False) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -326,7 +384,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
             # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que
             # `KillUnitOperation$$RecordDeathReason` grave sur la victime pour `HasDeathReason`.
-            source_ability=source_ability)
+            source_ability=source_ability,
+            # #R33 : decomposition PAR COUP (`_run_hits`) — le natif evalue `didOverkill` coup par coup
+            # avec le crit ET le `deniedDamage` DE CE COUP. `None` (DoT, knockback, coups additionnels)
+            # -> degenerescence en un coup non-critique, = comportement anterieur.
+            hits_result=hits_result, is_force_overkill=is_force_overkill)
         if is_attack:
             AttackDamageOperation._record_attacked(state, target_id)    # #G6a : compteur + revert du floor
         AttackDamageOperation._register_received_damage(
