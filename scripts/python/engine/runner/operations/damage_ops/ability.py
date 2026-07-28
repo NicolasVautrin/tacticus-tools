@@ -21,7 +21,8 @@ from ...components import (StatsComponent, HealthComponent, PositionComponent,
 from ...damage_model import (attacker_modifiers, defender_modifiers, build_hits_board,
                              apply_elevation_bonus, apply_trench_reduction,
                              ice_crit_damage_addition, target_trait_names,
-                             defender_fixed_armor, tile_status_effects_by_pos)
+                             getstuckin_combat_chance, defender_fixed_armor,
+                             tile_status_effects_by_pos)
 from ....entities.effects.loki import LIGHT_COVER_TILE_ID
 from ....entities.traits import target_hit_multiplier
 from ..additional_hits import collect_additional_hit_groups, execute_additional_hits
@@ -360,8 +361,8 @@ class _AbilityAttack:
                 target_effects=_tgt_eff_h, aura_sources=_auras_h, board=_board_h,
                 is_melee=_melee_ch, damage_profile=damage_profile,
                 # combat : GetStuckIn n'est PAS dans la formule (behaviour d'exec chance-gate, #62c).
-                # Le vecteur ability ne roule pas non plus de coup bonus (aucun `bonus_hit_chance`
-                # passe a `_run_hits` ici) -> gate False, comme la facade combat de l'attaque normale.
+                # Le coup bonus est ajoute A L'EXECUTION, par `_run_hits(bonus_hit_chance=_gsi)`
+                # plus bas (R6-b'') -- exactement comme la facade combat de l'attaque normale.
                 include_bonus_hit_behaviours=False,
                 defender_on_cover=_on_cover_h,
                 # #84 : memes DEUX entrees d'etat que la facade normale pour le gate LetTheGalaxyBurn.
@@ -378,8 +379,39 @@ class _AbilityAttack:
             return None
         _hp_before_chain = int(thc.hp or 0)     # PV AVANT l'attaque (#116, cf. le retour `hp_before`)
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
+        # R6-b'' — LE `Maybe` AFTER-HIT ROULE AUSSI SUR LES COUPS D'UNE ATTAQUE D'ABILITY.
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger` (LU
+        # verbatim, gqfc5mff6c) = `On(8,1) & AmountIsOdd(CurrentHitIndex()) & get_OwnerIsCaster &
+        # !AmountIsGreater(MinDistance(owner@0x160, target@0x178), Direct(2))` : AUCUN gate
+        # `IsNormalAttack`, AUCUN `CurrentAbilityIs` -> le vecteur d'attaque ne le filtre pas.
+        # L'emetteur `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` a TROIS
+        # appelants, tous en appel INCONDITIONNEL (xref) et tous en DERNIERE instruction de leur
+        # `ExecuteHit` : `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (famille ATTACK
+        # = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`, LA MEME fonction que
+        # l'attaque normale), `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` (famille
+        # ABILITY = `$$AttackWithAbilityDamage`) et `MachineDamageOperation$$ExecuteHit`.
+        # => AUCUN gate de famille ici (contraste avec les mods attaquant / le crit / le canal
+        # #179 ci-dessous, qui eux sont bien gates par `is_attack_damage_op`).
+        # L'INDEX passe au trigger est `currentAttack+0x30`, relu FRAIS a chaque tour de boucle :
+        # `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` le passe en 2e argument de
+        # son `ExecuteHit` et fait `+0x30 += 1` apres CHAQUE coup (mirror inline
+        # d'`ADamageOperation$$UpdateCurrentAttackAfterHit`), exactement comme
+        # `AttackDamageOperation$$ExecuteHits`.
+        # L'INDEX DEMARRE A 0 POUR CHAQUE CIBLE : les DEUX factories emballent leur behaviour de
+        # degat dans un `IdunBattle.Entities.Behaviours.AttackBehaviour` (lu : les deux
+        # `DSLFactory$$AttackWith*Damage` finissent par `AttackBehaviour$$.ctor(caster, targets,
+        # <behaviour>, options)`), et `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+        # emet `Core.Services.OperationProcessor$$StartAttack` (slot 0x3a) avant CHAQUE cible et
+        # `$$FinishAttack` (0x3b) apres -- donc un `IdunBattle.Operations.StartAttackOperation$$
+        # Execute` (= `new OngoingAttack` + `MatchState$$StartAttack` = Push sur `MatchState+0x60`)
+        # par cible. `hit_index0` reste donc son defaut 0, comme le vecteur normal.
+        _gsi = getstuckin_combat_chance(
+            state, attacker_id, target_id,
+            (_ap_h.col, _ap_h.row) if _ap_h is not None else None,
+            (_tp_h.col, _tp_h.row) if _tp_h is not None else None, state.board)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
+                                            bonus_hit_chance=_gsi,
                                             post_roll=_reduce,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites — mode 2 = ability
@@ -447,7 +479,12 @@ class _AbilityAttack:
                     state, attacker_id, target_id, active, bool(is_melee),
                     state.effects.active_effects(target_id) if state.effects is not None else []),
                 mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
-                extra_pierce=ctx.extra_pierce)
+                extra_pierce=ctx.extra_pierce,
+                # R6-b'' : les sous-operations de groupe partagent l'`OngoingAttack` de CETTE
+                # attaque (`GetCurrentAttackOrDefault` = `Peek`) -> MEME site d'evaluation du
+                # `Maybe` et index CONTINU, threade depuis la sortie de la phase d'arme (coups
+                # bonus compris). Strictement le cablage de `damage_ops/normal.py` (R6-b').
+                bonus_hit_chance=_gsi, hit_index0=r["next_hit_index"])
         # POSE DE FEU (OnFireDamageAbility) — `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` tourne après CHAQUE coup
         # d'attaque, NORMALE **et** ability. Le port ne câblait ce vecteur que pour l'attaque normale
         # (DamageHandler) ; ici on porte la pose on-hit des tile-effects de profil pour les attaques
