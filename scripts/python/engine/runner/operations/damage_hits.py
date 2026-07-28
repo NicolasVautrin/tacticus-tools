@@ -406,6 +406,19 @@ class _DamageHitsMixin:
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
                 "per_hit_health": per_hit_health, "denied_before": denied_before,
                 "bonus_hits": base_bonus,
+                # case-209 : `param_5[0x98]` du message d'`IdunBattle.Operations.
+                # ApplyDamageOperation$$Execute` = la BASE nominale du coup, ce que poussent les
+                # call-sites (A)/(B) d'`AddLeftoverHit` quand le coup tombe sur un cadavre. MESUREE
+                # egale au MILIEU de la cellule reduite (2609 pour `(2087, 3131)`, invariant sur
+                # deux seeds aux jets differents, cf. `operations/left_over_damage.py`).
+                # `post_roll` non nul = mode roll-then-reduce (ability) : `hit_nc` porte alors les
+                # bornes BRUTES et le milieu n'est PAS la base reduite -> None (le consommateur
+                # degrade en « pas de report », plutot qu'un montant invente).
+                # `post_roll` non nul = mode roll-then-reduce (ability) : `hit_nc` porte les bornes
+                # BRUTES, la base nominale REDUITE est donc `post_roll(milieu)` -- meme reduction que
+                # celle appliquee a chaque jet, appliquee au centre de la cellule brute.
+                "base_nominal": ((int(hit_nc.min) + int(hit_nc.max)) // 2 if post_roll is None
+                                 else int(post_roll((int(hit_nc.min) + int(hit_nc.max)) // 2))),
                 # R6-b' : `currentAttack+0x30` APRES cette serie — `UpdateCurrentAttackAfterHit`
                 # incremente APRES CHAQUE `ExecuteHit`, coups bonus compris.
                 "next_hit_index": hit_index0 + hits + base_bonus}

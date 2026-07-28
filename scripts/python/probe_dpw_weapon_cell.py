@@ -168,8 +168,16 @@ def _replay_recording(dv, ob, snap, board, rng0, cid, tid, moved, disable_contag
         _p = ent.get_component(PositionComponent)
         _u = ent.get_component(UnitComponent)
         _s = ent.get_component(StatsComponent)
+        from engine.runner.components import HealthComponent as _HC
+        from engine.runner.operations.left_over_damage import LeftOverDamagesComponent as _LOD
+        _h = ent.get_component(_HC)
+        _l = ent.get_component(_LOD)
         ents.append({"id": uid, "vis": getattr(_u, "visual_id", None),
                      "alive": getattr(_u, "alive", None),
+                     # case-209 : PV APRES l'attaque + les `LeftOverDamage` accumulees, pour
+                     # confronter le report `HazeOfCorruption` au live sans re-monter un runner.
+                     "hp": getattr(_h, "hp", None),
+                     "left_over": list(getattr(_l, "entries", []) or []),
                      "pos": (_p.col, _p.row) if _p is not None else None,
                      "fixed_armor": int(_s.ctx.stat(StatType.FIXED_ARMOR)) if _s is not None else None,
                      "attack": int(_s.ctx.stat(StatType.ATTACK)) if _s is not None else None})

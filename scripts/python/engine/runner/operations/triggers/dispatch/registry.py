@@ -70,7 +70,10 @@ from ..loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (tra
                                        LetTheGalaxyBurnResetAbility)
 from ..loki.sworn_protector import (SwornProtectorSummonKellAbility,  # #95-RESTE2 (passif astraCreed)
                                    SwornProtectorProtectSwitchAbility)
-from ..loki.haze_of_corruption import HazeOfCorruptionTargetFinderAbility   # case-207 (passif deathBlightlord)
+from ..loki.haze_of_corruption import (HazeOfCorruptionTargetFinderAbility,   # case-207 (deathBlightlord)
+                                      HazeCorruptionBonusHitAbility,         # case-209 (coup Toxic bonus)
+                                      HazeOfCorruptionDamageTransferTrigger,  # case-209 (effet 1077)
+                                      HAZE_DAMAGE_TRANSFER)
 from ..loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
@@ -245,7 +248,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `PickRandomly(Damageable(AdjacentEnemies(Self) & AdjacentFriends(Target)), 2)` -- donc
     # `min(len(pool), 2)` `genrand_int32` AVANT tout coup -- et bonde les relais (effet 1077).
     # C'etait la source des 2 tirages manquants de case-207. Cf. loki/haze_of_corruption.py.
-    "HazeOfCorruption": [HazeOfCorruptionTargetFinderAbility],
+    # case-209 : le passif porte un SECOND volet, `HazeCorruption_BonusHitAbility` (orthographe
+    # native SANS le « Of ») -- `On(PreUnitDeath=1) & OwnerIsActor & IsDead(Target) & !IsDead(Owner)
+    # & !TriggeringEffectIs(0x435)` -> 1 coup `extraDmg` profil Toxic sur la cible qui vient de
+    # tomber, dont le degat DEBORDE integralement vers le relais bonde (l'effet 1077 ci-dessous).
+    "HazeOfCorruption": [HazeOfCorruptionTargetFinderAbility, HazeCorruptionBonusHitAbility],
     # MartialSuperiority (passif `templChampion` << Brother Jaeger >>, triggered 0x444=1092) = MEME
     # event `On(PreUnitAbility=0x2b)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
     # ADVERSE, il frappe l'attaquant 2x profil Power AVANT que l'attaque ne s'execute
@@ -360,6 +367,12 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                             RangedAutoAttackActivateOnTurnStart,      # On(0x12) -> ActivateEffect
                             RangedAutoAttackDeactivateOnTurnStart,    # On(0x12) -> DeactivateEffect
                             RangedAutoAttackDeactivateOnAttack],      # On(10)   -> DeactivateEffect
+    # HazeOfCorruption_DamageTransfer 0x435=1077 (case-209, bond pose par le target-finder de #207) :
+    # `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` =
+    # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2e) | On(0x35))
+    # & IsAlive(bonded) & AreEqual(Target, EffectSource)` -> le RELAIS encaisse, de la part du
+    # porteur, chaque `LeftOverDamage` que la cible initiale a gaspillee.
+    HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
     # DespoiledGround 0x5c4=1476 (#85) : MEME patron que le feu — `EnvDespoiledGroundTileAbility`

@@ -390,6 +390,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if thc is None or thc.hp is None:
             return None
         hp_before = thc.hp
+        # case-209 : `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` -- les degats
+        # GASPILLES du groupe (coup fatal : reste d'overkill ; coups sur cadavre : la base
+        # nominale). AVANT la mutation de PV, parce que le re-jeu part de `hp_before`. Purement
+        # additif : aucune branche existante n'en depend, seul `HazeOfCorruption_DamageTransferEffect`
+        # relit la liste.
+        from .left_over_damage import record_left_over_damages     # lazy : cycle damage<->ops
+        record_left_over_damages(state, target_id, tgt, hp_before, total, profile, hits_result,
+                                 (hits_result or {}).get("base_nominal"))
         applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
         # `On(DamageTaken=0xf)` — `IdunBattle.Operations.ApplyDamageOperation$$Execute` emet cet event
         # JUSTE APRES la mutation de PV (`FillUpStatComponent.Reduce`), sous le gate `0 < reduction
