@@ -234,3 +234,35 @@ python -m pytest tests/engine/runner/test_additional_hits_scalar_bounds_live.py 
 Non-régression rejouée : `test_additional_hits_amount_bounds_live.py` +
 `test_additional_hits_roll_order_live.py` + `test_additional_hits_rounding_live.py` +
 `test_additional_hits_after_hit_maybe_live.py` (**20 passed**).
+
+---
+
+## 6. Interaction avec le vecteur `On(DamageDealt = 0x10)` de #85 — vérifiée, nulle
+
+#85 a introduit l'émission d'un vecteur **neuf** sur le chemin de dégât
+(`AttackDamageOperation._apply_damage_pipeline`, gate `applied > 0`), **par groupe de dégât
+résolu**. C'est exactement le terrain de l'axe CONSOMMATION : si un consommateur de ce vecteur
+tirait du RNG, le budget mesuré ici bougerait.
+
+**Constat re-dérivé des registres** (et non repris de la docstring de `damage_dealt_triggers`) :
+un balayage de `ABILITY_TRIGGERS` / `ACTIVE_ABILITY_TRIGGERS` / `EFFECT_TRIGGERS` /
+`TRAIT_TRIGGERS` sur `event_id == 16` rend **exactement une** entrée — la clé `FleshmetalGuns`
+(`IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger`
+= `On(0x10) & get_OwnerIsCaster & HasEffect(Self@0x148, 0x4c5 = WarpHail)`), dont le behaviour
+pose un tile-effect — **aucun tirage**. `OnFireDamageAbility` / `OnToxicDamageAbility`, qui
+écoutent nativement le même vecteur, restent appelés impérativement depuis
+`after_hit_normal_attack` : le `next_bool` du Toxic n'a donc pas été déplacé.
+
+⇒ Aucun porteur des montages de ce cas (`tauCrisis`, `deathPutrifier`, `admecMarshall`,
+`astraCreed`) ne porte `FleshmetalGuns` : le vecteur neuf y est un **no-op strict**. **Mesuré**,
+pas seulement déduit — après rebase sur `13b2bac`, l'axe consommation est **bit-identique** :
+natif 3 = port 3 ≠ contrefactuel 4 (4/4), et les valeurs de groupe sont inchangées (`[1496]`,
+`[1954]`, contrefactuels `1275`/`1346`/`1764`/`1717`).
+
+Le seul montage où ce vecteur **fire réellement** est celui de la non-régression #159
+(`blackObliterator` en variante **WarpHail**, le porteur gaté) : il reste vert. C'est aussi ce
+qui ferme, côté #85, le « +1 tirage constant » que `case-159` §2.c imputait au volet
+`DespoiledGround` alors non porté.
+
+Re-jeu complet après rebase : les 26 ci-dessus **plus** `test_despoiled_ground_live.py`
+(la garde du vecteur neuf) — **31 passed**.
