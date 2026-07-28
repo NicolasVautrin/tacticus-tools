@@ -458,6 +458,10 @@ def forward_spotter_pick_tiles(state: "State", target_id: Optional[int], n: int)
         if t is not None:
             occ.add(t)
     free = [t for t in board.neighbours_native(tid) if t not in occ and board.walkable(t)]
+    # PAS d'`unit_id` : `SortTilesByUtilityForSummon` fixe `dc.units` a
+    # `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` — un ENSEMBLE d'unites, pas l'unite qui
+    # bouge. Les feuilles gatees sur l'unite restent donc muettes sur ce call-site (case-165b : le
+    # ctx par-unite n'est cable QUE la ou `dc.units` est le caster). Residu nomme.
     return sort_tiles_by_utility(state, free)[:max(0, int(n))]      # SortTilesByUtilityForSummon + First(n)
 
 

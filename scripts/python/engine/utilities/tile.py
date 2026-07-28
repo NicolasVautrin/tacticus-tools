@@ -646,7 +646,7 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
 _SORT_WEIGHTS: Weights | None = None
 
 
-def sort_tiles_by_utility(state, tiles, wt: Weights | None = None) -> list:
+def sort_tiles_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None) -> list:
     """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
 
     Le natif, remis en C# depuis le décompilé :
@@ -680,11 +680,25 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None) -> list:
     TileDistance(33)]` (carte de composition de l'`UtilitiesDatabase`, case-128 §2) : `TileDistance`
     n'étant PAS porté, ce call-site NE PASSE PAS par ici.
 
-    On ne passe **aucune** clé `ctx` d'unité : le sélecteur d'unités (`dc.units`) n'alimente que des
-    feuilles gatées sur l'unité, qui rendent 0 faute de contexte (dégradation déjà en vigueur dans ce
-    module). Restent ACTIVES les feuilles purement TUILE que le board porte — `ElevationUtility` (8) et
-    `TileEffectsUtility` (9, covers HÉBERGÉS par le terrain statique). C'est cette réduction, MESURÉE
-    et non supposée, que `probe_130_placement_sort_rng.py` (dont `--discriminate`) valide.
+    `unit_id` = le sélecteur d'unités `dc.units` du natif (`caster@0x160` sur les call-sites de
+    charge). Il est passé au `UtilityMovementCase`, donc les feuilles GATÉES SUR L'UNITÉ le voient :
+    `runner_tile_leaf_ctx` en dérive le `ctx` par-décision. **`unit_id=None` reproduit l'ancienne
+    dégradation** (ctx vide → ces feuilles rendent 0) et reste le mode du call-site SUMMON
+    (`SortTilesByUtilityForSummon`, dont `dc.units` est `AllAliveMachinesSelector` — un ENSEMBLE, pas
+    l'unité qui bouge).
+
+    ⚠ case-165b — cette clé n'est PAS cosmétique : sur `SkyStrikeAbility$$ExecuteBehaviour`
+    (`adeptCelestine`, passif `GeminaeSuperia` 1048) la feuille `TriggeredAbilities(2)` ajoute
+    `10 × |CanAddUnit(AdjacentTiles(tuile))|`. Ce terme est CONSTANT en plein plateau (6 voisins
+    libres partout) et ne départage donc rien — mais au BORD il vaut jusqu'à 50 points d'écart et
+    RENVERSE le classement d'`ElevationUtility`. Mesuré `MC1_67`, cible `necroWarden` @(6,7) :
+    natif (5,7) e1 [5 voisins libres] et non (6,6) e2 [3 voisins libres] ; le MÊME couple de tuiles,
+    chargé par `bloodIntercessor` (qui n'a PAS GeminaeSuperia), donne (6,6) — cf. `_how_move_dest_tile`.
+
+    Restent ACTIVES sans `unit_id` les feuilles purement TUILE que le board porte —
+    `ElevationUtility` (8) et `TileEffectsUtility` (9, covers HÉBERGÉS par le terrain statique).
+    C'est cette réduction, MESURÉE et non supposée, que `probe_130_placement_sort_rng.py`
+    (dont `--discriminate`) valide.
 
     `elevation_max`/`elevation_min` sont pris sur le **BOARD ENTIER** (mirror
     `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 : ni
@@ -710,6 +724,7 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None) -> list:
     emax = max(elevs) if elevs else None
     emin = min(elevs) if elevs else None
     fx = getattr(state, "effects", None)
+    leaf_ctx = runner_tile_leaf_ctx(state, unit_id)
 
     def _u(t) -> float:
         info = board.by_id.get(t) or {}
@@ -720,18 +735,94 @@ def sort_tiles_by_utility(state, tiles, wt: Weights | None = None) -> list:
         effs += terrain_tile_effects(terr, effs)       # Loop2 + repli Loop1 non hydrate (#155)
         meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
                 "effects": effs}
-        return tile_composite(t, meta, {}, wt)
+        # ⚠ Le 1er argument est la POSITION (col,row), pas l'id de tuile : c'est le contrat des DEUX
+        # autres constructeurs de composite (`engine.move`, `playbook.base.tile_utility`) et celui
+        # qu'attendent les playbooks de la feuille TriggeredAbilities(2) (`hexgeo`/`battle_query`).
+        # Inerte tant que `leaf_ctx` était vide (aucune feuille active ne lit `tile`), décisif dès
+        # que `unit_id` est fourni.
+        return tile_composite(board.coord(t), meta, leaf_ctx, wt)
 
     util = {t: _u(t) for t in tiles}
     return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DÉCROISSANT, stable
 
 
-def first_tile_by_utility(state, tiles, wt: Weights | None = None):
+def first_tile_by_utility(state, tiles, wt: Weights | None = None, unit_id: int | None = None):
     """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(7)), 1)` — la MEILLEURE tuile au
     sens du composite `Tile(7)`, égalités tranchées par l'ordre du sélecteur source (tri stable).
+    `unit_id` = `dc.units` du sélecteur (cf. `sort_tiles_by_utility`).
     Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
-    ranked = sort_tiles_by_utility(state, tiles, wt)
+    ranked = sort_tiles_by_utility(state, tiles, wt, unit_id)
     return ranked[0] if ranked else None
+
+
+def runner_tile_leaf_ctx(state, unit_id: int | None) -> dict:
+    """Dict `ctx` PAR-DÉCISION des feuilles `Tile(7)`, construit depuis un `State` de RUNNER —
+    jumeau de `tile_leaf_ctx` (qui, lui, part d'un `AiDecisionContext` côté DÉCISION).
+
+    C'est le port de `dc.units` / `dc.owner` de
+    `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` : le natif les met dans le
+    `UtilityMovementCase(dc.units, tile, null, null, dc.owner)` que chaque feuille reçoit, donc les
+    feuilles gatées sur l'unité (`TriggeredAbilities(2)`, `CapturePoint(24)`, `PowerUp(26)`,
+    `DespoiledGround(28)`, `HeroLikeDoorOpening(30)`, …) le VOIENT. Tant que ce dict était vide,
+    elles rendaient toutes 0 — c'était le « non couvert » de case-165, et la cause du résidu §4.
+
+    `unit_id is None` → `{}` (dégradation d'avant, conservée pour le call-site SUMMON).
+
+    Clés produites (mêmes noms/formes que `tile_leaf_ctx`) : `unit_triggered_abilities`,
+    `unit_traits`, `uid`, `self_pos`, `friend_units`/`enemy_units` (`{pos, vis, traits, effects}`,
+    self exclu), `friend_positions`, `elev_by_pos`, `neigh_by_pos` (ordre NATIF
+    `board.neighbours_native`), `walkable_by_pos`.
+
+    NON produites, donc feuilles muettes ici (résidus nommés, mêmes que côté décision) : `scene` /
+    `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
+    `tile_effect_type_ids_by_pos` (le `meta` de ce foyer ne les porte pas non plus)."""
+    if unit_id is None:
+        return {}
+    from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from ..entities.triggered_ability_type import triggered_ability_ids
+    from ..entities.traits.unit_trait import unit_trait_ids
+    import gameconfig as GC
+    me = state.get_entity(unit_id)
+    if me is None:
+        return {}
+    mpc = me.get_component(PositionComponent)
+    muc = me.get_component(UnitComponent)
+    moc = me.get_component(OwnerComponent)
+    my_team = moc.team if moc is not None else None
+    my_vis = muc.visual_id if muc is not None else None
+    fx = getattr(state, "effects", None)
+    friends, enemies, fpos = [], [], []
+    for uid, e in state.entities.items():
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or (uc is not None and not uc.alive) or uid == unit_id:
+            continue
+        vis = uc.visual_id if uc is not None else None
+        oc = e.get_component(OwnerComponent)
+        rec = {"pos": (pc.col, pc.row), "vis": vis,
+               "traits": frozenset(((GC.unit(vis) or {}).get("traits")) or ()),
+               "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
+                                if not ef.consumed and ef.name)}
+        if oc is not None and my_team is not None and oc.team == my_team:
+            friends.append(rec)
+            fpos.append(rec["pos"])
+        else:
+            enemies.append(rec)
+    board = getattr(state, "board", None)
+    elev_by_pos, neigh_by_pos, walkable_by_pos = {}, {}, {}
+    if board is not None:
+        for tid, t in board.by_id.items():
+            p = (t["col"], t["row"])
+            elev_by_pos[p] = t.get("elevation")
+            walkable_by_pos[p] = bool(t.get("walkable"))
+            neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
+    return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
+            "unit_traits": unit_trait_ids(my_vis),
+            "uid": unit_id,
+            "self_pos": (mpc.col, mpc.row) if mpc is not None else None,
+            "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
+            "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
+            "walkable_by_pos": walkable_by_pos}
 
 
 def _adjacent_units(ctx, uid):
@@ -748,6 +839,9 @@ def _adjacent_units(ctx, uid):
         if not (u.get("alive") and pos):
             continue
         rec = {"pos": (pos["col"], pos["row"]),
+               # `vis` — id d'unite du voisin, l'argument du noeud `UnitsWithId(sel, <unitId>)`
+               # (GeminaeSuperiaPlaybook, case-165b). Meme cle que cote runner.
+               "vis": u.get("visualId"),
                "traits": frozenset(((GC.unit(u.get("visualId")) or {}).get("traits")) or ()),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
                                 for e in (u.get("effects") or ()))}
@@ -816,6 +910,12 @@ def tile_leaf_ctx(ctx) -> dict:
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
+            # Gate STATIQUE de placement `CanAddUnit` (`battle_query.can_add_unit`) — la carte que
+            # consomme le noeud `CanAddUnit(AdjacentTiles(tuile))` du `GeminaeSuperiaPlaybook`
+            # (case-165b). Meme statut que les deux cartes ci-dessus : constante sur la decision,
+            # valeur lue dependante de la tuile candidate. Absente -> `can_add_unit` degrade en
+            # permissif (borne SUP), comportement deja en vigueur pour HammerOfWrath.
+            "walkable_by_pos": getattr(ctx, "walkable_by_pos", None),
             # Cartes PAR-POSITION des attributs de TUILE que `tileMeta` remonte déjà et que les deux
             # constructeurs de `meta` jetaient (cf. `apply_tile_attributes`). Même statut que
             # `elev_by_pos`/`neigh_by_pos` ci-dessus : la CARTE est constante sur la décision, la

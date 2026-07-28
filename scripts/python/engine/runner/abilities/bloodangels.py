@@ -335,7 +335,12 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
         if rng_max is not None and hexgeo.distance(cpos, pos) > int(rng_max):
             continue                                       # Filter(NOT(AmountIsGreater(MinDistance, range)))
         cands.append(t)
-    best = first_tile_by_utility(state, cands)              # First(SortTilesByUtility(...), 1)
+    # `caster@0x160` = `dc.units` (case-165b) : les feuilles gatees sur l'unite le voient. Mataneo
+    # n'a AUCUN playbook de mouvement enregistre -> terme nul, et la mesure #226 ci-dessus (natif
+    # (6,6), la plus ELEVEE) reste expliquee par la seule feuille Elevation. C'est le TEMOIN qui
+    # attribue le residu #165 §4 au KIT DU CASTER : meme board, meme cible (6,7), meme couple de
+    # tuiles candidates, mais un caster SANS `GeminaeSuperia` -> le natif y suit l'elevation.
+    best = first_tile_by_utility(state, cands, unit_id=caster_id)   # First(SortTilesByUtility(...), 1)
     return board.coord(best) if best is not None else None
 
 

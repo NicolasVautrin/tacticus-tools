@@ -381,7 +381,8 @@ def _hf_move_dest_tile(state: "State", caster_id: int, target_id: int,
     (`_surrounding_free_tiles`), NON prouve identique au natif. Renvoie (col,row) ou None."""
     board = state.board
     cands = _charge_candidate_tiles(state, caster_id, target_id, surround_radius, move_range)
-    best = first_tile_by_utility(state, cands)              # First(SortTilesByUtility(..., 7), 1)
+    # `caster@0x160` = `dc.units` du selecteur (case-165b) : les feuilles gatees sur l'unite le voient.
+    best = first_tile_by_utility(state, cands, unit_id=caster_id)   # First(SortTilesByUtility(..., 7), 1)
     return board.coord(best) if best is not None else None
 
 

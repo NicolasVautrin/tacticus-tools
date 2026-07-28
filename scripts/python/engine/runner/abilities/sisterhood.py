@@ -254,13 +254,12 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
     donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni triee ni symetrisee) — et NON le
     parcours `hexgeo.disk` que ce port utilisait.
 
-    ⚠ RESIDU MESURE (#165 §4) : sur une cible au BORD (4 voisins) avec un caster TRES eloigne
-    (Celestine @(1,0), cible @(6,7), MC1_67), le natif atterrit sur (5,7) e1 la ou ce port rend
-    (6,6) e2 — chemin natif d'UNE etape, donc bien la destination choisie et pas un arret en route.
-    Les deux geometries de reference (cover-tranche @(2,7)->(4,6) et elevation-seule @(2,2)->(0,1))
-    donnent, elles, port == natif. Pistes non tranchees : une feuille de `Tile(7)` gatee sur l'unite
-    (`dc.units` = le caster), ou le Loop1 de `TileEffectsUtility` (effets DYNAMIQUES de tuile non
-    hydrates offline). Candidat fable-solver."""
+    RESIDU #165 §4 **RESOLU** (case-165b) : le `caster@0x160` est bien `dc.units`, et il alimente la
+    feuille `TriggeredAbilities(2)` du composite -> `GeminaeSuperiaPlaybook` (passif 1048 de
+    Celestine) = `10 x |CanAddUnit(AdjacentTiles(tuile))|`. C'est ce terme qui manquait : on passe
+    donc `unit_id=caster_id` au foyer. Mesure MC1_67, cible @(6,7) au BORD : natif (5,7) e1
+    [5 voisins libres -> 5+50] et non (6,6) e2 [3 libres -> 20+30]. Le Loop1 de `TileEffectsUtility`
+    est ECARTE par la mesure (`tileMeta.effects` VIDE sur les 4 candidates)."""
     board = state.board
     cpos = _sk_pos_of(state, caster_id)
     tpos = _sk_pos_of(state, target_id)
@@ -275,7 +274,8 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
         if board.coord(t) in occ or not board.walkable(t):   # CanAddUnit : LIBRE et marchable
             continue
         cands.append(t)
-    best = first_tile_by_utility(state, cands)          # First(SortTilesByUtility(..., 7), 1)
+    # `caster@0x160` = le selecteur `dc.units` du natif -> les feuilles gatees sur l'unite le voient.
+    best = first_tile_by_utility(state, cands, unit_id=caster_id)   # First(SortTilesByUtility(..., 7), 1)
     return board.coord(best) if best is not None else None
 
 

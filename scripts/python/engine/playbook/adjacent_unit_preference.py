@@ -154,6 +154,7 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
+from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -166,6 +167,9 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # fabriquait les faux ties du sweep de position (case-n13).
     int(TriggeredAbilityType.AstartesBanner): AstartesBannerPlaybook(),         # 1106
     int(TriggeredAbilityType.KardiocoreGalvanus): KardiocoreGalvanusPlaybook(),  # 1457 (RELIQUE)
+    # case-165b — meme famille « corps propre », mais elle compte des TUILES LIBRES (pas des amis) :
+    # `10 x |CanAddUnit(AdjacentTiles(tuile))|`. Constante en plein plateau, DECISIVE au bord.
+    int(TriggeredAbilityType.GeminaeSuperia): GeminaeSuperiaPlaybook(),         # 1048
 }
 
 

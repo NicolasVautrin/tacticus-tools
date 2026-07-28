@@ -81,31 +81,30 @@ Le « `system error` au cast de 1025 » que la docstring du port signalait comme
 plus** : `catalog_inject` pose AUSSI `BC.Abilities` (cf. `runner.md` §1bis), le cast passe et fait ses
 3 coups. Residu leve.
 
-## 4. RESIDU MESURE — SkyStrike sur une cible au BORD, caster tres eloigne
+## 4. Le terme GATE SUR L'UNITE — RESOLU par case-165b
 
-Une 5e geometrie CONTREDIT le composite porte, et elle est documentee telle quelle (mesuree, pas
-supposee) :
+Une 5e geometrie contredisait le composite porte :
 
-| geometrie | ring-1 libre (tout Grass) | port `Tile(7)` | **natif LIVE** |
+| geometrie | ring-1 libre (tout Grass) | port `Tile(7)` d'alors | **natif LIVE** |
 |---|---|---|---|
-| Celestine @(1,0) (dist **11**), necroWarden @**(6,7)** — cible au BORD, 4 voisins seulement | (5,7)e1 / **(6,6)e2** / (5,8)e1 / (6,8)e1 | (6,6) e2 | **(5,7) e1** (= la plus PROCHE) |
+| Celestine @(1,0) (dist **11**), necroWarden @**(6,7)** — cible au BORD, 4 voisins seulement | (5,7)e1 / **(6,6)e2** / (5,8)e1 / (6,8)e1 | (6,6) e2 | **(5,7) e1** |
 
-Le chemin natif est UNE seule etape (`Unit_Foot_Tile_Id_1 = (5,7)`, `Is_Last_Tile=1`) : ce n'est donc
-PAS un arret en cours de route vers (6,6), c'est bien la destination CHOISIE. Ce que ce cas exclut :
-ce n'est pas « SkyStrike ignore l'elevation » (le 4e cas du §3, cover-neutre et caster PROCHE, la
-suit), ni « le collapse etait juste » (les cas 3 et 4 le refutent).
+Le terme manquant est celui de la feuille `TriggeredAbilities(2)` du composite, alimentee par
+`dc.units` (= le `caster@0x160` que `SortTilesByUtilitySelector$$Select` met dans le
+`UtilityMovementCase`) : pour `adeptCelestine` c'est
+`IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook` = `10 x |CanAddUnit(AdjacentTiles(tuile))|`.
+Constant en plein plateau (6 voisins libres partout), donc INVISIBLE sur les 4 geometries du §3 ;
+decisif des que le voisinage est TRONQUE (bord, coin, voisins occupes). Le foyer passe desormais
+`unit_id` et le playbook est porte. **Detail complet, mesures et residus :
+`docs/rl/case-165b-tile7-unit-gated-leaf.md`.**
 
-Ce qui reste ouvert — deux pistes, aucune tranchee :
-* une feuille de `Tile(7)` **gatee sur l'unite** (`dc.units` = le caster est passe au
-  `UtilityMovementCase`), muette offline faute de `ctx` ;
-* le **Loop1 de `TileEffectsUtility`** (effets DYNAMIQUES de l'entite-tuile) : le necroWarden porte
-  `RelentlessMarch_DangerZone` ; si cet effet marque des tuiles et que `state.effects.by_unit[tileId]`
-  n'est pas hydrate pour elles, le port est aveugle a une penalite que le natif applique.
+Le Loop1 de `TileEffectsUtility` — l'autre piste alors ouverte — est ECARTE par la mesure :
+`tileMeta` rend `effects: []` sur les quatre candidates (le `RelentlessMarch_DangerZone` du Warden
+ne marque aucune tuile).
 
-**Candidat fable-solver** (mesure reproductible ci-dessus + les deux pistes). Ce n'est PAS une raison
-de revenir au collapse : celui-ci est refute par les cas 3 et 4, et le mirror structurel reste la
-bonne base. Le cliquet `test_sky_strike_landing_tile_follows_tile_utility` EXIGE explicitement une
-cible a 6 voisins et un caster a distance <= 3 — il garde le patron etabli, il n'arbitre pas ce residu.
+Le cliquet `test_sky_strike_landing_tile_follows_tile_utility` garde le patron ELEVATION/COVER
+(cible a 6 voisins, caster a distance <= 3) ; `test_sky_strike_landing_tile_follows_unit_gated_leaf`
+(meme fichier) garde le terme gate sur l'unite.
 
 ## 5. Ce qui n'est PAS couvert
 
@@ -116,8 +115,7 @@ cible a 6 voisins et un caster a distance <= 3 — il garde le patron etabli, il
   EGALE** (carte plate) ; le scenario valide, lui, est departage par l'utilite.
 * **`TileDistanceUtility` (33)** et donc le composite `MovementSuggestion(32)` de VigilanceEternal :
   non portes (residu nomme au §2).
-* Le cas SkyStrike « cible au BORD / caster lointain » du §4 : le port y rend une AUTRE tuile que le
-  natif. Aucun autre call-site n'a ete confronte dans cette configuration.
-* Les feuilles de `Tile(7)` **gatees sur l'unite** : elles rendent 0 (aucun `ctx` n'est passe), comme
-  partout ailleurs dans `utilities/tile.py`.
+* Les feuilles de `Tile(7)` **gatees sur l'unite** sur le call-site SUMMON
+  (`SortTilesByUtilityForSummon`) : son `dc.units` est `AllAliveMachinesSelector`, un ENSEMBLE
+  d'unites, et il ne recoit donc pas d'`unit_id` -> elles y rendent toujours 0 (cf. case-165b §4).
 * Le tri ne consomme **aucun** tirage : verifie au decompile (`OrderBy` LINQ), non re-mesure ici.
