@@ -21,6 +21,7 @@ from .loki import (
     BeaconOfRageExtraDamageEffect,
     BeaconOfRageFriendlyExtraDamageEffect,
     TerrifyingCrescendoExtraDmgEffect,
+    FuelledByFuryExtraDamageEffect,
     BlessingsOfKhorneModifiersEffect,
     ContaminatedEffect,
     ContaminatedUnitEffect,
@@ -417,6 +418,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # de BeaconOfRage + gate IsRangedAttack. EffectType 0x590=1424 (#204). Accumulation = CreateTrigger
     # IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger (On overkill | On suppress-effect-pose 0x429=1065). extraDmg[L65]=218 (i2), rarity-scale.
     "TerrifyingCrescendo_ExtraDmg": TerrifyingCrescendoExtraDmgEffect,
+    # FuelledByFury (passif triggered 1251 d'ultraTitus << Titus >>) : +extraDmg[ablvl passif] x mult
+    # x fury FLAT additif a TOUTES les attaques du porteur (IdunBattle.Entities.Effects.Loki.
+    # FuelledByFury_ExtraDamageEffect$$CreateEffectDamageBonusForAttack = ForAddition(get_OwnerIsCaster
+    # SEUL, GetCurrentExtraDamage() = Multiply(ConfigVar 8=extraDmg, EffectLevel))). C'est le corps
+    # PARTAGE dont TerrifyingCrescendo herite (`...FuelledByFury_ExtraDamageEffect$$GetCurrentExtraDamage`,
+    # refcount 10). fury = compteur d'abilities ACTIVES castees par des Characters ALLIES, accumule
+    # par IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger
+    # (`On(0xe=UnitPostAbility) & AreFriends & HasTrait(Hero) & !HasTrait(MachineOfWar) &
+    # IsActiveAbilityCountedAsUsed`) -> `If(HasEffect, IncreaseEffectLevel(+1, SANS cap), AddEffect)`.
+    # EffectType 0x52b=1323 (#1323). extraDmg[L65]=153 (i2), rarity-scale.
+    "FuelledByFury_ExtraDamage": FuelledByFuryExtraDamageEffect,
     # OverwhelmingWrath (active 1141 d'Azkor) : -dmgReductionPct% (64 des L36) au degat RANGED recu
     # par le porteur jusqu'au debut de son tour suivant (transient rem=1 ; IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_RangeDmgReductionEffect$$CreateDamageDefenseModifier ForPercentDecrease
     # OwnerIsTarget & IsRangedAttack, ConfigVar 0x46). EffectType 0x515=1301 (#190). Le jumeau

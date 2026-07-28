@@ -504,12 +504,42 @@ usage unique**, consommée au 1ᵉʳ coup d'un allié du Chronomancer (`EFFECT_T
 (avant tout cast) est bit-exact sur les DEUX couples → l'écart post-cast est imputable à
 Chronometron seul. 1550 disparaît de la cible après le coup allié, live ET offline.
 
-**Découverte COLLATÉRALE (gap NOUVEAU, orthogonal à R9)** — `FuelledByFury` (passif d'`ultraTitus`,
-`ultraTitus` fut le 1ᵉʳ attaquant non-Mechanical essayé) **n'est pas porté** : i2 verbatim « Deals
-+{extraDmg} Damage with all attacks **for each time a friendly Character has used an active ability
-this battle** ». Le cast de Chronometron incrémente lui-même ce compteur ⇒ +248/coup mesurés
-(`FuelledByFury.extraDmg[L50] = 138 × 1,8 = 248,4`), qui s'ajoutent aux 898 de Chronometron. La
-BASELINE d'`ultraTitus` était bit-exacte (compteur à 0) : c'est bien un gap de PASSIF, pas de R9.
+**Découverte COLLATÉRALE (gap NOUVEAU, orthogonal à R9)** — ~~`FuelledByFury` (passif d'`ultraTitus`)
+n'est pas porté~~ — **FERMÉ le 2026-07-28 (#1323)**, sur les **DEUX étages**. Le diagnostic d'origine
+était juste, et son chiffre aussi : le gap était bien un **ABSENT** (ni classe d'effet pour
+`FuelledByFury_ExtraDamage` **1323** dans `entities/effects/factory.py`, ni entrée
+`ABILITY_TRIGGERS["FuelledByFury"]`), et `+248/coup` = `round(extraDmg[L50] = 138 × 180 %)` est bien
+la magnitude **PAR STACK** à ce rang (l'i2 « +153 » est `extraDmg[L65]` à multiplier 100 %).
+
+- **étage COMPTEUR** —
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger`
+  = `On(0xe = UnitPostAbility) & AreFriends(Owner@0x148, caster@0x160) & HasTrait(caster, 0x10 = Hero)
+  & !HasTrait(caster, 0x419 = MachineOfWar) & IsActiveAbilityCountedAsUsed(false)` →
+  `$$CreateBehaviour` = `If(HasEffect(Owner, 0x52b), IncreaseEffectLevel(+1, **sans cap**),
+  AddEffect(0x52b))`. Le gate `IsActiveAbilityCountedAsUsed` est ce qui écarte l'attaque NORMALE — qui
+  émet le MÊME `On(0xe)` — via `DSLFactory$$IsNormalAttack`, déjà porté (foyer unique
+  `abilities/attack_type.py::is_normal_attack`), pas re-écrit.
+- **étage MAGNITUDE** —
+  `IdunBattle.Entities.Effects.Loki.FuelledByFury_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`
+  = `ForAddition(get_OwnerIsCaster **seul**, GetCurrentExtraDamage())`, et
+  `$$GetCurrentExtraDamage` (refcount 10 — c'est le corps PARTAGÉ dont `TerrifyingCrescendo` hérite)
+  = `Multiply(ConfigVar(8 = extraDmg), EffectLevel)`. Aucun gate ranged/mêlée/normale ⇒ i2 « with ALL
+  attacks ».
+- **MESURÉ LIVE** (`probe_1323_fuelled_by_fury.py`, paire de régimes à MÊME attaquant / MÊME cible /
+  élévation ÉGALE pour neutraliser le ×1,5 d'élévation) : compteur `0 → 1 → 2` sur deux actives
+  alliées, port == live à chaque pas ; attaque normale de Titus rejouée bit-exacte **4/4 à fury = 0**
+  ET **4/4 à fury = 2** ; delta de prédiction native `+1984` = `4 coups × 2 stacks × 248`, à l'unité.
+- Gardes : `tests/engine/runner/test_fuelled_by_fury_live.py` (4 tests, fixture nommée
+  `_fuelled_by_fury_regime.py`), **vues ROUGES par 3 mutations distinctes** (trigger désenregistré →
+  `port=0 live=1` ; effet désenregistré → `−496/coup` ; facteur `EffectLevel` retiré → `−248/coup`).
+- **Résidu nommé restant** : le facteur `TimesAbilityUsed(caster, ability) >= 1` du
+  `left` d'`IsActiveAbilityCountedAsUsed` n'est pas observable offline (même substrat que
+  `entities/formulas.py::TotalActiveAbilityUsed`). Il ne mord que sur les **2** `ActiveAbilityType` du
+  HashSet statique `StaticBattleRules.ActiveAbility@+0x58` (`1118 DoctrinaImperatives`,
+  `1189 CalibaniteGreatsword`) ; dégradation choisie = « l'ability compte ». Point de câblage unique :
+  `triggers/loki/fuelled_by_fury.py::_times_ability_used`.
+- **Toujours OUVERT, hors périmètre** : `FuelledByFury_CanRevive` (**1324**) — cf. backlog `#66-r2`.
+
 Second candidat écarté : `darkaCompanion`, dont la BASELINE mismatche déjà (divergence pré-existante
 du couple, non diagnostiquée ici).
 
