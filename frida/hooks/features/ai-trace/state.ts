@@ -218,12 +218,34 @@ export function readDamagePredictionAt(
     } catch { return null; }
 }
 
-/** Read DamagePrediction inline at UnitAction.DamagePrediction (offset 0x28). */
+/** ⛔ NEUTRALISÉE (#191) — elle lisait HORS DES BORNES de l'objet, et rendait donc du tas voisin.
+ *
+ *  Elle faisait `readDamagePredictionAt(unitActionPtr.add(0x28))` en se réclamant d'un champ
+ *  « UnitAction.DamagePrediction @+0x28 ». Or `IdunBattle.AI.ActionGenerators.UnitAction` mesure
+ *  **40 octets = 0x28** (dump IL2CPP, métadonnées runtime = autorité sur les layouts) et n'a
+ *  **AUCUNE sous-classe** — l'hypothèse « c'est un type dérivé plus grand » est donc écartée, pas
+ *  supposée. `+0x28` tombe exactement UN OCTET APRÈS la fin de l'objet : les 3 champs de
+ *  `UnitAction` occupent 0x10 / 0x18 / 0x20 (cf. le commentaire de son appelant dans
+ *  `playbooks.ts`, qui lit lui-même à +0x10 et +0x18).
+ *
+ *  Ce que ça produisait : des `playbook_action` porteurs de 8 champs de prédiction ENTIÈREMENT
+ *  faux, sans erreur ni exception — un lecteur de trace ne pouvait pas le voir. C'est la classe
+ *  de défaut habituelle (valeur plausible, jamais confrontée), aggravée par le fait qu'ici même
+ *  la BASE était fausse : il n'y avait aucune convention d'offset à rectifier.
+ *
+ *  On rend `null` plutôt que des nombres : une absence déclarée est lisible, une valeur inventée
+ *  ne l'est pas. Rétablir ce canal exige de TROUVER où vit réellement la prédiction (piste : sur
+ *  le wrapper que `playbooks.ts` déréférence, pas sur l'`UnitAction`) — pas de re-brancher un
+ *  offset au jugé.
+ *
+ *  `readDamagePredictionAt` est conservée : elle est correcte SI on lui passe une vraie base de
+ *  `DamagePredictionResult` (0xD0 octets ; l'event `ProbableDamageEvent` l'embarque à +0x08, d'où
+ *  sa taille 0xD8) — mais ses offsets internes 0x98/0x9C/0xB9/0xBA/0xC4 sont ceux de l'EVENT, pas
+ *  ceux du STRUCT (0x90/0x94/0xB1/0xB2/0xBC). À rebaser au moment où on lui trouvera un appelant. */
 export function readDamagePrediction(
-    unitActionPtr: NativePointer,
+    _unitActionPtr: NativePointer,
 ): Record<string, unknown> | null {
-    if (unitActionPtr.isNull()) return null;
-    return readDamagePredictionAt(unitActionPtr.add(0x28));
+    return null;
 }
 
 /** Read AbilityOrEffect inline at `base`. .NET Nullable<int> layout:
