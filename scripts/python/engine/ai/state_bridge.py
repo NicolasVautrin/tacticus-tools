@@ -26,12 +26,13 @@ l'attaque normale passe par `AttackUnitMessage` (sans id). Les abilities ACTIVES
 membre d'enum -> id resolu par reverse-lookup `ACTIVE_ABILITY_TYPE`.
 
 Gaps no-op documentes : `is_temporary_by_pos`/`effects_by_pos` = {} (tuiles temporaires/hazard non portees,
-~0 sur board plat) ; `pathdist_by_pos` = BFS multi-source approx (fallback hex present dans best_move).
+~0 sur board plat). `pathdist_by_pos` n'en est PLUS un depuis `#17-off` : c'est le mirror offline de
+`FindClosestEnemy` + `GetMinDistanceToEnemy` (ClosestEnemy FIGE, `GetPath(type=1)` compte des NOEUDS),
+cf. `_pathdist_to_enemies`.
 """
 from __future__ import annotations
 
 import functools
-from collections import deque
 from typing import Any
 
 import gameconfig as GC
@@ -40,11 +41,11 @@ import hexgeo
 from engine.playbook.scene import Scene
 from engine.runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                       HealthComponent, UnitComponent)
-from engine.entities.pathfinding.walk_pathfinder import get_movable_positions, is_valid_path_node
+from engine.entities.pathfinding.walk_pathfinder import (get_movable_positions,
+                                                         get_path_node_counts)
 from engine.entities.pathfinding.tile_blocking import make_can_continue
 from engine.entities.pathfinding.fly_pathfinder import (
-    is_like_flying, get_movable_positions as fly_get_movable_positions,
-    is_valid_path_node as fly_is_valid_path_node)
+    is_like_flying, get_movable_positions as fly_get_movable_positions)
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
 
@@ -204,33 +205,63 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     return out
 
 
-def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list) -> dict:
-    """`{(col,row): pathDist}` = distance de MARCHE (BFS multi-source depuis les tuiles ennemies) vers
-    l'ennemi le plus proche. Approximation du RPC `pathDistToEnemies` (le natif `GetMinDistanceToClosestEnemy`
-    exact = raffinement) ; `best_move` a de toute facon un fallback distance hex. Predicat d'arete =
-    `is_valid_path_node` (marchable + |Delta elev|<=1 + non bloque par un ennemi)."""
+def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
+                         origin=None) -> dict:
+    """`{(col,row): pathDist}` OFFLINE, mirror 1:1 du couple natif qui alimente la feuille de
+    mouvement `MinDistanceToClosestEnemy(16)` — et pendant offline EXACT du RPC `pathDistToEnemies` :
+
+      1. `IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`
+         fige **UN** `ClosestEnemy` = argmin de la distance depuis la tuile COURANTE sur les ennemis
+         deja filtres par l'appelant (`!CurrentOwnerIsEnvironment` / `IsTargetable` /
+         `!IsIrrelevantObject` / vivant / `GetOnlyTargets` -> `tgt_epos`), avec le filtre `d > 0` et une
+         comparaison `d < bestDist` **STRICTE** (`bestDist` = `int.MinValue`) : a egalite, le PREMIER
+         de l'enumeration gagne.
+      2. `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` mesure
+         ensuite chaque tuile candidate vers CE seul ennemi (MIN sur son footprint), par
+         `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null)` dont il lit `route+0x18` =
+         `List._size` : un compte de **NOEUDS**, extremites incluses (`aretes + 1`).
+
+    ⚠ `PathfinderType = 1` est un **LITTERAL** : le natif mesure cette distance au pathfinder de
+    MARCHE **meme pour une unite VOLANTE** (seul `MovementActionGenerator$$GetDistanceToEnemy`, qui
+    choisit le ClosestEnemy, derive son type de l'unite : `(movementType == 3) + 1`). D'ou l'absence
+    de `fly_is_valid_path_node` ici, alors que `_move_tiles` l'utilise bien.
+
+    Ecarts de port ASSUMES, faute de source offline : le footprint de l'ennemi est reduit a sa tuile
+    principale (`PositionComponent`, comme le RPC live qui lit `GetMainTile`) — exact pour toute
+    unite mono-tuile ; et l'ordre d'enumeration est celui de `State.entities`, pas de
+    `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit` — il ne mord que sur un tie de
+    distance entre deux ennemis."""
     board = state.board
-    if board is None or not enemy_positions:
+    if board is None or not enemy_positions or origin is None:
         return {}
-    seeds = [board.id_at(c, r) for (c, r) in enemy_positions]
-    seeds = [t for t in seeds if t is not None]
+    otile = board.id_at(origin[0], origin[1])
+    if otile is None:
+        return {}
     occ = _occupants(state)
-    # Arête = pathfinder du MOVER (fly s'il vole -> ignore élévation/unités, comme _move_tiles).
     me = state.get_entity(uid)
     sc = me.get_component(StatsComponent) if me is not None else None
-    _edge = fly_is_valid_path_node if is_like_flying(
-        (sc.ctx.traits if sc is not None else None) or []) else is_valid_path_node
-    level = {t: 0 for t in seeds}
-    q = deque(seeds)
-    while q:
-        cur = q.popleft()
-        for n in board.neighbours(cur):
-            if n in level:
-                continue
-            if _edge(board, cur, n, occ, my_team):
-                level[n] = level[cur] + 1
-                q.append(n)
-    return {board.coord(t): d for t, d in level.items()}
+    traits = (sc.ctx.traits if sc is not None else None) or []
+    # `WeightCost` majore a 10000 le cout d'une tuile block-entering (bit 0x1 de
+    # `GetTileBlockingReasons`) sans la rendre infranchissable : `GetPath` passe par
+    # `GetValidNeighbours`, PAS par le gate `IsValidContinuePathTile` de `NodesInNextLevel`.
+    _cc = make_can_continue(state.effects, traits)
+    _blocked = (lambda tid: not _cc(tid)) if _cc is not None else None
+
+    best_counts = None
+    best_dist = None
+    for (c, r) in enemy_positions:
+        etile = board.id_at(c, r)
+        if etile is None:
+            continue
+        counts = get_path_node_counts(board, etile, occ, my_team, blocked=_blocked)
+        d = counts.get(otile)
+        if d is None or d <= 0:               # `d.HasValue && d.Value > 0`
+            continue
+        if best_dist is None or d < best_dist:   # `<` STRICT -> premier-gagne
+            best_dist, best_counts = d, counts
+    if best_counts is None:
+        return {}
+    return {board.coord(t): n for t, n in best_counts.items()}
 
 
 # --- Classification d'ability (SLICE 2) — mirror IdunBattle.Core.Services.TargetingQuery$$GetRange + le TargetsSelector DSL
@@ -590,7 +621,7 @@ def build_from_state(state, uid: int, debug: bool = False):
     # `enemies`/`epos` restent complets (occupance/positionnement) ; seul le seed MinDist est filtre.
     tgt_epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies
                 if e.get("pos") and not _is_untargetable(state, e.get("id"))]
-    pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, tgt_epos)
+    pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, tgt_epos, origin=origin)
     # topologie boardGraph (self-cast MainTile #116, ordre voisins natif Gauntlets #117, gate placement) —
     # mirror OFFLINE des 3 seams boardGraph que le contexte LIVE fournit ; ex-gap du bridge (build_from_state
     # anterieur a l'ajout de ces champs requis) revele par la confrontation du tour du Skitarii (#24).
