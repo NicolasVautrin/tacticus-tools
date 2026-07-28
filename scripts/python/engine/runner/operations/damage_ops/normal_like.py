@@ -96,7 +96,10 @@ class _NormalLike:
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
-        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
+        # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`).
+        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
+            ctx, active, state, attacker_id, target_id)
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 

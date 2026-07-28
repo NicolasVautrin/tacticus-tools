@@ -265,7 +265,12 @@ class _Normal:
         # cuits dans GetStat → dans le combatSnapshot → dans ctx] + couche calc-time SÉPARÉE
         # GetCritChanceBonusFromEffects/GetCritDamageBonusFromEffects (PAS dans GetStat → sommée ici
         # depuis les effets ACTIFS de l'attaquant). Mirror exact de RollCritical/CalculateCriticalDamage.
-        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(ctx, active)
+        # `state/attacker_id/target_id` = les IDENTITES du coup, threadees pour que la facade CRIT
+        # construise son `att_ctx` (mirror de l'`AbilityEntities` que
+        # `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects` batit lui-meme a
+        # partir de l'attaquant et de la cible). Le calcul du gate vit DANS `_crit_params`, pas ici.
+        crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
+            ctx, active, state, attacker_id, target_id)
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 

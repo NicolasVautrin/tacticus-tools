@@ -55,7 +55,7 @@ qui est une xref a part entiere. « percage » designe en realite une **ActiveCo
 | 4 | `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$ExecuteBehaviour` | ABILITY (branche) | 1154 | **oui** | **juste** (`case-231`) |
 | 5 | `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$GetIsChargingTrigger` | ABILITY (helper) | 1154 | **oui** | **juste** (`case-231`) |
 | 6 | `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1223 | **PORTE PAR CE CAS** | juste |
-| 7 | `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` | CRIT | effet 1223 | non | **residu `N14`** |
+| 7 | `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` | CRIT | effet 1223 | **oui** | **juste** (`case-ischarging-crit-channel`, `N14` ferme) |
 | 8 | `IdunBattle.Entities.Effects.Loki.RedThirst_ExtraDamageAndHitEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1322 | non | absent (canal absent) |
 | 9 | `IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack` | COUPS attaquant | effet 1032 | non | absent (canal absent) |
 | 10 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ObeisanceGenerators_HitReductionEffect$$CreateEffectHitsBonusForAttack` | COUPS **defenseur** | effet 1128 | non | **NON PERTINENT** (§4) |
@@ -313,12 +313,14 @@ fois. `test_ischarging_extra_damage_live.py` (5 tests) a ete rejoue sur le monta
 
 ## 7. Ce qui n'est PAS couvert
 
-* **La face CRIT de 1223** (`CreateCritDamageBonus`, +`extraCritDmg` en charge) — residu **`N14`**.
-  Le canal offline existe (`BaseEffect.create_effect_crit_damage_bonus_for_attack` ->
-  `crit_damage_bonus_from_effects`) mais sa signature n'a **aucun** parametre de contexte, et son
-  unique call-site est `engine/runner/operations/damage.py`, **tenu par un autre agent en vol**.
-  Poser la face sans pouvoir lire le gate produirait un bonus **inconditionnel** — exactement la
-  regression permissive que le CLAUDE.md decrit. Non fait, volontairement.
+* ~~**La face CRIT de 1223**~~ — **FERMEE** (`case-ischarging-crit-channel.md`, `N14`). La premisse
+  « le canal offline n'a aucun parametre de contexte » etait juste **sur le port** et fausse **sur
+  le natif** : `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` passe
+  l'attaquant ET la cible a `GetCritDamageBonusFromEffects`, qui batit lui-meme son
+  `AbilityEntities`. Le canal etait donc a INSTRUMENTER, pas a contourner — fait en UN point
+  (`AttackDamageOperation._crit_params`, la facade CRIT partagee des 3 vecteurs, exactement ce que
+  `build_hits_board` est a l'axe COUPS). S'arreter etait la bonne decision : poser la face sur le
+  canal muet l'aurait rendue inconditionnelle.
 * **La face ability-attack du canal COUPS** : `damage_ops/ability.py` (tenu par un autre agent) ne
   thread pas `is_charging`. Sans porteur qui l'exerce aujourd'hui — l'active de Ragnar (`WarHowl`
   1106) est un buff, son unique vecteur d'attaque est son arme normale (7 coups Chain) — l'ecart

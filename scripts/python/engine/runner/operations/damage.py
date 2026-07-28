@@ -608,12 +608,36 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         return sources or None
 
     @staticmethod
-    def _crit_params(ctx, attacker_effects) -> tuple:
+    def _crit_params(ctx, attacker_effects, state: Optional[State] = None,
+                     att_id: Optional[int] = None, tgt_id: Optional[int] = None) -> tuple:
         """(crit_chance, crit_damage, crit_enabled) de l'ATTAQUANT — GetStat(9/10) + bonus calc-time des
         effets (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects` / `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`) ;
-        `could_crit` = `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`. Partage par les 3 vecteurs (normale/ability/splash)."""
+        `could_crit` = `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`. Partage par les 3 vecteurs (normale/ability/splash).
+
+        CONTEXTE DU CANAL CRIT (`att_ctx`) -- **FOYER UNIQUE**, pose ICI et nulle part ailleurs.
+        `_crit_params` est a l'axe CRIT ce que `runner/damage_model.py::build_hits_board` est a l'axe
+        COUPS : la facade COMBAT PARTAGEE des trois vecteurs d'attaque (`damage_ops/normal.py`,
+        `damage_ops/ability.py`, `damage_ops/normal_like.py`). Un seul point de calcul, pas un par
+        call-site ; les vecteurs ne transmettent que les IDENTITES du coup.
+
+        C'est aussi la place NATIVE. `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage(
+        this, attaquant, cible, ...)` passe **les deux entites** a `GetCritDamageBonusFromEffects`, qui
+        construit LUI-MEME l'`IdunBattle.Entities.Abilities.AbilityEntities` (caster = owner =
+        l'attaquant, target = la cible) avant d'evaluer le trigger de chaque `EffectBonus` via le slot
+        d'interface `IdunBattle.Entities.Effects.BaseEffect$$CritDamageBonus`. Le canal natif n'est donc
+        PAS aveugle : `get_OwnerIsCaster`, `IsCharging(owner@0x148, target@0x178)`, `HasTrait(target, ...)`
+        y sont tous evaluables. C'etait le PORT qui perdait le contexte (residu `N14`).
+
+        `state`/`att_id`/`tgt_id` absents (appelant historique, probe) -> `att_ctx` reste None et TOUT
+        gate se tait (« present != applique ») : aucune contribution inconditionnelle possible. Le gate
+        reutilise le FOYER du predicat, il ne le duplique pas : `damage_model.battle_query_is_charging`
+        -> `engine/battle_query.py::is_charging`, le MEME que les canaux DEGAT et COUPS."""
+        att_ctx = None
+        if state is not None and att_id is not None and tgt_id is not None:
+            from ..damage_model import battle_query_is_charging
+            att_ctx = {"is_charging": battle_query_is_charging(state, int(att_id), int(tgt_id))}
         cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(attacker_effects)
-        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects)
+        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(attacker_effects, att_ctx)
         return cc, cd, could_crit(cc, cd)
 
     @staticmethod

@@ -1007,11 +1007,19 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
     il est passe quand meme pour rester le calque strict de `ConfigVar`. Table : `[1]x17, [2]x18,
     [3]x30` -> niveau 50 (rank 17) = **3**, ce que dit l'i2 (« scores 3 additional hits »).
 
-    RESIDU NOMME (`N14`) : la face CRIT du MEME effet
-    (`…SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` = meme trigger, `ConfigVar(0x42 =
-    extraCritDmg)`) n'est PAS portee — `BaseEffect.create_effect_crit_damage_bonus_for_attack()` n'a
-    aucun parametre de contexte, donc elle ne pourrait pas LIRE ce gate et s'appliquerait
-    inconditionnellement. Poser la face dans cet etat serait plus faux que de ne pas la poser.
+    FACE CRIT (`N14`, FERME par case-ischarging-crit-channel) : le MEME effet porte
+    `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus`, dont
+    le decompile est le CALQUE EXACT de la face COUPS ci-dessus -- meme `get_OwnerIsCaster &
+    IsCharging(owner@0x148, target@0x178)`, meme `GetAbilityState(effect)`, meme `config@+0x60`, meme
+    `EffectBonus.ForAddition`, meme `AbilityOrEffect` recopie de `effect+0x14..+0x2c`. **Une seule
+    difference : la cle du `ConfigVar`, 0x42 (`extraCritDmg`) au lieu de 0x13 (`extraHits`).**
+    Contrairement a `extraHits`, `extraCritDmg` EST dans `variablesAffectedByRarityBonus` -> le
+    multiplier la scale.
+    Le canal offline etait le blocage, pas le natif : `create_effect_crit_damage_bonus_for_attack()`
+    n'avait aucun parametre de contexte, alors que
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` passe l'attaquant ET la cible
+    a `GetCritDamageBonusFromEffects`, qui batit son `AbilityEntities` avec les deux. Le contexte est
+    desormais threade en UN point (`runner/operations/damage.py::AttackDamageOperation._crit_params`).
     HORS PERIMETRE, nomme : `SagaOfTheWarriorBorn_OtherSpaceWolves` (1224) est un effet SEPARE, pose
     par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_KillAbility$$CreateBehaviour`
     sur les amis Space Wolves apres un kill de Character."""
@@ -1026,6 +1034,31 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
         n = ability_var("SagaOfTheWarriorBorn", "extraHits", lvl,
                         multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 0x13
         return for_addition(True, int(n)) if n else None
+
+    def create_effect_crit_damage_bonus_for_attack(self, att_ctx: "Mapping | None" = None) -> int | None:
+        """MIRROR de `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` :
+
+            EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(owner@0x148, target@0x178),
+                                     ConfigVar(0x42 = extraCritDmg, GetAbilityState(effect), config@+0x60),
+                                     <AbilityOrEffect recopie de effect+0x14..+0x2c> )
+
+        Calque strict de la face COUPS -- MEME arbre a deux noeuds, MEME gate partage
+        `is_charging_attack(att_ctx)` (aucun predicat re-derive), seule la cle du `ConfigVar` change.
+        Ni `IsNormalAttack` ni `IsMeleeAttack` : le bonus vaut pour tout coup du porteur en charge.
+
+        MAGNITUDE : `extraCritDmg[ability_level]`, **scalee par le multiplier** (elle est la SEULE
+        variable de `SagaOfTheWarriorBorn` listee dans `variablesAffectedByRarityBonus`) -> a l'inverse
+        de `extraHits`, ou le multiplier est passe mais inerte.
+
+        Le retour est un ENTIER (pas un `EffectBonus`) : le canal natif somme des scalaires
+        (`GetCritDamageBonusFromEffects` accumule `addition - subtraction` de chaque `EffectBonus`
+        evalue), et son consommateur est `max(0, GetStat(10) + somme)`."""
+        if not is_charging_attack(att_ctx):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        n = ability_var("SagaOfTheWarriorBorn", "extraCritDmg", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 0x42
+        return int(n) if n else None
 
 
 class PowerTripFullHealthEffect(BaseEffect):

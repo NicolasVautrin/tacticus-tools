@@ -361,10 +361,25 @@ class BaseEffect:
         n'est pas son porteur). Défaut None = pas de contribution (la quasi-totalité des effets)."""
         return None
 
-    def create_effect_crit_damage_bonus_for_attack(self) -> int | None:
-        """Bonus de DÉGÂT de crit — couche calc-time SÉPARÉE de `GetStat(10)`, sommée dans
-        `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects puis ajoutée à GetStat(10) dans
-        `CalculateCriticalDamage` (critDmgPct = max(0, GetStat(10)+Σbonus)). Défaut None = pas de bonus."""
+    def create_effect_crit_damage_bonus_for_attack(self, att_ctx: Mapping | None = None) -> int | None:
+        """`<Effect>.CreateCritDamageBonus` — bonus de DÉGÂT de crit, couche calc-time SÉPARÉE de
+        `GetStat(10)`, sommée dans `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`
+        puis ajoutée à GetStat(10) dans `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage`
+        (critDmgPct = max(0, GetStat(10)+Σbonus)). Défaut None = pas de bonus.
+
+        `att_ctx` = CONTEXTE DU COUP. Le canal natif n'est PAS aveugle : `CalculateCriticalDamage(this,
+        attaquant, cible, …)` passe **les deux entités** à `GetCritDamageBonusFromEffects`, qui construit
+        lui-même l'`IdunBattle.Entities.Abilities.AbilityEntities` (caster = owner = l'attaquant, target =
+        la cible) avant d'évaluer le trigger de chaque `EffectBonus` par le slot d'interface
+        `IdunBattle.Entities.Effects.BaseEffect$$CritDamageBonus`. Les nœuds `get_OwnerIsCaster`,
+        `IsCharging(owner, target)`, `HasTrait(target, …)` y sont donc TOUS évaluables — c'était le PORT
+        qui perdait le contexte, pas le natif (résidu `N14`, case-ischarging-crit-channel).
+
+        Clés threadées aujourd'hui par l'agrégateur `crit_damage_bonus_from_effects` (foyer unique =
+        `runner/operations/damage.py::AttackDamageOperation._crit_params`) :
+          • `is_charging` → `IdunBattleLogic.Entities.DSLFactory$$IsCharging(owner@0x148, target@0x178)`,
+            lue par le gate partagé `is_charging_attack(att_ctx)`.
+        Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur devinée."""
         return None
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
