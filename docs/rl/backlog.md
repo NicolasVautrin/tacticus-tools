@@ -58,6 +58,20 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)** — `case-dpw` §5/§7. Le
+  vecteur `On(UnitAdded)` est porté (une unité qui APPARAÎT dans une aura Contagion ennemie prend
+  le −20 %), mais l'effet n'est **ni re-évalué quand l'aura grandit** (`CalculateRange` = 1/2/3
+  selon `TurnsStarted`), **ni retiré quand l'unité en sort**, **ni basculé 1071 ↔ 1072**. Le natif
+  tient ce cycle par `CreateActiveCondition` (fenêtre `[min, max]` sur le nombre d'auras), que le
+  port ne matérialise pas (pas de flag `IsActive`). La variante **−40 % (2 auras ou plus) n'a
+  aucun montage live**. Les branches `UnitResurrected(0x2f)` / `UnitRevived(0x2e)` du même trigger
+  ne sont pas câblées.
+- **`deathBlightlord` : +2 `genrand` natifs à l'entrée d'une attaque mêlée** — `case-dpw` §7,
+  mesuré par la généralisation (natif 5 / port 3, décalage de DEUX tirages EN AMONT des coups
+  d'arme : le 3ᵉ coup du port vaut le 1ᵉʳ live). Le même montage avec `deathPutrifier` est
+  parfaitement aligné (3 = 3), donc ce n'est PAS le spawn de Kell : suspects = les effets `1375` /
+  `1147` portés par `deathBlightlord`. Cas propre à ouvrir.
+
 - **`AvalancheOfMuscle_ExtraDamage` (1025, passif `astraBullgryn`) — gate `IsCharging` non porté**
   (`case-astramilitarum-fragbomb-basilisk` §4). MESURÉ (`probe_avalanche_charge_gate.py`) : quand le
   porteur A BOUGÉ pendant le tour, le natif ajoute `+extraDmg[niveau passif] × multiplicateur` FLAT par
