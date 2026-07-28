@@ -34,6 +34,7 @@ from engine.services.damage_modifiers import (
     calculate_trench_reduction,
     TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
+from engine.battle_query import is_charging as bq_is_charging, newly_adjacent_ids
 from engine.entities.effects.magnitude import ability_var
 from engine.dsl.base import _round_fix64
 from fractions import Fraction
@@ -103,6 +104,52 @@ def _should_apply_ranged_in_melee(scene, att_id, attack_pos) -> bool:
                 continue
         return True
     return False
+
+
+def _prediction_is_charging(scene, att_id, attack_pos, tgt_id) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` evalue DEPUIS LA TUILE
+    CANDIDATE — face PREDICTION du gate porte par `AvalancheOfMuscle_ExtraDamage` (1025),
+    `FeederTendrils_ExtraDamage` (1197) et `BlackRage_ExtraDamage` (1343). Case-r32.
+
+    Le predicat lit `UnitComponent.ChargedUnitIds@+0x190`, que seul
+    `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` alimente. La chaine display evalue une
+    UnitPosition HYPOTHETIQUE (`GetUnitPositionAtTile`), donc la liste pertinente est
+
+        charges DEJA acquises ce tour   UNION   ce que le pas CANDIDAT ajouterait
+
+    -- exactement ce que produirait un `UpdateCharging` applique a la simulation, qui PART de la
+    liste reelle. Le predicat lui-meme reste le FOYER PARTAGE `battle_query.is_charging` (aucun fork),
+    et le volet geometrique le mirror `battle_query.newly_adjacent_ids`.
+
+    LES DEUX TERMES SONT MESURES NECESSAIRES (`probe_r32_ischarging_prediction.py`, `astraBullgryn`
+    L50 mult 180 %, `aiPlaybookPredict(col,row)`) :
+      * terme CANDIDAT -- caster a distance 2, tour NEUF (liste reelle vide), tuile candidate
+        adjacente : natif **12032**, offline avec le terme **12032**, sans lui **9636** (= 4 x 599).
+        La prediction native SIMULE donc bien le pas.
+      * terme REEL -- caster ayant DEJA charge ce tour, tuile candidate == sa tuile courante (aucun
+        pas) : natif **12032** ; sans ce terme le port rendait **9636**. La prediction native lit donc
+        AUSSI la liste acquise.
+
+    Consequences, toutes voulues :
+      * aucun pas et aucune charge acquise -> FAUX ;
+      * tuile candidate qui amene AU CONTACT d'une cible qui ne l'etait pas -> VRAI ;
+      * tuile candidate atteinte alors que la cible etait DEJA adjacente ET non chargee -> FAUX
+        (c'est le cas que l'ancien proxy `has_moved` accordait a tort).
+
+    ⚠ LIMITE D'OUTILLAGE, nommee : `scene.charged_by_id` n'est peuple que par `Scene.from_state`
+    (l'ECS d'un etat que le runner offline fait EVOLUER). Sur un etat RECHARGE (`load_state`) la
+    table est vide -- aucun RPC n'expose `ChargedUnitIds` -- donc le terme REEL manque et le bonus
+    est OMIS. Degradation RESTRICTIVE, a l'inverse du proxy precedent qui sur-accordait. Point
+    d'ancrage a hooker pour la fermer : `UnitComponent+0x190` cote `combatSnapshot`."""
+    if tgt_id is None:
+        return False
+    cur = scene.pos(att_id)
+    pos = attack_pos or cur
+    charged = set(scene.charged(att_id))                     # terme REEL (charges deja acquises)
+    if pos != cur:
+        others = {uid: p for uid, p in (scene.pos_by_id or {}).items() if uid != att_id}
+        charged |= newly_adjacent_ids(cur, pos, others)      # terme CANDIDAT (le pas hypothetique)
+    return bq_is_charging(pos, scene.pos(tgt_id), tgt_id, charged, scene.elev_by_pos)
 
 
 def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,

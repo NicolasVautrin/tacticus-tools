@@ -6,7 +6,8 @@ from __future__ import annotations
 
 from ._shared import *   # vocabulaire commun (GC, hexgeo, get_attack_prediction, ProbableDamageEvent, auras, ...)
 from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defender_mods,
-                      _target_damage_limits, _apply_ally_attack_dmg_bonus, _round_fix64)
+                      _prediction_is_charging, _target_damage_limits, _apply_ally_attack_dmg_bonus,
+                      _round_fix64)
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -338,8 +339,13 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # att_ctx POSITIONNEL (#29) : magnitude re-countee a la TUILE CANDIDATE pour les bonus dont le DSL lit
     # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage — meme threading candidat
     # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
+    # gate `IsCharging` (case-r32) : `BattleQuery$$IsCharging(caster, target)` evalue depuis la TUILE
+    # CANDIDATE (mirror `UpdateCharging` du pas hypothetique). REMPLACE le proxy `has_moved` pour les
+    # trois effets extra-degat de charge — `has_moved` reste threade pour l'AUTRE predicat natif,
+    # `HasFlag(Moved)` (HeavyWeapon_ExtraDmg, CrushingStrike).
     _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
-                "tile_effects_by_pos": scene.tile_effects_by_pos}
+                "tile_effects_by_pos": scene.tile_effects_by_pos,
+                "is_charging": _prediction_is_charging(scene, att_id, attack_pos, tgt_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

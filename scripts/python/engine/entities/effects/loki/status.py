@@ -523,17 +523,56 @@ class BlackRageExtraMoveEffect(BaseEffect):
 
 class BlackRageExtraDamageEffect(BaseEffect):
     """`BlackRage_ExtraDamageEffect` (EffectType 0x53f=1343 ; `IdunBattle.Entities.Effects.Loki.BlackRage_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`)
-    — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1343, caster@0x160)`. Le natif =
-    `ForAddition((get_OwnerIsCaster & IsCharging(caster,target) & IsNormalAttack), ConfigVar(8=extraDmg))`
-    = +`extraDmg[level]` au dégât de l'attaque NORMALE de CHARGE du porteur (le coup qui suit le MoveUnit du
-    MÊME cast).
+    — posé sur le caster (self) par `ExecuteBehaviour` via `AddEffect(1343, caster@0x160)`. MIRROR 1:1 du
+    décompilé (ordre de lecture natif : `get_OwnerIsCaster`, `op_BitwiseAnd(IsCharging(factory+0x160,
+    factory+0x178))`, `op_BitwiseAnd(IsNormalAttack)`, puis `ForAddition(cond, ConfigVar(8, GetAbilityState,
+    effet+0x60))`) :
 
-    MARQUEUR porté (présent/diffable) — la CONTRIBUTION +extraDmg n'est PAS modélisée (RÉSIDU documenté) :
-    (a) magnitude NÉGLIGEABLE (extraDmg[L]=[10,12,14,...] vs ~3000/coup mesuré live = <0.5%) ; (b) le gate
-    natif `IsCharging` (unité entrée AU CONTACT durant CE cast) n'est PAS exprimable dans le canal modifier
-    EAGER sans SUR-APPLIQUER aux attaques HORS-charge du porteur (l'effet persiste remaining=0). Posé pour
-    le diff structurel ; si une tranche future porte `IsCharging` (cf. FeederTendrils gate charge), brancher
-    `create_effect_damage_bonus_for_attack` = ForAddition(ConfigVar(8)) gated charge."""
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(caster, target) & IsNormalAttack,
+                                 ConfigVar(8 = extraDmg, GetAbilityState(this), config@this+0x60) )
+
+    = +`extraDmg[level]` x multiplier au dégât de l'attaque NORMALE de CHARGE du porteur (le coup qui suit
+    le `MoveUnit` du MÊME cast). Canal additif `@+0x10` (`IdunBattle.Core.Services.DamageModifiers$$Add`),
+    appliqué PAR COUP — identique aux deux jumeaux `AvalancheOfMuscle_ExtraDamage` (1025) et
+    `FeederTendrils_ExtraDamage` (1197), avec lesquels il partage EXACTEMENT le nœud `IsCharging`
+    (xrefs de `IdunBattleLogic.Entities.DSLFactory$$IsCharging` : ces trois `CreateEffectDamageBonusForAttack`
+    et aucun autre — `SmashaEadEffect$$…` n'en a PAS, contrairement à ce qu'affirmaient les fiches).
+
+    MARQUEUR porté (présent/diffable) — la CONTRIBUTION +extraDmg reste NON modélisée. Case-r32 a levé
+    l'UNE des deux objections historiques et REMPLACÉ l'autre par un bloqueur MESURÉ :
+
+    * ❌ « magnitude NÉGLIGEABLE, extraDmg[L] = [10, 12, 14, …] » — **FAUX**, c'était la tête du tableau.
+      Gameconfig relu : `extraDmg[1] = 10`, **`[50] = 554`**, **`[65] = 728`** ; à multiplier 180 % cela
+      fait **997 par coup**, soit ~4 000 sur l'attaque 4 coups de Lucien. L'argument tombe.
+    * ✅ « le gate `IsCharging` n'est pas exprimable dans le canal modifier EAGER » — **levé** : il l'est
+      désormais per-coup (`is_not_charging(att_ctx)`, foyer `effects/base.py`), et c'est précisément lui
+      qui empêcherait la sur-application aux attaques hors-charge que cette note redoutait.
+    * ⛔ BLOQUEUR RÉEL, mesuré le 2026-07-28 en tentant le port : l'effet 1343 **arrive au niveau ~1**.
+      Le vecteur de pose (`AddEffect(1343, caster)` du `black_rage_tree`) ne propage NI
+      `active_ability_level` NI `ability_level` depuis la source. Contribution offline obtenue : **18 par
+      coup** (`extraDmg[1] = 10 x 180 %`) au lieu de 997 — A/B live, delta de PV de la cible
+      `off(+charge) − off(−charge) = 52` sur 4 coups là où le port juste vaudrait ~3 900. Livrer le canal
+      dans cet état produirait une valeur FAUSSE, pas une valeur manquante : on s'abstient.
+      Débloqueur = le `scale_from_source` du vecteur de pose (cf. `runner/abilities/behaviours/effects.py
+      ::_source_scaling`, déjà utilisé par `Waaagh_ExtraDamage` 1100), PAS ce fichier.
+
+    Second écart croisé au passage sur le MÊME vecteur, non lié au canal dégât : le `SetHealth(30 % de
+    MaxHealth)` du cast rend **56 871 live vs 60 000 offline** (⇒ `hp_max` 189 570 live vs 200 000
+    offline sur un état rechargé par `load_state`). Il rend ce vecteur non bit-exact tant qu'il tient.
+
+    Le natif, pour mémoire (MIRROR lu, ordre de lecture exact : `get_OwnerIsCaster`,
+    `op_BitwiseAnd(IsCharging(factory+0x160, factory+0x178))`, `op_BitwiseAnd(IsNormalAttack)`, puis
+    `ForAddition(cond, ConfigVar(8, GetAbilityState, effet+0x60))`) :
+
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(caster, target) & IsNormalAttack,
+                                 ConfigVar(8 = extraDmg, GetAbilityState(this), config@this+0x60) )
+
+    — canal additif `@+0x10` par coup, IDENTIQUE aux deux jumeaux `AvalancheOfMuscle_ExtraDamage` (1025)
+    et `FeederTendrils_ExtraDamage` (1197), avec lesquels il partage EXACTEMENT le nœud `IsCharging` (les
+    xrefs de `IdunBattleLogic.Entities.DSLFactory$$IsCharging` ne donnent que ces trois
+    `CreateEffectDamageBonusForAttack` — `SmashaEadEffect$$…` n'en a PAS, contrairement aux fiches).
+    Source de config : `AbilityOrEffect(0x48b = 1163 BlackRage)`, comme le ctor jumeau
+    `IdunBattle.Entities.Effects.Loki.BlackRage_AutomaticUnitEffect$$.ctor`. AUCUN gate melee/ranged."""
 
 
 class BlackRageAutomaticUnitEffect(BaseEffect):

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ._shared import *   # vocabulaire commun (GC, dsl, active_ability_for, ProbableDamageEvent, ...)
 from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                      _target_damage_limits)
+                      _prediction_is_charging, _target_damage_limits)
 from .normal_attack import make_normal_attack_predictions
 
 
@@ -79,7 +79,13 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                        target_armor_reduced=_tgt_armor_reduced,
                                                        att_ctx={"att_pos": attack_pos or scene.pos(uid),
                                                                 "tile_effects_by_pos":
-                                                                    scene.tile_effects_by_pos})
+                                                                    scene.tile_effects_by_pos,
+                                                                # `IsCharging` depuis la tuile candidate
+                                                                # (case-r32) — AvalancheOfMuscle 1025 n'a
+                                                                # AUCUN gate IsNormalAttack, il entre donc
+                                                                # aussi sur ce vecteur ABILITY.
+                                                                "is_charging": _prediction_is_charging(
+                                                                    scene, uid, attack_pos, tgt)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

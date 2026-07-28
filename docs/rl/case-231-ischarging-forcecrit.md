@@ -38,11 +38,18 @@ entre `KillSteppableUnits` et `SetMovedFlag` — c'est ce rang exact qu'a repris
    touche que `+0x60`, `+0x179` et l'`ActorStatisticsComponent`).
 3. Ni l'équipe ni la vie ne sont filtrées à l'écriture — le filtre vit chez le consommateur.
 
-**Résidu nommé** : le lot d'effets extra-dégât `SmashaEad` / `AvalancheOfMuscle` / `FeederTendrils`
-modélise ce même nœud natif par `has_moved` dans le canal *modifier*
-(`engine/entities/effects/loki/extra_damage.py`). C'est une approximation **plus large** que le
-prédicat réel, antérieure à ce lot, et **non touchée ici** (ses quatre datapoints live restent
-valides). La rabattre sur `IsCharging` est une tranche séparée.
+**Résidu nommé — FERMÉ le 2026-07-28 par `case-r32-ischarging-consumers.md`** : le canal *modifier*
+modélisait ce même nœud par `has_moved` (`engine/entities/effects/loki/extra_damage.py`), une
+approximation **plus large** que le prédicat réel. Elle est rabattue sur `IsCharging`, COMBAT et
+PRÉDICTION, via le foyer `engine/battle_query.py::is_charging`.
+
+⚠ **Ce paragraphe nommait à tort `SmashaEad`.** Les xrefs de `IdunBattleLogic.Entities.DSLFactory$$IsCharging`
+ne donnent, pour le canal dégât, que **trois** appelants : `AvalancheOfMuscleTargetEffect`,
+`FeederTendrils_ExtraDamageEffect` et `BlackRage_ExtraDamageEffect`.
+`SmashaEadEffect$$CreateEffectDamageBonusForAttack` vaut
+`ForAddition(get_OwnerIsCaster & IsNormalAttack, ConfigVar(8))` — **aucun nœud `IsCharging`** ; sa
+condition de pas vit dans son TRIGGER, déjà bakée à la matérialisation de l'effet. Le port ne lui
+avait d'ailleurs jamais posé de gate `has_moved`.
 
 ---
 
@@ -232,6 +239,7 @@ bien le nombre, et pas seulement le drapeau `crits`.
 * La face **TRIGGERED** de MomentShackle (`MomentShackle_AttackAbility`) : RE faite (§4), port non
   fait — le vecteur `On(0x1f)` (mouvement) n'a aucun consommateur porté.
 * `TacticalPrecision_ResetAbility` (re-arme après revive) : RE faite (§3), port non fait.
-* Le rabattement du lot `extra_damage` (`has_moved`) sur le vrai `IsCharging` (§1).
+* ~~Le rabattement du lot `extra_damage` (`has_moved`) sur le vrai `IsCharging` (§1)~~ — **FAIT**
+  (`case-r32-ischarging-consumers.md`).
 * Le `<pred>` mort/perdu de MomentShackle (§4).
 * Le cas `>2 joueurs` de la purge `FinishUnitTurn` : inchangé, elle est per-unité.

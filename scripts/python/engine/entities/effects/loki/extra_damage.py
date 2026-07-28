@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_decrease,
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
-from ..base import BaseEffect, is_melee_attack, is_ranged_attack
+from ..base import BaseEffect, is_melee_attack, is_not_charging, is_ranged_attack
 from ..magnitude import ability_var, trait_var
 
 
@@ -200,13 +200,19 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
       3x339=1017 ; u79 min=718~=717 (%-list 0.8). Les MAX u79/u85 qui s'ecartent = caps HP (deja geres par
       target_limits/overkill du port). Le delta VARIE par cible via le regime percage/armure par bout, PAS via
       des stacks.
-    - GATE `IsCharging` (`AverageDistanceFormula IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` : l'unite s'est-elle rapprochee de la cible = a-t-elle
-      charge) ET `get_IsMelee` (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> l'additif n'est ACTIF qu'en attaque MELEE de CHARGE (deplacement au
-      contact). En prediction-display les tuiles d'attaque rankees SONT des tuiles de charge -> gate TRUE (les 4
-      samples portent l'additif). Contrairement a SmashaEad, PAS de `if is_prediction: return None` : ici
-      IsNormalAttack=TRUE (c'est l'attaque normale de l'unite, incluse dans decisionView).
-    ⚠ A confirmer live (validator, quand un slot runner se libere) : niveau/mult reels de u87 (infere L50/mult1.8) ;
-    cas NEGATIF IsCharging (attaque sans deplacement -> additif doit DISPARAITRE) non teste par les 4 samples."""
+    - GATE `IsCharging` (case-r32, RETROFIT) : le noeud DSL resout le slot
+      `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` = `AreEntitiesAdjacent(caster,
+      target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`. Porte par le gate PARTAGE
+      `is_not_charging(att_ctx)` (foyer `effects/base.py`), alimente per-coup par le contexte d'attaque.
+      ⚠ Ce n'est PAS `HasFlag(Moved)` : l'ancien proxy `has_moved` accordait l'additif a un caster qui
+      bouge vers une cible DEJA adjacente avant son pas -- cas ou `UpdateCharging` n'ajoute rien, donc
+      ou le natif n'accorde RIEN. `get_IsMelee` (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) reste le second gate ->
+      l'additif n'est ACTIF qu'en attaque MELEE de CHARGE. Contrairement a SmashaEad, PAS de
+      `if is_prediction: return None` : ici IsNormalAttack=TRUE (c'est l'attaque normale de l'unite,
+      incluse dans decisionView).
+    ⚠ A confirmer live (Deathleaper n'a pas encore ete rejoue depuis le retrofit) : niveau/mult reels de
+    u87 (infere L50/mult1.8). Le cas NEGATIF du gate est, lui, VERROUILLE sur le jumeau AvalancheOfMuscle
+    (`test_ischarging_extra_damage_live.py`, meme foyer de gate)."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
@@ -215,12 +221,12 @@ class FeederTendrilsExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                       # IsCharging & get_IsMelee (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> melee uniquement
+        if is_ranged:                       # get_IsMelee (IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour) -> melee uniquement
             return None
         if is_normal_attack is False:       # IsNormalAttack (IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack)
             return None
-        if has_moved is False:              # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging) : charge = deplacement vers la cible
-            return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
+        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging)
+            return None
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
         amt = ability_var("FeederTendrils", "extraDmg", lvl,
@@ -249,12 +255,19 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
       active_ability_level -> ability_level -> level, comme FeederTendrils). Multiplier = le GLOBAL de l'unite
       (`self.ability_variables_multiplier`) : AvalancheOfMuscle est un PASSIF (pas une triggered) -> a VALIDER
       live que le multiplier global est le bon (piege #68/#75 per-ability vs global).
-    - GATE `IsCharging` (`AverageDistanceFormula IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` via `IdunBattleLogic.Entities.DSLFactory$$IsCharging` : l'unite
-      s'est-elle rapprochee de la cible = a-t-elle charge). astraBullgryn est MELEE-only (aucune attaque
-      ranged) -> le gate `is_ranged` est un no-op ; conserve pour rester le calque strict de FeederTendrils
-      (meme noeud IsCharging). Cote combat `has_moved = unit_has_moved(state, unit_id)` = flag natif
-      `UnitFlag.Moved` (proxy de charge) ;
-      en prediction-display les tuiles rankees sont des tuiles de charge -> has_moved None/True -> gate TRUE.
+    - GATE `IsCharging` (case-r32, RETROFIT) : `IdunBattleLogic.Entities.DSLFactory$$IsCharging(caster@0x160,
+      target@0x178)` resout le slot `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` =
+      `AreEntitiesAdjacent(caster, target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`,
+      liste alimentee par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` (unites devenues
+      NOUVELLEMENT adjacentes pendant le pas) et videe par `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`.
+      Porte par le gate PARTAGE `is_not_charging(att_ctx)` (foyer `effects/base.py`), threade per-coup.
+      ⚠ REMPLACE le proxy `has_moved` (`UnitFlag.Moved`), strictement PLUS LARGE : MESURE live
+      (`test_ischarging_extra_damage_live.py`, astraBullgryn L50 mult 180 %) -- caster qui BOUGE vers une
+      cible DEJA adjacente avant son pas : natif `[3336,3158,2479,2533]`, port-avec-proxy
+      `[3935,3757,3078,3132]` = **+599 par coup de trop**, sur les 4 coups. Le regime CHARGE, lui, etait
+      deja bit-exact : SEUL le gate divergeait.
+      astraBullgryn est MELEE-only (aucune attaque ranged) -> le gate `is_ranged` est un no-op ; conserve
+      pour rester le calque strict de FeederTendrils.
     - PAS de `is_normal_attack` gate (contrairement a FeederTendrils) : le natif n'a PAS le noeud IsNormalAttack."""
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
@@ -264,10 +277,10 @@ class AvalancheOfMuscleExtraDamageEffect(BaseEffect):
                                               is_normal_attack: bool | None = True,
                                               target_armor_reduced: bool | None = None,
                                               att_ctx=None) -> EffectBonus | None:
-        if is_ranged:                       # IsCharging melee (astraBullgryn melee-only ; calque FeederTendrils)
+        if is_ranged:                       # melee-only (astraBullgryn ; calque FeederTendrils)
             return None
-        if has_moved is False:              # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging) : charge = deplacement vers la cible
-            return None                     # (has_moved None = inconnu -> applique, cas prediction-display)
+        if is_not_charging(att_ctx):        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging)
+            return None
         # PAS de gate is_normal_attack : IdunBattle.Entities.Effects.Loki.AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack n'a AUCUN noeud IsNormalAttack (RE decompile).
         lvl = (self.active_ability_level if self.active_ability_level is not None
                else (self.ability_level if self.ability_level is not None else self.level))
