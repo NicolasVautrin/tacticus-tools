@@ -87,14 +87,25 @@ export function computeAttackPlans(
         }
     });
 
-    // Targets carrying an active damage-REDUCTION effect the engine prediction
-    // does NOT simulate: CalculateDamagePredictionScenario models only armor +
-    // stat caps (+ trait limits via ApplyTraitDamageLimitsToDamage). Trigger-
-    // based defensive effects (TerminatorArmour_ReduceDmg, *_HitReduction,
-    // *_ReduceHits, *_ReduceDmg) fire at REAL attack resolution → predicted dmg
-    // (hence K!) over-states for these targets → degrade K!→K? + tag optimistic.
-    // Matched by EffectType NAME (build-agnostic; enum ids can shift). cf. TF04
-    // (seed 80004 Njal/TerminatorArmour, 80072 Aun'Shi, …).
+    // Targets carrying a damage-REDUCTION effect whose simulation by the engine
+    // prediction is UNCERTAIN → degrade K!→K? + tag optimistic. Conservative
+    // heuristic: it only WEAKENS a claim, so a false positive costs nothing.
+    //
+    // ⚠ The blanket claim this comment used to make — "CalculateDamagePrediction
+    // Scenario models only armor + stat caps, trigger-based defensive effects
+    // fire at REAL resolution only" — is NOT established, and its own Aun'Shi
+    // example is REFUTED by measurement (#192, 2026-07-28): the native
+    // prediction DOES apply SereneUnifierSenseOfStone (1169). Oracle attackPlans
+    // (2892, 4338) == offline WITH the effect ported, vs (5784, 8676) without —
+    // i.e. the native predictor already halved the damage. What the predictor
+    // does and does not simulate is per-effect and must be MEASURED effect by
+    // effect; do not generalise from this list. TerminatorArmour specifically is
+    // still open (its refusal stage is unidentified — cf. task #151).
+    //
+    // Matched by EffectType NAME (build-agnostic; enum ids can shift) — note the
+    // regex catches neither 1169 nor any effect not spelled *Reduce*/*HitReduction*,
+    // so those samples were never degraded in the first place. cf. TF04
+    // (seed 80004 Njal/TerminatorArmour, …).
     const DMG_REDUCER_RE = /Reduce(Dmg|Damage|Hits)|HitReduction/i;
     const effectsByUnit = readEffectsByUnit(statePtr);
     const targetHasDmgReducer = (tid: number): boolean => {
