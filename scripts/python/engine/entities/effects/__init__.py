@@ -492,14 +492,26 @@ def piercing_bonus_from_effects(effects, ctx=None) -> int:
     return total
 
 
-def crit_damage_bonus_from_effects(effects) -> int:
-    """Σ des bonus de DÉGÂT de crit des effets ACTIFS de l'attaquant
-    (`IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects) — couche calc-time ajoutée à
-    `GetStat(10)` dans CalculateCriticalDamage. No-op (0) tant qu'aucun effet n'override
-    `create_effect_crit_damage_bonus_for_attack`."""
+def crit_damage_bonus_from_effects(effects, att_ctx=None) -> int:
+    """Σ des bonus de DÉGÂT de crit des effets ACTIFS de l'attaquant — mirror de la boucle
+    `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`, couche calc-time
+    ajoutée à `GetStat(10)` dans `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage`.
+
+    `att_ctx` = contexte du coup, threadé en UN SEUL point (`runner/operations/damage.py::
+    AttackDamageOperation._crit_params`, la façade CRIT partagée par les 3 vecteurs d'attaque) —
+    chaque effet évalue SES gates (`create_effect_crit_damage_bonus_for_attack(att_ctx)`). Le natif
+    construit son `AbilityEntities` (caster=owner=attaquant, target=cible) DANS le canal, à partir
+    des deux entités que `CalculateCriticalDamage` lui passe : le contexte existe côté natif, il
+    manquait seulement côté port (résidu `N14`).
+
+    ⚠ PORTÉE : cette boucle ne balaie que les effets de l'ATTAQUANT. Le natif énumère aussi les effets
+    d'AUTRES entités — `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$CreateCritDamageBonus`
+    = `ForSubtraction(get_OwnerIsTarget, GetCritDmgReductionAmount())` vit sur la CIBLE. Aucune
+    réduction crit défenseur n'est portée à ce jour (toutes rendent None) -> no-op, mais l'axe
+    DÉFENSEUR de ce canal reste un gisement séparé."""
     total = 0
     for e in _as_effects(effects):
-        b = e.create_effect_crit_damage_bonus_for_attack()
+        b = e.create_effect_crit_damage_bonus_for_attack(att_ctx)
         if b is not None:
             total += b
     return total
