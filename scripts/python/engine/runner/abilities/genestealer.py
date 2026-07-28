@@ -542,8 +542,17 @@ class VigilanceEternalAbility(ActiveAbility):
         tire la VALEUR BRUTE (1 tirage) PUIS `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` (slot 8, SANS gate
         min==max) consomme 1 tirage GASPILLE sur la cellule degeneree. Fix : `_run_hits`/`_one_hit` branche
         post_roll (damage.py) ; valide bit-exact per-hit + consommation (6 tirages/3 coups) sur 5 seeds x 2
-        cibles via probe_rngcrit_1202.py. L'ecart residuel +1/coup constate a ARMURE>0 (les deux vecteurs,
-        p.ex. [918,903,1112] vs live [919,904,1113]) = gap de ROUNDING pierce/armure SEPARE, pre-existant."""
+        cibles via probe_rngcrit_1202.py.
+      - ECART RESIDUEL +1/coup A ARMURE>0 (« [918,903,1112] vs live [919,904,1113] ») : **PERIME**,
+        RE-MESURE le 2026-07-28 (`docs/rl/case-38-offbyone-armor-materialization.md`). Ce n'etait pas un
+        gap de percage mais la MATERIALISATION finale, qui TRONQUAIT au lieu d'ARRONDIR
+        (`FixMath.NET.Fix64$$Round(., AwayFromZero)`, dernier etage de
+        `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers`) ; ferme par #131
+        (vecteur normal) et par la campagne HeavyGravCannon (vecteur ability bounds-mode). Re-mesure sur
+        le montage d'origine (custoKyrus vs necroWarden, `--armor-target`) : port livre bit-exact
+        **24/24 coups**, les deux vecteurs, a cc=0 ET a cc>=1 (9 tirages live == 9 port). La troncature
+        REPRODUIT le symptome de la fiche (`port = live - 1` des que frac >= .5) -> les chiffres cites
+        etaient ceux du port de l'epoque. Garde : `tests/engine/runner/test_offbyone_armor_38_live.py`."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.VigilanceEternal)  # 1202
     ABILITY_ID = "VigilanceEternal"
