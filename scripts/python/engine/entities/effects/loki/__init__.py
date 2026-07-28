@@ -73,6 +73,7 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    LetTheGalaxyBurnEffect, LET_THE_GALAXY_BURN_PERSISTENT_KEY,
                    BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, SagaOfTheWarriorBornOwnerEffect,
+                   UnstoppableFerocityOwnerEffect,
                    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, ContaminatedUnitEffect,
@@ -144,7 +145,7 @@ __all__ = [
     "MasterAnnihilatorAdditionalHitEffect", "LetTheGalaxyBurnEffect",
     "LET_THE_GALAXY_BURN_PERSISTENT_KEY",
     "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
-    "SagaOfTheWarriorBornOwnerEffect",
+    "SagaOfTheWarriorBornOwnerEffect", "UnstoppableFerocityOwnerEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedEffect", "ContaminatedUnitEffect",
