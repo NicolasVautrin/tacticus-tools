@@ -244,3 +244,80 @@ def replay_materializations(dv, ob, snap, board, rng0, caster_id, target_id, abi
 
     f, r, s = _one(False), _one(True), _one(None)
     return {"floor": f[0], "round": r[0], "shipped": s[0], "arme": r[1]}
+
+
+def replay_orders(dv, ob, snap, board, rng0, caster_id, target_id, ability_id, moved,
+                  variants):
+    """PENDANT « ORDRE » de `replay_materializations` : rejoue le MEME coup, sur le MEME etat et
+    le MEME flux RNG, en ne faisant varier QUE l'ORDRE tirage/reduction du canal
+    `additional_hits`. La MATERIALISATION est celle du PORT LIVRE dans les trois rejeux (les
+    variantes appellent `reduce_group_damage`), donc un ecart ne peut venir QUE de l'ordre.
+
+    POURQUOI cet etage se mesure SEPAREMENT de la materialisation : il est AMONT (il decide QUEL
+    tirage sort) et la materialisation est AVAL (elle decide COMMENT ce tirage se materialise).
+    Les melanger, c'est fitter deux etages avec un scalaire.
+
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` commence par
+        `IdunBattle.Core.HitDamage$$GetDamage(attackData.HitDamage, rng, useAverage)` -- qui
+        court-circuite SI min == max -- puis termine par le slot 8
+        `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`, qui appelle
+        `Range(min, max+1)` **SANS aucun gate min == max**. Pour un groupe dont le descripteur
+        porte un `HitDamage` NON degenere (`RandomAmount(ConfigVar, ConfigVar)`, forme
+        PREDEFINED), cela fait 1 tirage BRUT + 1 resolve GASPILLE = 2 tirages/coup, la VALEUR
+        etant la reduction du tirage BRUT.
+
+    `variants` = `{nom: implementation de substitution d'`execute_additional_hits`}` (en pratique
+    `additional_hits_variant(order, None[, is_attack_op])` du probe R6). Rend
+    `{<nom>: [...], ..., "shipped": [...], "arme": [...]}`, ou `shipped` = le port TEL QU'IL EST
+    LIVRE (aucune substitution) : c'est LUI le cliquet."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.runner import Runner
+    from engine.runner.messages import ActiveAbilityMessage, AttackUnitMessage
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.components import set_moved_flag
+    from engine.runner.operations import additional_hits as _ah_mod
+    from engine.runner.operations.damage_ops import normal as _dnormal
+    from engine.runner.operations.damage_ops import ability as _dability
+
+    def _one(impl):
+        st = load_state(dv, ob, snap, board=board)
+        if moved:
+            set_moved_flag(st, caster_id)
+        rng = IntBasedMersenneTwister()
+        rng.mt = list(rng0["mt"])
+        rng.mti = rng0["mti"]
+        st.rng = rng
+        per_hit: list = []
+        arme: list = []
+        o_ah = _ah_mod.execute_additional_hits
+        o_n, o_a = _dnormal.execute_additional_hits, _dability.execute_additional_hits
+
+        def _rec_ah(*a, **kw):
+            out = (impl or o_ah)(*a, **kw)
+            if out:
+                per_hit.extend(out.get("per_hit") or [])
+            return out
+
+        _ah_mod.execute_additional_hits = _rec_ah
+        _dnormal.execute_additional_hits = _rec_ah
+        _dability.execute_additional_hits = _rec_ah
+        try:
+            runner = Runner(st).install_default_handlers(20)
+            if ability_id is None:
+                runner.apply(AttackUnitMessage(caster_id, target_id))
+            else:
+                runner.apply(ActiveAbilityMessage(caster_id=caster_id, target_id=target_id,
+                                                  ability_type=ability_id))
+            last = getattr(getattr(runner, "damage_handler", None), "last", None)
+            if isinstance(last, dict):
+                arme.extend(last.get("per_hit") or [])
+            return per_hit, arme
+        finally:
+            _ah_mod.execute_additional_hits = o_ah
+            _dnormal.execute_additional_hits = o_n
+            _dability.execute_additional_hits = o_a
+
+    out = {name: _one(impl)[0] for name, impl in variants.items()}
+    shipped = _one(None)
+    out["shipped"], out["arme"] = shipped[0], shipped[1]
+    return out

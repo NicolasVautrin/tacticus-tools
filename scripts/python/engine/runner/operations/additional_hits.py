@@ -27,6 +27,9 @@ def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mu
     MATERIALISATION finale) -- FOYER UNIQUE, extrait pour que la garde live puisse confronter
     EXACTEMENT ce que le port materialise (`test_additional_hits_rounding_live`).
 
+    R6-b : ce foyer est desormais le `post_roll` de `_run_hits` -- il recoit la VALEUR TIREE, plus
+    les bornes (cf. `execute_additional_hits`). Sa formule est INCHANGEE ; seul son call-site l'est.
+
     Mirror de `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`
     dans le per-coup `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, qui est le MEME
     pour les coups d'arme et pour les coups additionnels (les deux voies natives y retombent :
@@ -52,13 +55,9 @@ def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mu
     aurait donne un +1 systematique). Meme signature que la campagne HeavyGravCannon.
     STRICTEMENT NO-OP hors regime discriminant (valeur deja entiere -> Round == identite).
 
-    ⚠ RESIDU AMONT, DISTINCT ET NON TRAITE ICI (#202-B, « conso RNG discriminante, A CONFIRMER
-    LIVE ») : pour un groupe PREDEFINED, le descripteur natif porte un `HitDamage` NON DEGENERE,
-    donc `ExecuteHit` commence par `IdunBattle.Core.HitDamage$$GetDamage` (1 tirage BRUT) puis
-    gaspille le resolve slot-8 = ROLL-THEN-REDUCE a 2 tirages/coup, alors que ce port fait
-    REDUCE-THEN-ROLL a 1 tirage/coup. MESURE : le 1er coup de chaque groupe est reproduit 11/11 par
-    roll-then-reduce et 0/11 par reduce-then-roll. Cet etage est AMONT (il decide QUEL tirage sort),
-    orthogonal a la materialisation (qui decide COMMENT il se materialise)."""
+    L'etage AMONT (l'ORDRE tirage/reduction) est desormais porte lui aussi -- cf. le bloc R6-b de
+    `execute_additional_hits`. Les deux etages restent DISTINCTS : celui-ci decide COMMENT un
+    tirage se materialise, l'autre decide QUEL tirage sort."""
     return apply_all_modifiers(
         apply_pierce_and_modifiers(value, g_pierce, armor, mods, hit_mult=hit_mult,
                                    attacker_additive_pre=True),
@@ -140,11 +139,46 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     donc WeaverOfFate) et `is_attack=False` (le compteur d'attaque est celui de l'ATTAQUE,
     deja pose par la phase d'arme).
 
-    A CONFIRMER LIVE (case-202 §7, conso RNG discriminante) : (1) PAS de crit-roll sur les coups
-    bonus (le descripteur natif ne porte aucune plage crit ; `predict_attack_raw` ne crit-folde
-    pas un predefined) -> 1 tirage/coup ici, 2 si le natif crit-rolle ; (2) gate `hp > 0` (cible
-    morte pendant la phase d'arme -> sous-operations non emises) ; (3) `failed_block` remis a
-    zero entre phase d'arme et groupes (le natif persiste la failedList PAR ATTAQUE — residu).
+    R6-b — ORDRE : ROLL-THEN-REDUCE, 2 tirages/coup (mirror `IdunBattle.Operations.
+    AttackDamageOperation$$ExecuteHit`, LU verbatim dans l'ordre du corps natif) :
+
+      1. `IdunBattle.Core.HitDamage$$GetDamage(attackData.HitDamage, rng, useAverage)` —
+         `if (min == max) return min ; if (useAverage) return (min+max)/2 ;
+          return rng.Range(min, max+1)`. L'AttackData de CHAQUE groupe est bati par
+         `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsData`, dont
+         l'instruction utile est `IdunBattle.Core.HitDamage$$.ctor(min = descripteur.minDmg,
+         max = Nullable(descripteur.maxDmg))` : un groupe PREDEFINED y arrive donc NON DEGENERE
+         -> ce tirage EST la valeur BRUTE du coup ;
+      2. crit -> `CritDamageInfo`, dont le champ 0 est CE degat ;
+      3. slot 4 `IdunBattle.Core.Services.DamagePrediction$$PredictAttack` (le `Nullable<int>`
+         damage de sa struct d'entree = `CritDamageInfo.Damage`) -> reduction percage/armure/mods
+         = `reduce_group_damage`, cellule DEGENEREE ;
+      4. slot 8 `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage` :
+         `rng.Range(pred.min, pred.max+1)` **SANS aucun gate min == max** (contraste EXACT avec
+         `HitDamage$$GetDamage`, qui en a un) -> 1 tirage GASPILLE.
+
+    C'est EXACTEMENT la branche `post_roll` de `damage_hits.py::_one_hit`
+    (`is_attack_damage_op=True`), deja mirroree et validee bit-exact pour le vecteur ability
+    bounds-mode de la MEME famille ATTACK — un coup additionnel `predefined` est structurellement
+    le meme objet (`HitDamage` non degenere pose dans l'AttackData). Le port faisait
+    REDUCE-THEN-ROLL (bornes pre-reduites, `post_roll=None`, 1 tirage/coup).
+    MESURE LIVE (`probe_r6_round_materialize --case ah_matrix` ; `orksRuntherd`/SquigHound,
+    groupe predefined [2660,3988] Physical p1, cible forcee a 6000 d'armure) : le 1er coup de
+    chaque groupe est reproduit **5/5** par roll-then-reduce + resolve et **0/5** par
+    reduce-then-roll (11/11 vs 0/11 sur la campagne d'origine a 11 seeds) ; sur les seeds ou le
+    2e coup est lui aussi reproduit, c'est TOUJOURS la variante AVEC le resolve gaspille (3/3 ;
+    `resolve=False` echoue sur les 3).
+
+    ⚠ RESIDU CHIFFRE, LAISSE OUVERT (R6-b') : sur CE porteur le 2e coup n'est reproduit que
+    **3/5** (777 : live 37 vs port 39 ; 314159 : live 33 vs port 35). `orksRuntherd` porte
+    `GetStuckIn`, dont le behaviour est un `Maybe(chance)` evalue par
+    `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` — derniere instruction de
+    CHAQUE `ExecuteHit`, y compris ceux d'un groupe ; le port ne roule ce `Maybe` que sur les
+    coups d'ARME d'index impair (`bonus_hit_chance` n'est PAS passe ici).
+
+    A CONFIRMER LIVE (case-202 §7) : (1) gate `hp > 0` (cible morte pendant la phase d'arme ->
+    sous-operations non emises) ; (2) `failed_block` remis a zero entre phase d'arme et groupes
+    (le natif persiste la failedList PAR ATTAQUE — residu).
     None si aucun groupe qualifie (strict no-op retro-compat).
 
     Rappelle les primitives de tirage de `AttackDamageOperation` : import LAZY (cycle module
@@ -170,9 +204,21 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         else:
             mm = get_base_damage_fix64(g.get("amount") or 0, spread_pct=spread_pct)
             g_min, g_max = mm.min, mm.max
-        lo = reduce_group_damage(g_min, g_pierce, armor, mods, def_mods, hit_mult=hit_mult)
-        hi = reduce_group_damage(g_max, g_pierce, armor, mods, def_mods, hit_mult=hit_mult)
-        hd = HitDamage(lo, hi)
+        def _reduce(value, _p=g_pierce):
+            """`post_roll` = etage 3 d'`ExecuteHit` (slot 4 `PredictAttack`), applique a la
+            VALEUR TIREE et non aux bornes (R6-b, cf. docstring)."""
+            return reduce_group_damage(value, _p, armor, mods, def_mods, hit_mult=hit_mult)
+
+        # R6-b : bornes BRUTES du descripteur (= le `HitDamage` NON degenere que
+        # `AdditionalHitsFromEffects$$GetAdditionalHitsData` pose dans l'AttackData) -> le tirage
+        # de `HitDamage$$GetDamage` porte sur ELLES, la reduction vient APRES via `post_roll`.
+        hd = HitDamage(g_min, g_max)
+        # #202-A WeaverOfFate : bornes degenerees a (max, max). Le natif, lui, evalue
+        # `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` APRES `GetDamage` et remplace
+        # le degat tire par `attackData.HitDamage.max` -> meme VALEUR ici (post_roll(max)), mais
+        # le tirage brut y est consomme alors que `get_damage` le court-circuite a min == max.
+        # Residu de CONSOMMATION strictement identique a celui du vecteur ability bounds-mode
+        # (`damage_ops/ability.py`, meme appel) ; no-op tant que l'attaquant n'a pas l'effet 1185.
         hd, _ = AttackDamageOperation._apply_max_out(state, attacker_id, hd, hd)
         shield_total = shc.get_total_shield() if shc is not None else 0
         # #65 : le flag NoBlocking est PER SOUS-OPERATION (IdunBattle.Operations.AttackDamageOperation$$ExecuteHit relit
@@ -184,6 +230,10 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         r = AttackDamageOperation._run_hits(
             state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), g_block,
             shield=shield_total,
+            # R6-b : `post_roll` = branche ROLL-THEN-REDUCE de `_one_hit` (tirage BRUT + resolve
+            # slot-8 gaspille) ; `is_attack_damage_op=True` = famille ATTACK, les DEUX voies
+            # natives de coups additionnels retombant sur `AttackDamageOperation$$ExecuteHits`.
+            post_roll=_reduce, is_attack_damage_op=True,
             limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
             limits_hp=int(thc.hp or 0))
         AttackDamageOperation._deplete_shield(shc, r)
