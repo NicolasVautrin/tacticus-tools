@@ -210,11 +210,14 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     DANS CE GROUPE (le natif a une boucle de fin sur `hitGroup+0x58` par sous-operation, et
     `SetupHitGroup` cree un hitGroup PAR sous-operation).
 
-    RESIDU RESTANT, VECTEUR ABILITY : `damage_ops/ability.py` ne passe `bonus_hit_chance` NI aux
-    coups d'arme NI ici, alors que le trigger natif n'a aucun gate `IsNormalAttack` — une attaque
-    d'ability de la famille ATTACK (`AttackWithAttackDamage`) d'un porteur GetStuckIn a <=2 hex
-    roule le `Maybe` cote natif. Non ouvert ici : ce serait porter la face ARME du vecteur ability,
-    hors perimetre R6-b' (et un demi-portage — groupes sans coups d'arme — serait INCOHERENT).
+    R6-b'' — RESIDU « VECTEUR ABILITY » FERME : `damage_ops/ability.py` thread DESORMAIS
+    `bonus_hit_chance` sur SES coups d'arme ET ici. Le trigger n'a AUCUN gate `IsNormalAttack`, et
+    `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` est appele en DERNIERE
+    instruction, INCONDITIONNELLEMENT, par ses TROIS appelants (xref) :
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` (famille ATTACK, la MEME fonction que
+    l'attaque normale), `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` (famille ABILITY)
+    et `IdunBattle.Operations.MachineDamageOperation$$ExecuteHit`. Cf.
+    `docs/rl/case-r6bp2-after-hit-maybe-ability-vector.md`.
 
     A CONFIRMER LIVE (case-202 §7) : (1) gate `hp > 0` (cible morte pendant la phase d'arme ->
     sous-operations non emises) ; (2) `failed_block` remis a zero entre phase d'arme et groupes
