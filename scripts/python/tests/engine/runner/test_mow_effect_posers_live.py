@@ -21,10 +21,12 @@ Deux volets de GENERALISATION (non utilises pour construire le port) :
 
 Drive les positions ; lit l'etat LIVE ; state-files UNIQUES (chemin absolu + agent id) ; ASCII-only.
 
-⚠ MONTAGE (#162) : le `combatSnapshot` qui alimente `load_state` est pris sur un runner JUMEAU, JAMAIS
-sur le runner de mesure — ce RPC corrompt tout runner ou une MoW est deployee (toute pose d'effet
-ulterieure y devient un no-op SILENCIEUX ; le degat, lui, passe). cf. `_twin_snapshot` et
-`docs/rl/case-162-mow-red-suites.md`.
+Le `combatSnapshot` qui alimente `load_state` est pris sur LE RUNNER DE MESURE. Il a longtemps
+transite par un runner JUMEAU : ce RPC corrompait tout runner ou une MoW etait deployee (toute pose
+d'effet ulterieure y devenait un no-op SILENCIEUX, le degat passant normalement). La cause a ete
+bissectee (#175) -- la Machine en CIBLE de `GetNormalAttackPrediction` -- puis corrigee ; la parade
+est retiree depuis, sur re-mesure de `probe_175_combatsnapshot_machine.py` (les 9 cas POSENT, dont
+`only=normalAttack` qui etait le seul coupable). cf. `docs/rl/case-162-mow-red-suites.md`.
 """
 from __future__ import annotations
 
@@ -45,9 +47,6 @@ ROOT = Path(__file__).resolve().parents[5]                         # racine repo
 # fichiers-ci l'avaient ratee -- une passe interrompue laissait 4 `??` dans `git status`).
 STATE = ROOT / "logs" / f"_pytest_mowposer_{AGENT_ID}.json"        # runner courant (scoped replace)
 STATE_GEN = ROOT / "logs" / f"_pytest_mowposer_gen_{AGENT_ID}.json"
-# state-file DEDIE au runner JUMEAU du snapshot (cf. `_twin_snapshot`) : un `build` ne dispose
-# que le runner enregistre dans SON state-file -- le partager avec STATE tuerait le runner de mesure.
-STATE_TWIN = ROOT / "logs" / f"_pytest_mowposer_twin_{AGENT_ID}.json"
 
 EFF_SQUIG_MINE = 1441    # EffectType.SquigMine_Tile (marquage de tuile de 1201)
 BOARD = "C1_02"          # board MoW-capable (slot MachineOfWarPosition des deux cotes)
@@ -85,40 +84,7 @@ def rpc_(host, live_session):
     return _rpc
 
 
-def _twin_snapshot(rpc, extra, board_id, seed, endturn=0):
-    """`combatSnapshot` pris sur un runner JUMEAU, JAMAIS sur le runner de mesure (#162).
-
-    DEFAUT D'OUTILLAGE MESURE : appeler le RPC `combatSnapshot` sur un runner qui contient une
-    entite MACHINE (une MoW deployee) laisse CE runner dans un etat ou toute pose d'effet
-    ulterieure est un NO-OP SILENCIEUX -- l'action est bien consommee et le DEGAT passe
-    normalement (mesure : 6180 PV identiques avec et sans), mais `AddEffect` n'ecrit plus rien.
-    Ni erreur ni exception : le cast rend `ok=true` avec seulement les events d'ouverture. Ca
-    frappait les casts de MoW comme ceux d'UNITE (`ThunderousAssault` ne posait plus `Stunned`),
-    et seulement quand une MoW etait sur le plateau (meme runner sans MoW : intact). Contre-
-    epreuves : `decisionView`, `observeBattle`, `boardGraph`, `tileMeta`, `dumpRng`,
-    `abilityTargets`, `statModSources` et `aiPlaybookPredict` (caster = la MoW) ne corrompent
-    PAS ; la corruption n'est pas reversible (elle survit aux fins de tour).
-
-    Parade : deux `rl_duel build` de MEMES arguments donnent un etat STRICTEMENT identique
-    (mesure : `combatSnapshot`, `decisionView`, ids d'entites et etat du PRNG egaux) -> le
-    snapshot est pris sur un jumeau qu'on dispose aussitot. `endturn` rejoue sur le jumeau la
-    meme avance de tour que sur le runner de mesure, sans quoi l'etat snapshotte ne serait pas
-    celui qu'on confronte. cf. `docs/rl/case-162-mow-red-suites.md`."""
-    rid, err = _build(STATE_TWIN, list(extra), board=board_id, seed=seed)
-    if rid is None:
-        pytest.skip(f"build runner KO (jumeau du snapshot): {err}")
-    try:
-        for _ in range(endturn):
-            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-        return rpc("combatSnapshot", {"runnerId": rid}, 90)
-    finally:
-        try:
-            rpc("disposeRunner", {"runnerId": rid}, 20)
-        except Exception:                                          # noqa: BLE001
-            pass
-
-
-def _load(rpc, rid, twin_extra, board_id=BOARD, seed=SEED, endturn=0):
+def _load(rpc, rid):
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -127,7 +93,7 @@ def _load(rpc, rid, twin_extra, board_id=BOARD, seed=SEED, endturn=0):
     board = Board(bg["tiles"], adjacency="evenq")
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = _twin_snapshot(rpc, twin_extra, board_id, seed, endturn)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
     return load_state(dec, ob, snap, board=board), board, dec, ob
 
 
@@ -243,7 +209,7 @@ def _confront(rpc, ability, carrier, kind, state_path=STATE, board_id=BOARD, ext
         pytest.skip(f"build MoW {carrier} KO: {err}")
     for _ in range(endturn):
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-    state, board, dec, _ob = _load(rpc, rid, build_extra, board_id, SEED, endturn)
+    state, board, dec, _ob = _load(rpc, rid)
     m = next((x for x in (dec.get("mows") or []) if x.get("visualId") == carrier), None)
     if m is None:
         pytest.skip(f"MoW {carrier} non deployee")
@@ -457,7 +423,7 @@ def test_machine_side_branch_flips_live(rpc_, host, live_session):
         pytest.skip(f"build 2 MoW KO: {err}")
     try:
         rpc_("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
-        state, board, dec, _ob = _load(rpc_, rid, gen_extra, GEN_BOARD, "31337", endturn=1)
+        state, board, dec, _ob = _load(rpc_, rid)
         mows = {m["visualId"]: m for m in (dec.get("mows") or [])}
         if "adeptExorcist" not in mows:
             pytest.skip("MoW adverse non deployee")

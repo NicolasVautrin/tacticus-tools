@@ -11,6 +11,12 @@ Les deux mesures qui se contredisaient disaient donc la verite toutes les deux :
 harnais bloque les **effets** et laisse passer le **degat** (mesure : 6180 PV identiques avec et sans).
 « live=[] » (mesure A) etait une empreinte d'EFFETS vide ; « live_delta=1631 » (mesure B) un delta de PV.
 
+> **CLOS le 2026-07-28 — la parade jumelle est RETIREE.** HARNAIS-1 a ete bissecte puis corrige
+> (`#175`, `c6ccd44` : le vecteur etait la Machine en **CIBLE** de `GetNormalAttackPrediction`).
+> Re-mesure : `probe_175_combatsnapshot_machine.py` rend **POSE sur ses 9 cas**, `only=normalAttack`
+> compris — le seul qui etait coupable. Les quatre porteurs de la parade snapshottent desormais **le
+> runner de mesure**. Detail du retrait au §7.
+
 ---
 
 ## 1. Ventilation des 13 rouges (etat de depart)
@@ -65,7 +71,13 @@ laisse **CE runner** dans un etat ou **toute pose d'effet ulterieure est un NO-O
 
 La corruption **n'est pas reversible** : elle survit aux fins de tour (2 casts plus tard, toujours cassee).
 
-### Ce qui reste a instruire (defaut d'OUTILLAGE, hors de ce cas)
+### Ce qui restait a instruire — INSTRUIT ET CLOS EN #175
+
+La piste ci-dessous etait la bonne, mais **la moitie qu'elle designait etait la mauvaise** : la
+bissection (`probe_175_combatsnapshot_machine.py`) a montre que `readNormalAttack` etait bien la seule
+sous-lecture coupable, et que le vecteur est la Machine en **CIBLE** de `GetNormalAttackPrediction`,
+pas en attaquante. Le correctif que ce paragraphe recommandait (« ne pas appeler `readNormalAttack`
+pour les entites Machine ») aurait ete **INERTE**. Detail : `case-175`.
 
 `combatSnapshot` est le SEUL RPC fautif ; la condition est la presence d'une entite `Machine`. Les seuls
 invokes qu'il est seul a faire sur une entite Machine sont, dans `frida/hooks/features/ai-step/
@@ -87,7 +99,7 @@ de cet agent. **Piste a verifier en premier au prochain reinject** : ne pas appe
 pour les entites `Machine` (ni les prendre comme cible de prediction) et re-jouer les deux suites sans
 le contournement ci-dessous.
 
-### La parade livree (harnais, validee live)
+### La parade (livree ici, RETIREE le 2026-07-28 — cf. §7)
 
 Deux `rl_duel build` de MEMES arguments donnent un etat **strictement identique** — mesure : payload
 `combatSnapshot` egal, `decisionView` egal, memes ids d'entites, meme etat du PRNG (`dumpRng`). Le
@@ -183,3 +195,37 @@ Migration au passage : les state-files des deux suites vivaient sous `data/` (VE
 python probe_162_mow_cast_live.py --mow tauBroadside --ability 1160        # la corruption combatSnapshot
 python probe_162_mow_ability_level.py --mow orksRukkatrukk --ability SquigMine --var nrOfTiles
 ```
+
+---
+
+## 7. Retrait de la parade (2026-07-28)
+
+HARNAIS-1 etant corrige (#175), garder le montage jumeau coutait un `rl_duel build` COMPLET par
+`_load` — pour rien. Les quatre porteurs snapshottent desormais le runner de mesure :
+
+| porteur | ce qui disparait |
+|---|---|
+| `test_mow_effect_posers_live.py` | `_twin_snapshot`, `STATE_TWIN`, les 5 params de `_load` devenus inutiles |
+| `test_mow_groups_bcd_live.py` | idem + le `replay` du 2e cast de `TwinSmartMissileSystem` |
+| `test_mow_caster_load_live.py` | idem + `TWIN_MOW`/`TWIN_GEN` + le `replay` du cast 2-phases |
+| `probe_174_mow_level_generalize.py` | le 2e `_build` par cas |
+
+Le `replay` etait la partie fragile : il fallait REJOUER sur un runner neuf toute la sequence deja
+jouee (fins de tour, 1er cast) pour que l'etat snapshotte soit celui qu'on confronte. Cette classe
+de desynchronisation n'existe plus.
+
+**Ce qui a ete mesure**, meme session :
+
+| | avec parade | sans |
+|---|---|---|
+| `test_mow_effect_posers_live` | 8 passed / **51,5 s** | 8 passed / **23,4 s** |
+| `test_mow_groups_bcd_live` + `test_mow_caster_load_live` | — | 13 passed, 1 skipped / 33,9 s |
+| `probe_174_mow_level_generalize` | — | `TOUS OK` (3 boards) |
+
+Le skip restant est celui du §5 (marquage non survivant au 2e cast, #90 §6.4 residu 4) — **pas** un
+skip de harnais.
+
+**Effet de bord constate** : l'entree de backlog « #175 — `test_storm_speeder_live` (2 tests) ROUGE —
+HARNAIS-1 » etait **PERIMEE**. Ces deux tests prenaient leur snapshot sur le runner de mesure et
+etaient donc rouges par le poison lui-meme ; ils passent **sans modification** (2 passed / 13,0 s).
+Le correctif les avait liberes sans que personne les rejoue.

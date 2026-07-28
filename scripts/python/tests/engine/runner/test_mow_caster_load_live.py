@@ -31,11 +31,11 @@ TROIS volets :
 
 Drive les positions ; lit l'etat LIVE ; state-file UNIQUE (chemin absolu + agent id) ; ASCII-only.
 
-⚠ MONTAGE (#162, applique ici seulement en #174) : le `combatSnapshot` qui alimente `load_state`
-est pris sur un runner JUMEAU des qu'une MoW est deployee -- ce RPC corrompt tout runner contenant
-une entite Machine (toute pose d'effet ulterieure y devient un no-op SILENCIEUX ; degats et spawns,
-eux, passent, ce qui explique que seul `test_effect_posed_on_mow_is_loaded` en souffrait). cf.
-`_twin_snapshot` et `docs/rl/case-162-mow-red-suites.md` §2.
+Le `combatSnapshot` qui alimente `load_state` est pris sur LE RUNNER DE MESURE. Il a transite par un
+runner JUMEAU (#162, applique ici seulement en #174) tant que ce RPC corrompait tout runner contenant
+une entite Machine -- seul `test_effect_posed_on_mow_is_loaded` en souffrait, degats et spawns
+passant. Cause bissectee et corrigee en #175 ; parade retiree sur re-mesure. cf.
+`docs/rl/case-162-mow-red-suites.md` §2.
 """
 from __future__ import annotations
 
@@ -57,7 +57,6 @@ ROOT = Path(__file__).resolve().parents[5]                         # racine repo
 STATE = ROOT / "logs" / f"_pytest_mowload_{AGENT_ID}.json"         # state-file UNIQUE
 STATE_NOMOW = ROOT / "logs" / f"_pytest_mownone_{AGENT_ID}.json"
 STATE_GEN = ROOT / "logs" / f"_pytest_mowgen_{AGENT_ID}.json"
-STATE_TWIN = ROOT / "logs" / f"_pytest_mowtwin_{AGENT_ID}.json"    # runner JUMEAU du snapshot (#162)
 
 CARRIER = "tyranBiovore"        # MoW du pool dont une ability (1145) est DEJA portee
 SPORE = 1145
@@ -95,37 +94,7 @@ def mow_runner(host, live_session):
         pass
 
 
-def _twin_snapshot(rpc, extra, board_id, seed, replay=None):
-    """`combatSnapshot` pris sur un runner JUMEAU, JAMAIS sur le runner de mesure (HARNAIS-1 #162).
-
-    Le RPC `combatSnapshot`, appele sur un runner qui contient une entite MACHINE, laisse CE runner
-    dans un etat ou toute pose d'effet ulterieure est un NO-OP SILENCIEUX (le degat et les SPAWNS
-    passent, `AddEffect` n'ecrit plus rien, le cast rend `ok=true`). Mesures, contre-epreuves et
-    piste natif : `docs/rl/case-162-mow-red-suites.md` §2. La parade etait deja en place dans
-    `test_mow_effect_posers_live` et `test_mow_groups_bcd_live` ; elle manquait ICI, ce qui laissait
-    `test_effect_posed_on_mow_is_loaded` ROUGE en permanence (mesure #174).
-
-    Deux `rl_duel build` de MEMES arguments donnent un etat STRICTEMENT identique (snapshot,
-    `decisionView`, ids et PRNG egaux) -> on snapshotte un jumeau qu'on dispose aussitot.
-    `replay(rid)` y rejoue les actions deja jouees sur le runner de mesure."""
-    rid, err = _build(STATE_TWIN, list(extra), board=board_id, seed=seed)
-    if rid is None:
-        pytest.skip(f"build runner KO (jumeau du snapshot): {err}")
-    try:
-        if replay is not None:
-            replay(rid)
-        return rpc("combatSnapshot", {"runnerId": rid}, 90)
-    finally:
-        try:
-            rpc("disposeRunner", {"runnerId": rid}, 20)
-        except Exception:                                          # noqa: BLE001
-            pass
-
-
-def _load(rpc, rid, twin=None, replay=None):
-    """`twin=(extra, board, seed)` -> le snapshot vient d'un runner JUMEAU (obligatoire des qu'une
-    MoW est deployee, cf. `_twin_snapshot`). `twin=None` -> snapshot direct : legitime UNIQUEMENT
-    sur un runner SANS Machine (contre-epreuve #162 : la corruption ne survient que MoW presente)."""
+def _load(rpc, rid):
     from engine.entities.pathfinding.board import Board
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -133,12 +102,8 @@ def _load(rpc, rid, twin=None, replay=None):
     board = Board(bg["tiles"], adjacency="evenq")
     dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    snap = (_twin_snapshot(rpc, twin[0], twin[1], twin[2], replay) if twin
-            else rpc("combatSnapshot", {"runnerId": rid}, 60))
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     return load_state(dec, ob, snap, board=board), board, dec, ob
-
-
-TWIN_MOW = (["--p-mow", CARRIER], BOARD, SEED)
 
 
 def _mow(dec):
@@ -155,7 +120,7 @@ def test_mow_caster_is_loaded_offline(mow_runner):
     `applyAction`), avec le jeu de composants du natif : Unit(identite) / Owner / TriggeredAbility /
     Stats, et **NI Position NI Health** (hors-plateau, mesure `dumpEntityComponents`)."""
     rid, rpc = mow_runner
-    state, _board, dec, _ob = _load(rpc, rid, TWIN_MOW)
+    state, _board, dec, _ob = _load(rpc, rid)
     m = _mow(dec)
     cid = m["casterId"]
     ent = state.get_entity(cid)
@@ -207,7 +172,7 @@ def test_mow_ability_variable_indexes_at_level_minus_one(mow_runner):
     import gameconfig as GC
     from engine.entities.effects.magnitude import ability_var
     rid, rpc = mow_runner
-    state, _board, dec, _ob = _load(rpc, rid, TWIN_MOW)
+    state, _board, dec, _ob = _load(rpc, rid)
     m = _mow(dec)
     ent = state.get_entity(m["casterId"])
     sc = ent.get_component(StatsComponent) if ent is not None else None
@@ -239,7 +204,7 @@ def test_canonical_form_stays_symmetric(mow_runner):
     """GARDE : la forme canonique reste diffable — `snapshot(state)` (qui contient desormais la MoW)
     == `snapshot_live` (qui l'emet aussi). Un desequilibre casserait tout replay-diff MoW."""
     rid, rpc = mow_runner
-    state, _board, dec, ob = _load(rpc, rid, TWIN_MOW)
+    state, _board, dec, ob = _load(rpc, rid)
     d = diff(snapshot_live(dec, ob), snapshot(state))
     print(f"\n[MOW/diff] {d}")
     assert d == [], f"forme canonique desequilibree apres chargement MoW: {d}"
@@ -278,7 +243,7 @@ def test_mow_ability_executes_from_loaded_caster(mow_runner):
     from engine.entities.effects.magnitude import ability_var
     from engine.runner.operations.summon_ai import _apply_active_ability
     rid, rpc = mow_runner
-    state, board, dec, ob = _load(rpc, rid, TWIN_MOW)
+    state, board, dec, ob = _load(rpc, rid)
     m = _mow(dec)
     cid = m["casterId"]
     ab = next((a for a in (m.get("abilities") or []) if a.get("id") == SPORE), None)
@@ -346,7 +311,6 @@ GEN_A_MOW = "blackForgefiend"     # 2e MoW, camp ADVERSE, autre faction
 GEN_BOARD = "C2_02"               # AUTRE board MoW-capable
 GEN_SEED = "31337"
 HEAVY_RAIL_RIFLE = 1160
-TWIN_GEN = (["--p-mow", GEN_P_MOW, "--a-mow", GEN_A_MOW], GEN_BOARD, GEN_SEED)
 
 
 @pytest.fixture(scope="module")
@@ -376,7 +340,7 @@ def test_both_camps_mow_loaded(two_mow_runner):
     """GENERALISATION : DEUX MoW (une par camp), autre board, autres porteurs -> les DEUX sont
     chargees, avec la BONNE team/player, et la forme canonique reste equilibree."""
     rid, rpc = two_mow_runner
-    state, _board, dec, ob = _load(rpc, rid, TWIN_GEN)
+    state, _board, dec, ob = _load(rpc, rid)
     mows = dec.get("mows") or []
     print(f"\n[MOW/gen] mows={[(m['casterId'], m['visualId'], m['team'], m['slot']) for m in mows]}")
     assert len(mows) == 2, f"attendu 2 MoW deployees, vu {len(mows)}"
@@ -400,7 +364,7 @@ def test_effect_posed_on_mow_is_loaded(two_mow_runner):
     (`EffectsOwnedComponent`) ET en STRUCTURE (`State.effects`) — sans quoi aucun port 2-phases MoW
     n'est confrontable. AVANT le fix, ce cas etait invisible offline (aucune entite MoW)."""
     rid, rpc = two_mow_runner
-    state0, _b, dec0, _ob0 = _load(rpc, rid, TWIN_GEN)
+    state0, _b, dec0, _ob0 = _load(rpc, rid)
     m = next((x for x in (dec0.get("mows") or []) if x.get("visualId") == GEN_P_MOW), None)
     if m is None:
         pytest.skip(f"MoW {GEN_P_MOW} absente")
@@ -423,15 +387,8 @@ def test_effect_posed_on_mow_is_loaded(two_mow_runner):
     if act.get("error"):
         pytest.skip(f"cast HeavyRailRifle bloque: {act.get('error')}")
 
-    # 2e chargement : le JUMEAU doit etre dans le MEME etat -> on lui REJOUE le cast (ids identiques
-    # entre deux builds de memes arguments, mesure #162). Sans ce replay le snapshot serait celui
-    # d'AVANT le cast, et l'effet 2-phases serait confronte contre un etat qui ne l'a pas encore.
-    def _replay(r):
-        rpc("applyAction", {"runnerId": r, "action": {
-            "kind": "ability", "casterId": cid, "abilityType": HEAVY_RAIL_RIFLE,
-            "targetId": tgt["targetId"]}}, 90)
-
-    state1, _b1, dec1, ob1 = _load(rpc, rid, TWIN_GEN, replay=_replay)
+    # 2e chargement, sur le runner qui vient de caster : son snapshot porte deja l'effet 2-phases.
+    state1, _b1, dec1, ob1 = _load(rpc, rid)
     ent1 = state1.get_entity(cid)
     assert ent1 is not None, "MoW disparue apres le cast"
     eff = ent1.get_component(EffectsOwnedComponent)

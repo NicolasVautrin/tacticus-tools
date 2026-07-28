@@ -750,17 +750,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   scenario live ne peut confronter le move a N pieds. Le canal existe pourtant deja cote hooks
   (`MoveUnitMessage.UnitFeetPositions`, `buildMoveMsg` accepte un footprint). A rouvrir des qu'un
   porteur multi-hex MOBILE apparait ; d'ici la, porter le move serait speculatif. `[opus]`.
-- **#175 — `test_storm_speeder_live` (2 tests) ROUGE — HARNAIS-1, pas le moteur**
-  (`case-174-mow-level-index.md` §7 ; cause dans `case-162-mow-red-suites.md` §2) — VERIFIE
-  avant/apres correctif #174 sur base
-  propre : echec **PRE-EXISTANT**, identique des deux cotes. La suite prend son `combatSnapshot` sur
-  le runner de MESURE ; ce RPC, sur un runner contenant une entite `EntityType.Machine`, rend toute
-  pose d'effet ulterieure MUETTE (degats et spawns passent — d'ou `aucun effet Hailstrike apres le
-  cast` et `porteurs de DeathOnTheWind_ExtraPctDamage offline [49] != live []`). Correctif MECANIQUE
-  connu : la parade jumelle `_twin_snapshot` (deja en place dans `test_mow_effect_posers_live`,
-  `test_mow_groups_bcd_live` et, depuis #174, `test_mow_caster_load_live`). La cause NATIVE reste
-  ouverte : `IdunBattle.Operations.AddEffectOperation$$Execute` sort sur un appel d'interface au slot
-  `+0x28` de la definition d'effet — l'identifier demande un hook, donc un reinject. `[opus]`.
+- ~~**#175 — `test_storm_speeder_live` (2 tests) ROUGE — HARNAIS-1, pas le moteur**~~ — **PERIME,
+  re-mesure du 2026-07-28 : 2 passed / 13,0 s, sans AUCUNE modification.** Ces deux tests
+  snapshottaient bien le runner de MESURE et etaient donc rouges par le poison lui-meme ; le
+  correctif #175 (`c6ccd44` — la Machine en CIBLE de `GetNormalAttackPrediction`) les a liberes
+  **sans que personne les rejoue**. Le remede que cette entree recommandait (la parade jumelle
+  `_twin_snapshot`) a au contraire ete **RETIRE** de ses quatre porteurs, la cause native etant
+  fermee : `case-162-mow-red-suites.md` §7.
 - **Trois suites ecrivent encore leurs state-files sous `data/` (VERSIONNE)** —
   `test_alpha_warrior_live`, `test_harbinger_of_destruction_live`, `test_martial_apotheosis_live` :
   chaque passe laisse une entree `??` dans `git status`, ce qui neutralise le garde-fou « rien de

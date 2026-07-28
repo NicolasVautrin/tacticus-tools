@@ -178,6 +178,11 @@ degats et spawns passent, c'est pourquoi seul `test_effect_posed_on_mow_is_loade
 parade jumelle (`_twin_snapshot`) etait en place dans les deux autres suites MoW ; elle manquait ici.
 Le runner **sans** MoW garde le snapshot direct (contre-epreuve #162 : la corruption exige une Machine).
 
+> **PERIME depuis le 2026-07-28** : HARNAIS-1 est corrige (#175) et la parade jumelle a ete **retiree
+> de ses quatre porteurs**, celui-ci compris — toutes les suites MoW snapshottent desormais le runner
+> de mesure. Le §7 ci-dessous, qui rangeait `test_storm_speeder_live` en « non couvert / HARNAIS-1 »,
+> tombe avec : ces 2 tests passent sans modification. Detail : `case-162-mow-red-suites.md` §7.
+
 State-files migres de `data/` (VERSIONNE) vers `logs/` dans `test_mow_caster_load_live`,
 `test_mow_targeting_predicate_live`, `test_spore_mine_launcher_live`.
 

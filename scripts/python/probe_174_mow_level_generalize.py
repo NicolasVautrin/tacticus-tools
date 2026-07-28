@@ -18,8 +18,9 @@ Chaine natif indexee (decompile, build gqfc5mff6c) :
                 puis, si la variable est dans `VariablesAffectedByUnitRarityMultiplier` :
                 valeur = Fix64.Round(state.VariableMultiplierPercentage / 100 * valeur)
 
-Le `combatSnapshot` est pris sur un runner JUMEAU (HARNAIS-1, cf. docs/rl/case-162-mow-red-suites.md
-section 2) : sur le runner de MESURE il rendrait toute pose d'effet ulterieure muette.
+Le `combatSnapshot` est pris sur le runner de MESURE. Il transitait par un runner JUMEAU tant que ce
+RPC rendait muette toute pose d'effet ulterieure (HARNAIS-1, cf. docs/rl/case-162-mow-red-suites.md
+section 2) ; cause bissectee et corrigee en #175, parade retiree sur re-mesure.
 
 ASCII only. Ne modifie aucun fichier du moteur.
 
@@ -78,12 +79,9 @@ def _one_case(sid, board_id: str, seed: str) -> bool:
     if rid is None:
         print(f"[{tag}] SKIP build KO (board non MoW-capable ?)")
         return True
-    twin = _build(ROOT / "logs" / f"_probe174gen_twin_{board_id}_{seed}.json", board_id, seed)
     ok = True
     try:
-        snap = _rpc(sid, "combatSnapshot", {"runnerId": twin}) if twin else None
-        if twin is not None:
-            _rpc(sid, "disposeRunner", {"runnerId": twin}, 20)
+        snap = _rpc(sid, "combatSnapshot", {"runnerId": rid})
         dec = _rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
         ob = _rpc(sid, "observeBattle", {"runnerId": rid}, 40)
         bg = _rpc(sid, "boardGraph", {"runnerId": rid}, 60)
