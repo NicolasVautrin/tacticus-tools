@@ -654,16 +654,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `test_lord_of_tempests_addice_smite_branch` (géométrie placée : Njal d=2 de T, E2 voisin de T ;
   live glace {T, E2} == offline) ; `is_normal_attack` face attaquant et Stormcaller (1113)
   runner-face — **résolus par #217** (`case-217-stormcaller`).
-- **`CalculateCustomUtility`, 20 overlays non portés** (`case-27` — 2 portés `loki_custom.py`) :
-  bloqués par 4 sous-systèmes (évaluateur DSL de forme/chain ; méthodes `BattleQuery` à token
-  0x44/0x77/0x7c/0x7d/0x7f/0xb1 ; réutilisation `GenerateMultiHitAttackPredictions` ; utilité de
-  déplacement `UtilityMovementCase`/`GetTargetUtilityDiffOnDisplace`), ou par une limite de harnais
-  (porteur MoW hors-plateau en arène : PlagueburstMortar/DaemonicOrdnance/Malleus — **face DÉCISION
-  toujours bloquée** ; le débloqueur `case-mow-offboard-cast` ne lève que la face COMBAT), ou non-modélisation
-  (`dp=False` : Chronometron/DevoutPush/ForwardObservers/HealingBalms), dead-code (ProperKilly/
-  Repair_GalvanicField) ou sans id `ActiveAbilityType` (SavageEchoes). Chaque item nomme son débloqueur
-  exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe d'overlays. Biais visible
-  seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
+- **`CalculateCustomUtility`, 10 overrides non portés** (`case-27` — inventaire RE-DÉRIVÉ au slot de
+  vtable en tranche 3 : **27 corps mais 28 classes**, `AmuletOfTheVoidwyrmPlaybook` partageant le corps
+  de `PlasmaGrenadePlaybook` était invisible des tables ; **7 portés** dans `loki_custom.py` —
+  1014/1177/1020/1029/1199/**1230**, plus 1119 hors module). Les 10 résidus tiennent à **4 verrous** :
+  MoW non modélisées comme unités de DÉCISION (1169/1148/1142 — le débloqueur `case-mow-offboard-cast`
+  ne lève que la face COMBAT) ; routes d'ability non-attaque (`dp=False` : 1226/1053/1185/1212, plus
+  1100 dont la cible native est un ALLIÉ) ; `GenerateMultiHitAttackPredictions` sur un sous-set de
+  cibles (1051/1142, 1098, AmuletOfTheVoidwyrm) ; évaluateurs manquants (composite
+  `UtilityAttackCase.Base` pour 1004, `TilesInTriangleShape` pour 1148, sélecteur DSL pour 1226).
+  Le verrou « porteur hors `--list-pool` » **n'existe plus** (`catalog_inject.py`). Chaque item nomme
+  son débloqueur exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe. Biais
+  visible seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
+- **`SavageEchoes` (1230), prédiction de dégât** (`case-27` §Notes de fidélité) : la formule native
+  `SavageEchoesAbility$$ExecuteBehaviour` ajoute `extraDmg × Count(CanAddUnit(AdjacentTiles(caster)))`
+  à `MinMaxDamage` ; le chemin générique de `prediction/abilities.py` l'ignore → utilité de paire
+  offline SOUS la native (7.89 vs 12.05 mesuré). Débloqueur : un handler `_savage_echoes_inputs` dans
+  `_MAKE_DMG_INPUT_OVERRIDES`. `[opus]`, petit.
+- **Action FANTÔME `SorcerousFacade` (1100) sur cible ENNEMIE** (`case-27` §SorcerousFacade) :
+  `state_bridge._is_attack_ability` ne regarde que `constants.damageProfile`, donc le moteur génère des
+  paires `(1100, ennemi)` que le natif REFUSE (`abilityTargets` natif ne rend que l'ALLIÉ Psyker).
+  Le terme custom de 1100 a été retiré du registre (cliquet dans `probe_custom_utility_27.py`), mais
+  l'action fantôme reste. Débloqueur : route de ciblage ALLIÉ pour 1100. `[opus]`.
 - **Canal de coups des abilities, résidus** (`case-61-ability-hits-channel` §6 — canal COMBAT LIVRÉ,
   base géométrique de `FrenziedFiring` LIVRÉE, **volet AoE de `FrenziedFiring` LIVRÉ** : 2e batch
   `FrenziedFiringAbility$$GetTargets` à `hits = 1` littéral, bit-exact live sur 0/1/2/3 voisins

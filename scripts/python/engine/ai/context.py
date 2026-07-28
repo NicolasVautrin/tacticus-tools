@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from engine import battle_query  # gate IdunBattle.Core.Services.AttackQuery$$CanUseAbility (stun/taunt)
+from engine.entities.active_ability_type import ActiveAbilityType  # repli de nom (cf. _ability_name)
 from engine.playbook.scene import Scene, step_context as _step_context  # état objet + seam live-feed
 
 
@@ -323,6 +324,30 @@ def action_tiles_for(origin: tuple | None, move_tiles: list) -> list:
     return tiles
 
 
+def _ability_name(a: dict) -> str | None:
+    """Nom d'ability tel que le consomme le PREDICTEUR offline (cle de l'entree gameconfig).
+
+    `decisionView` nomme les abilities via `frida/hooks/data/ability-names.ts` — une map GENEREE,
+    figee dans le bundle injecte : un id absent de cette map sort en placeholder `"id:<n>"`
+    (`abilityName()` : `ACTIVE_ABILITY_NAMES[id] ?? \\`id:${id}\\``). Le predicteur cle sa recherche
+    gameconfig sur ce NOM -> `make_damage_predictions` rend `[]`, l'ability n'est JAMAIS candidate,
+    et le silence est total (ni erreur ni desaccord de degat).
+
+    Repli sur l'enum du moteur (`ActiveAbilityType`, source independante) : elle porte le MEME nom
+    que la cle gameconfig. Portee MESUREE (`probe_27_3_ability_names.py`, build gqfc5mff6c) : 8 ids
+    sur 331 sont absents de la map des hooks (1215/1216/1217 npc-only, 1223/1224 MoW, 1220 sans
+    entree gameconfig, 1228 et 1230 = heros hors catalogue de la seed BC) -> le repli est inerte
+    partout ailleurs. Il rend confrontables les porteurs amenes par `catalog_inject.py`."""
+    name = a.get("name")
+    aid = a.get("id")
+    if aid is None or (name and not str(name).startswith("id:")):
+        return name
+    try:
+        return ActiveAbilityType(int(aid)).name
+    except ValueError:
+        return name
+
+
 def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: int,
           wt: Any, predictor: dict | None, debug: bool = False) -> AiDecisionContext:
     """Une passe RPC -> `AiDecisionContext`. Reproduit exactement la tête de l'ancien `engine_decide`
@@ -334,7 +359,8 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies]
     me = next((u for u in units if u.get("id") == uid), None)
     hp_cur_by_id = {u.get("id"): u.get("hp") for u in units}
-    ab_name_by_id = {x.get("id"): x.get("name") for x in ((me or {}).get("abilities") or [])}
+    ab_name_by_id = {x.get("id"): _ability_name(x)
+                     for x in ((me or {}).get("abilities") or [])}
     normal_ids = {a.get("id") for a in ((me or {}).get("abilities") or [])
                   if a.get("kind") == "normal"}
     # Gate d'usabilite `IdunBattle.Core.Services.AttackQuery$$CanUseAbility` (stun/taunt -> effets
@@ -481,7 +507,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     kept = [a for a in (me.get("abilities") or [])
             if battle_query.can_use_ability(me, a) and battle_query.can_currently_be_used(a)]
     me = {**me, "abilities": kept}
-    ab_name_by_id = {x.get("id"): x.get("name") for x in kept}
+    ab_name_by_id = {x.get("id"): _ability_name(x) for x in kept}
 
     obs = rpc("observeBattle", {"runnerId": rid}, 40)
     obs_units = obs.get("units") or []

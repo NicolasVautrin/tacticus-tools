@@ -10,6 +10,13 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
 - DoomSiren (1199) IdunBattle.AI.Playbook.Loki.DoomSirenPlaybook$$CalculateCustomUtility =
   W(DoomSiren_DefinitelyOverkill)=40 * #(predictions WillBeOverkill)
   + W(DoomSiren_TargetHasAdjacentEnemy)=50 si au moins UN ennemi est adjacent a la TUILE DE LA CIBLE.
+- SavageEchoes (1230) IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$CalculateCustomUtility =
+  0 si le RATIO de PV du CASTER est <= constants.healthPct/100, sinon
+  W(SavageEchoes_DislikesAboveHealthPct) = -10. Comparaison de RATIO
+  (`IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`),
+  PAS un pourcentage arrondi -> la borne 50.19 % doit rendre W et 49.64 % doit rendre 0.
+- CLIQUET DE NON-REGRESSION : SorcerousFacade (1100) NE DOIT PAS etre enregistree (son terme
+  s'ancre sur un ALLIE Psyker que le moteur ne route pas ; cf. case-27 tranche 3).
 
 Usage : python probe_custom_utility_27.py   (depuis scripts/python ; ASCII only ; exit 0 = OK)
 """
@@ -24,7 +31,7 @@ import engine.weights as W
 
 def _fake_ctx(wt, **kw):
     d = dict(me={"team": 1, "id": 100}, units=[], obs_units=[], epos=[], elev_by_pos={}, wt=wt,
-             uid=100, plans={}, normal_ids={69})
+             uid=100, plans={}, normal_ids={69}, hp_cur_by_id={}, hpmax_by_id={})
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -37,10 +44,14 @@ def main() -> int:
     reg = pb.REGISTRY
     for aid, name in ((1014, "ArmoriumCherubPlaybook"), (1177, "LightOfSanguiniusPlaybook"),
                       (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
-                      (1199, "DoomSirenPlaybook")):
+                      (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
+    # cliquet : 1100 ne doit PAS revenir au registre (terme ancre sur un ALLIE, route absente)
+    if 1100 in reg:
+        fails.append("SorcerousFacade (1100) est ENREGISTREE : son terme s'ancre sur la tuile d'un "
+                     "ALLIE Psyker, le moteur ne lui route que des ENNEMIS -> port non validable")
 
     # ArmoriumCherub = 1 constant (independant du ctx).
     cb = pb.get_playbook(1014)
@@ -140,6 +151,25 @@ def main() -> int:
     if will_be_overkill({"hpBefore": 100, "rawHealthDmgMin": 120, "rawHealthDmgMax": 300}):
         fails.append("will_be_overkill: dmgMin 120 vs hp 100 (over-shoot 20% < 100%) n'est PAS garanti")
 
+    # --- SavageEchoes (1230) : ratio PV du caster <= healthPct/100 -> 0, sinon W(-10).
+    import gameconfig as GC
+    thr = int(((GC.ability("SavageEchoes") or {}).get("constants") or {}).get("healthPct") or 0)
+    wse = wt.sub("ActiveAbilities", "SavageEchoes_DislikesAboveHealthPct")
+    se = pb.get_playbook(1230)
+    # Bornes MESUREES live (probe_27_3_savage_ab.py) : 1638/3300 = 49.64 % -> 0 ;
+    # 1675/3337 = 50.19 % -> W. Un pourcentage ARRONDI rendrait 0 dans les deux cas.
+    cases = [((1638, 3300), 0.0), ((1675, 3337), wse), ((1708, 3370), wse),
+             ((1738, 3400), wse), ((3300, 3300), wse), ((1650, 3300), 0.0)]
+    for (cur, mx), want in cases:
+        c = _fake_ctx(wt, hp_cur_by_id={100: cur}, hpmax_by_id={100: mx})
+        v = se.calculate_custom_utility(c, (0, 0), 5, 1230)
+        if v != want:
+            fails.append(f"SavageEchoes {cur}/{mx} ({cur / mx * 100:.2f}%, seuil {thr}%): "
+                         f"attendu {want}, obtenu {v}")
+    # stats illisibles -> pas de terme invente
+    if se.calculate_custom_utility(_fake_ctx(wt), (0, 0), 5, 1230) != 0.0:
+        fails.append("SavageEchoes sans stats de caster: attendu 0.0")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
@@ -147,7 +177,8 @@ def main() -> int:
     print("OK: ArmoriumCherub=1 ; LightOfSanguinius=2*W(", w, ")=", expected,
           "; Drachnyen 2adj=", v2, "/1adj=", v1, "; Herald far=", v_far, "/near=", v_near,
           "; DoomSiren adj=", v_adj, "/isolee=", v_alone, "(W_overkill=", wok, ")",
-          "; dispatch 1014/1177/1020/1029/1199 OK")
+          "; SavageEchoes 49.64%=0 / 50.19%=", wse, "(seuil", thr, "%)",
+          "; dispatch 1014/1177/1020/1029/1199/1230 OK ; 1100 non enregistree OK")
     return 0
 
 
