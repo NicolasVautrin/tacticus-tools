@@ -161,6 +161,50 @@ def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int
     return evaluate_trigger_operation(state, ev)
 
 
+def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int,
+                          profile: Optional[str] = None,
+                          ranged: bool = False) -> list[dict]:
+    """Vecteur `On(DamageDealt=0x10=16)` (#85) — DERNIER des TROIS events qu'emet
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x3a=PreDamageTaken)` ->
+    `On(0xf=DamageTaken)` -> `On(0x10=DamageDealt)`. **CE N'EST PAS** `IdunBattle.Operations.
+    ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet QUE `0x3d` (branche block) puis `8`
+    (after-hit) — mis-attribution corrigee ici et dans `triggers/loki/fire.py`.
+
+    `AbilityEntities` du vecteur (`AbilityEntities$$.ctor(caster, actor, target, owner, ...)`, ordre
+    PROUVE par les offsets que lisent `IdunBattle.Entities.Selectors.{Caster,Actor,Target,Owner}Selector
+    $$Select` : 0x08 / 0x00 / 0x10 / 0x18) : `ApplyDamageOperation` construit
+    `ctor(param_3, param_3, param_4, 0, ...)` -> **caster == actor == la SOURCE du degat**, **target ==
+    la VICTIME**. C'est exactement le couple `(actor_id, target_id)` du port, et c'est ce qui rend
+    `get_OwnerIsCaster` lisible « le porteur EST l'attaquant » et `Tiles(Target@0x178)` = la tuile de la
+    victime.
+
+    CONSOMMATEURS NATIFS de `On(0x10)` (les trois lus au decompile) :
+      * `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGuns_TileEffectAbility$$CreateTrigger`
+        = `On(0x10) & get_OwnerIsCaster & HasEffect(Self@0x148, 0x4c5=WarpHail)` -> pose DespoiledGround
+        (0x5c4) sur la tuile de la victime. **SEUL consommateur branche sur ce vecteur** (#85).
+      * `IdunBattleLogic.Entities.Abilities.Damage.Loki.OnFireDamageAbility$$CreateTrigger`
+        = `On(0x10) & DamageProfileHasTrait(1=OnFire) & NOT TriggeringEffectIs(5)` ;
+      * son jumeau `OnToxicDamageAbility`.
+      Ces DEUX derniers restent appeles IMPERATIVEMENT depuis `after_hit_normal_attack`
+      (`_on_fire_damage_ability` / `_on_toxic_damage_ability`) : ils sont deja portes ET live-valides a
+      cette place, et le Toxic consomme un `next_bool` dont l'ORDRE vs les tirages de degat est calibre
+      la-bas. Les re-router ici deplacerait ce tirage => hors perimetre #85, flagge.
+
+    GATE. Le natif emet `On(0x10)` a l'INTERIEUR du meme bloc que `On(0xf)` (`0 < reduction REELLEMENT
+    appliquee || !HealthComponent.IsUnitWithHealthStat(cible)`), sous UN conjoint supplementaire
+    (`local_7e8 == 0`) qui combine « le degat SANTE demande est >= 1 » et un octet de la struct de coup
+    (`hitInfo+0x94`) que le port ne modelise pas. Le port emet donc sous le gate LU et modelisable
+    (`applied > 0`, cf. `_apply_damage_pipeline`) et NE modelise PAS le conjoint `hitInfo+0x94`
+    (residu FLAGGE : il ne peut que RESTREINDRE l'emission native, jamais l'elargir).
+
+    GRANULARITE : le natif emet par `ApplyDamageOperation` (= par COUP), le port une fois par GROUPE de
+    degat resolu — meme approximation, meme foyer et meme justification que `damage_taken_triggers`
+    (la pose d'un tile-effect est idempotente : `AddEffectOperation` no-ope si la tuile le porte deja)."""
+    ev = TriggerEvent(EventTriggerType.DamageDealt, source_id, target_id,
+                      ranged=ranged, profile=profile)
+    return evaluate_trigger_operation(state, ev)
+
+
 def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int,
                                   ranged: bool, profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(AttackDamageAttack = 10)` — 2e des DEUX events que `IdunBattle.Operations.

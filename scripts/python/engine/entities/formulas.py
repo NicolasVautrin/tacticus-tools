@@ -133,6 +133,38 @@ class PercentageOf(AAmountFormula):
         return _round_fix64(Fraction(self.pct.evaluate(ctx) * self.base.evaluate(ctx), 100), self.mode)
 
 
+class RandomAmount(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFactory$$RandomAmount(minFormula, maxFormula)` ->
+    `IdunBattle.Entities.Formulas.RandomAmount$$Calculate` — MIRROR 1:1 du decompile :
+
+        min = this@+0x10.Calculate(entities)          # `IdunBattle.Entities.Formulas.RandomAmount$$CalculateMin`
+        max = this@+0x18.Calculate(entities)          # `IdunBattle.Entities.Formulas.RandomAmount$$CalculateMax`
+        return this@+0x20 /* IPseudoRNG, slot 2 */ (min, max + 1)
+
+    Le `+ 1` sur la borne haute est LU dans le decompile (`(*puVar19)(plVar2, uVar15, iVar16 + 1, ...)`) :
+    l'intervalle natif est donc **INCLUSIF des deux cotes**. Le slot 2 de l'interface est
+    `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal(lo, hi)` (hi EXCLU) -> cote port
+    `rng.next_internal(min, max + 1)`, MEME consommation de `genrand_int32` que le natif.
+
+    Le RNG est un CHAMP du noeud (`+0x20`, pose par la factory depuis `DSLFactory+0x18`), PAS une entree
+    du contexte -> il est pris AU CONSTRUCTEUR, exactement comme `MaybeTrigger` (cf. `entities/triggers.py`).
+    `rng=None` -> pas de tirage calable offline : on rend la borne MIN (degradation deterministe et
+    documentee, aucun tirage consomme) ; caler `state.rng` pour exercer/valider.
+
+    Consommateur porte : le DoT de tuile DespoiledGround
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvDespoiledGroundTileAbility$$CreateBehaviour` :
+    `RandomAmount(PercentageOf(maxHP, EffectConfig(9)), PercentageOf(maxHP, EffectConfig(10)))`)."""
+    def __init__(self, min_node: AAmountFormula, max_node: AAmountFormula, rng=None):
+        self.min_node, self.max_node, self.rng = min_node, max_node, rng
+
+    def calculate(self, ctx):
+        lo = int(self.min_node.evaluate(ctx))
+        hi = int(self.max_node.evaluate(ctx))
+        if self.rng is None:
+            return lo                                # pas de RNG cale -> borne MIN, aucun tirage
+        return self.rng.next_internal(lo, hi + 1)    # `NextInternal(min, max + 1)` = [min, max] inclusif
+
+
 def percentage_of_attack_capped_at_max(unit_sel: TargetsSelector, cap, pct,
                                        stat_part: int = 0, mode: int = 0) -> AAmountFormula:
     """`IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax(unit, statPart, cap, pct, mode)`

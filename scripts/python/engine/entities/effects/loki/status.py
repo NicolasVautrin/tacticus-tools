@@ -106,6 +106,92 @@ class ContaminatedUnitEffect(BaseEffect):
         return self.value
 
 
+class DespoiledGroundEffect(BaseEffect):
+    """`Idun.Source.IdunBattle.Logic.Entities.Effects.DespoiledGroundEffect` (effet de TUILE 0x5c4=1476)
+    — le pendant EXACT de `FireEffect` (5) : un MARQUEUR de tuile sans contribution propre, dont tout
+    le comportement observable vit dans l'ability d'environnement qui le LIT
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.EnvDespoiledGroundTileAbility`, portee par
+    `DespoiledGroundTileDoT`, `operations/triggers/loki/despoiled_ground.py`).
+
+    Les TROIS SEULS virtuels que la classe native surcharge (recherche exhaustive des symboles
+    `DespoiledGroundEffect$$*`) :
+
+      * `$$CreateTargetSelector`  = `Self@0x148`  (l'effet se cible LUI-MEME : c'est un tile-effect,
+        pas un effet projete sur une autre entite) ;
+      * `$$CreateActiveCondition` = `AmountIsEqualOrGreater(Walkable(Self@0x148), Const(1))
+                                     | AmountIsEqualOrGreater(AllAliveMachines(Self@0x148), Const(1))`
+        -- « la tuile est TRAVERSABLE, ou bien une machine vivante s'y tient » ;
+      * `$$.ctor` -> `ABondEffect..ctor(..., 1, 0, <struct ZERO>, 0)`.
+
+    RESIDU FLAGGE (`ActiveCondition` non modelisee) : le port n'ecrit pas
+    `EffectComponent.IsActive @+0x5c` pour cet effet, donc l'instance est TOUJOURS active. Degradation
+    PERMISSIVE, mais bornee : les deux branches natives sont satisfaites des qu'une unite peut se tenir
+    sur la tuile (une tuile non traversable ne peut porter d'occupant, et le DoT est justement gate sur
+    la presence d'un occupant). Le cycle de vie qui compte -- expiration a echeance -- passe, lui, par
+    `remaining_turns`/`consumed` (`EffectComponent$$RemoveOneTurn` + `$$ShouldBeRemoved`, PR #138),
+    pas par ce flag.
+
+    DUREE : `StaticBattleRules.Effect$$DefaultAmountOfRounds(0x5c4)` = **2 rounds**
+    (`_DEFAULT_ROUNDS[0x5c4]`, `runner/operations/effects.py`), converti en TOURS par
+    `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (#98). Aucun poseur natif ne passe
+    d'override : les deux `AddEffect(0x5c4, stateRef, Tiles(Target))` lus (FleshMetalGuns_TileEffect,
+    LetTheGalaxyBurn) sont la surcharge SANS noeud de duree.
+
+    IMMUNITE : aucune surcharge d'`EntityIsImmuneToEffect` (contraste `ContaminatedEffect`) -> le gate
+    generique de `AddEffectOperation` s'applique tel quel. #85."""
+
+
+class DespoiledGroundExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.DespoiledGround_ExtraDamagePctEffect` (effet 0x5c6=1478) —
+    le buff pose sur l'unite **Chaos** qui demarre son tour sur une tuile DespoiledGround.
+    i2 `UnitEffects/DespoiledGround_ExtraDamagePct_Description` : « Deals +{[DespoiledGroundExtraDmgPct]}%
+    Damage to Xenos or Imperial enemies ».
+
+    `$$CreateEffectDamageBonusForAttack` (MIRROR 1:1 du decompile) :
+
+        trigger = HasTrait(target@0x178, 0x3ee = 1006 Xenos) | HasTrait(target@0x178, 0x1a = 26 Imperial)
+        amount  = EffectConfig(8) = BC.Effect["DespoiledGroundExtraDmgPct"] = 15
+        return    <EffectBonus inline : +0x00 = trigger, +0x08 = amount, +0x34 = Nullable(AbilityOrEffect)>
+
+    KIND = **PercentIncrease**, et ce n'est PAS une deduction du nom : la fabrique est INLINEE par le
+    compilateur, on la reconnait a l'OFFSET ecrit. `IdunBattle.Entities.Effects.EffectBonus$$ForPercentIncrease`
+    ecrit `out[0]=trigger ; out[1]=amount` (montant a **+0x08**) tandis que
+    `IdunBattle.Entities.Effects.EffectBonus$$ForAddition` ecrit `out[1]=0 ; out[2]=amount` (montant a
+    **+0x10**) ; les deux copient le `Nullable<AbilityOrEffect>` a **+0x34**. Le corps de
+    `DespoiledGround_ExtraDamagePctEffect` pose le montant a +0x08, laisse +0x10 a zero et le Nullable a
+    +0x34 => `ForPercentIncrease`.
+
+    `$$.ctor` = `BaseEffect..ctor(this, AbilityOrEffect(0x5cb), 1, 0)`. ⚠ QUALIFICATION D'ENUM : `0x5cb`
+    = **1483 = `TriggeredAbilityType.EnvDespoiledGroundTileDamage`** (l'ability SOURCE de l'effet), PAS
+    l'`EffectType` 1483 (`PrioritisedEfficiency_DmgReduction`).
+
+    `$$CreateActiveCondition` = `IsWalkable(Self@0x148)` — non modelisee (meme residu FLAGGE que
+    `DespoiledGroundEffect`, cf. sa docstring).
+
+    Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.EnvDespoiledGroundTileAbility$$
+    CreateBehaviour` (2e volet), duree `Direct(1)` = **1 TOUR** (re-posee a chaque tick tant que
+    l'unite reste sur la tuile). #85."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # `HasTrait(target, Xenos) | HasTrait(target, Imperial)` — traits de GRANDE ALLIANCE de la CIBLE.
+        # `target_traits is None` = cible inconnue -> aucune contribution (« present != applique »,
+        # degradation fidele partagee avec les autres bonus target-conditionnels).
+        if target_traits is None:
+            return None
+        if not has_any_trait(target_traits, (UnitTrait.Xenos, UnitTrait.Imperial)):
+            return None
+        pct = bc_effect_config("DespoiledGroundExtraDmgPct")     # EffectConfig(8) = 15 (BC, PAS hardcode)
+        if not pct:
+            return None
+        return for_percent_increase(True, int(pct))
+
+
 class StandVigilExtraArmorEffect(BaseEffect):
     """`StandVigil_ExtraArmorEffect` (Effects.Loki) — buff **StatModification** +armure, **SELF-buff**
     (l'unité se buffe elle-même en « stand vigil » = sans se déplacer). `IdunBattle.Entities.Effects.Loki.StandVigil_ExtraArmorEffect$$GetDynamicStatModificationAmount` = `ConfigVar(key 0x51c=1308, EffectSource, 0x1b)` = ability var

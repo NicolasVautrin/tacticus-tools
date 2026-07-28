@@ -129,6 +129,11 @@ class DslContext:
     # l'iteration courante d'un `ChainBehaviour` (Incursion : la TUILE de spawn). Defaut None ->
     # le noeud `ActiveTarget` rend None (hors behaviour liant).
     active_target: object | None = None
+    # Joueur dont c'est LE TOUR (`TurnComponent.CurrentPlayer`) — lu par le nœud `IsTurnOf`
+    # (`IdunBattleLogic.Entities.DSLFactory$$IsTurnOf`, qui referme le `matchState@+0x10` de la
+    # factory dans son trigger). None = contexte sans tour courant (prédiction, arbre purement
+    # numérique) → `IsTurnOf` rend False (dégradation conservatrice).
+    current_player_id: int | None = None
     # Accès trait/stat PAR UNITÉ (mirror `UnitExtensions.HasFlag`/`GetStat`) — hors state standard.
     # `has_trait(unit, traitId)->bool` défaut None → trait absent ; `get_stat(unit, statType, variant,
     # level)->int` défaut None → Health via hp (cf. `_default_get_stat`). Fournis par la couche ability.

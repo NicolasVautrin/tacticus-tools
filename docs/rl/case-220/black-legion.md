@@ -8,8 +8,11 @@ triggers ; faces DÉCISION présentes (Herald validé `prediction.py:1017`, Brin
 triggered 1482 → effet 1477 ; DespoiledGround + extra-hit) : **VOLET 1 (le coup additionnel) PORTÉ +
 VALIDÉ #84** — effet 1477 dans `EffectFactory`, `TRAIT_TRIGGERS["LetTheGalaxyBurn"]` (arm `On(5)` /
 reset `On(9)`), nouveau vecteur `pre_attack_triggers`, threading du contexte CIBLE dans
-`attack_hits_with_modifiers` ; cf. `docs/rl/case-84-let-the-galaxy-burn.md`. **VOLET 2 (pose de
-`DespoiledGround` 1476 + `DespoiledGround_ExtraDamagePct` 1478) reste ouvert.**
+`attack_hits_with_modifiers` ; cf. `docs/rl/case-84-let-the-galaxy-burn.md`. **VOLET 2** : les DEUX
+classes d'effet (`DespoiledGround` 1476 + `DespoiledGround_ExtraDamagePct` 1478), le DoT
+d'environnement et le vecteur `On(0x10 = DamageDealt)` sont **PORTÉS + VALIDÉS LIVE en #85**
+(`docs/rl/case-85-despoiled-ground.md`) ; ce qui reste ouvert est le seul `AddEffect(0x5c4)` de
+`LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` — un câblage désormais sans prérequis manquant.
 
 ```
 [1022 BringerOfDespair | blackTerminator]  — [opus] direct — PORTE + VALIDE (2026-07-24, blacklegion.py)
@@ -56,8 +59,8 @@ If(Modulo(UnitTurnsStarted(Self),3)==k, AddEffect(k)). PARITE TRANCHEE : %3==1 M
 %3==2 Flame(1212), %3==0 HeavyRound(1221) -- confirmee LIVE (3 tours natifs consecutifs de Volk :
 FocusedMalice -> RuinousSalvo -> WarpHail) et par le seed (turnsStarted=1 -> FocusedMalice).
 Pas de double-pose (les 3 RemoveEffect sont INCONDITIONNELS avant les If).
-Residu : volet WarpHail DespoiledGround (tile-pose) -- vecteur On(0x10=DamageDealt) absent + effet 1476
-non porte. cf. case-222-maillons-de-pose.md §2.
+Volet WarpHail DespoiledGround (tile-pose) : PORTE + VALIDE LIVE (#85) -- vecteur On(0x10=DamageDealt)
++ effet 1476/1478 + DoT d'environnement. cf. case-85-despoiled-ground.md.
 ```
 ```
 [HeadClaimer | blackHaarken passif]  — [opus]+prérequis

@@ -378,8 +378,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime tombee a 0 PV
         # est encore vivante quand l'event part. Seul consommateur porte : ThrillSeekers (branche 2).
         if applied > 0:
-            from .triggers.dispatch import damage_taken_triggers   # lazy : cycle damage<->triggers
+            from .triggers.dispatch import (damage_taken_triggers,   # lazy : cycle damage<->triggers
+                                            damage_dealt_triggers)
             damage_taken_triggers(state, attacker_id, target_id, profile=profile)
+            # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
+            # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`),
+            # emis DANS LE MEME BLOC que `On(0xf)` et donc sous le meme gate « reduction REELLEMENT
+            # appliquee > 0 ». (Le conjoint natif supplementaire `local_7e8 == 0` — degat SANTE demande
+            # >= 1 ET octet `hitInfo+0x94` nul — n'est PAS modelise : residu flagge, il ne peut que
+            # RESTREINDRE l'emission native.) Consommateur porte : `FleshmetalGunsTileEffectAbility`
+            # (pose DespoiledGround 0x5c4 sur la tuile de la victime pendant le round WarpHail).
+            damage_dealt_triggers(state, attacker_id, target_id, profile=profile)
         death = AttackDamageOperation._fire_death_if_killed(
             state, target_id, attacker_id, hp_before, thc.hp, tgt, damage=total,
             # `AbilityOrEffect` de la `DamageSource` du coup letal (`GetDamageSourceAbility`) : ce que

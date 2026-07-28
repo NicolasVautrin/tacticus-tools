@@ -77,9 +77,12 @@ par `StartTurnOperation` **AVANT** l'émission de `On(0x16)` ⇒ au 1er tour de 
 VRAI compteur (`ctx.get_stat(unit, 0xc)`) quand le dict n'a pas le marqueur `_turns_started` posé par
 `SpawnUnit` (le couple GetEmRuntz reste inchangé).
 
-**Résidu** : le volet **DespoiledGround** (`FleshMetalGuns_TileEffectAbility` : `On(0x10=DamageDealt) &
-OwnerIsCaster & HasEffect(Self,0x4c5)` → `AddEffect(0x5c4=1476, Tiles(Target))`) — le vecteur
-`On(DamageDealt)` n'existe pas dans le dispatch porté, et l'effet de tuile 1476 n'est pas porté.
+~~**Résidu** : le volet **DespoiledGround**~~ — **PORTÉ ET VALIDÉ LIVE (#85)**, cf.
+`docs/rl/case-85-despoiled-ground.md`. `FleshMetalGuns_TileEffectAbility` (`On(0x10=DamageDealt) &
+OwnerIsCaster & HasEffect(Self,0x4c5)` → `AddEffect(0x5c4=1476, Tiles(Target))`) est câblé, le
+vecteur `On(0x10)` existe (émetteur RECTIFIÉ : c'est `IdunBattle.Operations.ApplyDamageOperation$$
+Execute`, **pas** `ADamageOperation$$EvaluateAfterHitTriggers` qui n'émet que `0x3d` et `8`), et les
+classes d'effet 1476/1478 + le DoT d'environnement sont portés.
 
 ## 3. TerrifyingCrescendo (emperNoiseMarine) — accumulation
 
@@ -273,6 +276,7 @@ justement le no-op SILENCIEUX). `tests/engine/runner/test_lot_pose_live.py` couv
 | `test_fleshmetal_guns_rotation_live` | `FocusedMalice → RuinousSalvo → WarpHail → FocusedMalice` | rotation figée (`UnitTurnsStarted` non lu) ou vecteur turn-start muet |
 | `test_terrifying_crescendo_stacks_and_caps_live` | stack `1,2,3,4,5,6,6,6,6`, cap = `buffMaxLevel` lu de la config | vecteur recâblé sur `On(EffectAdded)` (le stack cesserait de monter dès le 2e tir sur cible déjà Pinned = LE bug d'origine), clamp perdu, pose muette |
 | `test_anvil_shield_ices_blocked_attacker_tile_live` | Ice source=Arjac sur la tuile de l'attaquant, `remaining = 4` | `On(UnitBlocked)` muet ; gate perdu (contrôle négatif : attaque non bloquée = 0 Ice) ; durée non convertie |
-- **Volets non portés** : DespoiledGround (FleshmetalGuns), remove-self du marqueur MasterAnnihilator
+- **Volets non portés** : (~~DespoiledGround (FleshmetalGuns)~~ : **PORTÉ en #85**, cf.
+  `case-85-despoiled-ground.md`), remove-self du marqueur MasterAnnihilator
   à la mort de sa source. (~~ApplyStun + FrozenAttackerAdvantage + effets 1200/1201~~ : **portés en
   #100**, cf. `case-100-anvil-shield-residus.md`.)

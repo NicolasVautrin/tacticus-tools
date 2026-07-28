@@ -403,6 +403,9 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return charged_unit_ids(state, int(uid)) if uid is not None else set()
 
     return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+                      # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
+                      # dans `state.current_player_id` (pose par `ChangeTurnOperation.execute`).
+                      current_player_id=getattr(state, "current_player_id", None),
                       units_damaged_this_phase=_units_damaged_this_phase,
                       charged_units=_charged_units,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,

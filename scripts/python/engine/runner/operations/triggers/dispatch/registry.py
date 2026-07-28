@@ -48,7 +48,10 @@ from ..loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (rel
 from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
 from ..loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
-from ..loki.fleshmetal_guns import FleshmetalGunsRotationAbility     # lot POSE (passif blackObliterator)
+from ..loki.fleshmetal_guns import (FleshmetalGunsRotationAbility,   # lot POSE (passif blackObliterator)
+                                   FleshmetalGunsTileEffectAbility)  # #85 volet DespoiledGround
+from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvDespoiledGroundTileAbility)
+                                    DESPOILED_GROUND_TILE)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.fuelled_by_fury import FuelledByFuryExtraDamageAbility   # compteur 1323 (passif ultraTitus)
@@ -189,7 +192,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `On(0x16=TurnStart_Actions) & IsTurnOf(Self)` -> `RemoveEffect x3 + If(Modulo(UnitTurnsStarted(Self),
     # 3, k), AddEffect(1067|1212|1221))`. Les 3 effets (+2 coups Melta/Flame/HeavyRound) etaient deja portes
     # (hits.py) mais SEUL celui du seed vivait. Cf. loki/fleshmetal_guns.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ArchContaminatorAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour).
-    "FleshmetalGuns": [FleshmetalGunsRotationAbility],
+    # `FleshmetalGuns` porte DEUX abilities natives distinctes (deux slots voisins de la table de
+    # pointeurs de methodes) : la ROTATION turn-start (`FleshMetalGunsAbility`) et le volet TILE-EFFECT
+    # (`FleshMetalGuns_TileEffectAbility`, `On(0x10=DamageDealt)` -> DespoiledGround sur la tuile de la
+    # victime pendant le round WarpHail, #85). Le gate `HasEffect(Self, 0x4c5)` du second rend
+    # l'inscription inconditionnelle INERTE hors round WarpHail.
+    "FleshmetalGuns": [FleshmetalGunsRotationAbility, FleshmetalGunsTileEffectAbility],
     # TerrifyingCrescendo (passif emperNoiseMarine << Shiron >>) = ACCUMULATION du stack de l'effet 1424
     # (deja porte #204, magnitude x level) : disjonction `On(0=UnitDeath) & OwnerIsActor & TargetIsOverkilled`
     # | `On(0x3e=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
@@ -317,6 +325,11 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
                             RangedAutoAttackDeactivateOnAttack],      # On(10)   -> DeactivateEffect
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant
+    # DespoiledGround 0x5c4=1476 (#85) : MEME patron que le feu — `EnvDespoiledGroundTileAbility`
+    # (`On(0x14) & Count(EntitiesWithAnyEffect(0x5c4))>0`) inflige a l'occupant non-immune un degat
+    # tire dans [DespoiledGroundMinDmgPct, DespoiledGroundMaxDmgPct] % de sa PV MAX (profil
+    # DirectDamage), puis pose 1478 (+%degat vs Xenos/Imperial) si l'occupant est Chaos a SON tour.
+    DESPOILED_GROUND_TILE: [DespoiledGroundTileDoT],
     # MasterOfTheTutelaries (#202-C, effet 1197 pose par l'active 1096 d'Abraxas) : la collecte
     # par-effet-actif EST le Add/RemoveTriggeredAbility natif (IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal /
     # IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal) -> Screamer sur attaque Psychic vs ennemi (On(9), triggered 1173).
