@@ -53,8 +53,9 @@ CE QUE LE TEST VALIDE :
       AUCUN cast n'y est emis : un cast consommerait l'action de Celestine et rendrait (b2) vacuous (elle
       serait refusee pour « a deja agi », pas pour le gate).
   (E) CAST LIVE (runner DEDIE, garde de non-regression #226) : le cast natif de 1025 REUSSIT et rend
-      `MeleeWeaponHits` coups TOUS EGAUX (node de degat degenere). Un seed BC injecte sans ses configs
-      d'ability rendrait `ok=False errors=['system error']`.
+      `MeleeWeaponHits` coups. Un seed BC injecte sans ses configs d'ability rendrait
+      `ok=False errors=['system error']`. Le test constate AUSSI que les coups live sont INEGAUX la ou
+      le port les dit egaux (divergence OUVERTE, hors #226, detaillee dans la docstring du test).
 
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. Skip si build/injection/geometrie/adeptCelestine indispo.
 """
@@ -69,6 +70,7 @@ from pathlib import Path
 import pytest
 
 import hexgeo
+import gameconfig as GC
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 ROOT = PYDIR.parents[1]                                     # racine repo
@@ -497,8 +499,16 @@ def test_skystrike_cast_live(rpc):
     Runner DEDIE (celui de `sky_state` sert au gate (D) et un cast y consommerait l'action de Celestine).
     Ce test tombe -- `ok=False errors=['system error']` -- si le seed BC injecte reperd ses configs
     d'ability (`BC.Abilities`), c'est-a-dire si quelqu'un re-clone un bloc `Units` a la main au lieu
-    d'appeler `catalog_inject.write_augmented_seed_bc`. Le nb de coups (`MeleeWeaponHits`) et le
-    NO-SPREAD (node de degat degenere) sont confrontes au natif."""
+    d'appeler `catalog_inject.write_augmented_seed_bc`. Le nb de coups est confronte au natif.
+
+    DIVERGENCE OUVERTE constatee des que le cast a ete rendu possible (#226) : les coups LIVE sont
+    INEGAUX -- `hits=[3334, 3156, 2477]`, ratios [1.115, 1.056, 0.829] autour de leur moyenne --
+    alors que le port les rend TOUS EGAUX (volet B, node `Sum(StatAmount(Attack), Direct(extraDmg))`
+    lu comme degenere). Ce n'est ni du crit ni du block ni de l'evade : les tags des trois coups
+    portent `Attack_DidCrit=0 Attack_DidBlock=0 Attack_DidEvade=0` et `UnitStats_RemainingArmor=0`
+    (mesure `probe_226_seed_bc_ability_configs.py --dump-tags`). Piste a trancher au decompile (HORS
+    #226) : le node d'attaque de `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour`
+    passe-t-il par le weapon-path (spread +/-20%) plutot que par un `StatAmount` degenere ?"""
     from engine.entities.pathfinding.board import Board
 
     tag = uuid.uuid4().hex[:8]
@@ -562,8 +572,15 @@ def test_skystrike_cast_live(rpc):
                         and td.get("Target_Id") == target["id"]:
                     hits.append(td.get("Amount"))
         assert hits, f"cast ok mais aucun coup capture sur la cible: {cast.get('actions')}"
-        assert len(set(hits)) == 1, f"coups live NON egaux (le node de degat doit etre degenere): {hits}"
-        print(f"[sky-cast] cast LIVE OK hits={hits}")
+        want_hits = next((int(w["hits"]) for w in (GC.unit(CASTER_VIS) or {}).get("weapons") or []
+                          if w.get("Range") is None), None)
+        assert want_hits, f"oracle introuvable : gameconfig.unit('{CASTER_VIS}').weapons[melee].hits"
+        assert len(hits) == want_hits, \
+            f"cast LIVE : {len(hits)} coups {hits} != MeleeWeaponHits gameconfig {want_hits}"
+        # PAS d'assertion sur l'EGALITE des coups live : le natif les rend INEGAUX (mesure ci-dessous),
+        # alors que le port les dit egaux (volet B, node de degat degenere). Divergence OUVERTE, hors
+        # #226 -- l'asserter dans un sens ou dans l'autre figerait un comportement non RE. Cf. backlog.
+        print(f"[sky-cast] cast LIVE OK hits={hits} (MeleeWeaponHits={want_hits})")
     finally:
         if rid is not None:
             try:

@@ -46,6 +46,7 @@ LOGS = ROOT / "logs" / "runners"
 BOARD = "MC1_67"
 SEED = 777
 A_UNITS = "necroWarden,necroDestroyer,necroWarden,necroOverlord"
+DUMP_TAGS = False               # --dump-tags : stats caster/cible + tags bruts des coups
 
 
 # --------------------------------------------------------------------------- seeds BC
@@ -184,6 +185,20 @@ def run_mode(mode: str, unit_id: str, clone_base: str, ability: int) -> dict:
                     dmg.append(td.get("Amount"))
         out["hits"] = dmg
         print("[%s] cast ok=%s errors=%s hits=%s" % (mode, out["ok"], out["errors"], dmg))
+        if DUMP_TAGS:
+            snap = L._rpc("combatSnapshot", [{"runnerId": rid}])
+            for u in (snap.get("units") or []):
+                if u.get("id") in (cid, tid):
+                    st = u.get("stats") or u
+                    print("  [stats] id=%s %s" % (u.get("id"), json.dumps(st)[:600]))
+            for a in (cast.get("actions") or []):
+                for ev in (a.get("events") or []):
+                    tags = ev.get("tags")
+                    if not tags:
+                        continue
+                    td = json.loads(tags) if isinstance(tags, str) else tags
+                    if td.get("Active_Ability_Type") == ability:
+                        print("  [tag] %s" % json.dumps(td)[:600])
     finally:
         if rid is not None:
             try:
@@ -204,7 +219,11 @@ def main(argv) -> int:
     ap.add_argument("--clone-base", default="bloodDeathCompany")
     ap.add_argument("--ability", type=int, default=1230)
     ap.add_argument("--modes", default="clone,clone-cfg,inject")
+    ap.add_argument("--dump-tags", action="store_true",
+                    help="stats caster/cible + tags bruts des coups (diagnostic crit/block)")
     a = ap.parse_args(argv)
+    global DUMP_TAGS
+    DUMP_TAGS = a.dump_tags
     rows = [run_mode(m.strip(), a.unit, a.clone_base, a.ability)
             for m in a.modes.split(",") if m.strip()]
     print("=== SYNTHESE #226 (%s / ability %d) ===" % (a.unit, a.ability))

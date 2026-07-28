@@ -21,12 +21,10 @@ l'INIT). VALIDÉ : wiring BIT-IDENTIQUE port==execute_ability_attack+bonus sur �
 3445]) ; discriminant extraDmg×count (baseline sans bonus [2578,2350,2728,2198]) ; count node==free-tiles manuel ;
 heal boundary 51/50/49% + amount==hp[50]×180=5983. Fix transverse : `Heal.execute` normalise le sélecteur cible
 via `_units_of` (Caster()=Self@0x148 mono-unité).
-RÉSIDU LIVE (documenté, PAS un bug de port) : bloodTerminator est HORS du pool spawnable → injecté via `--seed-bc`
-(clone + ActiveAbilities=[1230]) ; il spawne avec SavageEchoes reconnue MAIS le cast live lève `system error` —
-`AbilityConfiguration.GetVariableForLevel @181576fb0` (throwFlag=0) THROW car les variables exotiques (extraDmg/hp/
-healthPct) ne sont pas matérialisées pour un porteur hors-progression-roster. Preuve : le MÊME porteur injecté
-caste 1014 (ArmoriumCherub, variables standard) sans erreur. Une vraie Cezare (config complète) l'exécuterait ;
-la machinerie per-coup partagée est live-validée ailleurs (VigilanceEternal/CordClaw). Tooling ajouté :
+CAST LIVE : **CONFRONTÉ ET VALIDÉ** (#226). bloodTerminator est HORS du pool spawnable → injecté via `--seed-bc`
+depuis `catalog_inject.write_augmented_seed_bc`, qui pose le bloc `Units` **ET** les configs `BC.Abilities`
+(`SavageEchoes`, `RedRampage`). Le cast de 1230 réussit et rend `nrOfHits` coups, désormais **assertés** dans
+`test_savage_echoes_live` (bit-exacts vs le per-hit du port quand crit_chance=0). Tooling :
 `rl_duel --seed-bc <path>` (valider un porteur hors-pool sans toucher le seed BC partagé).
 FACE DÉCISION (#216, séparément) : `SavageEchoesPlaybook.MakeDamagePredictions @181158870` passe CE MÊME
 `GetDamage` en 6e arg de `GenerateMultiHitAttackPredictions` (les 3 autres args sont génériques : profil
@@ -35,11 +33,14 @@ prédiction générique s'arrêtait à `MinMaxDamage`, donc l'IA sous-évaluait 
 `_savage_echoes_inputs` ; l'arbre est MUTUALISÉ (`entities/abilities/active_ability.py::SavageEchoesAbility.
 get_damage_formula`), `execute_behaviour` l'évalue désormais aussi (min puis max) au lieu d'un `flat` impératif
 parallèle. Bit-exact live vs `aiPlaybookPredict` sur 4 comptes de tuiles libres (2/5/4/3).
-CAUSE RÉELLE DU RÉSIDU, mesurée en #216 : ce n'est PAS « porteur hors progression roster » — c'est la CONFIG
-D'ABILITY absente du BC injecté. `catalog_inject.py --units bloodTerminator` ajoute l'unité ET ses configs
-(`SavageEchoes`, `RedRampage`) ; avec elle, `GetVariableForLevel(8)` ne throw plus et le playbook natif répond
-(le clone nu de `test_savage_echoes_live.py::_write_injected_seed_bc` n'ajoute QUE le bloc Unit). Débloqueur du
-cast live : construire le runner depuis un seed `catalog_inject` — non fait ici (hors périmètre #216).
+CE QUE LE « system error » ÉTAIT VRAIMENT (#216 l'identifie, #226 le ferme) : ni le rang du porteur, ni des
+variables « non matérialisées hors progression roster » — c'est la CONFIG D'ABILITY absente du BC injecté.
+`BattleConfiguration.Abilities` du seed capturé ne porte que les abilities des unités de CETTE bataille (131
+actives / 194 passives), donc `AbilityConfiguration$$GetVariableForLevel` tournait sur une config NULLE. Mesure
+à bloc Unit CONSTANT (`probe_226_seed_bc_ability_configs.py`, MC1_67, seed 777) : sans les configs
+`ok=False errors=['system error']` ; avec les configs `ok=True hits=[3825, 3598, 3975, 3445]` ; par
+`write_augmented_seed_bc` **bit-identique** au clone+configs. Le point d'entrée est désormais unique et sa
+docstring interdit le re-clonage d'un bloc `Units` à la main.
 ```
 ```
 [1301 LordOfTheHost volet ExtraHit 1377 | bloodDante passif]  — [opus]+prérequis
@@ -101,7 +102,7 @@ attaque immédiate ; ils QUITTENT au début du tour suivant de Mataneo (persiste
 RE en détail). À traiter APRÈS 1153. Prérequis : vecteur On(11)+IsCharging ; tracking + leave-at-turn-start.
 ```
 
-**Synthèse BA** : [opus] direct = SavageEchoes (**PORTÉ**, handler 1230 — résidu cast-live out-of-pool documenté) ;
+**Synthèse BA** : [opus] direct = SavageEchoes (**PORTÉ**, handler 1230 — cast live confronté et validé, #226) ;
 [opus]+prérequis = LordOfTheHost/1377,
 SanguinaryPriest, BloodChalice, RedRampage, VisionsOfHeresy ; **[fable]** = FuryOfTheAncients,
 AggressiveOnslaught (bloqué 1153). Débloqueur #1 = **vecteur On(28)** (3 items BA + 2 Necrons).

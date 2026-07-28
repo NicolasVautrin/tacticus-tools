@@ -68,6 +68,11 @@ au cast** (« system error » = exception managée : config d'ability vide →
 `AbilityConfiguration$$GetVariableForLevel` lève). `catalog_inject` fait les deux. Détail,
 dérivations et validation : `docs/rl/case-92-catalog-injection.md`.
 
+**Depuis un test/probe Python** : `catalog_inject.write_augmented_seed_bc(<out>, [<ids>])` — jamais
+un `copy.deepcopy` d'une entrée `Units` existante avec les ids réécrits. Ce clone à la main ne pose
+QUE `BC.Units`, donc il rejoue exactement le « system error » ci-dessus ; il porte en plus les STATS
+de l'unité clonée, ce qui fausse toute ability dont le dégât lit `StatAmount(Attack)` (#226).
+
 ## 2. Choix du board (mécaniques board-dépendantes)
 
 Élévation, trench, couverture/LOS, slot MoW **dépendent du board**. Le **choisir**, ne pas le subir :
