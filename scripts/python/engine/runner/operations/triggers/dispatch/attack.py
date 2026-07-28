@@ -200,7 +200,7 @@ def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int
     des desaccords DANS LES DEUX SENS (2 contaminations manquees, 1 de trop) = la signature d'une
     PERMUTATION de tirages. L'etat MT final etant IDENTIQUE dans les deux ordres (meme cardinalite), un
     critere « delta mti » seul aurait conclu a tort « rien ne bouge » : c'est le VERDICT DE POSE qui
-    tranche.
+    tranche. Detail complet, chiffres et residus : `docs/rl/case-o10-defork-damage-dealt.md`.
 
     GATE. Le natif emet `On(0x10)` a l'INTERIEUR du meme bloc que `On(0xf)` (`0 < reduction REELLEMENT
     appliquee || !HealthComponent.IsUnitWithHealthStat(cible)`), sous UN conjoint supplementaire
