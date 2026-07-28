@@ -32,6 +32,7 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_and, If, AtomicGroup
 from ...entities.selectors import (Target, Caster, CanAddUnit, AdjacentTiles, AdjacentUnits,
                                    Enemies, FixedTiles)
+from ...entities.abilities.active_ability import SavageEchoesAbility as SavageEchoesAbilityDecision
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
@@ -157,17 +158,21 @@ class SavageEchoesAbility(ActiveAbility):
         entities = entities_from_state(state, caster_id, target_id)
         level, mult = _caster_level_mult(state, caster_id)
         extra = int(ability_var("SavageEchoes", "extraDmg", level, multiplier_pct=mult) or 0)
-        # `Count(CanAddUnit(AdjacentTiles(Self@0x148)))` = nb de tuiles adjacentes LIBRES (walkable + inoccupees)
-        # du caster. Evalue au timing GetDamage (== l'appel unique de `damage_override` par le leaf, AVANT la
-        # boucle de coups) : `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` calcule les bornes UNE fois par cible
-        # (Calculate index 2=Min / 3=Max) -> `flat = extraDmg x count` CONSTANT sur les 4 coups (== modele
-        # bornes-figees deja valide bit-exact multi-coups). `entities` (LiveUnit) porte l'occupation PRE-attaque.
-        free_sel = CanAddUnit(AdjacentTiles(Caster()))
+        # `Count(CanAddUnit(AdjacentTiles(Owner@0x148)))` = nb de tuiles adjacentes LIBRES (walkable +
+        # inoccupees) du porteur. Evalue au timing GetDamage (== l'appel unique de `damage_override` par le
+        # leaf, AVANT la boucle de coups) : `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage`
+        # calcule les bornes UNE fois par cible (Calculate index 2=Min / 3=Max) -> `flat = extraDmg x count`
+        # CONSTANT sur les 4 coups (== modele bornes-figees deja valide bit-exact multi-coups). `entities`
+        # (LiveUnit) porte l'occupation PRE-attaque.
+        # L'ARBRE vient de `SavageEchoesAbility.get_damage_formula` (entities/abilities) : DEFINITION UNIQUE
+        # de `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage`, partagee avec la
+        # face PREDICTION (`_savage_echoes_inputs`) -- un seul artefact natif, un seul port. Ici l'appelant
+        # resout `MinMaxDamage` en la borne min PUIS la borne max (le natif fait de meme, Calculate 2 puis 3).
+        free_sel = CanAddUnit(AdjacentTiles(Caster()))       # diag `free_tiles_after` uniquement
 
         def damage_override(_st, _caster, _target, bmin, bmax):
-            count = len(free_sel.evaluate(entities))
-            flat = extra * count
-            return bmin + flat, bmax + flat
+            return (int(SavageEchoesAbilityDecision.get_damage_formula(bmin, extra).evaluate(entities)),
+                    int(SavageEchoesAbilityDecision.get_damage_formula(bmax, extra).evaluate(entities)))
 
         regenerate = _regenerate_precondition(state, caster_id)       # SetCache : fige HP<=50% pre-attaque
         savage_echoes_tree(regenerate, damage_override).execute(entities, ectx)

@@ -12,7 +12,8 @@ import hexgeo
 from engine.dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
 from engine import weights as _weights
 from engine.entities.abilities.active_ability import (
-    active_ability_for, makes_damage_predictions, FrenziedFiringAbility, _PROFILE_BY_INDEX)
+    active_ability_for, makes_damage_predictions, FrenziedFiringAbility, SavageEchoesAbility,
+    _PROFILE_BY_INDEX)
 from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.effects import (
     aura_attack_bonus_from_allies, aura_hits_malus_for_defense,
