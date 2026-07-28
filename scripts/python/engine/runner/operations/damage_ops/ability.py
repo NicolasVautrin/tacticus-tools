@@ -418,7 +418,12 @@ class _AbilityAttack:
             source_ability=AttackDamageOperation._damage_source_ability(ability_type, None),
             # `ApplyDamageOperation$$Execute` ecrit le « dernier coup encaisse » PAR COUP -> le
             # chokepoint par-attaque du port recoit le DERNIER coup (cf. `_record_last_hit_damage_taken`).
-            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
+            # #R33 : decomposition per-coup (crit / denied) + le flag `isForceOverkill`
+            # (`AttackOptions@+4`, 8e arg d'`AttackWithAttackDamage` ; porteur FlailSwing 1042) ->
+            # `DealDamageInfo@+0x2c`, lu par la surcharge d'instance d'`IsOverkill`. Le port ne le
+            # cablait QUE sur le cap Resilient ; il decide AUSSI `UnitFlag.Overkilled`.
+            hits_result=r, is_force_overkill=bool(force_overkill))
         # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
         # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
         # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :

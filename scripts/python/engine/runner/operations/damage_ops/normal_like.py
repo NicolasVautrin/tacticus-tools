@@ -163,7 +163,9 @@ class _NormalLike:
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
             r["shield_dmg"], r["armor_dmg"],
-            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None))
+            last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
+            # #R33 : decomposition per-coup (crit / denied) pour `didOverkill`.
+            hits_result=r)
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).

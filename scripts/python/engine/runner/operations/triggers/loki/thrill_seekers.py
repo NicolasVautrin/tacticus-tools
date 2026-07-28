@@ -87,8 +87,12 @@ RESIDUS (honnetes) :
   re-pose/refresh idempotent). A raffiner si un consommateur per-coup non gate apparait.
 - RIDER OVERKILL (« defeats an enemy with a Crit -> always overkilled ») : c'est une face
   PREDICTION separee — `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` force son
-  `allow_flag` a 1 quand l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET (default_flag OU
-  le flag de crit) ; non porte ici (cf. `docs/rl/case-30-raw-bounds.md` et le case-doc)."""
+  **`isForceOverkill`** a 1 quand l'attaquant `HasTrait(0x420)` ET `HasEffect(0x59a)` ET le coup est
+  CRITIQUE ; non porte ici (cf. `docs/rl/case-30-raw-bounds.md` et le case-doc).
+  ⚠ #R33 : le rider est CONDITIONNE au crit, et `isCritical` est deja le 3e argument d'
+  `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` (desormais threade jusqu'au chokepoint de
+  mort) -- pour un porteur ThrillSeekers les deux chemins donnent le MEME verdict. C'est pour cela
+  que la mesure #R33 attribue via un tueur SANS le trait (`ultraInceptorSgt`, montage revive)."""
 from __future__ import annotations
 
 from typing import Optional

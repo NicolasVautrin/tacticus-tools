@@ -141,6 +141,12 @@ class _DamageHitsMixin:
         # doit savoir A QUEL COUP la cible tombe a 0 PV pour compter les coups GASPILLES sur le cadavre
         # (`ApplyDamageOperation.AddLeftoverHit`). PUREMENT ADDITIF (aucune branche modifiee).
         per_hit_health: list[int] = []
+        # #R33 : `deniedDamage` du natif = le `previousHitsDeniedDamage` d'`ApplyTraitDamageLimitsTo
+        # Damage`, c.-a-d. le rogne cumule AVANT le coup courant. `IdunBattle.Core.Services.
+        # DamagePrediction$$IsOverkill` (surcharge d'instance) l'AJOUTE au degat compare aux PV de depart
+        # -> il doit descendre jusqu'au chokepoint de mort, PAR COUP. On snapshot `_rogne` a l'entree de
+        # chaque coup (index-aligne sur `crits` / `per_hit_health`). Purement additif.
+        denied_before: list[int] = []
         failed_block: set = set()          # ids de sources de block AYANT ECHOUE (accumule ENTRE coups, #72)
         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) où
         # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
@@ -260,6 +266,7 @@ class _DamageHitsMixin:
             + resolve dégénéré). Les modèles « crit-roll par coup à cc=0 » (valeur aux tirages impairs)
             sont RÉFUTÉS par la mesure (M1/M2 mismatch total ET per-hit)."""
             nonlocal total, shield, armor_pool, shield_dmg, armor_dmg, did_crit, did_block, did_evade
+            denied_before.append(_rogne[0])       # #R33 : rogne des coups PRECEDENTS (avant ce coup)
             if post_roll is not None:
                 # VECTEUR ABILITY bounds-mode (roll-then-reduce) — ordre natif ExecuteHit :
                 # (1) VALEUR = tirage BRUT dans les bornes config (GetDamage-top, struct min<max).
@@ -382,7 +389,7 @@ class _DamageHitsMixin:
         return {"total": total, "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
-                "per_hit_health": per_hit_health,
+                "per_hit_health": per_hit_health, "denied_before": denied_before,
                 "bonus_hits": base_bonus,
                 # R6-b' : `currentAttack+0x30` APRES cette serie — `UpdateCurrentAttackAfterHit`
                 # incremente APRES CHAQUE `ExecuteHit`, coups bonus compris.
