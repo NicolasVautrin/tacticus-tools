@@ -702,11 +702,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Le verrou « porteur hors `--list-pool` » **n'existe plus** (`catalog_inject.py`). Chaque item nomme
   son débloqueur exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe. Biais
   visible seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.
-- **Action FANTÔME `SorcerousFacade` (1100) sur cible ENNEMIE** (`case-27` §SorcerousFacade) :
-  `state_bridge._is_attack_ability` ne regarde que `constants.damageProfile`, donc le moteur génère des
-  paires `(1100, ennemi)` que le natif REFUSE (`abilityTargets` natif ne rend que l'ALLIÉ Psyker).
-  Le terme custom de 1100 a été retiré du registre (cliquet dans `probe_custom_utility_27.py`), mais
-  l'action fantôme reste. Débloqueur : route de ciblage ALLIÉ pour 1100. `[opus]`.
+- ~~**Action FANTÔME `SorcerousFacade` (1100) sur cible ENNEMIE**~~ — **LIVRÉ (#217)**,
+  `case-217-phantom-action-routing.md`. Le masque du `SorcerousFacadeAbility$$.ctor` (`0x402` =
+  `TargetIsFriendly | TargetMatchesDynamicRule`) est RE-lu et VETO la route ennemie ; mesure
+  avant/après dans le même état : `plans[1100]` `[(1100,79),(1100,81)]` → `[]`, exécution forcée
+  `generic_attack` → `noop`. La couture LIVE, elle, était **déjà propre** (`attackPlans` porte ces
+  évals à `rankCount = 0`, que `_best_attack` saute) — les termes ±45 de #27 tranche 3 venaient d'un
+  probe qui n'avait pas filtré `rankCount`.
+- **Divergence de DOMAINE : 7 abilities TILE-targeting routées vers des UNITÉS ennemies**
+  (`case-217` §5) — 1017 FragBomb, 1026 BasiliskBarrage, 1116 RadBombardment, 1159
+  MacroPlasmaIncinerator, 1188 DevastatingRefrain, 1201 SquigMine, 1213 DeathOnTheWind. Le natif
+  énumère des TUILES (`TargetingQuery$$GetPossibleTargetsForOptions` → `GetTilesInRange` sous
+  `get_IsTileTargeting`), `_ability_kind` rend `enemy`. Non corrigé délibérément : les playbooks NC
+  déjà portés (`dark_talon_strike`, `heroic_fusillade`, …) consomment `ability_targets` sous la forme
+  « unités ennemies » → bascule à faire **playbook par playbook**. `[opus]`.
+- **Masques `TargetingOptions` non RE-lus : 15 ctors restants** (`case-217` §4) — MoW (1142, 1147,
+  1148, 1160, 1161, 1168, 1169, 1209), boss NPC (1215, 1216, 1217), plus 1064 `Loki_SwoopingHawk` et
+  1091 `SlashingDive` (corps délégué à `DiveAttackAbilityBase$$.ctor`). 42 des 57 ont été relus en
+  #217, aucun `TargetIsFriendly`/`TargetIsCaster` supplémentaire. Recette (table des presets du
+  `TargetingOptions$$.cctor`) dans `case-217` §4. `[opus]`, mécanique.
+- **Sous-génération : 11 abilities à masque `TargetIsEnemy` jamais routées** (`case-217` §5) — pas de
+  `constants.damageProfile`, donc invisibles de `_best_attack`. Le veto #217 est soustractif par
+  construction ; les promouvoir demande de savoir leur produire une utilité. `[opus]`, à instruire.
 - **Canal de coups des abilities, résidus** (`case-61-ability-hits-channel` §6 — canal COMBAT LIVRÉ,
   base géométrique de `FrenziedFiring` LIVRÉE, **volet AoE de `FrenziedFiring` LIVRÉ** : 2e batch
   `FrenziedFiringAbility$$GetTargets` à `hits = 1` littéral, bit-exact live sur 0/1/2/3 voisins

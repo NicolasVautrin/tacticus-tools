@@ -311,6 +311,131 @@ class TargetingOptions:
     def has(self, rule: int) -> bool:
         return bool(int(self.rules) & int(rule))
 
+    # --- LECTURES DECLARATIVES du masque -- mirror 1:1 des getters natifs de `TargetingOptions`.
+    #     Ce ne sont PAS des regles de refus (cf. la note « BITS QUI NE SONT PAS DES REGLES DE
+    #     REFUS » en tete de module) : ce sont les lectures que les CONSOMMATEURS de ciblage
+    #     (preview, IA) font du masque pour savoir QUEL DOMAINE de cibles enumerer. Le natif les
+    #     consomme dans `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions`,
+    #     qui choisit entre `GetTilesInRange` / `GetUnitsInRange` / la liste des machines.
+
+    @property
+    def is_tile_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsTileTargeting` = `rules >> 6 & 1`."""
+        return self.has(TR.TargetIsTile)
+
+    @property
+    def is_machine_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsMachineTargeting` = `rules >> 0x2c & 1`."""
+        return self.has(TR.TargetIsMachine)
+
+    @property
+    def is_actor_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsActorTargeting` = `rules >> 0x2e & 1`."""
+        return self.has(TR.TargetIsActor)
+
+    @property
+    def is_unit_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsUnitTargeting` — mirror du decompile :
+        `!(rules & TargetIsTile) && !(rules & TargetIsMachine) && !(rules & TargetIsActor)`
+        (les trois tests en cascade, dans cet ordre)."""
+        return not (self.is_tile_targeting or self.is_machine_targeting or self.is_actor_targeting)
+
+    @property
+    def is_caster_or_enemy_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsCasterOrEnemyTargeting` = `rules >> 0x39 & 1`."""
+        return self.has(TR.TargetIsCasterOrEnemy)
+
+    @property
+    def is_enemy_targeting(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsEnemyTargeting` — mirror du decompile :
+        `(rules >> 0xe & 1) ? true : (rules >> 0x39 & 1)` = `TargetIsEnemy` OU `TargetIsCasterOrEnemy`.
+
+        ⚠ SA NEGATION N'EST PAS UN REFUS. Un masque qui ne porte NI `TargetIsEnemy` NI
+        `TargetIsFriendly` n'interdit RIEN par camp : `GetPossibleTargetsForOptions` enumere
+        `GetUnitsInRange` (les DEUX camps) et ses deux predicats de purge ne retirent que les morts,
+        les tuiles a occupant Steppable et les ennemis OBSCURCIS
+        (`...u003Cu003Ec__DisplayClass34_0$$u003CGetPossibleTargetsForOptionsu003Eb__0` / `b__1`).
+        Pour « cette ability REFUSE toute cible ennemie », cf. `refuses_all_enemy_targets`."""
+        return self.has(TR.TargetIsEnemy) or self.has(TR.TargetIsCasterOrEnemy)
+
+    @property
+    def can_target_caster(self) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster` = `rules >> 0xf & 1`
+        (`CasterIsPossibleTarget`)."""
+        return self.has(TR.CasterIsPossibleTarget)
+
+
+def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
+    """L'ability REFUSE-t-elle, PAR CONSTRUCTION, toute cible ENNEMIE ? (vrai/faux, jamais « on ne
+    sait pas » : appeler avec un masque REELLEMENT lu.)
+
+    Ce predicat n'a que DEUX termes, et ce sont les deux SEULES regles du filtre statique
+    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, surcharge 7 arguments) qui
+    refusent une cible sur son CAMP / son IDENTITE, donc les deux seules qui rompent pour TOUT
+    ennemi sans exception :
+
+      * `TargetIsFriendly` (0x400) -> `if (!UnitsAreFriendly(caster, target)) broken(TargetIsFriendly)` ;
+      * `TargetIsCaster`  (bit 39) -> `if (caster != GetUnit(target)) broken(TargetIsCaster)`.
+
+    NE PAS utiliser `not is_enemy_targeting` a la place : ce serait INVENTER un refus. `SilentDeath`
+    (0x4000) et `CalibaniteGreatsword` (0x80 `AddCaster` seul) sont toutes deux non-`IsEnemyTargeting`
+    au sens du getter pour la seconde, et pourtant la cascade ne rompt sur AUCUN ennemi pour elle :
+    un masque sans regle de camp accepte les deux camps (cf. `is_enemy_targeting`).
+
+    Les regles de DOMAINE (`TargetIsTile`, `TargetIsMachine`) ne comptent pas ici : elles changent ce
+    que le natif ENUMERE (`GetPossibleTargetsForOptions` rend des TUILES), pas ce que la cascade
+    refuse -- `GetInvalidTargetReason(caster, pos, uniteEnnemie, <ability tile>)` resout
+    `GetMainTile(target)` et peut parfaitement rendre « valide »."""
+    return options.has(TR.TargetIsFriendly) or options.has(TR.TargetIsCaster)
+
+
+# --- MASQUES RE-LUS D'ABILITES DONT LA FACE COMBAT N'EST PAS PORTEE ------------------------------
+# Le masque est une propriete du `<X>Ability$$.ctor`, PAS de la behaviour : il se lit et se porte
+# independamment de `ABILITY_CLASSES` (le registre de la face COMBAT). Cette table est l'endroit ou
+# vivent les masques des abilities ABSENTES de ce registre -- y ajouter la classe d'ability juste
+# pour porter son masque la ferait passer `ported:True` cote `AbilityHandler` alors que sa behaviour
+# est un no-op, ce qui eteindrait le diagnostic `unported` (regression silencieuse).
+#
+# CONTRAT : DISJOINTE d'`ABILITY_CLASSES` (une ability a UNE source de masque, jamais deux) --
+# garde-fou `tests/engine/test_targeting_options_sources.py`. Chaque entree cite le ctor natif dont
+# le litteral est transcrit ; aucune valeur devinee.
+TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
+    # 1100 SorcerousFacade (thousTzaangor) -- `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` :
+    #   TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics+0x48 = UseWholeBoard>,
+    #                          forceMeleeTarget=1 (RangedBool.False), rules=0x402, 0, 0, 0)
+    # 0x402 = TargetIsFriendly | TargetMatchesDynamicRule -> la cible est un ALLIE, et la regle
+    # dynamique `SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` la restreint encore
+    # (`HasTrait(target, 0x3ea)` + le caster doit pouvoir porter son attaque normale depuis les
+    # tuiles de cast). La regle dynamique n'est PAS portee ici (elle vit sur la classe d'ability, qui
+    # n'existe pas) -> l'ensemble offline reste un SUR-ENSEMBLE des allies, ce qui est la degradation
+    # PERMISSIVE de tout ce module.
+    1100: TargetingOptions(rules=TR.TargetIsFriendly | TR.TargetMatchesDynamicRule,
+                           self_cast=False, range=RANGE_WHOLE_BOARD,
+                           force_melee_target=RANGED_BOOL_FALSE),
+}
+
+
+def targeting_options_for(ability_id) -> Optional["TargetingOptions"]:
+    """Les `TargetingOptions` RE-LUES de l'`ActiveAbilityType`, ou `None` si le masque n'a pas ete lu.
+
+    DEUX sources, dans cet ordre, et elles sont disjointes par contrat :
+      1. la classe d'ability du registre COMBAT (`ABILITY_CLASSES[aid].TARGETING_OPTIONS`) ;
+      2. `TARGETING_OPTIONS_UNPORTED` (masque lu, behaviour non portee).
+
+    `None` = donnee non RE-lue -> les appelants NE POSENT AUCUN GATE (meme convention permissive que
+    `get_invalid_target_reason`). Import PARESSEUX du registre : `handler` importe les modules
+    d'abilities, qui importent ce module."""
+    if ability_id is None:
+        return None
+    aid = int(ability_id)
+    from .handler import ABILITY_CLASSES
+    klass = ABILITY_CLASSES.get(aid)
+    if klass is not None:
+        opts = getattr(klass, "TARGETING_OPTIONS", None)
+        if opts is not None:
+            return opts
+    return TARGETING_OPTIONS_UNPORTED.get(aid)
+
 
 # ------------------------------------------------------------------------------------------------
 # Predicats natifs consommes par la cascade

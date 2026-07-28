@@ -432,9 +432,13 @@ existera.
   l'ecart d'AoE documente (le compte offline porte sur la cible principale seulement).
 - **SorcerousFacade (1100)** : formule RESOLUE mais NON portee (cible allie vs route ennemie du
   moteur) — cf. l'inventaire. Depuis la tranche 3, plus AUCUN code n'est actif pour 1100 : le custom
-  y retombe sur la base `Fix64(0)`. Ce qui reste NON couvert, c'est l'action FANTOME elle-meme : le
-  moteur continue de proposer `(1100, ennemi)` que le natif refuse (`_is_attack_ability` ne regarde
-  que `damageProfile`). Ce n'est pas un residu de #27 mais du routage de ciblage.
+  y retombe sur la base `Fix64(0)`. L'ACTION FANTOME, elle, est **FERMEE (#217)** : le masque du
+  `SorcerousFacadeAbility$$.ctor` (`0x402` = `TargetIsFriendly | TargetMatchesDynamicRule`) est
+  desormais RE-lu et VETO la route ennemie de `_is_attack_ability` — mesure avant/apres dans le meme
+  etat de bataille : `plans[1100]` passe de `[(1100,79),(1100,81)]` a `[]`. Detail, balayage de la
+  classe et residus : `docs/rl/case-217-phantom-action-routing.md`. A noter que la couture LIVE etait
+  deja propre (`attackPlans` porte ces evals avec `rankCount = 0`, que `_best_attack` saute) : les
+  termes ±45 de la tranche 3 venaient d'un probe qui evaluait le custom sans filtrer `rankCount`.
 - **SavageEchoes, face COMBAT** : portee depuis (case-220 §blood-angels, `ABILITY_CLASSES[1230]`) — #27
   ne couvrait que la face DECISION. La **prediction de degat** de 1230, elle, est FERMEE par #216
   (cf. « Notes de fidelite ») : ce n'est plus un non-couvert.

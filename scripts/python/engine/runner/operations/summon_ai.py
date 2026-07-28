@@ -156,8 +156,15 @@ def _apply_active_ability(state: State, uid: int, target: Optional[int], ability
 
 
 def _is_active_attack_ability(ability_id: int) -> bool:
-    """ATTAQUE active (a un `damageProfile`, non-NonComparable) — délègue au classifieur partagé du bridge
-    (source unique, pas de duplication de la classification gameconfig)."""
+    """ATTAQUE active (a un `damageProfile`, non-NonComparable, et dont le masque natif n'INTERDIT pas
+    la cible ennemie) — délègue au classifieur partagé du bridge (source unique, pas de duplication de
+    la classification gameconfig).
+
+    Le veto de masque compte AUSSI ici, et pas seulement pour la décision : ce chemin est le repli
+    « attaque générique » (`AttackWithAttackDamage`) d'une ability SANS port dédié. Sans le veto, une
+    ability dont la cible native est un ALLIÉ (`TargetIsFriendly`, ex. 1100 SorcerousFacade) faisait
+    frapper cet allié par le générique. Avec, elle retombe sur `routed: noop` — le no-op documenté des
+    abilities non portées."""
     from engine.ai.state_bridge import _resolve_ability, _is_attack_ability
     _n, cfg = _resolve_ability(ability_id)
     return _is_attack_ability(ability_id, cfg)
