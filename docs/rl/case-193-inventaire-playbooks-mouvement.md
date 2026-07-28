@@ -215,9 +215,15 @@ kit.
   `PriorityReclamation` 1295, `RadZoneCorps` 1294, `RedemptionOfTheRisen` 1522. Ils ne sont ni dans
   `passiveAbilities`, ni dans `items[].abilityId`. Un 3e chemin existe (sous-ability d'une active,
   octroi par effet) et n'a pas été tracé.
-* **Aucune confrontation LIVE** : le host Frida était éteint pendant tout ce travail
-  (`127.0.0.1:8080` refusé). La gate de confrontabilité est donc dérivée du seed BC + gameconfig
-  (§3), **pas** croisée avec `rl_duel.py --list-pool`. Les deux devraient coïncider — le seed BC est
-  la source du pool — mais ce n'est pas vérifié.
+* **Aucune confrontation LIVE**, et la raison invoquée à l'écriture était FAUSSE. Le rapport disait
+  « host Frida éteint (`127.0.0.1:8080` refusé) » : **le host écoute sur `8765`**, jamais 8080.
+  Vérifié à la relecture, même journée, session Frida **14 `running`** (pid 17560) — elle servait au
+  même moment les mesures live de `case-o10-defork-damage-dealt.md`. La limitation est donc
+  **auto-infligée**, pas environnementale.
+  Conséquence à garder en tête en exploitant §3 : la gate de confrontabilité est dérivée du seed BC
+  + gameconfig, **pas** croisée avec `rl_duel.py --list-pool`. Or `--list-pool` est la SEULE porte
+  valable (cf. `CLAUDE.md`, gate de confrontabilité) : le seed BC devrait coïncider avec le pool,
+  mais « devrait » n'est pas « est ». **Le chiffre « gisement réel = 45 » n'est donc pas mesuré sur
+  sa face porteur** — le recroiser avant d'en faire un plan de dispatch.
 * **Le cap `vtbl+0x228/0x238`** du corps commun (jamais observé liant) reste non répliqué, inchangé
   par ce cas.
