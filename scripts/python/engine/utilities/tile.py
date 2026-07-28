@@ -922,16 +922,17 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
         # `case.unit == null` : PAS de sujet. `is_spawning` = `get_IsSpawning` = unit null ET parent
         # non nul -- c'est la signature EXACTE du call-site SortTilesByUtilityForSummon (case-205).
         return {"is_spawning": True} if parent_id is not None else {}
-    from ..runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
+                                     UnitComponent)
     from ..entities.triggered_ability_type import triggered_ability_ids
-    from ..entities.traits.unit_trait import unit_trait_ids
-    import gameconfig as GC
+    from ..entities.traits.unit_trait import entity_trait_ids, entity_trait_names
     me = state.get_entity(unit_id)
     if me is None:
         return {}
     mpc = me.get_component(PositionComponent)
     muc = me.get_component(UnitComponent)
     moc = me.get_component(OwnerComponent)
+    msc = me.get_component(StatsComponent)
     my_team = moc.team if moc is not None else None
     my_vis = muc.visual_id if muc is not None else None
     fx = getattr(state, "effects", None)
@@ -943,8 +944,11 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             continue
         vis = uc.visual_id if uc is not None else None
         oc = e.get_component(OwnerComponent)
+        sc = e.get_component(StatsComponent)
         rec = {"pos": (pc.col, pc.row), "vis": vis,
-               "traits": frozenset(((GC.unit(vis) or {}).get("traits")) or ()),
+               # #225 : substrat d'ENTITE (kit + traits accordes en bataille par le leaf `AddTrait`),
+               # pas le kit gameconfig cache par visualId -- c'est ce que `HasTrait` interroge.
+               "traits": entity_trait_names(sc.ctx if sc is not None else None, vis),
                "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
                                 if not ef.consumed and ef.name)}
         if oc is not None and my_team is not None and oc.team == my_team:
@@ -961,7 +965,9 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             walkable_by_pos[p] = bool(t.get("walkable"))
             neigh_by_pos[p] = [board.coord(n) for n in board.neighbours_native(tid)]
     return {"unit_triggered_abilities": list(triggered_ability_ids(my_vis)),
-            "unit_traits": unit_trait_ids(my_vis),
+            # #225 : substrat d'ENTITE (cf. `entity_trait_ids`) -- le sujet peut s'etre vu accorder
+            # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
+            "unit_traits": entity_trait_ids(msc.ctx if msc is not None else None, my_vis),
             "uid": unit_id,
             # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
             "is_spawning": False,
@@ -977,18 +983,27 @@ def _adjacent_units(ctx, uid):
     (#57i). Les traits (gameconfig) alimentent les filtres `FilterAdjacent*` (ex. FabricatorClaw =
     Mechanical=5) ; les `effects` (noms bruts du `EffectsOwnedComponent`, cf. decisionView) alimentent
     la famille `AUnitEffectsUtility` (feuilles 10/11/12, cf. `apply_tile_attributes`).
-    getattr-tolerant : un contexte sans `units` (NCContext) rend deux listes vides -> feuille silencieuse."""
-    import gameconfig as GC
+    getattr-tolerant : un contexte sans `units` (NCContext) rend deux listes vides -> feuille silencieuse.
+
+    #225 -- les traits sortent du substrat d'ENTITE (`Scene.ctx(id).traits` = le `UnitContext` que le
+    leaf DSL `AddTrait` mute), et non plus du kit gameconfig par visualId. Identique au bit pres tant
+    qu'aucun trait n'a ete accorde en bataille (`UnitContext.from_snapshot` seede exactement
+    `gameconfig.unit(vis).traits`) ; sur le chemin OFFLINE (`Scene.from_state`) c'est le meme objet que
+    `StatsComponent.ctx`, donc le trait accorde y est VU. `scene` absente / id hors tables -> borne
+    statique (`entity_trait_names(None, vis)`)."""
+    from ..entities.traits.unit_trait import entity_trait_names
+    scene = getattr(ctx, "scene", None)
     friends, enemies = [], []
     for u in (getattr(ctx, "units", None) or []):
         pos = u.get("pos")
         if not (u.get("alive") and pos):
             continue
+        _uctx = scene.ctx(u.get("id")) if scene is not None else None
         rec = {"pos": (pos["col"], pos["row"]),
                # `vis` — id d'unite du voisin, l'argument du noeud `UnitsWithId(sel, <unitId>)`
                # (GeminaeSuperiaPlaybook, case-165b). Meme cle que cote runner.
                "vis": u.get("visualId"),
-               "traits": frozenset(((GC.unit(u.get("visualId")) or {}).get("traits")) or ()),
+               "traits": entity_trait_names(_uctx, u.get("visualId")),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
                                 for e in (u.get("effects") or ()))}
         if u.get("ctrl"):
@@ -1014,9 +1029,11 @@ def tile_leaf_ctx(ctx) -> dict:
     ni `me` ni `hpmax_by_id` -> kit vide = feuille silencieuse (comportement pré-case-49) ; ses
     champs partagés (enemies/elev/scene) passent tels quels."""
     from ..entities.triggered_ability_type import triggered_ability_ids   # lazy : évite tout cycle
-    from ..entities.traits.unit_trait import unit_trait_ids               # lazy : idem
+    from ..entities.traits.unit_trait import entity_trait_ids             # lazy : idem
     me = getattr(ctx, "me", None) or {}
     uid = getattr(ctx, "uid", None)
+    _scene = getattr(ctx, "scene", None)
+    _me_ctx = _scene.ctx(uid) if (_scene is not None and uid is not None) else None
     friend_units, enemy_units = _adjacent_units(ctx, uid)
     mp = me.get("pos") or {}
     self_pos = (mp["col"], mp["row"]) if mp.get("col") is not None else None
@@ -1041,10 +1058,11 @@ def tile_leaf_ctx(ctx) -> dict:
             # porte l'unité qui évalue la tuile : `CapturePointTileUtility.<d__3>`, `PowerUpTile
             # Utility.<d__2>`, `DespoiledGroundUtility.<d__5>`, `SummonDislikeDoorOpeningUtility
             # .<d__2>`, `HeroDoorOpeningUtility.<d__2>`, `AttractMechanicalsUtility.<d__1>`,
-            # `MoveTowardsUnitUtility.<d__15>`). Source = `unit_trait_ids` (kit gameconfig +
-            # pseudo-trait de grande-alliance) — cf. sa docstring pour les DEUX collections natives
-            # non observables offline (traits retirés / accordés en bataille).
-            "unit_traits": unit_trait_ids(me.get("visualId")),
+            # `MoveTowardsUnitUtility.<d__15>`). Source = `entity_trait_ids` (#225) : le substrat
+            # d'ENTITE — kit gameconfig seedé dans `UnitContext.traits` + traits ACCORDÉS EN BATAILLE
+            # par le leaf DSL `AddTrait` + pseudo-trait de grande-alliance. `Scene` absente / uid hors
+            # tables -> borne statique par visualId (comportement antérieur).
+            "unit_traits": entity_trait_ids(_me_ctx, me.get("visualId")),
             "friend_positions": ctx.fpos,
             # {pos,traits} vivants self-exclu — branches AMIS(B1)/ENNEMIS(B2) de AdjacentUnitPreference
             # (#57i : traits pour les filtres, ex. FabricatorClaw garde les amis Mechanical).
