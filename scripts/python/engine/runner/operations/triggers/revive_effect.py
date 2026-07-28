@@ -100,12 +100,19 @@ class Revive(AbilityBehaviour):
     StatAmount(target@0x178, Health=5, max=3))` du behaviour natif (`GetReviveHP` =
     `GetVariableForLevel(config, 0x1d='hp', level)`, scalee rarete via `ability_var`). PUR (stop=False)."""
     __slots__ = ("target_sel", "ability_id", "hp_var", "level", "mult", "heal_type",
-                 "source_id", "priority")
+                 "source_id", "priority", "tiles_sel")
 
     def __init__(self, target_sel, ability_id: str, hp_var: str = "hp",
                  level=None, mult: int = 100, heal_type: int = 0,
-                 source_id=None, priority: int = 0):
+                 source_id=None, priority: int = 0, tiles_sel=None):
         self.target_sel, self.ability_id, self.hp_var = target_sel, ability_id, hp_var
+        # 7e argument de `IdunBattleLogic.Entities.DSLFactory$$Revive` (`targetsTile`) -- NUL chez tous
+        # les consommateurs SAUF `IdunBattle.Entities.Effects.Loki.GhostEffect$$
+        # CreateTargetTriggerBehaviour`, qui y passe `Owner@0x148` = la TUILE porteuse du ghost.
+        # `ReviveBehaviour$$Execute` ne renseigne le `Nullable<UnitPosition>` de la `ReviveData` que si
+        # ce selecteur est non nul -> c'est LUI qui fait la difference entre un revive in-place et le
+        # seul revive DEPLACANT du binaire (#213). None = in-place (comportement de tous les autres).
+        self.tiles_sel = tiles_sel
         # `GetReviveHP(abilityState)` = `GetVariableForLevel(config, 0x1d='hp', level)` ou `abilityState`
         # est celui de l'ABILITY SOURCE portee par l'effet. Le niveau/multiplicateur sont donc RESOLUS PAR
         # LE RAIL (cf. `_ReviveEffectCore.revive_level`) : passif du porteur pour un ReviveEffect pose
@@ -122,12 +129,19 @@ class Revive(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         from ..revive import post_pending_revive
+        from ....entities.selectors import _tile_positions
         state = ectx.state
         if state is None:
             return OperationResult.ok()
         revive_hp = ability_var(self.ability_id, self.hp_var, self.level,
                                 multiplier_pct=self.mult)      # GetReviveHP
-        for u in _units_of(self.target_sel, entities):
+        # `targetsTile` : `ReviveBehaviour$$Execute` evalue le selecteur UNE fois
+        # (`FUN_180024d10(10, …, param_2+0x90, entities)`) puis prend l'element d'index de la cible
+        # courante -- une liste de tuiles PAR CIBLE. Le port collapse chaque entree en un (col,row)
+        # (meme collapse que `PositionComponent`) ; hors selecteur -> liste vide -> revive in-place.
+        tiles = ([] if self.tiles_sel is None
+                 else _tile_positions(self.tiles_sel, entities, getattr(state, "board", None)))
+        for i, u in enumerate(_units_of(self.target_sel, entities)):
             tid = u.get("id") if isinstance(u, dict) else None
             if tid is None:
                 continue
@@ -137,10 +151,12 @@ class Revive(AbilityBehaviour):
             hp = revive_hp
             if hp is not None and maxhp is not None:
                 hp = min(int(hp), int(maxhp))                # Min(reviveHP, StatAmount(target,Health,max))
+            pos = tiles[i] if i < len(tiles) else None       # `IList.get_Item(i)` du decompile
             # ECRITURE de la `ReviveData` @UnitComponent+0xa8 (gate `IsPreferredRevive`) -- PAS de mutation.
             posted = post_pending_revive(state, tid, hp, heal_type=self.heal_type,
-                                         source=self.source_id, priority=self.priority)
-            ectx.emit("Revive", target=tid, hp=hp, revive_hp=revive_hp,
+                                         source=self.source_id, priority=self.priority,
+                                         revive_position=pos)
+            ectx.emit("Revive", target=tid, hp=hp, revive_hp=revive_hp, revive_position=pos,
                       revived=posted is not None, posted=posted is not None)
         return OperationResult.ok()
 

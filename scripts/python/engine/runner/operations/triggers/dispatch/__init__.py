@@ -64,7 +64,9 @@ from .move_death import (after_move_triggers, post_unit_kill_triggers,
                          displace_triggers, after_death_triggers, pre_unit_death_2_triggers,
                          unit_death_triggers, pre_effect_added_triggers,
                          unit_defeated_triggers, unit_revived_triggers,
-                         unit_resurrected_triggers, pending_death_added_triggers)
+                         unit_resurrected_triggers, pending_death_added_triggers,
+                         pre_move_triggers, unit_position_changed_1_triggers,
+                         unit_position_changed_2_triggers, unit_removed_triggers)
 from .turn import (tile_tick_triggers, start_turn_triggers, turn_start_other_triggers,
                    PILEIN_MIN_OWNER_TURNS, end_turn_summon_triggers)
 
@@ -84,6 +86,8 @@ __all__ = [
     "displace_triggers", "after_death_triggers", "pre_unit_death_2_triggers",
     "unit_death_triggers", "pre_effect_added_triggers", "unit_defeated_triggers",
     "unit_revived_triggers", "unit_resurrected_triggers", "pending_death_added_triggers",
+    "pre_move_triggers", "unit_position_changed_1_triggers", "unit_position_changed_2_triggers",
+    "unit_removed_triggers",
     "tile_tick_triggers",
     "start_turn_triggers", "turn_start_other_triggers", "PILEIN_MIN_OWNER_TURNS",
     "end_turn_summon_triggers",

@@ -174,8 +174,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # Il n'entre PAS dans `units` : le natif non plus ne met pas la tuile dans la liste d'unites de
     # l'`AbilityEntities`, donc aucun selecteur ne peut la ramasser. INERTE quand `caster_id` designe
     # une unite (cas de tous les autres appelants).
+    # `pos` : la TUILE porteuse a une position, et `IdunBattle.Entities.EntityExtensions$$GetMainTile`
+    # rend une entite-tuile ELLE-MEME (domaine mixte) -> on la renseigne quand `caster_id` est un id
+    # du `boardGraph`. Sans elle, tout selecteur de TUILE ancre sur ce caster (#213 : le `tiles =
+    # Owner@0x148` du `Revive` de `GhostEffect`) resolvait une liste VIDE = no-op silencieux. Reste
+    # `None` pour un caster non resolvable (ni unite, ni tuile du board).
     if caster is None and caster_id is not None:
-        caster = {"id": caster_id, "team": None, "player": None, "pos": None,
+        _board = getattr(state, "board", None)
+        _tpos = None
+        if _board is not None and int(caster_id) in getattr(_board, "by_id", {}):
+            _c = _board.coord(int(caster_id))
+            _tpos = {"col": int(_c[0]), "row": int(_c[1])}   # forme lue par `dsl.base._pos`
+        caster = {"id": caster_id, "team": None, "player": None, "pos": _tpos,
                   "alive": True, "hp": None, "visualId": None, "_traits": set()}
 
     def _has_trait(unit, trait_id):

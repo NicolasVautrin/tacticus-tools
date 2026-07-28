@@ -1,8 +1,9 @@
 # case — passifs `RealityUnbound` (thousTzaangor) et `TimeFlux` (thousTerminator)
 
 > **ETAT : LIVRE.** Les deux passifs sont portes et VALIDES LIVE, chacun avec son cas
-> discriminant NEGATIF (§5). Reste un residu nomme : le volet GHOST-REVIVE de `TimeFlux` (§4),
-> deja classe `[fable]` par `docs/rl/case-220/thousand-sons.md`.
+> discriminant NEGATIF (§5). Le residu qui restait -- le volet GHOST-REVIVE de `TimeFlux` (§4) --
+> est PORTE et VALIDE LIVE depuis #213 (2026-07-29) : `triggers/loki/ghost_revive.py`, RE et
+> mesures dans `docs/rl/case-66-revive-in-place.md` §8.2. Le classement `[fable]` est PERIME.
 
 Build RE : `gqfc5mff6c`. Toutes les VA en hex natif (RVA = VA - 0x180000000, calculee en code).
 Les deux items sortent de la file de `docs/rl/passive-ability-coverage.md` (GAP-ABSENT, porteurs
@@ -19,7 +20,7 @@ le cite dans son en-tete. Lecture du code et des deux docs :
 - le retrofit REVIVE a porte **5** consommateurs : `Narthecium`, `TaintedNarthecium`,
   `RitesOfMorkai`, `ReanimationBeam`, `PhoenixGem` (`case-66` §6.2) — **`TimeFlux` n'en fait pas
   partie** ;
-- `case-66` **§8.2** classe explicitement `TimeFlux`/`GhostRevive` en **residu, port NON tente** ;
+- `case-66` **§8.2** portait `TimeFlux`/`GhostRevive` en residu ; il est LIVRE depuis #213 ;
 - grep du moteur : `TimeFlux` n'apparait que comme MEMBRE D'ENUM
   (`engine/entities/triggered_ability_type.py:300` = 1157, `engine/entities/effect_type.py:323` =
   `TimeFlux_Revive` 1186). Un catalogue n'est pas un cablage.
@@ -386,7 +387,10 @@ Deuxieme volet, classe native DISTINCTE : `TimeFluxReviveAbility$$.ctor @1811a88
 et documentes par `case-66` §8.2 (`GhostReviveAbility$$CreateTrigger @180f83800` /
 `$$CreateBehaviour @180f83600` ; le revive vit dans `GhostEffect$$CreateTargetTrigger @180f4bb90`
 / `$$CreateTargetTriggerBehaviour @180f4b680` / `$$CreateHandleTriggerAbilitiesInternal @180f4b1f0`).
-Trois debloqueurs manquants, aucun devinable : (a) vecteur `On(PreUnitMove = 31)` absent du port ;
-(b) effet portant une TUILE (le ghost) avec sa condition de disparition ; (c) revive **NON
-in-place** (`SetRevivePosition @180e936e0` parametree par la tuile du ghost). Reste classe
-`[fable]` par `docs/rl/case-220/thousand-sons.md`.
+Les trois debloqueurs ont ete portes d'affilee par **#213** (2026-07-29) : (a) vecteur
+`On(PreUnitMove = 31)` (`dispatch/move_death.py::pre_move_triggers`, emis en tete de
+`MoveUnitOperation.execute`) ; (b) le ghost = un effet porte par une TUILE (`TileEffectTrigger`)
+avec ses CINQ retraits ; (c) le revive **NON in-place** (`operations/revive.py::_set_revive_position`,
+mirror de `SetRevivePosition @180e936e0`, alimente par le champ `revive_position` de la
+`ReviveData`). Port : `triggers/loki/ghost_revive.py` ; mesures live (deux couples board/seed, tuile
+de mort != tuile de revive, `hp = 3290` bit-exact) : `case-66` §8.2.

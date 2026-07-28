@@ -76,7 +76,8 @@ def is_preferred_revive(existing: Optional[dict], new: dict) -> bool:
 
 
 def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
-                        source=None, priority: int = REVIVE_PRIORITY_DEFAULT) -> Optional[dict]:
+                        source=None, priority: int = REVIVE_PRIORITY_DEFAULT,
+                        revive_position=None) -> Optional[dict]:
     """Mirror de l'ECRITURE de `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute` : pose la `ReviveData` sur
     `unitComponent + 0xa8` si `IsPreferredRevive`. AUCUNE mutation de PV/flag/position (c'est
     `ReviveUnitOperation` qui les fait, plus tard). Renvoie la `ReviveData` posee, ou None si le gate
@@ -85,7 +86,19 @@ def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
     `source` = le `sourceId` (`Nullable<AbilityOrEffect>`) : `AbilityOrEffect(effect.Id)` pour un
     `ReviveEffect` (IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTriggerBehaviour `param_1[2]`), `AbilityOrEffect(this.Id)` pour une TriggeredAbility
     autonome (PhoenixGem 1458 IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour, FuelledByFury 1251 IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateBehaviour). Il est relu par le noeud
-    `CurrentAbilityIs` des triggers `On(UnitRevived)`."""
+    `CurrentAbilityIs` des triggers `On(UnitRevived)`.
+
+    `revive_position` = le champ `Nullable<UnitPosition>` de la `ReviveData` (#213). Il est renseigne
+    par `ReviveBehaviour$$Execute` UNIQUEMENT quand le 7e argument de `IdunBattleLogic.Entities.
+    DSLFactory$$Revive` (`targetsTile`) est NON NUL : le decompile evalue alors ce selecteur
+    (`FUN_180024d10(10, …, param_2+0x90, entities)`), en prend l'element d'index de la CIBLE COURANTE
+    (`IList.get_Item(i)`), le `ToList()` et l'enveloppe dans le `Nullable`. Tous les consommateurs
+    portes AVANT #213 passent `targetsTile = 0` -> `None` = revive **IN-PLACE** (c'est le
+    `if (!revivePosition.HasValue) return;` en tete de
+    `IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition`). Le SEUL poseur non-nul du build
+    est `IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour` (`tiles =
+    Owner@0x148` = la TUILE porteuse du ghost). Le port collapse la `UnitPosition` (liste de tuiles,
+    une par pied) en un `(col, row)` -- meme collapse que `PositionComponent`."""
     e = state.get_entity(unit_id)
     if e is None:
         return None
@@ -93,11 +106,67 @@ def post_pending_revive(state: State, unit_id: int, amount, heal_type: int = 0,
     if uc is None:
         return None
     data = {"amount": (None if amount is None else int(amount)), "heal_type": int(heal_type),
-            "source": source, "priority": int(priority)}
+            "source": source, "priority": int(priority),
+            "revive_position": (None if revive_position is None
+                                else (int(revive_position[0]), int(revive_position[1])))}
     if not is_preferred_revive(uc.pending_revive, data):
         return None
     uc.pending_revive = data
     return data
+
+
+def _set_revive_position(state: State, unit_id: int, pos) -> Optional[tuple]:
+    """`IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition(revivePosition, unit)` -- MIRROR.
+
+    C'est le SEUL endroit du sous-systeme revive ou la POSITION change, et la garde qui l'ouvre est
+    la premiere instruction de la fonction :
+
+        if (!revivePosition.HasValue) return;              <- revive IN-PLACE (cas par defaut)
+        pos      = revivePosition.Value
+        feet     = UnitExtensions.GetUnitFeet(unit)        \\
+        ResetPreviousTileIfStillOwned(unit, feet)           > liberation des tuiles occupees
+        ResetFeet(unit)                                    /
+        newTiles = BattleQuery.<slot 0x8d>(pos)
+        processor.<slot 0x7e = MoveUnit>(unit, pos, false)  <- ECRITURE de la position
+        KillSteppableUnits(unit, newTiles)                  <- ce qui trainait sur la tuile est ecrase
+        AbilityEntities.ctor(unit, unit, unit, …, feet, …, pos, …)
+        publie On(0x24 = UnitPositionChanged_1)
+        publie On(0x1d = UnitPositionChanged_2)
+
+    Le port n'a ni entites-pieds ni reservation de tuile -> `ResetPreviousTileIfStillOwned`/`ResetFeet`
+    n'ont pas d'equivalent observable (la position exclusive du port suffit : ecrire la nouvelle tuile
+    libere l'ancienne). Le reste est porte tel quel : ecriture de `PositionComponent`, crush des
+    Steppable de la tuile d'arrivee (MEME helper que le move, `movement._kill_steppable_units`), puis
+    les DEUX events de position.
+
+    ⚠ `On(0x24)` est precisement l'un des cinq retraits de `GhostEffect` (« une autre unite arrive sur
+    la tuile du ghost ») : une resurrection sur un ghost peut donc en retirer un AUTRE. Le ghost sur
+    lequel on ressuscite, lui, s'est deja retire par son propre `GetRemoveEffectBehaviour`.
+
+    Renvoie la position ecrite, ou `None` si le revive est resté in-place (garde native)."""
+    if pos is None:
+        return None                                   # `if (!revivePosition.HasValue) return;`
+    e = state.get_entity(unit_id)
+    if e is None:
+        return None
+    from ..components import PositionComponent
+    to = (int(pos[0]), int(pos[1]))
+    pc = e.get_component(PositionComponent)
+    if pc is None:
+        e.add_component(PositionComponent(to[0], to[1]))
+    else:
+        pc.col, pc.row = to
+    # `KillSteppableUnits(unit, newTiles)` -- MEME operation que celle du move (helper partage, pas
+    # une 2e implementation) : un decoy/spore-mine sur la tuile d'arrivee est ecrase par un kill
+    # PROPRE (aucun death-trigger).
+    from .movement import _kill_steppable_units
+    _kill_steppable_units(state, to, unit_id)
+    # `On(0x24 = UnitPositionChanged_1)` puis `On(0x1d = UnitPositionChanged_2)`, {actor = target =
+    # l'unite ressuscitee} (`AbilityEntities.ctor(unit, unit, unit, …)` lu au decompile).
+    from .triggers import unit_position_changed_1_triggers, unit_position_changed_2_triggers
+    unit_position_changed_1_triggers(state, unit_id)
+    unit_position_changed_2_triggers(state, unit_id)
+    return to
 
 
 class ReviveUnitOperation:
@@ -134,12 +203,26 @@ class ReviveUnitOperation:
         # `Remove(8)` est PORTE depuis que `UnitFlag.Overkilled` est materialise (pose par le pipeline de
         # degat, lu par `HasFlag(unit, 8)` du volet OVERKILL de DoomSiren) -- sans lui, une unite revive
         # apres overkill (TaintedNarthecium `ReviveOnOverkill`) resterait marquee overkillee.
+        # ENREGISTREMENT `HasBeenRevivedByAbility` (#213) : mirror du bloc que le natif execute
+        # ENTRE `SetHealth` et les flags -- `if (sourceId.HasValue) { GetComponent<
+        # ActorStatisticsComponent>(unit)@+0xe0 .Add(sourceId.Value) }`. C'est CE set que relit
+        # `HasBeenRevivedAbilityTrigger$$ShouldTrigger`, et il n'est JAMAIS remis a zero : le gate
+        # `NOT HasBeenRevivedByAbility(self, 1186)` de `GhostReviveAbility`/`GhostEffect` est donc un
+        # « une seule fois par BATAILLE ». Loge sur le `UnitComponent` du port (residu structurel
+        # documente, cf. `components.py`).
+        src = data.get("source")
+        if src is not None:
+            uc.revived_by_abilities.add(int(src))
         from ..components import UnitFlagsComponent
         fl = e.get_component(UnitFlagsComponent)
         if fl is not None:
             fl.remove(UnitFlagsComponent.OVERKILLED)
         uc.alive = True
-        # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : IN-PLACE -> position inchangee (aucune ecriture de PositionComponent).
+        # IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : appele ICI (apres les flags,
+        # AVANT `On(0x2e)`). Le natif sort immediatement si `revivePosition` n'a pas de valeur -> le
+        # revive est alors IN-PLACE (aucune ecriture de position), ce qui est le cas de TOUS les
+        # consommateurs sauf le ghost de `thousTerminator` (#213).
+        moved_to = _set_revive_position(state, unit_id, data.get("revive_position"))
         # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=46) du
         # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger), comme ResurrectUnitOperation.
         if hc is not None and set_hp is not None:
@@ -152,7 +235,8 @@ class ReviveUnitOperation:
         fired = unit_revived_triggers(state, unit_id, current_ability=data.get("source"))
         # purge des 9 qwords @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ : la `ReviveData` est consommee.
         uc.pending_revive = None
-        return {"revived": int(unit_id), "hp": set_hp, "in_place": True,
+        return {"revived": int(unit_id), "hp": set_hp, "in_place": moved_to is None,
+                "revive_position": moved_to,
                 "source": data.get("source"), "on_revived": fired}
 
 

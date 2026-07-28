@@ -68,6 +68,15 @@ class MoveUnitOperation(Operation):
         e = state.get_entity(self.unit_id)
         if e is None:
             return
+        # `On(PreUnitMove = 0x1f = 31)` — EMIS EN TETE, avant TOUTE mutation. Place native lue au
+        # decompile d'`IdunBattle.Operations.MoveUnitOperation$$Execute` : le corps
+        # d'`EvaluatePreMoveTriggers` y est INLINE juste apres `SetReservation` et **avant**
+        # `CalculatePaths`/`MoveUnit`/`AddMoveEvent`/`KillSteppableUnits`/`UpdateCharging`/
+        # `SetMovedFlag`/`EvaluateAfterMoveTriggers` -> l'unite est ENCORE sur sa tuile de depart.
+        # Consommateurs : `GhostReviveAbility` (pose du time-ghost) + le 1er retrait de `GhostEffect`
+        # (le poseur rebouge). No-op si aucun trigger ne matche.
+        from .triggers import pre_move_triggers
+        pre_move_triggers(state, self.unit_id)
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
         if pc is None:
