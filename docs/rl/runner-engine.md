@@ -519,8 +519,14 @@ Chaque tranche = RE ghidra → port 1:1 → test d'agrément vs live (replay-dif
 
    **TF-A PORTÉ + validé live** (`engine/runner/operations/turnflow.py`, `EndTurnMessage`) — l'état
    OBSERVABLE de la transition de tour :
-   - `EndTurnOperation.Execute` @180e6b3c0 → `RefreshEffects` @180e6bf70 : tick d'1 tour des effets à
-     durée de **toutes** les unités (= `EffectsState.on_turn_end`, déjà porté) ;
+   - `IdunBattle.Operations.EndTurnOperation$$Execute` → 5 étapes dans CET ordre (cf.
+     `case-n8b-endturn-order.md`) : (1) `turnsFinished@+0x5c += 1` par unité du joueur finissant,
+     (2) `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields`, (3) même bump sur la MoW,
+     (4) vecteur `On(0x17 = TurnEnd)` (gaté par
+     `IdunBattle.Entities.Components.TurnComponent$$HasActivePlayer`), (5) **et SEULEMENT ALORS**
+     `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` : tick d'1 tour des effets à durée de
+     **toutes** les unités (= `EffectsState.on_turn_end`, déjà porté). Le tick est le DERNIER acte,
+     jamais le premier — les gates des triggers `On(0x17)` voient donc l'état PRÉ-tick ;
    - `ChangeTurnOperation.Execute` @180e62370 / `FindNextPlayer` @180e62570 → `find_next_player` :
      prochain joueur cyclique actif (Environment/neutre & équipes éliminées exclus = sans unité vivante ;
      ordre = ids croissants, exact pour 2 équipes) ; `current_player` flip ;

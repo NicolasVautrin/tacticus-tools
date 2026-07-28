@@ -1,12 +1,17 @@
 """Turn flow — EndTurn -> ChangeTurn -> StartTurn (RE fidele, cf. docs/rl/runner-engine.md §2.6).
 
 Operations natives (VA citees) :
-  - `IdunBattle.Operations.EndTurnOperation$$Execute  : fin de tour du joueur courant.
-      * per-unite (equipe du joueur finissant) : `turnsFinished@+0x5c += 1` (`_bump_turns_finished`),
+  - `IdunBattle.Operations.EndTurnOperation$$Execute  : fin de tour du joueur courant. ORDRE des
+    etapes tel qu'il se lit dans le corps (case-n8b) :
+      1. per-unite (equipe du joueur finissant) : `turnsFinished@+0x5c += 1` (`_bump_turns_finished`),
         `IdunBattle.Operations.EndTurnOperation$$ResetAbilitiesThatResetOnTurnEnd +
         `IdunBattle.Operations.EndTurnOperation$$DecreaseAbilityCooldowns.
-      * toutes unites : `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields + `ActorStatisticsComponent.ResetThisTurn`.
-      * `IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites.
+      2. toutes unites : `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields + `ActorStatisticsComponent.ResetThisTurn`.
+      3. meme `+0x5c += 1` sur la Machine of War du joueur (`PlayerComponent+0x78`).
+      4. si `IdunBattle.Entities.Components.TurnComponent$$HasActivePlayer : le vecteur de triggers
+        `On(0x17 = TurnEnd)` (`end_turn_summon_triggers`).
+      5. `IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites —
+        **APRES le vecteur `On(0x17)`**, jamais avant (le port faisait l'inverse jusqu'a case-n8b).
       * si `advance` (param_2) : enqueue le changement de tour (ChangeTurn) puis StartTurn.
   - `IdunBattle.Operations.ChangeTurnOperation$$Execute  : `current = IdunBattle.Operations.ChangeTurnOperation$$FindNextPlayer ;
       `IdunBattle.Entities.Components.TurnComponent$$SetCurrentPlayer ; si le nouveau joueur est de type 2 (neutre) -> recurse (skip).
@@ -17,7 +22,11 @@ Operations natives (VA citees) :
 PORTE ICI (tranche TF-A) — l'etat OBSERVABLE suivi par le runner (current_player, compteur de tours,
 durees d'effet, triggers de debut de tour) :
   * RefreshEffects  -> `EffectsState.on_turn_end` (deja porte : decremente remaining_turns -> expiration
-                       + cascade composite), applique a TOUTES les unites a effets.
+                       + cascade composite), applique a TOUTES les unites a effets, en DERNIER (apres
+                       le vecteur `On(0x17)`). Il n'inflige AUCUN degat : le natif y fait
+                       `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn + events, puis
+                       `Core.Services.OperationProcessor$$RefreshEffects ->
+                       `IdunBattle.Operations.RefreshEffectsOperation$$Execute (branche de retrait).
   * IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields -> `ShieldComponent.remove_one_turn` (decay d'1 tour des boucliers
                        a duree de TOUTES les unites ; retire les instances a 0).
   * EndTurn         -> `turnsFinished@+0x5c += 1` PER-UNITE du joueur FINISSANT (`_bump_turns_finished`),
@@ -277,11 +286,12 @@ def _bump_turns_finished(state: State, player: int) -> None:
     predicat `PlayerComponent$$u003Cget_CurrentlyOwnedUnitIdsu003Eb__17_0` (« id present dans la liste
     des defaits @+0x40 ») -> meme filtre `alive` que `_bump_turns_started`.
 
-    ORDRE : le natif bumpe AVANT d'executer les trigger-abilities `On(0x17 = TurnEnd)` (l'appel du
-    slot 0x51 avec le litteral `0x17` vient APRES la boucle) -> le porteur voit deja le tour qui
-    s'acheve dans son compteur quand son propre gate s'evalue. Corollaire : une unite SPAWNEE par un
-    trigger `On(0x17)` (replique PileIn) n'est PAS bumpee ce tour-la, exactement comme dans le natif
-    ou la liste d'ids est COPIEE avant la boucle."""
+    ORDRE : cette boucle est la PREMIERE etape du corps natif. Elle precede donc l'execution des
+    trigger-abilities `On(0x17 = TurnEnd)` (l'appel du slot 0x51 avec le litteral `0x17` vient apres)
+    -> le porteur voit deja le tour qui s'acheve dans son compteur quand son propre gate s'evalue.
+    Corollaire : une unite SPAWNEE par un trigger `On(0x17)` (replique PileIn) n'est PAS bumpee ce
+    tour-la, exactement comme dans le natif ou la liste d'ids est COPIEE avant la boucle. Et elle
+    precede AUSSI `RefreshEffects`, qui est la DERNIERE etape (case-n8b)."""
     for e in state.entities.values():
         oc = e.get_component(OwnerComponent)
         if oc is None or oc.player != player:
@@ -294,27 +304,36 @@ def _bump_turns_finished(state: State, player: int) -> None:
 
 class EndTurnOperation:
     """`IdunBattle.Operations.EndTurnOperation$$Execute (squelette fidele) — cf. en-tete pour le porte/defere.
-    Ordre : RefreshEffects (tick effets toutes unites) puis, si `advance`, ChangeTurn + StartTurn."""
+
+    ORDRE, lu dans le corps d'`Execute` (case-n8b) — les cinq etapes se suivent dans CET ordre :
+      1. boucle sur `PlayerComponent.CurrentlyOwnedUnitIds` du joueur FINISSANT :
+         `turnsFinished@+0x5c += 1` (+ `ResetAbilitiesThatResetOnTurnEnd` / `DecreaseAbilityCooldowns`,
+         non suivis offline) ;
+      2. `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields` sur `GetAllUnits`
+         (+ `ActorStatisticsComponent.ResetThisTurn`, non suivi) ;
+      3. meme `+0x5c += 1` sur la Machine of War du joueur (`PlayerComponent+0x78`) ;
+      4. si `IdunBattle.Entities.Components.TurnComponent$$HasActivePlayer` : le vecteur de triggers
+         `On(0x17 = TurnEnd)` (slot 0x51 = `Core.Services.OperationProcessor$$EvaluateAbilities`,
+         litteral `0x17`) ;
+      5. **`IdunBattle.Operations.EndTurnOperation$$RefreshEffects` — APRES le vecteur**, pas avant :
+         le `LAB` de l'appel `0x17` tombe en fall-through sur celui de `RefreshEffects`, et la branche
+         `HasActivePlayer == 0` saute DIRECTEMENT a `RefreshEffects` en enjambant le vecteur.
+    Puis les events de fin et, si `advance` (param_2), la sequence ChangeTurn + StartTurn.
+
+    Le port faisait etape 5 EN PREMIER (tick des effets avant le vecteur). Corrige ici. Consequence
+    exacte : **les gates des triggers `On(0x17)` voient l'etat PRE-tick** — un effet a duree qui
+    s'eteint a cette fin de tour est encore ACTIF quand ils s'evaluent."""
     __slots__ = ()
 
     @staticmethod
     def execute(state: State, advance: bool = True) -> dict:
-        # IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites (le natif
-        # itere GetAllUnits, pas seulement le joueur finissant). `attacked` non suivi offline -> False
-        # (les effets removed-after-attack sont rares et deja consommes one-shot a l'attaque via on_attack).
-        ticked: list[int] = []
-        if state.effects is not None:
-            for uid in list(state.effects.by_unit.keys()):
-                state.effects.on_turn_end(uid, attacked=False)
-                ticked.append(int(uid))
-        # `<Effect>.RevertInternal` -> `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`
-        # (ChangeStat part 6) : un effet que le tick vient de faire EXPIRER doit SORTIR sa `ValueModification`
-        # du `UnitStats`. Sans ce foyer, seul le retrait EXPLICITE (feuille `RemoveEffect`) revertait — un
-        # stat-mod a TIMER (ex. `Thrilled` 1434 de ThrillSeekers, +15 CritChance pour 1 round) restait
-        # applique pour toujours. No-op strict pour toute instance sans `stat_mod_source`.
-        from .effects import revert_stat_mods_of_removed_effects
-        reverted = revert_stat_mods_of_removed_effects(state)
-        # IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields : décay d'1 tour des boucliers à durée de TOUTES les unités
+        finishing = state.current_player_id
+        # (1) `turnsFinished@+0x5c += 1` PER-UNITE du joueur qui FINIT son tour (compteur natif lu par
+        # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`). PREMIERE etape du corps natif, donc
+        # AVANT le vecteur `On(0x17)` : c'est ce qui donne son sens au gate `OwnerHasFinishedMinTurns`
+        # de PileIn (le tour qui s'acheve compte deja).
+        _bump_turns_finished(state, finishing)
+        # (2) IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields : décay d'1 tour des boucliers à durée de TOUTES les unités
         # (ShieldComponent.RemoveOneTurn → décrémente remaining, retire les instances à 0).
         shields_ticked: list[tuple] = []
         for uid, e in state.entities.items():
@@ -326,8 +345,10 @@ class EndTurnOperation:
         # DEEP-STRIKE LANDING : les unites TeleportStrike du joueur FINISSANT atterrissent a la fin de leur
         # 1er tour (ground truth live ds_landing : discret, PAS un tick de duree) -> retire TeleportingIn +
         # init des passives deferrees (aura PathOfCommand). Mirror natif : landing = InitializeActorAbilities.
+        # Pas de site natif dans `Execute` -> position OFFLINE, entre les boucliers et le vecteur `On(0x17)`.
+        # Elle est desormais AVANT le tick d'effets, et c'est ce qu'il faut : le gate de ce foyer est
+        # `has_effect(TeleportStrike_TeleportingIn)`, qui ne voit PAS une instance `consumed`.
         from .spawn import land_deep_strike
-        finishing = state.current_player_id
         landed: list[dict] = []
         for uid, e in state.entities.items():
             oc = e.get_component(OwnerComponent)
@@ -335,16 +356,34 @@ class EndTurnOperation:
                 r = land_deep_strike(state, uid)
                 if r is not None:
                     landed.append(r)
-        # `turnsFinished@+0x5c += 1` PER-UNITE du joueur qui FINIT son tour (compteur natif lu par
-        # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`). AVANT le vecteur `On(0x17)`
-        # ci-dessous : c'est l'ordre du natif, et c'est ce qui donne son sens au gate
-        # `OwnerHasFinishedMinTurns` de PileIn (le tour qui s'acheve compte deja).
-        _bump_turns_finished(state, finishing)
-        # PILEIN IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger : passif fin-de-tour des grots du joueur FINISSANT à PV pleins ->
-        # auto-dédoublement (WithStatsFromConfig(PileIn), 75-5%/grot). Après le tick d'effets (un DoT qui
-        # entame les PV du grot le disqualifie du gate PV-pleins). No-op si aucun grot PileIn.
+        # (4) vecteur `On(0x17 = TurnEnd)` — DEUX consommateurs portes (inventaire re-derive du registre
+        # par `probe_n8b_turnend_consumers.py`) : le dispatch generique `ABILITY_TRIGGERS`
+        # (`RadSaturationAbility`, branche `NOT HasFlag(owner, Moved)`) et le bespoke
+        # IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour /
+        # IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger (grots du joueur
+        # FINISSANT a PV pleins -> auto-dedoublement, 75-5%/grot). AVANT le tick d'effets : leurs gates
+        # lisent donc l'etat PRE-tick, comme dans le natif. No-op si aucun porteur.
         from .triggers import end_turn_summon_triggers
         pilein = end_turn_summon_triggers(state, finishing)
+        # (5) IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites (le natif
+        # itere GetAllUnits, pas seulement le joueur finissant). `attacked` non suivi offline -> False
+        # (les effets removed-after-attack sont rares et deja consommes one-shot a l'attaque via on_attack).
+        # Le natif n'inflige AUCUN degat ici : `RefreshEffects` = `EffectComponent.RemoveOneTurn` + events,
+        # puis `Core.Services.OperationProcessor$$RefreshEffects` -> `RefreshEffectsOperation$$Execute`
+        # (branche de retrait). Les DoT de tuile passent, eux, par les events 0x12/0x14 de StartTurn.
+        ticked: list[int] = []
+        if state.effects is not None:
+            for uid in list(state.effects.by_unit.keys()):
+                state.effects.on_turn_end(uid, attacked=False)
+                ticked.append(int(uid))
+        # `<Effect>.RevertInternal` -> `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`
+        # (ChangeStat part 6) : un effet que le tick vient de faire EXPIRER doit SORTIR sa `ValueModification`
+        # du `UnitStats`. Sans ce foyer, seul le retrait EXPLICITE (feuille `RemoveEffect`) revertait — un
+        # stat-mod a TIMER (ex. `Thrilled` 1434 de ThrillSeekers, +15 CritChance pour 1 round) restait
+        # applique pour toujours. No-op strict pour toute instance sans `stat_mod_source`. Reste COLLE au
+        # tick (mirror du `RefreshEffectsOperation` que `RefreshEffects` appelle en sortie de boucle).
+        from .effects import revert_stat_mods_of_removed_effects
+        reverted = revert_stat_mods_of_removed_effects(state)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                     "pilein": pilein, "next_player": None, "start": None,

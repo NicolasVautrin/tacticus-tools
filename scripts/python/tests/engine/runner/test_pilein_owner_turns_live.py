@@ -46,40 +46,19 @@ import pytest
 
 from engine.runner.components import UnitComponent, OwnerComponent, HealthComponent
 from engine.runner.operations.turnflow import EndTurnOperation
-from engine.runner.state import State
 
 from ._pilein_owner_turns import (BOARD, CARRIER, ENEMY, ESCORT, CountingRng,
-                                  measure_grot_age_sweep)
+                                  measure_grot_age_sweep, minimal_pilein_state)
 
 PYDIR = Path(__file__).resolve().parents[3]
 ROOT = PYDIR.parents[1]
 
 
 def _state(n_grots=1, player=0, turn_counts=None, turns_finished=0, rng=None):
-    """`State` minimal : `n_grots` porteurs de `PileIn` vivants a PV PLEINS + un non-grot du meme
-    joueur + un ennemi. Pas de board -> `execute_pilein_replica` no-ope, ce qui ISOLE le cout PRNG
-    du seul GATE (meme montage que `test_maybe_trigger_rng_live`)."""
-    st = State()
-    st.rng = rng
-    st.current_player_id = player
-    if turn_counts is not None:
-        st.turn_counts.update(turn_counts)
-    for i in range(n_grots):
-        e = st.add_entity(100 + i)
-        uc = UnitComponent(visual_id="orksNpc1Grot", alive=True)
-        uc.turns_finished = int(turns_finished)
-        e.add_component(uc)
-        e.add_component(OwnerComponent(team=player, player=player))
-        e.add_component(HealthComponent(hp=1000, hp_max=1000))
-    ally = st.add_entity(200)
-    ally.add_component(UnitComponent(visual_id=CARRIER, alive=True))
-    ally.add_component(OwnerComponent(team=player, player=player))
-    ally.add_component(HealthComponent(hp=1000, hp_max=1000))
-    foe = st.add_entity(300)
-    foe.add_component(UnitComponent(visual_id=ENEMY, alive=True))
-    foe.add_component(OwnerComponent(team=player + 1, player=player + 1))
-    foe.add_component(HealthComponent(hp=1000, hp_max=1000))
-    return st
+    """Montage minimal PARTAGE — cf. `_pilein_owner_turns.minimal_pilein_state` (meme plateau que
+    `test_endturn_order_live`, qui garde l'ORDRE `On(0x17)` vs `RefreshEffects` sur ce meme etat)."""
+    return minimal_pilein_state(n_grots=n_grots, player=player, turn_counts=turn_counts,
+                                turns_finished=turns_finished, rng=rng)
 
 
 # --------------------------------------------------------------- (1) le gate est PER-UNITE
