@@ -290,9 +290,13 @@ l'identique, donc pas un alea. Cause, lue dans la trace des poses :
 
 Un `place()` est un `MoveUnitOperation` natif COMPLET : il appelle `UpdateCharging`, qui ecrit dans
 la liste **de l'unite qui bouge**. Amener le caster (u53) d'une tuile a distance 2 vers une tuile
-adjacente a la cible (u49) **CHARGE la cible avant le pas du regime**. Cote offline la charge est
-INVISIBLE — `load_state` ne seede pas `UnitComponent+0x190` (aucun RPC ne l'expose, `case-r32` §7).
-Le montage etait donc `CHARGE` deguise en `STEP_ADJACENT`.
+adjacente a la cible (u49) **CHARGE la cible avant le pas du regime**. Le montage etait donc
+`CHARGE` deguise en `STEP_ADJACENT`. A l'epoque cette charge etait en plus INVISIBLE cote offline
+(`load_state` ne seedait pas `UnitComponent+0x190`), ce qui faisait lire l'ecart comme un bug de
+port. **Depuis #230 l'offline la VOIT** (le champ est capte et seede) — la lecture erronee disparait,
+**le defaut de montage reste** : un regime nomme `STEP_ADJACENT` qui porte une charge residuelle
+mesure `CHARGE`, donc autre chose que ce que son nom promet. Le correctif d'ordre ci-dessous est
+toujours requis.
 
 **Aucun `endturn` ne repare** : la purge est `FinishUnitTurnOperation$$Execute`, PAR UNITE et sur
 son activation — une fin de tour d'EQUIPE ne l'appelle pas. Un premier essai de correction par

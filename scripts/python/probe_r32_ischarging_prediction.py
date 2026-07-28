@@ -213,6 +213,16 @@ def main(argv):
                     return st
                 line("B ACQUISE", cand, _acquired)
 
+                # --- B' : la MEME charge acquise, mais SEEDEE (#230) au lieu d'etre rejouee -------
+                # Capture MI-ACTIVATION (apres le pas, avant tout `FinishUnitTurn`) : c'est le seul
+                # instant ou `UnitComponent.ChargedUnitIds@+0x190` est non vide. Depuis `f790ff4` le
+                # capteur l'expose et `snapshot._load_unit_turn_state` le pose sur l'ECS, donc
+                # `Scene.from_state` le voit -- ce que la ligne `case-r32` SS 7 declarait impossible
+                # (« aucun RPC n'expose UnitComponent+0x190 »). AUCUN move rejoue ici : si cette ligne
+                # MATCHe, le residu de prediction sur etat RECHARGE est clos.
+                dvB, obB, snB = snap3()
+                line("B' SEED", cand, lambda: load_state(dvB, obB, snB, board=board))
+
         # --- C : ADJ_NOCHG (caster deja adjacent, tour NEUF, decalage vers une AUTRE tuile r1) -----
         pair = next(((s, q) for s in r1 for q in r1 if s != q and hexgeo.distance(s, q) == 1), None)
         # `endturn` INCONDITIONNEL avant de re-viser mon tour : c'est le

@@ -63,8 +63,14 @@ def _state(rpc, rid):
 
 
 def _start_turn(st, uid):
-    """`UnitComponent + 0x18c` n'est PAS capte par `combatSnapshot` (residu de capture nomme) : on
-    rejoue le `StartTurnOperation` du camp de `uid`, seul ecrivain natif du champ."""
+    """Rejoue le `StartTurnOperation` du camp de `uid` -- seul ecrivain natif de
+    `UnitComponent + 0x18c` (la tuile de debut de tour), et de tout le reste du debut de tour.
+
+    Ce n'est PLUS un contournement de capture : depuis `f790ff4` + #230 le champ est capte par
+    `combatSnapshot.units[].currentTurnStartTile` et seede par `snapshot._load_unit_turn_state` --
+    `test_load_state_turn_state_live.py` garde precisement le premier move SANS cet appel. Il reste
+    ici parce que ces scenarios enchainent PLUSIEURS tours : chaque nouveau tour doit reecrire la
+    tuile (et purger les flags), ce qu'aucune capture ne peut faire a la place du port."""
     pl = st.get_entity(uid).get_component(OwnerComponent).player
     StartTurnOperation.execute(st, pl)
 

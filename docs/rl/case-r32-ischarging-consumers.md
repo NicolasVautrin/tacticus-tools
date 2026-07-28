@@ -160,8 +160,10 @@ réparée** :
 
 * il rejouait l'attaque offline depuis un snapshot pris **APRÈS** le pas, en **déclarant** la charge
   par `set_moved_flag`. Or le 2e terme du prédicat vit dans `UnitComponent.ChargedUnitIds@+0x190`,
-  qu'aucun RPC n'expose (§7) : `load_state` ne peut pas le seeder, donc un snapshot post-pas ne peut
-  **jamais** porter la charge. Le régime CHARGE y est structurellement irréproductible ;
+  qu'aucun RPC n'exposait alors (§7) : `load_state` ne pouvait pas le seeder, donc un snapshot
+  post-pas ne pouvait pas porter la charge. Le régime CHARGE y était structurellement
+  irreproductible. *(Le canal existe depuis `f790ff4` et est consommé depuis #230 — cf. §7 ; ce qui
+  reste faux, c'est de **déclarer** la charge par un proxy au lieu de la **lire**.)* ;
 * il n'exerçait que `CHARGE` et « déjà adjacent, aucun pas » — exactement les **deux régimes où proxy
   et prédicat coïncident**. D'où trois ans de vert sans valeur discriminante : le régime qui sépare les
   deux modèles (`STEP_ADJACENT`) n'y était pas exprimable.
@@ -237,11 +239,25 @@ constate le bloqueur et **tombe le jour où il est levé**, avec le message qui 
 * **`FeederTendrils` (1197) n'a pas été rejoué live depuis le retrofit.** Il partage le foyer de gate,
   le canal et la forme de magnitude d'`AvalancheOfMuscle`, validé ici sur 7 régimes ; mais son propre
   porteur (Deathleaper) n'a pas été confronté dans cette passe.
-* **Le terme RÉEL en prédiction sur un état RECHARGÉ** : `scene.charged_by_id` n'est peuplé que par
-  `Scene.from_state`. Aucun RPC n'expose `UnitComponent+0x190`, donc une prédiction faite sur un état
-  rechargé par `load_state` ignore les charges déjà acquises et OMET le bonus. Dégradation
-  **restrictive** (à l'inverse du proxy, qui sur-accordait). Point d'ancrage à hooker pour la fermer :
-  `UnitComponent+0x190` côté `combatSnapshot`.
+* ~~**Le terme RÉEL en prédiction sur un état RECHARGÉ**~~ — **CLOS (#230, 2026-07-29)**. Le point
+  d'ancrage nommé ici (`UnitComponent+0x190` côté `combatSnapshot`) a été hooké (`f790ff4`,
+  `readUnitTurnState`) puis consommé par `snapshot._load_unit_turn_state`. `scene.charged_by_id` est
+  toujours peuplé par le seul `Scene.from_state`, mais l'ECS qu'il lit porte désormais la liste
+  RÉELLE.
+  **Contrainte de mesure, non négociable** : la liste n'est non vide que **pendant une activation**
+  (`FinishUnitTurnOperation$$Execute` la vide à chaque fin d'activation) — une capture prise ENTRE
+  deux tours la voit vide, et c'est **correct**, pas un défaut de lecture.
+  Mesure de fermeture, `probe_r32_ischarging_prediction.py`, ligne **`B' SEED`** (prédiction depuis
+  la tuile COURANTE d'un caster qui vient de charger, état RECHARGÉ, **aucun pas rejoué**) :
+  natif **12032**, offline **12032**, bornes forcées **12032 / 9636** ⇒ probant. La ligne `B ACQUISE`
+  (même géométrie, pas REJOUÉ offline) reste dans le probe : les deux voies confrontent deux morceaux
+  de port différents.
+  Face COMBAT du même câblage, `probe_230_load_state_turn_state.py --case charge` (capture
+  MI-ACTIVATION, `MC1_67`/777, `astraBullgryn` vs `necroOverlord`) : régime `CHARGE`
+  live `[3935, 3757, 3078, 3132]` = offline seedé, contre `[3336, 3158, 2479, 2533]` sans le seed
+  (**−599/coup**, exactement l'omission décrite ici) ; régime `STEP_ADJACENT` `chargedUnitIds=[]`
+  côté hook, donc bit-exact **avec et sans** seed — le câblage n'accorde rien de plus.
+  Verrou : `tests/engine/runner/test_load_state_turn_state_live.py`.
 * **La porte d'élévation** de `AreEntitiesAdjacent` : le natif vaut
   `abs(elev(b) − elev(a)) < 2 && (a == b || ConnectivityComponent(a).IsNeighbour(b))`
   (`IdunBattle.Core.Services.MovementUtil$$AreTilesAdjacent`). Le foyer l'applique quand `elev_by_pos`

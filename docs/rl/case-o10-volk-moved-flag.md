@@ -173,10 +173,16 @@ sans le fix (`aucun delta positif charge vs no-charge [0,0,0,0]`, `bonus_per_hit
 > `64d875d` 3 PASSED, `964dd15` (case-r32) 3 FAILED. `964dd15` a remplace le proxy `has_moved` par le
 > predicat natif `IdunBattle.Core.Services.BattleQuery$$IsCharging` sans retirer le test qui gatait par
 > le proxy. Le fichier a ete SUPPRIME : sa methode (snapshot APRES le pas + charge DECLAREE par
-> `set_moved_flag`) est structurellement incapable de reproduire le 2e terme du predicat
-> (`UnitComponent.ChargedUnitIds@+0x190`, qu'aucun RPC n'expose), et il n'exercait que les deux regimes
-> ou proxy et predicat COINCIDENT. Le verrou vivant du meme effet 1025 est
+> `set_moved_flag`) etait structurellement incapable de reproduire le 2e terme du predicat
+> (`UnitComponent.ChargedUnitIds@+0x190`, qu'aucun RPC n'exposait alors), et il n'exercait que les deux
+> regimes ou proxy et predicat COINCIDENT. Le verrou vivant du meme effet 1025 est
 > `test_ischarging_extra_damage_live.py` (3 regimes dont le DISCRIMINANT, 2 couples board/seed).
+>
+> **MAJ #230 (2026-07-29)** : le canal manquant EXISTE desormais (`combatSnapshot.chargedUnitIds`,
+> `f790ff4`) et `load_state` le consomme, donc un snapshot post-pas PORTE la charge — a condition
+> d'etre pris MI-ACTIVATION. C'est `test_load_state_turn_state_live.py` qui exerce cette voie.
+> Ce qui reste definitivement faux dans la methode retiree : **declarer** la charge par le proxy
+> `set_moved_flag` au lieu de la **lire**.
 
 ## 6. Ce qui n'est PAS couvert
 

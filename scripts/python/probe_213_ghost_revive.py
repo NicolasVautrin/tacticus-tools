@@ -255,9 +255,10 @@ def run_port(sid, seed, board):
         board_obj = Board(bg["tiles"], adjacency="evenq") if (bg or {}).get("tiles") else None
         st = load_state(dv, ob, snap, board=board_obj, tiles=tm)
         st.rng = IntBasedMersenneTwister(12345)
-        # `UnitComponent + 0x18c` n'est PAS capte par `combatSnapshot` (residu de capture nomme) :
-        # on rejoue donc le `StartTurnOperation` du joueur de Toth, qui l'ecrit -- exactement comme le
-        # natif l'a fait avant le move.
+        # `StartTurnOperation` du joueur de Toth, seul ecrivain natif de `UnitComponent + 0x18c` --
+        # rejoue ici pour reproduire le debut de tour COMPLET (flags, compteurs, triggers), pas
+        # seulement la tuile : celle-ci est desormais CAPTEE (`combatSnapshot.currentTurnStartTile`,
+        # `f790ff4`) et SEEDEE par `load_state` (#230).
         from engine.runner.components import OwnerComponent
         pl = st.get_entity(hid).get_component(OwnerComponent).player
         StartTurnOperation.execute(st, pl)

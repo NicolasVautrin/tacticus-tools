@@ -545,9 +545,15 @@ unite, deplacement du ghost au 2e move). Zero-reg cible : famille revive (42), m
   vit dans les Unity assets de tuile (hors gameconfig) -> le gate est structurellement present mais
   toujours FAUX. Il ne peut refuser un ghost a tort que sur un board a glace brisee (40 boards en
   portent, cf. l'inventaire terrain de `runner.md`).
-- **`UnitComponent + 0x18c` n'est pas capte** par `combatSnapshot` -> un `load_state` frais part a
-  `None` et le 1er move ne pose PAS de ghost tant qu'un `StartTurnOperation` n'a pas tourne. Point
-  d'ancrage a hooker si on veut le capter : `UnitComponent+0x18c` cote `combatSnapshot`.
+- ~~**`UnitComponent + 0x18c` n'est pas capte** par `combatSnapshot`~~ — **CLOS (#223 `f790ff4` pour
+  le hook, #230 pour le cablage)**. `combatSnapshot.units[].currentTurnStartTile` porte le champ
+  (`null` = le natif vaut 0, ce que `CurrentTurnStartTileSelector$$Select` traduit par une liste
+  VIDE) et `snapshot._load_unit_turn_state` le pose sur l'ECS. Un `load_state` frais ne part plus a
+  `None` : le PREMIER move y pose le ghost sur la bonne tuile, sans qu'un `StartTurnOperation` ait
+  tourne. Mesure (`probe_230_load_state_turn_state.py --case ghost`, `MC1_67`/31337) : au deploiement
+  le champ se separe exactement par EQUIPE -- `startTile=21` pour Toth (joueur ENTRANT), `null` pour
+  les deux adverses -- puis le 1er move offline pose l'effet 1186 sur la tuile 21. Garde :
+  `test_load_state_turn_state_live.py::test_current_turn_start_tile_drives_first_move_ghost_live`.
 - **Double move dans le MEME tour sur la MEME tuile de debut de tour** : `AddEffectOperation` no-ope
   (effet deja present) puis le retrait n°1 le supprime -> plus de ghost. Cas de bord (une unite ne
   bouge qu'une fois par tour, flag `UnitFlag.Moved`).

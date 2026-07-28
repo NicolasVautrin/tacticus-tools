@@ -251,6 +251,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
         _load_unit_flags(state, snapshot)
+        # MEME nature que les flags : deux champs d'ETAT DE TOUR du `UnitComponent`, entrees de gate
+        # et non sorties -- cf. `_load_unit_turn_state`.
+        _load_unit_turn_state(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
@@ -468,6 +471,61 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
                 fl.add(int(f))
             except (TypeError, ValueError):
                 continue
+
+
+def _load_unit_turn_state(state: State, snapshot: dict) -> None:
+    """Seede les DEUX champs d'ETAT DE TOUR du `UnitComponent` depuis `combatSnapshot.units[]` :
+    `currentTurnStartTile` (@+0x18c) et `chargedUnitIds` (@+0x190).
+
+    Canal live : le capteur `readUnitTurnState` de `frida/hooks/features/ai-step/rpc-snapshot.ts`
+    (lecture MEMOIRE PURE des deux champs, aucun `invokeMethod`). Pendant EXACT de
+    `_load_unit_flags` : ce sont des ENTREES de gate, pas des sorties, et jusqu'ici RIEN ne les
+    peuplait sur un etat recharge -- seules les operations OFFLINE les ecrivaient
+    (`StartTurnOperation.execute` / `components.update_charging`).
+
+    * **`current_turn_start_tile`** -- ECRIT par `IdunBattle.Operations.StartTurnOperation$$Execute`
+      (`mainTile = EntityExtensions.GetMainTile(unit) ; comp[0x18c] = mainTile?.Id ?? 0`), RELU par
+      `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select` qui rend une liste VIDE
+      quand le champ vaut 0. L'id emis est celui de l'ENTITE-TUILE natif, c.-a-d. exactement la cle
+      de `Board.by_id` (le `boardGraph` projette les memes ids) : aucune conversion. Consommateur
+      porte : le time-ghost de `thousTerminator`
+      (`triggers/loki/ghost_revive.py`, `TimeFluxReviveAbility` -> `AddEffect(1186, targets=tile)`),
+      qui rendait `None` -> branche `Nothing()` sur tout etat recharge, tant qu'un
+      `StartTurnOperation` offline n'avait pas tourne.
+
+    * **`charged_unit_ids`** -- second conjoint de `IdunBattle.Core.Services.BattleQuery$$IsCharging`
+      (`AreEntitiesAdjacent(caster, target) && ChargedUnitIds.Contains(target.Id)`). Rempli par
+      `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` (les unites NOUVELLEMENT adjacentes)
+      et VIDE par `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`. Sa duree de vie est donc
+      **l'ACTIVATION** : un `combatSnapshot` pris ENTRE deux tours le voit toujours vide, et c'est
+      CORRECT (mesure 2026-07-29 : `[]` partout apres 4 tours d'IA ; puis, apres un `act move`
+      amenant u87 au contact SANS finir le tour, `charged=[77,79]` = exactement les deux ennemis
+      devenus adjacents). Sans ce seed, la face PREDICTION sur etat recharge ignorait les charges
+      DEJA acquises et OMETTAIT le bonus -- degradation RESTRICTIVE (`case-r32` SS 7).
+
+    Ids : les elements de la liste native sont des ids d'ENTITE-UNITE, soit exactement la cle ECS du
+    port (`combatSnapshot.entityId` == `decisionView.id`, cf. en-tete du module) -- aucune
+    traduction.
+
+    TRI-ETAT, meme discipline que `_load_unit_flags` : champ ABSENT ou `null` = **non mesure**
+    (capteur anterieur a `f790ff4`, ou composant/classe introuvable) -> on ne TOUCHE PAS au defaut du
+    port, donc comportement STRICTEMENT anterieur. `[]` / un id de tuile = mesure, on ecrit. Le
+    `null` de `currentTurnStartTile` recouvre les DEUX sens (« non mesure » et « le natif porte 0 »),
+    mais les deux collapsent sur le MEME defaut de port (`None`), donc l'ambiguite est sans effet."""
+    for su in (snapshot.get("units") or []):
+        eid = su.get("entityId")
+        if eid is None:
+            continue
+        ent = state.get_entity(eid)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        tile = su.get("currentTurnStartTile")
+        if tile is not None:
+            uc.current_turn_start_tile = int(tile)
+        charged = su.get("chargedUnitIds")
+        if isinstance(charged, list):
+            uc.charged_unit_ids = [int(i) for i in charged]
 
 
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> None:
