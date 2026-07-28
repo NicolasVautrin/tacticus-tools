@@ -233,16 +233,60 @@ def resolve(lo, hi, g):
 # --------------------------------------------------------------------------- run
 
 
+def _drive_plain_melee(rpc, rid, carrier_vis, target_vis, max_turns=30):
+    """GENERALISATION : le porteur de l'aura Contagion attaque simplement la cible en MELEE (AUCUN
+    cast prealable). C'est le meme etage -- `SwornProtector` invoque Kell DANS l'aura et lui fait
+    prendre le coup -- avec un porteur, une arme et un nombre de coups DIFFERENTS."""
+    import hexgeo as _hx
+    my, moved = None, 0
+    for _ in range(max_turns):
+        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        cst, tg = _unit(dv, carrier_vis), _unit(dv, target_vis)
+        if cst is None or tg is None:
+            return None, None, None, 0, "caster/cible absent"
+        if my is None:
+            my = cst.get("owner")
+        if dv.get("currentPlayer") != my:
+            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+            moved = 0
+            continue
+        nrm = next((a for a in (cst.get("abilities") or []) if a.get("kind") == "normal"), None)
+        if nrm is None:
+            return None, None, None, 0, "attaque normale introuvable"
+        cpos, tpos = _pos(cst), _pos(tg)
+        if _hx.distance(cpos, tpos) == 1:
+            return cst["id"], tg["id"], nrm["id"], moved, None
+        mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
+        cmt = next((x for x in (mt.get("units") or []) if x.get("unitId") == cst["id"]), None)
+        pool = [(t["col"], t["row"]) for t in ((cmt or {}).get("tiles") or [])]
+        if pool:
+            best = min(pool, key=lambda t: _hx.distance(t, tpos))
+            if best != cpos:
+                rpc("applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": cst["id"],
+                    "to": {"col": best[0], "row": best[1]}}}, 60)
+                moved += 1
+                continue
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+        moved = 0
+    return None, None, None, 0, "melee non montee en %d tours" % max_turns
+
+
 def _run_seed(rpc, seed, args):
-    rid, sf = _build(seed, MALADIES_CARRIER, args.target,
+    carrier = getattr(args, "carrier", None) or MALADIES_CARRIER
+    rid, sf = _build(seed, carrier, args.target,
                      extra=["--crit", "0,0", "--block-target", "0,0",
                             "--hp-target", str(args.hp), "--armor-target", str(args.armor)],
                      rank=args.rank)
     if rid is None:
         return None
     try:
-        cid, tid, aid, moved, err = _drive_foul_melee(rpc, rid, MALADIES_CARRIER, args.target,
-                                                      max_turns=args.max_turns)
+        if getattr(args, "plain", False):
+            cid, tid, aid, moved, err = _drive_plain_melee(rpc, rid, carrier, args.target,
+                                                           max_turns=args.max_turns)
+        else:
+            cid, tid, aid, moved, err = _drive_foul_melee(rpc, rid, carrier, args.target,
+                                                          max_turns=args.max_turns)
         if cid is None:
             print("[dpw] seed %s: drive KO -- %s" % (seed, err))
             return None
@@ -334,6 +378,10 @@ def main():
                          "valeurs live A L'UNITE sur TOUS les seeds")
     ap.add_argument("--span", type=int, default=4000, help="demi-largeur du balayage --solve")
     ap.add_argument("--dump-stats", action="store_true")
+    ap.add_argument("--carrier", default=None,
+                    help="porteur de l'aura Contagion (defaut deathPutrifier) -- GENERALISATION")
+    ap.add_argument("--plain", action="store_true",
+                    help="GENERALISATION : simple attaque MELEE, sans cast FoulInfusion prealable")
     args = ap.parse_args()
     rpc = _mkrpc()
     rows = []

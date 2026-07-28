@@ -202,12 +202,49 @@ $$GetMaxRange = Direct(3)
 ```
 python probe_dpw_weapon_cell.py --seeds 777,12345,314159,88          # confront live/offline
 python probe_dpw_weapon_cell.py --seeds 777,12345,314159,88 --solve  # + résolution de la cellule
+python probe_dpw_weapon_cell.py --carrier deathBlightlord --plain --seeds 777,12345,88   # généralisation
 python -m pytest tests/engine/runner/test_contagions_of_nurgle_new_unit_live.py -q
 ```
+
+### 6.a Montage principal — `deathPutrifier`, 4 seeds
+
+| seed | live | port (après) | contrefactuel (vecteur neutralisé) |
+|---|---|---|---|
+| 777 | 3219 | **3219** | 2333 |
+| 12345 | 3529 | **3529** | 2649 |
+| 314159 | 2923 | **2923** | 2505 |
+| 88 | 2750 | **2750** | 3170 |
+
+Cellule port `[2248, 3621]` = cellule native résolue ; contrefactuel `[2248, 3373]`. Flux aligné
+(natif 3 = port 3). Le groupe `#179` du même coup reste `1954` sur les 4 seeds (non-régression R6-c).
+**4/4 port, 0/4 contrefactuel.**
+
+### 6.b Généralisation — `deathBlightlord`, attaque mêlée NUE (aucun cast)
+
+Autre porteur d'aura, autre arme (`Power`, perçage 40, **3 coups**), autre base (`Attack` 2609), et
+plus de `FoulInfusion` du tout — SEUL l'étage « le summon apparaît dans l'aura » est commun.
+
+| | cellule d'arme | live seed 88 |
+|---|---|---|
+| port (armure 1197) | `[890, 1934]` | `1725 / 1174 / 1834` — **tous dedans** |
+| contrefactuel (armure 1496) | `[835, 1635]` | `1725` et `1834` **HORS cellule** |
+
+Deux valeurs live au-dessus du plafond du contrefactuel : la réfutation est **indépendante du
+tirage** (une cellule est un intervalle DUR), donc elle vaut même là où le flux n'est pas aligné —
+et il ne l'est pas ici : **natif 5 tirages contre 3 au port** (résidu NEUF, cf. §7).
 
 ---
 
 ## 7. Ce qui n'est PAS couvert
+
+* **RÉSIDU NEUF, mesuré par la généralisation §6.b, NON traité ici** : sur le montage
+  `deathBlightlord` (mêlée nue sur Creed, `SwornProtector` déclenché), le natif consomme **5**
+  `genrand_int32` là où le port en consomme **3**. Les DEUX tirages en trop sont EN AMONT des coups
+  d'arme — le 1ᵉʳ coup du port (`1132` seed 777) n'est pas le 1ᵉʳ live (`1250`), mais le **3ᵉ** coup
+  du port vaut exactement le **1ᵉʳ** live (`1250`), signature d'un décalage de 2 tirages à l'entrée.
+  Le montage `foul` de §6.a, qui invoque AUSSI Kell, est lui parfaitement aligné (3 = 3) : le
+  surplus est donc propre à `deathBlightlord` (effets `1375` / `1147` sur le porteur) et **pas** au
+  spawn de Kell. À reprendre comme cas propre.
 
 * La variante **`_ArmorReduction2` (−40 %, 2 auras ou plus)** n'a aucun montage : il faudrait DEUX
   porteurs `ContagionsOfNurgle` ennemis chevauchants. La fenêtre `[2, 0x7fffffff]` est lue au
