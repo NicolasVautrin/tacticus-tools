@@ -316,6 +316,63 @@ export function registerViewSnapshot(ctx: Ctx): void {
             return out;
         };
 
+        // ÉTAT DE TOUR PAR UNITÉ (#223) — deux champs de `UnitComponent` qu'AUCUN RPC n'exposait,
+        // et dont l'absence forçait DEUX mécaniques à se valider par contournement :
+        //
+        //  * `currentTurnStartTile` @+0x18c (`int`, id de TUILE ; 0 = aucune). ÉCRIT par
+        //    `IdunBattle.Operations.StartTurnOperation$$Execute`, juste après le bump de
+        //    `turnsStarted@+0x58`, sur le MÊME composant :
+        //    `mainTile = EntityExtensions.GetMainTile(unit) ; comp[0x18c] = mainTile?.Id ?? 0`.
+        //    C'est la tuile où l'unité se trouvait au DÉBUT DE SON PROPRE TOUR — surtout PAS
+        //    « the hex he moved from » comme l'annonce le texte i2, qui MENT : une unité qui bouge
+        //    deux fois dans le tour garde la tuile du début. RELU par
+        //    `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select`, qui rend une
+        //    liste VIDE quand le champ vaut 0 -> on émet `null` (le port le représente par `None`).
+        //    Sans lui, un `load_state` frais partait à `None` et le time-ghost de `thousTerminator`
+        //    (`GhostRevive`/`TimeFlux_Revive`) ne se posait qu'après un `StartTurnOperation`.
+        //
+        //  * `chargedUnitIds` @+0x190 (`List<int>`). Second conjoint de
+        //    `IdunBattle.Core.Services.BattleQuery$$IsCharging` =
+        //    `AreEntitiesAdjacent(caster, target) && ChargedUnitIds.Contains(target.Id)`.
+        //    Le décompilé lit `*(longlong *)(comp + 400)` — 400 décimal = 0x190 — puis
+        //    `List<T>$$Contains` : c'est donc bien une LISTE, pas un `OrderedSet` (contrairement
+        //    à `UnitFlagsComponent`, dont la disposition interne n'est PAS lisible et qu'on
+        //    interroge par invocation). Sa disposition l'est : `_items`@+0x10, `_size`@+0x18,
+        //    données du tableau @+0x20, éléments de 4 octets.
+        //    Sans lui, `load_state` ne pouvait pas seeder l'état de charge : la face PRÉDICTION
+        //    sur état rechargé restait restrictive, et `test_avalanche_of_muscle_live` avait dû
+        //    être supprimé faute de pouvoir exprimer le prédicat (il déclarait la charge via le
+        //    proxy `set_moved_flag`, que `964dd15` a cessé d'honorer).
+        //
+        // Lecture MÉMOIRE PURE (aucun `invokeMethod`) : comme `readShields`, elle ne peut rien
+        // muter, donc pas de bouton `debugOnly`. Un seul parcours de composants pour les DEUX
+        // champs. `null` = non mesuré (composant/classe introuvable), à distinguer de `0`/`[]`
+        // = mesuré et vide.
+        const UTS = { startTile: 0x18c, charged: 0x190 };
+        const readUnitTurnState = (e: NativePointer): Record<string, unknown> => {
+            if (!unitCompClass) return { currentTurnStartTile: null, chargedUnitIds: null };
+            let comp: NativePointer | null = null;
+            forEachComponent(e, (c, klass) => {
+                if (comp === null && klass.equals(unitCompClass)) comp = c;
+            });
+            if (comp === null) return { currentTurnStartTile: null, chargedUnitIds: null };
+            const c = comp as NativePointer;
+            const startTile = c.add(UTS.startTile).readS32();
+            const charged: number[] = [];
+            const list = c.add(UTS.charged).readPointer();
+            if (!list.isNull()) {
+                const items = list.add(0x10).readPointer();
+                const size = list.add(0x18).readS32();
+                if (!items.isNull() && size > 0 && size <= 64) {
+                    for (let i = 0; i < size; i++) charged.push(items.add(0x20 + i * 4).readS32());
+                }
+            }
+            // 0 = « aucune tuile » côté natif (le sélecteur rend alors une liste vide) -> `null`,
+            // pour que le port ne confonde pas avec la tuile d'id 0.
+            return { currentTurnStartTile: startTile === 0 ? null : startTile,
+                     chargedUnitIds: charged };
+        };
+
         // FLAGS de l'unité (O5) : ids de `UnitFlag` actuellement POSÉS, par invocation de
         // `HasFlag(unit, flag)` sur chaque valeur d'enum. Valeurs DÉDUPLIQUÉES (un enum C# admet
         // des alias de même valeur ; deux noms ne font qu'un seul flag).
@@ -392,6 +449,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
+                // #223 : `currentTurnStartTile` + `chargedUnitIds` (cf. le bloc `readUnitTurnState`).
+                ...readUnitTurnState(e),
             });
         }
         // `unitFlagTypes` = {nom: id} de l'enum, au MÊME titre que `statTypes` : le consommateur

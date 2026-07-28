@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **171** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **92**
-- **NO-OP silencieux** (a porter) : **79**
-- Ventilation NO-OP : **DAMAGE**=46, **EFFECT/BUFF**=21, **SUMMON**=7, **REPAIR**=3, **HEAL**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **93**
+- **NO-OP silencieux** (a porter) : **78**
+- Ventilation NO-OP : **DAMAGE**=46, **EFFECT/BUFF**=21, **SUMMON**=6, **REPAIR**=3, **HEAL**=2
 
 ## Priorisation & templates de port
 
@@ -22,7 +22,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (79)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (78)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -102,11 +102,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1057 | GrotTank | SUMMON | 4 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
-| 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (92)
+## PORTED (registry) (93)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -199,6 +198,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1045 | GetEmRuntz | SUMMON | 4 | LN |
 | 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1047 | ScarabSummon | SUMMON | 3 | NS |
+| 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |
 | 1145 | SporeMineLauncher | SUMMON | 2 | LN |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |
