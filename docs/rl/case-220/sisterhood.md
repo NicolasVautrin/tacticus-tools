@@ -75,12 +75,20 @@ NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster)))). Template Vig
    Porté en mode BORNES + damage_override(V,V) + hits_override=MeleeWeaponHits.
  - GATE has-not-moved (@1812082a0, DidMove) : eligibilite ciblage (HORS ExecuteBehaviour) — CONFIRMÉ LIVE
    (Celestine non bougee -> castable ; bougee+non-adjacente -> reason 0x10, NON castable).
-VALIDATION : A/B bit-exact (arbre attaque == execute_ability_attack(V,V,wasted) même rng) + no-spread (3 coups
-egaux, V=3064, mesure offline) + charge dist 2/5 + gate has-not-moved live + zero-regression (Vigilance/Sanctorum/
-damage/SavageEchoes/Psyker). RÉSIDU (idem SavageEchoes) : porteur HORS pool -> cast LIVE de 1025 ECHOUE
-(GetVariableForLevel(8=extraDmg) throw pour unite injectee) -> per-hit live non mesurable ; machinerie melee
-per-coup live-validee ailleurs (VigilanceEternal 3-hit, CordClaw 4-hit). Placement : `runner/abilities/
-sisterhood.py` + handler 1025 ; test `tests/engine/runner/test_sky_strike_live.py`.
+VALIDATION : A/B bit-exact (arbre attaque == execute_ability_attack(V,V,wasted) même rng) + no-spread OFFLINE (3
+coups egaux, V=3064) + charge dist 2/5 + gate has-not-moved live + zero-regression (Vigilance/Sanctorum/
+damage/SavageEchoes/Psyker). CAST LIVE : le porteur HORS pool est injecte par
+`catalog_inject.write_augmented_seed_bc` (bloc `Units` + configs `BC.Abilities`) et le cast de 1025 REUSSIT
+(#226 — l'ancien « GetVariableForLevel(8=extraDmg) throw pour unite injectee » etait un diagnostic FAUX : c'est
+la config d'ability qui manquait au BC). Nb de coups live == MeleeWeaponHits gameconfig (3), asserte.
+RESIDU OUVERT decouvert du meme coup — **le per-hit live n'est PAS plat** : `hits=[3334, 3156, 2477]`, ratios
+[1.115, 1.056, 0.829] autour de leur moyenne (2989, a 2,5 % de V=3064), soit une dispersion compatible avec un
+spread +/-20 % autour de V, alors que le port emet V FIXE. Ce n'est ni crit ni block ni evade : les trois coups
+portent `Attack_DidCrit=0 Attack_DidBlock=0 Attack_DidEvade=0` et `UnitStats_RemainingArmor=0`
+(`probe_226_seed_bc_ability_configs.py --dump-tags`). A trancher au decompile : le node d'attaque de
+`SkyStrikeAbility$$ExecuteBehaviour` passe-t-il par le weapon-path (`GetBaseDamageFix64`, spread) plutot que par
+un `StatAmount` degenere ? Placement : `runner/abilities/sisterhood.py` + handler 1025 ; test
+`tests/engine/runner/test_sky_strike_live.py`.
 ```
 ```
 [1041 BrazierOfHolyFire | adeptCanoness]  — [opus]+prérequis
