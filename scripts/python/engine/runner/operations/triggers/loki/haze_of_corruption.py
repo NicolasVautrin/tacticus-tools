@@ -385,17 +385,25 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         #                                   One@0xc0, AbilityOrEffect(0x435))`
         # puis `Attack(bonded, Owner@0x148, beh)` -- l'attaquant est le BONDED, la cible le RELAIS.
         done = []
-        for d in dmgs:
+        for i, d in enumerate(dmgs):
             amount = int(d.get("amount") or 0)
-            if amount <= 0:
+            if amount < 0:
                 continue
             entities = entities_from_state(state, ev.killer_id, self.owner_id,
                                            actor_id=ev.killer_id)
             ectx = ExecutionContext(state=state, rng=state.rng)
+            # case-221 -- les N feuilles vivent sous UN SEUL `Attack(bonded, Owner@0x148, beh)`, donc
+            # UNE SEULE serie de coups : `IsFirstHitInSeries()` (= `hitIndex == 0`) n'est vrai qu'a la
+            # PREMIERE. Sans ce drapeau, chaque transfert etait « son propre coup 0 » et un transfert
+            # de profil Toxic re-declenchait le `Maybe(25)` d'`OnToxicDamageAbility` -- un tirage EN
+            # TROP, et une pose de `Contaminated` sur la tuile du RELAIS. MESURE : 2 seeds (13, 314)
+            # dont le rang du flux qui suit les transferts passe sous 25 -> le live ne contamine
+            # AUCUNE tuile, ni celle du relais ni une autre.
             AttackWithAttackDamage(Target(), HAZE_OF_CORRUPTION_ABILITY,
                                    d.get("profile") or HAZE_BONUS_PROFILE,
                                    is_melee=True, amount=Const(amount), hits=1,
-                                   level_slot="passive").execute(entities, ectx)
+                                   level_slot="passive",
+                                   is_first_hit=(i == 0)).execute(entities, ectx)
             done.append(amount)
         return {"ability": HAZE_OF_CORRUPTION_ABILITY, "volet": "damage_transfer",
                 "unit": self.owner_id, "source": ev.dying_id, "bonded": ev.killer_id,

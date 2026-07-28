@@ -405,23 +405,38 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # le degat demande) -- d'ou `applied > 0` ici. AVANT `_fire_death_if_killed` : cote natif la mort
         # n'est traitee qu'ensuite (`VerifyDeaths` -> `KillUnitOperation`), donc une victime tombee a 0 PV
         # est encore vivante quand l'event part. Seul consommateur porte : ThrillSeekers (branche 2).
+        from .triggers.dispatch import (damage_taken_triggers,       # lazy : cycle damage<->triggers
+                                        damage_dealt_triggers)
         if applied > 0:
-            from .triggers.dispatch import (damage_taken_triggers,   # lazy : cycle damage<->triggers
-                                            damage_dealt_triggers)
             damage_taken_triggers(state, attacker_id, target_id, profile=profile)
-            # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
-            # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`),
-            # emis DANS LE MEME BLOC que `On(0xf)` et donc sous le meme gate « reduction REELLEMENT
-            # appliquee > 0 ». (Le conjoint natif supplementaire `local_7e8 == 0` — degat SANTE demande
-            # >= 1 ET octet `hitInfo+0x94` nul — n'est PAS modelise : residu flagge, il ne peut que
-            # RESTREINDRE l'emission native.) Consommateurs portes : `FleshmetalGunsTileEffectAbility`
-            # (pose DespoiledGround 0x5c4 pendant le round WarpHail) et, DEPUIS LE DE-FORK, les deux
-            # abilities GLOBALES de profil `OnFireDamageAbility` (1016) / `OnToxicDamageAbility` (1203)
-            # — qui etaient appelees IMPERATIVEMENT apres l'attaque, donc APRES les vecteurs de mort
-            # emis quelques lignes plus bas. Cette place-ci est la place NATIVE, et l'ecart est
-            # OBSERVABLE (arbitrage live : ordre bus 6/6 vs ordre imperatif 3/6, cf. la docstring de
-            # `damage_dealt_triggers`). `is_first_hit` = « CE groupe de degat contient le coup d'index
-            # 0 » -> reproduit le gate natif `IsFirstHitInSeries` sans derouler les coups.
+        # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
+        # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`).
+        #
+        # case-221 : son gate n'est PAS celui de `On(0xf)`. RELECTURE du decompile — les deux emissions
+        # vivent dans des blocs DISTINCTS, avec des conditions distinctes :
+        #   * `On(0xf)`  sous `(0 < local_7dc) || !HealthComponent.IsUnitWithHealthStat(cible)`
+        #                 -> `local_7dc` = la valeur de retour de `FillUpStatComponent.Reduce`, donc
+        #                    bien « reduction REELLEMENT appliquee > 0 » (porte ci-dessus, inchange) ;
+        #   * `On(0x10)` sous `local_7e8 == 0` SEUL (plus le composant de stats et la liste d'events
+        #                 non nuls) -- AUCUN terme `0 < local_7dc`. Et `local_7e8` vaut 1 des que
+        #                 `degat_sante_demande < 1`, ou que l'octet `hitInfo+0x94` est non nul.
+        # => le gate porte est le degat SANTE **DEMANDE** >= 1, PAS l'applique. La difference ne se voit
+        # QUE sur un coup qui tombe sur une cible deja a 0 PV : le natif emet, le port ne le faisait pas.
+        # MESURE qui tranche (`probe_221_haze_rng_flow.py`, `HazeCorruption_BonusHitAbility` : un coup
+        # Toxic sur le cadavre, `Amount 0`) -- 19 confrontations (2 regimes k=0/k=1 x 15 seeds) : le
+        # rang du flux qui suit le jet du coup bonus est un `Maybe(25)` d'`OnToxicDamageAbility`, et la
+        # tuile de la CIBLE devient `Contaminated` exactement quand `NextBool` <= 25. Les bornes sont
+        # exercees des DEUX cotes (seed 55 : valeur 25 -> pose ; seeds 123/64 : valeur 26 -> rien).
+        # L'octet `hitInfo+0x94` reste NON modelise (residu nomme : il ne peut que RESTREINDRE).
+        if int(total or 0) >= 1:
+            # Consommateurs portes : `FleshmetalGunsTileEffectAbility` (pose DespoiledGround 0x5c4
+            # pendant le round WarpHail) et, DEPUIS LE DE-FORK, les deux abilities GLOBALES de profil
+            # `OnFireDamageAbility` (1016) / `OnToxicDamageAbility` (1203) — qui etaient appelees
+            # IMPERATIVEMENT apres l'attaque, donc APRES les vecteurs de mort emis quelques lignes plus
+            # bas. Cette place-ci est la place NATIVE, et l'ecart est OBSERVABLE (arbitrage live : ordre
+            # bus 6/6 vs ordre imperatif 3/6, cf. la docstring de `damage_dealt_triggers`).
+            # `is_first_hit` = « CE groupe de degat contient le coup d'index 0 » -> reproduit le gate
+            # natif `IsFirstHitInSeries` sans derouler les coups.
             damage_dealt_triggers(state, attacker_id, target_id, profile=profile,
                                   is_first_hit=is_first_hit, triggering_effect=triggering_effect)
         death = AttackDamageOperation._fire_death_if_killed(

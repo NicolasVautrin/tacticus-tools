@@ -376,7 +376,18 @@ class _DamageHitsMixin:
                 roll = rng.next_internal(lo, hi + 1)   # TOUJOURS 1 tirage (mirror slot 8, sans gate)
                 rolls.append(roll)
             else:
-                roll = hd.get_damage(rng)
+                # case-221 : MEME etage que la branche `limits` mode 1 ci-dessus (ligne
+                # `rng.next_internal(lo, hi + 1)`), donc MEME fonction native -- le slot 8
+                # `IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`, qui appelle
+                # `Next(min, max + 1)` SANS gate largeur-1 (decompile relu : le corps ne teste que le
+                # PRNG, il n'y a aucun `if (min == max) return min`). `IdunBattle.Core.HitDamage$$GetDamage`
+                # a bien ce gate, mais c'est l'AUTRE etage (le jet dans les bornes BRUTES, en tete
+                # d'`ExecuteHit`, cf. la branche `post_roll is not None`) et l'autre famille
+                # (`AbilityDamageOperation$$ExecuteHits` l'appelle DIRECTEMENT, sans resolve derriere).
+                # Les deux ne different QUE sur une cellule DEGENEREE : le port y perdait un tirage.
+                # Strictement NO-OP des que `hd.min < hd.max` (meme appel, meme valeur).
+                roll = (rng.next_internal(int(hd.min), int(hd.max) + 1) if is_attack_damage_op
+                        else hd.get_damage(rng))
                 if capped_reductions:         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT
                     roll = max(0, roll - (_capped_flat_cr if crit else _capped_flat_nc))  # (D=centre bornes)
                 rolls.append(roll)            # rolls = tirage POST-mods PRE-limites (cap lisible dans per_hit)
