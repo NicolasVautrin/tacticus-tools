@@ -76,11 +76,12 @@ a reculé de 22 en une journée (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `f
 Necrons/Orks/Votann/GenestealerCults, plus les masques posés en même temps que chaque nouveau port).
 `ABILITY_ATTACK_TYPE` est à **zéro manquant** : la garde `probe_120` étape 0 passe au commit courant.
 
-> **Re-dérivé au 2026-07-28 (case #154, DoomSiren 1199 + FearOfTheUnseen 1115)** :
-> `ABILITY_CLASSES` = **83** (+2), sans `TARGETING_OPTIONS` = **53** (INCHANGÉ), sans
-> `ABILITY_ATTACK_TYPE` = **0**. Les deux entrées neuves portent leurs deux littéraux — c'est
-> désormais le **cliquet** `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus
-> la seule discipline. Le gisement `[-D]` passe de **15 à 14** en lineup (1199 en sort).
+> **Re-dérivé au 2026-07-28, APRÈS rebase (case #154, DoomSiren 1199 + FearOfTheUnseen 1115)** :
+> `ABILITY_CLASSES` = **89**, sans `TARGETING_OPTIONS` = **53** (INCHANGÉ malgré +8 entrées depuis la
+> mesure précédente), sans `ABILITY_ATTACK_TYPE` = **0** (`probe_120` étape 0 : « littéral de ctor
+> manquant: aucun »). Les entrées neuves portent toutes leurs deux littéraux — c'est désormais le
+> **cliquet** `tests/engine/runner/test_ability_registry_ratchet.py` qui l'impose, plus la seule
+> discipline. Le gisement `[-D]` passe de **15 à 14** en lineup (1199 en sort).
 La règle de non-régression du `CLAUDE.md` a donc pris — c'est le seul endroit de ce document où la
 tendance s'est retournée, et il vaut de le noter avant que quiconque recopie « 60 restantes ».
 
