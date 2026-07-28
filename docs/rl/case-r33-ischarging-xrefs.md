@@ -215,8 +215,81 @@ alimente par le meme `engine/battle_query.py::is_charging` que le canal degat �
 
 Ce qui a du etre ouvert pour ca : le contexte du canal COUPS (`att_hits_ctx` de
 `services/attack_hits_formula.py`) ne portait pas la charge. Il la porte desormais, par la
-**meme cle** `is_charging` que le contexte du canal degat, threade par les deux facades du
-vecteur NORMAL.
+**meme cle** `is_charging` que le contexte du canal degat, threade **en DEUX lignes seulement** :
+
+| face | ou | ce qu'elle passe | couvre |
+|---|---|---|---|
+| COMBAT | `runner/damage_model.py::build_hits_board` | `battle_query_is_charging(state, att, tgt)` | **les DEUX vecteurs** — `damage_ops/normal.py` ET `damage_ops/ability.py` appellent cette meme facade |
+| PREDICTION | `playbook/prediction/normal_attack.py` | la valeur DEJA calculee pour le canal degat (`_att_ctx["is_charging"]`) | attaque normale predite |
+
+Le gate lui-meme est `effects/base.py::is_charging_attack(att_ctx)` — forme POSITIVE du foyer
+existant (`is_not_charging`), alignee en polarite sur `is_melee_attack` / `is_ranged_attack` : VRAI
+seulement si la charge est PROUVEE. Choix delibere, et le plus fidele ici : le natif commence par
+`AreEntitiesAdjacent`, donc sans positions il rend FAUX — jamais VRAI. Un contexte non threade ne
+peut donc pas accorder le bonus.
+
+### Mesure COMBAT — la garde vue ROUGE, verbatim
+
+`probe_r33_saga_hits.py`, `MC1_67` / seed 777, Ragnar rank 17 (`extraHits[50] = 3`, non scale par
+le multiplier — seule `extraCritDmg` est dans `variablesAffectedByRarityBonus`) :
+
+| regime | live | offline AVANT | offline APRES |
+|---|---|---|---|
+| **CHARGE** | **n=10** `[1879, 1411, 1917, 1681, 2101, 1998, 1761, 1658, 1853, 2090]` | **n=7** `[1879, 1411, 1917, 1681, 2101, 1998, 1761]` — **ROUGE** | n=10, bit-exact |
+| **STEP_ADJACENT** | n=7 | n=7 (deja d'accord) | n=7, bit-exact |
+| **NO_STEP** | n=7 | n=7 (deja d'accord) | n=7, bit-exact |
+
+Les **7 premiers coups etaient deja bit-exacts avant le fix** : la divergence etait localisee au
+NOMBRE de coups, pas a leur valeur — decomposition par etage, aucun scalaire fitte.
+
+### Mesure PREDICTION — 4 regimes, bornes forcees distinctes partout
+
+`probe_r33_saga_prediction.py` (`aiPlaybookPredict`, l'oracle de DECISION — pas le preview
+`aiPredict`). `off+chg` / `off-chg` = gate FORCE : leur ecart rend chaque MATCH probant.
+
+| cas | montage | natif | offline | `off+chg` | `off-chg` |
+|---|---|---|---|---|---|
+| **A** CHARGE_CANDIDAT | distance 2, tour NEUF, tuile candidate adjacente | **14080** | 14080 | 14080 | 9856 |
+| **B** CHARGE_ACQUISE | le pas est JOUE, prediction depuis la tuile courante | **14080** | 14080 | 14080 | 9856 |
+| **C1** NOCHG | adjacent, tour NEUF, tuile courante | **9856** | 9856 | 14080 | 9856 |
+| **C2** ADJ_NOCHG | adjacent, tour NEUF, decalage vers une AUTRE tuile adjacente | **9856** | 9856 | 14080 | 9856 |
+
+`14080 / 9856 = 10 / 7` exactement — le rapport des nombres de coups. **Les DEUX termes sont
+necessaires** : A tombe sans le terme CANDIDAT (la prediction native SIMULE le pas), B tombe sans le
+terme REEL. **C2 est le regime discriminant** : le natif rend 9856, un gate `has_moved` aurait rendu
+14080.
+
+---
+
+## 6bis. Le harnais mentait — et il aurait fait conclure a un port faux
+
+Le montage `STEP_ADJACENT` de `_charge_regime.py` a produit une divergence de **+3 coups**
+(`C1_25` / 31337 : live n=10, offline n=7) **avec un port correct**. Reproduit deux fois a
+l'identique, donc pas un alea. Cause, lue dans la trace des poses :
+
+    trace = [(49, (0,1) -> (0,0)), (51, ...), (53, (0,2) -> (0,1)), (53, (0,1) -> (1,1))]
+                                               ^^^^^^^^^^^^^^^^^^^ le PAS DE MONTAGE du caster
+
+Un `place()` est un `MoveUnitOperation` natif COMPLET : il appelle `UpdateCharging`, qui ecrit dans
+la liste **de l'unite qui bouge**. Amener le caster (u53) d'une tuile a distance 2 vers une tuile
+adjacente a la cible (u49) **CHARGE la cible avant le pas du regime**. Cote offline la charge est
+INVISIBLE — `load_state` ne seede pas `UnitComponent+0x190` (aucun RPC ne l'expose, `case-r32` §7).
+Le montage etait donc `CHARGE` deguise en `STEP_ADJACENT`.
+
+**Aucun `endturn` ne repare** : la purge est `FinishUnitTurnOperation$$Execute`, PAR UNITE et sur
+son activation — une fin de tour d'EQUIPE ne l'appelle pas. Un premier essai de correction par
+cycle force a echoue pour exactement cette raison, et c'est la trace qui l'a montre.
+
+Correctif retenu — **l'ordre des poses** : (1) GARER la cible a distance >= 4 de l'ancre, (2) ecarter
+les autres ennemis, (3) poser le CASTER (la cible est hors adjacence, sa liste reste vide),
+(4) AMENER la cible sur l'ancre — c'est ELLE qui bouge, donc c'est SA liste qui s'ecrit, et
+`IsCharging(caster, target)` ne lit que celle du CASTER. Plus une **garde de regime** dans `run()` :
+la geometrie effective doit valoir `(d_depart, d_arrivee) == (2,1)` pour `CHARGE` et `(1,1)` pour
+`STEP_ADJACENT` / `NO_STEP`, sinon le scenario est refuse au lieu d'etre mesure de travers.
+
+Le harnais expose desormais `plan["trace"]` (chaque pose avec sa position de depart) et
+`plan["endturns"]` : c'est ce qui a permis de trancher, et ce qui permettra de trancher la prochaine
+fois. `test_ischarging_extra_damage_live.py` (5 tests) a ete rejoue sur le montage corrige : vert.
 
 ---
 

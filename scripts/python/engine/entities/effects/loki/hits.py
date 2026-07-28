@@ -14,7 +14,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ....services.damage_combat import BlockSource
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
-from ..base import BaseEffect
+from ..base import BaseEffect, is_charging_attack
 from ..magnitude import ability_var, global_value, trait_var
 
 
@@ -969,6 +969,62 @@ class AstartesBannerExtraHitEffect(BaseEffect):
         if hexgeo.distance(op, ap) > int(rng if rng else 2):             # SurroundingFriends(range)
             return None
         n = ability_var("AstartesBanner", "extraHits", is_constant=True)  # constante extraHits (=1)
+        return for_addition(True, int(n)) if n else None
+
+
+class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
+    """`SagaOfTheWarriorBorn_Owner` (effet 0x4c7=1223, `spaceBlackmane` <<Ragnar>>) — axe COUPS,
+    gate `IsCharging`. MIRROR de
+    `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack` :
+
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(owner@0x148, target@0x178),
+                                 ConfigVar(0x13 = extraHits, GetAbilityState(effect), config@+0x60),
+                                 <AbilityOrEffect recopie de effect+0x14..+0x2c> )
+
+    DEUX noeuds trigger, pas trois : **aucun** `IsNormalAttack`, **aucun** `IsMeleeAttack`. Le bonus
+    vaut donc pour TOUTE attaque du porteur en charge (Ragnar n'a de fait qu'un vecteur d'attaque :
+    son arme normale, 7 coups Chain — son active `WarHowl` 1106 est un buff).
+    `get_OwnerIsCaster` est deja porte par le canal : ces effets ne sont interroges que sur
+    l'ATTAQUANT (`hits_bonus_from_effects(attacker_effects, ...)`).
+
+    GATE — foyer PARTAGE, aucun predicat re-derive ici : `effects/base.py::is_charging_attack`
+    lit la cle `att_ctx["is_charging"]`, calculee par `engine/battle_query.py::is_charging`
+    (`AreEntitiesAdjacent(caster, target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`) --
+    cote COMBAT dans `runner/damage_model.py::build_hits_board` (liste REELLE du `UnitComponent`),
+    cote PREDICTION dans `playbook/prediction/normal_attack.py` (charges acquises UNION ce que le pas
+    CANDIDAT ajouterait). C'est le MEME foyer que le canal degat de `case-r32`.
+    ⚠ Ce n'est PAS `HasFlag(UnitFlag.Moved)` : `MoveUnitOperation$$UpdateCharging` n'inscrit que les
+    unites devenues NOUVELLEMENT adjacentes, donc un caster qui bouge vers une cible DEJA adjacente
+    a `Moved` VRAI et `IsCharging` FAUX. MESURE live (`test_r33_saga_charge_hits_live.py`, Ragnar
+    rank 17) : regime CHARGE = **10 coups** natifs (7 arme + 3), regime STEP_ADJACENT = **7**. Un
+    port gate par `has_moved` rendrait 10 dans les DEUX.
+
+    MAGNITUDE = `ConfigVar(0x13)` = la variable `extraHits` de l'ability `SagaOfTheWarriorBorn`,
+    indexee par l'`AbilityState` de l'effet (`IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`)
+    = le niveau de l'ability SOURCE sur le porteur. `SagaOfTheWarriorBorn` est le PASSIF de Ragnar ->
+    `ability_level` (fallback `level`, comme `PowerTrip_IgnoreArmor`). `extraHits` n'est PAS dans
+    `variablesAffectedByRarityBonus` (seule `extraCritDmg` l'est) -> le multiplier ne la scale pas ;
+    il est passe quand meme pour rester le calque strict de `ConfigVar`. Table : `[1]x17, [2]x18,
+    [3]x30` -> niveau 50 (rank 17) = **3**, ce que dit l'i2 (« scores 3 additional hits »).
+
+    RESIDU NOMME (`N14`) : la face CRIT du MEME effet
+    (`…SagaOfTheWarriorBorn_OwnerEffect$$CreateCritDamageBonus` = meme trigger, `ConfigVar(0x42 =
+    extraCritDmg)`) n'est PAS portee — `BaseEffect.create_effect_crit_damage_bonus_for_attack()` n'a
+    aucun parametre de contexte, donc elle ne pourrait pas LIRE ce gate et s'appliquerait
+    inconditionnellement. Poser la face dans cet etat serait plus faux que de ne pas la poser.
+    HORS PERIMETRE, nomme : `SagaOfTheWarriorBorn_OtherSpaceWolves` (1224) est un effet SEPARE, pose
+    par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_KillAbility$$CreateBehaviour`
+    sur les amis Space Wolves apres un kill de Character."""
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
+        # IsCharging (IdunBattleLogic.Entities.DSLFactory$$IsCharging -> BattleQuery$$IsCharging).
+        # PAS de gate is_normal_attack / is_melee : le decompile n'a QUE ces deux noeuds.
+        if not is_charging_attack(att_ctx):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        n = ability_var("SagaOfTheWarriorBorn", "extraHits", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 0x13
         return for_addition(True, int(n)) if n else None
 
 
