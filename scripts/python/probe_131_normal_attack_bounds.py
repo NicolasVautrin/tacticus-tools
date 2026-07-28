@@ -59,6 +59,9 @@ from rl_collect_batch import _rpc, _resolve_session
 
 PYDIR = Path(__file__).resolve().parent
 DATA = PYDIR.parent.parent / "data"
+# Sorties du probe : `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees
+# (migration f467e64). Le defaut de `--state` referencait un `LOGS` jamais defini -> NameError.
+LOGS = PYDIR.parent.parent / "logs"
 BOARD = "MC1_67"
 
 # --- montage (a) : le datapoint de case-117 5ter -----------------------------------------
