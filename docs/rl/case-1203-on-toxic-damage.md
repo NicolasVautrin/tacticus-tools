@@ -195,7 +195,7 @@ Le même coup rejoué sur deux états offline issus du **même** snapshot et du 
 
 | suite | avant | après |
 |---|---|---|
-| `test_on_toxic_damage_live.py` | (n'existait pas) | **6/6** (dont le croisement `daemon`) |
+| `test_on_toxic_damage_live.py` | (n'existait pas) | **7/7** (6 d'origine dont le croisement `daemon`, + la garde RANGED `admecMarshall` ajoutée par la passe §5.2) |
 | `test_daemon_extra_block_live.py`, `test_block_chances_order_offline.py` (gardes #221) | — | **5/5** — mon canal n'a pas décalé le jet de block Daemon |
 | `test_rad_bombardment_live.py` | 4 tests, dégât per-coup **borné à la 1ʳᵉ cible** (`compare_damage_targets=1`) à cause de ce gap | **4/4**, `compare_damage_targets` revenu au défaut (**toutes** les cibles) → le retard d'un tirage a disparu. `off_cont` devient l'**union** des deux poseurs de `Contaminated` (volet `AddEffect(GetAffectedTiles())` + canal on-hit), puisque la tuile d'une cible touchée est désormais contaminée par le coup avant que le volet de l'ability n'y passe — exactement ce que fait le natif |
 | `test_brazier_of_holy_fire_live.py` (bridage `compare_hits` levé par #221) | — | **3/3**, dont la cible Daemon à **4 coups** bit-exacts |
@@ -223,14 +223,66 @@ le rapproche pas). Les 8 autres tests du fichier passent.
   runner isolé tourne toujours avec le PRNG calé.
 - **Magnitude du sous-effet `Contaminated_Unit` (1245)** : hors périmètre, et toujours ouverte
   (`terrain-effects.md` §6.1 : le pourcentage vient d'un appel d'interface, pas d'une clé gameconfig).
-- **Chaînes multi-coups d'un même porteur `Toxic`** (`admecSmnVanguard` 3 coups, `PlagueburstMortar`
-  3 coups) : le compte de tirages est structurellement correct (1 par série) mais n'a pas été confronté
-  live sur ces porteurs-là — seules `RadBombardment` (`nrOfHits=1`) et l'arme de Hollan (1 coup) l'ont
-  été. C'est le cas où une granularité per-coup mal portée se verrait le plus (N-1 tirages d'écart) :
-  la prochaine occasion est un porteur `Toxic` multi-coups confronté sur ≥ 2 attaques consécutives.
+- **Chaînes multi-coups d'un même porteur `Toxic`** — la question de FOND est **tranchée par RE**
+  (cf. §5.1) ; ce qui reste ouvert n'est que sa **confirmation live**, et le porteur nécessaire n'est
+  pas activable par le joueur (§5.2).
 - **Face DÉCISION** : la contamination on-hit n'est pas modélisée dans les prédictions du playbook (une
   ability `Toxic` ne « vaut » pas plus pour l'IA offline parce qu'elle contaminera). Le natif ne le
   modélise pas non plus dans les canaux portés, mais ça n'a pas été vérifié.
+
+### 5.1 « Série » = les coups sur UNE cible — tranché au décompilé
+
+Le point restait posé comme une hypothèse (« 1 tirage par série, donc par cible »). Il est désormais
+**lu**, et il tient sur trois appuis indépendants du même build :
+
+- `IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger` délègue à
+  `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`, qui lit un `Nullable<int>` au champ
+  `AbilityEntities+0x110` et rend `HasValue && index == 0` ;
+- son **frère** `get_IsFirstHitGroup` lit un champ **DISTINCT**, `AbilityEntities+0x118` (exposé par
+  `IdunBattleLogic.Entities.DSLFactory$$IsFirstHitGroupInAttack`). Deux compteurs séparés ⇒ « coup dans
+  la série » n'est **pas** « groupe dans l'attaque » : si une série valait toute l'attaque, le second
+  compteur n'aurait aucune raison d'exister ;
+- `IdunBattle.Operations.ADamageOperation$$SetupHitGroup` construit un groupe **par cible** — il y
+  stocke `IdunBattle.Entities.UnitExtensions$$GetStat(<cible>, 5)` à `+0x50` — et
+  `IdunBattle.Operations.ADamageOperation$$UpdateCurrentAttackAfterHit` incrémente le compteur de
+  groupes de l'attaque courante.
+
+⇒ une **série** est le groupe de coups porté sur **une** cible. Le tirage de 1203 est donc **un par
+cible**, jamais un par coup ni un par attaque AoE. C'est exactement ce que fait le port (une invocation
+du vecteur par cible, `is_first_hit=True`), y compris sur une ability multi-cibles comme
+`PlagueburstMortar` (`nrOfTiles = 3`), où natif et port tirent **3 fois, une par cible**.
+
+### 5.2 Confirmation live du multi-COUPS : porteur non activable (mesuré)
+
+Le seul porteur d'**arme** `Toxic` multi-coups confrontable est le SUMMON `admecSmnVanguard`
+(3 coups, r2) — tous les autres sont NPC, et la MoW `deathCrawler` est écartée à dessein
+(`combatSnapshot` corrompt un runner contenant une `Machine`, résidu **O7** de
+`port-residuals-inventory.md`, or tout ce montage repose sur `combatSnapshot`).
+
+Mesuré avec `probe_1203_toxic_multihit.py` : le summon **arrive bien** en bataille (`admecMarshall` le
+spawne via `ControlEdictAbility$$SummonMinion`), mais **n'entre jamais dans `decisionView.toActivate`** —
+il joue par la passe IA / la branche Conqueror (`ControlEdictAbility$$AttackWithMinions`), pas par une
+activation du joueur. `applyAction` accepte alors le cast (`ok=True`) **sans rien muter ni tirer**
+(`mutated=False`, 0 événement, MT inchangé). Deux pièges à retenir, tous deux encapsulés depuis dans
+la fixture `tests/engine/runner/_on_hit_tile_effect_replay.py` :
+
+1. le `visualId` LIVE du summon est **`admecNpc1Vanguard`**, pas la clé de config `admecSmnVanguard`
+   (même piège que le bug **#38b**) — chercher la clé rend « 0 summon » et fait conclure à tort
+   « pas de porteur » ;
+2. `currentPlayer == moi` **ne suffit pas** : la porte d'activation est `toActivate`. Sans ce gate, le
+   no-op silencieux se lit comme une divergence géante (mesuré : `hp live=5387 / off=3840`,
+   soit exactement le dégât d'une attaque **non jouée** côté live) — on aurait imputé à 1203 un écart
+   qui n'était qu'un coup manquant.
+
+Ce qui **a** été confronté à la place : un **second porteur, RANGED** (`admecMarshall`, arme `Toxic`
+r2), là où la couverture d'origine n'avait que du MELEE (`genesBiophagus`). Le gate natif porte sur le
+PROFIL du coup et non sur sa portée : confronter les deux chemins ferme le risque « câblé sur un seul ».
+**6 attaques consécutives bit-exactes** (PV **et** état MT, +2 `genrand_int32` par attaque = l'unique
+`NextBool` du canal), **dont une pose** confrontée — garde `test_toxic_ranged_carrier_agrees_with_live`.
+
+Reste donc ouvert, et uniquement cela : la confirmation live sur une **série de ≥ 2 coups**. Le chemin
+existe (faire jouer le summon par la passe IA, ou porter/valider la branche Conqueror
+`AttackWithMinions`) ; il n'a pas été emprunté ici car il déborde du canal 1203.
 
 ---
 
