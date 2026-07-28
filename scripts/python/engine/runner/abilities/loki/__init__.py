@@ -37,7 +37,9 @@ from .strike import (ThunderousAssaultAbility, ArmoriumCherubAbility, SpiritLeec
                      ValkyrieStrikeAbility, BlackRageAbility, CordClawAbility, thunderous_assault_tree,
                      armorium_cherub_tree, spirit_leech_get_attack_damage, spirit_leech_heal_amount,
                      spirit_leech_heal_targets, spirit_leech_tree, valkyrie_strike_tree,
-                     black_rage_tree, _black_rage_charge_positions, cord_claw_tree)
+                     black_rage_set_health_tree, black_rage_buffs_tree, black_rage_charge_tree,
+                     black_rage_possible_movement_tiles_selector, _black_rage_charge_tile,
+                     _black_rage_move_range, cord_claw_tree)
 from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
@@ -63,7 +65,9 @@ __all__ = [
     "ValkyrieStrikeAbility", "BlackRageAbility", "CordClawAbility", "thunderous_assault_tree",
     "armorium_cherub_tree", "spirit_leech_get_attack_damage", "spirit_leech_heal_amount",
     "spirit_leech_heal_targets", "spirit_leech_tree", "valkyrie_strike_tree",
-    "black_rage_tree", "_black_rage_charge_positions", "cord_claw_tree",
+    "black_rage_set_health_tree", "black_rage_buffs_tree", "black_rage_charge_tree",
+    "black_rage_possible_movement_tiles_selector", "_black_rage_charge_tile",
+    "_black_rage_move_range", "cord_claw_tree",
     # imperative
     "DoctrinaImperativesAbility",
     # mv71

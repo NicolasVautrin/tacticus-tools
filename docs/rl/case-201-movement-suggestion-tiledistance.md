@@ -165,14 +165,15 @@ l'encodage (`mov r9d, imm32` devant le `call` de la surcharge `int`
 |---|---|---|
 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheBetrayer_TakeTurnAbility$$CreateBehaviour` | **0x20** | `operations/triggers/loki/betrayer.py::_betrayer_stop_tile` — collapse (et le natif enveloppe d'un `SortByFormula(..., MinPathLength)`, donc le cas n'est PAS le meme que 1202) |
 | `...TheBetrayer_TakeTurnAbility$$GetMovementTile` | **0x20** | idem |
-| `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour` | **0x20** | `abilities/bloodangels.py` (1163) |
-| `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` | **0x20** | `abilities/orks.py::waaagh_charge_tile` — collapse « plus proche » explicite |
-| `...WaaaghAbility$$GetMoveBehaviour` | **0x20** | idem |
+| ~~`IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$ExecuteBehaviour`~~ | **0x20** | **TRAITE (case-206)** — `abilities/loki/strike.py` (et non `bloodangels.py`) : pool ET tri etaient collapses |
+| ~~`IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour`~~ (== `$$GetMoveBehaviour`, corps INLINE) | **0x20** | **TRAITE (case-206)** — `abilities/orks.py::waaagh_charge_tile` |
 | `EnvAngelsOfDeath` · `LightOfSanguinius` · `BurrowersAbility_Appear` (×2) · `HeroicFusillade` · `KissOfDeath` · `WallOfMirrors` | `7` | rien a changer |
 
 Le fix y est desormais un changement d'argument (`utility_type=MovementSuggestion`), mais **chacun
 demande sa propre geometrie discriminante live** — les livrer sans confronter serait du port
-speculatif.
+speculatif. `BlackRage` et `Waaagh` sont fermes par
+`case-206-black-rage-waaagh-movement-suggestion.md` (19 poses live, 0 contre-exemple) ; les deux
+`TheBetrayer` restent ouverts.
 
 **Autres non-couverts :**
 

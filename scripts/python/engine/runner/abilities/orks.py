@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
-import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
@@ -32,6 +31,8 @@ from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles,
                                    tiles_unit_can_move_to_charge_target)
 from ...entities.stats import StatType
 from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
+from ...utilities.tile import first_tile_by_utility
+from ...utilities.utility_type import UtilityType
 from .behaviours import (AddEffect, AttackWithAttackDamage, KillDeadUnits, MoveUnit, PerformAIAction,
                          Spawn, UseActiveAbility, entities_from_state)
 
@@ -173,14 +174,28 @@ def waaagh_possible_movement_tiles_selector(move_range: int):
 
 
 def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_range: int):
-    """COLLAPSE du selecteur de destination LOURD (kind S) de l'etage MOVE IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour :
+    """Selecteur de destination de l'etage MOVE de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` :
+
         `First( SortTilesByUtility( WaaaghAbility.GetPossibleMovementTiles(target@0x178),
                                     caster@0x160, 0x20 ), 1 )`
 
     L'operande `GetPossibleMovementTiles` est l'ARBRE DSL `waaagh_possible_movement_tiles_selector`
-    (mirror 1:1). Seul `SortTilesByUtility(0x20)` (selecteur AI lourd) reste COLLAPSE en : la tuile
-    la plus PROCHE du caster (tie-break tile id) -- MEME proxy que les autres gap-closers portes
-    (HeroicFusillade/VigilanceEternal/SkyStrike). Renvoie une (col,row) ou None."""
+    (mirror 1:1). Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`** (relu au
+    decompile : `SortTilesByUtility(factory, pool, caster@0x160, 0x20)` -- la surcharge int de
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit
+    `UtilityDefinition..ctor(0x20)` et delegue a la surcharge objet avec `ownerSel` NUL), PAS le
+    `7 = Tile` des ports freres. `UtilitiesDatabase$$InitializeUtilities` compose la cle `0x20` en
+    `[Tile(7), TileDistance(33)]` -- les DEUX enfants sont portes (#201, `engine/utilities/tile.py`).
+
+    #206 -- le COLLAPSE « la tuile la plus PROCHE du caster (tie-break tile id) » est SUPPRIME : il ne
+    reproduisait le natif que dans le regime ou `Tile(7)` est PLAT (alors `TileDistance = -d/10`, seul
+    terme non nul, ordonne bien par distance croissante) et il INVERSAIT le natif des que `Tile(7)`
+    departageait -- `Tile(7)` est a valeurs entieres (Elevation 10/niveau, TileEffects +-9/-25) et
+    domine toujours `|TileDistance| <= 0.2` sur un pool de charge. Le tie-break `, t` (id de tuile)
+    etait en prime INVENTE : le natif laisse le tri STABLE rendre l'ordre du selecteur source.
+    Meme correction, meme call-site que `_vigilance_move_dest_tile` (cf.
+    `docs/rl/case-201-movement-suggestion-tiledistance.md`). Renvoie une (col,row) ou None."""
     board = state.board
     ce = state.get_entity(caster_id)
     cpc = ce.get_component(PositionComponent) if ce is not None else None
@@ -190,9 +205,11 @@ def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_rang
         entities_from_state(state, caster_id, target_id))
     if not cands:
         return None
-    cpos = (cpc.col, cpc.row)
-    cands = sorted(cands, key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))
-    return board.coord(cands[0])
+    # `caster@0x160` = `dc.units` du selecteur -> `case.units`, l'unite dont `TileDistanceUtility`
+    # mesure l'eloignement (et que lisent les feuilles gatees sur l'unite, case-165b).
+    best = first_tile_by_utility(state, cands, unit_id=caster_id,
+                                 utility_type=int(UtilityType.MovementSuggestion))
+    return board.coord(best) if best is not None else None
 
 
 def waaagh_move_tree(dest):
