@@ -2,7 +2,8 @@
 
 Operations natives (VA citees) :
   - `IdunBattle.Operations.EndTurnOperation$$Execute  : fin de tour du joueur courant.
-      * per-unite (equipe du joueur finissant) : `IdunBattle.Operations.EndTurnOperation$$ResetAbilitiesThatResetOnTurnEnd +
+      * per-unite (equipe du joueur finissant) : `turnsFinished@+0x5c += 1` (`_bump_turns_finished`),
+        `IdunBattle.Operations.EndTurnOperation$$ResetAbilitiesThatResetOnTurnEnd +
         `IdunBattle.Operations.EndTurnOperation$$DecreaseAbilityCooldowns.
       * toutes unites : `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields + `ActorStatisticsComponent.ResetThisTurn`.
       * `IdunBattle.Operations.EndTurnOperation$$RefreshEffects : tick d'1 tour des effets a duree de TOUTES les unites.
@@ -19,6 +20,8 @@ durees d'effet, triggers de debut de tour) :
                        + cascade composite), applique a TOUTES les unites a effets.
   * IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields -> `ShieldComponent.remove_one_turn` (decay d'1 tour des boucliers
                        a duree de TOUTES les unites ; retire les instances a 0).
+  * EndTurn         -> `turnsFinished@+0x5c += 1` PER-UNITE du joueur FINISSANT (`_bump_turns_finished`),
+                       AVANT le vecteur `On(0x17)` (gate `OwnerHasFinishedMinTurns` de PileIn).
   * ChangeTurn      -> `find_next_player` (prochain joueur cyclique actif).
   * StartTurn       -> incremente `state.turn_counts[player]` (compteur GLOBAL, TurnComponent+0x38) +
                        `turnsStarted@+0x58 += 1` PER-UNITE du joueur courant (stat 12, `_bump_turns_started`,
@@ -257,6 +260,38 @@ class StartTurnOperation:
         return out
 
 
+def _bump_turns_finished(state: State, player: int) -> None:
+    """Mirror de la boucle interne d'`IdunBattle.Operations.EndTurnOperation$$Execute` : pour CHAQUE
+    unite de `PlayerComponent.GetCurrentlyOwnedUnitIds` du joueur qui FINIT son tour,
+    `*(int *)(unitComponent + 0x5c) += 1` (compteur PER-UNITE `turnsFinished`, lu par
+    `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`).
+
+    DISTINCT des deux autres compteurs de tour, et c'est tout l'enjeu :
+      * `turnsStarted@+0x58` (stat 12) est bumpe par `StartTurnOperation` -> `_bump_turns_started` ;
+      * `state.turn_counts` est le dict PAR JOUEUR `TurnComponent+0x38`.
+    Le natif a DEUX sites `+0x5c += 1` dans `EndTurnOperation.Execute` : la boucle sur les unites du
+    joueur, puis la Machine of War du joueur (`PlayerComponent+0x78`). Le port materialise la MoW avec
+    un `UnitComponent` (cf. `snapshot._load_machines`) -> une seule boucle couvre les deux sites.
+
+    Unites MORTES EXCLUES : `PlayerComponent$$get_CurrentlyOwnedUnitIds` finit par un `RemoveAll` du
+    predicat `PlayerComponent$$u003Cget_CurrentlyOwnedUnitIdsu003Eb__17_0` (« id present dans la liste
+    des defaits @+0x40 ») -> meme filtre `alive` que `_bump_turns_started`.
+
+    ORDRE : le natif bumpe AVANT d'executer les trigger-abilities `On(0x17 = TurnEnd)` (l'appel du
+    slot 0x51 avec le litteral `0x17` vient APRES la boucle) -> le porteur voit deja le tour qui
+    s'acheve dans son compteur quand son propre gate s'evalue. Corollaire : une unite SPAWNEE par un
+    trigger `On(0x17)` (replique PileIn) n'est PAS bumpee ce tour-la, exactement comme dans le natif
+    ou la liste d'ids est COPIEE avant la boucle."""
+    for e in state.entities.values():
+        oc = e.get_component(OwnerComponent)
+        if oc is None or oc.player != player:
+            continue
+        uc = e.get_component(UnitComponent)
+        if uc is None or not uc.alive:
+            continue
+        uc.turns_finished = int(uc.turns_finished or 0) + 1
+
+
 class EndTurnOperation:
     """`IdunBattle.Operations.EndTurnOperation$$Execute (squelette fidele) — cf. en-tete pour le porte/defere.
     Ordre : RefreshEffects (tick effets toutes unites) puis, si `advance`, ChangeTurn + StartTurn."""
@@ -300,6 +335,11 @@ class EndTurnOperation:
                 r = land_deep_strike(state, uid)
                 if r is not None:
                     landed.append(r)
+        # `turnsFinished@+0x5c += 1` PER-UNITE du joueur qui FINIT son tour (compteur natif lu par
+        # `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`). AVANT le vecteur `On(0x17)`
+        # ci-dessous : c'est l'ordre du natif, et c'est ce qui donne son sens au gate
+        # `OwnerHasFinishedMinTurns` de PileIn (le tour qui s'acheve compte deja).
+        _bump_turns_finished(state, finishing)
         # PILEIN IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour/IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateTrigger : passif fin-de-tour des grots du joueur FINISSANT à PV pleins ->
         # auto-dédoublement (WithStatsFromConfig(PileIn), 75-5%/grot). Après le tick d'effets (un DoT qui
         # entame les PV du grot le disqualifie du gate PV-pleins). No-op si aucun grot PileIn.

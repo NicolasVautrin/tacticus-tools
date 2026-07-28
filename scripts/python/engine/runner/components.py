@@ -32,6 +32,31 @@ class UnitComponent(Component):
     `AmountIsEqual(Difference(CurrentPlayerTurnsStarted, TurnDefeated(u)), @0xc0=1)`. None tant que
     l'unité n'est pas morte. Posé par `Ambush_SummonAbility` (trigger On(UnitDefeated)).
 
+    `turns_finished` = mirror EXACT du champ `UnitComponent + 0x5c` — le compteur PER-UNITÉ des
+    tours que CETTE unité a TERMINÉS. À ne pas confondre avec ses deux voisins :
+      * `UnitComponent + 0x58` = `turnsStarted`, incrémenté par
+        `IdunBattle.Operations.StartTurnOperation$$Execute`, EXPOSÉ comme `StatType` 12 (`GetStat(unit,
+        0xc)` -> `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`) — porté dans le
+        `StatsComponent`, PAS ici ;
+      * `TurnComponent + 0x38` = le dictionnaire PAR JOUEUR (`GetAmountOfTurnsStartedByPlayer`) —
+        porté par `State.turn_counts`, granularité JOUEUR.
+    ÉCRITURE : `IdunBattle.Operations.EndTurnOperation$$Execute` fait `*(int *)(unitComp + 0x5c) += 1`
+    pour chaque id de `PlayerComponent.CurrentlyOwnedUnitIds` du joueur qui finit son tour (2 sites :
+    les unités, puis la Machine of War du joueur — même offset, `GetTurnsFinished` a les DEUX branches
+    d'`EntityType`, 1 = Unit et 6 = Machine). Les unités MORTES en sont exclues :
+    `PlayerComponent$$get_CurrentlyOwnedUnitIds` termine par un `RemoveAll` du prédicat
+    `PlayerComponent$$u003Cget_CurrentlyOwnedUnitIdsu003Eb__17_0` = « l'id est dans la liste
+    @+0x40 (défaits) ».
+    LECTURE : `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` (rend `comp + 0x5c`).
+    Consommateurs natifs : `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger`
+    (le nœud `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns`, gate de PileIn),
+    `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability` et
+    `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$GetUseProbability`.
+    ⚠ `turns_finished` n'est PAS dérivable de `turnsStarted` : une unité APPARUE PENDANT le tour de
+    son propriétaire (tout summon — grot de `GetEmRuntz`, réplique de `PileIn`) rate le bump de
+    `StartTurn` mais prend celui d'`EndTurn`, et garde donc `turns_finished == turnsStarted + 1`
+    pour le reste de la bataille.
+
     `times_attacked_this_turn` = nb d'attaques REÇUES par l'unité pendant le tour COURANT (G6
     HypersensoryAbilities) — source du prédicat DSL `IdunBattleLogic.Entities.DSLFactory$$HasBeenAttackedAmountThisTurnIsEqualOrGreater (compteur natif lu @+0x34 via `TotalTimesAttackedFormula`-family). Incrémenté quand l'unité
     est la CIBLE d'une attaque (pas d'un DoT), remis à 0 au `start_turn` de chaque tour. Gate de l'ActiveCondition
@@ -144,7 +169,8 @@ class UnitComponent(Component):
         producteur dans ce build (`DSLFactory.ThreeTileUnitSpawnShape` <- `DutyEternalAbility` /
         `AetherStrideAbility`).
     """
-    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
+    __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "turns_finished",
+                 "times_attacked_this_turn",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
                  "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
@@ -157,6 +183,11 @@ class UnitComponent(Component):
         self.ai_controlled = ai_controlled
         self.feet: Optional[List[tuple]] = None      # `_feet` @+0x78 ; None = 1 pied (cf. docstring)
         self.turn_defeated = None
+        # `UnitComponent + 0x5c` — cf. la docstring de classe (bloc `turns_finished`). 0 a la
+        # creation, exactement comme le champ natif d'une entite fraichement construite : une unite
+        # deployee au setup comme un summon apparu en cours de partie partent tous les deux de 0,
+        # et c'est `EndTurnOperation` qui les fait diverger.
+        self.turns_finished = 0
         self.times_attacked_this_turn = 0
         self.received_damage_this_turn: dict = {}
         self.revive_used_this_turn = False

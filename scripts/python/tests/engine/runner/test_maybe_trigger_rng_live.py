@@ -45,12 +45,14 @@ from engine.runner.components import UnitComponent, OwnerComponent, HealthCompon
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.state import State
 
+# Montage NOMME du scenario PileIn (naissance du grot, age, comptage MT) — source unique,
+# partagee avec `test_pilein_owner_turns_live.py`.
+from ._pilein_owner_turns import (BOARD, CARRIER, ENEMY, ESCORT, CountingRng as _CountingRng,
+                                  count_genrand as _count_genrand, drive_and_attack as _drive_and_attack,
+                                  pilein_units as _pilein_units)
+
 PYDIR = Path(__file__).resolve().parents[3]
 ROOT = PYDIR.parents[1]
-BOARD = "MC1_67"
-CARRIER = "orksRuntherd"          # passif `SquigHound` : 1 grot (`orksNpc1Grot`) spawne par attaque
-ESCORT = "orksNob"
-ENEMY = "necroWarden"
 MIN_AGE = 2                       # tours a laisser vieillir le grot (`OwnerHasFinishedMinTurns(2)`)
 
 
@@ -58,18 +60,6 @@ def _rng(seed: int) -> IntBasedMersenneTwister:
     r = IntBasedMersenneTwister()
     r.init_genrand(seed)
     return r
-
-
-class _CountingRng(IntBasedMersenneTwister):
-    """Compte les `genrand_int32` reellement consommes (l'oracle du flux natif)."""
-
-    def __init__(self, seed: int | None = None):
-        super().__init__(seed)
-        self.rolls = 0
-
-    def genrand_int32(self) -> int:
-        self.rolls += 1
-        return super().genrand_int32()
 
 
 # ------------------------------------------------------------------ (1)(2) le noeud
@@ -100,10 +90,13 @@ def _state_with_grots(n_grots: int, player: int = 0, rng=None) -> State:
     st = State()
     st.rng = rng
     st.current_player_id = player
-    st.turn_counts[player] = 2                      # `OwnerHasFinishedMinTurns(2)` (lecture du port)
     for i in range(n_grots):
         e = st.add_entity(100 + i)
-        e.add_component(UnitComponent(visual_id="orksNpc1Grot", alive=True))
+        uc = UnitComponent(visual_id="orksNpc1Grot", alive=True)
+        # `OwnerHasFinishedMinTurns(2)` = `GetTurnsFinished(owner) >= 2` (`BaseUnitComponent + 0x5c`),
+        # PER-UNITE -- surtout pas le compteur JOUEUR `turn_counts` (cf. test_pilein_owner_turns_live).
+        uc.turns_finished = 2
+        e.add_component(uc)
         e.add_component(OwnerComponent(team=player, player=player))
         e.add_component(HealthComponent(hp=1000, hp_max=1000))
     return st
@@ -208,26 +201,7 @@ def test_ltgb_uses_the_native_next_bool_primitive(monkeypatch, seed):
 
 
 # ------------------------------------------------------------------ (5) LIVE : le compte bit-exact
-
-def _count_genrand(before, after, cap=4000):
-    """Nombre de `genrand_int32` entre deux etats (mt, mti) du MT natif, par re-simulation."""
-    r = IntBasedMersenneTwister()
-    r.mt = list(before["mt"])
-    r.mti = int(before["mti"])
-    tgt = (list(after["mt"]), int(after["mti"]))
-    for n in range(cap + 1):
-        if (r.mt, r.mti) == tgt:
-            return n
-        r.genrand_int32()
-    return None
-
-
-def _pilein_units(dv, player):
-    import gameconfig as GC
-    return {u["id"] for u in (dv.get("units") or [])
-            if u.get("owner") == player and u.get("alive")
-            and "PileIn" in ((GC.unit(u.get("visualId")) or {}).get("passiveAbilities") or [])}
-
+# (`_count_genrand` / `_pilein_units` / `_drive_and_attack` viennent de `_pilein_owner_turns`.)
 
 @pytest.mark.parametrize("seed", ["777"])
 def test_pilein_endturn_roll_count_matches_live(rpc, seed):
@@ -294,7 +268,15 @@ def test_pilein_endturn_roll_count_matches_live(rpc, seed):
             live_spawn = len(_pilein_units(dview(), mine) - grots)
 
             st = load_state(dv, ob, snap, board=board)
-            st.turn_counts[int(mine)] = my_turns     # cf. GAP `load_state` (docstring du probe)
+            # SEED MANUEL de `turnsFinished` (`BaseUnitComponent + 0x5c`) : aucun RPC ne l'expose
+            # (ce n'est PAS un `StatType`), donc `load_state` part a 0 -> gate FERME a tort. La
+            # valeur posee est l'age OBSERVE du grot + 1 : le natif bumpe le compteur AVANT
+            # d'executer `On(0x17)`, et ce test appelle le VECTEUR seul (pas `EndTurnOperation`).
+            for g in grots:
+                ge = st.get_entity(g)
+                guc = ge.get_component(UnitComponent) if ge is not None else None
+                if guc is not None:
+                    guc.turns_finished = my_turns - birth[g] + 1
             r = _CountingRng()
             r.mt = list(rng0["mt"])
             r.mti = int(rng0["mti"])
@@ -314,55 +296,3 @@ def test_pilein_endturn_roll_count_matches_live(rpc, seed):
     finally:
         rpc("disposeRunner", {"runnerId": rid}, 20)
         sf.unlink(missing_ok=True)
-
-
-def _drive_and_attack(rpc, rid, board, mine):
-    """Amene le runtherd au contact et attaque -> `SquigHound` spawne 1 grot (`orksNpc1Grot`),
-    seule voie d'entree en bataille d'un porteur de `PileIn` (kind=summons, hors `--list-pool`)."""
-    from collections import deque
-
-    def bfs(src):
-        dist, q = {src: 0}, deque([src])
-        while q:
-            x = q.popleft()
-            for n in board.neighbours(x):
-                if n not in dist and (n == src or board.walkable(n)):
-                    dist[n] = dist[x] + 1
-                    q.append(n)
-        return dist
-
-    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
-    units = dv.get("units") or []
-    me = next((u for u in units if u.get("visualId") == CARRIER and u.get("alive")), None)
-    if me is None:
-        return False
-    norm = next((a for a in (me.get("abilities") or []) if a.get("kind") == "normal"), None)
-    plan = next((ap for ap in (dv.get("attackPlans") or []) if ap.get("unitId") == me["id"]), None)
-    ev = next((e for e in ((plan or {}).get("evals") or [])
-               if e.get("targetId") is not None and (e.get("ranked") or [])), None)
-    if norm is not None and ev is not None:
-        rk = ev["ranked"][0]
-        if rk.get("col") is not None:
-            rpc("applyAction", {"runnerId": rid, "action": {
-                "kind": "move", "unitId": me["id"], "to": {"col": rk["col"], "row": rk["row"]}}}, 60)
-        r = rpc("applyAction", {"runnerId": rid, "action": {
-            "kind": "ability", "casterId": me["id"], "targetId": ev["targetId"],
-            "abilityType": norm.get("id")}}, 90)
-        return isinstance(r, dict) and r.get("ok")
-    pos = me.get("pos") or {}
-    enemies = [u for u in units if u.get("owner") != mine and u.get("alive") and (u.get("pos") or {})]
-    if pos.get("col") is None or not enemies:
-        return False
-    tgt = min(((u["pos"]["col"], u["pos"]["row"]) for u in enemies),
-              key=lambda p: abs(p[0] - pos["col"]) + abs(p[1] - pos["row"]))
-    dist = bfs(board.id_at(*tgt))
-    mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60) or {}
-    cmt = next((x for x in (mt.get("units") or []) if x.get("unitId") == me["id"]), None)
-    reach = {board.id_at(t["col"], t["row"]): (t["col"], t["row"])
-             for t in ((cmt or {}).get("tiles") or [])}
-    pool = [t for t in reach if t in dist]
-    if pool:
-        col, row = reach[min(pool, key=lambda t: dist[t])]
-        rpc("applyAction", {"runnerId": rid, "action": {
-            "kind": "move", "unitId": me["id"], "to": {"col": col, "row": row}}}, 60)
-    return False
