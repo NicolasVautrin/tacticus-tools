@@ -27,8 +27,9 @@ import {
     ActionResult, ActionSpec, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
-    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getUnitMainTile,
-    invokeBool, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
+    getUnitMainTile,
+    invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, readTileCoord, resolveDpq, servicesOff, summarize, unitAbilityTypes,
     unitExtClass,
 } from "./internals.js";
@@ -286,6 +287,10 @@ export function registerViewSnapshot(ctx: Ctx): void {
             units.push({
                 entityId: id, entityType,
                 ctrl: invokeBool(isCtrlByCurMi, [e, statePtr]),
+                // #N11 : compteur PER-UNITÉ de tours termines (`UnitExtensions.GetTurnsFinished`),
+                // lu par le gate `OwnerHasFinishedMinTurns`. `null` = non mesuré (methode
+                // irresolue), a distinguer de `0` = a fini zero tour.
+                turnsFinished: invokeInt(getTurnsFinishedMi, [e]),
                 stats, statDelta, healthMax,
                 normalAttack: readNormalAttack(e), unitConfig: readUnitConfig(e),
                 shields: readShields(e), abilityStates,

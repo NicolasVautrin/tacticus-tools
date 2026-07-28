@@ -44,6 +44,16 @@ export const isRangedMi = unitExtClass
 // QU'AUX ennemis ciblables (une unité deep-strike non-atterrie est ignorée du ClosestEnemy). #57l.
 export const isTargetableMi = unitExtClass
     ? findMethodByParamCount(unitExtClass, "IsTargetable", 1) : null;
+// #N11 — `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(unit) -> Int32` : le compteur
+// PER-UNITÉ que lit `OwnerHasFinishedMinTurns` (#171), et qu'AUCUN RPC n'exposait — `load_state`
+// laissait donc `UnitComponent.turns_finished` à 0 pour toute unité chargée d'un snapshot
+// mi-bataille. Ce n'est PAS un `StatType`, donc ni `combatSnapshot.stats` ni `GetStat` ne peuvent
+// l'atteindre : il fallait un accesseur à lui.
+// On invoque la fonction NOMMÉE plutôt que de lire le champ à `+0x5c` (l'offset que citait la
+// fiche du résidu) : un offset brut est vrai jusqu'à la prochaine MAJ et faux SILENCIEUSEMENT
+// après, là où le symbole se re-résout tout seul.
+export const getTurnsFinishedMi = unitExtClass
+    ? findMethodByParamCount(unitExtClass, "GetTurnsFinished", 1) : null;
 
 // EndTurnMessage — appliqué pour passer la main à l'autre équipe quand
 // l'épuisement de l'énumérateur n'a pas auto-flippé le tour.
@@ -226,6 +236,20 @@ export function invokeBool(
         const r = invokeMethod(mi.info, null, args);
         return !r.isNull() && r.add(0x10).readU8() !== 0;
     } catch { return false; }
+}
+
+/** Invoque une méthode statique retournant Int32 (résultat boxé : valeur @0x10, comme le bool).
+ *  Rend `null` — PAS 0 — quand la méthode est irrésolue ou l'appel échoue : un 0 muet se lirait
+ *  comme « cette unité n'a fini aucun tour », ce qui est une VALEUR LÉGITIME du domaine. Le
+ *  consommateur doit pouvoir distinguer « mesuré à 0 » de « pas mesuré ». */
+export function invokeInt(
+    mi: { info: NativePointer } | null, args: NativePointer[],
+): number | null {
+    if (!mi) return null;
+    try {
+        const r = invokeMethod(mi.info, null, args);
+        return r.isNull() ? null : r.add(0x10).readS32();
+    } catch { return null; }
 }
 
 // Champs des IInputMessage (offsets validés sur le dump kqkbjqfb6c).

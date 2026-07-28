@@ -63,7 +63,13 @@ export interface DamageEvent {
      *  ForceOverkill@struct+0xB2 (trait force-overkill). Consommes par les leaves
      *  kill/overkill du composite Damage (confrontation par-etage, Etape 1). */
     limitedByMinHp: number; forceOverkill: number;
-    mightCrit: number; appliedHits: number;
+    /** MightCrit@struct+0xB1 (= `DamageCalculations$$CouldCrit(attaquant)`, slot 7) ·
+     *  PreventOverkill@struct+0xB3 (= `HasFlag(cible, 0x13)`, pose par
+     *  `FuelledByFury_BlockOverkillEffect`). Les DEUX sont des arguments de la surcharge privee
+     *  8-args de `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — mais pas des memes
+     *  appelants : `MightBeOverkill` passe MightCrit, `WillBeOverkill` passe le litteral 0.
+     *  L'asymetrie est NATIVE (borne optimiste vs garantie), cf. `case-r34`. */
+    mightCrit: number; preventOverkill: number; appliedHits: number;
     probability: number; probMult: number;
 }
 
@@ -220,6 +226,8 @@ export function readDamageEvent(
         limitedByMinHp: ev.add(0xb8).readU8(),
         forceOverkill: ev.add(0xba).readU8(),
         mightCrit: ev.add(0xb9).readU8(),
+        // struct+0xB3 -> event+0xBB (l'event embarque AttackHitPrediction a +0x08).
+        preventOverkill: ev.add(0xbb).readU8(),
         appliedHits: ev.add(0xc4).readS32(),
         probability: fx(0xc8), probMult: fx(0xd0),
     };
