@@ -30,7 +30,7 @@ import gameconfig as GC
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .behaviours import entities_from_state, AddEffect, TriggerAbility
-from .targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from ..components import OwnerComponent, StatsComponent
 from ...dsl.base import Const
@@ -150,6 +150,26 @@ class SporeMineLauncherAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SporeMineLauncher)  # 1145
     ABILITY_ID = "SporeMineLauncher"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x40046001042, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x40046001042 = TargetMatchesDynamicRule | TargetIsTile | TargetTileIsFree
+    #                                      | AllowObscuredTarget | AllowNullCasterTile
+    #                                      | TargetIsNotAdjacentToEnemy
+    # A comparer avec `SquigMineAbility` (1201, orks.py) = le MEME masque SANS le bit 42
+    # `TargetIsNotAdjacentToEnemy` : les deux poses de mine ne se generalisent pas l'une l'autre.
+    # Regles NON portees (domaine TILE + bit 42 + volet caster) -> degradation permissive.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.TargetTileIsFree
+        | TR.AllowObscuredTarget
+        | TR.AllowNullCasterTile
+        | TR.TargetIsNotAdjacentToEnemy),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -270,6 +290,23 @@ class AlphaWarriorAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.AlphaWarrior)  # 1112
     ABILITY_ID = "AlphaWarrior"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x6001052, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x6001052 = TargetMatchesDynamicRule | CasterHasNotMoved | TargetIsTile
+    #                                  | TargetTileIsFree | AllowObscuredTarget
+    # `CasterHasNotMoved` (0x10) EST porte (volet caster) : le spawn est interdit apres un
+    # deplacement du caster. Le domaine TILE et la regle dynamique restent permissifs.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.CasterHasNotMoved
+        | TR.TargetIsTile
+        | TR.TargetTileIsFree
+        | TR.AllowObscuredTarget),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

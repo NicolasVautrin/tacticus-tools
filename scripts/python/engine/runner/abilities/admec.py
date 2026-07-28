@@ -23,7 +23,8 @@ from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from .base import ActiveAbility
-from .targeting import RANGED_BOOL_FALSE, TargetingOptions, custom_range
+from .targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
+                        custom_range)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon)
 
@@ -102,6 +103,18 @@ class SentinelDirectivesAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SentinelDirectives)  # 1139
     ABILITY_ID = "SentinelDirectives"
+    # `IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$.ctor` (namespace
+    # `Abilities.Active`, PAS `.Loki`) -- FORME « FLAGS DIRECTS » :
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x18, 0, 0x100004000, 0, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
+    #     forceMeleeTarget = 0 = RangedBool.True   <- le SEUL du lot a `True` avec SanctorumMissile
+    #     rules            = 0x100004000 = TargetIsEnemy | TargetIsNotAdjacent
+    # `TargetIsNotAdjacent` (bit 32) : le tir est INTERDIT sur une cible au contact. NON portee au
+    # filtre statique -> degradation permissive (le port ne refusera pas ce cas).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAdjacent,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

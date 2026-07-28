@@ -104,8 +104,13 @@ jamais       :   port != 0 et port != natif         (refus pour la MAUVAISE rais
 ```
 
 Une ability dont les `TARGETING_OPTIONS` valent `None` (masque non RE-lu) n'est **pas gatée du
-tout** : 60 des 61 abilities du registre sont dans ce cas, donc `#115` ne peut rien changer à leur
-comportement.
+tout**. À la livraison de `#115`, 60 des 61 abilities du registre étaient dans ce cas.
+
+> **État au 2026-07-28** (re-dérivé, `probe_181_targeting_gaps.py`) : **51 des 91** entrées portent
+> leur masque, **40** ne l'ont pas. L'instanciation est devenue la voie normale (lots `89518da`,
+> `ff66741`, `#181`), et un **cliquet** l'entretient :
+> `tests/engine/runner/test_ability_registry_ratchet.py` refuse à la fois une entrée neuve sans
+> masque et une exemption devenue caduque. Ces chiffres se périment — les re-dériver.
 
 ### `UnitsCanAttackEachOther` — détail qui n'est pas « équipes différentes »
 
@@ -230,9 +235,17 @@ consommateurs de sélecteurs de charge (HeroicFusillade, VigilanceEternal, SkySt
 
 ## 7. Ce qui n'est PAS couvert
 
-- **60 des 61 abilities du registre n'ont pas de `TARGETING_OPTIONS`** ⇒ pas de gate pour elles.
-  C'est le travail d'instanciation restant (1 ligne par ability + son prédicat dynamique quand le
-  bit `0x2` est posé), pas un défaut du maillon.
+- **40 des 91 abilities du registre n'ont pas de `TARGETING_OPTIONS`** (compte du 2026-07-28,
+  à re-dériver) ⇒ pas de gate pour elles. C'est le travail d'instanciation restant (1 ligne par
+  ability + son prédicat dynamique quand le bit `0x2` est posé), pas un défaut du maillon.
+  Ventilation à jour : `docs/rl/port-residuals-inventory.md` §3.
+- **Poser un masque peut RÉVÉLER un défaut ailleurs**, et c'est arrivé (#181) : la fixture de
+  `test_combat_restoratives_live.py` téléportait le caster **sur** une tuile déjà occupée par un
+  ennemi. Tant que 1002 n'était pas gatée, la re-résolution de cible #120bis remplaçait
+  silencieusement la cible du self-cast sans conséquence visible (l'arbre vise `Caster()`) ; le
+  masque posé, le cast tombait sur `TargetIsFriendly`. Le gate n'avait pas tort — l'état de test
+  était impossible. Symptôme à reconnaître : `handler.last` porte `replaced_from`/`replaced_target`
+  en plus d'`invalid_target`.
 - **Les règles du filtre statique laissées permissives** (inventaire en tête de `targeting.py`). Le
   gros morceau restant est le **domaine TILE** (une cible-tuile n'est pas une entité du `State`).
   La **portée**, elle, est portée depuis #241 (`case-241-range-gate.md`) ; il reste à ses côtés la

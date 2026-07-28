@@ -95,19 +95,39 @@ def combatrest_state(live_session, rpc, build_runner):
             ("cha", ALLY_CHAOS), ("mech", ALLY_MECH))}
     if any(v is None for v in ids.values()):
         pytest.skip("roster incomplet offline: %s" % ids)
-    center = None
+    # Le placement doit laisser un etat COHERENT : une tuile = AU PLUS une unite.
+    #
+    # La version initiale prenait comme centre la tuile de la PREMIERE unite a >=4 voisins
+    # walkables, SANS filtrer le camp -- en pratique un ENNEMI (mesure : `ultraTitus` u79) -- et y
+    # teleportait le caster PAR-DESSUS. Deux unites sur la meme tuile, donc la re-resolution de
+    # cible #120bis (`resolve_replaced_target`, mirror du bloc qui suit `On(0x2b)` dans
+    # `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`) remplacait la cible du
+    # self-cast par l'occupant ENNEMI. Tant que 1002 n'avait pas de `TARGETING_OPTIONS` le cast
+    # passait quand meme -- l'arbre vise `Caster()`, pas `Target()` -- et le defaut restait MUET.
+    # Depuis #181 le masque (0x8500) est pose : la cible remplacee tombe sur `TargetIsFriendly` et
+    # le cast est refuse. C'etait bien la fixture qui fabriquait un etat impossible, pas le gate.
+    #
+    # On choisit donc un centre LIBRE dont >=4 voisins sont LIBRES et walkables.
+    bougees = set(ids.values())
+    occupees = set()
     for uid, e in state.entities.items():
-        pc = e.get_component(PositionComponent)
-        if pc is None:
+        if uid in bougees:
             continue
-        t = board.id_at(pc.col, pc.row)
-        if t is not None and len([n for n in board.neighbours(t) if board.walkable(n)]) >= 4:
-            center = board.coord(t)
+        pc = e.get_component(PositionComponent)
+        t = board.id_at(pc.col, pc.row) if pc is not None else None
+        if t is not None:
+            occupees.add(t)
+    center = neigh = None
+    for t in sorted(board.by_id):
+        if t in occupees or not board.walkable(t):
+            continue
+        libres = [n for n in board.neighbours(t) if board.walkable(n) and n not in occupees]
+        if len(libres) >= 4:
+            center, neigh = board.coord(t), [board.coord(n) for n in libres]
             break
     if center is None:
-        pytest.skip("aucune tuile centrale >=4 voisins")
+        pytest.skip("aucune tuile centrale LIBRE a >=4 voisins libres")
     _pc(state, ids["apo"]).col, _pc(state, ids["apo"]).row = center
-    neigh = [board.coord(n) for n in board.neighbours(board.id_at(*center)) if board.walkable(n)]
     for uid, c in zip((ids["imp"], ids["xen"], ids["cha"], ids["mech"]), neigh):
         _pc(state, uid).col, _pc(state, uid).row = c
     for uid in ids.values():

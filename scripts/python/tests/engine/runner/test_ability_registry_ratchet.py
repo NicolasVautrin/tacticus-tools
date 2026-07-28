@@ -24,16 +24,17 @@ rougisse. Et l'absence de `ABILITY_ATTACK_TYPE` a ete creusee TROIS fois (1036 F
 n'ont ete vues qu'au RE-JEU apres rebase d'un autre agent : le trou ne s'etait montre dans aucune
 des deux PR qui l'avaient creuse.
 
-Un assert de couverture pleine serait ROUGE des le premier jour sur `TARGETING_OPTIONS` (28/81) et
-donc desarme dans la semaine. La forme qui tient est le CLIQUET : une liste d'exemption figee, qui
-ne peut que RETRECIR.
+Un assert de couverture pleine serait ROUGE des le premier jour sur `TARGETING_OPTIONS` (28/81 a la
+creation de ce fichier, 51/91 au 2026-07-28) et donc desarme dans la semaine. La forme qui tient est
+le CLIQUET : une liste d'exemption figee, qui ne peut que RETRECIR.
 
   * une ability du registre SANS masque et ABSENTE de la liste -> ECHEC (regression neuve) ;
   * une ability de la liste qui a MAINTENANT son masque -> ECHEC, il faut la retirer de la liste
     (c'est ce sens-la qui fait le cliquet : sans lui, la liste se fossilise et ne redescend jamais) ;
   * une ability de la liste ABSENTE du registre -> ECHEC (entree perimee).
 
-`ABILITY_ATTACK_TYPE`, lui, est deja a 81/81 : sa garde est donc SANS exemption. Elle existait, mais
+`ABILITY_ATTACK_TYPE`, lui, est deja PLEIN (81/81 a la creation, 91/91 au 2026-07-28) : sa garde est
+donc SANS exemption. Elle existait, mais
 enterree a l'etape 0 de `probe_120_pre_unit_ability_fork.py` -- un probe qui monte un etat de
 bataille complet et casse pour dix raisons sans rapport, auquel cas la couverture n'est jamais
 vue. Ici elle tient seule, en un import.
@@ -50,7 +51,9 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-27 (`6110d37`) : 81 abilities au registre, 28 avec masque, ces 53 sans.
+# Etat au 2026-07-28 (#181) : 91 abilities au registre, 51 avec masque, ces 40 sans.
+# (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
+#  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -65,16 +68,12 @@ from engine.runner.abilities.targeting_rule import TargetingRule
 # moins ne ment pas. Laisser l'entree dans cette liste est le bon choix tant que le doute existe.
 SANS_TARGETING_OPTIONS: dict[int, str] = {
     1000: "GauntletsOfUltramarAbility",
-    1002: "CombatRestorativesAbility",
-    1003: "DeathFromAboveAbility",
-    1004: "MortisRoundAbility",
     1007: "ScarabHiveAbility",
     1014: "ArmoriumCherubAbility",
     1016: "SendInTheNextWaveAbility",
     1018: "ValkyrieStrikeAbility",
     1021: "IncursionAbility",
     1022: "BringerOfDespairAbility",
-    1025: "SkyStrikeAbility",
     1028: "SupremeCommanderAbility",
     1036: "FrenziedFiringAbilityCombat",   # preset statique NON lu (cf. attack_type.py, lot #61)
     1037: "RevitalizingMalignancyAbility",
@@ -84,39 +83,30 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1045: "GetEmRuntzAbility",
     1047: "ScarabSummonAbility",
     1051: "StikkbombAbility",
-    1062: "SanctorumMissileAbility",
     1065: "ScythingTalonsAbility",
     1076: "MV71SniperDroneSquadAttackAbility",
     1077: "EarlyWarningOverrideAbility",
     1078: "FragstormAbility",
     1081: "FightingRetreatAbility",
     1082: "InspiredToGreatnessAbility",
-    1089: "GreatFrostAxeAbility",
     1096: "MasterOfTheTutelariesAbility",
     1098: "PlasmaGrenadeAbility",
     1104: "SpiritLeechAbility",
     1105: "CrushingClawsAbility",
-    1112: "AlphaWarriorAbility",
     1113: "StormcallerAbility",
     1118: "DoctrinaImperativesAbility",
     1122: "CordClawAbility",
-    1139: "SentinelDirectivesAbility",
     1142: "MalleusRocketLauncherAbility",
     1143: "ForwardSpotterAbility",
-    1145: "SporeMineLauncherAbility",
     1147: "HadesAutocannonsAbility",
     1148: "DaemonicOrdnanceAbility",
     1151: "TheQuickeningAbility",          # overload PRESET + flags (cf. le piege ci-dessus)
-    1159: "MacroPlasmaIncineratorAbility",
     1160: "HeavyRailRifleAbility",
     1161: "TwinSmartMissileSystemAbility",
     1163: "BlackRageAbility",
     1166: "AberrantHypermorphAbility",
     1168: "EntropyCannonsAbility",
     1169: "PlagueburstMortarAbility",
-    1187: "ThriceBlessedConflagrationAbility",
-    1188: "DevastatingRefrainAbility",
-    1230: "SavageEchoesAbility",
 }
 
 
@@ -126,7 +116,8 @@ def _nom(aid: int) -> str:
 
 
 def test_attack_type_couvre_tout_le_registre():
-    """`ABILITY_ATTACK_TYPE` est a 81/81 : sa garde n'a PAS d'exemption, et ne doit jamais en avoir.
+    """`ABILITY_ATTACK_TYPE` couvre TOUT le registre : sa garde n'a PAS d'exemption, et ne doit
+    jamais en avoir.
 
     Le litteral est le 3e argument de `AActiveAbility$$.ctor` -- une ligne a relire au decompile,
     pas un chantier. Rien ne justifie d'entrer au registre sans lui."""
@@ -154,7 +145,9 @@ def test_targeting_options_ne_regresse_pas():
 
 def test_liste_d_exemption_ne_peut_que_retrecir():
     """LE cliquet. Sans ce sens-la, la liste se fossilise : on n'ajoute plus de dette, mais on ne
-    rembourse jamais celle qui reste, et les 53 entrees survivent a la campagne."""
+    rembourse jamais celle qui reste, et les entrees survivent a la campagne. Il a mordu pour de vrai
+    le 2026-07-28 (#181) : les 13 masques du lot ont fait ECHOUER ce test tant qu'ils n'avaient pas
+    ete retires de la liste."""
     resorbees = sorted(a for a in SANS_TARGETING_OPTIONS
                        if a in ABILITY_CLASSES
                        and getattr(ABILITY_CLASSES[a], "TARGETING_OPTIONS", None) is not None)
@@ -177,8 +170,8 @@ def test_targeting_range_accompagne_toujours_le_masque():
     RE-lu » -> `get_range` rend None -> AUCUN gate de portee. Meme degradation permissive, meme
     invisibilite en self-play.
 
-    Pas d'exemption ici, et il n'en faut pas : les 28 masques deja poses portent tous leur
-    `TargetingRange`, et il se lit dans la MEME ligne de decompile que le masque."""
+    Pas d'exemption ici, et il n'en faut pas : TOUS les masques poses portent leur `TargetingRange`,
+    et il se lit dans la MEME ligne de decompile que le masque."""
     manquants = sorted(a for a, cls in ABILITY_CLASSES.items()
                        if getattr(cls, "TARGETING_OPTIONS", None) is not None
                        and cls.TARGETING_OPTIONS.range is None)

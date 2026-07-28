@@ -28,7 +28,8 @@ from ...entities.effects.magnitude import ability_var
 from ...dsl.effects import ExecutionContext
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AttackWithAttackDamage, AddEffect, entities_from_state
 
@@ -142,6 +143,19 @@ class GreatFrostAxeAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GreatFrostAxe)  # 1089
     ABILITY_ID = "GreatFrostAxe"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility$$.ctor` -- FORME
+    # « PRESET STATIQUE » : AUCUN `TargetingOptions$$.ctor`, copie des 0x40 octets du preset
+    # `<TargetingOptions statics>+0x40`. Masque = ce que
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` y ecrit :
+    #   +0x40 isSelfCasting = 0
+    #   +0x48 range <- `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #   +0x60 forceMeleeTarget = 1 = RangedBool.False
+    #   +0x68 rules = 0x4000 = TargetIsEnemy
+    # (le preset des frappes de MELEE mono-cible -- le meme que `TacticalPrecisionAbility` 1154 et
+    # `SavageEchoesAbility` 1230, mais LU ici, pas deduit d'elles.)
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

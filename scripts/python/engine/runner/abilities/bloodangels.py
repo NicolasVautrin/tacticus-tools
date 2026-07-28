@@ -38,7 +38,7 @@ from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import HasEffect, IsAlive
 from ..components import HealthComponent, PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
 from .targeting_rule import TargetingRule as TR
 from .behaviours import entities_from_state, AttackWithAttackDamage, AddEffect, Heal, MoveUnit
 
@@ -137,6 +137,17 @@ class SavageEchoesAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SavageEchoes)   # 1230
     ABILITY_ID = "SavageEchoes"
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$.ctor` -- FORME
+    # « PRESET STATIQUE » : AUCUN `TargetingOptions$$.ctor`, copie des 0x40 octets du preset
+    # `<TargetingOptions statics>+0x40`. Masque = ce que
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` y ecrit :
+    #   +0x40 isSelfCasting = 0
+    #   +0x48 range <- `TargetingRange` statics+0x30 = RANGE_ADJACENT
+    #   +0x60 forceMeleeTarget = 1 = RangedBool.False
+    #   +0x68 rules = 0x4000 = TargetIsEnemy
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
