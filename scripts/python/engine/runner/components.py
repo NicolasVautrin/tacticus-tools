@@ -147,7 +147,8 @@ class UnitComponent(Component):
     __slots__ = ("visual_id", "alive", "ai_controlled", "turn_defeated", "times_attacked_this_turn",
                  "received_damage_this_turn", "revive_used_this_turn", "pending_revive", "parent_id",
                  "death_source", "last_hit_damage_taken_this_turn",
-                 "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase")
+                 "last_hit_damage_taken_last_turn", "feet", "damaged_units_this_phase",
+                 "charged_unit_ids")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -168,6 +169,10 @@ class UnitComponent(Component):
         self.parent_id = parent_id            # `ParentComponent` id @+0x10 (summoner)
         self.death_source = None              # `Nullable<DamageSource>` @UnitComponent+0x108
         self.damaged_units_this_phase: list = []   # `ActorStatisticsComponent+0x48` (cf. docstring)
+        # `List<int>` @UnitComponent+0x190 — les unites que CETTE unite a CHARGEES (cf.
+        # `update_charging` / `IdunBattle.Core.Services.BattleQuery$$IsCharging`). Videe par
+        # `FinishUnitTurnOperation` (fin d'activation) -> semantique « charge CE TOUR ».
+        self.charged_unit_ids: list = []
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`
@@ -971,6 +976,67 @@ def unit_has_moved(state, unit_id: int) -> bool:
     e = state.get_entity(unit_id)
     fl = e.get_component(UnitFlagsComponent) if e is not None else None
     return bool(fl is not None and fl.has(UnitFlagsComponent.MOVED))
+
+
+def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
+    """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging(this, unit, newPosition, oldPosition,
+    unitComponent)` — MIRROR du decompile :
+
+        before = query.GetAdjacentUnits(oldPosition, unit)      # vide si oldPosition n'a pas de MainTile
+        after  = query.GetAdjacentUnits(newPosition, unit)
+        foreach u in after:
+            if (!before.Contains(u))                            # NOUVELLEMENT adjacente
+                if (!unitComponent.ChargedUnitIds.Contains(u.Id))
+                    unitComponent.ChargedUnitIds.Add(u.Id)      # +0x190
+
+    => « charger » = arriver AU CONTACT d'une unite qui ne l'etait pas avant CE pas de deplacement.
+    Le natif n'y filtre NI l'equipe NI la vie : la liste retient toute unite nouvellement adjacente
+    (le filtre ennemi/vivant vit chez le consommateur). Appele DEUX fois dans
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` (branche « no-automatic-turns » et branche
+    normale), toujours AVANT `SetMovedFlag`.
+
+    `old_pos`/`new_pos` = (col,row) ; `old_pos=None` (unite sans position avant le move, ex. spawn)
+    -> `before` vide, mirror du `MainTile == null` natif. Renvoie les ids AJOUTES (diag).
+
+    La liste est videe par `IdunBattle.Operations.FinishUnitTurnOperation$$Execute` (cf.
+    `FinishUnitTurnOperation.execute`) -> sa duree de vie est L'ACTIVATION de l'unite, ce qui donne au
+    predicat `IsCharging` sa semantique « a charge cette cible CE TOUR ». Aucun autre site natif
+    n'ecrit ce champ (xrefs de `UpdateCharging` : les 2 call-sites de `Execute` ; le seul autre
+    lecteur est `BattleQuery$$IsCharging`)."""
+    import hexgeo
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None or new_pos is None:
+        return []
+
+    def _adjacent_ids(pos):
+        if pos is None:
+            return set()
+        out = set()
+        for oid, other in state.entities.items():
+            if oid == unit_id:
+                continue
+            opc = other.get_component(PositionComponent)
+            if opc is None:
+                continue
+            if hexgeo.distance(tuple(pos), (opc.col, opc.row)) == 1:
+                out.add(int(oid))
+        return out
+
+    before = _adjacent_ids(old_pos)
+    added = []
+    for oid in sorted(_adjacent_ids(new_pos) - before):
+        if oid not in uc.charged_unit_ids:
+            uc.charged_unit_ids.append(oid)
+            added.append(oid)
+    return added
+
+
+def charged_unit_ids(state, unit_id: int) -> set:
+    """Les ids que `unit_id` a CHARGES (liste `UnitComponent + 0x190`). Composant absent -> vide."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return set(int(i) for i in (uc.charged_unit_ids or ())) if uc is not None else set()
 
 
 def unit_is_dead(entity) -> bool:

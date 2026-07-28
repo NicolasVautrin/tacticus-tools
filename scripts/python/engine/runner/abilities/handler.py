@@ -63,7 +63,8 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
-                           MacroPlasmaIncineratorAbility)
+                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility)
+from .custodes import MomentShackleAbility
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility)
@@ -188,6 +189,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     DoomSirenAbility.ABILITY_TYPE: DoomSirenAbility,                   # 1199 (emperKakophonist « Adamatar » : UN leaf combine — nrOfHits coups DirectDamage MELEE sur la cible + PickRandomly(nrOfUnits) ennemis adjacents A LA CIBLE (Damageable), passe id-triee unique ; puis Foreach(UnitsDamagedThisPhase(caster), If(IsDead(It) & HasFlag(It, 8=Overkilled), AddStaticStatModifierEffect(caster, 1431 DoomSiren_ExtraHit, EXTRA_HITS, Direct(1), PERMANENT))) ; ExecuteAtomic 0x2a)
     FearOfTheUnseenAbility.ABILITY_TYPE: FearOfTheUnseenAbility,       # 1115 (tyranDeathleaper « Deathleaper » Tyranids : POSEUR D'EFFETS pur, AUCUN degat au cast — Execute plain de (If(NOT HasFlag(Self, Moved), AddEffect(1065 Pinned -> Enemies(NonSteppableOrObjectUnits(SurroundingUnits(Self, range, includeCenter))), duree DEFAUT) + TriggerAbility(memes ennemis, 1025 BattleFatigue)) + AddEffect(1238 TeleportingIn -> Self) + AddEffect(1239 ExtraDamage -> Self)), les 2 effets self a Sum(TurnsFromRounds(1), Direct(1)) TOURS ; le DirectDamage vit en PHASE 2 dans l'effet 1239 (canal coups additionnels #179))
     CalibaniteGreatswordAbility.ABILITY_TYPE: CalibaniteGreatswordAbility,  # 1189 (darkaCompanion Forcas : TOGGLE de posture = If(HasEffect(Self,1404 Strike), AddEffect(1405 Sweep)+RemoveStrikeEffects(1404/1425/1009/1406), AddStrikeEffects(1404/1425/1009)+RemoveEffect(1405)) ; aucun degat, aucun tirage, ne finit pas le tour ; les observables Sweep/Overwatch vivent dans les TRIGGERED, hors port)
+    # --- case-231 : socle `IsCharging` (BattleQuery$$IsCharging = adjacence + ChargedUnitIds@+0x190)
+    #     + `force_crit` (octet +5 du Nullable<AttackOptions>). Les DEUX abilities du lot.
+    TacticalPrecisionAbility.ABILITY_TYPE: TacticalPrecisionAbility,   # 1154 (ultraTitus Titus : If(IsCharging(caster,cible), ChangeStat(+extraCritDmg) & 1x Bolter FORCE-CRIT sur la cible & ChangeStat(revert), 3x Chain sur TOUS les AdjacentEnemies(caster)) ; ExecuteAtomic, branches EXCLUSIVES)
+    MomentShackleAbility.ABILITY_TYPE: MomentShackleAbility,           # 1184 (custoTrajann Trajann : self-cast Heal(hpToHeal) & AddDynamicStatModifierEffect(1391 BlockChance) & (1392 BlockDamage) & AddEffect(1393 marqueur de la triggered MomentShackle_Attack), TurnsFromRounds(nrOfRounds=1) ; aucun degat)
 }
 
 

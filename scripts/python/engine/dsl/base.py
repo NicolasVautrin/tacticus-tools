@@ -211,6 +211,14 @@ class DslContext:
     # `units_damaged_this_phase(attacker_unit) -> list[dict d'unite]`. Defaut None -> selecteur degrade []
     # (documente par noeud). Fourni par `entities_from_state` (lit `UnitComponent.damaged_units_this_phase`).
     units_damaged_this_phase: object | None = None
+    # Liste des unites que `unit` a CHARGEES ce tour (`UnitComponent + 0x190`, un `List<int>` d'ids
+    # alimente par `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` et vide par
+    # `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`). C'est la MOITIE runtime du predicat
+    # `IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` = `AreEntitiesAdjacent(caster,
+    # target) && chargedUnitIds(caster).Contains(target.Id)`. `charged_units(unit) -> set[int]` ;
+    # defaut None -> ensemble VIDE (degradation fidele : personne n'a charge). Fourni par
+    # `entities_from_state` (lit le `UnitComponent` de l'ECS runner).
+    charged_units: object | None = None
 
 
 class Const(AAmountFormula):

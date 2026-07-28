@@ -111,6 +111,8 @@ from .loki import (
     AugmentedAssaultReduceArmorEffect,
     AncestralFortuneExtraCritChanceEffect,
     AncestralFortuneExtraBlockChanceEffect,
+    MomentShackleExtraBlockChanceEffect,
+    MomentShackleExtraBlockDamageEffect,
     GravitonRifleExtraPierceEffect,
     HailstrikeExtraPierceEffect,
     HeavyGravCannonEffect,
@@ -491,6 +493,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
     "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,
+    # 0x56f=1391 \ 0x570=1392 (case-231) : MEME patron GENERIQUE que le trio ci-dessus. Lambdas
+    # `EffectsDatabase...b__14_400` / `...b__14_401` -> ability 1184 MomentShackle, vars 0x15=21
+    # blockChance / 0x14=20 blockDmg, isNegative=0 -> stats 7 BlockChance / 8 BlockDamage sur le
+    # CASTER (le call-site passe `owner@0x148` en source ET en cible), TurnsFromRounds(1).
+    "MomentShackle_ExtraBlockChance": MomentShackleExtraBlockChanceEffect,
+    "MomentShackle_ExtraBlockDamage": MomentShackleExtraBlockDamageEffect,
     # 0x5cc=1484 GravitonRifle_ExtraPierce : OWNER-effect de Vynn (dict natif
     # `GetEffectToBeAddedToOwnerForAbility`), classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.GravitonRifle_ExtraPierceEffect` — canal PERCAGE (pas stat-mod) :

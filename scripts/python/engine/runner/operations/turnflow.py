@@ -48,8 +48,14 @@ class FinishUnitTurnOperation:
       * Add(ArrivedAtFinalTile=1) — si nouvellement pose et !forced, le natif publie l'event 0x1c ;
       * Add(TurnFinished=3)       — si nouvellement pose, events 0x29 (+0x2a si !forced) + step Events(0xd) ;
       * reset du cache de mouvement (MovementComponent@+0x18/+0x10) + slot processor 0x76 (Verify...).
-    OFFLINE on porte la MUTATION (les 3 flags) ; events/steps de stream + verify = couche view/process non
-    suivie (documente). Declencheurs natifs : `Core.Services.OperationProcessor$$FinishUnitTurn (appele par
+      * **`UnitComponent.ChargedUnitIds` (+0x190) VIDEE** — le decompile termine par un
+        `TryGetComponent<UnitComponent>` suivi d'un `List<T>.Clear()` INLINE sur le champ @+0x190
+        (`_version++`, `_size = 0`, `Array.Clear(_items, 0, size)`). C'est CE site qui donne au
+        predicat `IdunBattle.Core.Services.BattleQuery$$IsCharging` sa portee « CE TOUR » : la liste
+        est remplie par les moves de l'activation et remise a zero quand elle se termine.
+    OFFLINE on porte la MUTATION (les 3 flags + la purge des charges) ; events/steps de stream + verify
+    = couche view/process non suivie (documente). Declencheurs natifs :
+    `Core.Services.OperationProcessor$$FinishUnitTurn (appele par
     `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution quand l'ability TERMINE le tour),
     `FinishUnitTurnMessage`, et `FinishUnitTurnBehaviour` IdunBattle.Entities.Behaviours.FinishUnitTurnBehaviour$$Execute (DSL)."""
     __slots__ = ()
@@ -59,6 +65,9 @@ class FinishUnitTurnOperation:
         e = state.get_entity(unit_id)
         if e is None:
             return {"unit": int(unit_id), "found": False}
+        uc = e.get_component(UnitComponent)
+        if uc is not None:
+            uc.charged_unit_ids = []          # `List.Clear()` inline sur UnitComponent+0x190
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())

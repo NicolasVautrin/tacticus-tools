@@ -168,6 +168,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # (⚠ le `&opts` y est un PRESET lu d'un champ STATIQUE de la classe, PAS un litteral inline :
     #  ses `TARGETING_OPTIONS` restent donc NON renseignes -- les deviner serait pire que l'absence.)
     1036: AbilityAttackType.DirectTargetAttack,   # FrenziedFiringAbility
+    # TacticalPrecision (1154, Titus ultraTitus), case-231. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
+    # (Contrairement a 1036/1041, ses `TARGETING_OPTIONS` SONT posees : le preset statique recopie
+    #  a ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`, cf. la classe.)
+    1154: AbilityAttackType.DirectTargetAttack,   # TacticalPrecisionAbility
     # BrazierOfHolyFire (1041) : MEME cas que 1036, entree au registre par le lot #128 sans son
     # litteral. `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$.ctor`
     # = `AActiveAbility..ctor(this, &opts, 0, 0)` -> 0 = DirectTargetAttack (opts = PRESET statique).
@@ -236,6 +242,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # de l'ability (AoE de zone : les coups sont REPARTIS sur tous les ennemis a portee, la « cible »
     # du message n'etant qu'une priorite d'ordre), et avec son masque, qui n'a PAS `TargetIsEnemy`.
     1102: AbilityAttackType.Others,   # DoomboltAbility
+    # MomentShackle (1184, Trajann custoTrajann), case-231. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others (l'ACTIVE ne fait aucun degat ; le
+    # 2x Bolter de l'i2 vient de la TRIGGERED `MomentShackle_AttackAbility`, hors registre).
+    1184: AbilityAttackType.Others,   # MomentShackleAbility
     # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
     1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility

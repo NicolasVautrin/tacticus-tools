@@ -19,7 +19,7 @@ from __future__ import annotations
 from ..state import State
 from ..events import EventBus
 from ..components import (PositionComponent, UnitComponent, StatsComponent, HealthComponent,
-                          set_moved_flag)
+                          set_moved_flag, update_charging)
 from .base import Operation
 
 
@@ -86,6 +86,12 @@ class MoveUnitOperation(Operation):
         # tuile d'arrivée est crushé (kill propre, pas de death-trigger) AVANT que le vecteur after-move
         # (visit_MoveUnitMessage -> after_move_triggers) ne s'exécute -> le decoy est déjà mort pour G2.
         _kill_steppable_units(state, self.to, self.unit_id)
+        # `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` — RANG NATIF EXACT (le decompile
+        # d'`IdunBattle.Operations.MoveUnitOperation$$Execute` l'appelle entre `KillSteppableUnits` et
+        # `SetMovedFlag`). Enregistre sur le mover les unites NOUVELLEMENT adjacentes apres ce pas :
+        # c'est la moitie runtime du predicat `BattleQuery$$IsCharging` (TacticalPrecision, case-231).
+        # `old_pos is None` (unite sans position avant : spawn) -> mirror du `MainTile == null` natif.
+        update_charging(state, self.unit_id, old_pos, self.to)
         # #101 : `SetMovedFlag(unit)` — le natif pose ici le `UnitFlag.Moved` (+ `Teleported` si le move
         # est un teleport-strike). POSITION NATIVE lue au decompile d'`IdunBattle.Operations.
         # MoveUnitOperation$$Execute` : AddMoveEvent(s) -> KillSteppableUnits -> UpdateCharging ->

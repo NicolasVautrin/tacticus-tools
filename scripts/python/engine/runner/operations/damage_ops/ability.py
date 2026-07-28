@@ -41,6 +41,7 @@ class _AbilityAttack:
                                ability_type: Optional[int] = None,
                                is_attack_damage_op: bool = True,
                                force_overkill: bool = False,
+                               force_crit: bool = False,
                                round_materialize: bool = False) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
@@ -57,6 +58,12 @@ class _AbilityAttack:
         DÉFENSIF : si `state.rng` n'est pas calé (replay effet-seul, sans dumpRng), on SKIP le dégât
         (return None) au lieu de lever — le wiring d'ability reste utilisable pour matérialiser un effet
         sans replay de dégât. Un replay de DÉGÂT doit caler rng (dumpRng) avant le cast.
+
+        `force_crit` : flag « always crit » du `Nullable<AttackOptions>` d'`AttackWithAttackDamage`
+        (octet +5 de la struct, cf. `_run_hits`). Le natif saute `RollCritical` -> crit ACQUIS sans
+        tirage, MEME quand `CouldCrit` est faux (cc = 0). Ici : (a) les bornes crit `hit_cr` sont
+        construites même si `crit_enabled` est faux, (b) `_run_hits` force `crit=True` par coup sans
+        consommer de RNG. Défaut False = comportement historique strictement inchangé.
 
         `round_materialize` : REDONDANT depuis la campagne HeavyGravCannon (2026-07-26) — l'étage
         `Fix64.Round(·, AwayFromZero)` est désormais INCONDITIONNEL sur ce vecteur (cf. `_round_mat`
@@ -292,9 +299,15 @@ class _AbilityAttack:
         # EffectBonus.addition per-coup-CRIT (PercentageOf(GetStat(10), IceCritDmgBonusPct=25) si cible
         # sur tuile Ice active et non-Immune) — MEME position pipeline (flat PRE-reduce). VALIDE live
         # bit-exact (probe_45f --case crit : GreatFrostAxe cc=100/cd=700 -> +175/coup crit, 4/4).
-        _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if crit_enabled else 0
+        # `_crit_materialized` = « ce vecteur peut produire un coup CRITIQUE » : soit la voie normale
+        # (`CouldCrit` -> roll), soit le flag `force_crit` (options+5) qui rend le crit ACQUIS SANS
+        # roll. Le natif ne consulte `CouldCrit` que pour DECIDER DU TIRAGE ; le montant de crit, lui,
+        # sort de `CalculateCriticalDamage` des que `isCrit` est vrai -> les bornes crit doivent
+        # exister dans les deux cas (a cc = 0, `crit_enabled` est faux : c'est TacticalPrecision).
+        _crit_materialized = bool(crit_enabled or force_crit)
+        _ice_add = ice_crit_damage_addition(state, attacker_id, target_id, ctx) if _crit_materialized else 0
         hit_cr = HitDamage(base_min + crit_damage + _ice_add,
-                           base_max + crit_damage + _ice_add) if crit_enabled else hit_nc
+                           base_max + crit_damage + _ice_add) if _crit_materialized else hit_nc
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes BRUTES degenerees a (max, max),
         # mirror HitDamage(GetMax, null) d'`IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$GetDamage` (le tirage de
         # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
@@ -380,7 +393,11 @@ class _AbilityAttack:
                                             is_attack_damage_op=is_attack_damage_op,
                                             # flag « always overkilled » (FlailSwing) : bypasse le cap
                                             # Resilient a chaque coup (no-op cible non-Resilient).
-                                            force_overkill=force_overkill)
+                                            force_overkill=force_overkill,
+                                            # flag « always crit » (TacticalPrecision branche CHARGE) :
+                                            # crit acquis par coup, SANS tirage (le natif saute
+                                            # RollCritical quand l'octet options+5 est pose).
+                                            force_crit=force_crit)
         AttackDamageOperation._deplete_shield(shc, r)
         # `is_attack` = COMPTABILITE d'attaque (`_record_attacked` -> `ActorStatisticsComponent$$
         # RegisterAttackReceived`, dont le SEUL appelant natif est `IdunBattle.Operations.
