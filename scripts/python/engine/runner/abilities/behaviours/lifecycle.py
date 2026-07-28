@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from ....dsl.base import TargetsSelector, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
-from ...components import UnitComponent
+from ...components import (UnitComponent, MachineComponent, ActiveAbilitiesComponent,
+                           is_machine_of_war)
 
 
 class KillDeadUnits(AbilityBehaviour):
@@ -89,6 +90,62 @@ class RemoveUnit(AbilityBehaviour):
                 for eff in state.effects.by_unit.get(int(uid), []):
                     eff.consumed = True
             ectx.emit("RemoveUnit", unit=uid)
+        return OperationResult.ok()
+
+
+class RemoveMachine(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLFactory$$RemoveMachine(factory, sel)` ->
+    `IdunBattle.Entities.Behaviours.RemoveMachineBehaviour$$Execute` : resout son selecteur `+0x50`
+    (= `caster@0x160` au seul call-site porte) et appelle l'operation
+    `IdunBattle.Operations.RemoveMachineOperation$$Execute(entity, removeEffects=1, ...)`.
+
+    L'operation native, lue au decompile : gate `IdunBattle.Entities.EntityExtensions$$IsMachine`
+    (une entite qui n'est PAS une machine -> log + retour, aucune mutation), puis
+    `RemoveMachineFromPlatform`, remise a zero d'un champ de la plateforme, event `0x2e` portant
+    `{0x88: HasFlag(entity, 6)}`, enfin `RemoveEffects(entity)`. **Elle ne detruit pas l'entite** :
+    elle la DETACHE de sa plateforme -- ce qui la rend indisponible pour le reste de la bataille.
+
+    Port : `MachineComponent.removed = True` (le detachement), `UnitComponent.alive = False`
+    (l'entite quitte la bataille -- meme despawn SANS on-death que `RemoveUnit`), extinction de ses
+    entrees d'`ActiveAbilitiesComponent` (`can_still_be_used = False`, `disabled = True` -> le
+    predicat deja porte `ActiveAbility.can_currently_be_used` rend False, donc plus aucune de ses
+    abilities n'est proposable) et consommation de ses effets (`RemoveEffects`). Une entite qui
+    n'est PAS une MoW est ignoree, comme le gate natif.
+
+    ⚠ Ce que le port ne materialise PAS : l'event `0x2e` et son tag `0x88` (le port n'a pas de bus
+    d'events de plateforme MoW) -- residu nomme, cf. docs/rl/case-91-duty-eternal.md §7.
+
+    CALL-SITE PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$
+    ExecuteBehaviour` -> `RemoveMachine(caster@0x160) & Spawn(...)`. Emet 'RemoveMachine'. PUR."""
+    __slots__ = ("units_sel",)
+
+    def __init__(self, units_sel: TargetsSelector):
+        self.units_sel = units_sel
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.units_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            e = state.get_entity(int(uid))
+            if not is_machine_of_war(e):          # gate natif `EntityExtensions$$IsMachine`
+                continue
+            e.get_component(MachineComponent).removed = True     # `RemoveMachineFromPlatform`
+            uc = e.get_component(UnitComponent)
+            if uc is not None:
+                uc.alive = False
+            ac = e.get_component(ActiveAbilitiesComponent)
+            if ac is not None:                    # plus aucune ability proposable (cf. docstring)
+                for a in ac.abilities:
+                    a.can_still_be_used = False
+                    a.disabled = True
+            if state.effects is not None:         # `RemoveMachineOperation$$RemoveEffects`
+                for eff in state.effects.by_unit.get(int(uid), []):
+                    eff.consumed = True
+            ectx.emit("RemoveMachine", machine=int(uid))
         return OperationResult.ok()
 
 

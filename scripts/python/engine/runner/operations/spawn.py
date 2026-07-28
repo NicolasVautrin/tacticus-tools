@@ -362,7 +362,8 @@ def _occupied_tiles(state: State) -> set:
 
 def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                        level, mult: int, team, player, ai_controlled: bool = True,
-                       key_suffix: str = "", parent_id: Optional[int] = None) -> Optional[int]:
+                       key_suffix: str = "", parent_id: Optional[int] = None,
+                       feet_tiles: Optional[list] = None) -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
     `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
     = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
@@ -373,7 +374,14 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
 
     `parent_id` = le CASTER (mirror `Unit_Parent_Id` emis nativement au spawn d'un summon ; ground truth
     live SupremeCommander : `Step#10 e=<summon> Unit_Parent_Id=<casterId>`). Alimente `Parent(Self)`
-    (`ListenUpMaggotsEffect.CreateTargetSelector`) et `Children(caster)`. None = lien non pose."""
+    (`ListenUpMaggotsEffect.CreateTargetSelector`) et `Children(caster)`. None = lien non pose.
+
+    `feet_tiles` (#91, MULTI-HEX) = la LISTE d'ids de tuiles que `IdunBattle.Operations.
+    AddUnitOperation$$Execute` recoit quand `SpawnUnitOptions+0x60 != 0` : elle pose l'unite sur N
+    tuiles (`ClearFeet` puis un `AddFoot` PAR tuile, DANS L'ORDRE), et `feet[0]` devient la MAIN TILE.
+    `tile` reste l'ancre (== `feet_tiles[0]`, cf. l'ordre `[ancre, t1, t2]` de
+    `BattleQuery$$GetTilesInTriangleShape`). None (defaut) = le cas NOMINAL mono-pied, inchange :
+    l'unite garde `UnitComponent.feet = None` et sa seule `PositionComponent`."""
     if tile is None:
         return None
     e = state.add_entity()
@@ -390,6 +398,15 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     tinfo = board.by_id.get(tile) if board is not None else None
     if tinfo is not None:
         e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    if feet_tiles and board is not None:
+        # `AddUnitOperation$$Execute` : `ClearFeet` puis un `AddFoot` PAR tuile recue, dans l'ordre.
+        # `set_unit_feet` est l'ECRIVAIN UNIQUE de l'empreinte (il recale la `PositionComponent` sur
+        # `feet[0]` = la main tile) ; une liste d'UN element repose `feet = None` -> mono-pied nominal.
+        from ..components import set_unit_feet
+        coords = [(bt["col"], bt["row"]) for bt in
+                  (board.by_id.get(t) for t in feet_tiles) if bt is not None]
+        if coords:
+            set_unit_feet(state, e.id, coords)
     return e.id
 
 

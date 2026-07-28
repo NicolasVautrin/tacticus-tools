@@ -47,20 +47,22 @@ from ...entities.behaviours import op_add, op_and, AtomicGroup
 from ...entities.formulas import If as FormulaIf
 from ...entities.selectors import (Caster, CasterTile, AdjacentEnemies, AdjacentUnits, FixedTileIds,
                                    Friends, TilesInTriangleShape, TilesOnSameElevation, Union,
-                                   UnitsWithTrait, Sub, Unique, Target, Walkable)
+                                   UnitsWithTrait, Sub, Unique, Target, Walkable, ActiveTarget,
+                                   ThreeTileUnitSpawnShape)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatType
 from ...entities.triggers import IsPositionMachineForCurrentPlayer
-from ..components import StatsComponent, OwnerComponent, PositionComponent
+from ..components import StatsComponent, OwnerComponent, PositionComponent, get_unit_feet
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, AddEffect, Heal, healable_heal_type_0,
-                         AttackWithAttackDamage, PushUnit)
+                         AttackWithAttackDamage, PushUnit, Spawn, RemoveMachine, AddTrait,
+                         AddTriggeredAbility, first_triggered_ability_of)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -518,6 +520,139 @@ class MacroPlasmaIncineratorAbility(ActiveAbility):
         posed = [{"target": p["target"], "effect": p["effect_type"]}
                  for n, p in ectx.emitted if n == "AddEffect"]
         return {"tile": tile_id, "turns": turns, "posed": posed, "dsl": True}
+
+
+# =================================================================================================== #
+# DutyEternal (1158, `ultraDreadnought` -- Galatian, Ultramarines MachineOfWar) -- case-91
+# Patron « MULTI-HEX » : la SEULE ability du build qui produise une unite occupant PLUSIEURS tuiles.
+# Le substrat (empreinte / occupance / geometrie) a ete pose par #R30 ; ce qui manquait etait le
+# PRODUCTEUR -- le flag `SpawnUnitOptions+0x60` de `SpawnUnitBehaviour$$Execute`. cf.
+# docs/rl/case-91-duty-eternal.md
+# =================================================================================================== #
+
+DUTY_ETERNAL_ID = "DutyEternal"
+
+
+def duty_eternal_tree(tile_id, transferred_ability=None):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour`
+    -- MIRROR du DECOMPILE :
+
+        opts        = SpawnUnitOptions.WithStatsFromConfig(config 1158, <levelInfo>)
+        onAppear    = AddTrait( ActiveTarget@0x180, 0x418 )                  # UnitTrait.Stationary
+        if (caster.GetComponent<TriggeredAbilityComponent>().<coll @+0x18>.Count > 0) {
+            a       = Enumerable.First(coll)
+            onAppear = onAppear & AddTriggeredAbility( ActiveTarget@0x180, a.Id, {a@0x20, a@0x28} )
+        }
+        opts.<+0x18> = onAppear                    # sous-behaviour on-appearance
+        opts.<+0x50> = UnitExtensions.GetQuestUnitId( caster )
+        opts.<+0x60> = 1                           # <- UNE unite sur TOUTES les tuiles (multi-hex)
+        Execute( RemoveMachine(caster@0x160)
+                 & Spawn(caster@0x160, ThreeTileUnitSpawnShape(Target@0x178),
+                         GetStringConstant(config, 0) = "ultraSmnDreadnought", opts) )
+
+    ORDRE lu, pas devine : `op_BitwiseAnd(RemoveMachine, Spawn)` -- la MoW quitte la bataille AVANT
+    que le dreadnought ne se pose. Sans consequence observable ici (le `Spawn` ne lit du caster que
+    son `OwnerComponent`), mais c'est l'ordre natif et c'est celui qu'on mirror.
+
+    `spawn_as_single_unit=True` = `*(opts + 0x60) = 1` : `SpawnUnitBehaviour$$Execute` prend alors sa
+    branche `GetTileIds(tiles)` -> UN SEUL `AddUnit(unitConfig, <les 3 tuiles>, ...)` -> une unite a
+    3 PIEDS (`ClearFeet` + un `AddFoot` par tuile, dans l'ordre `[ancre, t1, t2]`).
+
+    `transferred_ability` = le resultat de `first_triggered_ability_of(caster)`, lu par l'appelant :
+    le natif tranche cette condition A LA CONSTRUCTION de l'arbre. `None` (cas courant : la MoW n'a
+    aucune triggered ability) -> le noeud n'est pas assemble, exactement comme le natif.
+
+    NON PORTE : `opts+0x50 = GetQuestUnitId(caster)` (champ de quete, aucun consommateur de combat)."""
+    on_appearance = AddTrait(ActiveTarget(), UnitTrait.Stationary)       # 0x418
+    if transferred_ability is not None:
+        on_appearance = op_and(on_appearance,
+                               AddTriggeredAbility(ActiveTarget(), transferred_ability))
+    spawn = Spawn(ThreeTileUnitSpawnShape(FixedTileIds([tile_id])), DUTY_ETERNAL_ID,
+                  on_appearance=on_appearance, spawn_as_single_unit=True)
+    return op_and(RemoveMachine(Caster()), spawn)
+
+
+class DutyEternalAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour` (id 1158,
+    `ultraDreadnought` « Galatian », Ultramarines MachineOfWar). Cast TILE-TARGET.
+
+    i2 : « Summons Galatian as a **stationary** unit in a **3 hex area** on the battlefield. After
+    using this ability, Galatian can **no longer be used as a Machine of War** for the rest of the
+    battle. Galatian stats: 14550 Health 1601 Damage 2910 Armour. Initial cooldown: 2 rounds.
+    Cost: 3 munition. » -- les trois volets de l'arbre, un pour un : `Spawn(...)` multi-hex,
+    `AddTrait(Stationary)` on-appearance, `RemoveMachine(caster)`.
+
+    RE (ghidra gqfc5mff6c) :
+    - `...DutyEternalAbility$$ExecuteBehaviour` : cf. `duty_eternal_tree` (mirror 1:1).
+    - `...DutyEternalAbility$$.ctor` -- FORME « FLAGS DIRECTS » (le litteral EST le masque effectif) :
+        TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x20000040000042, 0,0,0)
+          isSelfCasting    = 0
+          range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD -- MEME champ statique
+                             et MEME offset que `SporeMineLauncherAbility$$.ctor` (decompiles compares)
+          forceMeleeTarget = 1 = RangedBool.False
+          rules            = 0x20000040000042 = TargetMatchesDynamicRule | TargetIsTile
+                                              | AllowNullCasterTile | CasterIsMachine
+      puis `AActiveAbility..ctor(this, &opts, 2, 0)` -> `AbilityAttackType.Others` (cf. attack_type.py).
+    - `...DutyEternalAbility$$GetDynamicInvalidTargetReason` : cf. la methode homonyme ci-dessous.
+
+    `CasterIsMachine` (bit 53) et `AllowNullCasterTile` (bit 30) sont le profil MoW deja vu sur 1159 :
+    une Machine of War n'a pas de tuile de caster. Aucun des deux n'est porte cote gate (l'inventaire
+    de `targeting.py` les liste comme non portes) -- ils sont transcrits pour que le masque soit
+    complet et verifiable, jamais devines.
+
+    `target_id` = id de TUILE (cast tile-target). Un `target_id` qui n'est pas une tuile du board ->
+    no-op (diag `spawned: []`).
+
+    Flags de tour : defauts base (1158 hors tables d'override) -> termine le tour + ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DutyEternal)   # 1158
+    ABILITY_ID = DUTY_ETERNAL_ID
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.AllowNullCasterTile
+        | TR.CasterIsMachine),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...DutyEternalAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile :
+
+            shape = ThreeTileUnitSpawnShape( Target@0x178 );
+            <AbilityEntities{ caster, target, targets }>            // memset 0x130 puis 4 champs
+            tiles = shape.Select(entities);
+            return (tiles == null || Count(tiles) == 0) ? 2 : 0;
+
+        = « la tuile visee est legale SSI une aire triangulaire de 3 tuiles existe autour d'elle » --
+        c'est le pendant exact du bit `TargetMatchesDynamicRule` de son masque. La raison litterale
+        est `2` = `TargetingRule.TargetMatchesDynamicRule`. Une cible qui n'est pas une tuile du
+        board rend `2` aussi (le selecteur ne resout aucune ancre -> liste vide)."""
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return int(TR.TargetMatchesDynamicRule)
+        entities = entities_from_state(state, caster_id)
+        tiles = ThreeTileUnitSpawnShape(FixedTileIds([tile_id])).evaluate(entities)
+        return 0 if tiles else int(TR.TargetMatchesDynamicRule)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "spawned": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id)
+        # `if (caster.GetComponent<TriggeredAbilityComponent>().<coll @+0x18>.Count > 0)` : la
+        # condition est evaluee AVANT l'assemblage du sous-behaviour, comme le natif.
+        transferred = first_triggered_ability_of(state, caster_id)
+        duty_eternal_tree(tile_id, transferred).execute(entities, ectx)
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        removed = [p["machine"] for n, p in ectx.emitted if n == "RemoveMachine"]
+        feet = get_unit_feet(state, spawned[0]) if spawned else []
+        return {"summon": "ultraSmnDreadnought", "spawned": spawned, "tile": tile_id,
+                "feet": feet, "removed_machine": removed,
+                "transferred_ability": transferred, "dsl": True}
 
 
 # =================================================================================================== #

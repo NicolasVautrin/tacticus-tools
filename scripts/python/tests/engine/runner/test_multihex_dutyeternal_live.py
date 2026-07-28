@@ -49,6 +49,10 @@ SUMMON = "ultraSmnDreadnought"
 DUTY_ETERNAL = 1158
 ROOT = Path(__file__).resolve().parents[5]          # racine repo (scripts/python/tests/engine/runner)
 MAX_ROUNDS = 8
+# Nombre de tuiles interrogees pour la confrontation de la REGLE DYNAMIQUE (#91). Le board entier
+# serait 1 RPC par tuile ; l'echantillon en tete d'ordre de balayage porte deja les DEUX verdicts
+# (aire valide / aire impossible), ce que le test VERIFIE au lieu de le supposer.
+DYNAMIC_RULE_SAMPLE = 24
 
 
 def _ammo_seed_bc(ammo: int = 9) -> Path:
@@ -200,6 +204,31 @@ def galatian(rpc, build_runner):
     else:
         pytest.fail(f"1158 jamais castable apres {2 * MAX_ROUNDS} fins de tour", pytrace=False)
 
+    # ETAT PRE-CAST (#91) : c'est LUI que le port rejoue. Capture APRES le placement et APRES la
+    # fenetre de cooldown/tour, donc strictement l'etat que le natif s'apprete a muter.
+    pre_dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True})
+    pre_ob = rpc("observeBattle", {"runnerId": rid})
+
+    # VERDICTS de la REGLE DYNAMIQUE (#91), tuile par tuile, AVANT le cast : c'est le seul moment ou
+    # la MoW peut encore etre interrogee. `abilityReason` natif == `GetInvalidTargetReason`, dont la
+    # derniere marche est `DutyEternalAbility$$GetDynamicInvalidTargetReason`.
+    pre_state = load_state(pre_dv, pre_ob, board=board)
+    from engine.runner.abilities.ultramarines import DutyEternalAbility
+    probe = DutyEternalAbility()
+    reasons = []
+    for pos in sorted(board.by_coord)[:DYNAMIC_RULE_SAMPLE]:
+        tid = board.id_at(pos[0], pos[1])
+        if tid is None:
+            continue
+        native = rpc("abilityReason", {"runnerId": rid, "casterId": caster,
+                                       "abilityType": DUTY_ETERNAL, "targetId": tid})
+        reasons.append({
+            "pos": pos, "tile": tid,
+            "native": " ".join(str(x) for x in (native.get("reasons") or [])),
+            "port": probe.get_dynamic_invalid_target_reason(pre_state, caster, tid),
+            "area": STS.get_area(board, set(_occupants(rpc, rid)), pos),
+        })
+
     res = rpc("applyAction", {"runnerId": rid, "action": {
         "kind": "ability", "casterId": caster, "abilityType": DUTY_ETERNAL,
         "to": {"col": anchor[0], "row": anchor[1]}}})
@@ -216,7 +245,11 @@ def galatian(rpc, build_runner):
         pytest.fail(f"{SUMMON} absent apres le cast", pytrace=False)
     return {"rid": rid, "anchor": anchor, "predicted": predicted, "attacker_pos": post,
             "attacker_id": attacker["id"], "strict": strict,
-            "actions": actions, "board": board, "uid": unit["id"], "view": after}
+            "actions": actions, "board": board, "uid": unit["id"], "view": after,
+            # #91 -- de quoi rejouer le cast COTE PORT sur l'etat PRE-cast, et confronter la face
+            # DECISION (regle dynamique) tuile par tuile.
+            "caster": caster, "pre": (pre_dv, pre_ob), "reasons": reasons,
+            "mow_before": mows[0]}
 
 
 # ------------------------------------------------------------------------ FORME de l'empreinte
@@ -347,3 +380,176 @@ def test_range_is_measured_from_the_whole_footprint(rpc, galatian):
     # ...et le port doit CONCLURE comme le natif : `AreEntitiesAdjacent` (empreinte a empreinte).
     from engine.runner.abilities.targeting import are_entities_adjacent
     assert are_entities_adjacent(state.board, get_unit_feet(state, galatian["attacker_id"]), feet)
+
+
+# ============================================================================================== #
+# #91 -- LE PORT DE L'ABILITY (et plus seulement du substrat) : `DutyEternalAbility`.
+# Les tests ci-dessus confrontent la REPRESENTATION d'une unite deja posee par le NATIF ; ceux-ci
+# rejouent le cast COTE PORT sur l'etat PRE-cast et confrontent ce que le PORT produit.
+# ============================================================================================== #
+
+def _port_cast(galatian):
+    """Rejoue `DutyEternal` COTE PORT sur l'etat PRE-cast (meme caster, meme tuile ciblee)."""
+    from engine.runner.abilities.ultramarines import DutyEternalAbility
+    pre_dv, pre_ob = galatian["pre"]
+    state = load_state(pre_dv, pre_ob, board=galatian["board"])
+    tile_id = galatian["board"].id_at(galatian["anchor"][0], galatian["anchor"][1])
+    diag = DutyEternalAbility().execute_behaviour(state, galatian["caster"], tile_id)
+    return state, diag
+
+
+def test_port_ability_is_registered_with_its_literals():
+    """Non-regression de registre : 1158 doit entrer avec SES DEUX donnees obligatoires, lues au
+    ctor natif -- `TARGETING_OPTIONS` (masque `0x20000040000042`, forme FLAGS DIRECTS) et
+    `ABILITY_ATTACK_TYPE` (3e argument d'`AActiveAbility..ctor` = 2 = Others)."""
+    from engine.runner.abilities.handler import ABILITY_CLASSES
+    from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE, AbilityAttackType
+    klass = ABILITY_CLASSES.get(DUTY_ETERNAL)
+    assert klass is not None, "1158 absente d'ABILITY_CLASSES"
+    assert int(klass.TARGETING_OPTIONS.rules) == 0x20000040000042, \
+        f"masque {hex(int(klass.TARGETING_OPTIONS.rules))} != litteral du ctor 0x20000040000042"
+    assert ABILITY_ATTACK_TYPE.get(DUTY_ETERNAL) == AbilityAttackType.Others
+
+
+def test_port_cast_spawns_one_unit_on_the_whole_footprint(galatian):
+    """LE point du cas : `SpawnUnitOptions+0x60 = 1` -> `SpawnUnitBehaviour$$Execute` prend sa
+    branche `GetTileIds(tiles)` = **UNE** unite sur les 3 tuiles, PAS 3 unites d'un pied.
+
+    C'est le chiffre DISCRIMINANT du port de l'ability : sans le flag, la meme feuille `Spawn`
+    poserait `len(area)` unites mono-tuile."""
+    state, diag = _port_cast(galatian)
+    assert diag.get("spawned"), f"aucun spawn cote port : {diag}"
+    assert len(diag["spawned"]) == 1, \
+        f"{len(diag['spawned'])} unites spawnees -- la branche `options+0x60` n'a pas ete prise"
+    uid = diag["spawned"][0]
+    assert get_feet_count(state, uid) == 3, "l'unite portee doit avoir 3 PIEDS"
+    assert diag["feet"] == galatian["predicted"], \
+        f"empreinte portee {diag['feet']} != empreinte native {galatian['predicted']}"
+    assert get_main_tile(state, uid) == galatian["anchor"], "feet[0] = l'ancre = la tuile ciblee"
+    # ...et l'occupation suit : les 3 tuiles sont prises par CETTE unite cote port.
+    for f in galatian["predicted"]:
+        assert state.unit_at(f) is state.get_entity(uid), f"port : unit_at({f}) != le summon"
+
+
+def test_port_cast_matches_native_footprint_and_summon(rpc, galatian):
+    """Le summon POSE PAR LE PORT et celui pose par le NATIF ont le meme visualId et la MEME
+    empreinte ORDONNEE (`AddUnitOperation` : un `AddFoot` par tuile, dans l'ordre recu)."""
+    _state, diag = _port_cast(galatian)
+    assert diag["summon"] == SUMMON
+    native = _native_feet(rpc, galatian["rid"], galatian["uid"])
+    assert diag["feet"] == native, f"port {diag['feet']} != natif {native}"
+
+
+def test_port_cast_removes_the_machine(galatian):
+    """`RemoveMachine(caster@0x160)` -> `RemoveMachineOperation$$Execute` : la MoW quitte la
+    bataille. Cote port : `MachineComponent.removed`, `UnitComponent.alive = False`, et AUCUNE de
+    ses abilities n'est plus utilisable (`ActiveAbility.can_currently_be_used`). C'est le pendant
+    exact de l'i2 « Galatian can no longer be used as a Machine of War for the rest of the battle »
+    -- et il tombe sur `MacroPlasmaIncinerator` (1159) aussi, pas seulement sur 1158."""
+    from engine.runner.components import (MachineComponent, UnitComponent,
+                                          ActiveAbilitiesComponent)
+    state, diag = _port_cast(galatian)
+    assert diag["removed_machine"] == [galatian["caster"]], \
+        f"RemoveMachine n'a pas vise le caster : {diag}"
+    mow = state.get_entity(galatian["caster"])
+    assert mow.get_component(MachineComponent).removed is True
+    assert mow.get_component(UnitComponent).alive is False
+    ac = mow.get_component(ActiveAbilitiesComponent)
+    if ac is not None:
+        assert ac.abilities, "la MoW doit porter ses abilities (seed decisionView)"
+        for a in ac.abilities:
+            assert not a.can_currently_be_used(), \
+                f"ability {a.ability_type} encore utilisable apres RemoveMachine"
+
+
+def test_native_machine_is_gone_after_the_cast(rpc, galatian):
+    """Contrepartie LIVE du test precedent -- ce que le NATIF montre de la MoW retiree : plus
+    aucune de ses abilities n'est castable. On lit `decisionView.mows` APRES le cast."""
+    after = rpc("decisionView", {"runnerId": galatian["rid"], "allAbilities": True})
+    row = next((m for m in (after.get("mows") or [])
+                if m.get("casterId") == galatian["caster"]), None)
+    if row is None:
+        return                                     # la MoW a DISPARU de la vue : verdict encore + net
+    usable = [a for a in (row.get("abilities") or [])
+              if a.get("usable") and a.get("hasAmmo", True) and not (a.get("cooldown") or 0)]
+    assert not usable, \
+        f"la MoW retiree expose encore des abilities castables : {json.dumps(usable)[:300]}"
+
+
+def test_port_cast_grants_the_stationary_trait(galatian):
+    """`AddTrait(ActiveTarget@0x180, 0x418)` = `UnitTrait.Stationary` (1048), pose PAR le
+    sous-behaviour on-appearance des `SpawnUnitOptions` -- **pas** une propriete de la config du
+    summon (`gameconfig(ultraSmnDreadnought).traits` ne le porte pas). C'est le « **stationary**
+    unit » de l'i2, et le consommateur natif est le gate `HasTrait(0x418)` de
+    `MovementQuery$$GetMovablePositionsFor`."""
+    import gameconfig as GC
+    from engine.entities.traits.unit_trait import UnitTrait, has_trait
+    from engine.runner.components import StatsComponent
+    assert UnitTrait.Stationary.name not in ((GC.unit(SUMMON) or {}).get("traits") or []), \
+        "si la config portait deja Stationary, ce test ne prouverait rien"
+    state, diag = _port_cast(galatian)
+    sc = state.get_entity(diag["spawned"][0]).get_component(StatsComponent)
+    assert has_trait(sc.ctx.traits, UnitTrait.Stationary), \
+        f"trait Stationary absent du summon porte : {sc.ctx.traits}"
+    # ...et le port doit en tirer la MEME conclusion que le natif : le gate `HasTrait(0x418)` en
+    # tete de `MovementQuery$$GetMovablePositionsFor` rend un ensemble VIDE de positions -- gate
+    # desormais reproduit (#91 ferme le residu R30 §6.3, faute de porteur jusqu'ici).
+    assert MQ.get_movable_positions_for(state.board, state, diag["spawned"][0],
+                                        [galatian["anchor"]]) == []
+
+
+def test_port_cast_transfers_no_triggered_ability_when_caster_has_none(galatian):
+    """Branche CONDITIONNELLE `if (Count > 0)` : le Galatian MoW de ce build n'a AUCUNE triggered
+    ability (son seul candidat serait la MYTHIC `WisdomOfTheAncients`, absente au rang courant), la
+    collection est donc vide et NI le natif NI le port ne transferent quoi que ce soit. Ce test
+    VERROUILLE la degradation : `transferred_ability is None` -> aucune ability inventee sur le
+    summon. La branche « non vide » reste NON CONFRONTEE LIVE (residu nomme, case-91 §7)."""
+    from engine.runner.abilities.behaviours import first_triggered_ability_of
+    from engine.runner.components import TriggeredAbilityComponent
+    state, diag = _port_cast(galatian)
+    assert first_triggered_ability_of(state, galatian["caster"]) is None, \
+        "le Galatian MoW ne doit porter aucune triggered ability dans ce build"
+    assert diag["transferred_ability"] is None
+    tc = state.get_entity(diag["spawned"][0]).get_component(TriggeredAbilityComponent)
+    assert tc is None or not tc.entries, \
+        f"une triggered ability a ete inventee sur le summon : {tc.entries}"
+
+
+# ------------------------------------------------- face DECISION : la REGLE DYNAMIQUE de l'ability
+
+def test_dynamic_rule_agrees_with_native_tile_by_tile(galatian):
+    """`DutyEternalAbility$$GetDynamicInvalidTargetReason` = « la tuile visee est legale SSI une
+    aire triangulaire de 3 tuiles existe autour d'elle ». Confrontation TUILE PAR TUILE du verdict
+    du port contre `abilityReason` natif (= `GetInvalidTargetReason`, dont la derniere marche EST
+    cette regle).
+
+    Le test EXIGE que l'echantillon porte les DEUX verdicts : sans tuile refusee il ne prouverait
+    rien (un port qui dirait toujours « valide » passerait)."""
+    rows = galatian["reasons"]
+    assert rows, "aucun verdict collecte"
+    accepted = [r for r in rows if not r["port"]]
+    refused = [r for r in rows if r["port"]]
+    assert accepted and refused, \
+        (f"echantillon non discriminant : {len(accepted)} acceptees / {len(refused)} refusees "
+         f"-- augmenter DYNAMIC_RULE_SAMPLE")
+    bad = []
+    for r in rows:
+        native_refuses = bool(r["native"].strip())
+        port_refuses = bool(r["port"])
+        if native_refuses != port_refuses:
+            bad.append((r["pos"], r["native"], r["port"], r["area"]))
+    assert not bad, ("desaccord natif/port sur la legalite de la tuile : "
+                     + "; ".join(f"{p} natif='{n}' port={q} aire={a}" for p, n, q, a in bad))
+
+
+def test_dynamic_rule_refuses_exactly_when_no_area_exists(galatian):
+    """Le CONTENU de la regle, pas seulement son verdict : le port refuse EXACTEMENT les tuiles ou
+    `ThreeUnitSpawnTileShapeSelector$$GetArea` rend une liste vide, et le code rendu est le
+    litteral `2` (`TargetingRule.TargetMatchesDynamicRule`)."""
+    from engine.runner.abilities.targeting_rule import TargetingRule as TR
+    for r in galatian["reasons"]:
+        if r["area"]:
+            assert r["port"] == 0, f"{r['pos']} porte une aire {r['area']} et le port refuse"
+        else:
+            assert r["port"] == int(TR.TargetMatchesDynamicRule), \
+                f"{r['pos']} sans aire : le port doit rendre 2, il rend {r['port']}"

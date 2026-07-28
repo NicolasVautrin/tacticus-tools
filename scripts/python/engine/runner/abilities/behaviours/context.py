@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
-                          HealthComponent)
+                          HealthComponent, get_unit_feet)
 from ....entities.traits.unit_trait import UnitTrait, has_trait, grand_alliance_trait_name
 
 
@@ -68,6 +68,12 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         "team": oc.team if oc is not None else None,
         "player": oc.player if oc is not None else None,
         "pos": {"col": pc.col, "row": pc.row} if pc is not None else None,
+        # EMPREINTE (#R30/#91) — `IdunBattle.Entities.EntityExtensions$$GetTiles` = les tuiles des
+        # PIEDS, dans l'ordre des pieds. Toujours une LISTE (jamais None) : une unite mono-tuile
+        # rend `[(col,row)]`, exactement ce que le natif rend pour un seul `UnitFoot`. C'est la
+        # SEULE porte d'entree des selecteurs DSL sur « quelles tuiles cette unite occupe » ; sans
+        # elle un `CanAddUnit` ne voyait qu'un tiers de l'empreinte d'un Galatian pose au sol.
+        "feet": get_unit_feet(state, eid),
         "alive": alive,
         "hp": hc.hp if hc is not None else (1 if alive else 0),
         "visualId": uc.visual_id if uc is not None else None,
@@ -85,7 +91,7 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 
 # Champs MUTABLES d'une unite (re-lus du state a chaque acces par LiveUnit). Les autres (id/team/player/
 # visualId/_traits) sont quasi-statiques -> servis depuis le snapshot seed.
-_LIVE_KEYS = frozenset({"pos", "hp", "alive"})
+_LIVE_KEYS = frozenset({"pos", "hp", "alive", "feet"})
 
 
 class LiveUnit(dict):

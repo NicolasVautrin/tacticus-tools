@@ -63,7 +63,8 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
-                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility)
+                           MacroPlasmaIncineratorAbility, TacticalPrecisionAbility,
+                           DutyEternalAbility)
 from .custodes import MomentShackleAbility
 from .bloodangels import SavageEchoesAbility, HammerOfWrathAbility
 from .necrons import (HarbingerOfDestructionAbility, ResurrectionOrbAbility, ChronometronAbility,
@@ -159,6 +160,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # cf. docs/rl/case-90-mow-effect-posers.md.
     HeavyRailRifleAbility.ABILITY_TYPE: HeavyRailRifleAbility,         # 1160 (tauBroadside Tau MoW : AddEffect(1334 PendingTarget -> cible) & AddEffect(1333 PendingAttack -> la MoW) ; unit-target)
     MacroPlasmaIncineratorAbility.ABILITY_TYPE: MacroPlasmaIncineratorAbility,  # 1159 (ultraDreadnought Ultramarines MoW : AddEffect(1335 Tile -> triangle Walkable/SameElevation autour de la tuile ciblee) & AddEffect(1336 AutoAttack -> la MoW), TurnsFromRounds(1) ; tile-target)
+    DutyEternalAbility.ABILITY_TYPE: DutyEternalAbility,               # 1158 (ultraDreadnought Ultramarines MoW : RemoveMachine(caster) & Spawn(ThreeTileUnitSpawnShape(tuile ciblee), "ultraSmnDreadnought", opts+0x60=1 -> UNE unite a 3 PIEDS) ; on-appearance AddTrait(0x418 Stationary) [& AddTriggeredAbility(1re triggered du caster)] ; tile-target -- SEULE ability multi-hex du build, cf. case-91)
     DevastatingRefrainAbility.ABILITY_TYPE: DevastatingRefrainAbility,  # 1188 (adeptExorcist Sisterhood MoW : AddEffect(1403 Attack -> la MoW) + AddBondEffect(1402 Target -> tuile ciblee + 3 voisines {3,1,5}/{0,2,4} selon le cote) ; tile-target)
     SquigMineAbility.ABILITY_TYPE: SquigMineAbility,                   # 1201 (orksRukkatrukk Orks MoW : AddEffect(1441 SquigMine_Tile -> tuile ciblee + PickRandomly(nrOfTiles) dans le disque range=2 libre/sans-mine), TurnsFromRounds(nrOfRounds) ; tile-target)
     MalleusRocketLauncherAbility.ABILITY_TYPE: MalleusRocketLauncherAbility,  # 1142 (astraOrdnanceBattery AstraMilitarum MoW : Inform + AddBondEffect(1308) + AddEffect(1309 PendingTarget) + AddEffect(1310 SpottedTarget), tous sur la TUILE ciblee ; tile-target)
