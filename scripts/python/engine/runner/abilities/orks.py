@@ -13,7 +13,8 @@ import gameconfig as GC
 import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
-from .targeting import RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ..components import PositionComponent, StatsComponent
 from ...dsl.base import Const
@@ -23,10 +24,11 @@ from ...entities.behaviours import If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import Count, Get, VisualUnitIdFromUnitId
 from ...entities.selectors import (ActiveTarget, AdjacentFriends, AdjacentTiles, AdjacentUnits,
-                                   AllUnits, Cache, CanAddUnit, Caster, CasterTile,
+                                   AllUnits, Cache, CanAddUnit, Caster, CasterTile, Damageable,
                                    EntitiesWithoutEffects, FixedTileIds, FixedTiles, Friends,
-                                   SurroundingTiles, Target, TargetTile, Union, Unique,
-                                   UnitsFromFaction, UnitsWithVisualId, non_steppable_or_object_units,
+                                   SurroundingEnemies, SurroundingTiles, Target, TargetTile, Union,
+                                   Unique, UnitSet, UnitsFromFaction, UnitsWithVisualId, Unobscured,
+                                   non_steppable_or_object_units,
                                    tiles_unit_can_move_to_charge_target)
 from ...entities.stats import StatType
 from ...entities.triggers import AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, TriggerOr
@@ -664,3 +666,244 @@ class SquigMineAbility(ActiveAbility):
         posed = [p["target"] for n, p in ectx.emitted if n == "AddEffect"]
         return {"tile": tile_id, "pool": list(pool), "picked": list(picked), "turns": turns,
                 "nrOfTiles": n_tiles, "range": rng_range, "posed": posed, "dsl": True}
+
+
+# ================================================================================================ #
+# DakkaDakkaDakka (1171, `orksKillaKan` « Snappawrecka ») — case-decision-noop.
+#
+# Gisement `[-D]` : la face DECISION etait portee (`DakkaDakkaDakkaAbility` de
+# `entities/abilities/active_ability.py`, registre `_SPECIAL_ABILITY_CLASSES` — l'IA PREDIT donc
+# `nrOfHits`=6 coups et choisit l'ability), la face COMBAT etait un NO-OP complet.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$ExecuteBehaviour` (MIRROR
+# du DECOMPILE, arbre lu noeud par noeud) :
+#
+#     profile   = GetDamageProfile(config, 0)                         # "Projectile" (pierce 15)
+#     numHits   = GetNumHits(this)                                    # cf. `dakka_num_hits`
+#     damage    = AActiveAbility.MinMaxDamage(minDmg/maxDmg[level])
+#     possible  = Damageable( Unobscured( caster@0x160,               # == $$PossibleLeftoverHitsTargets
+#                                         SurroundingEnemies(caster@0x148,
+#                                                            GetNumberConstant(0x44 = range_2)) ) )
+#     main      = AttackWithAttackDamage( caster@0x148, target@0x178, damage, profile, numHits,
+#                                         AbilityOrEffect(this+0x10) )
+#     numLeft   = Cache( NumLeftOverHits(target@0x178, AbilityOrEffect(this+0x10)) )
+#     picked    = Cache( PickRandomly( possible,
+#                                      RandomAmount( One@dsl+0xc0,
+#                                                    Min(numLeft, Count(possible)) ),
+#                                      allowRepeat=0, maxRepeats=0x7fffffff ) )
+#     cnt       = Cache( Count(picked) )
+#     q         = Cache( Divide(numLeft, cnt, mode 2 = Floor) )        # \
+#     rem       = Difference(numLeft, Multiply(cnt, q))                #  > $$GetLeftoverHitsPerTargetFormula
+#     hitsPer   = If( AreEqual(Cache(First(picked, 1)), It@0x180),     # /   (corps INLINE ici)
+#                     Sum(q, rem), q )
+#     leftAtk   = AttackWithAttackDamage( caster@0x148, picked, damage, profile, hitsPer,
+#                                         AbilityOrEffect(this+0x10) )
+#     selfLoss  = ChangeStat( caster@0x148, Position(Health=5), mode 3 = Subtract,
+#                             GetHealthToLose(this) )
+#     Execute( op_and( op_and(main, If(numLeft, leftAtk, null)),
+#                      If(IsAlive(caster@0x160), selfLoss, null) ) )
+#
+# i2 : « Deals 6x [dmg] Projectile Damage to an enemy within range 3. Adds +2 hits for each time
+# Snappawrecka was repaired this battle, but cannot exceed 16 hits in total. If the target is
+# defeated, leftover hits are allocated to random enemies within 3 hexes. Snappawrecka also loses
+# 15% of his maximum Health. »
+#
+# TROIS COLLAPSES IMPERATIFS, tous du meme genre que ceux deja au depot (BasiliskBarrage collapse
+# ses TROIS `PickRandomly`, Waaagh/SquigMine collapsent le leur) — le TIRAGE ne peut pas vivre dans
+# un noeud V pur (`AAmountFormula.calculate(ctx)` n'a pas le `state.rng`) :
+#   * `NumLeftOverHits` -> `ChainLeftOverHitsAttackDamage._left_over_hits(main_atk, extra=0)` ;
+#   * `RandomAmount(1, cnt)` -> `state.rng.next_internal(1, cnt + 1)` (UN tirage) ;
+#   * `PickRandomly(possible, n)` -> `_pick_randomly_n(state, pool, n)` (n tirages, bornes
+#     decroissantes -- #130/#215).
+# L'ORDRE des tirages est celui du natif : attaque MAIN, puis RandomAmount, puis PickRandomly, puis
+# attaque LEFTOVER, puis self-loss (deterministe).
+# ================================================================================================ #
+
+DDD_ID = "DakkaDakkaDakka"
+DDD_CONST_NR_OF_HITS = 0x2f      # GetNumberConstant(0x2f)  -> "nrOfHits"     = 6
+DDD_CONST_EXTRA_HITS = 0x64      # GetNumberConstant(100)   -> "extraHits"    = 2
+DDD_CONST_MAX_HITS = 0x48        # ConfigConst(0x48)        -> "maxNrOfHits"  = 16
+DDD_CONST_RANGE_2 = 0x44         # GetNumberConstant(0x44)  -> "range_2"      = 3
+DDD_CONST_HEALTH_PCT = 0x4f      # ConfigConst(0x4f)        -> "healthPct"    = 15
+# ^ 0x44 : index NON derivable de la valeur (1171 a `range` == `range_2` == 3). Il est etabli par
+#   ELIMINATION sur DEUX configs independantes : 0x16 = `range` est deja ancre (dump.cs
+#   AbilityConstantType.range = 22), et le SEUL autre index numerique commun a 1171 et a
+#   `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys`
+#   (l'autre call-site de 0x44 au depot, cf. `playbook/bespoke.py`) est `range_2`.
+
+
+def dakka_possible_leftover_targets_tree(range_2: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$PossibleLeftoverHitsTargets`
+    — MIRROR 1:1 (le corps est aussi INLINE dans `$$ExecuteBehaviour`) :
+
+        Damageable( Unobscured( caster@0x160,
+                                SurroundingEnemies(caster@0x148, GetNumberConstant(0x44), 1, 3) ) )
+
+    = « ennemis du caster dans le disque `range_2` autour de SA tuile (caster exclu), non obscurcis
+    depuis le caster, vivants ». `SurroundingEnemies` est ici la surcharge 6-args (reference et
+    centre separes, tous deux le caster) -> `reference=None` cote port. `@0x148` (Owner) et `@0x160`
+    (Caster) designent la MEME unite pour un cast d'active (owner == caster)."""
+    return Damageable(Unobscured(SurroundingEnemies(Caster(), Const(int(range_2))), Caster()))
+
+
+def dakka_num_hits(times_repaired: int, n_hits: int, extra_hits: int, max_hits: int) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` — MIRROR :
+
+        Min( Sum( Direct(GetNumberConstant(0x2f) = nrOfHits),
+                  Multiply( TimesRepaired(caster@0x160),
+                            Direct(GetNumberConstant(100) = extraHits) ) ),
+             ConfigConst(0x48 = maxNrOfHits) )
+
+    `TimesRepaired` = compteur runtime du caster (`IdunBattle.Entities.Formulas.TimesRepairedFormula`)
+    NON capte offline (meme regime documente que `TotalTimesAttacked`, cf. `entities/formulas.py`)
+    -> `times_repaired = 0` au cast, donc `hits = nrOfHits` (6). Le snowball reste EXACT des que le
+    compteur sera seede : c'est l'arbre entier qui est porte, pas sa valeur au repos."""
+    return min(int(n_hits) + int(times_repaired) * int(extra_hits), int(max_hits))
+
+
+def dakka_main_attack_tree(hits: int) -> AttackWithAttackDamage:
+    """1er volet de `$$ExecuteBehaviour` : `AttackWithAttackDamage(caster@0x148, target@0x178,
+    MinMaxDamage(minDmg/maxDmg[level]), Nullable(GetDamageProfile), numHits, AbilityOrEffect(+0x10))`.
+    `attackRangeType = Ranged` (gameconfig 1171) -> `is_melee=False`. La factory native est
+    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (XREF de l'`ExecuteBehaviour`) ->
+    famille **ATTACK** (`native_factory="attack"`, 2 tirages/coup a cc=0)."""
+    return AttackWithAttackDamage(Target(), DDD_ID, "Projectile", is_melee=False,
+                                  native_factory="attack", hits=None, hits_override=int(hits),
+                                  ability_type=int(ActiveAbilityType.DakkaDakkaDakka))
+
+
+def dakka_leftover_attack_tree(targets: list, hits: int) -> AttackWithAttackDamage:
+    """2e volet : `AttackWithAttackDamage(caster@0x148, <picked>, MEME damage/profil, hitsPer,
+    AbilityOrEffect(+0x10))`. Les cibles sont deja TIREES (collapse du `PickRandomly`) -> le
+    selecteur est un `FixedUnits` sur leurs ids et `multi=True` folde l'`OrderBy` de
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (`if Count > 1 : OrderBy(b__5_0)`)."""
+    return AttackWithAttackDamage(UnitSet(list(targets)), DDD_ID, "Projectile", is_melee=False,
+                                  multi=True, native_factory="attack",
+                                  hits=None, hits_override=int(hits),
+                                  ability_type=int(ActiveAbilityType.DakkaDakkaDakka))
+
+
+class DakkaDakkaDakkaAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$ExecuteBehaviour`
+    (id 1171, `orksKillaKan` « Snappawrecka », Orks) — cf. l'en-tete de section pour l'arbre LU.
+
+    Trois volets, dans l'ORDRE natif : (1) `numHits` coups Projectile (pierce 15) sur la cible ;
+    (2) si la cible est morte, les coups GASPILLES sont repartis sur des ennemis TIRES au hasard
+    dans le disque `range_2` du caster ; (3) le caster perd `healthPct`% de son PV **MAXIMUM**
+    (`StatAmount(Self, Health, StatPart.MAXIMUM=2)` — LU, cf. `SubtractHealthPercent.stat_part`),
+    sous le gate `IsAlive(caster)`.
+
+    RESIDU NOMME (le seul) — la distribution du RESTE. Le nœud natif est
+    `If(AreEqual(Cache(First(picked,1)), It@0x180), Sum(q, rem), q)` : la 1re cible du pick recoit
+    `q + rem`, les autres `q`. `It@0x180` = `ActiveTarget` = le **slot 4** de l'`AbilityEntities`
+    (`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` : `param_1[4] = param_3`). Or NI
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (qui n'ecrit que les slots 1 = actor
+    et 2 = target de sa copie) NI `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`
+    (qui evalue le noeud de coups `+0x90` contre l'`entities` RECU tel quel) ne lient ce slot 4 :
+    LU au decompile, pas suppose. Sa valeur au cast top-level n'a pas ete RE. Le port evalue donc le
+    predicat contre `entities.active_target`, qui vaut `None` sur ce chemin -> **toutes** les cibles
+    piquees recoivent `q`, et `rem` (0..cnt-1 coups) n'est pas distribue. Ecart BORNE par
+    `cnt - 1` coups, et NUL des que `numLeft` est divisible par `cnt` (dont tout le cas `cnt == 1`,
+    le plus frequent). Fermer ce residu = RE du slot 4 de l'`AbilityEntities` d'un cast top-level.
+
+    Renvoie {ability, caster, target, hits, main_attack, num_left, picked, hits_per, leftover,
+    self_loss, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DakkaDakkaDakka)   # 1171
+    ABILITY_ID = DDD_ID
+
+    # GATE DE CIBLE (#115). `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$.ctor`
+    # est de la forme PRESET COPIE : il n'ecrit AUCUN flag, il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset **+0x140** du bloc `<class>+0xb8`, puis
+    # `TargetingOptions..ctor(&opts, &preset, 0)` (copie) et `AActiveAbility..ctor(this, &opts, 0, 0)`.
+    # C'est EXACTEMENT le meme preset que
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility$$.ctor` (1006,
+    # necrons.py) et `...GravitonRifleAbility$$.ctor` (1206, votann.py) : masque effectif =
+    # `preset+0x28` = statics `+0x168` = `0x4002`, valeur CONSTANTE ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` (deja lue pour ces deux ports).
+    # Decomposition (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2      TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, que 1171 ne
+    #              surcharge PAS (aucun symbole ; le slot vtable reste le defaut 0) -> aucun refus
+    #              dynamique, degradation PERMISSIVE assumee et identique au natif.
+    #     0x4000   TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
+    # PORTEE : meme preset -> `TargetingRange` statique `+0x18` = `useRangeFromConfig`
+    # (`DakkaDakkaDakka.constants.range` = 3) + `forceMeleeTarget = True`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        from ...entities.effects.magnitude import ability_var
+        n_hits = int(ability_var(DDD_ID, "nrOfHits", is_constant=True) or 1)
+        extra_hits = int(ability_var(DDD_ID, "extraHits", is_constant=True) or 0)
+        max_hits = int(ability_var(DDD_ID, "maxNrOfHits", is_constant=True) or n_hits)
+        range_2 = int(ability_var(DDD_ID, "range_2", is_constant=True) or 1)
+        return n_hits, extra_hits, max_hits, range_2
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        from .loki.splash import _pick_randomly_n
+        from .behaviours.combat import ChainLeftOverHitsAttackDamage
+        from .behaviours import SubtractHealthPercent
+        from ...entities.stats import StatPart
+        from ...dsl.base import _is_alive
+
+        n_hits, extra_hits, max_hits, range_2 = self._params(state, caster_id)
+        # `TimesRepaired(caster@0x160)` : compteur runtime non capte offline -> 0 (cf. `dakka_num_hits`).
+        hits = dakka_num_hits(0, n_hits, extra_hits, max_hits)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+
+        # (1) MAIN — `AttackWithAttackDamage(caster, target, damage, profile, numHits)`.
+        dakka_main_attack_tree(hits).execute(entities, ectx)
+        main = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+
+        # (2) `numLeft = Cache(NumLeftOverHits(target@0x178, AbilityOrEffect(+0x10)))`.
+        # `IdunBattle.Entities.Formulas.NumLeftOverHitsFormula$$Calculate` = nb d'entrees
+        # `LeftOverDamages` de la CIBLE dont le FLAG est vrai ET dont la source est CETTE ability.
+        # C'est le `count` de `ChainLeftOverHitsAttackDamageBehaviour$$GetLeftOverHits` **sans** son
+        # terme `+ extraHits` (ce noeud-ci ne fait que compter) -> `_left_over_hits(atk, extra=0)`,
+        # la loi deja mesuree sur 4 regimes (#125).
+        num_left = ChainLeftOverHitsAttackDamage._left_over_hits(main or {}, 0) if main else 0
+        picked: list = []
+        hits_per = 0
+        leftover: list = []
+        if num_left > 0:                                   # `If(numLeft, leftAtk, null)`
+            pool = [u for u in dakka_possible_leftover_targets_tree(range_2).evaluate(entities)
+                    if (u or {}).get("id") is not None]    # ordre SOURCE (aucun tri avant le tirage)
+            cnt_max = min(int(num_left), len(pool))        # `Min(numLeft, Count(possible))`
+            # `RandomAmount(One@dsl+0xc0, cnt_max)` -> `rng.NextInternal(min, max + 1)` (borne haute
+            # INCLUSIVE, cf. `IdunBattle.Entities.Formulas.RandomAmount$$Calculate` : `(min, max+1)`).
+            n = state.rng.next_internal(1, cnt_max + 1) if state.rng is not None else min(1, cnt_max)
+            picked = _pick_randomly_n(state, pool, int(n))  # `PickRandomly(possible, n, 0, 0x7fffffff)`
+            cnt = len(picked)
+            if cnt > 0:
+                # `$$GetLeftoverHitsPerTargetFormula` : `q = Divide(numLeft, cnt, Floor)`,
+                # `rem = numLeft - cnt*q`, `hitsPer = If(AreEqual(First(picked), ActiveTarget), q+rem, q)`.
+                # Le predicat porte tel quel (cf. RESIDU NOMME dans la docstring de classe) :
+                # `active_target` non lie sur ce chemin -> branche `q`.
+                q = int(num_left) // cnt
+                rem = int(num_left) - cnt * q
+                first_is_active = (entities.active_target is not None
+                                   and (entities.active_target or {}).get("id") == picked[0].get("id"))
+                hits_per = q + rem if first_is_active else q
+                if hits_per > 0:
+                    before = len(ectx.emitted)
+                    dakka_leftover_attack_tree(picked, hits_per).execute(entities, ectx)
+                    leftover = [{"target": p["target"], "total": p["total"]}
+                                for n2, p in ectx.emitted[before:] if n2 == "AttackWithAttackDamage"]
+
+        # (3) `If(IsAlive(caster@0x160), ChangeStat(caster, Health, Subtract,
+        #        PercentageOf(StatAmount(caster, Health, MAXIMUM), ConfigConst(healthPct))), null)`.
+        self_loss = None
+        if _is_alive(entities.caster):
+            before = len(ectx.emitted)
+            SubtractHealthPercent(Caster(), DDD_ID, "healthPct",
+                                  stat_part=int(StatPart.MAXIMUM)).execute(entities, ectx)
+            self_loss = next((p for n2, p in ectx.emitted[before:] if n2 == "ChangeStat"), None)
+        return {"ability": DDD_ID, "caster": caster_id, "target": target_id, "hits": hits,
+                "main_attack": main, "num_left": num_left,
+                "picked": [u.get("id") for u in picked], "hits_per": hits_per,
+                "leftover": leftover, "self_loss": self_loss, "range_2": range_2, "dsl": True}

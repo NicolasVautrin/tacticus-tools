@@ -241,16 +241,30 @@ class SubtractHealthPercent(AbilityBehaviour):
     `ExecuteBehaviour`. Le natif l'execute APRES l'`ExecuteAtomic` des attaques (`Execute` separe) ; l'appelant
     (`JakhalStimmsAbility.execute_behaviour`) respecte cet ordre en l'executant apres l'`AtomicGroup`. `delta`
     ne peut jamais atteindre `hp` (pct<100) -> le sujet ne meurt PAS de son self-loss (pas de death-trigger).
-    Emet 'ChangeStat' (mode="subtract"). PUR (stop=False)."""
-    __slots__ = ("target_sel", "ability_id", "pct_var")
+    Emet 'ChangeStat' (mode="subtract"). PUR (stop=False).
 
-    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct"):
+    `stat_part` = le 3e argument du `IdunBattleLogic.Entities.DSLFactory$$StatAmount` NATIF, c.-a-d. la
+    PART de la stat Health dont le pourcentage est pris — `StatPart.CURRENT` (0) ou `StatPart.MAXIMUM`
+    (2). Il est LU ability par ability, jamais uniformise :
+      * JakhalStimms (1131) : `StatAmount(Self@0x160, 5=Health, 0)` -> CURRENT (i2 « 25% of his
+        current Health ») — DEFAUT, comportement historique inchange ;
+      * DakkaDakkaDakka (1171) :
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetHealthToLose` =
+        `PercentageOf(StatAmount(Self@0x160, 5=Health, **2**), ConfigConst(0x4f healthPct))` -> MAXIMUM
+        (i2 « loses 15% of his maximum Health »).
+    La SOUSTRACTION porte dans les deux cas sur le PV COURANT (`ChangeStat(..., Position(Health), 3 =
+    Subtract, ...)`) : seule la BASE du pourcentage change."""
+    __slots__ = ("target_sel", "ability_id", "pct_var", "stat_part")
+
+    def __init__(self, target_sel: TargetsSelector, ability_id: str, pct_var: str = "hpPct",
+                 stat_part: int = 0):
         self.target_sel, self.ability_id, self.pct_var = target_sel, ability_id, pct_var
+        self.stat_part = int(stat_part)
 
     def execute(self, entities, ectx):
         from fractions import Fraction
         from ....entities.effects.magnitude import ability_var
-        from ....entities.stats import StatType
+        from ....entities.stats import StatType, StatPart
         from ....dsl.base import _round_fix64
         state = ectx.state
         if state is None:
@@ -267,10 +281,16 @@ class SubtractHealthPercent(AbilityBehaviour):
             if hc is None or hc.hp is None:
                 continue
             hp = int(hc.hp)
-            # PercentageOf(current_hp, pct) mode 0 (round half-to-even) = delta ; ChangeStat mode 3 Subtract :
+            # BASE du pourcentage = la part LUE au `StatAmount` natif (CURRENT par defaut ; MAXIMUM
+            # pour DakkaDakkaDakka). `hp_max` non capte -> retombe sur le courant (degradation fidele
+            # au seul etat disponible, jamais un plafond invente).
+            base = hp
+            if self.stat_part == int(StatPart.MAXIMUM) and hc.hp_max is not None:
+                base = int(hc.hp_max)
+            # PercentageOf(base, pct) mode 0 (round half-to-even) = delta ; ChangeStat mode 3 Subtract :
             # HealthComponent.hp = Max(hp - delta, 0). SetAbsolute-like (StatModifier), PAS FillUp.Reduce ->
             # ignore le plancher minimal_health (aligne SetHealth : mutation directe de hc.hp).
-            delta = _round_fix64(Fraction(hp * int(pct), 100), 0)
+            delta = _round_fix64(Fraction(base * int(pct), 100), 0)
             new_hp = max(hp - delta, 0)
             hc.hp = new_hp
             ectx.emit("ChangeStat", unit=uid, stat=int(StatType.HEALTH), mode="subtract",

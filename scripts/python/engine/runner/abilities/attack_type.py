@@ -160,6 +160,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     1221: AbilityAttackType.DirectTargetAttack,   # AugmentedAssaultAbility
     1230: AbilityAttackType.DirectTargetAttack,   # SavageEchoesAbility
     1103: AbilityAttackType.DirectTargetAttack,   # SuperchargeAbility (lot #112, litteral 0 relu)
+    # DakkaDakkaDakka (1171, Snappawrecka orksKillaKan), case-decision-noop. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 0, 0)` -> 3e argument = 0 = DirectTargetAttack.
+    # (`&opts` = le PRESET statique `TargetingOptions` `+0x140` -- le MEME que 1006/1206, dont le
+    #  masque a ete lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` : les
+    #  `TARGETING_OPTIONS` de 1171 SONT donc posees, cf. la classe.)
+    1171: AbilityAttackType.DirectTargetAttack,   # DakkaDakkaDakkaAbility
     # FrenziedFiring (1036, Volk blackObliterator) : entree dans `ABILITY_CLASSES` par le lot #61
     # (face COMBAT du volet AoE) SANS son litteral -> l'etape 0 du garde-fou
     # `probe_120_pre_unit_ability_fork` echouait (« ability portee sans AbilityAttackType lu »).
