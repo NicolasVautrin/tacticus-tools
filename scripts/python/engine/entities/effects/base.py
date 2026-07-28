@@ -478,12 +478,50 @@ class BaseEffect:
         """`<Effect>.CreateAdditionalHits` (`IdunBattle.Entities.Effects.EffectAdditionalHits$$Create`) — coups ADDITIONNELS
         HETEROGENES a degat/profil PROPRE ajoutes a l'attaque du PORTEUR (trigger natif OwnerIsActor/
         OwnerIsCaster, evalue ; +gate nature d'attaque eventuel via `ctx["is_melee"]`, ex. FoulInfusion
-        IsMeleeAttack). Renvoie une liste de groupes `{count, min, max, profile}` — `count` coups de
-        degat [min,max] (RandomAmount = plage directe, PAS le spread ±20% de l'arme) — OU
-        `{count, amount, profile}` (amount SEUL = ConfigVar : le pipeline applique le spread ±20%).
-        A materialiser APRES les coups d'arme dans la MEME chaine prev-threadee (overkill continu).
-        Defaut None = pas de coups additionnels. Ex. `SquigHound_AdditionalHits` = 2 coups
-        [minDmg,maxDmg] profil Physical."""
+        IsMeleeAttack). Renvoie une liste de groupes `{count, profile, ...}` a materialiser APRES les
+        coups d'arme dans la MEME chaine prev-threadee (overkill continu). Defaut None = pas de coups
+        additionnels. Ex. `SquigHound_AdditionalHits` = 2 coups [minDmg,maxDmg] profil Physical.
+
+        ## DEUX NOEUDS DE DEGAT, DEUX FACES (#159) -- `min`/`max` ET `amount` COEXISTENT
+
+        Le descripteur natif porte **deux** noeuds distincts, et l'evaluateur
+        `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this, entities, useDisplay)` choisit
+        (lu verbatim, gqfc5mff6c) :
+
+            if (!d.condition.ShouldTrigger(entities))  return default          # slot 5
+            count  = d.countNode != null ? d.countNode.Calculate(entities) : 1 # +0x18, slot 1
+            amount = d.minNode.<slot 4>(entities)                              # +0x10 noeud DISPLAY
+            min = max = amount
+            if (!useDisplay) {                                                 # <- FACE COMBAT
+                min = d.amountNode.<slot 2>(entities)                          # +0x08 noeud ROLL
+                max = d.amountNode.<slot 3>(entities)
+            }
+            -> AdditionalHitsInfo{ MinMax = MinMaxDamage(min, max), amount, count, profile, ... }
+
+        et `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsData` bat l'AttackData
+        de chaque groupe par `IdunBattle.Core.HitDamage$$.ctor(min, Nullable(max))` DEPUIS ce
+        MinMaxDamage. Qui passe quoi :
+          - **COMBAT** -> `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithout
+            DamageProfileType` appelle `...$$GetAdditionalHitsFromEffectsInternal` avec l'octet
+            EXPLICITEMENT MIS A ZERO (`in_stack & 0xffffff00`) => `useDisplay = false` => bornes =
+            le noeud **ROLL** ;
+          - **PREDICTION** -> `IdunBattle.Entities.Abilities.AActiveAbility$$GetAdditionalHitsFrom
+            EffectsForPrediction` => cellule DEGENEREE `(amount, amount)`, que le pipeline de
+            prediction etale ensuite (`DamageCalculations$$CalculateDamageSpread`, +-20 %).
+
+        D'ou le CONTRAT du dict rendu ici -- les deux cles ne s'excluent PAS :
+          - `min`/`max` = les bornes du noeud **ROLL** -> lues par la face COMBAT
+            (`runner/operations/additional_hits.py::execute_additional_hits`) ;
+          - `amount`    = la valeur du noeud **DISPLAY** -> lue par la face PREDICTION
+            (`playbook/prediction/normal_attack.py`, qui teste `"amount" in g` EN PREMIER).
+        Un descripteur dont les deux noeuds sont le MEME (`param_8 = 0` dans
+        `EffectAdditionalHits$$Create` -> `minNode` retombe sur `amountNode`, ex. FoulInfusion /
+        ExplosiveMaladies) n'a qu'une forme a rendre. Un descripteur a noeuds DISTINCTS
+        (FleshmetalGuns : `RandomAmount(a,b)` vs `Average(a,b)` ; CyclicIonBlaster :
+        `RandomAmount(min,max)` vs `min` seul) DOIT rendre LES DEUX -- ne rendre que `amount`
+        faisait etaler la face COMBAT a +-20 % autour de la moyenne au lieu de tirer dans
+        [min, max] (residu #159 (a), mesure live 8/8 contre 0/8 :
+        cf. `docs/rl/case-159-rng-canal179-et-maybe-ltgb.md`)."""
         return None
 
     def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":

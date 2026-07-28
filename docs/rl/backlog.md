@@ -77,39 +77,73 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   naturel du tier (à cible disponible pour les deux, le natif doit émettre 1187 quelle que soit
   l'utilité de 1188). Les 19 autres abilities de la table ne sont pas portées. `[opus]`.
 
-- **Le VERDICT du `Maybe` de `LetTheGalaxyBurn` diverge natif/port** (`case-61` §6, mesuré par
-  `probe_61d_frenzy_aoe_combat.py`). Depuis que `On(PreAttack=5)` est émis sur le vecteur ability, le
-  *tirage* est consommé des DEUX côtés — l'alignement `state.rng` est préservé — mais le prédicat ne
-  rend pas toujours le même booléen : mesuré K=1, natif **6** coups sur la cible (non armé) vs port
-  **7** (armé), **les 6 premiers coups restant bit-exacts**. Ce n'est donc pas un décalage de flux
-  mais un écart de **seuil** : port `LetTheGalaxyBurnArmAbility.matches` →
-  `state.rng.next_internal(0, 100) < LetTheGalaxyBurnChancePct` vs natif
-  `IdunBattleLogic.Entities.DSLFactory$$Maybe` → `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`
-  (bornes / comparaison / générateur à LIRE). Impact : ±1 coup par attaque pour les 5 porteurs
-  `LetTheGalaxyBurn` (Black Legion) ; `test_ability_hits_channel_live.py` borne l'écart à 1. `[opus]`.
+- ~~**Le VERDICT du `Maybe` de `LetTheGalaxyBurn` diverge natif/port**~~ — **CONSTAT PÉRIMÉ, RÉFUTÉ
+  PAR LA MESURE (#159 (b))**. Le diagnostic décrivait un arbre qui n'existe plus : `case-o4a` avait
+  déjà remplacé `next_internal(0,100) < pct` (borne 100) par la primitive native `NextBool(chance)`
+  (`next_internal(1,100) <= chance`, borne 99). Re-mesuré à flux RNG calé sur 6 montages
+  (`blackObliterator` vs `necroWarden`, MC1_67) : **le verdict est IDENTIQUE 6/6** — 4 seeds où les
+  deux côtés arment, 2 où aucun n'arme — et le budget de tirages le confirme (1 tirage de `Maybe`
+  des deux côtés). Détail : `docs/rl/case-159-rng-canal179-et-maybe-ltgb.md` §3.1.
 
-- **Conso RNG du canal #179 non bit-exacte sur le vecteur ability** (`case-61` §4ter ; le résidu
-  `case-202` §7 « à confirmer live » est désormais CHIFFRÉ). Sur un cast de `FrenziedFiring` (caster
-  `blackObliterator`, porteur permanent d'un effet du cycle `FleshmetalGuns`), les coups d'ARME sont
-  bit-exacts (K=0, 2 seeds) mais les 2 coups additionnels du canal #179 diffèrent en valeur : port
-  `[2735, 2553]` vs natif `[2481, 2754]`. Comme ces coups s'exécutent **après** chaque attaque, tout
-  ce qui suit la première attaque est désaligné (2ᵉ, 3ᵉ… cible d'un volet AoE). Pistes à trancher
-  au décompilé : l'ordre relatif de
-  `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` vs
-  `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (le port place le canal AVANT
-  les after-hit), et le nombre de tirages par coup additionnel. `[opus]`.
+  **RÉSIDU NEUF qui le remplace, localisé ET chiffré : `LetTheGalaxyBurn` est porté dans le MAUVAIS
+  CANAL.** `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` (lu
+  verbatim) en fait un **groupe du canal #179** — `count = 1` (nœud NULL), `profile = -1`, dégât =
+  `FirstHitInCurrentAttackDamageRange()` sur les DEUX nœuds — alors que le port l'implémente en
+  `create_effect_hits_bonus_for_attack`, c.-à-d. un coup d'**ARME** de plus. Conséquence MESURÉE :
+  le coup surnuméraire natif est une **constante déterministe** = `round((cellule.min +
+  cellule.max)/2)` (cellule d'arme réduite `(906,1359)` → **1133** sur 4 seeds ; cellule `(725,1087)`
+  → **906**), là où le port tire une valeur aléatoire dans cette cellule. Le nombre de tirages, lui,
+  est le bon (1) — l'erreur est **purement de valeur, bornée à un coup par attaque**, et le flux
+  aval reste aligné. Correction = déplacer le +1 de la formule de coups vers le canal #179 **sur les
+  DEUX faces** (la prédiction native le reçoit aussi comme groupe, via
+  `AActiveAbility$$GetAdditionalHitsFromEffectsForPrediction`) → touche `attack_hits_formula`,
+  `hits_bonus_from_effects` et `playbook/prediction/normal_attack.py`. Porteurs : les 5 héros Black
+  Legion du trait 1058. `[opus]`.
+
+- ~~**Conso RNG du canal #179 non bit-exacte sur le vecteur ability**~~ — **RÉSOLU (#159 (a))**, mais
+  l'étage fautif n'était **aucune** des deux pistes de la fiche : ni l'ordre relatif
+  `ExecuteAdditionalHitsWithoutDamageProfileType` / `EvaluateAfterHitTriggers` (tranché depuis par
+  `R6-b''` : l'émetteur after-hit est la **dernière instruction de chaque `ExecuteHit`**, donc en
+  amont du canal), ni le nombre de tirages par coup (juste depuis `R6-b`) — c'était **les BORNES**.
+  Un descripteur porte **DEUX** nœuds de dégât et `IdunBattle.Entities.Effects.BaseEffect$$
+  AdditionalHits(this, entities, useDisplay)` choisit : nœud ROLL (`amountNode` slots 2/3) en
+  COMBAT, nœud DISPLAY (`minNode` slot 4, dégénéré) en PRÉDICTION —
+  `AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` met l'octet
+  **explicitement à zéro**. Le port ne rendait que le nœud DISPLAY pour `FleshmetalGuns`
+  (`amount = Average`) et étalait ±20 % en combat, au lieu de tirer dans `[minDmg, maxDmg]`.
+  **PORTÉ + garde live** (`test_additional_hits_amount_bounds_live.py`) : groupe live reproduit
+  **8/8** par le nœud ROLL et **0/8** par le contrefactuel, sur deux variantes du cycle (WarpHail
+  asymétrique, largeur 399 vs 359 ; Melta quasi symétrique, 500 vs 499), 8/8 discriminants.
+  Les chiffres hérités (`[2735, 2553]` vs `[2481, 2754]`) étaient caducs — mesurés avant `R6-b`.
+
+  **Résidu jumeau restant = R6-c** (§4.a de `port-residuals-inventory.md`) : les descripteurs
+  `amount` dont le nœud ROLL n'est pas encore câblé. La RE est **lue et écrite** dans
+  `case-159-…` §4 — `CyclicIonBlaster` (bornes COMBAT = `[minDmg(+extraDmg), maxDmg(+extraDmg)]`,
+  le port étale ±20 % **autour du minimum** : `[479,719]` au lieu de `[599,898]` à mult 180, ce qui
+  EST la signature « groupe live au-dessus de la borne haute du port » mesurée sur `tauCrisis`) ;
+  `FoulInfusion` et `ExplosiveMaladies` (nœud ROLL **scalaire** → bornes dégénérées, donc un
+  changement de **consommation** aussi). Non portés : aucun montage live monté sur leur porteur.
+  `[opus]`.
 
   **2ᵉ datapoint (2026-07-28) qui BORNE les DEUX résidus ci-dessus** (`case-bl-1029-1020` §5.4) :
   `HeraldOfTheApocalypse` (1020, `blackHaarken`) est **bit-exact offline == live dans les DEUX
   régimes du `Maybe`** — `MC1_67` où le trait ARME (3 coups/cible, `{77:[1738,1979,1846],
   79:[1805,1632,1536]}`) comme `C3_01` où il n'arme pas (2 coups/cible). Ni l'écart de seuil du
   `Maybe`, ni le désalignement du canal #179 ne se manifestent sur ce porteur.
-  ⚠ Cela ne FERME pas les deux entrées : leur mesure d'origine est sur `FrenziedFiring`, dont le
-  caster `blackObliterator` porte en permanence un effet du cycle `FleshmetalGuns` (donc un canal
-  #179 réellement alimenté) que `blackHaarken` n'a pas. Ce datapoint dit seulement que le vecteur
-  ability est aligné **quand le canal #179 n'est pas sollicité** — c'est-à-dire que le suspect
-  restant est bien le canal, pas le vecteur. Garde INCONDITIONNELLE en place
+  Ce datapoint disait que le vecteur ability est aligné **quand le canal #179 n'est pas sollicité**,
+  donc que le suspect était bien le canal et non le vecteur : **#159 l'a confirmé** en localisant
+  l'étage BORNES du descripteur. Garde INCONDITIONNELLE en place
   (`test_black_legion_1029_1020_live.py`), plus de gate conditionnel.
+
+  ⚠ **TENSION À LEVER AVANT DE PORTER le résidu (b)** : `blackHaarken` porte lui aussi le trait 1058,
+  et `case-bl-1029-1020` §5.4 le rapporte **bit-exact per-coup dans le régime où le `Maybe` ARME**
+  (`{77:[1738,1979,1846]}`) — sur le vecteur **ABILITY**, donc avec le modèle « +1 coup d'ARME » du
+  port. #159 mesure l'inverse sur le vecteur **NORMAL** (`blackObliterator`) : coup surnuméraire
+  **déterministe**. Les deux mesures ne sont donc pas contradictoires *a priori* (les deux vecteurs
+  ne passent pas la même `HitDamage` au premier coup : dégénérée pour l'attaque normale, non
+  dégénérée pour l'ability bounds-mode — et `FirstHitInCurrentAttackDamageRange` en dépend
+  directement), mais **le porteur du fix devra trancher lequel des deux régimes s'applique où**,
+  et re-jouer les DEUX gardes. Ne pas porter (b) sans ce montage croisé.
 
 - **Caps PAR-EFFET de la formule de coups** (`case-psychic-aoe` §3, remonté par le port Doombolt).
   `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` ne plancher **jamais** à 1 : il termine
