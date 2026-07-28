@@ -235,8 +235,10 @@ d'un coup plein (≈ +25 % sur une attaque à 4 coups) exactement dans le régim
   `AttackDamageOperation$$ExecuteHit`, qui roule un crit. Résidu **préexistant** du canal, pas
   introduit ici — strictement no-op tant que `cc == 0` (le cas de toutes les mesures ci-dessus, et
   le défaut des runners), mais un porteur LTGB à `cc > 0` désynchroniserait le flux. Non mesuré.
-- **Le volet `DespoiledGround`** (effet 1476 + `DespoiledGround_ExtraDamagePct` 1478) reste non
-  porté ; il coûte 1 tirage au natif en fin d'attaque (chiffré par `case-159` §2.c). Inchangé.
+- **Le volet `DespoiledGround`** (effet 1476 + `DespoiledGround_ExtraDamagePct` 1478) — porté
+  entre-temps par `#85` (`runner/operations/triggers/loki/despoiled_ground.py`, arrivé sur `master`
+  pendant ce cas). Ce cas ne le touche pas ; le rebase le prend et les gardes des deux côtés sont
+  vertes (`test_despoiled_ground_live.py` 5/5, `test_let_the_galaxy_burn_live.py` 3/3).
 - **Le régime `useAverage = true`** de `HitDamage$$GetDamage` (division ENTIÈRE, donc ≠ `Round`)
   n'est emprunté par aucun chemin de combat porté — lu, non exercé.
 - **La face PRÉDICTION n'a pas été confrontée live** : la RE est complète et le port en découle (le
