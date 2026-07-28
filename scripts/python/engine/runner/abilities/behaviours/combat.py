@@ -90,14 +90,21 @@ class AttackWithAttackDamage(AbilityBehaviour):
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
-                 "force_crit")
+                 "force_crit", "is_first_hit")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
                  damage_override=None, multi: bool = False, pick_n=None, amount=None, hits=None,
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
-                 tile_domain: bool = False, force_crit: bool = False):
+                 tile_domain: bool = False, force_crit: bool = False,
+                 is_first_hit: bool = True):
+        # case-221 : `IsFirstHitInSeries()` = `AbilityEntities.IsFirstHit` = `hitIndex == 0`. Quand un
+        # SEUL `IdunBattle.Entities.Behaviours.AttackBehaviour` porte N feuilles `AttackDamage`
+        # (`HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour` : une feuille par
+        # `LeftOverDamage`), le hitIndex court d'une feuille a l'autre -> seule la PREMIERE porte le
+        # drapeau. Le port instancie une feuille par transfert, donc l'appelant le lui dit.
+        self.is_first_hit = bool(is_first_hit)
         self.tile_domain = bool(tile_domain)
         self.target_sel, self.ability_id, self.profile, self.is_melee = target_sel, ability_id, profile, is_melee
         self.min_key, self.max_key, self.hits_key = min_key, max_key, hits_key
@@ -216,7 +223,8 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     ability_type=self.ability_type,
                     # meme classification que le mode bornes (cf. `native_factory`) : elle pilote
                     # l'ordre bouclier x limites (`CalculateAbilityDamage` cape le RESTE post-bouclier).
-                    is_attack_damage_op=(self.native_factory != "ability"))
+                    is_attack_damage_op=(self.native_factory != "ability"),
+                    is_first_hit=self.is_first_hit)
             else:
                 # `BaseEffect$$PiercingBonusForAttack` : les effets ACTIFS du caster peuvent ajouter au
                 # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`

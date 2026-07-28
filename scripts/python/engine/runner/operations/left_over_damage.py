@@ -94,8 +94,16 @@ def left_over_damages(state: State, unit_id: int) -> list:
 
 
 def _append(state: State, unit_id: int, amount: int, profile) -> None:
+    # case-221 : AUCUN gate sur le MONTANT. `AddLeftoverHit` relu en entier -- son seul gate d'entree
+    # est l'octet `hitInfo+0x15` (`if ((char)(param_4[2] >> 0x28) != 0) return;`), puis il construit la
+    # `LeftOverDamage` et fait `List.Add` INCONDITIONNELLEMENT. Une entree de montant **0** est donc
+    # poussee comme les autres -- c'est le cas du coup FATAL qui tombe pile sur les PV restants
+    # (`demande - applique == 0`, site C). MESURE (`probe_221`, seed 777 `--hp 7354` = la somme exacte
+    # des trois jets d'arme) : le relais recoit bien DEUX evenements de degat, `[relais, 0, 1077]` puis
+    # `[relais, 1397, 1077]`. Filtrer le 0 cotait un `AttackDamage` -- donc un tirage de resolve -- et
+    # DECALAIT le rang de tous les transferts suivants dans la serie (`IsFirstHitInSeries`).
     e = state.get_entity(unit_id)
-    if e is None or int(amount) <= 0:
+    if e is None or int(amount) < 0:
         return
     c = e.get_component(LeftOverDamagesComponent)
     if c is None:
@@ -126,7 +134,11 @@ def record_left_over_damages(state: State, target_id: int, tgt, hp_before,
     for health_dmg in seq:
         if already_overkilled or hp <= 0:
             # (A)/(B) : la cible etait deja morte a l'entree de CE coup -> la BASE nominale entiere.
-            _append(state, target_id, base_nominal or 0, profile)
+            # `base_nominal is None` = la degradation CONSERVATRICE de la docstring : on ne pousse
+            # RIEN plutot qu'une entree de montant invente. A distinguer d'une base REELLE valant 0,
+            # qui, elle, se pousse (cf. `_append`).
+            if base_nominal is not None:
+                _append(state, target_id, int(base_nominal), profile)
             continue
         applied = min(hp, int(health_dmg))
         hp -= applied

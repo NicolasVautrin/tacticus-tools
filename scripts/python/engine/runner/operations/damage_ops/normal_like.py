@@ -32,7 +32,8 @@ class _NormalLike:
                             damage_profile: Optional[str] = None,
                             is_melee: Optional[bool] = None,
                             ability_type: Optional[int] = None,
-                            is_attack_damage_op: bool = True) -> Optional[dict]:
+                            is_attack_damage_op: bool = True,
+                            is_first_hit: bool = True) -> Optional[dict]:
         """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
         Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
@@ -176,7 +177,12 @@ class _NormalLike:
             hits_result=r,
             # `On(0x10)` : cet appel EST la serie de coups sur CETTE cible -> il contient le coup
             # d'index 0 (`IsFirstHitInSeries` VRAI, mirror `AbilityEntities+0x110`).
-            is_first_hit=True)
+            # case-221 : SAUF quand l'appelant sait que N feuilles `AttackDamage` d'un MEME
+            # `IdunBattle.Entities.Behaviours.AttackBehaviour` se partagent la serie (le natif y
+            # incremente le hitIndex d'une feuille a l'autre) -- il passe alors `is_first_hit=False`
+            # pour toutes sauf la premiere. Defaut `True` = comportement inchange pour tout appelant
+            # dont l'appel EST la serie entiere.
+            is_first_hit=bool(is_first_hit))
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).
