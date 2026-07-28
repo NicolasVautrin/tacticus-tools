@@ -276,84 +276,32 @@ def _sort_by_distance(state: State, tiles: list, origin_id: int) -> list:
     return sorted(tiles, key=lambda t: hexgeo.distance(o, board.coord(t)))
 
 
-_TILE_UTILITY_WEIGHTS = None       # poids `BattleConfiguration.Utilities` (statiques par bataille)
-
-
 def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int) -> list:
     """`IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(tiles, utilityType, parent)`
-    = `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility(tiles, unit, UtilityDefinition(utilityType), parent)`
-    → `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select`, remis en C# :
+    = `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility(tiles, AllAliveMachinesSelector,
+    UtilityDefinition(utilityType), parent)` -> `SortTilesByUtilitySelector$$Select`.
 
-        foreach (tile in tiles.Select(entities))
-            dict[tile] = utilityDecider.CalculateUtility(tile, definition.Buckets[0], cache);
-        return tiles.OrderBy(dc.<Select>b__0).ToList();          // b__0 = -dict[tile]
+    Délègue au FOYER UNIQUE `engine/utilities/tile.py::sort_tiles_by_utility` (mirror du `Select`,
+    tri DÉCROISSANT stable par le composite `Tile(7)`, ZÉRO tirage) — c'est le MÊME sélecteur natif
+    que celui des charges/spawns d'ability, donc UN SEUL port (#165). Le sélecteur d'unités
+    (`AllAliveMachinesSelector` ici, `caster` sur les autres call-sites) n'alimente que des feuilles
+    gatées sur l'unité, non plombées : la distinction est INERTE côté port.
 
-    `<Select>b__0` rend `Fix64.op_UnaryNegation(dict[tile])` → **tri DESCENDANT par utilité**,
-    `OrderBy` LINQ donc **STABLE**. **ZÉRO tirage** — c'est CE point qui est porté ici, et il est
-    mesuré live (case-130 SS5).
-
-    Chaîne de l'utilité, lue au décompilé :
-      * `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(utilityType)` = `Buckets = [ new
-        UtilityBucket(utilityType, null) ]` ;
-      * `IdunBattleLogic.AI.Utilities.UtilityBucket$$.ctor` = `[ new WeightedUtility(utilityType, null) ]`,
-        et `IdunBattleLogic.AI.Utilities.WeightedUtility$$.ctor` met `Weight = weight ?? Fix64.FromInt(1)`
-        → **poids 1** ;
-      * `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` = Σ `Weight × Σ steps` de
-        `<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
-        `utility.EvaluateMovementInSteps(new UtilityMovementCase(unit, tile, null, null, parent))`,
-        `unit` venant d'un sélecteur construit DANS `SortTilesByUtilityForSummon` dont la classe
-        n'est pas identifiable au décompilé (ctor replié par le linker : Ghidra le nomme
-        `AllAliveMachinesSelector`).
-
-    L'utilité est donc le composite `Tile(7)` (`UtilityType.Tile == 7`, l'argument littéral des deux
-    call-sites) évalué sur la tuile — càd `engine/utilities/tile.py::tile_composite`, déjà porté
-    (29 feuilles). On ne lui passe **aucune** clé `ctx` d'unité, faute d'avoir pu identifier le
-    sélecteur `unit` : les feuilles gatées sur l'unité rendent 0 (dégradation déjà en vigueur dans
-    `utilities/tile.py`), et restent ACTIVES les feuilles purement TUILE que le board porte —
-    `ElevationUtility` (8) et `TileEffectsUtility` (9, covers HÉBERGÉS par le terrain statique).
-
-    ⚠ Cette réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre
-    source DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit
-    exprès la géométrie) la valident, et ont au passage forcé la prise en compte du `Swamp ->
+    ⚠ La réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre source
+    DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit exprès la
+    géométrie) la valident, et ont au passage forcé la prise en compte du `Swamp ->
     Thorns_DefenseReduction` (-25) — sans lui le modèle posait le summon sur une Swamp élevée que le
     natif évite. Ce qui reste NON couvert : les feuilles gatées sur l'unité (aucun scénario ne les a
     encore réveillées) et les terrains dont on ne connaît pas les abilities hébergées.
 
-    Les effets de la tuile candidate sont lus comme partout ailleurs (#155, foyer unique
-    `utilities/tile.py`) : canal DYNAMIQUE `state.effects.by_unit[tileId]` = Loop1 de
-    `TileEffectsUtility` (l'entité-tuile porte ses effets exactement comme une unité, case-102), puis
-    `terrain_tile_effects(terrain, dynamique)` pour Loop2 + le repli statique du Loop1 non hydraté.
-    C'est le MÊME appel que `runner/damage_model.py::_positional_att_ctx` et
-    `runner/abilities/loki/mv71.py::_pick_tile` — plus de table de placement parallèle."""
-    board = state.board
-    if board is None or not tiles:
-        return list(tiles)
-    from ...utilities.tile import tile_composite, terrain_tile_effects
-    from ...weights import load as _load_weights
-    global _TILE_UTILITY_WEIGHTS
-    if _TILE_UTILITY_WEIGHTS is None:
-        _TILE_UTILITY_WEIGHTS = _load_weights()
-    wt = _TILE_UTILITY_WEIGHTS
-    # `ElevationUtility$$LoadRelevantTileElevations` : min/max sur le BOARD ENTIER (ni le
-    # candidate-set, ni les tuiles atteignables) -- verdict re-expert case-37.
-    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
-    emax = max(elevs) if elevs else None
-    emin = min(elevs) if elevs else None
-
-    def _u(t) -> float:
-        info = board.by_id.get(t) or {}
-        terr = board.tile_def_id(t)
-        effs: list = []
-        if state.effects is not None:                  # Loop1 : effets DYNAMIQUES de l'entite-tuile
-            effs += [e.name for e in state.effects.by_unit.get(int(t), [])
-                     if not e.consumed and e.name]
-        effs += terrain_tile_effects(terr, effs)       # Loop2 + repli Loop1 non hydrate (#155)
-        meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
-                "effects": effs}
-        return tile_composite(t, meta, {}, wt)
-
-    util = {t: _u(t) for t in tiles}
-    return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DESCENDANT, stable
+    Les effets de la tuile candidate sont lus DANS LE FOYER comme partout ailleurs (#155) : canal
+    DYNAMIQUE `state.effects.by_unit[tileId]` = Loop1 de `TileEffectsUtility` (l'entité-tuile porte
+    ses effets exactement comme une unité, case-102), puis `terrain_tile_effects(terrain, dynamique)`
+    pour Loop2 + le repli statique du Loop1 non hydraté — d'où le passage de `state` (et non du seul
+    `board`) au foyer. `caster_id` n'est PAS lu (le natif n'utilise pas le caster pour cette
+    surcharge) — gardé pour la signature d'appel."""
+    from ...utilities.tile import sort_tiles_by_utility   # lazy : évite le cycle utilities<->runner
+    return sort_tiles_by_utility(state, tiles)
 
 
 def _randomize(state: State, tiles: list) -> list:

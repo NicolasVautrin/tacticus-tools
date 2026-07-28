@@ -31,6 +31,7 @@ from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
+from ...utilities.tile import first_tile_by_utility
 from ..components import PositionComponent, UnitComponent, StatsComponent
 from ..damage_model import select_weapon, select_weapon_pierce
 from .base import ActiveAbility
@@ -38,8 +39,6 @@ from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import AddBondEffect, AddEffect, AttackWithAttackDamage, MoveUnit, entities_from_state
-
-import hexgeo
 
 if TYPE_CHECKING:
     from ..state import State
@@ -233,29 +232,51 @@ def _sk_occupied_positions(state: "State") -> set:
 
 
 def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
-    """Collapse du selecteur de destination IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour : `First(SortTilesByUtility(CanAddUnit(AdjacentTiles(
-    target)), caster@0x160, UtilityDefinition(7)), 1)` -> la tuile LIBRE+marchable ring-1 (adjacente) de la
-    cible la PLUS PROCHE du caster (dist hex, tie-break tile id). AUCUN filtre de reach/portee (contraste
-    VigilanceEternal `GetPossibleMovementTiles`). Pre-move (aucune mutation avant le MoveUnit). Renvoie
-    (col,row) ou None."""
+    """Selecteur de destination de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour`, MIRROR du
+    DECOMPILE :
+
+        First( SortTilesByUtility( CanAddUnit(AdjacentTiles(target@0x178)),
+                                   caster@0x160, UtilityDefinition(7 = Tile) ), 1 )
+
+    AUCUN filtre de reach/portee (contraste VigilanceEternal `GetPossibleMovementTiles`) : Celestine
+    VOLE. Pre-move (aucune mutation avant le MoveUnit). Renvoie (col,row) ou None.
+
+    #165 — le collapse « la tuile la PLUS PROCHE du caster » est REFUTE : le `7` litteral passe a
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` (surcharge int, qui construit
+    `UtilityDefinition(7)` et delegue) est le MEME composite `Tile(7)` que celui mesure sur
+    `HammerOfWrathAbility$$ExecuteBehaviour` (case-226 : le natif charge sur la tuile la plus ELEVEE,
+    pas la plus proche). On appelle donc le FOYER UNIQUE
+    `engine/utilities/tile.py::first_tile_by_utility` (tri DECROISSANT stable, ZERO tirage).
+
+    L'ordre du SELECTEUR SOURCE (= le tie-break a utilite EGALE, cas carte plate) est celui
+    d'`IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` -> `BattleQuery$$GetAdjacentTiles`,
+    donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni triee ni symetrisee) — et NON le
+    parcours `hexgeo.disk` que ce port utilisait.
+
+    ⚠ RESIDU MESURE (#165 §4) : sur une cible au BORD (4 voisins) avec un caster TRES eloigne
+    (Celestine @(1,0), cible @(6,7), MC1_67), le natif atterrit sur (5,7) e1 la ou ce port rend
+    (6,6) e2 — chemin natif d'UNE etape, donc bien la destination choisie et pas un arret en route.
+    Les deux geometries de reference (cover-tranche @(2,7)->(4,6) et elevation-seule @(2,2)->(0,1))
+    donnent, elles, port == natif. Pistes non tranchees : une feuille de `Tile(7)` gatee sur l'unite
+    (`dc.units` = le caster), ou le Loop1 de `TileEffectsUtility` (effets DYNAMIQUES de tuile non
+    hydrates offline). Candidat fable-solver."""
     board = state.board
     cpos = _sk_pos_of(state, caster_id)
     tpos = _sk_pos_of(state, target_id)
     if board is None or cpos is None or tpos is None:
         return None
+    ttile = board.id_at(tpos[0], tpos[1])
+    if ttile is None:
+        return None
     occ = _sk_occupied_positions(state)
     cands = []
-    for (c, r) in hexgeo.disk(tpos[0], tpos[1], 1):     # AdjacentTiles(target) = ring-1 (centre occupe -> exclu)
-        if (c, r) in occ:
-            continue
-        t = board.id_at(c, r)
-        if t is None or not board.walkable(t):          # CanAddUnit
+    for t in board.neighbours_native(ttile):            # AdjacentTiles(target) — ORDRE DU SELECTEUR
+        if board.coord(t) in occ or not board.walkable(t):   # CanAddUnit : LIBRE et marchable
             continue
         cands.append(t)
-    if not cands:
-        return None
-    cands.sort(key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))   # SortTilesByUtility(7) collapse
-    return board.coord(cands[0])
+    best = first_tile_by_utility(state, cands)          # First(SortTilesByUtility(..., 7), 1)
+    return board.coord(best) if best is not None else None
 
 
 def _sky_strike_damage_override(extra_dmg: int):

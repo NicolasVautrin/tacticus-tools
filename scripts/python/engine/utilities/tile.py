@@ -642,6 +642,98 @@ def tile_composite(tile, meta: dict | None, ctx: dict, wt: Weights) -> float:
     return TILE_UTILITY.evaluate(tile, meta or {}, ctx, wt)
 
 
+# ── FOYER UNIQUE du sélecteur `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector` ─────────────
+_SORT_WEIGHTS: Weights | None = None
+
+
+def sort_tiles_by_utility(state, tiles, wt: Weights | None = None) -> list:
+    """`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` — FOYER UNIQUE.
+
+    Le natif, remis en C# depuis le décompilé :
+
+        dc.tiles = this.tiles.Select(entities) ; dc.units = this.units.Select(entities)
+        dc.owner = this.owner.Select(entities) ; dc.dict = new Dictionary<Tile, Fix64>()
+        foreach (tile in dc.tiles)
+            dc.dict[tile] = UtilityDecider.CalculateUtility(tile, this.definition.Buckets[0], cache)
+        return dc.tiles.OrderBy(dc.<Select>b__0).ToList()      // b__0 = Fix64.op_UnaryNegation(dict[t])
+
+    `<Select>b__0` rend l'OPPOSÉ de l'utilité -> **tri DÉCROISSANT**, et `OrderBy` LINQ est **STABLE**
+    : l'ordre du SÉLECTEUR SOURCE tranche les égalités (carte plate = toutes les utilités à 0).
+    **ZÉRO tirage** — le tri ne touche pas le PRNG.
+
+    Chaîne de l'utilité, lue au décompilé :
+      * `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` a DEUX surcharges — celle qui prend un
+        `int` construit `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(utilityType)` et délègue à
+        celle qui prend l'objet ; `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` fait
+        pareil en fixant le sélecteur d'unités à `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` ;
+      * `UtilityDefinition..ctor(utilityType)` = `Buckets = [ new UtilityBucket(utilityType, null) ]`,
+        `UtilityBucket..ctor` = `[ new WeightedUtility(utilityType, null) ]` et
+        `IdunBattleLogic.AI.Utilities.WeightedUtility$$.ctor` met `Weight = weight ?? Fix64.FromInt(1)`
+        -> **poids 1** ;
+      * `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` = Σ `Weight × Σ steps` de
+        `<>c__DisplayClass8_0.<Select>b__1(tile, utility)` =
+        `utility.EvaluateMovementInSteps(new UtilityMovementCase(dc.units, tile, null, null, dc.owner))`.
+
+    TOUS les call-sites portés passent `UtilityDefinition(7 = Tile)` -> l'utilité est le composite
+    `Tile(7)` = `TILE_UTILITY` (29 feuilles). ⚠ Le call-site `VigilanceEternalAbility$$ExecuteBehaviour`
+    passe `UtilityDefinition(0x20 = MovementSuggestion)`, qui est le composite `[Tile(7),
+    TileDistance(33)]` (carte de composition de l'`UtilitiesDatabase`, case-128 §2) : `TileDistance`
+    n'étant PAS porté, ce call-site NE PASSE PAS par ici.
+
+    On ne passe **aucune** clé `ctx` d'unité : le sélecteur d'unités (`dc.units`) n'alimente que des
+    feuilles gatées sur l'unité, qui rendent 0 faute de contexte (dégradation déjà en vigueur dans ce
+    module). Restent ACTIVES les feuilles purement TUILE que le board porte — `ElevationUtility` (8) et
+    `TileEffectsUtility` (9, covers HÉBERGÉS par le terrain statique). C'est cette réduction, MESURÉE
+    et non supposée, que `probe_130_placement_sort_rng.py` (dont `--discriminate`) valide.
+
+    `elevation_max`/`elevation_min` sont pris sur le **BOARD ENTIER** (mirror
+    `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 : ni
+    l'unité, ni le reachable, ni le candidate-set).
+
+    Les effets de la tuile candidate sont lus comme partout ailleurs (#155) : canal DYNAMIQUE
+    `state.effects.by_unit[tileId]` = Loop1 de `TileEffectsUtility` (l'entité-tuile porte ses effets
+    exactement comme une unité, case-102), puis `terrain_tile_effects(terrain, dynamique)` pour Loop2
+    + le repli statique du Loop1 non hydraté. Le 2ᵉ argument est OBLIGATOIRE : sans lui le -25 de la
+    Swamp serait compté DEUX fois.
+
+    Rend une NOUVELLE liste ; `state.board`/`tiles` vides -> copie inchangée."""
+    board = getattr(state, "board", None)
+    if board is None or not tiles:
+        return list(tiles)
+    global _SORT_WEIGHTS
+    if wt is None:
+        if _SORT_WEIGHTS is None:
+            from ..weights import load as _load_weights
+            _SORT_WEIGHTS = _load_weights()
+        wt = _SORT_WEIGHTS
+    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+    emax = max(elevs) if elevs else None
+    emin = min(elevs) if elevs else None
+    fx = getattr(state, "effects", None)
+
+    def _u(t) -> float:
+        info = board.by_id.get(t) or {}
+        terr = board.tile_def_id(t)
+        effs: list = []
+        if fx is not None:                             # Loop1 : effets DYNAMIQUES de l'entite-tuile
+            effs += [e.name for e in fx.by_unit.get(int(t), []) if not e.consumed and e.name]
+        effs += terrain_tile_effects(terr, effs)       # Loop2 + repli Loop1 non hydrate (#155)
+        meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
+                "effects": effs}
+        return tile_composite(t, meta, {}, wt)
+
+    util = {t: _u(t) for t in tiles}
+    return sorted(tiles, key=lambda t: -util[t])   # b__0 = op_UnaryNegation -> DÉCROISSANT, stable
+
+
+def first_tile_by_utility(state, tiles, wt: Weights | None = None):
+    """`First(SortTilesByUtility(<tiles>, <unit>, UtilityDefinition(7)), 1)` — la MEILLEURE tuile au
+    sens du composite `Tile(7)`, égalités tranchées par l'ordre du sélecteur source (tri stable).
+    Rend l'id de tuile, ou None si `tiles` est vide (le `MoveUnit`/`Spawn` en aval est alors no-op)."""
+    ranked = sort_tiles_by_utility(state, tiles, wt)
+    return ranked[0] if ranked else None
+
+
 def _adjacent_units(ctx, uid):
     """{pos,traits,effects} des AMIS (ctrl, self-exclu) et ENNEMIS (non-ctrl) vivants positionnés —
     mirror des query natives `GetAdjacentFriends`/`GetAdjacentEnemies` du corps AdjacentUnitPreference

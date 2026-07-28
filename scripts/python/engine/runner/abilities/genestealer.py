@@ -29,6 +29,7 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
+from ...utilities.tile import first_tile_by_utility
 from ..components import OwnerComponent, PositionComponent, UnitComponent, StatsComponent
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
 from .base import ActiveAbility
@@ -326,31 +327,62 @@ def _living_occupants_map(state: "State") -> dict:
     return occ
 
 
-def _move_dest_tile(state: "State", caster_id: int, target_id: int, surround_radius: int, move_range: int):
-    """COLLAPSE (doctrine slice-18/19/22) du selecteur de destination LOURD (kind S) de HeroicFusillade
-    IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour : `First(SortTilesByUtility( CanAddUnit(SurroundingTiles(target, radius))
-    op_And MovableTilesInRange(caster, Direct(range), reachOnly), 7))`. Renvoie la (col,row) de la MEILLEURE
-    tuile LIBRE `surround_radius`-adjacente a la cible que le caster peut ATTEINDRE en <= `move_range` pas
-    de marche, ou None. `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele,
-    reachOnly = stop_set). `SortTilesByUtility` (selecteur AI lourd) COLLAPSE en : la plus PROCHE du caster
-    (dist hex, tie-break tile id) -- proxy raisonnable de l'utilite (gap-closer landing adjacent). Pre-move
-    (aucune mutation avant le MoveUnit dans l'arbre)."""
+def _charge_candidate_tiles(state: "State", caster_id: int, target_id: int,
+                            surround_radius: int, move_range: int) -> list:
+    """Le POOL de tuiles de charge, DANS L'ORDRE DU SELECTEUR (avant tout tri) :
+
+        CanAddUnit(SurroundingTiles(target@0x190, radius@0xc0))
+          op_And MovableTilesInRange(caster@0x160, tile@0x168, Direct(range), reachOnly=1)
+
+    Partage par `HeroicFusilladeAbility$$ExecuteBehaviour` et par
+    `VigilanceEternalAbility$$GetPossibleMovementTiles`
+    (= `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
+    Direct(GetNumberConstant(0x16)=range), canReachOnly=1)`, meme ensemble avec radius 1) — SEUL le
+    TRI en aval differe entre les deux (cf. `_hf_move_dest_tile` / `_vigilance_move_dest_tile`).
+
+    `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele, reachOnly =
+    stop_set). `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd` = INTERSECTION : l'ordre conserve est
+    celui de l'operande GAUCHE (`SurroundingTiles`). Pre-move (aucune mutation avant le MoveUnit)."""
     board = state.board
     cpos = _pos_of(state, caster_id)
     tpos = _pos_of(state, target_id)
     if board is None or cpos is None or tpos is None:
-        return None
+        return []
     ctile = board.id_at(cpos[0], cpos[1])
     if ctile is None:
-        return None
+        return []
     _visited, stop = get_movable_positions(board, ctile, int(move_range),
                                            _living_occupants_map(state), _team_of(state, caster_id))
-    adj_free = set(_surrounding_free_tiles(state, tpos, surround_radius))    # CanAddUnit(SurroundingTiles(target))
-    cands = [t for t in adj_free if t in stop]                              # op_And MovableTilesInRange (reachOnly)
-    if not cands:
-        return None
-    cands.sort(key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))    # SortTilesByUtility collapse
-    return board.coord(cands[0])
+    reach = set(stop)
+    adj_free = _surrounding_free_tiles(state, tpos, surround_radius)   # CanAddUnit(SurroundingTiles(target))
+    return [t for t in adj_free if t in reach]                        # op_And MovableTilesInRange (reachOnly)
+
+
+def _hf_move_dest_tile(state: "State", caster_id: int, target_id: int,
+                       surround_radius: int, move_range: int):
+    """Selecteur de destination de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour`, MIRROR :
+
+        First( SortTilesByUtility( <pool de charge>, self@0x148, 7 ), 1 )
+
+    Le `7` litteral part dans la surcharge int de
+    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit
+    `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(7 = Tile)` et delegue a la surcharge objet
+    -> MEME composite `Tile(7)` que `HammerOfWrathAbility$$ExecuteBehaviour` / `SkyStrikeAbility`.
+
+    #165 — le collapse « la plus PROCHE du caster » est REFUTE (mesure case-226 : a ring-1 le natif
+    charge sur la tuile la plus ELEVEE, pas la plus proche). On appelle le FOYER UNIQUE
+    `engine/utilities/tile.py::first_tile_by_utility` (tri DECROISSANT stable, ZERO tirage).
+
+    ⚠ RESIDU : le tri etant STABLE, les egalites (carte plate) sont tranchees par l'ordre du
+    SELECTEUR SOURCE. Cet ordre est celui d'`IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select`
+    (`OrderedSet.AddRange` du slot d'iface `battleQuery+0x65`), qui n'est PAS le meme artefact que
+    l'`AdjacentTilesSelector` des ports freres : le port garde ici son parcours `hexgeo.disk`
+    (`_surrounding_free_tiles`), NON prouve identique au natif. Renvoie (col,row) ou None."""
+    board = state.board
+    cands = _charge_candidate_tiles(state, caster_id, target_id, surround_radius, move_range)
+    best = first_tile_by_utility(state, cands)              # First(SortTilesByUtility(..., 7), 1)
+    return board.coord(best) if best is not None else None
 
 
 def _hf_crit_mag(state: "State", caster_id: int, target_id: int, surround_radius: int) -> int:
@@ -377,7 +409,8 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
                   AttackWithAttackDamage(caster, splash, MinMaxDamage, Projectile, GetHits=nrOfHits=6) ), # 6x splash
                   ChangeStat(caster, CRIT_DAMAGE=10, mode=3=Sub, mag) ) ) )                            # buff crit (retire)
     - MOVE : `Not(IsSurrounding(caster, target, radius=1))` = move SEULEMENT si la cible n'entoure pas deja
-      le caster. dest = selecteur S lourd COLLAPSE (`_move_dest_tile`). MoveUnit options NULL (decompile
+      le caster. dest = `_hf_move_dest_tile` (pool `_charge_candidate_tiles` + tri `Tile(7)` du foyer
+      `first_tile_by_utility`, #165 -- le collapse « plus proche » a ete REFUTE). MoveUnit options NULL (decompile
       `local_1b8..local_188 = 0`) -> AUCUN after-move crush/overwatch (feuille `MoveUnit` fidele, cf. tache
       #4 + ThunderousAssault ; le verdict re-expert « declenche crush/overwatch » etait imprecis, corrige au
       decompile).
@@ -395,7 +428,7 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
     Selecteurs S (dest, nbFree) COLLAPSES imperativement (LIVE) ; structure If/&/Not/IsAlive/IsSurrounding =
     DSL. `state`/ids requis pour le collapse (dest PRE-move ; mag callable evalue au ChangeStat(Add) POST-move)."""
     src = ("HeroicFusillade_CritDamage", caster_id)                         # source PARTAGEE add<->revert
-    dest = _move_dest_tile(state, caster_id, target_id, surround_radius, move_range)
+    dest = _hf_move_dest_tile(state, caster_id, target_id, surround_radius, move_range)
     move = If(Not(IsSurrounding(Caster(), Target(), Const(surround_radius))),
               MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])))
     crit_add = ChangeStat(Caster(), int(StatType.CRIT_DAMAGE), "add", src,
@@ -468,7 +501,7 @@ class HeroicFusilladeAbility(ActiveAbility):
 # ===================== VigilanceEternal (Tyrith custoKyrus, actif 1202) =====================
 #
 # `VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (namespace natif `Abilities.Active.Loki`,
-# Custodes -- HORS gen-stealer, mais REUTILISE le template de charge `_move_dest_tile` de HeroicFusillade
+# Custodes -- HORS gen-stealer, mais REUTILISE le pool de charge `_charge_candidate_tiles` de HeroicFusillade
 # defini ci-dessus, d'ou le voisinage). L'arbre est `HeroicFusillade IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility$$ExecuteBehaviour` EXACT, MOINS splash/crit :
 #     op_BitwiseAnd(
 #       If( Not(IsAdjacent(caster@0x160, target@0x178, 3)),                                  # MOVE gate
@@ -498,20 +531,46 @@ class HeroicFusilladeAbility(ActiveAbility):
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
 # target@0x190, Direct(GetNumberConstant(0x16)=range=2), canReachOnly=1)
 #   = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)`
-#   == EXACTEMENT le collapse `_move_dest_tile` de HeroicFusillade avec surround_radius=1 (AdjacentTiles =
-#   ring-1 = SurroundingTiles radius 1) + move_range=range=2. `SortTilesByUtility(0x20)` collapse -> tuile
-#   la plus PROCHE du caster (meme proxy que HeroicFusillade ; gap-closer landing adjacent).
+#   == EXACTEMENT le pool `_charge_candidate_tiles` de HeroicFusillade avec surround_radius=1
+#   (AdjacentTiles = ring-1 = SurroundingTiles radius 1) + move_range=range=2.
 VIGIL_SURROUND_RADIUS = 1     # AdjacentTiles(target) = ring-1 (== SurroundingTiles radius 1)
+
+
+def _vigilance_move_dest_tile(state: "State", caster_id: int, target_id: int, move_range: int):
+    """Selecteur de destination de `VigilanceEternalAbility$$ExecuteBehaviour` :
+
+        First( SortTilesByUtility( GetPossibleMovementTiles, caster@0x160, 0x20 ), 1 )
+
+    ⚠ Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`**, PAS le `7 = Tile` des
+    ports freres (SkyStrike / HeroicFusillade / ForwardSpotter / HammerOfWrath) : la carte de
+    composition de l'`UtilitiesDatabase` (case-128 §2) donne `32 -> [7 = Tile, 33 = TileDistance]`.
+    `TileDistanceUtility` n'est PAS portee -> ce call-site NE PEUT PAS passer par le foyer
+    `first_tile_by_utility` (il n'y trouverait que la moitie du composite, et la moitie manquante est
+    justement le terme de DISTANCE qui domine le choix ici).
+
+    Le COLLAPSE « la tuile la plus PROCHE du caster » est donc CONSERVE ici, et il n'est pas gratuit :
+    il est LIVE-VALIDE (#220, MC1_67, custoKyrus vs necroWarden -> landing (0,1) port == live) et il
+    approxime precisement le terme `TileDistance(33)` absent. RESIDU NOMME (#165) : porter
+    `TileDistanceUtility` (33) puis le composite `MovementSuggestion(32)` = `[Tile(7), TileDistance(33)]`,
+    et brancher ce call-site sur le foyer. Renvoie (col,row) ou None."""
+    board = state.board
+    cpos = _pos_of(state, caster_id)
+    cands = _charge_candidate_tiles(state, caster_id, target_id, VIGIL_SURROUND_RADIUS, move_range)
+    if board is None or cpos is None or not cands:
+        return None
+    cands.sort(key=lambda t: (hexgeo.distance(cpos, board.coord(t)), t))   # collapse MovementSuggestion(32)
+    return board.coord(cands[0])
 
 
 def vigilance_eternal_tree(state: "State", caster_id: int, target_id: int, move_range: int):
     """Mirror 1:1 de `VigilanceEternalAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$ExecuteBehaviour` (HeroicFusillade moins
     splash/crit) : `op_and(If(Not(IsAdjacent(caster,target)), MoveUnit(caster, destTile)),
     If(IsAlive(caster) & IsAlive(target), AttackWithAttackDamage(caster->target, Power, 3 hits)))`.
-    dest = selecteur S lourd COLLAPSE (`_move_dest_tile`, surround_radius=1, move_range=`range`=2) PRE-move
-    ; gate move = `Not(IsAdjacent)` (dist==1 : bouge sauf si deja adjacent) ; gate attaque = les deux
-    vivants (re-eval LIVE apres le move -- Voie A, `LiveUnit`)."""
-    dest = _move_dest_tile(state, caster_id, target_id, VIGIL_SURROUND_RADIUS, move_range)
+    dest = `_vigilance_move_dest_tile` (pool `_charge_candidate_tiles` avec surround_radius=1,
+    move_range=`range`=2, puis collapse du tri `MovementSuggestion(32)`) PRE-move ; gate move =
+    `Not(IsAdjacent)` (dist==1 : bouge sauf si deja adjacent) ; gate attaque = les deux vivants
+    (re-eval LIVE apres le move -- Voie A, `LiveUnit`)."""
+    dest = _vigilance_move_dest_tile(state, caster_id, target_id, move_range)
     move = If(Not(IsAdjacent(Caster(), Target())),
               MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])))
     attack = AttackWithAttackDamage(Target(), "VigilanceEternal", "Power", is_melee=True)   # mono-cible

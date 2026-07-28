@@ -298,27 +298,25 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     `SortTilesByUtility(sel, caster@0x160, UtilityDefinition(7 = Tile))` ->
     `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = tri DECROISSANT par
     `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` sur le composite **Tile(7)**, DEJA
-    PORTE (`engine/utilities/tile.py::TILE_UTILITY`, 29 feuilles). On l'appelle ICI au lieu de le
-    collapser en « la plus proche du caster » : sur une carte plate toutes les feuilles rendent 0 sauf
+    PORTE. Appel du FOYER UNIQUE `engine/utilities/tile.py::first_tile_by_utility` (#165) au lieu du
+    collapse « la plus proche du caster » : sur une carte plate toutes les feuilles rendent 0 sauf
     `ElevationUtility` (BC `Elevation.Multiplier=10`, `HighestElevation=+10`, `LowestElevation=-5`), et
     c'est PRECISEMENT elle qui tranche.
 
     ⚠ MESURE (#226, MC1_67, Mataneo @(4,7), cible necroWarden @(6,7)) : les deux tuiles libres du
     ring-1 sont (5,7) elev 1 (a distance 1 du caster) et (6,6) elev **2** (a distance 2) — le natif
     charge sur **(6,6)** (`Unit_Foot_Tile_Id_1 = 72`), donc SUR LA PLUS ELEVEE, pas sur la plus proche.
-    Le collapse « plus proche du caster » des ports frere (`SkyStrikeAbility$$ExecuteBehaviour`,
-    `HeroicFusilladeAbility$$ExecuteBehaviour`, `ForwardSpotterAbility$$PickTiles`) est donc REFUTE
-    par la mesure sur ce call-site ; ces trois-la gardent leur ancien collapse (hors perimetre).
+    C'est cette mesure qui a REFUTE le collapse « plus proche » ; les ports freres
+    (`SkyStrikeAbility$$ExecuteBehaviour`, `HeroicFusilladeAbility$$ExecuteBehaviour`,
+    `ForwardSpotterAbility$$PickTiles`) sont de-forkes sur le meme foyer depuis #165.
 
-    Le tri est STABLE sur l'ordre du SELECTEUR (`board.neighbours(tuile-cible)` = l'ordre natif de
-    `AdjacentTiles`), ce qui donne le tie-break quand les utilites sont EGALES (carte plate).
-    `meta` par tuile = `{elevation, elevation_max, elevation_min}` avec min/max sur le **BOARD ENTIER**
-    (mirror `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 :
-    board-singleton, PAS le candidate-set) ; les autres feuilles rendent 0 faute de metadata — c'est la
-    degradation DEJA documentee de `utilities/tile.py`. Renvoie (col,row) ou None (aucune tuile ->
+    Le tri est STABLE sur l'ordre du SELECTEUR : `AdjacentTiles(target)` =
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` -> `BattleQuery$$GetAdjacentTiles`,
+    donc `board.neighbours_native` (liste d'adjacence STOCKEE, ni triee ni symetrisee — cf. la docstring
+    de `Board.neighbours_native` : ordre etabli case-130 SS5 / #117 / FragBomb). C'est lui qui donne le
+    tie-break quand les utilites sont EGALES (carte plate). Renvoie (col,row) ou None (aucune tuile ->
     `MoveUnitBehaviour` no-op, garde `local_308 == 0`)."""
-    from ...utilities import tile_composite
-    from ... import weights as _weights
+    from ...utilities.tile import first_tile_by_utility
     board = state.board
     cpos = _how_pos_of(state, caster_id)
     tpos = _how_pos_of(state, target_id)
@@ -330,26 +328,15 @@ def hammer_of_wrath_dest_tile(state: "State", caster_id: int, target_id: int):
     rng_max = ability_var("HammerOfWrath", "range", is_constant=True)   # GetNumberConstant(0x16) = 5
     occ = _how_occupied_positions(state)
     cands = []
-    for t in board.neighbours(ttile):                      # AdjacentTiles(target) — ORDRE DU SELECTEUR
+    for t in board.neighbours_native(ttile):               # AdjacentTiles(target) — ORDRE DU SELECTEUR
         pos = board.coord(t)
         if pos in occ or not board.walkable(t):            # CanAddUnit : tuile LIBRE et marchable
             continue
         if rng_max is not None and hexgeo.distance(cpos, pos) > int(rng_max):
             continue                                       # Filter(NOT(AmountIsGreater(MinDistance, range)))
         cands.append(t)
-    if not cands:
-        return None
-    elevs = [d.get("elevation") for d in board.by_id.values() if d.get("elevation") is not None]
-    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
-    wt = _weights.load()
-
-    def _u(t: int) -> float:
-        pos = board.coord(t)
-        return tile_composite(pos, {"elevation": board.elevation(t),
-                                    "elevation_max": emax, "elevation_min": emin}, {}, wt)
-    # tri DECROISSANT par utilite, STABLE -> l'ordre du selecteur tranche les egalites (carte plate)
-    cands.sort(key=_u, reverse=True)
-    return board.coord(cands[0])                            # First(sel, 1)
+    best = first_tile_by_utility(state, cands)              # First(SortTilesByUtility(...), 1)
+    return board.coord(best) if best is not None else None
 
 
 def hammer_of_wrath_tree(dest, damage_override):
