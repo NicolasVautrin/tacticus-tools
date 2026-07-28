@@ -161,7 +161,9 @@ class SporeMineLauncherAbility(ActiveAbility):
     #                                      | TargetIsNotAdjacentToEnemy
     # A comparer avec `SquigMineAbility` (1201, orks.py) = le MEME masque SANS le bit 42
     # `TargetIsNotAdjacentToEnemy` : les deux poses de mine ne se generalisent pas l'une l'autre.
-    # Regles NON portees (domaine TILE + bit 42 + volet caster) -> degradation permissive.
+    # Le bit 42 est PORTE depuis #243 (`targeting.py`, `battleQuery` slot 0x7f) : une tuile ayant un
+    # ennemi du Biovore sur une de ses voisines marchables est refusee. Regles restees non portees
+    # (domaine TILE : `TargetTileIsFree` ; volet caster : `AllowNullCasterTile`) -> permissif.
     TARGETING_OPTIONS = TargetingOptions(rules=(
           TR.TargetMatchesDynamicRule
         | TR.TargetIsTile
