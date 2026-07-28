@@ -69,7 +69,8 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
                                   attack_hit_damage: "Optional[tuple]" = None,
                                   t_pos: "Optional[tuple]" = None,
                                   tile_effects_by_pos: "Optional[dict]" = None,
-                                  persistent_data=None) -> list:
+                                  persistent_data=None,
+                                  damage_profile: "Optional[str]" = None) -> list:
     """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
     cote ECS — enumeration GLOBALE des effets declarant des coups additionnels HETEROGENES (canal
     #179) : (a) effets du PORTEUR (`additional_hit_groups`, ex. SquigHound/CordClaw/FoulInfusion) ;
@@ -88,7 +89,19 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
         premiers octets de l'AttackData, dont le champ 0 EST ce `HitDamage`) ;
       - `t_pos` + `tile_effects_by_pos` = noeud `HasTileStatusEffect(Targets@0x190)` ;
       - `persistent_data` = cles du `PersistentDataComponent` de l'ATTAQUANT -> `IsPersistentData`.
-    Non fournies -> les descripteurs qui en dependent se taisent (aucun autre n'y touche)."""
+    Non fournies -> les descripteurs qui en dependent se taisent (aucun autre n'y touche).
+
+    #204 — la branche (b) N'EST PAS « les auras d'ALLIES » : c'est **tout descripteur porte par une
+    entite AUTRE que l'attaquant**, exactement comme l'enumeration native, qui est GLOBALE et laisse
+    la CONDITION du descripteur trancher. Deux conditions coexistent desormais :
+      - `get_OwnerIsCaster` (le porteur de l'effet EST l'attaquant : ExplosiveMaladies, InfernalPacts,
+        `AstartesBanner_AdditionalHitsEffect` dont le `CreateTargetSelector` = `SurroundingFriends`
+        designe les BENEFICIAIRES) ;
+      - `get_OwnerIsTarget` (le porteur de l'effet EST la CIBLE de l'attaque :
+        `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits`).
+    D'ou `tgt_id` et `damage_profile` dans le ctx : le premier EST le predicat `OwnerIsTarget`, le
+    second le noeud `AreEqual(CurrentAttackDamageProfile, 0xd=Psychic)`. `attack_hit_damage` y est
+    aussi relaye : `FirstHitInCurrentAttackDamageRange` ne depend pas de QUI porte l'effet."""
     import gameconfig as GC
     att = state.get_entity(attacker_id)
     ap = att.get_component(PositionComponent) if att is not None else None
@@ -136,7 +149,11 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
                    "att_grand_alliance": gu.get("GrandAllianceId"),
                    "att_traits": frozenset(getattr(asc.ctx, "traits", None) or ())
                    if asc is not None else frozenset(),
-                   "is_melee": is_melee})
+                   "is_melee": is_melee,
+                   # #204 : entrees des descripteurs `OwnerIsTarget` / a degat
+                   # `FirstHitInCurrentAttackDamageRange` portes hors de l'attaquant.
+                   "tgt_id": target_id, "t_pos": t_pos, "damage_profile": damage_profile,
+                   "attack_hit_damage": attack_hit_damage})
     return groups
 
 

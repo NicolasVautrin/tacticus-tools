@@ -272,13 +272,10 @@ class BaseEffect:
         fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
         return None
 
-    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
-        """Contribution AURA à l'axe COUPS côté ATTAQUANT : l'effet est possédé par un ALLIÉ de l'attaquant
-        et lui projette un BONUS de coups selon la géométrie (natif : `CreateTargetSelector` = SurroundingFriends,
-        ex. `AstartesBanner_AdditionalHitsEffect` IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits = +extraHits mêlée aux alliés dans le rayon 2 du
-        porteur, exclut self). `ctx` = {owner_id/pos/team, att_id/att_pos/att_team, is_melee} fourni par
-        l'agrégateur `aura_hits_bonus_for_attack`. Défaut None = pas d'aura. SYMÉTRIQUE du malus défenseur."""
-        return None
+    # #204 — `create_aura_hits_bonus_for_attack` a ETE SUPPRIME. Son unique implementeur,
+    # `AstartesBannerExtraHitEffect`, appelle en natif `CreateAdditionalHits` (canal #179) et non
+    # `CreateEffectHitsBonusForAttack` : il est passe a `create_aura_additional_hits_for_ally`. Le
+    # laisser aurait ete un hook MORT (aucun descripteur natif ne le peuple), donc un piege.
 
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":
         """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui
@@ -525,14 +522,23 @@ class BaseEffect:
         return None
 
     def create_aura_additional_hits_for_ally(self, ctx: Mapping) -> "dict | None":
-        """`<Effect>.CreateAdditionalHits` + `CreateTargetSelector` (mold AURA, ex. ExplosiveMaladies
-        IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateAdditionalHits/IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraMeleeAttackEffect$$CreateAdditionalHits + selecteur IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector `AdjacentFriends(owner, 1)`) — coups additionnels
-        projetes par un effet HOSTE SUR LE PORTEUR sur les attaques d'un ALLIE selectionne (adjacence
-        re-evaluee a la TUILE CANDIDATE, modele #49/#153 : rien n'est poste sur le beneficiaire).
+        """`<Effect>.CreateAdditionalHits` d'un effet HOSTE SUR UNE AUTRE ENTITE QUE L'ATTAQUANT
+        (ex. ExplosiveMaladies IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateAdditionalHits/IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraMeleeAttackEffect$$CreateAdditionalHits + selecteur IdunBattle.Entities.Effects.Loki.ExplosiveMaladies_ExtraRangedAttackEffect$$CreateTargetSelector `AdjacentFriends(owner, 1)`) — geometrie
+        re-evaluee a la TUILE CANDIDATE, modele #49/#153 : rien n'est poste sur le beneficiaire.
+
+        #204 — « for_ally » est un raccourci HISTORIQUE : le natif enumere les descripteurs
+        GLOBALEMENT (`IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffects
+        Internal`) et laisse la CONDITION trancher. Ce hook porte donc les DEUX conditions :
+          - `get_OwnerIsCaster` (porteur = attaquant : ExplosiveMaladies, InfernalPacts, AstartesBanner) ;
+          - `get_OwnerIsTarget` (porteur = CIBLE de l'attaque : MasterAnnihilator_AdditionalHitEffect).
+
         `ctx` = {att_id, att_pos, att_team, att_faction, att_grand_alliance, att_traits, is_melee,
-        owner_id, owner_pos, owner_team} (owner_* = le porteur ; att_traits = traits gameconfig de
-        l'attaquant, gate Daemon d'InfernalPacts #202-B). Renvoie UN groupe `{count, amount|min/max,
-        profile}` ou None (gates non satisfaites). Defaut None = pas d'aura additional-hits."""
+        owner_id, owner_pos, owner_team, owner_mult, owner_ablvl, owner_grand_alliance, owner_faction,
+        tgt_id, t_pos, damage_profile, attack_hit_damage} (owner_* = le porteur ; att_traits = traits
+        gameconfig de l'attaquant, gate Daemon d'InfernalPacts #202-B ; `tgt_id` EST le predicat
+        `OwnerIsTarget` ; `damage_profile` le noeud `AreEqual(CurrentAttackDamageProfile, .)` ;
+        `attack_hit_damage` le noeud `FirstHitInCurrentAttackDamageRange`, absent hors attaque).
+        Renvoie UN groupe `{count, amount|min/max, profile}` ou None (gates non satisfaites)."""
         return None
 
     # ── stat-modification (famille AStatModifierEffect) ─────────────────────────────────────────────

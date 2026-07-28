@@ -54,10 +54,16 @@ hits  = Math.Max(hits, 0)
 hits  = Math.Max(hits, 0)
 ```
 
-Cette **unique boucle** porte à la fois les bonus attaquant (`OwnerIsCaster` : LetTheGalaxyBurn,
-PowerTrip, FightingRetreat_HitReduction, AstartesBanner) et les malus cible (`OwnerIsTarget` : Parry,
-LightCover, Camouflage, Diminutive, BigTarget, MasterAnnihilator). Il n'y a donc **pas** deux canaux à
-brancher séparément : brancher l'appel branche les deux.
+Cette **unique boucle** porte à la fois les bonus attaquant (`OwnerIsCaster` : PowerTrip,
+FightingRetreat_HitReduction) et les malus cible (`OwnerIsTarget` : Parry, LightCover, Camouflage,
+Diminutive, BigTarget). Il n'y a donc **pas** deux canaux à brancher séparément : brancher l'appel
+branche les deux.
+
+> ⚠ **CORRIGÉ par [case-227](case-227-let-the-galaxy-burn-canal179.md) et
+> [case-204](case-204-ah-master-annihilator-astartes-banner.md)** — `LetTheGalaxyBurn`,
+> `AstartesBanner` et `MasterAnnihilator` ont été retirés de cette liste : leur artefact natif est
+> `CreateAdditionalHits` (descripteur `EffectAdditionalHits`, canal #179), pas
+> `CreateEffectHitsBonusForAttack`. Ils ne passent donc **pas** par cette boucle.
 
 > ⚠ **CORRIGÉ par [case-122](case-122-hits-malus-ability-vector.md) §2** — la phrase ci-dessous est
 > FAUSSE. `IdunBattle.Core.Services.DamagePrediction$$IsMeleeAttack` ne calcule rien : il résout le

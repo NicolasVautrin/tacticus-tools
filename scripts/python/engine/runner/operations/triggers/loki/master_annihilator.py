@@ -3,9 +3,12 @@ passiveAbility d'`admecDominus` << Vitruvius >>, AdMec) -- la POSE du marqueur `
 (0x4e1=1249), avec son **remove-by-source**.
 
 L'EFFET etait deja porte et CONSOMME (`MasterAnnihilatorAdditionalHitEffect`, `entities/effects/loki/
-hits.py`, canal `create_effect_hits_malus_for_defense` slot 0x23 -> +1 coup recu, non-Psychic ; ground
-truth step-6 seed777). Ce qui MANQUAIT = le maillon qui le POSE : sans entree `ABILITY_TRIGGERS` le
-marqueur n'apparaissait JAMAIS dans un runner offline (no-op silencieux).
+hits.py`). Ce qui MANQUAIT = le maillon qui le POSE : sans entree `ABILITY_TRIGGERS` le marqueur
+n'apparaissait JAMAIS dans un runner offline (no-op silencieux).
+**#204** : le canal de CONSOMMATION de l'effet a change — il n'est plus un `+1` de la formule de
+coups (`create_effect_hits_malus_for_defense`) mais un GROUPE du canal #179
+(`create_aura_additional_hits_for_ally`, condition `get_OwnerIsTarget`), l'artefact natif etant
+`CreateAdditionalHits` et non `CreateEffectHitsBonusForAttack`. La POSE, elle, est inchangee.
 
 ## RE native (decompile ghidra, build gqfc5mff6c)
 
