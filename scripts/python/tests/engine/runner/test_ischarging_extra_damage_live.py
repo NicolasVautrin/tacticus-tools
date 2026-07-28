@@ -21,10 +21,21 @@ Ce que le test GARDE : le rejeu offline est bit-exact avec le live DANS LES DEUX
 CHARGE accorde le bonus et le DECALAGE ADJACENT ne l'accorde pas. Un port revenu au proxy
 `has_moved` sur-appliquerait dans le second et le test tomberait.
 
+Ce module est le SEUL verrou live de l'effet 1025 depuis le 2026-07-28 : `test_avalanche_of_muscle_
+live.py` (#o10-a) a ete RETIRE parce qu'il gatait par le proxy refute et, surtout, parce que sa
+METHODE etait devenue structurellement impossible -- il rejouait l'attaque offline depuis un snapshot
+pris APRES le pas, en DECLARANT la charge par `set_moved_flag`. Or le 2e terme du predicat vit dans
+`UnitComponent.ChargedUnitIds@+0x190`, qu'aucun RPC n'expose (`case-r32` §7) : `load_state` ne peut
+pas le seeder, donc un snapshot post-pas ne peut PAS porter la charge. La seule voie fidele est celle
+d'`_charge_regime` -- snapshot AVANT le pas, et pas REJOUE offline (`MoveUnitMessage`), ce qui fait
+poser `ChargedUnitIds` par le port lui-meme. Les garanties propres a l'ancien fichier (non-vacuite de
+la magnitude, materialisation sur les PV) sont reprises par `test_charge_bonus_is_not_vacuous`.
+
 ASCII only.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -36,6 +47,11 @@ from _charge_regime import (CHARGE, NO_STEP, STEP_ADJACENT,       # noqa: E402,F
                             charge_regime)
 
 from engine.runner.abilities.loki.strike import BlackRageAbility   # noqa: E402
+from engine.runner.components import HealthComponent               # noqa: E402
+from engine.runner.messages import AttackUnitMessage               # noqa: E402
+from engine.runner.runner import Runner                            # noqa: E402
+
+AVALANCHE_EFFECT_TYPE = 1025           # "AvalancheOfMuscle_ExtraDamage"
 
 
 @pytest.fixture(scope="module")
@@ -70,16 +86,108 @@ def test_step_adjacent_is_not_charging(bullgryn):
                              [o - l for l, o in zip(rec["live_per_hit"], off["per_hit"])]))
 
 
-def test_charge_is_charging(bullgryn):
+@pytest.fixture(scope="module")
+def charge_rec(bullgryn):
+    """Le regime CHARGE monte UNE SEULE fois (il joue une bataille live) et sert les deux tests qui
+    en dependent : le controle positif du gate, et la garde de non-vacuite."""
+    return _run(bullgryn, CHARGE)
+
+
+def test_charge_is_charging(charge_rec):
     """CONTROLE POSITIF -- le caster arrive AU CONTACT d'une cible qui n'etait PAS adjacente : la
     cible entre dans `ChargedUnitIds`, `IsCharging` est VRAI, le +extraDmg s'applique des DEUX
     cotes."""
-    rec, off = _run(bullgryn, CHARGE)
+    rec, off = charge_rec
     assert rec["target"] in off["charged"], (
         "la cible DOIT entrer dans ChargedUnitIds (nouvellement adjacente) ; charged=%s target=%s"
         % (off["charged"], rec["target"]))
     assert off["per_hit"] == rec["live_per_hit"], (
         "CHARGE : live=%s offline=%s" % (rec["live_per_hit"], off["per_hit"]))
+
+
+def test_charge_bonus_is_not_vacuous(bullgryn, charge_rec):
+    """GARDE DE NON-VACUITE + MATERIALISATION -- reprise des deux verrous que portait le fichier
+    retire `test_avalanche_of_muscle_live.py` (#o10-a), les seuls qui n'etaient pas deja ici.
+
+    Pourquoi ce test existe : `test_charge_is_charging` compare live et offline coup par coup. Si le
+    bonus de charge valait ZERO (magnitude non resolue, effet absent de l'etat, gate cable a un
+    predicat toujours faux), les deux cotes seraient egaux et le controle positif passerait A VIDE --
+    il ne prouverait plus rien de l'additif. On exige donc, sur le MEME enregistrement :
+
+      (a) le noeud `IsCharging` OUVRE et FERME reellement ce canal, les DEUX polarites lues sur
+          l'objet effet du porteur (`AvalancheOfMuscleTargetEffect$$CreateEffectDamageBonusForAttack` =
+          `ForAddition(OwnerIsCaster & IsCharging, ConfigVar(8 = extraDmg))`) ;
+      (b) la magnitude resolue depuis gameconfig (`AvalancheOfMuscleAbility$$GetExtraDamage` =
+          `AbilityConfiguration.GetVariableForLevel(config, 8, ...)` x multiplier de l'unite) est
+          STRICTEMENT positive ;
+      (c) elle est OBSERVABLE dans le scenario compare : le MEME etat, le MEME flux de PRNG, rejoue
+          sans l'effet 1025, ne rend pas les memes coups. Comme (c) part du rejeu deja prouve
+          bit-exact avec le live, c'est bien le LIVE qui porte l'additif -- rien n'est fitte ;
+      (d) les coups calcules ATTERRISSENT : PV de la cible apres l'attaque, offline == live (le canal
+          per-coup peut etre juste et l'application fausse -- deux etages distincts).
+    """
+    rec, off = charge_rec
+    caster, target = rec["caster"], rec["target"]
+
+    # (a)+(b) -- l'effet materialise du porteur, ses deux polarites de gate, sa magnitude.
+    eff = next((e for e in (off["state"].effects.by_unit.get(caster) or [])
+                if e.effect_type == AVALANCHE_EFFECT_TYPE), None)
+    assert eff is not None, (
+        "l'effet %d AvalancheOfMuscle_ExtraDamage n'est pas materialise sur le porteur %s -- le "
+        "scenario ne peut RIEN prouver de l'additif" % (AVALANCHE_EFFECT_TYPE, caster))
+    on = eff.create_effect_damage_bonus_for_attack(is_ranged=False, att_ctx={"is_charging": True})
+    offb = eff.create_effect_damage_bonus_for_attack(is_ranged=False, att_ctx={"is_charging": False})
+    assert offb is None, (
+        "gate IsCharging FERME : le canal doit rendre None hors charge, obtenu %s" % (offb,))
+    assert on is not None and on.value and on.value > 0, (
+        "gate IsCharging OUVERT : magnitude ConfigVar(8) non resolue ou nulle (%s) -- niveau=%s "
+        "mult=%s" % (on, eff.ability_level, eff.ability_variables_multiplier))
+
+    # (c) -- contrefactuel offline : MEME etat, MEME PRNG, effet 1025 RETIRE du porteur.
+    st = bullgryn.offline_state(rec)
+    st.effects.by_unit[caster] = [e for e in (st.effects.by_unit.get(caster) or [])
+                                  if e.effect_type != AVALANCHE_EFFECT_TYPE]
+    r = Runner(st).install_default_handlers(20)
+    r.apply(AttackUnitMessage(attacker_id=caster, target_id=target))
+    without = list((r.damage_handler.last or {}).get("per_hit") or [])
+    assert len(without) == len(off["per_hit"]), (
+        "l'additif ne doit PAS changer la CARDINALITE des coups (canal magnitude, pas cardinalite) "
+        "-- avec=%s sans=%s" % (off["per_hit"], without))
+    assert without != off["per_hit"] and sum(off["per_hit"]) > sum(without), (
+        "scenario NON DISCRIMINANT : retirer l'effet %d ne change pas les coups (avec=%s sans=%s) -- "
+        "le controle positif CHARGE comparerait live et offline a vide"
+        % (AVALANCHE_EFFECT_TYPE, off["per_hit"], without))
+
+    # (d) -- materialisation : PV de la cible APRES LE DERNIER COUP, offline == live.
+    #
+    # ⚠ PIEGE DE MESURE (mesure `probe_o10a_charge_hp_stage.py`, 2026-07-28) : NE PAS lire les PV
+    # dans `applyAction.units[].hp`. Ce tableau est l'etat de FIN DE CASCADE, pas de fin d'attaque --
+    # l'attaque etait la derniere action du caster, donc le tour BASCULE dans la meme reponse
+    # (`Match_CurrentPlayerId` 3 -> 4) et la cible encaisse ensuite son propre debut de tour. Mesure
+    # sur `necroOverlord` : les 4 coups descendent bien a 106098 (= offline, bit-exact), puis le
+    # groupe `LivingMetalRepair` la remonte a **118098** (+12000 = 10 % des PV max) et deux coups de
+    # riposte (`Passive_Ability_Type` 1045) partent sur le caster. Lire `units[].hp` fait donc voir un
+    # ecart de 12000 la ou le port est EXACT -- un faux « bug de port » pret a l'emploi.
+    # L'etage propre est le `UnitStats_RemainingHealth` porte par le DERNIER evenement de degat de
+    # cette attaque : c'est le meme point du pipeline que l'etat offline apres `AttackUnitMessage`.
+    live_hp_after_hits = None
+    a0 = ((rec.get("live_raw") or {}).get("actions") or [{}])[0]
+    for ev in (a0.get("events") or []):
+        td = ev.get("tags")
+        if not td:
+            continue
+        td = json.loads(td) if isinstance(td, str) else td
+        if (td.get("Attacker_Id") == caster and td.get("Target_Id") == target
+                and "Amount" in td and "UnitStats_RemainingHealth" in td):
+            live_hp_after_hits = td["UnitStats_RemainingHealth"]
+    assert live_hp_after_hits is not None, (
+        "aucun evenement de degat ne porte UnitStats_RemainingHealth -- l'etage PV n'est pas lisible")
+    e_t = off["state"].get_entity(target)
+    off_hp = e_t.get_component(HealthComponent).hp if e_t is not None else None
+    assert off_hp == live_hp_after_hits, (
+        "PV apres le dernier coup : offline %s != live %s (coups pourtant identiques %s) -- les "
+        "montants per-coup sont justes mais leur APPLICATION diverge"
+        % (off_hp, live_hp_after_hits, off["per_hit"]))
 
 
 @pytest.fixture(scope="module")

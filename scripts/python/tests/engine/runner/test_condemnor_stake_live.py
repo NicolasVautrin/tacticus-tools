@@ -20,7 +20,12 @@ et on confronte au live per-hit :
   (b) cible NON-PSYKER (necroWarden) -> live_ph == off_real (PAS de bonus) ET live_ph != off_flip (ajouter
       Psyker CREE le bonus : le gate HasTrait(target, Psyker) discrimine bien).
 Lit l'etat LIVE, rien de hardcode (magnitude lue de gameconfig via l'effet capte). ASCII-only.
-(Modele : test_avalanche_of_muscle_live.py.)
+(Modele : le contrefactuel offline « meme etat + meme RNG, UN seul terme du gate bascule ». Le gate
+confronte ici est `HasTrait(target, Psyker)`, lisible dans le snapshot -- le TOGGLE offline est donc
+fidele. ⚠ Ce patron ne se transpose PAS a un gate dont l'entree n'est PAS seedable : c'est ce qui a
+condamne `test_avalanche_of_muscle_live.py`, qui declarait la charge par `set_moved_flag` alors que
+`BattleQuery$$IsCharging` lit `UnitComponent.ChargedUnitIds@+0x190`, absent de tout RPC -- cf.
+`_charge_regime.py`, qui REJOUE le pas au lieu de declarer son effet.)
 """
 from __future__ import annotations
 
