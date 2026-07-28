@@ -247,12 +247,20 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         # et `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamage
         # ProfileType` passe l'octet EXPLICITEMENT A ZERO -> la face COMBAT lit TOUJOURS le noeud
         # ROLL. D'ou la PRECEDENCE ci-dessous, qui EST le mirror de ce gate : `min`/`max` (noeud
-        # ROLL) l'emportent des qu'ils existent ; `amount` (noeud DISPLAY) n'est le repli que pour
-        # les descripteurs dont les DEUX noeuds sont le MEME (`EffectAdditionalHits$$Create`
-        # param_8 = 0 -> minNode retombe sur amountNode : FoulInfusion `ConfigVar(0xb)`,
-        # ExplosiveMaladies `ConfigVar(8)`), et le spread ±20% qu'on lui applique alors reste un
-        # RESIDU NOMME (R6-c : leur noeud ROLL est un SCALAIRE, donc une cellule DEGENEREE cote
-        # natif -- 0 tirage `GetDamage` -- et non une plage ±20%).
+        # ROLL) l'emportent des qu'ils existent ; `amount` (noeud DISPLAY) n'est que le repli.
+        #
+        # R6-c — ce repli n'est plus emprunte par AUCUN descripteur porte : ceux dont les DEUX
+        # noeuds sont le MEME (`EffectAdditionalHits$$Create` param_8 = 0 -> minNode retombe sur
+        # amountNode : FoulInfusion `ConfigVar(0xb)`, ExplosiveMaladies `ConfigVar(8)`) rendent
+        # desormais `min == max == v`, ce qui est la lecture NATIVE de leur cellule : le noeud
+        # unique est un SCALAIRE (`IdunBattle.Entities.Formulas.ConfigAmount`), donc les slots 2
+        # et 3 lus par la face COMBAT rendent la MEME valeur. Cela change la CONSOMMATION autant
+        # que la valeur -- `IdunBattle.Core.HitDamage$$GetDamage` ouvre sur
+        # `if (*param_1 == param_1[1]) return *param_1;` -> 0 tirage la ou le spread ±20% en
+        # consommait 1 (mesure live : natif 3 tirages, port 3, contrefactuel 4 ; 8/8 montages,
+        # cf. `docs/rl/case-r6c-amount-group-bounds.md`).
+        # Le repli reste en place comme DEGRADATION FIDELE pour un futur descripteur qui n'aurait
+        # que sa face DISPLAY portee -- il n'est pas un chemin nominal.
         if "min" in g and "max" in g:
             g_min, g_max = int(g.get("min") or 0), int(g.get("max") or 0)
         else:
