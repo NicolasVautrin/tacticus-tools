@@ -133,13 +133,13 @@ dégât RÉEL en re-jouant le vecteur offline sur une cible aux PV portés à 10
    composant s'ajoute au total d'overkill. HYPOTHÈSE (structure, non mesurée) : accumulateur du
    dégât refusé par le plancher de PV. Nul tant qu'aucun plancher n'est actif. À plomber avec un
    porteur Hypersensory (Judh).
-2. **`MightBeOverkill` passe `MightCrit@+0xb1`**, `WillBeOverkill` passe **0 en dur** (littéral lu).
-   Le port passe 0 des deux côtés : la borne OPTIMISTE de l'IA sous-estime tout kill critique sous
-   le seuil. Face DÉCISION, **hors périmètre de ce cas**. Le hook expose déjà le champ
-   (`frida/hooks/features/ai-step/rpc-predict.ts` : `mightCrit: b.add(0xb1)`) mais le `pred`
-   consommé est construit par `playbook/probable_damage_event.py`, qui ne pose pas la clé — la
-   câbler côté PRODUCTEUR d'abord, sinon le « fix » serait un canal lu jamais écrit. Consommateurs :
-   `OverkillUnitUtility` (37), `DoomSirenPlaybook.CalculateCustomUtility`.
+2. ~~**`MightBeOverkill` passe `MightCrit@+0xb1`**, `WillBeOverkill` passe **0 en dur**~~ →
+   **FERMÉ le 2026-07-28 par `case-r34-mightbeoverkill-mightcrit.md`** (face DÉCISION), et le
+   cadrage laissé ici s'est vérifié : câbler le seul consommateur aurait donné un canal lu jamais
+   écrit. Le fix pose la clé **et** la lit — producteur `attacker_could_crit` (=
+   `DamageCalculations$$CouldCrit`, évalué DANS `predict_attack_raw`), clé posée par
+   `composite_fields` ET `_fields_from_native_event`, lue par `might_be_overkill`. Écart mesuré au
+   scoreur natif : **15.0000 = `PossibleOverkill` exact**.
 3. **`EffectAdditionalHits.forceOverkill`** — 6ᵉ paramètre d'`EffectAdditionalHits$$Create`, posé à
    `true` par une partie des 13 effets de coups additionnels (`FearOfTheUnseen_ExtraDamage`, …). Le
    canal `additional_hit_groups` du port ne le transporte pas, et le vecteur

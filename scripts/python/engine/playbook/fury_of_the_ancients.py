@@ -104,7 +104,8 @@ class FuryOfTheAncientsPlaybook:
             profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce,
             armor=scene.armor(tgt_id), mods=mods, hit_mult=hit_mult, spread_pct=0,
             target_shield=scene.shield(tgt_id), target_limits=_target_damage_limits(scene, tgt_id),
-            attacker_effects=scene.effects(uid))   # #202 : max-out evalue DANS predict_attack_raw
+            attacker_effects=scene.effects(uid),   # #202 : max-out evalue DANS predict_attack_raw
+            attacker_ctx=actx)                     # #R34 : MightCrit = CouldCrit(attaquant)
 
     # ---- mirror `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagedEnemyUtility` -------------------------------------------
     def _damaged_enemy_utility(self, scene, uid: int, tgt_id: int, tile, prob: float,

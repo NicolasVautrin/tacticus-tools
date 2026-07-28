@@ -63,6 +63,12 @@ class DamagePredictionResult:
     accurate_shield_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     total_damage: MinMaxDamage = field(default_factory=MinMaxDamage)
     limited_by_min_hp: bool = False
+    # MightCrit@0xB1 — `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` l'écrit
+    # INCONDITIONNELLEMENT (hors null-guard du service) depuis `IDamageCalculations` slot 7 =
+    # `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` = `GetStat(attacker, 9) >= 1
+    # ET GetStat(attacker, 10) > 0`. ⚠ le crit n'entre dans AUCUNE borne de dégât du résultat (RE
+    # #R34, lecture intégrale de PredictAttackRaw : ni `ApplyCritDamage` (slot 5) ni `RollCritical`
+    # (slot 6) n'y sont appelés) — ce flag est publié POUR `MightBeOverkill`, seul consommateur.
     might_crit: bool = False
     force_overkill: bool = False   # ForceOverkill @0xB2 (trait force-overkill ; défaut False, non porté baseline)
     applied_hits: int = 0
@@ -110,7 +116,13 @@ class DamagePredictionResult:
         t.apply_cap()
         self.total_damage = t
         self.applied_hits += other.applied_hits
-        self.might_crit = self.might_crit or other.might_crit
+        # #R34 : le natif `Add` ne fusionne AUCUN des quatre flags @0xB0..@0xB3 (LimitedByMinHp /
+        # MightCrit / ForceOverkill / HasFlag(target,0x13)) — il ne somme que les champs de dégât et
+        # le dword @0xBC (AppliedHits). Les flags gardent donc la valeur du PREMIER
+        # `PredictAttackRaw` (= `self`, le coup 1 de `get_multi_hit_attack_prediction`). L'ancien
+        # `self.might_crit or other.might_crit` était un fork de port : sans effet numérique (tous
+        # les coups d'une attaque ont le MÊME attaquant, donc le même `CouldCrit`), mais il aurait
+        # divergé dès qu'un `Add` agrège deux prédictions d'attaquants différents.
         # #54A : merge du scénario block (mirror per-index de `IdunBattle.Core.Services.DamagePredictionResult$$Add` : quand UN côté n'a pas
         # de liste, son scalaire rawMin sert d'entrée — c'est exactement le fallback natif).
         if self.block_raw_min is not None or other.block_raw_min is not None:
@@ -316,6 +328,28 @@ def is_attack_max_out_damage(attacker_effects) -> bool:
                for e in (attacker_effects or []))
 
 
+def attacker_could_crit(attacker_ctx) -> bool:
+    """#R34 `MightCrit@+0xB1` — mirror de l'appel que `IdunBattle.Core.Services.DamagePrediction$$
+    PredictAttackRaw` fait LUI-MÊME, en fin de corps, sur `IDamageCalculations` slot 7 =
+    `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` :
+
+        MightCrit = GetStat(attacker, 9 = CritChance) >= 1  ET  GetStat(attacker, 10 = CritDamage) > 0
+
+    Le store est INCONDITIONNEL (le seul `if` englobant est le null-guard C# du champ service).
+    ⚠ **`CouldCrit` lit `GetStat` NU** — PAS la couche calc-time `GetCritChanceBonusFromEffects` /
+    `GetCritDamageBonusFromEffects` que le COMBAT ajoute (`AttackDamageOperation._crit_params`).
+    `ctx.crit_chance` / `ctx.crit_damage` SONT `GetStat(Current)` (stat-modifications incluses), donc
+    exactement le bon niveau de lecture. FOYER UNIQUE côté prédiction, évalué DANS
+    `predict_attack_raw` comme le natif l'évalue DANS `PredictAttackRaw` (même pli que
+    `is_attack_max_out_damage`, #202) : les appelants passent le CONTEXTE de l'attaquant, pas un
+    flag pré-calculé. `None` (harnais/probes sans ctx) -> False, comme avant #R34."""
+    if attacker_ctx is None:
+        return False
+    from .damage_combat import could_crit
+    return bool(could_crit(int(getattr(attacker_ctx, "crit_chance", 0) or 0),
+                           int(getattr(attacker_ctx, "crit_damage", 0) or 0)))
+
+
 def predict_attack_raw(
         prev: "BlockScenario", initial_damage: int, profile_type: int = 0,
         armor: int = 0, pierce_pct: int = 100, extra_max: int = 0,
@@ -324,7 +358,7 @@ def predict_attack_raw(
         target_current_health: int = 0, target_shield: int = 0,
         target_limits: dict | None = None,
         predefined: MinMaxDamage | None = None, might_crit: bool = False,
-        attacker_effects=None) -> DamagePredictionResult:
+        attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
     """`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw — prédiction d'UN COUP contre les RESSOURCES RESTANTES
     de la cible (déplétées par `prev`, scénario cumulé des coups précédents ; `prev` vide = ressources
     pleines = 1er coup). NE fait PAS le ×hits (→ `get_multi_hit_attack_prediction`) ; l'additif plat EST
@@ -464,7 +498,10 @@ def predict_attack_raw(
         accurate_health_damage=health, raw_health_damage=raw_health,
         accurate_shield_damage=MinMaxDamage(min=blk_lo, max=blk_hi),
         total_damage=MinMaxDamage(min=blk_lo + health.min, max=blk_hi + health.max),
-        applied_hits=1, might_crit=might_crit)
+        # #R34 : `MightCrit@+0xB1` = `CouldCrit(attacker)`, évalué ICI (foyer natif). Le paramètre
+        # `might_crit` reste accepté pour les chemins ALIMENTÉS (flag déjà lu live, ex. `predict.py`
+        # `WeaponBase.might_crit` <- `combatSnapshot.normalAttack.mightCrit`) -> `or`.
+        applied_hits=1, might_crit=bool(might_crit) or attacker_could_crit(attacker_ctx))
 
 
 def get_multi_hit_attack_prediction(
@@ -476,7 +513,7 @@ def get_multi_hit_attack_prediction(
         target_limits: dict | None = None,
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
-        attacker_effects=None) -> DamagePredictionResult:
+        attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
     """`IdunBattle.Core.Services.BattleQuery$$GetMultiHitAttackPrediction — LA boucle multi-coups (le `×hits` est ICI, PAS
     dans PredictAttackRaw) :
         result = predict_attack_raw(coup 1, prev=vide)
@@ -508,7 +545,8 @@ def get_multi_hit_attack_prediction(
             extra_max=extra_max, mods=mods, hit_mult=hit_mult, reduction_min=reduction_min,
             reduction_max=reduction_max, spread_pct=spread_pct,
             target_current_health=target_current_health, target_shield=target_shield,
-            target_limits=target_limits, might_crit=might_crit, attacker_effects=attacker_effects))
+            target_limits=target_limits, might_crit=might_crit, attacker_effects=attacker_effects,
+            attacker_ctx=attacker_ctx))
 
     result = _hit(BlockScenario())                          # coup 1 : prev vide → ressources pleines
     for _i in range(1, hits):
@@ -540,7 +578,7 @@ def get_multi_hit_attack_prediction(
                 reduction_min=reduction_min, reduction_max=reduction_max, spread_pct=spread_pct,
                 target_current_health=target_current_health, target_shield=target_shield,
                 target_limits=_gtl, predefined=_pre, might_crit=might_crit,
-                attacker_effects=attacker_effects)
+                attacker_effects=attacker_effects, attacker_ctx=attacker_ctx)
         for _j in range(max(0, int(_grp.get("count", 0)))):
             result.add(_with_block(_ghit(result.default_block_scenario())))
     # #70 : l'additif plat (ForAddition) est appliqué PAR COUP dans `predict_attack_raw` (via `mods` non
@@ -558,7 +596,7 @@ def get_attack_prediction(
         shield_raw: MinMaxDamage | None = None,
         extra_groups: "list[dict] | None" = None,
         defender_block_amount: int | None = None,
-        attacker_effects=None) -> DamagePredictionResult:
+        attacker_effects=None, attacker_ctx=None) -> DamagePredictionResult:
     """`BattleQuery.GetNormalAttackPrediction` / `GetAttackPrediction` (slot 14) — entrée attaque NORMALE
     (whole-attack). Le natif route TOUTE attaque multi-coups par `GetMultiHitAttackPrediction` (boucle
     `PredictAttackRaw` par coup + `prev` déplété + `Add`) : on DÉLÈGUE donc à `get_multi_hit_attack_prediction`.
@@ -576,7 +614,8 @@ def get_attack_prediction(
         mods=mods, hit_mult=hit_mult, reduction_min=reduction_min, reduction_max=reduction_max,
         spread_pct=spread_pct, target_shield=target_shield, might_crit=might_crit,
         target_limits=target_limits, extra_groups=extra_groups,
-        defender_block_amount=defender_block_amount, attacker_effects=attacker_effects)
+        defender_block_amount=defender_block_amount, attacker_effects=attacker_effects,
+        attacker_ctx=attacker_ctx)
 
 
 # --------------------------------------------------------------------------------------------------
