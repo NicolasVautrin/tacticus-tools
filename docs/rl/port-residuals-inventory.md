@@ -196,25 +196,89 @@ régénéré, dont le critère `D` a été corrigé entre-temps.
 > (« NC classée, utilité NC non portée », 1 occurrence : RadBombardment — **qui a depuis reçu sa
 > face combat**, donc l'occurrence a disparu).
 
-Les 13 restants, tous à porteur **HERO du pool** (les 2 fermés restent listés, barrés, pour que le
-sens de la marche se lise) :
+### 2.1 — Dérivation autonome et inventaire CLASSÉ (case-decision-noop, 2026-07-28)
 
-| id | ability | porteur | registre décision | symptôme | taille |
-|---|---|---|---|---|---|
-| 1129 | BloodyFury | worldTerminator | NC + `_SPECIAL` | non mesuré (structurel) | 1 ability (primitive `ChainLeftOverHitsAttackDamage`) |
-| 1183 | VexillaMagnifica | custoVexilusPraetor | NC | non mesuré | 1 ability |
-| 1121 | ItItches | tyranParasite | NC | non mesuré | 1 ability (multi-étage positionnel) |
-| 1039 | RitesOfRestoration | adeptHospitaller | NC | non mesuré | 1 ability |
-| 1117 | DefendTheDivineWork | admecManipulus | NC | non mesuré | 1 ability |
-| 1050 | HolyDuel | templChampion | NC | non mesuré | 1 ability (3 classes d'effet) |
-| 1038 | FoulInfusion | deathPutrifier | NC | non mesuré | 1 ability |
-| 1090 | GrapnelLauncher | spaceHound | NC | non mesuré | 1 ability (≥6 primitives) |
-| ~~1020~~ | ~~HeraldOfTheApocalypse~~ | blackHaarken | `REGISTRY` | **FERMÉ** (`case-bl-1029-1020`) — mesuré avant port : 8450 + 7713 PV non infligés sur 2 unités | — |
-| ~~1029~~ | ~~Drachnyen~~ | blackAbaddon | `REGISTRY` | **FERMÉ** (`case-bl-1029-1020`) — mesuré avant port : SetHealth muet (10038 au lieu de 6480) + attaque normale non dispatchée | — |
-| 1100 | SorcerousFacade | thousTzaangor | `REGISTRY` | non mesuré ; lire `case-171` (interaction attaque normale) | 1 ability |
-| 1177 | LightOfSanguinius | bloodDante | `REGISTRY` | non mesuré | 1 ability |
-| 1137 | MurderousSwing | worldExecutions | `_SPECIAL` | **mesuré côté décision** (`case-108` : ×1,60 + 4 events) — face combat toujours NO-OP | 1 ability |
-| 1171 | DakkaDakkaDakka | orksKillaKan | `_SPECIAL` | non mesuré | 1 ability |
+> **Re-dérivé du code au commit `60e2e37`**, sans reprendre aucun chiffre de ce document ni du
+> backlog. Script de dérivation : `ABILITY_CLASSES` (`engine/runner/abilities/handler.py`) soustrait
+> de l'union des **TROIS** registres de décision — `engine.playbook.base.REGISTRY` (Comparable, 7),
+> `engine.playbook.noncomparable.PLAYBOOKS` (NonComparable, 35) et
+> `engine.entities.abilities.active_ability._SPECIAL_ABILITY_CLASSES` (sous-classes
+> `AActiveAbility` à formule de coups/AoE propre, 8 — consommées par le playbook GÉNÉRIQUE).
+>
+> ```
+> exec (ABILITY_CLASSES) = 91 | decision (union des 3 registres) = 45
+> DECIDENT sans EXECUTER = 15 -> [28, 1038, 1039, 1050, 1090, 1100, 1117, 1121,
+>                                 1129, 1137, 1171, 1177, 1183, 1192, 1194]
+> ```
+>
+> ⚠ **Croiser SEULEMENT `REGISTRY` + `PLAYBOOKS` rend 13 et manque 1137 / 1171** : leur face
+> décision vit dans le 3ᵉ registre. C'est l'erreur qu'a commise la première passe de cette
+> dérivation ; la table §2 ci-dessus, elle, les avait bien. **Toujours les trois registres.**
+>
+> **Sur les 15, 12 sont des items réels et confrontables** :
+> * `28 Repair` est un **TAG de playbook générique, pas une ability** — `RepairPlaybook.ability_id =
+>   ActiveAbilityType.Repair`, mais **aucune** entrée `abilities` du gameconfig ne s'appelle
+>   `Repair` (les repairs concrets ont leur propre id, ex. `NanoscarabRepairProtocols`). Les deux
+>   registres sont lookupés par id CONCRET (`REGISTRY.get(ability_id)`) ⇒ le playbook 28 est
+>   **dormant par construction**, exactement comme le tag `NormalAttack (17)`. Hors périmètre.
+> * `1192 NovaBoost` / `1194 NovaShield` : porteur unique `tauBossRiptide`, **npc**. Non pertinents
+>   (pas « bloqués »).
+
+**Écart observable commun à tous** : `AbilityHandler.visit_ActiveAbilityMessage` ne trouve pas la
+classe, pose `unported.add(id)`, `last["ported"] = False`, **exécute quand même les flags de tour**
+(`On(0xc)` → `AddFlagsAfterAbilityExecution` → `On(0xe)`) et **retourne sans aucune behaviour**.
+Le cast est donc ACCEPTÉ (il consomme le tour) et ne mute RIEN. C'est ce qui rend le défaut
+invisible : `ok=True`, tour consommé, zéro dégât, zéro effet, zéro erreur.
+
+**Ventilation des porteurs et gate de confrontabilité** (`rl_duel build --list-pool`, rank 17,
+97 unités + 8 MoW) — les 12 porteurs `lineup` sont **tous** dans le pool ; **aucun MoW, aucun
+summon** dans ce gisement :
+
+| # | id | ability | faction | porteur HERO (pool) | npc | MoW / summon | taille décompilé `ExecuteBehaviour` |
+|---|---|---|---|---|---|---|---|
+| 1 | 1171 | DakkaDakkaDakka | Orks | `orksKillaKan` « Snappawrecka » ✅ | 3 | — | ~1 730 o + 4 helpers |
+| 2 | 1137 | MurderousSwing | WorldEaters | `worldExecutions` « Tarvakh » ✅ | 1 | — | ~816 o + 3 helpers |
+| 3 | 1129 | BloodyFury | WorldEaters | `worldTerminator` « Wrask » ✅ | 1 | — | ~864 o + 4 helpers |
+| 4 | 1183 | VexillaMagnifica | Custodes | `custoVexilusPraetor` « Aesoth » ✅ | 0 | — | ~1 120 o |
+| 5 | 1177 | LightOfSanguinius | BloodAngels | `bloodDante` « Dante » ✅ | 0 | — | ~1 470 o + `GetDamage` |
+| 6 | 1050 | HolyDuel | BlackTemplars | `templChampion` « Jaeger » ✅ | 4 | — | ~704 o |
+| 7 | 1121 | ItItches | Tyranids | `tyranParasite` ✅ | 6 | — | ~2 060 o + 3 helpers |
+| 8 | 1090 | GrapnelLauncher | SpaceWolves | `spaceHound` « Tjark » ✅ | 0 | — | ~1 740 o |
+| 9 | 1039 | RitesOfRestoration | Sisterhood | `adeptHospitaller` « Isabella » ✅ | 3 | — | ~976 o + **6 helpers revive** |
+| 10 | 1100 | SorcerousFacade | ThousandSons | `thousTzaangor` « Yazaghor » ✅ | 4 | — | ~928 o + `GetTarget` |
+| 11 | 1038 | FoulInfusion | DeathGuard | `deathPutrifier` « Pestillian » ✅ | 3 | — | ~880 o |
+| 12 | 1117 | DefendTheDivineWork | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | ~752 o + `GetAdjacentFriends` |
+| — | 1192 | NovaBoost | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
+| — | 1194 | NovaShield | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
+
+> La taille est le delta d'adresse entre `…$$ExecuteBehaviour` et le symbole suivant de la même
+> classe — un **proxy** de volume, pas une mesure de difficulté. Les helpers comptent davantage :
+> `RitesOfRestoration` est petit en corps mais porte six helpers de revive.
+
+**Écart observable et classement (impact décroissant)** — l'ordre suit le dégât/état NON produit
+par cast, pondéré par le caractère INCONDITIONNEL de cet écart :
+
+| # | id | ce que le natif fait, que le port ne fait pas | socle déjà porté ? |
+|---|---|---|---|
+| 1 | 1171 | **6 coups garantis** (jusqu'à 16) × 1455-1819 Projectile pierce 15 ≈ **9 800 PV non infligés par cast**, sans condition ; puis report des coups gaspillés sur des ennemis tirés ≤3 hex ; **et** le caster ne perd pas ses 15 % de PV **max** ⇒ l'action est *gratuite* offline (double faussage : gain absent **et** coût absent) | oui — `ChainLeftOverHitsAttackDamage` (1006), `SubtractHealthPercent` (1131) |
+| 2 | 1137 | 1 coup Piercing 80 ≈ 2 910 sur **TOUS** les ennemis adjacents (+1 746 si un seul est touché) ⇒ écart = n_adjacents × ~2 910 | oui — splash multi-cible (1131) ; face décision déjà mesurée (`case-108`) |
+| 3 | 1129 | 1 coup Chain ≈ 2 800, **+1 coup par attaque reçue dans la bataille** (cap 8) + report des coups gaspillés | oui — `ChainLeftOverHitsAttackDamage` (1006). ⚠ **dépendance** : `TotalTimesAttacked` (compteur de BATAILLE, natif @+0x34) n'est pas entretenu offline — `UnitComponent.times_attacked_this_turn` est remis à 0 à chaque tour (`reset_times_attacked`) et n'est donc PAS le même compteur. Sans lui le port rend le coup de base |
+| 4 | 1183 | ≈ 3 640 Physical sur la cible **et** un second ennemi adjacent, `Stunned` 1 round sur les deux, `-66 %` dégâts subis sur le caster 1 round ; cooldown 2 rounds | partiellement — pose d'effet + splash |
+| 5 | 1177 | `Infiltrate` self + **CHARGE** vers un hex libre adjacent ≤5 + 5× Melta pierce 75 ≈ 3 800 + debuff -30 % dégâts sur la cible et son ring-1 (doublé contre les alliés ≤50 % PV) | oui — charge (1025/1153), pose d'effet |
+| 6 | 1050 | `Taunt` sur un ennemi adjacent + **attaque normale immédiate** + 2 stat-mods conditionnés au Taunt (+582 infligés / −364 subis) + Taunt réciproque **sans expiration** | partiellement — attaque normale libre (1029/1163) |
+| 7 | 1121 | `Suppress` + **push 1 hex** de la cible et des ennemis adjacents aux deux + destruction des steppables + **summon d'un Ripper Swarm par hex libéré** (attaque à l'apparition) + le caster peut re-bouger | partiellement — push (1004), spawn (1112/1166) |
+| 8 | 1090 | 1× Physical ≈ 2 360 range 3 + **PULL** de la cible d'1 hex vers le caster (franchit l'élévation, pas l'infranchissable) + **le caster occupe l'hex libéré** | non — le pull et le move-into-vacated-hex sont neufs |
+| 9 | 1039 | heal 2 183 self + adjacents (non-Mechanical) + **résurrection** de 1 héros Imperial et jusqu'à 2 summons Imperial morts, sur hexes libres adjacents, à 1 819 PV, inactifs ce tour | oui — `ReviveEffect` / `ReviveUnitOperation` (#66) |
+| 10 | 1100 | buff psychic mutuel (caster + Psyker allié ciblé, +1× Psychic pierce 100 sur leurs attaques normales) + attaque normale sur l'ennemi le plus proche + **échange de positions** avec le Psyker | partiellement — cf. `case-171` (l'interaction attaque normale est déjà RE côté décision) |
+| 11 | 1038 | buff « +1× 2 037 Toxic sur les attaques normales » au caster et à tous les alliés Chaos sous son aura Contagion, 2 rounds + **attaque normale immédiate** sur un ennemi adjacent tiré au hasard | partiellement — pose d'effet d'aura, attaque normale libre |
+| 12 | 1117 | repair 4 365 PV sur le caster et tous les alliés adjacents | oui — **clone structurel** de `CombatRestoratives` (1002) et `RevitalizingMalignancy` (1037) |
+
+**Le porté par ce cas** : **#1, `1171 DakkaDakkaDakka`** (cf. `docs/rl/case-dakka-dakka-dakka.md`).
+Les 11 autres restent ouverts et sont dispatchables **sans re-RE** : porteur, gate, symbole natif
+(`IdunBattleLogic.Entities.Abilities.Active.Loki.<Nom>Ability$$ExecuteBehaviour`, sauf
+`MurderousSwing` et `LightOfSanguinius` qui sont sous
+`IdunBattleLogic.Entities.Abilities.Active.<Nom>Ability$$…`), écart observable et socle déjà
+disponible sont donnés ci-dessus.
 
 **NON CONFRONTABLES** : 1192 `NovaBoost` et 1194 `NovaShield` (`tauBossRiptide`, npc-only).
 
