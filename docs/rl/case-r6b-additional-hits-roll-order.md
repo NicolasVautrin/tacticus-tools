@@ -141,10 +141,16 @@ passent par la **même** `ExecuteHit`, donc le même ordre — le fix s'y appliq
 
 ---
 
-## 4. Résidu OUVERT et CHIFFRÉ — R6-b' : le `Maybe` de `GetStuckIn` sur les coups d'un groupe
+## 4. R6-b' — le `Maybe` de `GetStuckIn` sur les coups d'un groupe — **FERMÉ 2026-07-28**
 
-Sur `orksRuntherd`, le 2ᵉ coup du groupe n'est reproduit que **3/5**. La cause est **résolue au
-décompilé** ; seul le port reste à faire.
+> **PORTÉ ET VALIDÉ LIVE** — fiche complète : **`case-r6bp-after-hit-maybe-on-groups.md`**
+> (port 8/8 + 6/6 sur deux montages à **parité inversée**, témoin sans trigger 4/4 bit-exact,
+> gardes `test_additional_hits_after_hit_maybe_live.py`). Ce qui suit est la RE telle qu'elle avait
+> été établie ici ; elle est exacte, mais le modèle chiffré du bas (« k = 1 si le nombre de coups
+> d'arme est impair ») s'est révélé **sous-déterminé** — cf. §4.b.
+
+Sur `orksRuntherd`, le 2ᵉ coup du groupe n'était reproduit que **3/5**. La cause est **résolue au
+décompilé** ci-dessous.
 
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateTrigger`, lu verbatim :
 
@@ -188,11 +194,20 @@ parité du nombre de coups d'arme sépare exactement ces cas — ce qui est la s
 CONTINU ci-dessus (3 coups d'arme ⇒ le 1ᵉʳ coup du groupe est d'index 3, **impair** ⇒ un `Maybe`
 est roulé juste après lui).
 
-**Ce que le port ne fait pas** : (a) `execute_additional_hits` ne passe pas `bonus_hit_chance` à
-`_run_hits` ; (b) l'index de `_run_hits` repart à 0 à chaque appel — donc même en le passant, la
-parité serait fausse. Le porter demande de threader un **offset d'index** dans `_run_hits`, et de
-trancher au décompilé ce que `AddBonusHitsToCurrentHitGroup` ajoute quand le hit-group courant est
-un groupe additionnel. Chantier distinct de l'ORDRE : **laissé ouvert, pas compensé**.
+### 4.b — Ce qui a été porté, et pourquoi le modèle ci-dessus ne suffisait pas
+
+Le port (`case-r6bp-after-hit-maybe-on-groups.md`) threade `hit_index0` dans `_run_hits` et
+`bonus_hit_chance` dans `execute_additional_hits` — **un seul site d'évaluation**, pas un second.
+La question laissée ouverte ici est tranchée : `AddBonusHitsToCurrentHitGroupBehaviour$$Execute`
+écrit dans la liste `+0xf0` du CASTER, que `ADamageOperation$$UpdateHitGroupAfterHit` déverse dans
+le `hitGroup+0x58` **de la sous-opération courante** ⇒ un succès pendant un groupe défère un coup
+bonus **dans ce groupe**.
+
+Le modèle « k = 1 si le nombre de coups d'arme émis est IMPAIR » est **numériquement correct sur le
+préfixe à 2 coups**, mais **sous-déterminé** : il ne dit rien du **3ᵉ** coup que le natif émet quand
+le `Maybe` du groupe RÉUSSIT. La ligne « 12345 : indistinguable » ci-dessus en est la trace — le
+live y a en fait **trois** coups de groupe, `[38, 35, 36]`, dont le troisième est marqué
+`Additional_Hit_TriggeredAbility_Source: 1234` (= `AbilityOrEffect(0x4d2)` de `CreateBehaviour`).
 
 ---
 
@@ -204,6 +219,9 @@ un groupe additionnel. Chantier distinct de l'ORDRE : **laissé ouvert, pas comp
   reste juste. Non exercé (aucun montage ne combine 1185 et un porteur de groupe).
 * **crit sur les coups d'un groupe** — le port passe `crit_chance=0, crit_enabled=False` ; aucun
   montage n'a exercé un descripteur portant une plage crit.
+* **`Maybe` after-hit sur le vecteur ABILITY** — porté sur la seule voie NORMALE (cf. §4.b) ;
+  `damage_ops/ability.py` reste muet sur les DEUX faces (arme et groupes). Résidu nommé dans
+  `case-r6bp-after-hit-maybe-on-groups.md` §5.
 * Les deux points « à confirmer live » de `case-202` §7 (gate `hp > 0`, `failed_block` remis à
   zéro entre la phase d'arme et les groupes) restent ouverts.
 
@@ -219,11 +237,15 @@ python probe_r6b_additional_hits_order.py --case squig --seeds 777,31337,12345,3
 python probe_r6b_additional_hits_order.py --case cordclaw --target necroWarden \
     --a-units "necroWarden,necroWarden" --seeds 777,31337,12345,314159,88,4242,2024
 
-# residu R6-b' : combien de tirages manquent entre deux coups du groupe ?
+# residu R6-b' (FERME) : combien de tirages manquent entre deux coups du groupe ?
 python probe_r6b_additional_hits_order.py --case squig --seeds 777,314159,12345,31337 \
     --extra-rolls 4
+# ... et sa mesure de FERMETURE (port livre vs contrefactuel, deux parites) :
+python probe_r6bp_after_hit_maybe_groups.py --case squig --seeds 777,314159,12345,88,31337,2468,20202,4242
+python probe_r6bp_after_hit_maybe_groups.py --case parry --seeds 777,314159,12345,88,31337,2468
 ```
 
-Gardes live : `tests/engine/runner/test_additional_hits_roll_order_live.py` (les deux axes).
+Gardes live : `tests/engine/runner/test_additional_hits_roll_order_live.py` (les deux axes)
+et `tests/engine/runner/test_additional_hits_after_hit_maybe_live.py` (R6-b').
 Fixture partagée du montage : `tests/engine/runner/_pierce_floor_regime.py`
 (`pierce_dominant_regime`, `drive`, `live_amounts`, `replay_orders`).

@@ -65,7 +65,7 @@ class _DamageHitsMixin:
                   bonus_hit_chance: Optional[int] = None, capped_reductions=None,
                   limits: Optional[dict] = None, limits_hp: int = 0,
                   is_attack_damage_op: bool = True, force_overkill: bool = False,
-                  force_crit: bool = False) -> dict:
+                  force_crit: bool = False, hit_index0: int = 0) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -82,10 +82,25 @@ class _DamageHitsMixin:
         (0-based) on tire 1 `next_bool(chance)` — mirror du behaviour `Maybe(AddBonusHits, GetBonusHitChance)`
         (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$CreateBehaviour`, roll `IdunBattle.Entities.Behaviours.MaybeBehaviour$$Execute`) évalué dans
         `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (dernière instr. de `ExecuteHit`). Chaque SUCCÈS d'un coup de
-        BASE ajoute 1 coup bonus DÉFÉRÉ (FIFO, `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`,
-        gate natif `attack.count==1 && !additionalHitsFlag`) exécuté APRÈS la boucle de base, MÊME profil
+        BASE ajoute 1 coup bonus DÉFÉRÉ (FIFO, boucle de fin d'`IdunBattle.Operations.AttackDamageOperation$$Execute`
+        sur `hitGroup+0x58`, alimenté par `IdunBattle.Operations.ADamageOperation$$UpdateHitGroupAfterHit`)
+        exécuté APRÈS la boucle de base, MÊME profil
         réduit. Un coup bonus d'index impair RE-tire un Maybe (tirage consommé) mais son succès est IGNORÉ
-        (anti-récursion). `bonus_hit_chance is None` (défaut) => strict no-op (rétro-compat totale).
+        (anti-récursion : le natif itère une COPIE de la liste, prise APRÈS la boucle de base).
+        `bonus_hit_chance is None` (défaut) => strict no-op (rétro-compat totale).
+
+        `hit_index0` (R6-b', défaut 0) = valeur de `currentAttack+0x30` A L'ENTREE de cette série de
+        coups. Le compteur natif n'est PAS local à `ExecuteHits` : c'est un champ de l'`OngoingAttack`
+        (`IdunBattle.Core.OngoingAttack$$.ctor` l'initialise à 0), poussée UNE FOIS par attaque sur la
+        pile `MatchState+0x60` par `IdunBattle.Core.MatchState$$StartAttack`
+        (`IdunBattle.Operations.StartAttackOperation$$Execute`) et relue par `Peek`
+        (`IdunBattle.Core.MatchState$$GetCurrentAttack` <- `IdunBattle.Core.Services.BattleQuery$$
+        GetCurrentAttackOrDefault` <- `IdunBattle.Operations.ADamageOperation$$GetCurrentAttackOrDefault`).
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` relit `currentAttack+0x30` FRAIS à
+        chaque tour de boucle et `IdunBattle.Operations.ADamageOperation$$UpdateCurrentAttackAfterHit`
+        l'incrémente après CHAQUE coup => l'index CONTINUE à travers les sous-opérations d'une même
+        attaque (coups bonus ET groupes de coups additionnels). Le retour porte `next_hit_index` pour
+        que l'appelant le THREADE (cf. `operations/additional_hits.py`).
 
         `force_overkill` (défaut False) = flag « always overkilled » d'un `AttackWithAttackDamage` natif
         (Nullable<bool>=true, 8e arg de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AttackDamageBehaviour`
@@ -355,12 +370,12 @@ class _DamageHitsMixin:
 
         base_bonus = 0
         for i in range(hits):
-            if _one_hit(i):
+            if _one_hit(hit_index0 + i):        # index de l'ATTAQUE (continu), pas de la serie
                 base_bonus += 1
         # #62c : coups bonus DEFERES (FIFO) apres la boucle de base — exactement `base_bonus` coups (count=1
         # par succes). Chaque coup bonus repasse le corps complet (crit/spread/block + re-roll Maybe si son
         # index est impair) ; son succes eventuel est IGNORE (pas de recursion, garde native).
-        bonus_idx = hits
+        bonus_idx = hit_index0 + hits
         for _ in range(base_bonus):
             _one_hit(bonus_idx)
             bonus_idx += 1
@@ -368,4 +383,7 @@ class _DamageHitsMixin:
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
                 "per_hit_health": per_hit_health,
-                "bonus_hits": base_bonus}
+                "bonus_hits": base_bonus,
+                # R6-b' : `currentAttack+0x30` APRES cette serie — `UpdateCurrentAttackAfterHit`
+                # incremente APRES CHAQUE `ExecuteHit`, coups bonus compris.
+                "next_hit_index": hit_index0 + hits + base_bonus}

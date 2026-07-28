@@ -357,9 +357,15 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
                       d'`operations/additional_hits.py`) -- c'est CE mode que la garde
                       `test_additional_hits_rounding_live` confronte au live, pour que le test
                       soit ROUGE si l'etage regresse.
+
+    R6-b' : cette variante IGNORE volontairement `bonus_hit_chance`/`hit_index0` -> elle EST le
+    CONTREFACTUEL « le `Maybe` after-hit n'est PAS evalue sur les coups d'un groupe » (le port
+    d'avant R6-b'). C'est a ce titre qu'elle sert de discriminant a
+    `test_additional_hits_after_hit_maybe_live`.
     """
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
-              block_sources, shc, spread_pct=20, extra_pierce=0):
+              block_sources, shc, spread_pct=20, extra_pierce=0,
+              bonus_hit_chance=None, hit_index0=0):
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.entities.damage_trait import DamageTrait
