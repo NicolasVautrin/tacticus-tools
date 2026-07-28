@@ -216,9 +216,15 @@ class HazeOfCorruptionTargetFinderAbility(TriggeredAbility):
         # `SetPersistentData(...)` = no-op documente (pas de couche persistent-data cote port).
         ectx = ExecutionContext(state=state, rng=state.rng)
         for src_node, tgt_unit in self._bond_pairs(picked):
+            # 5e argument natif = `Self@0x148` (le PORTEUR du passif) -- IDENTIQUE sur les DEUX
+            # `AddBondEffect` : les deux bonds de la chaine sont bondes au MEME Maladus, seule la
+            # SOURCE change (`Target@0x178` puis `Get(units,0)`). C'est cette entite que compare
+            # `AreEqual(Actor@0x158, bonded)` et que teste `IsAlive(bonded)` cote
+            # `HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger`, et c'est elle
+            # l'ATTAQUANT du `Attack(bonded, Owner@0x148, beh)` du report.
             AddBondEffect(HAZE_DAMAGE_TRANSFER, HAZE_DAMAGE_TRANSFER_NAME, src_node,
                           UnitSet([tgt_unit]), duration_rounds=None,
-                          duration_turns=HAZE_BOND_TURNS).execute(entities, ectx)
+                          duration_turns=HAZE_BOND_TURNS, bonded_ref=Caster()).execute(entities, ectx)
         bonds = [(p["source"], p["target"]) for n, p in ectx.emitted if n == "AddBondEffect"]
         return {"ability": HAZE_OF_CORRUPTION_ABILITY, "unit": self.owner_id,
                 "target": ev.target_id, "pool": [u.get("id") for u in pool],
@@ -314,11 +320,18 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     `owner_id` = l'unite qui PORTE l'effet = le RELAIS ; `EffectSource` = la cible INITIALE ;
     `BondedEntityFromEffect` = le porteur du passif (Maladus).
 
-    ECART NOMME -- `AreEqual(Actor@0x158, bonded)` : le port ne STOCKE pas l'entite bondee (le 5e
-    argument d'`AddBondEffect`, que la couche `AddEffectOperation` ne transporte pas). Le gate est
-    donc porte en verifiant que l'auteur du coup fatal PORTE `HazeOfCorruption` -- equivalent tant
-    qu'un seul porteur est en jeu, ce qui est le cas de tout montage a un `deathBlightlord`. Rendre
-    le gate exact demande d'ajouter un champ `bonded` a l'instance d'effet : residu nomme.
+    `bonded` (#220) est desormais l'entite REELLEMENT bondee, LUE sur l'instance d'effet
+    (`BaseEffect.bonded`, mirror du champ `+0x10` du composant de bond ecrit par
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` et relu par
+    `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`), et non plus INFEREE de « le tueur porte
+    `HazeOfCorruption` ». Les trois usages natifs de `bonded` la prennent a la MEME source :
+    `AreEqual(Actor@0x158, bonded)`, `IsAlive(bonded)` et l'ATTAQUANT du `Attack(bonded, Owner@0x148)`.
+
+    REPLI (canal de SEED, pas approximation de port) : un effet 1077 SEEDE depuis `decisionView.effects`
+    n'a pas de bonded -- le canal ne publie PAS le `BondedEntityId` (verifie : aucun champ `bonded` dans
+    `frida/`). Dans ce SEUL cas, `_bonded_id` retombe sur l'ancienne inference. Un bond pose par le port
+    (le chemin de production : le target-finder tire et bonde dans la MEME action que le coup fatal) a
+    toujours son `bonded` renseigne.
 
     NON PORTE : le repli `GetPersistentData` de `$$GetLeftOverDamages` (quand le contexte n'a pas
     de leftovers, le natif relit ceux de la cible INITIALE memorisee par le `SetPersistentData` du
@@ -339,7 +352,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
 
     @staticmethod
     def _carries_haze(state: State, unit_id) -> bool:
-        """`bonded` : porteur du passif `HazeOfCorruption` (cf. l'ECART NOMME de la docstring)."""
+        """Porteur du passif `HazeOfCorruption` -- ne sert PLUS qu'au repli SEED (cf. docstring)."""
         import gameconfig as GC
         from ....components import StatsComponent, UnitComponent
         e = state.get_entity(unit_id) if unit_id is not None else None
@@ -352,6 +365,17 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
             vid = uc.visual_id if uc is not None else None
         return HAZE_OF_CORRUPTION_ABILITY in ((GC.unit(vid) or {}).get("passiveAbilities") or [])
 
+    def _bonded_id(self, state: State, inst, ev: TriggerEvent):
+        """`BondedEntityFromEffect(Effect@0x150)` = `ABondEffect$$BondedEntityId(effect)` = le champ
+        `+0x10` du composant de bond -> `BaseEffect.bonded`. `None` = pas de bonded lisible (un effet
+        1077 SEEDE ; cf. le REPLI de la docstring de classe)."""
+        b = getattr(inst, "bonded", None)
+        if b is not None:
+            return int(b)
+        if ev.killer_id is not None and self._carries_haze(state, ev.killer_id):
+            return int(ev.killer_id)
+        return None
+
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         from ....components import UnitComponent
         inst = self._instance(state)
@@ -361,12 +385,16 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         # qui meurt.
         if int(getattr(inst, "source", -1) or -1) != int(ev.dying_id):
             return False
-        # `OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded))`.
-        chained = ev.triggering_effect == HAZE_DAMAGE_TRANSFER
-        if not chained and not self._carries_haze(state, ev.killer_id):
+        bonded = self._bonded_id(state, inst, ev)
+        if bonded is None:
             return False
-        # `IsAlive(bonded)` : le porteur doit etre vivant pour que le report parte.
-        b = state.get_entity(ev.killer_id) if ev.killer_id is not None else None
+        # `OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded))` -- EGALITE d'entite,
+        # plus une inference sur le kit du tueur (#220).
+        chained = ev.triggering_effect == HAZE_DAMAGE_TRANSFER
+        if not chained and (ev.killer_id is None or int(ev.killer_id) != bonded):
+            return False
+        # `IsAlive(bonded)` : le BONDE (pas le tueur) doit etre vivant pour que le report parte.
+        b = state.get_entity(bonded)
         uc = b.get_component(UnitComponent) if b is not None else None
         return not (uc is not None and not uc.alive)
 
@@ -375,6 +403,11 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         from ...left_over_damage import left_over_damages
         inst = self._instance(state)
         if inst is None:
+            return None
+        # L'ATTAQUANT du `Attack(bonded, Owner@0x148, beh)` -- et de chaque `AttackDamage(bonded, ...)`
+        # -- est le BONDE, lu sur l'instance (#220), PAS l'auteur du coup fatal.
+        bonded = self._bonded_id(state, inst, ev)
+        if bonded is None:
             return None
         dmgs = left_over_damages(state, ev.dying_id)
         # `beh = Nothing() + GetRemoveEffectBehaviour()` : le bond est consomme AVANT les coups.
@@ -389,8 +422,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
             amount = int(d.get("amount") or 0)
             if amount < 0:
                 continue
-            entities = entities_from_state(state, ev.killer_id, self.owner_id,
-                                           actor_id=ev.killer_id)
+            entities = entities_from_state(state, bonded, self.owner_id, actor_id=bonded)
             ectx = ExecutionContext(state=state, rng=state.rng)
             # case-221 -- les N feuilles vivent sous UN SEUL `Attack(bonded, Owner@0x148, beh)`, donc
             # UNE SEULE serie de coups : `IsFirstHitInSeries()` (= `hitIndex == 0`) n'est vrai qu'a la
@@ -406,5 +438,5 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
                                    is_first_hit=(i == 0)).execute(entities, ectx)
             done.append(amount)
         return {"ability": HAZE_OF_CORRUPTION_ABILITY, "volet": "damage_transfer",
-                "unit": self.owner_id, "source": ev.dying_id, "bonded": ev.killer_id,
-                "transferred": done}
+                "unit": self.owner_id, "source": ev.dying_id, "bonded": bonded,
+                "killer": ev.killer_id, "transferred": done}

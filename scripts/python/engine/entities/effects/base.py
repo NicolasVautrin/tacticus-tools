@@ -205,6 +205,20 @@ class BaseEffect:
     # par-source est structurellement idempotent (`ReverseModification` pop une cle absente = no-op) ; ce
     # drapeau evite surtout de RE-LISTER le meme revert a chaque tick dans les diagnostics.
     stat_mod_reverted = False
+    # ENTITE BONDEE de CETTE instance d'effet -- mirror du champ `+0x10` du composant de bond que
+    # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` ecrit sur l'entite-effet
+    # (`BondEffect(id)` blueprint, puis `<composant>.BondedEntityId = param_3`), et que relit
+    # `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId(effect)` -- la source du noeud
+    # `IdunBattleLogic.Entities.DSLFactory$$BondedEntityFromEffect` / `ABondEffect$$BondedEntitySelector`.
+    # L'id vient du 5e argument d'`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect` (`bondedEntity`, un
+    # SELECTEUR range dans les options), resolu A L'EXECUTION par
+    # `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` (`this+0x70` -> `SelectSingle`
+    # -> `EntityId`) : `0`/null => builder d'effet ORDINAIRE, donc AUCUN bond.
+    # DISTINCT de `source` (`EffectComponent.SourceUnit @+0x10`, l'EffectSource) et de `target`
+    # (`EffectComponent.Target @+0x14`, le porteur) : sur `HazeOfCorruption_DamageTransfer` (1077) les trois
+    # sont TROIS unites differentes -- source = la cible initiale, target = le relais, bonded = Maladus.
+    # None = effet non-bond, ou effet SEEDE (le canal `decisionView.effects` ne publie pas le bonded).
+    bonded = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """`<Effect>.ApplyModification` (part DATA côté `entities/`) — liste des `(StatType, montant)` posés

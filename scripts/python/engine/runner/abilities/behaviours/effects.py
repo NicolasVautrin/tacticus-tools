@@ -65,15 +65,27 @@ class AddBondEffect(AbilityBehaviour):
     (unites OU tuiles) : `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$ExecuteBehaviour` et
     `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` bondent sur des TUILES. Le port itere donc
     `_add_effect_targets` / `_add_effect_target_id` (les call-sites MONO-unite historiques — `Target()`,
-    `LastUnitAttackedBy(child)` — rendent 1 element -> chemin identique)."""
-    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns")
+    `LastUnitAttackedBy(child)` — rendent 1 element -> chemin identique).
+
+    `bonded_ref` = le **5e argument natif** d'`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect`
+    (`bondedEntity`, un `ITargetsSelector` que la factory range dans les `AddEffectBehaviourOptions`).
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` le resout A L'EXECUTION
+    (`this+0x70` -> `SelectSingle` -> `EntityId`) et bascule sur
+    `…AddEffectBehaviour$$DefaultBondEffectBuilder`, qui ECRIT cet id dans le composant de bond de
+    l'entite-effet (`+0x10`) — ce que relit `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`.
+    Un id NUL laisse le builder ORDINAIRE (aucun bond). D'ou : `bonded_ref=None` ici = pas de bonded
+    porte -> `BaseEffect.bonded` reste None (comportement historique, INCHANGE pour les call-sites qui
+    ne le renseignent pas encore)."""
+    __slots__ = ("effect_type", "name", "source_ref", "target_ref", "duration_rounds", "duration_turns",
+                 "bonded_ref")
 
     def __init__(self, effect_type: int, name: str, source_ref: TargetsSelector, target_ref: TargetsSelector,
-                 duration_rounds=1, duration_turns=None):
+                 duration_rounds=1, duration_turns=None, bonded_ref: TargetsSelector = None):
         self.effect_type, self.name = effect_type, name
         self.source_ref, self.target_ref = source_ref, target_ref
         self.duration_rounds = duration_rounds
         self.duration_turns = duration_turns
+        self.bonded_ref = bonded_ref
 
     def execute(self, entities, ectx):
         from ...operations.effects import AddEffectOperation
@@ -87,13 +99,22 @@ class AddBondEffect(AbilityBehaviour):
         # `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns(rounds) (mirror du noeud `TurnsFromRounds`). `duration_turns`
         # (noeud Direct(n)/Nullable(n), deja en TOURS) est prioritaire et N'EST PAS converti.
         dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
+        # `GetEffectBuilder` resout le selecteur `bondedEntity` (options `+0x70`) DANS la boucle des
+        # cibles, en `SelectSingle` puis `EntityId`. Le port l'evalue au MEME contexte `entities`.
+        # ECART NOMME : le natif a deja ecrit la cible COURANTE dans le slot `Target` du contexte
+        # (`param_3[4] = lVar7`) quand il appelle `GetEffectBuilder` ; le port evalue le selecteur au
+        # contexte d'entree. Sans effet pour tout `bondedEntity` qui ne depend PAS de la cible courante
+        # (`Self@0x148` de `HazeOfCorruption_TargetFinderAbility`, seul call-site renseigne a ce jour).
+        bu = resolve_unit(self.bonded_ref, entities) if self.bonded_ref is not None else None
+        bonded = bu.get("id") if bu else None
         for elem in _add_effect_targets(self.target_ref.evaluate(entities)):
             tgt = _add_effect_target_id(elem, state)     # unit dict->id | (col,row)/int -> tile id
             if tgt is None:
                 continue
             AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
-                                       name=self.name, duration_override=dur)
-            ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type)
+                                       name=self.name, duration_override=dur, bonded=bonded)
+            ectx.emit("AddBondEffect", source=src, target=tgt, effect_type=self.effect_type,
+                      bonded=bonded)
         return OperationResult.ok()
 
 
