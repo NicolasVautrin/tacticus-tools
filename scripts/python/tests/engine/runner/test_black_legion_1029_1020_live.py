@@ -437,7 +437,17 @@ def test_herald_live_targets_line_and_effect(live_session, rpc, build_runner,
     assert last.get("ported") is True, f"1020 non routee par le registre de combat : {last}"
     off_targets = sorted(last.get("targets") or [])
     off_effects = sorted(last.get("effects") or [])
-    off_per_hit = {a["target"]: list(a.get("per_hit") or []) for a in (last.get("attacks") or [])}
+    # #227 : la SEQUENCE d'evenements de degat encaissee par une cible = les coups d'ARME **puis**
+    #   les coups des groupes du canal #179 (sous-operations executees APRES la boucle d'arme, dans
+    #   la MEME `IdunBattle.Operations.AttackDamageOperation$$Execute`). Le coup `LetTheGalaxyBurn`
+    #   est desormais l'un de ces groupes (son artefact natif est un descripteur
+    #   `IdunBattle.Entities.Effects.EffectAdditionalHits`, cf. `LetTheGalaxyBurnEffect`), et non
+    #   plus un coup d'arme surnumeraire -> il faut concatener les deux canaux pour reconstituer ce
+    #   que le live emet. La VALEUR et la position dans le flux RNG sont inchangees sur CE vecteur
+    #   (AttackData a `HitDamage` NON degenere -> le groupe tire dans les memes bornes brutes).
+    off_per_hit = {a["target"]: (list(a.get("per_hit") or [])
+                                 + list((a.get("additional_hits") or {}).get("per_hit") or []))
+                   for a in (last.get("attacks") or [])}
     off_hits = {t: len(v) for t, v in off_per_hit.items()}
     # plage NON-CRIT par COUP telle que la calcule le pipeline porte (bornes config-scalees APRES
     # percage/armure) : c'est l'oracle de MAGNITUDE, seule quantite comparable au live malgre le

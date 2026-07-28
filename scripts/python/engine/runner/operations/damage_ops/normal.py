@@ -201,12 +201,7 @@ class _Normal:
                 target_effects=_tgt_eff, aura_sources=_auras, board=_board,
                 is_melee=not _ranged, damage_profile=_profile,
                 include_bonus_hit_behaviours=False,  # combat: GetStuckIn NON compte dans la formule -- ajoute a l'exec (_run_hits, #62c)
-                defender_on_cover=_on_cover,
-                # #84 : contexte CIBLE du canal (1) -- `HasTileStatusEffect` (status-effects DYNAMIQUES
-                # de la tuile de la cible) + `IsPersistentData` (flag arme juste au-dessus par le vecteur
-                # PreAttack). MEME couple d'entrees que la facade PREDICTION.
-                tile_effects_by_pos=tile_status_effects_by_pos(state, [(tp.col, tp.row)]),
-                attacker_persistent_data=persistent_data_keys(att))
+                defender_on_cover=_on_cover)
         else:                                     # positions manquantes -> base seule (pas de GetStuckIn/aura)
             hits = max(1, whits + ctx.stat(StatType.EXTRA_HITS) + hits_bonus_from_effects(active))
         tsc = tgt.get_component(StatsComponent)
@@ -386,9 +381,22 @@ class _Normal:
         _ah = execute_additional_hits(
             state, attacker_id, target_id, tgt, thc,
             collect_additional_hit_groups(
-                state, attacker_id, target_id, active, not _ranged, _def_active),
+                state, attacker_id, target_id, active, not _ranged, _def_active,
+                # #227 `LetTheGalaxyBurn` : le canal #179 (et NON la formule de coups) porte son
+                # « +1 coup ». Le degat du groupe = `FirstHitInCurrentAttackDamageRange` = le
+                # `HitDamage` BRUT de l'AttackData de CETTE attaque, qui est DEGENERE pour une
+                # attaque normale (c'est ce qui donne 1 tirage/coup, cf. `_one_hit`) : la base
+                # d'attaque, AVANT spread/percage. Le gate lit la tuile de la cible
+                # (`HasTileStatusEffect`) et le flag pose par `On(PreAttack=5)` juste au-dessus.
+                attack_hit_damage=(int(ctx.stat(StatType.ATTACK)), int(ctx.stat(StatType.ATTACK))),
+                t_pos=(tp.col, tp.row) if tp is not None else None,
+                tile_effects_by_pos=(tile_status_effects_by_pos(state, [(tp.col, tp.row)])
+                                     if tp is not None else None),
+                persistent_data=persistent_data_keys(att)),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
+            # profil de l'ATTAQUE : ce qu'emprunte un groupe dont le `profileType` est NULL.
+            attack_profile=_profile,
             # R6-b' : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` est la
             # DERNIERE instruction de CHAQUE `IdunBattle.Operations.AttackDamageOperation$$
             # ExecuteHit` -- y compris ceux des sous-operations de groupe, qui partagent

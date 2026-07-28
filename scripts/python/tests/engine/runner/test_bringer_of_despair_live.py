@@ -290,9 +290,18 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
     assert last.get("ported"), f"ability {ABILITY} non routee par le wiring: {last}"
     main = last.get("main_attack") or {}
     bonus = last.get("bonus") or []
-    off_main_ph = main.get("per_hit") or []
+    # #227 : la SEQUENCE d'evenements de degat encaissee par une cible = coups d'ARME **puis** coups
+    #   des groupes du canal #179 (sous-operations de la MEME `IdunBattle.Operations.
+    #   AttackDamageOperation$$Execute`). Le coup `LetTheGalaxyBurn` d'Angrax est desormais l'un de
+    #   ces groupes (descripteur `IdunBattle.Entities.Effects.EffectAdditionalHits`), plus un coup
+    #   d'arme surnumeraire -> il faut concatener les deux canaux pour reconstituer le live.
+    def _seq(a):
+        return list((a or {}).get("per_hit") or []) \
+            + list(((a or {}).get("additional_hits") or {}).get("per_hit") or [])
+
+    off_main_ph = _seq(main)
     off_bonus = bonus[0] if bonus else {}
-    off_bonus_ph = (off_bonus.get("attack") or {}).get("per_hit") or []
+    off_bonus_ph = _seq(off_bonus.get("attack"))
 
     # baseline degat scalee (armure 0 -> per-coup dans [bmin, bmax] ; pas de crit cc=0, pas de block).
     # La sequence de reference DOIT inclure le `PickRandomly(bonusSel, 1)` qui SEPARE les deux volets :
@@ -339,10 +348,10 @@ def test_bringer_live_cast_targeting_and_ab_fidelity(live_session, rpc, build_ru
 
     # (3) FIDELITE A/B (OFFLINE, bit-exact) : l'arbre == sequence directe execute_ability_attack (main 4 coups
     #     puis bonus 4 coups, meme rng seede) -> le port n'introduit AUCUN bug de degat (structure/pipeline).
-    assert off_main_ph == (ref_main or {}).get("per_hit"), \
-        f"arbre MAIN {off_main_ph} != baseline execute_ability_attack {(ref_main or {}).get('per_hit')}"
-    assert off_bonus_ph == (ref_bonus or {}).get("per_hit"), \
-        f"arbre BONUS {off_bonus_ph} != baseline {(ref_bonus or {}).get('per_hit')} (port non bit-exact vs pipeline)"
+    assert off_main_ph == _seq(ref_main), \
+        f"arbre MAIN {off_main_ph} != baseline execute_ability_attack {_seq(ref_main)}"
+    assert off_bonus_ph == _seq(ref_bonus), \
+        f"arbre BONUS {off_bonus_ph} != baseline {_seq(ref_bonus)} (port non bit-exact vs pipeline)"
 
     # (4) MAGNITUDE : chaque coup offline dans la plage config-scalee [bmin,bmax] (armure 0, cc=0, pas de block)
     #     -> profil Power/pierce/minDmg/maxDmg corrects. (Live NON borne strictement : le trait/DespoiledGround
