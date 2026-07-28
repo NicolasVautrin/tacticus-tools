@@ -776,12 +776,22 @@ class EffectFactory:
         # après décrément. Sans ça, le filtre droppait TOUS les effets captés (régression RapidAssault).
         rem = captured.get("remaining")
         remaining_turns = rem if (isinstance(rem, int) and rem > 0) else None
-        # `ability_variables_multiplier`/`ability_level` = de l'unité porteuse (scale + index des vars
-        # d'ability §17.21). `level` capté = stack level (≠ ability level).
+        # FLAG `EffectComponent.IsActive @+0x5c` — LU du capté quand la source le publie.
+        # Le canal live `readEffectsByUnit`/`readEffectsByTile` (frida/hooks/game/effects.ts) rend
+        # `active` sur CHAQUE entrée, mais ne publie les entrées à `IsActive == 0` que sous
+        # `includeInactive`. D'où la règle : clé ABSENTE -> `True` (canal par défaut = actifs seuls,
+        # « présent == actif » ; c'est aussi le cas de la pose OFFLINE d'`AddEffectOperation`, dont le
+        # `captured` n'a pas de clé `active` — le natif crée l'entité-effet ACTIVE et délègue l'inertie
+        # à `<Effect>.CreateActiveCondition`). Clé PRÉSENTE -> on la respecte : c'est ce qui rend le
+        # canal `includeInactive` EXPLOITABLE au seed. Sans cette lecture, un effet capté INERTE
+        # atterrirait `active=True` et `EffectsState.active_effects` le laisserait contribuer —
+        # exactement le ×0.70 fantôme que #208 a fermé.
+        active = captured.get("active")
         return klass(
             name=name, effect_type=captured.get("effectType"), level=captured.get("level"),
             ability_level=ability_level, active_ability_level=active_ability_level,
             remaining_turns=remaining_turns, source=captured.get("source"),
+            active=(True if active is None else bool(active)),
             ability_variables_multiplier=ability_variables_multiplier)
 
     @classmethod
