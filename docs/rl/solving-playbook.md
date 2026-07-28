@@ -552,10 +552,27 @@ a la mecanique la plus connue (le crit) au lieu de le LOCALISER.
   consommation le moins cher ; les VALEURS disent ensuite QUELLE position porte quoi.
 - **Un « N/M draws » anormal n'est PAS forcement la mecanique suspectee** : localiser le point de
   tirage par gates (etape 2) avant de nommer le coupable.
-- Residu detecte au passage, HORS scope, documente : off-by-one (+1) valeur-dependant sur les
-  DEUX vecteurs a armure>0 (rounding pierce/armure, ex. port [918,903,1112] vs live
-  [919,904,1113]) ; et `execute_normal_like`/amount-mode + fire-DoT (EnvFireTile) ont une
-  consommation NON mesuree (candidats memes familles).
+- ~~Residu detecte au passage, HORS scope : off-by-one (+1) valeur-dependant sur les DEUX vecteurs
+  a armure>0 (rounding pierce/armure, ex. port [918,903,1112] vs live [919,904,1113]) ; et
+  `execute_normal_like`/amount-mode + fire-DoT (EnvFireTile) ont une consommation NON mesuree.~~
+  **LES TROIS POINTS SONT PERIMES** (re-mesure 2026-07-28, `case-38-offbyone-armor-materialization.md`) :
+  - l'off-by-one n'etait PAS un gap de percage -- l'attribution « rounding pierce/armure » de cette
+    note visait le MAUVAIS ETAGE. Le defaut float de `StaticBattleRules.Damage$$GetDamageWithPiercing`
+    est de signe OPPOSE (`port = natif + 1`) et fermé par #30a. Le vrai etage etait la MATERIALISATION
+    finale, `IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers` :
+    `Fix64.Round(Mul(v, multiplier), AwayFromZero)`, que le port TRONQUAIT. Ferme par #131 (vecteur
+    normal) puis par la campagne HeavyGravCannon (vecteur ability bounds-mode). Re-mesure sur le
+    montage d'origine : port bit-exact **24/24 coups**, les deux vecteurs, a cc=0 ET cc>=1. PREUVE
+    DIRECTE : remis en troncature, le port REPRODUIT le symptome -- `1112` est litteralement une
+    cellule tronquee. Garde : `tests/engine/runner/test_offbyone_armor_38_live.py` ;
+  - `execute_normal_like` / mode `amount` : consommation MESUREE par R6 (live == arrondi 30/30) ;
+  - `EnvFireTile` : traite par #143 (route `AbilityDamageOperation` ; la mention « numeriquement
+    equivalent » du backlog y a ete REFUTEE, 100000 vs 25000 mesure).
+
+  Ce que cette note enseigne, du coup, vaut plus que le residu qu'elle signalait : **un residu note
+  « au passage » herite de l'attribution de celui qui l'a vu, pas d'une mesure.** Elle a nomme un
+  etage plausible (le percage, qu'on venait de regarder) au lieu de l'etage reel, et cette
+  attribution a survecu telle quelle jusqu'a ce qu'on la re-mesure.
 
 
 ---
