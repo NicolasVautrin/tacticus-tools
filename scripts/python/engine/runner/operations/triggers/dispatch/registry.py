@@ -65,6 +65,7 @@ from ..loki.let_the_galaxy_burn import (LetTheGalaxyBurnArmAbility,   # #84 (tra
                                        LetTheGalaxyBurnResetAbility)
 from ..loki.sworn_protector import (SwornProtectorSummonKellAbility,  # #95-RESTE2 (passif astraCreed)
                                    SwornProtectorProtectSwitchAbility)
+from ..loki.haze_of_corruption import HazeOfCorruptionTargetFinderAbility   # case-207 (passif deathBlightlord)
 from ..loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-RESTE2 (passif astraSmnKell)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
@@ -229,6 +230,13 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # SwornProtector_Protect (passif `astraSmnKell`, triggered 1075) = MEME event : a chaque attaque
     # suivante visant Creed, Kell re-echange sa position avec lui et encaisse.
     "SwornProtector_Protect": [SwornProtectorProtectSwitchAbility],
+    # HazeOfCorruption (passif `deathBlightlord` << Maladus >>, triggered 1076) = MEME event
+    # `On(PreUnitAbility=0x2b)`, gate `get_OwnerIsCaster` SEUL : a l'entree de CHAQUE ability du
+    # porteur, `HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` resout
+    # `PickRandomly(Damageable(AdjacentEnemies(Self) & AdjacentFriends(Target)), 2)` -- donc
+    # `min(len(pool), 2)` `genrand_int32` AVANT tout coup -- et bonde les relais (effet 1077).
+    # C'etait la source des 2 tirages manquants de case-207. Cf. loki/haze_of_corruption.py.
+    "HazeOfCorruption": [HazeOfCorruptionTargetFinderAbility],
     # MartialSuperiority (passif `templChampion` << Brother Jaeger >>, triggered 0x444=1092) = MEME
     # event `On(PreUnitAbility=0x2b)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
     # ADVERSE, il frappe l'attaquant 2x profil Power AVANT que l'attaque ne s'execute

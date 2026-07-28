@@ -67,11 +67,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   port ne matérialise pas (pas de flag `IsActive`). La variante **−40 % (2 auras ou plus) n'a
   aucun montage live**. Les branches `UnitResurrected(0x2f)` / `UnitRevived(0x2e)` du même trigger
   ne sont pas câblées.
-- **`deathBlightlord` : +2 `genrand` natifs à l'entrée d'une attaque mêlée** — `case-dpw` §7,
-  mesuré par la généralisation (natif 5 / port 3, décalage de DEUX tirages EN AMONT des coups
-  d'arme : le 3ᵉ coup du port vaut le 1ᵉʳ live). Le même montage avec `deathPutrifier` est
-  parfaitement aligné (3 = 3), donc ce n'est PAS le spawn de Kell : suspects = les effets `1375` /
-  `1147` portés par `deathBlightlord`. Cas propre à ouvrir.
+- ~~**`deathBlightlord` : +2 `genrand` natifs à l'entrée d'une attaque mêlée**~~ — **CLOS**
+  (`case-207-haze-of-corruption-target-finder.md`). Ce n'étaient ni les effets `1375`/`1147`
+  (= `TerminatorArmour_Visual` / `_ReduceDmg`, purement défensifs) ni le spawn de Kell, mais
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility` :
+  `On(0x2b) & get_OwnerIsCaster` → `PickRandomly(Damageable(AdjacentEnemies(Self) &
+  AdjacentFriends(Target)), 2)`, soit `min(|pool|, 2)` tirages AVANT tout coup. Il y en a **deux**
+  ici parce que `SwornProtector` fait ré-émettre `On(0x2b)` par la ré-entrée #120bis — **1 + 1**,
+  pas un forfait. Port 5/5 sur 4 seeds, échelle `k = 0/1/2` → 3/4/5 natif == port.
+- **`HazeOfCorruption_DamageTransfer` (1077) : le bond est POSÉ, sa charge utile ne l'est pas** —
+  `case-207` §5. `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$GetLeftOverDamages`
+  / `$$CreateTargetTriggerBehaviour` (report du dégât excédentaire + 1 coup Toxic `extraDmg` sur le
+  relais quand la cible est défaite) n'a **aucun consommateur** côté port : quand `deathBlightlord`
+  DÉFAIT sa cible, le port ne reporte rien. Hors du flux RNG (le tirage est tout entier dans le
+  target-finder), donc invisible sur les comptes de `genrand` — il faut un montage où la cible MEURT
+  sous le coup pour le chiffrer. `[opus]`.
 
 - **`AvalancheOfMuscle_ExtraDamage` (1025, passif `astraBullgryn`) — gate `IsCharging` non porté**
   (`case-astramilitarum-fragbomb-basilisk` §4). MESURÉ (`probe_avalanche_charge_gate.py`) : quand le
