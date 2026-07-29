@@ -124,10 +124,27 @@ ARRAYSET_READS_BY_TREE = {
 
 # GAPS ATTENDUS : rail a gate natif dont le port ne lit pas le flag. Toute entree qui SORT ou
 # ENTRE ici doit etre justifiee.
-#   #231 (2026-07-29) -- `HazeOfCorruptionDamageTransferTrigger` (1077) RESORBE : son `matches`
-#   lit desormais `inst.active`. Les quatre restants sont des fiches distinctes.
+#
+# DEUX RESORPTIONS INDEPENDANTES, toutes deux du 2026-07-29 (fusionnees au rebase) :
+#
+#   * `HazeOfCorruptionDamageTransferTrigger` (1077) -- rail TARGETS : son `matches` lit
+#     desormais `inst.active`, mirror direct de la double lecture d'`IsActive` par
+#     `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`.
+#
+#   * `MasterOfTheTutelariesSummonAbility` (1197, #231) -- rail APPLY_REVERT, qui NE SE GATE PAS
+#     PAREIL, et c'est le piege a ne pas transposer : le conjoint `HasEffect` de
+#     `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$
+#     CreateTrigger` passe `onlyActive=**0**` -- l'arbre ne teste QUE la presence. L'activite mord
+#     par un AUTRE chemin : `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect`
+#     enchaine sur `UpdateEffectTargets` avec une liste de cibles VIDE ->
+#     `RemoveTargetsFromEffect` -> `Revert` ->
+#     `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal` ->
+#     `RemoveTriggeredAbility(0x495)`. Effet inactif => triggered 1173 RETIREE. Le gate offline
+#     (`_master_effect_is_carried_and_active`) mirroire CE couplage, pas un `onlyActive`.
+#     Cf. `docs/rl/case-231-master-tutelaries-active-gate.md`.
+#
+# Les quatre restants sont des fiches distinctes (toutes du rail TARGETS).
 EXPECTED_GAPS = {
-    "MasterOfTheTutelariesSummonAbility",
     "RitesOfMorkaiReviveTrigger",
     "ReanimationBeamReviveTrigger",
     "AnvilShieldFrozenAdvantageExpire",
