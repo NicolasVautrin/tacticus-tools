@@ -14,6 +14,11 @@ from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, _pos, _
 # de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
 # fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
 # 8 valeurs qu'elle portait deja. Re-export : l'API `triggers.UNIT_FACTION_NAMES` est inchangee.
+# ⚠ NON CONFRONTE LIVE -- differe par la MAJ gqfc5mff6c -> rnca9r7q6c. Le seul consommateur est
+# `HasFaction.should_trigger` ci-dessous (arbre `ThriceBlessedConflagration`), dont la garde
+# `tests/engine/test_thrice_blessed_decision_live.py` n'a PAS pu etre re-jouee : son run est tombe
+# dans la fenetre d'arret du jeu. Le changement est value-preserving par construction (memes 8
+# valeurs, meme lecture `UNIT_FACTION_NAMES[value]`) -- a re-jouer tel quel apres migration de build.
 from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
 
 
