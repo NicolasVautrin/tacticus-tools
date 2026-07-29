@@ -354,7 +354,25 @@ $env:GHIDRA_INSTALL_DIR='C:\Users\nicolasv\ghidra_12.0.4_PUBLIC'
 > Pic mémoire **11,9 Go** contre `MAXMEM=16G` dans `analyzeHeadless.bat` : la marge
 > n'est pas énorme, vérifier ce réglage si un build plus gros OOM.
 > Ne pas confondre avec le « ~2 min » cité plus haut : celui-là est le **boot de
-> pyghidra-mcp sur un projet DÉJÀ analysé**, pas l'analyse.
+> pyghidra-mcp sur un projet DÉJÀ analysé**, pas l'analyse (mesuré 2 min 11 s le 2026-07-29).
+
+**RE-SYMBOLISER SANS RÉIMPORTER — la branche à 2 minutes.** Si seul le *nommage* change
+(correctif de l'applier, convention revue) et que le projet est déjà analysé, il ne faut
+**surtout pas** rejouer l'import : `-process` + `-noanalysis` réapplique les noms sur place.
+
+```powershell
+& 'C:\Users\nicolasv\ghidra_12.0.4_PUBLIC\support\analyzeHeadless.bat' `
+  'C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>' gameassembly `
+  -process 'GameAssembly.dll' -noanalysis `
+  -postScript GhidraApplyIl2CppSymbols.java `
+  -scriptPath 'C:\Users\nicolasv\tacticus-tools\scripts\ghidra' -max-cpu <N>
+```
+
+Mesuré le 2026-07-29 : **1 min 52 s** (dont 45 s de symbolisation), `named=124719`, `skipped=0`,
+`created=0` — les fonctions existent déjà, seuls leurs noms bougent. À comparer aux 54 min 52 s
+d'un projet neuf. **Arrêter ghidra-mcp d'abord** (il tient le verrou du `.gpr`) et supprimer les
+`gameassembly.lock*` périmés, sinon l'appel échoue. Le re-dump de l'étape 3, lui, reste à payer
+en entier.
 
 Puis démarrer le serveur sur le nouveau projet :
 
@@ -375,9 +393,55 @@ python scripts/python/ghidra_symbols.py dump   # -> data/symbols/<NOUVEAU_HASH>/
 git add data/symbols/<NOUVEAU_HASH>
 ```
 
+**Compter ~1 h 15** — deux mesures du 2026-07-29 sur le même build (154 176 symboles) :
+**1 h 10 min 26 s** et **1 h 18 min 14 s**, soit ~34 symboles/s. C'est **plus long que l'analyse
+Ghidra elle-même** (54 min 52 s à l'étape 2), ce qui est contre-intuitif et faisait sous-estimer
+la migration entière. Le coût est dans les **allers-retours HTTP paginés** vers ghidra-mcp, pas
+dans un calcul.
+
+> **Deux pièges de mesure, vécus le même jour.**
+> 1. La progression avance **par paliers avec des pauses** : une fenêtre de 5-6 s à delta nul ne
+>    prouve RIEN (conclu « terminé » à tort **deux fois**). Attendre la **sortie du process
+>    client**, jamais un `mtime` stable.
+> 2. **Ne pas jauger l'avancement sur la taille du dump PRÉCÉDENT** — la cible n'est pas la même
+>    (ici 10,09 Mo contre 9,80, le format `$$` étant plus verbeux). Même erreur commise deux fois
+>    dans la journée, dans les deux sens.
+>
+> Pendant le dump, ghidra-mcp est **saturé** : `symbols_sync.py` le rapporte « ÉTEINT » alors que
+> le port écoute — c'est de la contention, pas une mort. Les appels `mcp__ghidra__*` tombent aussi
+> (`transport dropped mid-call`) : ne pas lancer d'agent RE pendant un dump.
+>
+> **Le serveur doit être lancé DÉTACHÉ** (`Start-Process`). Lancé comme enfant d'une tâche de
+> fond, un `TaskStop` sur cette tâche **tue le serveur avec l'arbre de processus** — et le dump
+> qui suit échoue en 3 s sur `WinError 10061`.
+
 **Son diff EST le rapport de changement du jeu** : ce qui apparaît, disparaît ou se
 renomme entre deux builds est exactement ce que la mise à jour a touché. Ne pas le
 commiter, c'est perdre le seul moyen de savoir ce qui a bougé.
+
+> **⚠ LE DIFF BRUT EST ININTERPRÉTABLE SI LA FORME DES SYMBOLES A CHANGÉ.** Toujours **vérifier
+> la forme avant de lire un diff** — `grep -c '\$\$'` sur les deux tables — et normaliser si elle
+> diffère. **La forme canonique est `Namespace.Classe$$Membre`**, chevrons échappés en
+> `u003C`/`u003E` ; `GhidraApplyIl2CppSymbols.canonicalName` la produit et c'est ce que citent
+> les 4 230 références du dépôt.
+>
+> **L'incident qui a établi cette règle (2026-07-29).** Le premier dump du nouveau build est sorti
+> en `Classe.Methode` avec `<` littéral — **0 ligne en `$$` sur 154 176**. Comparés tels quels,
+> les deux builds n'avaient que **485 symboles en commun (0,43 %)** : la signature d'un jeu
+> entièrement réécrit. En réalité un simple séparateur — après correction, **81,9 %** des
+> citations résolvent et le changement réel se réduit à **229 symboles**.
+>
+> **La cause n'était pas la MAJ du jeu, mais un CHANGEMENT D'OUTILLAGE.** Le `$$` est la
+> convention d'**Il2CppDumper v39**, portée par `GhidraApplyIl2CppNamesWin.java` (lisait
+> `data/win_dump/script.json`, recopiait `Name` verbatim). Ce script a été supprimé le 2026-07-25
+> (`8e591496`, « suppression du legacy ») au profit de la chaîne Frida — mais le projet Ghidra
+> alors en place était **déjà symbolisé** par le legacy, et sa table a été versionnée telle quelle
+> le même jour (`4c82b367`). Il a fallu une **re-symbolisation complète** pour révéler l'écart.
+>
+> **La leçon générale** : remplacer un maillon de la chaîne sans re-jouer tout l'aval laisse
+> l'ancienne sortie faire foi jusqu'à la prochaine régénération — qui peut arriver des mois plus
+> tard. Aucune garde ne l'attrape : les trois axes de `symbols_sync.py` vérifient la PROVENANCE,
+> jamais la FORME (tâche #255).
 
 > **UN RÉPERTOIRE PAR BUILD, ET ON LES GARDE TOUS.** `data/symbols/CURRENT` (une ligne, un
 > hash) désigne celui qui **fait foi** ; les autres sont des **archives**, conservées exprès —

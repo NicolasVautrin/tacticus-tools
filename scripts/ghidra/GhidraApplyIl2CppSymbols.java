@@ -233,7 +233,7 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
                 if (rva == 0) { skipped++; continue; }
 
                 Address addr = base.add(rva);
-                String safeName = sanitizeName(name);
+                String safeName = canonicalName(name, declaringClass);
 
                 Function func = funcMgr.getFunctionAt(addr);
                 if (func == null) {
@@ -284,6 +284,54 @@ public class GhidraApplyIl2CppSymbols extends GhidraScript {
     private String sanitizeName(String name) {
         // Ghidra accepts most chars but some are problematic. Strip nothing, just trim.
         return name.replace(' ', '_');
+    }
+
+    /**
+     * FORME CANONIQUE d'un symbole : {@code Namespace.Classe$$Membre}, avec les chevrons
+     * echappes en {@code u003C} / {@code u003E}.
+     *
+     * <p>POURQUOI ce format, et pas le nom complet pointe de methods.tsv (mesure 2026-07-29).
+     * Tout le depot cite ses symboles sous cette forme -- 4 230 citations dans 241 fichiers de
+     * {@code scripts/python/engine} et {@code docs/rl} -- et c'est la forme que portait la table
+     * du build {@code gqfc5mff6c}.
+     *
+     * <p>D'OU VIENT LE {@code $$} : ce n'est pas une convention maison, c'est celle
+     * d'**Il2CppDumper v39**. Elle a ete introduite par
+     * {@code scripts/ghidra/GhidraApplyIl2CppNamesWin.java}, qui lisait
+     * {@code data/win_dump/script.json} et recopiait le champ {@code Name} VERBATIM -- son
+     * {@code sanitize} conservait explicitement {@code $}, {@code <} et {@code >}. Ce script a
+     * ete SUPPRIME le 2026-07-25 (commit {@code 8e591496}, « suppression du legacy ») au profit
+     * de celui-ci, alimente par Frida.
+     *
+     * <p>POURQUOI PERSONNE N'A VU LA DIVERGENCE PENDANT QUATRE JOURS : le projet Ghidra de
+     * {@code gqfc5mff6c} etait DEJA symbolise par le legacy, et sa table a ete versionnee telle
+     * quelle le meme jour ({@code 4c82b367}). Il fallait une re-symbolisation COMPLETE pour que
+     * ce script montre qu'il produisait autre chose -- la premiere a eu lieu au changement de
+     * build du 2026-07-29.
+     *
+     * <p>Ce qu'a coute la divergence, sur le build {@code rnca9r7q6c} : ZERO citation sur 1 266
+     * resolvait dans la table produite, et le diff inter-build affichait 0,43 % de symboles
+     * communs -- une reecriture totale du jeu apparente, qui n'etait qu'un separateur.
+     *
+     * <p>Le format n'est pas qu'une habitude : le {@code $$} marque la frontiere TYPE / MEMBRE,
+     * qu'une chaine pointee ne peut pas exprimer ({@code A.B.C} ne dit pas ou finit le type).
+     * C'est ce qui rend le grep code -> table immediat, et l'echappement conserve joue le meme
+     * role pour les lambdas generes.
+     *
+     * <p>La regle est EXACTE : sur les 121 501 methodes de {@code gqfc5mff6c}, le nom complet
+     * commence par la classe declarante suivie d'un point dans 121 501 cas -- aucune exception.
+     * Le repli sur {@code fullName} ne couvre donc aucun cas connu ; il est la par prudence.
+     */
+    private String canonicalName(String fullName, String declaringClass) {
+        String prefix = declaringClass + ".";
+        String member = fullName.startsWith(prefix)
+                ? fullName.substring(prefix.length())
+                : fullName;
+        return escapeAngles(declaringClass) + "$$" + escapeAngles(member);
+    }
+
+    private String escapeAngles(String s) {
+        return sanitizeName(s).replace("<", "u003C").replace(">", "u003E");
     }
 
     // ===== Class loading =====
