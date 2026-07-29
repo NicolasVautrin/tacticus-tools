@@ -523,6 +523,15 @@ class UnitFlagsComponent(Component):
                                 # i2 « the first time each turn that Titus is defeated he cannot be
                                 # Overkilled »). Offline il est DERIVE de l'effet porteur — cf.
                                 # `unit_prevents_overkill`.
+    REMOVED = 26                # flag 0x1a (`UnitFlag.Removed`, enums.tsv) — l'unite a ete RETIREE du
+                                # plateau (despawn, PAS une mort : ni PV touches ni flag `Dead`).
+                                # Pose par `IdunBattle.Operations.RemoveUnitOperation$$Execute` juste
+                                # AVANT sa publication d'`On(0x25 = UnitRemoved)`, et relu en TETE de
+                                # la meme fonction comme gate anti-double-retrait
+                                # (`IdunBattle.Entities.UnitExtensions$$HasFlag(entity, 0x1a)`).
+                                # RETIRE par `IdunBattle.Operations.ResurrectUnitOperation$$Execute`
+                                # (`Remove(6)/Remove(0xf)/Remove(8)/**Remove(0x1a)**/Remove(9)`).
+                                # Cf. `runner/operations/remove_unit.py`.
     TURN_FINISHED_FORCED = 27   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
 
     def __init__(self, flags=None):

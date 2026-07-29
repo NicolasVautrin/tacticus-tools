@@ -64,6 +64,10 @@ class ResurrectUnitOperation:
         fl = e.get_component(UnitFlagsComponent)
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
+        # Remove(0x1a = Removed) : une unité RETIRÉE du plateau qui revient n'est plus « retirée »
+        # (`RemoveUnitOperation` pose ce flag, cf. `operations/remove_unit.py`). Le natif l'appelle
+        # dans la même rafale que Remove(6)/Remove(0xf)/Remove(8)/Remove(9).
+        fl.remove(UnitFlagsComponent.REMOVED)
         fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
         # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction + turn-flags)
         if immediate_turn:

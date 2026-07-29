@@ -79,11 +79,13 @@ def unit_removed_triggers(state: State, unit_id: int) -> list[dict]:
     (`On(0x25) & AreEqual(EffectSource, target@0x178)` : le poseur du ghost QUITTE le plateau, le
     ghost part avec lui).
 
-    RESIDU ASSUME, et c'est le point important : le port n'a AUCUN emetteur de cet evenement --
-    `IdunBattle.Operations.RemoveUnitOperation` n'est pas porte (rien ne retire une unite du plateau
-    dans le runner isole : les morts restent en place, `alive=False`). Ce vecteur existe donc pour
-    que le trigger correspondant soit ENREGISTRE et testable, mais il n'est appele par aucun site de
-    production -- a brancher le jour ou un `RemoveUnitOperation` sera porte."""
+    EMETTEUR (#227) : `IdunBattle.Operations.RemoveUnitOperation$$Execute`, porte dans
+    `runner/operations/remove_unit.py` -- c'est le SEUL appelant de production, et les deux sites de
+    despawn du port (feuille DSL `RemoveUnit`, eviction `MV71SniperDroneSquadAttackAbility`) passent
+    par lui. `AbilityEntities.ctor(entity, entity, entity)` -> actor = caster = target = l'unite
+    retiree, ce que reflete l'appel ci-dessous. Le natif publie APRES la pose du flag
+    `Removed (0x1a)` et le retrait des tuiles, mais AVANT `RemoveUnitOperation$$RemoveEffects` :
+    l'Operation portee respecte cet ordre. No-op si aucun trigger ne matche."""
     ev = TriggerEvent(EventTriggerType.UnitRemoved, unit_id, unit_id, ranged=False, profile=None)
     return evaluate_trigger_operation(state, ev)
 

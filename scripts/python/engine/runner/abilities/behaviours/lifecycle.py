@@ -63,10 +63,15 @@ class RemoveUnit(AbilityBehaviour):
     eviction (b) `RemoveUnit(First(AlreadySpawnedSummonsSortedSelector,1,0))` = le drone le plus faible
     au cap maxSummons.
 
-    Port : marque `alive=False` (libere l'occupation — `_occupied`/`CanAddUnit` excluent les morts) et
-    consomme les effets portes par l'unite (l'entite-effet native part avec son porteur). SANS
-    death-triggers (difference structurelle avec la mort d'`AttackDamageOperation`). Emet 'RemoveUnit'
-    par unite. PUR (stop=False)."""
+    DOCTRINE #149 : cette feuille est la FRONTIERE — au-dessus le selecteur (declaratif), en dessous
+    l'Operation imperative. Elle resout donc son selecteur puis DELEGUE, unite par unite, a
+    `RemoveUnitOperation.execute` (`runner/operations/remove_unit.py`, mirror
+    `IdunBattle.Operations.RemoveUnitOperation$$Execute`) avec `removeEffects=1` — le litteral que
+    `RemoveUnitBehaviour$$Execute` passe au slot +6 de l'`OperationProcessor`. C'est l'Operation qui
+    porte les gates (`Removed`), la pose du flag `0x1a`, la publication d'`On(0x25 = UnitRemoved)` et
+    la consommation des effets, dans l'ORDRE natif. SANS death-triggers (difference structurelle avec
+    la mort d'`AttackDamageOperation`). Emet 'RemoveUnit' par unite EFFECTIVEMENT retiree (une unite
+    qu'un gate refuse n'est pas journalisee). PUR (stop=False)."""
     __slots__ = ("units_sel",)
 
     def __init__(self, units_sel: TargetsSelector):
@@ -76,19 +81,14 @@ class RemoveUnit(AbilityBehaviour):
         state = ectx.state
         if state is None:
             return OperationResult.ok()
+        from ...operations.remove_unit import RemoveUnitOperation
         for u in sorted((x for x in _units_of(self.units_sel, entities)
                          if isinstance(x, dict) and x.get("id") is not None),
                         key=lambda x: x["id"]):              # ordre de lecture = id
             uid = u["id"]
-            e = state.get_entity(uid)
-            uc = e.get_component(UnitComponent) if e is not None else None
-            if uc is None or not uc.alive:
-                continue
-            uc.alive = False                                 # despawn : PAS de vecteur on-death
-            if state.effects is not None:                    # les effets portes partent avec l'unite
-                for eff in state.effects.by_unit.get(int(uid), []):
-                    eff.consumed = True
-            ectx.emit("RemoveUnit", unit=uid)
+            res = RemoveUnitOperation.execute(state, int(uid), remove_effects=True)
+            if res is not None:
+                ectx.emit("RemoveUnit", unit=uid, downstream=res["downstream"])
         return OperationResult.ok()
 
 

@@ -538,9 +538,14 @@ unite, deplacement du ghost au 2e move). Zero-reg cible : famille revive (42), m
 (21 + 1 xfail pre-existant), tuiles/turnflow/spawn (27) = **90 PASS** ; `probe_120` OK.
 
 **RESIDUS NOMMES** :
-- **`On(UnitRemoved = 0x25)` n'a aucun emetteur cote port** (`RemoveUnitOperation` non porte : dans le
-  runner isole les morts restent en place) -> le retrait n°5 est enregistre et testable via
-  `unit_removed_triggers`, mais aucun site de production ne l'atteint.
+- ~~**`On(UnitRemoved = 0x25)` n'a aucun emetteur cote port**~~ — **CLOS (#227, 2026-07-29,
+  `case-227-unit-removed-emitter.md`)**. `IdunBattle.Operations.RemoveUnitOperation$$Execute` est
+  portee (`runner/operations/remove_unit.py`) et les DEUX sites de despawn du port y passent
+  (feuille DSL `RemoveUnit`, eviction MV71). Le retrait n°5 fire desormais, et sa dissipation est
+  gardee (`tests/engine/test_unit_removed_vector_live.py`). **Ce qui reste ouvert n'est pas
+  l'emetteur mais son ATTEIGNABILITE en partie** : aucune des cinq abilities natives `RemoveUnit`
+  ne retire Toth (MV71 retire un drone, `AggressiveOnslaught` des summons, `HunterOfSouls` son
+  propre porteur), donc le trigger reste inerte en bataille reelle.
 - **`TileHasTriggeredAbility(tile, 29 = BrokenIce)`** : la table `TriggeredAbilityType -> tileDefId`
   vit dans les Unity assets de tuile (hors gameconfig) -> le gate est structurellement present mais
   toujours FAUX. Il ne peut refuser un ghost a tort que sur un board a glace brisee (40 boards en

@@ -444,10 +444,18 @@ class GhostRemoveOnSourceRemoved(_GhostRemoval):
     """Retrait n°5 : `On(0x25 = UnitRemoved, 1) & AreEqual(EffectSource, target@0x178)` -- le poseur
     QUITTE le plateau.
 
-    RESIDU ASSUME : le port n'a aucun emetteur d'`On(UnitRemoved)`
-    (`IdunBattle.Operations.RemoveUnitOperation` n'est pas porte -- dans le runner isole les morts
-    restent en place). Le trigger est enregistre et testable via `unit_removed_triggers`, mais aucun
-    site de production ne l'atteint aujourd'hui."""
+    EMETTEUR (#227) : `IdunBattle.Operations.RemoveUnitOperation$$Execute`, portee dans
+    `runner/operations/remove_unit.py`, publie `On(0x25)` avec `(a = b = c = l'unite retiree)` --
+    APRES la pose du flag `Removed (0x1a)` et le retrait des tuiles, mais AVANT la consommation des
+    effets portes. C'est cet ordre qui rend ce retrait-ci observable : le ghost est porte par la
+    TUILE (source = Toth), donc `RemoveEffects(Toth)` ne le toucherait pas.
+
+    ATTEIGNABILITE, mesuree : aucune des cinq abilities natives qui appellent
+    `IdunBattleLogic.Entities.DSLFactory$$RemoveUnit` ne retire le poseur d'un ghost -- MV71 retire
+    un drone, `AggressiveOnslaught_Unsummon` les `Children(Owner)`, `HunterOfSouls` son PROPRE
+    porteur, `NoHidingFromTheWatchers` n'a que des porteurs npc/summon, `PriorityReclamation` aucun
+    porteur au gameconfig. Ce trigger reste donc INERTE en bataille reelle ; il est exerce par la
+    garde en appelant l'Operation directement (ce que `HunterOfSouls` fait sur son porteur)."""
     event_ids = (int(EventTriggerType.UnitRemoved),)
     event_id = int(EventTriggerType.UnitRemoved)
 
