@@ -82,6 +82,11 @@ class State:
     dict @+0x38) ; incrémenté par `StartTurnOperation`. Source de `GetAmountOfTurnsStartedByCurrentPlayer`
     (gate « 1er tour » de certaines mécaniques). Vide tant qu'aucun tour n'a été joué via le runner.
 
+    `pending_deaths` / `draining_deaths` = la FILE DE MORTS de `MatchState` et le verrou de
+    ré-entrance de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (case-haze-ord) :
+    `RecordKillOperation` ENQUEUE, `VerifyDeaths` DRAINE une mort à la fois. Détail au point
+    d'initialisation ci-dessous.
+
     `turn_order_player_count` = nb de joueurs du `BC.Player.TurnOrder` dont `PlayerComponent+0x20 != 2`
     (Environment exclu) — le FACTEUR de `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (`count * rounds`),
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
