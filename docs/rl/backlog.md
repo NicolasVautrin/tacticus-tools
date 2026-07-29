@@ -166,7 +166,6 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   ⚠ Résidu de ce cas : `test_thrice_blessed_decision_live.py` (2 tests, chemin `HasFaction`)
   **NON re-joué** — le run est tombé dans la fenêtre d'arrêt du jeu (MAJ `gqfc5mff6c` →
   `rnca9r7q6c`). Changement value-preserving par construction ; à re-jouer après migration.
->>>>>>> worktree-agent-a3d7f500e965d1155
 - **`darkaSmnWatcher` (porteur de `WatchedOver` 1524) : chemin d'octroi non établi** — aucune
   `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
   gisement dans ce cas.
