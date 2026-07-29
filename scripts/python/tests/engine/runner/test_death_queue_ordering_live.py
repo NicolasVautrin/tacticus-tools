@@ -31,6 +31,11 @@ PROBE = "probe_hazeord_death_queue"
 # Seeds dont le pick met les DEUX relais en jeu et dont la chaine part au regime overkill.
 SEEDS = ["777", "5", "21"]
 HP_OVERKILL = 1200          # la cible meurt EN OVERKILL des le 1er coup d'arme (cellule [2087,3131])
+# GENERALISATION : le meme montage a trois profondeurs d'overkill. Les regimes DISCRIMINANTS ne sont
+# pas ceux ou le relais meurt du 1er report (leftovers = 4) mais ceux ou il meurt EN MILIEU de serie
+# -- le port doit alors continuer la serie APRES la mort et le bond suivant lire exactement 3
+# leftovers (natif 13 tirages, reports 4 + 3). Un port qui drainerait encore inline en lirait 1.
+MATRIX = [(s, hp) for s in SEEDS for hp in (800, 1200, 2000)]
 
 
 def _row(seed, hp=HP_OVERKILL, k=2):
@@ -146,6 +151,29 @@ def test_un_coup_sur_une_cible_deja_overkillee_n_applique_ni_n_emet_rien():
         "la `LeftOverDamage` (base nominale) est poussee AVANT le `return` du site (A)"
 
 
+def test_un_revive_efface_l_overkill_donc_la_cible_redevient_frappable():
+    """LA precondition du gate ci-dessus. `IdunBattle.Operations.ReviveUnitOperation$$Execute` fait
+    `Remove(0xf)`, **`Remove(8)`** et `Add(0x14)` (decompile relu) : sans ce retrait, la garde du
+    site (A) rendrait toute unite RESSUSCITEE apres overkill (`TaintedNarthecium` = ReviveOnOverkill)
+    definitivement INVULNERABLE -- un trou permissif silencieux, exactement le profil de degradation
+    qu'on chasse."""
+    from engine.runner.state import State
+    from engine.runner.components import (HealthComponent, UnitComponent, UnitFlagsComponent)
+    from engine.runner.operations.damage import AttackDamageOperation
+    from engine.runner.operations.revive import ReviveUnitOperation
+    st = State()
+    e = st.add_entity()
+    uc = e.add_component(UnitComponent(visual_id="astraBullgryn", alive=False))
+    hc = e.add_component(HealthComponent(hp=0, hp_max=1200))
+    fl = e.add_component(UnitFlagsComponent())
+    fl.add(UnitFlagsComponent.OVERKILLED)
+    uc.pending_revive = {"amount": 1200}
+    assert ReviveUnitOperation.execute(st, e.id) is not None
+    assert not fl.has(UnitFlagsComponent.OVERKILLED), "`Remove(8)` doit avoir efface l'overkill"
+    AttackDamageOperation._apply_damage_pipeline(st, e.id, None, e, hc, 300, "Power")
+    assert hc.hp == 900, "la cible ressuscitee doit REDEVENIR frappable (PV lus : %s)" % (hc.hp,)
+
+
 # --------------------------------------------------------------------------- LIVE
 
 @pytest.mark.parametrize("seed", SEEDS)
@@ -182,3 +210,30 @@ def test_le_second_bond_lit_une_liste_de_leftovers_COMPLETE(seed):
     assert [f["draws"] for f in r["off"]["fires"]] == [4, 4], (
         "chaque report = 4 feuilles `AttackDamage`, donc 4 tirages -- lu %s"
         % ([f["draws"] for f in r["off"]["fires"]],))
+
+
+@pytest.mark.parametrize("seed,hp", MATRIX)
+def test_la_profondeur_d_overkill_ne_deplace_rien(seed, hp):
+    """GENERALISATION. Meme geometrie, trois PV cible -> trois profondeurs d'overkill et donc trois
+    rangs de mort du 1er relais dans SA serie de reports. Mesure : 9/9 bit-exacts (RNG natif ==
+    port ET degat par unite), dont 4 montages a **13** tirages ou le relais meurt en MILIEU de
+    serie -- le regime que le drain inline ne pouvait pas produire."""
+    r = _row(seed, hp)
+    off = r["off"]
+    assert off["n"] == r["n_native"], (
+        "flux RNG : port %s != natif %s (seed %s hp %s)" % (off["n"], r["n_native"], seed, hp))
+    port = {e["id"]: e for e in off["entities"]}
+    for uid in [r["tid"]] + r["relays"]:
+        live = sum(m for (t, m, _e, _a, _p) in r["dmg"] if t == uid)
+        got = int(hp) - int(port[uid]["hp"] or 0)
+        assert live == got, ("degat sur %s : live %s != port %s (seed %s hp %s)"
+                             % (uid, live, got, seed, hp))
+    # La serie du 1er report doit etre COMPLETE : autant de feuilles que de leftovers lus, et le
+    # 2e bond doit lire la liste que le relais a REELLEMENT accumulee (pas la seule entree letale).
+    reads, fires = off["reads"], off["fires"]
+    assert len(reads) == 2 and len(fires) == 2
+    assert fires[0]["draws"] == len(reads[0]["leftover"])
+    assert fires[1]["draws"] == len(reads[1]["leftover"])
+    assert len(reads[1]["leftover"]) >= 3, (
+        "le 2e bond doit lire une liste COMPLETE (>= 3), pas la seule entree letale -- lu %s"
+        % (reads[1]["leftover"],))
