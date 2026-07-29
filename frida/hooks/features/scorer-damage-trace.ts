@@ -24,7 +24,7 @@
 // Only ONE hook resolves cleanly across builds: `ProbableDamageEvent..ctor` (findMethod — the scorer damage,
 // auto-armed at register). ALL the others (CalculateActionUtility, CalculateUtilityFromTilePrediction, the
 // ElevationUtility / tile-leaf iterators, ComposedUtility.MoveNext, GetMultiplierFromDamageBonus) are gshared
-// / iterator bodies that findMethod CANNOT resolve → hooked by HARDCODED RVA valid for hash `gqfc5mff6c` ONLY.
+// / iterator bodies that findMethod CANNOT resolve → hooked by HARDCODED address valid for hash `rnca9r7q6c` ONLY.
 // On the next build these RVAs point to RANDOM code and Interceptor.attach would corrupt it, so they are
 // ARMED LAZILY by `scorerDamageTraceOn` (installRvaHooks), NEVER auto-attached at register. Before re-arming
 // on a new build: refresh every RVA_* constant + LEAF_HOOKS_VA from the fresh dump (search_symbols_by_name on
@@ -38,7 +38,7 @@
 // min/max health damage, hits) the scorer used per candidate — with CrushingStrike
 // / Terrifying / all attacker+defender modifiers applied by the native.
 //
-// Struct (dump gqfc5mff6c, TypeDefIndex 12292):
+// Struct (dump gqfc5mff6c, TypeDefIndex 12292) -- offsets NON re-verifies sur rnca9r7q6c :
 //   ProbableDamageEvent { IEntity Target@0x0; DamagePredictionResult DamagePrediction@0x8;
 //                         Fix64 Probability@0xC8; Fix64 Weight@0xD0 }
 //   DamagePredictionResult : CurrentHealth@0, Armor@4, Shield@8,
@@ -66,11 +66,32 @@ import { readTileCoord } from "./ai-step/internals.js";
 // Cap PAR BUCKET (par origine) de chaque famille de buffers ci-dessous.
 const CAP = 4000;
 
-// ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext — RVA gqfc5mff6c (@181101600 - base). Le
-// composite Tile(7) est un ComposedUtility qui SOMME ses enfants (liste List<IUtility> @ this+0x18,
-// this = d__8+0x20). On énumère les noms de classe des enfants (une fois par instance `this`) pour
-// IDENTIFIER de façon déterministe la feuille -25 (plutôt que hooker feuille par feuille). À REFAIRE au hash.
-const RVA_COMPOSED_UTILITY = 0x1101600;
+// ================= CIBLES PAR ADRESSE — build `rnca9r7q6c` (migrées le 2026-07-29) =================
+//
+// ⚠ ON STOCKE LA **VA COMPLÈTE**, la RVA se calcule EN CODE. Écrire la RVA directement obligeait à
+// soustraire 0x180000000 à la main — et cette soustraction a DÉJÀ été ratée : `RVA_VALUE_MOD_MODIFY`
+// valait `0x1fadfc0` pour une VA `@180fadfc0` dont la RVA est `0xfadfc0`. La constante pointait donc
+// en plein corps de `FPSCounterData$$set_Average`, une classe sans aucun rapport ; latente seulement
+// parce que c'était un fallback derrière un `findMethod` qui réussit. La VA, elle, se grepe telle
+// quelle dans `data/symbols/<build>/ghidra/functions.tsv`.
+//
+// MIGRATION : `python scripts/python/probe_257_scorer_rva_migration.py` fait l'aller-retour
+// adresse→symbole→adresse et TRIE. Mais il ne suffit PAS — mesuré le 2026-07-29 :
+//   * un POINT INTERNE ne se transpose pas : l'offset ne survit que si le corps n'a pas bougé.
+//     `RVA_OVERRIDE_RETADDR` était à **243 octets** de ce que l'arithmétique prédisait ;
+//   * un mécanisme peut CHANGER DE FORME, pas seulement d'adresse : l'index d'interface de `b__1`
+//     est passé de `0xb4` à `0xb5`, et `b__0` est passé à un appel de vtable ;
+//   * pour situer un SITE D'APPEL, interroger les xrefs du **CALLEE**, jamais des données qu'il
+//     consomme — partir du DAT rendait 7 sites ambigus ET masquait un second appel.
+// Détail complet, cible par cible : tâche #257.
+const IL2CPP_VA_BASE = 0x180000000;
+const rva = (va: number): number => va - IL2CPP_VA_BASE;
+
+// ComposedUtility.<EvaluateMovementInSteps>d__8.MoveNext. Le composite Tile(7) est un ComposedUtility
+// qui SOMME ses enfants (liste List<IUtility> @ this+0x18, this = d__8+0x20). On énumère les noms de
+// classe des enfants (une fois par instance `this`) pour IDENTIFIER de façon déterministe la feuille
+// -25 (plutôt que hooker feuille par feuille).
+const RVA_COMPOSED_UTILITY = rva(0x181212640);
 
 // DamageCalculations.GetMultiplierFromDamageBonus @181005210 (RVA 0x1005210) — convertit un bonus %
 // (Nullable<int> @ param_3+0x20) en multiplicateur (>0: 1+b/100 ; <0: 1-|b|/100). Signature :
@@ -79,49 +100,68 @@ const RVA_COMPOSED_UTILITY = 0x1101600;
 // le RETURN-ADDRESS = le CALL SITE source, qui distingue ATTAQUANT (CalculateAttackerModifiersForPrediction
 // @181000590 : 4 sites — statmods @181001947 ; positionnels elevation/RangedInMelee/Trench @181001ef9/
 // 181001ff2/1810020df) vs DÉFENSEUR (CalculateDefenderModifiersForPrediction @181002c30, site @181003d51).
-// À REFAIRE au changement de hash. ⚠ ON NE HOOKE QUE la variante SINGLE @181005210 : la variante LIST
-// @1810053e0 a la signature (param_1, List) à 2 args — PAS de param_3 → la hooker lisait args[2] parasite
-// (bonus=1) ; elle ne fait qu'itérer et rappeler la single en interne, donc la single capte DÉJÀ chaque bonus.
-const RVA_GET_MULT_DMG_BONUS: number[] = [0x1005210];
+// ⚠ ON NE HOOKE QUE la variante SINGLE. Le symbole en porte DEUX (@18110bed0 et @18110bfc0) — départagées
+// le 2026-07-29 par leur SIGNATURE au décompilé, PAS par l'ordre des adresses :
+//   @18110bed0 prend `damageBonus` (SINGULIER), lit le Nullable via `in_R8` (= param_3) et appelle
+//              `BaseCalculations$$GetFloatMultiplierFromPercentage`  → C'EST CELLE-CI.
+//   @18110bfc0 prend `damageBonuses` (PLURIEL), énumère une List<> et RAPPELLE la single en interne.
+// Hooker la LIST lisait un `args[2]` parasite (bonus=1) ; et comme elle délègue, la single capte DÉJÀ
+// chaque bonus.
+const RVA_GET_MULT_DMG_BONUS: number[] = [rva(0x18110bed0)];
 
-// #49 — RÉSOLVEUR DE L'OVERRIDE DE BASE (profileMethod). Dans GetAttackHitPrediction @1811af4e0, 2 délégués
-// portent l'override base (invoqué par PredictAttackRaw via l'interface DAT_183287db8 idx 0xd) :
-//   b__0 @1811c9d10 : appelle la méthode VIRTUELLE `*(klass+0x4d8)` de l'instance (param_1+0x10) — slot 58.
-//   b__1 @1811c9e50 : appelle l'interface `DAT_18327ff80` idx 0xb4 sur (param_1+0x10)+0x20, (target,position).
-// Ces slots vtable/interface sont résolus au RUNTIME → non mappables offline par ghidra. Ce résolveur lit,
-// pendant une prédiction u92 live, la VA CONCRÈTE que chaque délégué invoque (= la formule de la base réduite)
-// → on la décompile ensuite dans ghidra. Ciblage pur (doctrine), aucune formule devinée. À REFAIRE au hash.
-const RVA_PROFILE_B0 = 0x11c9d10;
-const RVA_PROFILE_B1 = 0x11c9e50;
-const RVA_ATTACK_IFACE = 0x327ff80;   // DAT_18327ff80 (Il2CppClass* de l'interface ability), pour idx 0xb4
-// Le VRAI override de base : PredictAttackRaw @181034898 fait `FUN_180031950(recv, idx=0xd, DAT_183287db8)`
-// → Nullable<Fix64> ; si HasValue, remplace la base 4309. On résout le receiver (R9=args[3]) sur CE site
+// #49 — RÉSOLVEUR DE L'OVERRIDE DE BASE (profileMethod). Deux délégués de GetAttackHitPrediction portent
+// l'override base :
+//   b__0 @1812edc90 : appelle une méthode VIRTUELLE de l'instance (param_1+0x10).
+//        ⚠ CE DÉLÉGUÉ A CHANGÉ DE FORME sur `rnca9r7q6c` : il fait désormais un appel de VTABLE
+//        `(*(code **)(*plVar1 + 0x4d8))(plVar1, &arg, *(plVar1 + 0x4e0))` — slot @+0x4d8, MethodInfo
+//        @+0x4e0 — là où il passait par l'invocateur d'interface. Re-RE avant d'exploiter b__0.
+//   b__1 @1812eddd0 : appelle l'interface `DAT_1833407b0` **idx 0xb5** sur (param_1+0x10)+0x20.
+// Ces slots sont résolus au RUNTIME → non mappables offline. Ce résolveur lit, pendant une prédiction
+// live, la VA CONCRÈTE que chaque délégué invoque → on la décompile ensuite. Ciblage pur, aucune
+// formule devinée.
+const RVA_PROFILE_B0 = rva(0x1812edc90);
+const RVA_PROFILE_B1 = rva(0x1812eddd0);
+// ⚠ L'INDEX A BOUGÉ AVEC LE BUILD : 0xb4 → 0xb5. Relevé DEUX fois dans `b__1` — dans le scan de
+// l'itable `(off + 0xb5) * 0x10 + 0x138 + klass`, et dans le repli `FUN_1801e7040(svc, DAT, 0xb5)`.
+// Transposer la seule adresse en gardant 0xb4 aurait résolu LE MAUVAIS SLOT, en rendant un pointeur
+// de fonction parfaitement valide — donc sans la moindre erreur visible.
+const RVA_ATTACK_IFACE = rva(0x1833407b0);   // DAT_1833407b0 (Il2CppClass* de l'interface ability)
+const ATTACK_IFACE_IDX = 0xb5;
+// Le VRAI override de base : `PredictAttackRaw` fait `FUN_180031990(recv, idx=0xd, DAT_18334a0c8)`
+// → Nullable<Fix64> ; si HasValue, remplace la base. On résout le receiver (R9=args[3]) sur CE site
 // (filtre returnAddress) → classe concrète + VA de la méthode idx 0xd → à décompiler pour LIRE la formule.
-const RVA_IFACE_DMG = 0x3287db8;       // DAT_183287db8 (interface de l'override base)
-const RVA_FUN_INVOKE = 0x31950;        // FUN_180031950 (invocateur d'interface générique — CHAUD)
-const RVA_OVERRIDE_RETADDR = 0x103489e; // return-addr du call idx-0xd (isole CE site, évite le hot broad-hook)
+const RVA_IFACE_DMG = rva(0x18334a0c8);      // DAT_18334a0c8 (interface de l'override base)
+const RVA_FUN_INVOKE = rva(0x180031990);     // FUN_180031990 (invocateur d'interface générique — CHAUD)
+// return-addr du call idx-0xd (isole CE site, évite le hot broad-hook).
+// ⚠ DÉSASSEMBLÉ, PAS TRANSPOSÉ. `list_xrefs` sur le CALLEE donne deux appels dans `PredictAttackRaw`
+// (181115e06 et 181116368) ; le premier est précédé d'un `mov edx, 0xd` explicite @181115dc6. Le call
+// est à 181115e06, long de 5 octets → retour @181115e0b. L'ancien offset (+0x18EE) aurait donné 0x1115efe :
+// 243 octets à côté, en plein milieu d'une instruction.
+// RÉSIDU NOMMÉ : l'index du SECOND appel (181116368) n'est pas établi. S'il vaut aussi 0xd, ce filtre
+// sélectionne un site parmi deux équivalents — à vérifier avant de conclure qu'on capte le bon.
+const RVA_OVERRIDE_RETADDR = rva(0x181115e0b);
 const baseOverrideResolved = new Set<string>();
 let overrideIdxdResolved = false;      // resolve-once (reset au clear global)
 
-// CalculateActionUtility (gshared, non résolu par findMethod) — RVA build-spécifique gqfc5mff6c
+// CalculateActionUtility (gshared, non résolu par findMethod) — adresse build-spécifique
 // (ghidra @181406ee0 - 0x180000000). Donne l'UTILITÉ TOTALE par-candidat (le discriminateur : le
 // dégât seul ne suffit pas). Signature : (ret Nullable<Fix64>*, this, p3, position UnitPosition,
 // p5, ability*, ...). À REFAIRE au changement de hash.
-const RVA_CALC_ACTION_UTILITY = 0x1406ee0;
+const RVA_CALC_ACTION_UTILITY = rva(0x1814fb180);
 
 // ElevationUtility.<EvaluateMovementInSteps>d__8.MoveNext (itérateur, non résolu par findMethod)
-// — RVA build-spécifique gqfc5mff6c (ghidra @1811019a0 - 0x180000000). Confirme la feuille Elevation :
+// — adresse build-spécifique (ghidra @1811019a0 - 0x180000000). Confirme la feuille Elevation :
 // valeur d'élévation NATIVE de la tuile candidate (util+0x6c), max (util+0x60) / min (util+0x64) du
 // DOMAINE PERTINENT, et la sortie de feuille yieldée (d__8+0x18, Fix64). d__8+0x20 = l'ElevationUtility ;
 // d__8+0x28 = la position candidate (MainTile via +0x18). À REFAIRE au changement de hash.
-const RVA_ELEVATION_LEAF = 0x11019a0;
+const RVA_ELEVATION_LEAF = rva(0x181212b60);
 
-// ComparablePlaybook.CalculateUtilityFromTilePrediction (gshared) — RVA build-spécifique gqfc5mff6c
+// ComparablePlaybook.CalculateUtilityFromTilePrediction (gshared) — adresse build-spécifique
 // (ghidra @181408740 - 0x180000000). Retourne le TERME DE TUILE COMPLET (composite Tile(7) = SOMME des
 // 29 feuilles, pas seulement Elevation) par candidat, en Fix64 (RAX). Appelée DANS CalculateActionUtility
 // → on tague le retour avec curCaster déjà posé. Sépare damage-util de tile-term (départage le +24).
 // À REFAIRE au changement de hash.
-const RVA_CALC_TILE_PRED = 0x1408740;
+const RVA_CALC_TILE_PRED = rva(0x1814fc9c0);
 
 interface UtilEvent {
     seq: number;
@@ -200,10 +240,10 @@ const bonusTrace: { buf: OriginBuffers<BonusEvent>; stacksLeft: number } =
 // 0x1810fXXXX → 0x10fXXXX). ⚠ NE PAS dépasser ~10 hooks à la fois (35 = cctor cascade → détache la
 // session) NI hooker des feuilles CHAUDES (distances MinDist/MaxDist/TileDistance : PAS enfants du
 // composite Tile de toute façon). La position candidate est décodée par essai d'offsets (0x28/0x20).
-const IL2CPP_VA_BASE = 0x180000000;
+// (`IL2CPP_VA_BASE` et `rva()` sont déclarés en tête, avec le bloc des cibles par adresse.)
 const LEAF_HOOKS_VA: Array<[number, string]> = [
-    [0x1810fbe50, "TileEffects"],       // la feuille -25 (Thorns_DefenseReduction) — cf. this session
-    [0x1811000a0, "CapturePointTile"],  // contrôle : connue-firing (sanity du mécanisme de hook)
+    [0x18120cd60, "TileEffects"],       // la feuille -25 (Thorns_DefenseReduction)
+    [0x181210fd0, "CapturePointTile"],  // contrôle : connue-firing (sanity du mécanisme de hook)
 ];
 const LEAF_HOOKS: Array<[number, string]> =
     LEAF_HOOKS_VA.map(([va, label]) => [va - IL2CPP_VA_BASE, label]);
@@ -382,7 +422,11 @@ function installStatModsHook(): boolean {
 // hook capture chaque Modify de gros montant (|amount|>=500 => filtre le +1298, ignore le bruit) AVEC
 // BACKTRACE (1ers events) → la pile révèle la FONCTION qui applique/retire le +1298 pendant la prédiction
 // = le GATE cherché. + source entity (qui applique). findMethod (ValueModification concret), RVA fallback.
-const RVA_VALUE_MOD_MODIFY = 0x1fadfc0;   // ValueModification.Modify @180fadfc0 (build gqfc5mff6c)
+// ⚠ CETTE CONSTANTE ÉTAIT FAUSSE DEPUIS L'ORIGINE : elle valait `0x1fadfc0` alors que la VA citée par
+// son propre commentaire (`@180fadfc0`) a pour RVA `0xfadfc0`. Elle pointait donc en plein corps de
+// `CodeStage.AdvancedFPSCounter...FPSCounterData$$set_Average` — latente uniquement parce que c'est un
+// FALLBACK derrière un `findMethod` qui réussit. C'est la faute exacte que la forme `rva(<VA>)` supprime.
+const RVA_VALUE_MOD_MODIFY = rva(0x1810b8600);   // IdunBattle.Entities.Components.ValueModification$$Modify
 interface ModifyEvent {
     seq: number;
     originRunnerId: number | null;
@@ -442,7 +486,7 @@ function installModifyHook(): boolean {
 // = args[2] (context). Si args[2]+0x58 = 3011 aux tuiles réduites / 4309 aux pleines → le 3011 est DÉJÀ dans
 // le base à l'entrée de PredictAttackRaw (posé en amont), PAS un modifier interne. On lit plusieurs offsets
 // candidats (le layout Nullable peut décaler). PredictAttackRaw = gshared → findMethod peut échouer → RVA fallback.
-const RVA_PREDICT_ATTACK_RAW = 0x1032fb0;   // DamagePrediction.PredictAttackRaw @181032fb0 (build gqfc5mff6c)
+const RVA_PREDICT_ATTACK_RAW = rva(0x181114610);   // IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw
 interface PredBaseEvent {
     seq: number;
     originRunnerId: number | null;
@@ -471,7 +515,7 @@ function installPredictBaseHook(): boolean {
     if (!ptr) {
         if (il2cppBase.isNull()) { log("[scorer-trace] PredictAttackRaw unresolved + il2cppBase null"); return false; }
         ptr = il2cppBase.add(RVA_PREDICT_ATTACK_RAW);   // fallback RVA build-spécifique
-        log("[scorer-trace] PredictAttackRaw via RVA fallback (build gqfc5mff6c) @ " + ptr);
+        log("[scorer-trace] PredictAttackRaw via RVA fallback (build rnca9r7q6c) @ " + ptr);
     }
     const f64 = (p: NativePointer): number => {
         try { let r = BigInt(p.readS64().toString()); if (r >= (1n << 63n)) r -= (1n << 64n); return Number(r) / 4294967296; }
@@ -665,14 +709,14 @@ function installHook(): boolean {
 
 // ⚠ RVA BUILD-SPÉCIFIQUES — attaches DIFFÉRÉES (armées seulement par scorerDamageTraceOn, PAS au register).
 // Toutes les fonctions ci-dessous sont gshared / itérateurs → NON résolubles par findMethod → hookées par
-// RVA hardcodée valide UNIQUEMENT pour le hash `gqfc5mff6c`. Au prochain changement de build, ces RVA
+// Adresse hardcodée valide UNIQUEMENT pour le hash `rnca9r7q6c`. Au prochain changement de build, ces RVA
 // pointent du CODE ALÉATOIRE et `Interceptor.attach` corromprait le prologue → on N'ATTACHE PAS au register
 // (le ctor findMethod ci-dessus, lui, survit au hash et reste auto-armé). RAFRAÎCHIR CES RVA DEPUIS LE DUMP
 // À CHAQUE CHANGEMENT DE HASH avant de ré-armer. cf. feedback_rva_transcription_from_va.
 let rvaInstalled = false;
 function installRvaHooks(): boolean {
     if (rvaInstalled) return true;
-    log("[scorer-trace] ⚠ arming BUILD-SPECIFIC RVA hooks (valid for hash gqfc5mff6c ONLY — "
+    log("[scorer-trace] ⚠ arming BUILD-SPECIFIC RVA hooks (valid for hash rnca9r7q6c ONLY — "
         + "refresh RVAs from dump on hash change)");
     installUtilHook();
     installElevHook();
@@ -938,7 +982,7 @@ function installBaseOverrideResolver(): boolean {
             } catch { /* transient */ }
         },
     });
-    // b__1 : interface `DAT_18327ff80` idx 0xb4 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
+    // b__1 : interface `DAT_1833407b0` idx 0xb5 sur svc = *((param_1+0x10)+0x20) — signature (target, position).
     Interceptor.attach(il2cppBase.add(RVA_PROFILE_B1), {
         onEnter(args) {
             if (!trace.on) return;
@@ -958,11 +1002,11 @@ function installBaseOverrideResolver(): boolean {
                     const e = itable.add(i * 0x10);
                     if (e.readPointer().equals(ifaceVal)) { off = e.add(8).readS32(); break; }
                 }
-                if (off < 0) { baseOverrideResolved.add("b__1(iface idx0xb4) -> IFACE NOT FOUND (count=" + count + ")"); return; }
-                const slot = klass.add(0x138).add((off + 0xb4) * 0x10);
+                if (off < 0) { baseOverrideResolved.add("b__1(iface idx0x" + ATTACK_IFACE_IDX.toString(16) + ") -> IFACE NOT FOUND (count=" + count + ")"); return; }
+                const slot = klass.add(0x138).add((off + ATTACK_IFACE_IDX) * 0x10);
                 const func = slot.readPointer();
                 if (func.isNull()) return;
-                baseOverrideResolved.add("b__1(iface+0xb4 off=" + off + ") -> il2cpp+0x" + func.sub(il2cppBase).toString(16));
+                baseOverrideResolved.add("b__1(iface+0xb5 off=" + off + ") -> il2cpp+0x" + func.sub(il2cppBase).toString(16));
             } catch { /* transient */ }
         },
     });
