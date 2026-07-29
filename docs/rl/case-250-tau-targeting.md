@@ -130,8 +130,8 @@ refusait pour la **mauvaise raison** (1082 rendait `TargetIsFriendly` sur la MoW
 
 | résidu | symbole | statut mesuré |
 |---|---|---|
-| règle dynamique de 1081 | `...FightingRetreatAbility$$GetDynamicInvalidTargetReason` | **ouvert**, inerte dans ces deux montages |
-| règle dynamique de 1082 | `...InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` | **ouvert et ACTIF** : 2 lignes / 8, sur les deux couples |
+| règle dynamique de 1081 | `...FightingRetreatAbility$$GetDynamicInvalidTargetReason` | **PORTÉE** (#247, §10) — était inerte dans ces deux montages |
+| règle dynamique de 1082 | `...InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` | **PORTÉE** (#247, §10) — c'étaient les 2 lignes / 8 divergentes |
 | `CasterMatchesDynamicRule` (1077) | `TargetingQuery$$GetInvalidCasterReason`, clause `rules & 4` | **inerte** : `casterReason` natif = 0 sur toutes les lignes |
 | `CasterHas2TurnsLeft` (1160) | `BattleQuery$$HasMinimumRemainingTurns` | **inerte** : `casterReason` natif = 0 (le runner n'a pas de plafond de tours ⇒ la fonction rend `true` dès que `maxTurns` n'a pas de valeur) |
 | `AddCasterIfAtLeastOneTarget` (1081) | `TargetingQuery$$GetCasterNotAddedReason` | non porté (rend 0) ; natif = 0 sur la ligne self des deux couples |
@@ -272,19 +272,19 @@ Modules restants (`probe_181_targeting_gaps.py`) : `splash` 6, `blacklegion` 5, 
 
 ## 8. Artefacts
 
-* port : `scripts/python/engine/runner/abilities/tau.py` (les cinq `TARGETING_OPTIONS`)
-* tête de domaine : `scripts/python/engine/runner/abilities/targeting.py`
-  (`get_target_domain_broken_rule`, `_is_machine`, `_resolves_to_unit`)
-* probe (MESURE) : `scripts/python/probe_250_tau_targeting.py`
+* port : `scripts/python/engine/runner/abilities/tau.py` (les cinq `TARGETING_OPTIONS`, plus les
+  deux `get_dynamic_invalid_target_reason` et `_has_deactivated_ranged_specialist` — #247)
+* gates heal/repair : `scripts/python/engine/runner/abilities/attack_query.py` (#247)
+* tête de domaine + adjacence : `scripts/python/engine/runner/abilities/targeting.py`
+  (`get_target_domain_broken_rule`, `_is_machine`, `_resolves_to_unit`, et #247
+  `units_are_friends`, `get_adjacent_friends`)
+* probe (MESURE) : `scripts/python/probe_250_tau_targeting.py` (`--bites` pour le montage #247)
 * test (GARDE) : `scripts/python/tests/engine/runner/test_tau_targeting_live.py`
 * cliquet : `scripts/python/tests/engine/runner/test_ability_registry_ratchet.py`
   (1077/1081/1082/1160/1161 retirés de `SANS_TARGETING_OPTIONS`)
 
 ## 9. Ce qui n'est PAS couvert
 
-* **Les deux `GetDynamicInvalidTargetReason`** (1081, 1082) — lus au décompilé (§4), **non portés**.
-  Celui de 1082 refuse mesurablement 2 lignes sur 8 ; celui de 1081 est resté inerte dans ces
-  montages parce que Darkstrider avait un ennemi adjacent. C'est le résidu principal du cas.
 * **`CasterHas2TurnsLeft`** (1160) : mesuré inerte parce que le runner n'a pas de plafond de tours.
   Une bataille **plafonnée** ferait mordre la règle, et le port ne modélise pas le plafond.
 * **`force_melee_target`** pour 1081/1082/1160/1161, et **`range`** pour 1160/1161 : lus au
@@ -296,3 +296,167 @@ Modules restants (`probe_181_targeting_gaps.py`) : `splash` 6, `blacklegion` 5, 
   sur `TargetIsUnit`, le port reste muet.
 * **Les faces COMBAT** des cinq abilities (behaviours) : hors périmètre, déjà portées et gardées par
   `test_tau_lot1_live.py` / `test_mow_effect_posers_live.py`, rejouées vertes après ce changement.
+
+## 10. #247 — les deux `GetDynamicInvalidTargetReason`, portées
+
+> ⚠ **NON CONFRONTÉ LIVE.** La confrontation est **différée par la mise à jour de build
+> `gqfc5mff6c` → `rnca9r7q6c`**, annoncée en cours de tranche. Toute la RE ci-dessous vient du
+> décompilé `gqfc5mff6c` (cohérent avec `data/symbols/gqfc5mff6c/`) ; le port est validé
+> **structurellement** hors ligne. Ce qui reste à mesurer, et par quel montage exact, est en §10.5.
+
+### 10.1 Les deux corps, relus (pas hérités de la transcription du §4)
+
+**1081** — `IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$GetDynamicInvalidTargetReason` :
+
+```c
+owner      = OwnerComponent.GetCurrentPlayerEntityId(caster.OwnerComponent);   // param_2 = RDX
+adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, /*ignoreSteppables*/ false);
+adjFriends = battleQuery.<slot 0x80> GetAdjacentFriends(caster, owner);
+if (Enumerable.Any(adjEnemies))                                        return 0;
+if (Enumerable.Any(adjFriends, this.HasDeactivatedRangedSpecialist))   return 0;
+return 2;                                          // TargetingRule.TargetMatchesDynamicRule
+```
+
+Le corps **ne lit QUE `param_2`** — jamais la cible. Conséquence de structure, qui n'était pas dans
+la transcription : **la règle refuse TOUTES les cibles d'un caster donné, ou AUCUNE**. Et comme 1081
+est `isSelfCasting`, la ligne « cible == caster » est aiguillée sur `GetCasterNotAddedReason` et
+n'atteint jamais cette règle : **elle ne peut mordre que sur une cible ≠ caster ET adjacente**
+(`RANGE_ADJACENT` la précède dans la cascade).
+
+`ignoreSteppables = false` est **lu** : un decoy `Steppable` ennemi au contact suffit à autoriser le
+cast. L'`ExecuteBehaviour`, lui, filtre par `NonSteppableOrObjectUnits` — les deux volets de la même
+ability ne comptent pas le même ensemble.
+
+`FightingRetreatAbility$$HasDeactivatedRangedSpecialist` :
+
+```c
+effect = EntityExtensions.GetOwnedEffect(unit, state, 0x5eb RangedSpecialist);
+if (effect == null) return false;
+return effect.EffectComponent.IsActive@+0x5c == 0;
+```
+
+**1082** — `IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`
+(`param_2` = caster, `param_4` = target) :
+
+```c
+if (caster == target || UnitExtensions.HasTrait(target, 0x7e7)) return 1;   // ValidRequest réutilisé
+healable   = attackQuery.<slot 0x11>(caster, target, 0, true);
+repairable = attackQuery.<slot 0x12>(caster, target, 0, false);
+canReset   = battleQuery.<slot 0x31>(target, false);
+return (!healable && !repairable && !canReset) ? 1 : 0;
+```
+
+### 10.2 Les enums, QUALIFIÉES — et deux d'entre elles corrigent la fiche précédente
+
+| littéral | enum d'appartenance | valeur | comment tranché |
+|---|---|---|---|
+| `0x7e7` | **`IdunBattle.Entities.Enum.UnitTrait`** | `Boss` (2023) | 2023 n'existe **que** dans `UnitTrait` — absent d'`EffectType`, `ActiveAbilityType`, `TriggeredAbilityType` ; et `UnitExtensions$$HasTrait(unit, trait:UnitTrait)` fixe le type du paramètre |
+| slot `0x11` | `IAttackQuery` | **`EntityCanBeHealed`** (SOIGNABLE) | signature `methods.tsv` à 4 args `(caster, target, scope:HealScope, removeEffects)` ; `HealableUnitsSelector$$Select` l'utilise ; la cascade générique le gate sous `TargetIsHealable` (`0x100`) |
+| slot `0x12` | `IAttackQuery` | **`EntityCanBeRepaired`** (RÉPARABLE) | `RepairAbility$$GetDynamicInvalidTargetReason` l'utilise et rend `0x10000` ; la cascade le gate sous `TargetIsRepairable` (`0x10000`) |
+| `0x5eb` | `EffectType` | `RangedSpecialist` (1515) | argument de `GetOwnedEffect(owner, state, effectType)` |
+| `0x17` / `0x18` | `UnitFlag` | `CanHealFullHealthUnits` / `CanRepairFullHealthUnits` | `UnitExtensions$$HasFlag(unit, flag:UnitFlag)` |
+| `GetStat(_, 4, 4)` | `StatType` / `StatPart` | `Armor` / `Missing` | surcharge `GetStat(actor, statType, statPart, entityId)` |
+
+⚠ **Le commentaire de `tau.py` avait INVERSÉ 0x11 et 0x12** (« 0x11 reparable, 0x12 soignable »).
+L'inversion était inerte tant que la règle n'était pas portée ; elle ne l'aurait plus été une fois
+branchée, puisque les deux prédicats **discriminent en sens opposés** (`IsAffectedByHealType(0)` =
+non-mécanique, `(1)` = mécanique). Corrigé.
+
+### 10.3 Les deux gates `AttackQuery`, portés en entier
+
+`engine/runner/abilities/attack_query.py` mirror les surcharges à 4 arguments :
+
+```c
+EntityCanBeHealed(caster, target, scope, removeEffects) =
+    !IsMachine(target)
+    && ( IsDamagedUnit(target) || (removeEffects && HasNegativeUnitEffect(target))
+                               || (caster != null && HasFlag(caster, CanHealFullHealthUnits)) )
+    && !HasHealBlockers(target)
+    && !(scope != 0 && IsAtGroupUnitHealLimit(target))
+    && !HasTrait(target, UnitTrait.Object)
+    && IsAffectedByHealType(target, HealType.NonMechanical)
+
+EntityCanBeRepaired(caster, entity, scope, removeEffects) =
+    !IsMachine(entity)
+    && ( IsDamagedUnit(entity) || GetStat(entity, Armor, Missing) > 0
+                               || (removeEffects && HasNegativeUnitEffect(entity))
+                               || (caster != null && HasFlag(caster, CanRepairFullHealthUnits)) )
+    && !HasHealBlockers(entity)
+    && IsAffectedByHealType(entity, HealType.Mechanical)
+    && (scope == 0 || !IsAtGroupUnitHealLimit(entity))
+```
+
+Les deux écarts de structure entre jumeaux sont **lus, pas déduits** : le disjunct `Armor/Missing`
+n'existe que côté repair, et l'ordre diffère (pas de test `UnitTrait.Object` côté repair,
+`IsAffectedByHealType` avant le plafond de groupe). Les deux call-sites de 1082 passent `scope = 0`,
+sous lequel `IsAtGroupUnitHealLimit` n'est **jamais** consulté.
+
+### 10.4 Ce que le port ne sait pas lire — et de quel côté chaque manque dégrade
+
+| terme natif | statut | sens de la dégradation |
+|---|---|---|
+| `AttackQuery$$HasNegativeUnitEffect` | non porté (conteneur `EffectsComponent+0x100`, aucun marqueur « négatif » dans le canal) | **RESTRICTIF** — le port peut refuser une cible pleine PV portant un effet négatif |
+| `GetStat(Armor, Missing)` | non porté (`StatPart.Missing` hors catalogue `combatSnapshot`) | **RESTRICTIF** — même profil |
+| `UnitExtensions$$HasHealBlockers` | non porté (dict `HealthComponent+0x78`) | permissif |
+| `HasFlag(caster, 23/24)` | mirror écrit, flags jamais posés offline | neutre |
+| `IsDamagedUnit`, branche BOSS | confondue avec la branche normale (un seul plafond exposé) | inatteignable depuis 1082 (`HasTrait(Boss)` refuse en amont) |
+
+Les deux dégradations RESTRICTIVES sont **les seules** de tout `abilities/targeting.py`, dont la
+convention est permissive. Elles sont bornées par deux gardes-fou explicites, ajoutés après une
+mesure offline qui les a rendues visibles :
+
+* **1081** refuse sur une liste VIDE — or `get_adjacent_enemies` rend aussi la liste vide quand le
+  port ne sait pas énumérer l'adjacence. Sans garde, un `State()` nu rendait `0x2` : un refus
+  **inventé**. La règle rend désormais 0 dès que `state.board` est absent ou que le caster n'a pas de
+  tuile ;
+* **1082** refuse sur une CONJONCTION de disjuncts faux — or « faux » et « pas lu » n'y ont pas le
+  même statut. Le port ne refuse que si `canReset` est un verdict RÉEL (pas `None`) **et** si les PV
+  de la cible sont lisibles (`attack_query.health_is_readable`).
+
+### 10.5 Validation — état, et ce qui reste à mesurer
+
+**Fait (hors ligne, grille hex synthétique, tous les chemins exercés)** — chaque régime bascule dans
+le sens attendu, et par le BON disjunct :
+
+| régime (caster/cible) | 1081 | 1082 |
+|---|---|---|
+| aucun ennemi adjacent, allié sans `RangedSpecialist` | **`0x2`** | — |
+| un ennemi au contact | `0x0` | — |
+| allié adjacent porteur du trait, effet absent du seed (= désactivé) | **`0x0`** | — |
+| cible == caster | — | **`0x1`** |
+| cible non-mécanique pleins PV, actif disponible | — | **`0x1`** |
+| cible non-mécanique BLESSÉE | — | `0x0` (via `EntityCanBeHealed`) |
+| cible mécanique pleins PV | — | **`0x1`** |
+| cible mécanique BLESSÉE | — | `0x0` (via `EntityCanBeRepaired`) |
+| cible dont l'actif est CONSOMMÉ | — | `0x0` (via `EntityCanHaveActiveAbilityReset`) |
+| `State()` nu / canal `allAbilities` absent | `0x0` | `0x0` |
+
+Vérifié séparément : `entity_can_be_healed` est vrai **uniquement** pour la cible non-mécanique
+blessée et `entity_can_be_repaired` **uniquement** pour la mécanique blessée — les deux branches
+discriminent bien par `IsAffectedByHealType`, elles ne se recouvrent pas.
+
+**Reste à mesurer, sur le build `rnca9r7q6c` une fois la chaîne de symboles refaite** :
+
+1. **`python probe_250_tau_targeting.py` (montage de #252, couples `C4_09`/777 et `C3_26`/31337)** —
+   l'accord doit passer de **38/40 à 40/40** sur chaque couple, `residus 0`. Les 2 lignes concernées
+   sont, pour 1082 : le **caster lui-même** (clause `target == caster`) et l'**allié au contact**
+   (Darkstrider : pleins PV, non-mécanique, actif non consommé). Le contrefactuel est intégré au
+   probe : la variante **`sansDyn`** garde le masque et désarme le seul délégué — `cf_dyn` doit
+   valoir **≥ 2** pour 1082, et le test de garde l'asserte ;
+2. **`python probe_250_tau_targeting.py --bites`** — le montage que #250 n'avait pas, celui où 1081
+   MORD : `_drive_isolated` amène Aun'Shi au contact de Darkstrider et écarte **tous** les ennemis à
+   d ≥ 3. Attendu **T1** : 1081 (caster Darkstrider, cible Aun'Shi) = `0x2`, 1082 (caster Aun'Shi,
+   cible Darkstrider) = `0x1`, et `sansDyn` = `0` pour les deux. Puis **T2**, sur le même runner : un
+   ennemi est amené au contact de Darkstrider et l'ATTAQUE — les deux verdicts passent à `0`, par
+   deux disjuncts DIFFÉRENTS (`GetAdjacentEnemies` non vide / `EntityCanBeHealed` sur un blessé). Un
+   port qui refuserait toujours passerait T1 et tomberait en T2 ;
+3. **le seul point que le hors-ligne ne peut pas trancher** : le canal de seed remonte-t-il l'effet
+   `RangedSpecialist` (1515) quand il est ACTIF ? Le port en dépend — il lit « trait porté + instance
+   absente » comme *désactivé* (case-160 : `readEffectsByUnit` droppe les `IsActive == 0`). Si le
+   canal ne remontait jamais 1515, tout porteur du trait serait vu désactivé et le 2ᵉ disjunct de
+   1081 accepterait toujours (dégradation permissive, mais fausse). À vérifier d'un
+   `decisionView` sur `tauDarkstrider` (qui porte le trait) : l'effet doit être présent au tour 1.
+
+Non couvert et assumé : les deux dégradations restrictives du §10.4, le plafond `HealScope != 0`
+(aucun call-site porté ne le pose), et la surcharge à 3 arguments d'`EntityCanBeRepaired` (slot
+0x13, `RepairableUnitsSelector`).

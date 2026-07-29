@@ -90,7 +90,12 @@ def test_1077_early_warning_override(tau_measures):
 def test_1081_fighting_retreat(tau_measures):
     """0x802 = `TargetMatchesDynamicRule | AddCasterIfAtLeastOneTarget` : aucun bit de camp
     (`refuses_all_enemy_targets` reste False), aucune regle statique. Le refus vient du
-    `TargetingRange statics+0x30` = `RANGE_ADJACENT` -> `AreEntitiesAdjacent`."""
+    `TargetingRange statics+0x30` = `RANGE_ADJACENT` -> `AreEntitiesAdjacent`.
+
+    Sa regle DYNAMIQUE est portee (#247) mais reste INERTE dans CE montage (Darkstrider y a un
+    ennemi au contact, donc `Any(GetAdjacentEnemies)` court-circuite). Le montage ou elle MORD est
+    un test SEPARE (`test_dynamic_rules_bite_and_flip`) -- confondre les deux ferait passer ce
+    test-ci pour une preuve qu'il n'apporte pas."""
     s = _one(tau_measures, 1081)
     assert s["cf_range"] > 0, "le volet PORTEE de 1081 n'est pas exerce par cette mesure"
     from engine.runner.abilities.handler import ABILITY_CLASSES
@@ -102,11 +107,17 @@ def test_1081_fighting_retreat(tau_measures):
 
 def test_1082_inspired_to_greatness(tau_measures):
     """0x402 = `TargetMatchesDynamicRule | TargetIsFriendly` : le SEUL des cinq a porter une regle de
-    CAMP. Les deux volets mordent -- `TargetIsFriendly` sur les ennemis, `RANGE_ADJACENT` sur les
-    allies hors contact."""
+    CAMP. Les TROIS volets mordent -- `TargetIsFriendly` sur les ennemis, `RANGE_ADJACENT` sur les
+    allies hors contact, et la regle DYNAMIQUE (#247) sur le caster lui-meme et sur l'allie au
+    contact a pleins PV dont l'actif n'est pas consomme."""
     s = _one(tau_measures, 1082)
     assert s["cf_rules"] > 0, "le bit TargetIsFriendly de 1082 n'est pas exerce par cette mesure"
     assert s["cf_range"] > 0, "le volet PORTEE de 1082 n'est pas exerce par cette mesure"
+    assert s["cf_dyn"] >= 2, (
+        "#247 : desarmer `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` doit "
+        "faire redivergir les 2 lignes qu'elle tranche (le caster lui-meme, et l'allie au contact "
+        "non eligible). Un contrefactuel a 0 signifie que la regle ne garde RIEN -- %d ligne(s)"
+        % s["cf_dyn"])
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting import refuses_all_enemy_targets
     assert refuses_all_enemy_targets(ABILITY_CLASSES[1082].TARGETING_OPTIONS), (
@@ -140,3 +151,67 @@ def test_1161_twin_smart_missile_system(tau_measures):
         "sans le bit 46, la MoW ENNEMIE doit rompre sur TargetIsUnit pour 1161 -- %s"
         % [(r["label"], hex(r["nat"] or 0)) for r in mow])
     assert s["cf_rules"] > 0, "le bit TargetIsEnemy de 1161 n'est pas exerce par cette mesure"
+
+
+# ------------------------------------------------------------------------------------------------
+# #247 -- LES DEUX REGLES DYNAMIQUES, dans le montage ou elles MORDENT, et son BASCULEMENT
+# ------------------------------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def tau_bites(live_session):
+    """RUNNER SEPARE : la geometrie qui fait mordre 1081 est INCOMPATIBLE avec celle du montage
+    principal (elle exige Darkstrider SANS ennemi au contact, l'autre lui en met un). Deux montages
+    distincts, pas un compromis qui n'exercerait ni l'un ni l'autre."""
+    res, dispose = P.measure_dynamic_bites(live_session, SEED, BOARD)
+    try:
+        yield res
+    finally:
+        dispose()
+
+
+def test_dynamic_rules_bite_and_flip(tau_bites):
+    """LE test des deux `GetDynamicInvalidTargetReason` -- et il asserte les DEUX SENS.
+
+    T1 (Darkstrider ISOLE, Aun'Shi a son contact) :
+      * 1081 -> `0x2 TargetMatchesDynamicRule` : ni ennemi adjacent, ni allie a `RangedSpecialist`
+        DESACTIVE. C'est le montage que #250 n'avait PAS, et sans lequel le port de 1081 serait
+        pose en aveugle (un contrefactuel a 0 ne valide rien) ;
+      * 1082 -> `0x1 ValidRequest` : cible a pleins PV, non-mecanique, actif non consomme.
+    T2 (un ennemi amene AU CONTACT de Darkstrider et l'ATTAQUE) : les deux passent a 0, par DEUX
+    disjuncts differents (`GetAdjacentEnemies` non vide / `EntityCanBeHealed` sur un blesse).
+
+    Un port qui refuserait TOUJOURS passerait T1 et tomberait en T2 ; un port permissif (l'etat
+    d'avant #247) tomberait en T1. Les deux moities sont necessaires."""
+    r = tau_bites
+    assert r["geometry_ok"], (
+        "geometrie non atteinte (d_ally=%s d_foe=%s) : la regle de 1081 n'est pas exercee"
+        % (r["d_ally"], r["d_foe"]))
+
+    n1, p1, d1 = r["t1_1081"]
+    assert n1 == 0x2, ("T1 : le natif doit refuser 1081 sur `TargetMatchesDynamicRule` (0x2) "
+                       "quand Darkstrider n'a aucun ennemi au contact -- natif=%s" % hex(n1 or 0))
+    assert p1 == n1, "T1 1081 : port=%s natif=%s" % (hex(p1), hex(n1))
+    assert d1 == 0, ("T1 1081 : desarmer la regle dynamique doit RE-ACCEPTER la ligne "
+                     "(contrefactuel) -- sansDyn=%s" % hex(d1))
+
+    n2, p2, d2 = r["t1_1082"]
+    assert n2 == 0x1, ("T1 : le natif doit refuser 1082 sur le litteral `ValidRequest` (0x1) pour "
+                       "un allie au contact non eligible -- natif=%s" % hex(n2 or 0))
+    assert p2 == n2, "T1 1082 : port=%s natif=%s" % (hex(p2), hex(n2))
+    assert d2 == 0, ("T1 1082 : desarmer la regle dynamique doit RE-ACCEPTER la ligne "
+                     "(contrefactuel) -- sansDyn=%s" % hex(d2))
+
+    assert r["d_foe_t2"] == 1, ("T2 : l'ennemi doit etre AU CONTACT de Darkstrider (d=%s) -- sans "
+                                "ca le basculement n'est pas provoque" % r["d_foe_t2"])
+    hp_before, hp_after = r["hp_before"], r["hp_after"]
+    assert (hp_after[0] is not None and hp_before[0] is not None
+            and hp_after[0] < hp_before[0]), (
+        "T2 : Darkstrider doit avoir ete BLESSE (%s -> %s) -- c'est le disjunct `IsDamagedUnit` "
+        "d'`EntityCanBeHealed` que ce volet exerce" % (hp_before, hp_after))
+
+    n3, p3, _ = r["t2_1081"]
+    assert n3 == 0 and p3 == 0, ("T2 1081 : un ennemi au contact leve le refus (natif=%s port=%s)"
+                                 % (hex(n3 or 0), hex(p3)))
+    n4, p4, _ = r["t2_1082"]
+    assert n4 == 0 and p4 == 0, ("T2 1082 : une cible BLESSEE est soignable, donc legale "
+                                 "(natif=%s port=%s)" % (hex(n4 or 0), hex(p4)))
