@@ -323,11 +323,18 @@ def _reference_la_plus_recente() -> Path | None:
     """L'archive la PLUS RECEMMENT dumpee -- ordonnee par `generated=` de son estampille.
 
     Pas par ordre alphabetique du hash (il n'a aucun sens chronologique) et pas par mtime du
-    fichier (un checkout git le reecrit). La date de generation voyage DANS l'artefact."""
+    fichier (un checkout git le reecrit). La date de generation voyage DANS l'artefact.
+
+    Une archive SANS table Ghidra est ecartee, pas une erreur : c'est un etat REEL et transitoire
+    du depot -- les trois TSV Frida d'un build sont commites (b8dba3c0) AVANT que la passe Ghidra
+    n'existe (04980aa1). Comparer contre elle rendrait « toutes les familles a zero »."""
     candidats = []
     for nom in archived_builds():
         try:
-            st = read_stamp(_build_dir(nom) / "frida" / "methods.tsv")
+            rep = _build_dir(nom)
+            if not (rep / "ghidra" / "functions.tsv").is_file():
+                continue
+            st = read_stamp(rep / "frida" / "methods.tsv")
         except (ProvenanceError, LayoutError):
             continue
         candidats.append((st.get("generated", ""), nom))

@@ -151,7 +151,7 @@ def test_la_perte_connue_ne_couvre_pas_une_autre_famille():
                               ref, cur)
 
 
-def test_la_reference_est_la_plus_RECEMMENT_DUMPEE_pas_la_premiere_du_tri():
+def test_la_reference_est_la_plus_RECEMMENT_DUMPEE_pas_la_premiere_du_tri(tmp_path):
     """Avec trois builds archives, comparer contre le mauvais rendrait la garde absurde.
 
     Le hash d'un build (`gqfc5mff6c`, `rnca9r7q6c`, ...) n'a AUCUN sens chronologique : trie
@@ -160,14 +160,36 @@ def test_la_reference_est_la_plus_RECEMMENT_DUMPEE_pas_la_premiere_du_tri():
     stamps = {"aaaa111111": "2026-05-01T10:00:00",
               "zzzz999999": "2026-06-01T10:00:00",     # le plus recent, dernier en alpha
               "mmmm555555": "2026-04-01T10:00:00"}
-    S_archived = S.archived_builds
-    S_builddir = S._build_dir
-    S_stamp = S.read_stamp
+    for nom in stamps:
+        (tmp_path / nom / "ghidra").mkdir(parents=True)
+        (tmp_path / nom / "ghidra" / "functions.tsv").write_text("# build=%s\n" % nom,
+                                                                 encoding="utf-8")
+    S_archived, S_builddir, S_stamp = S.archived_builds, S._build_dir, S.read_stamp
     try:
         S.archived_builds = lambda: sorted(stamps)
-        S._build_dir = lambda nom: Path(nom)
+        S._build_dir = lambda nom: tmp_path / nom
         S.read_stamp = lambda p: {"generated": stamps[p.parent.parent.name]}
-        assert S._reference_la_plus_recente() == Path("zzzz999999")
+        assert S._reference_la_plus_recente() == tmp_path / "zzzz999999"
+    finally:
+        S.archived_builds, S._build_dir, S.read_stamp = S_archived, S_builddir, S_stamp
+
+
+def test_une_archive_SANS_table_ghidra_est_ecartee_pas_choisie(tmp_path):
+    """Etat REEL et transitoire du depot : les trois TSV Frida d'un build sont commites
+    (`b8dba3c0`) AVANT que la passe Ghidra n'existe (`04980aa1`). Prendre une telle archive
+    pour reference ferait lire « toutes les familles a zero » -- une fausse alerte totale."""
+    complet = tmp_path / "complet"
+    (complet / "ghidra").mkdir(parents=True)
+    (complet / "ghidra" / "functions.tsv").write_text("# build=complet\n", encoding="utf-8")
+    partiel = tmp_path / "partiel"
+    (partiel / "frida").mkdir(parents=True)
+    stamps = {"complet": "2026-01-01T00:00:00", "partiel": "2026-09-09T00:00:00"}  # partiel = + recent
+    S_archived, S_builddir, S_stamp = S.archived_builds, S._build_dir, S.read_stamp
+    try:
+        S.archived_builds = lambda: ["complet", "partiel"]
+        S._build_dir = lambda nom: tmp_path / nom
+        S.read_stamp = lambda p: {"generated": stamps[p.parent.parent.name]}
+        assert S._reference_la_plus_recente() == complet
     finally:
         S.archived_builds, S._build_dir, S.read_stamp = S_archived, S_builddir, S_stamp
 
