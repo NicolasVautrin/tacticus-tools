@@ -196,13 +196,18 @@ inchangé.
   d'un summon ne retombe pas sur son unitId gameconfig » reste non exercé (déjà noté case-193c §7).
 * **Les caps `vtbl+0x228 / 0x238`** du corps commun : toujours non répliqués, jamais vus saturer
   (max mesuré ici : 4 voisins, dont 2 qualifiants).
-* **Le comportement de l'ability elle-même** — `CursedPlagueBellMovementAbility`,
-  `CursedPlagueBell_ExtraMoveEffect`, `CursedPlagueBell_DangerZoneEffect` : ce cas ne porte que le
-  PLAYBOOK (l'utilité de mouvement de l'IA), pas l'effet de jeu.
-  `CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` en est SORTI : porté et validé live
-  par **`case-224-is-in-contagions-of-nurgle-range`** (nœud DSL `IsInUnitAura`, table de portée
-  `entities/effects/aura.py`). Le reste de son `CreateTrigger` et son `CreateBehaviour` restent non
-  portés.
+* **Le comportement de l'ability elle-même** — ce cas ne porte que le PLAYBOOK (l'utilité de
+  mouvement de l'IA), pas l'effet de jeu. DEUX morceaux en sont depuis SORTIS, portés et validés
+  live par des cas dédiés :
+  * `CursedPlagueBellMovementAbility` → `case-224-cursed-plague-bell-movement.md` (pose de
+    `CursedPlagueBell_ExtraMove` 1073 au turn-start du porteur, 11 tours confrontés / 0 désaccord) ;
+  * `CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` →
+    `case-224-is-in-contagions-of-nurgle-range.md` (nœud DSL `IsInUnitAura`, table de portée
+    `entities/effects/aura.py`).
+
+  Restent non portés : `CursedPlagueBell_ExtraMoveEffect` (le +1 Movement effectif),
+  `CursedPlagueBell_DangerZoneEffect`, et le reste du `CreateTrigger` / le `CreateBehaviour` de
+  `CursedPlagueBellAttackAbility`.
 
 ---
 
