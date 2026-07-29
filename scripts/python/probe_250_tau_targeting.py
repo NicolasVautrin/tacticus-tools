@@ -77,6 +77,7 @@ from engine.runner.abilities.handler import ABILITY_CLASSES          # noqa: E40
 from engine.runner.abilities.targeting import (RANGED_BOOL_TRUE,     # noqa: E402
                                                get_invalid_caster_reason,
                                                get_invalid_target_reason)
+from engine.runner.abilities.targeting_rule import TargetingRule as TR   # noqa: E402
 from engine.runner.snapshot import load_state                        # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
@@ -93,9 +94,21 @@ ROOT = PYDIR.parents[1]
 #   - 1082 `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` (rendait 1 sur 2 lignes / 8)
 # sont PORTES. Laisser leurs codes ici les re-classerait « residu tolere » et le probe ne verrait
 # plus une regression de ces deux regles -- c'est precisement ce que la fermeture doit interdire.
+#
+# 1081 garde en revanche UN residu, et il n'est PAS dynamique : `AddCasterIfAtLeastOneTarget`
+# (bit 11 de son masque `0x802`), lu par `IdunBattle.Core.Services.TargetingQuery$$
+# GetCasterNotAddedReason` et NON PORTE (`get_caster_not_added_reason` rend 0). `case-250` §4 le
+# classait « natif = 0 sur la ligne self des deux couples » -- c'etait vrai de LEUR geometrie, pas
+# de la regle. MESURE du 2026-07-29 (`C3_26`/31337, geometrie ou Darkstrider n'a AUCUN ennemi
+# adjacent) : toutes ses cibles etant refusees par sa regle dynamique, il ne reste « au moins une
+# cible » nulle part et le natif rend `0x800` sur SA PROPRE ligne. Le port rend 0 : degradation
+# PERMISSIVE, la convention de tout `abilities/targeting.py`. On le NOMME donc ici, ce qui le
+# distingue d'un vrai desaccord sans masquer quoi que ce soit d'autre -- la ligne reste comptee
+# `RESIDU` et jamais `agree`.
 CASES = [
     (1077, "tauCrisis", "EarlyWarningOverride", {}),
-    (1081, "tauDarkstrider", "FightingRetreat", {}),
+    (1081, "tauDarkstrider", "FightingRetreat",
+     {int(TR.AddCasterIfAtLeastOneTarget): "AddCasterIfAtLeastOneTarget"}),
     (1082, "tauAunShi", "InspiredToGreatness", {}),
     (1160, "tauBroadside", "HeavyRailRifle", {}),
     (1161, "tauBroadside", "TwinSmartMissileSystem", {}),
@@ -109,6 +122,9 @@ BOARD = "C4_09"                     # MoW-capable (MachineOfWarPosition pose pou
 SEED = "777"
 WARMUP_ENDTURNS = 6               # purge les `initialCooldownTurns` (sinon `ValidRequest` partout)
 HUB_VIS = "tauAunShi"             # l'ancre de la geometrie : c'est SON masque qui exige l'adjacence
+NEAR_ALLY_VIS = "tauDarkstrider"  # l'allie AU CONTACT du hub (ligne « allie adjacent »)
+FAR_ALLY_VIS = "tauCrisis"        # l'allie HORS contact -- et la seule ligne qui exerce la PORTEE
+                                  # de 1082 ; il doit etre BLESSE, cf. `measure_all`.
 _seq = itertools.count()
 
 
@@ -259,6 +275,125 @@ def _hand_to(sid, rid, vis, maxit=8):
     return _dv(sid, rid)
 
 
+def _hand_to_owner(sid, rid, owner, maxit=8):
+    """Variante par OWNER : `_hand_to` designe son camp par un `visualId`, ce qui ne suffit plus des
+    que le camp compte PLUSIEURS exemplaires du meme visuel (les trois `necroWarden`) -- `_by_vis`
+    rend alors le premier, pas celui qu'on pilote."""
+    for _ in range(maxit):
+        d = _dv(sid, rid)
+        if d.get("currentPlayer") == owner:
+            return d
+        _act(sid, rid, {"kind": "endturn"}, 60)
+    return _dv(sid, rid)
+
+
+# --------------------------------------------------------------------------- regime BLESSE
+#
+# POURQUOI CE BLOC EXISTE (mesure du 2026-07-29). Le montage `--bites` de #247 croyait faire frapper
+# un ennemi avec `applyAction{"kind": "attack", ...}`. CETTE ACTION N'EXISTE PAS :
+# `applyOneAction` (`frida/hooks/features/ai-step/internals.ts`) ne connait que
+# `move | ability | finish | endturn` et rend `ok:false, error:"unknown kind: attack", mutated:false`
+# -- un NO-OP que RIEN ne signale quand l'appelant ignore le retour. D'ou le `7530 -> 7530` du
+# rapport de #254, lu a tort comme « l'attaque ne fait pas de degats ». MESURE de la correction :
+# meme montage, cast de l'attaque normale -> `hpDelta = -118`.
+#
+# L'attaque normale est une ABILITY, et son `ActiveAbilityType` est CONCRET et PER-UNITE
+# (`ActiveAbilityComponent.NormalAttackType`, ex. 69 `Loki_NormalAttack`) -- surtout pas le 17
+# synthetique qu'`engine/ai/state_bridge.py` emploie OFFLINE : `ActiveAbilityMessage` exige l'id que
+# porte l'unite, et 17 n'en resout aucun.
+
+def _normal_attack_type(dv, uid):
+    """L'id CONCRET de l'attaque normale de `uid`, lu dans `decisionView.units[].abilities`
+    (`kind == "normal"`). None = l'unite n'expose pas d'attaque normale (rien a caster)."""
+    for u in (dv.get("units") or []):
+        if int(u.get("id", -1)) == int(uid):
+            for a in (u.get("abilities") or []):
+                if a.get("kind") == "normal" and a.get("id") is not None:
+                    return int(a["id"])
+    return None
+
+
+def _unit_hp(dv, uid):
+    """PV COURANTS de `uid` (`decisionView.units[].hp`), ou None si l'unite n'est plus listee."""
+    for u in (dv.get("units") or []):
+        if int(u.get("id", -1)) == int(uid):
+            return u.get("hp")
+    return None
+
+
+def _wound(sid, rid, victim_id, rounds=14):
+    """AMENE `victim_id` au regime BLESSE (`hp < hp_max`) et le VERIFIE -- jamais « j'ai envoye une
+    action, donc c'est fait ».
+
+    Un ennemi de la victime caste son attaque NORMALE depuis une tuile d'ou le jeu la declare
+    frappable -- PAS forcement au contact : les `necroWarden` sont RANGED et tirent a d=3. Le
+    CONTACT est un regime distinct, pose par `_bring_to_contact`. Rend `(hp_avant, hp_apres)` ;
+    `hp_apres == hp_avant` signifie que le regime n'a PAS ete atteint, et c'est a l'appelant
+    d'echouer dessus (aucun `skip` : un montage qui n'atteint pas son regime doit ROUGIR, cf. la
+    lecon de #254 sur le test eteint).
+
+    Le disjunct que ce regime arme cote gate : `IsDamagedUnit` d'`AttackQuery$$EntityCanBeHealed`
+    (slot 0x11 d'`IAttackQuery`), donc la regle dynamique
+    `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` de 1082.
+
+    C'EST LE JEU QUI DIT D'OU L'ON PEUT FRAPPER, PAS LA DISTANCE HEX. La 1re version conduisait
+    l'attaquant a `hexgeo.distance == 1` puis castait. MESURE (`C3_26`/31337) : le `necroWarden`
+    atteint bien d=1, `hasAction=True`, son camp a la main -- et le cast rend `ok=true, error=null,
+    mutated=FALSE`, SEPT fois de suite. La distance a vol d'oiseau n'est PAS l'adjacence du jeu :
+    `MovementUtil$$AreTilesAdjacent` porte une porte d'ELEVATION, et deux tuiles voisines separees
+    par une marche ne sont pas au contact. Le canal qui repond EXACTEMENT a la question est
+    `castFromTiles` (`GetInvalidTargetReason` evalue PAR TUILE) : `currentValid` = frappable d'ici,
+    `moveTiles` = les tuiles d'ou ce le serait apres deplacement. On l'INTERROGE donc au lieu de
+    deduire ; `_step_toward` ne sert plus qu'a se rapprocher quand AUCUN candidat n'a de tuile de
+    tir ce tour."""
+    dv0 = _dv(sid, rid)
+    hp0 = _unit_hp(dv0, victim_id)
+    for it in range(rounds):
+        dv = _dv(sid, rid)
+        hp = _unit_hp(dv, victim_id)
+        if hp is not None and hp0 is not None and hp < hp0:
+            return hp0, hp
+        me = next((a for a in _actors(dv) if a["id"] == int(victim_id)), None)
+        if me is None or None in me["pos"]:
+            break
+        cands = sorted((a for a in _actors(dv)
+                        if a["owner"] != me["owner"] and None not in a["pos"] and not a["machine"]),
+                       key=lambda a: (_dist(me, a), a["id"]))
+        if not cands:
+            break
+        fired = False
+        for atk in cands:
+            na = _normal_attack_type(dv, atk["id"])
+            if na is None:                       # pas d'attaque normale -> ce porteur ne sert a rien
+                continue
+            _hand_to_owner(sid, rid, atk["owner"])
+            cf = _r(sid, "castFromTiles", {"runnerId": rid, "casterId": atk["id"],
+                                           "targetId": int(victim_id), "abilityType": na}, 60) or {}
+            tiles = [t for t in (cf.get("moveTiles") or []) if t.get("col") is not None]
+            if not cf.get("currentValid") and not tiles:
+                continue
+            if not cf.get("currentValid"):
+                _act(sid, rid, {"kind": "move", "unitId": atk["id"],
+                                "to": {"col": tiles[0]["col"], "row": tiles[0]["row"]}}, 90)
+            res = _act(sid, rid, {"kind": "ability", "casterId": atk["id"],
+                                  "targetId": int(victim_id), "abilityType": na}, 120)
+            a0 = ((res or {}).get("actions") or [{}])[0]
+            print("  [wound %d] u%s -> u%s (na=%s currentValid=%s moveTiles=%d) ok=%s err=%s "
+                  "mutated=%s" % (it, atk["id"], victim_id, na, cf.get("currentValid"), len(tiles),
+                                  a0.get("ok"), a0.get("error"), a0.get("mutated")))
+            if a0.get("mutated"):
+                fired = True
+                break
+        if fired:
+            continue
+        # Aucun candidat n'a de tuile de tir CE TOUR -> on rapproche le plus proche, et on cloture
+        # le tour : un cast refuse laisse l'attaquant DEJA active, il lui faut une activation neuve.
+        print("  [wound %d] aucune tuile de cast -- on rapproche u%s" % (it, cands[0]["id"]))
+        _step_toward(sid, rid, cands[0]["id"], me["pos"], 1)
+        _act(sid, rid, {"kind": "endturn"}, 60)
+    return hp0, _unit_hp(_dv(sid, rid), victim_id)
+
+
 # --------------------------------------------------------------------------- montage geometrique
 
 def _drive_cluster(sid, rid, rounds=10):
@@ -284,10 +419,10 @@ def _drive_cluster(sid, rid, rounds=10):
 
     for it in range(rounds):
         d, hub, foes = _snap()
-        ally = _by_vis(d, "tauDarkstrider")
-        far_ally = _by_vis(d, "tauCrisis")
+        ally = _by_vis(d, NEAR_ALLY_VIS)
+        far_ally = _by_vis(d, FAR_ALLY_VIS)
         if ally is None:
-            raise RuntimeError("montage impossible : tauDarkstrider absent")
+            raise RuntimeError("montage impossible : %s absent" % NEAR_ALLY_VIS)
         if len(foes) < 2:
             raise RuntimeError("il faut >= 2 ennemis SUR LE PLATEAU pour separer contact/hors-contact")
         d_ally = _dist(hub, ally)
@@ -297,18 +432,28 @@ def _drive_cluster(sid, rid, rounds=10):
         print("  [drive %d] hub=%s d(allie)=%s d(ennemi_proche)=%s d(ennemi_loin)=%s d(allie_loin)=%s"
               % (it, hub["pos"], d_ally, d_near, d_far, d_falone))
         if d_ally == 1 and d_near == 1 and d_far >= 2 and d_falone >= 2:
-            return
+            return True
         if d_ally != 1:
             _step_toward(sid, rid, ally["id"], hub["pos"], 1)
         if d_falone < 2 and far_ally is not None:
             _step_toward(sid, rid, far_ally["id"], hub["pos"], 3)
         d, hub, foes = _snap()
         if _dist(hub, foes[0]) != 1:
-            _step_toward(sid, rid, foes[0]["id"], hub["pos"], 1)
+            # Le pas « vers le hub » ne SUFFIT PAS quand le hub est dans un cul-de-sac : sur
+            # `C3_26`/31337 il tombe en (0,4), colonne de BORD, et l'ennemi le plus proche oscille
+            # 2<->3 pendant les 10 rounds. Le montage ne mesure alors PAS ce qu'il annonce -- 1081
+            # perd toute cible valide et le natif se met a rendre `0x800
+            # AddCasterIfAtLeastOneTarget` sur sa ligne self (residu NON PORTE, donc MISMATCH).
+            # On demande d'abord au jeu s'il existe une tuile VOISINE atteignable ; sinon on SORT le
+            # couple (hub, allie proche) du coin, exactement comme en T2 de `--bites`.
+            if not _bring_to_contact(sid, rid, hub["id"], rounds=2):
+                _unstick_pair(sid, rid, HUB_VIS, NEAR_ALLY_VIS)
+        d, hub, foes = _snap()
         if _dist(hub, foes[-1]) < 2:
             _step_toward(sid, rid, foes[-1]["id"], hub["pos"], 4)
     print("  [drive] geometrie cible non atteinte -- on mesure la geometrie OBTENUE "
           "(les distances reelles sont imprimees dans chaque table)")
+    return False
 
 
 # --------------------------------------------------------------------------- variantes du port
@@ -379,8 +524,14 @@ def _measure(sid, rid, st, dv, aid, caster_vis, residuals):
         if u["machine"] and tid != cid:
             side += "/MoW"
         nv, reasons, rclass, cv, _ = _nat(sid, rid, cid, aid, tid)
+        # PV de la CIBLE : c'est le REGIME que la ligne exerce, pas un ornement. `hp < hp_max` arme
+        # le disjunct `IsDamagedUnit` d'`AttackQuery$$EntityCanBeHealed`, donc la regle dynamique de
+        # 1082 -- et le test de garde en a besoin pour verifier que la mesure exerce bien le volet
+        # PORTEE plutot que de le laisser masquer par un refus dynamique (cf. `measure_all`).
+        hp, hp_max = _hp(st, tid)
         row = {"label": "%s %s" % (side, u["visualId"]), "targetId": tid, "dist": dist,
-               "nat": nv, "nat_reasons": reasons, "nat_class": rclass, "nat_caster": cv}
+               "nat": nv, "nat_reasons": reasons, "nat_class": rclass, "nat_caster": cv,
+               "hp": hp, "hp_max": hp_max}
         for v in VARIANTS:
             row[v] = int(get_invalid_target_reason(st, cid, tid, _ability(aid, v)))
         rows.append(row)
@@ -441,7 +592,21 @@ def _measure(sid, rid, st, dv, aid, caster_vis, residuals):
 
 
 def measure_all(sid, seed=SEED, board=BOARD):
-    """Monte le runner, DRIVE la geometrie, fige l'etat, mesure les CINQ abilities.
+    """Monte le runner, BLESSE l'allie lointain, DRIVE la geometrie, fige l'etat, mesure les CINQ.
+
+    POURQUOI L'ALLIE LOINTAIN EST BLESSE (et ce n'est pas un detail de confort). Le contrefactuel
+    `sansRange` de 1082 doit exhiber une ligne que le volet PORTEE est SEUL a refuser. Depuis que
+    #247 porte `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`, un allie hors contact a
+    PLEINS PV est refuse DEUX FOIS : par `RANGE_ADJACENT` (qui precede dans la cascade, d'ou le
+    `TargetIsInRange` natif) ET par la regle dynamique (`0x1`, aucun des trois disjuncts vrai).
+    Neutraliser la portee ne fait alors RIEN apparaitre -- `cf_range` tombe a 0 et le volet portee
+    n'est plus valide par la mesure. MESURE du 2026-07-29, ligne `ALLIE tauCrisis` de 1082 :
+    `natif 0x8000000 | APRES 0x8000000 | sansRange 0x1`. Ce n'etait donc PAS « aucune cible alliee
+    hors contact » (elle etait bien la, a d=2) mais un contrefactuel devenu muet.
+
+    BLESSER la cible arme le disjunct `IsDamagedUnit` d'`EntityCanBeHealed` : la regle dynamique
+    ACCEPTE, et `sansRange` redevient `0` -- le faux-accept que le volet portee empeche. Le regime
+    est VERIFIE (PV relus), jamais suppose ; l'echec est une RuntimeError, pas un skip.
 
     Rend `({ability_type: stats}, dispose)` -- `dispose()` est a appeler par l'appelant (le probe le
     fait dans son `finally`, le test de garde dans le teardown de sa fixture). MEME implementation
@@ -464,6 +629,16 @@ def measure_all(sid, seed=SEED, board=BOARD):
     try:
         for _ in range(WARMUP_ENDTURNS):
             _act(sid, rid, {"kind": "endturn"}, 60)
+        far = _by_vis(_dv(sid, rid), FAR_ALLY_VIS)
+        if far is None:
+            raise RuntimeError("montage impossible : %s absent du plateau" % FAR_ALLY_VIS)
+        hp0, hp1 = _wound(sid, rid, far["id"])
+        print("[wound] %s u%d : hp %s -> %s" % (FAR_ALLY_VIS, far["id"], hp0, hp1))
+        if not (hp0 is not None and hp1 is not None and hp1 < hp0):
+            raise RuntimeError(
+                "regime BLESSE non atteint sur %s (hp %s -> %s) : le contrefactuel `sansRange` de "
+                "1082 ne peut PAS exposer de faux-accept, la regle dynamique refusant deja la ligne"
+                % (FAR_ALLY_VIS, hp0, hp1))
         _drive_cluster(sid, rid)
         _hand_to(sid, rid, HUB_VIS)
 
@@ -487,6 +662,76 @@ def measure_all(sid, seed=SEED, board=BOARD):
 
 # --------------------------------------------------------------------------- #247 : les DEUX regles
 # dynamiques, dans le montage ou elles MORDENT (et son contrefactuel LIVE)
+
+def _bring_to_contact(sid, rid, victim_id, rounds=8):
+    """Amene un ennemi de `victim_id` A DISTANCE 1, et rend le booleen correspondant.
+
+    C'est un regime DISTINCT de celui de `_wound`, et il a fallu la mesure pour le voir : les
+    `necroWarden` sont RANGED. Sur `C3_26`/31337 `castFromTiles` leur trouve une tuile de tir a
+    **d=3** -- la victime est bien blessee (donc 1082 bascule), mais `GetAdjacentEnemies(caster)`
+    reste VIDE et 1081 continue de rendre `0x2`. Blesser et mettre au contact sont deux gestes
+    separes ; ce helper ne fait que le second.
+
+    On demande au jeu les tuiles LEGALES (`aiMovableTiles`, qui respecte relief et occupation) et on
+    garde celles a distance 1 de la victime -- jamais un pas « vers » elle qui pourrait tourner en
+    rond dans un cul-de-sac."""
+    for it in range(rounds):
+        dv = _dv(sid, rid)
+        me = next((a for a in _actors(dv) if a["id"] == int(victim_id)), None)
+        if me is None or None in me["pos"]:
+            return False
+        foes = sorted((a for a in _actors(dv)
+                       if a["owner"] != me["owner"] and None not in a["pos"] and not a["machine"]),
+                      key=lambda a: (_dist(me, a), a["id"]))
+        if not foes:
+            return False
+        if _dist(me, foes[0]) == 1:
+            return True
+        moved = False
+        for f in foes:
+            _hand_to_owner(sid, rid, f["owner"])
+            want = [t for t in _movable(sid, rid, f["id"])
+                    if hexgeo.distance(t, me["pos"]) == 1]
+            if not want:
+                continue
+            _act(sid, rid, {"kind": "move", "unitId": f["id"],
+                            "to": {"col": want[0][0], "row": want[0][1]}}, 90)
+            print("  [contact %d] u%s -> %s (voisin de u%s)" % (it, f["id"], want[0], victim_id))
+            moved = True
+            break
+        if not moved:
+            print("  [contact %d] aucune tuile voisine atteignable -- on rapproche u%s"
+                  % (it, foes[0]["id"]))
+            _step_toward(sid, rid, foes[0]["id"], me["pos"], 1)
+            _act(sid, rid, {"kind": "endturn"}, 60)
+    dv = _dv(sid, rid)
+    me = next((a for a in _actors(dv) if a["id"] == int(victim_id)), None)
+    foes = [a for a in _actors(dv)
+            if me is not None and a["owner"] != me["owner"] and None not in a["pos"]]
+    return bool(me is not None and foes and min(_dist(me, f) for f in foes) == 1)
+
+
+def _unstick_pair(sid, rid, hub_vis, ally_vis):
+    """SORT le couple (hub, allie) d'un cul-de-sac, en gardant l'allie AU CONTACT.
+
+    Le hub avance de deux pas vers l'assaillant le plus proche (donc vers du terrain ouvert : c'est
+    de LA que l'ennemi vient), puis l'allie recolle a d=1. Sert de deblocage a `_wound` quand aucun
+    ennemi n'arrive au contact -- cf. le commentaire de `measure_dynamic_bites`."""
+    d = _dv(sid, rid)
+    hub = _by_vis(d, hub_vis)
+    if hub is None or None in hub["pos"]:
+        return
+    foes = sorted((a for a in _actors(d)
+                   if a["owner"] != hub["owner"] and None not in a["pos"] and not a["machine"]),
+                  key=lambda a: (_dist(hub, a), a["id"]))
+    if not foes:
+        return
+    _step_toward(sid, rid, hub["id"], foes[0]["pos"], 2)
+    d = _dv(sid, rid)
+    hub, ally = _by_vis(d, hub_vis), _by_vis(d, ally_vis)
+    if hub is not None and ally is not None and _dist(hub, ally) != 1:
+        _step_toward(sid, rid, ally["id"], hub["pos"], 1)
+
 
 def _drive_isolated(sid, rid, hub_vis, ally_vis, foe_min=3, rounds=12):
     """Monte la geometrie qui fait MORDRE `FightingRetreatAbility$$GetDynamicInvalidTargetReason` :
@@ -613,19 +858,37 @@ def measure_dynamic_bites(sid, seed=SEED, board=BOARD):
               % (tuple(hex(v) if v is not None else "-" for v in out["t1_1082"]),))
 
         # --- T2 : un ennemi AU CONTACT de Darkstrider, qui l'ATTAQUE (donc le BLESSE).
-        for _ in range(6):
-            dv = _dv(sid, rid)
-            ds = _by_vis(dv, "tauDarkstrider")
-            foes = sorted((a for a in _actors(dv)
-                           if a["owner"] != ds["owner"] and None not in a["pos"]),
-                          key=lambda a: (_dist(ds, a), a["id"]))
-            if not foes:
+        # Les DEUX moities du basculement passent par ce meme geste, mais par des chemins
+        # DIFFERENTS : 1081 lit la seule PRESENCE de l'ennemi adjacent (`Any(GetAdjacentEnemies)`),
+        # 1082 lit les PV de la cible (`IsDamagedUnit` d'`EntityCanBeHealed`). Un ennemi amene au
+        # contact SANS frapper ne bascule donc que 1081 -- c'est exactement l'etat que mesurait le
+        # montage de #247, dont le `{"kind": "attack"}` etait un NO-OP silencieux (cf. `_wound`).
+        #
+        # DEBLOCAGE : `_drive_isolated` subit la tuile de SPAWN du hub. MESURE (`C3_26`/31337) : elle
+        # tombe en (0,5), colonne de BORD -- des voisins hors plateau, un pris par Aun'Shi, et les
+        # trois `necroWarden` stagnent a d=2 pendant 14 rounds. Un cul-de-sac ne se CONSTATE pas, il
+        # se DEFAIT : on sort Darkstrider du coin (2 pas vers l'assaillant) et Aun'Shi RECOLLE, ce
+        # qui restaure les deux invariants de T2 (`d_foe == 1` pour 1081, `d_ally == 1` pour la
+        # portee `RANGE_ADJACENT` de 1082). Les deux verdicts de T1 sont deja mesures : ce
+        # deplacement ne peut rien leur reprendre.
+        hp0 = hp1 = None
+        for attempt in range(3):
+            hp0, hp1 = _wound(sid, rid, ds["id"], rounds=8)
+            if hp0 is not None and hp1 is not None and hp1 < hp0:
                 break
-            if _dist(ds, foes[0]) == 1:
-                _act(sid, rid, {"kind": "attack", "unitId": foes[0]["id"],
-                                "targetId": ds["id"]}, 120)
+            print("  [debloc %d] aucune tuile de tir sur la victime -- on la SORT du cul-de-sac, "
+                  "l'allie recolle" % attempt)
+            _unstick_pair(sid, rid, "tauDarkstrider", "tauAunShi")
+        print("\n[wound] tauDarkstrider u%d : hp %s -> %s" % (ds["id"], hp0, hp1))
+        # Le CONTACT est un SECOND regime, a poser APRES la blessure (le cast de `_wound` peut
+        # deplacer son tireur). Sans lui, 1081 ne bascule pas : sa regle lit `GetAdjacentEnemies`,
+        # pas les PV.
+        for attempt in range(3):
+            if _bring_to_contact(sid, rid, ds["id"]):
                 break
-            _step_toward(sid, rid, foes[0]["id"], ds["pos"], 1)
+            print("  [debloc contact %d] aucun voisin atteignable -- on SORT la victime du "
+                  "cul-de-sac, l'allie recolle" % attempt)
+            _unstick_pair(sid, rid, "tauDarkstrider", "tauAunShi")
         _hand_to(sid, rid, "tauDarkstrider")
         dv, st, _bg = _load(sid, rid, bg)
         ds = _by_vis(dv, "tauDarkstrider")

@@ -91,7 +91,13 @@ def _native_feet(rpc, rid, uid) -> list:
 
 
 def _foot_tiles_from_events(actions, board) -> list:
-    """L'ORDRE natif des pieds : tags `Unit_Foot_Tile_Id_1..N` de l'event de spawn (step 10)."""
+    """L'ORDRE natif des pieds : tags `Unit_Foot_Tile_Id_1..N` de l'event de spawn.
+
+    Reconnu par ses TAGS, jamais par un ordinal de `IdunBattle.Streams.StepType` -- l'ancien
+    commentaire disait « step 10 », ce qui n'est plus vrai : `rnca9r7q6c` a RETIRE le membre
+    `RestoreArmorInfo` (7) et decale de -1 tout ce qui suit, donc `AddUnit` = **9**. Le code, lui,
+    n'a jamais filtre par `step` -- c'est pourquoi il a survecu a la migration, la ou le filtre du
+    ForwardSpotter de `test_charge_tile_utility_live.py` est tombe."""
     for a in actions:
         for ev in (a.get("events") or []):
             try:

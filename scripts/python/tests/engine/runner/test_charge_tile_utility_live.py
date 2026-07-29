@@ -325,22 +325,25 @@ def test_forward_spotter_spawn_tile_follows_tile_utility(rpc, build_runner):
 
     # ⚠ Le Cadian JOUE son tour A L'APPARITION (`PerformAIAttack`) : `changes[].appeared.to` est sa
     # position FINALE (mesure : spawn (2,3) -> `to` (3,6) apres qu'il a marche sur l'ennemi), PAS la
-    # tuile de spawn. Celle-ci vient du tag `Unit_Foot_Tile_Id_1` du step d'APPARITION (`step == 10`,
-    # celui qui porte `Unit_IsSummoned`) ; `tags` est une CHAINE JSON, pas un dict.
+    # tuile de spawn. Celle-ci vient du tag `Unit_Foot_Tile_Id_1` de l'event d'APPARITION, reconnu
+    # par son TAG `Unit_IsSummoned` -- surtout PAS par un ordinal de `IdunBattle.Streams.StepType`.
+    #
+    # POURQUOI CE N'EST PLUS UN FILTRE PAR `step` (mesure du 2026-07-29). Ce test filtrait
+    # `step == 10` = `StepType.AddUnit` sur `gqfc5mff6c`. La MAJ `rnca9r7q6c` a RETIRE le membre
+    # `RestoreArmorInfo` (7) de l'enum et DECALE de -1 tout ce qui suit : `AddUnit` vaut desormais
+    # **9**, et 10 designe `AddMachine`. Le filtre ne matchait plus RIEN -> « tuile de spawn
+    # introuvable », un rouge qui accusait le MONTAGE et pas le port. Meme famille exactement que le
+    # `TILE_LEAVES` decale de #254 : un LITTERAL D'ENUM FIGE, invalide EN SILENCE par une migration
+    # de build. Le tag, lui, est un NOM : il a survecu, et c'est le discriminant SEMANTIQUE
+    # (« cette entite est APPARUE »). `_summon_tiles` le lit deja ainsi pour Waaagh dans ce fichier
+    # -- c'est precisement pourquoi CE test-la n'est pas tombe a la migration.
     appeared = [c for c in (act0.get("changes") or []) if c.get("appeared")]
     assert appeared, f"aucun summon apparu apres le cast 1143 (changes={act0.get('changes')})"
-    spawn_tile = None
-    for ev in (act0.get("events") or []):
-        if ev.get("kind") != "action" or int(ev.get("step") or -1) != 10:
-            continue
-        try:
-            tags = json.loads(ev.get("tags") or "{}")
-        except ValueError:
-            continue
-        if tags.get("Unit_IsSummoned") and tags.get("Unit_Foot_Tile_Id_1") is not None:
-            spawn_tile = int(tags["Unit_Foot_Tile_Id_1"])
-            break
-    assert spawn_tile is not None, "tuile de spawn introuvable dans les events du cast 1143"
+    spawn = _summon_tiles(act0)
+    assert len(spawn) == 1, (
+        f"un seul Cadian invoque, donc UNE tuile de spawn attendue -- lu {sorted(spawn)} ; "
+        f"events={[(e.get('step'), e.get('tags')) for e in (act0.get('events') or [])]}")
+    spawn_tile = next(iter(spawn))
     print(f"\n[165 FS] ring1_libre={[(board2.coord(t), board2.elevation(t)) for t in old2]} "
           f"collapse={board2.coord(old2[0])} port={board2.coord(port2[0])} "
           f"live_spawn={board2.coord(spawn_tile)}")

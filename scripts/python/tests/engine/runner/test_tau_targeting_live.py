@@ -112,6 +112,23 @@ def test_1082_inspired_to_greatness(tau_measures):
     contact a pleins PV dont l'actif n'est pas consomme."""
     s = _one(tau_measures, 1082)
     assert s["cf_rules"] > 0, "le bit TargetIsFriendly de 1082 n'est pas exerce par cette mesure"
+
+    # LE REGIME QUE LE VOLET PORTEE EXIGE, asserte AVANT son contrefactuel -- sinon un montage
+    # degrade rendrait `cf_range == 0` sans dire POURQUOI. Depuis #247, un allie hors contact a
+    # PLEINS PV est refuse DEUX FOIS : `RANGE_ADJACENT` (qui precede, d'ou le `TargetIsInRange`
+    # natif) ET la regle dynamique (`0x1`). Neutraliser la portee ne fait alors rien apparaitre.
+    # Il FAUT donc que l'allie hors contact soit BLESSE (`IsDamagedUnit` d'`EntityCanBeHealed` ->
+    # la regle dynamique accepte), et c'est `probe_250.measure_all` qui l'y amene.
+    far_allies = [r for r in s["rows"]
+                  if r["label"].startswith("ALLIE ") and r["dist"] not in (None, 0, 1)]
+    assert far_allies, (
+        "aucune cible ALLIEE hors contact dans la mesure -- le volet PORTEE de 1082 n'a alors "
+        "aucune ligne ou mordre : %s" % [(r["label"], r["dist"]) for r in s["rows"]])
+    assert any(r["hp"] is not None and r["hp_max"] is not None and r["hp"] < r["hp_max"]
+               for r in far_allies), (
+        "l'allie hors contact doit etre BLESSE : a pleins PV la regle dynamique de #247 refuse "
+        "DEJA la ligne (0x1) et le contrefactuel `sansRange` ne peut plus exposer de faux-accept "
+        "-- %s" % [(r["label"], r["dist"], r["hp"], r["hp_max"]) for r in far_allies])
     assert s["cf_range"] > 0, "le volet PORTEE de 1082 n'est pas exerce par cette mesure"
     assert s["cf_dyn"] >= 2, (
         "#247 : desarmer `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` doit "
@@ -181,7 +198,16 @@ def test_dynamic_rules_bite_and_flip(tau_bites):
     disjuncts differents (`GetAdjacentEnemies` non vide / `EntityCanBeHealed` sur un blesse).
 
     Un port qui refuserait TOUJOURS passerait T1 et tomberait en T2 ; un port permissif (l'etat
-    d'avant #247) tomberait en T1. Les deux moities sont necessaires."""
+    d'avant #247) tomberait en T1. Les deux moities sont necessaires.
+
+    ⚠ LA MOITIE 1082 DE T2 EXIGE DES DEGATS REELS, pas seulement le contact. Le montage d'origine
+    envoyait `applyAction{"kind": "attack"}` -- une action QUI N'EXISTE PAS : `applyOneAction`
+    (`frida/hooks/features/ai-step/internals.ts`) ne connait que `move | ability | finish |
+    endturn` et rend `ok:false, error:"unknown kind: attack", mutated:false`. Le retour n'etant pas
+    lu, le montage mesurait `7530 -> 7530` en croyant avoir frappe : 1081 basculait (l'ennemi est
+    bien la) mais 1082 restait a `0x1`, port et natif D'ACCORD -- un rouge de MONTAGE. L'attaque
+    normale est une ABILITY (`probe_250._wound`), d'ou l'assertion de PV ci-dessous : elle garde le
+    regime, pas seulement le verdict."""
     r = tau_bites
     assert r["geometry_ok"], (
         "geometrie non atteinte (d_ally=%s d_foe=%s) : la regle de 1081 n'est pas exercee"
@@ -203,6 +229,13 @@ def test_dynamic_rules_bite_and_flip(tau_bites):
 
     assert r["d_foe_t2"] == 1, ("T2 : l'ennemi doit etre AU CONTACT de Darkstrider (d=%s) -- sans "
                                 "ca le basculement n'est pas provoque" % r["d_foe_t2"])
+    # BLESSER et METTRE AU CONTACT sont deux regimes DISTINCTS, et 1082 exige AUSSI que la portee
+    # `RANGE_ADJACENT` reste franchie : le `necroWarden` etant RANGED, il peut parfaitement blesser
+    # a d=3 sans jamais venir au contact (mesure `C3_26`/31337). Les trois conditions sont donc
+    # asserees separement, pour que l'echec DISE laquelle manque.
+    assert r["d_ally_t2"] == 1, ("T2 : Aun'Shi doit rester AU CONTACT de Darkstrider (d=%s), sinon "
+                                 "1082 rompt sur la portee et non sur sa regle dynamique"
+                                 % r["d_ally_t2"])
     hp_before, hp_after = r["hp_before"], r["hp_after"]
     assert (hp_after[0] is not None and hp_before[0] is not None
             and hp_after[0] < hp_before[0]), (

@@ -134,7 +134,7 @@ refusait pour la **mauvaise raison** (1082 rendait `TargetIsFriendly` sur la MoW
 | règle dynamique de 1082 | `...InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` | **PORTÉE** (#247, §10) — c'étaient les 2 lignes / 8 divergentes |
 | `CasterMatchesDynamicRule` (1077) | `TargetingQuery$$GetInvalidCasterReason`, clause `rules & 4` | **inerte** : `casterReason` natif = 0 sur toutes les lignes |
 | `CasterHas2TurnsLeft` (1160) | `BattleQuery$$HasMinimumRemainingTurns` | **inerte** : `casterReason` natif = 0 (le runner n'a pas de plafond de tours ⇒ la fonction rend `true` dès que `maxTurns` n'a pas de valeur) |
-| `AddCasterIfAtLeastOneTarget` (1081) | `TargetingQuery$$GetCasterNotAddedReason` | non porté (rend 0) ; natif = 0 sur la ligne self des deux couples |
+| `AddCasterIfAtLeastOneTarget` (1081) | `TargetingQuery$$GetCasterNotAddedReason` | non porté (rend 0) ; natif = 0 sur la ligne self des deux couples **de CE lot** — ⚠ **il MORD ailleurs** : mesuré `0x800` sur la ligne self dans une géométrie où Darkstrider n'a aucun ennemi adjacent (toutes ses cibles refusées par sa règle dynamique ⇒ plus « au moins une cible »). `case-254bis` §4bis |
 | `AllowNullCasterTile` (1160/1161) | clause `IsNullOrEmpty(casterTiles)` de `GetInvalidCasterReason` | sans objet : la clause qu'il **désarme** n'est pas portée |
 | ligne de vue | `TargetingQuery$$GetTilesObscuringTerrain` | non portée (résidu générique) ; aucune divergence observée ici |
 
@@ -435,7 +435,16 @@ Vérifié séparément : `entity_can_be_healed` est vrai **uniquement** pour la 
 blessée et `entity_can_be_repaired` **uniquement** pour la mécanique blessée — les deux branches
 discriminent bien par `IsAffectedByHealType`, elles ne se recouvrent pas.
 
-**Reste à mesurer, sur le build `rnca9r7q6c` une fois la chaîne de symboles refaite** :
+> ✅ **CONFRONTÉ LIVE le 2026-07-29** sur `rnca9r7q6c` (`case-254bis`). Les trois points listés
+> ci-dessous sont **mesurés** : accord **40/40 sur chacun des deux couples** (`C4_09`/777 et
+> `C3_26`/31337), `residus 0`, `cf_dyn = 2` pour 1082 ; et le montage `--bites` rend **PASS** sur
+> les deux couples (T1 `0x2` / `0x1`, T2 `0x0` / `0x0`). Deux défauts de MONTAGE l'empêchaient et
+> ont été corrigés — le contrefactuel `sansRange` de 1082, éteint par le port de la règle dynamique
+> elle-même, et un T2 qui n'attaquait jamais. Détail : `case-254bis-trois-rouges-de-montage.md`.
+> Le point 3 (le canal remonte-t-il `RangedSpecialist` ACTIF ?) reste **non tranché** : aucun
+> montage de ce lot n'a eu besoin du 2ᵉ disjunct de 1081, qui n'a donc jamais été exercé.
+
+**Ce qui restait à mesurer, et qui l'a été** :
 
 1. **`python probe_250_tau_targeting.py` (montage de #252, couples `C4_09`/777 et `C3_26`/31337)** —
    l'accord doit passer de **38/40 à 40/40** sur chaque couple, `residus 0`. Les 2 lignes concernées
