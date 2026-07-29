@@ -8,6 +8,7 @@ Testable 100 % OFFLINE (la BC JSON est sur disque, pas besoin du jeu).
 from __future__ import annotations
 
 import json
+import sys as _sys
 from pathlib import Path
 
 # scripts/python/engine/weights.py -> parents: [0]=engine [1]=python [2]=scripts [3]=repo
@@ -74,6 +75,21 @@ class Weights:
                 f"unit_order={len(self.category('UnitOrder'))})")
 
 
+_FALLBACK_ANNOUNCED = False
+
+
+def _announce_fallback(motif: str) -> None:
+    """Annonce UNE FOIS par process que les poids viennent de la CAPTURE et non du gameconfig.
+    ASCII strict : cette ligne part vers une console Windows cp1252."""
+    global _FALLBACK_ANNOUNCED
+    if _FALLBACK_ANNOUNCED:
+        return
+    _FALLBACK_ANNOUNCED = True
+    print("[weights] REPLI sur BC.Utilities de la capture (%s) -- le runner NATIF, lui, lit les "
+          "poids du gameconfig vivant : tout ecart mesure ici peut venir de CE decalage, pas du "
+          "port." % motif, file=_sys.stderr)
+
+
 def load(bc_path: str | Path | None = None) -> Weights:
     """Charge les poids depuis une BC JSON (défaut = la seed PvP sur disque).
 
@@ -82,15 +98,25 @@ def load(bc_path: str | Path | None = None) -> Weights:
     (`catalog_inject.refresh_ai_utilities`, mirror de
     `Idun.Source.IdunBattle.View.BattleConfigBuilder$$ParseAIUtilitiesConfiguration`). Sans ça les
     deux côtés divergeraient dès qu'un build ajoute une ability : le natif verrait les poids neufs
-    (BC rafraîchie) et le moteur les poids de la capture. Repli SILENCIEUX sur la table de la BC si
-    le gameconfig n'est pas lisible — `engine.weights` doit rester chargeable 100 % offline."""
+    (BC rafraîchie) et le moteur les poids de la capture. Repli sur la table de la BC si le
+    gameconfig n'est pas lisible — `engine.weights` doit rester chargeable 100 % offline.
+
+    ⚠ Le repli est ANNONCÉ, pas silencieux (une fois par process, sur stderr). Il remet le moteur
+    sur les poids de la CAPTURE pendant que `rl_collect_batch._load_seed_bc` continue de servir au
+    natif les poids du gameconfig VIVANT : c'est exactement la divergence que ce chargement existe
+    pour fermer, et elle est invisible dans les résultats — un A/B la lirait comme un écart de
+    port. Un repli qu'on ne voit pas est une mesure fausse qui se présente comme une mesure."""
     p = Path(bc_path) if bc_path else DEFAULT_BC
     bc = json.loads(p.read_text(encoding="utf-8"))
     try:
         import catalog_inject                     # import tardif : charge le gameconfig (~19 MB)
         live = catalog_inject.ai_utilities_from_gameconfig()
-    except Exception:                             # noqa: BLE001 — pas de gameconfig sur disque
-        live = None
+    except Exception as e:                        # noqa: BLE001 — pas de gameconfig sur disque
+        live, _warn_fallback = None, ("gameconfig illisible: %s" % e)
+        _announce_fallback(_warn_fallback)
+    else:
+        if not live:
+            _announce_fallback("gameconfig sans cle `aiUtilities`")
     return Weights(live or bc.get("Utilities", {}) or {})
 
 
