@@ -1,8 +1,9 @@
-// Auto-genere depuis data/symbols/rnca9r7q6c/frida/enums.tsv -- IdunBattle.DSL.EventTriggerType.
-// REGENERER A CHAQUE CHANGEMENT DE BUILD : ces valeurs sont IMPLICITES, donc un membre
-// insere ou retire au MILIEU decale tout ce qui suit. Mesure du 2026-07-29 : le retrait
-// d'`ArmorChanged` (40) a rendu FAUSSES 36 des 77 entrees de la version precedente -- les
-// 40 premieres restaient justes, ce qui rend la panne silencieuse et plausible.
+// Auto-genere : python scripts/python/regen_hook_name_tables.py
+// Source : data/symbols/rnca9r7q6c/frida/enums.tsv -- IdunBattle.DSL.EventTriggerType
+// id -> nom d'EventTriggerType (le declencheur d'un trigger DSL).
+// REGENERER A CHAQUE CHANGEMENT DE BUILD. Ces valeurs sont IMPLICITES : un membre insere
+// ou retire au MILIEU decale tout ce qui suit, et une table figee ment alors SILENCIEUSEMENT
+// sur tous les ids au-dela du decalage (les precedents restent justes -- d'ou l'invisibilite).
 // Garde : python scripts/python/probe_252_hook_name_tables.py
 // 76 entrees (0..75).
 export const EVENT_TRIGGER_TYPE_NAMES: Record<number, string> = {
