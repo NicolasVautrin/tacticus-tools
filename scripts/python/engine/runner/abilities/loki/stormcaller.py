@@ -48,6 +48,8 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ..base import ActiveAbility
+from ..targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from ..targeting_rule import TargetingRule as TR
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....entities.traits.unit_trait import UnitTrait
@@ -109,6 +111,37 @@ class StormcallerAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Stormcaller)  # 1113
     ABILITY_ID = "Stormcaller"
+
+    # GATE DE CIBLE (#115) -- FORME 2, « PRESET + FLAGS » :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility$$.ctor` recopie
+    # `<TargetingOptions statics>+0x180` PUIS appelle
+    #   `TargetingOptions..ctor(&opts, &preset, 0x200000000, 0)`
+    # Cette surcharge recopie le preset champ par champ SAUF `Rules`, qu'elle COMBINE :
+    # `*(dst+0x28) = param_3 | *(preset+0x28)` (decompile verbatim). Le litteral visible
+    # (0x200000000) n'est donc PAS le masque effectif.
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit le preset +0x180 :
+    #     +0x180 isSelfCasting    = 0
+    #     +0x188 range           <- `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
+    #     +0x1a0 forceMeleeTarget = 1 = RangedBool.False
+    #     +0x1a8 rules            = 0x4002
+    # => masque EFFECTIF = `0x200000000 | 0x4002` = **0x200004002**.
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`), somme = 0x200004002 :
+    #     0x2         TargetMatchesDynamicRule -> non surcharge cote port -> defaut 0 (PERMISSIF)
+    #     0x4000      TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    #     0x200000000 TargetIsNotAnObject      -> NON PORTE (cf. l'inventaire de `targeting.py`) :
+    #                 refuse une cible portant le trait 0xd `Object` (decor). Degradation
+    #                 permissive assumee.
+    # PORTEE (#241) : `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfigValuesInTargetingOptions`
+    # pose `overrideRange = AbilityConfiguration.GetNumberConstant(0x16 range)` = `constants.range`
+    # de `Stormcaller` = **3** ; `forceMeleeTarget = RangedBool.False` -> AUCUN clamp de melee.
+    # ⚠ Ce preset +0x180 ne differe de +0x140 (1014 ArmoriumCherub, meme `rules` 0x4002 et meme
+    # RANGE_FROM_CONFIG) QUE par `forceMeleeTarget` : recopier la voisine aurait donne le bon
+    # masque et le MAUVAIS regime de portee au contact.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsEnemy
+        | TR.TargetIsNotAnObject
+    ), range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

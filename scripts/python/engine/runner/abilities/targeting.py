@@ -992,14 +992,25 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
 
     #250 : c'est bien `entity_tiles` (= `IdunBattle.Entities.EntityExtensions$$GetTiles`) qu'il faut
     ici, PAS `components.get_unit_feet` (= `GetUnitFeetIds`, 3e branche seule). Le natif passe
-    l'ENTITE-cible au slot 0x60 / a `GetDistance`, qui resolvent ses tuiles par `GetTiles` : pour une
-    ability TILE-TARGET la cible EST une tuile et `GetTiles(tile)` rend `[tile]`. `get_unit_feet`, lui,
-    rend `[]` sur une tuile -> le volet portee retombait sur `return 0` et se DESARMAIT entierement
-    pour toute ability tile-target (exactement l'avertissement porte par la docstring d'`entity_tiles`,
-    qui n'avait pas ete applique ici). MESURE #250 sur `MasterOfTheTutelaries` (1096) et
-    `AberrantHypermorph` (1166), masque `TargetIsTile | TargetTileIsFree` + `RANGE_ADJACENT` : le natif
-    rend `TargetIsInRange` sur toute tuile non adjacente au caster, le port rendait 0. Pour une cible
-    UNITE le resultat est INCHANGE (`entity_tiles` commence par `get_unit_feet` et le rend tel quel)."""
+    l'ENTITE-cible au slot 0x60 / a `GetDistance`, qui resolvent ses tuiles par `GetTiles` — c'est la
+    variable `pcVar12` du decompile de la surcharge 7 arguments, « la cible RESOLUE » :
+    `EntityExtensions$$GetMainTile(target)` sous `TargetIsTile`, `UnitExtensions$$GetUnit(target)`
+    sinon. Pour une ability TILE-TARGET la cible EST une tuile et `GetTiles(tile)` rend `[tile]`.
+    `get_unit_feet`, lui, rend `[]` sur une tuile -> le volet portee retombait sur `return 0` et se
+    DESARMAIT entierement pour toute ability tile-target (exactement l'avertissement porte par la
+    docstring d'`entity_tiles`, qui n'avait pas ete applique ici).
+
+    DEUX MESURES INDEPENDANTES, arrivees au meme diagnostic par des porteurs disjoints :
+      * #250-summon -- `MasterOfTheTutelaries` (1096) et `AberrantHypermorph` (1166), masque
+        `TargetIsTile | TargetTileIsFree` + `RANGE_ADJACENT` : le natif rend `TargetIsInRange` sur
+        toute tuile non adjacente au caster, le port rendait 0 (branche `only_adjacent`) ;
+      * #254 -- `TheQuickening` (1151), `RANGE_FROM_CONFIG` = 2
+        (`probe_250_loki_solo_targeting.py`) : le natif rend `TargetIsInRange` sur les tuiles a d=3
+        et d=4, le port rendait 0 (branche DISTANCE, l'autre du couple).
+    Les CINQ abilities tile-target du registre a gate de portee reel etaient concernees : 1017
+    FragBomb, 1092 DarkTalonStrike, 1116 RadBombardment, 1151 TheQuickening, 1219 IronkinSteeljack.
+    Pour une cible UNITE le resultat est INCHANGE (`entity_tiles` commence par `get_unit_feet` et le
+    rend tel quel)."""
     from ...services.movement_query import get_distance
     rr = get_range(state, caster_id, options)
     if rr is None:

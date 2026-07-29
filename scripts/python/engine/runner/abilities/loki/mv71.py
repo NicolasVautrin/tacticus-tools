@@ -47,6 +47,9 @@ import gameconfig as GC
 import hexgeo
 
 from ..base import ActiveAbility, convert_rounds_to_turns
+from ..targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGED_BOOL_IF_RANGED_CASTER,
+                         TargetingOptions)
+from ..targeting_rule import TargetingRule as TR
 from ...components import (StatsComponent, OwnerComponent, PositionComponent, UnitComponent,
                            HealthComponent)
 from ...operations.damage import AttackDamageOperation
@@ -378,6 +381,46 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
     1132/1133 absents post-cast)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.MV71SniperDroneSquadAttack)   # 1076
+
+    # GATE DE CIBLE (#115) -- FORME 4, **FACTORY NOMMEE** (la forme decouverte par #248) :
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor`
+    # n'ecrit AUCUN champ et ne recopie AUCUN preset -- il appelle
+    #   `IdunBattle.Core.Services.TargetingOptions$$CustomLokiNormalAttackOptions(&opts, 2)`
+    # puis `ALoki_NormalAttackAbility..ctor(this, &opts, 1, 0)`.
+    #
+    # La factory recopie le preset `<TargetingOptions statics>+0x00` CHAMP PAR CHAMP, et ne COMBINE
+    # que `Rules` -- mirror verbatim de son decompile :
+    #     *param_1              = *puVar2                          # +0x00 isSelfCasting
+    #     *(param_1+0x08/0x10/0x18) = *(puVar2+0x08/0x10/0x18)     # TargetingRange (0x18 octets)
+    #     *(param_1+0x20)       = *(puVar2+0x20)                   # forceMeleeTarget
+    #     *(param_1+0x28)       = *(puVar2+0x28) | param_2         # <- LE OU, comme la surcharge 2
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit ce preset +0x00 :
+    #     +0x00 isSelfCasting    = 0
+    #     +0x08 range           <- `TargetingRange` statics+0x00 = RANGE_ADJACENT_IF_MELEE_CASTER
+    #     +0x20 forceMeleeTarget = 2 = RangedBool.IfRangedCaster
+    #     +0x28 rules            = 0x4002
+    # => masque EFFECTIF = `0x4002 | 2` = **0x4002**, l'argument `2` de la factory etant DEJA pose
+    #    par le preset (le OU ne change rien ici -- c'est le calcul qui le dit, pas une supposition).
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`), somme = 0x4002 :
+    #     0x2    TargetMatchesDynamicRule -> `MV71SniperDroneSquadAttackAbility$$GetDynamicInvalid
+    #            TargetReason` ; non surcharge cote port -> defaut 0 (PERMISSIF assume, cf. la
+    #            docstring de module : la SEULE condition dynamique est « une tuile de spawn existe »)
+    #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie)
+    # PORTEE (#241) : `TargetingRange` statics+0x00 = `onlyAdjacent = IfNotRangedCaster` -- le drone
+    # est RANGED, donc `onlyAdjacent` retombe sur la portee d'ARME ; `forceMeleeTarget =
+    # IfRangedCaster` re-clampe a 1 quand `ShouldApplyRangedInMelee`. C'est le profil exact du tir
+    # normal (meme preset que 1004 MortisRound a `Rules` pres).
+    # ⚠ LE PORTEUR NE SE LIT PAS DANS LE GAMECONFIG : le balayage des 669 kits par ID d'ability ne
+    # rend RIEN pour 1076 (`tauMarksman` n'y porte que le PASSIF `MV71SniperDroneSquad`). C'est le
+    # LIVE qui tranche -- `decisionView(allAbilities=true)` expose 1076 sur `tauMarksman`, et
+    # `abilityReason` traverse la cascade pour lui MALGRE un `abilityState` null (ability
+    # `...Abilities.Triggered.`, donc pas d'`ActiveAbilityComponent`). Ce cas RESSEMBLE au piege MoW
+    # de #249 mais en DIFFERE : `AttackQuery$$GetInvalidTargetReason` ne court-circuite pas sur
+    # `0x1`, il rend les vraies regles rompues. CONFRONTEE LIVE, cf.
+    # `docs/rl/case-254-loki-solo-targeting.md`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         range=RANGE_ADJACENT_IF_MELEE_CASTER,
+                                         force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

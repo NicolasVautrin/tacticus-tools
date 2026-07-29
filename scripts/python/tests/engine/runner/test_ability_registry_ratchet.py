@@ -51,7 +51,10 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#247 -> #253) : 94 abilities au registre, 90 avec masque, ces 4 sans.
+# Etat au 2026-07-29 (#247 -> #254) : 94 abilities au registre, 94 avec masque, ZERO sans.
+# La liste d'exemption est VIDE : la campagne a resorbe l'integralite du gisement. Elle reste ici
+# comme cliquet -- toute nouvelle ability entrant au registre sans masque fera ECHOUER
+# `test_targeting_options_ne_regresse_pas`, et l'y rajouter demande de justifier le doute.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
 #  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246,
@@ -68,7 +71,9 @@ from engine.runner.abilities.targeting_rule import TargetingRule
 #  QUATRE presets de PORTEE differents -- statics+0x00, +0x60, +0x48, +0x48 -- et 1028 seule a
 #  poser `isSelfCasting = 1`. TROISIEME paire d'actives d'une MEME MoW aux masques sans rapport
 #  (1142/1143, `astraOrdnanceBattery`), apres `blackForgefiend` et `tauBroadside` : le porteur ne
-#  predit RIEN du masque, trois fois mesure.)
+#  predit RIEN du masque, trois fois mesure. Enfin les QUATRE abilities a MODULE UNIQUE par #254 :
+#  1076 MV71 / 1113 Stormcaller / 1118 DoctrinaImperatives / 1151 TheQuickening -- QUATRE FORMES DE
+#  CTOR sur quatre abilities, le seul lot de la campagne a les exhiber toutes.)
 # ⚠ Les comptes ci-dessus se PERIMENT : les re-deriver (`probe_181_targeting_gaps.py`), pas les citer.
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
@@ -202,8 +207,19 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1065 ScythingTalonsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
     # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
     # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
-    1076: "MV71SniperDroneSquadAttackAbility",
-    # 1077 EarlyWarningOverrideAbility RESORBEE (#250) -- forme « PRESET STATIQUE COPIE » (la 3e) :
+    # 1076 MV71SniperDroneSquadAttackAbility RESORBEE (#254) -- forme FACTORY NOMMEE (la 4e) :
+    # `...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor` n'ecrit rien et ne copie rien, il
+    # appelle `IdunBattle.Core.Services.TargetingOptions$$CustomLokiNormalAttackOptions(&opts, 2)`.
+    # Cette factory recopie le preset `<TargetingOptions statics>+0x00` et COMBINE `Rules` comme la
+    # surcharge 2 : `*(dst+0x28) = *(preset+0x28) | extra` = `0x4002 | 2` = 0x4002
+    # (TargetMatchesDynamicRule | TargetIsEnemy) -- l'argument etait DEJA dans le preset. Portee =
+    # `TargetingRange statics+0x00` = RANGE_ADJACENT_IF_MELEE_CASTER, `forceMeleeTarget = 2 =
+    # RangedBool.IfRangedCaster` : le profil exact du tir normal (meme preset que 1004 MortisRound,
+    # a `Rules` pres). ⚠ SON PORTEUR NE SE LIT PAS DANS LE GAMECONFIG (zero kit sur l'ID 1076 ;
+    # `tauMarksman` n'y porte que le PASSIF `MV71SniperDroneSquad`) -- c'est le LIVE qui a tranche :
+    # `decisionView(allAbilities=true)` l'expose sur `tauMarksman`, et `abilityReason` traverse la
+    # cascade malgre un `abilityState` null. CONFRONTEE LIVE, 4/4 sur deux couples.
+    # 1077 EarlyWarningOverrideAbility RESORBEE (#252) -- forme « PRESET STATIQUE COPIE » (la 3e) :
     # `...EarlyWarningOverrideAbility$$.ctor` recopie `TargetingOptions statics+0x280` et n'appelle
     # AUCUN ctor. Le masque effectif est `*(statics+0x2a8)` = 0x8004 (CasterMatchesDynamicRule |
     # CasterIsPossibleTarget), lu dans `TargetingOptions$$.cctor` ; le meme preset porte
@@ -242,8 +258,21 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1105 CrushingClawsAbility RESORBEE (#248) -- forme « PRESET STATIQUE COPIE », preset
     # `statics+0x40` (le meme que 1065) : masque 0x4000, portee RANGE_ADJACENT, `forceMeleeTarget =
     # RangedBool.False`. CONFRONTEE LIVE (6/6 sur deux couples, 5 casts illegaux fermes).
-    1113: "StormcallerAbility",
-    1118: "DoctrinaImperativesAbility",
+    # 1113 StormcallerAbility RESORBEE (#250) -- forme « PRESET + FLAGS » : preset `statics+0x180`
+    # + flags `0x200000000` -> masque effectif `0x200000000 | *(statics+0x1a8)` = `0x200000000 |
+    # 0x4002` = 0x200004002 (TargetMatchesDynamicRule | TargetIsEnemy | TargetIsNotAnObject).
+    # Portee = `TargetingRange statics+0x18` = RANGE_FROM_CONFIG (`constants.range` = 3) ;
+    # `forceMeleeTarget` = `*(statics+0x1a0)` = 1 = RangedBool.False. Piege ecarte : le preset
+    # +0x140 (1014 ArmoriumCherub) porte le MEME `rules` 0x4002 et le MEME RANGE_FROM_CONFIG, et ne
+    # differe QUE par `forceMeleeTarget` -- la voisine aurait donne le bon masque et le mauvais
+    # regime de portee au contact.
+    # 1118 DoctrinaImperativesAbility RESORBEE (#250) -- forme FLAGS DIRECTS :
+    # `...DoctrinaImperativesAbility$$.ctor` appelle `TargetingOptions..ctor(&opts, 1, &range, 1,
+    # 0x80, 0,0,0)`. 0x80 = `AddCaster` SEUL -- aucune regle de refus : c'est le court-circuit
+    # `if ((char)rules < 0) return valide;` de `TargetingQuery$$GetCasterNotAddedReason` (test du
+    # bit 7). Tout le gate vient du `TargetingRange statics+0x60` = RANGE_SELF (`overrideRange =
+    # 0`) : une cible autre que le caster tombe sur `range.Value(0) < d` -> TargetIsInRange.
+    # `isSelfCasting = 1` ; `forceMeleeTarget = 1 = RangedBool.False`.
     # 1122 CordClawAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :
     # `...CordClawAbility$$.ctor` recopie `TargetingOptions statics+0x40` INTEGRALEMENT (aucun ctor
     # appele) -> masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul). Portee =
@@ -276,7 +305,14 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 0x6000000 AllowObscuredTarget | 0x40000000 AllowNullCasterTile. Deux abilities du MEME porteur
     # (`blackForgefiend`), l'une cible une UNITE-summon ennemie, l'autre une TUILE : la lecture se
     # fait ability par ability, jamais par porteur.
-    1151: "TheQuickeningAbility",          # overload PRESET + flags (cf. le piege ci-dessus)
+    # 1151 TheQuickeningAbility RESORBEE (#254) -- forme « PRESET + FLAGS », le cas d'ecole cite en
+    # tete de ce fichier, VERIFIE au decompile : preset `statics+0x200` + flags `0x806000000` ->
+    # masque effectif `0x806000000 | *(statics+0x228)` = `0x806000000 | 0x42` = 0x806000042
+    # (TargetMatchesDynamicRule | TargetIsTile | AllowObscuredTargetByElevation |
+    # AllowObscuredTargetByWalls | CasterHas1Tiles). Portee = `TargetingRange statics+0x18` =
+    # RANGE_FROM_CONFIG (`constants.range` = 2) ; `forceMeleeTarget` = `*(statics+0x220)` = 1 =
+    # RangedBool.False. Recopier le litteral visible aurait perdu `TargetIsTile`, c'est-a-dire le
+    # domaine meme du cast.
     # 1160 HeavyRailRifleAbility et 1161 TwinSmartMissileSystemAbility RESORBEES (#252) -- forme
     # « FLAGS DIRECTS », MEME porteur (`tauBroadside`), MEME TargetingRange (`statics+0x48` =
     # RANGE_WHOLE_BOARD), et pourtant DEUX masques distincts :
