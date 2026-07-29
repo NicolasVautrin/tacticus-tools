@@ -10,9 +10,52 @@ from __future__ import annotations
 import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.entities.traits.unit_trait import entity_trait_names, trait_name
 
 from ._base import (NCContext, NonComparablePlaybook, _has_valid_targets,
                     _sweep_origin_first, _traits, _unit_cfg)
+
+
+def _affected_by_heal_type(ctx: NCContext, obs_unit: dict, heal_type: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(unit, healType)` COTE DECISION —
+    le MEME mirror 1:1 que consomme la face COMBAT, pas une seconde expression du gate.
+
+        if (GetBaseUnitComponent(unit) != null && HasTrait(unit, 0x421)) return true;
+        if (healType == 0 &&  IsMechanical(unit)) return false;     // Heal   : pas les mecaniques
+        if (healType == 1 && !IsMechanical(unit)) return false;     // Repair : QUE les mecaniques
+        return true;
+
+    ou `IdunBattle.Entities.UnitExtensions$$IsMechanical` = `HasTrait(Mechanical=5)` OU
+    `HasTrait(LivingMetal=0x3e8=1000)` OU `HasTrait(Vehicle=0x405=1029)` — les TROIS, alors que ce
+    module ne testait que `Mechanical` : necroWarden (LivingMetal, PAS Mechanical) etait compte
+    soignable cote DECISION et refuse cote COMBAT (`healable_heal_type_0`), et symetriquement
+    invisible au gate repair de DefendTheDivineWork.
+
+    L'implementation DELEGUE a `runner/operations/triggers/revive_effect.py::is_affected_by_heal_type`
+    (le mirror deja porte, appele par `BattleQuery$$CanBeRevived`) en lui passant un resolveur de trait
+    NAME-BASED : cote decision il n'y a pas de `BaseUnitComponent`, le substrat equivalent est
+    `entity_trait_names(unit_ctx, visualId)` (#225) = kit gameconfig + traits ACCORDES EN BATAILLE
+    (`AddTrait` -> `BaseUnitComponent+0x40`/`+0x48`) + pseudo-trait de grande-alliance. Un
+    `AffectedByHealAndRepair` accorde en cours de bataille (seul vecteur natif :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SupaCyborkBodyAbility_AddTrait$$CreateBehaviour`,
+    trait porte par 0/669 unites au gameconfig) est donc VU des lors que la Scene est branchee.
+    `ctx.scene` absente (harnais de sonde) ou unite hors tables -> borne STATIQUE
+    `entity_trait_names(None, visualId)`, exactement comme `utilities/tile.py::_adjacent_units`.
+
+    ⚠ Ce gate n'est QU'UN des disjuncts de `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed`,
+    la fonction que le wrapper `Healable` (`IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select`,
+    slot 0x11 de l'IAttackQuery) applique reellement : `NOT IsMachine(EntityType==6)` &
+    `(IsDamagedUnit | HasNegativeUnitEffect | HasFlag(source,0x17))` & `NOT HasHealBlockers` &
+    `NOT (checkGroupLimit && IsAtGroupUnitHealLimit)` & `NOT HasTrait(0xd=Object)` &
+    `IsAffectedByHealType(unit, 0)`. Les cinq premiers restent NON PORTES cote decision (residu nomme,
+    cf. backlog) — les porter n'est pas une retouche de ce gate mais un chantier par disjunct."""
+    scene = getattr(ctx, "scene", None)
+    sid = obs_unit.get("squadId")
+    uctx = scene.ctx(sid) if (scene is not None and sid is not None) else None
+    names = entity_trait_names(uctx, obs_unit.get("visualId"))
+    from engine.runner.operations.triggers.revive_effect import is_affected_by_heal_type
+    return bool(is_affected_by_heal_type(lambda _u, tid: trait_name(tid) in names,
+                                        obs_unit, int(heal_type)))
 
 
 class RitesOfRestorationPlaybook(NonComparablePlaybook):
@@ -42,15 +85,15 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
             return []
         team = me_obs.get("teamId")
         # ShouldEvaluate : Count(GetPossibleResurrectTargets) > 0. IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetPossibleResurrectTargets
-        # = AllDeadUnits -> Friends -> UnitsWithTrait(0x1a=Imperial=26) -> UnitsAffectedByHealType(0).
-        # IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u,0) = HasTrait(0x421) OU non-Mecanique. (R1 corrige : mon port
-        # ignorait les filtres Imperial + heal-type -> FAUX POSITIF sur allie mort non-Imperial/Mecanique,
-        # masque par le test all-Imperial. Imperial = gameconfig GrandAllianceId ; heal-affectable ~
-        # non-Mecanique, trait 0x421 override NON modelise -> TODO.) Morts lus via obs_units.isDead.
+        # = AllDeadUnits -> Friends -> UnitsWithTrait(0x1a=Imperial=26) -> UnitsAffectedByHealType(0)
+        # (le litteral healType du noeud `UnitsAffectedByHealType` est bien **0**, lu au decompile).
+        # Le gate heal-type passe par `_affected_by_heal_type` (mirror complet : disjunct HasTrait(0x421)
+        # + les TROIS traits d'IsMechanical) au lieu du seul « Mechanical absent du kit ». Imperial =
+        # gameconfig GrandAllianceId. Morts lus via obs_units.isDead.
         def _resurrectable(u):
             cfg = _unit_cfg(u.get("visualId"))
             return (cfg.get("GrandAllianceId") == "Imperial"                 # UnitsWithTrait(0x1a=26)
-                    and "Mechanical" not in (cfg.get("traits") or []))       # AffectedByHealType(0)
+                    and _affected_by_heal_type(ctx, u, 0))                   # UnitsAffectedByHealType(0)
         dead = [u for u in obs if u.get("teamId") == team and u.get("isDead")
                 and u.get("squadId") != ctx.uid and _resurrectable(u)]
         if not dead:
@@ -61,12 +104,15 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
         # des vrais summons ET comptait des npc non-summon (faux nég + faux pos, validateur) -> trait exact.
         hero_dead = sum(1 for u in dead if "Hero" in _traits(u.get("visualId")))
         summon_dead = sum(1 for u in dead if "Summon" in _traits(u.get("visualId")))
-        # Alliees VIVANTES non-Mecaniques (heal targets adjacents) + occupation (resurrectTiles).
-        ally_nonmech_pos = [(u.get("col"), u.get("row")) for u in obs
-                            if u.get("teamId") == team and not u.get("isDead")
-                            and u.get("squadId") != ctx.uid and u.get("col") is not None
-                            and "Mechanical" not in _traits(u.get("visualId"))]
-        self_nonmech = "Mechanical" not in _traits(me_obs.get("visualId"))
+        # Alliees VIVANTES heal-affectables (heal targets adjacents) + occupation (resurrectTiles).
+        # `GetHealTargets` = `Healable(caster, self@0x160 + AdjacentFriends(self,1), 0)` : le gate porte
+        # ici est `IsAffectedByHealType(u, 0)` (les autres disjuncts d'`EntityCanBeHealed` restent hors
+        # portee, cf. `_affected_by_heal_type`).
+        ally_healable_pos = [(u.get("col"), u.get("row")) for u in obs
+                             if u.get("teamId") == team and not u.get("isDead")
+                             and u.get("squadId") != ctx.uid and u.get("col") is not None
+                             and _affected_by_heal_type(ctx, u, 0)]
+        self_healable = _affected_by_heal_type(ctx, me_obs, 0)
         occupied = {(u.get("col"), u.get("row")) for u in obs
                     if not u.get("isDead") and u.get("squadId") != ctx.uid
                     and u.get("col") is not None}                # le caster (mobile) n'occupe pas
@@ -78,8 +124,8 @@ class RitesOfRestorationPlaybook(NonComparablePlaybook):
             gate = (hero_dead >= 1 and len(res_tiles) >= 1) or (summon_dead >= 2 and len(res_tiles) >= 2)
             if not gate:
                 continue
-            heal_count = (1 if self_nonmech else 0) + sum(
-                1 for p in ally_nonmech_pos if bq.is_adjacent(T, p, ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
+            heal_count = (1 if self_healable else 0) + sum(
+                1 for p in ally_healable_pos if bq.is_adjacent(T, p, ctx.elev_by_pos))  # AdjacentUnits gate (#45/#76)
             util = 1.0 + heal_count
             if best is None or util > best[1]:   # strict > : 1er max garde (ordre reach_nc)
                 best = (T, util)
@@ -184,20 +230,25 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
         team = me_obs.get("teamId")
         wf = CombatRestorativesPlaybook._wound_fraction
         self_wound = wf(me_obs)                                       # self TOUJOURS dans HealTargets
-        self_mech = "Mechanical" in _traits(me_obs.get("visualId"))   # repair-eligible = Mecanique
+        # GATE `GetEligibleTargetsEntities` -> IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$GetDynamicInvalidTargetReason :
+        # pour une cible AMIE != caster, la seule raison d'invalidite restante est
+        # `NOT IsAffectedByHealType(target, **1**)` (litteral lu au decompile). Type 1 = REPAIR =
+        # HasTrait(0x421) OU IsMechanical -- donc LivingMetal/Vehicle comptent, pas seulement le trait
+        # `Mechanical` que ce module testait.
+        self_repairable = _affected_by_heal_type(ctx, me_obs, 1)
         # combat-readiness (#77) : +0.5 par cible qui HasValidTargets DEPUIS SA POSITION FIXE (position-indep
         # du sweep -> resolu 1x par cible). self TOUJOURS dans HealTargets -> son readiness compte aussi.
         self_ready = 0.5 if _has_valid_targets(ctx, ctx.uid) else 0.0
-        allies = [(u.get("col"), u.get("row"), wf(u), "Mechanical" in _traits(u.get("visualId")),
+        allies = [(u.get("col"), u.get("row"), wf(u), _affected_by_heal_type(ctx, u, 1),
                    0.5 if _has_valid_targets(ctx, u.get("squadId")) else 0.0)
                   for u in obs if u.get("teamId") == team and not u.get("isDead")
                   and u.get("squadId") != ctx.uid and u.get("col") is not None]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
-            adj = [(w, mech, rd) for c, r, w, mech, rd in allies
+            adj = [(w, rep, rd) for c, r, w, rep, rd in allies
                    if bq.is_adjacent(T, (c, r), ctx.elev_by_pos)]   # AdjacentUnits gate (#45/#76)
-            # GATE GetEligibleTargetsEntities : >=1 cible MECANIQUE (self ou adjacent) sinon ability non evaluee.
-            if not (self_mech or any(mech for _, mech, _ in adj)):
+            # GATE GetEligibleTargetsEntities : >=1 cible REPARABLE (self ou adjacent) sinon ability non evaluee.
+            if not (self_repairable or any(rep for _, rep, _ in adj)):
                 continue
             # util = Σ [ (1 - healthPct) + 0.5×HasValidTargets ] sur self + adjacents (boucle HealTargets, #77).
             util = self_wound + self_ready + sum(w + rd for w, _, rd in adj)
@@ -205,8 +256,8 @@ class DefendTheDivineWorkPlaybook(NonComparablePlaybook):
                 best = (T, util)
         if ctx.debug:
             import sys
-            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfMech={self_mech} selfReady={self_ready} "
-                  f"best={best} min={self.MIN_UTILITY}", file=sys.stderr)
+            print(f"    [dbg NC u{ctx.uid}] DefendTheDivineWork selfRepairable={self_repairable} "
+                  f"selfReady={self_ready} best={best} min={self.MIN_UTILITY}", file=sys.stderr)
         if best is None or best[1] < self.MIN_UTILITY:
             return []
         T, util = best
@@ -230,11 +281,16 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
     PRIORITY = 0
 
     @staticmethod
-    def _healable(u: dict) -> bool:
-        """`Healable ∘ UnitsWithoutTrait(Imperial)` : non-Imperial (GrandAllianceId) ET non-Mecanique (trait)."""
+    def _healable(ctx: NCContext, u: dict) -> bool:
+        """`Healable ∘ UnitsWithoutTrait(0x1a=Imperial)` (lu au decompile sur
+        IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$GetAllHealTargets :
+        `Healable(caster@0x160, UnitsWithoutTrait(Friends(AdjacentUnits) + self@0x148, 0x1a), 0)`) :
+        non-Imperial (GrandAllianceId) ET `IsAffectedByHealType(u, 0)` — ce dernier via le mirror
+        complet `_affected_by_heal_type` (0x421 + les trois traits d'IsMechanical), non plus le seul
+        `Mechanical` du kit."""
         cfg = _unit_cfg(u.get("visualId"))
         return (cfg.get("GrandAllianceId") != "Imperial"
-                and "Mechanical" not in (cfg.get("traits") or []))
+                and _affected_by_heal_type(ctx, u, 0))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         obs = ctx.obs_units or []
@@ -243,11 +299,11 @@ class RevitalizingMalignancyPlaybook(NonComparablePlaybook):
             return []
         team = me_obs.get("teamId")
         wf = CombatRestorativesPlaybook._wound_fraction
-        self_wound = wf(me_obs) if self._healable(me_obs) else 0.0   # self compte SSI Healable
+        self_wound = wf(me_obs) if self._healable(ctx, me_obs) else 0.0   # self compte SSI Healable
         allies = [(u.get("col"), u.get("row"), wf(u)) for u in obs
                   if u.get("teamId") == team and not u.get("isDead")
                   and u.get("squadId") != ctx.uid and u.get("col") is not None
-                  and self._healable(u)]
+                  and self._healable(ctx, u)]
         best = None  # (T, util)
         for T in _sweep_origin_first(ctx):   # ORIGINE d'abord : keep-first au tie -> reste en place (#76)
             util = self_wound + sum(w for c, r, w in allies

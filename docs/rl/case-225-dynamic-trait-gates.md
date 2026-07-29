@@ -78,10 +78,14 @@ etat »**.
 
 | accesseur | ce qu'il lit | gates | dynamique-capable |
 |---|---|---|---|
-| `ENTITE` | `UnitContext.traits` (kit seede **+ octrois**) + grande-alliance | **10** | **oui** (depuis #225) |
-| `GAMECONFIG` | `GC.unit(<visualId>).traits` en direct | 19 | non -- et **sans** la grande-alliance |
+| `ENTITE` | `UnitContext.traits` (kit seede **+ octrois**) + grande-alliance | **16** (10 a #225, **+6 a #232**) | **oui** |
+| `GAMECONFIG` | `GC.unit(<visualId>).traits` en direct | 13 (etait 19) | non -- et **sans** la grande-alliance |
 | `CTX` | `UnitContext.traits` seul | 4 | oui pour l'octroi, **non** pour la grande-alliance |
 | `VIS-CACHE` | `unit_trait_ids/names(visual_id)`, `lru_cache` par visualId | 0 (etait 2) | non, **par construction** |
+
+Les 6 gates passes en `ENTITE` par **#232** sont ceux de `noncomparable/heals.py` (N1/N4/N5/N6/N7/N8) :
+ils testent `AffectedByHealAndRepair`, un trait ACCORDABLE en bataille -- ils sont donc les premiers
+gates a la fois `dyn` et cables `ENTITE` (le probe les compte : `dyn ENTITE 0 -> 6`).
 
 Les 10 gates passes en `ENTITE` par #225 :
 `CapturePoint(24)`, `PowerUp(26)`, `DespoiledGround(28)` x2, `SummonDislikeDoorOpening(29)`,
@@ -127,14 +131,15 @@ feuille + leurs recs de voisinage) :
    Les 4 `CTX` ont en prime un trou propre : ils omettent le pseudo-trait de **grande-alliance**
    (`Imperial`/`Xenos`/`Chaos`), que `entity_trait_names` ajoute -- latent tant qu'aucun d'eux ne
    teste une alliance.
-2. **Gate MANQUANT (pas une source perimee)** :
-   `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u, 0) = HasTrait(u, 0x421) OU NOT
-   IsMechanical(u)`. Le disjunct `HasTrait` **est** porte cote COMBAT (`engine/entities/triggers.py`,
-   `engine/runner/abilities/behaviours/stats.py`) et **absent** cote DECISION
-   (`engine/playbook/noncomparable/heals.py`, gates N1/N4/N5/N6/N7/N8 = `Mechanical not in traits`
-   seul). Comme `AffectedByHealAndRepair` est 0/669 au gameconfig, l'omission ne mord que sur un
-   octroi en bataille (relique `R_Defensive_SupaCyborkBody`) : le runner soignerait alors une cible
-   que le playbook a exclue de son compte d'utilite.
+2. ~~**Gate MANQUANT** : `IsAffectedByHealType` absent des 6 gates de
+   `engine/playbook/noncomparable/heals.py`~~ **FERME par #232** (`case-232-heal-type-gate.md`).
+   Les 6 gates delèguent desormais au mirror `revive_effect.py::is_affected_by_heal_type` sur le
+   substrat d'ENTITE -- ce qui ferme du meme coup deux traits d'`IsMechanical` (`LivingMetal`,
+   `Vehicle`) que le module ignorait. Gisement STATIQUE mesure **VIDE** (aucune unite
+   `LivingMetal`/`Vehicle` sans `Mechanical`, 0/669 portant 0x421) : la correction est neutre au bit
+   pres sans octroi. La voie NATIVE d'octroi (relique `R_Defensive_SupaCyborkBody`) reste
+   **non instanciable** -- ses 9 porteurs sont `kind=npc` et aucun canal de `rl_duel build` n'equipe
+   d'item ; la validation passe donc par le meme leaf `AddTrait` que §6 ci-dessous.
 3. **Chemin LIVE** : aucun RPC ne publie la collection de traits RUNTIME d'une unite
    (`combatSnapshot`/`decisionView`/`observeBattle` n'exposent que le kit gameconfig, cf.
    `frida/hooks/features/ai-step/rpc-snapshot.ts`). Une bataille pilotee LIVE (et non rejouee sur un

@@ -153,23 +153,34 @@ GATES = [
      'Mechanical', ["Mechanical"], "ENTITE"),
     ("A2 CursedPlagueBell", "playbook/adjacent_unit_preference.py", 332,
      '_has_trait', ["Chaos"], "ENTITE"),
-    # -- famille NonComparable (`_traits(visualId)` = gameconfig NU)
-    ("N1 RitesOfRestoration/resurrectable", "playbook/noncomparable/heals.py", 53,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
-    ("N2 RitesOfRestoration/heroDead", "playbook/noncomparable/heals.py", 62,
+    # -- famille NonComparable. Les SIX gates de heal-type sont passes en ENTITE par #232 : ils
+    #    delèguent a `heals.py::_affected_by_heal_type`, qui lit `entity_trait_names(ctx.scene.ctx(
+    #    squadId), visualId)` -- donc le substrat COMPLET (kit + octrois en bataille + alliance),
+    #    et le mirror ENTIER `IsAffectedByHealType` (disjunct 0x421 + les 3 traits d'IsMechanical),
+    #    la ou ils testaient `Mechanical` seul sur le gameconfig NU. Les deux gates Hero/Summon des
+    #    MORTS (N2/N3) restent sur `_traits(visualId)` = GAMECONFIG.
+    ("N1 RitesOfRestoration/resurrectable", "playbook/noncomparable/heals.py", 96,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
+    ("N2 RitesOfRestoration/heroDead", "playbook/noncomparable/heals.py", 105,
      'Hero', ["Hero"], "GAMECONFIG"),
-    ("N3 RitesOfRestoration/summonDead", "playbook/noncomparable/heals.py", 63,
+    ("N3 RitesOfRestoration/summonDead", "playbook/noncomparable/heals.py", 106,
      'Summon', ["Summon"], "GAMECONFIG"),
-    ("N4 RitesOfRestoration/healTargets", "playbook/noncomparable/heals.py", 68,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
-    ("N5 RitesOfRestoration/self", "playbook/noncomparable/heals.py", 69,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
-    ("N6 Repair/self", "playbook/noncomparable/heals.py", 187,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
-    ("N7 Repair/allies", "playbook/noncomparable/heals.py", 191,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
-    ("N8 Heal/eligibility", "playbook/noncomparable/heals.py", 237,
-     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N4 RitesOfRestoration/healTargets", "playbook/noncomparable/heals.py", 114,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
+    ("N5 RitesOfRestoration/self", "playbook/noncomparable/heals.py", 115,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
+    ("N6 Repair/self", "playbook/noncomparable/heals.py", 238,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
+    ("N7 Repair/allies", "playbook/noncomparable/heals.py", 242,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
+    ("N8 Heal/eligibility", "playbook/noncomparable/heals.py", 293,
+     '_affected_by_heal_type', ["AffectedByHealAndRepair", "Mechanical", "LivingMetal", "Vehicle"],
+     "ENTITE"),
     ("N9 HeroicFusillade", "playbook/noncomparable/heroic_fusillade.py", 73,
      'Hero', ["Hero"], "GAMECONFIG"),
     ("N10 HammerOfWrath", "playbook/noncomparable/hammer_of_wrath.py", 86,
@@ -276,19 +287,21 @@ def main() -> int:
     print("    gates testant un trait DYNAMIQUE et encore AVEUGLES                : %d"
           % n_dyn_blind)
 
-    print("\n[4] GATE MANQUANT (distinct d'une source perimee : le disjunct n'est PAS PORTE)")
-    print("    IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u, 0)")
-    print("        = HasTrait(u, 0x421 = AffectedByHealAndRepair) OU NOT IsMechanical(u)")
-    print("    cote COMBAT le disjunct EST porte  : engine/entities/triggers.py::_affected_by_heal,")
-    print("                                         engine/runner/abilities/behaviours/stats.py")
-    print("    cote DECISION il est ABSENT        : engine/playbook/noncomparable/heals.py")
-    print("                                         (gates N1/N4/N5/N6/N7/N8 = `Mechanical not in "
-          "traits` seul)")
-    print("    portee : 0/%d unites portent AffectedByHealAndRepair au gameconfig -> le disjunct ne"
+    print("\n[4] GATE `IsAffectedByHealType` -- FERME par #232 (case-232-heal-type-gate.md)")
+    print("    IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u, healType)")
+    print("        = HasTrait(u, 0x421 AffectedByHealAndRepair)")
+    print("          OU (healType == 0 ? NOT IsMechanical(u) : IsMechanical(u))")
+    print("        IsMechanical = HasTrait(5) | HasTrait(0x3e8 LivingMetal) | HasTrait(0x405 Vehicle)")
+    print("    cote COMBAT   : engine/entities/triggers.py::_affected_by_heal,")
+    print("                    engine/runner/abilities/behaviours/stats.py")
+    print("    cote DECISION : engine/playbook/noncomparable/heals.py::_affected_by_heal_type")
+    print("                    (gates N1/N4/N5/N6/N7/N8, delegue au MEME mirror que CanBeRevived)")
+    print("    portee : 0/%d unites portent AffectedByHealAndRepair au gameconfig, et AUCUNE n'est"
           % ws["n_units"])
-    print("             mord QUE sur un octroi en bataille (relique R_Defensive_SupaCyborkBody).")
-    print("             Asymetrie DECISION/COMBAT : le runner soignerait une cible que le playbook")
-    print("             a exclue de son compte d'utilite.")
+    print("             LivingMetal/Vehicle sans Mechanical -> le fix est NEUTRE sans octroi ; il ne")
+    print("             mord que sur un octroi en bataille (relique R_Defensive_SupaCyborkBody, dont")
+    print("             les 9 porteurs sont kind=npc -> voie native NON instanciable en runner).")
+    print("             Verifier le gisement : python probe_232_heal_type_gate.py")
     return 1 if bad else 0
 
 
