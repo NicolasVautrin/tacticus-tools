@@ -226,11 +226,14 @@ Runner isolé, board `MC1_67`, `blackObliterator` (u85) vs 4 ennemis, **caster j
 
 Avant : le port n'émettait **que** l'event de la cible d'origine (1 event dans les 4 cas).
 
-> ⚠ **Ne jamais déplacer le caster pour monter ce scénario** (case-101 §6). `applyAction move` pose
+> ⚠ **Ne jamais déplacer le caster pour monter ce scénario.** `applyAction move` pose
 > `UnitFlag.Moved`, que le natif lit pour désarmer `HeavyWeapon_ExtraDmg` (+25 % ranged not-moved) —
-> or aucun RPC n'expose les `UnitFlags` au port, qui garde le bonus. Mesuré ici : un **×1,25 uniforme
-> sur tous les events** (natif `u77 [10772,16160]` vs port `[13464,20196]`), purement artefact de
-> mesure. Caster immobile ⇒ dégât bit-exact sur les deux batchs.
+> or la face PRÉDICTION du port ne lit PAS ce flag : elle dérive « a bougé » de la comparaison
+> `attack_pos != scene.pos(caster)` (donc FAUX pour la tuile courante), et garde le bonus. Le flag
+> est pourtant disponible (`combatSnapshot.units[].unitFlags`, seedé par `snapshot._load_unit_flags`,
+> cf. `case-101` §6) : le trou est un CÂBLAGE de la face prédiction, pas un capteur manquant (§6).
+> Mesuré ici : un **×1,25 uniforme sur tous les events** (natif `u77 [10772,16160]` vs port
+> `[13464,20196]`), purement artefact de mesure. Caster immobile ⇒ dégât bit-exact sur les deux batchs.
 
 ---
 
@@ -382,10 +385,14 @@ python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
 - **Plancher de la formule** : le natif termine par `Math.Max(hits, 0)`, le port par `max(1, ...)`.
   Écart théorique seulement (aucune base connue ne descend à 0) ; le comportement du port est celui
   validé bit-exact de longue date sur l'attaque normale, il n'a pas été touché.
-- **Le flag `Moved` n'atteint pas la face PRÉDICTION** — résidu de `case-101` §6, re-mesuré ici sur
-  1036 : le chemin `make_damage_predictions` dérive « a bougé » de `attack_pos != scene.pos(caster)`
-  (donc `False` pour la tuile courante) au lieu de lire `UnitFlag.Moved`, qu'aucun RPC n'expose. Un
-  caster ranged **déjà déplacé** garde donc `HeavyWeapon_ExtraDmg` côté port : **×1,25 uniforme sur
-  tous les events** (mesuré `u77 [13464,20196]` port vs `[10772,16160]` natif). Débloqueur nommé dans
-  `case-101` : exposer `UnitFlagsComponent` (`OrderedSet<int>` @+0x10) dans `combatSnapshot`.
+- **Le flag `Moved` n'atteint pas la face PRÉDICTION**, re-mesuré ici sur 1036 : le chemin
+  `make_damage_predictions` dérive « a bougé » de `attack_pos != scene.pos(caster)` (donc `False`
+  pour la tuile courante) au lieu de lire `UnitFlag.Moved`. Un caster ranged **déjà déplacé** garde
+  donc `HeavyWeapon_ExtraDmg` côté port : **×1,25 uniforme sur tous les events** (mesuré
+  `u77 [13464,20196]` port vs `[10772,16160]` natif). **Ce n'est plus un gap d'outillage** : le flag
+  est publié par `combatSnapshot.units[].unitFlags` et `load_state` le seede
+  (`snapshot._load_unit_flags`, cf. `case-101` §6) ; la face COMBAT le lit déjà par
+  `components.unit_has_moved`. Ce qui reste est le CÂBLAGE de la face prédiction — projeter le flag
+  dans la `Scene` (comme `prevent_overkill_by_id` le fait déjà pour `PreventOverkill`) et le threader
+  jusqu'à `calculate_attacker_modifiers_for_prediction(has_moved=)`, à la place du proxy positionnel.
   Hors périmètre #61 (axe DÉGÂT, tous vecteurs ranged concernés — pas propre à 1036).

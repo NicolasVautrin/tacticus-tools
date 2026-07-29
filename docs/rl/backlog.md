@@ -630,13 +630,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `logs/` = ce qu'on ÉCRIT). Les fichiers sont unlinkés au teardown, donc invisibles la plupart du
   temps — mais une passe interrompue les laisse dans `git status`. Contournement en attendant :
   `TACTICUS_PYTEST_STATE_PREFIX=<worktree>/logs/runners/...`. `[opus]` (une ligne).
-- **`UnitFlag.ArrivedAtFinalTile` (1) non posé par `MoveUnitOperation`** (`case-101 §6`) : le natif
-  l'ajoute juste après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Aucun consommateur
-  porté n'en dépend aujourd'hui ; à câbler avec le reste des `MoveUnitOptions`. `[opus]`.
-- **Les `UnitFlags` ne sont exposés par AUCUN RPC** (`case-101 §6`) : un état rechargé par `load_state`
-  ne peut pas savoir qu'une unité a bougé / a fini son tour ; seules les fixtures qui *pilotent* le
-  déplacement re-posent le flag. Point d'ancrage natif à capter dans `combatSnapshot` :
-  `IdunBattle.Entities.Components.UnitFlagsComponent` (`OrderedSet<int>` @+0x10) par unité. `[opus]`.
+- ~~**`UnitFlag.ArrivedAtFinalTile` (1) non posé par `MoveUnitOperation`**~~ — **PÉRIMÉ** (vérifié au
+  code) : le port POSE le flag sur le chemin de move, dans `arrived_at_final_tile_triggers`
+  (`runner/operations/triggers/dispatch/move_death.py`), appelée en queue d'`after_move_triggers` ;
+  elle porte aussi le gate d'émission de l'event `On(0x1c)`, et `SpiritualLeader`/`ArcaneShield` en
+  dépendent. Le site diffère du natif (dispatcher after-move au lieu de l'inline de
+  `MoveUnitOperation$$Execute`), choix documenté sur place. Cf. `port-residuals-inventory` §5 (R21).
+- ~~**Les `UnitFlags` ne sont exposés par AUCUN RPC**~~ — **PÉRIMÉ** : `combatSnapshot` publie
+  `units[].unitFlags` (ids `UnitFlag` posés, lus en invoquant
+  `IdunBattle.Entities.UnitExtensions$$HasFlag` une fois par valeur d'enum ; `null` = non mesuré,
+  `[]` = mesuré sans flag) **plus** `unitFlagTypes` (mapping nom -> id lu au RUNTIME), sur les lignes
+  `Unit` ET `Machine` ; `snapshot._load_unit_flags` les seede depuis `load_state`. Un état rechargé
+  sait donc qu'une unité a bougé sans pose manuelle. Cf. `case-101 §6` et `case-o10-volk-moved-flag`.
+  **Reste ouvert, et c'est un CÂBLAGE Python, plus un gap d'outillage** : la face PRÉDICTION lit
+  encore le proxy positionnel `attack_pos != scene.pos(caster)` au lieu du flag (×1,25
+  `HeavyWeapon_ExtraDmg` de trop sur tout caster ranged déjà déplacé, mesuré `case-61 §6`). `[opus]`.
 - ~~**Garde `@0x180e76c9e` de `KillUnitOperation$$Execute` entre `On(1)` et `On(2)`**~~ — **RÉSOLU
   (#88/#89, 2026-07-25)**. Le lookup n'est pas un dictionnaire mais le `hasValue` du
   **`Nullable<ReviveData>` @`UnitComponent + 0xa8`** (même champ que celui qu'écrit

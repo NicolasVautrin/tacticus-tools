@@ -54,9 +54,10 @@ base = ConfigConst 0xf = traitVariables.heavyWeaponExtraDmg = 25
 `UnitFlagsComponent` (`#139`) matérialisait le **vrai** flag `Moved`, purgé par `remove_turn_flags`,
 lu par `_harvester_hits` — mais **jamais posé** par le move. Deux conséquences :
 
-1. **Aucun des deux stores n'est renseigné par `load_state`** (aucun RPC n'expose les UnitFlags).
-   Sur un état rechargé depuis le live, le gate voyait donc toujours « n'a pas bougé » -> **+25%
-   appliqué offline alors que le natif ne l'applique pas**.
+1. **Aucun des deux stores n'est renseigné par `load_state`** — le canal live des `UnitFlags`
+   n'existait pas encore (il existe depuis, cf. §6). Sur un état rechargé depuis le live, le gate
+   voyait donc toujours « n'a pas bougé » -> **+25% appliqué offline alors que le natif ne
+   l'applique pas**.
 2. Le reset différait du natif : `state.moved_this_turn.clear()` effaçait **globalement** au
    `StartTurnOperation`, alors que le natif ne purge **que les unités du joueur entrant**.
 
@@ -185,12 +186,26 @@ le même symptôme (le Vanguard bouge sans se rapprocher, attaque ranged 3 hits 
 
 - ~~**`HeavyGravCannon` (1291) non porté**~~ — **RÉSOLU le 2026-07-26** (le `+443` mesuré ici était
   exactement `extraDmg[50] × 160%`). `test_sentinel_directives_live` asserte l'égalité bit-exacte.
-- **`UnitFlag.ArrivedAtFinalTile = 1` non posé par le port** : `MoveUnitOperation$$Execute` l'ajoute
-  juste après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Aucun consommateur porté
-  n'en dépend aujourd'hui (le flag est posé par `FinishUnitTurnOperation` côté port) — à câbler avec
-  le reste des `MoveUnitOptions` si un gate le réclame.
-- **Aucun RPC n'expose les `UnitFlags`** : un état rechargé par `load_state` ne peut pas savoir
-  qu'une unité a bougé. Les fixtures qui *pilotent* le déplacement re-posent le flag
-  (`set_moved_flag`) ; un replay non piloté ne le peut pas. Point d'ancrage natif si on veut le
-  capter un jour : `IdunBattle.Entities.Components.UnitFlagsComponent` (`OrderedSet<int>` @+0x10) de
-  chaque unité, à exposer dans `combatSnapshot`.
+- **`UnitFlag.ArrivedAtFinalTile = 1`** : le natif l'ajoute dans `MoveUnitOperation$$Execute` juste
+  après `SetMovedFlag` (gaté par l'option `MoveUnitOptions` @+0x0). Le port le pose **ailleurs sur le
+  même chemin** — `arrived_at_final_tile_triggers`
+  (`runner/operations/triggers/dispatch/move_death.py`), appelée en queue d'`after_move_triggers`,
+  qui porte aussi le gate d'émission de l'event `On(0x1c)` (n'émettre que si l'`Add` a rendu VRAI).
+  Consommateurs portés : `SpiritualLeader`, `ArcaneShield`. Le déport du site de pose est un choix
+  documenté sur place, pas un trou.
+- **Les `UnitFlags` sont exposés live** : `combatSnapshot` publie `units[].unitFlags` (la liste des
+  ids `UnitFlag` POSÉS, obtenue en invoquant `IdunBattle.Entities.UnitExtensions$$HasFlag(unit,
+  flag)` une fois par valeur d'enum) **plus** `unitFlagTypes` (mapping nom -> id de
+  `IdunBattle.Entities.Enum.UnitFlag`, lu au RUNTIME par `dumpEnum` — donc `Moved` reste juste après
+  une renumérotation). Le `OrderedSet<UnitFlag>` @+0x10 de
+  `IdunBattle.Entities.Components.UnitFlagsComponent` n'est **pas** lu en mémoire : sa disposition
+  interne n'est pas lisible de façon fiable, d'où l'invocation de la fonction nommée. `load_state`
+  le consomme (`runner/snapshot.py::_load_unit_flags`, appelé AVANT `_load_stats_and_effects`), donc
+  un état rechargé sait qu'une unité a bougé sans qu'aucune fixture n'ait à re-poser le flag. Canal
+  TRI-ÉTAT : `null` = non mesuré (`HasFlag` irrésolue ou enum vide) -> défaut du port intact ; `[]` =
+  mesuré, aucun flag ; liste = mesuré. Portée : `EntityType.Unit` **et** `EntityType.Machine`.
+  Mesure du canal (board `MC1_67`, seed 777, `blackObliterator`) : les 4 unités rendent `[]` au
+  départ ; après un `act move` réel sur u81, elle seule passe à `[0, 1, 4]` =
+  `Moved`/`ArrivedAtFinalTile`/`NoActionAvailable`, les trois autres restent `[]`. `unitFlagTypes`
+  rend 26 entrées (`Moved`=0, `ArrivedAtFinalTile`=1, `TurnFinished`=3, `Teleported`=12,
+  `PreventOverkill`=19). Détail et gardes : `case-o10-volk-moved-flag`.
