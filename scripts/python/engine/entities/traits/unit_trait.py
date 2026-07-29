@@ -161,8 +161,16 @@ def has_any_trait(trait_names: "Iterable[str] | None",
 # (traits ACCORDES en bataille). Offline, le substrat de la liste de BASE est le kit gameconfig
 # (`UnitContext.traits = gameconfig.unit(vis).traits`, meme source que `runner/abilities/behaviours/
 # context.py::_config_traits` et `runner/abilities/targeting.py::_unit_traits`), plus le pseudo-trait
-# de GRANDE-ALLIANCE. Les deux autres collections (retires / accordes en bataille) ne sont PAS
-# observables offline -> limite ASSUMEE, pas une invention.
+# de GRANDE-ALLIANCE.
+#
+# #225 -- les traits ACCORDES EN BATAILLE (`+0x48`, et `+0x40` quand `isTemporary == 0`) NE SONT PLUS
+# hors de portee : le leaf DSL porte `runner/abilities/behaviours/grants.py::AddTrait` les ecrit dans
+# `UnitContext.traits`, donc le substrat COMPLET d'une ENTITE se lit par `entity_trait_names` /
+# `entity_trait_ids` (ci-dessous), et NON par les deux fonctions cachees-par-visualId qui suivent.
+# Ces dernieres restent la BORNE statique (appelant sans entite sous la main).
+# Reste hors de portee : les traits RETIRES (`+0x50`) -- aucun `RemoveTrait` n'est porte, et le natif
+# n'expose aucun leaf DSL `RemoveTrait` (releve ghidra #225 : `RemoveTraitOperation` n'a que
+# `Core.Services.OperationProcessor$$RemoveTrait` en appelant).
 GRAND_ALLIANCE_TRAITS: frozenset = frozenset({"Imperial", "Chaos", "Xenos"})
 
 
@@ -203,6 +211,55 @@ def unit_trait_names(visual_id: "str | None") -> frozenset:
     if ga is not None:
         names.add(ga)
     return frozenset(names)
+
+
+def entity_trait_names(unit_ctx, visual_id: "str | None" = None) -> frozenset:
+    """NOMS des traits d'une ENTITE -- le substrat COMPLET que lit
+    `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, cote port.
+
+    `unit_ctx` = le `UnitContext` de l'entite (`StatsComponent.ctx` cote runner,
+    `Scene.ctx(uid)` cote decision : c'est le MEME objet, cf. `Scene.from_state`). Sa liste
+    `traits` porte (a) le kit gameconfig seede a la construction (`UnitContext.from_snapshot`,
+    `build_summon_context`) ET (b) les traits ACCORDES EN BATAILLE, que le leaf DSL
+    `IdunBattleLogic.Entities.DSLFactory$$AddTrait` (-> `IdunBattle.Operations.AddTraitOperation$$
+    AddTrait`) y ajoute -- c'est la collection `BaseUnitComponent+0x48`/`+0x40` du natif.
+
+    S'y ajoute le pseudo-trait de GRANDE-ALLIANCE (`grand_alliance_trait_name`), qui n'est dans
+    aucun `traits` gameconfig et que le BC pose dans `+0x40`.
+
+    `unit_ctx is None` (contexte sans entite : id inconnu, unite hors tables) -> on retombe sur le
+    substrat STATIQUE `unit_trait_names(visual_id)`. C'est une BORNE, pas une verite : le trait
+    accorde en bataille y est invisible.
+
+    ⚠ NON CACHE quand `unit_ctx` est fourni : `ctx.traits` est MUTABLE (c'est tout l'objet). Le
+    cache par `visual_id` de `unit_trait_names` serait ici un bug (deux entites de meme visualId
+    n'ont pas forcement les memes traits des qu'une seule s'en est vu accorder un)."""
+    if unit_ctx is None:
+        return unit_trait_names(visual_id)
+    vis = visual_id if visual_id is not None else getattr(unit_ctx, "visual_id", None)
+    names = set(getattr(unit_ctx, "traits", None) or ())
+    ga = grand_alliance_trait_name(vis)
+    if ga is not None:
+        names.add(ga)
+    return frozenset(names)
+
+
+def entity_trait_ids(unit_ctx, visual_id: "str | None" = None) -> tuple:
+    """IDS natifs `UnitTrait` du substrat `entity_trait_names` (kit + accordes en bataille +
+    grande-alliance), TRIES. Meme forme que `unit_trait_ids`, meme parti LOUDER-ON-BUG (un nom hors
+    enum LEVE) -- c'est la version ENTITE de cet accesseur."""
+    if unit_ctx is None:
+        return unit_trait_ids(visual_id)
+    out = []
+    for n in entity_trait_names(unit_ctx, visual_id):
+        try:
+            out.append(int(UnitTrait[n]))
+        except KeyError:
+            raise ValueError(
+                f"trait '{n}' (entite {getattr(unit_ctx, 'entity_id', '?')!r}, unite "
+                f"{visual_id!r}) absent de l'enum UnitTrait -- mirror a remettre a jour "
+                f"(cf. docs/rl/unit-trait-coverage.md)") from None
+    return tuple(sorted(out))
 
 
 @functools.lru_cache(maxsize=None)
