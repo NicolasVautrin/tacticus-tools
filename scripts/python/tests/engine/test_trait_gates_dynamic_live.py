@@ -183,11 +183,20 @@ def test_in_battle_granted_trait_is_visible_to_the_neighbours_gates(state_and_un
     `IdunBattle.AI.Playbook.Loki.FabricatorClawArrayPlaybook$$FilterAdjacentFriends` sur
     `HasTrait(Mechanical)`) portent eux aussi le trait accorde en bataille."""
     state, ids = state_and_units
-    subject = next((u for u in ids
-                    if SUMMON not in unit_trait_ids(
-                        state.get_entity(u).get_component(UnitComponent).visual_id)), None)
+
+    def _free(u):
+        """Sujet ENCORE vierge de `Summon` -- l'`State` du montage est de portee MODULE, donc le
+        test precedent a deja pu accorder le trait a UNE unite ; on en prend une autre plutot que
+        de rejouer un octroi deja fait (ce qui ne prouverait plus rien)."""
+        e = state.get_entity(u)
+        vis = e.get_component(UnitComponent).visual_id
+        sc = e.get_component(StatsComponent)
+        return SUMMON not in entity_trait_ids(sc.ctx if sc is not None else None, vis)
+
+    subject = next((u for u in ids if _free(u)), None)
     other = next((u for u in ids if u != subject), None)
-    assert subject is not None and other is not None, "montage a moins de 2 unites"
+    assert subject is not None and other is not None, (
+        "aucune unite encore vierge du trait Summon dans le montage")
 
     def _rec_for(observer, target):
         lc = runner_tile_leaf_ctx(state, observer)

@@ -1,37 +1,44 @@
-"""probe #225 -- INVENTAIRE des gates de TRAIT de la couche DECISION (playbook / utilities Tile)
-et de leur atteignabilite par un trait accorde EN BATAILLE.
+"""probe #225 -- INVENTAIRE CHIFFRE des gates de TRAIT de la couche DECISION, et de leur
+atteignabilite par un trait accorde EN BATAILLE.
 
-Deux volets, tous deux MESURES (rien n'est recopie a la main) :
+Trois volets. Rien n'est recopie a la main : les litteraux natifs sont annotes de leur symbole, le
+reste est MESURE (gameconfig, seed BC, source du port), et chaque ligne de la table de gates porte
+une EMPREINTE (un token attendu a `fichier:ligne`) verifiee a l'execution -- une table qui rote
+fait echouer le probe au lieu de mentir.
 
-  (1) ECRITURE -- quels traits le natif peut-il accorder/retirer PENDANT la bataille ?
-      Le seul chemin d'ecriture est `IdunBattle.Operations.AddTraitOperation$$AddTrait` :
+--------------------------------------------------------------------------------------------
+VOLET 1 -- ECRITURE : quels traits le natif peut-il accorder PENDANT la bataille ?
 
-          comp = GetBaseUnitComponent(target)
-          collection = isTemporary ? comp+0x48 : comp+0x40
-          collection.Add(trait)
+    IdunBattle.Operations.AddTraitOperation$$AddTrait(this, target, trait, isTemporary)
+        comp = UnitExtensions.GetBaseUnitComponent(target)
+        collection = isTemporary ? comp+0x48 : comp+0x40
+        collection.Add(trait)
 
-      donc un ajout PERMANENT ecrit la MEME collection `+0x40` que
-      `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` seede depuis la
-      BattleConfiguration. La lecture `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` est
-      `if (+0x50).Contains -> false ; return (+0x40).Contains || (+0x48).Contains`.
+    IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait(comp, trait)
+        if ((comp+0x50).Contains(trait)) return false;          // traits RETIRES
+        return (comp+0x40).Contains(trait) || (comp+0x48).Contains(trait);
 
-      Les sites d'ecriture sont ENUMERES par les xrefs de `IdunBattleLogic.Entities.DSLFactory$$AddTrait`
-      (6 appelants, releve ghidra du 2026-07-29, build gqfc5mff6c) ; cinq portent un LITTERAL de trait,
-      le sixieme (`EnhancementAddTraitAbility`) lit une constante d'ability -> ce volet-la se mesure
-      ICI depuis le gameconfig.
+    -> un ajout PERMANENT (`isTemporary == 0`) ecrit la MEME collection `+0x40` que
+       `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` seede depuis la BC.
 
-  (2) LECTURE -- quels sites de la couche DECISION testent un trait, et depuis quelle SOURCE ?
-      Le scan est un scan de SOURCE (AST-libre, regex sur les accesseurs connus) : il classe chaque
-      site par ACCESSEUR, parce que c'est l'accesseur -- pas le site -- qui determine si le gate voit
-      un trait dynamique.
+    Les sites d'ecriture sont EXHAUSTIFS : ce sont les 6 appelants de
+    `IdunBattleLogic.Entities.DSLFactory$$AddTrait` (releve xrefs ghidra, build gqfc5mff6c).
+    Aucun `DSLFactory$$RemoveTrait` n'existe -- `IdunBattle.Operations.RemoveTraitOperation$$Execute`
+    n'a que `Core.Services.OperationProcessor$$RemoveTrait` en appelant, lui-meme sans appelant
+    direct (slot d'interface) -> la collection `+0x50` reste hors de portee du port.
+
+VOLET 2 -- LECTURE : les gates de trait de la couche DECISION, par ACCESSEUR.
+    C'est l'ACCESSEUR, pas le gate, qui determine la cecite : dix gates derriere un accesseur
+    statique sont UN defaut, pas dix.
+
+VOLET 3 -- CROISEMENT : verdict PAR GATE (atteignable par un trait dynamique, ou non).
 
 Sortie ASCII pure (console cp1252).
 """
 from __future__ import annotations
 
-import re
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -39,207 +46,250 @@ if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
 ENGINE = _HERE / "engine"
+ROOT = _HERE.parents[1]
 
 # --------------------------------------------------------------------------------------------
-# VOLET 1 -- les traits ECRITS en bataille (releve ghidra + gameconfig)
+# VOLET 1 -- litteraux lus au decompile, un par appelant de `DSLFactory$$AddTrait`
 # --------------------------------------------------------------------------------------------
-# Litteraux lus au decompile, un par appelant de `IdunBattleLogic.Entities.DSLFactory$$AddTrait` :
-#   IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_InitAbility$$CreateBehaviour
-#       AddTrait(Actor, 0x41a, isTemporary=0)
-#   IdunBattleLogic.Entities.Abilities.Triggered.Loki.SupaCyborkBodyAbility_AddTrait$$CreateBehaviour
-#       AddTrait(Actor, 0x421, isTemporary=0)
-#   IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility$$ExecuteBehaviour
-#   IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$ExecuteBehaviour
-#   IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility$$ExecuteBehaviour
-#       AddTrait(Target, 0x418, isTemporary=0)  -- pose dans le `SpawnUnitOptions` -> l'unite SPAWNEE
-#   IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnhancementAddTraitAbility$$CreateBehaviour
-#       AddTrait(Target, GetEnumConstant(0x7f), isTemporary=1)  -- trait DATA-DRIVEN, cf. plus bas
-NATIVE_ADDTRAIT_LITERALS = {
-    0x41a: "FloatingDeath_InitAbility (Actor, permanent -> +0x40)",
-    0x421: "SupaCyborkBodyAbility_AddTrait (Actor, permanent -> +0x40)",
-    0x418: "DutyEternal / AetherStride / ExemplarOfTheKauyon (unite SPAWNEE, permanent -> +0x40)",
-}
-
-
-def enhancement_add_trait_traits() -> dict:
-    """Traits accordes par `EnhancementAddTraitAbility` = la constante d'ability lue par
-    `GetEnumConstant(0x7f)`. On balaie le gameconfig a la recherche des abilities dont une constante
-    NOMME une valeur de l'enum `UnitTrait` -- c'est la seule forme data-driven du chemin d'ecriture."""
-    import gameconfig as GC
-    from engine.entities.traits.unit_trait import UnitTrait
-    names = {m.name for m in UnitTrait}
-    out: dict = {}
-    for aid in (GC.all_ability_ids() if hasattr(GC, "all_ability_ids") else []):
-        pass
-    # `gameconfig` n'expose pas d'iterateur d'abilities -> on passe par le doc brut.
-    doc = GC._doc() if hasattr(GC, "_doc") else None
-    abilities = _all_abilities(doc)
-    for aid, ab in abilities.items():
-        for k, v in ((ab.get("constants") or {}).items()):
-            if isinstance(v, str) and v in names:
-                out.setdefault(v, []).append("%s.%s" % (aid, k))
-    return out
-
-
-def _all_abilities(doc) -> dict:
-    """Toutes les abilities du gameconfig, {id: dict}. Traverse le doc sans presumer du schema."""
-    import gameconfig as GC
-    for attr in ("_abilities", "abilities_all", "all_abilities"):
-        f = getattr(GC, attr, None)
-        if callable(f):
-            try:
-                got = f()
-                if isinstance(got, dict) and got:
-                    return got
-            except Exception:
-                pass
-    # Fallback : re-charger le json et retrouver le noeud des abilities.
-    data = GC._load() if hasattr(GC, "_load") else None
-    if data is None:
-        return {}
-    found: dict = {}
-
-    def walk(node):
-        if isinstance(node, dict):
-            for k, v in node.items():
-                if k in ("abilities", "abilityConfigurations") and isinstance(v, (list, dict)):
-                    items = v.values() if isinstance(v, dict) else v
-                    for it in items:
-                        if isinstance(it, dict) and it.get("id"):
-                            found[it["id"]] = it
-                else:
-                    walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(data)
-    return found
-
-
-# --------------------------------------------------------------------------------------------
-# VOLET 2 -- les LECTURES de trait de la couche DECISION, classees par ACCESSEUR
-# --------------------------------------------------------------------------------------------
-# Chaque motif = un ACCESSEUR distinct. La colonne `dyn` dit si l'accesseur peut, PAR CONSTRUCTION,
-# rendre un trait accorde en bataille :
-#   * "gameconfig" : lecture directe `GC.unit(<visualId>).traits` -> STATIQUE par unite, jamais
-#     l'etat de l'entite. AVEUGLE a tout `AddTraitOperation`.
-#   * "vis-cache"  : `unit_trait_names/ids(visual_id)` (lru_cache PAR visualId) -> meme cecite, et
-#     en prime un cache global qui interdirait de le rendre dynamique sans le supprimer.
-#   * "ctx"        : `UnitContext.traits` -- liste PAR ENTITE, mutable. C'est le seul substrat du
-#     port qui PEUT porter un trait dynamique (le verrou de `test_chain_after_refused_addeffect_live`
-#     y accorde `Immune` a la main).
-ACCESSORS = [
-    ("gameconfig", re.compile(
-        r"GC\.unit\([^)]*\)\s*or\s*\{\}\)\.get\(\"traits\"\)"
-        r"|_GC\.unit\([^)]*\)\s*or\s*\{\}\)\.get\(\"traits\"\)"
-        r"|\.get\(\"traits\"\)")),
-    ("vis-cache", re.compile(r"unit_trait_(names|ids)\s*\(")),
-    ("ctx", re.compile(r"getattr\(\s*[A-Za-z_.]*ctx[A-Za-z_.]*\s*,\s*\"traits\""
-                       r"|\bctx\.traits\b|\.ctx\.traits\b")),
+# (traitId, isTemporary, symbole appelant, cible du selecteur)
+NATIVE_ADDTRAIT_SITES = [
+    (0x41a, 0, "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+               "FloatingDeath_InitAbility$$CreateBehaviour", "Actor"),
+    (0x421, 0, "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+               "SupaCyborkBodyAbility_AddTrait$$CreateBehaviour", "Actor"),
+    (0x418, 0, "IdunBattleLogic.Entities.Abilities.Active.Loki."
+               "DutyEternalAbility$$ExecuteBehaviour", "unite SPAWNEE (SpawnUnitOptions)"),
+    (0x418, 0, "IdunBattleLogic.Entities.Abilities.Active.Loki."
+               "AetherStrideAbility$$ExecuteBehaviour", "unite SPAWNEE (SpawnUnitOptions)"),
+    (0x418, 0, "IdunBattleLogic.Entities.Abilities.Active.Loki."
+               "ExemplarOfTheKauyonAbility$$ExecuteBehaviour", "unite SPAWNEE (SpawnUnitOptions)"),
+    (None, 1, "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+              "EnhancementAddTraitAbility$$CreateBehaviour",
+              "Target -- trait DATA-DRIVEN (GetEnumConstant(0x7f) = constante d'ability `trait`)"),
 ]
 
-# Sites de GATE : une comparaison de trait (le nom du trait, ou un helper de test).
-GATE_PAT = re.compile(
-    r"has_trait\(|has_any_trait\(|_has_trait\(|units_without_trait\("
-    r"|\"[A-Z][A-Za-z]+\"\s+(?:not\s+)?in\s+[A-Za-z_][A-Za-z_0-9.\[\]()\"]*traits"
-    r"|UnitTrait\.[A-Za-z_]+\.name\s+(?:not\s+)?in\b"
-    r"|HasTrait\(")
-
-# Perimetre DECISION : la couche qui produit l'action de l'IA.
-DECISION_ROOTS = ["playbook", "utilities/tile.py", "ai"]
+# Abilities qui PORTENT chacun de ces sites (le site natif est un CreateBehaviour/ExecuteBehaviour ;
+# le porteur se lit au gameconfig). Mesure faite par `_write_side()`.
+ADDTRAIT_ABILITIES = ["FloatingDeath", "SupaCyborkBody", "DutyEternal", "AetherStride",
+                      "ExemplarOfTheKauyon"]
 
 
-def scan_decision_layer() -> list:
-    rows = []
-    for path in sorted(ENGINE.rglob("*.py")):
-        rel = path.relative_to(ENGINE).as_posix()
-        if not any(rel == r or rel.startswith(r + "/") for r in DECISION_ROOTS):
+def _write_side() -> dict:
+    """Mesure le volet ECRITURE : traits accordables, porteurs, et presence STATIQUE au gameconfig."""
+    import gameconfig as GC
+    from engine.entities.traits.unit_trait import UnitTrait
+    idx = GC._index()
+    enum_names = {m.name for m in UnitTrait}
+
+    # (a) traits des sites a LITTERAL
+    literal = {}
+    for tid, tmp, sym, tgt in NATIVE_ADDTRAIT_SITES:
+        if tid is None:
             continue
-        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith('"""'):
-                continue
-            if not GATE_PAT.search(line):
-                continue
-            acc = None
-            for name, pat in ACCESSORS:
-                if pat.search(line):
-                    acc = name
-                    break
-            rows.append({"file": rel, "line": i, "acc": acc, "code": stripped[:150]})
-    return rows
+        literal.setdefault(UnitTrait(tid).name, []).append((tid, tmp, sym.split("$$")[0]
+                                                            .rsplit(".", 1)[-1], tgt))
+
+    # (b) traits DATA-DRIVEN : abilities dont une constante NOMME une valeur de `UnitTrait`.
+    #     Le gameconfig catalogue `EnhancementAddTrait:<X>` ; seuls les `<X>` reellement CABLES
+    #     par un live-event sont accordables en partie.
+    data_driven, env_boost = {}, {}
+    for aid, ab in idx["abilities"].items():
+        v = ((ab.get("constants") or {}).get("trait"))
+        if isinstance(v, str) and v in enum_names:
+            (data_driven if aid.startswith("EnhancementAddTrait") else env_boost)[aid] = v
+
+    # (c) cablage live-event (le seul chemin qui INSTANCIE une EnhancementAddTrait)
+    wired = set()
+    for cfg in ((GC._cfg().get("liveEvents") or {}).get("idunLiveEventConfigs") or []):
+        for _k, e in ((cfg or {}).get("enhancements") or {}).items():
+            a = (e or {}).get("abilityId") or ""
+            if a.startswith("EnhancementAddTrait") and a in data_driven:
+                wired.add(data_driven[a])
+
+    # (d) porteurs des abilities a litteral + presence statique du trait au gameconfig
+    carriers = {a: [] for a in ADDTRAIT_ABILITIES}
+    static_count = Counter()
+    for kind in ("lineup", "npc", "summons"):
+        for uid, u in idx[kind].items():
+            names = set((u.get("activeAbilities") or []) + (u.get("passiveAbilities") or [])
+                        + (u.get("relicAbilities") or []))
+            for a in ADDTRAIT_ABILITIES:
+                if a in names:
+                    carriers[a].append("%s:%s" % (kind, uid))
+            for t in (u.get("traits") or []):
+                static_count[t] += 1
+    return {"literal": literal, "data_driven": data_driven, "env_boost": env_boost,
+            "wired": wired, "carriers": carriers, "static": static_count,
+            "n_units": sum(len(idx[k]) for k in ("lineup", "npc", "summons"))}
 
 
-def scan_sources() -> list:
-    """Les SOURCES de trait de la couche decision (la ou le set de traits est CONSTRUIT)."""
-    rows = []
-    src_pat = re.compile(r"\.get\(\"traits\"\)|unit_trait_(names|ids)\s*\(|\bctx\.traits\b")
-    for path in sorted(ENGINE.rglob("*.py")):
-        rel = path.relative_to(ENGINE).as_posix()
-        if not any(rel == r or rel.startswith(r + "/") for r in DECISION_ROOTS):
-            continue
-        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                continue
-            if src_pat.search(line):
-                kind = ("vis-cache" if "unit_trait_" in line
-                        else "ctx" if "ctx.traits" in line else "gameconfig")
-                rows.append({"file": rel, "line": i, "kind": kind, "code": stripped[:150]})
-    return rows
+# --------------------------------------------------------------------------------------------
+# VOLET 2 -- table des GATES de la couche DECISION
+# --------------------------------------------------------------------------------------------
+# Colonnes : (id, fichier, ligne, token attendu a cette ligne, traits testes, accesseur)
+#
+# ACCESSEURS (le vrai grain du defaut) :
+#   ENTITE     -- substrat par ENTITE : `UnitContext.traits` (kit gameconfig seede + traits
+#                 ACCORDES en bataille par le leaf porte `AddTrait`) + grande-alliance.
+#                 C'est le mirror complet de `BaseUnitComponent$$HasTrait` cote port.
+#   VIS-CACHE  -- `unit_trait_ids/names(visual_id)`, `lru_cache` PAR visualId -> AVEUGLE a tout
+#                 octroi en bataille, et structurellement incapable de le voir.
+#   GAMECONFIG -- `GC.unit(<visualId>).traits` en direct -> meme cecite, en plus SANS le
+#                 pseudo-trait de grande-alliance.
+#   CTX        -- `UnitContext.traits` sans la grande-alliance (per-entite, donc dynamique-capable,
+#                 mais incomplet sur les 3 traits d'alliance).
+GATES = [
+    # -- famille Tile(7), sujet (`ctx["unit_traits"]`)
+    ("T1 CapturePoint(24)", "utilities/tile.py", 288, 'unit_traits', [2, 13], "ENTITE"),
+    ("T2 PowerUp(26)", "utilities/tile.py", 304, 'unit_traits', [2, 13], "ENTITE"),
+    ("T3 DespoiledGround(28)a", "utilities/tile.py", 382, 'unit_traits', [2026], "ENTITE"),
+    ("T3 DespoiledGround(28)b", "utilities/tile.py", 384, 'unit_traits', [26, 1006], "ENTITE"),
+    ("T4 SummonDislikeDoor(29)", "utilities/tile.py", 405, 'unit_traits', [2], "ENTITE"),
+    ("T5 HeroLikeDoor(30)", "utilities/tile.py", 423, 'unit_traits', [16], "ENTITE"),
+    ("T6 AttractMechanicals", "utilities/tile.py", 464, 'unit_traits', [5], "ENTITE"),
+    ("T7 MoveTowardsUnit(61/62)", "utilities/tile.py", 531, 'unit_traits', [2026, 1019], "ENTITE"),
+    # -- famille AdjacentUnitPreference, VOISIN (`friend_units/enemy_units[*]["traits"]`)
+    ("A1 FabricatorClawArray", "playbook/adjacent_unit_preference.py", 169,
+     'Mechanical', ["Mechanical"], "ENTITE"),
+    ("A2 CursedPlagueBell", "playbook/adjacent_unit_preference.py", 332,
+     '_has_trait', ["Chaos"], "ENTITE"),
+    # -- famille NonComparable (`_traits(visualId)` = gameconfig NU)
+    ("N1 RitesOfRestoration/resurrectable", "playbook/noncomparable/heals.py", 53,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N2 RitesOfRestoration/heroDead", "playbook/noncomparable/heals.py", 62,
+     'Hero', ["Hero"], "GAMECONFIG"),
+    ("N3 RitesOfRestoration/summonDead", "playbook/noncomparable/heals.py", 63,
+     'Summon', ["Summon"], "GAMECONFIG"),
+    ("N4 RitesOfRestoration/healTargets", "playbook/noncomparable/heals.py", 68,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N5 RitesOfRestoration/self", "playbook/noncomparable/heals.py", 69,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N6 Repair/self", "playbook/noncomparable/heals.py", 187,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N7 Repair/allies", "playbook/noncomparable/heals.py", 191,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N8 Heal/eligibility", "playbook/noncomparable/heals.py", 237,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    ("N9 HeroicFusillade", "playbook/noncomparable/heroic_fusillade.py", 73,
+     'Hero', ["Hero"], "GAMECONFIG"),
+    ("N10 HammerOfWrath", "playbook/noncomparable/hammer_of_wrath.py", 86,
+     '_OVERWATCH', ["Overwatch"], "GAMECONFIG"),
+    ("N11 ItItches/IsDisplaceable", "playbook/noncomparable/it_itches.py", 75,
+     'has_any_trait', ["Immovable", "Hulking", "BigTarget", "..."], "GAMECONFIG"),
+    ("N12 bespoke/Mechanical", "playbook/bespoke.py", 74,
+     'Mechanical', ["Mechanical"], "GAMECONFIG"),
+    # -- famille PREDICTION (utilite d'attaque : le gate change la valeur predite)
+    ("P1 RangedInMelee", "playbook/prediction/_shared.py", 89,
+     'UnitTrait.Ranged', ["Ranged"], "CTX"),
+    ("P2 IndirectFire", "playbook/prediction/_shared.py", 203,
+     'IndirectFire', ["IndirectFire"], "CTX"),
+    ("P3 Resilient/damage-limit", "playbook/prediction/_shared.py", 310,
+     'Resilient', ["Resilient"], "GAMECONFIG"),
+    ("P4 Impervious/damage-limit", "playbook/prediction/_shared.py", 311,
+     'Impervious', ["Impervious"], "GAMECONFIG"),
+    ("P5 BigTarget/hits", "playbook/prediction/abilities.py", 219,
+     'BigTarget', ["BigTarget"], "GAMECONFIG"),
+    ("P6 hit_mult cible (MkXGravis/...)", "playbook/prediction/normal_attack.py", 431,
+     'target_hit_multiplier', ["MkXGravis", "TerminatorArmour", "..."], "GAMECONFIG"),
+    ("P7 BeastSlayer/target", "playbook/prediction/normal_attack.py", 339,
+     'traits', ["BigTarget", "Vehicle"], "GAMECONFIG"),
+    ("P8 auras/att_traits", "playbook/prediction/normal_attack.py", 272,
+     'att_traits', ["Daemon", "..."], "GAMECONFIG"),
+    ("P9 auras/tgt_traits", "playbook/prediction/normal_attack.py", 264,
+     'tgt_traits', ["BigTarget", "..."], "GAMECONFIG"),
+    ("P10 conditions d'effet", "playbook/scene.py", 326,
+     'traits', ["TerminatorArmour", "..."], "CTX"),
+    ("P11 Psyker/aura", "playbook/scene.py", 310, 'Psyker', ["Psyker"], "CTX"),
+]
+
+
+def _check_fingerprints() -> list:
+    """Verifie que chaque ligne citee contient encore son token. Rend la liste des ecarts."""
+    bad = []
+    cache: dict = {}
+    for gid, rel, line, token, _traits, _acc in GATES:
+        p = ENGINE / rel
+        lines = cache.get(rel)
+        if lines is None:
+            lines = cache[rel] = p.read_text(encoding="utf-8").splitlines()
+        got = lines[line - 1] if 0 < line <= len(lines) else ""
+        if token not in got:
+            bad.append((gid, rel, line, token, got.strip()[:80]))
+    return bad
 
 
 def main() -> int:
     from engine.entities.traits.unit_trait import UnitTrait
 
-    print("=" * 92)
-    print("#225 -- INVENTAIRE des gates de trait de la couche DECISION")
-    print("=" * 92)
+    ws = _write_side()
+    print("=" * 96)
+    print("#225 -- INVENTAIRE des gates de TRAIT de la couche DECISION (build gqfc5mff6c)")
+    print("=" * 96)
 
-    print("\n[1] TRAITS ACCORDES EN BATAILLE (chemin d'ecriture natif AddTraitOperation)")
-    print("    -- litteraux lus au decompile (xrefs de DSLFactory$$AddTrait) :")
-    dyn_traits = set()
-    for tid, who in sorted(NATIVE_ADDTRAIT_LITERALS.items()):
-        nm = UnitTrait(tid).name
-        dyn_traits.add(nm)
-        print("      0x%-4x %-26s %s" % (tid, nm, who))
-    print("    -- data-driven (EnhancementAddTraitAbility, GetEnumConstant(0x7f), isTemporary=1) :")
-    try:
-        eat = enhancement_add_trait_traits()
-    except Exception as exc:                                   # gameconfig absent -> on le dit
-        eat = {}
-        print("      (gameconfig illisible : %s)" % exc)
-    for nm, where in sorted(eat.items()):
-        dyn_traits.add(nm)
-        print("      %-26s <- %s" % (nm, ", ".join(sorted(where))[:110]))
-    print("    => %d traits DYNAMIQUEMENT accordables : %s"
-          % (len(dyn_traits), ", ".join(sorted(dyn_traits))))
+    print("\n[1] ECRITURE -- traits accordables EN BATAILLE (6 appelants de DSLFactory$$AddTrait)")
+    for name, sites in sorted(ws["literal"].items()):
+        tid = int(UnitTrait[name])
+        n_static = ws["static"].get(name, 0)
+        print("    0x%-4x %-24s statique: %2d/%d unites gameconfig" % (tid, name, n_static,
+                                                                      ws["n_units"]))
+        for _t, tmp, sym, tgt in sites:
+            print("           <- %-34s isTemporary=%d cible=%s" % (sym, tmp, tgt))
+    print("    data-driven (EnhancementAddTraitAbility, isTemporary=1) :")
+    print("      catalogue gameconfig  : %d abilities `EnhancementAddTrait:<trait>`"
+          % len(ws["data_driven"]))
+    print("      CABLEES par live-event: %s" % (sorted(ws["wired"]) or "(aucune)"))
+    for t in sorted(ws["wired"]):
+        print("        %-22s statique: %2d/%d unites" % (t, ws["static"].get(t, 0), ws["n_units"]))
+    print("    porteurs des sites a litteral :")
+    for a, c in ws["carriers"].items():
+        print("      %-22s %s" % (a, ", ".join(c) or "(aucun porteur d'unite -- relique/objet)"))
 
-    rows = scan_decision_layer()
-    print("\n[2] GATES DE TRAIT de la couche DECISION : %d sites" % len(rows))
-    by_acc = Counter(r["acc"] for r in rows)
+    dyn = set(ws["literal"]) | set(ws["wired"])
+    # Un trait DEJA present au gameconfig de tous ses porteurs est indiscernable -> REDONDANT.
+    print("\n    => %d traits accordables en bataille : %s" % (len(dyn), ", ".join(sorted(dyn))))
+
+    bad = _check_fingerprints()
+    print("\n[2] LECTURE -- %d gates de trait dans la couche DECISION" % len(GATES))
+    if bad:
+        print("    !! %d EMPREINTES PERIMEES (la table a rote) :" % len(bad))
+        for gid, rel, line, token, got in bad:
+            print("       %-34s %s:%d attendu '%s' -- lu '%s'" % (gid, rel, line, token, got))
+    by_acc = Counter(g[5] for g in GATES)
     for acc, n in by_acc.most_common():
-        print("      accesseur %-12s : %3d" % (str(acc), n))
-    by_file = defaultdict(int)
-    for r in rows:
-        by_file[r["file"]] += 1
-    print("    -- par fichier :")
-    for f, n in sorted(by_file.items(), key=lambda kv: -kv[1]):
-        print("      %-52s %3d" % (f, n))
+        print("    accesseur %-11s : %2d gates" % (acc, n))
 
-    srcs = scan_sources()
-    print("\n[3] SOURCES de trait (construction du set) : %d sites" % len(srcs))
-    by_kind = Counter(s["kind"] for s in srcs)
-    for k, n in by_kind.most_common():
-        print("      %-12s : %3d" % (k, n))
-    for s in srcs:
-        print("      %-12s %s:%d  %s" % (s["kind"], s["file"], s["line"], s["code"][:80]))
+    print("\n[3] VERDICT PAR GATE (dyn = le trait teste est accordable en bataille)")
+    print("    %-34s %-11s %-5s %s" % ("gate", "accesseur", "dyn", "traits testes"))
+    n_dyn_blind = n_dyn_ok = 0
+    for gid, rel, line, _tok, traits, acc in GATES:
+        names = [UnitTrait(t).name if isinstance(t, int) else t for t in traits]
+        hit = sorted(set(names) & dyn)
+        flag = ",".join(hit) if hit else "-"
+        if hit:
+            if acc == "ENTITE":
+                n_dyn_ok += 1
+            else:
+                n_dyn_blind += 1
+        print("    %-34s %-11s %-5s %s" % (gid, acc, flag, ",".join(names)))
+    print("\n    gates testant un trait DYNAMIQUE et cables sur le substrat ENTITE : %d"
+          % n_dyn_ok)
+    print("    gates testant un trait DYNAMIQUE et encore AVEUGLES                : %d"
+          % n_dyn_blind)
 
-    print("\n[4] DETAIL DES GATES")
-    for r in rows:
-        print("      %-12s %s:%d  %s" % (str(r["acc"]), r["file"], r["line"], r["code"][:90]))
-    return 0
+    print("\n[4] GATE MANQUANT (distinct d'une source perimee : le disjunct n'est PAS PORTE)")
+    print("    IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(u, 0)")
+    print("        = HasTrait(u, 0x421 = AffectedByHealAndRepair) OU NOT IsMechanical(u)")
+    print("    cote COMBAT le disjunct EST porte  : engine/entities/triggers.py::_affected_by_heal,")
+    print("                                         engine/runner/abilities/behaviours/stats.py")
+    print("    cote DECISION il est ABSENT        : engine/playbook/noncomparable/heals.py")
+    print("                                         (gates N1/N4/N5/N6/N7/N8 = `Mechanical not in "
+          "traits` seul)")
+    print("    portee : 0/%d unites portent AffectedByHealAndRepair au gameconfig -> le disjunct ne"
+          % ws["n_units"])
+    print("             mord QUE sur un octroi en bataille (relique R_Defensive_SupaCyborkBody).")
+    print("             Asymetrie DECISION/COMBAT : le runner soignerait une cible que le playbook")
+    print("             a exclue de son compte d'utilite.")
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":
