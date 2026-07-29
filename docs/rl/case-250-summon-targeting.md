@@ -256,10 +256,11 @@ cible. C'etait **3 lignes de desaccord sur 24** au premier passage.
 
 ## 9. Ce qui n'est PAS couvert
 
-* **`TargetHasFreeAdjacentTile` (bit 5) de 1007 n'a pas ete exerce** : il faudrait un ennemi
-  ADJACENT au necroSpyder **et** totalement encercle (le bit 5 vient apres la portee dans la
-  cascade). Aucune ligne des deux couples ne rend `0x20`. Le predicat lui-meme
-  (`get_free_adjacent_tiles`) est deja valide par ailleurs (HammerOfWrath, `probe_243`).
+* ~~**`TargetHasFreeAdjacentTile` (bit 5) de 1007 n'a pas ete exerce**~~ — **EXERCE depuis
+  `case-254-spawn-requires-tile.md`** : `probe_254_spawn_requires_tile.py` amene le necroSpyder au
+  contact d'un ennemi dont la couronne est saturee et le natif rend bien
+  `0x20 TargetHasFreeAdjacentTile` (`C3_26`/31337 et `MC1_67`/777, regime « 0 voisine libre »). Ce
+  meme montage a leve le fantome de `SpawnUnitOperation` decrit ci-dessous.
 * **`GetCasterNotAddedReason`** (§4) : non porte, rend 0. Concerne les deux self-casts du lot.
 * **`CasterHasFreeAdjacentTile` (bit 21)** : lu, situe, non porte, inatteignable ici.
 * **La ligne de vue** (`GetTilesObscuringTerrain`) reste non portee dans le gate generique — aucune
