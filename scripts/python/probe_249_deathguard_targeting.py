@@ -41,6 +41,12 @@ ligne ou le natif rend exactement `0x2` est donc comptee a part : c'est l'ecart 
 un desaccord de transcription. Le montage AURA (amener `deathTyphus` au contact) ferme cet ecart et
 le probe le VERIFIE.
 
+FERME PAR #245 : `TargetIsHealable` (bit 8, 0x100) etait le SECOND ecart attendu de 1037 -- l'allie
+adjacent a PV pleins, que le natif refusait et que le port acceptait. La regle est desormais portee
+(slot 0x11 d'`IAttackQuery` = `AttackQuery$$EntityCanBeHealed`), elle est sortie de `NON_PORTES` et
+son bit est entre dans `_ported_bits` : la ligne est un ACCORD, et le contrefactuel
+`sans_TargetIsHealable` la deplace.
+
 ORACLE = le LIVE : `abilityReason(casterId, abilityType, targetId)` -> `TargetingQuery$$
 GetInvalidTargetReason` natif. Le port rejoue le gate OFFLINE sur le MEME etat fige, en variantes :
   * APRES  = l'ability du registre ;
@@ -107,9 +113,6 @@ NON_PORTES = {
         "regle-delegue de l'ability (`<X>Ability$$GetDynamicInvalidTargetReason`) -- non portee : "
         "pour 1168 sa branche AURA n'est pas materialisable offline, porter la seule branche ARMURE "
         "REFUSERAIT des cibles legales",
-    int(TR.TargetIsHealable):
-        "`TargetIsHealable` (bit 8) -- regle du filtre statique NON PORTEE (inventaire de "
-        "targeting.py). Deux porteurs au registre : 1002 CombatRestoratives et 1037",
     int(TR.AddCasterIfAtLeastOneTarget):
         "`IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` -- non portee (elle "
         "depend de `TargetingQuery$$GetValidTargets`, qui ENUMERE tout le plateau)",
@@ -252,8 +255,8 @@ def _ported_bits(aid: int):
     contrefactuel deplace un verdict. Les autres (declaratifs / volet caster / non portes) sont
     listes a part dans le bilan, sans exigence."""
     portes = (TR.TargetIsTile, TR.TargetIsCaster, TR.TargetIsFriendly, TR.TargetIsEnemy,
-              TR.TargetHasFreeAdjacentTile, TR.TargetTileIsFree, TR.TargetIsNotAdjacent,
-              TR.TargetIsNotAdjacentToEnemy, TR.TargetIsCasterOrEnemy)
+              TR.TargetIsHealable, TR.TargetHasFreeAdjacentTile, TR.TargetTileIsFree,
+              TR.TargetIsNotAdjacent, TR.TargetIsNotAdjacentToEnemy, TR.TargetIsCasterOrEnemy)
     rules = int(ABILITY_CLASSES[aid].TARGETING_OPTIONS.rules)
     return [b for b in portes if rules & int(b)]
 

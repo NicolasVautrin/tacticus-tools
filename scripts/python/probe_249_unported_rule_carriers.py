@@ -27,7 +27,7 @@ from engine.runner.abilities.targeting_rule import TargetingRule as TR  # noqa: 
 # CIBLE avant #249, avec leur etat APRES #249. Toute divergence entre cette table et l'inventaire est
 # un bug de l'un des deux. `True` = la cascade du port l'evalue desormais.
 TARGET_RULES_AUDIT = [
-    (TR.TargetIsHealable,          False),   # bit  8 -- fiche #245
+    (TR.TargetIsHealable,          True),    # bit  8 -- PORTEE par #245
     (TR.TargetIsRepairable,        False),   # bit 16
     (TR.TargetTileIsFreeOrEnemy,   False),   # bit 17
     (TR.TargetIsDisplaceable,      False),   # bit 18

@@ -33,7 +33,7 @@ au passage qu'aucun masque ne pose de bit hors enum `TargetingRule`.
 Mesure du 2026-07-29, sur les 13 règles que l'inventaire déclarait non portées :
 
 ```
-TargetIsHealable          (bit  8)  -> 2 porteurs : 1002, 1037        (fiche #245)
+TargetIsHealable          (bit  8)  -> 2 porteurs : 1002, 1037   <- PORTEE depuis (fiche #245)
 TargetTileHasEnemyUnit    (bit 19)  -> 4 porteurs : 1017, 1026, 1092, 1213   <- PORTEE ICI
 CasterHasFreeAdjacentTile (bit 21)  -> 2 porteurs : 1028, 1047
 TargetIsNotAnObject       (bit 33)  -> 4 porteurs : 1029, 1113, 1202, 1214
@@ -221,7 +221,9 @@ n'a été confronté à l'oracle natif `abilityReason`.** Ce qui reste à mesure
    est établie au décompilé, pas par la mesure. C'est assumé.
 5. **`TargetIsNotAnObject`** (4 porteurs) reste non portée : il faut une cible portant le trait
    `0xd Object`, qu'aucun montage connu ne produit. Résidu **nommé**, non fermé ici.
-6. **`TargetIsHealable`** (1002, 1037) : hors périmètre, fiche #245.
+6. ~~**`TargetIsHealable`** (1002, 1037) : hors périmètre, fiche #245.~~ — **PORTÉE depuis**, cf.
+   `docs/rl/case-245-target-is-healable.md` : le prédicat est `AttackQuery$$EntityCanBeHealed`
+   (slot `0x11` d'`IAttackQuery`), pas la garde de mutation `healable_heal_type_0`.
 
 ## 5. Fichiers
 
