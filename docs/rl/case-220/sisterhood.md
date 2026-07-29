@@ -67,28 +67,33 @@ caster, target, Sum(NormalAttackDamage=StatAmount(Attack), Direct(GetVariableFor
 NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster)))). Template VigilanceEternal EXACT, sauf :
  - CHARGE SANS reach : dest = `CanAddUnit(AdjacentTiles(target))` SEUL (PAS d'`op_And MovableTilesInRange` ;
    Celestine vole) -> collapse = tuile libre ring-1 la plus proche du caster. VALIDÉ : dist 2 ET dist 5 -> charge.
- - ATTAQUE = attaque MELEE NORMALE + extraDmg (PAS config minDmg/maxDmg, absents = 0). Node `Sum(StatAmount(
-   Attack), Const(extraDmg))` MONO-VALEUR (StatAmountFormula.Calculate = 1 valeur) -> HitDamage(V,V) DEGENERE :
-   AUCUN spread +/-20% (le +/-20% de l'attaque normale = weapon-path GetBaseDamageFix64, ABSENT du path ability).
-   Chaque coup = reduce(V) FIXE (V = Attack + extraDmg), profil/coups = arme MELEE (Celestine Power / 3 coups,
-   MeleeWeaponHits SANS ExtraHits). native_factory="attack" -> execute_ability_attack(wasted), 1 tirage/coup.
-   Porté en mode BORNES + damage_override(V,V) + hits_override=MeleeWeaponHits.
+ - ATTAQUE = attaque MELEE NORMALE + extraDmg (PAS config minDmg/maxDmg, absents = 0). Node `Sum(
+   NormalAttackDamage(caster), Direct(extraDmg))` ou `DSLFactory$$NormalAttackDamage` @180df75e0 est LA MEME
+   factory que celle de l'attaque NORMALE (`ALoki_NormalAttackAbility$$AttackAmount` @1811ae27f, xrefs).
+   **#226-r : LE COUP PORTE LE SPREAD +-20 %** (le port le disait PLAT : FAUX). Le commutateur est le 8e
+   argument d'`AttackWithAttackDamage` : `Nullable<AttackDamageBehaviourOptions>` avec l'OCTET **+6 = 1**
+   (`uStack_1e2 = 1`, seul octet non nul ; +4 = alwaysOverkilled FlailSwing, +5 = alwaysCrit
+   TacticalPrecision) — le meme octet que `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` @1811aef30
+   renseigne DEPUIS UN GETTER de l'ability (`local_1d8._0_7_ = CONCAT16(<vtable+0x4b8>, ...)`), donc le
+   drapeau « calcul de degat d'ARME ». Chemin : `AttackDamageBehaviour+0x9e` -> `AttackDamageOperation$$
+   ExecuteHit` (options+0x2f) -> `AttackPredictionRequest+0x6a` -> slot 4 `DamagePrediction$$PredictAttack`,
+   ou `GetBaseDamageFix64` etale les bornes de +-DamageSpreadPercentage autour de V = Attack + extraDmg,
+   REDUIT, puis tire (reduce-then-roll, 1 tirage/coup). CONTRASTE mesure : le smite Psyker
+   (`PsykerExtraAttackAbility$$CreateBehaviour` @1812241b0) passe ce meme Nullable VIDE et n'a AUCUNE variance.
+   Profil/coups = arme MELEE (Celestine Power / 3 coups, MeleeWeaponHits SANS ExtraHits).
+   Porte en mode `amount` (`Sum(StatAmount(Caster(), Attack), Const(extraDmg))`) + `amount_spread_pct=20`
+   + `hits=MeleeWeaponHits` -> `execute_normal_like`.
  - GATE has-not-moved (@1812082a0, DidMove) : eligibilite ciblage (HORS ExecuteBehaviour) — CONFIRMÉ LIVE
    (Celestine non bougee -> castable ; bougee+non-adjacente -> reason 0x10, NON castable).
-VALIDATION : A/B bit-exact (arbre attaque == execute_ability_attack(V,V,wasted) même rng) + no-spread OFFLINE (3
-coups egaux, V=3064) + charge dist 2/5 + gate has-not-moved live + zero-regression (Vigilance/Sanctorum/
-damage/SavageEchoes/Psyker). CAST LIVE : le porteur HORS pool est injecte par
-`catalog_inject.write_augmented_seed_bc` (bloc `Units` + configs `BC.Abilities`) et le cast de 1025 REUSSIT
-(#226 — l'ancien « GetVariableForLevel(8=extraDmg) throw pour unite injectee » etait un diagnostic FAUX : c'est
-la config d'ability qui manquait au BC). Nb de coups live == MeleeWeaponHits gameconfig (3), asserte.
-RESIDU OUVERT decouvert du meme coup — **le per-hit live n'est PAS plat** : `hits=[3334, 3156, 2477]`, ratios
-[1.115, 1.056, 0.829] autour de leur moyenne (2989, a 2,5 % de V=3064), soit une dispersion compatible avec un
-spread +/-20 % autour de V, alors que le port emet V FIXE. Ce n'est ni crit ni block ni evade : les trois coups
-portent `Attack_DidCrit=0 Attack_DidBlock=0 Attack_DidEvade=0` et `UnitStats_RemainingArmor=0`
-(`probe_226_seed_bc_ability_configs.py --dump-tags`). A trancher au decompile : le node d'attaque de
-`SkyStrikeAbility$$ExecuteBehaviour` passe-t-il par le weapon-path (`GetBaseDamageFix64`, spread) plutot que par
-un `StatAmount` degenere ? Placement : `runner/abilities/sisterhood.py` + handler 1025 ; test
-`tests/engine/runner/test_sky_strike_live.py`.
+VALIDATION : **le port == le CAST LIVE, BIT-EXACT, 24 coups** (`probe_226r_skystrike_spread.py` : 4 seeds
+adjacent + 2 seeds armure 4000 + 2 seeds charge dist 2 ; contre-modele degenere (V,V) 0/24, contre-modele
+bornes brutes roll-then-reduce 4/24 et 0/6 en regime armure) + A/B `execute_normal_like(V, spread 20)` +
+charge dist 2/5 + gate has-not-moved live + zero-regression (Psyker/Haze/HeroicFusillade/damage-roll).
+CAST LIVE : le porteur HORS pool est injecte par `catalog_inject.write_augmented_seed_bc` (bloc `Units` +
+configs `BC.Abilities`) et le cast de 1025 REUSSIT (#226 — l'ancien « GetVariableForLevel(8=extraDmg) throw
+pour unite injectee » etait un diagnostic FAUX : c'est la config d'ability qui manquait au BC).
+Placement : `runner/abilities/sisterhood.py` + handler 1025 ; test `tests/engine/runner/test_sky_strike_live.py`.
+Fiche : `docs/rl/case-226r-skystrike-weapon-spread.md`.
 ```
 ```
 [1041 BrazierOfHolyFire | adeptCanoness]  — [opus]+prérequis
