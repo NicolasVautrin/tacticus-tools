@@ -119,11 +119,41 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `EXPLOSIBEMALADIES_AdjacentRangedFriend` (=15) / `EXPLOSIBEMALADIES_AdjacentChoasMeleeFriend` (=15),
   gates `HasRangedWeapon` puis `HasTrait(0x7ea)` — ⚠ le nom dit « Melee » mais **aucune instruction ne
   teste `IsMelee`**. Pas de cap, pas de filtre. Porteur à qualifier. `[opus]`.
-- **`FabricatorClawArrayPlaybook` (1006) : cap `vtbl+0x228` = 1 non appliqué** (`case-212` §7.2). Le
-  bloc `methodPointers` montre le MÊME corps fondu `mov eax,1 ; ret` que `SpiritualLeaderPlaybook` ;
-  le port somme `30 x #amis Mechanical`. Aucun verdict existant n'est contredit (#57i/#193c n'ont
-  exercé que `n <= 1`) — il faut un montage `necroSpyder` + 2 alliés Mechanical adjacents avant de
-  poser la constante. `[opus]`.
+- ~~**`FabricatorClawArrayPlaybook` (1006) : cap `vtbl+0x228` = 1 non appliqué**~~ — **FAIT**
+  (`case-242`) : le cap MORD et vaut 1. Mesuré `X_nat` **PLAT à 30 pour 1, 2 ET 3 amis retenus**
+  (`MC1_67`/777, 18 tuiles) là où le port rendait jusqu'à **120**. Le montage manquant a été
+  construit — `_drive_cluster` DÉPLACE les alliés sur des voisins distincts d'une tuile atteignable
+  par le carrier, et le seed BC est dérivé sans `TertiaryAbility` (la relique `NetherRealmCasket` du
+  carrier ajoutait un SECOND terme sur le même voisinage, cf. résidu ci-dessous). Deux résidus
+  ouverts par ce cas.
+- **`FabricatorClawArray` (1006) : le gate `CanBeRepaired` du filtre, NON porté** (`case-242` §6.1).
+  `IdunBattle.AI.Playbook.Loki.FabricatorClawArrayPlaybook$$FilterAdjacentFriends` fait
+  `HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)` : un ami Mechanical à PV
+  PLEINS n'est PAS retenu (`IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` ->
+  `IsDamagedUnit` -> `HealthComponent.IsWounded`). Mesuré sur les DEUX couples board/seed :
+  `nMech=1, nRep=0 -> X_nat = 0` alors que le port rend 30 — régime NORMAL en début de bataille.
+  Porter demande `hp`/`hp_max` dans les `friend_units` du `tile_leaf_ctx` (deux clés dans
+  `engine/utilities/tile.py::_adjacent_units`). ⚠ Qualifier d'abord la seconde branche du OU :
+  `UnitExtensions.GetStat(u, 4, …) > 0` avec `StatType` 4 = `Armor`, ÉTEINTE par le montage
+  (`--hp-*` met `Armor`/`FixedArmor` à 0) — hors de ce régime le gate peut être PLUS permissif que
+  le simple `IsWounded` mesuré. `[opus]`.
+- **`NetherRealmCasketPlaybook` (relique 1462) : playbook de MOUVEMENT non porté** (`case-242` §6.2).
+  Structure entièrement RE-solue :
+  `IdunBattle.AI.Playbook.Loki.NetherRealmCasketPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
+  = `+5 x #amis Mechanical adjacents (self exclu)`, SANS cap ni gate, clé
+  `NetherRealmCasket_LikesAdjacentFriendlyMechanicals` (=5 BC). S'applique à tout porteur de la
+  relique (4 unités au seed BC), pas au seul `necroSpyder`. Une face NonOwner existe aussi
+  (`NetherRealmCasket_AdjacentMechanicals` = 5). `[opus]`.
+- **`AttractMechanicalsUtility` (feuille 57) PORTÉE mais INERTE** (`case-242` §6.3) :
+  `meta["attract_mechanicals_neighbor"]` n'est jamais posé par `apply_tile_attributes` -> +10 natif
+  non rendu sur toute tuile voisine d'un porteur de `DoctrinaImperatives` (1118) quand le mover a le
+  trait 5. Même nature que le résidu `case-212` §7.1 (gap de CONTEXTE, pas de feuille) — à traiter
+  avec lui. `[opus]`.
+- **Le défaut de la BASE pour les caps `vtbl+0x228`/`0x238` toujours non lu** (`case-242` §6.4) : le
+  bloc `methodPointers` d'un CONCRET ne contient que ce qu'il DÉCLARE, et le corps du défaut
+  appartient à la base générique `AdjacentUnitPreferenceTriggeredAbilityPlaybook<T>`, absente du
+  dump. On sait seulement qu'il est `>= 3` (`GuardianOrganismPlaybook`, `case-36`). `MAX_ADJACENT_*`
+  reste `None` quand le concret est muet.
 - **`meta.steppable` / `meta.decoy_gate` / `meta.decoy_friend_count` jamais posés** (`case-212` §7.1) :
   `SteppableUnitUtility` (19) et `AttractToDecoysUtility` (64) sont PORTÉES et correctes, mais
   INERTES faute de métadonnée. Écart mesuré **+25 constant** (−50 + 75) sur toute tuile candidate
