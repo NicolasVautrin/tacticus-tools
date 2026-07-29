@@ -47,22 +47,69 @@ def _enums() -> dict:
     return json.loads(best.read_text(encoding="utf-8"))
 
 
+# `enums.json` est indexe PAR NOM : mesure sur 1.41.128 -> [('None','0'), ('StartMatch','1'),
+# ('StartTurn','2'), ...]. `step_name`/`group_name` l'interrogeaient PAR ID (`.get(str(i))`),
+# donc ne trouvaient JAMAIS rien et rendaient toujours `Step#N` / `Group#N`. Panne muette : le
+# repli avait exactement la forme d'un ordinal inconnu.
 @lru_cache(maxsize=1)
-def _step_map() -> dict:
+def _step_par_nom() -> dict:
     return (_enums().get("StepType") or {}).get("values") or {}
 
 
 @lru_cache(maxsize=1)
-def _group_map() -> dict:
+def _group_par_nom() -> dict:
     return (_enums().get("GroupType") or {}).get("values") or {}
 
 
+def _inverse(par_nom: dict) -> dict:
+    out = {}
+    for nom, val in par_nom.items():
+        try:
+            out[int(val)] = nom
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+@lru_cache(maxsize=1)
+def _step_map() -> dict:
+    """id -> NOM."""
+    return _inverse(_step_par_nom())
+
+
+@lru_cache(maxsize=1)
+def _group_map() -> dict:
+    """id -> NOM."""
+    return _inverse(_group_par_nom())
+
+
 def step_name(i) -> str:
-    return _step_map().get(str(i), f"Step#{i}")
+    return _step_map().get(int(i), f"Step#{i}") if i is not None else "Step#None"
 
 
 def group_name(i) -> str:
-    return _group_map().get(str(i), f"Group#{i}")
+    return _group_map().get(int(i), f"Group#{i}") if i is not None else "Group#None"
+
+
+@lru_cache(maxsize=None)
+def step_id(nom: str) -> int:
+    """Ordinal de `StepType.<nom>` SUR LE BUILD COURANT.
+
+    ⚠ NE JAMAIS figer un ordinal de `StepType` en dur. Ces valeurs sont IMPLICITES : le retrait
+    d'un membre au milieu decale tout ce qui suit. Mesure du 2026-07-29 -- `rnca9r7q6c` a retire
+    `RestoreArmorInfo` (7), donc `RemoveUnit` est passe de 12 a 11 et `ReceiveEffect` de 16 a 15.
+    Les deux ordinaux etaient ecrits en dur ici : `deaths` comptait des `ChangeStats` et `effects`
+    des `LoseEffect`, SANS ERREUR NI TRACE -- et `analyze()` alimente `rl_duel.py` et
+    `rl_probe_step.py`.
+
+    Leve `KeyError` si le nom n'existe plus : un membre disparu doit CASSER, pas se replier
+    silencieusement sur un ordinal qui appartient desormais a un autre pas."""
+    v = _step_par_nom().get(nom)
+    if v is None:
+        raise KeyError(
+            "StepType.%s absent de enums.json (build courant) -- le pas a-t-il ete renomme ou "
+            "retire ? Re-verifier contre data/symbols/<build>/frida/enums.tsv." % nom)
+    return int(v)
 
 
 def _tags(ev: dict) -> dict:
@@ -145,7 +192,7 @@ def analyze(events: list, my_ids) -> dict:
             continue
         step = ev.get("step")
         tags = _tags(ev)
-        if step == 4:  # UnitDamaged — événement uniforme
+        if step == step_id("UnitDamaged"):   # événement uniforme
             atk, tgt = tags.get("Attacker_Id"), tags.get("Target_Id")
             manual = any(g.startswith("User_") for g in stack)
             d = {
@@ -167,19 +214,30 @@ def analyze(events: list, my_ids) -> dict:
                 out["dealt"].append(d)
             elif tgt in my:
                 out["received"].append(d)
-        elif step == 12:  # RemoveUnit
+        elif step == step_id("RemoveUnit"):
             out["deaths"].append(ev.get("entity"))
-        elif step == 16:  # ReceiveEffect
+        elif step == step_id("ReceiveEffect"):
             out["effects"].append(tags.get("Effect_Id"))
     return out
 
 
 if __name__ == "__main__":
-    # Smoke test : map non vide + ordinaux connus.
-    assert step_name(4) == "UnitDamaged", step_name(4)
-    assert step_name(3) == "ChangePosition"
-    assert group_name(11) == "User_MoveUnit"
-    assert group_name(12) == "User_UseAbility"
-    print(f"stream_events OK — StepType({len(_step_map())}) "
-          f"GroupType({len(_group_map())}) chargés ; 4=UnitDamaged, "
-          f"11=User_MoveUnit")
+    # Smoke test : ALLER-RETOUR par NOM, jamais un ordinal fige.
+    # L'ancienne version assertait `step_name(4) == "UnitDamaged"` et trois autres ordinaux en
+    # dur. Elle etait DOUBLEMENT fausse : `step_name` rendait toujours `Step#N` (map interrogee
+    # a l'envers), donc ce smoke test n'a jamais pu passer -- il n'etait donc jamais joue. Et
+    # asserter un ordinal, c'est re-armer exactement le piege qu'on vient de desamorcer.
+    assert _step_map(), "StepType vide : frida/data/meta/<ver>/enums.json introuvable ?"
+    assert _group_map(), "GroupType vide"
+    for nom in ("UnitDamaged", "RemoveUnit", "ReceiveEffect", "ChangePosition"):
+        i = step_id(nom)
+        assert step_name(i) == nom, "aller-retour casse : %s -> %d -> %s" % (nom, i, step_name(i))
+    try:
+        step_id("RestoreArmorInfo")
+    except KeyError:
+        pass                       # retire par rnca9r7q6c : l'absence DOIT lever
+    else:
+        print("NOTE : RestoreArmorInfo est revenu -- les ordinaux ont pu re-decaler.")
+    print("stream_events OK -- StepType(%d) GroupType(%d) ; UnitDamaged=%d RemoveUnit=%d "
+          "ReceiveEffect=%d" % (len(_step_map()), len(_group_map()), step_id("UnitDamaged"),
+                                step_id("RemoveUnit"), step_id("ReceiveEffect")))
