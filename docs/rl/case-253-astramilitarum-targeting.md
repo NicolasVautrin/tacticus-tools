@@ -176,11 +176,16 @@ Lecture honnête de ces zéros, plutôt que de les maquiller en validation :
 
 * **`CasterHasFreeAdjacentTile` (bit 21)** — règle du filtre statique CIBLE (slot 0x51 d'`IBattleQuery`
   sur le **caster**, juste après le même slot sur la cible pour le bit 5, avant `TargetTileIsFree`).
-  Son unique porteur du registre est **1028**, qui pose aussi `isSelfCasting = 1` : casté sur
-  lui-même, le natif part sur `GetCasterNotAddedReason` et la cascade CIBLE n'est jamais atteinte ;
-  casté ailleurs, sa portée **nulle** refuse en amont. La règle est **inerte pour le seul porteur
-  connu** — la porter serait du code non confrontable. Elle est signalée dans l'inventaire de
-  `targeting.py`.
+  **Correction (`case-249-tile-has-enemy-unit` §3) : 1028 n'est PAS son unique porteur.** Ils sont
+  **DEUX** — 1028 `SupremeCommander` et 1047 `ScarabSummon`, masque `0x208000` identique. Cette
+  fiche écrivait « le seul porteur connu = 1028 » pendant que `case-250-summon-targeting` écrivait
+  « son seul porteur » en désignant 1047 : les deux comptes étaient faux, et leur contradiction
+  aurait dû alerter. L'argument d'inertie, lui, a été **refait pour 1047** et il tient — les deux
+  ctors posent la même paire `isSelfCasting = 1` + `RANGE_SELF` : casté sur lui-même, le natif part
+  sur `GetCasterNotAddedReason` et la cascade CIBLE n'est jamais atteinte ; casté ailleurs, la portée
+  **nulle** refuse en amont (`TargetIsInRange` précède le bit 21). La règle est donc inerte **chez
+  ses deux porteurs** — la porter serait du code non confrontable. Elle est signalée dans
+  l'inventaire de `targeting.py`, désormais avec son COMPTE de porteurs.
 * **`CasterHas2TurnsLeft` (bit 52, porteur 1142)** — règle CASTER, gated par le slot `0x1a`
   d'`IBattleQuery` sur `(caster, 2)`, non résolu. Non portée → permissif.
 * **`SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason` (1016)** — non portée. Elle exige qu'il

@@ -144,7 +144,11 @@ if ((rules & 0x200000) != 0) {
 }
 ```
 
-Elle est **INATTEIGNABLE par la cascade pour son seul porteur**, et c'est structurel :
+Elle est **INATTEIGNABLE par la cascade pour SES DEUX PORTEURS** — 1047 `ScarabSummon` et 1028
+`SupremeCommander`, masque `0x208000` identique (cette fiche a longtemps écrit « son seul porteur »
+en pensant 1047, pendant que `case-253` écrivait la même chose en pensant 1028 ; les deux comptes
+étaient faux, corrigé par `case-249-tile-has-enemy-unit` §3). Et c'est structurel, à l'identique
+pour les deux, parce que leurs ctors posent la MÊME paire `isSelfCasting = 1` + `RANGE_SELF` :
 
 * cible == caster -> `isSelfCasting = 1` fait brancher l'overload 5 arguments sur
   `GetCasterNotAddedReason`, qui n'evalue **jamais** le filtre statique ;

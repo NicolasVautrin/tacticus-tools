@@ -496,8 +496,14 @@ après #181) et **ne monte plus** : les entrées neuves arrivent AVEC leur masqu
 > inventé, 0 refus pour la mauvaise raison** sur 18 couples (3 casters × 6 unités) + 3 tuiles, et
 > **0/0 sur 88 couples** du second montage (autres porteurs des bits 5 et 12 : 1003, 1009, 1112,
 > 1201). Gardes : `tests/engine/runner/test_targeting_adjacency_rules_live.py` (22 tests) + fixture
-> `_not_adjacent_stage.py`. Résidu restant du bloc : `CasterHasFreeAdjacentTile` (bit 21) — **aucun
-> porteur au registre**, donc rien à valider ; le porter serait spéculatif.
+> `_not_adjacent_stage.py`. Résidu restant du bloc : `CasterHasFreeAdjacentTile` (bit 21) — ⚠ cette
+> ligne disait « **aucun porteur au registre**, donc rien à valider ». **C'était vrai au moment de
+> case-243 et c'est FAUX depuis** : le registre en compte **DEUX** (1028 `SupremeCommander`, 1047
+> `ScarabSummon`, masque `0x208000`) — corrigé par `case-249-tile-has-enemy-unit` §3. La conclusion
+> « le porter serait spéculatif » tient quand même, mais pour une **autre** raison : la règle est
+> inatteignable par la cascade chez ces deux porteurs (`isSelfCasting = 1` + `RANGE_SELF`). Un compte
+> de porteurs se **re-dérive** (`scripts/python/probe_249_unported_rule_carriers.py`), il ne se
+> recopie pas : celui-ci s'est périmé silencieusement le jour où les deux abilities sont entrées.
 
 > **case-231 (2026-07-28)** : les deux masques du lot viennent d'un **preset statique** — leur
 > `.ctor` n'appelle AUCUN `TargetingOptions$$.ctor`, il recopie 0x40 octets. Le masque effectif est

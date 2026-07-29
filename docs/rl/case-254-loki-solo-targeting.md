@@ -71,7 +71,11 @@ La surcharge PRESET+FLAGS (`*(dst+0x28) = param_3 | *(preset+0x28)`) donne
 - `0x2` `TargetMatchesDynamicRule` — regle-delegue non portee -> defaut 0 (PERMISSIF).
 - `0x4000` `TargetIsEnemy` — PORTEE.
 - `0x200000000` `TargetIsNotAnObject` (bit 33) — regle du filtre statique NON portee ; elle refuse
-  une cible portant le trait `0xd Object`. **Seul porteur du registre.**
+  une cible portant le trait `0xd Object`. **CORRIGE (#249) : 1113 n'est PAS le seul porteur du
+  registre, ils sont QUATRE** — 1029 `Drachnyen` (`0x200004000`), 1113 `Stormcaller`
+  (`0x200004002`), 1202 `VigilanceEternal` (`0x206004002`), 1214 `Hailstrike`
+  (`0x200240000400`). Le compte se re-derive avec
+  `scripts/python/probe_249_unported_rule_carriers.py` ; ne pas le citer de memoire.
 
 Piege ecarte : le preset `+0x140` (1014 ArmoriumCherub) porte le MEME `rules = 0x4002` et le MEME
 `RANGE_FROM_CONFIG`, et ne differe que par `forceMeleeTarget` (`0` = RangedBool.**True** contre `1` =
@@ -257,8 +261,11 @@ generiques (`test_targeting_masks_live.py`, `test_targeting_options_masks_live.p
    `<X>Ability$$GetDynamicInvalidTargetReason` n'est portee pour aucune des trois. Aucun ecart
    observe sur ces montages, mais l'absence d'ecart n'est pas une preuve d'inertie : la regle native
    peut mordre sur un etat que ces montages n'atteignent pas.
-3. **`TargetIsNotAnObject`** (1113) — regle du filtre statique non portee, seul porteur du registre.
-   Il faudrait une cible portant le trait `0xd Object` pour la mesurer.
+3. **`TargetIsNotAnObject`** (1113) — regle du filtre statique non portee. Il faudrait une cible
+   portant le trait `0xd Object` pour la mesurer. **Le compte de porteurs ecrit ici etait FAUX** :
+   « seul porteur du registre » — ils sont QUATRE (1029, 1113, 1202, 1214), corrige par #249. Un
+   « seul porteur » faux fait classer un gap comme anecdotique ; le compte se RE-DERIVE
+   (`probe_249_unported_rule_carriers.py`), il ne se cite pas.
 4. **`CasterHas1Tiles`** (1151) — volet CASTER, non porte. Inerte de fait sur tout heros a empreinte
    1, mais non confronte sur un caster multi-pieds.
 5. Le **behaviour** des quatre abilities n'est pas retouche : ce cas ne porte QUE la face

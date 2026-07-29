@@ -60,6 +60,18 @@ INVENTAIRE des regles du filtre statique (ordre NATIF de la cascade 7-args) et e
 Une regle NON PORTEE ne refuse JAMAIS (degradation PERMISSIVE — meme convention que « ability non
 portee => behaviour no-op ») : le port ne peut pas inventer un refus qu'il ne sait pas decider.
 
+CHAQUE « NON » PORTE SON COMPTE DE PORTEURS, et ce n'est pas cosmetique : c'est la SEULE facon de
+savoir si un non-port est anecdotique (0 porteur au registre = rien a porter) ou si c'est un TROU.
+La colonne a ete introduite par #249 apres DEUX affirmations « seul porteur » COMMITEES et FAUSSES
+(`CasterHasFreeAdjacentTile` compte 2 porteurs, pas 1 ; `TargetIsNotAnObject` en compte 4, pas 1) —
+les deux SOUS-estimaient le trou, c'est-a-dire dans le sens qui fait classer un gap comme negligeable.
+⚠ NE PAS CITER CES COMPTES DE MEMOIRE : les RE-DERIVER (`ABILITY_CLASSES` x
+`TARGETING_OPTIONS.rules`) avec `scripts/python/probe_249_unported_rule_carriers.py`, qui les
+recalcule depuis les DEUX sources de masque du port et verifie au passage qu'aucun masque ne pose de
+bit hors enum. Mesure du 2026-07-29 : registre = 94 abilities, 94 masques poses, aucun bit hors enum ;
+12 abilities touchees par une regle non portee AVANT #249, **8** apres (le bit 19 en fermait 4) ; et
+9 des 13 regles auditees ont ZERO porteur — ce ne sont pas des residus, il n'y a rien a y porter.
+
 TOUS LES NOMS CI-DESSOUS SONT CEUX DE L'ENUM NATIF, et ce module n'en declare AUCUN : il les lit
 dans `engine/runner/abilities/targeting_rule.py`, mirror 1:1 GENERE par
 `scripts/python/gen_targeting_rule.py` depuis `data/symbols/<build>/frida/enums.tsv`. C'est la
@@ -83,29 +95,32 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
-  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON (forced-targets)
-  18   0x40000               TargetIsDisplaceable                                NON
+  23   0x800000              TargetIsAllowedForCaster (`GetOnlyTargets`, Taunt)  NON (0 porteur)
+  18   0x40000               TargetIsDisplaceable                                NON (0 porteur)
   29   0x20000000            TargetIsTargetable (sauf si                        OUI
                              AllowUntargetableTarget est pose)
-  51   0x8000000000000       TargetIsNotSteppable                                NON
-  47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON
+  51   0x8000000000000       TargetIsNotSteppable                                NON (0 porteur)
+  47/48/49                   TargetHas1Tiles / TargetHas3Tiles / TargetHas7Tiles NON (0 porteur)
    -   (non gate)            portee : `dist(casterTiles, target) > GetRange` ->  OUI (cf. ci-dessous)
                              TargetIsInRange (bit 27, 0x8000000) ; variante
                              EXACTE sous le bit 9 TargetIsAtRange (0x200)
    -   (non gate)            `GetTilesObscuringTerrain` (ligne de vue)           NON
   13   0x2000                TargetIsSummon (`HasTrait(2)`)                      OUI (#250)
-  50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON
-  33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON
-   8   0x100                 TargetIsHealable                                    NON
-  16   0x10000               TargetIsRepairable                                  NON
+  50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON (0 porteur)
+  33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON (4 porteurs :
+                                                                                 1029/1113/1202/1214)
+   8   0x100                 TargetIsHealable                                    NON (2 porteurs :
+                                                                                 1002/1037, cf. #245)
+  16   0x10000               TargetIsRepairable                                  NON (0 porteur)
    5   0x20                  TargetHasFreeAdjacentTile (battleQuery slot 0x51)   OUI
   21   0x200000              CasterHasFreeAdjacentTile (jumelle du bit 5, sur    NON (INATTEIGNABLE
-                             le CASTER : slot 0x51 applique a `param_2`)         chez son seul
-                                                                                 porteur 1028, cf.
-                                                                                 #250 et #253)
+                             le CASTER : slot 0x51 applique a `param_2`)         chez ses DEUX
+                                                                                 porteurs 1028 et
+                                                                                 1047, cf. #249)
   12   0x1000                TargetTileIsFree (`CanAddUnit`)                     OUI (cible TUILE)
-  17   0x20000               TargetTileIsFreeOrEnemy                             NON (domaine TILE)
-  19   0x80000               TargetTileHasEnemyUnit                              NON (domaine TILE)
+  17   0x20000               TargetTileIsFreeOrEnemy                             NON (0 porteur)
+  19   0x80000               TargetTileHasEnemyUnit (`IsEmptyOrSteppable` NIE    OUI (#249 ; cible
+                             + `UnitsCanAttackEachOther` sur `GetUnit(target)`)   TUILE)
   32   0x100000000           TargetIsNotAdjacent (battleQuery slot 0x61)         OUI
   42   0x40000000000         TargetIsNotAdjacentToEnemy (battleQuery slot 0x7f)  OUI
    1   0x2                   TargetMatchesDynamicRule                            OUI (point d'extension)
@@ -168,10 +183,24 @@ non-port converge, mais PAS pour la meme raison, et la nuance vaut d'etre ecrite
     PERMISSIVE ordinaire.
 Le bit 21 `CasterHasFreeAdjacentTile`, lui, EST une regle du filtre statique CIBLE (le natif y
 appelle le slot 0x51 sur le **CASTER**, juste apres le meme slot sur la CIBLE pour le bit 5, et
-avant `TargetTileIsFree`). Son unique porteur du registre est 1028 SupremeCommander, qui pose aussi
-`isSelfCasting = 1` : caste sur lui-meme, le natif part sur `GetCasterNotAddedReason` et la cascade
-CIBLE n'est jamais atteinte ; caste ailleurs, sa portee NULLE (RANGE_SELF) refuse en amont. La regle
-est donc INERTE pour le seul porteur connu — la porter serait du code non confrontable.
+avant `TargetTileIsFree`). Il a **DEUX** porteurs au registre, et pas un — 1028 `SupremeCommander`
+et 1047 `ScarabSummon`, masque `0x208000` IDENTIQUE (l'inventaire a longtemps ecrit « son seul
+porteur 1028 » : compte FAUX, corrige par #249). L'argument d'inertie a ete REFAIT pour 1047, et il
+tient, parce que les deux ctors posent la MEME paire :
+
+    ScarabSummonAbility$$.ctor    : TargetingOptions..ctor(&opts, 1, &<TargetingRange statics+0x60>,
+                                                           1, 0x208000, 0,0,0)
+    SupremeCommanderAbility$$.ctor: idem, meme preset, meme litteral
+
+`isSelfCasting = 1` + `TargetingRange statics+0x60` = `RANGE_SELF` (`.cctor` : `+0x60 = 1`,
+`+0x68 = Nullable(0)`, `+0x70 = null` -> `overrideRange = 0`). Deux chemins, tous deux fermes AVANT
+le bit 21 : cible == caster (ou tuile du caster, que `GetUnit` resout en lui) -> l'aiguillage
+self-cast branche sur `GetCasterNotAddedReason` et la cascade CIBLE n'est JAMAIS evaluee ; cible
+ailleurs -> `d > 0` rompt `TargetIsInRange`, qui PRECEDE le bit 21 dans la cascade. La regle est donc
+INERTE chez SES DEUX PORTEURS — la porter serait du code non confrontable. Elle reste atteignable
+par un chemin INDIRECT que le port n'a pas : `GetCasterNotAddedReason` finit sur
+`TargetingQuery$$GetValidTargets`, qui re-applique la cascade complete a toutes les cibles candidates
+— mais `GetValidTargets` n'est pas porte (cf. `get_caster_not_added_reason`), donc rien a y gagner.
 
 HORS PERIMETRE (autres rejets d'`ExecuteInternal`, meme observable a 2 evenements, non decomposes) :
 `IdunBattle.Operations.ActiveAbilityOperation$$IsValidCaster`,
@@ -1138,6 +1167,39 @@ def units_are_friends(state: "State", a_id, b_id) -> bool:
     return _current_player_team(state, a_id) == _current_player_team(state, b_id)
 
 
+def tile_is_empty_or_steppable(state: "State", coord) -> bool:
+    """`IdunBattle.Entities.TileExtensions$$IsEmptyOrSteppable(tile, state)` — mirror du decompile
+    (les DEUX surcharges ont le meme corps, seule differe la facon d'atteindre le
+    `TileContentComponent` : lookup de composant ou champ `tile+0x38`) :
+
+        if (tile.TileContentComponent.IsEmpty())                       return true;
+        u = UnitExtensions.GetUnit(tile, state);
+        if (u != null && GetBaseUnitComponent(u) != null
+            && BaseUnitComponent.HasTrait(u, 0x1b Steppable))          return true;
+        return false;
+
+    C'est le PREMIER terme de la regle `TargetTileHasEnemyUnit` (bit 19), dont il est la NEGATION
+    utile : « la tuile ne porte AUCUNE unite, ou n'en porte qu'une STEPPABLE ».
+
+    ⚠ FONCTION NATIVE DISTINCTE de `TileExtensions$$CanAddUnit` — ne PAS les fusionner. `CanAddUnit`
+    n'appelle pas celle-ci : il RE-ECRIT le meme test (`IsEmpty()` puis `HasTrait(0x1b)`) et
+    l'encadre de trois autres rejets (blocker, `NotWalkable`, tuile RESERVEE) que `IsEmptyOrSteppable`
+    n'a PAS. Une tuile non marchable et vide est `IsEmptyOrSteppable` = VRAI et `CanAddUnit` = FAUX.
+    La duplication du corps est celle du natif ; la structure offline suit la structure native.
+
+    `state.unit_at` est le mirror etabli d'`UnitExtensions$$GetUnit(tile, state)` (occupant
+    empreinte-aware, morts exclus) : il folde les deux etages `IsEmpty()` / `GetUnit`. Sans board ni
+    coordonnee le port ne sait pas resoudre -> `True` (aucun refus invente : c'est la valeur qui
+    DESARME la regle du bit 19, convention permissive de tout ce module)."""
+    from ...entities.traits.unit_trait import UnitTrait
+    if coord is None:
+        return True
+    occ = state.unit_at((int(coord[0]), int(coord[1])))
+    if occ is None:
+        return True
+    return UnitTrait.Steppable.name in (_unit_traits(state, occ.id) or ())
+
+
 def tile_can_add_unit(state: "State", coord) -> bool:
     """`IdunBattle.Entities.TileExtensions$$CanAddUnit(tile, state, allowSteppable, ignoreReserved,
     ignoreContent)` pour le triplet `(1, 0, 0)` — le SEUL que le filtre statique utilise (bit 12
@@ -1592,6 +1654,44 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
         tt = entity_tiles(state, target_id)
         if tt and not tile_can_add_unit(state, tt[0]):
             return int(TR.TargetTileIsFree)
+
+    # TargetTileHasEnemyUnit -- « la TUILE ciblee doit porter une unite ENNEMIE DU CASTER ». VERBATIM
+    # du filtre statique (surcharge 7 arguments), IMBRIQUE dans la clause du bit 17 et juste avant
+    # `TargetIsNotAdjacent` :
+    #     if ((rules & 0x80000) != 0
+    #         && (TileExtensions.IsEmptyOrSteppable(pcVar12, state)
+    #             || !TargetingQuery.UnitsCanAttackEachOther(caster, pcVar9)))
+    #        -> broken(0x80000)
+    # DEUX TERMES, et ils ne resolvent PAS la tuile de la meme facon -- c'est le point que le module
+    # a deja paye deux fois (#251/#254 sur `GetUnitFeetIds`, #250 sur `TargetTileIsFree`) :
+    #   * `pcVar12` = la cible RESOLUE par la tete de domaine, donc `GetMainTile(target)` pour les
+    #     QUATRE porteurs (tous `TargetIsTile`) = `entity_tiles(...)[0]`, exactement comme le bit 12 ;
+    #   * `pcVar9` = `local_c8` = `UnitExtensions$$GetUnit(target, state)` calcule UNE FOIS en tete de
+    #     la cascade sur la cible D'ORIGINE (ghidra le reassigne `pcVar9 = local_c8` juste avant le
+    #     bloc `TargetIsTargetable`, donc ce n'est PAS `GetMachine`) -> `unit_of_entity`, qui resout
+    #     une TUILE en son OCCUPANT (`GetUnit` @ le corps generique : UnitComponent -> l'entite ;
+    #     TileComponent -> `TileContentComponent.IsFilled` puis `state.GetEntity(content.UnitId)`).
+    # Aucune 3e variante n'est introduite : les deux helpers existaient deja.
+    # SEMANTIQUE : la tuile doit etre OCCUPEE par une unite NON-Steppable (1er terme) qui soit
+    # ATTAQUABLE par le caster (2e terme). Tuile vide -> le 1er terme rompt ; tuile d'un ALLIE -> le
+    # 2e (`UnitsCanAttackEachOther` faux) ; tuile d'un ENNEMI -> aucun des deux, cast valide.
+    # `unit_of_entity` nul (tuile vide) fait rendre `False` a `units_can_attack_each_other` via
+    # `is_actor(None)` -- meme verdict que le natif, dont `UnitsCanAttackEachOther(caster, null)`
+    # sort sur `!IsActor(null)`.
+    # PERMISSIF quand le port ne resout pas la tuile (`entity_tiles` vide) : aucun refus invente.
+    # IMBRICATION : le natif n'evalue le bit 19 QUE si la clause du bit 17 `TargetTileIsFreeOrEnemy`
+    # n'a pas deja rompu (le bit 19 est dans son `then`). Le port teste le bit 19 directement, et ce
+    # n'est PAS un raccourci : le bit 17 a **ZERO porteur** au registre
+    # (`probe_249_unported_rule_carriers.py`), donc la garde ne peut pas se declencher. Si une
+    # ability posant le bit 17 entre un jour, il faudra porter le bit 17 AVANT celui-ci, dans cet
+    # ordre d'imbrication.
+    if options.has(TR.TargetTileHasEnemyUnit):
+        tt = entity_tiles(state, target_id)
+        if tt:
+            occupant = unit_of_entity(state, target_id)
+            if (tile_is_empty_or_steppable(state, tt[0])
+                    or not units_can_attack_each_other(state, caster_id, occupant)):
+                return int(TR.TargetTileHasEnemyUnit)
 
     # TargetIsNotAdjacent -- « la cible ne doit PAS etre AU CONTACT du caster ». VERBATIM du filtre
     # statique (surcharge 7 arguments) :
