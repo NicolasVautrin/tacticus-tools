@@ -297,7 +297,7 @@ def main():
     ap.add_argument("--armor", type=int, default=0)
     ap.add_argument("--k", type=int, default=2)
     ap.add_argument("--cf", action="store_true",
-                    help="rejoue AUSSI le contrefactuel « gate d'AVANT case-haze-bonded » sur le meme etat")
+                    help="rejoue AUSSI le contrefactuel 'gate d'AVANT case-haze-bonded' sur le meme etat")
     ap.add_argument("--dump-events", action="store_true")
     args = ap.parse_args()
     rpc = _mkrpc()
