@@ -69,6 +69,75 @@ def test_litteraux_lus_au_decompile():
     assert ((GC.ability("HazeOfCorruption") or {}).get("constants") or {}).get("nrOfHits") == "1"
 
 
+def _etat_avec_bond_1077():
+    """Etat MINIMAL portant un bond 1077 pret a reporter : le relais porte l'effet, sa `source` est
+    l'unite qui meurt, son `bonded` est le porteur du passif (= l'auteur du coup fatal). Rend
+    `(state, trigger, event, instance)`."""
+    from engine.entities.effects import BaseEffect
+    from engine.entities.effects_state import EffectsState
+    from engine.runner.components import UnitComponent
+    from engine.runner.state import State
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.runner.operations.triggers.loki import haze_of_corruption as H
+
+    st = State()
+    relay, dying, carrier = st.add_entity(), st.add_entity(), st.add_entity()
+    for e in (relay, dying, carrier):
+        e.add_component(UnitComponent(visual_id="deathBlightlord", alive=True))
+    eff = BaseEffect(name=H.HAZE_DAMAGE_TRANSFER_NAME, effect_type=H.HAZE_DAMAGE_TRANSFER)
+    eff.source, eff.target, eff.bonded = dying.id, relay.id, carrier.id
+    st.effects = EffectsState(by_unit={relay.id: [eff]})
+    ev = TriggerEvent(H._ON_UNIT_DEATH, carrier.id, dying.id, ranged=False, profile=None,
+                      killer_id=carrier.id, dying_id=dying.id)
+    return st, H.HazeOfCorruptionDamageTransferTrigger(relay.id), ev, eff
+
+
+def test_le_report_n_est_pas_evalue_quand_l_instance_est_inerte():
+    """#231 -- GATE `EffectComponent.IsActive @+0x5c`.
+
+    `HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` place ce trigger sur le rail que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` gate : dans sa
+    boucle PAR CIBLE, il RECHARGE l'`EffectComponent` depuis l'entite-effet et n'appelle
+    `ShouldTrigger` (slot 0x13) puis `Execute` (slot 0x14) que
+    `if (*(char *)(<component> + 0x5c) != '\\0')`. Une instance INERTE n'est donc meme pas EVALUEE.
+
+    Le TEMOIN (instance ACTIVE -> le report part) est dans la meme fonction : sans lui, un `matches`
+    faux pour une autre raison passerait aussi."""
+    st, trg, ev, eff = _etat_avec_bond_1077()
+    assert eff.active is True, "defaut d'une instance fraiche = ACTIVE (mirror du ctor natif)"
+    assert trg.matches(st, ev) is True, "TEMOIN : instance ACTIVE -> le report est evalue et part"
+    eff.active = False
+    assert trg.matches(st, ev) is False, (
+        "instance INERTE -> `EvaluateEffectTriggerTargets` n'evalue MEME PAS le trigger de cible ; "
+        "le port ne doit pas reporter le degat")
+
+
+def test_le_gate_ne_vaut_que_pour_le_rail_targets():
+    """Contre-garde d'INFIDELITE (case-229) : `EvaluateEffectTriggerEffectAbilities` -- l'autre
+    evaluateur, celui des `Triggered()` de `CreateHandleTriggerAbilitiesInternal` -- n'accede JAMAIS
+    a `+0x5c`. Le collecteur ne doit donc PAS filtrer sur `active`, sinon les `ActivateEffect` qui
+    RALLUMENT un effet eteint (l'overwatch 1009 consomme) ne seraient plus jamais collectes."""
+    import inspect
+    from engine.runner.operations.triggers.dispatch import core
+    src = inspect.getsource(core.collect_effect_triggers)
+    assert "e.consumed" in src
+    assert ".active" not in src, (
+        "le gate `IsActive` se pose dans le `matches` du rail TARGETS, jamais dans le collecteur "
+        "(il porte AUSSI les 17 triggers du rail ArraySet, que le natif ne gate pas)")
+
+
+def test_le_canal_de_seed_transporte_le_flag_inactif():
+    """Le vecteur d'exposition est REEL, pas theorique : `readEffectsByUnit(statePtr,
+    { includeInactive })` publie les entrees a `IsActive == 0` avec leur `active`, et
+    `EffectFactory.create` le lit. Sans cette lecture, le gate ci-dessus serait inatteignable."""
+    from engine.entities.effects.factory import EffectFactory
+    from engine.runner.operations.triggers.loki import haze_of_corruption as H
+    base = {"name": H.HAZE_DAMAGE_TRANSFER_NAME, "effectType": H.HAZE_DAMAGE_TRANSFER}
+    assert EffectFactory.create(dict(base)).active is True, "cle absente -> actif (canal par defaut)"
+    assert EffectFactory.create(dict(base, active=False)).active is False
+    assert EffectFactory.create(dict(base, active=True)).active is True
+
+
 def test_les_deux_volets_sont_au_registre():
     from engine.runner.operations.triggers.dispatch.registry import (ABILITY_TRIGGERS,
                                                                      EFFECT_TRIGGERS)

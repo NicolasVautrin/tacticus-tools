@@ -81,7 +81,7 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1009 | `RangedAutoAttackActivateOnTurnStart` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
 | 1009 | `RangedAutoAttackDeactivateOnTurnStart` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
 | 1009 | `RangedAutoAttackDeactivateOnAttack` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
-| 1077 HazeOfCorruption_DamageTransfer | `HazeOfCorruptionDamageTransferTrigger` | TARGETS | unite | no | **ECART** |
+| 1077 HazeOfCorruption_DamageTransfer | `HazeOfCorruptionDamageTransferTrigger` | TARGETS | unite | **direct** | CONFORME depuis #231 |
 | 1145 EarlyWarningOverride_ReactivateOverwatch | `EarlyWarningOverrideReactivateOverwatch` | ARRAYSET | unite | no | CONFORME |
 | 1145 | `EarlyWarningOverrideHitReductionPurge` | ARRAYSET | unite | via `active_effects` | CONFORME (noeud d'arbre `HasEffect(onlyActive=1)`) |
 | 1180 InspiredToGreatness_OverrideLevel | `InspiredToGreatnessOverrideLevelRemove` | ARRAYSET (greffe) | unite | no | CONFORME |
@@ -105,8 +105,9 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | unite | no | **ECART** |
 | 1550 Chronometron_ExtraDamage | `ChronometronExtraDamageRemove` | ARRAYSET (greffe) | unite | no | CONFORME |
 
-**22 classes conformes / 6 en ecart.** Precision sur la fiche d'entree : le flag est lu par
-**1009 seul** cote `EFFECT_TRIGGERS`. Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
+**23 classes conformes / 5 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077).
+Precision sur la fiche d'entree : le flag n'etait lu que par
+**1009** cote `EFFECT_TRIGGERS` (1077 l'a rejoint avec #231). Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
 le LECTEUR (`HasEffect(self, 0x52c, onlyActive=1, 6)`) est `FuelledByFuryReviveAbility`, qui vit
 dans `ABILITY_TRIGGERS`, pas ici.
 
@@ -158,18 +159,27 @@ Ventilation des 6 ecarts :
 
 | ecart | canal de seed | dans le rayon de souffle ? |
 |---|---|---|
-| 1077 HazeOfCorruption_DamageTransfer | unite | **OUI** |
+| 1077 HazeOfCorruption_DamageTransfer | unite | **non** — RÉFUTÉ par mesure live, cf. ci-dessous |
 | 1197 MasterOfTheTutelaries | unite | **OUI** |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** |
 | 1502 RitesOfMorkai | unite | **OUI** |
 | 1547 ReanimationBeam_Revive | unite | **OUI** |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
+> ⚠ **La colonne ci-dessus est une DEDUCTION (« porteur unite => canal unite »), et #231 en a
+> refute la premiere ligne par MESURE.** `probe_231_haze_transfer_active_gate.py` monte un bond
+> 1077 reellement pose (temoin natif `BondEffect_BondedId`) et lit les DEUX canaux sur le meme
+> etat : **0 entree 1077 au canal par defaut, 0 aussi sous `includeInactive`** — alors que le
+> meme appel rend 4 entrees `active: false` pour d'autres effets, donc le canal fonctionne. Le
+> bond est HORS de ce que publie `readEffectsByUnit` : la bascule ne peut pas le seeder inerte.
+> Les quatre lignes restantes n'ont PAS ete mesurees ; les traiter comme des hypotheses, et
+> confronter avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+
 ## 4. Recommandation
 
-**L'activation globale n'est PAS possible en l'etat.** Cinq effectTypes l'empechent, nommement :
+**L'activation globale n'est PAS possible en l'etat.** Quatre effectTypes l'empechent, nommement
+(1077 a ete RESORBE par #231, et sa ligne de rayon de souffle REFUTEE — cf. §3) :
 
-    1077  HazeOfCorruption_DamageTransfer   -> HazeOfCorruptionDamageTransferTrigger
     1197  MasterOfTheTutelaries             -> MasterOfTheTutelariesSummonAbility
     1201  AnvilShield_FrozenAttackerAdvantage -> AnvilShieldFrozenAdvantageExpire
     1502  RitesOfMorkai                     -> RitesOfMorkaiReviveTrigger
@@ -180,7 +190,8 @@ pour 1197) dont le `matches` ne consulte pas le flag : seedes INERTES, ils firen
 natif ne les evalue meme pas. La degradation est PERMISSIVE (report de degat, invocation,
 consommation d'effet, revive) — ni erreur ni crash, donc invisible en self-play.
 
-Deux voies de resorption, a trancher hors de cette fiche :
+Deux voies de resorption. **#231 a TRANCHE pour la voie 1** (1077), et l'a doublee d'une garde qui
+verrouille le refus de la voie 2 (`test_le_gate_ne_vaut_que_pour_le_rail_targets`) :
 
 1. **Par-classe** (fidele au natif) : poser le gate dans le `matches` des cinq, sur le modele
    deja porte de `_ranged_auto_attack_flag_is_set` (1009). C'est un mirror 1:1 du
