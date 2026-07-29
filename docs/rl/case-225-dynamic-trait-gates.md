@@ -78,10 +78,14 @@ etat »**.
 
 | accesseur | ce qu'il lit | gates | dynamique-capable |
 |---|---|---|---|
-| `ENTITE` | `UnitContext.traits` (kit seede **+ octrois**) + grande-alliance | **10** | **oui** (depuis #225) |
-| `GAMECONFIG` | `GC.unit(<visualId>).traits` en direct | 19 | non -- et **sans** la grande-alliance |
+| `ENTITE` | `UnitContext.traits` (kit seede **+ octrois**) + grande-alliance | **16** (10 a #225, **+6 a #232**) | **oui** |
+| `GAMECONFIG` | `GC.unit(<visualId>).traits` en direct | 13 (etait 19) | non -- et **sans** la grande-alliance |
 | `CTX` | `UnitContext.traits` seul | 4 | oui pour l'octroi, **non** pour la grande-alliance |
 | `VIS-CACHE` | `unit_trait_ids/names(visual_id)`, `lru_cache` par visualId | 0 (etait 2) | non, **par construction** |
+
+Les 6 gates passes en `ENTITE` par **#232** sont ceux de `noncomparable/heals.py` (N1/N4/N5/N6/N7/N8) :
+ils testent `AffectedByHealAndRepair`, un trait ACCORDABLE en bataille -- ils sont donc les premiers
+gates a la fois `dyn` et cables `ENTITE` (le probe les compte : `dyn ENTITE 0 -> 6`).
 
 Les 10 gates passes en `ENTITE` par #225 :
 `CapturePoint(24)`, `PowerUp(26)`, `DespoiledGround(28)` x2, `SummonDislikeDoorOpening(29)`,

@@ -155,3 +155,12 @@ la bataille, l'etat et les positions sont reels.
    trois collections `+0x40`/`+0x48`/`+0x50`, a exposer dans `combatSnapshot.units[*]`. Non fait ici
    (exigerait une reinjection Frida).
 4. **Traits RETIRES (`+0x50`)** : hors de portee, aucun `DSLFactory$$RemoveTrait` dans le binaire.
+5. **PRE-EXISTANT, hors #232 -- 3 empreintes rotees de `probe_225_trait_gates.py`.** Les gates
+   `P2 IndirectFire`, `P3 Resilient/damage-limit` et `P4 Impervious/damage-limit` pointent
+   `playbook/prediction/_shared.py:203/310/311`, lignes qui ne portent plus leur token. **Verifie
+   sur `origin/master` lui-meme** (`git show origin/master:.../\_shared.py`, memes 3 lignes
+   fausses) : ce n'est pas une derive de #232, c'est une PR anterieure qui a decale `_shared.py`
+   sans remettre la table a jour. Les tokens sont aujourd'hui aux lignes **207** (`UnitTrait.
+   IndirectFire.name in att_ctx_traits`), **314** (`"target_has_resilient"`) et **315**
+   (`"target_has_impervious"`) -- non corrige ici (gates de PREDICTION, hors du peri-metre de ce
+   cas, et une empreinte re-pointee sans RE serait un faux vert).
