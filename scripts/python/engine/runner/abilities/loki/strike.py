@@ -7,7 +7,7 @@ from typing import Optional, TYPE_CHECKING
 from fractions import Fraction
 
 from ..base import ActiveAbility
-from ..targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+from ..targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
                          RANGED_BOOL_TRUE, TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 from ...components import StatsComponent
@@ -301,6 +301,49 @@ class ThunderousAssaultAbility(ActiveAbility):
     VALIDÉ live : pose Stunned(1162, rem=1) + enfants 1165/1166/1167 sur la cible (cf. test_effect_stun_live)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ThunderousAssault)  # 1043
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET + FLAGS** (la 2e des trois
+    # formes, celle ou le litteral visible n'est PAS le masque effectif).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility$$.ctor` recopie les
+    # 0x40 octets du preset STATIQUE de `TargetingOptions` (offset RELATIF +0x40 du bloc
+    # `<class>+0xb8`), puis :
+    #     TargetingOptions..ctor(&opts, &preset, 0x10000000, 0)   # surcharge (dst, preset, flags)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)                 # 3e arg = 0 = DirectTargetAttack
+    # La surcharge (dst, preset, flags) recopie le preset champ par champ SAUF `Rules`, qu'elle
+    # COMBINE : `dst+0x28 = flags | preset+0x28`. Le masque EFFECTIF est donc
+    # `0x10000000 | *(statics+0x68)`, et `*(statics+0x68)` est la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` = **0x4000** -> **0x10004000**.
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`) -- 0x10004000 est la somme
+    # de ces deux bits, il ne reste AUCUN bit residuel :
+    #     0x4000      (bit 14) TargetIsEnemy   -> PORTE (refus sur soi-meme / un allie ;
+    #                                             `TargetingQuery$$UnitsCanAttackEachOther`).
+    #     0x10000000  (bit 28) CasterCanMove   -> regle du volet CASTER, PAS du volet cible :
+    #                 `TargetingQuery$$GetInvalidCasterReason` fait
+    #                 `if ((rules & 0x10000000) && !UnitExtensions.CanMove(caster))
+    #                      return GenericBrokenTargetingRule(0x10000000);`
+    #                 (immediatement apres la clause `CasterHasNotMoved`). NON PORTEE -- cf.
+    #                 `get_invalid_caster_reason`, dont la liste « NON PORTEES » la cite deja :
+    #                 `IdunBattle.Entities.UnitExtensions$$CanMove` = `!HasTrait(0x418 Stationary)
+    #                 && MovementComponent.IsAllowedToMove(unit)`, et ce second volet est
+    #                 `movementBlockers.Count == 0` sur un dictionnaire (`MovementComponent+0x50`)
+    #                 que le port ne modelise PAS (son seul poseur du build est
+    #                 `IdunBattle.Entities.Effects.Loki.InstinctiveBehaviourBlockMovementEffect`).
+    #                 Porter le seul volet `Stationary` serait un demi-mirror INVALIDABLE : aucun
+    #                 porteur de 1043 ne peut recevoir ce trait (son unique poseur est
+    #                 `DutyEternalAbility` -> `AddTrait(ActiveTarget, 0x418)` sur le dreadnought
+    #                 invoque, qui n'a pas ThunderousAssault). Residu documente, pas de port
+    #                 speculatif. Mesure : AUCUNE autre ability du registre ne porte le bit 28.
+    # PORTEE : le MEME preset `+0x40` porte `TargetingRange` <- `TargetingRange` statique `+0x30`
+    # (`IdunBattle.Core.Services.TargetingRange$$.cctor` : `+0x30` onlyAdjacent = `RangedBool.True`,
+    # `+0x38` overrideRange = `Nullable(1)`, `+0x40` overrideRangeFunc = null) = `RANGE_ADJACENT` ;
+    # et `forceMeleeTarget` (`<preset>+0x20`) = 1 = `RangedBool.False` (aucun clamp melee a poser --
+    # la portee est DEJA l'adjacence). `onlyAdjacent` fait prendre au filtre statique la branche
+    # `battleQuery.AreEntitiesAdjacent(casterTiles, target)` : la CHARGE de ThunderousAssault ne se
+    # declenche que sur une cible DEJA au contact -- le deplacement de l'arbre (`PushUnit` puis
+    # `MoveUnit(caster, Cache(TargetTile()))`) est un pas d'UN hex, pas une charge a distance.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.CasterCanMove,
+                                         self_cast=False, range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

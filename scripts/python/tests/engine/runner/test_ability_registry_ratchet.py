@@ -51,10 +51,10 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#222 item 1) : 94 abilities au registre, 56 avec masque, ces 38 sans.
+# Etat au 2026-07-29 (#246) : 94 abilities au registre, 58 avec masque, ces 36 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
-#  ArmoriumCherub par #222.)
+#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -86,7 +86,13 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1037: "RevitalizingMalignancyAbility",
     1040: "SpawnPoxwalkersAbility",
     1042: "FlailSwingAbility",
-    1043: "ThunderousAssaultAbility",
+    # 1043 ThunderousAssaultAbility RESORBEE (#246) -- forme « PRESET + FLAGS », la 2e des trois :
+    # `...ThunderousAssaultAbility$$.ctor` recopie `TargetingOptions statics+0x40` PUIS appelle
+    # `TargetingOptions..ctor(&opts, &preset, 0x10000000, 0)`. Cette surcharge COMBINE
+    # (`dst+0x28 = flags | preset+0x28`) -> masque effectif `0x10000000 | *(statics+0x68)` =
+    # `0x10000000 | 0x4000` = 0x10004000 (CasterCanMove | TargetIsEnemy). Le litteral visible
+    # (0x10000000) n'est donc PAS le masque, et le preset n'est pas non plus le masque : c'est le
+    # OU des deux. Portee = `TargetingRange statics+0x30` = RANGE_ADJACENT.
     1045: "GetEmRuntzAbility",
     1047: "ScarabSummonAbility",
     1051: "StikkbombAbility",
