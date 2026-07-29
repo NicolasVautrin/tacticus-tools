@@ -53,10 +53,29 @@ Les deux affirmations que ce bloc portait depuis #79 sont FAUSSES :
     -> l'autre active du meme kit, `NanoscarabRepairProtocols` (1224), CASTE et MUTE reellement
     (allie 9537 -> 12196 PV, effets 1545/1546 poses et relus).
 
-Ce qui bloque REELLEMENT la pose native de 1547 est plus etroit et NOMME : `ReanimationBeam` (1223)
-a `ammoCost = 1` et `hasAmmo = false` dans un runner -- la jauge de munitions d'une MoW n'y monte
-pas -> le cast est ACCEPTE mais NO-OPE (`mutated = false`). Port MIRROR valide sur etat LIVE avec
-l'effet 1547 INJECTE dans `state.effects` (`test_revive_retrofit_offline_live.py`).
+POSE NATIVE DE 1547 -- **OBTENUE le 2026-07-29** (`probe_mow_ammo_gauge.py`,
+`docs/rl/case-mow-ammo-gauge.md`). L'attribution precedente (« `1223` a `hasAmmo = false`, la jauge
+de munitions d'une MoW ne monte pas dans un runner -> le cast est ACCEPTE mais NO-OPE ») est
+**REFUTEE par mesure** : avec `MachineOfWarAmmo` pose dans la BC, donc `hasAmmo = true`, le cast
+no-ope EXACTEMENT PAREIL. Le terme MUNITIONS gate la face DECISION
+(`ActiveAbility$$get_CanCurrentlyBeUsed`, donc ce que l'IA/l'UI PROPOSENT), pas l'EXECUTION par
+`applyAction` -- a munition ZERO le cast pose 1547 quand meme, `SpendAmmoOperation$$Execute`
+echouant silencieusement.
+
+Les deux vrais obstacles, cumulatifs :
+
+  1. `initialCooldownTurns = 1` (gameconfig) -> au tour 1 le 3e terme de `get_CanCurrentlyBeUsed`
+     est deja faux. Le champ `usable` de `decisionView` ne le montre PAS (c'est `CanStillBeUsed`
+     @0x28, le PREMIER terme seul) ; `abilityReason` le montre.
+  2. une MoW n'a qu'UNE action par tour, et le cast PREREQUIS de `1224 NanoscarabRepairProtocols`
+     (exige par `...ReanimationBeamAbility$$GetDynamicInvalidTargetReason` : cible Mechanical
+     PORTANT l'effet 0x609 = 1545) la consomme -> le beam qui suit dans le MEME tour no-ope.
+
+Recette live qui pose 1547 : 2 `endturn` -> cast `1224` sur un allie Mechanical -> 2 `endturn`
+-> cast `1223`. L'effet apparait alors sur la MACHINE (`decisionView.mows[].effects`, PAS
+`units[]`), 1 entree aux DEUX canaux. Port MIRROR valide sur etat LIVE avec l'effet 1547 INJECTE
+dans `state.effects` (`test_revive_retrofit_offline_live.py`) ; la pose native est desormais
+disponible pour une confrontation de bout en bout.
 """
 from __future__ import annotations
 

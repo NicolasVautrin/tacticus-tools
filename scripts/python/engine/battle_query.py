@@ -666,6 +666,9 @@ def can_currently_be_used(ability: dict) -> bool:
     Le terme MUNITIONS n'a de mordant que sur les MACHINES OF WAR (`ammoCost` est null sur toute
     unite reguliere) : mesure live session 4, runner MoW `adeptExorcist` -- `1187` est
     `usable:true, hasAmmo:false` (stock `MachineOfWarAmmo` = 0 au seed BC) et le natif caste `1188`.
+    Gate DECISION-ONLY, confirme le 2026-07-29 (`docs/rl/case-mow-ammo-gauge.md`) : un cast force par
+    `applyAction` a munition ZERO s'execute et pose ses effets. Le stock (`PlayerComponent+0x6c`) est
+    pose une fois depuis la BC et n'est JAMAIS incremente par une operation native.
 
     L'attaque NORMALE (`kind == 'normal'`) n'a pas d'objet `ActiveAbility` derriere (ni `usable`, ni
     cooldown, ni munitions) -> jamais gatee, comme dans `can_use_ability`."""
