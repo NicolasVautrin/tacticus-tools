@@ -203,6 +203,13 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
     _cap.py`). #57i/#193c n'avaient exercé que `n <= 1`, régime où le cap est transparent — aucun de
     leurs verdicts n'était donc contredit, ni ne le confirmait.
 
+    ⚠ ÉTAT DE VALIDATION (`case-242` §7) — le cap EST confronté live (`MC1_67`/777, régime
+    `nRep` = 1, 2, 3, `X_nat` plat à 30, build `gqfc5mff6c`). Ce qui reste NON CONFRONTÉ, différé par
+    la MAJ `gqfc5mff6c` -> `rnca9r7q6c` : un SECOND couple board/seed discriminant (`C4_09`/31337 n'a
+    jamais dépassé UN allié blessé, régime où tout cap `>= 1` donne le même résultat), et
+    l'exécution de `tests/engine/test_fabricator_claw_cap_live.py` (build-agnostique, rejouable tel
+    quel).
+
     ⚠ RÉSIDU MESURÉ, NON PORTÉ — le filtre natif a un SECOND gate que ce port n'applique pas :
 
         HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)
@@ -218,7 +225,11 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
     alors que ce port rend 30. Le porter demande `hp`/`hp_max` dans les `friend_units` du
     `tile_leaf_ctx` (deux clés à ajouter dans `engine/utilities/tile.py::_adjacent_units`, fichier
     hors périmètre de #242). Poser le cap sans ce gate est strictement moins faux : sur les 6
-    régimes mesurés, il corrige 3 tuiles et n'en dégrade aucune."""
+    régimes mesurés, il corrige 3 tuiles et n'en dégrade aucune.
+    ⚠ `StatType` 4 = `Armor`, et la branche `GetStat(u, 4, …) > 0` était ÉTEINTE par le montage
+    (`--hp-target`/`--hp-player` mettent `Armor` ET `FixedArmor` à 0) ; le second littéral n'est pas
+    qualifié. Le gate OBSERVÉ se réduit donc à `IsWounded`, mais hors de ce régime il peut être PLUS
+    permissif : ne pas porter « blessé » seul sans relire ce prédicat."""
     MAX_ADJACENT_FRIENDS = 1                                       # vtbl+0x228 : `mov eax,1 ; ret`
 
     def get_adjacent_friend_utility(self, unit: dict, wt) -> float:

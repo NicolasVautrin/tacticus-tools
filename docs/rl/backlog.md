@@ -133,8 +133,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `IsDamagedUnit` -> `HealthComponent.IsWounded`). Mesuré sur les DEUX couples board/seed :
   `nMech=1, nRep=0 -> X_nat = 0` alors que le port rend 30 — régime NORMAL en début de bataille.
   Porter demande `hp`/`hp_max` dans les `friend_units` du `tile_leaf_ctx` (deux clés dans
-  `engine/utilities/tile.py::_adjacent_units`). ⚠ Qualifier d'abord la branche
-  `UnitExtensions.GetStat(u, 4, 4) > 0` du prédicat. `[opus]`.
+  `engine/utilities/tile.py::_adjacent_units`). ⚠ Qualifier d'abord la seconde branche du OU :
+  `UnitExtensions.GetStat(u, 4, …) > 0` avec `StatType` 4 = `Armor`, ÉTEINTE par le montage
+  (`--hp-*` met `Armor`/`FixedArmor` à 0) — hors de ce régime le gate peut être PLUS permissif que
+  le simple `IsWounded` mesuré. `[opus]`.
 - **`NetherRealmCasketPlaybook` (relique 1462) : playbook de MOUVEMENT non porté** (`case-242` §6.2).
   Structure entièrement RE-solue :
   `IdunBattle.AI.Playbook.Loki.NetherRealmCasketPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`

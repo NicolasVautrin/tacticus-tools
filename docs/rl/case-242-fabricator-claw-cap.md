@@ -97,7 +97,20 @@ Le slot `0x2e` de cette interface est identifié par son SEUL autre appelant dan
 ```
 
 Les deux branches neutralisées par les arguments : `HasNegativeUnitEffect` (dernier flag 0) et
-`HasFlag(attacker, 0x18)` (`attacker` nul). **Un ami Mechanical à PV pleins n'est donc PAS retenu.**
+`HasFlag(attacker, 0x18)` (`attacker` nul).
+
+⚠ **La seconde branche du OU est neutralisée par le MONTAGE, pas par le natif.**
+`IdunBattle.Entities.Enum.StatType` `4 = Armor` — et `--hp-target`/`--hp-player` mettent
+`Armor` ET `FixedArmor` **à 0** (piège de mesure documenté dans `runner.md` §3). Dans les deux
+montages de §5, `GetStat(u, 4, …) > 0` est donc toujours FAUX et le gate se réduit exactement à
+`IsWounded`. En bataille ORDINAIRE (armure non nulle) cette branche peut au contraire rendre le gate
+passant sur une unité à PV pleins. Le second littéral (`4` en position 3) n'est PAS qualifié — le
+symbole a deux surcharges (`GetStat(unit, statType)` et un thunk qui dépaquette
+`param_2 >> 0x20`), donc l'argument peut être un mode de calcul. **À lire avant de porter le
+gate** (§6.1) : s'en tenir à `IsWounded` produirait un filtre TROP STRICT hors de ce montage.
+
+Conclusion utilisable telle quelle : **armure à 0, un ami Mechanical à PV pleins n'est PAS retenu**
+— c'est ce que la mesure montre, et c'est ce qui borne la portée du résidu.
 
 ---
 
@@ -263,14 +276,30 @@ reste donc `None` quand le concret est muet.
 
 ---
 
-## 7. Validation
+## 7. Validation — ce qui est CONFRONTÉ, et ce qui ne l'est pas
+
+⚠ **La mise à jour du jeu `gqfc5mff6c` -> `rnca9r7q6c` a interrompu la passe de validation.** Ce qui
+suit distingue strictement le mesuré du différé. Aucune valeur de repli n'a été substituée à une
+mesure manquante.
+
+### 7.1 CONFRONTÉ LIVE (build `gqfc5mff6c`, cohérent avec le décompilé cité ici)
 
 | | |
 |---|---|
-| `tests/engine/test_fabricator_claw_cap_live.py` | RESULT_TESTS_PLACEHOLDER |
-| contre-épreuve `MAX_ADJACENT_FRIENDS = None` | RESULT_MUTATION_PLACEHOLDER |
-| non-régression `test_spiritual_leader_tile_term_live.py` | RESULT_NONREG_212_PLACEHOLDER |
-| non-régression `test_tile_term_unit_gated_playbooks_live.py` + `test_tile_term_triggered_playbooks_live.py` | RESULT_NONREG_PLACEHOLDER |
+| **Le cap vaut 1** | `MC1_67`/777, 18 tuiles hookées : `X_nat` = 30 pour `nRep` = 1, 2 **et** 3 (§5.1). C'est LA question binaire du cas, et elle est tranchée par la mesure. |
+| **Le gate `CanBeRepaired` mord** | `nMech = 1, nRep = 0 -> X_nat = 0` sur les DEUX couples (§5.1, §5.2) |
+| **Accord port/natif après le fix** | `C4_09`/31337 : `DELTA = 0` sur toutes les tuiles hors régime du gate, y compris à `nMech = 4` (§5.2) |
+| **Le cap côté PORT** | `30 / 30 / 30 / 30` pour 1 à 4 amis Mechanical adjacents (vérifié hors runner, contexte synthétique) |
+
+### 7.2 DIFFÉRÉ par la MAJ de build — **NON CONFRONTÉ LIVE**
+
+| à faire | montage exact |
+|---|---|
+| **Un second couple board/seed DISCRIMINANT pour le cap** | `C4_09`/31337 n'a jamais dépassé `nRep = 1` (un seul allié blessé en 90 pas) : il confirme le gate, pas le cap. Le levier n'est PAS la géométrie (le DRIVE donne bien `nMech = 4`) mais le nombre d'alliés BLESSÉS — soit marcher plus longtemps, soit patcher `RemainingHealth` sur le template DÉJÀ normalisé (cf. §4.1, voie du seed BC écartée). |
+| **Exécution de `tests/engine/test_fabricator_claw_cap_live.py`** | `python -m pytest tests/engine/test_fabricator_claw_cap_live.py` — 2 montages × 5 tests. Le fichier n'arme AUCUN hook RVA : il est build-agnostique et rejouable tel quel après migration. |
+| **Contre-épreuve** | remettre `MAX_ADJACENT_FRIENDS = None` sur `FabricatorClawArrayPlaybook` : `test_term_is_capped_at_one_adjacent_mechanical` DOIT rougir sur les deux montages (`n = 4 -> 120` au lieu de 30). |
+| **Non-régression** | `test_spiritual_leader_tile_term_live.py` (l'autre porteur de cap), puis `test_tile_term_unit_gated_playbooks_live.py` + `test_tile_term_triggered_playbooks_live.py` (les autres concrets du module). Le changement est value-preserving pour eux : aucun n'override `MAX_ADJACENT_FRIENDS`. |
+| **Re-étalonnage du probe** | `probe_242_fabricator_claw_cap.py` hérite des hooks **RVA build-spécifiques** de `probe_193c` (`BUILD_HASH = "gqfc5mff6c"`) et REFUSE de tourner sur un autre build. Re-résoudre ces RVA avant toute nouvelle mesure. |
 
 `test_montage_exercises_more_than_one_adjacent_mechanical` empêche la garde du cap de passer à vide
 si une trajectoire dérive vers une géométrie sans candidate à `n >= 2`.
