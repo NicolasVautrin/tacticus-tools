@@ -113,6 +113,22 @@ lecteurs exigeaient encore un repertoire unique et mouraient a la migration :
 | `test_tile_leaf_unit_traits_live.py` | 3 passed, **1 failed** | **4 passed** |
 | `test_218_amulet_custom_utility_vtable.py` | 1 passed, **1 failed** | **2 passed** |
 
+## 5bis. Ce que le deblocage a REVELE : un attendu perime, merge a l'aveugle
+
+`test_ability_target_gate_lot181_live.py` etait injouable (26 ERROR) — son roster porte
+`ultraInceptorSgt`. Pendant ce temps **#245 a porte `TargetIsHealable`** (bit 8, predicat
+`attack_query.entity_can_be_healed`, slot 0x11 d'`IAttackQuery`) **sans pouvoir faire tourner le
+test qui garde cette ability**. Le parametrage y encodait encore « regle NON portee -> port == 0 » :
+
+```
+HEALABLE_1002 : natif 0x100 TargetIsHealable | port 0x100 | attendu du test 0x0
+```
+
+Port et natif sont d'accord ; c'est l'attendu qui etait perime. Corrige au rebase (5e champ
+`TR.TargetIsHealable`). **Lecon** : un harnais bloque ne rougit pas, il DISPARAIT — et une PR qui
+change le comportement garde par un test eteint le fait sans contradicteur. Le sens PERMISSIF du
+contrat reste garde par les deux tests de balayage, qui ne dependent d'aucune ligne du parametrage.
+
 ## 6. Le montage de `DeathOnTheWind` (1213) : les MUNITIONS, sinon le masque n'est jamais confronte
 
 Une fois le build debloque, 1213 rendait `0x1 ValidRequest` pour TOUTE cible.

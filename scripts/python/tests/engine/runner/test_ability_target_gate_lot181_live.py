@@ -25,9 +25,18 @@ Le contrat de fidelite de `case-115` §3 est conserve tel quel :
     natif != 0   =>  port == natif  (regle PORTEE)  ou  port == 0  (regle NON PORTEE, permissif)
     jamais       :   port != 0 et port != natif
 
-d'ou le cas `HEALABLE` du parametrage, garde EXPRES : `TargetIsHealable` (0x100) est dans le masque
-de `CombatRestoratives` mais N'EST PAS portee par la cascade -> le port doit rendre 0, pas 0x100.
-C'est la seule facon de garder qu'on n'a pas « ameliore » le port en inventant une regle.
+Le sens PERMISSIF (« aucun refus invente ») reste garde par
+`test_le_port_ne_refuse_jamais_ce_que_le_natif_accepte` et par `test_aucun_refus_pour_la_mauvaise_
+raison`, qui balaient TOUTES les cibles vivantes -- pas par une ligne du parametrage.
+
+⚠ Le cas `HEALABLE_1002` a CHANGE DE COLONNE (#254, au rebase). Il encodait « regle NON portee ->
+port == 0 », donnee vraie a son ecriture ; **#245 a porte `TargetIsHealable`** (bit 8, predicat
+`attack_query.entity_can_be_healed`, slot 0x11 d'`IAttackQuery`). Ce test etait alors INJOUABLE --
+son roster porte `ultraInceptorSgt`, et tout `rl_duel build` qui le contenait rendait
+« initAndStart: system error » (cf. `docs/rl/case-254-build-migration-blockers.md`) : les 26 cas
+partaient en ERROR, donc le merge de #245 n'a pas pu voir la ligne devenue fausse. MESURE au
+deblocage : natif `0x100 TargetIsHealable`, port `0x100` -- accord parfait, seul l'attendu etait
+perime.
 
 DEUX PROFILS DE PORTEE distincts sont exerces, parce que `range` se pose dans le MEME appel de ctor
 que `rules` et se trompe aussi silencieusement -- et c'est le sens qui casse VRAIMENT (une portee
@@ -88,9 +97,10 @@ CAS = [
     ("ENEMY_1089", GREAT_FROST_AXE, ULF, "ally", TR.TargetIsEnemy, TR.TargetIsEnemy),
     ("RANGE_1089", GREAT_FROST_AXE, ULF, "foe", TR.TargetIsInRange, TR.TargetIsInRange),
     ("FRIENDLY_1002", COMBAT_RESTORATIVES, INCISUS, "foe", TR.TargetIsFriendly, TR.TargetIsFriendly),
-    # `TargetIsHealable` est DANS le masque (0x8500) mais N'EST PAS portee par la cascade ->
-    # le port doit rendre 0. Garde du sens PERMISSIF du contrat de fidelite.
-    ("HEALABLE_1002", COMBAT_RESTORATIVES, INCISUS, "ally", TR.TargetIsHealable, 0),
+    # `TargetIsHealable` (0x100, dans le masque 0x8500) est PORTEE depuis #245 -- predicat =
+    # `attack_query.entity_can_be_healed`, mirror du slot 0x11 d'`IAttackQuery`. Le port doit donc
+    # rendre EXACTEMENT la raison native, comme toute regle portee.
+    ("HEALABLE_1002", COMBAT_RESTORATIVES, INCISUS, "ally", TR.TargetIsHealable, TR.TargetIsHealable),
     ("ENEMY_1004", MORTIS_ROUND, CERTUS, "ally", TR.TargetIsEnemy, TR.TargetIsEnemy),
     ("RANGE_1004", MORTIS_ROUND, CERTUS, "foe", TR.TargetIsInRange, TR.TargetIsInRange),
     ("ENEMY_1003", DEATH_FROM_ABOVE, BELLATOR, "ally", TR.TargetIsEnemy, TR.TargetIsEnemy),
