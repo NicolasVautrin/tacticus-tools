@@ -156,14 +156,20 @@ DECLARE (regle dynamique non portee, permissive).
   `Units` toucherait aussi des champs d'ETAT JOUEUR (progression, relique) que la synthese ne
   connait pas. La voie propre est un **re-dump du seed BC** (`python dump_boards.py`), a arbitrer —
   il change le pool et les stats de reference de tous les tests.
-- **`test_tau_targeting_live.py` : 2 rouges PRE-EXISTANTES**, identiques avec et sans ce correctif
-  (controle joue par `git stash`). Les deux sont des defauts de MONTAGE, pas des divergences
-  port/natif : `test_1082_inspired_to_greatness` — `cf_range == 0`, aucune cible alliee hors
-  contact dans la mesure ; `test_dynamic_rules_bite_and_flip` — en T2 l'ennemi amene au contact
-  n'inflige aucun degat (`7530 -> 7530`), donc le disjunct `IsDamagedUnit` d'`EntityCanBeHealed`
-  n'est pas exerce.
-- **`test_charge_tile_utility_live.py::test_forward_spotter_spawn_tile_follows_tile_utility`** :
-  rouge PRE-EXISTANTE elle aussi (controle identique) — « tuile de spawn introuvable dans les events
-  du cast 1143 ».
+- ~~**`test_tau_targeting_live.py` : 2 rouges PRE-EXISTANTES**~~ et
+  ~~**`test_charge_tile_utility_live.py::test_forward_spotter_spawn_tile_follows_tile_utility`**~~ :
+  **LES TROIS SONT FERMEES (2026-07-29)** — `case-254bis-trois-rouges-de-montage.md`. Le verdict
+  « defaut de MONTAGE » etait juste pour les trois, mais **le diagnostic etait faux sur deux** :
+  * `test_1082_inspired_to_greatness` : la cible alliee hors contact ETAIT bien la (d=2, accord
+    parfait avec le natif). Ce qui manquait, c'est le faux-accept du contrefactuel — depuis que
+    #247 porte la regle dynamique de 1082, un allie hors contact a PLEINS PV est refuse DEUX fois
+    (portee **et** regle dynamique), donc neutraliser la portee ne revele plus rien. Corrige en
+    amenant cet allie au regime BLESSE ;
+  * `test_dynamic_rules_bite_and_flip` : l'ennemi n'infligeait pas « aucun degat », **il n'attaquait
+    pas du tout** — `applyAction{"kind":"attack"}` n'existe pas (`unknown kind`, `mutated:false`),
+    et le retour n'etait pas lu ;
+  * `test_forward_spotter_...` : meme famille que la cause B ci-dessus (§3) — le littéral
+    `step == 10` = `StepType.AddUnit` vaut **9** sur `rnca9r7q6c`, le membre `RestoreArmorInfo` (7)
+    ayant ete RETIRE de l'enum. Le test lit desormais le TAG `Unit_IsSummoned`, pas l'ordinal.
 - **Les autres sections du seed BC** (`Utilities`, `Effect`, boards) n'ont pas ete confrontees au
   gameconfig vivant : seul le catalogue d'abilities l'est.
