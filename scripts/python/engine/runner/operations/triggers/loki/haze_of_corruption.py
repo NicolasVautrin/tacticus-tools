@@ -171,7 +171,7 @@ HAZE_DAMAGE_TRANSFER = int(EffectType.HazeOfCorruption_DamageTransfer)
 HAZE_DAMAGE_TRANSFER_NAME = EffectType.HazeOfCorruption_DamageTransfer.name
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # 0x2b = 43
 # `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(eventId, allowOverkill, allowShield)` -- RELU
-# VERBATIM (#220) ; les deux enveloppes ne visent PAS le meme evenement :
+# VERBATIM (case-haze-bonded) ; les deux enveloppes ne visent PAS le meme evenement :
 #   `OnPreDeath(a, b)` -> `OnDeathEvent(**1** = PreUnitDeath, a, b)`   [HazeCorruption_BonusHitAbility]
 #   `OnDeath(a, b)`    -> `OnDeathEvent(**0** = UnitDeath,    a, b)`   [le report 1077]
 # et les deux drapeaux sont des GATES sur la CIBLE, ajoutes seulement quand ils valent ZERO :
@@ -300,7 +300,7 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
     Le gate `NOT TriggeringEffectIs(0x435)` (anti-chaine : un mort cause par un transfert 1077 ne
     re-declenche PAS le bonus) est lu sur le slot natif `AbilityEntities+0x138` via
     `_triggering_ability_or_effect` -- sur le vecteur MORT il vient de `state.triggering_ability`
-    (#220). MESURE qui l'exigeait (`probe_220_haze_bonded_chain.py`, k = 2, seed 777, hp 1200) : le
+    (case-haze-bonded). MESURE qui l'exigeait (`probe_220_haze_bonded_chain.py`, k = 2, seed 777, hp 1200) : le
     natif n'emet AUCUN coup bonus a la mort des relais, le port en emettait DEUX de plus."""
     event_id = _ON_PRE_UNIT_DEATH
 
@@ -352,7 +352,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     `owner_id` = l'unite qui PORTE l'effet = le RELAIS ; `EffectSource` = la cible INITIALE ;
     `BondedEntityFromEffect` = le porteur du passif (Maladus).
 
-    `bonded` (#220) est desormais l'entite REELLEMENT bondee, LUE sur l'instance d'effet
+    `bonded` (case-haze-bonded) est desormais l'entite REELLEMENT bondee, LUE sur l'instance d'effet
     (`BaseEffect.bonded`, mirror du champ `+0x10` du composant de bond ecrit par
     `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder` et relu par
     `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`), et non plus INFEREE de « le tueur porte
@@ -369,7 +369,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     de leftovers, le natif relit ceux de la cible INITIALE memorisee par le `SetPersistentData` du
     target-finder). Le port n'a pas de couche persistent-data d'ability ; ici la source de l'effet
     EST la cible initiale, donc la premiere lecture suffit sur les montages a un seul relais."""
-    # `OnDeath(1, 1)` = `OnDeathEvent(**0** = UnitDeath, ...)` -- PAS `PreUnitDeath` (#220, cf. le
+    # `OnDeath(1, 1)` = `OnDeathEvent(**0** = UnitDeath, ...)` -- PAS `PreUnitDeath` (case-haze-bonded, cf. le
     # bloc `_ON_UNIT_DEATH` en tete de module). L'ordre natif de `KillUnitOperation$$Execute` est
     # `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)` : le coup BONUS (`On(1)`) precede
     # donc structurellement le REPORT (`On(0)`), au lieu de partager le meme vecteur.
@@ -431,7 +431,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         if bonded is None:
             return False
         # `OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded))` -- EGALITE d'entite,
-        # plus une inference sur le kit du tueur (#220).
+        # plus une inference sur le kit du tueur (case-haze-bonded).
         chained = _triggering_ability_or_effect(state, ev) == HAZE_DAMAGE_TRANSFER
         if not chained and (ev.killer_id is None or int(ev.killer_id) != bonded):
             return False
@@ -447,7 +447,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         if inst is None:
             return None
         # L'ATTAQUANT du `Attack(bonded, Owner@0x148, beh)` -- et de chaque `AttackDamage(bonded, ...)`
-        # -- est le BONDE, lu sur l'instance (#220), PAS l'auteur du coup fatal.
+        # -- est le BONDE, lu sur l'instance (case-haze-bonded), PAS l'auteur du coup fatal.
         bonded = self._bonded_id(state, inst, ev)
         if bonded is None:
             return None

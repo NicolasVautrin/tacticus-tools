@@ -1,4 +1,4 @@
-"""case-#220 -- GARDE de l'ENTITE BONDEE de `HazeOfCorruption_DamageTransfer` (1077) et de la
+"""case-haze-bonded -- GARDE de l'ENTITE BONDEE de `HazeOfCorruption_DamageTransfer` (1077) et de la
 CHAINE A DEUX RELAIS (`k = 2`).
 
 Critere : le report compare-t-il l'entite REELLEMENT bondee (le 5e argument d'`AddBondEffect`,
@@ -18,7 +18,7 @@ meurt sur le DERNIER transfert). Un PV plus bas fait mourir la cible EN OVERKILL
 `ApplyDamageOperation$$AddLeftoverHit` bascule alors sur son site (A) (`HasFlag(target, 8)`), qui
 pousse la `LeftOverDamage` SANS emettre ni appliquer -- et le 1er relais meurt AVANT la fin de sa
 serie de transferts, ce que le port (drain de mort IMMEDIAT) ne reproduit pas encore. Ce residu
-d'ORDONNANCEMENT est documente dans `docs/rl/case-220-haze-bonded-entity.md` ; il n'est PAS
+d'ORDONNANCEMENT est documente dans `docs/rl/case-haze-bonded-entity.md` ; il n'est PAS
 exerce ici, EXPRES.
 """
 from __future__ import annotations

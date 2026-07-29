@@ -1,4 +1,4 @@
-"""case-220 -- l'ENTITE BONDEE de `HazeOfCorruption_DamageTransfer` (1077), exercee sur la CHAINE
+"""case-haze-bonded -- l'ENTITE BONDEE de `HazeOfCorruption_DamageTransfer` (1077), exercee sur la CHAINE
 A DEUX RELAIS (`k = 2`).
 
 QUESTION (binaire) : le predicat de report compare-t-il l'entite REELLEMENT bondee -- celle que le
@@ -130,7 +130,7 @@ def _replay_traced(dv, ob, snap, board, rng0, cid, tid, legacy=False):
     `matches`/`execute_behaviour` des deux volets Haze, avec le `bonded` retenu.
 
     `legacy=True` = CONTREFACTUEL sur le MEME etat fige : on remet les deux approximations d'AVANT
-    #220 -- le `bonded` INFERE (« le tueur porte `HazeOfCorruption` ») et le slot declencheur reduit
+    case-haze-bonded -- le `bonded` INFERE (« le tueur porte `HazeOfCorruption` ») et le slot declencheur reduit
     au seul `ev.triggering_effect` (donc `None` sur le vecteur mort -> gate anti-chaine PERMISSIF).
     C'est ce qui separe « le correctif est porteur » de « le montage ne discrimine rien »."""
     from engine.runner.operations import effects as _EFF
@@ -263,7 +263,7 @@ def _report(r, dump_events):
     print("      trace PORT = %s" % json.dumps(r["trace"]))
     if r.get("cf") is not None:
         c = r["cf"]
-        print("      CONTREFACTUEL (gate d'AVANT #220) : genrand=%s trace=%s"
+        print("      CONTREFACTUEL (gate d'AVANT case-haze-bonded) : genrand=%s trace=%s"
               % (c["n"], json.dumps(c["trace"])))
         for uid in [r["tid"]] + r["relays"]:
             print("        cf id=%-4s hp=%s (port %s, natif dmg=%s)"
@@ -297,7 +297,7 @@ def main():
     ap.add_argument("--armor", type=int, default=0)
     ap.add_argument("--k", type=int, default=2)
     ap.add_argument("--cf", action="store_true",
-                    help="rejoue AUSSI le contrefactuel « gate d'AVANT #220 » sur le meme etat")
+                    help="rejoue AUSSI le contrefactuel « gate d'AVANT case-haze-bonded » sur le meme etat")
     ap.add_argument("--dump-events", action="store_true")
     args = ap.parse_args()
     rpc = _mkrpc()
