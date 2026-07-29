@@ -32,11 +32,11 @@ RE (decompile ghidra, build `gqfc5mff6c`)
 
     tilesC     = Cache(Tiles(owner@0x148))
     spawnTile  = Cache( GetSpawnTile(this, tilesC) )
-                 # `SwornProtectorAbility$$GetSpawnTile` =
+                 # `SwornProtectorAbility$$GetSpawnTile` (relu au decompile, case-120bis) =
+                 #   b = UtilityBucket([ WeightedUtility(7), WeightedUtility(0x33) ])
+                 #   p = TestUnitProvider(b)          # <- le bucket est ENVELOPPE, pas passe nu
                  #   First( SortTilesByUtilityForSummon( CanAddUnit(AdjacentTiles(tilesC)),
-                 #                                       UtilityBucket{WeightedUtility(7),
-                 #                                                     WeightedUtility(0x33)},
-                 #                                       owner@0x148 ), 1 )
+                 #                                       p, owner@0x148 ), 1 )
     unitId     = GetStringConstant(cfg, 0)                        # astraSmnKell
     opts       = SpawnUnitOptions.WithStatsFromConfig(cfg, level)
     opts+0x10  = AddEffect(0x4ce = SwornProtector_JustSummonedEffect, absRef, target@0x178)
@@ -83,6 +83,12 @@ RESIDUS EXPLICITES :
    la PREMIERE tuile libre adjacente dans l'ordre du voisinage `board.neighbours` (MEME collapse que
    `ForwardSpotter`/`SkyStrike`, cf. `abilities/astramilitarum.py`). Le POOL et le CARDINAL sont exacts,
    la TUILE choisie peut differer du live.
+   ⚠ Ce residu N'EST PLUS INOBSERVABLE depuis case-209 (fiche `docs/rl/case-120bis-flailswing-haze-
+   confound.md`, backlog `#120bis-spawn`) : la tuile de spawn decide de quel cote Creed se retrouve
+   APRES le switch, donc s'il tombe dans un selecteur d'adjacence au caster -- et donc s'il devient
+   relais `HazeOfCorruption` (effet 1077) et encaisse le degat gaspille par Kell. MESURE : le natif
+   pose Kell du cote OPPOSE a l'attaquant (`d(caster, creed) == 2`) sur 3/3 montages live ; le
+   collapse rend `d == 1` sur 163 des 316 couples adjacents de `MC1_67`.
  * `Inform({0xb4: EntityId(caster)})` = notification du bus de vue, AUCUNE mutation d'etat -> no-op
    (meme traitement que le `Inform` de MalleusRocketLauncher).
  * `ResetPreviousPosition(owner)` = remise a zero du champ « position precedente » (anti-retour du
