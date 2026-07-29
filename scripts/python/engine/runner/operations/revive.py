@@ -12,11 +12,11 @@ La feuille DSL `Revive` NE MUTE RIEN. Le sous-systeme est en DEUX TEMPS, articul
                cible du selecteur, `amount = Min(formule, IdunBattle.Entities.Behaviours.ReviveBehaviour$$GetMaxReviveAmount)`, construit la
                `ReviveData` puis, SI `IdunBattle.Entities.Behaviours.ReviveBehaviour$$IsPreferredRevive`, ECRIT les 9 qwords
                `unitComponent + 0xa8 .. +0xe8`. AUCUNE mutation de PV/flag/position ici.
-  2. GARDE     `IdunBattle.Operations.KillUnitOperation$$Execute` : `On(1)` est emis @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS
+  2. GARDE     `IdunBattle.Operations.KillUnitOperation$$Execute` : `On(PreUnitDeath)` est emis @IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc PUIS
                @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e la garde `pcVar21 = thunk_FUN_1801f3000(unitComponent + 0xa8,
                <hasValue de Nullable<ReviveData>>) ; if (*pcVar21 == '\\0') { ... }`. TOUT le reste de
-               la mort est DANS ce bloc (verifie a la profondeur d'accolades : `On(1)` @depth 7,
-               `On(2)`/`On(0)`/`On(55)`/`On(54)` @depth 9). Un revive POSE pendant `On(1)`
+               la mort est DANS ce bloc (verifie a la profondeur d'accolades : `On(PreUnitDeath)` @depth 7,
+               `On(PreUnitDeath_2)`/`On(UnitDeath)`/`On(UnitDefeated)`/`On(PostUnitKill)` @depth 9). Un revive POSE pendant `On(PreUnitDeath)`
                **ANNULE la mort** -- cf. `damage.py::_fire_death_if_killed`.
   3. DRAIN     `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` lance DEUX phases : `RunPhase(0xc)`
                (les kills, lambda `<VerifyDeaths>b__0 IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0` -> `KillUnit` slots 0x60/0x61) PUIS
@@ -25,7 +25,7 @@ La feuille DSL `Revive` NE MUTE RIEN. Le sous-systeme est en DEUX TEMPS, articul
                REMET LES 9 QWORDS A 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+.
 
 Le port COLLAPSE 2+3 au meme endroit (`kill_unit_revive_gate`, appelee par `_fire_death_if_killed`
-juste apres `On(1)`) : c'est l'ordre observable natif (la phase 0xd suit la phase 0xc).
+juste apres `On(PreUnitDeath)`) : c'est l'ordre observable natif (la phase 0xd suit la phase 0xc).
 
 --------------------------------------------------------------------------------------------------
 `IdunBattle.Operations.ReviveUnitOperation$$Execute` (mutateur ECS IMPERATIF, mirror ci-dessous)
@@ -246,7 +246,7 @@ def kill_unit_revive_gate(state: State, unit_id: int) -> Optional[dict]:
 
     A appeler JUSTE APRES `On(PreUnitDeath = 1)` et AVANT `On(PreUnitDeath_2 = 2)` :
       * renvoie `None`  -> `pendingRevive.HasValue == false` : la garde PASSE, la mort CONTINUE
-        (le caller emet `On(2)`, `On(0)`, `On(55)`, `On(54)` et fait le bookkeeping de mort) ;
+        (le caller emet `On(PreUnitDeath_2)`, `On(UnitDeath)`, `On(UnitDefeated)`, `On(PostUnitKill)` et fait le bookkeeping de mort) ;
       * renvoie un dict -> un revive etait EN ATTENTE : la garde ECHOUE, **toute la suite de la mort est
         COURT-CIRCUITEE** cote natif ; on applique ici le revive (mirror `ReviveUnitOperation.Execute`)
         et le caller DOIT s'arreter."""

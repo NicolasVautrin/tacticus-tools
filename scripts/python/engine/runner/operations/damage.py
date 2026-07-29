@@ -265,11 +265,11 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         => **1 -> 2 -> 55** est CONFIRMÉ (auparavant une simple inférence par numérotation). Les 3 vecteurs
         portés sont donc émis dans cet ordre ci-dessous.
 
-        - `On(1)` : accumulations ActOfFaith (allié Imperial qui meurt/tue), FinalJustice (riposte du
+        - `On(PreUnitDeath)` : accumulations ActOfFaith (allié Imperial qui meurt/tue), FinalJustice (riposte du
           mourant, gate overkill dans son BEHAVIOUR), TaintedNarthecium (revive).
-        - `On(2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
-        - `On(0)` : TerrifyingCrescendo branche OVERKILL (`On(0) & OwnerIsActor & TargetIsOverkilled`).
-        - `On(55)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
+        - `On(PreUnitDeath_2)` : famille DEATH-NOVA (`Explodes` 1008->1021, `PutridExplosion` 2028->1074) — `IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2. Les deux passent `a=1` => **AUCUN gate overkill** : la nova part même en overkill.
+        - `On(UnitDeath)` : TerrifyingCrescendo branche OVERKILL (`On(UnitDeath) & OwnerIsActor & TargetIsOverkilled`).
+        - `On(UnitDefeated)` : Ambush_SummonAbility (mort -> decoy) + `turn_defeated`.
 
         **SÉMANTIQUE DE LA GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e — TRANCHÉE (case-89 volet C, 2026-07-25).** Elle lit le
         `hasValue` du `Nullable<ReviveData>` @`UnitComponent + 0xa8` (même champ, même helper
@@ -278,9 +278,9 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
             if (!unitComponent.PendingRevive.HasValue) { ...tout le reste de la mort... }
 
-        ⇒ **un REVIVE posé pendant `On(1)` COURT-CIRCUITE `On(2)`, `On(0)`, `On(55)`, `On(54)`**, ainsi
+        ⇒ **un REVIVE posé pendant `On(PreUnitDeath)` COURT-CIRCUITE `On(PreUnitDeath_2)`, `On(UnitDeath)`, `On(UnitDefeated)`, `On(PostUnitKill)`**, ainsi
         que `RegisterDefeatedUnit`, `Remove(flag 0xf)` / `Add(flag 6)` et `RemoveEffects`. Vérifié à la
-        profondeur d'accolades du décompilé : `On(1)` est au niveau 7, les quatre autres au niveau 9,
+        profondeur d'accolades du décompilé : `On(PreUnitDeath)` est au niveau 7, les quatre autres au niveau 9,
         et il n'y a AUCUN `else`. Le port applique donc la garde ci-dessous (`kill_unit_revive_gate`),
         qui draine aussi le revive — mirror de la phase `RunPhase(0xd)` de `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`,
         qui suit la phase de kill `RunPhase(0xc)`."""
@@ -321,17 +321,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             if fl is not None:
                 fl.add(UnitFlagsComponent.OVERKILLED)
         # `KillUnitOperation$$RecordDeathReason` : la `DamageSource` de la victime est enregistree
-        # AVANT `On(1)` -- c'est la seule raison pour laquelle `HasDeathReason` peut matcher sur ce
+        # AVANT `On(PreUnitDeath)` -- c'est la seule raison pour laquelle `HasDeathReason` peut matcher sur ce
         # vecteur (`AReactivateOverwatchEffect$$LegitDeathReasons`, #114).
         AttackDamageOperation._record_death_reason(state, target_id, attacker_id, source_ability)
         # `On(PendingDeathAdded = 3)` — emis par `IdunBattle.Operations.RecordKillOperation$$Execute`
         # (`Core.Services.OperationProcessor$$RecordKill`), qui ENREGISTRE le kill puis ENQUEUE la mort
         # (`MatchState.AddDeath`). La file n'est drainee que plus tard par
         # `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` -> `KillUnitOperation$$Execute`, qui
-        # emet `On(1)` : `On(3)` PRECEDE donc strictement `On(1)` pour une meme mort, d'ou sa place ici.
+        # emet `On(PreUnitDeath)` : `On(PendingDeathAdded)` PRECEDE donc strictement `On(PreUnitDeath)` pour une meme mort, d'ou sa place ici.
         # {acteur = caster = le TUEUR, cible = la VICTIME} + le `TriggeringAbility` courant.
         # Consommateur porte : `FuelledByFury_ReviveAbility` (Titus se revive quand SA riposte
-        # FinalJustice tue) -- et c'est ce revive-la qui, pose sur Titus pendant SON `On(1)`, fait
+        # FinalJustice tue) -- et c'est ce revive-la qui, pose sur Titus pendant SON `On(PreUnitDeath)`, fait
         # ECHOUER la garde `kill_unit_revive_gate` plus bas et ANNULE sa propre mort.
         out = pending_death_added_triggers(state, target_id, attacker_id)
         # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
@@ -413,14 +413,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36 ; les quatre premiers sont portes, DANS
         CET ORDRE (le 5e, `PostUnitKill = 0x36`, n'a pas de consommateur porte). La garde
         `IdunBattle.Operations.KillUnitOperation$$Execute+0x82e` (revive en attente) court-circuite
-        tout ce qui suit `On(1)` -- cf. la docstring de `_fire_death_if_killed`."""
+        tout ce qui suit `On(PreUnitDeath)` -- cf. la docstring de `_fire_death_if_killed`."""
         from .triggers import (after_death_triggers, unit_defeated_triggers,
                                pre_unit_death_2_triggers, unit_death_triggers)
         from .revive import kill_unit_revive_gate
         out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
-        # consommateur d'`On(1)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
-        # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(2), NI On(0), NI On(55), NI On(54).
+        # consommateur d'`On(PreUnitDeath)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
+        # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(PreUnitDeath_2), NI On(UnitDeath), NI On(UnitDefeated), NI On(PostUnitKill).
         revived = kill_unit_revive_gate(state, target_id)
         if revived is not None:
             return (out or []) + [{"kill_cancelled_by_revive": revived}]
