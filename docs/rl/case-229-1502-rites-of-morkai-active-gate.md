@@ -120,6 +120,14 @@ Deux faits, l'un natif, l'autre côté port :
    `EffectFactory.create` recopie cette clé sur l'instance depuis **#219**. C'est le vecteur
    d'exposition côté port.
 
+> ✅ **RÉSORBÉ le 2026-07-29** — tout ce que cette section déclare « non mesurable » (et la §2
+> « l'effet 1502 n'est donc pas posable en runner ») a été MESURÉ depuis :
+> `case-229-1502-rites-of-morkai-live-confrontation.md`. `spaceWolfPriest` entre au pool par
+> `catalog_inject.write_augmented_seed_bc` (97 -> 98), le cast est natif, `readEffectsByUnit`
+> publie bien 3 instances 1502, et le revive natif est en agrément avec le port. Les paragraphes
+> ci-dessous sont conservés tels quels (trace du raisonnement du lot d'origine) mais leurs
+> conclusions « personne ne l'a mesuré et personne ne le peut » sont PÉRIMÉES.
+
 ⚠ **Ce que ce lot ne peut PAS mesurer, et ne prétend pas.** `case-231-haze-transfer-active-gate.md`
 a RÉFUTÉ live la colonne « dans le rayon de souffle » de `case-229` §3 pour 1077 : ce bond n'est
 publié par `readEffectsByUnit` **ni** au canal par défaut **ni** sous `includeInactive`. Le même
@@ -202,10 +210,12 @@ non-mécanique, et la contrainte est écrite dans le test.
 - **`ShouldBeActive`** est désormais lu (§3) mais son `activation` (`+0x480`) n'a pas été confronté
   à un dump d'enum : la lecture « 0 = conditionnel / 1 = toujours / 2 = jamais » vient des retours
   littéraux du décompilé, pas d'un nom.
-- **Aucune mesure live d'un 1502 réellement inerte** : impossible sans le porteur. La garde exerce
-  le flag par le chemin de seed, qui est celui du port.
-- **Le rayon de souffle de 1502 n'est PAS mesuré** (cf. §3, ⚠) : que `readEffectsByUnit` publie ou
-  non une instance 1502 reste ouvert, et l'exemple 1077 de `case-231` montre que la table §3 de
-  `case-229` n'est pas fiable sans confrontation. Ce lot ne fait donc pas descendre le compte des
-  effectTypes qui bloquent une bascule globale d'`includeInactive` : il ferme un écart de FIDÉLITÉ,
-  pas un point de blocage mesuré.
+- **Aucune mesure live d'un 1502 réellement inerte** — ✅ TRANCHÉ le 2026-07-29, et dans l'autre
+  sens que « faute de porteur » : le porteur est confrontable, et c'est **l'état inerte lui-même
+  qui n'existe pas** en bataille (RE + mesure :
+  `case-229-1502-rites-of-morkai-live-confrontation.md` §4.3). La garde exerce donc le flag par le
+  chemin de seed parce que c'est le SEUL qui le produise, pas par défaut d'outillage.
+- **Le rayon de souffle de 1502 n'est PAS mesuré** — ✅ MESURÉ le 2026-07-29 : `readEffectsByUnit`
+  publie bien l'effectType 1502 (3 instances, canal par défaut ET `includeInactive`). Ce lot reste
+  néanmoins un écart de FIDÉLITÉ et non un point de blocage : l'instance n'a pas d'état inerte à
+  publier.

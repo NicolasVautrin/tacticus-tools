@@ -172,7 +172,7 @@ Ventilation des 6 ecarts :
 | 1077 HazeOfCorruption_DamageTransfer | unite | **non** — RÉFUTÉ par mesure live, cf. ci-dessous |
 | 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
-| 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
+| 1502 RitesOfMorkai | unite | **OUI — MESURE** le 2026-07-29 : 3 instances publiees (`active: true`) au canal par defaut ET sous `includeInactive`, cf. ci-dessous. ⚠ Mais l'instance n'a **aucun etat inerte** a publier |
 | 1547 ReanimationBeam_Revive | unite | **NON MESURE** — le porteur EST montable (`catalog_inject` -> 9 MoW) et ses abilities CASTENT, mais `1223` no-ope faute de MUNITION -> aucune instance 1547 native a lire (`case-1547` §5). L'ecart etait reel et est CLOS ; la ligne reste une deduction. |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
@@ -185,19 +185,40 @@ Ventilation des 6 ecarts :
 > **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4).
 > **1547 reste NON MESURE** — mais pour un motif RECTIFIE : son porteur `necroReanimator` EST
 > montable (`catalog_inject.py` -> 8 -> 9 MoW) et ses abilities CASTENT ; ce qui bloque est que
-> `1223` no-ope faute de MUNITION (`case-1547` §3/§5). Sur SIX lignes annoncees « OUI », deux ont
-> ete confrontees et AUCUNE n'a tenu. Traiter les restantes comme des hypotheses, et confronter
-> avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+> `1223` no-ope faute de MUNITION (`case-1547` §3/§5). Sur SIX lignes annoncees « OUI », **trois**
+> ont ete confrontees : 1077 et 1197 sont TOMBEES, **1502 a TENU** (§ ci-dessous). Traiter les
+> restantes comme des hypotheses, et confronter avant de conclure (detail :
+> `case-231-haze-transfer-active-gate.md` §3.1).
 >
 > ⚠ **Ne jamais conclure « non mesurable » d'une absence dans `--list-pool`** : la pool derive du
 > seed BC (capture d'UNE bataille) et `catalog_inject.py` l'augmente. Cf. `ca6f5dc`.
+
+> ✅ **1502 est desormais MESURE** (`case-229-1502-rites-of-morkai-live-confrontation.md`).
+> `spaceWolfPriest` n'etait pas « non confrontable » : `catalog_inject.write_augmented_seed_bc`
+> l'injecte dans les DEUX catalogues (`Units` + `Abilities`) et il entre au pool (97 -> 98). Baldr
+> deploye, `RitesOfMorkai` caste, `probe_1502_rites_of_morkai_live.py` lit **3 instances 1502**
+> publiees (`active: true`) aux DEUX canaux, et `load_state` les materialise. La deduction
+> « porteur unite => canal unite » est donc VRAIE ici — la nuance structurelle avancee par #235
+> (1077 = entite de BOND, 1502 = effet d'unite ordinaire pose par `AddEffectOperation` sur
+> `EffectsOwnedComponent`) est la bonne.
+>
+> ⚠ Mais cela ne rend PAS 1502 seedable-inerte : la meme campagne a etabli qu'**aucun vecteur de
+> jeu ne peut rendre une instance 1502 inactive**. Son `CreateActiveCondition` est le trigger
+> CONSTANT vrai du `DSLFactory` (`+0xf8`), donc
+> `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` rend toujours vrai ; et
+> `IdunBattle.Operations.RemoveEffectOperation$$Execute` — l'ECRIVAIN de `EffectComponent+0x5e`,
+> jusqu'ici non identifie — pose `+0x5c = 0` et `+0x5f = 1` (Removed) dans la MEME operation, or le
+> canal filtre `removed` inconditionnellement. Mesure : l'instance passe de `active=true` a ABSENTE
+> en un tour, jamais par `active=false`. Pour la question de la bascule globale, 1502 n'est donc ni
+> un bloqueur ni un beneficiaire : il n'a pas d'etat inerte a publier.
 
 ## 4. Recommandation
 
 **PLUS AUCUN effectType du canal UNITE ne l'empeche** — les cinq ont ete resorbes le 2026-07-29
 (1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`). Les lignes de rayon de
-souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; celles de 1502 et 1547 sont NON
-MESURABLES, faute de porteur spawnable. Il reste UN ecart, mais il est HORS de cette bascule :
+souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; **celle de 1502 a ete CONFIRMEE par
+mesure** (l'effet EST publie — mais il n'a pas d'etat inerte a publier, cf. §3) ; celle de 1547
+reste NON MESUREE. Il reste UN ecart, mais il est HORS de cette bascule :
 
     1186  GhostEffect (porteur TUILE)       -> GhostEffectRevive
 

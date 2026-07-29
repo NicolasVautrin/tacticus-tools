@@ -33,8 +33,21 @@ d'un `Il2CppClass` commence a `+0x138` et chaque entree fait 0x10 (`{methodPtr, 
 slot = (offset - 0x138) / 0x10 : **0x738 = slot 96**, 0x748 = 97, 0x758 = 98, 0x768 = 99, 0x778 = 100.
 
 DEUX chemins de lecture, croises :
-  (a) LIVE `resolveVtableSlot` (`probe_79_revive_vtable.py`) -- ne marche que sur une classe INITIALISEE
-      (ReanimationBeam_ReviveEffect / RitesOfMorkaiEffect rendent des slots NULS : carriers hors pool) ;
+  (a) LIVE `resolveVtableSlot` (`probe_79_revive_vtable.py`) -- ne marche que sur une classe INITIALISEE.
+      ⚠ La restriction « RitesOfMorkaiEffect rend des slots NULS : carrier hors pool » N'EST PLUS VRAIE
+      depuis le 2026-07-29 : `catalog_inject.write_augmented_seed_bc` fait entrer `spaceWolfPriest` au
+      pool, le cast de `RitesOfMorkai` INSTANCIE la classe, et ses slots se lisent alors LIVE. Lecture
+      faite, elle CONFIRME le tableau ci-dessous par une seconde source :
+        +0x718 IgnoreArmor  +0x728 get_ActivateOnResurrect  +0x738 get_ReviveOnOverkill
+        +0x748 get_HealType +0x758 CreateTargetFilter       +0x768 GetReviveChance  +0x778 GetReviveHP
+      avec `get_ReviveOnOverkill` = `get_ActivateOnResurrect` = `32 c0 c3` (`xor al,al ; ret`) = FALSE
+      et `get_HealType` = `IgnoreArmor` = `33 c0 c3` (`xor eax,eax ; ret`) = 0. Sur la BASE
+      `ReviveEffect`, `CreateTargetFilter`/`GetReviveChance`/`GetReviveHP` sont bien les 3 ABSTRAITS.
+      ⚠ PIEGE : `IdunBattle.Entities.Effects.ABondEffect$$CreateHandleTriggerAbilitiesInternal` lit ces
+      MEMES slots `+0x728/+0x738/+0x748` avec une tout autre semantique (portee de bond / adjacence /
+      rupture) -- sur `ABondEffect` ils sont ABSTRAITS, c'est `ReviveEffect` qui les remplit. Ne pas
+      croiser les deux lectures. Ses trois branches produisent des `DSLFactory$$RemoveEffect`, jamais
+      un `DeactivateEffect`. cf. `docs/rl/case-229-1502-rites-of-morkai-live-confrontation.md` §5 ;
   (b) OFFLINE la table `methodPointers` d'IL2CPP, presente TELLE QUELLE dans `GameAssembly.dll` (les
       pointeurs sont stockes en VA image-base 0x180000000). Le bloc d'un `*_ReviveEffect` a la forme
       LUE : `[get_ReviveOnOverkill] [get_HealType?] .ctor CreateTargetFilter GetReviveChance GetReviveHP`
