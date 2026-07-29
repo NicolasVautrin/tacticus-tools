@@ -89,7 +89,7 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
                              TargetIsInRange (bit 27, 0x8000000) ; variante
                              EXACTE sous le bit 9 TargetIsAtRange (0x200)
    -   (non gate)            `GetTilesObscuringTerrain` (ligne de vue)           NON
-  13   0x2000                TargetIsSummon (`HasTrait(2)`)                      NON
+  13   0x2000                TargetIsSummon (`HasTrait(2)`)                      OUI (#250)
   50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON
   33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON
    8   0x100                 TargetIsHealable                                    NON
@@ -1324,6 +1324,24 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     reason = get_range_broken_rule(state, caster_id, target_id, options)
     if reason:
         return reason
+
+    # TargetIsSummon -- « la cible doit etre un SUMMON ». VERBATIM du filtre statique (surcharge 7
+    # arguments), juste APRES le bloc portee/ligne de vue :
+    #     if ((rules & 0x2000) != 0 && !UnitExtensions.HasTrait(target, 2)) -> broken(0x2000)
+    # Position NATIVE : premiere regle du bloc TRAITS (`TargetIsSummon` puis `TargetIsHero` bit 50
+    # puis `TargetIsNotAnObject` bit 33 puis `TargetIsHealable`/`TargetIsRepairable`), donc APRES la
+    # portee et AVANT `TargetHasFreeAdjacentTile`. L'ordre n'est pas cosmetique : c'est lui qui fixe
+    # la RAISON rendue quand plusieurs regles sont rompues.
+    # SEUL PORTEUR du bit au registre : `HadesAutocannons` (1147, MoW `blackForgefiend`), dont c'est
+    # LA regle -- « a targeted enemy summon ». MESURE (`probe_250_blacklegion_targeting.py`, 1147) :
+    # sur un ennemi NON-summon le natif rend bien `0x2000` alors que `TargetIsEnemy` (0x4000, teste
+    # AVANT) a deja passe -- ce qui confirme a la fois le predicat et sa place dans la cascade.
+    # `UnitTrait.Summon` = 2 ; le substrat de traits est le kit gameconfig, le meme que celui du
+    # `UnitsWithTrait(..., 2)` de `HadesAutocannonsAbility$$GetAllTargets`.
+    if options.has(TR.TargetIsSummon) and tuid is not None:
+        from ...entities.traits.unit_trait import UnitTrait
+        if UnitTrait.Summon.name not in (_unit_traits(state, tuid) or ()):
+            return int(TR.TargetIsSummon)
 
     # TargetHasFreeAdjacentTile -- « la cible doit avoir au moins une tuile LIBRE au contact » :
     #     if ((rules & 0x20) && battleQuery.<slot 0x51>(target).Count == 0) -> broken(0x20)
