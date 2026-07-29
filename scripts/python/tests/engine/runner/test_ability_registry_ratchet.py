@@ -51,10 +51,11 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#246) : 94 abilities au registre, 58 avec masque, ces 36 sans.
+# Etat au 2026-07-29 (#247) : 94 abilities au registre, 60 avec masque, ces 34 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
-#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246.)
+#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246, et
+#  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDE le module `strike`.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -104,11 +105,24 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1082: "InspiredToGreatnessAbility",
     1096: "MasterOfTheTutelariesAbility",
     1098: "PlasmaGrenadeAbility",
-    1104: "SpiritLeechAbility",
+    # 1104 SpiritLeechAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :
+    # `...SpiritLeechAbility$$.ctor` recopie `TargetingOptions statics+0x180` (copie INTEGRALE,
+    # aucun ctor appele) et le masque effectif est `*(statics+0x1a8)` = 0x4002
+    # (TargetMatchesDynamicRule | TargetIsEnemy). Portee = `TargetingRange statics+0x18` =
+    # RANGE_FROM_CONFIG (constants.range = 3) ; `forceMeleeTarget` = `*(statics+0x1a0)` = 1 =
+    # RangedBool.False. Piege ecarte : 1014 ArmoriumCherub a le MEME masque et le MEME
+    # RANGE_FROM_CONFIG, mais son preset (+0x140) pose `forceMeleeTarget = 0 = RangedBool.True` --
+    # deux presets qui ne different QUE par ce champ, et il change le regime de portee au contact.
     1105: "CrushingClawsAbility",
     1113: "StormcallerAbility",
     1118: "DoctrinaImperativesAbility",
-    1122: "CordClawAbility",
+    # 1122 CordClawAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :
+    # `...CordClawAbility$$.ctor` recopie `TargetingOptions statics+0x40` INTEGRALEMENT (aucun ctor
+    # appele) -> masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul). Portee =
+    # `TargetingRange statics+0x30` = RANGE_ADJACENT ; `forceMeleeTarget` = `*(statics+0x60)` = 1 =
+    # RangedBool.False. Piege ecarte : 1043 ThunderousAssault recopie LE MEME preset +0x40, mais
+    # enchaine sur la surcharge « preset + flags » qui COMBINE (0x10000000 | 0x4000 = 0x10004000).
+    # Meme source statique, deux masques -- c'est la FORME du ctor qui tranche.
     1142: "MalleusRocketLauncherAbility",
     1143: "ForwardSpotterAbility",
     1147: "HadesAutocannonsAbility",
