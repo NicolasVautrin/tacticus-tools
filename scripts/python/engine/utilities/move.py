@@ -143,7 +143,7 @@ assert int(StatType.CRIT_CHANCE) == 9      # `GetStat(unit, 9)` de `UnitCanBeDam
 class MinDistanceToClosestEnemyUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$.ctor ;
     UtilityType.MinDistanceToClosestEnemy=16). Feuille du composite UnitMovement(6)."""
-    UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 16
+    UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 17
 
     def get_min_distance_to_enemy(self, pos, enemy_positions=None, pathdist_by_pos=None):
         """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` : distance de CHEMIN de

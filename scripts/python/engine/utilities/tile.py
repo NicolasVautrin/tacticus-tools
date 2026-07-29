@@ -189,7 +189,7 @@ class ElevationUtility(BaseUtility):
     tiles du board (composant board-singleton sur le World `this+0x10`, éléments = TileComponent, elev@+0x18)
     et calcule min@this+0x64 (seed 10) / max@this+0x60 (seed 0). Verdict re-expert (case-37) : ni unité, ni
     reachable, ni candidate-set. => la harness alimente min/max sur `elev_by_pos` COMPLET (tileMeta = board)."""
-    UTILITY_TYPE = int(UtilityType.Elevation)  # 8
+    UTILITY_TYPE = int(UtilityType.Elevation)  # 9
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not meta or "elevation" not in meta:
@@ -233,7 +233,7 @@ class SteppableUnitUtility(BaseUtility):
     `GetCurrentPlayer(a).id` a `GetCurrentPlayer(b).id`), d'ou les deux booleens distincts dans
     `meta.steppable` -- si `case.unit` etait nul, les deux rendraient False et les cles seraient
     `EnemyDecoy` / `FriendlySteppableUnit`. `meta.steppable` est pose par `apply_tile_attributes`."""
-    UTILITY_TYPE = int(UtilityType.SteppableUnit)  # 19
+    UTILITY_TYPE = int(UtilityType.SteppableUnit)  # 20
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         st = (meta or {}).get("steppable")
@@ -254,7 +254,7 @@ class TileEffectsUtility(BaseUtility):
     """`TileEffectsUtility` (IdunBattle.AI.Utilities.TileEffectsUtility$$.ctor ; UtilityType.TileEffects=9) ; `<d__1>.IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` :
     Σ des poids BC `Default.TileEffects.<EffectName>` pour chaque effet présent SUR la tuile (le natif
     multiplie les status-effects par un facteur de durée ; non porté → poids brut). `meta.effects` requis."""
-    UTILITY_TYPE = int(UtilityType.TileEffects)  # 9
+    UTILITY_TYPE = int(UtilityType.TileEffects)  # 10
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         effs = (meta or {}).get("effects") or []
@@ -268,7 +268,7 @@ class TemporaryTileUtility(BaseUtility):
     """`TemporaryTileUtility` (IdunBattle.AI.Utilities.TemporaryTileUtility$$.ctor ; UtilityType.TemporaryTile=13) ; `<d__1>.IdunBattle.AI.Utilities.TemporaryTileUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext` :
     u = 0 ; si la tuile candidate est TEMPORAIRE → u -= Fix64(10000) (CONSTANTE, pas un poids BC ; le natif
     lit `tileData+0x2c` IsTemporary). L'IA évite fortement les tuiles temporaires. `meta.is_temporary`."""
-    UTILITY_TYPE = int(UtilityType.TemporaryTile)  # 13
+    UTILITY_TYPE = int(UtilityType.TemporaryTile)  # 14
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (meta or {}).get("is_temporary"):
@@ -294,21 +294,21 @@ class AUnitEffectsUtility(BaseUtility):
 
 class UnitEffectsAdjacentUtility(AUnitEffectsUtility):
     """`UnitEffectsAdjacentUtility` (TypeDefIndex 12151 ; UtilityType.UnitEffectsAdjacent=10)."""
-    UTILITY_TYPE = int(UtilityType.UnitEffectsAdjacent)  # 10
+    UTILITY_TYPE = int(UtilityType.UnitEffectsAdjacent)  # 11
     _CAT = "UnitEffectsAdjacent"
     _ZONE = "adjacent"
 
 
 class UnitEffectsSurroundingUtility(AUnitEffectsUtility):
     """`UnitEffectsSurroundingUtility` (TypeDefIndex 12152 ; UtilityType.UnitEffectsSurrounding=11)."""
-    UTILITY_TYPE = int(UtilityType.UnitEffectsSurrounding)  # 11
+    UTILITY_TYPE = int(UtilityType.UnitEffectsSurrounding)  # 12
     _CAT = "UnitEffectsSurrounding"
     _ZONE = "surrounding1"
 
 
 class UnitEffectsRangedUtility(AUnitEffectsUtility):
     """`UnitEffectsRangedUtility` (TypeDefIndex 12153 ; UtilityType.UnitEffectsRanged=12)."""
-    UTILITY_TYPE = int(UtilityType.UnitEffectsRanged)  # 12
+    UTILITY_TYPE = int(UtilityType.UnitEffectsRanged)  # 13
     _CAT = "UnitEffectsRanged"
     _ZONE = "ranged2"
 
@@ -323,7 +323,7 @@ class CapturePointTileUtility(BaseUtility):
     `IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning` INLINÉ. Sujet ABSENT + parent présent
     (le call-site `SortTilesByUtilityForSummon`) ⇒ le natif traite la tuile comme évaluée POUR UN SUMMON,
     donc `summons_dislike_capture_points`, et NON 0."""
-    UTILITY_TYPE = int(UtilityType.CapturePoint)  # 24
+    UTILITY_TYPE = int(UtilityType.CapturePoint)  # 25
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("is_territory"):
@@ -339,7 +339,7 @@ class PowerUpTileUtility(BaseUtility):
     tuile EstPowerUp ET flag(trait 2||13). `meta.occupant_is_powerup` + `ctx.unit_traits`.
     Même gate que `CapturePointTileUtility`, `IsSpawning` INLINÉ compris (case-205) : sujet ABSENT +
     parent présent ⇒ flag TRUE."""
-    UTILITY_TYPE = int(UtilityType.PowerUp)  # 26
+    UTILITY_TYPE = int(UtilityType.PowerUp)  # 27
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("occupant_is_powerup"):
@@ -353,7 +353,7 @@ class PowerUpTileUtility(BaseUtility):
 class ContaminatedUtility(BaseUtility):
     """`ContaminatedUtility` (IdunBattle.AI.Utilities.ContaminatedUtility$$.ctor ; UtilityType.Contaminated=25) ; IdunBattle.AI.Utilities.ContaminatedUtility.u003CEvaluateMovementInStepsu003Ed__4$$MoveNext : -25 si la tuile porte
     un effet type 1244 (0x4dc) ET l'unité n'est pas exclue. `meta.tile_effect_type_ids` + `ctx.contaminated_excluded`."""
-    UTILITY_TYPE = int(UtilityType.Contaminated)  # 25
+    UTILITY_TYPE = int(UtilityType.Contaminated)  # 26
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if 1244 not in _eff_ids(meta, "tile_effect_type_ids"):
@@ -367,7 +367,7 @@ class MoltenForm_TilesUtility(BaseUtility):
     """`MoltenForm_TilesUtility` (IdunBattle.AI.Utilities.MoltenForm_TilesUtility$$.ctor ; UtilityType.MoltenForm=23) ; IdunBattle.AI.Utilities.MoltenForm_TilesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : si l'unité a la
     triggered ability 1221 (0x4c5) → +25 si tuile effet type 5 (ResistFireTiles) ; -25 si type 10
     (AvoidHealingTiles). `ctx.unit_triggered_abilities` + `meta.tile_effect_type_ids`."""
-    UTILITY_TYPE = int(UtilityType.MoltenForm)  # 23
+    UTILITY_TYPE = int(UtilityType.MoltenForm)  # 24
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not _has(ctx, "unit_triggered_abilities", 1221):
@@ -385,7 +385,7 @@ class TilePendingBlockableSummonUtility(BaseUtility):
     """`TilePendingBlockableSummonUtility` (IdunBattle.AI.Utilities.TilePendingBlockableSummonUtility$$.ctor ; UtilityType.TilePendingBlockableSummon=14) ; IdunBattle.AI.Utilities.TilePendingBlockableSummonUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext :
     Σ sur les summons en attente de type 1094 (0x446) sur la tuile : +25 si owner ENNEMI, -25 si AMI.
     `meta.pending_summons=[{type_id,owner_is_enemy}]`."""
-    UTILITY_TYPE = int(UtilityType.TilePendingBlockableSummon)  # 14
+    UTILITY_TYPE = int(UtilityType.TilePendingBlockableSummon)  # 15
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         ps = (meta or {}).get("pending_summons") or []
@@ -398,7 +398,7 @@ class TilePendingBlockableSummonUtility(BaseUtility):
 class EnvEndBombardmentUtility(BaseUtility):
     """`EnvEndBombardmentUtility` (IdunBattle.AI.Utilities.EnvEndBombardmentUtility$$.ctor ; UtilityType.EnvEndBombardment=31) ; IdunBattle.AI.Utilities.EnvEndBombardmentUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext : tuile ciblée
     par l'effet 1359 (0x54f) → -30 ; sinon par 1360 (0x550) → -60 (×2). `meta.effect_target_ids`."""
-    UTILITY_TYPE = int(UtilityType.EnvEndBombardment)  # 31
+    UTILITY_TYPE = int(UtilityType.EnvEndBombardment)  # 32
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         ids = _eff_ids(meta, "effect_target_ids")
@@ -416,7 +416,7 @@ class DespoiledGroundUtility(BaseUtility):
     (Imperial/Xenos) → ImperialAndXenosAffectedUnit(-25). `meta.tile_effect_type_ids` + `ctx.unit_traits`.
     Première instruction du corps natif : `if (case.unit == null) yield break;` — sujet ABSENT ⇒ AUCUN
     step émis, donc 0 (case-205)."""
-    UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 28
+    UTILITY_TYPE = int(UtilityType.DespoiledGround)  # 29
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `if (case.unit == null) yield break;`
@@ -439,7 +439,7 @@ class SummonDislikeDoorOpeningUtility(BaseUtility):
     || HasTrait(case.unit, 2)` : le test de PARENT vient EN PREMIER et court-circuite le reste. Sur tous
     les call-sites portés, `parent != null` ⟺ `SortTilesByUtilityForSummon` (les call-sites de charge
     passent un `ownerSel` NUL), donc `ctx.is_spawning` le reproduit exactement."""
-    UTILITY_TYPE = int(UtilityType.SummonDislikeDoorOpening)  # 29
+    UTILITY_TYPE = int(UtilityType.SummonDislikeDoorOpening)  # 30
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         door = (meta or {}).get("door") or {}
@@ -459,7 +459,7 @@ class HeroDoorOpeningUtility(BaseUtility):
     plus proche. `ctx.player_door_mode` + `meta.door` + `meta.hero_door_nearest_cost`.
     Gate natif en tête : `if (case.unit == null || !HasTrait(case.unit, 0x10)) yield return 0;` — sujet
     ABSENT ⇒ 0 (case-205)."""
-    UTILITY_TYPE = int(UtilityType.HeroLikeDoorOpening)  # 30
+    UTILITY_TYPE = int(UtilityType.HeroLikeDoorOpening)  # 31
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("is_spawning"):            # `case.unit == null`
@@ -479,7 +479,7 @@ class Phantasm_AvoidFriendlyPhantasmUtility(BaseUtility):
     """`Phantasm_AvoidFriendlyPhantasmUtility` (IdunBattle.AI.Utilities.Phantasm_AvoidFriendlyPhantasmUtility$$.ctor ; UtilityType.Phantasm_AvoidFriendlyPhantasm=60) ;
     IdunBattle.AI.Utilities.Phantasm_AvoidFriendlyPhantasmUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : -40 si la tuile porte l'effet Phantasm 1279 (0x4ff) ET un phantasme AMI est adjacent.
     `meta.phantasm_friendly_adjacent`."""
-    UTILITY_TYPE = int(UtilityType.Phantasm_AvoidFriendlyPhantasm)  # 60
+    UTILITY_TYPE = int(UtilityType.Phantasm_AvoidFriendlyPhantasm)  # 61
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("phantasm_friendly_adjacent"):
@@ -490,7 +490,7 @@ class Phantasm_AvoidFriendlyPhantasmUtility(BaseUtility):
 class EchoesFromTheWarp_FriendliesAvoidGhostUtility(BaseUtility):
     """`EchoesFromTheWarp_FriendliesAvoidGhostUtility` (IdunBattle.AI.Utilities.EchoesFromTheWarp_FriendliesAvoidGhostUtility$$.ctor ; UtilityType.=58) ; IdunBattle.AI.Utilities.EchoesFromTheWarp_FriendliesAvoidGhostUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +10 si
     la tuile POSSÈDE (owner) l'effet ghost 1284 (0x504) ET le ghost ami est adjacent. `meta.ghost_friendly_adjacent`."""
-    UTILITY_TYPE = int(UtilityType.EchoesFromTheWarp_FriendliesAvoidGhost)  # 58
+    UTILITY_TYPE = int(UtilityType.EchoesFromTheWarp_FriendliesAvoidGhost)  # 59
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (meta or {}).get("ghost_friendly_adjacent"):
@@ -502,7 +502,7 @@ class AttractMechanicalsUtility(BaseUtility):
     """`AttractMechanicalsUtility` (IdunBattle.AI.Utilities.AttractMechanicalsUtility$$.ctor ; UtilityType.DoctrinaImperatives_AttractMechanicals=57) ;
     IdunBattle.AI.Utilities.AttractMechanicalsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +10 si l'unité a le trait 5 ET un voisin (autour de la tuile) a l'active ability 1118
     (0x45e). `ctx.unit_traits` + `meta.attract_mechanicals_neighbor`."""
-    UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)  # 57
+    UTILITY_TYPE = int(UtilityType.DoctrinaImperatives_AttractMechanicals)  # 58
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not _has(ctx, "unit_traits", 5):
@@ -541,7 +541,7 @@ class AttractToDecoysUtility(BaseUtility):
     le pendant offline est le `FactionId` gameconfig, converti en valeur d'enum par
     `engine.entities.unit_faction`. `ctx.unit_faction` + `meta.decoy_gate` + `meta.decoy_friend_count`
     (les deux `meta` sont poses par `apply_tile_attributes`)."""
-    UTILITY_TYPE = int(UtilityType.DecoysAndMisdirection_AttractToDecoys)  # 64
+    UTILITY_TYPE = int(UtilityType.DecoysAndMisdirection_AttractToDecoys)  # 65
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("unit_faction") != int(UnitFaction.Genestealers):   # HasFaction(.., 0xf)
@@ -556,7 +556,7 @@ class AttractToDecoysUtility(BaseUtility):
 class KustomForceFieldUtility(BaseUtility):
     """`KustomForceFieldUtility` (IdunBattle.AI.Utilities.KustomForceFieldUtility$$.ctor ; UtilityType.KustomForceField=20) ; base ATriggeredAbilityUtility.d__3
     IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : +20 × count(amis ADJACENTS R1 avec triggered ability 1102). `meta.ability_friend_counts[1102]`."""
-    UTILITY_TYPE = int(UtilityType.KustomForceField)  # 20
+    UTILITY_TYPE = int(UtilityType.KustomForceField)  # 21
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         return _ability_count(meta, 1102) * wt.sub("KustomForceField", "AdjacentFriendly")
@@ -566,7 +566,7 @@ class DefenderOfTheGreaterGoodUtility(BaseUtility):
     """`DefenderOfTheGreaterGoodUtility` (IdunBattle.AI.Utilities.DefenderOfTheGreaterGoodUtility$$.ctor ; UtilityType.DefenderOfTheGreaterGood=21) ; IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext :
     +25 × count(amis R1, ou R2 si faction 9, avec ability 1155). Gate : arme à distance.
     `ctx.unit_has_ranged_weapon` + `meta.ability_friend_counts[1155]`."""
-    UTILITY_TYPE = int(UtilityType.DefenderOfTheGreaterGood)  # 21
+    UTILITY_TYPE = int(UtilityType.DefenderOfTheGreaterGood)  # 22
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if not (ctx or {}).get("unit_has_ranged_weapon"):
@@ -578,7 +578,7 @@ class SaviorProtocolsUtility(BaseUtility):
     """`SaviorProtocolsUtility` (IdunBattle.AI.Utilities.SaviorProtocolsUtility$$.ctor ; UtilityType.SaviorProtocols=22) ; IdunBattle.AI.Utilities.ATriggeredAbilityUtility.u003CEvaluateMovementInStepsu003Ed__3$$MoveNext : +20 × count(amis
     ADJACENTS R1 avec ability 1120). Gate : faction 9 ET n'a pas l'ability 1120. `ctx.unit_faction/
     unit_triggered_abilities` + `meta.ability_friend_counts[1120]`."""
-    UTILITY_TYPE = int(UtilityType.SaviorProtocols)  # 22
+    UTILITY_TYPE = int(UtilityType.SaviorProtocols)  # 23
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         if (ctx or {}).get("unit_faction") != 9 or _has(ctx, "unit_triggered_abilities", 1120):
@@ -611,7 +611,7 @@ class MoveTowardsUnitUtility(BaseUtility):
 class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     """`BioMinefield_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.BioMinefield_MoveTowardsTargetUtility$$.ctor ; UtilityType.=61) : -100 × hexdist(candidate,
     cible ability/effet 1315). Pas de gate trait."""
-    UTILITY_TYPE = int(UtilityType.BioMinefield_MoveTowardsTarget)  # 61
+    UTILITY_TYPE = int(UtilityType.BioMinefield_MoveTowardsTarget)  # 62
     _CAT = "BioMinefield_MoveTowardsTarget"
     _ABILITY_ID = int(EffectType.BioMinefield_Target)  # 1315 (effet marqueur de cible ; #158, absent d'ActiveAbilityType)
     _TRAIT_GATE = None
@@ -620,7 +620,7 @@ class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
 class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
     """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.MasterOfTheTutelaries_MoveTowardsTargetUtility$$.ctor ; UtilityType.=62) : -20 × hexdist(candidate,
     cible 1096). Gate trait : l'unité a 2026 ou 1019."""
-    UTILITY_TYPE = int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)  # 62
+    UTILITY_TYPE = int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)  # 63
     _CAT = "MasterOfTheTutelaries_MoveTowardsTarget"
     _ABILITY_ID = int(ActiveAbilityType.MasterOfTheTutelaries)  # 1096 (#158 : nom classe matche Active, PAS EffectType.KustomForceField/Triggered.SoulHunger)
     _TRAIT_GATE = {2026, 1019}
@@ -791,7 +791,7 @@ class TileDistanceUtility(BaseUtility):
     `UtilityDefinition(7 = Tile)`, jamais `0x20 = MovementSuggestion`, donc `TileDistance(33)` n'y est
     jamais évaluée. Porter la position du parent serait spéculatif tant qu'aucun call-site ne
     l'exerce ; résidu NOMMÉ, cf. case-205 §5."""
-    UTILITY_TYPE = int(UtilityType.TileDistance)  # 33
+    UTILITY_TYPE = int(UtilityType.TileDistance)  # 34
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         from_pos = (ctx or {}).get("self_pos")
@@ -1233,7 +1233,7 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
           `IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tuile, ctx, out u)` =
           `IdunBattle.Entities.UnitExtensions$$GetUnit` (l'occupant, UNE entite par tuile via
           `TileContentComponent.IsFilled`) filtre sur le trait `0x1b` = `UnitTrait.Steppable`.
-        * `decoy_gate` = le gate de la feuille 64 : occupant steppable PRESENT et
+        * `decoy_gate` = le gate de la feuille `DecoysAndMisdirection_AttractToDecoys` : occupant steppable PRESENT et
           `!UnitExtensions.IsEnemy(u, case.unit, ctx)` -- ni le trait `Decoy` ni la faction de
           l'occupant n'y interviennent.
         * `decoy_friend_count` = le compte de sa boucle : amis du mover (self INCLUS -- `IsFriend`

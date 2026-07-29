@@ -40,14 +40,14 @@ class ComposedUtility(BaseUtility):
     `evaluate = Σ enfant.evaluate(*args)` (la membership exacte est LUE runtime, cf. utilities/tile.py
     et docs/rl/playbook-engine.md §13.8). Les enfants partagent la signature d'appel du sous-systeme.
 
-    Il n'y a PAS de classe dediee par composite (Tile=7, Damage=34, … ne sont PAS des classes natives) :
+    Il n'y a PAS de classe dediee par composite (Tile=7, Damage=35, … ne sont PAS des classes natives) :
     ce sont des INSTANCES `ComposedUtility` enregistrees au bon `UtilityType`. D'ou le `utility_type`
     d'instance (l'enum de registration), et non un attribut de classe."""
     UTILITY_TYPE: int = -1
 
     def __init__(self, children: "list[BaseUtility]", utility_type: int = -1):
         self.children = children
-        self.UTILITY_TYPE = utility_type   # type d'instance (Tile=7, Damage=34, …) ; PAS une sous-classe
+        self.UTILITY_TYPE = utility_type   # type d'instance (Tile=7, Damage=35, …) ; PAS une sous-classe
 
     def evaluate(self, *args) -> float:
         total = 0.0

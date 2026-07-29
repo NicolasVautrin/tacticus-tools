@@ -47,7 +47,7 @@ class DamageUtility(BaseUtility):
     """`DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112 ; UtilityType.DamageDealt=35) — le LEAF DamageDealt
     (le NOM natif de la classe est `DamageUtility`, PAS `DamageDealtUtility`). Corps = `<EvaluateAttackInSteps>
     IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext`. `GetHealthDamage`/`GetShieldDamage` = méthodes natives (VA citées)."""
-    UTILITY_TYPE = int(UtilityType.DamageDealt)  # 35
+    UTILITY_TYPE = int(UtilityType.DamageDealt)  # 36
 
     def get_health_damage(self, pred) -> float:
         """`IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` : Avg(AccurateHealthDamage@0x58) ; si
@@ -86,7 +86,7 @@ class KillUnitUtility(BaseUtility):
     """`KillUnitUtility` (IdunBattle.AI.Utilities.KillUnitUtility$$.ctor, TypeDefIndex 12124 ; UtilityType.KillUnit=36) ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
     DefinitelyKill si WillBeKill (killSure), sinon PossibleKill si MightBeKill (kill). 0 sinon.
     (Steppable/friendly-fire non gérés : le moteur ne cible que des ennemis vivants.)"""
-    UTILITY_TYPE = int(UtilityType.KillUnit)  # 36
+    UTILITY_TYPE = int(UtilityType.KillUnit)  # 37
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         if not pred:
@@ -187,7 +187,7 @@ class OverkillUnitUtility(BaseUtility):
     HP) — le port historique lisait `AccurateHealthDamage` CAPÉ à HP (`min(dmg,hp) > hp` = TOUJOURS FAUX)
     -> `OverkillUnit` INERTE pour toute attaque. Réactivé via `raw_health_damage` + `is_overkill` (l'over-shoot
     est déjà porté pour le cap Resilient, `trait_damage_limits.is_overkill`)."""
-    UTILITY_TYPE = int(UtilityType.OverkillUnit)  # 37
+    UTILITY_TYPE = int(UtilityType.OverkillUnit)  # 38
 
     def evaluate(self, pred, target_max_hp, wt) -> float:
         # raw* = dégât santé NON capé par HP (mirror @0x24/@0x28) ; le détail (fallback capped, scénario

@@ -22,7 +22,7 @@ W_ARMOR = 50    # IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor : W[1] =
 class RepairedAmountUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.RepairedAmountUtility` (IdunBattle.AI.Utilities.RepairedAmountUtility$$.ctor ; UtilityType.RepairedAmount=47).
     Corps dans `evaluate` (= `<EvaluateRepairInSteps>d__.MoveNext`, body IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext)."""
-    UTILITY_TYPE = int(UtilityType.RepairedAmount)  # 47
+    UTILITY_TYPE = int(UtilityType.RepairedAmount)  # 48
 
     def get_unit_utility_modifier(self, is_boss: bool) -> float:
         """`IdunBattle.AI.Utilities.RepairedAmountUtility$$GetUnitUtilityModifier` : `bossMod = 2` si BOSS sinon 1."""

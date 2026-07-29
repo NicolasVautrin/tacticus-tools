@@ -78,7 +78,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
         # transportés par le `leaf_ctx` sous forme de cartes par-position (cf. `apply_tile_attributes`).
         # #241 : il en dérive AUSSI `meta.steppable` / `decoy_gate` / `decoy_friend_count` depuis
         # l'occupant de la tuile. Le paramètre `steppable_by_pos` qu'exposait cette fonction est
-        # SUPPRIMÉ : aucun appelant ne l'a jamais fourni (feuille 19 muette), et le laisser aurait
+        # SUPPRIMÉ : aucun appelant ne l'a jamais fourni (feuille `SteppableUnit` muette), et le laisser aurait
         # créé une seconde source pour `meta.steppable`, écrasée juste après par la ligne suivante.
         apply_tile_attributes(meta, c, leaf_ctx)
         # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
