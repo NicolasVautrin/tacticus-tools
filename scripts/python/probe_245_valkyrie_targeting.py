@@ -48,11 +48,15 @@ L'entree du seed BC est reprise telle quelle SAUF deux champs :
   * `Health` 0 -> 5000. L'entree capturee d'un summon porte `Health = 0` (ses PV viennent des
     variables `summonHp` du SUMMONER au moment du spawn natif) ; spawne a la main, le Vox-caster
     naitrait a 1 PV. Aucune regle du filtre statique ne lit les PV.
-  * le trait `Summon` est RETIRE (`Imperial` + `BattleFatigue` conserves). MESURE (balayage des 4
-    variantes de traits, meme board/seed) : `CanStillBeUsed` vaut `false` SSI le trait `Summon` est
-    present, et le court-circuit d'ability ci-dessus rend alors `0x1` pour TOUTES les cibles --
-    aucune cascade evaluee, donc rien de mesurable. C'est le gate d'USAGE, pas celui de CIBLAGE :
-    la couche `TargetingRule` n'a aucun flag de cooldown/usage (cf. l'en-tete de
+  * le trait `Summon` est RETIRE (`Imperial` + `BattleFatigue` conserves), parce qu'il rend l'unite
+    AUTOMATIQUE. CAUSE ETABLIE par case-250 : `IdunBattle.Entities.UnitExtensions$$IsAutomatic` =
+    `HasTrait(2 Summon) || HasTrait(13 Object)`, consomme par
+    `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`, qui joue l'unite lui-meme. Elle
+    consomme sa charge d'active et `CanStillBeUsed` retombe a false par l'USAGE (chemin
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`), apres quoi le court-circuit
+    d'ability ci-dessus rend `0x1` pour TOUTES les cibles -- aucune cascade evaluee, rien de
+    mesurable. Le retrait rend l'unite CONTROLABLE ; ce n'est pas lever un gate de ciblage : la
+    couche `TargetingRule` n'a de toute facon aucun flag de cooldown/usage (cf. l'en-tete de
     `engine/runner/abilities/targeting.py`).
 
 Le retrait du trait ne peut pas deplacer un verdict de la cascade pour CE masque, et ca se lit sur
@@ -118,7 +122,7 @@ RANK = 17
 MAX_TILES = 6                       # tuiles echantillonnees par categorie (marchable / non)
 # Entree de catalogue : les DEUX seuls champs amenages (cf. l'en-tete pour la justification).
 VOX_HEALTH = 5000
-VOX_TRAITS = ["Imperial", "BattleFatigue"]      # le trait `Summon` desarme `CanStillBeUsed`
+VOX_TRAITS = ["Imperial", "BattleFatigue"]      # `Summon` retire : il rend l'unite AUTOMATIQUE (#250)
 
 
 def _r(sid, method, body, timeout=90):

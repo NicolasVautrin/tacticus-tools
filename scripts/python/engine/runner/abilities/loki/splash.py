@@ -596,8 +596,11 @@ class PlasmaGrenadeAbility(ActiveAbility):
     # caster), la portee tombe a `min(1, 2)` et `onlyAdjacent` passe a vrai. C'est le SEUL champ qui
     # separe ce preset de celui de Fragstorm (`+0x180`).
     # CONFRONTE LIVE (#243) -- le marqueur « pose sur RE seule » de #248 est LEVE. Porteur
-    # `eldarSmnGuardian` amene par catalogue injecte + trait `Summon` retire (recette case-245 : ce
-    # trait desarme `AActiveAbility$$CanStillBeUsed`, l'oracle court-circuiterait a `0x1`).
+    # `eldarSmnGuardian` amene par catalogue injecte + trait `Summon` retire (recette case-245). Ce
+    # retrait n'est PAS un contournement de gate : le trait `Summon` (`UnitTrait` 2) rend l'unite
+    # AUTOMATIQUE (`IdunBattle.Entities.UnitExtensions$$IsAutomatic`), le moteur la joue lui-meme
+    # (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`), elle consomme sa charge, et
+    # `CanStillBeUsed` retombe a false par l'USAGE. Le retirer rend l'unite CONTROLABLE. cf. #250.
     # 14/14 lignes d'accord natif/port sur DEUX montages, seuil encadre des DEUX cotes (d=2 accepte,
     # d=3/5/6 -> `TargetIsInRange`) et CLAMP EXERCE : avec un ennemi au contact, la cible a d=2
     # bascule de `0x0` a `0x8000000`, et le contrefactuel `fmtFlip` faux-ACCEPTE exactement cette
@@ -793,6 +796,17 @@ class ScythingTalonsAbility(ActiveAbility):
     # `onlyAdjacent` fait prendre au filtre statique la branche `battleQuery.AreEntitiesAdjacent`
     # (et non un `dist <= N`) : la cible doit etre AU CONTACT. Coherent avec le kit (melee Bio, splash
     # = ennemis adjacents A LA FOIS au caster ET a la cible).
+    # CONFRONTE LIVE (#250) sur le PORTEUR REEL `tyranSmnWarrior` -- le marqueur « valide par
+    # IDENTITE DE PRESET avec 1105 » est LEVE. Le porteur est DEJA au catalogue `data/seed-bc.json`
+    # (`VisualId` `tyranNpc4Warrior`) : aucun catalogue injecte, seuls `Health` 0 -> 5000 et le
+    # retrait du trait `Summon` (qui rend l'unite AUTOMATIQUE, cf. #250) amenagent son entree.
+    # 6/6 lignes d'accord natif/port, seuil de portee encadre des DEUX cotes (ENNEMI d=1 -> `0x0`,
+    # ENNEMI d=2 -> `0x8000000 TargetIsInRange`), ALLIE d=1 et le CASTER -> `0x4000 TargetIsEnemy`.
+    # Contrefactuels (lignes divergentes / 6) : `TARGETING_OPTIONS=None` 5, `rules=0` 2,
+    # `range=None` 3 -- chaque champ PORTE. `fmtFlip` 0 : `force_melee_target` est INERTE ici, et
+    # c'est LU au decompile, pas suppose -- `RANGE_ADJACENT` pose deja `overrideRange = 1`, donc le
+    # clamp `v = Math.Min(1, v)` de `IdunBattle.Core.Services.TargetingQuery$$GetRange` est
+    # idempotent. cf. `probe_250_summon_automatic.py --only cast`.
     TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
                                          range=RANGE_ADJACENT,
                                          force_melee_target=RANGED_BOOL_FALSE)

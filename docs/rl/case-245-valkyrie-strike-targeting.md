@@ -169,12 +169,16 @@ Cliquet : 1018 retiré de `SANS_TARGETING_OPTIONS` (le test l'exigeait).
   cas, qui ne traite que la face CIBLAGE du cast.
 - **Le volet CASTER** : `0x6000040` ne pose pas `CasterHasNotMoved`, donc le Vox-caster peut caster
   après s'être déplacé ; propriété lue au masque, pas isolée par un cas dédié.
-- **Pourquoi le trait `Summon` désarme `CanStillBeUsed`** : constaté et mesuré, pas expliqué. La
-  chaîne candidate est le slot virtuel `+0x3d8` lu par
-  `IdunBattle.Entities.Abilities.AActiveAbility$$CanStillBeUsed` (`maxUses.HasValue && > 0`, sinon
-  `timesUsed == 0`), mais le point d'écriture du champ `CanStillBeUsed` du composant n'a pas été
-  remonté. Sans conséquence sur ce cas — c'est le gate d'usage, pas celui de ciblage — mais ça
-  bloquerait tout cas futur qui voudrait faire **caster** 1018 par son porteur réel.
+- ~~**Pourquoi le trait `Summon` désarme `CanStillBeUsed`**~~ — **EXPLIQUÉ par `case-250`**, et la
+  chaîne candidate citée ici était fausse : le slot virtuel `+0x3d8` est `GetCooldownAfterUse`, il
+  ne lit aucun trait. Le trait `Summon` (`UnitTrait` 2) rend l'unité **automatique**
+  (`IdunBattle.Entities.UnitExtensions$$IsAutomatic`) ; le moteur la joue lui-même
+  (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`), elle consomme sa charge, et
+  `CanStillBeUsed` retombe à `false` par l'**usage**
+  (`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` : `AmountOfTimesUsed++` puis
+  ré-évaluation). Rien n'est donc « désarmé ». Corollaire pour 1018 : le faire caster **à la main**
+  par son porteur réel avec son trait reste impossible (l'unité n'offre jamais d'action), mais le
+  moteur, lui, le fait.
 - **Les régimes de portée** : `useWholeBoard` fait sauter le volet portée, donc les lignes
   `TargetIsInRange` / `TargetIsAtRange` ne sont pas exercées par ce cas (elles le sont par
   `case-1014` et `case-241`).

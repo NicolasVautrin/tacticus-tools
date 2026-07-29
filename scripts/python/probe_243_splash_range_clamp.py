@@ -39,11 +39,15 @@ DEUX MEMES amenagements d'entree, et pas un de plus :
 
   * `Health` 0 -> 5000 : l'entree d'un summon porte 0 (ses PV viennent des `summonHp` du SUMMONER au
     spawn natif) ; spawne a la main il naitrait a 1 PV. Aucune regle du filtre statique ne lit les PV.
-  * le trait `Summon` est RETIRE. MESURE case-245 (balayage des 4 variantes de traits, meme
-    board/seed) : `IdunBattle.Entities.Abilities.AActiveAbility$$CanStillBeUsed` vaut `false` SSI le
-    trait `Summon` est present, et `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`
-    (surcharge 4 arguments, celle que le RPC `abilityReason` invoque) court-circuite alors a `0x1`
-    SANS evaluer la cascade -- rien de mesurable.
+  * le trait `Summon` est RETIRE, parce qu'il rend l'unite AUTOMATIQUE. CAUSE ETABLIE par case-250
+    (decompile + mesure) : `IdunBattle.Entities.UnitExtensions$$IsAutomatic` = `HasTrait(2 Summon) ||
+    HasTrait(13 Object)`, et `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` joue
+    lui-meme toute unite automatique du camp. Elle consomme sa charge d'active,
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` incremente `AmountOfTimesUsed`
+    et re-evalue `IdunBattle.Entities.Abilities.AActiveAbility$$CanStillBeUsed`, qui rend alors
+    `amountOfTimesAlreadyUsed == 0` = false. `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason`
+    court-circuite ensuite a `0x1` SANS evaluer la cascade -- rien de mesurable. Ce n'est donc PAS
+    un gate leve : c'est l'unite rendue CONTROLABLE, donc interrogeable avant qu'elle ait caste.
 
 Le retrait du trait ne peut pas deplacer un verdict de la cascade POUR CES MASQUES, et ca se lit au
 decompile : les seules regles du filtre statique qui consultent un trait portent sur la CIBLE
@@ -229,7 +233,10 @@ def _build(sid, seed: int, board: str):
             raise RuntimeError("%s absent du catalogue BC.Units apres augment" % vis)
         e["Health"] = CARRIER_HEALTH
         e["RemainingHealth"] = CARRIER_HEALTH
-        # le trait `Summon` desarme `CanStillBeUsed` (mesure case-245) -> l'oracle court-circuiterait
+        # Le trait `Summon` (`UnitTrait` 2) rend l'unite AUTOMATIQUE (`UnitExtensions$$IsAutomatic`) :
+        # `PlayAutomaticUnitsOperation$$Execute` la joue lui-meme, elle consomme sa charge et
+        # `CanStillBeUsed` retombe a false par l'USAGE -> l'oracle court-circuiterait a `0x1`.
+        # Le retirer rend l'unite CONTROLABLE ; ce n'est pas lever un gate (cf. case-250).
         e["Traits"] = [t for t in (e.get("Traits") or []) if t != "Summon"]
     RD._patch_predefined_units(bc, [ENEMY] * N_ENEMIES)
     spawns = RD._spawn_points_by_twpi(bc)

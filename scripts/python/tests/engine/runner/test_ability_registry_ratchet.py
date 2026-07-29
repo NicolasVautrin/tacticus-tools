@@ -208,6 +208,13 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1065 ScythingTalonsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
     # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
     # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
+    # CONFRONTEE LIVE (#250) sur son PORTEUR REEL `tyranSmnWarrior` -- elle etait jusque-la validee
+    # par IDENTITE DE PRESET avec 1105, ce qui n'est pas une mesure. 6/6 d'accord natif/port, seuil
+    # encadre des deux cotes (ENNEMI d=1 `0x0` / d=2 `TargetIsInRange`), ALLIE et CASTER refuses sur
+    # `TargetIsEnemy` ; contrefactuels : masque absent 5 lignes, `rules=0` 2, `range=None` 3.
+    # `fmtFlip` 0 -- `force_melee_target` est INERTE ici, et c'est LU (RANGE_ADJACENT pose deja
+    # `overrideRange = 1`, le clamp `Math.Min(1, v)` est idempotent), pas suppose.
+    # cf. `probe_250_summon_automatic.py`, garde `test_summon_automatic_live.py`.
     # 1076 MV71SniperDroneSquadAttackAbility RESORBEE (#254) -- forme FACTORY NOMMEE (la 4e) :
     # `...Triggered.Loki.MV71SniperDroneSquadAttackAbility$$.ctor` n'ecrit rien et ne copie rien, il
     # appelle `IdunBattle.Core.Services.TargetingOptions$$CustomLokiNormalAttackOptions(&opts, 2)`.
