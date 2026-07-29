@@ -65,6 +65,14 @@ collection `BaseUnitComponent+0x40`/`+0x48` cote natif) **+** pseudo-trait de gr
 est vu. `ctx.scene` absente (harnais de sonde) -> borne STATIQUE, exactement comme
 `utilities/tile.py::_adjacent_units`.
 
+**La cle resout sur les DEUX chemins de decision**, ce qui a ete MESURE et non suppose : sur un
+runner `MC1_67`/777, `observeBattle.units[].squadId` et `decisionView.units[].id` sont le MEME
+ensemble (`[77, 79, ..., 95]`, 10/10, aucun squadId hors `dv.units`) -- donc
+`Scene.from_predictor_sctx` (chemin LIVE `engine/ai/context.py`) indexe `ctx_by_id` par cette meme
+cle. Le test de neutralite l'exige explicitement (`scene.ctx(squadId) is not None` pour chaque
+unite), sans quoi le gate retomberait SILENCIEUSEMENT sur la borne statique et l'etage 2 ne
+prouverait rien.
+
 Les 6 gates :
 
 | # | playbook | ligne | avant | apres |

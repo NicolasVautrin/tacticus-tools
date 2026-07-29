@@ -208,6 +208,12 @@ def test_gate_is_neutral_on_a_real_battle(rites_state):
     checked = 0
     for u in (ctx.obs_units or []):
         vis = u.get("visualId")
+        # CABLAGE : `_affected_by_heal_type` lit `ctx.scene.ctx(obs["squadId"])`. Si cette cle ne
+        # resolvait pas, le gate retomberait SILENCIEUSEMENT sur la borne statique et l'etage 2 ne
+        # prouverait rien -- on l'exige donc explicitement plutot que de le supposer.
+        assert ctx.scene.ctx(u.get("squadId")) is not None, (
+            "scene.ctx(squadId=%s) est None pour %s : le substrat d'ENTITE n'est pas cable"
+            % (u.get("squadId"), vis))
         # ANCIEN critere VERBATIM : `_traits` (= `_unit_cfg` -> `resolve_unit_id` + `GC.unit`), PAS
         # `unit_trait_names` -- sinon les deux cotes partageraient l'accesseur et la garde serait
         # aveugle a une regression de RESOLUTION du visualId (le nouveau chemin appelle `GC.unit`
