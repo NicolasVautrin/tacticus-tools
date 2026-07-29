@@ -251,8 +251,9 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
         _load_unit_flags(state, snapshot)
-        # MEME nature que les flags : deux champs d'ETAT DE TOUR du `UnitComponent`, entrees de gate
-        # et non sorties -- cf. `_load_unit_turn_state`.
+        # MEME nature que les flags : trois champs d'ETAT DE TOUR du `UnitComponent` (dont le
+        # compteur `turnsFinished` que lit `OwnerHasFinishedMinTurns`), entrees de gate et non
+        # sorties -- cf. `_load_unit_turn_state`.
         _load_unit_turn_state(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
@@ -474,14 +475,36 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
 
 
 def _load_unit_turn_state(state: State, snapshot: dict) -> None:
-    """Seede les DEUX champs d'ETAT DE TOUR du `UnitComponent` depuis `combatSnapshot.units[]` :
-    `currentTurnStartTile` (@+0x18c) et `chargedUnitIds` (@+0x190).
+    """Seede les TROIS champs d'ETAT DE TOUR du `UnitComponent` depuis `combatSnapshot.units[]` :
+    `turnsFinished` (@+0x5c), `currentTurnStartTile` (@+0x18c) et `chargedUnitIds` (@+0x190).
 
-    Canal live : le capteur `readUnitTurnState` de `frida/hooks/features/ai-step/rpc-snapshot.ts`
-    (lecture MEMOIRE PURE des deux champs, aucun `invokeMethod`). Pendant EXACT de
+    Canal live : les capteurs `readUnitTurnState` (lecture MEMOIRE PURE des deux derniers champs) et
+    l'invoke de `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` de
+    `frida/hooks/features/ai-step/rpc-snapshot.ts`. Pendant EXACT de
     `_load_unit_flags` : ce sont des ENTREES de gate, pas des sorties, et jusqu'ici RIEN ne les
     peuplait sur un etat recharge -- seules les operations OFFLINE les ecrivaient
-    (`StartTurnOperation.execute` / `components.update_charging`).
+    (`StartTurnOperation.execute` / `EndTurnOperation.execute` / `components.update_charging`).
+
+    * **`turns_finished`** (#N11) -- compteur PER-UNITE des tours que CETTE unite a TERMINES, ECRIT
+      par `IdunBattle.Operations.EndTurnOperation$$Execute` (`*(int *)(unitComponent + 0x5c) += 1`
+      sur chaque id de `PlayerComponent.CurrentlyOwnedUnitIds` du joueur finissant, puis sur sa
+      Machine of War) et RELU par `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`. Ses
+      consommateurs sont des GATES : `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger`
+      (le noeud `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns`, gate de PileIn ->
+      porte dans `operations/triggers/dispatch/turn.py`), plus
+      `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability` et
+      `IdunBattle.AI.Playbook.Loki.InstrumentsOfVengeancePlaybook$$GetUseProbability`. Sans ce seed,
+      TOUTE unite d'un etat recharge valait `turns_finished == 0` -- le gate
+      `OwnerHasFinishedMinTurns(2)` rendait donc FAUX sur une unite qui a pourtant fini N>=2 tours
+      cote natif : degradation RESTRICTIVE et silencieuse (le trigger ne fire jamais offline).
+      ⚠ Ce n'est PAS un `StatType` : ni `combatSnapshot.stats` ni `GetStat` ne l'atteignent, d'ou
+      l'accesseur dedie cote capteur. Et il n'est PAS derivable de `turnsStarted` (stat 12) -- une
+      unite APPARUE PENDANT le tour de son proprietaire (tout summon) rate le bump de `StartTurn`
+      mais prend celui d'`EndTurn`, et garde `turns_finished == turns_started + 1` ensuite.
+      Portee : les lignes `EntityType.Unit` ET `EntityType.Machine` -- le natif a bien DEUX sites
+      `+0x5c += 1` (unites puis MoW, meme offset, `GetTurnsFinished` a les deux branches d'EntityType)
+      et le port materialise la MoW avec un `UnitComponent` (`_load_machines`), donc la meme boucle
+      couvre les deux. `_load_machines` tourne AVANT cet appel, l'entite existe deja.
 
     * **`current_turn_start_tile`** -- ECRIT par `IdunBattle.Operations.StartTurnOperation$$Execute`
       (`mainTile = EntityExtensions.GetMainTile(unit) ; comp[0x18c] = mainTile?.Id ?? 0`), RELU par
@@ -508,10 +531,15 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
     traduction.
 
     TRI-ETAT, meme discipline que `_load_unit_flags` : champ ABSENT ou `null` = **non mesure**
-    (capteur anterieur a `f790ff4`, ou composant/classe introuvable) -> on ne TOUCHE PAS au defaut du
-    port, donc comportement STRICTEMENT anterieur. `[]` / un id de tuile = mesure, on ecrit. Le
-    `null` de `currentTurnStartTile` recouvre les DEUX sens (« non mesure » et « le natif porte 0 »),
-    mais les deux collapsent sur le MEME defaut de port (`None`), donc l'ambiguite est sans effet."""
+    (capteur anterieur a `f790ff4`, ou composant/classe/methode introuvable) -> on ne TOUCHE PAS au
+    defaut du port, donc comportement STRICTEMENT anterieur. `[]` / un id de tuile / un entier =
+    mesure, on ecrit. Le `null` de `currentTurnStartTile` recouvre les DEUX sens (« non mesure » et
+    « le natif porte 0 »), mais les deux collapsent sur le MEME defaut de port (`None`), donc
+    l'ambiguite est sans effet. Pour `turnsFinished` en revanche le tri-etat n'est PAS une
+    precaution de style : le capteur rend `null` quand `GetTurnsFinished` est irresolue, et `0`
+    quand l'unite a REELLEMENT fini zero tour -- confondre les deux ecraserait un defaut de port
+    par une non-mesure (ici les deux valent 0, mais un `int(None)` leverait, et la distinction
+    reste la seule lecture correcte du canal)."""
     for su in (snapshot.get("units") or []):
         eid = su.get("entityId")
         if eid is None:
@@ -520,6 +548,11 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
         uc = ent.get_component(UnitComponent) if ent is not None else None
         if uc is None:
             continue
+        # `turnsFinished` = `UnitComponent + 0x5c` (invoke de `UnitExtensions$$GetTurnsFinished`).
+        # `None` = non mesure -> on laisse le defaut du port (0) ; un entier = mesure, on ecrit.
+        turns_finished = su.get("turnsFinished")
+        if turns_finished is not None:
+            uc.turns_finished = int(turns_finished)
         tile = su.get("currentTurnStartTile")
         if tile is not None:
             uc.current_turn_start_tile = int(tile)
