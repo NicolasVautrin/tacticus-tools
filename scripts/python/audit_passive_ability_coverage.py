@@ -71,13 +71,25 @@ de-sature le critere. Le rapprochement de nom est CamelCase-aware (`HeavyGravCan
 La colonne `kind` de gameconfig MENT sur la spawnabilite. Ventilation reelle :
   L+ = lineup present dans `rl_duel.py build --list-pool` (verite native `buildNormalizedBC`) ;
   M  = MachineOfWar du meme pool ;
-  L- = lineup ABSENT du pool au rank courant (hero non spawnable) ;
   S+ = unite hors pool ATTEIGNABLE par summon depuis une unite du pool (graphe transitif des
        `constants.unitId{,_2,_3,_4}` / `unitIds` / `unitToSpawn` des abilities) -- confrontable ;
+  L~ = lineup ABSENT du pool -> **INJECTABLE**, donc confrontable ;
+  L! = lineup dans la liste des NON SPAWNABLES -> seul refus legitime ;
   S? = summon SANS summoner derivable du gameconfig -> reachability INDETERMINEE (borne basse
        assumee : 25 summons sont dans ce cas, spawnes par des chemins non exprimes en constants) ;
   N  = npc non atteignable -> hors-jeu, NON PERTINENT.
-Confrontable <=> au moins un porteur L+, M ou S+.
+Confrontable <=> au moins un porteur L+, M, S+ ou L~.
+
+ABSENT DU POOL != NON SPAWNABLE -- l'erreur que ce script codait en dur jusqu'au 2026-07-29. Le pool
+derive du seed BC, qui est la capture d'UNE bataille : son catalogue ne porte que les unites
+possedees ce jour-la. Un heros hors pool s'INJECTE :
+`catalog_inject.write_augmented_seed_bc(<hors data/>, [unitId])` alimente les DEUX catalogues
+(`Units` ET `Abilities` -- sans la config d'ability le porteur se deploie puis FAUTE au cast, cf.
+#226), puis `rl_duel.py build --seed-bc <chemin>`. Le seul refus legitime est `data/
+unspawnable_rank<N>.json` (repli `rl_collect_batch.UNSPAWNABLE_FALLBACK`) : les unites qui passent
+le filtre de `buildNormalizedBC` et LEVENT a la construction. Mesure du 2026-07-29 :
+`spaceWolfPriest`, classe non confrontable par ce script ET par un solveur, entre au pool (97 -> 98)
+par cette voie.
 
 ## APPROXIMATIONS ASSUMEES (l'audit RANGE, il ne PROUVE pas)
 
@@ -241,9 +253,28 @@ def summon_reachable(pool: set[str], graph: dict[str, set[str]]) -> set[str]:
     return seen - pool
 
 
+def read_unspawnable(rank: int | None) -> set[str]:
+    """Les unites qui passent le filtre de `buildNormalizedBC` puis LEVENT a la construction.
+
+    C'est le SEUL refus legitime pour un `lineup` : l'absence du pool, elle, ne prouve rien (le pool
+    derive du seed BC = capture d'UNE bataille). Meme source que `rl_duel` :
+    `data/unspawnable_rank<N>.json`, produit par le spawn-probe exhaustif, avec repli sur la
+    constante `rl_collect_batch.UNSPAWNABLE_FALLBACK` quand le fichier n'existe pas."""
+    p = os.path.join(_REPO, "data", "unspawnable_rank%s.json" % rank)
+    if rank is not None and os.path.exists(p):
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        return set(d.get("unspawnableUnits") or []) | set(d.get("unspawnableMow") or [])
+    from rl_collect_batch import UNSPAWNABLE_FALLBACK
+    return set(UNSPAWNABLE_FALLBACK)
+
+
 def classify_carrier(uid: str, kind: str, pool_units: set[str], pool_mow: set[str],
-                     reachable: set[str]) -> str:
-    """L+ / M / L- / S+ / S? / N -- cf. docstring du module."""
+                     reachable: set[str], unspawnable: set[str]) -> str:
+    """L+ / M / S+ / L~ / L! / S? / N -- cf. docstring du module.
+
+    L'ordre des tests compte : `unspawnable` ne l'emporte QUE sur les `lineup` hors pool. Une unite
+    presente au pool a deja passe la construction, donc rien ne sert de la re-filtrer."""
     if uid in pool_mow:
         return "M"
     if uid in pool_units:
@@ -251,7 +282,10 @@ def classify_carrier(uid: str, kind: str, pool_units: set[str], pool_mow: set[st
     if uid in reachable:
         return "S+"
     if kind == "lineup":
-        return "L-"
+        # ABSENT DU POOL != NON SPAWNABLE. Le pool derive du seed BC (capture d'UNE bataille) : un
+        # heros hors pool s'INJECTE par `catalog_inject.write_augmented_seed_bc` (Units ET Abilities)
+        # puis `rl_duel.py build --seed-bc`. Cf. le gate de confrontabilite du CLAUDE.md.
+        return "L!" if uid in unspawnable else "L~"
     if kind == "summons":
         return "S?"
     return "N"
@@ -547,17 +581,23 @@ def build_rows(pool: dict) -> tuple[list[dict], dict]:
     graph = summon_graph()
     pool_units, pool_mow = set(pool["units"]), set(pool["mow"])
     reachable = summon_reachable(pool_units | pool_mow, graph)
+    unspawnable = read_unspawnable(pool.get("rank"))
     nidx = load_native_index()
+
+    # `L~` (lineup hors pool mais INJECTABLE) compte comme confrontable : cf. `classify_carrier`.
+    CONFRONTABLE = ("L+", "M", "S+", "L~")
 
     rows: list[dict] = []
     for name, carriers in passives.items():
         cls = collections.Counter(
-            classify_carrier(uid, kind, pool_units, pool_mow, reachable) for uid, kind in carriers)
+            classify_carrier(uid, kind, pool_units, pool_mow, reachable, unspawnable)
+            for uid, kind in carriers)
         ch, det, czones = channels(name, zones, prose)
         ported = any(c in ("T", "O", "E", "G", "X", "B") for c in ch)
-        confrontable = bool(cls["L+"] + cls["M"] + cls["S+"])
+        confrontable = any(cls[c] for c in CONFRONTABLE)
         examples = [uid for uid, kind in carriers
-                    if classify_carrier(uid, kind, pool_units, pool_mow, reachable) in ("L+", "M", "S+")]
+                    if classify_carrier(uid, kind, pool_units, pool_mow, reachable,
+                                        unspawnable) in CONFRONTABLE]
         rows.append({
             "name": name, "carriers": carriers, "cls": cls, "channels": ch, "detail": det,
             "zones": czones, "ported": ported, "confrontable": confrontable,
@@ -571,7 +611,8 @@ def build_rows(pool: dict) -> tuple[list[dict], dict]:
         "prose_kb": len(prose) // 1024, "enum_qual": enum_qualification(passives),
         "graph_edges": sum(len(v) for v in graph.values()), "reachable": len(reachable),
         "summons_unreached": len(set(GC._index()["summons"]) - reachable - pool_units - pool_mow),
-        "pool": pool,
+        "pool": pool, "n_unspawnable": len(unspawnable),
+        "n_injectable": len(set(GC._index()["lineup"]) - pool_units - pool_mow - unspawnable),
     }
     return rows, meta
 
@@ -587,7 +628,7 @@ def verdict(r: dict) -> str:
 
 
 def _carriers_cell(c: collections.Counter) -> str:
-    parts = [("L+", c["L+"]), ("M", c["M"]), ("L-", c["L-"]),
+    parts = [("L+", c["L+"]), ("M", c["M"]), ("L~", c["L~"]), ("L!", c["L!"]),
              ("S+", c["S+"]), ("S?", c["S?"]), ("N", c["N"])]
     return " ".join("%s=%d" % (k, v) for k, v in parts if v) or "-"
 
@@ -638,7 +679,10 @@ def render(rows: list[dict], meta: dict) -> list[str]:
     grey_conf = [r for r in grey if r["confrontable"]]
 
     def bykey(lst):
-        return sorted(lst, key=lambda r: (-(r["cls"]["L+"] + r["cls"]["M"]), -r["cls"]["S+"], r["name"]))
+        # Cout croissant de confrontation : porteur direct (`L+`/`M`) > summon a amener (`S+`) >
+        # injection de catalogue (`L~`). Les trois sont confrontables, ils ne coutent pas pareil.
+        return sorted(lst, key=lambda r: (-(r["cls"]["L+"] + r["cls"]["M"]),
+                                          -r["cls"]["S+"], -r["cls"]["L~"], r["name"]))
 
     L: list[str] = []
     L.append("# Couverture moteur des abilities PASSIVES\n\n")
@@ -739,9 +783,20 @@ def render(rows: list[dict], meta: dict) -> list[str]:
     L.append("| `S+` | hors pool mais ATTEIGNABLE par summon depuis le pool (fermeture transitive du "
              "graphe `constants.unitId*`/`unitIds`/`unitToSpawn`, %d aretes -> %d unites atteintes) | "
              "**oui**, via son summoner |\n" % (meta["graph_edges"], meta["reachable"]))
-    L.append("| `L-` | lineup ABSENT du pool au rank courant | non (hero non spawnable) |\n")
+    L.append("| `L~` | lineup ABSENT du pool -> **INJECTABLE** (%d unites) | **oui**, via "
+             "`catalog_inject` |\n" % meta["n_injectable"])
+    L.append("| `L!` | lineup dans la liste des NON SPAWNABLES (%d) | non -- leve a la construction |\n"
+             % meta["n_unspawnable"])
     L.append("| `S?` | summon sans summoner derivable du gameconfig | **indetermine** (borne basse) |\n")
     L.append("| `N` | npc non atteignable | non -- NON PERTINENT |\n\n")
+
+    L.append("> **`L~` compte comme confrontable.** Le pool derive du seed BC, qui est la capture "
+             "d'UNE bataille : son catalogue ne porte que les unites possedees ce jour-la. Un heros "
+             "hors pool s'INJECTE -- `catalog_inject.write_augmented_seed_bc(<hors data/>, [unitId])` "
+             "alimente les DEUX catalogues (`Units` ET `Abilities`), puis "
+             "`rl_duel.py build --seed-bc <chemin>`. Sans la config d'ability le porteur se deploie "
+             "et FAUTE au cast (#226). Le seul refus legitime est `L!`, lu de "
+             "`data/unspawnable_rank<N>.json` (repli : `rl_collect_batch.UNSPAWNABLE_FALLBACK`).\n\n")
 
     L.append("## Bilan\n\n")
     L.append("- Passifs distincts dans le parc (lineup %d / npc %d / summons %d) : **%d**\n"
@@ -758,13 +813,15 @@ def render(rows: list[dict], meta: dict) -> list[str]:
                          for c in ("T", "O", "E", "G", "X", "B")) + "\n\n")
 
     L.append("## Tableaux par valeur\n")
-    L.append("\nTri : nombre de porteurs spawnables (`L+`+`M`) decroissant, puis `S+`. "
-             "Un passif non couvert porte par une unite spawnable vaut plus qu'un passif npc-seul.\n")
+    L.append("\nTri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, puis "
+             "`S+` (un summon a amener), puis `L~` (une injection de catalogue). Un passif non "
+             "couvert porte par une unite spawnable vaut plus qu'un passif npc-seul, et un porteur "
+             "direct coute moins cher a confronter qu'un porteur a amener.\n")
     _table(L, "GAPS **confrontables** -- non couverts ET portes par une unite spawnable",
            bykey(gaps_conf), with_symbol=True)
     _table(L, "ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER",
            bykey(grey_conf), with_symbol=True)
-    _table(L, "GAPS non confrontables (npc-only / lineup hors pool / summon indetermine)",
+    _table(L, "GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`)",
            bykey([r for r in gaps if not r["confrontable"]]))
     _table(L, "ZONE-GRISE non confrontable", bykey([r for r in grey if not r["confrontable"]]))
     _table(L, "PORTES", bykey(ported))

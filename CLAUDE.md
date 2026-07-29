@@ -237,29 +237,11 @@ vérification sont **distincts** :
 
 - **HERO / MACHINE OF WAR** → présence dans `python scripts/python/rl_duel.py build --list-pool`
   (rank courant) — surtout pas `kind == lineup` de gameconfig, qui ment.
-  **ABSENT DU POOL ≠ NON CONFRONTABLE.** Le pool est dérivé du seed BC, qui est la capture d'**UNE**
-  bataille : son catalogue ne porte que les unités possédées ce jour-là. Un héros hors pool
-  s'**injecte**, et il devient spawnable :
-
-  ```python
-  import catalog_inject as CI
-  p, units, abils = CI.write_augmented_seed_bc(<chemin_hors_data>, ["spaceWolfPriest"])
-  ```
-  ```bash
-  python scripts/python/rl_duel.py build --list-pool --seed-bc <chemin>   # verification
-  python scripts/python/rl_duel.py build --seed-bc <chemin> --p-units spaceWolfPriest ...
-  ```
-
-  `write_augmented_seed_bc` alimente les **DEUX** catalogues — `Units` **et** `Abilities` (mirror de
-  `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration`). Les deux sont
-  obligatoires : sans la config d'ability, le porteur existe, se déploie, s'expose au `decisionView`
-  — et **faute au cast** (`AbilityConfiguration$$GetVariableForLevel` sur une config nulle → « system
-  error »), cf. #226. Écrire le seed augmenté **hors de `data/`** (c'est une SORTIE), jamais
-  par-dessus `data/seed-bc.json`.
-
-  Le seul refus légitime est `data/unspawnable_rank<N>.json` : ces unités passent le filtre de
-  `buildNormalizedBC` puis **lèvent à la construction**. Vérifié le 2026-07-29 : `spaceWolfPriest`,
-  déclaré « hors pool donc non confrontable » par un solveur, entre au pool (97 → 98) par cette voie.
+  **ABSENT DU POOL ≠ NON CONFRONTABLE** — le pool dérive du seed BC, capture d'**UNE** bataille.
+  Un héros hors pool s'**injecte** (`catalog_inject.write_augmented_seed_bc` + `build --seed-bc`) :
+  recette et pièges dans **`docs/rl/case-92-catalog-injection.md` §6**. Seul refus légitime :
+  `data/unspawnable_rank<N>.json`. Mesuré le 2026-07-29 — `spaceWolfPriest`, classé « non
+  confrontable » par un solveur, entre au pool (97 → 98) par cette voie.
 - **SUMMON** → compte **aussi**, **même absent de `--list-pool`**. On l'amène en bataille en spawnant
   son **summoner** (qui, lui, doit être dans le pool) : le summon apparaît dans l'équipe du summoner
   et agit dès son apparition. **Ne jamais conclure « non confrontable » d'un carrier summon.**
