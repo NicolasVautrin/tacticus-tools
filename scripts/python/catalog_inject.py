@@ -475,6 +475,76 @@ def refresh_ability_configs(bc: dict) -> tuple[list, list]:
     return sorted(set(refreshed)), sorted(set(added))
 
 
+def ai_utilities_from_gameconfig() -> dict:
+    """`BattleConfiguration.Utilities` synthetisee depuis le gameconfig VIVANT (`aiUtilities`).
+
+    Mirror de `Idun.Source.IdunBattle.View.BattleConfigBuilder$$ParseAIUtilitiesConfiguration`
+    (appelee par `...$$CreateBattleConfig`) : elle prend le dictionnaire `aiUtilities` du
+    gameconfig, parse la cle EXTERIEURE en enum de jeu d'utilites (Default / MovementSuggestion),
+    la cle INTERMEDIAIRE en `UtilityType` (ActiveAbilities, TriggeredAbilities, Elevation, ...) et
+    recopie VERBATIM le dictionnaire `{nom: entier}` interieur. Les cles qui ne parsent pas sont
+    IGNOREES avec un warning -- il n'y a aucune autre transformation : la table de la BC EST la
+    table du gameconfig.
+    """
+    return copy.deepcopy(G._cfg().get("aiUtilities") or {})
+
+
+def refresh_ai_utilities(bc: dict) -> tuple[list, list, list]:
+    """RE-SYNTHETISE `BC.Utilities` depuis le gameconfig VIVANT, EN PLACE.
+    Rend (ajoutees, changees, retirees) -- chaque element = "<set>/<categorie>/<cle>".
+
+    POURQUOI (#27-4, MIGRATION DE BUILD -- pendant EXACT de `refresh_ability_configs`/#254 sur le
+    3e catalogue). `data/seed-bc.json` est la capture d'UNE bataille faite sur UN build ; sa table
+    `Utilities` est donc celle de CE build-la. Une mise a jour du jeu qui AJOUTE une ability ajoute
+    aussi ses POIDS d'utilite -- et le playbook NEUF les lit :
+
+        `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue`
+        fait un `TryGetValue` sur le dict de la categorie ; sur ECHEC il LOGUE un warning et rend
+        `Fix64(0)`.
+
+    La degradation est donc SILENCIEUSE et PERMISSIVE : pas d'exception, pas de « system error » --
+    le terme custom de l'ability neuve vaut simplement 0 cote NATIF comme cote moteur. Un port de
+    ce terme serait alors INVALIDABLE (les deux bras d'un A/B rendraient la meme chose) et, pire,
+    on conclurait a tort « le natif n'exerce pas cette branche ».
+
+    MESURE gqfc5mff6c -> rnca9r7q6c (2026-07-30) : 16 cles AJOUTEES et 3 valeurs CHANGEES.
+      - `Default/ActiveAbilities` +7 : HeavyWarpFlamer_LikesAdjacentEnemies=10,
+        MassDriverAccelerator_AdjacentFriendly=5, ResurrectionOrb_LikesResurrection=90,
+        ResurrectionOrb_LikesSummoning=10, TitanhammerSquad_{ChanceToUse=10,
+        LikesTerminatorFriendsInRange=20, LikesToGoFirst=10} ;
+      - `Default/TriggeredAbilities` +5 (EmpyricAmbush, IconOfObstinacy, ModifiedExoarmour,
+        MyWillBeDoneOverlord, PropheticSentinel) et ~2 (KustomForceFieldReworked_
+        LikesAdjacentFriends 0->10, Lakrimae_LikesNonMechanicalEnemies 0->5) ;
+      - `Default/TriggeredAbilitiesNonOwner` +4 et ~1 (KustomForceFieldReworked_
+        FriendsLikeToBeAdjacent 0->10).
+      Les 54 categories et les 2 jeux sont sinon IDENTIQUES : aucune cle retiree.
+
+    CE N'EST PAS UN HACK, c'est le meme argument que #254 : la BC construit sa table depuis SON
+    gameconfig a chaque bataille. `ai_utilities_from_gameconfig` en est le mirror.
+    """
+    old = bc.get("Utilities") or {}
+    new = ai_utilities_from_gameconfig()
+    if not new:                                  # gameconfig sans aiUtilities : on ne casse rien
+        return [], [], []
+    added, changed, removed = [], [], []
+    for sset in sorted(set(old) | set(new)):
+        o_cats = old.get(sset) or {}
+        n_cats = new.get(sset) or {}
+        for cat in sorted(set(o_cats) | set(n_cats)):
+            o_kv = o_cats.get(cat) if isinstance(o_cats.get(cat), dict) else {}
+            n_kv = n_cats.get(cat) if isinstance(n_cats.get(cat), dict) else {}
+            for k in sorted(set(o_kv) | set(n_kv)):
+                path = "%s/%s/%s" % (sset, cat, k)
+                if k not in o_kv:
+                    added.append(path)
+                elif k not in n_kv:
+                    removed.append(path)
+                elif o_kv[k] != n_kv[k]:
+                    changed.append("%s %r->%r" % (path, o_kv[k], n_kv[k]))
+    bc["Utilities"] = new
+    return added, changed, removed
+
+
 # --------------------------------------------------------------------------- validation
 
 # Champs recalcules par buildNormalizedBC ou issus de l'etat JOUEUR (progression / relique

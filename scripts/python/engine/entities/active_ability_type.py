@@ -332,6 +332,13 @@ class ActiveAbilityType(IntEnum):
     # `DA_Hero6_Active`, 1230 absent). Cezare (bloodTerminator) / Ramus (darkaSternguard), cf. case-219.
     SternguardFocus = 1228
     SavageEchoes = 1230
+    # AJOUT du build `rnca9r7q6c` (2026-07-30). `data/symbols/rnca9r7q6c/frida/enums.tsv` porte 260
+    # membres contre 331 ici : le nouveau build AJOUTE 4 ids (1222 MassDriverAccelerator, 1227
+    # HeavyWarpFlamer, 1231 TitanhammerSquad, 1232 EmpyricAmbush) et RETIRE les 75 ids historiques
+    # Idun (1..85, ForHonor/ProvokingSnap/...). Seul 1227 est ajoute ici (le port #27-4 en a besoin) ;
+    # la re-generation complete de l'enum — qui SUPPRIMERAIT 75 membres encore cites par le port —
+    # est une action de migration de build a part entiere, inscrite au backlog.
+    HeavyWarpFlamer = 1227
     TestTargetAndAdjacentAttack = 9001
     TestMeleeAttackDamage = 9002
     TestRangedAttackDamage = 9003

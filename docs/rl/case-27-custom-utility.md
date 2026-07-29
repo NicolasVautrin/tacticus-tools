@@ -42,6 +42,63 @@ Resultat sur le build `gqfc5mff6c` (sweep borne) :
   n'a pas attrape l'erreur parce qu'un debordement ne tombe PAS dans du bruit : il tombe sur la
   vtable de la classe suivante, parfaitement formee.
 
+## RE-DERIVATION SUR LE BUILD `rnca9r7q6c` (tranche 4, 2026-07-30) — 3 overrides NEUFS
+
+L'inventaire ci-dessus a ete etabli sur `gqfc5mff6c`. Le jeu a change de build ; le meme balayage,
+**relance contre la table du build COURANT** (`probe_27_custom_utility_inventory.py --build rnca9r7q6c`),
+rend :
+
+- **388** classes `*Playbook*` vues au runtime, **96** portent le slot, **tous a `+0x338`**
+  (171 `no-slot`, 121 `vtable-uninit`) — la conclusion #218 « un seul offset » tient ;
+- **29 corps distincts** : **26 nommes** dans `methods.tsv` + **3 corps PARTAGES** non nommes
+  (la base `ComparablePlaybook<T>` a 52 users, `ALoki_NormalAttackPlaybook<T>` a 16, la definition
+  generique `NormalAttackPlaybook`1` a 2) ; **0 corps nomme jamais atteint** par le balayage
+  (source A incluse dans source B — les deux sources se recoupent exactement).
+
+⚠ **Le defaut `--build gqfc5mff6c` du probe est un PIEGE** : lance sans `--build rnca9r7q6c` il croise
+les RVA du runtime contre l'ANCIENNE table et rend « 24 corps nommes, 29 sans proprietaire, 24 nommes
+jamais atteints » — un tableau parfaitement coherent et entierement FAUX. Toujours passer le hash du
+build courant (`ls -d ~/AppData/Local/tacticus/games/*/`).
+
+**Trois overrides que l'inventaire de la tranche 3 ne pouvait pas connaitre** (leurs porteurs sont des
+unites AJOUTEES par ce build) :
+
+| Playbook | Ability (id) | Porteur | `damageProfile` | Verdict |
+|---|---|---|---|---|
+| `HeavyWarpFlamerPlaybook` | HeavyWarpFlamer (1227) | thousSekhetar `Sekhetar Robot` [lineup] | oui (Flame) | **PORTE** (#27-4) |
+| `MassDriverAcceleratorPlaybook` | MassDriverAccelerator (1222) | votanChampion `Kimm` [lineup] | oui (DirectDamage) | **residu** — `MassDriverAcceleratorAbility$$GetBuffTargets` (selecteur DSL) ; formule = `max(0, Count(GetBuffTargets.Evaluate(entities)) - 1) * W(MassDriverAccelerator_AdjacentFriendly = 5)` |
+| `ResurrectionOrbPlaybook` | ResurrectionOrb (1009) | necroOverlord `Anuphet` [lineup] (+ 5 npc) | **NON** | **residu** — verrou 2 (route d'ability non-attaque) ; poids `ResurrectionOrb_LikesResurrection = 90`, `_LikesSummoning = 10` |
+
+Par ailleurs `DevoutPushPlaybook` ne possede plus de corps propre sur ce build : il PARTAGE desormais
+le corps de `ALoki_NormalAttackPlaybook<T>` (= `Fix64(1)`), ce que la tranche 3 decrivait comme un
+corps distinct valant `2`. A re-verifier au decompile si le terme redevient pertinent.
+
+### Prerequis de harnais leve dans le meme commit — `BC.Utilities` PERIMEE (3e catalogue)
+
+Sans lui, **aucun** de ces trois overrides n'etait confrontable, et le diagnostic aurait ete
+« le natif n'exerce pas cette branche ». `data/seed-bc.json` est la capture d'UN build ; sa table
+`Utilities` (les poids nommes de l'IA) l'est aussi. Le build `rnca9r7q6c` **AJOUTE 16 cles et en
+CHANGE 3** — dont `HeavyWarpFlamer_LikesAdjacentEnemies = 10`.
+
+`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue` fait un
+`TryGetValue` sur le dict de categorie ; **sur echec il LOGUE un warning et rend `Fix64(0)`**. La
+degradation est donc SILENCIEUSE et PERMISSIVE (contrairement a `BC.Abilities`/#254, qui LEVE) : le
+terme custom d'une ability neuve vaut 0 cote natif ET cote moteur, les deux bras d'un A/B rendent la
+meme chose, et rien ne signale que la mesure ne mesure rien.
+
+Correctif, mirror de `Idun.Source.IdunBattle.View.BattleConfigBuilder$$ParseAIUtilitiesConfiguration`
+(appelee par `...$$CreateBattleConfig` : elle parse la cle exterieure en jeu d'utilites, la cle
+intermediaire en `UtilityType`, et recopie VERBATIM le dict `{nom: entier}` — la table de la BC EST
+`clientGameConfig.aiUtilities`) :
+
+- `catalog_inject.refresh_ai_utilities(bc)` + `ai_utilities_from_gameconfig()` ;
+- appelee par `rl_collect_batch._load_seed_bc` (cote NATIF, comme `refresh_ability_configs`) ;
+- **et par `engine.weights.load()`** (cote MOTEUR) — sans ce second point, le natif verrait les poids
+  neufs et le moteur ceux de la capture, une divergence introduite par le correctif lui-meme.
+
+Delta mesure gqfc5mff6c -> rnca9r7q6c : `Default/ActiveAbilities` +7, `Default/TriggeredAbilities`
++5 et ~2, `Default/TriggeredAbilitiesNonOwner` +4 et ~1 ; **0 cle retiree**, 54 categories inchangees.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).
@@ -115,10 +172,45 @@ exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
 | **DoomSiren** (1199) | @18112cd30 | `W(DefinitelyOverkill) * #(preds WillBeOverkill) + W(TargetHasAdjacentEnemy) * [count(GetAdjacentEnemies(tuile de la CIBLE, caster)) > 0]` | `DoomSiren_DefinitelyOverkill` = **40** ; `DoomSiren_TargetHasAdjacentEnemy` = **50** | emperKakophonist `Adamatar` [hero, `--list-pool`] | **A/B causal live** (probe #27-2, runner 339) : cible + tuile d'attaque FIGEES, seul un 2e ennemi passe loin -> adjacent a la cible ; natif bascule 69 -> **1199**, moteur idem ; contre-epreuve custom=0 -> moteur 69 dans les DEUX bras. Encadrement 100 % natif : **0.624 < C < 1.096** (cf. Validation). |
 
+| **HeavyWarpFlamer** (1227) | `IdunBattle.AI.Playbook.Loki.HeavyWarpFlamerPlaybook$$CalculateCustomUtility` | `W * Count(battleQuery.<slot 0x7f>(target, caster, ignoreSteppables:false))` — slot d'interface 0x7f = index de vtable 0x83 (`interfaceOffset` = 4) = `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IEntity from, TUnit unit, bool)`. Terme **LINEAIRE** dans le compte (DoomSiren teste `>0`, Drachnyen `>=2`), ancre sur la tuile de la CIBLE. | `HeavyWarpFlamer_LikesAdjacentEnemies` = **10** | thousSekhetar `Sekhetar Robot` [lineup, hors catalogue seed BC -> `catalog_inject.py --units thousSekhetar`] | **A/B causal live** (`probe_27_4_warpflamer_ab.py`, board MC1_67, 2 geometries, 4 bras). Argmax par CIBLE : 2 cibles a distance 2, ecart de paire natif **17.622786**, les 4 `pairUtility` natives BIT-IDENTIQUES dans TOUS les bras. n=0 -> natif T_haut ; **n=1 -> natif ENCORE T_haut** (un terme booleen aurait bascule) ; n=2 -> natif T_bas ; +1 ALLIE au lieu du 2e ennemi -> retour a T_haut. Moteur = natif dans les 4 bras ; custom force a 0 -> moteur reste sur T_haut a n=2 (**terme NECESSAIRE**). Encadrement sans fitting : **8.8114 < W < 17.6228**. |
+
 | **SavageEchoes** (1230) | @1811586d0 | `GetRegenerateCondition(ability).Evaluate(entities) ? 0 : W` — la condition est `DSLFactory.HealthPctIsBelowOrEqual(caster@0x160, ConfigConst(0x4f = healthPct))` = `StatPercentageIsBelowOrEqualAbilityTrigger(caster, Health=5, thr)`, dont `ShouldTrigger` compare le **RATIO** `GetStat(u,stat,0)/GetStat(u,stat,2)` a `thr/100` (PAS un pourcentage arrondi). Terme CONSTANT sur (tuile, cible), variable avec les PV du CASTER. | `SavageEchoes_DislikesAboveHealthPct` = **-10** ; seuil `SavageEchoes.constants.healthPct` = **50** | bloodTerminator `Cezare` [lineup, HORS catalogue seed BC -> amene par `catalog_inject.py --units bloodTerminator`] | **A/B causal live** (`probe_27_3_savage_ab.py`, board MC1_67, caster (4,8) / cible (5,8) FIGES, `--hp-target 60000 --armor-target 4000`) : les DEUX `pairUtility` natifs sont BIT-IDENTIQUES entre les bras (6.3564547803252935 / 12.049598339945078) -> confond de prediction MESURE et NUL ; seul le PV% du caster varie. 100 % -> natif **69**, moteur **69** ; 49.64 % -> natif **1230**, moteur **1230**. Contre-epreuve custom=0 : moteur **1230 dans les DEUX bras** -> terme NECESSAIRE. |
 
-Les six HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
+Les sept HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
 terme custom (la prediction est deja assuree par `prediction.py`, ecarts de degat = hors perimetre).
+
+### Notes de fidelite du port HeavyWarpFlamer (tranche 4)
+
+- **Le slot d'interface se resout par ANCRAGE, pas par recopie d'une fiche.** Les numeros de slot
+  `IBattleQuery` ont BOUGE entre `gqfc5mff6c` et `rnca9r7q6c` : le terme d'adjacence de DoomSiren est
+  passe de 0x7f a **0x80**. La conversion slot d'interface -> index de vtable de
+  `IdunBattle.Core.Services.BattleQuery` est `+4`, etablie par DEUX ancres independantes :
+  `IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger` appelle le slot
+  d'interface **2** et l'index **6** de la vtable est `BattleQuery$$IsMeleeAttack` ; l'index **0x53**
+  est `GetAdjacentTiles`, documente slot **0x4f**. Les indices 0x81..0x84 sont les QUATRE surcharges
+  de `GetAdjacentEnemies` — recopier « 0x7f = GetAdjacentEnemies » d'une fiche ecrite sur l'ancien
+  build aurait donne `GetAdjacentUnits` (index 0x7f), c'est-a-dire **amis compris**. Le bras de
+  controle « 1 ennemi + 1 ALLIE » du probe existe pour ca : il echouerait sur ce port-la.
+- **La surcharge exacte (index 0x83) accepte une UNITE comme `from`**, la ou DoomSiren (index 0x84)
+  recoit une TUILE : `IterateAdjacentTiles` part de
+  `IdunBattle.Entities.EntityExtensions$$IterateTiles(from)` puis prend les tuiles adjacentes de
+  chacune (`onlyEmptyOrSteppable: false, onlyWalkableTiles: true, allowTemporary: true`). La cible
+  ne se compte donc jamais elle-meme, et le mirror est le MEME `battle_query.count_adjacent` (meme
+  porte d'elevation) que DoomSiren/Drachnyen.
+- **La LINEARITE est ce qui distingue ce port d'une copie de DoomSiren**, et elle ne se voit pas dans
+  un A/B a 0 vs 1 voisin. Le montage est calibre pour que l'ecart de paire natif tombe entre `W` et
+  `2W` : c'est le passage de 1 a 2 voisins qui bascule le natif, et un terme booleen aurait bascule
+  des 1. Le meme controle existe offline (`probe_custom_utility_27.py` : 0/W/2W/3W).
+- **Ecart CONNU de prediction, hors #27** :
+  `IdunBattle.AI.Playbook.Loki.HeavyWarpFlamerPlaybook$$MakeDamagePredictions` passe a
+  `GenerateMultiHitAttackPredictions` un nombre de coups DYNAMIQUE —
+  `HeavyWarpFlamerAbility$$GetNumTotalHits` = `Sum(Direct(nrOfHits=4), Min(GetPersistentData(...),
+  Direct(maxNrOfHits=9) - Direct(nrOfHits=4)))` — la ou le chemin generique lit `nrOfHits` seul. Le
+  compteur persistant vaut 0 tant que le stack n'est pas alimente (les deux coincident en debut de
+  bataille) et il **ne depend pas de l'adjacence** : pas de confond avec le levier de l'A/B. La
+  formule de degat propre est `VigilanceEternalAbility$$GetDamage` (corps PARTAGE, un seul
+  proprietaire nomme) et le set de cibles est MONO-CIBLE — d'ou des `pairUtility` natives strictement
+  invariantes d'un bras a l'autre, contrairement a DoomSiren (AoE).
 
 ### Notes de fidelite du port SavageEchoes (tranche 3)
 
@@ -413,10 +505,47 @@ existera.
   **Seuil borne a 4 points** (meme montage, `--hp-player` varie) : 100 % / 51.12 % / 50.68 % /
   50.19 % -> natif **69** ; 49.64 % -> natif **1230**. Le point 50.19 % EXCLUT un pourcentage arrondi
   (`round(50.19) = 50 <= 50` aurait bascule) : le natif compare bien le RATIO a `healthPct/100`.
-- **Garde de forme OFFLINE** : `probe_custom_utility_27.py` (dispatch 1014/1177/1020/1029/1199/1230,
-  valeurs des 6 formules, POSITION-dependance de Drachnyen, ancrage sur la CIBLE de DoomSiren, mirror
-  `will_be_overkill`, les 4 bornes de ratio mesurees de SavageEchoes, et le **cliquet 1100 absent du
-  registre**).
+- **HeavyWarpFlamer (1227)** — A/B causal live `probe_27_4_warpflamer_ab.py`, board **MC1_67**,
+  stats NATURELLES (ni `--hp-target` ni `--armor-target`), porteur `thousSekhetar` amene par
+  `catalog_inject.py`. L'observable est l'**argmax par CIBLE** (le terme est per-target) : deux
+  cibles legales a distance 2 du caster et a distance 4 l'une de l'autre, les appats ne changent
+  l'adjacence d'aucune autre entite.
+
+  | mesure NATIVE | n=0 | n=1 | n=2 | 1 ennemi + 1 ALLIE |
+  |---|---|---|---|---|
+  | `pairUtility(69, T_bas)` | 29.32473444379866 | idem | idem | idem |
+  | `pairUtility(1227, T_bas)` | 35.79286797903478 | idem | idem | idem |
+  | `pairUtility(69, T_haut)` | 46.1860187118873 | idem | idem | idem |
+  | `pairUtility(1227, T_haut)` | 53.41565425042063 | idem | idem | idem |
+  | choix natif (`aiDryRunAllUnits`) | **T_haut** | **T_haut** | **T_bas** | **T_haut** |
+  | choix moteur | T_haut | T_haut | T_bas | T_haut |
+  | choix moteur, custom force a 0 | T_haut | T_haut | **T_haut** (= divergence -> terme NECESSAIRE) | T_haut |
+
+  Les QUATRE paires natives sont bit-identiques dans les QUATRE bras : le confond de prediction est
+  MESURE et NUL (prediction mono-cible). Aucun `MoveUnitMessage` dans les propositions -> meme tuile
+  d'attaque, le terme Tile s'annule exactement. Encadrement sans fitting (forme `W*n`, ecart de paire
+  17.622786) : `W < 17.6228` (n=1 ne bascule pas) et `2W > 17.6228` (n=2 bascule) ->
+  **8.8114 < W < 17.6228** ; le port rend 10. Le bras ALLIE prouve que la requete scope aux ENNEMIS
+  (et non `GetAdjacentUnits`, l'index de vtable voisin).
+- **Generalisation HeavyWarpFlamer** : le meme protocole rejoue sur une **seconde geometrie a colonne
+  IMPAIRE** (caster (3,5), cibles (3,3)/(3,7), appats (3,2)/(4,2) — l'autre table de voisinage hex
+  offset) et un **autre seed (31337)** rend EXACTEMENT le meme resultat : 4/4 bras, moteur = natif,
+  linearite prouvee, allies ignores, meme encadrement. Le probe VERIFIE desormais le placement et
+  REFUSE de mesurer si un `act move` a ete rejete (mesure du 2026-07-30 sur `C2_02` : trois bras
+  degeneres en un seul, « 4/4 MATCH » sans aucune valeur).
+- **Non-regression du refresh `BC.Utilities`** (`engine_agreement_stages.py --build`), mesuree
+  AVANT/APRES le changement, meme session, memes seeds :
+  seed **31337** — prediction 0/9, utilite 0/9, ability **12/12**, move **17/17** dans les DEUX etats ;
+  seed **777** — prediction 1/10, utilite 1/10, ability **14/14**, move **14/15** dans les DEUX etats.
+  **Delta strictement NUL.** (Les etages prediction/utilite s'effondrent sur ce build : c'est
+  PRE-EXISTANT sur `origin/master` — le run « avant », changements `git stash`-es, rend les memes
+  chiffres.)
+- **Garde de forme OFFLINE** : `probe_custom_utility_27.py` (dispatch 1014/1177/1020/1029/1199/**1227**/1230,
+  valeurs des 7 formules, POSITION-dependance de Drachnyen, ancrage sur la CIBLE de DoomSiren et de
+  HeavyWarpFlamer, **linearite 0/W/2W/3W de HeavyWarpFlamer**, mirror `will_be_overkill`, les 4 bornes
+  de ratio mesurees de SavageEchoes, et le **cliquet 1100 absent du registre**). Il ECHOUE aussi si
+  `HeavyWarpFlamer_LikesAdjacentEnemies` vaut 0 — c'est-a-dire si la table `Utilities` n'a pas ete
+  re-synthetisee depuis le gameconfig courant.
 - **Inventaire** : `probe_27_custom_utility_inventory.py` (balayage de vtable, 2 sources croisees),
   `probe_27_slot_offsets.py` (les 7 playbooks hors 0x338), `probe_27_vtable_dump.py` (controle de
   bornes), `probe_27_residual_triage.py` (route de dispatch + porteurs), `probe_27_3_ability_names.py`
@@ -424,6 +553,23 @@ existera.
 
 ### Non couvert (explicite)
 
+- **Les 2 overrides NEUFS non portes du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
+  votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`)
+  et `ResurrectionOrb` (1009, necroOverlord — verrou 2 : pas de `damageProfile`, l'ability n'atteint
+  jamais `_best_attack`).
+- **Le refresh `BC.Utilities` DEMASQUE 2 termes TRIGGERED que le moteur ne porte pas.** Trois valeurs
+  passent de 0 a non-nul : `KustomForceFieldReworked_LikesAdjacentFriends` 0->10 et
+  `KustomForceFieldReworked_FriendsLikeToBeAdjacent` 0->10 (porteur spawnable : `orksBigMek` [lineup],
+  plus 4 npc) et `Lakrimae_LikesNonMechanicalEnemies` 0->5 (porteurs **npc uniquement**, Typhus). Avant
+  le refresh, natif et moteur valaient 0 tous les deux — d'accord entre eux, faux tous les deux. Apres,
+  le natif applique le poids et le moteur, qui ne porte pas ces termes de playbook TRIGGERED, non : un
+  desaccord peut apparaitre sur une bataille contenant `orksBigMek`. **Mesure** : delta NUL sur les
+  seeds 777 et 31337 (rosters sans ce porteur) ; le gap existait deja, il etait MASQUE par une capture
+  perimee. Inscrit au backlog.
+- **`ActiveAbilityType` (engine) n'est PAS re-genere** : seul `HeavyWarpFlamer = 1227` est ajoute. Le
+  build `rnca9r7q6c` ajoute 4 membres (1222, 1227, 1231 TitanhammerSquad, 1232 EmpyricAmbush) et en
+  RETIRE 75 (les ids Idun historiques 1..85), encore cites par le port : la re-generation complete est
+  une action de migration a part entiere.
 - Les **10 residus** de l'inventaire ci-dessus (chacun avec son verrou nomme) + les 4 non pertinents (npc).
 - **MortisRound** : terme mesure < 0.012 en arene plate ; **non re-mesure sur board a elevation /
   couverture** (ou le diff de deplacement pourrait etre non nul). Le port reste bloque par
@@ -566,6 +712,34 @@ vs Power 40 %), ce qui **inverse** l'ecart offline et l'amene dans la fenetre ou
 decide. Aucune constante n'est ajustee : on deplace le POINT DE MESURE jusqu'a ce que la sortie
 observable (le choix d'ability) devienne sensible au terme, puis on verifie que natif ET moteur y
 basculent ensemble, et que forcer le terme a 0 les fait DIVERGER.
+
+**Un catalogue de la BC PERIME peut degrader en SILENCE — et le 3e catalogue (`Utilities`) est le plus
+traitre des trois.** `BC.Abilities` (#254) LEVE sur cle absente : la panne est bruyante (« system
+error »). `BC.Utilities`, lui, **logue et rend `Fix64(0)`**
+(`Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue`) : le terme custom d'une ability
+neuve vaut 0 des DEUX cotes, l'A/B ne bascule jamais, et la conclusion naturelle — « le natif n'exerce
+pas cette branche » — est fausse. **Reflexe a la migration de build : re-synthetiser TOUS les
+catalogues de la BC depuis le gameconfig vivant, et verifier que le poids qu'on s'apprete a mesurer
+est NON NUL avant de monter le montage.** Corollaire symetrique : un refresh de config peut
+DEMASQUER des gaps de port jusque-la caches par la peremption — les mesurer et les nommer, pas les
+re-masquer.
+
+**Un numero de slot d'interface n'est PAS stable entre builds ; l'ANCRE l'est.** `IBattleQuery`+0x7f
+designait `GetAdjacentEnemies(tile, unit)` sur `gqfc5mff6c` et designe `GetAdjacentEnemies(entity,
+unit)` sur `rnca9r7q6c`, ou c'est 0x80 qui porte la surcharge « tuile ». Pire, l'index de vtable 0x7f
+(sans l'`interfaceOffset`) est `GetAdjacentUnits` — **amis compris**. La procedure : dumper la vtable
+de la classe CONCRETE (`resolveVtableSlot` borne), etablir l'`interfaceOffset` par une ancre
+independante (un call-site nomme dont le slot est lisible au decompile, ici
+`IsMeleeAttackAbilityTrigger$$ShouldTrigger` -> slot 2 <-> `IsMeleeAttack` index 6), puis LIRE la
+surcharge. Et poser un bras de controle qui casserait si on s'etait trompe d'une case (ici : un ALLIE
+adjacent ne doit rien changer).
+
+**Un `act move` REFUSE ne leve rien — et un montage qui se degrade rend « 100 % MATCH ».** Sur un
+board ou la tuile visee est injouable ou occupee, l'unite reste ou elle est : les trois bras d'un A/B
+deviennent le MEME etat, et l'accord moteur<->natif y est trivialement vrai. Signature : les mesures
+sont identiques d'un bras a l'autre ALORS QUE le levier etait cense changer. **Verifier les positions
+obtenues contre les positions voulues, et refuser de mesurer sinon** — c'est trois lignes, et sans
+elles une generalisation ratee se lit comme une generalisation reussie.
 
 **Une ability que `decisionView` nomme `id:<n>` est INVISIBLE au predicteur offline — et le silence est
 total.** La map `frida/hooks/data/ability-names.ts` est GENEREE et figee dans le bundle injecte ; un id
