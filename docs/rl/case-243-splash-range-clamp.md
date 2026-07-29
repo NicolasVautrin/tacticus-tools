@@ -95,8 +95,9 @@ if (ability == null || !ability.CanCurrentlyBeUsed || ability.<+0x44> == 0)
     return GenericBrokenTargetingRule(1);          // ValidRequest, cascade JAMAIS évaluée
 ```
 
-et `AActiveAbility$$CanStillBeUsed` vaut `false` **ssi** le porteur a le trait `Summon` (mesuré
-case-245 par balayage des 4 variantes de traits, même board/même seed).
+et `ActiveAbility.CanStillBeUsed` vaut `false` sur les actives d'un porteur à trait `Summon` (mesuré
+case-245 par balayage des 4 variantes de traits, même board/même seed). **Cause établie par
+`case-250`** : le trait rend l'unité **automatique**, le moteur la joue et elle consomme sa charge.
 
 La voie qui débloque le lot est donc celle que case-247 avait laissée « non tentée » : **catalogue
 injecté** (`catalog_inject.augment` → `Units` **et** `Abilities`) + `initAndStart(playerUnits=[...])`,
@@ -105,7 +106,7 @@ avec les **deux mêmes aménagements** que case-245, et pas un de plus :
 | champ | origine | montage | pourquoi |
 |---|---|---|---|
 | `Health` | `0` | `5000` | l'entrée d'un summon porte 0 (ses PV viennent des `summonHp` du summoner au spawn natif) ; spawné à la main il naîtrait à 1 PV. Aucune règle du filtre statique ne lit les PV |
-| `Traits` | `…, Summon, …` | trait `Summon` **retiré** | il désarme `CanStillBeUsed` ⇒ l'oracle court-circuiterait à `0x1` |
+| `Traits` | `…, Summon, …` | trait `Summon` **retiré** | il rend l'unité **automatique** (`case-250`) : le moteur la joue, elle consomme sa charge, `CanStillBeUsed` retombe à `false` et l'oracle court-circuite à `0x1`. Le retirer la rend **contrôlable** |
 
 **Le retrait du trait ne peut pas déplacer un verdict de la cascade pour ces masques**, et ça se lit
 au décompilé plutôt qu'à la mesure : les seules règles du filtre statique qui consultent un trait
@@ -223,17 +224,17 @@ restauré, 18/18 de nouveau au vert.
 
 ## 6. Ce qui n'est PAS couvert
 
-- **1065 `ScythingTalons`** reste le seul item du module `splash` sans mesure live. Il n'était pas
-  dans le périmètre de ce cas (son masque ne portait pas de marqueur), et il est **validé par
-  identité de source** avec 1105 (même preset `+0x40`, mesuré 6/6). Sa voie de confrontation est
-  désormais ouverte et coûte peu : son porteur `tyranSmnWarrior` est un summon, donc joignable par
-  le montage de ce cas (catalogue + retrait du trait `Summon`). Résidu nommé.
-- **`AActiveAbility$$CanStillBeUsed` : le mécanisme par lequel le trait `Summon` le désarme n'est
-  toujours pas remonté.** Ce cas le **contourne** (on retire le trait), il ne l'explique pas. La
-  chaîne candidate reste le slot virtuel `+0x3d8` (`maxUses.HasValue && > 0`, sinon
-  `timesUsed == 0`), dont le point d'écriture côté composant n'a pas été trouvé. Conséquence
-  concrète, non fermée : **faire réellement caster** une de ces abilities par son porteur summon
-  *avec* son trait reste impossible.
+- ~~**1065 `ScythingTalons`**~~ — **RÉSORBÉ par `case-250`** : confronté live sur son porteur réel
+  `tyranSmnWarrior` (déjà au catalogue, donc sans injection), 6/6 d'accord natif/port, seuil encadré
+  des deux côtés, trois contrefactuels portants. Le module `splash` est intégralement mesuré.
+- ~~**`AActiveAbility$$CanStillBeUsed`**~~ — **EXPLIQUÉ par `case-250`**, et la chaîne candidate
+  citée ici était fausse : le slot virtuel `+0x3d8` est `GetCooldownAfterUse`, il ne lit aucun
+  trait. La cause réelle est que le trait `Summon` (`UnitTrait` 2) rend l'unité **automatique**
+  (`IdunBattle.Entities.UnitExtensions$$IsAutomatic`) : le moteur la joue lui-même
+  (`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`), elle consomme sa charge, et
+  `CanStillBeUsed` retombe à `false` par l'**usage**
+  (`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`). Le retrait du trait ne lève
+  donc pas un gate : il rend l'unité **contrôlable**, donc interrogeable avant qu'elle ait casté.
 - **La règle dynamique** (`TargetMatchesDynamicRule`, bit 1) des trois masques : le port rend `0`
   (défaut permissif). Si l'une surchargeait `GetDynamicInvalidTargetReason`, le port accepterait des
   cibles que le natif refuse. La mesure ne peut pas trancher ici — aucune des 42 lignes n'exhibe de
@@ -260,5 +261,6 @@ preset-par-preset avait servi à éviter. **Le montage doit être choisi pour s�
 pour les confirmer.**
 
 Corollaire opérationnel : quand un lot bute sur « le porteur n'est pas confrontable », relire les
-**résidus déjà mesurés** avant de conclure. Ici la clé (`CanStillBeUsed` désarmé par le trait
-`Summon`) était écrite dans case-245 depuis le début, avec sa parade.
+**résidus déjà mesurés** avant de conclure. Ici la clé (`CanStillBeUsed` éteint chez un porteur à
+trait `Summon`) était écrite dans case-245 depuis le début, avec sa parade — mais sa **cause** ne
+l'était pas, et l'explication héritée était fausse : `case-250` a dû la reprendre au décompilé.
