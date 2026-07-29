@@ -57,7 +57,14 @@ module qui surchargent aussi `FilterAdjacentFriends` :
 | `SpiritualLeaderPlaybook` | `.ctor` | `GetAdjacentFriendUtility` | `33 c0 c3` (**ret 0**) | `b8 01 00 00 00 c3` (**ret 1**) | `FilterAdjacentFriends` |
 
 Les deux corps fondus sont **les mêmes adresses** dans les deux blocs, aux mêmes positions
-relatives. La position seule ne distingue pas `0x228` (cap amis) de `0x238` (cap ennemis) —
+relatives.
+
+**Ce relevé a été REFAIT sur le build `rnca9r7q6c`** (2026-07-29), après la mise à jour du jeu, à
+partir des seules VA re-résolues par grep dans `data/symbols/rnca9r7q6c/ghidra/functions.tsv` : le
+tableau ci-dessus est **inchangé, y compris les adresses des deux corps fondus**, qui restent
+communes aux deux classes. La structure ne doit donc rien à un hasard de layout d'un build donné.
+
+La position seule ne distingue pas `0x228` (cap amis) de `0x238` (cap ennemis) —
 c'est la mesure live qui tranche (§5), exactement comme pour `SpiritualLeaderPlaybook` (`case-212`
 §4.1). Un cap ENNEMIS n'aurait ici aucun effet : la face ennemis n'est pas surchargée (le `<ret 0>`
 du +0x10) et rend 0.
@@ -161,6 +168,8 @@ Roster retenu : `necroSpyder, admecDestroyer, admecManipulus, admecRuststalker, 
 le gate `CanBeRepaired`).
 
 ### 4.1 Deux voies de mesure ÉCARTÉES (pour qu'on ne les re-tente pas)
+
+> Une **troisième** les a rejointes depuis, mesurée elle aussi : l'argmax sans hook (§7.4).
 
 * **Compter les lectures de la clé BC** (`aiUtilityTrace*`) aurait donné le cap directement — le
   corps commun lit `FABRICATORCLAWARRAY_AdjacentFriend` une fois par ami retenu, donc la longueur
@@ -276,13 +285,9 @@ reste donc `None` quand le concret est muet.
 
 ---
 
-## 7. Validation — ce qui est CONFRONTÉ, et ce qui ne l'est pas
+## 7. Validation
 
-⚠ **La mise à jour du jeu `gqfc5mff6c` -> `rnca9r7q6c` a interrompu la passe de validation.** Ce qui
-suit distingue strictement le mesuré du différé. Aucune valeur de repli n'a été substituée à une
-mesure manquante.
-
-### 7.1 CONFRONTÉ LIVE (build `gqfc5mff6c`, cohérent avec le décompilé cité ici)
+### 7.1 Le cap — mesuré au natif (build `gqfc5mff6c`)
 
 | | |
 |---|---|
@@ -291,32 +296,70 @@ mesure manquante.
 | **Accord port/natif après le fix** | `C4_09`/31337 : `DELTA = 0` sur toutes les tuiles hors régime du gate, y compris à `nMech = 4` (§5.2) |
 | **Le cap côté PORT** | `30 / 30 / 30 / 30` pour 1 à 4 amis Mechanical adjacents (vérifié hors runner, contexte synthétique) |
 
-### 7.2 DIFFÉRÉ par la MAJ de build — **NON CONFRONTÉ LIVE**
+### 7.2 Re-confrontation après la MAJ `gqfc5mff6c` -> `rnca9r7q6c` (2026-07-29)
 
-| à faire | montage exact |
+| confronté | résultat |
 |---|---|
-| **Un second couple board/seed DISCRIMINANT pour le cap** | `C4_09`/31337 n'a jamais dépassé `nRep = 1` (un seul allié blessé en 90 pas) : il confirme le gate, pas le cap. Le levier n'est PAS la géométrie (le DRIVE donne bien `nMech = 4`) mais le nombre d'alliés BLESSÉS — soit marcher plus longtemps, soit patcher `RemainingHealth` sur le template DÉJÀ normalisé (cf. §4.1, voie du seed BC écartée). |
-| **Exécution de `tests/engine/test_fabricator_claw_cap_live.py`** | `python -m pytest tests/engine/test_fabricator_claw_cap_live.py` — 2 montages × 5 tests. Le fichier n'arme AUCUN hook RVA : il est build-agnostique et rejouable tel quel après migration. |
-| **Contre-épreuve** | remettre `MAX_ADJACENT_FRIENDS = None` sur `FabricatorClawArrayPlaybook` : `test_term_is_capped_at_one_adjacent_mechanical` DOIT rougir sur les deux montages (`n = 4 -> 120` au lieu de 30). |
-| **Non-régression** | `test_spiritual_leader_tile_term_live.py` (l'autre porteur de cap), puis `test_tile_term_unit_gated_playbooks_live.py` + `test_tile_term_triggered_playbooks_live.py` (les autres concrets du module). Le changement est value-preserving pour eux : aucun n'override `MAX_ADJACENT_FRIENDS`. |
-| **Re-étalonnage du probe** | `probe_242_fabricator_claw_cap.py` hérite des hooks **RVA build-spécifiques** de `probe_193c` (`BUILD_HASH = "gqfc5mff6c"`) et REFUSE de tourner sur un autre build. Re-résoudre ces RVA avant toute nouvelle mesure. |
+| **La RE au binaire du NOUVEAU build** | relevé `methodPointers` REFAIT sur `rnca9r7q6c` : blocs des deux classes **inchangés**, mêmes corps fondus aux mêmes positions (§2). La RE ne dépend pas du build. |
+| **`tests/engine/test_fabricator_claw_cap_live.py`** | **10 passed / 0 skipped** (2 montages × 5), build `rnca9r7q6c`. Le fichier n'arme aucun hook RVA. |
+| **Contre-épreuve** | `MAX_ADJACENT_FRIENDS = None` -> **2 failed / 8 passed**, `test_term_is_capped_at_one_adjacent_mechanical` rouge sur les DEUX montages : `MC1_67`/777 `(1,3): (120.0, 4)` et `(2,1): (60.0, 2)` ; `C4_09`/31337 `(3,3): (120.0, 4)`, `(4,1)` et `(5,3): (60.0, 2)`. Le montage exerce donc `n = 4` sur les deux couples. |
+| **Non-régression** | `test_spiritual_leader_tile_term_live.py` + `test_tile_term_unit_gated_playbooks_live.py` + `test_tile_term_triggered_playbooks_live.py` : **48 passed / 4 failed**. Aucun échec sur 1006 ni sur 1275 (l'autre porteur de cap) — les 4 sont sur `blackTerminator`/1038, `deathBlightbringer`/1071 et `templAncient`, et se reproduisent sur `origin/master` **sans aucune modification de `engine/`** (`git diff --stat HEAD -- scripts/python/engine/` vide). Étrangers à ce cas ; à traiter en fiche propre. |
+| **La RE, transformée en GARDE** | `tests/engine/test_fabricator_claw_cap_binary.py` — **5 passed**, offline pur (~1 s). Rejoue le relevé `methodPointers` à chaque passe, en partant de `data/symbols/CURRENT` : **aucune VA écrite**, donc valable au prochain build. Contre-épreuve : attendre `mov eax,2` fait rougir les 2 classes. |
 
-`test_montage_exercises_more_than_one_adjacent_mechanical` empêche la garde du cap de passer à vide
-si une trajectoire dérive vers une géométrie sans candidate à `n >= 2`.
+### 7.3 Ce qui reste NON CONFRONTÉ, et pourquoi
+
+| ouvert | état |
+|---|---|
+| **`X_nat` sur `rnca9r7q6c`** | **inaccessible** : `probe_242_fabricator_claw_cap.py` lit `X_nat` par les hooks de `scorer-damage-trace`, dont `RVA_CALC_TILE_PRED` / `RVA_ELEVATION_LEAF` / la table `leafHooks` sont **hardcodées pour `gqfc5mff6c`**. Les re-résoudre exige un rebuild du bundle **et une réinjection** — proscrite tant qu'une session est partagée. Le probe vérifie le hash et refuse de tourner : il ne mesure pas à côté, il s'arrête. |
+| **Un second couple board/seed DISCRIMINANT pour le cap** | toujours ouvert. `C4_09`/31337 plafonne à `nRep = 1` (re-mesuré 2026-07-29 : 2 activations du carrier, trajectoire épuisée) ; `MC1_67`/777 atteint bien `nRep = 3`. Le levier reste le nombre d'alliés BLESSÉS, pas la géométrie. |
+| **La voie « argmax sans hook »** | **ÉCARTÉE, mesurée** — cf. §7.4. |
+
+### 7.4 Une troisième voie de mesure écartée : l'argmax sans hook
+
+`probe_242b_fabricator_claw_argmax.py` tente de trancher le cap **sans hooker quoi que ce soit**, en
+confrontant la tuile que l'IA JOUE (`aiStepDryRun` -> `MoveUnitMessage`) aux deux hypothèses
+`H_cap` (terme = 30) et `H_somme` (terme = 30 × n), évaluées côte à côte sur le même contexte de
+feuille par une sous-classe qui ne diffère que par `MAX_ADJACENT_FRIENDS`.
+
+**Résultat : NÉGATIF.** Sur `MC1_67`/777, le montage atteint le régime visé (pas 28, candidate
+`(1,1)` à `nMech = 4, nRep = 3` — exactement le `(4,3)` de §5.1), mais le natif joue `(5,4)`, une
+tuile à `n = 0` que **ni** `H_cap` (argmax `(3,2)`) **ni** `H_somme` (argmax `(1,1)`) ne place en
+tête. Le terme de tuile n'est donc pas ce qui décide l'action du carrier à ce pas : même un écart de
+**+120** entre les deux hypothèses ne se lit pas dans le choix, noyé par les autres composantes de
+l'utilité totale (approche / prédiction d'attaque).
+
+À ranger avec les deux voies de §4.1 : **on ne re-tente pas de trancher ce cap par le choix natif.**
+Ce qui reste utilisable du probe : son MONTAGE (il produit bien `nRep = 3`) et sa table par tuile,
+prêts pour le jour où les hooks seront re-résolus.
 
 ## 8. Reproduire
 
+VA du build `rnca9r7q6c` — les re-résoudre par un grep dans
+`data/symbols/<build>/ghidra/functions.tsv` au changement de hash (aucune n'est à recopier telle
+quelle) :
+
 ```bash
 cd scripts/python
-python probe_8889_methodptr_vtable.py --window 8 0x181165b50 0x181165af0 0x181165830   # le cap
+python -m pytest tests/engine/test_fabricator_claw_cap_binary.py      # le cap AU BINAIRE, offline
+python -m pytest tests/engine/test_fabricator_claw_cap_live.py        # la loi du port, live
+
+# la meme lecture a la main (le test ci-dessus resout ces VA tout seul depuis data/symbols/CURRENT) :
+python probe_8889_methodptr_vtable.py --dll "C:/Users/nicolasv/AppData/Local/tacticus/games/rnca9r7q6c/GameAssembly.dll" \
+    --window 8 0x181262370 0x181262310 0x181262050
+
+# X_nat : NE TOURNE QUE SUR `gqfc5mff6c` (hooks RVA) -- cf. par.7.3
 python probe_242_fabricator_claw_cap.py --board MC1_67 --seed 777 --extra \
     --hp-target 100000 --hp-player 100000 \
     --p-units "necroSpyder,admecDestroyer,admecManipulus,admecRuststalker,necroDestroyer" \
     --a-units "darkaHellblaster,eldarRanger,worldKharn,templChampion,tauMarksman"
-python -m pytest tests/engine/test_fabricator_claw_cap_live.py
+
+# le MONTAGE seul, sans aucun hook (tourne sur tout build) : produit `nRep = 3` sur MC1_67/777.
+# Son verdict d'argmax ne conclut PAS (par.7.4) ; ce qu'il sert, c'est la table par tuile.
+python probe_242b_fabricator_claw_argmax.py --board MC1_67 --seed 777 --max-steps 140 --extra \
+    --hp-target 100000 --hp-player 100000 \
+    --p-units "necroSpyder,admecDestroyer,admecManipulus,admecRuststalker,necroDestroyer" \
+    --a-units "darkaHellblaster,eldarRanger,worldKharn,templChampion,tauMarksman"
 ```
 
-⚠ `probe_242_fabricator_claw_cap.py` réutilise les hooks **RVA build-spécifiques** de
-`probe_193c` (`gqfc5mff6c`) : il vérifie le hash et refuse de tourner sinon. Les VA passées à
-`probe_8889` sont celles de `FabricatorClawArrayPlaybook` dans ce build — les re-résoudre par
-`search_symbols_by_name` au changement de hash.
+Les deux corps fondus se lisent ensuite à leurs adresses (`33 c0 c3` = `ret 0`, `b8 01 00 00 00 c3`
+= `ret 1`) — sur `rnca9r7q6c`, `0x1802b45b0` et `0x1802cfd00`, communes aux deux classes.

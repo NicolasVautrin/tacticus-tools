@@ -151,6 +151,21 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   par le carrier, et le seed BC est dérivé sans `TertiaryAbility` (la relique `NetherRealmCasket` du
   carrier ajoutait un SECOND terme sur le même voisinage, cf. résidu ci-dessous). Deux résidus
   ouverts par ce cas.
+  **Re-confronté après la MAJ `gqfc5mff6c` -> `rnca9r7q6c`** (`case-242` §7.2) : relevé
+  `methodPointers` REFAIT au binaire du nouveau build (bloc **inchangé**, mêmes corps fondus aux
+  mêmes positions), garde live **10/10**, contre-épreuve **rouge sur les DEUX montages**
+  (`n = 4 -> 120`). Deux points restent ouverts : un second couple board/seed discriminant au NATIF
+  (`C4_09`/31337 plafonne à UN allié blessé, re-mesuré), et `X_nat` lui-même — inaccessible sur
+  `rnca9r7q6c` (cf. entrée « hooks `scorer-damage-trace` » ci-dessous). La voie « argmax sans hook »
+  a été tentée et **ne conclut pas** (`case-242` §7.4) : ne pas la re-tenter.
+- **Les hooks de `scorer-damage-trace` portent des RVA `gqfc5mff6c` — toute mesure `X_nat` est morte
+  sur `rnca9r7q6c`.** `RVA_CALC_TILE_PRED`, `RVA_ELEVATION_LEAF`, `RVA_CALC_ACTION_UTILITY`,
+  `RVA_COMPOSED_UTILITY` et la table `leafHooks` de `frida/hooks/features/scorer-damage-trace.ts`
+  sont hardcodées (gshared / itérateurs, non résolubles par `findMethod`). Conséquence : la
+  décomposition par étage `X = Tile(7) - Elevation - TileEffects` — l'instrument de `case-193c`,
+  `case-211`, `case-212`, `case-242` — n'est plus disponible ; les probes concernés vérifient le
+  hash et refusent de tourner (ils ne mesurent pas à côté). Les re-résoudre demande un rebuild du
+  bundle **et une réinjection**. Point d'ancrage à traiter à la prochaine fenêtre d'inject.
 - **`FabricatorClawArray` (1006) : le gate `CanBeRepaired` du filtre, NON porté** (`case-242` §6.1).
   `IdunBattle.AI.Playbook.Loki.FabricatorClawArrayPlaybook$$FilterAdjacentFriends` fait
   `HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)` : un ami Mechanical à PV

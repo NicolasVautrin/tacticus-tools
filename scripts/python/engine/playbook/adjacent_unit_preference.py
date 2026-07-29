@@ -204,11 +204,14 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
     leurs verdicts n'était donc contredit, ni ne le confirmait.
 
     ⚠ ÉTAT DE VALIDATION (`case-242` §7) — le cap EST confronté live (`MC1_67`/777, régime
-    `nRep` = 1, 2, 3, `X_nat` plat à 30, build `gqfc5mff6c`). Ce qui reste NON CONFRONTÉ, différé par
-    la MAJ `gqfc5mff6c` -> `rnca9r7q6c` : un SECOND couple board/seed discriminant (`C4_09`/31337 n'a
-    jamais dépassé UN allié blessé, régime où tout cap `>= 1` donne le même résultat), et
-    l'exécution de `tests/engine/test_fabricator_claw_cap_live.py` (build-agnostique, rejouable tel
-    quel).
+    `nRep` = 1, 2, 3, `X_nat` plat à 30, build `gqfc5mff6c`), et la RE a été REFAITE au binaire du
+    build suivant (`rnca9r7q6c`) : bloc `methodPointers` inchangé, mêmes corps fondus aux mêmes
+    positions. La garde `tests/engine/test_fabricator_claw_cap_live.py` y passe (10/10) et rougit
+    bien quand on retire le cap (2 échecs, `n = 4 -> 120`) sur les DEUX montages.
+    Reste NON CONFRONTÉ : un second couple board/seed discriminant au NATIF (`C4_09`/31337 plafonne
+    à UN allié blessé, régime où tout cap `>= 1` donne le même résultat). `X_nat` n'est pas
+    re-mesurable sur `rnca9r7q6c` sans réinjection — les hooks de `scorer-damage-trace` portent des
+    RVA `gqfc5mff6c` ; la voie « argmax sans hook » a été tentée et ne conclut pas (`case-242` §7.4).
 
     ⚠ RÉSIDU MESURÉ, NON PORTÉ — le filtre natif a un SECOND gate que ce port n'applique pas :
 
