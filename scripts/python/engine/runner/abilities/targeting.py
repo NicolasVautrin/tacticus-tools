@@ -109,9 +109,14 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
   50   0x4000000000000       TargetIsHero (`HasTrait(0x10)` requis)              NON (0 porteur)
   33   0x200000000           TargetIsNotAnObject (`HasTrait(0xd)` interdit)      NON (4 porteurs :
                                                                                  1029/1113/1202/1214)
-   8   0x100                 TargetIsHealable                                    NON (2 porteurs :
-                                                                                 1002/1037, cf. #245)
-  16   0x10000               TargetIsRepairable                                  NON (0 porteur)
+   8   0x100                 TargetIsHealable (slot 0x11 d'`IAttackQuery`      OUI (#245 ; predicat =
+                             = `AttackQuery$$EntityCanBeHealed(caster,           `attack_query.
+                             cible, scope=0, removeEffects=1)`)                  entity_can_be_healed`,
+                                                                                 pas la garde de
+                                                                                 mutation
+                                                                                 `healable_heal_type_0`)
+  16   0x10000               TargetIsRepairable (le JUMEAU du bit 8 :           NON (0 porteur)
+                             slot 0x12, meme forme d'appel)
    5   0x20                  TargetHasFreeAdjacentTile (battleQuery slot 0x51)   OUI
   21   0x200000              CasterHasFreeAdjacentTile (jumelle du bit 5, sur    NON (INATTEIGNABLE
                              le CASTER : slot 0x51 applique a `param_2`)         chez ses DEUX
@@ -1621,6 +1626,50 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
         from ...entities.traits.unit_trait import UnitTrait
         if UnitTrait.Summon.name not in (_unit_traits(state, tuid) or ()):
             return int(TR.TargetIsSummon)
+
+    # TargetIsHealable -- « la cible doit etre SOIGNABLE par le caster ». VERBATIM du filtre statique
+    # (surcharge 7 arguments), dans le bloc TRAITS, apres `TargetIsSummon`/`TargetIsHero`/
+    # `TargetIsNotAnObject` et AVANT son jumeau `TargetIsRepairable` (bit 16) puis
+    # `TargetHasFreeAdjacentTile` :
+    #     if ((rules & 0x100) != 0) {
+    #         aq = this.<+0x10>;                                  // le champ `attackQuery`
+    #         if (!aq.<slot 0x11>(caster, pcVar12, 0, 1)) -> broken(0x100)
+    #     }
+    # `this+0x10` EST l'`attackQuery` : `IdunBattle.Core.Services.TargetingQuery$$Init(this,
+    # attackQuery, battleQuery, movementQuery, state, config)` ecrit `*(this+0x10) = attackQuery`.
+    # Les deux derniers arguments sont des LITTERAUX du site d'appel : `scope = 0` (ghidra :
+    # `in_stack_... & 0xffffffff00000000`, les 32 bits bas mis a zero) et `removeEffects = 1`.
+    #
+    # LE SLOT 0x11 DE L'INTERFACE `IAttackQuery` = `AttackQuery$$EntityCanBeHealed`, et ce n'est pas
+    # herite d'une lecture voisine : `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select` --
+    # le selecteur qui PORTE le nom `Healable` -- resout `FUN_1801e7040(<query>, <la MEME classe
+    # d'interface que la cascade>, 0x11)` et l'invoque avec `(caster, entity, scope, 1)`. Deux
+    # call-sites independants, meme interface, meme slot.
+    #
+    # ⚠ CE N'EST PAS `healable_heal_type_0` (`abilities/behaviours/stats.py`). Celle-la est la garde
+    # COTE MUTATION des feuilles `Heal`, et elle ne couvre que DEUX des six termes natifs (HP<max +
+    # `IsAffectedByHealType(target, 0)`). Le predicat de CETTE regle est le mirror COMPLET
+    # `attack_query.entity_can_be_healed` (`AttackQuery$$EntityCanBeHealed`, surcharge 4 arguments),
+    # qui y ajoute `!IsMachine`, le disjunct `HasNegativeUnitEffect` (arme par `removeEffects = 1`),
+    # le flag caster `CanHealFullHealthUnits` (0x17), `!HasHealBlockers` et `!HasTrait(0xd Object)`.
+    # Les trois non-ports de ce mirror (`HasNegativeUnitEffect`, `HasHealBlockers`, flag 0x17) sont
+    # nommes dans son module et degradent tous du meme cote : ils ne peuvent qu'ELARGIR le refus.
+    #
+    # CIBLE = `pcVar12`, la cible RESOLUE par la tete de domaine -> `unit_of_entity` (`GetUnit`, qui
+    # resout une TUILE en son occupant), le meme helper que le bit 19 emploie pour `local_c8`. Les
+    # DEUX porteurs du registre (1002 `CombatRestoratives`, 1037 `RevitalizingMalignancy`) ne posent
+    # aucun bit de domaine, donc `pcVar12 == local_c8 == GetUnit(target)`.
+    #
+    # GARDE D'HONNETETE (`health_is_readable`) : le refus natif tient a la conjonction de DISJUNCTS
+    # dont deux ne sont pas portes ; si le port ne sait meme pas LIRE les PV de la cible, refuser
+    # serait FABRIQUER un verdict. PV illisibles -> aucun gate, la degradation permissive de tout ce
+    # module.
+    if options.has(TR.TargetIsHealable):
+        from .attack_query import entity_can_be_healed, health_is_readable
+        htid = unit_of_entity(state, target_id)
+        if htid is not None and health_is_readable(state, htid):
+            if not entity_can_be_healed(state, caster_id, htid, scope=0, remove_effects=True):
+                return int(TR.TargetIsHealable)
 
     # TargetHasFreeAdjacentTile -- « la cible doit avoir au moins une tuile LIBRE au contact » :
     #     if ((rules & 0x20) && battleQuery.<slot 0x51>(target).Count == 0) -> broken(0x20)

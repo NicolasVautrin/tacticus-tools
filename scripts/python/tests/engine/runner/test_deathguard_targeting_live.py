@@ -28,10 +28,12 @@ LES DEUX ORACLES, ET POURQUOI ILS DIFFERENT
     d'une MoW ne vivent pas dans un `ActiveAbilityComponent` d'unite) et rend
     `GenericBrokenTargetingRule(1)` AVANT la cascade. Un « oracle » lu la ne mesurerait rien.
 
-TROIS REGLES NON PORTEES sont attendues en ecart PERMISSIF, et le probe les NOMME au lieu de les
-absoudre : `TargetIsHealable` (bit 8), `TargetingQuery$$GetCasterNotAddedReason` (0x800) et la
-regle-delegue `TargetMatchesDynamicRule` (0x2). Le port rend 0 sur ces lignes -- jamais un refus
-invente, et jamais un FAUX REFUS (c'est ce que le test 1168 verifie explicitement).
+DEUX REGLES NON PORTEES restent attendues en ecart PERMISSIF, et le probe les NOMME au lieu de les
+absoudre : `TargetingQuery$$GetCasterNotAddedReason` (0x800) et la regle-delegue
+`TargetMatchesDynamicRule` (0x2). Le port rend 0 sur ces lignes -- jamais un refus invente, et jamais
+un FAUX REFUS (c'est ce que le test 1168 verifie explicitement).
+Il y en avait TROIS : `TargetIsHealable` (bit 8) est PORTEE depuis #245, et la ligne « allie adjacent
+a PV pleins » de 1037 est passee de GAP a ACCORD (cf. `test_target_is_healable_live.py`).
 
 Le montage (geometrie DRIVEE, jamais subie) et les lectures vivent dans
 `scripts/python/probe_249_deathguard_targeting.py` : le probe MESURE, ce test GARDE, une seule

@@ -191,7 +191,7 @@ décompilé mais **non validé par cette mesure**. Idem pour les `range` marqué
 fait sauter le volet portée (1168/1169) et la cascade refuse avant lui (1040). Seuls les
 `RANGE_ADJACENT` de 1037 et 1042 sont exercés.
 
-## 4. Trois règles non portées, nommées plutôt qu'absoutes
+## 4. Règles non portées, nommées plutôt qu'absoutes
 
 Le probe compte à part — et **imprime le symbole responsable** — les lignes où le natif refuse par une
 règle que la cascade portée ne sait pas rendre, à condition que le port y rende `0` (permissif) :
@@ -199,13 +199,14 @@ règle que la cascade portée ne sait pas rendre, à condition que le port y ren
 | code | règle | porteurs du registre |
 |---|---|---|
 | `0x2` | la règle-déléguée `<X>Ability$$GetDynamicInvalidTargetReason` | 1168, 1169 (+ 5 autres) |
-| `0x100` | `TargetIsHealable` (bit 8), filtre statique | **1002** `CombatRestoratives`, **1037** |
+| ~~`0x100`~~ | ~~`TargetIsHealable` (bit 8)~~ — **PORTÉE depuis #245** | 1002, 1037 |
 | `0x800` | `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason` | tout self-cast |
 
-Les deux écarts de 1037 sont exactement ceux-là, et ils sont **liés** : l'allié adjacent est à PV
+Les deux écarts de 1037 étaient exactement ceux-là, et ils étaient **liés** : l'allié adjacent est à PV
 pleins, donc le natif le refuse sur `TargetIsHealable` ; il ne reste alors **aucune** cible valide, et
-le self-cast rend `0x800 AddCasterIfAtLeastOneTarget`. Une seule règle portée les fermerait toutes
-les deux.
+le self-cast rend `0x800 AddCasterIfAtLeastOneTarget`. **#245 a porté la première** : la ligne
+`deathBlightlord d=1` est passée de `GAP-permissif` à `OK`, et le contrefactuel
+`sans_TargetIsHealable` la déplace. Il ne reste que `0x800` — le résidu générique.
 
 Pourquoi 1168 n'est **pas** porté : la règle native accepte une cible sous aura Contagion **ou** à
 `FixedArmor` négativement modifiée, et la branche AURA n'est pas matérialisable offline
@@ -236,11 +237,10 @@ Compte re-dérivé (`probe_181_targeting_gaps.py`) : **94** au registre, **63** 
 
 * **La méthode cible du délégué `GetRange` de 1040** (§1) — hypothèse `CalculateRange` non lue, non
   portée ; sans effet mesurable, et le test rougirait si ça changeait.
-* **`TargetIsHealable` (bit 8)** — non porté ; deux porteurs (1002, 1037), écart mesuré à 1 ligne par
-  montage sur 1037. Candidat de tranche suivante : la règle se lit dans la cascade 7 arguments de
-  `TargetingQuery$$GetInvalidTargetReason`, et le prédicat offline existe déjà
-  (`healable_heal_type_0`) — mais il faudra vérifier qu'il est bien celui de cette règle-là, et
-  re-jouer 1002.
+* ~~**`TargetIsHealable` (bit 8)**~~ — **FERMÉ par #245** (`docs/rl/case-245-target-is-healable.md`).
+  La vérification demandée ici a d'ailleurs répondu **non** : le prédicat de cette règle **n'est pas**
+  `healable_heal_type_0` (la garde de mutation, 2 termes) mais
+  `AttackQuery$$EntityCanBeHealed` (6 termes), déjà mirroré dans `abilities/attack_query.py`.
 * **`GetCasterNotAddedReason`** — non porté (il dépend de `TargetingQuery$$GetValidTargets`, qui
   énumère tout le plateau) ; résidu générique déjà documenté, pas propre à ce cas.
 * **`force_melee_target` des cinq** — transcrit, jamais exercé (§3).
