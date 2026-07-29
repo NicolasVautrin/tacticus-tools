@@ -236,9 +236,19 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                              hp_before, hp_after, tgt, damage=None,
                              source_ability=None, hits_result=None,
                              is_force_overkill: bool = False) -> Optional[list]:
-        """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False` et lance la
-        SÉQUENCE d'événements de mort. `damage` = dégât LÉTAL total du coup (pour le flag OVERKILL =
-        `dmg >= 2*PV`). No-op si pas de mort.
+        """Si le coup a fait passer la cible de >0 à 0 PV → elle meurt : marque `alive=False`,
+        ENREGISTRE le kill puis ENQUEUE la mort, et draine la file. `damage` = dégât LÉTAL total du
+        coup (pour le flag OVERKILL = `dmg >= 2*PV`). No-op si pas de mort.
+
+        **DEUX OPERATIONS NATIVES, PAS UNE (case-haze-ord)** — le corps ci-dessous est
+        `IdunBattle.Operations.RecordKillOperation$$Execute` (flag `Overkilled`, `RecordDeathReason`,
+        `On(PendingDeathAdded = 3)`, `IdunBattle.Core.MatchState$$AddDeath`) ; l'APPLICATION de la mort
+        vit dans `_kill_unit_operation` (`IdunBattle.Operations.KillUnitOperation$$Execute`) et n'est
+        atteinte que par le DRAIN `_verify_deaths`
+        (`IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths`). Le drain est NON REENTRANT : une
+        mort causee PENDANT une sequence de mort (death-nova, riposte `FinalJustice`, report
+        `HazeOfCorruption`) est traitee APRES elle, jamais en son milieu. Au premier appel de la pile,
+        enqueue et drain restent consecutifs -> comportement inchange pour tout appelant top-level.
 
         ORDRE DES ÉVÉNEMENTS — RE TRANCHÉE au décompilé (2026-07-25). L'émetteur réel est
         **`KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute** (et NON `ApplyDamageOperation$$IdunBattle.Operations.ApplyDamageOperation$$Execute, qui
@@ -279,10 +289,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         uc = tgt.get_component(UnitComponent) if tgt is not None else None
         if uc is not None:
             uc.alive = False
-        from .triggers import (after_death_triggers, unit_defeated_triggers,
-                               pre_unit_death_2_triggers, unit_death_triggers,
-                               pending_death_added_triggers)
-        from .revive import kill_unit_revive_gate
+        from .triggers import pending_death_added_triggers
         # #178 — le `didOverkill` du chemin COMBAT est la surcharge d'INSTANCE de
         # `IdunBattle.Core.Services.DamagePrediction$$IsOverkill`, inlinee par
         # `IdunBattle.Core.Services.DamagePrediction$$CalculateDamageOperation` : elle applique DEUX gates
@@ -327,9 +334,90 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # FinalJustice tue) -- et c'est ce revive-la qui, pose sur Titus pendant SON `On(1)`, fait
         # ECHOUER la garde `kill_unit_revive_gate` plus bas et ANNULE sa propre mort.
         out = pending_death_added_triggers(state, target_id, attacker_id)
-        # `IdunBattle.Operations.KillUnitOperation$$Execute` emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36. Les quatre
-        # premiers sont portes, DANS CET ORDRE (le 5e, PostUnitKill=0x36, n'a pas de consommateur porte).
-        out = out + after_death_triggers(state, target_id, attacker_id, overkill=overkill)
+        # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
+        # AttackRangeType)` : la mort est ENQUEUEE, pas appliquee.
+        AttackDamageOperation._add_death(state, target_id, attacker_id, overkill)
+        # `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` : le DRAIN. No-op si un drain est
+        # deja en cours (cette mort-ci sera prise par son tour de boucle).
+        return out + AttackDamageOperation._verify_deaths(state)
+
+    @staticmethod
+    def _add_death(state: State, dying_id: int, killer_id, overkill: bool) -> None:
+        """`IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
+        AttackRangeType)` -- l'ENQUEUE, seul effet « mort » de
+        `IdunBattle.Operations.RecordKillOperation$$Execute` (qui, autour, pose
+        `UnitFlag.PendingDeath = 0xf`, incremente les compteurs de kills du `PlayerComponent` et publie
+        `On(PendingDeathAdded = 3)` -- residus deja nommes pour les deux premiers).
+
+        Le 3e argument, `killTrigger`, est LU DANS le `KillUnitContext` a CET instant
+        (`RecordKillOperation$$Execute` le recopie tel quel dans l'appel) : c'est lui que
+        `IdunBattle.Operations.KillUnitOperation$$Execute` rejoue ensuite dans l'`AbilityEntities+0x138`
+        des evenements de mort, donc lui que comparent `IdunBattleLogic.Entities.DSLFactory$$
+        TriggeringAbilityIs` / `$$TriggeringEffectIs`. Cote port ce canal est
+        `state.triggering_ability` : on le CAPTURE ici et `_verify_deaths` le REPOSE le temps du drain.
+        Sans cette capture, une mort causee DANS le behaviour d'une triggered-ability (le report
+        `HazeOfCorruption` 1077) serait drainee hors de ce behaviour et perdrait son declencheur --
+        c'est-a-dire exactement le gate anti-chaine que case-haze-bonded a etabli.
+
+        Gate `UnitFlagsComponent.Has(dying, 6)` du natif (« deja retire ») : cote port le gate
+        equivalent est en amont (`hp_before > 0 and hp_after == 0` dans `_fire_death_if_killed`, qu'une
+        cible a 0 PV ne repasse jamais) ; on double d'une deduplication sur la file, parce qu'entre
+        l'enqueue et le drain la cible reste JOIGNABLE par d'autres coups."""
+        q = state.pending_deaths
+        if any(int(d[0]) == int(dying_id) for d in q):
+            return
+        q.append((int(dying_id), None if killer_id is None else int(killer_id), bool(overkill),
+                  state.triggering_ability))
+
+    @staticmethod
+    def _verify_deaths(state: State) -> list:
+        """`IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` -- le DRAIN de la file remplie par
+        `MatchState.AddDeath` : `RunPhase(0xc)` -> lambda `IdunBattle.Messages.InputMessageProcessor.
+        u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0` -> `Core.Services.
+        OperationProcessor$$KillUnit` -> `IdunBattle.Operations.KillUnitOperation$$Execute`, **une mort
+        a la fois, tant que la file n'est pas vide**.
+
+        NON REENTRANT (case-haze-ord). Une mort ENQUEUEE pendant un drain est traitee au tour de boucle
+        SUIVANT -- jamais au milieu du `KillUnitOperation` en cours, ni au milieu du behaviour qui l'a
+        causee. C'est ce qui separe le port du natif au regime OVERKILL : les **N** feuilles
+        `AttackDamage` d'un `IdunBattle.Entities.Behaviours.AttackBehaviour` UNIQUE (le
+        `Attack(bonded, Owner@0x148, N x AttackDamage)` de
+        `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$
+        CreateTargetTriggerBehaviour`) partent TOUTES avant que la mort de leur cible ne soit traitee,
+        donc la `List<LeftOverDamage>` que lit le bond SUIVANT est COMPLETE. Le port drainait a chaque
+        feuille : le 2e relais ne recevait qu'UN report au lieu de quatre (mesure seed 777 / PV 1200,
+        board MC1_67 : natif 14 `genrand_int32`, port 12).
+
+        `state.triggering_ability` est REPOSE a la valeur capturee par `_add_death` le temps de chaque
+        `KillUnitOperation` (mirror du `killTrigger` porte par l'entree de file), puis restaure."""
+        if state.draining_deaths:
+            return []
+        state.draining_deaths = True
+        saved_trigger = state.triggering_ability
+        out: list = []
+        try:
+            while state.pending_deaths:
+                dying_id, killer_id, overkill, kill_trigger = state.pending_deaths.pop(0)
+                state.triggering_ability = kill_trigger
+                out = out + (AttackDamageOperation._kill_unit_operation(
+                    state, dying_id, killer_id, overkill) or [])
+        finally:
+            state.triggering_ability = saved_trigger
+            state.draining_deaths = False
+        return out
+
+    @staticmethod
+    def _kill_unit_operation(state: State, target_id: int, attacker_id,
+                             overkill: bool) -> list:
+        """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
+        enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36 ; les quatre premiers sont portes, DANS
+        CET ORDRE (le 5e, `PostUnitKill = 0x36`, n'a pas de consommateur porte). La garde
+        `IdunBattle.Operations.KillUnitOperation$$Execute+0x82e` (revive en attente) court-circuite
+        tout ce qui suit `On(1)` -- cf. la docstring de `_fire_death_if_killed`."""
+        from .triggers import (after_death_triggers, unit_defeated_triggers,
+                               pre_unit_death_2_triggers, unit_death_triggers)
+        from .revive import kill_unit_revive_gate
+        out = after_death_triggers(state, target_id, attacker_id, overkill=overkill)
         # GARDE @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e : `if (!unitComponent.PendingRevive.HasValue)`. Un `Revive` posé par un
         # consommateur d'`On(1)` (ReviveEffect, PhoenixGem, ...) fait ÉCHOUER la garde -> la mort est
         # ANNULÉE : on applique le revive (phase 0xd) et on n'émet NI On(2), NI On(0), NI On(55), NI On(54).
@@ -398,6 +486,31 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         from .left_over_damage import record_left_over_damages     # lazy : cycle damage<->ops
         record_left_over_damages(state, target_id, tgt, hp_before, total, profile, hits_result,
                                  (hits_result or {}).get("base_nominal"))
+        # SITE (A) d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` -- RELU VERBATIM :
+        #
+        #     cVar15 = IdunBattle_Entities_UnitExtensions__HasFlag(param_4, 8, 0);   // 8 = Overkilled
+        #     if (cVar15 != '\0') {
+        #       ApplyDamageOperation__RecordHitStatistics(...);
+        #       ApplyDamageOperation__AddLeftoverHit(param_2, param_4, &dmg, &hit, 1, 0);
+        #       return param_1;                                   // <- TOUT LE RESTE EST SAUTE
+        #     }
+        #
+        # Le `return` precede l'emission d'`On(0x3a)`, la mutation de PV (`FillUpStatComponent$$Reduce`),
+        # `On(DamageTaken = 0xf)`, l'ecriture `lastHitDamageTaken` (`stats+0x68` / `+0x6c`) et
+        # `On(DamageDealt = 0x10)` : un coup porte sur une cible DEJA OVERKILLEE ne fait qu'empiler sa
+        # `LeftOverDamage` (base nominale) et n'emet RIEN. Le port emettait `On(0x10)` -- donc, sur un
+        # profil Toxic, le `Maybe(25)` d'`OnToxicDamageAbility` : UN TIRAGE `genrand_int32` de trop.
+        # MESURE qui le tranche (`probe_hazeord_death_queue.py`, seed 777 / PV 1200 / MC1_67) : le coup
+        # bonus de `HazeCorruption_BonusHitAbility` tombe sur une cible overkillee des le 1er coup
+        # d'arme -- le flux natif ne contient AUCUN evenement pour lui, le port en tirait un.
+        # GRANULARITE : le natif teste le flag PAR COUP, le port n'a qu'un chokepoint PAR GROUPE -- mais
+        # le flag n'est POSE qu'a la fin d'un groupe (`_fire_death_if_killed`), donc « pose a l'entree du
+        # groupe » vaut pour TOUS ses coups. Le flag est RETIRE par un revive
+        # (`IdunBattle.Operations.ReviveUnitOperation$$Execute` : `Remove(0xf)`, `Remove(8)`,
+        # `Add(0x14)`, porte dans `revive.py`) -> une unite ressuscitee redevient frappable.
+        fl_entry = tgt.get_component(UnitFlagsComponent) if tgt is not None else None
+        if fl_entry is not None and fl_entry.has(UnitFlagsComponent.OVERKILLED):
+            return None
         applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
         # `On(DamageTaken=0xf)` — `IdunBattle.Operations.ApplyDamageOperation$$Execute` emet cet event
         # JUSTE APRES la mutation de PV (`FillUpStatComponent.Reduce`), sous le gate `0 < reduction
