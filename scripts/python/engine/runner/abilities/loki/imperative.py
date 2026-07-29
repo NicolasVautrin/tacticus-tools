@@ -35,6 +35,8 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ..base import ActiveAbility
+from ..targeting import RANGE_SELF, RANGED_BOOL_FALSE, TargetingOptions
+from ..targeting_rule import TargetingRule as TR
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....dsl.effects import ExecutionContext
@@ -77,6 +79,27 @@ class DoctrinaImperativesAbility(ActiveAbility):
     Mirror du `If(HasEffect(1247), add 1248 + remove 1247, else add 1247 + remove 1248)` IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$ExecuteBehaviour."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.DoctrinaImperatives)   # 1118
+
+    # GATE DE CIBLE (#115) -- FORME 1, « FLAGS DIRECTS » (la seule ou la lecture naive du litteral
+    # marche). `IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility$$.ctor` :
+    #   TargetingOptions..ctor(&opts, 1, &<TargetingRange statics>+0x60, 1, 0x80, 0, 0, 0)
+    #     isSelfCasting    = 1
+    #     range            = `TargetingRange` statics+0x60 = RANGE_SELF (`overrideRange = 0`)
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x80
+    #   puis `AActiveAbility..ctor(this, &opts, 2, 0)` -> `AbilityAttackType.Others`.
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`), somme = 0x80 :
+    #     0x80 AddCaster -> AUCUNE regle de refus de la cascade ; c'est le court-circuit du volet
+    #          self-cast : `TargetingQuery$$GetCasterNotAddedReason` commence par
+    #          `if ((char)rules < 0) return valide;` -- le test du BIT 7, donc `AddCaster`. Pour 1118
+    #          le verdict natif du cast-sur-soi est VALIDE, et le 0 du port est exact (meme
+    #          exception que `CalibaniteGreatsword`, deja lue au decompile).
+    # PORTEE (#241) : `RANGE_SELF` = `overrideRange = 0`, `onlyAdjacent = RangedBool.False`,
+    # `useWholeBoard = false`. C'est CE champ, et non `rules`, qui porte tout le gate : une cible
+    # AUTRE que le caster tombe sur `range.Value(0) < d(>=1)` -> `TargetIsInRange`. Le masque
+    # `AddCaster` seul n'aurait rien refuse.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.AddCaster, self_cast=True,
+                                         range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

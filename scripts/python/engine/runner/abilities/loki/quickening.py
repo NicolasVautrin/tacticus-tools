@@ -55,6 +55,8 @@ import gameconfig as GC
 
 from ..base import ActiveAbility
 from ..behaviours import AddEffect, RemoveEffect, entities_from_state
+from ..targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from ..targeting_rule import TargetingRule as TR
 from .summon import perform_ai_attack_from_current_position
 from ...operations.movement import MoveUnitOperation
 from ...components import StatsComponent, PositionComponent, UnitComponent
@@ -200,6 +202,41 @@ class TheQuickeningAbility(ActiveAbility):
     kind='tile'). IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor : `TargetingOptions(...,0x806000000)` + `AActiveAbility(...,2)`."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.TheQuickening)  # 1151
+    ABILITY_ID = "TheQuickening"          # cle gameconfig -- lue par `SetConfigValuesInTargetingOptions`
+
+    # GATE DE CIBLE (#115) -- FORME 2, « PRESET + FLAGS », VERIFIEE au decompile (et non supposee) :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility$$.ctor` recopie
+    # `<TargetingOptions statics>+0x200` PUIS appelle
+    #   `TargetingOptions..ctor(&opts, &preset, 0x806000000, 0)`
+    # Cette surcharge recopie le preset champ par champ SAUF `Rules`, qu'elle COMBINE :
+    # `*(dst+0x28) = param_3 | *(preset+0x28)`. Le litteral 0x806000000 n'est donc PAS le masque.
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit le preset +0x200 :
+    #     +0x200 isSelfCasting    = 0
+    #     +0x208 range           <- `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
+    #     +0x220 forceMeleeTarget = 1 = RangedBool.False
+    #     +0x228 rules            = 0x42
+    # => masque EFFECTIF = `0x806000000 | 0x42` = **0x806000042**.
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`), somme = 0x806000042 :
+    #     0x2           TargetMatchesDynamicRule       -> non surcharge cote port -> defaut 0
+    #     0x40          TargetIsTile                   -> cast TILE-TARGET. Regle PORTEE dans son
+    #                   volet « tuile non marchable » (rend le litteral `ValidRequest`) ; elle
+    #                   aiguille aussi `_targets_the_caster`.
+    #     0x2000000     AllowObscuredTargetByElevation -> PERMISSIF (pas un refus)
+    #     0x4000000     AllowObscuredTargetByWalls     -> PERMISSIF (les deux = le composite
+    #                   `AllowObscuredTarget` 0x6000000 de l'enum)
+    #     0x800000000   CasterHas1Tiles                -> regle du volet CASTER
+    #                   (`GetInvalidCasterReason`), NON PORTEE : elle exige que le caster occupe
+    #                   EXACTEMENT une tuile, ce qui est le cas de tout heros a empreinte 1.
+    # PORTEE (#241) : `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfigValuesInTargetingOptions`
+    # pose `overrideRange = constants.range` de `TheQuickening` = **2** (la « portee-mouvement 2 »
+    # du kit, confirmee au binaire) ; `forceMeleeTarget = RangedBool.False` -> aucun clamp de melee.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+        | TR.CasterHas1Tiles
+    ), range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
