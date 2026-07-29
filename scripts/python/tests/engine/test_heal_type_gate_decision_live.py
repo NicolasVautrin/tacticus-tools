@@ -40,12 +40,14 @@ from __future__ import annotations
 import pytest
 
 import gameconfig as GC
+import hexgeo
 from engine.ai.state_bridge import build_from_state
 from engine.dsl.effects import ExecutionContext
 from engine.entities.pathfinding.board import Board
 from engine.entities.selectors import Target
 from engine.entities.traits.unit_trait import UnitTrait, unit_trait_names
 from engine.playbook.noncomparable import NCContext
+from engine.playbook.noncomparable._base import _traits
 from engine.playbook.noncomparable.heals import (RitesOfRestorationPlaybook,
                                                  _affected_by_heal_type)
 from engine.runner.abilities.behaviours.context import entities_from_state
@@ -143,6 +145,13 @@ def test_gameconfig_has_no_static_divergence():
     assert not bad, ("des unites sont mecaniques SANS le trait `Mechanical` (%s) : l'etage 1 ne peut "
                      "plus etre une neutralite, il faut re-qualifier la mesure" % bad[:10])
     assert not with421, "des unites portent 0x421 au gameconfig (%s) -- re-qualifier" % with421[:10]
+    # Le NOUVEAU chemin lit `GC.unit(vis)` en direct (`unit_trait_names`), l'ANCIEN passait par
+    # `resolve_unit_id` (`_traits`). Sur TOUT le corpus les deux doivent rendre le meme verdict
+    # `Mechanical`, sans quoi le fix regresserait sur la RESOLUTION du visualId, pas sur le gate.
+    resolv = [u for u in ids
+              if ("Mechanical" in unit_trait_names(u)) != ("Mechanical" in (_traits(u) or ()))]
+    assert not resolv, ("resolution divergente entre `unit_trait_names` et `_traits` sur %s"
+                        % resolv[:10])
 
 
 # --------------------------------------------------------------------------- harnais live
@@ -155,11 +164,12 @@ def rites_state(rpc, build_runner):
     if not (isinstance(bg, dict) and bg.get("tiles")):
         pytest.skip("boardGraph indispo")
     board = Board(bg["tiles"], adjacency="native_sym")
+    walkable = {(t["col"], t["row"]) for t in bg["tiles"] if t.get("walkable")}
     dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 180)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     cs = rpc("combatSnapshot", {"runnerId": rid}, 60)
     state = load_state(dv, ob, cs, board=board)
-    return state, board
+    return state, walkable
 
 
 def _by_visual(state, vis):
@@ -198,9 +208,13 @@ def test_gate_is_neutral_on_a_real_battle(rites_state):
     checked = 0
     for u in (ctx.obs_units or []):
         vis = u.get("visualId")
-        old_mech = "Mechanical" in (unit_trait_names(vis) or ())
+        # ANCIEN critere VERBATIM : `_traits` (= `_unit_cfg` -> `resolve_unit_id` + `GC.unit`), PAS
+        # `unit_trait_names` -- sinon les deux cotes partageraient l'accesseur et la garde serait
+        # aveugle a une regression de RESOLUTION du visualId (le nouveau chemin appelle `GC.unit`
+        # en direct, sans `resolve_unit_id`).
+        old_mech = "Mechanical" in (_traits(vis) or ())
         assert _affected_by_heal_type(ctx, u, 0) == (not old_mech), (
-            "heal(0) diverge de l'ancien critere sur %s (traits %s)" % (vis, sorted(unit_trait_names(vis))))
+            "heal(0) diverge de l'ancien critere sur %s (traits %s)" % (vis, sorted(_traits(vis))))
         assert _affected_by_heal_type(ctx, u, 1) == old_mech, (
             "repair(1) diverge de l'ancien critere sur %s" % vis)
         checked += 1
@@ -220,7 +234,7 @@ def test_in_battle_granted_trait_enters_the_rites_heal_count(rites_state):
       - `adeptRetributor` est MIS A MORT -> `ShouldEvaluate` (Count(GetPossibleResurrectTargets) > 0) ;
       - `admecManipulus` est POSE sur une tuile adjacente au caster -> il est dans `AdjacentFriends`.
     """
-    state, board = rites_state
+    state, walkable = rites_state
     hosp = _by_visual(state, "adeptHospitaller")
     mani = _by_visual(state, "admecManipulus")
     dead = _by_visual(state, "adeptRetributor")
@@ -241,8 +255,9 @@ def test_in_battle_granted_trait_enters_the_rites_heal_count(rites_state):
     hpc = state.get_entity(hosp).get_component(PositionComponent)
     mpc = state.get_entity(mani).get_component(PositionComponent)
     origin = (hpc.col, hpc.row)
-    free = [n for n in board.neighbors(*origin)
-            if state.unit_at(n) is None or state.unit_at(n) == mani]
+    mani_ent = state.get_entity(mani)
+    free = [n for n in hexgeo.neighbors(*origin)
+            if n in walkable and state.unit_at(n) in (None, mani_ent)]   # unit_at rend l'ENTITE
     assert free, "aucune tuile libre adjacente au caster -- montage impossible sur ce board"
     mpc.col, mpc.row = free[0]
 
