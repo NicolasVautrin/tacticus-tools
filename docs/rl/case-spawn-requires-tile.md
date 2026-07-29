@@ -171,8 +171,18 @@ n'ont pas été rejoués :
 | `test_decoy_foundation_live.py`, `test_decoys_misdirection_migration_live.py`, `test_hypersensory_moveandspawndecoy_live.py` | idem, pour `spawn_decoy` |
 | `probe_spawn_requires_tile.py` (les 6 lignes) | `python probe_spawn_requires_tile.py` — deux couples par défaut |
 
-Le renommage `#246 → case-spawn-requires-tile` est **postérieur** aux runs verts et ne touche que des docstrings et des
-messages d'assertion : le code exécutable testé est celui qui est livré.
+Le renommage (`#246` → nom sans numéro) est **postérieur** aux runs verts et ne touche que des
+docstrings et des messages d'assertion : le code exécutable testé est celui qui est livré.
+
+**Après rebase sur `origin/master`** (`47c27d7`, +4 commits — PR #254/#255) : les commits arrivés
+entre-temps **ne touchent aucun** fichier de ce cas
+(`git diff --stat 60bbecb origin/master -- scripts/python/engine/runner/operations/
+scripts/python/tests/engine/runner/test_summon_spawn_live.py
+scripts/python/engine/runner/abilities/behaviours/summon.py` = **vide**), le rebase est passé **sans
+conflit**, et ce qui pouvait être rejoué sans plateforme l'a été : **collecte des 26 tests cibles OK**
+(`test_summon_ability_ports_live` inclus, +117 lignes venues de master) et **8/8 verts** sur le
+cliquet offline `test_ability_registry_ratchet.py`. Les tests LIVE eux-mêmes ne sont **pas** rejoués
+après rebase — la plateforme est en migration de build.
 
 ---
 
