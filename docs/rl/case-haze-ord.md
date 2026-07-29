@@ -4,9 +4,10 @@
 le natif ? Mesure de référence : **natif 14, port 12** (`HazeOfCorruption` `k = 2`, seed 777,
 board `MC1_67`, PV cible **1200**).
 
-**Verdict** : **oui, porté et validé — 14 == 14, dégât par unité 3/3 sur 3 seeds.** L'écart
-recouvrait **deux** défauts indépendants, l'un qui retirait 3 tirages et l'autre qui en ajoutait 1.
-Les deux sont **structurels du pipeline de dégât**, pas de `HazeOfCorruption`.
+**Verdict** : **oui, porté et validé — 14 == 14, dégât par unité 3/3, et 9/9 bit-exacts sur la
+matrice de généralisation.** L'écart recouvrait **deux** défauts indépendants, l'un qui retirait 3
+tirages et l'autre qui en ajoutait 1. Les deux sont **structurels du pipeline de dégât**, pas de
+`HazeOfCorruption`.
 
 ---
 
