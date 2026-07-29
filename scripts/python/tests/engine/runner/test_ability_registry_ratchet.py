@@ -51,25 +51,48 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#247) : 94 abilities au registre, 60 avec masque, ces 34 sans.
+# Etat au 2026-07-29 (#247 + #248) : 94 abilities au registre, 66 avec masque, ces 28 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
-#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246, et
-#  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDE le module `strike`.)
+#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246,
+#  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDENT le module `strike` --, et les SIX du
+#  module `splash` par #248 : 1000/1051/1065/1078/1098/1105, qui relevent a elles seules de TROIS
+#  formes de ctor et de TROIS presets differents.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
-# DEUX PIEGES quand on en retire une (les deux ont deja produit un masque FAUX) :
-#   * l'overload PRESET + flags (`TargetingOptions..ctor(&opts, &preset, <flags>, 0)`) -- le litteral
-#     visible n'est PAS le masque effectif ;
-#   * l'ability qui n'appelle AUCUN ctor et recopie les 0x40 octets d'un champ STATIQUE : le masque
-#     effectif est la constante ecrite par `TargetingOptions$$.cctor` a `<preset>+0x28`. Les presets
-#     ne sont pas interchangeables (`statics+0x168` = 0x4002, `statics+0x68` = 0x4000) : lire ability
-#     par ability, jamais generaliser « toutes les offensives valent X ».
-# Recopier un litteral sans verifier l'overload produit un masque FAUX -- PIRE que l'absence, qui au
+# QUATRE FORMES DE CTOR, et TROIS d'entre elles ont deja produit un masque FAUX :
+#   1. FLAGS DIRECTS -- `TargetingOptions..ctor(&opts, self, &range, melee, <flags>, 0,0,0)` : le
+#      litteral EST le masque (seule forme ou la lecture naive marche).
+#   2. PRESET + FLAGS -- `TargetingOptions..ctor(&opts, &preset, <flags>, 0)` : cette surcharge
+#      recopie le preset SAUF `Rules`, qu'elle COMBINE (`dst+0x28 = flags | preset+0x28`). Le
+#      litteral visible n'est PAS le masque effectif.
+#   3. PRESET STATIQUE COPIE, AUCUN ctor -- recopie integrale des 0x40 octets d'un champ STATIQUE :
+#      le masque effectif est la constante ecrite par `TargetingOptions$$.cctor` a `<preset>+0x28`.
+#   4. FACTORY NOMMEE (decouverte par #248) -- le ctor n'ecrit rien et ne copie rien, il appelle un
+#      helper qui remplit la structure : `TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions`
+#      (1000 GauntletsOfUltramar). Chercher le seul `TargetingOptions$$<Xxx>Options` appele.
+#      ⚠ Cette forme est INVISIBLE aux trois autres recettes, et IL2CPP l'INLINE ailleurs
+#      (1009/1207/1226 la portent inlinee) : ne pas conclure « aucun ctor, aucune copie => pas de
+#      masque ».
+#
+# Les presets ne sont PAS interchangeables, et le piege a DEUX faces, toutes deux MESUREES :
+#   * MEME preset, masques differents -- 1043 ThunderousAssault et 1122 CordClaw recopient tous deux
+#     `statics+0x40`, mais 1043 enchaine sur la surcharge 2 qui COMBINE : 0x10004000 contre 0x4000 nu.
+#   * MEME masque, presets differents -- 1104 SpiritLeech (`+0x180`) et 1014 ArmoriumCherub (`+0x140`)
+#     valent tous deux 0x4002 avec RANGE_FROM_CONFIG, mais leurs presets ne different QUE par
+#     `forceMeleeTarget`, et ce champ change le regime de portee au contact. Meme couple entre 1078
+#     Fragstorm (`+0x180`) et 1051/1098 (`+0x140`). Recopier la voisine y donne le BON `rules` et le
+#     MAUVAIS volet portee -- l'erreur la plus difficile a voir, puisque le masque a l'air juste.
+# Recopier un litteral sans verifier la forme produit un masque FAUX -- PIRE que l'absence, qui au
 # moins ne ment pas. Laisser l'entree dans cette liste est le bon choix tant que le doute existe.
 SANS_TARGETING_OPTIONS: dict[int, str] = {
-    1000: "GauntletsOfUltramarAbility",
+    # 1000 GauntletsOfUltramarAbility RESORBEE (#247) -- une QUATRIEME forme : **FACTORY NOMMEE**.
+    # `...GauntletsOfUltramarAbility$$.ctor` n'ecrit aucun champ et ne copie aucun preset : il appelle
+    # `IdunBattle.Core.Services.TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions(&opts, 2)`, qui
+    # ecrit `isSelfCasting = 1`, `range = CustomRange(2)`, `forceMeleeTarget = RangedBool.False` et
+    # `rules = 0x4000` (TargetIsEnemy seul). C'est le SEUL appelant natif de cette factory ; les 3
+    # autres porteurs du profil (1009/1207/1226) l'ont recue INLINEE.
     1007: "ScarabHiveAbility",
     # 1014 ArmoriumCherubAbility RESORBEE (#222) -- forme « PRESET STATIQUE COPIE » :
     # `...ArmoriumCherubAbility$$.ctor` recopie `TargetingOptions statics+0x140` et le masque
@@ -96,15 +119,36 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # OU des deux. Portee = `TargetingRange statics+0x30` = RANGE_ADJACENT.
     1045: "GetEmRuntzAbility",
     1047: "ScarabSummonAbility",
-    1051: "StikkbombAbility",
-    1065: "ScythingTalonsAbility",
+    # 1051 StikkbombAbility RESORBEE (#247) -- forme « PRESET + FLAGS » : preset `statics+0x140`
+    # + flags `0x2000000` -> masque effectif `0x2000000 | *(statics+0x168)` = `0x2000000 | 0x4002`
+    # = 0x2004002 (AllowObscuredTargetByElevation | TargetIsEnemy | TargetMatchesDynamicRule).
+    # Portee = `TargetingRange statics+0x18` = RANGE_FROM_CONFIG (`constants.range` = 2) ;
+    # `forceMeleeTarget = 0 = RangedBool.True` (clamp de melee ARME).
+    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur n'a pu etre amene a
+    # rendre une cible legale (`Waaagh` 1058 rend 0 cible ; `AlphaWarrior` 1112 invoque mais aucune
+    # unite ne rend `abilityState.usable`). Il n'est donc garde par AUCUN test -- fiche de
+    # re-dispatch ouverte. Meme statut pour 1078 et 1098.
+    # 1065 ScythingTalonsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
+    # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
+    # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
     1076: "MV71SniperDroneSquadAttackAbility",
     1077: "EarlyWarningOverrideAbility",
-    1078: "FragstormAbility",
+    # 1078 FragstormAbility RESORBEE (#247) -- forme « PRESET + FLAGS », mais preset `statics+0x180`
+    # et NON `+0x140` comme ses deux voisines de module (1051/1098). Meme `rules` effectif
+    # (0x2004002) et une portee qui DIFFERE : `*(statics+0x1a0)` = 1 = `RangedBool.False` ->
+    # `forceMeleeTarget` DESARME, donc pas de clamp a 1 au contact. Illustration directe du piege
+    # « la voisine ment » : le masque se serait recopie juste, le volet portee faux.
+    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) -- cf. la note de 1051.
+    # Piege de recon a ne pas repeter : `templAggressor` (au pool) porte `FragstormGrenadeLauncher`
+    # (1048), PAS `Fragstorm` (1078). Le recensement par sous-chaine ment ; c'est l'oracle live qui
+    # a tranche.
     1081: "FightingRetreatAbility",
     1082: "InspiredToGreatnessAbility",
     1096: "MasterOfTheTutelariesAbility",
-    1098: "PlasmaGrenadeAbility",
+    # 1098 PlasmaGrenadeAbility RESORBEE (#248) -- forme « PRESET + FLAGS », preset `statics+0x140`
+    # + flags `0x2000000` -> 0x2004002 ; portee RANGE_FROM_CONFIG (2) ; `forceMeleeTarget =
+    # RangedBool.True`. STRICTEMENT le meme couple que 1051, verifie ctor par ctor.
+    # ⚠ MASQUE NON CONFRONTE LIVE (cf. la note de 1051) -- fiche de re-dispatch ouverte.
     # 1104 SpiritLeechAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :
     # `...SpiritLeechAbility$$.ctor` recopie `TargetingOptions statics+0x180` (copie INTEGRALE,
     # aucun ctor appele) et le masque effectif est `*(statics+0x1a8)` = 0x4002
@@ -113,7 +157,9 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # RangedBool.False. Piege ecarte : 1014 ArmoriumCherub a le MEME masque et le MEME
     # RANGE_FROM_CONFIG, mais son preset (+0x140) pose `forceMeleeTarget = 0 = RangedBool.True` --
     # deux presets qui ne different QUE par ce champ, et il change le regime de portee au contact.
-    1105: "CrushingClawsAbility",
+    # 1105 CrushingClawsAbility RESORBEE (#248) -- forme « PRESET STATIQUE COPIE », preset
+    # `statics+0x40` (le meme que 1065) : masque 0x4000, portee RANGE_ADJACENT, `forceMeleeTarget =
+    # RangedBool.False`. CONFRONTEE LIVE (6/6 sur deux couples, 5 casts illegaux fermes).
     1113: "StormcallerAbility",
     1118: "DoctrinaImperativesAbility",
     # 1122 CordClawAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :

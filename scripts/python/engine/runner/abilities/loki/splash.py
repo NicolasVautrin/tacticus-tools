@@ -10,6 +10,9 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from ..base import ActiveAbility, ability_attack_params
+from ..targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                         TargetingOptions, custom_range)
+from ..targeting_rule import TargetingRule as TR
 from ...operations.damage import AttackDamageOperation
 from ...components import OwnerComponent, PositionComponent, UnitComponent
 from ....entities.effect_type import EffectType
@@ -509,6 +512,28 @@ class CrushingClawsAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.CrushingClaws)  # 1105
     ABILITY_ID = "CrushingClaws"
 
+    # GATE DE CIBLE (#115). FORME **PRESET STATIQUE COPIE, AUCUN `TargetingOptions..ctor`** :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility$$.ctor` recopie les 0x40
+    # octets du champ STATIQUE de `TargetingOptions` a l'offset RELATIF `+0x40` du bloc
+    # `<class>+0xb8`, puis `AActiveAbility..ctor(this, &opts, 0, 0)` (3e arg = 0 =
+    # `AbilityAttackType.DirectTargetAttack`). Aucun litteral de masque n'est visible dans le ctor.
+    # Le contenu du preset est celui qu'ecrit `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            <- copie du `TargetingRange` statique `+0x30`
+    #                                       (`TargetingRange$$.cctor` : onlyAdjacent = `RangedBool.True`,
+    #                                        overrideRange = Nullable(1)) = RANGE_ADJACENT
+    #     <preset>+0x20 forceMeleeTarget = 1 = `RangedBool.False`
+    #     <preset>+0x28 rules            = 0x4000
+    #     <preset>+0x30/+0x38            = 0 (ecrases par `AActiveAbility$$.ctor`)
+    # Decomposition EXHAUSTIVE du masque (`IdunBattle.Core.Services.TargetingRule`) :
+    #     bit 14  0x4000  TargetIsEnemy  -> PORTE (`UnitsCanAttackEachOther`)
+    #     0x4000 = 0x4000 : somme exacte, aucun bit residuel.
+    # C'est le MEME preset `+0x40` que `ThunderousAssault` (1043, case-246) -- mais 1043 passe par la
+    # surcharge PRESET+FLAGS et OR-e `CasterCanMove` par-dessus (0x10004000). Ici : aucun flag.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -541,6 +566,43 @@ class PlasmaGrenadeAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlasmaGrenade)  # 1098
     ABILITY_ID = "PlasmaGrenade"
+
+    # GATE DE CIBLE (#115). FORME **PRESET + FLAGS** :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$.ctor` recopie le preset
+    # STATIQUE de `TargetingOptions` a l'offset RELATIF `+0x140` du bloc `<class>+0xb8`, puis :
+    #     TargetingOptions..ctor(&opts, &preset, 0x2000000, 0)   # surcharge (dst, preset, flags)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)                # 3e arg = 0 = DirectTargetAttack
+    # Cette surcharge recopie le preset champ par champ SAUF `Rules`, qu'elle **COMBINE** --
+    # decompile VERBATIM : `*(ulonglong *)(param_1 + 0x28) = param_3 | *(param_2 + 0x28);`
+    # => masque EFFECTIF = `flags | preset.Rules`, ni l'un ni l'autre seul.
+    # Preset `+0x140` lu dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            <- copie du `TargetingRange` statique `+0x18`
+    #                                       (`useRangeFromConfig = true`) = RANGE_FROM_CONFIG
+    #                                       -> `AActiveAbility$$SetConfigValuesInTargetingOptions`
+    #                                          pose `overrideRange = constants.range` = 2
+    #     <preset>+0x20 forceMeleeTarget = 0 = `RangedBool.True`  <- DIFFERE de Fragstorm (voir plus bas)
+    #     <preset>+0x28 rules            = 0x4002
+    # Decomposition EXHAUSTIVE de `0x2000000 | 0x4002` = **0x2004002** :
+    #     bit  1  0x2         TargetMatchesDynamicRule       -> point d'extension ; aucune surcharge
+    #                                                           de `get_dynamic_invalid_target_reason`
+    #                                                           ici -> defaut 0 (permissif)
+    #     bit 14  0x4000      TargetIsEnemy                  -> PORTE (`UnitsCanAttackEachOther`)
+    #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (leve la ligne de vue par
+    #                                                           elevation ; la LOS n'est pas portee)
+    #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
+    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
+    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
+    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
+    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
+    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
+    # `forceMeleeTarget = RangedBool.True` ARME le clamp de melee de `TargetingQuery$$GetRange` :
+    # si `AttackQuery$$ShouldApplyRangedInMelee` est vrai (un ennemi non-Steppable au contact du
+    # caster), la portee tombe a `min(1, 2)` et `onlyAdjacent` passe a vrai. C'est le SEUL champ qui
+    # separe ce preset de celui de Fragstorm (`+0x180`).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -575,6 +637,35 @@ class StikkbombAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Stikkbomb)  # 1051
     ABILITY_ID = "Stikkbomb"
+
+    # GATE DE CIBLE (#115). FORME **PRESET + FLAGS**, preset `+0x140` + flags `0x2000000` --
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, &<preset +0x140>, 0x2000000, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)                # 0 = DirectTargetAttack
+    # STRICTEMENT le meme preset et les memes flags que `PlasmaGrenade` (1098) -- verifie ctor par
+    # ctor, PAS deduit de la voisine : dans ce meme module `Fragstorm` (1078) prend le preset `+0x180`,
+    # qui ne differe que par `forceMeleeTarget`, et `ScythingTalons`/`CrushingClaws` le preset `+0x40`.
+    #     <preset +0x140>+0x00 isSelfCasting    = 0
+    #     <preset +0x140>+0x08 range            <- `TargetingRange` statique `+0x18` = RANGE_FROM_CONFIG
+    #                                              -> `overrideRange = constants.range` = 2
+    #     <preset +0x140>+0x20 forceMeleeTarget = 0 = `RangedBool.True` (clamp melee ARME)
+    #     <preset +0x140>+0x28 rules            = 0x4002
+    # Masque EFFECTIF `0x2000000 | 0x4002` = **0x2004002**, decompose EXHAUSTIVEMENT :
+    #     bit  1  0x2         TargetMatchesDynamicRule       -> defaut 0 (aucune surcharge) = permissif
+    #     bit 14  0x4000      TargetIsEnemy                  -> PORTE
+    #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (LOS non portee)
+    #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
+    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
+    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
+    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
+    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
+    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
+    # NOTE : `TargetIsEnemy` gate la CIBLE DESIGNEE du message, pas le splash. Le friendly-fire du
+    # splash (#213 : `AdjacentUnits(TargetTile())` BRUT, allies inclus) reste entier -- ce sont deux
+    # etages distincts (gate de cast vs selecteur de behaviour).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -611,6 +702,36 @@ class FragstormAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Fragstorm)  # 1078
     ABILITY_ID = "Fragstorm"
+
+    # GATE DE CIBLE (#115). FORME **PRESET + FLAGS** --
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, &<preset +0x180>, 0x2000000, 0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)                # 0 = DirectTargetAttack
+    # ⚠ LE PRESET N'EST PAS CELUI DE SES VOISINES. Stikkbomb (1051) et PlasmaGrenade (1098) prennent
+    # `+0x140`, Fragstorm prend `+0x180`. Les deux blocs de `TargetingOptions$$.cctor` sont identiques
+    # SAUF le champ `+0x20` :
+    #     <preset +0x140>+0x20 forceMeleeTarget = 0 = `RangedBool.True`
+    #     <preset +0x180>+0x20 forceMeleeTarget = 1 = `RangedBool.False`   <- ICI
+    # Recopier le masque de la voisine aurait donc donne le bon `rules` et le MAUVAIS volet portee :
+    # `RangedBool.False` DESARME le clamp de melee de `TargetingQuery$$GetRange`, donc Fragstorm garde
+    # sa portee 2 meme avec un ennemi au contact, la ou Stikkbomb/PlasmaGrenade retombent a 1.
+    #     <preset +0x180>+0x00 isSelfCasting    = 0
+    #     <preset +0x180>+0x08 range            <- `TargetingRange` statique `+0x18` = RANGE_FROM_CONFIG
+    #                                              -> `overrideRange = constants.range` = 2
+    #     <preset +0x180>+0x28 rules            = 0x4002
+    # Masque EFFECTIF `0x2000000 | 0x4002` = **0x2004002**, decompose EXHAUSTIVEMENT :
+    #     bit  1  0x2         TargetMatchesDynamicRule       -> defaut 0 (aucune surcharge) = permissif
+    #     bit 14  0x4000      TargetIsEnemy                  -> PORTE
+    #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (LOS non portee)
+    #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
+    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
+    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
+    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
+    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
+    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -652,6 +773,24 @@ class ScythingTalonsAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.ScythingTalons)  # 1065
     ABILITY_ID = "ScythingTalons"
 
+    # GATE DE CIBLE (#115). FORME **PRESET STATIQUE COPIE, AUCUN `TargetingOptions..ctor`** :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility$$.ctor` recopie les 0x40
+    # octets du preset `+0x40` du bloc `<class>+0xb8`, puis
+    # `AActiveAbility..ctor(this, &opts, 0, 0)` (0 = `AbilityAttackType.DirectTargetAttack`).
+    # Contenu du preset (`IdunBattle.Core.Services.TargetingOptions$$.cctor`) :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            <- `TargetingRange` statique `+0x30` = RANGE_ADJACENT
+    #                                       (onlyAdjacent = `RangedBool.True`, overrideRange = 1)
+    #     <preset>+0x20 forceMeleeTarget = 1 = `RangedBool.False`
+    #     <preset>+0x28 rules            = 0x4000
+    # Decomposition EXHAUSTIVE : bit 14 `0x4000 TargetIsEnemy` seul -- 0x4000 = 0x4000, aucun residu.
+    # `onlyAdjacent` fait prendre au filtre statique la branche `battleQuery.AreEntitiesAdjacent`
+    # (et non un `dist <= N`) : la cible doit etre AU CONTACT. Coherent avec le kit (melee Bio, splash
+    # = ennemis adjacents A LA FOIS au caster ET a la cible).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -688,6 +827,35 @@ class GauntletsOfUltramarAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GauntletsOfUltramar)  # 1000
     ABILITY_ID = "GauntletsOfUltramar"
+
+    # GATE DE CIBLE (#115). FORME **FACTORY NOMMEE** -- une QUATRIEME forme, distincte des trois
+    # documentees (flags directs / preset+flags / preset statique copie).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$.ctor` :
+    #     TargetingOptions..SelfCastIfEnemyInCustomRangeOptions(&opts, 2)   # range = 2
+    #     AActiveAbility..ctor(this, &opts, 2, 0)                           # 2 = AbilityAttackType.Others
+    # C'est le SEUL appelant natif de cette factory (`list_xrefs` : 1 UNCONDITIONAL_CALL) ; les trois
+    # autres porteurs du meme profil (ResurrectionOrb 1009, Chronometron 1226, AncestralFortune 1207)
+    # l'ont recue INLINEE par IL2CPP. Ici elle est lisible telle quelle --
+    # `IdunBattle.Core.Services.TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions(int range)`
+    # ecrit, champ par champ :
+    #     +0x00 isSelfCasting    = 1           (`*param_1 = 1`)               -> self_cast=True
+    #     +0x08 range            = `TargetingRange` INLINE : onlyAdjacent = 1 (`RangedBool.False`),
+    #                              useRangeFromConfig = false, useWholeBoard = false,
+    #                              overrideRange = `Nullable<int>(range)` = Nullable(2),
+    #                              overrideRangeFunc = null   == `TargetingRange$$CustomRange(2)`
+    #     +0x20 forceMeleeTarget = 1 = `RangedBool.False`
+    #     +0x28 rules            = 0x4000
+    #     +0x30/+0x38            = 0 (ecrases par `AActiveAbility$$.ctor`)
+    # Decomposition EXHAUSTIVE : bit 14 `0x4000 TargetIsEnemy` seul -- 0x4000 = 0x4000, aucun residu.
+    # SEMANTIQUE : l'ability est SELF-CASTEE (l'arbre est ancre sur le CASTER, il n'utilise ni
+    # `Target()` ni `TargetTile()`), et `TargetIsEnemy` + `range=2` servent au predicat « existe-t-il
+    # au moins un ennemi a portee 2 ? » -- c'est exactement ce que dit le nom de la factory. Le byte
+    # `+0x00` aiguille l'overload 5 arguments de `TargetingQuery$$GetInvalidTargetReason` vers
+    # `GetCasterNotAddedReason` (non porte -> 0) des que la cible EST le caster ; une cible TIERCE,
+    # elle, traverse le filtre statique et subit `TargetIsEnemy` + le volet portee.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=True,
+                                         range=custom_range(2),
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
