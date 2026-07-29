@@ -90,6 +90,11 @@ class AiDecisionContext:
     tile_effect_type_ids_by_pos: dict = field(default_factory=dict)
     #     {(col,row): [EffectType]} <- tileMeta.effects[].effectType = `EffectComponent+0x58` ->
     #     feuilles DespoiledGround(28, 0x5c4), Contaminated(25, 0x4dc), MoltenForm(23, 5/10)
+    mindist_case: Any = None
+    #     `UtilityMovementCase` (engine.utilities.move) — les DEUX champs que la feuille
+    #     MinDistanceToClosestEnemy(16) LIT sur son case : `+0x10` Unit et `+0x20` ClosestEnemy,
+    #     plus les deux valeurs que ses gates en derivent (traits du mover, CriticalChance du mover,
+    #     traits du ClosestEnemy). `None` = le port n'a pas pu etablir le case -> aucun gate (#236).
 
     debug: bool = False
 
@@ -440,6 +445,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
                                        tile_effects_by_pos=effects_by_pos)
              if (predictor is not None and sctx is not None) else None)
 
+    # #236 — `UtilityMovementCase` de la feuille MinDist(16), face LIVE (cf. `_mindist_case`).
+    mindist_case = _mindist_case(uid, me, units, scene, pdr)
+
     return AiDecisionContext(
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
         uid=uid, me=me, units=units, cur=cur, plans=plans,
@@ -449,10 +457,75 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos=is_temporary_by_pos,
         effects_by_pos=effects_by_pos, pathdist_by_pos=pathdist_by_pos,
+        mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos, debug=debug)
+
+
+def _mindist_case(uid, me, units, scene, pdr: dict):
+    """`UtilityMovementCase` de la feuille MinDistanceToClosestEnemy(16) — face LIVE (#236).
+
+    Le generateur natif `<GenerateActions>IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CGenerateActionsu003Ed__6$$MoveNext`
+    construit ce case avec `ClosestEnemy = FindClosestEnemy(unit, posCourante)`. Le RPC
+    `pathDistToEnemies` REJOUE ce meme `FindClosestEnemy` (memes predicats natifs, meme
+    `GetPath(type=1)`) mais n'expose que `closestResolved` + la LISTE `enemies` des candidats
+    retenus, pas l'ID retenu -> l'identite du ClosestEnemy n'est pas toujours decidable ici.
+
+    Ce qui EST decidable, et suffit :
+      * `ok` faux -> DEUX cas a ne pas confondre. Le RPC sort en `"aucun ennemi vivant"` quand son
+        set de candidats est VIDE apres les predicats natifs -- c'est EXACTEMENT `ClosestEnemy ==
+        null`, donc le GATE 3 (mesure : roster adverse 100 % `TeleportStrike`, les cinq portent
+        `TeleportStrike_TeleportingIn` donc `IsTargetable` faux, cf. `probe_236_mindist_gates.py`).
+        Toute AUTRE erreur (`Pathfinders` non resolu, runner/state nul, unite introuvable) est une
+        indisponibilite du PORT : aucun case, les gates restent hors-jeu ;
+      * `closestResolved` faux (0 candidat, ou aucun joignable depuis la tuile courante) ->
+        `ClosestEnemy == null`, c'est le GATE 3, exact ;
+      * un seul candidat -> son identite EST le ClosestEnemy, gate 4 exact ;
+      * plusieurs candidats -> le gate 4 ne lit du ClosestEnemy QUE `HasTrait(Impervious)` : si les
+        candidats sont UNANIMES sur ce trait, le verdict est le meme quel que soit l'argmin, donc
+        exact sans connaitre l'argmin. Sinon (candidats PANACHES) le substrat est laisse a `None`
+        et le gate 4 est SUSPENDU — jamais devine.
+
+    Point d'ancrage pour fermer ce dernier trou (hors perimetre ici : exige un reinject) : renvoyer
+    l'`id` du `closestTile` retenu dans `ctx.rpc.pathDistToEnemies` (`frida/hooks/features/ai-step/
+    rpc-board.ts`), le case le lirait alors directement."""
+    from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
+    from engine.utilities.move import UtilityMovementCase
+    if not pdr:
+        return None
+    # Sortie du RPC quand son set de candidats est VIDE apres les predicats de `FindClosestEnemy`
+    # (`frida/hooks/features/ai-step/rpc-board.ts`, `if (!cands.length) return {ok:false, ...}`).
+    # Le champ STRUCTURE `noTargetableEnemies` est la voie canonique ; le littéral d'erreur reste lu
+    # pour les sessions Frida injectees AVANT son ajout (contrat interne hook <-> port, pas une
+    # donnee du jeu).
+    _no_targetable = bool(pdr.get("noTargetableEnemies")) or (
+        pdr.get("error") == "aucun ennemi vivant")
+    if not pdr.get("ok") and not _no_targetable:
+        return None
+    vis_by_id = {u.get("id"): u.get("visualId") for u in (units or [])}
+    _ctx_of = (lambda i: scene.ctx(i)) if scene is not None else (lambda i: None)
+    _traits = lambda i: entity_trait_names(_ctx_of(i), vis_by_id.get(i))   # noqa: E731
+    me_ctx = _ctx_of(uid)
+    # `GetStat(unit, 9)` du gate 4. Sans `Scene`, la stat n'est PAS lisible -> None = gate suspendu
+    # (et non 0, qui FERAIT mordre le gate sur une donnee jamais lue).
+    crit = getattr(me_ctx, "crit_chance", None) if me_ctx is not None else None
+    unit_traits = entity_trait_names(me_ctx, (me or {}).get("visualId"))
+
+    cands = [] if _no_targetable else [e.get("id") for e in (pdr.get("enemies") or [])]
+    if not pdr.get("closestResolved") or not cands:
+        return UtilityMovementCase(unit=uid, unit_traits=unit_traits, unit_crit_chance=crit,
+                                   closest_enemy=None, closest_enemy_traits=None)
+    if len(cands) == 1:
+        ce_traits = _traits(cands[0])
+    else:
+        _imp = [has_trait(_traits(i), UnitTrait.Impervious) for i in cands]
+        ce_traits = ((UnitTrait.Impervious.name,) if all(_imp)
+                     else (() if not any(_imp) else None))
+    return UtilityMovementCase(unit=uid, unit_traits=unit_traits, unit_crit_chance=crit,
+                               closest_enemy=cands[0] if len(cands) == 1 else True,
+                               closest_enemy_traits=ce_traits)
 
 
 def machine_row(dv: dict, uid: int) -> dict | None:

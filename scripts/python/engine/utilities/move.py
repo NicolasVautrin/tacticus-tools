@@ -91,7 +91,8 @@ class UtilityMovementCase:
       - `unit` : identite du mover. `None` == `case.Unit == null` (gate 1).
       - `unit_traits` : substrat `HasTrait` du mover (`entity_trait_names`) -> gate 2 `IsNonAttacking`.
       - `unit_crit_chance` : `IdunBattle.Entities.UnitExtensions$$GetStat(unit, StatType.CriticalChance)`
-        -> branche `crit != 0` de `UnitCanBeDamaged` (gate 4).
+        -> branche `crit != 0` de `UnitCanBeDamaged` (gate 4). `None` = stat NON RESOLUE par le port
+        (contexte live sans `Scene`) -> gate 4 SUSPENDU, comme pour `closest_enemy_traits`.
       - `closest_enemy` : identite du ClosestEnemy. `None` == `case.ClosestEnemy == null` (gate 3).
       - `closest_enemy_traits` : substrat `HasTrait` du ClosestEnemy -> branche `Impervious` du gate 4.
         **`None` = substrat NON RESOLU par le port** (identite du ClosestEnemy ambigue cote LIVE, cf.
@@ -124,9 +125,11 @@ def unit_can_be_damaged(unit_crit_chance, target_trait_names) -> bool:
     CriticalChance est NON NULLE (le trait ne cede qu'aux coups critiques). L'appel est
     ASYMETRIQUE — `unit` (le mover) fournit la stat, `target` (le ClosestEnemy) le trait.
 
-    `target_trait_names is None` = substrat NON RESOLU (cf. `UtilityMovementCase`) -> `True`
-    (permissif) : le port ne fabrique pas un gate sur une identite qu'il n'a pas etablie."""
-    if target_trait_names is None:
+    `target_trait_names is None` (identite du ClosestEnemy non etablie) ou `unit_crit_chance is None`
+    (stat non resolue) -> `True` (permissif) : le port ne fabrique pas un gate sur une donnee qu'il
+    n'a pas lue. Ces deux `None` sont les SEULS trous du mirror, et ils sont nommes dans
+    `UtilityMovementCase`."""
+    if target_trait_names is None or unit_crit_chance is None:
         return True
     if not has_trait(target_trait_names, UnitTrait.Impervious):
         return True

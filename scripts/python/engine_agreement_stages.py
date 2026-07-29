@@ -480,8 +480,10 @@ class StageProbe:
             # `playbook.base.tile_utility` : sans lui ce mirror de mesure divergerait du moteur.
             apply_tile_attributes(meta, c, leaf_ctx)
             tile_u = tile_composite(c, meta, leaf_ctx, ctx.wt)
+            # `case=` : les 4 gates d'entree de la feuille (#236). Ce mirror de mesure DOIT le
+            # passer, sinon il rendrait un terme la ou le moteur (et le natif) rend 0.
             mind_u = MIN_DIST_UTILITY.evaluate_movement(c, ctx.tgt_epos or ctx.epos, ctx.wt,
-                                                        ctx.pathdist_by_pos)
+                                                        ctx.pathdist_by_pos, case=ctx.mindist_case)
             out[c] = {"tile": round(tile_u, 3), "mindist": round(mind_u, 3),
                       "u": round(tile_u + mind_u, 3),
                       "pathdist": ctx.pathdist_by_pos.get(c)}

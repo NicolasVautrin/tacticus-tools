@@ -549,7 +549,14 @@ export function registerViewBoard(ctx: Ctx): void {
                 }
             } catch { /* dégradation sûre : pas de restriction */ }
         }
-        if (!cands.length) return { ok: false, error: "aucun ennemi vivant" };
+        // Set de candidats VIDE après les prédicats de `FindClosestEnemy` : côté natif c'est
+        // `ClosestEnemy == null`, donc le gate d'entrée #3 de la feuille MinDist(16)
+        // (`<EvaluateMovementInSteps>d__2.MoveNext` → 0 sur TOUTE tuile), pas une panne du RPC.
+        // `noTargetableEnemies` le dit STRUCTURELLEMENT — le port le distinguait jusqu'ici du
+        // littéral d'erreur, qui reste en place pour les lecteurs existants (#236).
+        if (!cands.length) {
+            return { ok: false, error: "aucun ennemi vivant", noTargetableEnemies: true };
+        }
 
         const tele = Memory.alloc(8); tele.writeU32(0); tele.add(4).writeU32(0);  // Nullable<UseTeleporter>=null
         const typeBuf = Memory.alloc(4); typeBuf.writeS32(1);  // PathfinderType=1 (cf. GetMinDistanceToEnemy)

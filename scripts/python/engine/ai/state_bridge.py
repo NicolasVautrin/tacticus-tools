@@ -48,6 +48,8 @@ from engine.entities.pathfinding.fly_pathfinder import (
     is_like_flying, get_movable_positions as fly_get_movable_positions)
 from engine.entities.effect_type import EffectType
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.entities.traits.unit_trait import entity_trait_names
+from engine.utilities.move import UtilityMovementCase
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 (id synthetique offline ; cf. en-tete) #158
 TELEPORT_STRIKE_TELEPORTING_IN = int(EffectType.TeleportStrike_TeleportingIn)  # 1035 — effet deep-strike -> unite NON-CIBLABLE (#158)
@@ -206,7 +208,7 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
 
 
 def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
-                         origin=None) -> dict:
+                         origin=None, enemy_ids: list | None = None) -> tuple:
     """`{(col,row): pathDist}` OFFLINE, mirror 1:1 du couple natif qui alimente la feuille de
     mouvement `MinDistanceToClosestEnemy(16)` — et pendant offline EXACT du RPC `pathDistToEnemies` :
 
@@ -233,18 +235,28 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
     principale (`PositionComponent`, comme le RPC live qui lit `GetMainTile`) — exact pour toute
     unite mono-tuile ; et l'ordre d'enumeration est celui de `State.entities`, pas de
     `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit` — il ne mord que sur un tie de
-    distance entre deux ennemis."""
+    distance entre deux ennemis.
+
+    Rend `(pathdist_by_pos, closest_enemy_id)`. `closest_enemy_id is None` == `ClosestEnemy == null`
+    cote natif — c'est le GATE 3 de la feuille MinDist (#236), a ne pas confondre avec « le port n'a
+    aucune source de distance » : quand `board`/`origin` manquent on rend `(None, None)`, ou le
+    PREMIER `None` signale precisement cette indisponibilite (le case n'est alors pas construit).
+    `enemy_ids` (facultatif, aligne sur `enemy_positions`) porte l'identite retenue."""
     board = state.board
-    if board is None or not enemy_positions or origin is None:
-        return {}
+    if board is None or origin is None:
+        return None, None
     otile = board.id_at(origin[0], origin[1])
     if otile is None:
-        return {}
+        return None, None
+    if not enemy_positions:                   # aucun candidat -> `ClosestEnemy == null` (gate 3)
+        return {}, None
     occ = _occupants(state)                   # `IsFilled` du `WeightCost` (PAS un gate de passage)
 
     best_counts = None
     best_dist = None
-    for (c, r) in enemy_positions:
+    best_id = None
+    ids = list(enemy_ids or ())
+    for i, (c, r) in enumerate(enemy_positions):
         etile = board.id_at(c, r)
         if etile is None:
             continue
@@ -254,9 +266,10 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
             continue
         if best_dist is None or d < best_dist:   # `<` STRICT -> premier-gagne
             best_dist, best_counts = d, counts
+            best_id = ids[i] if i < len(ids) else None
     if best_counts is None:
-        return {}
-    return {board.coord(t): n for t, n in best_counts.items()}
+        return {}, None                       # aucun ennemi joignable -> `ClosestEnemy == null`
+    return {board.coord(t): n for t, n in best_counts.items()}, best_id
 
 
 # --- Classification d'ability (SLICE 2) — mirror IdunBattle.Core.Services.TargetingQuery$$GetRange + le TargetsSelector DSL
@@ -614,9 +627,27 @@ def build_from_state(state, uid: int, debug: bool = False):
     # ClosestEnemy. Sans ce filtre, un deep-strike plus proche par chemin ecrase le vrai ClosestEnemy et
     # fausse la distance-chemin par tuile (12345 s5 : (1,4)=6 vers Dante vs 7 vers l'ennemi ciblable).
     # `enemies`/`epos` restent complets (occupance/positionnement) ; seul le seed MinDist est filtre.
-    tgt_epos = [(e["pos"]["col"], e["pos"]["row"]) for e in enemies
-                if e.get("pos") and not _is_untargetable(state, e.get("id"))]
-    pathdist_by_pos = _pathdist_to_enemies(state, uid, my_team, tgt_epos, origin=origin)
+    _tgt = [e for e in enemies if e.get("pos") and not _is_untargetable(state, e.get("id"))]
+    tgt_epos = [(e["pos"]["col"], e["pos"]["row"]) for e in _tgt]
+    pathdist_by_pos, closest_enemy_id = _pathdist_to_enemies(
+        state, uid, my_team, tgt_epos, origin=origin, enemy_ids=[e.get("id") for e in _tgt])
+    # #236 — le `UtilityMovementCase` que le generateur natif passe a la feuille MinDist(16). Face
+    # OFFLINE : le ClosestEnemy est FIGE par le meme `FindClosestEnemy` qui produit `pathdist_by_pos`
+    # (une seule passe), donc son IDENTITE est connue -> les 4 gates y sont exacts, gate 4 compris.
+    # `pathdist_by_pos is None` = le port n'a AUCUNE source de distance (board/origine absents) :
+    # aucun case n'est construit, la feuille garde son comportement degrade documente.
+    mindist_case = None
+    if pathdist_by_pos is not None:
+        mindist_case = UtilityMovementCase(
+            unit=uid,
+            unit_traits=entity_trait_names(scene.ctx(uid), vid),
+            unit_crit_chance=getattr(scene.ctx(uid), "crit_chance", 0) or 0,
+            closest_enemy=closest_enemy_id,
+            closest_enemy_traits=(None if closest_enemy_id is None else entity_trait_names(
+                scene.ctx(closest_enemy_id),
+                next((e.get("visualId") for e in _tgt if e.get("id") == closest_enemy_id), None))))
+    else:
+        pathdist_by_pos = {}
     # topologie boardGraph (self-cast MainTile #116, ordre voisins natif Gauntlets #117, gate placement) —
     # mirror OFFLINE des 3 seams boardGraph que le contexte LIVE fournit ; ex-gap du bridge (build_from_state
     # anterieur a l'ajout de ces champs requis) revele par la confrontation du tour du Skitarii (#24).
@@ -641,6 +672,6 @@ def build_from_state(state, uid: int, debug: bool = False):
         hp_cur_by_id=hp_cur_by_id, hpmax_by_id=hpmax_by_id, obs_units=_obs_units(state),
         ab_name_by_id=ab_name_by_id, normal_ids=normal_ids,
         elev_by_pos=elev_by_pos, is_temporary_by_pos={}, effects_by_pos={},
-        pathdist_by_pos=pathdist_by_pos,
+        pathdist_by_pos=pathdist_by_pos, mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, walkable_by_pos=walkable_by_pos,
         terrain_by_pos=terrain_by_pos, debug=debug)
