@@ -88,6 +88,22 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
   gisement dans ce cas.
 
+- **Identité du `ClosestEnemy` non exposée côté LIVE** — `case-236` §5/§6. Le RPC
+  `pathDistToEnemies` rejoue `FindClosestEnemy` mais ne renvoie que `closestResolved` + la liste des
+  candidats, pas l'id retenu. Conséquence bornée : le **gate 4** de `MinDist(16)`
+  (`UnitCanBeDamaged`) est SUSPENDU quand plusieurs candidats sont **panachés** sur
+  `HasTrait(Impervious)` — unanimes, le verdict est exact sans l'argmin, et le gate 4 est de toute
+  façon *registered-but-dead* dans notre régime (§4). Point d'ancrage : renvoyer l'`id` du
+  `closestTile` dans `ctx.rpc.pathDistToEnemies` (`frida/hooks/features/ai-step/rpc-board.ts`) —
+  exige un reinject.
+- **`noTargetableEnemies` posé mais pas encore exercé** — `case-236` §6. Le champ structuré est
+  dans `rpc-board.ts` ; la session Frida en cours ayant été injectée avant, la voie ACTIVE et
+  testée live reste le littéral d'erreur du même `return`. À re-confronter au prochain inject
+  (`probe_236_mindist_gates.py --runner <rid>` doit rester à 0 non-conforme).
+- **`GetStat(unit, CriticalChance)` non lisible sans `Scene`** — `case-236` §5. `_mindist_case`
+  laisse alors `unit_crit_chance = None` -> gate 4 SUSPENDU (permissif) plutôt que `0`, qui le
+  ferait mordre sur une donnée jamais lue.
+
 - **Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)** — `case-dpw` §5/§7. Le
   vecteur `On(UnitAdded)` est porté (une unité qui APPARAÎT dans une aura Contagion ennemie prend
   le −20 %), mais l'effet n'est **ni re-évalué quand l'aura grandit** (`CalculateRange` = 1/2/3

@@ -42,8 +42,11 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.pathfinding.ignore_terrain_pathfinder import weight_cost
 from engine.entities.pathfinding.walk_pathfinder import (
     get_reachable_levels, is_valid_path_node as walk_is_valid_path_node)
+from engine.entities.traits.unit_trait import UnitTrait
+from engine.runner.components import StatsComponent
 from engine.runner.snapshot import load_state
-from engine.utilities.move import MIN_DIST_UTILITY
+from engine.utilities.move import (MIN_DIST_UTILITY, UtilityMovementCase, is_non_attacking,
+                                   unit_can_be_damaged)
 from engine_agreement_stages import StageProbe as _StageProbe
 
 
@@ -420,3 +423,174 @@ def test_deep_strike_enemy_excluded_from_min_distance_live(host, live_session, r
     assert not bad, (
         f"deep-strike plus proche sur {len(binding)} tuile(s) : le port diverge du natif sur "
         f"{len(bad)} tuile(s) : {bad[:6]}")
+
+
+# ---------------------------------------------------------------------------------------------
+# #236 -- les GATES D'ENTREE de la feuille. `<EvaluateMovementInSteps>d__2.MoveNext` rend
+# `Fix64.FromInt(0)` AVANT tout calcul quand `case.Unit == null`, quand `IsNonAttacking(case.Unit)`,
+# quand `case.ClosestEnemy == null`, ou quand `!UnitCanBeDamaged(case.Unit, case.ClosestEnemy)`.
+# Un gate qui ne mord pas est INVISIBLE en agrement (argmax pur) -> confrontation TUILE PAR TUILE.
+# ---------------------------------------------------------------------------------------------
+
+# Roster adverse 100 % `TeleportStrike` : au premier tour les cinq portent
+# `TeleportStrike_TeleportingIn`, donc `IdunBattle.Entities.UnitExtensions$$IsTargetable` est FAUX et
+# `FindClosestEnemy` ne retient AUCUN candidat -> `ClosestEnemy == null` (GATE 3). Ils restent
+# VIVANTS et POSITIONNES, donc `ctx.epos` est plein : sans le gate, le port bascule sur son repli
+# HEX et rend `wMin x hexdist` la ou le natif rend 0. Tous dans `rl_duel --list-pool` (rank 17).
+ALL_DEEP_STRIKE = "bloodDante,blackTerminator,darkaTerminator,spaceRockfist,worldTerminator"
+
+
+def _leaf_terms(ctx, wt):
+    """(sans gate, avec gate) du terme MinDist par tuile du movable set de `ctx`."""
+    order = [(t["col"], t["row"]) for t in ctx.move_tiles]
+    return [(t,
+             MIN_DIST_UTILITY.evaluate_movement(t, ctx.tgt_epos or ctx.epos, wt,
+                                                ctx.pathdist_by_pos, case=None),
+             MIN_DIST_UTILITY.evaluate_movement(t, ctx.tgt_epos or ctx.epos, wt,
+                                                ctx.pathdist_by_pos, case=ctx.mindist_case))
+            for t in order]
+
+
+def _both_faces(rpc, rid, uid, wt):
+    """(ctx LIVE, ctx OFFLINE) du meme etat de decision. `board=` OBLIGATOIRE cote offline :
+    sans lui `state.board is None` -> `_pathdist_to_enemies` rend {} et on mesurerait le repli hex."""
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
+    mov_by_unit = {r["unitId"]: r for r in (mov.get("units") or [])}
+    ctx = _ai_ctx.build(lambda m, b=None, t=60: rpc(m, b, t), rid, dv, mov_by_unit, uid, wt, None)
+    obs = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    bg = rpc("boardGraph", {"runnerId": rid}, 90)
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    state = load_state(dv, obs, snap, board=Board(bg["tiles"], adjacency="native_sym"), tiles=tm)
+    return ctx, state, build_from_state(state, uid)
+
+
+def _pick_mover(rpc, rid):
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    mine = [u for u in (dv.get("units") or []) if u.get("ctrl") and u.get("alive") and u.get("pos")]
+    return (mine[0]["id"] if mine else None)
+
+
+def test_min_distance_leaf_is_zero_when_closest_enemy_is_null_live(host, live_session, rpc,
+                                                                   build_runner):
+    """GATE 3 -- `case.ClosestEnemy == null` : le terme vaut 0 sur TOUTE tuile, les DEUX faces.
+
+    Montage : roster adverse 100 % `TeleportStrike`. Les ennemis sont bien la (`ctx.epos` plein),
+    mais AUCUN n'est ciblable -> `FindClosestEnemy` rend null. Le natif rend `Fix64.FromInt(0)` ;
+    le port d'avant #236 rendait `wMin x hexdist` (repli hex), donc PREFERAIT des tuiles que le
+    natif n'evalue pas. La garde exige que le montage soit DISCRIMINANT (terme non nul sans gate) :
+    pas de vert vide."""
+    rid = build_runner(seed="12345", board="MC1_67",
+                       extra=["--a-units", ALL_DEEP_STRIKE, "--no-ai"])["rid"]
+    uid = _pick_mover(rpc, rid)
+    assert uid is not None, "aucune unite controlee vivante -- montage vide"
+    wt = weights.load()
+
+    pd = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
+    assert isinstance(pd, dict) and not pd.get("ok") and not (pd.get("enemies") or []), (
+        "montage NON FORME : le RPC a retenu des candidats "
+        f"({str(pd)[:200]}) -- le ClosestEnemy n'est PAS null, ne pas lire ce vert")
+
+    ctx, state, octx = _both_faces(rpc, rid, uid, wt)
+    assert ctx.epos, "aucun ennemi positionne -- le repli hex n'aurait rien a mesurer"
+    for label, c in (("live", ctx), ("offline", octx)):
+        assert c.mindist_case is not None, f"[{label}] aucun UtilityMovementCase construit"
+        assert c.mindist_case.closest_enemy is None, (
+            f"[{label}] le port croit avoir un ClosestEnemy ({c.mindist_case.closest_enemy}) "
+            "alors qu'aucun ennemi n'est ciblable")
+        rows = _leaf_terms(c, wt)
+        assert rows, f"[{label}] movable set vide -- rien confronte"
+        assert any(u_no != 0.0 for (_t, u_no, _u) in rows), (
+            f"[{label}] montage NON DISCRIMINANT : sans le gate le terme vaut deja 0 partout -- "
+            "le gate ne prouverait rien, re-crafter le montage")
+        bad = [(t, u) for (t, _u_no, u) in rows if u != 0.0]
+        assert not bad, (
+            f"[{label}] ClosestEnemy null : le natif rend 0 sur toute tuile, le port rend "
+            f"non-zero sur {len(bad)}/{len(rows)} : {bad[:6]}")
+
+
+def test_min_distance_leaf_terms_unchanged_when_no_gate_bites_live(host, live_session, rpc,
+                                                                   build_runner):
+    """NON-REGRESSION : ClosestEnemy resolu et aucun gate ne mord -> terme STRICTEMENT inchange.
+
+    Le pendant du test precedent : les gates ne doivent rien manger dans le regime nominal, sur
+    lequel le socle #17 (`GetMinDistanceToEnemy` en NOEUDS, ClosestEnemy fige) a ete valide."""
+    rid = build_runner(seed="12345", board="MC1_67", extra=["--no-ai"])["rid"]
+    uid = _pick_mover(rpc, rid)
+    assert uid is not None, "aucune unite controlee vivante -- montage vide"
+    wt = weights.load()
+    pd = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
+    assert isinstance(pd, dict) and pd.get("ok") and pd.get("closestResolved"), (
+        f"montage NON FORME : ClosestEnemy non resolu ({str(pd)[:200]})")
+
+    ctx, _state, octx = _both_faces(rpc, rid, uid, wt)
+    for label, c in (("live", ctx), ("offline", octx)):
+        assert c.mindist_case is not None and c.mindist_case.closest_enemy is not None, \
+            f"[{label}] le port n'a pas fige de ClosestEnemy alors que le natif en a un"
+        rows = _leaf_terms(c, wt)
+        assert rows, f"[{label}] movable set vide -- rien confronte"
+        assert any(u_no != 0.0 for (_t, u_no, _u) in rows), \
+            f"[{label}] termes tous nuls : la garde ne verrouille rien"
+        bad = [(t, u_no, u) for (t, u_no, u) in rows if u != u_no]
+        assert not bad, (
+            f"[{label}] un gate a mordu dans le regime NOMINAL sur {len(bad)}/{len(rows)} "
+            f"tuile(s) : {bad[:6]}")
+
+
+def test_min_distance_leaf_is_zero_for_non_attacking_mover_live(host, live_session, rpc,
+                                                                build_runner):
+    """GATE 2 -- `IsNonAttacking(case.Unit)` : le terme vaut 0 sur TOUTE tuile.
+
+    Les porteurs de kit du trait (`orksNpc4AmmoGrot`, `orksNpc5LootGrotTeam`) sont npc et AUCUN ne
+    passe `buildNormalizedBC` ("v2 patch: system error") -> hors runner ; le gameconfig ne l'accorde
+    par aucune ability. Le gate est donc exerce sur le substrat que `BaseUnitComponent$$HasTrait`
+    lit REELLEMENT : `UnitContext.traits` (= `+0x48`, ce qu'ecrit le leaf DSL `AddTrait`). L'etat de
+    depart est un etat de bataille LIVE, seul le trait est pose."""
+    rid = build_runner(seed="12345", board="MC1_67", extra=["--no-ai"])["rid"]
+    uid = _pick_mover(rpc, rid)
+    assert uid is not None, "aucune unite controlee vivante -- montage vide"
+    wt = weights.load()
+    _ctx, state, octx = _both_faces(rpc, rid, uid, wt)
+    before = _leaf_terms(octx, wt)
+    assert any(u != 0.0 for (_t, _u_no, u) in before), (
+        "montage NON DISCRIMINANT : le terme vaut deja 0 partout AVANT le trait -- "
+        "un gate anterieur mord, re-crafter")
+
+    sc = state.get_entity(uid).get_component(StatsComponent)
+    assert sc is not None and sc.ctx is not None, "pas de UnitContext : substrat HasTrait absent"
+    sc.ctx.traits = list(sc.ctx.traits or []) + [UnitTrait.NonAttacking.name]
+    octx2 = build_from_state(state, uid)
+    assert is_non_attacking(octx2.mindist_case.unit_traits), \
+        "le trait pose n'est pas vu par le substrat du case"
+    bad = [(t, u) for (t, _u_no, u) in _leaf_terms(octx2, wt) if u != 0.0]
+    assert not bad, (
+        f"mover NonAttacking : le natif rend 0 sur toute tuile, le port rend non-zero sur "
+        f"{len(bad)} tuile(s) : {bad[:6]}")
+
+
+def test_unit_can_be_damaged_gate_mirrors_native():
+    """GATE 4 -- `UnitCanBeDamaged(unit, target)` : `!HasTrait(target, Impervious)` -> true, sinon
+    `GetStat(unit, CriticalChance) != 0`. Hors-live ASSUME : les 3 porteurs `Impervious`
+    (`LootObj_Strongbox_*`) sont npc non normalisables, et ils sont `Object` avec Attack 0 donc
+    `IdunBattle.Entities.UnitExtensions$$IsIrrelevantObject` -> `FindClosestEnemy` ne les retient
+    JAMAIS. Le gate est donc exerce sur le `UtilityMovementCase` lui-meme."""
+    wt = weights.load()
+    imp, plain = (UnitTrait.Impervious.name,), ("Hero",)
+    assert unit_can_be_damaged(0, plain) and unit_can_be_damaged(9, plain)
+    assert not unit_can_be_damaged(0, imp)
+    assert unit_can_be_damaged(1, imp)
+    assert unit_can_be_damaged(0, None), "substrat non resolu -> gate SUSPENDU, jamais devine"
+    assert unit_can_be_damaged(None, imp), "CriticalChance non lue -> gate SUSPENDU"
+
+    def _u(crit, traits):
+        return MIN_DIST_UTILITY.evaluate_movement(
+            (0, 0), [(3, 3)], wt, {(0, 0): 4},
+            case=UtilityMovementCase(unit=1, unit_traits=(), unit_crit_chance=crit,
+                                     closest_enemy=2, closest_enemy_traits=traits))
+    assert _u(0, imp) == 0.0, "ClosestEnemy Impervious + crit 0 : le natif rend 0"
+    assert _u(15, imp) != 0.0, "crit non nul : le gate ne doit PAS mordre"
+    assert _u(0, plain) != 0.0, "cible non Impervious : le gate ne doit PAS mordre"
+    assert MIN_DIST_UTILITY.evaluate_movement(
+        (0, 0), [(3, 3)], wt, {(0, 0): 4},
+        case=UtilityMovementCase(unit=None)) == 0.0, "GATE 1 : `case.Unit == null` -> 0"
