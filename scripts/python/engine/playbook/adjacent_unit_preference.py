@@ -23,8 +23,15 @@ Les CONCRETS (~25 classes `IdunBattle.AI.Playbook.Loki.*Playbook`, base intermé
 passée est IGNORÉE — ex. `IdunBattle.AI.Playbook.Loki.GuardianOrganismPlaybook$$GetAdjacentFriendUtility` invoque le
 délégué de lookup avec la string `"GuardianOrganism_AdjacentFriend"` (=30 BC).
 
-Caps (vtbl+0x228/0x238) : corps gshared non symbolisés dans le dump — jamais liants observés (max 3
-amis adjacents, 909 s19) ; non répliqués tant qu'aucun cas ne les montre saturer. Poids surrounding :
+Caps (vtbl+0x228/0x238) : PORTÉS depuis #212 (`MAX_ADJACENT_FRIENDS`/`MAX_ADJACENT_ENEMIES`). Les
+corps sont des getters TRIVIAUX que l'ICF a fondus, donc SANS symbole propre — invisibles à
+`search_symbols_by_name`, exactement le faux négatif que documente le CLAUDE.md. On les lit par le
+bloc `methodPointers` du PE (`probe_8889_methodptr_vtable.py`) : les méthodes d'un type y sont
+CONTIGUËS dans l'ordre des slots, et le corps fondu se lit comme n'importe quel autre. Résultat sur
+les 11 concrets de ce module : **2 seulement** overrident le cap amis, et à 1 —
+`SpiritualLeaderPlaybook` (mesuré liant, #212) et `FabricatorClawArrayPlaybook` (même corps fondu,
+jamais mis en défaut live faute d'un montage à >=2 amis Mechanical adjacents : résidu #212 §7).
+Poids surrounding :
 défaut base = 0 (confirmé 909 : (4,2)=30 exactement alors que u87/u91 sont en ring-2 — s'ils
 comptaient, le score dépasserait 30) ; seules les classes qui overrident (StandVigil & co, corps
 propres) comptent.
@@ -84,6 +91,27 @@ class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
     def filter_adjacent_enemy(self, unit: dict, ctx: dict) -> bool:    # vtbl+0x258 (défaut : identité)
         return True
 
+    # CAPS `vtbl+0x228` (amis) / `vtbl+0x238` (ennemis) — le corps commun fait
+    # `n = Min(count(<liste FILTRÉE>), cap)` puis ne somme que les `n` PREMIERS éléments.
+    # `None` = « le concret n'override pas le slot » : le défaut de la base n'a jamais été lu, mais
+    # il est forcément >= 3 (`GuardianOrganismPlaybook`, qui ne l'override pas, somme bien 3 amis —
+    # case-36 : 30/90 exacts). On ne borne donc pas quand le concret est muet, au lieu d'inventer une
+    # valeur de base.
+    MAX_ADJACENT_FRIENDS: "int | None" = None    # vtbl+0x228
+    MAX_ADJACENT_ENEMIES: "int | None" = None    # vtbl+0x238
+
+    @staticmethod
+    def _capped(units: list, cap) -> list:
+        """`Min(count, cap)` PUIS les `n` premiers (mirror du `for (i = 0; i < Min(...); i++)`).
+
+        Quand le poids est un LOOKUP PLAT (l'accesseur ignore son argument), quels éléments sont
+        retenus n'a aucune importance — seul leur NOMBRE compte, donc l'ordre d'énumération natif de
+        `GetAdjacentFriends` n'a pas à être répliqué. Ce serait à re-regarder le jour où un concret
+        combinerait un cap ET un accesseur qui lit son `unit` : aucun ne le fait dans ce build (les
+        deux seuls porteurs de cap, `FabricatorClawArrayPlaybook` et `SpiritualLeaderPlaybook`, ont
+        un accesseur plat)."""
+        return units if cap is None else units[:max(0, int(cap))]
+
     def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
         # Le poids est demandé PAR UNITÉ VOISINE, à l'intérieur de la boucle — c'est la forme du
         # corps commun natif (`val += virt_0x208(this, u_i, ctx)` pour chaque `u_i` retenu), et ce
@@ -95,12 +123,14 @@ class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
         # override lit son argument `unit`.
         ctx = ctx or {}
         val = 0.0
-        for u in (ctx.get("friend_units") or ()):
-            if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_friend(u, ctx):
-                val += self.get_adjacent_friend_utility(u, wt)
-        for u in (ctx.get("enemy_units") or ()):
-            if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_enemy(u, ctx):
-                val += self.get_adjacent_enemy_utility(u, wt)
+        friends = [u for u in (ctx.get("friend_units") or ())
+                   if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_friend(u, ctx)]
+        for u in self._capped(friends, self.MAX_ADJACENT_FRIENDS):
+            val += self.get_adjacent_friend_utility(u, wt)
+        enemies = [u for u in (ctx.get("enemy_units") or ())
+                   if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_enemy(u, ctx)]
+        for u in self._capped(enemies, self.MAX_ADJACENT_ENEMIES):
+            val += self.get_adjacent_enemy_utility(u, wt)
         return val
 
 
@@ -341,6 +371,56 @@ class CursedPlagueBellPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return wt.sub("TriggeredAbilities", "CursedPlagueBell_AdjacentPsychicEnemy")
 
 
+class SpiritualLeaderPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`SpiritualLeaderPlaybook` (`IdunBattle.AI.Playbook.Loki.SpiritualLeaderPlaybook$$.ctor` :
+    ability 0x4fb=1275 SpiritualLeader — passif `genesMagus`/Xybia).
+
+    `IdunBattle.AI.Playbook.Loki.SpiritualLeaderPlaybook$$FilterAdjacentFriends` :
+
+        foreach (u in friends) if (UnitExtensions.HasTrait(u, 0x41d)) result.Add(u);
+
+    `IdunBattle.AI.Playbook.Loki.SpiritualLeaderPlaybook$$GetAdjacentFriendUtility` :
+
+        return ctx["SPIRITUALLDEADER_AdjacentDecoy"];             // 30 BC
+
+    LOOKUP PLAT — l'argument `unit` n'est lu par AUCUNE instruction du corps, qui est identique
+    instruction pour instruction à `IdunBattle.AI.Playbook.Loki.GuardianOrganismPlaybook$$
+    GetAdjacentFriendUtility` (seul le slot de string literal diffère). Le tri du voisin est donc
+    DANS LE FILTRE, comme `FabricatorClawArrayPlaybook` — pas dans l'accesseur comme
+    `FearedInterrogatorPlaybook`.
+
+    ⚠ La clé BC porte une FAUTE DE FRAPPE du jeu : `SPIRITUALLDEADER_` (L-D-E-A-D-E-R), pas
+    `SPIRITUALLEADER_`. `case-193c` §7 l'avait cherchée par préfixe, ne l'avait pas trouvée, et avait
+    laissé le terme non résolu. Elle est LUE au décompilé (slot de metadata usage -> string literal de
+    `global-metadata.dat`, `scripts/python/probe_212_bc_key_literals.py`), pas devinée — ne pas la
+    « corriger » : c'est la clé que la BC porte réellement (`case-212`).
+
+    ⚠ `0x41d = 1053` est **UnitTrait**.Decoy — homonymes à écarter : EffectType 1053 =
+    ShadowInTheWarp_LessDmg_Effect, ActiveAbilityType 1053 = DevoutPush, TriggeredAbilityType 1053 =
+    BroodProgenitor. Même enum que la face COMBAT (`runner/operations/triggers/loki/spiritual_leader.py`).
+
+    ⚠ LE CAP MORD (`vtbl+0x228` = 1) : le terme vaut **30 dès qu'il y a AU MOINS UN decoy adjacent**,
+    PAS 30 x n. Le corps commun fait `n = Min(count(<filtré>), vtbl+0x228)` ; le getter du cap est un
+    corps TRIVIAL fondu par l'ICF (`b8 01 00 00 00 c3` = `mov eax,1 ; ret`), donc absent des tables de
+    symboles — lu dans le bloc `methodPointers` du PE, où le groupe de méthodes de cette classe est
+    `[.ctor, GetAdjacentFriendUtility, <ret 0>, <ret 1>, FilterAdjacentFriends]`, soit exactement
+    l'ordre des slots `0x208, 0x218, 0x228, 0x248`. Corroboré live : `X_nat` vaut 30 pour 1, 2 ET 3
+    decoys adjacents (#212 §6). Sur les 11 concrets du module, seuls ce playbook et
+    `FabricatorClawArrayPlaybook` portent ce corps `<ret 1>` — les 9 autres n'ont que `<ret 0>`
+    (la face d'utilité NON surchargée), et `CursedPlagueBellPlaybook`, qui surcharge les DEUX faces,
+    n'en a aucun.
+
+    Terme = 30 si >=1 decoy ALLIÉ à distance 1 de la tuile candidate, sinon 0. Aucune face ENNEMIS
+    surchargée (défaut base = 0), aucun `FilterAdjacentEnemies`."""
+    MAX_ADJACENT_FRIENDS = 1                                       # vtbl+0x228 : `mov eax,1 ; ret`
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        return wt.sub("TriggeredAbilities", "SPIRITUALLDEADER_AdjacentDecoy")
+
+    def filter_adjacent_friend(self, unit: dict, ctx: dict) -> bool:
+        return _has_trait(unit, "Decoy")                           # HasTrait(u, 0x41d = 1053)
+
+
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
@@ -367,6 +447,10 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # #211 — le premier concret qui surcharge les DEUX faces, et le premier dont le gate ennemi lit
     # le `WeaponsComponent` du voisin (profil de degat x melee). Porteur POOL-HERO : deathBlightbringer.
     int(TriggeredAbilityType.CursedPlagueBell): CursedPlagueBellPlaybook(),      # 1071 (Chaos / Psychic-melee)
+    # #212 — le terme manquait parce que sa CLE BC etait introuvable par prefixe (faute de frappe du
+    # jeu : `SPIRITUALLDEADER_`). Resolue au litteral natif, elle vaut 30. Porteur POOL-HERO :
+    # genesMagus, qui fabrique elle-meme les decoys que ce terme compte.
+    int(TriggeredAbilityType.SpiritualLeader): SpiritualLeaderPlaybook(),        # 1275 (filtre Decoy)
 }
 
 
