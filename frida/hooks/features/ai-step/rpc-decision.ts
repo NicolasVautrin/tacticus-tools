@@ -289,7 +289,25 @@ export function registerViewDecision(ctx: Ctx): void {
 
         const t0 = Date.now();
         const results: ActionResult[] = [];
-        for (const a of actions) results.push(applyOneAction(runner, aiControl, a));
+        // `applyOneAction` LÈVE si l'action n'a pas pu être construite (cf. son
+        // commentaire : rien n'a été soumis au moteur, donc rien n'est mesurable).
+        // On rhabille la levée du rang de l'action ET du nombre déjà appliqué —
+        // l'état de bataille A BOUGÉ, l'appelant doit le savoir pour ne pas
+        // réutiliser son snapshot d'avant l'appel.
+        // ASCII dans le MESSAGE (pas dans les commentaires) : il traverse le host
+        // puis les `print` des sondes Python, dont la console Windows est en cp1252.
+        for (let i = 0; i < actions.length; i++) {
+            try { results.push(applyOneAction(runner, aiControl, actions[i])); }
+            catch (e) {
+                throw new Error("action[" + i + "] " + (e as Error).message
+                    + (results.length
+                        // Ne le dire QUE si c'est vrai : annoncer « l'etat a bouge »
+                        // apres 0 action appliquee enverrait rejouer un montage sain.
+                        ? " -- ATTENTION: " + results.length + " action(s) DEJA"
+                          + " appliquee(s) avant l'echec, l'etat a bouge"
+                        : " (aucune action appliquee, l'etat est intact)"));
+            }
+        }
 
         const stateF = runner.add(runnerOff.state).readPointer();
         const finalStatus = readBattleStatus(stateF);

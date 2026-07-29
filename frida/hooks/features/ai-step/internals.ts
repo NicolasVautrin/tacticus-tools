@@ -377,6 +377,12 @@ export function buildFinishMsg(unitId: number): NativePointer {
 }
 
 export interface ActionSpec {
+    /** PAS de kind `attack` — et c'est voulu : l'attaque normale est une ability
+     *  comme les autres, dont l'`ActiveAbilityType` est PER-UNIT (`NormalAttackType`,
+     *  ex. 69). Un kind `attack` dédié ferait deux façons d'exprimer la même chose et
+     *  masquerait quelle ability a réellement tiré — or ce type concret est une donnée
+     *  qui porte (cf. mémoire `ability_normal_attack_concrete`). Le refus est LEVÉ
+     *  (cf. `applyOneAction`), pas rendu. */
     kind: "move" | "ability" | "finish" | "endturn";
     unitId?: number;
     to?: { col: number; row: number };
@@ -516,9 +522,36 @@ export function applyOneAction(
                 }
             }
         } else {
-            buildErr = "unknown kind: " + action.kind;
+            buildErr = "kind inconnu: " + action.kind
+                + " (valides: move | ability | finish | endturn)"
+                // L'attaque normale N'EST PAS un kind : c'est une ability dont le
+                // type est PER-UNIT (NormalAttackType, ex. 69 — PAS 17, qui est le
+                // type de la FAMILLE). D'où ce rappel dans le message : les deux
+                // agents de #263 ont écrit {kind:"attack"} et lu le refus comme une
+                // mesure. Le message doit apprendre le chemin, pas juste refuser.
+                // ASCII dans le MESSAGE : il finit dans les `print` des sondes
+                // Python, dont la console Windows est en cp1252.
+                + ((action.kind as string) === "attack"
+                    ? " -- l'attaque normale EST une ability : {kind:\"ability\","
+                      + " casterId, targetId, abilityType:<NormalAttackType de"
+                      + " l'unite>}"
+                    : "");
         }
     } catch (e) { buildErr = "build: " + (e as Error).message; }
+
+    // ⚠ ON LÈVE — on ne rend PAS `ok:false`. Un échec de CONSTRUCTION veut dire que
+    // le moteur n'a JAMAIS vu le message : il n'y a RIEN à mesurer. Rendu en valeur
+    // de retour, il se lit comme « l'action n'a rien fait » — c'est-à-dire comme un
+    // RÉSULTAT. Le 2026-07-29, deux agents indépendants (#263) y ont perdu leurs
+    // mesures : 13 attaques jamais émises pour l'un, un « l'ennemi n'inflige aucun
+    // dégât » pour l'autre alors que l'ennemi n'attaquait pas du tout. Aucun des
+    // ~250 montages Python ne lit `ok` — la levée remonte en HTTP 500 et les fait
+    // donc tous échouer FORT, sans éditer une seule ligne côté appelant.
+    // Ne PAS transformer ça en retour silencieux « pour la robustesse ».
+    if (buildErr || msg.isNull()) {
+        throw new Error("applyAction: " + (buildErr ?? "build a rendu null")
+            + " -- RIEN n'a ete soumis au moteur, il n'y a AUCUNE mesure ici");
+    }
 
     const statePtr0 = runner.add(runnerOff.state).readPointer();
     const before = summarize(statePtr0);
@@ -526,15 +559,6 @@ export function applyOneAction(
     // no-op moteur silencieux (TF12) : un cast qui ne consomme pas l'action.
     const hadAction = action.kind === "ability"
         ? readHasAction(statePtr0, action.casterId) : null;
-    if (buildErr || msg.isNull()) {
-        const st = readBattleStatus(statePtr0);
-        return {
-            kind: action.kind, ok: false,
-            error: buildErr ?? "build returned null",
-            mutated: false, changes: [], events: [], eventCount: 0,
-            stage: st.stage, currentPlayer: st.currentTurnPlayer,
-        };
-    }
     gcRoot.add(msg);
     // Frame de capture : ApplyAiMessage est hooké en NON-top par message-trace
     // (il le suppose imbriqué dans runner.Apply), donc appelé en direct ici il
