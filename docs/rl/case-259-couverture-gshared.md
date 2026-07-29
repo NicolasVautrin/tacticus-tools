@@ -1,6 +1,11 @@
 # #259 — la chaîne de symboles ne nomme plus aucun générique pleinement partagé
 
-> Re-dériver les chiffres plutôt que les citer : `python scripts/python/probe_259_gshared_coverage.py`.
+> **CLOS (2026-07-29), par DEUX voies complémentaires** : (a) `#259-a` restaure la **table**
+> (Il2CppDumper, 0 → 4 874) ; (c) `#259-b` prouve la **résolution runtime** et supprime deux
+> adresses en dur de `scorer-damage-trace.ts`. La voie (b) est réfutée. Détail : §4.
+>
+> Re-dériver les chiffres plutôt que les citer : `python scripts/python/probe_259_gshared_coverage.py`
+> (couverture de table) et `python scripts/python/probe_262_gshared_runtime.py` (résolution runtime).
 > Garde permanente : axe 5 de `scripts/python/symbols_sync.py` + `tests/test_symbols_coverage_guard_offline.py`.
 
 ## 1. Le fait
@@ -84,9 +89,13 @@ des **thunks**, jamais les corps. Ce n'est pas la voie.
 
 | voie | rend | sur les 2 cibles #257 | coût / risque |
 |---|---|---|---|
-| **(a) passe Il2CppDumper v39 en amont de l'applier** | **5 881 symboles**, dont **4 862** pleinement partagés | **OUI** par construction — c'est leur source d'origine | outil à ré-acquérir (absent du disque, `data/win_dump` supprimé) ; une fenêtre de re-symbolisation Ghidra ; support du build à vérifier |
-| **(b) dériver les corps depuis les `methodPointer` des classes génériques** | **rien sur les définitions** (thunks, §3). Reste la piste des instances **inflatées** — non mesurable sans dump live | non prouvé | aucune dépendance nouvelle, mais rien de démontré |
-| **(c) résolution runtime côté Frida** | ne rend aucun symbole à la table ; peut rendre **une adresse par cible** au moment du hook | non prouvé | supprimerait la RVA en dur au lieu de la transcrire |
+| **(a) passe Il2CppDumper v39 en amont de l'applier** — **LIVRÉE (#259-a)** | **5 899 renommages** appliqués, famille GSHARED 0 → 4 874 | **OUI** — les deux cibles sont redevenues citables | une fenêtre de re-symbolisation Ghidra par build |
+| **(b) dériver les corps depuis les `methodPointer` des classes génériques** | **rien** — le `methodPointer` d'une **définition** est un thunk d'invocation (§3) | non | **RÉFUTÉE** |
+| **(c) résolution runtime côté Frida** — **PROUVÉE ET APPLIQUÉE (#259-b)** | une **adresse par cible** au moment du hook ; aucun symbole à la table | **OUI**, mesuré (§5.2) | supprime la RVA en dur au lieu de la transcrire |
+
+**Les voies (a) et (c) ne se remplacent pas** : (a) rend la table **lisible** (RE offline, `whereis`,
+citations par symbole) ; (c) rend un hook **indépendant du build**. Un hook qui résout au runtime
+n'a plus besoin de la table — mais la table reste ce qui permet de LIRE le décompilé.
 
 **Voie (a) — précision qui change son évaluation.** L'applier legacy ne renommait **que** les
 fonctions encore appelées `FUN_*` :
@@ -101,10 +110,9 @@ c'est son **retrait sans rejeu de l'aval** — et la forme `$$` qu'il portait es
 par `canonicalName` (accord 100 % mesuré sur le build courant, §2). L'ordre correct est :
 `GhidraApplyIl2CppSymbols` (nomme, type, signe) **puis** l'applier legacy (bouche les `FUN_`).
 
-**Voies (b) et (c) reposent sur le même mécanisme, et il reste à mesurer** : le `MethodInfo` d'une
-instance **inflatée** (`ComparablePlaybook<UneAbilityConcrète>`) porte-t-il, dans son
-`methodPointer`, le corps pleinement partagé ? Le décompilé du thunk (§3) indique que la résolution
-finale passe par le `MethodInfo`, ce qui rend l'hypothèse plausible — **elle n'est pas prouvée**.
+**Le `MethodInfo` d'une instance INFLATÉE porte bien le corps pleinement partagé** — mesuré, §5.2.
+C'est ce qui sépare (b) de (c) : une **définition** générique n'expose qu'un thunk, une **instance**
+expose le corps. Les deux voies partaient du même mécanisme, seule la seconde l'attaque du bon côté.
 
 ## 5. Protocole de preuve (à jouer dans une fenêtre dédiée)
 
@@ -127,23 +135,38 @@ finale passe par le `MethodInfo`, ce qui rend l'hypothèse plausible — **elle 
 ⛔ Ne pas jouer 3–5 sur le projet Ghidra en place tant qu'un agent RE travaille : une
 re-symbolisation casse sa surface d'analyse sans qu'il le voie.
 
-### 5.2 Voies (b)/(c) — une seule mesure les tranche toutes les deux
+### 5.2 Voie (c) — MESURÉE le 2026-07-29, elle est vivante
 
-Depuis une session Frida, sur une classe concrète de playbook (`findClassAnywhere` la trouve) :
-remonter `class_get_parent` jusqu'à l'instance inflatée `ComparablePlaybook<TAbility>`, puis
-`findMethod(parent, "CalculateActionUtility")` et lire `mi.ptr`.
+RPC `resolveMethodPtr` (`frida/hooks/features/introspect.ts`) : remonte `class_get_parent` depuis
+une classe de playbook **concrète** et rend, par niveau, le pointeur d'entrée de la méthode nommée.
+Re-dérivation : `python scripts/python/probe_262_gshared_runtime.py`.
 
-- si `mi.ptr` tombe sur le corps attendu ⇒ **(c) est la bonne réponse pour #257** : la RVA en dur
-  disparaît au profit d'une résolution qui survit à chaque build, et **(b)** devient réalisable en
-  ajoutant l'énumération des méthodes des classes inflatées à la deuxième passe de
-  `dump-il2cpp-full.js` (elle atteint déjà ces classes par la chaîne de parents, elle n'en
-  enregistre que les champs) ;
-- si `mi.ptr` est nul ou renvoie un thunk ⇒ **(b) et (c) sont mortes**, et (a) est la seule voie.
+```
+IdunBattle.AI.Playbook.MurderousSwingPlaybook::CalculateActionUtility
+  [0] MurderousSwingPlaybook            (pas de methode de ce nom)
+  [1] ComparablePlaybook`1  params=6
+       entry   -> ...ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility
+       invoker -> FUN_180079f90
+```
 
-Cette mesure exige un RPC qui **retourne** un pointeur de méthode : aucun des ~60 RPC
-d'introspection du bundle courant ne le fait (ils impriment et retournent `{ok:true}`). Elle
-demande donc un ajout à `frida/hooks/`, donc une réinjection — hors de portée d'un agent qui
-partage la session.
+Trois faits, aucun déduit :
+
+1. **`entry` tombe à l'offset 0 du corps partagé** — la sonde ne compare à aucune constante, elle
+   demande à `ghidra/functions.tsv` qui habite l'adresse rendue.
+2. **La même adresse pour les 4 classes concrètes** essayées (`MurderousSwing`, `BlightGrenades`,
+   `EntropyCannons`, `LightOfSanguinius`) : c'est bien UN corps partagé, pas du code par
+   instanciation.
+3. **`findMethod` sur la classe CONCRÈTE échoue** (profondeur 0 : « pas de méthode de ce nom ») —
+   elle ne remonte pas les parents. Il faut viser le **parent**, l'instance inflatée. C'est le seul
+   piège de la recette.
+
+**Appliqué** : `CalculateActionUtility` et `CalculateUtilityFromTilePrediction` n'ont plus d'adresse
+en dur dans `scorer-damage-trace.ts` — `resolveSharedPlaybookBody` les résout au runtime. Validé
+bout-en-bout (trace armée, 4 tours d'IA : `scorerUtilTraceDump` = 48, `scorerTileTermTraceDump` = 48).
+
+⚠ **Ne pas généraliser aux 13 autres cibles de #257.** Ce sont des **itérateurs** (`<...>d__N.MoveNext`)
+et des corps sans classe porteuse atteignable par la chaîne de parents : la recette ne s'y applique
+pas telle quelle. Chaque cible se re-mesure.
 
 ## 6. La garde livrée : axe 5 de `symbols_sync.py`
 
@@ -189,15 +212,13 @@ familles `il2cpp:*` d'un coup — l'axe 5 l'attrape aussi, indépendamment de l'
 
 ## 7. Ce qui n'est PAS prouvé
 
-- **Qu'Il2CppDumper v39 supporte ce build.** Non vérifiable : l'outil est absent du disque et
-  `data/win_dump` a été supprimé. L'étape 2 du §5.1 est justement conçue pour le savoir sans
-  toucher au projet Ghidra.
-- **Que le `MethodInfo` d'une instance inflatée porte le corps pleinement partagé.** Hypothèse
-  cohérente avec le décompilé du thunk, non mesurée : le bundle Frida chargé n'expose aucun RPC qui
-  **retourne** un pointeur de méthode, et la mesure demande une réinjection.
-- **Le rendement exact de la voie (a) sur le build courant.** Les 5 881 / 4 862 sont mesurés sur
-  `gqfc5mff6c`. Le build courant est plus gros (+2,6 % de méthodes Frida) ; l'ordre de grandeur est
-  acquis, le compte exact ne le sera qu'après la passe.
+- **Que la recette de la voie (c) s'étend aux 13 autres cibles de #257.** Elle est démontrée sur
+  deux méthodes atteignables par la chaîne de parents d'une classe concrète. Les itérateurs
+  (`<...>d__N.MoveNext`) et les corps sans classe porteuse accessible n'ont pas ce chemin — chacun
+  se re-mesure avec `probe_262_gshared_runtime.py`, aucun ne se déduit.
+- **Que les 4 graines de `resolveSharedPlaybookBody` survivent au prochain build.** Elles sont
+  choisies pour la redondance, pas garanties. Si les quatre disparaissent, le hook ne s'installe
+  pas et le dit — c'est le comportement voulu, pas un cas pour ressortir une adresse en dur.
 - **Que la voie (a) n'introduit aucune régression de forme.** Le raisonnement (complément pur,
   `FUN_*` seulement) est lu dans le source supprimé, pas rejoué. La garde qui le vérifierait existe
   désormais : l'axe 4 (forme) et l'axe 5 (couverture) encadrent la passe des deux côtés.

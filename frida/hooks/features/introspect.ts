@@ -15,7 +15,9 @@
 import { dumpEnum } from "../il2cpp/enum-dump.js";
 import {
     findClass, findClassAnywhere, findMethod, readIl2cppString,
-    method_get_name, cstr, il2cppBase,
+    method_get_name, cstr, il2cppBase, methodEntry,
+    class_get_methods, class_get_name, class_get_namespace, class_get_parent,
+    method_get_param_count,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { Ctx } from "../controller.js";
@@ -113,6 +115,86 @@ export function register(ctx: Ctx): void {
             slots.push({ off: "0x" + off.toString(16), funcVA, funcRVA, ghidraVA, method });
         }
         return { ok: true, ns: args.ns, cls: args.cls, klass: klass.toString(), slots };
+    };
+
+    /** Résout le POINTEUR D'ENTRÉE d'une méthode, en remontant la chaîne de
+     * parents — le seul RPC du bundle qui RETOURNE une adresse de méthode.
+     *
+     * Motif (#259-b) : la chaîne Frida ne nomme aucun corps générique PLEINEMENT
+     * PARTAGÉ (`__Il2CppFullySharedGeneric*`), parce que le dump énumère les
+     * DÉFINITIONS génériques, dont le `methodPointer` est un thunk d'invocation
+     * (établi au décompilé sur
+     * `IdunBattle.AI.Playbook.TriggeredAbilityPlaybook`1$$Init`). Reste la question
+     * ouverte : le `MethodInfo` d'une instance INFLATÉE porte-t-il, lui, le corps
+     * partagé ? Si oui, un hook peut résoudre sa cible au RUNTIME au lieu de porter
+     * une adresse en dur.
+     *
+     * On rend, PAR NIVEAU de la chaîne de parents et pour CHAQUE surcharge du nom :
+     *   - `entry`   : `methodEntry(mi)` — ce que `findMethod` rendrait, donc ce
+     *                 qu'un hook attacherait
+     *   - `raw`     : le champ `methodPointer` lu directement (`mi+0`)
+     *   - `invoker` : `MethodInfo.invoker_method` (`mi+0x10`)
+     * `entry` et `raw` peuvent DIFFÉRER (`methodEntry` passe par
+     * `il2cpp_method_get_pointer` quand l'export existe) — on montre les deux
+     * plutôt que d'en choisir un.
+     *
+     * Lecture pure : aucun invoke, aucun hook posé.
+     * args: { targets: [{ns, cls, method}], maxDepth? } */
+    ctx.rpc.resolveMethodPtr = (args: {
+        targets: Array<{ ns: string; cls: string; method: string }>;
+        maxDepth?: number;
+    }) => {
+        const GHIDRA_BASE = ptr("0x180000000");
+        const maxDepth = args.maxDepth ?? 6;
+        const fmt = (p: NativePointer) => {
+            if (p.isNull()) return { va: "0", rva: "0", ghidraVA: "0" };
+            const rva = p.sub(il2cppBase);
+            return {
+                va: p.toString(), rva: rva.toString(),
+                ghidraVA: GHIDRA_BASE.add(rva).toString(),
+            };
+        };
+        const out = (args.targets ?? []).map((t) => {
+            const klass = findClassAnywhere(t.ns, t.cls);
+            if (!klass) {
+                return { ns: t.ns, cls: t.cls, method: t.method,
+                    ok: false, error: `class not found: ${t.ns}.${t.cls}` };
+            }
+            const levels: Array<{
+                depth: number; klass: string; name: string;
+                methods: Array<{
+                    paramCount: number | null; mi: string;
+                    entry: ReturnType<typeof fmt>;
+                    raw: ReturnType<typeof fmt>;
+                    invoker: ReturnType<typeof fmt>;
+                }>;
+            }> = [];
+            let k = klass;
+            for (let depth = 0; depth < maxDepth && !k.isNull(); depth++) {
+                const nsName = cstr(class_get_namespace(k) as NativePointer);
+                const clsName = cstr(class_get_name(k) as NativePointer);
+                const methods: (typeof levels)[0]["methods"] = [];
+                const it = Memory.alloc(Process.pointerSize);
+                it.writePointer(ptr(0));
+                let m: NativePointer;
+                while (!(m = class_get_methods(k, it) as NativePointer).isNull()) {
+                    if (cstr(method_get_name(m) as NativePointer) !== t.method) continue;
+                    let pc: number | null = null;
+                    try { pc = method_get_param_count(m) as number; } catch { /* */ }
+                    let entry = ptr(0); let raw = ptr(0); let invoker = ptr(0);
+                    try { entry = methodEntry(m); } catch { /* */ }
+                    try { raw = m.readPointer(); } catch { /* */ }
+                    try { invoker = m.add(0x10).readPointer(); } catch { /* */ }
+                    methods.push({ paramCount: pc, mi: m.toString(),
+                        entry: fmt(entry), raw: fmt(raw), invoker: fmt(invoker) });
+                }
+                levels.push({ depth, klass: k.toString(),
+                    name: (nsName ? nsName + "." : "") + clsName, methods });
+                k = class_get_parent(k) as NativePointer;
+            }
+            return { ns: t.ns, cls: t.cls, method: t.method, ok: true, levels };
+        });
+        return { ok: true, il2cppBase: il2cppBase.toString(), targets: out };
     };
 
     /** Dump every enum from DEFAULT_ENUMS in one call. Returns

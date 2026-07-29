@@ -21,10 +21,15 @@
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════
 //
 // ═══ ⚠ BUILD-SPECIFIC RVA HOOKS — REFRESH FROM DUMP ON EVERY HASH CHANGE ═══════════════════════════════
-// Only ONE hook resolves cleanly across builds: `ProbableDamageEvent..ctor` (findMethod — the scorer damage,
-// auto-armed at register). ALL the others (CalculateActionUtility, CalculateUtilityFromTilePrediction, the
-// ElevationUtility / tile-leaf iterators, ComposedUtility.MoveNext, GetMultiplierFromDamageBonus) are gshared
-// / iterator bodies that findMethod CANNOT resolve → hooked by HARDCODED address valid for hash `rnca9r7q6c` ONLY.
+// TROIS hooks résolvent proprement d'un build à l'autre : `ProbableDamageEvent..ctor` (findMethod — le dégât
+// du scorer, auto-armé au register), plus `CalculateActionUtility` et `CalculateUtilityFromTilePrediction`
+// depuis #259-b — leurs corps pleinement partagés se lisent sur le MethodInfo de l'instance INFLATÉE
+// (`resolveSharedPlaybookBody`, mesuré par `probe_262_gshared_runtime.py`). Elles n'ont PLUS d'adresse en dur.
+// Le RESTE (itérateurs ElevationUtility / tile-leaf, ComposedUtility.MoveNext, GetMultiplierFromDamageBonus)
+// reste hooké par adresse en dur, valable pour le hash `rnca9r7q6c` UNIQUEMENT.
+// ⚠ Ces cas-là ne sont PAS de même nature : ce sont des ITÉRATEURS et des corps sans classe porteuse
+// atteignable — la recette « remonter au parent inflaté » ne s'y applique pas telle quelle. Ne pas
+// généraliser #259-b sans re-mesurer cible par cible.
 // On the next build these RVAs point to RANDOM code and Interceptor.attach would corrupt it, so they are
 // ARMED LAZILY by `scorerDamageTraceOn` (installRvaHooks), NEVER auto-attached at register. Before re-arming
 // on a new build: refresh every RVA_* constant + LEAF_HOOKS_VA from the fresh dump (search_symbols_by_name on
@@ -50,7 +55,9 @@
 // RPC: scorerDamageTrace{On,Off,Clear,Dump} + scorer{Util,TileTerm,Elev,Leaf,Bonus}TraceDump + scorerComposedDump.
 
 import { Ctx } from "../controller.js";
-import { findClassAnywhere, findMethod, il2cppBase, class_get_name, s } from "../il2cpp/helpers.js";
+import {
+    findClassAnywhere, findMethod, il2cppBase, class_get_name, s, class_get_parent,
+} from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
@@ -143,11 +150,49 @@ const RVA_OVERRIDE_RETADDR = rva(0x181115e0b);
 const baseOverrideResolved = new Set<string>();
 let overrideIdxdResolved = false;      // resolve-once (reset au clear global)
 
-// CalculateActionUtility (gshared, non résolu par findMethod) — adresse build-spécifique
-// (ghidra @181406ee0 - 0x180000000). Donne l'UTILITÉ TOTALE par-candidat (le discriminateur : le
-// dégât seul ne suffit pas). Signature : (ret Nullable<Fix64>*, this, p3, position UnitPosition,
-// p5, ability*, ...). À REFAIRE au changement de hash.
-const RVA_CALC_ACTION_UTILITY = rva(0x1814fb180);
+// --- Corps PLEINEMENT PARTAGÉS de `ComparablePlaybook<T>` : RÉSOLUTION RUNTIME ------------
+//
+// `CalculateActionUtility` (utilité TOTALE par candidat — le discriminateur du pick, le dégât
+// seul ne suffit pas) et `CalculateUtilityFromTilePrediction` (terme de tuile COMPLET, composite
+// Tile(7) = somme des 29 feuilles, appelée DANS la précédente) portaient une adresse en dur.
+// Elles n'en portent plus : elles se résolvent au runtime, comme l'exige le CLAUDE.md.
+//
+// CE QUI LE REND POSSIBLE, et c'est MESURÉ (#259-b, `probe_262_gshared_runtime.py`) : le
+// `MethodInfo` d'une instance INFLATÉE porte bien le corps pleinement partagé. `findMethod` sur
+// la classe CONCRÈTE échoue (elle ne déclare pas la méthode, et `findMethod` ne remonte PAS les
+// parents) — mais sur son PARENT, l'instance inflatée `ComparablePlaybook<TAbility>`, elle rend
+// exactement `ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`,
+// à l'offset 0, et LA MÊME adresse pour les quatre classes concrètes essayées.
+//
+// À ne pas confondre avec la voie RÉFUTÉE (#259, §3) : le `methodPointer` d'une DÉFINITION
+// générique est un thunk d'invocation. C'est l'INSTANCE inflatée qui porte le corps.
+//
+// Plusieurs graines, et c'est délibéré : si l'une disparaît d'un build, les autres couvrent.
+// Aucune ne sert de « meilleure » — la première qui résout gagne, elles rendent la même adresse.
+const COMPARABLE_PLAYBOOK_SEEDS = [
+    "MurderousSwingPlaybook", "BlightGrenadesPlaybook",
+    "EntropyCannonsPlaybook", "LightOfSanguiniusPlaybook",
+];
+
+function resolveSharedPlaybookBody(method: string): NativePointer | null {
+    for (const cls of COMPARABLE_PLAYBOOK_SEEDS) {
+        const k = findClassAnywhere("IdunBattle.AI.Playbook", cls);
+        if (!k) continue;
+        const parent = class_get_parent(k) as NativePointer;   // instance INFLATÉE
+        if (parent.isNull()) continue;
+        const m = findMethod(parent, method);
+        if (m && !m.ptr.isNull()) {
+            log("[scorer-trace] " + method + " résolu via " + cls
+                + " -> " + m.ptr + " (rva 0x" + m.ptr.sub(il2cppBase).toString(16) + ")");
+            return m.ptr;
+        }
+    }
+    log("[scorer-trace] " + method + " NON RÉSOLU sur les "
+        + COMPARABLE_PLAYBOOK_SEEDS.length + " graines — hook non posé."
+        + " Ce n'est PAS un cas pour ressortir une adresse en dur : c'est une vraie"
+        + " limitation à investiguer (cf. docs/rl/case-259-couverture-gshared.md).");
+    return null;
+}
 
 // ElevationUtility.<EvaluateMovementInSteps>d__8.MoveNext (itérateur, non résolu par findMethod)
 // — adresse build-spécifique (ghidra @1811019a0 - 0x180000000). Confirme la feuille Elevation :
@@ -156,12 +201,9 @@ const RVA_CALC_ACTION_UTILITY = rva(0x1814fb180);
 // d__8+0x28 = la position candidate (MainTile via +0x18). À REFAIRE au changement de hash.
 const RVA_ELEVATION_LEAF = rva(0x181212b60);
 
-// ComparablePlaybook.CalculateUtilityFromTilePrediction (gshared) — adresse build-spécifique
-// (ghidra @181408740 - 0x180000000). Retourne le TERME DE TUILE COMPLET (composite Tile(7) = SOMME des
-// 29 feuilles, pas seulement Elevation) par candidat, en Fix64 (RAX). Appelée DANS CalculateActionUtility
-// → on tague le retour avec curCaster déjà posé. Sépare damage-util de tile-term (départage le +24).
-// À REFAIRE au changement de hash.
-const RVA_CALC_TILE_PRED = rva(0x1814fc9c0);
+// (CalculateUtilityFromTilePrediction se résout par `resolveSharedPlaybookBody` — cf. plus haut.
+//  Retour Fix64 dans RAX ; appelée DANS CalculateActionUtility, donc `curCaster` est déjà posé
+//  quand elle rend → sépare le damage-util du tile-term.)
 
 interface UtilEvent {
     seq: number;
@@ -797,7 +839,8 @@ let tileTermInstalled = false;
 function installTileTermHook(): boolean {
     if (tileTermInstalled) return true;
     if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — tileTerm hook skipped"); return false; }
-    const ptrFn = il2cppBase.add(RVA_CALC_TILE_PRED);
+    const ptrFn = resolveSharedPlaybookBody("CalculateUtilityFromTilePrediction");
+    if (ptrFn === null) return false;
     Interceptor.attach(ptrFn, {
         onLeave(retval) {
             if (!trace.on) return;
@@ -1077,7 +1120,8 @@ let utilInstalled = false;
 function installUtilHook(): boolean {
     if (utilInstalled) return true;
     if (il2cppBase.isNull()) { log("[scorer-trace] il2cppBase null — util hook skipped"); return false; }
-    const ptrFn = il2cppBase.add(RVA_CALC_ACTION_UTILITY);
+    const ptrFn = resolveSharedPlaybookBody("CalculateActionUtility");
+    if (ptrFn === null) return false;
     Interceptor.attach(ptrFn, {
         onEnter(args) {
             if (!trace.on) return;
