@@ -639,30 +639,30 @@ class SpawnUnitOperation:
         level = getattr(c_ctx, "active_ability_level", None) if c_ctx else None
         mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100) if c_ctx else 100
         spawned: list = []
-        chosen: set = set()
         board = state.board
-        # === 1. LE TILE-SELECTEUR ===
+        # === 1. LE TILE-SELECTEUR, EVALUE UNE SEULE FOIS ===
         # ScarabHive `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` :
         #   Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(
         #     CanAddUnit(AdjacentTiles(target@0x178)), caster@0x160), caster@0x160))), count), 1)
         # -> DEUX SortByDistance sur la MEME origine (mirrore tel quel ; `OrderBy` LINQ etant
         # STABLE le second est idempotent) puis prise en tete. **AUCUN tirage** — surtout PAS
-        # `_pick_randomly_one`. Le natif prend les `count` PREMIERES d'une liste triee UNE fois ;
-        # la boucle ici re-trie a chaque tour en excluant les tuiles deja prises, ce qui donne la
-        # meme suite (retirer un element ne change pas l'ordre relatif des autres).
+        # `_pick_randomly_one`.
+        # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` fait `tiles =
+        # tileSelector.Select(ctx)` UNE fois (`*(entities+0x58)`), PUIS itere cette liste : la
+        # resolution est un SNAPSHOT pris avant le premier `AddUnitOperation$$Execute`. On mirrore
+        # cette structure -- un seul `_free_tiles_adjacent` + un seul tri + `[:count]` -- au lieu de
+        # re-tirer la tete a chaque tour en excluant les tuiles deja prises. Les deux suites
+        # COINCIDENT (retirer la tete ne change pas l'ordre relatif du reste, et les `OrderBy` LINQ
+        # sont stables), mais seule celle-ci a la forme du natif : un etat qui changerait ENTRE deux
+        # spawns (un `On(UnitAdded)` qui tuerait une unite et libererait une tuile) les ferait
+        # diverger, et c'est le natif qui a raison.
         # `First(source, count)` rend **min(count, len(source))** elements : une cible dont les
         # voisines LIBRES sont moins nombreuses que `count` en rend MOINS -- c'est le seul endroit
         # ou le nombre de summons est decide.
-        tiles: list = []
-        for _ in range(max(0, int(count))):
-            free = _free_tiles_adjacent(state, target_id, chosen, native_order=True)
-            tile = _first(_sort_by_distance(state, _sort_by_distance(state, free, caster_id),
-                                            caster_id))
-            tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
-            if tinfo is None:
-                break                                        # selecteur epuise -> le `First` s'arrete la
-            tiles.append((tile, tinfo))
-            chosen.add(tile)
+        free = _free_tiles_adjacent(state, target_id, set(), native_order=True)
+        picked = _sort_by_distance(state, _sort_by_distance(state, free, caster_id),
+                                   caster_id)[:max(0, int(count))]
+        tiles = [(t, board.by_id[t]) for t in picked] if board is not None else []
         # === 2. UNE ENTITE PAR TUILE ITEREE (case-spawn-requires-tile) ===
         # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche `SpawnUnitOptions+0x60
         # == 0`, est un `foreach (tile in tiles) { AddUnitOperation.Execute(unit, [tile.Id], ...) }` :
@@ -790,7 +790,15 @@ class SpawnUnitOperation:
         # **`len(pool)` tirages**, bornes DECROISSANTES ; le tri qui suit est stable et sa cle est
         # constante sur le pool -> la tuile rendue est celle TIREE EN PREMIER.
         tile = _first(_sort_by_formula_pilein(state, _randomize(state, tiles)))
-        if tile is None:
+        # case-spawn-requires-tile -- LA TUILE D'ABORD, l'entite ensuite (meme regle que les quatre
+        # autres sites). `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` n'atteint
+        # `AddUnitOperation$$Execute` que DEPUIS une tuile ITEREE : pas de tuile RESOLUE, pas
+        # d'appel, donc pas d'entite. Le `tile is None` seul laissait passer le cas « id de tuile
+        # non resolvable sur le board » -> `state.add_entity()` puis pose CONDITIONNELLE de la
+        # position, c.-a-d. exactement le fantome hors plateau du cas.
+        board = state.board
+        tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
+        if tinfo is None:
             return []                                        # aucune tuile ring-1 libre -> pas de spawn
         e = state.add_entity()
         e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
@@ -801,10 +809,7 @@ class SpawnUnitOperation:
         _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
         _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
         _maybe_seed_ignore_battle_fatigue(state, e.id, coc.team, mult)   # aura SquigHound -> grot immunisé
-        board = state.board
-        tinfo = board.by_id.get(tile) if board is not None else None
-        if tinfo is not None:
-            e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+        e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
         on_unit_added(state, e.id)      # `On(UnitAdded)` — APRES la pose
         return [e.id]
 

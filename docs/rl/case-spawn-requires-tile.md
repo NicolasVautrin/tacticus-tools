@@ -105,8 +105,16 @@ Quatre sites, même patron :
 | `SpawnUnitOperation.execute_self_replica` (ScarabSummon 1047) | **fantôme** | idem |
 | `_spawn_config_grot` (8 abilities : SquigHound, ControlEdict, MasterOfTheTutelaries, DeathFromAbove, SporeMineLauncher, AlphaWarrior, IronkinSteeljack, neophyte…) | `tile is None` gardé, mais **`tinfo is None` non gardé** | tuile résolue AVANT `add_entity` |
 | `spawn_decoy` | idem | idem |
+| `execute_pilein_replica` | idem | idem |
 
-`execute_pilein_replica` était déjà juste (`if tile is None: return []`).
+**Les CINQ points d'entrée de `SpawnUnitOperation` portent la règle**, pas seulement `execute` :
+l'entité ne peut plus naître avant sa tuile nulle part dans la classe. `execute_pilein_replica`
+gardait bien `tile is None` — mais laissait passer « id de tuile non résolu sur le board », puis
+posait la `PositionComponent` de façon CONDITIONNELLE : le fantôme sous sa forme LATENTE. Ce chemin
+n'est pas atteignable avec un `Board` réel (`Board.neighbours_native` filtre déjà sur `by_id`, et
+`Board.walkable` l'indexerait), donc **son durcissement ne change aucun comportement mesurable** —
+c'est un mirror de structure qui rend l'invariant vrai par construction, et une garde le verrouille
+(`test_pilein_replica_requires_a_tile`, régimes 1 et 0 voisines libres).
 
 **Pourquoi c'est devenu atteignable maintenant** : le masque de 1007 (`0x4020` =
 `TargetHasFreeAdjacentTile | TargetIsEnemy`, `case-250-summon-targeting`) impose au caster d'être
@@ -145,44 +153,48 @@ légitime, et les **positions sont identiques au natif** dans les deux régimes 
 La mesure « AVANT » a été obtenue en `git stash`-ant le seul `spawn.py` puis en rejouant le probe :
 c'est le comportement de `master`, pas une reconstitution.
 
+### Re-mesure sur le build `rnca9r7q6c` (session Frida 19)
+
+Le fix a été livré sur `gqfc5mff6c` ; le jeu s'est mis à jour ensuite. La RE **et** les 6 lignes ont
+été refaites sur le nouveau build, sans rien changer :
+
+* **structure native identique** — `SpawnUnitBehaviour$$Execute` sur `rnca9r7q6c` teste toujours
+  `*(options + 0x60)`, prend toujours le `foreach` sur l'énumérateur du tile-sélecteur
+  (`*(entities + 0x58)`, résolu **une** fois) dans la branche `== 0`, et toujours l'appel unique sur
+  `GetTileIds(tiles)` dans l'autre. Aucune des deux branches n'a bougé ;
+* **6/6 lignes reproduites**, avec les **mêmes positions au hex près** que sur `gqfc5mff6c` :
+  `MC1_67`/777 → `(5,7) (4,8)` à 2 libres, `(6,6)` à 1 libre, refus à 0 ;
+  `C3_26`/31337 → `(6,2) (6,4)`, `(5,1)`, refus. Natif == port dans les six cas, **zéro fantôme**.
+
+Un changement de build ne fait donc rien bouger ici : c'est la même fonction, et le port lui reste
+bit-exact.
+
 ---
 
 ## 4. Ce qui est confronté live, et ce qui ne l'est pas
 
-**Confronté live sur `gqfc5mff6c`, avant la mise à jour du jeu** (mesures et décompilé du **même**
-build — aucun mélange) :
+**Tout ce qui est listé ci-dessous a été rejoué sur `rnca9r7q6c` / session 19** (la vague différée
+par la migration de build est fermée) :
 
-* `probe_spawn_requires_tile.py` — les 6 lignes du tableau §3 ;
-* `tests/engine/runner/test_summon_spawn_live.py` — 2 tests verts, dont la garde
-  `test_spawn_requires_a_tile` (et **vérifiée ROUGE** sans le fix :
-  `AssertionError: 1 tuile(s) libre(s) -> 2 summons != 1`) ;
-* `tests/engine/runner/test_scarab_hive_migration_live.py` + `test_scarab_summon_migration_live.py`
-  — 2 verts (les deux Operations modifiées) ;
-* `tests/engine/runner/test_multihex_dutyeternal_live.py` — 20 verts (branche `+0x60 != 0` intacte).
-
-**NON CONFRONTÉ LIVE — différé par la MAJ `gqfc5mff6c` → `rnca9r7q6c`.** Les call-sites
-`_spawn_config_grot` / `spawn_decoy` n'ont reçu qu'un **durcissement de garde** (`tinfo is None` →
-pas d'entité, au lieu d'une entité sans position) ; le chemin nominal est inchangé, mais leurs tests
-n'ont pas été rejoués :
-
-| à rejouer après migration | montage |
+| suite | verdict |
 |---|---|
-| `test_control_edict_live.py`, `test_spore_mine_launcher_live.py`, `test_alpha_warrior_live.py`, `test_ironkin_steeljack_live.py`, `test_aberrant_hypermorph_live.py`, `test_skitarii_turn_live.py`, `test_rad_saturation_live.py`, `test_cosmic_horror_live.py`, `test_mow_caster_load_live.py` | leurs montages propres (aucun paramètre à changer) |
-| `test_decoy_foundation_live.py`, `test_decoys_misdirection_migration_live.py`, `test_hypersensory_moveandspawndecoy_live.py` | idem, pour `spawn_decoy` |
-| `probe_spawn_requires_tile.py` (les 6 lignes) | `python probe_spawn_requires_tile.py` — deux couples par défaut |
+| `probe_spawn_requires_tile.py` (les 6 lignes du §3, deux couples) | **6/6 OK**, positions bit-exactes |
+| `test_summon_spawn_live.py` (dont `test_spawn_requires_a_tile` et `test_pilein_replica_requires_a_tile`) | **3 verts** |
+| `test_scarab_hive_migration_live.py` + `test_scarab_summon_migration_live.py` | **2 verts** (les deux Operations modifiées) |
+| `test_multihex_dutyeternal_live.py` | **20 verts** (branche `+0x60 != 0` intacte) |
+| `test_control_edict_live.py`, `test_spore_mine_launcher_live.py`, `test_alpha_warrior_live.py`, `test_ironkin_steeljack_live.py`, `test_aberrant_hypermorph_live.py` | **18 verts** (`_spawn_config_grot`) |
+| `test_skitarii_turn_live.py`, `test_rad_saturation_live.py`, `test_cosmic_horror_live.py`, `test_mow_caster_load_live.py` | **21 verts** (`_spawn_config_grot`) |
+| `test_decoy_foundation_live.py`, `test_decoys_misdirection_migration_live.py`, `test_hypersensory_moveandspawndecoy_live.py` | **11 verts** (`spawn_decoy`) |
+| `test_endturn_order_live.py`, `test_maybe_trigger_rng_live.py` | **verts** (consommateurs de `execute_pilein_replica`) |
 
-Le renommage (`#246` → nom sans numéro) est **postérieur** aux runs verts et ne touche que des
-docstrings et des messages d'assertion : le code exécutable testé est celui qui est livré.
+Sur `gqfc5mff6c`, la garde `test_spawn_requires_a_tile` avait été **vérifiée ROUGE** sans le fix
+(`AssertionError: 1 tuile(s) libre(s) -> 2 summons != 1`) — c'est ce qui lui donne sa valeur ; elle
+n'a pas été re-cassée sur `rnca9r7q6c` (le comportement fautif n'existe plus dans l'arbre).
 
-**Après rebase sur `origin/master`** (`47c27d7`, +4 commits — PR #254/#255) : les commits arrivés
-entre-temps **ne touchent aucun** fichier de ce cas
-(`git diff --stat 60bbecb origin/master -- scripts/python/engine/runner/operations/
-scripts/python/tests/engine/runner/test_summon_spawn_live.py
-scripts/python/engine/runner/abilities/behaviours/summon.py` = **vide**), le rebase est passé **sans
-conflit**, et ce qui pouvait être rejoué sans plateforme l'a été : **collecte des 26 tests cibles OK**
-(`test_summon_ability_ports_live` inclus, +117 lignes venues de master) et **8/8 verts** sur le
-cliquet offline `test_ability_registry_ratchet.py`. Les tests LIVE eux-mêmes ne sont **pas** rejoués
-après rebase — la plateforme est en migration de build.
+**Ce qui n'est PAS couvert** : la branche `+0x60 != 0` n'est exercée que par `DutyEternal` (1158),
+seul producteur d'empreinte multi-hex du binaire — aucun autre consommateur n'existe pour la
+confronter ; et `test_pilein_replica_requires_a_tile` est un **cliquet**, pas un test discriminant
+(le durcissement qu'il verrouille n'a pas de chemin atteignable, cf. §2).
 
 ---
 
@@ -191,13 +203,17 @@ après rebase — la plateforme est en migration de build.
 * **`AddUnitOperation$$Execute` avec une liste de tuiles vide** produit nativement une unité sans
   pied (§1). Non porté : aucun call-site du binaire ne l'exerce (le seul consommateur de
   `+0x60 != 0` est `DutyEternalAbility$$ExecuteBehaviour`, dont le sélecteur rend 3 tuiles).
-* **`SpawnUnitOperation.execute` ré-évalue son tile-sélecteur à chaque tour de boucle** (en excluant
-  les tuiles déjà prises) là où le natif l'évalue **une seule fois** avant d'itérer. Les deux
-  suites coïncident (retirer un élément ne change pas l'ordre relatif des autres, et les `OrderBy`
-  LINQ sont stables) — c'est ce que les positions bit-exactes du §3 confirment — mais ce n'est pas
-  la **structure** native. Un état qui changerait ENTRE deux spawns (l'`On(UnitAdded)` d'un summon
-  qui tuerait une unité et libérerait une tuile) les ferait diverger ; aucun consommateur porté ne
-  le fait aujourd'hui.
 * **`execute_self_replica` boucle `count` fois sur un `PickRandomly(…, 1)`** là où le natif tire son
-  sélecteur une fois. Sans effet pour `ScarabSummon` (`count = 1`), à revoir si un jour un
-  auto-dédoublement `count > 1` apparaît.
+  sélecteur une fois. Inerte : `SpawnReplica` n'est instancié qu'avec `count = 1`
+  (`abilities/loki/summon.py` → `SpawnReplica("ScarabSummon", 1)`), et c'est son seul site de
+  construction. À revoir si un jour un auto-dédoublement `count > 1` apparaît — le porter
+  aujourd'hui serait spéculatif.
+
+**FERMÉ depuis** : le résidu « `execute` ré-évalue son tile-sélecteur à chaque tour de boucle » n'en
+est plus un. `SpawnUnitBehaviour$$Execute` résout `tileSelector.Select(ctx)` **une** fois puis itère
+le résultat ; `execute` fait désormais pareil — un seul `CanAddUnit(AdjacentTiles(target))`, un seul
+double `SortByDistance`, puis `[:count]` (le `First(source, count)` natif). Les deux formes rendent
+la même suite (retirer la tête ne change pas l'ordre relatif du reste, et les `OrderBy` LINQ sont
+stables), ce que les positions bit-exactes du §3 **re-mesurées après le changement** confirment —
+mais seule la seconde a la forme du natif, et donc son comportement si l'état changeait ENTRE deux
+spawns (un `On(UnitAdded)` qui tuerait une unité et libérerait une tuile).

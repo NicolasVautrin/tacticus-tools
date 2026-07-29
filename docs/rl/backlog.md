@@ -82,20 +82,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   tile-sélecteur (`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche
   `SpawnUnitOptions+0x60 == 0` = `foreach (tile in tiles) AddUnitOperation.Execute(unit, [tile], …)`)
   : **l'entité naît de l'itération**, et le `count` d'une ability n'est PAS un compteur d'unités — il
-  vit dans le sélecteur, dont le `First(<tri>, count)` rend **`min(count, len(source))`**. Les quatre
-  sites du port créaient l'entité AVANT de savoir s'il restait une tuile
-  (`execute`, `execute_self_replica`, plus `_spawn_config_grot` / `spawn_decoy` sur le `tinfo is
-  None`). **Mesure** (`probe_spawn_requires_tile.py`, natif vs port, `MC1_67`/777 et
+  vit dans le sélecteur, dont le `First(<tri>, count)` rend **`min(count, len(source))`**. Les cinq
+  points d'entrée de `SpawnUnitOperation` créaient l'entité AVANT de savoir s'il restait une tuile
+  (`execute`, `execute_self_replica`, plus `_spawn_config_grot` / `spawn_decoy` /
+  `execute_pilein_replica` sur le `tinfo is None`). **Mesure** (`probe_spawn_requires_tile.py`,
+  natif vs port, `MC1_67`/777 et
   `C3_26`/31337) : à **1 voisine libre** le natif spawne **1** summon et `master` en spawnait **2,
   dont 1 sans `PositionComponent`** ; à **0 libre** le natif REFUSE le cast (bit 5
   `TargetHasFreeAdjacentTile`) et `master` créait **2 fantômes**. Contre-épreuve à 2 libres : 2
   summons des deux côtés, **positions identiques au natif** dans les deux régimes. Branche MULTI-HEX
   (`+0x60 != 0`, `DutyEternal` 1158) intacte — elle passe par la feuille DSL `Spawn`, qui itérait
   déjà (20 tests verts). Garde : `test_spawn_requires_a_tile` (régimes 2/1/0 voisines libres),
-  vérifiée ROUGE sans le fix. **Résidus** nommés en §5 de la fiche : `AddUnitOperation$$Execute` sur
-  liste de tuiles VIDE produit nativement une unité sans pied (aucun call-site ne l'exerce) ;
-  `execute` ré-évalue son sélecteur par tour de boucle là où le natif l'évalue une fois (suites
-  coïncidentes, structure différente).
+  vérifiée ROUGE sans le fix. **Re-confronté sur `rnca9r7q6c`** (le jeu s'est mis à jour après la
+  livraison) : structure native inchangée aux deux branches, 6/6 lignes du probe reproduites avec les
+  **mêmes positions au hex près**, et la vague de tests différée par la migration rejouée — 75 tests
+  live verts au total. Au passage, `execute` évalue désormais son tile-sélecteur **une seule fois**
+  comme le natif (résidu fermé, positions bit-exactes inchangées). **Résidus restants** (§5 de la
+  fiche) : `AddUnitOperation$$Execute` sur liste de tuiles VIDE produit nativement une unité sans
+  pied (aucun call-site ne l'exerce) ; `execute_self_replica` boucle `count` fois sur un
+  `PickRandomly(…, 1)` — inerte, `SpawnReplica` n'est construit qu'avec `count = 1`.
 - **`TargetingQuery$$GetCasterNotAddedReason` non porté** (`case-250` §4) — rend 0 (permissif). Il
   concerne les abilities `isSelfCasting = 1` castées sur leur propre caster : le natif y évalue
   `GetValidTargets(...).AllTargets.Count == 0` et peut rendre `0x800 AddCasterIfAtLeastOneTarget`.

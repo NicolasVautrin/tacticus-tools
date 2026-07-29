@@ -249,3 +249,58 @@ def test_spawn_requires_a_tile(live_session, rpc, build_runner):
         ghosts = [i for i in created
                   if state.get_entity(i).get_component(PositionComponent) is None]
         assert not ghosts, f"{leave} libre(s) : summon(s) SANS PositionComponent {ghosts} (case-spawn-requires-tile)"
+
+
+def test_pilein_replica_requires_a_tile(live_session, rpc, build_runner):
+    """case-spawn-requires-tile — l'invariant vaut pour TOUS les points d'entrée de
+    `SpawnUnitOperation`, pas seulement `execute`.
+
+    `execute_pilein_replica` (`IdunBattleLogic.Entities.Abilities.Active.Loki.PileInAbility$$CreateBehaviour`)
+    ne gardait que `tile is None` : un id de tuile non résolu sur le board passait la garde, puis
+    `state.add_entity()` posait la `PositionComponent` de façon CONDITIONNELLE — le fantôme du cas,
+    dans sa forme latente. Le natif, lui, n'atteint `AddUnitOperation$$Execute` que DEPUIS une tuile
+    itérée : la tuile d'abord, l'entité ensuite.
+
+    Le parent n'est ici qu'un PORTEUR (Owner + Stats) : ce qui est testé est le SITE DE SPAWN, pas la
+    sémantique de PileIn (couverte par `test_endturn_order_live` / `test_maybe_trigger_rng_live`).
+    Deux régimes CRAFTÉS sur le même état live : 0 voisine libre → AUCUNE entité créée ; 1 voisine
+    libre → exactement 1 grot, POSÉ sur elle."""
+    from engine.entities.pathfinding.board import Board
+    rid = build_runner("777", extra=BUILD)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="native_sym")
+    dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    ob = rpc("observeBattle", {"runnerId": rid}, 40)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    caster0 = next((u for u in (dec.get("units") or []) if u.get("visualId") == CASTER_VIS), None)
+    if caster0 is None:
+        pytest.skip("caster absent")
+    parent_id = caster0["id"]
+
+    probe = load_state(dec, ob, snap, board=board)
+    assert probe.get_entity(parent_id) is not None, \
+        "parent absent du state offline : le snapshot ne porte pas le montage"
+    assert len(_free_ring(probe, board, parent_id)) >= 1, (
+        "montage non discriminant : aucune voisine libre autour du parent, il en faut >= 1 pour "
+        "crafter les deux regimes (DEPLACER le parent, pas skipper)")
+
+    for leave in (1, 0):
+        state = load_state(dec, ob, snap, board=board)
+        _wall_in(state, board, parent_id, leave)
+        n_free = len(_free_ring(state, board, parent_id))
+        assert n_free == leave, f"montage rate : {n_free} libres au lieu de {leave}"
+        free_tiles = set(_free_ring(state, board, parent_id))
+        before = set(state.entities)
+        spawned = SpawnUnitOperation.execute_pilein_replica(state, parent_id)
+        created = set(state.entities) - before
+        assert len(spawned) == leave, f"{leave} tuile(s) libre(s) -> {len(spawned)} replica != {leave}"
+        assert created == set(spawned), (
+            f"{leave} libre(s) : entites creees {sorted(created)} != rendues {sorted(spawned)}")
+        for sid in spawned:
+            pc = state.get_entity(sid).get_component(PositionComponent)
+            assert pc is not None, \
+                f"{leave} libre(s) : replica {sid} SANS PositionComponent (case-spawn-requires-tile)"
+            assert board.id_at(pc.col, pc.row) in free_tiles, (
+                f"replica pose en ({pc.col},{pc.row}), hors des voisines LIBRES du parent")
