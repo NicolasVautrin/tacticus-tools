@@ -45,6 +45,7 @@ sys.path.insert(0, str(REPO / "scripts" / "python"))
 
 from il2cpp_provenance import (ProvenanceError, assert_matches, installed_dll,  # noqa: E402
                                read_stamp, sha256_of)
+from symbols_layout import LayoutError, archived_builds, build_dir as _build_dir  # noqa: E402
 
 SYMBOLS = REPO / "data" / "symbols"
 FRIDA_TABLES = ("classes.tsv", "enums.tsv", "methods.tsv")
@@ -55,19 +56,18 @@ class Desync(RuntimeError):
 
 
 def versioned_build() -> Path:
-    """Le repertoire `data/symbols/<HASH>`. Erreur si 0 ou >1 (ambigu, comme pour le binaire)."""
-    if not SYMBOLS.is_dir():
-        raise Desync("data/symbols absent -- aucune table de symboles versionnee")
-    dirs = [d for d in sorted(SYMBOLS.iterdir()) if d.is_dir()]
-    if not dirs:
-        raise Desync("data/symbols vide -- aucune table de symboles versionnee")
-    if len(dirs) > 1:
-        raise Desync(
-            "PLUSIEURS builds versionnes (%s) : lequel fait foi ?\n"
-            "  Une MAJ laisse l'ancien a cote du neuf. Supprimer l'obsolete apres l'avoir\n"
-            "  diffe (son diff EST le rapport de changement du jeu)."
-            % ", ".join(d.name for d in dirs))
-    return dirs[0]
+    """Le repertoire du build qui FAIT FOI, designe par `data/symbols/CURRENT`.
+
+    CHANGE le 2026-07-29 : cette fonction exigeait auparavant qu'il n'y ait QU'UN SEUL
+    repertoire, et prescrivait de SUPPRIMER l'ancien apres une MAJ. Mauvais marche -- la
+    multiplicite n'etait qu'un PROXY d'ambiguite, alors que l'axe 1 sait deja trancher
+    EXACTEMENT par sha256. On garde donc tous les builds (leur diff est le rapport de
+    changement du jeu, et il doit rester consultable APRES la fenetre de migration) et on
+    nomme explicitement celui qui fait foi. Detail : `symbols_layout.py`."""
+    try:
+        return _build_dir()
+    except LayoutError as e:
+        raise Desync(str(e)) from e
 
 
 def axe1_binaire(build_dir: Path, dll: Path) -> list[str]:
@@ -179,6 +179,13 @@ def main() -> int:
           % (build_dir.name, sha256_of(dll)[:12]))
     for l in lignes:
         print(l)
+    # Les autres builds sont des ARCHIVES conservees EXPRES : leur diff contre le build courant
+    # est le rapport de changement du jeu, et il doit rester consultable bien apres la fenetre
+    # de migration. On les nomme pour qu'ils soient VUS -- ce n'est pas un avertissement.
+    autres = archived_builds()
+    if autres:
+        print("  --  %d build(s) archive(s) : %s (conserves pour le diff inter-build)"
+              % (len(autres), ", ".join(autres)))
     if not ghidra_vu and not args.skip_ghidra:
         print("  ATTENTION : l'axe ghidra n'a PAS ete verifie -- ne pas lancer d'agent RE sans")
         print("  l'avoir confronte (c'est l'axe qui echoue le plus silencieusement).")

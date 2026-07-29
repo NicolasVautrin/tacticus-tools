@@ -87,11 +87,13 @@ NORMALIZED_FIELDS = (
 # --------------------------------------------------------------------------- enums per-build
 
 def _build_hash() -> str:
-    """Hash du build courant (repertoire unique sous data/symbols/)."""
-    cands = [p.name for p in SYMBOLS.iterdir() if p.is_dir()] if SYMBOLS.exists() else []
-    if len(cands) != 1:
-        raise RuntimeError(f"data/symbols/ doit contenir UN build, trouve: {cands}")
-    return cands[0]
+    """Hash du build qui FAIT FOI, designe par `data/symbols/CURRENT`.
+
+    Exigeait auparavant un repertoire UNIQUE sous data/symbols/ -- ce qui cassait des qu'une
+    MAJ laissait l'ancien build a cote du neuf, alors qu'on le conserve EXPRES (son diff est
+    le rapport de changement du jeu). Cf. `symbols_layout.py`."""
+    from symbols_layout import current_build
+    return current_build()
 
 
 @functools.lru_cache(maxsize=8)

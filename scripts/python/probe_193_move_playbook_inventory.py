@@ -36,10 +36,11 @@ ADJ_BASE = "IdunBattle.AI.Playbook.AdjacentUnitPreferenceTriggeredAbilityPlayboo
 
 
 def build_hash() -> str:
-    cands = [p.name for p in _SYMBOLS.iterdir() if p.is_dir()]
-    if len(cands) != 1:
-        raise SystemExit("data/symbols doit contenir exactement un build, trouve: %r" % cands)
-    return cands[0]
+    """Hash du build qui FAIT FOI (`data/symbols/CURRENT`) -- cf. `symbols_layout.py`.
+    Exigeait auparavant un repertoire unique, ce qui cassait des qu'un build archive
+    trainait a cote (on les conserve EXPRES, pour le diff inter-build)."""
+    from symbols_layout import current_build
+    return current_build()
 
 
 def load_classes(h: str) -> dict[str, str]:

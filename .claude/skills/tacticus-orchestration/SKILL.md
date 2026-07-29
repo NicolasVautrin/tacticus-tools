@@ -304,7 +304,7 @@ plausibles séparément, incohérentes ensemble. C'est la version silencieuse de
 
 ```bash
 python scripts/python/ghidra_symbols.py build   # hash RÉELLEMENT chargé par ghidra-mcp
-cat data/symbols/*/BUILD                        # hash des tables versionnées
+cat data/symbols/CURRENT                        # hash des tables versionnées
 ```
 
 Les deux doivent coïncider. Sinon : relancer `start-ghidra-mcp.ps1 -Project <nouveau.gpr>`
@@ -315,7 +315,7 @@ travail à jeter, sans le savoir.
 
 ```bash
 ls -d /c/Users/nicolasv/AppData/Local/tacticus/games/*/   # hash installé
-cat data/symbols/*/BUILD                                  # hash des symboles
+cat data/symbols/CURRENT                                  # hash des symboles
 ```
 
 **Étape 1 — re-dumper depuis le jeu qui tourne** (jeu lancé, menu principal ; le
@@ -375,10 +375,27 @@ python scripts/python/ghidra_symbols.py dump   # -> data/symbols/<NOUVEAU_HASH>/
 git add data/symbols/<NOUVEAU_HASH>
 ```
 
-`data/symbols/` est la **seule** exception versionnée de `data/` (cf. `.gitignore`).
 **Son diff EST le rapport de changement du jeu** : ce qui apparaît, disparaît ou se
 renomme entre deux builds est exactement ce que la mise à jour a touché. Ne pas le
 commiter, c'est perdre le seul moyen de savoir ce qui a bougé.
+
+> **UN RÉPERTOIRE PAR BUILD, ET ON LES GARDE TOUS.** `data/symbols/CURRENT` (une ligne, un
+> hash) désigne celui qui **fait foi** ; les autres sont des **archives**, conservées exprès —
+> leur diff doit rester consultable bien après la fenêtre de migration.
+>
+> Jusqu'au 2026-07-29 la garde `symbols_sync.py` **échouait** dès qu'il y avait deux
+> répertoires (« lequel fait foi ? ») et ne proposait que d'**effacer** l'ancien — on jetait
+> donc la référence pour satisfaire un outil. La multiplicité n'était qu'un **proxy**
+> d'ambiguïté : le vrai contrôle, « la table correspond-elle au sha256 du binaire installé ? »,
+> la garde le faisait déjà. Le pointeur le rend **exact**, et la multiplicité cesse de gêner.
+>
+> Résolution centralisée dans `scripts/python/symbols_layout.py` (`current_build()`,
+> `build_dir()`, `archived_builds()`). Un `CURRENT` qui désigne un répertoire absent est une
+> **erreur dure** — jamais de repli silencieux sur « le seul autre ».
+>
+> `GhidraApplyIl2CppSymbols.java` n'utilise **pas** ce pointeur, et c'est voulu : il
+> discrimine par le **sha256 du binaire qu'il a chargé**, ce qui est strictement plus sûr que
+> de suivre un pointeur.
 
 **Étape 4 — reprendre les citations.** Le code cite des **symboles**, pas des adresses :
 ~97,5 % traversent la mise à jour sans rien faire. Les survivantes ne sont pas le sujet —
