@@ -18,7 +18,7 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, op_add, op_and, If
-from ...entities.formulas import ConditionalAmount, Const as _AmountConst, Count
+from ...entities.formulas import ConditionalAmount, Const as _AmountConst, Count, StatAmount, Sum
 from ...entities.selectors import (Target, TargetTile, Caster, AdjacentUnits, Enemies,
                                    FilterContinuous, FixedTileIds, PickFirstN, SortByFormula,
                                    Subject, Sub, SurroundingTiles, SurroundingUnits, Tiles,
@@ -195,16 +195,25 @@ class SanctorumMissileAbility(ActiveAbility):
 #    -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, ABSENT de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage == IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage SAUF que `nrOfHits` est un NODE
 #    `MeleeWeaponHits(caster)` passe direct a `AttackDamageBehaviour.ctor` au lieu d'une const int wrappee ->
 #    MEME `AttackDamageBehaviour`, famille "attack"). Node de degat = `Sum(NormalAttackDamage(caster)=StatAmount(
-#    Attack), Direct(GetVariableForLevel(8=extraDmg)))`. `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = SOMME de
-#    GetStat(Attack) sur le selecteur = UNE valeur (PAS de min/max) -> `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage`
-#    construit `HitDamage(V, V)` DEGENERE (V = Attack + extraDmg) : AUCUN spread +/-20% (le +/-20% de l'attaque
-#    normale vient du weapon-path `GetBaseDamageFix64`, ABSENT du path ability). Chaque coup = reduce(V) FIXE.
+#    Attack), Direct(GetVariableForLevel(8=extraDmg)))` -- `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage`
+#    est LA MEME factory que celle de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
+#    ALoki_NormalAttackAbility$$AttackAmount`, xrefs verifiees).
 #    Profil = `NormalMeleeAttackDamageProfile(caster)` = profil arme melee (Celestine = Power) ; coups =
 #    `MeleeWeaponHits(caster)` = nrOfHits arme melee (IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate = somme des parts,
-#    SANS ExtraHits ; Celestine = 3). Modelise via le mode BORNES du leaf + `damage_override` -> (V,V) degenere +
-#    `hits_override=MeleeWeaponHits` -> `execute_ability_attack(is_attack_damage_op=True)` (roll-then-reduce, resolve
-#    slot-8 GASPILLE, 1 tirage/coup pour un node degenere : GetDamage court-circuite min==max + 1 resolve, cf.
-#    #202 WeaverOfFate). RNG-exact vs le natif. `Sum(base, extraDmg)` == pattern MurderousSwing/SavageEchoes.
+#    SANS ExtraHits ; Celestine = 3).
+#    #226-r -- LE COUP PORTE LE SPREAD +-20 % (le port le disait PLAT : FAUX). Le 8e argument natif
+#    (`Nullable<AttackDamageBehaviourOptions>`) est construit avec l'OCTET **+6 = 1** (`uStack_1e2 = 1`, seul
+#    octet non nul ; +4 = `alwaysOverkilled` FlailSwing, +5 = `alwaysCrit` TacticalPrecision). C'est l'octet
+#    que `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` renseigne DEPUIS UN GETTER de l'ability pour
+#    l'attaque NORMALE (`local_1d8._0_7_ = CONCAT16(<vtable+0x4b8>, ...)`) = drapeau « calcul de degat d'ARME ».
+#    Il transite `AttackDamageBehaviour+0x9e` -> `AttackDamageOperation$$ExecuteHit` (options+0x2f) ->
+#    `AttackPredictionRequest+0x6a` -> slot 4 `IdunBattle.Core.Services.DamagePrediction$$PredictAttack`, ou
+#    `GetBaseDamageFix64` etale les bornes de +-`DamageSpreadPercentage` autour de V = Attack + extraDmg.
+#    Modelise via le mode `amount` du leaf (`Sum(StatAmount(Caster(), Attack), Const(extraDmg))`) +
+#    `amount_spread_pct=20` + `hits=MeleeWeaponHits` -> `execute_normal_like` (reduce-then-roll, 1 tirage/coup,
+#    le pipeline de l'attaque NORMALE). CONTRASTE mesure : le smite Psyker passe ce meme `Nullable` VIDE et n'a
+#    AUCUNE variance (live). `Sum(base, extraDmg)` == pattern MurderousSwing/SavageEchoes pour la STRUCTURE,
+#    mais PAS pour le pipeline de degat (ceux-la sont en mode bornes).
 #  - ATTACK gate = `factory+0x98` = trigger cache du DslContext (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, construit depuis
 #    +0x28) = gate "alive". Porte comme `IsAlive(caster) & IsAlive(target)` (== gate VigilanceEternal, template
 #    EXACT ; post-charge non-reactive les deux sont vivants -> l'attaque tire). +0x98 exact non byte-resolu
@@ -279,40 +288,52 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
     return board.coord(best) if best is not None else None
 
 
-def _sky_strike_damage_override(extra_dmg: int):
-    """`Sum(NormalAttackDamage(caster)=StatAmount(caster, Attack), Direct(GetVariableForLevel(8=extraDmg)))`
-    porte en `GetAttackDamage` (mirror SavageEchoes/SpiritLeech damage_override) : base DEGENEREE V = stat
-    Attack (LIVE, re-lue post-move) + extraDmg. `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = 1 valeur (pas de
-    min/max) -> HitDamage(V,V), AUCUN spread. bmin/bmax config (0/0, pas de minDmg/maxDmg 1025) IGNORES."""
-    def _override(state, caster_id, target_id, bmin, bmax):
-        e = state.get_entity(caster_id)
-        sc = e.get_component(StatsComponent) if e is not None else None
-        atk = int(sc.ctx.stats.get_stat(int(StatType.ATTACK), 0)) \
-            if (sc is not None and sc.ctx is not None and sc.ctx.stats is not None) else 0
-        v = atk + int(extra_dmg)
-        return v, v
-    return _override
+def sky_strike_damage_node(extra_dmg: int):
+    """Noeud de degat de SkyStrike, MIRROR DSL du decompile :
+
+        Sum( NormalAttackDamage(caster@0x160), Direct(GetVariableForLevel(8 = extraDmg)) )
+
+    `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage(unitSelector)` construit un
+    `IdunBattle.Entities.Formulas.StatAmountFormula(unitSelector, statType=0, statPart=0, ...)` -- LE MEME
+    noeud que celui de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ALoki_NormalAttackAbility$$AttackAmount` appelle la MEME factory ; xrefs de `NormalAttackDamage`
+    verifiees). D'ou le node DSL `Sum(StatAmount(Caster(), Attack), Const(extraDmg))` : la stat Attack est
+    relue A L'EXECUTION contre l'`entities` du behaviour (donc POST-move, POST-buffs), comme le natif."""
+    return Sum(StatAmount(Caster(), int(StatType.ATTACK)), Const(int(extra_dmg)))
 
 
 def sky_strike_tree(dest, extra_dmg: int, profile: str, hits: int):
-    """Mirror 1:1 de `SkyStrikeAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` (template VigilanceEternal EXACT, attaque
-    = attaque melee NORMALE du caster + extraDmg au lieu de MinMaxDamage config). `dest`/`extra_dmg`/`profile`/
-    `hits` resolus imperativement (collapse du selecteur S + config, comme VigilanceEternal `dest`) :
+    """Mirror 1:1 de `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour`
+    (template VigilanceEternal EXACT, attaque = attaque melee NORMALE du caster + extraDmg au lieu de
+    MinMaxDamage config). `dest`/`extra_dmg`/`profile`/`hits` resolus imperativement (collapse du selecteur S
+    + config, comme VigilanceEternal `dest`) :
         op_BitwiseAnd(
           If(Not(IsAdjacent(caster,target)), MoveUnit(caster, dest)),                    # MOVE (charge)
           If(IsAlive(caster) & IsAlive(target),                                          # ATTACK gate (factory+0x98)
              AttackWithAttackDamage(caster->target,
-                 Sum(StatAmount(caster, Attack), Direct(extraDmg)),                      #   NormalAttackDamage + var8
-                 NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster))) )     #   attaque melee normale
-    Mono-cible (pas de Union/splash). Le node de degat = valeur mono (Attack + extraDmg) DEGENEREE -> mode BORNES
-    + `damage_override` -> (V,V) + `hits_override` -> `execute_ability_attack(is_attack_damage_op=True)` : chaque coup
-    = reduce(V) FIXE, 1 tirage/coup (resolve slot-8 gaspille). AUCUN spread +/-20% (path ability, pas
-    weapon-path)."""
+                 Sum(NormalAttackDamage(caster), Direct(extraDmg)),                      #   attaque normale + var8
+                 NormalMeleeAttackDamageProfile(caster), MeleeWeaponHits(caster),
+                 AbilityOrEffect(1025), <options : octet +6 = 1>) )                      #   drapeau attaque-normale
+    Mono-cible (pas de Union/splash).
+
+    #226-r -- CORRECTION du noeud de degat. Le port lisait ce `Sum` comme DEGENERE (`HitDamage(V, V)`, coups
+    tous EGAUX) : FAUX. Le 8e argument natif (`Nullable<AttackDamageBehaviourOptions>`) est construit avec
+    l'OCTET +6 a **1** (`uStack_1e2 = 1`, seul octet non nul) -- le MEME octet que
+    `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` renseigne pour l'attaque NORMALE. Ce coup suit donc
+    le pipeline d'ARME : `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` etale les bornes de
+    +-`DamageSpreadPercentage` autour de V PUIS reduit PUIS tire (reduce-then-roll, 1 tirage/coup).
+    -> mode `amount` de la feuille + `amount_spread_pct=20` + `hits=MeleeWeaponHits`.
+    Contraste MESURE : le smite Psyker passe ce meme `Nullable` VIDE (HasValue=0) et n'a AUCUNE variance
+    (live). MESURE bit-exacte SkyStrike (`probe_226r_skystrike_spread.py`, meme etat + meme rng) :
+    live [3334, 3156, 2477] == ce port 3/3 ; bornes degenerees (V,V) -> [3009, 3009, 3009] ; bornes brutes
+    roll-then-reduce -> [3334, 2477, 3409]."""
     move = If(Not(IsAdjacent(Caster(), Target())),
               MoveUnit(Caster(), FixedTiles([dest] if dest is not None else [])))
     attack = AttackWithAttackDamage(Target(), "SkyStrike", profile, is_melee=True,
-                                    damage_override=_sky_strike_damage_override(int(extra_dmg)),
-                                    hits_override=int(hits), native_factory="attack")
+                                    amount=sky_strike_damage_node(int(extra_dmg)),
+                                    hits=int(hits), amount_spread_pct=20,
+                                    native_factory="attack",
+                                    ability_type=int(ActiveAbilityType.SkyStrike))
     attack_branch = If(TriggerAnd(IsAlive(Caster()), IsAlive(Target())), attack)
     return op_and(move, attack_branch)
 
@@ -335,16 +356,17 @@ class SkyStrikeAbility(ActiveAbility):
     ciblage (l'ability n'est offerte que si castable) ; le runner l'invoque une fois castable.
 
     native_factory `attack` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PROUVE par XREFS du call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 -- overload de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage
-    dont seul l'arg hits differe [NODE vs const], MEME AttackDamageBehaviour). Node de degat DEGENERE (Sum(
-    StatAmount(Attack), Direct(extraDmg)) = 1 valeur, IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate) -> HitDamage(V,V) :
-    chaque coup = reduce(V) FIXE, 1 tirage/coup (GetDamage court-circuite min==max + resolve slot-8 gaspille,
-    cf. #202). Modelise en mode BORNES + damage_override(V,V) + hits_override -> execute_ability_attack(wasted).
+    dont seul l'arg hits differe [NODE vs const], MEME AttackDamageBehaviour). Node de degat =
+    `Sum(NormalAttackDamage(caster), Direct(extraDmg))` porte en mode `amount` (arbre DSL
+    `Sum(StatAmount(Caster(), Attack), Const(extraDmg))`) + `amount_spread_pct=20` + `hits=MeleeWeaponHits`
+    -> `execute_normal_like` : bornes = V +-20 % REDUITES puis 1 tirage/coup (#226-r ; l'octet +6 des
+    `AttackDamageBehaviourOptions`, pose a 1 par cette ability, est le drapeau « calcul de degat d'ARME »).
 
-    PORTEUR HORS POOL (comme SavageEchoes) : adeptCelestine absente du seed BC capture -> injectee via seed-BC
-    custom. Le cast LIVE de 1025 leve `system error` (`AbilityConfiguration.GetVariableForLevel(8=extraDmg)`
-    THROW pour une unite injectee dont l'array n'est pas materialise) -> RESIDU documente (idem SavageEchoes).
-    Validation = A/B (arbre == execute_ability_attack direct sous meme rng) + charge (deterministe-sur-etat) ;
-    la machinerie per-coup melee est live-validee ailleurs (VigilanceEternal 3-hit, CordClaw 4-hit)."""
+    PORTEUR HORS POOL (comme SavageEchoes) : adeptCelestine absente du seed BC capture -> injectee via
+    `catalog_inject.write_augmented_seed_bc` (bloc `Units` **ET** configs `Abilities`). Le cast LIVE de 1025
+    REUSSIT depuis #226 (l'ancien `system error` venait d'un seed BC sans `BC.Abilities`). Validation :
+    A/B bit-exact vs le CAST LIVE (`probe_226r_skystrike_spread.py` / `test_sky_strike_live.py`) + charge
+    (deterministe-sur-etat) + gate has-not-moved live."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.SkyStrike)  # 1025
     ABILITY_ID = "SkyStrike"

@@ -17,13 +17,21 @@ FINDINGS DECOMPILE (VA citees dans sisterhood.py) :
     `GetPossibleMovementTiles`) -> AUCUNE limite de portee (Celestine vole). Collapse = tuile libre ring-1 de
     la cible la PLUS PROCHE du caster.
   - ATTACK = overload `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE list_xrefs : call-site IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour+0x382 ; ABSENT
-    de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(StatAmount(Attack),
-    Direct(extraDmg))` : `IdunBattle.Entities.Formulas.StatAmountFormula$$Calculate` = UNE valeur -> HitDamage(V,V) DEGENERE ->
-    AUCUN spread +/-20% (le +/-20% de l'attaque normale vient du weapon-path GetBaseDamageFix64, ABSENT du path
-    ability). Chaque coup = reduce(V) FIXE, V = Attack + extraDmg. Profil/coups = arme MELEE (Celestine = Power
-    / 3 coups, MeleeWeaponHits = WeaponHitsFormula IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate, SANS ExtraHits). native_factory="attack" ->
-    execute_ability_attack(is_attack_damage_op=True), 1 tirage/coup (node degenere : GetDamage court-circuite + resolve
-    slot-8 gaspille, cf. #202).
+    de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage) = MEME AttackDamageBehaviour, famille "attack". Node de degat = `Sum(
+    NormalAttackDamage(caster), Direct(extraDmg))` ou `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage`
+    est LA MEME factory que celle de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ALoki_NormalAttackAbility$$AttackAmount`, xrefs verifiees). **#226-r : LE COUP PORTE LE SPREAD +-20 %.**
+    Le 8e argument natif (`Nullable<AttackDamageBehaviourOptions>`) est construit avec l'OCTET **+6 = 1**
+    (`uStack_1e2 = 1`, seul octet non nul ; +4 = alwaysOverkilled, +5 = alwaysCrit) -- le meme octet que
+    `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` renseigne DEPUIS UN GETTER de l'ability pour
+    l'attaque NORMALE = drapeau « calcul de degat d'ARME ». Il transite `AttackDamageBehaviour+0x9e` ->
+    `AttackDamageOperation$$ExecuteHit` (options+0x2f) -> `AttackPredictionRequest+0x6a` -> slot 4
+    `IdunBattle.Core.Services.DamagePrediction$$PredictAttack`, ou `GetBaseDamageFix64` etale les bornes
+    autour de V = Attack + extraDmg. Pipeline = celui de l'attaque NORMALE : bornes REDUITES puis 1 tirage/
+    coup (reduce-then-roll) -> mode `amount` + `amount_spread_pct=20`. CONTRASTE : le smite Psyker
+    (`PsykerExtraAttackAbility$$CreateBehaviour`) passe ce meme Nullable VIDE et n'a AUCUNE variance (live).
+    Profil/coups = arme MELEE (Celestine = Power / 3 coups, MeleeWeaponHits = WeaponHitsFormula
+    IdunBattle.Entities.Formulas.WeaponHitsFormula$$Calculate, SANS ExtraHits).
   - `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$GetDynamicInvalidTargetReason` (eligibilite, HORS ExecuteBehaviour) : gate DidMove(caster) -> une
     Celestine DEJA bougee ET non-adjacente ne peut PAS caster (reason 0x10). CONFIRME LIVE (b1/b2 ci-dessous).
 
@@ -42,9 +50,9 @@ REUSSIT (volet E).
 
 CE QUE LE TEST VALIDE :
   (A) A/B BIT-EXACT (deterministe, etat live-capture) : l'arbre `sky_strike_tree` (attaque) == un appel DIRECT
-      `execute_ability_attack(V, V, melee_pierce, MeleeWeaponHits, native_factory=attack)` sous le MEME rng ->
-      prouve base=Attack+extraDmg, hits=arme-melee, profil/pierce melee, factory=attack, node DEGENERE (V,V).
-  (B) NO-SPREAD : les coups sont TOUS EGAUX (node degenere, PAS de +/-20%) ; nb de coups == MeleeWeaponHits.
+      `execute_normal_like(V, melee_pierce, MeleeWeaponHits, spread_pct=20)` sous le MEME rng -> prouve
+      base=Attack+extraDmg, hits=arme-melee, profil/pierce melee, famille attack, pipeline d'ARME.
+  (B) SPREAD : nb de coups == MeleeWeaponHits et chaque coup vit dans la plage V+-20 % (bornes brutes).
   (C) CHARGE : Celestine a dist 2/5 d'une cible non-adjacente -> MOVE sur la tuile libre adjacente la plus proche
       (SANS limite de portee : dist 5 charge AUSSI -- discriminant vs VigilanceEternal reach=2) ; deja-adjacente
       -> AUCUN move.
@@ -52,10 +60,10 @@ CE QUE LE TEST VALIDE :
       BOUGEE + non-adjacente -> NON castable (reason 0x10). Discriminant de `GetDynamicInvalidTargetReason`.
       AUCUN cast n'y est emis : un cast consommerait l'action de Celestine et rendrait (b2) vacuous (elle
       serait refusee pour « a deja agi », pas pour le gate).
-  (E) CAST LIVE (runner DEDIE, garde de non-regression #226) : le cast natif de 1025 REUSSIT et rend
-      `MeleeWeaponHits` coups. Un seed BC injecte sans ses configs d'ability rendrait
-      `ok=False errors=['system error']`. Le test constate AUSSI que les coups live sont INEGAUX la ou
-      le port les dit egaux (divergence OUVERTE, hors #226, detaillee dans la docstring du test).
+  (E) CAST LIVE (runner DEDIE, garde de non-regression #226 + AGREEMENT #226-r) : le cast natif de 1025
+      REUSSIT et rend `MeleeWeaponHits` coups (un seed BC injecte sans ses configs d'ability rendrait
+      `ok=False errors=['system error']`), ET le port rejoue sur l'etat pre-cast avec le rng dumpe rend
+      les MEMES valeurs coup par coup (BIT-EXACT).
 
 Lit l'etat LIVE, aucune tuile/RVA hardcodee. ASCII only. Skip si build/injection/geometrie/adeptCelestine indispo.
 """
@@ -375,12 +383,19 @@ def test_skystrike_already_adjacent_no_move(sky_state):
     assert res["attack"] is not None and _hp(state, target) < hp0, "l'attaque devrait avoir lieu"
 
 
-def test_skystrike_attack_ab_and_no_spread(sky_state):
-    """(A) A/B BIT-EXACT + (B) NO-SPREAD : Celestine adjacente (aucun move) -> l'attaque de l'arbre == un appel
-    DIRECT `execute_ability_attack(V, V, melee_pierce, MeleeWeaponHits, native_factory=attack)` (meme rng) ;
-    tous les coups EGAUX (node degenere, pas de +/-20%) ; nb de coups == MeleeWeaponHits."""
+def test_skystrike_attack_ab_and_spread(sky_state):
+    """(A) A/B BIT-EXACT + (B) SPREAD : Celestine adjacente (aucun move) -> l'attaque de l'arbre == un appel
+    DIRECT `execute_normal_like(V, melee_pierce, MeleeWeaponHits, spread_pct=20)` (meme rng) ; les coups sont
+    tires dans la plage V+-20 % REDUITE (et non tous egaux) ; nb de coups == MeleeWeaponHits.
+
+    #226-r : la reference A/B a CHANGE (avant : `execute_ability_attack(V, V)` bornes degenerees). Le 8e
+    argument natif d'`AttackWithAttackDamage` pose l'OCTET +6 des `AttackDamageBehaviourOptions` a 1 -- le
+    drapeau « calcul de degat d'ARME » que `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` renseigne
+    pour l'attaque NORMALE -> `GetBaseDamageFix64` etale les bornes autour de V. Le CAST LIVE est confronte
+    bit-exact dans `test_skystrike_cast_live`."""
     from engine.runner.abilities.sisterhood import SkyStrikeAbility
     from engine.runner.operations.damage import AttackDamageOperation
+    from engine.services.damage_calculations import spread_to_min_max
     board = sky_state["board"]
     pair = _find_adjacent_pair(board)
     if pair is None:
@@ -409,19 +424,23 @@ def test_skystrike_attack_ab_and_no_spread(sky_state):
     tree_ph = inner.get("per_hit")
     assert tree_ph, f"pas de per_hit dans l'attaque portee: {res.get('attack')}"
 
-    # (B) NO-SPREAD + nb de coups == MeleeWeaponHits
+    # (B) nb de coups == MeleeWeaponHits + les coups vivent dans la plage V+-20 % (bornes BRUTES = borne
+    # SUPERIEURE de la plage reduite : perçage/armure ne peuvent que la RETRECIR).
     assert len(tree_ph) == whits, f"nb de coups {len(tree_ph)} != MeleeWeaponHits {whits}"
-    assert len(set(tree_ph)) == 1, f"coups NON egaux (spread inattendu, node degenere): {tree_ph}"
+    mm = spread_to_min_max(int(V), 20)
+    assert all(0 <= h <= mm.max for h in tree_ph), \
+        f"coup hors de la plage brute V+-20 % [0,{mm.max}] (V={V}): {tree_ph}"
 
-    # (A) A/B : sequence directe execute_ability_attack(V, V, wasted) sous le MEME rng
+    # (A) A/B : sequence directe execute_normal_like(V, spread 20) sous le MEME rng
     st_dir = sky_state["build_state"]()
     cel_d, target_d = _setup(st_dir)
-    direct = AttackDamageOperation.execute_ability_attack(
-        st_dir, cel_d, target_d, V, V, pierce, whits,
-        damage_profile=profile, is_melee=True, is_attack_damage_op=True)   # native_factory="attack"
+    direct = AttackDamageOperation.execute_normal_like(
+        st_dir, cel_d, target_d, V, pierce, hits=whits, spread_pct=20,
+        damage_profile=profile, is_melee=True, ability_type=ABILITY,
+        is_attack_damage_op=True)                                          # native_factory="attack"
     assert tree_ph == (direct or {}).get("per_hit"), (
         f"arbre per_hit {tree_ph} != sequence directe {(direct or {}).get('per_hit')} "
-        f"(la feuille n'appelle pas execute_ability_attack(V,V) fidele)")
+        f"(la feuille n'appelle pas execute_normal_like(V, spread 20) fidele)")
 
 
 def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
@@ -494,22 +513,29 @@ def test_skystrike_has_not_moved_gate_live(sky_state, rpc):
 
 
 def test_skystrike_cast_live(rpc):
-    """(E) GARDE #226 : le cast LIVE de 1025 par une Celestine INJECTEE REUSSIT.
+    """(E) LE PORT == LE CAST LIVE, BIT-EXACT (et garde #226 : le cast REUSSIT).
 
     Runner DEDIE (celui de `sky_state` sert au gate (D) et un cast y consommerait l'action de Celestine).
-    Ce test tombe -- `ok=False errors=['system error']` -- si le seed BC injecte reperd ses configs
+    Le test tombe -- `ok=False errors=['system error']` -- si le seed BC injecte reperd ses configs
     d'ability (`BC.Abilities`), c'est-a-dire si quelqu'un re-clone un bloc `Units` a la main au lieu
-    d'appeler `catalog_inject.write_augmented_seed_bc`. Le nb de coups est confronte au natif.
+    d'appeler `catalog_inject.write_augmented_seed_bc`.
 
-    DIVERGENCE OUVERTE constatee des que le cast a ete rendu possible (#226) : les coups LIVE sont
-    INEGAUX -- `hits=[3334, 3156, 2477]`, ratios [1.115, 1.056, 0.829] autour de leur moyenne --
-    alors que le port les rend TOUS EGAUX (volet B, node `Sum(StatAmount(Attack), Direct(extraDmg))`
-    lu comme degenere). Ce n'est ni du crit ni du block ni de l'evade : les tags des trois coups
-    portent `Attack_DidCrit=0 Attack_DidBlock=0 Attack_DidEvade=0` et `UnitStats_RemainingArmor=0`
-    (mesure `probe_226_seed_bc_ability_configs.py --dump-tags`). Piste a trancher au decompile (HORS
-    #226) : le node d'attaque de `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour`
-    passe-t-il par le weapon-path (spread +/-20%) plutot que par un `StatAmount` degenere ?"""
+    #226-r : la divergence « coups live INEGAUX vs port PLAT » est TRANCHEE. Le noeud
+    `Sum(NormalAttackDamage(caster), Direct(extraDmg))` n'est pas degenere du point de vue du PIPELINE :
+    le 8e argument natif d'`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` pose l'OCTET +6
+    du `Nullable<AttackDamageBehaviourOptions>` a **1** -- le meme octet que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`
+    renseigne depuis un getter de l'ability pour l'attaque NORMALE (drapeau « calcul de degat d'ARME ») ;
+    `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64` etale alors les bornes de
+    +-`DamageSpreadPercentage` autour de V = Attack + extraDmg, REDUIT, puis tire (1 tirage/coup).
+    Le port rejoue donc ICI la MEME sequence sous le rng dumpe AVANT le cast et doit rendre les MEMES
+    valeurs, coup par coup. (Contre-modeles refutes, `probe_226r_skystrike_spread.py` : bornes degenerees
+    (V,V) -> coups tous egaux ; bornes brutes roll-then-reduce -> 2 tirages/coup, diverge des le 2e coup,
+    et des le 1er contre une cible armuree.)"""
     from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.abilities.sisterhood import SkyStrikeAbility
 
     tag = uuid.uuid4().hex[:8]
     bc_file = _write_injected_seed_bc(tag)
@@ -553,6 +579,12 @@ def test_skystrike_cast_live(rpc):
         rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "move", "unitId": target["id"], "to": {"col": dc[0], "row": dc[1]}}}, 60)
 
+        # ETAT + RNG capturés JUSTE AVANT le cast -> le port rejouera la MEME sequence.
+        dv0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+        ob0 = rpc("observeBattle", {"runnerId": rid}, 60)
+        snap0 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+        rng0 = rpc("dumpRng", {"runnerId": rid}, 30)
+
         cast = rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": cel["id"], "targetId": target["id"], "abilityType": ABILITY},
             "captureEvents": True}, 120)
@@ -577,10 +609,26 @@ def test_skystrike_cast_live(rpc):
         assert want_hits, f"oracle introuvable : gameconfig.unit('{CASTER_VIS}').weapons[melee].hits"
         assert len(hits) == want_hits, \
             f"cast LIVE : {len(hits)} coups {hits} != MeleeWeaponHits gameconfig {want_hits}"
-        # PAS d'assertion sur l'EGALITE des coups live : le natif les rend INEGAUX (mesure ci-dessous),
-        # alors que le port les dit egaux (volet B, node de degat degenere). Divergence OUVERTE, hors
-        # #226 -- l'asserter dans un sens ou dans l'autre figerait un comportement non RE. Cf. backlog.
-        print(f"[sky-cast] cast LIVE OK hits={hits} (MeleeWeaponHits={want_hits})")
+
+        # --- LE PORT, REJOUE SUR L'ETAT PRE-CAST AVEC LE MEME RNG, DOIT RENDRE LES MEMES COUPS ---
+        st = load_state(dv0, ob0, snap0, board=board)
+        if isinstance(rng0, dict) and rng0.get("mt"):
+            r = IntBasedMersenneTwister()
+            r.mt = list(rng0["mt"]); r.mti = rng0["mti"]
+            st.rng = r
+        else:
+            pytest.skip("dumpRng indisponible (rejeu bit-exact impossible)")
+        cel_off = _find_by_vis(st, CASTER_VIS)
+        tgt_off = target["id"] if st.get_entity(target["id"]) is not None else None
+        if cel_off is None or tgt_off is None:
+            pytest.skip("etat offline incomplet (caster/cible absents du snapshot)")
+        res = SkyStrikeAbility().execute_behaviour(st, cel_off, tgt_off)
+        port_hits = ((res or {}).get("attack") or {}).get("attack", {}).get("per_hit")
+        assert port_hits == hits, (
+            f"per-hit du PORT {port_hits} != cast LIVE {hits} (V = Attack + extraDmg ; le noeud "
+            f"`Sum(NormalAttackDamage, Direct(extraDmg))` suit le pipeline d'ARME : bornes V+-20 % "
+            f"REDUITES puis 1 tirage/coup -- cf. l'octet +6 des AttackDamageBehaviourOptions, #226-r)")
+        print(f"[sky-cast] cast LIVE OK hits={hits} (MeleeWeaponHits={want_hits}) == port BIT-EXACT")
     finally:
         if rid is not None:
             try:

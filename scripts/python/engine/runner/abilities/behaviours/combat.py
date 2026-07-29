@@ -81,8 +81,9 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `PercentageOf(StatAmount(Self, Attack), psykerExtraDmg%)` IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$CreateBehaviour. Defaut None = mode bornes
     (`ability_attack_params`). Quand fourni (un `AAmountFormula`), la feuille calcule `base =
     amount.evaluate(entities)` (Fix64, mirror natif — `entities` porte `get_stat` pour `StatAmount`) et route
-    via `AttackDamageOperation.execute_normal_like(base, pierce=profile_pierce, hits, spread_pct=0)` (montant
-    MONO-valeur = AUCUNE variance d'arme), meme pipeline reduce/crit/block/after-hit que l'attaque normale.
+    via `AttackDamageOperation.execute_normal_like(base, pierce=profile_pierce, hits, spread_pct=...)`, meme
+    pipeline reduce/crit/block/after-hit que l'attaque normale. La VARIANCE du montant est pilotee par
+    `amount_spread_pct` (cf. ci-dessous), PAS deduite du node.
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`, sinon OVERRIDE la config `nrOfHits` — cas d'une ability dont le
     natif passe un nb de coups CALCULE a `AttackWithAttackDamage` en lieu de `GetNumberConstant(0x2f)` : ex.
@@ -90,7 +91,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
-                 "force_crit", "is_first_hit")
+                 "force_crit", "is_first_hit", "amount_spread_pct")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
@@ -98,7 +99,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  ability_type=None, hits_add_key=None, native_factory: str = "attack",
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
                  tile_domain: bool = False, force_crit: bool = False,
-                 is_first_hit: bool = True):
+                 is_first_hit: bool = True, amount_spread_pct: int = 0):
         # case-221 : `IsFirstHitInSeries()` = `AbilityEntities.IsFirstHit` = `hitIndex == 0`. Quand un
         # SEUL `IdunBattle.Entities.Behaviours.AttackBehaviour` porte N feuilles `AttackDamage`
         # (`HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour` : une feuille par
@@ -158,6 +159,28 @@ class AttackWithAttackDamage(AbilityBehaviour):
         # uniquement (route par `execute_ability_attack`). Porteur : TacticalPrecision (1154) branche
         # CHARGE -- i2 « This attack is always a Crit and deals an additional +extraCritDmg ».
         self.force_crit = force_crit
+        # `amount_spread_pct` (#226-r) = VARIANCE appliquee au montant du mode `amount`.
+        #   0  (DEFAUT) : montant MONO-valeur, aucune variance d'arme. C'est le cas du smite Psyker
+        #                 (`IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$
+        #                 CreateBehaviour` : le 8e argument `Nullable<AttackDamageBehaviourOptions>` est
+        #                 passe VIDE -- `local_78..local_58 = 0`, HasValue=0) et du transfert HazeOfCorruption.
+        #   20        : le montant est traite comme une BASE D'ARME -> `IdunBattle.Core.Services.
+        #                 DamagePrediction$$GetBaseDamageFix64` etale les BORNES de +-DamageSpreadPercentage
+        #                 avant le tirage (reduce-then-roll, 1 tirage/coup) = LE pipeline de l'attaque NORMALE.
+        # Ce que le DECOMPILE distingue : l'OCTET +6 du `Nullable<AttackDamageBehaviourOptions>` (le meme
+        # struct dont +4 porte `alwaysOverkilled` et +5 `alwaysCrit`).
+        #   * `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$
+        #     GetAttackDamageBehaviour` ECRIT cet octet depuis un getter booleen de l'ability
+        #     (`local_1d8._0_7_ = CONCAT16(<slot 0x4b8>, ...)`) -> c'est le drapeau « ce coup est
+        #     l'attaque NORMALE / utilise le calcul de degat d'arme ».
+        #   * `IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility$$ExecuteBehaviour` le pose
+        #     a **1** en dur (`uStack_1e2 = 1`, seul octet non nul de la struct) ; Psyker passe le Nullable VIDE.
+        # Il transite `AttackDamageBehaviour+0x9e` -> `AttackDamageOperation$$ExecuteHit` (options+0x2f) ->
+        # `AttackPredictionRequest+0x6a` -> slot 4 `IdunBattle.Core.Services.DamagePrediction$$PredictAttack`.
+        # MESURE bit-exacte (`probe_226r_skystrike_spread.py`, meme etat + meme rng dumpe) : SkyStrike live
+        # = [3334, 3156, 2477] == `execute_normal_like(V, spread_pct=20)` 3/3, != bornes degenerees (V,V)
+        # et != bornes brutes roll-then-reduce. Defaut 0 => strict no-op pour les call-sites existants.
+        self.amount_spread_pct = int(amount_spread_pct)
 
     def execute(self, entities, ectx):
         from ...operations.damage import AttackDamageOperation
@@ -216,9 +239,10 @@ class AttackWithAttackDamage(AbilityBehaviour):
                 csc = ce.get_component(StatsComponent) if ce is not None else None
                 pierce = profile_pierce(csc.ctx if csc is not None else None, self.profile,
                                         ranged=not self.is_melee)
-                atk = AttackDamageOperation.execute_normal_like(  # montant mono-valeur -> spread_pct=0
+                atk = AttackDamageOperation.execute_normal_like(  # variance pilotee par l'octet +6 des options
                     state, caster, tgt, base, pierce,
-                    hits=int(self.hits) if self.hits is not None else 1, spread_pct=0,
+                    hits=int(self.hits) if self.hits is not None else 1,
+                    spread_pct=self.amount_spread_pct,
                     damage_profile=self.profile, is_melee=self.is_melee,
                     ability_type=self.ability_type,
                     # meme classification que le mode bornes (cf. `native_factory`) : elle pilote
