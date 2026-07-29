@@ -268,10 +268,11 @@ def test_pilein_endturn_roll_count_matches_live(rpc, seed):
             live_spawn = len(_pilein_units(dview(), mine) - grots)
 
             st = load_state(dv, ob, snap, board=board)
-            # SEED MANUEL de `turnsFinished` (`BaseUnitComponent + 0x5c`) : aucun RPC ne l'expose
-            # (ce n'est PAS un `StatType`), donc `load_state` part a 0 -> gate FERME a tort. La
-            # valeur posee est l'age OBSERVE du grot + 1 : le natif bumpe le compteur AVANT
-            # d'executer `On(0x17)`, et ce test appelle le VECTEUR seul (pas `EndTurnOperation`).
+            # SEED MANUEL de `turnsFinished` (`BaseUnitComponent + 0x5c`) : il ECRASE celui que
+            # `load_state` pose depuis `combatSnapshot.turnsFinished` (#234), et c'est NECESSAIRE ici
+            # -- la valeur posee est l'age OBSERVE du grot + 1, car le natif bumpe le compteur AVANT
+            # d'executer `On(0x17)` et ce test appelle le VECTEUR seul (pas `EndTurnOperation`, qui
+            # porte le bump). Le seed du canal, lui, rend l'etat AVANT bump.
             for g in grots:
                 ge = st.get_entity(g)
                 guc = ge.get_component(UnitComponent) if ge is not None else None

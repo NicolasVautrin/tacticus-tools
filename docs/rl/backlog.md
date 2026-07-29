@@ -337,10 +337,13 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         âge 1 → **1** ou **5** ; port 8/8.
       - ~~**`load_state` ne seede pas `state.turn_counts`**~~ — **REQUALIFIÉ, sans consommateur** :
         l'unique lecteur restant (`EnvAmbushResurrectAbility`) en prend une DIFFÉRENCE avec
-        `turn_defeated`, écrit depuis le même compteur ⇒ invariant par décalage. Ce qui reste est le
-        seed du compteur **PER-UNITÉ** : gap de **hooks** (résidu **N11** de
-        `port-residuals-inventory.md`) — `+0x5c` n'est pas un `StatType`, `combatSnapshot` ne peut
-        donc pas l'atteindre ⇒ capteur à écrire, **rebuild + reinject requis**.
+        `turn_defeated`, écrit depuis le même compteur ⇒ invariant par décalage. Le seed du compteur
+        **PER-UNITÉ**, lui, est **FAIT** (`case-234-load-state-turns-finished.md`, résidu N11 fermé) :
+        `+0x5c` n'est pas un `StatType`, donc le capteur INVOQUE
+        `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` et `_load_unit_turn_state` pose la
+        valeur en tri-état. Mesure live 2 (seed, board) : à l'âge 1 du grot, port `load_state` seul
+        **1/1** et **2/2** tirages (dont une réplique réellement spawnée sur `C4_09`/31337), là où
+        l'état non seedé rendait **0** — verdict de gate opposé.
     - **Feuilles `Tile(7)` gatées sur l'unité, dans le tri de placement** — **RÉSOLU pour les
       call-sites dont `dc.units` est le CASTER** (`case-165b-tile7-unit-gated-leaf.md`) : le
       sélecteur est lu dans `SortTilesByUtilitySelector$$Select` (`dc.units = this.units.Select(…)`,

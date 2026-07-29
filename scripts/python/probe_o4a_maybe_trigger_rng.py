@@ -220,8 +220,9 @@ class _DeterministicPileIn:
 def _pilein_candidates(st, player):
     """Les grots que le gate DETERMINISTE de PileIn retiendrait (mirror des gates NON-Maybe :
     passif PileIn, vivant, meme joueur, PV pleins). DIAGNOSTIC : le gate d'AGE
-    (`OwnerHasFinishedMinTurns(2)`) est volontairement EXCLU ici -- `load_state` ne seede pas
-    `turns_finished` (residu N11), donc l'appliquer sur l'etat charge ne dirait rien de vrai."""
+    (`OwnerHasFinishedMinTurns(2)`) est volontairement EXCLU ici -- ce comptage sert de BORNE
+    SUPERIEURE des candidats, et l'appelant pose lui-meme `turns_finished` depuis l'age observe
+    (il ecrase alors celui que `load_state` seede depuis `combatSnapshot.turnsFinished`, #234)."""
     import gameconfig as GC
     from engine.runner.components import UnitComponent, OwnerComponent, HealthComponent
     out = []

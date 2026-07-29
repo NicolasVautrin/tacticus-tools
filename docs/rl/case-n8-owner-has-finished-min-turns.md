@@ -98,32 +98,35 @@ valeur absolue** :
   teste `turn_counts[player] − turn_defeated == 1`, et `turn_defeated` est **écrit depuis
   `turn_counts`** par `Ambush_SummonAbility` ⇒ la différence est **invariante par décalage**.
 
-### Le gap de seed réel — et il est côté HOOKS
+### Le seed du compteur PER-UNITÉ — FAIT (`case-234-load-state-turns-finished.md`)
 
-Ce qu'il faudrait seeder, c'est le compteur **per-unité**. Il n'est exposé par **aucun** RPC :
+Ce qu'il fallait seeder, c'est le compteur **per-unité**, et il a exigé les DEUX moitiés :
 
-- `decisionView` / `observeBattle` / `combatSnapshot` / `tileMeta` (les quatre canaux que
-  `load_state` consomme) ne portent aucun compteur de tour ;
-- `combatSnapshot` passe par `UnitExtensions.GetStat(unit, StatType)` et **`turnsFinished` n'est pas
-  un `StatType`** (l'énumération va de 0 à 26 et n'en contient aucun) : ce canal ne peut pas
-  l'atteindre, quel que soit l'id ajouté à `COMBAT_STAT_IDS` ;
-- le compteur JOUEUR, lui, est lisible (`readTurnInfo` dans `frida/hooks/game/match-state.ts`,
-  `TurnComponent.GetAmountOfTurnsStartedByCurrentPlayer`) mais n'est émis que par `aiTurn`
-  (`features/cheat.ts`) et `move-options`, jamais dans le chemin de chargement — et il ne rend que le
-  joueur COURANT, pas le dictionnaire.
+- **le capteur** — `combatSnapshot.units[].turnsFinished`. `combatSnapshot` passe par
+  `UnitExtensions.GetStat(unit, StatType)` et **`turnsFinished` n'est pas un `StatType`**
+  (l'énumération va de 0 à 26 et n'en contient aucun) : aucun id ajouté à `COMBAT_STAT_IDS` ne
+  l'atteindrait. Le capteur **invoque donc la fonction nommée**
+  `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished(unit) -> Int32` plutôt que de lire `+0x5c` en
+  brut — un offset est vrai jusqu'à la prochaine MAJ et faux silencieusement après, le symbole se
+  re-résout tout seul ;
+- **le seed** — `snapshot._load_unit_turn_state`, qui pose la valeur sur
+  `UnitComponent.turns_finished` en TRI-ÉTAT (absent / `null` = non mesuré → défaut du port intact ;
+  un entier = mesure). Émettre le champ sans le consommer laissait le canal MORT : c'est exactement
+  l'état intermédiaire qu'a fermé `#234`.
 
-**Champ manquant, nommément** : `BaseUnitComponent + 0x5c`, à lire directement sur le composant
-(comme `match-state.ts` lit déjà `DefeatedByMeleeAttack` / `DeathReason` via
-`getFieldOffset(unitComponentClass, …)`) et à émettre p. ex. en `decisionView.units[].turnsFinished`.
-Cela exige un rebuild + reinject Frida ⇒ inscrit en résidu **N11** de `port-residuals-inventory.md`,
-à grouper avec un autre besoin de capteur.
+(Le compteur JOUEUR, lui, est lisible par ailleurs — `readTurnInfo` dans
+`frida/hooks/game/match-state.ts`, `TurnComponent.GetAmountOfTurnsStartedByCurrentPlayer` — mais
+n'est émis que par `aiTurn` (`features/cheat.ts`) et `move-options`, et ne rend que le joueur
+COURANT, pas le dictionnaire. Il n'a de toute façon plus de consommateur dont le comportement dépende
+de son seed, cf. ci-dessus.)
 
-**Portée réelle du résidu** : nulle dans le cas NOMINAL. Le runner Python charge un snapshot d'un
-runner **fraîchement bâti** (tous les compteurs à 0, ce que `load_state` produit déjà) puis reproduit
-l'évolution ; et **tous** les porteurs de `PileIn` sont des summons créés par le port lui-même
-(`orksNpc1Grot`, `kind = summons`, hors `--list-pool`, amené par `orksRuntherd`/`SquigHound` ou
-`Snotflogga`/`GetEmRuntz`) — leur compteur est donc exact sans aucun seed. Seul un **replay one-shot
-chargé mi-bataille** doit poser la valeur, et les trois sites qui le font le disent.
+**Portée** : nulle dans le cas NOMINAL — le runner Python charge un snapshot d'un runner
+**fraîchement bâti** (tous les compteurs à 0) puis reproduit l'évolution, et **tous** les porteurs de
+`PileIn` sont des summons créés par le port lui-même (`orksNpc1Grot`, `kind = summons`, hors
+`--list-pool`, amené par `orksRuntherd`/`SquigHound` ou `Snotflogga`/`GetEmRuntz`). C'est le **replay
+one-shot chargé mi-bataille** que le seed débloque : mesuré à l'âge 1 du grot, le port montait un
+gate FERMÉ (0 tirage) là où le natif l'avait OUVERT (1 puis 2 tirages, avec réplique réellement
+spawnée sur `C4_09`/31337).
 
 ---
 
@@ -190,7 +193,9 @@ AssertionError: assert 0 == (0 + 1)
 
 ## 5. Ce qui n'est PAS couvert
 
-- **Seed de `turnsFinished` depuis le live** — résidu **N11**, gap de capteur (cf. §2).
+- ~~**Seed de `turnsFinished` depuis le live**~~ — **FAIT le 2026-07-29**
+  (`case-234-load-state-turns-finished.md`, résidu N11 fermé) : capteur + consommation par
+  `_load_unit_turn_state`, cf. §2.
 - **Le compteur de la Machine of War** : le natif bumpe aussi `+0x5c` sur la MoW du joueur. Le port le
   fait (les entités MoW portent un `UnitComponent`, cf. `snapshot._load_machines`) mais **aucun
   consommateur n'est porté** — `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability` et
