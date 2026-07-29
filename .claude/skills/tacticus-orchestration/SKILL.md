@@ -333,13 +333,39 @@ normal et sans danger depuis la neutralisation du détecteur de gel.
 GameAssembly.dll installé**) et **refuse d'écrire** s'il ne peut pas l'établir.
 
 **Étape 2 — Ghidra** : importer le nouveau `GameAssembly.dll` dans un projet neuf, laisser
-l'analyse finir (~2 min), puis appliquer les noms via `scripts/ghidra/GhidraApplyIl2CppSymbols.java`.
+l'analyse finir, puis appliquer les noms via `scripts/ghidra/GhidraApplyIl2CppSymbols.java`.
 Ce script **vérifie l'estampille avant toute écriture** et s'arrête si elle ne correspond pas
-au binaire chargé. Démarrer le serveur sur le nouveau projet :
+au binaire chargé. Les trois se font en **un seul appel headless** :
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Eclipse Adoptium\jdk-21.0.9.10-hotspot'
+$env:GHIDRA_INSTALL_DIR='C:\Users\nicolasv\ghidra_12.0.4_PUBLIC'
+& 'C:\Users\nicolasv\ghidra_12.0.4_PUBLIC\support\analyzeHeadless.bat' `
+  'C:\Users\nicolasv\ghidra-projects\ghidra_<HASH>' gameassembly `
+  -import 'C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\GameAssembly.dll' `
+  -postScript GhidraApplyIl2CppSymbols.java `
+  -scriptPath 'C:\Users\nicolasv\tacticus-tools\scripts\ghidra' -max-cpu <N>
+```
+
+> **⏱ Compter ~1 heure, PAS « quelques minutes ».** Mesuré le 2026-07-29 sur
+> `rnca9r7q6c` (57 Mo, 124 719 méthodes), 19 cœurs : **54 min 52 s** de bout en bout,
+> dont seulement **452 s d'auto-analyse** et **18 s de symbolisation** — c'est
+> l'**import** qui domine. Le lancer en tâche de fond et faire autre chose.
+> Pic mémoire **11,9 Go** contre `MAXMEM=16G` dans `analyzeHeadless.bat` : la marge
+> n'est pas énorme, vérifier ce réglage si un build plus gros OOM.
+> Ne pas confondre avec le « ~2 min » cité plus haut : celui-là est le **boot de
+> pyghidra-mcp sur un projet DÉJÀ analysé**, pas l'analyse.
+
+Puis démarrer le serveur sur le nouveau projet :
 
 ```bash
 pwsh -File C:\Users\nicolasv\ghidra-mcp\start-ghidra-mcp.ps1 -Project <chemin\nouveau.gpr>
 ```
+
+⚠ **Le lanceur Tacticus SUPPRIME le dossier de l'ancien build** dès la mise à jour : son
+`GameAssembly.dll` n'est plus re-dumpable, et son projet Ghidra devient la **seule** trace
+de son code. Ne jamais nettoyer un projet dont le DLL a disparu — cf.
+`C:\Users\nicolasv\ghidra-projects\NE-PAS-SUPPRIMER.md`.
 
 **Étape 3 — EXTRAIRE la table DE Ghidra, et la COMMITER.** Rien n'est relu du jeu ici : on
 sort de Ghidra ce qu'on vient d'y faire entrer, enrichi des frontières de fonctions.
