@@ -389,7 +389,7 @@ python -m pytest tests/engine/runner/test_ability_hits_channel_live.py -q
   `make_damage_predictions` dérive « a bougé » de `attack_pos != scene.pos(caster)` (donc `False`
   pour la tuile courante) au lieu de lire `UnitFlag.Moved`. Un caster ranged **déjà déplacé** garde
   donc `HeavyWeapon_ExtraDmg` côté port : **×1,25 uniforme sur tous les events** (mesuré
-  `u77 [13464,20196]` port vs `[10772,16160]` natif). **Ce n'est plus un gap d'outillage** : le flag
+  `u77 [13464,20196]` port vs `[10772,16160]` natif). **Ce n'est pas un gap d'outillage** : le flag
   est publié par `combatSnapshot.units[].unitFlags` et `load_state` le seede
   (`snapshot._load_unit_flags`, cf. `case-101` §6) ; la face COMBAT le lit déjà par
   `components.unit_has_moved`. Ce qui reste est le CÂBLAGE de la face prédiction — projeter le flag
