@@ -390,11 +390,35 @@ python scripts/python/probe_va_citation_shapes.py scripts/python/engine   # taux
 
 Une citation qui ne résout plus = une mécanique à re-RE, pas un simple renommage.
 
-**Étape 5 — comparer les gameconfig.** Les symboles disent ce que le CODE a changé, pas ce que
-les DONNÉES ont changé. Le gameconfig n'est ni dans le dépôt ni dans le répertoire du jeu : il
-est téléchargé au runtime dans `AppData/LocalLow/Snowprint/<produit>/gameconfig/<hash>.json`,
-**une copie par version, qui s'accumulent** — c'est cette accumulation qui sert d'historique.
-Celle qui fait foi est **la plus récemment écrite**.
+**Étape 5 — ARCHIVER le gameconfig, PUIS comparer.** Les symboles disent ce que le CODE a
+changé, pas ce que les DONNÉES ont changé. Le gameconfig est téléchargé au runtime dans
+`AppData/LocalLow/Snowprint/<produit>/gameconfig/<hash>.json`.
+
+> **⛔ Le premier geste est de le COPIER dans le dépôt, AVANT toute autre chose :**
+>
+> ```powershell
+> Copy-Item '<AppData>\...\gameconfig\<hash>.json' 'data\symbols\<BUILD>\gameconfig.json'
+> git add data/symbols/<BUILD>/gameconfig.json
+> ```
+>
+> Il va dans le **répertoire du build**, à côté de `BUILD`, `frida/` et `ghidra/` : un build =
+> un répertoire, tout ce qui le décrit au même endroit.
+>
+> **Une croyance fausse a coûté la ligne de base du 2026-07-29** : cette procédure affirmait
+> qu'il y avait « une copie par version, qui s'accumulent », et que cette accumulation servait
+> d'historique. **Faux, mesuré** — le lanceur ÉCRASE. Il n'existe qu'**UN SEUL** gameconfig
+> complet sur disque à un instant donné (les dizaines d'autres `.json` du dossier font 0 Mo :
+> des configs partielles, écartées par `_is_full_config`). Résultat : le gameconfig de
+> `gqfc5mff6c` a disparu sans jamais avoir été versionné, et on ne saura **jamais** ce que
+> cette mise à jour a changé dans les données — alors qu'on sait précisément ce qu'elle a
+> changé dans le code.
+>
+> ⚠ `scripts/python/gameconfig.py` lit le fichier **VIVANT**, pas la copie versionnée : dès
+> que le jeu se met à jour, le port consomme les nouvelles données **silencieusement**. La
+> copie dans `data/gameconfig/` est l'**archive** qui rend le diff possible, pas le chemin de
+> lecture.
+
+Celui qui fait foi pour le build courant est **le plus récemment écrit**.
 
 ```bash
 python scripts/python/gameconfig.py --which              # quel instantané est lu (+ hash)
