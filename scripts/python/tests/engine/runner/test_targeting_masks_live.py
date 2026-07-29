@@ -41,6 +41,7 @@ ASCII only. Le harnais indisponible = ECHEC (conftest), jamais un skip vert.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -61,6 +62,7 @@ DA_UNITS = "darkaTerminator,darkaHellblaster,darkaAzrael,darkaAsmodai,darkaCompa
 EA_UNITS = "eldarFarseer,eldarMauganRa,worldJakhal,worldKharn,eldarAutarch"
 STORM_SPEEDER = "darkaStormSpeeder"
 WARMUP_ENDTURNS = 6                                    # purge les `initialCooldownTurns` du tour 1
+MOW_AMMO = 5                                           # cf. masks_da : sans munitions, 1213 = 0x1
 
 # Raisons de DISPONIBILITE rendues EN AMONT du filtre de cible (cf. l'en-tete) -> hors contrat.
 REQUEST_LEVEL_REASONS = frozenset({int(TR.ValidRequest), int(TR.AlreadyUseThisTurn)})
@@ -152,7 +154,18 @@ def _advance(rpc, rid: int, n: int = WARMUP_ENDTURNS) -> None:
 def masks_da(rpc, build_runner, tmp_path_factory):
     """Bataille DarkAngels : les 5 HERO + la MoW `darkaStormSpeeder`. Cette derniere est une des 17
     unites `lineup` absentes du catalogue du seed BC -> `catalog_inject.py` produit un seed BC
-    augmente (Units + configs d'ability), cf. runner.md 1bis."""
+    augmente (Units + configs d'ability), cf. runner.md 1bis.
+
+    MUNITIONS (#254) : `DeathOnTheWind` (1213) porte la constante `munitionsCost` = 1, et le seed BC
+    capture pose `MachineOfWarAmmo = 0` sur les trois joueurs. Sans munitions l'ability n'est pas
+    disponible, donc `AttackQuery$$GetInvalidTargetReason` sort EN AMONT du filtre de cible et rend
+    `ValidRequest` (0x1) pour TOUTE cible : le masque n'est jamais confronte. MESURE
+    (`probe_254_mow_ammo.py`, meme montage, 6 endturns) --
+        ammo 0 -> 1213 : 0x1 sur les 10 cibles
+        ammo 5 -> 1213 : 0x80000 `TargetTileHasEnemyUnit` sur les 5 ALLIES,
+                                 0x2 `TargetMatchesDynamicRule` sur les 5 ENNEMIS
+    Poser les munitions est une extension de HARNAIS (parametre de bataille, comme
+    `probe_123_hailstrike_phase2.py`), pas une mecanique : elle rend la condition testee ATTEIGNABLE."""
     seed_bc = tmp_path_factory.mktemp("masks") / "seed-bc-storm.json"
     p = subprocess.run([sys.executable, "catalog_inject.py", "--units", STORM_SPEEDER,
                         "--out", str(seed_bc)], cwd=str(PYDIR), capture_output=True,
@@ -160,6 +173,11 @@ def masks_da(rpc, build_runner, tmp_path_factory):
     if not seed_bc.exists():
         pytest.fail(f"catalog_inject KO pour {STORM_SPEEDER} : {(p.stderr or p.stdout)[-400:]}",
                     pytrace=False)
+    bc = json.loads(seed_bc.read_text(encoding="utf-8"))
+    for pl in ((bc.get("Player") or {}).get("Players") or {}).values():
+        if isinstance(pl, dict):
+            pl["MachineOfWarAmmo"] = MOW_AMMO
+    seed_bc.write_text(json.dumps(bc), encoding="utf-8")
     rid = build_runner("777", extra=["--board", BOARD, "--seed-bc", str(seed_bc),
                                      "--p-units", DA_UNITS, "--p-mow", STORM_SPEEDER,
                                      "--a-units", FOES, "--no-ai"])["rid"]

@@ -77,9 +77,17 @@ def decoy_case(request, rpc, build_runner):
     return build_sweep_order_case(rpc, build_runner, seed=seed, board=board, step=step, extra=extra)
 
 
-def _leaf(utility_type: int):
+def _leaf(name: str):
+    """Feuille du composite Tile, designee par son MEMBRE `UtilityType` -- jamais par un litteral.
+
+    #254 : la MAJ de build a renumerote `UtilityType` (`AttackTile` insere en 8, 59 membres decales
+    de +1), donc `SteppableUnit` vaut 20 et non plus 19, `DecoysAndMisdirection_AttractToDecoys` 65
+    et non plus 64. Un `_leaf(19)` litteral ne trouve alors plus rien (StopIteration) -- ou, pire,
+    trouve la feuille du VOISIN."""
     from engine.utilities.tile import TILE_UTILITY
-    return next(c for c in TILE_UTILITY.children if int(c.UTILITY_TYPE) == utility_type)
+    from engine.utilities.utility_type import UtilityType
+    want = int(getattr(UtilityType, name))
+    return next(c for c in TILE_UTILITY.children if int(c.UTILITY_TYPE) == want)
 
 
 def _metas(case):
@@ -166,7 +174,7 @@ def test_leaves_fire_exactly_on_tiles_with_a_friendly_steppable_occupant(decoy_c
     Sur une candidate sans occupant steppable : les DEUX feuilles rendent 0 -- c'est la contre-epreuve
     d'une pose trop large, qui se verrait ici et nulle part ailleurs."""
     wt = decoy_case.ctx.wt
-    l19, l64 = _leaf(19), _leaf(64)
+    l19, l64 = _leaf(CAT_19), _leaf(CAT_64)
     metas, lc = _metas(decoy_case)
     n = 1 if ATTRACT_ABILITY in (lc.get("unit_triggered_abilities") or ()) else 0
     n += sum(1 for u in (lc.get("friend_units") or ())
@@ -202,7 +210,7 @@ def test_residual_on_decoy_tiles_is_the_measured_plus_25(decoy_case):
     de la BC. Un port qui n'armerait qu'UNE des deux feuilles rendrait -50 ou +75 et tomberait ici,
     en nommant laquelle."""
     wt = decoy_case.ctx.wt
-    l19, l64 = _leaf(19), _leaf(64)
+    l19, l64 = _leaf(CAT_19), _leaf(CAT_64)
     metas, lc = _metas(decoy_case)
     n = 1 if ATTRACT_ABILITY in (lc.get("unit_triggered_abilities") or ()) else 0
     n += sum(1 for u in (lc.get("friend_units") or ())
@@ -274,7 +282,7 @@ def test_leaf_19_branch_order_shortcircuits_before_the_decoy_trait():
     court-circuit -- 0 sur cette BC, ou elle est absente. Inverser l'ordre rendrait -50."""
     from engine import weights as W
     wt = W.load()
-    l19 = _leaf(19)
+    l19 = _leaf(CAT_19)
     friendly_decoy = {"is_friend": True, "is_enemy": False, "is_decoy": True}
     assert l19.evaluate((0, 0), {"steppable": dict(friendly_decoy, triggered=())}, {}, wt) \
         == wt.sub(CAT_19, KEY_FRIENDLY_DECOY)

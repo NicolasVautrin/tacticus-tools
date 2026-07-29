@@ -407,6 +407,74 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
     return sorted(k for k in G._index()["lineup"] if k not in have)
 
 
+# ------------------------------------------------- rafraichissement du 2e catalogue (#254)
+
+def refresh_ability_configs(bc: dict) -> tuple[list, list]:
+    """RE-SYNTHETISE `BC.Abilities` depuis le gameconfig VIVANT, EN PLACE. Rend (rafraichies,
+    ajoutees).
+
+    POURQUOI (#254, MIGRATION DE BUILD). `data/seed-bc.json` est la capture d'UNE bataille, faite
+    sur UN build ; `scripts/python/gameconfig.py`, lui, lit le fichier VIVANT de
+    AppData/LocalLow/Snowprint, donc celui du build COURANT. Une mise a jour du jeu qui AJOUTE une
+    variable ou une constante a une ability laisse la capture en arriere -- et le code natif NEUF la
+    lit :
+
+        `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` fait un TryGetValue sur
+        `Constants` (this+0x18) ; sur ECHEC il construit une `System.Exception` et la LEVE. Idem
+        `$$GetNumberConstant` (qui delegue a GetStringConstant) et `$$GetVariableForLevel`.
+
+    Une exception managee levee sous `invokeMethod` remonte cote Frida en « system error ». Selon
+    l'endroit ou la cle est lue, la faute frappe soit le CAST, soit -- pour un PASSIF, dont l'arbre
+    DSL est bati a la creation de l'unite -- le DEPLOIEMENT, donc `initAndStart` lui-meme.
+
+    MESURE gqfc5mff6c -> rnca9r7q6c (2026-07-29), `probe_254_build_migration.py` :
+      - `ShockAssault` (PASSIF de `ultraInceptorSgt`) gagne la constante `unitId=ultraSmnInceptor`,
+        lue par `IdunBattleLogic.Entities.Abilities.Active.Loki.ShockAssaultAbility$$GetAffectedUnits`
+        que `$$CreateTrigger` appelle a la construction du trigger
+        -> tout `rl_duel build` dont un roster contient `ultraInceptorSgt` rendait
+           « [error] initAndStart: system error ».
+      - `ResurrectionOrb` (ACTIVE de `necroOverlord`) gagne la variable `hpPct` et la constante
+        `maxSummons` ; `FearOfTheUnseen` (ACTIVE de `tyranDeathleaper`) gagne `initialCooldownTurns`
+        -> ces deux-la se DEPLOIENT et fautent au CAST.
+      Les 273 autres configs sont INCHANGEES : le refresh est un no-op mesure sur 273/277 entrees
+      (`--validate` diffe champ a champ), il ne « reecrit » donc pas le catalogue, il le RATTRAPE.
+
+    CE N'EST PAS UN HACK : `BC.Abilities` est construit par le jeu depuis SON gameconfig a chaque
+    bataille. Re-synthetiser depuis le gameconfig courant, c'est refaire ce que le jeu fait --
+    `synthesize_ability` en est le mirror, prouve par `--validate`.
+
+    Les entrees dont `units.abilities` n'a AUCUN pendant (48 sur 325) sont des configs INTERNES au
+    moteur (traits Ambush/PrioritisedEfficiency/..., abilities d'environnement) : non derivables,
+    donc laissees telles quelles.
+    """
+    node = bc.setdefault("Abilities", {})
+    act_node = node.setdefault("ActiveAbilities", {})
+    pas_node = node.setdefault("PassiveAbilities", {})
+    refreshed, added = [], []
+    for target in (act_node, pas_node):
+        for name in list(target):
+            if G.ability(name) is None:                 # config interne moteur : non derivable
+                continue
+            synth = synthesize_ability(name)
+            if synth != target[name]:
+                target[name] = synth
+                refreshed.append(name)
+    # Une ability AJOUTEE a une unite deja au catalogue n'a aucune config : meme faute, cause
+    # symetrique. Mirror du peuplement de `BC.Abilities` (cf. `_ability_names`).
+    for u in (bc.get("Units") or []):
+        act, pas = _ability_names(u.get("Id") or "")
+        for names, target in ((act, act_node), (pas, pas_node)):
+            for n in names:
+                if n in target:
+                    continue
+                try:
+                    target[n] = synthesize_ability(n)
+                    added.append(n)
+                except KeyError:
+                    pass
+    return sorted(set(refreshed)), sorted(set(added))
+
+
 # --------------------------------------------------------------------------- validation
 
 # Champs recalcules par buildNormalizedBC ou issus de l'etat JOUEUR (progression / relique

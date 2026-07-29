@@ -92,12 +92,15 @@ CASE_SYMBOLS = [
 # ---------------------------------------------------------------------------- build / chemins
 
 def resolve_build():
-    """Hash du dump versionne (`data/symbols/<build>/BUILD`), verifie contre le jeu installe."""
-    sym_root = os.path.join(_DATA, "symbols")
-    builds = [d for d in os.listdir(sym_root) if os.path.isdir(os.path.join(sym_root, d))]
-    if len(builds) != 1:
-        raise SystemExit("ERREUR: %d builds dans data/symbols (attendu 1): %s" % (len(builds), builds))
-    build = builds[0]
+    """Hash du dump versionne (`data/symbols/<build>/BUILD`), verifie contre le jeu installe.
+
+    #254 : exigeait auparavant un repertoire UNIQUE sous `data/symbols/`, ce qui cassait des qu'une
+    MAJ laisse l'ancien build a cote du neuf -- alors qu'on le conserve EXPRES (son diff est le
+    rapport de changement du jeu). Le build QUI FAIT FOI est celui que designe
+    `data/symbols/CURRENT`, lu par `symbols_layout.current_build` (meme correction que
+    `catalog_inject._build_hash`)."""
+    from symbols_layout import current_build
+    build = current_build()
     installed = sorted(d for d in os.listdir(_GAMES)
                        if os.path.isdir(os.path.join(_GAMES, d)) and not d.startswith("."))
     if build not in installed:

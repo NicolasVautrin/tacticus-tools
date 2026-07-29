@@ -82,8 +82,10 @@ from ..entities.traits.unit_trait import UnitTrait
 from ..entities.unit_faction import UnitFaction, faction_value
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
-# #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native ; value-preserving,
-# IntEnum -> clés `TILE_LEAVES[i]` inchangées).
+# #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native).
+# #254 : les clés de `TILE_LEAVES` sont désormais des MEMBRES elles aussi. L'ancienne note « value-
+# preserving, IntEnum -> clés TILE_LEAVES[i] inchangées » ne vaut PLUS : une MAJ de build peut
+# renuméroter l'enum (elle l'a fait), et seul un appariement membre<->membre y survit.
 TILE_LEAF_IDS = [
     UtilityType.Elevation, UtilityType.TemporaryTile, UtilityType.TileEffects,           # 8, 13, 9
     UtilityType.UnitEffectsAdjacent, UtilityType.UnitEffectsSurrounding, UtilityType.UnitEffectsRanged,  # 10, 11, 12
@@ -681,38 +683,47 @@ class TriggeredAbilitiesUtility(BaseUtility):
 
 
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
+#
+# CLES = MEMBRES `UtilityType`, JAMAIS des litteraux (#254). Elles etaient numeriques ; #158 avait
+# note « value-preserving, IntEnum -> cles TILE_LEAVES[i] inchangees » — hypothese devenue FAUSSE a
+# la MAJ de build : `#252 fe5b9245` a re-derive l'enum (`AttackTile` INSERE en 8, 59 membres decales
+# de +1), si bien que `TILE_LEAF_IDS` (des membres) indexait ce dict (des litteraux ANCIENS) et
+# rendait la MAUVAISE feuille pour 26 des 29 entrees -- silencieusement : `TILE_UTILITY` sommait
+# `TileEffectsUtility` la ou l'ordre runtime demandait `Elevation`, et les feuilles `SteppableUnit`
+# / `DecoysAndMisdirection_AttractToDecoys` (#241) disparaissaient du composite. Avec des MEMBRES des
+# deux cotes, une renumerotation future est sans effet sur l'appariement.
 TILE_LEAVES: dict[int, tuple] = {
     # --- ACTIVES (metadata dispo aujourd'hui) ---
-    8:  ("Elevation", ElevationUtility()),
-    19: ("SteppableUnit", SteppableUnitUtility()),
-    9:  ("TileEffects", TileEffectsUtility()),
-    13: ("TemporaryTile", TemporaryTileUtility()),   # RÉELLE (meta.is_temporary via tileMeta)
+    UtilityType.Elevation:  ("Elevation", ElevationUtility()),
+    UtilityType.SteppableUnit: ("SteppableUnit", SteppableUnitUtility()),
+    UtilityType.TileEffects:  ("TileEffects", TileEffectsUtility()),
+    UtilityType.TemporaryTile: ("TemporaryTile", TemporaryTileUtility()),  # RÉELLE (meta.is_temporary via tileMeta)
     # --- PORTÉES FIDÈLE, DORMANTES (gate sur metadata par-tuile/unité non encore plombée → 0) ---
-    10: ("UnitEffectsAdjacent", UnitEffectsAdjacentUtility()),
-    11: ("UnitEffectsSurrounding", UnitEffectsSurroundingUtility()),
-    12: ("UnitEffectsRanged", UnitEffectsRangedUtility()),
-    24: ("CapturePoint", CapturePointTileUtility()),
-    26: ("PowerUp", PowerUpTileUtility()),
-    25: ("Contaminated", ContaminatedUtility()),
-    23: ("MoltenForm", MoltenForm_TilesUtility()),
-    14: ("TilePendingBlockableSummon", TilePendingBlockableSummonUtility()),
-    31: ("EnvEndBombardment", EnvEndBombardmentUtility()),
-    28: ("DespoiledGround", DespoiledGroundUtility()),
-    29: ("SummonDislikeDoorOpening", SummonDislikeDoorOpeningUtility()),
-    30: ("HeroLikeDoorOpening", HeroDoorOpeningUtility()),
-    60: ("Phantasm_AvoidFriendlyPhantasm", Phantasm_AvoidFriendlyPhantasmUtility()),
-    58: ("EchoesFromTheWarp_FriendliesAvoidGhost", EchoesFromTheWarp_FriendliesAvoidGhostUtility()),
-    57: ("DoctrinaImperatives_AttractMechanicals", AttractMechanicalsUtility()),
-    64: ("DecoysAndMisdirection_AttractToDecoys", AttractToDecoysUtility()),
-    20: ("KustomForceField", KustomForceFieldUtility()),
-    21: ("DefenderOfTheGreaterGood", DefenderOfTheGreaterGoodUtility()),
-    22: ("SaviorProtocols", SaviorProtocolsUtility()),
-    61: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
-    62: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
+    UtilityType.UnitEffectsAdjacent: ("UnitEffectsAdjacent", UnitEffectsAdjacentUtility()),
+    UtilityType.UnitEffectsSurrounding: ("UnitEffectsSurrounding", UnitEffectsSurroundingUtility()),
+    UtilityType.UnitEffectsRanged: ("UnitEffectsRanged", UnitEffectsRangedUtility()),
+    UtilityType.CapturePoint: ("CapturePoint", CapturePointTileUtility()),
+    UtilityType.PowerUp: ("PowerUp", PowerUpTileUtility()),
+    UtilityType.Contaminated: ("Contaminated", ContaminatedUtility()),
+    UtilityType.MoltenForm: ("MoltenForm", MoltenForm_TilesUtility()),
+    UtilityType.TilePendingBlockableSummon: ("TilePendingBlockableSummon", TilePendingBlockableSummonUtility()),
+    UtilityType.EnvEndBombardment: ("EnvEndBombardment", EnvEndBombardmentUtility()),
+    UtilityType.DespoiledGround: ("DespoiledGround", DespoiledGroundUtility()),
+    UtilityType.SummonDislikeDoorOpening: ("SummonDislikeDoorOpening", SummonDislikeDoorOpeningUtility()),
+    UtilityType.HeroLikeDoorOpening: ("HeroLikeDoorOpening", HeroDoorOpeningUtility()),
+    UtilityType.Phantasm_AvoidFriendlyPhantasm: ("Phantasm_AvoidFriendlyPhantasm", Phantasm_AvoidFriendlyPhantasmUtility()),
+    UtilityType.EchoesFromTheWarp_FriendliesAvoidGhost: ("EchoesFromTheWarp_FriendliesAvoidGhost", EchoesFromTheWarp_FriendliesAvoidGhostUtility()),
+    UtilityType.DoctrinaImperatives_AttractMechanicals: ("DoctrinaImperatives_AttractMechanicals", AttractMechanicalsUtility()),
+    UtilityType.DecoysAndMisdirection_AttractToDecoys: ("DecoysAndMisdirection_AttractToDecoys", AttractToDecoysUtility()),
+    UtilityType.KustomForceField: ("KustomForceField", KustomForceFieldUtility()),
+    UtilityType.DefenderOfTheGreaterGood: ("DefenderOfTheGreaterGood", DefenderOfTheGreaterGoodUtility()),
+    UtilityType.SaviorProtocols: ("SaviorProtocols", SaviorProtocolsUtility()),
+    UtilityType.BioMinefield_MoveTowardsTarget: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
+    UtilityType.MasterOfTheTutelaries_MoveTowardsTarget: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
     # --- Dispatcher playbook PORTÉ (case-36) : abilities déclenchées de l'unité qui bouge ---
-    2:  ("TriggeredAbilities", TriggeredAbilitiesUtility()),   # face attack : cf. fonction ci-dessous
+    UtilityType.TriggeredAbilities: ("TriggeredAbilities", TriggeredAbilitiesUtility()),   # face attack : cf. fonction ci-dessous
     # --- NON portées comme simples leaves ---
-    15: ("RangedAdjacentEnemy", None),       # =0 dans le profil Default (BC HasAdjacentEnemy absent)
+    UtilityType.RangedAdjacentEnemy: ("RangedAdjacentEnemy", None),  # =0 dans le profil Default (BC HasAdjacentEnemy absent)
     # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité).
     # NonOwner(4) RE COMPLETE (#57i) : feuille `TriggeredAbilitiesNonOwnerUtility` (IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$.ctor ;
     # `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateMovementInStepsu003Ed__0$$MoveNext` ; enum `<IterateAbilities>d__3.MoveNext
@@ -725,9 +736,18 @@ TILE_LEAVES: dict[int, tuple] = {
     # des miss #57i (S14 12345 u87 / S16 2468 u79 : aucun ennemi ne porte de NonOwner) -> le vrai trou
     # etait la branche ENNEMIS de la feuille (2) TriggeredAbilities (voir adjacent_unit_preference.py).
     # A porter (feuille propre) quand un case montre une unite portant une ability NonOwner decisive.
-    4:  ("TriggeredAbilitiesNonOwner", None),
-    3:  ("UnitSpecificBehaviours", None),
+    UtilityType.TriggeredAbilitiesNonOwner: ("TriggeredAbilitiesNonOwner", None),
+    UtilityType.UnitSpecificBehaviours: ("UnitSpecificBehaviours", None),
 }
+
+# CLIQUET (#254) : la cle de chaque entree DOIT etre `UtilityType.<name>` de l'entree. C'est ce qui
+# a saute a la MAJ de build, sans bruit ; l'assertion le rend impossible a re-introduire.
+_MISKEYED = [(int(k), n) for k, (n, _i) in TILE_LEAVES.items()
+             if int(getattr(UtilityType, n, -1)) != int(k)]
+assert not _MISKEYED, (
+    "TILE_LEAVES mal keye (cle, name) : %r -- une cle doit valoir UtilityType.<name>, sinon "
+    "TILE_LEAF_IDS (des MEMBRES) selectionne la mauvaise feuille" % _MISKEYED)
+del _MISKEYED
 
 
 # Composite Tile(7) = INSTANCE `ComposedUtility` (PAS de classe `TileUtility` : Tile est un UtilityType,
@@ -1356,4 +1376,4 @@ def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,
                                                      target_uid, attack_tile)
 
 
-_TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[2][1]
+_TRIG_AB_UTILITY: TriggeredAbilitiesUtility = TILE_LEAVES[UtilityType.TriggeredAbilities][1]

@@ -75,6 +75,16 @@ La faute suit l'ABILITY, jamais l'entree de catalogue. Corollaire : un passif do
 manque fait echouer le **deploiement** (le triggered lit ses variables a la creation) — ce qui se
 lisait a tort comme « ce porteur ne peut pas spawner ».
 
+**La cause SYMETRIQUE, decouverte a la migration de build (#254)** : une config *presente mais
+PERIMEE*. Le seed BC est capture sur UN build, `gameconfig.py` lit le fichier VIVANT ; une MAJ qui
+AJOUTE une variable/constante a une ability laisse la capture en arriere, et le meme
+`GetStringConstant` leve sur la cle absente. Mesure : `ShockAssault` (passif d'`ultraInceptorSgt`)
+gagne `unitId = ultraSmnInceptor`, et **tout** `rl_duel build` dont un roster contenait cette unite
+du POOL rendait « system error » — sans la moindre injection. `_load_seed_bc` re-synthetise
+desormais `BC.Abilities` depuis le gameconfig courant a chaque chargement
+(`catalog_inject.refresh_ability_configs`). Detail :
+`docs/rl/case-254-build-migration-blockers.md`.
+
 ## 3. Le mecanisme
 
 `catalog_inject.augment(seed_bc, ids)` rend une COPIE du seed BC ou :

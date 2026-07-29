@@ -34,6 +34,9 @@ import gameconfig as GC
 from engine.ai import context as _ai_ctx
 from engine.entities.traits.unit_trait import UnitTrait, grand_alliance_trait_name
 from engine.utilities.tile import TILE_LEAF_IDS, TILE_LEAVES, tile_leaf_ctx
+# #254 : `TILE_LEAVES` est keye par MEMBRE `UtilityType`, jamais par un litteral -- la MAJ de build
+# a renumerote l'enum (`AttackTile` insere en 8), et `DespoiledGround` vaut 29, plus 28.
+from engine.utilities.utility_type import UtilityType
 
 sys.path.insert(0, os.path.dirname(__file__))      # tests/engine -> import du helper sibling
 
@@ -153,7 +156,7 @@ def test_despoiled_ground_gate_bites_per_grand_alliance(despoiled):
     """Sur la tuile que le NATIF a despoilee, la feuille `DespoiledGroundUtility` rend le poids BC
     de la grande-alliance de l'unite qui evalue -- et 0 sur la tuile temoin. Les deux branches
     (`ChaosAffectedUnit` / `ImperialAndXenosAffectedUnit`) sont confrontees dans la MEME mesure."""
-    leaf = TILE_LEAVES[28][1]
+    leaf = TILE_LEAVES[UtilityType.DespoiledGround][1]
     wt = despoiled.wt
     w_chaos = wt.sub("DespoiledGround", "ChaosAffectedUnit")
     w_imp = wt.sub("DespoiledGround", "ImperialAndXenosAffectedUnit")
@@ -205,7 +208,7 @@ def test_tile_meta_carries_effect_type_ids_end_to_end(despoiled):
     w_imp = despoiled.wt.sub("DespoiledGround", "ImperialAndXenosAffectedUnit")
     total = tile_utility(ctx, despoiled.pos_despoiled)
 
-    leaf = TILE_LEAVES[28][1]
+    leaf = TILE_LEAVES[UtilityType.DespoiledGround][1]
     saved = leaf.evaluate
     try:                                        # meme appel, feuille DespoiledGround neutralisee
         leaf.evaluate = lambda *a, **k: 0.0

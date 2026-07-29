@@ -73,6 +73,16 @@ un `copy.deepcopy` d'une entrée `Units` existante avec les ids réécrits. Ce c
 QUE `BC.Units`, donc il rejoue exactement le « system error » ci-dessus ; il porte en plus les STATS
 de l'unité clonée, ce qui fausse toute ability dont le dégât lit `StatAmount(Attack)` (#226).
 
+**La cause SYMÉTRIQUE, à la migration de build (#254)** : une config d'ability *présente mais
+PÉRIMÉE*. Le seed BC est capturé sur UN build, `gameconfig.py` lit le fichier VIVANT ; une MAJ qui
+AJOUTE une variable/constante à une ability laisse la capture en arrière, et
+`AbilityConfiguration$$GetStringConstant` LÈVE sur clé absente → même « system error », **au
+déploiement** si la clé est lue à la construction du trigger d'un PASSIF (mesuré :
+`ultraInceptorSgt`/`ShockAssault`, tout build dont un roster le contient tombait). `_load_seed_bc`
+re-synthétise donc `BC.Abilities` depuis le gameconfig courant à chaque chargement
+(`catalog_inject.refresh_ability_configs`) — no-op mesuré sur 273/277 entrées. Détail :
+`docs/rl/case-254-build-migration-blockers.md`.
+
 ## 2. Choix du board (mécaniques board-dépendantes)
 
 Élévation, trench, couverture/LOS, slot MoW **dépendent du board**. Le **choisir**, ne pas le subir :
