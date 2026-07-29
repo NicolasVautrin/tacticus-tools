@@ -983,7 +983,17 @@ derive son type de l'unite (`(movementType == 3) + 1`), la ou `GetMinDistanceToE
 `PathfinderType -> pathfinder` (12 entrees ; `0` et `3` sont les deux bases que les entrees `6..11`
 re-emballent dans des variantes teleport). L'entree **`1`**, la seule que `GetMinDistanceToEnemy`
 utilise, se comporte comme `IdunBattle.Entities.Pathfinding.IgnoreTerrainPathfinder`, qui differe du
-`WalkPathfinder` sur les deux faces qui comptent :
+`WalkPathfinder` sur les deux faces qui comptent.
+
+⚠ **Ce que l'identification repose vraiment sur** : le `.ctor` mappe le type 1 sur un `TypeInfo` que
+le binaire ne remplit qu'au runtime -- le NOM n'est donc PAS lu. Ce qui EST lu : la hierarchie
+(`classes.tsv`) partage les pathfinders en deux familles -- `IgnoreDoor`/`WaveValidator` derivent de
+`WalkPathfinder`, `IgnoreTerrain`/`IgnoreEverything` de `BasePathfinder`. Ce qui est MESURE : le
+type 1 appartient a la seconde famille (aucun test d'occupant, cout sans elevation). Ce qui reste
+**NON DEPARTAGE** : `IgnoreTerrain` (teste l'elevation) contre un pathfinder qui l'ignorerait -- les
+deux ont le meme `WeightCost` et la meme absence de test d'occupant, et AUCUN montage n'a exerce ce
+gate (`probe_17_off_occupant_gate.py`, colonne `d_flat` : 0 tuile discriminante sur `MC1_67` comme
+sur le board a cliff `C3_59`). Le port tient la variante qui TESTE l'elevation.
 
 | face | `WalkPathfinder` | pathfinder du type 1 |
 |---|---|---|
@@ -1007,3 +1017,28 @@ Deux consequences qui depassent `MinDist(16)` :
 
 Port : `engine/entities/pathfinding/ignore_terrain_pathfinder.py` (predicat, `WeightCost`, et le
 `GetPath(...).Count` de `BasePathfinder$$FindPath` rendu pour toutes les tuiles en une passe).
+
+**Montage CRAFTE qui rend le gate d'occupant discriminant** (`probe_17_off_occupant_gate.py`, garde
+`test_min_distance_path_traverses_units_live`) : on AMENE les ennemis au contact du mover -- jamais
+l'inverse, bouger le mover consommerait son activation et viderait son movable set, donc l'oracle
+`pathDistToEnemies` (montage rate au premier essai : 1 seule tuile candidate). Mesure :
+
+| board | tuiles | gate d'occupant exerce | `d_walk` (contre-variante) | `d_natif` == port |
+|---|---|---|---|---|
+| `777/C4_09` | 37 | 2 -- (5,9) et (6,8) | 9 et 10 | 8 et 8, **0 divergence / 37** |
+| `12345/MC1_67` | 10 | 2 -- (3,2) et (3,3) | 6 et 5 | 5 et 4, **0 divergence / 10** |
+
+**Mordant des gardes, verifie par MUTATION** : (a) faire compter des ARETES au lieu de NOEUDS ->
+les deux gardes OFFLINE rougissent (44/44 et 87/87 tuiles) et les deux gardes LIVE restent VERTES
+(preuve que la nouvelle garde cible bien la face offline) ; (b) revenir au min-sur-TOUS au lieu du
+ClosestEnemy fige -> `777/C4_09` rougit (31/87) et `12345/MC1_67` reste VERT -- **le premier couple
+ne suffisait pas**, c'est le second qui confronte la selection d'ennemi.
+
+**NON COUVERT** : la branche `d == null` (`NO_PATH_UTILITY`) n'est exercee sur AUCUN des boards
+essayes (0 tuile a `pathDist < 0`, cf. le probe) -- le pathfinder du type 1 ne bloquant sur aucune
+unite, il faudrait une coupure de terrain ou d'elevation isolant une tuile candidate. Le footprint
+multi-tuile d'`IterateTiles` reste reduit a la tuile principale (meme ecart des deux cotes : le RPC
+live lit `GetMainTile`). L'ordre d'enumeration des ennemis (`State.entities` offline vs
+`GetAllEnemyUnitsOfUnit`) n'est pas confronte -- il ne mord que sur un tie de distance. Et les gates
+d'entree de la feuille (`IsNonAttacking(unit)`, `UnitCanBeDamaged(unit, ClosestEnemy)` -> `yield 0`)
+ne sont portes NI cote live NI cote offline : ecart preexistant, hors `#17-off`, mais lu ici.

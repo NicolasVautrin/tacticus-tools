@@ -10,6 +10,16 @@ Qui l'appelle, et pourquoi ce module existe separement de `walk_pathfinder` :
   l'ENUMERATION des tuiles atteignables, via `MovementQuery.GetReachableTiles`). Les deux different
   sur les DEUX faces qui comptent :
 
+  ⚠ **Base de preuve de l'identification** (le `.ctor` mappe le type 1 sur un `TypeInfo` que le
+  binaire ne resout qu'au runtime, donc le NOM n'est pas lu directement) : (a) la hierarchie
+  (`classes.tsv`) partage les pathfinders en deux familles — `IgnoreDoor`/`WaveValidator` derivent de
+  `WalkPathfinder`, `IgnoreTerrain`/`IgnoreEverything` de `BasePathfinder` ; (b) la MESURE tranche
+  entre ces deux familles (cf. tableau et chiffres ci-dessous). **NON DEPARTAGE** : `IgnoreTerrain`
+  (qui teste l'elevation) contre un pathfinder qui l'ignorerait — les deux ont le meme `WeightCost`
+  et la meme absence de test d'occupant, et aucun montage n'a exerce ce gate (`probe_17_off_occupant
+  _gate.py` colonne `d_flat` : 0 tuile discriminante sur `MC1_67` comme sur le board a cliff
+  `C3_59`). Ce module porte la variante qui TESTE l'elevation.
+
     | face                | WalkPathfinder                         | ce pathfinder (type 1)          |
     |---------------------|----------------------------------------|---------------------------------|
     | `IsValidPathNode`   | + `UnitIsBlockedByEnemyUnit(to, unit)` | AUCUN test d'occupant           |

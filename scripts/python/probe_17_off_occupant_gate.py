@@ -66,6 +66,31 @@ def _walk_path_node_counts(board, target_id, occupants, moving_team) -> dict:
     return {t: n for t, (_c, n) in best.items()}
 
 
+def _flat_path_node_counts(board, target_id, occupants) -> dict:
+    """CONTRE-VARIANTE #2 (pas le port livre) : meme A*, mais SANS la porte d'elevation
+    (`|delta elevation| <= 1`). Sert a departager `IgnoreTerrainPathfinder` (qui teste l'elevation)
+    d'un pathfinder qui l'ignorerait -- les deux ont le MEME `WeightCost` (`10 + IsFilled`) et la
+    meme absence de test d'occupant, donc seul ce gate les distingue."""
+    import heapq
+    if board.by_id.get(target_id) is None:
+        return {}
+    best = {target_id: (0, 1)}
+    heap = [(0, 1, target_id)]
+    while heap:
+        cost, nodes, cur = heapq.heappop(heap)
+        if (cost, nodes) > best.get(cur, (cost, nodes)):
+            continue
+        for n in board.neighbours(cur):
+            t = board.by_id.get(n)
+            if t is None or not t["walkable"]:
+                continue
+            cand = (cost + weight_cost(n, occupants), nodes + 1)
+            if n not in best or cand < best[n]:
+                best[n] = cand
+                heapq.heappush(heap, (cand[0], cand[1], n))
+    return {t: n for t, (_c, n) in best.items()}
+
+
 def _closest(board, counts_by_enemy, otile):
     """`FindClosestEnemy` : premier ennemi d'ou l'origine est la plus proche (`<` STRICT)."""
     best = None
@@ -155,33 +180,39 @@ def main(argv: list) -> int:
         tgt = [(e["pos"]["col"], e["pos"]["row"]) for e in (dv.get("units") or [])
                if not e.get("ctrl") and e.get("alive") and e.get("pos")
                and not _is_untargetable(state, e.get("id"))]
-        ig_by_e, wk_by_e = {}, {}
+        ig_by_e, wk_by_e, fl_by_e = {}, {}, {}
         for i, (c, r) in enumerate(tgt):
             et = board.id_at(c, r)
             if et is None:
                 continue
             ig_by_e[i] = get_path_node_counts(board, et, occ)
             wk_by_e[i] = _walk_path_node_counts(board, et, occ, my_team)
+            fl_by_e[i] = _flat_path_node_counts(board, et, occ)
         ci, cw = _closest(board, ig_by_e, otile), _closest(board, wk_by_e, otile)
+        cf = _closest(board, fl_by_e, otile)
         ig = ig_by_e.get(ci[0], {}) if ci else {}
         wk = wk_by_e.get(cw[0], {}) if cw else {}
+        fl = fl_by_e.get(cf[0], {}) if cf else {}
 
-        rows, diff_gate, bad = [], 0, 0
+        rows, diff_gate, diff_elev, bad = [], 0, 0, 0
         for t, dn in sorted(nat_pd.items()):
             if dn is None or dn < 0:
                 continue
             tid = board.id_at(t[0], t[1])
-            d_ig, d_wk = ig.get(tid), wk.get(tid)
+            d_ig, d_wk, d_fl = ig.get(tid), wk.get(tid), fl.get(tid)
             if d_ig != d_wk:
                 diff_gate += 1
+            if d_ig != d_fl:
+                diff_elev += 1
             if d_ig != dn:
                 bad += 1
-            rows.append((t, dn, d_ig, d_wk))
-        print("  %-9s %-9s %-11s %-11s" % ("tile", "d_natif", "d_ignore", "d_walk"))
-        for (t, dn, d_ig, d_wk) in rows:
+            rows.append((t, dn, d_ig, d_wk, d_fl))
+        print("  %-9s %-9s %-11s %-11s %-11s" % ("tile", "d_natif", "d_ignore", "d_walk", "d_flat"))
+        for (t, dn, d_ig, d_wk, d_fl) in rows:
             flag = "" if d_ig == dn else "   <-- PORT DIVERGE"
-            gate = " *gate*" if d_ig != d_wk else ""
-            print("  %-9s %-9s %-11s %-11s%s%s" % (str(t), dn, d_ig, d_wk, gate, flag))
+            gate = " *occ*" if d_ig != d_wk else ""
+            gate += " *elev*" if d_ig != d_fl else ""
+            print("  %-9s %-9s %-11s %-11s %-11s%s%s" % (str(t), dn, d_ig, d_wk, d_fl, gate, flag))
         # Branche `d == null` de la feuille (-> `NO_PATH_UTILITY`) : combien de tuiles candidates
         # n'ont AUCUN chemin vers le ClosestEnemy ? Le pathfinder du type 1 ne bloquant sur aucune
         # unite, elle n'est atteignable que par une coupure de terrain / d'elevation.
@@ -190,10 +221,13 @@ def main(argv: list) -> int:
         print("")
         print("  branche d == null (NO_PATH_UTILITY) : natif pathDist<0 sur %d tuile(s), "
               "offline sans chemin sur %d" % (len(unreach_nat), len(unreach_off)))
-        print("=== BILAN === tuiles=%d  gate d'occupant EXERCE sur %d  port(ignore) != natif sur %d"
-              % (len(rows), diff_gate, bad))
+        print("=== BILAN === tuiles=%d  gate OCCUPANT exerce sur %d  gate ELEVATION exerce sur %d  "
+              "port(ignore) != natif sur %d" % (len(rows), diff_gate, diff_elev, bad))
         if not diff_gate:
             print("  montage NON CONCLUANT : le gate d'occupant ne mord sur aucune tuile.")
+        if not diff_elev:
+            print("  gate d'elevation non exerce : ce board ne departage pas "
+                  "IgnoreTerrainPathfinder (teste l'elevation) d'un pathfinder qui l'ignorerait.")
         return 0
     finally:
         _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=30)
