@@ -87,7 +87,8 @@ class State:
     donc l'unité de TOUTE durée d'effet exprimée en ROUNDS. Seedé par `load_state` ; None = inconnu →
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
-                 "turn_counts", "turn_order_player_count", "triggering_ability")
+                 "turn_counts", "turn_order_player_count", "triggering_ability",
+                 "pending_deaths", "draining_deaths")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -125,6 +126,26 @@ class State:
         # TriggeringAbilityIs`, restrictive sur un gate positif -- aucun consommateur porte n'en depend
         # aujourd'hui hors `FuelledByFury` <- `FinalJustice`).
         self.triggering_ability: Optional[int] = None
+        # case-haze-ord -- la FILE DE MORTS du natif. `IdunBattle.Operations.RecordKillOperation$$
+        # Execute` n'applique PAS la mort : il pose `UnitFlag.PendingDeath (0xf)`, appelle
+        # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,
+        # AttackRangeType)` -- qui ENQUEUE -- puis publie `On(PendingDeathAdded = 3)`. La file n'est
+        # DRAINEE que par `IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` (`RunPhase(0xc)` ->
+        # lambda `<VerifyDeaths>b__0` -> `Core.Services.OperationProcessor$$KillUnit` ->
+        # `IdunBattle.Operations.KillUnitOperation$$Execute`), UNE mort a la fois, tant que la file
+        # n'est pas vide. Cote port, les deux foyers sont
+        # `operations/damage.py::AttackDamageOperation._add_death` / `._verify_deaths`.
+        #
+        # Chaque entree porte le `killTrigger` LU DANS `KillUnitContext` au moment de l'enqueue
+        # (`RecordKillOperation$$Execute` le recopie dans le `AddDeath`) : c'est lui que
+        # `KillUnitOperation` rejoue dans l'`AbilityEntities+0x138` des evenements de mort, donc lui que
+        # comparent `TriggeringAbilityIs` / `TriggeringEffectIs`. Cote port, le canal est
+        # `state.triggering_ability`, capture a l'enqueue et REPOSE le temps du drain.
+        self.pending_deaths: list = []
+        # Re-entrance de `VerifyDeaths` : une mort ENQUEUEE pendant un drain (nova, riposte, report
+        # `HazeOfCorruption`) est traitee par le tour de boucle suivant, jamais AU MILIEU du
+        # `KillUnitOperation` en cours -- ni au milieu du behaviour qui l'a causee.
+        self.draining_deaths: bool = False
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:
