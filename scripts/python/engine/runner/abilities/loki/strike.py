@@ -452,6 +452,36 @@ class ValkyrieStrikeAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.ValkyrieStrike)  # 1018
     ABILITY_ID = "ValkyrieStrike"
 
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility$$.ctor` — ctor de la
+    # TROISIEME FORME : il n'appelle AUCUN `TargetingOptions$$.ctor`. Il recopie les 0x40 octets du
+    # PRESET statique `TargetingOptions` (bloc de statiques de la classe, offset RELATIF +0x1c0) puis
+    # les passe tels quels a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, 2)` --
+    # le litteral `2` etant l'`AbilityAttackType.Others` deja transcrit dans `ABILITY_ATTACK_TYPE`.
+    # Le contenu du preset est ecrit par `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            = `TargetingRange` statics+0x48 = UseWholeBoard
+    #                                      (`IdunBattle.Core.Services.TargetingRange$$.cctor` :
+    #                                       +0x48 onlyAdjacent=RangedBool.False, +0x4d useWholeBoard=1)
+    #     <preset>+0x20 forceMeleeTarget = 1 = RangedBool.False
+    #     <preset>+0x28 rules            = 0x6000040
+    #     <preset>+0x30/+0x38 delegues   = 0 (aucune regle dynamique)
+    # 0x6000040 = TargetIsTile (0x40) | AllowObscuredTargetByElevation (bit 25)
+    #                                 | AllowObscuredTargetByWalls (bit 26) -- lecture EXHAUSTIVE, il
+    # ne reste aucun bit non nomme. Semantique : frappe AERIENNE sur une TUILE (domaine TILE, cf.
+    # `TargetingOptions$$get_IsTileTargeting`), et les deux `AllowObscured*` levent la ligne de vue --
+    # un airstrike ne se soucie ni des murs ni de l'elevation. AUCUNE regle de CAMP (`TargetIsFriendly`
+    # / `TargetIsCaster` absents) -> `refuses_all_enemy_targets` = False : le routage IA est inchange.
+    # Le SEUL gate qui mord offline est la branche `TargetIsTile` (tuile-cible non marchable ->
+    # `ValidRequest`) : le bit 43 `AllowUnwalkableTargetTile` n'est PAS pose. `UseWholeBoard` fait
+    # sauter tout test de portee (`get_range` rend None) -- la contrainte de distance de l'airstrike,
+    # s'il en existe une, vivrait dans une regle DYNAMIQUE, or le preset pose ses deux delegues a 0 et
+    # le bit `TargetMatchesDynamicRule` est ABSENT : le natif ne borne donc PAS la portee de ce cast.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsTile
+        | TR.AllowObscuredTargetByElevation
+        | TR.AllowObscuredTargetByWalls
+    ), self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
