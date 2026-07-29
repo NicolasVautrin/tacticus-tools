@@ -18,9 +18,10 @@ MinDistanceToClosestEnemy=16`) :
   - Gates de la feuille, avant tout calcul (`<EvaluateMovementInSteps>` in extenso) : `case.Unit ==
     null` -> 0 ; `IdunBattle.Entities.UnitExtensions$$IsNonAttacking(case.Unit)` -> 0 ;
     `case.ClosestEnemy == null` ou `IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged(case.Unit, case.ClosestEnemy)`
-    faux -> 0. Et si `d` n'a PAS de valeur, le natif rend une **constante statique** (`statics+0x20`
-    d'une classe non identifiee), **PAS** une distance hex : notre fallback hex ci-dessous est une
-    approximation de PORT, pas le natif.
+    faux -> 0. Et si `d` n'a PAS de valeur, le natif rend la **constante statique** `statics+0x20` de
+    `IdunBattle.AI.Utilities.BaseUtility` (#17-off, 2026-07-29) : son `.cctor` y recopie
+    `FixMath.NET.Fix64.MinValue` (`Fix64` statics+0x18 = raw `0x8000000000000000`), donc
+    `NO_PATH_UTILITY` ci-dessous -- **PAS** une distance hex.
   - **ClosestEnemy = `MovementActionGenerator.<FindClosestEnemy>IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`** : argmin
     (depuis la position COURANTE) SUR LES ENNEMIS CIBLABLES uniquement -- filtres COMPLETS (#26, ordre
     natif) : `!CurrentOwnerIsEnvironment` (`IdunBattle.Entities.EntityExtensions$$CurrentOwnerIsEnvironment` = Owner.Type==2, joueur Environment/neutre),
@@ -37,14 +38,15 @@ MinDistanceToClosestEnemy=16`) :
     Structure confirmee (#17) : `bestDist` part de `int.MinValue`, le candidat exige `d > 0`, et la
     comparaison `d < bestDist` est STRICTE -> **premier-gagne** dans l'ordre de
     `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit`.
-  - ⚠ **Les deux sources de `pathdist_by_pos` ne sont PAS equivalentes** (mesure du 2026-07-29,
-    case-52 §#17-s5). Source LIVE (RPC `pathDistToEnemies`) : bit-exacte au natif -- 14/14 tuiles au
-    pas s5 de la seed 12345, tie -700/-700 sur (0,4)/(1,4) inclus ; garde
-    `tests/engine/test_min_distance_move_leaf_live.py`. Source OFFLINE
-    (`state_bridge._pathdist_to_enemies`) : rend **UN DE MOINS sur chaque tuile** (BFS d'ARETES vs
-    Count de NOEUDS) et prend le min sur TOUS les ennemis ciblables au lieu du seul ClosestEnemy
-    fige -> tache `#17-off` du backlog. Sans effet sur l'argmax tant que TOUTES les tuiles ont un
-    `pathDist` (translation uniforme), liant des qu'une tuile retombe sur le fallback hex.
+  - ⚠ **Les deux sources de `pathdist_by_pos` sont desormais equivalentes** (`#17-off`, 2026-07-29).
+    Source LIVE (RPC `pathDistToEnemies`) : bit-exacte au natif -- 14/14 tuiles au pas s5 de la seed
+    12345, tie -700/-700 sur (0,4)/(1,4) inclus. Source OFFLINE
+    (`state_bridge._pathdist_to_enemies`) : rendait **UN DE MOINS sur chaque tuile** (BFS d'ARETES vs
+    Count de NOEUDS) et prenait le min sur TOUS les ennemis ciblables au lieu du seul ClosestEnemy
+    fige -- elle porte maintenant `FindClosestEnemy` + `GetMinDistanceToEnemy`. Garde commune :
+    `tests/engine/test_min_distance_move_leaf_live.py` (les deux faces y sont confrontees tuile par
+    tuile ; un offset UNIFORME ne deplace AUCUN argmax, donc aucune statistique d'agrement ne peut
+    voir ce trou -- ne jamais valider ce terme par un taux d'accord).
 
 Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)** (composition
 LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`, doc §13.8/13.11). C'est
@@ -64,30 +66,52 @@ from .tile import TILE_UTILITY
 from .utility_type import UtilityType
 
 
+# `IdunBattle.AI.Utilities.BaseUtility$$.cctor` ecrit a `statics+0x20` une COPIE de
+# `FixMath.NET.Fix64.MinValue` (`Fix64` statics+0x18 = raw `0x8000000000000000`, soit -2^31 une fois
+# le Q32.32 divise par 2^32). C'est la valeur que
+# `MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` rend quand
+# `GetMinDistanceToEnemy` n'a PAS de valeur -- une tuile d'ou le ClosestEnemy n'est joignable par
+# AUCUN chemin est donc REDHIBITOIRE, jamais « penalisee proportionnellement ».
+NO_PATH_UTILITY = -2147483648.0
+
+
 class MinDistanceToClosestEnemyUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$.ctor ;
     UtilityType.MinDistanceToClosestEnemy=16). Feuille du composite UnitMovement(6)."""
     UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 16
 
-    def get_min_distance_to_enemy(self, pos, enemy_positions, pathdist_by_pos=None) -> int:
+    def get_min_distance_to_enemy(self, pos, enemy_positions=None, pathdist_by_pos=None):
         """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` : distance de CHEMIN de
         `pos` au **ClosestEnemy CIBLABLE** (min sur son footprint ; le ClosestEnemy est fige par
-        `FindClosestEnemy`, cf. en-tete). `pathdist_by_pos[pos]` porte cette distance-chemin filtree
-        (RPC `pathDistToEnemies` ou `state_bridge`, tous deux post-filtres natifs) ; sinon fallback
-        hex (approx : min sur `enemy_positions` = `ctx.tgt_epos`, les ennemis CIBLABLES post-filtres
-        #26 -- hex reste une approximation de la distance de CHEMIN, mais le SET est fidele)."""
-        pd = pathdist_by_pos.get(pos) if pathdist_by_pos else None
-        if pd is not None and pd >= 0:
-            return int(pd)
+        `FindClosestEnemy`, cf. en-tete), en **NOEUDS** (`GetPath(...).Count`, extremites incluses).
+        `pathdist_by_pos[pos]` porte cette distance (RPC `pathDistToEnemies` ou `state_bridge`, tous
+        deux post-filtres natifs et tous deux en NOEUDS).
+
+        Rend **None** = le `Nullable<int>` NUL du natif : aucun chemin de `pos` vers le ClosestEnemy
+        (RPC `pathDist = -1`, ou tuile absente du dict offline). L'appelant doit alors rendre
+        `NO_PATH_UTILITY`, PAS une distance de repli.
+
+        `enemy_positions` ne sert QUE de repli DEGRADE quand `pathdist_by_pos` est vide/absent : c'est
+        le cas « le port n'a aucune source de distance-chemin » (ex. `State.board is None`), qui
+        n'existe PAS cote natif -- pas le cas `d == null`. Le repli hex est alors une approximation
+        de PORT, explicitement hors mirror."""
+        if pathdist_by_pos:
+            pd = pathdist_by_pos.get(pos)
+            return int(pd) if (pd is not None and pd >= 0) else None
+        if not enemy_positions:
+            return None
         return min(hexgeo.distance(pos, ep) for ep in enemy_positions)
 
     def evaluate_movement(self, pos, enemy_positions, wt, pathdist_by_pos=None) -> float:
         """`MinDistanceToClosestEnemyUtility.<EvaluateMovementInSteps>d__.MoveNext` (stub IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$EvaluateMovementInSteps) :
-        `U = wMin * d`, `wMin = MinDistanceToClosestEnemy.PerTileDistance` (-100 du BC), `d =
-        GetMinDistanceToEnemy(pos)`. wMin negatif => plus l'unite est PROCHE d'un ennemi, plus U est haut."""
-        wmin = wt.sub("MinDistanceToClosestEnemy", "PerTileDistance")
+        `U = wMin * d` quand `d` a une valeur, `wMin = MinDistanceToClosestEnemy.PerTileDistance`
+        (-100 du BC) ; wMin negatif => plus l'unite est PROCHE d'un ennemi, plus U est haut. Quand `d`
+        n'a PAS de valeur, le natif rend la constante statique `BaseUtility` `statics+0x20` =
+        `Fix64.MinValue` (cf. `NO_PATH_UTILITY`), pas un repli proportionnel."""
         d = self.get_min_distance_to_enemy(pos, enemy_positions, pathdist_by_pos)
-        return wmin * d
+        if d is None:
+            return NO_PATH_UTILITY
+        return wt.sub("MinDistanceToClosestEnemy", "PerTileDistance") * d
 
 
 MIN_DIST_UTILITY = MinDistanceToClosestEnemyUtility()   # instance a UtilityType.MinDistanceToClosestEnemy=16

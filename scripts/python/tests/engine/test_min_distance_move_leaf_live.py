@@ -37,9 +37,11 @@ import engine_validate as EV
 import hexgeo
 from engine import weights
 from engine.ai import context as _ai_ctx
-from engine.ai.state_bridge import _is_untargetable
+from engine.ai.state_bridge import _is_untargetable, _occupants, build_from_state
 from engine.entities.pathfinding.board import Board
-from engine.entities.pathfinding.walk_pathfinder import get_reachable_levels
+from engine.entities.pathfinding.ignore_terrain_pathfinder import weight_cost
+from engine.entities.pathfinding.walk_pathfinder import (
+    get_reachable_levels, is_valid_path_node as walk_is_valid_path_node)
 from engine.runner.snapshot import load_state
 from engine.utilities.move import MIN_DIST_UTILITY
 from engine_agreement_stages import StageProbe as _StageProbe
@@ -47,11 +49,31 @@ from engine_agreement_stages import StageProbe as _StageProbe
 
 class _MoveLeafProbe:
     """Sonde `run_agreement` : capture, a chaque pas de move PUR, le terme MinDist par tuile
-    (port live) face au `pathDist` natif du RPC, plus l'ordre du movable set."""
+    (port live ET port OFFLINE) face au `pathDist` natif du RPC, plus l'ordre du movable set."""
 
-    def __init__(self, sid, rid, rpc, wt):
+    def __init__(self, sid, rid, rpc, wt, board=None, tiles=None):
         self.sid, self.rid, self.rpc, self.wt = sid, rid, rpc, wt
+        self.board, self.tiles = board, tiles
         self.steps: list = []
+
+    def _offline_rows(self, dv, uid, order, nat_pd):
+        """Meme confrontation, cote `state_bridge.build_from_state` (aucun RPC de distance).
+        ⚠ `board=` OBLIGATOIRE : sans lui `state.board is None`, `_pathdist_to_enemies` rend {} et
+        la feuille bascule sur le repli hex -- on mesurerait autre chose que la face offline."""
+        if self.board is None:
+            return []
+        obs = self.rpc("observeBattle", {"runnerId": self.rid}, 60)
+        snap = self.rpc("combatSnapshot", {"runnerId": self.rid}, 60)
+        state = load_state(dv, obs, snap, board=self.board, tiles=self.tiles)
+        octx = build_from_state(state, uid)
+        rows = []
+        for t in order:
+            dn = nat_pd.get(t)
+            if dn is None or dn < 0:
+                continue
+            rows.append((t, dn, MIN_DIST_UTILITY.get_min_distance_to_enemy(
+                t, octx.tgt_epos or octx.epos, octx.pathdist_by_pos)))
+        return rows
 
     def __call__(self, step, uid, dv, mov_by_unit, nat, eng, predictor):
         if not nat.get("move") or nat.get("ability"):
@@ -69,12 +91,13 @@ class _MoveLeafProbe:
                 continue                             # tuile inatteignable : hors oracle
             rows.append((t, dn, MIN_DIST_UTILITY.get_min_distance_to_enemy(
                 t, ctx.tgt_epos or ctx.epos, ctx.pathdist_by_pos)))
+        rows_off = self._offline_rows(dv, uid, order, nat_pd)
         # Utilite de MOUVEMENT COMPLETE par tuile (`UnitMovement(6) = Tile(7) + MinDist(16)`) :
         # le tie que le natif departage porte sur la SOMME, pas sur la seule feuille MinDist.
         # Meme foyer de calcul que la sonde d'agreement (aucune reimplementation locale).
         mu = _StageProbe(self.sid, self.rid, self.wt)._move_utils(ctx, order)
         self.steps.append({
-            "step": step, "uid": uid, "order": order, "rows": rows,
+            "step": step, "uid": uid, "order": order, "rows": rows, "rows_off": rows_off,
             "u_by_tile": {t: v["u"] for t, v in mu.items()},
             "nat_to": tuple(nat["move"]["to"]),
             "eng_to": tuple(eng["to"]) if eng.get("to") else None,
@@ -92,7 +115,12 @@ def _walk(host, live_session, build_runner, seed, board, steps):
         r = host._rpc(live_session, method, [body] if body is not None else [], timeout=timeout)
         return (r.get("result") if isinstance(r, dict) and "result" in r else r)
 
-    probe = _MoveLeafProbe(live_session, rid, _rpc, wt)
+    # Topologie du board : constante pour la duree du runner -> lue UNE fois, pas a chaque pas.
+    bg = _rpc("boardGraph", {"runnerId": rid}, 90)
+    tm = _rpc("tileMeta", {"runnerId": rid}, 60)
+    bd = Board(bg["tiles"], adjacency="native_sym") if isinstance(bg, dict) and bg.get("tiles") \
+        else None
+    probe = _MoveLeafProbe(live_session, rid, _rpc, wt, board=bd, tiles=tm)
     EV.run_agreement(live_session, rid, steps, wt, log=lambda *a, **k: None, probe=probe)
     return probe
 
@@ -119,6 +147,33 @@ def test_min_distance_leaf_equals_native_pathdist(host, live_session, build_runn
     # son fallback min-sur-tous et l'oracle ne testerait pas la selection d'ennemi.
     assert any(s["closest_resolved"] for s in measured), \
         f"seed={seed} board={board} : ClosestEnemy jamais resolu -- oracle degrade"
+
+
+@pytest.mark.parametrize("seed,board,steps", [("12345", "MC1_67", 6), ("777", "C4_09", 6)])
+def test_min_distance_leaf_offline_equals_native_pathdist(host, live_session, build_runner,
+                                                          seed, board, steps):
+    """MEME confrontation, cote OFFLINE (`state_bridge.build_from_state`, aucun RPC de distance).
+
+    C'est la tache `#17-off` : la face offline comptait des ARETES la ou le natif compte des NOEUDS
+    (`GetPath(...).Count`, extremites incluses) et prenait le min sur TOUS les ennemis ciblables au
+    lieu du seul `ClosestEnemy` fige. Les deux defauts sont ici confrontes tuile par tuile -- et
+    JAMAIS par un taux d'agrement : `MovementActionGenerator.generate` etant un argmax pur, un offset
+    UNIFORME ne deplace AUCUN argmax, donc aucune statistique d'accord ne peut voir ce trou."""
+    probe = _walk(host, live_session, build_runner, seed, board, steps)
+    measured = [s for s in probe.steps if s["rows_off"]]
+    assert measured, (
+        f"seed={seed} board={board} : aucune tuile confrontee cote OFFLINE -- soit aucun pas de move "
+        "PUR, soit le board n'a pas ete construit (state.board is None => repli hex, on ne mesure "
+        "PAS la face offline). Ne pas lire ce vert.")
+    bad = []
+    for s in measured:
+        for (tile, d_nat, d_port) in s["rows_off"]:
+            if d_port != d_nat:
+                bad.append((s["step"], s["uid"], tile, d_nat, d_port))
+    assert not bad, (
+        f"seed={seed} board={board} : le terme MinDist du bridge OFFLINE diverge du natif sur "
+        f"{len(bad)} tuile(s) sur {sum(len(s['rows_off']) for s in measured)} : "
+        + "; ".join(f"step{st} u{u} {t} natif={dn} port={dp}" for (st, u, t, dn, dp) in bad[:8]))
 
 
 @pytest.mark.parametrize("seed,board,steps", [("12345", "MC1_67", 6)])
@@ -185,6 +240,104 @@ def _move(rpc, rid, uid, to):
     rpc("applyAction", {"runnerId": rid,
                         "action": {"kind": "move", "unitId": uid,
                                    "to": {"col": to[0], "row": to[1]}}}, 60)
+
+
+def _walk_path_node_counts(board, target_id, occupants, moving_team):
+    """CONTRE-VARIANTE du port : le MEME A* (`BasePathfinder$$FindPath`), mais avec le predicat
+    d'arete du `WalkPathfinder` -- un occupant ENNEMI bloque. Ne sert QU'A prouver que le montage
+    exerce reellement le gate d'occupant ; ce n'est pas ce que le moteur execute."""
+    import heapq
+    best = {target_id: (0, 1)}
+    heap = [(0, 1, target_id)]
+    while heap:
+        cost, nodes, cur = heapq.heappop(heap)
+        if (cost, nodes) > best.get(cur, (cost, nodes)):
+            continue
+        for n in board.neighbours(cur):
+            if not walk_is_valid_path_node(board, cur, n, occupants, moving_team):
+                continue
+            cand = (cost + weight_cost(n, occupants), nodes + 1)
+            if n not in best or cand < best[n]:
+                best[n] = cand
+                heapq.heappush(heap, (cand[0], cand[1], n))
+    return {t: n for t, (_c, n) in best.items()}
+
+
+def test_min_distance_path_traverses_units_live(host, live_session, rpc, build_runner):
+    """Le pathfinder de `MinDist(16)` (`PathfinderType = 1`) TRAVERSE les unites -- montage CRAFTE.
+
+    `GetMinDistanceToEnemy` appelle `IPathfinders.GetPath(1, ...)`, et l'entree `1` du dictionnaire
+    de `IdunBattle.Entities.Pathfinding.Pathfinders$$.ctor` n'est PAS le `WalkPathfinder` de
+    l'enumeration des tuiles : son `IsValidPathNode` (`IdunBattle.Entities.Pathfinding
+    .IgnoreTerrainPathfinder$$IsValidPathNode`) n'a meme pas de parametre `unit` -> aucun test
+    d'occupant. La difference ne se voit QUE si des unites se trouvent sur les chemins courts : on
+    AMENE donc les ennemis au contact du mover (jamais l'inverse -- bouger le mover consommerait son
+    activation et viderait le movable set, donc l'oracle). La garde echoue si le montage ne rend pas
+    le gate discriminant : pas de vert vide."""
+    rid = build_runner(seed="777", board="C4_09", extra=["--no-ai"])["rid"]
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    bg = rpc("boardGraph", {"runnerId": rid}, 90)
+    board = Board(bg["tiles"], adjacency="native_sym")
+    units = dv.get("units") or []
+    mine = [u for u in units if u.get("ctrl") and u.get("alive") and u.get("pos")]
+    foes = [u for u in units if not u.get("ctrl") and u.get("alive") and u.get("pos")]
+    if not (mine and foes):
+        pytest.skip("montage vide")
+
+    anchor = (foes[0]["pos"]["col"], foes[0]["pos"]["row"])
+    me = min(mine, key=lambda u: hexgeo.distance((u["pos"]["col"], u["pos"]["row"]), anchor))
+    my_pos = (me["pos"]["col"], me["pos"]["row"])
+    for f in foes:                                   # DRIVE du camp adverse (pilotage pur)
+        to = _drive_tile(rpc, rid, f["id"], my_pos)
+        if to is not None:
+            _move(rpc, rid, f["id"], to)
+
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    obs = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    state = load_state(dv, obs, snap, board=board, tiles=tm)
+    octx = build_from_state(state, me["id"])
+    occ = _occupants(state)
+    me_u = next(u for u in (dv.get("units") or []) if u["id"] == me["id"])
+    otile = board.id_at(me_u["pos"]["col"], me_u["pos"]["row"])
+
+    pd = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": me["id"]}, 90)
+    assert isinstance(pd, dict) and pd.get("ok"), f"pathDistToEnemies KO: {str(pd)[:200]}"
+    nat_pd = {(t["col"], t["row"]): t["pathDist"] for t in (pd.get("tiles") or [])}
+
+    # Contre-variante : meme selection de ClosestEnemy, predicat WALK (bloque sur un ennemi).
+    wk_best, wk_d = None, None
+    for (c, r) in (octx.tgt_epos or octx.epos):
+        et = board.id_at(c, r)
+        if et is None:
+            continue
+        counts = _walk_path_node_counts(board, et, occ, me_u.get("team"))
+        d = counts.get(otile)
+        if d is None or d <= 0:
+            continue
+        if wk_d is None or d < wk_d:
+            wk_d, wk_best = d, counts
+
+    gate, bad = [], []
+    for t, dn in nat_pd.items():
+        if dn is None or dn < 0:
+            continue
+        tid = board.id_at(t[0], t[1])
+        d_port = MIN_DIST_UTILITY.get_min_distance_to_enemy(
+            t, octx.tgt_epos or octx.epos, octx.pathdist_by_pos)
+        d_walk = (wk_best or {}).get(tid)
+        if d_walk != d_port:
+            gate.append((t, d_port, d_walk))
+        if d_port != dn:
+            bad.append((t, dn, d_port))
+    assert gate, (
+        "montage NON CONCLUANT : le gate d'occupant ne mord sur aucune des "
+        f"{len(nat_pd)} tuiles -- le predicat WALK donnerait la MEME chose que le port. "
+        "Re-crafter la geometrie, ne pas lire ce vert.")
+    assert not bad, (
+        f"le pathfinder de MinDist ne traverse PAS les unites dans le port : {len(bad)} tuile(s) "
+        f"divergent du natif (gate exerce sur {len(gate)}) : {bad[:6]}")
 
 
 def test_deep_strike_enemy_excluded_from_min_distance_live(host, live_session, rpc, build_runner):
