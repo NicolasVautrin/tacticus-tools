@@ -23,6 +23,10 @@ Ce que ces tests PROUVENT (lit l'etat LIVE ; drive les positions ; state-file UN
       brute tiree est dans les bornes config [minDmg,maxDmg][level].
   (5) DEGAT BIT-EXACT live == offline (EGALITE, plus l'ancienne inegalite molle) : les deux passifs
       caster-intrinseques sont portes (cf. plus bas), donc plus aucun confond a absorber.
+  (6) FLAG `Moved` LU DU LIVE : le `UnitFlagsComponent` de l'etat offline est seede par
+      `combatSnapshot.units[].unitFlags`, et ce que le canal rend concorde avec les deplacements que
+      la fixture a REELLEMENT emis ce tour. Garde du canal : un `unitFlags` NON MESURE (`null`) ferait
+      retomber `load_state` sur « n'a pas bouge » et rendrait le +25% ranged EN SILENCE.
 
 ORACLES DES PARAMS (#96 -- aucun scalaire de gameplay fige ici). Le decompile TRANCHE : dans
 `IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility$$ExecuteBehaviour`, le nb de coups
@@ -49,12 +53,16 @@ apres port off == live == 3510. Le canal PERCAGE est INERTE sur CE montage (le p
 PLANCHER `max(0, d - armure, d x pierce%)` et `d - armure` domine face a l'armure 1909) -- il est
 confronte separement, sur une cible a armure haute, par `test_heavy_grav_cannon_live`.
 
-`HeavyWeapon_ExtraDmg` (1008, +25% ranged) N'EST PLUS un confond (#101) : son gate natif
-`!HasFlag(Moved=0) | HasFlag(Teleported=0xc)` est desormais lu des DEUX cotes sur le MEME store (le
-`UnitFlagsComponent`), et l'approche du caster (qui emet des `move`) est re-seedee offline via
-`set_moved_flag` -> le bonus est OFF live comme offline. Le gate lui-meme est valide bit-exact DANS LES
-DEUX SENS par `test_heavy_weapon_moved_gate_live` (cible orksNob, non eligible a HeavyGravCannon).
-Le TREE SentinelDirectives lui-meme est fidele (A/B bit-exact). ASCII only.
+`HeavyWeapon_ExtraDmg` (1008, +25% ranged) N'EST PAS un confond (#101) : son gate natif
+`!HasFlag(Moved=0) | HasFlag(Teleported=0xc)` est lu des DEUX cotes sur le MEME store (le
+`UnitFlagsComponent`), et l'etat de ce store vient du LIVE -- `combatSnapshot.units[].unitFlags` rend
+les ids `UnitFlag` POSES (obtenus en invoquant la fonction NOMMEE
+`IdunBattle.Entities.UnitExtensions$$HasFlag(unit, flag)` une fois par valeur d'enum), et
+`snapshot._load_unit_flags` les seede sur l'etat charge. L'approche du caster emet des `move` : le
+natif pose `Moved`, le canal le remonte, le port le lit -> le bonus est OFF live comme offline, sans
+aucune pose manuelle. Le gate lui-meme est valide bit-exact DANS LES DEUX SENS par
+`test_heavy_weapon_moved_gate_live` (cible orksNob, non eligible a HeavyGravCannon). Le TREE
+SentinelDirectives lui-meme est fidele (A/B bit-exact). ASCII only.
 """
 from __future__ import annotations
 
@@ -78,7 +86,7 @@ from engine.runner.snapshot import load_state
 from engine.runner.runner import Runner
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.prng import IntBasedMersenneTwister
-from engine.runner.components import HealthComponent, StatsComponent, set_moved_flag
+from engine.runner.components import HealthComponent, StatsComponent, unit_has_moved
 from engine.runner.abilities.base import (ability_attack_params, ability_pierce_effect_bonus,
                                           sets_end_turn_flags_for,
                                           sets_active_ability_used_flag_for, NO_END_TURN_ABILITY_TYPES,
@@ -143,9 +151,12 @@ def _build(seed, a_units):
 
 def _approach(rpc, rid, board, target_vis):
     """Avance jusqu'a mon tour ; rapproche le caster a portee `constants.range` de la cible (LOS clair). Renvoie
-    (cid, tid, my_player, moves) ou None. `moves` = nb de deplacements REELLEMENT emis pour le caster :
-    fait CONNU (on pilote) que `load_state` ne peut PAS relire (aucun RPC n'expose les UnitFlags) et
-    qu'on re-seede offline via `set_moved_flag` -> gate no-move de HeavyWeapon_ExtraDmg fidele."""
+    (cid, tid, my_player, moves) ou None. `moves` = nb de deplacements emis pour le caster DEPUIS LE
+    DEBUT DU TOUR COURANT -- remis a 0 a chaque `endturn`, parce que le natif purge `UnitFlag.Moved` du
+    joueur ENTRANT (`IdunBattle.Operations.StartTurnOperation$$Execute` ->
+    `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`). C'est l'ORACLE INDEPENDANT
+    du flag que le live remonte : la fixture SAIT ce qu'elle a emis ce tour, `combatSnapshot.unitFlags`
+    DIT ce que le natif a pose -- les deux doivent coincider (assertion dans le test)."""
     from collections import deque
 
     def tile_of(u):
@@ -180,6 +191,7 @@ def _approach(rpc, rid, board, target_vis):
         if my is None:
             my = caster.get("owner")
         if dv.get("currentPlayer") != my:
+            moves = 0                        # RemoveTurnFlags purgera `Moved` a ma prochaine entree
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60); continue
         cid = caster["id"]
         if hexgeo.distance(_cr(caster), _cr(tgt)) <= rng_cfg and tgt["id"] in legal(cid):
@@ -191,6 +203,7 @@ def _approach(rpc, rid, board, target_vis):
                  for t in ((cmt or {}).get("tiles") or [])}
         pool = [t for t in reach if t in dist and dist[t] >= 2]
         if not pool:
+            moves = 0                        # idem : je finis MON tour, le flag tombera au suivant
             rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60); continue
         best = min(pool, key=lambda t: dist[t]); col, row = reach[best]
         rpc("applyAction", {"runnerId": rid, "action": {
@@ -242,17 +255,30 @@ def test_sentinel_directives_live(live_session, rpc):
         snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
 
         def mkstate():
-            """Etat offline frais + le FAIT connu de la fixture : le caster a-t-il bouge ce tour.
-            `load_state` ne relit PAS les UnitFlags (aucun RPC ne les expose) -> on re-pose le flag natif
-            `UnitFlag.Moved` via `set_moved_flag` SSI l'approche a reellement emis un deplacement. Sans
-            ca, le gate no-move d'HeavyWeapon_ExtraDmg (+25% ranged) verrait un caster « immobile » et
-            appliquerait un bonus que le natif N'APPLIQUE PAS (mesure #101 : off 3834 vs live 3510)."""
-            s = load_state(dv, ob, snap, board=board)
-            if moves > 0:
-                set_moved_flag(s, cid)
-            return s
+            """Etat offline frais. Le fait « le caster a bouge ce tour » vient du LIVE : `load_state`
+            -> `snapshot._load_unit_flags` seede le `UnitFlagsComponent` depuis
+            `combatSnapshot.units[].unitFlags`. C'est CE store que lit le gate no-move
+            d'HeavyWeapon_ExtraDmg (+25% ranged), via `components.unit_has_moved` -- port et natif
+            lisent donc le meme fait, sur l'etat REEL de la bataille, sans pose manuelle."""
+            return load_state(dv, ob, snap, board=board)
 
         st = mkstate()
+        # GARDE DU CANAL, tri-etat. `unitFlags` vaut `null` quand la mesure n'a PAS pu se faire
+        # (`HasFlag` irresolue / enum vide) et `[]` quand elle a eu lieu sans flag pose : les rabattre
+        # l'un sur l'autre ferait passer un capteur MORT pour un caster immobile, `load_state`
+        # retomberait sur son defaut et le +25% ranged reviendrait EN SILENCE (mesure #101 : off 3834
+        # vs live 3510). D'ou l'assertion explicite, puis la CONFRONTATION du flag a l'oracle
+        # independant qu'est le compte de deplacements pilotes par la fixture ce tour.
+        snap_caster = next((u for u in (snap.get("units") or []) if u.get("entityId") == cid), {})
+        flags_live = snap_caster.get("unitFlags")
+        assert isinstance(flags_live, list), (
+            f"combatSnapshot.units[{cid}].unitFlags = {flags_live!r} : canal NON MESURE -- `None` "
+            f"(capteur mort) n'est pas `[]` (lu, aucun flag). Sans lui le gate no-move "
+            f"d'HeavyWeapon_ExtraDmg redevient aveugle sur tout etat recharge")
+        assert unit_has_moved(st, cid) is (moves > 0), (
+            f"desaccord fixture/canal : la fixture a emis {moves} deplacement(s) pour le caster "
+            f"depuis le debut de son tour, le flag UnitFlag.Moved seede depuis le live vaut "
+            f"{unit_has_moved(st, cid)} (unitFlags live={flags_live})")
         ce = st.get_entity(cid)
         if ce is None or ce.get_component(StatsComponent) is None:
             pytest.skip("caster sans StatsComponent")

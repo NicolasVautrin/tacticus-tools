@@ -54,10 +54,9 @@ base = ConfigConst 0xf = traitVariables.heavyWeaponExtraDmg = 25
 `UnitFlagsComponent` (`#139`) matérialisait le **vrai** flag `Moved`, purgé par `remove_turn_flags`,
 lu par `_harvester_hits` — mais **jamais posé** par le move. Deux conséquences :
 
-1. **Aucun des deux stores n'est renseigné par `load_state`** — le canal live des `UnitFlags`
-   n'existait pas encore (il existe depuis, cf. §6). Sur un état rechargé depuis le live, le gate
-   voyait donc toujours « n'a pas bougé » -> **+25% appliqué offline alors que le natif ne
-   l'applique pas**.
+1. **Aucun des deux stores n'était renseigné par `load_state`** — le canal live des `UnitFlags`
+   (§6) n'était pas encore consommé. Sur un état rechargé depuis le live, le gate voyait donc
+   toujours « n'a pas bougé » -> **+25% appliqué offline alors que le natif ne l'applique pas**.
 2. Le reset différait du natif : `state.moved_this_turn.clear()` effaçait **globalement** au
    `StartTurnOperation`, alors que le natif ne purge **que les unités du joueur entrant**.
 
@@ -207,5 +206,8 @@ le même symptôme (le Vanguard bouge sans se rapprocher, attaque ranged 3 hits 
   Mesure du canal (board `MC1_67`, seed 777, `blackObliterator`) : les 4 unités rendent `[]` au
   départ ; après un `act move` réel sur u81, elle seule passe à `[0, 1, 4]` =
   `Moved`/`ArrivedAtFinalTile`/`NoActionAvailable`, les trois autres restent `[]`. `unitFlagTypes`
-  rend 26 entrées (`Moved`=0, `ArrivedAtFinalTile`=1, `TurnFinished`=3, `Teleported`=12,
-  `PreventOverkill`=19). Détail et gardes : `case-o10-volk-moved-flag`.
+  rend les **27** entrées de l'enum du build `rnca9r7q6c` (`Moved`=0, `ArrivedAtFinalTile`=1,
+  `TurnFinished`=3, `Teleported`=12, `PreventOverkill`=19 — la 27e, `IngoreRangedInMelee`=28,
+  est apparue à ce build). La table étant lue au RUNTIME par `dumpEnum`, ce compte SUIT le binaire :
+  le confronter à `data/symbols/<build>/frida/enums.tsv` plutôt que le figer.
+  Détail et gardes : `case-o10-volk-moved-flag`.
