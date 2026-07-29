@@ -16,8 +16,11 @@ Ce que ce probe MESURE, dans l'ordre, et RAPPORTE tel quel (un refus est un RESU
   4. CASTABILITE depuis le harnais headless -- la docstring du port affirmait que les abilities
      d'une MoW hors-plateau y sont BLOQUEES. Le probe cast les DEUX actives du kit :
        * `1224 NanoscarabRepairProtocols` -> doit MUTER (soin + pose des effets 1545/1546) ;
-       * `1223 ReanimationBeam`           -> `ammoCost = 1`, `hasAmmo = false` dans un runner
-         inactif (les munitions n'y montent pas) : l'ability est ACCEPTEE mais NO-OPE ;
+       * `1223 ReanimationBeam`           -> NO-OPE ici. ⚠ Ce probe l'imputait aux MUNITIONS :
+         c'est **FAUX**, refute par `probe_mow_ammo_gauge.py` (`docs/rl/case-mow-ammo-gauge.md`).
+         Les vraies causes sont `initialCooldownTurns = 1` (tour 1) PUIS l'action unique de la
+         MoW, consommee juste avant par le cast prerequis de `1224`. Avec 2 `endturn` avant et 2
+         entre les deux casts, `1223` pose bel et bien 1547 -- meme a munition ZERO ;
   5. RAYON DE SOUFFLE d'un `includeInactive` global -- que publie `readEffectsByUnit` ? Le probe
      compte les entrees 1547 aux DEUX canaux, et compte les entrees `active: false` TOUS TYPES
      comme TEMOIN que le canal fonctionne (sans ce temoin, « 0 entree 1547 » ne prouverait rien).
@@ -194,10 +197,10 @@ def main() -> int:
         print("")
         print("VERDICT -- confrontabilite : le porteur de 1547 EST spawnable (catalog_inject +")
         print("  --seed-bc) et SES ABILITIES CASTENT depuis le harnais headless (1224 a mute).")
-        print("  Reste bloquant, et c'est un obstacle NOMME, pas un porteur manquant : 1223 exige")
-        print("  une MUNITION que le runner inactif ne produit pas -> pas d'instance 1547 native,")
-        print("  donc rayon de souffle de 1547 TOUJOURS NON MESURE. Le canal, lui, FONCTIONNE")
-        print("  (temoin ci-dessus).")
+        print("  1223 no-ope DANS CE SCENARIO -- mais PAS a cause des munitions (refute par")
+        print("  probe_mow_ammo_gauge.py) : le cooldown initial de 1 tour puis l'action unique de")
+        print("  la MoW, consommee par le cast prerequis de 1224. Le rayon de souffle de 1547 EST")
+        print("  MESURE la-bas : 1 entree aux DEUX canaux, sous mows[].effects (units[] rend 0).")
         print("RESULT: %s" % ("OK" if ok else "FAIL"))
         return 0 if ok else 1
     finally:

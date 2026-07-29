@@ -715,7 +715,16 @@ class ActiveAbility:
         un `munitionsCost` et le stock vit dans `BC.Player.Players[].MachineOfWarAmmo` (0 dans le seed
         BC). Mesure live (runner MoW `adeptExorcist`, session 4) : `1187` = `usable:true, hasAmmo:false`
         -> le natif ne la propose PAS et caste `1188` a la place. Sans ce terme, le port proposerait
-        1187."""
+        1187.
+
+        CONFIRME le 2026-07-29 (`docs/rl/case-mow-ammo-gauge.md`) -- et le gate est bien DECISION-ONLY :
+        a `MachineOfWarAmmo = 0`, un cast force par `applyAction` s'execute quand meme et pose ses
+        effets (`SpendAmmoOperation$$Execute` echoue silencieusement). Le stock vit dans
+        `PlayerComponent+0x6c`, il est pose UNE fois par `AddPlayerOperation$$Execute` depuis la BC et
+        **aucune operation native ne l'incremente** : il ne remonte jamais en cours de bataille. Pour
+        un scenario qui a besoin de munitions, patcher `MachineOfWarAmmo` dans un seed BC ecrit hors
+        `data/`. ⚠ `usable` = `CanStillBeUsed@0x28` SEUL : il vaut `true` alors meme que l'ability est
+        en cooldown initial -- ne jamais s'en servir comme composite."""
         if not self.can_still_be_used or self.disabled:
             return False
         if self.remaining_cooldown is not None and int(self.remaining_cooldown) >= 1:

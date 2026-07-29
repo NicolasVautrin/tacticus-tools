@@ -173,7 +173,7 @@ Ventilation des 6 ecarts :
 | 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
 | 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
-| 1547 ReanimationBeam_Revive | unite | **NON MESURE** — le porteur EST montable (`catalog_inject` -> 9 MoW) et ses abilities CASTENT, mais `1223` no-ope faute de MUNITION -> aucune instance 1547 native a lire (`case-1547` §5). L'ecart etait reel et est CLOS ; la ligne reste une deduction. |
+| 1547 ReanimationBeam_Revive | **MACHINE** (`mows[]`, PAS `units[]`) | **OUI — MESURE** (`case-mow-ammo-gauge` §7) : 1547 pose nativement, publie **1 au canal par defaut ET 1 sous `includeInactive`**, sous `mows[].effects` ; `units[]` seul rend 0/0. Le motif « no-ope faute de MUNITION » etait FAUX (cf. §6 de cette fiche). |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
 > ⚠ **La colonne ci-dessus est une DEDUCTION (« porteur unite => canal unite »), et #231 en a
@@ -183,11 +183,15 @@ Ventilation des 6 ecarts :
 > meme appel rend 4 entrees `active: false` pour d'autres effets, donc le canal fonctionne. Le
 > bond est HORS de ce que publie `readEffectsByUnit` : la bascule ne peut pas le seeder inerte.
 > **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4).
-> **1547 reste NON MESURE** — mais pour un motif RECTIFIE : son porteur `necroReanimator` EST
-> montable (`catalog_inject.py` -> 8 -> 9 MoW) et ses abilities CASTENT ; ce qui bloque est que
-> `1223` no-ope faute de MUNITION (`case-1547` §3/§5). Sur SIX lignes annoncees « OUI », deux ont
-> ete confrontees et AUCUNE n'a tenu. Traiter les restantes comme des hypotheses, et confronter
-> avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+> **1547 a ete MESURE le 2026-07-29** (`case-mow-ammo-gauge.md` §7) et il est le premier a TENIR :
+> l'effet est publie 1/1 aux deux canaux. Mais la colonne « canal de seed » etait FAUSSE pour lui —
+> son porteur est la MACHINE, donc l'entree sort sous **`mows[].effects`**, pas sous `units[]`.
+> Compter les entrees `units[]` seules y rend 0/0 et fait conclure a tort « non publie ».
+> `rpc-decision.ts` remplit les DEUX depuis la meme `readEffectsByUnit(statePtr, { includeInactive })`
+> (cle = `casterId` pour une machine) : **toujours agreger `units[] + mows[]`** avant de conclure.
+> Sur SIX lignes annoncees « OUI », TROIS ont ete confrontees et une seule a tenu. Traiter les
+> restantes comme des hypotheses, et confronter avant de conclure (detail :
+> `case-231-haze-transfer-active-gate.md` §3.1).
 >
 > ⚠ **Ne jamais conclure « non mesurable » d'une absence dans `--list-pool`** : la pool derive du
 > seed BC (capture d'UNE bataille) et `catalog_inject.py` l'augmente. Cf. `ca6f5dc`.
@@ -196,8 +200,10 @@ Ventilation des 6 ecarts :
 
 **PLUS AUCUN effectType du canal UNITE ne l'empeche** — les cinq ont ete resorbes le 2026-07-29
 (1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`). Les lignes de rayon de
-souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; celles de 1502 et 1547 sont NON
-MESURABLES, faute de porteur spawnable. Il reste UN ecart, mais il est HORS de cette bascule :
+souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; celle de 1502 reste NON MESURABLE faute
+de porteur spawnable ; **celle de 1547 est CONFIRMEE par mesure** (`case-mow-ammo-gauge.md` §7 —
+1/1 aux deux canaux, sous `mows[].effects`), son gate `IsActive` etant deja pose dans le port. Il
+reste UN ecart, mais il est HORS de cette bascule :
 
     1186  GhostEffect (porteur TUILE)       -> GhostEffectRevive
 
