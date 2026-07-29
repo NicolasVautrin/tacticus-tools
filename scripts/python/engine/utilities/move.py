@@ -60,7 +60,11 @@ n'appartient qu'a `UnitMovementFromTemporary(5)` — non portes (doc §13.3).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import hexgeo
+from ..entities.stats import StatType
+from ..entities.traits.unit_trait import UnitTrait, has_trait
 from .base import BaseUtility, ComposedUtility
 from .tile import TILE_UTILITY
 from .utility_type import UtilityType
@@ -73,6 +77,64 @@ from .utility_type import UtilityType
 # `GetMinDistanceToEnemy` n'a PAS de valeur -- une tuile d'ou le ClosestEnemy n'est joignable par
 # AUCUN chemin est donc REDHIBITOIRE, jamais « penalisee proportionnellement ».
 NO_PATH_UTILITY = -2147483648.0
+
+
+@dataclass(frozen=True)
+class UtilityMovementCase:
+    """`IdunBattle.AI.Utilities.UtilityMovementCase` — le contexte que le generateur
+    `<GenerateActions>IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CGenerateActionsu003Ed__6$$MoveNext`
+    passe a chaque feuille du composite UnitMovement(6). La feuille MinDist en lit DEUX champs :
+    `case+0x10` = `Unit` (le mover) et `case+0x20` = `ClosestEnemy` (l'ennemi FIGE par
+    `FindClosestEnemy`) — cf. `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`.
+
+    Le port ne materialise que ce que les gates LISENT (pas l'entite entiere) :
+      - `unit` : identite du mover. `None` == `case.Unit == null` (gate 1).
+      - `unit_traits` : substrat `HasTrait` du mover (`entity_trait_names`) -> gate 2 `IsNonAttacking`.
+      - `unit_crit_chance` : `IdunBattle.Entities.UnitExtensions$$GetStat(unit, StatType.CriticalChance)`
+        -> branche `crit != 0` de `UnitCanBeDamaged` (gate 4).
+      - `closest_enemy` : identite du ClosestEnemy. `None` == `case.ClosestEnemy == null` (gate 3).
+      - `closest_enemy_traits` : substrat `HasTrait` du ClosestEnemy -> branche `Impervious` du gate 4.
+        **`None` = substrat NON RESOLU par le port** (identite du ClosestEnemy ambigue cote LIVE, cf.
+        `engine.ai.context`) : le gate 4 est alors SUSPENDU (permissif), jamais devine.
+
+    `evaluate_movement(case=None)` = aucun case fourni -> AUCUN gate (comportement d'avant #236) :
+    un appelant qui n'a pas construit le case ne doit pas se voir imposer un gate invente."""
+    unit: object = None
+    unit_traits: tuple = ()
+    unit_crit_chance: int = 0
+    closest_enemy: object = None
+    closest_enemy_traits: "tuple | None" = ()
+
+
+def is_non_attacking(trait_names) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsNonAttacking(unit)` : `GetBaseUnitComponent(unit)` puis
+    `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait(comp, 0x409)` — le trait `0x409` = 1033
+    = `UnitTrait.NonAttacking`. Composant absent -> false (le natif retombe sur le `return` nu).
+    Cote port le substrat `HasTrait` est `entity_trait_names` (kit + traits ACCORDES en bataille)."""
+    return has_trait(trait_names, UnitTrait.NonAttacking)
+
+
+def unit_can_be_damaged(unit_crit_chance, target_trait_names) -> bool:
+    """`IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged(unit, target)`, in extenso :
+
+        if (!UnitExtensions.HasTrait(target, 0x1c)) return true;      // 0x1c = 28 = Impervious
+        return UnitExtensions.GetStat(unit, 9) != 0;                  // 9 = StatType.CriticalChance
+
+    Autrement dit : une cible `Impervious` n'est « endommageable » que par une unite dont la
+    CriticalChance est NON NULLE (le trait ne cede qu'aux coups critiques). L'appel est
+    ASYMETRIQUE — `unit` (le mover) fournit la stat, `target` (le ClosestEnemy) le trait.
+
+    `target_trait_names is None` = substrat NON RESOLU (cf. `UtilityMovementCase`) -> `True`
+    (permissif) : le port ne fabrique pas un gate sur une identite qu'il n'a pas etablie."""
+    if target_trait_names is None:
+        return True
+    if not has_trait(target_trait_names, UnitTrait.Impervious):
+        return True
+    return int(unit_crit_chance or 0) != 0
+
+
+assert int(UnitTrait.NonAttacking) == 0x409 and int(UnitTrait.Impervious) == 0x1c
+assert int(StatType.CRIT_CHANCE) == 9      # `GetStat(unit, 9)` de `UnitCanBeDamaged`
 
 
 class MinDistanceToClosestEnemyUtility(BaseUtility):
@@ -102,12 +164,38 @@ class MinDistanceToClosestEnemyUtility(BaseUtility):
             return None
         return min(hexgeo.distance(pos, ep) for ep in enemy_positions)
 
-    def evaluate_movement(self, pos, enemy_positions, wt, pathdist_by_pos=None) -> float:
+    def evaluate_movement(self, pos, enemy_positions, wt, pathdist_by_pos=None,
+                          case: "UtilityMovementCase | None" = None) -> float:
         """`MinDistanceToClosestEnemyUtility.<EvaluateMovementInSteps>d__.MoveNext` (stub IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$EvaluateMovementInSteps) :
         `U = wMin * d` quand `d` a une valeur, `wMin = MinDistanceToClosestEnemy.PerTileDistance`
         (-100 du BC) ; wMin negatif => plus l'unite est PROCHE d'un ennemi, plus U est haut. Quand `d`
         n'a PAS de valeur, le natif rend la constante statique `BaseUtility` `statics+0x20` =
-        `Fix64.MinValue` (cf. `NO_PATH_UTILITY`), pas un repli proportionnel."""
+        `Fix64.MinValue` (cf. `NO_PATH_UTILITY`), pas un repli proportionnel.
+
+        QUATRE GATES D'ENTREE precedent tout calcul (#236) — chacun rend `Fix64.FromInt(0)`, soit
+        **0.0**, PAS `NO_PATH_UTILITY` : la tuile n'est pas redhibitoire, la feuille est MUETTE.
+        Ils sont dans l'ordre EXACT du natif (le premier qui mord court-circuite) :
+
+          1. `case.Unit == null`                                        (`case+0x10`)
+          2. `IdunBattle.Entities.UnitExtensions$$IsNonAttacking(case.Unit)`
+          3. `case.ClosestEnemy == null`                                (`case+0x20`)
+          4. `!IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged(case.Unit, case.ClosestEnemy)`
+
+        Sans eux le port attribue un terme de distance la ou le natif rend zero -> il PREFERE des
+        tuiles que le natif n'evalue pas. La degradation est PERMISSIVE (ni erreur ni crash) et
+        STRUCTURELLEMENT INVISIBLE en agrement : `MovementActionGenerator.generate` est un argmax pur,
+        donc un ecart UNIFORME sur toutes les tuiles ne deplace AUCUN choix. Ce terme ne se valide
+        que TUILE PAR TUILE (cf. `tests/engine/test_min_distance_move_leaf_live.py`)."""
+        if case is not None:
+            if case.unit is None:                                   # gate 1
+                return 0.0
+            if is_non_attacking(case.unit_traits):                  # gate 2
+                return 0.0
+            if case.closest_enemy is None:                          # gate 3
+                return 0.0
+            if not unit_can_be_damaged(case.unit_crit_chance,       # gate 4
+                                       case.closest_enemy_traits):
+                return 0.0
         d = self.get_min_distance_to_enemy(pos, enemy_positions, pathdist_by_pos)
         if d is None:
             return NO_PATH_UTILITY
