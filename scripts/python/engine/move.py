@@ -25,7 +25,6 @@ from .utilities.move import MIN_DIST_UTILITY, UNIT_MOVEMENT  # noqa: F401 (UNIT_
 
 
 def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt: Weights,
-                       steppable_by_pos: dict | None = None,
                        pathdist_by_pos: dict | None = None,
                        is_temporary_by_pos: dict | None = None,
                        effects_by_pos: dict | None = None,
@@ -66,8 +65,6 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
         e = elev_by_pos.get(c)
         meta: dict = {"elevation": e, "elevation_max": emax, "elevation_min": emin} \
             if e is not None else {}
-        if steppable_by_pos and c in steppable_by_pos:
-            meta["steppable"] = steppable_by_pos[c]
         if is_temporary_by_pos and c in is_temporary_by_pos:
             meta["is_temporary"] = is_temporary_by_pos[c]
         # feuille TileEffects(9) : effets DYNAMIQUES (tileMeta = Loop1 : Thorns/Fire/...) + covers HÉBERGÉS
@@ -79,6 +76,10 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             meta["effects"] = _effs
         # Attributs de TUILE remontés par `tileMeta` (isTerritory / effects[].effectType) —
         # transportés par le `leaf_ctx` sous forme de cartes par-position (cf. `apply_tile_attributes`).
+        # #241 : il en dérive AUSSI `meta.steppable` / `decoy_gate` / `decoy_friend_count` depuis
+        # l'occupant de la tuile. Le paramètre `steppable_by_pos` qu'exposait cette fonction est
+        # SUPPRIMÉ : aucun appelant ne l'a jamais fourni (feuille 19 muette), et le laisser aurait
+        # créé une seconde source pour `meta.steppable`, écrasée juste après par la ligne suivante.
         apply_tile_attributes(meta, c, leaf_ctx)
         # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
         # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.

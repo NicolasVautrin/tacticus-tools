@@ -10,6 +10,11 @@ import hexgeo
 
 from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, _pos, _units_of, _is_alive,
                         _same_entity, _c_mod)
+# `IdunBattle.Entities.Enum.UnitFaction` — FOYER UNIQUE (#241) : mirror 1:1 des 21 membres transcrits
+# de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
+# fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
+# 8 valeurs qu'elle portait deja. Re-export : l'API `triggers.UNIT_FACTION_NAMES` est inchangee.
+from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
 
 
 class TriggerAnd(AbilityTrigger):
@@ -436,12 +441,6 @@ class HasFaction(AbilityTrigger):
         return any(fo(u) == name for u in _units_of(self.unit, ctx))
 
 
-# `IdunBattle.Entities.Enum.UnitFaction` (dump enums du build) — la table est PARTIELLE : seules les valeurs
-# effectivement referencees par un arbre porte y figurent (ajouter au fil des call-sites, jamais deviner).
-UNIT_FACTION_NAMES = {
-    0: "Ultramarines", 1: "Sisterhood", 2: "AstraMilitarum", 3: "BlackLegion", 4: "DeathGuard",
-    5: "Orks", 6: "BlackTemplars", 7: "Necrons",
-}
 
 
 class HasUnit(AbilityTrigger):
