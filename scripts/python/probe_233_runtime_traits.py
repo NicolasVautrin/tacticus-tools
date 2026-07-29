@@ -12,7 +12,14 @@ SEMANTIQUE, lue au decompile de `IdunBattle.Entities.Components.BaseUnitComponen
 `AddTraitOperation$$Execute` ecrit +0x40 (isTemporary==0) ou +0x48 (sinon).
 ⚠ `RemoveTraitOperation$$RemoveTrait` NE remplit PAS +0x50 : il RETIRE de +0x40/+0x48 selon le
 meme `isTemporary`. Le retrait est DESTRUCTIF sur les ensembles additifs, pas additif sur un
-ensemble de veto -- l'ecrivain de +0x50 reste a identifier.
+ensemble de veto.
+#265 CLOT la question : +0x50 (nom natif `DisabledTraits`) n'a AUCUN ecrivain dans le binaire --
+cree vide par `BaseUnitComponent$$.ctor`, recopie vide par les deux `Copy`, et le balayage
+exhaustif des mutateurs additifs de `OrderedSet<UnitTrait>` (MethodInfo* de `Add` -> un seul
+appelant, `StaticBattleRules.Trait$$.cctor` ; `Add` d'interface -> 6 appelants, tous sur
++0x40/+0x48) ne rend aucun site le visant. Le veto est structurellement INERTE, donc
+`HasTrait(t) == permanents(+0x40).Contains(t) || temporaires(+0x48).Contains(t)` au bit pres.
+Detail : `docs/rl/case-265-disabled-traits-aucun-ecrivain.md`.
 
 CE QUE MESURE CETTE SONDE :
   A. le canal REPOND : `traits` est une LISTE (pas `null`) pour toutes les unites vivantes ;

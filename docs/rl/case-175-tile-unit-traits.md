@@ -54,6 +54,13 @@ elle qui injecte le trait dans la BattleConfiguration, jamais le moteur de batai
 Les collections `+0x50` (retires) et `+0x48` (accordes en bataille) ne sont **pas observables
 offline** — limite ASSUMEE, ecrite dans la docstring de `unit_trait_ids`.
 
+> **Depasse depuis.** `+0x48` (et `+0x40` sur octroi permanent) est porte depuis **#225**
+> (`case-225-dynamic-trait-gates.md` : le leaf DSL `AddTrait` ecrit `UnitContext.traits`, lu par
+> `entity_trait_names/ids`). `+0x50` est **ferme par #265**
+> (`case-265-disabled-traits-aucun-ecrivain.md`) : ce n'etait pas une limite d'observabilite mais
+> un champ **sans aucun ecrivain dans le binaire** — le veto de `HasTrait` est INERTE, il n'y a
+> rien a observer.
+
 ## 3. Le fix
 
 - **`engine/entities/traits/unit_trait.py`** (module d'autorite du mapping id <-> nom) recoit la
@@ -167,4 +174,6 @@ A ouvrir si un agreement de decision diverge sur une tuile despoilee.
   `Interceptor.attach` sur `Dictionary<string,int>.TryGetValue` (chemin hot) — proscrit tant que
   d'autres agents partagent la session. La validation porte donc sur l'ETAT (l'effet 1476 est bien
   pose par le natif et lu par le port) et sur les poids BC, pas sur une egalite de score natif.
-- Les traits `+0x48` (accordes en bataille) et `+0x50` (retires) du `BaseUnitComponent`.
+- ~~Les traits `+0x48` (accordes en bataille) et `+0x50` (retires) du `BaseUnitComponent`.~~
+  `+0x48` porte par **#225** ; `+0x50` ferme par **#265** (aucun ecrivain dans le binaire, donc rien
+  a couvrir) — cf. l'encart du §2.

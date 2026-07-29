@@ -23,9 +23,14 @@ VOLET 1 -- ECRITURE : quels traits le natif peut-il accorder PENDANT la bataille
 
     Les sites d'ecriture sont EXHAUSTIFS : ce sont les 6 appelants de
     `IdunBattleLogic.Entities.DSLFactory$$AddTrait` (releve xrefs ghidra, build gqfc5mff6c).
-    Aucun `DSLFactory$$RemoveTrait` n'existe -- `IdunBattle.Operations.RemoveTraitOperation$$Execute`
-    n'a que `Core.Services.OperationProcessor$$RemoveTrait` en appelant, lui-meme sans appelant
-    direct (slot d'interface) -> la collection `+0x50` reste hors de portee du port.
+    Aucun `DSLFactory$$RemoveTrait` n'existe. En revanche `IdunBattle.Operations.RemoveTraitOperation$$Execute`
+    EST atteint en jeu (`AddUnitOperation$$Execute` -> `...$$RemoveTraitsThatAreNotInheritedWhenCloned`
+    -> slot `IOperationProcessor` -> `Core.Services.OperationProcessor$$RemoveTrait` -> lui) : la
+    justification « sans appelant direct » ecrite ici a l'origine etait FAUSSE.
+    Ce qui met la collection `+0x50` hors sujet est autre chose, et c'est MESURE par #265
+    (`docs/rl/case-265-disabled-traits-aucun-ecrivain.md`) : `RemoveTrait` RETIRE de `+0x40`/`+0x48`,
+    et `+0x50` (`DisabledTraits`) n'a AUCUN ecrivain dans le binaire -> le veto de `HasTrait` est
+    INERTE, il n'y a rien a porter.
 
 VOLET 2 -- LECTURE : les gates de trait de la couche DECISION, par ACCESSEUR.
     C'est l'ACCESSEUR, pas le gate, qui determine la cecite : dix gates derriere un accesseur
