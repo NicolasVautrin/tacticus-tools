@@ -591,15 +591,17 @@ class PlasmaGrenadeAbility(ActiveAbility):
     #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (leve la ligne de vue par
     #                                                           elevation ; la LOS n'est pas portee)
     #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
-    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
-    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
-    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
-    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
-    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
     # `forceMeleeTarget = RangedBool.True` ARME le clamp de melee de `TargetingQuery$$GetRange` :
     # si `AttackQuery$$ShouldApplyRangedInMelee` est vrai (un ennemi non-Steppable au contact du
     # caster), la portee tombe a `min(1, 2)` et `onlyAdjacent` passe a vrai. C'est le SEUL champ qui
     # separe ce preset de celui de Fragstorm (`+0x180`).
+    # CONFRONTE LIVE (#243) -- le marqueur « pose sur RE seule » de #248 est LEVE. Porteur
+    # `eldarSmnGuardian` amene par catalogue injecte + trait `Summon` retire (recette case-245 : ce
+    # trait desarme `AActiveAbility$$CanStillBeUsed`, l'oracle court-circuiterait a `0x1`).
+    # 14/14 lignes d'accord natif/port sur DEUX montages, seuil encadre des DEUX cotes (d=2 accepte,
+    # d=3/5/6 -> `TargetIsInRange`) et CLAMP EXERCE : avec un ennemi au contact, la cible a d=2
+    # bascule de `0x0` a `0x8000000`, et le contrefactuel `fmtFlip` faux-ACCEPTE exactement cette
+    # ligne. cf. `probe_243_splash_range_clamp.py`, garde `test_splash_range_clamp_live.py`.
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
         self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
@@ -655,11 +657,12 @@ class StikkbombAbility(ActiveAbility):
     #     bit 14  0x4000      TargetIsEnemy                  -> PORTE
     #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (LOS non portee)
     #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
-    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
-    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
-    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
-    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
-    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
+    # CONFRONTE LIVE (#243) -- le marqueur « pose sur RE seule » de #248 est LEVE. Porteur
+    # `orksOrkBoys` amene par catalogue injecte + trait `Summon` retire (recette case-245).
+    # 14/14 lignes d'accord natif/port sur DEUX montages, seuil encadre des DEUX cotes (d=2 accepte,
+    # d=3/5/6 -> `TargetIsInRange`) et CLAMP EXERCE : avec un ennemi au contact, la cible a d=2
+    # bascule de `0x0` a `0x8000000` -- exactement l'inverse de Fragstorm (1078), mesuree dans le
+    # MEME runner. cf. `probe_243_splash_range_clamp.py`, garde `test_splash_range_clamp_live.py`.
     # NOTE : `TargetIsEnemy` gate la CIBLE DESIGNEE du message, pas le splash. Le friendly-fire du
     # splash (#213 : `AdjacentUnits(TargetTile())` BRUT, allies inclus) reste entier -- ce sont deux
     # etages distincts (gate de cast vs selecteur de behaviour).
@@ -724,11 +727,14 @@ class FragstormAbility(ActiveAbility):
     #     bit 14  0x4000      TargetIsEnemy                  -> PORTE
     #     bit 25  0x2000000   AllowObscuredTargetByElevation -> PERMISSIF (LOS non portee)
     #     0x2 + 0x4000 + 0x2000000 = 0x2004002 : somme exacte, aucun bit residuel.
-    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur des trois abilities a
-    # `0x2004002` (1051 / 1078 / 1098) n'a pu etre amene a rendre une cible legale dans un runner.
-    # Ce masque n'est donc garde par AUCUN test d'accord natif/port -- il vaut mieux que `None`
-    # (qui ne gate RIEN), mais il n'a pas le meme statut que ses voisins 1000 / 1105, confrontes 6/6
-    # sur deux couples board/seed. A re-confronter (fiche de re-dispatch ouverte).
+    # CONFRONTE LIVE (#243) -- le marqueur « pose sur RE seule » de #248 est LEVE, et c'est LE cas
+    # qui paie la lecture preset-par-preset. Porteur `templSmnAggressor` amene par catalogue injecte
+    # + trait `Summon` retire (recette case-245). 14/14 lignes d'accord natif/port sur DEUX montages,
+    # seuil encadre des DEUX cotes (d=2 accepte, d=3/5/6 -> `TargetIsInRange`), et surtout : avec un
+    # ennemi AU CONTACT, la cible a d=2 reste ACCEPTEE (`0x0`), la ou 1051/1098 -- mesurees dans le
+    # MEME runner, meme geometrie -- basculent en `0x8000000`. Le contrefactuel `fmtFlip` faux-REFUSE
+    # exactement cette ligne. cf. `probe_243_splash_range_clamp.py`, garde
+    # `test_splash_range_clamp_live.py`.
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
         self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)

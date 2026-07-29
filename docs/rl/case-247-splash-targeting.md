@@ -196,30 +196,27 @@ avant que le gameconfig ne le confirme par `activeAbilities`.
 
 ## 5. Ce qui n'est PAS couvert
 
-- **1051 / 1065 / 1078 / 1098 : masques POSÉS sur RE, validation live NON obtenue.** La lecture est
-  exhaustive et mécanique (forme du ctor identifiée, surcharge vérifiée au décompilé, preset lu dans
-  le `cctor`, décomposition sans résidu), mais aucune des quatre n'a été confrontée à
-  `abilityReason`. Elles ne sont donc **pas** gardées par `test_splash_targeting_live.py`.
-  - **1065 est validé par identité de source** : son preset est `+0x40`, **le même bloc mémoire** que
-    1105, dont l'accord natif/port est mesuré 6/6 sur deux couples. Le seul écart possible serait une
-    erreur de lecture du ctor, or les deux ctors sont textuellement identiques hors le `this`.
-  - **1051 / 1098** partagent le preset `+0x140` et les mêmes flags ; **1078** le preset `+0x180`.
-    Aucun des trois n'a de mesure.
-- **Blocages rencontrés, nommément** :
+- **1051 / 1078 / 1098 : RÉSOLU depuis, par case-243.** Les trois sont désormais confrontées live
+  (14/14 chacune, seuil encadré des deux côtés **et** clamp de mêlée exercé) et gardées par
+  `test_splash_range_clamp_live.py`. La voie qui a débloqué le lot est celle qui est décrite
+  ci-dessous comme « non tentée » : catalogue injecté **+ retrait du trait `Summon`**, qui est ce qui
+  désarmait `CanStillBeUsed`. Voir `docs/rl/case-243-splash-range-clamp.md`.
+- **1065 : masque POSÉ sur RE, validation live NON obtenue.** La lecture est exhaustive et mécanique,
+  et **1065 est validé par identité de source** : son preset est `+0x40`, **le même bloc mémoire** que
+  1105, dont l'accord natif/port est mesuré 6/6 sur deux couples. Le seul écart possible serait une
+  erreur de lecture du ctor, or les deux ctors sont textuellement identiques hors le `this`. Il reste
+  le seul item du module sans mesure — la voie de case-243 s'y applique telle quelle.
+- **Blocages rencontrés dans CETTE tranche, et ce qu'ils valaient réellement** :
   - `Waaagh` (1058) rend **0 cible légale** (`abilityTargets.fromHere`) tant que les ennemis sont
     hors de `constants.range = 3` ; une fois le spectre monté il en rend toujours 0 sur les deux
     positions essayées — sa règle dynamique (`WaaaghAbility$$GetDynamicInvalidTargetReason`) n'a pas
-    été instruite ici. Sans invocation, pas de porteur de 1051.
+    été instruite ici. Blocage **contourné** par case-243 : on n'invoque plus, on spawne le summon
+    directement depuis le catalogue.
   - `AlphaWarrior` (1112) **invoque bien** (`spawned=1` puis `2`), et les unités apparues sont
     `tyranNpc4Warrior` + `tyranNpc1Hormagaunt` dans l'équipe du summoner — donc le `visualId` du
-    spawn **n'est pas** l'id gameconfig du summon. Mais aucune unité du plateau ne rend
-    `abilityState.usable = true` pour 1065 après purge de cooldown : soit un cooldown initial plus
-    long, soit le gate d'usage désarmé par le trait `Summon` (**exactement le résidu mesuré en
-    case-245** : `CanStillBeUsed = false` ssi le trait `Summon` est présent, cause non remontée).
-    C'est le point à reprendre en premier pour clore 1051/1065.
-  - **1078 / 1098** exigent le catalogue injecté (`catalog_inject.write_augmented_seed_bc` vers un
-    chemin hors `data/` + `build --seed-bc`, en alimentant `Units` **et** `Abilities`), voie
-    identique à celle de case-245 — non tentée dans cette tranche.
+    spawn **n'est pas** l'id gameconfig du summon. Aucune unité ne rendait `abilityState.usable`
+    pour 1065 : c'était bien **le résidu de case-245** (le trait `Summon` désarme `CanStillBeUsed`),
+    confirmé par case-243, qui le lève en retirant ce trait de l'entrée de catalogue.
 - **La ligne de vue** (`GetTilesObscuringTerrain`) reste non portée. Sans conséquence *dans ce sens*
   pour 1051/1078/1098 : leur bit `AllowObscuredTargetByElevation` **désarme** justement une partie de
   cette règle côté natif.
@@ -243,8 +240,10 @@ avant que le gameconfig ne le confirme par `activeAbilities`.
 ## 7. Artefacts
 
 - port : `scripts/python/engine/runner/abilities/loki/splash.py` (les six classes)
-- probe (MESURE) : `scripts/python/probe_247_splash_targeting.py` (`--group heroes|summons`)
-- test (GARDE) : `scripts/python/tests/engine/runner/test_splash_targeting_live.py`
+- probe (MESURE) : `scripts/python/probe_247_splash_targeting.py` (`--group heroes|summons`) pour
+  1000/1105 ; `scripts/python/probe_243_splash_range_clamp.py` pour 1051/1078/1098 (case-243)
+- test (GARDE) : `scripts/python/tests/engine/runner/test_splash_targeting_live.py` (1000/1105) et
+  `scripts/python/tests/engine/runner/test_splash_range_clamp_live.py` (1051/1078/1098)
 - cliquet : `scripts/python/tests/engine/runner/test_ability_registry_ratchet.py`
   (les six retirées de `SANS_TARGETING_OPTIONS`, chacune avec sa forme et son calcul)
 

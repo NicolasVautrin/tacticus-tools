@@ -18,8 +18,12 @@ Ce que le test EXIGE, et pourquoi chaque exigence est la :
     et refuse d>=2 (`RANGE_ADJACENT` -> branche `AreEntitiesAdjacent`). Ce sont les cas limites, et
     ils separent les deux regimes de portee du lot.
 
-Les items 1051/1065/1078/1098 ne sont PAS gardes ici : leurs porteurs sont summon/npc et la mesure
-live n'a pas ete obtenue (cf. `docs/rl/case-247-splash-targeting.md` §5).
+Les items 1051/1078/1098 sont gardes AILLEURS, par `test_splash_range_clamp_live.py` (#243) : leurs
+porteurs sont des SUMMONS, amenes par catalogue injecte + trait `Summon` retire, et leur montage
+exige un ennemi AU CONTACT pour exercer le clamp de melee -- une geometrie que le montage d'ici ne
+produit pas. 1065 `ScythingTalons` reste le SEUL item du module sans mesure live (son porteur
+`tyranSmnWarrior` est joignable par la meme voie ; residu nomme, cf.
+`docs/rl/case-243-splash-range-clamp.md` §6).
 
 ASCII only (console Windows cp1252).
 """
