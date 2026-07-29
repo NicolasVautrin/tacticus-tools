@@ -112,6 +112,21 @@ lecteurs exigeaient encore un repertoire unique et mouraient a la migration :
 | `test_steppable_decoy_tile_leaves_live.py` | 13 passed, **5 failed** | **14 passed** |
 | `test_tile_leaf_unit_traits_live.py` | 3 passed, **1 failed** | **4 passed** |
 | `test_218_amulet_custom_utility_vtable.py` | 1 passed, **1 failed** | **2 passed** |
+| `test_tile_term_unit_gated_playbooks_live.py` + `test_tile_term_triggered_playbooks_live.py` | **4 failed** (#258) | **42 passed** |
+
+**Les deux derniers n'avaient PAS ete rejoues** au moment d'ecrire ce tableau — mesures le
+2026-07-29 au soir, en cloturant #258. Ils tombaient tous les deux sous le point B : ces gardes
+comparent le **composite Tile(7)** du port a la decision native ; avec 26 des 29 entrees de
+`TILE_LEAVES` mal appariees, le composite sommait les MAUVAISES feuilles. Les 4 rouges nommes par
+#242 (`blackTerminator`/1038, `deathBlightbringer`/1071, `templAncient` `C4_09`/999 pas 14) sont
+verts sans qu'une ligne de leur code ait bouge.
+
+⚠ **#258 accusait le mauvais coupable** : sa fiche donnait pour cause les 15 adresses mortes de
+`scorer-damage-trace.ts` (#257), au motif que ces tests consommeraient `scorerTileTermTraceDump`.
+**Ils ne l'ont jamais fait** — `_move_tile_sweep_order.py` le dit noir sur blanc : c'est « le seul
+confront LIVE du terme de tuile qui ne demande pas d'armer les hooks RVA ». Les hooks du scorer ont
+servi a la mesure FONDATRICE (`probe_193c`), pas au test. Deux dossiers ouverts le meme jour sur la
+meme migration, et la proximite a suffi a fabriquer un lien de cause.
 
 ## 5bis. Ce que le deblocage a REVELE : un attendu perime, merge a l'aveugle
 
