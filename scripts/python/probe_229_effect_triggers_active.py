@@ -125,7 +125,8 @@ ARRAYSET_READS_BY_TREE = {
 # GAPS ATTENDUS : rail a gate natif dont le port ne lit pas le flag. Toute entree qui SORT ou
 # ENTRE ici doit etre justifiee.
 #
-# DEUX RESORPTIONS INDEPENDANTES, toutes deux du 2026-07-29 (fusionnees au rebase) :
+# Etat des lieux #229 (2026-07-29) : 6 entrees. TROIS RESORPTIONS INDEPENDANTES, toutes du
+# 2026-07-29 (fusionnees au rebase) :
 #
 #   * `HazeOfCorruptionDamageTransferTrigger` (1077) -- rail TARGETS : son `matches` lit
 #     desormais `inst.active`, mirror direct de la double lecture d'`IsActive` par
@@ -143,9 +144,16 @@ ARRAYSET_READS_BY_TREE = {
 #     (`_master_effect_is_carried_and_active`) mirroire CE couplage, pas un `onlyActive`.
 #     Cf. `docs/rl/case-231-master-tutelaries-active-gate.md`.
 #
-# Les quatre restants sont des fiches distinctes (toutes du rail TARGETS).
+#   * `RitesOfMorkaiReviveTrigger` (1502) -- rail TARGETS : gate pose dans son `matches`
+#     (`triggers/loki/rites_of_morkai.py`). La fiche desambiguise les DEUX lectures de `+0x5c` --
+#     la 1re, sur le composant recu, est un FAST-PATH qu'un effet INACTIF traverse ; **la 2e, par
+#     cible, sur le composant RE-FETCH depuis l'entite-effet, est LE gate**. Son JUMEAU 1547
+#     `ReanimationBeamReviveTrigger` partage la meme base `ReviveEffect` et le meme rail mais
+#     N'A PAS ete touche (un item par tache) -- il reste ci-dessous.
+#     Cf. `docs/rl/case-229-1502-rites-of-morkai-active-gate.md`.
+#
+# Les trois restants sont des fiches distinctes (toutes du rail TARGETS).
 EXPECTED_GAPS = {
-    "RitesOfMorkaiReviveTrigger",
     "ReanimationBeamReviveTrigger",
     # `AnvilShieldFrozenAdvantageExpire` (1201) : RESORBE par #231 (gate
     # `_frozen_advantage_flag_is_set`, `triggers/loki/anvil_shield.py`).

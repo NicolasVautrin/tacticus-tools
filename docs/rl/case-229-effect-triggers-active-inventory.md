@@ -91,8 +91,8 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1186 | `GhostRemoveOnUnitEnters` | ARRAYSET | tuile | no | CONFORME |
 | 1186 | `GhostRemoveOnSourceDeathInactive` | ARRAYSET | tuile | **direct** | CONFORME (noeud `NOT IsEffectActive`) |
 | 1186 | `GhostRemoveOnSourceRemoved` | ARRAYSET | tuile | no | CONFORME |
-| 1197 MasterOfTheTutelaries | `MasterOfTheTutelariesSummonAbility` | APPLY_REVERT | unite | no | **ECART** |
-| 1201 AnvilShield_FrozenAttackerAdvantage | `AnvilShieldFrozenAdvantageExpire` | TARGETS | unite | **direct** | RESORBE (#231) |
+| 1197 MasterOfTheTutelaries | `MasterOfTheTutelariesSummonAbility` | APPLY_REVERT | unite | **direct** | CONFORME depuis #231 |
+| 1201 AnvilShield_FrozenAttackerAdvantage | `AnvilShieldFrozenAdvantageExpire` | TARGETS | unite | **direct** | CONFORME depuis #231 |
 | 1244 Contaminated | `ContaminatedTileEffect` | ARRAYSET | tuile | no | CONFORME |
 | 1324 FuelledByFury_CanRevive | `FuelledByFuryCanReviveActivateOnAbilityInit` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
 | 1324 | `FuelledByFuryCanReviveActivateOnTurnStart` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
@@ -101,13 +101,15 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1451 | `PhoenixGemRemoveMarkerOnRevive` | ARRAYSET | unite | no | CONFORME |
 | 1451 | `PhoenixGemRemoveMarkerOnResurrect` | ARRAYSET | unite | no | CONFORME |
 | 1476 DespoiledGround | `DespoiledGroundTileDoT` | ENV_ABILITY | tuile | no | CONFORME (hors rail effet-trigger) |
-| 1502 RitesOfMorkai | `RitesOfMorkaiReviveTrigger` | TARGETS | unite | no | **ECART** |
+| 1502 RitesOfMorkai | `RitesOfMorkaiReviveTrigger` | TARGETS | unite | **direct** | CONFORME depuis 2026-07-29 |
 | 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | unite | no | **ECART** |
 | 1550 Chronometron_ExtraDamage | `ChronometronExtraDamageRemove` | ARRAYSET (greffe) | unite | no | CONFORME |
 
-**23 classes conformes / 5 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077).
-Precision sur la fiche d'entree : le flag n'etait lu que par
-**1009** cote `EFFECT_TRIGGERS` (1077 l'a rejoint avec #231). Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
+**26 classes conformes / 2 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077, 1197
+et 1201, la tache 1502 a resorbe `RitesOfMorkaiReviveTrigger`). ⚠ Ce compte se PERIME a chaque
+resorption : le re-deriver par le probe. Precision sur la fiche d'entree : le flag n'etait lu que
+par **1009** cote `EFFECT_TRIGGERS` (1077, 1197, 1201 puis 1502 l'ont rejoint).
+Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
 le LECTEUR (`HasEffect(self, 0x52c, onlyActive=1, 6)`) est `FuelledByFuryReviveAbility`, qui vit
 dans `ABILITY_TRIGGERS`, pas ici.
 
@@ -162,9 +164,9 @@ Ventilation des 6 ecarts :
 | ecart | canal de seed | dans le rayon de souffle ? |
 |---|---|---|
 | 1077 HazeOfCorruption_DamageTransfer | unite | **non** — RÉFUTÉ par mesure live, cf. ci-dessous |
-| 1197 MasterOfTheTutelaries | unite | **OUI** |
+| 1197 MasterOfTheTutelaries | unite | **non** — REFUTE par mesure live (#231, meme constat que 1077) |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** |
-| 1502 RitesOfMorkai | unite | **OUI** |
+| 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
 | 1547 ReanimationBeam_Revive | unite | **OUI** |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
@@ -179,12 +181,10 @@ Ventilation des 6 ecarts :
 
 ## 4. Recommandation
 
-**L'activation globale n'est PAS possible en l'etat.** Quatre effectTypes l'empechent, nommement
-(1077 a ete RESORBE par #231, et sa ligne de rayon de souffle REFUTEE — cf. §3) :
+**L'activation globale n'est PAS possible en l'etat.** UN SEUL effectType du canal UNITE l'empeche
+encore (1077, 1197 et 1201 RESORBES par #231 ; 1502 RESORBE le 2026-07-29, cf. §4bis — sa ligne de
+rayon de souffle, elle, n'est ni confirmee ni refutee, faute de porteur spawnable) :
 
-    1197  MasterOfTheTutelaries             -> MasterOfTheTutelariesSummonAbility
-    1201  AnvilShield_FrozenAttackerAdvantage -> AnvilShieldFrozenAdvantageExpire   [RESORBE #231]
-    1502  RitesOfMorkai                     -> RitesOfMorkaiReviveTrigger
     1547  ReanimationBeam_Revive            -> ReanimationBeamReviveTrigger
 
 ⚠ Les COMPTES de cette fiche (« 6 en ecart », « Cinq effectTypes ») sont ceux de l'inventaire
@@ -211,6 +211,32 @@ verrouille le refus de la voie 2 (`test_le_gate_ne_vaut_que_pour_le_rail_targets
 La voie 1 est la plus sure ; la voie 2 n'a d'interet que si l'on veut un cliquet structurel, et
 exige alors l'attribut de rail que ce probe materialise deja en table.
 
+## 4bis. Resorption (un effectType par tache, voie 1)
+
+- **1077 `HazeOfCorruption_DamageTransfer` : CLOS (#231)** — `case-231-haze-transfer-active-gate.md`.
+- **1197 `MasterOfTheTutelaries` : CLOS (#231)** — `case-231-master-tutelaries-active-gate.md`. ⚠ PAS
+  le meme remede : rail APPLY_REVERT, dont l'arbre passe `onlyActive = 0` ; l'activite mord par
+  `DeactivateEffect -> UpdateEffectTargets(cibles vides) -> Revert -> RemoveTriggeredAbility`.
+- **1201 `AnvilShield_FrozenAttackerAdvantage` : CLOS (#231)** — `case-231-effect-1201-active-gate.md`.
+- **1502 `RitesOfMorkai` -> `RitesOfMorkaiReviveTrigger` : CLOS le 2026-07-29** —
+  `case-229-1502-rites-of-morkai-active-gate.md`. Le gate est pose dans le `matches` de la classe
+  1502 SEULE ; son jumeau 1547 (meme base `ReviveEffect`, meme rail) est INTACT et reste en ecart —
+  le cliquet le montre (1547 toujours `no`). Complement de RE apporte par cette tache, qui comble
+  deux trous du §5 ci-dessous :
+  - les DEUX lectures de `+0x5c` sont **desambiguisees**. Liaison des parametres depuis le call
+    site de `EvaluateEffectTrigger` : `param_3` = **entite-effet**, `param_4` = **EffectComponent**.
+    La 1re lecture (`if (comp.IsActive) { if (comp.Targets.Count == 0) return; }`) est un
+    FAST-PATH — un effet INACTIF la TRAVERSE. **Le gate est la 2e** : dans la boucle par cible, sur
+    le composant RE-FETCH depuis l'entite-effet (`GetComponent(param_3)`), juste avant
+    `ShouldTrigger` (slot 0x13) puis `Execute` (slot 0x14). Les deux portent sur l'effet SOURCE,
+    jamais sur la cible.
+  - `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` est **decompile** :
+    `activation == 1 -> true` ; `== 2 -> false` ; `!= 0 -> ArgumentOutOfRange` ; sinon
+    `if (comp@+0x5e != 0) return false` puis `if (!effect.<virtuel 0xc>(evt)) return comp.IsActive`
+    (inchange) sinon `return effect.<virtuel 0xb>(entities)`. `RitesOfMorkaiEffect` passe
+    `activationFrequency = 0` (`ReviveEffect..ctor`, champ `+0x480`) = la branche CONDITIONNELLE.
+- **Restent** : 1547 (canal unite) et 1186 (canal tuile).
+
 ## 5. Ce qui n'est PAS couvert par cette fiche
 
 - **Les autres consommateurs de `by_unit`.** L'inventaire ne porte que sur `EFFECT_TRIGGERS`.
@@ -221,8 +247,12 @@ exige alors l'attribut de rail que ce probe materialise deja en table.
 - ~~**Le detail de `ShouldBeActive`**~~ — DECOMPILE par #231 (`case-231-effect-1201-active-gate.md`
   §2.3) : `kind == 1 -> true`, `kind == 2 -> false`, sinon `comp+0x5e != 0 -> false`, puis
   `!HasActiveCondition(trigger) -> comp.IsActive@+0x5c`, sinon `CreateActiveCondition().ShouldTrigger`.
-  RESIDU restant : l'ECRIVAIN de `EffectComponent+0x5e` n'est pas identifie (absent de
-  `$$GetPropertiesString` et de `$$.ctor`).
+  Lecture INDEPENDANTE et concordante par la tache 1502 (cf. §4bis) ; le 1er argument de la branche
+  conditionnelle (`kind`) est le champ `activationFrequency` du ctor d'effet — `RitesOfMorkaiEffect`
+  passe **0** (`ReviveEffect..ctor`, champ `+0x480`), soit la branche CONDITIONNELLE.
+  RESIDUS restants : l'ECRIVAIN de `EffectComponent+0x5e` n'est pas identifie (absent de
+  `$$GetPropertiesString` et de `$$.ctor`), et la semantique de `kind` (`0/1/2`) vient des retours
+  litteraux du decompile, pas d'un dump d'enum.
 - **`onlyActive` du selecteur `EntitiesWithAnyEffect`** (gate reel de 5 / 1476) : non resolu.
 - **Aucune mesure LIVE** : cette fiche est un inventaire par lecture. Aucune bataille n'a ete
   montee pour observer un effet inerte de ces cinq types (et l'absence d'un tel effet en
