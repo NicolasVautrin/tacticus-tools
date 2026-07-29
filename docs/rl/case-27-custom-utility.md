@@ -13,21 +13,34 @@ pas le dire : IL2CPP **deduplique les corps identiques**, et `methods.tsv` est i
 un corps partage par N classes n'y a qu'UN SEUL proprietaire (cf. `docs/rl/case-170-get-priority.md`).
 
 Contre-mesure appliquee : **balayage du SLOT DE VTABLE au runtime**, classe par classe
-(`probe_27_custom_utility_inventory.py` : `findClassesNamed("Playbook")` -> `resolveVtableSlot` sur
-TOUTE la vtable, pas sur un offset fige). Resultat sur le build `gqfc5mff6c` :
+(`probe_27_custom_utility_inventory.py` : `findClassesNamed("Playbook")` -> `resolveVtableSlot`).
 
-- **377** classes `*Playbook*` vues au runtime, **101** portent un slot `CalculateCustomUtility` ;
-- **27 corps DISTINCTS** — l'enumeration ghidra etait juste sur les corps ;
-- mais **28 classes overridantes** : `IdunBattle.AI.Playbook.Loki.AmuletOfTheVoidwyrmPlaybook`
-  partage le corps de `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility`
-  (et aussi son `MakeDamagePredictions`) — **invisible de `methods.tsv` comme de ghidra**.
-- Le slot n'est PAS au meme offset partout : **0x338** pour les playbooks d'ACTIVE (94 classes),
-  mais 0x548 / 0x5a8 / 0x668 / 0x7b8 pour 7 playbooks de TRIGGERED/passif (AmuletOfTheVoidwyrm,
-  ControlEdict, OmnissiahsBlessing, FoulInfusion, RedRampage, UnbreakableDuty, PrehensilePincerTail).
-  Un balayage a offset FIGE les rate tous — c'est pour ca que le sweep couvre toute la vtable, et que
-  le controle de bornes est fait (`probe_27_vtable_dump.py` : la vtable d'AmuletOfTheVoidwyrmPlaybook
-  est coherente jusqu'a 0x5a8 puis devient du bruit -> 0x548 est bien DEDANS, pas une lecture
-  hors-vtable dans la classe voisine).
+> ⚠ **CORRIGE PAR #218 (2026-07-29).** La tranche 3 balayait `0x108..0x808` SANS BORNE. Comme
+> `resolveVtableSlot` lit `klass+off` en aveugle (il n'a pas acces a `vtable_count`), ce balayage
+> DEBORDAIT sur l'`Il2CppClass` suivante — contigue en memoire — et rendait des `MethodInfo`
+> parfaitement nommes appartenant a une AUTRE classe. Les chiffres ci-dessous sont ceux du sweep
+> **BORNE** ; l'ancienne redaction (28 classes overridantes, slots a 0x548/0x5a8/0x668/0x7b8) est
+> conservee plus bas a titre de trace corrigee. Detail complet, preuve et technique :
+> **`docs/rl/case-218-amulet-voidwyrm-custom-utility.md`**.
+
+Resultat sur le build `gqfc5mff6c` (sweep borne) :
+
+- **377** classes `*Playbook*` vues au runtime, **93** portent un slot `CalculateCustomUtility`
+  dans leur PROPRE vtable ; 191 rendent `no-slot` (vtable lue, pas de slot) et **93**
+  `vtable-uninit` (vtable NULLE, classe jamais instanciee -> indetermine EXPLICITE, a trancher par
+  la chaine d'heritage, pas par le balayage) ;
+- **27 corps DISTINCTS** — l'enumeration ghidra etait juste sur les corps — et **27 classes**
+  overridantes : il n'y a PAS de 28e. `AmuletOfTheVoidwyrmPlaybook` n'override rien (sa base
+  `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche
+  `ComparablePlaybook`1` qui DECLARE le virtuel) ; le corps
+  `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` n'a qu'**UN** user ;
+- **le slot est au MEME offset partout : `+0x338`**, et rien d'autre. Les « 7 playbooks de
+  TRIGGERED/passif a 0x548/0x5a8/0x668/0x7b8 » (AmuletOfTheVoidwyrm, ControlEdict,
+  OmnissiahsBlessing, FoulInfusion, RedRampage, UnbreakableDuty, PrehensilePincerTail) etaient les
+  7 memes lectures hors-vtable : re-balayees bornees, aucune ne porte le slot. Le controle de
+  bornes de la tranche 3 (`probe_27_vtable_dump.py`, « coherent jusqu'a 0x5a8 puis du bruit »)
+  n'a pas attrape l'erreur parce qu'un debordement ne tombe PAS dans du bruit : il tombe sur la
+  vtable de la classe suivante, parfaitement formee.
 
 ## Deja couverts (hors #27)
 
@@ -193,11 +206,12 @@ un custom POSITION-dependant ne pouvait alors JAMAIS changer la tuile choisie. L
 desormais `u_full + custom(tuile)`. Neutre par construction sur les customs constants (garde
 d'agreement ci-dessous : 0 regression).
 
-## INVENTAIRE EXHAUSTIF des overrides `CalculateCustomUtility` (27 corps / 28 classes, build `gqfc5mff6c`)
+## INVENTAIRE EXHAUSTIF des overrides `CalculateCustomUtility` (27 corps / 27 classes, build `gqfc5mff6c`)
 
 **27 corps DISTINCTS** = 1 base + 4 mutualises (attaque normale / heal) + **22 corps par-ability** ;
-**28 classes** overridantes (le 23e override par-ability, `AmuletOfTheVoidwyrmPlaybook`, PARTAGE le
-corps de `PlasmaGrenadePlaybook` — cf. la section « comment il a ete re-derive »).
+**27 classes** overridantes — une par corps. (La tranche 3 en annoncait 28, `AmuletOfTheVoidwyrmPlaybook`
+etant cense partager le corps de `PlasmaGrenadePlaybook` : **faux positif de lecture hors-vtable,
+retire par #218**.)
 Ce tableau est le **livrable de decoupe** : il dit, pour chaque override, QUI le porte, si ce porteur
 est CONFRONTABLE (gate HERO/MoW via `rl_duel build --list-pool` — un porteur `lineup` ABSENT du
 catalogue de la seed BC reste confrontable via `catalog_inject.py`, cf. SavageEchoes / SUMMON via son
@@ -221,7 +235,7 @@ re-derouler la recon : elle part d'ici.
 | 11 | `Repair_GalvanicFieldPlaybook` @181155520 | Repair_GalvanicField (1119) | admecManipulus (granted par le passif GalvanicField) | hero | **DEJA PORTE** hors loki_custom (`_repair_galvanic_candidates`, #85) | — (verdict tranche 1 « dead-code » CORRIGE) |
 | 12 | `MortisRoundPlaybook` @18114d190 | MortisRound (1004) | ultraEliminatorSgt | hero (pool) | **terme MESURE NUL** (< 0.012), non porte | evaluateur du composite `UtilityAttackCase.Base` (slot 5 du service #0x36) ; re-mesurer sur board a elevation |
 | 13 | `SorcerousFacadePlaybook` @18115b9d0 | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **RE RESOLU, NON PORTE — non-conformite MESUREE puis RETIREE (#27-3)** | le moteur route 1100 comme ATTAQUE d'ENNEMI (`damageProfile` present) alors que le natif cible un **allie Psyker** (echange de positions). Debloqueur : route de ciblage ALLIE pour 1100 (`ability_targets` + generateur dedie facon `_bespoke_candidates`) |
-| 13bis | `AmuletOfTheVoidwyrmPlaybook` (corps PARTAGE avec `PlasmaGrenadePlaybook` @181151040) | AmuletOfTheVoidwyrm (passif, hors `ActiveAbilityType`) | — | passif/triggered | **residu — DECOUVERT en tranche 3** | corps identique a PlasmaGrenade (penalite de tir ami : `GenerateMultiHitAttackPredictions` sur les AMIS de la requete `battleQuery.<0x7c>`, somme NEGEE) -> meme verrou multi-hit (#4). Invisible de `methods.tsv` ET de ghidra (dedup IL2CPP) ; slot de vtable a **0x548**, pas 0x338 |
+| ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
 | 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** (face DECISION) | MoW absentes de `decisionView.units` / `attackPlans` (pas de PositionComponent) -> jamais feedees a `_best_attack` — **confirme live runner 336** : `observeBattle.mows` = 2 machines, `aiDryRunAllUnits` ne propose rien pour elles. Debloqueur : modeliser les MoW comme unites de decision (position derivee de `MachineComponent.Position`). NB : la face **COMBAT** de 1169 est portee et validee par **#90** — c'est bien le seul volet DECISION qui manque |
 | 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom |
@@ -237,13 +251,13 @@ re-derouler la recon : elle part d'ici.
 | 26 | `MartialExemplarPlaybook` @18114ae20 | MartialExemplar (1216) | darkaBossLion | **npc** | **non pertinent** | — |
 | 27 | `TheLionsWrathPlaybook` @18116aba0 | TheLionsWrath (1217) | darkaBossLion | **npc** | **non pertinent** | — |
 
-### Ventilation (les 23 overrides par-ability, apres re-derivation tranche 3)
+### Ventilation (les 22 overrides par-ability, apres correction #218)
 
 - **PORTES / couverts : 7** — 1014, 1177, 1020, 1029, 1199, 1119, **1230**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 10** — 1100, 1169, 1148, 1051/1142, 1098, 1226, 1053, 1185, 1212,
-  **AmuletOfTheVoidwyrm**.
+- **Residus a debloquer : 9** — 1100, 1169, 1148, 1051/1142, 1098, 1226, 1053, 1185, 1212.
+  (La tranche 3 en comptait 10 ; **AmuletOfTheVoidwyrm est retire — faux positif, cf. #218**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -280,8 +294,9 @@ Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2
    `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
    `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
    (1230). Restent 1226 et 1212, bloques par le verrou 2 (route), plus par le catalogue.
-4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098,
-   **AmuletOfTheVoidwyrm** (corps partage avec 1098).
+4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098.
+   (AmuletOfTheVoidwyrm y figurait au titre du « corps partage avec 1098 » — **retire par #218**,
+   ce partage n'existait pas.)
 5. **Evaluateurs manquants** : composite `UtilityAttackCase.Base` (1004), DSL de forme
    `TilesInTriangleShape` (1148), DSL selecteur d'ability (1226).
 
@@ -442,8 +457,13 @@ existera.
 - **SavageEchoes, face COMBAT** : portee depuis (case-220 §blood-angels, `ABILITY_CLASSES[1230]`) — #27
   ne couvrait que la face DECISION. La **prediction de degat** de 1230, elle, est FERMEE par #216
   (cf. « Notes de fidelite ») : ce n'est plus un non-couvert.
-- **AmuletOfTheVoidwyrm** : override DECOUVERT en tranche 3, non porte (verrou multi-hit) et son
-  porteur n'a pas ete ventile hero/summon/npc — a faire avant toute tentative de port.
+- ~~**AmuletOfTheVoidwyrm** : override DECOUVERT en tranche 3~~ — **FERME par #218 : il n'y a jamais
+  eu d'override.** Faux positif de lecture hors-vtable ; le porteur (relique
+  `R_Booster_Crit_AmuletOfTheVoidwyrm`, `allowedUnits` genesBiophagus/genesPrimus/genesKelermorph)
+  est neanmoins ventile dans `case-218` §5, avec la localisation du seuil de niveau des reliques
+  (`globalValues.tertiaryAbilityUnlockProgressionRequirement` = 16, lu par
+  `IdunMetaLogic.UserProgress.UnitProgression$$ProgressionLevelNeededToUnlockTertiaryAbility` — couche
+  META, jamais par `IdunBattle.*`).
 - **MoW (1169/1148/1142)** : blocage confirme live (runner 336) — les machines deploient mais
   n'existent pas comme unites de decision cote moteur.
 
@@ -477,15 +497,27 @@ speculatifs : sur les 23 overrides par-ability, **7 sont portes/couverts, 2 ferm
 pertinents (npc), 10 residus** tenus par **4 verrous** nommes (MoW non modelisees, routes d'ability
 non-attaque, multi-hit, evaluateurs manquants) — cf. l'inventaire (roadmap de reprise).
 
-**L'inventaire d'un override se re-derive au SLOT DE VTABLE, jamais a la table de symboles.** Les
-27 symboles ghidra decrivent 27 CORPS, pas 27 classes : la dedup IL2CPP a fondu
-`AmuletOfTheVoidwyrmPlaybook` dans `PlasmaGrenadePlaybook` (meme `CalculateCustomUtility` ET meme
-`MakeDamagePredictions`), et aucune des deux tables ne pouvait le montrer. Deux precautions rendent
-le balayage concluant : (a) **ne pas figer l'offset du slot** — il vaut 0x338 sur les playbooks
-d'ACTIVE mais 0x548/0x5a8/0x668/0x7b8 sur ceux de TRIGGERED, et un offset fige rate 7 classes en
-silence ; (b) **verifier les bornes** — les `Il2CppClass` sont contigus en memoire, donc lire
-au-dela d'une vtable retombe sur la classe voisine et peut rendre un `MethodInfo` parfaitement nomme
-(faux positif). Dumper la vtable entiere et regarder ou les noms deviennent du bruit tranche.
+**L'inventaire d'un override se re-derive au SLOT DE VTABLE — mais un balayage NON BORNE ment.**
+Les 27 symboles ghidra decrivent 27 CORPS, et la table ne peut pas dire combien de CLASSES les
+utilisent (dedup IL2CPP + indexation par adresse) : le balayage de vtable reste la bonne
+contre-mesure. Il doit en revanche etre **borne**, et la premiere redaction de ce paragraphe ne
+l'etait pas — elle a produit un faux positif (`AmuletOfTheVoidwyrmPlaybook` cru fondu dans
+`PlasmaGrenadePlaybook`, et 7 « offsets de slot alternatifs » 0x548/0x5a8/0x668/0x7b8 qui n'ont
+jamais existe). Ce qui tranche vraiment, dans cet ordre (**#218**) :
+
+(a) **La branche d'heritage d'abord** (`data/symbols/<build>/frida/classes.tsv`, indexee par NOM) :
+une classe hors de la branche qui DECLARE le virtuel ne peut pas l'overrider, et aucune mesure de
+vtable ne peut le contredire. `CalculateCustomUtility` appartient a `ComparablePlaybook`1` ;
+`TriggeredAbilityPlaybook`1` descend de `System.Object` — disjoint.
+(b) **Borner le balayage** a la vtable PROPRE (premier bloc contigu de slots nommes depuis
+`+0x138`). `resolveVtableSlot` lit `klass+off` en aveugle, sans `vtable_count` : c'est a l'appelant
+de s'arreter.
+(c) **Ne pas prendre « vtable nulle » pour « pas d'override »** — une classe jamais instanciee a des
+slots nuls ; c'est un INDETERMINE (statut `vtable-uninit`), a lever par (a) ou par une classe SŒUR
+initialisee de la meme base.
+(d) **« Regarder ou les noms deviennent du bruit » ne borne rien** : un debordement tombe sur la
+vtable de la classe SUIVANTE, parfaitement formee et nommee (`Equals` en tete). L'arithmetique, elle,
+tranche : `klass(voisine) - klass(sujet)` donne la taille reelle du sujet.
 
 **Un « porteur hors `--list-pool` » n'est pas un verrou.** Trois abilities dormaient derriere ce
 motif ; `catalog_inject.py --units <id>` complete `BC.Units` ET `BC.Abilities` et le runner deploie

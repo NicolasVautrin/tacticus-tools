@@ -791,14 +791,15 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `test_lord_of_tempests_addice_smite_branch` (géométrie placée : Njal d=2 de T, E2 voisin de T ;
   live glace {T, E2} == offline) ; `is_normal_attack` face attaquant et Stormcaller (1113)
   runner-face — **résolus par #217** (`case-217-stormcaller`).
-- **`CalculateCustomUtility`, 10 overrides non portés** (`case-27` — inventaire RE-DÉRIVÉ au slot de
-  vtable en tranche 3 : **27 corps mais 28 classes**, `AmuletOfTheVoidwyrmPlaybook` partageant le corps
-  de `PlasmaGrenadePlaybook` était invisible des tables ; **7 portés** dans `loki_custom.py` —
-  1014/1177/1020/1029/1199/**1230**, plus 1119 hors module). Les 10 résidus tiennent à **4 verrous** :
+- **`CalculateCustomUtility`, 9 overrides non portés** (`case-27` — inventaire RE-DÉRIVÉ au slot de
+  vtable, **BORNÉ depuis #218** : **27 corps ET 27 classes** (le « 28e », `AmuletOfTheVoidwyrmPlaybook`
+  cru partageant le corps de `PlasmaGrenadePlaybook`, était un faux positif de lecture hors-vtable —
+  `case-218-amulet-voidwyrm-custom-utility.md`) ; **7 portés** dans `loki_custom.py` —
+  1014/1177/1020/1029/1199/**1230**, plus 1119 hors module). Les 9 résidus tiennent à **4 verrous** :
   MoW non modélisées comme unités de DÉCISION (1169/1148/1142 — le débloqueur `case-mow-offboard-cast`
   ne lève que la face COMBAT) ; routes d'ability non-attaque (`dp=False` : 1226/1053/1185/1212, plus
   1100 dont la cible native est un ALLIÉ) ; `GenerateMultiHitAttackPredictions` sur un sous-set de
-  cibles (1051/1142, 1098, AmuletOfTheVoidwyrm) ; évaluateurs manquants (composite
+  cibles (1051/1142, 1098) ; évaluateurs manquants (composite
   `UtilityAttackCase.Base` pour 1004, `TilesInTriangleShape` pour 1148, sélecteur DSL pour 1226).
   Le verrou « porteur hors `--list-pool` » **n'existe plus** (`catalog_inject.py`). Chaque item nomme
   son débloqueur exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe. Biais

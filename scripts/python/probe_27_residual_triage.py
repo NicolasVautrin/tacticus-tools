@@ -34,7 +34,12 @@ CANDIDATES = [
     ("ForwardObservers", 1185),
     ("HealingBalms_Heal", 1212),
     ("SavageEchoes", 1230),
-    ("AmuletOfTheVoidwyrm", None),          # id resolu par nom ci-dessous
+    # AmuletOfTheVoidwyrm RETIRE (#218) : sa classe playbook n'override PAS
+    # CalculateCustomUtility -- sa base `TriggeredAbilityPlaybook`1` descend
+    # directement de System.Object, hors de la branche `ComparablePlaybook`1`
+    # qui declare le virtuel. Le "slot +0x548" mesure en tranche 3 etait le slot
+    # +0x338 de PlasmaGrenadePlaybook, lu par debordement de vtable.
+    # cf. docs/rl/case-218-amulet-voidwyrm-custom-utility.md
     ("MortarionsPlagueWind", 1093),
     ("InstrumentsOfVengeance", 1215),
     ("MartialExemplar", 1216),

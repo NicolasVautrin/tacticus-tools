@@ -77,26 +77,54 @@ def table_owners(build: str) -> dict:
 
 
 # ---------------------------------------------------------------- source B
+VTABLE_START = 0x138  # offset canonique du 1er VirtualInvokeData dans Il2CppClass
+VTABLE_SLOT = 0x10    # sizeof(VirtualInvokeData) = { methodPtr, MethodInfo* }
+VTABLE_MAX_SLOTS = 96
+
+
 def sweep_vtable(sid: int, classes: list) -> list:
-    """Balaye TOUTE la vtable de chaque classe et retient le slot nomme
-    CalculateCustomUtility, OU QU'IL SOIT. Ne pas figer l'offset : les
+    """Balaye la vtable PROPRE de chaque classe et retient le slot nomme
+    CalculateCustomUtility, OU QU'IL SOIT DEDANS. L'offset n'est pas fige (les
     hierarchies Comparable / NonComparable / Triggered n'ont pas la meme
-    disposition de vtable, et un offset fige rendrait 283 classes
-    faussement 'sans override'."""
+    disposition), mais le balayage est BORNE.
+
+    ⚠ Le bornage est un CORRECTIF (#218), pas un detail. `resolveVtableSlot` lit
+    `klass+off` en aveugle : il n'a pas acces a `vtable_count`. Un balayage large
+    (l'ancien 0x108..0x808) deborde sur l'`Il2CppClass` SUIVANTE -- elles sont
+    contigues -- et rend des MethodInfo parfaitement nommes appartenant a une
+    AUTRE classe. C'est ce qui avait fait conclure, en tranche 3, que
+    `AmuletOfTheVoidwyrmPlaybook` overridait `CalculateCustomUtility` en
+    partageant le corps de `PlasmaGrenadePlaybook` : le "slot +0x548" etait le
+    slot +0x338 de PlasmaGrenadePlaybook, dont la classe suit a +0x210 en
+    memoire. Voir `docs/rl/case-218-amulet-voidwyrm-custom-utility.md`.
+
+    Borne appliquee : premier bloc CONTIGU de slots nommes depuis +0x138. Une
+    classe jamais instanciee a une vtable NULLE -- statut `vtable-uninit`, un
+    INDETERMINE explicite (a trancher par la chaine d'heritage), plus jamais un
+    debordement silencieux.
+    """
     rows = []
+    end = VTABLE_START + (VTABLE_MAX_SLOTS - 1) * VTABLE_SLOT
     for ns, cls in classes:
         try:
             res = rpc(sid, "resolveVtableSlot",
                       [{"ns": ns, "cls": cls,
-                        "start": 0x108, "end": 0x808}])
+                        "start": VTABLE_START, "end": end}])
         except Exception as exc:  # noqa: BLE001
             rows.append((ns, cls, None, None, "ERR %s" % exc))
             continue
         if not res or not res.get("ok"):
             rows.append((ns, cls, None, None, "no-class"))
             continue
-        hits = [s for s in res["slots"]
-                if s.get("method") == "CalculateCustomUtility"]
+        own = []
+        for s in res["slots"]:
+            if not s.get("method") or not s.get("funcRVA"):
+                break  # fin de la vtable PROPRE -- au-dela = classe voisine
+            own.append(s)
+        if not own:
+            rows.append((ns, cls, None, None, "vtable-uninit"))
+            continue
+        hits = [s for s in own if s.get("method") == "CalculateCustomUtility"]
         if not hits:
             rows.append((ns, cls, None, None, "no-slot"))
             continue
@@ -108,20 +136,17 @@ def sweep_vtable(sid: int, classes: list) -> list:
 
 
 def find_slot(sid: int, ns: str, cls: str) -> int:
-    """Localise le slot de vtable de CalculateCustomUtility sur une classe."""
-    # Les slots de vtable sont des VirtualInvokeData de 0x10 octets ; la table
-    # commence a un offset == 0x8 (mod 0x10) dans l'Il2CppClass (cf. defaut
-    # 0x2f8..0x3b8 de resolveVtableSlot). Balayer sur une grille 0x...8.
-    res = rpc(sid, "resolveVtableSlot",
-              [{"ns": ns, "cls": cls, "start": 0x108, "end": 0x808}])
-    if not res or not res.get("ok"):
-        raise SystemExit("resolveVtableSlot KO on %s.%s: %r" % (ns, cls, res))
-    hits = [s for s in res["slots"]
-            if s.get("method") == "CalculateCustomUtility"]
-    if len(hits) != 1:
-        raise SystemExit("expected 1 slot, got %d on %s.%s"
-                         % (len(hits), ns, cls))
-    return int(hits[0]["off"], 16)
+    """Localise le slot de vtable de CalculateCustomUtility sur une classe.
+
+    Meme borne que `sweep_vtable` (cf. #218) : la vtable commence a +0x138 et
+    s'arrete au premier slot non nomme. Au-dela on lit la classe VOISINE.
+    """
+    rows = sweep_vtable(sid, [(ns, cls)])
+    _ns, _cls, _rva, off, status = rows[0]
+    if status != "ok":
+        raise SystemExit("no CalculateCustomUtility slot on %s.%s (status=%s)"
+                         % (ns, cls, status))
+    return int(off, 16)
 
 
 def main() -> int:
