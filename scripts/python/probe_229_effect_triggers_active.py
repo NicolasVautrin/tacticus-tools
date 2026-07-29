@@ -147,7 +147,8 @@ ARRAYSET_READS_BY_TREE = {
 EXPECTED_GAPS = {
     "RitesOfMorkaiReviveTrigger",
     "ReanimationBeamReviveTrigger",
-    "AnvilShieldFrozenAdvantageExpire",
+    # `AnvilShieldFrozenAdvantageExpire` (1201) : RESORBE par #231 (gate
+    # `_frozen_advantage_flag_is_set`, `triggers/loki/anvil_shield.py`).
     "GhostEffectRevive",
 }
 

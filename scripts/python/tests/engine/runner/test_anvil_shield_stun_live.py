@@ -42,7 +42,8 @@ from engine.entities.stats import StatType
 from engine.runner.snapshot import load_state
 from engine.runner.components import PositionComponent, StatsComponent, HealthComponent
 from engine.runner.operations.triggers.dispatch import (after_hit_normal_attack,
-                                                        pre_unit_ability_triggers)
+                                                        pre_unit_ability_triggers,
+                                                        unit_post_ability_triggers)
 from engine.runner.operations.refresh_effects import refresh_stat_modifier_effects
 from engine.runner.abilities.base import convert_rounds_to_turns
 
@@ -497,3 +498,83 @@ def test_anvil_shield_block_chance_cap_activates_below_health_pct_live(live_sess
     assert _off_block_chance(state1, arj["id"]) == base_bc, (
         "le driver ne RETIRE pas la contribution de 1200 quand Arjac repasse au-dessus du seuil "
         "(mirror `RefreshEffectsOperation.DeactivateEffect` -> `RevertModification`)")
+
+
+def test_anvil_shield_frozen_advantage_inactive_instance_is_inert_live(live_session, rpc,
+                                                                      build_runner):
+    """#231 — le GATE `EffectComponent.IsActive @+0x5c` du rail TARGETS de l'effet 1201.
+
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect$$CreateTargetTrigger`
+    est un trigger de CIBLE : il est evalue par
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`, qui — dans sa
+    boucle PAR CIBLE — RECHARGE l'`EffectComponent` depuis l'entite-effet et n'appelle
+    `ShouldTrigger` (slot 0x13) puis `Execute` (slot 0x14) que `if (*(char *)(comp + 0x5c) != 0)`.
+    Une instance INERTE n'est donc **pas evaluee du tout** : pas de consommation, pas de revert du
+    +20 % de block. (Le rail voisin `...$$EvaluateEffectTriggerEffectAbilities` n'a AUCUN gate ;
+    1201 n'y a pas de trigger.)
+
+    ATTEIGNABILITE cote port : `EffectFactory.create` lit la cle `active` du capte, que
+    `decisionView { includeInactive: true }` publie a `false` — 1201 est dans le rayon de souffle
+    « canal unite » de cette bascule (`docs/rl/case-229-effect-triggers-active-inventory.md` §3).
+    Le test ETEINT l'instance a la main (`e.active = False`, mirror de
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` qui ecrit `+0x5c = 0`), ce qui
+    est exactement la variable sous test ; TOUT le reste (positions, glace, pose de 1201, magnitude
+    du canal stat 7) vient du montage LIVE.
+
+    Cliquet : sans le gate, la phase A retire l'effet et reverte le block -> ECHEC. La phase B est
+    le controle POSITIF (instance rallumee => le trigger consomme toujours), pour qu'un gate trop
+    large ne puisse pas faire passer le test en eteignant le trigger tout court.
+    """
+    rid = build_runner("92203", extra=["--p-units", f"{ATTACKER},templAggressor",
+                                       "--a-units", ARJAC,
+                                       "--block-target", "100,500",
+                                       "--hp-target", "400000", "--hp-player", "400000"])["rid"]
+    dec, att, arj = _bring_adjacent(rpc, rid, ATTACKER, ARJAC)
+    if att is None:
+        pytest.skip("attaquant/Arjac injoignables")
+    if _pos(att) not in _iced(rpc, rid):
+        pytest.skip("la tuile de l'attaquant n'est pas glacee apres l'approche (pas de blocage melee)")
+
+    state, _dec_pre, board = _offline(rpc, rid)
+    if board is None:
+        pytest.skip("boardGraph indispo (rejeu offline impossible)")
+    apc = state.get_entity(att["id"]).get_component(PositionComponent)
+    assert state.effects.has_effect(board.id_at(apc.col, apc.row), effect_type=ICE), (
+        "l'etat CHARGE ne porte pas l'Ice de la tuile de l'attaquant -> `On(PreUnitAbility)` ne "
+        "posera pas 1201 et le test ne discriminerait rien")
+
+    # --- POSE de 1201 par le VRAI vecteur (`On(0x2b)` -> AddStaticStatModifierEffect(Self, 1201, ...)).
+    base_bc = _off_block_chance(state, arj["id"])
+    pre_unit_ability_triggers(state, att["id"], arj["id"], ranged=False, profile="Power",
+                              ability_type=1013)
+    inst = _off_effect(state, arj["id"], FROZEN)
+    assert inst is not None, "1201 n'est pas pose alors que l'attaquant est sur la glace"
+    # La MAGNITUDE du canal stat 7 n'est pas gardee ici (le block est crafte a 100, donc clampe par
+    # `StatComponent.GetClampedValue` / STAT_CLAMP_MAX[7]) : elle l'est par
+    # `test_anvil_shield_block_chance_cap_activates_below_health_pct_live` et, sur un block NON
+    # sature, par `probe_231_frozen_advantage_active_gate.py` (60 -> 75 -> 60). Ce qui est garde ici
+    # c'est l'INVARIANCE du canal quand l'instance est inerte, et son retour a la base quand elle
+    # est consommee.
+    bc_with_bonus = _off_block_chance(state, arj["id"])
+
+    # --- PHASE A : instance ETEINTE -> le trigger de cible n'est PAS evalue.
+    inst.active = False                      # `RefreshEffectsOperation$$DeactivateEffect` : +0x5c = 0
+    unit_post_ability_triggers(state, att["id"], arj["id"], ranged=False, profile="Power",
+                              ability_type=1013)
+    assert _off_effect(state, arj["id"], FROZEN) is inst, (
+        "1201 INERTE a ete consomme par `On(UnitPostAbility)` -> le gate `IsActive @+0x5c` de "
+        "`EvaluateEffectTriggerTargets` n'est pas porte (le port evalue un trigger que le natif "
+        "n'evalue meme pas)")
+    assert _off_block_chance(state, arj["id"]) == bc_with_bonus, (
+        "le +20 % block a ete reverte alors que l'instance 1201 est INERTE -> le behaviour "
+        "`RemoveEffect` s'est execute derriere le gate")
+
+    # --- PHASE B (controle POSITIF) : instance rallumee -> consommation nominale.
+    inst.active = True                       # `RefreshEffectsOperation$$ActivateEffect` : +0x5c = 1
+    unit_post_ability_triggers(state, att["id"], arj["id"], ranged=False, profile="Power",
+                              ability_type=1013)
+    assert _off_effect(state, arj["id"], FROZEN) is None, (
+        "1201 ACTIF n'est plus consomme a `On(UnitPostAbility)` -> le gate est trop large et a "
+        "eteint le trigger lui-meme (le +20 % block deviendrait permanent)")
+    assert _off_block_chance(state, arj["id"]) == base_bc, (
+        "le +20 % block n'est pas reverte au retrait de 1201 (stat 7 fuit)")

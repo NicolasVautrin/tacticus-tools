@@ -92,7 +92,7 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1186 | `GhostRemoveOnSourceDeathInactive` | ARRAYSET | tuile | **direct** | CONFORME (noeud `NOT IsEffectActive`) |
 | 1186 | `GhostRemoveOnSourceRemoved` | ARRAYSET | tuile | no | CONFORME |
 | 1197 MasterOfTheTutelaries | `MasterOfTheTutelariesSummonAbility` | APPLY_REVERT | unite | no | **ECART** |
-| 1201 AnvilShield_FrozenAttackerAdvantage | `AnvilShieldFrozenAdvantageExpire` | TARGETS | unite | no | **ECART** |
+| 1201 AnvilShield_FrozenAttackerAdvantage | `AnvilShieldFrozenAdvantageExpire` | TARGETS | unite | **direct** | RESORBE (#231) |
 | 1244 Contaminated | `ContaminatedTileEffect` | ARRAYSET | tuile | no | CONFORME |
 | 1324 FuelledByFury_CanRevive | `FuelledByFuryCanReviveActivateOnAbilityInit` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
 | 1324 | `FuelledByFuryCanReviveActivateOnTurnStart` | ARRAYSET | unite | no | CONFORME (ne DOIT pas) |
@@ -139,9 +139,11 @@ dans `ABILITY_TRIGGERS`, pas ici.
   l'INSTANCE (`DeactivateEffect` du `CreateTargetTriggerBehaviour`). Les deux consommateurs
   inscrits ici sont `removeEffect = TRUE` (one-shot par retrait), donc le proxy suffit sur le
   chemin nominal — mais un revive seede INERTE resterait armee cote port.
-- **1201 AnvilShield_FrozenAttackerAdvantage** : `matches` = `AreEqual(target, EffectSource)` seul.
-  Une instance inerte ferait executer la consommation (`RemoveEffect`) a `UnitPostAbility` alors que
-  le natif n'evalue meme pas le trigger.
+- **1201 AnvilShield_FrozenAttackerAdvantage** — RESORBE par #231
+  (`case-231-effect-1201-active-gate.md`). `matches` etait `AreEqual(target, EffectSource)` seul :
+  une instance inerte faisait executer la consommation (`RemoveEffect`) a `UnitPostAbility` alors
+  que le natif n'evalue meme pas le trigger. Le gate `_frozen_advantage_flag_is_set` le precede
+  desormais, sur le modele de `_ranged_auto_attack_flag_is_set` (1009).
 
 ## 3. Rayon de souffle REEL d'un `includeInactive` global au seed
 
@@ -181,9 +183,13 @@ Ventilation des 6 ecarts :
 (1077 a ete RESORBE par #231, et sa ligne de rayon de souffle REFUTEE — cf. §3) :
 
     1197  MasterOfTheTutelaries             -> MasterOfTheTutelariesSummonAbility
-    1201  AnvilShield_FrozenAttackerAdvantage -> AnvilShieldFrozenAdvantageExpire
+    1201  AnvilShield_FrozenAttackerAdvantage -> AnvilShieldFrozenAdvantageExpire   [RESORBE #231]
     1502  RitesOfMorkai                     -> RitesOfMorkaiReviveTrigger
     1547  ReanimationBeam_Revive            -> ReanimationBeamReviveTrigger
+
+⚠ Les COMPTES de cette fiche (« 6 en ecart », « Cinq effectTypes ») sont ceux de l'inventaire
+initial et se PERIMENT au fil des resorptions : les re-deriver par
+`python scripts/python/probe_229_effect_triggers_active.py`, jamais citer ces lignes.
 
 Chacun est un trigger a gate natif (`CreateTargetTrigger`, ou `ApplyInternal`/`RevertInternal`
 pour 1197) dont le `matches` ne consulte pas le flag : seedes INERTES, ils firent alors que le
@@ -212,8 +218,11 @@ exige alors l'attribut de rail que ce probe materialise deja en table.
   `HasEffect(..., onlyActive=0/1)`. Tout gate de presence porte par `has_effect` deviendrait
   permissif sur un seed inerte. Ce gisement n'est ni compte ni qualifie ici.
 - **La face DECISION** (prediction, playbook, stat-mods, auras) : non balayee.
-- **Le detail de `ShouldBeActive`** (`RefreshEffectsOperation$$ShouldBeActive`) : non decompile —
-  on sait qu'il pilote le flag pour tout effet, pas quelles conjonctions il porte.
+- ~~**Le detail de `ShouldBeActive`**~~ — DECOMPILE par #231 (`case-231-effect-1201-active-gate.md`
+  §2.3) : `kind == 1 -> true`, `kind == 2 -> false`, sinon `comp+0x5e != 0 -> false`, puis
+  `!HasActiveCondition(trigger) -> comp.IsActive@+0x5c`, sinon `CreateActiveCondition().ShouldTrigger`.
+  RESIDU restant : l'ECRIVAIN de `EffectComponent+0x5e` n'est pas identifie (absent de
+  `$$GetPropertiesString` et de `$$.ctor`).
 - **`onlyActive` du selecteur `EntitiesWithAnyEffect`** (gate reel de 5 / 1476) : non resolu.
 - **Aucune mesure LIVE** : cette fiche est un inventaire par lecture. Aucune bataille n'a ete
   montee pour observer un effet inerte de ces cinq types (et l'absence d'un tel effet en

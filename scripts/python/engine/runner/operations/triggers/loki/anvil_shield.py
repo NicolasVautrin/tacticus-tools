@@ -346,6 +346,45 @@ class AnvilShieldFrozenAttackerAdvantageAbility(TriggeredAbility):
                 "frozen_attacker": int(ev.actor_id), "placed": bool(placed)}
 
 
+def _frozen_advantage_instances(state: State, owner_id: int) -> list:
+    """Les instances d'effet 1201 NON consommees portees par `owner_id` — c'est-a-dire les
+    entites-effet dont
+    `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect$$CreateTargetTrigger`
+    est evalue. Liste (et non instance unique) parce que le natif raisonne PAR ENTITE-EFFET ; en
+    pratique `AddEffectOperation` no-ope sur un meme-type deja present, donc il y en a 0 ou 1.
+    [] si l'etat n'a pas d'`EffectsState`."""
+    if state.effects is None:
+        return []
+    return [e for e in state.effects.by_unit.get(int(owner_id), [])
+            if not e.consumed and e.effect_type == FROZEN_ADVANTAGE]
+
+
+def _frozen_advantage_flag_is_set(state: State, owner_id: int) -> bool:
+    """Le flag `EffectComponent.IsActive @+0x5c` (`BaseEffect.active`) de l'instance 1201 du porteur
+    — mirror du gate qu'applique
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` AVANT d'evaluer le
+    trigger de CIBLE. Dans sa boucle PAR CIBLE, le natif RECHARGE l'`EffectComponent` depuis
+    l'entite-effet (`comp = effect.Get<EffectComponent>()`) et fait `if (*(char *)(comp + 0x5c) !=
+    '\\0')` avant `ShouldTrigger` (slot 0x13) puis `Execute` (slot 0x14) : une instance INERTE n'est
+    meme pas EVALUEE. (Le test d'entree sur le meme flag, lui, ne porte qu'un court-circuit
+    d'allocation « actif ET aucune cible -> return » — cf. `docs/rl/case-231-effect-1201-active-gate.md`.)
+
+    N'IMPORTE QUEL effet peut devenir inerte : `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect`
+    fait `ShouldBeActive == false -> DeactivateEffect` pour tous, et
+    `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` renvoie `false` des que
+    `EffectComponent+0x5e` est leve — sans passer par un `CreateActiveCondition` propre (1201 n'en a
+    pas : son `.ctor` appelle `ADynamicStatModifierEffect$$.ctor` sans condition). Cote port, le
+    vecteur est le SEED : `EffectFactory.create` lit la cle `active` du capte, que
+    `decisionView { includeInactive: true }` publie a `false`.
+
+    Aucune instance trouvee -> True : degradation PERMISSIVE (on ne fabrique pas un refus), MEME
+    convention que `_ranged_auto_attack_flag_is_set` (1009, `triggers/effect_triggers.py`). Le cas se
+    presente quand l'etat n'a pas d'`EffectsState` ; si l'effet est reellement absent, c'est
+    `collect_effect_triggers` qui n'aura instancie aucun trigger."""
+    insts = _frozen_advantage_instances(state, owner_id)
+    return (not insts) or any(e.active for e in insts)
+
+
 class AnvilShieldFrozenAdvantageExpire(EffectTrigger):
     """Trigger PROPRE de l'effet 1201 —
     `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect$$CreateTargetTrigger` :
@@ -357,11 +396,20 @@ class AnvilShieldFrozenAdvantageExpire(EffectTrigger):
     `decisionView.effects` et `blockChance` est retombe a 0 — alors que le STUN, lui, a bien eu lieu
     PENDANT l'attaque. Le port execute donc la consommation ICI (`RemoveEffect(1201, Caster())`, qui
     reverte aussi le `ChangeStat` par-source via `reverted_stats()`), a l'evenement EXACT du trigger
-    natif. C'est ce qui donne au bonus sa portee « une attaque » de l'i2."""
+    natif. C'est ce qui donne au bonus sa portee « une attaque » de l'i2.
+
+    #231 — venant de `CreateTargetTrigger`, ce trigger est du rail TARGETS : son evaluation est
+    GATEE par `EffectComponent.IsActive @+0x5c` (`_frozen_advantage_flag_is_set`). Le rail voisin
+    (`CreateHandleTriggerAbilitiesInternal`, evalue par `EvaluateEffectTriggerEffectAbilities`)
+    n'a AUCUN gate — l'y poser serait une infidelite ; 1201 n'a pas de trigger sur ce rail."""
     event_id = _ON_POST_ABILITY
     effect_type = FROZEN_ADVANTAGE
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # Gate `IsActive @+0x5c` de l'instance (#231) : une instance INERTE n'est pas evaluee par
+        # `EvaluateEffectTriggerTargets` -> pas de consommation, le +20 % de block ne bouge pas.
+        if not _frozen_advantage_flag_is_set(state, self.owner_id):
+            return False
         # AreEqual(target@0x178, EffectSource(this)) : la cible de l'ability qui s'acheve est le porteur
         # (= la SOURCE de l'effet, pose par `AddStaticStatModifierEffect(Self, ...)`).
         return ev.target_id == self.owner_id
