@@ -51,14 +51,16 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#247 + #248 + #249) : 94 abilities au registre, 71 avec masque, ces 23 sans.
+# Etat au 2026-07-29 (#247 + #248 + #249 + #250) : 94 abilities au registre, 76 avec masque,
+# ces 18 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
 #  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246,
 #  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDENT le module `strike` --, les SIX du
 #  module `splash` par #248 : 1000/1051/1065/1078/1098/1105, qui relevent a elles seules de TROIS
-#  formes de ctor et de TROIS presets differents, et les CINQ du module `deathguard` par #249 :
-#  1037/1040/1042/1168/1169, qui SOLDENT ce module.)
+#  formes de ctor et de TROIS presets differents, les CINQ du module `deathguard` par #249 :
+#  1037/1040/1042/1168/1169, qui SOLDENT ce module, et les CINQ du module `tau` par #250 :
+#  1077/1081/1082/1160/1161, qui SOLDENT `tau`.)
 # ⚠ Les comptes ci-dessus se PERIMENT : les re-deriver (`probe_181_targeting_gaps.py`), pas les citer.
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
@@ -146,7 +148,11 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
     # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
     1076: "MV71SniperDroneSquadAttackAbility",
-    1077: "EarlyWarningOverrideAbility",
+    # 1077 EarlyWarningOverrideAbility RESORBEE (#250) -- forme « PRESET STATIQUE COPIE » (la 3e) :
+    # `...EarlyWarningOverrideAbility$$.ctor` recopie `TargetingOptions statics+0x280` et n'appelle
+    # AUCUN ctor. Le masque effectif est `*(statics+0x2a8)` = 0x8004 (CasterMatchesDynamicRule |
+    # CasterIsPossibleTarget), lu dans `TargetingOptions$$.cctor` ; le meme preset porte
+    # `isSelfCasting = 1` et `TargetingRange statics+0x60` = RANGE_SELF.
     # 1078 FragstormAbility RESORBEE (#247) -- forme « PRESET + FLAGS », mais preset `statics+0x180`
     # et NON `+0x140` comme ses deux voisines de module (1051/1098). Meme `rules` effectif
     # (0x2004002) et une portee qui DIFFERE : `*(statics+0x1a0)` = 1 = `RangedBool.False` ->
@@ -156,8 +162,12 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # Piege de recon a ne pas repeter : `templAggressor` (au pool) porte `FragstormGrenadeLauncher`
     # (1048), PAS `Fragstorm` (1078). Le recensement par sous-chaine ment ; c'est l'oracle live qui
     # a tranche.
-    1081: "FightingRetreatAbility",
-    1082: "InspiredToGreatnessAbility",
+    # 1081 FightingRetreatAbility RESORBEE (#250) -- forme « FLAGS DIRECTS » (la 1re) :
+    # `TargetingOptions..ctor(&opts, 1, <TargetingRange statics+0x30>, 1, 0x802, 0,0,0)` ->
+    # 0x802 = TargetMatchesDynamicRule | AddCasterIfAtLeastOneTarget, portee RANGE_ADJACENT.
+    # 1082 InspiredToGreatnessAbility RESORBEE (#250) -- MEME forme, MEME TargetingRange, masque
+    # DIFFERENT : `TargetingOptions..ctor(&opts, 0, <statics+0x30>, 1, 0x402, 0,0,0)` ->
+    # 0x402 = TargetMatchesDynamicRule | TargetIsFriendly (ability ALLIE, self-cast = 0).
     1096: "MasterOfTheTutelariesAbility",
     # 1098 PlasmaGrenadeAbility RESORBEE (#248) -- forme « PRESET + FLAGS », preset `statics+0x140`
     # + flags `0x2000000` -> 0x2004002 ; portee RANGE_FROM_CONFIG (2) ; `forceMeleeTarget =
@@ -188,8 +198,13 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1147: "HadesAutocannonsAbility",
     1148: "DaemonicOrdnanceAbility",
     1151: "TheQuickeningAbility",          # overload PRESET + flags (cf. le piege ci-dessus)
-    1160: "HeavyRailRifleAbility",
-    1161: "TwinSmartMissileSystemAbility",
+    # 1160 HeavyRailRifleAbility et 1161 TwinSmartMissileSystemAbility RESORBEES (#250) -- forme
+    # « FLAGS DIRECTS », MEME porteur (`tauBroadside`), MEME TargetingRange (`statics+0x48` =
+    # RANGE_WHOLE_BOARD), et pourtant DEUX masques distincts :
+    #   1160 -> 0x10400040004000 = TargetIsEnemy | AllowNullCasterTile | TargetIsActor |
+    #           CasterHas2TurnsLeft   (l'ability 2-phases peut viser une MACHINE et exige 2 tours)
+    #   1161 -> 0x40004000         = TargetIsEnemy | AllowNullCasterTile
+    # Contre-exemple intra-porteur : generaliser de l'une a l'autre aurait produit un masque FAUX.
     1166: "AberrantHypermorphAbility",
     # 1168 EntropyCannonsAbility RESORBEE (#249) -- FLAGS DIRECTS, masque 0x40004002 =
     # 0x2 TargetMatchesDynamicRule | 0x4000 TargetIsEnemy | 0x40000000 AllowNullCasterTile.
