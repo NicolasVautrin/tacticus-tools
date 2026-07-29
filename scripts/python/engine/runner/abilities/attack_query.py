@@ -95,6 +95,23 @@ def is_damaged_unit(state: "State", entity_id) -> bool:
     return int(hc.hp) < int(hc.hp_max)
 
 
+def health_is_readable(state: "State", entity_id) -> bool:
+    """Les PV de la cible sont-ils LISIBLES offline (`HealthComponent` seede avec `hp` ET `hp_max`) ?
+
+    Ce n'est pas un predicat natif : c'est le garde-fou d'HONNETETE de ce module. `is_damaged_unit`
+    rend `False` aussi bien pour « cible a pleins PV » (verdict REEL) que pour « le port ne sait pas
+    lire ses PV » (verdict INCONNU). Un appelant qui REFUSE sur la conjonction de plusieurs
+    disjuncts faux doit distinguer les deux, sinon il fabrique un refus la ou le natif, lui, a lu
+    une vraie valeur. Meme role que le `None` d'`entity_can_have_active_ability_reset`."""
+    from .targeting import _resolves_to_unit
+    from ..components import HealthComponent
+    if entity_id is None or not _resolves_to_unit(state, entity_id):
+        return False
+    e = state.get_entity(int(entity_id))
+    hc = e.get_component(HealthComponent) if e is not None else None
+    return hc is not None and hc.hp is not None and hc.hp_max is not None
+
+
 def has_negative_unit_effect(state: "State", entity_id) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$HasNegativeUnitEffect` -- le natif lit un conteneur
     DEDIE de l'`EffectsComponent` de la cible (`comp+0x100`, `Count > 0`).

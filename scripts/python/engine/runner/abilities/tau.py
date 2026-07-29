@@ -487,9 +487,18 @@ class FightingRetreatAbility(ActiveAbility):
 
         `ignoreSteppables = false` (3e argument du slot 0x7c, LU) : un decoy `Steppable` ennemi au
         contact SUFFIT a autoriser le cast -- contraste voulu avec l'`ExecuteBehaviour`, qui lui
-        filtre par `NonSteppableOrObjectUnits`. Les deux volets ne comptent PAS la meme chose."""
+        filtre par `NonSteppableOrObjectUnits`. Les deux volets ne comptent PAS la meme chose.
+
+        ⚠ GARDE-FOU (sans lequel ce port INVENTE des refus) : cette regle refuse sur une LISTE VIDE.
+        Or `get_adjacent_enemies` / `get_adjacent_friends` rendent aussi la liste vide quand le port
+        ne SAIT PAS enumerer l'adjacence (pas de `state.board`, caster sans tuile). « Vide » y
+        signifie alors « inconnu », pas « aucun ennemi » -- on rend donc 0 dans ce cas, comme partout
+        ailleurs dans le gate. MESURE offline (`State()` nu) : sans cette garde le port rendait
+        `0x2` sur un etat ou il n'avait rien lu."""
         from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
         tiles = entity_tiles(state, caster_id)
+        if state.board is None or not tiles:
+            return 0                     # adjacence NON ENUMERABLE -> aucun refus invente
         if get_adjacent_enemies(state, tiles, caster_id):        # `Any(adjEnemies)`
             return 0
         for ally in get_adjacent_friends(state, tiles, caster_id):
@@ -871,12 +880,17 @@ class InspiredToGreatnessAbility(ActiveAbility):
         d'`ActiveAbilityType` et de `TriggeredAbilityType`, dont les espaces d'ids se recouvrent
         numeriquement. L'argument est bien un `UnitTrait` (2e parametre d'`UnitExtensions$$HasTrait`).
 
-        `canReset` INCONNU (`None` : l'unite n'a pas d'`ActiveAbilitiesComponent`, c'est-a-dire
-        `decisionView` interroge SANS `allAbilities`) -> le port NE REFUSE PAS. Le disjunct pourrait
-        etre vrai ; fabriquer un `False` refuserait un cast que le natif accepte, alors que la
-        convention de tout le gate est la degradation PERMISSIVE. Les mesures de #247 sont faites
-        avec `allAbilities: True`, donc sur un verdict REEL."""
-        from .attack_query import _has_trait, entity_can_be_healed, entity_can_be_repaired
+        DEUX GARDES-FOUS, parce que ce refus-ci sort d'une CONJONCTION de disjuncts FAUX -- et que
+        « faux » et « pas lu » n'y ont pas le meme statut :
+          * `canReset` INCONNU (`None` : l'unite n'a pas d'`ActiveAbilitiesComponent`, c'est-a-dire
+            `decisionView` interroge SANS `allAbilities`) -> on ne refuse pas ;
+          * PV de la cible NON LISIBLES (`attack_query.health_is_readable`) -> on ne refuse pas non
+            plus : `is_damaged_unit` rendrait `False` sans avoir rien lu, et ce `False`-la
+            fabriquerait le refus a lui seul.
+        Les mesures de #247 sont faites avec `allAbilities: True` et un `combatSnapshot` complet,
+        donc sur des verdicts REELS -- les gardes ne masquent aucune de ces lignes."""
+        from .attack_query import (_has_trait, entity_can_be_healed, entity_can_be_repaired,
+                                   health_is_readable)
         from ..operations.ability_reset import entity_can_have_active_ability_reset
         if target_id is None:
             return 0                                    # cible non resolue -> le port ne decide pas
@@ -890,6 +904,8 @@ class InspiredToGreatnessAbility(ActiveAbility):
             return 0
         if entity_can_have_active_ability_reset(state, target_id) is not False:
             return 0                                    # True (resettable) ou None (verdict INCONNU)
+        if not health_is_readable(state, target_id):
+            return 0                                    # PV non lus -> les 2 1ers disjuncts sont INCONNUS
         return int(TR.ValidRequest)
 
     def execute_behaviour(self, state: "State", caster_id: int,
