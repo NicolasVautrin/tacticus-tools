@@ -495,6 +495,9 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         au mauvais niveau. Même constat de canal que 1077, mesuré indépendamment : 1197 n'est publié
         **ni** par défaut **ni** sous `includeInactive`, alors même que la chaîne fire (4 Screamers) —
         le gate y est donc INERTE, cliquet de fidélité et non correction de nombre (`case-231` §4).
+      - **1201 `AnvilShield_FrozenAttackerAdvantage` — CLOS (#231)**, rail TARGETS, gate
+        `_frozen_advantage_flag_is_set` (`triggers/loki/anvil_shield.py`), même modèle que 1009.
+        Détail : `case-231-effect-1201-active-gate.md`.
       - **1502 `RitesOfMorkai` — CLOS (2026-07-29)**, gate posé dans le `matches` de la seule classe
         1502 (`case-229-1502-rites-of-morkai-active-gate.md`). Apports de RE au-delà du gate : les
         DEUX lectures de `+0x5c` sont **désambiguïsées** (la 1re, sur le composant reçu, est un
@@ -504,16 +507,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` est **décompilé** (résidu
         #229 §5 / #231 comblé : `activation 1 → true`, `2 → false`, `0 → (drapeau +0x5e) puis
         virtuel 0xc sinon `IsActive` inchangé, sinon virtuel 0xb`). Le porteur `spaceWolfPriest`
-        étant HORS pool, le rayon de souffle n'est PAS mesurable pour 1502 — dit comme tel dans la
-        fiche plutôt que recopié de #229 §3. Son **jumeau strict 1547** (même base `ReviveEffect`,
-        même rail, même patron) est resté INTACT : un item par tâche.
-      - **RÉSIDU `[opus]`, une fiche chacun** — mêmes symptôme et remède (une ligne dans le `matches`,
-        sur le modèle de 1077/1502) : **1201** `AnvilShield_FrozenAttackerAdvantage`, **1547**
-        `ReanimationBeam_Revive` (rail TARGETS, porteur MoW `necroReanimator` hors pool). Plus
-        **1186** `GhostEffectRevive` : écart réel mais porteur TUILE, donc inatteignable par la
-        bascule (`tileMeta` appelle `readEffectsByTile` SANS options). Chacun exige sa propre mesure
-        du rayon de souffle : #231 a montré que la colonne « dans le rayon de souffle » de #229 §3
-        n'est pas fiable sans confrontation live.
+        étant HORS pool, le rayon de souffle n'est PAS mesurable pour 1502.
+      - **1547 `ReanimationBeam_Revive` — CLOS** (`case-1547-reanimation-beam-active-gate.md`), le
+        **jumeau strict de 1502** (même base `ReviveEffect`, même rail, même patron), traité en
+        parallèle par une tâche distincte. Gate posé dans le `matches` de
+        `ReanimationBeamReviveTrigger` — **sur la CLASSE, pas sur la base `ReviveEffectTrigger`**,
+        exactement comme 1502 : c'est ce choix symétrique qui a permis aux deux de lander sans se
+        marcher dessus. Même désambiguïsation des deux lectures de `+0x5c`, établie
+        **indépendamment** et concordante. Rayon de souffle **NON MESURABLE** (ligne #229 §3
+        déclassée) : `necroReanimator` est une MoW **hors pool** (`rl_duel build --list-pool` :
+        8 MoW, pas elle), donc aucun état live ne peut contenir une instance 1547 à lire dans
+        `readEffectsByUnit`. Validation : garde live +
+        `probe_1547_reanimation_beam_active_gate.py` (3 boards × 3 seeds × 3 rosters, chemin de
+        mort RÉEL via la file de morts, beam à 9–11 hex de la victime — le flag seul renverse
+        l'issue, 3/3, 0 overkill).
+      - **RÉSIDU `[opus]`** — **1186** `GhostEffectRevive` est le SEUL écart restant : réel (rail
+        TARGETS sans lecture du flag), mais porteur TUILE, donc **inatteignable par la bascule**
+        (`tileMeta` appelle `readEffectsByTile` SANS options). Côté canal UNITÉ, les cinq écarts
+        (1077, 1197, 1201, 1502, 1547) sont résorbés. ⚠ Chacun exigeait sa propre mesure du rayon
+        de souffle, et AUCUNE des lignes « OUI » de #229 §3 confrontée n'a tenu : deux RÉFUTÉES par
+        mesure (1077, 1197), deux NON MESURABLES faute de porteur spawnable (1502, 1547).
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,
