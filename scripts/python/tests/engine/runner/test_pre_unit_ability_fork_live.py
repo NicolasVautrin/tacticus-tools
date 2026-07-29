@@ -142,8 +142,18 @@ def mono_target_cast(rpc, build_runner):
     """GENERALISATION (#120bis) : MEME verdict, mais ability MONO-CIBLE et AUTRE board/seed.
     `JakhalStimms` porte un volet AoE (`AdjacentUnits(caster) & AdjacentFriends(target)`) qui peut
     atteindre Creed depuis sa NOUVELLE tuile : « Creed a-t-il encaisse ? » y depend de la geometrie.
-    `FlailSwing` (1042, `deathBlightlord`) est 3x Power melee MONO-CIBLE -> zero degat collateral
-    possible, donc « Creed intact » ne mesure QUE la re-resolution de cible."""
+    `FlailSwing` (1042, `deathBlightlord`) est 3x Power melee MONO-CIBLE -> l'ABILITY ne peut rien
+    eclabousser.
+
+    Le CASTER, lui, en est capable : `deathBlightlord` porte `HazeOfCorruption`, qui bonde
+    `Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178))` (effet 0x435 = 1077,
+    `HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`) et lui reporte, a la mort de la cible,
+    les `LeftOverDamage` enregistrees par `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit`
+    (case-207/209). Creed, apres le switch, est TOUJOURS `AdjacentFriends(Kell)` -- il ne sort du pool
+    que parce qu'il n'est PAS adjacent au caster. C'est ce que produit
+    `SwornProtectorAbility$$GetSpawnTile` (Kell apparait du cote OPPOSE a l'attaquant), et le test
+    l'ASSERTE desormais au lieu de le supposer : sans cette garde, « Creed intact » confondrait deux
+    canaux. MESURE : `d(caster, creed) == 2` sur 3/3 montages live."""
     return _scenario(rpc, build_runner, MONO_CASTER, MONO_ABILITY, board=MONO_BOARD, seed=MONO_SEED)
 
 
@@ -193,6 +203,15 @@ def test_mono_target_cast_hits_kell_not_creed_live(mono_target_cast):
     kell = _by_vis(mono_target_cast["after"], KELL_VIS)
     assert kell, "Kell n'est PAS apparu -> le scenario ne mesure pas la re-resolution"
     assert _pos(after) != _pos(before), "Creed n'a pas bouge -> pas de SwitchPosition"
+    # GARDE DE MESURE (cf. la docstring de la fixture) : hors du pool `AdjacentEnemies(Self)`, donc
+    # hors du canal de report `HazeOfCorruption`. Si cette distance tombait a 1, « Creed intact »
+    # cesserait de mesurer la re-resolution -- il faudrait alors la mesurer par montant, comme le
+    # fait l'etape 9 de `probe_120bis_execute_for_replaced_target.py`.
+    caster_after = [u for u in mono_target_cast["after"]
+                    if u["id"] == mono_target_cast["caster"]][0]
+    assert hexgeo.distance(_pos(caster_after), _pos(after)) > 1, (
+        "Creed (%s) est ADJACENT au caster (%s) -> il est relais `HazeOfCorruption` et le verdict "
+        "« Creed intact » confond deux canaux" % (_pos(after), _pos(caster_after)))
     assert after.get("hp") == before.get("hp"), (
         "Creed a encaisse un cast MONO-CIBLE (hp %s -> %s) : les degats ne sont pas partis sur Kell"
         % (before.get("hp"), after.get("hp")))

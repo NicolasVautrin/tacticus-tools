@@ -36,6 +36,26 @@ n'est PAS inconditionnelle (Creed taunte = spawn SANS switch ; cible sans SwornP
 re-entree dans `Execute`, pas un echange de cible aplati) et les flags de tour ne sont poses QU'UNE
 fois (le `ExecuteInternal` appelant `return`e avant `AddFlagsAfterAbilityExecution`).
 
+TROISIEME CANAL, ajoute apres coup (etape 9, case-120bis/#209)
+--------------------------------------------------------------
+« Le cast est mono-cible » ne suffit PAS a faire de « Creed intact » un critere de re-resolution :
+le PASSIF du caster peut eclabousser. `deathBlightlord` porte `HazeOfCorruption` -- il bonde
+`Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178))` et lui reporte, quand la
+cible tombe, le degat GASPILLE (`IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` ->
+`IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger`).
+Creed est TOUJOURS `AdjacentFriends(Kell)` apres le switch : le seul terme qui l'exclut est
+`AdjacentEnemies(caster)`. D'ou les DEUX regimes, tous deux exerces :
+
+  * etape 2 -- caster en `FOE_POS_OPPOSITE` : Creed finit a DISTANCE 2 (la geometrie que le natif
+    produit, `SwornProtectorAbility$$GetSpawnTile` faisant apparaitre Kell du cote oppose) -> pool
+    de bond VIDE, et « Creed intact » mesure bien la SEULE re-resolution ;
+  * etape 9 -- caster en `FOE_POS` : Creed EST relais, et ce qu'il encaisse doit valoir EXACTEMENT
+    la somme des `LeftOverDamage` de Kell -- donc rien du cast.
+
+Le montage de l'etape 2 utilisait `FOE_POS` : la fusion de case-209 (commit `ed45582`) l'a rendu
+non discriminant du jour au lendemain, sans qu'aucune ligne de #120bis ne change. Fiche :
+`docs/rl/case-120bis-flailswing-haze-confound.md`.
+
 ASCII only (cp1252). Usage : `python probe_120bis_execute_for_replaced_target.py`.
 """
 from __future__ import annotations
@@ -45,6 +65,7 @@ from pathlib import Path
 
 import board as B
 import gameconfig as GC
+import hexgeo
 from engine.entities import EffectsState
 from engine.entities.effect_type import EffectType
 from engine.entities.unit_context import UnitContext
@@ -54,6 +75,7 @@ from engine.runner.components import (HealthComponent, OwnerComponent, PositionC
 from engine.runner.messages import ActiveAbilityMessage
 from engine.runner.operations.active_ability import get_tiles, resolve_replaced_target
 from engine.runner.operations.damage import AttackDamageOperation
+from engine.runner.operations.left_over_damage import left_over_damages
 from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.state import State
 
@@ -65,8 +87,29 @@ KELL = "astraSmnKell"
 # « Kell blesse » ET « Creed intact » sont observables ensemble (meme choix que le test live).
 FOE = "necroSpyder"
 FLAIL_SWING = 1042        # DeathGuard `deathBlightlord` -- 3x Power melee MONO-CIBLE, ctor arg 0
-                          # (DirectTargetAttack) : mono-cible = aucun AoE pour polluer les PV de Creed
+                          # (DirectTargetAttack) : l'ABILITY n'a aucun volet AoE.
 FLAIL_CASTER = "deathBlightlord"
+# ATTENTION -- « ability mono-cible » ne veut PAS dire « aucun degat collateral » : c'est le PASSIF du
+# CASTER qui decide. `deathBlightlord` porte `HazeOfCorruption` (case-207/209) :
+#   * `HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` bonde (effet 0x435 = 1077)
+#     `PickRandomly(Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178)), 2)` A
+#     CHAQUE emission de `On(0x2b)` -- donc AUSSI a la re-entree, ou `Target` est deja Kell ;
+#   * quand la cible tombe, `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` enregistre le
+#     degat GASPILLE, et `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$
+#     CreateTargetTrigger` le fait encaisser au RELAIS bonde.
+# Creed, apres le switch, est TOUJOURS `AdjacentFriends(Kell)` : il devient relais des qu'il est aussi
+# `AdjacentEnemies(caster)`. Il faut donc CHOISIR le cote par lequel le caster aborde Creed --
+# les deux positions ci-dessous sont les deux regimes, et les DEUX sont exercees (etapes 2 et 9).
+FOE_POS = (2, 1)          # le defaut : apres le switch, Creed reste ADJACENT au caster -> il est
+                          # relais Haze (regime exerce a l'etape 9).
+FOE_POS_OPPOSITE = (3, 2) # Kell spawne du cote OPPOSE au caster -> apres le switch Creed est a
+                          # DISTANCE 2 du caster, hors du pool Haze. C'est la geometrie que le natif
+                          # produit systematiquement (`SwornProtectorAbility$$GetSpawnTile` =
+                          # `First(SortTilesByUtilityForSummon(...))`, non porte -- residu documente
+                          # dans `triggers/loki/sworn_protector.py`) : MESURE LIVE 3/3 montages
+                          # (MC1_67 seed 777, MC1_67 seed 31337, C3_26 seed 777) ->
+                          # `d(caster, creed) == 2` a chaque fois, Creed intact.
+HAZE_DAMAGE_TRANSFER = 1077   # `EffectType.HazeOfCorruption_DamageTransfer` (0x435)
 OTHERS_ABILITY = 1000     # GauntletsOfUltramar -- ctor arg 2 = `Others` (aucun reveil)
 OTHERS_CASTER = "ultraCalgar"
 NO_PROTECTOR = "astraBullgryn"      # cible SANS SwornProtector (contre-cas)
@@ -112,16 +155,19 @@ def _add_unit(state, vid, col, row, team, player, hp=400000, attack=0):
     return e.id
 
 
-def _fresh(foe_vis=FOE, defender=CREED, foe_attack=500):
-    """`State` neuf : le defenseur en (2,2), l'attaquant ADJACENT en (2,1). Neuf a chaque scenario --
-    `SwornProtector` est ONE-SHOT par bataille (`HasTriggeredAbilityBeenTriggered`)."""
+def _fresh(foe_vis=FOE, defender=CREED, foe_attack=500, foe_pos=FOE_POS):
+    """`State` neuf : le defenseur en (2,2), l'attaquant ADJACENT (defaut (2,1)). Neuf a chaque
+    scenario -- `SwornProtector` est ONE-SHOT par bataille (`HasTriggeredAbilityBeenTriggered`).
+
+    `foe_pos` choisit DE QUEL COTE l'attaquant aborde Creed. Ce n'est pas cosmetique quand le caster
+    porte `HazeOfCorruption` : cf. `FOE_POS_OPPOSITE` / `FOE_POS` ci-dessus."""
     state = State()
     state.board = _BOARD
     state.effects = EffectsState.seed({})
     state.rng = IntBasedMersenneTwister(777)
     state.current_player_id = 4
     d = _add_unit(state, defender, 2, 2, team=1, player=3)
-    a = _add_unit(state, foe_vis, 2, 1, team=2, player=4, attack=foe_attack)
+    a = _add_unit(state, foe_vis, foe_pos[0], foe_pos[1], team=2, player=4, attack=foe_attack)
     return state, d, a
 
 
@@ -140,6 +186,13 @@ def _hp(state, uid):
 def _pos(state, uid):
     p = state.get_entity(uid).get_component(PositionComponent)
     return (p.col, p.row)
+
+
+def _has_effect(state, uid, effect_type):
+    """Un effet NON consomme de ce type sur l'unite (meme lecture que
+    `triggers/loki/sworn_protector.py::_has_effect`)."""
+    return any((not e.consumed) and e.effect_type == int(effect_type)
+               for e in (state.effects.by_unit.get(int(uid)) or []))
 
 
 def _taunt(state, src, uid):
@@ -173,8 +226,13 @@ def main() -> int:
     # MONO-CIBLE volontairement : `JakhalStimms` (le cast du probe #120) a un volet AoE
     # `AdjacentUnits(caster) & AdjacentFriends(target)` qui touche Creed APRES le switch -- vrai
     # observable de l'ability, mais qui brouille le critere « Creed intact ». `FlailSwing` (1042)
-    # est `3x Power melee mono-cible` : aucun degat collateral possible.
-    state, creed, foe = _fresh(foe_vis=FLAIL_CASTER)
+    # est `3x Power melee mono-cible` : l'ABILITY ne peut rien eclabousser.
+    # `FOE_POS_OPPOSITE` neutralise l'AUTRE canal collateral, celui du PASSIF du caster (le report
+    # `HazeOfCorruption` -- cf. le bloc de constantes) : Kell spawne du cote oppose, Creed finit a
+    # distance 2 du caster, donc HORS de `AdjacentEnemies(Self)` -> pool de bond VIDE. C'est la
+    # geometrie que le natif produit (mesure live 3/3), et c'est ce qui rend « Creed intact »
+    # equivalent a « le cast n'a pas touche Creed ». Le regime OPPOSE est exerce a l'etape 9.
+    state, creed, foe = _fresh(foe_vis=FLAIL_CASTER, foe_pos=FOE_POS_OPPOSITE)
     h = AbilityHandler(state)
     h.visit_ActiveAbilityMessage(ActiveAbilityMessage(foe, creed, FLAIL_SWING))
     kell = _kell(state, creed)
@@ -186,6 +244,13 @@ def main() -> int:
         "le cast frappe encore %s : ExecuteForReplacedTarget n'est pas cable sur la voie CAST"
         % h.last.get("target"))
     assert h.last.get("replaced_from") == creed and h.last.get("replaced_target") == kell
+    # GARDE DE MESURE (et non critere de jeu) : le montage doit VRAIMENT etre hors du canal Haze,
+    # sinon « Creed intact » cesse de mesurer la re-resolution. Les deux conditions du pool :
+    assert hexgeo.distance(_pos(state, foe), _pos(state, creed)) > 1, (
+        "Creed est ADJACENT au caster (%s vs %s) -> il est relais `HazeOfCorruption` et le critere "
+        "« Creed intact » confond deux canaux" % (_pos(state, creed), _pos(state, foe)))
+    assert not _has_effect(state, creed, HAZE_DAMAGE_TRANSFER), (
+        "un bond 1077 a ete pose sur Creed -> montage contamine")
     assert _hp(state, creed) == 400000, (
         "Creed a encaisse un cast mono-cible (hp=%s) alors que Kell avait pris sa place"
         % _hp(state, creed))
@@ -322,6 +387,36 @@ def main() -> int:
     assert len(emits) == 2, "%d emissions -> la re-entree ne CONVERGE pas (boucle)" % len(emits)
     assert _hp(state, creed) == hp_creed_1, "Creed a encaisse le 2e coup"
     assert _hp(state, kell) < hp_kell_1, "Kell n'a pas encaisse le 2e coup"
+
+    # --- 9. L'AUTRE REGIME : Creed ADJACENT au caster -> il est relais `HazeOfCorruption` ---------
+    # Le montage `FOE_POS` (le defaut) laisse Creed adjacent au caster APRES le switch : il tombe
+    # alors dans `Damageable(AdjacentEnemies(Self@0x148) & AdjacentFriends(Target@0x178))`, se fait
+    # bonder (0x435 = 1077) a la re-entree, et encaisse le degat GASPILLE par Kell quand celui-ci
+    # tombe. C'est CE canal qui avait rendu l'etape 2 non discriminante (case-209, commit ed45582).
+    #
+    # L'etape le VERROUILLE au lieu de le contourner, et reste un test de la RE-RESOLUTION : ce que
+    # Creed encaisse doit etre EXACTEMENT la somme des `LeftOverDamage` de Kell -- donc RIEN du cast
+    # lui-meme. Si `ExecuteForReplacedTarget` regressait, les 3 coups d'arme partiraient sur Creed
+    # (bien plus que le report) et Kell n'aurait AUCUN leftover : l'egalite tomberait des deux cotes.
+    state, creed, foe = _fresh(foe_vis=FLAIL_CASTER, foe_pos=FOE_POS)
+    h = AbilityHandler(state)
+    h.visit_ActiveAbilityMessage(ActiveAbilityMessage(foe, creed, FLAIL_SWING))
+    kell = _kell(state, creed)
+    lo = left_over_damages(state, kell)
+    reported = sum(int(d["amount"]) for d in lo)
+    print("[9] Creed ADJACENT au caster : d=%d cible frappee=%s | leftovers(kell)=%s somme=%d | "
+          "hp creed 400000 -> %s" % (hexgeo.distance(_pos(state, foe), _pos(state, creed)),
+                                     h.last.get("target"), [d["amount"] for d in lo], reported,
+                                     _hp(state, creed)))
+    assert kell is not None and h.last.get("target") == kell, (
+        "le cast frappe %s : la re-resolution ne s'arme plus" % h.last.get("target"))
+    assert hexgeo.distance(_pos(state, foe), _pos(state, creed)) == 1, (
+        "montage non monte : Creed n'est pas adjacent au caster, l'etape ne prouve rien")
+    assert _hp(state, kell) == 0, "Kell n'est pas tombe -> aucun degat gaspille a reporter"
+    assert reported > 0, "aucune `LeftOverDamage` enregistree sur Kell -> canal 1077 muet"
+    assert 400000 - _hp(state, creed) == reported, (
+        "Creed a encaisse %d alors que le report 1077 ne vaut que %d -> du degat de CAST a fuit sur "
+        "la cible d'origine" % (400000 - _hp(state, creed), reported))
 
     print("PROBE OK")
     return 0
