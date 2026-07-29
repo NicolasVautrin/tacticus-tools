@@ -190,13 +190,42 @@ class FabricatorClawArrayPlaybook(AdjacentToOwnerNonOwnerPlaybook):
     `IdunBattle.AI.Playbook.Loki.FabricatorClawArrayPlaybook$$FilterAdjacentFriends` : garde les amis
     ayant le trait Mechanical (UnitTrait 5) — ICI le tri du voisin est bien dans le FILTRE, pas dans
     l'accesseur de poids. #57i : 2468 s16, u79 préfère (3,4) [1 ami mécanique adjacent
-    admecRuststalker -> +30] a (4,2) [0] -> flip cible 69->t89."""
+    admecRuststalker -> +30] a (4,2) [0] -> flip cible 69->t89.
+
+    ⚠ LE CAP MORD (`vtbl+0x228` = 1) — MESURÉ (#242, deux couples board/seed) : le terme vaut **30
+    dès qu'il y a AU MOINS UN ami retenu**, PAS 30 x n. Le corps commun fait
+    `n = Min(count(<filtré>), vtbl+0x228)` ; le getter du cap est un corps TRIVIAL fondu par l'ICF
+    (`b8 01 00 00 00 c3` = `mov eax,1 ; ret`), donc absent des tables de symboles — lu dans le bloc
+    `methodPointers` du PE, où le groupe de cette classe est
+    `[.ctor, GetAdjacentFriendUtility, <ret 0>, <ret 1>, FilterAdjacentFriends]`, **exactement** le
+    même que `SpiritualLeaderPlaybook` (mêmes deux corps fondus, mêmes positions relatives).
+    Confrontation live : `X_nat` vaut **30 pour 1, 2, 3 amis retenus** (`probe_242_fabricator_claw
+    _cap.py`). #57i/#193c n'avaient exercé que `n <= 1`, régime où le cap est transparent — aucun de
+    leurs verdicts n'était donc contredit, ni ne le confirmait.
+
+    ⚠ RÉSIDU MESURÉ, NON PORTÉ — le filtre natif a un SECOND gate que ce port n'applique pas :
+
+        HasTrait(u, 5) && IBattleQuery.<slot 0x2e = CanBeRepaired>(u, false)
+
+    `IdunBattle.Core.Services.BattleQuery$$CanBeRepaired` délègue à
+    `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired`, dont les branches ACTIVES sous ces
+    arguments (attacker null, `checkGroupLimit` false, `includeNegativeEffects` false) sont :
+    `!EntityExtensions.IsMachine(u)` ET (`AttackQuery.IsDamagedUnit(u)` — soit
+    `HealthComponent.IsWounded`, hp < hpMax — OU `UnitExtensions.GetStat(u, 4, 4) > 0`) ET
+    `!UnitExtensions.HasHealBlockers(u)` ET `UnitExtensions.IsAffectedByHealType(u, 1)` (cette
+    dernière est automatiquement vraie ici : le trait Mechanical implique `IsMechanical`).
+    Conséquence MESURÉE : un ami Mechanical à PV PLEINS ne compte pas — `nMech=1, nRep=0 -> X_nat=0`
+    alors que ce port rend 30. Le porter demande `hp`/`hp_max` dans les `friend_units` du
+    `tile_leaf_ctx` (deux clés à ajouter dans `engine/utilities/tile.py::_adjacent_units`, fichier
+    hors périmètre de #242). Poser le cap sans ce gate est strictement moins faux : sur les 6
+    régimes mesurés, il corrige 3 tuiles et n'en dégrade aucune."""
+    MAX_ADJACENT_FRIENDS = 1                                       # vtbl+0x228 : `mov eax,1 ; ret`
 
     def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
         return wt.sub("TriggeredAbilities", "FABRICATORCLAWARRAY_AdjacentFriend")
 
     def filter_adjacent_friend(self, unit: dict, ctx: dict) -> bool:
-        return "Mechanical" in (unit.get("traits") or ())
+        return "Mechanical" in (unit.get("traits") or ())          # HasTrait(u, 5) ; cf. ⚠ ci-dessus
 
 
 def _unit_faction(unit: dict) -> str | None:
