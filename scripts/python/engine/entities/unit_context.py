@@ -34,8 +34,17 @@ class UnitContext:
     # les variables d'ability « affectées par la rareté » (ex. PowerTrip.armorIgnored) §17.21. Capté hors
     # combatSnapshot (BC) pour l'instant ; non figé par from_snapshot.
     ability_variables_multiplier: int = 100
-    # gameconfig-units (offline)
+    # gameconfig-units (offline) — SAUF quand `traits_measured` est vrai (cf. ci-dessous).
     traits: list[int] = field(default_factory=list)
+    # #264 — `traits` a-t-il ete SEEDE depuis la MESURE live (`combatSnapshot.units[].traits`) plutot
+    # que RECONSTRUIT depuis le substrat gameconfig ? Faux = reconstruction (kit gameconfig, auquel
+    # `entity_trait_names` ajoute le pseudo-trait de grande-alliance) ; vrai = `traits` porte
+    # l'ensemble EFFECTIF que rend `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`
+    # (permanents +0x40 | temporaires +0x48, moins le veto +0x50), grande-alliance INCLUSE.
+    # Le drapeau n'est PAS decoratif : il dit a `entity_trait_names` de NE PAS re-deriver l'alliance
+    # par-dessus une mesure — sans quoi le port RE-AJOUTERAIT un trait que le natif n'a pas forcement
+    # pose, c.-a-d. reconstruirait par-dessus la source qu'il vient de lire.
+    traits_measured: bool = False
     damage_type: int = 0            # DamageProfileType index de l'attaque normale
     range: int = 0                  # 0 = mêlée
     faction: str | None = None

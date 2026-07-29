@@ -139,6 +139,30 @@ def trait_name(trait: "UnitTrait | int | str") -> str:
     return UnitTrait(int(trait)).name
 
 
+def trait_names_from_ids(trait_ids: "Iterable[int] | None") -> frozenset:
+    """NOMS des traits correspondant a une liste d'IDS natifs -- la traduction du canal
+    `combatSnapshot.units[].traits` (#233/#264) vers la convention name-based du port.
+
+    Le capteur emet des ids `IdunBattle.Entities.Enum.UnitTrait` LUS AU RUNTIME (`dumpEnum`), sans
+    table de noms dans le payload (contrairement a `unitFlagTypes`) : c'est CET enum-mirror qui les
+    nomme. Meme parti LOUDER-ON-BUG que `unit_trait_ids` / `entity_trait_ids` -- un id publie par le
+    natif mais absent du mirror LEVE, au lieu d'etre silencieusement ignore (ce qui reviendrait a
+    dire « ce trait n'est pas porte » sur une unite qui le porte).
+
+    MESURE (2026-07-30, build `rnca9r7q6c`) : `dumpEnum(UnitTrait)` rend 105 membres, 105 valeurs
+    distinctes, et l'enum ci-dessus les couvre TOUTES avec les MEMES noms -- 0 valeur native absente
+    du mirror, 0 desaccord de nom. La garde vit dans `probe_264_load_state_traits.py` (etape 0)."""
+    out = set()
+    for t in (trait_ids or ()):
+        try:
+            out.add(UnitTrait(int(t)).name)
+        except ValueError:
+            raise ValueError(
+                f"trait natif id={t!r} (canal combatSnapshot.units[].traits) absent de l'enum "
+                f"UnitTrait -- mirror a remettre a jour (cf. docs/rl/unit-trait-coverage.md)") from None
+    return frozenset(out)
+
+
 def has_trait(trait_names: "Iterable[str] | None", trait: "UnitTrait | int | str") -> bool:
     """True si la liste de NOMS de traits (`ctx.traits` gameconfig) contient `trait`. Remplace le
     hardcode `"Steppable" in ctx.traits` par `has_trait(ctx.traits, UnitTrait.Steppable)` : un seul
@@ -179,6 +203,15 @@ def has_any_trait(trait_names: "Iterable[str] | None",
 # `...$$RemoveTraitsThatAreNotInheritedWhenCloned` -> ... -> `RemoveTraitOperation$$Execute`), mais
 # elle RETIRE de `+0x40`/`+0x48` au lieu d'ajouter a `+0x50`.
 # Detail + procedure de re-derivation : `docs/rl/case-265-disabled-traits-aucun-ecrivain.md`.
+#
+# #264 -- ce substrat n'est PLUS reconstruit quand la MESURE existe. `load_state` seede
+# `UnitContext.traits` depuis `combatSnapshot.units[].traits` (l'invoke de
+# `IdunBattle.Entities.UnitExtensions$$HasTrait` par valeur d'enum, donc l'ensemble EFFECTIF que le
+# jeu lui-meme lit -- veto `+0x50` compris, inerte ou non) et pose `ctx.traits_measured`. Ce que la
+# reconstruction ne pouvait PAS savoir, et que la mesure donne : les traits de DEPART viennent de
+# `BC.Units[].Traits`, qui differe du kit gameconfig DANS LES DEUX SENS (mesure : 5 unites du seed BC
+# en ont moins, 48 en ont plus). C'est le pendant #265 cote CONSOMMATION : #265 etablit qu'il n'y a
+# rien a porter du cote veto, #264 que le cote ADDITIF n'etait pas lu au bon endroit.
 GRAND_ALLIANCE_TRAITS: frozenset = frozenset({"Imperial", "Chaos", "Xenos"})
 
 
@@ -241,11 +274,25 @@ def entity_trait_names(unit_ctx, visual_id: "str | None" = None) -> frozenset:
 
     ⚠ NON CACHE quand `unit_ctx` est fourni : `ctx.traits` est MUTABLE (c'est tout l'objet). Le
     cache par `visual_id` de `unit_trait_names` serait ici un bug (deux entites de meme visualId
-    n'ont pas forcement les memes traits des qu'une seule s'en est vu accorder un)."""
+    n'ont pas forcement les memes traits des qu'une seule s'en est vu accorder un).
+
+    #264 -- **`ctx.traits_measured` COURT-CIRCUITE la derivation d'alliance**. Quand `load_state` a
+    seede `traits` depuis `combatSnapshot.units[].traits` (l'ensemble EFFECTIF que rend
+    `IdunBattle.Entities.UnitExtensions$$HasTrait`, grande-alliance COMPRISE), re-ajouter le
+    pseudo-trait derive reviendrait a RECONSTRUIRE par-dessus la source qu'on vient de lire. Ce
+    n'est pas une precaution de style : le `BC.Units[].Traits` (LA source des traits de depart, cf.
+    `snapshot._load_unit_traits`) n'est PAS le `traits` du gameconfig -- mesure du 2026-07-30 sur les
+    175 unites du seed BC, 5 unites ont MOINS de traits que leur kit (`necroOverlord` sans
+    `Resilient`, `blackSmnBloodletter` sans `BlessingsOfKhorne`/`Summon`) et 48 en ont PLUS
+    (`custoAtlacoya` +`SistersSilence`, `astraDreir` +`DeathKorpsKrieg`, tous les npc
+    +`Summon`/`NPC`). La derivation reste donc la BORNE de repli, jamais la verite quand la mesure
+    existe."""
     if unit_ctx is None:
         return unit_trait_names(visual_id)
-    vis = visual_id if visual_id is not None else getattr(unit_ctx, "visual_id", None)
     names = set(getattr(unit_ctx, "traits", None) or ())
+    if getattr(unit_ctx, "traits_measured", False):
+        return frozenset(names)
+    vis = visual_id if visual_id is not None else getattr(unit_ctx, "visual_id", None)
     ga = grand_alliance_trait_name(vis)
     if ga is not None:
         names.add(ga)

@@ -7,32 +7,18 @@ from __future__ import annotations
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent, get_unit_feet)
-from ....entities.traits.unit_trait import UnitTrait, has_trait, grand_alliance_trait_name
-
-
-import functools
+from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
+                                            entity_trait_names)
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
 # `entities/traits/unit_trait.py` (le module d'autorite du mapping id <-> nom), parce qu'elle est
 # consommee par DEUX substrats — le contexte DSL runner (ici) et le `ctx` des feuilles Tile(7)
 # (`utilities/tile.py::tile_leaf_ctx`). Un 2e mapping "Imperial/Xenos/Chaos -> 26/1006/2026" aurait
-# ete un fork de port. Alias conserve : les appelants de ce module ne changent pas.
+# ete un fork de port. Alias conserve : il NOMME la source (cite par `abilities/ultramarines.py` et
+# par les fiches de test RevitalizingMalignancy / CombatRestoratives) ; depuis #264 le substrat de
+# traits de ce module passe par `entity_trait_names`, qui l'applique lui-meme.
 _grand_alliance_trait = grand_alliance_trait_name
-
-
-@functools.lru_cache(maxsize=None)
-def _config_traits(visual_id: str | None) -> frozenset:
-    """Traits STATIQUES d'une unite lus de gameconfig — MEME source que `UnitContext.from_snapshot`
-    (`traits=list(cfg.get("traits"))`). Sert de repli quand l'unite n'a PAS de `StatsComponent`
-    (cf. `_unit_dict`). Cache (statique par visualId)."""
-    if not visual_id:
-        return frozenset()
-    try:
-        import gameconfig as _GC
-    except Exception:
-        return frozenset()
-    return frozenset((_GC.unit(visual_id) or {}).get("traits") or ())
 
 
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
@@ -53,15 +39,17 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     # MESURE (#226, Foehammer) : `Count(UnitsWithTrait(AllDeadOrResurrectedUnits, Hero))` rendait 0 avec
     # un heros mort au sol -> bonus `extraDmg x deadHeroes` PERDU (live 2142 vs port 343). La source du
     # repli est EXACTEMENT celle du chemin vivant (`UnitContext.traits = gameconfig.unit(vis).traits`).
-    traits = (set(getattr(sc.ctx, "traits", None) or ()) if sc is not None
-              else set(_config_traits(uc.visual_id if uc is not None else None)))
-    # Trait d'ALLIANCE (Imperial/Chaos/Xenos) inne, DERIVE de la GrandAlliance (cf. `_grand_alliance_trait`)
-    # : requis par le split RevitalizingMalignancy (WithoutTrait Imperial / WithTrait Chaos) + l'exclusion
-    # Imperial de CombatRestoratives. CONFIRME LIVE (case-220 : deathBlightbringer Chaos +6980,
-    # eldarRanger Xenos +3490, adeptHospitaller Imperial +0).
-    _ga = _grand_alliance_trait(uc.visual_id if uc is not None else None)
-    if _ga is not None:
-        traits = traits | {_ga}
+    # Le trait d'ALLIANCE (Imperial/Chaos/Xenos) fait partie du substrat : requis par le split
+    # RevitalizingMalignancy (WithoutTrait Imperial / WithTrait Chaos) + l'exclusion Imperial de
+    # CombatRestoratives. CONFIRME LIVE (case-220 : deathBlightbringer Chaos +6980, eldarRanger Xenos
+    # +3490, adeptHospitaller Imperial +0). #264 : il vient desormais de `entity_trait_names` -- soit
+    # de la MESURE live (`BC.Units[].Traits` la porte explicitement), soit, a defaut de mesure, de la
+    # derivation `GrandAlliance$$GetTrait`. Ce site ne l'ajoute donc plus lui-meme : un DEUXIEME
+    # ajout par-dessus une mesure re-introduirait exactement la reconstruction que #264 retire.
+    # A defaut de mesure, `entity_trait_names(ctx, vis)` == l'ancien `set(ctx.traits) | {_ga}` et
+    # `entity_trait_names(None, vis)` == l'ancien repli `_config_traits(vis) | {_ga}` -- bit pour bit.
+    traits = set(entity_trait_names(sc.ctx if sc is not None else None,
+                                    uc.visual_id if uc is not None else None))
     alive = uc.alive if uc is not None else True
     return {
         "id": eid,

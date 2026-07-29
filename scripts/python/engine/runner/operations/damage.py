@@ -72,7 +72,7 @@ from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (UnitComponent, ShieldComponent, UnitFlagsComponent, HealthComponent,
-                          unit_is_dead, can_be_overkilled, unit_prevents_overkill)
+                          StatsComponent, unit_is_dead, can_be_overkilled, unit_prevents_overkill)
 from ...services.trait_damage_limits import unit_is_overkill
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
                                  defender_effect_block_sources)
@@ -825,13 +825,24 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (1=attack -> Impervious applique ; 2=ability) — sans effet offline tant que
         `impervious_stat_current=None` (no-op documente, comme la prediction).
         None = fast-path retro-compat : cible mono-membre sans Resilient -> etage strictement no-op
-        (Impervious charge / boss 0x5d4 = no-op documentes de toute facon)."""
+        (Impervious charge / boss 0x5d4 = no-op documentes de toute facon).
+
+        #264 -- les TRAITS viennent du substrat d'ENTITE (`entity_trait_names`), pas d'une relecture
+        du kit gameconfig par visualId. Le natif lit `HasTrait(cible, Resilient)` sur le
+        `BaseUnitComponent`, dont le contenu est celui de `BC.Units[].Traits` plus/moins ce que la
+        bataille a accorde/retire -- pas le kit (les deux different, cf. `_load_unit_traits`). MESURE
+        (2026-07-30) : `necroOverlord` porte `Resilient` au gameconfig et NE le porte PAS en
+        bataille ; ce lecteur capait donc son degat a `HP-1` et le rendait IMPOSSIBLE A TUER
+        offline, alors que le natif le tue. `nrOfMembers` reste gameconfig : ce n'est pas un trait
+        (c'est `GroupUnitComponent`, autre canal, hors #264)."""
+        from ...entities.traits.unit_trait import entity_trait_names
         tuc = tgt.get_component(UnitComponent) if tgt is not None else None
         if tuc is None or thc is None or not thc.hp_max:
             return None
         import gameconfig as GC
         gu = GC.unit(tuc.visual_id) or {}
-        utraits = set(gu.get("traits") or [])
+        tsc = tgt.get_component(StatsComponent)
+        utraits = entity_trait_names(tsc.ctx if tsc is not None else None, tuc.visual_id)
         n = int(gu.get("nrOfMembers") or 1)
         has_res = "Resilient" in utraits
         if n <= 1 and not has_res:

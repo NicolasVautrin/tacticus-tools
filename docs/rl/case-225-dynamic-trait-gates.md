@@ -127,6 +127,14 @@ feuille + leurs recs de voisinage) :
   sur le chemin LIVE, `UnitContext.from_snapshot` seede exactement `gameconfig.unit(vis).traits`
   -> **identique au bit pres** a l'ancien comportement.
 
+**Depuis #264, cette source a une ENTREE LIVE** : sur un etat charge par `load_state`,
+`UnitContext.traits` n'est plus le kit gameconfig mais la MESURE (`combatSnapshot.units[].traits`),
+et `entity_trait_names` cesse d'y re-deriver l'alliance (`ctx.traits_measured`). Deux forks que
+cette fiche listait en §5.1 sont tombes avec : `runner/abilities/targeting.py::_unit_traits`
+(relisait le gameconfig) et `runner/abilities/behaviours/context.py::_unit_dict` (ré-unionnait
+l'alliance a la main) passent tous deux par `entity_trait_names`. Le chemin LIVE **hors**
+`load_state` (`Scene.build_predictor`) reste, lui, une reconstruction -- residu `#264-pv`.
+
 ## 5. Residus nommes (NON couverts)
 
 1. **19 gates `GAMECONFIG` + 4 gates `CTX`** (familles NonComparable, prediction, `scene.py`) restent
@@ -144,13 +152,16 @@ feuille + leurs recs de voisinage) :
    pres sans octroi. La voie NATIVE d'octroi (relique `R_Defensive_SupaCyborkBody`) reste
    **non instanciable** -- ses 9 porteurs sont `kind=npc` et aucun canal de `rl_duel build` n'equipe
    d'item ; la validation passe donc par le meme leaf `AddTrait` que §6 ci-dessous.
-3. **Chemin LIVE** : aucun RPC ne publie la collection de traits RUNTIME d'une unite
-   (`combatSnapshot`/`decisionView`/`observeBattle` n'exposent que le kit gameconfig, cf.
-   `frida/hooks/features/ai-step/rpc-snapshot.ts`). Une bataille pilotee LIVE (et non rejouee sur un
-   `State`) reste donc aveugle a tout octroi. **Point d'ancrage a hooker** :
-   `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` puis lecture des trois collections
-   `+0x40`/`+0x48`/`+0x50`, a exposer dans `combatSnapshot.units[*]`. Non fait ici : cela demande une
-   reinjection Frida, proscrite pendant la campagne.
+3. ~~**Chemin LIVE** : aucun RPC ne publie la collection de traits RUNTIME d'une unite~~
+   **FERME en deux temps.** (a) Le capteur existe depuis `0231573` (#233) :
+   `combatSnapshot.units[].traits`. Il n'expose PAS les trois collections separement -- ce sont des
+   `OrderedSet<UnitTrait>` interroges par appel d'interface FULLY-SHARED, donc un layout a deviner ;
+   il invoque a la place la fonction NOMMEE que le jeu appelle lui-meme,
+   `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait)`, une fois par valeur d'enum, et rend
+   la **resultante**. (b) `load_state` la CONSOMME depuis #264
+   (`snapshot._load_unit_traits` -> `UnitContext.traits` + `ctx.traits_measured`), avec les trois
+   lecteurs du substrat alignes dessus. **Reste ouvert** : `Scene.build_predictor` (chemin LIVE hors
+   `load_state`) reconstruit encore -- residu `#264-pv` au backlog.
 4. ~~**Traits RETIRES (`+0x50`)** : non portes, et sans vecteur natif connu (cf. §1).~~
    **FERME par #265** (`case-265-disabled-traits-aucun-ecrivain.md`) : ce n'est pas « pas de vecteur
    CONNU », c'est **aucun ecrivain, mesure** -- le champ s'appelle `DisabledTraits`, il est cree vide
@@ -158,6 +169,14 @@ feuille + leurs recs de voisinage) :
    mutateurs additifs de `OrderedSet<UnitTrait>` (le `MethodInfo*` de `Add` n'a QU'UN appelant :
    `StaticBattleRules.Trait$$.cctor`, sur des tables statiques) ne rend aucun site visant `+0x50`.
    **Rien a porter** ; ne pas re-ouvrir la question a chaque lecture de `HasTrait`.
+   S'y ajoute, cote CONSOMMATION, que la question ne se pose plus sur un etat SEEDE : le canal de
+   #233/#264 rend la **resultante** de `HasTrait`, veto compris -- inerte ou non, il est deja
+   applique a la source.
+5. **Le substrat de DEPART n'etait pas le bon** (decouvert par #264, cf. son entree au backlog) : le
+   natif part de `BC.Units[].Traits`, pas du kit gameconfig -- et les deux different **dans les deux
+   sens** (mesure : 5 unites du seed BC en ont moins, 48 en ont plus). La « neutralite » verifiee
+   au §6 ci-dessous confrontait donc la reconstruction a **elle-meme**, jamais au jeu ; c'est
+   exactement le trou que le canal #233 existait pour montrer.
 
 ## 6. Validation
 

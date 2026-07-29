@@ -45,8 +45,10 @@ UNIT_FLAG_CAN_REPAIR_FULL_HEALTH = 24    # CanRepairFullHealthUnits
 
 
 def _has_trait(state: "State", unit_id, trait: int) -> bool:
-    """`IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait)` -- substrat gameconfig, la meme
-    source que `targeting._unit_traits` (dont ce helper est l'adaptateur par VALEUR d'enum)."""
+    """`IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait)` -- substrat d'ENTITE, la meme
+    source que `targeting._unit_traits` (dont ce helper est l'adaptateur par VALEUR d'enum) : depuis
+    #264 la MESURE live (`combatSnapshot.units[].traits`) quand elle existe, sinon kit gameconfig +
+    grande-alliance + traits accordes en bataille."""
     from .targeting import _unit_traits
     try:
         name = UnitTrait(int(trait)).name

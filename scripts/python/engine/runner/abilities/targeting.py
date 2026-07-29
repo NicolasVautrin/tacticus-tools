@@ -705,13 +705,26 @@ def _visual_id(state: "State", unit_id) -> Optional[str]:
 
 
 def _unit_traits(state: "State", unit_id) -> tuple:
-    """Traits gameconfig de l'unite (noms). `BaseUnitComponent$$HasTrait` cote natif ; offline le
-    porteur des traits INNES est le kit gameconfig, deja materialise dans `UnitContext.traits`."""
-    import gameconfig as GC
-    vid = _visual_id(state, unit_id)
-    if not vid:
+    """Traits de l'unite (NOMS) — le substrat que lit `IdunBattle.Entities.UnitExtensions$$HasTrait`.
+
+    #264 : ce lecteur RELISAIT le gameconfig par visualId alors que son propre docstring annoncait
+    `UnitContext.traits`. Il etait donc AVEUGLE aux deux choses que le substrat d'ENTITE porte : le
+    pseudo-trait de GRANDE-ALLIANCE (`Imperial`/`Chaos`/`Xenos`, jamais dans un `traits` gameconfig)
+    et tout trait ACCORDE EN BATAILLE (`AddTrait`) — plus, depuis #264, la MESURE live
+    (`combatSnapshot.units[].traits`), qui differe du kit DANS LES DEUX SENS (`necroOverlord` porte
+    `Resilient` au gameconfig et PAS en bataille). Deux ensembles de traits contradictoires
+    cohabitaient donc dans le meme port ; il n'y en a plus qu'UN, `entity_trait_names`.
+
+    Entite sans `StatsComponent` (cadavre : `combatSnapshot` filtre les morts) -> borne STATIQUE
+    `entity_trait_names(None, vid)` = kit gameconfig + alliance, meme repli que `_unit_dict`."""
+    from ...entities.traits.unit_trait import entity_trait_names
+    from ..components import StatsComponent
+    e = state.get_entity(unit_id)
+    if e is None:
         return ()
-    return tuple((GC.unit(vid) or {}).get("traits") or ())
+    sc = e.get_component(StatsComponent)
+    return tuple(sorted(entity_trait_names(sc.ctx if sc is not None else None,
+                                           _visual_id(state, unit_id))))
 
 
 def unit_weapon_range(visual_id: Optional[str], stats) -> Optional[int]:
