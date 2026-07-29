@@ -168,9 +168,17 @@ def has_any_trait(trait_names: "Iterable[str] | None",
 # `UnitContext.traits`, donc le substrat COMPLET d'une ENTITE se lit par `entity_trait_names` /
 # `entity_trait_ids` (ci-dessous), et NON par les deux fonctions cachees-par-visualId qui suivent.
 # Ces dernieres restent la BORNE statique (appelant sans entite sous la main).
-# Reste hors de portee : les traits RETIRES (`+0x50`) -- aucun `RemoveTrait` n'est porte, et le natif
-# n'expose aucun leaf DSL `RemoveTrait` (releve ghidra #225 : `RemoveTraitOperation` n'a que
-# `Core.Services.OperationProcessor$$RemoveTrait` en appelant).
+# #265 -- les traits RETIRES (`+0x50`, nom natif `DisabledTraits`) n'ont RIEN a porter, et ce n'est
+# pas une limite offline : le champ n'a **aucun ecrivain dans le binaire** (mesure -- le `MethodInfo*`
+# de `OrderedSet<UnitTrait>::Add` n'a qu'UN appelant, `StaticBattleRules.Trait$$.cctor`, sur des
+# tables statiques ; les 6 appelants du `Add` d'interface visent tous `+0x40`/`+0x48`). Il est cree
+# VIDE par `BaseUnitComponent$$.ctor` et recopie vide par `BaseUnitComponent$$Copy` /
+# `UnitComponent$$Copy` -> le veto de `HasTrait` est structurellement INERTE. Attention, la
+# justification anterieure (« `RemoveTraitOperation` n'a que `Core.Services.OperationProcessor$$RemoveTrait`
+# en appelant ») etait FAUSSE : cette voie EST empruntee (`AddUnitOperation$$Execute` ->
+# `...$$RemoveTraitsThatAreNotInheritedWhenCloned` -> ... -> `RemoveTraitOperation$$Execute`), mais
+# elle RETIRE de `+0x40`/`+0x48` au lieu d'ajouter a `+0x50`.
+# Detail + procedure de re-derivation : `docs/rl/case-265-disabled-traits-aucun-ecrivain.md`.
 GRAND_ALLIANCE_TRAITS: frozenset = frozenset({"Imperial", "Chaos", "Xenos"})
 
 

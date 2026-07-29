@@ -31,11 +31,15 @@ Deux corrections a l'enonce recu :
 * un ajout **PERMANENT** (`isTemporary == 0`) ecrit `+0x40`, **la meme collection** que
   `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` seede depuis la BC -- ce n'est donc
   pas « +0x48 seulement » ;
-* les traits **RETIRES** (`+0x50`) sont hors de portee : il n'existe **aucun**
-  `IdunBattleLogic.Entities.DSLFactory$$RemoveTrait`, et
-  `IdunBattle.Operations.RemoveTraitOperation$$Execute` n'a que
-  `Core.Services.OperationProcessor$$RemoveTrait` en appelant (slot d'interface, sans appelant
-  direct).
+* les traits **RETIRES** (`+0x50`) sont hors de portee -- mais **PAS pour la raison ecrite ici a
+  l'origine** (« `RemoveTraitOperation$$Execute` n'a que `Core.Services.OperationProcessor$$RemoveTrait`
+  en appelant »). `RemoveTrait` est bel et bien emprunte en jeu (`AddUnitOperation$$Execute` ->
+  `...$$RemoveTraitsThatAreNotInheritedWhenCloned` -> slot `IOperationProcessor` ->
+  `Core.Services.OperationProcessor$$RemoveTrait` -> `RemoveTraitOperation$$Execute`). La vraie
+  raison, **MESUREE par balayage exhaustif des mutateurs de `OrderedSet<UnitTrait>` en
+  `case-265-disabled-traits-aucun-ecrivain.md`** : `RemoveTrait` **retire de `+0x40`/`+0x48`** au
+  lieu d'ajouter a `+0x50`, et **aucun site du binaire n'ecrit `+0x50`**. Le veto de `HasTrait` est
+  donc structurellement INERTE.
 
 Les sites d'ecriture sont **exhaustifs** : les 6 appelants de `IdunBattleLogic.Entities.DSLFactory$$AddTrait`.
 
@@ -147,7 +151,13 @@ feuille + leurs recs de voisinage) :
    `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` puis lecture des trois collections
    `+0x40`/`+0x48`/`+0x50`, a exposer dans `combatSnapshot.units[*]`. Non fait ici : cela demande une
    reinjection Frida, proscrite pendant la campagne.
-4. **Traits RETIRES (`+0x50`)** : non portes, et sans vecteur natif connu (cf. §1).
+4. ~~**Traits RETIRES (`+0x50`)** : non portes, et sans vecteur natif connu (cf. §1).~~
+   **FERME par #265** (`case-265-disabled-traits-aucun-ecrivain.md`) : ce n'est pas « pas de vecteur
+   CONNU », c'est **aucun ecrivain, mesure** -- le champ s'appelle `DisabledTraits`, il est cree vide
+   par `BaseUnitComponent$$.ctor`, recopie vide par les deux `Copy`, et le balayage exhaustif des
+   mutateurs additifs de `OrderedSet<UnitTrait>` (le `MethodInfo*` de `Add` n'a QU'UN appelant :
+   `StaticBattleRules.Trait$$.cctor`, sur des tables statiques) ne rend aucun site visant `+0x50`.
+   **Rien a porter** ; ne pas re-ouvrir la question a chaque lecture de `HasTrait`.
 
 ## 6. Validation
 
