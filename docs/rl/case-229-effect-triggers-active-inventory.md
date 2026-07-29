@@ -102,7 +102,7 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1451 | `PhoenixGemRemoveMarkerOnResurrect` | ARRAYSET | unite | no | CONFORME |
 | 1476 DespoiledGround | `DespoiledGroundTileDoT` | ENV_ABILITY | tuile | no | CONFORME (hors rail effet-trigger) |
 | 1502 RitesOfMorkai | `RitesOfMorkaiReviveTrigger` | TARGETS | unite | **direct** | CONFORME depuis 2026-07-29 |
-| 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | unite | **direct** | CONFORME depuis `case-1547` |
+| 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | **machine** (MESURE, cf. §3) | **direct** | CONFORME depuis `case-1547` |
 | 1550 Chronometron_ExtraDamage | `ChronometronExtraDamageRemove` | ARRAYSET (greffe) | unite | no | CONFORME |
 
 **27 classes conformes / 1 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077,
@@ -173,7 +173,7 @@ Ventilation des 6 ecarts :
 | 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
 | 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
-| 1547 ReanimationBeam_Revive | **MACHINE** (`mows[]`, PAS `units[]`) | **OUI — MESURE** (`case-mow-ammo-gauge` §7) : 1547 pose nativement, publie **1 au canal par defaut ET 1 sous `includeInactive`**, sous `mows[].effects` ; `units[]` seul rend 0/0. Le motif « no-ope faute de MUNITION » etait FAUX (cf. §6 de cette fiche). |
+| 1547 ReanimationBeam_Revive | **MACHINE** (`mows[]`, PAS `units[]`) | **OUI — MESURE** (`case-mow-ammo-gauge` §7) : 1547 pose nativement, publie **1 au canal par defaut ET 1 sous `includeInactive`**, sous `mows[].effects` ; `units[]` seul rend 0/0. Le motif « no-ope faute de MUNITION » etait FAUX (`case-mow-ammo-gauge.md` §6). |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
 > ⚠ **La colonne ci-dessus est une DEDUCTION (« porteur unite => canal unite »), et #231 en a
@@ -264,7 +264,8 @@ exige alors l'attribut de rail que ce probe materialise deja en table.
     `if (comp@+0x5e != 0) return false` puis `if (!effect.<virtuel 0xc>(evt)) return comp.IsActive`
     (inchange) sinon `return effect.<virtuel 0xb>(entities)`. `RitesOfMorkaiEffect` passe
     `activationFrequency = 0` (`ReviveEffect..ctor`, champ `+0x480`) = la branche CONDITIONNELLE.
-- **Restent** : 1547 (canal unite) et 1186 (canal tuile).
+- **Reste** : 1186 (canal tuile). 1547 a ete MESURE le 2026-07-29 et son canal RECTIFIE : c'est
+  **`mows[]`** (porteur = MACHINE), pas `units[]` — cf. `case-mow-ammo-gauge.md` §7.
 
 ## 5. Ce qui n'est PAS couvert par cette fiche
 
