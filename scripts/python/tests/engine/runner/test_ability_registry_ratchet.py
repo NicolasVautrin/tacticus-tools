@@ -200,10 +200,11 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # = 0x2004002 (AllowObscuredTargetByElevation | TargetIsEnemy | TargetMatchesDynamicRule).
     # Portee = `TargetingRange statics+0x18` = RANGE_FROM_CONFIG (`constants.range` = 2) ;
     # `forceMeleeTarget = 0 = RangedBool.True` (clamp de melee ARME).
-    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) : aucun porteur n'a pu etre amene a
-    # rendre une cible legale (`Waaagh` 1058 rend 0 cible ; `AlphaWarrior` 1112 invoque mais aucune
-    # unite ne rend `abilityState.usable`). Il n'est donc garde par AUCUN test -- fiche de
-    # re-dispatch ouverte. Meme statut pour 1078 et 1098.
+    # CONFRONTEE LIVE (#243) : 14/14 lignes d'accord natif/port sur DEUX montages, seuil encadre des
+    # deux cotes (d=2 accepte / d=3 refuse `TargetIsInRange`) ET le clamp de melee EXERCE -- avec un
+    # ennemi au contact, la cible a d=2 bascule en refus. Porteur amene par catalogue injecte + trait
+    # `Summon` retire (recette case-245), cf. `probe_243_splash_range_clamp.py` et
+    # `test_splash_range_clamp_live.py`. Meme statut pour 1078 et 1098.
     # 1065 ScythingTalonsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
     # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
     # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
@@ -229,7 +230,9 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # (0x2004002) et une portee qui DIFFERE : `*(statics+0x1a0)` = 1 = `RangedBool.False` ->
     # `forceMeleeTarget` DESARME, donc pas de clamp a 1 au contact. Illustration directe du piege
     # « la voisine ment » : le masque se serait recopie juste, le volet portee faux.
-    # ⚠ MASQUE POSE SUR RE SEULE, **NON CONFRONTE LIVE** (#248) -- cf. la note de 1051.
+    # CONFRONTEE LIVE (#243) -- cf. la note de 1051 : 14/14, et c'est la SEULE des trois dont la
+    # cible a d=2 reste ACCEPTEE avec un ennemi au contact. Le contrefactuel `fmtFlip` (basculer
+    # `forceMeleeTarget`) faux-REFUSE exactement cette ligne : le champ est mesure, pas suppose.
     # Piege de recon a ne pas repeter : `templAggressor` (au pool) porte `FragstormGrenadeLauncher`
     # (1048), PAS `Fragstorm` (1078). Le recensement par sous-chaine ment ; c'est l'oracle live qui
     # a tranche.
@@ -246,7 +249,7 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1098 PlasmaGrenadeAbility RESORBEE (#248) -- forme « PRESET + FLAGS », preset `statics+0x140`
     # + flags `0x2000000` -> 0x2004002 ; portee RANGE_FROM_CONFIG (2) ; `forceMeleeTarget =
     # RangedBool.True`. STRICTEMENT le meme couple que 1051, verifie ctor par ctor.
-    # ⚠ MASQUE NON CONFRONTE LIVE (cf. la note de 1051) -- fiche de re-dispatch ouverte.
+    # CONFRONTEE LIVE (#243, cf. la note de 1051) : 14/14, clamp de melee exerce comme 1051.
     # 1104 SpiritLeechAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE » :
     # `...SpiritLeechAbility$$.ctor` recopie `TargetingOptions statics+0x180` (copie INTEGRALE,
     # aucun ctor appele) et le masque effectif est `*(statics+0x1a8)` = 0x4002

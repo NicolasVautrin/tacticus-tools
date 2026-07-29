@@ -12,6 +12,13 @@ la STRUCTURE au natif :
 Geometrie = adjacence NATIVE (boardGraph -> Board evenq). Degat exact (RNG cale) = raffinement non teste ici
 (comme test_summon_trigger) ; on valide COUNTS + SET + no-fire, i.e. les priorites 1/2/4 du spec validator.
 
+⚠ LA GEOMETRIE EST CONDUITE, DES DEUX COTES (#243). Ce fichier teste des BEHAVIOURS, mais il les
+atteint par le CHEMIN REEL (`_apply_active_ability` -> `AbilityHandler`), qui applique d'abord le
+gate de cible #115. Un montage qui laisse le caster ou le deploiement l'a mis ne mesure donc rien du
+tout des que l'ability porte un masque : le cast est REFUSE en amont de la behaviour. On DEPLACE
+les unites (`_pick_target_with_adjacent_enemy`) pour que la configuration testee soit remplie ET
+legale -- jamais « bloque par la geometrie de spawn ».
+
 ORACLE des COUPS (#96) -- aucune valeur figee. Le decompile de
 `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour` passe
 `GetNumberConstant(config, 0x2f)` (main) et `GetNumberConstant(config, 0x32)` (splash) TELS QUELS aux deux
@@ -85,16 +92,54 @@ def _teams(state):
     return by_team
 
 
+def _free_neighbours(state, board, tile_id, ignore=()):
+    """Tuiles voisines de `tile_id` MARCHABLES et INOCCUPEES (les entites de `ignore` ne comptent
+    pas comme occupantes -- typiquement l'unite qu'on s'apprete a deplacer, qui va liberer la
+    sienne)."""
+    occupied = {_tile_of(board, state, u) for u in state.entities
+                if u not in ignore
+                and state.get_entity(u).get_component(PositionComponent) is not None}
+    return [nb for nb in board.neighbours(tile_id)
+            if nb not in occupied and board.by_id.get(nb) is not None and board.walkable(nb)]
+
+
+def _place(state, board, uid, tile_id):
+    info = board.by_id[tile_id]
+    pc = state.get_entity(uid).get_component(PositionComponent)
+    pc.col, pc.row = info["col"], info["row"]
+
+
 def _pick_target_with_adjacent_enemy(state, board):
     """Cherche (caster_team_unit, target, expected_splash) : une cible d'une team B ayant >=1 autre unite B
-    adjacente (boardGraph), et un caster de team A. DRIVE une 2e unite B adjacente si aucune naturelle."""
+    adjacente (boardGraph), et un caster de team A. DRIVE une 2e unite B adjacente si aucune naturelle,
+    PUIS amene le CASTER au contact de la cible.
+
+    ⚠ POURQUOI LE CASTER EST CONDUIT, LUI AUSSI (#243). Le montage d'origine prenait le premier
+    membre de la team A tel qu'il sortait du deploiement, sans regarder la distance -- MESURE sur
+    `--board MC1_67 --seed 777` : caster@(1,0), cible@(6,8), soit **11 hex** pour une ability dont
+    `constants.range` vaut 2. Ca ne se voyait pas tant que `PlasmaGrenadeAbility` n'avait pas de
+    `TARGETING_OPTIONS` (aucun gate -> la behaviour s'executait quand meme) ; depuis que le masque
+    est pose (#248), `AbilityHandler.visit_ActiveAbilityMessage` REFUSE le cast sur
+    `TargetIsInRange` (mirror `ActiveAbilityOperation$$ExecuteInternal`, gate #115) et rend un diag
+    `invalid_target` SANS `main_attack` -- exactement ce que le natif fait. L'hypothese cachee etait
+    donc « le gate de cible n'existe pas », pas une propriete de la behaviour : on monte desormais
+    une geometrie LEGALE, ce que le test aurait toujours du faire.
+
+    Le caster est place ADJACENT a la cible (d = 1) et non a d = 2 : `forceMeleeTarget =
+    RangedBool.True` sur ce preset ARME le clamp de `TargetingQuery$$GetRange` des qu'un ennemi
+    non-Steppable est au contact -- or la cible EST au contact. A d = 1 les deux regimes (clampe ou
+    non) acceptent, le montage est donc stable quel que soit le voisinage."""
     by_team = _teams(state)
     if len(by_team) < 2:
         return None
     teams = sorted(by_team.keys())
     team_a, team_b = teams[0], teams[1]
     caster = by_team[team_a][0]
-    # cherche une cible team_b ayant un voisin team_b
+    picked = None
+    # cherche une cible team_b ayant un voisin team_b ET une tuile libre pour accueillir le caster.
+    # LES DEUX conditions, sur la MEME cible : sur `MC1_67`/777 la 1re cible a voisin ennemi (u77)
+    # est dans un cul-de-sac (2 voisins, tous deux occupes) -- s'arreter a elle rendait le montage
+    # impossible et le test SKIPPAIT en vert. On balaie donc tous les candidats.
     for tgt in by_team[team_b]:
         ttile = _tile_of(board, state, tgt)
         if ttile is None:
@@ -102,23 +147,36 @@ def _pick_target_with_adjacent_enemy(state, board):
         neigh = set(board.neighbours(ttile))
         adj = [u for u in by_team[team_b]
                if u != tgt and _tile_of(board, state, u) in neigh]
-        if adj:
-            return caster, tgt, sorted(adj)
-    # aucune adjacence naturelle -> DRIVE : place une 2e unite team_b sur une tuile libre adjacente a la 1re
-    if len(by_team[team_b]) < 2:
+        if adj and _free_neighbours(state, board, ttile, ignore=(caster,)):
+            picked = (tgt, sorted(adj))
+            break
+    if picked is None:
+        # aucune cible utilisable telle quelle -> DRIVE : une 2e unite team_b sur une tuile libre
+        # adjacente a la 1re. Il faut alors DEUX tuiles libres voisines (une pour la victime, une
+        # pour le caster) -- on cherche la cible qui les offre.
+        if len(by_team[team_b]) < 2:
+            return None
+        for tgt in by_team[team_b]:
+            victim = next((u for u in by_team[team_b] if u != tgt), None)
+            ttile = _tile_of(board, state, tgt)
+            if ttile is None or victim is None:
+                continue
+            free = _free_neighbours(state, board, ttile, ignore=(caster, victim))
+            if len(free) >= 2:
+                _place(state, board, victim, free[0])
+                picked = (tgt, [victim])
+                break
+        if picked is None:
+            return None
+    tgt, splash = picked
+    # le CASTER au contact de la cible, sur une tuile libre (il libere la sienne en partant)
+    free = _free_neighbours(state, board, _tile_of(board, state, tgt), ignore=(caster,))
+    if not free:
         return None
-    tgt = by_team[team_b][0]
-    victim = by_team[team_b][1]
-    ttile = _tile_of(board, state, tgt)
-    occupied = {_tile_of(board, state, u) for u in state.entities
-                if state.get_entity(u).get_component(PositionComponent) is not None}
-    for nb in board.neighbours(ttile):
-        info = board.by_id.get(nb)
-        if info is not None and nb not in occupied and board.walkable(nb):
-            state.get_entity(victim).get_component(PositionComponent).col = info["col"]
-            state.get_entity(victim).get_component(PositionComponent).row = info["row"]
-            return caster, tgt, [victim]
-    return None
+    _place(state, board, caster, free[0])
+    # le drive du caster a pu OCCUPER une tuile qui n'appartenait a personne : le SET splash est
+    # re-derive par l'appelant (voisins boardGraph INTER ennemis), pas repris d'ici.
+    return caster, tgt, splash
 
 
 def test_valkyrie_strike_no_immediate_damage(rpc, build_runner):
@@ -165,8 +223,13 @@ def test_plasma_grenade_main_plus_splash(rpc, build_runner, monkeypatch):
         f"ce test ne verrait plus une feuille qui lirait la MAUVAISE cle")
     state, board, _dec, mkstate = _load(rpc, build_runner)
     picked = _pick_target_with_adjacent_enemy(state, board)
-    if picked is None:
-        pytest.skip("pas de cible avec ennemi adjacent (ni drivable)")
+    # ECHEC DUR, pas un skip (#243) : le montage est CONDUIT (on deplace la victime ET le caster),
+    # donc « pas de cible » n'est plus une fatalite de deploiement mais un montage casse. Un skip
+    # vert ici masquerait la disparition de toute couverture -- c'est exactement ce qui est arrive
+    # au premier jet du fix, ou la 1re cible candidate etait dans un cul-de-sac.
+    assert picked is not None, (
+        "montage impossible : aucune cible ennemie n'a a la fois un voisin ennemi et une tuile "
+        "libre adjacente pour le caster")
     caster, target, expected_splash = picked
 
     # SET attendu recalcule apres un eventuel drive de position (verite = voisins boardGraph INTER ennemis).
@@ -189,10 +252,22 @@ def test_plasma_grenade_main_plus_splash(rpc, build_runner, monkeypatch):
     splash = diag.get("splash") or []
     splash_ids = sorted(x["target"] for x in splash)
     splash_hits = sorted({(x.get("attack") or {}).get("hits") for x in splash})
-    print(f"\n[PLASMA] routed={res.get('routed')} hits_main={main.get('hits')} "
+    import hexgeo
+    cpc = state.get_entity(caster).get_component(PositionComponent)
+    tpc = state.get_entity(target).get_component(PositionComponent)
+    d_ct = hexgeo.distance((cpc.col, cpc.row), (tpc.col, tpc.row))
+    print(f"\n[PLASMA] routed={res.get('routed')} d(caster,target)={d_ct} "
+          f"hits_main={main.get('hits')} "
           f"splash_hits={splash_hits} splash={splash_ids} expected={enemies_adj}")
 
     assert res.get("routed") == "handler", f"1098 non route au handler : {res}"
+    # GARDE DE MONTAGE (#243) -- un `invalid_target` ici ne dit RIEN de la behaviour : il dit que la
+    # geometrie montee est ILLEGALE. Sans cette assertion, le refus se manifestait plus bas par un
+    # « attaque main absente » qui pointait la mauvaise piece.
+    assert diag.get("invalid_target") is None, (
+        f"cast REFUSE par le gate de cible #115 (reason=0x{int(diag['invalid_target']):x}) : la "
+        f"geometrie montee n'est pas legale pour 1098 (portee = constants.range = 2). Corriger le "
+        f"MONTAGE, pas l'assertion -- le masque est confronte live (cf. test_splash_range_clamp_live)")
     assert diag.get("main_attack") is not None, "attaque main absente"
     assert main.get("hits") == cfg_main, \
         f"hits main {main.get('hits')} != constants.nrOfHits={cfg_main} (oracle gameconfig, 0x2f)"
