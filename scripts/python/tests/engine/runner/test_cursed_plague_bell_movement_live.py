@@ -32,10 +32,12 @@ les positions DRIVEES -- rien n'est subi) :
   (E) CONTREFACTUELS : retirer le gate `Chaos` ou le gate de CAMP (`SurroundingFriends`) fait
       diverger le port du live sur TOUS les tours -- sans quoi le montage ne testerait pas ces gates.
 
-RESIDU ASSUME, mesure : le gate `UnitsWithoutTrait(Stationary)` est INERTE ici -- le trait 1048
-n'est porte par AUCUNE des 683 unites du gameconfig ni par aucune entite du `combatSnapshot`
-(MoW comprises, scan du build `rnca9r7q6c`). Il est porte parce que le decompile l'a, pas parce
-qu'un montage le distingue.
+RESIDU ASSUME : le gate `UnitsWithoutTrait(Stationary)` n'est pas exerce par ce montage. Le trait
+1048 EXISTE pourtant dans le substrat que le port interroge depuis #270
+(`combatSnapshot.units[].traits`) : `probe_264_load_state_traits` montage B le mesure sur le summon
+`ultraSmnDreadnought`. Ce qui manque est un porteur **Chaos ET Stationary** (le gate s'applique
+apres `UnitsWithTrait(Chaos)`) -- seul candidat : `thousSmnDaemonPrince`, via la MoW
+`thousDaemonPrince` absente du seed BC (`catalog_inject` requis). Cf. §5 de la case doc.
 
 ASCII-only. Skip si pas de session live / montage non montable.
 """

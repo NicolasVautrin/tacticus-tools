@@ -154,6 +154,13 @@ L'arbre est composé de nœuds **existants** (`SurroundingFriends`, `UnitsWithTr
 `CreateTrigger` (`On` + `OwnerIsActor`) sont collapsés impérativement dans `matches` — le ciblage
 émerge des nœuds, il n'est pas recâblé.
 
+**Substrat des trois gates de trait** (`Chaos`, `Stationary`, et le `ContagionsOfNurgle` de la
+formule d'aura) : tous passent par `ctx.has_trait`, donc par `UnitContext.traits`, que `load_state`
+seede depuis `combatSnapshot.units[].traits` depuis #264/#270 — l'ensemble EFFECTIF invoqué de
+`IdunBattle.Entities.UnitExtensions$$HasTrait`, et non plus une reconstruction depuis le kit
+gameconfig. C'est la même source que celle qu'interroge le natif. La mesure d'agreement du §4 a été
+**re-jouée sur ce substrat** : verdicts identiques, contrefactuels compris.
+
 ---
 
 ## 4. Validation live
@@ -230,11 +237,22 @@ deathBlightbringer` (10 — le playbook de case-211). Garde-fous : `probe_181_ta
 
 ## 5. Ce que ce cas n'établit PAS
 
-* **Le gate `UnitsWithoutTrait(Stationary)` est INERTE, et c'est mesuré** : le trait `1048` n'est
-  porté par aucune des 683 unités du gameconfig, ni par aucune entité du `combatSnapshot` —
-  Machines of War comprises, dont les traits runtime se réduisent à `[1049 MachineOfWar, 2026
-  Chaos]` (scan du build `rnca9r7q6c`, canal `combatSnapshot.units[].traits`). Le gate est porté
-  parce que le décompilé le porte, pas parce qu'un montage le distingue.
+* **Le gate `UnitsWithoutTrait(Stationary)` n'est pas exercé par les montages ci-dessus — mais un
+  porteur EXISTE, et le chemin pour l'atteindre est identifié.** Depuis #270, le substrat de trait
+  du port est `combatSnapshot.units[].traits` (l'ensemble EFFECTIF invoqué de
+  `IdunBattle.Entities.UnitExtensions$$HasTrait`), plus le kit gameconfig : c'est cette source-là
+  qu'interrogent les deux gates, et elle **contient** `Stationary`. `probe_264_load_state_traits`
+  montage B le mesure directement : le summon `ultraSmnDreadnought` porte 7 traits en bataille,
+  dont `Stationary` — que l'ancienne reconstruction depuis le gameconfig **manquait**. Aucune des
+  683 unités du gameconfig ne le déclare : le trait est **posé en bataille**, jamais au kit.
+  Ce qui manque à ce cas n'est donc pas un porteur, c'est un porteur **`Chaos` ET `Stationary`** —
+  le gate s'applique après `UnitsWithTrait(Chaos)`. Le seul candidat du roster est
+  **`thousSmnDaemonPrince`** (Chaos, et la même signature `Movement = 0` que `ultraSmnDreadnought` —
+  corrélation sur deux points, **à vérifier** avant de s'y engager), invoqué par `AetherStride` de
+  la MoW `thousDaemonPrince`, **absente du seed BC** : le montage exige donc
+  `catalog_inject.write_augmented_seed_bc` (cf. `case-92-catalog-injection.md`) puis
+  `--p-mow thousDaemonPrince`, un cast d'`AetherStride` et le placement du summon dans l'aura.
+  Non fait ici — assumé, pas oublié.
 * **Le gate `HasTrait(unit, IAuraEffect.GetTrait())` de `AuraEffectRangeFormula` n'est jamais faux
   en pratique** : les quatre porteurs de `CursedPlagueBell` du gameconfig (`deathBlightbringer` +
   trois npc) portent tous `ContagionsOfNurgle`. Le gate est porté (le décompilé le lit avant tout

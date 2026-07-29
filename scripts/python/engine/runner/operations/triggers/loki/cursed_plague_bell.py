@@ -112,6 +112,13 @@ predicats du `CreateTrigger` (`On` + `OwnerIsActor`) sont collapses imperativeme
 (`SurroundingFriends`, `UnitsWithTrait`, `UnitsWithoutTrait`, feuille `AddEffect`) -- aucun
 recablage a la main du ciblage.
 
+SUBSTRAT DES TROIS GATES DE TRAIT (`Chaos`, `Stationary`, et le `ContagionsOfNurgle` de la formule
+d'aura) : tous passent par `ctx.has_trait`, donc par `UnitContext.traits`, que `load_state` seede
+depuis `combatSnapshot.units[].traits` depuis #264/#270 -- l'ensemble EFFECTIF invoque de
+`IdunBattle.Entities.UnitExtensions$$HasTrait`, et non plus une reconstruction depuis le kit
+gameconfig. C'est la MEME source que celle qu'interroge le natif ; les traits d'ALLIANCE (`Chaos`)
+comme ceux poses EN BATAILLE (`Stationary` d'un summon `Movement = 0`) y sont.
+
 RESIDUS EXPLICITES :
  * `unitSelectionType = 3 = OnlyAliveAndTargetable` : le port n'honore que le volet ALIVE
    (`_within` filtre les cadavres). Le volet TARGETABLE (`UnitBecameUntargetable` / deep-strike en
