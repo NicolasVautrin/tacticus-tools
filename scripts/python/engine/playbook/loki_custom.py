@@ -241,6 +241,56 @@ class DoomSirenPlaybook(_CustomOnlyPlaybook):
         return u
 
 
+class HeavyWarpFlamerPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.HeavyWarpFlamerPlaybook$$CalculateCustomUtility` :
+
+        n = Enumerable.Count(battleQuery.<slot 0x7f>(target, caster, ignoreSteppables: false));
+        return GetUtilityValue("HeavyWarpFlamer_LikesAdjacentEnemies") * Fix64.FromInt(n);
+
+    Le slot d'INTERFACE 0x7f est `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IEntity
+    from, TUnit unit, bool ignoreSteppables)` — l'overload qui DERIVE le joueur de
+    `OwnerComponent.CurrentPlayerEntityId(unit)`, puis
+    `GetUnitsOnTiles(IterateAdjacentTiles(from, onlyEmptyOrSteppable: false, onlyWalkableTiles: true,
+    allowTemporary: true), friendsOf: null, enemiesOf: <ennemis du joueur du caster>,
+    ignoreSteppables: false)`. `IterateAdjacentTiles(from)` part de
+    `IdunBattle.Entities.EntityExtensions$$IterateTiles(from)` : `from` peut donc etre une UNITE (ses
+    propres tuiles ne sont jamais dans ses tuiles adjacentes -> la cible ne se compte pas elle-meme).
+    Ancre du slot : l'interface `IBattleQuery` est a l'`interfaceOffset` 4 dans la vtable de
+    `IdunBattle.Core.Services.BattleQuery` (`IdunBattle.Entities.Triggers.IsMeleeAttackAbilityTrigger$$ShouldTrigger`
+    appelle le slot d'interface 2, et l'index 6 de la vtable est `BattleQuery$$IsMeleeAttack`) ->
+    slot 0x7f == index de vtable 0x83.
+
+    => c'est le MEME ensemble que le second terme de `DoomSirenPlaybook` (ennemis du caster adjacents
+    a la tuile de la CIBLE), mais LINEAIRE : DoomSiren teste `> 0`, Drachnyen teste `>= 2`, celui-ci
+    MULTIPLIE par le compte. Terme INDEPENDANT de la tuile d'attaque, DEPENDANT de la cible :
+    il arbitre l'argmax par CIBLE (et l'ability contre les autres actions), pas l'argmax par tuile.
+    Mirror : `battle_query.count_adjacent` (meme `IterateAdjacentTiles` + porte d'elevation) sur
+    `ctx.epos`.
+
+    Poids `aiUtilities.Default.ActiveAbilities.HeavyWarpFlamer_LikesAdjacentEnemies` = 10.
+    Porteur thousSekhetar `Sekhetar Robot` [lineup, ThousandSons] — ABSENT du catalogue de la seed BC
+    (unite ajoutee par le build `rnca9r7q6c`), amene en runner par
+    `catalog_inject.py --units thousSekhetar` (#92).
+
+    La prediction de degat reste celle du `DefaultActiveAbilityPlaybook` (heritee). Ecart CONNU, hors
+    #27 : `IdunBattle.AI.Playbook.Loki.HeavyWarpFlamerPlaybook$$MakeDamagePredictions` passe a
+    `GenerateMultiHitAttackPredictions` un nombre de coups DYNAMIQUE
+    (`HeavyWarpFlamerAbility$$GetNumTotalHits` = `Sum(Direct(nrOfHits=4),
+    Min(GetPersistentData(...), Direct(maxNrOfHits=9) - Direct(nrOfHits=4)))`), la ou le chemin
+    generique lit `nrOfHits` seul. Le compteur persistant vaut 0 tant que le stack n'est pas
+    alimente -> les deux coincident au debut de bataille, et il ne depend PAS de l'adjacence
+    (donc pas de confond avec le levier de l'A/B)."""
+    ability_id = int(ActiveAbilityType.HeavyWarpFlamer)  # 1227
+    W_KEY = "HeavyWarpFlamer_LikesAdjacentEnemies"
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0.0
+        n = bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos)
+        return float(n) * ctx.wt.sub("ActiveAbilities", self.W_KEY)   # 10
+
+
 class SavageEchoesPlaybook(_CustomOnlyPlaybook):
     """`IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$CalculateCustomUtility` :
 
@@ -336,7 +386,8 @@ class SavageEchoesPlaybook(_CustomOnlyPlaybook):
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
-                DoomSirenPlaybook, SavageEchoesPlaybook):
+                DoomSirenPlaybook, SavageEchoesPlaybook,
+                HeavyWarpFlamerPlaybook):
         register(cls())
 
 

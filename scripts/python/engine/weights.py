@@ -75,10 +75,23 @@ class Weights:
 
 
 def load(bc_path: str | Path | None = None) -> Weights:
-    """Charge les poids depuis une BC JSON (défaut = la seed PvP sur disque)."""
+    """Charge les poids depuis une BC JSON (défaut = la seed PvP sur disque).
+
+    #27-4 — la table est RE-SYNTHÉTISÉE depuis le gameconfig VIVANT (`aiUtilities`), exactement
+    comme le fait `rl_collect_batch._load_seed_bc` pour le runner NATIF
+    (`catalog_inject.refresh_ai_utilities`, mirror de
+    `Idun.Source.IdunBattle.View.BattleConfigBuilder$$ParseAIUtilitiesConfiguration`). Sans ça les
+    deux côtés divergeraient dès qu'un build ajoute une ability : le natif verrait les poids neufs
+    (BC rafraîchie) et le moteur les poids de la capture. Repli SILENCIEUX sur la table de la BC si
+    le gameconfig n'est pas lisible — `engine.weights` doit rester chargeable 100 % offline."""
     p = Path(bc_path) if bc_path else DEFAULT_BC
     bc = json.loads(p.read_text(encoding="utf-8"))
-    return Weights(bc.get("Utilities", {}) or {})
+    try:
+        import catalog_inject                     # import tardif : charge le gameconfig (~19 MB)
+        live = catalog_inject.ai_utilities_from_gameconfig()
+    except Exception:                             # noqa: BLE001 — pas de gameconfig sur disque
+        live = None
+    return Weights(live or bc.get("Utilities", {}) or {})
 
 
 if __name__ == "__main__":  # smoke test offline

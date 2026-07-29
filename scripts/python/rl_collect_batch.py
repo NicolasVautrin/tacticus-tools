@@ -834,7 +834,15 @@ def _load_seed_bc(path=None) -> dict:
     laisse la capture en arriere, et le natif neuf la lit :
     `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LEVE sur cle absente ->
     « system error » au cast, ou des `initAndStart` si la cle est lue a la construction du trigger
-    d'un PASSIF. Detail, mesures et decompile : `catalog_inject.refresh_ability_configs`."""
+    d'un PASSIF. Detail, mesures et decompile : `catalog_inject.refresh_ability_configs`.
+
+    #27-4 -- le TROISIEME catalogue (`BC.Utilities`, les poids nommes de l'IA) est re-synthetise de
+    la MEME facon, et pour la meme raison. Une MAJ qui ajoute une ability ajoute ses poids ; le
+    playbook neuf les lit par
+    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue`, qui
+    sur cle absente LOGUE et rend `Fix64(0)`. La degradation est SILENCIEUSE (pas d'exception) : le
+    terme custom d'une ability neuve vaut 0 cote natif comme cote moteur, donc INVALIDABLE.
+    Detail, mesures et decompile : `catalog_inject.refresh_ai_utilities`."""
     p = Path(path) if path else SEED_BC
     if not p.exists():
         raise RuntimeError(
@@ -846,6 +854,12 @@ def _load_seed_bc(path=None) -> dict:
     if refreshed or added:
         print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "
               f"{len(refreshed)} rafraichies {refreshed} / {len(added)} ajoutees {added}",
+              file=sys.stderr)
+    u_add, u_chg, u_del = catalog_inject.refresh_ai_utilities(bc)
+    if u_add or u_chg or u_del:
+        print(f"[seed-bc] poids d'utilite re-synthetises depuis le gameconfig courant: "
+              f"{len(u_add)} ajoutes / {len(u_chg)} changes / {len(u_del)} retires "
+              f"| ajoutes={u_add} | changes={u_chg} | retires={u_del}",
               file=sys.stderr)
     return bc
 

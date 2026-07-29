@@ -15,6 +15,10 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
   W(SavageEchoes_DislikesAboveHealthPct) = -10. Comparaison de RATIO
   (`IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger`),
   PAS un pourcentage arrondi -> la borne 50.19 % doit rendre W et 49.64 % doit rendre 0.
+- HeavyWarpFlamer (1227) IdunBattle.AI.Playbook.Loki.HeavyWarpFlamerPlaybook$$CalculateCustomUtility =
+  W(HeavyWarpFlamer_LikesAdjacentEnemies)=10 * COMPTE d'ennemis adjacents a la TUILE DE LA CIBLE.
+  Meme ensemble que le 2e terme de DoomSiren, mais LINEAIRE : le test de linearite (0/1/2/3
+  voisins -> 0/W/2W/3W) est ce qui distingue ce port d'une copie booleenne de DoomSiren.
 - CLIQUET DE NON-REGRESSION : SorcerousFacade (1100) NE DOIT PAS etre enregistree (son terme
   s'ancre sur un ALLIE Psyker que le moteur ne route pas ; cf. case-27 tranche 3).
 
@@ -44,7 +48,8 @@ def main() -> int:
     reg = pb.REGISTRY
     for aid, name in ((1014, "ArmoriumCherubPlaybook"), (1177, "LightOfSanguiniusPlaybook"),
                       (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
-                      (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook")):
+                      (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook"),
+                      (1227, "HeavyWarpFlamerPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
@@ -170,6 +175,30 @@ def main() -> int:
     if se.calculate_custom_utility(_fake_ctx(wt), (0, 0), 5, 1230) != 0.0:
         fails.append("SavageEchoes sans stats de caster: attendu 0.0")
 
+    # --- HeavyWarpFlamer (1227) : W(10) * COMPTE d'ennemis adjacents a la TUILE DE LA CIBLE.
+    wwf = wt.sub("ActiveAbilities", "HeavyWarpFlamer_LikesAdjacentEnemies")
+    if wwf == 0:
+        fails.append("HeavyWarpFlamer_LikesAdjacentEnemies absent des poids : la table `Utilities` "
+                     "n'a pas ete re-synthetisee depuis le gameconfig courant "
+                     "(cf. catalog_inject.refresh_ai_utilities)")
+    wf = pb.get_playbook(1227)
+    wf_units = [{"id": 200, "team": 2, "alive": True, "pos": {"col": 3, "row": 3}}]
+    # LINEARITE : 0/1/2/3 voisins -> 0/W/2W/3W. Un terme BOOLEEN (copie de DoomSiren) rendrait
+    # 0/W/W/W -- c'est le seul controle offline qui separe les deux formes.
+    voisins = [(3, 4), (3, 2), (4, 3), (4, 2), (2, 3), (2, 2)]   # les 6 voisins de (3,3)
+    for n in range(4):
+        c = _fake_ctx(wt, units=wf_units, epos=voisins[:n])
+        v = wf.calculate_custom_utility(c, (2, 3), 200, 1227)
+        if v != n * wwf:
+            fails.append(f"HeavyWarpFlamer {n} voisin(s): attendu {n * wwf}, obtenu {v}")
+    # ancre sur la CIBLE, pas sur la tuile d'attaque (comme DoomSiren, contrairement a Drachnyen)
+    if wf.calculate_custom_utility(
+            _fake_ctx(wt, units=wf_units, epos=voisins[:2]), (8, 8), 200, 1227) != 2 * wwf:
+        fails.append("HeavyWarpFlamer: terme ancre a tort sur la tuile d'attaque")
+    # cible hors plateau / inconnue -> pas de terme invente
+    if wf.calculate_custom_utility(_fake_ctx(wt, units=[], epos=voisins), (0, 0), 999, 1227) != 0.0:
+        fails.append("HeavyWarpFlamer (cible inconnue): attendu 0.0")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
@@ -178,7 +207,8 @@ def main() -> int:
           "; Drachnyen 2adj=", v2, "/1adj=", v1, "; Herald far=", v_far, "/near=", v_near,
           "; DoomSiren adj=", v_adj, "/isolee=", v_alone, "(W_overkill=", wok, ")",
           "; SavageEchoes 49.64%=0 / 50.19%=", wse, "(seuil", thr, "%)",
-          "; dispatch 1014/1177/1020/1029/1199/1230 OK ; 1100 non enregistree OK")
+          "; HeavyWarpFlamer lineaire 0/W/2W/3W avec W=", wwf,
+          "; dispatch 1014/1177/1020/1029/1199/1227/1230 OK ; 1100 non enregistree OK")
     return 0
 
 
