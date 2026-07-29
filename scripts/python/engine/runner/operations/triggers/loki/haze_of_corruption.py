@@ -183,6 +183,28 @@ HAZE_PICK_AMOUNT = 2
 # deja exprimee en TOURS (pas de `ConvertRoundsToTurns` a appliquer).
 HAZE_BOND_TURNS = 1
 
+
+def _triggering_ability_or_effect(state: State, ev: TriggerEvent):
+    """Le slot `AbilityEntities+0x138` -- l'`AbilityOrEffect` DECLENCHEUR, celui que comparent
+    `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` **et**
+    `IdunBattleLogic.Entities.DSLFactory$$TriggeringEffectIs`. Les deux factories sont le MEME code
+    (decompile lu : `this+0x138` + `DirectAbilitySelector(AbilityOrEffect(x))` + le meme ctor de
+    trigger) -- il n'y a donc qu'UN slot natif, la ou le port en a DEUX canaux :
+
+      * `ev.triggering_effect` -- renseigne par les vecteurs qui le portent explicitement
+        (`On(PreEffectAdded)`, `On(DamageDealt)`) ;
+      * `state.triggering_ability` -- le foyer UNIQUE du port pour l'ecriture de
+        `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` (`Nullable<AbilityOrEffect>(
+        ability.Id)` pose AVANT le behaviour, donc porte par TOUT ce que le behaviour engendre --
+        attaque, degat, **mort**), tenu par `triggers/dispatch/core.py::evaluate_trigger_operation`.
+
+    Le vecteur MORT ne porte pas le premier canal, mais le second est exact : c'est par lui que la
+    mort causee par un transfert 1077 se sait « declenchee par 0x435 »."""
+    te = getattr(ev, "triggering_effect", None)
+    if te is not None:
+        return te
+    return getattr(state, "triggering_ability", None)
+
 # `Damageable( AdjacentEnemies(Self@0x148, 1, 3) & AdjacentFriends(Target@0x178, 1, 3) )` -- arbre DSL
 # VERBATIM. `Caster()` = `Self@0x148` (trigger : Owner == Caster, c'est le gate `get_OwnerIsCaster`) ;
 # la reference d'equipe du 2e terme est le TARGET lui-meme (surcharge 4-args), d'ou `reference=Target()`.
@@ -266,10 +288,11 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
     APRES les 3 coups d'arme et AVANT `Unit_IsDying` ; le relais recoit ensuite **1397** en profil
     24 -- la meme valeur sur les DEUX seeds, donc la base nominale et non un jet.
 
-    ECART NOMME : le gate `NOT TriggeringEffectIs(0x435)` (anti-chaine : un mort cause par un
-    transfert 1077 ne re-declenche pas le bonus) est porte via `ev.triggering_effect`, qui n'est
-    threade que par les vecteurs qui le renseignent -- sur le vecteur mort il vaut `None`, donc le
-    gate est PERMISSIF. Il ne mord que dans la chaine a 2 relais, non montee ici."""
+    Le gate `NOT TriggeringEffectIs(0x435)` (anti-chaine : un mort cause par un transfert 1077 ne
+    re-declenche PAS le bonus) est lu sur le slot natif `AbilityEntities+0x138` via
+    `_triggering_ability_or_effect` -- sur le vecteur MORT il vient de `state.triggering_ability`
+    (#220). MESURE qui l'exigeait (`probe_220_haze_bonded_chain.py`, k = 2, seed 777, hp 1200) : le
+    natif n'emet AUCUN coup bonus a la mort des relais, le port en emettait DEUX de plus."""
     event_id = _ON_PRE_UNIT_DEATH
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
@@ -285,8 +308,8 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
         # `IsDead(Target@0x178)` : la cible de l'evenement est bien celle qui meurt.
         if ev.dying_id is None:
             return False
-        # `NOT TriggeringEffectIs(0x435)` (cf. l'ECART NOMME de la docstring).
-        return ev.triggering_effect != HAZE_DAMAGE_TRANSFER
+        # `NOT TriggeringEffectIs(0x435)` -- slot `AbilityEntities+0x138` (cf. la docstring).
+        return _triggering_ability_or_effect(state, ev) != HAZE_DAMAGE_TRANSFER
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         from ....abilities.base import ability_attack_params
@@ -339,6 +362,12 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     EST la cible initiale, donc la premiere lecture suffit sur les montages a un seul relais."""
     event_id = _ON_PRE_UNIT_DEATH
     effect_type = HAZE_DAMAGE_TRANSFER
+    # `AbilityOrEffect(0x435)` que `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit
+    # dans l'`AbilityEntities` AVANT le behaviour : tout ce que le report engendre (l'`Attack`, ses
+    # `AttackDamage`, et la MORT du relais) porte cet id. C'est lui que lisent le
+    # `TriggeringAbilityIs(AbilityOrEffect(0x435))` du trigger ci-dessous ET le
+    # `NOT TriggeringEffectIs(0x435)` de `HazeCorruption_BonusHitAbility` (meme slot `+0x138`).
+    TRIGGERED_ABILITY_ID = HAZE_DAMAGE_TRANSFER
 
     def _instance(self, state: State):
         """L'instance d'effet 1077 ACTIVE portee par `owner_id` (le relais)."""
@@ -390,7 +419,7 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
             return False
         # `OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded))` -- EGALITE d'entite,
         # plus une inference sur le kit du tueur (#220).
-        chained = ev.triggering_effect == HAZE_DAMAGE_TRANSFER
+        chained = _triggering_ability_or_effect(state, ev) == HAZE_DAMAGE_TRANSFER
         if not chained and (ev.killer_id is None or int(ev.killer_id) != bonded):
             return False
         # `IsAlive(bonded)` : le BONDE (pas le tueur) doit etre vivant pour que le report parte.
