@@ -34,16 +34,17 @@ DEUX PIEGES QUE CE MONTAGE ENCAPSULE :
   1. **Le co-gate PV PLEINS** (`IsUnitWithStatAmount(Health Cur == Max)`) doit etre SATISFAIT aux
      deux points de mesure, sinon un « 0 tirage » a l'age 0 ne prouve rien (il pourrait venir du
      co-gate). Chaque enregistrement porte `full_hp` -- le test appelant DOIT le verifier.
-  2. **Le seed de `turnsFinished`** : aucun RPC ne l'expose (cf. `residual` ci-dessous), donc un
-     etat charge par `load_state` part a 0 pour TOUTES les unites. Le montage le POSE depuis l'age
-     qu'il a lui-meme observe (naissance tracee), et c'est la SEULE valeur non issue d'un canal
-     live de tout ce fichier.
+  2. **Le seed de `turnsFinished`** : le montage le POSE depuis l'age qu'il a lui-meme observe
+     (naissance tracee) pour pouvoir forcer un age ARBITRAIRE (le regime `m0_player` a 98 n'est
+     atteignable par aucune capture), et pour que les trois regimes compares partent d'un etat
+     identique a une seule variable pres. Ce n'est plus un contournement : depuis #234
+     `load_state` seede le compteur lui-meme (cf. ci-dessous).
 
-RESIDU DE HOOKS (nomme, pas invente) : le champ manquant est `BaseUnitComponent + 0x5c`
-(`turnsFinished`), lu par `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`. Ce n'est PAS un
-`StatType` (l'enum va de 0 a 26 et n'en contient aucun), donc `combatSnapshot` ne peut pas
-l'atteindre via `GetStat` : il faut le lire directement sur le composant, comme
-`frida/hooks/game/match-state.ts` lit deja `DefeatedByMeleeAttack`/`DeathReason`.
+CANAL DU COMPTEUR (#234, resid N11 ferme) : `combatSnapshot.units[].turnsFinished` porte
+`BaseUnitComponent + 0x5c`, obtenu en INVOQUANT `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished`
+-- ce n'est PAS un `StatType` (l'enum va de 0 a 26 et n'en contient aucun), donc `GetStat` ne peut pas
+l'atteindre, d'ou l'accesseur dedie. `snapshot._load_unit_turn_state` le pose sur
+`UnitComponent.turns_finished` en tri-etat. Garde : `test_load_state_turns_finished_live.py`.
 
 ASCII only.
 """
@@ -277,8 +278,9 @@ def measure_grot_age_sweep(rpc, rid, ages=(0, 1), max_turns=16):
                           if isinstance(o, dict) and "grot" in o)
             return rr.rolls, spawned
 
-        # SEED MANUEL -- `BaseUnitComponent + 0x5c` n'est expose par AUCUN RPC (cf. entete).
-        # La valeur vient de l'age OBSERVE (naissance tracee), pas d'une derivation.
+        # SEED MANUEL -- il ECRASE celui que `load_state` pose depuis `combatSnapshot.turnsFinished`
+        # (#234), pour que les trois regimes ci-dessous ne different QUE par cette valeur. Elle vient
+        # de l'age OBSERVE (naissance tracee), pas d'une derivation.
         port_rolls, port_spawn = _replay(lambda g: my_endturns - birth[g])
         # `- 1` : `EndTurnOperation` bumpe, donc pour que le gate voie 99 il faut partir de 98 ;
         # ce qui compte est qu'il soit VACUANT, comme l'etait le test `turn_counts >= 2`.

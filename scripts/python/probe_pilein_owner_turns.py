@@ -19,13 +19,15 @@ CHAINE NATIVE (decompile = verite)
 COLONNES
   LIVE        : `genrand_int32` consommes par le `endturn` natif (mesure par re-simulation du MT).
   M1          : le port d'APRES -- gate `UnitComponent.turns_finished >= 2`, seede depuis l'AGE
-                observe (`load_state` ne peut pas : cf. residu de hooks ci-dessous).
+                observe (seed MANUEL : il ecrase celui de `load_state` pour que les trois regimes
+                ne different QUE par cette valeur, et pour atteindre des ages arbitraires).
   M0-joueur   : le port d'AVANT quand le joueur a >= 2 tours finis -> gate VACUANT.
   M0-snapshot : le port d'AVANT sur un etat `load_state` (`turn_counts == {}`) -> gate TOUJOURS FAUX.
 
-RESIDU DE HOOKS (nomme, pas invente) : `BaseUnitComponent + 0x5c` n'est expose par AUCUN RPC.
-Ce n'est pas un `StatType` (l'enum va de 0 a 26), donc `combatSnapshot` ne peut pas l'atteindre
-via `GetStat` -- il faut le lire directement sur le composant.
+CANAL DU COMPTEUR (#234) : `combatSnapshot.units[].turnsFinished` porte `BaseUnitComponent + 0x5c`
+via un INVOKE de `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` -- ce n'est pas un `StatType`
+(l'enum va de 0 a 26), donc `GetStat` ne peut pas l'atteindre. `load_state` le consomme depuis #234
+(`snapshot._load_unit_turn_state`) ; confront dedie : `probe_234_turnsfinished_seed.py`.
 
 Usage : python probe_pilein_owner_turns.py [--seed 777] [--board MC1_67]
 ASCII only.

@@ -277,7 +277,8 @@ def test_replica_exists_before_the_tick_live(rpc):
                 e = st.get_entity(g)
                 uc = e.get_component(UnitComponent) if e is not None else None
                 if uc is not None:
-                    uc.turns_finished = 5           # gate d'age OUVERT (cf. N11 : non expose par RPC)
+                    uc.turns_finished = 5           # gate d'age OUVERT quel que soit l'age reel du
+                                                    # grot (ecrase le seed `load_state` de #234)
             before = len(st.entities)
             res = EndTurnOperation.execute(st, advance=False)
             spawned = sum(len(o.get("spawned") or ()) for o in (res.get("pilein") or [])

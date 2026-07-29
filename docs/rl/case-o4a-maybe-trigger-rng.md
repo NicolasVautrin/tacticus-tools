@@ -189,12 +189,15 @@ tranchés depuis, dans `case-n8-owner-has-finished-min-turns.md` :
 2. **`load_state` ne seede pas `state.turn_counts`** — exact, mais **sans conséquence** : plus aucun
    consommateur ne dépend de sa valeur absolue (l'unique lecteur restant, `EnvAmbushResurrectAbility`,
    en prend une DIFFÉRENCE avec `turn_defeated`, lui-même écrit depuis ce compteur). Le gap de seed
-   réel est le compteur PER-UNITÉ, et c'est un gap de **hooks** : `BaseUnitComponent + 0x5c` n'est
-   pas un `StatType`, donc `combatSnapshot`/`GetStat` ne peut pas l'atteindre (résidu **N11**).
+   réel était le compteur PER-UNITÉ, **fermé depuis** (`case-234-load-state-turns-finished.md`) :
+   `BaseUnitComponent + 0x5c` n'est pas un `StatType`, donc le capteur INVOQUE
+   `IdunBattle.Entities.UnitExtensions$$GetTurnsFinished` et `_load_unit_turn_state` pose la valeur.
 
-Le probe et le test live posent donc `turns_finished` à la main, depuis l'âge OBSERVÉ du grot, et le
-disent. C'est aussi pourquoi la mesure de ce cas-ci ne compare que des configurations à **un seul**
-porteur assez âgé : elle garde le nombre de candidats constant pendant la mesure.
+Le probe et le test live posent tout de même `turns_finished` à la main, depuis l'âge OBSERVÉ du
+grot : ils ÉCRASENT le seed pour atteindre des âges arbitraires et pour que les régimes comparés ne
+diffèrent que par cette valeur. C'est aussi pourquoi la mesure de ce cas-ci ne compare que des
+configurations à **un seul** porteur assez âgé : elle garde le nombre de candidats constant pendant
+la mesure.
 
 Également hors périmètre, et inchangé :
 
