@@ -127,6 +127,14 @@ y occupe **3 lignes pour 22 surcharges réelles**. C'est exactement ce faux nég
 fait écrire « aucun override n'existe » — puis **supprimer** deux valeurs justes en les
 croyant périmées.
 
+**Depuis le build `rnca9r7q6c`, un TROISIÈME motif d'absence, et il est massif** : les corps
+**pleinement partagés** (`u003C__Il2CppFullySharedGenericTypeu003E`) ne sont plus nommés du
+tout — **4 882 → 0**, mesuré. La chaîne Frida ne peut pas les produire : le `methodPointer`
+d'une **définition** générique est un thunk d'invocation, pas le corps. Toute la couche
+`IdunBattle.AI.Playbook` / `BucketSystem` est concernée (31 citations du dépôt). Cause, voies
+de rétablissement et protocole : **`docs/rl/case-259-couverture-gshared.md`** ;
+re-dérivation : `python scripts/python/probe_259_gshared_coverage.py`.
+
 **Comment conclure pour de vrai** : invoquer le **slot de vtable** sur l'instance (runtime,
 cf. `reference_il2cpp_methodptr_uninit_class`), balayer **toutes** les valeurs d'enum
 concernées plutôt que les classes trouvées, et recouper par une seconde source indépendante.

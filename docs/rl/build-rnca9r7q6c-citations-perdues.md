@@ -322,9 +322,13 @@ recherche du symbole voisin dans la table courante.
 ### `meta_pvp_screen_test.u003Cu003Ec`
 - `u003CStartu003Eb__6_1`
 
-## 2. Corps generiques partages (10 citations) -- signal FAIBLE
+## 2. Corps generiques partages (10 citations) -- MESURE depuis, cf. #259
 
-Leur absence est ATTENDUE, cf. ci-dessus. Ne pas ouvrir de tache dessus sans mesure.
+> **La mesure demandee ici a ete faite** (`docs/rl/case-259-couverture-gshared.md`, sonde
+> `probe_259_gshared_coverage.py`). Leur absence n'est PAS le churn attendu d'une mise a jour :
+> la table de `gqfc5mff6c` en nommait **4 882**, celle du build courant **0**, parce que ces
+> noms venaient du seul applier legacy Il2CppDumper, supprime le 2026-07-25. Deux taches
+> ouvertes (#259-a, #259-b) ; deux de ces citations bloquent #257.
 
 ### `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E`
 - `AddAction`
