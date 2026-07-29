@@ -101,14 +101,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `GetValidTargets(...).AllTargets.Count == 0` et peut rendre `0x800 AddCasterIfAtLeastOneTarget`.
   Porteurs du registre : `GetEmRuntz` (1045), `ScarabSummon` (1047), `ResurrectionOrb` (1009),
   `Chronometron` (1226), `AncestralFortune` (1207). C'est aussi **le seul chemin par lequel
-  `CasterHasFreeAdjacentTile` (bit 21) pourrait mordre** pour 1047 (scarab encerclé). Le porter
-  suppose de porter `TargetingQuery$$GetValidTargets`, qui énumère tout le plateau.
-- **`CasterHasFreeAdjacentTile` (bit 21) — lu, situé, non porté** (`case-250` §4). Jumelle exacte du
-  bit 5 appliquée au CASTER (`slot 0x51` sur `param_2`), juste après elle dans le filtre statique.
-  Son seul porteur du registre est `ScarabSummon` (1047), pour lequel elle est **inatteignable** par
-  la cascade (self-cast -> branchement `GetCasterNotAddedReason` ; cible ≠ caster -> `RANGE_SELF`
-  refuse `TargetIsInRange` avant). Port = code mort non invalidable tant que le résidu ci-dessus
-  n'est pas fermé.
+  `CasterHasFreeAdjacentTile` (bit 21) pourrait mordre** pour ses deux porteurs (1028, 1047). Le
+  porter suppose de porter `TargetingQuery$$GetValidTargets`, qui énumère tout le plateau.
+- **`CasterHasFreeAdjacentTile` (bit 21) — lu, situé, non porté** (`case-250` §4, compte corrigé par
+  `case-249-tile-has-enemy-unit` §3). Jumelle exacte du bit 5 appliquée au CASTER (`slot 0x51` sur
+  `param_2`), juste après elle dans le filtre statique. **DEUX porteurs au registre, pas un** :
+  `SupremeCommander` (1028) et `ScarabSummon` (1047), masque `0x208000` identique — cette ligne
+  écrivait « son seul porteur 1047 » pendant que `targeting.py` écrivait « son seul porteur 1028 » ;
+  les deux étaient faux, et c'est le fait qu'ils se contredisaient qui aurait dû alerter. Elle est
+  **inatteignable** par la cascade pour les DEUX (même paire `isSelfCasting = 1` + `RANGE_SELF` :
+  self-cast -> branchement `GetCasterNotAddedReason` ; cible ≠ caster -> `RANGE_SELF` refuse
+  `TargetIsInRange` avant). Port = code mort non invalidable tant que le résidu ci-dessus n'est pas
+  fermé. **Ne pas citer un compte de porteurs de mémoire** : le re-dériver avec
+  `scripts/python/probe_249_unported_rule_carriers.py`.
+- **`TargetIsNotAnObject` (bit 33) — lu, situé, non porté**, **QUATRE** porteurs : 1029 `Drachnyen`,
+  1113 `Stormcaller`, 1202 `VigilanceEternal`, 1214 `Hailstrike` (`case-254` écrivait « seul porteur
+  du registre » pour 1113 — corrigé par `case-249-tile-has-enemy-unit`). Le natif refuse une cible
+  portant le trait `0xd Object` ; aucun montage connu ne produit une telle cible, donc la règle reste
+  **non confrontable** en l'état. Point d'ancrage pour la fermer : une cible-objet en bataille (décor
+  destructible), ou l'oracle ensembliste `abilityTargets` sur un board qui en porte une.
 
 - **Gisement « playbooks de MOUVEMENT » : 42 restants, dont 31 à porteur spawnable TEL QUEL**
   (`case-193c` §1 et §6, moins `CursedPlagueBell` 1071 porté par `case-211` — chiffres
