@@ -136,11 +136,14 @@ class ChargeRegimeHarness:
         tuile a distance 2 vers une tuile adjacente a la cible CHARGE cette cible, avant meme le pas
         « officiel » du regime. Tant que `reach_my_turn` rendait la main sans aucun `endturn` (cas ou
         c'etait deja mon tour, typiquement apres un scenario precedent sur le MEME runner), cette
-        charge residuelle SURVIVAIT au snapshot. Cote offline elle est INVISIBLE : `load_state` ne
-        seede pas `UnitComponent+0x190` (aucun RPC ne l'expose, cf. `case-r32` §7) -- l'ecart se lit
-        alors comme « le port n'applique pas le bonus » alors que c'est le MONTAGE qui a triche.
-        Signature exacte : regime `STEP_ADJACENT`, `charged=[]` offline mais le natif porte les coups
-        de charge (mesure `C1_25`/31337 : live n=10, offline n=7).
+        charge residuelle SURVIVAIT au snapshot. Elle etait alors INVISIBLE cote offline (le seed de
+        `UnitComponent+0x190` n'existait pas avant #230) -- l'ecart se lisait comme « le port
+        n'applique pas le bonus » alors que c'est le MONTAGE qui avait triche. Signature exacte :
+        regime `STEP_ADJACENT`, `charged=[]` offline mais le natif porte les coups de charge (mesure
+        `C1_25`/31337 : live n=10, offline n=7). Le cycle force reste OBLIGATOIRE : depuis #230
+        l'offline VOIT la charge residuelle, donc le montage ne se lit plus comme un bug de port --
+        mais un regime `STEP_ADJACENT` qui porterait une charge residuelle mesurerait toujours
+        `CHARGE`, c.-a-d. autre chose que ce que son nom promet.
 
         Le cycle force garantit un `FinishUnitTurnOperation$$Execute` sur le caster entre les
         placements et le snapshot -> liste VIDE, flag `Moved` purge, quel que soit l'ordre des
@@ -220,13 +223,12 @@ class ChargeRegimeHarness:
         Un `place()` est un `MoveUnitOperation` natif COMPLET : il appelle `UpdateCharging`, qui
         ECRIT dans la liste `ChargedUnitIds` **DE L'UNITE QUI BOUGE**. Poser la cible d'abord puis
         amener le CASTER a cote d'elle fait donc CHARGER la cible **par le montage**, avant meme le
-        pas du regime -- et cette charge est INVISIBLE cote offline (`load_state` ne seede pas
-        `UnitComponent+0x190`, aucun RPC ne l'expose). Signature observee : regime `STEP_ADJACENT`,
-        `charged=[]` offline mais le natif porte les coups de charge (`C1_25`/31337 : live n=10,
-        offline n=7) -- ca se lit comme « le port n'applique pas le bonus » alors que c'est le
-        MONTAGE qui a triche. Aucun `endturn` ne repare : la purge est
-        `FinishUnitTurnOperation$$Execute`, PAR UNITE et sur son activation, pas une fin de tour
-        d'equipe.
+        pas du regime -- le regime mesure alors `CHARGE` sous le nom `STEP_ADJACENT`. Signature
+        observee AVANT #230 (quand l'offline ne voyait pas la liste) : `charged=[]` offline mais le
+        natif porte les coups de charge (`C1_25`/31337 : live n=10, offline n=7), ce qui se lisait
+        comme « le port n'applique pas le bonus » alors que c'est le MONTAGE qui avait triche.
+        Aucun `endturn` ne repare : la purge est `FinishUnitTurnOperation$$Execute`, PAR UNITE et sur
+        son activation, pas une fin de tour d'equipe.
 
         L'ordre correct est donc : (1) GARER la cible LOIN de l'ancre, (2) ecarter les autres
         ennemis, (3) poser le CASTER (la cible est hors de portee d'adjacence -> sa liste reste
@@ -298,12 +300,20 @@ class ChargeRegimeHarness:
                         return plan
         return None
 
-    def run(self, caster_visual, regime, enemy_index=0):
+    def run(self, caster_visual, regime, enemy_index=0, capture_mid=False):
         """Monte le regime, atteint mon tour, SNAPSHOTe, joue le pas puis l'ATTAQUE NORMALE en LIVE.
 
         Rend `{...arrange, snapshot, rng_after_step, live_per_hit, ability_type, moved}` ou None si
         la geometrie ou le tour n'ont pas pu etre obtenus. Le snapshot est pris AVANT le pas : c'est
-        la seule facon d'avoir un offline qui rejoue LUI-MEME `UpdateCharging`."""
+        la seule facon d'avoir un offline qui rejoue LUI-MEME `UpdateCharging`.
+
+        `capture_mid=True` ajoute une SECONDE capture, prise **APRES le pas et AVANT l'attaque** --
+        donc MI-ACTIVATION, le seul instant ou `UnitComponent.ChargedUnitIds@+0x190` est non vide
+        (`FinishUnitTurnOperation$$Execute` la vide a chaque fin d'activation). C'est la capture qui
+        confronte le SEED de `load_state` (`snapshot._load_unit_turn_state`) plutot que le rejeu du
+        pas. Cle `snapshot_mid` ; le `dumpRng` de `rng_after_step` est pris APRES elle, donc les deux
+        voies offline partent du meme etat de PRNG que l'attaque live. `capture_mid=False` (defaut)
+        laisse la sequence d'appels RPC STRICTEMENT inchangee."""
         self.trace, self.endturns = [], 0
         plan = self.arrange(caster_visual, regime, enemy_index=enemy_index)
         if plan is None:
@@ -337,6 +347,8 @@ class ChargeRegimeHarness:
             plan["moved"] = self.place(plan["caster"], plan["step_to"])
             if not plan["moved"]:
                 return None
+        if capture_mid:
+            plan["snapshot_mid"] = self.snapshot()
         plan["rng_after_step"] = self.rpc("dumpRng", {"runnerId": self.rid}, 30)
         res = self.rpc("applyAction", {"runnerId": self.rid, "action": {
             "kind": "ability", "casterId": plan["caster"], "targetId": plan["target"],
@@ -380,6 +392,48 @@ class ChargeRegimeHarness:
         `BattleQuery$$IsCharging`)."""
         from engine.runner.components import UnitComponent
         st = self.offline_state(rec)
+        e = st.get_entity(rec["caster"])
+        uc = e.get_component(UnitComponent) if e is not None else None
+        charged = sorted(int(i) for i in (uc.charged_unit_ids or ())) if uc is not None else []
+        runner = Runner(st).install_default_handlers(20)
+        runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
+        per_hit = list((runner.damage_handler.last or {}).get("per_hit") or [])
+        return {"per_hit": per_hit, "state": st, "charged": charged}
+
+    # ------------------------------------------------------------ rejeu depuis la capture MI-ACTIVATION
+
+    def offline_state_mid(self, rec, seeded=True):
+        """Reconstruit un `State` OFFLINE depuis la capture **MI-ACTIVATION** (`snapshot_mid`, prise
+        APRES le pas). AUCUN move n'est rejoue : `charged_unit_ids` vient donc du SEED
+        (`combatSnapshot.units[].chargedUnitIds` -> `snapshot._load_unit_turn_state`), pas du moteur.
+
+        C'est la voie EXACTEMENT COMPLEMENTAIRE d'`offline_state` : celle-ci confronte le SEED, celle-la
+        confronte le mirror d'`UpdateCharging`. Les deux doivent rendre le meme verdict que le natif.
+
+        `seeded=False` REJOUE l'etat d'AVANT le cablage (#230) : on efface les deux champs juste apres
+        le chargement. Sert de contre-epreuve -- si le scenario est discriminant, ce mode DIVERGE du
+        live ; s'il ne diverge pas, la mesure ne prouve rien (le montage etait vacu.)"""
+        from engine.runner.components import UnitComponent
+        s = rec.get("snapshot_mid")
+        if s is None:
+            raise AssertionError("run(capture_mid=True) est requis pour rejouer depuis la mi-activation")
+        st = load_state(s["dv"], s["ob"], s["snap"], board=self.board)
+        if not seeded:
+            for ent in st.entities.values():
+                uc = ent.get_component(UnitComponent)
+                if uc is not None:
+                    uc.charged_unit_ids = []
+                    uc.current_turn_start_tile = None
+        dump = rec.get("rng_after_step") or s["rng"]
+        if isinstance(dump, dict) and dump.get("mt"):
+            st.rng = _seed_rng(dump)
+        return st
+
+    def replay_offline_mid(self, rec, seeded=True):
+        """Rejoue l'ATTAQUE NORMALE depuis la capture MI-ACTIVATION. Meme retour que
+        `replay_offline` (`per_hit` / `state` / `charged`)."""
+        from engine.runner.components import UnitComponent
+        st = self.offline_state_mid(rec, seeded=seeded)
         e = st.get_entity(rec["caster"])
         uc = e.get_component(UnitComponent) if e is not None else None
         charged = sorted(int(i) for i in (uc.charged_unit_ids or ())) if uc is not None else []

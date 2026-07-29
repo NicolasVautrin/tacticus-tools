@@ -21,15 +21,19 @@ Ce que le test GARDE : le rejeu offline est bit-exact avec le live DANS LES DEUX
 CHARGE accorde le bonus et le DECALAGE ADJACENT ne l'accorde pas. Un port revenu au proxy
 `has_moved` sur-appliquerait dans le second et le test tomberait.
 
-Ce module est le SEUL verrou live de l'effet 1025 depuis le 2026-07-28 : `test_avalanche_of_muscle_
-live.py` (#o10-a) a ete RETIRE parce qu'il gatait par le proxy refute et, surtout, parce que sa
-METHODE etait devenue structurellement impossible -- il rejouait l'attaque offline depuis un snapshot
-pris APRES le pas, en DECLARANT la charge par `set_moved_flag`. Or le 2e terme du predicat vit dans
-`UnitComponent.ChargedUnitIds@+0x190`, qu'aucun RPC n'expose (`case-r32` §7) : `load_state` ne peut
-pas le seeder, donc un snapshot post-pas ne peut PAS porter la charge. La seule voie fidele est celle
-d'`_charge_regime` -- snapshot AVANT le pas, et pas REJOUE offline (`MoveUnitMessage`), ce qui fait
-poser `ChargedUnitIds` par le port lui-meme. Les garanties propres a l'ancien fichier (non-vacuite de
-la magnitude, materialisation sur les PV) sont reprises par `test_charge_bonus_is_not_vacuous`.
+Ce module verrouille la voie « snapshot AVANT le pas, pas REJOUE offline (`MoveUnitMessage`) » : ce
+qui est confronte ici, c'est le mirror PORT d'`UpdateCharging` (`components.update_charging`), qui
+pose `ChargedUnitIds` lui-meme. La voie COMPLEMENTAIRE -- capture MI-ACTIVATION + SEED de la liste
+par `load_state` (#230) -- est verrouillee par `test_load_state_turn_state_live.py`. Les deux sont
+necessaires : elles confrontent deux morceaux de port DIFFERENTS sur le meme predicat.
+
+Historique, parce qu'il explique la methode : `test_avalanche_of_muscle_live.py` (#o10-a) a ete
+RETIRE le 2026-07-28 parce qu'il gatait par le proxy refute, et parce qu'il rejouait l'attaque
+offline depuis un snapshot post-pas en DECLARANT la charge par `set_moved_flag` -- a l'epoque aucun
+RPC n'exposait `UnitComponent.ChargedUnitIds@+0x190`, donc un snapshot post-pas ne pouvait pas la
+porter. Ce n'est plus vrai depuis `f790ff4` + #230 ; ce qui reste faux, c'est de DECLARER la charge
+par un proxy au lieu de la lire. Les garanties propres a l'ancien fichier (non-vacuite de la
+magnitude, materialisation sur les PV) sont reprises par `test_charge_bonus_is_not_vacuous`.
 
 ASCII only.
 """

@@ -137,11 +137,15 @@ def _prediction_is_charging(scene, att_id, attack_pos, tgt_id) -> bool:
       * tuile candidate atteinte alors que la cible etait DEJA adjacente ET non chargee -> FAUX
         (c'est le cas que l'ancien proxy `has_moved` accordait a tort).
 
-    ⚠ LIMITE D'OUTILLAGE, nommee : `scene.charged_by_id` n'est peuple que par `Scene.from_state`
-    (l'ECS d'un etat que le runner offline fait EVOLUER). Sur un etat RECHARGE (`load_state`) la
-    table est vide -- aucun RPC n'expose `ChargedUnitIds` -- donc le terme REEL manque et le bonus
-    est OMIS. Degradation RESTRICTIVE, a l'inverse du proxy precedent qui sur-accordait. Point
-    d'ancrage a hooker pour la fermer : `UnitComponent+0x190` cote `combatSnapshot`."""
+    ETAT RECHARGE -- la limite d'outillage qui vivait ici est LEVEE (#230). `scene.charged_by_id`
+    n'est toujours peuple que par `Scene.from_state`, mais l'ECS que celui-ci lit porte desormais la
+    liste REELLE : le capteur `combatSnapshot` expose `UnitComponent+0x190` (`f790ff4`) et
+    `snapshot._load_unit_turn_state` la seede au chargement. La capture doit etre prise
+    MI-ACTIVATION -- `FinishUnitTurnOperation$$Execute` vide la liste a chaque fin d'activation, donc
+    une capture prise ENTRE deux tours la voit vide, et c'est CORRECT. Mesure de fermeture
+    (`probe_r32_ischarging_prediction.py`, ligne `B' SEED` : prediction depuis la tuile courante d'un
+    caster qui vient de charger, etat RECHARGE et AUCUN pas rejoue) -- natif **12032**, offline
+    **12032**, bornes forcees 12032 / 9636 (donc probant)."""
     if tgt_id is None:
         return False
     cur = scene.pos(att_id)
