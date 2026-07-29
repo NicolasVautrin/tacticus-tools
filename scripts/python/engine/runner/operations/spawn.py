@@ -148,7 +148,7 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
     coc = caster.get_component(OwnerComponent) if caster is not None else None
     if coc is None:
         return None
-    # #254 -- LA TUILE D'ABORD, l'entite ensuite. `SpawnUnitBehaviour$$Execute` n'appelle
+    # case-spawn-requires-tile -- LA TUILE D'ABORD, l'entite ensuite. `SpawnUnitBehaviour$$Execute` n'appelle
     # `AddUnitOperation$$Execute` que DEPUIS une tuile ITEREE : pas de tuile, pas d'appel, donc pas
     # d'entite. Resoudre la tuile APRES `state.add_entity()` laissait un token sans
     # `PositionComponent` -- hors plateau, invisible des selecteurs de tuile, que rien ne ramasse.
@@ -401,7 +401,7 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     `BattleQuery$$GetTilesInTriangleShape`). None (defaut) = le cas NOMINAL mono-pied, inchange :
     l'unite garde `UnitComponent.feet = None` et sa seule `PositionComponent`.
 
-    #254 -- **AUCUNE entite n'est creee sans tuile**. `IdunBattle.Entities.Behaviours.
+    case-spawn-requires-tile -- **AUCUNE entite n'est creee sans tuile**. `IdunBattle.Entities.Behaviours.
     SpawnUnitBehaviour$$Execute` n'atteint `AddUnitOperation$$Execute` que DEPUIS une tuile (branche
     `+0x60 == 0` : `foreach (tile in tiles)` ; branche multi-hex : `GetTileIds(tiles)` fourni par le
     MEME selecteur). L'appelant qui n'a pas de tuile n'appelle donc rien : `tile is None` -- ou un id
@@ -663,7 +663,7 @@ class SpawnUnitOperation:
                 break                                        # selecteur epuise -> le `First` s'arrete la
             tiles.append((tile, tinfo))
             chosen.add(tile)
-        # === 2. UNE ENTITE PAR TUILE ITEREE (#254) ===
+        # === 2. UNE ENTITE PAR TUILE ITEREE (case-spawn-requires-tile) ===
         # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche `SpawnUnitOptions+0x60
         # == 0`, est un `foreach (tile in tiles) { AddUnitOperation.Execute(unit, [tile.Id], ...) }` :
         # l'entite NAIT DE L'ITERATION. Zero tuile => zero appel => **zero entite, zero evenement**
@@ -708,7 +708,7 @@ class SpawnUnitOperation:
         `necroSmnSwarm` (même type que le clone), elles sont identiques → on clone le ctx entier du parent.
         Distinct de `execute` (ScarabHive : adjacent-CIBLE + stats `ability_var` summoner-scaled).
 
-        #254 -- MEME regle que `execute` : `SpawnUnitBehaviour$$Execute` itere son tile-selecteur et ne
+        case-spawn-requires-tile -- MEME regle que `execute` : `SpawnUnitBehaviour$$Execute` itere son tile-selecteur et ne
         cree une entite QUE depuis une tuile iteree. Un scarab entoure (aucune tuile libre au contact)
         ne se dedouble PAS -- il ne produit pas un clone hors plateau. `_pick_randomly_one` sur un pool
         VIDE consomme **zero tirage** (`PickRandomAmountSelector$$Select` sort sur `candidates.Count <
@@ -736,7 +736,7 @@ class SpawnUnitOperation:
             tile = _pick_randomly_one(state, tiles)
             tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
             if tinfo is None:
-                break                    # (#254) pas de tuile iteree -> pas d'entite, pas d'evenement
+                break                    # (case-spawn-requires-tile) pas de tuile iteree -> pas d'entite, pas d'evenement
             e = state.add_entity()
             e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
             e.add_component(OwnerComponent(team=coc.team, player=coc.player))       # CopyOwner (owner)

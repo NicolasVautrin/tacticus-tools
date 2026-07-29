@@ -1,8 +1,10 @@
-# case-254 — Le spawn NAÎT de la tuile : plus de summon fantôme hors plateau
+# case-spawn-requires-tile — Le spawn NAÎT de la tuile : plus de summon fantôme hors plateau
 
 > **Numérotation** : ce cas a été dispatché sous l'étiquette **#246**, numéro **déjà occupé** par
-> `case-246-thunderous-assault-targeting.md` (livré le 2026-07-29) — d'où la renumérotation en
-> **254**. L'entrée de backlog visée est bien
+> `case-246-thunderous-assault-targeting.md` (livré le 2026-07-29, avec son
+> `probe_246_thunderous_targeting.py`). Fiche et probe portent donc un nom **sans numéro** —
+> `case-spawn-requires-tile.md` / `probe_spawn_requires_tile.py` — plutôt qu'un numéro qu'un
+> prochain dispatch reprendrait. L'entrée de backlog visée est bien
 > « `SpawnUnitOperation.execute` crée une entité SANS `PositionComponent` quand il manque une
 > tuile » (remontée de `case-250` §9).
 
@@ -116,7 +118,7 @@ est là depuis l'origine du port : ce n'est pas une régression.
 
 ## 3. Mesure — natif vs port, avant/après
 
-`scripts/python/probe_254_spawn_requires_tile.py`. Roster `necroSpyder ×2 + necroOverlord` vs
+`scripts/python/probe_spawn_requires_tile.py`. Roster `necroSpyder ×2 + necroOverlord` vs
 `necroWarden ×3`, runner `--no-ai`, **un runner dédié par phase** (les summons d'une phase bouchent
 la géométrie de l'autre et rendaient le montage non reproductible). Le caster est **amené au
 contact** par `applyAction move`, la couronne de la cible est **saturée / dégagée** par
@@ -150,7 +152,7 @@ c'est le comportement de `master`, pas une reconstitution.
 **Confronté live sur `gqfc5mff6c`, avant la mise à jour du jeu** (mesures et décompilé du **même**
 build — aucun mélange) :
 
-* `probe_254_spawn_requires_tile.py` — les 6 lignes du tableau §3 ;
+* `probe_spawn_requires_tile.py` — les 6 lignes du tableau §3 ;
 * `tests/engine/runner/test_summon_spawn_live.py` — 2 tests verts, dont la garde
   `test_spawn_requires_a_tile` (et **vérifiée ROUGE** sans le fix :
   `AssertionError: 1 tuile(s) libre(s) -> 2 summons != 1`) ;
@@ -167,9 +169,9 @@ n'ont pas été rejoués :
 |---|---|
 | `test_control_edict_live.py`, `test_spore_mine_launcher_live.py`, `test_alpha_warrior_live.py`, `test_ironkin_steeljack_live.py`, `test_aberrant_hypermorph_live.py`, `test_skitarii_turn_live.py`, `test_rad_saturation_live.py`, `test_cosmic_horror_live.py`, `test_mow_caster_load_live.py` | leurs montages propres (aucun paramètre à changer) |
 | `test_decoy_foundation_live.py`, `test_decoys_misdirection_migration_live.py`, `test_hypersensory_moveandspawndecoy_live.py` | idem, pour `spawn_decoy` |
-| `probe_254_spawn_requires_tile.py` (les 6 lignes) | `python probe_254_spawn_requires_tile.py` — deux couples par défaut |
+| `probe_spawn_requires_tile.py` (les 6 lignes) | `python probe_spawn_requires_tile.py` — deux couples par défaut |
 
-Le renommage `#246 → #254` est **postérieur** aux runs verts et ne touche que des docstrings et des
+Le renommage `#246 → case-spawn-requires-tile` est **postérieur** aux runs verts et ne touche que des docstrings et des
 messages d'assertion : le code exécutable testé est celui qui est livré.
 
 ---

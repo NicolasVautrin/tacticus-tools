@@ -257,7 +257,7 @@ cible. C'etait **3 lignes de desaccord sur 24** au premier passage.
 ## 9. Ce qui n'est PAS couvert
 
 * ~~**`TargetHasFreeAdjacentTile` (bit 5) de 1007 n'a pas ete exerce**~~ — **EXERCE depuis
-  `case-254-spawn-requires-tile.md`** : `probe_254_spawn_requires_tile.py` amene le necroSpyder au
+  `case-spawn-requires-tile.md`** : `probe_spawn_requires_tile.py` amene le necroSpyder au
   contact d'un ennemi dont la couronne est saturee et le natif rend bien
   `0x20 TargetHasFreeAdjacentTile` (`C3_26`/31337 et `MC1_67`/777, regime « 0 voisine libre »). Ce
   meme montage a leve le fantome de `SpawnUnitOperation` decrit ci-dessous.

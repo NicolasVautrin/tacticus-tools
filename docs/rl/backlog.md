@@ -77,7 +77,7 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
 - ~~**`SpawnUnitOperation.execute` crée une entité SANS `PositionComponent` quand il manque une
-  tuile**~~ — **LIVRÉ (2026-07-29)**, `case-254-spawn-requires-tile.md` (dispatché sous l'étiquette
+  tuile**~~ — **LIVRÉ (2026-07-29)**, `case-spawn-requires-tile.md` (dispatché sous l'étiquette
   `#246`, numéro déjà pris par `case-246-thunderous-assault-targeting.md`). Le natif ITÈRE son
   tile-sélecteur (`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche
   `SpawnUnitOptions+0x60 == 0` = `foreach (tile in tiles) AddUnitOperation.Execute(unit, [tile], …)`)
@@ -85,7 +85,7 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   vit dans le sélecteur, dont le `First(<tri>, count)` rend **`min(count, len(source))`**. Les quatre
   sites du port créaient l'entité AVANT de savoir s'il restait une tuile
   (`execute`, `execute_self_replica`, plus `_spawn_config_grot` / `spawn_decoy` sur le `tinfo is
-  None`). **Mesure** (`probe_254_spawn_requires_tile.py`, natif vs port, `MC1_67`/777 et
+  None`). **Mesure** (`probe_spawn_requires_tile.py`, natif vs port, `MC1_67`/777 et
   `C3_26`/31337) : à **1 voisine libre** le natif spawne **1** summon et `master` en spawnait **2,
   dont 1 sans `PositionComponent`** ; à **0 libre** le natif REFUSE le cast (bit 5
   `TargetHasFreeAdjacentTile`) et `master` créait **2 fantômes**. Contre-épreuve à 2 libres : 2

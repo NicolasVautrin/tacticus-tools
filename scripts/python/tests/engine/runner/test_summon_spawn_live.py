@@ -14,11 +14,11 @@ team/player/pos), puis on relance `SpawnUnitOperation` OFFLINE depuis l'état d'
 ⚠ ADJACENCE = mode **evenq**. Placement RNG-exact (quelle tuile parmi les libres) = raffinement non testé
 ici (on valide la RÈGLE : adjacent à la cible).
 
-`test_spawn_requires_a_tile` (#254) est la GARDE du fantôme : `IdunBattle.Entities.Behaviours.
+`test_spawn_requires_a_tile` (case-spawn-requires-tile) est la GARDE du fantôme : `IdunBattle.Entities.Behaviours.
 SpawnUnitBehaviour$$Execute` ITÈRE son tile-sélecteur et ne crée une entité que DEPUIS une tuile
 itérée. Le port créait l'unité PUIS lui cherchait une place → cible encerclée = summon sans
 `PositionComponent`, hors plateau, que rien ne ramasse (mesuré live : natif 1, port 2 dont 1 fantôme
-— `probe_254_spawn_requires_tile.py`, C3_26/31337 et MC1_67/777).
+— `probe_spawn_requires_tile.py`, C3_26/31337 et MC1_67/777).
 """
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def test_summon_spawn_bit_exact(live_session, rpc, build_runner):
     assert n_free_before >= SUMMON_COUNT, (
         f"montage non discriminant : seulement {n_free_before} tuiles libres autour de la cible")
     assert set(state.entities) - before_ids == set(spawned), (
-        "des entites ont ete creees HORS de la liste rendue (fantomes, cf. #254)")
+        "des entites ont ete creees HORS de la liste rendue (fantomes, cf. case-spawn-requires-tile)")
     # owner + stats des summons offline
     enemy = state.get_entity(enemy_id)
     ep = enemy.get_component(PositionComponent)
@@ -193,7 +193,7 @@ def test_summon_spawn_bit_exact(live_session, rpc, build_runner):
 
 
 def test_spawn_requires_a_tile(live_session, rpc, build_runner):
-    """#254 — GARDE DU FANTÔME : le nombre de summons est `min(count, tuiles libres)`, et AUCUNE
+    """case-spawn-requires-tile — GARDE DU FANTÔME : le nombre de summons est `min(count, tuiles libres)`, et AUCUNE
     entité n'est créée sans `PositionComponent`.
 
     `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` (branche `SpawnUnitOptions+0x60 ==
@@ -204,7 +204,7 @@ def test_spawn_requires_a_tile(live_session, rpc, build_runner):
 
     Trois régimes CRAFTÉS sur le même état live (on bouche les voisines de la cible, on ne subit
     pas la géométrie) : 2 libres → 2 summons, 1 libre → 1 summon, 0 libre → AUCUNE entité. Face
-    NATIVE des trois régimes : `probe_254_spawn_requires_tile.py` (natif 2/1/refus de cast, mêmes
+    NATIVE des trois régimes : `probe_spawn_requires_tile.py` (natif 2/1/refus de cast, mêmes
     positions que le port, sur MC1_67/777 et C3_26/31337).
 
     ⚠ Un montage insuffisant ASSERTE — jamais un `skip` : un skip sur échec de montage passe VERT
@@ -248,4 +248,4 @@ def test_spawn_requires_a_tile(live_session, rpc, build_runner):
             f"{leave} libre(s) : entites creees {sorted(created)} != rendues {sorted(spawned)}")
         ghosts = [i for i in created
                   if state.get_entity(i).get_component(PositionComponent) is None]
-        assert not ghosts, f"{leave} libre(s) : summon(s) SANS PositionComponent {ghosts} (#254)"
+        assert not ghosts, f"{leave} libre(s) : summon(s) SANS PositionComponent {ghosts} (case-spawn-requires-tile)"

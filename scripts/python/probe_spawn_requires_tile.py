@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""probe_254_spawn_requires_tile -- LE SPAWN NAIT DE LA TUILE, jamais l'inverse.
+"""probe_spawn_requires_tile -- LE SPAWN NAIT DE LA TUILE, jamais l'inverse.
 
 CE QUE CE PROBE MESURE
 ----------------------
@@ -46,8 +46,8 @@ le cast puis `SpawnUnitOperation.execute`, avec detection des entites creees SAN
 `PositionComponent`).
 
 Usage (depuis scripts/python, session Frida chaude) :
-    python probe_254_spawn_requires_tile.py
-    python probe_254_spawn_requires_tile.py --board C3_26 --seed 31337
+    python probe_spawn_requires_tile.py
+    python probe_spawn_requires_tile.py --board C3_26 --seed 31337
 
 ASCII only (cp1252). Dispose SES runners (jamais ceux des autres).
 """
@@ -93,7 +93,7 @@ def _r(sid, method, body, timeout=90):
 
 def _build(sid, seed: str, board: str):
     """`rl_duel build` avec state-file PROPRE sous `logs/` (jamais `data/`, qui est versionne)."""
-    state = ROOT / "logs" / ("_probe254-%d-%d.json" % (os.getpid(), next(_seq)))
+    state = ROOT / "logs" / ("_probeSRT-%d-%d.json" % (os.getpid(), next(_seq)))
     state.parent.mkdir(parents=True, exist_ok=True)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
             "--state-file", str(state), "--board", board, "--no-ai",
