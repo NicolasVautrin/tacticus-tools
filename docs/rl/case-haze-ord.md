@@ -157,6 +157,20 @@ qui permet aux reports 2..4 d'atteindre le relais tombé.
 | seed 777, PV 1200 — dégât par unité (live vs port) | **1/3** | **3/3** |
 | seeds 5 et 21, PV 1200, `k = 2` | — | **RNG + dégât bit-exacts** |
 
+**Généralisation craftée** — même géométrie pilotée (`MC1_67`, caster jamais déplacé,
+`--crit 0,0 --block-target 0,0`), trois PV cible pour trois **profondeurs d'overkill**, donc trois
+rangs de mort du 1ᵉʳ relais dans SA série de reports : **9/9 bit-exacts** (RNG *et* dégât par unité).
+
+| PV | seed 777 | seed 88 | seed 42 |
+|---|---|---|---|
+| 800 | 14 (4 + 4) | 14 (4 + 4) | 14 (4 + 4) |
+| 1200 | 14 (4 + 4) | **13 (4 + 3)** | 14 (4 + 4) |
+| 2000 | **13 (4 + 3)** | **13 (4 + 3)** | **13 (4 + 3)** |
+
+Les quatre montages à **13** sont les plus discriminants : le relais y meurt **en milieu de série**,
+donc le 2ᵉ bond doit lire **3** leftovers — ni 4, ni 1. Un port qui drainerait encore inline en
+lirait **1** dans les neuf cas.
+
 Non-régression rejouée :
 
 * `test_haze_bonded_chain_live.py` + `test_haze_of_corruption_transfer_live.py` +
@@ -165,11 +179,22 @@ Non-régression rejouée :
 * `test_death_nova_live.py` + `test_revive_cancels_death_events_live.py` +
   `test_fuelled_by_fury_revive_live.py` + `test_fuelled_by_fury_live.py` +
   `test_overkill_gate_live.py` → **26 passed** ;
-* `test_ambush_migration_live.py` + `test_doom_siren_live.py` +
-  `test_tainted_narthecium_revive_live.py` + `test_narthecium_revive_live.py` +
-  `test_rites_of_morkai_revive_live.py` + `test_ghost_revive_live.py` → **cf. §7** ;
-* garde propre : `tests/engine/runner/test_death_queue_ordering_live.py` — 6 offline (file, verrou
-  de ré-entrance, `killTrigger`, déduplication, **ordonnancement imbriqué**, site (A)) + 6 live.
+* `test_damage_roll_live.py` + `test_runner_attack_live.py` + `test_on_toxic_damage_live.py` +
+  `test_dakka_dakka_dakka_live.py` + `test_ambush_migration_live.py` + `test_doom_siren_live.py` +
+  `test_cosmic_horror_live.py` + `test_barbed_ovipositor_live.py` → **41 passed** ;
+* `test_tainted_narthecium_revive_live.py` + `test_narthecium_revive_live.py` +
+  `test_rites_of_morkai_revive_live.py` + `test_ghost_revive_live.py` +
+  `test_revive_retrofit_offline_live.py` + `test_overkill_decision_live.py` +
+  `test_prevent_overkill_decision_live.py` → **49 passed** — c'est le lot qui couvre le DANGER réel
+  du gate site (A) : `TaintedNarthecium` = `ReviveOnOverkill`, donc une unité overkillée PUIS
+  ressuscitée doit redevenir frappable ;
+* **161 tests** au total, tous verts ;
+* `engine_validate.py --runner <id> --steps 40` (seed 31337, `MC1_67`) — marche complète de la
+  trajectoire IA native : **27/27 abilities**, **29/30** positionnements exacts (96 %, `<= 1 hex`
+  100 %), c.-à-d. le baseline. C'est le contrôle « bataille entière, beaucoup de morts » ;
+* garde propre : `tests/engine/runner/test_death_queue_ordering_live.py` — **7 offline** (file,
+  verrou de ré-entrance, `killTrigger`, déduplication, **ordonnancement imbriqué**, site (A),
+  revive-efface-l'overkill) + **15 live** (3 seeds × PV 1200 + la matrice 3 × 3).
 
 Le test offline `test_une_mort_causee_pendant_une_mort_est_traitee_APRES_elle` est le garde-fou
 générique : il n'a besoin d'aucun kit, et il tomberait si quelqu'un re-fusionnait enqueue et drain.
