@@ -141,15 +141,19 @@ class MinDistProbe:
         for t in tiles:
             idx = order.index(t) if t in order else -1
             dn = nat_pd.get(t)
+            # `case=` : les 4 gates d'entree de la feuille (#236) -- le terme AFFICHE doit etre
+            # celui que le moteur produit, gates compris (0 quand l'un d'eux mord).
             u_live = MIN_DIST_UTILITY.evaluate_movement(
-                t, ctx.tgt_epos or ctx.epos, self.wt, ctx.pathdist_by_pos)
+                t, ctx.tgt_epos or ctx.epos, self.wt, ctx.pathdist_by_pos,
+                case=ctx.mindist_case)
             d_live = MIN_DIST_UTILITY.get_min_distance_to_enemy(
                 t, ctx.tgt_epos or ctx.epos, ctx.pathdist_by_pos)
             if off_ctx is not None:
                 d_off = MIN_DIST_UTILITY.get_min_distance_to_enemy(
                     t, off_ctx.tgt_epos or off_ctx.epos, off_ctx.pathdist_by_pos)
                 u_off = MIN_DIST_UTILITY.evaluate_movement(
-                    t, off_ctx.tgt_epos or off_ctx.epos, self.wt, off_ctx.pathdist_by_pos)
+                    t, off_ctx.tgt_epos or off_ctx.epos, self.wt, off_ctx.pathdist_by_pos,
+                    case=off_ctx.mindist_case)
             else:
                 d_off, u_off = None, None
             ok_live = (dn is not None and dn >= 0 and d_live == dn)

@@ -30,7 +30,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
                        is_temporary_by_pos: dict | None = None,
                        effects_by_pos: dict | None = None,
                        terrain_by_pos: dict | None = None,
-                       leaf_ctx: dict | None = None) -> tuple:
+                       leaf_ctx: dict | None = None,
+                       mindist_case=None) -> tuple:
     """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
     (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
     PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
@@ -45,6 +46,9 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     `{(col,row): tileDefId}` (boardGraph) → covers HÉBERGÉS par le terrain sommés par TileEffects(9)
     (DryBush→LightCover, Loop2 ; case-37). `leaf_ctx` = le dict `ctx` PAR-DÉCISION des feuilles Tile(7)
     (`unit_triggered_abilities` + `friend_positions` → feuille TriggeredAbilities(2), case-36).
+    `mindist_case` = le `UtilityMovementCase` (engine.utilities.move) que le générateur natif passe à
+    la feuille MinDist(16) : porte ses QUATRE gates d'entrée (`case.Unit == null`, `IsNonAttacking`,
+    `case.ClosestEnemy == null`, `!UnitCanBeDamaged`) — sans lui la feuille reste non gatée (#236).
     Renvoie ((col,row)|None, util).
     """
     if not enemy_positions:
@@ -79,7 +83,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
         # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
         # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.
         tile_u = 0.0 if tile_off else tile_composite(c, meta, leaf_ctx or {}, wt)
-        mindist_u = MIN_DIST_UTILITY.evaluate_movement(c, enemy_positions, wt, pathdist_by_pos)
+        mindist_u = MIN_DIST_UTILITY.evaluate_movement(c, enemy_positions, wt, pathdist_by_pos,
+                                                       case=mindist_case)
         u = tile_u + mindist_u
         if bu is None or u > bu:
             best, bu = c, u

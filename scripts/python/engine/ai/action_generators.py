@@ -713,7 +713,9 @@ class MovementActionGenerator(ActionGenerator):
             ctx.move_tiles, ctx.elev_by_pos, ctx.tgt_epos or ctx.epos, ctx.wt,
             pathdist_by_pos=ctx.pathdist_by_pos,
             is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
-            terrain_by_pos=ctx.terrain_by_pos, leaf_ctx=tile_leaf_ctx(ctx))
+            terrain_by_pos=ctx.terrain_by_pos, leaf_ctx=tile_leaf_ctx(ctx),
+            # #236 : les 4 gates d'entree de la feuille MinDist(16) (`case.Unit`/`ClosestEnemy`).
+            mindist_case=ctx.mindist_case)
         return {"kind": "move", "to": move_to, "util": move_util}
 
 

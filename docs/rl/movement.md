@@ -47,6 +47,18 @@ d'occupant, `WeightCost = 10 + IsFilled`, PAS d'elevation dans le cout). Port :
 peut parcourir) != distance de SCORING (ce que l'IA note)** : l'IA score une proximite qu'elle ne
 peut pas forcement atteindre. Detail + mesures : `case-52-generalisation.md` §#17-s5.5.
 
+⚠ Cette distance n'est meme calculee que si les QUATRE gates d'entree de la feuille laissent passer
+(`#236`, 2026-07-29). `<EvaluateMovementInSteps>d__2$$MoveNext` rend `Fix64.FromInt(0)` — donc
+**0.0**, pas `NO_PATH_UTILITY` — quand `case.Unit == null`, quand
+`IdunBattle.Entities.UnitExtensions$$IsNonAttacking(case.Unit)`, quand `case.ClosestEnemy == null`,
+ou quand `IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged(case.Unit,
+case.ClosestEnemy)` est faux. Le port les passe par `UtilityMovementCase`
+(`engine/utilities/move.py`), construit par les DEUX faces (`ai/context.py::_mindist_case` et
+`ai/state_bridge.py`). **Le gate 3 est atteignable en bataille reelle** : un camp adverse dont
+AUCUNE unite n'est ciblable (deep-strike non atterri) laisse `ctx.epos` plein mais `ClosestEnemy`
+nul -- sans le gate, le port repliait sur la distance HEX et preferait des tuiles que le natif
+n'evalue pas. Detail + mesures : `case-236-mindist-gates.md`.
+
 ### Validation live (test_fly_pathfinder_live.py, non commite)
 Roster Flying explicite (`blackHaarken,thousAhriman,tyranWingedPrime`) sur board a CLIFF
 (`C3_59`, |Delta elev|>=2). Cas DISCRIMINANT obtenu : `u88 blackHaarken` natif=17, **fly=17
