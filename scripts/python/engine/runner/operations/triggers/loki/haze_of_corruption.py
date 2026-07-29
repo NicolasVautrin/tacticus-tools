@@ -365,6 +365,10 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     (le chemin de production : le target-finder tire et bonde dans la MEME action que le coup fatal) a
     toujours son `bonded` renseigne.
 
+    GATE `IsActive` (#231) : ce trigger vient de `$$CreateTargetTrigger`, donc du rail que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` gate sur
+    `EffectComponent.IsActive @+0x5c`. `matches` le lit sur l'instance (`BaseEffect.active`).
+
     NON PORTE : le repli `GetPersistentData` de `$$GetLeftOverDamages` (quand le contexte n'a pas
     de leftovers, le natif relit ceux de la cible INITIALE memorisee par le `SetPersistentData` du
     target-finder). Le port n'a pas de couche persistent-data d'ability ; ici la source de l'effet
@@ -422,6 +426,19 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         from ....components import UnitComponent
         inst = self._instance(state)
         if inst is None or ev.dying_id is None:
+            return False
+        # Gate `EffectComponent.IsActive @+0x5c` (#231) -- mirror du test que
+        # `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique
+        # AVANT d'evaluer le trigger de CIBLE de l'effet : dans sa boucle PAR CIBLE il RECHARGE
+        # l'`EffectComponent` depuis l'entite-effet et n'appelle `ShouldTrigger` (slot 0x13) puis
+        # `Execute` (slot 0x14) que `if (*(char *)(<component> + 0x5c) != '\0')`. Un effet INERTE
+        # n'est donc meme pas EVALUE -- et une desactivation survenue en cours de drain stoppe les
+        # cibles suivantes, ce que rend ici la re-evaluation par-item du pump collapse
+        # (`triggers/dispatch/core.py::evaluate_trigger_operation`).
+        # Ce gate est celui du rail TARGETS SEUL (`...HazeOfCorruption_DamageTransferEffect$$
+        # CreateTargetTrigger`) : `EvaluateEffectTriggerEffectAbilities`, l'autre rail, n'accede
+        # JAMAIS a `+0x5c` (case-229) -- l'y poser eteindrait les `ActivateEffect` qui RALLUMENT.
+        if not inst.active:
             return False
         # `AreEqual(Target@0x178, EffectSource(Effect@0x150))` : c'est bien la cible INITIALE du bond
         # qui meurt.

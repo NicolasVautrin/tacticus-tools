@@ -471,9 +471,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     (`Overwatch_AutoAttack` ×3, `GrimRetribution_CounterAttack`,
     `CalibaniteGreatswordStrike_Overwatching`, `PlasmaCannon_Visual`). D'où une PORTE explicite,
     pas un flag global. Détail + validation : `case-224-effect-immunity-gate.md` §7.
-    - **RÉSIDU `[opus]`** : inventorier, parmi les effectTypes de `EFFECT_TRIGGERS`, ceux dont le
-      `matches` lit réellement `e.active` (vérifié pour 1009 et 1324 seulement). C'est le
-      pré-requis d'une activation globale du canal au seed.
+    - ~~**RÉSIDU `[opus]` : inventorier les effectTypes de `EFFECT_TRIGGERS` dont le `matches` lit
+      réellement `e.active`**~~ **FAIT** (`case-229-effect-triggers-active-inventory.md`, re-dérivable
+      par `probe_229_effect_triggers_active.py`). Le registre porte **15 clés / 28 classes**, et le
+      critère n'est pas uniforme : `EvaluateEffectTriggerTargets` gate sur
+      `EffectComponent.IsActive @+0x5c`, `EvaluateEffectTriggerEffectAbilities` n'y accède JAMAIS —
+      gater le second rail (17 triggers) éteindrait les `ActivateEffect` qui rallument.
+      - **1077 `HazeOfCorruption_DamageTransfer` — CLOS (#231)**, gate posé dans le `matches` du rail
+        TARGETS (`case-231-haze-transfer-active-gate.md`). La même fiche **RÉFUTE** le rayon de
+        souffle annoncé par #229 §3 : mesuré live, le bond 1077 n'est publié par `readEffectsByUnit`
+        **ni** au canal par défaut **ni** sous `includeInactive` — il est HORS canal de seed, donc
+        une bascule globale ne peut pas le seeder inerte. RÉSIDU NOMMÉ : pourquoi le bond échappe-t-il
+        au canal (non inscrit dans `EffectsOwnedComponent.ActiveEffectIds`, ou non décodé par
+        `indexEffects`) ? Trancher demande un hook `frida/hooks/game/effects.ts`.
+      - **RÉSIDU `[opus]`, une fiche chacun** — mêmes symptôme et remède (une ligne dans le `matches`,
+        sur le modèle de 1077) : **1197** `MasterOfTheTutelaries` (rail `ApplyInternal`/`RevertInternal`),
+        **1201** `AnvilShield_FrozenAttackerAdvantage`, **1502** `RitesOfMorkai`, **1547**
+        `ReanimationBeam_Revive` (rail TARGETS). Plus **1186** `GhostEffectRevive` : écart réel mais
+        porteur TUILE, donc inatteignable par la bascule (`tileMeta` appelle `readEffectsByTile`
+        SANS options). Chacun exige sa propre mesure du rayon de souffle : #231 a montré que la
+        colonne « dans le rayon de souffle » de #229 §3 n'est pas fiable sans confrontation live.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,

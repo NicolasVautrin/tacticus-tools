@@ -122,10 +122,11 @@ ARRAYSET_READS_BY_TREE = {
         "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
 }
 
-# GAPS ATTENDUS (etat des lieux #229, NON corriges par cette tache) : rail a gate natif dont
-# le port ne lit pas le flag. Toute entree qui SORT ou ENTRE ici doit etre justifiee.
+# GAPS ATTENDUS : rail a gate natif dont le port ne lit pas le flag. Toute entree qui SORT ou
+# ENTRE ici doit etre justifiee.
+#   #231 (2026-07-29) -- `HazeOfCorruptionDamageTransferTrigger` (1077) RESORBE : son `matches`
+#   lit desormais `inst.active`. Les quatre restants sont des fiches distinctes.
 EXPECTED_GAPS = {
-    "HazeOfCorruptionDamageTransferTrigger",
     "MasterOfTheTutelariesSummonAbility",
     "RitesOfMorkaiReviveTrigger",
     "ReanimationBeamReviveTrigger",
