@@ -95,7 +95,9 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    8   0x100                 TargetIsHealable                                    NON
   16   0x10000               TargetIsRepairable                                  NON
    5   0x20                  TargetHasFreeAdjacentTile (battleQuery slot 0x51)   OUI
-  21   0x200000              CasterHasFreeAdjacentTile                           NON (aucun porteur)
+  21   0x200000              CasterHasFreeAdjacentTile (jumelle du bit 5, sur    NON (INATTEIGNABLE
+                             le CASTER : slot 0x51 applique a `param_2`)         chez son seul
+                                                                                 porteur, cf. #250)
   12   0x1000                TargetTileIsFree (`CanAddUnit`)                     OUI (cible TUILE)
   17   0x20000               TargetTileIsFreeOrEnemy                             NON (domaine TILE)
   19   0x80000               TargetTileHasEnemyUnit                              NON (domaine TILE)
@@ -873,14 +875,24 @@ def get_range_broken_rule(state: "State", caster_id: int, target_id: Optional[in
     la seule main tile — c'est litteralement ce que font les deux fonctions natives citees
     (`AreEntitiesAdjacent` prend deux LISTES de tuiles, `GetDistance` prend deux LISTES et rend le
     MINIMUM sur toutes les paires). Pour une unite a 1 pied l'empreinte vaut `[main tile]`, donc le
-    resultat est bit-a-bit celui d'avant."""
+    resultat est bit-a-bit celui d'avant.
+
+    #250 : c'est bien `entity_tiles` (= `IdunBattle.Entities.EntityExtensions$$GetTiles`) qu'il faut
+    ici, PAS `components.get_unit_feet` (= `GetUnitFeetIds`, 3e branche seule). Le natif passe
+    l'ENTITE-cible au slot 0x60 / a `GetDistance`, qui resolvent ses tuiles par `GetTiles` : pour une
+    ability TILE-TARGET la cible EST une tuile et `GetTiles(tile)` rend `[tile]`. `get_unit_feet`, lui,
+    rend `[]` sur une tuile -> le volet portee retombait sur `return 0` et se DESARMAIT entierement
+    pour toute ability tile-target (exactement l'avertissement porte par la docstring d'`entity_tiles`,
+    qui n'avait pas ete applique ici). MESURE #250 sur `MasterOfTheTutelaries` (1096) et
+    `AberrantHypermorph` (1166), masque `TargetIsTile | TargetTileIsFree` + `RANGE_ADJACENT` : le natif
+    rend `TargetIsInRange` sur toute tuile non adjacente au caster, le port rendait 0. Pour une cible
+    UNITE le resultat est INCHANGE (`entity_tiles` commence par `get_unit_feet` et le rend tel quel)."""
     from ...services.movement_query import get_distance
-    from ..components import get_unit_feet
     rr = get_range(state, caster_id, options)
     if rr is None:
         return 0
-    src_feet = get_unit_feet(state, int(caster_id)) if caster_id is not None else []
-    dst_feet = get_unit_feet(state, int(target_id)) if target_id is not None else []
+    src_feet = entity_tiles(state, caster_id)
+    dst_feet = entity_tiles(state, target_id)
     if not src_feet or not dst_feet:
         return 0
     if rr.only_adjacent:
@@ -1137,7 +1149,8 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     filtre, evalue AVANT le volet cible par l'overload 5 arguments de
     `TargetingQuery$$GetInvalidTargetReason` (`if (casterReason.IsInvalid()) return casterReason;`).
 
-    UNE SEULE de ses regles est portee — `CasterHasNotMoved` (0x10) — parce qu'elle tombe
+    DEUX de ses regles sont portees — `CasterHasNotMoved` (0x10) et, depuis #250,
+    `CasterMatchesDynamicRule` (0x4, le POINT D'EXTENSION du volet caster). La 1re tombe
     gratuitement : le bit est deja dans les `TARGETING_OPTIONS` de l'ability et le predicat existe
     deja (`unit_has_moved`). Mirror du decompile :
 
@@ -1156,10 +1169,17 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     `probe_115_ability_reason.py` : apres un `move`, le natif rend
     `casterReason = {hex: 0x10, reasons: ["CasterHasNotMoved"]}`).
 
-    NON PORTEES (memes motifs qu'en tete de module) : `CasterCanMove` (0x10000000),
-    `CasterHasCompletedOneTurn` (0x80000000), `AllowNullCasterTile` (0x40000000),
-    `CasterMatchesDynamicRule` (0x4, regle-delegue `options+0x30` = slot vtable +0x470), les filtres
-    de `FeetCount` et les bits 52/53.
+    ORDRE NATIF de la cascade CASTER, relu en entier (#250) -- il fixe la RAISON rendue quand
+    plusieurs regles sont rompues :
+        1. `CasterHasNotMoved` (0x10)                    PORTEE
+        2. `CasterCanMove` (0x10000000)                  non portee
+        3. `CasterHasCompletedOneTurn` (0x80000000)      non portee (`GetStat(caster, 0xc) <= 1`)
+        4. `AllowNullCasterTile` (0x40000000) / `CasterHasNoTile` (bit 55), la paire tuile-nulle
+        5. **`CasterMatchesDynamicRule` (0x4)**          PORTEE depuis #250 (regle-delegue
+           `options+0x30` = slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`)
+        6. `CasterHas1/3/7Tiles` (bits 35/36/37), `CasterHas2TurnsLeft` (52), `CasterIsMachine` (53)
+
+    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4 et 6.
 
     NB `unit_has_moved` lit le `UnitFlagsComponent`. ⚠ FICHE CORRIGEE (2026-07-28, #210) : la regle
     n'est PLUS inerte sur un etat CHARGE -- `load_state` seede ce flag depuis
@@ -1168,10 +1188,20 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
     `CasterHasNotMoved` en accord avec l'oracle `abilityReason`, sans pose manuelle. Elle mord aussi
     sur le chemin replay/self-play OFFLINE, ou c'est `MoveUnitOperation` -> `set_moved_flag`."""
     options = getattr(ability, "TARGETING_OPTIONS", None)
-    if options is None or not options.has(TR.CasterHasNotMoved):
+    if options is None:
         return 0
-    from ..components import unit_has_moved
-    return int(TR.CasterHasNotMoved) if unit_has_moved(state, int(caster_id)) else 0
+    if options.has(TR.CasterHasNotMoved):
+        from ..components import unit_has_moved
+        if unit_has_moved(state, int(caster_id)):
+            return int(TR.CasterHasNotMoved)
+    # `CasterMatchesDynamicRule` -- LE POINT D'EXTENSION du volet caster (#250), place ici comme dans
+    # le natif (apres la paire tuile-nulle, avant les filtres de `FeetCount`). Le natif rend le code
+    # que la regle-delegue lui donne, tel quel : `if (r != 0) return GenericBrokenTargetingRule(r)`.
+    if options.has(TR.CasterMatchesDynamicRule):
+        reason = int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0)
+        if reason:
+            return reason
+    return 0
 
 
 def _targets_the_caster(state: "State", caster_id: int, target_id: Optional[int],
@@ -1343,15 +1373,20 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     #     if ((rules & 0x1000) && !TileExtensions.CanAddUnit(mainTile(target), state, 1, 0, 0))
     #        -> broken(0x1000)
     # (`mainTile(target)` = `pcVar12`, que la branche `TargetIsTile` du debut du filtre pose a
-    # `GetMainTile(target)`.) Porte UNIQUEMENT quand la cible est une TUILE du board : c'est le seul
-    # cas qu'exercent les quatre porteurs du bit (1112, 1145, 1201, 1219), et une cible que le port
-    # ne sait pas resoudre en tuile ne doit pas produire de refus invente. Comme le bit 5, il est ici
-    # pour l'ORDRE : il precede `TargetIsNotAdjacentToEnemy` (bit 42), donc une tuile OCCUPEE et
-    # voisine d'un ennemi doit rendre 0x1000, pas 0x40000000000.
-    if options.has(TR.TargetTileIsFree) and state.board is not None and target_id is not None:
-        if int(target_id) in state.board.by_id:
-            if not tile_can_add_unit(state, state.board.coord(int(target_id))):
-                return int(TR.TargetTileIsFree)
+    # `GetMainTile(target)`.) Comme le bit 5, il est ici pour l'ORDRE : il precede
+    # `TargetIsNotAdjacentToEnemy` (bit 42), donc une tuile OCCUPEE et voisine d'un ennemi doit rendre
+    # 0x1000, pas 0x40000000000.
+    # #250 : la cible est resolue par `entity_tiles(...)[0]` = `EntityExtensions$$GetMainTileId`
+    # (feet[0] pour une UNITE, la tuile elle-meme pour une TUILE) -- PAS par « target_id est un id du
+    # board ». Le natif applique la regle a `GetMainTile(target)` quelle que soit la nature de la
+    # cible : interroge avec une UNITE, une ability tile-target rend `TargetTileIsFree` parce que la
+    # tuile de cette unite est occupee PAR elle. MESURE #250 sur `MasterOfTheTutelaries` (1096) :
+    # 3 lignes (le caster, un allie au contact, un ennemi au contact) ou le natif rend 0x1000 et ou
+    # le port rendait 0.
+    if options.has(TR.TargetTileIsFree) and state.board is not None:
+        tt = entity_tiles(state, target_id)
+        if tt and not tile_can_add_unit(state, tt[0]):
+            return int(TR.TargetTileIsFree)
 
     # TargetIsNotAdjacent -- « la cible ne doit PAS etre AU CONTACT du caster ». VERBATIM du filtre
     # statique (surcharge 7 arguments) :

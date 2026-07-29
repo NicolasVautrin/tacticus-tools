@@ -76,6 +76,31 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`SpawnUnitOperation.execute` crée une entité SANS `PositionComponent` quand il manque une tuile**
+  (`case-250` §9, MESURÉ). `ScarabHive` (1007) demande `count = 2` ; la boucle
+  (`engine/runner/operations/spawn.py`, `for _ in range(count)`) construit l'entité AVANT de savoir
+  s'il reste une tuile libre, et n'ajoute la `PositionComponent` que `if tile is not None`. Le natif,
+  lui, ITÈRE sur les tuiles (`IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` ->
+  `GetTileIds`) : **il ne peut pas créer un summon sans tuile.** Offline il en résulte un summon
+  fantôme — vivant, avec ses PV, sur l'équipe du caster, mais hors plateau. Mesure : caster (5,8),
+  cible (6,8) au bord de `MC1_67`, une seule tuile libre autour de la cible -> `spawned = [1, 2]`
+  dont un sans position. Devenu ATTEIGNABLE en pratique depuis que le masque de 1007
+  (`RANGE_ADJACENT`) force le caster AU CONTACT de sa cible, ce qui consomme une de ses voisines.
+  `[opus]`.
+- **`TargetingQuery$$GetCasterNotAddedReason` non porté** (`case-250` §4) — rend 0 (permissif). Il
+  concerne les abilities `isSelfCasting = 1` castées sur leur propre caster : le natif y évalue
+  `GetValidTargets(...).AllTargets.Count == 0` et peut rendre `0x800 AddCasterIfAtLeastOneTarget`.
+  Porteurs du registre : `GetEmRuntz` (1045), `ScarabSummon` (1047), `ResurrectionOrb` (1009),
+  `Chronometron` (1226), `AncestralFortune` (1207). C'est aussi **le seul chemin par lequel
+  `CasterHasFreeAdjacentTile` (bit 21) pourrait mordre** pour 1047 (scarab encerclé). Le porter
+  suppose de porter `TargetingQuery$$GetValidTargets`, qui énumère tout le plateau.
+- **`CasterHasFreeAdjacentTile` (bit 21) — lu, situé, non porté** (`case-250` §4). Jumelle exacte du
+  bit 5 appliquée au CASTER (`slot 0x51` sur `param_2`), juste après elle dans le filtre statique.
+  Son seul porteur du registre est `ScarabSummon` (1047), pour lequel elle est **inatteignable** par
+  la cascade (self-cast -> branchement `GetCasterNotAddedReason` ; cible ≠ caster -> `RANGE_SELF`
+  refuse `TargetIsInRange` avant). Port = code mort non invalidable tant que le résidu ci-dessus
+  n'est pas fermé.
+
 - **Gisement « playbooks de MOUVEMENT » : 42 restants, dont 31 à porteur spawnable TEL QUEL**
   (`case-193c` §1 et §6, moins `CursedPlagueBell` 1071 porté par `case-211` — chiffres
   RE-DÉRIVABLES par `probe_193b_carrier_pool_crosscheck.py`, qui lit le pool en LIVE). Le rang A de
