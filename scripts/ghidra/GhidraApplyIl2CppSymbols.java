@@ -1,6 +1,24 @@
 // Ghidra headless script: apply IL2CPP symbols dumped via Frida to the Ghidra DB.
 // Reads data/il2cpp_methods.tsv and data/il2cpp_classes.tsv, produced from il2cpp_full.json.
 //
+// ============================ SENS DE CIRCULATION -- A LIRE ============================
+// Ce script ALIMENTE Ghidra. Il en existe UN SECOND, complementaire :
+// `GhidraApplyIl2CppDumperNames.java`, qui passe APRES et ne renomme que les `FUN_*` restants
+// (les corps generiques pleinement partages, que les metadonnees lues par Frida n'exposent pas).
+// Aucun des deux ne remplace l'autre -- mesure 2026-07-29 : la chaine Frida nomme 3 165 adresses
+// que le dumper laisse anonymes ; le dumper en nomme 4 882 que Frida ne voit pas. Et seul CE
+// script-ci FABRIQUE LES STRUCTS : le binaire est strippe, sans lui tout le decompile perd ses
+// types.
+//
+// ⚠ `data/symbols/<build>/ghidra/functions.tsv` N'EST PAS une entree de Ghidra et n'est PAS la
+// sortie de ce script : c'est un EXTRAIT pris DEPUIS Ghidra par `ghidra_symbols.py dump`, pour
+// les outils offline. Il ne doit jamais etre reinjecte. Appliquer des noms sans relancer ce
+// `dump` laisse l'extrait perime, et les deux consommateurs du projet (agents via
+// `mcp__ghidra__*` / outils offline) se mettent alors a se contredire silencieusement.
+//
+// Vue d'ensemble, avec les chiffres et les pieges : `data/symbols/README.md`.
+// ======================================================================================
+//
 // Phase 1 (MVP): create function + set name for every method RVA.
 // This alone lets Ghidra decompile all 169K methods in a single pass with real names.
 //

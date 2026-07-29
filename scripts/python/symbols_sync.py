@@ -257,12 +257,13 @@ PLANCHER_FAMILLE = 100
 # rien a signaler). Une perte connue est IMPRIMEE, jamais tue -- elle ne fait simplement pas
 # echouer la garde, sinon le hook de session hurlerait a chaque demarrage et on apprendrait a
 # l'ignorer, ce qui est pire que pas de garde du tout.
-PERTES_CONNUES: dict[tuple[str, str, str], str] = {
-    ("GSHARED", "gqfc5mff6c", "rnca9r7q6c"):
-        "#259 -- corps pleinement partages, nommes par le SEUL applier legacy Il2CppDumper "
-        "(supprime 8e591496). La chaine Frida ne peut pas les produire : "
-        "docs/rl/case-259-couverture-gshared.md",
-}
+# VIDE, et c'est le bon etat. L'entree ("GSHARED", "gqfc5mff6c", "rnca9r7q6c") a ete RETIREE le
+# 2026-07-29 des que la perte a ete REPAREE (#259-a) : `GhidraApplyIl2CppDumperNames.java` a repose
+# 5 899 noms, la famille GSHARED est remontee de 0 a 4 874 dans `ghidra/functions.tsv`.
+# ⚠ UNE EXCUSE QUI SURVIT A SON MOTIF EST PIRE QU'UNE ABSENCE DE GARDE : elle rend l'axe muet sur
+# une famille qui pourrait re-tomber, sans que personne ne s'en apercoive. Retirer l'entree fait
+# donc PARTIE de la reparation, au meme titre que le re-dump.
+PERTES_CONNUES: dict[tuple[str, str, str], str] = {}
 
 MARQUEUR_GSHARED = "__Il2CppFullySharedGeneric"
 
