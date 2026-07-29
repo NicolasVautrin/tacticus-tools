@@ -305,9 +305,21 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     Valide bit-exact 1357 s16 (u139 5 hits 1197/1795 vs necroSmnSwarm 5×444 : caps 442,444,444,444
     puis dernier membre NON cappe → [2971,3569] == natif). Les autres sous-limites restent des **NO-OP
     documentes** (defaults conservateurs) faute d'input offline : Impervious (charge runtime non captee
-    par combatSnapshot), boss-cap (`HasTriggeredAbility(0x5d4)` non verifie offline)."""
-    gu = GC.unit(scene.vis_by_id.get(tgt_id)) or {}
-    utraits = set(gu.get("traits") or [])
+    par combatSnapshot), boss-cap (`HasTriggeredAbility(0x5d4)` non verifie offline).
+
+    #264 -- les TRAITS viennent du substrat d'ENTITE (`entity_trait_names(scene.ctx(tgt), vis)`),
+    pas d'une relecture du kit gameconfig par visualId : PENDANT EXACT du meme changement cote
+    COMBAT (`operations/damage.py::_target_limits`). Elargir un seul cote recreerait le fork « ce que
+    le moteur fait != ce que la prediction annonce ». MESURE (2026-07-30) : `necroOverlord` porte
+    `Resilient` au gameconfig et NE le porte PAS en bataille (son `BC.Units[].Traits` ne le contient
+    pas -- les deux blocs different, cf. `snapshot._load_unit_traits`) : les deux faces le capaient a
+    `HP-1`, c.-a-d. annoncaient
+    et executaient un kill IMPOSSIBLE la ou le natif tue. `nrOfMembers` reste gameconfig (c'est
+    `GroupUnitComponent`, pas un trait)."""
+    from engine.entities.traits.unit_trait import entity_trait_names
+    vis = scene.vis_by_id.get(tgt_id)
+    gu = GC.unit(vis) or {}
+    utraits = entity_trait_names(scene.ctx(tgt_id), vis)
     hpmax = scene.hpmax(tgt_id) or 0
     _dp_traits = (GC.damage_profile(damage_profile) or {}).get("Traits") or [] if damage_profile else []
     return {

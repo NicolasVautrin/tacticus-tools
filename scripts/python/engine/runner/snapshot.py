@@ -256,6 +256,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # sorties -- cf. `_load_unit_turn_state`.
         _load_unit_turn_state(state, snapshot)
         _load_stats_and_effects(state, decision, snapshot)
+        # APRES les stats : le substrat de traits vit dans `UnitContext.traits`, que
+        # `_load_stats_and_effects` vient de construire (unites ET MoW). Meme nature que les deux
+        # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
+        # la RECONSTRUISANT depuis gameconfig au lieu de lire la source -- cf. `_load_unit_traits`.
+        _load_unit_traits(state, snapshot)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -559,6 +564,85 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
         charged = su.get("chargedUnitIds")
         if isinstance(charged, list):
             uc.charged_unit_ids = [int(i) for i in charged]
+
+
+def _load_unit_traits(state: State, snapshot: dict) -> None:
+    """Seede `UnitContext.traits` de CHAQUE entite depuis `combatSnapshot.units[].traits` (#264).
+
+    MIRROR. Le capteur (`rpc-snapshot.ts`, bloc `readUnitTraits`, #233) ne lit AUCUNE collection en
+    memoire -- il invoque la fonction NOMMEE que le jeu appelle lui-meme,
+    `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, trait)`, une fois par valeur d'enum
+    `UnitTrait`, et rend la liste des ids VRAIS. Cette fonction delegue a
+    `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait`, qui interroge TROIS collections du
+    composant -- la premiere etant un VETO :
+
+        HasTrait(t) == !retires(+0x50).Contains(t)
+                       && ( permanents(+0x40).Contains(t) || temporaires(+0x48).Contains(t) )
+
+    Le canal rend donc l'ensemble EFFECTIF, veto compris : exactement ce que lisent les gates de
+    trait du jeu. (`IdunBattle.Operations.AddTraitOperation$$Execute` ecrit `+0x40` quand
+    `isTemporary == 0`, `+0x48` sinon ; `IdunBattle.Operations.RemoveTraitOperation$$RemoveTrait`
+    RETIRE de `+0x40`/`+0x48` au lieu de remplir `+0x50`. Le veto lui-meme est **structurellement
+    INERTE** -- `+0x50` = `DisabledTraits`, sans AUCUN ecrivain dans le binaire, mesure par #265,
+    cf. `docs/rl/case-265-disabled-traits-aucun-ecrivain.md`. Sans consequence ici de toute facon :
+    on lit la RESULTANTE, pas les collections.)
+
+    POURQUOI. Jusqu'ici le port RECONSTRUISAIT ce substrat : `UnitContext.from_snapshot` posait
+    `traits = gameconfig.unit(vis).traits`, et `entity_trait_names` y ajoutait le pseudo-trait de
+    GRANDE-ALLIANCE derive du `GrandAllianceId`. Or le natif ne lit PAS le gameconfig : les traits de
+    depart d'une unite viennent de `BattleConfiguration.Units[].Traits` -- et ce bloc N'EST PAS le kit
+    gameconfig (les DEUX sens d'ecart sont mesures ci-dessous). C'est une reconstruction de la source
+    a partir d'une autre source, pas une lecture.
+
+    ECART MESURE (2026-07-30, `data/seed-bc.json`, 175 unites, comparaison offline `BC.Units[].Traits`
+    vs `unit_trait_names(vis)`) : **5 unites ont MOINS que leur kit** -- `necroOverlord` sans
+    `Resilient` (CONFIRME LIVE : la mesure rend `Hero/LivingMetal/Mechanical/Xenos`, le port en
+    reconstruisait 5), `blackSmnBloodletter` sans `BlessingsOfKhorne`/`Summon`,
+    `necroSmnSwarm`/`thousSmnBlueHorror` sans `Summon`, `deathNpc3Nurglings` sans `TeleportStrike` --
+    et **48 en ont PLUS** (`custoAtlacoya` +`SistersSilence`, `astraDreir` +`DeathKorpsKrieg`, les npc
+    +`Summon`/`NPC`). La reconstruction se trompait donc DANS LES DEUX SENS, en silence : un trait
+    reconstruit EN TROP est une degradation PERMISSIVE (le port accorde un bonus que le natif refuse),
+    un trait MANQUANT une degradation RESTRICTIVE (gate mort offline).
+    ⚠ On ne DIT PAS pourquoi les deux blocs different -- une CAUSE au moins est deja documentee et
+    n'a rien d'une regle generale : le seed BC est une CAPTURE (`#254-bc` au backlog : son bloc
+    `Units` date de `gqfc5mff6c` et cite justement `necroOverlord` sans `Resilient`). Que l'ecart
+    vienne d'une capture perimee, de la progression du joueur ou d'autre chose ne change RIEN au
+    remede : on lit la source de la bataille COURANTE au lieu de la deviner depuis une autre.
+    S'y ajoute ce que le kit ne peut PAS porter par construction : les traits ACCORDES EN BATAILLE
+    (`AddTrait`, ex. `Stationary` sur le dreadnought de `DutyEternalAbility`), qu'un etat RECHARGE
+    perdait integralement tant qu'aucune operation offline ne les avait rejoues.
+
+    PORTEE : toutes les lignes du snapshot, `EntityType.Unit` ET `EntityType.Machine` -- une MoW
+    porte un `MachineComponent`, frere du `UnitComponent` issu du meme
+    `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`, donc `UnitExtensions$$HasTrait` y
+    repond (mesure : `ultraDreadnought` rend `MachineOfWar`+`Imperial`). `_load_machine_stats` tourne
+    a la fin de `_load_stats_and_effects`, donc le `StatsComponent` des DEUX types existe deja ici.
+    Une entite SANS `StatsComponent` (cadavre : `combatSnapshot` filtre les morts, donc aucune ligne)
+    n'est pas touchee -- ses lecteurs gardent le repli gameconfig de `_config_traits`/`_unit_dict`.
+
+    TRI-ETAT, meme discipline que `_load_unit_flags` / `_load_unit_turn_state` : champ ABSENT ou
+    `null` = **non mesure** (capteur anterieur a `0231573`, ou `UnitExtensions$$HasTrait` irresolue)
+    -> on ne TOUCHE PAS `ctx.traits`, donc reconstruction STRICTEMENT anterieure ; une LISTE, `[]`
+    comprise = mesure, on ecrit. Ici la distinction est CAPITALE et non theorique : `[]` ecrase le
+    kit gameconfig par « aucun trait », et le capteur rend justement `null` (jamais `[]`) quand il
+    n'a pas pu invoquer -- les confondre ferait passer un capteur MORT pour une unite sans trait.
+
+    `traits_measured` marque le ctx : `entity_trait_names` cesse alors de re-deriver l'alliance
+    par-dessus (elle est DANS la mesure -- `BC.Units[].Traits` la porte explicitement, verifie sur
+    `necroOverlord` : `Xenos` y figure)."""
+    from ..entities.traits.unit_trait import trait_names_from_ids
+
+    for su in (snapshot.get("units") or []):
+        eid = su.get("entityId")
+        traits = su.get("traits")
+        if eid is None or not isinstance(traits, list):
+            continue                                  # absent / `null` = NON MESURE -> defaut du port
+        ent = state.get_entity(eid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        sc.ctx.traits = sorted(trait_names_from_ids(traits))
+        sc.ctx.traits_measured = True
 
 
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> None:
