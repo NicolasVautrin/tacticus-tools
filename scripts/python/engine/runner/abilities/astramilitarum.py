@@ -28,7 +28,8 @@ from ...entities.selectors import (ActiveTarget, AdjacentTiles, CanAddUnit, Cast
 from ...entities.stats import StatType
 from ...utilities.tile import sort_tiles_by_utility
 from ... import battle_query
-from .targeting import (RANGE_ADJACENT, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_SELF,
+                        RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (AddBondEffect, AddEffect, AttackWithAttackDamage, Spawn, PerformAIAction,
                          PerformAIAttack, SortedAttackSeries, UseActiveAbility, entities_from_state)
@@ -116,6 +117,34 @@ class SupremeCommanderAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.SupremeCommander)   # 1028
 
     ABILITY_ID = "SupremeCommander"
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x60>                     # copie de 0x18 octets
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, &preset, forceMeleeTarget=1, 0x208000, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)                    # AbilityAttackType.Others
+    # FORME 1 « FLAGS DIRECTS » (surcharge 8 arguments de `IdunBattle.Core.Services.TargetingOptions$$.ctor`,
+    # celle qui ecrit `+0x28 <- param_5` SANS OR) -> le litteral **EST** le masque effectif. Ce n'est
+    # PAS l'overload piege « PRESET + flags » a 4 arguments : le 3e argument recu ici est un
+    # `TargetingRange` de 0x18 octets (recopie de `TargetingRange$$.cctor`), qui n'a pas de `+0x28`.
+    #   0x208000 = CasterHasFreeAdjacentTile (1<<21 = 0x200000)
+    #            | CasterIsPossibleTarget    (1<<15 = 0x008000)      -> somme EXACTE, 0 bit residuel
+    #   range = `TargetingRange$$.cctor` statics+0x60 = `{onlyAdjacent = RangedBool.False,
+    #           overrideRange = Nullable(0)}` -> RANGE_SELF : portee NULLE (le cast ne porte que sur
+    #           la propre tuile du caster).
+    #   forceMeleeTarget = param_4 = 1 = RangedBool.False
+    # `isSelfCasting = 1` (le BYTE `options+0x00`) : c'est l'AIGUILLAGE de l'overload 5 arguments de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`, pas un bit de `Rules` --
+    # caste sur lui-meme, Creed part sur `TargetingQuery$$GetCasterNotAddedReason` et la cascade
+    # CIBLE n'est JAMAIS evaluee. Coherent avec l'i2 (« Summons up to N Cadian Guardsman in free
+    # adjacent hexes ») et avec `supreme_commander_spawn_tree` (`AdjacentTiles(Caster())`).
+    # CONSEQUENCE DE PORT : `CasterHasFreeAdjacentTile` (regle du filtre statique CIBLE, juste apres
+    # `TargetHasFreeAdjacentTile` et avant `TargetTileIsFree`) est INERTE pour ce porteur -- le seul
+    # chemin qui l'atteindrait (cible != caster) est deja refuse en amont par la portee 0. Elle reste
+    # donc NON PORTEE dans `targeting.py`, et c'est dit dans son inventaire.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.CasterHasFreeAdjacentTile
+        | TR.CasterIsPossibleTarget
+    ), self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -279,6 +308,33 @@ class SendInTheNextWaveAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.SendInTheNextWave)   # 1016
     ABILITY_ID = "SendInTheNextWave"
 
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x00>                     # copie de 0x18 octets
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &preset, forceMeleeTarget=1, 0x4002, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 1, 0)      # AbilityAttackType.SummonAndAttackTarget
+    # FORME 1 « FLAGS DIRECTS » -> le litteral EST le masque.
+    #   0x4002 = TargetIsEnemy             (1<<14 = 0x4000)
+    #          | TargetMatchesDynamicRule  (1<<1  = 0x0002)          -> somme EXACTE, 0 bit residuel
+    #   range = `TargetingRange$$.cctor` statics+0x00 = `{onlyAdjacent = RangedBool.IfNotRangedCaster}`
+    #           (aucun `overrideRange`, `useRangeFromConfig` faux) -> RANGE_ADJACENT_IF_MELEE_CASTER.
+    #           Yarrick porte une arme `Range = 2` (gameconfig `astraYarrick.weapons[1]`) donc
+    #           `UnitExtensions$$IsRanged` est VRAI -> `onlyAdjacent` retombe a faux et la portee vaut
+    #           `ExtraRange + 2`. C'est l'i2 mot pour mot : « Select a target within 2 hexes ».
+    #   forceMeleeTarget = param_4 = 1 = RangedBool.False (aucun clamp a 1 au contact)
+    # ⚠ `constants.range` n'existe pas pour 1016 et le preset ne pose PAS `useRangeFromConfig` :
+    # `AActiveAbility$$SetConfigValuesInTargetingOptions` ne touche donc a rien ici.
+    # RESIDU NOMME (non porte, degradation PERMISSIVE) :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$GetDynamicInvalidTargetReason`
+    # exige qu'il RESTE au moins une tuile de spawn autour de la cible -- il appelle le slot 0x66 de
+    # `IBattleQuery` avec `(target, GetSpawnedUnitRange(), 1, 1, 0, 1)` et rend
+    # `TargetMatchesDynamicRule` (2) quand le compte est < 1. Le slot 0x66 n'est pas resolu (aucune
+    # lambda du decorateur `RecordedSimulationRequestsBattleQuery` ne l'a donne), donc la methode
+    # n'est PAS surchargee : le defaut de `ActiveAbility` rend 0, jamais un refus invente.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetIsEnemy
+        | TR.TargetMatchesDynamicRule
+    ), range=RANGE_ADJACENT_IF_MELEE_CASTER, force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None or state.get_entity(caster_id) is None:
@@ -358,6 +414,36 @@ class MalleusRocketLauncherAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.MalleusRocketLauncher)   # 1142
     ABILITY_ID = MALLEUS_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x48>                     # copie de 0x18 octets
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &preset, forceMeleeTarget=1,
+    #                            0x10000040000040, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)                    # AbilityAttackType.Others
+    # FORME 1 « FLAGS DIRECTS » -> le litteral EST le masque.
+    #   0x10000040000040 = CasterHas2TurnsLeft (1<<52 = 0x10000000000000)
+    #                    | AllowNullCasterTile (1<<30 = 0x000000040000000)
+    #                    | TargetIsTile        (1<<6  = 0x000000000000040)
+    #                                                          -> somme EXACTE, 0 bit residuel
+    #   range = `TargetingRange$$.cctor` statics+0x48 = `{onlyAdjacent = RangedBool.False,
+    #           useWholeBoard = true}` -> RANGE_WHOLE_BOARD : le filtre statique NE TESTE PAS la
+    #           portee (« Marks a hex on the battlefield », i2).
+    #   forceMeleeTarget = param_4 = 1 = RangedBool.False
+    # ⚠ PIEGE ECARTE : la config 1142 porte bien un `constants.range = 2`, mais le preset ne pose PAS
+    # `useRangeFromConfig` -> `AActiveAbility$$SetConfigValuesInTargetingOptions` ne le recopie pas.
+    # Ce `range` sert au barrage de PHASE 2 (`MalleusRocketLauncher_AttackAbility`), pas au ciblage.
+    # Les deux bits CASTER sont des regles de `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`,
+    # aucune n'est portee (cf. `targeting.py::get_invalid_caster_reason`), et pour un motif different :
+    #   * `AllowNullCasterTile` est une PERMISSION (elle DESARME le refus 0x40000000 « caster sans
+    #     tuile ») -- indispensable ici, la MoW `astraOrdnanceBattery` n'a AUCUNE position ; le port,
+    #     qui ne porte pas ce refus, converge trivialement ;
+    #   * `CasterHas2TurnsLeft` refuse quand le slot 0x1a d'`IBattleQuery` rend faux sur `(caster, 2)`
+    #     -- slot non resolu, donc NON portee : degradation PERMISSIVE, jamais un refus invente.
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.CasterHas2TurnsLeft
+        | TR.AllowNullCasterTile
+        | TR.TargetIsTile
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -502,6 +588,65 @@ class ForwardSpotterAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ForwardSpotter)   # 1143
     ABILITY_ID = FORWARD_SPOTTER_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$.ctor` :
+    #     preset = <TargetingRange statics+0x48>                     # copie de 0x18 octets
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &preset, forceMeleeTarget=1, 0x40000422,
+    #                            0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)                    # AbilityAttackType.Others
+    # FORME 1 « FLAGS DIRECTS » -> le litteral EST le masque.
+    #   0x40000422 = AllowNullCasterTile      (1<<30 = 0x40000000)
+    #              | TargetIsFriendly         (1<<10 = 0x00000400)
+    #              | TargetHasFreeAdjacentTile(1<<5  = 0x00000020)
+    #              | TargetMatchesDynamicRule (1<<1  = 0x00000002)
+    #                                                          -> somme EXACTE, 0 bit residuel
+    #   range = `TargetingRange$$.cctor` statics+0x48 = `{onlyAdjacent = RangedBool.False,
+    #           useWholeBoard = true}` -> RANGE_WHOLE_BOARD (MEME preset que 1142, l'autre ability de
+    #           cette MoW) : aucun test de portee, l'i2 ne mentionne d'ailleurs aucune distance.
+    #   forceMeleeTarget = param_4 = 1 = RangedBool.False
+    # Les trois bits CIBLE tombent mot pour mot sur l'i2 « Summons a Cadian Guardsman in a hex
+    # ADJACENT to the TARGETED FRIENDLY UNIT » : `TargetIsFriendly` (le camp), `TargetHasFreeAdjacentTile`
+    # (il faut une tuile libre au contact pour y poser le summon -- meme predicat que le
+    # `CanAddUnit(AdjacentTiles(target))` de `forward_spotter_pick_tiles`), `TargetMatchesDynamicRule`
+    # (la cible doit etre une UNITE, cf. `get_dynamic_invalid_target_reason` ci-dessous).
+    # `AllowNullCasterTile` est la PERMISSION qui rend le cast possible depuis une MoW sans position
+    # (regle CASTER `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, non portee).
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.AllowNullCasterTile
+        | TR.TargetIsFriendly
+        | TR.TargetHasFreeAdjacentTile
+        | TR.TargetMatchesDynamicRule
+    ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR 1:1 du decompile, qui tient en trois lignes :
+
+            if (EntityExtensions.IsUnit(target)) return caster == target;
+            return true;
+
+        Le retour est un `TargetingRule` : la comparaison booleenne s'y elargit en le litteral `1`,
+        c'est-a-dire `TargetingRule.ValidRequest` -- le natif REUTILISE cette valeur comme CODE DE
+        REFUS (exactement le meme quirk que la branche `TargetIsTile` du filtre statique, cf.
+        l'en-tete de `targeting.py`). Donc REFUS des que la cible n'est pas une UNITE (une TUILE, la
+        MoW elle-meme) ou qu'elle EST le caster ; 0 sinon.
+
+        ⚠ LE `target` QUE RECOIT CETTE REGLE EST DEJA RESOLU. Le filtre statique invoque la
+        regle-delegue avec `pcVar12`, c'est-a-dire `IdunBattle.Entities.UnitExtensions$$GetUnit(target,
+        state)` -- sur une TUILE, l'OCCUPANT. Le port passe l'id BRUT, d'ou l'appel a
+        `targeting.unit_of_entity`, qui EST ce `GetUnit`. MESURE (#253) : caste sur la TUILE d'un
+        allie, le natif rend `0` (VALIDE) ; sans cette resolution le port y posait un FAUX REFUS.
+        La branche `uid is None` est donc inerte en pratique -- le preambule `TargetIsUnit` de la
+        cascade l'a deja refusee plus haut --, mais elle est ecrite parce que le natif l'ecrit.
+
+        La clause `caster == target` ne peut pas mordre pour ce porteur (le caster est une MACHINE,
+        la cible une unite) : elle est ecrite parce que le natif l'ecrit."""
+        from .targeting import unit_of_entity
+        uid = unit_of_entity(state, target_id)
+        if uid is None:
+            return int(TR.ValidRequest)              # `!IsUnit(target)` -> `return true` = 1
+        return int(TR.ValidRequest) if uid == int(caster_id) else 0
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
