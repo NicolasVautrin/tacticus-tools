@@ -243,6 +243,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   port ne matérialise pas (pas de flag `IsActive`). La variante **−40 % (2 auras ou plus) n'a
   aucun montage live**. Les branches `UnitResurrected(0x2f)` / `UnitRevived(0x2e)` du même trigger
   ne sont pas câblées.
+  ⚠ **Le sous-résidu « `CalculateRange` = 1/2/3 non confronté » de cette ligne est CLOS** depuis
+  `case-224` : la table est mesurée live en **trois paliers** (`TurnsStarted` 1/3/5 → seuil 1/2/3,
+  12 confrontations, 0 désaccord), et son foyer unique est `engine/entities/effects/aura.py`. Ce qui
+  reste ouvert ici est le **cycle de vie** de l'effet posé, pas le calcul de la portée.
+- **Résidus nommés de `case-224` (prédicat d'aura)** — `case-224-is-in-contagions-of-nurgle-range`
+  §5. Trois, tous bornés : (a) le comparateur **STRICT** de `IsInUnitContagionsOfNurgleAura`
+  (`dist < range`, contre l'inclusif de la version d'équipe) est établi par XREF du ctor
+  `AmountIsGreaterAbilityTrigger` mais **non mesuré live** — son seul consommateur natif est le
+  `CreateTrigger` de `CursedPlagueBellAttackAbility` (1071), non porté ; (b) `SynapseEffect`, second
+  `IAuraEffect`, n'est **pas** au registre `_AURA_EFFECTS` (aucun consommateur mirroré ne le
+  demande) ; (c) `GetNextTurnRange` / `isNextTurn=true` est porté mais jamais exercé (ses
+  consommateurs sont `CursedPlagueBellMovementAbility$$GetTargetsSelector` et
+  `CursedPlagueBell_DangerZoneEffect`). `[opus]`.
 - ~~**`deathBlightlord` : +2 `genrand` natifs à l'entrée d'une attaque mêlée**~~ — **CLOS**
   (`case-207-haze-of-corruption-target-finder.md`). Ce n'étaient ni les effets `1375`/`1147`
   (= `TerminatorArmour_Visual` / `_ReduceDmg`, purement défensifs) ni le spawn de Kell, mais

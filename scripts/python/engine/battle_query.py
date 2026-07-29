@@ -132,6 +132,82 @@ def count_surrounding(tile: tuple, positions: list, radius: int,
                if is_surrounding(tile, p, radius, include_center_tile))
 
 
+def get_in_range_aura_amount(effect_type, team, target, units, has_trait, get_turns_started,
+                             return_first: bool = True) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount(effectType, team, target,
+    returnFirst)` -- MIRROR du decompile :
+
+        aura = <effets>.GetEffect(effectType) as IAuraEffect
+        if (aura == null) return 0                                   # cast d'interface ECHOUE
+        trait    = aura.GetTrait()                                   # slot 0
+        entities.<Target> = target
+        maxRange = aura.GetMaxRange().Calculate(entities)            # slot 1 -> Direct(3)
+        count = 0
+        foreach (unit in GetSurroundingUnits(target, maxRange, friendsOf: null, includeCenter: false))
+            if (!UnitExtensions.HasTrait(unit, trait))               continue
+            if (EntityExtensions.GetCurrentTeamId(unit) != team)     continue
+            entities.<Owner> = unit
+            r = aura.GetCurrentRange().Calculate(entities)           # slot 2, evalue SUR le porteur
+            if (r < GetDistance(unit, target))                       continue
+            count++ ; if (returnFirst) break
+        return count
+
+    Le comparateur est **INCLUSIF** (`continue` seulement quand `r < d`, donc on compte des que
+    `d <= r`) -- a la difference du prédicat par-UNITE `triggers.IsInUnitAura`, qui est STRICT.
+    Les deux partagent en revanche EXACTEMENT le meme etage de portee (`entities/effects/aura.py`
+    -> `GetTrait` + `GetCurrentRange`), ce qui rend la version EQUIPE confrontable live (elle est
+    exposee par `abilityTargets`) et l'etage commun mesurable.
+
+    `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` = ce compte `> 0` avec
+    `returnFirst = true` -> `is_in_team_aura_range` ci-dessous.
+
+    Substrat du port : `target`/`units` = dicts d'unite DSL (`{id, team, pos}`) ; `has_trait(unit,
+    traitId)->bool` et `get_turns_started(unit)->int` sont les DEUX accesseurs que le natif prend
+    respectivement par `UnitExtensions.HasTrait` et par `StatAmount(Owner, 0xc)`. Le balayage
+    `GetSurroundingUnits` est mirrore par `is_surrounding(..., include_center_tile=False)` -- le
+    disque hex PUR de `TileQuery.IterateSurroundingTiles`, sans porte d'elevation. Une unite MORTE
+    n'est plus sur sa tuile cote natif (`KillUnit` la retire du board) -> exclue ici aussi."""
+    from .entities.effects.aura import aura_trait, aura_max_range, aura_current_range
+    trait = aura_trait(effect_type)
+    if trait is None:
+        return 0                                             # `as IAuraEffect` == null
+    max_range = aura_max_range(effect_type)
+    tp = (target or {}).get("pos")
+    if tp is None or tp.get("col") is None:
+        return 0                                             # cible sans tuile -> aucun voisinage
+    tkey = (tp["col"], tp["row"])
+    count = 0
+    for u in (units or []):
+        if not isinstance(u, dict) or u.get("id") == (target or {}).get("id"):
+            continue
+        if not bool(u.get("alive", True)) or (u.get("hp") or 0) <= 0:
+            continue                                         # un mort n'occupe plus de tuile
+        p = u.get("pos")
+        if p is None or p.get("col") is None:
+            continue
+        upos = (p["col"], p["row"])
+        if not is_surrounding(tkey, upos, max_range, include_center_tile=False):
+            continue                                         # hors `GetSurroundingUnits(target, max)`
+        if not has_trait(u, trait):
+            continue                                         # `!HasTrait(unit, aura.GetTrait())`
+        if u.get("team") is None or int(u["team"]) != int(team):
+            continue                                         # `GetCurrentTeamId(unit) != team`
+        r = aura_current_range(effect_type, int(get_turns_started(u) or 0))
+        if int(r or 0) < hexgeo.distance(upos, tkey):
+            continue                                         # `r < GetDistance(unit, target)`
+        count += 1
+        if return_first:
+            break
+    return count
+
+
+def is_in_team_aura_range(effect_type, team, target, units, has_trait, get_turns_started) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange(effectType, team, target)` -- MIRROR :
+    `GetInRangeAuraAmount(effectType, team, target, returnFirst: true) > 0`."""
+    return get_in_range_aura_amount(effect_type, team, target, units, has_trait,
+                                    get_turns_started, return_first=True) > 0
+
+
 def is_charging(caster_pos: tuple | None, target_pos: tuple | None, target_id,
                 charged_unit_ids, elev_by_pos: dict | None = None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsCharging(caster, target)` — MIRROR du decompile,

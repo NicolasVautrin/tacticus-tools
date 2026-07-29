@@ -197,9 +197,12 @@ inchangé.
 * **Les caps `vtbl+0x228 / 0x238`** du corps commun : toujours non répliqués, jamais vus saturer
   (max mesuré ici : 4 voisins, dont 2 qualifiants).
 * **Le comportement de l'ability elle-même** — `CursedPlagueBellMovementAbility`,
-  `CursedPlagueBell_ExtraMoveEffect`, `CursedPlagueBell_DangerZoneEffect`,
-  `CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` : ce cas ne porte que le PLAYBOOK
-  (l'utilité de mouvement de l'IA), pas l'effet de jeu.
+  `CursedPlagueBell_ExtraMoveEffect`, `CursedPlagueBell_DangerZoneEffect` : ce cas ne porte que le
+  PLAYBOOK (l'utilité de mouvement de l'IA), pas l'effet de jeu.
+  `CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` en est SORTI : porté et validé live
+  par **`case-224-is-in-contagions-of-nurgle-range`** (nœud DSL `IsInUnitAura`, table de portée
+  `entities/effects/aura.py`). Le reste de son `CreateTrigger` et son `CreateBehaviour` restent non
+  portés.
 
 ---
 

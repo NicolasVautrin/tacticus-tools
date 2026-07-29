@@ -176,8 +176,10 @@ class DslContext:
     # Defaut None -> False (degradation fidele). Fourni par `entities_from_state` (UnitStats.has_negative_modifier).
     has_negative_modifier: object | None = None
     # Portee d'AURA d'EQUIPE (`IsInAuraRangeTrigger`, ex. `IsInTeamContagionsOfNurgleAura`) :
-    # `is_in_team_aura(unit, effectType, teamReference)->bool`. Le canal d'aura n'est PAS materialise
-    # offline -> defaut None = False (residu documente, cf. `IsInTeamAura`).
+    # `is_in_team_aura(unit, effectType, teamReference)->bool` = mirror de
+    # `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` (case-224 ; le port vit dans
+    # `battle_query.get_in_range_aura_amount`, son etage de portee dans `entities/effects/aura.py`).
+    # Fourni par `entities_from_state` ; defaut None = False (contexte hors runner).
     is_in_team_aura: object | None = None
     # Compteur runtime d'usages d'une ability ACTIVE par une unite (`DSLFactory.TotalActiveAbilityUsed`) :
     # `total_active_ability_used(unit, abilityType)->int`. NON capte offline (meme regime que

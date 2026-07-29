@@ -4,6 +4,7 @@ TOUTES les feuilles du package `behaviours`. cf. docs/rl/dsl-effect-nodes.md,
 docs/rl/dsl-live-context-substrate.md."""
 from __future__ import annotations
 
+from .... import battle_query as _bq
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           HealthComponent, get_unit_feet)
@@ -331,6 +332,27 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         return bool(us.has_negative_modifier(stat_types)) if us is not None else False
 
+    # `ctx.is_in_team_aura` (`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` ->
+    # slot `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange`) : `unit` est-elle dans la portee
+    # d'une aura `effect_type` portee par une unite de l'EQUIPE de `team_reference` ?
+    # Le canal etait un RESIDU ASSUME (accesseur jamais fourni -> le noeud `IsInTeamAura` rendait
+    # toujours False, donc la branche AURA de `PlagueburstMortarAbility$$GetIsValidAdjacentEnemyTrigger`
+    # etait morte). Il est desormais MATERIALISE : `BattleQuery$$GetInRangeAuraAmount` est entierement
+    # lisible au decompile (aucun slot opaque) et son etage de portee vit dans
+    # `entities/effects/aura.py`, partage avec la formule `AuraEffectRange`. La correction est
+    # strictement dans le sens de la FIDELITE (le port refusait des cibles que le natif accepte).
+    def _is_in_team_aura(unit, effect_type, team_reference):
+        team = (team_reference or {}).get("team")
+        if team is None:
+            return False                       # `GetCurrentTeamId(ref)` indisponible -> pas d'aura
+        return _bq.is_in_team_aura_range(int(effect_type), int(team), unit, units,
+                                         _has_trait, _turns_started)
+
+    def _turns_started(unit):
+        """`StatAmount(Owner, 0xc = TurnsStarted)` -- l'entree de `GetCurrentRange` d'un `IAuraEffect`."""
+        from ....entities.stats import StatType as _ST
+        return int(_get_stat(unit, int(_ST.TURNS_STARTED), 0, None) or 0)
+
     # `ctx.stat_modifier_amount` (`CurrentStatModifierAmountFormula`, gate d'idempotence de
     # `AddOrUpdateStaticStatModifierEffect`) : contribution COURANTE, sur `stat_type`, de l'effet
     # `effect_type` porte par l'unite = la `ValueModification` keyee par SA cle d'instance
@@ -417,5 +439,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,
+                      is_in_team_aura=_is_in_team_aura,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
                       current_player_machine_position=mow_pos)

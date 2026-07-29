@@ -28,12 +28,12 @@ import hexgeo
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
-from ...entities.selectors import (ActiveTarget, Cache, Caster, CasterTile, AdjacentTiles,
+from ...entities.selectors import (ActiveTarget, Actor, Cache, Caster, CasterTile, AdjacentTiles,
                                    AdjacentUnits, adjacent_units, Enemies, Filter, FixedTileIds,
                                    Friends, Sub, Subject, Union, Unique, Units, UnitsWithoutTrait,
                                    UnitsWithTrait, Target)
 from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, IsInTeamAura,
-                                  TriggerAnd, TriggerOr)
+                                  IsInUnitAura, TriggerAnd, TriggerOr)
 from ...entities.formulas import StatAmount
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType, StatPart
@@ -283,6 +283,65 @@ def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
     return 1
 
 
+# ====== CursedPlagueBell — le PREDICAT d'aura (deathBlightbringer `Corrodius`, triggered 1071) ======
+#                                              case-224 item 4
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$CreateTrigger`
+# (MIRROR du decompile ; slots de `IdunBattleLogic.Entities.DSLSelectors` du build `rnca9r7q6c` --
+# `+0x30 Owner · +0x40 Actor · +0x48 Caster · +0x60 Target · +0x68 ActiveTarget/Subject`, mapping
+# ETABLI par recoupement sur `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger`, pas devine) :
+#
+#     On(9)
+#   & ( OwnerIsTarget  |  <DSLTriggers+0x20>  )
+#   & NOT CasterIsTarget
+#   & CurrentAttackDamageProfilesContain(0xd = Psychic)
+#   & AreEnemies(Actor@0x40, Owner@0x30)
+#   & HasTrait(Actor@0x40, 0x3ea = UnitTrait.Psyker)
+#   & IsInContagionsOfNurgleRange                        <-- CE predicat (inline dans CreateTrigger)
+#   & NOT CurrentAbilityIs(this)
+#
+# `...CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` est une PROPRIETE de la classe dont
+# le corps compile est EXACTEMENT `DSLTriggers.IsInUnitContagionsOfNurgleAura(Actor@0x40, Owner@0x30)`
+# (le compilateur l'INLINE dans `CreateTrigger`, d'ou les deux xrefs de la propriete qui ne sont que
+# des entrees de table de methodes). C'est donc un **NOEUD DSL** (kind T), PAS un helper imperatif :
+# le port le construit comme un arbre, il ne recable rien a la main.
+#
+# `IdunBattleLogic.Entities.DSLTriggers$$IsInUnitContagionsOfNurgleAura(target, unit)` =
+#     AmountIsGreater( ContagionsOfNurgleRange(unit, unitSelectionType=0, isNextTurn=false),
+#                      MinDistance(target, unit) )                       # STRICT : dist < range
+# -> `entities/triggers.py::IsInUnitAura` (comparateur STRICT etabli par XREF du ctor, cf. son
+# docstring) au-dessus de `entities/formulas.py::AuraEffectRange` + `MinDistance`.
+#
+# SUR QUOI PORTE LA « RANGE » (la question qui change la forme du port) : sur l'UNITE `Owner@0x30`,
+# c'est-a-dire le porteur de la cloche. Pas une entite-effet posee, pas un ensemble de tuiles.
+# `AuraEffectRangeFormula` lit la **DEFINITION** de l'effet 1071 dans l'`EffectsDatabase`, verifie
+# `HasTrait(owner, 0x7eb = ContagionsOfNurgle)` et evalue `GetCurrentRange()` SUR l'owner
+# (= `GetRangeOnOwnerTurn(TurnsStarted(owner))` = 1/2/3). Detail : `entities/effects/aura.py`.
+
+CONTAGIONS_OF_NURGLE_AURA = int(EffectType.ContagionsOfNurgle_ArmorReduction1)    # 0x42f = 1071
+
+
+def is_in_contagions_of_nurgle_range() -> IsInUnitAura:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$
+    IsInContagionsOfNurgleRange` — MIRROR 1:1 : `IsInUnitContagionsOfNurgleAura(Actor@0x40,
+    Owner@0x30)`, un unique noeud DSL.
+
+    `Owner@0x30` est rendu par `Caster()` : le port ne materialise pas de selecteur `Owner` distinct
+    (`ctx.owner` retombe sur `ctx.caster`, hypothese Owner==Caster deja actee pour les triggered, cf.
+    `entities/selectors/accessors.py::OwnerTile` et `triggers.OwnerIsTarget`). `Actor@0x40` = l'ACTEUR
+    de l'evenement declencheur = `Actor()` (`ctx.actor`).
+
+    Verdict de portee (STRICT `dist < range`) : un attaquant ADJACENT (dist 1) n'est PAS dans l'aura
+    tant que `TurnsStarted(owner) <= 2` (range 1), l'est a partir du 3e tour de l'owner (range 2).
+    Ce n'est pas une coquille de lecture -- c'est le comparateur du ctor `AmountIsGreater`, et il
+    DIFFERE de l'inclusif `BattleQuery$$GetInRangeAuraAmount` de la version d'EQUIPE (cf.
+    `battle_query.get_in_range_aura_amount`). Les deux etages de portee, eux, sont le MEME code.
+
+    L'ability 1071 elle-meme (`CreateBehaviour` : `AttackWithAttackDamage` Psychic) n'est PAS portee
+    ici -- ce cas ne livre que le predicat, cf. `docs/rl/case-224-is-in-contagions-of-nurgle-range.md`."""
+    return IsInUnitAura(Actor(), CONTAGIONS_OF_NURGLE_AURA, Caster())
+
+
 def poxwalkers_spawn_tiles(state: "State", caster_id: int, radius: int) -> list:
     """`CanAddUnit(SurroundingTiles(owner@0x148, includeCenter=0, range))` : tuiles LIBRES et marchables du
     disque hex de rayon `range` autour du caster (centre exclu -- il est occupe par le caster de toute
@@ -429,11 +488,14 @@ class EntropyCannonsAbility(ActiveAbility):
     # `TargetMatchesDynamicRule` : la regle-delegue est
     # `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`
     # (deja RE-lue et documentee en tete de section) -- elle rend `2` sauf si la cible est sous aura
-    # Contagion ALLIEE ou porte une modification NEGATIVE de FixedArmor. NON PORTEE : la branche
-    # AURA n'est pas materialisable offline (`entities/triggers.py::IsInTeamAura` est inerte), donc
-    # porter la seule branche ARMURE REFUSERAIT des cibles que le natif accepte -- une degradation
-    # STRICTE, exactement la regression que ce module interdit. `get_dynamic_invalid_target_reason`
-    # garde donc son defaut 0 (permissif) et l'ecart est MESURE, pas suppose (cf. case-249).
+    # Contagion ALLIEE ou porte une modification NEGATIVE de FixedArmor. NON PORTEE : le port n'a pas
+    # de face DECISION pour les MoW (elles sont hors de `decisionView.units`, case-mow §4) ->
+    # `get_dynamic_invalid_target_reason` garde son defaut 0 (permissif), et l'ecart est MESURE, pas
+    # suppose (cf. case-249). NB : le motif historique de ce non-port (« la branche AURA n'est pas
+    # materialisable offline ») N'EST PLUS VALIDE depuis case-224 -- les DEUX branches sont
+    # desormais portables (cf. `plagueburst_is_valid_adjacent_enemy_trigger`, qui les evalue). C'est
+    # d'ailleurs CE predicat natif qui sert d'ORACLE LIVE au port de l'aura
+    # (`tests/engine/runner/test_contagions_aura_range_live.py`, via `abilityTargets`).
     TARGETING_OPTIONS = TargetingOptions(
         rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowNullCasterTile),
         self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
@@ -576,9 +638,10 @@ def plagueburst_is_valid_adjacent_enemy_trigger() -> TriggerOr:
     (MIRROR 1:1 du decompile, cf. le bloc ci-dessus). Le sujet est `Subject()` (= `@0x180`, l'element lie
     par le `Filter`), la reference d'equipe de l'aura est `Caster()` (= `@0x160`).
 
-    RESIDU : la branche AURA (`IsInTeamAura`) est INERTE offline (canal d'aura non materialise, cf.
-    `entities/triggers.py::IsInTeamAura`) -> seule la branche ARMURE discrimine. Le natif, lui, accepte
-    aussi une cible sous aura Contagion alliee."""
+    Les DEUX branches sont desormais actives : la branche AURA a ete portee en case-224
+    (`battle_query.get_in_range_aura_amount`, mirror de `BattleQuery$$GetInRangeAuraAmount`, cable au
+    contexte DSL par `entities_from_state`) -- avant cela elle etait inerte et le port REFUSAIT des
+    cibles que le natif accepte. La branche ARMURE (`HasNegativeModifier` FixedArmor) est inchangee."""
     aura = IsInTeamAura(Subject(), CONTAGIONS_OF_NURGLE_ARMOR_REDUCTION1, Caster())
     armor = TriggerAnd(
         HasNegativeModifier(Subject(), (int(StatType.FIXED_ARMOR),)),
