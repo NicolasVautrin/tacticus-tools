@@ -826,13 +826,28 @@ def _load_seed_bc(path=None) -> dict:
     """Seed BC template (data/seed-bc.json par defaut). `path` (optionnel) = surcharge vers un
     seed BC CUSTOM sur disque -- sert a valider un porteur HORS du pool capture (ex. SavageEchoes
     /bloodTerminator, absent du seed BC) en injectant son bloc Unit dans une copie du seed BC.
-    N'ecrit JAMAIS le seed BC partage (le custom vit dans un fichier a part)."""
+    N'ecrit JAMAIS le seed BC partage (le custom vit dans un fichier a part).
+
+    #254 -- le second catalogue (`BC.Abilities`) est RE-SYNTHETISE depuis le gameconfig VIVANT a
+    chaque chargement. Le seed BC est la capture d'UN build ; `gameconfig.py` lit le fichier
+    VIVANT, donc celui du build COURANT. Une MAJ qui AJOUTE une variable/constante a une ability
+    laisse la capture en arriere, et le natif neuf la lit :
+    `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LEVE sur cle absente ->
+    « system error » au cast, ou des `initAndStart` si la cle est lue a la construction du trigger
+    d'un PASSIF. Detail, mesures et decompile : `catalog_inject.refresh_ability_configs`."""
     p = Path(path) if path else SEED_BC
     if not p.exists():
         raise RuntimeError(
             f"seed BC absent: {p} — artefact live per-hash purge de data/. "
             f"Regenere-le : `python dump_boards.py` (capture live via dumpBattleConfig).")
-    return json.loads(p.read_text(encoding="utf-8"))
+    bc = json.loads(p.read_text(encoding="utf-8"))
+    import catalog_inject                                       # import tardif : charge le gameconfig
+    refreshed, added = catalog_inject.refresh_ability_configs(bc)
+    if refreshed or added:
+        print(f"[seed-bc] configs d'ability re-synthetisees depuis le gameconfig courant: "
+              f"{len(refreshed)} rafraichies {refreshed} / {len(added)} ajoutees {added}",
+              file=sys.stderr)
+    return bc
 
 
 def _load_unspawnable(rank: int) -> tuple[set[str], set[str]]:

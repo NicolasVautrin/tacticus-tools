@@ -43,11 +43,15 @@ DECLARING = "IdunBattle.AI.Playbook.ComparablePlaybook`1"
 
 
 def _classes_tsv() -> Path:
-    root = REPO / "data" / "symbols"
-    builds = [p for p in root.iterdir() if p.is_dir() and (p / "frida" / "classes.tsv").exists()]
-    assert builds, "aucune table de symboles sous data/symbols"
-    assert len(builds) == 1, "plusieurs builds : %r" % [p.name for p in builds]
-    return builds[0] / "frida" / "classes.tsv"
+    """Table de classes du build QUI FAIT FOI -- designe par `data/symbols/CURRENT`.
+
+    #254 : exiger un repertoire UNIQUE sous `data/symbols/` cassait des qu'une MAJ laisse l'ancien
+    build a cote du neuf, alors qu'on le conserve EXPRES (son diff est le rapport de changement du
+    jeu). Meme correction que `catalog_inject._build_hash` : passer par `symbols_layout`."""
+    from symbols_layout import current_build
+    p = REPO / "data" / "symbols" / current_build() / "frida" / "classes.tsv"
+    assert p.exists(), "table de classes absente pour le build courant : %s" % p
+    return p
 
 
 def _parents() -> dict:
