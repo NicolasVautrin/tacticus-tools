@@ -14,7 +14,9 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
 `meta` (PAR TUILE candidate) — clés consommées :
   elevation : int ; elevation_max, elevation_min : int     (Elevation 8 — tuile via tileMeta ; max/min sur le
                                                             BOARD ENTIER, cf. LoadRelevantTileElevations) [ACTIF]
-  steppable : {is_enemy, is_decoy} | None                  (SteppableUnit 19)
+  steppable : {is_friend, is_enemy, is_decoy, triggered} | None   (SteppableUnit 19) [ACTIF #241 —
+                                                            occupant `Steppable` de la tuile, via
+                                                            `apply_tile_attributes`]
   effects : [effect_name]                                  (TileEffects 9 — effets DYNAMIQUES (Loop1) + covers
                                                             HÉBERGÉS par le terrain (Loop2 : DryBush->LightCover)) [ACTIF]
   is_temporary : bool                                      (TemporaryTile 13 — via tileMeta) [ACTIF]
@@ -29,7 +31,9 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   hero_door_nearest_cost : int                             (HeroLikeDoorOpening 30 branche B)
   phantasm_friendly_adjacent / ghost_friendly_adjacent : bool      (Phantasm 60 / Echoes 58)
   attract_mechanicals_neighbor : bool                      (DoctrinaImperatives 57)
-  decoy_gate : bool, decoy_friend_count : int              (DecoysAndMisdirection 64)
+  decoy_gate : bool, decoy_friend_count : int              (DecoysAndMisdirection 64) [ACTIF #241 —
+                                                            occupant steppable NON ennemi + compte
+                                                            des amis porteurs de 1304]
   ability_friend_counts : {ability_id:int -> count}        (KustomForceField 1102 / Defender 1155 / Savior 1120)
   movetowards_hexdist : {ability_id:int -> hexdist}        (BioMinefield 1315 / MasterOfTheTutelaries 1096)
   neighbor_effect_names : {adjacent|surrounding1|ranged2 -> [effect_name]}   (UnitEffects 10/11/12)
@@ -38,7 +42,9 @@ quand la donnée manque — c'est EXACTEMENT la dégradation native (la conditio
   unit_traits : [int]                 (2 summon, 5, 13 object, 16 hero, 26/1006/2026 grande-alliance,
                                        1019 daemon …) [ACTIF #175 — `unit_trait_ids(visualId)`]
   unit_triggered_abilities : [int]    (1120 SaviorProtocols, 1221 MoltenForm, 1181 GuardianOrganism …)
-  unit_faction : int                  (9 T'au-style, 15 GSC-style …)
+  unit_faction : int                  (valeur `UnitFaction` du mover : 9 Tau, 15 Genestealers …)
+                                      [ACTIF #241 — `faction_value(visualId)` = `FactionId` gameconfig
+                                       -> enum, le pendant du `System.Enum.ToString` de `HasFaction`]
   friend_positions : [(col,row)]      (allies vivants self-exclu = ctx.fpos — TriggeredAbilities(2))
   unit_has_ranged_weapon : bool ; unit_is_ai : bool ; player_door_mode : int ; contaminated_excluded : bool
   is_spawning : bool                  (`IdunBattle.AI.Utilities.UtilityMovementCase$$get_IsSpawning`
@@ -49,9 +55,11 @@ Il porte AUSSI des CARTES par-position (`elev_by_pos`, `neigh_by_pos`, `is_terri
 tuile — `apply_tile_attributes` en dérive les deux clés `meta` correspondantes.
 
 Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14 et docs/rl/case-175-tile-unit-traits.md) :
-- ACTIVES (metadata dispo) : Elevation(8), SteppableUnit(19), TileEffects(9, partiel), TemporaryTile(13),
+- ACTIVES (metadata dispo) : Elevation(8), TileEffects(9, partiel), TemporaryTile(13),
   TriggeredAbilities(2) (dispatcher playbook, case-36 — via ctx.unit_triggered_abilities/friend_positions),
-  DespoiledGround(28) et MoltenForm(23) (#175 — `ctx.unit_traits` + `meta.tile_effect_type_ids`).
+  DespoiledGround(28) et MoltenForm(23) (#175 — `ctx.unit_traits` + `meta.tile_effect_type_ids`),
+  UnitEffects 10/11/12 (N13 — `meta.neighbor_effect_names`), SteppableUnit(19) et
+  DecoysAndMisdirection_AttractToDecoys(64) (#241 — occupant steppable de la tuile, cf. case-241).
 - PORTÉES FIDÈLE mais DORMANTES (gate sur metadata non encore plombée → 0) : les autres `*Utility`.
   ⚠ #175 : leur ctx de TRAIT est désormais peuplé — ce qui reste manquant est la metadata PAR TUILE
   (`occupant_is_powerup`, `door`, `attract_mechanicals_neighbor`, `movetowards_hexdist`, …), qu'AUCUN
@@ -67,6 +75,11 @@ from .base import BaseUtility, ComposedUtility
 from .utility_type import UtilityType
 from ..entities.effect_type import EffectType
 from ..entities.active_ability_type import ActiveAbilityType
+# Enums natifs purs (aucun import `engine` -> aucun cycle) : les feuilles SteppableUnit(19) et
+# DecoysAndMisdirection_AttractToDecoys(64) citent leurs litteraux par leur MEMBRE d'enum (#241).
+from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..entities.traits.unit_trait import UnitTrait
+from ..entities.unit_faction import UnitFaction, faction_value
 
 # UtilityType des 29 feuilles de Tile(7) (ordre runtime). name = catégorie BC `Default.<name>`.
 # #158 : ids bruts -> membres `UtilityType` nommés (l'ordre est la sequence runtime native ; value-preserving,
@@ -192,18 +205,49 @@ class ElevationUtility(BaseUtility):
 
 class SteppableUnitUtility(BaseUtility):
     """`SteppableUnitUtility` (IdunBattle.AI.Utilities.SteppableUnitUtility$$.ctor ; UtilityType.SteppableUnit=19) ; `<d__10>.IdunBattle.AI.Utilities.SteppableUnitUtility.u003CEvaluateMovementInStepsu003Ed__10$$MoveNext` :
-    si une unité STEPPABLE (summon/decoy) est sur la tuile → poids ami/ennemi × summon/decoy.
-    BC : EnemySteppableUnit=50, FriendlySteppableUnit=-50, FriendlyDecoy=-50, EnemyDecoy=1. `meta.steppable`."""
+
+        if (!TileExtensions.GetSteppableUnit(case.position.MainTile, ctx, out u))  return 0;
+        if      (UnitExtensions.HasTriggeredAbility(u, 0x4d))  key = "SpikyStingOnMovementTile";
+        else if (UnitExtensions.HasTriggeredAbility(u, 0x72))  key = "Landmine";
+        else if (UnitExtensions.HasTrait(u, 0x41d))                        // UnitTrait.Decoy = 1053
+             key = UnitExtensions.IsFriend(u, case.unit, ctx) ? "FriendlyDecoy" : "EnemyDecoy";
+        else key = UnitExtensions.IsEnemy(u, case.unit, ctx) ? "EnemySteppableUnit"
+                                                            : "FriendlySteppableUnit";
+        return GetUtilityValue(key);
+
+    `IdunBattle.Entities.TileExtensions$$GetSteppableUnit` = l'OCCUPANT de la tuile
+    (`IdunBattle.Entities.UnitExtensions$$GetUnit` -> `TileContentComponent.IsFilled`, UNE entite par
+    tuile) qui porte le trait `0x1b` = `UnitTrait.Steppable` (27) -- pas le trait `Decoy` : n'importe
+    quel summon steppable (decoy GSC, mine haywire) arme la feuille.
+
+    Les 5 cles sont LUES (#241, `probe_212_bc_key_literals.py` sur ce symbole), pas devinees. BC
+    `Utilities.Default.SteppableUnit` : EnemySteppableUnit=50, FriendlySteppableUnit=-50,
+    FriendlyDecoy=-50, EnemyDecoy=1. Les DEUX premieres branches sont mirrorees mais rendent 0 sur
+    cette BC : `SpikyStingOnMovementTile` et `Landmine` n'y figurent PAS -- `GetUtilityValue` d'une
+    cle absente rend `Fix64.FromInt(0)` (+ un log), exactement ce que fait `Weights.sub`. Elles
+    restent portees parce qu'elles COURT-CIRCUITENT les suivantes : un steppable porteur de
+    `TriggeredAbilityType.SpikySting` (77) / `LandMine` (114) vaut 0, pas -50.
+
+    ⚠ Le natif n'utilise PAS le meme predicat des deux cotes : `IsFriend` pour la branche Decoy,
+    `IsEnemy` pour l'autre. Ils sont complementaires tant que `case.unit != null` (les deux comparent
+    `GetCurrentPlayer(a).id` a `GetCurrentPlayer(b).id`), d'ou les deux booleens distincts dans
+    `meta.steppable` -- si `case.unit` etait nul, les deux rendraient False et les cles seraient
+    `EnemyDecoy` / `FriendlySteppableUnit`. `meta.steppable` est pose par `apply_tile_attributes`."""
     UTILITY_TYPE = int(UtilityType.SteppableUnit)  # 19
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
         st = (meta or {}).get("steppable")
         if not st:
             return 0.0
-        is_enemy = st.get("is_enemy")
+        trig = set(st.get("triggered") or ())
+        if int(TriggeredAbilityType.SpikySting) in trig:            # 0x4d
+            return wt.sub("SteppableUnit", "SpikyStingOnMovementTile")
+        if int(TriggeredAbilityType.LandMine) in trig:              # 0x72
+            return wt.sub("SteppableUnit", "Landmine")
         if st.get("is_decoy"):
-            return wt.sub("SteppableUnit", "EnemyDecoy" if is_enemy else "FriendlyDecoy")
-        return wt.sub("SteppableUnit", "EnemySteppableUnit" if is_enemy else "FriendlySteppableUnit")
+            return wt.sub("SteppableUnit", "FriendlyDecoy" if st.get("is_friend") else "EnemyDecoy")
+        return wt.sub("SteppableUnit",
+                      "EnemySteppableUnit" if st.get("is_enemy") else "FriendlySteppableUnit")
 
 
 class TileEffectsUtility(BaseUtility):
@@ -470,12 +514,37 @@ class AttractMechanicalsUtility(BaseUtility):
 
 class AttractToDecoysUtility(BaseUtility):
     """`AttractToDecoysUtility` (IdunBattle.AI.Utilities.AttractToDecoysUtility$$.ctor ; UtilityType.DecoysAndMisdirection_AttractToDecoys=64) ;
-    IdunBattle.AI.Utilities.AttractToDecoysUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext : +75 PAR ami avec triggered ability 1304 (0x518), gate : unité faction 15 ET tuile avec une
-    unité steppable (trait 27) NON ennemie. `ctx.unit_faction` + `meta.decoy_gate` + `meta.decoy_friend_count`."""
+    IdunBattle.AI.Utilities.AttractToDecoysUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext :
+
+        if (case.unit == null)                                       yield break;
+        if (!UnitExtensions.HasFaction(case.unit, 0xf))              yield break;  // Genestealers
+        if (!TileExtensions.HasSteppableUnit(case.CasterTile, ctx))  yield break;
+        if (TileExtensions.GetSteppableUnit(case.CasterTile, ctx, out u)
+            && UnitExtensions.IsEnemy(u, case.unit, ctx))            yield break;
+        foreach (u in ctx.GetAllAliveUnits())                                      // slot 0x88
+            if (UnitExtensions.IsFriend(u, case.unit, ctx)
+                && UnitExtensions.HasTriggeredAbility(u, 0x518))                   // 1304
+                yield return GetUtilityValue("DecoysAndMisdirection_FriendlyGSCLikeDecoys");  // 75
+
+    Trois faits que le nom des cles ne dit pas, et qui sont LUS au decompile (#241) :
+
+    * le gate de tuile porte sur `Steppable` (27), PAS sur `Decoy` (1053) -- il suffit qu'un summon
+      steppable non ennemi soit sur la tuile candidate ;
+    * la boucle de comptage n'a AUCUN filtre de position : c'est `GetAllAliveUnits` (le slot 0x88 de
+      l'interface de query, identifie par `IdunBattle.Entities.Selectors.AllAliveUnitsSelector$$Select`
+      et `IdunBattle.AI.Playbook.BasePlaybook$$GetAllEnemies`), donc TOUTE la bataille -- le compte
+      est CONSTANT sur la decision, seul le gate varie par tuile ;
+    * `IsFriend(u, case.unit)` compare les playerId : le MOVER LUI-MEME satisfait le predicat, donc il
+      compte s'il porte 1304 (aucune exclusion de self, contrairement aux feuilles `AUnitEffects*`).
+
+    `HasFaction` compare `System.Enum.ToString(UnitFaction)` au `FactionComponent+0x30` (une CHAINE) ;
+    le pendant offline est le `FactionId` gameconfig, converti en valeur d'enum par
+    `engine.entities.unit_faction`. `ctx.unit_faction` + `meta.decoy_gate` + `meta.decoy_friend_count`
+    (les deux `meta` sont poses par `apply_tile_attributes`)."""
     UTILITY_TYPE = int(UtilityType.DecoysAndMisdirection_AttractToDecoys)  # 64
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        if (ctx or {}).get("unit_faction") != 15:
+        if (ctx or {}).get("unit_faction") != int(UnitFaction.Genestealers):   # HasFaction(.., 0xf)
             return 0.0
         if not (meta or {}).get("decoy_gate"):
             return 0.0
@@ -911,9 +980,9 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
       * `parent_id` nul → `{}` (ni sujet ni parent : aucune feuille gatée ne peut rien rendre).
 
     Clés produites (mêmes noms/formes que `tile_leaf_ctx`) : `unit_triggered_abilities`,
-    `unit_traits`, `uid`, `self_pos`, `friend_units`/`enemy_units` (`{pos, vis, traits, effects}`,
-    self exclu), `friend_positions`, `elev_by_pos`, `neigh_by_pos` (ordre NATIF
-    `board.neighbours_native`), `walkable_by_pos`.
+    `unit_traits`, `unit_faction`, `uid`, `self_pos`, `friend_units`/`enemy_units`
+    (`{pos, vis, id, triggered, traits, effects}`, self exclu), `friend_positions`, `elev_by_pos`,
+    `neigh_by_pos` (ordre NATIF `board.neighbours_native`), `walkable_by_pos`.
 
     NON produites, donc feuilles muettes ici (résidus nommés, mêmes que côté décision) : `scene` /
     `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
@@ -945,7 +1014,11 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
         vis = uc.visual_id if uc is not None else None
         oc = e.get_component(OwnerComponent)
         sc = e.get_component(StatsComponent)
-        rec = {"pos": (pc.col, pc.row), "vis": vis,
+        rec = {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
+               # Kit DECLENCHE du voisin (#241) -- feuilles SteppableUnit(19)/AttractToDecoys(64).
+               # Ici PAS de canal live : le kit gameconfig est le seul substrat de ce foyer (meme
+               # residu N13-b que `unit_triggered_abilities` ci-dessous : traits/reliques invisibles).
+               "triggered": tuple(triggered_ability_ids(vis)),
                # #225 : substrat d'ENTITE (kit + traits accordes en bataille par le leaf `AddTrait`),
                # pas le kit gameconfig cache par visualId -- c'est ce que `HasTrait` interroge.
                "traits": entity_trait_names(sc.ctx if sc is not None else None, vis),
@@ -969,6 +1042,8 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # un trait EN BATAILLE (`AddTrait`), que le kit gameconfig par visualId ignore.
             "unit_traits": entity_trait_ids(msc.ctx if msc is not None else None, my_vis),
             "uid": unit_id,
+            # `HasFaction(case.unit, <UnitFaction>)` cote offline (#241) — cf. `tile_leaf_ctx`.
+            "unit_faction": faction_value(my_vis),
             # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
             "is_spawning": False,
             "self_pos": (mpc.col, mpc.row) if mpc is not None else None,
@@ -990,19 +1065,36 @@ def _adjacent_units(ctx, uid):
     qu'aucun trait n'a ete accorde en bataille (`UnitContext.from_snapshot` seede exactement
     `gameconfig.unit(vis).traits`) ; sur le chemin OFFLINE (`Scene.from_state`) c'est le meme objet que
     `StatsComponent.ctx`, donc le trait accorde y est VU. `scene` absente / id hors tables -> borne
-    statique (`entity_trait_names(None, vis)`)."""
+    statique (`entity_trait_names(None, vis)`).
+
+    #241 -- chaque enregistrement porte aussi son `id` et son kit DECLENCHE (`triggered`), la donnee
+    que reclament les deux feuilles à occupant steppable : `AttractToDecoysUtility` (64) compte les
+    amis porteurs de `DecoysAndMisdirection` (1304) sur `GetAllAliveUnits`, et `SteppableUnitUtility`
+    (19) teste `SpikySting`/`LandMine` sur l'occupant. Meme regle d'union que pour le MOVER dans
+    `tile_leaf_ctx` : kit gameconfig UNIONNE avec la lecture live du `TriggeredAbilityComponent`
+    (`ctx.live_triggered_kits()`, UN seul `unitAbilityStates` pour toute la bataille) -- union et pas
+    remplacement, pour qu'une lecture live partielle ne puisse jamais RETIRER un id connu (N13)."""
     from ..entities.traits.unit_trait import entity_trait_names
+    from ..entities.triggered_ability_type import triggered_ability_ids
     scene = getattr(ctx, "scene", None)
+    _kits_fn = getattr(ctx, "live_triggered_kits", None)
+    live_kits = _kits_fn() if callable(_kits_fn) else {}
     friends, enemies = [], []
     for u in (getattr(ctx, "units", None) or []):
         pos = u.get("pos")
         if not (u.get("alive") and pos):
             continue
         _uctx = scene.ctx(u.get("id")) if scene is not None else None
+        _trig = list(triggered_ability_ids(u.get("visualId")))
+        for _t in (live_kits.get(u.get("id")) or ()):
+            if _t not in _trig:
+                _trig.append(_t)
         rec = {"pos": (pos["col"], pos["row"]),
                # `vis` — id d'unite du voisin, l'argument du noeud `UnitsWithId(sel, <unitId>)`
                # (GeminaeSuperiaPlaybook, case-165b). Meme cle que cote runner.
                "vis": u.get("visualId"),
+               "id": u.get("id"),
+               "triggered": tuple(_trig),
                "traits": entity_trait_names(_uctx, u.get("visualId")),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
                                 for e in (u.get("effects") or ()))}
@@ -1063,6 +1155,12 @@ def tile_leaf_ctx(ctx) -> dict:
             # par le leaf DSL `AddTrait` + pseudo-trait de grande-alliance. `Scene` absente / uid hors
             # tables -> borne statique par visualId (comportement antérieur).
             "unit_traits": entity_trait_ids(_me_ctx, me.get("visualId")),
+            # Valeur d'enum `UnitFaction` du MOVER -- l'argument que les feuilles a gate de faction
+            # passent a `IdunBattle.Entities.UnitExtensions$$HasFaction(case.unit, <UnitFaction>)`
+            # (`AttractToDecoysUtility` 0xf=Genestealers, `SaviorProtocolsUtility` 9=Tau). Le natif
+            # compare `System.Enum.ToString(UnitFaction)` au `FactionComponent+0x30` ; le substrat
+            # offline est le `FactionId` gameconfig (#241). visualId inconnu -> None -> gate ferme.
+            "unit_faction": faction_value(me.get("visualId")),
             "friend_positions": ctx.fpos,
             # {pos,traits} vivants self-exclu — branches AMIS(B1)/ENNEMIS(B2) de AdjacentUnitPreference
             # (#57i : traits pour les filtres, ex. FabricatorClaw garde les amis Mechanical).
@@ -1128,6 +1226,25 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
       ⚠ Les 2e/3e arguments litteraux de `SurroundingFriends` (1, 3) ne sont pas resolus : le
       voisinage MESURE (disque hex plein, r=2, self exclu) suffit a reproduire la mesure.
 
+    - `steppable` / `decoy_gate` / `decoy_friend_count` <- l'OCCUPANT STEPPABLE de la tuile candidate
+      (#241). Meme statut que `neighbor_effect_names` ci-dessus : deux feuilles PORTEES mais INERTES,
+      faute d'appelant qui plombe leur metadonnee.
+        * `SteppableUnitUtility` (19) et `AttractToDecoysUtility` (64) appellent toutes deux
+          `IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tuile, ctx, out u)` =
+          `IdunBattle.Entities.UnitExtensions$$GetUnit` (l'occupant, UNE entite par tuile via
+          `TileContentComponent.IsFilled`) filtre sur le trait `0x1b` = `UnitTrait.Steppable`.
+        * `decoy_gate` = le gate de la feuille 64 : occupant steppable PRESENT et
+          `!UnitExtensions.IsEnemy(u, case.unit, ctx)` -- ni le trait `Decoy` ni la faction de
+          l'occupant n'y interviennent.
+        * `decoy_friend_count` = le compte de sa boucle : amis du mover (self INCLUS -- `IsFriend`
+          compare les playerId) portant `TriggeredAbilityType.DecoysAndMisdirection` (1304), sur
+          `GetAllAliveUnits`, SANS filtre de position. Il est donc CONSTANT sur la decision ; il vit
+          dans le `meta` parce que c'est la feuille qui le lit, pas parce qu'il depend de la tuile.
+      Consequence mesuree AVANT ce cablage (case-212 §7.1) : sur toute tuile candidate occupee par un
+      decoy ami, `X_natif - X_port` valait exactement **+25** = `FriendlyDecoy(-50)` +
+      `DecoysAndMisdirection_FriendlyGSCLikeDecoys(+75)`, sur les deux montages (`MC1_67`/777 et
+      `C4_09`/31337) -- le port EGALISAIT des tuiles que le natif separe de 25.
+
     Écrit en place et rend `meta` (les clés absentes des cartes ne sont PAS posées : une carte non
     fournie laisse la feuille dégrader à 0, comme aujourd'hui)."""
     lc = leaf_ctx or {}
@@ -1159,7 +1276,73 @@ def apply_tile_attributes(meta: dict, pos, leaf_ctx: dict | None) -> dict:
         if adj or sur1 or rng2:
             meta["neighbor_effect_names"] = {"adjacent": adj, "surrounding1": sur1,
                                              "ranged2": rng2}
+    occ = _steppable_occupant(pos, lc)
+    if occ is not None:
+        meta["steppable"] = occ                                   # feuille SteppableUnit(19)
+        if not occ["is_enemy"]:                                   # feuille AttractToDecoys(64)
+            meta["decoy_gate"] = True
+            meta["decoy_friend_count"] = _attract_to_decoys_friend_count(lc)
     return meta
+
+
+def _steppable_occupant(pos, lc: dict) -> "dict | None":
+    """`IdunBattle.Entities.TileExtensions$$GetSteppableUnit(tuile, ctx, out u)` cote offline :
+    l'OCCUPANT de `pos` s'il porte `UnitTrait.Steppable` (0x1b), sinon `None`.
+
+        unit = UnitExtensions.GetUnit(tile, ctx);            // TileContentComponent.IsFilled
+        return unit != null && unit.BaseUnitComponent?.HasTrait(0x1b) == true;
+
+    Une tuile n'a qu'UN occupant (le `TileContentComponent` porte un seul id) : trouver une unite
+    NON steppable sur `pos` fait donc rendre `None`, pas continuer a chercher.
+
+    Rend `{is_friend, is_enemy, is_decoy, triggered}` -- les quatre lectures que la feuille 19 fait
+    ensuite sur `u` (`IsFriend`/`IsEnemy` contre `case.unit`, `HasTrait(0x41d)`,
+    `HasTriggeredAbility`). `is_friend`/`is_enemy` sont DEUX booleens et non l'un la negation de
+    l'autre par principe : le natif interroge des predicats DIFFERENTS selon la branche (cf.
+    `SteppableUnitUtility`). Ici ils sont complementaires, comme le natif quand `case.unit != null`.
+
+    Le MOVER est traite a part : `_adjacent_units` l'EXCLUT de `friend_units` (self-exclu), or sur sa
+    tuile d'ORIGINE c'est lui l'occupant -- `IsFriend(self, self)` est vrai (meme playerId)."""
+    if lc.get("self_pos") == pos:
+        traits = set(lc.get("unit_traits") or ())            # ids (`entity_trait_ids`)
+        if int(UnitTrait.Steppable) not in traits:
+            return None
+        return {"is_friend": True, "is_enemy": False,
+                "is_decoy": int(UnitTrait.Decoy) in traits,
+                "triggered": tuple(lc.get("unit_triggered_abilities") or ())}
+    for units, is_friend in ((lc.get("friend_units") or (), True),
+                             (lc.get("enemy_units") or (), False)):
+        for u in units:
+            if u.get("pos") != pos:
+                continue
+            names = u.get("traits") or ()                    # noms (`entity_trait_names`)
+            if UnitTrait.Steppable.name not in names:
+                return None                                  # occupant NON steppable -> false
+            return {"is_friend": is_friend, "is_enemy": not is_friend,
+                    "is_decoy": UnitTrait.Decoy.name in names,
+                    "triggered": tuple(u.get("triggered") or ())}
+    return None
+
+
+def _attract_to_decoys_friend_count(lc: dict) -> int:
+    """Le compte de la boucle de `IdunBattle.AI.Utilities.AttractToDecoysUtility.u003CEvaluate
+    MovementInStepsu003Ed__1$$MoveNext` : nombre d'unites de `GetAllAliveUnits` qui sont
+    `IsFriend(u, case.unit, ctx)` ET `HasTriggeredAbility(u, 0x518)` (1304
+    `TriggeredAbilityType.DecoysAndMisdirection`). Un `yield return <poids>` par unite retenue ->
+    l'appelant somme, donc le terme vaut `75 x n`.
+
+    AUCUN filtre de position ni d'adjacence dans le natif, et AUCUNE exclusion de self : le mover
+    compte pour lui-meme s'il porte 1304. `friend_units` est self-exclu, d'ou le `+1` explicite.
+
+    ⚠ Ecart de substrat assume : `friend_units` ne retient que les amis vivants ET POSITIONNES,
+    la ou `GetAllAliveUnits` ne filtre que sur la vie. Une unite vivante sans position (non
+    deployee) manquerait au compte -- aucune n'est observable sur les montages de runner."""
+    ab = int(TriggeredAbilityType.DecoysAndMisdirection)          # 0x518
+    n = 1 if ab in set(lc.get("unit_triggered_abilities") or ()) else 0
+    for u in (lc.get("friend_units") or ()):
+        if ab in set(u.get("triggered") or ()):
+            n += 1
+    return n
 
 
 def triggered_abilities_attack_utility(ctx, attacker_uid: int, ability_id: int,

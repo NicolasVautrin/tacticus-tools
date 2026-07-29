@@ -177,6 +177,49 @@ class AiDecisionContext:
             _TRIGGERED_KIT_CACHE[key] = got
         return got
 
+    def live_triggered_kits(self) -> dict:
+        """`{unitId: [TriggeredAbilityType]}` pour TOUTES les unites de la bataille, en UN SEUL RPC.
+
+        Meme lecture que `live_triggered_ability_ids` (le `TriggeredAbilityComponent`, `raw[0]` =
+        `TriggeredAbility.AbilityName`) : `unitAbilityStates` SANS `unitId` enumere toutes les
+        entites `Unit`/`Machine` d'un coup. Necessaire des qu'un consommateur a besoin du kit
+        DECLENCHE de plusieurs unites -- ex. `AttractToDecoysUtility` (64), dont le compte natif
+        boucle sur `GetAllAliveUnits` (slot 0x88 de l'interface de query, le meme que
+        `IdunBattle.Entities.Selectors.AllAliveUnitsSelector$$Select` et
+        `IdunBattle.AI.Playbook.BasePlaybook$$GetAllEnemies`) : appeler la version par-unite N fois
+        couterait N walks complets du state pour la meme information.
+
+        Alimente le MEME cache `(rid, unitId)` que la version par-unite -- les deux voies sont donc
+        coherentes et se servent mutuellement -- plus un cache PAR RID de la table complete, car
+        l'appelant (`_adjacent_units` via `tile_leaf_ctx`) est reevalue PAR TUILE CANDIDATE. RPC
+        indisponible / contexte offline (`rid` faux) -> `{}`, et l'appelant retombe sur le kit
+        gameconfig (degradation deja en vigueur)."""
+        if not self.rid:
+            return {}
+        cached = _TRIGGERED_KITS_ALL_CACHE.get(self.rid)
+        if cached is not None:
+            return cached
+        out: dict = {}
+        try:
+            r = self.rpc("unitAbilityStates", {"runnerId": self.rid}, 60) or {}
+        except Exception:
+            _TRIGGERED_KITS_ALL_CACHE[self.rid] = out
+            return out
+        for u in (r.get("units") or []):
+            uid = u.get("entityId")             # cle du RPC (= dv.id / squadId), cf. rpc-snapshot.ts
+            if uid is None:
+                continue
+            ids: list = []
+            for t in (u.get("triggered") or []):
+                raw = (t or {}).get("raw") or []
+                v = raw[0] if raw else None          # TriggeredAbility.AbilityName @+0x10
+                if isinstance(v, int) and v > 0 and v not in ids:
+                    ids.append(v)
+            out[int(uid)] = ids
+            _TRIGGERED_KIT_CACHE[(self.rid, int(uid))] = ids
+        _TRIGGERED_KITS_ALL_CACHE[self.rid] = out
+        return out
+
     def active_ability_levels(self) -> dict:
         """`{unitId: activeAbilityLevel}` (stat 18 / unitConfig+0xB8). Source du NIVEAU d'ability ACTIVE
         pour `InspiredToGreatnessPlaybook` (util = level zero-based)."""
@@ -199,6 +242,8 @@ _BOARD_TERRAIN_CACHE: dict = {}    # {rid: {(col,row): tileDefId}} — terrain s
 _ACTIVE_LEVEL_CACHE: dict = {}     # {rid: {unitId: {active,passive,multiplier}}} — combatSnapshot, 1 fetch/rid
 _TRIGGERED_KIT_CACHE: dict = {}    # {(rid, unitId): [TriggeredAbilityType]} — unitAbilityStates, 1 fetch/unite
 #                                    (kit DECLENCHE reel : passifs + trait-granted + RELIQUES, cf. N13)
+_TRIGGERED_KITS_ALL_CACHE: dict = {}   # {rid: {unitId: [TriggeredAbilityType]}} — unitAbilityStates SANS
+#                                        unitId, 1 fetch/rid (#241 : `_adjacent_units` est reevalue par tuile)
 
 
 def _board_graph_tiles(rpc: Callable[..., dict], rid: int) -> list:

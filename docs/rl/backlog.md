@@ -154,11 +154,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   appartient à la base générique `AdjacentUnitPreferenceTriggeredAbilityPlaybook<T>`, absente du
   dump. On sait seulement qu'il est `>= 3` (`GuardianOrganismPlaybook`, `case-36`). `MAX_ADJACENT_*`
   reste `None` quand le concret est muet.
-- **`meta.steppable` / `meta.decoy_gate` / `meta.decoy_friend_count` jamais posés** (`case-212` §7.1) :
-  `SteppableUnitUtility` (19) et `AttractToDecoysUtility` (64) sont PORTÉES et correctes, mais
-  INERTES faute de métadonnée. Écart mesuré **+25 constant** (−50 + 75) sur toute tuile candidate
-  occupée par un decoy ami — donc sur toute bataille Genestealers. Gap de CONTEXTE
-  (`apply_tile_attributes`), pas de feuille. `[opus]`.
+- ~~**`meta.steppable` / `meta.decoy_gate` / `meta.decoy_friend_count` jamais posés**~~ — **FAIT**
+  (`case-241-steppable-decoy-tile-leaves.md`). Le +25 constant tombe à **0** sur les 6 tuiles à
+  occupant decoy des deux montages, et les 16 autres (déjà à 0) y restent. Il n'y avait **aucun**
+  attribut natif à lire : les deux feuilles dérivent leur donnée de l'OCCUPANT de la tuile
+  (`TileContentComponent` + `HasTrait(0x1b Steppable)`) et, pour la 64, de `GetAllAliveUnits`
+  (slot 0x88) — sans filtre de position ni exclusion de self, deux faits MESURÉS via
+  `probe_241_decoy_tile_leaves.py --carrier genesPrimus`. La RE a aussi ajouté **deux branches
+  manquantes** à la feuille 19 (court-circuits `SpikySting` 77 / `LandMine` 114, clés absentes de
+  la BC donc muettes, mais qui priment sur le trait `Decoy`).
+  ⚠ Résidu de ce cas : `test_thrice_blessed_decision_live.py` (2 tests, chemin `HasFaction`)
+  **NON re-joué** — le run est tombé dans la fenêtre d'arrêt du jeu (MAJ `gqfc5mff6c` →
+  `rnca9r7q6c`). Changement value-preserving par construction ; à re-jouer après migration.
+>>>>>>> worktree-agent-a3d7f500e965d1155
 - **`darkaSmnWatcher` (porteur de `WatchedOver` 1524) : chemin d'octroi non établi** — aucune
   `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
   gisement dans ce cas.
