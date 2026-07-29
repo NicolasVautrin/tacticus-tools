@@ -37,6 +37,7 @@ illisible). ASCII only (console Windows cp1252).
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -145,6 +146,77 @@ def axe3_ghidra(build_dir: Path, timeout: float) -> tuple[list[str], bool]:
     return (["  OK  ghidra-mcp a charge %s == tables versionnees" % charge], True)
 
 
+# Combien de citations distinctes echantillonner, et combien doivent resolver. Le seuil est
+# volontairement TRES BAS : la panne visee est TOTALE (mesure du 2026-07-29 : 0 sur 1 266), pas
+# graduelle. Un seuil bas ne peut donc pas crier au loup sur la derive normale d'une MAJ
+# (81,9 % conservees ce jour-la), et attrape quand meme le desastre.
+ECHANTILLON = 400
+PLANCHER_PCT = 10.0
+# MARGE MESUREE le 2026-07-29 : regime sain = 27 % (114/420), panne simulee = 0 %. Les 73 %
+# qui ne resolvent pas en regime sain sont des citations en forme COURTE (sans namespace), qui
+# ne resolvent JAMAIS -- ce n'est pas de la derive. Pour qu'un faux positif survienne, une MAJ
+# devrait effacer les deux tiers des symboles reellement resolvables, ce qui meriterait l'alerte.
+
+_CITE = re.compile(r"[A-Za-z_][\w.`]*\$\$[\w.`]+")
+
+
+def axe4_forme(build_dir: Path) -> list[str]:
+    """La table parle-t-elle la MEME LANGUE que les citations du depot ?
+
+    POURQUOI CET AXE EXISTE (incident du 2026-07-29)
+    ------------------------------------------------
+    Les axes 1 a 3 verifient tous la PROVENANCE : sha256 du binaire, coherence des estampilles,
+    build charge par le serveur. AUCUN ne regarde le CONTENU. Ce jour-la, la table produite pour
+    le nouveau build etait en notation POINTEE (`Classe.Methode`) au lieu de `Classe$$Membre` :
+    parfaitement estampillee, du bon build, servie par le bon serveur -- et INTEGRALEMENT
+    inexploitable. Zero citation sur 1 266 resolvait, et le diff inter-build affichait 0,43 % de
+    symboles communs, ce qui imitait une reecriture totale du jeu.
+
+    La cause n'etait pas la MAJ mais un CHANGEMENT D'OUTILLAGE : le retrait de l'applier
+    Il2CppDumper le 2026-07-25 sans re-jouer l'aval. L'ancienne sortie a continue de faire foi
+    quatre jours, jusqu'a la premiere re-symbolisation complete.
+
+    CE QU'IL NE FAUT PAS EN FAIRE : un thermometre de la derive inter-build. Pour cela il y a
+    `probe_251_citation_resolution.py`, qui mesure proprement contre une population de reference.
+    Ici on ne repond qu'a UNE question binaire : la table est-elle lisible du tout ?"""
+    table = build_dir / "ghidra" / "functions.tsv"
+    symboles = set()
+    with table.open(encoding="utf-8") as fh:
+        for ligne in fh:
+            if ligne.startswith("#"):
+                continue
+            parts = ligne.rstrip("\n").split("\t")
+            if len(parts) >= 2:
+                symboles.add(parts[1])
+
+    vues: set[str] = set()
+    for f in sorted((REPO / "scripts" / "python" / "engine").rglob("*.py")):
+        try:
+            for m in _CITE.findall(f.read_text(encoding="utf-8", errors="replace")):
+                vues.add(m)
+        except OSError:
+            continue
+        if len(vues) >= ECHANTILLON:
+            break
+
+    if not vues:
+        return ["  ??  aucune citation `$$` trouvee dans engine/ -- axe NON VERIFIE"]
+
+    n = sum(1 for s in vues if s in symboles)
+    pct = 100.0 * n / len(vues)
+    if pct < PLANCHER_PCT:
+        raise Desync(
+            "la table ne parle PAS la langue des citations du depot : %d / %d resolvent (%.1f %%).\n"
+            "  Ce n'est PAS une derive de mise a jour -- c'est une table INEXPLOITABLE.\n"
+            "  Verifier la FORME avant tout : grep -c '\\$\\$' %s\n"
+            "  Attendu `Namespace.Classe$$Membre` (chevrons echappes u003C/u003E), produit par\n"
+            "  GhidraApplyIl2CppSymbols.canonicalName. Si la table est en notation pointee, c'est\n"
+            "  l'applier qu'il faut corriger PUIS re-jouer -- re-dumper ne changera rien."
+            % (n, len(vues), pct, table.as_posix()))
+    return ["  OK  forme des symboles : %d / %d citations echantillonnees resolvent (%.0f %%)"
+            % (n, len(vues), pct)]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--quiet", action="store_true",
@@ -162,6 +234,7 @@ def main() -> int:
         dll = installed_dll()
         lignes += axe1_binaire(build_dir, dll)
         lignes += axe2_coherence(build_dir)
+        lignes += axe4_forme(build_dir)
         if args.skip_ghidra:
             lignes.append("  --  ghidra: non interroge (--skip-ghidra)")
         else:
