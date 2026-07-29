@@ -10,6 +10,8 @@ import gameconfig as GC
 import hexgeo
 
 from ..base import ActiveAbility
+from ..targeting import (TargetingOptions, RANGE_ADJACENT, RANGE_SELF, RANGED_BOOL_FALSE)
+from ..targeting_rule import TargetingRule as TR
 from ...operations.damage import AttackDamageOperation
 from ...components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
 from ....entities.stats import StatType
@@ -321,6 +323,33 @@ class ScarabHiveAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ScarabHive)  # 1007
 
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS**, la 1re des trois (le litteral EST
+    # le masque : cette surcharge ecrit `Rules` tel quel, il n'y a aucun preset a OR-er).
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$.ctor` recopie d'abord les
+    # 0x18 octets du `TargetingRange` STATIQUE +0x30 du bloc `<TargetingRange class>+0xb8`, puis :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x4020, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 1, 0)   # 3e arg = 1 = AbilityAttackType.SummonAndAttackTarget
+    # Decomposition EXHAUSTIVE de 0x4020 (0x20 + 0x4000 = 0x4020, aucun bit residuel) :
+    #     0x20    (bit 5)  TargetHasFreeAdjacentTile -> PORTE. Filtre statique :
+    #                      `if ((rules & 0x20) && battleQuery.<slot 0x51>GetFreeAdjacentTiles(target)
+    #                      .Count == 0) -> broken(0x20)`. C'est la precondition MECANIQUE de
+    #                      l'ability : les deux necroSmnSwarm naissent sur des tuiles LIBRES
+    #                      ADJACENTES A LA CIBLE (`First(SortByDistance(CanAddUnit(AdjacentTiles(
+    #                      target)), caster), i)` dans `SpawnUnitBehaviour$$Execute`) -- une cible
+    #                      encerclee n'offre nulle part ou les poser.
+    #     0x4000  (bit 14) TargetIsEnemy -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`) : refus
+    #                      sur soi-meme et sur un allie.
+    # PORTEE : `TargetingRange` statique +0x30, ecrit par
+    # `IdunBattle.Core.Services.TargetingRange$$.cctor` (`+0x30` = 0 -> onlyAdjacent = `RangedBool.True`,
+    # useRangeFromConfig = useWholeBoard = false ; `+0x38` = `Nullable(1)` overrideRange ; `+0x40` = null
+    # overrideRangeFunc) = `RANGE_ADJACENT`. Le filtre prend donc la branche
+    # `battleQuery.AreEntitiesAdjacent(casterTiles, target)` : le necroSpyder doit etre AU CONTACT de sa
+    # cible. `forceMeleeTarget` (4e arg) = 1 = `RangedBool.False` : aucun clamp melee a poser, la portee
+    # EST deja l'adjacence.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy,
+        self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -359,6 +388,40 @@ class ScarabSummonAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.ScarabSummon)  # 1047
 
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS**, la 1re des trois.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$.ctor` recopie le
+    # `TargetingRange` STATIQUE +0x60 (PAS le +0x30 de ScarabHive : deux abilities du MEME fichier,
+    # meme forme de ctor, `TargetingRange` DIFFERENTS), puis :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, &range, forceMeleeTarget=1, 0x208000, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)   # 3e arg = 2 = AbilityAttackType.Others
+    # Decomposition EXHAUSTIVE de 0x208000 (0x8000 + 0x200000, aucun bit residuel) :
+    #     0x8000    (bit 15) CasterIsPossibleTarget -> DECLARATIF, jamais une regle de refus (il
+    #                        n'apparait NI dans le filtre statique NI dans `GetInvalidCasterReason`) :
+    #                        `TargetingOptions$$get_CanTargetCaster` le lit pour les consommateurs de
+    #                        ciblage (preview / IA). En faire un refus INVENTERAIT une regle.
+    #     0x200000  (bit 21) CasterHasFreeAdjacentTile -> regle REELLE du filtre statique, jumelle
+    #                        exacte du bit 5 mais appliquee au CASTER :
+    #                        `if ((rules & 0x200000) && battleQuery.<slot 0x51>GetFreeAdjacentTiles(
+    #                        CASTER).Count == 0) -> broken(0x200000)` (immediatement APRES la clause
+    #                        du bit 5, AVANT `TargetTileIsFree`). Semantiquement : le scarab ne peut se
+    #                        dedoubler que s'il a une tuile libre au contact (`PickRandomly(CanAddUnit(
+    #                        AdjacentTiles(self)), 1)`). NON PORTEE, et INATTEIGNABLE par la cascade du
+    #                        port pour CE porteur -- cf. le residu documente dans la fiche du cas :
+    #                        cible == caster -> l'aiguillage self-cast branche sur
+    #                        `GetCasterNotAddedReason` AVANT le filtre ; cible != caster -> le volet
+    #                        PORTEE (range 0) refuse deja sur `TargetIsInRange`, qui PRECEDE le bit 21
+    #                        dans la cascade. Un port serait donc du code mort non invalidable.
+    # PORTEE : `TargetingRange` statique +0x60 (`TargetingRange$$.cctor` : `+0x60` = 1 -> onlyAdjacent =
+    # `RangedBool.False`, `+0x68` = `Nullable(0)` overrideRange, `+0x70` = null) = `RANGE_SELF`. Portee
+    # **0** : le filtre calcule `GetDistance(casterTiles, target)` et refuse `TargetIsInRange` des que
+    # d > 0 -- l'auto-dedoublement ne se cible QUE lui-meme. `forceMeleeTarget` = 1 = `RangedBool.False`.
+    # `isSelfCasting = 1` (`options+0x00`) : quand la cible EST le caster, l'overload 5 arguments de
+    # `TargetingQuery$$GetInvalidTargetReason` branche sur `GetCasterNotAddedReason` et n'evalue JAMAIS
+    # la cascade (cf. `_targets_the_caster`).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterIsPossibleTarget | TR.CasterHasFreeAdjacentTile,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         # behaviour = arbre DSL (feuille SpawnReplica) : émet les MÊMES Operations que l'impératif
@@ -385,6 +448,66 @@ class GetEmRuntzAbility(ActiveAbility):
     **RETIRÉ** (#199) — la behaviour est le seul arbre DSL."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.GetEmRuntz)  # 1045
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **PRESET STATIQUE COPIE**, la 3e des trois :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ STATIQUE
+    # de `TargetingOptions` a l'offset RELATIF +0x280 du bloc `<TargetingOptions class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 2, 0)   # 3e arg = 2 = AbilityAttackType.Others
+    # Aucun litteral de masque n'est visible dans le ctor : le contenu est ecrit par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` (bloc statics+0x280) --
+    #     <preset>+0x00 isSelfCasting    = 1
+    #     <preset>+0x08 range            <- `TargetingRange` statics+0x60 = RANGE_SELF
+    #     <preset>+0x20 forceMeleeTarget = 1 = RangedBool.False
+    #     <preset>+0x28 rules            = 0x8004
+    #     <preset>+0x30/+0x38 delegues   = 0 (ecrases par `AActiveAbility$$.ctor`)
+    # Decomposition EXHAUSTIVE de 0x8004 (0x4 + 0x8000, aucun bit residuel) :
+    #     0x4     (bit 2)  CasterMatchesDynamicRule -> regle du volet CASTER
+    #                      (`TargetingQuery$$GetInvalidCasterReason`, regle-delegue `options+0x30`
+    #                      liee au slot vtable `this+0x470`). NON PORTEE (le port n'a de point
+    #                      d'extension que pour la regle dynamique de CIBLE). Le corps EXISTE et est
+    #                      lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetDynamicInvalidCasterReason`
+    #                      evalue `GetEmRuntzAbility$$GetSpawnTileSelector` sur `(caster, casterTiles)`
+    #                      et rend le litteral **2** si la liste est VIDE, 0 sinon -- « pas une seule
+    #                      tuile libre adjacente au caster ET adjacente a un ennemi => cast refuse ».
+    #                      Residu NOMME dans la fiche du cas.
+    #     0x8000  (bit 15) CasterIsPossibleTarget -> DECLARATIF (lu par
+    #                      `TargetingOptions$$get_CanTargetCaster`), jamais une regle de refus.
+    # PORTEE : `TargetingRange` statics+0x60 (`TargetingRange$$.cctor` : onlyAdjacent = `RangedBool.False`,
+    # overrideRange = `Nullable(0)`) = `RANGE_SELF` -> portee **0** : toute cible autre que le caster est
+    # refusee sur `TargetIsInRange`. `isSelfCasting = 1` -> cible == caster : aiguillage
+    # `GetCasterNotAddedReason` (non porte -> 0, permissif).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterMatchesDynamicRule | TR.CasterIsPossibleTarget,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility$$GetDynamicInvalidCasterReason`
+        — MIRROR 1:1 du decompile (la regle-delegue `options+0x30` armee par le bit
+        `CasterMatchesDynamicRule` du masque ci-dessus) :
+
+            ctx = default(SelectorContext); ctx.subject = caster; ctx.casterTiles = casterTiles;
+            sel = this.GetSpawnTileSelector();
+            list = sel.Select(ctx);
+            return (list.Count > 0) ? 0 : 2;
+
+        Le litteral rendu est **2** — que l'enum genere nomme `TargetMatchesDynamicRule`. Ce n'est
+        PAS une erreur de transcription : le natif reutilise ce code pour la regle dynamique du volet
+        CASTER (`GetInvalidCasterReason` le re-emballe tel quel via `GenericBrokenTargetingRule(r)`),
+        et l'oracle `abilityReason` le rend litteralement `TargetMatchesDynamicRule`.
+
+        Semantique : « Get 'Em Runtz » ne peut pas etre caste s'il n'existe AUCUNE tuile libre
+        adjacente au Runtherd **ET** adjacente a un ennemi vivant non-Steppable -- c'est-a-dire
+        aucune place ou poser un grot. Le selecteur est le MEME objet que celui de l'arbre de
+        behaviour (`get_spawn_tile_selector()`, mirror confirme live #200), donc le gate et
+        l'execution ne peuvent pas diverger.
+
+        MESURE #250 (board `C3_26`, seed 31337) : le Runtherd finit sur une tuile sans spawn tile
+        valide, le natif rend `casterReason = 0x2` ET le repercute en `targetReason` sur les 5
+        lignes (l'overload 5 arguments de `TargetingQuery$$GetInvalidTargetReason` rend la raison
+        CASTER telle quelle). Sans ce port, le moteur acceptait le cast."""
+        tiles = get_spawn_tile_selector().evaluate(entities_from_state(state, caster_id)) or []
+        return 0 if tiles else int(TR.TargetMatchesDynamicRule)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -484,6 +607,31 @@ class MasterOfTheTutelariesAbility(ActiveAbility):
     IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility$$.ctor : `TargetingOptions(0, statsFromClass, 1, 0x1040)` + `AActiveAbility(…, 2)`."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.MasterOfTheTutelaries)  # 1096
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS**, la 1re des trois. Le ctor recopie
+    # d'abord les 0x18 octets du `TargetingRange` STATIQUE +0x30 (le MEME que ScarabHive -- ce que la
+    # ligne « statsFromClass » de l'ancienne docstring designait par erreur), puis :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x1040, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)   # 3e arg = 2 = AbilityAttackType.Others
+    # Decomposition EXHAUSTIVE de 0x1040 (0x40 + 0x1000, aucun bit residuel) :
+    #     0x40    (bit 6)  TargetIsTile -> DOMAINE TUILE, et 1re regle de refus de la cascade :
+    #                      `mainTile = GetMainTile(target); if (!TileExtensions.IsWalkable(mainTile,
+    #                      true) && !(rules & AllowUnwalkableTargetTile)) -> broken(1)`. ⚠ le natif
+    #                      rend le LITTERAL 1 (`TargetingRule.ValidRequest`) : une tuile-cible non
+    #                      marchable se lit `0x1`, pas `0x40`. `AllowUnwalkableTargetTile` (bit 43)
+    #                      n'est PAS pose.
+    #     0x1000  (bit 12) TargetTileIsFree -> `if (!TileExtensions.CanAddUnit(mainTile, state, 1, 0,
+    #                      0)) -> broken(0x1000)` : la tuile doit pouvoir ACCUEILLIR le Pink Horror.
+    # PORTEE : `TargetingRange` statique +0x30 (`IdunBattle.Core.Services.TargetingRange$$.cctor` :
+    # onlyAdjacent = 0 = `RangedBool.True`, overrideRange = `Nullable(1)`) = `RANGE_ADJACENT` -> le
+    # filtre prend la branche `battleQuery.AreEntitiesAdjacent(casterTiles, target)` : la tuile visee
+    # doit etre AU CONTACT d'Abraxas -- c'est litteralement le « on a free hex adjacent to Abraxas »
+    # de l'i2. `forceMeleeTarget` = 1 = `RangedBool.False`. AUCUNE regle de camp (`TargetIsFriendly` /
+    # `TargetIsCaster` absents) -> `refuses_all_enemy_targets` reste False, le veto de routage IA est
+    # inchange.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsTile | TR.TargetTileIsFree,
+        self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -590,6 +738,25 @@ class AberrantHypermorphAbility(ActiveAbility):
     boucle qui le referait bouger), donc le flag n'a aucun consommateur offline."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.AberrantHypermorph)  # 1166
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS**, la 1re des trois.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility$$.ctor` est
+    # BIT-IDENTIQUE a celui de MasterOfTheTutelaries (meme `TargetingRange` statique +0x30, meme
+    # litteral, meme `AbilityAttackType`) -- et c'est LU, pas deduit de la voisine :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x1040, 0, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)   # 3e arg = 2 = AbilityAttackType.Others
+    # Decomposition EXHAUSTIVE de 0x1040 (0x40 + 0x1000, aucun bit residuel) :
+    #     0x40    (bit 6)  TargetIsTile     -> domaine TUILE ; tuile non marchable => le natif rend le
+    #                                         LITTERAL 1 (`ValidRequest`), `AllowUnwalkableTargetTile`
+    #                                         (bit 43) n'etant pas pose.
+    #     0x1000  (bit 12) TargetTileIsFree -> `!TileExtensions.CanAddUnit(mainTile, state, 1, 0, 0)`
+    #                                         => refus : la tuile doit accueillir le genesSmnAberrant.
+    # PORTEE : `TargetingRange` statique +0x30 = `RANGE_ADJACENT` -> `AreEntitiesAdjacent(casterTiles,
+    # target)` : la tuile doit etre AU CONTACT du Biophagus (« on a free hex adjacent to Biophagus »).
+    # `forceMeleeTarget` = 1 = `RangedBool.False`.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsTile | TR.TargetTileIsFree,
+        self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

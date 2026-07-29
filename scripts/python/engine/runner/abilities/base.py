@@ -366,6 +366,26 @@ class ActiveAbility:
         `WaaaghAbility` (1058), cf. `engine/runner/abilities/orks.py`."""
         return 0
 
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`<X>Ability$$GetDynamicInvalidCasterReason` — le PENDANT CASTER du patron ci-dessus
+        (mirror du virtuel slot vtable `+0x470`, que `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor`
+        lie a `options+0x30`).
+
+        Rend un `TargetingRule` (0 = caster valide). N'est consulte que si l'ability pose le bit
+        `CasterMatchesDynamicRule` (0x4) dans ses `TARGETING_OPTIONS` — exactement comme
+        `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, qui n'invoque la
+        regle-delegue `options+0x30` que sous ce bit :
+
+            if ((rules & 4) != 0) {
+                r = options[+0x30].Invoke(caster, casterTiles);
+                if (r != 0) return GenericBrokenTargetingRule(r);
+            }
+
+        Defaut 0 : une sous-classe qui pose le bit 0x4 SANS surcharger cette methode degrade en
+        « pas de refus dynamique » (permissif), jamais en refus invente. 1re instanciation (#250) :
+        `GetEmRuntzAbility` (1045), cf. `engine/runner/abilities/loki/summon.py`."""
+        return 0
+
     def sets_end_turn_flags(self, state: "State", caster_id: int) -> bool:
         """Mirror du virtual `IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags (défaut `_dsl.True`) — résolu par la table
         d'overrides RE (une sous-classe portée PEUT surcharger pour une logique bespoke)."""
