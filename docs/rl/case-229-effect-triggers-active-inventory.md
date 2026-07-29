@@ -172,7 +172,7 @@ Ventilation des 6 ecarts :
 | 1077 HazeOfCorruption_DamageTransfer | unite | **non** — RÉFUTÉ par mesure live, cf. ci-dessous |
 | 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
-| 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
+| 1502 RitesOfMorkai | unite | **OUI — MESURE** le 2026-07-29 : 3 instances publiees (`active: true`) au canal par defaut ET sous `includeInactive`, cf. ci-dessous. ⚠ Mais l'instance n'a **aucun etat inerte** a publier |
 | 1547 ReanimationBeam_Revive | **MACHINE** (`mows[]`, PAS `units[]`) | **OUI — MESURE** (`case-mow-ammo-gauge` §7) : 1547 pose nativement, publie **1 au canal par defaut ET 1 sous `includeInactive`**, sous `mows[].effects` ; `units[]` seul rend 0/0. Le motif « no-ope faute de MUNITION » etait FAUX (`case-mow-ammo-gauge.md` §6). |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
@@ -183,27 +183,49 @@ Ventilation des 6 ecarts :
 > meme appel rend 4 entrees `active: false` pour d'autres effets, donc le canal fonctionne. Le
 > bond est HORS de ce que publie `readEffectsByUnit` : la bascule ne peut pas le seeder inerte.
 > **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4).
-> **1547 a ete MESURE le 2026-07-29** (`case-mow-ammo-gauge.md` §7) et il est le premier a TENIR :
-> l'effet est publie 1/1 aux deux canaux. Mais la colonne « canal de seed » etait FAUSSE pour lui —
-> son porteur est la MACHINE, donc l'entree sort sous **`mows[].effects`**, pas sous `units[]`.
-> Compter les entrees `units[]` seules y rend 0/0 et fait conclure a tort « non publie ».
+> **1547 a ete MESURE le 2026-07-29** (`case-mow-ammo-gauge.md` §7) : l'effet est publie 1/1 aux
+> deux canaux. Mais la colonne « canal de seed » etait FAUSSE pour lui — son porteur est la
+> MACHINE, donc l'entree sort sous **`mows[].effects`**, pas sous `units[]`. Compter les entrees
+> `units[]` seules y rend 0/0 et fait conclure a tort « non publie ».
 > `rpc-decision.ts` remplit les DEUX depuis la meme `readEffectsByUnit(statePtr, { includeInactive })`
 > (cle = `casterId` pour une machine) : **toujours agreger `units[] + mows[]`** avant de conclure.
-> Sur SIX lignes annoncees « OUI », TROIS ont ete confrontees et une seule a tenu. Traiter les
+> **1502 a MESURE et TENU** de son cote (§ ci-dessous), au canal `units[]` cette fois.
+> Bilan : sur SIX lignes annoncees « OUI », **QUATRE** ont ete confrontees — 1077 et 1197 sont
+> TOMBEES, 1502 et 1547 ont TENU, 1547 au prix d'une correction de canal. Traiter les
 > restantes comme des hypotheses, et confronter avant de conclure (detail :
 > `case-231-haze-transfer-active-gate.md` §3.1).
 >
 > ⚠ **Ne jamais conclure « non mesurable » d'une absence dans `--list-pool`** : la pool derive du
 > seed BC (capture d'UNE bataille) et `catalog_inject.py` l'augmente. Cf. `ca6f5dc`.
 
+> ✅ **1502 est desormais MESURE** (`case-229-1502-rites-of-morkai-live-confrontation.md`).
+> `spaceWolfPriest` n'etait pas « non confrontable » : `catalog_inject.write_augmented_seed_bc`
+> l'injecte dans les DEUX catalogues (`Units` + `Abilities`) et il entre au pool (97 -> 98). Baldr
+> deploye, `RitesOfMorkai` caste, `probe_1502_rites_of_morkai_live.py` lit **3 instances 1502**
+> publiees (`active: true`) aux DEUX canaux, et `load_state` les materialise. La deduction
+> « porteur unite => canal unite » est donc VRAIE ici — la nuance structurelle avancee par #235
+> (1077 = entite de BOND, 1502 = effet d'unite ordinaire pose par `AddEffectOperation` sur
+> `EffectsOwnedComponent`) est la bonne.
+>
+> ⚠ Mais cela ne rend PAS 1502 seedable-inerte : la meme campagne a etabli qu'**aucun vecteur de
+> jeu ne peut rendre une instance 1502 inactive**. Son `CreateActiveCondition` est le trigger
+> CONSTANT vrai du `DSLFactory` (`+0xf8`), donc
+> `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` rend toujours vrai ; et
+> `IdunBattle.Operations.RemoveEffectOperation$$Execute` — l'ECRIVAIN de `EffectComponent+0x5e`,
+> jusqu'ici non identifie — pose `+0x5c = 0` et `+0x5f = 1` (Removed) dans la MEME operation, or le
+> canal filtre `removed` inconditionnellement. Mesure : l'instance passe de `active=true` a ABSENTE
+> en un tour, jamais par `active=false`. Pour la question de la bascule globale, 1502 n'est donc ni
+> un bloqueur ni un beneficiaire : il n'a pas d'etat inerte a publier.
+
 ## 4. Recommandation
 
 **PLUS AUCUN effectType du canal UNITE ne l'empeche** — les cinq ont ete resorbes le 2026-07-29
 (1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`). Les lignes de rayon de
-souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; celle de 1502 reste NON MESURABLE faute
-de porteur spawnable ; **celle de 1547 est CONFIRMEE par mesure** (`case-mow-ammo-gauge.md` §7 —
-1/1 aux deux canaux, sous `mows[].effects`), son gate `IsActive` etant deja pose dans le port. Il
-reste UN ecart, mais il est HORS de cette bascule :
+souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; **celles de 1502 et 1547 ont ete
+CONFIRMEES par mesure** — 1502 au canal `units[]` (l'effet EST publie, mais il n'a pas d'etat inerte
+a publier, cf. §3) et 1547 sous `mows[].effects` (`case-mow-ammo-gauge.md` §7 — 1/1 aux deux
+canaux), son gate `IsActive` etant deja pose dans le port. Il reste UN ecart, mais il est HORS de
+cette bascule :
 
     1186  GhostEffect (porteur TUILE)       -> GhostEffectRevive
 

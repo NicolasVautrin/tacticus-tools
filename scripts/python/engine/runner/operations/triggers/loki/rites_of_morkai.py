@@ -43,11 +43,28 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
   PAS d'entree `get_HealType` (corps 8 octets) dans le bloc -> la classe l'HERITE de la base = 0 (Heal),
   contrairement a ReanimationBeam qui l'override a 1. L'i2 confirme mot pour mot le gate overkill.
 
-PORTEUR / VOIE DE VALIDATION : `spaceWolfPriest` est un HERO mais **absent du pool runner**
-(`rl_duel.py build --list-pool`, rank 17) -> l'effet 1502 n'est PAS posable en runner. Port MIRROR +
-validation OFFLINE (l'effet est injecte dans `state.effects` par le test).
+PORTEUR / VOIE DE VALIDATION : `spaceWolfPriest` est absent du seed BC capture, ce qui avait ete
+lu comme « hors pool donc non confrontable ». **C'est FAUX** : `catalog_inject.
+write_augmented_seed_bc` l'injecte dans les DEUX catalogues (`Units` + `Abilities`, mirror d'
+`Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration`) et il entre au pool
+(97 -> 98). Mesure du 2026-07-29 : Baldr deploye, `RitesOfMorkai` (1211) caste, **3 instances 1502
+posees par la cascade native**, publiees par `readEffectsByUnit` (canal par defaut ET
+`includeInactive`) et materialisees par `load_state`. Le revive natif d'une unite inspiree tuee
+sans overkill rend `Min(GetReviveHP, StatAmount(Health,max))`, valeur sur laquelle le port est
+en AGREMENT. cf. `docs/rl/case-229-1502-rites-of-morkai-live-confrontation.md`.
 
 GATE `EffectComponent.IsActive @+0x5c` (#229 -> tache 1502, 2026-07-29) -- cf. `matches` ci-dessous.
+C'est un **cliquet de FIDELITE**, et c'est desormais MESURE, plus suppose : aucun vecteur de jeu ne
+peut rendre une instance 1502 inerte. `RitesOfMorkaiEffect` passe `activationFrequency = 0`, mais
+son `CreateActiveCondition` (slot vtable `+0x518`, LU LIVE) est le trigger CONSTANT vrai que
+`IdunBattleLogic.Entities.DSLFactory$$.ctor` construit a `+0xf8` -> `IdunBattle.Operations.
+RefreshEffectsOperation$$ShouldBeActive` rend toujours vrai, donc `RefreshEffect` ne peut que
+REACTIVER (`+0x5c = 1`), jamais appeler `...$$DeactivateEffect`. Et l'autre ecrivain de `+0x5c = 0`,
+`IdunBattle.Operations.RemoveEffectOperation$$Execute`, pose `+0x5f = 1` (Removed) dans la MEME
+operation, quelques instructions plus loin -- or le canal filtre `removed` inconditionnellement. Il
+n'existe donc aucun etat publiable ou l'instance soit `IsActive == 0`. Le gate reste juste (mirror
+1:1 de la lecture par-cible du natif) mais ne corrige aucun nombre observable EN JEU : il ne mord
+que sur ce que le canal de SEED peut fabriquer.
 """
 from __future__ import annotations
 

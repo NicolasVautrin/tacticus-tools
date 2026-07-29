@@ -508,8 +508,29 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         l'effet SOURCE, jamais sur la cible), et
         `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` est **décompilé** (résidu
         #229 §5 / #231 comblé : `activation 1 → true`, `2 → false`, `0 → (drapeau +0x5e) puis
-        virtuel 0xc sinon `IsActive` inchangé, sinon virtuel 0xb`). Le porteur `spaceWolfPriest`
-        étant HORS pool, le rayon de souffle n'est PAS mesurable pour 1502.
+        virtuel 0xc sinon `IsActive` inchangé, sinon virtuel 0xb`).
+        ⚠ **La fiche a d'abord conclu « porteur hors pool donc rayon de souffle non mesurable » —
+        c'est FAUX, et corrigé par MESURE le 2026-07-29**
+        (`case-229-1502-rites-of-morkai-live-confrontation.md`,
+        `probe_1502_rites_of_morkai_live.py`) : `catalog_inject.write_augmented_seed_bc` fait entrer
+        `spaceWolfPriest` au pool (97 → 98), Baldr se déploie, `RitesOfMorkai` (1211) **caste**, et
+        `readEffectsByUnit` publie **3 instances 1502** (`active: true`) au canal par défaut ET sous
+        `includeInactive` ; `load_state` les matérialise ; le revive natif d'une unité inspirée tuée
+        sans overkill est en **AGRÉMENT** avec le port (`Min(GetReviveHP, StatAmount(Health,max))`
+        saturé au hp_max). Le 3e montage (C3_01/999, `worldKharn`) a exercé l'**overkill en LIVE**
+        (`Unit_WasOverkilled: 1` → pas de revive), en accord lui aussi.
+        **RÉSIDU FERMÉ au passage** : l'écrivain de `EffectComponent+0x5e` est
+        `IdunBattle.Operations.RemoveEffectOperation$$Execute` — il pose `+0x5c = 0` et `+0x5f = 1`
+        (Removed) dans la MÊME opération, or le canal filtre `removed` inconditionnellement.
+        Combiné au fait que le `CreateActiveCondition` de 1502 (slot vtable `+0x518`, **lu LIVE**,
+        la classe étant désormais initialisée) est le trigger CONSTANT vrai du `DSLFactory` `+0xf8`
+        — donc `RefreshEffectsOperation$$ShouldBeActive` rend toujours vrai —, **aucun vecteur de
+        jeu ne peut rendre une instance 1502 inerte** : mesuré, elle passe de `active=true` à
+        ABSENTE en un tour. Le gate est donc un **cliquet de FIDÉLITÉ**, jamais une correction de
+        nombre. Effet de bord utile : la vtable de `RitesOfMorkaiEffect` se lit maintenant LIVE, ce
+        qui confirme par une 2e source `revive_on_overkill = False` (`32 c0 c3`) et `heal_type = 0`
+        (`33 c0 c3`), et écarte un piège — `ABondEffect$$CreateHandleTriggerAbilitiesInternal` lit
+        les MÊMES slots `+0x728/+0x738/+0x748` avec une tout autre sémantique.
       - **1547 `ReanimationBeam_Revive` — CLOS** (`case-1547-reanimation-beam-active-gate.md`), le
         **jumeau strict de 1502** (même base `ReviveEffect`, même rail, même patron), traité en
         parallèle par une tâche distincte. Gate posé dans le `matches` de
@@ -537,8 +558,11 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         TARGETS sans lecture du flag), mais porteur TUILE, donc **inatteignable par la bascule**
         (`tileMeta` appelle `readEffectsByTile` SANS options). Côté canal UNITÉ, les cinq écarts
         (1077, 1197, 1201, 1502, 1547) sont résorbés. ⚠ Chacun exigeait sa propre mesure du rayon
-        de souffle, et AUCUNE des lignes « OUI » de #229 §3 confrontée n'a tenu : deux RÉFUTÉES par
-        mesure (1077, 1197), deux NON MESURABLES faute de porteur spawnable (1502, 1547).
+        de souffle, et le score des lignes « OUI » de #229 §3 confrontées est de **3 sur 6** : deux
+        RÉFUTÉES par mesure (1077, 1197), **une CONFIRMÉE par mesure (1502 — l'effet EST publié,
+        mais il n'a aucun état inerte à publier)**, une encore NON MESURÉE (1547, jauge de munitions
+        de la MoW). ⚠⚠ Et **« absent du seed BC » n'est JAMAIS « non confrontable »** : les deux
+        fiches qui l'avaient écrit (1502 et 1547) ont été démenties par `catalog_inject.py`.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,
