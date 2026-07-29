@@ -87,13 +87,16 @@ ROOT = PYDIR.parents[1]
 # le port rend alors 0 (degradation PERMISSIVE, convention de tout `abilities/targeting.py`). Ils
 # sont NOMMES ici pour que le probe les distingue d'un vrai desaccord -- une ligne residu doit avoir
 # `port == 0`, sinon c'est un MISMATCH.
-#   - 1081 : `FightingRetreatAbility$$GetDynamicInvalidTargetReason` rend 2 (== TargetMatchesDynamicRule)
-#   - 1082 : `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` rend 1 (le natif REUTILISE
-#            le litteral `ValidRequest` comme code de refus)
+#
+# #247 -- LES DEUX RESIDUS DYNAMIQUES SONT FERMES, les dicts sont donc VIDES :
+#   - 1081 `FightingRetreatAbility$$GetDynamicInvalidTargetReason` (rendait 2, port muet) et
+#   - 1082 `InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason` (rendait 1 sur 2 lignes / 8)
+# sont PORTES. Laisser leurs codes ici les re-classerait « residu tolere » et le probe ne verrait
+# plus une regression de ces deux regles -- c'est precisement ce que la fermeture doit interdire.
 CASES = [
     (1077, "tauCrisis", "EarlyWarningOverride", {}),
-    (1081, "tauDarkstrider", "FightingRetreat", {0x2: "GetDynamicInvalidTargetReason"}),
-    (1082, "tauAunShi", "InspiredToGreatness", {0x1: "GetDynamicInvalidTargetReason"}),
+    (1081, "tauDarkstrider", "FightingRetreat", {}),
+    (1082, "tauAunShi", "InspiredToGreatness", {}),
     (1160, "tauBroadside", "HeavyRailRifle", {}),
     (1161, "tauBroadside", "TwinSmartMissileSystem", {}),
 ]
@@ -315,6 +318,18 @@ def _ability(aid: int, variant: str):
     base = klass.TARGETING_OPTIONS
     if variant == "apres":
         return klass()
+    if variant == "sansDyn":
+        # CONTREFACTUEL DE LA REGLE DYNAMIQUE (#247) : masque INCHANGE (le bit
+        # `TargetMatchesDynamicRule` reste pose, donc la cascade consulte bien le delegue), mais le
+        # delegue est DESARME -- il retombe sur le defaut permissif d'`ActiveAbility`. C'est
+        # exactement l'etat d'avant #247. Si desarmer la regle ne change AUCUNE ligne, le port ne
+        # garde rien : c'est ce que le test de garde asserte.
+        class _D(klass):
+            __slots__ = ()
+
+            def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
+                return 0
+        return _D()
     over = {"avant": None,
             "sansRules": _replace(base, rules=0),
             "sansRange": _replace(base, range=None),
@@ -326,7 +341,7 @@ def _ability(aid: int, variant: str):
     return _V()
 
 
-VARIANTS = ("apres", "avant", "sansRules", "sansRange", "melee1")
+VARIANTS = ("apres", "avant", "sansRules", "sansRange", "melee1", "sansDyn")
 
 
 def _nat(sid, rid, cid, aid, tid=None):
@@ -374,11 +389,11 @@ def _measure(sid, rid, st, dv, aid, caster_vis, residuals):
           % (aid, caster_vis, cid, caster["visualId"], caster["pos"], usable, mask,
              ABILITY_CLASSES[aid].TARGETING_OPTIONS.range,
              ABILITY_CLASSES[aid].TARGETING_OPTIONS.force_melee_target))
-    print("  %-22s %-5s %-3s %-13s %-24s %-13s %-9s %-11s %-11s %-9s %s"
+    print("  %-22s %-5s %-3s %-13s %-24s %-13s %-9s %-11s %-11s %-9s %-9s %s"
           % ("cible", "id", "d", "natif", "regle", "APRES", "AVANT", "sansRules",
-             "sansRange", "melee1", "verdict"))
+             "sansRange", "melee1", "sansDyn", "verdict"))
     stats = {"agree": 0, "dyn": 0, "gain": 0, "cf_rules": 0, "cf_range": 0, "cf_melee": 0,
-             "n": len(rows), "accept": 0, "refuse": 0, "residus": {},
+             "cf_dyn": 0, "n": len(rows), "accept": 0, "refuse": 0, "residus": {},
              "residus_codes": dict(residuals)}
     for r in rows:
         dyn_line = (r["nat"] in residuals and r["apres"] == 0)
@@ -400,13 +415,15 @@ def _measure(sid, rid, st, dv, aid, caster_vis, residuals):
             stats["cf_range"] += 1 if r["sansRange"] == 0 else 0
         if r["melee1"] != r["apres"]:
             stats["cf_melee"] += 1
+        if r["sansDyn"] != r["apres"]:
+            stats["cf_dyn"] += 1        # #247 : lignes que la REGLE DYNAMIQUE tranche, et elle seule
         verdict = "OK" if agree else ("RESIDU" if dyn_line else "MISMATCH")
-        print("  %-22s %-5d %-3s %-13s %-24s %-13s %-9s %-11s %-11s %-9s %s%s"
+        print("  %-22s %-5d %-3s %-13s %-24s %-13s %-9s %-11s %-11s %-9s %-9s %s%s"
               % (r["label"], r["targetId"], "-" if r["dist"] is None else r["dist"],
                  "-" if r["nat"] is None else hex(r["nat"]),
                  ",".join(r["nat_reasons"]) or r["nat_class"] or "-",
                  hex(r["apres"]), hex(r["avant"]), hex(r["sansRules"]), hex(r["sansRange"]),
-                 hex(r["melee1"]), verdict, "  <-GAIN" if gain else ""))
+                 hex(r["melee1"]), hex(r["sansDyn"]), verdict, "  <-GAIN" if gain else ""))
     port_caster = int(get_invalid_caster_reason(st, cid, _ability(aid, "apres")))
     nat_caster = sorted(set(x for x in (r["nat_caster"] for r in rows) if x is not None))
     print("  [volet CASTER] natif=%s port=%s" % (nat_caster, hex(port_caster)))
@@ -414,8 +431,10 @@ def _measure(sid, rid, st, dv, aid, caster_vis, residuals):
           "casts illegaux que master acceptait : %d"
           % (stats["agree"], stats["n"], stats["residus"] or "-", stats["dyn"], stats["gain"]))
     print("  [contrefactuels sur les %d lignes GAIN] sansRules faux-accepte %d ; sansRange "
-          "faux-accepte %d ; force_melee_target flippe change %d ligne(s)"
-          % (stats["gain"], stats["cf_rules"], stats["cf_range"], stats["cf_melee"]))
+          "faux-accepte %d ; force_melee_target flippe change %d ligne(s) ; regle DYNAMIQUE "
+          "desarmee change %d ligne(s)"
+          % (stats["gain"], stats["cf_rules"], stats["cf_range"], stats["cf_melee"],
+             stats["cf_dyn"]))
     stats.update({"aid": aid, "caster": cid, "usable": usable, "port_caster": port_caster,
                   "nat_caster": nat_caster, "rows": rows})
     return stats
@@ -466,13 +485,195 @@ def measure_all(sid, seed=SEED, board=BOARD):
         raise
 
 
+# --------------------------------------------------------------------------- #247 : les DEUX regles
+# dynamiques, dans le montage ou elles MORDENT (et son contrefactuel LIVE)
+
+def _drive_isolated(sid, rid, hub_vis, ally_vis, foe_min=3, rounds=12):
+    """Monte la geometrie qui fait MORDRE `FightingRetreatAbility$$GetDynamicInvalidTargetReason` :
+
+      * `ally_vis` (ALLIE, SANS le trait `RangedSpecialist`) AU CONTACT de `hub_vis`
+        -> une cible qui PASSE le volet portee `RANGE_ADJACENT`, donc qui ATTEINT la regle ;
+      * TOUS les ennemis a distance >= `foe_min` de `hub_vis`
+        -> `GetAdjacentEnemies(hub)` VIDE, donc le 1er `Any` ne court-circuite plus.
+
+    C'est exactement la configuration que le montage de #250 n'avait pas (Darkstrider y avait un
+    ennemi au contact, d'ou la regle mesuree INERTE). Le 2e disjunct reste faux : un
+    `RangedSpecialist` ne se DESACTIVE qu'au turn-start d'un porteur adjacent a un ennemi, et ici
+    plus personne ne l'est -- `ally_vis` est de toute facon choisi SANS ce trait."""
+    def _snap():
+        d = _dv(sid, rid)
+        hub = _by_vis(d, hub_vis)
+        ally = _by_vis(d, ally_vis)
+        if hub is None or ally is None:
+            raise RuntimeError("montage impossible : %s / %s absent" % (hub_vis, ally_vis))
+        foes = sorted((a for a in _actors(d)
+                       if a["owner"] != hub["owner"] and None not in a["pos"]),
+                      key=lambda a: (_dist(hub, a), a["id"]))
+        return d, hub, ally, foes
+
+    for it in range(rounds):
+        d, hub, ally, foes = _snap()
+        d_ally = _dist(hub, ally)
+        d_near = _dist(hub, foes[0]) if foes else 99
+        print("  [isole %d] hub=%s d(allie)=%s d(ennemi_le_plus_proche)=%s"
+              % (it, hub["pos"], d_ally, d_near))
+        if d_ally == 1 and d_near >= foe_min:
+            return True
+        if d_ally != 1:
+            _step_toward(sid, rid, ally["id"], hub["pos"], 1)
+        d, hub, ally, foes = _snap()
+        for f in foes:
+            if _dist(hub, f) < foe_min:
+                _step_toward(sid, rid, f["id"], hub["pos"], foe_min + 2)
+    print("  [isole] geometrie cible NON atteinte -- les distances reelles sont imprimees")
+    return False
+
+
+def _line(sid, rid, st, cid, aid, tid):
+    """Une ligne (caster, ability, cible) : (natif, port APRES, port avec la regle DYNAMIQUE
+    desarmee). C'est le triplet qui fait le contrefactuel de #247."""
+    nat, _reasons, _cls, _cr, _raw = _nat(sid, rid, cid, aid, tid)
+    return (nat,
+            int(get_invalid_target_reason(st, cid, tid, _ability(aid, "apres"))),
+            int(get_invalid_target_reason(st, cid, tid, _ability(aid, "sansDyn"))))
+
+
+def _load(sid, rid, board_graph=None):
+    dv = _dv(sid, rid)
+    ob = _r(sid, "observeBattle", {"runnerId": rid}, 60)
+    snap = _r(sid, "combatSnapshot", {"runnerId": rid}, 60)
+    bg = board_graph or _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        raise RuntimeError("boardGraph indisponible")
+    return dv, load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym")), bg
+
+
+def _hp(st, uid):
+    from engine.runner.components import HealthComponent
+    e = st.get_entity(int(uid))
+    hc = e.get_component(HealthComponent) if e is not None else None
+    return (None, None) if hc is None else (hc.hp, hc.hp_max)
+
+
+def measure_dynamic_bites(sid, seed=SEED, board=BOARD):
+    """LES DEUX REGLES DYNAMIQUES, mesurees dans l'etat ou elles MORDENT -- puis dans son
+    BASCULEMENT, sur le MEME runner.
+
+    T1 -- Darkstrider ISOLE (aucun ennemi au contact), Aun'Shi a son contact :
+        1081 (caster Darkstrider, cible Aun'Shi) : le natif rend `0x2 TargetMatchesDynamicRule`
+             (la regle mord : ni ennemi adjacent, ni allie a RangedSpecialist desactive) ;
+        1082 (caster Aun'Shi, cible Darkstrider)  : le natif rend `0x1 ValidRequest`
+             (Darkstrider est a PLEINS PV, non-mecanique, actif NON consomme -> les trois
+             disjuncts sont faux).
+    T2 -- un ennemi est amene AU CONTACT de Darkstrider et l'ATTAQUE :
+        1081 : `GetAdjacentEnemies` n'est plus vide            -> 0
+        1082 : Darkstrider est BLESSE, donc `EntityCanBeHealed` -> 0
+    Les deux verdicts basculent ENSEMBLE, par deux disjuncts DIFFERENTS. C'est ce qui prouve que
+    les regles portees ne sont pas des refus constants -- un port qui refuserait toujours passerait
+    T1 et echouerait T2, et reciproquement.
+
+    Rend `(resultats, dispose)`."""
+    seed_bc = _seed_bc_with_ammo()
+    rid, state_file = _build(sid, seed, board, seed_bc)
+    print("[build bites] runner=%d board=%s seed=%s" % (rid, board, seed))
+
+    def _dispose():
+        try:
+            _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=30)
+            print("[cleanup] runner %d dispose" % rid)
+        except Exception as e:                                       # noqa: BLE001
+            print("[cleanup] dispose KO: %s" % e)
+        finally:
+            state_file.unlink(missing_ok=True)
+            seed_bc.unlink(missing_ok=True)
+
+    try:
+        for _ in range(WARMUP_ENDTURNS):
+            _act(sid, rid, {"kind": "endturn"}, 60)
+        geom = _drive_isolated(sid, rid, "tauDarkstrider", "tauAunShi")
+        _hand_to(sid, rid, "tauDarkstrider")
+        dv, st, bg = _load(sid, rid)
+        ds = _by_vis(dv, "tauDarkstrider")
+        aun = _by_vis(dv, "tauAunShi")
+        if ds is None or aun is None:
+            raise RuntimeError("porteurs absents du plateau")
+        foes = sorted((a for a in _actors(dv)
+                       if a["owner"] != ds["owner"] and None not in a["pos"]),
+                      key=lambda a: (_dist(ds, a), a["id"]))
+        out = {"geometry_ok": geom, "d_ally": _dist(ds, aun),
+               "d_foe": _dist(ds, foes[0]) if foes else None,
+               "hp_before": _hp(st, ds["id"])}
+        out["t1_1081"] = _line(sid, rid, st, ds["id"], 1081, aun["id"])
+        out["t1_1082"] = _line(sid, rid, st, aun["id"], 1082, ds["id"])
+        print("\n[T1 Darkstrider ISOLE]  d(allie)=%s d(ennemi)=%s hp=%s"
+              % (out["d_ally"], out["d_foe"], out["hp_before"]))
+        print("  1081 caster=Darkstrider cible=AunShi   natif/APRES/sansDyn = %s"
+              % (tuple(hex(v) if v is not None else "-" for v in out["t1_1081"]),))
+        print("  1082 caster=AunShi cible=Darkstrider   natif/APRES/sansDyn = %s"
+              % (tuple(hex(v) if v is not None else "-" for v in out["t1_1082"]),))
+
+        # --- T2 : un ennemi AU CONTACT de Darkstrider, qui l'ATTAQUE (donc le BLESSE).
+        for _ in range(6):
+            dv = _dv(sid, rid)
+            ds = _by_vis(dv, "tauDarkstrider")
+            foes = sorted((a for a in _actors(dv)
+                           if a["owner"] != ds["owner"] and None not in a["pos"]),
+                          key=lambda a: (_dist(ds, a), a["id"]))
+            if not foes:
+                break
+            if _dist(ds, foes[0]) == 1:
+                _act(sid, rid, {"kind": "attack", "unitId": foes[0]["id"],
+                                "targetId": ds["id"]}, 120)
+                break
+            _step_toward(sid, rid, foes[0]["id"], ds["pos"], 1)
+        _hand_to(sid, rid, "tauDarkstrider")
+        dv, st, _bg = _load(sid, rid, bg)
+        ds = _by_vis(dv, "tauDarkstrider")
+        aun = _by_vis(dv, "tauAunShi")
+        foes = sorted((a for a in _actors(dv)
+                       if a["owner"] != ds["owner"] and None not in a["pos"]),
+                      key=lambda a: (_dist(ds, a), a["id"]))
+        out["d_ally_t2"] = _dist(ds, aun) if aun is not None else None
+        out["d_foe_t2"] = _dist(ds, foes[0]) if foes else None
+        out["hp_after"] = _hp(st, ds["id"])
+        out["t2_1081"] = _line(sid, rid, st, ds["id"], 1081, aun["id"])
+        out["t2_1082"] = _line(sid, rid, st, aun["id"], 1082, ds["id"])
+        print("\n[T2 ennemi AU CONTACT + attaque]  d(allie)=%s d(ennemi)=%s hp=%s"
+              % (out["d_ally_t2"], out["d_foe_t2"], out["hp_after"]))
+        print("  1081 caster=Darkstrider cible=AunShi   natif/APRES/sansDyn = %s"
+              % (tuple(hex(v) if v is not None else "-" for v in out["t2_1081"]),))
+        print("  1082 caster=AunShi cible=Darkstrider   natif/APRES/sansDyn = %s"
+              % (tuple(hex(v) if v is not None else "-" for v in out["t2_1082"]),))
+        return out, _dispose
+    except BaseException:
+        _dispose()
+        raise
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--board", default=BOARD)
+    ap.add_argument("--bites", action="store_true",
+                    help="#247 : montage ou les DEUX regles dynamiques MORDENT + son basculement")
     a = ap.parse_args(argv)
 
     sid = _resolve_session()
+    if a.bites:
+        res, dispose = measure_dynamic_bites(sid, a.seed, a.board)
+        try:
+            ok = (res["t1_1081"][0] == res["t1_1081"][1] and res["t1_1082"][0] == res["t1_1082"][1]
+                  and res["t2_1081"][0] == res["t2_1081"][1]
+                  and res["t2_1082"][0] == res["t2_1082"][1]
+                  and res["t1_1081"][0] != 0 and res["t1_1082"][0] != 0
+                  and res["t2_1081"][0] == 0 and res["t2_1082"][0] == 0
+                  and res["t1_1081"][2] == 0 and res["t1_1082"][2] == 0)
+            print("\n[VERDICT bites] %s" % ("PASS" if ok else "FAIL"))
+            print("[RAW] " + json.dumps(res))
+            return 0 if ok else 1
+        finally:
+            dispose()
+
     stats, dispose = measure_all(sid, a.seed, a.board)
     try:
         print("\n================ SYNTHESE (board=%s seed=%s) ================" % (a.board, a.seed))

@@ -323,9 +323,11 @@ class TwinSmartMissileSystemAbility(ActiveAbility):
 #    de `ActiveAbilityOperation`, hors behaviour). Les deux convergent : ennemi adjacent -> ResetTurn +
 #    aucun flag ; aucun ennemi adjacent -> FinishTurn + flags poses.
 #  - CAST LEGAL (`IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$GetDynamicInvalidTargetReason`,
-#    non porte -- gate AMONT du natif) : le cast est REFUSE (reason 2) sauf si le caster a >=1 ennemi
+#    PORTE depuis #247 -- gate AMONT) : le cast est REFUSE (reason 2) sauf si le caster a >=1 ennemi
 #    adjacent OU si un allie adjacent a un `RangedSpecialist` DESACTIVE
-#    (`FightingRetreatAbility$$HasDeactivatedRangedSpecialist`). Cote runner le cast arrive deja valide.
+#    (`FightingRetreatAbility$$HasDeactivatedRangedSpecialist`). Le predicat du 1er disjunct compte les
+#    `Steppable` (`ignoreSteppables = false`), la ou l'ExecuteBehaviour ci-dessus les EXCLUT
+#    (`NonSteppableOrObjectUnits`) : les deux volets ne comptent pas le meme ensemble.
 
 FIGHTING_RETREAT_ID = "FightingRetreat"
 FIGHTING_RETREAT_DMG_REDUCTION = int(EffectType.FightingRetreatDmgReduction)   # 0x485 = 1157
@@ -347,6 +349,31 @@ def fighting_retreat_adjacent_friends():
     `AdjacentFriends` natif EXCLUT deja le caster (anneau `d>0`) ; le 4e volet le re-AJOUTE explicitement
     par `op_Addition(adjFriends, caster@0x160)`."""
     return non_steppable_or_object_units(AdjacentFriends(OwnerTile()))
+
+
+def _has_deactivated_ranged_specialist(state: "State", unit_id) -> bool:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$HasDeactivatedRangedSpecialist`
+    -- MIRROR du decompile (le predicat du `Enumerable.Any(adjFriends, ...)` de la regle dynamique) :
+
+        effect = EntityExtensions.GetOwnedEffect(unit, state, 0x5eb RangedSpecialist);
+        if (effect == null) return false;
+        return effect.EffectComponent.IsActive@+0x5c == 0;
+
+    Nativement l'entite-effet 1515 EXISTE en permanence sur tout porteur du trait
+    `RangedSpecialist` (1060) -- `StaticBattleRules.Trait$$GetEffectToBeAddedToOwnerForTrait`, pose
+    par `InitializeActorAbilitiesOperation$$Execute` a la creation de l'unite. Seul son FLAG bascule
+    (`RangedSpecialistEffect$$CreateHandleTriggerAbilitiesInternal` : `If(HasAdjacentEnemies,
+    DeactivateEffect, ActivateEffect)` sur `On(0x12)` = turn-start). « Effet absent » et « effet
+    desactive » sont donc DEUX etats natifs distincts, et seul le second rend `true`.
+
+    Cote port, le canal de seed DROPPE les instances `IsActive == 0` (case-160, prouve live :
+    `readEffectsByUnit` fait `if (!info.active || info.removed) continue`) -- la distinction est
+    reconstruite par `attack_query.get_owned_effect_is_active(..., has_trait_effect_source=1060)`,
+    qui rend le TERNAIRE natif : `None` = pas porteur du trait (pas d'entite-effet), `True` = effet
+    present et actif, `False` = trait porte mais instance absente du seed = DESACTIVEE."""
+    from .attack_query import get_owned_effect_is_active
+    return get_owned_effect_is_active(state, unit_id, RANGED_SPECIALIST_EFFECT,
+                                      has_trait_effect_source=RANGED_SPECIALIST_TRAIT) is False
 
 
 def fighting_retreat_tree(state: "State", n_adjacent_enemies: int):
@@ -416,10 +443,9 @@ class FightingRetreatAbility(ActiveAbility):
     #            `...FightingRetreatAbility$$GetDynamicInvalidTargetReason`). Son corps ne lit QUE le
     #            CASTER (`param_2`) : il rend `2` si le caster n'a NI ennemi adjacent
     #            (`battleQuery.<slot 0x7c> GetAdjacentEnemies`) NI allie adjacent porteur d'un
-    #            `RangedSpecialist` DESACTIVE (`<slot 0x80>` + le predicat
-    #            `FightingRetreatAbility$$HasDeactivatedRangedSpecialist`), sinon `0`. NON PORTE
-    #            (`ActiveAbility.get_dynamic_invalid_target_reason` rend 0) -> residu PERMISSIF
-    #            explicite, cf. `docs/rl/case-250-tau-targeting.md`.
+    #            `RangedSpecialist` DESACTIVE (`<slot 0x80> GetAdjacentFriends` + le predicat
+    #            `FightingRetreatAbility$$HasDeactivatedRangedSpecialist`), sinon `0`.
+    #            PORTE depuis #247 -- cf. `get_dynamic_invalid_target_reason` ci-dessous.
     #     0x800  (bit 11) AddCasterIfAtLeastOneTarget -> N'EST PAS une regle du filtre statique : il
     #            n'est lu que par `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason`,
     #            la branche que prend le natif quand une ability `isSelfCasting != 0` est castee SUR
@@ -437,6 +463,39 @@ class FightingRetreatAbility(ActiveAbility):
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.TargetMatchesDynamicRule | TR.AddCasterIfAtLeastOneTarget,
         self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR 1:1 du decompile. La signature native est celle du delegue
+        `TargetingOptions.DynamicTargetingTargetRule` (`caster, casterTiles, target, targetTiles`) ;
+        ce corps-ci **n'en lit QUE `caster` (`param_2` = RDX)** -- il ne touche jamais la cible :
+
+            owner      = OwnerComponent.GetCurrentPlayerEntityId(caster.OwnerComponent);
+            adjEnemies = battleQuery.<slot 0x7c> GetAdjacentEnemies(caster, owner, false);
+            adjFriends = battleQuery.<slot 0x80> GetAdjacentFriends(caster, owner);
+            if (Enumerable.Any(adjEnemies))                                   return 0;
+            if (Enumerable.Any(adjFriends, this.HasDeactivatedRangedSpecialist)) return 0;
+            return 2;                       // == TargetingRule.TargetMatchesDynamicRule
+
+        CONSEQUENCE DE STRUCTURE : la regle est INDEPENDANTE de la cible, donc pour un caster donne
+        elle refuse TOUTES les cibles ou AUCUNE. Elle n'est atteinte que par les lignes qui ont deja
+        passe le volet PORTEE (`RANGE_ADJACENT`), et jamais par la ligne « cible == caster » (1081
+        est `isSelfCasting`, l'overload 5 arguments l'aiguille sur `GetCasterNotAddedReason`). C'est
+        pourquoi elle etait restee INERTE sur les montages de #250 : Darkstrider y avait un ennemi
+        adjacent, donc le 1er `Any` court-circuitait.
+
+        `ignoreSteppables = false` (3e argument du slot 0x7c, LU) : un decoy `Steppable` ennemi au
+        contact SUFFIT a autoriser le cast -- contraste voulu avec l'`ExecuteBehaviour`, qui lui
+        filtre par `NonSteppableOrObjectUnits`. Les deux volets ne comptent PAS la meme chose."""
+        from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
+        tiles = entity_tiles(state, caster_id)
+        if get_adjacent_enemies(state, tiles, caster_id):        # `Any(adjEnemies)`
+            return 0
+        for ally in get_adjacent_friends(state, tiles, caster_id):
+            if _has_deactivated_ranged_specialist(state, ally.id):
+                return 0
+        return int(TR.TargetMatchesDynamicRule)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -649,10 +708,10 @@ class EarlyWarningOverrideAbility(ActiveAbility):
 #    COLLAPSEES en scalaire (doctrine slice-18/19) : les deux niveaux sont lus sur l'
 #    `ActiveAbilitiesComponent` (`AbilityState.Level` PER-ABILITY, canal `readAbilityState` #100),
 #    avec repli sur `UnitContext.active_ability_level`.
-#  - CAST LEGAL (`InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`, gate AMONT non porte) :
-#    cible != caster, PAS de trait 0x7e7, ET (repairable | healable-blesse |
-#    EntityCanHaveActiveAbilityReset). C'est pourquoi un allie a PLEINS PV dont l'actif est PRET rend
-#    `fromHere = []` -- le cast serait REFUSE (`mutated:false`, indiscernable d'une ability inerte).
+#  - CAST LEGAL (`InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`, gate AMONT PORTE
+#    depuis #247) : cible != caster, PAS de trait `0x7e7 = UnitTrait.Boss`, ET (soignable | reparable
+#    | `EntityCanHaveActiveAbilityReset`). C'est pourquoi un allie a PLEINS PV dont l'actif est PRET
+#    rend `fromHere = []` -- le cast est REFUSE (`ValidRequest`, mesure #247 : 2 lignes / 8).
 
 INSPIRED_TO_GREATNESS_ID = "InspiredToGreatness"
 ITG_OVERRIDE_LEVEL = int(EffectType.InspiredToGreatness_OverrideLevel)   # 0x49c = 1180
@@ -773,12 +832,12 @@ class InspiredToGreatnessAbility(ActiveAbility):
     #     0x2    (bit 1)  TargetMatchesDynamicRule -> delegue `options+0x38` =
     #            `...InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`, qui rend `1`
     #            (`ValidRequest`, que le natif REUTILISE comme code de refus) si
-    #            `target == caster` OU `UnitExtensions.HasTrait(target, 0x7e7)` OU si les TROIS
-    #            predicats `<slot 0x11>(caster, target, 0, 1)` (reparable),
-    #            `<slot 0x12>(caster, target, 0, 0)` (soignable) et `<slot 0x31>(target)`
-    #            (`EntityCanHaveActiveAbilityReset`) sont faux ; sinon `0`. NON PORTE
-    #            (`get_dynamic_invalid_target_reason` rend 0) -> residu PERMISSIF explicite,
-    #            cf. `docs/rl/case-250-tau-targeting.md`.
+    #            `target == caster` OU `UnitExtensions.HasTrait(target, 0x7e7 = UnitTrait.Boss)`
+    #            OU si les TROIS predicats `<slot 0x11>(caster, target, 0, 1)` (SOIGNABLE,
+    #            `AttackQuery$$EntityCanBeHealed`), `<slot 0x12>(caster, target, 0, 0)` (REPARABLE,
+    #            `AttackQuery$$EntityCanBeRepaired`) et `<slot 0x31>(target, 0)`
+    #            (`BattleQuery$$EntityCanHaveActiveAbilityReset`) sont faux ; sinon `0`.
+    #            PORTE depuis #247 -- cf. `get_dynamic_invalid_target_reason` ci-dessous.
     #     0x400  (bit 10) TargetIsFriendly         -> PORTE. Le seul bit qui mord sur le CAMP :
     #            `if (!UnitsAreFriendly(caster, target)) -> broken(0x400)` (et une cible portant
     #            l'effet `FriendlyFire` 0x67 n'est « amie » de personne). Consequence de ROUTAGE :
@@ -790,6 +849,48 @@ class InspiredToGreatnessAbility(ActiveAbility):
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly,
         self_cast=False, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR 1:1 du decompile (`param_2` = caster, `param_4` = target, la signature du delegue
+        `TargetingOptions.DynamicTargetingTargetRule`) :
+
+            if (caster == target || UnitExtensions.HasTrait(target, 0x7e7 Boss)) return 1;
+            healable   = attackQuery.<slot 0x11> EntityCanBeHealed  (caster, target, 0, true);
+            repairable = attackQuery.<slot 0x12> EntityCanBeRepaired(caster, target, 0, false);
+            canReset   = battleQuery.<slot 0x31> EntityCanHaveActiveAbilityReset(target, false);
+            return (!healable && !repairable && !canReset) ? 1 : 0;
+
+        ⚠ LE CODE RENDU EST LE LITTERAL `1` = `TargetingRule.ValidRequest` : le natif REUTILISE
+        cette valeur comme code de refus, exactement comme la branche `TargetIsTile` du filtre
+        statique. Ne pas y lire « ability indisponible ».
+
+        `0x7e7` = **2023**, et la QUALIFICATION compte : 2023 n'existe QUE dans
+        `IdunBattle.Entities.Enum.UnitTrait` (= `Boss`) -- il est absent d'`EffectType`,
+        d'`ActiveAbilityType` et de `TriggeredAbilityType`, dont les espaces d'ids se recouvrent
+        numeriquement. L'argument est bien un `UnitTrait` (2e parametre d'`UnitExtensions$$HasTrait`).
+
+        `canReset` INCONNU (`None` : l'unite n'a pas d'`ActiveAbilitiesComponent`, c'est-a-dire
+        `decisionView` interroge SANS `allAbilities`) -> le port NE REFUSE PAS. Le disjunct pourrait
+        etre vrai ; fabriquer un `False` refuserait un cast que le natif accepte, alors que la
+        convention de tout le gate est la degradation PERMISSIVE. Les mesures de #247 sont faites
+        avec `allAbilities: True`, donc sur un verdict REEL."""
+        from .attack_query import _has_trait, entity_can_be_healed, entity_can_be_repaired
+        from ..operations.ability_reset import entity_can_have_active_ability_reset
+        if target_id is None:
+            return 0                                    # cible non resolue -> le port ne decide pas
+        if int(target_id) == int(caster_id):
+            return int(TR.ValidRequest)
+        if _has_trait(state, target_id, int(UnitTrait.Boss)):
+            return int(TR.ValidRequest)
+        if entity_can_be_healed(state, caster_id, target_id, scope=0, remove_effects=True):
+            return 0
+        if entity_can_be_repaired(state, caster_id, target_id, scope=0, remove_effects=False):
+            return 0
+        if entity_can_have_active_ability_reset(state, target_id) is not False:
+            return 0                                    # True (resettable) ou None (verdict INCONNU)
+        return int(TR.ValidRequest)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

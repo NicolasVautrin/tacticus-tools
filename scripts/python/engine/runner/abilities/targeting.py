@@ -1124,6 +1124,20 @@ def units_are_enemies(state: "State", a_id, b_id) -> bool:
     return _current_player_team(state, a_id) != _current_player_team(state, b_id)
 
 
+def units_are_friends(state: "State", a_id, b_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsFriend(a, b, state)` — le JUMEAU EXACT d'`IsEnemy`,
+    lu au decompile : memes deux `GetCurrentPlayer(...).Player.Team@+0x24`, memes rabats a `0`, seul
+    le comparateur change (`==` au lieu de `!=`). C'est ce predicat-la (et pas le slot 0x90
+    `UnitsAreFriendly`) que consomme la branche `friendOf` de
+    `IdunBattle.Core.Services.BattleQuery$$CountOrGetUnitsOnTiles`, donc `GetAdjacentFriends`.
+
+    ⚠ Ce n'est PAS `not units_are_enemies` en general (deux entites dont l'une est `None` sont ni
+    amies ni ennemies), mais ca l'est des que les deux ids sont resolus."""
+    if a_id is None or b_id is None:
+        return False
+    return _current_player_team(state, a_id) == _current_player_team(state, b_id)
+
+
 def tile_can_add_unit(state: "State", coord) -> bool:
     """`IdunBattle.Entities.TileExtensions$$CanAddUnit(tile, state, allowSteppable, ignoreReserved,
     ignoreContent)` pour le triplet `(1, 0, 0)` — le SEUL que le filtre statique utilise (bit 12
@@ -1259,6 +1273,48 @@ def get_adjacent_enemies(state: "State", tiles, unit_id,
                 continue
             if not units_are_enemies(state, unit_id, occ.id):
                 continue                                   # `IsEnemy(u, enemyOf)`
+            if occ not in out:
+                out.append(occ)                            # `OrderedSet.Add` (dedup)
+    return out
+
+
+def get_adjacent_friends(state: "State", tiles, unit_id) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAdjacentFriends(from, playerEntityId)` — le SYMETRIQUE
+    de `get_adjacent_enemies`, lu au decompile (surcharge `(IEntity, BEntityId)`, slot 0x80) :
+
+        players = state.GetEntity(playerEntityId)
+        BattleQuery$$GetUnitsOnTiles( BattleQuery$$IterateAdjacentTiles(from, false, true, true),
+                                      friendOf: players, enemyOf: null, onlyNonSteppable: false )
+
+    C'est le MEME `IterateAdjacentTiles(_, a=false, b=true, c=true)` que le jumeau ennemi — donc les
+    memes trois flags (tuiles occupees INCLUSES, `IsWalkable` exige, temporaires non filtrees) et la
+    meme porte d'ELEVATION `|dElev| < 2`. Comme lui, l'iterateur parcourt l'adjacence STOCKEE sur la
+    tuile : **la tuile source n'est jamais rendue**, donc l'unite elle-meme n'est JAMAIS dans le
+    resultat (c'est pour ca que `FightingRetreatAbility$$ExecuteBehaviour` re-ajoute explicitement le
+    caster par `op_Addition(adjFriends, caster@0x160)`).
+
+    Contrairement au jumeau ennemi, cette surcharge ne prend PAS de `onlyNonSteppable` : une unite
+    `Steppable` amie adjacente COMPTE. Consommateur porte : la regle dynamique de `FightingRetreat`
+    (1081, #247). Sans `state.board` -> liste VIDE (aucun refus invente)."""
+    board = state.board
+    if board is None or not tiles or unit_id is None:
+        return []
+    out: list = []
+    for t in (tiles or ()):
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            continue
+        elev = board.elevation(tid)
+        for nid in board.neighbours(tid):
+            if abs(elev - board.elevation(nid)) >= 2:
+                continue                                   # porte d'ELEVATION (|dElev| < 2)
+            if not board.walkable(nid):
+                continue                                   # `requireWalkable = true`
+            occ = state.unit_at(board.coord(nid))          # `UnitExtensions$$GetUnit(tile, state)`
+            if occ is None:
+                continue
+            if not units_are_friends(state, unit_id, occ.id):
+                continue                                   # `IsFriend(u, friendOf)`
             if occ not in out:
                 out.append(occ)                            # `OrderedSet.Add` (dedup)
     return out
