@@ -536,15 +536,16 @@ caster, caster ayant bougé). Dégradation **permissive**, donc silencieuse en s
   (bit 57 `TargetIsCasterOrEnemy`, et bit 51 `TargetIsNotSteppable` documenté **à l'envers**) : un
   masque écrit en hexadécimal laisse passer un bit faux sans trace.
 
-**Ventilation par module — c'est la carte de dispatch** (re-dérivée après #181 ;
+**Ventilation par module — c'est la carte de dispatch** (re-dérivée le 2026-07-29 après #247 par
+`probe_181_targeting_gaps.py` : `ABILITY_CLASSES` = **94**, avec masque = **60**, sans = **34** ;
 modules absents = **100 % couverts** : `admec`, `aeldari`, `bloodangels`, `darkangels`,
-`genestealer`, `necrons`, `orks`, `sisterhood`, `spacewolves`, `tyranids`, `ultramarines`,
-`votann`, `worldeaters`) :
+`genestealer`, `necrons`, `orks`, `sisterhood`, `spacewolves`, **`strike`**, `tyranids`,
+`ultramarines`, `votann`, `worldeaters`) :
 
 | module | sans | ids sans masque |
 |---|---|---|
 | `splash` | 6 | 1000 GauntletsOfUltramar, 1051 Stikkbomb, 1065 ScythingTalons, 1078 Fragstorm, 1098 PlasmaGrenade, 1105 CrushingClaws |
-| `strike` | 5 | 1014 ArmoriumCherub, 1018 ValkyrieStrike, 1043 ThunderousAssault, 1104 SpiritLeech, 1122 CordClaw (~~1163 BlackRage~~ posé par #210) |
+| ~~`strike`~~ | **0** | **SOLDÉ** : 1014 (#222), 1018 (#245), 1043 (#246), 1104 + 1122 (#247) ; ~~1163 BlackRage~~ posé par #210 |
 | `blacklegion` | 5 | 1021 Incursion, 1022 BringerOfDespair, 1036 FrenziedFiringCombat, 1147 HadesAutocannons, 1148 DaemonicOrdnance |
 | `deathguard` | 5 | 1037 RevitalizingMalignancy, 1040 SpawnPoxwalkers, 1042 FlailSwing, 1168 EntropyCannons, 1169 PlagueburstMortar |
 | `summon` | 5 | 1007 ScarabHive, 1045 GetEmRuntz, 1047 ScarabSummon, 1096 MasterOfTheTutelaries, 1166 AberrantHypermorph |
@@ -552,10 +553,17 @@ modules absents = **100 % couverts** : `admec`, `aeldari`, `bloodangels`, `darka
 | `astramilitarum` | 4 | 1016 SendInTheNextWave, 1028 SupremeCommander, 1142 MalleusRocketLauncher, 1143 ForwardSpotter |
 | `imperative` / `mv71` / `quickening` / `stormcaller` | 1 chacun | 1118 DoctrinaImperatives · 1076 MV71SniperDroneSquadAttack · 1151 TheQuickening · 1113 Stormcaller |
 
-> Les modules de **faction** sont désormais tous couverts. Ce qui reste est concentré dans les
-> modules de **PATRON partagé** (`splash`, `strike`, `summon` = 17 des 40) plus `blacklegion`,
-> `deathguard`, `tau` et `astramilitarum`. Un lot par module reste le bon découpage : ces
-> modules-là sont les plus exposés à la collision entre agents, à dispatcher un seul à la fois.
+> Les modules de **faction** sont tous couverts, et depuis #247 le premier module de **PATRON
+> partagé** l'est aussi (`strike`). Ce qui reste est concentré dans `splash` (6) et `summon` (5) plus
+> `blacklegion`, `deathguard`, `tau` et `astramilitarum`. Un lot par module reste le bon découpage :
+> ces modules-là sont les plus exposés à la collision entre agents, à dispatcher un seul à la fois.
+>
+> **Ce que `strike` a coûté à apprendre, et qui vaut pour les suivants** : ses 5 abilities ont
+> exhibé les DEUX pièges symétriques du preset (cf. `case-248` §10). Même masque / presets
+> différents (1014 et 1104 valent tous deux `0x4002`, mais divergent sur `forceMeleeTarget`, ce qui
+> change le régime de portée) ET même preset / masques différents (1043 et 1122 lisent tous deux
+> `statics+0x40`, mais 1043 enchaîne sur la surcharge « preset + flags »). Lire `Rules` seul ne
+> suffit donc jamais : il faut les **0x40 octets entiers** ET la **forme du ctor**.
 
 ⚠ `1151 TheQuickening` est précisément l'ability citée par la doctrine comme exemple de l'overload
 PRESET + flags : ne pas recopier son littéral visible.
@@ -1060,9 +1068,10 @@ leur source** (le `.ts` du hook, le décompilé, le `git log -S`) au lieu de les
    `damage_hits.py`**, qui n'a pas été scindé.
 5. **Gisement 4 (§3bis), 55 passifs confrontables** — le plus gros volume, invisible des deux audits
    historiques. À traiter en parallèle du gisement 1 : il ne touche PAS `handler.py`.
-6. **Gisement 3 (§3), 53 masques** — par module, en suivant la carte du §3 ; ou en règle de
-   non-régression sur chaque nouveau port. Les gros lots restants : `splash` (6), `strike` (6),
-   `blacklegion` (5), `deathguard` (5), `summon` (5), `tau` (5).
+6. **Gisement 3 (§3), 34 masques** (compte du 2026-07-29, après #247) — par module, en suivant la
+   carte du §3 ; ou en règle de non-régression sur chaque nouveau port. Lots restants : `splash` (6),
+   `blacklegion` (5), `deathguard` (5), `summon` (5), `tau` (5), `astramilitarum` (4).
+   ~~`strike`~~ **SOLDÉ** (#247).
 7. **Gisement 1 (§1), 47 items restants** (62 − les 15 du gisement 2) — piocher par faction ; les 11
    de la voie `catalog_inject` n'ont plus d'obstacle de harnais.
 8. ~~**O1 garde de synchro**, **R24**, **R8**~~ **FERMÉS** en un seul commit (`3eee6c0`, §5.0) — la

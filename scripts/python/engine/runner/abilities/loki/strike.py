@@ -449,6 +449,44 @@ class SpiritLeechAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.SpiritLeech)  # 1104
     ABILITY_ID = "SpiritLeech"
 
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$.ctor`
+    # n'appelle AUCUN `IdunBattle.Core.Services.TargetingOptions$$.ctor` -- il recopie les 0x40
+    # octets du champ STATIQUE de `TargetingOptions` a l'offset RELATIF **+0x180** du bloc
+    # `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Aucun litteral de masque n'est donc visible dans le ctor : le masque EFFECTIF est la constante
+    # ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`, soit
+    # `*(statics+0x1a8)` = **0x4002**. Ce n'est PAS la surcharge « preset + flags » (qui ferait
+    # `Rules <- preset.Rules | flags`) : la copie est integrale, il n'y a aucun flag a OR-er.
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`, noms VERBATIM du mirror
+    # genere) -- 0x2 + 0x4000 = 0x4002, il ne reste AUCUN bit residuel :
+    #     0x2     (bit 1)  TargetMatchesDynamicRule  -> point d'extension : le filtre statique
+    #                      invoque la regle-delegue `options+0x38` (slot vtable +0x480). La classe
+    #                      native ne fournit AUCUN corps `SpiritLeechAbility$$GetDynamicInvalid
+    #                      TargetReason` (ses seuls corps sont `$$.ctor`, `$$ExecuteBehaviour`,
+    #                      `$$GetAttackDamage`, `$$GetHealTargets`, `$$GetHealAmountForExecution`,
+    #                      `$$GetHealAmountForPrediction`, `$$GetHealAmountFromDamageAmount`,
+    #                      `$$GetSuppressCondition`) -> defaut `AActiveAbility` = 0 = aucun refus.
+    #                      Cote port : `ActiveAbility.get_dynamic_invalid_target_reason` (defaut 0).
+    #     0x4000  (bit 14) TargetIsEnemy             -> PORTE (`TargetingQuery$$UnitsCanAttackEach
+    #                      Other`) : refus sur soi-meme et sur un allie.
+    # PORTEE : le MEME preset `+0x180` porte `TargetingRange` <- `TargetingRange` statique **+0x18**
+    # (`IdunBattle.Core.Services.TargetingRange$$.cctor` : `onlyAdjacent = RangedBool.False`,
+    # `useRangeFromConfig = true`, `useWholeBoard = false`, `overrideRange` vide) = `RANGE_FROM_CONFIG`
+    # -> `AActiveAbility$$SetConfigValuesInTargetingOptions` pose `OverrideRange =
+    # GetNumberConstant(0x16 range)` = `SpiritLeech.constants.range` = **3**.
+    # `forceMeleeTarget` (`<preset>+0x20` = `*(statics+0x1a0)`) = **1** = `RangedBool.False` -> AUCUN
+    # clamp melee (`GetRange` n'entre pas dans la branche `ShouldApplyRangedInMelee`).
+    # ATTENTION -- LA VOISINE MENT : `ArmoriumCherub` (1014) est dans CE fichier, de la MEME forme,
+    # avec le MEME masque 0x4002 et le MEME `RANGE_FROM_CONFIG`... mais son preset est `+0x140` et y
+    # ecrit `forceMeleeTarget = 0 = RangedBool.True` (`*(statics+0x160)`). Les deux presets ne
+    # different QUE par ce champ, et il change le regime de portee au contact : Vindicta clampe a 1,
+    # le Neurothrope garde ses 3 hexes. Copier le preset du voisin aurait produit un gate FAUX.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         self_cast=False, range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -561,6 +599,38 @@ class CordClawAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.CordClaw)  # 1122
     ABILITY_ID = "CordClaw"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility$$.ctor`
+    # n'appelle AUCUN `IdunBattle.Core.Services.TargetingOptions$$.ctor` -- il recopie les 0x40
+    # octets du champ STATIQUE de `TargetingOptions` a l'offset RELATIF **+0x40** du bloc
+    # `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 0, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    # Le masque EFFECTIF est la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`, soit `*(statics+0x68)`
+    # = **0x4000**. Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`) -- un seul
+    # bit, aucun residu :
+    #     0x4000  (bit 14) TargetIsEnemy  -> PORTE (`TargetingQuery$$UnitsCanAttackEachOther`) :
+    #                      refus sur soi-meme et sur un allie.
+    # `TargetMatchesDynamicRule` (0x2) est ABSENT : le natif ne consulte AUCUNE regle dynamique pour
+    # cette ability, quel que soit le contenu du slot vtable +0x480.
+    # PORTEE : le MEME preset `+0x40` porte `TargetingRange` <- `TargetingRange` statique **+0x30**
+    # (`IdunBattle.Core.Services.TargetingRange$$.cctor` : `onlyAdjacent = 0 = RangedBool.True`,
+    # `useRangeFromConfig = false`, `useWholeBoard = false`, `overrideRange = Nullable(1)`) =
+    # `RANGE_ADJACENT` -> le filtre statique prend la branche `battleQuery.AreEntitiesAdjacent`
+    # (adjacence, PAS un `dist <= N`). Coherent avec la config : `CordClaw.constants` ne porte
+    # AUCUNE cle `range` (juste `nrOfHits`/`damageProfile`/`nrOfHits_2`) et `attackRangeType` vaut
+    # `Melee`. `forceMeleeTarget` (`<preset>+0x20` = `*(statics+0x60)`) = **1** = `RangedBool.False`
+    # -> aucun clamp melee a poser, la portee EST deja l'adjacence.
+    # ATTENTION -- MEME PRESET QUE `ThunderousAssault` (1043), MASQUE DIFFERENT : 1043 recopie AUSSI
+    # `statics+0x40`, mais elle enchaine sur la surcharge « preset + flags »
+    # (`TargetingOptions..ctor(&opts, &preset, 0x10000000, 0)`), qui COMBINE
+    # (`dst+0x28 = flags | preset+0x28`) -> 0x10004000. CordClaw, elle, copie INTEGRALEMENT et
+    # s'arrete la : son masque est le preset NU, sans `CasterCanMove`. Meme source, deux masques --
+    # c'est la FORME du ctor qui tranche, pas le preset.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
+                                         self_cast=False, range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
