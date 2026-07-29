@@ -433,6 +433,36 @@ selon le critère de #105 : **chemin ajouté/retiré ou valeur non numérique = 
 **Pas encore outillé, à faire à la main** : la garde automatique qui refuse les artefacts
 désynchronisés en amont de chaque probe.
 
+**Étape 6 — REPOSER les prefs d'écran (la MAJ les écrase).** Mesuré le 2026-07-29 : la mise à
+jour a remis `Screenmanager Resolution Width/Height` à **2560×1920** (4,9 Mpx). Symptôme :
+`dwm` à **51 %** de GPU pour afficher un écran de bataille statique — le compositeur travaille
+à la fréquence de l'ÉCRAN, pas aux 30 Hz du jeu, donc **le bridage de cadence ne corrige
+rien** ; seule la surface compte. Retomber à 1280×960 a ramené le GPU à **6,8 %**.
+
+```powershell
+# jeu FERMÉ (le script refuse sinon : Unity réécrit les prefs en quittant)
+powershell -File scripts\tacticus-screen-prefs.ps1
+```
+
+Le levier à chaud, pour une session déjà lancée, est le RPC `renderBudget` — **enveloppe
+`args` (un TABLEAU), pas `params`** : un `params` est ignoré en silence et l'appel se comporte
+en lecture seule (`applied: []`).
+
+```powershell
+$b = '{"method":"renderBudget","args":[{"width":1280,"height":960,"fullScreenMode":3}]}'
+Invoke-RestMethod -Uri "http://127.0.0.1:8765/api/scripts/<SID>/rpc" -Method Post -Body $b -ContentType 'application/json'
+```
+
+⚠ `fullScreenMode` est un **ENUM**, pas un booléen (`0` = `ExclusiveFullScreen`, `3` =
+`Windowed`) — la confusion a déjà coûté le process. Passer **3** quand le jeu est déjà en
+fenêtre : aucun changement de mode, donc aucun `SetFullscreenState`, donc aucun contact avec
+le swapchain. Et le retour ne dit RIEN d'un échec (`applied:["resolution"]` même quand rien
+n'a pris) : **vérifier en RELISANT** `renderBudget` sans argument une frame plus tard —
+`SetResolution` est asynchrone, `after` est encore l'ancienne valeur dans l'appel qui l'écrit.
+
+La cadence, elle, n'a rien à faire ici : `render-budget.ts` l'**auto-arme** à 30 Hz /
+`vSync = 0` à chaque inject (vérifiable par `autoArm.done`).
+
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
 **Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
