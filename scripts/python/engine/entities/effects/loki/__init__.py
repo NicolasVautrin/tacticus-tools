@@ -89,6 +89,7 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
                      HammerOfWrathConditionalDamageEffect)
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
+from .cursed_plague_bell import CursedPlagueBellExtraMoveEffect        # aura deathBlightbringer (1071)
 from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
                               RealityUnboundExtraMaxDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
@@ -165,6 +166,8 @@ __all__ = [
     "HammerOfWrathConditionalDamageEffect",
     # destroy_the_witch (passif templHelbrecht 1091 : +1 MOVEMENT gate Psyker ennemi + aura melee)
     "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
+    # cursed_plague_bell (aura deathBlightbringer 1071 : +1 MOVEMENT aux amis Chaos, 1 tour)
+    "CursedPlagueBellExtraMoveEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)

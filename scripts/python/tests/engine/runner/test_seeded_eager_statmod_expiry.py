@@ -23,13 +23,17 @@ delimite la portee du croisement :
   | effet                                       | pose                                  | duree      |
   |---------------------------------------------|---------------------------------------|------------|
   | `Waaagh_ExtraMovement` (0x44b=1099)         | `AddStaticStatModifierEffect(..., duree@dsl+0xc0 = Direct(1))` | **1 TOUR** |
+  | `CursedPlagueBell_ExtraMove` (0x431=1073)   | `CursedPlagueBellMovementAbility$$CreateBehaviour` = `AddEffect(0x431, ..., turns = Nullable<int>(1))` | **1 TOUR** |
   | `BlackRage_ExtraMove` (0x53e=1342)          | `AddEffect(..., Caster(), 0)`         | PERMANENT  |
   | `AnvilShield_FrozenAttackerAdvantage` (0x4b1=1201) | `AddStaticStatModifierEffect` sans override, et 0x4b1 est ABSENT de `StaticBattleRules.Effect$$DefaultAmountOfRounds` | PERMANENT (retire par son trigger `On(UnitPostAbility=0xe)`) |
   | `ProtectorImperative` (0x4df=1247)          | idem, absent de la table              | PERMANENT (`remaining=0` MESURE live) |
 
-=> **`Waaagh_ExtraMovement` est le SEUL membre du gisement a porter un vrai timer**, donc le seul que le
-retrait a echeance concerne. Les autres partent par une feuille `RemoveEffect` (couverte par
-`test_seeded_eager_statmod_revert_live.py`) ou ne partent pas.
+=> **DEUX membres du gisement portent un vrai timer** (`Waaagh_ExtraMovement` depuis l'origine,
+`CursedPlagueBell_ExtraMove` depuis #224) -- ce sont les seuls que le retrait a echeance concerne. Les
+autres partent par une feuille `RemoveEffect` (couverte par `test_seeded_eager_statmod_revert_live.py`)
+ou ne partent pas. Le cycle de vie complet de 1073 (pose au debut du tour, expiration en fin de tour,
+re-pose au tour suivant) est confronte au natif par
+`tests/engine/runner/test_cursed_plague_bell_extramove_live.py`.
 
 Ces tests passent par le VRAI foyer porte (`EndTurnOperation.execute` : tick de TOUTES les entites
 puis `revert_stat_mods_of_removed_effects`), pas par une sequence rejouee a la main -- c'est l'ORDRE de
@@ -167,6 +171,32 @@ def test_permanent_eager_statmod_is_untouched_by_the_expiry_tick():
         "un effet PERMANENT a ete retire par le tick de duree"
     assert int(ctx.stat(StatType.FIXED_ARMOR)) == before, \
         "buff permanent erode par le tick : %d -> %d" % (before, int(ctx.stat(StatType.FIXED_ARMOR)))
+
+
+def test_cursed_plague_bell_extramove_expires_like_waaagh():
+    """SECOND membre a timer (#224) : `CursedPlagueBell_ExtraMove` (0x431 = 1073), pose pour UN tour
+    sur les amis Chaos de l'aura de Corrodius. Meme croisement R16 x O3 que `Waaagh_ExtraMovement`,
+    sur une classe d'effet NATIVE bespoke (`CursedPlagueBell_ExtraMoveEffect$$ApplyInternal` emet son
+    propre `ChangeStat(Stat(Movement, Modification), ..., Entity(effect))`) au lieu de la feuille
+    generique -- le port doit donc l'attribuer ET le reverter par le MEME canal EAGER."""
+    amt = int(ability_var("CursedPlagueBell", "extraMovement", is_constant=True) or 0)
+    assert amt, "extraMovement non resoluble en gameconfig -> scenario vide"
+    cap = [{"name": "CursedPlagueBell_ExtraMove", "effectType": 1073, "level": 1,
+            "remaining": 1, "source": UID}]
+    st, ctx = _build(cap, {"movement": amt}, visual="worldJakhal")
+    assert int(ctx.stat(StatType.MOVEMENT)) == BASE["movement"] + amt, \
+        "le seed ne reproduit pas le Current capte"
+    per_source = dict(ctx.stats.components[int(StatType.MOVEMENT)].modification.per_source)
+    assert [k for k in per_source if isinstance(k, tuple) and k[:2] == ("statmod", 1073)], \
+        "1073 SEEDE non attribue (per_source=%s)" % (per_source,)
+    assert int(per_source.get(CAPTURED_SOURCE, 0)) == 0, "residu opaque non nul : %s" % (per_source,)
+
+    EndTurnOperation.execute(st, advance=False)
+
+    assert not st.effects.has_effect(UID, effect_type=1073), "1073 (turns=1) non expire au tick"
+    assert int(ctx.stat(StatType.MOVEMENT)) == BASE["movement"], (
+        "effet RETIRE mais buff CONSERVE : MOVEMENT=%d au lieu de %d"
+        % (int(ctx.stat(StatType.MOVEMENT)), BASE["movement"]))
 
 
 def test_seed_attribution_survives_the_expiry_path():

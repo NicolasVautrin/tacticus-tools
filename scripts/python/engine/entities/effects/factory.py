@@ -125,6 +125,7 @@ from .loki import (
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
+    CursedPlagueBellExtraMoveEffect,
     LionHelmExtraDmgEffect,
     LionHelmExtraBlockDamageEffect,
     LionHelmExtraBlockChanceEffect,
@@ -209,6 +210,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `loki/destroy_the_witch.py`.
     "DestroyTheWitch_ExtraMove": DestroyTheWitchExtraMoveEffect,
     "DestroyTheWitch_ExtraDamage": DestroyTheWitchExtraDamageEffect,
+    # CursedPlagueBell (deathBlightbringer "Corrodius", active 1071) : effet 0x431=1073 pose pour UN
+    # tour sur les amis CHAOS non-Stationary de l'aura ContagionsOfNurgle (vecteur
+    # `CursedPlagueBellMovementAbility$$CreateBehaviour` = `AddEffect(0x431, ..., turns=1)`).
+    # Classe d'effet NATIVE bespoke (contrairement a BlackRage/Waaagh, qui passent par la feuille
+    # generique) : `CursedPlagueBell_ExtraMoveEffect$$ApplyInternal` emet lui-meme
+    # `ChangeStat(Entity(target), Stat(1=Movement, 5=Modification), Modify, Direct(
+    # GetNumberConstant(0xe = extraMovement)), Entity(effect), OnlyAlive)` -> canal eager
+    # `applied_stat_mods` + `reverted_stats` (part 6 = ResetModification au revert). Cf.
+    # `loki/cursed_plague_bell.py`.
+    "CursedPlagueBell_ExtraMove": CursedPlagueBellExtraMoveEffect,
     # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpotterReworkedAbility$$CreateBehaviour) : aura
     # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
     # rayon 2 (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack).

@@ -197,17 +197,20 @@ inchangé.
 * **Les caps `vtbl+0x228 / 0x238`** du corps commun : toujours non répliqués, jamais vus saturer
   (max mesuré ici : 4 voisins, dont 2 qualifiants).
 * **Le comportement de l'ability elle-même** — ce cas ne porte que le PLAYBOOK (l'utilité de
-  mouvement de l'IA), pas l'effet de jeu. DEUX morceaux en sont depuis SORTIS, portés et validés
+  mouvement de l'IA), pas l'effet de jeu. TROIS morceaux en sont depuis SORTIS, portés et validés
   live par des cas dédiés :
   * `CursedPlagueBellMovementAbility` → `case-224-cursed-plague-bell-movement.md` (pose de
     `CursedPlagueBell_ExtraMove` 1073 au turn-start du porteur, 11 tours confrontés / 0 désaccord) ;
+  * `CursedPlagueBell_ExtraMoveEffect` → `case-224-cursed-plague-bell-extramove.md` (l'effet 1073
+    lui-même : `ChangeStat(Stat(1 = Movement, 5 = Modification), 4 = Modify,
+    Direct(GetNumberConstant(0xe)), Entity(effect))` = le +1 Movement effectif, et son revert
+    `part 6 = ResetModification` à l'expiration) ;
   * `CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` →
     `case-224-is-in-contagions-of-nurgle-range.md` (nœud DSL `IsInUnitAura`, table de portée
     `entities/effects/aura.py`).
 
-  Restent non portés : `CursedPlagueBell_ExtraMoveEffect` (le +1 Movement effectif),
-  `CursedPlagueBell_DangerZoneEffect`, et le reste du `CreateTrigger` / le `CreateBehaviour` de
-  `CursedPlagueBellAttackAbility`.
+  Restent non portés : `CursedPlagueBell_DangerZoneEffect`, et le reste du `CreateTrigger` / le
+  `CreateBehaviour` de `CursedPlagueBellAttackAbility`.
 
 ---
 

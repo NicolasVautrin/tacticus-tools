@@ -89,6 +89,22 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile** sur certaines configurations
+  (`case-224-cursed-plague-bell-extramove` §4). Mesuré en confrontant `aiMovableTiles`
+  (`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor`) au pendant offline
+  `engine/ai/state_bridge._move_tiles` : `MC1_67`/777 — `astraBullgryn` **et** `worldJakhal`
+  sur-atteignent `(2,3)`, `necroWarden` sur-atteint `(3,6)` ; `C4_09`/31337 — `blackAbaddon`
+  sur-atteint `(4,4)`. Signature **constante** : toujours `offline \ natif`, toujours **une** tuile,
+  et **indépendant de tout effet** (les unités témoins sans stat-mod montrent le même écart aux mêmes
+  tuiles). C'est donc la flood-fill (`get_movable_positions` / `make_can_continue`), pas un canal de
+  buff. Conséquence : l'IA portée peut choisir une tuile d'arrêt que le natif refuse. Point d'ancrage :
+  ces tuiles précises, en regard de `BasePathfinder$$NodesInNextLevel` / `IsValidContinuePathTile`
+  (le gate déjà porté pour `BlockEnteringUnits`). `[opus]`.
+- **`docs/rl/kit-coverage.md` et `docs/rl/passive-ability-coverage.md` sont PÉRIMÉS** — régénérés
+  (`audit_kit_coverage.py` / `audit_passive_ability_coverage.py`), ils rendent **203 + 169** lignes de
+  diff, dont l'essentiel n'est imputable à aucune PR en cours : les compteurs sautent de **123 à 127**
+  unités lineup. À régénérer **d'un seul commit dédié**, jamais en marge d'un port (ça noierait
+  l'apport). Constaté le 2026-07-30 (`case-224-cursed-plague-bell-extramove` §4).
 - ~~**`SpawnUnitOperation.execute` crée une entité SANS `PositionComponent` quand il manque une
   tuile**~~ — **LIVRÉ (2026-07-29)**, `case-spawn-requires-tile.md` (dispatché sous l'étiquette
   `#246`, numéro déjà pris par `case-246-thunderous-assault-targeting.md`). Le natif ITÈRE son
