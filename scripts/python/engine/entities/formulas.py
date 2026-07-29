@@ -12,7 +12,7 @@ import hexgeo
 
 from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
-                        _default_get_stat, resolve_unit, _units_of)
+                        _default_get_stat, resolve_unit, _units_of, _pos)
 
 
 class Sum(AAmountFormula):
@@ -604,3 +604,88 @@ class EffectLevel(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$EffectLevel` : niveau de l'effet COURANT (`ctx.effect`). 0 si absent."""
     def calculate(self, ctx):
         return _effect_field(ctx.effect, "level", 0)
+
+
+# ---- Le couple de formules du predicat d'AURA (`IsInUnit<X>Aura`), cf. `triggers.IsInUnitAura` ----
+
+# `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` rend `int.MaxValue` quand une des deux
+# enumerations est VIDE (l'accumulateur `uVar15` est initialise a 0x7fffffff et aucune iteration ne le
+# baisse). Ce n'est PAS un detail : c'est ce qui rend le predicat `AmountIsGreater(range, dist)` FAUX
+# des qu'un operande ne resout rien -- degradation fidele, jamais un « dans l'aura » par defaut.
+MIN_DISTANCE_EMPTY = 0x7FFFFFFF
+
+
+class MinDistance(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$MinDistance(a, b)` ->
+    `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` -- MIRROR du decompile :
+
+        min = int.MaxValue                                  # 0x7fffffff
+        foreach (ea in <a @+0x10>.<slot 10>(entities))       # entites, pas tuiles nues
+            foreach (eb in <b @+0x18>.<slot 10>(entities))
+                min = Math.Min(min, PositionComponent.Distance(eb, ea))
+        return min
+
+    Le natif lit UNE position par ENTITE (`GetComponent<PositionComponent>` puis `Distance`), donc la
+    MainTile -- PAS l'empreinte de pieds (contraste `EntityExtensions$$GetTiles`). Le port fait de meme
+    (`dsl.base._pos`). Une entite sans position est SAUTEE (le natif deref son PositionComponent ; cote
+    port on ne peut pas mesurer une distance sans coordonnee) ; si aucune paire n'est mesurable on rend
+    `MIN_DISTANCE_EMPTY`, exactement le `int.MaxValue` du natif quand la boucle ne tourne pas."""
+    def __init__(self, a: TargetsSelector, b: TargetsSelector):
+        self.a, self.b = a, b
+
+    def calculate(self, ctx):
+        best = MIN_DISTANCE_EMPTY
+        pa = [p for p in (_pos(u) for u in _units_of(self.a, ctx) if isinstance(u, dict))
+              if p is not None]
+        pb = [p for p in (_pos(u) for u in _units_of(self.b, ctx) if isinstance(u, dict))
+              if p is not None]
+        for x in pa:
+            for y in pb:
+                d = hexgeo.distance(x, y)
+                if d < best:
+                    best = d
+        return best
+
+
+class AuraEffectRange(AAmountFormula):
+    """`IdunBattle.Entities.Triggers.AuraEffectRangeFormula$$Calculate` -- MIRROR du decompile. Construit
+    par `IdunBattleLogic.Entities.DSLFormulas$$ContagionsOfNurgleRange(unit, unitSelectionType,
+    isNextTurn)`, qui fige `effectType = 0x42f = 1071 ContagionsOfNurgle_ArmorReduction1` :
+
+        unit = <selecteur @+0x10>.<slot 7>(entities)          ; null -> 0
+        aura = <effets @+0x28>.GetEffect(effectType@+0x18) as IAuraEffect
+        if (aura == null) return 0                            # cast d'interface ECHOUE
+        if (!UnitExtensions.HasTrait(unit, aura.GetTrait())) return 0
+        entities.<+0x18 = slot Owner> = unit                  # la formule de portee lira CE porteur
+        return (isNextTurn@+0x20 ? aura.GetNextTurnRange() : aura.GetCurrentRange()).Calculate(entities)
+
+    La PORTEE est donc celle d'une DEFINITION d'effet (`EffectsDatabase`), evaluee SUR le porteur --
+    aucune instance d'effet posee n'est requise, seul le TRAIT de l'unite compte. Le port n'a pas besoin
+    de muter le contexte comme le natif (`entities+0x18 = unit`) : la seule lecture que fait
+    `GetCurrentRange` est `StatAmount(Owner, 0xc = TurnsStarted)`, qu'on evalue directement sur l'unite
+    resolue -- meme valeur, sans effet de bord sur un contexte partage.
+
+    `unitSelectionType` (`this+0x1c`) est stocke par le ctor mais n'est LU par AUCUN chemin de
+    `Calculate` : non porte (les deux call-sites Contagion passent 0, `Lakrimae_SummonPoxwalker` passe 1
+    et retombe sur la meme portee). `ctx.has_trait`/`ctx.get_stat` absents -> 0 (degradation fidele :
+    « pas d'aura », jamais une portee inventee)."""
+    def __init__(self, unit: TargetsSelector, effect_type: int, is_next_turn: bool = False):
+        self.unit, self.effect_type, self.is_next_turn = unit, int(effect_type), bool(is_next_turn)
+
+    def calculate(self, ctx):
+        from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
+        from .stats import StatType
+        u = resolve_unit(self.unit, ctx)
+        if u is None:
+            return 0                                       # `unit == null` -> 0
+        trait = aura_trait(self.effect_type)
+        if trait is None:
+            return 0                                       # `as IAuraEffect` == null -> 0
+        ht = getattr(ctx, "has_trait", None)
+        if ht is None or not ht(u, trait):
+            return 0                                       # `!HasTrait(unit, GetTrait())` -> 0
+        gs = ctx.get_stat or _default_get_stat
+        turns = int(gs(u, int(StatType.TURNS_STARTED), 0, None) or 0)
+        r = (aura_next_turn_range(self.effect_type, turns) if self.is_next_turn
+             else aura_current_range(self.effect_type, turns))
+        return int(r or 0)

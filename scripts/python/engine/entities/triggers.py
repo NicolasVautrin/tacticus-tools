@@ -540,11 +540,18 @@ class IsInTeamAura(AbilityTrigger):
 
     -> « `unit` est-elle dans la PORTEE d'une aura `effectType` d'un porteur de l'equipe de `ref` ? ».
 
-    RESIDU ASSUME : le canal d'AURA n'est PAS materialise offline (aucun `GetInRangeAuraAmount` porte ;
-    cf. la meme limitation cote `EffectFromOwner`). Le noeud lit `ctx.is_in_team_aura(unit, effectType,
-    teamRef)` ; accesseur ABSENT (cas courant) -> **False** = degradation fidele « present != applique ».
-    L'autre branche du predicat consommateur (`HasNegativeModifier` FixedArmor) est, elle, PLEINEMENT
-    portee -- c'est celle qui est exercable/validable live."""
+    Le slot 0x92 EST `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` =
+    `GetInRangeAuraAmount(effectType, team, target, returnFirst: true) > 0`, entierement lisible au
+    decompile -> PORTE (case-224) dans `battle_query.get_in_range_aura_amount`, avec son etage de
+    portee dans `entities/effects/aura.py`. Le noeud lit `ctx.is_in_team_aura(unit, effectType,
+    teamRef)`, fourni par `runner/abilities/behaviours/context.entities_from_state`.
+
+    ⚠ Comparateur INCLUSIF (`d <= GetCurrentRange(porteur)`) -- a la difference de `IsInUnitAura`
+    ci-dessus, qui est STRICT. Mesure live (case-224, `abilityTargets` sur `EntropyCannons`) : a
+    `TurnsStarted(porteur)` = 1 / 3 / 5 le seuil natif vaut 1 / 2 / 3, et une mutation du `<=` en `<`
+    rougit exactement les tuiles a `d == range`.
+
+    Accesseur ABSENT (contexte hors runner, ex. prediction) -> **False** = degradation fidele."""
     def __init__(self, unit: AbilityTrigger, effect_type: int, team_reference: AbilityTrigger):
         self.unit, self.effect_type, self.team_reference = unit, int(effect_type), team_reference
 
@@ -557,6 +564,43 @@ class IsInTeamAura(AbilityTrigger):
         if not us or not refs:
             return False
         return any(fn(u, self.effect_type, r) for u in us for r in refs)
+
+
+class IsInUnitAura(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsInUnitContagionsOfNurgleAura(target, unit)` -- MIRROR
+    du decompile, qui n'est PAS un trigger dedie mais un COMPOSE de deux formules :
+
+        range = DSLFormulas.ContagionsOfNurgleRange(unit, unitSelectionType=0, isNextTurn=false)
+        dist  = DSLFormulas.MinDistance(target, unit)
+        return new AmountIsGreaterAbilityTrigger(amount: range, minAmount: dist)
+
+    -> `ShouldTrigger` = `dist < range`, **STRICT**. Le comparateur est etabli par XREF, pas devine :
+    `IsInUnitContagionsOfNurgleAura` appelle l'overload `AmountIsGreaterAbilityTrigger$$.ctor(amount,
+    minAmount)` (celui qui remplit `+0x18`/`+0x20`) -- le MEME que `DSLTriggers$$AmountIsGreater`, et
+    PAS celui de `AmountIsEqualOrGreater`. `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
+    `return minAmount.Calculate(entities) < amount.Calculate(entities)`.
+
+    ⚠ CE STRICT N'EST PAS CELUI DE LA VERSION D'EQUIPE. `IdunBattle.Core.Services.BattleQuery$$
+    GetInRangeAuraAmount` (derriere `IsInTeamContagionsOfNurgleAura`, cf. `IsInTeamAura` plus bas)
+    compte un porteur des que `GetDistance(porteur, target) <= GetCurrentRange(porteur)` --
+    INCLUSIF. Deux predicats natifs voisins, deux comparateurs : le rayon EFFECTIF de la version
+    UNITE vaut donc `range - 1` (0 / 1 / 2 aux paliers de `TurnsStarted` 1-2 / 3-4 / 5+) la ou la
+    version EQUIPE porte a `range` (1 / 2 / 3). Ne pas « harmoniser » : c'est LU des deux cotes.
+
+    Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$
+    IsInContagionsOfNurgleRange` (cf. `runner/abilities/deathguard.is_in_contagions_of_nurgle_range`).
+    `effect_type` reste un PARAMETRE (le natif le fige a 1071 dans le seul helper `...Contagions...`,
+    mais `AuraEffectRangeFormula` est generique sur `IAuraEffect`)."""
+    def __init__(self, target: TargetsSelector, effect_type: int, unit: TargetsSelector,
+                 is_next_turn: bool = False):
+        from .formulas import AuraEffectRange, MinDistance
+        self.target, self.unit, self.effect_type = target, unit, int(effect_type)
+        self.range_formula = AuraEffectRange(unit, int(effect_type), is_next_turn=is_next_turn)
+        self.distance_formula = MinDistance(target, unit)
+
+    def should_trigger(self, ctx):
+        # `AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `minAmount < amount` (cf. `AmountIsGreater`).
+        return int(self.distance_formula.calculate(ctx)) < int(self.range_formula.calculate(ctx))
 
 
 class IsAlive(AbilityTrigger):
