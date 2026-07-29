@@ -112,7 +112,8 @@ class AddEffectOperation:
                 *, name: Optional[str] = None, duration_override: Optional[int] = None,
                 value: Optional[int] = None, level: Optional[int] = None,
                 ability_level: Optional[int] = None, active_ability_level: Optional[int] = None,
-                multiplier_pct: Optional[int] = None) -> Optional[BaseEffect]:
+                multiplier_pct: Optional[int] = None,
+                bonded: Optional[int] = None) -> Optional[BaseEffect]:
         """Pose l'effet `effect_type` sur `target` (posé par `source`). Renvoie l'effet matérialisé
         (`BaseEffect`) ou None si la pose est abandonnée (pas de cible / déjà présent / pas d'EffectsState).
 
@@ -124,7 +125,12 @@ class AddEffectOperation:
         `ability_level`/`active_ability_level`/`multiplier_pct` = paramètres de SCALING de l'effet
         matérialisé (§17.21 — l'équivalent de ce que `EffectsState.seed` fournit aux effets CAPTÉS) : sans
         eux un effet dont la magnitude vient d'un `ConfigVar` reste inerte. Renseignés par les vecteurs qui
-        connaissent l'unité de référence ; None = comportement historique (mult 100, niveaux None)."""
+        connaissent l'unité de référence ; None = comportement historique (mult 100, niveaux None).
+        `bonded` = l'ENTITÉ BONDÉE (`BaseEffect.bonded`) — mirror du champ `+0x10` du composant de bond
+        qu'écrit `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder`. Côté natif
+        c'est le BUILDER qui la porte (`GetEffectBuilder` résout le sélecteur `bondedEntity` en id, et
+        bascule sur le builder de bond ssi cet id est non nul) ; le port passe l'id résolu ici, l'opération
+        n'a qu'à le recopier sur l'instance. None = builder d'effet ORDINAIRE (aucun bond)."""
         # `On(PreEffectAdded=0x3e=62)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
         # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
@@ -205,6 +211,11 @@ class AddEffectOperation:
                                    active_ability_level=active_ability_level)
         eff.target = target
         eff.value = value
+        # `DefaultBondEffectBuilder(id, abilityState, bondedEntityId)` : le champ `+0x10` du composant de
+        # bond de l'entite-effet, que relit `IdunBattle.Entities.Effects.ABondEffect$$BondedEntityId`.
+        # Ecrit ICI, a la creation de l'entite-effet, exactement comme le natif (le builder EST ce qui
+        # construit l'entite). None => builder ordinaire, champ absent.
+        eff.bonded = bonded
         # GATE : déjà-présent — pas de re-pose d'un même type non consommé. (Le natif n'a PAS de gate
         # « déjà présent » distinct : il passe par `UpdateExistingEffect` ; ce no-op en est l'équivalent
         # observable, cf. ci-dessous. La query 0x28 qu'on lui attribuait est le gate d'IMMUNITÉ, #224.)
