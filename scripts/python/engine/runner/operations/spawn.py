@@ -139,13 +139,22 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
       - **`ai_controlled=False`, AUCUNE on-appearance** — le token est INERTE (≠ `SpawnUnitOperation` qui force
         `ai_controlled=True` + attaque à l'apparition). Piège validator #3 : ne PAS réutiliser
         `SpawnUnitOperation.execute` tel quel.
-    Renvoie l'entity id (None si `tile` None / caster introuvable). Appelé par les feuilles decoy (G4/G6/G2).
+    Renvoie l'entity id (None si `tile` None / non resolvable sur le board / caster introuvable). Appelé par
+    les feuilles decoy (G4/G6/G2).
     Fondation G1 : la primitive ; les sélecteurs de tuiles (où poser) sont propres à chaque ability."""
     if tile is None:
         return None
     caster = state.get_entity(caster_id)
     coc = caster.get_component(OwnerComponent) if caster is not None else None
     if coc is None:
+        return None
+    # case-spawn-requires-tile -- LA TUILE D'ABORD, l'entite ensuite. `SpawnUnitBehaviour$$Execute` n'appelle
+    # `AddUnitOperation$$Execute` que DEPUIS une tuile ITEREE : pas de tuile, pas d'appel, donc pas
+    # d'entite. Resoudre la tuile APRES `state.add_entity()` laissait un token sans
+    # `PositionComponent` -- hors plateau, invisible des selecteurs de tuile, que rien ne ramasse.
+    board = state.board
+    tinfo = board.by_id.get(tile) if board is not None else None
+    if tinfo is None:
         return None
     e = state.add_entity()
     e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=False))
@@ -157,10 +166,7 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
     # (crush, G1) OU par tout damage (instakill "destroyed if damaged", Decoy trait -> G2). A revoir si la RE
     # G2 révèle un HealthComponent natif spécifique.
     e.add_component(HealthComponent(hp=1, hp_max=1))
-    board = state.board
-    tinfo = board.by_id.get(tile) if board is not None else None
-    if tinfo is not None:
-        e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
     on_unit_added(state, e.id)          # `On(UnitAdded)` (no-op sur un token sans armure)
     return e.id
 
@@ -393,8 +399,18 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     tuiles (`ClearFeet` puis un `AddFoot` PAR tuile, DANS L'ORDRE), et `feet[0]` devient la MAIN TILE.
     `tile` reste l'ancre (== `feet_tiles[0]`, cf. l'ordre `[ancre, t1, t2]` de
     `BattleQuery$$GetTilesInTriangleShape`). None (defaut) = le cas NOMINAL mono-pied, inchange :
-    l'unite garde `UnitComponent.feet = None` et sa seule `PositionComponent`."""
+    l'unite garde `UnitComponent.feet = None` et sa seule `PositionComponent`.
+
+    case-spawn-requires-tile -- **AUCUNE entite n'est creee sans tuile**. `IdunBattle.Entities.Behaviours.
+    SpawnUnitBehaviour$$Execute` n'atteint `AddUnitOperation$$Execute` que DEPUIS une tuile (branche
+    `+0x60 == 0` : `foreach (tile in tiles)` ; branche multi-hex : `GetTileIds(tiles)` fourni par le
+    MEME selecteur). L'appelant qui n'a pas de tuile n'appelle donc rien : `tile is None` -- ou un id
+    que le board ne resout pas -- rend `None`, AVANT le `state.add_entity()`."""
     if tile is None:
+        return None
+    board = state.board
+    tinfo = board.by_id.get(tile) if board is not None else None
+    if tinfo is None:
         return None
     e = state.add_entity()
     e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=ai_controlled,
@@ -406,10 +422,7 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
     _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
     _maybe_seed_ignore_battle_fatigue(state, e.id, team, mult)   # aura SquigHound -> grots amis immunisés
-    board = state.board
-    tinfo = board.by_id.get(tile) if board is not None else None
-    if tinfo is not None:
-        e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
     if feet_tiles and board is not None:
         # `AddUnitOperation$$Execute` : `ClearFeet` puis un `AddFoot` PAR tuile recue, dans l'ordre.
         # `set_unit_feet` est l'ECRIVAIN UNIQUE de l'empreinte (il recale la `PositionComponent` sur
@@ -628,18 +641,37 @@ class SpawnUnitOperation:
         spawned: list = []
         chosen: set = set()
         board = state.board
+        # === 1. LE TILE-SELECTEUR ===
+        # ScarabHive `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` :
+        #   Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(
+        #     CanAddUnit(AdjacentTiles(target@0x178)), caster@0x160), caster@0x160))), count), 1)
+        # -> DEUX SortByDistance sur la MEME origine (mirrore tel quel ; `OrderBy` LINQ etant
+        # STABLE le second est idempotent) puis prise en tete. **AUCUN tirage** — surtout PAS
+        # `_pick_randomly_one`. Le natif prend les `count` PREMIERES d'une liste triee UNE fois ;
+        # la boucle ici re-trie a chaque tour en excluant les tuiles deja prises, ce qui donne la
+        # meme suite (retirer un element ne change pas l'ordre relatif des autres).
+        # `First(source, count)` rend **min(count, len(source))** elements : une cible dont les
+        # voisines LIBRES sont moins nombreuses que `count` en rend MOINS -- c'est le seul endroit
+        # ou le nombre de summons est decide.
+        tiles: list = []
         for _ in range(max(0, int(count))):
-            tiles = _free_tiles_adjacent(state, target_id, chosen, native_order=True)
-            # ScarabHive `IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility$$ExecuteBehaviour` :
-            #   Cache(First(Get(SelectTiles(SortByDistance(SortByDistance(
-            #     CanAddUnit(AdjacentTiles(target@0x178)), caster@0x160), caster@0x160))), count), 1)
-            # -> DEUX SortByDistance sur la MEME origine (mirrore tel quel ; `OrderBy` LINQ etant
-            # STABLE le second est idempotent) puis prise en tete. **AUCUN tirage** — surtout PAS
-            # `_pick_randomly_one`. Le natif prend les `count` PREMIERES d'une liste triee UNE fois ;
-            # la boucle ici re-trie a chaque tour en excluant les tuiles deja prises, ce qui donne la
-            # meme suite (retirer un element ne change pas l'ordre relatif des autres).
-            tile = _first(_sort_by_distance(state, _sort_by_distance(state, tiles, caster_id),
+            free = _free_tiles_adjacent(state, target_id, chosen, native_order=True)
+            tile = _first(_sort_by_distance(state, _sort_by_distance(state, free, caster_id),
                                             caster_id))
+            tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
+            if tinfo is None:
+                break                                        # selecteur epuise -> le `First` s'arrete la
+            tiles.append((tile, tinfo))
+            chosen.add(tile)
+        # === 2. UNE ENTITE PAR TUILE ITEREE (case-spawn-requires-tile) ===
+        # `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`, branche `SpawnUnitOptions+0x60
+        # == 0`, est un `foreach (tile in tiles) { AddUnitOperation.Execute(unit, [tile.Id], ...) }` :
+        # l'entite NAIT DE L'ITERATION. Zero tuile => zero appel => **zero entite, zero evenement**
+        # (ni `On(UnitAdded)`, ni `TriggerSpawnedUnitBehaviours`). La boucle `range(count)` d'avant
+        # creait l'unite PUIS lui cherchait une place : quand la cible etait encerclee, elle laissait
+        # un summon FANTOME sans `PositionComponent` (mesure #251 : `spawned = [1, 2]`, un des deux
+        # hors plateau) que rien ne ramassait ensuite.
+        for tile, tinfo in tiles:
             e = state.add_entity()                           # id auto (≠ live ; confront par vis/team/pos)
             # ai_controlled : le summon (trait `Summon` = « moves and attacks automatically at the beginning
             # of its turn ») est joué par l'IA au TURN-START de sa team via `run_ai_control_pass` (#65) —
@@ -657,11 +689,7 @@ class SpawnUnitOperation:
             _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
             # [trait -> ability dérivée -> AddEffect(owner) à l'init] ex. BigTarget -> BigTarget_AdjacentEffect.
             _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
-            if tile is not None and board is not None:
-                tinfo = board.by_id.get(tile)
-                if tinfo is not None:
-                    e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
-                    chosen.add(tile)
+            e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
             on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
             spawned.append(e.id)
         # NB on-appearance (`UseNormalAttackIfAble`) = tranche ultérieure (les ids spawnés sont renvoyés ;
@@ -678,7 +706,13 @@ class SpawnUnitOperation:
         caster (`StatAmount(..., StatPart=3)`) puis `CreateSpawnOptions(owner)` — PAS de WithStatsFromConfig.
         Les stats NON copiées (crit/block/hits) viennent de la config de base ; comme le parent EST un
         `necroSmnSwarm` (même type que le clone), elles sont identiques → on clone le ctx entier du parent.
-        Distinct de `execute` (ScarabHive : adjacent-CIBLE + stats `ability_var` summoner-scaled)."""
+        Distinct de `execute` (ScarabHive : adjacent-CIBLE + stats `ability_var` summoner-scaled).
+
+        case-spawn-requires-tile -- MEME regle que `execute` : `SpawnUnitBehaviour$$Execute` itere son tile-selecteur et ne
+        cree une entite QUE depuis une tuile iteree. Un scarab entoure (aucune tuile libre au contact)
+        ne se dedouble PAS -- il ne produit pas un clone hors plateau. `_pick_randomly_one` sur un pool
+        VIDE consomme **zero tirage** (`PickRandomAmountSelector$$Select` sort sur `candidates.Count <
+        1`, cf. sa docstring), donc s'arreter la ne decale AUCUN flux RNG."""
         from dataclasses import replace as _dc_replace
         from ...entities.stats import UnitStats, StatType
         caster = state.get_entity(caster_id)
@@ -700,6 +734,9 @@ class SpawnUnitOperation:
             tiles = _free_tiles_adjacent(state, caster_id, chosen)   # adjacent au CASTER (self@0x160)
             # `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, …)` : 1 tirage MEME a pool=1.
             tile = _pick_randomly_one(state, tiles)
+            tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
+            if tinfo is None:
+                break                    # (case-spawn-requires-tile) pas de tuile iteree -> pas d'entite, pas d'evenement
             e = state.add_entity()
             e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
             e.add_component(OwnerComponent(team=coc.team, player=coc.player))       # CopyOwner (owner)
@@ -711,11 +748,8 @@ class SpawnUnitOperation:
             e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
             _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
             _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
-            if tile is not None and board is not None:
-                tinfo = board.by_id.get(tile)
-                if tinfo is not None:
-                    e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
-                    chosen.add(tile)
+            e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+            chosen.add(tile)
             on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
             spawned.append(e.id)
         return spawned
