@@ -74,8 +74,12 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    6   0x40                  TargetIsTile -> tuile-cible NON MARCHABLE (rend le  OUI
                              litteral 1 = `ValidRequest`), sauf sous le bit 43
                              AllowUnwalkableTargetTile
-  44   0x100000000000        TargetIsMachine                                     NON
-  46   0x400000000000        TargetIsActor                                       NON
+  44   0x100000000000        TargetIsMachine  ]  TETE DE DOMAINE (bits 44/45/46) OUI, PARTIEL (#250 :
+  46   0x400000000000        TargetIsActor    ]  : elle RESOUT la cible avant     seulement quand la
+  45   0x200000000000        TargetIsUnit     ]    toute autre regle              cible est PROUVEE
+                             (bit 45 : refus par DEFAUT quand `GetUnit(target)`   machine ou unite ;
+                              est nul et qu'aucun des bits 6/44/46 n'est pose --  cf.
+                              il n'est GATE par aucun flag)                       get_target_domain_broken_rule)
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
   14   0x4000                TargetIsEnemy (`UnitsCanAttackEachOther`)           OUI
@@ -479,6 +483,58 @@ def _unit_of(state: "State", entity_id):
     if e is None or e.get_component(UnitComponent) is None:
         return None
     return e
+
+
+def _is_machine(state: "State", entity_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$GetMachine(entity, state) != null` — l'entite EST une
+    MACHINE OF WAR. Offline le marqueur est le `MachineComponent` pose par
+    `engine/runner/snapshot.py` `_load_machines` (`decisionView.mows`, cle = `casterId`)."""
+    from ..components import MachineComponent
+    e = state.get_entity(int(entity_id)) if entity_id is not None else None
+    return e is not None and e.get_component(MachineComponent) is not None
+
+
+def _resolves_to_unit(state: "State", entity_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state) != null`. ⚠ Une MoW n'est PAS une
+    unite pour le natif -- mais le port lui pose un `UnitComponent` (porteur d'identite, cf.
+    `_load_machines`), d'ou l'exclusion EXPLICITE du `MachineComponent` ici."""
+    from ..components import MachineComponent, UnitComponent
+    e = state.get_entity(int(entity_id)) if entity_id is not None else None
+    if e is None or e.get_component(UnitComponent) is None:
+        return False
+    return e.get_component(MachineComponent) is None
+
+
+def get_target_domain_broken_rule(state: "State", target_id, options: "TargetingOptions") -> int:
+    """TETE DE DOMAINE de la cascade 7-args (`TargetingQuery$$GetInvalidTargetReason`), la TOUTE
+    PREMIERE decision, avant meme la branche `TargetIsTile`. VERBATIM du decompile :
+
+        if (!(rules & TargetIsTile)) {
+            if (!(rules & TargetIsMachine)) {
+                if (!(rules & TargetIsActor)) { t = GetUnit(target); if (t == null) broken(TargetIsUnit); }
+                else                          { t = GetUnit(target); if (t == null) goto machine; }
+            } else { machine: t = GetMachine(target); if (t == null) broken(TargetIsMachine); }
+        } else { t = GetMainTile(target); ... }
+        <t = la cible RESOLUE que consomment TOUTES les regles suivantes>
+
+    Autrement dit `TargetIsActor` (bit 46) n'est pas une regle de refus de plus : il ELARGIT le
+    domaine (unite OU machine), la ou son absence rend une cible MACHINE illegale sur `TargetIsUnit`
+    (bit 45, qui n'est gate par AUCUN flag). MESURE (#250) : la MoW `tauBroadside` porte 1160 AVEC le
+    bit 46 et 1161 SANS -- et `abilityTargets` liste la MoW ennemie pour 1160, pas pour 1161.
+
+    PORTE UNIQUEMENT LA OU LE PORT SAIT DECIDER, c'est-a-dire quand la cible est PROUVEE machine
+    (`MachineComponent`) ou PROUVEE unite. Une cible que le port ne resout ni en unite ni en machine
+    (id de TUILE, entite absente) laisse la regle MUETTE : le natif rompt (`TargetIsUnit`), le port
+    ne rompt pas -- degradation PERMISSIVE, meme convention que tout ce module."""
+    if options.has(TR.TargetIsTile) or target_id is None:
+        return 0
+    machine = _is_machine(state, target_id)
+    unit = _resolves_to_unit(state, target_id)
+    if options.has(TR.TargetIsMachine):
+        return 0 if machine else (int(TR.TargetIsMachine) if unit else 0)
+    if options.has(TR.TargetIsActor):
+        return 0                       # unite OU machine : les deux passent ; le reste indecidable
+    return int(TR.TargetIsUnit) if machine else 0
 
 
 def is_actor(state: "State", entity_id) -> bool:
@@ -1293,6 +1349,13 @@ def get_invalid_target_reason(state: "State", caster_id: int, target_id: Optiona
     # 1226, natif `0x800`, port `0x4000` avant ce correctif).
     if options.self_cast and _targets_the_caster(state, caster_id, target_id, tuid, options):
         return get_caster_not_added_reason(state, caster_id, ability)
+
+    # TETE DE DOMAINE (bits 44/45/46) -- elle precede TOUT le reste, y compris la branche
+    # `TargetIsTile` ci-dessous : c'est elle qui RESOUT la cible que les regles suivantes consomment.
+    # Detail + motif du non-port partiel : `get_target_domain_broken_rule`.
+    reason = get_target_domain_broken_rule(state, target_id, options)
+    if reason:
+        return reason
 
     # BRANCHE `TargetIsTile` DU DEBUT DU FILTRE -- la toute PREMIERE regle de refus de la cascade,
     # avant meme `TargetIsCaster`. VERBATIM :
