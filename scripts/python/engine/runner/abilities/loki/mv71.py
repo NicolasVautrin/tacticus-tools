@@ -52,6 +52,7 @@ from ...components import (StatsComponent, OwnerComponent, PositionComponent, Un
 from ...operations.damage import AttackDamageOperation
 from ...operations.effects import AddEffectOperation
 from ...operations.spawn import _spawn_config_grot, _occupied_tiles
+from ...operations.remove_unit import RemoveUnitOperation
 from ....entities.active_ability_type import ActiveAbilityType
 from ....entities.effect_type import EffectType
 from ....services.battle_query import are_tiles_adjacent
@@ -424,15 +425,12 @@ class MV71SniperDroneSquadAttackAbility(ActiveAbility):
         evicted: list = []
 
         def _remove(uid: int) -> None:
-            # IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute : despawn SANS vecteur on-death (cf. feuille
-            # `RemoveUnit` behaviours.py — même mutation, inline ici car sélecteur déjà résolu).
-            e = state.get_entity(uid)
-            uc = e.get_component(UnitComponent) if e is not None else None
-            if uc is not None and uc.alive:
-                uc.alive = False
-                if state.effects is not None:
-                    for eff in state.effects.by_unit.get(int(uid), []):
-                        eff.consumed = True
+            # IdunBattle.Entities.Behaviours.RemoveUnitBehaviour$$Execute : despawn SANS vecteur
+            # on-death. Le sélecteur est déjà résolu ici, mais la MUTATION passe par l'Operation
+            # native (`IdunBattle.Operations.RemoveUnitOperation$$Execute`, `removeEffects=1` — le
+            # littéral du behaviour) : c'est elle qui porte le gate `Removed`, la pose du flag 0x1a,
+            # la publication d'`On(0x25 = UnitRemoved)` PUIS la consommation des effets portés.
+            if RemoveUnitOperation.execute(state, int(uid), remove_effects=True) is not None:
                 evicted.append(uid)
 
         # (a) la tuile choisie porte déjà un drone (fallback) -> RemoveUnit(Units(Get(tile),1,3))
