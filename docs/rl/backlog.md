@@ -85,11 +85,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   RE complète — deux gates, dont un qui lit le `WeaponsComponent` du voisin, et un trait qui
   n'existe dans AUCUN `traits` du gameconfig (`case-211` §1.3). Restent en tête de file
   `MedicusMinistorum` (15), `Deathwing` (10), `TaintedNarthecium`. `[opus]`.
-- **`SpiritualLeader` (1275) et `ExplosiveMaladies` (1068) : clé BC EFFECTIVE non résolue**
-  (`case-193c` §7). Leur structure est tranchée au décompilé (filtre `HasTrait(0x41d)` + lookup plat
-  pour la 1ʳᵉ ; deux clés gatées `HasRangedWeapon` / `HasTrait(0x7ea)` pour la 2ᵈᵉ), mais **aucune clé
-  de `Utilities.Default.TriggeredAbilities` ne matche leur préfixe** : soit le terme vaut 0, soit la
-  clé ne suit pas la convention de nommage. Résoudre les littéraux `DAT_*` avant de conclure.
+- ~~**`SpiritualLeader` (1275) : clé BC EFFECTIVE non résolue**~~ — **FAIT** (`case-212`) : la clé est
+  `SPIRITUALLDEADER_AdjacentDecoy` (=30), indevinable par préfixe (**faute de frappe du jeu**). Elle
+  se LIT désormais — `probe_212_bc_key_literals.py <symbole>` résout n'importe quel string literal
+  natif (slot de metadata usage -> `global-metadata.dat`). Playbook porté, **cap `vtbl+0x228` = 1**
+  compris (le terme ne somme PAS les decoys). Trois résidus ouverts par ce cas, ci-dessous.
+- **`ExplosiveMaladies` (1068) : clés RÉSOLUES, playbook non porté** (`case-212` §7.3).
+  `EXPLOSIBEMALADIES_AdjacentRangedFriend` (=15) / `EXPLOSIBEMALADIES_AdjacentChoasMeleeFriend` (=15),
+  gates `HasRangedWeapon` puis `HasTrait(0x7ea)` — ⚠ le nom dit « Melee » mais **aucune instruction ne
+  teste `IsMelee`**. Pas de cap, pas de filtre. Porteur à qualifier. `[opus]`.
+- **`FabricatorClawArrayPlaybook` (1006) : cap `vtbl+0x228` = 1 non appliqué** (`case-212` §7.2). Le
+  bloc `methodPointers` montre le MÊME corps fondu `mov eax,1 ; ret` que `SpiritualLeaderPlaybook` ;
+  le port somme `30 x #amis Mechanical`. Aucun verdict existant n'est contredit (#57i/#193c n'ont
+  exercé que `n <= 1`) — il faut un montage `necroSpyder` + 2 alliés Mechanical adjacents avant de
+  poser la constante. `[opus]`.
+- **`meta.steppable` / `meta.decoy_gate` / `meta.decoy_friend_count` jamais posés** (`case-212` §7.1) :
+  `SteppableUnitUtility` (19) et `AttractToDecoysUtility` (64) sont PORTÉES et correctes, mais
+  INERTES faute de métadonnée. Écart mesuré **+25 constant** (−50 + 75) sur toute tuile candidate
+  occupée par un decoy ami — donc sur toute bataille Genestealers. Gap de CONTEXTE
+  (`apply_tile_attributes`), pas de feuille. `[opus]`.
 - **`darkaSmnWatcher` (porteur de `WatchedOver` 1524) : chemin d'octroi non établi** — aucune
   `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
   gisement dans ce cas.
