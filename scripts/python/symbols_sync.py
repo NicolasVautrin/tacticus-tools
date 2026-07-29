@@ -15,8 +15,8 @@ Mais son defaut visait `data/il2cpp_{methods,classes,enums}.tsv` -- des fichiers
 N'EXISTENT PLUS depuis que les tables sont versionnees sous `data/symbols/<HASH>/`. La
 verification par defaut ne verifiait donc plus rien.
 
-LES TROIS AXES, ET CE QUE CHACUN ATTRAPE
-----------------------------------------
+LES CINQ AXES, ET CE QUE CHACUN ATTRAPE
+---------------------------------------
 1. **binaire installe <-> tables versionnees** (sha256, pivot de la provenance). Attrape la
    mise a jour du jeu non suivie d'un re-dump : toute RVA lue devient fausse.
 2. **coherence INTERNE des tables** : nom du repertoire == fichier `BUILD` == champ `build=`
@@ -26,6 +26,12 @@ LES TROIS AXES, ET CE QUE CHACUN ATTRAPE
    l'ANCIEN projet pendant que les tables sont celles du NOUVEAU build, un agent **decompile un
    binaire et cite les symboles d'un autre**, et rien ne proteste -- les deux reponses sont
    plausibles separement, incoherentes ensemble.
+4. **FORME** : la table parle-t-elle la meme langue que les citations du depot (`Classe$$Membre`) ?
+5. **COUVERTURE par grande famille** : la table NEUVE nomme-t-elle encore, famille par famille,
+   ce que nommait la precedente ?
+
+Les axes 1 a 4 verifient la PROVENANCE ou la FORME. AUCUN ne compte ce qu'il y a DEDANS --
+c'est exactement pourquoi la disparition de 4 015 symboles est passee sans un mot (#259).
 
 L'axe 3 exige un serveur allume (lancement MANUEL, `start-ghidra-mcp.ps1`). Serveur eteint
 n'est PAS un echec -- mais ce n'est PAS un succes non plus : c'est rapporte comme NON VERIFIE.
@@ -217,6 +223,177 @@ def axe4_forme(build_dir: Path) -> list[str]:
             % (n, len(vues), pct)]
 
 
+# ============================ AXE 5 : COUVERTURE PAR FAMILLE ============================
+#
+# POURQUOI (#259). Les axes 1 a 4 repondent « d'ou vient cette table » et « est-elle lisible ».
+# Aucun ne repond « nomme-t-elle encore ce qu'elle nommait ». Le 2026-07-29, la re-symbolisation
+# du build courant a fait tomber de 4 015 a 0 les corps `__Il2CppFullySharedGenericType` -- une
+# perte de 3,4 % de la table, PARFAITEMENT estampillee, du bon build, servie par le bon serveur,
+# et dans la bonne FORME. Les quatre axes etaient verts.
+#
+# LA MAILLE. Compter par NAMESPACE seul n'aurait rien vu : les corps partages se repartissent sur
+# tous les namespaces, et leur disparition ne fait bouger `IdunBattle.AI.Playbook` que de -1,8 %
+# (2 122 -> 2 083, mesure). La famille `GSHARED` est donc definie sur le MECANISME, pas sur un
+# prefixe -- c'est ce qui rend la chute visible (ratio 0,000).
+#
+# LE SEUIL, DIMENSIONNE SUR DU BRUIT MESURE ET NON CONTAMINE. On ne peut PAS calibrer sur le diff
+# des deux tables Ghidra : l'ancienne vient de la chaine Il2CppDumper, la neuve de la chaine
+# Frida -- leur ecart melange churn de MAJ et changement d'OUTILLAGE. Le bruit propre se lit sur
+# les tables FRIDA, produites par le MEME outil des deux cotes. Mesure sur gqfc5mff6c ->
+# rnca9r7q6c (`probe_259_gshared_coverage.py`, etape 2) :
+#     26 familles >= 100 methodes ; ratio min 1,000, max 1,292 ; AUCUNE famille disparue.
+#     Aucune famille >= 100 n'a PERDU un seul membre sur cette MAJ.
+#     Familles < 100 : ratio min 0,750 (petits effectifs, bruit relatif eleve) -> exclues.
+# Cote Ghidra (contamine), la pire famille legitime tombe a 0,863 (`BaseTest`, 124 -> 107, un
+# artefact d'outillage : la table Frida, elle, donne 107 -> 107).
+# Le seuil est donc pose a 0,60 : il laisse 0,26 de marge sous la pire valeur legitime OBSERVEE,
+# et 0,60 au-dessus de la panne (0,000). Il ne crie pas sur le churn ; il ne peut pas rater ca.
+SEUIL_COUVERTURE = 0.60
+PLANCHER_FAMILLE = 100
+
+# PERTES DEJA CONSTATEES, DOCUMENTEES, ET DONT LE RETABLISSEMENT EST UNE TACHE OUVERTE.
+# Cle = (famille, build de reference, build courant) : l'entree s'auto-perime a la MAJ suivante
+# (la reference devient l'actuel courant, la famille est alors a 0 des deux cotes, ratio 0/0 =
+# rien a signaler). Une perte connue est IMPRIMEE, jamais tue -- elle ne fait simplement pas
+# echouer la garde, sinon le hook de session hurlerait a chaque demarrage et on apprendrait a
+# l'ignorer, ce qui est pire que pas de garde du tout.
+PERTES_CONNUES: dict[tuple[str, str, str], str] = {
+    ("GSHARED", "gqfc5mff6c", "rnca9r7q6c"):
+        "#259 -- corps pleinement partages, nommes par le SEUL applier legacy Il2CppDumper "
+        "(supprime 8e591496). La chaine Frida ne peut pas les produire : "
+        "docs/rl/case-259-couverture-gshared.md",
+}
+
+MARQUEUR_GSHARED = "__Il2CppFullySharedGeneric"
+
+
+def _famille(nom: str) -> str:
+    """Grande famille d'un symbole Ghidra. L'ORDRE des tests porte le sens.
+
+    `GSHARED` passe avant le namespace : les corps pleinement partages traversent TOUS les
+    namespaces, donc les ranger par prefixe les dilue et rend leur perte invisible.
+    `PLACEHOLDER` (FUN_/DAT_/PTR_) est compte mais JAMAIS alerte : une baisse y est une BONNE
+    nouvelle (des adresses anonymes ont recu un nom).
+
+    Ecrit sans `split` intermediaire : ce corps tourne ~300 000 fois par appel de la garde,
+    qui s'execute a CHAQUE demarrage de session (hook `session-start.ps1`, budget 15 s)."""
+    if MARQUEUR_GSHARED in nom:
+        return "GSHARED"
+    if nom.startswith(("FUN_", "DAT_", "PTR_")):
+        return "PLACEHOLDER"
+    i = nom.find("$$")
+    if i < 0:
+        return "AUTRE"
+    racine = nom[:i]
+    for sep in (".", "`"):
+        j = racine.find(sep)
+        if j >= 0:
+            racine = racine[:j]
+    return "il2cpp:" + racine
+
+
+def _familles_de(build_dir: Path) -> dict:
+    """Compte par famille de `ghidra/functions.tsv`.
+
+    ECRIT POUR LE COUT, parce que la garde tourne a CHAQUE demarrage de session (hook
+    `session-start.ps1`, budget 15 s) et lit DEUX tables de ~10 Mo / 150 000 lignes :
+      * le fichier est lu en bloc et decode UNE fois (pas de decodage par ligne) ;
+      * les fins de ligne sont normalisees en un seul passage C (pas de `strip` par ligne).
+
+    CE QU'ON NE FAIT PAS, ET POURQUOI : memoiser la famille sur un PREFIXE du symbole. Le
+    marqueur `__Il2CppFullySharedGeneric` n'est PAS en tete -- il tombe au milieu du nom
+    (`...TriggeredAbilityPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$Init`, ~45e
+    caractere). Une cle de prefixe rangerait ces symboles sous `il2cpp:IdunBattle` et
+    effacerait EXACTEMENT le signal que cet axe existe pour voir. Cout mesure de la version
+    honnete : ~0,45 s par table, ~1,0 s pour les deux -- la garde complete passe de ~2,5 s a
+    ~3,5 s, pour un budget de hook de 15 s."""
+    from collections import Counter
+    table = build_dir / "ghidra" / "functions.tsv"
+    brut = table.read_bytes().decode("utf-8", "replace").replace("\r", "")
+    compte: Counter = Counter()
+    for ligne in brut.split("\n"):
+        i = ligne.find("\t")
+        if i < 0 or ligne[0] == "#":
+            continue
+        compte[_famille(ligne[i + 1:])] += 1
+    return compte
+
+
+def _reference_la_plus_recente() -> Path | None:
+    """L'archive la PLUS RECEMMENT dumpee -- ordonnee par `generated=` de son estampille.
+
+    Pas par ordre alphabetique du hash (il n'a aucun sens chronologique) et pas par mtime du
+    fichier (un checkout git le reecrit). La date de generation voyage DANS l'artefact.
+
+    Une archive SANS table Ghidra est ecartee, pas une erreur : c'est un etat REEL et transitoire
+    du depot -- les trois TSV Frida d'un build sont commites (b8dba3c0) AVANT que la passe Ghidra
+    n'existe (04980aa1). Comparer contre elle rendrait « toutes les familles a zero »."""
+    candidats = []
+    for nom in archived_builds():
+        try:
+            rep = _build_dir(nom)
+            if not (rep / "ghidra" / "functions.tsv").is_file():
+                continue
+            st = read_stamp(rep / "frida" / "methods.tsv")
+        except (ProvenanceError, LayoutError):
+            continue
+        candidats.append((st.get("generated", ""), nom))
+    if not candidats:
+        return None
+    return _build_dir(max(candidats)[1])
+
+
+def comparer_couverture(vieux: dict, neuf: dict, ref_nom: str, cur_nom: str) -> list[str]:
+    """Coeur PUR de l'axe 5 : deux comptes par famille -> lignes, ou `Desync`.
+
+    Extrait des E/S expres pour etre confrontable sans toucher `data/`
+    (`tests/test_symbols_coverage_guard_offline.py`)."""
+    chutes, connues = [], []
+    for fam, n_vieux in sorted(vieux.items(), key=lambda kv: -kv[1]):
+        if fam == "PLACEHOLDER" or n_vieux < PLANCHER_FAMILLE:
+            continue
+        n_neuf = neuf.get(fam, 0)
+        ratio = n_neuf / n_vieux
+        if ratio >= SEUIL_COUVERTURE:
+            continue
+        motif = PERTES_CONNUES.get((fam, ref_nom, cur_nom))
+        (connues if motif else chutes).append((fam, n_vieux, n_neuf, ratio, motif))
+
+    if chutes:
+        detail = "\n".join(
+            "    %-24s %6d -> %6d  (ratio %.3f)" % (f, v, n, r) for f, v, n, r, _ in chutes)
+        raise Desync(
+            "COUVERTURE EFFONDREE sur %d famille(s), reference %s -> courant %s :\n%s\n"
+            "  Ce n'est pas du churn de mise a jour : sur la seule MAJ mesuree, AUCUNE famille\n"
+            "  de plus de %d symboles n'avait perdu un seul membre (seuil pose a %.2f).\n"
+            "  Une chute pareille signe un maillon de la CHAINE qui a change, pas le jeu.\n"
+            "  Verifier D'ABORD l'outillage (quel applier a symbolise le projet, avec quelle\n"
+            "  entree) avant de conclure quoi que ce soit sur le binaire."
+            % (len(chutes), ref_nom, cur_nom, detail,
+               PLANCHER_FAMILLE, SEUIL_COUVERTURE))
+
+    lignes = ["  OK  couverture par famille vs %s : %d familles suivies, aucune chute inattendue"
+              % (ref_nom, sum(1 for f, v in vieux.items()
+                              if f != "PLACEHOLDER" and v >= PLANCHER_FAMILLE))]
+    for fam, v, n, r, motif in connues:
+        lignes.append("  --  PERTE CONNUE  %s : %d -> %d (ratio %.3f)" % (fam, v, n, r))
+        lignes.append("      %s" % motif)
+    return lignes
+
+
+def axe5_couverture(build_dir: Path) -> tuple[list[str], bool]:
+    """La table NEUVE nomme-t-elle encore, famille par famille, ce que nommait la precedente ?
+
+    Pas d'archive = axe NON VERIFIE (et surtout pas un succes) : sans point de comparaison la
+    question n'a pas de sens -- exactement comme l'axe 3 quand ghidra-mcp est eteint."""
+    ref = _reference_la_plus_recente()
+    if ref is None:
+        return (["  ??  aucun build archive -- axe COUVERTURE non verifiable (rien a comparer)"],
+                False)
+    return (comparer_couverture(_familles_de(ref), _familles_de(build_dir),
+                                ref.name, build_dir.name), True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--quiet", action="store_true",
@@ -228,13 +405,15 @@ def main() -> int:
                          "serveur sain). Depasse = axe NON VERIFIE, jamais un faux vert")
     args = ap.parse_args()
 
-    lignes, ghidra_vu = [], False
+    lignes, ghidra_vu, couverture_vue = [], False, False
     try:
         build_dir = versioned_build()
         dll = installed_dll()
         lignes += axe1_binaire(build_dir, dll)
         lignes += axe2_coherence(build_dir)
         lignes += axe4_forme(build_dir)
+        l5, couverture_vue = axe5_couverture(build_dir)
+        lignes += l5
         if args.skip_ghidra:
             lignes.append("  --  ghidra: non interroge (--skip-ghidra)")
         else:
@@ -246,7 +425,7 @@ def main() -> int:
         print("  Procedure de remise a niveau : CLAUDE.md, section « Au changement de build »")
         return 1
 
-    if args.quiet and ghidra_vu:
+    if args.quiet and ghidra_vu and couverture_vue:
         return 0                        # tout verifie et synchrone : le hook se tait
     print("symboles SYNCHRONES  build=%s  binaire=%s..."
           % (build_dir.name, sha256_of(dll)[:12]))
@@ -262,6 +441,9 @@ def main() -> int:
     if not ghidra_vu and not args.skip_ghidra:
         print("  ATTENTION : l'axe ghidra n'a PAS ete verifie -- ne pas lancer d'agent RE sans")
         print("  l'avoir confronte (c'est l'axe qui echoue le plus silencieusement).")
+    if not couverture_vue:
+        print("  ATTENTION : l'axe COUVERTURE n'a PAS ete verifie -- un seul build versionne, donc")
+        print("  aucune reference. Ne pas lire ce vert comme « la table est complete ».")
     return 0
 
 

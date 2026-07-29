@@ -20,7 +20,11 @@ traitent pas de la meme facon :
   * OK (+offset)    -> point INTERNE a une fonction : l'offset ne survit que si le corps n'a pas
                        bouge d'un octet. A RELIRE AU DECOMPILE, jamais a recopier ;
   * SYMBOLE DISPARU -> soit la fonction a disparu, soit NOTRE CHAINE ne la nomme plus (cas des
-                       generiques pleinement partages : 4015 symboles -> 0 au 2026-07-29) ;
+                       generiques pleinement partages : 4015 symboles -> 0 au 2026-07-29 ; cause
+                       et voies de retablissement mesurees dans #259 --
+                       `docs/rl/case-259-couverture-gshared.md`, sonde
+                       `probe_259_gshared_coverage.py`. Deux des cinq « perdu » d'ici en
+                       viennent, et ne redeviendront transcriptibles que par la) ;
   * FUN_/DAT_       -> l'adresse EST le seul « nom ». Le CLAUDE.md dit de les LISTER, pas de les
                        maquiller. Prefixees '!' en sortie.
 
