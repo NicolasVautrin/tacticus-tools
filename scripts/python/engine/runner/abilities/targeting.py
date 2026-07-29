@@ -74,11 +74,11 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    6   0x40                  TargetIsTile -> tuile-cible NON MARCHABLE (rend le  OUI
                              litteral 1 = `ValidRequest`), sauf sous le bit 43
                              AllowUnwalkableTargetTile
-  44   0x100000000000        TargetIsMachine  ]  TETE DE DOMAINE (bits 44/45/46) OUI, PARTIEL (#250 :
-  46   0x400000000000        TargetIsActor    ]  : elle RESOUT la cible avant     seulement quand la
-  45   0x200000000000        TargetIsUnit     ]    toute autre regle              cible est PROUVEE
-                             (bit 45 : refus par DEFAUT quand `GetUnit(target)`   machine ou unite ;
-                              est nul et qu'aucun des bits 6/44/46 n'est pose --  cf.
+  44   0x100000000000        TargetIsMachine  ]  TETE DE DOMAINE (bits 44/45/46) OUI (#250 machine/
+  46   0x400000000000        TargetIsActor    ]  : elle RESOUT la cible avant     unite, #253 TUILE ;
+  45   0x200000000000        TargetIsUnit     ]    toute autre regle              muette seulement sur
+                             (bit 45 : refus par DEFAUT quand `GetUnit(target)`   une cible que le port
+                              est nul et qu'aucun des bits 6/44/46 n'est pose --  ne resout PAS ; cf.
                               il n'est GATE par aucun flag)                       get_target_domain_broken_rule)
   39   0x8000000000          TargetIsCaster (`caster != GetUnit(target)` => refus) OUI
   10   0x400                 TargetIsFriendly                                    OUI
@@ -101,7 +101,8 @@ table de noms cote hooks, `frida/hooks/data/targeting-rule-names.ts`).
    5   0x20                  TargetHasFreeAdjacentTile (battleQuery slot 0x51)   OUI
   21   0x200000              CasterHasFreeAdjacentTile (jumelle du bit 5, sur    NON (INATTEIGNABLE
                              le CASTER : slot 0x51 applique a `param_2`)         chez son seul
-                                                                                 porteur, cf. #250)
+                                                                                 porteur 1028, cf.
+                                                                                 #250 et #253)
   12   0x1000                TargetTileIsFree (`CanAddUnit`)                     OUI (cible TUILE)
   17   0x20000               TargetTileIsFreeOrEnemy                             NON (domaine TILE)
   19   0x80000               TargetTileHasEnemyUnit                              NON (domaine TILE)
@@ -154,6 +155,23 @@ pour les 8 autres porteurs `UseWholeBoard` du registre.
 VOLET CASTER : `IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason` tourne AVANT le
 volet cible (overload 5 args). Une seule de ses regles est portee — `CasterHasNotMoved` (0x10),
 parce qu'elle tombe gratuitement et qu'elle est MESUREE ; cf. `get_invalid_caster_reason`.
+
+LES DEUX BITS CASTER DES MACHINES OF WAR (#253, les deux abilities d'`astraOrdnanceBattery`) — leur
+non-port converge, mais PAS pour la meme raison, et la nuance vaut d'etre ecrite :
+  * `AllowNullCasterTile` (bit 30, 0x40000000) n'est PAS une regle, c'est une **PERMISSION** : le
+    natif refuse `broken(0x40000000)` quand `casterTiles` est vide et que NI ce bit NI
+    `CasterHasNoTile` (bit 55) ne sont poses. Une MoW n'a aucune position -> sans ce bit, aucune de
+    ses abilities ne serait castable. Le port ne portant pas ce refus, il converge trivialement, et
+    la SEULE erreur possible serait d'en faire une regle (elle refuserait tout).
+  * `CasterHas2TurnsLeft` (bit 52, 0x10000000000000, porteur 1142) refuse quand le slot 0x1a
+    d'`IBattleQuery` rend faux sur `(caster, 2)` — slot non resolu -> NON portee, degradation
+    PERMISSIVE ordinaire.
+Le bit 21 `CasterHasFreeAdjacentTile`, lui, EST une regle du filtre statique CIBLE (le natif y
+appelle le slot 0x51 sur le **CASTER**, juste apres le meme slot sur la CIBLE pour le bit 5, et
+avant `TargetTileIsFree`). Son unique porteur du registre est 1028 SupremeCommander, qui pose aussi
+`isSelfCasting = 1` : caste sur lui-meme, le natif part sur `GetCasterNotAddedReason` et la cascade
+CIBLE n'est jamais atteinte ; caste ailleurs, sa portee NULLE (RANGE_SELF) refuse en amont. La regle
+est donc INERTE pour le seul porteur connu — la porter serait du code non confrontable.
 
 HORS PERIMETRE (autres rejets d'`ExecuteInternal`, meme observable a 2 evenements, non decomposes) :
 `IdunBattle.Operations.ActiveAbilityOperation$$IsValidCaster`,
@@ -522,9 +540,12 @@ def get_target_domain_broken_rule(state: "State", target_id, options: "Targeting
     (bit 45, qui n'est gate par AUCUN flag). MESURE (#250) : la MoW `tauBroadside` porte 1160 AVEC le
     bit 46 et 1161 SANS -- et `abilityTargets` liste la MoW ennemie pour 1160, pas pour 1161.
 
-    PORTE UNIQUEMENT LA OU LE PORT SAIT DECIDER, c'est-a-dire quand la cible est PROUVEE machine
-    (`MachineComponent`) ou PROUVEE unite. Une cible que le port ne resout ni en unite ni en machine
-    (id de TUILE, entite absente) laisse la regle MUETTE : le natif rompt (`TargetIsUnit`), le port
+    PORTE LA OU LE PORT SAIT DECIDER : cible PROUVEE machine (`MachineComponent`), PROUVEE unite,
+    ou TUILE du board -- ce dernier cas ELARGI par #253, parce que `GetUnit` resout une tuile en son
+    OCCUPANT (cf. `unit_of_entity`). MESURE (#253, ForwardSpotter 1143, masque SANS bit de domaine) :
+    caste sur une tuile VIDE le natif rompt `TargetIsUnit`, caste sur la tuile d'un ALLIE il rend
+    `0` = VALIDE. Les deux verdicts sont desormais rendus. Ne reste MUETTE que sur une cible que le
+    port ne resout NI en unite, NI en machine, NI en tuile (entite absente) : le natif rompt, le port
     ne rompt pas -- degradation PERMISSIVE, meme convention que tout ce module."""
     if options.has(TR.TargetIsTile) or target_id is None:
         return 0
@@ -534,7 +555,43 @@ def get_target_domain_broken_rule(state: "State", target_id, options: "Targeting
         return 0 if machine else (int(TR.TargetIsMachine) if unit else 0)
     if options.has(TR.TargetIsActor):
         return 0                       # unite OU machine : les deux passent ; le reste indecidable
-    return int(TR.TargetIsUnit) if machine else 0
+    if machine:
+        return int(TR.TargetIsUnit)    # `GetUnit(MoW)` est nul cote natif
+    if unit:
+        return 0
+    # ELARGISSEMENT #253 -- la cible est une TUILE du board : le natif la resout en son OCCUPANT.
+    board = state.board
+    if board is not None and int(target_id) in board.by_id:
+        return 0 if unit_of_entity(state, target_id) is not None else int(TR.TargetIsUnit)
+    return 0                           # ni unite, ni machine, ni tuile -> le port ne sait pas
+
+
+def unit_of_entity(state: "State", entity_id):
+    """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state)` — L'UNITE QUE DESIGNE l'entite,
+    et non « l'entite si c'est une unite » : sur une TUILE le natif rend son OCCUPANT. C'est le
+    `local_c8` que le filtre statique calcule UNE FOIS en tete de
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` (surcharge 7 arguments) et
+    propage en `pcVar12` des qu'aucun bit de DOMAINE n'est pose.
+
+    Rend l'ID d'unite, ou None (« aucune unite designee » — le natif rend null, et c'est ce null que
+    teste le preambule `TargetIsUnit`). MESURE (#253, probe `probe_253_astramilitarum_targeting.py`,
+    ForwardSpotter 1143 caste sur la TUILE d'un allie) : le natif rend `0` = VALIDE, parce qu'il
+    resout la tuile en son occupant. Un port qui rendrait « pas une unite » y poserait un FAUX
+    REFUS.
+
+    `_unit_of` reste DISTINCTE et n'est PAS remplacee : elle repond a « la cible EST-ELLE une unite »
+    (elle alimente `tuid`, donc les regles du domaine UNITE, qui restent permissives sur une tuile)."""
+    from ..components import UnitComponent
+    if entity_id is None:
+        return None
+    e = state.get_entity(int(entity_id))
+    if e is not None and e.get_component(UnitComponent) is not None:
+        return int(entity_id)
+    board = state.board
+    if board is not None and int(entity_id) in board.by_id:
+        occ = state.unit_at(board.coord(int(entity_id)))
+        return None if occ is None else int(occ.id)
+    return None
 
 
 def is_actor(state: "State", entity_id) -> bool:

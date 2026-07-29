@@ -51,7 +51,7 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#247 -> #252) : 94 abilities au registre, 86 avec masque, ces 8 sans.
+# Etat au 2026-07-29 (#247 -> #253) : 94 abilities au registre, 90 avec masque, ces 4 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
 #  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246,
@@ -61,9 +61,14 @@ from engine.runner.abilities.targeting_rule import TargetingRule
 #  1037/1040/1042/1168/1169, les CINQ du module `blacklegion` par #250 : 1021/1022/1036/1147/1148
 #  -- dont les DEUX abilities de MACHINE OF WAR du MEME porteur `blackForgefiend`, qui ont des
 #  masques SANS RAPPORT --, les CINQ du module `summon` par #251 : 1007/1045/1047/1096/1166, dont
-#  1007 et 1047 partagent fichier ET forme de ctor sans partager ni litteral ni portee, et les CINQ
+#  1007 et 1047 partagent fichier ET forme de ctor sans partager ni litteral ni portee, les CINQ
 #  du module `tau` par #252 : 1077/1081/1082/1160/1161, dont 1160 et 1161 sont portees par la MEME
-#  MoW `tauBroadside` avec la MEME forme et la MEME portee -- et des masques differents.)
+#  MoW `tauBroadside` avec la MEME forme et la MEME portee -- et des masques differents, et les
+#  QUATRE du module `astramilitarum` par #253 : 1016/1028/1142/1143, toutes de forme 1 mais avec
+#  QUATRE presets de PORTEE differents -- statics+0x00, +0x60, +0x48, +0x48 -- et 1028 seule a
+#  poser `isSelfCasting = 1`. TROISIEME paire d'actives d'une MEME MoW aux masques sans rapport
+#  (1142/1143, `astraOrdnanceBattery`), apres `blackForgefiend` et `tauBroadside` : le porteur ne
+#  predit RIEN du masque, trois fois mesure.)
 # ⚠ Les comptes ci-dessus se PERIMENT : les re-deriver (`probe_181_targeting_gaps.py`), pas les citer.
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
@@ -109,7 +114,14 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1014 ArmoriumCherubAbility RESORBEE (#222) -- forme « PRESET STATIQUE COPIE » :
     # `...ArmoriumCherubAbility$$.ctor` recopie `TargetingOptions statics+0x140` et le masque
     # effectif est `*(statics+0x168)` = 0x4002, lu dans `TargetingOptions$$.cctor`.
-    1016: "SendInTheNextWaveAbility",
+    # 1016 SendInTheNextWaveAbility RESORBEE (#253) -- forme 1 « FLAGS DIRECTS » :
+    # `...SendInTheNextWaveAbility$$.ctor` recopie `TargetingRange statics+0x00` puis appelle la
+    # surcharge 8 arguments `TargetingOptions..ctor(&opts, 0, &preset, 1, 0x4002, 0,0,0)`, celle qui
+    # ecrit `+0x28 <- param_5` SANS OR -> masque = 0x4002 = TargetIsEnemy (1<<14) |
+    # TargetMatchesDynamicRule (1<<1). Portee = statics+0x00 = RANGE_ADJACENT_IF_MELEE_CASTER
+    # (`onlyAdjacent = IfNotRangedCaster`) ; `forceMeleeTarget = 1 = RangedBool.False`.
+    # Yarrick etant RANGED (arme Range=2), `onlyAdjacent` retombe a faux et la portee vaut 2 -- l'i2
+    # « Select a target within 2 hexes ». Confrontee live (oracle `abilityReason`, 2 boards).
     # 1018 ValkyrieStrikeAbility RESORBEE (#245) -- MEME forme « PRESET STATIQUE COPIE » que 1014,
     # mais un AUTRE preset : `...ValkyrieStrikeAbility$$.ctor` recopie `TargetingOptions statics+0x1c0`
     # et le masque effectif est `*(statics+0x1e8)` = 0x6000040 (TargetIsTile | AllowObscuredTarget
@@ -127,7 +139,14 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # `TargetingRange statics+0x30` = RANGE_ADJACENT ; `forceMeleeTarget` = `*(statics+0x60)` = 1 =
     # RangedBool.False. MEME preset que 1020 HeraldOfTheApocalypse et 1122 CordClaw ; PAS le meme
     # masque que 1029 Drachnyen, qui recopie ce preset et enchaine sur PRESET + flags (0x200004000).
-    1028: "SupremeCommanderAbility",
+    # 1028 SupremeCommanderAbility RESORBEE (#253) -- forme 1 « FLAGS DIRECTS », mais le SEUL des
+    # quatre a poser `isSelfCasting = 1` : `TargetingOptions..ctor(&opts, 1, &preset, 1, 0x208000,
+    # 0,0,0)` -> masque = CasterHasFreeAdjacentTile (1<<21) | CasterIsPossibleTarget (1<<15).
+    # Portee = `TargetingRange statics+0x60` = RANGE_SELF (`overrideRange = Nullable(0)`), donc
+    # PORTEE NULLE ; `forceMeleeTarget = 1 = RangedBool.False`. Le byte `options+0x00` aiguille vers
+    # `TargetingQuery$$GetCasterNotAddedReason` des que la cible EST le caster : la cascade CIBLE
+    # n'est alors jamais evaluee, et `CasterHasFreeAdjacentTile` reste INERTE pour ce porteur (le
+    # seul chemin qui l'atteindrait est deja refuse par la portee 0). Elle n'est donc pas portee.
     # 1036 FrenziedFiringAbilityCombat RESORBEE (#250) -- forme PRESET STATIQUE COPIE :
     # `...FrenziedFiringAbility$$.ctor` recopie `TargetingOptions statics+0x140` -> masque =
     # `*(statics+0x168)` = 0x4002 (TargetMatchesDynamicRule | TargetIsEnemy). Portee =
@@ -204,7 +223,7 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # 1082 InspiredToGreatnessAbility RESORBEE (#252) -- MEME forme, MEME TargetingRange, masque
     # DIFFERENT : `TargetingOptions..ctor(&opts, 0, <statics+0x30>, 1, 0x402, 0,0,0)` ->
     # 0x402 = TargetMatchesDynamicRule | TargetIsFriendly (ability ALLIE, self-cast = 0).
-    # 1096 MasterOfTheTutelariesAbility RESORBEE (#251) -- forme « FLAGS DIRECTS » :
+    # 1096 MasterOfTheTutelariesAbility RESORBEE (#253) -- forme « FLAGS DIRECTS » :
     # `TargetingOptions..ctor(&opts, 0, &<TargetingRange statics+0x30 = RANGE_ADJACENT>, 1, 0x1040,
     # 0,0,0)` -> 0x1040 = `TargetIsTile` (0x40) | `TargetTileIsFree` (0x1000). Cast TILE-TARGET sur un
     # hex LIBRE ADJACENT au caster.
@@ -232,8 +251,21 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # RangedBool.False. Piege ecarte : 1043 ThunderousAssault recopie LE MEME preset +0x40, mais
     # enchaine sur la surcharge « preset + flags » qui COMBINE (0x10000000 | 0x4000 = 0x10004000).
     # Meme source statique, deux masques -- c'est la FORME du ctor qui tranche.
-    1142: "MalleusRocketLauncherAbility",
-    1143: "ForwardSpotterAbility",
+    # 1142 MalleusRocketLauncherAbility et 1143 ForwardSpotterAbility RESORBEES (#253) -- les DEUX
+    # abilities de la MoW `astraOrdnanceBattery`, forme 1 « FLAGS DIRECTS », MEME preset de portee
+    # `TargetingRange statics+0x48` = RANGE_WHOLE_BOARD, MEME `forceMeleeTarget = 1 = RangedBool.False`
+    # -- et pourtant deux masques SANS AUCUN bit CIBLE commun :
+    #   1142 : 0x10000040000040 = CasterHas2TurnsLeft (1<<52) | AllowNullCasterTile (1<<30)
+    #                           | TargetIsTile (1<<6)                    -- cast TILE-target
+    #   1143 : 0x40000422       = AllowNullCasterTile (1<<30) | TargetIsFriendly (1<<10)
+    #                           | TargetHasFreeAdjacentTile (1<<5) | TargetMatchesDynamicRule (1<<1)
+    # `AllowNullCasterTile` est le seul bit partage, et c'est une PERMISSION : sans lui,
+    # `TargetingQuery$$GetInvalidCasterReason` refuserait TOUT cast d'une MoW (aucune position).
+    # C'est la TROISIEME paire d'actives d'un MEME porteur MoW aux masques sans rapport, apres
+    # 1147/1148 (`blackForgefiend`) et 1168/1169 (`deathCrawler`) : la lecture se fait ability par
+    # ability, le porteur ne predit RIEN.
+    # ⚠ PIEGE ECARTE sur 1142 : sa config porte `constants.range = 2`, mais le preset ne pose pas
+    # `useRangeFromConfig` -> ce range est celui du barrage de phase 2, PAS du ciblage.
     # 1147 HadesAutocannonsAbility RESORBEE (#249) -- forme « FLAGS DIRECTS » :
     # `...HadesAutocannonsAbility$$.ctor` appelle `TargetingOptions..ctor(&opts, 0, &<TargetingRange
     # statics+0x48>, 1, 0x46006000, 0, 0, 0)` -> masque = 0x2000 TargetIsSummon | 0x4000
@@ -252,7 +284,7 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     #           CasterHas2TurnsLeft   (l'ability 2-phases peut viser une MACHINE et exige 2 tours)
     #   1161 -> 0x40004000         = TargetIsEnemy | AllowNullCasterTile
     # Contre-exemple intra-porteur : generaliser de l'une a l'autre aurait produit un masque FAUX.
-    # 1166 AberrantHypermorphAbility RESORBEE (#251) -- ctor BIT-IDENTIQUE a 1096 (meme
+    # 1166 AberrantHypermorphAbility RESORBEE (#253) -- ctor BIT-IDENTIQUE a 1096 (meme
     # `TargetingRange` statique +0x30, meme litteral 0x1040, meme `AbilityAttackType` = 2). LU
     # ability par ability, pas deduit de la voisine : dans ce meme lot, 1007 vaut 0x4020 et 1047
     # 0x208000.
