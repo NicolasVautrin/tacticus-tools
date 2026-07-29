@@ -145,9 +145,11 @@ Mesure (`probe_115_ability_reason.py`, board MC1_67, seed 777, même Warboss, m�
 
 Le natif renvoie la raison caster **telle quelle**, d'où le même `0x10` dans `targetReason`.
 
-> Le flag `Moved` n'est pas exposé par les RPC : `load_state` ne le seede pas ⇒ la règle est
-> **inerte sur tout état chargé** (aucun risque de régression), et mord sur le chemin
-> replay/self-play offline, où c'est `MoveUnitOperation` → `set_moved_flag` qui pose le flag.
+> La règle mord sur les **deux** chemins de pose du flag : le snapshot
+> (`combatSnapshot.units[].unitFlags` → `snapshot._load_unit_flags`, donc un état rechargé porte
+> `Moved` sans aucune pose manuelle) et le replay/self-play offline (`MoveUnitOperation` →
+> `set_moved_flag`). Les deux sont confrontés à l'oracle natif dans `case-217-blackrage` §5.3
+> (`S4a` état chargé / `S4b` chemin replay, même verdict `0x10 CasterHasNotMoved`).
 
 ## 5. Waaagh (1058) — première instanciation
 

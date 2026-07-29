@@ -85,13 +85,17 @@ variantes coïncideraient — un montage hors régime rendrait VERT sans rien me
 
 ## Le câblage
 
-- `Scene.prevents_overkill(uid)` — accesseur, rempli par `from_state` depuis l'ECS
-  (`unit_prevents_overkill` : composant de flags d'abord, effet 1354 ensuite) ; côté
-  `from_predictor_sctx` la table est VIDE et l'accesseur retombe sur la dérivation par l'effet actif.
-  **Ce n'est pas une approximation** : c'est le même invariant (le couple
-  `ApplyInternal`/`RevertInternal` encadre exactement la durée de vie de l'effet), et c'est la seule
-  source disponible — aucun RPC n'expose `UnitFlagsComponent` (gap d'outillage nommé, tâche O5).
-  Foyer unique de la dérivation : `runner/components.effects_prevent_overkill`.
+- `Scene.prevents_overkill(uid)` — accesseur alimenté par la LECTURE DIRECTE du flag sur les deux
+  voies : `from_state` le prend de l'ECS (`unit_prevents_overkill` : composant de flags d'abord,
+  effet 1354 ensuite), `from_predictor_sctx` le prend du live
+  (`_prevent_overkill_from_snapshot` ← `combatSnapshot.unitFlags` + `unitFlagTypes`, re-capturé par
+  pas via `refresh_shields` car les triggers de `FuelledByFury_BlockOverkillEffect` posent et
+  retirent le flag en cours de bataille). La dérivation depuis l'effet ACTIF reste le **REPLI**, pour
+  un hook antérieur au capteur : elle porte le même invariant (le couple
+  `ApplyInternal`/`RevertInternal` encadre exactement la durée de vie de l'effet), mais c'est une
+  SECONDE expression d'un fait qui existe tel quel dans l'ECS — et `UnitFlagsComponent` a un `Add`
+  public, donc un futur poseur impératif la rendrait fausse en silence. Foyer unique de la
+  dérivation : `runner/components.effects_prevent_overkill`.
 - `predict_attack_raw(target_prevents_overkill=)` → publie `DamagePredictionResult.prevent_overkill`
   (@0xB3) ET passe `suppress=` à `compute_prediction_overkill`. Threadé par les 7 sites de
   prédiction (normale, abilities, splash Psyker, Fury).
