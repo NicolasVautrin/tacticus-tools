@@ -226,6 +226,13 @@ pas appliqué. Runners disposés au fil de l'eau ; `listRunners` vide en fin de 
 
 ### 7.1 Deux feuilles de tuile PORTÉES mais INERTES — le résidu de +25, entièrement attribué
 
+> **FERMÉ** par `case-241-steppable-decoy-tile-leaves.md` : le +25 tombe à 0 sur les 6 tuiles à
+> occupant decoy des deux montages (les 16 autres, déjà à 0, y restent). Le diagnostic ci-dessous
+> était exact — c'était bien un gap de CONTEXTE — à un détail près : il n'y avait aucun attribut
+> natif à lire, les deux feuilles dérivent leur donnée de l'OCCUPANT de la tuile au moment de
+> l'évaluation. La RE a par ailleurs trouvé DEUX branches de la feuille 19 que le port n'avait pas
+> (court-circuits `SpikySting` 77 / `LandMine` 114).
+
 Sur toute tuile candidate **occupée par un decoy ami**, `X_nat − X_port` = **+25**, constant, sur les
 deux boards. Le compte est exact et se lit dans la BC :
 
