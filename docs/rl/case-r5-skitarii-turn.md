@@ -151,7 +151,13 @@ cette voie**, et le fix des anomalies 1-2 n'a rien changé à cet axe. Résidu a
 - **R5-b — le gate n'est câblé QUE dans `state_bridge._move_tiles`.** Les autres appelants de
   `get_movable_positions` (`runner/operations/behaviour.py`, `entities/selectors/tiles.py`,
   `runner/abilities/genestealer.py`, `runner/operations/triggers/genestealer.py`,
-  `…/triggers/loki/betrayer.py`) l'ignorent encore, ainsi que `_pathdist_to_enemies`.
+  `…/triggers/loki/betrayer.py`) l'ignorent encore. ⚠ **`_pathdist_to_enemies` en est SORTI** le
+  2026-07-29 (`#17-off`) : ce n'est pas un oubli de câblage, c'est un **hors-sujet**. Ce chemin ne
+  passe pas par `GetMovablePositions`/`NodesInNextLevel` mais par `IPathfinders.GetPath(1, ...)` →
+  `BasePathfinder$$FindPath` → `GenerateBreadthFirstTree` → `GetValidNeighbours`, qui n'appelle
+  JAMAIS `IsValidContinuePathTile` ; et le pathfinder du type 1 n'est même pas le `WalkPathfinder`
+  (cf. `case-52` §#17-s5.5). Une tuile block-entering reste donc TRAVERSABLE par un chemin — elle
+  n'est un cul-de-sac que pour l'ÉNUMÉRATION des tuiles atteignables.
 - **R5-c — dépendance au canal `tiles=tileMeta`.** `make_can_continue` rend `None` si
   `State.effects` ne porte pas d'effets de tuile ; c'est la dégradation SÛRE (comportement d'avant),
   mais elle est SILENCIEUSE. Le seed vit dans `load_state` (`snapshot.py`) : un `load_state` sans

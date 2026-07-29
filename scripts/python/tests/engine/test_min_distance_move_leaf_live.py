@@ -37,9 +37,11 @@ import engine_validate as EV
 import hexgeo
 from engine import weights
 from engine.ai import context as _ai_ctx
-from engine.ai.state_bridge import _is_untargetable, build_from_state
+from engine.ai.state_bridge import _is_untargetable, _occupants, build_from_state
 from engine.entities.pathfinding.board import Board
-from engine.entities.pathfinding.walk_pathfinder import get_reachable_levels
+from engine.entities.pathfinding.ignore_terrain_pathfinder import weight_cost
+from engine.entities.pathfinding.walk_pathfinder import (
+    get_reachable_levels, is_valid_path_node as walk_is_valid_path_node)
 from engine.runner.snapshot import load_state
 from engine.utilities.move import MIN_DIST_UTILITY
 from engine_agreement_stages import StageProbe as _StageProbe
@@ -238,6 +240,104 @@ def _move(rpc, rid, uid, to):
     rpc("applyAction", {"runnerId": rid,
                         "action": {"kind": "move", "unitId": uid,
                                    "to": {"col": to[0], "row": to[1]}}}, 60)
+
+
+def _walk_path_node_counts(board, target_id, occupants, moving_team):
+    """CONTRE-VARIANTE du port : le MEME A* (`BasePathfinder$$FindPath`), mais avec le predicat
+    d'arete du `WalkPathfinder` -- un occupant ENNEMI bloque. Ne sert QU'A prouver que le montage
+    exerce reellement le gate d'occupant ; ce n'est pas ce que le moteur execute."""
+    import heapq
+    best = {target_id: (0, 1)}
+    heap = [(0, 1, target_id)]
+    while heap:
+        cost, nodes, cur = heapq.heappop(heap)
+        if (cost, nodes) > best.get(cur, (cost, nodes)):
+            continue
+        for n in board.neighbours(cur):
+            if not walk_is_valid_path_node(board, cur, n, occupants, moving_team):
+                continue
+            cand = (cost + weight_cost(n, occupants), nodes + 1)
+            if n not in best or cand < best[n]:
+                best[n] = cand
+                heapq.heappush(heap, (cand[0], cand[1], n))
+    return {t: n for t, (_c, n) in best.items()}
+
+
+def test_min_distance_path_traverses_units_live(host, live_session, rpc, build_runner):
+    """Le pathfinder de `MinDist(16)` (`PathfinderType = 1`) TRAVERSE les unites -- montage CRAFTE.
+
+    `GetMinDistanceToEnemy` appelle `IPathfinders.GetPath(1, ...)`, et l'entree `1` du dictionnaire
+    de `IdunBattle.Entities.Pathfinding.Pathfinders$$.ctor` n'est PAS le `WalkPathfinder` de
+    l'enumeration des tuiles : son `IsValidPathNode` (`IdunBattle.Entities.Pathfinding
+    .IgnoreTerrainPathfinder$$IsValidPathNode`) n'a meme pas de parametre `unit` -> aucun test
+    d'occupant. La difference ne se voit QUE si des unites se trouvent sur les chemins courts : on
+    AMENE donc les ennemis au contact du mover (jamais l'inverse -- bouger le mover consommerait son
+    activation et viderait le movable set, donc l'oracle). La garde echoue si le montage ne rend pas
+    le gate discriminant : pas de vert vide."""
+    rid = build_runner(seed="777", board="C4_09", extra=["--no-ai"])["rid"]
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    bg = rpc("boardGraph", {"runnerId": rid}, 90)
+    board = Board(bg["tiles"], adjacency="native_sym")
+    units = dv.get("units") or []
+    mine = [u for u in units if u.get("ctrl") and u.get("alive") and u.get("pos")]
+    foes = [u for u in units if not u.get("ctrl") and u.get("alive") and u.get("pos")]
+    if not (mine and foes):
+        pytest.skip("montage vide")
+
+    anchor = (foes[0]["pos"]["col"], foes[0]["pos"]["row"])
+    me = min(mine, key=lambda u: hexgeo.distance((u["pos"]["col"], u["pos"]["row"]), anchor))
+    my_pos = (me["pos"]["col"], me["pos"]["row"])
+    for f in foes:                                   # DRIVE du camp adverse (pilotage pur)
+        to = _drive_tile(rpc, rid, f["id"], my_pos)
+        if to is not None:
+            _move(rpc, rid, f["id"], to)
+
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    obs = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    state = load_state(dv, obs, snap, board=board, tiles=tm)
+    octx = build_from_state(state, me["id"])
+    occ = _occupants(state)
+    me_u = next(u for u in (dv.get("units") or []) if u["id"] == me["id"])
+    otile = board.id_at(me_u["pos"]["col"], me_u["pos"]["row"])
+
+    pd = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": me["id"]}, 90)
+    assert isinstance(pd, dict) and pd.get("ok"), f"pathDistToEnemies KO: {str(pd)[:200]}"
+    nat_pd = {(t["col"], t["row"]): t["pathDist"] for t in (pd.get("tiles") or [])}
+
+    # Contre-variante : meme selection de ClosestEnemy, predicat WALK (bloque sur un ennemi).
+    wk_best, wk_d = None, None
+    for (c, r) in (octx.tgt_epos or octx.epos):
+        et = board.id_at(c, r)
+        if et is None:
+            continue
+        counts = _walk_path_node_counts(board, et, occ, me_u.get("team"))
+        d = counts.get(otile)
+        if d is None or d <= 0:
+            continue
+        if wk_d is None or d < wk_d:
+            wk_d, wk_best = d, counts
+
+    gate, bad = [], []
+    for t, dn in nat_pd.items():
+        if dn is None or dn < 0:
+            continue
+        tid = board.id_at(t[0], t[1])
+        d_port = MIN_DIST_UTILITY.get_min_distance_to_enemy(
+            t, octx.tgt_epos or octx.epos, octx.pathdist_by_pos)
+        d_walk = (wk_best or {}).get(tid)
+        if d_walk != d_port:
+            gate.append((t, d_port, d_walk))
+        if d_port != dn:
+            bad.append((t, dn, d_port))
+    assert gate, (
+        "montage NON CONCLUANT : le gate d'occupant ne mord sur aucune des "
+        f"{len(nat_pd)} tuiles -- le predicat WALK donnerait la MEME chose que le port. "
+        "Re-crafter la geometrie, ne pas lire ce vert.")
+    assert not bad, (
+        f"le pathfinder de MinDist ne traverse PAS les unites dans le port : {len(bad)} tuile(s) "
+        f"divergent du natif (gate exerce sur {len(gate)}) : {bad[:6]}")
 
 
 def test_deep_strike_enemy_excluded_from_min_distance_live(host, live_session, rpc, build_runner):

@@ -113,25 +113,24 @@ def main(argv: list) -> int:
             print("[probe17off] montage vide")
             return 3
 
-        # --- DRIVE : rapprocher mon unite du paquet ennemi pour que des unites se retrouvent SUR
-        #     les chemins courts (sinon le gate d'occupant n'est jamais exerce).
+        # --- DRIVE : AMENER LES ENNEMIS sur mon unite (jamais l'inverse -- bouger `me` consommerait
+        #     son activation et viderait son movable set, donc l'oracle `pathDistToEnemies`). On
+        #     pilote le camp adverse (`side="enemy"`), ce qui pose des unites SUR les chemins courts
+        #     -- sans quoi le gate d'occupant n'est jamais exerce.
         anchor = (foes[0]["pos"]["col"], foes[0]["pos"]["row"])
         me = min(mine, key=lambda u: hexgeo.distance((u["pos"]["col"], u["pos"]["row"]), anchor))
-        for _ in range(3):
-            mv = rpc("aiMovableTiles", {"runnerId": rid}) or {}
-            row = next((r for r in (mv.get("units") or []) if r.get("unitId") == me["id"]), None)
+        my_pos = (me["pos"]["col"], me["pos"]["row"])
+        for f in foes:
+            mv = rpc("aiMovableTiles", {"runnerId": rid, "side": "enemy"}) or {}
+            row = next((r for r in (mv.get("units") or []) if r.get("unitId") == f["id"]), None)
             tiles = [(t["col"], t["row"]) for t in ((row or {}).get("tiles") or [])]
             if not tiles:
-                break
-            to = min(tiles, key=lambda t: hexgeo.distance(t, anchor))
+                continue
+            to = min(tiles, key=lambda t: hexgeo.distance(t, my_pos))
             rpc("applyAction", {"runnerId": rid,
-                                "action": {"kind": "move", "unitId": me["id"],
+                                "action": {"kind": "move", "unitId": f["id"],
                                            "to": {"col": to[0], "row": to[1]}}}, 60)
-            dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
-            cur = next((u for u in (dv.get("units") or []) if u["id"] == me["id"]), None)
-            if cur is None or (cur["pos"]["col"], cur["pos"]["row"]) == to:
-                if hexgeo.distance(to, anchor) <= 2:
-                    break
+        dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True})
 
         obs = rpc("observeBattle", {"runnerId": rid}, 60)
         snap = rpc("combatSnapshot", {"runnerId": rid}, 60)

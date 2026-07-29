@@ -36,7 +36,16 @@ Le natif choisit le pathfinder par unite via dispatch virtuel `MovementQuery.Get
 de walk_pathfinder avec l'arete fly). `walk_pathfinder.get_reachable_levels/get_movable_positions`
 parametres par un predicat `edge` (defaut = walk) -> mirror natif `BasePathfinder` (BFS generique,
 chaque pathfinder override `IsValidPathNode`). Selection fly/walk par trait dans
-`state_bridge._move_tiles` + `_pathdist_to_enemies` (mirror du dispatch `GetReachableTiles`).
+`state_bridge._move_tiles` (mirror du dispatch `GetReachableTiles`).
+
+⚠ `_pathdist_to_enemies` ne fait PLUS partie de ce dispatch (`#17-off`, 2026-07-29) : la distance de
+SCORING de `MinDistanceToClosestEnemy(16)` passe par `IPathfinders.GetPath(1, ...)` avec **`1` en
+LITTERAL**, meme pour un flyer -- et l'entree `1` du dictionnaire de `Pathfinders$$.ctor` n'est ni le
+Walk ni le Fly, mais `IdunBattle.Entities.Pathfinding.IgnoreTerrainPathfinder` (aucun test
+d'occupant, `WeightCost = 10 + IsFilled`, PAS d'elevation dans le cout). Port :
+`engine/entities/pathfinding/ignore_terrain_pathfinder.py`. **Distance de MOUVEMENT (ce que l'unite
+peut parcourir) != distance de SCORING (ce que l'IA note)** : l'IA score une proximite qu'elle ne
+peut pas forcement atteindre. Detail + mesures : `case-52-generalisation.md` §#17-s5.5.
 
 ### Validation live (test_fly_pathfinder_live.py, non commite)
 Roster Flying explicite (`blackHaarken,thousAhriman,tyranWingedPrime`) sur board a CLIFF

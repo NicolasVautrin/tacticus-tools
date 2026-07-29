@@ -880,27 +880,34 @@ index 10**, avant **(1,4), index 11**, dans l'ordre du movable set -> **premier-
 `test_move_tie_is_broken_by_movable_set_order` le verifie LIVE et **echoue si aucun tie n'est
 rencontre** (pas de vert vide).
 
-### 2. Face OFFLINE (`state_bridge.build_from_state`) -- l'ecart -700/-600 SUBSISTE
+### 2. Face OFFLINE (`state_bridge.build_from_state`) -- FERMEE le 2026-07-29 (tache `#17-off`)
 
-Meme etat de decision, meme pas : le port OFFLINE rend **-600 sur (0,4) ET (1,4)**, et diverge sur
-**14/14 tuiles**, toujours d'exactement **un pas** (-100 de terme).
+**Etat du defaut** (mesure du 2026-07-29 avant correctif) : le port OFFLINE rendait **-600 sur (0,4)
+ET (1,4)**, et divergeait sur **14/14 tuiles**, toujours d'exactement **un pas** (-100 de terme).
 
-Decomposition par etage (BFS mono-source par ennemi ciblable ; arete = walkable + porte
-d'elevation) :
+| tuile | `pathDist` NATIF | BFS(e81)+1 | BFS(e83)+1 | offline AVANT | offline APRES |
+|---|---|---|---|---|---|
+| (0,4) | 7 | 7 | 7 | 6 | **7** |
+| (1,4) | 7 | 7 | 7 | 6 | **7** |
+| (1,0) | 11 | 11 | 11 | 10 | **11** |
 
-| tuile | `pathDist` NATIF | BFS(e81)+1 | BFS(e83)+1 | offline `state_bridge` |
-|---|---|---|---|---|
-| (0,4) | 7 | 7 | 7 | 6 |
-| (1,4) | 7 | 7 | 7 | 6 |
-| (1,0) | 11 | 11 | 11 | 10 |
+`BFS+1 == d_natif` sur **les 14 tuiles**, pour e81 comme pour e83 : le natif lit `route+0x18`
+(= `List._size`) du `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null)` appele par
+`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` -- un nombre de
+**NOEUDS**, extremites incluses, donc `aretes + 1`, quand `_pathdist_to_enemies` comptait des
+**ARETES**. Sur CE datapoint la seconde divergence structurelle (min sur TOUS les ennemis vs
+ClosestEnemy FIGE) n'est pas discriminante (e81 et e83 rendent la meme distance sur les 14 tuiles) ;
+elle l'est sur le couple `777/C4_09`, ou `minTous+1` s'ecarte du natif sur 6 tuiles (ex. (2,1) :
+natif 10, `minTous+1` 9, `BFS(e90)+1` 10) -- c'est ce second couple qui l'a CONFRONTEE.
 
-`BFS+1 == d_natif` sur **les 14 tuiles**, pour e81 comme pour e83. **Cause unique** : le natif lit
-`route+0x18` (= `List._size`) du `IPathfinders.GetPath(type=1, unit, tuile, tuileEnnemie, null)`
-appele par `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy` --
-un nombre de **NOEUDS**, extremites incluses, donc `aretes + 1`. `state_bridge
-._pathdist_to_enemies` compte des **ARETES**. L'ecart est cet offset, rien d'autre : la seconde
-divergence structurelle (min sur TOUS les ennemis vs ClosestEnemy FIGE) n'est **pas discriminante
-ici** (e81 et e83 rendent la meme distance sur les 14 tuiles) -- elle reste ouverte, non confrontee.
+**Correctif livre** : `_pathdist_to_enemies` porte le couple natif complet -- `FindClosestEnemy`
+(argmin `<` STRICT, filtre `d > 0`, premier-gagne) puis `GetMinDistanceToEnemy` (`GetPath(...).Count`
+en NOEUDS) -- et le pathfinder du type 1 a son propre module mirror, cf. §5.
+
+**Mesure APRES** (`probe_17_s5_mindist.py`, 6 pas, TOUS les pas de move pur) : **131 tuiles sur deux
+couples, 0 divergence offline** -- `12345/MC1_67` 44/44, `777/C4_09` 87/87 (avant : 14/14 puis 18/87
+fausses). Garde : `tests/engine/test_min_distance_move_leaf_live.py
+::test_min_distance_leaf_offline_equals_native_pathdist`, meme parametrage que la garde LIVE.
 
 ⚠ **Piege de mesure** : `load_state(dv, obs, snap)` **sans `board=`** laisse `state.board is None`,
 `_pathdist_to_enemies` rend `{}` et la feuille retombe sur le **fallback HEX** -- on mesure alors
@@ -930,11 +937,20 @@ u = d.HasValue ? Fix64.FromInt(d.Value) * GetUtilityValue(this, PerTileDistance)
                : <constante statique, statics+0x20 d'une classe non identifiee>
 ```
 
-Deux ecarts de port DISTINCTS de l'offset, non fermes :
-- **quand `d` n'a pas de valeur**, le natif rend une **constante statique**, pas une distance HEX ;
-  notre fallback hex est une invention de port (utile, mais ce n'est pas le natif) ;
+Deux ecarts de port DISTINCTS de l'offset, **fermes le 2026-07-29** :
+- **quand `d` n'a pas de valeur**, le natif rend la **constante statique** `statics+0x20` de
+  `IdunBattle.AI.Utilities.BaseUtility`. Son `.cctor` y recopie `FixMath.NET.Fix64.MinValue`
+  (`Fix64` statics+0x18 = raw `0x8000000000000000`, soit -2^31 apres division du Q32.32 par 2^32) --
+  la tuile est donc **REDHIBITOIRE**, pas « penalisee proportionnellement ». Le repli hex etait une
+  invention de port ; il ne subsiste QUE lorsque `pathdist_by_pos` est vide (le port n'a AUCUNE
+  source de distance-chemin, ex. `State.board is None`), un cas qui n'existe pas cote natif.
+  Constante portee : `engine/utilities/move.py::NO_PATH_UTILITY`.
+  Reperes voisins du meme bloc statique (lus au passage) : `+0x00` = `Fix64.FromInt(0)`,
+  `+0x08` = `Fix64.FromInt(100000)`, `+0x10` = `Fix64.MaxValue`, `+0x18` = `MinValue / 1.000001`,
+  `+0x28` = `MinValue / 1.000002`, `+0x30` = `Fix64.FromInt(-12345)`.
 - `GetMinDistanceToEnemy` force **`PathfinderType = 1`** en litteral, y compris pour une unite
-  VOLANTE, alors que `_pathdist_to_enemies` bascule sur `fly_is_valid_path_node` si le mover vole.
+  VOLANTE : le port ne bascule plus sur `fly_is_valid_path_node`. Et ce type 1 n'est PAS le
+  `WalkPathfinder` -- cf. §5.
 
 `MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`, structure confirmee :
 
@@ -953,6 +969,41 @@ return best
 Le filtre **`d > 0`** et le **`<` STRICT** (donc premier-gagne dans l'ordre de
 `GetAllEnemyUnitsOfUnit`) n'etaient pas consignes. `GetDistanceToEnemy` a **deux branches** -- une
 distance de service (`<IBattleQuery> +0xb` sur les `UnitPosition`) et une `GetPath(...).Count` --
-choisies par un appel dont la source n'a pas ete identifiee : **non tranche**, et non discriminant
-sur ce datapoint (e81 et e83 donnent le meme resultat). Le RPC `pathDistToEnemies` choisit le
-ClosestEnemy par la distance de CHEMIN ; c'est une hypothese, pas une lecture.
+choisies par un appel dont la source n'a pas ete identifiee : **non tranche**. Les deux faces du port
+(RPC `pathDistToEnemies` et `state_bridge`) choisissent le ClosestEnemy par la distance de CHEMIN --
+et ce choix est desormais **CONFRONTE** : sur `777/C4_09` le ClosestEnemy est discriminant (le
+`minTous` s'ecarte du natif sur 6 tuiles, l'ennemi elu par le port reproduit le natif sur les 87).
+La branche « distance de service » reste possible dans l'absolu ; aucun des deux couples ne la
+distingue. Noter aussi l'ASYMETRIE de pathfinder entre les deux fonctions : `GetDistanceToEnemy`
+derive son type de l'unite (`(movementType == 3) + 1`), la ou `GetMinDistanceToEnemy` force `1`.
+
+### 5. Le `PathfinderType = 1` n'est PAS le `WalkPathfinder` -- ecart LU puis MESURE
+
+`IdunBattle.Entities.Pathfinding.Pathfinders$$.ctor` construit le dictionnaire
+`PathfinderType -> pathfinder` (12 entrees ; `0` et `3` sont les deux bases que les entrees `6..11`
+re-emballent dans des variantes teleport). L'entree **`1`**, la seule que `GetMinDistanceToEnemy`
+utilise, se comporte comme `IdunBattle.Entities.Pathfinding.IgnoreTerrainPathfinder`, qui differe du
+`WalkPathfinder` sur les deux faces qui comptent :
+
+| face | `WalkPathfinder` | pathfinder du type 1 |
+|---|---|---|
+| `IsValidPathNode` | + `UnitIsBlockedByEnemyUnit(to, unit)` | AUCUN test d'occupant (pas meme de parametre `unit`) |
+| `WeightCost` | `(bloquee ? 10000 : 10) - elevation(to)` | `10 + IsFilled(to)` |
+
+**Comment l'ecart s'est revele** : porter le `WeightCost` du WalkPathfinder faisait diverger **18
+des 87 tuiles** de `777/C4_09`, toujours d'un pas EN TROP -- sur un board a relief, le chemin le
+moins cher au sens Walk est plus LONG en pas, et ce n'est pas ce que le natif rend. Le
+`WeightCost` du type 1 etant quasi uniforme (10 ou 11), son A* rend un chemin de longueur minimale,
+ce que la decomposition mesurait deja (`BFS+1 == d_natif` sur les deux couples, avec une arete
+« walkable + porte d'elevation » SANS occupance).
+
+Deux consequences qui depassent `MinDist(16)` :
+- ce chemin **traverse les unites**, y compris pour FINIR sur la tuile occupee par sa cible -- c'est
+  ce qui rend `GetPath(tuile, tuileEnnemie)` non nul, alors qu'un pathfinder de marche refuserait la
+  destination ;
+- la distance de MOUVEMENT (ce que l'unite peut reellement parcourir, `MovementQuery
+  .GetReachableTiles` -> `WalkPathfinder`) et la distance de SCORING (`MinDist(16)`) ne sont pas la
+  meme metrique : l'IA score une proximite qu'elle ne peut pas forcement parcourir.
+
+Port : `engine/entities/pathfinding/ignore_terrain_pathfinder.py` (predicat, `WeightCost`, et le
+`GetPath(...).Count` de `BasePathfinder$$FindPath` rendu pour toutes les tuiles en une passe).
