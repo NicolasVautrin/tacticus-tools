@@ -266,21 +266,42 @@ VAR_POX_CHANCE_2 = 0x3b     # GetVariableForLevel(0x3b) -> "chance_2" (% maxi)
 CONST_POX_UNIT_ID = 0x00    # GetStringConstant(0)      -> "unitId"   = deathPoxwalker
 
 
+def contagions_of_nurgle_range_for_turns(turns_started: int) -> int:
+    """La TABLE de rayon de l'aura Contagion, isolee du canal qui lit le compteur.
+
+    Le natif l'ecrit DEUX FOIS, a l'identique, sous deux formes :
+      * imperative -- `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange(unit)`
+        = `s = UnitExtensions.GetStat(unit, 0xc=TurnsStarted, Current) ; s > 2 ? (s > 4 ? 3 : 2) : 1` ;
+      * DSL -- `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$GetRangeOnOwnerTurn(numRounds)`
+        = `ConditionalAmount( Not(AmountIsGreater(numRounds, Direct(2))), Direct(1),
+             ConditionalAmount( Not(AmountIsGreater(numRounds, Direct(4))), Direct(2), Direct(3) ) )`
+        (lu au decompile : les trois `Direct` 1/2/3 et les deux seuils 2/4 y sont litteraux).
+    -> rayon 1 aux tours 1-2, 2 aux tours 3-4, 3 a partir du tour 5.
+
+    Le FOYER est ici pour que les deux consommateurs du port partagent la meme table :
+    `contagions_of_nurgle_range` (voie imperative, `SpawnPoxwalkersAbility` + pose de l'aura) et le
+    noeud DSL `ContagionsOfNurgleRange` (voie formule, `CursedPlagueBellMovementAbility`), qui lit
+    lui-meme son `numRounds` par `StatAmount(Owner, TurnsStarted, Current)` comme
+    `...$$GetCurrentRange`."""
+    s = int(turns_started)
+    if s > 2:
+        return 3 if s > 4 else 2
+    return 1
+
+
 def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
-    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` -- MIRROR 1:1 :
-        `s = UnitExtensions.GetStat(unit, 0xc=TurnsStarted, Current)`
-        `if (s > 2) return (s > 4) ? 3 : 2 ; else return 1`
-    -> rayon 1 aux tours 1-2, 2 aux tours 3-4, 3 a partir du tour 5. Le natif appelle cette methode
-    STATIQUEMENT depuis `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (l'ability n'a pas d'effet
-    Nurgle a ce point : c'est un helper de portee PARTAGE avec l'aura ContagionsOfNurgle)."""
+    """`IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange` -- MIRROR 1:1
+    (lecture `GetStat(unit, 0xc=TurnsStarted, Current)` + table `contagions_of_nurgle_range_for_turns`).
+    Le natif appelle cette methode STATIQUEMENT depuis
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` (l'ability
+    n'a pas d'effet Nurgle a ce point : c'est un helper de portee PARTAGE avec l'aura
+    ContagionsOfNurgle)."""
     from ...entities.stats import StatType
     e = state.get_entity(unit_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     stats = getattr(sc.ctx, "stats", None) if sc is not None else None
     s = int(stats.get_stat(int(StatType.TURNS_STARTED), 0)) if stats is not None else 0
-    if s > 2:
-        return 3 if s > 4 else 2
-    return 1
+    return contagions_of_nurgle_range_for_turns(s)
 
 
 # ====== CursedPlagueBell — le PREDICAT d'aura (deathBlightbringer `Corrodius`, triggered 1071) ======
