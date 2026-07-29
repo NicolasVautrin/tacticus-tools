@@ -77,6 +77,47 @@ const COMBAT_STAT_IDS: Record<string, number> = {
 // par valeur d'enum. Read-only intégral.
 const hasFlagMi = unitExtClass ? findMethodByParamCount(unitExtClass, "HasFlag", 2) : null;
 
+// TRAITS RUNTIME (#233) — même raison, même remède que les flags ci-dessus. Le port
+// reconstruisait les traits depuis le substrat (gameconfig + dérivation d'alliance) et depuis son
+// propre leaf `AddTrait` : il ne pouvait RIEN confronter. Un trait accordé EN BATAILLE lui était
+// invisible.
+//
+// SÉMANTIQUE, lue au décompilé de `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` —
+// trois collections, et la première est un VETO :
+//
+//   HasTrait(t) == !retirés(+0x50).Contains(t) && ( permanents(+0x40).Contains(t)
+//                                                || temporaires(+0x48).Contains(t) )
+//
+// `IdunBattle.Operations.AddTraitOperation$$Execute` écrit `+0x40` quand `isTemporary == 0`,
+// `+0x48` sinon. ⚠ `IdunBattle.Operations.RemoveTraitOperation$$RemoveTrait` NE remplit PAS `+0x50` :
+// il RETIRE de `+0x40`/`+0x48` selon le même `isTemporary`. Le retrait est donc DESTRUCTIF sur les
+// ensembles additifs, pas additif sur un ensemble de veto — l'écrivain de `+0x50` reste à
+// identifier (résidu nommé de #233).
+//
+// POURQUOI ON N'EXPOSE PAS LES TROIS COLLECTIONS SÉPARÉMENT : ce sont des
+// `idun.shared.collections.OrderedSet<UnitTrait>` interrogés par appel d'interface FULLY-SHARED —
+// exactement la disposition que le bloc `unitFlags` déclare non lisible de façon fiable. La lire
+// « quand même » reviendrait à deviner un layout, précisément ce que la doctrine interdit. On
+// invoque donc la fonction NOMMÉE que le jeu appelle lui-même, `UnitExtensions$$HasTrait(unit,
+// trait)`, une fois par valeur d'enum : elle rend l'ensemble EFFECTIF, veto compris — c'est-à-dire
+// ce que TOUS les gates de traits lisent réellement.
+const hasTraitMi = unitExtClass ? findMethodByParamCount(unitExtClass, "HasTrait", 2) : null;
+
+// Valeurs de `IdunBattle.Entities.Enum.UnitTrait`, LUES AU RUNTIME — même discipline que
+// `unitFlagTypes` : aucune table du dépôt, une renumérotation de build se propage seule.
+let unitTraitTypesCache: Record<string, number> | null = null;
+function unitTraitTypes(): Record<string, number> {
+    if (unitTraitTypesCache) return unitTraitTypesCache;
+    const raw = dumpEnum("IdunSharedAssembly.dll", "IdunBattle.Entities.Enum", "UnitTrait") ?? {};
+    const out: Record<string, number> = {};
+    for (const k of Object.keys(raw)) {
+        const v = parseInt(raw[k], 10);
+        if (Number.isFinite(v)) out[k] = v;
+    }
+    unitTraitTypesCache = out;
+    return out;
+}
+
 // Valeurs de `IdunBattle.Entities.Enum.UnitFlag`, LUES AU RUNTIME (`dumpEnum` — littéraux de la
 // métadonnée IL2CPP), jamais recopiées dans une table du dépôt : une RENUMÉROTATION au prochain
 // build se propage alors toute seule. Une constante en dur, elle, resterait syntaxiquement valide
@@ -101,8 +142,10 @@ export function registerViewSnapshot(ctx: Ctx): void {
     /** SNAPSHOT one-shot des STATS DE COMBAT RÉSOLUES par unité (prédiction 100% offline,
      *  doc §16). Lit `UnitExtensions.GetStat(entity, StatType)` pour chaque stat combat-
      *  pertinente. C'est le SEUL accès live du prédicteur offline (à appeler une fois au
-     *  chargement de la BattleConfig) ; faction/class/profil/traits viennent de gameconfig,
-     *  effets de decisionView. Read-only. body: { runnerId } */
+     *  chargement de la BattleConfig) ; faction/class/profil viennent de gameconfig, effets de
+     *  decisionView. Les TRAITS, eux, sont publiés ICI (`units[].traits`, #233) : le gameconfig ne
+     *  donne que les traits de DÉPART, et un trait accordé en bataille lui échappe.
+     *  Read-only. body: { runnerId } */
     ctx.rpc.combatSnapshot = (
         body?: { runnerId?: number; debugOnly?: string[] },
     ): Promise<unknown> => queueOnMainThread(() => {
@@ -396,6 +439,26 @@ export function registerViewSnapshot(ctx: Ctx): void {
             return out;
         };
 
+        // TRAITS EFFECTIFS (#233) : ids `UnitTrait` que le natif considère POSÉS, veto `+0x50`
+        // compris. Même forme que `readUnitFlags` — valeurs DÉDUPLIQUÉES (un enum C# admet des
+        // alias), et `null` (jamais `[]`) quand la mesure n'a pas pu se faire : `[]` dit « lu,
+        // aucun trait », `null` dit « pas lu ». Les confondre ferait passer un capteur MORT pour
+        // une unité sans trait, et le consommateur offline retomberait en silence sur sa
+        // dérivation de repli au lieu de savoir qu'il n'a rien mesuré.
+        const traitTypes = wants("traits") ? unitTraitTypes() : {};
+        const traitValues = Array.from(new Set(Object.keys(traitTypes).map((k) => traitTypes[k])))
+            .sort((a, b) => a - b);
+        const traitBuf = Memory.alloc(4);
+        const readUnitTraits = (e: NativePointer): number[] | null => {
+            if (!hasTraitMi || traitValues.length === 0) return null;
+            const out: number[] = [];
+            for (const v of traitValues) {
+                traitBuf.writeS32(v);
+                if (invokeBool(hasTraitMi, [e, traitBuf])) out.push(v);
+            }
+            return out;
+        };
+
         const units: Array<Record<string, unknown>> = [];
         for (const { e, id, entityType } of allUnits) {
             const stats: Record<string, number | null> = {};
@@ -446,6 +509,10 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // =19, `Moved` =0, `Untargetable` =17, `DisableTriggers` =18…) et devait les
                 // DÉRIVER de leurs effets poseurs. `null` = non mesuré, `[]` = mesuré sans flag.
                 unitFlags: wants("unitFlags") ? readUnitFlags(e) : null,
+                // #233 : traits REELLEMENT portes en bataille (gameconfig + AddTrait + veto de
+                // retrait), la ou le port ne savait que les RECONSTRUIRE depuis le substrat.
+                // C'est ce que lisent les 33 gates de traits recenses.
+                traits: wants("traits") ? readUnitTraits(e) : null,
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
