@@ -51,10 +51,12 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#246) : 94 abilities au registre, 58 avec masque, ces 36 sans.
+# Etat au 2026-07-29 (#247) : 94 abilities au registre, 64 avec masque, ces 30 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
-#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246.)
+#  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246, et les
+#  SIX du module `splash` par #247 -- 1000/1051/1065/1078/1098/1105, qui relevent a elles seules de
+#  TROIS formes de ctor differentes et de TROIS presets differents.)
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -68,7 +70,12 @@ from engine.runner.abilities.targeting_rule import TargetingRule
 # Recopier un litteral sans verifier l'overload produit un masque FAUX -- PIRE que l'absence, qui au
 # moins ne ment pas. Laisser l'entree dans cette liste est le bon choix tant que le doute existe.
 SANS_TARGETING_OPTIONS: dict[int, str] = {
-    1000: "GauntletsOfUltramarAbility",
+    # 1000 GauntletsOfUltramarAbility RESORBEE (#247) -- une QUATRIEME forme : **FACTORY NOMMEE**.
+    # `...GauntletsOfUltramarAbility$$.ctor` n'ecrit aucun champ et ne copie aucun preset : il appelle
+    # `IdunBattle.Core.Services.TargetingOptions$$SelfCastIfEnemyInCustomRangeOptions(&opts, 2)`, qui
+    # ecrit `isSelfCasting = 1`, `range = CustomRange(2)`, `forceMeleeTarget = RangedBool.False` et
+    # `rules = 0x4000` (TargetIsEnemy seul). C'est le SEUL appelant natif de cette factory ; les 3
+    # autres porteurs du profil (1009/1207/1226) l'ont recue INLINEE.
     1007: "ScarabHiveAbility",
     # 1014 ArmoriumCherubAbility RESORBEE (#222) -- forme « PRESET STATIQUE COPIE » :
     # `...ArmoriumCherubAbility$$.ctor` recopie `TargetingOptions statics+0x140` et le masque
@@ -95,17 +102,31 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # OU des deux. Portee = `TargetingRange statics+0x30` = RANGE_ADJACENT.
     1045: "GetEmRuntzAbility",
     1047: "ScarabSummonAbility",
-    1051: "StikkbombAbility",
-    1065: "ScythingTalonsAbility",
+    # 1051 StikkbombAbility RESORBEE (#247) -- forme « PRESET + FLAGS » : preset `statics+0x140`
+    # + flags `0x2000000` -> masque effectif `0x2000000 | *(statics+0x168)` = `0x2000000 | 0x4002`
+    # = 0x2004002 (AllowObscuredTargetByElevation | TargetIsEnemy | TargetMatchesDynamicRule).
+    # Portee = `TargetingRange statics+0x18` = RANGE_FROM_CONFIG (`constants.range` = 2) ;
+    # `forceMeleeTarget = 0 = RangedBool.True` (clamp de melee ARME).
+    # 1065 ScythingTalonsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
+    # `statics+0x40` : masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul), portee =
+    # `TargetingRange statics+0x30` = RANGE_ADJACENT, `forceMeleeTarget = RangedBool.False`.
     1076: "MV71SniperDroneSquadAttackAbility",
     1077: "EarlyWarningOverrideAbility",
-    1078: "FragstormAbility",
+    # 1078 FragstormAbility RESORBEE (#247) -- forme « PRESET + FLAGS », mais preset `statics+0x180`
+    # et NON `+0x140` comme ses deux voisines de module (1051/1098). Meme `rules` effectif
+    # (0x2004002) et une portee qui DIFFERE : `*(statics+0x1a0)` = 1 = `RangedBool.False` ->
+    # `forceMeleeTarget` DESARME, donc pas de clamp a 1 au contact. Illustration directe du piege
+    # « la voisine ment » : le masque se serait recopie juste, le volet portee faux.
     1081: "FightingRetreatAbility",
     1082: "InspiredToGreatnessAbility",
     1096: "MasterOfTheTutelariesAbility",
-    1098: "PlasmaGrenadeAbility",
+    # 1098 PlasmaGrenadeAbility RESORBEE (#247) -- forme « PRESET + FLAGS », preset `statics+0x140`
+    # + flags `0x2000000` -> 0x2004002 ; portee RANGE_FROM_CONFIG (2) ; `forceMeleeTarget =
+    # RangedBool.True`. STRICTEMENT le meme couple que 1051, verifie ctor par ctor.
     1104: "SpiritLeechAbility",
-    1105: "CrushingClawsAbility",
+    # 1105 CrushingClawsAbility RESORBEE (#247) -- forme « PRESET STATIQUE COPIE », preset
+    # `statics+0x40` (le meme que 1065) : masque 0x4000, portee RANGE_ADJACENT, `forceMeleeTarget =
+    # RangedBool.False`.
     1113: "StormcallerAbility",
     1118: "DoctrinaImperativesAbility",
     1122: "CordClawAbility",
