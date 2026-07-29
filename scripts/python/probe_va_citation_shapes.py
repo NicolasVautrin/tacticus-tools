@@ -21,6 +21,10 @@ from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / "scripts" / "python"))
+
+from symbols_layout import current_build  # noqa: E402
+
 SYMBOLS_DIR = REPO / "data" / "symbols"
 
 # 9 chiffres hex = plage VA du binaire (0x180000000 .. 0x18fffffff).
@@ -60,13 +64,20 @@ def base_name(sym: str) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--build", default="gqfc5mff6c")
+    # Le defaut etait le hash `gqfc5mff6c` EN DUR -- un litteral specifique a un build, dans
+    # l'outil meme qui sert a encaisser les changements de build. Au 2026-07-29 il faisait lire
+    # la table d'un build ARCHIVE pendant que `CURRENT` en designait un autre : la mesure sortait
+    # sans erreur et ne voulait rien dire. Le pointeur fait foi ; `--build` reste pour interroger
+    # explicitement une archive.
+    ap.add_argument("--build", default=None,
+                    help="build a interroger (defaut : data/symbols/CURRENT)")
     ap.add_argument("roots", nargs="+", help="fichiers/dossiers a scanner")
     ap.add_argument("--ext", default=".py,.md,.ts")
     args = ap.parse_args()
 
-    addrs, names = load_table(args.build)
-    print("table %s : %d symboles" % (args.build, len(addrs)))
+    build = args.build or current_build()
+    addrs, names = load_table(build)
+    print("table %s : %d symboles" % (build, len(addrs)))
 
     exts = tuple(args.ext.split(","))
     files = []
