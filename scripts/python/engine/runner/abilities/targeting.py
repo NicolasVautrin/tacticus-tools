@@ -210,16 +210,25 @@ class TargetingRange:
         +0x04  bool       useRangeFromConfig
         +0x05  bool       useWholeBoard          <- le fameux `options+0x0d` du filtre statique
         +0x08  Nullable<int> overrideRange
-        +0x10  GetRange   overrideRangeFunc      (delegue ; AUCUN porteur du registre ne le pose)
+        +0x10  GetRange   overrideRangeFunc      (delegue)
 
-    `overrideRangeFunc` n'est pas modelise : le seul chemin qui l'alimente est
-    `IdunBattle.Core.Services.TargetingRange$$CustomRange(GetRange)`, qu'aucun `<X>Ability$$.ctor`
-    du registre n'appelle (les 28 masques ont ete relus un par un). Le jour ou un porteur l'utilise,
-    son `TargetingRange` restera `None` (= non RE-lu = pas de gate) tant qu'on ne l'aura pas lu."""
+    `override_range_func` = « le ctor natif POSE un delegue a `TargetingRange+0x10` ». On ne modelise
+    QUE sa PRESENCE, jamais sa valeur : `TargetingQuery$$GetRange` l'invoque et ECRASE la portee
+    calculee juste avant (`if (*(param_4 + 0x18) != 0) v = OverrideRangeFunc(caster);`), donc une
+    ability qui le pose n'a AUCUNE portee derivable de ses autres champs. `get_range` rend alors
+    `None` -> aucun gate de portee, la degradation permissive de tout ce module. C'est different de
+    `range = None` (= `TargetingRange` pas encore RE-lu) : ici le `TargetingRange` EST lu, c'est la
+    VALEUR que le delegue produit qui n'est pas resolue.
+
+    Unique porteur du registre : 1040 `SpawnPoxwalkers`, dont le
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$.ctor` construit un
+    `IdunBattle.Core.Services.GetRange` (target NUL -> methode STATIQUE) et le passe a la surcharge
+    `IdunBattle.Core.Services.TargetingRange$$CustomRange(GetRange)` -- cf. `custom_range_func`."""
     only_adjacent: int = RANGED_BOOL_FALSE
     use_range_from_config: bool = False
     use_whole_board: bool = False
     override_range: Optional[int] = None
+    override_range_func: bool = False
 
 
 # --- Les 5 `TargetingRange` STATIQUES, ecrits par `IdunBattle.Core.Services.TargetingRange$$.cctor`
@@ -245,10 +254,25 @@ RANGE_SELF = TargetingRange(override_range=0)
 
 
 def custom_range(value: int) -> TargetingRange:
-    """`IdunBattle.Core.Services.TargetingRange$$CustomRange(int range)` — mirror du decompile :
+    """`IdunBattle.Core.Services.TargetingRange$$CustomRange(int range)` — mirror du decompile
+    (surcharge INT, celle des 16 call-sites) :
     `{ onlyAdjacent = False, useRangeFromConfig = false, useWholeBoard = false,
        overrideRange = Nullable(range), overrideRangeFunc = null }`."""
     return TargetingRange(only_adjacent=RANGED_BOOL_FALSE, override_range=int(value))
+
+
+def custom_range_func() -> TargetingRange:
+    """`IdunBattle.Core.Services.TargetingRange$$CustomRange(GetRange overrideRangeFunc)` — l'AUTRE
+    surcharge (3 call-sites). Mirror du decompile, champ par champ :
+
+        *param_1  = 1        # onlyAdjacent = RangedBool.False, useRangeFromConfig/useWholeBoard = 0
+        param_1[1] = 0       # Nullable<int> overrideRange VIDE
+        param_1[2] = param_2 # overrideRangeFunc = le delegue
+
+    Le delegue n'est pas resolu (cf. `TargetingRange.override_range_func`) -> `get_range` rend None,
+    aucun gate de portee. On enregistre le FAIT que le ctor le pose, pas une valeur devinee."""
+    return TargetingRange(only_adjacent=RANGED_BOOL_FALSE, override_range=None,
+                          override_range_func=True)
 
 
 @dataclass(frozen=True)
@@ -778,6 +802,13 @@ def get_range(state: "State", caster_id: int, options: "TargetingOptions") -> Op
                                   sc.ctx if sc is not None else None)
         if value is None:
             return None                               # portee d'arme NON OBSERVABLE -> pas de gate
+
+    # `if (options.Range.OverrideRangeFunc != null) v = OverrideRangeFunc(caster);` -- position
+    # NATIVE exacte : le delegue ECRASE tout ce qui precede (arme, override, config) et precede les
+    # deux clamps de melee. Le port ne resout pas le delegue -> il ne connait PAS `v`, donc il ne
+    # peut decider ni la comparaison de distance ni (via `min(1, v)`) les clamps : aucun gate.
+    if rng.override_range_func:
+        return None
 
     if _has_forced_in_melee(state, caster_id):
         value = min(1, value)
