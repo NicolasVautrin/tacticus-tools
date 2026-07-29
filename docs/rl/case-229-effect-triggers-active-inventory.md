@@ -102,14 +102,14 @@ Colonne « rail » = origine native (symbole cite dans le probe). Colonne « lit
 | 1451 | `PhoenixGemRemoveMarkerOnResurrect` | ARRAYSET | unite | no | CONFORME |
 | 1476 DespoiledGround | `DespoiledGroundTileDoT` | ENV_ABILITY | tuile | no | CONFORME (hors rail effet-trigger) |
 | 1502 RitesOfMorkai | `RitesOfMorkaiReviveTrigger` | TARGETS | unite | **direct** | CONFORME depuis 2026-07-29 |
-| 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | unite | no | **ECART** |
+| 1547 ReanimationBeam_Revive | `ReanimationBeamReviveTrigger` | TARGETS | unite | **direct** | CONFORME depuis `case-1547` |
 | 1550 Chronometron_ExtraDamage | `ChronometronExtraDamageRemove` | ARRAYSET (greffe) | unite | no | CONFORME |
 
-**26 classes conformes / 2 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077, 1197
-et 1201, la tache 1502 a resorbe `RitesOfMorkaiReviveTrigger`). ⚠ Ce compte se PERIME a chaque
-resorption : le re-deriver par le probe. Precision sur la fiche d'entree : le flag n'etait lu que
-par **1009** cote `EFFECT_TRIGGERS` (1077, 1197, 1201 puis 1502 l'ont rejoint).
-Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
+**27 classes conformes / 1 en ecart** (22/6 a l'ecriture de cette fiche ; #231 a resorbe 1077,
+1197 et 1201, la tache 1502 a resorbe `RitesOfMorkaiReviveTrigger`, `case-1547` a resorbe 1547).
+⚠ Ce compte se PERIME a chaque resorption : le re-deriver par le probe, jamais citer cette ligne.
+Precision sur la fiche d'entree : le flag n'etait lu que par **1009** cote `EFFECT_TRIGGERS`
+(1077, 1197, 1201, 1502 puis 1547 l'ont rejoint). Pour **1324**, ce sont ses trois triggers qui l'ECRIVENT ;
 le LECTEUR (`HasEffect(self, 0x52c, onlyActive=1, 6)`) est `FuelledByFuryReviveAbility`, qui vit
 dans `ABILITY_TRIGGERS`, pas ici.
 
@@ -129,7 +129,9 @@ dans `ABILITY_TRIGGERS`, pas ici.
   actif) ». C'est vrai **par accident du canal de capture** (le canal par defaut ne publie que les
   actifs), pas par le code : `collect_effect_triggers` ne filtre que `e.consumed`. Basculer
   `includeInactive` en defaut rendrait cette docstring FAUSSE et le Screamer serait invoque par un
-  effet eteint.
+  effet eteint. **CLOS depuis `case-231-master-tutelaries-active-gate.md`** — et le remede n'y est
+  PAS celui du rail TARGETS : l'arbre passe `onlyActive = 0`, l'activite mord par
+  `DeactivateEffect -> UpdateEffectTargets(cibles vides) -> Revert -> RemoveTriggeredAbility`.
 - **1186 GhostEffectRevive** : l'ecart est structurellement lisible. Le natif oppose deux
   triggers sur la mort du poseur — la resurrection (rail TARGETS, donc gatee par `IsActive`) et le
   retrait n°4 `GhostRemoveOnSourceDeathInactive` (`NOT IsEffectActive`). Ghost INACTIF + poseur qui
@@ -141,6 +143,10 @@ dans `ABILITY_TRIGGERS`, pas ici.
   l'INSTANCE (`DeactivateEffect` du `CreateTargetTriggerBehaviour`). Les deux consommateurs
   inscrits ici sont `removeEffect = TRUE` (one-shot par retrait), donc le proxy suffit sur le
   chemin nominal — mais un revive seede INERTE resterait armee cote port.
+  **1547 est CLOS depuis `case-1547-reanimation-beam-active-gate.md`** : le gate y est pose sur
+  LA CLASSE `ReanimationBeamReviveTrigger` (et non sur la base `ReviveEffectTrigger`, que 1502
+  partage) — 1502 reste donc en ecart, avec sa fiche propre. Le jour ou 1502 sera clos, remonter
+  le gate dans `ReviveEffectTrigger.matches` est une refactorisation mecanique.
 - **1201 AnvilShield_FrozenAttackerAdvantage** — RESORBE par #231
   (`case-231-effect-1201-active-gate.md`). `matches` etait `AreEqual(target, EffectSource)` seul :
   une instance inerte faisait executer la consommation (`RemoveEffect`) a `UnitPostAbility` alors
@@ -164,10 +170,10 @@ Ventilation des 6 ecarts :
 | ecart | canal de seed | dans le rayon de souffle ? |
 |---|---|---|
 | 1077 HazeOfCorruption_DamageTransfer | unite | **non** — RÉFUTÉ par mesure live, cf. ci-dessous |
-| 1197 MasterOfTheTutelaries | unite | **non** — REFUTE par mesure live (#231, meme constat que 1077) |
-| 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** |
+| 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
+| 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
 | 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
-| 1547 ReanimationBeam_Revive | unite | **OUI** |
+| 1547 ReanimationBeam_Revive | unite | **NON MESURE** — le porteur EST montable (`catalog_inject` -> 9 MoW) et ses abilities CASTENT, mais `1223` no-ope faute de MUNITION -> aucune instance 1547 native a lire (`case-1547` §5). L'ecart etait reel et est CLOS ; la ligne reste une deduction. |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
 > ⚠ **La colonne ci-dessus est une DEDUCTION (« porteur unite => canal unite »), et #231 en a
@@ -176,16 +182,32 @@ Ventilation des 6 ecarts :
 > etat : **0 entree 1077 au canal par defaut, 0 aussi sous `includeInactive`** — alors que le
 > meme appel rend 4 entrees `active: false` pour d'autres effets, donc le canal fonctionne. Le
 > bond est HORS de ce que publie `readEffectsByUnit` : la bascule ne peut pas le seeder inerte.
-> Les quatre lignes restantes n'ont PAS ete mesurees ; les traiter comme des hypotheses, et
-> confronter avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+> **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4).
+> **1547 reste NON MESURE** — mais pour un motif RECTIFIE : son porteur `necroReanimator` EST
+> montable (`catalog_inject.py` -> 8 -> 9 MoW) et ses abilities CASTENT ; ce qui bloque est que
+> `1223` no-ope faute de MUNITION (`case-1547` §3/§5). Sur SIX lignes annoncees « OUI », deux ont
+> ete confrontees et AUCUNE n'a tenu. Traiter les restantes comme des hypotheses, et confronter
+> avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+>
+> ⚠ **Ne jamais conclure « non mesurable » d'une absence dans `--list-pool`** : la pool derive du
+> seed BC (capture d'UNE bataille) et `catalog_inject.py` l'augmente. Cf. `ca6f5dc`.
 
 ## 4. Recommandation
 
-**L'activation globale n'est PAS possible en l'etat.** UN SEUL effectType du canal UNITE l'empeche
-encore (1077, 1197 et 1201 RESORBES par #231 ; 1502 RESORBE le 2026-07-29, cf. §4bis — sa ligne de
-rayon de souffle, elle, n'est ni confirmee ni refutee, faute de porteur spawnable) :
+**PLUS AUCUN effectType du canal UNITE ne l'empeche** — les cinq ont ete resorbes le 2026-07-29
+(1077, 1197 et 1201 par #231 ; 1502 cf. §4bis ; 1547 par `case-1547`). Les lignes de rayon de
+souffle de 1077 et 1197 ont ete REFUTEES par mesure (§3) ; celles de 1502 et 1547 sont NON
+MESURABLES, faute de porteur spawnable. Il reste UN ecart, mais il est HORS de cette bascule :
 
-    1547  ReanimationBeam_Revive            -> ReanimationBeamReviveTrigger
+    1186  GhostEffect (porteur TUILE)       -> GhostEffectRevive
+
+`tileMeta` appelle `readEffectsByTile` **sans options** : les inactifs de tuile sont toujours
+droppes, donc un `includeInactive` pose sur `decisionView` ne peut pas seeder 1186 inerte. Le
+gate manquant y reste une INFIDELITE a corriger, pas un obstacle a la bascule.
+
+⚠ Avant de conclure « la bascule est sure », re-deriver ce paragraphe par
+`python scripts/python/probe_229_effect_triggers_active.py` : il ne couvre QUE `EFFECT_TRIGGERS`,
+et §5 nomme les gisements NON balayes (`has_effect`, face DECISION).
 
 ⚠ Les COMPTES de cette fiche (« 6 en ecart », « Cinq effectTypes ») sont ceux de l'inventaire
 initial et se PERIMENT au fil des resorptions : les re-deriver par
@@ -197,9 +219,10 @@ natif ne les evalue meme pas. La degradation est PERMISSIVE (report de degat, in
 consommation d'effet, revive) — ni erreur ni crash, donc invisible en self-play.
 
 Deux voies de resorption. **#231 a TRANCHE pour la voie 1** (1077), et l'a doublee d'une garde qui
-verrouille le refus de la voie 2 (`test_le_gate_ne_vaut_que_pour_le_rail_targets`) :
+verrouille le refus de la voie 2 (`test_le_gate_ne_vaut_que_pour_le_rail_targets`) ; `case-1547`
+l'a suivie a l'identique pour 1547 :
 
-1. **Par-classe** (fidele au natif) : poser le gate dans le `matches` des cinq, sur le modele
+1. **Par-classe** (fidele au natif) : poser le gate dans le `matches` des restants, sur le modele
    deja porte de `_ranged_auto_attack_flag_is_set` (1009). C'est un mirror 1:1 du
    `if (+0x5c)` de `EvaluateEffectTriggerTargets`, une ligne par classe.
 2. **Par le collecteur** (plus large, mais faux tel quel) : filtrer `e.active` dans

@@ -179,6 +179,41 @@ def test_beam_unless_overkilled_and_one_shot(env):
     assert not _alive(st2, tgt2), "2e revive apres reset (one-shot DEFINITIF non respecte)"
 
 
+def test_beam_inactive_effect_does_not_revive(env):
+    """GATE `EffectComponent.IsActive @+0x5c` (case-1547) -- mirror du test que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+    d'evaluer le trigger de CIBLE : dans sa boucle PAR CIBLE il RECHARGE l'`EffectComponent` depuis
+    l'entite-effet et n'appelle `ShouldTrigger` (slot 0x13) puis `Execute` (slots 0x15/0x14) que
+    `if (*(char *)(<component> + 0x5c) != '\\0')`. Une instance 1547 INERTE n'est donc meme pas
+    EVALUEE -- le natif ne revive pas, et ne consomme rien.
+
+    Les deux faces sont opposees sur le MEME montage : la seule difference est le flag.
+    Le collecteur, lui, doit continuer a instancier le trigger (`collect_effect_triggers` ne filtre
+    que `consumed`) -- c'est ce qui PROUVE que le refus vient bien du `matches` du rail TARGETS et
+    non d'un filtre pose au mauvais etage (le rail `ArraySet`, qui porte les `ActivateEffect` qui
+    RALLUMENT, n'a AUCUN gate natif : le gater serait une infidelite, cf. case-229)."""
+    from engine.runner.operations.triggers.dispatch.core import collect_effect_triggers
+    from engine.runner.operations.triggers.loki.reanimation_beam import ReanimationBeamReviveTrigger
+
+    st_on, beam_on, tgt_on = _setup_beam(env)          # face POSITIVE (temoin) : flag a True
+    _kill(st_on, tgt_on, beam_on)
+    assert _alive(st_on, tgt_on), "temoin: une instance 1547 ACTIVE doit revivre"
+
+    st, beam, tgt = _setup_beam(env)                   # face NEGATIVE : idem, flag a False
+    insts = [e for e in st.effects.by_unit[int(beam)]
+             if e.effect_type == REANIMATION_BEAM_EFFECT]
+    assert insts, "montage KO: aucune instance 1547 sur le porteur"
+    for e in insts:
+        e.active = False
+    assert any(isinstance(t, ReanimationBeamReviveTrigger) and t.owner_id == beam
+               for t in collect_effect_triggers(st)), \
+        "le collecteur ne doit PAS filtrer sur active (le gate est celui du rail TARGETS SEUL)"
+    _kill(st, tgt, beam)
+    assert not _alive(st, tgt), "revive par une instance 1547 INERTE (gate IsActive absent)"
+    assert not any(e.consumed for e in insts), \
+        "effet 1547 consomme par un trigger que le natif n'evalue meme pas"
+
+
 # ----------------------------------------------------------------- PhoenixGem (marqueur 1451)
 def test_phoenix_self_revive_even_if_overkilled(env):
     """`OnPreDeath(ignoreOverkill=TRUE)` (constante LITTERALE du call IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger) : le porteur du marqueur

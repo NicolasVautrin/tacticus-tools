@@ -41,11 +41,22 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
   les cibles que `CreateTargetFilter` exige (`HasTrait(Mechanical)`) -> le revive etait un **NO-OP
   GARANTI** hors trait `AffectedByHealAndRepair`. Corrige.
 
-PORTEUR / VOIE : `necroReanimator` est une **Machine of War** ABSENTE du pool runner (les 8 MoW
-spawnables au rank 17 sont adeptExorcist, astraOrdnanceBattery, blackForgefiend, deathCrawler,
-orksRukkatrukk, tauBroadside, tyranBiovore, ultraDreadnought). De plus, les abilities castees par une MoW
-depuis hors-plateau sont connues comme BLOQUEES par le harnais headless (meme famille que
-`NanoscarabRepairProtocols`). Port MIRROR valide OFFLINE : l'effet 1547 est injecte dans `state.effects`.
+PORTEUR / VOIE — **RECTIFIE le 2026-07-29 par MESURE** (`probe_1547_carrier_live.py`, case-1547 §3).
+Les deux affirmations que ce bloc portait depuis #79 sont FAUSSES :
+
+  * « `necroReanimator` est ABSENTE du pool runner donc non confrontable » -> elle est absente de
+    `rl_duel build --list-pool` par DEFAUT, mais `--list-pool` derive du seed BC (capture d'UNE
+    bataille). `catalog_inject.py --units necroReanimator` l'ajoute aux DEUX catalogues
+    (`Units` 175 -> 176, +2 configs d'ability) et `--list-pool --seed-bc <augmente>` la liste
+    (8 -> 9 MoW). Elle SE DEPLOIE (`decisionView.mows`, PAS `.units`).
+  * « les abilities castees par une MoW depuis hors-plateau sont BLOQUEES par le harnais headless »
+    -> l'autre active du meme kit, `NanoscarabRepairProtocols` (1224), CASTE et MUTE reellement
+    (allie 9537 -> 12196 PV, effets 1545/1546 poses et relus).
+
+Ce qui bloque REELLEMENT la pose native de 1547 est plus etroit et NOMME : `ReanimationBeam` (1223)
+a `ammoCost = 1` et `hasAmmo = false` dans un runner -- la jauge de munitions d'une MoW n'y monte
+pas -> le cast est ACCEPTE mais NO-OPE (`mutated = false`). Port MIRROR valide sur etat LIVE avec
+l'effet 1547 INJECTE dans `state.effects` (`test_revive_retrofit_offline_live.py`).
 """
 from __future__ import annotations
 
@@ -62,7 +73,15 @@ MECHANICAL = int(UnitTrait.Mechanical)   # 5 (HasTrait(target, 5))
 
 class ReanimationBeamReviveTrigger(ReviveEffectTrigger):
     """`ReanimationBeam_ReviveEffect` (IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor / filter IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter) -- le Reanimator revive un
-    ALLIE Mechanical porteur de `NanoscarabRepairProtocols`. Rail EFFET, one-shot (`removeEffect`)."""
+    ALLIE Mechanical porteur de `NanoscarabRepairProtocols`. Rail EFFET, one-shot (`removeEffect`).
+
+    GATE `IsActive` (case-1547) : l'arbre vient de
+    `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger`, donc du rail que
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` gate sur
+    `EffectComponent.IsActive @+0x5c`. `matches` le lit sur l'instance 1547 du porteur, AVANT
+    l'arbre. Ni `CreateTargetTrigger` ni `$$CreateTargetFilter` ne portent de noeud d'activite
+    (le `HasEffect` du filtre vise l'effet 1545 de la CIBLE, avec `onlyActive = 0`) : sans ce
+    gate le port n'avait AUCUNE lecture du flag."""
     effect_type = REANIMATION_BEAM_EFFECT
     ability_id = ABILITY_ID
     revive_on_overkill = False             # methodPointers @0x3100698 = GameCamera$$ShouldBlurBackground (`return 0`) : LU
@@ -74,6 +93,40 @@ class ReanimationBeamReviveTrigger(ReviveEffectTrigger):
     # la classe DOIT overrider. methodPointers @0x31006b8 = **meta_interstitial_popup_test.u003Cu003Ec$$u003CStartu003Eb__2_1+0x70** = `b8 64 00 00 00 c3` =
     # `mov eax,100 ; ret` -> **100, LU** (ce n'est plus une hypothese ; case-89 volet B2).
     default_chance = 100
+
+    def _instance_flag_is_set(self, state: State) -> bool:
+        """Le `EffectComponent.IsActive @+0x5c` de l'instance 1547 portee par `owner_id` -- mirror du
+        gate que `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`
+        applique AVANT d'evaluer le trigger de CIBLE. Le natif le lit DEUX fois sur le MEME effet
+        source : une fois sur l'`EffectComponent` transmis par
+        `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger` (early-out quand la
+        liste de cibles est vide), puis -- c'est LE gate -- dans la boucle PAR CIBLE, sur le
+        composant RE-CHARGE depuis l'entite-effet : `ShouldTrigger` (slot 0x13 de la def) et
+        `Execute` (slots 0x15/0x14) ne sont appeles que `if (*(char *)(<component> + 0x5c) != '\\0')`.
+        Une desactivation survenue en cours de drain stoppe donc les cibles suivantes -- ce que rend
+        la re-evaluation par-item du pump collapse (`triggers/dispatch/core.py`).
+
+        Ce gate est celui du rail TARGETS SEUL : `...$$EvaluateEffectTriggerEffectAbilities`, l'autre
+        rail, n'accede JAMAIS a `+0x5c` (case-229) -- l'y poser eteindrait les `ActivateEffect` qui
+        RALLUMENT un effet eteint.
+
+        Aucune instance trouvee -> True : degradation PERMISSIVE (on ne fabrique pas un refus), meme
+        convention que `_ranged_auto_attack_flag_is_set` (1009). Inatteignable en production :
+        `collect_effect_triggers` n'instancie ce trigger QUE depuis une instance 1547 non consommee."""
+        eff = getattr(state, "effects", None)
+        if eff is None:
+            return True
+        insts = [e for e in (eff.by_unit.get(int(self.owner_id)) or [])
+                 if (not e.consumed) and e.effect_type == REANIMATION_BEAM_EFFECT]
+        return (not insts) or any(e.active for e in insts)
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        """`EvaluateEffectTriggerTargets` : `if (IsActive@+0x5c)` PUIS l'arbre
+        `IdunBattle.Entities.Effects.ReviveEffect$$CreateTargetTrigger` (`_ReviveEffectCore.matches`,
+        le `ShouldTrigger` du slot 0x13). L'ordre est celui du natif -- le flag d'abord."""
+        if not self._instance_flag_is_set(state):
+            return False
+        return super().matches(state, ev)
 
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:
         """`IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter` = `AreFriends(self,target) & HasTrait(target, Mechanical=5)
