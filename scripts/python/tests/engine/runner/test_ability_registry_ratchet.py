@@ -74,7 +74,11 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # `...ArmoriumCherubAbility$$.ctor` recopie `TargetingOptions statics+0x140` et le masque
     # effectif est `*(statics+0x168)` = 0x4002, lu dans `TargetingOptions$$.cctor`.
     1016: "SendInTheNextWaveAbility",
-    1018: "ValkyrieStrikeAbility",
+    # 1018 ValkyrieStrikeAbility RESORBEE (#245) -- MEME forme « PRESET STATIQUE COPIE » que 1014,
+    # mais un AUTRE preset : `...ValkyrieStrikeAbility$$.ctor` recopie `TargetingOptions statics+0x1c0`
+    # et le masque effectif est `*(statics+0x1e8)` = 0x6000040 (TargetIsTile | AllowObscuredTarget
+    # ByElevation | AllowObscuredTargetByWalls), lu dans `TargetingOptions$$.cctor`. Preuve vivante que
+    # les presets ne sont pas interchangeables : 0x140 -> 0x4002, 0x1c0 -> 0x6000040.
     1021: "IncursionAbility",
     1022: "BringerOfDespairAbility",
     1028: "SupremeCommanderAbility",
