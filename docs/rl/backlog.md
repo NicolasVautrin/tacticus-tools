@@ -514,13 +514,23 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         `ReanimationBeamReviveTrigger` — **sur la CLASSE, pas sur la base `ReviveEffectTrigger`**,
         exactement comme 1502 : c'est ce choix symétrique qui a permis aux deux de lander sans se
         marcher dessus. Même désambiguïsation des deux lectures de `+0x5c`, établie
-        **indépendamment** et concordante. Rayon de souffle **NON MESURABLE** (ligne #229 §3
-        déclassée) : `necroReanimator` est une MoW **hors pool** (`rl_duel build --list-pool` :
-        8 MoW, pas elle), donc aucun état live ne peut contenir une instance 1547 à lire dans
-        `readEffectsByUnit`. Validation : garde live +
+        **indépendamment** et concordante. Validation : garde live +
         `probe_1547_reanimation_beam_active_gate.py` (3 boards × 3 seeds × 3 rosters, chemin de
         mort RÉEL via la file de morts, beam à 9–11 hex de la victime — le flag seul renverse
         l'issue, 3/3, 0 overkill).
+        ⚠ **La fiche a d'abord conclu « porteur non confrontable » — c'est FAUX, et corrigé par
+        MESURE** (`probe_1547_carrier_live.py`, écrit après `ca6f5dc`) : `catalog_inject.py`
+        injecte `necroReanimator` (`Units` 175→176, +2 configs d'ability), la pool passe de **8 à
+        9 MoW**, la MoW **se déploie** (`decisionView.mows`, pas `.units`) et **ses abilities
+        CASTENT** — `1224 NanoscarabRepairProtocols` mute réellement (allié 9537→12196 PV, effets
+        1545/1546 posés et relus). Tombe avec : l'affirmation #79 « les abilities d'une MoW
+        hors-plateau sont bloquées par le harnais headless ». **RÉSIDU NOMMÉ, remplaçant
+        l'ancien** : `1223 ReanimationBeam` a `ammoCost = 1` / `hasAmmo = false` — la jauge de
+        munitions d'une MoW ne monte pas dans un runner, donc le cast est ACCEPTÉ mais **no-ope**
+        (`mutated = false`) et aucune instance 1547 NATIVE n'existe. Débloquer la jauge rendrait
+        mesurables à la fois la pose native et la ligne « rayon de souffle » de #229 §3. Second
+        résidu observé au passage : `mows[].effects` est **vide** aux deux canaux, même après un
+        cast qui a muté.
       - **RÉSIDU `[opus]`** — **1186** `GhostEffectRevive` est le SEUL écart restant : réel (rail
         TARGETS sans lecture du flag), mais porteur TUILE, donc **inatteignable par la bascule**
         (`tileMeta` appelle `readEffectsByTile` SANS options). Côté canal UNITÉ, les cinq écarts

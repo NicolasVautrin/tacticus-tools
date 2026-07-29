@@ -41,11 +41,22 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
   les cibles que `CreateTargetFilter` exige (`HasTrait(Mechanical)`) -> le revive etait un **NO-OP
   GARANTI** hors trait `AffectedByHealAndRepair`. Corrige.
 
-PORTEUR / VOIE : `necroReanimator` est une **Machine of War** ABSENTE du pool runner (les 8 MoW
-spawnables au rank 17 sont adeptExorcist, astraOrdnanceBattery, blackForgefiend, deathCrawler,
-orksRukkatrukk, tauBroadside, tyranBiovore, ultraDreadnought). De plus, les abilities castees par une MoW
-depuis hors-plateau sont connues comme BLOQUEES par le harnais headless (meme famille que
-`NanoscarabRepairProtocols`). Port MIRROR valide OFFLINE : l'effet 1547 est injecte dans `state.effects`.
+PORTEUR / VOIE — **RECTIFIE le 2026-07-29 par MESURE** (`probe_1547_carrier_live.py`, case-1547 §3).
+Les deux affirmations que ce bloc portait depuis #79 sont FAUSSES :
+
+  * « `necroReanimator` est ABSENTE du pool runner donc non confrontable » -> elle est absente de
+    `rl_duel build --list-pool` par DEFAUT, mais `--list-pool` derive du seed BC (capture d'UNE
+    bataille). `catalog_inject.py --units necroReanimator` l'ajoute aux DEUX catalogues
+    (`Units` 175 -> 176, +2 configs d'ability) et `--list-pool --seed-bc <augmente>` la liste
+    (8 -> 9 MoW). Elle SE DEPLOIE (`decisionView.mows`, PAS `.units`).
+  * « les abilities castees par une MoW depuis hors-plateau sont BLOQUEES par le harnais headless »
+    -> l'autre active du meme kit, `NanoscarabRepairProtocols` (1224), CASTE et MUTE reellement
+    (allie 9537 -> 12196 PV, effets 1545/1546 poses et relus).
+
+Ce qui bloque REELLEMENT la pose native de 1547 est plus etroit et NOMME : `ReanimationBeam` (1223)
+a `ammoCost = 1` et `hasAmmo = false` dans un runner -- la jauge de munitions d'une MoW n'y monte
+pas -> le cast est ACCEPTE mais NO-OPE (`mutated = false`). Port MIRROR valide sur etat LIVE avec
+l'effet 1547 INJECTE dans `state.effects` (`test_revive_retrofit_offline_live.py`).
 """
 from __future__ import annotations
 

@@ -89,16 +89,36 @@ Deux faits importants :
 - Porteur : `necroReanimator` — trait `MachineOfWar`, kit `[ReanimationBeam,
   NanoscarabRepairProtocols]`. Variante NPC : `necroNpcMoWReanimator`.
 
-**Confrontabilite : NON.** `python scripts/python/rl_duel.py build --list-pool` (rank 17) rend
-97 unites regulieres + **8 MoW** (`adeptExorcist, astraOrdnanceBattery, blackForgefiend,
-deathCrawler, orksRukkatrukk, tauBroadside, tyranBiovore, ultraDreadnought`) :
-`necroReanimator` n'y est ni comme hero ni comme MoW, et ce n'est pas un summon. Son
-`kind = lineup` de gameconfig est le piege documente (il MENT) ; le pool est la seule porte.
+### Confrontabilite : OUI — la premiere version de cette fiche disait NON, c'etait FAUX
 
--> Validation par le harnais deja en place pour #79 : etat **capture LIVE** (board, stats,
-traits reels via `load_state` sur un runner monte) + effet 1547 **injecte** dans `state.effects`
-(`tests/engine/runner/test_revive_retrofit_offline_live.py`). C'est exactement ce que ferait la
-pose native, et c'est le seul chemin qui met 1547 sur un plateau.
+Cette fiche a d'abord conclu « non confrontable » sur le seul motif que `rl_duel.py build
+--list-pool` (rank 17 : 97 unites + **8 MoW**) ne liste pas `necroReanimator`. **C'est le test
+auto-realisateur que le commit `ca6f5dc` du CLAUDE.md a nomme** : `--list-pool` derive du seed
+BC, qui n'est que la capture d'UNE bataille — son catalogue ne porte que les unites possedees ce
+jour-la. Rectifie par MESURE (`probe_1547_carrier_live.py`) :
+
+| etape | mesure |
+|---|---|
+| `catalog_inject.py --units necroReanimator --rank 17` | `Units` **175 -> 176**, **+2 configs d'ability** (`ReanimationBeam`, `NanoscarabRepairProtocols`) |
+| `rl_duel build --list-pool --seed-bc <augmente>` | **8 -> 9 MoW**, `necroReanimator` incluse |
+| `rl_duel build --p-mow necroReanimator ...` | deploiement OK : `decisionView.mows` id 75, casterId 79, slot 2, abilities `[1223, 1224]` — ⚠ une MoW n'est PAS dans `.units` |
+| cast **1224** `NanoscarabRepairProtocols` | **accepte ET MUTE** : allie 9537 -> 12196 PV (+2659), effets **1545** et **1546** poses et relus dans `decisionView` |
+| cast **1223** `ReanimationBeam` | **accepte mais NO-OPE** (`mutated = false`, `changes = []`, `actionConsumed = false`) — `ammoCost = 1`, `hasAmmo = false` |
+
+Deux affirmations du port tombent avec cette mesure :
+
+1. « `necroReanimator` est hors pool donc non confrontable » — **FAUX**, elle s'injecte.
+2. « les abilities castees par une MoW depuis hors-plateau sont BLOQUEES par le harnais
+   headless » (docstring de `reanimation_beam.py`, heritee de #79) — **FAUX** : `1224` mute
+   reellement. Le blocage de `1223` n'est pas le harnais, c'est **une MUNITION manquante**, un
+   obstacle NOMME et localise.
+
+-> D'ou la voie de validation retenue, inchangee mais desormais justifiee par ce qui BLOQUE
+vraiment : etat **capture LIVE** (board, stats, traits reels via `load_state` sur un runner
+monte) + effet 1547 **injecte** dans `state.effects`
+(`tests/engine/runner/test_revive_retrofit_offline_live.py`). Le jour ou l'on saura faire monter
+la jauge de munitions d'une MoW en runner, la pose NATIVE de 1547 devient accessible et cette
+fiche pourra etre re-confrontee de bout en bout.
 
 ## 4. Le fix
 
@@ -127,11 +147,21 @@ depuis une instance 1547 non consommee de `state.effects.by_unit[owner]`.
 
 `case-229` §3 rangeait 1547 dans « OUI, dans le rayon de souffle » par **deduction** (« porteur
 unite => canal unite »), et #231 a REFUTE cette meme deduction pour 1077 par mesure. Pour 1547
-la mesure est **impossible** : le porteur n'est pas montable, donc aucun etat live ne peut
-contenir une instance 1547 a lire dans `readEffectsByUnit`. La ligne reste donc une HYPOTHESE,
-et cette fiche ne la promeut pas.
+la mesure reste **NON FAITE**, mais l'obstacle n'est PAS celui que cette fiche annoncait
+d'abord : le porteur se monte (§3), ses abilities castent, et le cast de `1223` no-ope faute de
+MUNITION — donc aucune instance 1547 NATIVE n'existe dans l'etat mesure, et
+`readEffectsByUnit` rend **0 entree 1547 aux DEUX canaux**. Ce 0-la ne prouve rien sur le canal :
+il dit seulement que l'effet n'a pas ete pose.
 
-Ce qui EST etabli, et suffit a justifier le gate :
+**Le TEMOIN, lui, est concluant** (`probe_1547_carrier_live.py`) : sur le MEME etat,
+`includeInactive` publie **3 entrees `active: false`** (`1009 Overwatch_AutoAttack` x2,
+`1018 InescapableDeath_Effect`) que le canal par defaut droppe. Le mecanisme par lequel un 1547
+seede INERTE arriverait dans `state.effects` est donc REEL et observe ici — c'est ce qui rend le
+gate necessaire, independamment de la ligne §3 non tranchee. A noter aussi : `mows[].effects` est
+**vide** aux deux canaux, y compris apres un cast qui a mute — la MoW elle-meme n'expose pas
+d'effets par ce chemin (residu nomme).
+
+Ce qui EST etabli par ailleurs, et suffit a justifier le gate :
 
 - le mecanisme de seed inerte existe et est cable — `EffectFactory.create`
   (`engine/entities/effects/factory.py`) lit la cle `active` de l'entree captee et la reporte
@@ -188,7 +218,14 @@ n'observer que le flag — le probe le verifie et le signale si l'overkill survi
 `consumed = True` sur la face ACTIVE (le `RemoveEffect` du 2e volet, one-shot) et
 `consumed = False` sur la face INERTE — le natif ne consomme rien de ce qu'il n'evalue pas.
 
-### 6.3 Non-regression LIVE
+### 6.3 Confrontation du PORTEUR — `probe_1547_carrier_live.py`
+
+Le probe qui a REFUTE le verdict de confrontabilite de cette fiche (§3) : injection catalogue ->
+pool -> deploiement -> castabilite -> canaux d'effets. `RESULT: OK`. Ses chiffres sont ceux du
+tableau §3, plus le temoin de canal du §5. Il est un CLIQUET faible (il RAPPORTE ce qu'il
+observe) : le jour ou les munitions d'une MoW deviennent atteignables, c'est lui qu'on etend.
+
+### 6.4 Non-regression LIVE
 
 | fichier | resultat |
 |---|---|
@@ -201,9 +238,16 @@ n'observer que le flag — le probe le verifie et le signale si l'overkill survi
 
 ## 7. Ce qui n'est PAS couvert
 
-- **Aucune observation d'une instance 1547 REELLE** (porteur non spawnable) : le gate est valide
-  sur une instance injectee, pas sur une pose native. C'est la meme limite que celle sous
-  laquelle tout le port ReanimationBeam a ete accepte en #79.
+- **Aucune observation d'une instance 1547 REELLE.** Le gate est valide sur une instance
+  injectee, pas sur une pose native. ⚠ La CAUSE a change : ce n'est plus « porteur non
+  spawnable » (refute, §3) mais **la jauge de munitions d'une MoW, qui ne monte pas dans un
+  runner** — `1223` a `ammoCost = 1` et `hasAmmo = false`, donc il no-ope. Debloquer cela
+  (faire monter la jauge, ou la forcer) rendrait mesurable a la fois la pose native de 1547 ET
+  la ligne « rayon de souffle » de `case-229` §3. **RESIDU NOMME.**
+- **`mows[].effects` toujours vide**, aux deux canaux et meme apres un cast qui a mute
+  (`probe_1547_carrier_live.py`) : les effets portes par une MoW ne sont pas exposes par ce
+  chemin. Non investigue — un 1547 pose sur la MoW elle-meme pourrait etre invisible du seed
+  pour cette raison-la, ce qui reviendrait au constat de 1077/1197. **RESIDU NOMME.**
 - **Le cas MULTI-INSTANCES.** `_instance_flag_is_set` agrege par `any(e.active for e in insts)`,
   comme `_ranged_auto_attack_flag_is_set` (1009). Le natif, lui, raisonne PAR ENTITE-EFFET (une
   inscription de trigger par instance). L'agregation n'est observable que si un porteur cumulait

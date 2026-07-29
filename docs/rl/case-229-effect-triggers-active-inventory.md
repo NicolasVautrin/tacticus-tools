@@ -173,7 +173,7 @@ Ventilation des 6 ecarts :
 | 1197 MasterOfTheTutelaries | unite | **non** — REFUTE a son tour par mesure (`case-231-master-tutelaries` §4) : 1197 n'est publie ni au canal par defaut ni sous `includeInactive` |
 | 1201 AnvilShield_FrozenAttackerAdvantage | unite | **OUI** (non re-mesure ; l'ecart est CLOS par #231) |
 | 1502 RitesOfMorkai | unite | **NON MESURABLE** — porteur hors pool, aucune bataille runner ne pose l'effet |
-| 1547 ReanimationBeam_Revive | unite | **NON MESURABLE** — porteur `necroReanimator` = MoW hors pool, donc aucun etat live ne peut contenir d'instance 1547 a lire (`case-1547` §5). L'ecart etait reel et est CLOS, mais la ligne restait une deduction. |
+| 1547 ReanimationBeam_Revive | unite | **NON MESURE** — le porteur EST montable (`catalog_inject` -> 9 MoW) et ses abilities CASTENT, mais `1223` no-ope faute de MUNITION -> aucune instance 1547 native a lire (`case-1547` §5). L'ecart etait reel et est CLOS ; la ligne reste une deduction. |
 | 1186 GhostEffect (`GhostEffectRevive`) | tuile (`tileMeta`) | non — ecart reel, mais inatteignable par cette bascule |
 
 > ⚠ **La colonne ci-dessus est une DEDUCTION (« porteur unite => canal unite »), et #231 en a
@@ -182,11 +182,15 @@ Ventilation des 6 ecarts :
 > etat : **0 entree 1077 au canal par defaut, 0 aussi sous `includeInactive`** — alors que le
 > meme appel rend 4 entrees `active: false` pour d'autres effets, donc le canal fonctionne. Le
 > bond est HORS de ce que publie `readEffectsByUnit` : la bascule ne peut pas le seeder inerte.
-> **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4), et
-> **1547 s'est revele NON MESURABLE** (porteur hors pool, `case-1547` §5). Sur SIX lignes annoncees
-> « OUI », trois ont ete confrontees et AUCUNE n'a tenu. Traiter les restantes comme des
-> hypotheses, et confronter avant de conclure (detail :
-> `case-231-haze-transfer-active-gate.md` §3.1).
+> **1197 est tombe de la meme facon** (mesure independante, `case-231-master-tutelaries` §4).
+> **1547 reste NON MESURE** — mais pour un motif RECTIFIE : son porteur `necroReanimator` EST
+> montable (`catalog_inject.py` -> 8 -> 9 MoW) et ses abilities CASTENT ; ce qui bloque est que
+> `1223` no-ope faute de MUNITION (`case-1547` §3/§5). Sur SIX lignes annoncees « OUI », deux ont
+> ete confrontees et AUCUNE n'a tenu. Traiter les restantes comme des hypotheses, et confronter
+> avant de conclure (detail : `case-231-haze-transfer-active-gate.md` §3.1).
+>
+> ⚠ **Ne jamais conclure « non mesurable » d'une absence dans `--list-pool`** : la pool derive du
+> seed BC (capture d'UNE bataille) et `catalog_inject.py` l'augmente. Cf. `ca6f5dc`.
 
 ## 4. Recommandation
 
