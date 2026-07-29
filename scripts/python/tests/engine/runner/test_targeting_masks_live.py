@@ -74,8 +74,12 @@ DA_CASES = [
     (1103, "darkaHellblaster", 0x4002, TR.TargetIsEnemy),       # Supercharge
     (1140, "darkaAsmodai", 0x6004000, TR.TargetIsEnemy),        # ExemplarOfHate
     (1214, STORM_SPEEDER, 0x200240000400, TR.TargetIsFriendly), # Hailstrike (cible ALLIEE)
-    (1092, "darkaAzrael", 0x80040, None),                       # DarkTalonStrike (domaine TILE)
-    (1213, STORM_SPEEDER, 0x40080042, None),                    # DeathOnTheWind (TILE + dyn.)
+    # #249 -- ces deux-la ont CHANGE DE COLONNE : `TargetTileHasEnemyUnit` (bit 19) est desormais
+    # PORTEE, donc leur masque arme un refus. Le refus attendu tombe sur toute cible qui n'est pas un
+    # ENNEMI attaquable pose sur la tuile visee -- a commencer par un ALLIE du caster, et pour 1092
+    # par le CASTER LUI-MEME (distance 0, donc jamais filtre par la portee en amont).
+    (1092, "darkaAzrael", 0x80040, TR.TargetTileHasEnemyUnit),  # DarkTalonStrike (domaine TILE)
+    (1213, STORM_SPEEDER, 0x40080042, TR.TargetTileHasEnemyUnit),  # DeathOnTheWind (TILE + dyn.)
     (1189, "darkaCompanion", 0x80, None),                       # CalibaniteGreatsword (AddCaster)
 ]
 EA_CASES = [
@@ -249,7 +253,13 @@ def test_armed_mask_reproduces_a_native_refusal(masks_all, at, vis, rules, expec
     `TargetIsEnemy` (0x4000) : le natif refuse soi-meme et les allies. `TargetIsFriendly` (0x400,
     Hailstrike) : c'est l'inverse -- le natif refuse les ENNEMIS, et le caster etant une MACHINE, il
     prend la branche `IsMachine(caster)` du bit 10 (`battleQuery.<slot 0x90>`), que le port rabat
-    sur le meme predicat d'equipe."""
+    sur le meme predicat d'equipe.
+
+    `TargetTileHasEnemyUnit` (0x80000, #249 -- 1092 DarkTalonStrike et 1213 DeathOnTheWind) : le natif
+    refuse toute cible dont la MAIN TILE est vide/steppable OU dont l'occupant n'est pas attaquable
+    par le caster, c'est-a-dire le caster lui-meme et ses allies. ⚠ Ce cas n'a PAS ete confronte au
+    live lors de son ajout (MAJ de build gqfc5mff6c -> rnca9r7q6c en cours) : c'est CE test qui le
+    fera, et son montage de reference est `probe_249_tile_has_enemy_targeting.py`."""
     hits = [r for r in masks_all.values()
             if r["ability"] == at and r["native"] == expect and r["port"] == expect]
     seen = sorted({(hex(r["native"]), tuple(r["names"])) for r in masks_all.values()
@@ -265,26 +275,26 @@ def test_armed_mask_reproduces_a_native_refusal(masks_all, at, vis, rules, expec
 
 @pytest.mark.parametrize("at,vis,rules", [(c[0], c[1], c[2]) for c in ALL_CASES if c[3] is None])
 def test_mask_without_ported_bit_arms_no_refusal(masks_all, at, vis, rules):
-    """DarkTalonStrike (`TargetIsTile` | `TargetTileHasEnemyUnit`), DeathOnTheWind (idem +
-    `TargetMatchesDynamicRule` + `AllowNullCasterTile`) et CalibaniteGreatsword (`AddCaster`) ne
-    posent AUCUN bit que la cascade offline consomme. Leur masque est pose parce que c'est la donnee
-    RE-lue -- et il ne doit RIEN refuser PAR UN BIT : c'est la contrepartie honnete du « trou
-    declare ».
+    """Il ne reste QU'UN cas depuis #249 : CalibaniteGreatsword (`AddCaster` seul, 1189). Son masque ne
+    pose AUCUN bit que la cascade offline consomme. Il est la parce que c'est la donnee RE-lue -- et
+    il ne doit RIEN refuser PAR UN BIT : c'est la contrepartie honnete du « trou declare ».
 
-    En particulier DeathOnTheWind porte bien `TargetMatchesDynamicRule` (0x2) et le natif surcharge
-    la regle (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = la cible doit avoir deja recu
-    une attaque ce tour) : elle N'EST PAS portee (le compteur
-    `UnitComponent.times_attacked_this_turn` n'est pas seede par `load_state`), donc le defaut 0 de
-    la base doit tenir -- la porter refuserait des cibles que le natif ACCEPTE.
+    DarkTalonStrike (1092) et DeathOnTheWind (1213) etaient ici jusqu'a #249, au titre de
+    `TargetTileHasEnemyUnit` non portee ; ce bit est desormais evalue, ils sont passes au test 3.
+    Reste chez 1213 le TROU DECLARE du bit `TargetMatchesDynamicRule` (0x2) : le natif surcharge la
+    regle (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = la cible doit avoir deja recu une
+    attaque ce tour) et elle N'EST PAS portee (le compteur `UnitComponent.times_attacked_this_turn`
+    n'est pas seede par `load_state`), donc le defaut 0 de la base doit tenir -- la porter refuserait
+    des cibles que le natif ACCEPTE. C'est le test 2 qui le garde (permissif autorise, jamais un
+    refus pour une autre raison).
 
     EXCEPTION AJOUTEE PAR #241 -- le volet PORTEE. Le titre « aucun bit consomme » ne vaut que pour
     les regles GATEES PAR UN BIT ; la portee, elle, n'en a pas : le natif la teste pour toute ability
     dont `options.Range.UseWholeBoard` est faux, avec la valeur de
-    `IdunBattle.Core.Services.TargetingQuery$$GetRange`. Deux des trois cas de ce test ont un
-    `TargetingRange` NON `UseWholeBoard` (DarkTalonStrike = `useRangeFromConfig` 2 ;
-    CalibaniteGreatsword = `overrideRange` 0) et le natif LES REFUSE effectivement en
-    `TargetIsInRange` (MESURE : 5 puis 9 cibles). Un refus de portee est donc attendu -- mais il
-    reste soumis au contrat de fidelite : il doit valoir EXACTEMENT le code natif."""
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange`. CalibaniteGreatsword a un `TargetingRange`
+    NON `UseWholeBoard` (`overrideRange` 0) et le natif LA REFUSE effectivement en `TargetIsInRange`
+    (MESURE : 9 cibles). Un refus de portee est donc attendu -- mais il reste soumis au contrat de
+    fidelite : il doit valoir EXACTEMENT le code natif."""
     range_rules = {int(TR.TargetIsInRange), int(TR.TargetIsAtRange)}
     assert getattr(ABILITY_CLASSES[at], "TARGETING_OPTIONS", None) is not None, (
         f"ability {at} ({vis}) : masque ABSENT alors qu'il a ete lu au ctor ({hex(rules)})")

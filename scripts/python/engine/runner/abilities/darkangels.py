@@ -378,14 +378,15 @@ class DarkTalonStrikeAbility(ActiveAbility):
     #     TargetingOptions..ctor(&opts, 0, &statsFromClass, 2, 0x80040, 0, 0, 0)
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # Decomposition (`TargetingRule`) :
-    #     0x40    TargetIsTile           -> NON PORTE (domaine TILE : le natif bascule la cible sur
-    #                                       `GetMainTile(target)` et exige `IsWalkable`).
-    #     0x80000 TargetTileHasEnemyUnit -> NON PORTE (domaine TILE : `IsEmptyOrSteppable(tuile)` ou
-    #                                       `!UnitsCanAttackEachOther(caster, occupant)` -> refus).
-    # AUCUN bit porte par la cascade offline => ce masque n'arme, a ce jour, aucun refus : il est pose
-    # pour ce qu'il est (la donnee RE-lue), et il s'activera de lui-meme le jour ou le volet TILE sera
-    # porte. La degradation reste PERMISSIVE (jamais de refus invente) — mesure live : le port rend 0
-    # sur toutes les cibles, y compris celles que le natif refuse en `TargetTileHasEnemyUnit`.
+    #     0x40    TargetIsTile           -> PORTE (branche `GetMainTile(target)` + `IsWalkable`, qui
+    #                                       rend le litteral `ValidRequest`).
+    #     0x80000 TargetTileHasEnemyUnit -> **PORTE depuis #249** (`IsEmptyOrSteppable(GetMainTile)` ou
+    #                                       `!UnitsCanAttackEachOther(caster, GetUnit(target))` -> refus).
+    # C'EST CE MASQUE QUI PORTAIT LE GAP MESURE : avant #249 la ligne ci-dessus disait « NON PORTE » et
+    # notait « le port rend 0 sur toutes les cibles, y compris celles que le natif refuse en
+    # `TargetTileHasEnemyUnit` ». Le trou est ferme ; il reste PERMISSIF pour une cible que le port ne
+    # resout pas en tuile (`entity_tiles` vide) et pour une MoW-cible (le natif rend `GetUnit` NUL la
+    # ou le port pose un `UnitComponent` d'identite -- le port accepte, le natif refuse).
     # PORTEE (#241) : `range = TargetingRange` statique `+0x18` (`useRangeFromConfig` ->
     # `DarkTalonStrike.constants.range` = 2), `forceMeleeTarget = IfRangedCaster` (clamp a 1
     # seulement si le caster est RANGED et a un ennemi au contact).
@@ -531,8 +532,10 @@ class DeathOnTheWindAbility(ActiveAbility):
     #     AActiveAbility..ctor(this, &opts, 0, 0)
     # Decomposition (`TargetingRule`) :
     #     0x2        TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason`.
-    #     0x40       TargetIsTile             -> NON PORTE (domaine TILE).
-    #     0x80000    TargetTileHasEnemyUnit   -> NON PORTE (domaine TILE).
+    #     0x40       TargetIsTile             -> PORTE (branche `GetMainTile` + `IsWalkable`).
+    #     0x80000    TargetTileHasEnemyUnit   -> **PORTE depuis #249**. Il est evalue AVANT le bit 0x2
+    #                                            dans la cascade native, donc une cible ALLIEE rompt
+    #                                            ICI (`0x80000`) et n'atteint jamais la regle dynamique.
     #     0x40000000 AllowNullCasterTile      -> PERMISSIF (le caster est une MACHINE OF WAR : sans ce
     #                                            bit, `GetInvalidCasterReason` refuserait un caster aux
     #                                            `casterTiles` vides).
