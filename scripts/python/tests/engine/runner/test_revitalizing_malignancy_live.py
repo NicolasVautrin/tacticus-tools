@@ -91,20 +91,41 @@ def revmalig_state(live_session, rpc, build_runner):
             ("imp", ALLY_IMP), ("mech", ALLY_MECH))}
     if any(v is None for v in ids.values()):
         pytest.skip("roster incomplet offline: %s" % ids)
-    # caster central (>=4 voisins), allies sur 4 voisins hex
-    center = None
+    # Caster central (>=4 voisins LIBRES), allies sur ces voisins.
+    #
+    # UNE TUILE = UN OCCUPANT -- l'invariant que le moteur SUPPOSE, et qu'un montage offline peut
+    # violer sans que rien ne proteste. `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+    # re-resout la cible juste apres `On(0x2b)` : `replaced = UnitExtensions.GetUnit(First(targetTiles))`,
+    # et si `replaced != target` il RE-ENTRE via `ExecuteForReplacedTarget` (cf.
+    # `engine/runner/operations/active_ability.py`). Poser le caster SUR une tuile deja occupee fait
+    # donc re-entrer le self-cast avec l'AUTRE occupant en cible -- un ennemi, que le gate de ciblage
+    # de 1037 (`TargetIsFriendly`, #247) refuse : l'ability devient un no-op et les 5 deltas tombent a
+    # zero. Le montage precedent prenait `center` sur la position d'une entite EXISTANTE (donc
+    # occupee) ; on exige desormais des tuiles LIBRES de toute unite qu'on ne replace pas soi-meme.
+    a_placer = set(ids.values())
+    occupees = set()
     for uid, e in state.entities.items():
-        pc = e.get_component(PositionComponent)
-        if pc is None:
+        if uid in a_placer:
             continue
-        t = board.id_at(pc.col, pc.row)
-        if t is not None and len([n for n in board.neighbours(t) if board.walkable(n)]) >= 4:
-            center = board.coord(t)
+        pc = e.get_component(PositionComponent)
+        if pc is not None:
+            occupees.add((pc.col, pc.row))
+
+    def _libres_autour(tid):
+        return [board.coord(n) for n in board.neighbours(tid)
+                if board.walkable(n) and board.coord(n) not in occupees]
+
+    center = neigh = None
+    for t in board.by_id:
+        if not board.walkable(t) or board.coord(t) in occupees:
+            continue
+        libres = _libres_autour(t)
+        if len(libres) >= 4:
+            center, neigh = board.coord(t), libres
             break
     if center is None:
-        pytest.skip("aucune tuile centrale >=4 voisins")
+        pytest.skip("aucune tuile centrale LIBRE avec >=4 voisins libres")
     _pc(state, ids["dr"]).col, _pc(state, ids["dr"]).row = center
-    neigh = [board.coord(n) for n in board.neighbours(board.id_at(*center)) if board.walkable(n)]
     for uid, c in zip((ids["chaos"], ids["xenos"], ids["imp"], ids["mech"]), neigh):
         _pc(state, uid).col, _pc(state, uid).row = c
     # blessures profondes (heal ne cape pas) sur les 5

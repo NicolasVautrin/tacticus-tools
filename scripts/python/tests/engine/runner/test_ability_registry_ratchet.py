@@ -51,13 +51,15 @@ from engine.runner.abilities.attack_type import ABILITY_ATTACK_TYPE
 from engine.runner.abilities.targeting_rule import TargetingRule
 
 # --- LISTE D'EXEMPTION -- NE PEUT QUE RETRECIR ----------------------------------------------------
-# Etat au 2026-07-29 (#247 + #248) : 94 abilities au registre, 66 avec masque, ces 28 sans.
+# Etat au 2026-07-29 (#247 + #248 + #249) : 94 abilities au registre, 71 avec masque, ces 23 sans.
 # (Historique du cliquet : 81/28/53 au 2026-07-27 `6110d37` -> 13 resorbees par #181, lot
 #  ultramarines / sisterhood / tyranids / spacewolves / admec / bloodangels ; puis 1014
 #  ArmoriumCherub par #222, 1018 ValkyrieStrike par #245, 1043 ThunderousAssault par #246,
-#  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDENT le module `strike` --, et les SIX du
+#  1104 SpiritLeech + 1122 CordClaw par #247 -- qui SOLDENT le module `strike` --, les SIX du
 #  module `splash` par #248 : 1000/1051/1065/1078/1098/1105, qui relevent a elles seules de TROIS
-#  formes de ctor et de TROIS presets differents.)
+#  formes de ctor et de TROIS presets differents, et les CINQ du module `deathguard` par #249 :
+#  1037/1040/1042/1168/1169, qui SOLDENT ce module.)
+# ⚠ Les comptes ci-dessus se PERIMENT : les re-deriver (`probe_181_targeting_gaps.py`), pas les citer.
 # Ne JAMAIS y ajouter une ligne pour faire passer un port neuf : le masque se lit au decompile, dans
 # le litteral passe par `<X>Ability$$.ctor` a `IdunBattle.Core.Services.TargetingOptions$$.ctor`.
 #
@@ -107,9 +109,21 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1022: "BringerOfDespairAbility",
     1028: "SupremeCommanderAbility",
     1036: "FrenziedFiringAbilityCombat",   # preset statique NON lu (cf. attack_type.py, lot #61)
-    1037: "RevitalizingMalignancyAbility",
-    1040: "SpawnPoxwalkersAbility",
-    1042: "FlailSwingAbility",
+    # 1037 RevitalizingMalignancyAbility RESORBEE (#249) -- forme FLAGS DIRECTS :
+    # `...RevitalizingMalignancyAbility$$.ctor` appelle `TargetingOptions..ctor(&opts, 1, &range, 1,
+    # 0x8500, 0,0,0)`, le litteral EST le masque. 0x8500 = 0x100 TargetIsHealable | 0x400
+    # TargetIsFriendly | 0x8000 CasterIsPossibleTarget. Portee = `TargetingRange statics+0x30` =
+    # RANGE_ADJACENT ; `isSelfCasting = 1`.
+    # 1040 SpawnPoxwalkersAbility RESORBEE (#249) -- FLAGS DIRECTS, masque 0x8000000004 =
+    # 0x4 CasterMatchesDynamicRule | 0x8000000000 TargetIsCaster. Son `TargetingRange` est le SEUL
+    # du registre construit par `TargetingRange$$CustomRange(GetRange)` (surcharge DELEGUE) : la
+    # portee est ECRASEE par un delegue non resolu -> `override_range_func` pose, aucun gate de
+    # portee (cf. `custom_range_func` dans targeting.py).
+    # 1042 FlailSwingAbility RESORBEE (#249) -- forme PRESET STATIQUE COPIE, aucun ctor :
+    # `...FlailSwingAbility$$.ctor` recopie `TargetingOptions statics+0x40`, masque effectif
+    # `*(statics+0x68)` = 0x4000 TargetIsEnemy, portee = RANGE_ADJACENT. MEME preset que 1043, qui
+    # lui passe par la surcharge PRESET + FLAGS et vaut donc 0x10004000 : le preset ne suffit
+    # jamais, il faut lire QUELLE forme l'ability emploie.
     # 1043 ThunderousAssaultAbility RESORBEE (#246) -- forme « PRESET + FLAGS », la 2e des trois :
     # `...ThunderousAssaultAbility$$.ctor` recopie `TargetingOptions statics+0x40` PUIS appelle
     # `TargetingOptions..ctor(&opts, &preset, 0x10000000, 0)`. Cette surcharge COMBINE
@@ -177,8 +191,14 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     1160: "HeavyRailRifleAbility",
     1161: "TwinSmartMissileSystemAbility",
     1166: "AberrantHypermorphAbility",
-    1168: "EntropyCannonsAbility",
-    1169: "PlagueburstMortarAbility",
+    # 1168 EntropyCannonsAbility RESORBEE (#249) -- FLAGS DIRECTS, masque 0x40004002 =
+    # 0x2 TargetMatchesDynamicRule | 0x4000 TargetIsEnemy | 0x40000000 AllowNullCasterTile.
+    # 1169 PlagueburstMortarAbility RESORBEE (#249) -- FLAGS DIRECTS, masque 0x40000042 =
+    # 0x2 TargetMatchesDynamicRule | 0x40 TargetIsTile | 0x40000000 AllowNullCasterTile.
+    # Les deux sont des actives du MEME porteur MoW `deathCrawler`, avec le MEME `TargetingRange`
+    # (`statics+0x48` = RANGE_WHOLE_BOARD) et pourtant des masques DIFFERENTS : 1168 cible une
+    # UNITE ennemie, 1169 une TUILE. `AllowNullCasterTile` est la signature MoW (caster hors
+    # plateau) -- un ALLOW du volet CASTER, jamais une regle de refus du filtre cible.
 }
 
 

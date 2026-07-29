@@ -42,7 +42,8 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent
 from .base import ActiveAbility
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions
+from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours import (entities_from_state, Heal, healable_heal_type_0, AddEffect,
                         AttackWithAttackDamage, InformWeapon, PerformAIAttack, Spawn)
@@ -102,6 +103,29 @@ class RevitalizingMalignancyAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.RevitalizingMalignancy)  # 1037
     ABILITY_ID = ABILITY_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility$$.ctor` --
+    # forme FLAGS DIRECTS (la 1re des trois) : le ctor recopie les 0x18 octets du `TargetingRange`
+    # STATIQUE `statics+0x30` puis appelle
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, &range, forceMeleeTarget=1, 0x8500, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 2, 0)          # 3e arg = 2 = AbilityAttackType.Others
+    # Le litteral EST le masque (aucun preset, aucune combinaison).
+    #
+    # Decomposition de 0x8500 -- EXHAUSTIVE, aucun bit residuel (0x100+0x400+0x8000 = 0x8500) :
+    #   bit  8  0x100   TargetIsHealable            NON PORTEE (cf. inventaire de targeting.py)
+    #   bit 10  0x400   TargetIsFriendly            PORTEE -> refuse tout ENNEMI
+    #   bit 15  0x8000  CasterIsPossibleTarget      flag DECLARATIF, jamais une regle de refus
+    #
+    # `range` = `TargetingRange statics+0x30` (`TargetingRange$$.cctor` : les 8 premiers octets a 0
+    # -> onlyAdjacent = 0 = RangedBool.True, useRangeFromConfig/useWholeBoard = false ; `+0x38` =
+    # Nullable(1)) = RANGE_ADJACENT -> le volet portee prend la branche `AreEntitiesAdjacent`.
+    # `forceMeleeTarget` = 1 = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True=0, False=1).
+    # `isSelfCasting = 1` -> l'aiguillage SELF-CAST de l'overload 5 arguments de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` branche sur
+    # `TargetingQuery$$GetCasterNotAddedReason` des que la cible EST le caster (non portee -> 0).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetIsHealable | TR.TargetIsFriendly | TR.CasterIsPossibleTarget),
+        self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -179,6 +203,33 @@ class FlailSwingAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.FlailSwing)  # 1042
     ABILITY_ID = "FlailSwing"
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$.ctor` -- forme PRESET
+    # STATIQUE COPIE (la 3e des trois) : il n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ
+    # STATIQUE `TargetingOptions statics+0x40` (`lVar1 + 0x40 .. +0x7c`) puis
+    #     AActiveAbility..ctor(this, &opts, 0, 0)     # 3e arg = 0 = DirectTargetAttack
+    # Le masque effectif est donc la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28` = `*(statics+0x68)` :
+    #
+    #   bit 14  0x4000  TargetIsEnemy   PORTEE (`UnitsCanAttackEachOther`) -- refuse allie ET soi
+    #
+    # 0x4000 : un seul bit, la somme est exacte.
+    #
+    # Le meme preset lu EN ENTIER dans le cctor (`lVar4+0x40..0x7f`) :
+    #   isSelfCasting  <preset>+0x00 = statics+0x40 -> 0
+    #   range          <preset>+0x08 = statics+0x48 -> copie de `TargetingRange statics+0x30`
+    #                                                  = RANGE_ADJACENT
+    #   forceMeleeTarget <preset>+0x20 = statics+0x60 -> 1 = RANGED_BOOL_FALSE
+    #   rules          <preset>+0x28 = statics+0x68 -> 0x4000
+    #   les 2 regles-deleguees +0x30/+0x38 -> 0 (ecrasees par `AActiveAbility$$.ctor`)
+    #
+    # C'est le MEME preset que 1043 ThunderousAssault (case-246) -- mais 1043 le passe a la
+    # surcharge PRESET + FLAGS, qui OR-e `0x10000000`, la ou 1042 le prend TEL QUEL. Deux abilities,
+    # meme preset, masques differents : le preset ne suffit jamais, il faut lire QUELLE forme.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsEnemy, self_cast=False,
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -357,6 +408,36 @@ class EntropyCannonsAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.EntropyCannons)   # 1168
     ABILITY_ID = ENTROPY_CANNONS_ID
 
+    # `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$.ctor` -- forme FLAGS
+    # DIRECTS : recopie des 0x18 octets du `TargetingRange` STATIQUE `statics+0x48` puis
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x40004002, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)     # 3e arg = 0 = DirectTargetAttack
+    #
+    # Decomposition de 0x40004002 -- EXHAUSTIVE (0x2 + 0x4000 + 0x40000000, rien ne reste) :
+    #   bit  1  0x2          TargetMatchesDynamicRule  point d'extension -> voir ci-dessous
+    #   bit 14  0x4000       TargetIsEnemy             PORTEE -> refuse allie ET soi-meme
+    #   bit 30  0x40000000   AllowNullCasterTile       ALLOW du volet CASTER, jamais un refus
+    #
+    # `AllowNullCasterTile` est la signature d'une ability de MACHINE OF WAR : le caster est
+    # hors-plateau, il n'a PAS de tuile (cf. `_load_machines`). Ce n'est pas une regle du filtre
+    # cible.
+    # `range` = `TargetingRange statics+0x48` (`TargetingRange$$.cctor` : `+0x48`=1 -> onlyAdjacent
+    # = RangedBool.False, `+0x4c`=0x100 -> l'octet `+0x4d` = useWholeBoard = TRUE) =
+    # RANGE_WHOLE_BOARD -> `TargetingQuery$$GetRange` court-circuite, AUCUN test de portee.
+    # `forceMeleeTarget` = 1 = RANGED_BOOL_FALSE.
+    #
+    # `TargetMatchesDynamicRule` : la regle-delegue est
+    # `IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`
+    # (deja RE-lue et documentee en tete de section) -- elle rend `2` sauf si la cible est sous aura
+    # Contagion ALLIEE ou porte une modification NEGATIVE de FixedArmor. NON PORTEE : la branche
+    # AURA n'est pas materialisable offline (`entities/triggers.py::IsInTeamAura` est inerte), donc
+    # porter la seule branche ARMURE REFUSERAIT des cibles que le natif accepte -- une degradation
+    # STRICTE, exactement la regression que ce module interdit. `get_dynamic_invalid_target_reason`
+    # garde donc son defaut 0 (permissif) et l'ecart est MESURE, pas suppose (cf. case-249).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowNullCasterTile),
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None:
@@ -389,6 +470,41 @@ class SpawnPoxwalkersAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.Poxwalkers)   # 1040
     ABILITY_ID = "Poxwalkers"
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$.ctor` -- forme FLAGS
+    # DIRECTS, mais avec le SEUL `TargetingRange` du registre qui ne soit pas un statique :
+    #     func  = new IdunBattle.Core.Services.GetRange(target = NULL, <MethodInfo>)   # STATIQUE
+    #     range = IdunBattle.Core.Services.TargetingRange$$CustomRange(func)           # surcharge
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, &range, forceMeleeTarget=1,
+    #                            0x8000000004, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 1, 0)   # 3e arg = 1 = SummonAndAttackTarget
+    #
+    # Decomposition de 0x8000000004 -- EXHAUSTIVE (0x4 + 0x8000000000, aucun bit residuel) :
+    #   bit  2  0x4            CasterMatchesDynamicRule  volet CASTER, NON PORTE (cf. ci-dessous)
+    #   bit 39  0x8000000000   TargetIsCaster            PORTEE -> la cible DOIT etre le caster
+    #
+    # `range` = `CustomRange(GetRange)` (surcharge DELEGUE, mirror `custom_range_func`) :
+    # `{onlyAdjacent = RangedBool.False, useRangeFromConfig = false, useWholeBoard = false,
+    #   overrideRange = <vide>, overrideRangeFunc = <le delegue>}`. `TargetingQuery$$GetRange`
+    # ECRASE la portee par ce delegue -> le port ne sait PAS la calculer -> aucun gate de portee
+    # (permissif). RESIDU NOMME : la methode cible du delegue n'est pas resolue (metadata-usage,
+    # invisible a ghidra) ; le seul candidat de signature `int(IEntity)` du voisinage est
+    # `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange`
+    # (que `...SpawnPoxwalkersAbility$$ExecuteBehaviour` ET
+    # `...SpawnPoxwalkersAbility$$GetDynamicInvalidCasterReason` appellent tous deux) -- HYPOTHESE
+    # NON LUE, donc NON PORTEE. Sans consequence mesurable ici : le volet portee est INATTEIGNABLE
+    # pour 1040 (self-cast -> aiguillage `GetCasterNotAddedReason` ; sinon `TargetIsCaster` refuse
+    # AVANT la portee dans la cascade).
+    #
+    # `CasterMatchesDynamicRule` non porte -- la regle-delegue `options+0x30` (slot vtable +0x470)
+    # est `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$GetDynamicInvalidCasterReason`,
+    # dont le decompile rend `4` s'il n'existe AUCUNE tuile posable dans le disque
+    # `CalculateRange(caster)` autour d'une des tuiles du caster, `0` sinon. Le port ne porte AUCUNE
+    # regle-delegue CASTER (`get_invalid_caster_reason` ne porte que `CasterHasNotMoved`) -> le seul
+    # ecart possible est PERMISSIF (le port accepte un cast que le natif refuserait faute de place).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.CasterMatchesDynamicRule | TR.TargetIsCaster),
+        self_cast=True, range=custom_range_func(), force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
@@ -578,6 +694,39 @@ class PlagueburstMortarAbility(ActiveAbility):
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlagueburstMortar)   # 1169
     ABILITY_ID = PLAGUEBURST_MORTAR_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$.ctor` -- forme FLAGS
+    # DIRECTS, MEME `TargetingRange` statique que 1168 (l'autre active du meme deathCrawler) mais
+    # masque DIFFERENT :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, &range, forceMeleeTarget=1, 0x40000042, 0,0,0)
+    #     AActiveAbility..ctor(this, &opts, 0, 0)     # 3e arg = 0 = DirectTargetAttack
+    #
+    # Decomposition de 0x40000042 -- EXHAUSTIVE (0x2 + 0x40 + 0x40000000, rien ne reste) :
+    #   bit  1  0x2          TargetMatchesDynamicRule  point d'extension -> voir ci-dessous
+    #   bit  6  0x40         TargetIsTile              PORTEE -- domaine TUILE ; une tuile-cible NON
+    #                                                  MARCHABLE rompt et rend le litteral 1
+    #                                                  (`ValidRequest`), faute d'AllowUnwalkable
+    #                                                  TargetTile (bit 43, absent)
+    #   bit 30  0x40000000   AllowNullCasterTile       ALLOW du volet CASTER (MoW hors-plateau)
+    #
+    # `TargetIsTile` CONFIRME AU DECOMPILE le cast tile-target que le port avait deduit d'une mesure
+    # live `abilityTargets` (`kind="tile"`, cf. `plagueburst_damage_targets`) : la deduction devient
+    # une lecture. Corollaire du meme bit : `_targets_the_caster` n'a pas a resoudre l'unite, et
+    # `TargetIsEnemy` est ABSENT -> aucune regle de CAMP, le natif n'objecte pas sur l'appartenance
+    # de l'occupant (c'est le predicat du behaviour, `GetIsValidAdjacentEnemyTrigger`, qui filtre les
+    # cibles a l'EXECUTION -- pas le gate de ciblage).
+    #
+    # `range` = `TargetingRange statics+0x48` = RANGE_WHOLE_BOARD -> aucun test de portee.
+    # `forceMeleeTarget` = 1 = RANGED_BOOL_FALSE.
+    #
+    # `TargetMatchesDynamicRule` : AUCUN `PlagueburstMortarAbility$$GetDynamicInvalidTargetReason`
+    # n'est nomme dans les tables -- ce qui ne prouve RIEN (corps triviaux DEDUPLIQUES). Le port
+    # garde le defaut 0 de `ActiveAbility.get_dynamic_invalid_target_reason` : permissif dans les
+    # deux hypotheses (pas d'override -> 0 est le verdict natif ; override dedupliquee -> le port
+    # accepte ce que le natif refuserait, jamais l'inverse). Ecart MESURE en live, cf. case-249.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.AllowNullCasterTile),
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
