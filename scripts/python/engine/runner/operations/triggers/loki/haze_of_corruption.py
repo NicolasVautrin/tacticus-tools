@@ -170,7 +170,16 @@ HAZE_OF_CORRUPTION_ABILITY = "HazeOfCorruption"
 HAZE_DAMAGE_TRANSFER = int(EffectType.HazeOfCorruption_DamageTransfer)
 HAZE_DAMAGE_TRANSFER_NAME = EffectType.HazeOfCorruption_DamageTransfer.name
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # 0x2b = 43
-# `DSLFactory.OnPreDeath(1, 0)` / `DSLFactory.OnDeath(1, 1)` -> `OnDeathEvent` = `On(PreUnitDeath=1)`.
+# `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(eventId, allowOverkill, allowShield)` -- RELU
+# VERBATIM (#220) ; les deux enveloppes ne visent PAS le meme evenement :
+#   `OnPreDeath(a, b)` -> `OnDeathEvent(**1** = PreUnitDeath, a, b)`   [HazeCorruption_BonusHitAbility]
+#   `OnDeath(a, b)`    -> `OnDeathEvent(**0** = UnitDeath,    a, b)`   [le report 1077]
+# et les deux drapeaux sont des GATES sur la CIBLE, ajoutes seulement quand ils valent ZERO :
+#   `allowOverkill == 0` -> `NOT HasFlagAbilityTrigger(Target@0x178, 8 = Overkilled)`
+#   `allowShield   == 0` -> `NOT CurrentShieldAmountFormula(Target@0x178, 0x1b)`
+# `OnPreDeath(1, 0)` du coup bonus = aucun gate d'overkill, mais la cible ne doit porter AUCUN
+# bouclier ; `OnDeath(1, 1)` du report = aucun des deux.
+_ON_UNIT_DEATH = int(EventTriggerType.UnitDeath)                # 0
 _ON_PRE_UNIT_DEATH = int(EventTriggerType.PreUnitDeath)         # 1
 # `GetVariableForLevel(config, 8)` = `extraDmg` ; `GetDamageProfile(config)` = `damageProfile`
 # (constante gameconfig de `HazeOfCorruption` = "Toxic", DamageProfileType 24 mesure live).
@@ -360,7 +369,11 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
     de leftovers, le natif relit ceux de la cible INITIALE memorisee par le `SetPersistentData` du
     target-finder). Le port n'a pas de couche persistent-data d'ability ; ici la source de l'effet
     EST la cible initiale, donc la premiere lecture suffit sur les montages a un seul relais."""
-    event_id = _ON_PRE_UNIT_DEATH
+    # `OnDeath(1, 1)` = `OnDeathEvent(**0** = UnitDeath, ...)` -- PAS `PreUnitDeath` (#220, cf. le
+    # bloc `_ON_UNIT_DEATH` en tete de module). L'ordre natif de `KillUnitOperation$$Execute` est
+    # `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)` : le coup BONUS (`On(1)`) precede
+    # donc structurellement le REPORT (`On(0)`), au lieu de partager le meme vecteur.
+    event_id = _ON_UNIT_DEATH
     effect_type = HAZE_DAMAGE_TRANSFER
     # `AbilityOrEffect(0x435)` que `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit
     # dans l'`AbilityEntities` AVANT le behaviour : tout ce que le report engendre (l'`Attack`, ses

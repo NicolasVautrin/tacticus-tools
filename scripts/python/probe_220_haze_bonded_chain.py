@@ -125,13 +125,30 @@ def _bond_rows(evs):
     return out
 
 
-def _replay_traced(dv, ob, snap, board, rng0, cid, tid):
+def _replay_traced(dv, ob, snap, board, rng0, cid, tid, legacy=False):
     """Rejoue l'attaque OFFLINE en TRACANT (a) chaque pose d'effet avec son `bonded`, (b) chaque
-    `matches`/`execute_behaviour` des deux volets Haze, avec le `bonded` retenu."""
+    `matches`/`execute_behaviour` des deux volets Haze, avec le `bonded` retenu.
+
+    `legacy=True` = CONTREFACTUEL sur le MEME etat fige : on remet les deux approximations d'AVANT
+    #220 -- le `bonded` INFERE (« le tueur porte `HazeOfCorruption` ») et le slot declencheur reduit
+    au seul `ev.triggering_effect` (donc `None` sur le vecteur mort -> gate anti-chaine PERMISSIF).
+    C'est ce qui separe « le correctif est porteur » de « le montage ne discrimine rien »."""
     from engine.runner.operations import effects as _EFF
     from engine.runner.operations.triggers.loki import haze_of_corruption as _HZ
     posted, fires = [], []
     trace = {"bonus_match": 0, "bonus_fire": 0, "xfer_match": 0, "xfer_fire": 0}
+    _legacy_saved = None
+    if legacy:
+        _legacy_saved = (_HZ._triggering_ability_or_effect,
+                         _HZ.HazeOfCorruptionDamageTransferTrigger._bonded_id)
+        _HZ._triggering_ability_or_effect = (
+            lambda state, ev: getattr(ev, "triggering_effect", None))
+
+        def _legacy_bonded(self, state, inst, ev):
+            if ev.killer_id is not None and self._carries_haze(state, ev.killer_id):
+                return int(ev.killer_id)
+            return None
+        _HZ.HazeOfCorruptionDamageTransferTrigger._bonded_id = _legacy_bonded
 
     _orig_add = _EFF.AddEffectOperation.execute
 
@@ -170,6 +187,9 @@ def _replay_traced(dv, ob, snap, board, rng0, cid, tid):
         for key, cls in (("bonus", _HZ.HazeCorruptionBonusHitAbility),
                          ("xfer", _HZ.HazeOfCorruptionDamageTransferTrigger)):
             cls.matches, cls.execute_behaviour = _orig[key]
+        if _legacy_saved is not None:
+            (_HZ._triggering_ability_or_effect,
+             _HZ.HazeOfCorruptionDamageTransferTrigger._bonded_id) = _legacy_saved
     off["posted"] = [p for p in posted if p["type"] == _HZ.HAZE_DAMAGE_TRANSFER]
     off["fires"] = fires
     off["trace"] = dict(trace)
@@ -207,7 +227,13 @@ def _run(rpc, seed, hp, args):
                   and hexgeo.distance(tuple(u["pos"]), tuple(cpos)) == 1
                   and hexgeo.distance(tuple(u["pos"]), tuple(tpos)) == 1]
         off = _replay_traced(dv, ob, snap, board, rng0, cid, tid)
+        cf = (_replay_traced(dv, ob, snap, board, rng0, cid, tid, legacy=True)
+              if getattr(args, "cf", False) else None)
         return {"seed": seed, "hp": hp, "rid": rid, "cid": cid, "tid": tid, "relays": relays,
+                "cf": ({"n": cf["n_genrand"], "trace": cf["trace"],
+                        "fires": cf["fires"],
+                        "hp": {e["id"]: e["hp"] for e in (cf.get("entities") or [])}}
+                       if cf is not None else None),
                 "n_native": _genrand_steps(rng0, rng1), "n_off": off["n_genrand"],
                 "per_hit": list(off["per_hit"]), "cell": off["cell"],
                 "off_entities": list(off.get("entities") or []),
@@ -235,6 +261,15 @@ def _report(r, dump_events):
     print("      degats LIVE (cible, montant, effT, abilT, passif) = %s" % json.dumps(r["dmg"]))
     print("      fires PORT = %s" % json.dumps(r["fires"]))
     print("      trace PORT = %s" % json.dumps(r["trace"]))
+    if r.get("cf") is not None:
+        c = r["cf"]
+        print("      CONTREFACTUEL (gate d'AVANT #220) : genrand=%s trace=%s"
+              % (c["n"], json.dumps(c["trace"])))
+        for uid in [r["tid"]] + r["relays"]:
+            print("        cf id=%-4s hp=%s (port %s, natif dmg=%s)"
+                  % (uid, c["hp"].get(uid),
+                     next((e["hp"] for e in r["off_entities"] if e["id"] == uid), None),
+                     sum(m for (t, m, _e, _a, _p) in r["dmg"] if t == uid)))
     port = {e["id"]: e for e in r["off_entities"]}
     ok = r["n_native"] == r["n_off"]
     for uid in [r["tid"]] + r["relays"]:
@@ -261,6 +296,8 @@ def main():
     ap.add_argument("--hp", default="1200")
     ap.add_argument("--armor", type=int, default=0)
     ap.add_argument("--k", type=int, default=2)
+    ap.add_argument("--cf", action="store_true",
+                    help="rejoue AUSSI le contrefactuel « gate d'AVANT #220 » sur le meme etat")
     ap.add_argument("--dump-events", action="store_true")
     args = ap.parse_args()
     rpc = _mkrpc()

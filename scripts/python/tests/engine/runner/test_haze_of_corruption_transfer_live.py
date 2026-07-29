@@ -52,9 +52,14 @@ def _relay_damage(r):
 def test_litteraux_lus_au_decompile():
     from engine.runner.operations.triggers.loki import haze_of_corruption as H
     from engine.dsl.event_trigger_type import EventTriggerType
-    # `OnPreDeath(1,0)` / `OnDeath(1,1)` -> `OnDeathEvent` = `On(PreUnitDeath = 1)`.
+    # `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(eventId, allowOverkill, allowShield)` --
+    # RELU VERBATIM (#220) : les deux enveloppes ne visent PAS le meme evenement.
+    #   `OnPreDeath(1, 0)` -> `OnDeathEvent(**1** = PreUnitDeath, ...)`  [le coup BONUS]
+    #   `OnDeath(1, 1)`    -> `OnDeathEvent(**0** = UnitDeath,    ...)`  [le REPORT 1077]
+    # L'attendu precedent (les DEUX sur `PreUnitDeath`) transcrivait une lecture fautive de
+    # `OnDeath` ; les 44 tests LIVE des quatre fichiers Haze restent verts apres la bascule.
     assert H.HazeCorruptionBonusHitAbility.event_id == int(EventTriggerType.PreUnitDeath)
-    assert H.HazeOfCorruptionDamageTransferTrigger.event_id == int(EventTriggerType.PreUnitDeath)
+    assert H.HazeOfCorruptionDamageTransferTrigger.event_id == int(EventTriggerType.UnitDeath)
     # `AddBondEffect(0x435, ...)` = EffectType 1077, la cle du registre effet-trigger.
     assert H.HazeOfCorruptionDamageTransferTrigger.effect_type == 0x435 == 1077
     # `GetDamageProfile(config)` de `HazeOfCorruption` (constante gameconfig).
