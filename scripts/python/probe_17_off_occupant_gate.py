@@ -182,7 +182,14 @@ def main(argv: list) -> int:
             flag = "" if d_ig == dn else "   <-- PORT DIVERGE"
             gate = " *gate*" if d_ig != d_wk else ""
             print("  %-9s %-9s %-11s %-11s%s%s" % (str(t), dn, d_ig, d_wk, gate, flag))
+        # Branche `d == null` de la feuille (-> `NO_PATH_UTILITY`) : combien de tuiles candidates
+        # n'ont AUCUN chemin vers le ClosestEnemy ? Le pathfinder du type 1 ne bloquant sur aucune
+        # unite, elle n'est atteignable que par une coupure de terrain / d'elevation.
+        unreach_nat = [t for t, d in nat_pd.items() if d is not None and d < 0]
+        unreach_off = [t for t in nat_pd if board.id_at(t[0], t[1]) not in ig]
         print("")
+        print("  branche d == null (NO_PATH_UTILITY) : natif pathDist<0 sur %d tuile(s), "
+              "offline sans chemin sur %d" % (len(unreach_nat), len(unreach_off)))
         print("=== BILAN === tuiles=%d  gate d'occupant EXERCE sur %d  port(ignore) != natif sur %d"
               % (len(rows), diff_gate, bad))
         if not diff_gate:
