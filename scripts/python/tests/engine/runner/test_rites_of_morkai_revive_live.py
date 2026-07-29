@@ -10,10 +10,17 @@
   * `get_ReviveOnOverkill` non surcharge -> BASE GameCamera$$ShouldBlurBackground `return 0` => « unless Overkilled » (i2 idem).
 
 VOIE : `spaceWolfPriest` (Baldr) est un HERO **absent du pool runner** (`rl_duel.py build --list-pool`,
-rank 17) -> l'effet 1502 n'est PAS posable en runner. Port MIRROR valide OFFLINE : l'etat est capture
-LIVE (board/stats/traits reels via load_state) et l'effet 1502 est INJECTE dans `state.effects` (ce que
-ferait la pose native). Les 3 discriminants du port (self-only, one-shot, unless-Overkilled) sont
-opposes a leur face negative. ASCII only.
+rank 17 : les seuls `space*` spawnables sont Blackmane/Hound/Rockfist/Stormcaller/Wulfen, et il n'est
+pas MoW ; SEUL porteur de l'active `RitesOfMorkai` cote gameconfig) -> l'effet 1502 n'est PAS posable
+en runner. Port MIRROR valide OFFLINE : l'etat est capture LIVE (board/stats/traits reels via
+load_state) et l'effet 1502 est INJECTE dans `state.effects` (ce que ferait la pose native). Les 3
+discriminants du port (self-only, one-shot, unless-Overkilled) sont opposes a leur face negative.
+
+4e discriminant depuis 2026-07-29 (residu #229) : le gate `EffectComponent.IsActive @+0x5c` que
+`IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+d'evaluer le trigger de cible. Une instance 1502 seedee INERTE (canal
+`decisionView { includeInactive: true }`, seede depuis #219) ne doit RIEN declencher.
+ASCII only.
 """
 from __future__ import annotations
 
@@ -33,6 +40,14 @@ from engine.runner.operations.triggers.loki.rites_of_morkai import RITES_OF_MORK
 # Roster quelconque du pool : le porteur reel (spaceWolfPriest) est hors pool -> on INJECTE l'effet.
 BUILD = ["--p-units", "ultraTitus,bloodIntercessor", "--a-units", "worldKharn",
          "--rank", "17", "--board", "MC1_67"]
+# Roster + board DIFFERENTS (autres factions, autres traits/PV, autre geometrie) : sert de
+# generalisation au gate `IsActive` -- il ne doit dependre d'aucune particularite de BUILD.
+# ⚠ Roster NON-MECHANICAL obligatoire : `get_HealType` de RitesOfMorkai vaut 0 (Heal), donc
+# `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType` REFUSE les mecaniques -> un roster
+# Necron/AdMec rendrait le controle POSITIF faux-negatif (mesure : `necroOverlord` ne revive pas,
+# et c'est le comportement CORRECT -- i2 : « friendly NON-MECHANICAL units »).
+BUILD_ALT = ["--p-units", "eldarFarseer,astraCreed", "--a-units", "orksNob",
+             "--rank", "17", "--board", "C3_01"]
 
 
 def _ok(r):
@@ -65,6 +80,25 @@ def rom_env(live_session, rpc, build_runner):
     st0 = load_state(dv, ob, snap, board=board)
     if getattr(st0, "effects", None) is None:
         pytest.skip("pas d'EffectsState (combatSnapshot partiel)")
+    return {"dv": dv, "ob": ob, "snap": snap, "board": board}
+
+
+@pytest.fixture(scope="module")
+def rom_alt_env(live_session, rpc, build_runner):
+    """Second etat LIVE (autre roster, autre board, autre seed) pour la generalisation du gate."""
+    rid = build_runner("4242", extra=BUILD_ALT)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo (alt)")
+    board = Board(bg["tiles"], adjacency="evenq")
+    dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
+    ob = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    if not (_ok(dv) and _ok(ob) and _ok(snap)):
+        pytest.skip("capture live KO (alt)")
+    st0 = load_state(dv, ob, snap, board=board)
+    if getattr(st0, "effects", None) is None:
+        pytest.skip("pas d'EffectsState (combatSnapshot partiel, alt)")
     return {"dv": dv, "ob": ob, "snap": snap, "board": board}
 
 
@@ -171,3 +205,81 @@ def test_no_effect_no_revive(rom_env):
     _kill(st, uid, other)
     assert not st.get_entity(uid).get_component(UnitComponent).alive, \
         "revive sans effet RitesOfMorkai pose"
+
+
+# --- Gate `EffectComponent.IsActive @+0x5c` (residu #229) ------------------------------------------
+# `EvaluateEffectTriggerTargets` relit le flag PAR CIBLE, sur l'`EffectComponent` recharge depuis
+# l'entite-effet, AVANT `ShouldTrigger` : une instance INACTIVE n'est meme pas evaluee. Le rail
+# oppose (`EvaluateEffectTriggerEffectAbilities`, `ArraySet`) n'a AUCUN gate -- 1502 n'y a rien.
+
+def test_inactive_instance_does_not_revive(rom_env):
+    """CONTRE-EPREUVE du gate : instance 1502 posee mais `active=False` -> AUCUN revive, et l'effet
+    n'est PAS consomme (le natif n'evalue pas le trigger, donc n'execute pas non plus le
+    `RemoveEffect` du 2e volet du behaviour). Ce test ECHOUE sur le port d'avant le gate."""
+    st = _fresh(rom_env)
+    uid, other = _first_player_unit(st)
+    e = _inspire(st, uid)
+    e.active = False                       # ce que seede `decisionView { includeInactive: true }`
+    res = _kill(st, uid, other)
+    assert not st.get_entity(uid).get_component(UnitComponent).alive, \
+        "revive par une instance 1502 INACTIVE (gate IsActive @+0x5c absent)"
+    assert not e.consumed, "effet 1502 consomme alors que le trigger n'a PAS ete evalue"
+    assert not any(r.get("ability") == "RitesOfMorkai" for r in res), \
+        "trigger 1502 execute malgre l'instance inactive: %s" % res
+
+
+def test_reactivated_instance_revives(rom_env):
+    """Face POSITIVE du meme gate : le flag remis a True (ce que fait `RefreshEffectsOperation$$
+    ActivateEffect`, `+0x5c = 1`) rend le trigger evaluable -> revive normal. Prouve que le gate lit
+    bien le FLAG et pas autre chose (l'etat est par ailleurs identique au test negatif)."""
+    st = _fresh(rom_env)
+    uid, other = _first_player_unit(st)
+    e = _inspire(st, uid)
+    e.active = False
+    e.active = True                        # re-activation avant la mort
+    res = _kill(st, uid, other)
+    assert st.get_entity(uid).get_component(UnitComponent).alive, \
+        "instance re-activee non revive: %s" % res
+    assert e.consumed, "effet 1502 non retire apres un revive reussi"
+
+
+def test_gate_is_per_instance(rom_env):
+    """Le flag est PORTE PAR L'INSTANCE (`EffectComponent`), pas par le type ni par l'unite : deux
+    unites inspirees, l'une avec une instance active, l'autre inerte -> seule la 1re est revive."""
+    st = _fresh(rom_env)
+    uid, other = _first_player_unit(st)
+    if other is None:
+        pytest.skip("pas de 2e unite alliee")
+    e_live = _inspire(st, uid)             # instance ACTIVE
+    e_dead = _inspire(st, other)           # instance INERTE
+    e_dead.active = False
+    third = next((u for u in st.entities if u not in (uid, other)), None)
+    if third is None:
+        pytest.skip("pas de 3e unite pour porter le coup")
+    _kill(st, uid, third)
+    _kill(st, other, third)
+    assert st.get_entity(uid).get_component(UnitComponent).alive, "porteur ACTIF non revive"
+    assert e_live.consumed, "instance active non consommee par son revive"
+    assert not st.get_entity(other).get_component(UnitComponent).alive, \
+        "porteur INERTE revive (le gate a fuite d'une instance a l'autre)"
+    assert not e_dead.consumed, "instance inerte consommee"
+
+
+def test_inactive_instance_does_not_revive_alt_board(rom_alt_env):
+    """GENERALISATION : meme verdict sur un AUTRE roster (autre faction, autres traits/PV) et un
+    AUTRE board -- le gate ne depend d'aucune particularite de l'etat de `rom_env`."""
+    st = _fresh(rom_alt_env)
+    uid, other = _first_player_unit(st)
+    e = _inspire(st, uid)
+    e.active = False
+    _kill(st, uid, other)
+    assert not st.get_entity(uid).get_component(UnitComponent).alive, \
+        "revive par une instance 1502 INACTIVE (autre roster/board)"
+    assert not e.consumed, "effet 1502 consomme alors que le trigger n'a PAS ete evalue"
+    # controle positif dans le MEME etat : l'instance active revive bien.
+    st2 = _fresh(rom_alt_env)
+    uid2, other2 = _first_player_unit(st2)
+    _inspire(st2, uid2)
+    _kill(st2, uid2, other2)
+    assert st2.get_entity(uid2).get_component(UnitComponent).alive, \
+        "instance ACTIVE non revive sur l'autre roster/board (controle positif)"

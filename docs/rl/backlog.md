@@ -494,13 +494,25 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
         au mauvais niveau. Même constat de canal que 1077, mesuré indépendamment : 1197 n'est publié
         **ni** par défaut **ni** sous `includeInactive`, alors même que la chaîne fire (4 Screamers) —
         le gate y est donc INERTE, cliquet de fidélité et non correction de nombre (`case-231` §4).
+      - **1502 `RitesOfMorkai` — CLOS (2026-07-29)**, gate posé dans le `matches` de la seule classe
+        1502 (`case-229-1502-rites-of-morkai-active-gate.md`). Apports de RE au-delà du gate : les
+        DEUX lectures de `+0x5c` sont **désambiguïsées** (la 1re, sur le composant reçu, est un
+        fast-path « actif mais 0 cible → return » qu'un effet INACTIF traverse ; **la 2e, par cible,
+        sur le composant RE-FETCH depuis l'entité-effet, est LE gate** — et les deux portent sur
+        l'effet SOURCE, jamais sur la cible), et
+        `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` est **décompilé** (résidu
+        #229 §5 / #231 comblé : `activation 1 → true`, `2 → false`, `0 → (drapeau +0x5e) puis
+        virtuel 0xc sinon `IsActive` inchangé, sinon virtuel 0xb`). Le porteur `spaceWolfPriest`
+        étant HORS pool, le rayon de souffle n'est PAS mesurable pour 1502 — dit comme tel dans la
+        fiche plutôt que recopié de #229 §3. Son **jumeau strict 1547** (même base `ReviveEffect`,
+        même rail, même patron) est resté INTACT : un item par tâche.
       - **RÉSIDU `[opus]`, une fiche chacun** — mêmes symptôme et remède (une ligne dans le `matches`,
-        sur le modèle de 1077) : **1201** `AnvilShield_FrozenAttackerAdvantage`, **1502**
-        `RitesOfMorkai`, **1547** `ReanimationBeam_Revive` (rail TARGETS). Plus **1186**
-        `GhostEffectRevive` : écart réel mais
-        porteur TUILE, donc inatteignable par la bascule (`tileMeta` appelle `readEffectsByTile`
-        SANS options). Chacun exige sa propre mesure du rayon de souffle : #231 a montré que la
-        colonne « dans le rayon de souffle » de #229 §3 n'est pas fiable sans confrontation live.
+        sur le modèle de 1077/1502) : **1201** `AnvilShield_FrozenAttackerAdvantage`, **1547**
+        `ReanimationBeam_Revive` (rail TARGETS, porteur MoW `necroReanimator` hors pool). Plus
+        **1186** `GhostEffectRevive` : écart réel mais porteur TUILE, donc inatteignable par la
+        bascule (`tileMeta` appelle `readEffectsByTile` SANS options). Chacun exige sa propre mesure
+        du rayon de souffle : #231 a montré que la colonne « dans le rayon de souffle » de #229 §3
+        n'est pas fiable sans confrontation live.
 - **Ordre intra-groupe de `PerformAIAction(asGroup=1)`** (`case-perform-ai-action` §5.2, RE avancée
   par `case-95-waaagh-contributions` §6) : natif = argmax d'utilité du picker
   `IdunBattle.AI.OperationalDeciders.DefaultGroupOperator$$PickNextUnit` (slot 1 de `operator+0x28`,

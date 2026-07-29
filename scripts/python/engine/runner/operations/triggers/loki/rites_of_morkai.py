@@ -46,6 +46,8 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
 PORTEUR / VOIE DE VALIDATION : `spaceWolfPriest` est un HERO mais **absent du pool runner**
 (`rl_duel.py build --list-pool`, rank 17) -> l'effet 1502 n'est PAS posable en runner. Port MIRROR +
 validation OFFLINE (l'effet est injecte dans `state.effects` par le test).
+
+GATE `EffectComponent.IsActive @+0x5c` (#229 -> tache 1502, 2026-07-29) -- cf. `matches` ci-dessous.
 """
 from __future__ import annotations
 
@@ -81,3 +83,52 @@ class RitesOfMorkaiReviveTrigger(ReviveEffectTrigger):
     def create_target_filter(self, state: State, ev: TriggerEvent, entities) -> bool:
         """`IdunBattle.Entities.Effects.Loki.RitesOfMorkaiEffect$$CreateTargetFilter` = `get_OwnerIsTarget` : le porteur de l'effet est la cible."""
         return ev.dying_id == self.owner_id
+
+    def _instance_is_active(self, state: State) -> bool:
+        """Le flag `EffectComponent.IsActive @+0x5c` de MON instance 1502 -- mirror du gate que
+        `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+        d'evaluer le trigger de cible. Meme forme que `_ranged_auto_attack_flag_is_set` (1009).
+
+        Aucune instance trouvee -> True : degradation PERMISSIVE (on ne fabrique pas un refus). Le cas
+        ne se presente que si l'etat n'a pas d'`EffectsState` ; si l'effet etait reellement absent,
+        `collect_effect_triggers` n'aurait instancie aucun trigger. Le filtre `not e.consumed` est
+        celui du collecteur (le natif retire l'entite-effet, le port la marque)."""
+        eff = getattr(state, "effects", None)
+        if eff is None:
+            return True
+        insts = [e for e in eff.by_unit.get(int(self.owner_id), [])
+                 if (not e.consumed) and e.effect_type == self.effect_type]
+        return (not insts) or any(e.active for e in insts)
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        """Gate `IsActive` de l'INSTANCE, puis le trigger de la base (`ReviveEffect$$CreateTargetTrigger`).
+
+        `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTrigger` route le MEME effet vers
+        DEUX evaluateurs, et un seul porte un gate (inventaire #229) :
+
+          * `...$$EvaluateEffectTriggerTargets` (rail TARGETS, issu de `<Effect>$$CreateTargetTrigger`)
+            lit `EffectComponent.IsActive @+0x5c` **deux fois**, et c'est le rail de CE trigger :
+              (1) a l'entree, sur le composant recu -- `if (IsActive) { if (Targets.Count == 0) return; }`
+                  = fast-path (« actif mais sans cible : rien a faire ») ;
+              (2) DANS la boucle PAR CIBLE, sur l'`EffectComponent` RECHARGE depuis l'entite-effet
+                  (`GetComponent(effectEntity)` puis `if (*(char *)(comp + 0x5c) != '\\0')`), AVANT
+                  `ShouldTrigger` (slot 0x13) puis le behaviour (slot 0x14). C'est LE gate : une
+                  desactivation survenue en cours de drain stoppe les cibles suivantes.
+            Les DEUX lectures portent sur l'effet SOURCE -- l'instance qui PORTE le trigger --, jamais
+            sur la cible : `EvaluateEffectTrigger` passe l'entite-effet et son composant, et la boucle
+            re-fetch le composant de CETTE MEME entite.
+          * `...$$EvaluateEffectTriggerEffectAbilities` (rail ArraySet) n'accede JAMAIS a `+0x5c` --
+            c'est lui qui porte les `ActivateEffect` capables de RALLUMER un effet eteint. Ne rien y
+            gater : 1502 n'a de toute facon aucun `CreateHandleTriggerAbilitiesInternal`.
+
+        Le port relit le flag DANS `matches`, donc a chaque item du drain de `evaluate_trigger_operation`
+        = exactement la re-lecture par-cible du natif.
+
+        ATTEIGNABILITE (pas une precaution theorique) : `IdunBattle.Operations.RefreshEffectsOperation$$
+        RefreshEffect` eteint N'IMPORTE QUEL effet (`!ShouldBeActive` -> `...$$DeactivateEffect` ->
+        `+0x5c = 0`), et le canal de seed `decisionView { includeInactive: true }` publie `active: false`,
+        que `EffectFactory.create` recopie sur l'instance (#219). Une instance 1502 INERTE est donc
+        seedable ; sans ce gate elle revivait son porteur."""
+        if not self._instance_is_active(state):
+            return False
+        return super().matches(state, ev)
