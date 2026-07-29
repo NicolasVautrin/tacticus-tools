@@ -182,7 +182,16 @@ Rejeu du **même état figé** avec les deux lectures d'avant case-haze-bonded (
 Trois tirages et 2096 PV de trop, à chaque fois : le coup bonus Toxic que le natif refuse partait à
 la mort de chaque relais.
 
-### 5.4 Ce que le régime OVERKILL révèle — résidu d'ORDONNANCEMENT (non porté)
+### 5.4 Ce que le régime OVERKILL révèle — résidu d'ORDONNANCEMENT (CLOS, `case-haze-ord.md`)
+
+> **CLOS le 2026-07-29.** Le résidu décrit ci-dessous est porté et validé :
+> `RecordKillOperation$$Execute` ENQUEUE, `InputMessageProcessor$$VerifyDeaths` DRAINE (boucle
+> **non ré-entrante**, `killTrigger` transporté dans l'entrée de file), et le **site (A)**
+> d'`ApplyDamageOperation$$Execute` `return`e sans rien émettre. Mesure du même montage :
+> **natif 14 == port 14**, dégât par unité 3/3, sur 3 seeds. Détail, rayon de souffle chiffré et
+> non-couvert : **`docs/rl/case-haze-ord.md`**. Le texte d'origine est conservé ci-dessous parce
+> qu'il porte la mesure AVANT correctif.
+
 
 À PV cible **1200**, la cible meurt **en overkill dès le 1er coup**. Le flag `Overkilled` bascule
 alors `IdunBattle.Operations.ApplyDamageOperation$$AddLeftoverHit` sur son **site (A)** : la
@@ -202,9 +211,9 @@ de sa série de reports. Le natif, lui, ENQUEUE la mort (`IdunBattle.Operations.
 sont **tous** partis quand le trigger du bond suivant lit les `LeftOverDamage`.
 
 ⇒ **résidu structurel du pipeline de mort, pas de `HazeOfCorruption`** : il concerne tout behaviour
-dont plusieurs coups suivent la mort de leur cible. Inscrit au backlog. Le régime PV 5000 l'évite
-par construction (le relais 1 meurt sur le **dernier** report), et la garde `k = 2` s'y tient
-volontairement.
+dont plusieurs coups suivent la mort de leur cible. Le régime PV 5000 l'évite par construction (le
+relais 1 meurt sur le **dernier** report), et la garde `k = 2` s'y tient volontairement — c'est
+pourquoi les 45 gardes Haze n'ont bougé d'aucun chiffre après le correctif.
 
 ## 6. Gardes
 
@@ -224,7 +233,8 @@ Non-régression `k = 1` : `test_haze_of_corruption_transfer_live.py`, `test_haze
 
 ## 7. Non couvert
 
-* Le **régime overkill** du `k = 2` (§5.4) — résidu d'ordonnancement, backlog.
+* ~~Le **régime overkill** du `k = 2` (§5.4)~~ — **CLOS** (`case-haze-ord.md`), et désormais
+  GARDÉ par `tests/engine/runner/test_death_queue_ordering_live.py` (3 seeds × PV 1200).
 * Le `bonded` des **autres** call-sites d'`AddBondEffect` (Taunt de `GetEmRuntz`/`CrushingClaws`,
   `ValkyrieStrike`, `AnvilShield`, `HolyDuel`, `MalleusRocketLauncher`, `DevastatingRefrain`…) :
   le paramètre est optionnel, ces feuilles le laissent `None` ⇒ comportement **inchangé**. À
