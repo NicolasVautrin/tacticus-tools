@@ -2,12 +2,16 @@
 
 Mirror du kit natif `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility`,
 ARMEE par l'effet-marqueur 1197 (`MasterOfTheTutelariesEffect`, pose par l'active 1096 — cf.
-`effects/loki/status.py` + `EFFECT_TRIGGERS[1197]` dans `../dispatch.py` : la collecte par-effet-actif
-EST le Add/RemoveTriggeredAbility natif d'`IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal` / `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal`).
+`effects/loki/status.py` + `EFFECT_TRIGGERS[1197]` dans `../dispatch.py`). La collecte par-effet
+PORTE est le vehicule ; le Add/RemoveTriggeredAbility natif d'`IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal` / `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal`
+est mirrore par le gate d'ACTIVITE en tete de `matches` (#231, `_master_effect_is_carried_and_active`) :
+`RevertInternal` s'execute des que l'effet est desactive, parce que
+`IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` enchaine sur `UpdateEffectTargets`
+avec une liste de cibles VIDE.
 
 - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$CreateTrigger` :
     On(9=Attack, 1)
-    & HasEffect(owner@0x148, 0x4ad=1197)               # re-gate natif (double du Add/Remove dynamique)
+    & HasEffect(owner@0x148, 0x4ad=1197, onlyActive=0, relation=6=Both)   # PRESENCE seule (cf. #231)
     & AreEnemies(owner@0x148, target@0x178)            # la cible de l'attaque est un ENNEMI du porteur
     & Not(IsObjectOrSteppable(target@0x178))           # vraie unite (pas decor/decoy steppable)
     & CurrentAttackDamageProfilesContain(0xd=13)       # les profils de l'ATTAQUE contiennent Psychic
@@ -56,15 +60,73 @@ _PSYCHIC = DamageProfileType(13).name                        # "Psychic" — pro
 _STEPPABLE_TRAITS = {"Steppable", "Decoy"}                   # IsObjectOrSteppable (unites-token)
 
 
+def _master_of_tutelaries_instances(state: State, owner_id: int) -> list:
+    """Les instances d'effet 1197 NON consommees portees par `owner_id`. Liste (et non instance
+    unique) parce que le natif raisonne PAR ENTITE-EFFET ; en pratique `AddEffectOperation` no-ope
+    sur un meme-type deja present, donc il y en a 0 ou 1. [] si l'etat n'a pas d'`EffectsState`."""
+    if state.effects is None:
+        return []
+    return [e for e in state.effects.by_unit.get(int(owner_id), [])
+            if not e.consumed and e.effect_type == MASTER_EFFECT]
+
+
+def _master_effect_is_carried_and_active(state: State, owner_id: int) -> bool:
+    """Gate d'entree du trigger 1173 (#231). Il porte DEUX faits natifs DISTINCTS, qui se lisent sur
+    la meme liste d'instances mais ne viennent PAS du meme artefact — les confondre serait une
+    infidelite dans un sens comme dans l'autre :
+
+    1. PRESENCE — le conjoint `HasEffect(owner@0x148, 0x4ad, onlyActive=0, relation=6)` de
+       `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterOfTheTutelaries_SummonAbility$$
+       CreateTrigger`. Le 4e argument de `IdunBattleLogic.Entities.DSLFactory$$HasEffect` est
+       `onlyActive`, et il vaut **0** ici : le noeud de l'arbre ne teste QUE la presence. (Semantique
+       lue, pas deduite : `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` ne saute une
+       entite-effet — `continue` sur `IsActive@0x5c == 0` — que si ce bool est vrai.) Le `6` est un
+       masque de relation decode par `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`
+       (`&2` -> `IsOwnerOfOneOfEffects`, `&4` -> `IsTargetOfOneOfEffects`) = Both.
+       => aucune instance : False.
+
+    2. PORTAGE — la triggered 1173 n'est pas un effet-trigger du rail `CreateTargetTrigger` : c'est
+       une triggered-ability portee par l'UNITE, ajoutee par
+       `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$ApplyInternal`
+       (`DSLFactory$$AddTriggeredAbility(Entity(target), 0x495)`) et RETIREE par
+       `IdunBattle.Entities.Effects.Loki.MasterOfTheTutelariesEffect$$RevertInternal`
+       (`DSLFactory$$RemoveTriggeredAbility(Entity(target), 0x495)`). Or desactiver l'effet REVERTE
+       ses cibles : `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` ecrit
+       `EffectComponent.IsActive @+0x5c = 0` PUIS appelle
+       `IdunBattle.Operations.RefreshEffectsOperation$$UpdateEffectTargets` avec une liste de
+       nouvelles cibles **VIDE** -> `GetTargetsToRemove` rend toutes les cibles courantes ->
+       `IdunBattle.Operations.RefreshEffectsOperation$$RemoveTargetsFromEffect` -> `Revert`.
+       => effet 1197 INACTIF <=> triggered 1173 absente de l'unite <=> aucun Screamer.
+       C'est ce couplage que mirroire `any(e.active ...)`, PAS un `onlyActive` (qui vaut 0).
+
+    ⚠ Ce gate est propre au rail APPLY_REVERT : il ne remonte PAS dans `collect_effect_triggers`,
+    qui doit continuer a ne filtrer que `consumed`. Gater la COLLECTE eteindrait les `Triggered()`
+    d'activation du rail ArraySet (evalues par
+    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`, qui
+    n'applique AUCUN gate `IsActive`) — ce sont eux qui RALLUMENT un effet eteint."""
+    insts = _master_of_tutelaries_instances(state, owner_id)
+    return bool(insts) and any(e.active for e in insts)
+
+
 class MasterOfTheTutelariesSummonAbility(EffectTrigger):
     """`MasterOfTheTutelaries_SummonAbility` (triggered 1173) — cf. en-tete de module pour l'arbre
-    natif. Enregistre dans `EFFECT_TRIGGERS[1197]` : instancie UNIQUEMENT tant que l'effet 1197 est
-    ACTIF sur le porteur (mirror AddTriggeredAbility/RemoveTriggeredAbility + HasEffect du trigger)."""
+    natif. Enregistree dans `EFFECT_TRIGGERS[1197]`, qui sert de VEHICULE DE COLLECTE (« une instance
+    1197 est portee »), et non de gate : la collecte ne filtre que `consumed`. Le gate d'activite
+    — mirror de `AddTriggeredAbility`/`RemoveTriggeredAbility` pilotes par la (des)activation de
+    l'effet — est porte EXPLICITEMENT en tete de `matches` (#231)."""
     event_id = int(EventTriggerType.Attack)                  # On(9, 1) — fin de CHAQUE attaque
     effect_type = MASTER_EFFECT                              # 1197
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
-        # HasEffect(owner, 1197) : implicite par la collecte EFFECT_TRIGGERS (l'effet est actif).
+        # `HasEffect(owner@0x148, 0x4ad, onlyActive=0, Both)` + le portage Apply/Revert de la
+        # triggered 1173 (#231 — cf. `_master_effect_is_carried_and_active`). Ce gate etait
+        # AUPARAVANT suppose « implicite par la collecte EFFECT_TRIGGERS » : c'etait FAUX,
+        # `collect_effect_triggers` ne filtre que `consumed`, jamais `e.active` (et c'est voulu —
+        # le rail ArraySet doit pouvoir re-activer). Une instance 1197 INERTE (seedee par le canal
+        # `includeInactive`, cf. `snapshot.decision_view_seed_body`) faisait donc spawner offline un
+        # Screamer que le natif ne peut pas produire, l'ability ayant ete RemoveTriggeredAbility'ee.
+        if not _master_effect_is_carried_and_active(state, self.owner_id):
+            return False
         tgt = ev.target_id
         if tgt is None or tgt == self.owner_id:
             return False
