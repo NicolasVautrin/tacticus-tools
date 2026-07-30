@@ -835,9 +835,15 @@ du couple, non diagnostiquée ici).
 Vérifiés présents (à la passe précédente), sans symptôme actionnable aujourd'hui : résidus MV71 (`case-61bis` §6/§8/§9),
 per-player 1180 (`case-31`), `ReachedSummonCap` (`case-38` §4 — branche `IsActive` sans caller
 connu), `LordOfTempests` AddIce (`case-35` §4), `LivingMetal` swarm no-wake top-off (`case-203` §5),
-les 2 résidus `move` (#17, nature RNG — ⚠ le 3ᵉ item que #17 portait, le `MinDist#76` du pas s5, est
-sorti de cette ligne le 2026-07-29 : **fermé côté LIVE** et sa moitié OFFLINE promue en tâche
-`#17-off`, cf. `case-52` §#17-s5), arc arrière NON dégénéré du push (`case-push-distance` §5 —
+les 2 résidus `move` (#17, nature RNG — ⚠ **DEUX autres items que #17 portait sont désormais SORTIS de
+cette ligne**. (a) Le `MinDist#76` du pas s5, le 2026-07-29 : **fermé côté LIVE** et sa moitié OFFLINE
+promue en tâche `#17-off`, cf. `case-52` §#17-s5. (b) Le **`s8 Hammer`** (« event t93 +120 identifié L3,
+non porté »), le 2026-07-30 : la ligne était **PÉRIMÉE** — l'écart avait été porté dès #57m (filtre
+vivant de `make_hammer_wrath_events`) et il est **re-mesuré NUL sur `rnca9r7q6c`**
+(`probe_57j_hammer.py` : natif `81→1153→t91`, argmax du port t91 = 185.54 vs t89 = 95.76 / t93 = 87.67 ;
+t93 rend 2 events Σ = 67.6679 == 67.68 natif). Ce qui manquait n'était pas un port mais une **GARDE** :
+retirer le filtre ne faisait rougir aucun test. Garde posée + validée rouge par mutation, cf. `case-52`
+§#17-s8), arc arrière NON dégénéré du push (`case-push-distance` §5 —
 sans objet pour un pousseur adjacent), trait `Unstoppable` 1042 (à câbler DANS la tranche
 movement-stop #131/B4, sinon registered-but-dead), `#202` face DÉCISION Abraxas non confrontée
 oracle, `#5` chantier `DslContext` live-state, chantier archi **DSL-effet** (`dsl-effect-nodes.md` —
