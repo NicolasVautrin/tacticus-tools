@@ -300,8 +300,13 @@ def step4(ref: str) -> int:
         return 1
     try:
         print(f"  worktree            : {base.as_posix()}")
-        r = subprocess.run([sys.executable, "-c", _DEMO, str(base)],
-                           capture_output=True, text=True, timeout=180)
+        # `-I` (isolated) + cwd DANS le worktree : sans lui, le cwd de CE
+        # process (`scripts/python` de l'arbre courant) reste en tete de
+        # `sys.path` et le sous-process importe le `host_inputs` de l'arbre
+        # APPELANT -- la demonstration « AVANT » serait alors truquee.
+        r = subprocess.run([sys.executable, "-I", "-c", _DEMO, str(base)],
+                           cwd=str(base), capture_output=True, text=True,
+                           timeout=180)
         print((r.stdout or "").rstrip())
         if r.returncode != 0:
             print("  stderr : " + (r.stderr or "").strip()[:800])

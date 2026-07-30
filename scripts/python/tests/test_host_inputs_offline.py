@@ -166,7 +166,43 @@ def test_main_worktree_est_l_arbre_qui_porte_git():
     assert (main / "CLAUDE.md").exists()
 
 
-# ---- 5. bout-en-bout : le probe ------------------------------------------ #
+# ---- 5. le consommateur le plus impacte : LEVER 3 ------------------------ #
+
+class _FakeStage:
+    """Le strict minimum que `StageProbe._trace_file` touche sur `self`."""
+
+    def __init__(self, sid):
+        self.sid = sid
+        self._trace_path = None
+
+
+def test_lever3_degrade_sans_lever_mais_le_DIT(fake_root, capsys):
+    """`engine_agreement_stages` : LEVER 3 est AUXILIAIRE -- lever tuerait tout
+    le run d'agreement. Il rend donc `None` dans les deux cas, mais imprime
+    l'indisponibilite quand rien n'a ete mesure. Sans ce message, un run
+    d'agreement conclut « aucun terme manquant » en n'ayant rien regarde.
+    """
+    import engine_agreement_stages as EAS
+    EAS.StageProbe._traces_warned = False
+    # (a) repertoire INTROUVABLE -> None + message
+    assert EAS.StageProbe._trace_file(_FakeStage(27)) is None
+    out = capsys.readouterr().out
+    assert "LEVER 3" in out and "INDISPONIBLE" in out
+    assert "frida/data/ai-traces" in out
+    # (b) repertoire PRESENT mais vide -> None, SILENCIEUX (vrai negatif)
+    (fake_root / "frida" / "data" / "ai-traces").mkdir(parents=True)
+    EAS.StageProbe._traces_warned = False
+    assert EAS.StageProbe._trace_file(_FakeStage(27)) is None
+    assert "INDISPONIBLE" not in capsys.readouterr().out
+    # (c) repertoire PRESENT avec la trace de la session -> le fichier
+    d = fake_root / "frida" / "data" / "ai-traces"
+    (d / "27-x.jsonl").write_text("{}\n", encoding="utf-8")
+    assert EAS.StageProbe._trace_file(_FakeStage(27)) == d / "27-x.jsonl"
+    # (d) une trace d'une AUTRE session ne compte pas
+    assert EAS.StageProbe._trace_file(_FakeStage(28)) is None
+
+
+# ---- 6. bout-en-bout : le probe ------------------------------------------ #
 
 def test_probe_273_passe(tmp_path):
     """Le cliquet : aucune entree gitignoree lue depuis la racine sans host_inputs."""
