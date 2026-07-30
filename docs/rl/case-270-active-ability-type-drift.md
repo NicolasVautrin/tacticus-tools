@@ -189,13 +189,19 @@ Livré :
 - les autres blocs de `enum_maps.py` / `006` / `013` (`GROUP_TYPE` **66 faux**, `EFFECT_TYPE`,
   `PASSIVE_ABILITY_TYPE` 107 morts + 9 manquants, `ref_triggered_ability`, `ref_effect`) →
   **backlog** : chacun demande sa propre lecture, et `GROUP_TYPE` est une réattribution, donc un
-  changement de comportement d'ingestion ;
+  changement de comportement d'ingestion.
+  → **Les six blocs d'`enum_maps.py` sont traités par #275** (`regen_enum_maps.py` +
+  `probe_275_enum_maps_drift.py`) ; `ref_triggered_ability` / `ref_effect` (SQL `006`/`013`)
+  restent ouverts ;
 - la réparation des deux générateurs historiques (`rl_gen_ref_tables.py`,
   `rl_gen_enum_columns.py`), toujours arrimés à `dump.cs` disparu → **backlog** ;
-- `frida/public/src/battle-log.js` (même décalage `GroupType`) : front, et toute correction sous
-  `frida/hooks|public` demanderait un rebuild ;
+- ~~`frida/public/src/battle-log.js` (même décalage `GroupType`)~~ — **plus vrai** (re-mesuré en
+  #275) : sa table `GROUP_LABEL` porte **104** labels, **0 divergent** avec `enums.tsv`, et
+  `probe_274.sweep_js` la garde désormais. C'était `enum_maps.GROUP_TYPE` qui était faux, pas le
+  front ;
 - `scripts/python/engine/entities/triggered_ability_type.py` (107 ids morts, même patron) : hors
-  sujet de cette fiche, une tâche à part.
+  sujet de cette fiche, une tâche à part → toujours ouvert, chiffré en #275 §7 (avec
+  `effect_type.py`, même patron, et **0** usage cassé mesuré).
 
 ## 7. Validation — la contre-épreuve, pas le smoke
 

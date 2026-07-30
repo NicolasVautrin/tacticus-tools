@@ -191,13 +191,33 @@ def _open_progressive_ingest(
         user=env.get("PG_USER", "postgres"),
         password=pwd,
     )
-    # Detect game_hash
+    # `batch.game_hash` = LE BUILD QUI A EMIS LES ORDINAUX. C'est le seul discriminant qui rend
+    # l'historique relisible : `stream_event.step_code` / `stream_group.group_code` sont des
+    # ordinaux IMPLICITES, et leur nom depend du build. Sans ce champ, decoder un batch ancien
+    # avec la table du build courant rend des noms FAUX -- et rien ne le signale.
+    #
+    # Ce que le code faisait (#275) : `ents[0].name`, c'est-a-dire le PREMIER repertoire de
+    # `games/` par ordre de listage. Sur cette machine c'est `.temp`, un repertoire de travail --
+    # l'unique ligne de `tacticus.batch` porte donc `game_hash = '.temp'`, valeur qui ne designe
+    # aucun build. Il a fallu inferer le build emetteur par le CONTENU des groupes (aucun
+    # `GroupType` 61/48 emis => table a 102 membres, donc un build anterieur aux deux versionnes)
+    # pour etablir que ses colonnes `*_name` etaient justes et NE DEVAIENT PAS etre corrigees.
+    # Voir `docs/rl/case-275-enum-maps-drift.md` section 4.
+    #
+    # On retient le repertoire qui porte reellement l'executable, et on ignore `.temp` / tout
+    # nom commencant par un point. Aucun repli sur « le premier venu » : une valeur fausse est
+    # pire que NULL, qui dit au moins « inconnu ».
     game_hash = None
     games_dir = Path(os.path.expandvars(r"%LOCALAPPDATA%\tacticus\games"))
     if games_dir.exists():
-        ents = list(games_dir.iterdir())
-        if ents:
-            game_hash = ents[0].name
+        builds = sorted(d for d in games_dir.iterdir()
+                        if d.is_dir() and not d.name.startswith(".")
+                        and (d / "Tacticus.exe").is_file())
+        if len(builds) == 1:
+            game_hash = builds[0].name
+        elif builds:
+            print("[ingest] %d builds installes (%s) : game_hash laisse NULL -- on ne devine pas"
+                  % (len(builds), ", ".join(d.name for d in builds)), file=sys.stderr)
     # Insert batch row
     with conn.cursor() as cur:
         cur.execute("""

@@ -267,14 +267,24 @@ py scripts/python/rl_gen_enum_columns.py --apply   # FK + colonnes *_name + enum
   `summary.json` + JSONL mais n'insère que l'**identité + `tags` JSONB brut** (8 cols) ;
   les colonnes typées dépendent alors du **backfill des migrations** (pas remplies à
   l'insert). Ne pas s'y fier pour les hot/attribution/`*_name`.
-- **Générateurs** : `rl_gen_ref_tables.py` (ref tables, upsert), `rl_gen_enum_columns.py`
-  (migration 013 + `enum_maps.py`). Tous deux build-aware.
+- **Générateurs** : `regen_enum_maps.py` (les 6 blocs d'`enum_maps.py`, #275) et
+  `regen_active_ability_tables.py` (`ActiveAbilityType` + ses recopies dans `006`/`013`, #276) —
+  tous deux lisent `data/symbols/<CURRENT>/frida/enums.tsv`, **versionnée**. Les deux
+  générateurs historiques (`rl_gen_ref_tables.py`, `rl_gen_enum_columns.py`) lisent
+  `data/dumps/<hash>/dump.cs`, artefact **supprimé le 2026-07-25** : ils ne peuvent plus tourner.
+  Gardes : `probe_275_enum_maps_drift.py`, `probe_270_active_ability_type_drift.py`.
 - **Migrations** : `scripts/sql/001_…` → `015_…` (init, winner, messages/events,
   matchstate, unit_state, **006 ref_tables**, **007 hot_cols**, target_kind, tile_ref,
   ability_state, mow_state, **012 attribution**, **013 enum FK + `*_name`**,
   **014 stream_group + group_id/caster_entity**, **015 damage_kind + v_heal/v_repair**).
   Appliquer via `psql -f`, `--apply` des générateurs, ou psycopg2.
-- **GroupType** (102 membres) est dans `enum_maps.py` (`GROUP_TYPE`) pour `group_name`.
+- **GroupType** (**104** membres) : `stream_group.group_name` est résolu par NOM via
+  `stream_events.group_name` contre `enums.tsv` (#254b-b) — **pas** par `enum_maps.GROUP_TYPE`,
+  qui n'a plus aucun consommateur et n'est qu'une table de lecture.
+- ⚠ **Les colonnes `*_name` sont relatives au BUILD DU BATCH.** `step_code`/`group_code` sont des
+  ordinaux implicites : les redécoder avec la table du build courant rend des noms FAUX pour tout
+  batch antérieur. `batch.game_hash` est le seul discriminant — et il valait `.temp` sur la ligne
+  historique (corrigé en #275). Avant toute rétro-correction : `docs/rl/case-275-enum-maps-drift.md` §4.
 
 ## Recettes
 
