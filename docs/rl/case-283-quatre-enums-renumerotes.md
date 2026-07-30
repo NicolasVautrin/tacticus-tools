@@ -63,6 +63,23 @@ Geste : rapatriée en `frida/hooks/data/utility-type-names.ts`, **générée** p
 `regen_hook_name_tables.py` et **gardée** par `probe_252_hook_name_tables.py` — pas un mécanisme
 parallèle, l'infra #256/#252 existait déjà et ce fichier lui manquait.
 
+**Et la dégradation n'est pas théorique — elle se mesure sur le jeu qui tourne**, sans aucune
+injection : `dumpComposedUtility` (hook déjà dans le bundle) lit
+`UtilitiesDatabase._composedUtilityLookup` au runtime, avec des clés **numériques** du build
+courant. Nommées par les deux tables :
+
+| clé runtime | table corrigée | table figée (`gqfc5mff6c`) | feuilles mal nommées |
+|---|---|---|---|
+| 7 | `Tile` | `Tile` | **26** / 29 |
+| **8** | **`AttackTile`** | `Elevation` | 3 / 4 |
+| 33 | `MovementSuggestion` | `TileDistance` | 1 / 2 |
+| 35 | `Damage` | `DamageDealt` | 10 / 13 |
+| 47 | `Repair` | `RepairedAmount` | 1 / 3 |
+
+**4 clés sur 8 changent de nom, 47 entrées au total étaient mal nommées.** La clé `8` est le point
+décisif : `AttackTile` — le membre *inséré* par la MAJ — est un composite **réel**, présent dans
+la base d'utilités du jeu avec ses 4 feuilles. La table figée en faisait `Elevation`.
+
 **`scripts/python/probe_hazeord_blast_radius.py` — `DEATH_EVENTS`.** La table portait
 `55: "UnitDefeated"` ; `UnitDefeated` vaut **54** depuis la MAJ, et 55 est `AttackChanged`. Or
 `DEATH_EVENTS` est **intersectée** avec l'`event_id` des classes du registre : les consommateurs
@@ -168,6 +185,7 @@ tri-état de `host_inputs` (`null` = pas mesuré ≠ `[]` = mesuré et vide).
 | mesure | résultat |
 |---|---|
 | `probe_283 --step live` (seconde source **indépendante**) | `dumpEnum` sur le binaire CHARGÉ vs `enums.tsv` : **228 membres, 0 divergence** sur les 4 enums |
+| `dumpComposedUtility` (runtime, sans injection) | 8 composites ; **4 clés sur 8** renommées, **47** entrées mal nommées par la table figée — dont la clé 8 = `AttackTile` (4 feuilles, réel) |
 | `probe_283 --step mirror` | 2 mirrors (`EventTriggerType` 76/76, `UtilityType` 68/83), **0 divergent** |
 | `probe_283 --step exec` avant / après | **5 figés + 3 tables** / **0** |
 | `probe_283 --step tables` avant / après | **46 entrées divergentes** / **0** |
@@ -182,13 +200,21 @@ tri-état de `host_inputs` (`null` = pas mesuré ≠ `[]` = mesuré et vide).
 | `tsc --noEmit -p tsconfig.hooks.json` | **0 erreur** sur `ai-utility-trace.ts` et `utility-type-names.ts` |
 | `py_compile` de tout `scripts/python` | OK |
 
+**Tout le tableau est re-joué APRÈS rebase sur `origin/master` @ `9f3a8a41`** (7 commits arrivés
+pendant le travail, rebase sans conflit). Le re-jeu a trouvé une chose, et ce n'était pas un
+commit mergé : le **cliquet lui-même** faisait rougir l'étape prose — ses citations
+`On(0x2b = PreUnitAbility)` sont les DONNÉES qui prouvent que le détecteur mord. Allowlistées
+avec cette raison ; les corriger désarmerait le test.
+
 ## 7. Ce qui n'est PAS couvert
 
-* **La correction du hook n'est pas confrontée live.** `frida/hooks/*` exige un rebuild + un
-  **reinject** — geste proscrit tant qu'un autre agent tourne. Ce qui EST établi : la table colle
-  au build (`probe_252`), le fichier typecheck, et la boucle consommatrice est protégée par son
-  `try/catch` (l'ordinal `9999 = STRIPPED`, désormais présent, tombera en `skipped++`). Ce qui ne
-  l'est PAS : que `prePopulateKnownConfigs` peuple bien 3 configs de plus en session réelle.
+* **La correction du hook n'est pas confrontée EN SESSION.** `frida/hooks/*` exige un rebuild +
+  un **reinject** — geste proscrit tant qu'un autre agent tourne. Ce qui EST établi : la table
+  colle au binaire **chargé** (`--step live`, 83/83), la dégradation qu'elle causait est mesurée
+  sur le jeu qui tourne (`dumpComposedUtility`, §3.1), le fichier typecheck, et la boucle
+  consommatrice est protégée par son `try/catch` (l'ordinal `9999 = STRIPPED`, désormais présent,
+  tombera en `skipped++`). Ce qui ne l'est PAS : que `prePopulateKnownConfigs` peuple bien 3
+  configs de plus **une fois le bundle réinjecté**.
 * **Les 205 `On(<n>)` nus ambigus** (132 dans `scripts/python`, 73 dans `docs/`) — §4,
   backlog `#283-r1`.
 * **`docs/` n'est pas migré** : 394 citations dérivées, dont 356 à signature « ancien ordinal ».

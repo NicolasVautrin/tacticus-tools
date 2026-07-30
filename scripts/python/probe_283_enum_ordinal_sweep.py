@@ -94,6 +94,9 @@ ALLOWLIST = {
         "DEFINIT le mirror UtilityType -- confronte par l'etape mirror, pas par exec",
     "scripts/python/enum_maps.py":
         "genere par regen_enum_maps.py, garde par probe_275_enum_maps_drift.py",
+    "scripts/python/tests/test_enum_ordinal_ratchet_offline.py":
+        "le cliquet : ses citations `On(0x2b = PreUnitAbility)` sont les DONNEES qui prouvent "
+        "que le detecteur mord -- les corriger desarmerait le test",
 }
 
 # `hooks-legacy/` est VERSIONNE mais rien de vivant n'en depend : inventorie a part.
