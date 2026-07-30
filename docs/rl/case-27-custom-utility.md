@@ -828,7 +828,6 @@ re-derouler la recon : elle part d'ici.
 - **Residus a debloquer : 6** — 1100, 1169, 1148, 1051/1142, 1098, 1053.
   (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
   **1185 porte — #27-4c** ; **1212 porte — #27-4d**.)
->>>>>>> b59bd79f (docs(rl): #27-4c 1212 HealingBalms_Heal - fiche a l etat final + garde live)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -1198,9 +1197,6 @@ existera.
   `GetInvalidTargetReason` complete. Le masque de 1226 est permissif (`AllowObscuredTargetBy*`), donc
   le port reste un SUR-ENSEMBLE — degradation assumee et bornee a cette ability. En LIVE le point est
   sans objet : `ctx.ability_targets` est le RPC natif (mesure : `[]` au bras n=0).
-<<<<<<< HEAD
-- **La route non-attaque a DEUX membres** (1226, 1185). Les autres residus du groupe (1212, 1053)
-  gardent chacun un verrou PROPRE, nomme ci-dessus ; ils n'ont pas ete enchaines.
 - **ForwardObservers : le porteur REEL n'est pas confronte.** La mesure passe par une GREFFE de
   l'ability sur `tauCrisis`. Ce que la greffe NE couvre PAS : les stats, traits et l'arme du vrai
   porteur (`tauSmnStealthSuit` : `Camouflage`, `Infiltrate`, `Summon`, arme Pulse 4 coups) — donc
