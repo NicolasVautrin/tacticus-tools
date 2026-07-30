@@ -277,6 +277,17 @@ class StartTurnOperation:
         # lumpe 0x12+0x14) -> residu documente (case-203). L'ordre FirstAid/LivingMetal entre eux est immateriel
         # (les deux soins s'additionnent, capes a maxHP).
         living_metal = turn_start_other_triggers(state, player)
+        # `RefreshEffectTrigger.TurnChanged` (= 6, dump d'enums du build) -> `IdunBattle.Operations.
+        # RefreshEffectsOperation$$Execute` avec `effectEntity` NUL = TOUS les effets, chacun voyant
+        # sa `CreateActiveCondition` reevaluee (`RefreshEffectsOperation$$ShouldBeActive`).
+        # PLACE : APRES `_bump_turns_started` ci-dessus, et c'est ce qui compte — les conditions qui
+        # LISENT `GetStat(0xc = TurnsStarted)` doivent voir le compteur DEJA incremente. Cas porte :
+        # `ContagionsOfNurgle_ArmorReduction1/2`, dont le rayon `GetCurrentRange` monte 1 -> 2 -> 3
+        # avec le `TurnsStarted` du PORTEUR d'aura : une unite jusque-la hors du disque y entre au
+        # tour ou l'aura grandit, et prend le debuff SANS avoir bouge.
+        # Idempotent pour tout autre effet declaratif a stat-mod (`Modify` = replace par-source).
+        from .refresh_effects import refresh_stat_modifier_effects
+        refresh_stat_modifier_effects(state)
         out = start_turn_triggers(state, player)
         from .summon_ai import run_ai_control_pass         # lazy : evite le cycle turnflow<->summon_ai
         out = tile_ticks + first_aid + living_metal + out + run_ai_control_pass(state, player)

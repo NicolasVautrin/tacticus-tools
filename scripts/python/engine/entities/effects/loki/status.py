@@ -82,50 +82,161 @@ class ContagionsOfNurgleArmorReductionEffect(BaseEffect):
     de l'aura `ContagionsOfNurgle` (trait 0x7eb = 2027), en DEUX instances de la MEME classe native.
 
     `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect$$.ctor` =
-    `ADynamicStatModifierEffect(AbilityOrEffect(0x431), stat = 0, 0, 1, 1)` puis
-    `this+0x488 = <cle de constante>`, `this+0x48c = <min>`, `this+0x490 = <max>`. Les DEUX seules
-    constructions (`IdunBattle.Core.Services.EffectsDatabase` b__14_93 / b__14_94) :
+    `AStatModifierEffect(AbilityOrEffect(0x431), unitEffectType = 0, canBeImmuneTo = 0,
+    keepOnRevive = 1, isMultiply = 1)` puis `this+0x488 = <cle de constante>`,
+    `this+0x48c = <min>`, `this+0x490 = <max>`. Les DEUX seules constructions
+    (`IdunBattle.Core.Services.EffectsDatabase` b__14_93 / b__14_94) :
 
         effet 0x42f = 1071  ContagionsOfNurgle_ArmorReduction1 : ctor(0x41, min=1, max=1)
         effet 0x430 = 1072  ContagionsOfNurgle_ArmorReduction2 : ctor(0x42, min=2, max=0x7fffffff)
 
+    ⚠ Le parent est `AStatModifierEffect`, PAS `ADynamicStatModifierEffect` (lecture corrigee) :
+    `IdunBattle.Entities.Effects.ADynamicStatModifierEffect$$CreateTargetTrigger` utilise `+0x488`
+    comme CACHE DE POINTEUR de son trigger, or le ctor y ecrit un `int` (la cle de constante) — les
+    deux usages sont incompatibles. Consequence : aucun `RefreshValueInternal` (revert+apply de
+    magnitude) sur cette famille ; sa magnitude est une CONSTANTE de config.
+
     `$$GetStatModificationAmount` = `AbilityConfiguration.GetNumberConstant(config, this+0x488)` ->
     les variables de trait `contagionsOfNurgleArmorOneAura` (-20) / `contagionsOfNurgleArmorTwoOrMoreAuras`
     (-40) du gameconfig -- LUES, jamais ecrites en dur.
-    `$$CreateActiveCondition` = `AmountIsEqualOrGreater(ContagionsOfNurgleAmount(EffectSource, owner),
-    Get(min)) & AmountIsEqualOrGreater(Get(max), ContagionsOfNurgleAmount(...))` : l'instance n'est
-    ACTIVE que si le nombre d'auras Contagion ENNEMIES contenant le porteur tombe dans `[min, max]`.
-    `$$GetStatModificationStat` = **FixedArmor (16)** (arg `stat` du ctor `ADynamicStatModifierEffect`).
+    `$$GetStatModificationStat` = **FixedArmor (16)**.
+
+    ## Le CYCLE DE VIE — `CreateActiveCondition` (le sujet de ce cas)
+
+    `$$CreateActiveCondition`, lu verbatim :
+
+        AmountIsEqualOrGreater( ContagionsOfNurgleAmount(EffectSource(effect@0x150), Owner@0x30),
+                                Get(this+0x48c = min) )
+      & AmountIsEqualOrGreater( Get(this+0x490 = max),
+                                ContagionsOfNurgleAmount(...) )
+
+    soit `min <= amount <= max`. `amount` est le nœud `DSLFormulas$$ContagionsOfNurgleAmount`, dont
+    `IdunBattle.Entities.Triggers.ContagionsOfNurgleAmountFormula$$Calculate` DELEGUE au slot 0x95
+    d'`IBattleQuery` = `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount(0x42f,
+    GetCurrentTeamId(EffectSource), target, returnFirst: false)` — le MEME slot que celui porte par
+    case-224 (`engine/battle_query.py`), et donc le comparateur INCLUSIF `dist <= GetCurrentRange`.
+
+    C'est CETTE condition, et elle seule, qui tient les TROIS comportements que le port n'avait pas :
+    l'aura qui GRANDIT (`GetCurrentRange` monte 1 -> 2 -> 3 avec `TurnsStarted` du porteur), l'unite
+    qui en SORT, et la bascule 1071 <-> 1072. Les deux instances COEXISTENT sur la cible (le
+    `CreateBehaviour` du vecteur pose `AddEffect(1071) & AddEffect(1072)`) et leurs fenetres
+    `[1,1]` / `[2,+inf[` sont DISJOINTES : « basculer » n'est pas un switch, c'est l'une qui
+    s'active pendant que l'autre se desactive.
+
+    Chaine d'EVALUATION native (`IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect`) :
+
+        active = ShouldBeActive(trigger, type, effect, effComp, owner, activePlayer, effectEntity)
+        if (!active)  DeactivateEffect(...)       # IsActive@+0x5c = 0 PUIS UpdateEffectTargets([])
+                                                  #   -> RevertEffectsForTargets -> RevertModification
+        else          effComp.IsActive@+0x5c = 1 ; UpdateEffectTargets(GetTargets(entities))
+                                                  #   -> ApplyEffectsForTargets -> ApplyModification
+
+    donc **l'entite-effet n'est JAMAIS retiree** quand la condition tombe : elle est rendue INERTE
+    et sa `ValueModification` est REVERSEE (meme forme que `PinnedEffect`, case-224/#208 §4). Cote
+    port c'est le driver `runner/operations/refresh_effects.refresh_stat_modifier_effects` qui joue
+    ce role — d'ou l'absence VOULUE d'`applied_stat_mods` ici (le driver ne prend en charge que les
+    stat-mods DECLARATIFS ; un stat-mod EAGER serait pose par `AddEffectOperation` et jamais reevalue).
 
     Le stat-layer du port applique `get_stat_modification_amount()` en ADDITIF : le poseur
     (`operations/triggers/loki/contagions_of_nurgle.py`) materialise donc le -X% en DELTA PLAT
     pre-calcule `-round(FixedArmor x |pct| / 100)` et le range dans `value` -- MEME convention que
-    `ContaminatedUnitEffect` (l'autre `ADynamicStatModifierEffect` FixedArmor deja porte).
+    `ContaminatedUnitEffect`.
     MESURE live (case-dpw) : `astraSmnKell` FixedArmor 1496, une seule aura -> 1496 - 299 = **1197**
     (`combatSnapshot` post-attaque), et `astraCreed` 6000 -> 4800."""
 
     stat_mod_source = None   # cle de source ChangeStat (revert par-source, symetrique de reverted_stats)
 
+    # `IdunBattle.Core.Services.EffectsDatabase` b__14_93 / b__14_94 — les DEUX (et seuls) appels du
+    # ctor : `effectType -> (cle de constante `+0x488`, min `+0x48c`, max `+0x490`)`. La cle de
+    # constante n'est PAS relue ici (la magnitude est materialisee en delta plat par le poseur, qui
+    # lit la variable de trait correspondante) ; la FENETRE, elle, est la `CreateActiveCondition`.
+    CTOR_ARGS = {
+        0x42F: ("contagionsOfNurgleArmorOneAura", 1, 1),
+        0x430: ("contagionsOfNurgleArmorTwoOrMoreAuras", 2, 0x7FFFFFFF),
+    }
+
+    def aura_amount_window(self) -> "tuple | None":
+        """`(min, max)` = `(this+0x48c, this+0x490)` de CETTE instance, resolus par son `effectType`
+        (une seule classe native, deux constructions). `None` = type hors des deux constructions."""
+        args = self.CTOR_ARGS.get(int(self.effect_type or 0))
+        return None if args is None else (args[1], args[2])
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """`ContagionsOfNurgle_ArmorReduction_Effect$$CreateActiveCondition` — mirror LITTERAL :
+        `min <= ContagionsOfNurgleAmount(EffectSource(effect), Owner) <= max`.
+
+        `unit_state["contagions_of_nurgle_amount"]` est le CALLABLE du foyer
+        `runner/components.contagions_of_nurgle_amount` (lui-meme un mirror delegue de
+        `BattleQuery$$GetInRangeAuraAmount`) ; on lui passe `self.source`, qui EST l'`EffectSource`
+        (`EffectComponent.SourceUnit @+0x10`).
+
+        DEGRADATION — cle absente, source inconnue, ou cardinal indeterminable : on rend le FLAG
+        courant `self.active`. Ce n'est pas une convention inventee, c'est un chemin natif REEL :
+        `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` rend litteralement
+        `effectComponent.IsActive @+0x5c` (le flag COURANT, sans rien evaluer) des que
+        `effect.ShouldRefreshForTrigger(trigger)` est faux. Un `True` inconditionnel rendrait ici
+        les DEUX instances actives a la fois, donc -20 % ET -40 % cumules — precisement ce que les
+        fenetres disjointes interdisent."""
+        window = self.aura_amount_window()
+        fn = (unit_state or {}).get("contagions_of_nurgle_amount") if unit_state else None
+        if window is None or fn is None or self.source is None:
+            return bool(self.active)
+        n = fn(self.source)
+        if n is None:
+            return bool(self.active)
+        return window[0] <= int(n) <= window[1]
+
     def get_stat_modification_stat(self) -> int | None:
         return 16                                    # StatType.FixedArmor (arg du ctor natif)
 
     def get_stat_modification_amount(self) -> int | None:
-        # Delta PLAT pre-calcule a la pose (= -round(FixedArmor_courant x |pct| / 100)), range dans
-        # `value` par le vecteur poseur. None = effet PRESENT mais stat-inerte -> aucune attribution
-        # (cas des instances CAPTEES depuis `decisionView.effects`, dont la contribution est DEJA
-        # cuite dans le `GetStat` du `combatSnapshot` : l'appliquer une 2e fois la doublerait).
+        # Forme de BASE (`GetStatModificationAmount`) : le DELTA PLAT pre-calcule a la pose
+        # (= -round(FixedArmor x |pct| / 100)), range dans `value` par le vecteur poseur. `None` =
+        # instance CAPTEE (le canal `decisionView.effects` ne publie pas de valeur) -> la magnitude
+        # passe alors par la forme OVERRIDE `applied_stat_mods(ctx)` ci-dessous, qui sait la
+        # re-deriver depuis le stat de BASE du porteur.
         return self.value
 
     def applied_stat_mods(self, stats_ctx) -> "list":
-        """`AStatModifierEffect$$ApplyInternal -> ApplyModification` (part 5/9) : le `ChangeStat` EAGER
-        pose a l'application. C'est la forme que `AddEffectOperation._apply_stat_mods` EXECUTE (la
-        paire `get_stat_modification_*` seule ne sert qu'a l'ATTRIBUTION du delta au chargement) ->
-        sans elle le debuff serait PRESENT mais n'entrerait jamais dans `GetStat(FixedArmor)` du
-        runner. `value` None (instance CAPTEE) -> [] = aucune double-application."""
-        from ...stats import StatType
-        if not self.value:
+        """Forme OVERRIDE d'`AStatModifierEffect$$ApplyModification` — magnitude CONTEXTUELLE.
+
+        Le natif rend `GetStatModificationAmount()` = `GetNumberConstant(<cle>)` = le POURCENTAGE
+        (-20 / -40) et pose `Position(stat, part = isMultiply ? 9 : 5)` ; `isMultiply` vaut 1 pour
+        cette famille (6e argument du ctor `AStatModifierEffect`). Le stat-layer du port n'a pas de
+        part MULTIPLICATIVE : la contribution y est materialisee en DELTA PLAT equivalent,
+        `-round(GetStat(FixedArmor, INITIAL) x |pct| / 100)` -- MESURE live, 2312 -> 1850 (-20 %)
+        et 2312 -> 1387 (-40 %), bit-exact des deux cotes.
+
+        POURQUOI cette forme en PLUS du `value` de la pose : une instance SEEDEE n'a pas de `value`
+        (le canal de capture ne publie pas la magnitude). Sans elle, la passe 2 de
+        `UnitContext.from_snapshot` (`stat_modifications_by_source(effects, stats_ctx=ctx)`) ne peut
+        rien attribuer, la contribution reste dans le residu opaque `CAPTURED_SOURCE` et devient
+        IRRETIRABLE -- mesure : sortie d'aura live 1387 -> 2312, port fige a 1387.
+
+        GATE `self.active` = le FLAG `EffectComponent.IsActive @+0x5c`, et il est LOAD-BEARING : les
+        DEUX instances (1071 et 1072) coexistent sur la cible, mais une seule est active a la fois,
+        donc une seule a une `ValueModification` cote natif. Sans ce gate, la passe 2 attribuerait
+        -20 % ET -40 % alors que le `statDelta` capte n'en porte qu'un -> double-compte. Le flag est
+        seede par #219 et desormais ECRIT a chaque refresh par `refresh_stat_modifier_effects`
+        (mirror `ActivateEffect`/`DeactivateEffect`), donc il suit la condition."""
+        if not self.active:
+            return []                                    # instance INERTE : le natif a deja reverte
+        if self.value is not None:
+            from ...stats import StatType
+            return [(int(StatType.FIXED_ARMOR), int(self.value))]
+        args = self.CTOR_ARGS.get(int(self.effect_type or 0))
+        if args is None or stats_ctx is None:
             return []
-        return [(int(StatType.FIXED_ARMOR), int(self.value))]
+        from ..magnitude import trait_var
+        from ...stats import StatType, StatPart
+        pct = trait_var("ContagionsOfNurgle", args[0])
+        st = getattr(stats_ctx, "stats", None)
+        if pct is None or st is None:
+            return []
+        base = int(st.get_stat(int(StatType.FIXED_ARMOR), int(StatPart.INITIAL)) or 0)
+        if base <= 0:
+            return []
+        return [(int(StatType.FIXED_ARMOR), -round(base * abs(int(pct)) / 100))]
 
     def reverted_stats(self) -> "list":
         """`RevertInternal` — annule le `ChangeStat` FixedArmor (lu par la feuille `RemoveEffect`)."""

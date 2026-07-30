@@ -113,7 +113,8 @@ class AddEffectOperation:
                 value: Optional[int] = None, level: Optional[int] = None,
                 ability_level: Optional[int] = None, active_ability_level: Optional[int] = None,
                 multiplier_pct: Optional[int] = None,
-                bonded: Optional[int] = None) -> Optional[BaseEffect]:
+                bonded: Optional[int] = None,
+                active: bool = True) -> Optional[BaseEffect]:
         """Pose l'effet `effect_type` sur `target` (posé par `source`). Renvoie l'effet matérialisé
         (`BaseEffect`) ou None si la pose est abandonnée (pas de cible / déjà présent / pas d'EffectsState).
 
@@ -130,7 +131,19 @@ class AddEffectOperation:
         qu'écrit `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultBondEffectBuilder`. Côté natif
         c'est le BUILDER qui la porte (`GetEffectBuilder` résout le sélecteur `bondedEntity` en id, et
         bascule sur le builder de bond ssi cet id est non nul) ; le port passe l'id résolu ici, l'opération
-        n'a qu'à le recopier sur l'instance. None = builder d'effet ORDINAIRE (aucun bond)."""
+        n'a qu'à le recopier sur l'instance. None = builder d'effet ORDINAIRE (aucun bond).
+
+        `active` = valeur INITIALE du flag `EffectComponent.IsActive @+0x5c`. NATIVEMENT il naît **FAUX** :
+        `IdunBattle.Entities.Components.EffectComponent$$.ctor` écrit `+0x48`/`+0x50`/`+0x78` (listes),
+        `+0x68` et `+0x6c` (= 1), et **n'écrit PAS `+0x5c`** — le champ reste zéro-initialisé. C'est le
+        premier `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` qui l'active (`= 1`) et qui
+        applique la `ValueModification` par `UpdateEffectTargets` → `ApplyEffectsForTargets`. Le défaut
+        `True` du port est un RACCOURCI historique (aucun vecteur offline ne rejouait de refresh à la
+        pose) : il est conservé pour tous les vecteurs existants, dont la contribution stat est posée
+        EAGER par `_apply_stat_mods` juste en dessous. Un vecteur qui veut le chemin NATIF — pose inerte
+        puis activation par `refresh_stat_modifier_effects` — passe `active=False` (cas
+        `ContagionsOfNurgle_ArmorReduction1/2`, dont les DEUX instances coexistent et dont une seule doit
+        porter une modification)."""
         # `On(PreEffectAdded=0x3d=61)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
         # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
@@ -203,7 +216,8 @@ class AddEffectOperation:
         # EffectComponent : Type/Duration/SourceUnit/Target/Value/Active (Active implicite = présent).
         # On la crée AVANT le gate « déjà-présent » pour interroger sa classe (`stacks_stat_mod_on_add`).
         captured = {"name": name or _effect_name(effect_type), "effectType": int(effect_type),
-                    "level": level, "remaining": duration, "source": source}
+                    "level": level, "remaining": duration, "source": source,
+                    "active": bool(active)}
         eff = EffectFactory.create(captured,
                                    ability_variables_multiplier=(100 if multiplier_pct is None
                                                                  else int(multiplier_pct)),

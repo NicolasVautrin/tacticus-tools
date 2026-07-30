@@ -27,16 +27,38 @@ sous 35 % PV (GROUND TRUTH LIVE #100), et redescend s'il repasse au-dessus.
 ## Perimetre (blast radius NUL par construction)
 
 `refresh_stat_modifier_effects` ne touche QUE les effets qui :
-  1. declarent un `get_stat_modification_stat()` (famille `AStatModifierEffect`), ET
-  2. ne declarent AUCUN `applied_stat_mods` (= les stat-mods « declaratifs », ceux que l'ATTRIBUTION du
-     seed pose via `stat_modifications_by_source`) — les effets a stat-mod EAGER (ActOfFaith,
-     DoctrinaImperatives, `AnvilShield_FrozenAttackerAdvantage`...) sont poses/revertes par
-     `AddEffectOperation._apply_stat_mods` / la feuille `RemoveEffect` sous LEUR propre cle et sont
-     donc SKIPPES ici.
+  1. modifient au moins un stat (`effect_stat_modifications` -- le point de verite UNIQUE R16, qui
+     couvre les DEUX formes natives : la base `get_stat_modification_*` ET l'override
+     `applied_stat_mods(ctx)` a magnitude contextuelle), ET
+  2. n'ont AUCUNE cle de POSE (`stat_mod_source is None`) -- c'est-a-dire qu'aucun chemin OFFLINE
+     (`AddEffectOperation._apply_stat_mods`, feuille `AddStaticStatModifierEffect`) n'a deja pose
+     leur contribution sous SA propre cle. Ceux-la sont poses/revertes par leur poseur et par la
+     feuille `RemoveEffect`, donc SKIPPES ici.
+
+⚠ Le discriminant du skip est la **cle**, pas la METHODE declaree (#cvc). Il etait « l'effet
+declare-t-il `applied_stat_mods` ? » -- ce qui excluait du driver TOUT effet a magnitude
+contextuelle, y compris quand il est SEEDE (donc sans cle de pose) et que sa contribution est
+attribuee par la passe 2 du seed sous `statmod_source_key`. Consequence MESUREE : la contribution
+d'un tel effet ne pouvait plus jamais etre retiree quand sa `CreateActiveCondition` tombait.
+Inventaire (introspection, 11 classes declarent `applied_stat_mods`) : une seule declare AUSSI
+`get_stat_modification_stat` (`AnvilShield_FrozenAttackerAdvantage`) et **aucune** ne surcharge
+`is_active` -> pour toutes, `is_active` rend True et le driver re-ecrit EXACTEMENT la valeur que la
+passe 2 a deja posee sous la MEME cle (`Modify` = replace par-source) : no-op exact.
+
 La cle de source utilisee est **exactement celle de l'instance** (`effect_stat_mod_key` : la cle de POSE
 si un chemin offline l'a renseignee, sinon la cle DERIVEE `statmod_source_key` = celle du seed) et
 `ValueModification.Modify` est un **replace par-source** -> re-appliquer la meme valeur est un NO-OP
 exact. Seule la bascule `is_active() == False` change quelque chose (retrait de la contribution).
+
+## Le FLAG `EffectComponent.IsActive @+0x5c` a desormais son PRODUCTEUR (#cvc)
+
+`IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` ECRIT le flag a chaque refresh :
+`ActivateEffect` le met a 1, `DeactivateEffect` a 0 (et enchaine `UpdateEffectTargets([])`, donc
+`RevertEffectsForTargets` -> `RevertModification`). Cote port le champ `BaseEffect.active` existait
+depuis #138 et etait SEEDE par #219 -- mais **rien ne l'ecrivait ensuite** : un effet capte INERTE
+le restait a vie, et un effet capte ACTIF ne pouvait pas s'eteindre. Ce driver est ce producteur.
+Il n'ecrit QUE les effets qu'il traite (ceux du perimetre ci-dessus), et `active_effects` continue
+de lire la CONJONCTION `e.active and e.is_active(unit_state)` -- flag ET condition, comme le natif.
 
 ⚠ POURQUOI LA CLE D'INSTANCE ET PAS `statmod_source_key` EN DUR (#118) : le natif n'a qu'UNE entree
 `ValueModification.per_source` par entite-effet (la source du `ChangeStat` EST l'entite-effet, cf.
@@ -52,7 +74,7 @@ from typing import Optional
 from ..state import State
 from ..components import (StatsComponent, enemy_psykers_alive as _enemy_psykers_alive,
                           unit_state_for_effects)
-from ...entities.effects import effect_stat_mod_key
+from ...entities.effects import effect_stat_mod_key, effect_stat_modifications
 
 # `_enemy_psykers_alive` / `_unit_state` : le CORPS vit dans `runner/components.py` (`enemy_psykers_alive`
 # / `unit_state_for_effects`) depuis #208 — foyer UNIQUE du contexte d'évaluation des
@@ -84,23 +106,38 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None) -
         if us is None:
             continue
         ustate = _unit_state(state, uid)
+        ctx = getattr(sc, "ctx", None)
         for e in effs:
             if e.consumed or e.expired:
                 continue
-            stat = e.get_stat_modification_stat()
-            if stat is None:
-                continue
-            if e.applied_stat_mods(getattr(sc, "ctx", None)):
-                continue                      # stat-mod EAGER : gere par AddEffect/RemoveEffect
-            # UNE cle par instance (cf. en-tete) — jamais une 2e. Non-None ici : `stat` vient d'etre
-            # teste non-None, donc `effect_stat_mod_key` rend au minimum la cle derivee.
+            if e.stat_mod_source is not None:
+                continue                      # pose EAGER offline sous SA cle : hors driver (cf. en-tete)
+            # ORDRE : le FLAG d'abord (mirror `ActivateEffect`/`DeactivateEffect`, qui ecrivent
+            # `EffectComponent.IsActive @+0x5c` AVANT que `UpdateEffectTargets` ne joue les
+            # `Apply`/`RevertModification`). Les magnitudes contextuelles peuvent LIRE ce flag.
+            active = bool(e.is_active(ustate))
+            e.active = active
+            # `GetStatModification()` — point de verite UNIQUE des deux formes natives (R16).
+            mods = effect_stat_modifications(e, ctx)
+            stats = {int(st) for st, _amt in mods}
+            base_stat = e.get_stat_modification_stat()
+            if base_stat is not None:
+                # L'instance peut etre INERTE (magnitude nulle/absente) et devoir quand meme etre
+                # REVERTEE : le stat a retirer est celui qu'elle declare, pas celui qu'elle rend.
+                stats.add(int(base_stat))
+            if not stats:
+                continue                      # effet non StatModifier
+            # UNE cle par instance (cf. en-tete) — jamais une 2e.
             src = effect_stat_mod_key(e)
-            if e.is_active(ustate):
-                amt = e.get_stat_modification_amount()
-                if amt:
-                    us.change_stat(int(stat), src, int(amt))   # ApplyModification (part 5)
-                    out.append((int(uid), int(stat), int(amt)))
+            if src is None:
+                continue
+            if active:
+                for st, amt in mods:
+                    if amt:
+                        us.change_stat(int(st), src, int(amt))   # ApplyModification (part 5|9)
+                        out.append((int(uid), int(st), int(amt)))
             else:
-                us.revert_stat(int(stat), src)                 # RevertModification (part 6)
-                out.append((int(uid), int(stat), None))
+                for st in sorted(stats):
+                    us.revert_stat(int(st), src)                 # RevertModification (part 6)
+                    out.append((int(uid), int(st), None))
     return out
