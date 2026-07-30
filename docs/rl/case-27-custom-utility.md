@@ -581,6 +581,165 @@ missing)/(maxHP+1) x 100` est un artefact, pas une mesure.
 - **La face COMBAT de 1212** n'est pas portee (l'ability est absente d'`ABILITY_CLASSES`) : cette
   tranche ne couvre que la face DECISION. Son masque de ciblage est consigne ci-dessus pour qui la
   portera.
+## TRANCHE 4f (2026-07-30) — Stikkbomb (1051) : le VERROU 3 tombe
+
+Le verrou 3 s'enonçait « `GenerateMultiHitAttackPredictions` sur un SOUS-SET de cibles ». La RE
+montre que le sous-set n'est pas le probleme : c'est **QUI recoit la prediction** qui ne se devine
+pas.
+
+### Ce que le decompile dit — les DEUX faces sont le meme code, `IsFriend` inverse
+
+`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility`, relu VERBATIM sur
+`rnca9r7q6c` :
+
+```
+formula = DSLFormulas.Get(GetVariableForLevel(config, 0xc = minDmg));   // == Direct(minDmg)
+hits2   = GetNumberConstant(config, 0x32 = nrOfHits_2);
+profile = GetDamageProfile(config);
+sel     = StikkbombAbility.GetAdjacentDamageTargets();
+preds   = new List<ProbableDamageEvent>();
+foreach (u in TargetsSelector.SelectUniqueUnits(sel, AbilityEntities(Target = target), 3))
+    if (UnitExtensions.IsFriend(u, caster, state))                      // <-- LE SOUS-SET
+        preds.AddRange( GenerateMultiHitAttackPredictions(caster, casterPosition, target,
+                            <selecteur Target>, formula, hits2, profile, null, null) );
+u = Fix64.Zero;
+foreach (p in preds) u = Fix64.op_Addition(u, CalculateUtilityFromDamageEvent(p, caster, casterPosition));
+return Fix64.op_UnaryNegation(u);
+```
+
+et `...StikkbombPlaybook$$MakeDamagePredictions` est le MEME corps avec `if (!IsFriend(...))` et
+`GetNumberConstant(0x2f = nrOfHits)` pour l'event principal. Trois points qui ne se devinent pas :
+
+1. **Le SOUS-SET est declaratif, le TRI est imperatif.** Le selecteur
+   `...StikkbombAbility$$GetAdjacentDamageTargets` (corps PARTAGE, seul proprietaire nomme
+   `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$GetAdjacentDamageTargets`,
+   8 users) est un arbre `DSLSelectors.AdjacentUnits(Target, unique: 1, sel: 3)` =
+   `Units(AdjacentTiles(Target), unique, sel) - Target`, **sans filtre d'equipe**. C'est le MEME
+   artefact que la face COMBAT : `...StikkbombAbility$$ExecuteBehaviour` passe ce meme selecteur a
+   son 2e `AttackWithAttackDamage`, et il est deja porte
+   (`runner/abilities/loki/splash.py::stikkbomb_tree` -> `Alive(AdjacentUnits(TargetTile()))`,
+   friendly-fire inclus, #213). Le tri ami/ennemi, lui, n'est PAS un noeud : c'est un `foreach` +
+   `UnitExtensions.IsFriend` DANS le playbook. **Classification : MIXTE** — et c'est une TROISIEME
+   reponse, differente des deux tranches precedentes (Chronometron : selecteur declaratif partage,
+   aucun filtre ; ForwardObservers : 100 % imperatif, aucun artefact partage). Le port evalue donc
+   le meme ENSEMBLE que la face combat et n'ecrit a la main que le predicat.
+   `IsFriend(u, caster, state)` compare `GetCurrentPlayer(u).<0x20>.<0x24>` a celui du caster :
+   le CASTER est son propre ami et compte s'il est lui-meme adjacent a la cible.
+2. **Chaque membre du sous-set produit une prediction sur la CIBLE PRINCIPALE, pas sur lui-meme.**
+   Le 4e argument de `GenerateMultiHitAttackPredictions` est `target`. Ce n'est pas une lecture
+   optimiste du decompile : c'est verifie a l'ASSEMBLEUR. Dans `CalculateCustomUtility` le
+   call-site charge `mov r9,[rsp+0x578]` ; le prologue ecrit `mov rax,rsp ; mov [rax+0x20],r9`
+   (home slot du 4e parametre) puis `7 x push` + `sub rsp,0x520`, donc
+   `rsp_courant + 0x578 == rsp_entree + 0x20` = ce home slot, jamais reecrit. Meme lecture dans
+   `MakeDamagePredictions` (`mov r9,[rsp+0x4a8]`, `- 0x38 - 0x450`). Or dans
+   `...ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` le `param_4` ne sert qu'a peupler
+   le contexte `AbilityEntities` (`Target` + `GetTiles(target)`) : ce sont les entites rendues par
+   le SELECTEUR `param_5` qui recoivent les predictions — et `param_5` vaut ici le selecteur
+   `Target` (champ `DSLSelectors@0x60`, le meme que `AttackWithAttackDamage` recoit pour l'attaque
+   principale dans `ExecuteBehaviour`). La liste vaut donc `[target]` a chaque tour de boucle.
+   ⇒ **le membre du sous-set ne determine QUE le NOMBRE d'events** ; leur contenu est invariant.
+   C'est un quirk natif (l'intention lisible etait de predire les degats infliges aux amis) — on
+   mirroir le code, pas l'intention. **MESURE LIVE** (bras `foe`, ci-dessous) : mettre un ENNEMI au
+   contact de la cible fait passer `pairUtility(1051, cible)` de **16.041060** a **24.069251**,
+   soit **+8.0282** — a comparer a la moitie de la paire de la CIBLE (**8.0205**, 1 coup au lieu de
+   2) et a celle du VOISIN (**0.5504**). L'event porte sur la cible, et l'ecart residuel (0.0077)
+   est la non-linearite du composite Damage, pas une autre entite.
+3. **Le signe vient du `op_UnaryNegation` FINAL.** L'event porte la CIBLE (un ennemi) ->
+   `CalculateUtilityFromDamageEvent` rend une utilite POSITIVE, que le playbook nie. Poser
+   `friendly=True` sur l'event ET negger donnerait le signe INVERSE.
+
+Magnitude : le terme vaut `-n x U(nrOfHits_2 coups sur la cible)` la ou l'utilite de paire vaut
+`U(nrOfHits coups)`. Config 1051 : `nrOfHits = 2`, `nrOfHits_2 = 1` -> **un seul ami colle a la
+cible ampute la moitie de la valeur de l'action**, deux l'annulent. Ce n'est pas un biais de rang.
+**AUCUN poids `BC.Utilities` n'intervient** — ce custom-ci n'appelle pas `GetUtilityValue`.
+
+### Ce que le port ajoute, et pourquoi la PREDICTION en fait partie
+
+| Artefact natif | Port |
+|---|---|
+| `StikkbombPlaybook$$MakeDamagePredictions`, entrees de l'event principal | `prediction/abilities.py::_stikkbomb_inputs` (registre `_MAKE_DMG_INPUT_OVERRIDES[1051]`) : **base = `minDmg` SEUL** (`DSLFormulas.Get(0xc)` a le MEME corps que `DSLFormulas.Direct` — meme mold que #173 HellfireShells / #57e GreatFrostAxe) et **hits = `nrOfHits` LITTERAL** (le chemin generique passait par `get_special_hits`, qui AJOUTE la stat `ExtraHits`) |
+| l'appel `GenerateMultiHitAttackPredictions(..., target, <Target>, Get(minDmg), 0x32, ...)`, identique dans les deux faces | `prediction/abilities.py::make_stikkbomb_splash_event` — **un seul foyer**, consomme par les DEUX faces du playbook |
+| la boucle `!IsFriend` de `MakeDamagePredictions` | `StikkbombPlaybook.make_damage_predictions` : `events + [ev] * n_ennemis_adjacents` |
+| la boucle `IsFriend` + negation de `CalculateCustomUtility` | `StikkbombPlaybook.calculate_custom_utility` : `-n_amis_adjacents * U(ev)` |
+
+La face PREDICTION n'est pas un « pendant que j'y suis » : sans elle l'utilite de paire offline ne
+peut pas etre confrontee a la native (base avg au lieu de minDmg), et le bras `foe` de l'A/B ferait
+diverger le moteur pour une raison etrangere au custom. C'est le MEME artefact natif, lu au meme
+call-site.
+
+### Validation — A/B causal live, 7 bras
+
+`probe_27_4f_stikkbomb_ab.py --build --engine` (board MC1_67, seed 909, `--armor-target 3000`),
+garde `tests/engine/test_stikkbomb_decision_live.py`. Caster en (3,4) ; deux cibles a distance 2 et
+distantes de 4 : T_high = astraOrdnance (pair 16.041060), T_low = necroWarden (pair 12.262825) ;
+les appats AMIS occupent des voisins de la cible visee, tous a distance 3 du caster et 5 de l'autre
+cible (ils ne changent l'adjacence d'aucune autre entite).
+
+| bras | montage | natif | moteur | custom moteur (T_high / T_low) |
+|---|---|---|---|---|
+| n=0 | aucun ami adjacent | 1051 -> T_high | idem | 0 / 0 |
+| n=1 | 1 ami sur T_high | 1051 -> **T_low** | idem | **-8.020530** / 0 |
+| n=2 | 2 amis sur T_high | 1051 -> T_low | idem | **-16.041060** / 0 |
+| bal1 | 1 ami sur CHAQUE cible | 1051 -> T_high | idem | -8.020530 / -6.131413 |
+| bal2 | 2 amis sur T_high, 1 sur T_low | 1051 -> **T_low** | idem | -16.041060 / -6.131413 |
+| ally-far | les 3 amis repartent loin | 1051 -> T_high | idem | 0 / 0 |
+| foe | 1 ENNEMI (pas un ami) adjacent a T_high | 1051 -> T_high | idem | 0 / 0 |
+
+- **EXERCICE PROUVE** : le natif emet `ActiveAbilityMessage(1051)` dans les SEPT bras. Le probe
+  echoue explicitement sinon — et c'est arrive : avec le greffon `orksKillaKan` (arme Projectile
+  r3) le natif jouait son attaque normale partout (`pair69 = 59.94` contre `pair1051 = 28.88`), les
+  sept bras « d'accord » sans rien mesurer. D'ou le greffon MELEE a arme `Physical` (PiercingRatio
+  1) + `--armor-target` : la normale tombe a `pair69 = 0` et 1051 (Blast, PiercingRatio 15) reste.
+- **Confond de prediction MESURE et NUL** : les six `pairUtility` natives sont BIT-IDENTIQUES sur
+  tous les bras ou seuls des AMIS bougent (un ami n'ajoute aucun event ; seul un ENNEMI en ajoute,
+  cf. bras `foe`).
+- **FORME LINEAIRE prouvee sans recalibrer quoi que ce soit** : ce sont les bras DESEQUILIBRES qui
+  tranchent. `bal1` (1 ami de chaque cote) reste sur T_high — les deux modeles le predisent, c'est
+  le controle. `bal2` (2 amis sur T_high, 1 sur T_low) bascule sur T_low : un terme BOOLEEN
+  (« au moins un ami adjacent ») aurait donne `16.041 - 8.021 = 8.021` contre `12.263 - 6.131 =
+  6.131` et serait reste sur T_high. Encadrement sans fitting : `U1(T_high) > 3.7782` (n=1 bascule)
+  et `U1(T_high) - U1(T_low) < 3.7782` (bal1 ne bascule pas).
+- **Deux contre-epreuves** : custom force a 0 -> le moteur reste sur T_high et DIVERGE du natif ;
+  playbook retire du registre -> meme divergence. Le terme ET son enregistrement sont NECESSAIRES.
+- Garde offline du SOUS-SET (qui compte, qui ne compte pas, ancrage) : `probe_custom_utility_27.py`.
+
+### Porteur : summon amene par son summoner, mais jamais activable — d'ou la GREFFE
+
+Les deux seuls porteurs de 1051 sont `orksOrkBoys` (SUMMON) et `orksNpc2OrkBoy` (npc). Le summon a
+bien un invocateur — `Waaagh` (1058, `constants.unitId = orksOrkBoys`), porte par `orksWarboss`
+[lineup, **present dans `--list-pool`**] — et la voie a ete conduite jusqu'au bout (runner 189) :
+
+- `orksWarboss` caste `Waaagh` sur un ennemi a portee 3 (l'ability exige `TargetIsEnemy` **et**
+  `CasterHasNotMoved` : deplacer le Warboss avant le cast le refuse) ;
+- un `Ork Boy` apparait bien dans MON equipe avec `Stikkbomb(1051) [pret]` ;
+- mais il **n'entre jamais dans la liste « A ACTIVER »** du harnais arene, et `aiDryRunAllUnits` ne
+  rend pour lui que `FinishUnitTurnMessage` — au tour du spawn comme aux tours suivants ; au
+  premier tour adverse joue, l'IA le tue (`u81->u119 KILL`).
+
+Pas de verite de reference par cette voie ⇒ **GREFFE** de l'ability sur `orksRuntherd` (recette
+`case-92` §5bis). Le natif PROUVE que le code exerce est bien `StikkbombPlaybook` en emettant
+`ActiveAbilityMessage(1051)`. **Debloqueur nomme** du verrou lui-meme : donner une activation aux
+summons dans le harnais arene (c'est le meme etage que le refus `buildNormalizedBC` des summons,
+`case-92` §5bis).
+
+### Non couvert (nomme, pas masque)
+
+- **Ce que la greffe ne couvre pas** : stats, traits et armes du VRAI porteur. Ici la formule custom
+  ne lit ni stat ni trait du caster (elle lit la config de l'ability et l'etat du board), mais elle
+  passe par une PREDICTION DE DEGAT, qui, elle, lit les stats du caster. L'accord natif<->moteur
+  reste valide (les deux voient le MEME greffon), la generalisation aux stats de l'Ork Boy ne l'est
+  pas.
+- **Regime « caster buffe »** : `Waaagh` accorde `Waaagh_ExtraHits` aux Orks. Le port pose desormais
+  le littéral `nrOfHits` (mirror du `GetNumberConstant` natif) au lieu de `get_special_hits` — mais
+  le greffon n'a PAS d'ExtraHits, donc la branche ou les deux divergent n'est **pas exercee live**.
+- **Unites NEUTRES** (ni `ctrl` ni ennemi du canal `decisionView`) : le natif les compterait comme
+  non-amies (donc dans `MakeDamagePredictions`), le port ne les voit ni dans `ctx.fpos` ni dans
+  `ctx.epos`. Aucun montage connu n'en produit a portee.
+- **La face COMBAT est inchangee** : elle etait deja portee et validee (#213 friendly-fire,
+  `stikkbomb_tree`). Cette tranche ne touche que la face DECISION.
+- **1142 MalleusRocketLauncher et 1098 PlasmaGrenade restent des residus** : ils partagent le patron
+  mais gardent leur verrou PROPRE (MoW non modelisee comme unite de decision pour 1142 ; summon SANS
+  invocateur pour 1098). Le patron, lui, est desormais porte et outille.
 
 ## Deja couverts (hors #27)
 
@@ -644,7 +803,7 @@ natif (`aiDryRunAllUnits`, read-only, per-unite) une fois les autres etages veri
 (une seule entree bascule la condition, geometrie et paires FIGEES) donne le signe, la condition
 exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
-## PORTES (6) — `engine/playbook/loki_custom.py`
+## PORTES (8) — `engine/playbook/loki_custom.py`
 
 | Ability (id) | VA | Formule mirroir | Poids (seed-bc) | Porteur | Validation |
 |---|---|---|---|---|---|
@@ -659,8 +818,13 @@ exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
 | **SavageEchoes** (1230) | @1811586d0 | `GetRegenerateCondition(ability).Evaluate(entities) ? 0 : W` — la condition est `DSLFactory.HealthPctIsBelowOrEqual(caster@0x160, ConfigConst(0x4f = healthPct))` = `StatPercentageIsBelowOrEqualAbilityTrigger(caster, Health=5, thr)`, dont `ShouldTrigger` compare le **RATIO** `GetStat(u,stat,0)/GetStat(u,stat,2)` a `thr/100` (PAS un pourcentage arrondi). Terme CONSTANT sur (tuile, cible), variable avec les PV du CASTER. | `SavageEchoes_DislikesAboveHealthPct` = **-10** ; seuil `SavageEchoes.constants.healthPct` = **50** | bloodTerminator `Cezare` [lineup, HORS catalogue seed BC -> amene par `catalog_inject.py --units bloodTerminator`] | **A/B causal live** (`probe_27_3_savage_ab.py`, board MC1_67, caster (4,8) / cible (5,8) FIGES, `--hp-target 60000 --armor-target 4000`) : les DEUX `pairUtility` natifs sont BIT-IDENTIQUES entre les bras (6.3564547803252935 / 12.049598339945078) -> confond de prediction MESURE et NUL ; seul le PV% du caster varie. 100 % -> natif **69**, moteur **69** ; 49.64 % -> natif **1230**, moteur **1230**. Contre-epreuve custom=0 : moteur **1230 dans les DEUX bras** -> terme NECESSAIRE. |
 
-Les sept HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
+| **Stikkbomb** (1051) | `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` | `-n x U(pred(CIBLE, base = Get(minDmg), hits = GetNumberConstant(0x32 = nrOfHits_2), profil config))` ou `n` = nb d'AMIS du caster (caster INCLUS) adjacents a la CIBLE. Sous-set = arbre DSL `AdjacentUnits(Target, unique:1, sel:3)` **partage avec la face COMBAT**, filtre par un `IsFriend` IMPERATIF. Chaque membre produit une prediction sur la **CIBLE PRINCIPALE**, pas sur lui-meme (4e arg du `GenerateMultiHitAttackPredictions` = `target`, lu a l'assembleur). Terme INDEPENDANT de la tuile d'attaque. | **aucun poids BC** (ce custom n'appelle pas `GetUtilityValue`) ; `nrOfHits_2` = 1, `nrOfHits` = 2 | orksOrkBoys [SUMMON de `Waaagh`/orksWarboss ; amene mais **jamais activable en arene** -> GREFFE sur `orksRuntherd`, `case-92` §5bis] | **A/B causal live** (`probe_27_4f_stikkbomb_ab.py`, board MC1_67, seed 909, `--armor-target 3000`), **7 bras**, moteur = natif dans les 7 ; 6 `pairUtility` natives BIT-IDENTIQUES sur tous les bras amis ; linearite prouvee par bras DESEQUILIBRES ; deux contre-epreuves DIVERGENTES. Detail en §TRANCHE 4d. |
+
+Les huit HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
 terme custom (la prediction est deja assuree par `prediction.py`, ecarts de degat = hors perimetre).
+**Exception assumee : Stikkbomb (1051)**, dont la prediction est portee DANS la meme tranche —
+`MakeDamagePredictions` et `CalculateCustomUtility` y sont litteralement le meme corps avec
+`IsFriend` inverse, et sans la face prediction l'A/B ne serait pas interpretable (cf. §TRANCHE 4f).
 
 ### Notes de fidelite du port HeavyWarpFlamer (tranche 4)
 
@@ -814,7 +978,7 @@ re-derouler la recon : elle part d'ici.
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
 | 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** (face DECISION) | MoW absentes de `decisionView.units` / `attackPlans` (pas de PositionComponent) -> jamais feedees a `_best_attack` — **confirme live runner 336** : `observeBattle.mows` = 2 machines, `aiDryRunAllUnits` ne propose rien pour elles. Debloqueur : modeliser les MoW comme unites de decision (position derivee de `MachineComponent.Position`). NB : la face **COMBAT** de 1169 est portee et validee par **#90** — c'est bien le seul volet DECISION qui manque |
 | 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom |
-| 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **et** MalleusRocketLauncher (1142) — playbook PARTAGE | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] ; astraOrdnanceBattery [MoW] | summon + MoW | **residu** | `MalleusRocketLauncherAbility.GetAdditionalTargets` (DSL) + `TargetsSelector.SelectUniqueUnits(3)` + `GenerateMultiHitAttackPredictions` sur les AMIS touches (penalite tir ami, resultat NEGE) |
+| 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **et** MalleusRocketLauncher (1142) — playbook PARTAGE | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] ; astraOrdnanceBattery [MoW] | summon + MoW | **PORTE pour 1051** (#27-4f) ; 1142 reste **residu** (verrou MoW) | — pour 1051 (le sous-set = `AdjacentUnits(Target)` filtre par `IsFriend`, et chaque membre produit une prediction sur la CIBLE PRINCIPALE : lu au decompile puis a l'assembleur, confirme live). Porteur summon amene par `Waaagh` mais jamais activable en arene -> GREFFE (`case-92` §5bis) |
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian | summon **sans invocateur** (aucune ability du gameconfig ne le summon) | **residu / non confrontable** | invocateur inexistant -> non amenable en bataille ; + `GenerateMultiHitAttackPredictions` |
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
@@ -828,12 +992,16 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 12** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212, **1100**.
+- **PORTES / couverts : 13** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
+  1100, **1051**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 5** — 1169, 1148, 1051/1142, 1098, 1053.
+- **Residus a debloquer : 5** — 1169, 1148, **1142**, 1098, 1053. Le couple « 1051/1142 » de la
+  tranche 3 est SCINDE : 1051 est PORTE (#27-4f) et 1142, qui partage son playbook, n'est plus
+  retenu que par le verrou MoW (verrou 1) — son terme custom est desormais porte et outille.
   (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
-  **1185 porte — #27-4c** ; **1212 porte — #27-4d** ; **1100 porte — #27-4e**.)
+  **1185 porte — #27-4c** ; **1212 porte — #27-4d** ; **1100 porte — #27-4e** ;
+  **1051 porte — #27-4f**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -905,7 +1073,16 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
    `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
    `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
    (1230), necroChronomancer (1226) et spaceWolfPriest (1212).
-4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098.
+4. ~~**`GenerateMultiHitAttackPredictions` sur un sous-set de cibles**~~ — **VERROU LEVE (tranche
+   4f)**, cf. §TRANCHE 4f. Le sous-set est un arbre DSL **deja porte par la face COMBAT**
+   (`AdjacentUnits(Target)`) filtre par un `IsFriend` IMPERATIF, et chaque membre produit une
+   prediction sur la **CIBLE PRINCIPALE** (lu a l'assembleur, confirme live : +8.0282 sur la paire
+   de la cible, contre 0.5504 attendus si l'event portait sur le voisin). **1051 est PORTE et
+   valide live** (7 bras, linearite prouvee par bras desequilibres, deux contre-epreuves).
+   Ce qui reste derriere ce patron n'est plus le patron mais le PORTEUR :
+   - **1142 MalleusRocketLauncher** — meme playbook, mais porteur MoW -> verrou 1 ;
+   - **1098 PlasmaGrenade** — playbook DISTINCT (`PlasmaGrenadePlaybook`, meme mold) et porteur
+     `eldarSmnGuardian`, summon SANS invocateur -> greffe possible, non faite (hors perimetre 4f).
    (AmuletOfTheVoidwyrm y figurait au titre du « corps partage avec 1098 » — **retire par #218**,
    ce partage n'existait pas.)
 5. **Evaluateurs manquants** : composite `UtilityAttackCase.Base` (1004), DSL de forme
