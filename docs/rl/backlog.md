@@ -1124,6 +1124,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   - **`WeaponHighestHits` vs arme normale** : le port passe `UnitContext.normal_weapon_hits` là où le
     natif lit `WeaponHighestHits(weapon de l'ability)`. Les 5 porteurs du trait `Mechanic` ont des armes
     homogènes (`[1,1]`, `[2,2]`, `[5]`, `[4]`, `[3]`) → **indiscriminable** en l'état.
+    ⚠ **Le FACTEUR, lui, est désormais MESURÉ (#299)** : `necroSpyder` (arme à **5** coups) restaure
+    live `10457` = `Attack 1205 × 5` + `4432` de `FabricatorClawArray` — un port qui aurait oublié le
+    `× hits` rendrait `1205`. Ce qui reste indiscriminable est la SOURCE du nombre de coups (arme de
+    l'ability vs arme normale), pas la présence du facteur.
 - ~~**#298 — « le rail de DÉCISION de la réparation n'est jamais atteint »**~~ — **FERMÉ le
   2026-07-30 par MESURE : le rail EXISTE et l'IA propose la réparation**
   (`docs/rl/case-298-repair-decision-rail.md`). Rail = `ActiveAbilityActionGenerator` sur
@@ -1136,16 +1140,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   prédiction ; cible blessée → **1119** proposé (`admecManipulus`) ou **28** (`admecDominus`) ;
   cible blessée non mécanique → **0**. Probe `probe_298_repair_rail.py`, fixture `repair_stage`,
   tests `tests/engine/runner/test_repair_decision_rail_live.py`.
-  **RÉSIDUS OUVERTS, tous les deux OFFLINE** (le natif est correct) :
-  * **`28 Repair` DÉCIDE sans EXÉCUTER** — présent dans `engine.playbook.base.REGISTRY`, absent
-    d'`ABILITY_CLASSES` ⇒ cast accepté, tour consommé, **zéro soin**. Porteurs HERO du pool :
-    `admecDominus`, `necroSpyder`, `orksBigMek`. `[opus]`
-  * **`1119 Repair_GalvanicField` absent des DEUX registres** — l'IA portée ne le propose même pas,
-    et un replay du message natif est un no-op silencieux. Porteur : `admecManipulus`. `[opus]`
+  **RÉSIDUS — les DEUX sont FERMÉS le 2026-07-30 par #299**
+  (`docs/rl/case-299-repair-execution.md`) :
+  * ~~**`28 Repair` DÉCIDE sans EXÉCUTER**~~ — **FERMÉ**. `IdunBattle.Operations.RepairUnitOperation$$Execute`
+    porté (`engine/runner/operations/repair.py`), `RepairAbility` au registre COMBAT. Confronté live :
+    `admecDominus` **+5022 natif == +5022 port**.
+  * ~~**`1119 Repair_GalvanicField` absent des DEUX registres**~~ — **FERMÉ**. Au registre COMBAT avec
+    son masque `0x8002` et son `AbilityAttackType.Others` (le CLIQUET, posés dans le MÊME commit) ;
+    volet attaque porté sur le patron `TheQuickening`. Confronté live : `admecManipulus`
+    **+5024 natif == +5024 port**.
   * **Correction d'inventaire** : `port-residuals-inventory.md` classait `28 Repair` « dormant par
     construction, hors périmètre » ; c'est faux. Corollaire de méthode : **l'absence d'un id dans
     les `abilities` du gameconfig ne prouve pas qu'il est dormant** — balayer aussi les abilities
-    dérivées de traits.
+    dérivées de traits. *(Fait : la ligne d'inventaire est barrée, et la mention
+    `RepairMachineOperation` — qui **n'existe pas** dans ce build — est signalée comme supposition.)*
+  * **RÉSIDU NEUF ouvert par #299 (N20)** : **`FabricatorClawArray`**, le passif du `necroSpyder`, est
+    une TRIGGERED `On(0x1c = ArrivedAtFinalTile) & OwnerIsActor` qui `Repair(Owner, …,
+    ConfigVar(hpToRepair))` — donc toute active du Spyder (qui TERMINE son tour) déclenche une
+    SECONDE réparation. Mesuré sans saturation : natif **10457**, port **6025**, écart **4432 =
+    `hpToRepair[50] 2216 × mult 200 %`**, entièrement expliqué. Biais UNILATÉRAL (le port
+    sous-répare). `[opus]`
 - ~~**#278 — le canal `repair_prediction` n'a jamais été confronté à une réparation MESURÉE**~~ —
   **FERMÉ le 2026-07-30 : le canal est CONFORME sur les VALEURS, pas seulement sur la forme**
   (`docs/rl/case-278-repair-prediction-values.md`). Le décodage était livré (`33292bc4` : deux
@@ -1163,8 +1177,15 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **RÉSIDUS NOMMÉS, hors périmètre de cette fermeture** : l'étage `Fix64(bonus+amount)*Fix64(mult)`
   est traversé mais NEUTRE sur les deux porteurs mesurés ; branches `scope==1`
   (`GetGroupUnitHealLimit`) et `IsBoss(target)` jamais empruntées ; **`PredictArmorRestore` est MORT
-  dans ce build** (`method not found`, `ArmorRestorePredictionResult` disparu) ; la face EXÉCUTION
-  côté **Python** reste non portée (résidu #299) — le contrôle d'exécution mesure le NATIF.
+  dans ce build** (`method not found`, `ArmorRestorePredictionResult` disparu) ; ~~la face EXÉCUTION
+  côté **Python** reste non portée (résidu #299)~~ — **#299 l'a portée le 2026-07-30**
+  (`case-299-repair-execution.md`) : `RepairUnitOperation$$Execute` + les abilities 28/1119 au
+  registre COMBAT, confrontées live (`+5022` et `+5024`, natif == port). Les deux autres résidus de
+  cette ligne se recoupent avec ce qui y a été mesuré : l'étage `Fix64(bonus+amount)*Fix64(mult)`
+  reste NEUTRE sur les porteurs mesurés (le seul bonus de réparation rencontré, `FabricatorClawArray`,
+  ne passe PAS par le `RepairModifier` mais par une TRIGGERED distincte, cf. N20), et les branches
+  `scope==1` / `IsBoss(target)` restent inempruntées (`ForRepair` pose `scope = 0` ; `IsBoss` lit
+  `UnitComponent+0x88`, hors substrat).
 - **#276-r1 — décodeur hooks `decodeRepairDict` (CONFIRMÉ par lecture, exige un reinject)** ⚠ **canal
   DISTINCT de celui que #278 vient de fermer** — `ai-step/playbook-predict.ts`, pas
   `ai-trace/predictions.ts` ; l'un n'a pas corrigé l'autre : il lit

@@ -81,6 +81,7 @@ from .spacewolves import GreatFrostAxeAbility, FoehammerAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility, FearOfTheUnseenAbility
 from .worldeaters import JakhalStimmsAbility, MurderousSwingAbility
 from .admec import SentinelDirectivesAbility, RadBombardmentAbility
+from .repair import RepairAbility, Repair_GalvanicFieldAbility
 from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility,
                              FragBombAbility, BasiliskBarrageAbility)
@@ -200,6 +201,12 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- case-decision-noop : gisement `[-D]` (la DECISION choisit, l'EXECUTION etait un NO-OP). ---
     # --- #287 : face COMBAT de SorcerousFacade, dont la face DECISION etait deja portee (#27-4e).
     SorcerousFacadeAbility.ABILITY_TYPE: SorcerousFacadeAbility,       # 1100 (thousTzaangor « Yazaghor » ThousandSons : cast sur un ALLIE Psyker -> AddEffect(1204 SorcerousFacade_AdditionalHits -> Caster + Target, TurnsFromRounds(1)) & UseActiveAbility(attaque NORMALE dirigee sur `sel` = l'ENNEMI le plus proche de `ValidNormalAttackTargets`) & KillDeadUnits(Caster, sel) & TriggerAbilityDelayed(Owner, 1180 SorcerousFacade_Switch, 3) -> SwitchPosition(Caster, Target) ; masque 0x402 MIGRE depuis `TARGETING_OPTIONS_UNPORTED`)
+    # --- #299 : REPARATION REGULIERE. La face DECISION etait complete (#296/#298 : enumeration,
+    # ciblage, prediction, choix IA) et la face COMBAT etait un NO-OP -- cast accepte, tour consomme,
+    # ZERO PV restaure. Les deux ids sont EXACTEMENT
+    # `idun...StaticBattleRules.ActiveAbility$$IsRegularRepair`.
+    RepairAbility.ABILITY_TYPE: RepairAbility,                         # 28 (ability DERIVEE du trait `Mechanic`, donc ABSENTE du gameconfig et multi-factions : admecDominus / admecManipulus / necroSpyder / orksBigMek / votanIronmaster ; `Repair(Caster, ActiveTarget, Attack x Max(WeaponHighestHits,1), ForRepair)` -> `RepairUnitOperation`)
+    Repair_GalvanicFieldAbility.ABILITY_TYPE: Repair_GalvanicFieldAbility,  # 1119 (admecManipulus, passif `GalvanicField` : la reparation HERITEE de 28 & volet attaque -- AddStatOverrideEffect(1242 ATTACK = Min(maxDmg, Attack_Initial x dmgPct)) & PerformAIAttackFromCurrentPosition & RemoveEffect, patron TheQuickening)
     DakkaDakkaDakkaAbility.ABILITY_TYPE: DakkaDakkaDakkaAbility,       # 1171 (orksKillaKan « Snappawrecka » Orks : Min(nrOfHits + TimesRepaired*extraHits, maxNrOfHits) coups Projectile ranged sur la cible & If(NumLeftOverHits(cible), attaque des coups GASPILLES repartis (Divide Floor + reste a la 1re) sur PickRandomly(Damageable(Unobscured(SurroundingEnemies(caster, range_2))), RandomAmount(1, Min(numLeft, Count))) ) & If(IsAlive(caster), ChangeStat(caster, Health, Subtract, PercentageOf(StatAmount(caster, Health, MAXIMUM), healthPct))))
 }
 
