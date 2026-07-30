@@ -14,7 +14,7 @@ import path from "path";
 import { openLog, appendLog, closeLog } from "./logger.js";
 import { publish } from "./ws.js";
 import { routeMessage } from "./router-messages.js";
-import { pruneRunnersBySession } from "./battle-store.js";
+import { pruneRunnersBySession, removeRunner } from "./battle-store.js";
 import {
     acquireSlot, releaseSlot, noteDispatch, noteSettle, concurrencyFactor,
 } from "./rpc-queue.js";
@@ -328,12 +328,45 @@ export async function rpcCall(
                     `RPC timeout after ${effTimeout}ms (base ${timeout}×${factor})`));
             }, effTimeout);
         });
-        return await Promise.race([call, timeoutP]);
+        const out = await Promise.race([call, timeoutP]);
+        noteRunnerDeath(method, callArgs);
+        return out;
     } finally {
         if (timer) clearTimeout(timer);
         noteSettle(id, Date.now() - dispatchedAt, timedOut);
         releaseSlot(id);
     }
+}
+
+/**
+ * SYMETRIQUE de la porte de drain (#321) : le host apprend la MORT d'un runner
+ * en relisant la RPC qui vient de reussir.
+ *
+ * Pose ICI, dans `rpcCall`, pour la MEME raison que `assertCreationAllowed` :
+ * c'est le point de passage unique. Les agents disposent par
+ * `POST /api/scripts/:id/rpc` (passe-plat generique), le front par
+ * `DELETE /api/runners/:id`, et certaines routes appellent `rpcCall` en interne
+ * — une regle posee au niveau des routes en manquerait la majorite. C'est
+ * exactement ce qui manquait : la CREATION s'inferait toute seule (premier
+ * `battle_event`), la MORT n'etait cablee nulle part sur ce chemin, et le cache
+ * host derivait sans borne (mesure : 318 entrees pour 0 runner vivant, ids
+ * 1..318 sans aucun trou). Cf. l'en-tete de `battle-store.ts`.
+ *
+ * On purge que la RPC ait rendu `{removed:true}` ou `{removed:false}` : un
+ * `false` signifie que les hooks n'avaient DEJA plus ce runner, donc l'entree
+ * host est stale a plus forte raison. Best-effort et silencieux en cas d'echec :
+ * une comptabilite de presentation ne doit jamais faire echouer une RPC reussie.
+ */
+function noteRunnerDeath(method: string, callArgs: unknown[]): void {
+    if (method !== "disposeRunner") return;
+    const a0 = callArgs[0];
+    const rid = a0 && typeof a0 === "object"
+        ? (a0 as { runnerId?: unknown }).runnerId
+        : a0;
+    if (typeof rid !== "number" || !Number.isFinite(rid)) return;
+    removeRunner(rid).catch((e) => {
+        console.log(`[sessions] host registry purge failed for runner ${rid}: ${(e as Error).message}`);
+    });
 }
 
 export function postMessage(id: number, message: unknown): void {

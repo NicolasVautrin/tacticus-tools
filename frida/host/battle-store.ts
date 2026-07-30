@@ -5,6 +5,47 @@
 // string (potentially hundreds of KB) is stripped from the WS broadcast so
 // the browser doesn't get flooded — it fetches via HTTP if needed.
 //
+// ---------------------------------------------------------------------------
+// CE QUE `runners` EST, ET CE QU'IL N'EST PAS (#321).
+//
+// C'est un CACHE host des runners VIVANTS — metadonnees de presentation
+// (configId, dernier message, chemin du dernier dump) pour le panneau du front
+// et pour `/api/runners/:id/latest-state`. Ce N'EST PAS un journal d'audit :
+// une entree qui reste apres la mort du runner est un BUG, pas un historique.
+//
+// L'AUTORITE est le registre des HOOKS (`frida/hooks/game/runner-registry.ts`,
+// map `byId`), et c'est LUI SEUL que `MAX_RUNNERS` gate, aux deux points de
+// creation (`initAndStart` dans `frida/hooks/features/launch.ts`,
+// `buildPatchedRunner` dans `frida/hooks/features/battle-config.ts`). Ce cache
+// ne gate RIEN, ne borne RIEN : le lire comme un compteur de capacite est une
+// erreur de categorie.
+//
+// POURQUOI c'est ecrit noir sur blanc : le 2026-07-31, `GET /api/runners`
+// rendait 306 entrees quand la RPC `listRunners` des hooks en rendait 0, et la
+// lecture « 303 runners vivants pour un cap de 50 » a produit une fausse alerte
+// capacite. Mesure de l'ecart quelques minutes plus tard : 318 cote host vs 0
+// cote hooks, ids 1..318 SANS AUCUN TROU et tous `configId` absent — donc
+// aucune entree n'avait JAMAIS ete retiree, et toutes venaient de
+// l'auto-inference `battle_event` ci-dessous.
+//
+// CAUSE de la derive, corrigee ici : la comptabilite etait ASYMETRIQUE. La
+// CREATION s'inferait toute seule (premier `battle_event` d'un runnerId
+// inconnu), la MORT non — le chemin de dispose que TOUS les agents empruntent
+// est la RPC `disposeRunner` via `POST /api/scripts/:id/rpc`, un passe-plat que
+// le host ne relisait pas. Les seuls retraits cablés etaient
+// `DELETE /api/runners/:id` (front), `POST /api/runners/sync` (front, manuel),
+// `pruneRunnersBySession` (mort de session) et le `runner_disposed` emis par
+// `recorder.ts` — qui ne concerne QUE les runners `autoDispose !== false`,
+// c'est-a-dire jamais ceux des agents RL. La symetrie est retablie dans
+// `rpcCall` (`host/sessions.ts`), au MEME point de passage unique que la porte
+// de drain, et un reconciliateur periodique (`host/runner-reconcile.ts`) rattrape
+// tout chemin de mort qui apparaitrait plus tard.
+//
+// COUT MESURE de la derive (2026-07-31), au cas ou elle serait relue comme
+// cosmetique : 320 repertoires / 1147 fichiers / 455 Mo de dumps matchState
+// sous `frida/logs/runs/`, que `removeRunner` aurait effaces au fil de l'eau.
+// ---------------------------------------------------------------------------
+//
 // The next iteration will parse matchState on receipt and forward only a
 // compact renderState (unit positions, HP, owner) alongside the events.
 
@@ -47,6 +88,19 @@ export function listRunners(): RunnerMeta[] {
     return [...runners.values()].sort((a, b) => b.startedAt - a.startedAt);
 }
 
+/** Taille du cache host. Diagnostic UNIQUEMENT — ce n'est pas une jauge de
+ *  capacite : le cap `MAX_RUNNERS` se lit cote hooks (cf. l'en-tete). */
+export function countRunners(): number {
+    return runners.size;
+}
+
+/** Le cache host connait-il cet id ? Utilise par `DELETE /api/runners/:id` pour
+ *  rapporter honnetement ce qu'il a trouve, la purge nominale ayant desormais
+ *  lieu en amont dans `rpcCall`. */
+export function hasRunner(runnerId: number): boolean {
+    return runners.has(runnerId);
+}
+
 export async function removeRunner(runnerId: number): Promise<boolean> {
     if (!runners.has(runnerId)) return false;
     runners.delete(runnerId);
@@ -62,11 +116,22 @@ export async function removeRunner(runnerId: number): Promise<boolean> {
 
 /** Drop any host-side runner whose id isn't in `keep`. Used by /api/runners/sync
  * after Frida is relaunched: the hook's in-memory runner registry resets, so
- * host entries tied to vanished runnerIds are stale and their ids must go. */
-export async function pruneRunners(keep: Set<number>): Promise<number[]> {
+ * host entries tied to vanished runnerIds are stale and their ids must go.
+ *
+ * `createdBefore` FERME LA COURSE, et ce n'est pas theorique : `keep` est une
+ * PHOTO du registre des hooks prise a un instant T, mais un autre agent peut
+ * creer un runner a T+e et le host en apprendre l'existence (via `battle_event`)
+ * avant que la purge ne s'execute. Sans borne, ce runner tout neuf — absent de
+ * la photo parce qu'il n'existait pas encore — serait purge, et ses dumps
+ * effaces sous les pieds de son proprietaire. On ne purge donc QUE les entrees
+ * enregistrees AVANT la photo. Appelants : passer l'horodatage pris juste avant
+ * l'appel `listRunners` des hooks. */
+export async function pruneRunners(
+    keep: Set<number>, createdBefore = Number.POSITIVE_INFINITY,
+): Promise<number[]> {
     const removed: number[] = [];
-    for (const id of [...runners.keys()]) {
-        if (!keep.has(id)) {
+    for (const [id, meta] of [...runners.entries()]) {
+        if (!keep.has(id) && meta.startedAt < createdBefore) {
             await removeRunner(id);
             removed.push(id);
         }

@@ -10,6 +10,7 @@ import { initConfigStore } from "./config-store.js";
 import { initBattleStore } from "./battle-store.js";
 import { initAiTraceStore, closeAiTraceStore } from "./ai-trace-store.js";
 import { postMessage, restoreSessions, stopAllPreservingState } from "./sessions.js";
+import { startRunnerReconciler } from "./runner-reconcile.js";
 import { findPidByExePath } from "./admin.js";
 import { registerHandler } from "./router-messages.js";
 
@@ -99,6 +100,11 @@ registerHandler("crash_diag", ({ sessionId, payload }) => {
     }
     console.log("  ======================\n");
 });
+
+// Filet #321 : converge le cache host des runners vers le registre des hooks
+// (l'AUTORITE). Le chemin nominal est deja ferme dans `rpcCall` ; ce timer ne
+// rattrape qu'un chemin de mort non cable. Ne purge JAMAIS sur mesure absente.
+startRunnerReconciler();
 
 server.listen(PORT, "127.0.0.1", async () => {
     console.log(`[host] listening on http://127.0.0.1:${PORT}`);
