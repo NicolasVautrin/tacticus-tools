@@ -65,8 +65,9 @@ Statut de portage (cf. docs/rl/playbook-engine.md §13.8/§13.14 et docs/rl/case
   (`occupant_is_powerup`, `door`, `attract_mechanicals_neighbor`, `movetowards_hexdist`, …), qu'AUCUN
   RPC ne remonte à ce jour. `is_territory` fait exception : il est plombé, mais vaut `False` partout
   tant que la BC n'est pas en ruleset Territories (mesuré : 0 tuile territoire sur les seeds arène).
-- NON portées comme simples leaves : RangedAdjacentEnemy(15)=0 dans Default ; TriggeredAbilitiesNonOwner(4)/
-  UnitSpecificBehaviours(3) = dispatchers restants du moteur Playbook (séparé).
+- NON portées comme simples leaves : RangedAdjacentEnemy(15)=0 dans Default ;
+  UnitSpecificBehaviours(3) = dispatcher restant du moteur Playbook (séparé).
+  TriggeredAbilitiesNonOwner(4) est PORTÉE depuis #271 (`engine/playbook/non_owner.py`).
 """
 from __future__ import annotations
 
@@ -682,6 +683,58 @@ class TriggeredAbilitiesUtility(BaseUtility):
         return total
 
 
+class TriggeredAbilitiesNonOwnerUtility(BaseUtility):
+    """`TriggeredAbilitiesNonOwnerUtility` (`IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$.ctor` ;
+    UtilityType.TriggeredAbilitiesNonOwner=4) — le dispatcher JUMEAU de `TriggeredAbilities(2)`,
+    mais pris À L'ENVERS : ce sont les abilities déclenchées des **AUTRES** unités qui pèsent la
+    tuile candidate du mover. Poids dans la catégorie SÉPARÉE
+    `Utilities.Default.TriggeredAbilitiesNonOwner`. Concrets : `engine/playbook/non_owner.py`.
+
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateMovementInStepsu003Ed__0$$MoveNext` :
+
+        Fix64 total = 0;
+        if (case.unit == null && case.parent == null) { yield 0; return; }
+        foreach ((playbook, owner) in IterateAbilities(case))
+            total += playbook.CalculateMovementUtilityInSteps(case, owner);   // Σ des steps
+        yield total;
+
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CIterateAbilitiesu003Ed__3$$MoveNext` :
+    pour CHAQUE `TriggeredAbility` de la bataille, `case.unit == ability.Owner` ⇒ skip (self exclu),
+    `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner(ability.Type)` (null ⇒ skip), puis
+    `<slot 4> || IsFriend(case.unit ?? case.parent, ability.Owner)` ⇒ yield `(playbook, owner)`.
+
+    ⚠ Le pré-gate `<slot 4>` n'est PAS porté (corps trivial fondu par l'ICF, sans symbole) : il est
+    TRANSPARENT pour le seul playbook enregistré, qui re-teste `IsFriend` lui-même. Détail et
+    résidu nommé : docstring de tête de `engine/playbook/non_owner.py`.
+
+    ⚠ RÉGIME SPAWN (`case.unit == null`, `case.parent != null` — call-site
+    `SortTilesByUtilityForSummon`, case-205) : le natif ITÈRE quand même, avec le PARENT comme
+    sujet de `IsFriend` et SANS exclusion de self. Le `ctx` de ce foyer ne produit alors AUCUNE clé
+    d'unité (`runner_tile_leaf_ctx` rend `{"is_spawning": True}` seul) ⇒ la feuille rend 0. RÉSIDU
+    NOMMÉ, identique à celui des autres feuilles gatées sur le sujet : porter ce régime demande
+    d'abord un `ctx` de spawn peuplé."""
+    UTILITY_TYPE = int(UtilityType.TriggeredAbilitiesNonOwner)  # 4
+
+    def evaluate(self, tile, meta, ctx, wt) -> float:
+        ctx = ctx or {}
+        if ctx.get("is_spawning"):        # sujet ABSENT : le `ctx` de spawn ne porte aucune unité
+            return 0.0
+        from ..playbook.non_owner import load_playbook_non_owner
+        total = 0.0
+        # `friend_units`/`enemy_units` sont déjà SELF-EXCLUS : c'est exactement le
+        # `if (case.unit == ability.Owner) continue` du natif. Les deux listes sont parcourues (le
+        # natif itère TOUTES les TriggeredAbility de la bataille, pas seulement celles des amis) ;
+        # `is_friend` est l'argument que chaque playbook consomme.
+        for units, is_friend in ((ctx.get("friend_units") or (), True),
+                                 (ctx.get("enemy_units") or (), False)):
+            for u in units:
+                for ab in (u.get("triggered") or ()):
+                    pb = load_playbook_non_owner(ab)
+                    if pb is not None:
+                        total += pb.calculate_movement_utility_in_steps(tile, u, is_friend, ctx, wt)
+        return total
+
+
 # ── Registry : UtilityType -> (name, instance|None). None => délégué/non-portable comme simple leaf. ──
 #
 # CLES = MEMBRES `UtilityType`, JAMAIS des litteraux (#254). Elles etaient numeriques ; #158 avait
@@ -720,23 +773,17 @@ TILE_LEAVES: dict[int, tuple] = {
     UtilityType.SaviorProtocols: ("SaviorProtocols", SaviorProtocolsUtility()),
     UtilityType.BioMinefield_MoveTowardsTarget: ("BioMinefield_MoveTowardsTarget", BioMinefield_MoveTowardsTargetUtility()),
     UtilityType.MasterOfTheTutelaries_MoveTowardsTarget: ("MasterOfTheTutelaries_MoveTowardsTarget", MasterOfTheTutelaries_MoveTowardsTargetUtility()),
-    # --- Dispatcher playbook PORTÉ (case-36) : abilities déclenchées de l'unité qui bouge ---
+    # --- Dispatchers playbook PORTÉS : (2) abilities du mover (case-36), (4) abilities des AUTRES (#271) ---
     UtilityType.TriggeredAbilities: ("TriggeredAbilities", TriggeredAbilitiesUtility()),   # face attack : cf. fonction ci-dessous
+    # NonOwner(4) : RE complète depuis #57i, PORTÉE depuis #271 (`engine/playbook/non_owner.py`).
+    # Les 25 clés NonOwner sont des abilities précises (FirstAmongTraitors/ShieldOfFaith/HaywireMine/
+    # NornCrown/KustomForceFieldReworked/...) -> la feuille rend 0 tant qu'AUCUNE unité de la
+    # bataille ne PORTE une ability dont le playbook NonOwner est au registre. Ce N'ÉTAIT PAS la
+    # source des miss #57i (S14 12345 u87 / S16 2468 u79 : aucun ennemi ne portait de NonOwner).
+    UtilityType.TriggeredAbilitiesNonOwner: ("TriggeredAbilitiesNonOwner", TriggeredAbilitiesNonOwnerUtility()),
     # --- NON portées comme simples leaves ---
     UtilityType.RangedAdjacentEnemy: ("RangedAdjacentEnemy", None),  # =0 dans le profil Default (BC HasAdjacentEnemy absent)
-    # 3/4 = dispatchers vers le moteur Playbook (LoadPlaybookNonOwner / behaviours par-unité).
-    # NonOwner(4) RE COMPLETE (#57i) : feuille `TriggeredAbilitiesNonOwnerUtility` (IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility$$.ctor ;
-    # `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CEvaluateMovementInStepsu003Ed__0$$MoveNext` ; enum `<IterateAbilities>d__3.MoveNext
-    # IdunBattle.AI.Utilities.TriggeredAbilitiesNonOwnerUtility.u003CIterateAbilitiesu003Ed__3$$MoveNext` = pour CHAQUE unite non-self, `IdunBattle.AI.PlaybookDatabase$$LoadPlaybookNonOwner` puis yield
-    # (playbook, entity) si `AppliesToFriendly(slot4) || IsFriend` ; famille `AdjacentToOwnerNonOwner
-    # Playbook<T>.<...>IdunBattle.AI.Playbook.AdjacentToOwnerNonOwnerPlaybook.u003CCalculateMovementUtilityInStepsu003Ed__2u003C__Il2CppFullySharedGenericTypeu003E$$MoveNext` : tuile adjacente au PORTEUR -> `GetUtilityValue`
-    # IdunBattle.AI.Playbook.TriggeredAbilityNonOwnerPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GetUtilityValue = config `Default.TriggeredAbilitiesNonOwner[<cle>]`). Les 25 cles NonOwner sont des
-    # abilities LEGENDAIRES precises (FirstAmongTraitors/ShieldOfFaith/HaywireMine/NornCrown/...) ->
-    # la feuille yield 0 tant qu'AUCUNE unite ne PORTE une de ces abilities. Ce N'ETAIT PAS la source
-    # des miss #57i (S14 12345 u87 / S16 2468 u79 : aucun ennemi ne porte de NonOwner) -> le vrai trou
-    # etait la branche ENNEMIS de la feuille (2) TriggeredAbilities (voir adjacent_unit_preference.py).
-    # A porter (feuille propre) quand un case montre une unite portant une ability NonOwner decisive.
-    UtilityType.TriggeredAbilitiesNonOwner: ("TriggeredAbilitiesNonOwner", None),
+    # 3 = dispatcher restant du moteur Playbook (behaviours par-unité).
     UtilityType.UnitSpecificBehaviours: ("UnitSpecificBehaviours", None),
 }
 
