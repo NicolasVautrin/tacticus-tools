@@ -105,20 +105,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **`Lakrimae_LikesNonMechanicalEnemies` (0→5) reste NON PERTINENT** : ses porteurs sont **npc
   uniquement** (Typhus) — hors-jeu, jamais confrontable, à ne pas dispatcher (gate de
   confrontabilité du CLAUDE.md). Le mirror offline seul serait un port invalidable.
-- **⛔ ORACLE DE PRÉDICTION NATIF CASSÉ sur le build `rnca9r7q6c`** (relevé par `#266`, `case-266-moved-flag-prediction.md` §6).
-  Le décodage de `ProbableDamageEvent` / `DamagePredictionResult` est PÉRIMÉ :
-  `aiPlaybookPredict` rend `targetId = null`, `healthDmg{Min,Max} = 0` et un `appliedHits` qui vaut
-  un nombre de PV ; `aiPredict` (`GetAllPredictions`) rend `healthDmg{Min,Max} = 0` avec un
-  `hpBefore` CORRECT. Seuls `targetId`(+0x00) et `hpBefore`(+0x08) sont justes ⇒ la struct a bougé
-  au-delà de +0x08. **Deux tests rouges sur `master` de ce seul fait** (vérifiés patch stashé) :
-  `test_ability_hits_channel_live::test_frenzied_firing_aoe_batch_matches_native` et
-  `test_predict_live::test_normal_attack_prediction_matches_oracle` (11/11 échantillons
-  `oracle=(0, 0)`). **Correctif = côté hooks, donc RÉINJECTION requise** — hors de portée d'un
-  solveur. Points d'ancrage à re-RE contre `IdunBattle.AI.ProbableDamageEvent$$.ctor` :
-  `readDamageEvent` de `frida/hooks/features/ai-step/playbook-predict.ts` (`+0x68/+0x6c` healthDmg,
-  `+0xc4` appliedHits, `+0xc8` probability, stride `0xd8`) et le bloc de lecture de `aiPredict` dans
-  `rpc-predict.ts` (`+0x60/+0x64`). Oracle de substitution utilisable en attendant : `pairUtility`
-  (un seul Fix64, sain) — il donne le SENS, pas la magnitude.
+- ~~**⛔ ORACLE DE PRÉDICTION NATIF CASSÉ sur le build `rnca9r7q6c`**~~ — **CLOS (#276, `864906e5`)**,
+  `case-268-decodeur-prediction-perime.md`. Le décodeur est refait en **un foyer unique**
+  (`frida/hooks/game/damage-prediction.ts`, appelé par les 7 sites qui décodaient chacun de leur
+  côté), chaque offset documenté par la XREF qui le nomme, sous garde en deux étages (taille de
+  classe live + sentinelles de forme). Mesure de fermeture : `aiPredict` rendait `[1, 100]` pour
+  **tout** couple, il rend `[2178, 3267]` sur un coup dont le dégât live vaut **2375** ; les deux
+  tests cités ici et **six autres rouges nommés** sont tombés du même coup (18 verts, 0 skip).
+  ⚠ **Les offsets que cette entrée donnait étaient FAUX, et instructifs** : le stride `0xd8` de
+  `ProbableDamageEvent` valait en réalité **`0xB8`**. `classes.tsv` publie
+  `il2cpp_class_instance_size`, soit la taille **BOXÉE** — header `0x10` de tout `ValueType` inclus.
+  Sur un stride d'itération de `List<T>`, se tromper de 32 octets par élément suffit à rendre du
+  garbage sur **tout événement après le premier**. Ne jamais citer un chiffre de `classes.tsv` sans
+  retirer le header.
 - **Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile** sur certaines configurations
   (`case-224-cursed-plague-bell-extramove` §4). Mesuré en confrontant `aiMovableTiles`
   (`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor`) au pendant offline
