@@ -297,6 +297,285 @@ deforme pas. Le residu que cela laisse est nomme en §Non couvert.
 = `On(0xa) & IsRangedAttack & OwnerIsCaster` et dont le `CreateBehaviour` fait `AddEffect(0x462, ...)`
 sur la cible touchee.
 
+## TRANCHE 4d (2026-07-30) — 1212 `HealingBalms_Heal` : la branche HEAL n'en etait pas une
+
+### Ce que la prémisse annoncait, et ce que le decompile dit
+
+La fiche de tranche 4b rangeait 1212 a part : « `HealingBalms_HealPlaybook` surcharge DEUX choses,
+`ShouldExecute` **et** `MakeHealPredictions` : ce n'est pas une ability sans prediction, c'est la
+branche HEAL avec sa propre chaine de prediction ». **Le decompile courant refute la seconde moitie.**
+
+`IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$MakeHealPredictions` a un corps
+**structurellement identique** a `IdunBattle.AI.Playbook.Common.HealPlaybook$$MakeHealPredictions` et a
+`IdunBattle.AI.Playbook.Loki.TwistedScience_HealPlaybook$$MakeHealPredictions` : memes appels, memes
+arguments —
+
+```
+ability = this+0x18
+if (ability == null || ability.<+0x90> == null) throw;
+targets    = ability.<+0x90>+0x60                       // le MEME selecteur de cibles DSL
+healAmount = IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount(ability)
+return ComparablePlaybook<T>$$GenerateHealPredictions(this, caster, casterTile, target,
+                                                      targets, healAmount, /*scope*/0,
+                                                      /*Nullable<Fix64> proba*/ VIDE, klass)
+```
+
+— seul le type gshared (`klass`) differe. C'est la **recopie imposee par la hierarchie** : le `.ctor`
+de `HealingBalms_HealPlaybook` appelle `ComparablePlaybook<T>..ctor(this, 0x4bc, klass)`, donc la
+classe descend DIRECTEMENT de `ComparablePlaybook<T>` et n'herite pas de `HealPlaybook`. Il n'y a
+aucune chaine de prediction propre a porter : c'est la chaine de soin STANDARD, deja portee.
+
+⚠ **Generalisation** : « la methode est overridee » ne dit rien du comportement tant qu'on n'a pas
+compare les CORPS. Ici trois overrides nommes partagent la meme semantique ; conclure de la seule
+presence du symbole aurait fait forker un second predicteur de soin — exactement la divergence
+structurelle que le protocole interdit.
+
+### Le seul delta : `CalculateCustomUtility`, et il est MULTIPLICATIF
+
+`IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$CalculateCustomUtility` :
+
+```
+x = Fix64(0)
+if (!EntityExtensions$$HasEffect(target, state, 0x5df, onlyActive:0)) {
+    foreach (ev in <vtable +0x368 = MakeHealPredictions>(caster, casterPosition.MainTile,
+                                                        target, abilityState))
+        x += Playbook<T>$$CalculateUtilityFromHealEvent(ev, caster, casterPosition)
+}
+return Fix64.FastMul(x, Fix64.<statics+0x30>)
+```
+
+Deux faits qu'il faut LIRE, pas deduire :
+
+1. **`Fix64.<statics+0x30>` = `Half`.** `FixMath.NET.Fix64$$.cctor` ecrit ce slot avec
+   `op_Division(0x100000000, 0x200000000)` = `One / 2`. (Reperes du meme cctor, qui datent la lecture :
+   `+0x20` = `One` = `0x100000000`, `+0x28` = `Zero`, `+0x38` = `Pi` = `0x3243f6a88`.)
+2. **La somme sommee par le custom est EXACTEMENT celle de la prediction.**
+   `ComparablePlaybook<T>$$CalculateUtilityFromPredictions` a **quatre** boucles — degat (slot +0x358,
+   `CalculateUtilityFromDamageEvent`), **soin (slot +0x368, `CalculateUtilityFromHealEvent`)**, effet
+   (slot +0x378, `UtilityAttackCase$$ForEffect`, utility `0x2e`), reparation (slot +0x388,
+   `ForRepairPrediction`, utility `0x2f`) — et le custom re-invoque le MEME slot +0x368 avec les memes
+   arguments. Comme `CalculateActionUtility` fait `u = custom + CalculateUtilityFromPredictions` :
+
+   | cible | `custom` | `CalculateUtilityFromPredictions` | `u` |
+   |---|---|---|---|
+   | sans `HealingBalms_ExtraCritDamage` | `0.5 x U_heal` | `U_heal` | **`1.5 x U_heal`** |
+   | avec l'effet | `0` | `U_heal` | **`1.0 x U_heal`** |
+
+   Le terme n'est donc ni un poids de `BC.Utilities` ni un compte : c'est un **facteur** sur l'utilite
+   de soin. Corollaire de mesure : il ne peut pas etre encadre par un montage a `U` fixe — il faut
+   faire varier `U`, sans quoi un « custom constant » resterait indiscernable.
+
+`0x5df` = `EffectType.HealingBalms_ExtraCritDamage`, l'un des deux stat-modifiers que
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility$$ExecuteBehaviour` pose sur
+**le meme selecteur de cibles** (`ability.<+0x90>+0x60`) que la prediction, avec `0x5e0`
+(`HealingBalms_ExtraCritChance`) — le gate lit donc « cette cible porte deja mon buff ». Un seul
+artefact natif pour les deux faces : la face COMBAT et la face DECISION consomment le meme selecteur
+et le meme `HealAbility$$HealAmount` ; le port ne fabrique aucun second evaluateur (l'enumeration de
+cibles passe par le seam `ctx.ability_targets` = `TargetingQuery` natif).
+
+`IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$ShouldExecute` = `utility > Fix64(0)` **seul**.
+Le generique `IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute` y ajoute
+`(!IsBoss(caster) || caster != target)` — clause absente ici, et de toute facon inerte en arene.
+Effet observable du gate : une cible a PV pleins reste **ciblable** (le ciblage ne teste que
+`UnitExtensions$$IsAffectedByHealType`, cf. `...HealingBalms_HealAbility$$GetDynamicInvalidTargetReason`
+et l'i2 « Baldr can heal friendly units even if they are at full Health ») mais `MaxFillUp` rend 0,
+donc `u = 0` et **aucune action n'est emise**. Mesure : `pairUtility(81 -> 83, 1212)` = `0` sur une
+cible a 20000/20000.
+
+**Classification DSL/imperatif** (tranchee AVANT de coder) : `CalculateCustomUtility`, `ShouldExecute`
+et la chaine `HealAmount -> PredictHeal -> MaxFillUp -> HealUtility` sont des METHODES, pas des arbres
+`DSLFactory` -> **imperatif**, mirror 1:1. Le seul noeud declaratif du chemin est le selecteur de
+cibles, et il n'est pas re-cable : il est consomme par le seam de ciblage natif.
+
+**Masque de ciblage, pour qui portera la face COMBAT** (lu, pas recopie d'une fiche) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility$$.ctor` appelle la surcharge
+**a 7 arguments** de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+(`this, isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+getDynamicInvalidTargetReason` — dont l'implementation ecrit `isSelfCasting` en `+0x00`, `range` (24
+octets) en `+0x08`, `forceMeleeTarget` en `+0x20`, `rules` en `+0x28`) avec
+`isSelfCasting = 0`, `forceMeleeTarget = 2`, **`rules = 0x8402`**, et les deux delegues a `null`.
+Le `range` est un bloc de 24 octets **recopie d'un champ statique** (le meme piege de forme que les
+presets de `TargetingOptions$$.cctor`) : il n'est PAS un litteral et n'a pas ete resolu ici.
+CONSEQUENCE OUVERTE, a mesurer live et non a supposer : le generateur offline filtre les tuiles
+candidates a `HEAL_RANGE = 1` (`_heal_candidates`) ; si la portee effective vaut 2, le port perd des
+tuiles de cast (degradation RESTRICTIVE, pas permissive). L'enumeration de CIBLES, elle, vient du RPC
+natif `abilityTargets` et n'est pas concernee. Test discriminant : poser un allie blesse a distance 2
+de Baldr et regarder si `abilityTargets` le rend `fromHere`.
+
+### L'ecart de port qu'il a fallu corriger : la MAGNITUDE
+
+1212 atteignait deja le generateur de soin (`_heal_candidates` filtre `"Heal" in name`, et 1212 est
+present dans la map `frida/hooks/data/ability-names.ts`) — mais avec **la mauvaise magnitude**.
+
+Le natif dispatche par **CLASSE d'ability**, et il n'existe que deux implementations
+(`search_symbols_by_name "HealAmount"`) :
+
+| implementation | formule | qui l'appelle |
+|---|---|---|
+| `IdunBattleLogic.Entities.Abilities.Active.MassHealAbility$$HealAmount` | `Direct(AbilityConfiguration$$GetVariableForLevel(cfg, 0x20, abilityState))` = la VARIABLE | MassHeal (8) |
+| `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` | `Multiply(StatAmount(weapon), Max(WeaponHighestHits(weapon), Get(1)))` = l'ARME | 18, 1167, **1212** — leurs `MakeHealPredictions` l'appellent NOMMEMENT, sans dispatch virtuel |
+
+Le port choisissait par la **presence** de la variable `hpToHeal`, un proxy. Il est faux pour 1212 :
+`_heal_config_key("HealingBalms_Heal")` derive la cle `"HealingBalms"`, c'est-a-dire la config du
+**PASSIF**, dont le `hpToHeal` alimente le soin **RETARDE** de l'effet (i2 `UnitEffects/HealingBalms` :
+« Is healed for {[hpToHeal]} Health at the start of their next turn »), pas l'action.
+
+Mesure discriminante, canal **scalaire** `pairUtility` (runner 523, board MC1_67, seed 4242, Baldr
+`spaceWolfPriest` injecte par `catalog_inject.py --units spaceWolfPriest`) — Baldr attack **2512**,
+arme 3 coups, cible `spaceBlackmane` a **5243/20000** (donc `missing` = 14757 > les deux candidats :
+regime NON sature, le seul qui tranche) :
+
+| hypothese de magnitude | montant | utilite predite | natif |
+|---|---|---|---|
+| **ARME** `2512 x 3` | 7536 | **37.6781160942** | **37.67811609432101** |
+| config `hpToHeal[50] x 180 %` | 4986 | 24.9287535623 | — |
+| config `hpToHeal[50]` non scale | 2770 | 13.8493075346 | — |
+
+Ecart de **12.75 points d'utilite** entre les deux hypotheses : la branche `hpToHeal` est REFUTEE.
+
+**Non-regression, re-derivee du code** : les quatre seuls `ActiveAbilityType` dont le nom contient
+« Heal » sont 8 / 18 / 1167 / 1212. 18 (`Heal`) et 1167 (`Heal_TwistedScience`) n'ont pas de `hpToHeal`
+sous leur cle derivee — ils retombaient DEJA sur l'arme, valeurs inchangees (6024 pour l'Hospitaller
+3-coups, 3614 pour le biophagus 1-coup). 8 (`MassHeal`) passe desormais par la branche config (None
+faute d'entree gameconfig -> saturation) au lieu du repli arme, ce que le natif ne fait jamais pour
+cette classe ; **inerte** : `unit_map.py find --ability MassHeal` rend **0 unite** sur ce build.
+
+### Deux corrections de la fiche `docs/rl/playbook/prediction.md` §9
+
+Elles ne changent aucun chiffre mesure ici, mais la fiche etait a re-lire (elle l'annoncait elle-meme
+sur la chaine repair voisine) :
+
+- **`UtilityType.Heal` = 45 (`0x2d`)**, pas 44. Litteral lu dans
+  `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromHealEvent`
+  et recoupe par `data/symbols/rnca9r7q6c/frida/enums.tsv`.
+- **`bossMod` teste `IsBoss(CASTER)`**, pas la cible.
+  `IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext` appelle
+  `UnitExtensions$$IsBoss(case+0x10)`, et `IdunBattle.AI.Utilities.UtilityAttackCase$$ForHealPrediction`
+  ecrit `caster` en `+0x10` / `target` en `+0x20` — c'est `+0x20` que lit le `GetStat(Health, Maximum)`
+  du denominateur. Inerte en arene (`BossUnit` nul).
+
+Confirme par ailleurs, contre le meme decompile : `W_heal = 100` (`HealUtility$$.cctor` =
+`op_Implicit(0x64)`), denominateur `maxHP + 1`, `friendSign = -1` si la cible n'est pas amie,
+probabilite = `Fix64(1)` quand le `Nullable` est vide (`IdunBattle.AI.Playbook.ProbableHealEvent$$.ctor`),
+et `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` = accumulation des bonus-soin d'effets du
+caster (non portee), puis `Min(., GetGroupUnitHealLimit)` **si `scope == 1` seulement** — or
+`MakeHealPredictions` passe `scope = 0`, ce qui reconfirme le flag OFF de #60 —, puis cap boss sur la
+CIBLE, puis `FillUpStatComponent$$MaxFillUp`.
+
+### Le port
+
+- `engine/playbook/common.py::HealingBalms_HealPlaybook` (registre `HEAL_PLAYBOOKS`, dispatch par id
+  dans `_heal_candidates`) : `calculate_custom_utility_from_heal` = `Half x heal_term` gate par
+  `HasEffect(target, HealingBalms_ExtraCritDamage)`, `score` = `custom + heal_term` avec le gate
+  `> 0`.
+- `engine/predict.py::heal_amount_for_ability` : mirror du dispatch natif par classe
+  (`CONFIG_HEAL_ABILITY_IDS = {8}`).
+- Le gate d'effet passe par le MEME canal que le gate TwistedScience deja en place
+  (`ctx.scene.eff_state.has_effect`, c'est-a-dire les `EffectComponent`, pas la liste serialisee
+  `unit["effects"]` de `decisionView`). Difference de nature a noter : le gate TwistedScience EXCLUT
+  la cible de l'enumeration, celui-ci **annule le terme** sans retirer la cible.
+
+### Validation live (#27-4c)
+
+**Etage 1 — MAGNITUDE, canal SCALAIRE `pairUtility`.** Baldr injecte par
+`catalog_inject.py --units spaceWolfPriest` (le porteur est `lineup` mais hors catalogue de la seed
+BC ; le pool passe de 97 a 98), board MC1_67. Attack 2512, arme 3 coups. Cible `spaceBlackmane` a
+5243/20000, soit `missing` = 14757 — **strictement au-dessus des deux magnitudes candidates**, seul
+regime qui tranche (en dessous, les deux saturent a `missing` et l'A/B ne mesure rien) :
+
+| hypothese | montant | utilite predite | natif |
+|---|---|---|---|
+| **ARME** `2512 x 3` | 7536 | 37.6781160942 | **37.67811609432101** |
+| config `hpToHeal[50] x 180 %` | 4986 | 24.9287535623 | — |
+
+Reproduit apres reinject (session suivante, meme build) sur un autre montage : 37.67811609432101.
+Cible a PV pleins -> `pairUtility` = **0** (`MaxFillUp` nul, `ShouldExecute` refuse), et le port rend
+`None` au meme endroit.
+
+**Seconde source, independante du scalaire** : `aiPlaybookPredict.healEvents` rend
+`{"targetId": 85, "targetHpBefore": 7599, "healAmount": 7536, "probability": 1}` — ce qui confirme d'un
+seul coup (a) la magnitude ARME, (b) la forme `CONCAT44(fill, currentHealth)` de la struct de 8 octets
+(`targetHpBefore` = le mot bas, `healAmount` = le mot haut), (c) la probabilite `Fix64(1)` du
+`Nullable` vide, et (d) **qu'il n'y a qu'UN SEUL event** — donc que la somme du CustomUtility porte sur
+une seule cible, ce que le port supposait et qui est desormais mesure.
+
+> ⚠ **Ce canal-la est SAIN, et il ne faut pas le confondre avec celui du backlog `#276-r1`.** Les deux
+> familles ont des decodeurs DISTINCTS dans `frida/hooks/features/ai-step/playbook-predict.ts` :
+> - `readHealEvent` lit un `ProbableHealEvent` de stride `0x18` dont le `HealPredictionResult` est
+>   INLINE sur **8 octets** a `+0x08..+0x10` (`targetHpBefore@+0x08`, `healAmount@+0x0c`) : il ne lit
+>   RIEN hors struct, et c'est exactement la forme que `ProbableHealEvent$$.ctor` +
+>   `DamagePrediction$$PredictHeal` imposent.
+> - `decodeRepairDict`, lui, suppose un `RepairPrediction` de **16 octets / 4 ints**
+>   (`currentHealth`, `currentArmor`, `hpFill`, `armorFill`) alors que `PredictRepair` rend la MEME
+>   struct de 8 octets : c'est LUI qui deborde (`hpFill`/`armorFill` sont hors struct, et le champ
+>   etiquete `targetArmorBefore` est en realite le `fillUp`). Defaut reel, non corrige a ce jour.
+>
+> La mesure ci-dessus est en outre corroboree par deux sources qui ne passent par aucun decodeur de
+> struct : `targetHpBefore` = 7599 = le `hp` d'`observeBattle`, et `healAmount` = 7536 = le `fill` que
+> `pairUtility` = 37.678 implique par `fill/(hpMax+1)x100`. **Le canal de reference reste malgre tout
+> le scalaire `pairUtility`** — c'est lui qui porte les conclusions ; `healEvents` ne fait que
+> corroborer.
+
+**Etage 2 — le CUSTOM, A/B causal sur le CHOIX natif** (`aiDryRunAllUnits`, read-only). Le terme
+n'apparait pas dans `pairUtility` ; on l'exerce donc par le seul levier qui l'annule, l'effet
+`HealingBalms_ExtraCritDamage`. Montage FIGE (ennemis relegues hors de portee apres la phase de
+blessure, `RitesOfMorkai` passe en cooldown pour que 1212 soit l'ability retenue), `--hp-player 60000` :
+
+| bras | u85 `adeptCanoness` | u87 `spaceStormcaller` | choix natif |
+|---|---|---|---|
+| **CONTROLE** | `pairUtility` = **12.55979067645967**, non buffe, 16920/60000 | `pairUtility` = **12.55979067645967**, non buffe, **39127/60000** | **u85**, sans deplacement |
+| **TEST** | `pairUtility` = **12.55979067645967**, **buffe**, 25379/60000 | `pairUtility` = **12.55979067645967**, non buffe, **39127/60000** | **u87**, move (0,2) |
+
+Les **quatre** utilites de paire sont BIT-IDENTIQUES -> confond de prediction MESURE et NUL. `u87` est
+**strictement inchange** entre les deux bras (memes PV, meme tuile, non buffe) : le seul levier qui
+bouge est l'effet sur u85. Le natif renonce a sa cible et se DEPLACE pour aller soigner une cible
+d'utilite de paire identique mais non buffee.
+
+**Contre-epreuves MOTEUR** sur ce meme etat (generateur `_heal_candidates`, comparaison par
+`full = pred + tile_utility`) :
+
+| bras | cible retenue | `pred` |
+|---|---|---|
+| port tel quel | **u87, to=(0,2)** — cible ET tuile identiques au natif | 18.839686 = `1.5 x 12.559791` |
+| `calculate_custom_utility_from_heal` force a 0 | u85, sans move — **DIVERGE** | 12.559791 |
+| 1212 retire de `HEAL_PLAYBOOKS` | u85, sans move — **DIVERGE** | 12.559791 |
+
+Le terme de tuile vaut **30.0 pour les deux options** (`42.559791 - 12.559791` et
+`48.839686 - 18.839686`) : le deplacement ne coute rien ici, la bascule est donc integralement portee
+par le custom.
+
+**Portee du cast — question ouverte de la passe precedente, FERMEE par mesure.** `abilityTargets`
+distingue `targets` (superset, deplacement inclus) de `fromHere` (cast immediat). Baldr en (1,0),
+allie en (0,1) = distance 2 : present dans `targets`, **absent de `fromHere`**. Le meme allie ramene
+en (2,0) = distance 1 y **entre**. Le filtre `HEAL_RANGE = 1` du generateur est donc CORRECT — il n'y
+a pas d'ecart de port sur cet axe. (Le `range` du ctor reste un bloc de 24 octets recopie d'un
+statique, non resolu offline ; c'est la mesure qui tranche, pas la lecture.)
+
+**Piege de mesure rencontre, et il vaut au-dela de cet item** : un second montage a ete ECARTE parce
+que `pairUtility` y rendait **37.678 sur une cible a PV pleins** — valeur incoherente avec l'etat
+observe, et qui re-mesuree quelques instants plus tard vaut **0**. C'est une lecture de CACHE perime
+(`CachedDamagePredictionQuery`) juste apres une mutation. Regle : **toujours recouper une utilite de
+paire avec l'etat de PV du meme instant** ; une valeur qui ne s'explique pas par `min(amount,
+missing)/(maxHP+1) x 100` est un artefact, pas une mesure.
+
+### Non couvert (explicite)
+
+- **La FORME du terme (facteur vs constante) n'a PAS ete exercee live.** Le decompile la tranche sans
+  ambiguite — `Fix64.FastMul(Sum(...), Half)` est litteralement un produit — et le moteur, qui applique
+  `1.5 x U`, reproduit exactement le choix natif (cible ET tuile). Mais l'A/B retenu a un ECART
+  d'utilite NUL entre les deux cibles : tout terme strictement positif y ferait basculer le natif, y
+  compris une constante. Discriminer experimentalement demanderait DEUX montages a des niveaux de `U`
+  differents et a ecart non nul — bascule a grand ecart / niveau haut, non-bascule a petit ecart /
+  niveau bas — ce qui est contradictoire pour toute constante. Le pilotage fin de `missing` (fenetres
+  de quelques milliers de PV) l'a rendu trop couteux dans cette passe ; c'est le residu nomme.
+- **Les bonus-soin d'effets accumules par `PredictHeal`** avant les caps (boucle sur les effets du
+  caster, slot d'interface `0x29`) ne sont pas portes — inertes sur les porteurs exerces.
+- **Le cap de groupe** (`GetGroupUnitHealLimit`) reste inerte : `MakeHealPredictions` passe
+  `scope = 0`, ce qui est desormais lu au call-site et non suppose.
+- **La face COMBAT de 1212** n'est pas portee (l'ability est absente d'`ABILITY_CLASSES`) : cette
+  tranche ne couvre que la face DECISION. Son masque de ciblage est consigne ci-dessus pour qui la
+  portera.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).
@@ -534,7 +813,7 @@ re-derouler la recon : elle part d'ici.
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
 | 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4c) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
-| 22 | `HealingBalms_HealPlaybook` @181142dc0 | HealingBalms_Heal (1212) | spaceWolfPriest (sous-ability du PASSIF HealingBalms) | hero **hors pool** | **residu** | pas d'entree gameconfig active ; voie « heal declenche par un passif » non modelisee |
+| 22 | `IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$CalculateCustomUtility` | HealingBalms_Heal (1212) | spaceWolfPriest `Baldr` [lineup, hors catalogue seed BC -> `catalog_inject.py --units spaceWolfPriest`] | hero | **PORTE** (#27-4d) | — (les verrous annonces sont TOMBES : l'ability n'a pas besoin d'entree gameconfig — sa magnitude vient de l'ARME —, elle est GRANTED des le spawn par `HealingBalmsAbility$$CreateBehaviour` (`RemoveActiveAbility(0x12)` + `AddActiveAbility(0x4bc)`), et elle atteignait deja `_heal_candidates`) |
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `MortarionsPlagueWindPlaybook` @18114ca30 | MortarionsPlagueWind (1093) | deathBossMortarion | **npc** | **non pertinent** | — |
 | 25 | `InstrumentsOfVengeancePlaybook` @1811460d0 | InstrumentsOfVengeance (1215) | darkaBossLion | **npc** | **non pertinent** | — |
@@ -543,12 +822,12 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 10** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, **1227**, **1226**, **1185**.
+- **PORTES / couverts : 11** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, **1185**, **1212**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 7** — 1100, 1169, 1148, 1051/1142, 1098, 1053, 1212.
+- **Residus a debloquer : 6** — 1100, 1169, 1148, 1051/1142, 1098, 1053.
   (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
-  **1185 porte — #27-4c**.)
+  **1185 porte — #27-4c** ; **1212 porte — #27-4d**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -563,18 +842,24 @@ re-derouler la recon : elle part d'ici.
 | **1226 Chronometron** | **NON** | **non** | necroChronomancer [catalog_inject] |
 | **1053 DevoutPush** | **NON** | **non** | templInitiate [summon d'environnement] |
 | **1185 ForwardObservers** | **NON** | **non** | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] |
-| **1212 HealingBalms_Heal** | pas d'entree gameconfig | **non** | spaceWolfPriest (sous-ability d'un PASSIF) |
+| ~~**1212 HealingBalms_Heal**~~ | ~~pas d'entree gameconfig~~ | **sans objet** | spaceWolfPriest [catalog_inject] |
+
+⚠ **La ligne 1212 de ce triage etait un FAUX NEGATIF (corrige #27-4d).** `_is_attack_ability` n'est pas
+sa porte : 1212 est un SOIN, il entre par `_heal_candidates` (filtre `"Heal" in name`), route qui ne
+demande ni `damageProfile` ni entree gameconfig — sa magnitude vient de l'ARME du caster. L'ability
+etait donc DEJA candidate offline, avec la mauvaise magnitude ; le probe de triage, cale sur la seule
+porte d'ATTAQUE, ne pouvait pas le voir.
 
 Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2 **n'existe plus**
 (`catalog_inject.py` complete `BC.Units` ET `BC.Abilities`) ; ce qui restait bloquant pour 1226 / 1053 /
-1185 / 1212 etait la ROUTE (aucun `damageProfile` -> jamais candidate offline), levee en 4b. **Nuance
+1185 etait la ROUTE (aucun `damageProfile` -> jamais candidate offline), levee en 4b. **Nuance
 mesuree en 4c** : `catalog_inject` ne rend pas TOUT confrontable — il complete le CATALOGUE, mais
 `buildNormalizedBC` filtre ensuite sur `IStatsFormula.StatsUsingProgressionIndexFor`, qui **refuse les
 summons et les npc** (`v2 patch: system error`). Un porteur summon/npc reste donc hors du pool meme
 injecte ; le chemin restant est (a) son SUMMONER s'il en a un, (b) sinon la GREFFE de l'ability sur une
 unite du pool (le playbook se charge par ABILITY, pas par unite).
 
-### Les VERROUS qui tiennent les 10 residus
+### Les VERROUS qui tiennent les residus
 
 1. **MoW non modelisees comme unites de DECISION** (1169, 1148, et la face MoW de 1142) — le blocage
    le plus rentable : 3 overrides d'un coup, et `PlagueburstMortar` est deja un patron PORTE
@@ -595,10 +880,11 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
      `eligible_targets` de la route lit le RPC natif `abilityTargets`, qui rend deja des ennemis. Le
      verrou REEL etait ailleurs : **le porteur** (summon SANS invocateur + npc, tous deux refuses par
      `buildNormalizedBC`), leve par GREFFE de l'ability sur une unite du pool.
-   - **1212 HealingBalms_Heal** — sous-ability d'un PASSIF, aucune entree gameconfig active ; en outre
-     `...HealingBalms_HealPlaybook$$ShouldExecute` OVERRIDE le defaut (`utility > 0`) et
-     `$$MakeHealPredictions` est override : ce n'est pas un membre « sans prediction », il faut porter
-     sa branche HEAL.
+   - ~~**1212 HealingBalms_Heal**~~ — **PORTE (#27-4d)**, et il ne relevait pas de cette route : c'est un
+     SOIN, il passe par `_heal_candidates`. Les deux overrides annonces ne se valent pas —
+     `$$MakeHealPredictions` a un corps IDENTIQUE au generique (recopie de hierarchie, aucune chaine
+     propre) ; seul `$$CalculateCustomUtility` porte du comportement (`Half x U_heal` gate par
+     `HasEffect(HealingBalms_ExtraCritDamage)`). Detail : section TRANCHE 4d.
    - **1053 DevoutPush** — sur ce build le playbook ne possede PLUS de corps propre (il PARTAGE
      `ALoki_NormalAttackPlaybook<T>` = `Fix64(1)`) : l'item #27 est vide de substance ; reste l'action
      « push » non modelisee, hors #27.
@@ -608,7 +894,7 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
 3. ~~**Porteur hors `--list-pool` au rank courant**~~ — **VERROU SUPPRIME (tranche 3)**. Le porteur
    `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
    `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
-   (1230). Restent 1226 et 1212, bloques par le verrou 2 (route), plus par le catalogue.
+   (1230), necroChronomancer (1226) et spaceWolfPriest (1212).
 4. **`GenerateMultiHitAttackPredictions` sur un sous-set de cibles** — 1051/1142, 1098.
    (AmuletOfTheVoidwyrm y figurait au titre du « corps partage avec 1098 » — **retire par #218**,
    ce partage n'existait pas.)
@@ -911,8 +1197,6 @@ existera.
   `GetInvalidTargetReason` complete. Le masque de 1226 est permissif (`AllowObscuredTargetBy*`), donc
   le port reste un SUR-ENSEMBLE — degradation assumee et bornee a cette ability. En LIVE le point est
   sans objet : `ctx.ability_targets` est le RPC natif (mesure : `[]` au bras n=0).
-- **La route non-attaque a DEUX membres** (1226, 1185). Les autres residus du groupe (1212, 1053)
-  gardent chacun un verrou PROPRE, nomme ci-dessus ; ils n'ont pas ete enchaines.
 - **ForwardObservers : le porteur REEL n'est pas confronte.** La mesure passe par une GREFFE de
   l'ability sur `tauCrisis`. Ce que la greffe NE couvre PAS : les stats, traits et l'arme du vrai
   porteur (`tauSmnStealthSuit` : `Camouflage`, `Infiltrate`, `Summon`, arme Pulse 4 coups) — donc
@@ -942,6 +1226,9 @@ existera.
   que la DECISION. Le masque (`0x200004002`, RANGE_FROM_CONFIG, `forceMeleeTarget = RangedBool.True`)
   et l'`AbilityAttackType` (`2 = Others`) sont RE-lus et consignes dans la docstring du playbook pour
   que ce port-la parte d'une lecture, pas d'une devinette.
+- **La route non-attaque a DEUX membres** (1226, 1185). Le residu restant du groupe (1053) garde son
+  verrou PROPRE, nomme ci-dessus. (1212, qu'on y rangeait, n'en relevait pas : c'est un soin, il entre
+  par `_heal_candidates` — cf. TRANCHE 4d.)
 
 - **Les 2 overrides NEUFS non portes du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
   votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`)
