@@ -46,8 +46,17 @@ reste NON porté : c'est le volet « l'hex FINIT le mouvement » de #131, sans d
 API : `occupants` = dict {tile_id -> team_of_occupant}. `moving_team` = team de
 l'unité qui bouge. `can_continue` = prédicat {tile_id -> bool} (None = aucun gate, comportement
 d'avant #131). Aucun RVA, aucun appel natif — pur calcul depuis le Board capté.
+
+SECOND MOTEUR, en domaine POSITION (#304) : `get_path_node_counts_by_pos` porte l'AUTRE face du
+`WalkPathfinder`, celle du **CHEMIN EXACT pondéré** (`GetPathTo` -> `BasePathfinder$$FindPath` ->
+`$$GenerateBreadthFirstTree`), que l'en-tête du package annonçait « non porté ». Elle est
+consommée par la face DÉCISION (`engine/playbook/modified_exoarmour.py`), qui ne dispose pas d'un
+`Board` mais des cartes par-position du `tile_leaf_ctx` — même choix de domaine que
+`engine.battle_query` (positions) contre `engine.runner` (tile ids).
 """
 from __future__ import annotations
+
+import heapq
 
 from .board import Board
 
@@ -135,3 +144,123 @@ def get_movable_positions(
             continue
         stop.add(tid)
     return visited, stop
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# CHEMIN EXACT PONDÉRÉ (`GetPathTo`) — domaine POSITION (#304)
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+WEIGHT_BASE = 10          # `WalkPathfinder$$WeightCost` : coût nominal d'entrée sur une tuile
+WEIGHT_BLOCKED = 10000    # ... quand `GetTileBlockingReasons(tile, unit) & 1` (bloqueur NEUTRE)
+
+
+def weight_cost(elevation, blocked: bool = False) -> int:
+    """`IdunBattle.Entities.Pathfinding.WalkPathfinder$$WeightCost(unit, tile)`, LU au décompilé :
+
+        return (GetTileBlockingReasons(this, tile, unit) & 1 ? 10000 : 10) - tile.<elevation>
+
+    C'est le coût d'ENTRÉE sur la tuile d'ARRIVÉE de l'arête (le natif appelle
+    `WeightCost(unit, voisin)` depuis `BasePathfinder$$GenerateBreadthFirstTree`).
+    ⚠ Il DIFFÈRE de celui du `PathfinderType = 1` (`IgnoreTerrainPathfinder$$WeightCost` =
+    `10 + IsFilled(to)`, cf. `ignore_terrain_pathfinder.py`) : ici l'élévation compte et l'occupant
+    non — inverser les deux fait diverger le chemin rendu (mesuré, cf. l'en-tête de l'autre module).
+    `elevation` inconnue (carte non fournie) -> 0 : coût uniforme, le chemin de coût minimal
+    redevient alors le chemin de LONGUEUR minimale."""
+    return (WEIGHT_BLOCKED if blocked else WEIGHT_BASE) - int(elevation or 0)
+
+
+def get_path_node_counts_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None,
+                                elev_by_pos=None, blocking_positions=(),
+                                block_entering_positions=()) -> dict:
+    """`{(col,row) -> Count}` de `IPathfinders.GetPath(unit, origin, <pos>, null)` pour toutes les
+    tuiles joignables depuis `origin` avec le **WalkPathfinder** (`PathfinderType` 0, celui que
+    `MovementQuery$$GetPathfinderTypeForUnit` rend pour une unité sans effet de mouvement spécial
+    et non volante). `Count` = nombre de **NOEUDS**, extrémités INCLUSES (`route+0x18` =
+    `List._size`), donc `arêtes + 1` ; `origin` lui-même vaut 1.
+
+    Mirror de `IdunBattle.Entities.Pathfinding.BasePathfinder$$FindPath` :
+
+        if (from == null || to == null)          return null
+        if (!IsValidFinalTile(unit, to))         return null        // vslot 0x1c8
+        cameFrom = GenerateBreadthFirstTree(unit, from, to)
+        path = [to] ; cur = to
+        while (cur != from) { if (!cameFrom.TryGetValue(cur, out cur)) return null
+                              path.Add(cur) }
+        path.Reverse() ; return path                                // extrémités INCLUSES
+
+    et de `IdunBattle.Entities.Pathfinding.BasePathfinder$$GenerateBreadthFirstTree` :
+
+        costs[from] = (from, 0) ; pq.Enqueue(from, 0)
+        while (pq.Count > 0) {
+            tile = pq.Dequeue() ; if (tile == to) return costs
+            foreach (n in GetValidNeighbours(this, tile, unit, null)) {
+                newCost = WeightCost(unit, n) + costs[tile].cost
+                if (!costs.ContainsKey(n) || newCost < costs[n].cost) {
+                    pq.Enqueue(n, newCost + Heuristic(n, to)) ; costs[n] = (tile, newCost) } } }
+
+    L'heuristique `BasePathfinder$$Heuristic` = `|dcol| + |drow|` (<= 2 par pas, contre un coût réel
+    >= 6 sur les élévations du jeu) est ADMISSIBLE : le chemin rendu est de **coût minimal**, et un
+    Dijkstra depuis `origin` (ce que fait ce port) le retrouve pour TOUTES les destinations en une
+    passe. L'heuristique ne fait qu'ordonner l'exploration ; elle ne change pas l'optimum.
+
+    Gates portés :
+      * `IsValidFinalTile(unit, to)` = `!IsTemporary(to) && IsWalkable(to)` — le volet WALKABLE est
+        ici implicite (une tuile non walkable n'entre jamais dans le résultat, cf. l'arête) ;
+        `IsTemporary` n'a PAS de source dans le `tile_leaf_ctx` -> RÉSIDU (dégradation PERMISSIVE :
+        une tuile temporaire recevrait un compte au lieu de rien).
+      * arête = `WalkPathfinder$$IsValidPathNode(from, to, unit)` : `IsWalkable(to)` ET
+        `|elev(to) - elev(from)| <= 1` ET `!UnitIsBlockedByEnemyUnit(to, unit)`.
+        `blocking_positions` = les positions qui portent un occupant ENNEMI non `Steppable`
+        (`UnitExtensions.HasTrait(occ, 0x1b)` court-circuite le blocage).
+      * `block_entering_positions` = les positions dont `GetTileBlockingReasons & 1` vaut 1 pour
+        CETTE unité (effet bloqueur neutre, exemptions de trait déjà appliquées par l'appelant) :
+        elles ne sont pas interdites, elles coûtent `10000 - elevation` — le natif ne les exclut du
+        chemin que par leur prix. ⚠ Le gate `IsValidContinuePathTile` de `NodesInNextLevel` (qui, LUI,
+        en fait des culs-de-sac) n'existe PAS sur cette route : `GenerateBreadthFirstTree` ne
+        l'appelle jamais. Une tuile block-entering reste donc TRAVERSABLE par un chemin.
+
+    ⚠ RÉSIDU (identique à `ignore_terrain_pathfinder.get_path_node_counts`) : le départage entre
+    deux chemins de MÊME coût et de longueurs différentes n'est PAS lu au décompilé (il dépend de
+    l'ordre interne de la `PriorityQueue` native ; le natif garde le PREMIER trouvé, la mise à jour
+    étant conditionnée par un `<` STRICT). Ici, moins de noeuds gagne. Sans relief (coût uniforme),
+    l'ambiguïté n'existe pas : tous les chemins de coût égal ont la même longueur.
+
+    Substrat : les cartes par-position du `tile_leaf_ctx` (`neigh_by_pos` = voisins NATIFS du
+    `boardGraph`, `walkable_by_pos`, `elev_by_pos`). `neigh_by_pos` absent -> repli sur le voisinage
+    hexgeo restreint aux positions connues (même dégradation que `battle_query.adjacent_addable_count`)."""
+    import hexgeo
+    ok = (origin[0], origin[1])
+    blocked_cost = {(p[0], p[1]) for p in (block_entering_positions or ())}
+    blocked_edge = {(p[0], p[1]) for p in (blocking_positions or ())}
+    domain = None
+    if neigh_by_pos is None:
+        domain = set(walkable_by_pos or ()) | set(elev_by_pos or ())
+
+    def _neighbours(p):
+        if neigh_by_pos is not None:
+            return [(q[0], q[1]) for q in (neigh_by_pos.get(p) or ())]
+        ns = hexgeo.neighbors(p[0], p[1])
+        return [q for q in ns if not domain or q in domain]
+
+    def _elev(p):
+        return None if elev_by_pos is None else elev_by_pos.get(p)
+
+    best: dict = {ok: (0, 1)}                      # pos -> (cout cumule, nb de noeuds)
+    heap = [(0, 1, ok)]
+    while heap:
+        cost, nodes, cur = heapq.heappop(heap)
+        if (cost, nodes) > best.get(cur, (cost, nodes)):
+            continue                               # entree perimee de la file
+        ce = _elev(cur)
+        for n in _neighbours(cur):
+            if walkable_by_pos is not None and not walkable_by_pos.get(n, False):
+                continue                           # `IsWalkable(to)`
+            ne = _elev(n)
+            if ce is not None and ne is not None and abs(ne - ce) > 1:
+                continue                           # `IsReachableElevationDifference`
+            if n in blocked_edge:
+                continue                           # `UnitIsBlockedByEnemyUnit(to, unit)`
+            cand = (cost + weight_cost(ne, n in blocked_cost), nodes + 1)
+            if n not in best or cand < best[n]:
+                best[n] = cand
+                heapq.heappush(heap, (cand[0], cand[1], n))
+    return {p: nodes for p, (_cost, nodes) in best.items()}
