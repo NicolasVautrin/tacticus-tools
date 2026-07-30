@@ -55,6 +55,20 @@ const RETREAT_CONFIRM_KEY = "/GenericMessagePopup(Clone)/" +
 const DEPLOYMENT_HUD_KEY = "/UnitDeploymentHud(Clone)/";
 const START_BATTLE_KEY = "/StartBattleContainer";
 
+/** Repos entre « le bouton est trouve interactable » et le clic effectif.
+ * `interactable == true` arrive AVANT la fin du fondu du popup, et un clic emis
+ * dans cette fenetre est AVALE en rapportant `ok:true` — indiscernable d'un succes.
+ * Mesure du 2026-07-30 : clics enchaines sans repos -> la campagne ne remonte
+ * jamais ; les memes clics espaces de ~2 s -> retour en moins de 5 s. 800 ms couvre
+ * l'animation avec de la marge, sans rallonger sensiblement le cycle. */
+const SETTLE_BEFORE_CLICK_MS = 800;
+
+/** Combien de fois recliquer quand l'effet attendu ne vient pas, et combien de temps
+ * lui laisser. 12 s couvre le dechargement/rechargement de scene du dernier clic
+ * (mesure : < 5 s) ; 3 tentatives suffisent pour une perte due a une animation. */
+const CLICK_EFFECT_TIMEOUT_MS = 12000;
+const CLICK_ATTEMPTS = 3;
+
 // --- Helpers ---
 
 function sleep(ms: number): Promise<void> {
@@ -309,30 +323,35 @@ async function warmupGameSingletons(
     // n'etait autonome qu'UNE FOIS SUR DEUX : le premier passait, le second exigeait
     // une main. Mesure du 2026-07-30 : deux echecs consecutifs sur cette exacte etape.
     //
-    // ON DETECTE, ON N'AGIT PAS — et c'est le resultat d'une MESURE, pas une prudence
-    // de principe.
+    // 1bis. RECUPERATION — sortir d'un ecran de BATAILLE herite du cycle precedent.
     //
-    // TENTE ET REFUTE le 2026-07-30 : declencher ici la sequence de retraite
-    // (pause -> retreat -> confirm -> attente campagne), en pariant que l'ecran de
-    // bataille etant POSE depuis le cycle precedent — donc sans course contre le
-    // montage de scene — la transition passerait la ou celle de fin de cycle wedgeait.
-    // ELLE NE PASSE PAS. Les trois clics aboutissent, puis la campagne ne remonte pas
-    // en 45 s et l'UI reste FIGEE (confirme a l'ecran par l'utilisateur). Le pari
-    // etait donc faux : la transition de retraite ne wedge pas a cause d'une course,
-    // elle wedge tout court. Le remede etait pire que le mal — l'echec sec coutait 2 s
-    // et laissait le jeu intact, la tentative coute 50 s et le rend inutilisable.
+    // CE QUE CECI REPARE. Depuis que `stopAfterCapture` est le defaut (2026-07-25), le
+    // cycle laisse VOLONTAIREMENT le jeu sur l'ecran de bataille. Or pendant une
+    // bataille `IdunNavigation` n'est pas instancie : le warmup SUIVANT echouait donc a
+    // `to-campaign` sur « no live IdunNavigation instance », et il fallait qu'un HUMAIN
+    // ramene le jeu sur la campagne. Le warmup n'etait autonome qu'UNE FOIS SUR DEUX.
     //
-    // CE QUI RESTE, ET QUI VAUT : la DETECTION. Sans elle l'echec se presentait comme
-    // « to-campaign: no live IdunNavigation instance », un message qui decrit un
-    // symptome interne et n'indique aucune action. Avec elle on nomme l'etat reel et
-    // le seul geste qui repare. On ne clique RIEN : aucune mutation d'UI, donc aucun
-    // risque d'aggraver.
+    // POURQUOI IL FAUT LAISSER RESPIRER ENTRE LES CLICS — mesure du 2026-07-30.
+    // Une premiere version enchainait les trois clics via `waitForAndClick`, qui clique
+    // des que le bouton est trouve actif ET interactable. Resultat : les trois clics
+    // rapportent `ok:true`, puis la campagne ne remonte JAMAIS (45 s d'attente pour
+    // rien). Interprete a tort comme « la transition bataille -> campagne wedge », au
+    // point d'ouvrir une tache de RE pour lui chercher une voie non-UI.
     //
-    // LE FOND DU PROBLEME RESTE OUVERT (autonomie du warmup) : `stopAfterCapture`
-    // laisse le jeu en bataille, et aucune voie UI connue n'en sort sans wedger. Une
-    // sortie viable devra passer AILLEURS que par les boutons — p. ex. un appel IL2CPP
-    // direct au service de sortie de bataille, sur le modele de `invokeToCampaign` qui,
-    // lui, marche depuis la campagne. C'est une tache de RE, pas un reglage de timeout.
+    // C'ETAIT FAUX. La MEME sequence de trois clics, rejouee a la main sur le MEME
+    // ecran avec ~2 s entre chaque, ramene la campagne en MOINS DE 5 SECONDES. La
+    // transition n'a jamais ete en cause : `interactable == true` arrive AVANT que le
+    // popup ait fini de s'animer, et le clic emis dans cette fenetre est perdu — sans
+    // que rien ne le signale, puisque `clickByPath` a bien trouve un bouton cliquable
+    // et invoque son `onClick`. Un clic AVALE se lit exactement comme un clic REUSSI.
+    //
+    // D'ou `settleThenClick` : on attend le bouton, on laisse passer l'animation, PUIS
+    // on clique. Meme raison que la grace period de l'etape 6 (`sleep(500)` apres
+    // `wait-deployment-stable`), a un autre endroit de la meme UI.
+    //
+    // CONDITIONNEL, ce qui borne le risque : on ne declenche que si les DEUX signaux
+    // concordent — aucun noeud de campagne visible ET aucun IdunNavigation vivant. Sur
+    // le chemin nominal (deja sur la campagne) le bloc ne s'execute pas du tout.
     const campaignVisible = await queueOnMainThread(
         () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
     const navAlive = await queueOnMainThread(() => {
@@ -343,12 +362,64 @@ async function warmupGameSingletons(
         }
     });
     if (!campaignVisible && !navAlive) {
-        return fail("stuck-outside-campaign",
-            "le jeu est hors campagne et sans IdunNavigation vivant — typiquement "
-            + "l'ecran de bataille laisse par le cycle precedent (`stopAfterCapture`). "
-            + "Le warmup ne peut PAS en sortir seul : la sequence de retraite a ete "
-            + "essayee et MESUREE comme wedgeante (2026-07-30), elle n'est donc plus "
-            + "tentee. Ramener le jeu sur l'ecran de campagne, puis relancer le warmup.");
+        log("[warmup-singletons] ecran de bataille herite detecte "
+            + "(ni noeud de campagne, ni IdunNavigation vivant) — retraite");
+
+        /** Cliquer, puis VERIFIER QUE LE CLIC A PRIS — et recliquer sinon.
+         *
+         * Verifier la PRESENCE du bouton avant de cliquer ne sert a rien ici : elle
+         * etait deja verifiee (bouton trouve, actif, `interactable`) le jour ou les
+         * trois clics se sont perdus. Un clic avale est indiscernable d'un clic reussi
+         * du cote de l'emetteur — la seule preuve qu'il a porte est SON EFFET.
+         *
+         * On attend donc l'effet attendu (`expect`), et s'il ne vient pas on remet un
+         * clic. Le repos avant le clic reste utile — il evite la plupart des pertes —
+         * mais il n'est plus ce sur quoi on COMPTE : c'est la boucle qui garantit. */
+        const clickUntilEffect = async (
+            frag: string, label: string,
+            expect: () => unknown | null, expectLabel: string,
+        ): Promise<string | null> => {
+            for (let attempt = 1; attempt <= CLICK_ATTEMPTS; attempt++) {
+                const found = await waitFor(() => findButtonByContains(r, frag), 8000);
+                if (found === null) {
+                    return attempt === 1
+                        ? `${label} introuvable`
+                        : `${label} a disparu sans que ${expectLabel} apparaisse`;
+                }
+                await sleep(SETTLE_BEFORE_CLICK_MS);
+                const click = await queueOnMainThread(() => clickByPath(r, found.path));
+                if (!click.ok) return click.err ?? `${label} non cliquable`;
+                // LA verification : l'effet, pas le retour du clic.
+                if (await waitFor(expect, CLICK_EFFECT_TIMEOUT_MS, 250) !== null) {
+                    return null;
+                }
+                log(`[warmup-singletons] clic sur ${label} sans effet `
+                    + `(${expectLabel} absent) — tentative ${attempt}/${CLICK_ATTEMPTS}`);
+            }
+            return `${label} clique ${CLICK_ATTEMPTS} fois sans que ${expectLabel} `
+                 + "apparaisse — clic systematiquement avale";
+        };
+
+        // Chaque clic est valide par l'apparition de l'ETAPE SUIVANTE ; le dernier par
+        // le retour de la campagne elle-meme. Fenetre finale large (dechargement +
+        // rechargement de scene) — mesure a la main le 2026-07-30 : moins de 5 s.
+        const chain: Array<[string, string, () => unknown | null, string]> = [
+            [PAUSE_BUTTON_KEY, "bouton pause",
+                () => findButtonByContains(r, RETREAT_BUTTON_KEY), "le menu pause"],
+            [RETREAT_BUTTON_KEY, "bouton retraite",
+                () => findButtonByContains(r, RETREAT_CONFIRM_KEY),
+                "la confirmation"],
+            [RETREAT_CONFIRM_KEY, "confirmation de retraite",
+                () => findButtonBySuffix(r, NODE_SUFFIX), "la campagne"],
+        ];
+        for (const [frag, label, expect, expectLabel] of chain) {
+            const err = await clickUntilEffect(frag, label, expect, expectLabel);
+            if (err !== null) return fail("recover-from-battle", err);
+        }
+        steps.push({
+            step: "recover-from-battle", ok: true,
+            info: "retraite depuis l'ecran de bataille herite, campagne remontee",
+        });
     }
 
     // 2. Navigate to the Indomitus campaign screen. If we're already there,
