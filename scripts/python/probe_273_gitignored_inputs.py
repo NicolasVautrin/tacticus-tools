@@ -169,6 +169,16 @@ _ALLOWED: dict[str, str] = {
 }
 
 
+# Racines gitignorees qui sont des SORTIES du depot, jamais des entrees.
+#   `logs/` : sorties de run (state-files, dumps de probe) -- meurt avec le
+#             worktree ;
+#   `app/`  : arbre Java GENERE par `gen_battle_config_java.py` /
+#             `gen_loki_effects.py`. Il n'y est apparu (#314) qu'en devenant
+#             RELATIF : tant que le chemin etait absolu, l'etape 0 ne le voyait
+#             pas du tout.
+_OUTPUT_ROOTS = {"logs", "app"}
+
+
 def step0(scan_root: Path) -> int:
     print("== 0. balayage des chemins construits depuis une racine __file__ ==")
     print(f"  arbre balaye        : {scan_root.as_posix()}")
@@ -176,12 +186,13 @@ def step0(scan_root: Path) -> int:
     rels = sorted({rel for (_, _, rel) in found})
     ign = _check_ignored(rels, scan_root)
     n_ign = sum(1 for r in rels if ign.get(r))
-    outputs = [r for r in rels if ign.get(r) and r.split("/")[0] == "logs"]
-    inputs = [r for r in rels if ign.get(r) and r.split("/")[0] != "logs"]
+    outputs = [r for r in rels if ign.get(r) and r.split("/")[0] in _OUTPUT_ROOTS]
+    inputs = [r for r in rels if ign.get(r) and r.split("/")[0] not in _OUTPUT_ROOTS]
     print(f"  occurrences         : {len(found)}")
     print(f"  chemins distincts   : {len(rels)}")
     print(f"  dont gitignores     : {n_ign}")
-    print(f"    - SORTIES (logs/) : {len(outputs)}  [conforme, NE PAS toucher]")
+    print(f"    - SORTIES ({'/, '.join(sorted(_OUTPUT_ROOTS))}/) : {len(outputs)}"
+          f"  [conforme, NE PAS toucher]")
     print(f"    - autres          : {len(inputs)}")
     rc = 0
     for rel in inputs:

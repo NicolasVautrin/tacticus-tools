@@ -89,6 +89,30 @@ _FILLED_BY: dict[str, str] = {
         "l'utilisateur, a la main (PG_HOST/PG_PORT/PG_DATABASE/PG_USER/"
         "PG_PASSWORD). Jamais versionne : c'est un secret"
     ),
+    # --- artefacts du pipeline Ghidra hors-ligne (#314) ------------------- #
+    # Ni versionnes ni produits par leurs lecteurs : un `os.walk` / `glob` sur
+    # leur chemin absent rend ZERO sans lever, et les scripts ecrivaient alors
+    # un TSV VIDE qui se lit comme « plus aucune cible en echec ».
+    "data/decompiled_tacticus": (
+        "une passe Ghidra headless de decompilation de masse "
+        "(GameAssembly.dll -> arborescence de .c). Artefact LOURD, jamais "
+        "versionne ; il ne survit pas a un changement de build du jeu"
+    ),
+    "data/il2cpp_full.json": (
+        "scripts/frida/dump-il2cpp-full.js, via `dump_il2cpp.py` -- qui ecrit "
+        "aujourd'hui dans `logs/il2cpp_full.json`, PAS dans `data/`"
+    ),
+    "data/enum_json_converter.json": (
+        "une passe d'extraction des attributs JsonConverter du dump IL2CPP "
+        "(pipeline Ghidra hors-ligne)"
+    ),
+    "data/untyped-test.log": (
+        "le stdout de GhidraTestUntypedDecompile.java, redirige a la main"
+    ),
+    "data/failed_targets.tsv": (
+        "extract_failed_targets.py -- qui ecrit desormais dans "
+        "`logs/ghidra/failed_targets.tsv`"
+    ),
 }
 
 

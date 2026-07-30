@@ -12,7 +12,7 @@ lecture de pointeurs, ZERO invoke) rend le nom + la VA ghidra de chaque slot pou
 CONCRETE -> on compare les 4 sous-classes entre elles et avec l'ancre 0x758 (CreateTargetFilter,
 dont on connait la VA par classe).
 
-Sortie : data/_probe79_revive_vtable.json (ASCII only sur la console).
+Sortie : logs/probes/_probe79_revive_vtable.json (ASCII only sur la console).
 """
 from __future__ import annotations
 
@@ -76,9 +76,12 @@ def main() -> int:
         print(f"=== {cls} klass={r.get('klass')}")
         for s in slots:
             print(f"  {s['off']:>6} va={s['va']:>12} m={s['method']} {s['anchor']}")
-    Path(r"C:\Users\nicolasv\tacticus-tools\data\_probe79_revive_vtable.json").write_text(
-        json.dumps(out, indent=1), encoding="utf-8")
-    print("-> data/_probe79_revive_vtable.json")
+    # SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu
+    # ferait ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+    dump = PYDIR.parents[1] / "logs" / "probes" / "_probe79_revive_vtable.json"
+    dump.parent.mkdir(parents=True, exist_ok=True)
+    dump.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print("-> logs/probes/_probe79_revive_vtable.json")
     return 0
 
 

@@ -57,9 +57,12 @@ def main() -> int:
                     "ghidraVA": gva, "method": s.get("method"), "tag": tag})
         if g == 0x181070f60:
             anchor_c9 = off
-    Path(r"C:\Users\nicolasv\tacticus-tools\data\_probe38b_vtable.json").write_text(
-        json.dumps(out, indent=1), encoding="utf-8")
-    print(f"dumped {len(out)} slots -> data/_probe38b_vtable.json")
+    # SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu
+    # ferait ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+    dump = PYDIR.parents[1] / "logs" / "probes" / "_probe38b_vtable.json"
+    dump.parent.mkdir(parents=True, exist_ok=True)
+    dump.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(f"dumped {len(out)} slots -> logs/probes/_probe38b_vtable.json")
     if anchor_c9 is None:
         print("ANCHOR ReachedSummonCap NOT FOUND in scanned range")
         # print any named slots for manual inspection

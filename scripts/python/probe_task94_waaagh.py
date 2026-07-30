@@ -16,7 +16,9 @@ import hexgeo
 import rl_collect_batch as R
 
 PYDIR = Path(__file__).resolve().parent
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_solver94_waaagh.json")
+# SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu ferait
+# ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+STATE = PYDIR.parents[1] / "logs" / "runners" / "_probe94_waaagh_state.json"
 
 
 def _unwrap(r):

@@ -45,7 +45,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hexgeo                                            # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc      # noqa: E402
 
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_a100_anvil_state.json")
+# SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu ferait
+# ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+STATE = (Path(__file__).resolve().parents[2] / "logs" / "runners"
+         / "_probe100_anvil_state.json")
 ARJAC, NJAL = "spaceRockfist", "spaceStormcaller"
 
 

@@ -27,7 +27,9 @@ import hexgeo  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_solver84_gen_adcb.json")
+# SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu ferait
+# ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+STATE = PYDIR.parents[1] / "logs" / "runners" / "_probe84_generalize_state.json"
 SID = None
 RID = None
 

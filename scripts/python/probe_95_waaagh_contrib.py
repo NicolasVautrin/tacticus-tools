@@ -36,7 +36,9 @@ import hexgeo
 import rl_collect_batch as R
 
 PYDIR = Path(__file__).resolve().parent
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_solver95_waaagh.json")
+# SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu ferait
+# ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+STATE = PYDIR.parents[1] / "logs" / "runners" / "_probe95_waaagh_state.json"
 
 CASTER = "orksWarboss"       # porteur de Waaagh (1058)
 ALLY = "orksNob"             # ORK de MESURE (melee), amene au contact, TRES loin du Warboss

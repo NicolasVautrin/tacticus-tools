@@ -13,12 +13,16 @@ Callees are identified as either:
     `IdunBattle_DSL_AbilityBehaviour_op_BitwiseAnd` -> translated back to dot form
   - Short/unknown ones are dropped.
 
-Output: data/call_graph.json
+Output: logs/ghidra/call_graph.json
     {
       "caller.Full.Name": ["callee1", "callee2", ...],
       ...
     }
-Plus companion `data/call_graph_stats.json` with counts and unresolved.
+Plus companion `logs/ghidra/call_graph_stats.json` with counts and unresolved.
+
+ENTREES (`data/decompiled_tacticus`, `data/il2cpp_full.json`) : artefacts du
+pipeline Ghidra hors-ligne, ni versionnes ni produits ici -> resolus par
+`host_inputs` (tri-etat #273). SORTIES -> `logs/`, RELATIF au checkout (#314).
 """
 from __future__ import annotations
 import json
@@ -27,11 +31,14 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path('C:/Users/nicolasv/tacticus-tools')
-DECOMP = ROOT / 'data' / 'decompiled_tacticus'
-DUMP = ROOT / 'data' / 'il2cpp_full.json'
-OUT = ROOT / 'data' / 'call_graph.json'
-OUT_STATS = ROOT / 'data' / 'call_graph_stats.json'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs
+
+ROOT = Path(__file__).resolve().parents[2]
+DECOMP = host_inputs.require('data/decompiled_tacticus')
+DUMP = host_inputs.require('data/il2cpp_full.json')
+OUT = ROOT / 'logs' / 'ghidra' / 'call_graph.json'
+OUT_STATS = ROOT / 'logs' / 'ghidra' / 'call_graph_stats.json'
 
 HEADER_RE = re.compile(r'^\s*//\s*===\s*(?P<name>[^=]+?)\s*\(RVA:\s*0x(?P<rva>[0-9a-fA-F]+)\)\s*===')
 FUN_CALL_RE = re.compile(r'\b(?:thunk_FUN_|FUN_)([0-9a-f]{6,10})\b')
@@ -182,6 +189,7 @@ def main():
 
     # Serialize
     print(f'Writing call graph ({len(graph)} nodes, {stats["edges"]} edges)...')
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT, 'w', encoding='utf-8') as out:
         json.dump({k: sorted(v) for k, v in graph.items()}, out, indent=1)
     # Top unresolved

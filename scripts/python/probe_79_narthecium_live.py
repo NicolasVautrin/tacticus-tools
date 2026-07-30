@@ -35,7 +35,9 @@ sys.path.insert(0, str(PYDIR))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
 
-STATE = r"C:\Users\nicolasv\tacticus-tools\data\_probe79_narthecium_state.json"
+# SORTIE de run -> `logs/` RELATIF au checkout (#314) : un chemin absolu ferait
+# ecrire ce probe dans l'arbre principal depuis un worktree d'agent.
+STATE = str(PYDIR.parents[1] / "logs" / "runners" / "_probe79_narthecium_state.json")
 CASTER = "ultraApothecary"
 ALLY = "orksNob"            # melee simple : ni deep-strike ni flying (positions pilotables directement)
 FOE = "astraBullgryn"       # melee : degat de charge eleve et MESURABLE

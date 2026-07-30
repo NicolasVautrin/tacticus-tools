@@ -1,8 +1,20 @@
-"""Categorise gradle build errors."""
+"""Categorise gradle build errors.
+
+Chemin RELATIF au checkout (#314) : en absolu, ce script lisait le
+`build-errors.log` de l'ARBRE PRINCIPAL depuis un worktree d'agent -- donc le
+build de QUELQU'UN D'AUTRE, sans que rien ne le signale. Le log est ecrit par
+`_capture_build.py`, qui le pose desormais sous `logs/`.
+"""
+import sys
 from collections import Counter
 from pathlib import Path
 
-txt = Path(r"C:\Users\nicolasv\tacticus-tools\build-errors.log").read_text()
+LOG = Path(__file__).resolve().parents[2] / "logs" / "build-errors.log"
+if not LOG.exists():
+    raise SystemExit("[analyze] introuvable : %s\n"
+                     "  produire le log d'abord : python _capture_build.py"
+                     % LOG.as_posix())
+txt = LOG.read_text()
 errs = []
 lines = txt.splitlines()
 i = 0
