@@ -58,10 +58,20 @@ class TriggerEvent:
         # attaque melee Physical/Power + bonus Psychic QUALIFIE le trigger 1173). None = non threadé
         # (les consommateurs retombent sur {profile}).
         self.profiles = set(profiles) if profiles else None
-        # `TriggeringEffectIs(effectType)` (`On(PreEffectAdded=61)`/`On(EffectRemoved=64)`) : le TYPE
-        # d'effet porte par l'evenement (celui qu'on est en train de poser/retirer). None hors de ces
-        # vecteurs. Consommateur : branche 2 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
+        # `TriggeringEffectIs(effectType)` : le TYPE d'effet porte par l'evenement (celui qu'on est
+        # en train de poser). None hors de ce vecteur. Consommateur : branche 2 de
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
         # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).
+        # ⚠ CORRECTION #294 : ce predicat lit le slot `DSLSelectors+0x90`, donc le champ
+        # `AbilityEntities+0x98` -- LE MEME que `TriggeringAbilityIs`. Or l'ecriture de `+0x98` est
+        # ASYMETRIQUE entre pose et retrait : `IdunBattle.Operations.AddEffectOperation$$Execute`
+        # ecrit `+0x60` ET `+0x98` (`On(61)`/`On(62)`/`On(70)`), tandis que
+        # `IdunBattle.Operations.RemoveEffectOperation$$Execute` n'ecrit QUE `+0x60` et laisse
+        # `+0x98` a zero. Donc sur `On(63 = PreEffectRemoved)` / `On(64 = EffectRemoved)`,
+        # `TriggeringEffectIs` est TOUJOURS FAUX cote natif : c'est `CurrentAbilityIs` qui porte
+        # l'effet retire. L'ancienne redaction (« poser/retirer », `On(64)` inclus) etait fausse.
+        # Aucun consommateur porte n'est sur le vecteur RETRAIT -> rien a corriger cote comportement ;
+        # residu N18 de `docs/rl/port-residuals-inventory.md`.
         self.triggering_effect = triggering_effect
         # `IsFirstHitInSeries` (`IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger`) =
         # `AbilityEntities.get_IsFirstHit` = `Nullable<bool>(hitIndex.HasValue && hitIndex == 0)` — le champ

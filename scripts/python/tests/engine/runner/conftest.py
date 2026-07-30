@@ -38,6 +38,7 @@ import probe_178_overkill_gate as OVK
 import probe_r34_overkill_decision as DEC
 import probe_195_prevent_overkill_decision as PVO
 import probe_o5_unit_flags as O5
+import probe_294_trigger_ability_channels as TAC
 
 
 @pytest.fixture
@@ -222,6 +223,36 @@ def unit_flags_accord_case(live_session):
                 pytest.skip(f"montage unit-flags KO : {r['error']}")
             cache["r"] = r
         return cache["r"]
+    return _case
+
+
+# ── #294 — les DEUX canaux `AbilityEntities` (`+0x60` CurrentAbility / `+0x98` TriggeringAbility) ──
+
+@pytest.fixture
+def trigger_ability_channel_case():
+    """Fabrique : `trigger_ability_channel_case()` -> le montage NOMINAL, `(...,"before")` -> une
+    contre-epreuve. Rend le dict de trace de `probe_294_trigger_ability_channels.run()`.
+
+    MONTAGE NOMME ET REUTILISABLE de la SEPARATION des deux canaux : une chaine
+    `A --On(0xd)--> B --On(9)--> C` de triggered-abilities espionnes, montee dans un `State` nu.
+    C'est le seul montage connu ou `+0x60` et `+0x98` portent deux valeurs NON NULLES DIFFERENTES
+    (dans le behaviour de B : `+0x60 = B`, `+0x98 = A`) -- un montage a une seule triggered les
+    laisse tous deux a `this.Id` et ne prouve donc RIEN.
+
+    PAS de `live_session`, et c'est DELIBERE : le canal `+0x98` n'a aujourd'hui aucun consommateur
+    porte (aucune ability n'ecoute `On(0xd = UnitTriggeredAbility)`) ni aucun capteur live, donc
+    aucune observable de bataille n'en depend. Un montage live serait du theatre. Ce qui est
+    verrouille ici est OFFLINE, deterministe et sans RNG : le MOMENT D'ECRITURE de chaque canal et
+    sa PORTEE. Le jour ou une ability ecoutera cet evenement, ce montage est la porte a reutiliser.
+
+    Quatre contre-epreuves rejouables (`probe_294_trigger_ability_channels.MUTATIONS`), chacune
+    neutralisant une moitie du port : `before` (ecriture avant le behaviour), `alias` (le piege
+    nomme par `case-292` : reutiliser `state.triggering_ability`), `persist` (pas de restauration),
+    `noevent` (pas d'`On(0xd)`)."""
+    def _case(mutate: str = None) -> dict:
+        assert mutate in (None,) + TAC.MUTATIONS, \
+            f"mutation inconnue : {mutate} (connues : {sorted(TAC.MUTATIONS)})"
+        return TAC.run(mutate=mutate, verbose=False)
     return _case
 
 
