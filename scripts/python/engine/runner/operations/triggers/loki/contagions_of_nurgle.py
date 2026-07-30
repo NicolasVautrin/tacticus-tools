@@ -12,6 +12,12 @@ RE (decompile ghidra, build `rnca9r7q6c`)
         & op_LogicalNot( AreEqual(owner@0x148, target@0x178) )
         & AreEnemies(owner@0x148, target@0x178)
 
+    ⚠ ORDINAUX RE-DERIVES du build COURANT (`data/symbols/<build>/frida/enums.tsv`,
+    `IdunBattle.DSL.EventTriggerType`), PAS recopies : l'enum a ete RENUMEROTE et les valeurs
+    heritees de case-dpw (`0x33`/`0x2f`/`0x2e`) designent aujourd'hui `PreUnitFled` /
+    `UnitMemberDeath` / `UnitResurrected`. Les citer sans re-deriver, c'est nommer un AUTRE
+    evenement -- cf. le balayage #292 (728 citations corrigees).
+
     $$CreateBehaviour =
         sel = Cache( FromTrigger(target@0x178,
                                  op_LogicalNot(HasEffect(target@0x178, 0x42f, 0, 6))), 1 )

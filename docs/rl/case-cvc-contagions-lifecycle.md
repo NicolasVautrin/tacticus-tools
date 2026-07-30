@@ -32,7 +32,18 @@ lu verbatim :
                           ContagionsOfNurgleAmount(...) )
 ```
 
-soit `min <= amount <= max`. Les DEUX (et seules) constructions, par
+soit `min <= amount <= max`.
+
+> ⚠ **Ordinaux d'`EventTriggerType` re-dérivés du build COURANT**, jamais recopiés d'une fiche
+> antérieure : l'enum a été **renuméroté**, et les valeurs héritées de `case-dpw`
+> (`UnitAdded = 0x33`, `UnitResurrected = 0x2f`, `UnitRevived = 0x2e`) désignent aujourd'hui
+> `PreUnitFled`, `UnitMemberDeath` et `UnitResurrected`. Les vraies, lues dans
+> `data/symbols/<build>/frida/enums.tsv` : **`UnitAdded = 0x32`, `UnitResurrected = 0x2e`,
+> `UnitRevived = 0x2d`, `PreUnitAbility = 0x2a`, `PreEffectAdded = 0x3d`**. Même gisement que le
+> balayage #292 (728 citations) — une citation périmée ne se trompe pas de chiffre, elle **nomme
+> un autre événement**.
+
+Les DEUX (et seules) constructions, par
 `IdunBattle.Core.Services.EffectsDatabase` `b__14_93` / `b__14_94` :
 
 | effet | ctor `(clé de constante, min, max)` | variable de trait | fenêtre |
@@ -323,7 +334,7 @@ Le probe n'arme **aucun hook** : `decisionView` (deux canaux), `observeBattle`, 
   après dégât préexistant. La MORT d'un porteur d'aura ne rafraîchit donc les cibles que si un
   mouvement ou un tour survient ensuite — ce qui est le cas en pratique, mais l'ordre exact n'est
   pas confronté.
-* **Les branches `UnitResurrected` (0x2f) / `UnitRevived` (0x2e)** du trigger de pose restent non
+* **Les branches `UnitResurrected` (0x2e) / `UnitRevived` (0x2d)** du trigger de pose restent non
   câblées (hors périmètre du cas, résidu inchangé).
 * **`AddEffectInitially`** (`OnOwnerSpecificAbilityInit`) reste délibérément non porté : le runner
   recharge un `combatSnapshot` où le debuff est déjà cuit. Ce cas ne change rien à cette décision —
