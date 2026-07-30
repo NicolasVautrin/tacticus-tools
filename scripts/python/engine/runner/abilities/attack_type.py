@@ -217,6 +217,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
         # `AActiveAbility$$.ctor` : `ALoki_NormalAttackAbility..ctor(this, &opts, 1)` -> 1.
     # --- 2 : Others (y compris des abilities qui font pourtant des degats -- le natif les CLASSE
     #         hors « attaque directe sur la cible » : AoE de zone, charge-puis-frappe, tile-target) -
+    # Reparation REGULIERE (#299). `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$.ctor`
+    # finit par `ADeprecatedActiveAbility..ctor(this, &opts, 2)`, et
+    # `IdunBattle.Entities.Abilities.ADeprecatedActiveAbility$$.ctor` FORWARDE ce 3e argument tel quel
+    # a `AActiveAbility$$.ctor` (il ne fait que recopier les 0x40 octets des `TargetingOptions`) -> 2.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$.ctor` = `return
+    # RepairAbility..ctor(this)` -> MEME litteral, herite et non recopie a l'aveugle.
+    28:   AbilityAttackType.Others,   # RepairAbility (derivee du trait Mechanic)
+    1119: AbilityAttackType.Others,   # Repair_GalvanicFieldAbility (passif GalvanicField)
     1000: AbilityAttackType.Others,   # GauntletsOfUltramarAbility
     1002: AbilityAttackType.Others,   # CombatRestorativesAbility
     1009: AbilityAttackType.Others,   # ResurrectionOrbAbility

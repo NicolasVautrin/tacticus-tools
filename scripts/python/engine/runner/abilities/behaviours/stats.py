@@ -145,28 +145,53 @@ def repairable_heal_type_1(entities, ectx, u) -> bool:
 
 
 class Repair(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$Repair(source, targets, amount, abilityOrEffect)` ->
-    `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` : pour chaque unite du selecteur (+0x50,
-    pre-filtree par le wrapper `HealableUnitsSelector`), evalue le montant (+0x58) et emet une Operation
-    de REPARATION (slot processeur 0x58) -- la mutation PV passe par le MEME mutateur fill-up que le
-    soin (`HealUnitOperation`, cf. `On(UnitRepaired=48)` deja cable cote Swarm). La SEULE difference
-    avec `Heal` est la GARDE d'eligibilite : type 1 (mecanique) au lieu du type 0.
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Repair(mechanic, selector, amount, source, options)` ->
+    `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` -- MIRROR du decompile :
 
-    Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
-    InspiredToGreatnessAbility$$RepairOrHeal` = `If(IsRepairable(sel), Repair(caster, sel, Direct(amt),
-    AbilityOrEffect(0x43a)), Heal(caster, sel, Direct(amt)))`. `abilityOrEffect` (attribution du soin)
-    n'a pas d'observable d'etat porte -> non modelise. Emet 'Repair'. PUR."""
-    __slots__ = ("targets_sel", "amount_fn", "guard")
+        mechanic = SelectSingle(+0x50)                 # le REPARATEUR (`Caster` sur les 3 call-sites)
+        foreach target in Select(+0x58) :              # les cibles
+            amount = (+0x60).Calculate(entities)
+            processor.<slot 0x58>(mechanic, target, amount,
+                                  options.scope@+0x10, options.removeEffects@+0x14, source@+0x68)
 
-    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None):
+    Le slot 0x58 est `Core.Services.OperationProcessor$$RepairUnit` ->
+    `IdunBattle.Operations.RepairUnitOperation$$Execute`, PORTE depuis #299
+    (`runner/operations/repair.py`). AVANT #299 cette feuille appelait `HealUnitOperation` : le
+    raccourci mutait bien les PV mais COURT-CIRCUITAIT les trois etages propres a la reparation --
+    le gate `AttackQuery$$EntityCanBeRepaired`, le `RepairModifier` de la CIBLE et les caps de
+    `PredictRepair`. Frontiere #149 respectee : la feuille reste DECLARATIVE, l'Operation en dessous
+    est imperative.
+
+    `options` = les DEUX fabriques du build, transcrites en `scope`/`remove_effects` :
+      * `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRepair`     -> `(0, True)`  (defaut) ;
+      * `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate` -> `(1, False)`.
+
+    `guard` (optionnel) = predicat par-unite `(entities, ectx, unit_dict) -> bool`, pendant EXACT du
+    `guard` de `Heal` : il porte le pre-filtre `HealableUnitsSelector` d'un call-site qui en a un.
+    ⚠ Les call-sites n'en ont PAS tous : `RepairAbility$$CreateBehaviour` (28/1119) passe le
+    selecteur NU (`ActiveTarget`), et c'est le gate de l'Operation qui tranche -- d'ou `None`.
+
+    Call-sites portes : `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$CreateBehaviour`
+    (28 `Repair` et, par heritage, 1119 `Repair_GalvanicField`) et
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility$$RepairOrHeal`
+    (1082 : `If(IsRepairable(sel), Repair(caster, sel, Direct(amt), AbilityOrEffect(0x43a)),
+    Heal(caster, sel, Direct(amt)))`, garde `repairable_heal_type_1`).
+    `source`/`abilityOrEffect` (attribution) n'a pas d'observable d'etat porte -> non modelise.
+    Emet 'Repair'. PUR."""
+    __slots__ = ("targets_sel", "amount_fn", "guard", "scope", "remove_effects")
+
+    def __init__(self, targets_sel: TargetsSelector, amount_fn, guard=None,
+                 scope: int = 0, remove_effects: bool = True):
         self.targets_sel, self.amount_fn, self.guard = targets_sel, amount_fn, guard
+        self.scope, self.remove_effects = int(scope), bool(remove_effects)
 
     def execute(self, entities, ectx):
-        from ...operations.heal import HealUnitOperation
+        from ...operations.repair import RepairUnitOperation
         state = ectx.state
         amount = int(self.amount_fn(entities, ectx) if callable(self.amount_fn) else self.amount_fn)
         repairs: list = []
         if state is not None and amount > 0:
+            # `mechanic` = `SelectSingle(+0x50)` : le REPARATEUR, `Caster` sur les 3 call-sites lus.
             src = (entities.caster or {}).get("id")
             for u in _units_of(self.targets_sel, entities):
                 tid = u.get("id") if isinstance(u, dict) else None
@@ -175,7 +200,9 @@ class Repair(AbilityBehaviour):
                 if self.guard is not None and not self.guard(entities, ectx, u):
                     continue
                 repairs.append({"target": tid,
-                                "repaired": HealUnitOperation.execute(state, tid, amount, source_id=src)})
+                                "repaired": RepairUnitOperation.execute(
+                                    state, src, tid, amount,
+                                    scope=self.scope, remove_effects=self.remove_effects)})
         ectx.emit("Repair", amount=amount, repairs=repairs)
         return OperationResult.ok()
 
