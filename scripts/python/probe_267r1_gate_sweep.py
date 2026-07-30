@@ -103,11 +103,22 @@ def main() -> int:
     allies = sorted(GRAND_ALLIANCE_TRAITS & set(sensibles))
     if not allies:
         print("  aucun gate d'alliance parmi les consommateurs -> vecteur A INOPERANT")
+    # ⚠ population = le CATALOGUE du seed BC (`GC.all_unit_ids()` rend les KINDS
+    # lineup/npc/summons, pas des visualIds -- s'en servir rendrait un zero qui se lirait
+    # « rien a signaler »).
+    catalogue = []
+    if SEED_BC.exists():
+        catalogue = sorted({u.get("VisualId")
+                            for u in (json.loads(SEED_BC.read_text(encoding="utf-8")).get("Units") or [])
+                            if u.get("VisualId")})
+    if not catalogue:
+        print("  POPULATION NON MESUREE (seed BC absent) -- pas de chiffre, pas de zero trompeur")
     for tn in allies:
-        porteurs = [v for v in GC.all_unit_ids() if tn in (unit_trait_names(v) or ())]
-        brut = [v for v in porteurs if tn in ((GC.unit(v) or {}).get("traits") or ())]
-        print("  %-9s : %d unites le portent au SUBSTRAT, %d au kit BRUT -> gate MORT avant #267-r1"
-              % (tn, len(porteurs), len(brut)))
+        if catalogue:
+            porteurs = [v for v in catalogue if tn in (unit_trait_names(v) or ())]
+            brut = [v for v in porteurs if tn in ((GC.unit(v) or {}).get("traits") or ())]
+            print("  %-9s : %d/%d unites du catalogue le portent au SUBSTRAT, %d au kit BRUT"
+                  % (tn, len(porteurs), len(catalogue), len(brut)))
         for ligne in sensibles[tn]:
             print("      %s" % ligne)
 

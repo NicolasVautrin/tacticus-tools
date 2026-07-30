@@ -196,8 +196,9 @@ les couples dont la sortie change. **Six** traits pilotent un consommateur des 1
 
 ### L'écart, mesuré
 
-- **Structurel, 175/175 unités** : le pseudo-trait de GRANDE ALLIANCE est écrit par le BC dans
-  `BaseUnitComponent+0x40` (la mesure le rend) et n'est dans **aucun** `gameconfig.unit().traits`.
+- **Structurel** : le pseudo-trait de GRANDE ALLIANCE est écrit par le BC dans
+  `BaseUnitComponent+0x40` (la mesure le rend) et n'est dans **aucun** `gameconfig.unit().traits` —
+  **0 unité sur 175**, alors que **74/168** portent `Imperial` et **60/168** `Xenos` au substrat.
   Les gates d'alliance étaient donc **structurellement morts** sur ces 12 sites. **Confirmé live**
   (seed 777 / MC1_67, roster `ultraTitus,adeptCanoness,custoTrajann` vs
   `admecDestroyer,orksWarboss,eldarFarseer`) : **6/6 lignes**, le kit brut ratait `Imperial`/`Xenos`.
