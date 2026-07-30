@@ -369,7 +369,8 @@ Deux faits qu'il faut LIRE, pas deduire :
 
    Le terme n'est donc ni un poids de `BC.Utilities` ni un compte : c'est un **facteur** sur l'utilite
    de soin. Corollaire de mesure : il ne peut pas etre encadre par un montage a `U` fixe — il faut
-   faire varier `U`, sans quoi un « custom constant » resterait indiscernable.
+   faire varier `U`, sans quoi un « custom constant » resterait indiscernable. C'est ce que fait le
+   montage a quatre bras de la section « Le COEFFICIENT est discrimine par la mesure (#286) ».
 
 `0x5df` = `EffectType.HealingBalms_ExtraCritDamage`, l'un des deux stat-modifiers que
 `IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility$$ExecuteBehaviour` pose sur
@@ -564,16 +565,127 @@ observe, et qui re-mesuree quelques instants plus tard vaut **0**. C'est une lec
 paire avec l'etat de PV du meme instant** ; une valeur qui ne s'explique pas par `min(amount,
 missing)/(maxHP+1) x 100` est un artefact, pas une mesure.
 
+### Le COEFFICIENT est discrimine par la mesure (#286) — deux ratios x deux niveaux
+
+L'A/B ci-dessus etablit que le terme EXISTE et que son gate est bien l'effet ; il ne dit rien de sa
+FORME, parce que ses deux cibles ont une utilite de soin BIT-IDENTIQUE (12.55979067645967 des deux
+cotes) : sur un ecart nul, tout terme strictement positif — y compris une constante — fait basculer
+le natif de la meme facon. Le montage suivant (`probe_286_healingbalms_coefficient.py`) leve cela en
+opposant deux cibles a utilites DIFFERENTES, sur deux ratios x deux niveaux.
+
+**Le levier, et pourquoi il echappe aux deux pieges de la passe precedente.** `U_heal` vaut
+`min(healAmount, missing) / (hpMax + 1) x 100`. En regime NON SATURE (`missing > healAmount`) le
+numerateur est CONSTANT : `U` ne depend plus que de **`hpMax`**. On pilote donc niveaux et ratios par
+les `Health` du BC, jamais par les degats. Consequences directes :
+
+- piloter `missing` par les degats etait trop grossier a ce regime (fenetres de ~2500 PV, soin par pas
+  de 30000, plus le soin RETARDE de 4986 pose par le passif) — ici `missing` n'entre PLUS dans `U` :
+  le soin retarde et les coups adverses ne deplacent rien, ils ne consomment que de la marge de
+  non-saturation, dimensionnee a plus d'un soin complet apres le cast qui pose le buff ;
+- la lecture de CACHE perime de `pairUtility` ne se contourne pas en re-lisant : chaque valeur est
+  RECOUPEE avec l'etat de PV du meme instant (`min(amt, missing)/(hpMax+1) x 100`, tolerance `1e-6`
+  — le natif calcule en Fix64 et arrondit a ~1e-8, trois ordres sous ce que le cache produit) et toute
+  valeur inexplicable est REJETEE au lieu d'etre re-tentee.
+
+**Montage** (board MC1_67, seed 4242, Baldr `spaceWolfPriest` injecte par `catalog_inject`) :
+
+- caster `Damage = 10000`, arme 3 coups -> `healAmount = 30000` (verifie `combatSnapshot`) ;
+  `ActiveAbilities = []` (retire `RitesOfMorkai` ; 1212 reste, GRANTED par le passif) ; PV PLEINS,
+  donc `pairUtility(caster -> caster) = 0` et le self-cast ne concurrence pas les deux cibles ;
+- **caster `Movement = 0`** : `aiMovableTiles` rend **0 tuile** (controle qui LEVE), donc une seule
+  tuile candidate et un terme de tuile rigoureusement COMMUN aux deux options — la bascule ne peut
+  venir que du terme custom ;
+- adversaire `blackAbaddon` **seul**, `Movement = 0`, `Damage = 1`, `Health = 10^8`. Le PV enorme
+  rend l'utilite d'attaque (~0.03) negligeable devant les utilites de soin mesurees.
+  **`blackTerminator` est EXCLU** : son `TeleportStrike` le ramene au contact quel que soit son
+  `Movement`, et le natif proposait alors `Move + NormalAttack(69)` au lieu du soin (mesure) ;
+- le buff n'a qu'un seul poseur possible — le cast de 1212 lui-meme. Le bras se joue donc en deux
+  tours : cast sur A au tour N, lecture du CHOIX au tour N+1. 1212 n'a pas de cooldown
+  (`cooldown: null`) et `HealingBalms_ExtraCritDamage` est toujours porte au tour N+1 ; l'effet
+  `HealingBalms`, lui, s'est consomme en soignant 4986 = `hpToHeal[50] = 2770 x 180 %`.
+
+**Les huit bras.** A porte le gate (custom annule -> `u_A = U_A`), B ne le porte pas
+(`u_B = (1 + c) U_B`) ; `r = U_A / U_B` ; la derniere colonne est la borne qu'imposerait une
+CONSTANTE additive `k` :
+
+| bras | niveau | `hpMax` A / B | `U_A` | `U_B` | `r` mesure | natif | borne sur `c` | borne sur `k` |
+|---|---|---|---|---|---|---|---|---|
+| 1 | haut | 80 000 / 112 000 | 37.499531265 | 26.785475132 | 1.399995 | **B** | `c > 0.399995` | `k > 10.714056` |
+| 2 | haut | 80 000 / 128 000 | 37.499531265 | 23.437316902 | 1.599993 | **A** | `c < 0.599993` | `k < 14.062214` |
+| 3 | bas | 320 000 / 448 000 | 9.374970710 | 6.696413620 | 1.399999 | **B** | `c > 0.399999` | `k > 2.678557` |
+| 4 | bas | 320 000 / 512 000 | 9.374970710 | 5.859363545 | 1.599998 | **A** | `c < 0.599998` | `k < 3.515607` |
+| 5 | haut | 80 000 / 119 200 | 37.499531265 | 25.167574105 | 1.489994 | **B** | `c > 0.489994` | `k > 12.331957` |
+| 6 | haut | 80 000 / 120 801 | 37.499531265 | 24.834025931 | 1.510006 | **A** | `c < 0.510006` | `k < 12.665505` |
+| 7 | haut | 80 000 / 119 992 | 37.499531265 | 25.001458428 | 1.499894 | **B** | `c > 0.499894` | `k > 12.498073` |
+| 8 | haut | 80 000 / 120 008 | 37.499531265 | 24.998125131 | 1.500094 | **A** | `c < 0.500094` | `k < 12.501406` |
+
+Trois conclusions, et elles sont de nature differente :
+
+1. **`0.499894 < c < 0.500094`** (bras 7 et 8, ratios a +-1e-4 de 1.5, marges d'utilite ~0.0025
+   point contre un arrondi Fix64 de ~1e-8). Ce n'est plus une exclusion de valeurs rondes, c'est une
+   DETERMINATION du coefficient a 1e-4 pres : `Half` est la seule valeur qui survit.
+2. **La proportionnalite** : les bras 1+2 (niveau haut) et 3+4 (niveau bas) rendent le MEME
+   encadrement `0.400 < c < 0.600` a des utilites separees d'un facteur 4. Un terme qui ne serait pas
+   proportionnel a `U` ne pourrait pas rendre les memes bornes aux deux niveaux.
+3. **La forme ADDITIVE constante est REFUTEE par contradiction** : le bras 1 exige `k > 10.714056`,
+   le bras 4 exige `k < 3.515607`. Aucune constante ne satisfait les deux — et c'est desormais une
+   MESURE, plus seulement une lecture de `Fix64$$FastMul`.
+
+**Contre-epreuves MOTEUR** (meme etat, terme custom du port remplace forme par forme) — chaque bras
+doit SEPARER, sinon il ne mesure rien :
+
+| bras | natif | `Half` (port) | `0` | `Quarter` | `One` | `k = 12.0` |
+|---|---|---|---|---|---|---|
+| 1 | B | **B** | A | A | B | B |
+| 2 | A | **A** | A | A | B | A |
+| 3 | B | **B** | A | A | B | B |
+| 4 | A | **A** | A | A | B | **B** |
+| 5 | B | **B** | A | A | B | **A** |
+| 6 | A | **A** | A | A | B | A |
+| 7 | B | **B** | A | A | B | **A** |
+| 8 | A | **A** | A | A | B | A |
+
+Le port suit le natif dans les HUIT bras ; `0` et `Quarter` divergent a chaque bras « B », `One` a
+chaque bras « A ». La constante `k = 12.0`, calibree pour passer le niveau haut, casse aux bras 4, 5
+et 7 : c'est la contradiction ci-dessus, rendue visible cote moteur.
+
+**Generalisation** : les bras 7 et 8 rejoues avec un AUTRE couple de cibles
+(`spaceStormcaller` / `spaceBlackmane`), un AUTRE board (MC1_63) et un AUTRE seed (909) rendent le
+MEME encadrement (`c > 0.499894` / `c < 0.500094`). Le verdict ne depend ni de la geometrie, ni du
+tirage, ni de l'identite des cibles.
+
+**Le controle de montage qui a manque, et ce qu'il a coute** : ce meme bras de generalisation, joue
+AVANT que le probe ne verifie l'appartenance des deux cibles a `abilityTargets.fromHere`, rendait
+« natif = A » — et TOUTES les formes du port rendaient A, `One` comprise. Cause : sur MC1_63 les
+spawns ne mettaient pas `spaceBlackmane` a portee de cast, donc le natif n'avait qu'UNE option et sa
+preference ne parlait pas du terme custom. Le probe AMENE desormais les cibles au contact
+(`place_targets`, mirror de la doctrine « on pilote les positions ») et LEVE si l'une d'elles reste
+hors `fromHere`, a l'entree comme au tour d'observation. **Un bras ou le natif n'a pas le choix rend
+un verdict parfaitement lisible et entierement vide.**
+
+**Outil de mesure ajoute pour ce montage** : `rl_duel build --unit-stat "VisualId:Champ=Valeur;…"`.
+`--hp-player`/`--dmg-target` ne savent forcer qu'une valeur UNIQUE sur tout un camp, ce qui ne peut
+par construction pas produire deux niveaux d'utilite entre deux allies. Le patch s'applique au meme
+endroit qu'eux, c'est-a-dire au BC **deja normalise** : `buildNormalizedBC` RECALCULE `Health`/`Damage`
+au rank cible, donc patcher le seed BC en amont ne sert a rien (mesure : PV du seed ecrases,
+9035/9035 au lieu des 200000 demandes).
+
+Garde live : `scripts/python/tests/engine/test_healing_balms_custom_coefficient_live.py` — quatre
+bras, les deux PINCES (7, 8 : la valeur) et les deux NIVEAUX (1, 4 : la refutation de l'additif).
+
 ### Non couvert (explicite)
 
-- **La FORME du terme (facteur vs constante) n'a PAS ete exercee live.** Le decompile la tranche sans
-  ambiguite — `Fix64.FastMul(Sum(...), Half)` est litteralement un produit — et le moteur, qui applique
-  `1.5 x U`, reproduit exactement le choix natif (cible ET tuile). Mais l'A/B retenu a un ECART
-  d'utilite NUL entre les deux cibles : tout terme strictement positif y ferait basculer le natif, y
-  compris une constante. Discriminer experimentalement demanderait DEUX montages a des niveaux de `U`
-  differents et a ecart non nul — bascule a grand ecart / niveau haut, non-bascule a petit ecart /
-  niveau bas — ce qui est contradictoire pour toute constante. Le pilotage fin de `missing` (fenetres
-  de quelques milliers de PV) l'a rendu trop couteux dans cette passe ; c'est le residu nomme.
+- **Le coefficient est encadre a 1e-4, pas egale.** La mesure borne `0.499894 < c < 0.500094` ; c'est
+  le decompile (`Fix64.<statics+0x30>` ecrit par `FixMath.NET.Fix64$$.cctor` =
+  `op_Division(One, Fix64(2))`) qui donne la valeur EXACTE. Resserrer encore ne demande que des
+  ratios plus proches de 1.5 — le plancher est la granularite ENTIERE des `hpMax` (a `hpA = 80000`,
+  un pas de 1 PV sur `hpB` deplace le ratio de ~1.2e-5), pas le bruit de mesure.
+- **Un seul porteur exerce.** `spaceWolfPriest` est le seul hero qui porte le passif `HealingBalms`,
+  donc la seule voie vers 1212 ; la mesure ne dit rien d'un eventuel second porteur d'un futur build.
+- **L'adversaire est neutralise** (`Movement = 0`, `Damage = 1`, `Health = 10^8`) pour que le choix
+  du caster se joue entre ses deux seules options de soin. Le montage ne dit donc rien de la
+  concurrence entre 1212 et une ATTAQUE a portee — regime ou le terme custom pese aussi, et qui
+  reste a exercer si un miss d'agreement l'y fait surface.
 - **Les bonus-soin d'effets accumules par `PredictHeal`** avant les caps (boucle sur les effets du
   caster, slot d'interface `0x29`) ne sont pas portes — inertes sur les porteurs exerces.
 - **Le cap de groupe** (`GetGroupUnitHealLimit`) reste inerte : `MakeHealPredictions` passe
