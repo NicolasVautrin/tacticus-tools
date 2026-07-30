@@ -59,8 +59,11 @@ RE (decompile ghidra, build `rnca9r7q6c`)
 et le slot 0x95 est `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount` (meme signature
 `(effectType, team, target, returnFirst)`), DEJA porte par case-224. Deux consequences MESURABLES
 par rapport au collapse precedent :
-  * comparateur **INCLUSIF** `dist <= GetCurrentRange(porteur)` (la version d'EQUIPE), pas le
-    STRICT de `IsInUnitContagionsOfNurgleAura` ;
+  * comparateur **INCLUSIF** `dist <= GetCurrentRange(porteur)` (la version d'EQUIPE).
+    ⚠ Cette ligne opposait cet inclusif au « STRICT de `IsInUnitContagionsOfNurgleAura` ` : cette
+    opposition est PERIMEE depuis le 2026-07-30 (#224, PR #299). Le predicat par-UNITE a lui aussi
+    ete mesure INCLUSIF des qu'il a eu un consommateur moteur confrontable (la face COMBAT de 1071),
+    donc les deux versions ont le MEME rayon effectif -- cf. `entities/triggers.py::IsInUnitAura` ;
   * filtre d'appartenance `GetCurrentTeamId(porteur) == team(EffectSource)` = « porteurs ALLIES DE
     LA SOURCE de l'effet », pas « ennemis de la cible ».
 Le port DELEGUE desormais (`runner/components.contagions_of_nurgle_amount`), il ne re-derive rien.

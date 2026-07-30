@@ -153,8 +153,18 @@ def get_in_range_aura_amount(effect_type, team, target, units, has_trait, get_tu
         return count
 
     Le comparateur est **INCLUSIF** (`continue` seulement quand `r < d`, donc on compte des que
-    `d <= r`) -- a la difference du prédicat par-UNITE `triggers.IsInUnitAura`, qui est STRICT.
-    Les deux partagent en revanche EXACTEMENT le meme etage de portee (`entities/effects/aura.py`
+    `d <= r`).
+
+    ⚠ **Cette docstring affirmait que le predicat par-UNITE `triggers.IsInUnitAura` etait STRICT,
+    « a la difference » de celui-ci. C'est PERIME depuis le 2026-07-30 (#224, PR #299)** : la face
+    COMBAT de `CursedPlagueBell` (1071) a enfin donne un consommateur MOTEUR au predicat par-unite,
+    et la mesure live montre un seuil natif egal a `GetCurrentRange` EXACTEMENT -- donc INCLUSIF
+    lui aussi. Les deux versions ont le MEME rayon effectif. Ne pas re-introduire la distinction
+    sur la foi du decompile du comparateur (qui, lui, lit bien `<` strict) : l'ecart d'une unite
+    n'est pas localise, cf. la docstring de `entities/triggers.py::IsInUnitAura`, qui garde les
+    deux faits cote a cote et les trois modeles indiscernables.
+
+    Les deux partagent EXACTEMENT le meme etage de portee (`entities/effects/aura.py`
     -> `GetTrait` + `GetCurrentRange`), ce qui rend la version EQUIPE confrontable live (elle est
     exposee par `abilityTargets`) et l'etage commun mesurable.
 
