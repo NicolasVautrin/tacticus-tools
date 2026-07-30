@@ -43,7 +43,7 @@ _DEBUG = bool(os.environ.get("ENGINE_DEBUG"))
 
 
 def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
-                  predictor: dict | None = None) -> dict:
+                  predictor: dict | None = None, spawn_groups=None) -> dict:
     """Decision du moteur pour l'acteur uid sur l'etat dv. Forme normalisee :
     {kind:"move", to:(c,r)} ou {kind:"ability", target, ability, to:(c,r)} ou {kind:"finish"}.
 
@@ -58,14 +58,21 @@ def engine_decide(sid: int, rid: int, dv: dict, mov_by_unit: dict, uid: int, wt,
     `.units`) passe par `DefaultMachineTactic` + `build_machine` -- pas de mouvement, position du
     caster = `UnitPosition.NullPosition`, tuiles candidates vides. Sans ce routage, un pas d'IA porte
     par une MoW n'avait AUCUNE entree cote moteur (residu R14).
+
+    `spawn_groups` (optionnel) = les `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner,
+    seule source du predicat `IsPositionMachineForCurrentPlayer` (`BattleQuery+0x78`, qu'aucun RPC
+    n'expose par runner -- cf. `engine.services.machine_of_war_position`). L'appelant qui MONTE le
+    runner la connait (`state-file.bc`) ; omise, le predicat reste sur son repli.
     """
     from engine.ai import context as _ai_ctx
     from engine.ai.tactic import DefaultAiUnitTactic, DefaultMachineTactic
     _rpc = lambda m, b, t: _r(sid, m, b, t)          # noqa: E731
     if _ai_ctx.machine_row(dv, uid) is not None:     # `IsMachine(actor)` -> tactic dedie
-        mctx = _ai_ctx.build_machine(_rpc, rid, dv, uid, wt, predictor, debug=_DEBUG)
+        mctx = _ai_ctx.build_machine(_rpc, rid, dv, uid, wt, predictor, debug=_DEBUG,
+                                     spawn_groups=spawn_groups)
         return DefaultMachineTactic().calculate_next_action(mctx)
-    ctx = _ai_ctx.build(_rpc, rid, dv, mov_by_unit, uid, wt, predictor, debug=_DEBUG)
+    ctx = _ai_ctx.build(_rpc, rid, dv, mov_by_unit, uid, wt, predictor, debug=_DEBUG,
+                        spawn_groups=spawn_groups)
     return DefaultAiUnitTactic().calculate_next_action(ctx)
 
 

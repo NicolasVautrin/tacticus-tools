@@ -309,9 +309,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return out
 
     # `ctx.current_player_machine_position` (predicat `IsPositionMachineForCurrentPlayer`, mirror
-    # `IsPositionMachineForPlayerTrigger IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` qui lit le slot MoW de `GetPlayer(turn.
-    # CurrentPlayerId)`) : le slot (`MachineComponent.Position` @0x78) de la MoW dont l'owner-PLAYER
-    # est le joueur courant. None si le joueur courant n'a pas de MoW deployee.
+    # `IsPositionMachineForPlayerTrigger IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`).
+    # ⚠ RESIDU NOMME (#302 tranche 3) : le natif ne lit PAS une machine deployee, il lit
+    # `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer` = la
+    # `MachineOfWarPosition` du GROUPE DE SPAWN du joueur (`SpawnPointSetConfiguration.
+    # GroupForPlayer(teamIndex, playerNr).<+0x14>`), une propriete du PLATEAU disponible qu'une MoW
+    # soit la ou non -- cf. `engine.services.machine_of_war_position`, ou la cascade est portee, et
+    # `AiDecisionContext.machine_of_war_position`, qui la cable cote DECISION.
+    # Ce qui suit est donc un PROXY : le slot (`MachineComponent.Position` @0x78) de la MoW dont
+    # l'owner-PLAYER est le joueur courant. Il est EXACT quand une MoW est deployee (elle l'a ete
+    # sur le slot de son groupe) et rend None sinon, la ou le natif repond toujours. Le combler
+    # demande de porter les `SpawnPointGroups` de la BC jusqu'au `State` -- hors perimetre #302-3,
+    # qui n'a valide que la face DECISION.
     mow_pos = None
     if state.current_player_id is not None:
         from ...components import MachineComponent

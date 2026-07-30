@@ -5,6 +5,8 @@ Chantier ouvert par la tranche 4g de `case-27` (PR #313), qui a re-qualifie le v
 cible**. Cette fiche etablit l'INVENTAIRE (RE au decompile `rnca9r7q6c`), pose la premiere tranche
 et decoupe explicitement les suivantes.
 
+**Etat : tranches 1 (§6) et 3 (§8) LIVREES.** Tranches 2, 4 et 5 restent ouvertes (§7).
+
 ---
 
 ## 1. Ce que le natif fait — la chaine complete, lue au decompile
@@ -264,13 +266,10 @@ dans le contexte de DECISION (`ctx.scene` au lieu d'un `State`) et le branchemen
 **Montage discriminant** : un ennemi porteur d'un modificateur d'armure negatif adjacent a la tuile
 visee — le natif ajoute alors un terme que le port actuel ignore.
 
-### Tranche 3 — `1148 DaemonicOrdnance` (2e membre, meme route)
+### Tranche 3 — LIVREE : `1148 DaemonicOrdnance` (2e membre, meme route)
 
-Masque `0x46000040` (bit 6 pose). Le custom est deja RE (`case-27` §4g) : `10 x |ennemis sur
-GetTargetAreaTiles|`, ou `10` est une CONSTANTE `Fix64(0xa)` EN DUR (aucun `GetUtilityValue`).
-Reste a porter l'evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))`. Porteur
-`blackForgefiend` = MoW -> **greffer l'ability** sur une unite du pool (le playbook se charge par
-ABILITY), exactement comme la tranche 1 l'a fait pour 1169. **Purger le cooldown avant de mesurer.**
+Voir **§8** — le port, et surtout l'etage que la tranche a fait apparaitre
+(`IsPositionMachineForCurrentPlayer` lisait la mauvaise chose).
 
 ### Tranche 4 — balayage EXHAUSTIF du bit `TargetIsTile`
 
@@ -290,3 +289,121 @@ Deux angles morts du harnais, tous deux dans `frida/hooks/features/ai-step/` :
    aucun oracle PAR ETAGE pour une cible tuile**. C'est ce qui a oblige la tranche 1 a valider par
    la decision COMPLETE (`aiDryRunAllUnits`) plutot que paire par paire. C'est le point d'ancrage a
    ouvrir en priorite pour les tranches 2 et 3.
+3. **AUCUN RPC n'expose la config de spawn D'UN RUNNER** (ajout tranche 3). Le predicat
+   `IsPositionMachineForCurrentPlayer` lit `BattleQuery+0x78` =
+   `SpawnPointSetConfiguration`, dont le port a besoin du champ
+   `SpawnPointGroupConfiguration+0x14` (`MachineOfWarPosition`). `inspectSpawnPoints`
+   (`frida/hooks/features/battle-config.ts`) lit la BC **LIVE** (pas un runner) et **n'emet pas ce
+   champ** — les deux manques sont a corriger ensemble. Point d'ancrage le plus economique :
+   `boardGraph`, qui tient deja le `BattleQuery` du runner (`services + <Battle>`), et n'aurait qu'a
+   ajouter `spawnGroups: [{teamWithPlayerIndex, machineOfWarPosition}]`. Contournement en place :
+   l'appelant qui MONTE le runner passe les groupes a `engine_decide(..., spawn_groups=...)` en les
+   lisant dans la BC de son state-file.
+
+---
+
+## 8. Tranche 3 — LIVREE : `1148 DaemonicOrdnance`
+
+### 8.1 Le custom, mirror 1:1
+
+`IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$CalculateCustomUtility` :
+
+```
+sel = DaemonicOrdnanceAbility.GetTargetAreaTiles();            // arbre DSL
+ent = AbilityEntities(owner: caster, caster: null, target: target);
+x   = Fix64(0);
+foreach (tileEntity in TargetsSelector.<slot 10>(sel, ent))    // Select, PAS Count
+    if (UnitExtensions.GetUnit(tileEntity, state) is u && UnitExtensions.IsEnemy(u, caster, state))
+        x += Fix64(0xa);
+return x;
+```
+
+Trois contrastes avec 1169, tous lus au decompile :
+
+| | 1169 PlagueburstMortar | 1148 DaemonicOrdnance |
+|---|---|---|
+| poids | `GetUtilityValue("PlagueburstMortar_AdjacentEnemy")` | **`Fix64(0xa)` EN DUR** — aucun `GetUtilityValue`, aucune cle `BC.Utilities` |
+| agregation | `TargetsSelector.Count` (slot 2) | boucle IMPERATIVE sur `Select` (slot 10) — pas de dedoublonnage par unite |
+| slot `caster` de l'`AbilityEntities` | `caster` | **null** (sans effet : l'arbre ne lit que `target@0x178`) |
+
+Port : `scripts/python/engine/playbook/daemonic_ordnance.py` (+ `tile_targets.unit_on_tile`, mirror
+de `UnitExtensions$$GetUnit` restreint au domaine tuile).
+
+### 8.2 L'etage que la tranche a fait apparaitre — et qui etait FAUX au depot
+
+`IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetTargetAreaTiles` =
+`TilesOnSameElevation(target, TilesInTriangleShape(target, If(IsPositionMachineForCurrentPlayer(2),
+1, 4)), 1)`. La **direction du triangle** decide de la zone, donc du comptage, donc de la cible.
+
+`IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger` compare
+`IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(<joueur COURANT>)` a son
+litteral. Et cette fonction **n'interroge AUCUNE machine deployee** :
+
+```
+teamIndex = player.GetComponent<TeamComponent>().<+0x24>
+grp = spawnPointSet@+0x78.GroupForPlayer(teamIndex, playerNr)      // TWPI : team1/p0 -> 0, team2/p0 -> 1
+if (grp != null) return grp.MachineOfWarPosition@+0x14             // propriete du PLATEAU
+return teamIndex == 1 ? 2 : (teamIndex == 2 ? 1 : 0)               // fallback SANS groupe
+```
+
+Le port lisait `MachineComponent.Position` de la MoW deployee (`entities_from_state`, et la
+docstring de `entities/triggers.py` l'affirmait) : un **proxy** exact quand la machine existe, et
+« inconnu » sinon — alors que le natif repond toujours. Consequence mesuree : sur `MC1_67`
+(`SpawnPointSetIndex 1`, groupes `[(0 -> 2), (1 -> 1)]`) et **sans aucune MoW**, le natif prend
+`dir = 1` la ou le port prenait `dir = 4`, et visait **une autre tuile** (53 au lieu de 52).
+
+Le fallback natif n'est pas un defaut acceptable : balayage des **675 boards** du depot (sur le
+`spawnPointsSet` paire de chaque dump) — **502 declarent `(0, 0)`**, **173 declarent `(2, 1)`**.
+L'appliquer sans avoir lu le groupe serait faux sur ~74 % des plateaux. Le port ne devine donc pas :
+`AiDecisionContext.machine_of_war_position` cascade **groupes lus** -> **slot d'une MoW deployee**
+(proxy exact quand il repond, et c'est le regime REEL de 1148 : son porteur EST une MoW) ->
+**`None` = non mesure**.
+
+Mirror de la cascade : `scripts/python/engine/services/machine_of_war_position.py`
+(`GroupForPlayer` + `GetPositionMachineForPlayer`, fallback natif inclus).
+
+### 8.3 Ce qui est mesure (`probe_302_3_daemonic_ordnance.py`)
+
+Montage : greffe de 1148 sur `deathTyphus`, cluster TRIANGLE `(A, A+S, A+SE)` = `(4,4) (4,5) (5,5)`,
+caster en `(2,4)`, cooldown initial purge.
+
+| bras | plateau | `MachineOfWarPosition` | natif | moteur | custom max |
+|---|---|---|---|---|---|
+| favorable (`--hp-target 400000`) | `MC1_67` | **2** (groupe) | `(1148, 52)` | `(1148, 52)` | **30** (triangle `{S,SE}` : les 3 ennemis) |
+| TEMOIN (`--hp-target 1`) | `MC1_67` | 2 | `(69, 77)` | `(69, 77)` | 30 |
+| FLIP (`--flip`) | `C1_03` (groupes `(0,0)`) | **0** | `(1148, 53)` | `(1148, 53)` | **20** (triangle `{NW,N}`) |
+
+Bras de necessite, tous mesures sur le bras favorable :
+
+| bras | resultat | ce qu'il exclut |
+|---|---|---|
+| `nogroups` (canal `SpawnPointGroups` coupe) | `(1148, **53**)` | l'accord ne vient pas d'un « VRAI par hasard » : sans la lecture du groupe le moteur vise une AUTRE tuile |
+| `zero` (custom force a 0) | `(69, 77)` | le terme custom est NECESSAIRE |
+| `noroute` (registre non-attaque vide) | `(69, 77)` | la route est NECESSAIRE |
+| domaine UNITE force | `[]` | l'enumeration tuile est NECESSAIRE |
+| `_best_attack` | rend `69` | la porte plan-driven ne peut pas produire 1148 |
+
+Garde : `scripts/python/tests/engine/test_daemonic_ordnance_decision_live.py` (**13 tests**), dont
+le bras TEMOIN, le bras FLIP et le bras `nogroups` (le ROUGE conserve).
+
+### 8.4 Ce que la tranche 3 NE porte PAS (residus nommes)
+
+- **Le terme de PREDICTION de 1148 reste a `0`**, et ici c'est STRUCTUREL, pas un regime :
+  `...DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle `GenerateMultiHitAttackPredictions`
+  sur `DaemonicOrdnanceAbility$$GetAllDamageableTargets` = `Enemies(caster, Units(Filter(
+  GetTargetAreaTiles(), HasEffect(Tiles(Subject@0x180), 5 = Fire)), 1), 3)` — **les ennemis sur une
+  tuile DEJA EN FEU**, or c'est ce meme cast qui pose le feu, en DERNIER etage de son
+  `ExecuteBehaviour`. Sur une zone qui ne brule pas, l'ensemble est VIDE et la somme vaut REELLEMENT
+  0 : le port est exact partout ou la zone visee ne porte pas `Fire`. Des qu'elle le porte, il
+  SOUS-ESTIME. Montage discriminant (protocole `case-172`) : caster une premiere fois pour allumer,
+  puis re-scorer un tir sur la meme zone avec un ennemi encore dessus. Garde de non-regression
+  silencieuse : `test_prediction_term_is_zero_because_the_area_is_not_burning`.
+- **La face COMBAT garde le proxy** (`entities_from_state` lit `MachineComponent.Position`). La
+  corriger demande de porter les `SpawnPointGroups` jusqu'au `State` — non fait, non valide ici. Les
+  consommateurs concernes sont `1142 MacroPlasmaIncinerator` et `DevastatingRefrain`.
+- **`unit_on_tile` resout l'occupant par la MAIN tile.** Le natif passe par `TileContentComponent`,
+  rempli pour CHAQUE pied d'une unite multi-tuiles ; une unite dont seul un pied SECONDAIRE tombe
+  dans la zone serait comptee par le natif et pas par le port. Les heros du pool sont mono-tuile et
+  les MoW n'ont pas de ligne dans `dv.units` — non exerce, donc non mesure.
+- **La branche `playerNr != 0` de `GroupForPlayer`** (TWPI 2/3/5) n'est pas exercee : tous nos
+  runners declarent un seul joueur par equipe. Le port la transcrit, elle n'est pas confrontee.

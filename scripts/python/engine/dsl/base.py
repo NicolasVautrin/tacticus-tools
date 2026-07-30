@@ -164,11 +164,14 @@ class DslContext:
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
     # couche runner (`entities_from_state`) via `_faction(visualId)`.
     faction_of: object | None = None
-    # Slot de deploiement (`MachineOfWarPosition` : 1=Top, 2=Bottom) de la MACHINE OF WAR du joueur
-    # COURANT — lu par le predicat `IsPositionMachineForCurrentPlayer` (mirror
+    # `MachineOfWarPosition` (1=Top, 2=Bottom) du joueur COURANT — lu par le predicat
+    # `IsPositionMachineForCurrentPlayer` (mirror
     # `IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`, qui interroge
-    # `GetPlayer(turn.CurrentPlayerId)`). None = le joueur courant n'a pas de MoW -> predicat False
-    # (mirror du `if (player == null) return false`). Pose par `entities_from_state`.
+    # `BattleQuery$$GetPositionMachineForPlayer(GetPlayer(turn.CurrentPlayerId))`). ⚠ C'est le slot
+    # du GROUPE DE SPAWN du joueur (propriete du PLATEAU), PAS celui d'une machine deployee —
+    # cf. `engine.services.machine_of_war_position` (#302 tranche 3). None = **non mesure** ->
+    # predicat False. Pose par `entities_from_state` (face COMBAT, via un PROXY documente) et par
+    # `engine.playbook.tile_targets.dsl_context_for_tile_target` (face DECISION, source native).
     current_player_machine_position: int | None = None
     # Modifications de stat NEGATIVES par unite (predicat `HasNegativeModifier`, mirror
     # `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`) : `has_negative_modifier(unit,
