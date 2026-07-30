@@ -55,7 +55,7 @@ DOTTED_RE = re.compile(r"\bDSL(?:Factory|Behaviors|Selectors|Formulas|Triggers)\
 # Sans ce canal, ces ports sortaient en `PORTE_ARTEFACT_AUTRE` -- un faux positif du piege
 # Heal/Repair, qui aurait envoye relire a la main des ports parfaitement attestes.
 NODECLS_RE = re.compile(
-    r"\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*Entities\.(?:Selectors|Formulas|Behaviours|Triggers)\."
+    r"\b(?:[A-Za-z_][A-Za-z0-9_]*\.)*(?:Entities\.(?:Selectors|Formulas|Behaviours|Triggers)|DSL)\."
     r"([A-Za-z_][A-Za-z0-9_]*)")
 
 
@@ -84,6 +84,11 @@ def facade_exports():
         for name in names:
             obj = getattr(mod, name, None)
             if obj is None or not (inspect.isclass(obj) or inspect.isfunction(obj)):
+                continue
+            # Les facades font `from ... import *` : elles re-exportent aussi ce qu'elles ont
+            # elles-memes importe de la stdlib (`dataclass`, `field`, `replace`). Ce ne sont pas
+            # des noeuds -- les compter comme « exports sans artefact natif » serait un faux.
+            if not (getattr(obj, "__module__", "") or "").startswith("engine"):
                 continue
             try:
                 src = inspect.getsource(obj)
@@ -256,10 +261,37 @@ def main():
                 r["family"], r["name"], r["symbol"], r["ov_frida"], r["ov_ghidra"],
                 r["verdict"], r["evidence"], r["port_site"]))
 
-    # Exports Python SANS primitive native homonyme -> a expliquer (alias de port, classe de noeud
-    # portee directement, ou nom invente).
+    # AXE SYMETRIQUE : les exports Python SANS primitive native homonyme. Un nom Python qui ne
+    # correspond a aucune primitive n'est pas forcement faux -- il peut porter la CLASSE DE NOEUD
+    # (alias) ou n'etre qu'une piece d'infrastructure du port. Mais il peut aussi etre un nom
+    # INVENTE, et c'est precisement ce qu'il faut pouvoir nommer.
     native_names = {p["name"] for p in native}
     orphans = sorted(n for n in exports if n not in native_names)
+    orphan_rows = []
+    for name in orphans:
+        pairs, dotted, nodecls = cited[name]
+        if pairs or dotted:
+            state = "ALIAS_ARTEFACT"
+            ev = ";".join(sorted({"%s$$%s" % p for p in pairs})[:2]) or ("DSL*." + sorted(dotted)[0])
+        elif nodecls:
+            state = "ALIAS_ARTEFACT"
+            ev = "noeud:" + sorted(nodecls)[0]
+        else:
+            state = "SANS_ARTEFACT_CITE"
+            ev = "-"
+        # La 1re ligne de docstring est ce qui permet de trancher A LA LECTURE entre un slot de
+        # factory (`caster@+0x168`), un operateur (`op_BitwiseAnd`), une piece d'infrastructure du
+        # port et un nom reellement invente. On la rend au lieu de laisser deviner.
+        doc = (exports[name]["source"] or "").split('"""')
+        first = doc[1].strip().split("\n")[0][:140].replace("\t", " ") if len(doc) > 1 else "-"
+        orphan_rows.append((name, state, ev,
+                            "%s:%d" % (exports[name]["file"], exports[name]["line"]), first))
+    orph_path = os.path.join(os.path.dirname(out_path), "326_dsl_port_orphans.tsv")
+    with io.open(orph_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("# schema=326.orphans.v2\n")
+        fh.write("export\tstate\tevidence\tsite\tdoc\n")
+        for row in orphan_rows:
+            fh.write("\t".join(row) + "\n")
 
     counts = defaultdict(lambda: defaultdict(int))
     for r in rows:
@@ -280,9 +312,14 @@ def main():
             tot[v] += counts[fam][v]
     print("%-12s %s" % ("TOTAL", " ".join("%-20d" % tot[v] for v in verdicts)))
     assert sum(tot.values()) == len(rows), "total != nombre de primitives"
-    print("exports Python sans primitive native homonyme : %d" % len(orphans))
-    print("  %s" % ", ".join(orphans[:40]))
+    n_sans = sum(1 for r in orphan_rows if r[1] == "SANS_ARTEFACT_CITE")
+    print("exports Python sans primitive native homonyme : %d "
+          "(%d citent un artefact = ALIAS, %d n'en citent AUCUN)"
+          % (len(orphans), len(orphans) - n_sans, n_sans))
+    print("  sans artefact cite : %s"
+          % ", ".join(r[0] for r in orphan_rows if r[1] == "SANS_ARTEFACT_CITE"))
     print("ecrit : %s" % args.out)
+    print("ecrit : %s" % os.path.relpath(orph_path, REPO).replace("\\", "/"))
     return 0
 
 

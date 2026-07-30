@@ -319,6 +319,18 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
                 r["n_confrontables"], r["n_pool"]))
         L.append("")
 
+    L += ["### Inventaire brut des primitives NON PORTEES (matiere de la jointure)", "",
+          "Sans la table phase 1 on ne peut pas les ORDONNER, mais on peut les NOMMER -- et c'est",
+          "deja ce qui manquait. Table complete (avec les `CITE_A_QUALIFIER`, non listees ici) :",
+          "`logs/326_dsl_primitive_coverage.tsv`.", ""]
+    npf = defaultdict(list)
+    for r in rows:
+        if r["verdict"] == "NON_PORTE":
+            npf[r["family"]].append(r["name"])
+    for f in sorted(npf):
+        L += ["**DSL%s** (%d) : %s" % (f, len(npf[f]),
+                                       ", ".join("`%s`" % n for n in sorted(npf[f]))), ""]
+
     n_map0 = sum(1 for a in fwd if not fwd[a])
     L += ["## 4. Ce qui n'est PAS mesurable, et pourquoi", "",
           "* **Levier natif** : le nombre d'abilities qui APPELLENT une primitive vient des xrefs",
@@ -364,6 +376,31 @@ def write_doc(path, build, rows, reach, p1, fwd, unmatched_prim, unmatched_abil,
         L += ["", "Ces noms ne sont plus dans les classes-factory du build : soit la primitive a",
               "ete RETIREE du jeu, soit elle a ete RENOMMEE. Dans les deux cas la citation ne se",
               "resout plus par grep, et le port qui s'en reclame n'est plus atteste.", ""]
+
+    orph_path = os.path.join(REPO, "logs", "326_dsl_port_orphans.tsv")
+    L += ["## 6. L'axe symetrique : exports Python sans primitive native homonyme", ""]
+    if not os.path.exists(orph_path):
+        L += ["NON MESURE -- lancer `probe_326_dsl_port_matching.py` d'abord.", ""]
+    else:
+        orph = read_tsv(orph_path)
+        alias = [r for r in orph if r["state"] == "ALIAS_ARTEFACT"]
+        sans = [r for r in orph if r["state"] != "ALIAS_ARTEFACT"]
+        L += ["Un nom Python sans primitive homonyme n'est pas fautif en soi : il peut porter la",
+              "CLASSE DE NOEUD (alias), un SLOT de la factory ou une piece d'infrastructure. Mais",
+              "c'est aussi la ou se logerait un nom INVENTE, alors on le compte.", "",
+              "**%d exports**, dont **%d citent un artefact natif** (alias) et **%d n'en citent"
+              " aucun** :" % (len(orph), len(alias), len(sans)), "",
+              "| export | site | ce que la docstring en dit |", "|---|---|---|"]
+        for r in sans:
+            L.append("| `%s` | `%s` | %s |" % (r["export"], r["site"], r.get("doc", "-")))
+        L += ["", "Re-derive le 2026-07-31 : **aucun de ces %d n'est un nom invente** -- ce sont"
+              % len(sans),
+              "des slots de la factory (`Caster`, `CasterTile`, `Subject`, `Target`, `TargetTile`,",
+              "cf. `IdunBattleLogic.Entities.DSLFactory$$InitializeShared`), des OPERATEURS",
+              "(`And`/`TileIntersect` = `TargetsSelector.op_BitwiseAnd`), de l'infrastructure de",
+              "port (`Emit`, `OperationResult`, `resolve_unit`) ou des vehicules de collapse",
+              "declares comme tels (`FixedTiles`, `UnitSet`). Le compte, lui, doit rester",
+              "surveille : c'est ce chiffre qui reagirait a une invention.", ""]
     if not os.path.isdir(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
