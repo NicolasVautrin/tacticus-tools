@@ -5,10 +5,12 @@ Deux etages, deux canaux, mesures separement (jamais un scalaire fitte) :
 
   E1 MAGNITUDE  -- canal `pairUtility` (invoque
      `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`
-     et rend un Fix64 SCALAIRE). Il ne traverse AUCUN decodeur de struct des hooks -- ni celui de
-     `RepairPredictionResult` (backlog #276-r1 : 16 octets lus pour une struct de 8), ni celui des
-     healEvents, dont la struct `ProbableHealEvent` a exactement la meme forme
-     (`CONCAT44(fill, current)`).
+     et rend un Fix64 SCALAIRE). C'est le canal de REFERENCE parce qu'il ne decode AUCUN champ de
+     struct. A ne pas confondre avec les deux decodeurs d'events, qui n'ont PAS le meme statut :
+     `readHealEvent` lit la struct de 8 octets INLINE d'un `ProbableHealEvent` (stride 0x18,
+     `targetHpBefore@+0x08` / `healAmount@+0x0c`) et est SAIN -- il peut servir de corroboration ;
+     `decodeRepairDict`, lui, suppose 16 octets / 4 ints la ou `PredictRepair` rend la MEME struct de
+     8 octets, et DEBORDE (backlog #276-r1).
      Le natif compare a DEUX hypotheses de magnitude :
        U_wpn  = `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount`
                 = `Multiply(StatAmount(weapon), Max(WeaponHighestHits(weapon), Get(1)))`
