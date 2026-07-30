@@ -41,7 +41,7 @@ Cas d'origine : `docs/rl/case-36-triggered-abilities-move.md` — 909 s4/s19, u8
 """
 from __future__ import annotations
 
-import hexgeo
+from .. import battle_query as bq
 
 from ..entities.triggered_ability_type import TriggeredAbilityType
 
@@ -123,12 +123,25 @@ class AdjacentUnitPreferenceTriggeredAbilityPlaybook:
         # override lit son argument `unit`.
         ctx = ctx or {}
         val = 0.0
+        # ADJACENCE NATIVE, pas hexgeo nu (#271). `IBattleQuery.GetAdjacent{Friends,Enemies}` passe
+        # par `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, qui
+        # applique un gate INCONDITIONNEL `abs(elev(tuile) - elev(voisin)) < 2` : deux tuiles
+        # cote a cote mais separees de 2 niveaux ne sont PAS voisines pour le natif. `battle_query.
+        # is_adjacent` porte ce gate ; `hexgeo.distance == 1` seul SUR-COMPTE.
+        # ⚠ MESURE (#271, `probe_271_kustom_force_field_reworked.py --adjacency`) : sur le voisinage
+        # NATIF (`boardGraph`) de TROIS boards, `bq.is_adjacent` est EXACT — **0 faux sur 4 963
+        # paires** (MC1_67 1953, C4_09 2415, C1_25 595) — la ou `hexgeo.distance == 1` seul se
+        # trompe 9 / 22 / 2 fois, TOUJOURS dans le sens PERMISSIF (le voisinage natif est un
+        # SOUS-ENSEMBLE de hexgeo). Le trou etait invisible parce qu'il ne mord qu'au bord d'une
+        # marche d'elevation >= 2 — et c'est exactement ce qui a d'abord fait rendre a l'A/B de
+        # #271 un faux « le natif n'applique pas le terme », y compris sur `GuardianOrganism`.
+        elev = ctx.get("elev_by_pos")
         friends = [u for u in (ctx.get("friend_units") or ())
-                   if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_friend(u, ctx)]
+                   if bq.is_adjacent(tile, u["pos"], elev) and self.filter_adjacent_friend(u, ctx)]
         for u in self._capped(friends, self.MAX_ADJACENT_FRIENDS):
             val += self.get_adjacent_friend_utility(u, wt)
         enemies = [u for u in (ctx.get("enemy_units") or ())
-                   if hexgeo.distance(tile, u["pos"]) == 1 and self.filter_adjacent_enemy(u, ctx)]
+                   if bq.is_adjacent(tile, u["pos"], elev) and self.filter_adjacent_enemy(u, ctx)]
         for u in self._capped(enemies, self.MAX_ADJACENT_ENEMIES):
             val += self.get_adjacent_enemy_utility(u, wt)
         return val
@@ -464,6 +477,41 @@ class SpiritualLeaderPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return _has_trait(unit, "Decoy")                           # HasTrait(u, 0x41d = 1053)
 
 
+class KustomForceFieldReworkedPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`KustomForceFieldReworkedPlaybook` (`IdunBattle.AI.Playbook.Loki.KustomForceFieldReworkedPlaybook$$.ctor` :
+    ability `0x60b` = 1547 `KustomForceFieldReworked` — passif d'`orksBigMek`, HERO du pool).
+
+    `IdunBattle.AI.Playbook.Loki.KustomForceFieldReworkedPlaybook$$GetAdjacentFriendUtility` :
+
+        int v = ctx["KustomForceFieldReworked_LikesAdjacentFriends"];   // 10 (gameconfig VIVANT)
+        if (UnitExtensions.HasFaction(unit, 5)) v *= 2;                 // UnitFaction.Orks
+        return v;
+
+    ⚠ Le facteur 2 est un `imul` du littéral, PAS un second poids BC — rien à chercher dans la
+    table. Le gate est DANS l'accesseur (comme `FearedInterrogatorPlaybook`), pas dans un
+    `FilterAdjacentFriends` : le natif n'en override AUCUN. Lu au bloc `methodPointers` du PE, le
+    groupe de cette classe est `[.ctor, GetAdjacentFriendUtility, <ret 0>]` — strictement le même
+    que `GuardianOrganismPlaybook` (donc ni cap `vtbl+0x228`, ni filtre `vtbl+0x248` : les corps
+    `<ret 1>` et `FilterAdjacentFriends` que porte `SpiritualLeaderPlaybook` sont ABSENTS ici).
+
+    Terme = 10 × #amis NON-Orks à R1 de la tuile candidate + 20 × #amis Orks à R1. Il départage
+    donc deux tuiles à MÊME nombre d'amis adjacents dès que leurs factions diffèrent — ce qu'aucun
+    poids unique ne peut faire.
+
+    ⚠ POURQUOI CE TERME N'EXISTAIT PAS AVANT (#271) : la clé valait **0** dans la table
+    `BC.Utilities` de la CAPTURE (`data/seed-bc.json`), et **10** au gameconfig VIVANT. Tant que le
+    natif et le moteur lisaient tous deux la capture, ils étaient d'accord — et faux tous les deux.
+    Le refresh `catalog_inject.refresh_ai_utilities` (mergé `dd129216`) sert désormais les poids
+    vivants aux DEUX côtés, ce qui a démasqué le terme. Une mesure d'A/B menée avant ce refresh
+    aurait rendu « aucun écart », et l'aurait conclu à tort inerte."""
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        v = float(wt.sub("TriggeredAbilities", "KustomForceFieldReworked_LikesAdjacentFriends"))
+        if _unit_faction(unit) == "Orks":                          # HasFaction(unit, 5)
+            v *= 2.0
+        return v
+
+
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
@@ -494,6 +542,10 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # jeu : `SPIRITUALLDEADER_`). Resolue au litteral natif, elle vaut 30. Porteur POOL-HERO :
     # genesMagus, qui fabrique elle-meme les decoys que ce terme compte.
     int(TriggeredAbilityType.SpiritualLeader): SpiritualLeaderPlaybook(),        # 1275 (filtre Decoy)
+    # #271 — DEMASQUE par le refresh `refresh_ai_utilities` (la cle valait 0 dans la CAPTURE, 10 au
+    # gameconfig vivant). Porteur POOL-HERO : orksBigMek. Face NON-OWNER de la meme ability :
+    # `playbook/non_owner.py` (feuille `TriggeredAbilitiesNonOwner(4)`).
+    int(TriggeredAbilityType.KustomForceFieldReworked): KustomForceFieldReworkedPlaybook(),  # 1547 (x2 si ami Ork)
 }
 
 
