@@ -151,9 +151,12 @@ rayon de 0** — la cloche ne pourrait jamais partir, à aucune distance. Elle p
   nœuds (le port porte le *sélecteur* ou la *primitive* `TileExtensions`/`UnitExtensions`) : il n'y a
   donc rien à confronter dessus aujourd'hui, mais rien non plus qui les couvre si un arbre DSL vient
   à les instancier.
-* **Un résidu voisin a été trouvé et NON corrigé** (hors périmètre) :
-  `IsActiveAbilityCountedAsUsed` — cf. `backlog.md`. Le seuil natif y est
-  `isPreAbilityTrigger ? Direct(0) : Direct(1)` (cache de `IdunBattleLogic.Entities.DSLFormulas$$.ctor`)
-  avec la classe **STRICTE**, soit `used > 1` sur la branche que le port mirroir ; le port écrit
-  `used >= 1`. **Inerte aujourd'hui** (`state.total_active_ability_used` n'existe pas), mais à
-  corriger avant de câbler ce compteur.
+* ~~**Un résidu voisin a été trouvé et NON corrigé** (hors périmètre) :
+  `IsActiveAbilityCountedAsUsed`~~ — **repris et CLOS par #295**
+  (`case-295-active-ability-counted-as-used.md`). La lecture faite ici en marge s'est vérifiée mot
+  pour mot une fois **mesurée** : classe de la famille **STRICTE** (pointeur de classe + `setg`),
+  seuil `isPreAbilityTrigger ? Direct(0) : Direct(1)` (cache de
+  `IdunBattleLogic.Entities.DSLFormulas$$.ctor`), donc `used > 1` sur la branche mirrorée ; le port
+  écrivait `used >= 1`, il écrit maintenant `used > 1`. C'est le premier cas où l'inventaire de
+  l'étape 4 ci-dessus a servi à autre chose que son propre sujet — il désignait déjà
+  `IsActiveAbilityCountedAsUsed` comme STRICT.

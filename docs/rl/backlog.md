@@ -361,19 +361,23 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   demande) ; (c) `GetNextTurnRange` / `isNextTurn=true` est porté mais jamais exercé (ses
   consommateurs sont `CursedPlagueBellMovementAbility$$GetTargetsSelector` et
   `CursedPlagueBell_DangerZoneEffect`). `[opus]`.
-- **Seuil d'`IsActiveAbilityCountedAsUsed` décalé d'une unité (trouvé en marge de #293)** —
-  `engine/runner/operations/triggers/loki/fuelled_by_fury.py::is_active_ability_counted_as_used`.
+- ~~**Seuil d'`IsActiveAbilityCountedAsUsed` décalé d'une unité (trouvé en marge de #293)**~~ —
+  **CLOS le 2026-07-30 (#295), la lecture héritée CONFIRMÉE et désormais MESURÉE**
+  (`case-295-active-ability-counted-as-used.md`).
   `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(isPreAbilityTrigger)` construit
   `AmountIsGreater(amount = DSLFormulas.TotalActiveAbilityUsed(...), minAmount = <seuil>)` avec la
-  classe de la famille **STRICT** (`AmountIsGreaterAbilityTrigger`, confirmé par pointeur de classe —
-  inventaire de `probe_293_aura_predicate_comparator.py --inventory`) et
-  `<seuil> = isPreAbilityTrigger ? Formulas+0x18 : Formulas+0x20`, or `DSLFormulas$$.ctor` cache
-  `+0x18 = Direct(0)` et `+0x20 = Direct(1)`. Sur la branche que le port mirroir
-  (`isPreAbilityTrigger = false`), le natif évalue donc **`used > 1`**, soit `used >= 2` ; le port
-  écrit `used >= 1` → il bloquerait **une utilisation trop tôt**. **INERTE aujourd'hui**
-  (`state.total_active_ability_used` n'existe pas, `_times_ability_used` rend `None`, la branche
-  n'est jamais prise) — mais c'est exactement le point à corriger **avant** de câbler ce compteur.
-  Non corrigé ici : hors périmètre du cas #293. `[opus]`.
+  classe de la famille **STRICTE** — établi par le **pointeur de classe** (le sujet charge le global
+  STRICT et AUCUN global INCLUSIF), corroboré par l'encodage (`setg` contre `setge`) et par l'ordre du
+  ctor (`(this, amount, minAmount)`, `ShouldTrigger` = `minAmount < amount`). Seuil **découvert**, pas
+  supposé : la branche `isPreAbilityTrigger == 0` (celle du port — l'appelant passe le littéral `0`)
+  lit `DSLFormulas+0x20 = Direct(1)`, l'autre `+0x18 = Direct(0)`. Le natif évalue donc **`used > 1`**
+  ; le port écrivait `used >= 1` et bloquait **une utilisation trop tôt** — une ability « comptée une
+  seule fois par bataille » n'aurait alors JAMAIS compté. Corrigé
+  (`fuelled_by_fury.py::COUNTED_AS_USED_THRESHOLD` + comparateur strict). L'écart était **INERTE**
+  (`State.total_active_ability_used` n'existe pas) : aucun test live ne pouvait le voir, il se serait
+  activé en silence au câblage du compteur — d'où deux gardes qui n'attendent pas ce câblage,
+  `probe_295_active_ability_counted_as_used.py` et
+  `tests/engine/runner/test_active_ability_counted_as_used_offline.py`.
 - **Résidus nommés de `case-224` item 5 (face ATTAQUE de `CursedPlagueBell`)** —
   `case-224-cursed-plague-bell-attack.md` §4. (a) le cas **`d = 1` à `range = 1`** n'a jamais pu être
   monté sur `C1_02` (aucune tuile libre à distance 1 du porteur aux paliers bas, il est entouré) :

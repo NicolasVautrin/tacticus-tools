@@ -768,12 +768,25 @@ la magnitude **PAR STACK** à ce rang (l'i2 « +153 » est `extraDmg[L65]` à mu
 - Gardes : `tests/engine/runner/test_fuelled_by_fury_live.py` (4 tests, fixture nommée
   `_fuelled_by_fury_regime.py`), **vues ROUGES par 3 mutations distinctes** (trigger désenregistré →
   `port=0 live=1` ; effet désenregistré → `−496/coup` ; facteur `EffectLevel` retiré → `−248/coup`).
-- **Résidu nommé restant** : le facteur `TimesAbilityUsed(caster, ability) >= 1` du
+- **Résidu nommé restant** : le facteur `TotalActiveAbilityUsed(unit, ability) > 1` du
   `left` d'`IsActiveAbilityCountedAsUsed` n'est pas observable offline (même substrat que
   `entities/formulas.py::TotalActiveAbilityUsed`). Il ne mord que sur les **2** `ActiveAbilityType` du
   HashSet statique `StaticBattleRules.ActiveAbility@+0x58` (`1118 DoctrinaImperatives`,
   `1189 CalibaniteGreatsword`) ; dégradation choisie = « l'ability compte ». Point de câblage unique :
-  `triggers/loki/fuelled_by_fury.py::_times_ability_used`.
+  `triggers/loki/fuelled_by_fury.py::_total_active_ability_used`.
+  **Son COMPARATEUR, lui, n'est plus un résidu — CLOS #295 (2026-07-30)** : il était écrit `used >= 1`
+  et le natif dit `used > 1`. `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed`
+  instancie la famille **STRICTE** (`IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger`,
+  `ShouldTrigger` = `minAmount < amount`, encodage `setg`) — établi par le **pointeur de classe**, pas
+  par le nom du `.ctor`, corps trivial dédupliqué (piège #293) — et le seuil de la branche mirrorée
+  (`isPreAbilityTrigger = false`, littéral `0` chez l'appelant) est le nœud constant `+0x20` de
+  `IdunBattleLogic.Entities.DSLFormulas$$.ctor`, soit `Direct(1)`. L'écart était **INERTE** (`State`
+  n'expose pas `total_active_ability_used`, donc la comparaison n'est jamais atteinte en bataille) :
+  aucun test live ne pouvait le voir, et le câblage du compteur l'aurait activé en silence. Garde
+  mécanique : `probe_295_active_ability_counted_as_used.py` (famille de classe + encodage + seuil
+  découvert + accord du port + état du canal) ; garde unitaire, la SEULE qui exerce le seuil :
+  `tests/engine/runner/test_active_ability_counted_as_used_offline.py` (8 tests, vus rouges par deux
+  mutations : `>=` remis, seuil décalé). Cf. `case-295-active-ability-counted-as-used.md`.
 - **Toujours OUVERT, hors périmètre** : `FuelledByFury_CanRevive` (**1324**) — cf. backlog `#66-r2`.
 
 Second candidat écarté : `darkaCompanion`, dont la BASELINE mismatche déjà (divergence pré-existante

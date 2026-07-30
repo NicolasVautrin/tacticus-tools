@@ -44,18 +44,37 @@ On(0xe = UnitPostAbility)
 - `AreFriends(Owner, caster)` compare les EQUIPES : Titus castant sa PROPRE active compte (il est
   Hero et son propre allie) -- aucun noeud `!AreEqual(Owner, caster)` dans la conjonction.
 
-### `IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed(df, alreadyCounted)`
+### `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(df, isPreAbilityTrigger)`
+(nom du build `rnca9r7q6c` ; `IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed` sur
+`gqfc5mff6c` -- MEME fonction, la classe DSL a ete scindee entre les deux builds.)
 ```
-N     = df@(0xb8 + ((alreadyCounted & 0xff) ^ 1) * 8)     # 0xb8 = Const(0) | 0xc0 = Const(1)
-left  = AmountIsEqualOrGreater( TimesAbilityUsed(caster@0x160, ability@0x130), N )
-        & IsAbilityCountedOnlyOnce(ability@0x130)
-right = IsNormalAttackOrHealOrRepair(df)                  # = IsNormalAttack(df, ability@0x130)
+seuil = DSLFormulas@(isPreAbilityTrigger ? 0x18 : 0x20)   # +0x18 = Direct(0) | +0x20 = Direct(1)
+left  = AmountIsGreater( amount = TotalActiveAbilityUsed(unit, ability), minAmount = seuil )
+        & IsAbilityCountedOnlyOnce(ability)
+right = IsNormalAttackOrHealOrRepair(df)                  # = IsNormalAttack(df, ability)
 return !right & !left
 ```
-(`df@0xb8`/`0xc0` = les noeuds constants 0 et 1 poses par `IdunBattleLogic.Entities.DSLFactory$$.ctor` ;
-`IsAbilityCountedOnlyOnce` = `IdunBattleLogic.Entities.DSLFactory$$IsAbilityCountedOnlyOnce` ->
+(`IdunBattleLogic.Entities.DSLFormulas$$.ctor` met en cache CINQ noeuds constants -- `+0x18 = 0`,
+`+0x20 = 1`, `+0x28 = 2`, `+0x30 = 100`, `+0x38 = -1` -- et la branche ne choisit QUE le seuil, jamais
+la classe du comparateur. `IsAbilityCountedOnlyOnce` =
+`IdunBattleLogic.Entities.DSLTriggers$$IsAbilityCountedOnlyOnce` ->
 `AbilityIsCountedOnceTrigger$$ShouldTrigger` -> `ShouldAbilityOnlyBeCountedOncePerBattleAbility`.)
 
+- **Le comparateur est STRICT -- lu au POINTEUR DE CLASSE, pas au nom du `.ctor`** (#295, meme piege
+  que #293) : le site charge le global de la famille `AmountIsGreaterAbilityTrigger`, et
+  `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
+  `return minAmount < amount` (encodage `setg`, contre `setge` pour
+  `AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger`). L'ordre du ctor est fixe par
+  `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$.ctor(this, amount, minAmount)`
+  (`[this+0x18] = amount`, `[this+0x20] = minAmount`). Le site passe
+  `amount = TotalActiveAbilityUsed(...)` et `minAmount = seuil`, donc `left` vaut **`used > seuil`**.
+  Garde mecanique re-derivable : `scripts/python/probe_295_active_ability_counted_as_used.py`.
+- **La branche mirroree ici est `isPreAbilityTrigger = false`** (l'appelant passe le litteral `0` :
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TalonsOfTheEmperor_UsedAbilitiesAbility$$
+  CreateTrigger`, dont le corps est le meme que celui de `FuelledByFury_ExtraDamageAbility$$
+  CreateTrigger` -- DEDUPLIQUE, un seul proprietaire dans la table). Seuil = `Direct(1)` -> **`used > 1`**.
+  Les deux branches disent la MEME chose a un cran pres, selon que le compteur inclut deja
+  l'utilisation courante : `pre` compare a 0 (avant increment), `post` a 1 (apres).
 - **`!right`** = le SEUL volet qui compte en pratique, et il est deja porte, foyer unique :
   `abilities/attack_type.py::is_normal_attack` (branche 1 = `IsRegularAttack` sur l'`OrderedSet`
   statique `StaticBattleRules.ActiveAbility@+0x18` ; branche 2 = le marqueur kind `0x3f5` que la voie
@@ -63,11 +82,17 @@ return !right & !left
 - **`!left`** ne peut mordre que sur les DEUX `ActiveAbilityType` du HashSet statique
   `StaticBattleRules.ActiveAbility@+0x58` (`ABILITY_COUNTED_ONCE_PER_BATTLE` ci-dessous) : hors de ces
   deux ids, `IsAbilityCountedOnlyOnce` est FAUX donc `left` est FAUX. Le facteur
-  `TimesAbilityUsed(caster, ability) >= 1` n'est PAS observable offline (meme regime que
+  `TotalActiveAbilityUsed(unit, ability) > 1` n'est PAS observable offline (meme regime que
   `entities/formulas.py::TotalActiveAbilityUsed`, dont le compteur natif n'est pas capte) -- RESIDU
   NOMME. Degradation choisie : compteur inconnu -> `left` FAUX -> l'ability COMPTE. C'est le sens sur
-  (il preserve le comportement de la 1re utilisation, la seule que les deux lectures possibles du
-  seuil rendent identique), et il ne concerne que 2 ids sur les ~90 du registre.
+  (il preserve le comportement de la 1re utilisation), et il ne concerne que 2 ids sur les ~90 du
+  registre.
+- **CANAL INERTE, ET IL FAUT LE SAVOIR EN LE LISANT** : `State` n'expose AUCUN
+  `total_active_ability_used` (il n'est pas dans ses `__slots__`), donc `_total_active_ability_used`
+  rend TOUJOURS `None` et la comparaison de seuil n'est JAMAIS evaluee en bataille. Rien de ce
+  paragraphe n'est exerce par un test live ; la seule chose qui le tienne est la garde UNITAIRE
+  `tests/engine/runner/test_active_ability_counted_as_used_offline.py`, qui INJECTE le compteur. Le
+  jour ou ce compteur sera cable, ce seuil devient actif SANS qu'aucun test live ne change de couleur.
 
 ### `...FuelledByFury_ExtraDamageAbility$$CreateBehaviour`
 ```
@@ -198,6 +223,13 @@ ABILITY_COUNTED_ONCE_PER_BATTLE = frozenset({
     0x4a5,   # 1189 CalibaniteGreatsword
 })
 
+# `minAmount` du `AmountIsGreaterAbilityTrigger` de `IdunBattleLogic.Entities.DSLTriggers$$
+# IsActiveAbilityCountedAsUsed`, sur la branche `isPreAbilityTrigger = false` -- la SEULE que ce
+# port mirroir (l'appelant passe le litteral 0). C'est le noeud constant mis en cache par
+# `IdunBattleLogic.Entities.DSLFormulas$$.ctor` en `+0x20`, soit `Direct(1)` (`+0x18 = Direct(0)`
+# est le seuil de l'autre branche, non portee ici).
+COUNTED_AS_USED_THRESHOLD = 1
+
 
 def fuelled_by_fury_tree():
     """Mirror 1:1 de `...FuelledByFury_ExtraDamageAbility$$CreateBehaviour` :
@@ -216,29 +248,46 @@ def _team_of(state: State, unit_id) -> Optional[int]:
 
 
 def is_active_ability_counted_as_used(state: State, caster_id, ability_type) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed(df, alreadyCounted=false)`
-    = `!IsNormalAttackOrHealOrRepair(ability@0x130)
-       & !( TimesAbilityUsed(caster@0x160, ability@0x130) >= 1 & IsAbilityCountedOnlyOnce(ability) )`.
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(df, isPreAbilityTrigger=false)`
+    = `!IsNormalAttackOrHealOrRepair(ability)
+       & !( TotalActiveAbilityUsed(unit, ability) > 1 & IsAbilityCountedOnlyOnce(ability) )`.
+
+    Le comparateur du `left` est **STRICT** (`AmountIsGreaterAbilityTrigger`, `minAmount < amount`),
+    lu au POINTEUR DE CLASSE et corrobore par l'encodage `setg` -- surtout PAS au nom du `.ctor`,
+    corps trivial DEDUPLIQUE (cf. l'en-tete de module et `probe_295_*`). Le seuil est
+    `COUNTED_AS_USED_THRESHOLD = 1` : une ability du set << comptee une seule fois par bataille >>
+    compte tant que son compteur vaut <= 1, et cesse a partir de 2.
 
     Le 2e facteur du `left` est fige a FAUX hors `ABILITY_COUNTED_ONCE_PER_BATTLE` (mirror du
-    HashSet statique) ; DANS ce set, le compteur `TimesAbilityUsed` n'est pas observable offline ->
-    residu nomme, degradation << l'ability compte >> (cf. l'en-tete de module)."""
+    HashSet statique) ; DANS ce set, le compteur `TotalActiveAbilityUsed` n'est pas observable
+    offline -> residu nomme, degradation << l'ability compte >> (cf. l'en-tete de module).
+
+    CANAL INERTE aujourd'hui : `_total_active_ability_used` rend TOUJOURS `None` faute de
+    `State.total_active_ability_used`, donc la comparaison de seuil ci-dessous n'est jamais
+    atteinte en bataille. Elle n'est exercee que par la garde unitaire
+    `tests/engine/runner/test_active_ability_counted_as_used_offline.py`, qui injecte le compteur."""
     if ability_type is None:
         return False                       # aucune ability declenchante -> aucun noeud ne resout
     if is_normal_attack(ability_type):     # `!right` : attaque normale (ou kind 0x3f5) -> ne compte pas
         return False
     if int(ability_type) in ABILITY_COUNTED_ONCE_PER_BATTLE:
-        used = _times_ability_used(state, caster_id, ability_type)
-        if used is not None and int(used) >= 1:      # `!left` : deja comptee -> ne recompte pas
+        used = _total_active_ability_used(state, caster_id, ability_type)
+        # `!left` : STRICT (`minAmount < amount`), seuil `Direct(1)` -> deja comptee -> ne recompte pas
+        if used is not None and int(used) > COUNTED_AS_USED_THRESHOLD:
             return False
     return True
 
 
-def _times_ability_used(state: State, caster_id, ability_type) -> Optional[int]:
-    """`TimesAbilityUsed(caster@0x160, ability@0x130)` -- le noeud AMOUNT du `left`. MEME substrat que
-    `entities/formulas.py::TotalActiveAbilityUsed` (`ctx.total_active_ability_used`) : NON capte par
-    les RPC offline -> None. Rendu explicite ici pour que le residu soit LOCALISABLE le jour ou le
-    compteur devient observable (un seul point a cabler)."""
+def _total_active_ability_used(state: State, caster_id, ability_type) -> Optional[int]:
+    """`IdunBattleLogic.Entities.DSLFormulas$$TotalActiveAbilityUsed(unit, ability)` -- le noeud
+    AMOUNT du `left` (`IdunBattle.Entities.Formulas.TotalActiveAbilityUsedFormula$$Calculate` :
+    resout l'unite, resout l'`AbilityOrEffect`, puis `FirstOrDefault` sur la liste per-unite et rend
+    le compteur). MEME substrat que `entities/formulas.py::TotalActiveAbilityUsed`
+    (`ctx.total_active_ability_used`) : NON capte par les RPC offline -> None.
+
+    `State` n'a PAS ce membre (absent de ses `__slots__`) : ce `getattr` rend `None` en bataille,
+    TOUJOURS. C'est le point UNIQUE a cabler le jour ou le compteur devient observable -- et c'est
+    aussi ce qui rend le seuil de `is_active_ability_counted_as_used` INERTE aujourd'hui."""
     fn = getattr(state, "total_active_ability_used", None)
     if fn is None:
         return None
