@@ -81,14 +81,16 @@ class FuryOfTheAncientsPlaybook:
         dir_pierce = actx.extra_pierce_melee if is_melee else actx.extra_pierce_ranged
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
                             + actx.extra_pierce + dir_pierce))
-        _hm = attack_pos != scene.pos(uid)
+        from .prediction import prediction_has_moved, prediction_has_teleported
+        _hm = prediction_has_moved(scene, uid, attack_pos)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                 if _tctx is not None and _tctx.stats is not None else None)
         mods = calculate_attacker_modifiers_for_prediction(
             scene.effects(uid), is_ranged=not is_melee, has_moved=_hm, is_normal_attack=False,
             target_armor_reduced=_tar,
-            att_ctx={"att_pos": attack_pos, "tile_effects_by_pos": scene.tile_effects_by_pos})
+            att_ctx={"att_pos": attack_pos, "tile_effects_by_pos": scene.tile_effects_by_pos,
+                     "has_teleported": prediction_has_teleported(scene, uid, attack_pos)})
         from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
                                  _target_damage_limits, _PROFILE_INDEX)
         _add_positional_and_defender_mods(mods, scene, uid, tgt_id, is_melee, attack_pos,

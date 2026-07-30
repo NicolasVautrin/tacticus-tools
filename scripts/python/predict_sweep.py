@@ -187,11 +187,12 @@ def build_rows(sid, rid, my_team, max_turns, topk):
         if best is not None:
             rpc(sid, "applyAction", {"runnerId": rid, "action": {
                 "kind": "move", "unitId": att, "to": {"col": best[1], "row": best[2]}}}, 30)
-    # CYCLE-TOUR : le commit-move a mis HasMoved=True sur mes unites -> le natif exclut les bonus
-    # NOT-MOVED (HeavyWeapon +25% ranged, ...), mais le moteur (has_moved = attack_pos!=pos_courante =
-    # False depuis la tuile courante) les applique -> faux SUR-prediction. On cycle le tour (endturn ->
-    # ennemi -> endturn -> moi) pour RESET HasMoved a False (positions gardees) : etat "debut de tour,
-    # unite en portee, attaque SANS bouger" -> _hm=False cote moteur ET HasMoved=False cote natif = aligne.
+    # CYCLE-TOUR : le commit-move a laisse mes unites en MILIEU d'activation (deplacement consomme).
+    # On cycle le tour (endturn -> ennemi -> endturn -> moi) pour retrouver un etat NEUF -- « debut de
+    # tour, unite en portee, attaque SANS bouger » -- ou toutes les activations sont disponibles et ou
+    # `RemoveTurnFlags` a purge les flags de tour. Le flag `UnitFlag.Moved` lui-meme n'impose plus ce
+    # cycle depuis #266 : la face PREDICTION le LIT (`Scene.moved_by_id` <- `combatSnapshot.unitFlags`
+    # -> `prediction_has_moved`), donc un caster ayant deja bouge est vu comme tel des deux cotes.
     amine = 3 if my_team == 1 else 4
     rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 30)
     for _ in range(4):

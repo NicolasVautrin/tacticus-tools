@@ -405,9 +405,8 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # ranged survit a un deplacement qui etait un TELEPORT. Threade dans `att_ctx` (le contexte
     # per-coup, comme `is_charging`/`trigger_ability_type`) et non en parametre nomme : `has_moved`
     # est PARTAGE par tous les effets, alors que cette branche n'appartient QU'A HeavyWeapon
-    # (`CrushingStrikeEffect$$CreateActiveCondition` = `!HasFlag(Self, 0)` seul). Cle absente cote
-    # PREDICTION (ou `has_moved` designe une tuile candidate, pas un flag) -> `.get()` rend None =
-    # comportement anterieur strictement inchange.
+    # (`CrushingStrikeEffect$$CreateActiveCondition` = `!HasFlag(Self, 0)` seul). La face PREDICTION
+    # threade la MEME cle, calculee par `prediction.prediction_has_teleported` (#266).
     if has_moved:
         att_ctx = dict(att_ctx or {})
         att_ctx["has_teleported"] = unit_has_teleported(state, unit_id)

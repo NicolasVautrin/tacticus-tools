@@ -97,6 +97,15 @@ class Scene:
     # triggers de `FuelledByFury_BlockOverkillEffect` posent et retirent le flag en cours de
     # bataille) -> re-capturé par pas via `refresh_shields`.
     prevent_overkill_by_id: dict = field(default_factory=dict)
+    # `UnitFlag.Moved` (=0) et `UnitFlag.Teleported` (=0xc) PER-UNITE (#266) : {uid: HasFlag(u, f)}.
+    # MEME canal que `prevent_overkill_by_id` — `combatSnapshot.unitFlags` côté live (invocation de
+    # `IdunBattle.Entities.UnitExtensions$$HasFlag` par valeur d'enum), `UnitFlagsComponent` de l'ECS
+    # côté `from_state`. C'est le PREMIER des deux termes que la prédiction native voit sous
+    # `HasFlag(Self, Moved)` — cf. `prediction.prediction_has_moved` pour le second (la tuile
+    # simulée). DYNAMIQUE (posé par le déplacement, purgé à l'entrée de tour par
+    # `UnitFlagsComponent$$RemoveTurnFlags`) -> re-capturé par pas via `refresh_shields`.
+    moved_by_id: dict = field(default_factory=dict)
+    teleported_by_id: dict = field(default_factory=dict)
     # Cache PAR EQUIPE du cardinal `Enemies(Owner, UnitsWithTrait(AllUnits, Psyker))` (#208) —
     # calcule a la demande par `_enemy_psykers_alive`, valable pour TOUTE la duree de vie de la
     # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
@@ -119,6 +128,19 @@ class Scene:
         from ..runner.components import effects_prevent_overkill
         return effects_prevent_overkill(self.effects(uid))
 
+    def has_moved(self, uid) -> bool | None:
+        """`UnitExtensions.HasFlag(uid, UnitFlag.Moved = 0)` — l'unité a-t-elle DÉJÀ bougé ce tour.
+        TRI-ÉTAT : `None` = **non mesuré** (capteur `unitFlags` absent/`null`) -> l'appelant garde son
+        repli, `[]` mesuré donne bien `False`. Confondre les deux ré-accorderait le +25% ranged
+        d'`HeavyWeapon_ExtraDmg` en silence."""
+        return self.moved_by_id.get(uid)
+
+    def has_teleported(self, uid) -> bool | None:
+        """`UnitExtensions.HasFlag(uid, UnitFlag.Teleported = 0xc)` — le déplacement de ce tour était
+        un TÉLÉPORT, ce qui RÉ-AUTORISE le +25% (`... & (!HasFlag(Moved) | HasFlag(Teleported))`).
+        Même tri-état que `has_moved`."""
+        return self.teleported_by_id.get(uid)
+
     @classmethod
     def from_state(cls, state) -> "Scene":
         """Construit la Scene DIRECTEMENT depuis un `State` runner (offline, SANS RPC/combatSnapshot).
@@ -132,10 +154,12 @@ class Scene:
         from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
                                          HealthComponent, UnitComponent, ShieldComponent,
                                          EffectsOwnedComponent, is_machine_of_war,
-                                         unit_prevents_overkill)
+                                         unit_prevents_overkill, unit_has_moved,
+                                         unit_has_teleported)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
+        moved_by_id, teleported_by_id = {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -180,6 +204,11 @@ class Scene:
                 charged_by_id[eid] = {int(i) for i in uc.charged_unit_ids}
             # #195 : `HasFlag(u, 0x13)` LU de l'ECS (composant de flags d'abord, effet 1354 ensuite).
             prevent_overkill_by_id[eid] = unit_prevents_overkill(state, eid)
+            # #266 : `HasFlag(u, Moved=0)` / `HasFlag(u, Teleported=0xc)` LUS de l'ECS. Le
+            # `UnitFlagsComponent` est posé par `set_moved_flag` (voie offline) ET seedé depuis le
+            # live par `snapshot._load_unit_flags` — donc renseigné dans les deux régimes.
+            moved_by_id[eid] = unit_has_moved(state, eid)
+            teleported_by_id[eid] = unit_has_teleported(state, eid)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -208,7 +237,8 @@ class Scene:
             eff_state=getattr(state, "effects", None), hpmax_by_id=hpmax_by_id,
             elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
             turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id,
-            prevent_overkill_by_id=prevent_overkill_by_id)
+            prevent_overkill_by_id=prevent_overkill_by_id,
+            moved_by_id=moved_by_id, teleported_by_id=teleported_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -237,7 +267,12 @@ class Scene:
             extra_hits_cur_by_id=predictor.get("extra_hits_cur_by_id") or {},
             # O5 : flags d'unité LUS (`combatSnapshot.unitFlags`). Table vide = hook antérieur à
             # O5 -> l'accesseur retombe sur la dérivation par l'effet 1354, comportement d'avant.
-            prevent_overkill_by_id=predictor.get("prevent_overkill_by_id") or {})
+            prevent_overkill_by_id=predictor.get("prevent_overkill_by_id") or {},
+            # #266 : `Moved` / `Teleported` du MÊME canal. Table vide = uid absent -> l'accesseur
+            # rend `None` (non mesuré) et `prediction_has_moved` garde le seul terme « tuile
+            # simulée », donc le comportement strictement antérieur.
+            moved_by_id=predictor.get("moved_by_id") or {},
+            teleported_by_id=predictor.get("teleported_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -495,7 +530,12 @@ def build_predictor(rpc, rid):
             # O5 : `UnitFlag.PreventOverkill` LU du composant de flags. DYNAMIQUE (les triggers de
             # `FuelledByFury_BlockOverkillEffect` le posent/retirent en bataille) -> re-capturé
             # par pas via `refresh_shields`, comme les autres axes vivants ci-dessus.
-            "prevent_overkill_by_id": _prevent_overkill_from_snapshot(snap)}
+            "prevent_overkill_by_id": _unit_flag_from_snapshot(snap, "PreventOverkill"),
+            # #266 : `UnitFlag.Moved` / `UnitFlag.Teleported`, MÊME canal. DYNAMIQUE au plus haut
+            # point (posés par chaque déplacement, purgés à l'entrée de tour du joueur par
+            # `UnitFlagsComponent$$RemoveTurnFlags`) -> re-capturés par pas via `refresh_shields`.
+            "moved_by_id": _unit_flag_from_snapshot(snap, "Moved"),
+            "teleported_by_id": _unit_flag_from_snapshot(snap, "Teleported")}
 
 
 def build_board(rpc, rid):
@@ -525,20 +565,20 @@ def _hpmax_eff_from_snapshot(units) -> dict:
             if u.get("healthMax") is not None}
 
 
-def _prevent_overkill_from_snapshot(snap) -> dict:
-    """{uid: `UnitExtensions.HasFlag(u, PreventOverkill)`} depuis `combatSnapshot.unitFlags` (O5) —
-    la lecture DIRECTE de `UnitFlagsComponent`, là où le port devait jusqu'ici DÉRIVER le flag de
-    l'effet 1354 qui le pose.
+def _unit_flag_from_snapshot(snap, flag_name: str) -> dict:
+    """{uid: `UnitExtensions.HasFlag(u, <flag_name>)`} depuis `combatSnapshot.unitFlags` (O5) — la
+    lecture DIRECTE de `UnitFlagsComponent`, là où le port devait jusqu'ici DÉRIVER le fait d'un
+    effet (PreventOverkill <- effet 1354) ou l'IGNORER (Moved / Teleported, #266).
 
     L'id du flag est pris dans `unitFlagTypes`, que le hook rend AU RUNTIME (littéraux de l'enum
     `IdunBattle.Entities.Enum.UnitFlag`), et n'est PAS écrit en dur ici : une renumérotation au
     prochain build se propage seule, au lieu de rendre cette lecture fausse en silence.
 
     Une unité n'entre dans la table QUE si sa mesure a eu lieu (`unitFlags` non `None`). Sur un hook
-    antérieur à O5 la table reste donc VIDE et `Scene.prevents_overkill` retombe sur la dérivation
-    par l'effet — le comportement d'avant, à l'identique. `[]` (lu, aucun flag posé) donne bien
-    `False` : c'est exactement la distinction `null`/`[]` que le hook maintient exprès."""
-    fid = (snap.get("unitFlagTypes") or {}).get("PreventOverkill")
+    antérieur à O5 la table reste donc VIDE et chaque accesseur garde son repli — le comportement
+    d'avant, à l'identique. `[]` (lu, aucun flag posé) donne bien `False` : c'est exactement la
+    distinction `null`/`[]` que le hook maintient exprès."""
+    fid = (snap.get("unitFlagTypes") or {}).get(flag_name)
     if fid is None:
         return {}
     return {u["entityId"]: (int(fid) in u["unitFlags"])
@@ -589,7 +629,13 @@ def refresh_shields(predictor, rpc, rid):
     # O5 : re-capture des flags d'unité (`UnitFlag.PreventOverkill`). DYNAMIQUE — les triggers de
     # `FuelledByFury_BlockOverkillEffect` (`On(0x21)&OwnerIsActor`, `On(0x12)` -> ActivateEffect ;
     # `On(0x2e)&OwnerIsTarget` -> DeactivateEffect) posent et retirent le flag EN COURS de bataille.
-    predictor["prevent_overkill_by_id"] = _prevent_overkill_from_snapshot(snap)
+    predictor["prevent_overkill_by_id"] = _unit_flag_from_snapshot(snap, "PreventOverkill")
+    # #266 : re-capture de `Moved`/`Teleported`. Ce sont les flags les plus volatils du composant —
+    # posés par `MoveUnitOperation$$Execute` -> `UnitExtensions$$SetMovedFlag` et purgés a chaque
+    # entree de tour du joueur (`StartTurnOperation$$Execute` -> `RemoveTurnFlags`). Un cold figé au
+    # pas 0 rendrait « n'a pas bougé » pour toute la bataille, soit exactement le +25% fantôme.
+    predictor["moved_by_id"] = _unit_flag_from_snapshot(snap, "Moved")
+    predictor["teleported_by_id"] = _unit_flag_from_snapshot(snap, "Teleported")
     # #45b' : re-capture MaxHealth EFFECTIF (part 2) — DYNAMIQUE (bump TwistedScience
     # mid-bataille : u87 777 s15 base 11044 -> 14036 apres le cast 1167 du pas 1).
     predictor["hpmax_eff_by_id"] = _hpmax_eff_from_snapshot(snap.get("units"))

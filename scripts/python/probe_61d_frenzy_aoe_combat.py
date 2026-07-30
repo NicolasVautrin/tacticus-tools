@@ -18,9 +18,13 @@ coups appliques ET le degat par coup.
                      `Active_Ability_Type == 1036`), meme compteur que `probe_61_ability_hits.py`.
   - oracle MOTEUR  : `ABILITY_CLASSES[1036].execute_behaviour` (arbre DSL `frenzied_firing_tree`).
 
-!! LE CASTER N'EST JAMAIS DEPLACE (case-101 #6) : `applyAction move` poserait `UnitFlag.Moved`, que le
-natif lit pour DESARMER `HeavyWeapon_ExtraDmg` (+25% ranged not-moved) alors qu'AUCUN RPC ne l'expose au
-port -> x1.25 uniforme de MESURE, etranger au volet teste. On ne deplace que la cible et ses voisins.
+LE CASTER EST DEPLACE, en DERNIER, juste avant le cast : le `UnitFlag.Moved` que
+`IdunBattle.Operations.MoveUnitOperation$$Execute` pose desarme le +25% ranged d'`HeavyWeapon_ExtraDmg`
+que Volk porte, et `load_state` le lit du MEME canal que le natif
+(`combatSnapshot.units[].unitFlags` -> `snapshot._load_unit_flags` -> `components.unit_has_moved`).
+L'ORDRE est contraint par le turn-flow, pas par le port : une unite qui a bouge n'a plus d'action
+pendante, et sur un roster 1 vs 4 tout deplacement ADVERSE qui suit fait basculer `currentPlayer`
+(mesure) -- le cast deviendrait illegal.
 
 Aucune valeur attendue codee en dur : l'oracle est le natif qui tourne. ASCII only.
 
@@ -98,6 +102,35 @@ def _my_turn(sid, rid, owner, max_turns=8):
             return True
         rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
     return False
+
+
+def _step_caster_aside(sid, rid, board, cid, tpos, forbidden):
+    """PAS MINIMAL du caster, sous contraintes de geometrie : destination a distance 2..3 de la cible
+    (ni adjacente -- ce qui changerait le `Count` de tuiles libres lu par
+    `FrenziedFiringAbility$$GetHitsForOriginalTarget` -- ni hors portee), hors de `forbidden`
+    (l'anneau AoE + la tuile de la cible) et hors des tuiles occupees. Le `UnitFlag.Moved` que
+    `MoveUnitOperation$$Execute` pose est LU par `load_state` (`snapshot._load_unit_flags`), donc le
+    gate no-move d'`HeavyWeapon_ExtraDmg` se ferme des deux cotes. UN SEUL essai : une unite ne
+    dispose que d'UN deplacement par tour. Rend la position finale, inchangee si rien ne convient."""
+    mt = rpc(sid, "aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
+    row = next((x for x in ((mt or {}).get("units") or []) if x.get("unitId") == cid), None)
+    dv = decision(sid, rid)
+    cur = _pos(next((u for u in (dv.get("units") or []) if u.get("id") == cid), None))
+    occupied = {_pos(u) for u in (dv.get("units") or []) if u.get("alive")} - {cur}
+
+    def nbf(c):
+        nid = board.id_at(c[0], c[1])
+        return len([n for n in board.neighbours(nid) if board.walkable(n)]) if nid is not None else 0
+
+    tiles = [c for c in ((t["col"], t["row"]) for t in ((row or {}).get("tiles") or []))
+             if c != cur and c not in forbidden and c not in occupied
+             and (tpos is None or 2 <= hexgeo.distance(c, tpos) <= 3)]
+    if not tiles:
+        return cur
+    tiles.sort(key=lambda c: (hexgeo.distance(c, cur) if cur else 0, -nbf(c)))
+    _move(sid, rid, cid, tiles[0])
+    return _pos(next((u for u in (decision(sid, rid).get("units") or [])
+                      if u.get("id") == cid), None)) or cur
 
 
 def offline_cast(sid, rid, cid, tid):
@@ -212,7 +245,7 @@ def main() -> int:
             return [n for n in board.neighbours(board.id_at(coord[0], coord[1]))
                     if board.walkable(n)]
 
-        cpos = _pos(me)                                     # CASTER IMMOBILE (cf. en-tete)
+        cpos = _pos(me)
         open_tiles = [c for c in walk
                       if len(nb_free(c)) == 6 and 2 <= hexgeo.distance(c, cpos) <= 3]
         if not open_tiles:
@@ -258,6 +291,21 @@ def main() -> int:
                   % (me["id"], tgt["id"], [x.get("targetId") for x in (ab.get("fromHere") or [])]))
             return 2
 
+        # DEPLACEMENT REEL DU CASTER, en DERNIER (cf. en-tete). Il doit venir APRES tout le pilotage
+        # adverse : une unite qui a bouge n'a plus d'action pendante, donc bouger un ennemi ensuite
+        # ferait BASCULER le tour (roster 1 vs 4, mesure) et le cast deviendrait illegal.
+        moved_to = _step_caster_aside(sid, rid, board, me["id"], real, set(ring) | {real})
+        print("caster DEPLACE %s -> %s (UnitFlag.Moved pose)" % (cpos, moved_to))
+        if moved_to == cpos:
+            print("aucun pas du caster ne preserve la geometrie -> flag Moved non exerce")
+        at = rpc(sid, "abilityTargets", {"runnerId": rid, "unitId": me["id"],
+                                         "abilityType": FRENZY}, 120)
+        ab = next((x for u in (at.get("units") or []) for x in (u.get("abilities") or [])
+                   if x.get("abilityId") == FRENZY), {})
+        if tgt["id"] not in [x.get("targetId") for x in (ab.get("fromHere") or [])]:
+            print("le pas du caster vers %s a rendu le cast illegal" % (moved_to,))
+            return 2
+
         off, off_extra, err = offline_cast(sid, rid, me["id"], tgt["id"])
         if off is None:
             print("offline KO: %s" % err)
@@ -266,8 +314,8 @@ def main() -> int:
 
         print("\n[#61d frenzy AoE COMBAT] runner=%s board=%s k=%d ok=%s"
               % (rid, a.board, a.k, (res or {}).get("ok")))
-        print("  caster u%s @%s (IMMOBILE) | cible u%s @%s (voisins marchables=%d)"
-              % (me["id"], cpos, tgt["id"], real, len(nb_free(real))))
+        print("  caster u%s @%s (DEPLACE depuis %s) | cible u%s @%s (voisins marchables=%d)"
+              % (me["id"], moved_to, cpos, tgt["id"], real, len(nb_free(real))))
         print("  ennemis ADJACENTS a la cible (= volet AoE attendu) : %s" % (adj_foes or "aucun"))
         print("  NATIF HeavyRound (= l'arbre 1036)  %s" % _fmt(live))
         print("  NATIF autres profils (canal #179)  %s" % (_fmt(other) or "aucun"))

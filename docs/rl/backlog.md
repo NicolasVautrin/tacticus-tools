@@ -93,6 +93,20 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **⛔ ORACLE DE PRÉDICTION NATIF CASSÉ sur le build `rnca9r7q6c`** (relevé par `#266`, `case-266-moved-flag-prediction.md` §6).
+  Le décodage de `ProbableDamageEvent` / `DamagePredictionResult` est PÉRIMÉ :
+  `aiPlaybookPredict` rend `targetId = null`, `healthDmg{Min,Max} = 0` et un `appliedHits` qui vaut
+  un nombre de PV ; `aiPredict` (`GetAllPredictions`) rend `healthDmg{Min,Max} = 0` avec un
+  `hpBefore` CORRECT. Seuls `targetId`(+0x00) et `hpBefore`(+0x08) sont justes ⇒ la struct a bougé
+  au-delà de +0x08. **Deux tests rouges sur `master` de ce seul fait** (vérifiés patch stashé) :
+  `test_ability_hits_channel_live::test_frenzied_firing_aoe_batch_matches_native` et
+  `test_predict_live::test_normal_attack_prediction_matches_oracle` (11/11 échantillons
+  `oracle=(0, 0)`). **Correctif = côté hooks, donc RÉINJECTION requise** — hors de portée d'un
+  solveur. Points d'ancrage à re-RE contre `IdunBattle.AI.ProbableDamageEvent$$.ctor` :
+  `readDamageEvent` de `frida/hooks/features/ai-step/playbook-predict.ts` (`+0x68/+0x6c` healthDmg,
+  `+0xc4` appliedHits, `+0xc8` probability, stride `0xd8`) et le bloc de lecture de `aiPredict` dans
+  `rpc-predict.ts` (`+0x60/+0x64`). Oracle de substitution utilisable en attendant : `pairUtility`
+  (un seul Fix64, sain) — il donne le SENS, pas la magnitude.
 - **Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile** sur certaines configurations
   (`case-224-cursed-plague-bell-extramove` §4). Mesuré en confrontant `aiMovableTiles`
   (`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor`) au pendant offline

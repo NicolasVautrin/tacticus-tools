@@ -35,7 +35,8 @@ la base vient de `constants.nrOfHits`, la difference vient du TRAIT de la cible)
       `GenerateMultiHitAttackPredictions` sur
       `IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility$$GetTargets`
       (ennemis du caster sur l'anneau hex de la cible) a `hits = 1` LITTERAL -- natif == port
-      (cibles, coups ET degat) avec 0 puis 3 voisins ennemis, le caster restant IMMOBILE.
+      (cibles, coups ET degat) avec 0 puis 3 voisins ennemis, le caster etant REELLEMENT DEPLACE
+      (le `UnitFlag.Moved` que le pas pose est lu des deux cotes, cf. `_reposition_caster`).
 
 Drive les positions (`applyAction move` ignore portee et propriete). Lit l'etat LIVE ; aucune tuile/RVA
 hardcodee. ASCII only. Runners auto-disposes par la fixture `build_runner`.
@@ -112,6 +113,53 @@ def _my_turn(rpc, rid, owner, max_turns=8):
             return True
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
     return False
+
+
+def _reposition_caster(rpc, rid, board, cid):
+    """DEPLACE REELLEMENT le caster d'UN PAS : la tuile la plus PROCHE de son movable set, la plus
+    degagee a egale distance (tie-break sur le nombre de voisins marchables). Rend sa position finale.
+
+    Le deplacement fait poser `UnitFlag.Moved` par
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` -> `IdunBattle.Entities.UnitExtensions$$SetMovedFlag`,
+    et le port le LIT des deux cotes : `snapshot._load_unit_flags` seede le `UnitFlagsComponent` cote
+    COMBAT, `Scene.moved_by_id` -> `prediction.prediction_has_moved` cote PREDICTION -- tous deux
+    depuis `combatSnapshot.units[].unitFlags`. Le +25% ranged d'`HeavyWeapon_ExtraDmg` (que Volk
+    porte) est donc desarme a l'identique live et offline.
+
+    ⚠ UN SEUL essai : une unite ne dispose que d'UN deplacement par tour, donc la destination ne peut
+    pas etre re-choisie apres coup. On prend le PAS MINIMAL (le but est de poser le flag, pas de
+    deplacer le scenario)."""
+    return _step_caster_aside(rpc, rid, board, cid, None, frozenset())
+
+
+def _step_caster_aside(rpc, rid, board, cid, tpos, forbidden):
+    """Pas minimal du caster, sous contraintes de geometrie. `tpos` non None -> la destination doit
+    rester a distance 2..3 de la cible (ni adjacente -- ce qui changerait le `Count` de tuiles libres
+    lu par `FrenziedFiringAbility$$GetHitsForOriginalTarget` -- ni hors portee) et hors de
+    `forbidden` (l'anneau AoE + la tuile de la cible). Rend la position finale, inchangee si aucune
+    destination ne convient."""
+    mt = rpc("aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
+    row = next((x for x in ((mt or {}).get("units") or []) if x.get("unitId") == cid), None)
+    dv = _dv(rpc, rid)
+    cur = _pos(_find_id(dv, cid))
+    occupied = {_pos(u) for u in (dv.get("units") or []) if u.get("alive")} - {cur}
+
+    def nbf(c):
+        nid = board.id_at(c[0], c[1])
+        return len([n for n in board.neighbours(nid) if board.walkable(n)]) if nid is not None else 0
+
+    tiles = [c for c in ((t["col"], t["row"]) for t in ((row or {}).get("tiles") or []))
+             if c != cur and c not in forbidden and c not in occupied
+             and (tpos is None or 2 <= hexgeo.distance(c, tpos) <= 3)]
+    if not tiles:
+        return cur
+    tiles.sort(key=lambda c: (hexgeo.distance(c, cur) if cur else 0, -nbf(c)))
+    _move(rpc, rid, cid, tiles[0])
+    return _pos(_find_id(_dv(rpc, rid), cid)) or cur
+
+
+def _find_id(dv, uid):
+    return next((u for u in (dv.get("units") or []) if u.get("id") == uid), None)
 
 
 def _park_far(rpc, rid, board, dv, keep_ids, from_coord):
@@ -437,10 +485,12 @@ def test_frenzied_firing_aoe_batch_matches_native(live_session, rpc, build_runne
       - K=3 voisins ennemis -> le natif rend 1+3 events, les 3 secondaires a `hits = 1`.
     Le port doit rendre exactement les MEMES cibles, les MEMES coups et le MEME degat.
 
-    !! LE CASTER N'EST JAMAIS DEPLACE (case-101 #6) : `applyAction move` poserait `UnitFlag.Moved`,
-    que le natif lit pour desarmer `HeavyWeapon_ExtraDmg` (+25% ranged not-moved) alors qu'AUCUN RPC
-    n'expose les UnitFlags au port -> un x1.25 de MESURE, etranger au volet teste. On deplace
-    uniquement la cible et ses voisins autour du caster immobile ; le degat devient bit-exact."""
+    LE CASTER EST DEPLACE au montage (`_reposition_caster`, plein champ) : le `UnitFlag.Moved` que
+    `MoveUnitOperation$$Execute` pose desarme le +25% ranged d'`HeavyWeapon_ExtraDmg` que Volk porte,
+    et le port lit ce flag du meme canal que le natif -- `combatSnapshot.units[].unitFlags` ->
+    `Scene.moved_by_id` -> `prediction.prediction_has_moved` (#266). Les DEUX termes que la
+    prediction native voit sous `HasFlag(Self, Moved)` sont donc portes : le flag reel ET la tuile
+    simulee (`SimulateEffectsOperation$$DoActionInSimulatedTile` -> `SetMovedFlag`)."""
     rid = build_runner("61105", extra=["--roster", "1", "--p-units", FRENZY_VIS,
                                        "--a-units", ",".join(FRENZY_FOES),
                                        "--hp-target", "90000"])["rid"]
@@ -458,13 +508,13 @@ def test_frenzied_firing_aoe_batch_matches_native(live_session, rpc, build_runne
     if me is None or len(foes) < 4:
         pytest.skip(f"roster insuffisant (caster={bool(me)} ennemis={len(foes)})")
 
-    cpos = _pos(me)
+    cpos = _reposition_caster(rpc, rid, board, me["id"])   # DEPLACEMENT REEL -> pose `UnitFlag.Moved`
     walk = [board.coord(t) for t in sorted(board.by_id) if board.walkable(t)]
 
     def nb_free(coord):
         return [n for n in board.neighbours(board.id_at(*coord)) if board.walkable(n)]
 
-    # Cible en PLEIN CHAMP (6 voisins marchables) et a portee (range 3) du caster IMMOBILE.
+    # Cible en PLEIN CHAMP (6 voisins marchables) et a portee (range 3) du caster.
     open_tiles = [c for c in walk if len(nb_free(c)) == 6 and 2 <= hexgeo.distance(c, cpos) <= 3]
     if not open_tiles:
         pytest.skip(f"aucune tuile a 6 voisins marchables a portee du caster @{cpos}")
@@ -503,7 +553,8 @@ def test_frenzied_firing_aoe_batch_matches_native(live_session, rpc, build_runne
     adj3, dv3 = adjacent_foes()
     nat3, port3 = _pred_rows(rpc, rid, me["id"], tgt["id"], dv3)
 
-    print(f"\n[#61 frenzy AoE] caster u{me['id']} @{cpos} (IMMOBILE) cible u{tgt['id']} @{tpos}")
+    print(f"\n[#61 frenzy AoE] caster u{me['id']} @{cpos} (DEPLACE -> UnitFlag.Moved pose) "
+          f"cible u{tgt['id']} @{tpos}")
     print(f"  K=0 adj={adj0} natif={nat0}")
     print(f"      port ={port0}")
     print(f"  K=3 adj={adj3} natif={nat3}")
@@ -608,7 +659,7 @@ def _frenzy_offline(rpc, rid, board, cid, tid):
 
 
 def _frenzy_combat_geometry(rpc, build_runner, seed, k):
-    """Monte un runner ISOLE, place la cible en PLEIN CHAMP a portee du caster IMMOBILE et `k` de ses
+    """Monte un runner ISOLE, place la cible en PLEIN CHAMP a portee du caster et `k` de ses
     allies sur l'anneau hex de la cible (placement ADAPTATIF : un ennemi pose entre le caster et la
     cible OBSCURCIT la ligne de tir et rend le cast illegal -- on essaie l'anneau du plus LOIN au plus
     proche et on ne garde que les placements qui preservent la legalite). Caste ensuite l'ability et
@@ -633,7 +684,7 @@ def _frenzy_combat_geometry(rpc, build_runner, seed, k):
     if me is None or len(foes) < 1 + k:
         pytest.skip(f"roster insuffisant (caster={bool(me)} ennemis={len(foes)})")
 
-    cpos = _pos(me)                                  # LE CASTER N'EST JAMAIS DEPLACE (cf. docstring)
+    cpos = _pos(me)
     walk = [board.coord(t) for t in sorted(board.by_id) if board.walkable(t)]
 
     def nb_free(coord):
@@ -643,6 +694,14 @@ def _frenzy_combat_geometry(rpc, build_runner, seed, k):
     if not open_tiles:
         pytest.skip(f"aucune tuile a 6 voisins marchables a portee du caster @{cpos}")
     tgt, others = foes[0], foes[1:]
+
+    def castable():
+        at = rpc("abilityTargets", {"runnerId": rid, "unitId": me["id"],
+                                    "abilityType": FRENZY}, 120)
+        ab = next((x for u in (at.get("units") or []) for x in (u.get("abilities") or [])
+                   if x.get("abilityId") == FRENZY), {})
+        return tgt["id"] in [x.get("targetId") for x in (ab.get("fromHere") or [])]
+
     _move(rpc, rid, tgt["id"], max(open_tiles, key=lambda c: hexgeo.distance(c, cpos)))
     dv = _dv(rpc, rid)
     tu = next((u for u in (dv.get("units") or []) if u.get("id") == tgt["id"]), None)
@@ -655,13 +714,6 @@ def _frenzy_combat_geometry(rpc, build_runner, seed, k):
            if hexgeo.distance(c, tpos) > 4 and hexgeo.distance(c, cpos) > 4]
     if len(ring) < k or len(far) < len(others):
         pytest.skip(f"geometrie insuffisante (anneau={len(ring)} tuiles lointaines={len(far)})")
-
-    def castable():
-        at = rpc("abilityTargets", {"runnerId": rid, "unitId": me["id"],
-                                    "abilityType": FRENZY}, 120)
-        ab = next((x for u in (at.get("units") or []) for x in (u.get("abilities") or [])
-                   if x.get("abilityId") == FRENZY), {})
-        return tgt["id"] in [x.get("targetId") for x in (ab.get("fromHere") or [])]
 
     for i, u in enumerate(others):                    # tout le monde LOIN d'abord
         _move(rpc, rid, u["id"], far[(i * 7) % len(far)])
@@ -686,12 +738,21 @@ def _frenzy_combat_geometry(rpc, build_runner, seed, k):
                  and hexgeo.distance(_pos(u), tpos) == 1)
     if len(adj) != k or not castable():
         pytest.skip(f"geometrie K={k} non montee (adj={adj}, castable={castable()})")
+    # DEPLACEMENT REEL DU CASTER, en DERNIER (cf. docstring) : il pose `UnitFlag.Moved` et le port le
+    # lit. Il doit venir APRES tout le pilotage adverse -- une unite qui a bouge n'a plus d'action
+    # pendante, donc bouger un ennemi ensuite ferait BASCULER le tour (roster 1v4 : `currentPlayer`
+    # passe a l'adversaire, mesure) et le cast deviendrait impossible.
+    moved_to = _step_caster_aside(rpc, rid, board, me["id"], tpos, set(ring) | {tpos})
+    if moved_to == cpos:
+        pytest.skip("aucun pas du caster ne preserve la geometrie -> flag Moved non exerce")
+    if not castable():
+        pytest.skip(f"le pas du caster vers {moved_to} a rendu le cast illegal")
     off = _frenzy_offline(rpc, rid, board, me["id"], tgt["id"])
     if off is None:
         pytest.skip("dumpRng KO -> aucune comparaison per-coup possible")
     nat, other, _res = _frenzy_cast_by_target(rpc, rid, me["id"], tgt["id"])
     return {"cid": me["id"], "tid": tgt["id"], "adj": adj, "nb_free": len(nb_free(tpos)),
-            "nat": nat, "other": other, "port": off}
+            "nat": nat, "other": other, "port": off, "cpos": cpos, "moved_to": moved_to}
 
 
 def _frenzy_assert_geometry(g, n_hits):
@@ -732,7 +793,7 @@ def test_frenzied_firing_aoe_combat_matches_native(live_session, rpc, build_runn
                                     hits = DSLFactory.Direct(1))
         AtomicGroup(0x4e, <ExecuteBehaviour>b__0)   ou b__0 = Execute( op_Addition(A, B) )
 
-    DEUX geometries, UN RUNNER CHACUNE (le cast consomme l'activation), caster IMMOBILE :
+    DEUX geometries, UN RUNNER CHACUNE (le cast consomme l'activation) :
       - K=0 -> volet AoE INERTE : le natif ne frappe QUE la cible (non-regression du volet d'origine)
         et, a nombre de coups egal, le port est BIT-EXACT coup par coup ;
       - K>=1 -> volet AoE MORDANT : le natif frappe la cible + chaque ennemi de l'anneau, et les
@@ -742,9 +803,16 @@ def test_frenzied_firing_aoe_combat_matches_native(live_session, rpc, build_runn
     (voisins marchables de la cible), jamais code en dur ; la geometrie K est celle REELLEMENT
     obtenue (le placement d'anneau est adaptatif, cf. `_frenzy_combat_geometry`).
 
-    !! LE CASTER N'EST JAMAIS DEPLACE (case-101 §6) : `applyAction move` poserait `UnitFlag.Moved`,
-    que le natif lit pour desarmer `HeavyWeapon_ExtraDmg` (+25 % ranged not-moved) alors qu'aucun RPC
-    ne l'expose au port -> x1,25 uniforme de MESURE, etranger au volet teste.
+    LE CASTER EST DEPLACE, en DERNIER, juste avant le cast (`_step_caster_aside`) : le
+    `UnitFlag.Moved` pose par `MoveUnitOperation$$Execute` desarme le +25 % ranged
+    d'`HeavyWeapon_ExtraDmg` que Volk porte, et `load_state` le lit du MEME canal que le natif
+    (`combatSnapshot.units[].unitFlags` -> `snapshot._load_unit_flags` ->
+    `components.unit_has_moved`). Le degat reste donc bit-exact.
+    L'ORDRE est contraint par le turn-flow, pas par le port : une unite qui a bouge n'a plus d'action
+    pendante, et sur un roster 1 vs 4 tout deplacement ADVERSE qui suit fait basculer `currentPlayer`
+    (mesure) -- le cast deviendrait illegal. Le pas est donc pris apres toute la geometrie, contraint
+    a rester a distance 2..3 de la cible et hors de l'anneau (sans quoi il changerait le `Count` de
+    tuiles libres que lit `FrenziedFiringAbility$$GetHitsForOriginalTarget`).
 
     ROSTER TEMOIN : aucune cible ne porte de modificateur du canal de coups partage (case-61 §1.2) --
     sans cela, un `astraBullgryn` (aura BigTarget) sur l'anneau retire 1 coup a la cible cote PORT
@@ -760,7 +828,9 @@ def test_frenzied_firing_aoe_combat_matches_native(live_session, rpc, build_runn
     n_hits = int(ability_var(FRENZY_NAME, "nrOfHits", is_constant=True) or 1)
 
     g0 = _frenzy_combat_geometry(rpc, build_runner, "61106", 0)
-    print(f"\n[#61 frenzy AoE COMBAT] K=0 cible u{g0['tid']} ({g0['nb_free']} voisins marchables) "
+    print(f"\n[#61 frenzy AoE COMBAT] caster DEPLACE {g0['cpos']} -> {g0['moved_to']} "
+          f"(UnitFlag.Moved pose -> gate no-move HeavyWeapon ferme des deux cotes)")
+    print(f"[#61 frenzy AoE COMBAT] K=0 cible u{g0['tid']} ({g0['nb_free']} voisins marchables) "
           f"natif={ {t: len(v) for t, v in g0['nat'].items()} } "
           f"port={ {t: len(v) for t, v in g0['port'].items()} } "
           f"(canal #179 natif={ {t: len(v) for t, v in g0['other'].items()} })")
@@ -774,6 +844,7 @@ def test_frenzied_firing_aoe_combat_matches_native(live_session, rpc, build_runn
              f"nombre de coups EGAL le flux `state.rng` doit etre aligne coup par coup")
 
     g3 = _frenzy_combat_geometry(rpc, build_runner, "61107", 3)
+    print(f"[#61 frenzy AoE COMBAT] caster DEPLACE {g3['cpos']} -> {g3['moved_to']}")
     print(f"[#61 frenzy AoE COMBAT] K={len(g3['adj'])} adj={g3['adj']} cible u{g3['tid']} "
           f"({g3['nb_free']} voisins marchables) "
           f"natif={ {t: len(v) for t, v in g3['nat'].items()} } "
