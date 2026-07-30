@@ -49,6 +49,17 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     la feuille MinDist(16) : porte ses QUATRE gates d'entrée (`case.Unit == null`, `IsNonAttacking`,
     `case.ClosestEnemy == null`, `!UnitCanBeDamaged`) — sans lui la feuille reste non gatée (#236).
     Renvoie ((col,row)|None, util).
+
+    ⚠ **`tiles` EST le `positions` natif, ORDRE COMPRIS** (#320). C'est l'argument que le tactic
+    passe à `IdunBattle.AI.ActionGenerators.MovementActionGenerator$$GenerateActions`, produit par
+    `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` : un `OrderedSet` SEEDÉ
+    avec la position COURANTE, donc **elle y est première**. L'argmax ci-dessous remplace sur `>`
+    STRICT — mirror de `FixMath.NET.Fix64$$op_GreaterThan` dans
+    `IdunBattleLogic.AI.Utilities.UtilityDecider.u003CCalculateUtilitiesForCasesEnumeratedu003Ed__7u003Cobjectu003E$$MoveNext`
+    (`if (v > bestUtility) { second = best; best = case; }`) — donc **keep-first à égalité**. Les deux
+    ensemble sont ce qui fait que le natif RESTE SUR PLACE à utilité égale. Un appelant qui omet la
+    tuile courante de `tiles` supprime cette possibilité, silencieusement :
+    `engine.ai.action_generators.movement_candidate_positions` est le seul foyer qui la construit.
     """
     if not enemy_positions:
         return None, None

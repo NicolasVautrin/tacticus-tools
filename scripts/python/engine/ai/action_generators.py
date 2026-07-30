@@ -774,6 +774,45 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
         return bucket.choose_action()
 
 
+def movement_candidate_positions(ctx) -> list:
+    """`positions` — le 3ᵉ argument que le tactic passe à
+    `IdunBattle.AI.ActionGenerators.MovementActionGenerator$$GenerateActions(unit, startPosition,
+    positions, overrideUtility)` (rangé à `<GenerateActions>d__6+0x40`, d'où
+    `...u003CGenerateActionsu003Ed__6$$MoveNext` construit **un** `UtilityMovementCase` par position).
+
+    Sa source est `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles`, qui appelle le slot
+    `+0xe` de l'`IBattleQuery` = `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` :
+
+        var set = new OrderedSet<UnitPosition>(EntityExtensions.GetUnitPosition(unit, this._state));
+        set.UnionWith(this._movementQuery.GetMovablePositionsFor(unit, ignoreUnitFlags, options));
+        return set;
+
+    ⇒ la position **COURANTE** est la GRAINE de l'`OrderedSet` : elle est dans l'ensemble, et elle y
+    est **PREMIÈRE** ; les tuiles de `GetMovableTilesFor` (qui, elles, l'excluent — d'où l'union)
+    suivent. C'est exactement ce que `engine.ai.context.action_tiles_for` construit déjà, et ce que
+    `ctx.action_tiles` porte.
+
+    **Pourquoi l'ordre est LOAD-BEARING** : l'argmax natif vit dans
+    `IdunBattleLogic.AI.Utilities.UtilityDecider.u003CCalculateUtilitiesForCasesEnumeratedu003Ed__7u003Cobjectu003E$$MoveNext`
+    et remplace le meilleur case sur `FixMath.NET.Fix64$$op_GreaterThan` — **STRICT**, donc
+    **keep-first à égalité**. Position courante énumérée en tête + remplacement strict ⇒ **à utilité
+    ÉGALE le natif RESTE SUR PLACE**, et il ne bouge que sur un gain STRICT.
+
+    Ce que le port faisait (#320) : il passait `ctx.move_tiles` (= RPC `aiMovableTiles` =
+    `GetMovableTilesFor`) — candidate-set AMPUTÉ de la seule tuile que le natif évalue en PREMIER.
+    « Rester sur place » n'était pas représentable, donc le générateur proposait TOUJOURS un
+    déplacement réel. Dégradation permissive : `InputBuilder` n'aurait émis aucun `MoveUnitMessage`,
+    le natif finissait le tour — cf. `engine.ai.tactic.input_messages_from_unit_action`.
+
+    Fonction de MODULE (et non méthode) pour la même raison que le mirror de #309 : c'est ce qui la
+    rend NEUTRALISABLE depuis un probe, donc la garde falsifiable
+    (`probe_320_movement_scoring_origin.py`).
+
+    Format : liste de `{"col", "row"}` — celui d'`aiMovableTiles`, que `move.best_move_faithful`
+    consomme déjà. L'ORDRE de la liste est conservé jusqu'à l'argmax."""
+    return [{"col": c, "row": r} for (c, r) in (ctx.action_tiles or [])]
+
+
 class MovementActionGenerator(ActionGenerator):
     """Générateur d'approche pure (`MovementActionGenerator`, EN DERNIER dans la liste). Ne fire que
     si aucun tier d'ability n'a produit d'action légale. Scoring `MovementSuggestion` porté
@@ -781,13 +820,16 @@ class MovementActionGenerator(ActionGenerator):
     action (fallback terminal du tactic)."""
 
     def generate(self, ctx) -> dict | None:
-        if not ctx.move_tiles or not ctx.enemies:
+        # `positions` = `GenerateActionTiles` : position COURANTE en TÊTE, puis les movables
+        # (cf. `movement_candidate_positions`). Résolu par le MODULE -> neutralisable par un probe.
+        positions = movement_candidate_positions(ctx)
+        if not positions or not ctx.enemies:
             return {"kind": "move", "to": None}
         # #26 : le seed du fallback HEX de MinDist(16) = les ennemis CIBLABLES (tgt_epos, post-filtres
         # `FindClosestEnemy` IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext), PAS epos complet — un ennemi Environment/deep-strike/irrelevant
         # ne participe jamais au ClosestEnemy natif. epos (complet) reste le fallback si tgt_epos vide.
         move_to, move_util = move.best_move_faithful(
-            ctx.move_tiles, ctx.elev_by_pos, ctx.tgt_epos or ctx.epos, ctx.wt,
+            positions, ctx.elev_by_pos, ctx.tgt_epos or ctx.epos, ctx.wt,
             pathdist_by_pos=ctx.pathdist_by_pos,
             is_temporary_by_pos=ctx.is_temporary_by_pos, effects_by_pos=ctx.effects_by_pos,
             terrain_by_pos=ctx.terrain_by_pos, leaf_ctx=tile_leaf_ctx(ctx),

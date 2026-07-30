@@ -167,16 +167,16 @@ Garde : `scripts/python/tests/engine/test_movement_null_action_live.py`.
 
 ## 5. Résidus nommés
 
-- **Étage `scoring` — le port vise une AUTRE tuile là où le natif finit le tour.** Mesuré sur
-  `C1_12` / seed 12100, **step 8, unité `u79`** : origine `(3,6)`, **15** tuiles movables, le port
-  propose `(4,5)` ; le natif n'émet rien. Le mirror laisse passer — et c'est **correct**, puisque
-  `InputBuilder` émettrait un `MoveUnitMessage` pour toute destination différente de la tuile
-  courante. Le désaccord est donc dans le **choix de tuile** : soit le chooser natif
-  (`<generator+0x28>.GetBest(cases, utility)`) ne retient aucun cas, soit il retient la tuile
-  courante et `move.best_move_faithful` en préfère une autre. Les deux se départagent en lisant
-  l'utilité attribuée à la tuile d'origine — non fait ici. Voisin des fiches
-  `case-193` / `case-201` / `case-206` (scoring `MovementSuggestion`). **Le probe le compte
-  séparément pour qu'il reste visible au lieu d'être absorbé.**
+- ~~**Étage `scoring` — le port vise une AUTRE tuile là où le natif finit le tour.**~~ **FERMÉ par
+  `case-320`.** Le montage nommé ici (`C1_12` / seed 12100, **step 8, unité `u79`**, origine
+  `(3,6)`, **15** tuiles movables, port → `(4,5)`) a été repris tel quel et la seconde branche de
+  l'alternative posée ci-dessous est la bonne : **le chooser natif retient la tuile COURANTE**, et
+  `move.best_move_faithful` en préférait une autre parce que la tuile courante **n'était pas dans
+  son candidate-set** (`ctx.move_tiles` = `GetMovableTilesFor`, qui l'exclut). Le natif, lui, reçoit
+  `GetCurrentAndMovablePositionsFor` — un `OrderedSet` SEEDÉ avec la position courante. Mesure par
+  feuille : `(3,6)` vaut `-296` (`tile=+4`, `mindist=-300`) contre `-330` pour `(4,5)`
+  (`tile=-30`) ; à MinDist ÉGAL, c'est `TileEffectsUtility` qui départage. Détail, second montage
+  discriminant et garde : `docs/rl/case-320-scoring-mouvement-tuile-courante.md`.
 - **Étage `ability` — le port caste là où le natif finit le tour.** Réel aussi : `C1_03` / seed 4242,
   pas 13, unité `u91` (cast sur la cible 79 depuis `(2,2)`), et **deux** occurrences sur
   `MC1_67` / 909. Cause en amont de la traduction en messages — gate d'ability, disponibilité, ou
