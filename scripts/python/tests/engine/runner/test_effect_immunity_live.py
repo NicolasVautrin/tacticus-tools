@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import pytest
 
+import stream_events as SE
 import probe_112_darkangels as PR
 import probe_224_effect_immunity as IM
 from engine.entities.effects import EffectFactory
@@ -76,8 +77,9 @@ def _snapshot(sid, rid):
 
 
 def _effect_groups(action: dict) -> list:
+    # `GroupType.Effect_Refresh` resolu PAR NOM (#254b-b) -- cf. test_darkangels_lot1_live.
     return [e.get("source") for e in (action.get("events") or [])
-            if e.get("kind") == "group" and e.get("group") == 22]
+            if e.get("kind") == "group" and e.get("group") == SE.group_id("Effect_Refresh")]
 
 
 def _effects_of(dv, uid) -> list:

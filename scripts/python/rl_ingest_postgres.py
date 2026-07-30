@@ -60,29 +60,28 @@ def _load_env(path: Path) -> dict[str, str]:
 
 # ---- JSONL trace reader ------------------------------------------------- #
 
-STEP_NAMES = {
-    0: "None", 1: "StartMatch", 2: "StartTurn", 3: "ChangePosition",
-    4: "UnitDamaged", 5: "HealInfo", 6: "RepairInfo", 7: "RestoreArmorInfo",
-    8: "AddPlayer", 9: "AddTile", 10: "AddUnit", 11: "AddMachine",
-    12: "RemoveUnit", 13: "ChangeStats", 14: "ChangeAbility",
-    15: "FinishMatch", 16: "ReceiveEffect", 17: "LoseEffect",
-    18: "ActivateEffect", 19: "DeactivateEffect", 20: "UpdateEffect",
-    21: "UpdateEffectTurns", 22: "AttackTile", 23: "UnitDraft",
-    24: "SpawnPointDraft", 25: "ExtraAttackDamage", 26: "DirectlyKillUnit",
-    27: "LootInfo", 28: "RemoveUnitFromTiles", 29: "Revive", 30: "Info",
-    31: "TerritoryCapture", 32: "TerritoryScoreModifierChange",
-    33: "AddVictoryPoints", 34: "RemoveVictoryPoints",
-    35: "UpdateAbilityModification", 36: "TransferDamage", 37: "Resurrect",
-    38: "OverrideMovementTarget", 39: "PrepareTurn", 40: "ChangeUnitOwner",
-    41: "UpdateEffectLevel", 42: "UnitFled", 43: "RotateUnit",
-    44: "AddMachinePlatform", 45: "MachineHit", 46: "RemoveMachine",
-    47: "SpendAmmo", 48: "ChangePlayerReinforcement",
-    49: "ChangeUnitConfig", 50: "AddScore", 51: "SetTempPlayer",
-    52: "ResetTempPlayer", 53: "AddReinforcementShield", 54: "PickUnit",
-    55: "ChangeResurrectDraftingPoints", 56: "AddOrUpdateShield",
-    57: "RemoveShield", 58: "RevealFogOfWar", 59: "HideDoorActivationTile",
-    60: "OpenDoor", 61: "ReaddMachine", 62: "PlayerInitialRarity",
-}
+# `stream_event.step_name` — dérivé de la table VERSIONNÉE `data/symbols/<CURRENT>/frida/
+# enums.tsv`, jamais recopié (#254b-b). La copie littérale qui vivait ici datait de
+# `gqfc5mff6c` ; depuis que `rnca9r7q6c` a retiré `StepType.RestoreArmorInfo` (7), elle
+# décalait de +1 le nom de TOUT pas >= 7 — l'ingest écrivait `AddUnit` pour un `AddMachine`,
+# `RemoveUnit` pour un `ChangeStats`, sans erreur ni trace.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import stream_events as _SE  # noqa: E402
+
+
+class _StepNames:
+    """`.get(ordinal)` -> NOM, ou None si l'ordinal n'existe pas sur le build courant."""
+
+    @staticmethod
+    def get(i, defaut=None):
+        try:
+            n = _SE.step_name(i)
+        except (TypeError, ValueError):
+            return defaut
+        return defaut if n.startswith("Step#") else n
+
+
+STEP_NAMES = _StepNames()
 
 
 def _read_trace_events(trace_paths: list[Path]) -> dict[int, dict[str, list]]:

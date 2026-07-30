@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
@@ -161,7 +162,8 @@ def main():
             for ev in (act.get("events") or []):
                 print("   EVENT", json.dumps({k: ev.get(k) for k in
                       ("kind", "step", "entity", "source", "tags")}, sort_keys=True))
-                if ev.get("entity") == eid and ev.get("step") == 4 and ev.get("tags"):
+                if ev.get("entity") == eid and ev.get("step") == SE.step_id("UnitDamaged") \
+                        and ev.get("tags"):
                     try:
                         tg = json.loads(ev["tags"])
                     except Exception:

@@ -186,18 +186,25 @@ def _enemy_turn_skip(rpc, rid, my_team: int) -> None:
 
 
 def _hp_events(cascade: list) -> list[dict]:
-    """Mutations PV ORDONNEES (toutes cibles) : step 4 UnitDamaged / 5 HealInfo / 6 RepairInfo."""
+    """Mutations PV ORDONNEES (toutes cibles) : `UnitDamaged` / `HealInfo` / `RepairInfo`.
+
+    Pas resolus PAR NOM (#254b-b) : `StepType` est implicitement numerote, un membre retire au
+    milieu decale tout ce qui suit. Ces trois-la precedent le `RestoreArmorInfo` retire par
+    `rnca9r7q6c`, donc leurs ordinaux n'ont pas bouge -- raison de plus pour ne pas les figer :
+    rien ne signalerait leur invalidation au prochain build."""
     out = []
+    s_dmg = SE.step_id("UnitDamaged")
+    s_heal = (SE.step_id("HealInfo"), SE.step_id("RepairInfo"))
     for ev in cascade:
         if ev.get("kind") != "action":
             continue
         tags = SE._tags(ev)
         step = ev.get("step")
-        if step == 4:
+        if step == s_dmg:
             out.append({"kind": "dmg", "target": tags.get("Target_Id"),
                         "amount": tags.get("Amount") or 0,
                         "effect_type": tags.get("Effect_Type")})
-        elif step in (5, 6):
+        elif step in s_heal:
             out.append({"kind": "heal", "target": tags.get("Target_Id"),
                         "amount": tags.get("Amount") or 0, "effect_type": None})
     return out

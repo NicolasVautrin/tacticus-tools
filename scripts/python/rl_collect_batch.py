@@ -53,10 +53,18 @@ from typing import Any, TypedDict
 # (rl_gen_enum_columns.py). Remplit les colonnes *_name à l'ingest (013).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    from enum_maps import BY_COLUMN as _ENUM_MAPS, GROUP_TYPE as _GROUP_TYPE
+    from enum_maps import BY_COLUMN as _ENUM_MAPS
 except ImportError:
     _ENUM_MAPS = {}
-    _GROUP_TYPE = {}
+
+# StepType/GroupType : PAS depuis `enum_maps` (#254b-b). `enum_maps.py` est généré depuis un
+# `dump.cs` (artefact gitignoré) et sa table `GROUP_TYPE` est PÉRIMÉE — 102 membres au lieu de
+# 104, décalée à partir de 36 (`Ability_Displace` et `EndTurn` y manquent). Elle donnait
+# `59 = NormalAttack_AtomicDamage` là où le build courant dit `ZingerAbility` (le vrai
+# `NormalAttack_AtomicDamage` est 61) : c'est ce mensonge qui a fixé le `59` de `_ATTACK`
+# ci-dessous. `stream_events` lit `data/symbols/<CURRENT>/frida/enums.tsv`, VERSIONNÉE et
+# estampillée, et LÈVE sur un membre disparu.
+import stream_events as _SE  # noqa: E402
 
 
 def _enum_name(v: int | None, col: str) -> str | None:
@@ -70,7 +78,8 @@ def _group_name(code: int | None) -> str | None:
     """Libellé GroupType (stream_group.group_name)."""
     if code is None:
         return None
-    return _GROUP_TYPE.get(code)
+    n = _SE.group_name(code)
+    return None if n.startswith("Group#") else n
 
 
 HOST = "http://127.0.0.1:8765"
@@ -110,29 +119,24 @@ except ImportError:
     _PSYCOPG_OK = False
 
 
-STEP_NAMES = {
-    0: "None", 1: "StartMatch", 2: "StartTurn", 3: "ChangePosition",
-    4: "UnitDamaged", 5: "HealInfo", 6: "RepairInfo", 7: "RestoreArmorInfo",
-    8: "AddPlayer", 9: "AddTile", 10: "AddUnit", 11: "AddMachine",
-    12: "RemoveUnit", 13: "ChangeStats", 14: "ChangeAbility",
-    15: "FinishMatch", 16: "ReceiveEffect", 17: "LoseEffect",
-    18: "ActivateEffect", 19: "DeactivateEffect", 20: "UpdateEffect",
-    21: "UpdateEffectTurns", 22: "AttackTile", 23: "UnitDraft",
-    24: "SpawnPointDraft", 25: "ExtraAttackDamage", 26: "DirectlyKillUnit",
-    27: "LootInfo", 28: "RemoveUnitFromTiles", 29: "Revive", 30: "Info",
-    31: "TerritoryCapture", 32: "TerritoryScoreModifierChange",
-    33: "AddVictoryPoints", 34: "RemoveVictoryPoints",
-    35: "UpdateAbilityModification", 36: "TransferDamage", 37: "Resurrect",
-    38: "OverrideMovementTarget", 39: "PrepareTurn", 40: "ChangeUnitOwner",
-    41: "UpdateEffectLevel", 42: "UnitFled", 43: "RotateUnit",
-    44: "AddMachinePlatform", 45: "MachineHit", 46: "RemoveMachine",
-    47: "SpendAmmo", 48: "ChangePlayerReinforcement",
-    49: "ChangeUnitConfig", 50: "AddScore", 51: "SetTempPlayer",
-    52: "ResetTempPlayer", 53: "AddReinforcementShield", 54: "PickUnit",
-    55: "ChangeResurrectDraftingPoints", 56: "AddOrUpdateShield",
-    57: "RemoveShield", 58: "RevealFogOfWar", 59: "HideDoorActivationTile",
-    60: "OpenDoor", 61: "ReaddMachine", 62: "PlayerInitialRarity",
-}
+# `stream_event.step_name` (migration 013) — dérivé de la table VERSIONNÉE, jamais recopié.
+# La copie littérale qui vivait ici datait de `gqfc5mff6c` : depuis que `rnca9r7q6c` a retiré
+# `StepType.RestoreArmorInfo` (7), elle décalait de +1 le nom de TOUT pas >= 7. Chaque batch
+# ingéré depuis la MAJ a donc écrit en base `AddUnit` pour un `AddMachine`, `RemoveUnit` pour
+# un `ChangeStats`, etc. — sans erreur ni trace (#254b-b).
+class _StepNames:
+    """`.get(ordinal)` -> NOM, ou None si l'ordinal n'existe pas sur le build courant."""
+
+    @staticmethod
+    def get(i, defaut=None):
+        try:
+            n = _SE.step_name(i)
+        except (TypeError, ValueError):
+            return defaut
+        return defaut if n.startswith("Step#") else n
+
+
+STEP_NAMES = _StepNames()
 
 
 def _load_env(path: Path) -> dict[str, str]:
@@ -474,9 +478,19 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                 # (pop + ordinal_close), action → reliée au groupe englobant
                 # (group_id) ; caster_entity = ancêtre attaque/ability ;
                 # weapon_is_melee = Info(arme) du scope d'attaque.
-                _ATTACK = (12, 32, 59)         # User_UseAbility, Ability_Attack, NormalAttack
-                _ACTOR = (11, 12, 13, 32, 59)  # + User_MoveUnit/PlaceUnit
-                _USER = (11, 12, 13)           # actions user (bornent le fallback Info, 015)
+                # Codes GroupType résolus PAR NOM (#254b-b). Le `59` qui était écrit ici
+                # portait le commentaire « NormalAttack » : il venait de `enum_maps.GROUP_TYPE`,
+                # table périmée où 59 = `NormalAttack_AtomicDamage`. Sur le build courant 59 =
+                # `ZingerAbility` et le vrai `NormalAttack_AtomicDamage` vaut 61 — le fallback
+                # « 015 » ci-dessous ne s'est donc JAMAIS armé sur une attaque normale ; il
+                # s'armait sur les scopes d'une ability sans rapport.
+                _g = _SE.group_id
+                _ATTACK = (_g("User_UseAbility"), _g("Ability_Attack"),
+                           _g("NormalAttack_AtomicDamage"))
+                _ACTOR = _ATTACK + (_g("User_MoveUnit"), _g("User_PlaceUnit"))
+                _USER = (_g("User_MoveUnit"), _g("User_UseAbility"),
+                         _g("User_PlaceUnit"))   # actions user (bornent le fallback Info, 015)
+                _NORMAL_ATTACK = _g("NormalAttack_AtomicDamage")
                 se_rows = []
                 sg_rows: list[list[Any]] = []
                 gstack: list[dict[str, Any]] = []
@@ -529,7 +543,7 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                         if fr["code"] in _ACTOR and fr["entity"]:
                             caster_entity = fr["entity"]
                             break
-                    if step == 30 and "Attack_Weapon_IsMelee" in tags_dict:
+                    if step == _SE.step_id("Info") and "Attack_Weapon_IsMelee" in tags_dict:
                         _mv = _t("Attack_Weapon_IsMelee")
                         last_info_melee = _mv  # 015: fallback message-level (borné action user)
                         for fr in reversed(gstack):
@@ -543,14 +557,14 @@ def _ingest_one_battle(ctx: _IngestCtx, battle_rec: dict) -> None:
                             break
                     # 015: fallback pour les ~3% (NormalAttack dont le Info est dans
                     # un scope frère/fermé, non-ancêtre) — gardé aux hits sous un
-                    # scope NormalAttack(59) pour ne pas toucher ability/MoW.
-                    if melee_val is None and any(fr["code"] == 59 for fr in gstack):
+                    # scope `NormalAttack_AtomicDamage` pour ne pas toucher ability/MoW.
+                    if melee_val is None and any(fr["code"] == _NORMAL_ATTACK for fr in gstack):
                         melee_val = last_info_melee
 
                     # 015: classification du degat (UnitDamaged). MoW avant ability
                     # (les MoW ont aussi un active_ability mais c'est de l'artillerie).
                     dmg_kind = None
-                    if step == 4:
+                    if step == _SE.step_id("UnitDamaged"):
                         _atk = _t("Attacker_Id")
                         if _t("Effect_Type") is not None:
                             dmg_kind = "effect"

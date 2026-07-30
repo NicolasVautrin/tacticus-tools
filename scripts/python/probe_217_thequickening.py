@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
@@ -128,9 +129,19 @@ _TRANSIENT = {"Untargetable", "ForcedInMelee", "TemporaryStatOverride"}
 
 def _parse_cast(cascade: list) -> dict:
     """De la cascade du cast : effets transitoires (add/remove par Effect_Id) + overrides Attack par unite.
-    add = step 16 (SetLevel) sous group grp=22 src=<name> ; remove = step 17/19 (Effect_Id). override =
-    step 13 UnitStats_Attack_Override > 0 (la pose ; -2147483648 = retrait)."""
+    add = `ReceiveEffect`/`ActivateEffect` sous group `Effect_Refresh` src=<name> ; remove =
+    `LoseEffect`/`DeactivateEffect` (Effect_Id). override = `ChangeStats` UnitStats_Attack_Override > 0
+    (la pose ; -2147483648 = retrait).
+
+    Les pas sont resolus PAR NOM (#254b-b) : ecrits en dur avec les ordinaux de `gqfc5mff6c`, les
+    cinq filtres de ce parseur designaient depuis la MAJ `rnca9r7q6c` les pas VOISINS (l'ajout lisait
+    `LoseEffect`/`DeactivateEffect`, le retrait `ActivateEffect`/`UpdateEffect`, l'override
+    `ChangeAbility`) -- add et remove etaient donc INTERVERTIS, sans erreur ni trace."""
     out = {"eff_name": {}, "eff_added": set(), "eff_removed": set(), "overrides": {}}
+    s_add = (SE.step_id("ReceiveEffect"), SE.step_id("ActivateEffect"))
+    s_remove = (SE.step_id("LoseEffect"), SE.step_id("DeactivateEffect"))
+    s_change_stats = SE.step_id("ChangeStats")
+    g_effect_refresh = SE.group_id("Effect_Refresh")
     stack: list = []
     for ev in cascade:
         k = ev.get("kind")
@@ -143,15 +154,15 @@ def _parse_cast(cascade: list) -> dict:
             continue
         t = _tags(ev)
         eid = t.get("Effect_Id")
-        cur_src = next((s for (g, s, _e) in reversed(stack) if g == 22), None)
+        cur_src = next((s for (g, s, _e) in reversed(stack) if g == g_effect_refresh), None)
         step = ev.get("step")
         if eid is not None and cur_src is not None:
             out["eff_name"][eid] = cur_src
-        if step in (16, 18) and eid is not None:
+        if step in s_add and eid is not None:
             out["eff_added"].add(eid)
-        if step in (17, 19) and eid is not None:
+        if step in s_remove and eid is not None:
             out["eff_removed"].add(eid)
-        if step == 13 and "UnitStats_Attack_Override" in t:
+        if step == s_change_stats and "UnitStats_Attack_Override" in t:
             v = int(t["UnitStats_Attack_Override"])
             if v > 0:
                 out["overrides"][ev.get("entity")] = v

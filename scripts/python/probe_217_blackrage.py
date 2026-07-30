@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.runner.snapshot import load_state  # noqa: E402
 from engine.runner.runner import Runner  # noqa: E402
@@ -124,8 +125,15 @@ def _off_pos(state, uid):
 def _parse_live(cascade, luc_id, enemy_id):
     """Extrait de la cascade : setHealth (RemainingHealth sous le group BlackRage), effets poses (1342/
     1343/1344), et RemainingHealth de l'ennemi APRES le DERNIER coup Loki_NormalAttack (= avant les
-    passifs VisionsOfHeresy/RapidAssault) -> permet total normal-attack = enemy_precast - normal_after_hp."""
+    passifs VisionsOfHeresy/RapidAssault) -> permet total normal-attack = enemy_precast - normal_after_hp.
+
+    Pas resolus PAR NOM (#254b-b) : ecrits en dur avec les ordinaux de `gqfc5mff6c`, `13` et `16`
+    designaient depuis la MAJ `rnca9r7q6c` `ChangeAbility` et `LoseEffect` -- `set_health` et
+    `effects` restaient donc VIDES, silencieusement."""
     out = {"set_health": None, "effects": {}, "normal_after_hp": None}
+    s_change_stats = SE.step_id("ChangeStats")
+    s_receive_effect = SE.step_id("ReceiveEffect")
+    s_unit_damaged = SE.step_id("UnitDamaged")
     stack = []            # pile des sources de groupes ouverts (finish n'a pas d'id -> pile, cf. probe_202c)
     for ev in cascade:
         k = ev.get("kind")
@@ -138,15 +146,17 @@ def _parse_live(cascade, luc_id, enemy_id):
                 stack.pop()
             continue
         st = ev.get("step")
-        # SetHealth : group=21 BlackRage porte UnitStats_RemainingHealth (transform du HP) — 1er vu
-        if st == 13 and ev.get("entity") == luc_id and "UnitStats_RemainingHealth" in t \
-                and out["set_health"] is None:
+        # SetHealth : le groupe `Ability_Power` BlackRage porte UnitStats_RemainingHealth
+        # (transform du HP) — 1er vu
+        if st == s_change_stats and ev.get("entity") == luc_id \
+                and "UnitStats_RemainingHealth" in t and out["set_health"] is None:
             out["set_health"] = int(t["UnitStats_RemainingHealth"])
-        # effets poses (step 16 -> Effect_Id ; source = group BlackRage_*)
-        if st == 16 and ev.get("entity") == luc_id and "Effect_SourceActiveAbility" in t:
+        # effets poses (`ReceiveEffect` -> Effect_Id ; source = group BlackRage_*)
+        if st == s_receive_effect and ev.get("entity") == luc_id \
+                and "Effect_SourceActiveAbility" in t:
             out["effects"][t.get("Effect_Id")] = t
         # attaque normale : coups sur l'ennemi tant qu'un ancetre Loki_NormalAttack est ouvert (dernier vu)
-        if st == 4 and ev.get("entity") == enemy_id and "Loki_NormalAttack" in stack \
+        if st == s_unit_damaged and ev.get("entity") == enemy_id and "Loki_NormalAttack" in stack \
                 and "UnitStats_RemainingHealth" in t:
             out["normal_after_hp"] = int(t["UnitStats_RemainingHealth"])
     return out

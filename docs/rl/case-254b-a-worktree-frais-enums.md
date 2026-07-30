@@ -133,9 +133,14 @@ les anciens littéraux désignaient sont massivement peuplés — **28 `ChangeSt
 * **Les deux autres défauts du billet `#254b-a` étaient déjà fermés** par `da556fbb`
   (`analyze()` par nom, `step_name` inversé). Ce cas ne ferme que le troisième — l'infrastructure —
   qui était précisément celui qui rendait les deux premiers **invisibles** en worktree.
-* **`#254b-b` reste ouvert** : `probe_202c_tutelaries.py` filtre encore `step == 10/13/14/16/30`,
-  cinq littéraux décalés de −1. Le correctif est le même geste (`SE.step_id("<Nom>")`) mais il
-  touche un autre fichier et n'a pas été rejoué ici.
+* **`#254b-b` est FERMÉ** : `case-254b-b-ordinaux-en-dur.md`. Le balayage du dépôt a rendu **25**
+  littéraux dans 12 fichiers (pas seulement `probe_202c_tutelaries.py`) plus **4 tables de noms
+  indexées par ordinal**, dont celle qui remplit la colonne `stream_event.step_name` de la base RL
+  et celle du journal de bataille du frontend. Contre-épreuve sur le cas connu : le probe rendait
+  **FAIL** avec ses littéraux d'origine sur `rnca9r7q6c` et rend **PASS** après correction, soit le
+  verdict publié en `case-202` §8 — le port n'était pas en cause. À noter : la dégradation y était
+  par **sous-comptage** (0 au lieu de N), à l'inverse du sur-comptage mesuré ci-dessus ; les
+  co-prédicats de tag décident du sens, on ne peut pas le prédire sans lire le site.
 * **Un autre gitignoré est LU, et il n'est pas traité ici** : `frida/data/ai-traces`
   (`engine_agreement_stages.py`, `probe_32_casttile.py`, `probe_49g_l3tiles.py`,
   `diag_summoner_crash.py`). Le host écrit ces traces dans l'arbre **principal** ; un worktree
