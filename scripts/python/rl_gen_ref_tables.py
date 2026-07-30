@@ -173,14 +173,18 @@ def main(argv: list[str]) -> int:
     if args.apply:
         psql = (r"C:\Program Files\PostgreSQL\15\bin\psql.exe")
         env = os.environ.copy()
-        # Lit le pwd depuis .env
-        envfile = ROOT / ".env"
+        # Lit le pwd depuis .env. #273 : `.env` est gitignore -- absent d'un
+        # worktree frais. L'ancien `if envfile.exists()` posait alors
+        # PGPASSWORD="" et laissait psql echouer sur une erreur d'AUTH, qui
+        # accuse le mot de passe au lieu du fichier manquant.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import host_inputs
+        envfile = host_inputs.require(".env")     # leve en NOMMANT les chemins
         pgenv: dict[str, str] = {}
-        if envfile.exists():
-            for line in envfile.read_text(encoding="utf-8").splitlines():
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    pgenv[k.strip()] = v.strip()
+        for line in envfile.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                pgenv[k.strip()] = v.strip()
         env["PGPASSWORD"] = pgenv.get("PG_PASSWORD", "")
         import subprocess
         r = subprocess.run(

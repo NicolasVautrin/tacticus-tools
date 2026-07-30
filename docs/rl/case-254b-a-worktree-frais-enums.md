@@ -141,6 +141,10 @@ les anciens littéraux désignaient sont massivement peuplés — **28 `ChangeSt
   verdict publié en `case-202` §8 — le port n'était pas en cause. À noter : la dégradation y était
   par **sous-comptage** (0 au lieu de N), à l'inverse du sur-comptage mesuré ci-dessus ; les
   co-prédicats de tag décident du sens, on ne peut pas le prédire sans lire le site.
+* **FERMÉ depuis** par `case-273-entrees-gitignorees.md` (les comptes ci-dessous ont été
+  re-dérivés à cette occasion et sont **sous-évalués** : `ai-traces` a **8** lecteurs et non 4,
+  `.env` en a 4 — un balayage par NOM DE VARIABLE rate les racines écrites en ligne et les
+  racines importées). Ce qui suit est l'état du 2026-07-30 avant #273 :
 * **Un autre gitignoré est LU, et il n'est pas traité ici** : `frida/data/ai-traces`
   (`engine_agreement_stages.py`, `probe_32_casttile.py`, `probe_49g_l3tiles.py`,
   `diag_summoner_crash.py`). Le host écrit ces traces dans l'arbre **principal** ; un worktree

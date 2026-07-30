@@ -32,11 +32,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 STATE = ROOT / "logs" / "runners" / "_57k_state.json"
-TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. engine_agreement_stages TRACES_DIR)
+# #273 : le HOST ecrit ces traces dans SON arbre et `frida/data/` est gitignore --
+# le chemin construit depuis un worktree resolvait dans le vide, `Path.glob` y
+# rendant [] SANS lever. `host_inputs` resout et separe les deux 0.
+TRACES = "frida/data/ai-traces"
 
 #        tag: (seed, stop, uid, visual_hint, tuiles d'interet)
 CASES = {"S14": ("12345", 14, 87, "necroOverlord", [(3, 5), (4, 3), (3, 4)]),
@@ -64,7 +68,14 @@ def _tile_of(ct):
 
 
 def _trace_file(sid: int):
-    files = sorted(TRACES_DIR.glob(f"{sid}-*.jsonl"), key=lambda p: p.stat().st_mtime)
+    """Dernier NDJSON de la session, ou None = MESURE et VIDE.
+
+    Le cas « repertoire introuvable » (PAS MESURE) ne rend PAS None : il propage
+    `host_inputs.HostInputUnavailable` -- le probe n'a pas de resultat degrade a
+    offrir, mieux vaut l'echec nomme que le silence (#273).
+    """
+    files = sorted(host_inputs.find(TRACES, f"{sid}-*.jsonl"),
+                   key=lambda p: p.stat().st_mtime)
     return files[-1] if files else None
 
 
@@ -119,7 +130,8 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
 
         tf = _trace_file(sid)
         if tf is None:
-            print(f"[57k:{tag}] AUCUN fichier trace {sid}-*.jsonl", file=sys.stderr)
+            print(f"[57k:{tag}] MESURE et VIDE : aucun {sid}-*.jsonl dans "
+                  f"{host_inputs.resolve(TRACES).label()}", file=sys.stderr)
             return
         tset = {tuple(t) for t in tiles}
         by_tile: dict = {}

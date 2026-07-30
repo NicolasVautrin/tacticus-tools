@@ -24,6 +24,7 @@ os.environ.setdefault("ENGINE_DEBUG", "1")   # AVANT import engine_validate (mod
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 import engine_validate as EV  # noqa: E402
 from engine.playbook import scene as scene_mod  # noqa: E402
 from engine import weights as W  # noqa: E402
@@ -31,7 +32,10 @@ from engine import weights as W  # noqa: E402
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 STATE = ROOT / "logs" / "runners" / "_32ct_state.json"
-TRACES = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/
+# #273 : ecrites par le HOST dans SON arbre, et `frida/data/` est gitignore --
+# `ROOT / "frida" / "data" / "ai-traces"` resolvait dans le vide en worktree, et
+# `Path.glob` y rendait [] SANS lever (le probe accusait alors la capture L3).
+TRACES = "frida/data/ai-traces"
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
@@ -157,9 +161,17 @@ def main() -> int:
         hi = (_rpc(sid, "aiTraceStatus", [], timeout=20).get("result") or {}).get("seq")
         _rpc(sid, "aiTraceDisable", ["L3"], timeout=20)
         print(f"[32] fenetre L3 seq: ({lo}, {hi}]")
-        files = sorted(TRACES.glob(f"{sid}-*.jsonl"), key=lambda p: p.stat().st_mtime)
+        try:
+            files = sorted(host_inputs.find(TRACES, f"{sid}-*.jsonl"),
+                           key=lambda p: p.stat().st_mtime)
+        except host_inputs.HostInputUnavailable as e:
+            # PAS MESURE -- distinct de « la capture L3 n'a rien emis » (rc 4).
+            print("[32] repertoire de traces introuvable :\n" + str(e))
+            return 5
         if not files:
-            print(f"[32] pas de trace {sid}-*.jsonl dans {TRACES}")
+            print(f"[32] MESURE et VIDE : aucun {sid}-*.jsonl dans "
+                  f"{host_inputs.resolve(TRACES).label()} -- la capture L3 "
+                  f"n'a rien ecrit pour cette session")
             return 4
         out: dict = {}
         with open(files[-1], encoding="utf-8") as f:

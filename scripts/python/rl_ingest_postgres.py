@@ -36,9 +36,17 @@ except ImportError:
     sys.exit(1)
 
 ROOT = Path(__file__).resolve().parents[2]
-TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
-SUMMARIES_DIR = ROOT / "frida" / "data" / "rl-batches"
-ENV_PATH = ROOT / ".env"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
+
+# #273 : les TROIS sont gitignorees et ecrites HORS de ce checkout -- `ai-traces`
+# par le HOST Node, `rl-batches` par `rl_collect_batch`, `.env` a la main. Un
+# chemin construit depuis un worktree resolvait dans le vide : `SUMMARIES_DIR
+# .glob("batch-*.json")` rendait [] et `--all` ingerait ZERO batch en annoncant
+# « rien a ingerer ». `host_inputs` LEVE au lieu de rendre cette liste vide.
+_TRACES = "frida/data/ai-traces"
+_SUMMARIES = "frida/data/rl-batches"
+_ENV = ".env"
 
 
 # ---- .env loader stdlib ------------------------------------------------- #
@@ -132,7 +140,10 @@ def _read_trace_events(trace_paths: list[Path]) -> dict[int, dict[str, list]]:
 def _ingest_summary(conn: psycopg.Connection, summary_path: Path,
                     game_hash: str | None) -> int:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    trace_files = [TRACES_DIR / name for name in summary.get("trace_files") or []]
+    # `trace_files` du summary est RELATIF au repertoire de traces du host.
+    names = summary.get("trace_files") or []
+    trace_files = ([host_inputs.require(_TRACES) / n for n in names]
+                   if names else [])
     events_by_runner = _read_trace_events(trace_files)
 
     with conn.cursor() as cur:
@@ -430,14 +441,24 @@ def main(argv: list[str]) -> int:
                     help="Hash du build Tacticus (ex. rmvdp0v56c)")
     args = ap.parse_args(argv[1:])
 
-    env = _load_env(ENV_PATH)
+    # #273 : « PG_PASSWORD vide dans .env » accusait le CONTENU d'un fichier qui,
+    # depuis un worktree, n'existait pas. Deux causes, deux messages, et le
+    # chemin retenu (ou les chemins essayes) sont NOMMES.
+    env_res = host_inputs.resolve(_ENV)
+    if env_res.path is None:
+        print("ERREUR : aucun .env trouve -- rien n'a ete lu :\n"
+              + "\n".join(f"    [{o}] {p.as_posix()}"
+                          for o, p in env_res.candidates), file=sys.stderr)
+        return 1
+    env = _load_env(env_res.path)
     host = env.get("PG_HOST", "localhost")
     port = env.get("PG_PORT", "5433")
     db = env.get("PG_DATABASE", "tacticus_rl")
     user = env.get("PG_USER", "postgres")
     pwd = env.get("PG_PASSWORD", "")
     if not pwd:
-        print("ERREUR : PG_PASSWORD vide dans .env", file=sys.stderr)
+        print(f"ERREUR : PG_PASSWORD vide dans {env_res.path.as_posix()}",
+              file=sys.stderr)
         return 1
 
     # Default game_hash : lit depuis le dossier des dumps actif
@@ -461,17 +482,23 @@ def main(argv: list[str]) -> int:
     # Selection des summaries a ingerer
     if args.summary:
         targets = [args.summary]
-    elif args.all:
-        targets = sorted(SUMMARIES_DIR.glob("batch-*.json"))
     else:
-        # Dernier en date
-        cand = sorted(SUMMARIES_DIR.glob("batch-*.json"),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
+        # `find` LEVE si le repertoire est introuvable (PAS MESURE) et rend []
+        # seulement quand il existe sans aucun `batch-*.json` (MESURE, VIDE).
+        try:
+            cand = host_inputs.find(_SUMMARIES, "batch-*.json")
+        except host_inputs.HostInputUnavailable as e:
+            print(str(e), file=sys.stderr)
+            return 2
         if not cand:
-            print(f"Aucun summary trouve dans {SUMMARIES_DIR}",
-                  file=sys.stderr)
+            print(f"MESURE et VIDE : aucun batch-*.json dans "
+                  f"{host_inputs.resolve(_SUMMARIES).label()} -- lance "
+                  f"rl_collect_batch.py d'abord", file=sys.stderr)
             return 1
-        targets = [cand[0]]
+        if args.all:
+            targets = sorted(cand)
+        else:                                     # dernier en date
+            targets = [max(cand, key=lambda p: p.stat().st_mtime)]
 
     if not targets:
         print("Rien a ingerer", file=sys.stderr)

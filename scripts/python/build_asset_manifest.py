@@ -27,8 +27,11 @@ import UnityPy
 UnityPy.config.FALLBACK_UNITY_VERSION = "6000.3.8f1"
 
 ROOT = Path(__file__).resolve().parents[2]
-RAW = ROOT / "frida" / "assets" / "raw" / "Bundles"
-PUBLIC = ROOT / "frida" / "assets" / "public"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
+
+RAW = ROOT / "frida" / "assets" / "raw" / "Bundles"   # repli local (cf. _bundle_dir)
+PUBLIC = ROOT / "frida" / "assets" / "public"         # SORTIE : ecrite ici, mkdir
 
 # Default install path (Windows). Override via TACTICUS_INSTALL env var.
 DEFAULT_TACTICUS_INSTALL = Path(
@@ -58,11 +61,20 @@ def _bundle_dir(name: str) -> Path:
     """Resolve a bundle subdir (avatars/atlases/boards/abilities/languages),
     preferring the live install when it exists, falling back to the
     Android raw pull. The install path is queried fresh each call so a
-    user override via `TACTICUS_INSTALL` env var is honoured."""
+    user override via `TACTICUS_INSTALL` env var is honoured.
+
+    #273 : le repli `RAW` est une ENTREE gitignoree -- absente d'un worktree
+    frais, ou le chemin construit depuis `ROOT` resolvait dans le vide. On le
+    resout donc par `host_inputs` (arbre local, puis arbre principal du depot).
+    Le chemin rendu peut ne pas exister : les appelants testent `.exists()` et
+    impriment `[warn] missing <src>` -- cette entree-la est deja fail-loud, on
+    ne fait que la faire pointer sur l'arbre qui la porte.
+    """
     install = INSTALL_BUNDLES / name
     if install.exists():
         return install
-    return RAW / name
+    raw = host_inputs.resolve("frida/assets/raw/Bundles").path
+    return (raw / name) if raw is not None else (RAW / name)
 
 
 def extract_avatars() -> dict[str, str]:

@@ -73,6 +73,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 import hexgeo  # noqa: E402
 from engine import weights  # noqa: E402
 from engine.playbook import noncomparable as playbooks  # noqa: E402
@@ -118,7 +119,13 @@ STATE = ROOT / "logs" / "runners" / "_stages_duel_state.json"
 # ou qu'on ne couvre que PARTIELLEMENT (TriggeredAbilities : seuls les playbooks enregistrés comptent).
 # Un score natif L3 non nul dont le NOM matche = terme MANQUANT/PARTIEL nommé automatiquement.
 _DROPPED_LEAF_KEYWORDS = ("Triggered", "UnitSpecificBehaviour", "RangedAdjacentEnemy")
-TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. ai-trace-store)
+# #273 : les traces L3 sont ecrites par le HOST (`frida/host/ai-trace-store.ts`,
+# cwd = `frida/`) dans SON arbre, et `frida/data/` est gitignore. Un `ROOT /
+# "frida" / "data" / "ai-traces"` construit depuis un worktree resolvait donc
+# dans le vide, et `Path.glob` y rendait une liste vide SANS lever : LEVER 3
+# s'eteignait en silence. `host_inputs` resout l'arbre du host et distingue
+# « repertoire introuvable » (leve) de « aucun fichier pour ce sid » ([]).
+_TRACES = "frida/data/ai-traces"
 
 
 def _tile_of(ct):
@@ -622,13 +629,29 @@ class StageProbe:
         return None
 
     # ---- LEVER 3 : diff L3 natif ↔ offline (feuilles move par-tuile, fenêtre seq de ce pas) ----
+    _traces_warned = False        # le message d'indisponibilité, une seule fois
+
     def _trace_file(self):
-        """Fichier NDJSON L3 le plus récent de cette session (glob `<sid>-*.jsonl`)."""
+        """Fichier NDJSON L3 le plus récent de cette session (glob `<sid>-*.jsonl`).
+
+        `None` recouvre DEUX cas que #273 sépare, parce que LEVER 3 est un diagnostic
+        auxiliaire (le faire lever tuerait tout le run d'agreement) :
+          * répertoire de traces INTROUVABLE -> `HostInputUnavailable`, message NOMMANT
+            les chemins essayés, imprimé UNE fois — c'est « pas mesuré » ;
+          * répertoire présent, aucun `<sid>-*.jsonl` -> vrai négatif (L3 pas activée
+            pour cette session), silencieux comme avant.
+        """
         if self._trace_path is None:
             try:
-                files = sorted(TRACES_DIR.glob(f"{self.sid}-*.jsonl"),
+                files = sorted(host_inputs.find(_TRACES, f"{self.sid}-*.jsonl"),
                                key=lambda p: p.stat().st_mtime)
                 self._trace_path = files[-1] if files else None
+            except host_inputs.HostInputUnavailable as e:
+                if not StageProbe._traces_warned:
+                    StageProbe._traces_warned = True
+                    print("[stages] LEVER 3 (diff L3 natif) INDISPONIBLE -- pas "
+                          "mesure, pas 'aucun ecart' :\n" + str(e))
+                self._trace_path = None
             except OSError:
                 self._trace_path = None
         return self._trace_path
