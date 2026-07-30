@@ -1,4 +1,4 @@
-# case-224 item 5 — `CursedPlagueBellAttackAbility` : la riposte Psychique, et le comparateur STRICT enfin mesuré
+# case-224 item 5 — `CursedPlagueBellAttackAbility` : la riposte Psychique, et le comparateur d'aura enfin mesuré
 
 Cinquieme item de la fiche d'inventaire `case-211` / `#224`. Porte **l'ability triggered**
 `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility` — le second volet du
@@ -66,11 +66,11 @@ vient du **consommateur** (`$$On`) et de la **forme du ctor**, pas de la table.
 
 #### Les deux comparateurs voisins, rappel
 
-`IsInUnitContagionsOfNurgleAura` compare **STRICT** (`dist < range`), la version d'EQUIPE
-(`BattleQuery$$GetInRangeAuraAmount`) compare **INCLUSIF**. Le rayon EFFECTIF du predicat par unite
-vaut donc `range - 1` : **0 / 1 / 2** aux paliers `TurnsStarted(Owner)` 1-2 / 3-4 / 5+.
-Consequence directe et contre-intuitive : **aux deux premiers tours du porteur, la cloche ne peut
-PAS partir, meme au contact**.
+`IsInUnitContagionsOfNurgleAura` compare **INCLUSIF** (`dist <= range`) — il instancie un
+`AmountIsEqualOrGreaterAbilityTrigger` — et la version d'EQUIPE
+(`BattleQuery$$GetInRangeAuraAmount`) compare **INCLUSIF** elle aussi. Le rayon EFFECTIF est donc le
+MEME des deux cotes : **1 / 2 / 3** aux paliers `TurnsStarted(Owner)` 1-2 / 3-4 / 5+.
+Attribution etablie par lecture du POINTEUR DE CLASSE en #293 — cf. §3.2.
 
 ### 1.2 `CreateBehaviour`
 
@@ -214,18 +214,24 @@ n'avait alors aucun consommateur MOTEUR, donc aucun montage ne l'opposait au nat
 disait d'ailleurs en propres termes (« le comparateur STRICT de la version par UNITE n'est pas
 mesure live »). Porter 1071 le rend confrontable — c'etait l'interet annonce de l'item.
 
-**Ce que le decompile dit quand meme, et qu'on ne masque pas.** Relu pour ce cas, pas herite :
-`IsInUnitContagionsOfNurgleAura` appelle `AmountIsGreaterAbilityTrigger$$.ctor(this,
-amount = ContagionsOfNurgleRange(unit), minAmount = MinDistance(target, unit))`, ctor qui ecrit
-`+0x18 = amount` / `+0x20 = minAmount` ; `ShouldTrigger` evalue `+0x18` puis `+0x20` et finit par
-`return minAmount < amount`. Litteralement STRICT. **Trois modeles reconcilient lecture et mesure, et
-ils sont observationnellement indiscernables** : comparateur inclusif · `MinDistance` natif =
-`hexdist − 1` · `GetCurrentRange` natif = table + 1. Le troisieme est **REFUTE independamment** (le
-probe d'EQUIPE de case-224 mesure un seuil egal a la table portee, donc `GetCurrentRange` natif ==
-table). Les deux premiers restent equivalents partout, et **aucune mesure ne designe l'etage fautif**.
-Le port retient la forme la plus LOCALE — le comparateur d'`IsInUnitAura` — parce que `MinDistance`
-a d'autres consommateurs. C'est un choix de LOCALISATION, pas une lecture : il est ecrit comme tel
-dans le docstring du noeud.
+**L'ATTRIBUTION de l'ecart d'une unite — tranchee par LECTURE en #293.** Ce cas-ci laissait ouverts
+trois modeles observationnellement indiscernables : comparateur inclusif · `MinDistance` natif =
+`hexdist − 1` · `GetCurrentRange` natif = table + 1. Les deux derniers sont **REFUTES etage par
+etage** (chemin de distance lu jusqu'a `CubeCoordinate$$Distance` = `Max(|dx|,|dy|,|dz|)` ; arbre
+`GetRangeOnOwnerTurn` lu en entier et mirroir exact du port). Le premier est **CONFIRME** :
+
+`IsInUnitContagionsOfNurgleAura` appelle bien un ctor que la table nomme
+`AmountIsGreaterAbilityTrigger$$.ctor` (`+0x18 = amount`, `+0x20 = minAmount`), et le `ShouldTrigger`
+de CETTE classe finit bien par `return minAmount < amount`, STRICT. **Mais ce nom ne designe pas la
+classe instanciee** : ce ctor est un corps trivial que IL2CPP **deduplique** entre toutes les
+conditions de meme layout, et la table ne lui donne qu'UN proprietaire. Le pointeur de classe charge
+juste avant `il2cpp_object_new` est celui de `IdunBattleLogic.Entities.DSLTriggers$$
+AmountIsEqualOrGreater`, donc `AmountIsEqualOrGreaterAbilityTrigger`, dont le `ShouldTrigger` finit
+par `return minAmount <= amount`. **INCLUSIF, et lu.**
+
+La mesure ci-dessus n'est donc plus le seul appui du `<=` : elle CONFIRME une lecture qui tient
+seule. Re-derivation offline, sans runner :
+`python scripts/python/probe_293_aura_predicate_comparator.py --inventory`.
 
 ### 3.3 Accord bit-exact, y compris le DOUBLE declenchement
 
@@ -266,7 +272,7 @@ l'arme choisie par la geometrie — meme unite, meme aura, meme camp.
 |---|---|---|---|
 | entree du registre retiree | **2 rouges** (les deux cas dans l'aura) | 0 | 0 |
 | rayon d'aura fige a 1 | **2 rouges** | 0 | 0 |
-| comparateur remis **STRICT** | **1 rouge — exactement `d == range`** | 0 | 0 |
+| comparateur remplace par celui de l'AUTRE classe (**STRICT**) | **1 rouge — exactement `d == range`** | 0 | 0 |
 | gate PROFIL retire (rendu toujours vrai) | 0 | **1 rouge** (+1795 fantome) | 0 |
 | gate `AreEnemies` neutralise | 0 | 0 | **2 rouges** |
 

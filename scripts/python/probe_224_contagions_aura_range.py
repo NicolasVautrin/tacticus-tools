@@ -4,7 +4,7 @@ Ce que le probe MESURE, etage par etage (jamais un scalaire fitte) :
 
   etape 0  OFFLINE  garde de substrat : la table `GetRangeOnOwnerTurn` (1/2/3), son identite avec
                     `ContagionsOfNurgle_ArmorReduction_Effect$$CalculateRange(unit)` deja porte, et
-                    la DIFFERENCE de comparateur STRICT (version UNITE) vs INCLUSIF (version EQUIPE).
+                    l'IDENTITE des deux rayons effectifs (les deux comparateurs sont INCLUSIFS).
   etape A  LIVE     l'etage DISTANCE + TRAIT, mesure par `abilityTargets` sur `EntropyCannons`
                     (1168, MoW `deathCrawler`) : son `GetDynamicInvalidTargetReason` rend 0 SSI
                     `IsInTeamContagionsOfNurgleAura(target, caster)` OU `HasNegativeModifier(target,
@@ -14,9 +14,11 @@ Ce que le probe MESURE, etage par etage (jamais un scalaire fitte) :
                     SEUIL de distance. 0-2 -> 1 ; 3-4 -> 2 ; 5+ -> 3.
 
 Les deux versions du predicat partagent EXACTEMENT l'etage de portee (`entities/effects/aura.py` :
-`GetTrait` + `GetCurrentRange`) ; seul le comparateur final differe, et il est etabli par XREF du
-ctor `AmountIsGreaterAbilityTrigger` (cf. `entities/triggers.py::IsInUnitAura`). Confronter la
-version EQUIPE live valide donc l'etage commun ; le comparateur, lui, se lit au decompile.
+`GetTrait` + `GetCurrentRange`) ET le meme comparateur INCLUSIF -- la version UNITE instancie un
+`AmountIsEqualOrGreaterAbilityTrigger`, ce que le nom DEDUPLIQUE de son `.ctor` masquait (#293, cf.
+`entities/triggers.py::IsInUnitAura` et `probe_293_aura_predicate_comparator.py`). Confronter la
+version EQUIPE live valide donc l'etage commun ; le comparateur, lui, se lit au decompile -- sur le
+POINTEUR DE CLASSE, jamais sur le nom du ctor.
 
 Usage (depuis scripts/python) :
     python probe_224_contagions_aura_range.py --offline-only
@@ -138,11 +140,17 @@ def offline_guard() -> int:
             print("KO fork vs deathguard.contagions_of_nurgle_range n=", n); bad += 1
     print("etape 0 table:", [aura_range_on_owner_turn(n) for n in range(0, 8)],
           "(TurnsStarted 0..7)")
-    # (d) STRICT vs INCLUSIF -- les deux comparateurs natifs, cote a cote.
-    print("etape 0 comparateurs : version UNITE (AmountIsGreater) = dist < range"
-          " -> rayon effectif", [aura_range_on_owner_turn(n) - 1 for n in range(0, 8)])
-    print("                      version EQUIPE (GetInRangeAuraAmount) = dist <= range"
-          " -> rayon effectif", [aura_range_on_owner_turn(n) for n in range(0, 8)])
+    # (d) Les deux comparateurs natifs, cote a cote : ils sont INCLUSIFS TOUS LES DEUX (#293 -- la
+    # version UNITE instancie un `AmountIsEqualOrGreaterAbilityTrigger`, malgre le nom DEDUPLIQUE de
+    # son `.ctor`). Meme rayon effectif des deux cotes : c'est un INVARIANT, on l'imprime comme tel.
+    unite = [aura_range_on_owner_turn(n) for n in range(0, 8)]
+    equipe = [aura_range_on_owner_turn(n) for n in range(0, 8)]
+    print("etape 0 comparateurs : version UNITE (AmountIsEqualOrGreater) = dist <= range"
+          " -> rayon effectif", unite)
+    print("                      version EQUIPE (GetInRangeAuraAmount)  = dist <= range"
+          " -> rayon effectif", equipe)
+    if unite != equipe:
+        print("KO : les deux rayons effectifs ont diverge -- cf. #293"); bad += 1
     print("etape 0:", "OK" if bad == 0 else f"{bad} ECARTS")
     return bad
 
@@ -161,7 +169,8 @@ def _load(rid, board_tiles):
 
 def _port_verdicts(state, mow_id, carrier_id, enemy_id):
     """Verdicts du PORT sur la MEME scene : version EQUIPE (le predicat que le natif expose par
-    `abilityTargets`) ET version UNITE (le predicat de case-224, STRICT)."""
+    `abilityTargets`) ET version UNITE (le predicat de case-224). Les deux sont INCLUSIFS (#293),
+    donc ils doivent s'accorder sur toute scene ou le TRAIT du porteur est le meme."""
     from engine.runner.abilities.behaviours import entities_from_state
     from engine.runner.abilities.deathguard import is_in_contagions_of_nurgle_range
     from engine.entities.triggers import IsInTeamAura
@@ -251,8 +260,12 @@ def scenario(args) -> int:
             flag = "OK " if native == team else "KO "
             if native != team:
                 bad += 1
+            # Les deux predicats etant INCLUSIFS (#293) et ce montage n'ayant qu'UN porteur d'aura,
+            # `unit` doit EGALER `team` : un ecart signale une divergence d'etage, pas un choix de
+            # comparateur. On l'affiche explicitement plutot que de le laisser passer.
             print(f"{flag}d={got} TurnsStarted={ts} | natif(equipe)={native} port(equipe)={team}"
-                  f" | port(UNITE,strict)={unit}")
+                  f" | port(UNITE,inclusif)={unit}"
+                  + ("" if unit == team else "  <-- UNITE != EQUIPE (inattendu, cf. #293)"))
         print("etape A:", "OK" if bad == 0 else f"{bad} DESACCORDS", "| lignes", len(rows))
         # etape C -- le gate TRAIT : le porteur loin, on ramene le NON-porteur au contact.
         _d, ob, snap, state = _load(rid, tiles)

@@ -52,7 +52,9 @@ ci-dessus rend ce trigger cohérent avec Lakrimae.
 // IdunBattleLogic.Entities.DSLTriggers$$IsInUnitContagionsOfNurgleAura(target, unit)
 var range = DSLFormulas.ContagionsOfNurgleRange(unit, unitSelectionType: 0, isNextTurn: false);
 var dist  = DSLFormulas.MinDistance(target, unit);
-return new AmountIsGreaterAbilityTrigger(amount: range, minAmount: dist);   // dist < range, STRICT
+// ⚠ la classe se lit sur le POINTEUR chargé avant `il2cpp_object_new`, PAS sur le nom du `.ctor`
+// (corps trivial dédupliqué, cf. §2.1) — c'est le même global que `DSLTriggers$$AmountIsEqualOrGreater`
+return new AmountIsEqualOrGreaterAbilityTrigger(amount: range, minAmount: dist);  // dist <= range
 ```
 
 ```csharp
@@ -79,33 +81,50 @@ formes natives. Le port n'en a **qu'une**, et le foyer existant
 `deathguard.contagions_of_nurgle_range` (mirror de `$$CalculateRange(unit)`, SpawnPoxwalkers) lui
 reste value-identique.
 
-### 2.1 Deux comparateurs voisins — ⚠ SECTION RÉFUTÉE PAR LA MESURE (2026-07-30)
+### 2.1 Les deux comparateurs sont INCLUSIFS — même rayon effectif
 
-> **RENVERSEMENT — lire `case-224-cursed-plague-bell-attack.md` §3.2.** Ce qui suit était la lecture
-> littérale du comparateur, et elle n'a **jamais été confrontée au natif** : à l'époque, le prédicat
-> par UNITÉ n'avait **aucun consommateur moteur** (§5 le disait explicitement), donc le « rayon
-> effectif = range − 1 » n'était verrouillé que **contre le port lui-même**.
->
-> Depuis que `CursedPlagueBellAttackAbility` (1071) est portée, il est confrontable — et il a été
-> mesuré : le **seuil natif vaut `GetCurrentRange(TurnsStarted)` EXACTEMENT**, à deux paliers
-> (range 2 → la cloche part à d=1 **et d=2**, pas à d=3 ; range 3 → d=2 **et d=3**, pas à d=4),
-> attribution par le tag natif `Passive_Ability_Type = 1071`. **Les deux versions ont donc le MÊME
-> rayon effectif.** Le tableau ci-dessous est conservé comme trace de la lecture, pas comme vérité.
-
-| prédicat natif | comparateur LU | rayon effectif LU (réfuté) | rayon effectif MESURÉ |
+| prédicat natif | classe de condition réellement instanciée | comparateur | rayon effectif (`TurnsStarted` 1 / 3 / 5) |
 |---|---|---|---|
-| `IsInUnitContagionsOfNurgleAura` (par UNITÉ) | `dist < range` **STRICT** | ~~0 / 1 / 2~~ | **1 / 2 / 3** |
-| `BattleQuery$$GetInRangeAuraAmount` (par ÉQUIPE) | `dist <= range` **INCLUSIF** | 1 / 2 / 3 | 1 / 2 / 3 |
+| `IsInUnitContagionsOfNurgleAura` (par UNITÉ) | `AmountIsEqualOrGreaterAbilityTrigger` | `dist <= range` **INCLUSIF** | 1 / 2 / 3 |
+| `BattleQuery$$GetInRangeAuraAmount` (par ÉQUIPE) | — (boucle en dur) | `dist <= range` **INCLUSIF** | 1 / 2 / 3 |
 
-Le strict est établi par **XREF du ctor** : `IsInUnitContagionsOfNurgleAura` appelle l'overload
-`AmountIsGreaterAbilityTrigger$$.ctor(amount, minAmount)` (celui qui remplit `+0x18`/`+0x20`) — le
-**même** que `DSLTriggers$$AmountIsGreater`, et **pas** celui de `AmountIsEqualOrGreater`. Et
-`...AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
-`return minAmount.Calculate(entities) < amount.Calculate(entities)`. **Cette lecture a été relue et
-elle tient** : l'écart d'une unité est donc ailleurs (étage distance ou étage portée), et **aucune
-mesure ne désigne lequel** — trois modèles restent observationnellement indiscernables, dont un
-réfuté indépendamment. Le port localise la correction sur le comparateur d'`IsInUnitAura` (le plus
-local) et l'écrit comme tel dans son docstring.
+`IsInUnitContagionsOfNurgleAura` charge, juste avant son `il2cpp_object_new`, **le même pointeur de
+classe** que `IdunBattleLogic.Entities.DSLTriggers$$AmountIsEqualOrGreater` — et pas celui de
+`IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater`. Or
+`IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` finit par
+`return minAmount.Calculate(entities) <= amount.Calculate(entities)`.
+
+> ⚠ **CE POINT A ÉTÉ LU FAUX DEUX FOIS, ET C'EST LE MÊME PIÈGE (#293).** Le `.ctor` appelé porte le
+> nom `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$.ctor`, dont le `ShouldTrigger`
+> est bien `<` STRICT. **Ce nom ne désigne pas la classe instanciée** : le ctor est un corps trivial
+> (`base..ctor` + `[this+0x18] = amount` + `[this+0x20] = minAmount`) que IL2CPP **déduplique** entre
+> toutes les conditions de même layout, et la table des symboles ne lui donne **qu'un** propriétaire.
+> Le même piège s'était présenté **dans l'autre sens** sur `MurderousSwing` (#108, ctor étiqueté
+> `AmountIsEqualOrGreater...` pour une classe `AmountIsGreater...`) et sur `UnitsDirectlyBehind`
+> (#48, résolu par le singleton de classe). **La seule ancre est le pointeur de classe**, jamais le
+> nom du ctor — et il change de propriétaire d'un build à l'autre.
+>
+> Re-dérivation mécanique, offline, sans runner :
+> `python scripts/python/probe_293_aura_predicate_comparator.py --inventory` — il lit le pointeur de
+> classe dans les octets de `GameAssembly.dll`, corrobore par l'encodage `setg`/`setge` des deux
+> `ShouldTrigger`, et rend l'inventaire des **22** sites d'instanciation par famille.
+
+Les deux autres modèles qui pouvaient expliquer l'écart d'une unité sont **réfutés étage par étage** :
+
+* `MinDistance` natif = `hexdist − 1` ? **Non.**
+  `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` accumule
+  `Math.Min(min, PositionComponent.Distance(b, a))` ;
+  `IdunBattle.Entities.Components.PositionComponent$$Distance` =
+  `IdunBattle.Utils.Hex.CubeCoordinate$$Distance(this.ToCube(), other.ToCube())` =
+  `Max(Max(|dx|, |dy|), |dz|)`. Aucun offset sur le chemin.
+* `GetCurrentRange` natif = table + 1 ? **Non.** `GetRangeOnOwnerTurn` est lu en entier (§2 ci-dessus)
+  et le port en est le mirror exact. Ce modèle était déjà réfuté indépendamment par le probe
+  d'ÉQUIPE — mais sur `EntropyCannons`, donc sur une **autre** définition d'effet ; il l'est
+  maintenant sur 1071 lui-même, par lecture.
+
+Confirmation live : `case-224-cursed-plague-bell-attack.md` §3.2 — seuil natif =
+`GetCurrentRange(TurnsStarted)` exactement, à deux paliers (range 2 → d=1 **et d=2**, pas d=3 ;
+range 3 → d=2 **et d=3**, pas d=4), attribution par le tag natif `Passive_Ability_Type = 1071`.
 
 ---
 
@@ -115,7 +134,7 @@ local) et l'écrit comme tel dans son docstring.
 |---|---|
 | `engine/entities/effects/aura.py` (**neuf**) | registre `IAuraEffect` : `aura_trait` / `aura_max_range` / `aura_range_on_owner_turn` / `aura_current_range` / `aura_next_turn_range` / `is_aura_effect`. C'est l'étage de portée **partagé** par les deux consommateurs. |
 | `engine/entities/formulas.py` | `MinDistance` (mirror `MinDistanceFormula$$Calculate`, `int.MaxValue` sur enumération vide) ; `AuraEffectRange` (mirror `AuraEffectRangeFormula$$Calculate`) |
-| `engine/entities/triggers.py` | `IsInUnitAura` = `AmountIsGreater(AuraEffectRange, MinDistance)` ; docstring de `IsInTeamAura` remise à l'état final (le résidu est levé) |
+| `engine/entities/triggers.py` | `IsInUnitAura` = `AmountIsEqualOrGreater(AuraEffectRange, MinDistance)` ; docstring de `IsInTeamAura` remise à l'état final (le résidu est levé) |
 | `engine/runner/abilities/deathguard.py` | `is_in_contagions_of_nurgle_range()` = `IsInUnitAura(Actor(), 1071, Caster())` + le bloc RE de `CreateTrigger` |
 | `engine/battle_query.py` | `get_in_range_aura_amount` / `is_in_team_aura_range` (mirror complet des deux slots `IBattleQuery`) |
 | `engine/runner/abilities/behaviours/context.py` | câblage `ctx.is_in_team_aura` |
@@ -194,13 +213,13 @@ mutation du comparateur (vérifié).
 
 ## 5. Ce que ce cas n'établit PAS
 
-* **Le comparateur STRICT de la version par UNITÉ n'est pas mesuré live** : son seul consommateur
-  natif est le `CreateTrigger` de `CursedPlagueBellAttackAbility`, non porté, et aucun hook existant
-  n'expose le verdict de ce trigger. Il est établi par XREF du ctor + décompilé de `ShouldTrigger`,
-  et l'étage de portée qu'il partage avec la version d'équipe est, lui, mesuré en trois régimes.
-  Le jour où 1071 entre au registre des *triggered*, l'observable est direct : une attaque Psychic
-  d'un Psyker ennemi adjacent au porteur **ne doit pas** déclencher la cloche tant que
-  `TurnsStarted(owner) <= 2`.
+* ~~**Le comparateur de la version par UNITÉ n'est pas mesuré live**~~ — **CLOS**. Porter
+  `CursedPlagueBellAttackAbility` (1071) lui a donné son premier consommateur MOTEUR, donc son
+  premier montage confrontable (`case-224-cursed-plague-bell-attack.md` §3.2 : seuil natif =
+  `GetCurrentRange(TurnsStarted)` exactement, deux paliers), et #293 a **attribué** l'écart d'une
+  unité au COMPARATEUR par lecture du pointeur de classe (§2.1). Le prédicat est INCLUSIF, comme
+  celui de la version d'équipe. Garde re-dérivable :
+  `python scripts/python/probe_293_aura_predicate_comparator.py`.
 * **`GetNextTurnRange` / `isNextTurn=true`** : porté (mirror), jamais exercé. Ses consommateurs sont
   `CursedPlagueBellMovementAbility$$GetTargetsSelector` (paramètre `isDangerZone`) et
   `CursedPlagueBell_DangerZoneEffect`, hors périmètre.

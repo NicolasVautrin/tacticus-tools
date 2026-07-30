@@ -336,10 +336,13 @@ def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
 # le port le construit comme un arbre, il ne recable rien a la main.
 #
 # `IdunBattleLogic.Entities.DSLTriggers$$IsInUnitContagionsOfNurgleAura(target, unit)` =
-#     AmountIsGreater( ContagionsOfNurgleRange(unit, unitSelectionType=0, isNextTurn=false),
-#                      MinDistance(target, unit) )                       # STRICT : dist < range
-# -> `entities/triggers.py::IsInUnitAura` (comparateur STRICT etabli par XREF du ctor, cf. son
-# docstring) au-dessus de `entities/formulas.py::AuraEffectRange` + `MinDistance`.
+#     AmountIsEqualOrGreater( ContagionsOfNurgleRange(unit, unitSelectionType=0, isNextTurn=false),
+#                             MinDistance(target, unit) )               # INCLUSIF : dist <= range
+# -> `entities/triggers.py::IsInUnitAura` au-dessus de `entities/formulas.py::AuraEffectRange` +
+# `MinDistance`. ⚠ Le comparateur ne se lit PAS sur le NOM du `.ctor` (`AmountIsGreater...` : corps
+# TRIVIAL DEDUPLIQUE par IL2CPP, un seul proprietaire dans la table) mais sur le POINTEUR DE CLASSE
+# charge juste avant `il2cpp_object_new` -- c'est celui d'`AmountIsEqualOrGreaterAbilityTrigger`
+# (#293 ; re-derivation : `python scripts/python/probe_293_aura_predicate_comparator.py`).
 #
 # SUR QUOI PORTE LA « RANGE » (la question qui change la forme du port) : sur l'UNITE `Owner@0x30`,
 # c'est-a-dire le porteur de la cloche. Pas une entite-effet posee, pas un ensemble de tuiles.
@@ -360,11 +363,11 @@ def is_in_contagions_of_nurgle_range() -> IsInUnitAura:
     `entities/selectors/accessors.py::OwnerTile` et `triggers.OwnerIsTarget`). `Actor@0x40` = l'ACTEUR
     de l'evenement declencheur = `Actor()` (`ctx.actor`).
 
-    Verdict de portee (STRICT `dist < range`) : un attaquant ADJACENT (dist 1) n'est PAS dans l'aura
-    tant que `TurnsStarted(owner) <= 2` (range 1), l'est a partir du 3e tour de l'owner (range 2).
-    Ce n'est pas une coquille de lecture -- c'est le comparateur du ctor `AmountIsGreater`, et il
-    DIFFERE de l'inclusif `BattleQuery$$GetInRangeAuraAmount` de la version d'EQUIPE (cf.
-    `battle_query.get_in_range_aura_amount`). Les deux etages de portee, eux, sont le MEME code.
+    Verdict de portee (INCLUSIF `dist <= range`) : un attaquant ADJACENT (dist 1) est DEJA dans
+    l'aura des `TurnsStarted(owner) <= 2` (range 1). Le rayon effectif est le MEME que celui de la
+    version d'EQUIPE (`BattleQuery$$GetInRangeAuraAmount`, cf.
+    `battle_query.get_in_range_aura_amount`) -- les deux etages de portee sont deja le MEME code,
+    et les deux comparateurs sont inclusifs (#293).
 
     L'ability 1071 elle-meme (`CreateBehaviour` : `AttackWithAttackDamage` Psychic) est portee par
     `runner/operations/triggers/loki/cursed_plague_bell.CursedPlagueBellAttackAbility` (case-224

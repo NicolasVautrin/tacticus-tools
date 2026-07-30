@@ -155,14 +155,13 @@ def get_in_range_aura_amount(effect_type, team, target, units, has_trait, get_tu
     Le comparateur est **INCLUSIF** (`continue` seulement quand `r < d`, donc on compte des que
     `d <= r`).
 
-    ⚠ **Cette docstring affirmait que le predicat par-UNITE `triggers.IsInUnitAura` etait STRICT,
-    « a la difference » de celui-ci. C'est PERIME depuis le 2026-07-30 (#224, PR #299)** : la face
-    COMBAT de `CursedPlagueBell` (1071) a enfin donne un consommateur MOTEUR au predicat par-unite,
-    et la mesure live montre un seuil natif egal a `GetCurrentRange` EXACTEMENT -- donc INCLUSIF
-    lui aussi. Les deux versions ont le MEME rayon effectif. Ne pas re-introduire la distinction
-    sur la foi du decompile du comparateur (qui, lui, lit bien `<` strict) : l'ecart d'une unite
-    n'est pas localise, cf. la docstring de `entities/triggers.py::IsInUnitAura`, qui garde les
-    deux faits cote a cote et les trois modeles indiscernables.
+    ⚠ Le predicat par-UNITE (`triggers.IsInUnitAura`) est INCLUSIF **lui aussi** : meme rayon
+    effectif, aucune distinction a re-introduire. Il construit un
+    `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger` (`minAmount <= amount`),
+    et non l'`AmountIsGreaterAbilityTrigger` que suggere le nom du `.ctor` visible au decompile --
+    ce ctor est un corps TRIVIAL DEDUPLIQUE par IL2CPP, dont la table ne nomme qu'un proprietaire
+    (#293). Re-derivation mecanique :
+    `python scripts/python/probe_293_aura_predicate_comparator.py --inventory`.
 
     Les deux partagent EXACTEMENT le meme etage de portee (`entities/effects/aura.py`
     -> `GetTrait` + `GetCurrentRange`), ce qui rend la version EQUIPE confrontable live (elle est

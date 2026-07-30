@@ -27,9 +27,15 @@ Le palier de rayon est pilote par `--advance N` (le seul levier qui fait monter
 ⚠ RESULTAT PRINCIPAL DE CE PROBE, et il RENVERSE une lecture : le SEUIL natif vaut EXACTEMENT
 `GetCurrentRange(TurnsStarted)`, mesure a DEUX paliers -- range 2 : la cloche part a d=1 et d=2, pas
 a d=3 ; range 3 : elle part a d=2 et d=3, pas a d=4. Le comparateur EFFECTIF est donc INCLUSIF, la
-ou `case-224-is-in-contagions-of-nurgle-range.md` §2.1 le disait STRICT (lecture litterale du ctor
-`AmountIsGreaterAbilityTrigger`, jamais confrontee au natif faute de consommateur porte). Detail de
-la tension decompile/mesure : docstring d'`engine/entities/triggers.py::IsInUnitAura`.
+ou `case-224-is-in-contagions-of-nurgle-range.md` §2.1 le disait STRICT.
+
+L'ATTRIBUTION de cet ecart d'une unite est desormais ETABLIE PAR LECTURE (#293) : la lecture
+« STRICT » venait du NOM du `.ctor` (`AmountIsGreaterAbilityTrigger$$.ctor`), un corps trivial
+DEDUPLIQUE par IL2CPP ; la classe reellement instanciee par `IsInUnitContagionsOfNurgleAura` est
+`AmountIsEqualOrGreaterAbilityTrigger` (`minAmount <= amount`). Les deux autres modeles
+(`MinDistance` = hexdist-1, `GetCurrentRange` = table+1) sont refutes etage par etage. Ce probe
+CONFIRME donc en live une lecture qui tient toute seule au decompile -- il ne la porte plus a lui
+seul. Re-derivation offline : `python probe_293_aura_predicate_comparator.py --inventory`.
 
 L'ATTRIBUTION est le tag natif `Passive_Ability_Type = 1071` appose sur l'evenement de degat -- pas
 un delta de PV, qui est CONTAMINE (overwatch et contre-attaques frappent le meme attaquant : mesure,
@@ -175,10 +181,10 @@ def offline_guard() -> int:
           f"| TriggeredAbilityType={trig}")
     if coll is None or coll == trig:
         print("KO: la collision d'espace n'est plus verifiee -> re-examiner le non-threading"); bad += 1
-    # Rayon EFFECTIF du predicat par UNITE. MESURE (etape A, 2 paliers) : il vaut `GetCurrentRange`
-    # EXACTEMENT -- le meme que la version d'EQUIPE, et non `range - 1` comme le laissait croire la
-    # lecture STRICTE du comparateur (cf. le docstring d'`IsInUnitAura`).
-    print("etape 0 rayon effectif (INCLUSIF, mesure) (TurnsStarted 0..7) :",
+    # Rayon EFFECTIF du predicat par UNITE : il vaut `GetCurrentRange` EXACTEMENT -- le meme que la
+    # version d'EQUIPE, et non `range - 1`. Comparateur INCLUSIF, LU au decompile (#293) et confirme
+    # par l'etape A a deux paliers (cf. le docstring d'`IsInUnitAura`).
+    print("etape 0 rayon effectif (INCLUSIF) (TurnsStarted 0..7) :",
           [aura_range_on_owner_turn(n) for n in range(8)])
     print("etape 0:", "OK" if bad == 0 else f"{bad} ECARTS")
     return bad
@@ -541,9 +547,10 @@ def _apply_mutation(kind: str):
         _MUT_SAVE["range1"] = AU.aura_range_on_owner_turn
         AU.aura_range_on_owner_turn = lambda n: 1
     elif kind == "strict":
-        # LA contre-epreuve du renversement de case-224 item 5 : on REMET le comparateur STRICT
-        # (`dist < range`, la lecture litterale du decompile). Signature attendue : rouge
-        # EXACTEMENT sur les cas ou `d == range`, vert partout ailleurs.
+        # LA contre-epreuve du renversement de case-224 item 5 : on remplace le comparateur par
+        # celui de l'AUTRE classe (`AmountIsGreaterAbilityTrigger`, `dist < range`) -- c'est la
+        # lecture que le nom DEDUPLIQUE du `.ctor` suggerait a tort (#293). Signature attendue :
+        # rouge EXACTEMENT sur les cas ou `d == range`, vert partout ailleurs.
         _MUT_SAVE["strict"] = TR.IsInUnitAura.should_trigger
         TR.IsInUnitAura.should_trigger = lambda self, ctx: (
             int(self.distance_formula.calculate(ctx)) < int(self.range_formula.calculate(ctx)))

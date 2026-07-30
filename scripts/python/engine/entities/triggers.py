@@ -568,10 +568,11 @@ class IsInTeamAura(AbilityTrigger):
     portee dans `entities/effects/aura.py`. Le noeud lit `ctx.is_in_team_aura(unit, effectType,
     teamRef)`, fourni par `runner/abilities/behaviours/context.entities_from_state`.
 
-    ⚠ Comparateur INCLUSIF (`d <= GetCurrentRange(porteur)`) -- a la difference de `IsInUnitAura`
-    ci-dessus, qui est STRICT. Mesure live (case-224, `abilityTargets` sur `EntropyCannons`) : a
+    ⚠ Comparateur INCLUSIF (`d <= GetCurrentRange(porteur)`) : la boucle native `continue` seulement
+    quand `range < dist`. Mesure live (case-224, `abilityTargets` sur `EntropyCannons`) : a
     `TurnsStarted(porteur)` = 1 / 3 / 5 le seuil natif vaut 1 / 2 / 3, et une mutation du `<=` en `<`
-    rougit exactement les tuiles a `d == range`.
+    rougit exactement les tuiles a `d == range`. Le predicat par UNITE (`IsInUnitAura` ci-dessous)
+    est INCLUSIF lui aussi : les deux versions ont le MEME rayon effectif (#293).
 
     Accesseur ABSENT (contexte hors runner, ex. prediction) -> **False** = degradation fidele."""
     def __init__(self, unit: AbilityTrigger, effect_type: int, team_reference: AbilityTrigger):
@@ -594,38 +595,47 @@ class IsInUnitAura(AbilityTrigger):
 
         range = DSLFormulas.ContagionsOfNurgleRange(unit, unitSelectionType=0, isNextTurn=false)
         dist  = DSLFormulas.MinDistance(target, unit)
-        return new AmountIsGreaterAbilityTrigger(amount: range, minAmount: dist)
+        return new AmountIsEqualOrGreaterAbilityTrigger(amount: range, minAmount: dist)
 
-    Le COMPORTEMENT porte est `dist <= range` -- **INCLUSIF**, comme la version d'EQUIPE. Ce n'est
-    pas la lecture d'origine, et le renversement est une MESURE ; les deux faits doivent rester
-    lisibles cote a cote :
+    `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` evalue
+    `+0x18` (amount) dans `iVar13`, `+0x20` (minAmount) dans `uVar15`, et finit par
+    `return uVar15 <= iVar13` -> **`dist <= range`, INCLUSIF**, exactement comme la version
+    d'EQUIPE (`IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`). Les deux versions ont
+    donc le MEME rayon effectif -- ce qui renverse `case-224-is-in-contagions-of-nurgle-range.md`
+    §2.1 (« UNITE == EQUIPE - 1 »), verrouille a l'epoque par un test qui ne comparait le port
+    QU'A LUI-MEME, faute de consommateur porte.
 
-    * **Ce que le decompile donne (relu, pas herite).** `IsInUnitContagionsOfNurgleAura` appelle
-      `AmountIsGreaterAbilityTrigger$$.ctor(this, amount = ContagionsOfNurgleRange(unit),
-      minAmount = MinDistance(target, unit))`, ctor qui ecrit `+0x18 = amount` et `+0x20 = minAmount` ;
-      `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` evalue `+0x18` dans `iVar13`, `+0x20` dans
-      `uVar15`, et finit par `return uVar15 < iVar13`. Litteralement : `dist < range`, STRICT.
-    * **Ce que la mesure live donne** (`probe_224_cursed_plague_bell_attack.py`, l'ability 1071 etant
-      desormais portee, ce predicat a enfin un consommateur MOTEUR confrontable) : le SEUIL natif
-      vaut EXACTEMENT `GetCurrentRange(TurnsStarted(porteur))`, a DEUX paliers --
-      `TurnsStarted = 3` (range 2) : la cloche part a d=1 et d=2, PAS a d=3 ;
-      `TurnsStarted = 5` (range 3) : elle part a d=2 et d=3, PAS a d=4.
-      Un comparateur strict rendrait les seuils 1 et 2. L'attribution est le tag natif
-      `Passive_Ability_Type = 1071` appose sur l'evenement de degat, pas une inference.
+    ⚠ **LE PIEGE, et c'est LUI qui a fait ecrire « STRICT » (#224 -> #299, tranche par #293).**
+    Le ctor visible au decompile porte le nom `IdunBattle.Entities.Conditions.
+    AmountIsGreaterAbilityTrigger$$.ctor`, et le `ShouldTrigger` de CETTE classe-la finit bien par
+    `return uVar15 < iVar13`, STRICT. **Ce nom ne designe PAS la classe instanciee.** Ce ctor est un
+    corps TRIVIAL (`base..ctor` + `[this+0x18] = amount` + `[this+0x20] = minAmount`) que IL2CPP
+    DEDUPLIQUE entre toutes les conditions de meme layout ; la table des symboles ne lui donne qu'UN
+    proprietaire, et c'est `AmountIsGreater...`. La classe REELLEMENT allouee est celle dont le
+    pointeur est charge juste avant `il2cpp_object_new` -- et c'est le MEME global que celui de
+    `IdunBattleLogic.Entities.DSLTriggers$$AmountIsEqualOrGreater`, pas celui de
+    `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater`.
+    **Ne jamais re-deriver un comparateur du NOM de son `.ctor`.** Re-derivation mecanique (pointeur
+    de classe lu dans les octets + encodage `setg` vs `setge`, et l'inventaire des 22 sites
+    d'instanciation) : `python scripts/python/probe_293_aura_predicate_comparator.py --inventory`.
 
-    Les deux ne se concilient qu'en admettant qu'un des ETAGES vaut une unite de moins/plus que ce
-    que le port en calcule. **Trois modeles sont observationnellement INDISCERNABLES** : comparateur
-    inclusif · `MinDistance` natif = `hexdist - 1` · `GetCurrentRange` natif = table + 1. Le
-    troisieme est REFUTE independamment (le probe d'EQUIPE de case-224 mesure un seuil egal a la
-    table, donc `GetCurrentRange` natif == la table portee) ; les deux premiers restent equivalents
-    partout. Le port retient la forme la plus LOCALE (le comparateur), parce que `MinDistance` a
-    d'autres consommateurs et qu'aucune mesure ne designe l'etage fautif.
+    Les deux autres modeles qui expliquaient l'ecart d'une unite sont REFUTES, chacun par lecture
+    de son ETAGE (pas par un fit) :
 
-    ⚠ CONSEQUENCE, et elle renverse `case-224-is-in-contagions-of-nurgle-range.md` §2.1 : le rayon
-    EFFECTIF de la version UNITE est le MEME que celui de la version EQUIPE
-    (`BattleQuery$$GetInRangeAuraAmount`), pas `range - 1`. La relation « UNITE == EQUIPE - 1 » etait
-    verrouillee par un test qui ne comparait le port QU'A LUI-MEME : aucun montage n'exercait alors
-    le predicat par unite contre le natif, faute de consommateur porte.
+    * `MinDistance` natif = `hexdist - 1` ? NON. `IdunBattle.Entities.Formulas.MinDistanceFormula$$
+      Calculate` accumule `Math.Min(min, PositionComponent.Distance(b, a))` ;
+      `IdunBattle.Entities.Components.PositionComponent$$Distance` =
+      `IdunBattle.Utils.Hex.CubeCoordinate$$Distance(this.ToCube(), other.ToCube())` =
+      `Max(|dx|, |dy|, |dz|)`. Aucun offset sur tout le chemin.
+    * `GetCurrentRange` natif = table + 1 ? NON. `IdunBattle.Entities.Effects.Loki.
+      ContagionsOfNurgle_ArmorReduction_Effect$$GetRangeOnOwnerTurn(numRounds)` est un arbre
+      `ConditionalAmount` lu en entier -- `Not(AmountIsGreater(numRounds, Direct(2))) ? Direct(1)
+      : (Not(AmountIsGreater(numRounds, Direct(4))) ? Direct(2) : Direct(3))`, soit `<=2 -> 1`,
+      `<=4 -> 2`, sinon `3` : exactement `effects/aura.aura_range_on_owner_turn`.
+
+    Confirmation live (`probe_224_cursed_plague_bell_attack.py`, deux paliers, attribution par le
+    tag natif `Passive_Ability_Type = 1071`) : `TurnsStarted = 3` (range 2) -> la cloche part a d=1
+    et d=2, PAS a d=3 ; `TurnsStarted = 5` (range 3) -> a d=2 et d=3, PAS a d=4.
 
     Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$
     IsInContagionsOfNurgleRange` (cf. `runner/abilities/deathguard.is_in_contagions_of_nurgle_range`).
@@ -639,9 +649,10 @@ class IsInUnitAura(AbilityTrigger):
         self.distance_formula = MinDistance(target, unit)
 
     def should_trigger(self, ctx):
-        # INCLUSIF -- cf. le docstring : le decompile du comparateur dit STRICT, la mesure live dit
-        # que le seuil vaut `GetCurrentRange` exactement, et l'ecart d'une unite n'est pas
-        # localisable (comparateur vs etage distance). C'est le COMPORTEMENT qui est porte.
+        # INCLUSIF -- mirror de `AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger`
+        # (`return minAmount <= amount`), la classe REELLEMENT instanciee par
+        # `IdunBattleLogic.Entities.DSLTriggers$$IsInUnitContagionsOfNurgleAura` ; le nom du `.ctor`
+        # (deduplique sur `AmountIsGreater...`) ne dit rien de la classe -- cf. le docstring.
         return int(self.distance_formula.calculate(ctx)) <= int(self.range_formula.calculate(ctx))
 
 

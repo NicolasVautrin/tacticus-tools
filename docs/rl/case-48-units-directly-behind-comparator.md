@@ -29,6 +29,22 @@ le comparateur est instancie via `thunk_FUN_18021f8f0(DAT_1832482b0)`. Or :
 et les autres ctors `HasUsedActiveAbilityThisTurnTrigger___ctor` sont eux aussi des corps foldes
 mislabeles -- ne jamais se fier au nom, lire le singleton/la factory.)
 
+**Ce piege a RECIDIVE DEUX FOIS depuis, dont une fois dans l'AUTRE SENS** -- le proprietaire que la
+table donne au corps partage n'a rien de stable, il change de build en build :
+
+- `MurderousSwing` (**#108**) : ctor etiquete `AmountIsEqualOrGreater...`, classe reelle
+  `AmountIsGreater...` (meme sens qu'ici) ;
+- `IsInUnitContagionsOfNurgleAura` (**#293**, `case-224-is-in-contagions-of-nurgle-range.md` §2.1) :
+  ctor etiquete **`AmountIsGreater...`**, classe reelle **`AmountIsEqualOrGreater...`**. Le sens
+  inverse, donc, et il a coute un aller-retour complet (une lecture STRICT publiee, puis renversee
+  par une mesure live sans que l'etage fautif soit localise).
+
+⇒ le controle est desormais MECANISABLE et re-derivable, sans ghidra :
+`python scripts/python/probe_293_aura_predicate_comparator.py --inventory` lit le pointeur de classe
+directement dans les octets de `GameAssembly.dll` (operandes RIP-relatives), corrobore par l'encodage
+`setg` / `setge` des deux `ShouldTrigger`, et rend l'inventaire de **tous** les sites d'instanciation
+par famille (STRICT / INCLUSIF). A passer avant de conclure sur un comparateur de cette famille.
+
 ## Preuve du comparateur `>` (ShouldTrigger des deux classes soeurs)
 
 - `AmountIsGreaterAbilityTrigger$$ShouldTrigger @180ee11f0`
