@@ -39,6 +39,7 @@ import probe_r34_overkill_decision as DEC
 import probe_195_prevent_overkill_decision as PVO
 import probe_o5_unit_flags as O5
 import probe_294_trigger_ability_channels as TAC
+import probe_301_kill_unit_trigger_channels as KUC
 
 
 @pytest.fixture
@@ -253,6 +254,33 @@ def trigger_ability_channel_case():
         assert mutate in (None,) + TAC.MUTATIONS, \
             f"mutation inconnue : {mutate} (connues : {sorted(TAC.MUTATIONS)})"
         return TAC.run(mutate=mutate, verbose=False)
+    return _case
+
+
+# ── #301 — les memes DEUX canaux, mais sur le vecteur MORT (`KillUnitOperation$$Execute`) ─────────
+
+@pytest.fixture
+def kill_unit_trigger_channel_case():
+    """Fabrique : `kill_unit_trigger_channel_case()` -> le montage NOMINAL (qui exerce le
+    `_verify_deaths` DU DEPOT), `(mutate="legacy")` -> une contre-epreuve. Rend le dict de trace de
+    `probe_301_kill_unit_trigger_channels.run()`.
+
+    MONTAGE NOMME de l'AUTRE ecrivain de `+0x98` : `IdunBattle.Operations.KillUnitOperation$$Execute`
+    memset son `AbilityEntities` puis n'y reecrit QUE le bloc `+0x98..+0xb4` (copie de
+    `KillUnitOptions+0x04` = le `killTrigger` de la file), et publie CETTE struct sur ses cinq
+    evenements -- donc `CurrentAbility` (`+0x60`) est VIDE sur tout le vecteur mort.
+
+    Le mode NOMINAL passe `real=True` : aucun drain de substitution, c'est le code du depot qui est
+    sous test. C'est ce mode qui a donne son ROUGE au fix (avant #301 : `+0x60 = killTrigger`,
+    `+0x98` vide -- l'inverse exact du natif).
+
+    Quatre contre-epreuves (`probe_301_kill_unit_trigger_channels.MUTATIONS`), chacune avec sa
+    signature propre : `legacy` (l'etat d'avant #301), `both` (les deux canaux alimentes),
+    `nowipe` (`+0x60` non efface -> l'ambiant fuit dans la mort), `persist` (pas de restauration)."""
+    def _case(mutate: str = None) -> dict:
+        assert mutate in (None,) + KUC.MUTATIONS, \
+            f"mutation inconnue : {mutate} (connues : {sorted(KUC.MUTATIONS)})"
+        return KUC.run(mutate=mutate, verbose=False, real=mutate is None)
     return _case
 
 

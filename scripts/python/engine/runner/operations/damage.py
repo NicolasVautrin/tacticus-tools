@@ -351,10 +351,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
 
         Le 3e argument, `killTrigger`, est LU DANS le `KillUnitContext` a CET instant
         (`RecordKillOperation$$Execute` le recopie tel quel dans l'appel) : c'est lui que
-        `IdunBattle.Operations.KillUnitOperation$$Execute` rejoue ensuite dans l'`AbilityEntities+0x138`
-        des evenements de mort, donc lui que comparent `IdunBattleLogic.Entities.DSLFactory$$
-        TriggeringAbilityIs` / `$$TriggeringEffectIs`. Cote port ce canal est
-        `state.triggering_ability` : on le CAPTURE ici et `_verify_deaths` le REPOSE le temps du drain.
+        `IdunBattle.Operations.KillUnitOperation$$Execute` rejoue ensuite dans le champ
+        `TriggeringAbility` (`AbilityEntities+0x98`) des evenements de mort, donc lui que comparent
+        `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` / `$$TriggeringEffectIs`.
+        Cote port on le CAPTURE ici depuis `state.triggering_ability` (le canal `+0x60` AMBIANT --
+        approximation deja nommee par `case-292` : le natif lit le `KillUnitContext`, pas
+        `CurrentAbility`, et les deux coincident dans tous les regimes portes), et `_verify_deaths`
+        le REPOSE sur `state.trigger_ability_type` (le canal `+0x98`) le temps du drain -- **pas** sur
+        `state.triggering_ability`, que `KillUnitOperation` laisse VIDE (#301).
         Sans cette capture, une mort causee DANS le behaviour d'une triggered-ability (le report
         `HazeOfCorruption` 1077) serait drainee hors de ce behaviour et perdrait son declencheur --
         c'est-a-dire exactement le gate anti-chaine que case-haze-bonded a etabli.
@@ -388,21 +392,56 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         feuille : le 2e relais ne recevait qu'UN report au lieu de quatre (mesure seed 777 / PV 1200,
         board MC1_67 : natif 14 `genrand_int32`, port 12).
 
-        `state.triggering_ability` est REPOSE a la valeur capturee par `_add_death` le temps de chaque
-        `KillUnitOperation` (mirror du `killTrigger` porte par l'entree de file), puis restaure."""
+        LES DEUX CANAUX `AbilityEntities`, ET UN SEUL PORTE LE `killTrigger` (#301). L'`AbilityEntities`
+        que `IdunBattle.Operations.KillUnitOperation$$Execute` publie sur ses CINQ evenements est bati
+        en deux temps, LUS au decompile :
+
+            1. memset(&entities, 0, 0x128)            -> **tous** les champs a ZERO, dont
+                                                         `CurrentAbility` (`+0x60`) et `ParentAbility`
+                                                         (`+0x7c`)
+            2. +0x00 = +0x08 = killer ; +0x10 = killed ; +0x38 = Tiles(killed) ; +0x48 = Tiles(killer)
+            3. **+0x98..+0xb4 = les 0x1c octets de `KillUnitOptions+0x04`** = `TriggeringAbility`
+
+        La struct n'est plus TOUCHEE ensuite : elle est recopiee telle quelle avant chacune des cinq
+        publications (`On(1)`, `On(2)`, `On(0)`, `On(54)`, `On(53)`). Donc, sur tout le vecteur MORT :
+
+            `CurrentAbility`   (`+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`)
+                               = **VIDE** -> tout `CurrentAbilityIs` y est FAUX cote natif ;
+            `TriggeringAbility`(`+0x98`, lu par `AbilityTypeSelector.TriggeringAbilitySelector$$Select`)
+                               = le `killTrigger` -> c'est LUI que comparent `TriggeringAbilityIs`,
+                               `TriggeringEffectIs` et `TriggeringAbilityIsNone`.
+
+        Chaine de la VALEUR, re-derivee de bout en bout : `IdunBattle.Core.MatchState$$AddDeath(this,
+        killer, killed, killTrigger, attackTrigger, AttackRangeType)` enqueue une entree dont les
+        octets `+0x08..+0x24` sont le `killTrigger` ; la lambda de drain
+        `IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0`
+        part de `IdunBattle.Operations.KillUnitOperationOptions$$ForDefault()` et n'ECRASE que
+        `options[0x04..0x20)` avec ce meme `killTrigger` ; `Core.Services.OperationProcessor$$KillUnit`
+        recopie les 0x48 octets d'options tels quels. => `+0x98` EST le `killTrigger` de la file.
+
+        Le port pose donc ici `state.trigger_ability_type` (le canal `+0x98`) et FORCE
+        `state.triggering_ability` (le canal `+0x60`) a `None` -- le mirror du memset. Il posait
+        auparavant le `killTrigger` sur `+0x60` et laissait `+0x98` vide : degradation PERMISSIVE
+        (un `CurrentAbilityIs` voyait une valeur la ou le natif n'en publie aucune) et gates
+        `Triggering*` alimentes par le mauvais canal. Les deux sont restaures en sortie de drain."""
         if state.draining_deaths:
             return []
         state.draining_deaths = True
-        saved_trigger = state.triggering_ability
+        saved_current = state.triggering_ability
+        saved_trigger = state.trigger_ability_type
         out: list = []
         try:
             while state.pending_deaths:
                 dying_id, killer_id, overkill, kill_trigger = state.pending_deaths.pop(0)
-                state.triggering_ability = kill_trigger
+                # mirror du memset 0x128 : `CurrentAbility` (+0x60) est VIDE sur les cinq evenements.
+                state.triggering_ability = None
+                # `+0x98..+0xb4 = KillUnitOptions+0x04` = le `killTrigger` porte par l'entree de file.
+                state.trigger_ability_type = kill_trigger
                 out = out + (AttackDamageOperation._kill_unit_operation(
                     state, dying_id, killer_id, overkill) or [])
         finally:
-            state.triggering_ability = saved_trigger
+            state.triggering_ability = saved_current
+            state.trigger_ability_type = saved_trigger
             state.draining_deaths = False
         return out
 

@@ -132,11 +132,16 @@ class State:
         # None = hors triggered-ability (attaque normale, active castee) -> aucun gate de kind ne fire.
         # PORTEE PARTIELLE ASSUMEE : seules les classes qui declarent `TRIGGERED_ABILITY_ID` alimentent
         # ce champ ; les autres le laissent a None (degradation permissive sur un `NOT CurrentAbilityIs`,
-        # restrictive sur un gate positif). Les consommateurs `TriggeringAbilityIs` du port
-        # (`FuelledByFury` <- `FinalJustice`, `haze_of_corruption`) s'en servent par APPROXIMATION : sur
-        # le vecteur MORT le natif y lit le `killTrigger` du `KillUnitContext` recopie par
-        # `IdunBattle.Operations.RecordKillOperation$$Execute`, qui COINCIDE avec `CurrentAbility` dans
-        # tous les regimes portes. Detail + regimes examines : `docs/rl/case-292-current-vs-triggering-ability.md`.
+        # restrictive sur un gate positif).
+        # ⚠ CE CANAL EST VIDE PENDANT TOUT LE VECTEUR MORT (#301) : `IdunBattle.Operations.
+        # KillUnitOperation$$Execute` memset son `AbilityEntities` et n'y reecrit QUE `+0x98`, donc
+        # `+0x60` reste a zero sur `On(0)/On(1)/On(2)/On(53)/On(54)`. `operations/damage.py::
+        # _verify_deaths` force donc `None` ici et pose le `killTrigger` sur `trigger_ability_type`.
+        # Le consommateur `FuelledByFury` (`TriggeringAbilityIs(0x400)`) est sur `On(3)`, emis AVANT
+        # le drain par `IdunBattle.Operations.RecordKillOperation$$Execute` via la voie universelle
+        # `Core.Services.OperationProcessor$$EvaluateAbilities`, qui ecrit `+0x60` ET `+0x98` avec LA
+        # MEME ability -> lire l'un ou l'autre y est equivalent (residu nomme, sans consequence).
+        # Detail + regimes examines : `docs/rl/case-292-current-vs-triggering-ability.md`.
         # ⚠ LE CHAMP `TriggeringAbility` (+0x98) EXISTE MAINTENANT COTE PORT : c'est
         # `self.trigger_ability_type`, juste en dessous. Une ability qui porte un noeud
         # `TriggeringAbilityIs` / `TriggeringEffectIs` / `TriggeringAbilityIsNone` sur un
@@ -161,12 +166,21 @@ class State:
         # D'ou le nom de CE canal : `trigger_ability_type`, celui du getter natif -- deliberement
         # DISSEMBLABLE de `triggering_ability` (le canal +0x60, dont le nom Python est historique).
         #
-        # SEMANTIQUE PROPRE : ecrit APRES `execute_behaviour`, il ne couvre QUE l'emission
-        # d'`On(0xd = EventTriggerType.UnitTriggeredAbility)` qui suit immediatement. Il n'est donc
-        # PAS herite par ce que le behaviour engendre -- c'est exactement ce qui le separe de
-        # `CurrentAbility`. Pendant le behaviour d'une triggered B declenchee par cet `On(0xd)` :
+        # SEMANTIQUE PROPRE (ecrivain 4) : ecrit APRES `execute_behaviour`, il ne couvre QUE
+        # l'emission d'`On(0xd = EventTriggerType.UnitTriggeredAbility)` qui suit immediatement. Il
+        # n'est donc PAS herite par ce que le behaviour engendre -- c'est exactement ce qui le separe
+        # de `CurrentAbility`. Pendant le behaviour d'une triggered B declenchee par cet `On(0xd)` :
         # `+0x60` vaut B (B vient de l'y ecrire) et `+0x98` vaut A (la triggered qui a publie) ->
         # DEUX valeurs NON NULLES DIFFERENTES. Montage : `probe_294_trigger_ability_channels.py`.
+        #
+        # SECONDE SEMANTIQUE, DEPUIS #301 (ecrivain 2) : le VECTEUR MORT. `IdunBattle.Operations.
+        # KillUnitOperation$$Execute` construit son `AbilityEntities` par un memset de 0x128 puis
+        # n'y reecrit QUE `+0x00/+0x08` (killer), `+0x10` (killed), `+0x38/+0x48` (tuiles) et le bloc
+        # `+0x98..+0xb4` copie de `KillUnitOptions+0x04` -- et publie CETTE MEME struct, non remodifiee,
+        # sur `On(1)`, `On(2)`, `On(0)`, `On(54)` puis `On(53)`. Ce canal y porte donc le `killTrigger`
+        # de la file de morts pendant tout le drain (`operations/damage.py::_verify_deaths`), et
+        # `triggering_ability` (`+0x60`) y est VIDE. Montage :
+        # `probe_301_kill_unit_trigger_channels.py`.
         #
         # ⚠⚠ COUVERTURE DU CANAL -- A LIRE AVANT DE S'EN SERVIR. Le natif a QUATRE ecrivains de
         # `+0x98`, et le port n'en modelise QU'UN (le 4e). Les trois autres sont des RESIDUS NOMMES,
@@ -180,8 +194,9 @@ class State:
         #      NON MODELISE -- sans consequence tant que les deux valent la meme chose.
         #   2. `IdunBattle.Operations.KillUnitOperation$$Execute` -- ecrit `+0x98` DIRECTEMENT
         #      (`KillUnitOptions+0x04`) et laisse `+0x60` a ZERO, pour `On(0)/On(1)/On(2)/On(53)/On(54)`.
-        #      NON MODELISE, et c'est une DIVERGENCE reelle : sur ces evenements le port pose
-        #      `triggering_ability` (+0x60) la ou le natif ne pose que `+0x98`.
+        #      **PORTE DEPUIS #301** : `operations/damage.py::_verify_deaths` pose le `killTrigger` de
+        #      la file ICI et force `triggering_ability` (+0x60) a `None` le temps du drain. Le port
+        #      faisait l'inverse (valeur sur `+0x60`, `+0x98` vide) -- divergence PERMISSIVE fermee.
         #   3. `IdunBattle.Operations.AddEffectOperation$$Execute` -- `+0x60` = `+0x98` =
         #      `AbilityOrEffect(effectType)`, pour `On(61)/On(62)/On(70)`. NON MODELISE.
         #      (Symetrique NEGATIF, contre-intuitif : `IdunBattle.Operations.RemoveEffectOperation$$Execute`
@@ -190,11 +205,14 @@ class State:
         #   4. `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` -- LE SEUL PORTE ICI.
         #
         # => Un futur noeud `TriggeringAbilityIs` / `TriggeringEffectIs` sur un evenement AUTRE que
-        # `On(0xd)` ne doit PAS se contenter de lire ce canal : il faut d'abord porter l'ecrivain
-        # correspondant. Sur `On(0xd)`, ce canal est exact.
+        # `On(0xd)` et que les cinq de la mort ne doit PAS se contenter de lire ce canal : il faut
+        # d'abord porter l'ecrivain correspondant (1 ou 3). Sur `On(0xd)` et sur le vecteur MORT, ce
+        # canal est exact.
         #
-        # Foyer UNIQUE de l'ecriture : `triggers/dispatch/core.py::evaluate_trigger_operation`,
-        # comme pour l'autre canal. None = hors de la fenetre `On(0xd)`.
+        # DEUX foyers d'ecriture, et deux seulement : `triggers/dispatch/core.py::
+        # _publish_unit_triggered_ability` (ecrivain 4, fenetre `On(0xd)`) et
+        # `operations/damage.py::_verify_deaths` (ecrivain 2, duree d'un `KillUnitOperation`).
+        # None = hors de ces deux fenetres.
         self.trigger_ability_type: Optional[int] = None
         # case-haze-ord -- la FILE DE MORTS du natif. `IdunBattle.Operations.RecordKillOperation$$
         # Execute` n'applique PAS la mort : il pose `UnitFlag.PendingDeath (0xf)`, appelle
@@ -208,9 +226,11 @@ class State:
         #
         # Chaque entree porte le `killTrigger` LU DANS `KillUnitContext` au moment de l'enqueue
         # (`RecordKillOperation$$Execute` le recopie dans le `AddDeath`) : c'est lui que
-        # `KillUnitOperation` rejoue dans l'`AbilityEntities+0x138` des evenements de mort, donc lui que
-        # comparent `TriggeringAbilityIs` / `TriggeringEffectIs`. Cote port, le canal est
-        # `state.triggering_ability`, capture a l'enqueue et REPOSE le temps du drain.
+        # `KillUnitOperation` rejoue dans le champ `TriggeringAbility` (`AbilityEntities+0x98`) des
+        # evenements de mort, donc lui que comparent `TriggeringAbilityIs` / `TriggeringEffectIs`.
+        # Cote port il est CAPTURE a l'enqueue depuis `state.triggering_ability` (l'ambiant, cf.
+        # l'approximation nommee par case-292) et REPOSE sur `state.trigger_ability_type` le temps du
+        # drain -- jamais sur `state.triggering_ability`, que le natif laisse VIDE la (#301).
         self.pending_deaths: list = []
         # Re-entrance de `VerifyDeaths` : une mort ENQUEUEE pendant un drain (nova, riposte, report
         # `HazeOfCorruption`) est traitee par le tour de boucle suivant, jamais AU MILIEU du
