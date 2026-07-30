@@ -31,6 +31,78 @@ from engine.ai.action_generators import (
 NC_PRIORITY_TIERS = (1000, 100, 0, -100, -1000)
 
 
+def input_messages_from_unit_action(ctx, action: dict | None) -> dict:
+    """`IdunBattle.AI.ActionGenerators.InputBuilder$$GenerateInputMessagesFromUnitAction(action,
+    unit, currentPosition, options)` — mirror 1:1, réduit à la FORME d'action du port.
+
+    Corps natif (relu sur `rnca9r7q6c`) :
+
+        msgs = new List<IInputMessage>()
+        if (action != null) {
+            if (UnitPosition.op_Inequality(action.Position, null)
+                && !currentPosition.Equals(action.Position))
+                msgs.Add(MoveUnitMessage{ unitId, positions })
+            if (action.Target != null)
+                msgs.Add(ActiveAbilityMessage{ unitId, targetId, abilityType })
+        }
+        if (options[0] != 0) return msgs
+        if (msgs.Count != 0) return msgs
+        msgs.Add(FinishUnitTurnMessage{ unitId })
+        return msgs
+
+    ⚠ **Ce n'est PAS un gate de générateur, et l'analogie avec l'axe ABILITY est FAUSSE.**
+    `IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CGenerateActionsu003Ed__6$$MoveNext`
+    ne teste AUCUN flag d'unité — contrairement à
+    `...ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`, dont la première
+    instruction est `if (HasFlag(unit, 2)) return 0`. Ses seules sorties à zéro action sont
+    `UnitPosition.op_Equality(startPosition, null)`, `UnitPosition.IsEmpty(startPosition)` et
+    « le chooser d'utilité ne rend aucun `UtilityMovementCase` ». Or `positions` lui vient de
+    `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles` = `GetMovableTilesFor(unit,
+    ignoreFlags: false, null)` étendu par les playbooks, et le natif y adjoint la position
+    COURANTE : pour une unité vivante l'ensemble n'est jamais vide, donc le générateur natif rend
+    TOUJOURS une action — exactement comme le port. **Le filtre est ici, un cran plus bas.**
+
+    `options` vaut `{0, 0, 0}` sur ce chemin (`DefaultAiUnitTactic.<CalculateNextActionForUnit>d__5`
+    passe un `&local_58` remis à zéro), donc le court-circuit `options[0] != 0` n'est jamais pris et
+    le repli `FinishUnitTurnMessage` s'applique bien.
+
+    Deux conséquences que le port doit refléter, et qu'il ignorait :
+
+    1. `action == null` (aucun générateur n'a produit) -> action NULLE. Le natif passe quand même
+       par `IdunBattle.AI.Tactics.ABaseAiActorTactic$$LogInvalidUnitAction(this, unit, action)`,
+       puis `InputBuilder` rend le `FinishUnitTurnMessage` : le cas est PRÉVU, pas accidentel.
+    2. `action != null` mais qui ne bouge pas (destination == tuile courante, ou absente) et ne
+       cible rien -> action NULLE **aussi**. C'est le cas majoritaire, et celui qu'un gate posé à
+       l'entrée du générateur aurait manqué.
+
+    ROUTE À CIBLES TUILE (#302) : une action d'ability porte toujours `action.Target != null` —
+    `IdunBattle.AI.ActionGenerators.UnitAction$$.ctor(position, target, abilityType)` prend un
+    `IEntity` NON TYPÉ, et une entité-tuile circule dans ce même slot. Le repli ne peut donc pas la
+    couvrir par accident. Ce n'est pas supposé : `probe_309_movement_null_action.py --noreg`
+    INSTRUMENTE ce mirror et ventile PAR KIND ce qu'il intercepte — une seule interception de kind
+    `ability` serait une régression, et la garde l'asserte à zéro.
+
+    RÉSIDU NOMMÉ : le natif compare deux `UnitPosition` (ENSEMBLES de tuiles, `Equals` sur la
+    collection) ; le port compare la MAIN tile. Pour une unité multi-tuiles dont seule une tuile
+    secondaire changerait, le natif émettrait un `MoveUnitMessage` que ce mirror tairait. Les héros
+    du pool sont mono-tuile — non exercé, donc non mesuré.
+
+    Rend l'action telle quelle si elle produit au moins un message, sinon `{kind:"finish"}`."""
+    if action is not None:
+        to = action.get("to")
+        origin = getattr(ctx, "origin", None)
+        # `UnitPosition.op_Inequality(action.Position, null) && !currentPosition.Equals(...)` :
+        # une destination ABSENTE, ou ÉGALE à la tuile courante, n'émet aucun `MoveUnitMessage`.
+        # `origin is None` = position courante non mesurée -> on NE COUPE PAS (on ne supprime pas
+        # un déplacement sur une non-mesure ; c'est la dégradation dangereuse).
+        moves = to is not None and (origin is None or tuple(to) != tuple(origin))
+        # `action.Target != null`. Le port ne pose `target` que sur une action d'ability.
+        casts = action.get("target") is not None
+        if moves or casts:
+            return action
+    return {"kind": "finish", "to": None}
+
+
 class DefaultAiUnitTactic:
     """Le tactic par-unité : liste ordonnée de générateurs, PREMIÈRE action non-nulle."""
 
@@ -43,15 +115,26 @@ class DefaultAiUnitTactic:
         ]
 
     def calculate_next_action(self, ctx) -> dict:
-        """`CalculateNextActionForUnit.MoveNext` — renvoie la PREMIÈRE action non-nulle des générateurs
-        ordonnés. Forme normalisée : `{kind:"move", to}` ou `{kind:"ability", target, ability, to, util}`."""
+        """`IdunBattle.AI.Tactics.DefaultAiUnitTactic.u003CCalculateNextActionForUnitu003Ed__5$$MoveNext`
+        — PREMIÈRE action non-nulle des générateurs ordonnés, PUIS traduction en messages.
+
+        Le natif ne rend pas l'action : il sort de sa double boucle (`if (action != 0) break`) avec
+        une action éventuellement NULLE, et appelle `InputBuilder$$GenerateInputMessagesFromUnitAction
+        (action, unit, new UnitPosition(mainTile), &options)`. C'est CETTE traduction qui décide s'il
+        y a un `MoveUnitMessage`, un `ActiveAbilityMessage`, ou — liste vide — un
+        `FinishUnitTurnMessage`. Le port la mirrore désormais (#309) au lieu de rendre l'action brute :
+        sans elle il proposait TOUJOURS quelque chose, y compris là où le natif finit le tour.
+
+        Forme normalisée : `{kind:"move", to}`, `{kind:"ability", target, ability, to, util}`, ou
+        `{kind:"finish", to:None}` (l'action NULLE)."""
+        action = None
         for gen in self.generators:
             action = gen.generate(ctx)
             if action is not None:
-                return action
-        # MovementActionGenerator renvoie TOUJOURS une action -> ce filet n'est atteint que si la liste
-        # de générateurs était vide (jamais en pratique).
-        return {"kind": "move", "to": None}
+                break
+        # Résolution par le module (et non par une closure) : c'est ce qui rend le mirror
+        # NEUTRALISABLE depuis un probe, donc la garde falsifiable.
+        return input_messages_from_unit_action(ctx, action)
 
 
 class DefaultMachineTactic:
