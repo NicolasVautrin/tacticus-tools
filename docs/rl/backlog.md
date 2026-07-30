@@ -1146,7 +1146,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     construction, hors périmètre » ; c'est faux. Corollaire de méthode : **l'absence d'un id dans
     les `abilities` du gameconfig ne prouve pas qu'il est dormant** — balayer aussi les abilities
     dérivées de traits.
-- **#276-r1 — décodeur hooks `decodeRepairDict` (CONFIRMÉ par lecture, exige un reinject)** : il lit
+- ~~**#278 — le canal `repair_prediction` n'a jamais été confronté à une réparation MESURÉE**~~ —
+  **FERMÉ le 2026-07-30 : le canal est CONFORME sur les VALEURS, pas seulement sur la forme**
+  (`docs/rl/case-278-repair-prediction-values.md`). Le décodage était livré (`33292bc4` : deux
+  `int32` dans RAX, miroir de `PredictHeal`) et sa forme établie par deux sources indépendantes,
+  mais ni `classFields` ni le décompilé ne disent que le hook lit le bon registre. Le `Min` de
+  `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp` donne **deux régimes**, et il faut
+  les deux (chacun seul laisse passer l'erreur symétrique) : **SATURÉ** — cible `hpMax=8032` à
+  `hp=8031`, montant **5024** → `totalHeal = 1 = hpMax−hp` ; **PLATEAU** — `hp=2000` puis `1000`
+  (missing 6032 puis 7032) → `totalHeal = 5024` dans les deux cas ; **EXÉCUTION NATIVE**
+  (`applyAction`) → hp **1000 → 6024, delta = 5024** = la prédiction. Généralisé au second membre de
+  `StaticBattleRules.ActiveAbility$$IsRegularRepair` = {28, 1119} : `admecDominus` → 28, autre
+  playbook, montant **5022**, delta natif **1000 → 6022**. Garde vue ROUGE par mutation `lo`↔`hi`.
+  Probe `probe_278_repair_prediction_values.py`, tests
+  `tests/engine/runner/test_repair_prediction_values_live.py`.
+  **RÉSIDUS NOMMÉS, hors périmètre de cette fermeture** : l'étage `Fix64(bonus+amount)*Fix64(mult)`
+  est traversé mais NEUTRE sur les deux porteurs mesurés ; branches `scope==1`
+  (`GetGroupUnitHealLimit`) et `IsBoss(target)` jamais empruntées ; **`PredictArmorRestore` est MORT
+  dans ce build** (`method not found`, `ArmorRestorePredictionResult` disparu) ; la face EXÉCUTION
+  côté **Python** reste non portée (résidu #299) — le contrôle d'exécution mesure le NATIF.
+- **#276-r1 — décodeur hooks `decodeRepairDict` (CONFIRMÉ par lecture, exige un reinject)** ⚠ **canal
+  DISTINCT de celui que #278 vient de fermer** — `ai-step/playbook-predict.ts`, pas
+  `ai-trace/predictions.ts` ; l'un n'a pas corrigé l'autre : il lit
   **16 octets** d'une struct qui en fait **8**. `DamagePrediction$$PredictRepair` rend
   `CONCAT44(fill, currentHealth)` et `UtilityAttackCase$$ForRepairPrediction` stocke la valeur ENTIÈRE
   dans le pointer-size écrit à `case+0xdc`. Donc, dans `playbook-predict.ts` : `targetHpBefore`(+0x00)
