@@ -179,17 +179,21 @@ def etage1() -> dict:
 # ---------------------------------------------------------------------------------------------
 # ETAGE 2 -- LIVE : les gates lisent la mesure, et la contre-epreuve les fait diverger
 # ---------------------------------------------------------------------------------------------
-def etage2(runner_id: str) -> int:
+def etage2(runner_id) -> int:
+    runner_id = int(runner_id)      # `runnerId` est un ENTIER cote hooks -- une str ne matche pas
     print("")
     print("== ETAGE 2 -- LIVE : gates de trait de la face PREDICTION vs mesure ==")
-    from rl_common import rpc as _rpc                                          # noqa: E402
+    import rl_collect_batch as R                                               # noqa: E402
     from engine.playbook import scene as SC                                    # noqa: E402
     from engine.playbook.scene import Scene                                    # noqa: E402
     from engine.playbook.prediction import _entity_traits                      # noqa: E402
     from engine.entities.traits.unit_trait import trait_names_from_ids         # noqa: E402
 
+    sid = R._resolve_session()
+
     def rpc(m, b=None, t=120):
-        return _rpc(m, b, t)
+        r = R._rpc(sid, m, [b] if b is not None else [], timeout=t)
+        return r.get("result") if isinstance(r, dict) and "result" in r else r
 
     snap = rpc("combatSnapshot", {"runnerId": runner_id}, 120)
     if not snap.get("ok"):
@@ -210,30 +214,46 @@ def etage2(runner_id: str) -> int:
 
     efface = {**snap, "units": [{**u, "traits": None} for u in (snap.get("units") or [])]}
     sc, sc0 = _scene(), _scene(force=efface)
-    lignes, ecarts, diverge = 0, [], []
+    lignes, ecarts, diverge, gates = 0, [], [], []
     for su in (snap.get("units") or []):
         eid = su.get("entityId")
         if eid is None or not isinstance(su.get("traits"), list) or sc.ctx(eid) is None:
             continue
         lignes += 1
+        vis = sc.vis_by_id.get(eid)
         mes = trait_names_from_ids(su["traits"])
         lu = frozenset(_entity_traits(sc, eid))
         av = frozenset(_entity_traits(sc0, eid))
+        brut = frozenset((GC.unit(vis) or {}).get("traits") or ())   # CE QUE LES 12 SITES LISAIENT
         if lu != mes:
             ecarts.append("u%s %s : MANQUE=%r EN_TROP=%r"
-                          % (eid, sc.vis_by_id.get(eid), sorted(mes - lu), sorted(lu - mes)))
+                          % (eid, vis, sorted(mes - lu), sorted(lu - mes)))
         if av != mes:
             diverge.append("u%s %s : canal efface %r vs mesure %r"
-                           % (eid, sc.vis_by_id.get(eid), sorted(av - mes), sorted(mes - av)))
+                           % (eid, vis, sorted(av - mes), sorted(mes - av)))
+        # Quels GATES le kit BRUT fermait / ouvrait a tort sur CETTE ligne ?
+        rate = sorted((mes - brut) & set(CONSUMER_TRAITS))
+        trop = sorted((brut - mes) & set(CONSUMER_TRAITS))
+        if rate or trop:
+            gates.append("u%s %-22s kit RATAIT %r ; kit ACCORDAIT A TORT %r" % (eid, vis, rate, trop))
     print("  lignes mesurees : %d" % lignes)
     print("  ecarts face PREDICTION vs mesure : %d %s" % (len(ecarts), ecarts[:4]))
-    print("  contre-epreuve (canal efface) DIVERGE sur : %d %s" % (len(diverge), diverge[:4]))
+    print("  GATES de trait que le kit BRUT faussait, ligne a ligne : %d/%d" % (len(gates), lignes))
+    for g in gates:
+        print("      %s" % g)
+    # NB -- la CONTRE-EPREUVE de #267-r1 n'est PAS le canal efface : l'« avant » de CE residu est la
+    # relecture du kit BRUT `GC.unit(vis).traits`, pas la reconstruction `entity_trait_names` (qui,
+    # elle, DERIVE deja le pseudo-trait d'alliance). Le canal efface est la contre-epreuve de #267,
+    # gardee par `tests/engine/test_predictor_traits_live.py` -- on l'affiche pour memoire.
+    print("  [memo #267] contre-epreuve canal efface : %d ligne(s) divergentes %s"
+          % (len(diverge), diverge[:2]))
     bad = len(ecarts)
     if lignes < 2:
         print("  MONTAGE INEXPLOITABLE : canal `traits` non renseigne")
         bad += 1
-    if not diverge:
-        print("  ACCORD TRIVIAL : la contre-epreuve ne diverge sur AUCUNE ligne")
+    if not gates:
+        print("  ACCORD TRIVIAL : le kit BRUT ne faussait AUCUN gate consomme sur ce roster --")
+        print("  le cablage est correct mais ce montage ne le rend pas OBSERVABLE. (PAS un succes.)")
         bad += 1
     return bad
 

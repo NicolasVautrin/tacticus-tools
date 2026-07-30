@@ -164,18 +164,86 @@ la passe rend **5 failed / 1 passed** — le seul vert étant, par construction,
   runtime n'est pas captée par `combatSnapshot`. Le câblage rend son gate `target_has_impervious`
   fidèle, pas la charge.
 
+## 6bis. `#267-r1` — RÉSOLU : les GATES de la face prédiction lisent le substrat d'entité
+
+**Verdict : quirk porté et validé live.** `#267` faisait entrer la mesure dans `ctx.traits` ; **12
+sites de la même face** continuaient de relire `gameconfig.unit(visualId).traits` **BRUT** pour leurs
+gates. Une face qui lit la mesure sur une partie de ses gates et le kit sur l'autre est une
+incohérence *interne* — pire qu'un retard uniforme.
+
+### Le foyer
+
+`prediction/_shared.py::_entity_traits(scene, uid)` = `entity_trait_names(scene.ctx(uid),
+scene.vis_by_id.get(uid))` — pendant exact de `runner.damage_model.target_trait_names` côté COMBAT,
+tri-état hérité (`traits_measured` vrai → la mesure ; faux → la reconstruction antérieure ; `ctx`
+absent → la borne statique). Consommé par `_shared` (4), `normal_attack` (5), `abilities` (2),
+`fury_of_the_ancients` (1), `psyker` (1). Les deux derniers sont hors du package `prediction/` mais
+appellent le **même** `get_attack_prediction` : les y laisser aurait gardé un `hit_mult` MkXGravis sur
+le kit dans l'appel même qui lit `_target_damage_limits` sur la mesure.
+`att_gu` reste le kit pour `GrandAllianceId`/`FactionId`/`weapons` (données de configuration).
+
+### Quels gates, exactement (dérivé, pas deviné)
+
+`probe_267r1_gate_sweep.py` balaie **123 classes d'effet × 105 valeurs d'enum `UnitTrait`** et retient
+les couples dont la sortie change. **Six** traits pilotent un consommateur des 12 sites :
+
+| trait | gate natif | magnitude |
+|---|---|---|
+| `BigTarget` / `Vehicle` | `BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` | +20 % |
+| `Psyker` | `CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` | +30 flat |
+| `Summon` | `MartialKatahDamageEffect$$CreateEffectDamageBonusForAttack` | **+100 %** |
+| `Imperial` / `Xenos` | `DespoiledGround_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack` | +15 % |
+
+### L'écart, mesuré
+
+- **Structurel, 175/175 unités** : le pseudo-trait de GRANDE ALLIANCE est écrit par le BC dans
+  `BaseUnitComponent+0x40` (la mesure le rend) et n'est dans **aucun** `gameconfig.unit().traits`.
+  Les gates d'alliance étaient donc **structurellement morts** sur ces 12 sites. **Confirmé live**
+  (seed 777 / MC1_67, roster `ultraTitus,adeptCanoness,custoTrajann` vs
+  `admecDestroyer,orksWarboss,eldarFarseer`) : **6/6 lignes**, le kit brut ratait `Imperial`/`Xenos`.
+- **`Summon` diverge dans les deux sens** sur le seed BC (42 npc l'ont au BC seul, 3 summons au kit
+  seul) — mais **mesuré NON discriminant en live** : un `necroSmnSwarm` *invoqué en bataille* porte
+  bien `Summon` (`ScarabHive` de `necroSpyder`), et npc/summons sont hors du pool spawnable
+  (`buildNormalizedBC` ne les normalise pas). L'écart du seed BC porte sur des entrées de catalogue
+  non déployables.
+
+### Validation (`tests/engine/test_prediction_trait_gates_live.py`, 6 tests)
+
+| étage | mesure |
+|---|---|
+| substrat lu == mesure, ligne à ligne (2 couples : `MC1_67`/777, `C4_09`/909) | 0 écart |
+| non-vacuité : le kit BRUT divergeait | **6/6** puis **4/4** lignes |
+| `MartialKatah` suit le CANAL (`custoTrajann` → `orksWarboss`, tuile (5,4)) | `(2118, 3180)` sans `Summon` → `(4239, 6360)` avec = **×2.0014 / ×2.0000** |
+| contre-épreuve : gates re-branchés sur le kit brut | `(2118, 3180)` dans les **deux** canaux — sourd |
+| oracle natif `aiPlaybookPredict` sur l'état non muté | `(2118, 3180)` appliedHits 3, port `(2118, 3180)`, **écart (0, 0)** |
+
+**Rouge provoqué avant fermeture** : `_entity_traits` re-branché sur le kit brut → **3 failed /
+3 passed** (les 3 verts sont, par construction, la garde de non-vacuité, la contre-épreuve qui patche
+elle-même, et la non-régression oracle sur une cible sans écart). Câblage rétabli : **6 passed**.
+
+Non-régression ciblée : `test_predictor_traits_live` + `test_predict_live` (15), `test_noblocking_
+prediction_live` + `test_savage_echoes_prediction_live` + `test_aura_position_live` (4),
+`runner/test_load_state_traits_live` + `runner/test_heavy_weapon_moved_prediction_live` +
+`runner/test_ability_hits_channel_live` (12), `test_trait_gates_dynamic_live` +
+`test_tile_leaf_unit_traits_live` + `runner/test_lascannon_pierce_offline` (19). **50 passed.**
+
+### Ce qui n'est PAS couvert
+
+- Le `+100 %` de `MartialKatah` est exercé **par substitution de canal**, pas par un écart naturel :
+  aucun couple (porteur, cible) du pool spawnable ne présente d'écart kit/mesure sur les six traits
+  consommés. La substitution prouve que le gate suit le canal ; elle ne prouve pas que le natif
+  dirait ×2 sur un état que le jeu produirait de lui-même.
+- `DespoiledGround_ExtraDamagePct` (le consommateur des gates d'ALLIANCE, +15 %) n'est **pas
+  atteignable** sur les boards `pvp`/`syncPvp`/`global` : son porteur est une ability de tuile
+  d'environnement (`EnvDespoiledGroundTileAbility`), et aucun `TileId` du pool dumpé ne la porte. Le
+  réveil du gate est donc prouvé **au niveau du gate** (`None` → `PercentIncrease 15` sur le substrat
+  mesuré d'une unité réelle), pas en dégât bout-en-bout.
+- Les lignes `EntityType.Machine` gagnent le substrat correct (`MachineOfWar`+`Imperial` là où le kit
+  rendait vide, faute de `visualId`), mais **aucun consommateur ne les atteint** : `decisionView.units`
+  est `Unit`-only, donc une MoW n'est jamais cible d'une prédiction sur ce seam.
+
 ## 6. Résidus documentés
 
-- **`#267-r1` — 7 sites de la face PRÉDICTION relisent encore le kit gameconfig PAR `visualId`**, là
-  où leur pendant COMBAT lit le substrat d'entité (`damage_model.target_trait_names(state, uid)` =
-  `StatsComponent.ctx.traits`, donc la mesure depuis `#264`) :
-  `prediction/_shared.py` (`_tgt_traits_names` de l'agrégateur DÉFENSE, `att_traits` et `tgt_traits`
-  de `_apply_ally_attack_dmg_bonus`), `prediction/normal_attack.py` (4 sites, dont le `_tgt_traits`
-  qui alimente `target_hit_multiplier`), `prediction/abilities.py` (`BigTarget`). Le pendant exact
-  côté prédiction est `scene.ctx(uid).traits`. Tant qu'ils ne sont pas basculés, la face prédiction
-  lit la mesure sur une partie de ses gates et le kit sur l'autre. Consommateurs concernés :
-  `BeastSlayer_ExtraDmg`, `ConquerorImperative` (`Mechanical`), `LordOfTheHost_ExtraDamage`
-  (`RapidAssault`/`Flying`), `target_hit_multiplier` (`BigTarget`).
 - **`Scene.unit_state()["traits"]` lit `ctx.traits` BRUT**, pas `entity_trait_names(ctx, vis)` : en
   régime MESURÉ c'est correct (la mesure porte la grande-alliance — vérifié sur `necroOverlord`, qui
   y a bien `Xenos`), mais en régime NON mesuré (canal absent, ou ctx issu d'un spawn offline
