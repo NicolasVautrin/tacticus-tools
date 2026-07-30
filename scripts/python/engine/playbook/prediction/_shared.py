@@ -24,7 +24,7 @@ from engine.entities.effects import (
     aura_additional_hits_from_allies)
 from engine.entities.effects.loki import LIGHT_COVER_TILE_ID
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier, TraitFactory
-from engine.entities.traits.unit_trait import UnitTrait
+from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names
 from engine.entities.damage_trait import DamageTrait
 from engine.entities.stats import StatType, StatPart, ARMOR_STAT_TYPES
 from engine.services.damage_prediction import get_attack_prediction
@@ -59,6 +59,51 @@ _DMG_CFG: dict = _json.loads(_weights.DEFAULT_BC.read_text(encoding="utf-8")).ge
 # services.damage_modifiers (source unique partagee PREDICTION+COMBAT, #181).
 RANGED_IN_MELEE_PCT: int = abs(int(_DMG_CFG.get("RangedInMeleeReductionPercentage", -50)))  # IdunBattle.Core.Services.DamageCalculations$$CalculateRangedInMeleeReduction
 _PROFILE_INDEX = {name: idx for idx, name in _PROFILE_BY_INDEX.items()}
+
+
+def _entity_traits(scene, uid) -> frozenset:
+    """`IdunBattle.Entities.UnitExtensions$$HasTrait(unit, …)` cote face PREDICTION : le substrat de
+    traits d'une ENTITE de la `Scene` -- FOYER UNIQUE, pendant exact de
+    `runner.damage_model.target_trait_names` cote COMBAT (#267-r1).
+
+    Le natif n'a QU'UN SEUL substrat de traits, et il est porte par l'entite : chaque gate lu au
+    decompile (build `rnca9r7q6c`) resout le composant puis interroge ses trois collections --
+
+      * `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` ->
+        `HasTrait(defender, 0x3f5)` (MkXGravis, `hit_multiplier` 2 hors crit) ;
+      * `IdunBattle.AI.Playbook.Loki.HellfireShellsPlaybook$$MakeDamagePredictions` ->
+        `HasTrait(target, 0x3f9)` (BigTarget, +`extraHit`) ;
+      * les gates DSL (`BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` =
+        `HasTrait(target, 0x405 Vehicle) | HasTrait(target, 0x3f9 BigTarget)`,
+        `ConquerorImperativeEffect$$CreateDamageModifier`, `LordOfTheHost_ExtraDamageEffect$$
+        CreateEffectDamageBonusForAttack`, `DestroyTheWitch_ExtraDamageEffect$$
+        CreateEffectDamageBonusForAttack`, `InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits`)
+        passent par `IdunBattle.Entities.Triggers.HasTraitTrigger$$Evaluate`, qui resout l'entite du
+        selecteur puis appelle **le meme** `UnitExtensions$$HasTrait`.
+
+    et `UnitExtensions$$HasTrait` delegue a `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` :
+
+        HasTrait(t) == !retires(+0x50).Contains(t)
+                       && ( permanents(+0x40).Contains(t) || temporaires(+0x48).Contains(t) )
+
+    AUCUNE lecture de gameconfig sur ce chemin. Ces sites relisaient pourtant
+    `gameconfig.unit(visualId).traits`, alors que #267 pose deja la MESURE
+    (`combatSnapshot.units[].traits`) sur `ctx.traits` des tables de prediction et que
+    `_target_damage_limits` la consomme : la face PREDICTION lisait donc la mesure sur une partie de
+    ses gates et le kit sur l'autre -- une incoherence INTERNE a une meme face. L'ecart va dans les
+    DEUX sens (mesure : 5 unites du seed BC ont MOINS de traits que leur kit, 48 en ont PLUS), plus
+    tout `IdunBattle.Operations.AddTraitOperation$$Execute` accorde en bataille, que le kit ne peut
+    pas porter par construction.
+
+    TRI-ETAT, herite de `entity_trait_names` / `scene._seed_measured_traits` : `ctx.traits_measured`
+    vrai -> la MESURE telle quelle (grande-alliance comprise, `frozenset()` si la mesure est vide) ;
+    faux (canal absent/`null`, ctx issu d'un spawn offline) -> la RECONSTRUCTION anterieure
+    (kit + pseudo-trait de grande-alliance), jamais un vide silencieux ; `ctx` absent (uid hors des
+    tables, ligne sans `StatsComponent`) -> la BORNE statique `unit_trait_names(visualId)`.
+    `uid is None` -> `frozenset()` (appelant sans cible)."""
+    if uid is None:
+        return frozenset()
+    return entity_trait_names(scene.ctx(uid), scene.vis_by_id.get(uid))
 
 
 def _weapon_pierce(scene, att_id, is_adjacent, dist=None):
@@ -299,11 +344,12 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     #    dans `scene.vis_by_id` EST une unite (les MoW ont leur canal separe, cf. Scene.from_state).
     #  * `team`/`team_by_id` : `scene.team(att_id)` / `scene.team_by_id` (le meme dict que la formule
     #    de COUPS thread deja sous ce nom).
-    #  * `traits`     : noms gameconfig par visualId (meme resolveur que `att_traits` des auras).
+    #  * `traits`     : substrat d'ENTITE de l'attaquant (`_entity_traits`) — MEME source que le
+    #    `att_ctx["traits"] = target_trait_names(state, attacker_id)` du combat (#267-r1).
     att_ctx["is_unit"] = scene.vis_by_id.get(att_id) is not None
     att_ctx["team"] = scene.team(att_id)
     att_ctx["team_by_id"] = scene.team_by_id
-    att_ctx["traits"] = frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ())
+    att_ctx["traits"] = _entity_traits(scene, att_id)
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
@@ -355,7 +401,9 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # Psychic aux AMIS rayon 2 (racine du ~1.49x bloodMephiston seed 2024 : 1003×1.25×3×0.67 = 2016,3024
     # natif vs 3006,4515 port) ; +extraDmgPct% aux Psykers ENNEMIS rayon 2. Cibles/positions REELLES
     # (la cible ne bouge pas pendant la prediction) ; porteurs vivants uniquement.
-    _tgt_traits_names = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    # #267-r1 : traits de la CIBLE = substrat d'ENTITE, MEME source que le `tgt_traits` de
+    # `damage_model._apply_ally_attack_damage_auras` cote combat (`target_trait_names`).
+    _tgt_traits_names = _entity_traits(scene, tgt_id)
     _def_carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                      for uid in scene.pos_by_id
                      if uid != tgt_id and (scene.hp(uid) or 0) > 0]
@@ -385,10 +433,8 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     `HP-1`, c.-a-d. annoncaient
     et executaient un kill IMPOSSIBLE la ou le natif tue. `nrOfMembers` reste gameconfig (c'est
     `GroupUnitComponent`, pas un trait)."""
-    from engine.entities.traits.unit_trait import entity_trait_names
-    vis = scene.vis_by_id.get(tgt_id)
-    gu = GC.unit(vis) or {}
-    utraits = entity_trait_names(scene.ctx(tgt_id), vis)
+    gu = GC.unit(scene.vis_by_id.get(tgt_id)) or {}
+    utraits = _entity_traits(scene, tgt_id)      # #267-r1 : FOYER unique du substrat de traits
     hpmax = scene.hpmax(tgt_id) or 0
     _dp_traits = (GC.damage_profile(damage_profile) or {}).get("Traits") or [] if damage_profile else []
     return {
@@ -420,11 +466,16 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
     if carriers is None:
         carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in scene.pos_by_id if uid != att_id and (scene.hp(uid) or 0) > 0]
+    # `att_gu` reste le KIT : `GrandAllianceId` / `FactionId` / `weapons` sont des donnees de
+    # CONFIGURATION (aucun equivalent d'entite), contrairement aux TRAITS (#267-r1).
     att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}
     ctx = {"att_id": att_id, "att_pos": att_pos, "att_team": scene.team(att_id),
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
            "att_faction": att_gu.get("FactionId"),
-           "att_traits": frozenset(att_gu.get("traits") or ()),
+           # #267-r1 : traits de l'ATTAQUANT = substrat d'ENTITE — pendant exact du
+           # `"att_traits": target_trait_names(state, att_id)` de
+           # `damage_model._apply_ally_attack_damage_auras`.
+           "att_traits": _entity_traits(scene, att_id),
            # UnitsWithRangedAttacks (selector SpotterReworked IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateTargetSelector) = UNION {arme ranged au kit}
            # + {diff elevation <= 2 vs tuile porteur} (IdunBattleLogic.Entities.DSLFactory$$UnitsWithRangedAttacks) -> board pour le terme elevation
            "att_has_ranged_weapon": any(w.get("Range") for w in (att_gu.get("weapons") or ())),
@@ -436,12 +487,14 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            "tgt_id": tgt_id,
            "t_pos": scene.pos(tgt_id) if tgt_id is not None else None,
            "tgt_team": scene.team(tgt_id) if tgt_id is not None else None,
-           # Traits gameconfig de la CIBLE -- gate `HasTrait(Target@0x178, ...)` des auras dont la
-           # condition porte sur la cible : `DestroyTheWitch_ExtraDamage` (aura melee vs **Psyker**,
+           # Traits de la CIBLE -- gate `HasTrait(Target@0x178, ...)` des auras dont la condition
+           # porte sur la cible : `DestroyTheWitch_ExtraDamage` (aura melee vs **Psyker**,
            # IdunBattle.Entities.Effects.Loki.DestroyTheWitch_ExtraDamageEffect$$CreateEffectDamageBonusForAttack).
-           # Symetrique du `tgt_traits` que l'agregateur DEFENSE passait deja.
-           "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ())
-           if tgt_id is not None else None}
+           # Symetrique du `tgt_traits` que l'agregateur DEFENSE passait deja. #267-r1 : substrat
+           # d'ENTITE (le `target_traits=target_trait_names(...)` que le combat threade deja ici).
+           # `None` (appelant sans cible) reste DISTINCT de `frozenset()` : ces gates rendent None
+           # au lieu de conclure « la cible n'a pas le trait ».
+           "tgt_traits": _entity_traits(scene, tgt_id) if tgt_id is not None else None}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

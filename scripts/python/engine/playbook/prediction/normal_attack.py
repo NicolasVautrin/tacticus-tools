@@ -7,7 +7,7 @@ from __future__ import annotations
 from ._shared import *   # vocabulaire commun (GC, hexgeo, get_attack_prediction, ProbableDamageEvent, auras, ...)
 from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defender_mods,
                       _prediction_is_charging, _target_damage_limits, _apply_ally_attack_dmg_bonus,
-                      _round_fix64)
+                      _round_fix64, _entity_traits)
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -51,8 +51,8 @@ def get_additional_damage_prediction(scene, att_id, tgt_id, ability_name):
     prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
     # pierce = profil + ExtraPierce stat (IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio, meme pipeline 0x27)
     pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + ctx.extra_pierce_ranged))
-    tgt_hit_mult = target_hit_multiplier(
-        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)).
+    tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
     return get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
@@ -81,8 +81,8 @@ def get_klaw_attack1_prediction(scene, att_id, tgt_id, ability_name):
     prof = ((GC.ability(ability_name) or {}).get("constants") or {}).get("damageProfile") or ""
     prof_ratio = int((GC.damage_profile(prof) or {}).get("PiercingRatio") or 0)
     pierce = max(0, min(100, prof_ratio + ctx.extra_pierce + ctx.extra_pierce_melee))
-    tgt_hit_mult = target_hit_multiplier(
-        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)).
+    tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
     return get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=int(n),
         profile_type=_PROFILE_INDEX.get(prof, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
@@ -260,16 +260,19 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
                                       t_pos, damage_profile=prof_name)
     # canal additional-hits #179 (cle native = attackTypeId du drone) — memes sources que la normale.
     att_effects = scene.effects(att_id)
+    # #267-r1 : traits de la CIBLE = substrat d'ENTITE (pendant du `tgt_traits` de
+    # `runner/operations/additional_hits.py`, deja sur `target_trait_names`).
     _ah_ctx = {"is_melee": False,
-               "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ()),
+               "tgt_traits": _entity_traits(scene, tgt_id),
                "tgt_effect_names": frozenset(
                    n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
-                   # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
-                   # disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
-                   "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
+                   # #202-B : traits de l'ATTAQUANT — le CASTER, pas le drone (gate Daemon
+                   # d'InfernalPacts : disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
+                   # #267-r1 : substrat d'ENTITE.
+                   "att_traits": _entity_traits(scene, att_id),
                    "is_melee": False})
     _extra_groups = []
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
@@ -284,8 +287,8 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
         else:
             _entry["predefined"] = MinMaxDamage(min=_g["min"], max=_g["max"])
         _extra_groups.append(_entry)
-    tgt_hit_mult = target_hit_multiplier(
-        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+    # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)).
+    tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
     res = get_attack_prediction(
         target_current_health=scene.hp(tgt_id) or 0, initial_damage=attack_base, hits=hits,
         profile_type=_PROFILE_INDEX.get(prof_name, 0), pierce_pct=pierce, armor=scene.armor(tgt_id),
@@ -336,7 +339,10 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # (IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications, prediction-only) reste GATE off : ce
     # N'EST PAS un modifier post-percage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
     # BeastSlayer (target-conditionnel) : traits de la CIBLE (mirror HasTrait) -> gate BigTarget/Vehicle.
-    _tgt_traits = frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or [])
+    # #267-r1 : substrat d'ENTITE — le natif `BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` gate sur
+    # `HasTraitTrigger$$Evaluate` (= `UnitExtensions$$HasTrait`), et le pendant COMBAT
+    # (`damage_ops/normal.py`) threade deja `target_traits=target_trait_names(state, target_id)`.
+    _tgt_traits = _entity_traits(scene, tgt_id)
     # gate ConquerorImperative (#22, self face) : la CIBLE a-t-elle l'armure REDUITE (>=1 mod <0 sur
     # ARMOR/FIXED_ARMOR) -> +extraDmg FLAT du porteur. OwnerIsCaster TRUE en display (cf. DecoysAndMisdirection).
     _tctx = scene.ctx(tgt_id)
@@ -451,16 +457,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # #57e : gates CIBLE des descripteurs additional-hits (ex. CyclicIonBlaster ConditionalAmount
     # HasEffect(target, Markerlight) | HasTrait(target, Mechanical)) — traits gameconfig + noms
     # d'effets ACTIFS de la cible threades dans le ctx du canal #179.
+    # #267-r1 : traits de la CIBLE = substrat d'ENTITE — MEME source que le `tgt_traits` du canal #179
+    # cote COMBAT (`runner/operations/additional_hits.py` : `target_trait_names(state, target_id)`).
     _ah_ctx = {"is_melee": is_melee,
-               "tgt_traits": frozenset((GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits") or ()),
+               "tgt_traits": _entity_traits(scene, tgt_id),
                "tgt_effect_names": frozenset(
                    n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
-                   # #202-B : traits gameconfig de l'ATTAQUANT (gate Daemon d'InfernalPacts —
-                   # disjunct HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
-                   "att_traits": frozenset((GC.unit(scene.vis_by_id.get(att_id)) or {}).get("traits") or ()),
+                   # #202-B : traits de l'ATTAQUANT (gate Daemon d'InfernalPacts — disjunct
+                   # HasTrait(0x3fb) du trigger IdunBattle.Entities.Effects.Loki.InfernalPacts_AdditionalHitsEffect$$CreateAdditionalHits).
+                   # #267-r1 : substrat d'ENTITE.
+                   "att_traits": _entity_traits(scene, att_id),
                    "is_melee": is_melee})
     for _g in list(additional_hit_groups(att_effects, _ah_ctx)) + _aura_hits:
         _dp = GC.damage_profile(_g["profile"]) or {}

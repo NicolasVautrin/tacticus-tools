@@ -93,13 +93,14 @@ class PsykerPlaybook:
                      "tile_effects_by_pos": scene.tile_effects_by_pos,
                      "has_teleported": prediction_has_teleported(scene, att_id, attack_pos)})
         from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                                 _target_damage_limits, _PROFILE_INDEX)
+                                 _target_damage_limits, _PROFILE_INDEX, _entity_traits)
         _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, False, attack_pos,
                                           scene.pos(tgt_id), damage_profile="Psychic",
                                           is_normal_attack=True)
         _apply_ally_attack_dmg_bonus(mods, scene, att_id, attack_pos, False, _tar, damage_profile="Psychic")
-        hit_mult = target_hit_multiplier(TraitFactory.create_many(
-            (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("traits")))
+        # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` ->
+        # HasTrait(defender, 0x3f5)), MEME foyer que `_target_damage_limits` deux lignes plus bas.
+        hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=int(amount), hits=1,
             profile_type=_PROFILE_INDEX.get("Psychic", 0), pierce_pct=pierce,

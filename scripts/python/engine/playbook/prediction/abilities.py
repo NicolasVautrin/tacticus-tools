@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from ._shared import *   # vocabulaire commun (GC, dsl, active_ability_for, ProbableDamageEvent, ...)
 from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                      _prediction_is_charging, _target_damage_limits)
+                      _prediction_is_charging, _target_damage_limits, _entity_traits)
 from .normal_attack import make_normal_attack_predictions
 
 
@@ -109,8 +109,9 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # passent PAS ici (routes via _PREDICT_VIA_NORMAL_ATTACK). Le bouclier est deplete PAR COUP (prev).
     # MkXGravis (trait CIBLE 0x3f5) : armure traversee 2× aussi pour les speciales (CalculateBaseDamage
     # WithAllModifiers appele quel que soit l'ability). No-op (=1) si la cible n'a pas le trait hit-twice.
-    tgt_hit_mult = target_hit_multiplier(
-        TraitFactory.create_many((GC.unit(scene.vis_by_id.get(tgt)) or {}).get("traits")))
+    # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` -> HasTrait(defender, 0x3f5)),
+    # comme le fait deja `_target_damage_limits` juste dessous et le COMBAT (`ctx.trait_objects()`).
+    tgt_hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt)))
     return get_attack_prediction(
         target_current_health=scene.hp(tgt) or 0, initial_damage=base, hits=hits,
         profile_type=profile_idx, pierce_pct=pierce, armor=scene.armor(tgt),
@@ -221,7 +222,9 @@ def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     lvl, mult = ab.level, ab.multiplier
     base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)     # var 0xc = minDmg (Direct), rarity-scaled
     hits = int((cfg.constants or {}).get("nrOfHits") or 0)        # const 0x2f = nrOfHits
-    tgt_traits = (GC.unit(scene.vis_by_id.get(target_id)) or {}).get("traits") or ()
+    # #267-r1 : le playbook natif appelle `IdunBattle.Entities.UnitExtensions$$HasTrait(target, 0x3f9)`
+    # EN DIRECT (lu au decompile) -> substrat d'ENTITE, jamais le kit par visualId.
+    tgt_traits = _entity_traits(scene, target_id)
     if "BigTarget" in tgt_traits:                                # HasTrait(target, 0x3f9=BigTarget)
         hits += int((cfg.constants or {}).get("extraHit") or 0)   # const 0x2b = extraHit (+2)
     return {"base_override": base, "hits_override": hits, "profile_override": "None"}
