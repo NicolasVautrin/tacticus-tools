@@ -483,6 +483,46 @@ def hero_units(source: TargetsSelector) -> TargetsSelector:
     return UnitsWithTrait(source, 0x10)
 
 
+class AllDeadUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$AllDeadUnits` ->
+    `IdunBattle.Entities.Selectors.AllDefeatedUnitsSelector$$Select` : les unites DEFAITES du state.
+
+    Primitif DISTINCT d'`AllDeadOrResurrectedUnits` (deux factories natives, deux classes de selecteur) :
+    celui-ci N'AJOUTE PAS les ressuscites (le flag `0xe`). L'ecart est observable des qu'une unite a ete
+    ressuscitee dans la bataille -- elle est VIVANTE, donc absente d'ici, mais presente la-bas.
+
+    Cote port, la lecture est directe : le state runner GARDE les cadavres (`alive=False`), et la
+    `Scene` de decision expose les memes dicts (`decisionView.units` conserve les morts, cf.
+    [[project_decisionview_keeps_dead]]). Consommateurs portes :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetPossibleResurrectTargets`
+    et `$$GetMaxSummonsFormula` (les deux passent par `Friends(AllDeadUnits, caster@0x48)`)."""
+    def select(self, ctx):
+        return [u for u in ctx.units if not _is_alive(u)]
+
+
+class MechanicalUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$MechanicalUnits(source, selectionType)` ->
+    `IdunBattle.Entities.Selectors.MechanicalUnitsSelector$$Select` — MIRROR du decompile : garde les
+    unites de `source` pour lesquelles `IdunBattle.Entities.UnitExtensions$$IsMechanical` rend vrai.
+
+    `IsMechanical` (decompile relu sur `rnca9r7q6c`) = `HasTrait(5 = Mechanical) || HasTrait(0x3e8 =
+    1000 LivingMetal) || HasTrait(0x405 = 1029 Vehicle)` -- TROIS traits, pas un seul : un Necron
+    `LivingMetal` est mecanique SANS porter le trait `Mechanical`. Le port delegue au helper PARTAGE
+    `runner.abilities.behaviours.stats.is_mechanical`, deja confronte LIVE (case-220).
+
+    ⚠ NOMS D'ENUM QUALIFIES : 5 / 1000 / 1029 sont des **UnitTrait**, jamais des EffectType.
+    Ordre de `source` preserve (le natif accumule dans une `List` en iterant la source)."""
+    def __init__(self, source: TargetsSelector, selection_type: int = 0):
+        self.source, self.selection_type = source, int(selection_type)
+
+    def select(self, ctx):
+        from ...runner.abilities.behaviours.stats import is_mechanical   # lazy : evite le cycle
+        ht = ctx.has_trait
+        if ht is None:
+            return []                       # `ctx.has_trait` absent -> trait absent (cf. UnitsWithTrait)
+        return [u for u in _units_of(self.source, ctx) if is_mechanical(ht, u)]
+
+
 class AllDeadOrResurrectedUnits(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$AllDeadOrResurrectedUnits` ->
     `IdunBattle.Entities.Selectors.AllDeadOrResurrectedUnitsSelector$$Select` — MIRROR du decompile :
@@ -502,7 +542,7 @@ class AllDeadOrResurrectedUnits(TargetsSelector):
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetMaxSummonsFormula`
     (`Count(Friends(caster, UnitsWithTrait(AllDeadOrResurrectedUnits, 1000=LivingMetal)))`)."""
     def select(self, ctx):
-        out = [u for u in ctx.units if not _is_alive(u)]          # == AllDeadUnitsSelector
+        out = list(AllDeadUnits().select(ctx))       # slot 0x8a du decompile == AllDeadUnitsSelector
         seen = {u.get("id") for u in out}
         hf = ctx.has_unit_flag
         if hf is None:

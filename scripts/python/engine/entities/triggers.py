@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import hexgeo
 
-from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, _pos, _units_of, _is_alive,
-                        _same_entity, _c_mod)
+from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _units_of,
+                        _is_alive, _same_entity, _c_mod)
 # `IdunBattle.Entities.Enum.UnitFaction` — FOYER UNIQUE (#241) : mirror 1:1 des 21 membres transcrits
 # de `data/symbols/<build>/frida/enums.tsv`. La table locale etait PARTIELLE (8 valeurs, « ajouter au
 # fil des call-sites ») ; elle en derive maintenant, ce qui la rend complete sans changer aucune des
@@ -298,6 +298,28 @@ class HasTrait(AbilityTrigger):
     def should_trigger(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
+
+
+def is_mechanical(unit: TargetsSelector, selection_type: int = 0) -> AbilityTrigger:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsMechanical(unit, selectionType)` — MIRROR de la FACTORY :
+    le natif N'ALLOUE PAS de predicat dedie, il compose
+
+        AmountIsEqualOrGreaterAbilityTrigger( MechanicalUnits(unit, selectionType),
+                                              formulas+0x20 = Direct(1) )
+
+    (`DSLFormulas$$.ctor` alloue les constantes partagees `+0x18 = Direct(0)`, `+0x20 = Direct(1)`,
+    `+0x28 = Direct(2)`, `+0x30 = Direct(100)`, `+0x38 = Direct(-1)` -- d'ou le `>= 1`). La classe
+    allouee (`DAT_1833d73e0`) est DISTINCTE de celle d'`AmountIsGreaterThanZero` (`DAT_1833d7670`,
+    qui prend `+0x18 = Direct(0)`) : `>= 1` et `> 0` coincident sur un cardinal, mais ce sont bien
+    deux noeuds natifs differents -- on mirror celui qui est appele.
+
+    Le sujet est un SELECTEUR : sous un `Filter`, passer `Subject()` (le natif passe `selectors+0x68`,
+    le selecteur-sujet partage). Consommateurs portes :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetPossibleResurrectTargets`
+    (`HasTrait(It, 0x10 = Hero) & IsMechanical(It)`) et `$$GetMaxSummonsFormula` (`IsMechanical` seul)."""
+    from .formulas import Count
+    from .selectors import MechanicalUnits
+    return AmountIsEqualOrGreater(Count(MechanicalUnits(unit, selection_type)), Const(1))
 
 
 class IsTurnOf(AbilityTrigger):

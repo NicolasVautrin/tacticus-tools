@@ -1403,3 +1403,39 @@ liste si le doute revient.
 > constat que personne n'avait re-confronte. Le registre de taches decrit des **intentions
 > horodatees**, pas l'etat du code. Toute fiche se re-derive AVANT dispatch — et le grep qui sert a
 > le faire doit etre `rg`, jamais un glob PowerShell `**` (non recursif, faux negatifs silencieux).
+
+
+## Residus ouverts par #289 (`ResurrectionOrb` 1009, face DECISION portee)
+
+Detail complet + arbres relus : `docs/rl/case-27-custom-utility.md`, section « TRANCHE 289 ».
+
+- **Face COMBAT de 1009 : le port date de `gqfc5mff6c` et le natif a DRIFTE.** `[opus]`
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$ExecuteBehaviour` du build
+  `rnca9r7q6c` fait `SortByFormula(tiles, MinDistance(It, NormalUnits(Enemies(caster))), asc)` puis
+  `SortTilesByUtilityForSummon(., 7, caster)` puis `First(., GetMaxSummonsFormula(), 0)` — un choix de
+  tuiles DETERMINISTE, la ou `engine/runner/abilities/necrons.py::resurrection_orb_tree` a garde le
+  `PickRandomly` de l'ancien build (donc consomme le RNG et ne pose pas les summons aux memes hex).
+  Et il PRECEDE le spawn d'un `$$GetResurrectBehaviour(...)` — `DSLBehaviors$$Resurrect` d'un heros
+  mecanique allie mort tire par `PickRandomly(1)`, PV =
+  `PercentageOf(StatAmount(cible, Health, max), variable 0x26)` — **entierement absent du port**.
+  Le verdict « SUMMON PUR, aucune resurrection » de la docstring etait juste sur `gqfc5mff6c` ; il est
+  corrige sur place, mais le comportement, lui, n'est pas porte. Porteur confrontable :
+  `necroOverlord` (pool rank 17). Noeuds DSL manquants pour ce port : `SortTilesByUtilityForSummon`,
+  `MinDistance` en domaine tuile, `Resurrect`.
+
+- **`DSLSelectors$$CanAddUnit` : le 4e argument d'`UnobscuredEntitiesSelector` n'est pas RE.** `[opus]`
+  Le natif lui passe le CASTER (`selectors+0x88 -> +0x48`) ; le port `entities/selectors/tiles.py::
+  CanAddUnit` compte comme occupee la tuile de TOUTE unite vivante, sans exception. `#289` contourne
+  cote decision en deplacant le caster sur la tuile candidate dans son `DslContext` (mirror du
+  `casterPosition`), ce qui rend le compte juste pour ce call-site — mais tout autre consommateur
+  (`SavageEchoes`, `CultDemagogue`, `Spawn`) herite de l'approximation. Lire
+  `IdunBattle.Entities.Selectors.UnobscuredEntitiesSelector$$Select` et trancher.
+
+- **Deux corrections de `$$GetMaxSummonsFormula` non confrontees LIVE.** `[opus]` Elles sont relues au
+  decompile du build courant (donc fiables), mais le montage de `probe_289_resurrection_orb.py` ne les
+  DISCRIMINE pas :
+  * `Filter(..., IsMechanical)` au lieu de `UnitsWithTrait(LivingMetal)` — il faudrait un allie mort
+    `Mechanical` **sans** `LivingMetal` ; le pool rank 17 en offre 9 (`admecMarshall`, `admecDominus`,
+    `adeptMorvenn`, `orksKillaKan`, `tauCrisis`, ...). Bras a ajouter au probe existant.
+  * cap `ConfigConst(maxSummons) = 5` au lieu de `Direct(6)` — il faudrait
+    `Count(morts mecaniques) + TURNS_STARTED >= 6`, hors de portee d'un montage a deux tours.

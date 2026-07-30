@@ -9,9 +9,13 @@ Contenu :
   DISQUE rayon-2 du CASTER (non obscurcis, damageable, hors cible), 1 coup MinMaxDamage profil DirectDamage
   (pierce 100) chacun. Selecteur rayon-2 SurroundingEnemies (template splash `loki/splash.py`, adapte du
   BringerOfDespair caster-ancre `blacklegion.py`).
-- `ResurrectionOrb` (1009, `necroOverlord`) — SUMMON pur (aucune resurrection : le nom est du flavor) :
-  `Spawn(PickRandomly(CanAddUnit(AdjacentTiles(caster)), N), 'necroSmnWarrior', WithStatsFromConfig)` avec
-  N = `Min(Count(amis morts/ressuscites LivingMetal) + TURNS_STARTED(caster), 6)`.
+- `ResurrectionOrb` (1009, `necroOverlord`) — `Spawn(CanAddUnit(AdjacentTiles(casterTile)), N,
+  'necroSmnWarrior', WithStatsFromConfig)` avec N = `Min(Count(amis MORTS mecaniques) +
+  TURNS_STARTED(caster), maxSummons)`. ⚠ Sur `rnca9r7q6c` l'ability n'est PLUS un summon pur : elle a
+  gagne `$$GetPossibleResurrectTargets` / `$$GetResurrectBehaviour` / `$$GetNumSummonsFormula` /
+  `$$GetPossibleSpawnOrResurrectTiles` (absents de `gqfc5mff6c`). #289 porte les SELECTEURS et
+  FORMULES (partages avec la face DECISION) ; le volet RESURRECTION d'`$$ExecuteBehaviour` reste un
+  residu nomme, cf. `resurrection_orb_tree`.
 - `Chronometron` (1226, `necroChronomancer`) — `Foreach(SurroundingEnemies(caster, range), (If(HasTrait(It,
   Summon), AddEffect(Stunned), AddEffect(Pinned)) & AddEffect(Chronometron_ExtraDamage)))`.
 - `MultiThreatEliminator` (1006, `necroDestroyer`) — `ChainLeftOverHitsAttackDamage` : 6 coups Gauss sur la
@@ -220,29 +224,119 @@ class HarbingerOfDestructionAbility(ActiveAbility):
 #
 # Indices de config (`AbilityConfiguration.Get*`) lus au decompile de
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$ExecuteBehaviour` :
-RESURRECTION_ORB_CONST_UNIT_ID = 0x00   # GetStringConstant(0) -> "unitId" = necroSmnWarrior
-RESURRECTION_ORB_MAX_SUMMONS = 6        # Direct(6) litteral de GetMaxSummonsFormula (cap, PAS une config)
+RESURRECTION_ORB_CONST_UNIT_ID = 0x00     # GetStringConstant(0)  -> "unitId"     = necroSmnWarrior
+RESURRECTION_ORB_CONST_MAX_SUMMONS = 0x3c  # GetNumberConstant(0x3c) -> "maxSummons" (== behaviours.py)
+RESURRECTION_ORB_CONFIG_ID = "ResurrectionOrb"
+
+
+def resurrection_orb_max_summons_const() -> int:
+    """`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(config, 0x3c)` =
+    `constants.maxSummons` du gameconfig (= 5). Lu de la CONFIG, jamais recopie : c'est la seule voie
+    qui reste juste quand l'equilibrage bouge.
+
+    ⚠ DRIFT DE BUILD, mesure le 2026-07-30 : sur `gqfc5mff6c` le cap etait un `Direct(6)` LITTERAL, et
+    le port l'avait fige a 6 (`RESURRECTION_ORB_MAX_SUMMONS = 6`). Sur `rnca9r7q6c`,
+    `$$GetMaxSummonsFormula` appelle `GetNumberConstant(this+0x60, 0x3c)` puis `Direct(<valeur lue>)`
+    — le cap est passe LITTERAL -> CONFIG, et vaut 5. La constante figee etait donc devenue fausse."""
+    import gameconfig as _GC                       # lazy : pas de lecture gameconfig a l'import
+    c = (_GC.ability(RESURRECTION_ORB_CONFIG_ID) or {}).get("constants") or {}
+    return int(c.get("maxSummons") or 0)
+
+
+def resurrection_orb_possible_resurrect_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetPossibleResurrectTargets`
+    — MIRROR 1:1 du decompile `rnca9r7q6c` :
+
+        Filter( Friends(AllDeadUnits, caster@0x48),
+                HasTrait(It@0x68, 0x10) & IsMechanical(It@0x68) )
+
+    = les allies MORTS qui sont a la fois **Hero** et **mecaniques**. Le `&` est
+    `IdunBattle.DSL.AbilityTrigger$$op_BitwiseAnd` (-> `TriggerAnd`).
+
+    ⚠ NOMS D'ENUM QUALIFIES : `0x10` = 16 = **UnitTrait.Hero** (surtout pas un EffectType ; et
+    `UnitTrait.Resilient` vaut 1009, homonyme de l'ability elle-meme -- piege a ecarter).
+    ⚠ `IsMechanical` n'est PAS `HasTrait(LivingMetal)` : c'est
+    `HasTrait(5) | HasTrait(1000) | HasTrait(1029)` (cf. `UnitExtensions$$IsMechanical`).
+
+    L'ensemble alimente DEUX consommateurs (xrefs relues) : `$$GetResurrectBehaviour` (la resurrection
+    proprement dite, cote COMBAT) et `$$GetNumSummonsFormula` (cote DECISION). Un seul artefact natif,
+    un seul port."""
+    from ...entities.selectors import AllDeadUnits, Filter, Subject
+    from ...entities.triggers import TriggerAnd, is_mechanical
+    return Filter(Friends(AllDeadUnits(), Caster()),
+                  TriggerAnd(HasTrait(Subject(), int(UnitTrait.Hero)), is_mechanical(Subject())))
+
+
+def resurrection_orb_possible_spawn_or_resurrect_tiles():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetPossibleSpawnOrResurrectTiles`
+    — MIRROR 1:1 : `CanAddUnit( AdjacentTiles(casterTile@0x58) )` = les hex adjacents a la tuile du
+    caster ou une unite peut etre posee.
+
+    L'ancre est `DSLSelectors+0x58` = **CasterTile**, PAS `+0x48` = Caster (deux slots distincts de
+    `DSLSelectors$$InitializeShared`, et le natif choisit +0x58 ici). La difference est INERTE cote
+    runner (`ctx.caster_pos` None -> position courante) mais DECISIVE cote decision balayee : c'est
+    `ctx.caster_pos` = la tuile candidate qui doit ancrer l'anneau, sinon les six voisins evalues sont
+    ceux de la position de DEPART pour toutes les tuiles du sweep."""
+    return CanAddUnit(AdjacentTiles(CasterTile()))
 
 
 def resurrection_orb_max_summons_formula():
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetMaxSummonsFormula` —
-    MIRROR 1:1 du decompile (formule V pure, aucun collapse) :
+    MIRROR 1:1 du decompile `rnca9r7q6c` (formule V pure, aucun collapse) :
 
-        Min( Sum( Count( Friends(caster@0x160, UnitsWithTrait(AllDeadOrResurrectedUnits, 1000=LivingMetal)) ),
-                  StatAmount(caster@0x160, 0xc = TURNS_STARTED) ),
-             Direct(6) )
+        Min( Sum( Count( Filter(Friends(AllDeadUnits, caster@0x48), IsMechanical(It@0x68)) ),
+                  StatAmount(caster@0x48, 0xc = TURNS_STARTED) ),
+             Direct(GetNumberConstant(0x3c) = maxSummons) )
 
-    = « 1 Necron Warrior par ROUND commence (le compteur per-unite `UnitComponent.turnsStarted@+0x58` du
-    caster, meme node que `DeathFromAboveAbility.GetNumSummons`) + 1 par allie porteur du trait LivingMetal
-    MORT (ou ressuscite) dans cette bataille », cap 6 — i2 mot a mot. L'ordre des operandes du `Sum` est
-    celui du natif (`Sum(Count, StatAmount)`).
+    = i2 mot a mot : « summons 1 Necron Warrior **for each round that has started** » (le compteur
+    per-unite `UnitComponent.turnsStarted@+0x58` du caster) « + 1 more for each friendly unit with the
+    trait Living Metal **that was defeated** in this battle ». L'ordre des operandes du `Sum` est celui
+    du natif (`Sum(Count, StatAmount)`).
 
-    ⚠ NOMS D'ENUM QUALIFIES : `1000` est un **UnitTrait** (LivingMetal), `0xc` un **StatType**
-    (TURNS_STARTED) et `6` un litteral `Direct` — aucun n'est un EffectType/AbilityType."""
-    return Min(Sum(Count(Friends(UnitsWithTrait(AllDeadOrResurrectedUnits(),
-                                                int(UnitTrait.LivingMetal)), Caster())),
+    ⚠ TROIS ecarts par rapport au port ecrit sur `gqfc5mff6c`, tous relus au decompile du build
+    COURANT (le natif a change, pas la lecture) :
+      1. `AllDeadUnits` (`AllDefeatedUnitsSelector`) et **pas** `AllDeadOrResurrectedUnits` — deux
+         factories natives distinctes ; la seconde ajoute les ressuscites (flag 0xe), qui sont VIVANTS.
+      2. `Filter(..., IsMechanical)` et **pas** `UnitsWithTrait(LivingMetal)` — `IsMechanical` couvre
+         AUSSI `Mechanical`(5) et `Vehicle`(1029) ; un allie mort `Mechanical` non-`LivingMetal`
+         comptait a tort pour zero.
+      3. cap = `ConfigConst(maxSummons)` = 5 et **pas** `Direct(6)` (cf.
+         `resurrection_orb_max_summons_const`).
+
+    ⚠ NOMS D'ENUM QUALIFIES : `0xc` est un **StatType** (TURNS_STARTED), pas un EffectType."""
+    from ...entities.selectors import AllDeadUnits, Filter, Subject
+    from ...entities.triggers import is_mechanical
+    return Min(Sum(Count(Filter(Friends(AllDeadUnits(), Caster()), is_mechanical(Subject()))),
                    StatAmount(Caster(), int(StatType.TURNS_STARTED))),
-               Const(RESURRECTION_ORB_MAX_SUMMONS))
+               Const(resurrection_orb_max_summons_const()))
+
+
+def resurrection_orb_num_summons_formula():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$GetNumSummonsFormula` —
+    MIRROR 1:1 du decompile `rnca9r7q6c` :
+
+        tiles = CanAddUnit(AdjacentTiles(casterTile@0x58))
+        amount = If( AmountIsGreaterThanZero(GetPossibleResurrectTargets()),
+                     Difference(Count(tiles), formulas+0x20 = Direct(1)),      # une tuile RESERVEE
+                     Count(tiles) )
+        return Min( GetMaxSummonsFormula(), amount )
+
+    = « autant de Warriors que de hex libres adjacents, MOINS un si un heros mecanique allie mort peut
+    etre ressuscite (sa tuile est reservee), le tout plafonne par maxSummons ». `formulas+0x20` est la
+    constante partagee `Direct(1)` allouee par `DSLFormulas$$.ctor` (`+0x18`=0, `+0x20`=1, `+0x28`=2,
+    `+0x30`=100, `+0x38`=-1) -- d'ou le `-1`, lu et non devine.
+
+    ⚠ Cette formule est PUREMENT AI : son unique xref native est
+    `IdunBattle.AI.Playbook.Loki.ResurrectionOrbPlaybook$$CalculateCustomUtility`. `ExecuteBehaviour`,
+    lui, cape par `GetMaxSummonsFormula` DIRECTEMENT (`First(tiles, GetMaxSummonsFormula(), 0)`) — les
+    deux faces n'utilisent donc PAS le meme compte, et c'est le natif qui le veut."""
+    from ...entities.formulas import Difference, If as IfAmount
+    from ...entities.triggers import AmountIsGreaterThanZero
+    tiles = resurrection_orb_possible_spawn_or_resurrect_tiles()
+    amount = IfAmount(AmountIsGreaterThanZero(Count(resurrection_orb_possible_resurrect_targets())),
+                      Difference(Count(tiles), Const(1)),
+                      Count(tiles))
+    return Min(resurrection_orb_max_summons_formula(), amount)
 
 
 def resurrection_orb_tree(count: int) -> Spawn:
@@ -263,19 +357,30 @@ def resurrection_orb_tree(count: int) -> Spawn:
     Le `count` natif est evalue EAGERLY (la formule `GetMaxSummonsFormula` est `Calculate`e AVANT la
     construction du `PickRandomly`, cf. le decompile : le resultat int est passe au factory) -> le port
     l'evalue de meme dans `execute_behaviour` puis le passe en `pick_n` (FOLD du PickRandomly dans la
-    feuille `Spawn`, qui seule voit `ectx.state.rng` -- MEME convention que SupremeCommander)."""
-    return Spawn(CanAddUnit(AdjacentTiles(Caster())), "ResurrectionOrb", pick_n=count)
+    feuille `Spawn`, qui seule voit `ectx.state.rng` -- MEME convention que SupremeCommander).
+
+    ⚠ RESIDU DE BUILD (`rnca9r7q6c`, non porte -- hors perimetre #289, qui ne traite que la face
+    DECISION) : `$$ExecuteBehaviour` a ete REECRIT entre `gqfc5mff6c` et le build courant. Il fait
+    desormais `SortByFormula(tiles, MinDistance(It, NormalUnits(Enemies(caster))), asc)` puis
+    `SortTilesByUtilityForSummon(., 7, caster)` puis `First(., GetMaxSummonsFormula(), 0)` -- un TRI
+    deterministe la ou le port a garde le `PickRandomly` de l'ancien build ; et il PRECEDE le spawn
+    d'un `GetResurrectBehaviour(...)` (resurrection d'un heros mecanique allie mort, `PickRandomly(1)`,
+    PV = `PercentageOf(StatAmount(cible, Health, max), variable 0x26)`), entierement absent du port.
+    L'ancre reste `casterTile@0x58` (cf. `resurrection_orb_possible_spawn_or_resurrect_tiles`)."""
+    return Spawn(resurrection_orb_possible_spawn_or_resurrect_tiles(), "ResurrectionOrb",
+                 pick_n=count)
 
 
 class ResurrectionOrbAbility(ActiveAbility):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility$$ExecuteBehaviour` (id 1009,
     `necroOverlord` « Anuphet »).
 
-    **SUMMON PUR — AUCUNE resurrection** : malgre son nom, l'arbre natif ne contient NI `Revive` NI
-    `Resurrect` (aucun appel a `IdunBattleLogic.Entities.DSLFactory$$Revive` / `$$Resurrect`, aucun
-    `ReviveEffect`) ; le seul rapport aux morts est le COMPTEUR `AllDeadOrResurrectedUnits` de la formule de
-    count. La base REVIVE portee (#66/#79, `operations/revive.py`) n'a donc rien a faire ici — verifie au
-    decompile AVANT de coder, cf. le point d'attention de la tache #116.
+    ⚠ **VERDICT « SUMMON PUR » PERIME — relu le 2026-07-30 sur `rnca9r7q6c` (#289).** Il etait juste
+    sur `gqfc5mff6c` : l'arbre n'y contenait NI `Revive` NI `Resurrect`. Le build COURANT a ajoute
+    `$$GetResurrectBehaviour`, qui appelle bien `IdunBattleLogic.Entities.DSLBehaviors$$Resurrect` —
+    `ExecuteBehaviour` y fait `op_Addition(GetResurrectBehaviour(...), Spawn(...))`. Le volet
+    resurrection n'est PAS porte (residu nomme sur `resurrection_orb_tree`) ; ce qui EST porte ici,
+    ce sont les selecteurs/formules que la face DECISION partage avec lui.
 
     Corps natif (ordre de lecture) :
         unitId  = GetStringConstant(config, 0)                       # necroSmnWarrior

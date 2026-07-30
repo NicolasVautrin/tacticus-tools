@@ -67,7 +67,7 @@ unites AJOUTEES par ce build) :
 |---|---|---|---|---|
 | `HeavyWarpFlamerPlaybook` | HeavyWarpFlamer (1227) | thousSekhetar `Sekhetar Robot` [lineup] | oui (Flame) | **PORTE** (#27-4) |
 | `MassDriverAcceleratorPlaybook` | MassDriverAccelerator (1222) | votanChampion `Kimm` [lineup] | oui (DirectDamage) | **residu** — `MassDriverAcceleratorAbility$$GetBuffTargets` (selecteur DSL) ; formule = `max(0, Count(GetBuffTargets.Evaluate(entities)) - 1) * W(MassDriverAccelerator_AdjacentFriendly = 5)` |
-| `ResurrectionOrbPlaybook` | ResurrectionOrb (1009) | necroOverlord `Anuphet` [lineup] (+ 5 npc) | **NON** | **residu** — verrou 2 (route d'ability non-attaque) ; poids `ResurrectionOrb_LikesResurrection = 90`, `_LikesSummoning = 10` |
+| `ResurrectionOrbPlaybook` | ResurrectionOrb (1009) | necroOverlord `Anuphet` [lineup] (+ 5 npc) | **NON** | **PORTE** (#289) — route non-attaque ; `u = 90 x [nResurrect>0 ET nTiles>0] + 10 x numSummons` |
 
 Par ailleurs `DevoutPushPlaybook` ne possede plus de corps propre sur ce build : il PARTAGE desormais
 le corps de `ALoki_NormalAttackPlaybook<T>` (= `Fix64(1)`), ce que la tranche 3 decrivait comme un
@@ -1718,14 +1718,21 @@ axe, un SOUS-ensemble. Les deux ecarts sont hors du chemin LIVE valide ici.
   que la DECISION. Le masque (`0x200004002`, RANGE_FROM_CONFIG, `forceMeleeTarget = RangedBool.True`)
   et l'`AbilityAttackType` (`2 = Others`) sont RE-lus et consignes dans la docstring du playbook pour
   que ce port-la parte d'une lecture, pas d'une devinette.
-- **La route non-attaque a DEUX membres** (1226, 1185). Le residu restant du groupe (1053) garde son
-  verrou PROPRE, nomme ci-dessus. (1212, qu'on y rangeait, n'en relevait pas : c'est un soin, il entre
-  par `_heal_candidates` — cf. TRANCHE 4d.)
+- **La route non-attaque a QUATRE membres** (1226, 1185, 1100, 1009). Le residu restant du groupe
+  (1053) garde son verrou PROPRE, nomme ci-dessus. (1212, qu'on y rangeait, n'en relevait pas : c'est
+  un soin, il entre par `_heal_candidates` — cf. TRANCHE 4d.)
 
-- **Les 2 overrides NEUFS non portes du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
-  votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`)
-  et `ResurrectionOrb` (1009, necroOverlord — verrou 2 : pas de `damageProfile`, l'ability n'atteint
-  jamais `_best_attack`).
+- **Le critere de la route, RECTIFIE par la mesure de #289.** On lisait « Comparable ABSENTE de
+  `ctx.plans` ». C'est exact du cote OFFLINE (`state_bridge._is_attack_ability` rend False), mais
+  **FAUX en LIVE** : `decisionView.attackPlans` LISTE bien 1009 — a `rankCount = 0`, et sur des
+  ENNEMIS uniquement, alors que la cible que le natif retient est le CASTER. Le critere OPERANT, vrai
+  dans les DEUX regimes, est : **`_best_attack` ne peut pas la rendre**, parce que
+  `make_damage_predictions` rend `[]` et que `calculate_action_utility` rend donc `None`. Garde :
+  `test_resurrection_orb_decision_live.py::test_best_attack_can_never_yield_the_orb`.
+
+- **L'override NEUF encore non porte du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
+  votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`).
+  `ResurrectionOrb` (1009) est PORTE par #289 — voir la tranche dediee ci-dessous.
 - **Le refresh `BC.Utilities` DEMASQUE 2 termes TRIGGERED que le moteur ne porte pas.** Trois valeurs
   passent de 0 a non-nul : `KustomForceFieldReworked_LikesAdjacentFriends` 0->10 et
   `KustomForceFieldReworked_FriendsLikeToBeAdjacent` 0->10 (porteur spawnable : `orksBigMek` [lineup],
@@ -1984,3 +1991,105 @@ rend `[]`, et l'ability n'est jamais candidate : ni erreur, ni desaccord de dega
 n'existe pas cote moteur. Signature a reconnaitre : `ctx.ab_name_by_id[id]` commence par `id:`. Le repli
 sur `ActiveAbilityType(id).name` (source independante) coute 3 lignes ; sa portee se MESURE (8 ids sur
 331 ici) avant de l'introduire, pour ne pas debloquer en masse des abilities jamais validees.
+
+## TRANCHE 289 — `ResurrectionOrb` (1009, `necroOverlord` « Anuphet ») : PORTE
+
+`IdunBattle.AI.Playbook.Loki.ResurrectionOrbPlaybook$$.ctor` =
+`ComparablePlaybook<...>$$.ctor(this, 0x3f1, ...)` -> **COMPARABLE** (0x3f1 = 1009). Le playbook
+n'override que `CalculateCustomUtility` ; l'`EvaluateNonComparable`/`GetUseProbability` de
+`gqfc5mff6c` a disparu **avec le changement de famille NonComparable -> Comparable**.
+
+### La formule, mirror 1:1 du decompile
+
+    u   = Fix64.Zero
+    ctx = zeroed(0x128) ; ctx.caster = caster ; ctx.casterPosition = casterPosition
+    if Count(ability.GetPossibleResurrectTargets(), ctx) > 0:
+        if Count(ability.GetPossibleSpawnOrResurrectTiles(), ctx) > 0:
+            u += GetUtilityValue("ResurrectionOrb_LikesResurrection")           # 90
+    u += Fix64(ability.GetNumSummonsFormula().Calculate(ctx))
+         * GetUtilityValue("ResurrectionOrb_LikesSummoning")                    # x 10
+
+Trois faits que le corps etablit :
+
+1. **`target` et `possibleTargets` ne sont PAS lus** — l'utilite est CONSTANTE sur les cibles et
+   VARIE sur la tuile balayee. C'est la TUILE que l'argmax discrimine, pas la cible.
+2. **Le terme summoning est inconditionnel et MULTIPLICATIF** ; le terme resurrection est un forfait
+   BOOLEEN sous une CONJONCTION (>=1 cible resurrectable ET >=1 tuile posable).
+3. Les selecteurs/formules ne sont PAS redefinis cote playbook : ce sont les arbres DSL de
+   l'ABILITY. Un seul artefact natif, un seul port (`runner/abilities/necrons.py`), deux
+   consommateurs — meme doctrine que `SavageEchoesAbility.get_damage_formula`.
+
+### Les arbres, relus sur `rnca9r7q6c` — et TROIS corrections du port `gqfc5mff6c`
+
+| Artefact natif | Arbre |
+|---|---|
+| `$$GetPossibleResurrectTargets` | `Filter(Friends(AllDeadUnits, caster@0x48), HasTrait(It@0x68, 0x10=Hero) & IsMechanical(It@0x68))` |
+| `$$GetPossibleSpawnOrResurrectTiles` | `CanAddUnit(AdjacentTiles(casterTile@0x58))` |
+| `$$GetMaxSummonsFormula` | `Min(Sum(Count(Filter(Friends(AllDeadUnits, caster), IsMechanical(It))), StatAmount(caster, 0xc=TURNS_STARTED)), Direct(GetNumberConstant(0x3c)=maxSummons))` |
+| `$$GetNumSummonsFormula` | `Min(GetMaxSummonsFormula, If(AmountIsGreaterThanZero(GetPossibleResurrectTargets), Count(tiles) - Direct(1), Count(tiles)))` |
+
+Le port ecrit sur `gqfc5mff6c` divergeait sur trois points, **tous relus au decompile du build
+courant** (c'est le natif qui a change, pas la lecture) :
+
+1. `AllDeadUnits` (`AllDefeatedUnitsSelector`) et non `AllDeadOrResurrectedUnits` — deux factories
+   natives distinctes ; la seconde ajoute les ressuscites (flag `0xe`), qui sont VIVANTS.
+2. `Filter(..., IsMechanical)` et non `UnitsWithTrait(LivingMetal)` — `UnitExtensions$$IsMechanical`
+   = `HasTrait(5) || HasTrait(0x3e8=1000 LivingMetal) || HasTrait(0x405=1029 Vehicle)`. Un allie
+   mort `Mechanical` non-`LivingMetal` (9 tels heros dans le pool rank 17, ex. `admecMarshall`)
+   comptait a tort pour zero.
+3. cap = `ConfigConst(maxSummons)` = **5** et non `Direct(6)` : le cap est passe LITTERAL -> CONFIG
+   entre les deux builds. La constante figee etait devenue fausse en silence.
+
+⚠ **`GetNumSummonsFormula` est PUREMENT AI** : son unique xref native est
+`ResurrectionOrbPlaybook$$CalculateCustomUtility`. `$$ExecuteBehaviour` cape, lui, par
+`GetMaxSummonsFormula` DIRECTEMENT (`First(tiles, GetMaxSummonsFormula(), 0)`) — les deux faces
+n'utilisent PAS le meme compte, et c'est le natif qui le veut. Ne pas « harmoniser ».
+
+`maxSummons` = i2 mot a mot : « summons 1 Necron Warrior **for each round that has started** » (le
+compteur per-unite `UnitComponent.turnsStarted@+0x58`) « + 1 more for each friendly unit with the
+trait Living Metal **that was defeated** in this battle ». La lecture `StatAmount(caster, 0xc)` etait
+la plus surprenante du RE : c'est le TEXTE DU JEU qui l'a confirmee, pas une intuition.
+
+### Ce que la confrontation LIVE a mesure (`probe_289_resurrection_orb.py`)
+
+Deux bras RIGOUREUSEMENT identiques (meme seed, meme board `MC1_67`, meme tour adverse joue, donc
+meme `TURNS_STARTED`), a UNE chose pres : l'allie `necroWarden` (Hero + LivingMetal) est mort ou non.
+
+| bras | natif | moteur | `nResurrect` | `maxSummons` | `numSummons` | custom |
+|---|---|---|---|---|---|---|
+| VIVANT | `69@81` (attaque) | `69@81` MATCH | 0 | 2 | 2 | 20 |
+| MORT | `1009@83` (self) | `1009@83` MATCH | 1 | 3 | 1 | 100 |
+
+- **BASCULE native causee par le seul forfait resurrection** : `pairUtility(69)` BIT-IDENTIQUE d'un
+  bras a l'autre (45.632215263321996) — le confond de prediction est MESURE et NUL.
+- **Terme NECESSAIRE** (custom force a 0 -> le moteur retombe sur `69@81` alors que le natif dit
+  1009) et **route NECESSAIRE** (`NONATTACK_PLAYBOOKS` vide -> idem).
+- **LINEARITE** : le custom releve tuile par tuile prend 3 valeurs (100/110/120) — un terme constant
+  ou purement booleen est exclu.
+- **Une tuile est RESERVEE** : a `nTiles` egal, le bras MORT summon UN de moins (`numSummons` 2 -> 1).
+  C'est le `Count(tiles) - 1` du `If`, observe et non suppose.
+- Encadrement : `pair + 1 = 46.63` tombe entre 20 (VIVANT) et 100 (MORT) — coherent avec 90 / 10.
+
+Garde : `tests/engine/test_resurrection_orb_decision_live.py` (11 tests).
+
+### Residus nommes
+
+- **La face COMBAT de 1009 a DRIFTE et n'est pas re-portee** (hors perimetre #289, qui traite la
+  DECISION). `$$ExecuteBehaviour` du build courant fait
+  `SortByFormula(tiles, MinDistance(It, NormalUnits(Enemies(caster))))` puis
+  `SortTilesByUtilityForSummon(., 7, caster)` puis `First(., GetMaxSummonsFormula(), 0)` — un TRI
+  deterministe la ou le port a garde le `PickRandomly` de `gqfc5mff6c` — et il PRECEDE le spawn d'un
+  `GetResurrectBehaviour(...)` (resurrection d'un heros mecanique allie mort, `PickRandomly(1)`, PV =
+  `PercentageOf(StatAmount(cible, Health, max), variable 0x26)`), entierement absent du port. Le
+  verdict « SUMMON PUR — aucune resurrection » de `necrons.py` etait juste sur `gqfc5mff6c` et est
+  desormais FAUX ; il est corrige sur place.
+- **Le 4e argument d'`UnobscuredEntitiesSelector`** (le `caster` que `DSLSelectors$$CanAddUnit` lui
+  passe) n'est pas RE : le port compte comme occupee la tuile de toute unite vivante. Le playbook
+  contourne en DEPLACANT le caster sur la tuile candidate dans son `DslContext` (mirror du
+  `casterPosition`), ce qui rend le compte juste des deux cotes ; mais la semantique exacte du
+  parametre reste a lire.
+- **Le terme resurrection sur un allie `Mechanical` NON-`LivingMetal`** (correction 2 ci-dessus) n'est
+  pas confronte LIVE : le montage utilise `necroWarden`, qui porte les deux traits. Les 9 heros
+  `Mechanical` sans `LivingMetal` du pool rank 17 rendraient ce bras discriminant.
+- **Le cap `maxSummons = 5` vs l'ancien `6`** n'est pas confronte LIVE non plus : il faudrait
+  `Count(morts mecaniques) + TURNS_STARTED >= 6`, hors de portee du montage a deux tours.
