@@ -151,11 +151,18 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
                     continue                                           # cap atteint cette phase → skip
                 tac.mark_as_triggered(pkey)
         # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit
-        # `Nullable<AbilityOrEffect>(ability.Id)` dans l'`AbilityEntities` **avant** d'executer le
-        # behaviour -> tout ce que le behaviour engendre (attaque, degat, mort) porte cet id, et c'est
-        # lui que lit `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`. Foyer UNIQUE du port :
-        # ici. La sauvegarde/restauration reproduit l'imbrication native (une triggered-ability declenchee
-        # DANS le behaviour d'une autre ecrase le champ pour SA duree, puis rend la main).
+        # `Nullable<AbilityOrEffect>(ability.Id)` dans le champ **`CurrentAbility`**
+        # (`AbilityEntities+0x60`) **AVANT** d'executer le behaviour -> tout ce que le behaviour engendre
+        # (attaque, degat, mort) porte cet id, et c'est lui que lit
+        # `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs`. C'est CE moment-la qui est mirrore
+        # ici -- foyer UNIQUE du port. La sauvegarde/restauration reproduit l'imbrication native (une
+        # triggered-ability declenchee DANS le behaviour d'une autre ecrase le champ pour SA duree, puis
+        # rend la main) ; le natif ne fuit pas non plus d'une evaluation a la suivante, chaque
+        # `EvaluateTriggerOperation` batissant son propre `AbilityEntities`.
+        # ⚠ Le champ natif HOMONYME `TriggeringAbility` (`AbilityEntities+0x98`) est ecrit par la MEME
+        # fonction mais **APRES** le behaviour, pour le seul `On(0xd = UnitTriggeredAbility)` -- non
+        # porte. Le nom du champ Python est historique ; sa semantique est celle de `CurrentAbility`
+        # (case-292, `docs/rl/case-292-current-vs-triggering-ability.md`).
         prev_trig = getattr(state, "triggering_ability", None)
         if entry.TRIGGERED_ABILITY_ID is not None:
             state.triggering_ability = int(entry.TRIGGERED_ABILITY_ID)

@@ -460,19 +460,28 @@ class CursedPlagueBellAttackAbility(TriggeredAbility):
         if UnitTrait(PSYKER).name not in a_traits:
             return False
         # --- NOT CurrentAbilityIs(this) -------------------------------------------------------------
-        # Le natif compare `CurrentAbility` (le slot `DSLSelectors+0x88`, ce que l'`AttackBehaviour`
-        # ecrit depuis son `AbilityOrEffect`) a `Direct(AbilityOrEffect(this))`. Le port ne peut PAS
-        # threader cet id par `ability_type` : le canal est keye sur l'espace `ActiveAbilityType`, ou
-        # 1071 vaut `AnnihilatorBeam` -- y injecter le `TriggeredAbilityType` 1071 ferait lire une
-        # AUTRE ability par tous les gates de kind (meme piege que `MartialSuperiority`/
-        # `MartialApotheosis`, qui ont refuse de threader le leur). On lit donc le foyer UNIQUE que le
-        # dispatch pose deja pour la triggered EN COURS (`state.triggering_ability`, ecrit par
-        # `evaluate_trigger_operation` en mirror de `BaseTriggeredAbility$$Execute`). Les deux champs
-        # natifs sont distincts (`CurrentAbility` vs `TriggeringAbility`) mais ils coincident ici :
-        # le SEUL chemin par lequel `CurrentAbility` peut valoir 1071 sur un `On(9)` est l'execution
-        # du behaviour de CETTE classe (les deux autres classes du passif n'emettent aucune attaque).
-        # Le gate `NOT CasterIsTarget` ci-dessus borne deja la recursion ; celui-ci est la SECONDE
-        # ceinture, celle que le decompile ecrit.
+        # `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` compare le selecteur du slot
+        # `DSLSelectors+0x88` (= `AbilityTypeSelector.CurrentAbilitySelector`, qui LIT
+        # `AbilityEntities+0x60`) a `Direct(AbilityOrEffect(this))`.
+        #
+        # Le canal lu ici EST ce champ-la (case-292, RE relue et confrontee) :
+        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` pose
+        # `Nullable<AbilityOrEffect>(this.Id)` dans `+0x60` **AVANT** d'appeler le behaviour, et le
+        # `.ctor` de copie d'`AbilityEntities` le propage a toute sous-construction
+        # (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` reconstruit un `AbilityEntities`
+        # mais n'ecrase que Caster/Target : il HERITE `+0x60`). Le port pose `state.triggering_ability`
+        # au meme moment (avant `execute_behaviour`) et le restaure apres -> meme champ, meme portee.
+        # Le NOM du champ Python est historique : le champ natif `TriggeringAbility` (`+0x98`, slot
+        # `DSLSelectors+0x90`) est ecrit APRES le behaviour, pour `On(0xd = UnitTriggeredAbility)` seul.
+        #
+        # `ability_type` reste EXCLU : ce canal-la est keye sur l'espace `ActiveAbilityType`, ou 1071
+        # vaut `AnnihilatorBeam` -- y injecter le `TriggeredAbilityType` 1071 ferait lire une AUTRE
+        # ability par tous les gates de kind (meme refus que `MartialSuperiority`/`MartialApotheosis`).
+        #
+        # REDONDANCE MESUREE : `NOT CasterIsTarget` ci-dessus mord deja sur la riposte (auto-attaque),
+        # donc neutraliser CE gate seul ne change aucun observable du montage `probe_224` (mutation
+        # `nogate`, 0 rouge). Ce qui est OBSERVABLE, c'est la RESTAURATION du canal : sans elle, le
+        # second coup de cloche du smite `PsykerExtraAttack` (1013) disparait (mutation `persist`).
         if getattr(state, "triggering_ability", None) == self.TRIGGERED_ABILITY_ID:
             return False
         # --- IsInContagionsOfNurgleRange (NOEUD DSL, case-224 item 4) --------------------------------

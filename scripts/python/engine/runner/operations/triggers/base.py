@@ -71,15 +71,36 @@ class TriggerEvent:
         # ici = « pas d'index de coup dans cet evenement » = `IsFirstHitInSeries` FAUX. Consommateur :
         # ThrillSeekers (branche 1).
         self.is_first_hit = is_first_hit
-        # `TriggeringAbilityIs(AbilityOrEffect)` (`IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`)
-        # = le champ `TriggeringAbility` de l'`AbilityEntities`, DISTINCT de `CurrentAbility`
-        # (`ability_type` ci-dessus, lu par `CurrentAbilityIs`). Il designe la TRIGGERED-ABILITY dont
-        # l'execution a engendre cet evenement -- ecrit par
-        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` avant le behaviour et donc herite
-        # par tout ce que le behaviour declenche. Consommateur porte :
-        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ReviveAbility$$CreateTrigger`
-        # (`TriggeringAbilityIs(0x400 = 1024 TriggeredAbilityType.FinalJustice)`). None = evenement hors
-        # triggered-ability.
+        # L'`AbilityOrEffect` de la TRIGGERED-ABILITY dont l'execution a engendre cet evenement.
+        #
+        # ATTENTION AU NOM (case-292, RE relue sur le build `rnca9r7q6c`) : ce canal mirror en
+        # realite le champ natif **`CurrentAbility`**, pas `TriggeringAbility`. Ce sont DEUX champs
+        # DISTINCTS de l'`AbilityEntities`, et `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`
+        # les ecrit a des MOMENTS differents :
+        #   * `CurrentAbility`    (`AbilityEntities+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`)
+        #     = `Nullable<AbilityOrEffect>(this.Id)` pose **AVANT** l'appel du behaviour -> herite par
+        #     TOUT ce que le behaviour engendre (attaque, degat, mort). C'est CE moment-la que le port
+        #     reproduit (`dispatch/core.py`), donc CE champ que le canal porte.
+        #   * `TriggeringAbility` (`AbilityEntities+0x98`, lu par `AbilityTypeSelector.TriggeringAbilitySelector$$Select`
+        #     et rendu par `IdunBattle.Entities.Abilities.AbilityEntities$$get_TriggerAbilityType`)
+        #     = le MEME id, mais pose **APRES** le behaviour, juste avant l'emission de
+        #     `On(0xd = EventTriggerType.UnitTriggeredAbility)`. Aucun consommateur porte n'ecoute cet
+        #     evenement -> cette face n'est PAS modelisee.
+        # Cote DSL les deux predicats prennent des slots distincts de `DSLSelectors` :
+        # `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` -> `+0x88` ;
+        # `$$TriggeringAbilityIs` / `$$TriggeringEffectIs` / `$$TriggeringAbilityIsNone` -> `+0x90`
+        # (un SEUL slot pour les trois, d'ou l'unique canal cote port).
+        #
+        # Consommateurs portes de CE canal :
+        #   * `...CursedPlagueBellAttackAbility$$CreateTrigger` : `!CurrentAbilityIs(this)` -- le canal
+        #     est EXACT (meme champ, meme moment d'ecriture) ;
+        #   * `...FuelledByFury_ReviveAbility$$CreateTrigger` : `TriggeringAbilityIs(0x400 = 1024
+        #     FinalJustice)` sur `On(3)` -- APPROXIMATION assumee. Le natif y lit le `killTrigger`
+        #     recopie par `IdunBattle.Operations.RecordKillOperation$$Execute` depuis le
+        #     `KillUnitContext` (le champ `+0x20` s'il a une valeur, sinon `+0x00`) et passe au
+        #     publieur de `On(3)`. Les deux valeurs COINCIDENT dans les regimes portes (le coup fatal
+        #     est porte par la triggered en cours), jamais separees par un montage.
+        # None = evenement hors triggered-ability.
         self.triggering_ability = triggering_ability
 
 
@@ -89,10 +110,12 @@ class TriggeredAbility:
     `execute_behaviour` = PossibleTargets + CreateBehaviour. Sous-classes = un trigger concret."""
     event_id: int = -1
     # `AbilityOrEffect(this.Id)` de CETTE triggered-ability (`TriggeredAbilityType`), tel que
-    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` l'ecrit dans l'`AbilityEntities`
-    # AVANT d'executer le behaviour -> c'est ce que lit `TriggeringAbilityIs` sur tout evenement engendre
-    # par ce behaviour. None = id non renseigne (le port ne threade alors AUCUN `TriggeringAbility` pour
-    # cette ability : gate positif faux, gate negatif vrai). Cf. `dispatch/core.py`.
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` l'ecrit dans le champ
+    # **`CurrentAbility`** (`AbilityEntities+0x60`) AVANT d'executer le behaviour -> c'est ce que lit
+    # `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` sur tout evenement engendre par ce
+    # behaviour (cf. le bloc `triggering_ability` de `TriggerEvent` pour la distinction avec le champ
+    # `TriggeringAbility` @+0x98, ecrit APRES). None = id non renseigne (le port ne threade alors AUCUN
+    # id pour cette ability : gate positif faux, gate negatif vrai). Cf. `dispatch/core.py`.
     TRIGGERED_ABILITY_ID: Optional[int] = None
     fire_on_death: bool = False     # ability « fire-on-death » : owner = l'unité MOURANTE (alive=False) —
                                     # bypass du gate « owner vivant » (CanGetAbilityTrigger). Ex. FinalJustice.
