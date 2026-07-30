@@ -570,29 +570,6 @@ tokens**. Ne jamais payer ça pour une information d'avancement : elle se lit à
 *(Faute commise le 2026-07-30 : agent réveillé après 62 min de silence pour savoir s'il était
 bloqué — alors que sa réponse ne changeait rien à la décision.)*
 
-## Coordonner un REINJECT avec des agents en vol
-
-Plutôt que d'attendre une accalmie à zéro agent — qui peut ne jamais venir — **prévenir, attendre
-le parking, réinjecter, notifier**. Protocole (proposé par l'utilisateur le 2026-07-30) :
-
-1. **Vérifier que chaque worktree est SALE avant tout `SendMessage`** : un agent repris avec un
-   worktree PROPRE le perd et repart dans l'arbre principal, silencieusement.
-2. **Préavis individuel**, pas un message générique. Chaque agent doit lire ce qui *le* concerne :
-   ce que le reinject corrige chez lui, et si ses mesures antérieures sont à jeter.
-3. **Trois clauses non négociables du préavis** :
-   * « **ne réinjecte RIEN toi-même** » ;
-   * « **les runners meurent avec la session** » → il devra reconstruire (`rl_duel build`) ;
-   * « **le warmup sera fait par moi**, pas par toi ».
-4. **Dire ce qui reste possible** : la RE au décompilé, la rédaction, les tests offline ne dépendent
-   pas de la session — un agent parqué n'est pas un agent à l'arrêt.
-5. Réinjecter quand les vivants sont rentrés (les endormis ne comptent pas), **warmup**, puis
-   **notifier chacun** que la session est revenue, avec son numéro.
-
-⚠ Le warmup s'arrête à la capture (`stopAfterCapture` par défaut) et **laisse le jeu sur l'écran de
-bataille** — exactement l'état depuis lequel le warmup SUIVANT ne redémarre plus seul. Deux échecs
-identiques = STOP, demander une navigation humaine. Donc : **annoncer la fenêtre à l'utilisateur
-AVANT de la planifier**, elle peut coûter son intervention.
-
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
 **Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
