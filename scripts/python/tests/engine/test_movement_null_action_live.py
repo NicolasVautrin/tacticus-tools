@@ -109,23 +109,34 @@ def test_cutting_the_mirror_makes_the_engine_diverge(arms):
 
 
 def test_out_of_scope_disagreements_are_not_swallowed(arms):
-    """Le mirror ne doit PAS masquer un defaut d'un AUTRE etage. Un pas classe `scoring` (le port
-    vise une autre tuile) ou `ability` (le port caste) doit rester un MISS VISIBLE, jamais etre
-    converti en fin de tour -- sinon on troquerait un defaut mesurable contre un accord de facade.
+    """Le mirror ne doit PAS masquer un defaut d'un AUTRE etage. Un pas classe `ability` (le port
+    caste la ou le natif finit le tour) doit rester un MISS VISIBLE, jamais etre converti en fin de
+    tour -- sinon on troquerait un defaut mesurable contre un accord de facade.
+
+    ⚠ **MISE A JOUR #320** : « le natif finit le tour » recouvrait TROIS etages (`mirror`, `scoring`,
+    `ability`) ; ce test en gardait DEUX. **L'etage `scoring` est desormais PORTE** -- la tuile
+    COURANTE entre dans le candidate-set du generateur de mouvement
+    (`engine.ai.action_generators.movement_candidate_positions`, mirror de
+    `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor`), donc le port ne vise
+    plus une AUTRE tuile la ou le natif reste sur place. Ce test ne le garde donc plus : sa garde
+    propre est `tests/engine/test_movement_scoring_origin_live.py`. Il continue de garder l'etage
+    `ability`, qui reste OUVERT (en amont : gate d'ability, disponibilite, refus de cible).
 
     Ce test MORD reellement : le montage `MC1_67`/909 porte DEUX pas `ability` hors perimetre
-    (mesure `probe_309 --scan`), et `C1_12`/12100 en porte un de type `scoring`."""
-    seen = 0
+    (mesure `probe_309 --scan`). L'assertion de non-vacuite porte sur l'etage `ability` NOMMEMENT --
+    la compter sur « tout ce qui est hors perimetre » laisserait un pas `scoring` residuel la
+    satisfaire, et la disparition des pas `ability` passerait inapercue."""
+    seen_ability = 0
     for k, r in arms.items():
         for row in r["cable"]["rows"]:
             if row["scope"] == "mirror":
                 continue
-            seen += 1
+            seen_ability += int(row["scope"] == "ability")
             assert not row["agree"], (
                 "montage %s step %d (etage %s) : desaccord converti en accord -- le mirror avale "
                 "un defaut d'un autre etage : %s" % (k, row["step"], row["scope"], row["why"]))
-    assert seen > 0, (
-        "aucun pas HORS PERIMETRE dans les montages -- ce test ne mesure rien ; verifier que "
+    assert seen_ability > 0, (
+        "aucun pas d'etage `ability` dans les montages -- ce test ne mesure rien ; verifier que "
         "`MC1_67`/909 porte toujours ses deux pas `ability`")
 
 
