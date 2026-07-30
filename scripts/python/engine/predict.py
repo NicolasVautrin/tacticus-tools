@@ -225,6 +225,46 @@ def heal_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
     return heal_amount(int(attack_stat), weapon_highest_hits)
 
 
+# Le natif choisit sa magnitude par la CLASSE d'ability, pas par la presence d'une variable de config.
+# Deux implementations de `HealAmount` seulement (`search_symbols_by_name "HealAmount"`, build courant) :
+#   * `IdunBattleLogic.Entities.Abilities.Active.MassHealAbility$$HealAmount`
+#     = `Direct(AbilityConfiguration$$GetVariableForLevel(cfg, 0x20, abilityState))` -> la VARIABLE.
+#   * `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` -> l'ARME.
+#     Les trois playbooks de soin Comparable l'appellent NOMMEMENT (pas de dispatch virtuel) depuis
+#     leur `MakeHealPredictions` : `IdunBattle.AI.Playbook.Common.HealPlaybook$$MakeHealPredictions`
+#     (18), `IdunBattle.AI.Playbook.Loki.TwistedScience_HealPlaybook$$MakeHealPredictions` (1167) et
+#     `IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$MakeHealPredictions` (1212).
+# Router par la PRESENCE de `hpToHeal` etait un proxy, et il est FAUX pour 1212 : la cle derivee
+# ("HealingBalms_Heal" -> "HealingBalms") pointe sur la config du PASSIF, dont le `hpToHeal` alimente
+# le soin RETARDE de l'effet `HealingBalms` (i2 : "At the start of its next turn, the affected unit is
+# also healed for {hpToHeal} Health"), PAS l'action. Mesure live (probe_27_1212_healingbalms) :
+# `pairUtility` natif = 37.67811609432101 = min(2512x3, missing)/(20000+1)x100 -> branche ARME ;
+# la branche `hpToHeal` (4986 -> 24.9288) est REFUTEE.
+CONFIG_HEAL_ABILITY_IDS = frozenset({8})    # MassHeal — seul porteur de `MassHealAbility$$HealAmount`
+# Non-regression MESUREE (re-derivee du code, pas heritee) : les 4 seuls `ActiveAbilityType` dont le nom
+# contient "Heal" sont 8 / 18 / 1167 / 1212, et seul 1212 changeait de branche.
+#   18 (`Heal`) et 1167 (`Heal_TwistedScience`) : leur cle derivee n'a PAS de `hpToHeal` -> ils
+#   retombaient DEJA sur l'arme -> valeurs inchangees (6024 pour l'Hospitaller 3-hit, 3614 pour le
+#   biophagus 1-hit) ;
+#   8 (`MassHeal`) : sans entree gameconfig, la branche config rend None ; le port retombait avant sur
+#   l'ARME, ce que le natif ne fait JAMAIS pour cette classe -> desormais None (saturation `missing`).
+#   INERTE : `unit_map.py find --ability MassHeal` rend **0 unite** sur ce build.
+
+
+def heal_amount_for_ability(ability_id: int | None, ability_name: str | None,
+                            active_level: int, passive_level: int, multiplier_pct: int,
+                            attack_stat: int | None, weapon_highest_hits: int) -> int | None:
+    """Dispatch NATIF de `HealAmount` par classe d'ability (cf. `CONFIG_HEAL_ABILITY_IDS`).
+
+    Rend None seulement si la branche retenue n'a pas ses entrees (pas de `hpToHeal` pour la branche
+    config, pas de `Scene` pour la branche arme) — l'appelant retombe alors sur la saturation."""
+    if ability_id is not None and int(ability_id) in CONFIG_HEAL_ABILITY_IDS:
+        return heal_amount_config(ability_name, active_level, passive_level, multiplier_pct)
+    if attack_stat is None:
+        return None
+    return heal_amount_weapon(attack_stat, weapon_highest_hits)
+
+
 def predict_heal_effective(heal_amount_value: int, target_current_hp: int, target_max_hp: int,
                            boss_max_hp: int | None = None, group_limit: int | None = None) -> int:
     """`IdunBattle.Core.Services.DamagePrediction$$PredictHeal → `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp.

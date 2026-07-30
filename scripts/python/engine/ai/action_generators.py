@@ -47,13 +47,14 @@ from engine import move
 from engine import battle_query as bq          # is_adjacent (élévation-gaté) — cibles heal SpiritLeech (#84)
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
-from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
+from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK, HEAL_PLAYBOOKS
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
 from engine.playbook.excruciating_frequencies import excruciating_frequencies_candidates  # #56-t3b : 1197 ligne-AoE tuile
 from engine.predict import (repair_utility, repair_amount_weapon,  # RepairedAmountUtility + magnitude ARME (#45d)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
                             heal_amount_weapon,        # #45c : branche ARME REELLE de HealAmount
+                            heal_amount_for_ability,   # #27-1212 : dispatch NATIF de HealAmount par classe
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
                             repair_amount, calculate_repair_modifier_for_prediction,  # RepairModifier cible (#45d)
                             heal_utility)             # HealUtility — terme lifesteal SpiritLeech (#84)
@@ -431,19 +432,21 @@ class ComparableAbilityGenerator(ActionGenerator):
                             if t.get("kind") == "unit" and t.get("targetId") is not None:
                                 vts.add(t["targetId"])
             is_twisted = "TwistedScience" in (ab.get("name") or "")
-            # Magnitude OFFLINE du soin = `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount` = `ability_var(hpToHeal, level)`
-            # (#79 ; depend de l'ability + du niveau du caster, PAS de la cible -> resolu 1x). None -> pas de
-            # `hpToHeal` (soin a arme reelle Heal(18) / magnitude speciale TwistedScience) -> saturation.
+            pb = HEAL_PLAYBOOKS.get(int(aid)) if aid is not None else None   # 1212 -> playbook bespoke
+            # Magnitude OFFLINE du soin : le natif DISPATCHE par classe d'ability (deux implementations
+            # de `HealAmount` seulement, cf. `engine.predict.heal_amount_for_ability`) —
+            #   MassHeal(8) -> `MassHealAbility$$HealAmount` = la variable de config `hpToHeal` ;
+            #   18 / 1167 / 1212 -> `HealAbility$$HealAmount` = `StatAmount(weapon) x Max(WeaponHighestHits,1)`
+            #   (= stat Damage RESOLUE du caster x hits d'arme ; #55 : le x hits est reel, Hospitaller
+            #   Heal(18) 3-hit = 2008x3 = 6024).
+            # Depend de l'ability + du caster, PAS de la cible -> resolu 1x. None -> saturation `missing`
+            # (dernier filet : Scene absente, ou branche config sans `hpToHeal`).
             _hc = ctx.heal_config(ctx.uid)
-            heal_amt = heal_amount_config(ab.get("name"), _hc["active"], _hc["passive"], _hc["multiplier"])
-            # #45c : pas de `hpToHeal` -> branche ARME REELLE de `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount`
-            # (StatAmount(weapon) = stat Damage resolue du caster x Max(WeaponHighestHits,1) —
-            # #55 : le x hits est reel, Hospitaller Heal(18) 3-hit = 2008x3=6024). La saturation
-            # `missing` ne reste que si la Scene manque (dernier filet, etat anterieur).
-            if heal_amt is None and getattr(ctx, "scene", None) is not None:
-                _actx = ctx.scene.ctx(ctx.uid)
-                if _actx is not None:
-                    heal_amt = heal_amount_weapon(_actx.attack, _actx.normal_weapon_hits)
+            _actx = (ctx.scene.ctx(ctx.uid) if getattr(ctx, "scene", None) is not None else None)
+            heal_amt = heal_amount_for_ability(
+                aid, ab.get("name"), _hc["active"], _hc["passive"], _hc["multiplier"],
+                (None if _actx is None else _actx.attack),
+                (1 if _actx is None else _actx.normal_weapon_hits))
             for tg in vts:
                 tu = unit_by_id.get(tg) or {}
                 # gate natif `HasEffect(target, EffectType.TwistedScience_ExtraHp=1355)` sur l'état d'effets
@@ -469,11 +472,21 @@ class ComparableAbilityGenerator(ActionGenerator):
                              else predict_heal_effective(heal_amt, hp_cur, hp_max, group_limit=group_limit))
                 is_friend = (me is not None and tu.get("team") == me.get("team"))
                 faction = _faction(tu.get("visualId"))
-                pred = HEAL_PLAYBOOK.score(effective, hp_max, is_friend, is_twisted, faction)
+                if pb is None:
+                    pred = HEAL_PLAYBOOK.score(effective, hp_max, is_friend, is_twisted, faction)
+                    balms = None
+                else:
+                    # 1212 : `...HealingBalms_HealPlaybook$$CalculateCustomUtility` est GATE par
+                    # `HasEffect(target, EffectType.HealingBalms_ExtraCritDamage = 0x5df)` — meme
+                    # canal `EffectsState` que le gate TwistedScience ci-dessus. Ici le gate n'exclut
+                    # PAS la cible (le natif calcule bien l'action, custom = 0) : il annule le terme.
+                    balms = bool(_eff is not None and _eff.has_effect(
+                        tg, effect_type=int(EffectType.HealingBalms_ExtraCritDamage)))
+                    pred = pb.score(effective, hp_max, is_friend, balms)
                 if ctx.debug:
                     print(f"    [dbg heal u{ctx.uid}->{tg}] vis={tu.get('visualId')} fac={faction} "
                           f"hp={hp_cur}/{hp_max} miss={missing} healAmt={heal_amt} eff={effective} "
-                          f"twisted={is_twisted} pred={pred}", file=sys.stderr)
+                          f"twisted={is_twisted} balms={balms} pred={pred}", file=sys.stderr)
                 if pred is None:
                     continue  # ShouldExecute : émet le soin SSI pred > 0
                 tpos = pos_by_id.get(tg)
