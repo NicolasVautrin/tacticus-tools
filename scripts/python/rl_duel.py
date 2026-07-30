@@ -383,6 +383,43 @@ def cmd_build(sid: int, a) -> int:
             if u.get("VisualId") in a_set:
                 u["Armor"] = a.armor_target
                 u["FixedArmor"] = a.armor_target
+    for spec in (getattr(a, "unit_stat", None) or []):
+        # Patch PER-UNIT des champs de `BC.Units`, appliqué au MÊME endroit (donc au même BC déjà
+        # NORMALISÉ) que --hp-player/--dmg-target — qui, eux, ne savent forcer qu'une valeur unique
+        # sur TOUT un camp. Sert les montages dont la mesure porte sur un ÉCART entre deux unités du
+        # même côté : deux `Health` différents = deux niveaux d'utilité de soin/dégât sur des unités
+        # par ailleurs identiques (#286 : discriminer un coefficient MULTIPLICATIF, qui exige deux
+        # régimes à écart NON nul — un levier global ne peut par construction pas les produire).
+        # Forme : "VisualId:Champ=Valeur[,Champ=Valeur][;VisualId:…]" ; la valeur est du JSON
+        # (`80000`, `[]`, `null`) et le champ est écrit VERBATIM dans l'entrée Units.
+        # Limite assumée : pas de virgule DANS une valeur (elle sépare les champs).
+        for part in spec.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            vis, _, fields = part.partition(":")
+            vis = vis.strip()
+            touched = [u for u in bc.get("Units", []) if u.get("VisualId") == vis]
+            if not touched:
+                print(f"[error] --unit-stat: VisualId '{vis}' absent du catalogue BC.Units",
+                      file=sys.stderr)
+                return 2
+            for kv in fields.split(","):
+                key, _, val = kv.partition("=")
+                key = key.strip()
+                if not key:
+                    continue
+                try:
+                    parsed = json.loads(val.strip())
+                except json.JSONDecodeError:
+                    print(f"[error] --unit-stat: valeur non-JSON pour {vis}.{key}: {val!r}",
+                          file=sys.stderr)
+                    return 2
+                for u in touched:
+                    u[key] = parsed
+            print(f"[build] --unit-stat {vis}: " + ", ".join(
+                f"{kv.partition('=')[0].strip()}={touched[0].get(kv.partition('=')[0].strip())}"
+                for kv in fields.split(",") if kv.partition("=")[0].strip()))
     if getattr(a, "dmg_target", None):
         # Frappe ADVERSE écrasante : `Damage` des a-units (la normalisation rend un chiffre bas —
         # ~30 dmg/coup mesuré, insuffisant pour tuer une unité INVOQUÉE dont les PV viennent du kit
@@ -2020,6 +2057,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--hp-player", type=int, default=None,
                     help="build: idem --hp-target mais pour les p-units (mover fragile côté joueur) — "
                          "MET AUSSI Armor/FixedArmor a 0, même piège de mesure")
+    ap.add_argument("--unit-stat", action="append", default=None,
+                    help="build: patch PER-UNIT du BC normalise, "
+                         "'VisualId:Champ=Valeur[,Champ=Valeur][;VisualId:...]' (valeur JSON). "
+                         "Repetable. Pendant per-unit de --hp-player/--dmg-target, qui forcent une "
+                         "valeur unique sur tout un camp : indispensable des que la mesure porte sur "
+                         "un ECART entre deux unites du meme cote (ex. deux Health -> deux niveaux "
+                         "d'utilite de soin). Pas de virgule dans une valeur.")
     ap.add_argument("--armor-target", type=int, default=None,
                     help="build: force Armor+FixedArmor des a-units a la valeur donnee (pendant "
                          "de --hp-target, qui les met a 0). HAUTE = la branche PERCAGE du plancher "
