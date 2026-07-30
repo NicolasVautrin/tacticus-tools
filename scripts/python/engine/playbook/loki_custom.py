@@ -300,6 +300,135 @@ class HeavyWarpFlamerPlaybook(_CustomOnlyPlaybook):
         return float(n) * ctx.wt.sub("ActiveAbilities", self.W_KEY)   # 10
 
 
+class StikkbombPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` (ability 1051) —
+    PENALITE DE TIR AMI. Corps natif relu VERBATIM sur `rnca9r7q6c` :
+
+        formula = DSLFormulas.Get(GetVariableForLevel(config, 0xc = minDmg));   // == Direct(minDmg)
+        hits2   = GetNumberConstant(config, 0x32 = nrOfHits_2);
+        profile = GetDamageProfile(config);
+        sel     = StikkbombAbility.GetAdjacentDamageTargets();
+        preds   = new List<ProbableDamageEvent>();
+        foreach (u in TargetsSelector.SelectUniqueUnits(sel, AbilityEntities(Target = target), 3))
+            if (UnitExtensions.IsFriend(u, caster, state))
+                preds.AddRange( GenerateMultiHitAttackPredictions(caster, casterPosition, target,
+                                    <selecteur Target>, formula, hits2, profile, null, null) );
+        u = Fix64.Zero;
+        foreach (p in preds) u = Fix64.op_Addition(u, CalculateUtilityFromDamageEvent(p, caster, casterPosition));
+        return Fix64.op_UnaryNegation(u);
+
+    TROIS points de RE qui ne se devinent pas, et qui font tout ce terme :
+
+    1. **Le SOUS-SET est declaratif, le FILTRE est imperatif.** Le selecteur
+       `...StikkbombAbility$$GetAdjacentDamageTargets` (corps PARTAGE, seul proprietaire nomme
+       `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$GetAdjacentDamageTargets`)
+       est un arbre `DSLSelectors.AdjacentUnits(Target, unique: 1, sel: 3)` =
+       `Units(AdjacentTiles(Target), unique, sel) - Target` — SANS filtre d'equipe. C'est le MEME
+       artefact natif que la face COMBAT (`...StikkbombAbility$$ExecuteBehaviour` passe ce meme
+       selecteur a son 2e `AttackWithAttackDamage`), deja portee en
+       `runner/abilities/loki/splash.py::stikkbomb_tree` sous la forme
+       `Alive(AdjacentUnits(TargetTile()))` — friendly-fire INCLUS (#213). Le tri ami/ennemi, lui,
+       n'est PAS un noeud : c'est un `foreach` + `UnitExtensions.IsFriend` DANS le playbook. D'ou le
+       partage exact du SET avec la face combat, et la duplication d'aucun evaluateur.
+       `IsFriend(u, caster, state)` compare `GetCurrentPlayer(u).<0x20>.<0x24>` a celui du caster :
+       le CASTER est donc son propre ami et compte s'il est lui-meme adjacent a la cible (Stikkbomb
+       est ranged r=2, cette configuration est atteignable). Les positions sont les positions
+       REELLES du board (occupation de tuile), pas la tuile candidate du sweep -> terme
+       INDEPENDANT de `caster_tile`, DEPENDANT de la cible (il arbitre l'argmax par CIBLE).
+    2. **Chaque ami produit une prediction sur la CIBLE PRINCIPALE, pas sur lui-meme.** Le 4e
+       argument passe a `GenerateMultiHitAttackPredictions` est `target`, pas l'unite iteree —
+       DECOMPILE puis confirme a l'assembleur (cf. `prediction.make_stikkbomb_splash_event`, qui
+       porte la lecture des home slots). Et dans cette fonction `param_4` ne sert qu'a peupler
+       l'`AbilityEntities` : ce sont les entites du SELECTEUR `param_5` (= `Target`) qui recoivent
+       les predictions. Le contenu de l'event est donc INVARIANT d'un ami a l'autre ; seul leur
+       NOMBRE compte. (C'est un quirk natif : l'intention lisible etait de predire les degats
+       infliges aux amis. On mirroir le code, pas l'intention.)
+    3. **Le signe vient du `op_UnaryNegation` FINAL, pas d'un event `friendly`.** L'event porte la
+       CIBLE (un ennemi) -> `CalculateUtilityFromDamageEvent` rend une utilite POSITIVE, que le
+       playbook nie. Poser `friendly=True` sur l'event ET negger produirait le signe INVERSE.
+
+    Magnitude : le terme vaut `-n x U(1 coup sur la cible)` la ou l'utilite de paire vaut
+    `U(nrOfHits coups sur la cible)`. Ce n'est donc pas un petit biais de rang mais une penalite du
+    meme ordre que l'action elle-meme — un seul ami colle a la cible ampute ~la moitie de sa valeur
+    (config 1051 : nrOfHits = 2, nrOfHits_2 = 1). AUCUN poids `BC.Utilities` n'intervient : ce
+    custom-ci ne lit pas `GetUtilityValue`.
+
+    Porteurs : `orksOrkBoys` (SUMMON de `Waaagh`, porte par `orksWarboss` [lineup]) et
+    `orksNpc2OrkBoy` [npc]. Confrontable par le summoner (cf. §Validation de case-27)."""
+    ability_id = int(ActiveAbilityType.Stikkbomb)  # 1051
+
+    def _adjacent_positions(self, ctx, friends: bool) -> list:
+        """Positions candidates du sous-set : le natif enumere TOUTES les unites adjacentes a la
+        cible (`AdjacentUnits`, aucun filtre d'equipe) puis garde celles pour lesquelles
+        `IsFriend(u, caster)` vaut `friends`. Cote port, les deux moities de la partition sont deja
+        materialisees par le contexte : `ctx.fpos` (allies VIVANTS, caster EXCLU) et `ctx.epos`
+        (ennemis VIVANTS). Le caster est re-ajoute cote AMIS — `IsFriend(caster, caster)` est vrai
+        (meme joueur), et `AdjacentUnits(Target)` ne soustrait que la CIBLE."""
+        if not friends:
+            return list(ctx.epos or [])
+        pos = list(ctx.fpos or [])
+        cpos = _main_tile_of(ctx, ctx.uid)
+        if cpos is not None:
+            pos.append(cpos)
+        return pos
+
+    def _splash_count(self, ctx, target, friends: bool) -> int:
+        """`Enumerable.Count` du sous-set : unites adjacentes (hex, porte d'elevation
+        d'`IterateAdjacentTiles` = `battle_query.count_adjacent`) a la MainTile REELLE de la cible.
+        La cible est a distance 0 d'elle-meme -> jamais comptee (== le `- Target` natif)."""
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0
+        return bq.count_adjacent(tpos, self._adjacent_positions(ctx, friends), ctx.elev_by_pos)
+
+    def _splash_event(self, ctx, caster_tile, target, ability_id):
+        """L'event de degat SPLASH natif (invariant, cf. point 2 de la docstring de classe)."""
+        if ctx.scene is None:
+            return None
+        from .prediction import make_stikkbomb_splash_event
+        return make_stikkbomb_splash_event(ctx.scene, ctx.uid, target, ability_id,
+                                           ctx.ab_name_by_id.get(ability_id), caster_tile)
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        """`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$MakeDamagePredictions` — l'exact MIROIR du
+        custom, avec le test `IsFriend` INVERSE :
+
+            preds = GenerateMultiHitAttackPredictions(..., target, <Target>, Get(minDmg),
+                                                      GetNumberConstant(0x2f = nrOfHits), profile, ...)
+            foreach (u in SelectUniqueUnits(GetAdjacentDamageTargets(), AbilityEntities(Target=target), 3))
+                if (!IsFriend(u, caster, state))
+                    preds.AddRange( GenerateMultiHitAttackPredictions(..., target, <Target>,
+                                        Get(minDmg), GetNumberConstant(0x32 = nrOfHits_2), profile, ...) )
+            return preds;
+
+        L'event principal (base `minDmg` seul + `nrOfHits` LITTERAL) vient du chemin generique via
+        `_stikkbomb_inputs` ; les events secondaires sont ajoutes ICI, un par ENNEMI adjacent a la
+        cible — et, comme cote custom, ils portent tous sur la CIBLE PRINCIPALE avec `nrOfHits_2`.
+        Consequence de gameplay : plus la cible est entouree d'ennemis, plus le natif SUR-evalue les
+        degats qu'il lui inflige (chaque voisin ajoute un coup de plus... sur elle)."""
+        events = super().make_damage_predictions(ctx, caster_tile, target, ability_id)
+        if not events:
+            return events
+        n = self._splash_count(ctx, target, friends=False)
+        if n <= 0:
+            return events
+        ev = self._splash_event(ctx, caster_tile, target, ability_id)
+        if ev is None:
+            return events
+        return list(events) + [ev] * n
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        n = self._splash_count(ctx, target, friends=True)
+        if n <= 0:
+            return 0.0
+        ev = self._splash_event(ctx, caster_tile, target, ability_id)
+        if ev is None:
+            return 0.0
+        from .probable_damage_event import calculate_utility_from_damage_event
+        u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(target))
+        return -float(n) * u                                   # Fix64.op_UnaryNegation(somme)
+
+
 class SavageEchoesPlaybook(_CustomOnlyPlaybook):
     """`IdunBattle.AI.Playbook.Loki.SavageEchoesPlaybook$$CalculateCustomUtility` :
 
@@ -837,7 +966,7 @@ def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
-                HeavyWarpFlamerPlaybook):
+                HeavyWarpFlamerPlaybook, StikkbombPlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque

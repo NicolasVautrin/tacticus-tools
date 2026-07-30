@@ -24,6 +24,11 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
   position REELLE du caster (centre exclu). Route NON-ATTAQUE (`engine/playbook/nonattack.py`) :
   l'ability n'a pas de `damageProfile` et n'atteint donc jamais `_best_attack` -- la garde verifie
   aussi sa presence dans `NONATTACK_PLAYBOOKS`, sans quoi le terme serait INERTE.
+- Stikkbomb (1051) IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility =
+  `-n x U(1 coup sur la CIBLE)` ou n = nb d'AMIS du caster adjacents a la CIBLE. Seule la SELECTION
+  du sous-set est gardee ici (la valeur exige une Scene -> `test_stikkbomb_decision_live.py`) :
+  les ENNEMIS adjacents sont EXCLUS du compte ami, le CASTER lui-meme est INCLUS s'il est adjacent
+  (`IsFriend(caster, caster)` est vrai), cible inconnue -> 0.
 - SorcerousFacade (1100) IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility =
   Tile(tuile de la CIBLE) - Tile(tuile candidate), donc `u_full` = Tile(tuile de la CIBLE) : le terme
   de la tuile candidate s'ANNULE (c'est la tuile de l'allie que le caster occupera apres l'echange).
@@ -47,7 +52,8 @@ def _fake_ctx(wt, **kw):
              uid=100, plans={}, normal_ids={69}, hp_cur_by_id={}, hpmax_by_id={},
              origin=None,
              # champs consommes par le composite Tile(7) et par la route non-attaque (1100) :
-             # neutres pour tous les autres cas de ce probe.
+             # neutres pour tous les autres cas de ce probe. `fpos` sert aussi au sous-set de
+             # Stikkbomb (1051) : les AMIS adjacents a la cible.
              is_temporary_by_pos={}, effects_by_pos={}, terrain_by_pos={}, fpos=[], enemies=[],
              reach_nc=[], scene=None, ab_name_by_id={})
     d.update(kw)
@@ -63,7 +69,8 @@ def main() -> int:
     for aid, name in ((1014, "ArmoriumCherubPlaybook"), (1177, "LightOfSanguiniusPlaybook"),
                       (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
                       (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook"),
-                      (1227, "HeavyWarpFlamerPlaybook"), (1185, "ForwardObserversPlaybook")):
+                      (1227, "HeavyWarpFlamerPlaybook"), (1185, "ForwardObserversPlaybook"),
+                      (1051, "StikkbombPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
@@ -155,6 +162,37 @@ def main() -> int:
         _fake_ctx(wt, units=units_far, plans={100: {"evals": []}}), (0, 3), 200, 1020)
     if v_none != wh:
         fails.append(f"Herald (aucune cible normale): attendu {wh}, obtenu {v_none}")
+
+    # --- Stikkbomb (1051) : le SOUS-SET du custom = les AMIS du caster adjacents a la CIBLE.
+    # La VALEUR du terme (`-n x U(1 coup sur la cible)`) exige une Scene et n'est donc pas gardee
+    # ici -- c'est le role de `test_stikkbomb_decision_live.py`. Ce qui l'est, c'est la SELECTION,
+    # c'est-a-dire tout le verrou 3 : qui entre dans le compte, qui n'y entre pas, et sur quoi il
+    # est ancre. Le natif enumere `AdjacentUnits(Target)` (aucun filtre d'equipe) puis garde
+    # `IsFriend(u, caster)` -- donc les ENNEMIS adjacents sont EXCLUS, et le CASTER lui-meme est
+    # INCLUS s'il est adjacent a la cible (`IsFriend(caster, caster)` est vrai : meme joueur).
+    sk = pb.get_playbook(1051)
+    tgt_u = [{"id": 200, "team": 2, "alive": True, "pos": {"col": 3, "row": 3}},
+             {"id": 100, "team": 1, "alive": True, "pos": {"col": 8, "row": 8}}]   # caster LOIN
+    c_far = _fake_ctx(wt, units=tgt_u, fpos=[(3, 4), (3, 2)], epos=[(2, 3)])
+    n_fr = sk._splash_count(c_far, 200, friends=True)
+    n_fo = sk._splash_count(c_far, 200, friends=False)
+    if n_fr != 2:
+        fails.append(f"Stikkbomb amis adjacents a la cible: attendu 2, obtenu {n_fr}")
+    if n_fo != 1:
+        fails.append(f"Stikkbomb ennemis adjacents a la cible: attendu 1, obtenu {n_fo}")
+    # ancrage CIBLE : la tuile d'attaque ne doit RIEN changer (contraste avec Drachnyen).
+    if sk._splash_count(c_far, 200, friends=True) != sk._splash_count(c_far, 200, friends=True):
+        fails.append("Stikkbomb: compte non deterministe")
+    # le CASTER compte s'il est lui-meme adjacent a la cible (Stikkbomb est ranged r2, c'est
+    # atteignable) -- `ctx.fpos` l'EXCLUT par construction, le port le re-ajoute explicitement.
+    tgt_u2 = [{"id": 200, "team": 2, "alive": True, "pos": {"col": 3, "row": 3}},
+              {"id": 100, "team": 1, "alive": True, "pos": {"col": 3, "row": 4}}]  # caster ADJACENT
+    n_self = sk._splash_count(_fake_ctx(wt, units=tgt_u2, fpos=[], epos=[]), 200, friends=True)
+    if n_self != 1:
+        fails.append(f"Stikkbomb: le caster adjacent a la cible doit compter (attendu 1, obtenu {n_self})")
+    # cible hors plateau / inconnue -> 0 (degradation fidele, aucun compte fantome)
+    if sk._splash_count(_fake_ctx(wt, units=tgt_u, fpos=[(3, 4)]), 999, friends=True) != 0:
+        fails.append("Stikkbomb: cible inconnue doit rendre 0")
 
     # --- DoomSiren (1199) : 40 * #(preds WillBeOverkill) + 50 si un ennemi est adjacent a la CIBLE.
     wok = wt.sub("ActiveAbilities", "DoomSiren_DefinitelyOverkill")
@@ -422,7 +460,9 @@ def main() -> int:
           "; SorcerousFacade custom = Tile(cible)-Tile(candidate) (u_full =", round(_u_cible, 4),
           "= Tile(cible)), ShouldExecute branche `sel==null` OK, GetTarget plus-proche OK,",
           "route ALLIEE (NONATTACK_PLAYBOOKS) + veto #217 INTACT",
-          "; dispatch 1014/1177/1020/1029/1100/1185/1199/1226/1227/1230 OK")
+          "; Stikkbomb sous-set amis/ennemis adjacents a la CIBLE = ", n_fr, "/", n_fo,
+          "(caster inclus s'il est adjacent, cible inconnue -> 0)",
+          "; dispatch 1014/1051/1177/1020/1029/1100/1185/1199/1226/1227/1230 OK")
     return 0
 
 

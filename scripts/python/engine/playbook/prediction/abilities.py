@@ -243,6 +243,85 @@ def _great_frost_axe_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ta
     return {"base_override": base}
 
 
+def _stikkbomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$MakeDamagePredictions` (ability 1051,
+    orksOrkBoys / orksNpc2OrkBoy) — event PRINCIPAL. Deux SURCHARGES des entrees generiques, toutes
+    deux lues au call-site :
+
+      - BASE = `IdunBattleLogic.Entities.DSLFormulas$$Get(GetVariableForLevel(config, 0xc = minDmg))`
+        = **minDmg SEUL** (rarity-scaled), PAS l'avg(minDmg, maxDmg) generique. La surcharge
+        `DSLFormulas$$Get(this, amount)` a le MEME corps (meme classe instanciee, meme ctor) que
+        `IdunBattleLogic.Entities.DSLFormulas$$Direct` : c'est le noeud `DirectAmount`. Meme mold que
+        `_hellfire_shells_inputs` (#173) et `_great_frost_axe_inputs` (#57e).
+        ⚠ CONTRASTE avec la face COMBAT : `...StikkbombAbility$$ExecuteBehaviour` passe, lui,
+        `DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)` — le playbook de PREDICTION est plus
+        pessimiste que l'execution. Ce n'est pas une incoherence de port : ce sont deux call-sites
+        natifs distincts.
+      - HITS = `GetNumberConstant(0x2f = nrOfHits)` **LITTERAL** (7e arg du call-site). Le chemin
+        generique passe par `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits, ...)`,
+        qui AJOUTE la stat `ExtraHits` du caster — que ce playbook n'ajoute pas. Sans ExtraHits les
+        deux coincident ; avec (les Orks en gagnent 1 par `Waaagh`) ils divergent.
+
+    Le PROFIL n'est pas surcharge : le playbook passe `GetDamageProfile(config)` -> `Nullable` NON
+    vide (Blast), pas le quirk `param_8 = null` de #164/#165."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)      # var 0xc = minDmg (Get == Direct)
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
+    out = {"base_override": base}
+    if hits:
+        out["hits_override"] = hits
+    return out
+
+
+def make_stikkbomb_splash_event(scene, caster_id, target_id, ability_id, ability_name, attack_pos):
+    """UN event de degat du VOLET SPLASH de Stikkbomb (1051), tel que le natif le fabrique — c'est-a-dire
+    **sur la CIBLE PRINCIPALE**, avec le nombre de coups SECONDAIRE.
+
+    Les deux boucles natives de 1051 (`...StikkbombPlaybook$$MakeDamagePredictions` cote ENNEMIS,
+    `...StikkbombPlaybook$$CalculateCustomUtility` cote AMIS) appellent
+    `...ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` avec EXACTEMENT les memes arguments a
+    chaque tour de boucle :
+
+        GenerateMultiHitAttackPredictions(caster, casterPosition,
+                                          target,                       // param_4
+                                          <selecteur Target>,           // param_5 = DSLSelectors@0x60
+                                          Get(minDmg), GetNumberConstant(0x32 = nrOfHits_2),
+                                          GetDamageProfile(), null, null)
+
+    `param_4` est la CIBLE PRINCIPALE et **jamais l'unite splash iteree** : lu au DECOMPILE puis
+    CONFIRME a l'assembleur (`mov r9,[rsp+0x578]`, ou `rsp+0x578` est le home slot du 4e parametre
+    ecrit par le prologue `mov [rax+0x20],r9` avec `rax = rsp_entree` et
+    `rsp_courant = rsp_entree - 0x38 (7 push) - 0x520 (sub rsp)` ; meme lecture dans
+    `MakeDamagePredictions`, `mov r9,[rsp+0x4a8]` avec `- 0x38 - 0x450`). Or dans
+    `GenerateMultiHitAttackPredictions` le `param_4` ne sert qu'a peupler le contexte
+    `AbilityEntities` (`Target` + `GetTiles(target)`) : ce sont les entites rendues par le SELECTEUR
+    `param_5` qui recoivent les predictions. Avec `param_5` = le selecteur `Target`, la liste rendue
+    vaut donc `[target]` a CHAQUE tour de boucle.
+
+    => l'unite splash ne determine QUE le NOMBRE d'events ; leur contenu est invariant. Ce helper le
+    calcule UNE fois, l'appelant le repete `n` fois (mirror numeriquement exact de la boucle native,
+    sans en payer le cout N fois).
+
+    None si la prediction est indisponible (scene/config incompletes) -> l'appelant degrade en no-op."""
+    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
+    ctx0 = scene.ctx(caster_id) if scene is not None else None
+    if cfg is None or ctx0 is None:
+        return None
+    ab = active_ability_for(ability_name, ability_id, ctx0, cfg,
+                            ability_state=scene.ability_state(caster_id, ability_id))
+    if ab is None:
+        return None
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)       # var 0xc = minDmg (Get == Direct)
+    hits = int((cfg.constants or {}).get("nrOfHits_2") or 0)        # const 0x32 = nrOfHits_2
+    if not hits:
+        return None
+    dp = generate_multi_hit_attack_prediction(scene, caster_id, target_id, ability_id, ability_name,
+                                              attack_pos=attack_pos, base_override=base,
+                                              hits_override=hits)
+    return ProbableDamageEvent(target=target_id, prediction=dp) if dp is not None else None
+
+
 def _frenzied_firing_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     """`IdunBattle.AI.Playbook.Loki.FrenziedFiringPlaybook$$MakeDamagePredictions` (ability 1036,
     blackObliterator « Volk ») — le nb de coups de l'event PRINCIPAL n'est PAS `nrOfHits` : le playbook
@@ -350,7 +429,8 @@ def _savage_echoes_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # targ
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
                              1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
-                             1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs}
+                             1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs,
+                             1051: _stikkbomb_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
