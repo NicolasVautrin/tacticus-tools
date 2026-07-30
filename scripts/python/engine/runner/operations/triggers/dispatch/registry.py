@@ -97,6 +97,7 @@ from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif 
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
+from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -367,6 +368,31 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le gate `HasEffect(attaquant, 1509)` du trigger rend l'entree INERTE tant qu'aucun Hailstrike
     # n'est pose -> l'inscription inconditionnelle est fidele. Cf. loki/hailstrike.py.
     "Hailstrike": [HailstrikeAttackAbility],
+}
+
+# --- Registre : relicAbility → triggered-ability(s) accordée(s) ------------------------------------
+# QUATRIEME chemin de registration (#317), et il est DISTINCT des trois autres : une RELIQUE accorde
+# une triggered-ability sans passer ni par `traits`, ni par `passiveAbilities`, ni par
+# `activeAbilities`. Deux formes cote natif :
+#   * `gameconfig.units.<kind>.<id>.relicAbilities` -- la relique EN DUR sur l'unite. 25 abilities
+#     du build sont dans ce cas, TOUTES sur des npc (mesure : `probe_317_repair_callers_inventory.py`) ;
+#   * l'item relique EQUIPE par le joueur (`items[*].abilityId` + `allowedUnits`), materialise dans
+#     `BattleConfiguration.Units[].TertiaryAbility` -- 4 unites sur 175 du seed BC en portent une.
+# **SEULE la premiere forme est lue ici** : le rail COMBAT derive du gameconfig, et la lecture fidele
+# du kit declenche REEL (RPC `unitAbilityStates`, `engine/ai/context.py::live_triggered_ability_ids`)
+# n'existe que cote DECISION. Gap NOMME, mesure par `probe_193_move_playbook_inventory.py` volet 2.
+#
+# Registre SEPARE de `ABILITY_TRIGGERS` a dessein : aucune des 25 relicAbilities n'y figure, donc un
+# registre distinct rend la double-inscription STRUCTURELLEMENT impossible.
+RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    # DawnBlade (relique `R_Crit_DawnBlade` de `tauFarsight` ; en dur sur les 5 npc `*Farsight`),
+    # `TriggeredAbilityType` 0x5dd = 1501. `DawnBlade_HealAbility` : `On(0=UnitDeath) & OwnerIsActor
+    # & IsDefeatedByMeleeAttack(Targets@0x60)` -> `Repair(self, self, Get(hpToHeal[lvl]), ForRepair)`.
+    # ⚠ LE NOM MENT : l'artefact est un `DSLBehaviors$$Repair`, pas un `$$Heal` -- et la variable lue
+    # s'appelle `hpToHeal` (`AbilityVariableType` 0x20). Cf. loki/dawn_blade.py.
+    # La 2e classe native du meme id (`DawnBlade_InitAbility`, qui pose l'effet 1501
+    # `DawnBlade_ExtraDmg`) n'est PAS portee : elle ne construit aucun `Repair` (#317, hors perimetre).
+    "DawnBlade": [DawnBladeHealAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

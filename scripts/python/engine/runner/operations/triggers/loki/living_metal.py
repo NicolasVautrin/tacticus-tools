@@ -85,9 +85,22 @@ LIVING_METAL_TRAIT = "LivingMetal"
 LIVING_METAL_HP_VAR = "livingMetalHp"      # trait var gameconfig (=10, %) -> `GetNumberConstant(0x12)`
 
 # `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate` : les DEUX champs qu'elle
-# ecrit (`+0x10 = 1` = scope, `+0x14 = 0` = removeEffects), transcrits tels quels. LivingMetal est le
-# SEUL call-site `ForRegenerate` du build -- les 12 autres appelants de
-# `IdunBattleLogic.Entities.DSLBehaviors$$Repair` passent `$$ForRepair` = `(0, 1)`.
+# ecrit (`+0x10 = 1` = scope, `+0x14 = 0` = removeEffects), transcrits tels quels.
+#
+# ⚠ CORRECTION #317 -- ce commentaire disait « LivingMetal est le SEUL call-site `ForRegenerate` du
+# build, les 12 autres passent `$$ForRepair` ». C'est FAUX, mesure re-derivee des 13 appelants de
+# `IdunBattleLogic.Entities.DSLBehaviors$$Repair` (`probe_317_repair_callers_inventory.py`) :
+#   * `IdunBattle.Entities.Effects.Loki.LifeStealEffect$$CreateTargetTriggerBehaviour` passe lui
+#     aussi `$$ForRegenerate` ;
+#   * DEUX appelants n'appellent AUCUNE fabrique -- ils ecrivent les champs a la main apres
+#     `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$.ctor` :
+#     `...Triggered.Loki.EnhancementRegenerationAbility$$CreateBehaviour` pose `+0x10 = 1` (scope,
+#     donc le cap de GROUPE) / `+0x14 = 0` / `+0x15 = 1` / `+0x18 = 1`, et
+#     `...Triggered.Loki.PowerUp_HealingAbility$$AdditionalBehavior` pose `+0x10 = 0` / `+0x14 = 1`
+#     / `+0x16 = 1`.
+# ⇒ **TROIS** call-sites arment `scope == 1`, pas un. Aucun des deux autres n'est porte cote COMBAT
+# (tranches ouvertes, cf. `docs/rl/case-317-repair-callers-inventory.md`), donc l'etage cap-de-GROUPE
+# de `predict_repair` n'a toujours qu'UN consommateur porte -- mais ce n'est plus le seul du BUILD.
 REGENERATE_SCOPE = 1
 REGENERATE_REMOVE_EFFECTS = False
 
