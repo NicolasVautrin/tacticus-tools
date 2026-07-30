@@ -713,7 +713,10 @@ def cmd_act(sid: int, a) -> int:
         print(f"[act] kind inconnu: {a.kind}"); return 2
     r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
               timeout=60).get("result") or {})
-    _print_apply(label, r, my_ids)
+    # À PARTIR D'ICI L'ACTION EST APPLIQUÉE : plus rien ne doit interrompre la
+    # comptabilité (action_log + _save_state). `_print_apply` rend sa panne de
+    # décodage au lieu de la lever — cf. sa docstring et #254b-a.
+    decode_err = _print_apply(label, r, my_ids)
     print(f"  -> stage={r.get('stage')} currentPlayer={r.get('currentPlayer')}")
     # CAPTURE dataset IL — SYMÉTRIE avec cmd_play (l.853/884) : `act` DOIT logger comme
     # `play`, sinon une trajectoire jouée 100% en `act` = action_log VIDE → démo perdue
@@ -733,6 +736,13 @@ def cmd_act(sid: int, a) -> int:
     # suivante, surtout pour le focus-fire (arrêter dès qu'une cible meurt).
     if a.kind != "endturn":
         _plans_summary(_decision(sid, rid))
+    if decode_err:
+        # rc != 0 pour que l'échec soit RENDU, mais APRÈS la sauvegarde d'état et
+        # avec la consigne explicite : l'action a eu lieu, la relancer la jouerait
+        # DEUX FOIS.
+        print("  [act] /!\\ ACTION APPLIQUEE mais compte rendu NON DECODE (%s)." % decode_err)
+        print("  [act] /!\\ NE PAS REJOUER cette action. Etat reel : `rl_duel.py view`.")
+        return 3
     return 0
 
 
@@ -975,9 +985,18 @@ def _ability_had_real_effect(act: dict) -> bool:
     if act.get("mutated") or act.get("spawned"):
         return True
     meaningful = {"UnitDamaged", "ReceiveEffect", "RemoveUnit"}
-    for ev in (act.get("events") or []):
-        if stream_events.step_name(ev.get("step")) in meaningful:
-            return True
+    try:
+        for ev in (act.get("events") or []):
+            if stream_events.step_name(ev.get("step")) in meaningful:
+                return True
+    except Exception as e:
+        # Table d'enums indisponible : on ne SAIT PAS. Ne jamais transformer un
+        # « je n'ai pas pu decoder » en « l'ability a rate » -- le verdict remonte
+        # dans `_action_failed`, qui ferait sauter l'append `action_log` d'une action
+        # DEJA appliquee (le piege de #254b-a). On rend le doute au benefice du reel.
+        print("  [act] /!\\ decodage des events impossible (%s: %s) -> effet reel INDECIDABLE,"
+              " suppose OUI" % (type(e).__name__, e))
+        return True
     return False
 
 
@@ -1127,6 +1146,9 @@ def cmd_play(sid: int, a) -> int:
     # AVANT applyAction, avec une raison précise + des tuiles légales.
     movable = _movable_map(sid, rid) if any(ac.get("kind") == "move" for ac in spec) else None
     aborted = None  # raison d'abandon du tour (None = tout OK -> endturn)
+    # Panne de DÉCODAGE d'un compte rendu (≠ échec d'action) : jamais un abandon —
+    # les actions sont appliquées. Signalée à la fin, sans annuler la trajectoire.
+    decode_errs: list[str] = []
     for ac in spec:
         k = ac["kind"]
         if k == "move":
@@ -1187,7 +1209,10 @@ def cmd_play(sid: int, a) -> int:
             aborted = f"kind inconnu: {k!r} (attendu move|ability|normal|finish)"; break
         r = (_rpc(sid, "applyAction", [{"runnerId": rid, "action": action}],
                   timeout=60).get("result") or {})
-        _print_apply(label, r, my_ids)
+        # Idem cmd_act : passé ce point l'action EST appliquée, le décodage ne lève plus.
+        derr = _print_apply(label, r, my_ids)
+        if derr:
+            decode_errs.append(f"{label} -> {derr}")
         fail = _action_failed(r, "ability" if k == "normal" else k, sid, rid, action)
         if fail:
             aborted = f"{label} -> {fail}"; break
@@ -1196,6 +1221,11 @@ def cmd_play(sid: int, a) -> int:
         # action déjà jouée échoue côté engine -> pas re-loggé, pas de doublon).
         st["action_log"].append(action)
         _save_state(st)
+    if decode_errs:
+        print("  [play] /!\\ %d compte(s) rendu(s) NON DECODE(S) -- les actions ONT ete"
+              " APPLIQUEES et LOGGEES, ne pas les rejouer :" % len(decode_errs))
+        for d in decode_errs:
+            print("    - " + d)
     if aborted is not None:
         # TF25 : une action PRÉCÉDENTE du spec a pu DÉJÀ terminer le match (un kill
         # final → FinishMatch) → l'action suivante échoue « stage Finished » : ce n'est

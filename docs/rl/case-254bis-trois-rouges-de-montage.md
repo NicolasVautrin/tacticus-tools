@@ -178,8 +178,12 @@ tests. C'est la conséquence directe du verdict — le port n'était en cause da
 
 ## 5. Ce qui n'est PAS couvert
 
-* **`stream_events.py` est cassé par le même décalage, et personne ne le voit.** Deux défauts
-  distincts, tous deux **mesurés** :
+* **`stream_events.py` est cassé par le même décalage, et personne ne le voit.**
+  → **FERMÉ** : `case-254b-a-worktree-frais-enums.md`. Les deux premiers défauts l'ont été par
+  `da556fbb` ; le troisième — la note d'infrastructure ci-dessous, qui rendait les deux autres
+  **invisibles** en worktree — l'a été en repointant la source sur
+  `data/symbols/<CURRENT>/frida/enums.tsv`. Le constat d'origine, conservé :
+  Deux défauts distincts, tous deux **mesurés** :
   * `analyze()` teste `step == 12` (commenté `RemoveUnit`, qui vaut **11** ; 12 = `ChangeStats`) et
     `step == 16` (commenté `ReceiveEffect`, qui vaut **15** ; 16 = `LoseEffect`) ⇒ ses sorties
     `deaths` et `effects` sont **fausses** sur `rnca9r7q6c`. `step == 4` `UnitDamaged` reste juste

@@ -4,9 +4,42 @@
 Les events bruts (RPC) portent `step` (StepType) et `group` (GroupType) en
 ORDINAUX, plus `tags` = Dict<TagKey,int> déjà sérialisé avec les NOMS de TagKey
 (StringEnumConverter côté jeu → clés lisibles « Attacker_Id », « Amount »…).
-Ici on mappe `step`/`group` → noms via `enums.json` (dumpé par le host à
-l'inject, source = mêmes enums que dump.cs, vérifié : 4=UnitDamaged,
-3=ChangePosition, …) et on flagge l'overwatch (dégât SUBI = réaction ennemie).
+Ici on mappe `step`/`group` → noms depuis la table d'enums, et on labellise
+l'effect_type (overwatch / DoT) pour la lecture humaine.
+
+D'OÙ VIENNENT LES ORDINAUX (#254b-a)
+------------------------------------
+De `data/symbols/<CURRENT>/frida/enums.tsv`, lignes `IdunBattle.Streams.StepType` et
+`IdunBattle.Streams.GroupType`. Cette table est **VERSIONNÉE** : elle est donc présente
+dans TOUT checkout, y compris un worktree d'agent fraîchement créé.
+
+Ce module lisait auparavant `frida/data/meta/<version>/enums.json`, l'artefact écrit par
+le HOST à l'inject (`frida/host/meta-sync.ts::syncEnums`, RPC `dumpEnums`). Or
+`frida/data/` est **gitignoré** (`.gitignore:24`) : dans un worktree frais la table était
+VIDE, et le premier `python rl_duel.py act ...` levait
+`KeyError: StepType.UnitDamaged absent de enums.json` — **après** que le RPC `applyAction`
+ait appliqué l'action. Piège double, mesuré le 2026-07-30 : la commande « échoue » alors
+que l'état du runner A BOUGÉ, et le message accuse une renumérotation d'enum alors que la
+cause est un fichier absent.
+
+Pourquoi la table versionnée et pas l'artefact host (arbitrage MESURÉ, cf. `case-254bis`) :
+
+* **équivalence** : sur `rnca9r7q6c`, `enums.tsv` et `frida/data/meta/1.41.128/enums.json`
+  donnent EXACTEMENT le même contenu — StepType 62/62 et GroupType 104/104 membres, zéro
+  ordinal divergent. Changer de source ne change donc aucune valeur décodée.
+* **péremption détectable** : `enums.tsv` porte une estampille
+  `#!il2cpp-provenance sha256=… build=…` et l'axe 1 de `scripts/python/symbols_sync.py`
+  la compare au `GameAssembly.dll` INSTALLÉ (fail-closed). L'artefact host, lui, n'a
+  aucune estampille, est indexé par version de JEU (« 1.41.128 ») et non par hash de
+  BUILD, et était choisi par simple tri de version — une table périmée y mentait en
+  silence, ce qui est exactement le motif #251/#252.
+* **pas de session requise** : le décodage d'un compte rendu ne doit pas dépendre d'un
+  host vivant + d'un RPC. Régénérer à la volée aurait ajouté « host éteint » comme second
+  mode de panne d'un chemin purement local.
+
+Le coût accepté : la table doit être re-dérivée à chaque changement de build. Il est
+DÉJÀ payé — tout le dépôt en dépend (`catalog_inject.enum_map`, `targeting_rule.py`,
+`active_ability_type.py`, …) — et il est GARDÉ (`symbols_sync.py`).
 """
 from __future__ import annotations
 
@@ -14,8 +47,27 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-_META = ROOT / "frida" / "data" / "meta"
+from symbols_layout import LayoutError, build_dir
+
+# Les enums de la couche stream, cités par leur nom PLEINEMENT QUALIFIÉ (c'est la clé
+# de `enums.tsv`, et c'est aussi le symbole natif — `IdunBattle.Streams.StreamDispatcher$$Action`
+# prend un `StepType` en 1er argument).
+STEP_ENUM = "IdunBattle.Streams.StepType"
+GROUP_ENUM = "IdunBattle.Streams.GroupType"
+
+_REGEN = (
+    "  Regenerer la table : python scripts/python/dump_il2cpp.py\n"
+    "                  puis python scripts/python/preprocess_il2cpp_dump.py\n"
+    "  Verifier build installe <-> table : python scripts/python/symbols_sync.py")
+
+
+class EnumTableUnavailable(RuntimeError):
+    """La table d'enums versionnee est absente/incomplete -- toujours bloquant.
+
+    NOMME le fichier attendu et la commande qui le regenere : un `KeyError` nu sur un
+    membre d'enum envoie chercher une renumerotation de build alors que la cause peut
+    etre un simple fichier manquant (c'est ce qui a coute du temps le 2026-07-30)."""
+
 
 # Effect_Type tags (cf. project_effect_type_attribution, confirmé live).
 # L'overwatch n'est PAS un cas spécial : c'est un UnitDamaged avec ce tag, au
@@ -31,34 +83,57 @@ def effect_label(et) -> str | None:
     return EFFECT_TYPE_NAMES.get(et) if et else None
 
 
-def _version_key(name: str) -> tuple:
-    try:
-        return tuple(int(x) for x in name.split("."))
-    except ValueError:
-        return (0,)
-
-
 @lru_cache(maxsize=1)
-def _enums() -> dict:
-    cands = list(_META.glob("*/enums.json"))
-    if not cands:
-        return {}
-    best = max(cands, key=lambda p: _version_key(p.parent.name))
-    return json.loads(best.read_text(encoding="utf-8"))
+def source_path() -> Path:
+    """Le fichier d'ou sortent les ordinaux. Erreur DURE si `data/symbols/` est
+    inexploitable -- on ne devine pas le build (cf. `symbols_layout`)."""
+    try:
+        return build_dir() / "frida" / "enums.tsv"
+    except LayoutError as e:
+        raise EnumTableUnavailable(
+            "table d'enums introuvable -- data/symbols inexploitable :\n  %s\n%s"
+            % (e, _REGEN)) from e
 
 
-# `enums.json` est indexe PAR NOM : mesure sur 1.41.128 -> [('None','0'), ('StartMatch','1'),
-# ('StartTurn','2'), ...]. `step_name`/`group_name` l'interrogeaient PAR ID (`.get(str(i))`),
-# donc ne trouvaient JAMAIS rien et rendaient toujours `Step#N` / `Group#N`. Panne muette : le
-# repli avait exactement la forme d'un ordinal inconnu.
+@lru_cache(maxsize=8)
+def _par_nom(enum_fq: str) -> dict:
+    """{MEMBRE: ordinal} d'un enum, lu dans `data/symbols/<CURRENT>/frida/enums.tsv`.
+
+    Format d'une ligne : `<nom pleinement qualifie>\\t<ord>=<MEMBRE>,<ord>=<MEMBRE>,...`
+    (produit par `preprocess_il2cpp_dump.py`, 1re ligne = estampille de provenance)."""
+    p = source_path()
+    if not p.is_file():
+        raise EnumTableUnavailable(
+            "table d'enums ABSENTE : %s\n"
+            "  Les ordinaux StepType/GroupType viennent de cette table VERSIONNEE, pas de\n"
+            "  l'artefact host frida/data/meta/<version>/enums.json (gitignore).\n%s"
+            % (p.as_posix(), _REGEN))
+    with p.open(encoding="utf-8") as f:
+        for line in f:
+            if not line.startswith(enum_fq + "\t"):
+                continue
+            out = {}
+            for kv in line.rstrip("\n").split("\t", 1)[1].split(","):
+                ordinal, membre = kv.split("=", 1)
+                out[membre] = int(ordinal)
+            return out
+    raise EnumTableUnavailable(
+        "enum %r absent de %s -- l'enum a-t-il ete renomme/retire par la MAJ du jeu, ou la\n"
+        "  table est-elle tronquee ?\n%s" % (enum_fq, p.as_posix(), _REGEN))
+
+
+# La table est indexee PAR NOM (`{MEMBRE: ordinal}`) ; `step_name`/`group_name` ont besoin
+# de l'INVERSE. L'ancienne version interrogeait la map par ID sans l'inverser, donc ne
+# trouvait JAMAIS rien et rendait toujours `Step#N` / `Group#N` : panne muette, le repli
+# avait exactement la forme d'un ordinal inconnu.
 @lru_cache(maxsize=1)
 def _step_par_nom() -> dict:
-    return (_enums().get("StepType") or {}).get("values") or {}
+    return _par_nom(STEP_ENUM)
 
 
 @lru_cache(maxsize=1)
 def _group_par_nom() -> dict:
-    return (_enums().get("GroupType") or {}).get("values") or {}
+    return _par_nom(GROUP_ENUM)
 
 
 def _inverse(par_nom: dict) -> dict:
@@ -102,13 +177,17 @@ def step_id(nom: str) -> int:
     des `LoseEffect`, SANS ERREUR NI TRACE -- et `analyze()` alimente `rl_duel.py` et
     `rl_probe_step.py`.
 
-    Leve `KeyError` si le nom n'existe plus : un membre disparu doit CASSER, pas se replier
-    silencieusement sur un ordinal qui appartient desormais a un autre pas."""
+    Leve si le nom n'existe plus : un membre disparu doit CASSER, pas se replier silencieusement
+    sur un ordinal qui appartient desormais a un autre pas. Une table absente leve, elle, un
+    `EnumTableUnavailable` DISTINCT qui nomme le fichier -- les deux causes ne doivent pas porter
+    le meme message (c'est ce qui a envoye chercher une renumerotation pour un fichier manquant)."""
     v = _step_par_nom().get(nom)
     if v is None:
+        # `as_posix()` : `str(KeyError)` passe par `repr` de l'argument, qui DOUBLE les
+        # antislashs -- un chemin Windows y devient illisible et non copiable.
         raise KeyError(
-            "StepType.%s absent de enums.json (build courant) -- le pas a-t-il ete renomme ou "
-            "retire ? Re-verifier contre data/symbols/<build>/frida/enums.tsv." % nom)
+            "StepType.%s absent de %s -- le pas a-t-il ete renomme ou retire par la MAJ du jeu ?"
+            % (nom, source_path().as_posix()))
     return int(v)
 
 
@@ -227,7 +306,8 @@ if __name__ == "__main__":
     # dur. Elle etait DOUBLEMENT fausse : `step_name` rendait toujours `Step#N` (map interrogee
     # a l'envers), donc ce smoke test n'a jamais pu passer -- il n'etait donc jamais joue. Et
     # asserter un ordinal, c'est re-armer exactement le piege qu'on vient de desamorcer.
-    assert _step_map(), "StepType vide : frida/data/meta/<ver>/enums.json introuvable ?"
+    print("source : %s" % source_path())
+    assert _step_map(), "StepType vide"
     assert _group_map(), "GroupType vide"
     for nom in ("UnitDamaged", "RemoveUnit", "ReceiveEffect", "ChangePosition"):
         i = step_id(nom)
