@@ -4,16 +4,26 @@
 Setup crafte (case-202 §5-C) : Abraxas (thousInfernalMaster) + Toth-le-sorcier (thousSorcerer,
 ranged r2 PSYCHIC — le re-trigger allie) vs 2x necroWarden, HP gonfles, MC1_67.
 
+LES PAS DE LA CASCADE SONT CITES PAR NOM, JAMAIS PAR ORDINAL (#254b-b). `StepType` est
+IMPLICITEMENT numerote : la MAJ `rnca9r7q6c` a retire `RestoreArmorInfo` (7) et decale de -1 tout
+ce qui suit. Les cinq filtres de ce probe (`AddUnit`, `ChangeStats`, `ChangeAbility`,
+`ReceiveEffect`, `Info`) etaient ecrits en dur avec les ordinaux de `gqfc5mff6c` : ils
+designaient depuis la MAJ `AddMachine`, `ChangeAbility`, `FinishMatch`, `LoseEffect` et
+`TerritoryCapture`. Aucune erreur, aucune trace -- juste d'AUTRES pas. On passe par
+`stream_events.step_id`/`group_id`, qui resolvent le NOM contre
+`data/symbols/<CURRENT>/frida/enums.tsv` et LEVENT si le membre disparait.
+
 LOIS MESUREES (diag 202c, runners 181/182/183 — ce probe les fige) :
   A. EXECUTE (cast 1096 sur hex libre adjacent) — parse de la CASCADE BRUTE :
-     A1. effet 1197 pose sur Abraxas (action s=16 Effect_SourceActiveAbility=1096, RemainingTurns=1)
-         — decisionView le FILTRE (ne pas s'y fier) ;
-     A2. Pink Horror sur LA tuile ciblee, MaxHealth == summonHp[lvl] x mult (cascade s=13/s=14) ;
+     A1. effet 1197 pose sur Abraxas (action `ReceiveEffect` Effect_SourceActiveAbility=1096,
+         RemainingTurns=1) — decisionView le FILTRE (ne pas s'y fier) ;
+     A2. Pink Horror sur LA tuile ciblee, MaxHealth == summonHp[lvl] x mult
+         (cascade `ChangeStats`/`ChangeAbility`) ;
      A3. chaque Screamer : MaxHealth == summonHp_2[lvl] x mult (vars suffixees _2 !), tuile
          ADJACENTE a Abraxas ;
      A4. #Screamers == #attaques QUALIFIANTES de la cascade (1 par ATTAQUE dont le SET de profils
-         contient Psychic — arme OU bonus InfernalPacts (groupe 43) ; la chaine Horror->Screamer->...
-         n'est bornee que par les positions).
+         contient Psychic — arme OU bonus InfernalPacts (groupe `EffectAdditionalHits`) ; la chaine
+         Horror->Screamer->... n'est bornee que par les positions).
   B. RE-TRIGGER ALLIE (meme tour) : attaque ranged Psychic du sorcier (HORS CONTACT — le ranged
      est desactive au contact d'un ennemi, diag v5) -> >=1 Screamer, et #spawns == #attaques
      qualifiantes de la cascade (le tir + la CHAINE des nouveaux Screamers adjacents a Abraxas).
@@ -34,6 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.playbook import scene as SC  # noqa: E402
 
@@ -158,9 +169,22 @@ def _psychic_shot_setup(rpc, rid, dec, sorc) -> "dict | None":
 
 def _parse_cast(cascade: list, abx_id: int) -> dict:
     """Extrait de la cascade du cast : effet 1197, spawns (entity/tile/hp/lvl/mult), attaques
-    qualifiantes (1 par groupe g=12 src=Loki_NormalAttack d'un summon, Psychic = profil d'arme 13
-    OU groupe imbrique g=43 InfernalPacts)."""
-    out = {"effect_1096": None, "spawns": [], "attacks": []}
+    qualifiantes (1 par groupe `User_UseAbility` src=Loki_NormalAttack d'un summon, Psychic =
+    profil d'arme 13 OU groupe imbrique `EffectAdditionalHits`, les bonus-hits InfernalPacts)."""
+    s_receive_effect = SE.step_id("ReceiveEffect")
+    s_add_unit = SE.step_id("AddUnit")
+    s_change_stats = SE.step_id("ChangeStats")
+    s_change_ability = SE.step_id("ChangeAbility")
+    s_info = SE.step_id("Info")             # porte Attack_Weapon_* (profil d'arme du coup)
+    s_unit_damaged = SE.step_id("UnitDamaged")
+    g_use_ability = SE.group_id("User_UseAbility")
+    g_extra_hits = SE.group_id("EffectAdditionalHits")
+
+    # `n_weapon_profile` : combien d'events `Info` portaient un `Attack_Weapon_DamageProfile`.
+    # C'est la MESURE qui prouve que `Info` est bien le pas porteur du profil d'arme -- sans elle,
+    # A4 pourrait passer sur le seul groupe `EffectAdditionalHits` et un mauvais nom de pas
+    # resterait invisible.
+    out = {"effect_1096": None, "spawns": [], "attacks": [], "n_weapon_profile": 0}
     spawn_meta: dict = {}
     stack: list = []          # pile des groupes ouverts [(group, entity, source)]
     cur_attack = None
@@ -169,38 +193,41 @@ def _parse_cast(cascade: list, abx_id: int) -> dict:
         if k == "group":
             g = (ev.get("group"), ev.get("entity"), ev.get("source"))
             stack.append(g)
-            if g[0] == 12 and g[2] == "Loki_NormalAttack" and g[1] != abx_id:
+            if g[0] == g_use_ability and g[2] == "Loki_NormalAttack" and g[1] != abx_id:
                 cur_attack = {"attacker": g[1], "psychic": False, "n_dmg": 0}
                 out["attacks"].append(cur_attack)
-            if g[0] == 43 and cur_attack is not None:
+            if g[0] == g_extra_hits and cur_attack is not None:
                 cur_attack["psychic"] = True          # bonus InfernalPacts (profil Psychic)
         elif k == "finish":
             if stack:
                 g = stack.pop()
-                if cur_attack is not None and g[0] == 12 and g[1] == cur_attack["attacker"]:
+                if cur_attack is not None and g[0] == g_use_ability \
+                        and g[1] == cur_attack["attacker"]:
                     cur_attack = None
         else:
             t = _tags(ev)
-            if ev.get("step") == 16 and t.get("Effect_SourceActiveAbility") == ABILITY:
+            step = ev.get("step")
+            if step == s_receive_effect and t.get("Effect_SourceActiveAbility") == ABILITY:
                 out["effect_1096"] = t
-            if ev.get("step") == 10 and t.get("Unit_Parent_Id") == abx_id:
+            if step == s_add_unit and t.get("Unit_Parent_Id") == abx_id:
                 spawn_meta[ev.get("entity")] = {"entity": ev.get("entity"),
                                                 "tile_id": t.get("Unit_Foot_Tile_Id_1")}
-            if ev.get("step") == 13 and ev.get("entity") in spawn_meta \
+            if step == s_change_stats and ev.get("entity") in spawn_meta \
                     and "UnitStats_MaxHealth" in t:
                 spawn_meta[ev.get("entity")]["hp"] = t["UnitStats_MaxHealth"]
                 spawn_meta[ev.get("entity")]["atk"] = t.get("UnitStats_Attack")
-            if ev.get("step") == 14 and ev.get("entity") in spawn_meta \
+            if step == s_change_ability and ev.get("entity") in spawn_meta \
                     and "UnitStats_ActiveAbility_Level" in t \
                     and "lvl" not in spawn_meta[ev.get("entity")]:
                 spawn_meta[ev.get("entity")]["lvl"] = t["UnitStats_ActiveAbility_Level"]
                 spawn_meta[ev.get("entity")]["mult"] = \
                     t.get("UnitStats_ActiveAbility_VariableMultiplierPercentage")
-            if ev.get("step") == 30 and "Attack_Weapon_DamageProfile" in t \
-                    and cur_attack is not None:
-                if int(t["Attack_Weapon_DamageProfile"]) == PSYCHIC_ID:
+            if step == s_info and "Attack_Weapon_DamageProfile" in t:
+                out["n_weapon_profile"] += 1
+                if cur_attack is not None \
+                        and int(t["Attack_Weapon_DamageProfile"]) == PSYCHIC_ID:
                     cur_attack["psychic"] = True
-            if ev.get("step") == 4 and cur_attack is not None:
+            if step == s_unit_damaged and cur_attack is not None:
                 cur_attack["n_dmg"] += 1
     out["spawns"] = list(spawn_meta.values())
     return out
@@ -298,6 +325,12 @@ def main(argv: list[str]) -> int:
         # A4 : 1 Screamer par attaque qualifiante
         n_scr = len(spawns) - 1 if spawns else 0
         n_qual = sum(1 for a in pc["attacks"] if a["psychic"])
+        # DIAGNOSTIC, pas un critere : il ne rentre PAS dans `fails` (le verdict du probe doit
+        # rester comparable a celui publie en case-202 §8). 0 signifierait que le pas nomme
+        # `Info` n'est pas le porteur du profil d'arme et qu'A4 ne tient plus que par le groupe
+        # `EffectAdditionalHits` -- a lire avant de conclure quoi que ce soit d'A4.
+        print(f"[202c] A0 events `Info` portant Attack_Weapon_DamageProfile: "
+              f"{pc['n_weapon_profile']}")
         print(f"[202c] A4 attaques summons: {pc['attacks']}")
         print(f"[202c] A4 screamers={n_scr} vs attaques-Psychic={n_qual}: "
               f"{'OK' if n_scr == n_qual else 'X'}")

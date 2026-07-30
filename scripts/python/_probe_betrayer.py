@@ -46,11 +46,11 @@ def main() -> int:
             elif k == "action":
                 t = se._tags(e)
                 step = e.get("step")
-                if t.get("Attacker_Id") == KHARN and step == 4:
+                if t.get("Attacker_Id") == KHARN and step == se.step_id("UnitDamaged"):
                     kharn_actions.append(("ATTACK", list(stack),
                                           f"->u{t.get('Target_Id')} {t.get('Amount')}"
                                           + (" KILL" if t.get('Attack_WasMemberKilled') else "")))
-                elif step == 3 and e.get("entity") == KHARN:
+                elif step == se.step_id("ChangePosition") and e.get("entity") == KHARN:
                     kharn_actions.append(("MOVE", list(stack), ""))
         print(f"--- chunk {chunk}: {len(casc)} events, stage={stage}, "
               f"Kharn-actions={len(kharn_actions)} ---")

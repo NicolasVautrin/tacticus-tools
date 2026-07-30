@@ -74,6 +74,7 @@ import pytest
 
 import hexgeo
 import gameconfig as GC
+import stream_events as SE
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 ROOT = PYDIR.parents[1]                                      # racine repo
@@ -126,7 +127,8 @@ def _live_hits_from_events(res, tgt_id, hp0):
     hp_seq = [hp0]
     for a in (res.get("actions") or []):
         for ev in (a.get("events") or []):
-            if ev.get("kind") == "action" and ev.get("step") == 4 and ev.get("entity") == tgt_id:
+            if ev.get("kind") == "action" and ev.get("step") == SE.step_id("UnitDamaged") \
+                    and ev.get("entity") == tgt_id:
                 try:
                     tags = json.loads(ev.get("tags") or "{}")
                 except Exception:

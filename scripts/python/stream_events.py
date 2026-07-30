@@ -191,6 +191,27 @@ def step_id(nom: str) -> int:
     return int(v)
 
 
+@lru_cache(maxsize=None)
+def group_id(nom: str) -> int:
+    """Ordinal de `GroupType.<nom>` SUR LE BUILD COURANT -- pendant exact de `step_id`.
+
+    `GroupType` n'a PAS bouge entre `gqfc5mff6c` et `rnca9r7q6c` (104/104, zero ordinal
+    divergent -- mesure `probe_274_step_ordinals_sweep.py` etape 0). Un litteral de groupe est
+    donc JUSTE aujourd'hui, et c'est exactement ce qui le rend dangereux : rien ne signalera son
+    invalidation au prochain build. La table QU'ON LIT, elle, a deja menti -- `enum_maps.GROUP_TYPE`
+    (genere depuis un `dump.cs` peri) donne `59 = NormalAttack_AtomicDamage` la ou le build courant
+    dit `ZingerAbility` ; le vrai `NormalAttack_AtomicDamage` est `61`. Resoudre par NOM contre
+    `enums.tsv` est la seule lecture qui ne peut pas deriver en silence.
+
+    Leve si le nom n'existe plus, comme `step_id`."""
+    v = _group_par_nom().get(nom)
+    if v is None:
+        raise KeyError(
+            "GroupType.%s absent de %s -- le groupe a-t-il ete renomme ou retire par la MAJ du "
+            "jeu ?" % (nom, source_path().as_posix()))
+    return int(v)
+
+
 def _tags(ev: dict) -> dict:
     t = ev.get("tags")
     if not t:
@@ -312,6 +333,9 @@ if __name__ == "__main__":
     for nom in ("UnitDamaged", "RemoveUnit", "ReceiveEffect", "ChangePosition"):
         i = step_id(nom)
         assert step_name(i) == nom, "aller-retour casse : %s -> %d -> %s" % (nom, i, step_name(i))
+    for nom in ("User_UseAbility", "Effect_Refresh", "NormalAttack_AtomicDamage"):
+        i = group_id(nom)
+        assert group_name(i) == nom, "aller-retour casse : %s -> %d -> %s" % (nom, i, group_name(i))
     try:
         step_id("RestoreArmorInfo")
     except KeyError:
@@ -319,5 +343,7 @@ if __name__ == "__main__":
     else:
         print("NOTE : RestoreArmorInfo est revenu -- les ordinaux ont pu re-decaler.")
     print("stream_events OK -- StepType(%d) GroupType(%d) ; UnitDamaged=%d RemoveUnit=%d "
-          "ReceiveEffect=%d" % (len(_step_map()), len(_group_map()), step_id("UnitDamaged"),
-                                step_id("RemoveUnit"), step_id("ReceiveEffect")))
+          "ReceiveEffect=%d ; User_UseAbility=%d NormalAttack_AtomicDamage=%d"
+          % (len(_step_map()), len(_group_map()), step_id("UnitDamaged"), step_id("RemoveUnit"),
+             step_id("ReceiveEffect"), group_id("User_UseAbility"),
+             group_id("NormalAttack_AtomicDamage")))

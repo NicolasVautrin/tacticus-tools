@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
@@ -266,12 +267,14 @@ def _variant_totals(s_rng, bmin, bmax, hits, reduce_fn):
 
 
 def _live_hits_from_events(res, tgt_id, hp0):
-    """Per-hit LIVE = deltas des events `step 4` (RemainingHealth) de la cible — IMMUNE au heal
-    de fin de tour (LivingMetalRepair) qui pollue le delta HP observe apres coup."""
+    """Per-hit LIVE = deltas des events `UnitDamaged` (RemainingHealth) de la cible — IMMUNE au
+    heal de fin de tour (LivingMetalRepair) qui pollue le delta HP observe apres coup."""
     hp_seq = [hp0]
+    s_dmg = SE.step_id("UnitDamaged")
     for a in (res.get("actions") or []):
         for ev in (a.get("events") or []):
-            if ev.get("kind") == "action" and ev.get("step") == 4 and ev.get("entity") == tgt_id:
+            if ev.get("kind") == "action" and ev.get("step") == s_dmg \
+                    and ev.get("entity") == tgt_id:
                 try:
                     tags = json.loads(ev.get("tags") or "{}")
                 except Exception:

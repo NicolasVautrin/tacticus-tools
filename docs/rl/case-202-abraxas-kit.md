@@ -321,6 +321,12 @@ qualifiantes ; B tir Psychic ALLIÉ même tour → chaîne loi-conforme (2 spawn
 Psychic de la cascade B) → 1197 armé jusqu'à FIN DE TOUR D'ÉQUIPE ; C tour suivant → +0
 (expiry). Garde 31337 : cf. journal de commit.
 
+**Re-mesuré sur `rnca9r7q6c` le 2026-07-30** (`case-254b-b-ordinaux-en-dur.md`) : **PASS**, mêmes
+chiffres — Horror `(5,8)` hp 3589, Screamer `(4,6)` hp 4487, B 2 spawns == 2 attaques Psychic,
+C +0. Le probe lisait les pas de la cascade par ORDINAL ; la MAJ a retiré
+`StepType.RestoreArmorInfo` et décalé les cinq littéraux, ce qui faisait tomber A1/A2/A3/B **sans
+que le port soit en cause**. Les filtres passent désormais par `stream_events.step_id`/`group_id`.
+
 ### Résidus tranche C
 
 - **Face DÉCISION non confrontée à l'oracle** : le playbook NC est porté (slots résolus) mais

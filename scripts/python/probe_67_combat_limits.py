@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import hexgeo  # noqa: E402
 import gameconfig as GC  # noqa: E402
+import stream_events as SE  # noqa: E402
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine.runner.snapshot import load_state  # noqa: E402
 from engine.runner.runner import Runner  # noqa: E402
@@ -161,7 +162,7 @@ def _live_amounts(res: dict, tgt_id: int, norm_id: int) -> tuple[list[int], int 
     out, last_rem = [], None
     for a in (res.get("actions") or []):
         for ev in (a.get("events") or []):
-            if ev.get("kind") == "action" and ev.get("step") == 4:
+            if ev.get("kind") == "action" and ev.get("step") == SE.step_id("UnitDamaged"):
                 try:
                     tags = json.loads(ev.get("tags") or "{}")
                 except Exception:

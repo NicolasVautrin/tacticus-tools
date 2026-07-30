@@ -195,8 +195,11 @@ tests. C'est la conséquence directe du verdict — le port n'était en cause da
   * Note d'infrastructure : `frida/data/` est **gitignoré**, donc dans un worktree frais la table
     est **vide** — une correction qui passerait par `step_name` y serait muette. La source
     versionnée est `data/symbols/<build>/frida/enums.tsv`.
-* **`probe_202c_tutelaries.py`** filtre `step == 10 / 13 / 14 / 16 / 30`, tous décalés de −1 : son
-  bloc `spawn_meta` ne se remplit plus. Non rejoué ici.
+* **`probe_202c_tutelaries.py`** filtrait `step == 10 / 13 / 14 / 16 / 30`, tous décalés de −1.
+  → **FERMÉ** : `case-254b-b-ordinaux-en-dur.md`. Le pronostic était juste mais **incomplet** — ce
+  n'est pas seulement `spawn_meta` : A1 (l'effet 1197), A2/A3 (les deux spawns) et la chaîne de B
+  disparaissaient aussi, soit 4 sous-verdicts sur 6. Le balayage du dépôt lancé à cette occasion a
+  rendu **25** littéraux dans 12 fichiers et 4 tables de noms indexées par ordinal.
 * **Le régime blessé est obtenu par une attaque réelle**, donc son amplitude dépend du roster
   (16 PV sur `tauCrisis`, 118 sur `tauDarkstrider`) : le test n'exige que `hp < hp_max`, jamais un
   seuil. La voie « seed BC `RemainingHealth < Health` » a été **essayée et REFUSÉE par la mesure** —

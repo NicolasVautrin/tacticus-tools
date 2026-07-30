@@ -53,6 +53,7 @@ import json
 import pytest
 
 import hexgeo
+import stream_events as SE
 import probe_112_darkangels as PR
 from engine.entities.pathfinding.board import Board
 from engine.runner.snapshot import load_state
@@ -104,8 +105,11 @@ def _tag_value(action: dict, key: str):
 
 
 def _effect_groups(action: dict) -> list:
+    # `GroupType.Effect_Refresh` resolu PAR NOM (#254b-b) : `GroupType` n'a pas bouge entre
+    # `gqfc5mff6c` et `rnca9r7q6c`, mais un litteral juste aujourd'hui devient faux EN SILENCE
+    # au prochain build -- c'est exactement ce qui est arrive a `StepType`.
     return [e.get("source") for e in (action.get("events") or [])
-            if e.get("kind") == "group" and e.get("group") == 22]
+            if e.get("kind") == "group" and e.get("group") == SE.group_id("Effect_Refresh")]
 
 
 def _behind(dv, pos, caster, target):

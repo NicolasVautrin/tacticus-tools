@@ -35,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 import hexgeo  # noqa: E402
+import stream_events as SE  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -251,7 +252,8 @@ def main():
                     if ch.get("squadId") == eid:
                         live_moved = ch.get("moved")
                 for ev in (act.get("events") or []):
-                    if ev.get("entity") != eid or ev.get("step") != 4 or not ev.get("tags"):
+                    if ev.get("entity") != eid or ev.get("step") != SE.step_id("UnitDamaged") \
+                            or not ev.get("tags"):
                         continue
                     try:
                         tg = json.loads(ev["tags"])
