@@ -66,6 +66,18 @@ const class_get_type = new NativeFunction(
 const type_get_object = new NativeFunction(
     exp("il2cpp_type_get_object"), "pointer", ["pointer"]);
 
+/** `il2cpp_class_instance_size(Il2CppClass*)` — taille BOXÉE de la classe, en octets
+ *  (pour un `System.ValueType` : header IL2CPP 0x10 + taille des champs). C'est la
+ *  colonne `size` de `data/symbols/<build>/frida/classes.tsv`, donc la MÊME grandeur
+ *  qu'on peut confronter offline.
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque) : il ne sert qu'aux gardes de
+ *  layout, et un export absent ne doit pas empêcher le script de se charger. */
+export const class_instance_size = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_class_instance_size");
+    return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
+})();
+
 // Use the stable public API to get the method code pointer. The first field
 // of MethodInfo varies across IL2CPP versions (some have invoker_method first,
 // methodPointer second) so readPointer() is unsafe.

@@ -20,6 +20,7 @@ import {
     readEffectsByUnit, readEffectsByTile, readRoundCapClock, readEffectAbilityStateRaw,
 } from "../../game/effects.js";
 import { state } from "../../game/state.js";
+import { readDamagePredictionResult } from "../../game/damage-prediction.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
@@ -197,8 +198,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // Le dégât de BASE est indépendant de la cible (cf. mesures) sauf effets de réduction sur la
         // cible → on prend le MAX sur plusieurs cibles ennemies = base NON réduite.
         //   UnitPosition (dump.cs @385083) = struct 8o {IList Tiles} ; obtenue via
-        //   UnitExtensions.GetUnitPosition(unit, state). DamagePredictionResult : AccurateHealthDamage
-        //   Min@0x60/Max@0x64 ; TotalDamage Min@0x90/Max@0x94 ; AppliedHits@0xBC ; MightCrit@0xB1.
+        //   UnitExtensions.GetUnitPosition(unit, state). Le `DamagePredictionResult` rendu est
+        //   décodé par `game/damage-prediction.ts` (offsets re-dérivés #276) — pas d'offset ici.
         const dpq = resolveDpq(runner);
         const getNormPredMi = dpq.isNull() ? null
             : findMethodByParamCount(dpq.readPointer(), "GetNormalAttackPrediction", 3);
@@ -265,15 +266,17 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 try { boxed = invokeMethod(getNormPredMi.info, dpq, [attacker, t.e, posPtr]); }
                 catch { continue; }
                 if (boxed.isNull()) continue;
-                const b = boxed.add(0x10);
-                const hMax = b.add(0x64).readS32();
+                // Struct BOXÉ : champs à `boxed+0x10`. Décodage centralisé (#276).
+                const p = readDamagePredictionResult(boxed.add(0x10));
+                const hMax = p.healthDmgMax;
                 if (hMax <= 0) continue;                             // cible non atteignable → 0
                 reachable++;
                 if (best === null || hMax > (best.maxDmg as number)) {
                     best = {
-                        minDmg: b.add(0x60).readS32(), maxDmg: hMax,
-                        hits: b.add(0xbc).readS32(), mightCrit: b.add(0xb1).readU8(),
+                        minDmg: p.healthDmgMin, maxDmg: hMax,
+                        hits: p.appliedHits, mightCrit: p.mightCrit,
                         vsTarget: t.id,
+                        ...(p.shapeErrors ? { shapeErrors: p.shapeErrors } : {}),
                     };
                 }
             }

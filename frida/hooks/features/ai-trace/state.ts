@@ -8,6 +8,7 @@ import {
     method_get_name, methodEntry,
     s,
 } from "../../il2cpp/helpers.js";
+import { readDamagePredictionResult } from "../../game/damage-prediction.js";
 import { abilityName } from "../../data/ability-names.js";
 import { triggeredAbilityName } from "../../data/triggered-ability-names.js";
 import { projectPaths, type PathSpec } from "../../il2cpp/project.js";
@@ -190,30 +191,33 @@ export function splitU64(p: NativePointer): { lo: number; hi: number } {
 
 // ---- Damage prediction reading -----------------------------------------
 
-/** Read a DamagePredictionResult struct given its base address.
- * Layout (from dump.cs):
- *   +0x00  CurrentHealth: int       — target HP before this hit
- *   +0x04  CurrentArmor: int        — target armor before this hit
- *   +0x08  CurrentShield: int       — target shield before this hit
- *   +0x90  TotalDamage: MinMaxDamage  ({_cap @0, Min @8, Max @0xC})
- *   +0xB9  MightCrit: bool
- *   +0xBA  ForceOverkill: bool
- *   +0xBB  PreventOverkill: bool
- *   +0xC4  AppliedHits: int */
+/** Read a `IdunBattle.Core.Services.DamagePredictionResult` given the base address of
+ *  its FIELDS (the `sret` buffer of `PredictNormalAttack` / `PredictAttack`).
+ *
+ *  #276 — this used to carry its own offset table, and that table was **doubly wrong**:
+ *  it mixed EVENT offsets (`ProbableDamageEvent`, which embeds the struct at +0x08) with
+ *  STRUCT offsets, and both sets became stale at the `gqfc5mff6c` -> `rnca9r7q6c`
+ *  migration. All offsets now live in `game/damage-prediction.ts`, with the decompiled
+ *  function that proves each one. */
 export function readDamagePredictionAt(
     dpBase: NativePointer,
 ): Record<string, unknown> | null {
     if (dpBase.isNull()) return null;
     try {
+        const p = readDamagePredictionResult(dpBase);
         return {
-            currentHealth: dpBase.readS32(),
-            currentArmor:  dpBase.add(0x4).readS32(),
-            currentShield: dpBase.add(0x8).readS32(),
-            dmgMin:        dpBase.add(0x98).readS32(),
-            dmgMax:        dpBase.add(0x9C).readS32(),
-            mightCrit:     dpBase.add(0xB9).readU8() !== 0,
-            forceOverkill: dpBase.add(0xBA).readU8() !== 0,
-            appliedHits:   dpBase.add(0xC4).readS32(),
+            currentHealth: p.hpBefore,
+            currentShield: p.shieldBefore,
+            // `TotalDamage` = health + armor damage (`unit_HUD_test$$CreateDamagePrediction`).
+            dmgMin:        p.totalDmgMin,
+            dmgMax:        p.totalDmgMax,
+            healthDmgMin:  p.healthDmgMin,
+            healthDmgMax:  p.healthDmgMax,
+            mightCrit:     p.mightCrit !== 0,
+            forceOverkill: p.forceOverkill !== 0,
+            preventOverkill: p.preventOverkill !== 0,
+            appliedHits:   p.appliedHits,
+            ...(p.shapeErrors ? { shapeErrors: p.shapeErrors } : {}),
         };
     } catch { return null; }
 }
@@ -238,10 +242,10 @@ export function readDamagePredictionAt(
  *  le wrapper que `playbooks.ts` déréférence, pas sur l'`UnitAction`) — pas de re-brancher un
  *  offset au jugé.
  *
- *  `readDamagePredictionAt` est conservée : elle est correcte SI on lui passe une vraie base de
- *  `DamagePredictionResult` (0xD0 octets ; l'event `ProbableDamageEvent` l'embarque à +0x08, d'où
- *  sa taille 0xD8) — mais ses offsets internes 0x98/0x9C/0xB9/0xBA/0xC4 sont ceux de l'EVENT, pas
- *  ceux du STRUCT (0x90/0x94/0xB1/0xB2/0xBC). À rebaser au moment où on lui trouvera un appelant. */
+ *  `readDamagePredictionAt` est conservée, et son défaut d'offsets est RÉPARÉ (#276) : elle délègue
+ *  désormais à `game/damage-prediction.ts`, qui prend la base des CHAMPS du struct (0xA0 octets ;
+ *  l'event `ProbableDamageEvent` l'embarque à +0x08, d'où sa taille 0xB8). Ses deux appelants
+ *  (`predictions.ts`) lui passent bien un `sret` de `PredictNormalAttack`/`PredictAttack`. */
 export function readDamagePrediction(
     _unitActionPtr: NativePointer,
 ): Record<string, unknown> | null {

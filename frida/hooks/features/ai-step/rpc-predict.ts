@@ -20,6 +20,9 @@ import {
     readEffectsByUnit, readEffectsByTile, readRoundCapClock, readEffectAbilityStateRaw,
 } from "../../game/effects.js";
 import { state } from "../../game/state.js";
+import {
+    DamagePredictionFields, predictionLayoutError, readDamagePredictionResult,
+} from "../../game/damage-prediction.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
@@ -185,7 +188,7 @@ export function registerViewPredict(ctx: Ctx): void {
         let dict: NativePointer;
         try { dict = invokeMethod(getAllPredMi.info, dpq, [unit, tile, abilBuf]); }
         catch (e) { return { ok: false, error: "GetAllPredictions threw: " + (e as Error).message }; }
-        let dictCount = -1; let pred: Record<string, number> | null = null;
+        let dictCount = -1; let pred: DamagePredictionFields | null = null;
         let err: string | null = null;
         if (!dict.isNull()) {
             const dictClass = dict.readPointer();
@@ -199,22 +202,11 @@ export function registerViewPredict(ctx: Ctx): void {
                 try {
                     const boxed = invokeMethod(getItemMi.info, dict, [target]);
                     if (!boxed.isNull()) {
-                        // struct DamagePredictionResult @ boxed+0x10 (dump kqkbjqfb6c) :
-                        // CurrentHealth@0 Armor@4 Shield@8 ;
-                        // AccurateHealthDamage(MinMaxDamage)@0x58 (Min@0x60,Max@0x64) ;
-                        // TotalDamage@0x88 (Min@0x90,Max@0x94) ;
-                        // MightCrit@0xB1 ForceOverkill@0xB2 AppliedHits@0xBC.
-                        const b = boxed.add(0x10);
-                        pred = {
-                            hpBefore: b.readS32(), armorBefore: b.add(0x4).readS32(),
-                            shieldBefore: b.add(0x8).readS32(),
-                            healthDmgMin: b.add(0x60).readS32(),
-                            healthDmgMax: b.add(0x64).readS32(),
-                            totalDmgMin: b.add(0x90).readS32(),
-                            totalDmgMax: b.add(0x94).readS32(),
-                            mightCrit: b.add(0xb1).readU8(),
-                            appliedHits: b.add(0xbc).readS32(),
-                        };
+                        // `IdunBattle.Core.Services.DamagePredictionResult` BOXÉ :
+                        // les champs commencent à `boxed+0x10` (header IL2CPP). Tous
+                        // les offsets vivent dans `game/damage-prediction.ts` — un
+                        // seul décodeur, une seule garde de layout (#276/#268).
+                        pred = readDamagePredictionResult(boxed.add(0x10));
                     }
                 } catch (e) { err = "get_Item: " + (e as Error).message; }
             } else { err = "get_Item not resolved"; }
@@ -227,6 +219,15 @@ export function registerViewPredict(ctx: Ctx): void {
             dictNull: dict.isNull(), dictCount, pred,
             kill: pred ? (pred.healthDmgMax >= pred.hpBefore) : null,
             killSure: pred ? (pred.healthDmgMin >= pred.hpBefore) : null,
+            // Mirror EXACT des deux getters natifs, sur les bornes du
+            // `DefaultBlockScenario` (`get_MightBeKill` = `CurrentHealth <= Max`,
+            // `get_WillBeKill` = `CurrentHealth <= Min`) — à côté des deux formules
+            // historiques ci-dessus, qui portent sur `HealthDamage@0x40`.
+            mightBeKill: pred ? (pred.hpBefore <= pred.mightKillDmg) : null,
+            willBeKill: pred ? (pred.hpBefore <= pred.willKillDmg) : null,
+            // #276 — non nul dès que la garde de layout échoue : le décodeur ne
+            // décode plus ce build, `pred` n'est PAS une mesure.
+            layoutError: predictionLayoutError(),
             mutated: before.sig !== after.sig, err,
         };
     });
@@ -252,10 +253,11 @@ export function registerViewPredict(ctx: Ctx): void {
      *      une tuile candidate n'est pas portée en v1 : bouger l'unité pour tester une position).
      *      `AbilityState` {level@0, mult@4, 0@8} = l'entrée ActiveAbility de l'unité (capteur
      *      #100, _abilityState@0x4c) — le 5e arg que CalculateUtilityFromPredictions forwarde.
-     *   3. Retour `List<ProbableDamageEvent>` (array de structs 0xd8, ctor @181135500) :
-     *      target(BEntityId)@+0x00 ; copie AttackHitPrediction@+0x08 (hp@+0x08, armor@+0x0c,
-     *      shield@+0x10, healthDmgMin@+0x68, healthDmgMax@+0x6c, totalDmg@+0x98/+0x9c,
-     *      mightCrit@+0xb9, appliedHits@+0xc4) ; probability(Fix64)@+0xc8 ; probMult(Fix64)@+0xd0.
+     *   3. Retour `List<ProbableDamageEvent>` (structs de 0xb8, `IdunBattle.AI.Playbook
+     *      .ProbableDamageEvent$$.ctor`) : `IEntity Target`@+0x00 (un POINTEUR, pas un id),
+     *      copie intégrale du `DamagePredictionResult`@+0x08, `Fix64 Probability`@+0xa8,
+     *      `Fix64 Weight`@+0xb0. Le décodage des champs vit dans
+     *      `game/damage-prediction.ts` (#276) — plus aucun offset ici.
      *  ⚠ Certains playbooks (heal/repair) rendent des Probable{Heal,Effect}Event (@181135820/
      *  @1811359a0) — stride/champs DIFFÉRENTS : ce RPC ne décode que les DamageEvent (gate par
      *  taille de struct non porté ; l'appelant passe une ability d'ATTAQUE). Read-only visé
