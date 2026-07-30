@@ -59,18 +59,24 @@ géométrie.
 
 ### 2bis. Les offsets, re-dérivés au décompilé du build courant
 
-`data/symbols/rnca9r7q6c/frida/classes.tsv` :
-`IdunBattle.Core.Services.DamagePredictionResult` = **176 octets** (`0xB0`).
+`IdunBattle.Core.Services.DamagePredictionResult` : **`0xA0` de champs**.
 
-> ⚠ **Ces 176 octets sont la taille BOXÉE, pas celle des champs** (corrigé en #276). La colonne
-> `size` de `classes.tsv` est `il2cpp_class_instance_size`, qui inclut le header IL2CPP de `0x10`
-> pour un `System.ValueType`. Les champs occupent donc **`0xA0`**, ce que trois fonctions
-> confirment indépendamment : `unit_HUD_test$$CreateDamagePrediction` et
-> `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` font un `memset(dst, 0, 0xa0)`,
-> et `…HarlequinsPanoplyAbility$$SurvivesByDiscardingHits` recopie `+0x00 .. +0x9f`.
-> Même correction pour tous les autres types de la table : `MinMaxDamage` = 32 boxé donc **16**
-> de champs, `DamagePredictionScenario` = 52 donc **36**, `ProbableDamageEvent` = 200 donc
-> **`0xB8`** (et non `0xD8`, la valeur que les hooks utilisaient comme stride).
+> ⚠ **LE PIÈGE DE TAILLE — il a coûté deux fois, lisez-le avant de citer un chiffre de
+> `classes.tsv`.** La colonne `size` y est `il2cpp_class_instance_size`, c'est-à-dire la taille
+> **BOXÉE** : elle inclut le header IL2CPP de `0x10` que porte tout `System.ValueType`. Pour ce
+> struct elle vaut 176 (`0xB0`) — et cette rédaction avait d'abord retenu `0xB0` comme taille de
+> champs, ce qui est faux de 16 octets.
+>
+> Les champs occupent **`0xA0`**, confirmé par trois fonctions indépendantes :
+> `unit_HUD_test$$CreateDamagePrediction` et
+> `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` font un `memset(dst, 0, 0xa0)` ;
+> `…HarlequinsPanoplyAbility$$SurvivesByDiscardingHits` recopie `+0x00 .. +0x9f`.
+>
+> **La conséquence dépasse ce type**, et c'est pour ça que le piège est cher : la même
+> soustraction vaut pour toute la table — `MinMaxDamage` = 32 boxé donc **16** de champs,
+> `DamagePredictionScenario` = 52 donc **36**, `ProbableDamageEvent` = 200 donc **`0xB8`** et
+> non `0xD8`. Cette dernière est un **stride** d'itération de `List<T>` : fausse de 32 octets par
+> élément, elle suffit à elle seule à rendre du garbage sur **tout event après le premier**.
 
 Trois fonctions **indépendantes** se recoupent sur le même layout — aucune déduction, que de la
 lecture :
@@ -94,11 +100,13 @@ l'**emplacement des champs dans le struct englobant**.
 | `MightCrit` | `0xB1` | **`0x8a`** |
 | `ForceOverkill` | `0xB2` | **`0x8b`** |
 | `PreventOverkill` | `0xB3` | **`0x8c`** |
-| taille du struct | ≥ `0xC0` | **`0xB0`** |
+| taille des champs | ≥ `0xC0` | **`0xA0`** (cf. le piège de taille, §2bis) |
 
-`TotalDamage`, `Armor`, `Shield` et `AppliedHits` **ne sont PAS re-dérivés ici** : `Add` montre
-trois `MinMaxDamage` restants (`0x40`, `0x50`, `0x60`) et un `int` agrégé (`0x98`), sans dire lequel
-est lequel. Les nommer demande de lire les écrivains (`GetAllPredictions`,
+**RÉSOLU depuis, en #276** (PR #280) — ce paragraphe est conservé parce qu'il dit ce qui manquait
+et pourquoi c'était difficile. `TotalDamage`, `Armor`, `Shield` et `AppliedHits` n'étaient PAS
+re-dérivés ici : `Add` montre trois `MinMaxDamage` restants (`0x40`, `0x50`, `0x60`) et un `int`
+agrégé (`0x98`), **sans dire lequel est lequel**. Les nommer demande de lire les écrivains
+(`GetAllPredictions`,
 `CalculateProbabilisticDamage*`) — c'est le travail du chantier ci-dessous, pas de ce cas.
 
 ### 2quater. Appariement des trois `MinMaxDamage` restants — fait en #276, par XREF
