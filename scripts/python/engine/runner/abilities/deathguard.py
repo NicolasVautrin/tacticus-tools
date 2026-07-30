@@ -726,6 +726,23 @@ def plagueburst_damage_targets(target_sel) -> Unique:
     return Unique(Union(main, adj))
 
 
+def plagueburst_adjacent_enemies(target_sel) -> Enemies:
+    """`IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetAdjacentEnemies`
+    = `Enemies(caster@0x160, Units(AdjacentTiles(target@0x178), unique: 1), 3)` (MIRROR 1:1).
+
+    C'est EXACTEMENT le terme `adj` de `plagueburst_damage_targets` **sans** son
+    `Filter(GetIsValidAdjacentEnemyTrigger)` -- un seul artefact natif, deux consommateurs :
+
+      * face COMBAT  -> `plagueburst_damage_targets` (avec le Filter) : QUI encaisse ;
+      * face DECISION -> `IdunBattle.AI.Playbook.PlagueburstMortarPlaybook$$CalculateCustomUtility`
+        (sans le Filter) : COMBIEN d'ennemis borde la tuile visee.
+
+    Le natif appelle `TargetsSelector.Count(sel, AbilityEntities(owner: caster, caster: caster,
+    target: target))` -- l'`AbilityEntities` construit ne porte PAS `casterPosition`, donc ce compte
+    est INDEPENDANT de la tuile depuis laquelle le caster tire."""
+    return Enemies(Units(AdjacentTiles(target_sel)))
+
+
 def plagueburst_nr_of_tiles(state: "State", caster_id: int) -> int:
     """`ConfigVar(0x66 = nrOfTiles)` de 1169, au niveau d'ability ACTIVE du caster et scale par son
     `AbilityVariablesMultiplier` (mirror `ConfigAmount.Calculate` -> `GetVariableForLevel`). Pour une MoW

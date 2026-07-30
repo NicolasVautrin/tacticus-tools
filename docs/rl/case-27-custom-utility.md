@@ -2473,7 +2473,16 @@ natif ne genere donc simplement pas d'action pour 1169 depuis une unite de decis
 port ne le peut pas davantage (`_best_attack` consomme `ranked`, vide ; `nonattack.eligible_targets`
 filtre `kind == "unit"`).
 
-**VERDICT : invalidable-residu, verrou re-qualifie.** Ce n'est pas « les MoW ne sont pas modelisees »
+> **MISE A JOUR #302 — les deux lignes ci-dessus sont PERIMEES, et la seconde etait un artefact.**
+> **(a)** `1169 est desormais PORTEE` (route de decision a cibles TUILE, tranche 1 de
+> `docs/rl/case-302-route-cible-tuile.md`) : natif `(1169, tuile 43)` == moteur `(1169, tuile 43)`,
+> garde `tests/engine/test_plagueburst_mortar_decision_live.py` (10 tests).
+> **(b)** « le natif ne genere pas l'action » etait un **COOLDOWN non purge** : 1169 arrive avec
+> `RemainingCooldownTurns = 1`, donc au tour du build elle est INDISPONIBLE. Deux fins de tour plus
+> tard, le natif la propose **6/6**. Toute mesure « le natif ne propose jamais X » doit asserter le
+> cooldown purge AVANT de conclure.
+
+**VERDICT (perime, cf. l'encadre ci-dessus) : invalidable-residu, verrou re-qualifie.** Ce n'est pas « les MoW ne sont pas modelisees »
 mais **le domaine de cible** : 1169 est TILE-TARGET, et la greffe — qui a leve le verrou porteur pour
 1185 et 1051 — **ne le leve pas ici**. Debloqueur nomme, en DEUX pieces :
 
