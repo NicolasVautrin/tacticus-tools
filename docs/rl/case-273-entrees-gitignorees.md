@@ -165,12 +165,14 @@ Elle l'est maintenant, et elle dit 0 divergence.
   sous `--l3`, qui est **session-globale** et proscrite tant qu'un autre agent walke l'IA. Les
   quatre branches (introuvable / présent-vide / présent-avec-la-trace / trace d'une AUTRE
   session) sont couvertes **offline** par `test_lever3_degrade_sans_lever_mais_le_DIT`.
-* **Trois entrées restent des chemins locaux**, toutes dans `build_asset_manifest.py` et toutes
+* **Deux entrées restent des chemins locaux**, toutes deux dans `build_asset_manifest.py` et
   qualifiées dans `probe_273._ALLOWED` : `frida/assets/public` est une **SORTIE** (`mkdir` +
-  écriture) ; `frida/assets/raw` / `raw/Bundles` sont le **repli** d'une entrée dont la source
-  primaire est l'installation du jeu (`TACTICUS_INSTALL`, hors dépôt) — `_bundle_dir` les résout
-  désormais par `host_inputs`, mais la constante subsiste et les appelants se contentent d'un
+  écriture) ; `frida/assets/raw/Bundles` est le **repli** d'une entrée dont la source primaire
+  est l'installation du jeu (`TACTICUS_INSTALL`, hors dépôt) — `_bundle_dir` la résout par
+  `host_inputs`, mais la constante subsiste et les appelants se contentent d'un
   `[warn] missing`. Outillage one-shot, aucun consommateur de mesure ⇒ admis, pas oublié.
+  (Une troisième, `frida/assets/raw`, a longtemps figuré ici : c'était un **fragment**
+  fabriqué par le balayage, pas un chemin du script — cf. §7.)
 * **`scripts/node/verify_portraits.mjs`** lit `frida/assets/public/*.json` en chemin **relatif
   au cwd** : hors du périmètre balayé (`scripts/python/**`), non traité.
 * **Le balayage ne voit que les chemins STATIQUES.** Un segment dynamique (`ROOT / "logs" /
@@ -182,7 +184,53 @@ Elle l'est maintenant, et elle dit 0 divergence.
   et les appelants prennent le plus récent par `mtime` dans une fenêtre de `seq` — mais il n'est
   pas fermé.
 
-## 7. L'invariant 3 du `CLAUDE.md`
+## 7. #319 — le cliquet mesurait mal, des deux côtés
+
+Le garde-fou de ce cas s'est fait prendre à son propre motif : il **rendait un verdict qui ne
+décrivait pas le dépôt**. Deux défauts indépendants, tous deux corrigés dans
+`probe_273_gitignored_inputs.py`, tous deux gardés par `probe_319_scan_fidelity.py`.
+
+**(a) Il comptait des chemins que personne ne construit.** `ast.walk` visite les
+sous-expressions : sur `ROOT / "frida" / "assets" / "raw" / "Bundles"`, il rendait aussi
+`frida/assets/raw`, `frida/assets` et `frida`. Le balayage signalait donc `frida/assets` comme
+une **ENTRÉE lue par `build_asset_manifest.py`** — qui ne la nomme nulle part (il n'a que `RAW`
+et `PUBLIC`). Le scan ne retient plus que les expressions **maximales** (`_fragment_ids`).
+Mesure : 228 → 202 chemins distincts, **26 fragments** éliminés, **0 orphelin** (tout fragment
+reste couvert par un chemin maximal qui le préfixe). L'entrée `_ALLOWED` `frida/assets/raw`, dont
+la justification disait littéralement « préfixe de RAW », était l'aveu du défaut : elle est
+**retirée** — une exception se supprime quand sa cause est corrigée.
+
+**(b) Son verdict dépendait de l'état du DISQUE — donc il était vert là où l'on travaille.**
+Une règle `.gitignore` à slash final (`frida/assets/`, ligne 41) est **directory-only** : git ne
+l'applique que s'il voit un répertoire, ce qu'il déduit du disque. `frida/assets/` existe dans
+l'arbre principal et **pas** dans un worktree frais, d'où :
+
+| arbre | `git check-ignore frida/assets` | verdict du cliquet |
+|---|---|---|
+| arbre principal (répertoire présent) | ignoré | **rc 1**, `[FAIL] frida/assets` |
+| worktree frais (répertoire absent) | non ignoré | **rc 0**, chemin invisible |
+
+C'est le motif de ce cas retourné contre son propre garde-fou : *un verdict qui dépend d'un
+répertoire absent se lit « rien à signaler »*. Conséquence directe et observée — un agent a
+rapporté « probe_273 : OK » de **bonne foi** depuis son worktree, en contradiction avec le rouge
+de l'arbre principal. `_check_ignored` interroge désormais git **deux fois**, chemin nu et chemin
+suffixé `/`, et retient l'**union** : un chemin statique ne dit pas s'il désigne un fichier ou un
+répertoire, l'union est la seule réponse indépendante du checkout, et elle penche du côté
+fail-loud.
+
+**Le cliquet mord dans les deux sens.** `_check_allowlist_live` fait maintenant échouer toute
+entrée d'`_ALLOWED` / `_ALLOWED_ABS` qui ne correspond plus à aucun chemin balayé. Sans lui, une
+allowlist ne fait que croître : la ligne survit à la correction qui l'a rendue inutile, et plus
+personne ne sait laquelle couvre encore un cas réel. Entrer oblige à se justifier ; ne plus
+s'appliquer oblige à sortir. Ce contrôle n'est exploitable que **parce que** (b) est corrigé —
+tant que le verdict dépendait du disque, une entrée pouvait paraître morte en worktree et vivante
+dans l'arbre principal.
+
+**Ce que #319 ne corrige pas** : le balayage reste statique (un chemin entièrement calculé lui
+échappe, cf. §6) et son périmètre reste `scripts/python/**`. Il garantit désormais que ce qu'il
+signale existe vraiment, et qu'il le signale partout de la même façon — pas qu'il voit tout.
+
+## 8. L'invariant 3 du `CLAUDE.md`
 
 Il dit aujourd'hui : « un worktree frais est RUNNABLE par son seul checkout ». C'est vrai des
 **entrées versionnées** (`data/symbols`, `data/boards`, `data/seed-bc.json`, `data/i2_en.json`)

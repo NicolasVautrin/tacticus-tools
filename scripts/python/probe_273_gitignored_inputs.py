@@ -98,6 +98,32 @@ def _joined(node: ast.AST, roots: set[str]) -> tuple[str, list[str]] | None:
     return None
 
 
+def _fragment_ids(tree: ast.Module) -> set[int]:
+    """Ids des BinOp `/` qui ne sont qu'une SOUS-EXPRESSION GAUCHE d'un autre.
+
+    `ast.walk` visite tout le sous-arbre : sur `ROOT / "frida" / "assets" /
+    "raw" / "Bundles"` il rend AUSSI `ROOT / "frida" / "assets" / "raw"`,
+    `ROOT / "frida" / "assets"` et `ROOT / "frida"`. Ces trois-la ne sont pas
+    des chemins que le script construit -- ce sont des fragments de syntaxe.
+    Les compter revenait a inventer des lectures : `frida/assets` etait
+    signale comme une ENTREE lue par `build_asset_manifest.py`, qui ne le
+    nomme nulle part (il n'a que `RAW = .../raw/Bundles` et
+    `PUBLIC = .../public`). Seule l'expression MAXIMALE est un chemin reel.
+
+    Aucun prefixe legitime n'est perdu : la troncature au premier segment
+    dynamique s'applique a l'expression maximale, qui porte deja le prefixe
+    statique le plus long.
+    """
+    inner: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            cur = node.left
+            while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
+                inner.add(id(cur))
+                cur = cur.left
+    return inner
+
+
 def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
     """[(fichier, var_racine, chemin_relatif)] pour tout `scripts/python/**`."""
     files = sorted((scan_root / "scripts" / "python").rglob("*.py"))
@@ -120,7 +146,10 @@ def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
             if isinstance(node, ast.ImportFrom):
                 roots |= {a.asname or a.name for a in node.names
                           if (a.asname or a.name) in known}
+        fragments = _fragment_ids(tree)
         for node in ast.walk(tree):
+            if id(node) in fragments:
+                continue
             j = _joined(node, roots)
             if j is None:
                 continue
@@ -135,8 +164,8 @@ def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
     return out
 
 
-def _check_ignored(rels: list[str], scan_root: Path) -> dict[str, bool]:
-    """`git check-ignore -z --stdin` en un seul appel.
+def _ask_git_ignored(rels: list[str], scan_root: Path, as_dir: bool) -> set[str]:
+    """`git check-ignore -z --stdin` en un seul appel. `as_dir` = slash final.
 
     `-z` des DEUX cotes : sans lui, git QUOTE les chemins en sortie ("a/b") et
     la console Windows y ajoute un CR -- le set ne matchait alors rien et le
@@ -144,12 +173,38 @@ def _check_ignored(rels: list[str], scan_root: Path) -> dict[str, bool]:
     probe est cense mesurer.
     """
     if not rels:
-        return {}
+        return set()
+    probe = [rel + "/" for rel in rels] if as_dir else list(rels)
     r = subprocess.run(["git", "check-ignore", "-z", "--stdin"],
-                       cwd=str(scan_root), input="\0".join(rels),
+                       cwd=str(scan_root), input="\0".join(probe),
                        capture_output=True, text=True, timeout=60)
-    ignored = {tok.replace("\\", "/")
-               for tok in (r.stdout or "").split("\0") if tok}
+    return {tok.replace("\\", "/").rstrip("/")
+            for tok in (r.stdout or "").split("\0") if tok}
+
+
+def _check_ignored(rels: list[str], scan_root: Path) -> dict[str, bool]:
+    """Le chemin est-il gitignore ? Verdict INDEPENDANT de l'etat du disque.
+
+    Une regle `.gitignore` a slash final (`frida/assets/`, ligne 41) est
+    DIRECTORY-ONLY : git ne l'applique que s'il sait que la cible est un
+    repertoire, et il le deduit du DISQUE. Consequence mesuree (#319) : le
+    meme chemin est rendu « ignore » dans l'arbre principal (ou le repertoire
+    existe) et « non ignore » dans un worktree frais (ou il est absent) -- le
+    cliquet virait au vert precisement la ou travaillent les agents, et un
+    « probe_273 : OK » rapporte de bonne foi depuis un worktree contredisait
+    le rouge de l'arbre principal.
+
+    C'est le motif #273 lui-meme retourne contre son propre garde-fou : un
+    verdict qui depend d'un repertoire absent se lit « rien a signaler ».
+    On interroge donc git DEUX fois -- chemin nu et chemin suffixe `/` -- et
+    on retient l'UNION. Un chemin statique ne dit pas s'il designe un fichier
+    ou un repertoire ; l'union est la reponse qui ne depend d'aucun checkout,
+    et elle penche du cote fail-loud, seul cote acceptable pour un cliquet.
+    """
+    if not rels:
+        return {}
+    ignored = (_ask_git_ignored(rels, scan_root, as_dir=False)
+               | _ask_git_ignored(rels, scan_root, as_dir=True))
     return {rel: (rel in ignored) for rel in rels}
 
 
@@ -160,13 +215,14 @@ def _check_ignored(rels: list[str], scan_root: Path) -> dict[str, bool]:
 _ALLOWED: dict[str, str] = {
     "frida/assets/public":
         "SORTIE de build_asset_manifest.py (mkdir + ecriture), pas une entree",
-    "frida/assets/raw":
-        "prefixe de RAW, repli documente -- l'acces reel passe par "
-        "host_inputs dans _bundle_dir",
     "frida/assets/raw/Bundles":
         "constante RAW, repli du bundle d'installation ; _bundle_dir resout "
         "par host_inputs et les appelants impriment deja [warn] missing",
 }
+# `frida/assets/raw` y figurait, justifie « prefixe de RAW » : c'etait l'aveu
+# que le balayage remontait des fragments (cf. `_fragment_ids`). Le fragment
+# elimine, la ligne n'a plus d'objet -- une exception se RETIRE quand sa cause
+# est corrigee, elle ne se garde pas « au cas ou ».
 
 
 # Racines gitignorees qui sont des SORTIES du depot, jamais des entrees.
@@ -177,6 +233,30 @@ _ALLOWED: dict[str, str] = {
 #             RELATIF : tant que le chemin etait absolu, l'etape 0 ne le voyait
 #             pas du tout.
 _OUTPUT_ROOTS = {"logs", "app"}
+
+
+def _check_allowlist_live(allowed: dict[str, str], seen: set[str],
+                          name: str) -> int:
+    """Une exception admise qui ne correspond plus a RIEN doit disparaitre.
+
+    Sans ce controle, une allowlist ne fait que croitre : la ligne survit a la
+    correction qui l'a rendue inutile, et plus personne ne sait laquelle des
+    entrees couvre encore un cas reel. C'est ainsi que ce genre de dette
+    devient permanent. Le cliquet s'applique donc DANS LES DEUX SENS -- entrer
+    oblige a se justifier, ne plus s'appliquer oblige a sortir.
+
+    Le verdict n'est exploitable que parce que `_check_ignored` ne depend plus
+    du disque (#319) : tant qu'il en dependait, une entree pouvait paraitre
+    « morte » dans un worktree et vivante dans l'arbre principal.
+    """
+    dead = sorted(k for k in allowed if k not in seen)
+    if not dead:
+        return 0
+    print(f"  FAIL -- {name} : exception(s) sans objet, a RETIRER "
+          f"(plus aucun chemin balaye ne correspond)")
+    for k in dead:
+        print(f"      [MORTE] {k}")
+    return 1
 
 
 def step0(scan_root: Path) -> int:
@@ -207,6 +287,7 @@ def step0(scan_root: Path) -> int:
     if rc:
         print("  FAIL -- entree gitignoree lue depuis la racine sans passer par "
               "host_inputs : un glob y rendrait [] SANS lever (cf. etape 1)")
+    rc |= _check_allowlist_live(_ALLOWED, set(inputs), "_ALLOWED")
     return rc
 
 
@@ -275,6 +356,13 @@ def step0b(scan_root: Path) -> int:
               "entree gitignoree -> `host_inputs.require()/find()`.")
     else:
         print("  OK -- aucun chemin absolu vers le depot")
+    seen = set()
+    for f, lineno, _ in hits:
+        try:
+            seen.add(f"{f.relative_to(scan_root).as_posix()}:{lineno}")
+        except ValueError:
+            seen.add(f"{f.as_posix()}:{lineno}")
+    rc |= _check_allowlist_live(_ALLOWED_ABS, seen, "_ALLOWED_ABS")
     return rc
 
 
