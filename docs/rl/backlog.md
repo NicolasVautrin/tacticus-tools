@@ -974,6 +974,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `triggers/dispatch.py::_fire_of_absolution_after_attack` sur `On(AttackInAtomicGroup)`.
   Résidu SUBSISTANT et distinct (flaggé dans le port) : le **timing RNG** du passif vs les coups
   primaires.
+- **#45d, résidus** (`playbook/prediction.md` §9bis — tranche CLOSE : magnitude repair sourcée de
+  l'ARME + utilité ramenée à UN terme, confrontée live) :
+  - **Pas 17 du scénario 909 — choix de POSITION du repair.** Les **7** utilités de paire du pas sont
+    bit-exactes (`pairUtility` natif == port, dont 3 swarms), mais le natif bouge en (5,3) pour réparer
+    la cible à 1330 PV manquants (`U=59.9369`) et le moteur va en (3,5) pour celle à 1046 (`47.1384`) :
+    l'écart est dans le **terme de tuile du sweep de position** (classé `enumeration`), pas dans la
+    chaîne repair. `[opus]` si un miss d'agreement le refait surface.
+  - **Dénominateur PV d'une cible BOSS** : `RepairedAmountUtility$$GetMaxHealth` passe par
+    `FUN_180002590(0xaa, …)` (constante de config) au lieu de `GetStat(Health,Maximum)`. Non lue,
+    non portée. ⚠ La fiche antérieure citait `0xa9` — le build courant dit **`0xaa`**.
+  - **`WeaponHighestHits` vs arme normale** : le port passe `UnitContext.normal_weapon_hits` là où le
+    natif lit `WeaponHighestHits(weapon de l'ability)`. Les 5 porteurs du trait `Mechanic` ont des armes
+    homogènes (`[1,1]`, `[2,2]`, `[5]`, `[4]`, `[3]`) → **indiscriminable** en l'état.
+- **#276-r1 — décodeur hooks `decodeRepairDict` (CONFIRMÉ par lecture, exige un reinject)** : il lit
+  **16 octets** d'une struct qui en fait **8**. `DamagePrediction$$PredictRepair` rend
+  `CONCAT44(fill, currentHealth)` et `UtilityAttackCase$$ForRepairPrediction` stocke la valeur ENTIÈRE
+  dans le pointer-size écrit à `case+0xdc`. Donc, dans `playbook-predict.ts` : `targetHpBefore`(+0x00)
+  = `currentHealth` ✅ ; `targetArmorBefore`(+0x04) = en réalité le **`fillUp`** ; `hpFill`(+0x08) et
+  `armorFill`(+0x0c) sont **hors struct**. Effet mesuré côté Python : l'étage UTILITÉ
+  d'`engine_agreement_stages` (nourri par ce décodeur) rend `off=0.0` sur la famille repair alors que
+  le générateur, qui calcule offline, est exact — d'où 2 miss classés `non-attack-oracle` qui sont des
+  artefacts du décodeur, pas du port.
 - **Flag=1 des caps heal/repair** (`case-60` §5) : **chemin natif IDENTIFIÉ par #203** — `RepairBehaviourOptions.
   ForRegenerate @180fce8c0` (repair « NO-WAKE ») cape le montant au `get_group_unit_heal_limit @1810325e0`,
   contrairement à `ForRepair @180fce920` (WAKE, réveille des membres). LivingMetal = NO-WAKE (câblé, cf. case-203).
