@@ -387,6 +387,21 @@ et la chaine `HealAmount -> PredictHeal -> MaxFillUp -> HealUtility` sont des ME
 `DSLFactory` -> **imperatif**, mirror 1:1. Le seul noeud declaratif du chemin est le selecteur de
 cibles, et il n'est pas re-cable : il est consomme par le seam de ciblage natif.
 
+**Masque de ciblage, pour qui portera la face COMBAT** (lu, pas recopie d'une fiche) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility$$.ctor` appelle la surcharge
+**a 7 arguments** de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+(`this, isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+getDynamicInvalidTargetReason` — dont l'implementation ecrit `isSelfCasting` en `+0x00`, `range` (24
+octets) en `+0x08`, `forceMeleeTarget` en `+0x20`, `rules` en `+0x28`) avec
+`isSelfCasting = 0`, `forceMeleeTarget = 2`, **`rules = 0x8402`**, et les deux delegues a `null`.
+Le `range` est un bloc de 24 octets **recopie d'un champ statique** (le meme piege de forme que les
+presets de `TargetingOptions$$.cctor`) : il n'est PAS un litteral et n'a pas ete resolu ici.
+CONSEQUENCE OUVERTE, a mesurer live et non a supposer : le generateur offline filtre les tuiles
+candidates a `HEAL_RANGE = 1` (`_heal_candidates`) ; si la portee effective vaut 2, le port perd des
+tuiles de cast (degradation RESTRICTIVE, pas permissive). L'enumeration de CIBLES, elle, vient du RPC
+natif `abilityTargets` et n'est pas concernee. Test discriminant : poser un allie blesse a distance 2
+de Baldr et regarder si `abilityTargets` le rend `fromHere`.
+
 ### L'ecart de port qu'il a fallu corriger : la MAGNITUDE
 
 1212 atteignait deja le generateur de soin (`_heal_candidates` filtre `"Heal" in name`, et 1212 est
