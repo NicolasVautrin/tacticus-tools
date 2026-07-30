@@ -431,6 +431,26 @@ def arcaneshield_stage(build_runner, rpc):
     return build_stage(build_runner, rpc)
 
 
+@pytest.fixture(scope="module")
+def repair_stage(build_runner, rpc):
+    """MONTAGE `Repair` (#298) : un repareur trait `Mechanic` + un ami MECANIQUE BLESSE —
+    cf. `tests/engine/runner/_repair_stage.py` pour le roster et le detail des quatre etages
+    natifs qu'il permet de separer.
+
+    `advance=0` (aucun tour IA joue) + `damaged_repairee` (`--unit-stat
+    <cible>:RemainingHealth=…`) : la seule variable entre ce montage et son controle est la
+    SANTE de la cible. `--hp-player` ne convient PAS — il ecrit `Health` ET `RemainingHealth`,
+    donc l'unite reste a 100 % et `AttackQuery$$IsDamagedUnit` reste faux.
+
+    Portee MODULE : un runner par fichier de test qui s'en sert."""
+    import os
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "engine", "runner"))
+    from _repair_stage import build_stage             # noqa: E402
+    return build_stage(rpc, build_runner=build_runner,
+                       hp_player=None, advance=0, damaged_repairee=2000)
+
+
 @pytest.fixture(scope="session")
 def live_runner(build_runner):
     """runnerId d'une bataille LIVE isolée (auto-disposée). Lecture seule côté
