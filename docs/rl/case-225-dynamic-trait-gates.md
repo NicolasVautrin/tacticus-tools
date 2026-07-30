@@ -195,6 +195,12 @@ l'alliance a la main) passent tous deux par `entity_trait_names`. Le chemin LIVE
 * **face voisin** -- le rec de voisinage porte lui aussi le trait accorde (c'est ce que lisent les
   `FilterAdjacent*` de `AdjacentUnitPreferenceTriggeredAbilityPlaybook`).
 
+⚠ Ce fichier de test a vecu un jour avec un defaut de MONTAGE qui l'empechait d'atteindre la
+feuille qu'il nomme : il indexait `TILE_LEAVES` par l'ordinal FIGE `24`, exact a son ecriture et
+perime par `fe5b9245` (#252) -- il mesurait `MoltenForm_TilesUtility` (0.0), pas `CapturePoint`. Le
+test prend desormais le MEMBRE `UtilityType.CapturePoint` et porte une garde d'identite de feuille ;
+detail et garde-fou : `case-272-capture-point-ordinal-perime.md`, `probe_272_capture_point_gate.py`.
+
 Non-regression rejouee : `test_tile_leaf_unit_traits_live.py` + `test_tile_term_unit_gated_playbooks_live.py`
 (34 passed), `test_tile_term_triggered_playbooks_live.py` + `test_move_tile_sweep_order_live.py`
 (15 passed, 3 skips de montage non discriminant).
