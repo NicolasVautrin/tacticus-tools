@@ -90,7 +90,7 @@ Régime commun : PV de la victime tunés pour que **tout** le dégât soit léta
 | régime | tueur | observable | live | port |
 |---|---|---|---|---|
 | `crit` | `emperNoiseMarine` (crit 100/1) | crescendo `TerrifyingCrescendo` (`On(UnitDeath) & TargetIsOverkilled`) | 0 → **1** | overkill ✔ |
-| `nocrit` | `emperNoiseMarine` (crit 0/0) | idem, **mêmes PV (2178), même plage [2178,3267]** | 0 → **0** | pas overkill ✔ |
+| `nocrit` | `emperNoiseMarine` (crit 0/0) | idem, **mêmes PV, dégât mesuré sans crit** | 0 → **0** | pas overkill ✔ |
 | `revive-crit` | `ultraInceptorSgt` (crit 100/1) | `Narthecium` revive « unless Overkilled » (`On(PreUnitDeath)`) | victime **morte** | morte ✔ |
 | `revive-nocrit` | `ultraInceptorSgt` (crit 0/0) | idem | victime **revive** | revive ✔ |
 | `revive-flail` | `deathBlightlord` **sans aucun crit** | idem | victime **morte** | morte ✔ |
@@ -110,10 +110,18 @@ Régime commun : PV de la victime tunés pour que **tout** le dégât soit léta
 Le régime `revive-flail` a d'abord été tuné sur `aiPredict` — qui ne rend que la **preview de
 l'ATTAQUE NORMALE** (`GetAllPredictions`). Sur FlailSwing il annonçait `[9393, 14091]` alors que le
 vecteur inflige **20884**. Les PV tunés à 9393 donnaient `dégât ≥ 2 × PV` = **overkill NATUREL**, et
-le test passait **sans que le flag serve à rien**. Correctif : `replay_damage_total()` mesure le
-dégât RÉEL en re-jouant le vecteur offline sur une cible aux PV portés à 10⁷, et les tests exigent
-`replay_below_threshold`. Le symptôme d'origine est visible en espionnant `_did_overkill` :
-`damage = 20884` pour `hp_before = 9393`.
+le test passait **sans que le flag serve à rien**. Le symptôme d'origine est visible en espionnant
+`_did_overkill` : `damage = 20884` pour `hp_before = 9393`.
+
+> **Mise à jour #268 (2026-07-30) — la source du dégât a changé DEUX fois.** Le correctif d'alors
+> (`replay_damage_total`, rejeu OFFLINE sur une cible aux PV portés à 10⁷) faisait calibrer le
+> montage par le PORT même qu'il éprouve. Et le tuning `aiPredict` des autres régimes est devenu
+> franchement FAUX à la migration `rnca9r7q6c` : le décodeur rendait `[1,100]` pour tout couple, ce
+> qui a fait **skipper** cinq de ces tests en accusant le roster. Les deux passes 1 sont remplacées
+> par **`_measure_live_damage`** — victime increvable, cast **en live**, `hp_avant - hp_après` —, le
+> tirage étant reproductible à seed et séquence égales. Les PV du tableau §4 valent donc désormais
+> **2256** (et non 2178), pour un dégât mesuré de **2774** avec crit / **2375** sans.
+> Détail : `case-268-decodeur-prediction-perime.md`.
 
 ## 5. Verdicts sur les deux gates « quiescents »
 

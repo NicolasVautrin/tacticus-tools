@@ -51,6 +51,11 @@ def test_prevent_overkill_takes_two_distinct_values(prevent_overkill_channel_cas
     a, b = r.get(PVO.CARRIER) or {}, r.get(PVO.CONTROL) or {}
     assert not a.get("error") and not b.get("error"), (
         "montage casse : %s / %s" % (a.get("error"), b.get("error")))
+    # L'INSTRUMENT avant la MECANIQUE : si le decodeur de `ProbableDamageEvent` derape, le champ
+    # sous test vaut 0 des deux cotes pour une raison qui n'a rien a voir avec le flag 0x13. Le
+    # dire ICI evite d'accuser le port (ou le roster) d'une panne de canal (#268).
+    assert r.get("channel_alive"), "%s -- sentinelles : %s" % (PVO._CHANNEL_DEAD,
+                                                               r.get("channel_why"))
     assert a.get("preventOverkill"), (
         "`%s` porte `FuelledByFury_BlockOverkill` (flag 0x13) des le deploiement (#178) : le champ "
         "doit valoir VRAI. Lu : %r" % (PVO.CARRIER, a.get("preventOverkill")))

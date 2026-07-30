@@ -86,6 +86,42 @@ def _r(sid, m, b, t=90):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
+# -- GARDE D'INSTRUMENT (#268) ---------------------------------------------------------------
+# Les DEUX mesures de ce probe lisent des champs de `DamagePredictionResult` decodes par
+# `frida/hooks/features/ai-step/playbook-predict.ts` a des offsets FIGES sur un build ancien.
+# Sur `rnca9r7q6c` ces offsets sont PERIMES et le decodeur rend du GARBAGE : bornes RAW a 0,
+# `mightCrit` hors {0,1}, `probability` a 0. Sans cette garde, l'echec accuse le MONTAGE (« regime
+# letal-sous-le-seuil inatteignable : bornes [0,0] ») alors que la faute est a l'INSTRUMENT --
+# et, pire, il partait en `pytest.skip`, donc en VERT.
+_CHANNEL_DEAD = (
+    "CANAL MORT (#268) -- le decodeur du struct de prediction "
+    "(`frida/hooks/features/ai-step/playbook-predict.ts`) lit des offsets PERIMES sur le build "
+    "courant. Offsets re-derives au decompile (`DamagePredictionResult`, taille 176) : "
+    "CurrentHealth@0x00, HealthDamage.Min@0x1c / .Max@0x20 (etaient 0x60/0x64), "
+    "MightCrit@0x8a (etait 0xb1), ForceOverkill@0x8b (etait 0xb2), PreventOverkill@0x8c "
+    "(etait 0xb3). Le fix vit dans les hooks et exige une REINJECTION -- cf. "
+    "docs/rl/case-268-decodeur-prediction-perime.md")
+
+
+def event_channel_health(ev: dict) -> dict:
+    """SENTINELLES d'un `ProbableDamageEvent` decode. Trois faits que le natif ne peut PAS produire
+    et qui prouvent donc, seuls, que la lecture a derape :
+      * `mightCrit` est un `bool` -> toute valeur hors {0,1} est du garbage ;
+      * `probability` d'un event rendu par `MakeDamagePredictions` n'est jamais nulle ;
+      * une paire au CONTACT ne peut pas annoncer `mightKillDmg == 0` (borne haute de degat).
+    Rend `{"alive": bool, "why": str}`."""
+    if not ev:
+        return {"alive": False, "why": "aucun event natif pour la paire"}
+    why = []
+    if int(ev.get("mightCrit") or 0) not in (0, 1):
+        why.append("mightCrit=%s hors {0,1}" % ev.get("mightCrit"))
+    if not (ev.get("probability") or 0):
+        why.append("probability=%s (nulle)" % ev.get("probability"))
+    if int(ev.get("mightKillDmg") or 0) <= 0:
+        why.append("mightKillDmg=%s alors que la paire est au contact" % ev.get("mightKillDmg"))
+    return {"alive": not why, "why": " ; ".join(why) or "sentinelles OK"}
+
+
 def _setup(sid, sf, seed, a_units, hp_target=None, crit_spec="0,0"):
     """Build + GEOMETRIE DRIVEE : l'ATTAQUANT au centre, tout le reste sur son ring 1 -> il
     atteint CHAQUE cible en melee (sinon la prediction rend un degat nul et on compare deux
@@ -125,16 +161,18 @@ def run_canal(seed: int = 19501, state_file=None, keep=False, verbose=True) -> d
             if main is None:
                 out[vis] = {"error": "aucun event natif pour la paire"}
                 continue
+            health = event_channel_health(main)
             out[vis] = {"preventOverkill": main.get("preventOverkill"),
                         "mightCrit": main.get("mightCrit"),
                         "forceOverkill": main.get("forceOverkill"),
                         "hp": main.get("hpBefore"),
                         "raw_min": main.get("willKillDmg"), "raw_max": main.get("mightKillDmg"),
-                        "events": len(evs)}
+                        "events": len(evs), "channel": health}
             if verbose:
                 print("[195A] %-16s preventOverkill=%r  (mightCrit=%r forceOverkill=%r)"
                       % (vis, out[vis]["preventOverkill"], out[vis]["mightCrit"],
                          out[vis]["forceOverkill"]))
+                print("[195A]   canal : %s (%s)" % (health["alive"], health["why"]))
     finally:
         if rid is not None and not keep:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -142,10 +180,20 @@ def run_canal(seed: int = 19501, state_file=None, keep=False, verbose=True) -> d
     vals = {a.get("preventOverkill"), b.get("preventOverkill")}
     out["distinct_values"] = sorted(v for v in vals if v is not None)
     out["ok"] = bool(a.get("preventOverkill") and not b.get("preventOverkill"))
+    # Un canal DEROULE (sentinelles KO) ne peut RIEN prouver : il faut le dire AVANT d'accuser
+    # le montage ou le port, sinon le rouge designe le mauvais coupable (#268).
+    out["channel_alive"] = bool((a.get("channel") or {}).get("alive")
+                                and (b.get("channel") or {}).get("alive"))
+    out["channel_why"] = "; ".join(
+        "%s: %s" % (k, (out.get(k) or {}).get("channel", {}).get("why"))
+        for k in (CARRIER, CONTROL))
     if verbose:
         if out["ok"]:
             print("[195A] OK : DEUX valeurs distinctes -- le champ est un fait de la CIBLE,"
                   " vrai sur le porteur du flag 0x13 et faux sur le temoin.")
+        elif not out["channel_alive"]:
+            print("[195A] ECHEC INSTRUMENT : %s\n[195A]   sentinelles : %s"
+                  % (_CHANNEL_DEAD, out["channel_why"]))
         else:
             print("[195A] ECHEC : valeurs vues = %s. Un canal qui ne rend que son defaut est"
                   " indiscernable d'un canal mort." % (out["distinct_values"],))
@@ -219,16 +267,26 @@ def run_utility(victim: str, seed: int = 19601, state_file=None, keep=False,
         _, main = _main_event(sid, rid, ids[ATTACKER], ids[victim])
         if main is None:
             return {"victim": victim, "error": "passe 1 : aucun event natif pour la paire"}
+        health = event_channel_health(main)
         raw_min = int(main.get("willKillDmg") or 0)
         raw_max = int(main.get("mightKillDmg") or 0)
     finally:
         if rid is not None and not keep:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
+    # L'INSTRUMENT d'abord : des bornes RAW a 0 sur une paire au CONTACT ne disent rien du roster
+    # ni de la geometrie -- elles disent que le decodeur ne lit plus le bon champ (#268). Sans ce
+    # tri, l'echec accuse le montage (« regime inatteignable »), ce qui envoie re-crafter un roster
+    # pour un probleme qui n'est pas la.
+    if not health["alive"]:
+        return {"victim": victim, "channel": health,
+                "error": "%s -- sentinelles : %s (bornes RAW lues [%d,%d])"
+                         % (_CHANNEL_DEAD, health["why"], raw_min, raw_max)}
     hp = raw_max
     if not (raw_min < hp <= raw_max < 2 * hp):
-        return {"victim": victim,
-                "error": "regime letal-sous-le-seuil inatteignable : bornes [%d,%d]"
-                         % (raw_min, raw_max)}
+        return {"victim": victim, "channel": health,
+                "error": "regime letal-sous-le-seuil inatteignable : bornes RAW natives [%d,%d] "
+                         "(il faut rawMin < rawMax pour qu'il existe des PV avec rawMin < PV "
+                         "<= rawMax < 2 x PV)" % (raw_min, raw_max)}
     if verbose:
         print("[195B] %s : bornes RAW natives [%d,%d] => PV du regime = %d (2 x PV = %d)"
               % (victim, raw_min, raw_max, hp, 2 * hp))
