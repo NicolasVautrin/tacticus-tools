@@ -1560,6 +1560,28 @@ liste si le doute revient.
 > le faire doit etre `rg`, jamais un glob PowerShell `**` (non recursif, faux negatifs silencieux).
 
 
+## Residus ouverts par #321 (registre host des runners)
+
+Detail complet : `docs/rl/case-321-runner-registry-authority.md`.
+
+- **Le correctif #321 n'est PAS VERIFIE EN VOL.** `[opus]` Il vit entierement dans `frida/host/*`,
+  donc il est INACTIF tant que le host n'a pas redemarre (`npm run dev` = sources TS via `tsx`, pas
+  de hot-reload). Ce qui est verifie sans redemarrage : `tsc --noEmit` exit 0, la sonde
+  `probe_321_runner_registry_drift.py` rend le diagnostic complet, aucun consommateur hors du front.
+  Ce qui exige la fenetre : la purge a la dispose ferme la derive, le reconciliateur converge sans
+  jamais purger sur mesure absente, `DELETE /api/runners/:id` rapporte toujours `removed:true`.
+  Procedure et cliquet (`--max-drift 0`) : `case-321` §6. Les ~330 entrees heritees d'avant le
+  correctif ne disparaissent pas d'elles-memes au redemarrage — le reconciliateur les purge en
+  <= 60 s, ou `--sync` en une fois.
+
+- **`RUNS_DIR` ecrit sous `frida/logs/runs/`, contre la regle enoncee par `frida/host/index.ts`.**
+  `[opus]` `path.resolve(process.cwd(), "logs", "runs")` avec `process.cwd() = frida/`, alors que
+  l'en-tete d'`index.ts` pose « les SORTIES du host vont sous `logs/` A LA RACINE DU DEPOT, pas sous
+  `frida/` » — regle ecrite apres une mesure de 3 663 Mo accumules exactement la. Etat au
+  2026-07-31 : 320 repertoires / 1 147 fichiers / **455 Mo**. Corriger le chemin ORPHELINERAIT
+  l'existant (plus aucun `removeRunner` ne l'atteindrait) : la tache est le chemin **plus** sa
+  migration, pas le chemin seul.
+
 ## Residus ouverts par #289 (`ResurrectionOrb` 1009, face DECISION portee)
 
 Detail complet + arbres relus : `docs/rl/case-27-custom-utility.md`, section « TRANCHE 289 ».

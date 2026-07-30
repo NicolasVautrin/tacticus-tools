@@ -28,6 +28,7 @@ import {
 } from "./config-store.js";
 import {
     listRunners, latestDumpPath, registerRunner, removeRunner, pruneRunners,
+    hasRunner,
 } from "./battle-store.js";
 import { listGateStats, setCap, setTimeoutScale, resetStats } from "./rpc-queue.js";
 import {
@@ -494,14 +495,29 @@ export function buildRouter(defaultLogDir: string): Router {
         }
     });
 
-    // List known runners (registered via /api/launch or auto-inferred from
-    // battle_event messages). Most recent first.
+    // Runners VIVANTS connus du host — CACHE de presentation, PAS un historique
+    // et PAS une jauge de capacite (#321). Alimente par `/api/launch` et par
+    // auto-inference sur les `battle_event`; purge a la mort du runner
+    // (`rpcCall` relit `disposeRunner`, cf. host/sessions.ts) et rattrape par
+    // `host/runner-reconcile.ts`. Plus recent d'abord.
+    //
+    // CE COMPTEUR NE GATE RIEN. Le plafond `MAX_RUNNERS` (= 50) vit et
+    // s'applique COTE HOOKS, dans `frida/hooks/game/runner-registry.ts`, compare
+    // a `listRunners()` du MEME module, aux deux seuls points de creation :
+    // `initAndStart` (`frida/hooks/features/launch.ts`) et `buildPatchedRunner`
+    // (`frida/hooks/features/battle-config.ts`). Le nombre rendu ici n'entre
+    // dans aucune de ces deux comparaisons.
+    //
+    // Le 2026-07-31 cette route rendait 306 entrees quand la RPC `listRunners`
+    // des hooks en rendait 0, et l'ecart s'est lu « 303 runners vivants pour un
+    // cap de 50 » — une alerte capacite qui ne pouvait pas etre vraie, puisque
+    // les builds continuaient de passer. Pour compter des runners VIVANTS, la
+    // seule source est la RPC `listRunners` (ou `GET /api/admin/drain`, champ
+    // `liveRunners`, qui l'interroge avec le tri-etat qui va bien).
     router.get("/api/runners", (_req: Request, res: Response) => {
         res.json(listRunners());
     });
 
-    // Reconcile host-side runner registry against the hook's in-memory runner
-    // registry. Frida script reloads clear the hook registry; without this,
     // RPC concurrency gate — capacity instrument for parallel runners.
     //   GET  /api/rpc-queue                      → per-session telemetry
     //   POST /api/rpc-queue { cap?, id?, reset? } → set cap (≤0/null=uncapped)
@@ -599,8 +615,16 @@ export function buildRouter(defaultLogDir: string): Router {
         res.json({ ok: true, ...listGateStats() });
     });
 
+    // Reconcile host-side runner registry against the hook's in-memory runner
+    // registry. Frida script reloads clear the hook registry; without this,
     // the front keeps showing dead runnerIds whose RPCs fail with
     // `runner N not found`. Called on front hard-reload.
+    //
+    // Geste MANUEL, d'ou l'asymetrie assumee avec `host/runner-reconcile.ts`
+    // (le filet AUTOMATIQUE) : ici, PAS de session vivante => on purge TOUT,
+    // parce que l'utilisateur declenche la reconciliation en connaissance de
+    // cause et que le registre des hooks est alors vide par definition. Un timer
+    // n'a pas ce droit : il pourrait tomber pendant une fenetre de reattache.
     router.post("/api/runners/sync", async (_req: Request, res: Response) => {
         const sid = pickRunningSession();
         if (sid == null) {
@@ -611,11 +635,15 @@ export function buildRouter(defaultLogDir: string): Router {
             return;
         }
         try {
+            // Horodatage PRIS AVANT la photo : un runner cree par un autre
+            // appelant pendant l'aller-retour RPC est absent de `keep` sans etre
+            // mort. `pruneRunners` ne touche donc qu'aux entrees anterieures.
+            const snapshotAt = Date.now();
             const live = await rpcCall(sid, "listRunners", [], 5000) as Array<{
                 runnerId: number;
             }>;
             const keep = new Set(live.map((r) => r.runnerId));
-            const removed = await pruneRunners(keep);
+            const removed = await pruneRunners(keep, snapshotAt);
             res.json({
                 ok: true, sessionId: sid,
                 kept: [...keep], removed,
@@ -630,6 +658,12 @@ export function buildRouter(defaultLogDir: string): Router {
     router.delete("/api/runners/:id", async (req: Request, res: Response) => {
         const id = parseInt(req.params.id, 10);
         if (!Number.isFinite(id)) { res.status(400).json({ error: "bad id" }); return; }
+        // `removed` se lit AVANT la RPC : depuis #321 un `disposeRunner` reussi
+        // purge deja le cache host depuis `rpcCall` (point de passage unique),
+        // donc le `removeRunner` ci-dessous rendrait `false` sur le chemin
+        // NOMINAL et la reponse mentirait. Ce qu'on rapporte, c'est « le host
+        // avait-il une entree pour cet id », pas « qui l'a retiree ».
+        const removed = hasRunner(id);
         const sid = pickRunningSession();
         if (sid != null) {
             try {
@@ -640,7 +674,9 @@ export function buildRouter(defaultLogDir: string): Router {
                 console.log(`[router] disposeRunner(${id}) failed: ${(e as Error).message}`);
             }
         }
-        const removed = await removeRunner(id);
+        // Filet : pas de session vivante, ou RPC en echec -> la purge de
+        // `rpcCall` n'a pas eu lieu. Idempotent quand elle a eu lieu.
+        await removeRunner(id);
         res.json({ ok: true, removed });
     });
 
