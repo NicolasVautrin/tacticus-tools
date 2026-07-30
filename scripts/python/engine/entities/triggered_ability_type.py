@@ -566,6 +566,15 @@ class TriggeredAbilityType(IntEnum):
     PurgeResponse = 1526
     MonsterSlayerOfCaliban = 1527
     FuryFromTheDelve = 1528
+    # #304 -- membre AJOUTE par le build `rnca9r7q6c` (passif de `votanChampion`/Kimm). Transcrit du
+    # dump VERSIONNE `data/symbols/rnca9r7q6c/frida/enums.tsv` (`1529=ModifiedExoarmour`), pas devine.
+    # Sans lui, `triggered_ability_ids('votanChampion')` rendait `[]` et le dispatcher
+    # `TriggeredAbilitiesUtility(2)` restait MUET pour ce porteur, quel que soit le playbook porte.
+    # ⚠ RESIDU MESURE (le meme jour, meme diff dump<->port) : HUIT autres membres de ce build manquent
+    # encore -- 1543 PropheticSentinel, 1546 HeavyWarpFlamer_AttackTrackingAbility, 1552
+    # IconOfObstinacy, 1554 WhisperingWeb, 1555 EmpyricAmbush_Reset, 1556 MyWillBeDoneOverlord,
+    # 1557 PhasalSubjugator, 1558 Helspear. Hors perimetre de #304 (aucun playbook porte ne les lit).
+    ModifiedExoarmour = 1529
     GuardianConstruct = 1530
     HaywireMine = 1531
     PowerUp_SummonSpawn = 1532

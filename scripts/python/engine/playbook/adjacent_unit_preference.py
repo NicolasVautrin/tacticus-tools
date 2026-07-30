@@ -517,6 +517,7 @@ from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (apr
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
+from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -547,6 +548,10 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # gameconfig vivant). Porteur POOL-HERO : orksBigMek. Face NON-OWNER de la meme ability :
     # `playbook/non_owner.py` (feuille `TriggeredAbilitiesNonOwner(4)`).
     int(TriggeredAbilityType.KustomForceFieldReworked): KustomForceFieldReworkedPlaybook(),  # 1547 (x2 si ami Ork)
+    # #304 -- la PREMIERE feuille du registre qui se paie PAR TUILE PARCOURUE (`5 x |chemin|`, donc
+    # croissante avec la distance) et la premiere qui appelle le PATHFINDING natif. Porteur
+    # POOL-HERO par injection : `votanChampion` (Kimm). Cle BC AJOUTEE par ce build.
+    int(TriggeredAbilityType.ModifiedExoarmour): ModifiedExoarmourPlaybook(),    # 1529 (5 / tuile de chemin)
 }
 
 

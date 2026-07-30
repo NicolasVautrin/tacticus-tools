@@ -1198,16 +1198,31 @@ def tile_leaf_ctx(ctx) -> dict:
     self_pos = (mp["col"], mp["row"]) if mp.get("col") is not None else None
     # Kit DECLENCHE du mover. Le natif itere l'AbilitiesComponent ECS (donc passifs de kit +
     # abilities accordees par TRAIT + RELIQUES) ; `triggered_ability_ids` ne connait que les
-    # `passiveAbilities` du gameconfig. On UNIONNE avec la lecture live du
-    # `TriggeredAbilityComponent` (`ctx.live_triggered_ability_ids`, RPC `unitAbilityStates`)
-    # quand le contexte l'expose : union et pas remplacement, pour qu'une lecture live partielle
-    # ne puisse jamais RETIRER un id que le port evaluait deja (N13).
+    # `passiveAbilities` du gameconfig.
+    #
+    # #304 -- la lecture live du `TriggeredAbilityComponent` (`ctx.live_triggered_ability_ids`, RPC
+    # `unitAbilityStates`) FAIT AUTORITE des qu'elle rend quelque chose pour cette entite : c'est
+    # LITTERALEMENT la collection que `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.
+    # u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` itere. L'UNION anterieure (N13) ne pouvait
+    # qu'AJOUTER, jamais retirer -- elle REINTRODUISAIT donc un passif que la bataille n'a PAS.
+    # MESURE (#304, fixture `MDA_FIXTURE`, re-jouee apres rebase sur `ae87046f`) :
+    #   seed BC `PassiveAbilities: []` -> live `[1486]`, gameconfig `[1529]`, union `[1529, 1486]`,
+    #                                     AbilitiesComponent natif `[1486]`  <- l'union MENT
+    #   seed BC kit REEL              -> live `[1529, 1486]`, gameconfig `[1529]`, union idem
+    # La 2e ligne est ce qui rend le remplacement SUR : dans le regime normal la lecture live est un
+    # SUR-ENSEMBLE du gameconfig (`1486` n'est pas un `passiveAbilities`), donc remplacement == union
+    # et le gain de N13 (abilities accordees par TRAIT / RELIQUE) est intact. L'ecart de la 1re ligne
+    # etait INVISIBLE tant qu'aucun playbook n'etait enregistre pour 1529 -- c'est le port de #304
+    # qui l'a rendu observable.
+    # Le repli gameconfig reste ENTIER quand la lecture live est vide (RPC indisponible, entite
+    # absente, contexte OFFLINE `rid` faux -> `[]`, cf. la docstring de l'accesseur) : c'est le seul
+    # regime que le motif N13 protegeait, et il est preserve tel quel.
     kit = list(triggered_ability_ids(me.get("visualId")))
     _live_fn = getattr(ctx, "live_triggered_ability_ids", None)
     if callable(_live_fn) and uid is not None:
-        for _t in (_live_fn(uid) or ()):
-            if _t not in kit:
-                kit.append(_t)
+        _live = list(_live_fn(uid) or ())
+        if _live:
+            kit = _live                     # l'AbilitiesComponent REEL, tel que le natif l'itere
     return {"unit_triggered_abilities": kit,
             # Face DECISION : le `case.unit` est TOUJOURS le mover (le sweep part d'une unite
             # existante), donc jamais le regime `IsSpawning` du call-site SUMMON (case-205).
