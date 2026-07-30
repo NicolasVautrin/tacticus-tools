@@ -74,7 +74,9 @@ def snap(s: int, rid: int) -> dict:
         "toActivate": list(dv.get("toActivate") or []),
         "units": {u["id"]: {
             "visualId": u.get("visualId"), "owner": u.get("owner"), "alive": u.get("alive"),
-            "pos": u.get("pos"), "hp": u.get("hp"), "hasAction": u.get("hasActionLeft"),
+            # `decisionView` publie le champ `hasAction` (pas `hasActionLeft`) — c'est
+            # `UnitExtensions$$HasActionLeft`, cf. `projectUnitsFull`.
+            "pos": u.get("pos"), "hp": u.get("hp"), "hasAction": u.get("hasAction"),
             "ctrl": u.get("ctrl"),
         } for u in (dv.get("units") or [])},
     }

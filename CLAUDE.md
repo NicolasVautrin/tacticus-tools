@@ -251,8 +251,20 @@ vérification sont **distincts** :
   `data/unspawnable_rank<N>.json`. Mesuré le 2026-07-29 — `spaceWolfPriest`, classé « non
   confrontable » par un solveur, entre au pool (97 → 98) par cette voie.
 - **SUMMON** → compte **aussi**, **même absent de `--list-pool`**. On l'amène en bataille en spawnant
-  son **summoner** (qui, lui, doit être dans le pool) : le summon apparaît dans l'équipe du summoner
-  et agit dès son apparition. **Ne jamais conclure « non confrontable » d'un carrier summon.**
+  son **summoner** (qui, lui, doit être dans le pool) : le summon apparaît dans l'équipe du summoner.
+  **Ne jamais conclure « non confrontable » d'un carrier summon.**
+  ⚠ **Mais on l'OBSERVE, on ne le COMMANDE pas** — et le confondre a coûté un faux verrou (#291,
+  `docs/rl/case-291-summon-activation.md`). Le natif TERMINE le tour de toute unité qui apparaît
+  pendant le tour de son propriétaire (`SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` →
+  `FinishUnitTurn(spawned, isTerminated: true)` → `MarkUnitAsNoActionAvailable`, sauf traits
+  `Steppable`/`Hero`), donc un summon **n'entre JAMAIS** dans `decisionView.toActivate`, et
+  `aiDryRunAllUnits` rend pour lui `FinishUnitTurnMessage` — c'est la réponse CORRECTE du natif, pas
+  un trou de harnais. Il agit par deux chemins, qui sont les points d'observation :
+  **(a)** le nœud DSL `PerformAIAction` de l'ability du summoner (→ `ComputerAction` forcé) — ses
+  déplacements/abilities sont dans les **events du cast**, portés par l'entité du summon ;
+  **(b)** `PlayAutomaticUnits` au **turn-start suivant** de sa team (trait `Summon`/`Object`) — se lit
+  au delta d'état pris au tout début de son tour, avant toute action. Recette et probe :
+  `probe_291_summon_activation.py`.
 - **NPC** → hors-jeu, jamais confrontable. Un item dont **tous** les porteurs sont npc n'est pas
   « bloqué », il est **NON PERTINENT** : ne pas y brûler d'agent (sauf demande explicite de mirror +
   toggle offline).

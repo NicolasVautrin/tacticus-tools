@@ -4,9 +4,13 @@ ne sont JAMAIS activées par la boucle de **playbook** de l'IA (`PickNextUnit`) 
 summons/objects).
 
 ⚠ Cela NE veut ABSOLUMENT PAS dire qu'elles n'agissent pas. Le trait `Summon` = « Moves and attacks
-automatically at the beginning of its turn » : le summon est joué au TURN-START de sa team via une passe
-AI-control SÉPARÉE (`IdunBattle.View.Game.IdunGameViews$$QueueComputerActions` / `IdunBattle.View.Game.IdunGameViews$$IsPlayerAiControlled`,
-portée `run_ai_control_pass` #65), un chemin que `aiStepDryRun` NE DRIVE PAS. Donc un « 0 action » observé
+automatically at the beginning of its turn » : le summon est joué au TURN-START de sa team par
+`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` (slot `IOperationProcessor` 0x71 =
+`PlayAutomaticUnits(currentPlayer)`, appelé par `IdunBattle.Operations.StartTurnOperation$$Execute`
+après les events 0x12..0x16 ; gate `IdunBattle.Entities.UnitExtensions$$IsAutomatic` = `HasTrait(2 =
+Summon) || HasTrait(13 = Object)`), portée `run_ai_control_pass` (#65) — un chemin que `aiStepDryRun`
+NE DRIVE PAS. (Citation corrigée par #291 : `IdunGameViews$$QueueComputerActions` n'est PAS cet
+artefact — c'est la boucle IA d'un joueur entièrement AI-contrôlé.) Donc un « 0 action » observé
 via `aiStepDryRun` est un artefact de SONDE (mauvais chemin), pas la preuve d'un summon inerte. Le scarab
 necron (`necroSmnSwarm`) agit chaque tour et s'auto-DÉDOUBLE même : active `ScarabSummon` IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility$$ExecuteBehaviour (chance
 50) « summons another Scarab Swarm ... which then immediately takes a turn » -> c'est le double qui attaque.
