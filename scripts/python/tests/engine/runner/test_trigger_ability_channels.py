@@ -7,7 +7,7 @@
 `AbilityOrEffect(this.Id)` dans les deux -- ce qui les separe est le MOMENT : `+0x60` AVANT l'appel
 du behaviour, `+0x98` APRES, juste avant `On(0xd = EventTriggerType.UnitTriggeredAbility)`.
 
-/!\ Poser un second canal SANS montage qui exerce la difference ne vaut rien : sur une triggered
+ATTENTION : Poser un second canal SANS montage qui exerce la difference ne vaut rien : sur une triggered
 ISOLEE les deux champs finissent egaux, et un canal `+0x98` cable par erreur sur `+0x60` passerait
 tous les tests. Le montage qui les separe est donc le livrable, pas un accessoire -- il vit dans
 `scripts/python/probe_294_trigger_ability_channels.py` et sa porte pytest est la fixture
@@ -64,6 +64,82 @@ def test_channels_separate_in_a_chained_triggered_ability(trigger_ability_channe
     # la garde complete du probe dit la meme chose -- on l'appelle pour que le probe et le test ne
     # puissent pas diverger (un seul foyer d'assertion, reutilisable par un futur consommateur)
     TAC.assert_channels_separated(r)
+
+
+def test_channel_carries_the_MOST_RECENT_triggered_not_the_first(trigger_ability_channel_case):
+    """GENERALISATION EN PROFONDEUR : `+0x98` porte la triggered qui vient de TERMINER, pas la
+    premiere de la chaine.
+
+    Le montage fournit le cas gratuitement : `B` publie a son tour un `On(0xd)` en sortant, et son
+    propre gate y est re-evalue. A ce moment `+0x98` doit valoir `B` -- pas `A`. C'est ce qui borne
+    la chaine (le gate `TriggeringAbilityIs(A)` devient faux) et c'est la meme mecanique qui, cote
+    natif, empeche un `On(0xd)` de boucler sur lui-meme.
+
+    Sans cette assertion, un port qui n'ecrirait `+0x98` qu'une seule fois (a la racine) passerait
+    toutes les autres gardes."""
+    r = trigger_ability_channel_case()
+    a, b = r["a_id"], r["b_id"]
+    assert TAC.site(r, "B.matches", 0) == (None, a)      # sous le On(0xd) de A
+    assert TAC.site(r, "B.matches", 1) == (None, b)      # sous le On(0xd) de B -> la PLUS RECENTE
+    assert r["fires"]["B.exec"] == 1, "la chaine a boucle : le gate ne s'est pas referme"
+
+
+def test_effect_triggers_publish_the_event_too():
+    """GENERALISATION A L'AUTRE FAMILLE DU REGISTRE : un `EffectTrigger` doit poser le canal et
+    publier `On(0xd)` comme une `TriggeredAbility`.
+
+    Cote natif les deux familles convergent sur la MEME fonction : `EvaluateEffectTrigger` finit par
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` (cf. le bloc `TRIGGERED_ABILITY_ID`
+    d'`EffectTrigger` dans `triggers/base.py`). Un port qui aurait cable la publication sur le seul
+    `isinstance(entry, TriggeredAbility)` -- comme le fait, LEGITIMEMENT, le cap de phase -- serait
+    faux ici et nulle part ailleurs."""
+    from engine.runner.state import State
+    from engine.runner.components import UnitComponent
+    from engine.runner.operations.triggers.base import EffectTrigger, TriggeredAbility, TriggerEvent
+    from engine.dsl.event_trigger_type import EventTriggerType
+    import engine.runner.operations.triggers.dispatch.core as CORE
+
+    EFF_ID = 5151
+    seen = []
+
+    class _EffSource(EffectTrigger):
+        event_id = EventTriggerType.Attack
+        effect_type = 999
+        TRIGGERED_ABILITY_ID = EFF_ID
+
+        def matches(self, state, ev):
+            return True
+
+        def execute_behaviour(self, state, ev):
+            return {"who": "eff"}
+
+    class _Listener(TriggeredAbility):
+        event_id = EventTriggerType.UnitTriggeredAbility
+        TRIGGERED_ABILITY_ID = None
+
+        def matches(self, state, ev):
+            seen.append((getattr(state, "triggering_ability", None),
+                         getattr(state, "trigger_ability_type", None)))
+            return False
+
+    state = State()
+    state.add_entity(1).add_component(UnitComponent("spy", True))
+    saved = (CORE.collect_triggered_abilities, CORE.collect_global_triggers,
+             CORE.collect_effect_triggers)
+    CORE.collect_triggered_abilities = lambda s: [_Listener(1)]
+    CORE.collect_global_triggers = lambda: []
+    CORE.collect_effect_triggers = lambda s: [_EffSource(1)]
+    try:
+        CORE.evaluate_trigger_operation(state, TriggerEvent(
+            EventTriggerType.Attack, 1, 2, ranged=False, profile=None))
+    finally:
+        (CORE.collect_triggered_abilities, CORE.collect_global_triggers,
+         CORE.collect_effect_triggers) = saved
+
+    # `+0x60` est deja RESTAURE quand le On(0xd) part (il est pose AVANT / rendu APRES le behaviour),
+    # `+0x98` porte l'effet-trigger qui vient de terminer.
+    assert seen == [(None, EFF_ID)]
+    assert state.trigger_ability_type is None
 
 
 @pytest.mark.parametrize("mutation", TAC.MUTATIONS)

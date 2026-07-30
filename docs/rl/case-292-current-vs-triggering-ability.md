@@ -317,9 +317,23 @@ Deux résultats NÉGATIFS, à ne pas supposer :
 
 * `test_the_two_channels_are_distinct_slots_on_state` — écrire l'un ne touche pas l'autre ;
 * `test_channels_separate_in_a_chained_triggered_ability` — les cinq faits de la trace §7.1 ;
+* `test_channel_carries_the_MOST_RECENT_triggered_not_the_first` — **généralisation en PROFONDEUR** :
+  sous le `On(0xd)` de `B`, `+0x98` vaut `B` (pas `A`) ; c'est ce qui referme la chaîne
+  (`fires["B.exec"] == 1`). Un port qui n'écrirait `+0x98` qu'à la racine passerait tout le reste ;
+* `test_effect_triggers_publish_the_event_too` — **généralisation à l'AUTRE famille du registre** :
+  un `EffectTrigger` pose le canal et publie `On(0xd)` comme une `TriggeredAbility` (les deux
+  convergent nativement sur `BaseTriggeredAbility$$Execute`). Un port qui aurait câblé la
+  publication sur `isinstance(entry, TriggeredAbility)` — ce que fait légitimement le cap de phase —
+  serait faux **ici et nulle part ailleurs** ;
 * `test_each_mutation_reddens_the_montage` — les **4** contre-épreuves, chacune doit ROUGIR ;
 * `test_nominal_and_mutations_do_not_agree_by_accident` — anti-contre-épreuve-no-op ;
 * `test_publish_is_a_no_op_for_an_entry_without_id` — pas d'id, pas d'écriture ni d'`On(0xd)`.
+
+**10 tests, tous OFFLINE et déterministes** (~2 s). Non-régression LIVE re-jouée après rebase :
+`test_cursed_plague_bell_attack_live.py` (7), `test_death_queue_ordering_live.py` (22),
+`test_on_toxic_damage_live.py` — ce dernier étant le plus discriminant du lot, puisqu'il mesure la
+**cardinalité RNG** du dispatch (un `NextBool` par série de coups) : une émission d'`On(0xd)` qui
+réveillerait un trigger global le ferait rougir.
 
 Rouge VU **avant** le fix (code stashé, montage inchangé) :
 

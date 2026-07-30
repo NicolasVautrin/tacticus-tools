@@ -225,7 +225,11 @@ def _publish_unit_triggered_ability(state: State, ev: TriggerEvent, entry) -> No
     surcout est dans le bruit."""
     if entry.TRIGGERED_ABILITY_ID is None:
         return                                          # aucun id a poser -> rien a publier
-    prev = getattr(state, "trigger_ability_type", None)
+    # Acces DIRECT, pas `getattr(..., None)` : le slot est declare dans `State.__slots__` et
+    # initialise par `State.__init__`. Un objet qui ne l'a pas n'est pas un `State` -> ca doit
+    # LEVER, pas dégrader en `None` (un canal absent lu comme « vide » est exactement le mode de
+    # panne silencieuse que ce cas documente).
+    prev = state.trigger_ability_type
     state.trigger_ability_type = int(entry.TRIGGERED_ABILITY_ID)
     try:
         evaluate_trigger_operation(state, TriggerEvent(
