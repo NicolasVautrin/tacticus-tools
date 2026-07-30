@@ -18,7 +18,7 @@ sur 4 seeds jamais confrontés — **12345, 54321, 2468, 1357** — mêmes roste
 
 ### 1. `non-attack-oracle` (13) — playbooks/oracles non-damage jamais portés
 
-Chaque ability = un playbook à porter (roadmap `dsl-vocabulary-catalog.md`) :
+Chaque ability = un playbook à porter (graphe d'usage : `dsl-cartography-phase1.md`) :
 
 **✅ Tranche 1 RÉSOLUE (#56, verdict re-expert + port)** — deux NC natifs
 (`EvaluateNonComparable`, jamais de `Make*Predictions`) :

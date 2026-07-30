@@ -18,7 +18,7 @@ Ghidra MISLABEL les ctors de noeuds gshared (le ctor de `IdunBattleLogic.Entitie
 enfants, arithmetique), JAMAIS via les noms. cf. [[feedback_re_ghidra_not_experiment]].
 
 Modules soeurs (split ~1000 lignes) : arithmetic / predicates / selectors / accessors. `nodes.py` reste un
-shim de compat re-exportant tout. cf. docs/rl/dsl-vocabulary-catalog.md.
+shim de compat re-exportant tout. cf. docs/rl/dsl-cartography-phase1.md.
 """
 from __future__ import annotations
 

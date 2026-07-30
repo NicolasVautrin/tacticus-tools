@@ -497,7 +497,8 @@ Catalogue RPC complet : `references/rpc-api.md`. Lancement runner : `references/
 - **Cas d'école prédiction** : `docs/rl/playbook/prediction.md` (MAJ #96 REVERTÉ + #98 RÉSOLU ; MAJ
   #100 + #102) · `docs/rl/case-68-orksnob-attacker-effects.md`.
 - **Archi moteurs** : `docs/rl/runner-engine.md` (runner/combat) · `docs/rl/playbook-engine.md`
-  (décision) · `docs/rl/dsl-vocabulary-catalog.md`.
+  (décision) · `docs/rl/dsl-cartography-phase1.md` + les TSV `docs/rl/dsl-usage/` (le graphe
+  primitive ↔ ability, RE-DÉRIVABLE par `python scripts/python/dsl_xref_map.py report`).
 - **Infra (reste dans `CLAUDE.md`)** : hash-discipline dump↔build, résolution runtime (pas de RVA
   hardcodée), démarrage ghidra-mcp, warmup obligatoire après chaque (re)inject, « Ne jamais » (heap
   scans, broad-hooks…), ASCII-only en sortie console, agents worktree.

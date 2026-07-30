@@ -131,7 +131,7 @@ Hors périmètre lineup : 1192/1194 NovaBoost/NovaShield (`tauBossRiptide`, NPC)
 | Méthodes `BattleQuery` token 0x44/0x77/0x7c/0x7d/0x7f/0xb1 (+0x7b, légalité MindControl — non bloquant, mirror direct possible) | groupe d'overlays #27 | opus-solver (slots depuis le dump vtable, patron #202-C) | `case-27`, `case-219` §1 |
 | **`PerformAIAction` — feuille unifiée + dispatch after-hit** (PROMU depuis le fix-forward fork #217) | Waaagh (§5.2), SupremeCommander (§5.2), act-again BlackRage, refactor CultDemagogue/`quickening.py`/`summon.py` | opus-solver | `case-219` §7, `case-217-thequickening` §5 |
 | `GetAbilityStatModification` (petit mirror `UnitExtensions`) | SupremeCommander (canal Kell) + futures interactions « si X en jeu » | opus-solver (fusionnable avec la tâche SupremeCommander) | `case-219` §4 |
-| Évaluateur DSL de forme/chain | groupe #27 + sélecteurs #216 | **fable-solver** (conception, fork full-tree vs prediction-only ouvert) | `dsl-vocabulary-catalog.md` |
+| Évaluateur DSL de forme/chain | groupe #27 + sélecteurs #216 | **fable-solver** (conception, fork full-tree vs prediction-only ouvert) | `dsl-cartography-phase1.md` |
 | Réutilisation `GenerateMultiHitAttackPredictions` | groupe #27 | opus-solver | `case-27` |
 | Utilité de déplacement (`UtilityMovementCase`, `GetTargetUtilityDiffOnDisplace`) | groupe #27 | opus-solver, escalade fable si structure ambiguë | `case-27` |
 | Movement-stop #131/B4 (effets de tuile dans la reachability) + exemption Unstoppable | Stormcaller/ICE, Fire tiles, trait 1042 | opus-solver | `case-205`, `terrain-effects.md` |
