@@ -79,22 +79,33 @@ formes natives. Le port n'en a **qu'une**, et le foyer existant
 `deathguard.contagions_of_nurgle_range` (mirror de `$$CalculateRange(unit)`, SpawnPoxwalkers) lui
 reste value-identique.
 
-### 2.1 Le point qui ne se devine pas : deux comparateurs voisins, différents
+### 2.1 Deux comparateurs voisins — ⚠ SECTION RÉFUTÉE PAR LA MESURE (2026-07-30)
 
-| prédicat natif | comparateur | rayon effectif à `TurnsStarted` 0-2 / 3-4 / 5+ |
-|---|---|---|
-| `IsInUnitContagionsOfNurgleAura` (par UNITÉ) | `dist < range` **STRICT** | **0 / 1 / 2** |
-| `BattleQuery$$GetInRangeAuraAmount` (par ÉQUIPE) | `dist <= range` **INCLUSIF** | **1 / 2 / 3** |
+> **RENVERSEMENT — lire `case-224-cursed-plague-bell-attack.md` §3.2.** Ce qui suit était la lecture
+> littérale du comparateur, et elle n'a **jamais été confrontée au natif** : à l'époque, le prédicat
+> par UNITÉ n'avait **aucun consommateur moteur** (§5 le disait explicitement), donc le « rayon
+> effectif = range − 1 » n'était verrouillé que **contre le port lui-même**.
+>
+> Depuis que `CursedPlagueBellAttackAbility` (1071) est portée, il est confrontable — et il a été
+> mesuré : le **seuil natif vaut `GetCurrentRange(TurnsStarted)` EXACTEMENT**, à deux paliers
+> (range 2 → la cloche part à d=1 **et d=2**, pas à d=3 ; range 3 → d=2 **et d=3**, pas à d=4),
+> attribution par le tag natif `Passive_Ability_Type = 1071`. **Les deux versions ont donc le MÊME
+> rayon effectif.** Le tableau ci-dessous est conservé comme trace de la lecture, pas comme vérité.
 
-Le strict est établi par **XREF du ctor**, pas par lecture d'un nom : `IsInUnitContagionsOfNurgleAura`
-appelle l'overload `AmountIsGreaterAbilityTrigger$$.ctor(amount, minAmount)` (celui qui remplit
-`+0x18`/`+0x20`) — le **même** que `DSLTriggers$$AmountIsGreater`, et **pas** celui de
-`AmountIsEqualOrGreater`. Et `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
-`return minAmount.Calculate(entities) < amount.Calculate(entities)`.
+| prédicat natif | comparateur LU | rayon effectif LU (réfuté) | rayon effectif MESURÉ |
+|---|---|---|---|
+| `IsInUnitContagionsOfNurgleAura` (par UNITÉ) | `dist < range` **STRICT** | ~~0 / 1 / 2~~ | **1 / 2 / 3** |
+| `BattleQuery$$GetInRangeAuraAmount` (par ÉQUIPE) | `dist <= range` **INCLUSIF** | 1 / 2 / 3 | 1 / 2 / 3 |
 
-Conséquence concrète : aux deux premiers tours du porteur, `range = 1`, donc le prédicat par UNITÉ
-est **faux même au contact**. Ce n'est pas une coquille de lecture — la version d'équipe, elle,
-accepte bien le contact dès le premier tour, et c'est **mesuré live** (§4).
+Le strict est établi par **XREF du ctor** : `IsInUnitContagionsOfNurgleAura` appelle l'overload
+`AmountIsGreaterAbilityTrigger$$.ctor(amount, minAmount)` (celui qui remplit `+0x18`/`+0x20`) — le
+**même** que `DSLTriggers$$AmountIsGreater`, et **pas** celui de `AmountIsEqualOrGreater`. Et
+`...AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
+`return minAmount.Calculate(entities) < amount.Calculate(entities)`. **Cette lecture a été relue et
+elle tient** : l'écart d'une unité est donc ailleurs (étage distance ou étage portée), et **aucune
+mesure ne désigne lequel** — trois modèles restent observationnellement indiscernables, dont un
+réfuté indépendamment. Le port localise la correction sur le comparateur d'`IsInUnitAura` (le plus
+local) et l'écrit comme tel dans son docstring.
 
 ---
 

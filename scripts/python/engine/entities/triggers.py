@@ -574,18 +574,36 @@ class IsInUnitAura(AbilityTrigger):
         dist  = DSLFormulas.MinDistance(target, unit)
         return new AmountIsGreaterAbilityTrigger(amount: range, minAmount: dist)
 
-    -> `ShouldTrigger` = `dist < range`, **STRICT**. Le comparateur est etabli par XREF, pas devine :
-    `IsInUnitContagionsOfNurgleAura` appelle l'overload `AmountIsGreaterAbilityTrigger$$.ctor(amount,
-    minAmount)` (celui qui remplit `+0x18`/`+0x20`) -- le MEME que `DSLTriggers$$AmountIsGreater`, et
-    PAS celui de `AmountIsEqualOrGreater`. `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit par
-    `return minAmount.Calculate(entities) < amount.Calculate(entities)`.
+    Le COMPORTEMENT porte est `dist <= range` -- **INCLUSIF**, comme la version d'EQUIPE. Ce n'est
+    pas la lecture d'origine, et le renversement est une MESURE ; les deux faits doivent rester
+    lisibles cote a cote :
 
-    ⚠ CE STRICT N'EST PAS CELUI DE LA VERSION D'EQUIPE. `IdunBattle.Core.Services.BattleQuery$$
-    GetInRangeAuraAmount` (derriere `IsInTeamContagionsOfNurgleAura`, cf. `IsInTeamAura` plus bas)
-    compte un porteur des que `GetDistance(porteur, target) <= GetCurrentRange(porteur)` --
-    INCLUSIF. Deux predicats natifs voisins, deux comparateurs : le rayon EFFECTIF de la version
-    UNITE vaut donc `range - 1` (0 / 1 / 2 aux paliers de `TurnsStarted` 1-2 / 3-4 / 5+) la ou la
-    version EQUIPE porte a `range` (1 / 2 / 3). Ne pas « harmoniser » : c'est LU des deux cotes.
+    * **Ce que le decompile donne (relu, pas herite).** `IsInUnitContagionsOfNurgleAura` appelle
+      `AmountIsGreaterAbilityTrigger$$.ctor(this, amount = ContagionsOfNurgleRange(unit),
+      minAmount = MinDistance(target, unit))`, ctor qui ecrit `+0x18 = amount` et `+0x20 = minAmount` ;
+      `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` evalue `+0x18` dans `iVar13`, `+0x20` dans
+      `uVar15`, et finit par `return uVar15 < iVar13`. Litteralement : `dist < range`, STRICT.
+    * **Ce que la mesure live donne** (`probe_224_cursed_plague_bell_attack.py`, l'ability 1071 etant
+      desormais portee, ce predicat a enfin un consommateur MOTEUR confrontable) : le SEUIL natif
+      vaut EXACTEMENT `GetCurrentRange(TurnsStarted(porteur))`, a DEUX paliers --
+      `TurnsStarted = 3` (range 2) : la cloche part a d=1 et d=2, PAS a d=3 ;
+      `TurnsStarted = 5` (range 3) : elle part a d=2 et d=3, PAS a d=4.
+      Un comparateur strict rendrait les seuils 1 et 2. L'attribution est le tag natif
+      `Passive_Ability_Type = 1071` appose sur l'evenement de degat, pas une inference.
+
+    Les deux ne se concilient qu'en admettant qu'un des ETAGES vaut une unite de moins/plus que ce
+    que le port en calcule. **Trois modeles sont observationnellement INDISCERNABLES** : comparateur
+    inclusif · `MinDistance` natif = `hexdist - 1` · `GetCurrentRange` natif = table + 1. Le
+    troisieme est REFUTE independamment (le probe d'EQUIPE de case-224 mesure un seuil egal a la
+    table, donc `GetCurrentRange` natif == la table portee) ; les deux premiers restent equivalents
+    partout. Le port retient la forme la plus LOCALE (le comparateur), parce que `MinDistance` a
+    d'autres consommateurs et qu'aucune mesure ne designe l'etage fautif.
+
+    ⚠ CONSEQUENCE, et elle renverse `case-224-is-in-contagions-of-nurgle-range.md` §2.1 : le rayon
+    EFFECTIF de la version UNITE est le MEME que celui de la version EQUIPE
+    (`BattleQuery$$GetInRangeAuraAmount`), pas `range - 1`. La relation « UNITE == EQUIPE - 1 » etait
+    verrouillee par un test qui ne comparait le port QU'A LUI-MEME : aucun montage n'exercait alors
+    le predicat par unite contre le natif, faute de consommateur porte.
 
     Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$
     IsInContagionsOfNurgleRange` (cf. `runner/abilities/deathguard.is_in_contagions_of_nurgle_range`).
@@ -599,8 +617,10 @@ class IsInUnitAura(AbilityTrigger):
         self.distance_formula = MinDistance(target, unit)
 
     def should_trigger(self, ctx):
-        # `AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `minAmount < amount` (cf. `AmountIsGreater`).
-        return int(self.distance_formula.calculate(ctx)) < int(self.range_formula.calculate(ctx))
+        # INCLUSIF -- cf. le docstring : le decompile du comparateur dit STRICT, la mesure live dit
+        # que le seuil vaut `GetCurrentRange` exactement, et l'ecart d'une unite n'est pas
+        # localisable (comparateur vs etage distance). C'est le COMPORTEMENT qui est porte.
+        return int(self.distance_formula.calculate(ctx)) <= int(self.range_formula.calculate(ctx))
 
 
 class IsAlive(AbilityTrigger):

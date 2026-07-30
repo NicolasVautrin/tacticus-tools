@@ -312,14 +312,22 @@ def contagions_of_nurgle_range(state: "State", unit_id: int) -> int:
 # `+0x30 Owner · +0x40 Actor · +0x48 Caster · +0x60 Target · +0x68 ActiveTarget/Subject`, mapping
 # ETABLI par recoupement sur `Lakrimae_SummonPoxwalker_Ability$$CreateTrigger`, pas devine) :
 #
-#     On(9)
-#   & ( OwnerIsTarget  |  <DSLTriggers+0x20>  )
+#     On(9 = EventTriggerType.Attack, ownerNeedsToBeAlive = 0)
+#   & ( OwnerIsTarget  |  OwnerIsAlive<DSLTriggers+0x20>  )
 #   & NOT CasterIsTarget
 #   & CurrentAttackDamageProfilesContain(0xd = Psychic)
 #   & AreEnemies(Actor@0x40, Owner@0x30)
 #   & HasTrait(Actor@0x40, 0x3ea = UnitTrait.Psyker)
 #   & IsInContagionsOfNurgleRange                        <-- CE predicat (inline dans CreateTrigger)
 #   & NOT CurrentAbilityIs(this)
+#
+# `<DSLTriggers+0x20>` est NOMME depuis case-224 item 5 : c'est le conjoint « OWNER VIVANT », lu au
+# decompile de `IdunBattleLogic.Entities.DSLTriggers$$On(triggerType, ownerNeedsToBeAlive)`, qui
+# choisit litteralement le slot `+0x20` quand le drapeau est VRAI et le slot `+0x70` (trigger neutre)
+# sinon. Recoupement : `DSLTriggers$$InitializeShared` construit `+0x20` avec le seul `state` (ce dont
+# `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger$$ShouldTrigger` a besoin : `IsUnit(owner)
+# ? UnitExtensions.IsAlive(owner, state) : true`) et `+0x70` SANS argument. Ce `CreateTrigger`-ci
+# passe `ownerNeedsToBeAlive = 0` a `On(9)` et remet le conjoint en OU avec `OwnerIsTarget`.
 #
 # `...CursedPlagueBellAttackAbility$$IsInContagionsOfNurgleRange` est une PROPRIETE de la classe dont
 # le corps compile est EXACTEMENT `DSLTriggers.IsInUnitContagionsOfNurgleAura(Actor@0x40, Owner@0x30)`
@@ -358,9 +366,34 @@ def is_in_contagions_of_nurgle_range() -> IsInUnitAura:
     DIFFERE de l'inclusif `BattleQuery$$GetInRangeAuraAmount` de la version d'EQUIPE (cf.
     `battle_query.get_in_range_aura_amount`). Les deux etages de portee, eux, sont le MEME code.
 
-    L'ability 1071 elle-meme (`CreateBehaviour` : `AttackWithAttackDamage` Psychic) n'est PAS portee
-    ici -- ce cas ne livre que le predicat, cf. `docs/rl/case-224-is-in-contagions-of-nurgle-range.md`."""
+    L'ability 1071 elle-meme (`CreateBehaviour` : `AttackWithAttackDamage` Psychic) est portee par
+    `runner/operations/triggers/loki/cursed_plague_bell.CursedPlagueBellAttackAbility` (case-224
+    item 5), qui est le PREMIER consommateur MOTEUR de ce predicat ; cf.
+    `docs/rl/case-224-is-in-contagions-of-nurgle-range.md` et
+    `docs/rl/case-224-cursed-plague-bell-attack.md`."""
     return IsInUnitAura(Actor(), CONTAGIONS_OF_NURGLE_AURA, Caster())
+
+
+def cursed_plague_bell_damage_profile() -> str:
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$GetDamageProfile`
+    = `AbilityConfiguration.GetAffectedDamageProfile().GetValueOrDefault(0xd)` (litteral lu au
+    decompile ; `DamageProfileType(13) = Psychic`).
+
+    `IdunBattle.Configuration.AbilityConfiguration$$GetAffectedDamageProfile` = la constante d'ability
+    `affectedDamageProfile` (`GetEnumConstant`), qui vaut `"Psychic"` pour `CursedPlagueBell` au
+    gameconfig courant. On la RELIT plutot que de figer `Psychic` : le natif la relit aussi, et le
+    defaut ne s'applique que si la constante disparait.
+
+    FOYER UNIQUE (anti-fork `check-own-port`) : le natif n'a qu'UN `GetDamageProfile` pour DEUX
+    consommateurs, et le port doit faire pareil --
+      * face DECISION : `playbook/adjacent_unit_preference.CursedPlagueBellPlaybook.
+        get_adjacent_enemy_utility` (le predicat `b__4_0` compare l'arme du voisin a CE profil) ;
+      * face COMBAT : `CursedPlagueBellAttackAbility$$CreateBehaviour`, qui passe le MEME appel comme
+        `damageProfile` de son `AttackWithAttackDamage` (case-224 item 5).
+    La fonction vit cote `runner/` parce que la dependance etablie du depot va playbook -> runner."""
+    import gameconfig as GC
+    consts = ((GC.ability("CursedPlagueBell") or {}).get("constants")) or {}
+    return consts.get("affectedDamageProfile") or "Psychic"     # DamageProfileType.Psychic (0xd)
 
 
 def poxwalkers_spawn_tiles(state: "State", caster_id: int, radius: int) -> list:

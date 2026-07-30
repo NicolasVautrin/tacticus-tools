@@ -37,7 +37,8 @@ from ..loki.ghost_revive import (GhostReviveAbility,                 # #213 (vol
                                  GHOST_EFFECT)
 from ..loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
 from ..loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
-from ..loki.cursed_plague_bell import CursedPlagueBellMovementAbility  # #224 DG (passif deathBlightbringer)
+from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224 DG (passif deathBlightbringer)
+                                      CursedPlagueBellAttackAbility)     # #224 item 5 (volet ATTAQUE)
 from ..loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
 from ..loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 (passif templChampion)
 from ..loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
@@ -182,14 +183,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # AttackWithAttackDamage(caster, PickRandomly(ennemis adjacents,1), MinMax[passive lvl], DirectDamage,
     # nrOfHits=1)). Cf. loki/destroyer_hive.py (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$GetValidTargets/IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour).
     "DestroyerHive": [DestroyerHiveAbility],
-    # CursedPlagueBell (passif deathBlightbringer/Corrodius, Death Guard) -- VOLET MOUVEMENT
-    # (`CursedPlagueBellMovementAbility`, la 2e des trois classes du passif ; l'ATTAQUE et la
-    # DANGER ZONE ne sont PAS portees). `On(TurnStart_Other=0x13) & OwnerIsActor` ->
-    # `AddEffect(CursedPlagueBell_ExtraMove 1073, turns=Nullable(1))` sur
-    # `UnitsWithoutTrait(UnitsWithTrait(SurroundingFriends(Owner, ContagionsOfNurgleRange(Owner)),
-    # Chaos), Stationary)` = les allies Chaos non-Stationary du disque d'aura Contagion (centre
-    # exclu). Cf. loki/cursed_plague_bell.py.
-    "CursedPlagueBell": [CursedPlagueBellMovementAbility],
+    # CursedPlagueBell (passif deathBlightbringer/Corrodius, Death Guard) -- DEUX des trois classes
+    # natives du passif ; la DANGER ZONE (`CursedPlagueBellDangerZoneAbility` +
+    # `CursedPlagueBell_DangerZoneEffect` 1084) n'est PAS portee.
+    #  * MOUVEMENT (`CursedPlagueBellMovementAbility`) : `On(TurnStart_Other=0x13) & OwnerIsActor` ->
+    #    `AddEffect(CursedPlagueBell_ExtraMove 1073, turns=Nullable(1))` sur
+    #    `UnitsWithoutTrait(UnitsWithTrait(SurroundingFriends(Owner, ContagionsOfNurgleRange(Owner)),
+    #    Chaos), Stationary)` = les allies Chaos non-Stationary du disque d'aura Contagion (centre
+    #    exclu).
+    #  * ATTAQUE (`CursedPlagueBellAttackAbility`, case-224 item 5) : `On(9=Attack) &
+    #    (OwnerIsTarget|OwnerIsAlive) & !CasterIsTarget & CurrentAttackDamageProfilesContain(Psychic)
+    #    & AreEnemies(Actor,Owner) & HasTrait(Actor,Psyker) & IsInContagionsOfNurgleRange &
+    #    !CurrentAbilityIs(this)` -> `AttackWithAttackDamage(Actor -> Actor, Direct(dmg[lvl porteur]),
+    #    Psychic, nrOfHits)` : le psyker ennemi qui porte une attaque Psychic DANS l'aura se blesse
+    #    lui-meme. Cf. loki/cursed_plague_bell.py.
+    "CursedPlagueBell": [CursedPlagueBellMovementAbility, CursedPlagueBellAttackAbility],
     # MartialApotheosis (passif necroOverlord, case-220 Necrons) = `On(TurnStart_Actions=0x16) & OwnerIsActor
     # & AmountIsGreaterThanZero(GetValidTargets)` : au debut de son tour, attaque 1 ennemi adjacent damageable
     # ALEATOIRE (PickRandomly count=1) avec 2 coups Energy (pierce 30). Classe native ETEND DestroyerHive
