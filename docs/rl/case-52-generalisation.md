@@ -629,6 +629,11 @@ preserves). Dumps : `data/stages_57i_12345.json`, `data/stages_57i_2468.json`.
 
 ## #57k — passe L3 solo (post-#57g/f/i) : s8 Hammer et s5 move DÉCODÉS
 
+> ⚠ **SECTION HISTORIQUE — les deux items sont FERMÉS.** Le « +120 sur t93 » ci-dessous a été PORTÉ
+> par **#57m** (filtre vivant) et re-mesuré **NUL** sur `rnca9r7q6c` le 2026-07-30 : voir **§#17-s8**
+> en fin de document (re-dérivation chiffrée + garde de non-régression). Le `s5 move` est fermé par
+> **#57l** puis **§#17-s5**. Ne pas re-ouvrir depuis cette section : elle décrit l'état AVANT le port.
+
 Probe : `probe_57k_l3.py` (L3 session-globale, lancé SOLO ; traces `frida/data/ai-traces/<sid>-*.jsonl`).
 
 **54321 s8 HammerOfWrath — le gap est UN EVENT DE TROP (~+120) sur t93.** Les 8 `DamageUtility#73`
@@ -1042,3 +1047,83 @@ live lit `GetMainTile`). L'ordre d'enumeration des ennemis (`State.entities` off
 `GetAllEnemyUnitsOfUnit`) n'est pas confronte -- il ne mord que sur un tie de distance. Et les gates
 d'entree de la feuille (`IsNonAttacking(unit)`, `UnitCanBeDamaged(unit, ClosestEnemy)` -> `yield 0`)
 ne sont portes NI cote live NI cote offline : ecart preexistant, hors `#17-off`, mais lu ici.
+
+
+## #17-s8 -- VERDICT FINAL du residu « s8 Hammer » : ECART DEJA NUL, ce qui manquait etait la GARDE
+
+**La ligne de la fiche #17 -- « s8 Hammer : event t93 +120 identifie L3, non porte » -- etait PERIMEE.**
+Elle decrivait l'etat de #57k (l'ecart venait d'etre localise) et n'avait pas suivi #57m, qui l'a PORTE.
+Re-derivation faite AVANT toute edition, sur le build `rnca9r7q6c` (2026-07-30).
+
+### 1. L'ecart existe-t-il encore ? NON -- re-mesure (`probe_57j_hammer.py`, seed 54321, pas 8, MC1_67)
+
+| paire NC | notre utilite | events du port | natif (L3 de #57k) |
+|---|---|---|---|
+| `1153 -> t89` | 95.7567 | 3 (80.7567 + disp 15) | 80.77 |
+| `1153 -> t91` | **185.5370** | 3 (65.5370 + Overwatch 100 + disp 20) | 65.54 |
+| `1153 -> t93` | 87.6679 | **2** (67.6679 + disp 20) | 67.68 (2 events) |
+
+`aiStepDryRun` au pas 8 rend `ActiveAbilityMessage(caster 81, ability 1153, target 91)` ; l'argmax du
+port est **t91** (185.54), donc **PORT == NATIF**. Le cadavre u95 (`isDead`, hp 0, (3,5)) et u140
+apparaissent bien dans les adjacents bruts de t93 et sont bien EXCLUS des events. **Ecart : 0.**
+
+### 2. Le symbole natif qui produit le +120 -- il n'y en a pas : le +120 etait NOTRE event, pas le sien
+
+Le natif n'emet que 2 events sur t93 parce que ses cibles secondaires sont resolues par **OCCUPATION DE
+TUILE**, relu au decompile du build courant (`IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$ExecuteBehaviour`,
+ou le sous-arbre est desormais INLINE -- aucun symbole `GetAdjacentTargets` n'existe plus pour cette
+classe sur `rnca9r7q6c`, et son absence de la table ne prouve rien, cf. CLAUDE.md) :
+
+    Enemies( <role CASTER @+0x48>,
+             IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(<role TARGET @+0x60>, unique, kind) )
+    IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(origin, unique, kind) =
+             IdunBattleLogic.Entities.DSLSelectors$$Units( AdjacentTiles(origin), unique, kind ) - origin
+    IdunBattle.Entities.Selectors.UnitsOnTilesSelector$$Select = selecteur de TUILES (@+0x18) resolu
+             dans le mode d'occupation (@+0x20)
+
+Il n'y a donc **aucun test `isDead`** cote natif : un mort n'occupe plus de tuile, il sort du selecteur
+par CONSTRUCTION. Le +120 etait un artefact de NOTRE substrat (`scene.pos_by_id` derive de
+`decisionView.units`, qui CONSERVE les cadavres) ; le mirror fidele est le filtre explicite
+`(scene.hp(u) or 0) > 0`, pose par #57m dans `make_hammer_wrath_events`.
+
+### 3. Le vrai residu : le filtre etait porte mais **NON GARDE**
+
+Aucun test ne le retenait -- verifie par mutation : retirer la clause `(scene.hp(u) or 0) > 0` ne
+faisait rougir personne. La degradation est SILENCIEUSE (ni erreur ni crash, juste une cible d'IA
+differente), donc invisible en self-play. C'est le trou qui a ete ferme.
+
+- **Montage** : `scripts/python/probe_17_hammer_corpse.py` (fixture `hammer_corpse_case`,
+  `tests/engine/conftest.py`). Geometrie DRIVEE (cible au centre, sacrifiable + temoin sur son ring 1,
+  Mataneo adjacent), **cadavre REEL** (une unite tuee en bataille par un allie, pas des PV forces),
+  etat lu par le seam de DECISION. Deux regimes : `witness` (cadavre ET temoin vivant adjacents) et
+  `corpse-only` (le cadavre est le SEUL adjacent -> la difference est BINAIRE, 0 secondaire contre 1).
+  Le `--center` n'est qu'un indice : le montage rabat sur un centre viable et le rend dans son resultat.
+- **Garde** : `scripts/python/tests/engine/test_hammer_of_wrath_corpse_decision_live.py` (4 tests).
+  L'attendu est derive de la VERITE LIVE (`observeBattle.isDead`), jamais du predicat eprouve.
+- **Instrument de magnitude AUTO-VERIFIE** : `_secondary_event` recompose l'event secondaire d'UNE
+  unite avec les memes entrees que le port ; applique au temoin VIVANT il reproduit au bit pres
+  l'event du port (239.50248756218906 des deux cotes) -- c'est ce qui rend comparable le chiffre du
+  fantome.
+
+**Chiffres AVANT/APRES la mutation adversariale** (MC1_67, seed 17153 ; le montage force le kill donc
+les deux camps sont a PV bas, d'ou une magnitude de fantome de **+100** au lieu des ~+120 de 54321 s8 --
+c'est la MEME classe d'event, `kill`/`killSure` sur une cible a hp 0) :
+
+| regime | events du port AVEC filtre | Sigma | events SANS filtre (mutant) | Sigma |
+|---|---|---|---|---|
+| `witness` (MC1_67) | `[77, 81]` | 479.0050 | `[77, 79, 81]` | 579.0050 |
+| `corpse-only` (MC1_67) | `[77]` | 239.5025 | `[77, 79]` | 339.5025 |
+| `corpse-only` (MC1_63, seed 91117) | `[49]` | 239.5025 | `[49, 51]` | 339.5025 |
+
+Mutation inverse (sur-filtrage `hp > 1e9`, qui exclut AUSSI les vivants) : rouge egalement
+(`[77] != attendu [77, 81]`) -- la garde tient dans les deux sens.
+
+### 4. Non couvert
+
+- Le **cap** `SelectUniqueUnits(3)` n'est pas exerce : les regimes ont au plus 2 adjacents, donc le cas
+  « un cadavre DEPLACE un vivant hors du plafond » n'est pas teste (il depend de l'ordre d'iteration de
+  `scene.pos_by_id`, ce qui en ferait une garde fragile).
+- La garde porte la face **DECISION** (`make_hammer_wrath_events`). La face **COMBAT** du meme selecteur
+  est couverte ailleurs (`tests/engine/runner/test_hammer_of_wrath_live.py`, re-joue vert).
+- Le seuil `hp is None` (unite sans PV connus dans la scene) n'est pas distingue de `hp == 0` : les deux
+  sont filtres, comme dans le port.
