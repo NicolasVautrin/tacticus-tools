@@ -119,6 +119,23 @@ class MoveUnitOperation(Operation):
         # d'ou l'appel non scope : bouger le PORTEUR change l'ensemble de ses cibles).
         from .aura_stat_mods import refresh_aura_stat_modifiers
         refresh_aura_stat_modifiers(state)
+        # `RefreshEffectTrigger.UnitPositionChanged` (= 7, dump d'enums du build : 0=Forced
+        # 1=Simulation 2=Custom 3=UnitStateChanged 4=EffectsChanged 5=UnitsChanged 6=TurnChanged
+        # **7=UnitPositionChanged** 8=MatchStart) -> `IdunBattle.Operations.RefreshEffectsOperation
+        # $$Execute` avec un `effectEntity` NUL, c'est-a-dire sur TOUS les effets de la bataille :
+        # chacun voit sa `CreateActiveCondition` reevaluee par
+        # `RefreshEffectsOperation$$ShouldBeActive`, et bascule ACTIVE <-> INERTE avec
+        # `ApplyModification`/`RevertModification` a la cle.
+        # C'est le volet PORTEUR de la meme donnee que `refresh_aura_stat_modifiers` juste au-dessus
+        # (celui-la couvre les stat-mods PROJETES, dont le selecteur est geometrique ; celui-ci les
+        # stat-mods poses SUR une unite dont la CONDITION est geometrique). Cas porte :
+        # `ContagionsOfNurgle_ArmorReduction1/2` — un pas qui fait entrer/sortir du disque d'aura
+        # ennemi fait entrer/sortir le -20 %/-40 % de `FixedArmor`.
+        # Non-scope (pas de `unit_id`) POUR LA MEME RAISON que la ligne precedente : bouger le
+        # PORTEUR d'aura change la condition des AUTRES unites, pas la sienne. Idempotent partout
+        # ailleurs (`Modify` = replace par-source, cf. `refresh_effects.py`).
+        from .refresh_effects import refresh_stat_modifier_effects
+        refresh_stat_modifier_effects(state)
         # INCRÉMENT 1b : AddMoveEvent (bus) + EvaluateAfterMoveTriggers (overwatch) ici.
 
 

@@ -1299,6 +1299,83 @@ def enemy_psykers_alive(state, unit_id: int) -> Optional[int]:
     return n
 
 
+def contagions_of_nurgle_amount(state, unit_id: int, source_id) -> Optional[int]:
+    """`IdunBattle.Entities.Triggers.ContagionsOfNurgleAmountFormula$$Calculate` — le nœud
+    `IdunBattleLogic.Entities.DSLFormulas$$ContagionsOfNurgleAmount(team, unit)`, lu VERBATIM :
+
+        entity = <selecteur team>.SelectSingle(entities) ;  if (entity == null) return 0
+        teamId = EntityExtensions.GetCurrentTeamId(entity, state)
+        target = <selecteur unit>.SelectSingle(entities) ;  if (target == null) return 0
+        return battleQuery.<slot 0x95>(effectType /* fige a 0x42f par le ctor */, teamId, target,
+                                       returnFirst: false)
+
+    Le slot `0x95` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$GetInRangeAuraAmount`
+    (signature `(effectType, team, target, returnFirst)`, MEME ordre d'arguments) — DEJA porte par
+    case-224 dans `engine/battle_query.py`. Ce foyer DELEGUE donc, il ne re-derive rien :
+
+      * le comparateur est **INCLUSIF** (`dist <= GetCurrentRange(porteur)`), PAS le strict de
+        `IsInUnitContagionsOfNurgleAura` — c'est la version d'EQUIPE du prédicat, et c'est elle que
+        `CreateActiveCondition` consomme ;
+      * le filtre d'appartenance est `GetCurrentTeamId(porteur) == team(<EffectSource>)` — donc
+        « porteurs ALLIES DE LA SOURCE de l'effet », pas « ennemis du porteur de l'effet ». Les deux
+        coincident sur tous les montages mesures, mais seule la premiere est ce que le natif ecrit.
+
+    `source_id` = `EffectSource(Effect@0x150)` = `EffectComponent.SourceUnit @+0x10` = `eff.source`.
+    `None` (source inconnue, entite disparue) => la clé est ABSENTE du `unit_state`, ce que la
+    `CreateActiveCondition` consommatrice traite en dégradation (cf.
+    `ContagionsOfNurgleArmorReductionEffect.is_active`) — jamais un 0 inventé, qui rendrait
+    l'instance inactive et ferait remonter l'armure sans raison native."""
+    from ..battle_query import get_in_range_aura_amount
+    from ..entities.effect_type import EffectType
+    from ..entities.stats import StatType
+    src = state.get_entity(int(source_id)) if source_id is not None else None
+    soc = src.get_component(OwnerComponent) if src is not None else None
+    if soc is None or soc.team is None:
+        return None                                   # `SelectSingle` null -> le natif rend 0 ; ici
+                                                      # « inconnu » (cf. docstring)
+    target = None
+    units: List[dict] = []
+    for uid, ent in state.entities.items():
+        pc = ent.get_component(PositionComponent)
+        if pc is None:
+            continue
+        oc = ent.get_component(OwnerComponent)
+        uc = ent.get_component(UnitComponent)
+        sc = ent.get_component(StatsComponent)
+        hc = ent.get_component(HealthComponent)
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        us = getattr(ctx, "stats", None) if ctx is not None else None
+        # `hp` est LU par le mirror (`GetSurroundingUnits` ne rend que des unites vivantes : une
+        # unite morte est retiree du board par `KillUnit`) -> l'omettre exclurait TOUT le monde.
+        d = {"id": int(uid), "pos": {"col": pc.col, "row": pc.row},
+             "team": (None if oc is None else oc.team),
+             "alive": True if uc is None else bool(uc.alive),
+             "hp": (int(hc.hp) if hc is not None and hc.hp is not None else 1),
+             "_traits": (getattr(ctx, "traits", None) or ()) if ctx is not None else (),
+             "_turns_started": (int(us.get_stat(int(StatType.TURNS_STARTED), 0) or 0)
+                                if us is not None else 0)}
+        if int(uid) == int(unit_id):
+            target = d
+        units.append(d)
+    if target is None:
+        return None                                   # cible sans tuile -> aucun voisinage
+    from ..entities.traits import UnitTrait as _UT, has_trait as _has_trait
+
+    def _unit_has_trait(u, trait_id) -> bool:
+        """`UnitExtensions.HasTrait(unit, aura.GetTrait())` — le trait natif est un ID d'enum, le
+        substrat du port des NOMS gameconfig (même convention que tous les `HasTrait` portés)."""
+        try:
+            enum = _UT(int(trait_id))
+        except ValueError:
+            return False
+        return _has_trait(u.get("_traits"), enum)
+
+    return get_in_range_aura_amount(
+        int(EffectType.ContagionsOfNurgle_ArmorReduction1),      # 0x42f, fige par le ctor du noeud
+        int(soc.team), target, units, _unit_has_trait,
+        lambda u: u.get("_turns_started"), return_first=False)
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -1313,11 +1390,16 @@ class UnitEffectStateView(Mapping):
       * `enemy_psykers_alive` — cardinal battlefield-wide, PARESSEUX (O(entités), cf.
         `enemy_psykers_alive`) : il n'est calculé que si un effet le LIT réellement. La clé est
         présente dès que l'équipe du porteur est connue, absente sinon.
+      * `contagions_of_nurgle_amount` — **un CALLABLE** `(source_unit_id) -> int | None`, et non une
+        valeur : le nœud natif `ContagionsOfNurgleAmount(team, unit)` prend l'EFFECT SOURCE en
+        entrée, donc le cardinal dépend de l'INSTANCE d'effet qui l'interroge, pas seulement du
+        porteur. Paresseux par construction (rien n'est calculé tant qu'aucune instance n'appelle),
+        et présent dès que l'unité a une position.
 
     La paresse n'est pas une optimisation gratuite : `active_effects` est appelé dans des boucles
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
-    __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy")
+    __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -1336,6 +1418,10 @@ class UnitEffectStateView(Mapping):
         oc = ent.get_component(OwnerComponent) if ent is not None else None
         self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
         self._psy: Optional[int] = None
+        # `ContagionsOfNurgleAmount(team, unit)` : le natif `SelectSingle` la cible et sort a 0 si
+        # elle n'a pas de tuile (`GetInRangeAuraAmount` deref `MainTile`) -> la cle n'existe que si
+        # l'unite est SUR le plateau.
+        self._has_pos = (ent is not None and ent.get_component(PositionComponent) is not None)
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -1344,15 +1430,20 @@ class UnitEffectStateView(Mapping):
             if self._psy is None:
                 self._psy = enemy_psykers_alive(self._state, self._uid)
             return self._psy
+        if key == "contagions_of_nurgle_amount" and self._has_pos:
+            state, uid = self._state, self._uid
+            return lambda source_id: contagions_of_nurgle_amount(state, uid, source_id)
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
         yield from self._eager
         if self._has_psy:
             yield "enemy_psykers_alive"
+        if self._has_pos:
+            yield "contagions_of_nurgle_amount"
 
     def __len__(self) -> int:
-        return len(self._eager) + (1 if self._has_psy else 0)
+        return len(self._eager) + (1 if self._has_psy else 0) + (1 if self._has_pos else 0)
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
@@ -1365,7 +1456,9 @@ def unit_state_for_effects(state, unit_id: int) -> UnitEffectStateView:
     en silence (#208).
 
     LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits`,
-    `OwnerComponent`, `UnitComponent.alive`. En particulier **PAS `UnitFlagsComponent`** — le seed de
+    `OwnerComponent`, `UnitComponent.alive`, `PositionComponent` (la clé-CALLABLE
+    `contagions_of_nurgle_amount`, dont le corps ne s'exécute que si une instance d'effet
+    l'appelle). En particulier **PAS `UnitFlagsComponent`** — le seed de
     flags de `load_state` (`snapshot._load_unit_flags`, case-o10) et cette vue écrivent/lisent des
     composants DISJOINTS, il n'y a donc ni double écriture ni contrainte d'ordre d'init entre eux.
     Le SEUL point de contact est `unit_prevents_overkill` ci-dessus, qui interroge le composant de

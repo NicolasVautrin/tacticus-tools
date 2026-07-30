@@ -307,18 +307,19 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   laisse alors `unit_crit_chance = None` -> gate 4 SUSPENDU (permissif) plutôt que `0`, qui le
   ferait mordre sur une donnée jamais lue.
 
-- **Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)** — `case-dpw` §5/§7. Le
-  vecteur `On(UnitAdded)` est porté (une unité qui APPARAÎT dans une aura Contagion ennemie prend
-  le −20 %), mais l'effet n'est **ni re-évalué quand l'aura grandit** (`CalculateRange` = 1/2/3
-  selon `TurnsStarted`), **ni retiré quand l'unité en sort**, **ni basculé 1071 ↔ 1072**. Le natif
-  tient ce cycle par `CreateActiveCondition` (fenêtre `[min, max]` sur le nombre d'auras), que le
-  port ne matérialise pas (pas de flag `IsActive`). La variante **−40 % (2 auras ou plus) n'a
-  aucun montage live**. Les branches `UnitResurrected(0x2f)` / `UnitRevived(0x2e)` du même trigger
-  ne sont pas câblées.
-  ⚠ **Le sous-résidu « `CalculateRange` = 1/2/3 non confronté » de cette ligne est CLOS** depuis
-  `case-224` : la table est mesurée live en **trois paliers** (`TurnsStarted` 1/3/5 → seuil 1/2/3,
-  12 confrontations, 0 désaccord), et son foyer unique est `engine/entities/effects/aura.py`. Ce qui
-  reste ouvert ici est le **cycle de vie** de l'effet posé, pas le calcul de la portée.
+- ~~**Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)**~~ — **CLOS par
+  `case-cvc-contagions-lifecycle.md`**. Les trois manques (aura qui grandit, unité qui sort, bascule
+  1071 ↔ 1072) étaient **un seul mécanisme** : la fenêtre `[min, max]` de `CreateActiveCondition`,
+  ré-évaluée à chaque `RefreshEffectsOperation`, sur **deux instances qui coexistent** (le collapse
+  « une seule instance, l'active » est défait — le canal `decisionView { includeInactive: true }`
+  montre 1071 ET 1072 sur chaque ennemi du porteur). Le flag `EffectComponent.IsActive @+0x5c` a
+  désormais son **producteur** (`refresh_stat_modifier_effects`), et `ContagionsOfNurgleAmount` n'est
+  plus collapsé : il délègue au mirror `BattleQuery$$GetInRangeAuraAmount` de case-224. La variante
+  **−40 %** est **mesurée live** (deux porteurs dans le même roster adverse : `FixedArmor`
+  2312 → 1387), sur deux boards. **Reste ouvert** : les branches `UnitResurrected(0x2f)` /
+  `UnitRevived(0x2e)` du même trigger, non câblées ; les triggers de refresh `UnitsChanged(5)` /
+  `UnitStateChanged(3)` (le port refresh sur move + start-turn + après dégât) ; la part
+  MULTIPLICATIVE `part 9` du stat-layer, matérialisée en delta plat équivalent.
 - **Résidus nommés de `case-224` (prédicat d'aura)** — `case-224-is-in-contagions-of-nurgle-range`
   §5. Trois, tous bornés : (a) le comparateur **STRICT** de `IsInUnitContagionsOfNurgleAura`
   (`dist < range`, contre l'inclusif de la version d'équipe) est établi par XREF du ctor
