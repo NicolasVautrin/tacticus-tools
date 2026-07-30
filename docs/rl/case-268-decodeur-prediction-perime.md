@@ -141,16 +141,46 @@ Deux régimes distincts, tranchés sur la même mesure :
 
 Les tests assertent l'un ou l'autre **explicitement**, au lieu de comparer des bornes de prédiction.
 
-### Mesures, montage réparé
+### Mesures, montage réparé (seed 17811 / 17833, board `MC1_67`)
 
-| régime | PV | dégât LIVE | régime atteint | live | port (rejeu) |
+| régime | PV | dégât LIVE | régime atteint | observable live | port |
 |---|---|---|---|---|---|
-| `control` (genesPrimus) | 400 | 2375 | overkill naturel | overkill | overkill |
-| `titus` (ultraTitus, flag 0x13) | 400 | 2375 | overkill naturel | **pas** overkill | **pas** overkill |
-| `crit` | 2256 | 2774 | létal sous le seuil | overkill | overkill |
-| `nocrit` | 2256 | 2375 | létal sous le seuil | **pas** overkill | **pas** overkill |
+| `control` (genesPrimus) | 400 | 2375 | overkill **naturel** | crescendo `0 -> 1` | overkill |
+| `titus` (ultraTitus, flag 0x13) | 400 | 2375 | overkill **naturel** | crescendo `0 -> 0` | pas overkill |
+| `crit` | 2256 | 2774 | létal **sous le seuil** | crescendo `0 -> 1` | overkill |
+| `nocrit` | 2256 | 2375 | létal **sous le seuil** | crescendo `0 -> 0` | pas overkill |
+| `revive-crit` | 8889 | 9334 | létal **sous le seuil** | victime **morte** | morte |
+| `revive-nocrit` | 8889 | 9357 | létal **sous le seuil** | victime **revive** | revive |
+| `revive-flail` | 19971 | 21023 | létal **sous le seuil** | victime **morte** | morte |
+
+Les deux prédicats de régime sont **mutuellement exclusifs et tous deux observés** dans le même
+fichier (`above_threshold` vrai sur `control`/`titus`, `lethal_below_threshold` vrai sur les cinq
+autres) : un test qui assertirait le mauvais rougirait. La discriminance du montage n'est donc pas
+une supposition.
 
 `tests/engine/runner/test_overkill_gate_live.py` : **8 passed** (était 3 failed + 5 skipped).
+
+### Généralisation : seed 20000, mêmes verdicts, montage auto-calibré
+
+`probe_178_overkill_gate.py --case r33 --seed 20000` — les quatre régimes s'installent sur des
+dégâts entièrement différents (2768 ; 2623 → 2639 avec crit ; 8312 ; 9119 → 9350), et les verdicts
+live sont inchangés : crescendo `0 -> 0` sans crit / `0 -> 1` avec, victime revive sans crit /
+morte avec. **BILAN OK.** Ce que ça prouve : les PV ne sont plus une constante héritée d'une
+mesure d'un autre build, ils sont re-dérivés à chaque montage.
+
+### Ce que la mesure live a RÉVÉLÉ au passage — un écart port/natif sur FlailSwing
+
+Le montage publie désormais, côte à côte, le dégât **live** du vecteur et le **contrepoint** du
+port sur le même état. Sur `revive-flail` :
+
+```
+degat LIVE 21023   |   contrepoint port 21680     (+657, soit +3,1 %)
+```
+
+L'écart était **invisible** tant que le montage se calibrait sur le port (`_tune_hp_replay`) : les
+deux côtés bougeaient ensemble. Il ne fait tomber aucun test — les deux valeurs restent dans
+`[PV, 2 x PV)` — mais c'est un vrai désaccord de dégât sur `FlailSwing` (1042), à instruire à part
+(décomposition par étage, jamais un scalaire à ajuster).
 
 ## 4. Ce qui reste rouge, et pourquoi c'est le bon état
 
@@ -176,6 +206,19 @@ inatteignable » et enverrait re-crafter un roster pour un problème qui n'est p
 
 **Aucun `pytest.skip` ne subsiste dans les fixtures de cette famille.** Un montage qui ne s'installe
 pas échoue ; c'est la seule façon qu'il a de se faire voir.
+
+## 4bis. Bilan chiffré
+
+`pytest tests/engine/ -k "overkill_gate or prevent_overkill_decision"` (13 tests sélectionnés) :
+
+| | avant (`dd129216`) | après |
+|---|---|---|
+| passed | 1 | **9** |
+| failed | 4 | 4 (tous nommés « CANAL MORT », tous #195) |
+| **skipped** | **8** | **0** |
+
+Le nombre de rouges n'a pas bougé, et c'est voulu : trois d'entre eux **étaient** des skips. Ce qui
+a changé, c'est qu'aucun test de cette famille ne peut plus passer sans avoir mesuré.
 
 ## 5. Ce qui n'est PAS couvert
 
