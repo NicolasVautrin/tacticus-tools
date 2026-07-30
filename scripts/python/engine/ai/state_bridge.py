@@ -198,7 +198,13 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
     # #131 : gate d'EXPANSION `BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`. Une
     # tuile portant `BlockEnteringUnits` (Swamp) est un CUL-DE-SAC de la flood-fill (elle reste un
     # stop legal). Sans lui le port sur-atteint et la passe IA choisit une tuile ILLEGALE (case-r5).
-    _cc = make_can_continue(state.effects, traits)
+    # `board=` est OBLIGATOIRE ici (residu case-224 SS4, ferme) : la plupart des etats qui arrivent
+    # dans `_move_tiles` sont charges SANS le canal OPT-IN `load_state(tiles=tileMeta)`, donc
+    # `state.effects` ne porte AUCUN effet de tuile et le gate serait INERTE **en silence**. Le board
+    # fournit alors le repli TERRAIN (`terrain_blocks_entering` : le tile-def Swamp heberge
+    # `ThornsBlockMovementAbility`, qui pose `BlockEnteringUnits` au setup). MESURE avant/apres
+    # (`probe_pathfinding_overreach`) : sans lui MC1_67/777 sur-atteint (2,3) depuis la Swamp (1,3).
+    _cc = make_can_continue(state.effects, traits, board=board)
     _, stop = _mv(board, otile, depth, _occupants(state), my_team, can_continue=_cc)
     out = []
     for t in stop:
