@@ -298,6 +298,59 @@ async function warmupGameSingletons(
         info: dismissed.length === 0 ? "none" : dismissed.join(","),
     });
 
+    // 1bis. RECUPERATION — sortir d'un ecran de BATAILLE herite du cycle precedent.
+    //
+    // CE QUE CECI REPARE. Depuis que `stopAfterCapture` est le defaut (2026-07-25),
+    // le cycle laisse VOLONTAIREMENT le jeu sur l'ecran de bataille : c'est ce qui a
+    // supprime le wedge (61,2 s / ok:false -> 3,9 s / ok:true, cf. l'etape 5bis). Mais
+    // pendant une bataille `IdunNavigation` n'est pas instancie — donc le warmup
+    // SUIVANT echouait a `to-campaign` sur « no live IdunNavigation instance », et il
+    // fallait qu'un HUMAIN ramene le jeu sur la campagne. Autrement dit le warmup
+    // n'etait autonome qu'UNE FOIS SUR DEUX : le premier passait, le second exigeait
+    // une main. Mesure du 2026-07-30 : deux echecs consecutifs sur cette exacte etape.
+    //
+    // ON DETECTE, ON N'AGIT PAS — et c'est le resultat d'une MESURE, pas une prudence
+    // de principe.
+    //
+    // TENTE ET REFUTE le 2026-07-30 : declencher ici la sequence de retraite
+    // (pause -> retreat -> confirm -> attente campagne), en pariant que l'ecran de
+    // bataille etant POSE depuis le cycle precedent — donc sans course contre le
+    // montage de scene — la transition passerait la ou celle de fin de cycle wedgeait.
+    // ELLE NE PASSE PAS. Les trois clics aboutissent, puis la campagne ne remonte pas
+    // en 45 s et l'UI reste FIGEE (confirme a l'ecran par l'utilisateur). Le pari
+    // etait donc faux : la transition de retraite ne wedge pas a cause d'une course,
+    // elle wedge tout court. Le remede etait pire que le mal — l'echec sec coutait 2 s
+    // et laissait le jeu intact, la tentative coute 50 s et le rend inutilisable.
+    //
+    // CE QUI RESTE, ET QUI VAUT : la DETECTION. Sans elle l'echec se presentait comme
+    // « to-campaign: no live IdunNavigation instance », un message qui decrit un
+    // symptome interne et n'indique aucune action. Avec elle on nomme l'etat reel et
+    // le seul geste qui repare. On ne clique RIEN : aucune mutation d'UI, donc aucun
+    // risque d'aggraver.
+    //
+    // LE FOND DU PROBLEME RESTE OUVERT (autonomie du warmup) : `stopAfterCapture`
+    // laisse le jeu en bataille, et aucune voie UI connue n'en sort sans wedger. Une
+    // sortie viable devra passer AILLEURS que par les boutons — p. ex. un appel IL2CPP
+    // direct au service de sortie de bataille, sur le modele de `invokeToCampaign` qui,
+    // lui, marche depuis la campagne. C'est une tache de RE, pas un reglage de timeout.
+    const campaignVisible = await queueOnMainThread(
+        () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
+    const navAlive = await queueOnMainThread(() => {
+        try {
+            return findLiveIdunNavigation(ensureNavRefs()) !== null;
+        } catch {
+            return false;
+        }
+    });
+    if (!campaignVisible && !navAlive) {
+        return fail("stuck-outside-campaign",
+            "le jeu est hors campagne et sans IdunNavigation vivant — typiquement "
+            + "l'ecran de bataille laisse par le cycle precedent (`stopAfterCapture`). "
+            + "Le warmup ne peut PAS en sortir seul : la sequence de retraite a ete "
+            + "essayee et MESUREE comme wedgeante (2026-07-30), elle n'est donc plus "
+            + "tentee. Ramener le jeu sur l'ecran de campagne, puis relancer le warmup.");
+    }
+
     // 2. Navigate to the Indomitus campaign screen. If we're already there,
     //    no-op. Otherwise call IdunNavigation.ToCampaign() directly via IL2CPP
     //    — the same method the game uses internally for its own nav. Replaces
