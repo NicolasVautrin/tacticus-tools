@@ -1154,12 +1154,17 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
     les `abilities` du gameconfig ne prouve pas qu'il est dormant** — balayer aussi les abilities
     dérivées de traits. *(Fait : la ligne d'inventaire est barrée, et la mention
     `RepairMachineOperation` — qui **n'existe pas** dans ce build — est signalée comme supposition.)*
-  * **RÉSIDU NEUF ouvert par #299 (N20)** : **`FabricatorClawArray`**, le passif du `necroSpyder`, est
-    une TRIGGERED `On(0x1c = ArrivedAtFinalTile) & OwnerIsActor` qui `Repair(Owner, …,
-    ConfigVar(hpToRepair))` — donc toute active du Spyder (qui TERMINE son tour) déclenche une
-    SECONDE réparation. Mesuré sans saturation : natif **10457**, port **6025**, écart **4432 =
-    `hpToRepair[50] 2216 × mult 200 %`**, entièrement expliqué. Biais UNILATÉRAL (le port
-    sous-répare). `[opus]`
+  * ~~**RÉSIDU NEUF ouvert par #299 (N20)** : `FabricatorClawArray`, le passif du `necroSpyder`~~ —
+    **FERMÉ le 2026-07-30 par #303** (`docs/rl/case-303-fabricator-claw-array.md`). La TRIGGERED
+    `On(0x1c = ArrivedAtFinalTile) & OwnerIsActor & !AmountIsZero(GetTargetSelector())` est portée en
+    ARBRE DSL (doctrine #149), avec les quatre nœuds qui manquaient au vocabulaire
+    (`UnitsAffectedByHealType`, `Repairable`, `UnitsWithNegativeEffects`, `PickRandomly`) et
+    l'accesseur de slot `Owner`. Le port rend désormais **+10457 == natif** (il rendait 6025), et le
+    **MOVE SEUL** — sans aucun cast — est mesuré isolément à **+4432 des deux côtés**. Le « DEUX
+    tirages PRNG par fire » (le trigger et le behaviour ont chacun leur `PickRandomly`) est
+    DISCRIMINÉ live sur un pool de 2. Résidu résiduel nommé : le fallback `UnitsWithNegativeEffects`
+    rend `[]` (la CATÉGORIE d'un effet n'est pas dans le canal de seed) — biais unilatéral, atteint
+    seulement si aucun allié mécanique adjacent n'est réparable.
 - ~~**#278 — le canal `repair_prediction` n'a jamais été confronté à une réparation MESURÉE**~~ —
   **FERMÉ le 2026-07-30 : le canal est CONFORME sur les VALEURS, pas seulement sur la forme**
   (`docs/rl/case-278-repair-prediction-values.md`). Le décodage était livré (`33292bc4` : deux

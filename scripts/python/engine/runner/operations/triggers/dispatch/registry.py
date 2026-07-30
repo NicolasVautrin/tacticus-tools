@@ -96,6 +96,7 @@ from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif 
                                  CosmicHorrorOnMoveAbility)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
+from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -336,6 +337,16 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/barbed_ovipositor.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger /
     # ...$$CreateBehaviour).
     "BarbedOvipositor": [BarbedOvipositorSummonAbility],
+    # FabricatorClawArray (passif `necroSpyder` << Canoptek Spyder >>, triggered 0x3ee = 1006) =
+    # `On(0x1c=ArrivedAtFinalTile) & OwnerIsActor & !AmountIsZero(GetTargetSelector())` ->
+    # `Repair(Owner, GetTargetSelector(), Direct(ConfigVar(0x24 = hpToRepair)), ForRepair)`, ou
+    # `GetTargetSelector` = `PickRandomly(Repairable(UnitsAffectedByHealType(AdjacentFriends(Owner,1,3),
+    # 1), 0,1,3), 1).Otherwise(PickRandomly(UnitsWithNegativeEffects(<le meme filtre heal-type>), 1))`.
+    # RESIDU N20 de #299 : le Spyder qui bouge PUIS repare restaurait, cote port, la SEULE reparation
+    # active -- mesure natif 10457 vs port 6025, ecart 4432 = hpToRepair[50] 2216 x mult 200 %.
+    # Cf. loki/fabricator_claw_array.py (IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetTargetSelector).
+    "FabricatorClawArray": [FabricatorClawArrayAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

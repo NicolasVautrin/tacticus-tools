@@ -130,7 +130,7 @@ traversent cinq factions (`admecDominus`, `admecManipulus`, `necroSpyder`, `orks
 | cap `MaxFillUp` | cible à `hp_max − 100` | **+100** | +100 | le montant (5024) est capé par le manque |
 | cible à 100 % | même montage, seule la santé change | — | **0** | gate `EntityCanBeRepaired` |
 | cible NON mécanique (`ultraApothecary`, blessée) | roster dédié | — | **0** | `IsAffectedByHealType(.,1)` ; la même cible est SOIGNABLE (type 0) |
-| `necroSpyder` / 28 (5 coups) | `--hp-player 300000`, `RemainingHealth=1` | **+10457** | +6025 | écart **+4432**, entièrement expliqué — cf. §5 |
+| `necroSpyder` / 28 (5 coups) | `--hp-player 300000`, `RemainingHealth=1` | **+10457** | +6025 → **+10457** depuis #303 | écart **+4432** — cf. §5 |
 
 Garde rouge par MUTATION adversariale (registre ramené à l'état `origin/master`), message VERBATIM :
 
@@ -141,7 +141,13 @@ AssertionError: ability 28 NON routee cote combat ({'ability_type': 28, 'ported'
   'newly_finished': True, 'arrived_triggers': []}}}) -- c'est EXACTEMENT le residu #299
 ```
 
-## 5. Résidu NEUF trouvé par la généralisation — `FabricatorClawArray` (N20)
+## 5. Résidu NEUF trouvé par la généralisation — `FabricatorClawArray` (N20, **porté par #303**)
+
+> **CLOS.** Le passif est porté depuis #303 (`docs/rl/case-303-fabricator-claw-array.md`,
+> `engine/runner/operations/triggers/loki/fabricator_claw_array.py`), et le port rend désormais
+> **+10457** comme le natif. La lecture ci-dessous reste, telle quelle : c'est elle qui a nommé le
+> résidu, et le doc de #303 en donne le mirror complet (arbre DSL, mesures par étage, résidus).
+
 
 `necroSpyder` est le seul porteur du trait `Mechanic` dont l'arme a **5 coups** : il exerce le
 facteur `Max(WeaponHighestHits, 1)`, invisible chez les deux AdMec (×1). Sa mesure a d'abord donné un
@@ -165,8 +171,10 @@ Tout cast d'active TERMINE le tour (`AddFlagsAfterAbilityExecution` → `FinishU
 `UnitFlags.Add(ArrivedAtFinalTile)`), donc le trigger part juste après la réparation.
 
 **4432 = `hpToRepair[50] = 2216` × `multiplier 200 %`** — à l'unité près. La face COMBAT de la
-réparation est donc JUSTE ; le manque est une ability PASSIVE, hors périmètre de ce cas. Verrouillé
-par une égalité exacte (`live == offline + hpToRepair`), qui garantit du même coup le facteur `× 5`.
+réparation est donc JUSTE ; le manque était une ability PASSIVE, hors périmètre de ce cas. Le test
+`test_necro_spyder_hits_factor_and_fabricator_claw` verrouille aujourd'hui `live == offline`, décomposé
+selon le vecteur qui a publié `On(0x1c)` (le flag `ArrivedAtFinalTile` était-il déjà posé à la capture),
+et garantit du même coup le facteur `× 5`.
 
 ## 6. Résidus NOMMÉS du port lui-même
 

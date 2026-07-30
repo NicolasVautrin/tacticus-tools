@@ -310,6 +310,48 @@ class PickFirstN(TargetsSelector):
         return list(self.source.evaluate(ctx))[:n]
 
 
+class PickRandomly(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(entities, amount, allowDuplicates,
+    maxDuplicatesAllowed, ignoreForcedTargets)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select`.
+
+    Le NOEUD ; la BOUCLE native (et sa loi de consommation RNG) vit dans le foyer UNIQUE
+    `runner/abilities/loki/splash.py::_pick_randomly_n`, mirror 1:1 deja valide live (#130 / #215) --
+    on delegue au lieu de la reecrire. Rappel de la loi qui compte : le natif tire
+    `min(len(pool), amount)` fois **meme quand le pool tient deja dans `amount`** (aucun court-circuit),
+    et un tirage sur un pool de 1 CONSOMME quand meme un `genrand_int32`. Court-circuiter desaligne
+    tout le flux RNG en aval.
+
+    L'ordre de `source` est celui du selecteur natif (`source.Select(entities).ToList()`, aucun tri
+    intermediaire) : ce noeud ne le retrie PAS -- c'est ce qui decide QUI est piquee des que
+    `len(pool) > amount`.
+
+    `ctx.pick_randomly` absent (contexte hors runner : pas de PRNG de bataille) -> repli DETERMINISTE
+    sur les `amount` premiers elements, ZERO tirage. C'est une DEGRADATION assumee et nommee, pas un
+    mirror : elle garde le selecteur utilisable en prediction/tests unitaires, ou aucun etat RNG
+    n'existe. Le chemin RUNNER, lui, passe toujours par l'accesseur.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$GetTargetSelector`
+    (DEUX instances distinctes : la primaire sur `Repairable(...)`, le fallback sur
+    `UnitsWithNegativeEffects(...)`)."""
+    def __init__(self, source: TargetsSelector, amount=1, allow_duplicates: bool = False,
+                 max_duplicates: int = 0x7FFFFFFF, ignore_forced_targets: bool = False):
+        self.source, self.amount = source, amount
+        self.allow_duplicates = bool(allow_duplicates)
+        self.max_duplicates = int(max_duplicates)
+        self.ignore_forced_targets = bool(ignore_forced_targets)
+
+    def select(self, ctx):
+        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
+        n = int(n or 0)
+        pool = _units_of(self.source, ctx)
+        if n <= 0 or not pool:
+            return []
+        f = getattr(ctx, "pick_randomly", None)
+        if f is None:
+            return list(pool)[:n]                  # repli DETERMINISTE (aucun PRNG) -- cf. docstring
+        return f(pool, n, self.allow_duplicates, self.max_duplicates)
+
+
 class Otherwise(TargetsSelector):
     """`IdunBattle.DSL.TargetsSelector$$Otherwise(primary, fallback)` : le natif alloue un selecteur a DEUX
     branches (ctor : `+0x18 = primary`, `+0x20 = fallback`) qui rend `primary` s'il produit quelque chose,

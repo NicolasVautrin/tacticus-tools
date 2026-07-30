@@ -843,3 +843,119 @@ class Unobscured(TargetsSelector):
                 continue                                    # terrain obscurcit la tuile dist-2 -> exclue
             out.append(u)
         return out
+
+
+# --- Filtres d'ELIGIBILITE SOIN/REPARATION (les deux slots `IAttackQuery` du DSL, #303) -----------
+# Ces DEUX selecteurs partagent la MEME forme native (`Select(entities)` : ils iterent le selecteur
+# source et gardent l'entite si un slot du service `IAttackQuery` rend vrai) et le meme
+# service -- seul le slot differe : 0x13 = `EntityCanBeRepaired(entity, scope, removeEffects)`,
+# 0x14 = `EntityIsAffectedByHealType(entity, healType)`. Cf.
+# `IdunBattleLogic.Core.Services.Caches.CachedAttackQuery$$EntityCanBeRepaired` /
+# `$$EntityIsAffectedByHealType`, les deux thunks nommes qui donnent l'ordre des slots.
+
+class UnitsAffectedByHealType(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsAffectedByHealType(units, healType)` ->
+    `IdunBattle.Entities.Selectors.UnitsAffectedByHealTypeSelector$$Select` -- MIRROR du decompile :
+
+        foreach entity in source.Select(entities):
+            if (query.<slot 0x14>(entity, this.healType@+0x20)) result.Add(entity)
+
+    Le slot 0x14 est `IdunBattle.Core.Services.AttackQuery$$EntityIsAffectedByHealType`, qui delegue
+    a `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(entity, healType)` :
+      * `healType = 0` (NonMechanical) : `HasTrait(0x421 AffectedByHealAndRepair)` OU **NON**-IsMechanical ;
+      * `healType = 1` (Mechanical)    : `HasTrait(0x421)` OU IsMechanical
+        (`Mechanical 5 | LivingMetal 1000 | Vehicle 1029`).
+    Le port DELEGUE au mirror UNIQUE de ce predicat (`operations/triggers/revive_effect.py`), le meme
+    que consomment `abilities/attack_query.is_affected_by_heal_type` et le trigger `IsRepairable` --
+    surtout pas une 3e ecriture de la meme regle.
+
+    Ordre de `source` PRESERVE (le natif accumule dans une `List` en iterant la source).
+    `ctx.has_trait` absent -> [] (aucun verdict de trait n'est disponible, meme degradation que
+    `UnitsWithTrait`/`MechanicalUnits`).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$GetTargetSelector`
+    (`UnitsAffectedByHealType(AdjacentFriends(Owner,1,3), 1)`)."""
+    def __init__(self, source: TargetsSelector, heal_type: int = 1):
+        self.source, self.heal_type = source, int(heal_type)
+
+    def select(self, ctx):
+        from ...runner.operations.triggers.revive_effect import is_affected_by_heal_type
+        ht = ctx.has_trait
+        if ht is None:
+            return []
+        return [u for u in _units_of(self.source, ctx)
+                if is_affected_by_heal_type(ht, u, self.heal_type)]
+
+
+class Repairable(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Repairable(entities, scope, removeEffects, unitsToTarget)`
+    -> `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select` -- MIRROR du decompile :
+
+        foreach entity in source.Select(entities, this.unitSelectionType@+0x28):
+            if (query.<slot 0x13>(entity, this.scope@+0x20, this.removeEffects@+0x24))
+                result.Add(entity)
+
+    Le slot 0x13 est la surcharge **A TROIS ARGUMENTS** d'`IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired`
+    (celle SANS caster) ; relue verbatim, elle est la 4-args avec `caster = null` -- le seul disjunct
+    qui disparait est `caster != null && HasFlag(caster, 0x18 CanRepairFullHealthUnits)`. Le port
+    DELEGUE donc a l'unique mirror deja en place (`abilities/attack_query.entity_can_be_repaired`,
+    appele avec `caster_id = None`), via l'accesseur de contexte `ctx.entity_can_be_repaired` --
+    exactement le patron de `UnitsThatCanHaveActiveAbilityReset` (slot `IBattleQuery`).
+
+    `unit_selection_type` = le 4e argument natif (`+0x28`), passe au `Select` de la SOURCE (mode
+    d'occupation main/steppable). Le port n'a pas ce parametre cote selecteurs sources -> conserve
+    pour la lisibilite du mirror, INERTE (residu deja partage par tous les call-sites d'`AdjacentFriends`).
+
+    Accesseur absent -> [] (aucun verdict d'eligibilite : degradation fidele, jamais un « tout passe »).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$GetTargetSelector`
+    (`Repairable(UnitsAffectedByHealType(...), 0, 1, 3)`)."""
+    def __init__(self, source: TargetsSelector, scope: int = 0, remove_effects: bool = True,
+                 unit_selection_type: int = 3):
+        self.source, self.scope = source, int(scope)
+        self.remove_effects = bool(remove_effects)
+        self.unit_selection_type = int(unit_selection_type)
+
+    def select(self, ctx):
+        f = getattr(ctx, "entity_can_be_repaired", None)
+        if f is None:
+            return []
+        return [u for u in _units_of(self.source, ctx)
+                if f(u, self.scope, self.remove_effects)]
+
+
+class UnitsWithEffectsOfType(TargetsSelector):
+    """`IdunBattle.Entities.Selectors.UnitsWithEffectsOfTypeSelector$$Select` -- MIRROR du decompile :
+
+        foreach entity in source.Select(entities, 3):
+            if (EntityExtensions.HasEffectOfType(entity, state, effectsDatabase, this.<+0x28>))
+                result.Add(entity)
+
+    ⚠ `<+0x28>` n'est PAS un `EffectType` : `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffectOfType`
+    lit, pour CHAQUE effet porte, la DEFINITION de l'effet dans l'`EffectsDatabase` et en compare le
+    `Nullable<int>` de CATEGORIE (`def+0x58` -> champ optionnel de la definition). C'est une CATEGORIE
+    d'effet (1 = negatif), pas un id d'effet.
+
+    **RESIDU NOMME, dimension NON PORTEE** : le canal de seed (`decisionView.units[].effects`) donne la
+    LISTE des effets portes mais AUCUNE categorie, et il n'existe pas de table `EffectType -> categorie`
+    cote port -- meme trou, exactement, que `attack_query.has_negative_unit_effect` (qui lit un AUTRE
+    conteneur natif, `EffectsComponent+0x100`, et rend `False` pour la meme raison). L'accesseur
+    `ctx.has_effect_of_type` n'est donc branche par AUCUN substrat : ce selecteur rend **[]**.
+    Rendre « tout » serait pire (le fallback deviendrait universel). La consequence est bornee et
+    UNILATERALE : ce selecteur n'apparait qu'en FALLBACK d'`Otherwise`, donc il ne peut que RATER une
+    cible que le natif aurait prise -- jamais en prendre une de trop."""
+    def __init__(self, source: TargetsSelector, effect_category: int = 1):
+        self.source, self.effect_category = source, int(effect_category)
+
+    def select(self, ctx):
+        f = getattr(ctx, "has_effect_of_type", None)
+        if f is None:
+            return []
+        return [u for u in _units_of(self.source, ctx) if f(u, self.effect_category)]
+
+
+def UnitsWithNegativeEffects(source: TargetsSelector) -> UnitsWithEffectsOfType:
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithNegativeEffects(entities)` = la FABRIQUE qui
+    construit `UnitsWithEffectsOfTypeSelector(state, effectsDatabase, entities, 1)` -- le littéral
+    `1` (categorie NEGATIVE) est ecrit par la fabrique elle-meme, lu au decompile."""
+    return UnitsWithEffectsOfType(source, 1)

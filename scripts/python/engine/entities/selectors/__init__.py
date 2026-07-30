@@ -35,6 +35,7 @@ from .units import (  # noqa: F401
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
     Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
     ValidNormalAttackTargets,
+    UnitsAffectedByHealType, Repairable, UnitsWithEffectsOfType, UnitsWithNegativeEffects,
 )
 
 from .tiles import (  # noqa: F401
@@ -44,14 +45,15 @@ from .tiles import (  # noqa: F401
 
 from .accessors import (  # noqa: F401
     CasterTile, TargetTile, FixedTiles, FixedTileIds, OwnerTile, Subject, Actor, Target,
-    ActiveTarget, SurroundingTiles, _center_pos,
+    ActiveTarget, SurroundingTiles, _center_pos, Owner,
 )
 
 from .geometry import (  # noqa: F401
     neighbour_at, TilesInTriangleShape, ThreeTileUnitSpawnShape, TileFromVector, Walkable,
     Blocking, SortReverse,
     TilesOnSameElevation,
-    EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, Otherwise, TilesBehindInLine,
+    EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Otherwise,
+    TilesBehindInLine,
     FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null,
     EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
 )
@@ -70,6 +72,8 @@ __all__ = [
     "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
     "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "UnitsDamagedThisPhase",
     "ValidNormalAttackTargets",
+    "UnitsAffectedByHealType", "Repairable", "UnitsWithEffectsOfType", "UnitsWithNegativeEffects",
+    "Owner", "PickRandomly",
     "Caster", "AllUnits", "AllTiles", "Children",
     "Parent", "LastUnitAttackedBy", "AdjacentTiles", "TileUnique", "CanAddUnit",
     "TileIntersect", "MovableTilesInRange", "tiles_unit_can_move_to_charge_target",

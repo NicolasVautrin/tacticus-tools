@@ -80,6 +80,26 @@ class Subject(TargetsSelector):
         return ctx.subject
 
 
+class Owner(TargetsSelector):
+    """Slot **Owner** (`factory+0x148` = `DSLSelectors+0x30`) : l'entite PORTEUSE de l'ability --
+    distincte du CASTER (`factory+0x160`) et de l'ACTOR (`factory+0x158`).
+
+    Les DEUX slots sont lus au decompile sans ambiguite : `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsActor`
+    construit `AreEqual(DSLSelectors+0x30, DSLSelectors+0x40)` -- donc `+0x30 = Owner` et `+0x40 = Actor` ;
+    et `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$CreateBehaviour` prend son `mechanic`
+    en `+0x48 = Caster`, la ou
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$CreateBehaviour` prend
+    le sien en `+0x30 = Owner`.
+
+    Accesseur = `ctx.owner`, avec repli sur `ctx.caster` quand il n'est pas threade : pour une
+    TRIGGERED-ability, `Owner == Caster == le porteur` (le behaviour est execute par
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` sur son propre porteur), et c'est ce
+    que pose `entities_from_state(state, owner_id)`. Le repli est donc EXACT sur ce chemin, et le noeud
+    existe pour que le port CITE le slot que le natif cite."""
+    def select(self, ctx):
+        return getattr(ctx, "owner", None) or ctx.caster
+
+
 class Actor(TargetsSelector):
     """L'entité ACTOR/KILLER du contexte de trigger (`AbilityEntities` slot `factory+0x158`) : l'ACTEUR
     de l'événement déclencheur — ex. le TUEUR sur `OnPreDeath` (ActOfFaith accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour lit
