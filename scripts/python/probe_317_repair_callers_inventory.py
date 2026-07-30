@@ -99,10 +99,11 @@ CALLSITES: list[tuple[str, str, str, str, str | None, bool, str]] = [
      "Repair_GalvanicFieldAbility$$CreateAttackBehavior -- face DECISION portee (playbook), COMBAT non"),
     ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.DawnBlade_HealAbility$$CreateBehaviour",
      REPAIR, FOR_REPAIR, "TriggeredAbilityType 1501 DawnBlade "
-     "(l'EffectType 1501 est DawnBlade_ExtraDmg -- homonyme d'id, autre enum)", "DawnBlade", False,
+     "(l'EffectType 1501 est DawnBlade_ExtraDmg -- homonyme d'id, autre enum)", "DawnBlade", True,
      "LE NOM DIT HEAL, L'ARTEFACT EST UN REPAIR : Repair(Owner@0x30, Owner@0x30, "
      "Get(GetVariableForLevel(0x20 hpToHeal)), AbilityOrEffect, ForRepair) ; trigger = "
-     "On(UnitDeath=0) & OwnerIsActor & IsDefeatedByMeleeAttack(sel@0x60)"),
+     "On(UnitDeath=0) & OwnerIsActor & IsDefeatedByMeleeAttack(sel@0x60) -- PORTE par #317 "
+     "(triggers/loki/dawn_blade.py, registre RELIC_ABILITY_TRIGGERS)"),
     ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnhancementRegenerationAbility$$CreateBehaviour",
      FORK, "ctor ad-hoc : +0x10 = 1 (scope), +0x14 = 0 (removeEffects), +0x15 = 1, +0x18 = 1",
      "TriggeredAbilityType 1433 EnhancementRegeneration", "EnhancementRegeneration", False,

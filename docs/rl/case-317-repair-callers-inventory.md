@@ -4,11 +4,12 @@
 l'artefact porté côté Python est-il un `Repair` ou un `Heal` — et si c'est un `Heal`, est-ce une
 faute ?
 
-**Réponse, mesurée** : côté port, **aucun** des 13 n'est câblé sur le soin. Les 4 portés passent
-tous par `RepairUnitOperation` (dont `LivingMetalRepair`, rebranché par #310) ; les 9 restants ne
-sont **pas portés du tout** — ce sont des tranches neuves, pas des rescapés du bug #310. Le
-balayage AST inverse (`probe_310_heal_vs_repair_callers.py`) le confirme dans l'autre sens : 10
-déclarations, **toutes `HEAL`**, 0 rescapé.
+**Réponse, mesurée** : côté port, **aucun** des 13 n'est câblé sur le soin. Les portés passent tous
+par `RepairUnitOperation` (dont `LivingMetalRepair`, rebranché par #310, et `DawnBlade`, porté par
+cette PR → **5 sur 13**) ; les 8 restants ne sont **pas portés du tout** — ce sont des tranches
+neuves, pas des rescapés du bug #310. Le balayage AST inverse
+(`probe_310_heal_vs_repair_callers.py`) le confirme dans l'autre sens : 10 déclarations, **toutes
+`HEAL`**, 0 rescapé.
 
 Re-dérivation : `python scripts/python/probe_317_repair_callers_inventory.py`
 (la table native vient de ghidra, la ventilation des porteurs est dérivée du gameconfig à chaque
@@ -61,7 +62,7 @@ relues verbatim sur `rnca9r7q6c` : `$$ForRepair` = `(0, 1)`, `$$ForRegenerate` =
 | 6 | `…Active.Loki.ReanimationBeamAbility$$GetRepairBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1223 | non |
 | 7 | `…Active.Loki.RelentlessMarchAbility` | `AddEffect(0x3f3) + Repair` | ForRepair | `TriggeredAbilityType` 1004 (**homonyme** d'`ActiveAbilityType` 1004 `MortisRound`) | non |
 | 8 | `…Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1117 | non (DÉCISION portée) |
-| 9 | `…Triggered.Loki.DawnBlade_HealAbility` | **`Repair`** | ForRepair | `TriggeredAbilityType` 1501 `DawnBlade` (l'`EffectType` 1501 est `DawnBlade_ExtraDmg` — autre enum) | non |
+| 9 | `…Triggered.Loki.DawnBlade_HealAbility` | **`Repair`** | ForRepair | `TriggeredAbilityType` 1501 `DawnBlade` (l'`EffectType` 1501 est `DawnBlade_ExtraDmg` — autre enum) | **oui** (#317, §6) |
 | 10 | `…Triggered.Loki.EnhancementRegenerationAbility` | `If(Repairable, Repair, Heal)` | **ctor ad-hoc** `+0x10=1` (scope), `+0x14=0`, `+0x15=1`, `+0x18=1` | `TriggeredAbilityType` 1433 | non |
 | 11 | `…Triggered.Loki.PowerUp_HealingAbility$$AdditionalBehavior` | `If(IsMechanical, Repair, Heal)` | **ctor ad-hoc** `+0x10=0`, `+0x14=1`, `+0x16=1` | `TriggeredAbilityType` 1273 | non |
 | 12 | `…Triggered.Loki.SelfRepairMechanismAbility` | `Repair` | ForRepair | `TriggeredAbilityType` 1291 | non |
