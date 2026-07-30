@@ -185,6 +185,118 @@ deja portee et validee (#116) : cette tranche ne couvre que la face DECISION.
 et fige `r = 2`. Le reutiliser aurait retire des ennemis a distance 2 obscurcis que CE selecteur-ci
 compte, et fige un rayon qui vient d'un `GetNumberConstant`. D'ou une fonction distincte.
 
+## TRANCHE 4c (2026-07-30) — ForwardObservers (1185), 2e membre de la route non-attaque
+
+### Ce que le decompile dit
+
+`IdunBattle.AI.Playbook.Loki.ForwardObserversPlaybook$$CalculateCustomUtility`, relu VERBATIM sur
+`rnca9r7q6c` :
+
+```
+CheckIfAnyEnemyHasMarkerLight(caster);              // remplit le cache (this+0x70 = calcule, +0x71 = flag)
+u = Fix64.Zero;                                     // <Fix64 statics>+0x28, ecrit a 0 par `FixMath.NET.Fix64$$.cctor`
+if (!this.<anyEnemyHasMarkerLight @+0x71>)
+    u = Fix64.op_Addition(u, GetUtilityValue("ForwardObservers_EnemyHasNoMarkerlight"));
+if (target == null) throw;
+comp = <FillUpStatComponent de la CIBLE, StatType 5 = Health>;
+if (comp == null) throw;
+return Fix64.op_Addition(u, Fix64.op_Multiply(comp.RemainingPercentage(),
+                                              GetUtilityValue("ForwardObservers_TargetHealthPercentage")));
+```
+
+et `IdunBattle.AI.Playbook.Loki.ForwardObserversPlaybook$$CheckIfAnyEnemyHasMarkerLight` :
+
+```
+if (this.<calcule @+0x70>) return;                  // remis a 0 par `...ForwardObserversPlaybook$$ResetCaches`
+this.<calcule @+0x70> = true;
+player = EntityExtensions.GetCurrentPlayer(caster, this.<state @+0x20>);
+foreach (e in this.<battleQuery @+0x28>.<slot itf 0x8e>(player))
+    if (EntityExtensions.HasEffect(e, this.<state @+0x20>, 0x462, null)) {
+        this.<anyEnemyHasMarkerLight @+0x71> = true; break;
+    }
+```
+
+Trois points de RE qui ne se devinent pas :
+
+1. **Le slot d'interface `0x8e` est `GetAllEnemiesOf`**, etabli par ANCRAGE et non par recopie de fiche :
+   `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.u003Cu003Ec__DisplayClass169_0$$u003CGetAllEnemiesOfu003Eb__0`
+   (le decorateur enregistreur) appelle ce meme slot avec `(battleQuery, playerEntityId)`, et
+   `IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$ShouldExecute` l'appelle avec
+   `GetCurrentOwnerEntityId(caster)`. Le corps de `IdunBattle.Core.Services.BattleQuery$$GetAllEnemiesOf`
+   ne filtre NI la mort NI la position : c'est « toutes les unites dont le proprietaire courant n'est
+   pas ce joueur ».
+2. **`RemainingPercentage` est un RATIO, pas un pourcentage.**
+   `IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage` =
+   `Fix64.Max(Fix64(0), Fix64(<valeur courante @+0x18>) / Fix64(get_CurrentMaximumValue()))` : aucun
+   arrondi, aucun x100. Le port ne passe donc PAS par le `round(cur/max*100)` de
+   `GetStat(Health, part=1)` (celui de BloodChalice / LightOfSanguinius). Et le composant lu est bien
+   celui de la SANTE : le call-site est l'inline exact de la branche `statType == 5` de
+   `IdunBattle.Entities.UnitExtensions$$GetFillUpStatComponent` (memes deux classes, meme champ
+   statique d'id de composant).
+3. **Le terme de Markerlight est BOOLEEN et GLOBAL**, jamais un compte : le natif `break` au premier
+   ennemi marque. Il ne depend NI de la tuile candidate NI de la cible — c'est un bonus d'AMORCAGE
+   (tant que personne n'est marque, poser la premiere marque vaut 200 ; des qu'un seul ennemi l'a, il
+   disparait).
+
+**Classification DSL/imperatif** (tranchee AVANT de coder, et elle DIFFERE de celle de 1226) :
+`CheckIfAnyEnemyHasMarkerLight` est une **methode imperative du playbook** — une boucle `foreach` +
+`HasEffect`, pas un arbre `DSLFactory`. Le partage decision/COMBAT de Chronometron **ne se reproduit
+pas ici** : la face COMBAT
+(`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$ExecuteBehaviour`) est
+`AddEffect(0x462 Markerlight, TurnsFromRounds(GetNumberConstant(0x45))) +
+AddEffect(0x575 ForwardObservers_DamageReduction, TurnsFromRounds(GetNumberConstant(0x77)))` et
+**n'evalue AUCUN selecteur d'ennemis**. Il n'y a donc aucun artefact commun a reutiliser, et aucun
+risque de fork. Les deux primitives sont ecrites la ou vivent leurs homonymes natifs
+(`battle_query.all_enemies_of` = slot 0x8e, `battle_query.entity_has_effect` =
+`EntityExtensions.HasEffect`) plutot que recablees dans le playbook.
+
+**Ciblage lu au ctor** (non porte au registre COMBAT — cette tranche ne couvre que la DECISION) :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$.ctor` appelle la surcharge
+7-args EXPLICITE `TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics>+0x18
+= RANGE_FROM_CONFIG, forceMeleeTarget=0 = RangedBool.True, rules=0x200004002, 0, 0)`. Ce n'est **pas**
+la forme preset+flags : le litteral EST le masque effectif (`TargetMatchesDynamicRule | TargetIsEnemy |
+TargetIsNotAnObject`). `AActiveAbility..ctor(this, &opts, 2)` -> `AbilityAttackType.Others`. La regle
+DYNAMIQUE est portante : `...ForwardObserversAbility$$GetDynamicInvalidTargetReason` refuse (raison 2)
+toute cible qui porte DEJA le Markerlight — cote decision, cette cascade est appliquee par le NATIF
+(`ctx.ability_targets` = RPC `abilityTargets`), le port en herite sans la rejouer.
+
+### L'override porte
+
+| Ability (id) | Symbole | Formule mirroir | Poids | Porteur | Validation |
+|---|---|---|---|---|---|
+| **ForwardObservers** (1185) | `IdunBattle.AI.Playbook.Loki.ForwardObserversPlaybook$$CalculateCustomUtility` | `[aucun ENNEMI ne porte Markerlight(0x462)] * W_A + RemainingPercentage(CIBLE) * W_B` ; predicat = `foreach (e in GetAllEnemiesOf(GetCurrentPlayer(caster))) if HasEffect(e, 0x462) break` ; ratio = `max(0, GetStat(cible, Health, part 0) / GetStat(cible, Health, part 2))` | `ForwardObservers_EnemyHasNoMarkerlight` = **200** ; `ForwardObservers_TargetHealthPercentage` = **40** | tauSmnStealthSuit (SUMMON **sans invocateur**) + tauNpc5StealthSuit (npc) -> porteur **GREFFE** (cf. ci-dessous) | **A/B causal live** (`probe_27_4c_forwardobservers_ab.py`, board MC1_67, seed 909), 4 bras, moteur = natif dans les 4 ; encadrement **36.5359 < W_B < 41.4060**. Detail en §Validation. |
+
+### Pourquoi le porteur est GREFFE, et pourquoi ca reste une mesure
+
+> **Recette reutilisable — un porteur non spawnable NE ferme PAS le dossier.** L'enchainement
+> complet (les deux etages `catalog_inject` / `buildNormalizedBC`, le diagnostic en une commande,
+> les trois recours dans l'ordre, et ce que la greffe ne couvre pas) est ecrit une seule fois, en
+> **`docs/rl/case-92-catalog-injection.md` §5bis**. Ce qui suit n'en est que l'instance 1185.
+
+Les deux SEULES unites qui portent 1185 sont `tauSmnStealthSuit` et `tauNpc5StealthSuit` (memes actives
+`[ForwardObservers, WallOfMirrors]`). Le summon est declare par
+`units.abilities.ATemptingTrap.constants.unitId` — mais **aucune unite du gameconfig ne porte
+`ATemptingTrap`** (balayage exhaustif du fichier : l'ability n'apparait que comme cle de
+`units.abilities` et de `units.abilityPowerModifiers`). Le chemin « SUMMON amene par son summoner »
+n'existe donc pas. Et `catalog_inject` ne suffit pas : les deux ids entrent bien dans `BC.Units`, mais
+`buildNormalizedBC` les REFUSE (`v2 patch: system error` —
+`IStatsFormula.StatsUsingProgressionIndexFor` n'a pas de table de progression pour un summon/npc, comme
+pour les 70 entrees `*Npc*` deja skippees), donc ils restent hors du pool spawnable, stats a 0.
+
+Le montage remplace donc `ActiveAbilities` de `tauCrisis` (T'au, pool, arme ranged portee 2) par
+`[1185]` dans une COPIE du seed BC. **Ce n'est pas un contournement de la mesure** : le natif charge le
+playbook PAR ABILITY (`PlaybookDatabase.LoadPlaybook(abilityType)`), jamais par unite — le code exerce
+est bien `ForwardObserversPlaybook`, et le natif le PROUVE en emettant `ActiveAbilityMessage(1185)`
+dans `aiDryRunAllUnits` puis en changeant de decision quand on change le SEUL etat que ce playbook lit.
+La formule custom ne lit aucune variable d'ability (uniquement `BC.Utilities`), donc la greffe ne la
+deforme pas. Le residu que cela laisse est nomme en §Non couvert.
+
+**Le Markerlight est pose par une voie NATURELLE**, pas injecte : `tauDarkstrider` porte le passif
+`StructuralAnalyser`, dont
+`IdunBattleLogic.Entities.Abilities.Triggered.Loki.StructuralAnalyser_AddMarkerlightAbility$$CreateTrigger`
+= `On(0xa) & IsRangedAttack & OwnerIsCaster` et dont le `CreateBehaviour` fait `AddEffect(0x462, ...)`
+sur la cible touchee.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).
@@ -421,7 +533,7 @@ re-derouler la recon : elle part d'ici.
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian | summon **sans invocateur** (aucune ability du gameconfig ne le summon) | **residu / non confrontable** | invocateur inexistant -> non amenable en bataille ; + `GenerateMultiHitAttackPredictions` |
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
-| 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit | summon de `ATemptingTrap` | **residu** | `damageProfile` absent -> ability non-degat ciblant un ENNEMI, aucune route offline. Formule : `(aucun ennemi n'a de markerlight ? W(=200) : 0) + RemainingPercentage(cible) * W(=40)` |
+| 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4c) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
 | 22 | `HealingBalms_HealPlaybook` @181142dc0 | HealingBalms_Heal (1212) | spaceWolfPriest (sous-ability du PASSIF HealingBalms) | hero **hors pool** | **residu** | pas d'entree gameconfig active ; voie « heal declenche par un passif » non modelisee |
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `MortarionsPlagueWindPlaybook` @18114ca30 | MortarionsPlagueWind (1093) | deathBossMortarion | **npc** | **non pertinent** | — |
@@ -431,11 +543,12 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 9** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, **1227**, **1226**.
+- **PORTES / couverts : 10** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, **1227**, **1226**, **1185**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 8** — 1100, 1169, 1148, 1051/1142, 1098, 1053, 1185, 1212.
-  (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b**.)
+- **Residus a debloquer : 7** — 1100, 1169, 1148, 1051/1142, 1098, 1053, 1212.
+  (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
+  **1185 porte — #27-4c**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -449,12 +562,17 @@ re-derouler la recon : elle part d'ici.
 | 1230 SavageEchoes | oui | oui | bloodTerminator [catalog_inject] |
 | **1226 Chronometron** | **NON** | **non** | necroChronomancer [catalog_inject] |
 | **1053 DevoutPush** | **NON** | **non** | templInitiate [summon d'environnement] |
-| **1185 ForwardObservers** | **NON** | **non** | tauSmnStealthSuit [summon d'`ATemptingTrap`] |
+| **1185 ForwardObservers** | **NON** | **non** | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] |
 | **1212 HealingBalms_Heal** | pas d'entree gameconfig | **non** | spaceWolfPriest (sous-ability d'un PASSIF) |
 
 Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2 **n'existe plus**
-(`catalog_inject.py` complete `BC.Units` ET `BC.Abilities`) ; ce qui reste bloquant pour 1226 / 1053 /
-1185 / 1212 est la ROUTE (aucun `damageProfile` -> jamais candidate offline).
+(`catalog_inject.py` complete `BC.Units` ET `BC.Abilities`) ; ce qui restait bloquant pour 1226 / 1053 /
+1185 / 1212 etait la ROUTE (aucun `damageProfile` -> jamais candidate offline), levee en 4b. **Nuance
+mesuree en 4c** : `catalog_inject` ne rend pas TOUT confrontable — il complete le CATALOGUE, mais
+`buildNormalizedBC` filtre ensuite sur `IStatsFormula.StatsUsingProgressionIndexFor`, qui **refuse les
+summons et les npc** (`v2 patch: system error`). Un porteur summon/npc reste donc hors du pool meme
+injecte ; le chemin restant est (a) son SUMMONER s'il en a un, (b) sinon la GREFFE de l'ability sur une
+unite du pool (le playbook se charge par ABILITY, pas par unite).
 
 ### Les VERROUS qui tiennent les 10 residus
 
@@ -470,10 +588,13 @@ Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2
    `state_bridge._is_attack_ability` n'est plus la SEULE porte : une ability Comparable sans
    `damageProfile` entre par `NONATTACK_PLAYBOOKS`. Ce qui reste sur les autres items n'est plus la
    route mais leur verrou PROPRE :
-   - **1185 ForwardObservers** — porteur tauSmnStealthSuit, SUMMON d'`ATemptingTrap` (a amener par son
-     summoner). Formule deja RE'd : `(aucun ennemi n'a de markerlight ? W=200 : 0) + RemainingPercentage(cible) * W=40`.
-     Il faut le predicat « porte un Markerlight » cote decision + la cible ENNEMIE (l'ability ne fait
-     pas de degat mais cible un ennemi -> `eligible_targets` doit rendre des ennemis, pas le caster).
+   - ~~**1185 ForwardObservers**~~ — **PORTE (#27-4c)**. Le predicat Markerlight est un mirror
+     IMPERATIF de `...ForwardObserversPlaybook$$CheckIfAnyEnemyHasMarkerLight` (slot d'interface 0x8e
+     = `GetAllEnemiesOf` + `EntityExtensions.HasEffect(0x462)`) : ce N'EST PAS un arbre DSL, et la face
+     COMBAT ne partage aucun artefact avec lui. Le ciblage ENNEMI n'a rien demande de special —
+     `eligible_targets` de la route lit le RPC natif `abilityTargets`, qui rend deja des ennemis. Le
+     verrou REEL etait ailleurs : **le porteur** (summon SANS invocateur + npc, tous deux refuses par
+     `buildNormalizedBC`), leve par GREFFE de l'ability sur une unite du pool.
    - **1212 HealingBalms_Heal** — sous-ability d'un PASSIF, aucune entree gameconfig active ; en outre
      `...HealingBalms_HealPlaybook$$ShouldExecute` OVERRIDE le defaut (`utility > 0`) et
      `$$MakeHealPredictions` est override : ce n'est pas un membre « sans prediction », il faut porter
@@ -705,6 +826,70 @@ existera.
   `probe_27_slot_offsets.py` (les 7 playbooks hors 0x338), `probe_27_vtable_dump.py` (controle de
   bornes), `probe_27_residual_triage.py` (route de dispatch + porteurs), `probe_27_3_ability_names.py`
   (les 8 ids absents de la map des hooks).
+- **ForwardObservers (1185)** — A/B causal live `probe_27_4c_forwardobservers_ab.py`, board **MC1_67**,
+  seed 909, porteur GREFFE `tauCrisis.ActiveAbilities = [1185]`. Caster FIGE en (2,6) (son `act move`
+  consomme son mouvement -> terme Tile IDENTIQUE partout, mesure = 20.0). Cibles a d=2 : `orksWarboss`
+  (2,4) et `necroWarden` (2,8) ; l'ennemi tenu a l'ecart est en (6,0).
+
+  | bras | etat | `pair_max` natif | pct(meilleure cible) | choix natif | choix moteur |
+  |---|---|---|---|---|---|
+  | B0 | mk=0, deux cibles pleines | 33.183694 | 1.0000 | **1185** @necroWarden | idem [MATCH] |
+  | B1 | mk=0, necroWarden blessee | 35.535935 | 1.0000 | **1185** @**orksWarboss** | idem [MATCH] |
+  | A1 | mk=1 | 35.535935 | 1.0000 | **1185** @orksWarboss | idem [MATCH] |
+  | A2 | mk=1, SEULE la cible blessee reste a portee | 35.535935 | 0.8824 | **69** | idem [MATCH] |
+
+  - **B0 -> B1 : le terme suit le RATIO de PV de la CIBLE.** Blesser la cible que le natif avait
+    choisie le fait passer sur l'autre — et ce changement va **CONTRE l'ordre d'enumeration**
+    (`abilityTargets` rend `[necroWarden, orksWarboss]`, keep-first STRICT), que suivrait tout terme
+    CONSTANT ou BOOLEEN. C'est ce qui separe `RemainingPercentage * W` d'un `W` plat.
+  - **A2 : bras DISCRIMINANT, les deux modeles predisent des choix OPPOSES sur le MEME etat.** Avec
+    `pct = 0.8824`, `pair_max + 1 = 36.5359` et `W_B = 40` : le modele PROPORTIONNEL donne
+    `40 x 0.8824 = 35.30 < 36.54` -> attaque normale ; un terme CONSTANT donnerait `40 > 36.54` ->
+    1185. **Le natif rend 69** -> le modele constant est REFUTE PAR LE NATIF, pas ecarte par argument.
+  - **Le terme Markerlight est GLOBAL** : dans A1/A2 l'ennemi marque est `astraSmnKell` — le summon
+    intercepteur (`SwornProtector`) qui a pris le tir a la place de la cible visee. Il n'est NI la
+    cible du tir, NI une cible eligible de 1185, NI a portee du caster, et il eteint quand meme le
+    bonus de 200. Un port qui aurait teste « la cible porte-t-elle Markerlight » ne bascule pas ici.
+  - **ENCADREMENT sans fitting** (`u_action(69) = pair_max + Tile + 1`, custom NormalAttack = +1 ;
+    `u_action(1185, c) = A + W_B*pct(c) + Tile`, meme tuile donc Tile s'annule), balayage de 5 runners
+    a `--hp-target` different :
+
+    | runner | `--hp-target` | bras | mesure | inegalite |
+    |---|---|---|---|---|
+    | naturel | — | A1 | pair 54.652143, pct 1.0, natif **69** | `W_B < 55.6521` |
+    | 12000 | 12000 | B0 | pair 199.983336, pct 1.0, natif **1185** | `W_A + W_B > 200.9833` |
+    | 120000 | 120000 | A1 | pair 13.918601, pct 1.0, natif **1185** | `W_B > 14.9186` |
+    | 47000 | 47000 | A1 | pair 35.535935, pct 1.0, natif **1185** | **`W_B > 36.5359`** |
+    | 47000 | 47000 | A2 | pair 35.535935, pct 0.8824, natif **69** | **`W_B < 41.4060`** |
+    | 41000 | 41000 | A1 | pair 40.736062, pct 1.0, natif **69** | `W_B < 41.7361` |
+
+    => **36.5359 < W_B < 41.4060** ; le port rend **40**. Pour W_A, la ligne 12000 combinee a la borne
+    sup de W_B donne **W_A > 159.577** ; le port rend **200** (borne SUPERIEURE non mesuree, cf. §Non
+    couvert).
+  - **Contre-epreuves** : custom force a 0 -> le moteur DIVERGE (il retombe sur `(69, necroWarden)`
+    dans les bras ou le natif dit 1185) ; registre `NONATTACK_PLAYBOOKS` VIDE -> le moteur DIVERGE
+    aussi (1185 n'entre par aucune autre voie : pas de `damageProfile`).
+- **Garde de forme OFFLINE (1185)** : `probe_custom_utility_27.py` couvre le dispatch, la presence
+  dans `NONATTACK_PLAYBOOKS` (sans quoi le terme serait INERTE), le scope ENNEMIS-ONLY du predicat (un
+  ALLIE marque ne doit RIEN declencher), la separation des deux termes (mk=0 vs mk=1), la LINEARITE
+  stricte sur 4 ratios (0 / 25 / 60 / 100 %), l'extinction propre quand les PV sont illisibles, et
+  `should_execute(0) == True`.
+- **Garde LIVE (1185)** : `tests/engine/test_forward_observers_decision_live.py` — 6 tests,
+  **6 PASS** (37 s, session 28) : accord sur les 4 bras, booleen global du Markerlight, cible qui
+  suit le ratio, bras A2 discriminant AVEC verification prealable que le montage SEPARE bien les
+  deux modeles (`W_B * pct < pair_max + 1 < W_B` — sinon le test ECHOUE au lieu de passer a vide),
+  necessite du terme, necessite de la route.
+- **La correction #292 de `UTILITY_TYPE_NAMES` (37 entrees fausses) est SANS EFFET sur cette mesure
+  — verifie, pas suppose.** Aucun chemin de #27-4c ne resout un nom d'utilite par RPC : les poids
+  viennent de `engine.weights.load()` (seed BC sur disque + re-synthese depuis le gameconfig
+  VIVANT), et cote natif de `BC.Utilities` re-synthetisee par `_load_seed_bc` — dans les deux cas
+  des cles TEXTUELLES, jamais un ordinal `UtilityType`. Les seuls RPC du probe sont `decisionView`,
+  `observeBattle`, `pairUtility`, `aiDryRunAllUnits`, `aiMovableTiles`, `abilityTargets` et
+  `combatSnapshot` ; `aiUtilityTrace` (le consommateur de cette table) n'est pas utilise — il est
+  d'ailleurs inoperant sur runner isole (cf. §« Ou l'utilite d'ACTION est OBSERVABLE »). Les enums
+  renumerotes par #283 sont `EventTriggerType`, `UtilityType`, `StepType` et `DisplaceDirection` :
+  **ni `EffectType` ni `ActiveAbilityType`**, les deux seuls dont ce port lit un ordinal (1122 et
+  1185), et il les derive des tables versionnees.
 
 ### Non couvert (explicite)
 
@@ -726,8 +911,37 @@ existera.
   `GetInvalidTargetReason` complete. Le masque de 1226 est permissif (`AllowObscuredTargetBy*`), donc
   le port reste un SUR-ENSEMBLE — degradation assumee et bornee a cette ability. En LIVE le point est
   sans objet : `ctx.ability_targets` est le RPC natif (mesure : `[]` au bras n=0).
-- **La route non-attaque n'a qu'UN membre.** Les autres residus du groupe (1185, 1212, 1053) gardent
-  chacun un verrou PROPRE, nomme ci-dessus ; ils n'ont pas ete enchaines.
+- **La route non-attaque a DEUX membres** (1226, 1185). Les autres residus du groupe (1212, 1053)
+  gardent chacun un verrou PROPRE, nomme ci-dessus ; ils n'ont pas ete enchaines.
+- **ForwardObservers : le porteur REEL n'est pas confronte.** La mesure passe par une GREFFE de
+  l'ability sur `tauCrisis`. Ce que la greffe NE couvre PAS : les stats, traits et l'arme du vrai
+  porteur (`tauSmnStealthSuit` : `Camouflage`, `Infiltrate`, `Summon`, arme Pulse 4 coups) — donc
+  l'INTERACTION du terme custom avec la prediction de degat de CE porteur precis. Le terme custom
+  lui-meme n'en depend pas (il ne lit que `BC.Utilities`, l'etat Markerlight des ennemis et les PV de
+  la cible). Debloqueur nomme : faire accepter les summons/npc par `buildNormalizedBC` (leur donner un
+  chemin de stats explicite dans le RPC, au lieu de `IStatsFormula.StatsUsingProgressionIndexFor`).
+- **ForwardObservers, borne SUPERIEURE de `W_A` (Markerlight) non mesuree.** Elle exigerait un bras
+  mk=0 ou le natif RESTE sur l'attaque normale, donc `pair_max + 1 > W_A + W_B ~ 240` : le run le plus
+  agressif teste (`--hp-target 12000`) plafonne a `pair_max = 199.98`. On a donc `W_A > 159.577`
+  seulement — meme statut que Herald (`C > 34.22`).
+- **ForwardObservers, le gate de PORTEE par TUILE.** `GetEligibleTargetsEntities` est recalcule PAR
+  tuile candidate ; `eligible_targets` de la route consomme l'UNION rendue par `abilityTargets` (un
+  SUR-ENSEMBLE). Sur un caster qui peut encore bouger, le port peut donc retenir une tuile d'ou le
+  natif ne generait pas l'action pour cette cible. Le montage FIGE le caster (0 tuile de move), donc le
+  point est hors du chemin mesure. `isSelfCasting = 0` -> aucun gate `GetCasterNotAddedReason` n'est
+  invente (contrairement a 1226).
+- **ForwardObservers, `EntityExtensions.HasEffect` n'est mirrore que sur son role CIBLE.** Le natif
+  fait `IsOwnerOfEffect || IsTargetOfEffect` ; le canal `decisionView` attache a chaque unite son
+  `EffectsOwnedComponent.ActiveEffectIds` (les effets qui S'APPLIQUENT a elle), pas ceux dont elle est
+  la SOURCE. Degradation PERMISSIVE-EN-MOINS (le port peut rendre False la ou le natif rend True) : un
+  ennemi qui aurait POSE un Markerlight sur un tiers sans en porter lui-meme ne serait pas compte.
+  Idem pour `onlyActive` (le hook laisse tomber les effets `removed` / `!active`, le natif recoit un
+  `Nullable<bool>` VIDE).
+- **ForwardObservers, face COMBAT non portee.** `...ForwardObserversAbility$$ExecuteBehaviour`
+  (`AddEffect(0x462) + AddEffect(0x575)`) n'entre PAS dans `ABILITY_CLASSES` — cette tranche ne couvre
+  que la DECISION. Le masque (`0x200004002`, RANGE_FROM_CONFIG, `forceMeleeTarget = RangedBool.True`)
+  et l'`AbilityAttackType` (`2 = Others`) sont RE-lus et consignes dans la docstring du playbook pour
+  que ce port-la parte d'une lecture, pas d'une devinette.
 
 - **Les 2 overrides NEUFS non portes du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
   votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`)
