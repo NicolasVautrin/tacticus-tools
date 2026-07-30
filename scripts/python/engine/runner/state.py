@@ -93,6 +93,7 @@ class State:
     `convert_rounds_to_turns` retombe sur l'identité."""
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
                  "turn_counts", "turn_order_player_count", "triggering_ability",
+                 "trigger_ability_type",
                  "pending_deaths", "draining_deaths")
 
     def __init__(self):
@@ -136,7 +137,65 @@ class State:
         # le vecteur MORT le natif y lit le `killTrigger` du `KillUnitContext` recopie par
         # `IdunBattle.Operations.RecordKillOperation$$Execute`, qui COINCIDE avec `CurrentAbility` dans
         # tous les regimes portes. Detail + regimes examines : `docs/rl/case-292-current-vs-triggering-ability.md`.
+        # ⚠ LE CHAMP `TriggeringAbility` (+0x98) EXISTE MAINTENANT COTE PORT : c'est
+        # `self.trigger_ability_type`, juste en dessous. Une ability qui porte un noeud
+        # `TriggeringAbilityIs` / `TriggeringEffectIs` / `TriggeringAbilityIsNone` sur un
+        # `On(0xd = UnitTriggeredAbility)` doit lire CELUI-LA, pas celui-ci.
         self.triggering_ability: Optional[int] = None
+        # ── SECOND canal (#294) : le champ natif `TriggeringAbility` (`AbilityEntities+0x98`) ─────
+        #
+        # NE PAS CONFONDRE AVEC LE CANAL CI-DESSUS. Ce sont deux champs natifs DISTINCTS, ecrits par
+        # la MEME fonction (`IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`) mais a
+        # deux MOMENTS differents, et lus par deux slots `DSLSelectors` differents :
+        #
+        #   | champ natif        | offset | ecrit                  | slot DSL | predicats                       |
+        #   |--------------------|--------|------------------------|----------|---------------------------------|
+        #   | `CurrentAbility`   | +0x60  | AVANT le behaviour     | +0x88    | `CurrentAbilityIs`              |
+        #   | `TriggeringAbility`| +0x98  | APRES le behaviour     | +0x90    | `TriggeringAbilityIs`,          |
+        #   |                    |        |                        |          | `TriggeringEffectIs`,           |
+        #   |                    |        |                        |          | `TriggeringAbilityIsNone`,      |
+        #   |                    |        |                        |          | `TriggeringAbilityIsNormalAttack`|
+        #
+        # Lecteurs VERIFIES du +0x98 : `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select`
+        # (lit `+0x98/+0xa0/+0xa8/+0xb0`) et `IdunBattle.Entities.Abilities.AbilityEntities$$get_TriggerAbilityType`.
+        # D'ou le nom de CE canal : `trigger_ability_type`, celui du getter natif -- deliberement
+        # DISSEMBLABLE de `triggering_ability` (le canal +0x60, dont le nom Python est historique).
+        #
+        # SEMANTIQUE PROPRE : ecrit APRES `execute_behaviour`, il ne couvre QUE l'emission
+        # d'`On(0xd = EventTriggerType.UnitTriggeredAbility)` qui suit immediatement. Il n'est donc
+        # PAS herite par ce que le behaviour engendre -- c'est exactement ce qui le separe de
+        # `CurrentAbility`. Pendant le behaviour d'une triggered B declenchee par cet `On(0xd)` :
+        # `+0x60` vaut B (B vient de l'y ecrire) et `+0x98` vaut A (la triggered qui a publie) ->
+        # DEUX valeurs NON NULLES DIFFERENTES. Montage : `probe_294_trigger_ability_channels.py`.
+        #
+        # ⚠⚠ COUVERTURE DU CANAL -- A LIRE AVANT DE S'EN SERVIR. Le natif a QUATRE ecrivains de
+        # `+0x98`, et le port n'en modelise QU'UN (le 4e). Les trois autres sont des RESIDUS NOMMES,
+        # pas des oublis (RE #294, recoupee au decompile ; detail et priorites dans
+        # `docs/rl/case-292-current-vs-triggering-ability.md` §7) :
+        #
+        #   1. `Core.Services.OperationProcessor$$EvaluateAbilities(actor, caster, target,
+        #      [casterTiles, targetTiles,] trigger, ability [, previousResult, wasCrit])` -- LA voie
+        #      universelle : elle ecrit `+0x60` ET `+0x98` avec LA MEME `ability`, et `+0x7c` a
+        #      `default`. C'est par elle que passe le vecteur MORT-pending (`On(3)`).
+        #      NON MODELISE -- sans consequence tant que les deux valent la meme chose.
+        #   2. `IdunBattle.Operations.KillUnitOperation$$Execute` -- ecrit `+0x98` DIRECTEMENT
+        #      (`KillUnitOptions+0x04`) et laisse `+0x60` a ZERO, pour `On(0)/On(1)/On(2)/On(53)/On(54)`.
+        #      NON MODELISE, et c'est une DIVERGENCE reelle : sur ces evenements le port pose
+        #      `triggering_ability` (+0x60) la ou le natif ne pose que `+0x98`.
+        #   3. `IdunBattle.Operations.AddEffectOperation$$Execute` -- `+0x60` = `+0x98` =
+        #      `AbilityOrEffect(effectType)`, pour `On(61)/On(62)/On(70)`. NON MODELISE.
+        #      (Symetrique NEGATIF, contre-intuitif : `IdunBattle.Operations.RemoveEffectOperation$$Execute`
+        #      n'ecrit QUE `+0x60` et laisse `+0x98` a zero -> sur `On(63)/On(64)` c'est
+        #      `CurrentAbilityIs` qui porte l'effet, pas `TriggeringEffectIs`.)
+        #   4. `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` -- LE SEUL PORTE ICI.
+        #
+        # => Un futur noeud `TriggeringAbilityIs` / `TriggeringEffectIs` sur un evenement AUTRE que
+        # `On(0xd)` ne doit PAS se contenter de lire ce canal : il faut d'abord porter l'ecrivain
+        # correspondant. Sur `On(0xd)`, ce canal est exact.
+        #
+        # Foyer UNIQUE de l'ecriture : `triggers/dispatch/core.py::evaluate_trigger_operation`,
+        # comme pour l'autre canal. None = hors de la fenetre `On(0xd)`.
+        self.trigger_ability_type: Optional[int] = None
         # case-haze-ord -- la FILE DE MORTS du natif. `IdunBattle.Operations.RecordKillOperation$$
         # Execute` n'applique PAS la mort : il pose `UnitFlag.PendingDeath (0xf)`, appelle
         # `IdunBattle.Core.MatchState$$AddDeath(killer, killed, killTrigger, attackTrigger,

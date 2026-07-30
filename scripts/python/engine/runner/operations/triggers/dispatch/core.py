@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .....dsl.event_trigger_type import EventTriggerType
 from ....state import State
 from ....components import StatsComponent, UnitComponent, TriggeredAbilityComponent
 from ..base import TriggerEvent, TriggeredAbility, EffectTrigger, PHASE_TRIGGER_CAP
@@ -160,9 +161,10 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
         # rend la main) ; le natif ne fuit pas non plus d'une evaluation a la suivante, chaque
         # `EvaluateTriggerOperation` batissant son propre `AbilityEntities`.
         # ⚠ Le champ natif HOMONYME `TriggeringAbility` (`AbilityEntities+0x98`) est ecrit par la MEME
-        # fonction mais **APRES** le behaviour, pour le seul `On(0xd = UnitTriggeredAbility)` -- non
-        # porte. Le nom du champ Python est historique ; sa semantique est celle de `CurrentAbility`
-        # (case-292, `docs/rl/case-292-current-vs-triggering-ability.md`).
+        # fonction mais **APRES** le behaviour, pour le seul `On(0xd = UnitTriggeredAbility)`. Le nom
+        # du champ Python ci-dessous est historique ; sa semantique est celle de `CurrentAbility`
+        # (case-292, `docs/rl/case-292-current-vs-triggering-ability.md`). Le SECOND canal (+0x98)
+        # est `state.trigger_ability_type`, ecrit juste apres ce bloc (#294).
         prev_trig = getattr(state, "triggering_ability", None)
         if entry.TRIGGERED_ABILITY_ID is not None:
             state.triggering_ability = int(entry.TRIGGERED_ABILITY_ID)
@@ -172,7 +174,73 @@ def evaluate_trigger_operation(state: State, ev: TriggerEvent) -> list[dict]:
             state.triggering_ability = prev_trig
         if r is not None:
             out.append(r)
+        _publish_unit_triggered_ability(state, ev, entry)
     return out
+
+
+def _publish_unit_triggered_ability(state: State, ev: TriggerEvent, entry) -> None:
+    """Queue de `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` — les DEUX gestes que
+    le natif pose APRES le retour du behaviour, dans cet ordre (#294) :
+
+        4. `AbilityOrEffect.op_Implicit(this)` -> `Nullable<>..ctor` -> ecrit `entities+0x98`
+           (`TriggeringAbility`)
+        5. copie de `entities` -> local
+        6. `<processor>.Publish(<slot>, ..., 0xd, <la copie>)`
+           = `On(0xd = EventTriggerType.UnitTriggeredAbility)`
+
+    C'est le MOMENT D'ECRITURE qui separe `+0x98` de `+0x60`, pas la valeur : la MEME
+    `AbilityOrEffect(this.Id)` part dans les deux. `+0x60` est pose AVANT le behaviour (donc herite
+    par tout ce qu'il engendre) ; `+0x98` est pose APRES, donc il ne couvre QUE cet `On(0xd)`.
+
+    Consequence, et c'est le regime discriminant : une triggered `B` declenchee PAR cet `On(0xd)`
+    ecrit `+0x60 = B` avant SON behaviour, tandis que `+0x98` vaut toujours `A` -- le natif ne le
+    reecrit qu'a la fin de `B`. `IdunBattle.Operations.EvaluateTriggerOperation$$PopulateAbilityEntities`
+    ne touche ni `+0x60` ni `+0x98` (relu : il n'ecrit que `+0x40`, `+0x48`, `+0x50`), donc les deux
+    champs TRAVERSENT l'evaluation imbriquee -> pendant le behaviour de `B`, les deux canaux portent
+    DEUX VALEURS NON NULLES DIFFERENTES.
+
+    RESTAURATION : le natif ecrit dans l'`AbilityEntities` de l'appelant (passe par reference) et le
+    jette avec l'evaluation ; le port n'a qu'UN canal global, donc il restaure -- meme raisonnement
+    et meme geste que pour `+0x60`. Le supprimer FAIT FUIR l'id d'une evaluation a la suivante
+    (contre-epreuve `--mutate persist` de `probe_294_trigger_ability_channels.py`).
+
+    EMISSION INCONDITIONNELLE : le natif publie `On(0xd)` a chaque execution de triggered-ability,
+    sans gate. Le `TriggerEvent` reprend les champs de `ev` : le natif republie le MEME
+    `AbilityEntities` (mute par le behaviour), pas un contexte neuf.
+
+    ⚠ CET EVENEMENT N'A AUCUN CONSOMMATEUR CONNU -- ni porte, ni NATIF. Mesure #294, re-derivable :
+    cote port, 86 classes-triggers enregistrees couvrent 37 `event_id` distincts et AUCUNE n'ecoute
+    13 ; cote natif, le balayage des voies de construction d'un noeud d'evenement
+    (`IdunBattleLogic.Entities.DSLTriggers$$On` et ses deux overloads, `$$OnDeathEvent`,
+    `$$OnOwnerSpecificAbilityInit`, `$$OnNormalAttackOrSmite`, `$$OnAttackFromAbility`,
+    `IdunBattle.Entities.Effects.BaseEffect$$On`) ne rend AUCUN `CreateTrigger` sur `0xd` -- a
+    l'exception declaree de 4 `Env*Ability$$CreateTrigger` dont la liste d'events arrive par
+    `RuntimeHelpers.InitializeArray` (blob non lisible depuis Ghidra ; abilities d'environnement,
+    hors perimetre confrontable).
+    L'emission reste portee malgre ca, pour deux raisons : (a) c'est le mirror -- le natif publie ;
+    (b) sans elle le canal `+0x98` est INOBSERVABLE, donc invalidable, donc sans valeur.
+    COUT MESURE : sur les 86 classes-triggers du registre, **7** declarent un `TRIGGERED_ABILITY_ID`
+    -- les 79 autres sortent d'ici par le `return` ci-dessous. Bout-en-bout,
+    `test_death_queue_ordering_live.py` (22 tests) rend 148,43 s AVANT et 147,07 s APRES : le
+    surcout est dans le bruit."""
+    if entry.TRIGGERED_ABILITY_ID is None:
+        return                                          # aucun id a poser -> rien a publier
+    # Acces DIRECT, pas `getattr(..., None)` : le slot est declare dans `State.__slots__` et
+    # initialise par `State.__init__`. Un objet qui ne l'a pas n'est pas un `State` -> ca doit
+    # LEVER, pas dégrader en `None` (un canal absent lu comme « vide » est exactement le mode de
+    # panne silencieuse que ce cas documente).
+    prev = state.trigger_ability_type
+    state.trigger_ability_type = int(entry.TRIGGERED_ABILITY_ID)
+    try:
+        evaluate_trigger_operation(state, TriggerEvent(
+            EventTriggerType.UnitTriggeredAbility, ev.actor_id, ev.target_id,
+            ranged=ev.ranged, profile=ev.profile, is_crit=ev.is_crit,
+            killer_id=ev.killer_id, dying_id=ev.dying_id, player_id=ev.player_id,
+            overkill=ev.overkill, ability_type=ev.ability_type, profiles=ev.profiles,
+            triggering_effect=ev.triggering_effect, is_first_hit=ev.is_first_hit,
+            triggering_ability=ev.triggering_ability))
+    finally:
+        state.trigger_ability_type = prev
 
 
 def _trigger_phase_component(state: State, owner_id: int) -> Optional[TriggeredAbilityComponent]:

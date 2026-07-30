@@ -415,20 +415,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   EXERCE : le double déclenchement du smite `PsykerExtraAttack` (1013) — `--mutate persist`
   (restauration supprimée) fait tomber `bloodMephiston` de 4860/2 fires à 2430/1 fire, `--mutate
   nogate` (gate seul) rend 0 désaccord (il est REDONDANT avec `!CasterIsTarget`). `[opus]`.
-- **Résidus nommés de `case-292` (le canal `State.triggering_ability`)** —
-  `case-292-current-vs-triggering-ability.md` §5. (a) le champ natif `TriggeringAbility`
-  (`AbilityEntities+0x98`, slot `DSLSelectors+0x90`, partagé par `TriggeringAbilityIs` /
-  `TriggeringEffectIs` / `TriggeringAbilityIsNone`) **n'est pas porté du tout** : il est écrit APRÈS
-  le behaviour, pour le seul `On(0xd = UnitTriggeredAbility)`, et le port n'a AUCUN consommateur de
-  cet événement. ⚠ La première ability qui en écoutera un ne doit PAS réutiliser
-  `State.triggering_ability` — il faudra un SECOND canal, posé après `execute_behaviour`.
+- **Résidus nommés de `case-292` (les canaux `AbilityEntities`)** —
+  `case-292-current-vs-triggering-ability.md` §5 et §7.3. ~~(a) le champ natif `TriggeringAbility`
+  (`AbilityEntities+0x98`) n'est pas porté du tout~~ — **CLOS par #294** : le canal est
+  `State.trigger_ability_type`, écrit APRÈS `execute_behaviour` puis `On(0xd)` émis, et le montage
+  qui le SÉPARE de `+0x60` existe (`probe_294_trigger_ability_channels.py`, chaîne
+  `A --On(0xd)--> B` : `+0x60 = B`, `+0x98 = A`). Ce qui reste ouvert est ailleurs, et c'est
+  **N18/N19** de `port-residuals-inventory.md` : le champ a **quatre** écrivains natifs, le port
+  n'en modélise qu'un ; le seul qui produise une divergence réelle est
+  `IdunBattle.Operations.KillUnitOperation$$Execute` (`+0x98 = KillUnitOptions+0x04`, `+0x60` à
+  ZÉRO sur `On(0)/On(1)/On(2)`). Et `On(0xd)` n'a **aucun consommateur, ni porté ni natif** (trou
+  déclaré : 4 `Env*Ability$$CreateTrigger` à liste d'events construite par
+  `RuntimeHelpers.InitializeArray`, blob illisible depuis ghidra-mcp).
   (b) sur le vecteur MORT, `IdunBattle.Operations.RecordKillOperation$$Execute` ne relaie pas le
-  `CurrentAbility` ambiant : il lit un `killTrigger` EXPLICITE du `KillUnitContext` (`+0x20` s'il a
-  une valeur, sinon `+0x00`) et le passe au publieur d'`On(3)`. Les consommateurs portés
-  (`FuelledByFury` ← `FinalJustice`, `haze_of_corruption`) lisent le canal unique ; les deux valeurs
-  COÏNCIDENT dans tous les régimes portés, aucun montage ne les sépare. (c) le gate
-  `!CurrentAbilityIs(this)` de 1071 n'est jamais exercé SEUL (`!CasterIsTarget` le couvre —
-  `--mutate nogate` = 0 désaccord) : sa face discriminante propre reste non mesurée. `[opus]`.
+  `CurrentAbility` ambiant : il lit deux `Nullable<AbilityOrEffect>` du `KillUnitContext` —
+  `selected = HasValue(+0x1c) ? +0x1c : +0x00` part dans `MatchState$$AddDeath`, tandis que
+  l'événement `On(3)` est publié avec `+0x00` via
+  `Core.Services.OperationProcessor$$EvaluateAbilities`, qui écrit la MÊME valeur dans `+0x60` ET
+  `+0x98`. Les consommateurs portés (`FuelledByFury` ← `FinalJustice`, `haze_of_corruption`) lisent
+  le canal unique ; sur `On(3)` aucun montage ne peut les séparer — **c'est structurel**, pas un
+  manque de montage. (c) le gate `!CurrentAbilityIs(this)` de 1071 n'est jamais exercé SEUL
+  (`!CasterIsTarget` le couvre — `--mutate nogate` = 0 désaccord) : sa face discriminante propre
+  reste non mesurée. `[opus]`.
 - **Face DANGER ZONE de `CursedPlagueBell` : `CursedPlagueBellDangerZoneAbility` +
   `CursedPlagueBell_DangerZoneEffect` (1084)** — la dernière des quatre pièces de `case-211` §5.
   Elle consomme la branche `isNextTurn = true` de `GetTargetsSelector` (résidu (c) ci-dessus) et
