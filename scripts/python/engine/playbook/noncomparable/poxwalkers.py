@@ -26,10 +26,18 @@ class SpawnPoxwalkersPlaybook(NonComparablePlaybook):
       VALIDE LIVE (natif caste 1040 sur place a (1,2)=origine ; ncEvaluate n'a que la position courante).
     - IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.ctor = `NonComparablePlaybook(0x410)` -> 1er arg = ability_id ; PRIORITY=0 (defaut 0 = `AbilityPriority.Normal` ; ability hors `NATIVE_PRIORITY`, sweep exhaustif #170).
     - ShouldEvaluate (base IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate) lit `IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$GetUseProbability = GetStat(unit,0xc=TurnsStarted)
-      * Fix64.FromIntFraction(1,5)` = TurnsStarted*0.2 : porte ALEATOIRE (prob>=1 <=> turnsStarted>=5 ->
-      True deterministe ; sinon tirage RNG). Comme BlackRage/ItItches (#44 §5), la porte RNG N'EST PAS
-      modelisee dans un moteur deterministe -> should_evaluate = True (defaut). FLAG validateur : risque
-      d'over-fire aux tours ou le natif RNG-skippe (turnsStarted<5). Au miss s5 le natif a caste."""
+      * Fix64.FromIntFraction(1,5)` = TurnsStarted*0.2. La base a TROIS branches, relues sur
+      `rnca9r7q6c` : `p >= 1` -> True DETERMINISTE ; `p <= 0` -> False DETERMINISTE ; sinon TIRAGE
+      (`<random @this+0x30>.NextBool(p)`). Pour ce playbook : ts>=5 -> toujours ; ts=0 -> jamais (hors
+      d'atteinte -- `StartTurnOperation` a incremente ts avant toute activation) ; ts dans 1..4 ->
+      pile ou face a p = ts/5. Comme BlackRage/ItItches (#44 §5), le tirage N'EST PAS modelisable dans
+      un moteur deterministe -> should_evaluate = True (defaut).
+      RESIDU MESURE (#17, re-derive le 2026-07-30 sur `rnca9r7q6c`) : seed 2468 pas 4, u87
+      deathBlightbringer, `turnsStarted = 1` -> p = 0.2, `unitFlags = []`. Le natif a tire FALSE et a
+      BOUGE vers (1,2) ; le port emet 1040 (util 1.5). Echange 1-pour-1 : au pas suivant le natif
+      caste. C'est le SEUL des deux residus `move` de #17 qui soit reellement de nature RNG (l'autre,
+      1357 s6, etait un gate DETERMINISTE manquant -- cf. `ActiveAbilityActionGenerator.
+      unit_action_gate`)."""
     ABILITY_ID = int(ActiveAbilityType.Poxwalkers)  # 1040
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$.cctor = Fix64.FromInt(1) ; util 1.5 constante toujours admise
     PRIORITY = 0

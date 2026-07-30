@@ -867,7 +867,16 @@ du couple, non diagnostiquée ici).
 Vérifiés présents (à la passe précédente), sans symptôme actionnable aujourd'hui : résidus MV71 (`case-61bis` §6/§8/§9),
 per-player 1180 (`case-31`), `ReachedSummonCap` (`case-38` §4 — branche `IsActive` sans caller
 connu), `LordOfTempests` AddIce (`case-35` §4), `LivingMetal` swarm no-wake top-off (`case-203` §5),
-les 2 résidus `move` (#17, nature RNG — ⚠ **DEUX autres items que #17 portait sont désormais SORTIS de
+le résidu `move` restant (#17 — ⚠ **il n'en reste qu'UN, et « 2 over-fire RNG » était FAUX pour l'autre**.
+Re-dérivation intégrale du batch GEN sur `rnca9r7q6c` le 2026-07-30, `case-52` §#17-move : `2468 s4`
+est bien un tirage, et sa probabilité est désormais CHIFFRÉE (`SpawnPoxwalkersPlaybook$$GetUseProbability`
+= `TurnsStarted × 1/5` → **p = 0.2** au tour 1 ; `BasePlaybook$$ShouldEvaluate` = `p>=1` True / `p<=0`
+False / sinon `NextBool(p)`) — irréductible dans un moteur déterministe. `1357 s6`, lui, n'a JAMAIS été
+du RNG : `u85 tyranParasite` portait `unitFlags = [2]` (`ActiveAbilityUsed`, posé par son cast de 1121
+ItItches au pas précédent) et la 1re instruction d'`ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`
+est `if (HasFlag(unit, 2)) return 0` — gate DÉTERMINISTE, **porté + gardé** (move 61/65 → **62/65**,
+ability inchangée ; `test_active_ability_used_gate_live.py`). ⚠ **Et TROIS autres items que #17 portait
+sont SORTIS de
 cette ligne**. (a) Le `MinDist#76` du pas s5, le 2026-07-29 : **fermé côté LIVE** et sa moitié OFFLINE
 promue en tâche `#17-off`, cf. `case-52` §#17-s5. (b) Le **`s8 Hammer`** (« event t93 +120 identifié L3,
 non porté »), le 2026-07-30 : la ligne était **PÉRIMÉE** — l'écart avait été porté dès #57m (filtre
@@ -875,7 +884,12 @@ vivant de `make_hammer_wrath_events`) et il est **re-mesuré NUL sur `rnca9r7q6c
 (`probe_57j_hammer.py` : natif `81→1153→t91`, argmax du port t91 = 185.54 vs t89 = 95.76 / t93 = 87.67 ;
 t93 rend 2 events Σ = 67.6679 == 67.68 natif). Ce qui manquait n'était pas un port mais une **GARDE** :
 retirer le filtre ne faisait rougir aucun test. Garde posée + validée rouge par mutation, cf. `case-52`
-§#17-s8), arc arrière NON dégénéré du push (`case-push-distance` §5 —
+§#17-s8. (c) Le **`s18 MartialInspiration`**, le 2026-07-30 : libellé **PÉRIMÉ** qui conflatait deux
+sujets, tous deux fermés (face DÉCISION `2468 s18` par #64, re-mesurée HIT ; face PRÉDICTION `31337 s16`
+par #33, feed = 0). Ce qui manquait était là aussi la **GARDE** du canal `actorStats` par-pas, posée
+(`test_martial_inspiration_actorstats_live.py`), cf. `case-52` §#17-s18 — qui NOMME au passage un résidu
+neuf : le `+1` de #64 (`NormalAttackPlaybook.calculate_custom_utility`) n'est retenu par aucun test,
+mutation à 0.0 → `2468 s18` redevient rouge), arc arrière NON dégénéré du push (`case-push-distance` §5 —
 sans objet pour un pousseur adjacent), trait `Unstoppable` 1042 (à câbler DANS la tranche
 movement-stop #131/B4, sinon registered-but-dead), `#202` face DÉCISION Abraxas non confrontée
 oracle, `#5` chantier `DslContext` live-state, chantier archi **DSL-effet** (`dsl-effect-nodes.md` —
