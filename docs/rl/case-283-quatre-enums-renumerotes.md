@@ -5,6 +5,7 @@ l'exécution ». Les deux moitiés de la phrase sont fausses : le gisement fait 
 sur les quatre enums, et **il n'est pas inerte** — trois sites l'exécutaient.
 
 Rejouer : `python scripts/python/probe_283_enum_ordinal_sweep.py` (offline pur, 5 étapes) ;
+`--step live` ajoute la confrontation au binaire **chargé** (session vivante, aucune injection) ;
 cliquet : `python -m pytest scripts/python/tests/test_enum_ordinal_ratchet_offline.py`.
 
 ---
@@ -150,16 +151,23 @@ par site, pas une migration. → backlog `#283-r1`.
    `TILE_LEAVES[UtilityType.CapturePoint][1]` (7 occurrences, toutes sur du code *déjà correct*)
    et le faux négatif de l'homonyme `extraHit`.
 
-Un cliquet qui ne détecte rien passerait au vert sur un dépôt pourri. C'est arrivé **ici**, à la
-première version du probe : `_SKIP_PARTS` filtrait sur le chemin **absolu**, qui contient
-`worktrees` pour tout agent — le balayage rendait « 0 classe trouvée » et `VERDICT: PASS`. Même
-famille que l'exclusion par sous-chaîne `engine` mesurée en #281 §3, et même leçon : **un
-balayage qui rend zéro se lit comme « rien à signaler »**.
+Un cliquet qui ne détecte rien passerait au vert sur un dépôt pourri. C'est arrivé **deux fois
+pendant ce cas**, et les deux fois le symptôme était un zéro qui se lisait « rien à signaler » :
+
+* `_SKIP_PARTS` filtrait sur le chemin **absolu**, qui contient `worktrees` pour tout agent — le
+  balayage rendait « 0 classe trouvée » et `VERDICT: PASS`. Même famille que l'exclusion par
+  sous-chaîne `engine` mesurée en #281 §3 ;
+* la confrontation live (§6) parsait `values` comme une liste alors que `dumpEnum` rend un
+  **dict** — `live=0` pour les quatre enums, donc `0 divergent`, donc « OK ».
+
+**Un compte de zéro se vérifie, il ne s'interprète pas.** C'est le même invariant que le
+tri-état de `host_inputs` (`null` = pas mesuré ≠ `[]` = mesuré et vide).
 
 ## 6. Validation
 
 | mesure | résultat |
 |---|---|
+| `probe_283 --step live` (seconde source **indépendante**) | `dumpEnum` sur le binaire CHARGÉ vs `enums.tsv` : **228 membres, 0 divergence** sur les 4 enums |
 | `probe_283 --step mirror` | 2 mirrors (`EventTriggerType` 76/76, `UtilityType` 68/83), **0 divergent** |
 | `probe_283 --step exec` avant / après | **5 figés + 3 tables** / **0** |
 | `probe_283 --step tables` avant / après | **46 entrées divergentes** / **0** |

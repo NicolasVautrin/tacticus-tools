@@ -820,11 +820,67 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
 
 
 # ------------------------------------------------------------------------------------------
+# Etape 6 -- confrontation LIVE : la table versionnee colle-t-elle au binaire CHARGE ?
+# ------------------------------------------------------------------------------------------
+
+# (asm, namespace, classe) de chaque enum, pour le RPC `dumpEnum` d'`introspect.ts`.
+_LIVE = {
+    "EventTriggerType":  ("BattleLogicAssembly.dll", "IdunBattle.DSL", "EventTriggerType"),
+    "UtilityType":       ("BattleLogicAssembly.dll", "IdunBattle.Configuration", "UtilityType"),
+    "StepType":          ("BattleLogicAssembly.dll", "IdunBattle.Streams", "StepType"),
+    "DisplaceDirection": ("BattleLogicAssembly.dll", "IdunBattle.Operations",
+                          "DisplaceDirection"),
+}
+
+
+def step_live(verbose: bool) -> int:
+    """Seconde source INDEPENDANTE : `dumpEnum` lit la metadata du binaire CHARGE, la ou tout
+    le reste du probe lit `enums.tsv`. Si les deux s'accordent, la table versionnee n'est pas
+    seulement coherente avec elle-meme -- elle decrit le jeu qui tourne.
+
+    Ne (re)injecte RIEN : `introspect.ts` est deja dans le bundle, on l'appelle. Exige une
+    session vivante et WARMEE.
+
+    ⚠ `values` est un DICT `{nom: "valeur"}`, pas une liste. Le parser naif (iteration comme
+    sur une liste de dicts) rend `live=0` pour les quatre enums, et un `0 divergent` qui se lit
+    « OK » -- mesure faite ici meme. Un compte de zero est verifie, jamais interprete."""
+    sys.path.insert(0, str(PYDIR))
+    import rl_collect_batch as R                      # noqa: E402  (import lourd, a la demande)
+    sid = R._resolve_session()
+    cur = current_build()
+    print("[283] etape 6 : confrontation LIVE (dumpEnum, binaire charge) vs enums.tsv de %s"
+          % cur)
+    ko = 0
+    for court, (asm, ns, cls) in _LIVE.items():
+        r = R._rpc(sid, "dumpEnum", [{"asm": asm, "ns": ns, "cls": cls}], timeout=60)
+        res = r.get("result") if isinstance(r, dict) and "result" in r else r
+        vals = (res or {}).get("values")
+        if not isinstance(vals, dict) or not vals:
+            print("   FAIL %-18s le RPC n'a rien rendu : %s" % (court, str(res)[:120]))
+            ko += 1
+            continue
+        live = {n: int(v) for n, v in vals.items()}
+        tsv = _by_name(enum_map(cur, ENUMS[court]))
+        div = sorted(n for n in set(tsv) & set(live) if tsv[n] != live[n])
+        manque = sorted(set(tsv) - set(live))
+        extra = sorted(set(live) - set(tsv))
+        print("   %-18s live=%-4d tsv=%-4d  DIVERGENTS=%-3d absents-du-live=%-3d "
+              "absents-du-tsv=%d" % (court, len(live), len(tsv), len(div), len(manque),
+                                     len(extra)))
+        for n in div[:6] + manque[:3] + extra[:3]:
+            print("        %-42s live=%s tsv=%s" % (n, live.get(n), tsv.get(n)))
+        ko += len(div) + len(manque) + len(extra)
+    print("[283] etape 6 : %s" % ("les 4 tables collent au binaire CHARGE"
+                                  if ko == 0 else "DIVERGENCE (%d)" % ko))
+    return ko
+
+
+# ------------------------------------------------------------------------------------------
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="all",
-                    choices=("all", "diff", "mirror", "exec", "tables", "prose", "on"))
+                    choices=("all", "diff", "mirror", "exec", "tables", "prose", "on", "live"))
     ap.add_argument("--racine", default="scripts/python",
                     help="perimetre de l'etape prose (defaut scripts/python)")
     ap.add_argument("--fix", action="store_true",
@@ -848,6 +904,8 @@ def main(argv) -> int:
         step_prose(args.verbose, args.racine, args.fix)   # compteur, JAMAIS un gate
     if args.step in ("all", "on"):
         step_on(args.verbose, args.racine)                # compteur, JAMAIS un gate
+    if args.step == "live":                # hors `all` : exige une session vivante et warmee
+        ko += step_live(args.verbose)
     print("[283] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
     return 0 if ko == 0 else 1
 
