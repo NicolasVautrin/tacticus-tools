@@ -1094,6 +1094,24 @@ DÉFENSEUR par-cible. **MAJ** : pour u86, le 752 = 501×1.5 (ÉLÉVATION depuis 
 La chaîne soin est **entièrement RE'd et offline-calculable** (manque #1 / [`status.md`](status.md) §3.1
 débloqué côté heal). Tout est dans `engine/predict.py` (PARTIE 3), porté 1:1.
 
+> **Relue intégralement sur le build `rnca9r7q6c` (#27-4c, 2026-07-30).** Deux affirmations du tableau
+> ci-dessous étaient FAUSSES, et sont corrigées **dans** ce tableau (pas en note) :
+> `UtilityType.Heal` vaut **45 (`0x2d`)**, et `bossMod` teste le **CASTER**. Tout le reste a été
+> reconfirmé mot pour mot au décompilé courant.
+>
+> Trois compléments issus de la même relecture :
+> - **`HealAmount` a DEUX implémentations natives, et le choix se fait par CLASSE d'ability**, jamais
+>   par la présence d'une variable : `MassHealAbility$$HealAmount` = `Direct(GetVariableForLevel(cfg,
+>   0x20, abilityState))` (variable) ; `HealAbility$$HealAmount` = l'ARME, appelée NOMMÉMENT par les
+>   trois `MakeHealPredictions` Comparable (18, 1167, 1212). Router par « l'ability a-t-elle
+>   `hpToHeal` ? » a produit un écart mesuré de 12,75 points d'utilité sur 1212 (cf.
+>   `docs/rl/case-27-custom-utility.md`, TRANCHE 4c).
+> - **`PredictHeal` rend une struct de 8 octets** — `CONCAT44(fill, currentHealth)`, `fill` en HAUT —
+>   exactement la forme de `RepairPredictionResult`. Le canal de confrontation sûr est donc le
+>   scalaire `pairUtility`, pas les champs décodés par les hooks (backlog `#276-r1`).
+> - **Le cap de groupe est gaté `scope == 1`**, et `MakeHealPredictions` passe `scope = 0` : le flag
+>   OFF de #60 se lit directement dans le call-site, il n'a pas à être supposé.
+
 ---
 
 ## 10. VERDICT RE (2026-07-11, agent re-expert worktree) — `PredictAttackRaw @181032fb0` lu intégralement : Q1/Q2/Q3
@@ -1283,8 +1301,8 @@ pendant `aiPlaybookPredict(1150)`, u80 darkaTerminator seed777 hp-target 50000) 
 | `HealAbility.HealAmount` | `@180e345b0` | `healAmount = StatAmount(weapon) × max(WeaponHighestHits, 1)` |
 | `DamagePrediction.PredictHeal` | `@181037180` | accumule bonus-soin d'effets → caps group/boss → `MaxFillUp` |
 | `FillUpStatComponent.MaxFillUp` | `@180f9b790` | `effective = min(healAmount, maxHP − curHP)` (soin effectif, plafonné aux PV manquants) |
-| `HealUtility.Evaluate` (Weight[Heal=44]) | iter `@1810e16f0`, W via `.cctor @1810cfd10` | `U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod` |
-| `GetUnitUtilityModifier` | `@1810cfc80` | `bossMod = 2` si cible boss, sinon `1` |
+| `HealUtility.Evaluate` (Weight[**Heal = 45 = `0x2d`**]) | iter `IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext`, W via `IdunBattle.AI.Utilities.HealUtility$$.cctor` | `U = (effective / (maxHP + 1)) × 100 × friendSign × bossMod` |
+| `IdunBattle.AI.Utilities.HealUtility$$GetUnitUtilityModifier` | — | `bossMod = 2` si le **CASTER** est boss, sinon `Fix64.One` (l'itérateur lit `IsBoss(case+0x10)`, et `UtilityAttackCase$$ForHealPrediction` écrit `caster@+0x10` / `target@+0x20` — c'est `+0x20` que lit le `GetStat(Health, Maximum)` du dénominateur) |
 | `ProbableHealEvent..ctor` | `@1811359a0` | `{target@0, (curHP, effective)@8, Probability@0x10 = 1.0}` |
 | `Playbook.CalculateUtilityFromHealEvent` | `@1814aac80` | `Σ_cibles  Probability × U` |
 
