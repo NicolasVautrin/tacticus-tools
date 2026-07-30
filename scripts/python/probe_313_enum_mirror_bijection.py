@@ -112,16 +112,16 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Entities.Enum.StatType", strict=False,
            raison="port UPPER_CASE + abreviations (CRIT_CHANCE <- CriticalChance) : convention "
                   "declaree dans sa docstring ; la garde porte sur les VALEURS"),
-
-    # --- DETTE DECLAREE : mesuree, chiffree, hors garde. Resorber puis passer SOUS GARDE.
+    # #318 : les deux dernieres dettes declarees par #313 sont RESORBEES et passent sous garde.
+    # `EffectType` (20 manquants, 73 morts, 2 RENUMEROTES) et `UtilityType` (15 manquants) ont ete
+    # regeneres par `regen_enum_mirrors.py`. La forme qui comptait est le RENUMEROTE : 1563/1564
+    # rendaient `DA_Hero6_Passive_1`/`_2`, placeholders absents des DEUX builds versionnes, la ou
+    # le jeu dit `SpecialIssueCombiMelta_AdditionalHits` / `_ExtraDmg` -- il RESOLVAIT et pointait
+    # ailleurs. Memes placeholders que ceux corriges dans `TriggeredAbilityType` par la case-219.
     Mirror("EffectType", "engine/entities/effect_type.py",
-           "IdunBattle.Entities.Enum.EffectType", garde=False, dette=(20, 73, 2),
-           raison="#313 mesure la dette ; sa RESORPTION est un portage a part entiere (2 ids "
-                  "RENUMEROTES pointent ailleurs en silence -- 1563/1564)"),
+           "IdunBattle.Entities.Enum.EffectType"),
     Mirror("UtilityType", "engine/utilities/utility_type.py",
-           "IdunBattle.Configuration.UtilityType", garde=False, dette=(15, 0, 0),
-           raison="#313 mesure la dette ; les 15 manquants sont les utilites ajoutees par la MAJ "
-                  "`gqfc5mff6c` -> `rnca9r7q6c`, qu'aucune feuille portee ne lit encore"),
+           "IdunBattle.Configuration.UtilityType"),
 ]
 
 # HORS-MIRROR : classes `IntEnum`/`IntFlag` du moteur qui ne recopient AUCUN enum natif. Chacune
@@ -428,10 +428,11 @@ def rapport(verbose: bool, porteurs: bool = False) -> int:
     if rouge:
         print("%d ecart(s) BLOQUANT(s) -- voir ci-dessus" % rouge)
     else:
-        print("les %d mirror(s) SOUS GARDE sont en bijection avec le build %s ; les %d dette(s) "
-              "declaree(s) sont au compte attendu"
+        dettes = sum(1 for m in REGISTRE if not m.garde)
+        print("les %d mirror(s) SOUS GARDE sont en bijection avec le build %s ; %s"
               % (sum(1 for m in REGISTRE if m.garde), build,
-                 sum(1 for m in REGISTRE if not m.garde)))
+                 ("%d dette(s) declaree(s) au compte attendu" % dettes) if dettes else
+                 "AUCUNE dette declaree ne subsiste (les 2 dernieres resorbees par #318)"))
     return 1 if rouge else 0
 
 

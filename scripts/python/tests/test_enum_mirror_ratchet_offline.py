@@ -30,10 +30,14 @@ CE QUE CE FICHIER VERIFIE, ET POURQUOI CHAQUE PARTIE COMPTE
    enum natif, soit justifiee HORS-MIRROR. C'est la partie qui empeche le trou de se re-creuser :
    sans elle, un mirror ajoute demain echapperait a la garde sans que rien ne le signale -- ce qui
    est EXACTEMENT ce qui est arrive a `TriggeredAbilityType`.
-3. Les DETTES declarees sont au compte EXACT, controle dans les deux sens : le test rougit si la
-   dette s'aggrave, et il rougit aussi si elle est resorbee -- la reponse etant alors de passer le
-   mirror SOUS GARDE, pas de rafraichir le nombre. Un chiffre qu'on rafraichit n'est pas un
-   cliquet, c'est un journal.
+3. AUCUNE DETTE ne subsiste (#318), et c'est garde dans les deux sens : le mecanisme « dette
+   declaree au compte EXACT » reste en place pour une dette future (il rougit si elle s'aggrave
+   ET si elle se resorbe -- la reponse etant alors de passer le mirror SOUS GARDE, pas de
+   rafraichir le nombre), et un test separe exige que la liste des dettes soit VIDE. Un chiffre
+   qu'on rafraichit n'est pas un cliquet, c'est un journal ; un zero qu'on ne garde pas non plus.
+   #318 a resorbe les deux dernieres : `EffectType` (20 manquants, 73 morts, 2 RENUMEROTES --
+   `1563`/`1564` rendaient `DA_Hero6_Passive_*` la ou le jeu dit `SpecialIssueCombiMelta_*`) et
+   `UtilityType` (15 manquants).
 4. Le DETECTEUR mord. Un cliquet qui ne detecte rien passerait au vert sur un depot pourri : on
    lui soumet les trois formes de derive REELLEMENT observees (membre retire, membre ajoute,
    valeur REATTRIBUEE) plus les deux faux positifs qui ont failli le rendre inutilisable (l'alias
@@ -145,20 +149,99 @@ def test_les_dettes_declarees_sont_au_compte_exact():
         "    (`garde=True`), au lieu de rafraichir le nombre."%"\n".join(ecarts))
 
 
-def test_les_deux_dettes_connues_sont_bien_celles_qu_on_croit():
-    """Les nommer PAR MEMBRE, jamais par ordinal : c'est ce qui rend ce test survivant au
-    prochain build. `EffectType` porte deux ids RENUMEROTES -- la forme la plus couteuse, celle
-    qui resout et pointe ailleurs sans que rien ne proteste."""
-    build = P.current_build()
-    eff = P.PAR_CLS["EffectType"]
-    port = P.membres_mirror(eff.rel, eff.cls)
-    _, _, renum = P.bijection(port, P.enum_natif(build, eff.cle), eff.strict)
-    noms_port = {n for _, n, _ in renum}
-    assert noms_port == {"DA_Hero6_Passive_1", "DA_Hero6_Passive_2"}, (
-        "les ids RENUMEROTES d'EffectType ont change : %s" % sorted(noms_port))
-    attendus = {n for _, _, js in renum for n in js}
-    assert attendus == {"SpecialIssueCombiMelta_AdditionalHits",
-                        "SpecialIssueCombiMelta_ExtraDmg"}, sorted(attendus)
+def test_aucune_dette_declaree_ne_subsiste():
+    """#318 : le registre est a 10 mirrors SOUS GARDE, 0 dette. Ce zero est un CLIQUET, pas un
+    acquis -- il ne tient que tant que personne ne re-declare une dette pour eviter de reparer.
+
+    Rouvrir une dette reste legitime (nouveau mirror trop gros pour une seule PR), mais ce doit
+    etre un choix ARGUMENTE : il faut alors editer ce test, et c'est exactement l'effet voulu --
+    le test precedent, lui, n'aurait rien dit."""
+    dettes = [(m.cls, m.dette, m.raison) for m in P.REGISTRE if not m.garde]
+    assert not dettes, (
+        "dette(s) declaree(s) reintroduite(s) : %s\n"
+        "  Une dette declaree soustrait un mirror a la garde : le sens MANQUANT redevient muet.\n"
+        "  Reparer d'abord (`regen_enum_mirrors.py --mirror <Classe> --ecrire`) ; si la dette est\n"
+        "  vraiment inevitable, mettre a jour ce test EN DISANT pourquoi." % (dettes,))
+
+
+def test_les_deux_ids_ex_RENUMEROTES_d_EffectType_portent_le_nom_DU_JEU():
+    """La regression la plus couteuse du depot, figee PAR NOM (jamais par ordinal).
+
+    `1563`/`1564` portaient `DA_Hero6_Passive_1`/`_2` -- des placeholders qui n'existent dans
+    AUCUN des deux builds versionnes (`gqfc5mff6c` disait deja `SpecialIssueCombiMelta_*`) : le
+    port ne les a jamais lus du jeu, il les tenait d'un `data/il2cpp_enums.tsv` deja perime. Un
+    membre RENUMEROTE resout, pointe ailleurs, et ne casse RIEN -- aucun test ne rougissait.
+
+    La semantique est confirmee par une SECONDE source, independante de `enums.tsv` : les classes
+    d'effet natives portent le meme nom
+    (`Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.SpecialIssueCombiMelta_AdditionalHitsEffect$$CreateAdditionalHits`,
+    `...SpecialIssueCombiMelta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`) -- l'effet 1563
+    cree des coups additionnels, le 1564 un bonus de degat, pour le passif 1545 de
+    `darkaSternguard`."""
+    from engine.entities.effect_type import EffectType
+    assert EffectType(1563).name == "SpecialIssueCombiMelta_AdditionalHits"
+    assert EffectType(1564).name == "SpecialIssueCombiMelta_ExtraDmg"
+    disparus = [n for n in ("DA_Hero6_Passive_1", "DA_Hero6_Passive_2")
+                if n in EffectType.__members__]
+    assert not disparus, ("placeholder(s) reintroduit(s) dans EffectType : %s -- ils ne sont dans "
+                          "aucun build ; le nom du jeu est SpecialIssueCombiMelta_*" % disparus)
+
+
+def test_les_20_membres_ajoutes_a_EffectType_sont_nommables_et_les_73_morts_partis():
+    """Le pendant #318 du test des huit membres de #313, re-derive PAR NOM.
+
+    Sens MANQUANT : un id que le jeu emet et que le port ne sait pas nommer est JETE en silence
+    (`EffectType.__members__.get(name)` dans `_materialize_owner_effect`, qui retombe alors sur
+    `effectType=None`). Sens MORT : les effets de l'ancien moteur `Idun` (ids 3..104) que le jeu
+    n'emet plus -- aucun n'etait cite en Python, c'est ce qui a autorise leur retrait."""
+    from engine.entities.effect_type import EffectType
+    for nom in ("MassDriverAccelerator_ExtraMovement", "ModifiedExoarmour_PierceReduction",
+                "PropheticSentinel_ExtraArmor", "RedRampage_ExtraMovement",
+                "TitanhammerSquad_TeleportingIn", "IconOfObstinacy_ExtraDmg", "EmpyricAmbush",
+                "WhisperingWeb", "MyWillBeDoneOverlord_ExtraDamage", "Helspear_IgnoreArmor"):
+        assert nom in EffectType.__members__, "%s absent du mirror" % nom
+    for nom in ("HawkEye_ExtraRange", "SpiderWeb", "FireRage_ExtraDmg", "Bushkin_ExtraAttack",
+                "IceElementalBond", "BattleTinkerer_ExtraDmg"):
+        assert nom not in EffectType.__members__, (
+            "%s est un effet de l'ancien moteur Idun, absent du build courant" % nom)
+
+
+def test_le_registre_EFFECT_CLASSES_resout_entierement_dans_le_mirror():
+    """Le pendant #318 de l'etape 4 de la sonde (`porteurs`) : `EffectType` n'est pas qu'une table,
+    c'est le DICTIONNAIRE que `EffectFactory` consomme PAR NOM.
+
+    C'est ce qui rendait le retrait des 73 morts non trivial -- une cle du registre qui ne resout
+    plus ne LEVE pas : elle produit un effet a `effectType=None`, et les consommateurs qui font
+    `int(effect_type)` cassent bien plus loin. Le test verifie donc la resolution du registre
+    ENTIER, pas seulement les references `EffectType.<membre>` (que l'etape 3 couvre deja)."""
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effect_type import EffectType
+    inconnues = sorted(k for k in EFFECT_CLASSES if k not in EffectType.__members__)
+    assert not inconnues, (
+        "cle(s) de EFFECT_CLASSES absente(s) du mirror : %s\n"
+        "  Soit le nom a ete mal transcrit, soit le membre a ete retire a tort : le confronter a\n"
+        "  `data/symbols/<build>/frida/enums.tsv` avant de trancher." % inconnues)
+
+
+def test_UtilityType_nomme_la_queue_que_le_RPC_peut_rendre():
+    """`UtilityType` traverse la frontiere avec le jeu : `dumpComposedUtility` rend des cles
+    NUMERIQUES du build courant. Une cle que le port ne sait pas nommer n'est pas inerte -- elle
+    est jetee, et la feuille correspondante disparait de l'inventaire sans un mot.
+
+    Les 15 ajoutes ne sont PAS des feuilles portees : ce sont des NOMS justes. C'est la
+    difference entre « le port ignore cette utilite » (constatable) et « le port ne sait meme pas
+    qu'elle existe » (invisible)."""
+    from engine.utilities.utility_type import UtilityType
+    for nom in ("ActiveAbilities", "PreferNonBoss", "PreferFreshlySpawned", "Remaining",
+                "PreferAbilities", "PreferSummons", "UnitOrder", "Random", "PsychicFortress",
+                "NoMovementToTileWithAdjacentEnemies", "STRIPPED"):
+        assert nom in UtilityType.__members__, "%s absent du mirror" % nom
+    # Le point d'insertion de la MAJ `gqfc5mff6c` -> `rnca9r7q6c` reste verifie ici : c'est LUI
+    # qui ferait nommer chaque feuille du libelle de sa voisine. Exprime PAR MEMBRE (`AttackTile`
+    # s'intercale entre `Tile` et `Elevation`), jamais par ordinal en dur -- doctrine #283/#272 :
+    # un ordinal juste aujourd'hui est faux au prochain build, et invisible d'ici la.
+    assert UtilityType.Tile + 1 == UtilityType.AttackTile
+    assert UtilityType.AttackTile + 1 == UtilityType.Elevation
 
 
 # ------------------------------- 4. le detecteur mord (sinon le cliquet ne prouve rien)
