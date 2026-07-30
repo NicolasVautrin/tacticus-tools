@@ -30,7 +30,10 @@ CE QUE LE PROBE FAIT (chaque etape est autonome, `--step`)
            executable : le moteur lit ces membres, jamais un littéral.
 `exec`   : etape 2 -- balayage AST de `scripts/python` : littéral entier dans un contexte qui
            NOMME l'un des 4 enums (annotation `# <Enum>.<Membre>`, comparaison sur un alias
-           `trigger`/`utility`/`direction`, index d'un registre keye par membre).
+           `trigger`/`utility`/`direction`, index d'un registre keye par membre), ou argument
+           POSITIONNEL d'un appelable dont la SIGNATURE le nomme (#315 : `TriggerEvent(61, ...)`
+           ne nomme rien sur sa ligne -- deux tels sites vivaient pendant que l'etape rendait
+           `0 a lire`).
 `tables` : etape 3 -- toute table `{ordinal: "Nom"}` / `["Nom", ...]` (Python, TS, JS) dont les
            valeurs appartiennent a l'un des 4 enums est confrontee positionnellement. C'est le
            motif par lequel `STEP_NAMES` mentait en #254b-b : aucune annotation, aucun nom
@@ -345,20 +348,62 @@ def _prose_par_ligne(src: str) -> dict:
     return out
 
 
+def _signatures_positionnelles(arbres: dict) -> dict:
+    """{nom appelable: (index de l'argument, enum court)} pour tout `def`/ctor du perimetre dont
+    un PARAMETRE porte l'une des racines de `_ROOTS`.
+
+    POURQUOI CETTE PASSE EXISTE (#315). Les quatre motifs d'origine (compare / assign / index /
+    kwarg) partagent une hypothese : le nom de l'enum est VISIBLE sur la ligne du littéral. Un
+    argument POSITIONNEL le cache derriere la signature de l'appele -- `TriggerEvent(61, 1, 2,
+    ...)` ne nomme rien, et deux tels sites vivaient dans `test_effect_trigger_channels.py`
+    pendant que le probe rendait `0 a lire`. Le contrat est pourtant aussi sur que celui d'un
+    kwarg : c'est la MEME heuristique `_ROOTS`, lue sur le parametre au lieu du mot-cle.
+
+    On DERIVE la table du depot, jamais d'une liste ecrite a la main : un appelable renomme ou
+    ajoute est couvert sans toucher au probe."""
+    out: dict = {}
+    for rel, tree in arbres.items():
+        classe_de = {}
+        for m in ast.walk(tree):
+            if isinstance(m, ast.ClassDef):
+                for st in m.body:
+                    classe_de[id(st)] = m.name
+        for n in ast.walk(tree):
+            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
+            lie = 1 if (args and args[0] in ("self", "cls")) else 0
+            for i, a in enumerate(args):
+                bas = a.lower()
+                court = next((c for c, racines in _ROOTS.items()
+                              if any(r in bas for r in racines)), None)
+                if court is None:
+                    continue
+                # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
+                nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
+                if nom and i - lie >= 0:
+                    out.setdefault(nom, (i - lie, court))
+                break
+    return out
+
+
 class _ExecSweep(ast.NodeVisitor):
-    """Deux motifs, et seulement ceux-la :
+    """Trois motifs, et seulement ceux-la :
 
     * comparaison / affectation / index / kwarg dont un cote porte un NOM qui trahit l'enum
       (`t.event_id == 19`, `EVENT_ID = 0x2a`) ;
     * littéral dont la PROSE de la ligne porte une annotation `<Enum>.<Membre>` -- c'est le
-      motif exact de #272 (`CAPTURE_POINT = 24  # UtilityType.CapturePoint`).
+      motif exact de #272 (`CAPTURE_POINT = 24  # UtilityType.CapturePoint`) ;
+    * argument POSITIONNEL passe a un appelable dont la SIGNATURE nomme l'enum (#315) -- le seul
+      des trois ou rien, sur la ligne du littéral, ne trahit l'enum.
 
     TOUT littéral trouve est un DEFAUT, meme s'il est juste aujourd'hui (doctrine `#254b-b`) :
     rien ne signalera son invalidation au prochain build. Le probe dit lequel des deux c'est."""
 
-    def __init__(self, prose: dict, refs: dict):
+    def __init__(self, prose: dict, refs: dict, sigs: "dict | None" = None):
         self.prose = prose
         self.refs = refs
+        self.sigs = sigs or {}
         self.hits: list = []
 
     def _membre_vise(self, lineno: int, enum: "str | None"):
@@ -432,21 +477,47 @@ class _ExecSweep(ast.NodeVisitor):
                     break
         self.generic_visit(node)
 
+    def visit_Call(self, node):
+        f = node.func
+        nom = (f.id if isinstance(f, ast.Name)
+               else f.attr if isinstance(f, ast.Attribute) else None)
+        spec = self.sigs.get(nom) if nom else None
+        if spec:
+            idx, court = spec
+            if 0 <= idx < len(node.args):
+                vals = _lit(node.args[idx])
+                if vals:
+                    self._check(node.args[idx].lineno, vals, court, "posarg")
+        self.generic_visit(node)
+
 
 def step_exec(verbose: bool) -> list:
     cur = current_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     fails, infos, oks = [], [], []
+    # Une seule passe de parse : les signatures sont GLOBALES au perimetre (un appel peut
+    # preceder la `def` d'un autre fichier), donc elles se derivent avant toute visite.
+    sources, arbres = {}, {}
     for p in sorted((REPO / "scripts" / "python").rglob("*.py")):
         rel = _ignore(p)
-        if rel is None or rel in ALLOWLIST:
+        if rel is None:
             continue
         try:
             src = io.open(p, encoding="utf-8").read()
-            tree = ast.parse(src, filename=rel)
+            arbres[rel] = ast.parse(src, filename=rel)
+            sources[rel] = src
         except (SyntaxError, UnicodeDecodeError, OSError):
             continue
-        sw = _ExecSweep(_prose_par_ligne(src), refs)
+    sigs = _signatures_positionnelles(arbres)
+    if verbose:
+        print("   (signatures positionnelles derivees : %d appelable(s))" % len(sigs))
+        for nom in sorted(sigs):
+            print("      %-42s arg#%d = %s" % (nom, sigs[nom][0], sigs[nom][1]))
+    for rel, tree in sorted(arbres.items()):
+        if rel in ALLOWLIST:
+            continue
+        src = sources[rel]
+        sw = _ExecSweep(_prose_par_ligne(src), refs, sigs)
         sw.visit(tree)
         for lineno, enum, quoi, v, nom_courant, membre, attendu, ok in sw.hits:
             row = (rel, lineno, enum, quoi, v, nom_courant, membre, attendu, ok)

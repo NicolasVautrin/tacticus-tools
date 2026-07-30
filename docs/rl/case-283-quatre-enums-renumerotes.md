@@ -180,6 +180,34 @@ pendant ce cas**, et les deux fois le symptôme était un zéro qui se lisait «
 **Un compte de zéro se vérifie, il ne s'interprète pas.** C'est le même invariant que le
 tri-état de `host_inputs` (`null` = pas mesuré ≠ `[]` = mesuré et vide).
 
+### 5.1 Le cinquième motif : l'argument POSITIONNEL (#315)
+
+Les quatre motifs d'origine — comparaison, affectation, index, kwarg — partagent une hypothèse
+implicite : **le nom de l'enum est visible sur la ligne du littéral**, soit par la variable
+comparée, soit par la prose. Un argument **positionnel** le cache derrière la signature de
+l'appelé, et l'étape 2 le rendait donc invisible :
+
+```
+TriggerEvent(61, 1, 2, ranged=False, profile=None)      # rien, ici, ne nomme EventTriggerType
+```
+
+Deux tels sites vivaient dans `tests/engine/runner/test_effect_trigger_channels.py` pendant que
+l'étape rendait `0 à lire` — dans un fichier qui écrivait `int(EventTriggerType.PreEffectAdded)`
+**trois lignes plus loin**. Le contrat est pourtant aussi sûr que celui d'un kwarg : c'est la
+même heuristique `_ROOTS`, lue sur le **paramètre** de la `def` au lieu du mot-clé de l'appel.
+
+`_signatures_positionnelles` **dérive** du dépôt la table `{appelable: (index, enum)}` — un
+appelable renommé ou ajouté reste couvert sans toucher au probe. Mesure sur le dépôt courant :
+**10 appelables** (`TriggerEvent`, `get_utility`, `ComposedUtility`, `first_tile_by_utility`,
+`get_movement_utility`, `sort_tiles_by_utility`, …). Les fichiers de l'`ALLOWLIST` contribuent
+aux signatures mais ne sont pas visités : ils exemptent un site, jamais un contrat.
+
+La morsure est verrouillée par deux tests
+(`test_detecte_l_argument_positionnel_dont_la_signature_nomme_l_enum`,
+`test_les_signatures_positionnelles_se_derivent_du_depot`) et par une contre-épreuve : un canari
+`TriggerEvent(23, ...)` déposé dans `scripts/python` fait passer le verdict à `FAIL (1)` avec
+`posarg [EventTriggerType] = 23 -> designe EventTriggerType.TurnEnd`, et son retrait rend `PASS`.
+
 ## 6. Validation
 
 | mesure | résultat |
@@ -191,7 +219,7 @@ tri-état de `host_inputs` (`null` = pas mesuré ≠ `[]` = mesuré et vide).
 | `probe_283 --step tables` avant / après | **46 entrées divergentes** / **0** |
 | `probe_hazeord_blast_radius.py` avant / après | consommateurs de mort **19 → 21** |
 | contrôle d'inertie du `--fix` (88 fichiers) | **88/88** flux de tokens exécutables identiques |
-| `pytest tests/test_enum_ordinal_ratchet_offline.py` | **9 passed** |
+| `pytest tests/test_enum_ordinal_ratchet_offline.py` | **9 passed** (**11** depuis #315 : les 2 gardes du motif positionnel, §5.1) |
 | `pytest` des 3 tests live touchés (CPB / DestroyerHive / Hypersensory) | **18 passed** |
 | `probe_274` (StepType/GroupType) | **PASS** — 0/0 |
 | `probe_252` (tables de hooks) | **OK** sur les 6 tables, dont la nouvelle |
@@ -222,9 +250,12 @@ avec cette raison ; les corriger désarmerait le test.
   avec `case-254b-b` §7 (on ne rétro-corrige pas un compte rendu produit par un autre build). Les
   case-docs sont **datées** ; `probe_283 --step prose --racine docs --fix` migrerait les 356 d'un
   coup si on décidait l'inverse. → backlog `#283-r2`.
-* **Le détecteur ne suit pas la donnée à travers un appel de fonction.** Un ordinal passé en
-  argument puis comparé ailleurs échappe au balayage — même limite que `probe_274` §7. Les motifs
-  couverts sont ceux qui existaient réellement, pas une preuve d'exhaustivité.
+* **Le détecteur ne suit pas la donnée à travers un appel de fonction.** L'argument passé
+  **directement** à un appelable dont la signature nomme l'enum est couvert depuis #315 (§5.1) ;
+  ce qui reste hors de portée, c'est l'ordinal rangé dans une variable intermédiaire, ou passé à
+  un appelable dont **aucun** paramètre ne porte une racine de `_ROOTS`, puis comparé ailleurs.
+  Même limite que `probe_274` §7. Les motifs couverts sont ceux qui existaient réellement, pas
+  une preuve d'exhaustivité.
 * **`DisplaceDirection` n'a AUCUN consommateur d'ordinal dans le dépôt** — vérifié : le nom
   n'apparaît nulle part sous `scripts/python`, et `engine/runner/operations/displace.py` ne porte
   la valeur que dans sa prose (`type=1 = FindTileToPush`, corrigé en `type=0`). Le port

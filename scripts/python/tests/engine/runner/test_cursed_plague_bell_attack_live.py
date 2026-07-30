@@ -37,6 +37,7 @@ def test_attack_ability_is_registered_with_its_native_parameters():
     `nrOfHits` de la config, profil `GetAffectedDamageProfile()`, `attackRangeType = Ranged`,
     options natives VIDES (donc aucune variance) et factory `AttackWithAttackDamage`."""
     import gameconfig as GC
+    from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
     from engine.runner.operations.triggers.loki.cursed_plague_bell import (
         CursedPlagueBellAttackAbility, cursed_plague_bell_attack_hits,
@@ -44,7 +45,9 @@ def test_attack_ability_is_registered_with_its_native_parameters():
     from engine.runner.abilities.deathguard import cursed_plague_bell_damage_profile
 
     assert CursedPlagueBellAttackAbility in ABILITY_TRIGGERS["CursedPlagueBell"]
-    assert CursedPlagueBellAttackAbility.event_id == 9          # On(9) = EventTriggerType.Attack
+    # `On(EventTriggerType.Attack)` -- resolu par MEMBRE, jamais par ordinal : l'enum est l'un des
+    # QUATRE que la MAJ `gqfc5mff6c` -> `rnca9r7q6c` a renumerotes (#252/#283).
+    assert CursedPlagueBellAttackAbility.event_id == EventTriggerType.Attack
     assert CursedPlagueBellAttackAbility.TRIGGERED_ABILITY_ID == 1071
 
     tree = cursed_plague_bell_attack_tree(123)
@@ -93,15 +96,18 @@ def test_triggered_ability_id_channel_mirrors_current_ability_not_triggering_abi
     C'est la moitie (2) qui distingue ce champ de l'autre, et elle est OBSERVABLE : la supprimer fait
     disparaitre le second coup de cloche du smite (`probe_224 --mutate persist`, mesure ci-dessous).
     """
+    from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.state import State
     from engine.runner.components import UnitComponent
     from engine.runner.operations.triggers.base import TriggeredAbility, TriggerEvent
     import engine.runner.operations.triggers.dispatch.core as CORE
 
     seen = {}
+    # Le meme evenement que la cloche : resolu par MEMBRE (enum renumerote, cf. #252/#283).
+    ATTACK = int(EventTriggerType.Attack)
 
     class _Spy(TriggeredAbility):
-        event_id = 9
+        event_id = ATTACK
         TRIGGERED_ABILITY_ID = 4242
 
         def matches(self, state, ev):
@@ -123,7 +129,7 @@ def test_triggered_ability_id_channel_mirrors_current_ability_not_triggering_abi
     CORE.collect_effect_triggers = lambda s: []
     try:
         state.triggering_ability = 777          # valeur AMBIANTE (behaviour imbrique dans un autre)
-        out = CORE.evaluate_trigger_operation(state, TriggerEvent(9, 1, 2, ranged=False,
+        out = CORE.evaluate_trigger_operation(state, TriggerEvent(ATTACK, 1, 2, ranged=False,
                                                                   profile=None))
     finally:
         (CORE.collect_triggered_abilities, CORE.collect_global_triggers,
