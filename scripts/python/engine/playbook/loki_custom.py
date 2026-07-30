@@ -29,7 +29,7 @@ import hexgeo
 
 from . import prediction
 from .common import DefaultActiveAbilityPlaybook
-from .base import register
+from .base import NO_ACTION, register
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .probable_damage_event import ProbableDamageEvent
 from .. import battle_query as bq
@@ -337,7 +337,7 @@ class StikkbombPlaybook(_CustomOnlyPlaybook):
        INDEPENDANT de `caster_tile`, DEPENDANT de la cible (il arbitre l'argmax par CIBLE).
     2. **Chaque ami produit une prediction sur la CIBLE PRINCIPALE, pas sur lui-meme.** Le 4e
        argument passe a `GenerateMultiHitAttackPredictions` est `target`, pas l'unite iteree —
-       DECOMPILE puis confirme a l'assembleur (cf. `prediction.make_stikkbomb_splash_event`, qui
+       DECOMPILE puis confirme a l'assembleur (cf. `prediction.make_secondary_multihit_event`, qui
        porte la lecture des home slots). Et dans cette fonction `param_4` ne sert qu'a peupler
        l'`AbilityEntities` : ce sont les entites du SELECTEUR `param_5` (= `Target`) qui recoivent
        les predictions. Le contenu de l'event est donc INVARIANT d'un ami a l'autre ; seul leur
@@ -385,9 +385,9 @@ class StikkbombPlaybook(_CustomOnlyPlaybook):
         """L'event de degat SPLASH natif (invariant, cf. point 2 de la docstring de classe)."""
         if ctx.scene is None:
             return None
-        from .prediction import make_stikkbomb_splash_event
-        return make_stikkbomb_splash_event(ctx.scene, ctx.uid, target, ability_id,
-                                           ctx.ab_name_by_id.get(ability_id), caster_tile)
+        from .prediction import make_secondary_multihit_event
+        return make_secondary_multihit_event(ctx.scene, ctx.uid, target, ability_id,
+                                             ctx.ab_name_by_id.get(ability_id), caster_tile)
 
     def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
         """`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$MakeDamagePredictions` — l'exact MIROIR du
@@ -427,6 +427,94 @@ class StikkbombPlaybook(_CustomOnlyPlaybook):
         from .probable_damage_event import calculate_utility_from_damage_event
         u = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(target))
         return -float(n) * u                                   # Fix64.op_UnaryNegation(somme)
+
+
+class PlasmaGrenadePlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` (ability 1098) —
+    BONUS DE GROUPEMENT, et un VETO. Corps natif relu VERBATIM sur `rnca9r7q6c` :
+
+        formula = DSLFormulas.Get(GetVariableForLevel(config, 0xc = minDmg));   // == Direct(minDmg)
+        hits2   = GetNumberConstant(config, 0x32 = nrOfHits_2);
+        profile = GetDamageProfile(config);
+        ownerId = OwnerComponent.get_CurrentPlayerEntityId(caster);
+        u = Fix64.Zero;
+        foreach (e in battleQuery.<slot itf 0x7d>(target, ownerId, ignoreSteppables: false))
+            foreach (p in GenerateMultiHitAttackPredictions(caster, casterPosition, target,
+                              <selecteur Target>, formula, hits2, profile, null, null))
+                u = Fix64.op_Addition(u, CalculateUtilityFromDamageEvent(p, caster, casterPosition));
+        if (u == Fix64(0)) u = BaseUtility.<statics+0x18>;      // sentinelle -> AUCUNE action
+        return u;
+
+    QUATRE points de RE, dont deux ne se devinent pas :
+
+    1. **Le SET est un appel `BattleQuery`, pas un arbre DSL** — contrairement a Stikkbomb (1051), qui
+       partage son sous-set avec sa face COMBAT. Le slot d'INTERFACE 0x7d est
+       `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies(IEntity from, BEntityId playerEntityId,
+       bool ignoreSteppables)` =
+       `GetUnitsOnTiles(IterateAdjacentTiles(from, onlyEmptyOrSteppable: false, onlyWalkableTiles: true,
+       allowTemporary: true), friendsOf: null, enemiesOf: <ennemis du joueur du caster>, ignoreSteppables)`.
+       `from` = la CIBLE : ses propres tuiles ne sont jamais dans ses tuiles adjacentes, donc elle ne se
+       compte pas elle-meme. Le meme ensemble que DoomSiren / HeavyWarpFlamer -> `battle_query.count_adjacent`.
+       ⚠ Le slot se RE-DERIVE, il ne se recopie pas : `probe_27_4g_battlequery_slots.py` mesure au runtime
+       que 0x7d -> index de vtable 0x81 = `GetAdjacentEnemies`, la ou 0x7c -> 0x80 = `GetAdjacentUnits`
+       (AMIS COMPRIS). Un decalage d'UN slot inverserait la semantique en silence.
+    2. **Chaque ennemi adjacent produit une prediction sur la CIBLE PRINCIPALE, pas sur lui-meme** :
+       AUCUN argument du `GenerateMultiHitAttackPredictions` ne depend de l'ennemi itere (4e argument =
+       `target`, 5e = le selecteur `Target`). Le contenu de l'event est donc INVARIANT ; seul leur
+       NOMBRE compte. Meme quirk natif, meme foyer de port et memes entrees que Stikkbomb
+       (`prediction.make_secondary_multihit_event` : base `minDmg` SEULE, `nrOfHits_2` coups).
+    3. **Le SIGNE est POSITIF** — Stikkbomb, dont le corps est le meme mold, applique un
+       `Fix64.op_UnaryNegation` FINAL (il compte des AMIS : c'est une penalite de tir ami). Ici il n'y
+       en a pas : plus la cible est entouree d'ENNEMIS, plus la grenade vaut.
+    4. **Somme nulle => VETO, pas utilite nulle.** Le natif substitue `BaseUtility.<statics+0x18>`
+       (= `Fix64.MinValue / FromIntFraction(1000001, 1000000)`), l'une des deux valeurs que
+       `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+       traduit en `Nullable` VIDE : **aucune action n'est generee**. Cote port : `NO_ACTION`
+       (`playbook/base.py`), consomme par `ai/action_generators._action_utility`. Sans lui, le moteur
+       proposerait 1098 sur une cible ISOLEE la ou le natif ne la propose JAMAIS -- degradation
+       PERMISSIVE, exactement le trou qu'un entrainement irait exploiter.
+
+    AUCUN poids `BC.Utilities` n'intervient (ce custom n'appelle pas `GetUtilityValue`), comme Stikkbomb.
+    Config 1098 : `nrOfHits` = 2, `nrOfHits_2` = 1, `damageProfile` = Plasma, `range` = 2.
+
+    Porteurs : `eldarSmnGuardian` (SUMMON **sans invocateur** -- aucune unite du gameconfig ne porte
+    l'ability qui le declare) et `eldarNpc1Guardian` [npc] ; tous deux refuses par `buildNormalizedBC`.
+    Porteur GREFFE sur une unite du pool (`case-92` §5bis) -- le natif charge le playbook PAR ABILITY.
+
+    ECART CONNU, hors #27 : `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$GetUseProbability` rend
+    `Fix64.FromIntFraction(1, 3)`, et `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate` en fait un
+    TIRAGE (`p >= 1 -> true ; p <= 0 -> false ; sinon random(p)`). Le natif ne propose donc 1098 qu'un
+    tirage sur trois. Le moteur offline est deterministe et ne modelise pas cette porte -- meme statut
+    que `...BlackRagePlaybook$$GetUseProbability` et `...ScarabSummonPlaybook$$GetUseProbability`. La
+    consequence est nommee dans `case-27` : offline emet 1098 la ou le natif la saute 2 fois sur 3."""
+    ability_id = int(ActiveAbilityType.PlasmaGrenade)  # 1098
+
+    def _adjacent_enemy_count(self, ctx, target) -> int:
+        """`Enumerable.Count(battleQuery.<slot itf 0x7d>(target, ownerId(caster), false))` : les unites
+        de l'equipe ADVERSE du caster situees sur les tuiles adjacentes a la MainTile REELLE de la
+        cible. Mirror `battle_query.count_adjacent` (meme `IterateAdjacentTiles` + porte d'elevation)
+        sur `ctx.epos`. Terme INDEPENDANT de la tuile d'attaque, DEPENDANT de la cible."""
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0
+        return bq.count_adjacent(tpos, ctx.epos, ctx.elev_by_pos)
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id):
+        n = self._adjacent_enemy_count(ctx, target)
+        u = 0.0
+        if n > 0 and ctx.scene is not None:
+            from .prediction import make_secondary_multihit_event
+            ev = make_secondary_multihit_event(ctx.scene, ctx.uid, target, ability_id,
+                                               ctx.ab_name_by_id.get(ability_id), caster_tile)
+            if ev is not None:
+                from .probable_damage_event import calculate_utility_from_damage_event
+                u = float(n) * calculate_utility_from_damage_event(
+                    ev, ctx.wt, ctx.hpmax_by_id.get(target))
+        # `if (u == Fix64(0)) u = BaseUtility.<statics+0x18>` -> `CalculateActionUtility` rend un
+        # `Nullable` VIDE. Le zero couvre les DEUX causes natives : aucun ennemi adjacent, et une
+        # somme d'utilites qui s'annule (prediction indisponible cote port -> meme verdict, jamais
+        # une action que le natif refuserait).
+        return NO_ACTION if u == 0.0 else u
 
 
 class SavageEchoesPlaybook(_CustomOnlyPlaybook):
@@ -966,7 +1054,8 @@ def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
-                HeavyWarpFlamerPlaybook, StikkbombPlaybook):
+                HeavyWarpFlamerPlaybook, StikkbombPlaybook,
+                PlasmaGrenadePlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque

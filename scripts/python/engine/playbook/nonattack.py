@@ -78,7 +78,7 @@ exploiter.
 """
 from __future__ import annotations
 
-from .base import ComparablePlaybook, tile_utility, register
+from .base import NO_ACTION, ComparablePlaybook, tile_utility, register
 
 
 class NonAttackComparablePlaybook(ComparablePlaybook):
@@ -181,6 +181,12 @@ def nonattack_candidates(ctx) -> list:
                 # ORDRE NATIF de `CalculateActionUtility` : custom D'ABORD, puis la somme des
                 # predictions, et c'est CETTE somme que `ShouldExecute` recoit en argument.
                 u = pb.calculate_custom_utility(ctx, T, tgt, aid)
+                if u is NO_ACTION:
+                    # Deux des trois sentinelles de `IdunBattle.AI.Utilities.BaseUtility` testees en
+                    # tete de `CalculateActionUtility` rendent un `Nullable` VIDE : aucune action pour
+                    # ce (tuile, cible). Aucun membre ACTUEL de cette route ne les rend -- le test est
+                    # ici pour que les deux routes Comparable traitent le custom a l'IDENTIQUE.
+                    continue
                 events = pb.make_damage_predictions(ctx, T, tgt, aid)
                 if events:                 # liste vide -> terme nul (le cas de tous les membres
                     #                        sans `damageProfile`, ex. Chronometron : no-op exact)

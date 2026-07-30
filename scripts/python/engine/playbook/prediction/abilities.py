@@ -273,14 +273,22 @@ def _stikkbomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_i
     return out
 
 
-def make_stikkbomb_splash_event(scene, caster_id, target_id, ability_id, ability_name, attack_pos):
-    """UN event de degat du VOLET SPLASH de Stikkbomb (1051), tel que le natif le fabrique — c'est-a-dire
-    **sur la CIBLE PRINCIPALE**, avec le nombre de coups SECONDAIRE.
+def make_secondary_multihit_event(scene, caster_id, target_id, ability_id, ability_name, attack_pos):
+    """UN event de degat du VOLET SECONDAIRE d'une ability a splash — c'est-a-dire **sur la CIBLE
+    PRINCIPALE**, avec le nombre de coups SECONDAIRE (`nrOfHits_2`) et la base `minDmg` SEULE.
 
-    Les deux boucles natives de 1051 (`...StikkbombPlaybook$$MakeDamagePredictions` cote ENNEMIS,
-    `...StikkbombPlaybook$$CalculateCustomUtility` cote AMIS) appellent
-    `...ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` avec EXACTEMENT les memes arguments a
-    chaque tour de boucle :
+    Trois playbooks natifs fabriquent cet event avec EXACTEMENT le meme call-site (memes 4 entrees :
+    `Get(GetVariableForLevel(0xc = minDmg))`, `GetNumberConstant(0x32 = nrOfHits_2)`,
+    `GetDamageProfile(config)`, selecteur `Target`) — d'ou UN SEUL foyer parametre par ability :
+
+    - `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$MakeDamagePredictions` (1051, cote ENNEMIS
+      adjacents a la cible) ;
+    - `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` (1051, cote AMIS) ;
+    - `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` (1098, cote ENNEMIS
+      adjacents a la cible).
+
+    Les boucles natives appellent `...ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` avec
+    EXACTEMENT les memes arguments a chaque tour de boucle :
 
         GenerateMultiHitAttackPredictions(caster, casterPosition,
                                           target,                       // param_4
@@ -300,7 +308,9 @@ def make_stikkbomb_splash_event(scene, caster_id, target_id, ability_id, ability
 
     => l'unite splash ne determine QUE le NOMBRE d'events ; leur contenu est invariant. Ce helper le
     calcule UNE fois, l'appelant le repete `n` fois (mirror numeriquement exact de la boucle native,
-    sans en payer le cout N fois).
+    sans en payer le cout N fois). Le cas 1098 est un mirror LITTERAL de cette invariance : sa boucle
+    RECONSTRUIT la meme liste de predictions a chaque ennemi adjacent, sans qu'aucun argument ne
+    depende de l'ennemi itere.
 
     None si la prediction est indisponible (scene/config incompletes) -> l'appelant degrade en no-op."""
     cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))

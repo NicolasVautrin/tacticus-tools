@@ -24,6 +24,46 @@ from ..utilities import damage_composite
 from ..utilities.tile import tile_composite
 
 
+class _NoActionUtility:
+    """Sentinelle de PORT : « le custom a rendu une valeur que `CalculateActionUtility` traduit en
+    `Nullable` VIDE » — c'est-à-dire AUCUNE action générée pour ce (tuile, cible).
+
+    Ce n'est pas une convention inventée, c'est un mirror. `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+    commence par appeler `CalculateCustomUtility` (slot de vtable +0x338) puis compare son résultat à
+    TROIS constantes de `IdunBattle.AI.Utilities.BaseUtility`, AVANT toute prédiction :
+
+        u = CalculateCustomUtility(...)
+        if (u == BaseUtility.<statics+0x18>) return null;          // Nullable VIDE
+        if (u == BaseUtility.<statics+0x20>) return null;          // Nullable VIDE
+        if (u == BaseUtility.<statics+0x10>) return Nullable(BaseUtility.<statics+0x10>);
+        u += CalculateUtilityFromPredictions(...); ...
+
+    Les trois valeurs, lues dans `IdunBattle.AI.Utilities.BaseUtility$$.cctor` (qui les dérive de
+    `FixMath.NET.Fix64$$.cctor` : `Fix64.<statics+0x10>` = `0x7fffffffffffffff` = MaxValue,
+    `Fix64.<statics+0x18>` = `0x8000000000000000` = MinValue) :
+
+        BaseUtility.<statics+0x10> = Fix64.MaxValue
+        BaseUtility.<statics+0x18> = Fix64.MinValue / Fix64.FromIntFraction(1000001, 1000000)
+        BaseUtility.<statics+0x20> = Fix64.MinValue
+
+    Ce sont donc des VETOS : une utilité au voisinage de `MinValue` ne « perd » pas la comparaison,
+    elle SUPPRIME l'action. Le port les représente par une IDENTITÉ (`is NO_ACTION`) plutôt que par
+    un flottant proche de `-2**31` : la comparaison native est une égalité EXACTE sur un Fix64, qu'un
+    port en `float` ne peut pas reproduire de façon fiable, et une valeur très négative laissée dans
+    l'arithmétique serait sommée aux termes suivants au lieu d'annuler l'action.
+
+    Porteur actuel : `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility`
+    (1098), qui rend `BaseUtility.<statics+0x18>` dès que sa somme vaut `Fix64(0)`."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:            # diagnostic lisible en trace de décision
+        return "NO_ACTION"
+
+
+NO_ACTION = _NoActionUtility()
+
+
 class BasePlaybook:
     """Racine `BasePlaybook`. `ability_id` = l'AbilityType (clé du registry). `priority` = le tier de
     préférence (`get_Priority`, interface slot 0 ; défaut 0 = `AbilityPriority.Normal`, surchargé par
