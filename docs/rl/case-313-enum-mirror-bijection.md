@@ -30,8 +30,8 @@ l'une gardée et juste, l'autre non gardée et fausse.
 | `ActiveAbilityType` | 260 | 260 | 0 | 0 | 0 | déjà sain, SOUS GARDE |
 | `DamageProfileType` / `UnitTrait` / `UnitFaction` / `DamageTrait` / `EventTriggerType` | — | — | 0 | 0 | 0 | déjà sains, SOUS GARDE |
 | `StatType` | 27 | 27 | 0 | 0 | 0 | SOUS GARDE, **valeurs seules** |
-| `EffectType` | 682 | 629 | 20 | 73 | **2** | dette déclarée `(20, 73, 2)` |
-| `UtilityType` | 68 | 83 | 15 | 0 | 0 | dette déclarée `(15, 0, 0)` |
+| `EffectType` | 682 → **629** | 629 | 20 | 73 | **2** | dette déclarée `(20, 73, 2)` → **résorbée par #318, SOUS GARDE** |
+| `UtilityType` | 68 → **83** | 83 | 15 | 0 | 0 | dette déclarée `(15, 0, 0)` → **résorbée par #318, SOUS GARDE** |
 
 Les six mirrors sains le sont **par chance** — le jeu n'y a rien touché à cette MAJ. Rien dans le
 dépôt ne le garantissait avant ce cas ; c'est maintenant un cliquet.
@@ -113,6 +113,11 @@ mirrors déjà sains.
 | ajouter un `IntEnum` non enregistré sous `engine/` | registre exhaustif | `classe(s) IntEnum sous engine/ ni appariee(s) ni justifiee(s) : SpawnSource` |
 | déclarer la dette `EffectType` à `(19, 73, 2)` | dettes | `mesure (20, 73, 2), dette declaree (19, 73, 2)` |
 
+⚠ La quatrième mutation n'est plus reproductible **telle quelle** : #318 a résorbé les deux
+dettes, et le registre n'en déclare plus aucune. Le mécanisme « dette au compte exact » reste en
+place pour une dette future, et un test de #318 (`test_aucune_dette_declaree_ne_subsiste`) garde
+désormais le zéro — c'est LUI qui mord si on re-déclare une dette.
+
 ## 7. File de portage — les 8 membres ajoutés, par confrontabilité
 
 Gate : `rl_duel build --list-pool` (rank 17 : 97 unités + 8 MoW). `kind` du gameconfig **ventile**,
@@ -146,12 +151,16 @@ poids owner *et* non-owner), puis 1552 / 1543 / 1554 par injection.
   `SpecialIssueCombiMelta_AdditionalHits` (et `1564` / `…_ExtraDmg`). Ce sont les **mêmes
   placeholders** que ceux corrigés dans `TriggeredAbilityType` par case-219 : ils ont survécu dans
   le mirror voisin. Ils **résolvent** et pointent ailleurs : aucune erreur, aucune trace.
-  Réparation : `regen_enum_mirrors.py --mirror EffectType --ecrire`, après l'étape 3 de la sonde.
+  → **RÉSORBÉ par #318** (`case-318-effect-utility-mirror-bijection.md`) : mirror à **629**
+  membres, `(0, 0, 0)`, SOUS GARDE. La correction n'était pas un renommage — `DA_Hero6` n'existe
+  dans **aucun** des deux `enums.tsv` versionnés, et **aucun** site de code ne citait l'ancien nom.
 * **`UtilityType`** : 15 manquants (`ActiveAbilities`, `PreferNonBoss`, `PreferFreshlySpawned`,
   `MinPossibleNormalAttackTarget`, `UnitWithShortestPathToEnemy`, `Remaining`, `PreferAbilities`,
   `PreferSummons`, `LastAbilities`, `UnitOrder`, `Random`, `AdjacentHarmonizedFriend`, …) — les
   utilités ajoutées par la MAJ, qu'aucune feuille portée ne lit encore. À noter : #283 garde ce
   mirror et ne voyait **aucun** de ces 15, faute de tester le sens « manquant ».
+  → **RÉSORBÉ par #318** : mirror à **83** membres, `(0, 0, 0)`, SOUS GARDE. Le registre de la
+  sonde est désormais à **10 mirrors sous garde, 0 dette déclarée**, et ce zéro est lui-même gardé.
 * **Rouge PRÉ-EXISTANT sur `origin/master` (`de7879b2`), sans lien avec ce cas** :
   `test_enum_ordinal_ratchet_offline::test_aucun_ordinal_des_quatre_enums_en_dur_dans_scripts_python`
   échoue sur 3 littéraux `EventTriggerType = 9` (`test_cursed_plague_bell_attack_live.py:47` et

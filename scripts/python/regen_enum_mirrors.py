@@ -49,7 +49,11 @@ import probe_313_enum_mirror_bijection as P  # noqa: E402
 
 PY = REPO / "scripts"/"python"
 
-RX_MEMBRE = re.compile(r"^(\s{4})([A-Za-z_]\w*)\s*=\s*(-?\d+)\s*(#.*)?$")
+# L'espacement qui precede un commentaire de fin de ligne est CAPTURE (groupe 4) et reinjecte
+# tel quel : sans lui, `X = 28   # ...` se reecrivait `X = 28# ...` -- une regeneration qui
+# DEGRADE le fichier qu'elle repare est une raison de ne plus l'utiliser (mesure #318 sur
+# `UtilityType.DislikeStartingTilesUtility`, le seul membre a commentaire inline des mirrors).
+RX_MEMBRE = re.compile(r"^(\s{4})([A-Za-z_]\w*)\s*=\s*(-?\d+)([ \t]*)(#.*)?$")
 RX_COMMENT = re.compile(r"^\s{4}#")
 
 
@@ -88,8 +92,11 @@ def lire_bloc(lignes: list[str], prem: int,
         l = lignes[i]
         m = RX_MEMBRE.match(l)
         if m:
-            _, nom, val, com = m.groups()
-            deco[nom] = (en_cours, (com or "").rstrip())
+            _, nom, val, esp, com = m.groups()
+            # `esp` = l'espacement d'origine avant le `#`, preserve tel quel ; deux espaces au
+            # minimum si la source n'en avait pas (PEP8 E262), jamais zero.
+            deco[nom] = (en_cours,
+                         ((esp if len(esp or "") >= 2 else "  ") + com).rstrip() if com else "")
             porte[int(val)] = nom
             en_cours = []
         elif RX_COMMENT.match(l):
@@ -127,7 +134,7 @@ def regenerer(m: P.Mirror, build: str, ecrire: bool) -> int:
         nom = _echappe_py(choisi[v])
         avant, inline = deco.get(nom, ([], ""))
         out.extend(x for x in avant if x != "" or out)   # jamais de ligne vide en tete de bloc
-        out.append("    %s = %d%s" % (nom, v, ("" + inline) if inline else ""))
+        out.append("    %s = %d%s" % (nom, v, inline))   # `inline` porte deja son espacement
 
     orphelins = [(n, deco[n][0], deco[n][1]) for n in deco
                  if n not in {_echappe_py(choisi[v]) for v in jeu}

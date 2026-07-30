@@ -1,10 +1,27 @@
 """engine.entities.EffectType -- enum natif `EffectType` (mirror 1:1 complet).
 
-Mirror 1:1 de `IdunBattle.Entities.Enum.EffectType` (682 membres) genere depuis `data/il2cpp_enums.tsv`
-(build gqfc5mff6c) -- meme demarche que `UnitTrait` (#146) / `EventTriggerType` (#155) /
-`DamageTrait` (#156). Source unique id<->nom : les constantes id-hex eparses du port sont
-converties vers cet enum (#158). GENERE (transcription exacte du tsv, zero typo) ; regenerable
-via scripts scratchpad/enum_gen.py.
+Mirror 1:1 de `IdunBattle.Entities.Enum.EffectType` (629 membres) -- meme demarche que
+`UnitTrait` (#146) / `EventTriggerType` (#155) / `DamageTrait` (#156). Source unique id<->nom :
+les constantes id-hex eparses du port sont converties vers cet enum (#158).
+
+GENERE, et REGENERABLE : `python scripts/python/regen_enum_mirrors.py --mirror EffectType
+--ecrire`, depuis la table VERSIONNEE `data/symbols/<build>/frida/enums.tsv`. Ne jamais ajouter
+un membre a la main -- c'est ainsi que la derive ci-dessous est nee.
+
+BIJECTION GARDEE (#318) : `tests/test_enum_mirror_ratchet_offline.py` exige les DEUX sens contre
+le build courant. Le mirror sortait de deux MAJ avec (20 manquants, 73 morts, 2 RENUMEROTES) --
+il avait ete transcrit d'un `data/il2cpp_enums.tsv` (Il2CppDumper, supprime depuis) DEJA PERIME :
+
+  * les 73 MORTS etaient les effets de l'ancien moteur `Idun` (`HawkEye_*`, `SpiderWeb*`,
+    `FireRage_*`, `Bushkin_ExtraAttack`, ... ids 3..104), retires par le jeu. Aucun n'etait
+    cite en Python -- verifie avant retrait (etape 3 de `probe_313`, piege #270) ;
+  * les 2 RENUMEROTES sont le vrai cout : `1563`/`1564` portaient `DA_Hero6_Passive_1`/`_2`, des
+    placeholders qui n'existent dans AUCUN des deux builds versionnes -- le jeu y dit
+    `SpecialIssueCombiMelta_AdditionalHits` / `_ExtraDmg` (le passif 1545 de `darkaSternguard`,
+    cf. `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.SpecialIssueCombiMelta_AdditionalHitsEffect$$CreateAdditionalHits`
+    et `...SpecialIssueCombiMelta_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`). Un membre
+    renumerote RESOUT et pointe ailleurs : ni erreur, ni test rouge. Memes placeholders que ceux
+    corriges dans `TriggeredAbilityType` (1545/1548/1551) par la case-219.
 
 Valeur == id natif. ATTENTION (#157/#158) : le MEME id peut appartenir a des enums DIFFERENTS
 selon le contexte (ex. 1017 = `EffectType.ActOfFaith` ET `UnitTrait.BigTarget`) -> chaque site
@@ -16,109 +33,36 @@ from enum import IntEnum
 
 
 class EffectType(IntEnum):
-    """Mirror 1:1 de `IdunBattle.Entities.Enum.EffectType` (682 membres). Valeur == id natif."""
+    """Mirror 1:1 de `IdunBattle.Entities.Enum.EffectType` (629 membres). Valeur == id natif."""
     BlockEnteringUnits = 0
     JustSummoned = 1
     Damaged = 2
-    HawkEye_ExtraRange = 3
-    RighteousFury_SurroundedExtraDamage = 4
     Fire = 5
     Electrified_CounterAttack = 6
-    BirdClaw_CounterAttack = 7
-    Idun_FiringPosition_ExtraDamage = 8
     Shrub_BonusDefense = 9
     FirstAidHeal = 10
     Thorns_DefenseReduction = 11
-    Polearm_ZoneOfControl = 12
-    SpiderWeb = 13
-    IceElementalBond = 14
-    HawkEye_ExtraDmg = 15
     None_ = 16
     Ice = 17
     BrokenIceBlocker = 18
-    FireRage_ExtraMovement = 19
-    FireRage_ExtraDmg = 20
-    FireImmunity = 21
-    GuardAttack = 22
-    Whiteout_ExtraBlockChance = 23
-    Whiteout_ExtraBlockDamage = 24
     Taunted_BlockMovement = 25
     Taunted_CantUseAbility = 26
     Taunted_OnlySpecificTargets = 27
-    RemoveShield = 28
-    Bleeding = 29
-    KillCommand_ExtraDmg = 30
     StatModifier = 31
-    FireRage_SetOnFire = 32
-    SpiderWeb_DefenseReduction = 33
-    Idun_Concealed = 34
     DryBush_DefenseBonus = 35
-    PowerOfCold_ExtraDamage = 36
-    SpiderWeb_ExtraDamage = 37
-    TheMoreTheMerrier_ExtraHeal = 38
-    Polearm_AttackBonus = 39
-    Sturdy_DefenseBonus = 40
-    DesertStrider_ExtraMovement = 41
-    ParthianArrow_Attack = 42
-    PinDown_BlockMovement = 43
-    Poisoned = 44
-    StarcopperCage_Effect = 47
-    Incapacitated = 48
     Test_NegativeUnitEffect = 49
     Test_PositiveUnitEffect = 50
-    StarPower_Effect = 51
-    Incapacitated_BlockMovement = 52
-    Incapacitated_BlockAbility = 53
-    SnappingClaw_ExtraDamage = 54
-    Marked = 55
-    ReadyToShellUp = 56
-    ShelledUp = 57
     Darkness = 58
     Duel_Taunt = 59
-    Duel_ExtraDmg = 60
-    Duel_DmgReduction = 61
-    HeroicRage_ExtraDmg = 62
-    IceElementalBond_BlockMovement = 63
-    IceElementalBond_BlockAttack = 64
-    Camouflage_DmgReduction = 65
-    Camouflage_Evade = 66
-    FearOfDeath_Move = 67
-    InspiringPresence_ExtraDmg = 68
-    TakeThis_ExtraDmg = 69
-    RoyalFanfare_ExtraDmg = 70
-    RoyalFanfare_ExtraCritChance = 71
-    RoyalFanfare_ExtraBlockChance = 72
-    LifeBond_Damage = 73
-    CouchedLance_ExtraDmg = 74
     ShadeAttack_InitialDmg = 75
     ShadeAttack_ResetInitialDmg = 76
     BurnedByLight_ExtraDmg = 77
     Terrifying_ExtraDefense = 78
     Cursed = 79
-    NightVision_ExtraDmg = 80
-    Nightbanner_DamageHealerEffect = 81
-    SmellFear_Damaged_ExtraDmgEffect = 82
-    SmellFear_Darkness_ExtraDmgEffect = 83
-    HornOfDespair_ExtraDmg = 84
-    HornOfDespair_DmgReduction = 85
-    BirdWhisperer_ExtraProjectiles = 86
-    BirdWhisperer_ExtraDmg = 87
-    Bushkin_ExtraAttack = 88
-    Vines = 89
-    Vines_Damage = 90
     Vines_BlockMovement = 91
-    ThornyVines_ExtraDmg = 92
     LandMine_BlockTileMovement = 94
     MegaShooterMisfire_ExtraDmg = 95
-    SupplyCrate_ExtraHp = 96
-    SupplyCrate_ExtraArmor = 97
-    SupplyCrate_ExtraDmg = 98
-    MagicResistance_ExtraDefense = 99
-    RocketBarrage_ExtraProjectiles = 100
-    Zinger_ExtraProjectiles = 101
-    VolatileRockets_ExtraProjectiles = 102
     FriendlyFire = 103
-    BattleTinkerer_ExtraDmg = 104
     Test_AdditionModifier = 105
     Test_MultiplyModifier = 106
     Test_MultiplyModifier2 = 107
@@ -137,6 +81,7 @@ class EffectType(IntEnum):
     Test_CritDmgModifier = 120
     Test_AffectedByHealAndRepair = 121
     Test_Mock_2 = 122
+    Test_BuffAdjacentFriendly = 123
     ShockAssault_Buff = 1000
     Narthecium_Revive = 1001
     RitesOfBattle_ExtraDmgBasic = 1002
@@ -676,6 +621,9 @@ class EffectType(IntEnum):
     MonsterSlayerOfCaliban_ExtraDmg = 1539
     MonsterSlayerOfCaliban_ExtraBlock = 1540
     AugmentedAssault_ReduceArmor = 1541
+    MassDriverAccelerator_ExtraMovement = 1542
+    ModifiedExoarmour_PierceReduction = 1543
+    ModifiedExoarmour_ExtraDmg = 1544
     NanoscarabRepairProtocols = 1545
     NanoscarabRepairProtocols_ExtraHp = 1546
     ReanimationBeam_Revive = 1547
@@ -689,13 +637,29 @@ class EffectType(IntEnum):
     EnvStrategicBuff_ExtraHits = 1555
     EnvStrategicBuff_ExtraPierceRatio = 1556
     EnvStrategicBuff_ExtraCritDmg = 1557
+    PropheticSentinel_ExtraArmor = 1558
+    PropheticSentinel_ExtraBlockChance = 1559
+    PropheticSentinel_ExtraBlockDamage = 1560
     BeastSlayer_EmperorsShieldBlockChance = 1561
     BeastSlayer_EmperorsShieldBlockDamage = 1562
-    DA_Hero6_Passive_1 = 1563
-    DA_Hero6_Passive_2 = 1564
+    SpecialIssueCombiMelta_AdditionalHits = 1563
+    SpecialIssueCombiMelta_ExtraDmg = 1564
     EnhancementCritBoost = 1565
     KustomForceFieldReworked = 1566
     KustomForceFieldReworked_Orks = 1567
     HeadwoppasKillchoppa_ExtraDmg = 1568
     ChaliceOfBaal_ExtraDmg = 1569
+    RedRampage_ExtraMovement = 1570
+    TitanhammerSquad_TargetTile = 1571
+    TitanhammerSquad_ExtraBlockDamage = 1572
+    TitanhammerSquad_TeleportingIn = 1573
+    TitanhammerSquad_Moving = 1574
+    IconOfObstinacy_ExtraDmg = 1575
+    IconOfObstinacy_ExtraArmor = 1576
+    EmpyricAmbush = 1578
+    WhisperingWeb = 1579
+    EmpyricAmbush_AnyMove = 1580
+    MyWillBeDoneOverlord_ExtraDamage = 1581
+    MyWillBeDoneOverlord_FriendlyAttackedMarker = 1582
+    Helspear_IgnoreArmor = 1583
     STRIPPED = 9999

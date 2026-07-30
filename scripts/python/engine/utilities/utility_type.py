@@ -21,13 +21,17 @@ Verifie au portage (2026-07-29) : les 67 noms du port existent tous dans la tabl
 nouveau build — AUCUN renommage local a preserver. Confrontation faite nom par nom, pas par
 position.
 
-GAP CONNU, PRE-EXISTANT (non elargi ici) : le natif compte 83 membres, ce mirror en declare
-68. La queue 68-81 (`ActiveAbilities`, `PreferNonBoss`, `PreferFreshlySpawned`,
-`MinPossibleNormalAttackTarget`, `UnitWithShortestPathToEnemy`, `Remaining`,
-`PreferAbilities`, `PreferSummons`, `LastAbilities`, `UnitOrder`, `Random`,
-`AdjacentHarmonizedFriend`, `PsychicFortress`, `NoMovementToTileWithAdjacentEnemies`) et
-`STRIPPED = 9999` n'ont jamais ete transcrites — doctrine « ajouter au fil des call-sites,
-jamais deviner ». Les ajouter quand un call-site les exige, en relisant le natif."""
+BIJECTION COMPLETE ET GARDEE (#318) : les 83 membres du natif sont la (68 -> 83 ; la queue
+68-81 + `STRIPPED = 9999`), et `tests/test_enum_mirror_ratchet_offline.py` exige desormais les
+DEUX sens contre le build courant. La doctrine « ajouter au fil des call-sites » ne tenait pas
+ici : c'est justement le sens MANQUANT qui degrade en silence (une cle numerique rendue par le
+RPC `dumpComposedUtility` que le port ne sait pas nommer est jetee, pas signalee). La table
+entiere se regenere par `python scripts/python/regen_enum_mirrors.py --mirror UtilityType
+--ecrire` depuis `data/symbols/<build>/frida/enums.tsv` — ne jamais transcrire a la main.
+
+Les 15 membres ajoutes en #318 ne sont adosses a AUCUNE feuille portee : ce sont des NOMS
+corrects, pas des utilites implementees. Porter une feuille reste un travail a part entiere
+(lire son `IdunBattle.AI.Utilities.<X>Utility$$.ctor` et son `EvaluateMovementInSteps`)."""
 from __future__ import annotations
 
 from enum import IntEnum
@@ -105,3 +109,18 @@ class UtilityType(IntEnum):
     DecoysAndMisdirection_AttractToDecoys = 65
     TheArdentBlade_Geminae = 66
     LeadingTheCharge_ChargeTile = 67
+    ActiveAbilities = 68
+    PreferNonBoss = 69
+    PreferFreshlySpawned = 70
+    MinPossibleNormalAttackTarget = 71
+    UnitWithShortestPathToEnemy = 72
+    Remaining = 73
+    PreferAbilities = 74
+    PreferSummons = 75
+    LastAbilities = 76
+    UnitOrder = 77
+    Random = 78
+    AdjacentHarmonizedFriend = 79
+    PsychicFortress = 80
+    NoMovementToTileWithAdjacentEnemies = 81
+    STRIPPED = 9999
