@@ -9,6 +9,11 @@ Etapes (toutes OFFLINE -- aucun RPC, aucune session Frida) :
   0. RE-DERIVE le balayage : tous les chemins construits depuis une racine
      derivee de `__file__` dans `scripts/python/**`, classes SORTIE (sous
      `logs/`) vs ENTREE, et confrontes a `git check-ignore`.
+  0b. CHEMIN ABSOLU vers l'arbre principal (#314) : l'etape 0 ne voit QUE les
+     chemins derives de `__file__`. Un litteral pointant la racine du depot par
+     lettre de lecteur lui est INVISIBLE -- et c'est le motif qui perce
+     l'isolation par worktree : le script tourne dans le worktree mais ECRIT
+     dans l'arbre de l'orchestrateur. Cette etape le fait rougir.
   1. MECANISME : `Path(<inexistant>).glob(...)` rend [] SANS lever -- c'est
      exactement ce qui fait passer un capteur mort pour une mesure. Contre-
      epreuve : `host_inputs.find` LEVE sur le meme chemin.
@@ -27,6 +32,7 @@ from __future__ import annotations
 import argparse
 import ast
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -193,6 +199,74 @@ def step0(scan_root: Path) -> int:
     return rc
 
 
+# ---- etape 0b : chemin ABSOLU vers l'arbre principal (#314) --------------- #
+
+# Toute forme de chemin absolu dont un segment vaut exactement `tacticus-tools`
+# -- separateur antislash ou slash, simple ou double (chaine NON raw). Le
+# separateur FINAL est optionnel : `ROOT = Path(r"<lecteur>:...tacticus-tools")`
+# suivi de `ROOT / "logs"` perce l'isolation exactement pareil, et c'est la
+# forme qu'un premier jet du balayage RATAIT (7 fichiers manques sur 22).
+# Ancre sur une lettre de lecteur : sans elle, une mention de prose
+# (`fleet_board.py` : "tacticus-tools . campagne de portage") remonterait.
+_ABS_REPO = re.compile(
+    r"[A-Za-z]:[\\/]{1,2}(?:[^\s\"'<>|]*?[\\/]{1,2})?tacticus-tools(?![-\w])")
+
+# Chemins absolus vers le depot qui restent ADMIS, et POURQUOI. Cle =
+# "<fichier>:<ligne>" ; toute AUTRE occurrence fait echouer l'etape 0b. Comme
+# `_ALLOWED` de l'etape 0, c'est le point de passage oblige : reintroduire le
+# motif oblige a venir s'expliquer ici.
+_ALLOWED_ABS: dict[str, str] = {}
+
+
+def _scan_abs_repo(scan_root: Path) -> list[tuple[Path, int, str]]:
+    """[(fichier, no_ligne, extrait)] pour tout `scripts/python/**`.
+
+    Balayage TEXTUEL, pas AST : le motif doit rougir aussi dans un commentaire
+    ou une docstring -- un chemin absolu ecrit en prose est une invitation a le
+    recopier, et l'etape 0 (AST) ne le verrait pas non plus.
+    """
+    out: list[tuple[Path, int, str]] = []
+    for f in sorted((scan_root / "scripts" / "python").rglob("*.py")):
+        try:
+            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for i, ln in enumerate(lines, 1):
+            m = _ABS_REPO.search(ln)
+            if m:
+                out.append((f, i, ln.strip()[:100]))
+    return out
+
+
+def step0b(scan_root: Path) -> int:
+    print("\n== 0b. chemin ABSOLU vers l'arbre principal (#314) ==")
+    print(f"  arbre balaye        : {scan_root.as_posix()}")
+    hits = _scan_abs_repo(scan_root)
+    print(f"  occurrences         : {len(hits)}")
+    rc = 0
+    for f, lineno, snippet in hits:
+        try:
+            rel = f.relative_to(scan_root).as_posix()
+        except ValueError:
+            rel = f.as_posix()
+        why = _ALLOWED_ABS.get(f"{rel}:{lineno}")
+        tag = "OK  " if why else "FAIL"
+        print(f"      [{tag}] {rel}:{lineno}")
+        print(f"               {snippet}")
+        if why:
+            print(f"               ({why})")
+        else:
+            rc = 1
+    if rc:
+        print("  FAIL -- un script lance depuis un WORKTREE ecrirait (ou lirait) "
+              "dans l'ARBRE PRINCIPAL. Sortie de run -> chemin RELATIF sous "
+              "`logs/` (`Path(__file__).resolve().parents[2] / 'logs' / ...`) ; "
+              "entree gitignoree -> `host_inputs.require()/find()`.")
+    else:
+        print("  OK -- aucun chemin absolu vers le depot")
+    return rc
+
+
 # ---- etape 1 : le mecanisme ---------------------------------------------- #
 
 _ABSENT = "frida/data/_absent_273"          # n'existe dans AUCUN arbre
@@ -326,12 +400,12 @@ def main(argv: list[str]) -> int:
                     help="arbre a balayer a l'etape 0 (defaut : celui-ci) -- "
                          "pointer un worktree sur origin/master donne l'AVANT")
     ap.add_argument("--only-scan", action="store_true",
-                    help="etape 0 seule")
+                    help="etapes 0 + 0b seules (le cliquet, 100%% offline)")
     args = ap.parse_args(argv[1:])
     scan_root = Path(args.scan_root).resolve() if args.scan_root else ROOT
     if args.only_scan:
-        return step0(scan_root)
-    rc = step0(scan_root) | step1() | step2() | step3()
+        return step0(scan_root) | step0b(scan_root)
+    rc = step0(scan_root) | step0b(scan_root) | step1() | step2() | step3()
     if args.demo_worktree:
         rc |= step4(args.ref)
     print("\n[273] rc=" + str(rc))
