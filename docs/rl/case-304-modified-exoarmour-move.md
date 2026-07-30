@@ -105,19 +105,26 @@ l'appelle jamais. Une tuile block-entering reste **traversable** par un chemin (
 
 `tile_leaf_ctx` UNIONNAIT le kit gameconfig avec la lecture live du `TriggeredAbilityComponent`
 (N13, « jamais retirer un id connu »). Or cette lecture EST la collection que le dispatcher natif
-itère. **Mesure** (fixture #27-r1, bras où le seed BC pose `votanChampion.PassiveAbilities = []`) :
+itère. **Mesure RE-JOUÉE le 2026-07-30 après rebase sur `ae87046f`** (#321 / #319 / #318 mergés
+entre-temps — chiffres INCHANGÉS), fixture #27-r1, les DEUX régimes :
 
-| source | kit rendu |
-|---|---|
-| `unitAbilityStates` (live, = AbilitiesComponent) | `[1486]` |
-| `gameconfig.passiveAbilities` | `[1529, 1486]` |
-| union (comportement d'avant) | `[1529, 1486]` ← **faux** |
+| régime du seed BC | live (`unitAbilityStates` = AbilitiesComponent) | gameconfig (`passiveAbilities`) | union (AVANT) | `tile_leaf_ctx` (APRÈS) |
+|---|---|---|---|---|
+| `PassiveAbilities: []` | `[1486]` | `[1529]` | `[1529, 1486]` ← **faux** | **`[1486]`** = natif |
+| kit RÉEL | `[1529, 1486]` | `[1529]` | `[1529, 1486]` | `[1529, 1486]` |
 
-L'union réintroduisait un passif que la bataille n'a pas. L'écart était **invisible** tant qu'aucun
-playbook n'était enregistré pour 1529 ; enregistrer le terme l'a rendu observable en rougissant
-`test_mass_driver_custom_utility_live.py::test_engine_matches_native_on_all_cells`. La lecture live
-FAIT AUTORITÉ quand elle rend quelque chose ; le repli gameconfig reste entier quand elle est vide
-(RPC indisponible, entité absente, contexte offline `rid` faux) — le seul régime que N13 protégeait.
+Deux choses se lisent d'un coup :
+
+* l'union réintroduisait un passif que la bataille **n'a pas** (ligne 1). L'écart était **invisible**
+  tant qu'aucun playbook n'était enregistré pour 1529 ; enregistrer le terme l'a rendu observable en
+  rougissant `test_mass_driver_custom_utility_live.py::test_engine_matches_native_on_all_cells` ;
+* dans le régime NORMAL (ligne 2) la lecture live est un **sur-ensemble** du gameconfig — `1486` n'est
+  pas dans `passiveAbilities` — donc **remplacement == union** : le passage à l'autorité live ne perd
+  rien là où N13 mesurait son gain (abilities accordées par trait / relique).
+
+La lecture live FAIT donc AUTORITÉ quand elle rend quelque chose ; le repli gameconfig reste entier
+quand elle est vide (RPC indisponible, entité absente, contexte offline `rid` faux) — le seul régime
+que N13 protégeait.
 
 ## 5. Confrontation live — PAR ÉTAGE, jamais sur la décision complète
 
@@ -147,13 +154,19 @@ Résultats :
   les 4 bras.
 * **V3 (le ROUGE)** — terme RETIRÉ, l'argmax choisit `1222` **sur place** là où le natif bouge :
   c'est exactement le fait qui avait obligé #27-r1 à retirer le passif de son montage.
-* **V8 / V9 — le modèle est CONTRAINT, pas ajusté.** Chaque bras impose une inégalité sur le
-  coefficient ; l'intersection des 4 donne
+* **V8 / V9 — LE SCALAIRE N'EST PAS FITTÉ, IL EST CONTRAINT PUIS DISCRIMINÉ.** Aucun coefficient
+  n'est ajusté pour coller à une mesure : chaque bras impose une **inégalité** sur `k` (« le natif a
+  choisi cette action-là plutôt que les 12 autres »), et on intersecte. Un coefficient est une
+  **constante du jeu** — un intervalle vide RÉFUTE le modèle qui le produit.
   * modèle `k × |chemin|` : **4.6130 < k < 5.0563** — le poids LU au gameconfig (**5**) y tombe,
-    dans une fenêtre de 0,44 point (±4,4 %) ;
+    fenêtre de 0,44 point (±4,4 %) ;
   * modèle FORFAIT (`k` dès qu'on bouge) : **18.4518 < k < 16.4454** ⇒ **VIDE, RÉFUTÉ**.
-  C'est la présence de **deux longueurs de chemin JOUÉES** (4 et 3) qui sépare les deux modèles :
-  avec une seule, ils sont indistinguables (V4 le dit bras par bras).
+
+  Ce qui sépare les deux modèles, ce sont les **DEUX LONGUEURS DE CHEMIN JOUÉES par le natif** — 4
+  sur MC1_67/909, 3 sur C4_09/31337. Avec une seule longueur, forfait et proportionnel sont
+  **indistinguables**, et le probe le dit bras par bras (V4 : « ce duel ne sépare PAS forfait et
+  `w × n` »). C'est précisément l'exigence « deux longueurs de chemin DIFFÉRENTES, sinon tu ne
+  distingues pas `5` par tuile d'un forfait ».
 * Mutation adversariale `n − 1` : V1 et V2 rougissent (l'argmax repasse à `1222`) — le harnais
   discrimine à **une tuile près**.
 
@@ -176,8 +189,10 @@ Résultats :
 * **`ModifiedExoarmour` a aussi une face COMBAT** non portée par ce cas :
   `IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` /
   `$$GetExtraDamageMultiplier` et `ModifiedExoarmour_PierceReductionEffect$$
-  CreatePiercingMalusForDefense`. C'est un candidat sérieux pour l'écart de prédiction ci-dessus
-  (44.395 natif vs 17.8 port) — **hypothèse non vérifiée**, à ouvrir comme cas propre.
+  CreatePiercingMalusForDefense`. **Elle n'est pas la cause établie de l'écart de prédiction ci-dessus
+  (44.395 natif vs 17.8 port) : ce cas ne l'a PAS instruite.** Ces trois symboles n'ont pas été
+  décompilés ici, et l'écart n'a été décomposé sur aucun étage — le rapprochement est une piste,
+  **rien n'a été mesuré qui l'étaye**. À ouvrir comme cas propre, sans partir de cette prémisse.
 * **Enum `TriggeredAbilityType`** : 1529 est ajouté ; **8 autres membres du build `rnca9r7q6c`
   manquent encore** (1543 `PropheticSentinel`, 1546 `HeavyWarpFlamer_AttackTrackingAbility`,
   1552 `IconOfObstinacy`, 1554 `WhisperingWeb`, 1555 `EmpyricAmbush_Reset`,

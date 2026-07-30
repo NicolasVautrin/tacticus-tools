@@ -1205,11 +1205,15 @@ def tile_leaf_ctx(ctx) -> dict:
     # LITTERALEMENT la collection que `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.
     # u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` itere. L'UNION anterieure (N13) ne pouvait
     # qu'AJOUTER, jamais retirer -- elle REINTRODUISAIT donc un passif que la bataille n'a PAS.
-    # MESURE (#304, fixture `MDA_FIXTURE` bras sans passif, ou le seed BC pose
-    # `votanChampion.PassiveAbilities = []`) : live = `[1486]`, gameconfig = `[1529, 1486]`,
-    # AbilitiesComponent natif = `[1486]`. L'union rendait `[1529, 1486]` et faisait appliquer au
-    # port un terme de tuile que le natif n'appliquait pas. L'ecart etait INVISIBLE tant qu'aucun
-    # playbook n'etait enregistre pour 1529 -- c'est le port de #304 qui l'a rendu observable.
+    # MESURE (#304, fixture `MDA_FIXTURE`, re-jouee apres rebase sur `ae87046f`) :
+    #   seed BC `PassiveAbilities: []` -> live `[1486]`, gameconfig `[1529]`, union `[1529, 1486]`,
+    #                                     AbilitiesComponent natif `[1486]`  <- l'union MENT
+    #   seed BC kit REEL              -> live `[1529, 1486]`, gameconfig `[1529]`, union idem
+    # La 2e ligne est ce qui rend le remplacement SUR : dans le regime normal la lecture live est un
+    # SUR-ENSEMBLE du gameconfig (`1486` n'est pas un `passiveAbilities`), donc remplacement == union
+    # et le gain de N13 (abilities accordees par TRAIT / RELIQUE) est intact. L'ecart de la 1re ligne
+    # etait INVISIBLE tant qu'aucun playbook n'etait enregistre pour 1529 -- c'est le port de #304
+    # qui l'a rendu observable.
     # Le repli gameconfig reste ENTIER quand la lecture live est vide (RPC indisponible, entite
     # absente, contexte OFFLINE `rid` faux -> `[]`, cf. la docstring de l'accesseur) : c'est le seul
     # regime que le motif N13 protegeait, et il est preserve tel quel.
