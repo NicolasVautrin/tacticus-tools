@@ -106,15 +106,24 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     runner au format `{name, level, source}` que cette fonction consomme. Une seule lecture du natif,
     deux substrats -- surtout pas deux tables.
 
-    RESIDU NOMME, et il est DEAD sur ce build (#310) : le 3e implementeur
-    `NetherRealmCasket_LivingMetalBonusEffect` (1456) est le SEUL dont le gate
+    RESIDU NOMME, et il est **ATTEIGNABLE** -- correction #317 d'un verdict « DEAD » errone de #310.
+    Le 3e implementeur `NetherRealmCasket_LivingMetalBonusEffect` (1456) est le SEUL dont le gate
     `TriggeringAbilityIs(LivingMetalRepair)` PEUT etre satisfait ici -- depuis #310 le trigger
-    LivingMetal passe bien par cette Operation, donc la face COMBAT est desormais le seul chemin ou
-    ce bonus vaudrait autre chose que 0. Il ne contribue quand meme pas, et la raison n'est pas un
-    trou de port : `python unit_map.py find --ability NetherRealmCasket` rend **0 unite** -- aucun
-    porteur dans le gameconfig du build `rnca9r7q6c`, ni hero, ni MoW, ni summon, ni npc. L'effet est
-    enregistre mais INJOUABLE ; le threader demanderait de faire descendre un canal
-    `triggering_ability` dans `engine.predict` pour une branche que rien ne peut atteindre.
+    LivingMetal passe bien par cette Operation, donc la face COMBAT est le seul chemin ou ce bonus
+    vaudrait autre chose que 0.
+    #310 l'avait classe DEAD sur `python unit_map.py find --ability NetherRealmCasket` = **0 unite**.
+    Ce zero est un FAUX NEGATIF : `unit_map find --ability` ne lit que `activeAbilities` +
+    `passiveAbilities`, il est **aveugle aux RELIQUES**. `NetherRealmCasket` est l'ability de l'item
+    `R_Booster_Crit_NetherRealmCasket`, `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]`
+    -- TROIS heros DU POOL -- et `necroSpyder` (traits `Hero`/`LivingMetal`/`Mechanical`/`Mechanic`)
+    la porte DEJA EQUIPEE dans le seed BC courant (`Units[].TertiaryAbility = 1462`).
+    Ce qui manque n'est donc pas un porteur mais DEUX canaux, tous deux nommes :
+      * le kit declenche REEL d'une unite (traits + reliques) n'est pas expose au rail COMBAT --
+        `collect_triggered_abilities` derive du gameconfig, la lecture fidele
+        (`engine/ai/context.py::live_triggered_ability_ids`, RPC `unitAbilityStates`) n'existe que
+        cote DECISION ; gap deja mesure par `probe_193_move_playbook_inventory.py` volet 2 ;
+      * le canal `triggering_ability` dans `engine.predict`, que le gate du descripteur consomme.
+    Detail et re-derivation : `docs/rl/case-317-repair-callers-inventory.md` par. 1.
 
     Rend `(mod_add, mod_mul)`. Aucun effet contributeur -> `(0, 1.0)` = no-op EXACT (`Empty`)."""
     from ...predict import calculate_repair_modifier_for_prediction
@@ -169,8 +178,11 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
       1. `RepairModifier`, GATE par `IsActor(caster)` -- un caster non-acteur (tuile, effet) laisse
          `amount` intact ;
       2. cap de GROUPE `GetGroupUnitHealLimit`, GATE par `scope == 1` -- PORTE depuis #310, quand
-         `LivingMetalRepairAbility` (le seul call-site du build a passer
-         `RepairBehaviourOptions$$ForRegenerate` = `scope 1`) a ete rebranche sur cette Operation.
+         `LivingMetalRepairAbility` a ete rebranche sur cette Operation. C'est le seul call-site
+         PORTE a armer `scope 1` ; ce n'est PAS le seul du BUILD (correction #317 : les deux autres
+         sont `IdunBattle.Entities.Effects.Loki.LifeStealEffect$$CreateTargetTriggerBehaviour`, via
+         `$$ForRegenerate`, et `...Triggered.Loki.EnhancementRegenerationAbility$$CreateBehaviour`,
+         via un `RepairBehaviourOptions` construit a la main -- aucun des deux n'est porte).
          Avant #310 la branche etait inerte (`ForRepair` = `scope 0` partout) ET le cap etait
          re-calcule A LA MAIN dans le trigger, AVANT le `RepairModifier` -- donc dans le MAUVAIS
          ORDRE. Il est desormais a sa place native : `Min(amount, GetGroupUnitHealLimit)` APRES le

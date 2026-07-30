@@ -15,7 +15,7 @@ from ....state import State
 from ....components import StatsComponent, UnitComponent, TriggeredAbilityComponent
 from ..base import TriggerEvent, TriggeredAbility, EffectTrigger, PHASE_TRIGGER_CAP
 from .registry import (TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS,
-                       EFFECT_TRIGGERS)
+                       RELIC_ABILITY_TRIGGERS, EFFECT_TRIGGERS)
 
 
 def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
@@ -45,6 +45,12 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
             # GetDerivedTriggeredAbilities`) : porté dès l'init de l'unité, sans cast préalable.
             for aa in (gu.get("activeAbilities") or []):
                 for cls in ACTIVE_ABILITY_TRIGGERS.get(aa, ()):
+                    out.append(cls(eid))
+            # relicAbilities -> triggered-ability(s) accordee(s) par une RELIQUE (#317). QUATRIEME
+            # chemin de registration ; la voie « item EQUIPE » (`BC.Units[].TertiaryAbility`) n'est
+            # PAS lisible d'ici -- residu NOMME dans `registry.RELIC_ABILITY_TRIGGERS`.
+            for ra in (gu.get("relicAbilities") or []):
+                for cls in RELIC_ABILITY_TRIGGERS.get(ra, ()):
                     out.append(cls(eid))
     return out
 

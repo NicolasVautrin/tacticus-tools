@@ -98,8 +98,9 @@ NATIVE_REPAIR_CALLSITES: list[tuple[str, bool, str]] = [
      "TriggeredAbilityType 1004 (homonyme d'id avec ActiveAbilityType.MortisRound) -- non porte"),
     ("IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour", False,
      "1117 -- playbook NonComparable porte (DECISION), face COMBAT non portee"),
-    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.DawnBlade_HealAbility$$CreateBehaviour", False,
-     "1501 -- le NOM dit Heal, l'artefact construit un Repair ; non porte"),
+    ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.DawnBlade_HealAbility$$CreateBehaviour", True,
+     "1501 -- le NOM dit Heal, l'artefact construit un Repair ; PORTE par #317 "
+     "(triggers/loki/dawn_blade.py, registre RELIC_ABILITY_TRIGGERS)"),
     ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnhancementRegenerationAbility$$CreateBehaviour", False,
      "1433 -- appelle Repair ET Heal (fork) ; non porte"),
     ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.PowerUp_HealingAbility$$AdditionalBehavior", False,

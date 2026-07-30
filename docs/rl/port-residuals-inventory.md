@@ -1009,6 +1009,29 @@ parce qu'une affirmation périmée les masquait (§5.5).
 > re-confrontation ment structurellement entre deux passes — l'ajout d'une ligne d'inventaire dans
 > la PR qui ferme un résidu coûte 30 secondes et supprime ce mensonge.
 
+### 4.z — #317 : les appelants de `DSLBehaviors$$Repair`, et un canal d'attribution ABSENT
+
+Inventaire complet des **13** call-sites : `docs/rl/case-317-repair-callers-inventory.md` ;
+re-dérivation `python scripts/python/probe_317_repair_callers_inventory.py`.
+**5 portés** côté COMBAT (4 + `DawnBlade`, porté par cette entrée), 8 ouverts.
+
+| # | Résidu | Symptôme | Symbole natif | Porteur / chemin | Fichiers |
+|---|---|---|---|---|---|
+| **N317-a** | **Le kit déclenché RÉEL d'une unité n'est pas lisible par le rail COMBAT** — `collect_triggered_abilities` dérive du gameconfig (`traits` + `passiveAbilities` + `activeAbilities` + désormais `relicAbilities`), donc il **ignore la relique ÉQUIPÉE**. | `BC.Units[].TertiaryAbility` non nul sur **4 unités sur 175** du seed BC (`necroSpyder` 1462 `NetherRealmCasket`, `orksRuntherd` 1475, `admecMarshall` / `admecRuststalker` 1457) → autant de triggered-abilities que le port ne pose jamais. Déjà mesuré côté DÉCISION par `probe_193_move_playbook_inventory.py` volet 2. | `IdunBattle.Entities.Components.TriggeredAbilityComponent` (RPC `unitAbilityStates`) | héros du pool portant une relique | `engine/runner/operations/triggers/dispatch/core.py`, `…/registry.py` |
+| **N317-b** | `NetherRealmCasket_LivingMetalBonusEffect` (1456), classé **DEAD** par #310, est en fait **ATTEIGNABLE** — le zéro venait de `unit_map.py find --ability`, aveugle aux reliques. | `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]`, tous **dans le pool** ; `necroSpyder` porte la relique équipée dans le seed BC ET le trait `LivingMetal`. Bloqué par N317-a + l'absence du canal `triggering_ability` dans `engine.predict`. | `IdunBattle.Entities.Effects.BaseEffect$$RepairBonus` (3ᵉ implémenteur) | `necroSpyder` (pool) | `engine/runner/operations/repair.py` (docstring corrigée) |
+| **N317-c** | **`unit_map.py find --ability` ne lit ni `relicAbilities` ni `items[*].abilityId`** → rend `0 unité` pour les **25** relic-abilities du build. C'est le faux négatif qui a produit N317-b. | 25 abilities concernées ; `DawnBlade` et `NetherRealmCasket` en sont deux exemples mesurés. | — | — | `scripts/python/unit_map.py` |
+| **N317-d** | Le gate `IsDefeatedByMeleeAttack` de `DawnBlade` est **approximé positionnellement** : le natif lit un marqueur persistant sur la victime, le port n'a aucun canal mêlée sur `On(UnitDeath = 0)` (`unit_death_triggers` pose `ranged=False` en dur). | Divergence possible sur une arme à distance employée à l'adjacence. Approximation **restrictive-correcte** : l'omettre rendrait le trigger permissif. | `IdunBattle.Entities.Selectors.UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` | `tauFarsight` (relique) | `engine/runner/operations/triggers/loki/dawn_blade.py` |
+| **N317-e** | Le niveau de la variable d'une ability de RELIQUE est `BC.Units[].TertiaryAbilityLevel` (1..10), **hors substrat** : le port passe `passive_ability_level`, qu'`ability_var` clampe au dernier index. | Valeur du niveau de relique MAX au lieu du niveau réel. | `AbilityConfiguration$$GetVariableForLevel` | idem | idem |
+
+**Tranches OUVERTES** issues de cet inventaire (une par ability, ordre de valeur décroissante) :
+`RelentlessMarchAbility` (1004, `necroWarden` **pool**) · `DefendTheDivineWorkAbility` (1117,
+`admecManipulus` **pool**, face DÉCISION déjà portée) · `ReanimationBeamAbility` (1223, MoW
+`necroReanimator`, `catalog_inject`) · `PowerUp_HealingAbility` (1273, power-up de terrain) ·
+**dead / non confrontables** : `SelfRepairMechanismAbility` (1291, aucun porteur),
+`EnhancementRegenerationAbility` (1433) et `LifeStealEffect` (1309), tous deux accordés par des
+enhancements de **live-event** — or ce sont **2 des 3** call-sites `scope == 1` du build, donc à
+citer dans toute évolution du cap de GROUPE de `predict_repair`.
+
 ---
 
 ## 5. PÉRIMÉS — à sortir du backlog / de la roadmap
