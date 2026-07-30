@@ -130,18 +130,27 @@ Producteurs de CANDIDATS `{target, ability, to, pred, full}` consommes par le bu
 
 ## 4. Les abilities concernees — balayage du bit `TargetIsTile`
 
-Re-derive du registre par `python scripts/python/probe_302_tile_target_inventory.py` (voir §6) :
-**19 abilities sur les 95 de `ABILITY_CLASSES` portent le bit** `TargetIsTile` dans leur
-`TARGETING_OPTIONS.rules`.
+Re-derive du registre par `python scripts/python/probe_302_tile_target_route.py --inventory` :
+**19 abilities sur les 97 de `ABILITY_CLASSES` portent le bit** `TargetIsTile` dans leur
+`TARGETING_OPTIONS.rules`, et **3 seulement** avaient une route de decision avant cette fiche
+(1092 DarkTalonStrike, 1096 MasterOfTheTutelaries, 1151 TheQuickening — toutes NonComparable
+bespoke). Les 16 autres : 1017, 1018, 1026, 1112, 1116, 1142, 1145, **1148**, 1158, 1159, 1166,
+**1169**, 1188, 1201, 1213, 1219.
 
-Le detail (id, masque, route de decision existante) est produit par le probe, qui est la source a
-citer — les chiffres ci-dessus se periment des qu'une ability entre au registre.
+Le detail (id, masque, route existante) est produit par le probe, qui est la source a citer — ces
+chiffres se periment des qu'une ability entre au registre (95 -> 97 pendant la redaction).
 
-**Ce que ce balayage NE couvre PAS, et il faut le dire** : `ABILITY_CLASSES` compte 95 entrees sur
+**Ce que ce balayage NE couvre PAS, et il faut le dire** : `ABILITY_CLASSES` compte 97 entrees sur
 les 257 valeurs d'`ActiveAbilityType`. Le bit n'a donc ete lu que sur les abilities **deja portees**
 (chacune au decompile de son `.ctor`, par les tranches qui les ont fait entrer). La population
-complete demanderait de lire les 162 `.ctor` restants — hors perimetre de ce chantier, et pose en
+complete demanderait de lire les 160 `.ctor` restants — hors perimetre de ce chantier, et pose en
 tranche 4 (§7).
+
+> ⚠ **`1197 ExcruciatingFrequencies` n'est PAS dans cette liste** alors que sa cible de decision EST
+> une tuile : son ciblage passe par `TargetTiles@0x190` (l'aim d'une ligne), pas par le bit
+> `TargetIsTile`. Le bit repond a « le domaine de `GetValidTargets` est-il fait de tuiles ? », pas a
+> « la cible de l'action est-elle une tuile ? ». D'ou sa route BESPOKE
+> (`excruciating_frequencies.py`, qui balaie positions x aims) plutot que cette route generique.
 
 ---
 
