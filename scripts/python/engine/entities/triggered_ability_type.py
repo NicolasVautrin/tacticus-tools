@@ -1,10 +1,21 @@
 """engine.entities.TriggeredAbilityType -- enum natif `TriggeredAbilityType` (mirror 1:1 complet).
 
-Mirror 1:1 de `IdunBattle.Entities.Enum.TriggeredAbilityType` (573 membres) genere depuis `data/il2cpp_enums.tsv`
-(build gqfc5mff6c) -- meme demarche que `UnitTrait` (#146) / `EventTriggerType` (#155) /
-`DamageTrait` (#156). Source unique id<->nom : les constantes id-hex eparses du port sont
-converties vers cet enum (#158). GENERE (transcription exacte du tsv, zero typo) ; regenerable
-via scripts scratchpad/enum_gen.py.
+Mirror 1:1 de `IdunBattle.Entities.Enum.TriggeredAbilityType`, GENERE depuis la table VERSIONNEE
+`data/symbols/<CURRENT>/frida/enums.tsv` -- meme demarche que `UnitTrait` (#146) /
+`EventTriggerType` (#155) / `DamageTrait` (#156). Source unique id<->nom : les constantes id-hex
+eparses du port sont converties vers cet enum (#158).
+
+  Regenerer : python scripts/python/regen_enum_mirrors.py --mirror TriggeredAbilityType --ecrire
+  Verifier  : python scripts/python/probe_313_enum_mirror_bijection.py
+  Cliquet   : scripts/python/tests/test_enum_mirror_ratchet_offline.py
+
+CE MIRROR N'EST PAS QU'UNE TABLE, C'EST UN DICTIONNAIRE CONSOMME PAR NOM (#313)
+------------------------------------------------------------------------------
+`triggered_ability_ids()` (plus bas) fait `TriggeredAbilityType.__members__.get(nom_gameconfig)`
+et jette silencieusement ce qu'il ne connait pas (`if m is not None`). Un membre MANQUANT n'est
+donc pas inerte : il RETIRE un passif du kit porte, sans erreur ni trace. Un membre MORT, lui, ne
+peut plus rien matcher -- c'est du code qui a l'air vivant. La bijection avec le build courant est
+pour cette raison gardee DANS LES DEUX SENS, et non seulement « les membres presents sont justes ».
 
 Valeur == id natif. ATTENTION (#157/#158) : le MEME id peut appartenir a des enums DIFFERENTS
 selon le contexte (ex. 1017 = `EffectType.ActOfFaith` ET `UnitTrait.BigTarget`) -> chaque site
@@ -16,132 +27,28 @@ from enum import IntEnum
 
 
 class TriggeredAbilityType(IntEnum):
-    """Mirror 1:1 de `IdunBattle.Entities.Enum.TriggeredAbilityType` (573 membres). Valeur == id natif."""
+    """Mirror 1:1 de `IdunBattle.Entities.Enum.TriggeredAbilityType`. Valeur == id natif.
+
+    Le COMPTE de membres n'est pas ecrit ici : il change a chaque build (573 sur `gqfc5mff6c`,
+    476 sur `rnca9r7q6c`), et un compte fige dans une docstring est la premiere chose qui ment."""
     None_ = 0
-    RaiseSkeletons = 1
     Electrified = 2
-    HoldTheLine = 3
-    RighteousFury = 4
     SwampBlockMovement = 5
     FirstAidHeal = 6
-    HawkEye = 7
-    IronAssembly = 8
-    ShellUp = 9
-    RoyalGuard = 10
-    SingleHeal = 11
-    EternalBond = 12
-    Idun_FiringPosition = 13
     ShrubDefenseBonus = 14
-    Skewer = 15
-    PolearmAbility = 16
-    BirdClaw = 17
-    Regeneration = 18
-    SpiderWeb = 19
     ForceOfNature = 20
-    Grenadier = 21
-    HaveARefill = 22
-    Wreckage = 23
     EnvFireTileDamage = 24
-    Slush = 25
-    Dragon = 26
-    ArmorSmith = 27
-    Drunk = 28
     BrokenIce = 29
     OnFire = 30
-    ElementalHealingAndImmunity = 31
-    FireRage = 32
-    Guard = 33
-    Whiteout = 34
-    PowerOfCold = 35
-    FatalLandingAbility = 36
-    SpiritBlades = 37
-    MendSteed = 38
-    DragonEggRed = 39
-    EggLayingRed = 40
-    DragonSlashRed = 41
-    BleedingDamage = 42
-    SerpentsVengeance = 43
-    AuraOfTheStars = 44
-    TakeThis = 45
-    RoyalGuard_Summon_Protect = 46
-    Devour = 47
-    SpiderWebDefenseBonus = 48
-    RockLob = 49
-    Idun_ConcealAbility = 50
-    SturdyAbility = 51
     DryBushDefenseBonus = 52
-    QuickSlash = 53
-    DesertStrider = 54
-    ParthianArrow = 55
-    StarPower = 56
     DryBushFireSpread = 57
-    LooterAbility = 58
     TeleportTile = 60
-    ImmunityAbility = 61
-    EggLayingBlue = 62
-    EggLayingGreen = 63
-    DragonSlashBlue = 64
-    DragonSlashGreen = 65
-    DragonEggBlue = 66
-    DragonEggGreen = 67
-    DragonFlyAway = 68
-    ReefkinEggEvolution = 69
-    ReefkinTadpoleEvolution = 70
-    ReefkinFrogEvolution = 71
     Explosive = 72
-    PoisonPuffer = 73
-    ReefkinNpcEggEvolution = 74
-    ReefkinNpcTadpoleEvolution = 75
-    ReefkinNpcFrogEvolution = 76
     SpikySting = 77
-    ShiftingSandsMovement = 78
-    Harmonize = 79
-    SnappingClaw = 80
     EggLayer = 81
-    NomNom = 82
-    RoyalGuard_Summon_Attack = 83
-    BladeSpin = 84
-    HeroicRage = 85
-    EagerAbility = 86
-    Camouflage = 87
-    FearOfDeathAbility = 88
-    InspiringPresence = 89
-    EggLayingBlack = 90
-    DragonSlashBlack = 91
-    DragonEggBlack = 92
-    LifeBondAbility = 93
-    CouchedLance = 94
-    ShadeAttack = 95
-    BurnedByLightAbility = 96
-    ShadewalkerAbility = 97
     TerrifyingAbility = 98
-    CursedTouch = 99
-    NightVisionAbility = 100
-    Nightbanner = 101
-    SmellFear = 102
-    BirdWhisperer = 103
-    BushkinAbility = 104
     ThornyVines = 105
-    VinesTileDamage = 106
-    ToadstoolSpores = 107
-    Lifeblossom = 109
-    TreeAncientHeal = 110
-    BeeSwarm = 111
-    LifeblossomSacrifice = 112
-    PrimalInstinct = 113
     LandMine = 114
-    MegaShooterMisfire = 115
-    MegaShooterMayhem_ExtraDmg = 116
-    AirshipStrike = 117
-    SupplyCrate = 118
-    MagicResistanceAbility = 119
-    EjectEject = 120
-    RocketBarrage_ExtraProjectiles = 121
-    BattleTinkerer = 122
-    Zinger = 123
-    VolatileRockets = 124
-    BombsAway = 125
-    SpiritBladeSamurai = 126
     PsychicFortress = 1000
     Narthecium = 1001
     ShockAssault = 1002
@@ -566,14 +473,10 @@ class TriggeredAbilityType(IntEnum):
     PurgeResponse = 1526
     MonsterSlayerOfCaliban = 1527
     FuryFromTheDelve = 1528
-    # #304 -- membre AJOUTE par le build `rnca9r7q6c` (passif de `votanChampion`/Kimm). Transcrit du
-    # dump VERSIONNE `data/symbols/rnca9r7q6c/frida/enums.tsv` (`1529=ModifiedExoarmour`), pas devine.
-    # Sans lui, `triggered_ability_ids('votanChampion')` rendait `[]` et le dispatcher
+    # #304 -- membre AJOUTE par le build `rnca9r7q6c` (passif de `votanChampion`/Kimm). Sans lui,
+    # `triggered_ability_ids('votanChampion')` rendait `[]` et le dispatcher
     # `TriggeredAbilitiesUtility(2)` restait MUET pour ce porteur, quel que soit le playbook porte.
-    # ⚠ RESIDU MESURE (le meme jour, meme diff dump<->port) : HUIT autres membres de ce build manquent
-    # encore -- 1543 PropheticSentinel, 1546 HeavyWarpFlamer_AttackTrackingAbility, 1552
-    # IconOfObstinacy, 1554 WhisperingWeb, 1555 EmpyricAmbush_Reset, 1556 MyWillBeDoneOverlord,
-    # 1557 PhasalSubjugator, 1558 Helspear. Hors perimetre de #304 (aucun playbook porte ne les lit).
+    # C'est LE symptome type d'un membre manquant, et la raison du cliquet #313.
     ModifiedExoarmour = 1529
     GuardianConstruct = 1530
     HaywireMine = 1531
@@ -588,16 +491,26 @@ class TriggeredAbilityType(IntEnum):
     PowerUp_SummonSpawn_templSmnAggressor = 1540
     Lakrimae = 1541
     HaywireMineSteppable = 1542
+    PropheticSentinel = 1543
     EnhancementCritBoost = 1544
-    # 1545/1548/1551 : corriges depuis le RPC live `dumpEnum` (2026-07-23, build gqfc5mff6c) — le
-    # `data/il2cpp_enums.tsv` est STALE (placeholders DA_Hero6_* devenus les abilities de Ramus
-    # darkaSternguard ; 1551 RedRampage = passif de Cezare bloodTerminator, absent du tsv). Cf. case-219.
+    # 1545/1548/1551 : les placeholders `DA_Hero6_*` de l'ancien `data/il2cpp_enums.tsv` etaient
+    # deja perimes sur `gqfc5mff6c` (ce sont les abilities de Ramus darkaSternguard ; 1551
+    # RedRampage = passif de Cezare bloodTerminator). Corriges par le RPC live `dumpEnum` en
+    # 2026-07-23 (case-219), et depuis CONFIRMES par la table versionnee `enums.tsv`. Le meme
+    # placeholder survit d'ailleurs encore dans `engine/entities/effect_type.py` (1563/1564).
     SpecialIssueCombiMelta = 1545
+    HeavyWarpFlamer_AttackTrackingAbility = 1546
     KustomForceFieldReworked = 1547
     SternguardFocus_Cooldown = 1548
     HeadwoppasKillchoppa = 1549
     ChaliceOfBaal = 1550
     RedRampage = 1551
+    IconOfObstinacy = 1552
+    WhisperingWeb = 1554
+    EmpyricAmbush_Reset = 1555
+    MyWillBeDoneOverlord = 1556
+    PhasalSubjugator = 1557
+    Helspear = 1558
     TestBlank = 9001
     TestMachineOfWar = 9002
     TestRetaliateOnRandomAdjacentUnit = 9004
