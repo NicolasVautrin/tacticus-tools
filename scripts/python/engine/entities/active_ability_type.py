@@ -1,14 +1,19 @@
 """engine.entities.ActiveAbilityType -- enum natif `ActiveAbilityType` (mirror 1:1 complet).
 
-Mirror 1:1 de `IdunBattle.Entities.Enum.ActiveAbilityType` (330 membres) genere depuis `data/il2cpp_enums.tsv`
-(build gqfc5mff6c) -- meme demarche que `UnitTrait` (#146) / `EventTriggerType` (#155) /
-`DamageTrait` (#156). Source unique id<->nom : les constantes id-hex eparses du port sont
-converties vers cet enum (#158). GENERE (transcription exacte du tsv, zero typo) ; regenerable
-via scripts scratchpad/enum_gen.py.
+GENERE : `python scripts/python/regen_active_ability_tables.py --ecrire`.
+Source : `data/symbols/rnca9r7q6c/frida/enums.tsv` -- `IdunBattle.Entities.Enum.ActiveAbilityType`.
+REGENERER A CHAQUE CHANGEMENT DE BUILD : le jeu AJOUTE et RETIRE des membres (mesure #270 sur
+`gqfc5mff6c` -> `rnca9r7q6c` : 75 ids historiques Idun retires, 4 ajoutes). Un membre garde ici
+alors que le jeu l'a retire est INERTE (le jeu ne l'emet jamais) ; un membre du jeu ABSENT ici
+DEGRADE EN SILENCE -- `engine.ai.state_bridge._abilities_of` ignore une active dont le nom
+n'est pas dans l'enum, et l'ability disparait de l'unite offline.
 
-Valeur == id natif. ATTENTION (#157/#158) : le MEME id peut appartenir a des enums DIFFERENTS
-selon le contexte (ex. 1017 = `EffectType.ActOfFaith` ET `UnitTrait.BigTarget`) -> chaque site
-de conversion verifie l'enum correct.
+Valeur == id natif. ATTENTION : le MEME id peut appartenir a des enums DIFFERENTS selon le
+contexte (ex. 1017 = `EffectType.ActOfFaith` ET `UnitTrait.BigTarget`) -> chaque site de
+conversion verifie l'enum correct. Le meme piege existe sur les NOMS : `DanceOfDaggers` est
+mort dans cet enum et VIVANT dans `IdunBattle.Configuration.UtilityType` (49).
+
+Garde : `python scripts/python/probe_270_active_ability_type_drift.py`.
 """
 from __future__ import annotations
 
@@ -16,93 +21,18 @@ from enum import IntEnum
 
 
 class ActiveAbilityType(IntEnum):
-    """Mirror 1:1 de `IdunBattle.Entities.Enum.ActiveAbilityType` (330 membres). Valeur == id natif."""
+    """Mirror 1:1 de `IdunBattle.Entities.Enum.ActiveAbilityType` (260 membres). Valeur == id natif."""
     None_ = 0
-    ForHonor = 1
-    ProvokingSnap = 2
     ChainLightning = 3
     Taunt = 4
-    HammerOfJustice = 5
-    FrostSpikes = 6
-    HolyBrothers = 7
     MassHeal = 8
     HolyBolt = 9
-    RockForm = 10
-    GetOverHere = 11
     NobleCharge = 12
     Test = 13
-    WebSpray = 14
-    NaturesStrike = 15
-    LifeSteal = 16
     NormalAttack = 17
     Heal = 18
-    CursedArrow = 19
-    SummonIceElemental = 20
-    Idun_SwoopingHawk = 21
-    Bombardment = 22
-    BarrelOfBrew = 23
-    FireBreath = 24
-    FlameShield = 25
-    FireSpitter = 26
-    RandomAttack = 27
     Repair = 28
-    IceAssembly = 29
-    Blizzard = 30
-    RainOfIce = 31
-    NormalBossAttack = 32
-    BossBreathFire = 33
-    BossBreathIce = 34
-    BossBreathSpider = 35
-    KillCommand = 36
-    DragonCryRed = 37
-    CobraPush = 38
-    Meteorite = 39
-    Rejuvenation = 40
-    DanceOfDaggers = 41
-    WormAttack = 42
-    DevourAttack = 43
-    WebChuck = 44
-    RopeHook = 45
-    CrushingToss = 46
-    HitAndRun = 47
-    StarcopperCage = 48
-    ParthianArrowAttack = 49
-    DragonCryBlue = 50
-    DragonCryGreen = 51
-    PinDown = 52
-    EmptyTheNet = 53
-    OceanWave = 54
-    SplitInTwo = 55
-    FloodOfCrabs = 56
-    HatchTadpoles = 57
-    TongueStrike = 58
-    EnemyOfTheCrown = 59
-    SwordStorm = 60
-    Duel = 61
-    RapidShot = 62
-    RoyalFanfare = 63
-    BossBreathDarkness = 64
-    DragonCryBlack = 65
-    TournamentCharge = 66
-    DarkDragon = 67
-    ShadeAttack_Attack = 68
     Loki_NormalAttack = 69
-    CallToDarkness = 70
-    Nightripple = 71
-    HornOfDespair = 72
-    MurderOfCrows = 73
-    Toadstool = 74
-    BarkBlast = 75
-    TreeAncient = 76
-    RazorClaws = 77
-    MegaShooterMayhem = 78
-    SupplyDrop = 79
-    AirshipStrike_Attack = 80
-    RocketBarrage = 81
-    MechRepair = 82
-    UnleashKillATron = 83
-    BattleTinkererRepair = 84
-    DiveBombing = 85
     GauntletsOfUltramar = 1000
     MightOfHeroes = 1001
     CombatRestoratives = 1002
@@ -323,22 +253,16 @@ class ActiveAbilityType(IntEnum):
     IronkinSteeljack = 1219
     Fealty_NormalAttack = 1220
     AugmentedAssault = 1221
+    MassDriverAccelerator = 1222
     ReanimationBeam = 1223
     NanoscarabRepairProtocols = 1224
     StrikeFromTheShadows = 1225
     Chronometron = 1226
-    # 1228/1230 : corriges depuis le RPC live `dumpEnum` (2026-07-23, build gqfc5mff6c) — le
-    # `data/il2cpp_enums.tsv` est STALE sur la fin de cet enum (1228 y est encore le placeholder
-    # `DA_Hero6_Active`, 1230 absent). Cezare (bloodTerminator) / Ramus (darkaSternguard), cf. case-219.
+    HeavyWarpFlamer = 1227
     SternguardFocus = 1228
     SavageEchoes = 1230
-    # AJOUT du build `rnca9r7q6c` (2026-07-30). `data/symbols/rnca9r7q6c/frida/enums.tsv` porte 260
-    # membres contre 331 ici : le nouveau build AJOUTE 4 ids (1222 MassDriverAccelerator, 1227
-    # HeavyWarpFlamer, 1231 TitanhammerSquad, 1232 EmpyricAmbush) et RETIRE les 75 ids historiques
-    # Idun (1..85, ForHonor/ProvokingSnap/...). Seul 1227 est ajoute ici (le port #27-4 en a besoin) ;
-    # la re-generation complete de l'enum — qui SUPPRIMERAIT 75 membres encore cites par le port —
-    # est une action de migration de build a part entiere, inscrite au backlog.
-    HeavyWarpFlamer = 1227
+    TitanhammerSquad = 1231
+    EmpyricAmbush = 1232
     TestTargetAndAdjacentAttack = 9001
     TestMeleeAttackDamage = 9002
     TestRangedAttackDamage = 9003

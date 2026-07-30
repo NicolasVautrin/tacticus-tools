@@ -24,6 +24,11 @@ Preuves (probe_32, s5) :
 - Totaux : natif (3,5) 46.83+40.53=87.35 > (3,6) 67.17 ; nous (3,6) 67.17 > (3,5) 66.83 → flip.
 - Le champ `ability:"ForHonor"` des events L3 est un tag GLOBAL du tracer (présent sur toutes les
   feuilles, y compris Elevation) — PAS l'ability déclenchée évaluée. Ne pas s'y fier.
+  **Cause tranchée le 2026-07-30 (#270)** : le tracer résolvait l'id **1** via
+  `frida/hooks/data/ability-names.ts`, qui portait alors `1: "ForHonor"`. L'id 1 n'est PAS un
+  membre d'`ActiveAbilityType` sur les builds mesurés — le champ tracé n'était donc pas un
+  `ActiveAbilityType`, et la table lui collait un nom hérité d'un build antérieur. La table a été
+  régénérée en #256 (260 entrées, plus de `1`), le tag ne peut donc plus produire ce libellé.
 
 RE (décompilé, VAs) :
 - `FuryOfTheAncientsPlaybook..ctor @181166940` : TriggeredAbilityType **0x4df=1247** (kit passif

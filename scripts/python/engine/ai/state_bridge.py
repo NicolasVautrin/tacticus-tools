@@ -280,7 +280,11 @@ def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
 # d'ability natif `ActiveAbilityType` (une distinction REELLE du jeu, doctrine gate-justifie). Tous les
 # autres heals/repairs (dont la config PORTE `hpToHeal`/`hpToRepair`) passent par le chemin generique.
 HEAL_ABILITY_IDS = frozenset({8, 18, 1167, 1212})    # MassHeal / Heal / Heal_TwistedScience / HealingBalms_Heal
-REPAIR_ABILITY_IDS = frozenset({28, 82, 84, 1119})   # Repair / MechRepair / BattleTinkererRepair / Repair_GalvanicField
+# 82 `MechRepair` et 84 `BattleTinkererRepair` RETIRES (#270) : le build `rnca9r7q6c` ne porte plus
+# ces membres d'`ActiveAbilityType` (confirme par `dumpEnum` au runtime, par `classes.tsv` -- aucune
+# classe `<Nom>Ability` -- et par le gameconfig, qui ne configure aucune ability de ces noms). Ils
+# etaient INERTES : le jeu ne peut pas les emettre. Garde : `probe_270_active_ability_type_drift.py`.
+REPAIR_ABILITY_IDS = frozenset({28, 1119})           # Repair / Repair_GalvanicField
 
 
 def _resolve_ability(ability_id: int):

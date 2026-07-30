@@ -181,7 +181,9 @@ qui lisent deja `wt.category("UnitEffectsAdjacent")`). Le "30" observe = le poid
   Confirme que MartialInspiration(1191) et MightFromBelow(1165) SONT des carriers AdjacentUnitPreference.
 - Total DISPATCHER par-tuile (evt `ability=None playbook=None`) pour **u89 tyranTyrantGuard** : **(3,2)=30** (winner s4),
   (2,2)=30. Coherent avec le case ci-dessus (s4 TrigAb=30).
-- Autres movers : `custoBladeChampion` (ability=`ForHonor`) score 10/20/30/60 sur SES propres tuiles ; `adeptHospitaller`
+- Autres movers : `custoBladeChampion` (ability=`ForHonor` -- LIBELLE PERIME, cf. #270 : le tracer
+  resolvait l'id 1 via `ability-names.ts`, qui portait alors `1: "ForHonor"` ; 1 n'est pas un membre
+  d'`ActiveAbilityType`, le champ trace n'en etait donc pas un) score 10/20/30/60 sur SES propres tuiles ; `adeptHospitaller`
   45/30/15 ; `deathPutrifier` 15/30. => les poids VARIENT (multiples/sommes de poids config par-comportement).
 - **`VigilanceEternalPlaybook` ABSENT du top-40 combos** => l'attribution 1202 du case ci-dessus est INCERTAINE
   (a re-verifier ; 1202 n'est peut-etre pas un AdjacentUnitPreference, ou apparait tres rarement).
