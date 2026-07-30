@@ -24,14 +24,25 @@ Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore port
       PV full, PAS PV-1) ; le port (force_overkill=True) laisse la cible a 0 PV (morte) == live ; le CONTROL
       SANS le flag laisse 1 PV (cap Resilient tient) -> le flag est le SEUL ecart (bypass du cap
       `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`).
-  (4) POINT D'ENTREE DU CAST (#277) -- les volets (1)-(3) rejouent l'ability par un appel DIRECT a
-      `execute_behaviour`, ce qui n'est exact que parce que LEUR geometrie laisse VIDE le pool de
+  (4) POINT D'ENTREE DU CAST (#277) -- le natif paie `min(|pool|, 2)` tirages AVANT le premier coup
+      (case-207) des que le pool de
       `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
-      (le 2e ennemi y est place a distance > 1 du caster). Des que le pool est NON VIDE, le natif paie
-      `min(|pool|, 2)` tirages AVANT le premier coup (case-207), tirages emis par `On(0x2b =
-      PreUnitAbility)` -- donc par `AbilityHandler.visit_ActiveAbilityMessage`, jamais par
+      est NON VIDE. Ces tirages sont emis par `On(PreUnitAbility)`, donc par
+      `AbilityHandler.visit_ActiveAbilityMessage` -- JAMAIS par un appel direct a
       `execute_behaviour`. Le volet (4) monte EXPRES cette geometrie et exige que la voie de PRODUCTION
       (`Runner.apply(ActiveAbilityMessage)`) soit bit-exacte, ET que le raccourci direct ne le soit PAS.
+      C'est le SEUL volet ou le raccourci est encore appele, et il l'est comme TERME DE REFUTATION.
+
+  #281 -- les volets (1) et (3) rejouaient eux aussi par `execute_behaviour`. Ils etaient exacts, mais
+  par ACCIDENT : `_advance_and_place` pose le 2e ennemi a distance > 1 du caster, ce qui vide le pool.
+  Ils passent desormais par `Runner.apply`, donc leur verdict ne depend plus du placement. Mesure des
+  deux regimes sur ce montage (`probe_281_pre_unit_ability_shortcut.py --step mesure`) :
+      far  (2e ennemi a d=2, la geometrie d'ici) : 0 bond, 6 tirages des deux cotes, raccourci == live
+      near (d=1)                                 : 1 bond, raccourci 6 / production 7 tirages,
+                                                   raccourci [5070, 4555, 4881] vs live
+                                                   [4762, 4852, 4819] (+0,51 %), production == live
+  En `near`, le raccourci rend EXACTEMENT ce que le live rendait en `far` : la fenetre a glisse d'un
+  tirage. C'est un DECALAGE, pas un facteur -- aucun correctif multiplicatif ne peut le rattraper.
 
 ORACLE DU NOMBRE DE COUPS (#96 / lot A) : le natif ne DERIVE pas le nb de coups, il le LIT tel quel --
 `AbilityConfiguration.GetNumberConstant(cfg, 0x2f)` (DECOMPILE ci-dessus), et `GetNumberConstant` =
@@ -271,10 +282,34 @@ def test_flail_swing_live(live_session, rpc):
         if not live_main:
             pytest.skip(f"aucun degat live FlailSwing (cast={str(cast)[:160]})")
 
-        # --- OFFLINE port (arbre DSL) ---
+        # --- OFFLINE port, par la VOIE DE PRODUCTION (#281, residu #277-r1) ---
+        # `Runner.apply(ActiveAbilityMessage)` et non `FlailSwingAbility().execute_behaviour(...)` :
+        # le raccourci entre par le MILIEU de `IdunBattle.Operations.ActiveAbilityOperation$$Execute
+        # Internal` et n'emet donc pas `On(PreUnitAbility)`, que le natif emet TOUT EN HAUT. Or le
+        # caster (`deathBlightlord`) porte `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOf
+        # Corruption_TargetFinderAbility$$CreateTrigger` = `On(PreUnitAbility, 1) & get_OwnerIsCaster`
+        # -- SANS aucun gate d'attaque, donc il part a CHAQUE cast -- et son `CreateBehaviour` paie
+        # `min(|pool|, 2)` tirages `PickRandomly` AVANT le premier coup d'arme (case-207).
+        #
+        # La geometrie de `_advance_and_place` place le 2e ennemi a distance > 1 du caster, ce qui
+        # vide le pool `AdjacentEnemies(Self) & AdjacentFriends(Target)` : le raccourci y etait donc
+        # JUSTE, mais par accident de placement, pas par construction. Mesure des deux regimes sur ce
+        # montage meme (`probe_281_pre_unit_ability_shortcut.py --step mesure`) :
+        #   far  (2e ennemi a d=2, geometrie ACTUELLE) : 0 bond, 6 tirages des deux cotes,
+        #                                                raccourci == production == live
+        #   near (2e ennemi a d=1)                     : 1 bond, raccourci 6 tirages / production 7,
+        #                                                raccourci [5070, 4555, 4881] != live
+        #                                                [4762, 4852, 4819] (+0,51 %), production == live
+        # Passer par la voie de production rend le verdict independant du placement : le jour ou
+        # `A_UNITS` ou le board changent, ce test accuse le PORT au lieu de l'instrument.
+        from engine.runner.runner import Runner
+        from engine.runner.messages import ActiveAbilityMessage
         stp = load_state(dv2, ob2, snap2, board=board); stp.rng = _seed_rng(s0)
-        res = FlailSwingAbility().execute_behaviour(stp, cid, tid)
-        assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
+        _runner = Runner(stp).install_default_handlers(20)
+        _runner.apply(ActiveAbilityMessage(cid, tid, ABILITY))
+        res = getattr(_runner.ability_handler, "last", None)
+        assert res is not None and res.get("ported") is True, f"cast non porte par la voie de production: {res}"
+        assert res.get("dsl") is True, f"port non execute: {res}"
         assert res.get("informed_weapon") == "Power", f"InformWeapon(Power) non emis: {res.get('informed_weapon')}"
         tree_ph = (res.get("attack") or {}).get("per_hit") or []
 
@@ -444,8 +479,15 @@ def test_flail_swing_overkill_resilient(live_session, rpc):
             f"live sum {live_sum} != PV full {hp_pre} : la cible Resilient a SURVECU live (le flag ne force pas l'overkill ?)"
 
         # --- OFFLINE port (force_overkill=True) : hp -> 0 (morte) == live ---
+        # VOIE DE PRODUCTION (#281) -- meme motif que le volet (1) : le caster porte
+        # `HazeOfCorruption_TargetFinderAbility`, dont le trigger `On(PreUnitAbility) &
+        # get_OwnerIsCaster` n'a AUCUN gate d'attaque. Un raccourci `execute_behaviour` demarre le
+        # flux `|pool|` tirages trop tot -> les 3 coups lisent la mauvaise fenetre, et ce volet-ci
+        # rougirait en accusant `force_overkill` alors que seul le POINT D'ENTREE serait en cause.
+        from engine.runner.runner import Runner
+        from engine.runner.messages import ActiveAbilityMessage
         stp = load_state(dv2, ob2, snap2, board=board); stp.rng = _seed_rng(s0)
-        FlailSwingAbility().execute_behaviour(stp, cid, tid)
+        Runner(stp).install_default_handlers(20).apply(ActiveAbilityMessage(cid, tid, ABILITY))
         hp_port = stp.get_entity(tid).get_component(HealthComponent).hp
         # --- CONTROL (force_overkill=False, meme rng) : hp -> 1 (survit, Resilient cap) ---
         stc = load_state(dv2, ob2, snap2, board=board); stc.rng = _seed_rng(s0)
