@@ -709,17 +709,29 @@ class IsPositionMachineForCurrentPlayer(AbilityTrigger):
 
         turn   = state.GetMatchTurn() ; player = state.GetPlayer(turn.CurrentPlayerId)
         if (player == null) return false
-        return battleQuery.<MachineOfWarPosition>(player) == this.Position (@+0x20)
+        return battleQuery.GetPositionMachineForPlayer(player) == this.Position (@+0x20)
 
-    -> « le SLOT de deploiement (`MachineOfWarPosition` : 1=Top, 2=Bottom) de la MoW du joueur COURANT
-    vaut-il `position` ? ». Note : c'est le joueur COURANT du tour, PAS le caster (le natif lit
-    `TurnComponent.CurrentPlayerId`). Consomme par les abilities MoW dont la GEOMETRIE depend du cote du
-    plateau : `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour`
-    (`If(this, Direct(1), Direct(4))` = coin du triangle) et `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` / `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$GetShape` (choix du triplet de directions).
+    ⚠ **`GetPositionMachineForPlayer` n'interroge AUCUNE machine deployee** (RE #302 tranche 3, la
+    ligne precedente de cette docstring disait le contraire) :
 
-    `ctx.current_player_machine_position` (pose par `entities_from_state` : le slot de la
-    `MachineComponent` dont l'`OwnerComponent.player` == `state.current_player_id`) ; None (le joueur
-    courant n'a pas de MoW) -> False, mirror du `if (player == null) return false`."""
+        teamIndex = player.GetComponent<TeamComponent>().<+0x24>
+        grp = spawnPointSet@BattleQuery+0x78.GroupForPlayer(teamIndex, playerNr)
+        if (grp != null) return grp.MachineOfWarPosition@+0x14        // propriete du PLATEAU
+        return teamIndex == 1 ? 2 : (teamIndex == 2 ? 1 : 0)          // fallback SANS groupe
+
+    -> « le GROUPE DE SPAWN du joueur COURANT porte-t-il le slot `position` ? ». C'est le joueur
+    COURANT du tour, PAS le caster (`TurnComponent.CurrentPlayerId`). Le port de la cascade vit dans
+    `engine.services.machine_of_war_position` ; la face DECISION la cable
+    (`AiDecisionContext.machine_of_war_position`). Consomme par les abilities dont la GEOMETRIE
+    depend du cote du plateau : `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetTargetAreaTiles`
+    et `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour`
+    (`If(this, Direct(1), Direct(4))` = coin du triangle), `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$ExecuteBehaviour` / `IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility$$GetShape` (choix du triplet de directions).
+
+    `ctx.current_player_machine_position` ; None = **non mesure** -> False. ⚠ RESIDU (#302) : cote
+    COMBAT, `entities_from_state` alimente encore ce champ par le slot de la `MachineComponent` du
+    joueur courant -- un PROXY exact quand une MoW est deployee, et « inconnu » sinon, alors que le
+    natif repond toujours. Le cablage de la vraie source (les `SpawnPointGroups` de la BC) est fait
+    cote DECISION ; la face COMBAT attend son `State.spawn_groups`."""
     def __init__(self, position: int):
         self.position = int(position)
 

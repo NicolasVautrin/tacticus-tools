@@ -1250,7 +1250,7 @@ re-derouler la recon : elle part d'ici.
 | ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
 | 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** — verrou **RE-QUALIFIE (#27-4g)** | Le verrou n'est PAS « MoW » : greffee sur `deathTyphus` (pool), 1169 reste ingenerable parce que son ciblage est **TILE-TARGET** (`TargetIsTile` du masque `0x40000042` ; `abilityTargets` -> 58 cibles `kind = "tile"` ; `attackPlans` `rankCount = 0` sur TOUTES les cibles unite). Mesure `probe_27_4g_plagueburst_route.py` en regime maximalement favorable (`--hp-target 400000`, n=2 donc `custom = 20` contre `pair(69)+1 ~ 2.02`) : le natif propose **69 sur 8/8 tirages, 1169 JAMAIS**. Debloqueur en DEUX pieces, dans cet ordre : (1) une route de decision a cibles TUILE ; (2) le tacticien MoW. **La formule, elle, est ENTIEREMENT RE** (cf. §TRANCHE 4g) et son selecteur est deja porte par la face COMBAT (#90) |
-| 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom. Custom lu au passage (#27-4g) : `10 x |ennemis sur GetTargetAreaTiles|`, ou `10` est une CONSTANTE `Fix64(0xa)` EN DUR (aucun `GetUtilityValue`) |
+| 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **PORTE** (#302 tranche 3) | — (route de decision a cibles TUILE + `10 x |ennemis sur GetTargetAreaTiles|`, `10` = CONSTANTE `Fix64(0xa)` EN DUR ; l'evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` etait DEJA porte par la face COMBAT #90. La tranche a en outre corrige `IsPositionMachineForCurrentPlayer`, qui lisait le slot d'une MoW DEPLOYEE au lieu du groupe de spawn du PLATEAU — cf. `docs/rl/case-302-route-cible-tuile.md` §8) |
 | 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **SEULE** | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] | summon | **PORTE** (#27-4f) | — (le sous-set = `AdjacentUnits(Target)` filtre par `IsFriend`, et chaque membre produit une prediction sur la CIBLE PRINCIPALE : lu au decompile puis a l'assembleur, confirme live). Porteur summon amene par `Waaagh` mais jamais activable en arene -> GREFFE (`case-92` §5bis). ⚠ **Le « playbook PARTAGE 1051/1142 » est RETIRE (#27-4g)** : `...StikkbombPlaybook$$.ctor` appelle `ComparablePlaybook<T>..ctor(this, 0x41b)` — 1051 seule — et aucune classe `Malleus*Playbook` ne porte le slot au balayage runtime. 1142 n'a AUCUN corps propre |
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian [summon **sans invocateur**] + eldarNpc1Guardian [npc] | summon + npc | **PORTE** (#27-4g) | — (les deux verrous sont TOMBES : (a) le mold `GenerateMultiHitAttackPredictions` a ete ouvert par 1051 et le foyer est PARTAGE — `prediction.make_secondary_multihit_event`, memes 4 entrees ; (b) le porteur, refuse par `buildNormalizedBC`, est GREFFE sur `eldarAutarch`). S'y ajoute le VETO : somme nulle -> `BaseUtility.<statics+0x18>` -> aucune action |
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
@@ -1268,15 +1268,17 @@ re-derouler la recon : elle part d'ici.
 *(Re-derive du BINAIRE le 2026-07-30 sur `rnca9r7q6c` — `probe_27_custom_utility_inventory.py
 --build rnca9r7q6c`. Ces chiffres se PERIMENT : les re-deriver plutot que citer cette ligne.)*
 
-- **PORTES / couverts : 15** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
-  1100, 1051, **1098**, 1009 (+ les corps mutualises `Loki_NormalBossAttack` et
-  `TwistedScience_Heal`, et les 3 corps PARTAGES : base, attaque normale, heal generique).
+- **PORTES / couverts : 17** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
+  1100, 1051, **1098**, 1009, **1169** (#302 tranche 1), **1148** (#302 tranche 3) (+ les corps
+  mutualises `Loki_NormalBossAttack` et `TwistedScience_Heal`, et les 3 corps PARTAGES : base,
+  attaque normale, heal generique).
 - **Traites sans port (verdict ferme) : 1** — ProperKilly (dead-code, aucun porteur).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
 - **En cours (autre tranche) : 1** — 1222 MassDriverAccelerator.
-- **Residus a debloquer : 3** — **1169** (verrou re-qualifie : cible TUILE, cf. #27-4g), **1148**
-  (idem + DSL `TilesInTriangleShape`), **1004 MortisRound** (`GetTargetUtilityDiffOnDisplace`, et sa
+- **Residus a debloquer : 1** — **1004 MortisRound** (`GetTargetUtilityDiffOnDisplace`, et sa
   TRONCATURE vers `int` explique le « terme mesure NUL » des tranches precedentes).
+  (1169 et 1148 en sont SORTIS : le verrou etait le DOMAINE DE CIBLE, leve par la route a cibles
+  TUILE — `docs/rl/case-302-route-cible-tuile.md` §6 et §8.)
 - **DEUX entrees SORTENT de la liste sans qu'aucun port ne les ferme (#27-4g, correction
   d'inventaire)** : **1142 MalleusRocketLauncher** n'a AUCUN corps propre — le « playbook PARTAGE
   1051/1142 » est FAUX sur ce build (`...StikkbombPlaybook$$.ctor` -> `0x41b` = 1051 seule) — et

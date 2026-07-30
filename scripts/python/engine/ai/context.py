@@ -90,6 +90,24 @@ class AiDecisionContext:
     tile_effect_type_ids_by_pos: dict = field(default_factory=dict)
     #     {(col,row): [EffectType]} <- tileMeta.effects[].effectType = `EffectComponent+0x58` ->
     #     feuilles DespoiledGround(28, 0x5c4), Contaminated(25, 0x4dc), MoltenForm(23, 5/10)
+    # --- `MachineOfWarPosition` du joueur COURANT (predicat `IsPositionMachineForCurrentPlayer`) ---
+    # Consomme par les arbres dont la GEOMETRIE depend du cote du plateau : 1148 DaemonicOrdnance
+    # (face DECISION, cette tranche), 1142 MacroPlasmaIncinerator et DevastatingRefrain (face
+    # COMBAT). Deux canaux, dans l'ordre de fidelite -- cf. `machine_of_war_position`.
+    spawn_groups: Any = None
+    #     `SpawnPointGroups` du SpawnPointSet ACTIF de la BC du runner (`BattleQuery+0x78`), la
+    #     SOURCE NATIVE. `None` = non lu (aucun RPC ne l'expose par runner : residu #302, point
+    #     d'ancrage `SpawnPointGroupConfiguration+0x14` a remonter depuis `boardGraph`). Un appelant
+    #     qui monte le runner (probe/test/collecte) la connait et la passe a `build(...)`.
+    mow_slot_by_player: dict = field(default_factory=dict)
+    #     {playerId: `MachineComponent.Position @0x78`} <- `decisionView.mows[].owner`/`.slot`.
+    #     REPLI, exact quand il repond : le slot ou la MoW du joueur A ETE deployee EST la
+    #     `MachineOfWarPosition` de son groupe de spawn. C'est le regime REEL de 1148 (son porteur
+    #     `blackForgefiend` EST une MoW) ; il ne manque que dans les montages qui GREFFENT l'ability
+    #     sur un hero. Table vide = aucune MoW.
+    current_player_team: Any = None
+    #     `TeamComponent.<+0x24>` du joueur courant, derive de `decisionView` (l'equipe des unites
+    #     `ctrl`). Entree de `GroupForPlayer(teamIndex, playerNr)`.
     mindist_case: Any = None
     #     `UtilityMovementCase` (engine.utilities.move) — les DEUX champs que la feuille
     #     MinDistanceToClosestEnemy(17) LIT sur son case : `+0x10` Unit et `+0x20` ClosestEnemy,
@@ -97,6 +115,27 @@ class AiDecisionContext:
     #     traits du ClosestEnemy). `None` = le port n'a pas pu etablir le case -> aucun gate (#236).
 
     debug: bool = False
+
+    def machine_of_war_position(self):
+        """`IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(currentPlayer)` —
+        la valeur que compare `IsPositionMachineForPlayerTrigger$$ShouldTrigger`.
+
+        Cascade, de la source NATIVE au repli, puis a l'ignorance ASSUMEE :
+
+        1. `spawn_groups` lus -> mirror EXACT (`GroupForPlayer` + le fallback natif quand le groupe
+           manque REELLEMENT dans la config) ;
+        2. sinon, le slot de la MoW du joueur courant (`decisionView.mows`) : le slot ou elle a ete
+           deployee EST la `MachineOfWarPosition` de son groupe ;
+        3. sinon `None` = **non mesure**. Le port ne devine PAS : sur les 675 boards du depot, 502
+           declarent `MachineOfWarPosition = 0` et 173 declarent (2, 1) -- appliquer le fallback
+           natif a l'aveugle serait faux sur ~74 % des plateaux (cf.
+           `engine.services.machine_of_war_position`). Le predicat rend alors False, ce qui est
+           l'etat ANTERIEUR a cette tranche, et le residu est nomme."""
+        from ..services.machine_of_war_position import machine_of_war_position_for_player
+        if self.spawn_groups is not None and self.current_player_team is not None:
+            return machine_of_war_position_for_player(self.spawn_groups,
+                                                      int(self.current_player_team))
+        return (self.mow_slot_by_player or {}).get(self.cur)
 
     def ability_targets(self, unit_id: int, ability_id: int) -> dict:
         """Lazy `abilityTargets` (union des cibles/tuiles légales) — `GetEligibleTargetsSelectable`.
@@ -398,8 +437,36 @@ def _ability_name(a: dict) -> str | None:
         return name
 
 
+def _mow_slot_by_player(dv: dict) -> dict:
+    """`{playerId: MachineComponent.Position}` depuis `decisionView.mows` — le REPLI du canal
+    `MachineOfWarPosition` (cf. `AiDecisionContext.machine_of_war_position`).
+
+    `projectMowsFull` emet `owner` = `ownerId` (un playerId, celui qui indexe `playerTeams`) et
+    `slot` = `MachineComponent.Position @0x78` (`MachineOfWarPosition` : 1=Top, 2=Bottom). Ligne sans
+    l'un des deux -> ECARTEE (jamais un slot invente) ; `mows` absent -> table VIDE."""
+    return {m.get("owner"): m.get("slot") for m in (dv.get("mows") or [])
+            if m.get("owner") is not None and m.get("slot") is not None}
+
+
+def _current_player_team(dv: dict):
+    """`TeamComponent.<+0x24>` du joueur COURANT — l'entree de `GroupForPlayer(teamIndex, ...)`.
+
+    `decisionView.units[].ctrl` est `IsControlledByCurrentPlayer` (invoque natif, cf.
+    `projectUnitsFull`) : l'equipe d'une unite controlee EST celle du joueur courant. On prend la
+    premiere ; `None` si aucune unite controlee n'est projetee (le predicat retombe alors sur
+    l'ignorance assumee, jamais sur une equipe devinee)."""
+    for u in (dv.get("units") or []):
+        if u.get("ctrl") and u.get("team") is not None:
+            return u.get("team")
+    for m in (dv.get("mows") or []):
+        if m.get("ctrl") and m.get("team") is not None:
+            return m.get("team")
+    return None
+
+
 def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: int,
-          wt: Any, predictor: dict | None, debug: bool = False) -> AiDecisionContext:
+          wt: Any, predictor: dict | None, debug: bool = False,
+          spawn_groups=None) -> AiDecisionContext:
     """Une passe RPC -> `AiDecisionContext`. Reproduit exactement la tête de l'ancien `engine_decide`
     (mêmes appels `observeBattle`/`tileMeta`/`pathDistToEnemies`, mêmes dérivations)."""
     units = dv.get("units") or []
@@ -493,6 +560,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # #236 — `UtilityMovementCase` de la feuille MinDist(16), face LIVE (cf. `_mindist_case`).
     mindist_case = _mindist_case(uid, me, units, scene, pdr)
 
+    mow_slot_by_player = _mow_slot_by_player(dv)
+    current_player_team = _current_player_team(dv)
+
     return AiDecisionContext(
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
         uid=uid, me=me, units=units, cur=cur, plans=plans,
@@ -506,7 +576,9 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_territory_by_pos=is_territory_by_pos,
-        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos, debug=debug)
+        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
+        mow_slot_by_player=mow_slot_by_player, current_player_team=current_player_team,
+        spawn_groups=spawn_groups, debug=debug)
 
 
 def _mindist_case(uid, me, units, scene, pdr: dict):
@@ -598,7 +670,8 @@ def machine_row(dv: dict, uid: int) -> dict | None:
 
 
 def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
-                  wt: Any, predictor: dict | None, debug: bool = False) -> AiDecisionContext:
+                  wt: Any, predictor: dict | None, debug: bool = False,
+                  spawn_groups=None) -> AiDecisionContext:
     """`AiDecisionContext` d'un caster MACHINE OF WAR — mirror de
     `IdunBattle.AI.Tactics.DefaultMachineTactic.<CalculateNextActionForUnit>d__5$$MoveNext`.
 
@@ -682,4 +755,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_territory_by_pos=is_territory_by_pos,
-        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos, debug=debug)
+        tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
+        mow_slot_by_player=_mow_slot_by_player(dv),
+        current_player_team=_current_player_team(dv),
+        spawn_groups=spawn_groups, debug=debug)
