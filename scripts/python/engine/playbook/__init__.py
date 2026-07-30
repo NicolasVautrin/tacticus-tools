@@ -23,6 +23,7 @@ from .common import (
 )
 from .savior_protocols import SaviorProtocolsPlaybook
 from . import loki_custom  # noqa: F401  (#27) enregistre les overrides CalculateCustomUtility par-ability
+from . import resurrection_orb  # noqa: F401  (#289) 1009 -> route non-attaque (register_nonattack)
 from .noncomparable import (
     NonComparablePlaybook, NCContext, choose_action as nc_choose_action,
     is_noncomp, is_summon, playbook_for as nc_playbook_for,

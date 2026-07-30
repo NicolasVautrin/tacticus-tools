@@ -55,10 +55,18 @@ Une SECONDE route Comparable, strictement ADDITIVE (elle ne touche ni `_best_att
   `MakeDamagePredictions` (1100 SorcerousFacade) le voit sommé, comme `CalculateActionUtility` le fait.
 
   ⚠ La route ne se limite PAS aux abilities « sans `damageProfile` ». Son critere reel est
-  « Comparable ABSENTE de `ctx.plans` », donc invisible de `_best_attack` — ce qui couvre aussi une
-  ability a `damageProfile` dont le masque de ciblage refuse toute cible ennemie (VETO #217 :
-  `state_bridge._is_attack_ability` rend False, l'ability n'entre jamais dans `attackPlans`). C'est
-  par cette porte, et SANS toucher au veto, que 1100 SorcerousFacade (cible ALLIEE) devient candidate.
+  « Comparable **invisible de `_best_attack`** » — ce qui couvre aussi une ability a `damageProfile`
+  dont le masque de ciblage refuse toute cible ennemie (VETO #217 : `state_bridge._is_attack_ability`
+  rend False, l'ability n'entre jamais dans `attackPlans`). C'est par cette porte, et SANS toucher au
+  veto, que 1100 SorcerousFacade (cible ALLIEE) devient candidate.
+
+  ⚠⚠ **« ABSENTE de `ctx.plans` » n'est PAS le bon enonce du critere — mesure #289.** C'est vrai du
+  cote OFFLINE (`_plans_for_unit` n'enumere que `_attack_abilities`), mais FAUX en LIVE : `ctx.plans`
+  y recopie `decisionView.attackPlans`, qui LISTE 1009 ResurrectionOrb (a `rankCount = 0`, et sur des
+  ENNEMIS uniquement, alors que la cible que le natif retient est le CASTER). Ce qui reste vrai dans
+  les DEUX regimes, et donc ce qu'il faut verifier, c'est que `_best_attack` ne peut pas la rendre :
+  `make_damage_predictions` rend `[]` -> `calculate_action_utility` rend `None` -> l'action n'existe
+  pas. Garde : `test_resurrection_orb_decision_live.py::test_best_attack_can_never_yield_the_orb`.
 - `nonattack_candidates(ctx)` — mirror des deux boucles natives :
   `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`
   (ability x tuile) et `...ComparablePlaybook...$$EvaluateInternal` (cible, keep-first STRICT).
