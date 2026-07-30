@@ -481,20 +481,95 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
 # CONTRAT : DISJOINTE d'`ABILITY_CLASSES` (une ability a UNE source de masque, jamais deux) --
 # garde-fou `tests/engine/test_targeting_options_sources.py`. Chaque entree cite le ctor natif dont
 # le litteral est transcrit ; aucune valeur devinee.
-TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
-    # 1100 SorcerousFacade (thousTzaangor) -- `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` :
-    #   TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics+0x48 = UseWholeBoard>,
-    #                          forceMeleeTarget=1 (RangedBool.False), rules=0x402, 0, 0, 0)
-    # 0x402 = TargetIsFriendly | TargetMatchesDynamicRule -> la cible est un ALLIE, et la regle
-    # dynamique `SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` la restreint encore
-    # (`HasTrait(target, 0x3ea)` + le caster doit pouvoir porter son attaque normale depuis les
-    # tuiles de cast). La regle dynamique n'est PAS portee ici (elle vit sur la classe d'ability, qui
-    # n'existe pas) -> l'ensemble offline reste un SUR-ENSEMBLE des allies, ce qui est la degradation
-    # PERMISSIVE de tout ce module.
-    1100: TargetingOptions(rules=TR.TargetIsFriendly | TR.TargetMatchesDynamicRule,
-                           self_cast=False, range=RANGE_WHOLE_BOARD,
-                           force_melee_target=RANGED_BOOL_FALSE),
-}
+# TABLE VIDE, et c'est un ETAT, pas un oubli : depuis #287 la seule entree qu'elle portait
+# (1100 `SorcerousFacade`) a MIGRE sur sa classe du registre COMBAT
+# (`engine/runner/abilities/loki/facade.py::SorcerousFacadeAbility.TARGETING_OPTIONS`), parce que sa
+# face COMBAT est desormais portee. Le CONTRAT de disjonction ne change pas d'un iota -- il n'a
+# simplement plus rien a arbitrer tant qu'aucune nouvelle ability non portee n'entre ici. Le
+# MECANISME de la 2e source, lui, reste garde par
+# `tests/engine/runner/test_targeting_options_sources.py` (une entree bidon injectee par monkeypatch
+# verifie que `targeting_options_for` consulte toujours cette table).
+TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {}
+
+
+# --- Les `TargetingOptions` de l'ATTAQUE NORMALE ------------------------------------------------
+# Elles ne sont PAS celles d'une entree d'`ABILITY_CLASSES` (aucune classe d'attaque normale n'est au
+# registre) : c'est le PRESET STATIQUE que `IdunBattleLogic.Entities.Abilities.Active.Loki.
+# Loki_NormalAttackAbility$$.ctor` recopie et passe a `ADeprecatedActiveAbility$$.ctor`. RELU :
+#   `Loki_NormalAttackAbility$$.ctor` copie les 0x40 octets de `<TargetingOptions statics>+0x00`,
+#   ecrits par `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+#       +0x00 isSelfCasting    = 0
+#       +0x08 range           <- `TargetingRange statics+0x00` = RANGE_ADJACENT_IF_MELEE_CASTER
+#       +0x20 forceMeleeTarget = 2 = RangedBool.IfRangedCaster
+#       +0x28 rules            = 0x4002 = TargetIsEnemy | TargetMatchesDynamicRule
+# C'est le masque que `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select`
+# obtient du slot d'interface `IBattleQuery` 0x3e (`GetTargetingOptions(normalAttackType)`) avant
+# d'appeler `TargetingQuery.GetValidTargets(unit, tiles, options)` -- cf. le selecteur DSL
+# `engine/entities/selectors/units.py::ValidNormalAttackTargets`.
+# La regle dynamique (bit `TargetMatchesDynamicRule`) de l'attaque normale n'est PAS portee (aucune
+# classe ne la porte) -> degradation PERMISSIVE, la meme que partout dans ce module.
+NORMAL_ATTACK_TARGETING_OPTIONS = TargetingOptions(
+    rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,
+    self_cast=False, range=RANGE_ADJACENT_IF_MELEE_CASTER,
+    force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
+
+
+class _NormalAttackTargeting:
+    """Porteur MINIMAL des `TargetingOptions` de l'attaque normale, pour reutiliser TELLE QUELLE la
+    cascade `get_invalid_target_reason` (qui lit `TARGETING_OPTIONS` sur son argument `ability`).
+    Ce n'est PAS une entree d'`ABILITY_CLASSES` -- il n'a ni behaviour ni `ABILITY_TYPE`, il ne
+    transporte que le masque ci-dessus. `ABILITY_ID = None` -> `SetConfigValuesInTargetingOptions`
+    est inerte (le preset ne pose pas `UseRangeFromConfig`)."""
+    TARGETING_OPTIONS = NORMAL_ATTACK_TARGETING_OPTIONS
+    ABILITY_ID = None
+
+    def get_dynamic_invalid_target_reason(self, state, caster_id, target_id) -> int:
+        """La regle-delegue de l'attaque normale (`options+0x38`, bit `TargetMatchesDynamicRule` du
+        preset) n'est PAS RE-lue -> 0 = aucun refus dynamique. MEME convention permissive que le
+        defaut d'`ActiveAbility` : on ne peut pas inventer un refus qu'on ne sait pas decider."""
+        return 0
+
+    def get_dynamic_invalid_caster_reason(self, state, caster_id) -> int:
+        """Pendant CASTER (`options+0x30`) : le preset de l'attaque normale ne pose PAS
+        `CasterMatchesDynamicRule`, donc cette regle n'est de toute facon jamais consultee."""
+        return 0
+
+
+def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
+    """`IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` (MIRROR du decompile) :
+
+        unit  = SelectSingle(unitSel@+0x18)                 # le caster
+        tiles = Select(unitTileSel@+0x20)                   # ses tuiles de cast
+        opts  = battleQuery.<slot 0x3e>(GetNormalAttackType(unit))
+        if (rangeSel@+0x28 != null) { opts.rules &= ~TargetMatchesDynamicRule ;
+                                      opts.range  = CustomRange(<formule>) }
+        if (ignoreRule@+0x30.HasValue)     opts.rules &= ~ignoreRule
+        if (additionalRule@+0x40.HasValue) opts.rules |= additionalRule
+        return targetingQuery.<slot 2>(unit, tiles, opts, false).Targets
+
+    Cette fonction porte le cas des call-sites SANS override (`range = null`, les deux `Nullable`
+    VIDES) -- le seul lu a ce jour (`SorcerousFacadeAbility$$GetTarget` / `$$ExecuteBehaviour`,
+    `FearedInterrogator_TargetEffect$$CreateTargetSelector`). Les trois overrides sont donc
+    volontairement ABSENTS de la signature : les ajouter sans call-site serait du code speculatif.
+
+    `GetValidTargets` = enumeration du domaine puis filtre par la MEME cascade que le gate de cible
+    (`get_invalid_target_reason`) -> on la reutilise TELLE QUELLE avec le masque de l'attaque
+    normale, plutot que d'ecrire un 2e filtre. Les tuiles de cast sont celles du caster : le port
+    n'a pas de variante « depuis une tuile hypothetique » (`get_invalid_target_reason` mesure la
+    portee depuis la position REELLE) -- exact au call-site COMBAT, ou le cast part de la position
+    courante du caster.
+
+    ORDRE D'ENUMERATION = celui de `state.entities` (ordre d'insertion). RESIDU NOMME : le natif
+    enumere `GetPossibleTargetsForOptions` -> `GetUnitsInRange`, dont l'ordre n'est pas porte ; il
+    ne tranche QU'A DISTANCE EGALE sous le `SortByDistance` + `First(1)` du seul consommateur."""
+    probe = _NormalAttackTargeting()
+    out = []
+    for uid in list(state.entities.keys()):
+        if int(uid) == int(caster_id):
+            continue
+        if get_invalid_target_reason(state, int(caster_id), int(uid), probe) == 0:
+            out.append(int(uid))
+    return out
 
 
 def targeting_options_for(ability_id) -> Optional["TargetingOptions"]:

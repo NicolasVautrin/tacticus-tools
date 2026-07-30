@@ -419,6 +419,19 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return []
         return [_by_id[t] for t in uc.damaged_units_this_phase if t in _by_id]
 
+    # `ctx.valid_normal_attack_targets` (`IdunBattle.Entities.Selectors.
+    # ValidNormalAttackTargetsSelector$$Select`) : les cibles LEGALES de l'attaque NORMALE de
+    # `caster_unit` depuis ses tuiles. DELEGUE a `runner/abilities/targeting.py` -- la cascade de
+    # ciblage n'a QU'UN port, et c'est celui-la (surtout pas un 2e filtre ici). Rend les vues
+    # `LiveUnit` deja construites (meme identite d'objet que `ctx.units`), dans l'ordre
+    # d'enumeration de `state.entities`.
+    def _valid_normal_attack_targets(caster_unit):
+        from ..targeting import valid_normal_attack_targets as _vnat
+        cid = (caster_unit or {}).get("id")
+        if cid is None:
+            return []
+        return [_by_id[t] for t in _vnat(state, int(cid)) if t in _by_id]
+
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
     # pendant son activation courante. Moitie runtime du predicat
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
@@ -434,6 +447,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       current_player_id=getattr(state, "current_player_id", None),
                       units_damaged_this_phase=_units_damaged_this_phase,
                       charged_units=_charged_units,
+                      valid_normal_attack_targets=_valid_normal_attack_targets,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,
                       has_unit_flag=_has_unit_flag,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,

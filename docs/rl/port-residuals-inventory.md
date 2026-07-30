@@ -277,7 +277,7 @@ summon** dans ce gisement :
 | 7 | 1121 | ItItches | Tyranids | `tyranParasite` ✅ | 6 | — | ~2 060 o + 3 helpers |
 | 8 | 1090 | GrapnelLauncher | SpaceWolves | `spaceHound` « Tjark » ✅ | 0 | — | ~1 740 o |
 | 9 | 1039 | RitesOfRestoration | Sisterhood | `adeptHospitaller` « Isabella » ✅ | 3 | — | ~976 o + **6 helpers revive** |
-| 10 | 1100 | SorcerousFacade | ThousandSons | `thousTzaangor` « Yazaghor » ✅ | 4 | — | ~928 o + `GetTarget` |
+| ~~10~~ | ~~1100~~ | ~~SorcerousFacade~~ | ThousandSons | `thousTzaangor` « Yazaghor » ✅ | 4 | — | **FERMÉ** (`case-287-sorcerous-facade-combat.md`) |
 | 11 | 1038 | FoulInfusion | DeathGuard | `deathPutrifier` « Pestillian » ✅ | 3 | — | ~880 o |
 | 12 | 1117 | DefendTheDivineWork | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | ~752 o + `GetAdjacentFriends` |
 | — | 1192 | NovaBoost | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
@@ -301,7 +301,7 @@ par cast, pondéré par le caractère INCONDITIONNEL de cet écart :
 | 7 | 1121 | `Suppress` + **push 1 hex** de la cible et des ennemis adjacents aux deux + destruction des steppables + **summon d'un Ripper Swarm par hex libéré** (attaque à l'apparition) + le caster peut re-bouger | partiellement — push (1004), spawn (1112/1166) |
 | 8 | 1090 | 1× Physical ≈ 2 360 range 3 + **PULL** de la cible d'1 hex vers le caster (franchit l'élévation, pas l'infranchissable) + **le caster occupe l'hex libéré** | non — le pull et le move-into-vacated-hex sont neufs |
 | 9 | 1039 | heal 2 183 self + adjacents (non-Mechanical) + **résurrection** de 1 héros Imperial et jusqu'à 2 summons Imperial morts, sur hexes libres adjacents, à 1 819 PV, inactifs ce tour | oui — `ReviveEffect` / `ReviveUnitOperation` (#66) |
-| 10 | 1100 | buff psychic mutuel (caster + Psyker allié ciblé, +1× Psychic pierce 100 sur leurs attaques normales) + attaque normale sur l'ennemi le plus proche + **échange de positions** avec le Psyker | partiellement — cf. `case-171` (l'interaction attaque normale est déjà RE côté décision) |
+| ~~10~~ | ~~1100~~ | buff psychic mutuel (caster + Psyker allié ciblé, +1× Psychic sur leurs attaques) + attaque normale sur l'ennemi le plus proche + **échange de positions** avec le Psyker | **FERMÉ (#287)** — porté en ARBRE DSL, 3 bras live bit-exacts (`case-287-sorcerous-facade-combat.md`) |
 | 11 | 1038 | buff « +1× 2 037 Toxic sur les attaques normales » au caster et à tous les alliés Chaos sous son aura Contagion, 2 rounds + **attaque normale immédiate** sur un ennemi adjacent tiré au hasard | partiellement — pose d'effet d'aura, attaque normale libre |
 | 12 | 1117 | repair 4 365 PV sur le caster et tous les alliés adjacents | oui — **clone structurel** de `CombatRestoratives` (1002) et `RevitalizingMalignancy` (1037) |
 

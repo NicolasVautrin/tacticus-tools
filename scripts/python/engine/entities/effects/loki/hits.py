@@ -81,6 +81,52 @@ class CordClawAdditionalHitsEffect(BaseEffect):
         return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
 
 
+class SorcerousFacadeAdditionalHitsEffect(BaseEffect):
+    """`SorcerousFacade_AdditionalHitsEffect` (effet 0x4b4=1204) — pose par le cast de `SorcerousFacade`
+    (1100, Yazaghor `thousTzaangor`) sur le CASTER **et** sur l'allie Psyker vise, pour
+    `TurnsFromRounds(1)` : leurs attaques gagnent `nrOfHits` coup(s) additionnel(s) HETEROGENE(s)
+    [minDmg,maxDmg] au profil `damageProfile` (= Psychic). i2 : le +728-1455 Psychic n'est PAS le degat
+    du cast (celui-la est l'attaque NORMALE, cf. docs/rl/case-171-sorcerousfacade-normal-attack.md) —
+    c'est ce BUFF sur les attaques suivantes.
+
+    Natif : `IdunBattle.Entities.Effects.Loki.SorcerousFacade_AdditionalHitsEffect$$CreateAdditionalHits`
+    -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {
+        trigger  = `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster` (SEUL conjoint — ni
+                   `IsMeleeAttack` ni `IsRangedAttack` : le buff vaut pour TOUTE attaque du porteur),
+        damage   = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, 0)`
+                   = `RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`,
+        additionalHitsType = 1,
+        profile  = `GetDamageProfile(config).Value` = `constants.damageProfile` = Psychic,
+        hits     = `Get(GetNumberConstant(config, 0x2f = nrOfHits))` (= 1),
+        predictionDamage = `GetMinMaxDamage(this, 1)` }
+
+    ⚠ Le corps natif est **IDENTIQUE INSTRUCTION POUR INSTRUCTION** a
+    `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$CreateAdditionalHits` (memes
+    appels, memes constantes `0x2f`/`0`/`1` ; seules les gardes de cctor different) — ce port en est
+    donc le CLONE parametre par la config de l'ability, pas une lecture approchee. `.ctor` =
+    `BaseEffect(AbilityOrEffect(<SorcerousFacade>), hasAutomaticActivation = 1)` : les `ConfigVar` sont
+    lues sur la config de l'ability 1100, indexees par l'`AbilityStateFromEffect` (= `ability_level`
+    cote port, propage a la pose par `scale_from_source`). `minDmg`/`maxDmg` sont dans
+    `variablesAffectedByRarityBonus` -> x multiplier de rarete ; `nrOfHits` est un numberConstant."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("SorcerousFacade", "minDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("SorcerousFacade", "maxDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("SorcerousFacade", "nrOfHits", is_constant=True)   # numberConstant 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("SorcerousFacade") or {}).get("constants") or {}) \
+                .get("damageProfile") or "Psychic"
+        except Exception:
+            profile = "Psychic"
+        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+
+
 class FearOfTheUnseenExtraDamageEffect(BaseEffect):
     """`FearOfTheUnseen_ExtraDamageEffect` (effet 0x4d7=1239, `tyranDeathleaper` « Deathleaper ») — pose
     sur LUI-MEME par le cast de `FearOfTheUnseen` (0x45b=1115) : jusqu'a l'expiration, ses attaques

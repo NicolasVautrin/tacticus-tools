@@ -63,16 +63,40 @@ def test_toute_entree_hors_registre_est_resolue_par_le_resolveur():
         assert targeting_options_for(aid) is opts, "targeting_options_for(%d) ne rend pas la table" % aid
 
 
+def test_la_deuxieme_source_reste_CONSULTEE_meme_table_vide(monkeypatch):
+    """LE MECANISME, garde INDEPENDAMMENT du contenu de la table.
+
+    Depuis #287 `TARGETING_OPTIONS_UNPORTED` est VIDE (son unique entree, 1100 SorcerousFacade, a
+    migre sur la classe du registre avec sa face COMBAT) -- et un test qui ne fait qu'iterer une
+    table vide passe TRIVIALEMENT : il ne garde plus rien. Celui-ci injecte une entree BIDON, sur un
+    `ActiveAbilityType` absent du registre, et verifie que le resolveur la rend. Aucune donnee
+    inventee n'entre dans le port (le masque n'existe que le temps du test) ; ce qui est teste, c'est
+    que `targeting_options_for` consulte TOUJOURS la 2e source."""
+    import engine.runner.abilities.targeting as T
+    sentinel = T.TargetingOptions(rules=TR.TargetIsEnemy)
+    aid = max(set(range(1, 2000)) - set(ABILITY_CLASSES))          # id hors registre, deterministe
+    monkeypatch.setitem(T.TARGETING_OPTIONS_UNPORTED, aid, sentinel)
+    assert targeting_options_for(aid) is sentinel, (
+        "targeting_options_for ne consulte plus TARGETING_OPTIONS_UNPORTED")
+
+
 def test_sorcerous_facade_cible_un_allie():
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` :
-    `TargetingOptions..ctor(&opts, 0, <TargetingRange statics+0x48 UseWholeBoard>, 1, 0x402, 0, 0, 0)`
+    `TargetingOptions..ctor(&opts, 0, <TargetingRange statics+0x48 UseWholeBoard>, 1, 0x402, 0, 0)`
     = `TargetIsFriendly | TargetMatchesDynamicRule`. CONFIRME LIVE (`probe_217_facade_live.py`) :
-    `abilityTargets` natif rend UNE seule cible, l'ALLIE Psyker."""
+    `abilityTargets` natif rend UNE seule cible, l'ALLIE Psyker.
+
+    ⚠ Depuis #287 ce masque vit sur la CLASSE (`SorcerousFacadeAbility.TARGETING_OPTIONS`, face
+    COMBAT portee) et non plus dans `TARGETING_OPTIONS_UNPORTED` -- le test lit `targeting_options_for`,
+    donc il garde la VALEUR quelle que soit la source, et le test de disjonction ci-dessus garde
+    qu'elle n'est declaree qu'UNE fois."""
     opts = targeting_options_for(1100)
     assert opts is not None, "le masque de SorcerousFacade (1100) doit rester RE-lu"
     assert int(opts.rules) == int(TR.TargetIsFriendly | TR.TargetMatchesDynamicRule)
     assert refuses_all_enemy_targets(opts)
     assert not opts.is_enemy_targeting and not opts.is_tile_targeting
+    assert 1100 in ABILITY_CLASSES, "la face COMBAT de 1100 est portee (#287) : elle DOIT etre au registre"
+    assert 1100 not in TARGETING_OPTIONS_UNPORTED
 
 
 def test_aucune_ability_a_masque_ami_n_est_routee_vers_les_ennemis():

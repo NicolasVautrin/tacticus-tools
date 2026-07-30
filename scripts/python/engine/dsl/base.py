@@ -226,6 +226,14 @@ class DslContext:
     # defaut None -> ensemble VIDE (degradation fidele : personne n'a charge). Fourni par
     # `entities_from_state` (lit le `UnitComponent` de l'ECS runner).
     charged_units: object | None = None
+    # Cibles LEGALES de l'attaque NORMALE d'une unite (mirror
+    # `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` ->
+    # `TargetingQuery.GetValidTargets(unit, tiles, <options de l'attaque normale>)`) :
+    # `valid_normal_attack_targets(caster_unit) -> list[dict d'unite]`. Fourni par
+    # `entities_from_state` (le filtre vit dans `runner/abilities/targeting.py`, seul port de la
+    # cascade de ciblage). Defaut None -> le selecteur `ValidNormalAttackTargets` rend [] (contexte
+    # hors runner : la cascade n'est pas evaluable sans `State`), degradation documentee par noeud.
+    valid_normal_attack_targets: object | None = None
 
 
 class Const(AAmountFormula):

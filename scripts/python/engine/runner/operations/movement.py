@@ -57,12 +57,24 @@ def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: in
 
 
 class MoveUnitOperation(Operation):
-    """IdunBattle.Operations.MoveUnitOperation$$Execute (1a) — pose la position finale du mover. `to` = (col,row)."""
-    __slots__ = ("unit_id", "to")
+    """IdunBattle.Operations.MoveUnitOperation$$Execute (1a) — pose la position finale du mover. `to` = (col,row).
 
-    def __init__(self, unit_id: int, to: tuple[int, int]):
+    `set_moved` = mirror de l'octet `+0x11` du `MoveUnitOptions` natif (5e argument d'`Execute`,
+    struct passee par valeur) : le decompile fait
+    `if (*(options + 0x11) == 0) UnitExtensions.SetMovedFlag(unit);`. Il vaut donc `True` (flag pose)
+    pour TOUS les call-sites qui passent des options nulles -- c'est-a-dire tous ceux du port SAUF
+    `SwitchPositionOperation`, dont le `DisplaceUnitOperation$$SwitchPosition` natif passe un
+    `MoveUnitOptions` NON nul.
+    MESURE qui tranche (probe_287, `combatSnapshot.units[].unitFlags` AVANT/APRES le cast de 1100) :
+    le caster TELEPORTE par le switch gagne `[ArrivedAtFinalTile, ActiveAbilityUsed, TurnFinished,
+    NoActionAvailable]` et **PAS `Moved`**. Un port qui poserait `Moved` ici fermerait a tort la
+    regle `CasterHasNotMoved` (0x10) de tout cast ulterieur du meme tour."""
+    __slots__ = ("unit_id", "to", "set_moved")
+
+    def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True):
         self.unit_id = unit_id
         self.to = to
+        self.set_moved = bool(set_moved)
 
     def execute(self, state: State, bus: EventBus) -> None:
         e = state.get_entity(self.unit_id)
@@ -110,7 +122,10 @@ class MoveUnitOperation(Operation):
         # `RemoveTurnFlags` du StartTurnOperation. (#60 posait un set `state.moved_this_turn` PARALLELE
         # au composant natif -> fork de port : deux representations du meme flag, l'une jamais posee par
         # le move, l'autre jamais lue par le gate no-move.)
-        set_moved_flag(state, self.unit_id)
+        # ⚠ Le gate `MoveUnitOptions+0x11` du natif est desormais MODELISE (`set_moved`, cf. le ctor) :
+        # le seul call-site qui le pose est `SwitchPositionOperation` (mesure live #287).
+        if self.set_moved:
+            set_moved_flag(state, self.unit_id)
         # AURA stat-mod PROJETEE — `UpdateEffectTargets` : le selecteur d'un `AStatModifierEffect` a
         # projection est purement GEOMETRIQUE, donc un move le change. Le natif re-evalue et
         # applique/reverte la `ValueModification` chez les cibles. GROUND TRUTH live (statModSources,

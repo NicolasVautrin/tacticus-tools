@@ -64,9 +64,10 @@ from .ability_state import ResetActiveAbility
 from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,
                     healable_heal_type_0, repairable_heal_type_1, RefreshDynamicStatModifierValue,
                     AddStatOverrideEffect)
-from .movement import PushUnit, MoveUnit
+from .movement import PushUnit, MoveUnit, SwitchPosition
 from .lifecycle import (KillDeadUnits, RemoveUnit, RemoveMachine, TriggerAbility,
-                        TRIGGERED_ABILITY_BEHAVIOURS)
+                        TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
+                        TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
 from .grants import AddTrait, AddTriggeredAbility, first_triggered_ability_of
 
 __all__ = [
@@ -82,8 +83,8 @@ __all__ = [
     "Heal", "Repair", "ChangeStat", "SetHealth", "SubtractHealthPercent", "is_mechanical",
     "healable_heal_type_0", "repairable_heal_type_1",
     "RefreshDynamicStatModifierValue",
-    "PushUnit", "MoveUnit",
-    "KillDeadUnits", "RemoveUnit", "RemoveMachine", "TriggerAbility",
-    "TRIGGERED_ABILITY_BEHAVIOURS",
+    "PushUnit", "MoveUnit", "SwitchPosition",
+    "KillDeadUnits", "RemoveUnit", "RemoveMachine", "TriggerAbility", "TriggerAbilityDelayed",
+    "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",
     "AddTrait", "AddTriggeredAbility", "first_triggered_ability_of",
 ]

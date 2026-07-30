@@ -1762,19 +1762,18 @@ axe, un SOUS-ensemble. Les deux ecarts sont hors du chemin LIVE valide ici.
   l'ecart d'AoE documente (le compte offline porte sur la cible principale seulement).
 - **SorcerousFacade (1100)** : **PORTE (#27-4e)** — le custom, le gate `ShouldExecute` et les deux
   events de `MakeDamagePredictions`. Ce qui reste NON couvert sur cet item :
-  - la **regle dynamique** `...SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` (`HasTrait(target,
-    Psyker)` + le caster doit pouvoir attaquer normalement depuis ses tuiles de cast) n'est pas portee :
-    elle vit sur la classe d'ability, hors registre COMBAT. Inerte en LIVE (le RPC `abilityTargets`
-    rend l'ensemble natif exact), permissive en OFFLINE PUR (sur-ensemble des allies) ;
+  - ~~la **regle dynamique** `...SorcerousFacadeAbility$$GetDynamicInvalidTargetReason`~~ — **PORTEE
+    par #287** (`SorcerousFacadeAbility.get_dynamic_invalid_target_reason`), et ce n'etait pas
+    cosmetique : le bras `--far-foes` du probe #287 mesure le natif REFUSER EN SILENCE un cast que le
+    port executait entierement. Detail : `case-287-sorcerous-facade-combat.md` §2 ;
   - la **portee du masque** (`TargetingRange` whole board) n'est pas consommee par `_ability_reach`,
-    qui derive de `attackRangeType: Normal` -> portee d'ARME (2). Ecart OFFLINE PUR seulement, et de
-    sens INVERSE au precedent (sous-ensemble). Les deux se ferment ensemble le jour ou
-    `ability_targets_offline` lira le masque plutot que le gameconfig ;
-  - la **face COMBAT** (`ExecuteBehaviour` : `AddEffect(0x4b4)` + `UseActiveAbility(normale sur sel)` +
-    `KillDeadUnits` + `TriggerAbilityDelayed(0x49c = SorcerousFacade_SwitchAbility)`) n'est PAS portee —
-    1100 n'entre pas dans `ABILITY_CLASSES`, son masque reste dans `TARGETING_OPTIONS_UNPORTED` (contrat
-    de disjonction garde par `tests/engine/runner/test_targeting_options_sources.py`). #27 ne couvre que
-    la face DECISION ;
+    qui derive de `attackRangeType: Normal` -> portee d'ARME (2). Ecart OFFLINE PUR seulement. Il se
+    fermera le jour ou `ability_targets_offline` lira le masque plutot que le gameconfig ;
+  - ~~la **face COMBAT**~~ — **PORTEE par #287** : 1100 entre dans `ABILITY_CLASSES`, son masque
+    MIGRE de `TARGETING_OPTIONS_UNPORTED` vers la classe (contrat de disjonction respecte) et
+    `ABILITY_ATTACK_TYPE[1100] = Others` est pose dans le meme commit. La face DECISION est
+    INCHANGEE (meme valeur de masque, seule la SOURCE change) — re-jeu
+    `test_sorcerous_facade_decision_live.py` 8/8. Detail : `case-287-sorcerous-facade-combat.md` ;
   - `CalculateCasterPositionUtility` (+0x348) et `CalculateUtilityFromTilePrediction` restent hors port
     pour 1100 comme pour Chronometron (corps de base partages, non nommes, non overrides ici).
 - **SavageEchoes, face COMBAT** : portee depuis (case-220 §blood-angels, `ABILITY_CLASSES[1230]`) — #27

@@ -178,6 +178,85 @@ def _apply_knockback_to(state: State, bus: EventBus, pusher_id: int, unit_id: in
     return {"unit": unit_id, "amount": amount, "shield": dmg.shield, "health": dmg.health}
 
 
+class SwitchPositionOperation(Operation):
+    """`IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` — le case **5** du switch
+    d'`IdunBattle.Operations.DisplaceUnitOperation$$Execute` (`DisplaceDirection.SwitchPosition`),
+    seule branche qui ne cherche AUCUNE tuile : les deux unites ECHANGENT leurs tuiles principales.
+
+    MIRROR du decompile, dans l'ordre :
+
+        deadCaster = HasFlag(caster, UnitFlag.Dead = 6)
+        deadTarget = HasFlag(target, 6)
+        tileCaster = GetMainTile(caster) ; tileTarget = GetMainTile(target)
+        if (IsTemporary(tileCaster) || IsTemporary(tileTarget))
+            if (!battleQuery.<slot 0x92>(caster, target, null)) return          # <- NON PORTE
+        if (!deadTarget) { MoveUnit(target -> tileCaster) ; AddTilesMoved(...) }
+        if (!deadCaster) { MoveUnit(caster -> tileTarget) ; AddTilesMoved(...) }
+        if (!deadTarget) EventAndAbilitiesAndEffects(caster, target, [tileTarget], tileCaster, true)
+        if (!deadCaster) EventAndAbilitiesAndEffects(caster, caster, [tileCaster], tileTarget, true)
+
+    DEUX faits que le nom « echange » ne laisse PAS deviner, et qui sont portes tels quels :
+      * les deux moities sont **INDEPENDANTES** — une unite MORTE (flag 6) ne bouge pas, mais
+        l'AUTRE va quand meme sur sa tuile. Ce n'est donc pas un swap atomique ;
+      * l'ordre est **cible d'abord, caster ensuite**. Il compte : le port passe par
+        `MoveUnitOperation`, qui declenche `KillSteppableUnits` / le vecteur after-move sur chaque
+        pas ; l'inverser changerait quelle unite ecrase un Steppable.
+
+    LE `MoveUnitOptions` DU SWITCH N'EST PAS NUL, et ca s'OBSERVE : le natif passe a `MoveUnit` une
+    struct d'options non nulle (la ou le push en passe une nulle), dont l'octet `+0x11` gate
+    `SetMovedFlag`. MESURE (`probe_287_facade_combat.py`, `combatSnapshot.units[].unitFlags` pris
+    AVANT puis APRES le cast de 1100) : le caster TELEPORTE par le switch gagne
+    `[ArrivedAtFinalTile, ActiveAbilityUsed, TurnFinished, NoActionAvailable]` et **PAS `Moved`**.
+    D'ou `set_moved=False` sur les deux `MoveUnitOperation` ci-dessous -- les deux appels natifs
+    partagent la MEME struct d'options, donc le skip vaut pour les deux moities.
+
+    NON PORTE (residu nomme) : la garde `IsTemporary` des tuiles + son slot d'interface 0x92 (le port
+    n'a pas de tuile TEMPORAIRE -- `board` est statique).
+
+    Retour {switched, caster_to, target_to} pour `ectx.emit` (replay-diff)."""
+    __slots__ = ("caster_id", "target_id")
+
+    def __init__(self, caster_id: int, target_id: int):
+        self.caster_id = caster_id
+        self.target_id = target_id
+
+    def execute(self, state: State, bus: EventBus) -> dict:
+        from ..components import unit_is_dead
+        caster = state.get_entity(self.caster_id)
+        target = state.get_entity(self.target_id)
+        if caster is None or target is None:
+            return {"switched": False, "reason": "missing unit"}
+        cpc = caster.get_component(PositionComponent)
+        tpc = target.get_component(PositionComponent)
+        if cpc is None or tpc is None:
+            return {"switched": False, "reason": "no position"}
+        tile_caster = (cpc.col, cpc.row)
+        tile_target = (tpc.col, tpc.row)
+        # `HasFlag(u, UnitFlag.Dead = 6)` : offline le flag natif n'est pas trace, le predicat
+        # equivalent est `IdunBattle.Entities.UnitExtensions$$IsDead` (deja mirrore).
+        dead_caster = unit_is_dead(caster)
+        dead_target = unit_is_dead(target)
+        res = {"switched": False, "caster_to": None, "target_to": None}
+        if not dead_target:
+            MoveUnitOperation(self.target_id, tile_caster, set_moved=False).execute(state, bus)
+            res["target_to"] = tile_caster
+        if not dead_caster:
+            MoveUnitOperation(self.caster_id, tile_target, set_moved=False).execute(state, bus)
+            res["caster_to"] = tile_target
+        res["switched"] = res["caster_to"] is not None or res["target_to"] is not None
+        # `EventAndAbilitiesAndEffects` (le MEME appel que la queue du push) : le vecteur
+        # `On(UnitDisplaced)`, une fois par unite REELLEMENT deplacee, dans l'ordre natif.
+        from .triggers import displace_triggers
+        trg = []
+        if res["target_to"] is not None:
+            trg += displace_triggers(state, self.caster_id, self.target_id) or []
+        if res["caster_to"] is not None:
+            trg += displace_triggers(state, self.caster_id, self.caster_id) or []
+        if trg:
+            res["displaced_triggers"] = trg
+        return res
+
+
 class DisplaceUnitOperation(Operation):
     """IdunBattle.Operations.DisplaceUnitOperation$$Execute (type=1=FindTileToPush) — push 1-hex away-from-pusher. Delegue le deplacement effectif
     a `MoveUnitOperation` (mirror natif : DisplaceUnit emet MoveUnit@0x7e, ne reecrit pas la position).

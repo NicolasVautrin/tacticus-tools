@@ -105,6 +105,25 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#287-r1` — `UnitFlag.NoActionAvailable` (4) n'est posé par AUCUNE voie du port.** Le natif le
+  pose en queue de cast (`IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, jamais
+  portée). MESURÉ par `probe_287_facade_combat.py` (`combatSnapshot.units[].unitFlags` avant/après
+  un cast) : le caster gagne `[1, 2, 3, 4]` côté natif, `[1, 2, 3]` côté port. Résidu **TRANSVERSE**
+  au turn-flow (il vaut pour toute ability, pas seulement 1100) ; le test #287 l'ENCADRE au lieu de
+  le taire (l'écart de flags doit valoir EXACTEMENT `{4}`, sinon rouge). À promouvoir si un
+  consommateur du flag entre au port (`VerifyUnitTurnEnded` ré-ouvre l'activation quand l'unité
+  regagne des options). Cf. `case-287-sorcerous-facade-combat.md` §7.
+- **`#287-r2` — les branches `dead_caster` / `dead_target` de `SwitchPositionOperation` sont PORTÉES
+  mais NON CONFRONTÉES.** `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition` traite les
+  deux moitiés INDÉPENDAMMENT (une unité morte ne bouge pas, l'autre va quand même sur sa tuile) —
+  c'est lu au décompilé, pas mesuré. Le gate de cible de 1100 + le `IsAlive(Caster)` de la triggered
+  1180 rendent l'état difficile à atteindre par un cast normal, mais le levier existe
+  (`--dmg-target` pour tuer l'allié entre le cast et le switch). À crafter si un observable en
+  dépend.
+- **`#287-r3` — la garde `IsTemporary` du switch** (+ son slot d'interface 0x92) : le port n'a pas
+  de tuile TEMPORAIRE (`board` est statique). Inerte tant qu'aucune mécanique de tuile temporaire
+  n'entre au port.
+
 - ~~**Le refresh de `BC.Utilities` DÉMASQUE 2 termes TRIGGERED que le moteur ne porte pas**~~ (ex
   `#27-r3`) — **LIVRÉ (#271)**, `case-271-kustom-force-field-reworked.md`. Les DEUX clés
   `KustomForceFieldReworked_*` (0→10) sont portées et **confrontées live** : le natif suit le terme,

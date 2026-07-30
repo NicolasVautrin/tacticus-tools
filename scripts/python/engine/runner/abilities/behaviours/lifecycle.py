@@ -160,6 +160,59 @@ class RemoveMachine(AbilityBehaviour):
 TRIGGERED_ABILITY_BEHAVIOURS: dict[int, object] = {}
 
 
+# Registre des TRIGGERED declenchables par le noeud `TriggerAbilityDelayed` : `TriggeredAbilityType
+# (int) -> callable(entities, ectx) -> dict | None`. Le callable execute l'ARBRE de `CreateBehaviour`
+# de l'ability differee, dans le contexte `entities` du declencheur. Rempli par les modules
+# d'abilities (import-time), pas ici : ce module ne connait pas les arbres.
+TRIGGERED_ABILITY_DELAYED_BEHAVIOURS: dict[int, object] = {}
+
+
+class TriggerAbilityDelayed(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$TriggerAbilityDelayed(entity, triggeredAbilityType,
+    unitSelectionType)` -> `IdunBattle.Entities.Behaviours.TriggerAbilityDelayedBehaviour`. Champs
+    poses par le ctor (relus) : `+0x50` state, `+0x58` entity (selecteur), `+0x60` abilityType (int),
+    `+0x64` unitSelectionType (int).
+
+    `...TriggerAbilityDelayedBehaviour$$Execute` resout le selecteur `+0x58` avec le mode `+0x64`,
+    puis, POUR CHAQUE entite rendue, appelle le slot 6 du service de triggers DIFFERES avec
+    `(entityId, abilityType, entities)` : l'ability n'est PAS executee sur place, elle est PLANIFIEE.
+
+    LE PORT LA COLLAPSE — il l'execute INLINE, en fin de behaviour. PRECEDENT EXACT deja au depot :
+    `MasterOfTheTutelaries_SummonAbility` (`TriggerAbilityDelayed(owner, 0x495, kind=3)`, cf.
+    `runner/operations/triggers/loki/master_of_the_tutelaries.py`) fait le meme collapse, pour la
+    meme raison : le port n'a pas de scheduler de triggers differes, et l'ordre OBSERVABLE est le
+    meme des lors que le differe est le DERNIER terme de l'arbre. C'est le cas du seul call-site
+    porte ici (`...SorcerousFacadeAbility$$ExecuteBehaviour`, ou le `TriggerAbilityDelayed` est le
+    4e et dernier terme de la chaine `op_Addition`). ⚠ Un futur call-site ou le differe N'EST PAS en
+    queue d'arbre exigerait un vrai scheduler : ne pas generaliser ce collapse en silence.
+
+    `unit_selection_type` = le litteral `+0x64` (3 aux deux call-sites lus) ; il gouverne le MODE de
+    resolution du selecteur natif, non porte -> conserve pour la tracabilite, jamais lu.
+
+    Une ability ABSENTE de `TRIGGERED_ABILITY_DELAYED_BEHAVIOURS` rend `dispatched: False` : le gap
+    est VISIBLE (meme doctrine que `AbilityHandler.unported` et que `TriggerAbility`), jamais muet.
+    Emet 'TriggerAbilityDelayed'. PUR (stop=False)."""
+    __slots__ = ("entity_sel", "ability_type", "unit_selection_type")
+
+    def __init__(self, entity_sel: TargetsSelector, ability_type: int,
+                 unit_selection_type: int = 3):
+        self.entity_sel = entity_sel
+        self.ability_type = int(ability_type)
+        self.unit_selection_type = int(unit_selection_type)
+
+    def execute(self, entities, ectx):
+        fn = TRIGGERED_ABILITY_DELAYED_BEHAVIOURS.get(self.ability_type)
+        targets = sorted({u["id"] for u in _units_of(self.entity_sel, entities)
+                          if isinstance(u, dict) and u.get("id") is not None})
+        results = []
+        if fn is not None:
+            for _uid in targets:              # ordre de lecture = id (mirror OrderBy natif)
+                results.append(fn(entities, ectx))
+        ectx.emit("TriggerAbilityDelayed", ability_type=self.ability_type, targets=targets,
+                  dispatched=fn is not None, results=results)
+        return OperationResult.ok()
+
+
 class TriggerAbility(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$TriggerAbility(targets, abilityType, actor, caster, target,
     <sel4>, groupType, flag)` -> `IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` : pour

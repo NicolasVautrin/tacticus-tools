@@ -661,6 +661,46 @@ class SortByFormula(TargetsSelector):
                       reverse=not self.ascending)
 
 
+class ValidNormalAttackTargets(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$ValidNormalAttackTargets(unit, unitTile, range,
+    ignoreRule, additionalRule)` -> `IdunBattle.Entities.Selectors.
+    ValidNormalAttackTargetsSelector$$Select` : les cibles que le `unit` pourrait attaquer A
+    L'ATTAQUE NORMALE depuis `unitTile`. MIRROR du decompile :
+
+        u     = SelectSingle(unit@+0x18)            # null -> liste VIDE
+        tiles = Select(unitTile@+0x20)              # null -> liste VIDE
+        opts  = battleQuery.<slot 0x3e>(GetNormalAttackType(u))
+        [overrides range / ignoreRule / additionalRule]
+        return targetingQuery.<slot 2>(u, tiles, opts, false).Targets
+
+    Les TROIS overrides sont a `null` / `Nullable` VIDE aux deux call-sites lus
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$GetTarget` et son
+    `$$ExecuteBehaviour`, `IdunBattle.Entities.Effects.Loki.FearedInterrogator_TargetEffect$$
+    CreateTargetSelector`) -> ce noeud ne les modelise pas (les ajouter sans call-site serait
+    speculatif ; le jour ou un call-site les pose, ils entrent ICI, pas dans un fork).
+
+    Le filtre lui-meme est `ctx.valid_normal_attack_targets` (fourni par `entities_from_state`,
+    qui delegue a `runner/abilities/targeting.py` -- LE port unique de la cascade de ciblage, avec
+    le masque `NORMAL_ATTACK_TARGETING_OPTIONS` relu du preset statique). Accesseur ABSENT (contexte
+    hors runner : prediction, tests de noeud) -> **[]**, et c'est une DEGRADATION nommee, pas un
+    mirror : sans `State` la cascade native n'est pas evaluable.
+
+    `unit_tile` est accepte pour le MIRROR STRUCTUREL de la signature native ; le port mesure la
+    portee depuis la position REELLE de `unit` (cf. `valid_normal_attack_targets`), ce qui est exact
+    au seul call-site COMBAT porte -- le cast part de la tuile courante du caster."""
+    def __init__(self, unit: TargetsSelector, unit_tile: TargetsSelector = None):
+        self.unit, self.unit_tile = unit, unit_tile
+
+    def select(self, ctx):
+        fn = getattr(ctx, "valid_normal_attack_targets", None)
+        if fn is None:
+            return []
+        u = resolve_unit(self.unit, ctx)
+        if u is None:                                  # mirror `unit == null -> liste VIDE`
+            return []
+        return list(fn(u) or [])
+
+
 class SortByDistance(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$SortByDistance(source, refPoint)` → `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` : trie la source par distance hex CROISSANTE au `refPoint` (arg2 = sélecteur de
     position/unité, PAS forcément le caster). ASCENDANT, tri STABLE.
