@@ -485,8 +485,9 @@ restauration de `+0x98`).
   `state.triggering_ability` (l'ambiant `CurrentAbility`) là où `RecordKillOperation$$Execute` lit le
   `KillUnitContext`. Les deux coïncident dans tous les régimes portés ; #301 corrige le canal de
   SORTIE, pas la source d'ENTRÉE.
-* **Les écrivains 1 et 3 restent ouverts** (§7.2). Le 3 porte en outre l'asymétrie ADD/REMOVE, qui
-  contredit un commentaire de `triggers/base.py` — signalé, non traité ici.
+* ~~**Les écrivains 1 et 3 restent ouverts**~~ (§7.2). **L'écrivain 3 l'est depuis #306 — §9**, avec
+  l'asymétrie ADD/REMOVE. Reste l'écrivain 1 (`OperationProcessor$$EvaluateAbilities`), sans
+  conséquence tant qu'il écrit la MÊME ability dans les deux champs.
 
 ### 8.6 Reproduire (#301)
 
@@ -500,4 +501,149 @@ python probe_301_kill_unit_trigger_channels.py --mutate persist  # ROUGE : fuite
 python probe_301_kill_unit_trigger_channels.py --live            # regime mesure en bataille
 python -m pytest tests/engine/runner/test_kill_unit_trigger_channels.py -q       # 12 offline
 python -m pytest tests/engine/runner/test_kill_unit_trigger_channels_live.py -q  # 3 live
+```
+
+## 9. Les vecteurs d'EFFET — écrivain 3 porté, et l'asymétrie ADD/REMOVE (#306)
+
+### 9.1 Le fait natif, re-dérivé verbatim (build `rnca9r7q6c`)
+
+Les DEUX Operations d'effet bâtissent un `AbilityEntities` NEUF par `memset(0, 0x128)` — l'ambiant de
+l'appelant n'y survit donc PAS — puis remplissent, et **elles ne remplissent pas les mêmes champs**.
+
+`IdunBattle.Operations.AddEffectOperation$$Execute` appelle le ctor NOMMÉ
+`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`, ce qui rend le mapping paramètre → champ
+LISIBLE au lieu de déductible :
+
+```
+memset(&entities, 0, 0x128)
+AbilityEntities..ctor(caster: source, actor: source, target: owner, owner: owner,
+                      casterTile..previousActiveTarget: 0,
+                      currentAbilityOrEffect: Nullable(AbilityOrEffect(effectType)),  -> +0x60
+                      parentAbilityOrEffect:  Nullable VIDE,                          -> +0x7c
+                      triggerAbilityOrEffect: Nullable(AbilityOrEffect(effectType)),  -> +0x98
+                      damageReason .. hasUsedAttackDamage: 0)
+... puis Publish(..., 0x3d)  On(PreEffectAdded         = 61)
+         Publish(..., 0x3e)  On(EffectAdded            = 62)   [branche « effet NOUVEAU »]
+         Publish(..., 0x46)  On(UnitBecameUntargetable = 70)   [si l'effet rend intargetable]
+```
+
+Les deux `Nullable` viennent de **deux appels distincts** à `IdunBattle.Core.AbilityOrEffect$$
+op_Implicit` sur le **même** argument — l'assembleur charge `effectType` une fois dans `edi` et fait
+`mov edx, edi` avant chacun des deux `call`. Donc `+0x60` et `+0x98` portent la MÊME valeur.
+
+`IdunBattle.Operations.RemoveEffectOperation$$Execute` n'appelle **aucun ctor** :
+
+```
+memset(&entities, 0, 0x128)
++0x10 (target) = +0x18 (owner) = Entity(effectComponent.OwnerId @+0x14)
++0x60..+0x7c   (currentAbilityOrEffect) = Nullable(AbilityOrEffect(effectComponent.Type @+0x58))
+... puis Publish(..., 0x3f)  On(PreEffectRemoved     = 63)
+         Publish(..., 0x40)  On(EffectRemoved        = 64)
+         Publish(..., 0x3b)  On(UnitBecameTargetable = 59)
+```
+
+**Contrôle NÉGATIF fait à l'assembleur**, pas déduit : entre le memset et la première copie publiée,
+les seules écritures dans la struct sont `[rbp-0x70]`/`[rbp-0x68]` (soit `+0x10`/`+0x18`) et
+`[rbp-0x20]`/`[rbp-0x10]`/`[rbp-0x8]` (soit `+0x60`/`+0x70`/`+0x78`). **Rien ne touche `+0x00`
+(`actor`), `+0x08` (`caster`), `+0x7c` (`parent`) ni `+0x98` (`triggering`)** — ils restent à ZÉRO.
+
+### 9.2 La conséquence, et pourquoi elle est contre-intuitive
+
+| vecteur | `+0x60` `CurrentAbilityIs` | `+0x98` `TriggeringEffectIs` / `TriggeringAbilityIs` |
+|---|---|---|
+| `On(61)` / `On(62)` / `On(70)` — POSE | l'effet posé | l'effet posé (**même valeur**) |
+| `On(63)` / `On(64)` / `On(59)` — RETRAIT | **l'effet retiré** | **VIDE** (`TriggeringAbilityIsNone` VRAI) |
+
+⇒ Un gate `TriggeringEffectIs(X)` câblé sur un vecteur de RETRAIT est **toujours faux** côté natif.
+C'est `CurrentAbilityIs` qu'il faut y lire. Sur la POSE, les deux lectures sont indiscernables — d'où
+la tentation de généraliser à tort depuis `On(61)`.
+
+### 9.3 Ce que le port faisait, et ce qui est porté
+
+`dispatch/move_death.py::pre_effect_added_triggers` posait le **seul** `triggering_effect` (`+0x98`)
+et ne touchait pas l'AMBIANT ; aucun vecteur de retrait n'était émis. Deux conséquences mesurées :
+
+* `ev.triggering_ability` (`+0x60`) valait `None` là où le natif y met l'effet ;
+* une pose faite DANS le behaviour d'une triggered laissait l'id de cette triggered visible en
+  `+0x60`, alors que le memset natif l'écrase.
+
+Porté : un **foyer unique** `_effect_vector_triggers(state, event_id, actor, target, effect_type, *,
+removing)` qui pose les DEUX niveaux (payload d'événement ET ambiant `State`) selon le sens, puis
+restaure — même geste que `_verify_deaths` pour le vecteur mort. Trois vecteurs le traversent :
+`pre_effect_added_triggers` (`On(61)`, depuis `AddEffectOperation.execute`),
+`pre_effect_removed_triggers` (`On(63)`) et `effect_removed_triggers` (`On(64)`), ces deux derniers
+depuis la feuille DSL `RemoveEffect` — dont l'artefact natif est littéralement
+`RemoveEffectsBehaviour` → `RemoveEffectOperation$$Execute`.
+
+**Arbitrage assumé** sur l'émission des deux vecteurs de retrait : aucune classe portée ne les
+écoute. C'est le même que celui de `On(0xd)` en #294 — (a) c'est le mirror, le natif publie ;
+(b) sans émission, l'asymétrie objet de ce cas est **inexprimable** dans le port, donc ni portable ni
+gardable, seulement commentable. Un commentaire ne rougit pas.
+
+### 9.4 La divergence est LATENTE — le chiffre qui l'atteste
+
+Compte re-dérivé (`probe_306_effect_trigger_channels.py --consumers`, mesuré APRÈS rebase sur
+`97978a70`) : **86** classes-triggers au registre, dont **1 seule** écoute un vecteur d'effet —
+`TerrifyingCrescendoSuppressAbility` sur `On(61)`, et elle lit `+0x98`, que ce fix ne touche pas.
+**0** sur `On(59)`, `On(62)`, `On(63)`, `On(64)`, `On(70)`. ⚠ Ce total se périme à chaque port —
+le re-dériver, ne pas citer cette ligne.
+
+Mesure LIVE correspondante : `probe_lot_pose.py --seed 92201` (5 scénarios, 9 poses de `Pinned`,
+5 contre-scénarios) rend une sortie **strictement identique** avant et après le fix — le seul écart
+du diff est le numéro de runner. C'est cohérent, et c'est la raison pour laquelle la garde est câblée
+sur le **canal** et non sur un observable de bataille.
+
+### 9.5 Le régime discriminant — la pose IMBRIQUÉE dans le drain de mort
+
+Le seul régime atteignable où l'ambiant d'entrée n'est pas celui d'une triggered ordinaire : un
+trigger de `On(1)` qui pose un effet (la forme d'`ActOfFaith` accumulate). `_verify_deaths` y a déjà
+posé `(+0x60, +0x98) = (None, killTrigger)`. Le natif bâtit un `AbilityEntities` NEUF pour
+l'`AddEffectOperation` : le vecteur d'effet publie `(effectType, effectType)` et n'hérite RIEN du
+contexte de mort, qui doit être RENDU intact au drain qui continue.
+
+ROUGE mesuré sur `origin/master` (`probe_306 --nested`) : `On(61)` imbriqué y voyait
+`(ev+0x60, ev+0x98, st+0x60, st+0x98) = (None, 1065, None, 6363)` — soit le `killTrigger` du drain
+publié sous un événement d'EFFET. Après : `(1065, 1065, 1065, 1065)`, contexte de mort rendu intact.
+
+### 9.6 Ce que #306 n'établit PAS
+
+* **`On(62)`, `On(59)`, `On(70)` ne sont pas émis.** Ils portent exactement les mêmes canaux que leur
+  frère du même sens — aucune information d'asymétrie n'est perdue. `On(62)` est en outre conditionné
+  par la branche « effet NOUVEAU » (`UpdateExistingEffect == false`), et `On(70)`/`On(59)` par un test
+  de type sur la classe d'effet (intargetabilité), ni l'un ni l'autre porté.
+* **Le retrait n'est instrumenté que depuis la feuille DSL `RemoveEffect`.** Le port compte **14**
+  sites qui posent `consumed = True` (expiration par timer, consommation par trigger, retrait à la
+  mort/au despawn…) ; côté natif tous devraient passer par `RemoveEffectOperation`, et donc publier
+  ces vecteurs. Résidu nommé : il n'y a pas de foyer unique de retrait côté port.
+* **`actor`/`caster` du vecteur de retrait.** Le natif les laisse VIDES (`+0x00`/`+0x08` non écrits) ;
+  le port passe `actor_id = None` → `-1`. Un `OwnerIsActor` sur `On(63)`/`On(64)` serait donc faux des
+  deux côtés, mais pour des raisons différentes (entité nulle vs id sentinelle). À revoir le jour où
+  un consommateur de ce vecteur est porté.
+* **Aucune mesure LIVE du canal**, et c'est délibéré — même raison qu'en #294/#301 : sans consommateur
+  ni capteur, le canal n'a aucune observable de bataille. Ce qui est mesuré en live, c'est l'ABSENCE
+  de régression (§9.4).
+
+### 9.7 Gardes posées (#306)
+
+`tests/engine/runner/test_effect_trigger_channels.py`, fixture `effect_trigger_channel_case` — 16
+tests offline, dont : les deux slots distincts sur `TriggerEvent` ; la POSE écrit les deux canaux ;
+le RETRAIT laisse `+0x98` vide ; le memset écrase l'ambiant ; restauration ; le régime imbriqué ; le
+compte de consommateurs (CLIQUET : rougit dès qu'un consommateur entre sur un vecteur de retrait) ;
+le consommateur porté de `On(61)` lit toujours `+0x98` ; les quatre contre-épreuves et leurs
+signatures distinctes.
+
+### 9.8 Reproduire (#306)
+
+```bash
+cd scripts/python
+python probe_306_effect_trigger_channels.py                       # le code du depot : VERT
+python probe_306_effect_trigger_channels.py --add-only            # face POSE seule (tourne sur master)
+python probe_306_effect_trigger_channels.py --nested              # regime imbrique dans le drain de mort
+python probe_306_effect_trigger_channels.py --consumers           # le compte qui atteste la latence
+python probe_306_effect_trigger_channels.py --mutate legacy       # ROUGE : etat d'avant #306
+python probe_306_effect_trigger_channels.py --mutate symmetric    # ROUGE : le retrait ecrit +0x98
+python probe_306_effect_trigger_channels.py --mutate noambient    # ROUGE : l'ambiant fuit
+python probe_306_effect_trigger_channels.py --mutate persist      # ROUGE : pas de restauration
+python -m pytest tests/engine/runner/test_effect_trigger_channels.py -q      # 16 offline
+python -m pytest tests/engine/runner/test_kill_unit_trigger_channels.py -q   # 12, meme canal
 ```
