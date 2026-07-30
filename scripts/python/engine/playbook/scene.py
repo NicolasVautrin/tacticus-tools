@@ -106,6 +106,14 @@ class Scene:
     # `UnitFlagsComponent$$RemoveTurnFlags`) -> re-capturé par pas via `refresh_shields`.
     moved_by_id: dict = field(default_factory=dict)
     teleported_by_id: dict = field(default_factory=dict)
+    # `UnitFlag.ActiveAbilityUsed` (=2) PER-UNITE (#17) : {uid: HasFlag(u, 2)}. MEME canal que
+    # `moved_by_id`. C'est le gate d'ENTREE d'`IdunBattle.AI.ActionGenerators.
+    # ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (1re instruction de son
+    # etat 0 : `if (HasFlag(unit, 2)) return 0`) -> une unite qui a deja consomme son action ne
+    # produit AUCUNE action d'ability (attaque normale COMPRISE) et ne peut plus que se deplacer.
+    # DYNAMIQUE (pose au cast, purge a l'entree de tour par `UnitFlagsComponent$$RemoveTurnFlags`)
+    # -> re-capture par pas via `refresh_shields`.
+    active_ability_used_by_id: dict = field(default_factory=dict)
     # Cache PAR EQUIPE du cardinal `Enemies(Owner, UnitsWithTrait(AllUnits, Psyker))` (#208) —
     # calcule a la demande par `_enemy_psykers_alive`, valable pour TOUTE la duree de vie de la
     # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
@@ -135,6 +143,16 @@ class Scene:
         d'`HeavyWeapon_ExtraDmg` en silence."""
         return self.moved_by_id.get(uid)
 
+    def has_used_active_ability(self, uid) -> bool | None:
+        """`UnitExtensions.HasFlag(uid, UnitFlag.ActiveAbilityUsed = 2)` — l'unite a-t-elle deja
+        consomme son ACTION ce tour. Meme tri-etat que `has_moved` : `None` = capteur `unitFlags`
+        non mesure -> l'appelant NE COUPE PAS (comportement anterieur), `[]` mesure donne `False`.
+
+        Consommateur unique : `engine.ai.action_generators.ActiveAbilityActionGenerator.
+        unit_action_gate`, mirror de la 1re instruction de
+        `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`."""
+        return self.active_ability_used_by_id.get(uid)
+
     def has_teleported(self, uid) -> bool | None:
         """`UnitExtensions.HasFlag(uid, UnitFlag.Teleported = 0xc)` — le déplacement de ce tour était
         un TÉLÉPORT, ce qui RÉ-AUTORISE le +25% (`... & (!HasFlag(Moved) | HasFlag(Teleported))`).
@@ -155,11 +173,11 @@ class Scene:
                                          HealthComponent, UnitComponent, ShieldComponent,
                                          EffectsOwnedComponent, is_machine_of_war,
                                          unit_prevents_overkill, unit_has_moved,
-                                         unit_has_teleported)
+                                         unit_has_teleported, unit_has_used_active_ability)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
-        moved_by_id, teleported_by_id = {}, {}
+        moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -209,6 +227,8 @@ class Scene:
             # live par `snapshot._load_unit_flags` — donc renseigné dans les deux régimes.
             moved_by_id[eid] = unit_has_moved(state, eid)
             teleported_by_id[eid] = unit_has_teleported(state, eid)
+            # #17 : `HasFlag(u, ActiveAbilityUsed=2)` — MEME composant, MEME regime de seed.
+            active_ability_used_by_id[eid] = unit_has_used_active_ability(state, eid)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -238,7 +258,8 @@ class Scene:
             elev_by_pos=elev_by_pos, board=board, defstat_by_id=defstat_by_id,
             turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id,
             prevent_overkill_by_id=prevent_overkill_by_id,
-            moved_by_id=moved_by_id, teleported_by_id=teleported_by_id)
+            moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
+            active_ability_used_by_id=active_ability_used_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -272,7 +293,10 @@ class Scene:
             # rend `None` (non mesuré) et `prediction_has_moved` garde le seul terme « tuile
             # simulée », donc le comportement strictement antérieur.
             moved_by_id=predictor.get("moved_by_id") or {},
-            teleported_by_id=predictor.get("teleported_by_id") or {})
+            teleported_by_id=predictor.get("teleported_by_id") or {},
+            # #17 : `ActiveAbilityUsed`, MEME canal et MEME tri-etat. Table vide -> l'accesseur rend
+            # `None` (non mesure) et le gate du generateur reste OUVERT, comportement anterieur.
+            active_ability_used_by_id=predictor.get("active_ability_used_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -590,7 +614,10 @@ def build_predictor(rpc, rid):
             # point (posés par chaque déplacement, purgés à l'entrée de tour du joueur par
             # `UnitFlagsComponent$$RemoveTurnFlags`) -> re-capturés par pas via `refresh_shields`.
             "moved_by_id": _unit_flag_from_snapshot(snap, "Moved"),
-            "teleported_by_id": _unit_flag_from_snapshot(snap, "Teleported")}
+            "teleported_by_id": _unit_flag_from_snapshot(snap, "Teleported"),
+            # #17 : `UnitFlag.ActiveAbilityUsed` — gate d'entree du generateur d'abilities. AUSSI
+            # dynamique que `Moved` (pose au cast, purge a l'entree de tour) -> refresh par pas.
+            "active_ability_used_by_id": _unit_flag_from_snapshot(snap, "ActiveAbilityUsed")}
 
 
 def build_board(rpc, rid):
@@ -691,6 +718,11 @@ def refresh_shields(predictor, rpc, rid):
     # pas 0 rendrait « n'a pas bougé » pour toute la bataille, soit exactement le +25% fantôme.
     predictor["moved_by_id"] = _unit_flag_from_snapshot(snap, "Moved")
     predictor["teleported_by_id"] = _unit_flag_from_snapshot(snap, "Teleported")
+    # #17 : re-capture d'`ActiveAbilityUsed` (=2). MEME volatilite que `Moved` (pose par le cast,
+    # purge a l'entree de tour) ; un cold fige au pas 0 rendrait « n'a pas encore agi » pour toute
+    # la bataille, soit exactement l'over-fire mesure a 1357 s6 (le natif ne peut plus que bouger,
+    # le port re-attaque).
+    predictor["active_ability_used_by_id"] = _unit_flag_from_snapshot(snap, "ActiveAbilityUsed")
     # #45b' : re-capture MaxHealth EFFECTIF (part 2) — DYNAMIQUE (bump TwistedScience
     # mid-bataille : u87 777 s15 base 11044 -> 14036 apres le cast 1167 du pas 1).
     predictor["hpmax_eff_by_id"] = _hpmax_eff_from_snapshot(snap.get("units"))

@@ -1127,3 +1127,274 @@ Mutation inverse (sur-filtrage `hp > 1e9`, qui exclut AUSSI les vivants) : rouge
   est couverte ailleurs (`tests/engine/runner/test_hammer_of_wrath_live.py`, re-joue vert).
 - Le seuil `hp is None` (unite sans PV connus dans la scene) n'est pas distingue de `hp == 0` : les deux
   sont filtres, comme dans le port.
+
+
+## #17-s18 -- VERDICT FINAL du residu « s18 MartialInspiration » : FERME (deux fois), NON GARDE (deux fois)
+
+**Le libellé « s18 MartialInspiration (#24) » de la fiche #17 est PERIME, et il CONFLATE deux sujets.**
+Re-derivation faite AVANT toute edition, sur le build `rnca9r7q6c` (2026-07-30). Les deux sujets sont
+fermes ; ce qui manquait, des deux cotes, etait la GARDE.
+
+### 1. Ce que le libellé pouvait designer -- et l'etat de chacun
+
+| lecture | datapoint historique | ferme par | re-mesure `rnca9r7q6c` |
+|---|---|---|---|
+| **DECISION** : le port emet 1191, le natif joue 69 | `2468 s18 u77 custoBladeChampion` (etiquete `native-gate` en #57f) | **#64** (`CalculateCustomUtility` = +1 des `*_NormalAttackPlaybook`) | **HIT** : `pos native->(4,3) engine->(4,3) [EXACT]`, `ABIL native(ab=69,tgt=91) engine=ability(ab=69,tgt=91) [MATCH]` ; seed 2468 ability **12/12** |
+| **PREDICTION** : la prediction 1191 sous-estime x1.66 | `31337 s16 u79` (staleness `TotalAttacksMade`) | **#33** (re-capture par-pas d'`actorStats` dans `scene.refresh_shields`) | batch GEN : **feed = 0** sur 35 confrontations de prediction |
+
+(La troisieme lecture possible, « s18 » = le splash Psyker de `case-34`, est un AUTRE sujet sous la
+meme etiquette -- il n'a jamais concerne MartialInspiration.)
+
+### 2. Le decompile du build courant confirme les deux mirrors, au symbole pres
+
+`IdunBattle.AI.Playbook.Loki.MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext` :
+
+    var12 = IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel(cfg, 0xc)   # minDmg
+    var10 = IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel(cfg, 0xa)   # extraDmgPct
+    count = <ActorStatisticsComponent>+0x20                                                # TotalAttacksMade
+    base  = IdunBattle.Core.Services.DamageCalculations$$CalculateBaseDamageWithModifiers(
+                Fix64(var12), Fix64.FromIntFraction(var10 * count + 100, 100) )
+    hits  = 1  (litteral ecrit a +0x40)
+
+Ecrivain du compteur : `IdunBattle.Entities.Components.ActorStatisticsComponent$$RegisterAttackMade`
+(`+0x20 += 1` par attaque enregistree ; appelee par `IdunBattle.Operations.RegisterAttackOperation$$Execute`,
+seul appelant). Lecteur cote formule : `IdunBattle.Entities.Formulas.TotalAttacksMadeFormula$$Calculate`
+(`return *(uint *)(comp + 0x20)`). La divergence PREDICTION (+0x20) / COMBAT (+0x30) est bien NATIVE :
+`IdunBattle.Entities.Effects.Loki.MartialInspiration_ExtraDamageEffect$$GetBuffPct` =
+`Multiply(ConfigVar(0xa), TotalTurnsWithAttacksMade)`.
+
+Terme d'action de #64, relu : `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`
+= `Fix64.op_Implicit(0)` ; `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`
+et `IdunBattle.AI.Playbook.Idun.NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`
+= `Fix64.op_Implicit(1)`. `MartialInspirationPlaybook` n'override pas (il herite du 0).
+
+### 3. Le vrai residu : les deux etaient portes mais **NON GARDES**
+
+**(a) Canal `actorStats` par-pas -- GARDE LIVREE.** Aucun test ne le retenait : ni `actorStats`, ni
+`total_attacks_made`, ni `MartialInspiration`, ni `1191` n'apparaissaient dans `scripts/python/tests/`.
+
+- **Montage** : `scripts/python/probe_17_martial_inspiration.py` (fixture `martial_inspiration_case`).
+  `custoBladeChampion` amene au CONTACT d'une cible a PV forces tres haut ; predicteur COLD construit
+  UNE SEULE FOIS puis `refresh_shields` par tour -- la couture reelle de `engine_validate.run_agreement`
+  (le reconstruire chaque tour masquerait le defaut, `build_predictor` re-captant `actorStats` seul).
+  A chaque tour : compteur LIVE, `aiPlaybookPredict`, port FRAIS, port dont le SEUL canal
+  `actorstats_by_id` est re-ecrit avec l'instantane du tour 0.
+- **Garde** : `scripts/python/tests/engine/test_martial_inspiration_actorstats_live.py` (3 tests).
+
+Chiffres (MC1_67, seed 11911 ; bornes RAW de la cible principale) :
+
+| tour | `TotalAttacksMade` | natif | port FRAIS | port canal PERIME |
+|---|---|---|---|---|
+| 0 | 0 | [2993, 4488] | [2993, 4488] | [2993, 4488] |
+| 1 | 2 | [3974, 5960] | [3974, 5960] | [2394, 3590] |
+| 2 | 4 | [5553, 8329] | [5553, 8329] | [2394, 3590] |
+
+La loi native se lit au chiffre pres : `3974/2394 = 1.66 = (33x2+100)/100` et
+`5553/2394 = 2.3196 ~ (33x4+100)/100`. Le tour 0 n'est PAS discriminant (buff = 1) -- d'ou l'exigence,
+dans la garde, qu'au moins un tour ait un compteur > 0.
+
+**MORDANT PROUVE PAR MUTATION** : annuler la re-capture d'`actorStats` dans `refresh_shields` (le
+correctif #33) fait rougir les DEUX tests concernes, sur les DEUX couples -- port [3591, 5385] vs natif
+[5961, 8940] au tour 1, [3591, 5385] vs [8330, 12494] au tour 2 (MC1_63).
+
+**GENERALISATION + ATTRIBUTION (2e couple `MC1_63`/11922)** : accord bit-exact aux tours 1 et 2
+(natif = port = [5961, 8940] puis [8330, 12494]), avec des magnitudes tres differentes de MC1_67.
+Au tour 0 en revanche, ecart d'UNE unite ([4490, 6732] natif vs [4489, 6731] port). Le montage embarque
+un **CONTROLE** : la MEME confrontation sur l'attaque NORMALE (69), meme pas, meme tuile, meme cible --
+qui ne passe NI par `_martial_inspiration_inputs` NI par le compteur. Il diverge AUSSI a ce tour-la
+(natif rawMin 9486 vs port 9483) et est bit-exact aux tours 1 et 2. L'ecart est donc AVAL (pipeline de
+degat au tout premier pas de bataille), pre-existant, et la garde l'ATTRIBUE au lieu de le masquer :
+un ecart de 1191 SANS ecart du controle rougit.
+
+**(b) Le +1 de #64 -- NON GARDE, et MESURE tel quel.** Mutation adversariale (`calculate_custom_utility`
+force a 0.0, walk 2468 20 pas) : `step 18 u77 : ABIL native(ab=69,tgt=91) engine=ability(ab=1191,tgt=91)
+[MISS]`, ability **12/12 -> 11/12**. Le residu historique se ROUVRE exactement -- donc le fix est vivant,
+**et rien dans `tests/` ne le retient** : son seul datapoint vit dans un outil de diagnostic
+(`engine_agreement_stages.py`), pas dans une garde. Residu NOMME, non traite ici.
+
+### 4. Non couvert
+
+- La face **COMBAT** de 1191 n'est pas portee (1191 absente d'`ABILITY_CLASSES`, effet
+  `MartialInspiration_ExtraDamage` = 1408 enum-only) : c'est un item de `case-220` (P0-WALK), pas de #17.
+- Le compteur **+0x30** (`TotalTurnsWithAttacksMade`) qu'utilise la face combat n'a aucun canal offline.
+- La garde ne couvre qu'un porteur (`custoBladeChampion`) : les autres consommateurs du registre
+  `_MAKE_DMG_INPUT_OVERRIDES` ne sont pas exerces par elle.
+
+
+## #17-move -- VERDICT FINAL des 2 residus `move` : UN est RNG, l'AUTRE ne l'a jamais ete
+
+**Le libellé « 1 downstream + 2 over-fire RNG » est PERIME sur les deux termes.** Re-derivation
+integrale du batch GEN sur `rnca9r7q6c` (2026-07-30, `engine_agreement_stages --build --seeds
+12345,2468,54321,1357 --steps 20`, board MC1_67).
+
+### 1. Le compte re-derive (AVANT tout correctif de cette tranche)
+
+    [ability] compares=53 hits=50 (94%)   non-attack-oracle 1 | prediction 1 | enumeration 1
+    [move]    compares=65 hits=61 (93%)   pos-downstream-of-ability 2 | generator-overfire 2
+    prediction : 33/35 (94%), feed=0, logic=2      utilite : 35/35 (100%)
+
+Les DEUX `pos-downstream-of-ability` sont sur le seed 12345 (s13 u89, s14 u93) et sont, l'un comme
+l'autre, en aval d'un miss d'ability du MEME pas : ce ne sont pas des residus `move` autonomes. Le
+compte de la fiche backlog (« 2 residus move ») etait donc juste ; c'est le detail « 1 downstream »
+qui ne l'etait plus.
+
+Les deux `generator-overfire` :
+
+| datapoint | acteur | natif | port |
+|---|---|---|---|
+| `2468 s4` | u87 `deathBlightbringer` | `move -> (1,2)` | `ability 1040 SpawnPoxwalkers` (util 1.5), sur place |
+| `1357 s6` | u85 `tyranParasite` | `move -> (3,2)` | `ability 69 -> u93` depuis (1,3) |
+
+### 2. `2468 s4` -- RNG, et la probabilite est desormais CHIFFREE
+
+`IdunBattle.AI.Playbook.Loki.SpawnPoxwalkersPlaybook$$GetUseProbability(unit)` =
+`Fix64(GetStat(unit, 0xc = TurnsStarted)) * Fix64.FromIntFraction(1, 5)` = **turnsStarted / 5**.
+
+`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)` a TROIS branches, relues :
+
+    p = <vtable +0x1f8> GetUseProbability(unit)
+    if (p >= Fix64(1)) return true;        # DETERMINISTE
+    if (p <= Fix64(0)) return false;       # DETERMINISTE
+    return <random @this+0x30>.NextBool(p) # TIRAGE
+
+Etat mesure au pas 4 : `turnsStarted = 1`, `unitFlags = []` -> **p = 0.2**, le natif a tire FALSE et a
+bouge. Au pas 5 il caste (le port MATCHE). Echange 1-pour-1, **non portable dans un moteur
+deterministe** : l'etiquette « over-fire RNG » est JUSTE pour celui-ci, et elle est maintenant adossee
+a une formule, plus a une impression. (Les deux demi-plans deterministes sont hors d'atteinte ici :
+`p >= 1` demande `ts >= 5`, `p <= 0` demande `ts = 0`, or `StartTurnOperation` incremente `ts` avant
+toute activation.)
+
+### 3. `1357 s6` -- PAS RNG DU TOUT : un gate DETERMINISTE manquant. PORTE.
+
+> **Pourquoi cette requalification compte plus que le +1 d'agreement qu'elle rapporte.** Un bug
+> DETERMINISTE range dans la case « bruit stochastique » devient **inexplicable a jamais** : plus
+> personne ne cherche la cause d'un tirage, par definition. La ligne « 2 over-fire RNG » a tenu
+> des semaines sur un item qui n'avait aucune part d'alea -- le flag `ActiveAbilityUsed` etait
+> DEJA POSE dans l'etat, lisible d'un `combatSnapshot`. L'etiquette elle-meme etait le verrou.
+
+Etat mesure au pas 6 : `u85 tyranParasite`, `unitFlags = [2]` = **`UnitFlag.ActiveAbilityUsed`** (pose
+au pas 5 par son cast de `1121 ItItches`), `turnsStarted = 1`. Or la PREMIERE instruction de l'etat 0 de
+`IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` est :
+
+    if (IdunBattle.Entities.UnitExtensions$$HasFlag(<unit @+0x20>, 2)) return 0;
+
+Le generateur rend ZERO action -- **avant** `GetUnitAbilitiesInOrder`, donc l'attaque NORMALE tombe avec
+les actives (meme liste, cf. #64). `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
+instancie SIX generateurs de cette MEME classe (5 tiers NonComparable + 1 Comparable) ; le
+`MovementActionGenerator` est d'une AUTRE classe et n'est pas gate. D'ou le comportement observe : plus
+aucune ability, le deplacement seul subsiste.
+
+**Ce qui rend l'etat atteignable** : `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution`
+lit DEUX virtuals INDEPENDANTS, `SetsActiveAbilityUsedFlag` (-> flag 2) et `SetsEndTurnFlags` (-> fin de
+tour). Deux abilities du binaire overrident le second sans le premier (`NO_END_TURN_ABILITY_TYPES` prive
+de `NO_ABILITY_USED_FLAG_ABILITY_TYPES`, `engine/runner/abilities/base.py`) : **1121 ItItches**
+(tyranParasite) et **1063 FireAndReposition** (Calandis, hors pool). L'unite reste activable et porte
+deja son flag.
+
+**Port** (mirror 1:1) :
+- `engine/ai/action_generators.py` : nouvelle base `ActiveAbilityActionGenerator` (dont derivent
+  `NonComparableGenerator` et `ComparableAbilityGenerator`, comme les six instances natives) portant
+  `unit_action_gate` ; les deux `generate` rendent `None` quand il coupe ;
+- `engine/playbook/scene.py` : canal `active_ability_used_by_id` + accesseur `has_used_active_ability`,
+  MEME canal et MEME tri-etat que `moved_by_id` (`combatSnapshot.unitFlags` live via
+  `_unit_flag_from_snapshot`, ECS via `from_state`) ; re-capture par pas dans `refresh_shields` -- le
+  flag est aussi volatil que `Moved` (pose au cast, purge par `UnitFlagsComponent$$RemoveTurnFlags`) ;
+- `engine/runner/components.py` : `unit_has_used_active_ability` (lecture ECS, pendant de
+  `unit_has_moved`).
+- **TRI-ETAT** : capteur non mesure (`None`) -> le gate reste OUVERT. Couper sur une non-mesure
+  supprimerait des attaques legitimes ; laisser passer ne fait que conserver le defaut connu.
+
+**Effet mesure** (memes seeds, memes boards, meme build, AVANT/APRES) :
+
+| axe | AVANT | APRES |
+|---|---|---|
+| move (GEN 4 seeds) | 61/65 (93 %) | **62/65 (95 %)** |
+| dont `generator-overfire` | 2 | **1** (le Poxwalkers RNG) |
+| ability (GEN 4 seeds) | 50/53 (94 %) | 50/53 (94 %) -- inchange |
+| seed 1357 | pos 15/16, ability 13/13 | **pos 16/16**, ability 13/13 |
+| prediction / utilite | 33/35 / 35/35 | 33/35 / 35/35 -- inchange |
+
+**NON-REGRESSION sur la REFERENCE, prouvee PAR MUTATION** (777 / 909 / 31337, 20 pas) : le MEME walk
+re-joue avec `unit_action_gate` NEUTRALISE rend des chiffres IDENTIQUES a ceux du port gate --
+777 `pos 16/17 ability 16/16 stay 3/3`, 909 `pos 16/16 ability 6/6 stay 1/1`,
+31337 `pos 18/18 ability 13/13 stay 1/1`. Sur ces trois seeds le gate est donc un **no-op strict** :
+aucune regression n'y est possible, et le +1 de GEN n'est pas paye ailleurs.
+
+**RE-JOUE APRES CHAQUE REBASE**, et le batch GEN rend les MEMES chiffres a chaque fois -- ability
+50/53 (94 %), move **62/65 (95 %)**, `generator-overfire` **1** (`2468 s4`, le Poxwalkers RNG),
+`pos-downstream-of-ability` 2 ; par seed : 12345 `pos 13/15 ability 10/13`, 2468 `16/17 / 12/12`,
+54321 `17/17 / 15/15`, 1357 `16/16 / 13/13`. QUATRE passes successives, sur quatre etats de
+`origin/master` differents :
+
+1. `#27-4g PlasmaGrenade` + `#27-r1 MassDriverAccelerator` (tous deux sur `CalculateCustomUtility`
+   et `_action_utility`) -- **31 passed**, puis **17 passed / 2 skipped**
+   (`test_move_tile_sweep_order_live` : skips = « pas 14 sans tie », condition de montage, PAS un cap
+   runner -- et `test_min_distance_move_leaf_live`) ;
+2. `#301` (killTrigger `+0x98`) -- **8 passed** sur les gardes + `test_stay_in_place_live` ;
+3. `#302` (route de decision a cibles TUILE) -- **41 passed** (les 2 gardes neuves,
+   la **garde croisee** `test_plagueburst_mortar_decision_live` = la route #302 elle-meme,
+   `test_playbook_live`, `test_stay_in_place_live`, `test_hammer_of_wrath_corpse_decision_live`,
+   `test_stikkbomb_decision_live`, `test_chronometron_decision_live`), puis **17 passed / 2 skipped**
+   (memes 2 skips de montage). L'interaction avec la route tuile est MESUREE, pas supposee : voir
+   « PORTEE DU GATE vs la route a cibles TUILE » ci-dessous ;
+4. `#303` (`FabricatorClawArray` -- selectors / `attack_query` / triggers, face COMBAT) --
+   **21 passed** (2 gardes neuves + `test_plagueburst_mortar_decision_live` + `test_playbook_live`
+   + `test_stay_in_place_live`), batch GEN inchange.
+
+**Garde** : `scripts/python/tests/engine/test_active_ability_used_gate_live.py` (3 tests), montage
+`scripts/python/probe_17_active_ability_used_gate.py` (fixture `active_ability_used_case`). Deux
+couples (board, seed). Le montage DRIVE la geometrie (cible amenee au contact, caster immobile pour
+garder son deplacement), casse le flag par un cast reel de 1121 depuis la tuile courante, puis mesure
+TROIS decisions sur le MEME etat : natif (`aiDryRunAllUnits`), port gate, port dont le seul canal
+`active_ability_used_by_id` est VIDE.
+
+| montage | flags apres cast | natif | port GATE | port SANS gate |
+|---|---|---|---|---|
+| MC1_67 / 12100 | `[2]`, `hasActionLeft=True` | `FinishUnitTurnMessage` | `move (1,1)` | **`ability 69 -> u77`** |
+| MC1_63 / 12163 | `[2]`, `hasActionLeft=True` | `MoveUnitMessage` | `move (0,3)` | **`ability 69 -> u49`** |
+
+Le regime TEMOIN (avant le cast) est mesure dans le meme montage : natif et port proposent tous deux
+une ability. Et l'attaque normale reste LEGALE apres le cast (`abilityTargets` : `targetCount = 1`) --
+`AttackQuery$$GetValidTargets` ne gate pas sur le flag : c'est precisement ce qui rendait l'over-fire
+possible.
+
+**PORTEE DU GATE vs la route a cibles TUILE de #302 -- MESUREE, pas supposee.** #302 a ouvert une
+route de generation neuve (`nonattack_candidates`, domaine de cible TUILE, 1er membre `1169
+PlagueburstMortar`). Question : le gate la couvre-t-il, et est-ce ce que fait le natif ?
+
+* **Cote NATIF, c'est STRUCTUREL** : `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
+  (relu sur `rnca9r7q6c`) instancie **SIX** generateurs, TOUS par
+  `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator$$.ctor` -- les 5 tiers NonComparable
+  (`dict[1000]`, `[100]`, `[0]`, `[-100]`, `[-1000]` sur `this+0x40`) puis le set `special`
+  (`this+0x38`). Il n'existe **aucune autre classe** de generateur d'abilities, donc aucune route qui
+  echapperait au gate ; et celui-ci precede `GetUnitAbilitiesInOrder`, donc il ignore le domaine de
+  cible (entite comme tuile).
+* **Cote PORT, c'est MESURE** : le probe compte les appels a `nonattack_candidates` pendant
+  `engine_decide`, sur le MEME etat (apres le cast). `MC1_67`/12100 comme `MC1_63`/12163 --
+  **gate actif : 0 appel ; gate neutralise : 1 appel**. La route tuile vit bien a l'interieur de
+  `ComparableAbilityGenerator.generate`, donc en AVAL du gate. Assertion permanente :
+  `_assert_tile_target_route_is_covered` ; mordant re-prouve par mutation (gate neutralise -> la
+  garde rougit avec `apres(gate) = 1 appel`).
+  (`nonattack_cands = 0` sur ces rosters -- aucun porteur de 1169 : c'est le compteur d'APPELS qui
+  tranche, la route est court-circuitee avant meme d'enumerer.)
+  ⚠ Le compte AVANT le cast n'entre PAS dans le verdict : le tactic s'arrete au PREMIER generateur
+  non-nul, donc si une NonComparable sort d'abord (mesure `MC1_63`/12163 : le port propose `1121`)
+  le generateur Comparable n'est jamais atteint -- sans que le gate y soit pour quoi que ce soit.
+  Une premiere version de cette garde s'y appuyait et rougissait a tort sur le 2e board.
+* **Garde croisee** : `tests/engine/test_plagueburst_mortar_decision_live.py` (la route #302
+  elle-meme) est rejoue dans la passe post-rebase.
+
+**MORDANT PROUVE PAR MUTATION** : neutraliser `unit_action_gate` fait rougir 2 des 3 tests, sur les
+DEUX couples (`port GATE` redevient `ability 69 -> u49` sur MC1_63, `ability 69 -> u77` sur MC1_67).
+
+### 4. Non couvert
+
+- Le residu `2468 s4` (Poxwalkers) **reste ouvert et le restera** : c'est un tirage.
+- L'accord **move-vs-finish** apres le gate n'est PAS couvert : sur `MC1_67` le natif rend
+  `FinishUnitTurnMessage` (son meilleur deplacement est la tuile COURANTE -> action nulle) la ou le port
+  rend un `move` a utilite negative. Le `MovementActionGenerator` du port rend TOUJOURS une action --
+  ecart DISTINCT, nomme, non traite.
+- Le second porteur du regime (`1063 FireAndReposition`, Calandis) est hors du pool spawnable ; la
+  generalisation se fait sur deux couples (board, seed) du MEME porteur.
+- Les deux `pos-downstream-of-ability` du seed 12345 restent : ils sont en aval des misses d'ability
+  du meme pas (s13 `prediction`, s14 `enumeration`), hors perimetre de #17.

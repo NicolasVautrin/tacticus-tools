@@ -138,7 +138,41 @@ class ActionGenerator:
         raise NotImplementedError
 
 
-class NonComparableGenerator(ActionGenerator):
+class ActiveAbilityActionGenerator(ActionGenerator):
+    """Base commune aux générateurs qui MIRRORENT
+    `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator` — les 5 tiers NonComparable ET le
+    tier Comparable. `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
+    en instancie SIX de cette MÊME classe ; le `MovementActionGenerator` en est une AUTRE, et c'est
+    exactement ce qui rend le gate ci-dessous asymétrique (les abilities sont coupées, le mouvement
+    reste)."""
+
+    def unit_action_gate(self, ctx) -> bool:
+        """PREMIÈRE instruction de l'état 0 de
+        `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` :
+
+            if (IdunBattle.Entities.UnitExtensions$$HasFlag(<unit @+0x20>, 2)) return 0;
+
+        `UnitFlag.ActiveAbilityUsed = 2` (cf. `UnitFlagsComponent.ACTIVE_ABILITY_USED`). Le générateur
+        rend alors ZÉRO action — AVANT `GetUnitAbilitiesInOrder`, donc l'attaque NORMALE tombe avec
+        les actives (elles vivent dans la même liste, cf. #64). Le tactic passe au générateur suivant
+        et finit sur `MovementActionGenerator`, qui n'est PAS de cette classe : une unité qui a déjà
+        consommé son action peut encore SE DÉPLACER, et rien d'autre.
+
+        Poseur natif du flag : `UseActiveAbilityBehaviour`/`ActiveAbilityOperation` via
+        `AActiveAbility.SetsActiveAbilityUsedFlag` (cf. `runner/abilities/base.py`) ; purge à l'entrée
+        de tour par `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`.
+
+        TRI-ÉTAT (`Scene.has_used_active_ability`) : `None` = capteur `unitFlags` non mesuré -> on NE
+        COUPE PAS (comportement strictement antérieur). Couper sur une non-mesure supprimerait des
+        attaques légitimes, ce qui est la dégradation dangereuse ; laisser passer ne fait que
+        conserver le défaut connu."""
+        scene = getattr(ctx, "scene", None)
+        if scene is None:
+            return True
+        return not bool(scene.has_used_active_ability(ctx.uid))
+
+
+class NonComparableGenerator(ActiveAbilityActionGenerator):
     """UN générateur NonComparable de tier `priority` (= `dict[get_Priority]`, `IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists`). Évalue les abilities NonComparable de l'unité DE CE TIER ; chaque
     `<Playbook>.EvaluateNonComparable` score une heuristique ENTIÈRE (pas de terme Tile7), gate par
     `MIN_UTILITY` (seuil du cctor). `choose_action(priority=…)` = `Bucket.ChooseAction` (argmax STRICT).
@@ -150,6 +184,8 @@ class NonComparableGenerator(ActionGenerator):
         self.priority = priority
 
     def generate(self, ctx) -> dict | None:
+        if not self.unit_action_gate(ctx):
+            return None                    # HasFlag(unit, ActiveAbilityUsed=2) -> generateur MUET
         nc_ctx = playbooks.NCContext(
             uid=ctx.uid, origin=ctx.origin, reach_nc=ctx.reach_nc, epos=ctx.epos, fpos=ctx.fpos,
             enemies=ctx.enemies,   # id+pos (meme ordre que epos) -> cible Gauntlets (#117)
@@ -170,7 +206,7 @@ class NonComparableGenerator(ActionGenerator):
                 "to": bc["to"], "util": bc["pred"]}
 
 
-class ComparableAbilityGenerator(ActionGenerator):
+class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
     """Tier Comparable (attaque normale INCLUSE + spéciales d'attaque + soins). DISPATCHE par playbook :
     `LoadPlaybook(ability)` (NormalAttack pour l'attaque normale, Default/spéciale sinon) puis
     `playbook.calculate_action_utility(ctx, tuile, cible)` (= `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` :
@@ -702,6 +738,8 @@ class ComparableAbilityGenerator(ActionGenerator):
         return out
 
     def generate(self, ctx) -> dict | None:
+        if not self.unit_action_gate(ctx):
+            return None                    # HasFlag(unit, ActiveAbilityUsed=2) -> generateur MUET
         cands: list = []  # {target, ability, to:(c,r)|None, pred, full}
         best = self._best_attack(ctx)
         if best and best[0] > 0:   # best[0] = u (dégât) > 0 -> ShouldExecute

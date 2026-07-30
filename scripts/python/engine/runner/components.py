@@ -1101,6 +1101,24 @@ def unit_has_teleported(state, unit_id: int) -> bool:
     return bool(fl is not None and fl.has(UnitFlagsComponent.TELEPORTED))
 
 
+def unit_has_used_active_ability(state, unit_id: int) -> bool:
+    """`HasFlag(unit, UnitFlag.ActiveAbilityUsed = 2)` — l'unite a consomme son ACTION ce tour.
+
+    Meme store que `unit_has_moved` (le `UnitFlagsComponent` unique) : pose par la queue de cast
+    (`AActiveAbility.SetsActiveAbilityUsedFlag` -> `UnitFlags.Add(2)`, cf.
+    `runner/abilities/base.py`), purge a l'entree de tour par
+    `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`, et seede depuis le live
+    par `snapshot._load_unit_flags`.
+
+    CONSOMMATEUR : le gate d'entree du generateur d'abilities de l'IA
+    (`IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`,
+    1re instruction : `if (HasFlag(unit, 2)) return 0`). Composant absent = flag absent = n'a pas
+    encore agi."""
+    e = state.get_entity(unit_id)
+    fl = e.get_component(UnitFlagsComponent) if e is not None else None
+    return bool(fl is not None and fl.has(UnitFlagsComponent.ACTIVE_ABILITY_USED))
+
+
 def update_charging(state, unit_id: int, old_pos, new_pos) -> list:
     """`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging(this, unit, newPosition, oldPosition,
     unitComponent)` — MIRROR du decompile :
