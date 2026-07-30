@@ -263,26 +263,40 @@ def heal_action_utility(events) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════
-# PARTIE 4 — prédiction de RÉPARATION (repair) iso-AI + utilité (RE ghidra gqfc5mff6c)
+# PARTIE 4 — prédiction de RÉPARATION (repair) iso-AI + utilité (RE ghidra rnca9r7q6c, #45d)
 # ═══════════════════════════════════════════════════════════════════════════════════════
-# Répare les unités MÉCANIQUES (Adeptus Mechanicus / Necron). Structure quasi identique au soin
-# (PARTIE 3) MAIS sur DEUX stats « fill-up » — Health (id 5) ET Armor (id 4, StatType.Armor) —
-# d'où une utilité à DEUX termes. La chaîne native est portée 1:1 (VA citées), 100% OFFLINE.
+# Répare les unités MÉCANIQUES (trait `Mechanical`) ; le réparateur porte le trait `Mechanic`
+# (`Repair` = ActiveAbilityType 28, granted). Structure quasi identique au soin (PARTIE 3),
+# et comme lui la magnitude vient de l'ARME du caster. Chaîne portée 1:1, 100 % OFFLINE.
 #
-#   IdunBattle.Core.Services.DamagePrediction$$PredictRepair → IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp (×2)
-#       repairAmount = floor((floor(modAdd) + base) × modMul)   [RepairModifier côté caster,
-#           transform Fix64 (add, mul) ; no-op si pas de modificateur ⇒ repairAmount = base]
-#       (+ caps group GetGroupUnitHealLimit / boss comme le soin) ; puis sur CHAQUE stat :
-#       fill_i = MaxFillUp = min(repairAmount, GetStat(i,Maximum) − GetStat(i,Current))
-#   IdunBattle.AI.Utilities.RepairedAmountUtility$$EvaluateRepairInSteps (iter IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext ; IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor)
-#       U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod
-#       IdunBattle.AI.Utilities.RepairedAmountUtility$$GetMaxHealth : denom PV = GetStat(Health,Maximum)+1 (boss → config const 0xa9)
+#   IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount
+#       = `Multiply(StatAmount(weapon), Max(WeaponHighestHits(weapon), Get(1)))`
+#         (arbre DSL identique à `HealAbility$$HealAmount`) = attack RÉSOLUE × max(hits, 1)
+#   IdunBattle.Core.Services.DamagePrediction$$PredictRepair → IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp
+#       repairAmount = trunc((trunc(modAdd) + base) × modMul)   [RepairModifier, gate `IsActor`
+#           (caster) ; no-op si pas de modificateur ⇒ repairAmount = base]
+#       (+ cap group `GetGroupUnitHealLimit` si scope==1, + cap boss `GetStat(Health,Initial)`)
+#       fill = MaxFillUp = min(repairAmount, CurrentMaximumValue − current)
+#       ⚠ UNE SEULE stat : le composant lu est celui de `GetFillUpStatComponent(unit, 5=Health)`
+#         (même triplet `FUN_18000ed10(<klass Health>, target, <componentId Health>)`). Le retour
+#         est `CONCAT44(fill, currentHealth)` = struct 8 octets {currentHealth, fillUp} — d'où
+#         l'absence de volet Armor. Cf. §RÉSIDUS ci-dessous.
+#   IdunBattle.AI.Utilities.RepairedAmountUtility$$EvaluateRepairInSteps (corps = iter
+#       IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext)
+#       U = fill/(maxHP + 1) × W[0] × bossMod          — UN SEUL yield, UN SEUL terme
+#       IdunBattle.AI.Utilities.RepairedAmountUtility$$GetMaxHealth : denom = GetStat(Health,Maximum)+1
 #       IdunBattle.AI.Utilities.RepairedAmountUtility$$GetUnitUtilityModifier : bossMod = 2 si boss sinon 1.
 #       ⚠ PAS de friendSign (contrairement au soin) : on ne répare QUE ses propres machines.
 #
-# StatType (dump.cs @863349) : Armor=4, Health=5. StatPart : Current=0, Maximum=2, Initial=3.
-# Les poids W_HP=100 / W_ARMOR=50 (IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor) vivent desormais dans
-# engine.utilities.repair (RepairedAmountUtility).
+# RÉSIDU — le terme ARMOR n'existe PAS sur ce build. `RepairedAmountUtility$$.cctor` écrit BIEN
+# deux poids (`W[0] = Fix64.FromInt(100)` à statics+0, `W[1] = Fix64.FromInt(0x32=50)` à +8), mais
+# les xrefs du bloc statique sont exhaustifs : `.cctor` (2 écritures), `MoveNext` (2 lectures :
+# le check `cctor-done` et `**(statics+0xb8)` = W[0] SEUL) et `UtilitiesDatabase.InitializeUtilities`.
+# ⇒ `W[1]` est de la DONNÉE MORTE. Un port à deux termes surévaluerait la réparation dès qu'une
+# cible aurait de l'Armor manquante. (Inerte dans tout montage runner mesuré : `observeBattle`
+# rend `armor = armorMax = 0` sur toutes les unités.)
+# StatType (dump.cs) : Armor=4, Health=5. StatPart : Current=0, Maximum=2, Initial=3.
+# Le poids W_HP=100 vit desormais dans engine.utilities.repair (RepairedAmountUtility).
 
 
 def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
@@ -292,10 +306,35 @@ def repair_amount(base: int, mod_add: int = 0, mod_mul: float = 1.0) -> int:
     intermédiaire dans le fold (RE #45d).
 
     `base` = magnitude brute de l'ability de réparation (StatAmount(weapon) × max(hits,1), comme
-    `HealAbility.HealAmount`). `mod_add`/`mod_mul` = composantes Fix64 (Σ additifs, Π multiplicatifs)
-    du RepairModifier évalué sur les effets de la CIBLE (`calculate_repair_modifier_for_prediction`) ;
-    par défaut 0 / 1.0 → no-op ⇒ renvoie `base`."""
+    `HealAbility.HealAmount` — cf. `repair_amount_weapon`). `mod_add`/`mod_mul` = composantes Fix64
+    (Σ additifs, Π multiplicatifs) du RepairModifier évalué sur les effets de la CIBLE
+    (`calculate_repair_modifier_for_prediction`) ; par défaut 0 / 1.0 → no-op ⇒ renvoie `base`."""
     return int((int(mod_add) + int(base)) * mod_mul)
+
+
+def repair_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount` — branche ARME RÉELLE,
+    pendant EXACT de `heal_amount_weapon` (#45c/#55). L'arbre DSL lu au décompilé est
+    `Multiply(StatAmount(this.weapon), Max(WeaponHighestHits(this.weapon), Get(1)))` : mêmes trois
+    feuilles `DSLFormulas` (`StatAmount` / `WeaponHighestHits` / `Max`) et même ordre que
+    `HealAbility$$HealAmount` — donc `StatAmount(weapon)` = la stat Attack RÉSOLUE du caster
+    (`UnitContext.attack`) et `weapon_highest_hits` = `UnitContext.normal_weapon_hits` (gameconfig).
+
+    C'est la magnitude du `Repair` GÉNÉRIQUE (ActiveAbilityType 28) que le trait `Mechanic` accorde,
+    et le texte i2 du trait la dit mot pour mot : « The amount of Health restored equals the
+    Mechanic's Damage multiplied by the highest number of hits of any of their weapons. » AUCUN des
+    porteurs du trait (admecDominus / admecManipulus / necroSpyder / orksBigMek / votanIronmaster)
+    ne porte de variable `hpToRepair` en Comparable — `repair_amount_config` rend donc None pour
+    tous, et c'est CETTE branche qui alimente la prédiction.
+
+    CONFRONTÉ LIVE (#45d, runner 777/MC1_67, `pairUtility` = `ComparablePlaybook.
+    CalculateUtilityFromPredictions` natif) sur le cas DISCRIMINANT `repairAmount < missing` :
+    admecDominus attack 5022 × 1 hit vers necroWarden à 14276/20000 (missing 5724) →
+    natif 25.108745 == `min(5022, 5724)/20001 × 100`, alors que l'ancienne saturation
+    `fill = missing` donnait 28.618569. Le facteur `× hits` est tranché par le MÊME jeu de mesures :
+    necroSpyder attack 1205 × 5 hits = 6025 ≥ 5724 → natif 28.618569 (saturé) ; sans le × hits il
+    aurait valu 1205/20001 × 100 = 6.02."""
+    return int(attack_stat) * max(int(weapon_highest_hits), 1)
 
 
 def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -> tuple:
@@ -398,24 +437,27 @@ def repair_amount_config(caster_visual_id: str | None, active_level: int,
 
 @dataclass
 class RepairPrediction:
-    """Sortie 4-ints de `PredictRepair` : PV + Armor courants + remplissage effectif sur chacun."""
+    """Sortie de `PredictRepair` = `RepairPredictionResult`, struct de **8 octets** :
+    `{ int currentHealth; int fillUp; }` (le natif renvoie `CONCAT44(fillUp, currentHealth)`).
+    PAS de volet Armor — cf. le RÉSIDU en tête de PARTIE 4."""
     current_hp: int
-    current_armor: int
     fill_hp: int
-    fill_armor: int
 
 
 def predict_repair_effective(repair_amount_value: int,
                              target_current_hp: int, target_max_hp: int,
-                             target_current_armor: int = 0, target_max_armor: int = 0,
                              boss_max_hp: int | None = None,
                              group_limit: int | None = None) -> RepairPrediction:
-    """`IdunBattle.Core.Services.DamagePrediction$$PredictRepair → `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp (×2).
+    """`IdunBattle.Core.Services.DamagePrediction$$PredictRepair` → `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp`.
 
-    Remplissage EFFECTIF (plafonné aux PV/Armor manquants) sur les DEUX stats réparables. Le
-    `repair_amount_value` doit déjà inclure le modificateur caster (cf. repair_amount()). Caps
-    optionnels `group_limit` (soin/réparation de groupe) et `boss_max_hp` (cible boss → cap PV à
-    `bossInitialMaxHP − curHP` = GetStat(Health,Initial)). Renvoie les 4 entiers (>= 0)."""
+    Ordre natif LU : (1) RepairModifier (déjà appliqué en amont par `repair_amount`) ;
+    (2) `curHP = GetStat(target, Health, Current)` ; (3) si `scope == 1` :
+    `amount = Min(amount, GetGroupUnitHealLimit(target, curHP))` ; (4) si `IsBoss(target)` :
+    `amount = Min(amount, GetStat(target, Health, Initial) − curHP)` ; (5) `fill = MaxFillUp(
+    <FillUpStatComponent Health>, amount) = Min(amount, CurrentMaximumValue − current)`.
+
+    `boss_max_hp` = `GetStat(Health, Initial)` de la cible boss (None = cible non-boss).
+    `group_limit` = `GetGroupUnitHealLimit` (None = gate `scope != 1`, l'état mesuré des chemins IA)."""
     amt = int(repair_amount_value)
     if group_limit is not None:
         amt = min(amt, int(group_limit))
@@ -423,16 +465,13 @@ def predict_repair_effective(repair_amount_value: int,
         amt = min(amt, int(boss_max_hp) - int(target_current_hp))
     amt = max(0, amt)
     fill_hp = max(0, min(amt, int(target_max_hp) - int(target_current_hp)))
-    fill_armor = max(0, min(amt, int(target_max_armor) - int(target_current_armor)))
-    return RepairPrediction(current_hp=int(target_current_hp), current_armor=int(target_current_armor),
-                            fill_hp=fill_hp, fill_armor=fill_armor)
+    return RepairPrediction(current_hp=int(target_current_hp), fill_hp=fill_hp)
 
 
-def repair_utility(fill_hp: int, target_max_hp: int,
-                   fill_armor: int, target_max_armor: int, is_boss: bool) -> float:
+def repair_utility(fill_hp: int, target_max_hp: int, is_boss: bool) -> float:
     """Wrapper mince -> `REPAIR_UTILITY.evaluate` (`IdunBattle.AI.Utilities.RepairedAmountUtility`,
-    corps dans la classe : `U = (fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50) × bossMod`)."""
-    return REPAIR_UTILITY.evaluate(fill_hp, target_max_hp, fill_armor, target_max_armor, is_boss)
+    corps dans la classe : `U = fill_hp/(maxHP+1) × 100 × bossMod` — UN SEUL terme)."""
+    return REPAIR_UTILITY.evaluate(fill_hp, target_max_hp, is_boss)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════════

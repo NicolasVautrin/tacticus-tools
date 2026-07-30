@@ -10,7 +10,8 @@ prédiction->utilité (Σ damage_composite + Tile(7)) est mutualisé dans la bas
   `prediction.make_damage_predictions` (cible principale + AoE ; None/[] pour summon/buff/heal = NON-attaque).
 - `HealPlaybook` (tag 18) : soin = `HealUtility IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext` (heal_utility) + CustomUtility (TwistedScience).
   Gate `IdunBattle.AI.Playbook.Common.HealPlaybook$$ShouldExecute` : pred > 0.
-- `RepairPlaybook` (tag 28) : DORMANT (prédiction repair non-dégât, pas de repair dans les batailles testées).
+- `RepairPlaybook` (tag 28) : réparation générique du trait `Mechanic` — prédiction NON-dégât
+  (`MakeRepairPredictions` + `RepairedAmountUtility`), candidats montés par `_repair_candidates`.
 
 PRÉDICTEUR = `engine.playbook.prediction` (modèle objet : Scene + ability + services + ProbableDamageEvent).
 """
@@ -76,8 +77,13 @@ class HealPlaybook(ComparablePlaybook):
 
 
 class RepairPlaybook(ComparablePlaybook):
-    """Repair (tag 28) — DORMANT : la prédiction repair est non-dégât (idx 0x29), pas encore portée ;
-    aucune ability repair dans les batailles testées. `make_damage_predictions` -> None (pas d'attaque)."""
+    """`IdunBattle.AI.Playbook.Common.RepairPlaybook` (tag 28, granted par le trait `Mechanic`).
+    `MakeDamagePredictions` -> None : la réparation n'est PAS une attaque. Sa prédiction passe par
+    `MakeRepairPredictions` (dict {cible: RepairPredictionResult}) et son utilité par
+    `RepairedAmountUtility` — les DEUX sont portées, et la génération de candidats vit dans
+    `engine.ai.action_generators.ActionGenerators._repair_candidates` (magnitude
+    `repair_amount_weapon`, remplissage `predict_repair_effective`, utilité `repair_utility` ;
+    confronté live #45d au scoreur natif `pairUtility`)."""
     ability_id = int(ActiveAbilityType.Repair)  # 28 (#158)
 
     def make_damage_predictions(self, ctx, caster_tile, target, ability_id):

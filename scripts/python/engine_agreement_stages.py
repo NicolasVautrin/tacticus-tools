@@ -85,7 +85,8 @@ from engine.predict import (heal_amount_config, heal_utility,  # noqa: E402  (#4
                             heal_amount_weapon,                # #45c : branche ARME REELLE
                             predict_heal_effective,            # heal/repair : familles 2 et 4 de
                             predict_repair_effective,          # CalculateUtilityFromPredictions
-                            repair_amount_config, repair_utility)  # IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions)
+                            repair_amount_config, repair_amount_weapon,  # #45d : branche ARME repair
+                            repair_utility)  # IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions)
 from engine.utilities import damage_composite, tile_composite  # noqa: E402
 from engine.utilities.tile import (terrain_tile_effects,  # noqa: E402  (covers terrain TileEffects, case-37)
                                    apply_tile_attributes,  # noqa: E402  (isTerritory / effectType, #175)
@@ -348,21 +349,31 @@ class StageProbe:
                     "family": "heal", "feed": (False if delta else None)}
         if reps:
             nat = next((r for r in reps if r.get("targetId") == tgt), reps[0])
-            arm_max = int((ob or {}).get("armorMax") or 0)
-            arm_cur = int((ob or {}).get("armor") or 0)
             vid = next((u.get("visualId") for u in ctx.obs_units
                         if u.get("squadId") == uid), None)
             amt = repair_amount_config(vid, hc["active"], hc["multiplier"])
-            if amt is None:      # pas de hpToRepair Comparable -> saturation (approx #83)
-                off_hp, off_arm = max(0, hp_max - hp_cur), max(0, arm_max - arm_cur)
+            # #45d : pas de `hpToRepair` Comparable -> branche ARME REELLE de `RepairAbility$$
+            # RepairAmount` (`Multiply(StatAmount(weapon), Max(WeaponHighestHits,1))`), le cas de
+            # TOUS les porteurs du trait `Mechanic`. Mirror du generateur repair. Saturation =
+            # dernier filet (Scene absente).
+            if amt is None and getattr(ctx, "scene", None) is not None:
+                actx = ctx.scene.ctx(ctx.uid)
+                if actx is not None:
+                    amt = repair_amount_weapon(actx.attack, actx.normal_weapon_hits)
+            if amt is None:
+                off_hp = max(0, hp_max - hp_cur)
             else:
-                rp = predict_repair_effective(amt, hp_cur, hp_max, arm_cur, arm_max)
-                off_hp, off_arm = rp.fill_hp, rp.fill_armor
+                off_hp = predict_repair_effective(amt, hp_cur, hp_max).fill_hp
             delta = {}
+            # ⚠ #276-r1 : le decodeur hooks de `RepairPredictionResult` lit 16 octets d'une struct
+            # qui n'en fait que 8 (`ForRepairPrediction` stocke la valeur ENTIERE dans le
+            # pointer-size ecrit a `case+0xdc`, et `PredictRepair` rend `CONCAT44(fill,
+            # currentHealth)`). Seuls `+0x00`/`+0x04` sont dans la struct ; `hpFill`(+0x08) et
+            # `armorFill`(+0x0c) sont HORS. `armorFill` n'est donc plus compare (le natif n'a
+            # AUCUN volet Armor) ; `hpFill` reste confronte mais son cote NATIF est suspect tant
+            # que le decodeur n'est pas corrige (tache #276-r1, exige un reinject).
             if int(off_hp) != int(nat.get("hpFill") or 0):
                 delta["hpFill"] = {"off": int(off_hp), "nat": nat.get("hpFill")}
-            if int(off_arm) != int(nat.get("armorFill") or 0):
-                delta["armorFill"] = {"off": int(off_arm), "nat": nat.get("armorFill")}
             return {"match": not delta, "delta": delta or None, "tile": tile,
                     "family": "repair", "feed": (False if delta else None)}
         return None
@@ -410,10 +421,10 @@ class StageProbe:
         for rp in (resp.get("repairs") or []):
             t_id = rp.get("targetId")
             ob = next((o for o in ctx.obs_units if o.get("squadId") == t_id), None) or {}
+            # UN SEUL terme (#45d) : `RepairedAmountUtility` ne lit que `W[0]=100` sur le `fillUp`
+            # de la struct 8 octets. `armorFill` du decodeur est HORS struct (#276-r1) -> ignore.
             u = (u or 0.0) + repair_utility(
-                int(rp.get("hpFill") or 0), int(ob.get("hpMax") or 0),
-                int(rp.get("armorFill") or 0), int(ob.get("armorMax") or 0),
-                is_boss=False)
+                int(rp.get("hpFill") or 0), int(ob.get("hpMax") or 0), is_boss=False)
         return u
 
     # ---- contrefactuel : utilité offline avec prédictions NATIVES injectées ----

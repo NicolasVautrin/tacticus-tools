@@ -1302,32 +1302,89 @@ comme le dégât) ; (b) brancher `heal_utility` dans `HealPlaybook`/`engine_deci
 missing-HP ; (c) **agreement LIVE** sur un scénario healer-vs-alliés-endommagés (la validation est sur
 la DÉCISION : le moteur soigne la même cible que le natif).
 
-## 9bis. Prédiction de RÉPARATION (repair) — RE complet + port offline
+## 9bis. Prédiction de RÉPARATION (repair) — RE + port + agreement LIVE (#45d, build `rnca9r7q6c`)
 
-Répare les **machines** (Adeptus Mechanicus / Necron). Chaîne **entièrement RE'd et offline-calculable**,
-portée 1:1 dans `engine/predict.py` (PARTIE 4). Quasi identique au soin, mais sur **DEUX** stats
-fill-up — `Health` (id 5) **et** `Armor` (id 4) — d'où une **utilité à deux termes**.
+Le `Repair` générique (`ActiveAbilityType` **28**) est **granted par le trait `Mechanic`** ; il ne cible
+que les unités **`Mechanical`** blessées (`AttackQuery$$EntityCanBeRepaired` → `IsWounded`). Cinq
+porteurs `lineup` : `admecDominus`, `admecManipulus`, `necroSpyder`, `orksBigMek`, `votanIronmaster`
+(les quatre premiers sont au pool spawnable rank 17). ⚠ `admecManipulus` porte en plus le passif
+`GalvanicField`, qui lui donne `Repair_GalvanicField` (**1119**, playbook BESPOKE) — c'est cette
+ability-là qui apparaît dans son `decisionView`, pas la 28.
 
-| Étape native | VA | Formule |
-|---|---|---|
-| `DamagePrediction.PredictRepair` | `@181038280` | `repairAmount = floor((floor(modAdd) + base) × modMul)` [RepairModifier caster] → caps group/boss → `MaxFillUp` ×2 |
-| `FillUpStatComponent.MaxFillUp` | `@180f9b790` | `fill_i = min(repairAmount, GetStat(i,Maximum) − GetStat(i,Current))` sur Health **et** Armor |
-| `RepairedAmountUtility.EvaluateRepairInSteps` | méthode `@1810e06f0`, iter `@1810e45b0` | `U = (fill_hp/(maxHP+1) × 100 + fill_armor/(maxArmor+1) × 50) × bossMod` |
-| `RepairedAmountUtility.cctor` (poids) | `@1810e08b0` | `W[0]=Fix64.FromInt(100)` (HP), `W[1]=Fix64.FromInt(0x32=50)` (Armor) |
-| `GetMaxHealth` (denom PV) | `@1810e0760` | `GetStat(Health,Maximum)+1` (boss → const config `0xa9`) |
-| `GetUnitUtilityModifier` | `@1810e0820` | `bossMod = 2` si cible boss, sinon `1` |
+| Étape native (symbole) | Formule |
+|---|---|
+| `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount` | `Multiply(StatAmount(weapon), Max(WeaponHighestHits(weapon), Get(1)))` = **attack RÉSOLUE du caster × max(hits d'arme, 1)** |
+| `IdunBattle.Core.Services.DamagePrediction$$PredictRepair` | `amount = trunc((trunc(modAdd) + base) × modMul)` (RepairModifier, gate `IsActor(caster)`) → `Min(amount, GetGroupUnitHealLimit)` si `scope==1` → `Min(amount, GetStat(Health,Initial) − curHP)` si `IsBoss` → `MaxFillUp` |
+| `IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp` | `fill = Min(amount, CurrentMaximumValue − current)` — **UNE seule stat** |
+| `IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext` | **UN seul yield** : `U = fill/(maxHP+1) × W[0] × bossMod` |
+| `IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor` | `W[0] = Fix64.FromInt(100)` (statics+0) ; `W[1] = Fix64.FromInt(0x32)` (statics+8) — **sans lecteur** |
+| `IdunBattle.AI.Utilities.RepairedAmountUtility$$GetMaxHealth` | `GetStat(Health,Maximum) + 1` (boss → `FUN_180002590(0xaa, …)`, constante de config non lue) |
+| `IdunBattle.AI.Utilities.RepairedAmountUtility$$GetUnitUtilityModifier` | `bossMod = 2` si cible boss, sinon `Fix64.One` |
+| `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` | 4ᵉ boucle (slot +0x388) : `UtilityAttackCase$$ForRepairPrediction` + utility `0x2f` (RepairedAmount=47), **sans facteur de probabilité** |
 
 - **PAS de friendSign** (≠ soin) : on ne répare que ses **propres** machines → jamais d'utilité négative.
-- `base` = magnitude brute de l'ability de réparation (`StatAmount × max(hits,1)`, source gameconfig
-  `hpToRepair` par level × mult), transformée par le RepairModifier `(add, mul)` côté caster (no-op par
-  défaut : `add=0, mul=1.0`).
-- `StatType` (dump.cs @863349) : `Armor=4`, `Health=5`. `StatPart` : `Current=0`, `Maximum=2`, `Initial=3`.
+- **La magnitude vient de l'ARME, pas de `hpToRepair`.** Aucun des 5 porteurs du trait n'a de variable
+  `hpToRepair` en Comparable (`admecManipulus`/`necroReanimator` en ont, mais sur des réparations
+  **NonComparable** — `DefendTheDivineWork` 1117, `NanoscarabRepairProtocols` 1224). `repair_amount_config`
+  rend donc `None` pour tous, et c'est `repair_amount_weapon` qui alimente la prédiction. Le texte i2 du
+  trait le dit mot pour mot : *« the amount of Health restored equals the Mechanic's Damage multiplied by
+  the highest number of hits of any of their weapons »*.
+- **Il n'y a PAS de volet Armor**, contrairement à ce que le seul `.cctor` laisse croire. Deux lectures
+  indépendantes : (a) les **xrefs du bloc statique** de `RepairedAmountUtility` sont exhaustives — `.cctor`
+  (2 écritures), `MoveNext` (2 lectures : le check cctor-done + `**(statics+0xb8)` = `W[0]` seul),
+  `UtilitiesDatabase.u003CInitializeUtilitiesu003Eb__18_24` : **aucun lecteur de `W[1]`** ;
+  (b) `PredictRepair` n'appelle `MaxFillUp` qu'**une** fois, sur le composant résolu par le même triplet
+  que `UnitExtensions$$GetFillUpStatComponent(unit, 5=Health)`, et rend `CONCAT44(fill, currentHealth)` —
+  une struct de **8 octets**, ce que `UtilityAttackCase$$ForRepairPrediction` confirme en la stockant
+  entière dans le pointer-size écrit à `case+0xdc`.
+- `StatType` : `Armor=4`, `Health=5`. `StatPart` : `Current=0`, `Maximum=2`, `Initial=3`.
 
-**Porté + sanity-check** : `repair_amount`/`predict_repair_effective`/`RepairPrediction`/`repair_utility`
-(cohérence math vs RE OK : modifier `(50+800)×1.25=1062`, `fill_hp=min(800,2000)=800`,
-`fill_armor=min(800,400)=400`, `U=59.94`, boss×2=119.87). **RESTE** (wiring, idem heal) : brancher
-`repair_utility` dans `RepairPlaybook`/`engine_decide` + **agreement LIVE** (caster Loki + machine alliée
-endommagée). Boss : dénominateur PV via const config `0xa9` non lue (cas-bord, hors port).
+**Porté** : `repair_amount_weapon` / `repair_amount` / `predict_repair_effective` / `RepairPrediction`
+{`current_hp`, `fill_hp`} / `repair_utility` (`engine/predict.py` PARTIE 4, `engine/utilities/repair.py`),
+**câblé** dans `ActionGenerators._repair_candidates` (id 28) et `_repair_galvanic_candidates` (id 1119),
+plus l'étage repair d'`engine_agreement_stages.py`.
+
+**Confronté LIVE** au scoreur natif `pairUtility` (= `CalculateUtilityFromPredictions`, canal **scalaire**
+qui ne traverse pas le décodeur de struct des hooks) — probe `scripts/python/probe_45d_repair_decision.py` :
+
+| montage (board MC1_67) | paires | dont discriminantes | accord port | accord ancienne saturation |
+|---|---|---|---|---|
+| seed 777, `--hp-player 20000` | 4 | 1 | **4/4** | 3/4 |
+| seed 909, `--hp-player 20000 --hp-target 40000` | 4 | 2 | **4/4** | 2/4 |
+| seed 909, état du pas 17 (7 cibles, dont 3 swarms) | 7 | 0 | **7/7** | 7/7 |
+
+Deux cas discriminants **indépendants**, comme l'exige la décomposition par étage :
+- `admecDominus` attack 5022 × **1** hit → cible à 5724 PV manquants : natif **25.108745** =
+  `min(5022,5724)/20001 × 100` ; l'ancienne saturation donnait 28.618569 ;
+- `necroSpyder` attack 1205 × **5** hits = 6025 → cible à 9052 PV manquants : natif **30.123494**
+  = `6025/20001 × 100`. **Sans** le facteur `× hits` on aurait `1205/20001 × 100 = 6.02` → le `× hits`
+  est mesuré en régime NON saturé, pas déduit d'une saturation.
+
+**Face DÉCISION** (`engine_validate --steps 24`, même scénario déterministe joué avant/après) :
+`ability` **20/24 (83 %) → 21/24 (87 %)**, `positioning` 9/12 et `stay` 9/12 **inchangés**. Le cast corrigé
+est le pas 18 : le natif attaque (`ab=69,tgt=79`), le moteur choisissait encore de réparer
+(`ab=28,tgt=85`) parce que la saturation surévaluait le repair — il attaque désormais la même cible.
+Les pas 9 (`native ab=28,tgt=150` == `engine ab=28,tgt=150`) et 17 montrent le natif jouant réellement
+la 28, y compris sur des **swarms** (`necroSmnSwarm`) dont le remplissage n'est **pas** capé par
+`GetGroupUnitHealLimit` — ce qui reconfirme le flag `scope != 1` de #60.
+
+**RÉSIDUS nommés** (aucun n'est dans la chaîne repair elle-même) :
+1. **Pas 17 — choix de POSITION, pas d'utilité.** Le natif bouge en (5,3) et répare la cible à 1330 PV
+   manquants (`U = 59.9369`) ; le moteur va en (3,5) et répare celle à 1046 (`47.1384`). Les **7** utilités
+   de paire de ce pas sont bit-exactes côté port — l'écart vient du terme de tuile du sweep de position
+   (classé `enumeration` par `engine_agreement_stages`), hors périmètre repair.
+2. **Décodeur hooks `decodeRepairDict` (#276-r1)** : il lit 16 octets d'une struct qui en fait 8 —
+   `hpFill`(+0x08) et `armorFill`(+0x0c) sont **hors struct**, et le champ étiqueté `targetArmorBefore`
+   (+0x04) est en réalité le `fillUp`. Corriger exige un **reinject** → hors de cette tranche. Côté
+   Python, `armorFill` n'est plus consommé et `hpFill` est flaggé ; conséquence visible : l'étage
+   UTILITÉ d'`engine_agreement_stages` rend `off=0.0` sur la famille repair (il est nourri par ce
+   décodeur), alors que le **générateur**, lui, calcule tout offline et est exact.
+3. **Dénominateur PV d'une cible BOSS** : `GetMaxHealth` passe par `FUN_180002590(0xaa, …)` (constante de
+   config) au lieu de `GetStat(Health,Maximum)`. Non lue, non portée (cas-bord annoncé hors périmètre).
+   ⚠ La fiche antérieure citait `0xa9` ; le décompilé du build courant dit **`0xaa`**.
+4. **`WeaponHighestHits` vs arme sélectionnée** : le port passe `UnitContext.normal_weapon_hits` (les hits
+   de l'arme normale) là où le natif lit `WeaponHighestHits(weapon de l'ability)`. Les 5 porteurs du trait
+   ont des armes homogènes (`[1,1]`, `[2,2]`, `[5]`, `[4]`, `[3]`) → indiscriminable en l'état.
 
 ## 9ter. Pose d'EFFET (added effect) — RE complet + port offline
 
@@ -1366,9 +1423,10 @@ mapper l'`EffectType` enum → nom de clé BC (déjà aligné : `Enum.ToString`)
 
 ### BLOQUÉ / RESTE
 
-- **Prédiction NON-dégât offline** : heal (§9) **et** repair (§9bis) sont désormais **RE'd + portés**
-  (`PredictHeal`/`PredictRepair` + utilités). RESTE : (a) pose d'**EFFET** (magnitude/utilité d'un effet
-  appliqué) non RE'd ; (b) **wiring** des utilités heal/repair dans les playbooks + agreement LIVE.
+- **Prédiction NON-dégât offline** : heal (§9) et repair (§9bis) sont **RE'd, portés, CÂBLÉS et
+  confrontés live** (`PredictHeal`/`PredictRepair` + utilités ; repair = #45d, agreement de DÉCISION
+  au scoreur natif `pairUtility`). RESTE : la pose d'**EFFET** (§9ter) est RE'd et portée mais son
+  wiring dans le scorer d'attaque n'est pas fait.
 - **`perHitList`** (contenu hitDmg/critChance par coup) : dispatch interface, **service source non
   identifié** ; slots crit 0x10/0x11, `absorbShield`, `FillUpStat.MaxReduceByMinimum` = à calibrer
   vs aiPredict.

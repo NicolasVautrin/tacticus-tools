@@ -51,7 +51,7 @@ from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
 from engine.playbook.excruciating_frequencies import excruciating_frequencies_candidates  # #56-t3b : 1197 ligne-AoE tuile
-from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
+from engine.predict import (repair_utility, repair_amount_weapon,  # RepairedAmountUtility + magnitude ARME (#45d)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
                             heal_amount_weapon,        # #45c : branche ARME REELLE de HealAmount
                             predict_repair_effective, repair_amount_config,  # magnitude repair OFFLINE (#83)
@@ -492,16 +492,26 @@ class ComparableAbilityGenerator(ActionGenerator):
         captait le NonComparable NanoscarabRepairProtocols(1224). Repair_GalvanicField(1119) = playbook
         BESPOKE -> `_repair_galvanic_candidates`, PAS ici) ; énumération cibles =
         `abilityTargets` ; utilité par cible =
-        `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100 + fill_armor/(maxArmor+1)×50`,
+        `repair_utility` (RepairedAmountUtility : `fill_hp/(maxHP+1)×100`, UN SEUL terme,
         PAS de friendSign — répare ses propres machines) ; gate `ShouldExecute` : pred > 0.
 
-        MAGNITUDE (#83) : `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount` = `hpToRepair[activeLevel]` de la clé CONCRÈTE de
-        l'unité (`repair_amount_config` : nom runtime `Repair` GÉNÉRIQUE → clé résolue via gameconfig
-        `activeAbilities`, ex. necroReanimator → ReanimationBeam). `IdunBattle.Core.Services.DamagePrediction$$PredictRepair` remplit DEUX
-        stats via `MaxFillUp` : Health(5) + Armor(4) → `fill_hp`/`fill_armor` = `min(repairAmount,
-        manquant_i)` (`predict_repair_effective`). Armor courante/max = `observeBattle.armor/armorMax`
-        (ArmorComponent, #83). `repair_amt` None (unité sans réparation Comparable à `hpToRepair`) →
-        saturation `fill = missing` (approximation documentée, sans régression)."""
+        MAGNITUDE — `IdunBattleLogic.Entities.Abilities.Active.RepairAbility$$RepairAmount`, DEUX branches,
+        exactement comme le soin (`_heal_candidates`) :
+          1. config (#83) : `hpToRepair[activeLevel]` de la clé CONCRÈTE de l'unité
+             (`repair_amount_config`) — sert aux réparations Comparable à variable de config ;
+          2. ARME RÉELLE (#45d, LA branche des porteurs du trait `Mechanic`) : l'arbre DSL natif est
+             `Multiply(StatAmount(weapon), Max(WeaponHighestHits(weapon), Get(1)))` = attack RÉSOLUE
+             du caster × max(hits d'arme, 1) — `repair_amount_weapon(ctx.attack, normal_weapon_hits)`.
+             AUCUN des 5 porteurs du trait n'a de `hpToRepair` Comparable ⇒ la branche 1 rend None
+             pour tous, et c'est la branche 2 qui alimente la prédiction. Avant #45d le générateur
+             tombait sur la saturation `fill = missing` : mesuré FAUX live (admecDominus 5022×1 vers
+             une cible à 5724 PV manquants — `pairUtility` natif 25.108745 = min(5022,5724)/20001×100,
+             la saturation donnait 28.618569).
+        `IdunBattle.Core.Services.DamagePrediction$$PredictRepair` remplit UNE stat via `MaxFillUp` :
+        Health(5) → `fill_hp = min(repairAmount, manquant)` (`predict_repair_effective`). Le volet
+        Armor n'existe pas (poids W[1] sans lecteur, un seul `MaxFillUp` natif — cf. PARTIE 4 de
+        `engine/predict.py`). Saturation `fill = missing` = dernier filet, seulement si la Scene
+        manque (attack indisponible)."""
         me = ctx.me
         repair_abis = [ab for ab in ((me or {}).get("abilities") or [])
                        if ab.get("id") in _COMPARABLE_REPAIR_IDS and ab.get("usable") is not False]
@@ -519,6 +529,13 @@ class ComparableAbilityGenerator(ActionGenerator):
         _rc = ctx.heal_config(ctx.uid)
         _caster_vid = (obs_by_sq.get(ctx.uid) or {}).get("visualId")
         repair_amt = repair_amount_config(_caster_vid, _rc["active"], _rc["multiplier"])
+        # #45d : pas de `hpToRepair` Comparable -> branche ARME REELLE de `RepairAbility$$RepairAmount`
+        # (`Multiply(StatAmount(weapon), Max(WeaponHighestHits, 1))`), le cas de TOUS les porteurs du
+        # trait `Mechanic`. La saturation `missing` ne reste que si la Scene manque (dernier filet).
+        if repair_amt is None and getattr(ctx, "scene", None) is not None:
+            _actx = ctx.scene.ctx(ctx.uid)
+            if _actx is not None:
+                repair_amt = repair_amount_weapon(_actx.attack, _actx.normal_weapon_hits)
         out = []
         for ab in repair_abis:
             aid = ab.get("id")
@@ -534,12 +551,9 @@ class ComparableAbilityGenerator(ActionGenerator):
                 ob = obs_by_sq.get(tg) or {}
                 hp_max = int(ob.get("hpMax") or 0)
                 hp_cur = int(ob.get("hp") or 0)
-                arm_max = int(ob.get("armorMax") or 0)
-                arm_cur = int(ob.get("armor") or 0)
-                if repair_amt is None:   # pas de magnitude Comparable -> saturation (approx documentée)
+                if repair_amt is None:   # Scene absente -> saturation (dernier filet, approx documentée)
                     fill_hp = max(0, hp_max - hp_cur)
-                    fill_armor = max(0, arm_max - arm_cur)
-                else:                    # PredictRepair : min(repairAmount, manquant) par stat (Health+Armor)
+                else:                    # PredictRepair : fill = min(repairAmount, manquant) sur Health
                     # RepairModifier (#45d) : bonus/malus des effets ACTIFS portés par la CIBLE
                     # (Nanoscarab +hpToRepair, Voltagheist ×0.5), appliqué à la base AVANT MaxFillUp
                     # (ordre natif IdunBattle.Core.Services.DamagePrediction$$PredictRepair : modifier -> caps -> min(amount, manquant)).
@@ -550,13 +564,13 @@ class ComparableAbilityGenerator(ActionGenerator):
                     _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
                              if _REPAIR_GROUP_CAP else None)
                     rp = predict_repair_effective(repair_amount(repair_amt, mod_add, mod_mul),
-                                                  hp_cur, hp_max, arm_cur, arm_max, group_limit=_glim)
-                    fill_hp, fill_armor = rp.fill_hp, rp.fill_armor
-                pred = repair_utility(fill_hp, hp_max, fill_armor, arm_max, is_boss=False)
+                                                  hp_cur, hp_max, group_limit=_glim)
+                    fill_hp = rp.fill_hp
+                pred = repair_utility(fill_hp, hp_max, is_boss=False)
                 if ctx.debug:
                     print(f"    [dbg repair u{ctx.uid}->{tg}] vis={ob.get('visualId')} "
-                          f"hp={hp_cur}/{hp_max} arm={arm_cur}/{arm_max} repairAmt={repair_amt} "
-                          f"fillHp={fill_hp} fillArm={fill_armor} pred={pred}", file=sys.stderr)
+                          f"hp={hp_cur}/{hp_max} repairAmt={repair_amt} "
+                          f"fillHp={fill_hp} pred={pred}", file=sys.stderr)
                 if pred <= 0:
                     continue   # ShouldExecute : émet la réparation SSI pred > 0
                 tpos = pos_by_id.get(tg)
@@ -582,9 +596,9 @@ class ComparableAbilityGenerator(ActionGenerator):
         (`maxDmg` seule rarity-scaled). PAS `hpToRepair`.
 
         UTILITÉ `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` (chemin repair) = SOMME de deux termes (lu dans le
-        décompilé, ADDITIFS) : (1) `RepairedAmountUtility` générique = `repair_utility(fill_hp, maxHP,
-        fill_armor, maxArmor)` avec `fill = min(M, manquant)` sur Health+Armor (`PredictRepair`/`MaxFillUp`,
-        cf. #83) ; (2) `IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$CalculateCustomUtility` bespoke = `M/(cible.maxHP+1) × 50`, GATÉ par
+        décompilé, ADDITIFS) : (1) `RepairedAmountUtility` générique = `repair_utility(fill_hp, maxHP)`
+        avec `fill = min(M, manquant)` sur Health (`PredictRepair`/`MaxFillUp` — UNE stat, #45d) ;
+        (2) `IdunBattle.AI.Playbook.Loki.Repair_GalvanicFieldPlaybook$$CalculateCustomUtility` bespoke = `M/(cible.maxHP+1) × 50`, GATÉ par
         `HasValidTargets(cible)` (la cible réparée peut attaquer depuis SA position = combat-readiness, même
         prédicat que #77 → 0 sinon). `ShouldExecute` : util totale > 0."""
         me = ctx.me
@@ -622,8 +636,6 @@ class ComparableAbilityGenerator(ActionGenerator):
             ob = obs_by_sq.get(tg) or {}
             hp_max = int(ob.get("hpMax") or 0)
             hp_cur = int(ob.get("hp") or 0)
-            arm_max = int(ob.get("armorMax") or 0)
-            arm_cur = int(ob.get("armor") or 0)
             # M = min(round(Attack_INITIALE cible × dmgPct/100), maxDmg)
             att = tctx.get_stat(StatType.ATTACK, StatPart.INITIAL)
             raw = int(round(att * (dmgpct or 0) / 100.0))
@@ -634,9 +646,8 @@ class ComparableAbilityGenerator(ActionGenerator):
             _glim = (_group_heal_limit(ob.get("visualId"), hp_max, hp_cur)
                      if _REPAIR_GROUP_CAP else None)   # #60 : cap groupe (PredictRepair, gate param_7)
             rp = predict_repair_effective(repair_amount(M, mod_add, mod_mul),
-                                          hp_cur, hp_max, arm_cur, arm_max,
-                                          group_limit=_glim)  # fill = min(M', manquant_i)
-            repaired = repair_utility(rp.fill_hp, hp_max, rp.fill_armor, arm_max, is_boss=False)
+                                          hp_cur, hp_max, group_limit=_glim)  # fill = min(M', manquant)
+            repaired = repair_utility(rp.fill_hp, hp_max, is_boss=False)
             custom = (M / (hp_max + 1) * 50.0) if playbooks._has_valid_targets(ctx, tg) else 0.0
             pred = repaired + custom
             if ctx.debug:
