@@ -28,10 +28,22 @@ a **0 EN DUR**. Le corps prive le RENVOIE dans le cas « letal mais sous le seui
 
     if (initialHealth <= healthDamage) return pct < overkillDmgPctOfHealth ? isCritical : true;
 
-donc tout crit qui tue sans doubler les PV EST un overkill. Mesure (PV = 2178, plage [2178,3267],
-seuil 100 %) : crescendo 0 -> **1** avec crit, 0 -> **0** sans. Le montage revive (Narthecium
+donc tout crit qui tue sans doubler les PV EST un overkill. Le montage revive (Narthecium
 « unless Overkilled », tueur `ultraInceptorSgt` SANS le trait `ThrillSeekers`) attribue
 l'observation a `isCritical` et pas au rider ThrillSeekers.
+
+#268 (2026-07-30) — D'OU VIENT LE DEGAT. Les regimes ne sont plus situes par une PREDICTION mais
+par une MESURE LIVE : passe 1 a MEME seed / MEME compo / MEME geometrie avec la victime INCREVABLE
+(`--hp-target 200000`), cast en live, `hp_avant - hp_apres`. Le tirage est REPRODUCTIBLE a seed et
+sequence egales (mesure : 2375/2375/2375), donc la passe 1 rend le tirage EXACT de la passe 2.
+Deux regimes, tranches sur cette seule mesure :
+  * `above_threshold`        = `degat >= 2 x PV` -> overkill NATUREL (les gates d'unite, #178) ;
+  * `lethal_below_threshold` = `PV <= degat < 2 x PV` -> le verdict depend d'un ARGUMENT (#R33).
+Mesures : `control`/`titus` PV 400 degat 2375 ; `crit` PV 2256 degat 2774 ; `nocrit` PV 2256
+degat 2375 -- crescendo 0 -> 1 avec crit, 0 -> 0 sans.
+Motif du changement : `aiPredict` rendait `[1,100]` pour TOUT couple (decodeur a offsets perimes,
+`docs/rl/case-268-decodeur-prediction-perime.md`), ce qui faisait SKIPPER cinq de ces tests en
+accusant le roster. Les fixtures ECHOUENT desormais, elles ne skippent plus.
 """
 from __future__ import annotations
 
@@ -41,13 +53,13 @@ def test_overkill_gate_control_reacts(overkill_gate_case):
     C'est la contre-epreuve de discriminance : sans elle, un `titus` a +0 pourrait juste vouloir dire
     « l'observable ne reagit jamais »."""
     r = overkill_gate_case("control")
-    assert r["dmg_min"] >= 2 * r["hp"], (
-        "regime non atteint : degat min %s < 2 x PV %s" % (r["dmg_min"], r["hp"]))
+    assert r["above_threshold"], (
+        "regime non atteint : degat LIVE %s < 2 x PV %s" % (r["live_damage"], r["hp"]))
     assert r["can_be_overkilled"] is True and r["prevent_overkill"] is False, (
         "la victime de controle ne doit porter AUCUN gate : %s" % r)
     assert r["live_overkill"] is True, (
         "le jeu n'a pas marque overkill un coup de %s sur %s PV (crescendo %s -> %s)"
-        % (r["dmg_min"], r["hp"], r["live_level_before"], r["live_level_after"]))
+        % (r["live_damage"], r["hp"], r["live_level_before"], r["live_level_after"]))
     assert r["port_overkill"] == r["live_overkill"], r
 
 
@@ -56,8 +68,8 @@ def test_overkill_gate_prevent_overkill_is_read(overkill_gate_case):
     `prevent_overkill` de `unit_is_overkill` est retire (ou si `unit_prevents_overkill` cesse de
     deriver le flag de l'effet `FuelledByFury_BlockOverkill` qui le pose)."""
     r = overkill_gate_case("titus")
-    assert r["dmg_min"] >= 2 * r["hp"], (
-        "regime non atteint : degat min %s < 2 x PV %s" % (r["dmg_min"], r["hp"]))
+    assert r["above_threshold"], (
+        "regime non atteint : degat LIVE %s < 2 x PV %s" % (r["live_damage"], r["hp"]))
     assert r["prevent_overkill"] is True, (
         "gate non vu offline : ultraTitus doit porter `FuelledByFury_BlockOverkill` -> %s" % r)
     assert r["live_overkill"] is False, (
@@ -72,8 +84,10 @@ def test_overkill_gate_pair_is_discriminating(overkill_gate_case):
     """La paire DOIT separer les deux corps : meme degat, memes PV, verdicts LIVE opposes -- et le
     corps 2-args supprime repondait « overkill » des DEUX cotes."""
     ctl, tit = overkill_gate_case("control"), overkill_gate_case("titus")
-    assert ctl["hp"] == tit["hp"] and ctl["dmg_min"] == tit["dmg_min"], (
-        "les deux regimes ne sont plus comparables (PV/degat differents) : %s vs %s" % (ctl, tit))
+    assert ctl["hp"] == tit["hp"] and ctl["above_threshold"] and tit["above_threshold"], (
+        "les deux regimes ne sont plus comparables : PV %s/%s, degat LIVE %s/%s (les deux doivent "
+        "etre >= 2 x PV, sinon le verdict cesse d'etre force par la seule sur-frappe)"
+        % (ctl["hp"], tit["hp"], ctl["live_damage"], tit["live_damage"]))
     assert ctl["live_overkill"] != tit["live_overkill"], (
         "la paire n'est plus discriminante : le live rend le meme verdict des deux cotes")
     assert ctl["legacy_overkill"] is True and tit["legacy_overkill"] is True, (
@@ -97,14 +111,14 @@ def test_overkill_gate_pair_is_discriminating(overkill_gate_case):
 def test_overkill_crit_below_threshold_is_overkill(overkill_gate_case):
     """CRIT — un coup CRITIQUE qui tue SANS doubler les PV EST un overkill (le compteur monte)."""
     r = overkill_gate_case("crit")
-    assert r["lethal_below_threshold"] and r["replay_below_threshold"], (
-        "regime non atteint : plage [%s,%s], degat REEL %s vs PV %s (il faut PV <= degat < 2 x PV)"
-        % (r["dmg_min"], r["dmg_max"], r["replay_total"], r["hp"]))
+    assert r["lethal_below_threshold"], (
+        "regime non atteint : degat LIVE %s vs PV %s (il faut PV <= degat < 2 x PV)"
+        % (r["live_damage"], r["hp"]))
     assert r["is_crit_regime"] and all(r["replay_crits"]), (
         "le regime devait rendre TOUS les coups critiques : %s" % (r["replay_crits"],))
     assert r["live_overkill"] is True, (
-        "le jeu n'a PAS marque overkill un crit letal de [%s,%s] sur %s PV (crescendo %s -> %s)"
-        % (r["dmg_min"], r["dmg_max"], r["hp"], r["live_level_before"], r["live_level_after"]))
+        "le jeu n'a PAS marque overkill un crit letal de %s sur %s PV (crescendo %s -> %s)"
+        % (r["live_damage"], r["hp"], r["live_level_before"], r["live_level_after"]))
     assert r["port_replay_overkill"] == r["live_overkill"], (
         "DESACCORD port/live : le REJEU de l'attaque par le port n'a pas pose UnitFlag.Overkilled "
         "(port=%s live=%s, total=%s crits=%s)"
@@ -116,9 +130,9 @@ def test_overkill_nocrit_below_threshold_is_not_overkill(overkill_gate_case):
     `GetStat(CritDamage) == 0`) : le jeu NE marque PAS overkill. C'est la contre-epreuve qui
     interdit de conclure « le regime marque toujours »."""
     r = overkill_gate_case("nocrit")
-    assert r["lethal_below_threshold"] and r["replay_below_threshold"], (
-        "regime non atteint : plage [%s,%s], degat REEL %s vs PV %s"
-        % (r["dmg_min"], r["dmg_max"], r["replay_total"], r["hp"]))
+    assert r["lethal_below_threshold"], (
+        "regime non atteint : degat LIVE %s vs PV %s (il faut PV <= degat < 2 x PV)"
+        % (r["live_damage"], r["hp"]))
     assert not any(r["replay_crits"]), (
         "aucun coup ne devait etre critique dans ce regime : %s" % (r["replay_crits"],))
     assert r["live_overkill"] is False, (
@@ -133,9 +147,15 @@ def test_overkill_crit_pair_kills_the_hardcoded_zero(overkill_gate_case):
     """La paire crit/nocrit DOIT etre discriminante, et le corps qui passait `isCritical = 0` EN DUR
     doit y etre REFUTE : il repond « pas overkill » des DEUX cotes, alors que le live separe."""
     cr, nc = overkill_gate_case("crit"), overkill_gate_case("nocrit")
-    assert cr["hp"] == nc["hp"] and cr["dmg_min"] == nc["dmg_min"] \
-        and cr["dmg_max"] == nc["dmg_max"], (
-        "les deux regimes ne sont plus comparables (PV/plage differents) : %s vs %s" % (cr, nc))
+    # Les PV sont calibres sur la MEME mesure (passe 1 SANS crit) -> `base_damage` doit coincider.
+    # Le degat du regime, lui, DIFFERE par construction (c'est le crit qu'on ajoute) ; ce qui doit
+    # tenir des deux cotes, c'est que les deux restent letaux ET sous le seuil.
+    assert cr["hp"] == nc["hp"] and cr["base_damage"] == nc["base_damage"], (
+        "les deux regimes ne sont plus comparables (PV %s/%s, degat de calibration %s/%s)"
+        % (cr["hp"], nc["hp"], cr["base_damage"], nc["base_damage"]))
+    assert cr["lethal_below_threshold"] and nc["lethal_below_threshold"], (
+        "un des deux regimes n'est plus letal-sous-le-seuil : crit degat %s / nocrit degat %s "
+        "pour %s PV" % (cr["live_damage"], nc["live_damage"], cr["hp"]))
     assert cr["live_overkill"] != nc["live_overkill"], (
         "la paire n'est plus discriminante : le live rend le meme verdict avec et sans crit")
     # `legacy_overkill` = le corps 2-args pre-#178 ; `isCritical=0` en dur produit le MEME verdict.
@@ -158,11 +178,12 @@ def test_overkill_crit_attributed_by_revive_gate(overkill_revive_case):
       a Crit -> always overkilled »), seul autre chemin connu vers un overkill sous le seuil."""
     cr, nc = overkill_revive_case("revive-crit"), overkill_revive_case("revive-nocrit")
     for r in (cr, nc):
-        assert r["replay_below_threshold"], (
-            "regime non atteint : degat REEL %s vs PV %s (il faut PV <= degat < 2 x PV)"
-            % (r["replay_damage"], r["hp"]))
-    assert cr["hp"] == nc["hp"] and cr["dmg_min"] == nc["dmg_min"], (
-        "les deux regimes ne sont plus comparables : %s vs %s" % (cr, nc))
+        assert r["lethal_below_threshold"], (
+            "regime non atteint (%s) : degat LIVE %s vs PV %s (il faut PV <= degat < 2 x PV)"
+            % (r["case"], r["live_damage"], r["hp"]))
+    assert cr["hp"] == nc["hp"] and cr["base_damage"] == nc["base_damage"], (
+        "les deux regimes ne sont plus comparables (PV %s/%s, degat de calibration %s/%s)"
+        % (cr["hp"], nc["hp"], cr["base_damage"], nc["base_damage"]))
     assert nc["live_alive"] is True, (
         "sans crit, le revive Narthecium devait rendre la victime VIVANTE (live_alive=%s) : "
         "montage casse (apothecaire hors portee ? once-per-turn deja consomme ?)" % nc["live_alive"])
@@ -187,10 +208,11 @@ def test_overkill_force_flag_below_threshold(overkill_revive_case):
     # ⚠ garde-fou APPRIS A LA DURE : `aiPredict` ne rend que la preview de l'ATTAQUE NORMALE et
     # sous-estimait FlailSwing de 30 % ([9393,14091] annonces pour 20884 reels) -> tuner les PV
     # dessus donnait `dmg >= 2 x PV` = overkill NATUREL, et ce test passait SANS que le flag serve
-    # a rien. On exige donc le degat REEL du vecteur (`replay_damage`) dans [PV, 2 x PV).
-    assert fl["replay_below_threshold"], (
-        "regime non atteint : degat REEL %s vs PV %s (il faut PV <= degat < 2 x PV, sinon "
-        "l'overkill est NATUREL et le flag n'est pas mesure)" % (fl["replay_damage"], fl["hp"]))
+    # a rien. Depuis #268 le degat vient d'une MESURE LIVE du vecteur sur cible increvable, et
+    # c'est elle qui doit tomber dans [PV, 2 x PV).
+    assert fl["lethal_below_threshold"], (
+        "regime non atteint : degat LIVE %s vs PV %s (il faut PV <= degat < 2 x PV, sinon "
+        "l'overkill est NATUREL et le flag n'est pas mesure)" % (fl["live_damage"], fl["hp"]))
     assert fl["is_crit_regime"] is False, "le regime FlailSwing doit etre SANS crit : %s" % fl
     assert fl["live_alive"] is False, (
         "le flag `alwaysOverkilled` devait BLOQUER le revive (live_alive=%s) : soit FlailSwing n'a "

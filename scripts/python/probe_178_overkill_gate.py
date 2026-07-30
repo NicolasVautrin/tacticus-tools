@@ -37,12 +37,29 @@ DEUX MONTAGES, DEUX OBSERVABLES INDEPENDANTS (aucun RPC ne lit `UnitFlag.Overkil
      d'`isCritical`. Le montage B tue avec `ultraInceptorSgt`, qui NE porte PAS ThrillSeekers : plus
      aucun rider ne peut expliquer l'observation.
 
-REGIME << LETAL SOUS LE SEUIL >> : on tune les PV de la victime a `dmin` (borne BASSE du degat), et
-on VERIFIE `dmax < 2 x PV`. Toute la plage de degat est alors letale ET sous le seuil
-(`overkillDmgPctOfHealth` = 100) -> le verdict ne depend plus du tirage, seulement du flag crit.
+REGIME << LETAL SOUS LE SEUIL >> : la PASSE 1 (`_measure_live_damage`) monte un runner JETABLE a la
+MEME seed, MEME composition et MEME geometrie que le regime mesure, mais avec la victime INCREVABLE
+(`--hp-target 200000`) ; elle caste le vecteur EN LIVE et lit `hp_avant - hp_apres`. C'est le degat
+REEL du vecteur, non tronque par la mort. Les PV du regime valent alors `95 % de ce degat` : le coup
+est LETAL (marge 5 %) et TRES en-dessous du seuil (`overkillDmgPctOfHealth` = 100 % exigerait
+`degat >= 2 x PV`, soit 1,9 x le degat mesure) -> le verdict ne depend plus du tirage, seulement du
+flag crit.
+
+POURQUOI PAS `aiPredict`/`aiPlaybookPredict` (#268) : sur le build `rnca9r7q6c`, le DECODEUR du
+struct de prediction lit des offsets PERIMES et rend `[1,100]` pour TOUT couple -- les bornes de
+degat, `mightCrit`, `preventOverkill` et `probability` sont du GARBAGE (`hpBefore` et `armorBefore`
+sont les seuls champs encore justes). C'est ce canal mort, et non un roster mal choisi, qui faisait
+dire au tuning << plage [1,100] trop large >>. Detail et offsets re-derives :
+`docs/rl/case-268-decodeur-prediction-perime.md`.
+
+Le tirage de degat est REPRODUCTIBLE a seed + sequence d'actions egales -- mesure du 2026-07-30 :
+trois runners de seed 17811 rendent `2375 / 2375 / 2375`, et trois seeds voisines rendent
+`2375 / 2575 / 3051`. La passe 1 rend donc le tirage EXACT que la passe 2 produira.
+
 `--crit "CC,CD"` patche CritChance/CritDamage des p-units : `100,1` = crit garanti pour +1 de base
 d'attaque (degat quasi inchange), `0,0` = `CouldCrit` faux (GetStat(10) == 0) donc AUCUN crit
-possible, meme si un effet ajoute de la crit-chance.
+possible, meme si un effet ajoute de la crit-chance. La PASSE 1 mesure TOUJOURS a `0,0` : les PV du
+regime sont donc les memes pour la paire `crit`/`nocrit`, ce qui rend la paire comparable.
 
 MELEE OBLIGATOIRE (montage A) : le trait `SuppressiveFire` de Shiron pose `Pinned` (1065) sur les
 attaques RANGED, ce qui alimente la BRANCHE 2 du MEME crescendo. Au contact hex l'attaque normale
@@ -112,9 +129,6 @@ REVIVE_CASES = {
     "revive-flail":  {"crit": "0,0", "attacker": BLIGHTLORD, "ability": FLAIL_SWING},
 }
 
-_BAND_CACHE: dict = {}            # (attaquant, victime) -> (dmin, dmax) mesures a crit "0,0"
-
-
 def _r(sid, m, b, t=90):
     return (_rpc(sid, m, [b], timeout=t).get("result") or {})
 
@@ -167,16 +181,28 @@ def attack(sid, rid, attacker_id, target_id, ability=NORMAL_ATTACK):
         "abilityType": int(ability)}}, 120)
 
 
-def predicted_damage(sid, rid, attacker_id, target_id, ability=NORMAL_ATTACK):
-    """Plage de degat BRUT du prochain coup (`aiPredict` = `GetAllPredictions`). `totalDmg*` = brut
-    sante+armure+bouclier -> EGALE le degat sante brut quand la cible n'a ni armure ni bouclier
-    (le cas ici : `--hp-target` remet `Armor`/`FixedArmor` a 0, et personne n'a de bouclier)."""
+def prediction_channel_health(sid, rid, attacker_id, target_id, ability=NORMAL_ATTACK) -> dict:
+    """SANTE du canal `aiPredict` -- diagnostic seul, AUCUN verdict n'en depend (#268).
+
+    Le decodeur du struct de prediction (`frida/hooks/features/ai-step/rpc-predict.ts`) fige les
+    offsets d'un build ancien ; sur `rnca9r7q6c` il rend `[1,100]` pour tout couple. Trois
+    SENTINELLES suffisent a le dire sans rien deviner :
+      * `hpBefore` doit egaler les PV reels de la cible (champ encore juste) ;
+      * `mightCrit` est un `bool` : toute valeur hors {0,1} prouve que la lecture a derape ;
+      * un vecteur qui inflige des degats ne peut pas annoncer `healthDmgMax == 0`.
+    Rend `{"alive": bool, "pred": ..., "why": ...}` -- `alive=False` = canal MORT."""
     p = (_r(sid, "aiPredict", {"runnerId": rid, "unitId": int(attacker_id),
                                "targetId": int(target_id), "abilityType": int(ability)}, 90)
          or {}).get("pred") or {}
-    if p.get("totalDmgMin") is None:
-        return None, None
-    return int(p["totalDmgMin"]), int(p["totalDmgMax"])
+    if not p:
+        return {"alive": False, "pred": None, "why": "aiPredict ne rend aucune prediction"}
+    why = []
+    if int(p.get("mightCrit") or 0) not in (0, 1):
+        why.append("mightCrit=%s hors {0,1}" % p.get("mightCrit"))
+    if int(p.get("healthDmgMax") or 0) <= 0:
+        why.append("healthDmgMax=%s alors que le vecteur inflige des degats"
+                   % p.get("healthDmgMax"))
+    return {"alive": not why, "pred": p, "why": " ; ".join(why) or "sentinelles OK"}
 
 
 def killed_by(dv, uid, killer_id) -> bool:
@@ -235,38 +261,65 @@ def replay_flag(cap, attacker_id, victim_id):
         (hc.hp if hc is not None else None)
 
 
-def _tune_hp(sid, seed, attacker, victim, state_file, p_units, a_units, verbose=True,
-             ability=NORMAL_ATTACK):
-    """PASSE 1 : monte un runner jetable pour LIRE la plage de degat de l'attaquant sur la victime,
-    et en deduit les PV du regime << letal sous le seuil >> : `PV = dmin`, valide si `dmax < 2 x PV`
-    (toute la plage tue sans jamais atteindre `overkillDmgPctOfHealth` = 100 %).
+# Fraction du degat REEL retenue comme PV du regime << letal sous le seuil >>. 5 % de marge de
+# LETALITE (le coup doit rester >= PV) contre 90 % de marge sous le SEUIL (il faudrait
+# `degat >= 2 x PV`, soit 1,9 x le degat mesure, pour que l'overkill devienne NATUREL).
+_LETHAL_FRACTION = 0.95
 
-    La composition d'equipes de la passe 1 est IDENTIQUE a celle du regime mesure (memes auras,
-    meme geometrie) -- sinon la plage lue ne serait pas celle du regime."""
-    key = (attacker, victim, tuple(p_units), tuple(a_units), int(ability))
-    if key in _BAND_CACHE:
-        return _BAND_CACHE[key]
+_DMG_CACHE: dict = {}     # (seed, attaquant, victime, compo, ability) -> degat REEL mesure LIVE
+
+
+def _measure_live_damage(sid, seed, attacker, victim, state_file, p_units, a_units, center,
+                         ability=NORMAL_ATTACK, crit_spec="0,0", verbose=True):
+    """PASSE 1 -- DEGAT REEL DU VECTEUR, MESURE **LIVE** (aucune prediction, aucun rejeu offline).
+
+    Monte un runner JETABLE a la MEME seed, MEME composition et MEME geometrie que le regime
+    mesure, mais avec la victime INCREVABLE (`--hp-target 200000`), caste le vecteur EN LIVE et
+    lit `hp_avant - hp_apres`. La victime survivant, la lecture donne le degat CALCULE du vecteur
+    entier (tous ses coups), non tronque par la mort -- exactement la grandeur que
+    `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` compare a `targetInitialHealth`.
+
+    Remplace les DEUX anciennes passes 1 :
+      * `_tune_hp`, qui lisait `aiPredict` -- canal MORT sur `rnca9r7q6c` (#268) ;
+      * `_tune_hp_replay`, qui rejouait le vecteur OFFLINE -- donc le PORT tunait le montage
+        cense l'eprouver. Ici les deux bouts sont LIVE.
+
+    Les PV du regime sont TOUJOURS calibres sur la mesure a `--crit 0,0` : la paire `crit`/`nocrit`
+    partage ainsi ses PV (le crit majore le degat, jamais les PV) et reste comparable. Appelee une
+    seconde fois avec le `crit_spec` du regime, elle rend le degat REEL de CE regime -- celui qui
+    doit tomber dans `[PV, 2 x PV)`."""
+    key = (int(seed), attacker, victim, tuple(p_units), tuple(a_units), int(ability), crit_spec)
+    if key in _DMG_CACHE:
+        return _DMG_CACHE[key]
     rid = None
     try:
         rid, ids = setup(sid, state_file, seed, attacker, victim, list(p_units),
-                         list(a_units), (3, 4), hp_target=4000, crit_spec="0,0",
+                         list(a_units), center, hp_target=200000, crit_spec=crit_spec,
                          verbose=False, check_hp=False)
         dv = view(sid, rid)
         vic = by_visual(dv, victim)
-        dmin, dmax = predicted_damage(sid, rid, ids[attacker], vic["id"], ability)
+        hp_before = int(vic["hp"])
+        attack(sid, rid, ids[attacker], vic["id"], ability)
+        dv2 = view(sid, rid)
+        u = next((x for x in (dv2.get("units") or []) if int(x["id"]) == int(vic["id"])), None)
+        if u is None or u.get("hp") is None:
+            raise RuntimeError("passe 1 : victime %s illisible apres le cast" % victim)
+        if not u.get("alive"):
+            raise RuntimeError("passe 1 : la victime increvable (%d PV) est MORTE -- le degat "
+                               "depasse le plafond, la mesure serait tronquee" % hp_before)
+        total = hp_before - int(u["hp"])
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
-    if dmin is None:
-        raise RuntimeError("aiPredict illisible en passe 1 (%s -> %s)" % (attacker, victim))
-    if dmax >= 2 * dmin:
-        raise RuntimeError("plage [%d,%d] trop large : dmax >= 2 x dmin, pas de PV rendant TOUTE "
-                           "la plage letale-sous-le-seuil" % (dmin, dmax))
+    if total <= 0:
+        raise RuntimeError("passe 1 : le vecteur %s ability %s n'a inflige AUCUN degat a %s "
+                           "(hors de portee ? cast refuse ?)" % (attacker, ability, victim))
+    hp = max(1, int(total * _LETHAL_FRACTION))
     if verbose:
-        print("[178] tune %s -> %s : plage [%d,%d] => PV = %d (2 x PV = %d)"
-              % (attacker, victim, dmin, dmax, dmin, 2 * dmin))
-    _BAND_CACHE[key] = (dmin, dmax)
-    return _BAND_CACHE[key]
+        print("[178] passe 1 LIVE %s ability %s crit %s -> %s : degat REEL %d => PV = %d "
+              "(2 x PV = %d)" % (attacker, ability, crit_spec, victim, total, hp, 2 * hp))
+    _DMG_CACHE[key] = (hp, total)
+    return _DMG_CACHE[key]
 
 
 REVIVE_P_UNITS = (KILLER, FILLER)         # aucun porteur de ThrillSeekers sur le plateau
@@ -283,10 +336,12 @@ def _replay_attack(st, attacker_id, victim_id, ability=NORMAL_ATTACK):
 
 
 def replay_damage_total(cap, attacker_id, victim_id, ability=NORMAL_ATTACK):
-    """Degat TOTAL que le vecteur infligerait a une cible qui NE MEURT PAS : sur une copie de
-    l'etat, on porte les PV de la victime tres haut avant de rejouer. C'est la mesure de reference
-    du regime -- `aiPredict` ne rend que la preview de l'attaque NORMALE et ment de ~30 % sur un
-    vecteur d'ABILITY (mesure FlailSwing : preview [9393,14091], degat reel 20884)."""
+    """Degat TOTAL que le PORT infligerait a une cible qui ne meurt pas : sur une copie de l'etat,
+    on porte les PV de la victime tres haut avant de rejouer.
+
+    ⚠ C'est un CONTREPOINT du port, jamais la reference du regime : le regime est installe et
+    verifie sur le degat mesure LIVE (`_measure_live_damage`). Le publier a cote du degat live rend
+    l'ecart port/natif visible sans que le port ne tune quoi que ce soit."""
     st = _load(cap)
     ent = st.get_entity(int(victim_id))
     hc = ent.get_component(HealthComponent) if ent is not None else None
@@ -296,44 +351,6 @@ def replay_damage_total(cap, attacker_id, victim_id, ability=NORMAL_ATTACK):
     hc.hp = big
     _replay_attack(st, attacker_id, victim_id, ability)
     return big - int(hc.hp)
-
-
-def _tune_hp_replay(sid, seed, attacker, victim, state_file, p_units, a_units, ability,
-                    verbose=True):
-    """PASSE 1 pour les vecteurs d'ABILITY : `aiPredict` (= `GetAllPredictions`) ne rend que la
-    preview de l'ATTAQUE NORMALE -- MESURE : sur `FlailSwing`, il annonce [9393,14091] la ou le
-    vecteur inflige REELLEMENT 20884 (3 coups de ~6960). Tuner les PV sur cette plage donnait un
-    regime `dmg >= 2 x PV` = overkill NATUREL, donc NON discriminant pour `isForceOverkill` -- et
-    le test passait pour la mauvaise raison.
-
-    On mesure donc le degat REEL en rejouant le vecteur OFFLINE sur une cible a PV enormes (elle
-    survit, `hp_before - hp_after` = le total), puis `PV = 80 % du total` : toute la dispersion du
-    tirage reste LETALE (>= PV) et TRES en-dessous du seuil (pct ~ 25 % << 100 %)."""
-    key = ("replay", attacker, victim, tuple(p_units), tuple(a_units), int(ability))
-    if key in _BAND_CACHE:
-        return _BAND_CACHE[key]
-    rid = None
-    try:
-        rid, ids = setup(sid, state_file, seed, attacker, victim, list(p_units), list(a_units),
-                         (3, 4), hp_target=200000, crit_spec="0,0", verbose=False, check_hp=False)
-        cap = _capture(sid, rid)
-        vid = by_visual(cap["dec"], victim)["id"]
-        st = _load(cap)
-        hc = st.get_entity(int(vid)).get_component(HealthComponent)
-        before = int(hc.hp)
-        _replay_attack(st, ids[attacker], vid, ability)
-        total = before - int(hc.hp)
-    finally:
-        if rid is not None:
-            _r(sid, "disposeRunner", {"runnerId": rid}, 30)
-    if total <= 0:
-        raise RuntimeError("rejeu offline sans degat (%s / ability %s)" % (attacker, ability))
-    hp = max(1, int(total * 0.8))
-    if verbose:
-        print("[178] tune-replay %s ability %s -> %s : total %d => PV = %d (2 x PV = %d)"
-              % (attacker, ability, victim, total, hp, 2 * hp))
-    _BAND_CACHE[key] = (hp, total)
-    return _BAND_CACHE[key]
 
 
 def setup(sid, state_file, seed, attacker, victim, p_units, a_units, center,
@@ -392,56 +409,70 @@ def run(case: str, seed: int = 17811, center=(3, 4), state_file=None,
         keep: bool = False, verbose: bool = True) -> dict:
     """MONTAGE A (crescendo) d'un regime, reutilisable (le probe EST la fixture).
 
-    Rend `{"case", "victim", "rid", "hp", "dmg_min", "dmg_max", "live_level_before",
+    Rend `{"case", "victim", "rid", "hp", "live_damage", "base_damage", "live_level_before",
     "live_level_after", "live_overkill", "port_overkill", "port_replay_overkill", "legacy_overkill",
-    "can_be_overkilled", "prevent_overkill", "is_crit_regime", "lethal_below_threshold"}`
-    -- ou `{"error": ...}` si le regime n'est pas atteint."""
+    "can_be_overkilled", "prevent_overkill", "is_crit_regime", "lethal_below_threshold",
+    "above_threshold", "pred_channel"}` -- ou `{"error": ...}` si le regime n'est pas atteint.
+
+    `live_damage` est le degat REEL du vecteur, MESURE LIVE en passe 1 (cible increvable), et non
+    une prediction : c'est lui qui situe le regime par rapport a `overkillDmgPctOfHealth`."""
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parent.parent / "logs" / "ovk178.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
     spec = CASES[case]
     victim, attacker, crit_spec = spec["victim"], spec["attacker"], spec["crit"]
     hp_target = spec["hp"]
+    p_units, a_units = [SHIRON, KILLER], [victim, FILLER]
     rid = None
     try:
+        # PASSE 1a -- degat SANS crit : calibre les PV (partages par la paire crit/nocrit).
+        base_hp, base_dmg = _measure_live_damage(sid, seed, attacker, victim, sf, p_units,
+                                                 a_units, center, verbose=verbose)
         if hp_target is None:
-            hp_target = _tune_hp(sid, seed + 500, attacker, victim, sf,
-                                 [SHIRON, KILLER], [victim, FILLER], verbose=verbose)[0]
-        rid, ids = setup(sid, sf, seed, attacker, victim, [SHIRON, KILLER], [victim, FILLER],
+            hp_target = base_hp
+        # PASSE 1b -- degat REEL du regime (avec SON crit) : c'est lui qui doit etre dans
+        # [PV, 2 x PV) pour un regime letal-sous-le-seuil, ou >= 2 x PV pour un overkill NATUREL.
+        live_damage = base_dmg if crit_spec == "0,0" else _measure_live_damage(
+            sid, seed, attacker, victim, sf, p_units, a_units, center,
+            crit_spec=crit_spec, verbose=verbose)[1]
+        rid, ids = setup(sid, sf, seed, attacker, victim, p_units, a_units,
                          center, hp_target=hp_target, crit_spec=crit_spec, verbose=verbose)
         dv = view(sid, rid)
         vic = by_visual(dv, victim)
         hp, lvl0 = int(vic["hp"]), crescendo_level(dv, ids[SHIRON])
-        dmin, dmax = predicted_damage(sid, rid, ids[SHIRON], vic["id"])
-        if dmin is None:
-            return {"error": "aiPredict illisible (%s)" % case}
+        health = prediction_channel_health(sid, rid, ids[SHIRON], vic["id"])
         cap = _capture(sid, rid)
         attack(sid, rid, ids[SHIRON], vic["id"])
         dv2 = view(sid, rid)
         lvl1 = crescendo_level(dv2, ids[SHIRON])
         if not killed_by(dv2, vic["id"], ids[SHIRON]):
-            return {"error": "%s : la victime n'a pas ete tuee par Shiron" % case}
+            return {"error": "%s : la victime n'a pas ete tuee par Shiron (PV %d, degat LIVE "
+                             "mesure %d)" % (case, hp, live_damage)}
         live = (lvl1 - lvl0) > 0
-        old = _legacy_is_overkill(hp, dmin)
+        old = _legacy_is_overkill(hp, live_damage)
         is_crit = crit_spec.split(",")[0] != "0"
-        new, cbo, prv = offline_verdict(cap, vic["id"], hp, dmin, is_critical=is_crit)
+        new, cbo, prv = offline_verdict(cap, vic["id"], hp, live_damage, is_critical=is_crit)
         rflag, rtotal, rcrits, rhp = replay_flag(cap, ids[SHIRON], vic["id"])
         out = {"case": case, "victim": victim, "rid": rid, "hp": hp,
-               "dmg_min": dmin, "dmg_max": dmax,
+               "live_damage": live_damage, "base_damage": base_dmg,
                "live_level_before": lvl0, "live_level_after": lvl1, "live_overkill": live,
                "port_overkill": bool(new), "port_replay_overkill": bool(rflag),
                "replay_total": rtotal, "replay_crits": rcrits, "replay_hp_after": rhp,
                "legacy_overkill": bool(old),
                "can_be_overkilled": bool(cbo), "prevent_overkill": bool(prv),
-               "is_crit_regime": is_crit,
-               "lethal_below_threshold": bool(dmin >= hp and dmax < 2 * hp),
-               # GARDE-FOU (cf. `replay_damage_total`) : c'est le degat REEL du coup rejoue, pas la
-               # preview, qui doit etre letal ET sous le seuil pour que le regime discrimine.
-               # `replay_total` = `_run_hits.total` = degat CALCULE (non tronque par les PV).
+               "is_crit_regime": is_crit, "pred_channel": health,
+               # Les deux regimes du fichier, tranches sur le degat MESURE LIVE :
+               #   letal-sous-le-seuil = PV <= degat < 2 x PV  (le verdict depend d'un ARGUMENT) ;
+               #   overkill NATUREL    = degat >= 2 x PV       (le verdict est vrai sans argument).
+               "lethal_below_threshold": bool(hp <= live_damage < 2 * hp),
+               "above_threshold": bool(live_damage >= 2 * hp),
+               # CONTREPOINT du port sur le meme etat -- jamais une entree du regime.
                "replay_below_threshold": bool(hp <= rtotal < 2 * hp)}
         if verbose:
-            print("[178] %s : PV=%d degat=[%s,%s] seuil=%d%% crit=%s"
-                  % (case, hp, dmin, dmax, _overkill_threshold_pct(), crit_spec))
+            print("[178] %s : PV=%d degat LIVE=%d (base nocrit %d) seuil=%d%% crit=%s"
+                  % (case, hp, live_damage, base_dmg, _overkill_threshold_pct(), crit_spec))
+            print("[178]   regime : letal-sous-le-seuil=%s  overkill-naturel=%s"
+                  % (out["lethal_below_threshold"], out["above_threshold"]))
             print("[178]   gates offline : can_be_overkilled=%s prevent_overkill=%s" % (cbo, prv))
             print("[178]   corps SUPPRIME (2 args)      -> overkill=%s" % old)
             print("[178]   corps LIVRE  (unit_is_overkill) -> overkill=%s" % new)
@@ -449,6 +480,7 @@ def run(case: str, seed: int = 17811, center=(3, 4), state_file=None,
                   % (rflag, rtotal, rcrits, rhp))
             print("[178]   LIVE crescendo %d -> %d       -> overkill=%s" % (lvl0, lvl1, live))
             print("[178]   ACCORD : rejeu=%s  supprime=%s" % (rflag == live, old == live))
+            print("[178]   canal aiPredict : %s (%s)" % (health["alive"], health["why"]))
         return out
     except RuntimeError as exc:
         return {"error": str(exc)}
@@ -471,21 +503,20 @@ def run_revive(case: str, seed: int = 17833, center=(3, 4), state_file=None,
     victim = "genesPrimus"
     rid = None
     try:
-        if int(ability) == NORMAL_ATTACK:
-            hp_target, _ = _tune_hp(sid, seed + 500, attacker, victim, sf,
-                                    p_units, REVIVE_A_UNITS, verbose=verbose, ability=ability)
-        else:
-            hp_target, _ = _tune_hp_replay(sid, seed + 500, attacker, victim, sf,
-                                           p_units, REVIVE_A_UNITS, ability, verbose=verbose)
+        # PASSE 1a -- degat SANS crit : calibre les PV (partages par la paire revive-crit/nocrit).
+        hp_target, base_dmg = _measure_live_damage(sid, seed, attacker, victim, sf, p_units,
+                                                   REVIVE_A_UNITS, center, ability=ability,
+                                                   verbose=verbose)
+        # PASSE 1b -- degat REEL du regime, avec SON crit.
+        live_damage = base_dmg if crit_spec == "0,0" else _measure_live_damage(
+            sid, seed, attacker, victim, sf, p_units, REVIVE_A_UNITS, center, ability=ability,
+            crit_spec=crit_spec, verbose=verbose)[1]
         rid, ids = setup(sid, sf, seed, attacker, victim, p_units,
                          list(REVIVE_A_UNITS), center, hp_target=hp_target,
                          crit_spec=crit_spec, verbose=verbose)
         dv = view(sid, rid)
         vic = by_visual(dv, victim)
         hp = int(vic["hp"])
-        dmin, dmax = predicted_damage(sid, rid, ids[attacker], vic["id"], ability)
-        if dmin is None:
-            return {"error": "aiPredict illisible (%s)" % case}
         cap = _capture(sid, rid)
         attack(sid, rid, ids[attacker], vic["id"], ability)
         dv2 = view(sid, rid)
@@ -499,25 +530,28 @@ def run_revive(case: str, seed: int = 17833, center=(3, 4), state_file=None,
         hc = ent.get_component(HealthComponent) if ent is not None else None
         uc = ent.get_component(UnitComponent) if ent is not None else None
         port_alive = bool(uc is not None and uc.alive)
-        # `replay_damage` = le degat REEL du vecteur (rejeu offline sur cible increvable), et non la
-        # preview `aiPredict`. C'est LUI qui doit etre dans [PV, 2 x PV) pour que le regime soit
-        # discriminant : la preview mentait de 30 % sur FlailSwing, et sans ce garde-fou le test
-        # aurait valide un overkill NATUREL (`dmg >= 2 x PV`) en croyant mesurer le flag.
+        # `live_damage` = le degat REEL du vecteur, MESURE LIVE sur cible increvable (passe 1) --
+        # ni la preview `aiPredict` (canal mort, #268), ni le rejeu du port. C'est LUI qui doit
+        # etre dans [PV, 2 x PV) pour que le regime soit discriminant : au-dessus, l'overkill est
+        # NATUREL et le test validerait sans que le flag serve a rien.
         out = {"case": case, "victim": victim, "rid": rid, "hp": hp,
-               "dmg_min": dmin, "dmg_max": dmax, "ability": int(ability), "attacker": attacker,
+               "live_damage": live_damage, "base_damage": base_dmg,
+               "ability": int(ability), "attacker": attacker,
                "live_alive": live_alive, "port_alive": port_alive,
                "port_overkill": bool(fl is not None and fl.has(UnitFlagsComponent.OVERKILLED)),
                "port_hp_after": (hc.hp if hc is not None else None),
+               # CONTREPOINT du port sur le meme etat -- jamais une entree du regime.
                "replay_damage": replay_damage_total(cap, ids[attacker], vic["id"], ability),
                "is_crit_regime": crit_spec.split(",")[0] != "0",
-               "lethal_below_threshold": bool(dmin >= hp and dmax < 2 * hp)}
+               "lethal_below_threshold": bool(hp <= live_damage < 2 * hp)}
         out["replay_below_threshold"] = bool(
             out["replay_damage"] is not None and hp <= out["replay_damage"] < 2 * hp)
         if verbose:
-            print("[178B] %s : PV=%d preview=[%s,%s] crit=%s ability=%s"
-                  % (case, hp, dmin, dmax, crit_spec, ability))
-            print("[178B]   degat REEL du vecteur (rejeu) = %s -> letal-sous-le-seuil=%s"
-                  % (out["replay_damage"], out["replay_below_threshold"]))
+            print("[178B] %s : PV=%d degat LIVE=%d (base nocrit %d) crit=%s ability=%s"
+                  % (case, hp, live_damage, base_dmg, crit_spec, ability))
+            print("[178B]   letal-sous-le-seuil=%s   (contrepoint port : degat %s -> %s)"
+                  % (out["lethal_below_threshold"], out["replay_damage"],
+                     out["replay_below_threshold"]))
             print("[178B]   LIVE victime vivante apres le coup letal -> %s" % live_alive)
             print("[178B]   REJEU port : vivante=%s overkill=%s hp=%s"
                   % (port_alive, out["port_overkill"], out["port_hp_after"]))

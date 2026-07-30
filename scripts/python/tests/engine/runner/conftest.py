@@ -62,7 +62,12 @@ def overkill_gate_case(live_session):
 
     Portee MODULE : les deux regimes de la paire sont montes une fois pour tout le fichier de test
     (chaque regime = un build + un drive + une attaque letale). `live_session` est tire ICI (le
-    montage exige la session Frida) ; le runner est DISPOSE par le probe en sortie de `run()`."""
+    montage exige la session Frida) ; le runner est DISPOSE par le probe en sortie de `run()`.
+
+    ⚠ Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268). Un `pytest.skip` sur un
+    regime non atteint est un VERT qui ment : aucune mesure n'a eu lieu, et la suite ne rougit pour
+    personne. C'est exactement ce qui a masque 8 tests de cette famille pendant toute la migration
+    de build."""
     cache: dict = {}
 
     def _case(case: str, seed: int = 17811) -> dict:
@@ -70,7 +75,7 @@ def overkill_gate_case(live_session):
         if case not in cache:
             r = OVK.run(case, seed=seed, verbose=True)
             if "error" in r:
-                pytest.skip(f"montage overkill-gate KO ({case}): {r['error']}")
+                pytest.fail(f"montage overkill-gate NON INSTALLE ({case}): {r['error']}")
             cache[case] = r
         return cache[case]
     return _case
@@ -82,7 +87,9 @@ def overkill_revive_case(live_session):
 
     Observable INDEPENDANT du crescendo (`Narthecium_ReviveEffect` revive « unless Overkilled ») et
     tueur SANS le trait `ThrillSeekers` -> c'est ce montage qui ATTRIBUE l'overkill au flag
-    `isCritical` plutot qu'au rider ThrillSeekers. Portee MODULE (un build par regime)."""
+    `isCritical` plutot qu'au rider ThrillSeekers. Portee MODULE (un build par regime).
+
+    Meme regle qu'au-dessus : montage non installe => ECHEC, jamais skip (#268)."""
     cache: dict = {}
 
     def _case(case: str, seed: int = 17833) -> dict:
@@ -91,7 +98,7 @@ def overkill_revive_case(live_session):
         if case not in cache:
             r = OVK.run_revive(case, seed=seed, verbose=True)
             if "error" in r:
-                pytest.skip(f"montage overkill-revive KO ({case}): {r['error']}")
+                pytest.fail(f"montage overkill-revive NON INSTALLE ({case}): {r['error']}")
             cache[case] = r
         return cache[case]
     return _case
@@ -179,14 +186,19 @@ def prevent_overkill_utility_case(live_session):
     """UTILITE, formule ISOLEE (meme forme que `overkill_decision_utility_case`, autre argument) :
     `pairUtility` NATIF vs le terme degat du PORT nourri des MEMES events natifs, en variante AVEC
     et SANS la cle `preventOverkill`. Regime LETAL SOUS LE SEUIL + crit force, tune par cible (les
-    bornes RAW dependent de la cible). Portee MODULE (2 builds par cible : tune + mesure)."""
+    bornes RAW dependent de la cible). Portee MODULE (2 builds par cible : tune + mesure).
+
+    ⚠ ECHEC, jamais skip (#268) : ce montage lit les bornes RAW **et** `preventOverkill` dans le
+    struct de prediction decode par les hooks. Quand ce decodeur derape, le montage ne peut plus
+    rien mesurer -- et un skip transformerait cette panne d'INSTRUMENT en vert silencieux. Le
+    message d'erreur du probe distingue explicitement « canal mort » de « regime inatteignable »."""
     cache: dict = {}
 
     def _case(victim: str, seed: int = 19601) -> dict:
         if victim not in cache:
             r = PVO.run_utility(victim, seed=seed, verbose=True)
             if r.get("error"):
-                pytest.skip(f"montage prevent-overkill KO ({victim}) : {r['error']}")
+                pytest.fail(f"montage prevent-overkill NON INSTALLE ({victim}) : {r['error']}")
             cache[victim] = r
         return cache[victim]
     return _case

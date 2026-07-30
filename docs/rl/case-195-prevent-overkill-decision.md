@@ -127,3 +127,15 @@ enemy with a Crit → always overkilled » forcerait `isForceOverkill` et rendra
 ambiguë — le confond que #R33 avait dû lever côté COMBAT.
 
 Garde : `scripts/python/tests/engine/runner/test_prevent_overkill_decision_live.py` (4 tests).
+
+## ⚠ Depuis la migration `rnca9r7q6c` : la garde est ROUGE, et c'est l'INSTRUMENT
+
+Les 4 tests échouent — **pas** parce que le port aurait bougé, mais parce que le décodeur qui rend
+`preventOverkill` et les bornes RAW lit des offsets **périmés** : `PreventOverkill` est à `@0x8c`
+sur ce build, pas à `@0xb3`. Le champ vaut donc `0` des deux côtés et les bornes valent `[0,0]`.
+Diagnostic, offsets re-dérivés et chantier de correction :
+**`case-268-decodeur-prediction-perime.md`** (backlog `#268-a`, exige une réinjection).
+
+Trois **sentinelles** (`probe_195_prevent_overkill_decision.event_channel_health`) distinguent
+désormais « canal mort » de « régime inatteignable », et les fixtures **échouent au lieu de
+skipper** : un montage qui ne s'installe pas ne doit jamais passer en vert silencieux.
