@@ -203,42 +203,48 @@ export function installHealRepairHooks(): void {
         installStatus.PredictHeal = "method not found";
     }
 
-    // PredictRepair(...) → RepairPredictionResult (16B sret).
-    // UnitPosition is 8B (single Tiles ptr) → in register, not by ref.
-    // args[0]=sret, args[1]=this, args[2]=caster, args[3]=target,
-    // args[4]=Tiles ptr, args[5]=amount, args[6]=scope, args[7]=&source.
+    // PredictRepair(caster, target, casterPosition, amount, scope, source)
+    //   → RepairPredictionResult, 8 octets DANS RAX (pas de sret).
+    //
+    // ⚠ CE CANAL A ETE FAUX SUR TOUT, ET SILENCIEUSEMENT — corrige le 2026-07-30 (#278).
+    // Le code precedent supposait un retour par `sret`, ce qui decale d'un cran TOUS les
+    // arguments. Il publiait donc :
+    //     args[0] pris pour le sret     -> c'est `this` : la prediction etait decodee
+    //                                      depuis l'objet service lui-meme
+    //     args[2] pris pour le caster   -> c'est la CIBLE
+    //     args[3] pris pour la cible    -> c'est `casterPosition`, une VALEUR (UnitPosition),
+    //                                      pas une entite
+    //     args[5] pris pour le montant  -> c'est `scope`, un enum a petite valeur -- donc
+    //                                      parfaitement plausible a l'oeil
+    // Aucune de ces erreurs ne pouvait se voir dans les traces : tout restait « du bon
+    // ordre de grandeur ». C'est la signature du decodage faux, pas du bug bruyant.
+    //
+    // CE QUI TRANCHE, et pourquoi c'est sur cette fois :
+    //   1. `classFields` (RPC live) : `RepairPredictionResult` = 8 octets de champs,
+    //      `CurrentHealth` puis `TotalHeal` -- STRICTEMENT la meme forme que
+    //      `HealPredictionResult`. Meme taille => meme ABI de retour.
+    //   2. Le decompile donne `undefined8 PredictRepair(this, caster, target,
+    //      casterPosition, amount, scope, source)` -- retour en RAX, aucun sret -- et
+    //      finit par `CONCAT44(MaxFillUp(...), GetStat(target, Health))`, soit
+    //      lo = CurrentHealth, hi = TotalHeal. Exactement `PredictHeal` ci-dessus.
+    //
+    // Il n'y a donc PLUS d'offset a maintenir ici : deux int32 dans un registre. Le piege
+    // de taille boxee (#276) ne peut plus mordre sur ce canal.
     const pr = findMethod(dpClass, "PredictRepair");
     if (pr && !pr.ptr.isNull()) {
         try {
             Interceptor.attach(pr.ptr, {
                 onEnter(args): void {
                     const c = this as CarriedPtrs;
-                    c.sretPtr = args[0];
-                    c.casterPtr = args[2];
-                    c.targetPtr = args[3];
-                    c.amount = args[5].toInt32();
+                    c.casterPtr = args[1];
+                    c.targetPtr = args[2];
+                    // args[3] = casterPosition (UnitPosition, par valeur) — non trace.
+                    c.amount = args[4].toInt32();
                 },
-                onLeave(_retval): void {
+                onLeave(retval): void {
                     if (!traceState.enabled.L1) return;
                     const c = this as CarriedPtrs;
-                    if (!c.sretPtr || c.sretPtr.isNull()) return;
-                    let prediction: Record<string, unknown> | null = null;
-                    try {
-                        // ⚠ NON RÉPARÉ, et SUSPECT (constaté en #276, hors périmètre) :
-                        // `IdunBattle.Core.Services.RepairPredictionResult` pèse 24 octets
-                        // BOXÉS dans `classes.tsv`, soit **8 octets de champs** (header IL2CPP
-                        // 0x10 déduit) — or on en lit 16 ici. `totalHeal`/`totalArmorRepair`
-                        // sortent donc des bornes du struct et rendent du tas voisin. Le
-                        // commentaire « 16B sret » ci-dessus date d'un build antérieur.
-                        // Réparer exige de RE `DamagePrediction$$PredictRepair` (quels deux
-                        // int, dans quel ordre) — pas de re-brancher un offset au jugé.
-                        prediction = {
-                            currentHealth:    c.sretPtr.readS32(),
-                            currentArmor:     c.sretPtr.add(0x4).readS32(),
-                            totalHeal:        c.sretPtr.add(0x8).readS32(),
-                            totalArmorRepair: c.sretPtr.add(0xC).readS32(),
-                        };
-                    } catch { /* keep null */ }
+                    const { lo, hi } = splitU64(retval);
                     const ev = traceState.currentEval;
                     emit({
                         evt: "repair_prediction",
@@ -247,7 +253,7 @@ export function installHealRepairHooks(): void {
                         target: projectEntity(
                             c.targetPtr ?? ptr(0), "target"),
                         amount: c.amount,
-                        prediction,
+                        prediction: { currentHealth: lo, totalHeal: hi },
                         playbook: ev ? ev.playbookCls : null,
                         playbookAbility: ev
                             ? abilityName(ev.abilityType) : null,

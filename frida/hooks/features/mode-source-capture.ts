@@ -18,9 +18,11 @@
 //     "PvpGameModeSource", not "AGameModeSource".
 
 import {
-    class_get_methods, class_get_name, class_get_namespace,
-    cstr, findMethod, getFieldOffset, IL2CPP_MODULE_NAME,
-    methodEntry, method_get_name,
+    class_get_fields, class_get_methods, class_get_name, class_get_namespace,
+    class_get_parent, class_instance_size, cstr, field_get_name, field_get_offset,
+    field_get_type, findClassAnywhere, findMethod, getFieldOffset,
+    IL2CPP_MODULE_NAME, methodEntry, method_get_name,
+    type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { Ctx } from "../controller.js";
 import { state } from "../game/state.js";
@@ -300,6 +302,91 @@ export function register(ctx: Ctx): void {
             }
         }
         return { count: out.length, results: out };
+    };
+
+    /**
+     * RPC: disposition COMPLETE d'une classe — nom, offset et type de chaque champ,
+     * remontee de la chaine d'heritage, plus la taille BOXEE.
+     *
+     * POURQUOI CE RPC EXISTE (#279). Les decodeurs de struct du harnais figent des
+     * offsets en dur (`sretPtr.add(0x8).readS32()`). A chaque migration de build ils
+     * se mettent a lire du tas voisin — des valeurs plausibles, jamais nulles, jamais
+     * signalees (#276 : `aiPredict` rendait [1,100] pour TOUT couple ; #278 :
+     * `RepairPredictionResult` lu sur 16 octets alors qu'il n'en fait que 8). Chaque
+     * fois, la reparation coutait une RE complete au decompile, champ par champ.
+     *
+     * Or les noms de champs sont dans les METADONNEES IL2CPP, donc lisibles EN LIVE :
+     * `getFieldOffset(klass, "HealthDamage")` resout deja par nom et survit a une
+     * redisposition sans une ligne de code. Ce qui manquait n'etait pas la resolution,
+     * c'etait de pouvoir LISTER les champs pour savoir quels noms demander — le dump
+     * `data/il2cpp_full.json` n'est pas sur disque, et un agent en worktree ne l'a pas
+     * non plus. Ce RPC comble ce trou : il rend la disposition reelle du build COURANT,
+     * sans dump, sans Ghidra, sans supposer un ordre de declaration.
+     *
+     * ⚠ `size` est la taille BOXEE (`il2cpp_class_instance_size`) : pour un ValueType
+     * elle inclut le header IL2CPP de 0x10. La confondre avec la taille des CHAMPS est
+     * exactement l'erreur qui a mis `DamagePredictionResult` a 0xB0 au lieu de 0xA0, et
+     * par ricochet fausse le stride d'iteration d'un `List<T>`. `fieldsSize` ci-dessous
+     * donne la taille des champs seuls, deja corrigee.
+     */
+    ctx.rpc.classFields = (ns: string, cls: string): unknown => {
+        if (typeof ns !== "string" || typeof cls !== "string" || !cls) {
+            return { ok: false, err: "classFields(ns, cls) — ns et cls requis" };
+        }
+        const klass = findClassAnywhere(ns, cls);
+        if (!klass) return { ok: false, err: `classe introuvable: ${ns}.${cls}` };
+
+        const fields: Array<{
+            name: string; offset: number; type: string; declaredBy: string;
+        }> = [];
+        let k: NativePointer = klass;
+        let depth = 0;
+        while (!k.isNull() && depth < 6) {
+            const owner = (() => {
+                try { return cstr(class_get_name(k) as NativePointer); }
+                catch { return "?"; }
+            })();
+            try {
+                const iter = Memory.alloc(Process.pointerSize);
+                iter.writePointer(ptr(0));
+                for (;;) {
+                    const f = class_get_fields(k, iter) as NativePointer;
+                    if (f.isNull()) break;
+                    let type = "?";
+                    try {
+                        const tc = type_get_class_or_element_class(
+                            field_get_type(f) as NativePointer) as NativePointer;
+                        if (!tc.isNull()) {
+                            type = cstr(class_get_name(tc) as NativePointer);
+                        }
+                    } catch { /* type non resolu : le nom+offset suffisent */ }
+                    fields.push({
+                        name: cstr(field_get_name(f) as NativePointer),
+                        offset: field_get_offset(f) as number,
+                        type, declaredBy: owner,
+                    });
+                }
+            } catch { /* classe sans champs iterables */ }
+            k = class_get_parent(k) as NativePointer;
+            depth++;
+        }
+
+        const boxedSize = class_instance_size
+            ? (class_instance_size(klass) as number) : null;
+        // Un champ d'INSTANCE d'un ValueType est offset >= 0x10 (apres le header) ;
+        // les statiques/litteraux sortent de cette plage et ne comptent pas dans la
+        // taille des champs.
+        const instanceFields = fields.filter(
+            (f) => f.offset >= 0x10 && f.offset < (boxedSize ?? Number.MAX_SAFE_INTEGER));
+        return {
+            ok: true, ns, cls,
+            klass: klass.toString(),
+            boxedSize,
+            fieldsSize: boxedSize === null ? null : boxedSize - 0x10,
+            fieldCount: fields.length,
+            instanceFieldCount: instanceFields.length,
+            fields,
+        };
     };
 
     /** RPC: list every discovered class so the user can verify the new
