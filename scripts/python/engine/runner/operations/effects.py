@@ -131,7 +131,7 @@ class AddEffectOperation:
         c'est le BUILDER qui la porte (`GetEffectBuilder` résout le sélecteur `bondedEntity` en id, et
         bascule sur le builder de bond ssi cet id est non nul) ; le port passe l'id résolu ici, l'opération
         n'a qu'à le recopier sur l'instance. None = builder d'effet ORDINAIRE (aucun bond)."""
-        # `On(PreEffectAdded=0x3d=62)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
+        # `On(PreEffectAdded=0x3d=61)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
         # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
         # fire même si la pose est finalement abandonnée (sémantique « would have », cf.

@@ -40,7 +40,7 @@ def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
 def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
                               ranged: bool, profile: Optional[str] = None,
                               ability_type: Optional[int] = None) -> list[dict]:
-    """Vecteur `On(PreUnitAbility=0x2a=43)` — emis par
+    """Vecteur `On(PreUnitAbility=0x2a=42)` — emis par
     `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0x2b)`)
     **TOUT EN HAUT**, avant l'execution de l'ability (donc avant tout degat/block) ; la MEME operation
     emet ensuite, dans l'ordre, `0xb (UnitAbility)`, `0xc (UnitActiveAbility)` et `0xe (UnitPostAbility)`.

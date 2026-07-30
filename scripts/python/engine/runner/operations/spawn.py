@@ -463,7 +463,7 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
     r = apply_on_unit_added(state, int(unit_id))
     if r is not None:
         out.append(r)
-    # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 51)` : `AbilityEntities.ctor(added, added, added)`
+    # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 50)` : `AbilityEntities.ctor(added, added, added)`
     # -> actor = caster = target = l'unite qui vient d'apparaitre.
     from .triggers import TriggerEvent, evaluate_trigger_operation
     from ...dsl.event_trigger_type import EventTriggerType

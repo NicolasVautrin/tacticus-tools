@@ -13,7 +13,7 @@ Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behavi
   * `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` = PV pleins (le `StatAmount(unit, Health=5, mode=2)` passé par le behaviour) ;
   * si `takesImmediateTurn (param_7)` → `RemoveTurnFlags(unit,1,1)` → l'unité peut REJOUER immédiatement
     (l'exécution du tour = couche IA/contrôleur, pas cette Operation) ;
-  * émet `On(UnitResurrected=0x2e=47)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
+  * émet `On(UnitResurrected=0x2e=46)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
 
 ⚠ NE PAS confondre avec la couche DÉCISION `RitesOfRestorationPlaybook` (`playbook/noncomparable/heals.py`,
 `GetPossibleResurrectTargets`) qui SCORE l'évaluation IA — le runner n'avait PAS d'Operation resurrect ;

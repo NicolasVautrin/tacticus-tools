@@ -126,7 +126,7 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 
 
 def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
-    """Vecteur `On(PostUnitKill = 0x35 = 54)` — **5e et DERNIER** des events de mort émis par
+    """Vecteur `On(PostUnitKill = 0x35 = 53)` — **5e et DERNIER** des events de mort émis par
     `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
     par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)`).
     `actor` = le TUEUR, `target`/`dying` = la victime.
@@ -341,7 +341,7 @@ def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = 
 
 def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
                               effect_type: int) -> list[dict]:
-    """Vecteur `On(PreEffectAdded=0x3d=62)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
+    """Vecteur `On(PreEffectAdded=0x3d=61)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
     HAUT** (`FUN_180026490(0x50, ..., 0x3e)` juste apres la construction de l'`AbilityEntities`, AVANT le
     gate cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite `HasFlag(target,6)`).
     => l'evenement fire meme quand l'effet n'est finalement PAS applique (semantique << would have >>).

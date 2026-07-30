@@ -447,7 +447,7 @@ class _Normal:
         # est justement le porteur du seul consommateur (cf. `attack_damage_attack_triggers`).
         # `target_id` est ici la cible REELLEMENT frappee (#120bis, cf. le commentaire du champ `target`
         # ci-dessous) : le natif emet cet event depuis l'AttackData de l'attaque effectivement resolue.
-        # `On(FinalDamage = 0x42 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+        # `On(FinalDamage = 0x42 = 66)` — emis par `IdunBattle.Operations.ADamageOperation$$
         # RegisterFinalDamage`, dont les xrefs sont EXHAUSTIVES : `IdunBattle.Operations.
         # AttackDamageOperation$$Execute` (ici) et `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute` (cf. `execute_ability_attack`) — donc UNE fois par ATTAQUE / par degat d'ability,

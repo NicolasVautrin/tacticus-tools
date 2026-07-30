@@ -40,7 +40,7 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
 
 def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool, profile: Optional[str]) -> list[dict]:
-    """Vecteur `On(UnitBlocked=0x3c=61)` — emis par `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`
+    """Vecteur `On(UnitBlocked=0x3c=60)` — emis par `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`
     sur la branche `if (param_6 != 0)` (le flag BLOCK), **AVANT** le `On(8)` inconditionnel. L'
     `AbilityEntities` de ce vecteur est `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target =
     param_4 = le DEFENSEUR, casterTiles = GetTiles(attaquant), targetTiles = GetTiles(defenseur))` :
@@ -62,7 +62,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
 
 def final_damage_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
-    """Vecteur `On(FinalDamage = 0x42 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+    """Vecteur `On(FinalDamage = 0x42 = 66)` — emis par `IdunBattle.Operations.ADamageOperation$$
     RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_180026490(0x50, .., 0x43, entities)`.
 
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`

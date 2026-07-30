@@ -228,7 +228,7 @@ class ReviveUnitOperation:
         if hc is not None and set_hp is not None:
             from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
-        # `On(UnitRevived = 0x2d = 46)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
+        # `On(UnitRevived = 0x2d = 45)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
         # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous
         # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2e)`.
         from .triggers import unit_revived_triggers
