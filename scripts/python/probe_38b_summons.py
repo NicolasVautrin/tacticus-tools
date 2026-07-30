@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
-ROOT = Path(r"C:\Users\nicolasv\tacticus-tools")
+ROOT = PYDIR.parents[1]          # RELATIF au checkout (#314), jamais l'arbre principal
 sys.path.insert(0, str(PYDIR))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402

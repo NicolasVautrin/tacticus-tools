@@ -1,13 +1,26 @@
 """Parse the GhidraTestUntypedDecompile.java stdout log and write each recovered
-method's C into data/decompiled_tacticus_untyped_test/<top_class_fs_path>.c,
+method's C into logs/ghidra/decompiled_untyped_test/<top_class_fs_path>.c,
 mirroring the arborescence of data/decompiled_tacticus/.
+
+ENTREES (`data/untyped-test.log`, `data/failed_targets.tsv`) : artefacts du
+pipeline Ghidra hors-ligne, ni versionnes ni produits ici -> resolus par
+`host_inputs` (tri-etat #273). `failed_targets.tsv` est desormais ecrit par
+`extract_failed_targets.py` sous `logs/ghidra/` : on l'y cherche D'ABORD.
+
+SORTIE -> `logs/ghidra/`, RELATIF au checkout (#314) : un chemin absolu ferait
+ecrire ce script dans l'arbre principal depuis un worktree d'agent.
 """
 import re, os, sys
 from pathlib import Path
 
-LOG = Path('C:/Users/nicolasv/tacticus-tools/data/untyped-test.log')
-TSV = Path('C:/Users/nicolasv/tacticus-tools/data/failed_targets.tsv')
-OUT = Path('C:/Users/nicolasv/tacticus-tools/data/decompiled_tacticus_untyped_test')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs
+
+REPO = Path(__file__).resolve().parents[2]
+LOG = host_inputs.require('data/untyped-test.log')
+_TSV_LOCAL = REPO / 'logs' / 'ghidra' / 'failed_targets.tsv'
+TSV = _TSV_LOCAL if _TSV_LOCAL.exists() else host_inputs.require('data/failed_targets.tsv')
+OUT = REPO / 'logs' / 'ghidra' / 'decompiled_untyped_test'
 
 # rva_int -> top_class_fs_path
 rva_to_path = {}

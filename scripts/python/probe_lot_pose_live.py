@@ -21,7 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl_collect_batch import _resolve_session, _rpc      # noqa: E402
 
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_lot4pose_main_state.json")
+# Le runner est monte par `probe_lot_pose.py` : on REUTILISE son state-file --
+# meme constante, chemin RELATIF au checkout sous `logs/` (#314).
+from probe_lot_pose import LOT_STATE                    # noqa: E402
+
+STATE = LOT_STATE
 MA, FG, TC, AS, EN = ("admecDominus", "blackObliterator", "emperNoiseMarine",
                       "spaceRockfist", "necroWarden")
 
@@ -105,9 +109,16 @@ def advance_to(sid, rid, vis, maxit=16):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rounds", type=int, default=3)
+    ap.add_argument("--state-file", default=None,
+                    help="state-file du runner monte par probe_lot_pose.py")
     args = ap.parse_args()
     sid = _resolve_session()
-    rid = json.loads(STATE.read_text())["runnerId"]
+    state = Path(args.state_file) if args.state_file else STATE
+    if not state.exists():
+        raise SystemExit("[live] state-file introuvable : %s\n"
+                         "  monte d'abord le runner : python probe_lot_pose.py"
+                         % state.as_posix())
+    rid = json.loads(state.read_text())["runnerId"]
     print("[live] session=%s runner=%s" % (sid, rid))
 
     d = dv(sid, rid)

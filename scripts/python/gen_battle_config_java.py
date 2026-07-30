@@ -13,11 +13,18 @@ data/seed-bc.json (seed BC template; regenere par dump_boards.py, cf. #159).
 from __future__ import annotations
 import json
 import re
+import sys
 from pathlib import Path
 
-ROOT = Path('C:/Users/nicolasv/tacticus-tools')
-DUMP = ROOT / 'data' / 'il2cpp_full.json'
-ENUM_ATTRS = ROOT / 'data' / 'enum_json_converter.json'
+# ENTREES (`data/il2cpp_full.json`, `data/enum_json_converter.json`) : artefacts
+# du pipeline Ghidra hors-ligne, ni versionnes ni produits ici -> `host_inputs`
+# (tri-etat #273). SORTIE `app/` : RELATIVE au checkout (#314).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs                                     # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+DUMP = host_inputs.require('data/il2cpp_full.json')
+ENUM_ATTRS = host_inputs.require('data/enum_json_converter.json')
 OUT_BASE = ROOT / 'app' / 'src' / 'main' / 'java'
 
 ROOT_TYPE = 'IdunBattle.Configuration.BattleConfiguration'

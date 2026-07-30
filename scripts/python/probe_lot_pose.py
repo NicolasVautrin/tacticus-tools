@@ -26,7 +26,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc      # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
-STATE = Path(r"C:\Users\nicolasv\tacticus-tools\data\_lot4pose_main_state.json")
+# SORTIE de run -> `logs/` (gitignore, meurt avec le worktree), chemin RELATIF au
+# CHECKOUT : un chemin absolu ferait ecrire ce probe dans l'arbre principal
+# depuis n'importe quel worktree d'agent (#314).
+# Le nom est PARTAGE avec probe_lot_pose_live{,2}.py : ces deux-la REUTILISENT
+# le runner monte ici (ils lisent `runnerId`). C'est un contrat, pas un residu
+# -- deux runs concurrents dans le MEME checkout se separent par `--state-file`.
+LOT_STATE = Path(__file__).resolve().parents[2] / "logs" / "runners" / "_lot4pose_main_state.json"
+STATE = LOT_STATE
 BOARD = "MC1_67"
 P_UNITS = "admecDominus,blackObliterator,emperNoiseMarine,spaceRockfist"
 A_UNITS = "necroWarden,necroWarden,necroWarden"
@@ -364,10 +371,16 @@ def item5_adversarial(state, dec, board):
 
 
 def main():
+    global STATE
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=92201)
     ap.add_argument("--reuse", action="store_true", help="reutilise le runner du state-file")
+    ap.add_argument("--state-file", default=None,
+                    help="state-file du runner (defaut : logs/runners/_lot4pose_main_state.json, "
+                         "PARTAGE avec probe_lot_pose_live{,2}.py)")
     args = ap.parse_args()
+    if args.state_file:
+        STATE = Path(args.state_file)
     sid = _resolve_session()
     if args.reuse and STATE.exists():
         rid = json.loads(STATE.read_text())["runnerId"]

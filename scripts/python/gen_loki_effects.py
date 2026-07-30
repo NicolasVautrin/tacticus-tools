@@ -5,15 +5,31 @@ Generate Java Loki effect classes from decompiled C files.
 Reads each .c file in the decompiled Loki effects directory, identifies
 the methods present, determines the parent class, and generates the
 corresponding Java class.
+
+ENTREE `data/decompiled_tacticus/` : artefact du pipeline Ghidra hors-ligne, ni
+versionne ni produit ici -> resolu par `host_inputs` (tri-etat #273). Sans lui,
+un listing du repertoire absent rendait ZERO fichier SANS lever, et ce
+generateur se terminait « 0 classe generee » comme s'il n'y avait rien a faire.
+
+SORTIE `app/` : RELATIVE au checkout (#314) -- un chemin absolu ferait ecrire ce
+script dans l'arbre principal depuis n'importe quel worktree d'agent.
 """
 
 import os
 import re
 import sys
+from pathlib import Path
 
-DECOMPILED_DIR = r"C:\Users\nicolasv\tacticus-tools\data\decompiled_tacticus\IdunBattle\Entities\Effects\Loki"
-OUTPUT_DIR = r"C:\Users\nicolasv\tacticus-tools\app\src\main\java\tacticus\idunbattle\entities\effects\loki"
-EFFECTS_BASE_DIR = r"C:\Users\nicolasv\tacticus-tools\app\src\main\java\tacticus\idunbattle\entities\effects"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs
+
+_REPO = Path(__file__).resolve().parents[2]
+_JAVA = _REPO / "app" / "src" / "main" / "java" / "tacticus" / "idunbattle" / "entities" / "effects"
+
+DECOMPILED_DIR = str(host_inputs.require(
+    "data/decompiled_tacticus/IdunBattle/Entities/Effects/Loki"))
+OUTPUT_DIR = str(_JAVA / "loki")
+EFFECTS_BASE_DIR = str(_JAVA)
 
 PACKAGE = "tacticus.idunbattle.entities.effects.loki"
 BASE_PACKAGE = "tacticus.idunbattle.entities.effects"
