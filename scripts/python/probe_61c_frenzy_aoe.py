@@ -80,6 +80,35 @@ def build(sid, seed, board):
     return json.loads(state.read_text())["runnerId"], state
 
 
+def _reposition_caster(sid, rid, board, cid):
+    """DEPLACE REELLEMENT le caster vers une tuile de son movable set a 6 voisins marchables. Le
+    `UnitFlag.Moved` pose par `MoveUnitOperation$$Execute` est LU par le port des deux cotes (#266) :
+    `snapshot._load_unit_flags` en COMBAT, `Scene.moved_by_id` -> `prediction_has_moved` en
+    PREDICTION. Aucune tuile a 6 voisins atteignable -> on garde la position courante."""
+    mt = rpc(sid, "aiMovableTiles", {"runnerId": rid, "side": "friendly"}, 60)
+    row = next((x for x in ((mt or {}).get("units") or []) if x.get("unitId") == cid), None)
+
+    def cur_pos():
+        return _pos(next((u for u in (decision(sid, rid).get("units") or [])
+                          if u.get("id") == cid), None))
+
+    cur = cur_pos()
+
+    def nbf(c):
+        nid = board.id_at(c[0], c[1])
+        return len([n for n in board.neighbours(nid) if board.walkable(n)]) if nid is not None else 0
+
+    # PAS MINIMAL, la tuile la plus degagee a egale distance : le but est de poser le flag, pas de
+    # deplacer le scenario. UN SEUL essai (une unite n'a qu'un deplacement par tour).
+    tiles = [c for c in ((t["col"], t["row"]) for t in ((row or {}).get("tiles") or []))
+             if c != cur]
+    if not tiles:
+        return cur
+    tiles.sort(key=lambda c: (hexgeo.distance(c, cur) if cur else 0, -nbf(c)))
+    _move(sid, rid, cid, tiles[0])
+    return cur_pos() or cur
+
+
 def _my_turn(sid, rid, owner, max_turns=8):
     for _ in range(max_turns):
         if decision(sid, rid).get("currentPlayer") == owner:
@@ -153,12 +182,12 @@ def main() -> int:
             return [n for n in board.neighbours(board.id_at(coord[0], coord[1]))
                     if board.walkable(n)]
 
-        # !! LE CASTER N'EST JAMAIS DEPLACE (case-101 #6) : `applyAction move` poserait
-        # `UnitFlag.Moved`, que le natif lit pour DESARMER `HeavyWeapon_ExtraDmg` (+25% ranged
-        # not-moved) -- alors qu'AUCUN RPC n'expose les UnitFlags au port. Bouger le caster
-        # introduirait donc un x1.25 de MESURE sur le degat, etranger au volet AoE. On deplace
-        # la CIBLE et ses voisins autour du caster immobile.
-        cpos = _pos(me)
+        # LE CASTER EST DEPLACE en plein champ : le `UnitFlag.Moved` que
+        # `IdunBattle.Operations.MoveUnitOperation$$Execute` pose desarme le +25% ranged
+        # d'`HeavyWeapon_ExtraDmg` que Volk porte, et le port le LIT du meme canal que le natif
+        # (`combatSnapshot.units[].unitFlags` -> `Scene.moved_by_id` -> `prediction_has_moved`,
+        # #266). Le gate est donc ferme des deux cotes, sans x1.25 de mesure.
+        cpos = _reposition_caster(sid, rid, board, me["id"])
         # Cible en PLEIN CHAMP (6 voisins marchables), a portee (range=3) du caster immobile,
         # dist >= 2 pour ecarter la reduction ranged-in-melee.
         open_tiles = [c for c in walk

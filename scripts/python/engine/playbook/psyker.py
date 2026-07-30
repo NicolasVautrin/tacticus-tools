@@ -81,7 +81,8 @@ class PsykerPlaybook:
         actx = scene.ctx(att_id)
         pierce = max(0, min(100, int(prof.get("PiercingRatio") or 0)
                             + actx.extra_pierce + actx.extra_pierce_ranged))
-        _hm = attack_pos != scene.pos(att_id)
+        from .prediction import prediction_has_moved, prediction_has_teleported
+        _hm = prediction_has_moved(scene, att_id, attack_pos)
         _tctx = scene.ctx(tgt_id)
         _tar = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                 if _tctx is not None and _tctx.stats is not None else None)
@@ -89,7 +90,8 @@ class PsykerPlaybook:
             scene.effects(att_id), is_ranged=True, has_moved=_hm, is_normal_attack=True,
             target_armor_reduced=_tar,
             att_ctx={"att_pos": attack_pos,
-                     "tile_effects_by_pos": scene.tile_effects_by_pos})
+                     "tile_effects_by_pos": scene.tile_effects_by_pos,
+                     "has_teleported": prediction_has_teleported(scene, att_id, attack_pos)})
         from .prediction import (_add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
                                  _target_damage_limits, _PROFILE_INDEX)
         _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, False, attack_pos,

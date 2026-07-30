@@ -331,7 +331,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _dist = hexgeo.distance(attack_pos, t_pos) if (attack_pos and t_pos) else None   # porte portee ranged #188
     pierce, _ranged, whits, prof_name = _weapon_pierce(scene, att_id, is_adjacent, _dist)
     is_melee = not _ranged
-    _hm = (attack_pos != scene.pos(att_id)) if attack_pos else None
+    _hm = prediction_has_moved(scene, att_id, attack_pos)
     # PREDICTION (slot 0xd) — branche distincte du combat (runner). Le debuff stat-modifications
     # (IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications, prediction-only) reste GATE off : ce
     # N'EST PAS un modifier post-percage mais un effet AU NIVEAU DE LA BASE (cf. base=Initial ci-dessous).
@@ -346,12 +346,15 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # la UnitPosition hypothetique (LordOfTempests : Count(Ice ring-1) IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage — meme threading candidat
     # que les auras #153). tile_effects_by_pos = tileMeta FRAIS du pas (la glace s'accumule).
     # gate `IsCharging` (case-r32) : `BattleQuery$$IsCharging(caster, target)` evalue depuis la TUILE
-    # CANDIDATE (mirror `UpdateCharging` du pas hypothetique). REMPLACE le proxy `has_moved` pour les
-    # trois effets extra-degat de charge — `has_moved` reste threade pour l'AUTRE predicat natif,
-    # `HasFlag(Moved)` (HeavyWeapon_ExtraDmg, CrushingStrike).
+    # CANDIDATE (mirror `UpdateCharging` du pas hypothetique). C'est un predicat DISTINCT de
+    # `HasFlag(Moved)` (HeavyWeapon_ExtraDmg, CrushingStrike), que `_hm` porte : les deux existent,
+    # ne pas les confondre.
     _att_ctx = {"att_pos": attack_pos or scene.pos(att_id),
                 "tile_effects_by_pos": scene.tile_effects_by_pos,
-                "is_charging": _prediction_is_charging(scene, att_id, attack_pos, tgt_id)}
+                "is_charging": _prediction_is_charging(scene, att_id, attack_pos, tgt_id),
+                # branche `| HasFlag(Self, Teleported)` du gate HeavyWeapon — pendant prediction du
+                # threading de `damage_model.attacker_modifiers` (cf. `prediction_has_teleported`).
+                "has_teleported": prediction_has_teleported(scene, att_id, attack_pos)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

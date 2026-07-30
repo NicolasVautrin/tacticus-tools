@@ -157,6 +157,75 @@ def _prediction_is_charging(scene, att_id, attack_pos, tgt_id) -> bool:
     return bq_is_charging(pos, scene.pos(tgt_id), tgt_id, charged, scene.elev_by_pos)
 
 
+def prediction_has_moved(scene, att_id, attack_pos) -> bool | None:
+    """`HasFlag(Self, UnitFlag.Moved = 0)` TEL QUE LA PREDICTION NATIVE LE VOIT — foyer UNIQUE de la
+    face prediction (gates no-move de `HeavyWeapon_ExtraDmgEffect` et `CrushingStrikeEffect`).
+
+    Le predicat natif n'est PAS calcule par le predicteur : `HasFlagAbilityTrigger$$ShouldTrigger`
+    interroge `UnitFlagsComponent$$Has` sur l'ECS, et
+    `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` ne
+    substitue QUE la POSITION (`AbilityEntities+0x40`, tuile de l'attaquant prise du parametre alors
+    que celle de la CIBLE est re-derivee par `GetMainTile`) -- aucun flag n'y est maquille. Ce que la
+    prediction voit vient donc de DEUX termes, tous deux mesures :
+
+      1. **le flag REEL**, `HasFlag(u, Moved)` -- l'unite a deja bouge ce tour ;
+      2. **la tuile SIMULEE**. Une prediction depuis une tuile autre que la tuile courante passe par
+         `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile`, qui appelle le
+         MEME `IdunBattle.Entities.UnitExtensions$$SetMovedFlag` que `MoveUnitOperation$$Execute`
+         avant d'executer l'action, puis RESTAURE (`UnitFlagsComponent$$Remove(0)` et `Remove(0xc)`
+         si l'`Add` avait rendu « etait absent »).
+
+    Le choix entre les deux voies est lu verbatim dans
+    `SimulateEffectsOperation.u003Cu003Ec__DisplayClass5_0u003C...u003E$$u003CExecuteu003Eb__0` :
+
+        if (UnitPosition.op_Equality(EntityExtensions.GetUnitPosition(state, unit), simulatedPos))
+            DoActionInSimulatedOnSameTile(...)   // AUCUN SetMovedFlag
+        else
+            DoActionInSimulatedTile(...)         // SetMovedFlag
+
+    d'ou `has_moved = (attack_pos != position courante) OR HasFlag(u, Moved)`.
+
+    MESURE (`probe_266_moved_prediction.py`, `admecDestroyer` HeavyWeapon vs `orksNob`, board MC1_67,
+    oracle `pairUtility` = `ComparablePlaybook$$CalculateUtilityFromPredictions` natif) : depuis la
+    tuile COURANTE d'un caster non deplace, utilite **3.2296** ; depuis les DIX-SEPT autres tuiles du
+    movable set en portee, **2.6676** a l'identique quelles que soient l'elevation (1/2/3) et la
+    distance (1/2/3) -- ni l'une ni l'autre n'est le discriminant. Apres un deplacement REEL, la
+    tuile courante rend **2.6676** elle aussi : le flag reel ferme le meme gate que la simulation.
+
+    TRI-ETAT du terme 1 : `scene.has_moved` rend `None` quand `combatSnapshot.unitFlags` n'a PAS ete
+    mesure (hook anterieur a O5). On rend alors `None` plutot que `False` -- l'appelant garde le
+    comportement anterieur au lieu de se voir affirmer « n'a pas bouge »."""
+    if attack_pos is not None and attack_pos != scene.pos(att_id):
+        return True                                  # voie `DoActionInSimulatedTile` -> SetMovedFlag
+    return scene.has_moved(att_id)
+
+
+def prediction_has_teleported(scene, att_id, attack_pos) -> bool:
+    """`HasFlag(Self, UnitFlag.Teleported = 0xc)` tel que la prediction native le voit -- la branche
+    qui RE-AUTORISE le +25% de `HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`
+    (`... & (!HasFlag(Moved) | HasFlag(Teleported))`). Pendant prediction du `att_ctx
+    ["has_teleported"]` que `runner.damage_model.attacker_modifiers` threade cote COMBAT.
+
+    Mirror de `IdunBattle.Entities.UnitExtensions$$SetMovedFlag` applique a la tuile simulee :
+
+        added = UnitFlagsComponent.Add(unit, Moved)          # rend « etait ABSENT »
+        if added and (IsOwnerOfEffect|IsTargetOfEffect(unit, 0x40c|0x40b|0x4d9|0x4d6)):
+            UnitFlagsComponent.Add(unit, Teleported)
+
+    -> le flag vaut le flag REEL, plus l'ajout que la simulation ferait si (a) elle passe par
+    `DoActionInSimulatedTile` et (b) `Moved` n'etait pas deja pose et (c) l'unite porte un des quatre
+    effets de teleport. NON VALIDE LIVE (aucun porteur connu cumule `HeavyWeapon` et
+    `TeleportStrike`/`FearOfTheUnseen`) -- mirror du decompile, comme la branche COMBAT (case-101
+    SS 5.4)."""
+    from ...runner.components import _TELEPORT_MOVE_EFFECTS
+    if scene.has_teleported(att_id):
+        return True
+    sim_move = attack_pos is not None and attack_pos != scene.pos(att_id)
+    if not sim_move or scene.has_moved(att_id) or scene.eff_state is None:
+        return False                                 # `added` faux -> le natif ne re-teste rien
+    return any(scene.eff_state.has_effect(att_id, effect_type=t) for t in _TELEPORT_MOVE_EFFECTS)
+
+
 def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos, t_pos,
                                       damage_profile=None, is_normal_attack: bool = True):
     """Ajoute au `mods` les feuilles NON-effet du builder natif `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction (positionnelles, geometrie) + les modifiers DEFENSEUR. Le pipeline natif

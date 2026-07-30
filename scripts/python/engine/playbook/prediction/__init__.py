@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from ._shared import (defender_prediction_block_amount, _add_positional_and_defender_mods,
                       _apply_ally_attack_dmg_bonus, _target_damage_limits, _PROFILE_INDEX,
-                      RANGED_IN_MELEE_PCT)
+                      RANGED_IN_MELEE_PCT, prediction_has_moved, prediction_has_teleported)
 from .normal_attack import (make_normal_attack_predictions, get_additional_damage_prediction,
                             get_klaw_attack1_prediction)
 from .abilities import (generate_multi_hit_attack_prediction, make_damage_predictions,
@@ -37,4 +37,5 @@ __all__ = [
     "get_additional_damage_prediction", "get_klaw_attack1_prediction",
     "defender_prediction_block_amount", "_add_positional_and_defender_mods",
     "_apply_ally_attack_dmg_bonus", "_target_damage_limits", "_PROFILE_INDEX", "RANGED_IN_MELEE_PCT",
+    "prediction_has_moved", "prediction_has_teleported",
 ]

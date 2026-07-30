@@ -203,6 +203,10 @@ le même symptôme (le Vanguard bouge sans se rapprocher, attaque ranged 3 hits 
   un état rechargé sait qu'une unité a bougé sans qu'aucune fixture n'ait à re-poser le flag. Canal
   TRI-ÉTAT : `null` = non mesuré (`HasFlag` irrésolue ou enum vide) -> défaut du port intact ; `[]` =
   mesuré, aucun flag ; liste = mesuré. Portée : `EntityType.Unit` **et** `EntityType.Machine`.
+  **La face PRÉDICTION le consomme aussi depuis `#266`** (`case-266-moved-flag-prediction.md`) :
+  `Scene.moved_by_id` ← `combatSnapshot.unitFlags`, lu par `prediction.prediction_has_moved`, qui
+  porte les DEUX termes que la prédiction native voit sous `HasFlag(Moved)` — le flag réel **et** la
+  tuile simulée (`SimulateEffectsOperation$$DoActionInSimulatedTile` appelle le même `SetMovedFlag`).
   Mesure du canal (board `MC1_67`, seed 777, `blackObliterator`) : les 4 unités rendent `[]` au
   départ ; après un `act move` réel sur u81, elle seule passe à `[0, 1, 4]` =
   `Moved`/`ArrivedAtFinalTile`/`NoActionAvailable`, les trois autres restent `[]`. `unitFlagTypes`

@@ -239,10 +239,13 @@ class BaseEffect:
         `target_traits` = noms de traits gameconfig de la CIBLE (mirror `HasTrait(target,…)` natif) pour
         les bonus target-conditionnels (ex. BeastSlayer vs BigTarget/Vehicle) ; None = cible inconnue.
         `is_ranged` = nature du coup courant : effets gated `IsRangedAttack` (HeavyWeapon_ExtraDmg,
-        RangedSpecialist). `has_moved` = la position d'attaque diffère de la position COURANTE (candidat
-        avec déplacement) : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier —
-        GROUND TRUTH step-23 : les tuiles ranged AVEC déplacement de u78 collent SANS ×1.25 ; step-11 :
-        « ×1.25 selon tuile »). `is_normal_attack` = mirror du nœud DSL `IsNormalAttack` (attaque normale
+        RangedSpecialist). `has_moved` = `HasFlag(Self, UnitFlag.Moved)` tel que le vecteur courant le
+        voit : effets gated no-move (`!HasFlag(HasMoved=0)`, ex. HeavyWeapon IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier).
+        En COMBAT c'est le flag de l'ECS (`components.unit_has_moved`) ; en PRÉDICTION c'est ce MÊME
+        flag OU la tuile candidate ≠ tuile courante — les deux termes de `prediction_has_moved` (#266),
+        le second étant le mirror de `SimulateEffectsOperation$$DoActionInSimulatedTile`, qui appelle
+        `SetMovedFlag` avant d'évaluer une prédiction depuis une tuile simulée.
+        `is_normal_attack` = mirror du nœud DSL `IsNormalAttack` (attaque normale
         vs spéciale — gate de CrushingStrike IdunBattle.Entities.Effects.Loki.CrushingStrikeEffect$$CreateDamageModifier ; True par défaut : les call-sites normale ne le
         passent pas). `target_armor_reduced` = évaluation du gate `HasNegativeModifier(cible, {ARMOR,
         FIXED_ARMOR})` (IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger ; la CIBLE porte ≥1 modification per-source <0 sur une stat d'armure =

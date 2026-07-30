@@ -68,7 +68,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     # Mods attaquant : MEME builder IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction que la normale (le natif ne distingue pas par ability) —
     # threader la nature du coup + le flag has-moved de la tuile candidate (gates IsRangedAttack /
     # NOT HasMoved des effets, ex. HeavyWeapon +25% ranged not-moved s'applique aux speciales ranged).
-    _hm = (attack_pos != scene.pos(uid)) if attack_pos else None
+    _hm = prediction_has_moved(scene, uid, attack_pos)
     # gate ConquerorImperative (#22) : +extraDmg s'applique AUSSI aux attaques SPECIALES du porteur (trigger
     # OwnerIsCaster & HasNegativeModifier, AUCUN IsNormalAttack) vs cible a armure reduite.
     _tctx = scene.ctx(tgt)
@@ -85,7 +85,13 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # AUCUN gate IsNormalAttack, il entre donc
                                                                 # aussi sur ce vecteur ABILITY.
                                                                 "is_charging": _prediction_is_charging(
-                                                                    scene, uid, attack_pos, tgt)})
+                                                                    scene, uid, attack_pos, tgt),
+                                                                # branche `| HasFlag(Teleported)` du
+                                                                # gate HeavyWeapon (cf.
+                                                                # `prediction_has_teleported`).
+                                                                "has_teleported":
+                                                                    prediction_has_teleported(
+                                                                        scene, uid, attack_pos)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

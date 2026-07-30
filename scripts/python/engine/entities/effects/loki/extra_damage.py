@@ -458,13 +458,17 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         if not is_ranged_attack(is_ranged):      # gated IsRangedAttack (no-op sur mêlée / contexte inconnu)
             return None                          # #106 : foyer unique du predicat (mirror BattleQuery)
         # Gate NO-MOVE (`!HasFlag(HasMoved=0)` IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier ; i2 : « When this unit has not moved this
-        # turn »). En PRÉDICTION la tuile candidate fixe le flag : has_moved=True (candidat avec
-        # déplacement) → pas de bonus (GROUND TRUTH step-23 : rangées ranged u78 SANS ×1.25 depuis les
-        # tuiles déplacées ; step-11 : « ×1.25 selon tuile »). En COMBAT (#60/#101) l'état est lu SUR LE
-        # FLAG NATIF (`components.unit_has_moved` = `UnitFlagsComponent.Has(unit, UnitFlag.Moved)`, posé
-        # par `set_moved_flag` dans MoveUnitOperation) -> `attacker_modifiers` passe un bool défini : le
-        # bonus s'annule si l'unité a bougé ce tour. None (contexte hors combat/prédiction) → bonus
-        # appliqué (fallback).
+        # turn »). Le prédicat natif est le MÊME des deux côtés — `HasFlagAbilityTrigger$$ShouldTrigger`
+        # -> `UnitFlagsComponent$$Has` sur l'ECS — et les DEUX faces le portent désormais :
+        #  * COMBAT (#60/#101) : `components.unit_has_moved`, flag posé par `set_moved_flag` dans
+        #    `MoveUnitOperation` et seedé depuis le live par `snapshot._load_unit_flags` ;
+        #  * PRÉDICTION (#266) : `prediction.prediction_has_moved` = `HasFlag(u, Moved)` (via
+        #    `Scene.moved_by_id` <- `combatSnapshot.unitFlags`) **OU** tuile candidate ≠ tuile courante
+        #    — ce second terme n'est pas un proxy mais le mirror de
+        #    `SimulateEffectsOperation$$DoActionInSimulatedTile`, qui appelle `SetMovedFlag` avant
+        #    d'évaluer la prédiction d'une tuile simulée puis restaure.
+        # None (contexte hors combat/prédiction, ou capteur `unitFlags` non mesuré) → bonus appliqué
+        # (fallback, comportement antérieur).
         # Un état rechargé par `load_state` connaît DÉSORMAIS le flag : `combatSnapshot.units[].
         # unitFlags` (capteur O5 de `rpc-snapshot.ts`, qui invoque `IdunBattle.Entities.
         # UnitExtensions$$HasFlag`) est seedé par `snapshot._load_unit_flags`. Avant ce câblage RIEN
@@ -473,8 +477,9 @@ class HeavyWeaponExtraDmgEffect(BaseEffect):
         # déplacement accordait ce +25% que le natif refuse (case-o10 §6, mesuré live 5868 / offline
         # 7096 sur `blackObliterator` — l'offline rendait la MÊME valeur qu'immobile).
         # `| HasFlag(Self, 0xc = Teleported)` (décompilé relu) : un déplacement qui était un TELEPORT
-        # ne retire PAS le bonus. Threadé par `attacker_modifiers` dans `att_ctx` — clé absente
-        # (prédiction, appelants historiques) → branche `has_moved` seule, comme avant.
+        # ne retire PAS le bonus. Threadé dans `att_ctx` par `attacker_modifiers` (COMBAT) et par
+        # `prediction_has_teleported` (PRÉDICTION, #266) — clé absente (appelants historiques) →
+        # branche `has_moved` seule, comme avant.
         if has_moved and not (att_ctx or {}).get("has_teleported"):
             return None
         pct = trait_var("HeavyWeapon", "heavyWeaponExtraDmg")
