@@ -348,6 +348,17 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    discipline « nom unique par agent » sur les state-files, et un `worktree remove`
    ne peut plus rien détruire de partagé. **Rien de produit par un run ne va dans
    `data/`** — s'il y atterrit, il apparaît dans `git status`, et c'est le garde-fou.
+
+   ⚠ **TROISIÈME catégorie, qu'un worktree ne verra JAMAIS** (mesurée par #273) : les
+   artefacts écrits par un processus **hors du checkout** — le host Node (`frida/data/ai-traces`,
+   `rl-batches`, `meta`) — ou par l'utilisateur (`.env`). Ce ne sont ni des entrées versionnées
+   ni des sorties du run ; ils vivent dans l'arbre principal, et c'est correct. L'invariant ne
+   promet pas qu'un worktree les voie. Ce qu'il exige, c'est qu'un lecteur **DISE qu'il ne les
+   voit pas au lieu de rendre un zéro** : toute lecture d'une entrée gitignorée passe par
+   `scripts/python/host_inputs.py` (tri-état `null` = pas mesuré / `[]` = mesuré et vide), et
+   `probe_273_gitignored_inputs.py --only-scan` est le cliquet à faire passer avant d'ouvrir
+   une PR. Symptôme si on l'oublie : un balayage rend `0 fichier` et se lit comme « rien à
+   signaler » — mesuré, `rl_ingest --all` ingérait **zéro** batch depuis un worktree, sans erreur.
 4. **⛔ Ne (ré)injecter NI redémarrer le host tant qu'un autre agent tourne.** C'est le SEUL
    geste réellement proscrit : il stoppe la session Frida et casse le harnais des autres. Tout
    le reste (mêmes fichiers, mêmes sujets, RPC concurrents, runners) est libre — un worktree
