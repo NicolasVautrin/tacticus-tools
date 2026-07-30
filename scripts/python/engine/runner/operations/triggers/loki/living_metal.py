@@ -24,34 +24,72 @@ par le trait LivingMetal ; DEUX arbres DSLFactory (mirror STRUCTURE, pas les nom
   * `IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal` + `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` (mode 0 =
     `Fix64.Round`, round-half-to-even) => **amount = round_half_even(maxHP * pct / 100)**. `pct` =
     `GetNumberConstant(0x12)` = trait var gameconfig `livingMetalHp` = 10 -> **regen = 10% du maxHP**.
-  * `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` -> `IdunBattle.Operations.RepairUnitOperation$$Execute` ->
-    `FillUpStatComponent.FillUp` (cape a maxHealth). Gate `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` =
-    `!IsMachine & IsDamaged & !HasHealBlockers & IsAffectedByHealType(1)` ; `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(1)` = IsMechanical (TOUS les porteurs LivingMetal sont Mechanical -> gate toujours vraie)
-    & `!IdunBattle.Entities.UnitExtensions$$HasHealBlockers` (dict heal-blockers, ou vit Cursed). Pas de group-heal-cap sur le
-    repair (case-60 : le repair REVIVE les membres de swarm).
+  * `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` -> `IdunBattle.Operations.RepairUnitOperation$$Execute`
+    (`operations/repair.py`) -- pas `HealUnitOperation`, cf. « LE MUTATEUR » ci-dessous.
+
+LE MUTATEUR : `RepairUnitOperation`, PAS `HealUnitOperation` (#310). Jusqu'a #310 ce trigger appelait
+`HealUnitOperation` : l'etat PV bougeait bien (les deux Operations finissent sur le MEME
+`FillUpStatComponent$$FillUp`), mais les TROIS etages propres a la reparation etaient court-circuites,
+et les deux Operations natives ne sont PAS interchangeables. Les ecarts, lus au decompile :
+
+  * gate `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired` (surcharge 5 arguments, relue
+    verbatim sur `rnca9r7q6c`) = `!EntityExtensions.IsMachine(entity) & (IsDamagedUnit(entity) ||
+    (removeEffects && HasNegativeUnitEffect(entity)) || (caster != null && HasFlag(caster, 0x18))) &
+    !UnitExtensions.HasHealBlockers(entity) & UnitExtensions.IsAffectedByHealType(entity, 1)`, puis
+    `if (scope == 0) return true; return !IsAtGroupUnitHealLimit(entity);`.
+    ⚠ SUR CE CHEMIN LE GATE EST TAUTOLOGIQUE, et il faut le dire plutot que de le vendre comme un
+    verrou : la cible est le PORTEUR lui-meme (`Repair(self, self, ...)`), or
+    `IdunBattle.Entities.UnitExtensions$$IsAffectedByHealType(unit, 1)` = `HasTrait(0x421
+    AffectedByHealAndRepair) || IsMechanical(unit)` et `IdunBattle.Entities.UnitExtensions$$IsMechanical`
+    = `HasTrait(Mechanical 5) || HasTrait(LivingMetal 1000) || HasTrait(Vehicle 0x405)`. **Porter
+    LivingMetal, c'est etre Mechanical** -> le disjunct passe TOUJOURS. `IsMachine` (Machine of War)
+    ne mord pas non plus : `python unit_map.py find --trait LivingMetal` rend 52 porteurs (41 npc,
+    6 lineup, 4 summons, 1 tuto), AUCUNE MoW. Et `IsDamagedUnit` est deja garanti par le
+    `IsDamaged(self)` du `CreateTrigger`. Le gate est donc porte pour rester isomorphe, pas parce
+    qu'un montage saurait le faire refuser ;
+  * `RepairModifier` de `IdunBattle.Core.Services.DamagePrediction$$PredictRepair`, gate `IsActor` :
+    les bonus de reparation RECUS par la cible s'appliquent -- `NanoscarabRepairProtocolsEffect`
+    (1545, `+hpToRepair`, pose par `necroReanimator` sur ses allies Mechanical, donc sur les Necrons
+    porteurs de LivingMetal) et `VoltagheistField_RepairReductionEffect` (1382, `x(1 - healthPct/100)`).
+    Passer par `HealUnitOperation` les IGNORAIT tous : c'est l'ecart CHIFFRE de ce bug ;
+  * gate `EffectType.Cursed` (79), et il joue A L'ENVERS. `IdunBattle.Operations.HealUnitOperation$$Execute`
+    fait `EntityExtensions.HasEffect(entity, 0x4f)` et force le montant a 0 ;
+    `RepairUnitOperation$$Execute` **n'a pas ce test** (son seul equivalent est
+    `UnitExtensions$$HasHealBlockers` = `HealthComponent+0x78`, un dict DISTINCT -- aucune classe
+    `CursedEffect` n'existe dans le build, l'EffectType 79 n'est lu QUE par le heal). L'ancien port
+    REFUSAIT donc une regen que le natif accorde : une degradation RESTRICTIVE, l'inverse du sens
+    habituel, et c'est elle qui rend le bug testable ;
+  * `scope`/`removeEffects` = `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate`
+    = `(+0x10 = 1, +0x14 = 0)`. `scope == 1` arme l'etage cap-de-GROUPE de `PredictRepair`
+    (`Min(amount, GetGroupUnitHealLimit)`) -- LivingMetal est le SEUL call-site `ForRegenerate` du
+    build, donc le seul a l'armer. Ce cap etait deja porte, mais RE-ECRIT ICI et applique AVANT le
+    `RepairModifier` : il est desormais dans `predict_repair`, a sa place native (apres).
 
 Face COMBAT uniquement (la regen dans les ops turn-start du runner). Aucune face DECISION/PREDICTION
-consommatrice : l'effet 1456 `NetherRealmCasket_LivingMetalBonus` est documente INERTE sur le chemin
-Repair/Galvanic (predict.py, case-34).
+consommatrice.
 
-Port du mutateur = `HealUnitOperation` (meme `FillUpStatComponent.FillUp` : cape maxHP + gate heal-block
-Cursed + re-derivation swarm via `on_group_unit_hp_changed`). Mesure live (probe_203_livingmetal.py) :
-maxHP 30000 -> +3000 au tour du proprietaire (NON cape), 0 au tour adverse (scoping), cape a maxHP,
-stop a PV pleins (IsDamaged). Swarm `necroSmnSwarm` : la remontee de PV re-derive les membres vivants
-(case-60, 444->1775 = ~6 ticks de 10%).
+Mesure live (probe_203_livingmetal.py) : maxHP 30000 -> +3000 au tour du proprietaire (NON cape),
+0 au tour adverse (scoping), cape a maxHP, stop a PV pleins (IsDamaged). Swarm `necroSmnSwarm` : le
+cap de groupe rend LivingMetal INERTE a une frontiere de membre (probe_203_swarm.py).
 """
 from __future__ import annotations
 
 from typing import Optional
 
 from .....dsl.event_trigger_type import EventTriggerType
-from .....services.trait_damage_limits import get_group_unit_heal_limit
 from ....state import State
-from ....components import HealthComponent, OwnerComponent, StatsComponent
+from ....components import HealthComponent, OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
 
 LIVING_METAL_TRAIT = "LivingMetal"
 LIVING_METAL_HP_VAR = "livingMetalHp"      # trait var gameconfig (=10, %) -> `GetNumberConstant(0x12)`
+
+# `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate` : les DEUX champs qu'elle
+# ecrit (`+0x10 = 1` = scope, `+0x14 = 0` = removeEffects), transcrits tels quels. LivingMetal est le
+# SEUL call-site `ForRegenerate` du build -- les 12 autres appelants de
+# `IdunBattleLogic.Entities.DSLBehaviors$$Repair` passent `$$ForRepair` = `(0, 1)`.
+REGENERATE_SCOPE = 1
+REGENERATE_REMOVE_EFFECTS = False
 
 
 def living_metal_pct() -> int:
@@ -89,7 +127,9 @@ class LivingMetalRepairAbility(TriggeredAbility):
         return int(hc.hp) < int(hc.hp_max)
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
-        from ...heal import HealUnitOperation      # lazy : primitive de soin runner (cape maxHP + swarm)
+        # #149 : la FEUILLE (ce behaviour) calcule le montant declaratif et APPELLE l'Operation
+        # imperative ; elle ne re-ecrit aucun de ses etages. Frontiere = le `.Execute` de la feuille.
+        from ...repair import RepairUnitOperation        # lazy : `IdunBattle.Operations.RepairUnitOperation$$Execute`
         e = state.get_entity(self.owner_id)
         hc = e.get_component(HealthComponent) if e is not None else None
         if hc is None or hc.hp_max is None:
@@ -97,23 +137,14 @@ class LivingMetalRepairAbility(TriggeredAbility):
         pct = living_metal_pct()
         # amount = PercentageOf(StatAmount(self, HEALTH, MAXIMUM)=maxHP, Direct(pct)) round-half-even.
         amount = _round_half_even(int(hc.hp_max) * pct / 100)
-        # GROUP-UNIT (swarm) : `ForRegenerate` (+0x10=1,+0x14=0 IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRegenerate) = repair "NO-WAKE" -> le montant
-        # est cape au `get_group_unit_heal_limit IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` (= maxHealthWith(membres RESTANTS) - hp = ce
-        # qu'on peut soigner SANS reveiller de membre mort), DISTINCT de `ForRepair` (+0x14=1 IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRepair,
-        # ex. admecManipulus Repair_GalvanicField) qui REVEILLE des membres. Les membres d'un swarm
-        # member-cape sont TOUJOURS pleins a une frontiere -> heal-limit 0 -> et 10% du maxHP (222 pour un
-        # scarab 2218/5) < 1 membre (444) => LivingMetal est INERTE sur le swarm (PROUVE live probe_203_swarm :
-        # scarab bloque a 888/2218). Le "444->1775 revive" de case-60 etait admecManipulus (ForRepair),
-        # MAL attribue a LivingMetal. Single unit (member_count<2) -> get_group_unit_heal_limit = int.MaxValue
-        # (pas de cap) -> heal les 10% pleins (necroWarden : +3000 valide).
-        sc = e.get_component(StatsComponent)
-        n = int(getattr(sc.ctx, "number_of_members", 1) or 1) if (sc is not None and sc.ctx is not None) else 1
-        if n >= 2:
-            amount = min(amount, get_group_unit_heal_limit(int(hc.hp_max), n, int(hc.hp)))
-        if amount <= 0:
-            return None
-        healed = HealUnitOperation.execute(state, self.owner_id, amount, source_id=self.owner_id)
-        if healed <= 0:
+        # `Repair(mechanic = self, selector = self, amount, cause, options = ForRegenerate)` :
+        # `mechanic` (le REPARATEUR) et la cible sont le MEME `Owner@0x30` au decompile -> caster et
+        # target = `self.owner_id`. `ForRegenerate` -> `scope = 1` (cap de GROUPE arme dans
+        # `predict_repair`, cf. son etage (2)) et `removeEffects = 0`.
+        repaired = RepairUnitOperation.execute(state, self.owner_id, self.owner_id, amount,
+                                               scope=REGENERATE_SCOPE,
+                                               remove_effects=REGENERATE_REMOVE_EFFECTS)
+        if repaired <= 0:
             return None
         return {"type": "living_metal_repair", "unit": int(self.owner_id),
-                "amount": amount, "healed": healed, "pct": pct}
+                "amount": amount, "repaired": repaired, "pct": pct}

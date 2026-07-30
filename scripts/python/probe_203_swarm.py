@@ -205,7 +205,8 @@ def _compare(sid, rid, scarab_id, p_team, cur, pct):
         print("[203sw] scarab absent offline -> snapshot incomplet"); return 2
     res = turn_start_other_triggers(state, p_team)
     off = next((r for r in res if r.get("type") == "living_metal_repair" and r.get("unit") == scarab_id), None)
-    off_healed = off.get("healed") if off else 0            # None (amount cape a 0) -> healed 0
+    off_healed = off.get("repaired") if off else 0          # None (amount cape a 0) -> 0. #310 : la cle
+                                                            # est `repaired` (l'Operation est RepairUnitOperation).
     print(f"[203sw] OFFLINE regen scarab={off} (off_healed={off_healed})")
     # VERDICT : offline == live EXACT. Au boundary, les deux == 0 (LivingMetal inerte sur ce swarm) ;
     # le 10% non-cape (uncapped>0) prouve que le cap group-unit est LOAD-BEARING (sinon le port divergerait).

@@ -70,6 +70,23 @@ if TYPE_CHECKING:
     from ..state import State
 
 
+def _group_unit_members(state: "State", unit_id: int) -> int:
+    """`GetComponent<GroupUnitComponent>(target)+0x10` = `nrOfMembers`, le champ que
+    `IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` lit en TOUT PREMIER
+    (`if (nrOfMembers < 2) return int.MaxValue`).
+
+    Substrat runner : `StatsComponent.ctx.number_of_members` (seede depuis `nrOfMembers` du
+    gameconfig / de la capture, cf. `entities/unit_context.py` et `operations/spawn.py`) -- MEME
+    source que le `n` que le trigger `LivingMetal` lisait avant #310. Defaut 1 = unite simple, donc
+    branche `int.MaxValue` = pas de cap, exactement comme le natif sur un heros."""
+    from ..components import StatsComponent
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    if sc is None or getattr(sc, "ctx", None) is None:
+        return 1
+    return max(1, int(getattr(sc.ctx, "number_of_members", 1) or 1))
+
+
 def _repair_modifier(state: "State", target_id: int) -> tuple:
     """`IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` cote RUNNER.
 
@@ -88,6 +105,16 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     Ce helper n'en est que l'ADAPTATEUR de substrat : il convertit les instances `BaseEffect` du
     runner au format `{name, level, source}` que cette fonction consomme. Une seule lecture du natif,
     deux substrats -- surtout pas deux tables.
+
+    RESIDU NOMME, et il est DEAD sur ce build (#310) : le 3e implementeur
+    `NetherRealmCasket_LivingMetalBonusEffect` (1456) est le SEUL dont le gate
+    `TriggeringAbilityIs(LivingMetalRepair)` PEUT etre satisfait ici -- depuis #310 le trigger
+    LivingMetal passe bien par cette Operation, donc la face COMBAT est desormais le seul chemin ou
+    ce bonus vaudrait autre chose que 0. Il ne contribue quand meme pas, et la raison n'est pas un
+    trou de port : `python unit_map.py find --ability NetherRealmCasket` rend **0 unite** -- aucun
+    porteur dans le gameconfig du build `rnca9r7q6c`, ni hero, ni MoW, ni summon, ni npc. L'effet est
+    enregistre mais INJOUABLE ; le threader demanderait de faire descendre un canal
+    `triggering_ability` dans `engine.predict` pour une branche que rien ne peut atteindre.
 
     Rend `(mod_add, mod_mul)`. Aucun effet contributeur -> `(0, 1.0)` = no-op EXACT (`Empty`)."""
     from ...predict import calculate_repair_modifier_for_prediction
@@ -141,14 +168,18 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
 
       1. `RepairModifier`, GATE par `IsActor(caster)` -- un caster non-acteur (tuile, effet) laisse
          `amount` intact ;
-      2. cap de GROUPE `GetGroupUnitHealLimit`, GATE par `scope == 1` : NON PORTE (le cap « sans
-         reveiller de membre » vit dans `services/trait_damage_limits.py` et demande le detail des
-         membres, absent du substrat runner). Tous les call-sites portes passent
-         `RepairBehaviourOptions.ForRepair` -> `scope = 0` -> la branche est INERTE ;
+      2. cap de GROUPE `GetGroupUnitHealLimit`, GATE par `scope == 1` -- PORTE depuis #310, quand
+         `LivingMetalRepairAbility` (le seul call-site du build a passer
+         `RepairBehaviourOptions$$ForRegenerate` = `scope 1`) a ete rebranche sur cette Operation.
+         Avant #310 la branche etait inerte (`ForRepair` = `scope 0` partout) ET le cap etait
+         re-calcule A LA MAIN dans le trigger, AVANT le `RepairModifier` -- donc dans le MAUVAIS
+         ORDRE. Il est desormais a sa place native : `Min(amount, GetGroupUnitHealLimit)` APRES le
+         modifier ;
       3. cap BOSS `GetStat(Health, Initial) - current`, gate `IsBoss(target)` ;
       4. `MaxFillUp` = `Min(amount, CurrentMaximumValue - current)`."""
     from ..abilities.targeting import is_actor
     from ...predict import repair_amount as _repair_amount
+    from ...services.trait_damage_limits import get_group_unit_heal_limit
     e = state.get_entity(int(target_id))
     hc = e.get_component(HealthComponent) if e is not None else None
     if hc is None or hc.hp is None or hc.hp_max is None:
@@ -158,7 +189,13 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
         mod_add, mod_mul = _repair_modifier(state, int(target_id))
         amt = _repair_amount(amt, mod_add, mod_mul)
     cur, mx = int(hc.hp), int(hc.hp_max)
-    # (2) `scope == 1` -> cap de groupe : NON PORTE (aucun call-site porte n'arme ce scope).
+    # (2) `if (scope == 1) predicted = Min(predicted, GetGroupUnitHealLimit(target, health))` :
+    #     le cap « ce qu'on peut restaurer SANS REVEILLER de membre mort » d'une unite multi-membres.
+    #     `GetGroupUnitHealLimit` rend `int.MaxValue` a `nrOfMembers < 2` (heros) -> `Min` no-op,
+    #     exactement comme le natif : la branche est prise, elle ne mord simplement pas.
+    if int(scope) == 1:
+        amt = min(amt, get_group_unit_heal_limit(mx, _group_unit_members(state, int(target_id)),
+                                                 cur))
     # (3) cap BOSS : `_is_boss` rend toujours False (champ `UnitComponent+0x88` hors substrat, cf.
     #     sa docstring) -- la branche est ecrite pour rester isomorphe au natif, jamais inventee.
     _ = _is_boss(state, int(target_id))
@@ -197,7 +234,20 @@ class RepairUnitOperation:
 
         `scope` / `remove_effects` = `RepairBehaviourOptions+0x10` / `+0x14`, ecrits par
         `IdunBattle.Entities.Behaviours.RepairBehaviourOptions$$ForRepair` (= `0` / `1`) ou
-        `$$ForRegenerate` (= `1` / `0`) -- ce sont les deux SEULES fabriques du build."""
+        `$$ForRegenerate` (= `1` / `0`) -- ce sont les deux SEULES fabriques du build (relues
+        verbatim sur `rnca9r7q6c` : `ForRegenerate` ecrit `+0x10 = 1` puis `+0x14 = 0`, `ForRepair`
+        l'inverse).
+
+        SOUS `scope == 1`, le gate natif prend une CONDITION DE PLUS : `if (scope == 0) return true;
+        return !AttackQuery.IsAtGroupUnitHealLimit(entity);`. Cote port
+        `attack_query.is_at_group_unit_heal_limit` est un stub `False` (residu NOMME la-bas), donc le
+        gate laisse passer. CONSEQUENCE CHIFFREE : **nulle sur l'etat PV**, et ce n'est pas une
+        indulgence -- `IsAtGroupUnitHealLimit` est, terme a terme, `GetGroupUnitHealLimit <= 0` (les
+        deux natifs calculent le MEME `GetGroupUnitMaxHealthWithRemainingMembers`, l'un le compare a
+        `currentHealth`, l'autre l'en soustrait). L'etage (2) de `predict_repair` rend donc
+        `predicted <= 0` exactement quand le gate aurait refuse -> `filled <= 0` -> `return 0`, sans
+        mutation ni trigger. Le seul ecart residuel serait un `OperationResult` non vide, que le port
+        n'expose pas."""
         from ..abilities.attack_query import entity_can_be_repaired
         if target_id is None:
             return 0
