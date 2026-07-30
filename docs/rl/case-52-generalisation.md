@@ -1322,8 +1322,9 @@ aucune regression n'y est possible, et le +1 de GEN n'est pas paye ailleurs.
 
 **RE-JOUE APRES CHAQUE REBASE**, et le batch GEN rend les MEMES chiffres a chaque fois -- ability
 50/53 (94 %), move **62/65 (95 %)**, `generator-overfire` **1** (`2468 s4`, le Poxwalkers RNG),
-`pos-downstream-of-ability` 2. Trois passes successives, sur trois etats de `origin/master`
-differents :
+`pos-downstream-of-ability` 2 ; par seed : 12345 `pos 13/15 ability 10/13`, 2468 `16/17 / 12/12`,
+54321 `17/17 / 15/15`, 1357 `16/16 / 13/13`. QUATRE passes successives, sur quatre etats de
+`origin/master` differents :
 
 1. `#27-4g PlasmaGrenade` + `#27-r1 MassDriverAccelerator` (tous deux sur `CalculateCustomUtility`
    et `_action_utility`) -- **31 passed**, puis **17 passed / 2 skipped**
@@ -1335,7 +1336,10 @@ differents :
    `test_playbook_live`, `test_stay_in_place_live`, `test_hammer_of_wrath_corpse_decision_live`,
    `test_stikkbomb_decision_live`, `test_chronometron_decision_live`), puis **17 passed / 2 skipped**
    (memes 2 skips de montage). L'interaction avec la route tuile est MESUREE, pas supposee : voir
-   « PORTEE DU GATE vs la route a cibles TUILE » ci-dessous.
+   « PORTEE DU GATE vs la route a cibles TUILE » ci-dessous ;
+4. `#303` (`FabricatorClawArray` -- selectors / `attack_query` / triggers, face COMBAT) --
+   **21 passed** (2 gardes neuves + `test_plagueburst_mortar_decision_live` + `test_playbook_live`
+   + `test_stay_in_place_live`), batch GEN inchange.
 
 **Garde** : `scripts/python/tests/engine/test_active_ability_used_gate_live.py` (3 tests), montage
 `scripts/python/probe_17_active_ability_used_gate.py` (fixture `active_ability_used_case`). Deux
