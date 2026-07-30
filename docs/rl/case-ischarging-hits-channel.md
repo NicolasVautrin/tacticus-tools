@@ -63,7 +63,7 @@ qui est une xref a part entiere. « percage » designe en realite une **ActiveCo
 | 12 | `IdunBattle.Entities.Effects.Loki.BloodChalice_ExtraPiercingEffect$$CreateActiveCondition` | ACTIVE-CONDITION | effet 1369 | non | absent (effet absent) |
 | 13 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AggressiveOnslaught_PrepareAbility$$CreateBehaviour` | TRIGGER (SetPersistentData) | 1248 | non | absent (face COMBAT non portee) |
 | 14 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AggressiveOnslaught_SummonAbility$$CreateTrigger` | TRIGGER | 1248 | non | absent (face COMBAT non portee) |
-| 15 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$CreateTrigger` | TRIGGER | 1478 | non | **NON PERTINENT** (§4) |
+| 15 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$CreateTrigger` | TRIGGER | 1478 | non | **CONFRONTABLE** — `astraDreir`, pool (§4, corrige #323) |
 | 16 | `IdunBattleLogic.Entities.Abilities.Active.Loki.FeederTendrils_NormalAttackAbility$$ExecuteBehaviour` | ABILITY normale (imperatif) | 1120 | **partiel** | §5 |
 
 ⚠ **Deux corrections a la fiche `case-r32`** :
@@ -149,7 +149,7 @@ Derives des **669** unites du gameconfig (`lineup` 123 + `npc` 481 + `summons` 6
 | 1248 `AggressiveOnslaught` | **`bloodIntercessor`** (Mataneo) — **pool** | — | — | oui |
 | 1120 `FeederTendrils_NormalAttack` | **`tyranDeathleaper`** — **pool** | — | 6 variantes npc | oui |
 | 1128 `ObeisanceGenerators_HitReduction` | — | — | — | **NON — aucun porteur** (§4) |
-| 1478 `SabreOfSacrifice` | — | — | `astraNpcDreir` (relicAbility) | **NON — npc + relique** (§4) |
+| 1478 `SabreOfSacrifice` | **`astraDreir`** — seul `allowedUnits` de `R_Crit_SabreOfSacrifice`, **dans le pool** | — | `astraNpcDreir` (relicAbility) | **OUI** — relique non equipee par ce seed (§4, corrige #323) |
 
 ---
 
@@ -162,11 +162,21 @@ n'apparait que **deux fois** dans tout le gameconfig, aux deux emplacements de d
 Aucun item ne le reference non plus. C'est de la **donnee enregistree mais morte** : le canal
 existe cote natif, personne ne le porte en bataille. Ne pas y depenser d'agent.
 
-**`SabreOfSacrifice` (1478) est une RELIQUE portee par un npc.** Il apparait a
-`/units/npc/astraNpcDreir/relicAbilities[0]` et `/items/R_Crit_SabreOfSacrifice/abilityId`.
-`astraDreir` (le hero du pool) ne l'a **pas** — et `rl_duel.py` ne monte aucun equipement
-(`relic` : 0 occurrence dans le fichier). L'item n'est donc pas « bloque », il est **hors du
-domaine confrontable du runner**.
+**`SabreOfSacrifice` (1478) est une RELIQUE — et son porteur designe est un HERO DU POOL.**
+⚠ **Ce paragraphe classait l'item « NON PERTINENT — npc + relique » : c'etait FAUX** (corrige par
+#323). Il apparait a `/units/npc/astraNpcDreir/relicAbilities[0]` **et** a
+`/items/R_Crit_SabreOfSacrifice`, dont `allowedUnits` vaut exactement `['astraDreir']` : `astraDreir`
+n'est pas « une unite qui ne l'a pas », c'est **le seul heros habilite a l'equiper**, et il est
+**dans le pool**. Le zero d'origine venait de `unit_map find --ability`, qui ne lisait alors ni
+`relicAbilities` ni `items[*].abilityId`.
+
+Ce qui reste vrai, et c'est autre chose : `rl_duel.py` n'EQUIPE aucune relique. Mais le harnais
+n'est pas etanche pour autant — le seed BC porte **4** reliques deja equipees
+(`Units[].TertiaryAbility`), et `buildNormalizedBC` les **preserve**
+(`frida/hooks/features/normalize-bc/json-build.ts` ne fait que poser leur
+`TertiaryAbilityLevel`). Le statut correct est donc **« porteur au pool, relique non equipee par ce
+seed »** = un montage a ecrire, pas un mur. Cf.
+`docs/rl/case-323-unit-map-attribution-voies.md` par. 5.
 
 ---
 

@@ -131,8 +131,14 @@ il ne tranche pas.
 | 1554 | `WhisperingWeb` | `eldarLhykhis` (lineup) | OUI par **injection catalogue** |
 | 1546 | `HeavyWarpFlamer_AttackTrackingAbility` | aucun (absent même du catalogue `abilities`) | sous-ability interne — via son ability parente |
 | 1555 | `EmpyricAmbush_Reset` | aucun (idem) | sous-ability interne — via `EmpyricAmbush` |
-| 1557 | `PhasalSubjugator` | aucune unité ; **présent au catalogue `abilities`** | contenu non encore attribué |
-| 1558 | `Helspear` | aucune unité ; **présent au catalogue `abilities`** | contenu non encore attribué |
+| 1557 | `PhasalSubjugator` | **`necroOverlord`** (lineup) par la RELIQUE `R_Booster_Crit_PhasalSubjugator` + 5 npc en `relicAbilities` | **OUI — dans le pool** (relique non équipée par ce seed) |
+| 1558 | `Helspear` | **`blackHaarken`** (lineup) par la RELIQUE `R_Crit_Helspear` + 5 npc en `relicAbilities` | **OUI — dans le pool** (relique non équipée par ce seed) |
+
+⚠ **Les deux dernières lignes disaient « aucune unité » — c'était FAUX** (corrigé par #323). Le
+zéro venait de `unit_map find --ability`, qui ne lisait alors ni `relicAbilities` ni
+`items[*].abilityId + allowedUnits` : **42** abilities du build lui étaient invisibles, dont ces
+deux. Ventilation à trois états pour une ability de relique — `équipée au seed` / `porteur au pool,
+relique non équipée` / `porteur hors pool` : `docs/rl/case-323-unit-map-attribution-voies.md` §5.
 
 Ces membres **ne sont pas décoratifs** : `rl_duel build` re-synthétise depuis le gameconfig des
 clés de poids qui leur correspondent, neuves dans ce build —

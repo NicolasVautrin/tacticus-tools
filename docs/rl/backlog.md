@@ -107,6 +107,17 @@ Tag mixte quand la tâche a deux temps (trancher la structure, puis porter) — 
 
 Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement les fait surface.
 
+- **`#323-r1` — le harnais n'ÉQUIPE aucune relique, alors que la voie est ouverte.** Mesuré
+  (`probe_323_ability_carrier_voies.py --pool`) : **42** abilities n'arrivent à leur porteur QUE par
+  une relique ou une ability mythique ; **34** ont un porteur `lineup` **dans le pool** ; mais seules
+  **3** sont ÉQUIPÉES par le seed BC (`NetherRealmCasket` 1462 sur `necroSpyder`,
+  `KardiocoreGalvanus` 1457 sur `admecMarshall`/`admecRuststalker`, `SupaCyborkBody` 1475 sur
+  `orksRuntherd` — ids `TriggeredAbilityType`). Or `buildNormalizedBC` **préserve**
+  `BC.Units[].TertiaryAbility` (`frida/hooks/features/normalize-bc/json-build.ts` ne fait que poser
+  son `TertiaryAbilityLevel`) : écrire ce champ au build ouvrirait d'un coup ~31 abilities de plus à
+  la confrontation, sans injection catalogue. Ne pas confondre avec **N317-a** (le rail COMBAT du
+  port ne lit pas encore la relique équipée) : ici il s'agit du MONTAGE, là du PORT.
+  Cf. `case-323-unit-map-attribution-voies.md` §5. `[opus]`.
 - **`#287-r1` — `UnitFlag.NoActionAvailable` (4) n'est posé par AUCUNE voie du port.** Le natif le
   pose en queue de cast (`IdunBattle.Operations.MarkUnitAsNoActionAvailableOperation`, jamais
   portée). MESURÉ par `probe_287_facade_combat.py` (`combatSnapshot.units[].unitFlags` avant/après
@@ -302,8 +313,11 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `IdunBattle.AI.Playbook.Loki.NetherRealmCasketPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
   = `+5 x #amis Mechanical adjacents (self exclu)`, SANS cap ni gate, clé
   `NetherRealmCasket_LikesAdjacentFriendlyMechanicals` (=5 BC). S'applique à tout porteur de la
-  relique (4 unités au seed BC), pas au seul `necroSpyder`. Une face NonOwner existe aussi
-  (`NetherRealmCasket_AdjacentMechanicals` = 5). `[opus]`.
+  relique. ⚠ **Chiffre corrigé (#323)** : « 4 unités au seed BC » confondait *quatre unités portent
+  UNE relique* et *quatre portent CELLE-CI* — **une seule** unité porte `TertiaryAbility = 1462`
+  (`necroSpyder`) ; les **3 héros éligibles** via `R_Booster_Crit_NetherRealmCasket.allowedUnits`
+  (`necroWarden`, `necroSpyder`, `necroDestroyer`) sont **tous dans le pool**. Une face NonOwner
+  existe aussi (`NetherRealmCasket_AdjacentMechanicals` = 5). `[opus]`.
 - **`AttractMechanicalsUtility` (feuille 57) PORTÉE mais INERTE** (`case-242` §6.3) :
   `meta["attract_mechanicals_neighbor"]` n'est jamais posé par `apply_tile_attributes` -> +10 natif
   non rendu sur toute tuile voisine d'un porteur de `DoctrinaImperatives` (1118) quand le mover a le

@@ -22,12 +22,17 @@ exécution).
 | affirmation #310 | mesure #317 |
 |---|---|
 | « `LivingMetal` est le SEUL call-site `ForRegenerate` du build — les 12 autres passent `ForRepair` » | **FAUX**. `IdunBattle.Entities.Effects.Loki.LifeStealEffect$$CreateTargetTriggerBehaviour` passe lui aussi `$$ForRegenerate`. Et **deux** appelants n'appellent AUCUNE fabrique : ils écrivent les champs à la main après `RepairBehaviourOptions$$.ctor` — dont `EnhancementRegenerationAbility`, qui pose `scope = 1`. ⇒ **3** call-sites arment le cap de GROUPE, pas 1. |
-| « `NetherRealmCasket_LivingMetalBonusEffect` (1456) est DEAD : `unit_map.py find --ability NetherRealmCasket` rend 0 unité » | **FAUX, et le raisonnement est le piège du cas.** `unit_map find --ability` ne lit que `activeAbilities` + `passiveAbilities` : il est **aveugle aux reliques**. `NetherRealmCasket` est l'ability de l'item `R_Booster_Crit_NetherRealmCasket`, `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]` — **trois héros du pool** — et `necroSpyder` la porte **déjà équipée** dans le seed BC courant (`Units[].TertiaryAbility = 1462`). `necroSpyder` a le trait `LivingMetal`. Le bonus est donc **atteignable**, pas mort. |
+| « `NetherRealmCasket_LivingMetalBonusEffect` (1456) est DEAD : `unit_map.py find --ability NetherRealmCasket` rend 0 unité » | **FAUX, et le raisonnement est le piège du cas.** `unit_map find --ability` ne lisait que `activeAbilities` + `passiveAbilities` : il était **aveugle aux reliques** (**corrigé par #323** — il lit 5 voies et imprime les 4 non couvertes sur un zéro). `NetherRealmCasket` est l'ability de l'item `R_Booster_Crit_NetherRealmCasket`, `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]` — **trois héros du pool** — et `necroSpyder` la porte **déjà équipée** dans le seed BC courant (`Units[].TertiaryAbility = 1462`). `necroSpyder` a le trait `LivingMetal`. Le bonus est donc **atteignable**, pas mort. |
 
 Le second point est exactement la faute que #310 dénonçait, transposée d'un axe à l'autre : #310
 classait par le NOM de l'artefact, ici on classait par un OUTIL aveugle à une voie d'attribution.
 
-## 2. Les trois voies d'attribution d'une ability — et celle qu'on oublie
+## 2. Les voies d'attribution d'une ability — et celle qu'on oublie
+
+> ⚠ **Cette section annonçait TROIS voies. Il y en a NEUF** — cinq dérivables du gameconfig, quatre
+> qui ne le sont pas. L'inventaire complet, mesuré, vit désormais dans
+> `docs/rl/case-323-unit-map-attribution-voies.md` §2 ; il ajoute notamment `mythicAbilities`
+> (11 abilities de Machine of War, invisibles partout ailleurs) que cette liste-ci ratait aussi.
 
 1. **`activeAbilities` / `passiveAbilities`** du gameconfig → `ABILITY_TRIGGERS` /
    `ACTIVE_ABILITY_TRIGGERS` (`triggers/dispatch/registry.py`) ;

@@ -161,8 +161,14 @@ par racine du nom, puis ventilation par `kind`, puis gate `rl_duel build --list-
 | 1578, 1580 / 1579 | `EmpyricAmbush`, `WhisperingWeb` | `eldarLhykhis` (lineup) | OUI par injection — idem |
 | 1570 | `RedRampage` | `bloodTerminator` (lineup) + `bloodTerminator_LHE` (npc) | hors pool, injection non encore mesurée |
 | 1571-1574, 1575, 1576 | `TitanhammerSquad`, `IconOfObstinacy` | `astarLysander` (lineup) | **NON — `initAndStart: system error`, backlog #270-d** |
-| 1583 | `Helspear` | **aucune unité** (l'ability est au catalogue, non attribuée) | pas de porteur — kit livré en avance |
+| 1583 | `Helspear` | **`blackHaarken`** (lineup) par la RELIQUE `R_Crit_Helspear` + 5 npc en `relicAbilities` | **OUI — dans le pool** (relique non équipée par ce seed) |
 | 123 | — | — | `Test_BuffAdjacentFriendly` : effet de **test** |
+
+⚠ **La ligne 1583 disait « aucune unité — kit livré en avance » : c'était FAUX** (corrigé par
+#323). Le zéro venait de `unit_map find --ability`, aveugle à la voie RELIQUE ; `blackHaarken`,
+seul `allowedUnits` de `R_Crit_Helspear`, est **dans le pool**. Ce n'est donc pas un kit livré en
+avance, c'est un montage à écrire (poser `BC.Units[].TertiaryAbility`) —
+`docs/rl/case-323-unit-map-attribution-voies.md` §5.
 
 Priorité identique à celle de #313 : **`MyWillBeDoneOverlord`** (seul porteur déjà dans le pool,
 poids owner *et* non-owner re-synthétisés par `rl_duel build`), puis `PropheticSentinel` /

@@ -61,7 +61,14 @@ Les sites d'ecriture sont **exhaustifs** : les 6 appelants de `IdunBattleLogic.E
 * `SupaCyborkBody` -> **aucune unite en `activeAbilities`/`passiveAbilities`** : c'est une
   **RELIQUE** (`items/R_Defensive_SupaCyborkBody`), presente en `relicAbilities` de 9 ORK **npc**.
   Le precedent N13 (`KardiocoreGalvanus` porte live par `admecMarshall` et absent du kit gameconfig)
-  etablit que les reliques SONT en jeu ; la seed BC courante n'en pose pas -> non confronte.
+  etablit que les reliques SONT en jeu.
+  ⚠ **CORRIGE par #323 : la phrase « la seed BC courante n'en pose pas -> non confronte » etait
+  FAUSSE.** Mesure : `orksRuntherd` porte `Units[].TertiaryAbility = 1475 =
+  TriggeredAbilityType.SupaCyborkBody` **dans le seed BC courant** (ne pas confondre avec
+  l'`EffectType` 1475 `FragLance`), et il est **dans le pool** (`rl_duel build --list-pool`,
+  rank 17). `allowedUnits` du meme item ajoute `orksBigMek` et `orksNob`, eux aussi dans le pool.
+  L'octroi dynamique de `AffectedByHealAndRepair` (0x421) est donc **confrontable des aujourd'hui**,
+  sans injection. Cf. `docs/rl/case-323-unit-map-attribution-voies.md` par. 4-5.
 * `EnhancementAddTrait:<X>` : le gameconfig catalogue 4 abilities, et le seul chemin qui les
   INSTANCIE est `liveEvents/idunLiveEventConfigs[]/enhancements/AddTrait_0X` -> **MkXGravis,
   RapidAssault, Resilient, Infiltrate**. La seed BC a `EnhancementsEnvironmentAbilities: []` ->
