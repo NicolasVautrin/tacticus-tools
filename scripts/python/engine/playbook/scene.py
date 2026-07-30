@@ -456,6 +456,56 @@ def _hydrate_static_unit(ctx_by_id, vis_by_id, mult_by_id, ablvl_by_id, abstate_
     ctx_by_id[eid] = UnitContext.from_snapshot(u, GC.unit(vis_id or ""), stat_types)
 
 
+def _seed_measured_traits(ctx_by_id, snap) -> int:
+    """Seede `UnitContext.traits` des tables de PRÉDICTION depuis `combatSnapshot.units[].traits`
+    (#267) — le PENDANT EXACT, sur ce seam-ci, de `snapshot._load_unit_traits` (#264) côté COMBAT.
+
+    MIRROR. Le natif n'a pas de substrat de traits séparé pour la prédiction :
+    `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit` (appelée deux fois,
+    sur les deux bornes, par `IdunBattle.Core.Services.DamagePrediction$$ApplyTraitDamageLimitsToDamage`)
+    teste le défenseur par `IdunBattle.Entities.UnitExtensions$$HasTrait(defender, 0x3f1)` — LA MÊME
+    fonction que la face combat, qui délègue à `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` :
+
+        HasTrait(t) == !retirés(+0x50).Contains(t)
+                       && ( permanents(+0x40).Contains(t) || temporaires(+0x48).Contains(t) )
+
+    Le canal `combatSnapshot.units[].traits` (#233) est l'invocation de cette fonction par valeur
+    d'enum : il rend l'ensemble EFFECTIF. `_hydrate_static_unit` posait jusqu'ici
+    `traits = gameconfig.unit(vis).traits` (via `UnitContext.from_snapshot`) et laissait
+    `traits_measured` à faux, si bien qu'`entity_trait_names` re-dérivait par-dessus le pseudo-trait
+    de grande-alliance : une RECONSTRUCTION du substrat à partir d'une AUTRE source, alors que #264
+    la remplaçait déjà par la lecture côté combat. Une face qui lit et l'autre qui reconstruit, c'est
+    le fork « ce que le moteur fait != ce que la prédiction annonce » — et il était OBSERVABLE :
+    `necroOverlord` porte `Resilient` au gameconfig et PAS en bataille (mesuré, cf.
+    `snapshot._load_unit_traits`), donc `_target_damage_limits` rendait `target_has_resilient=True`
+    et la prédiction annonçait un dégât capé à `HP-1` là où le natif tue.
+
+    PORTÉE : toutes les lignes du snapshot qui ont un ctx dans les tables, `EntityType.Unit` ET
+    `EntityType.Machine` (`build_predictor` hydrate les deux : une MoW porte un `MachineComponent`,
+    frère du `UnitComponent` issu du même `BaseUnitComponent$$.ctor`, donc `HasTrait` y répond —
+    mesuré : `ultraDreadnought` rend `MachineOfWar`+`Imperial`, que la reconstruction ratait
+    intégralement faute de `visualId` sur cette ligne).
+
+    TRI-ÉTAT, même discipline que `_unit_flag_from_snapshot` : champ ABSENT ou `null` = **non
+    mesuré** (hook antérieur à `0231573`) -> on ne TOUCHE PAS `ctx.traits`, donc reconstruction
+    strictement antérieure ; une LISTE, `[]` comprise = mesure, on écrit. Confondre les deux ferait
+    passer un capteur MORT pour une unité sans aucun trait. Rend le nombre de ctx seedés."""
+    from engine.entities.traits.unit_trait import trait_names_from_ids
+    n = 0
+    for u in (snap.get("units") or []):
+        eid = u.get("entityId")
+        traits = u.get("traits")
+        if eid is None or not isinstance(traits, list):
+            continue                                  # absent / `null` = NON MESURÉ -> défaut du port
+        ctx = (ctx_by_id or {}).get(eid)
+        if ctx is None:
+            continue
+        ctx.traits = sorted(trait_names_from_ids(traits))
+        ctx.traits_measured = True
+        n += 1
+    return n
+
+
 def build_predictor(rpc, rid):
     """Tables STATIQUES (cold, 1×/runner) : `combatSnapshot` (dégât d'arme + stats + unitConfig
     mult/level + boucliers) + `decisionView` (visualId). None si combatSnapshot KO. (Ex-`PV.build_predictor`.)"""
@@ -473,6 +523,11 @@ def build_predictor(rpc, rid):
                                 for s in (u.get("shields") or []) if (s.get("amount") or 0) > 0)
         _hydrate_static_unit(ctx_by_id, vis_by_id, mult_by_id, ablvl_by_id, abstate_by_id,
                              u, vis_by_id.get(eid), snap.get("statTypes"))
+    # #267 : les TRAITS des ctx viennent de la MESURE (`combatSnapshot.units[].traits`), pas d'une
+    # relecture du kit gameconfig par visualId — pendant de `snapshot._load_unit_traits` (#264) sur
+    # le seam de PRÉDICTION. DYNAMIQUE (`IdunBattle.Operations.AddTraitOperation$$Execute` accorde
+    # en bataille) -> re-seedé par pas dans `refresh_shields`, comme les autres axes vivants.
+    _seed_measured_traits(ctx_by_id, snap)
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
     # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
     # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
@@ -684,6 +739,13 @@ def refresh_shields(predictor, rpc, rid):
                                  predictor["mult_by_id"], predictor["ablvl_by_id"],
                                  predictor["abstate_by_id"], u, vis.get(u["entityId"]),
                                  snap.get("statTypes"))
+    # #267 : re-seed des TRAITS mesurés, APRÈS l'hydratation des arrivants (sinon un summon frais
+    # garderait la reconstruction du kit). Les traits sont DYNAMIQUES : `AddTraitOperation$$Execute`
+    # écrit `BaseUnitComponent+0x40`/`+0x48` en cours de bataille (ex. `Stationary` posé à
+    # l'apparition par `DutyEternalAbility`) et `RemoveTraitOperation$$RemoveTrait` en retire. Le
+    # cold de `build_predictor` (pas 0) ne peut pas les connaître : sans cette re-capture, un trait
+    # accordé après le déploiement resterait invisible à la prédiction pour TOUTE la bataille.
+    _seed_measured_traits(predictor["ctx_by_id"], snap)
 
 
 def step_context(predictor, dv):
