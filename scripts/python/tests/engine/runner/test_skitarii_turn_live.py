@@ -3,7 +3,10 @@
 Le Vanguard summoned par ControlEdict (#19) porte le trait `Summon` -> il est `ai_controlled` et joue son
 tour au TURN-START de sa team via le CHEMIN GENERIQUE deja porte (#65) : `run_ai_control_pass`
 (summon_ai.py) -> `DefaultAiUnitTactic.calculate_next_action` (playbook complet via le bridge offline) ->
-apply move (move=3) + attaque NORMALE. Mirror natif `IdunBattle.View.Game.IdunGameViews$$QueueComputerActions`.
+apply move (move=3) + attaque NORMALE. Mirror natif =
+`IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` (slot `IOperationProcessor` 0x71 appele par
+`IdunBattle.Operations.StartTurnOperation$$Execute`) -- et NON `IdunGameViews$$QueueComputerActions`,
+citation corrigee par #291 (`docs/rl/case-291-summon-activation.md`).
 CE N'EST PAS un playbook bespoke (`ControlEditPlaybook IdunBattle.AI.Playbook.Loki.ControlEdictPlaybook$$.ctor` = utility 0, no-op ; le Vanguard n'a
 aucune active ability). Travail = VERIFIER, pas re-implementer.
 
@@ -280,6 +283,20 @@ def test_skitarii_played_by_generic_ai_pass(live_session, rpc, build_runner):
     sid = _spawn(state, board, sc, sr, SUMMON_ABILITY, lvl, mult, team, player)
     if sid is None:
         pytest.skip("spawn Vanguard KO")
+
+    # #291 -- ce montage POSE un Vanguard « deja present au debut du tour », il ne simule pas une
+    # apparition du tour courant. Or le spawn mirrore desormais `SpawnUnitBehaviour$$
+    # TriggerSpawnedUnitBehaviours`, qui TERMINE le tour d'une unite qui apparait pendant le tour de
+    # son proprietaire -- et `PlayAutomaticUnitsOperation$$Execute` gate sur `!HasFlag(u, 3 =
+    # TurnFinished)`. Dans une vraie partie, `StartTurnOperation$$Execute` appelle `RemoveTurnFlags`
+    # sur les unites du joueur ENTRANT **avant** le slot 0x71 `PlayAutomaticUnits` ; le montage
+    # appelle `run_ai_control_pass` nu, il doit donc mirrorer ce reset explicitement. (Le retirer
+    # ferait tomber le test -- ce qui est le bon comportement : un summon frais NE joue PAS au tour
+    # de son apparition, cf. `test_waaagh_fresh_summons_get_no_activation_live_and_port`.)
+    from engine.runner.components import UnitFlagsComponent as _UF
+    _fl = state.get_entity(sid).get_component(_UF)
+    if _fl is not None:
+        _fl.remove_turn_flags(include_no_action=False, new_activation=True)
 
     # le Vanguard doit etre la SEULE unite ai_controlled du player (Tan/Ruststalker = Heroes).
     assert sid in collect_ai_controlled(state, player), "Vanguard non collecte comme ai_controlled"

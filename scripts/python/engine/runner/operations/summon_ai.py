@@ -2,12 +2,28 @@
 
 Deux entrees natives distinctes, portees ici cote a cote :
 
-1. **Passe AI-control du TURN-START** (#65) — mirror de `IdunBattle.View.Game.IdunGameViews.
-   IdunBattle.View.Game.IdunGameViews$$QueueComputerActions` (+ `IdunBattle.View.Game.IdunGameViews$$IsPlayerAiControlled) : au DEBUT du tour d'une team,
-   les unites AI-controlees (summons — meme sur une team joueur) sont jouees par l'IA AVANT que le
-   controleur agisse (verite-terrain live : les Cadiens de Yarrick bougent seuls au turn-start de leur
-   team). Ce N'EST PAS un triggered ability (le trigger-trace ne capte aucun trigger turn-start summon) :
-   c'est une passe AI-control du runner. -> `collect_ai_controlled` / `run_ai_control_pass`.
+1. **Passe AUTOMATIQUE du TURN-START** (#65, artefact natif RE-IDENTIFIE par #291) — mirror de
+   `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute(player, skipAction)`, appelee par
+   `IdunBattle.Operations.StartTurnOperation$$Execute` (slot `IOperationProcessor` 0x71 =
+   `PlayAutomaticUnits(player)`) APRES la sequence d'events 0x12..0x16, sous DEUX gates natifs :
+   `!IdunBattle.Core.Services.BattleQuery$$get_NoAutomaticUnitTurns` (flag de `BattleConfiguration`)
+   et `PlayerComponent.PlayerType` dans {Human(0), Network(3), HumanAI(4)} — un joueur `AI`(1) ne
+   passe PAS par ici (toutes ses unites, summons compris, sont jouees par la boucle IA globale).
+   Corps natif :
+       foreach uid in PlayerComponent.CurrentlyOwnedUnitIds(player):
+           u = state[uid]
+           if u != null && IsAlive(u) && !HasFlag(u, 3 = TurnFinished) && IsAutomatic(u): auto += u
+       foreach u in auto:
+           if (!skipAction) for i in 0..4: if HasActionLeft(u): ComputerAction(u, forced: false)
+           FinishUnitTurn(u, isTerminated: false)
+   `IdunBattle.Entities.UnitExtensions$$IsAutomatic(u)` = `BaseUnitComponent.HasTrait(u, 2 = Summon)
+   || HasTrait(u, 13 = Object)` — c'est le trait, PAS un flag de vue. (L'ancienne citation
+   `IdunGameViews$$QueueComputerActions` etait FAUSSE : ce chemin-la ne se declenche que si le joueur
+   COURANT est entierement AI-controle, et il lance la boucle IA complete, pas les summons.)
+   -> `collect_ai_controlled` / `run_ai_control_pass`.
+   VERITE-TERRAIN LIVE (#291, probe_291_summon_activation) : au debut du tour suivant de leur team,
+   SANS aucune action du joueur, les deux `orksOrkBoys` invoques se deplacent et l'un des ennemis
+   perd 2623 PV.
 
 2. **`ComputerActionOperation`** (`IdunBattle.Operations.ComputerActionOperation`, mono IdunBattle.Operations.ComputerActionOperation$$Execute /
    groupe IdunBattle.Operations.ComputerActionOperation$$Execute) — le mutateur ECS derriere `Core.Services.OperationProcessor$$ComputerAction/Core.Services.OperationProcessor$$ComputerAction,
@@ -28,7 +44,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (UnitComponent, OwnerComponent, PositionComponent, UnitFlagsComponent,
-                          unit_is_dead)
+                          StatsComponent, unit_is_dead)
 from ...entities.active_ability_type import ActiveAbilityType
 
 NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 — id synthetique du bridge (cf. state_bridge) #158
@@ -40,27 +56,82 @@ NORMAL_ATTACK_ID = int(ActiveAbilityType.NormalAttack)   # 17 — id synthetique
 MAX_AI_ACTIONS_PER_UNIT = 0x3e9 - 1                      # 1000
 
 
+#: `IdunBattle.Entities.Enum.UnitTrait` — les deux traits que teste `UnitExtensions$$IsAutomatic`.
+AUTOMATIC_TRAITS = ("Summon", "Object")          # UnitTrait.Summon = 2, UnitTrait.Object = 13
+
+
+def is_automatic(state: State, uid: int) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsAutomatic(unit)` = `BaseUnitComponent.HasTrait(unit,
+    2 = Summon) || BaseUnitComponent.HasTrait(unit, 13 = Object)` — lu verbatim au decompile (deux
+    `GetBaseUnitComponent` + `HasTrait`, retour du premier vrai). C'est le SEUL critere de la passe
+    automatique native ; le flag offline `UnitComponent.ai_controlled` en est le proxy historique
+    (pose main a main au spawn). On accepte les DEUX : le trait quand le `UnitContext` du summon est
+    hydrate (chemin nominal), le flag sinon (montages de test qui n'ont pas de ctx). Union stricte —
+    aucun porteur ne perd sa passe, et les unites deliberement INERTES restent exclues (le decoy
+    porte `Steppable`/`Decoy`, le neophyte de CultDemagogue `Ambush`/`BattleFatigue` : ni l'un ni
+    l'autre n'a `Summon`/`Object`, et tous deux ont `ai_controlled=False`)."""
+    e = state.get_entity(int(uid))
+    if e is None:
+        return False
+    uc = e.get_component(UnitComponent)
+    if uc is not None and getattr(uc, "ai_controlled", False):
+        return True
+    sc = e.get_component(StatsComponent)
+    traits = list(getattr(sc.ctx, "traits", None) or []) if (sc is not None and sc.ctx) else []
+    return any(t in traits for t in AUTOMATIC_TRAITS)
+
+
 def collect_ai_controlled(state: State, player: int) -> list:
-    """Ids des unites `ai_controlled` VIVANTES du `player` courant (= les summons de sa team). Triees par id
-    (ordre `PickNextUnit` = raffinement). `player` = OwnerComponent.player (3/4), pas la team."""
+    """Mirror de la PREMIERE boucle de `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` :
+    parmi `PlayerComponent.CurrentlyOwnedUnitIds(player)`, retient `u != null && IsAlive(u) &&
+    !HasFlag(u, 3 = TurnFinished) && IsAutomatic(u)`.
+
+    Le gate `!TurnFinished` compte, et c'est #291 qui lui donne son sens : une unite APPARUE pendant
+    le tour de son proprietaire a ete `FinishUnitTurn(spawned, isTerminated: true)`-ee par
+    `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours`. Au turn-start SUIVANT,
+    `StartTurnOperation` a deja appele `RemoveTurnFlags` sur les unites du joueur entrant (le flag
+    est donc tombe) -> le summon passe le gate et JOUE. Dans le meme tour que son apparition, en
+    revanche, il ne joue QUE par un `ComputerAction` force (noeud DSL `PerformAIAction`).
+
+    Triees par id (ordre `PickNextUnit` = raffinement documente). `player` = OwnerComponent.player
+    (3/4), pas la team."""
     out: list = []
     for eid, e in state.entities.items():
         uc = e.get_component(UnitComponent)
         oc = e.get_component(OwnerComponent)
         if uc is None or oc is None:
             continue
-        if not uc.alive or not getattr(uc, "ai_controlled", False):
+        if not uc.alive or not is_automatic(state, eid):
             continue
         if oc.player != player:
+            continue
+        fl = e.get_component(UnitFlagsComponent)
+        if fl is not None and fl.turn_ended():     # `!HasFlag(u, 3 = TurnFinished)`
             continue
         out.append(eid)
     return sorted(out)
 
 
 def run_ai_control_pass(state: State, player: int) -> list:
-    """Joue chaque summon `ai_controlled` du `player` (decision playbook -> apply). Renvoie la liste des
-    resultats (diagnostic). No-op (liste vide) si la team n'a aucun summon (cas normal des batailles sans
-    invocation) -> aucune regression sur le turn-flow existant."""
+    """Mirror de la SECONDE boucle de `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` :
+    joue chaque unite AUTOMATIQUE du `player` (decision playbook -> apply). Renvoie la liste des
+    resultats (diagnostic). No-op (liste vide) si la team n'a aucun summon (cas normal des batailles
+    sans invocation) -> aucune regression sur le turn-flow existant.
+
+    RESIDUS NOMMES (non portes, avec leur debloqueur exact) :
+      * la boucle native est `for i in 0..4: if HasActionLeft(u) -> ComputerAction(u, false)` (jusqu'a
+        CINQ actions par unite automatique), le port n'en joue qu'UNE. Porter le cap exigerait de
+        poser `NoActionAvailable`(4) apres chaque action pour que la boucle TERMINE -- or son seul
+        retrait natif est `VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` (slot 0x77), non
+        mirrore : le flag survivrait au `RemoveTurnFlags(includeNoAction=0)` du turn-start et figerait
+        l'unite pour toujours. Debloqueur = porter `VerifyUnitTurnEnded`.
+      * le `FinishUnitTurn(u, isTerminated: false)` final (meme raison : il porte le
+        `MarkUnitAsNoActionAvailable`) ;
+      * les deux gates d'ENTREE, cote `StartTurnOperation` : `!BattleQuery.NoAutomaticUnitTurns` et
+        `PlayerType in {Human, Network, HumanAI}`. Ni le flag de BC ni le `PlayerType` ne sont suivis
+        par le `State` offline. Impact NUL sur l'arene (seed BC mesuree : `NoAutomaticUnitTurns=false`,
+        player 11 = `Human`) ; il faudrait les suivre pour un montage ou la team automatique
+        appartiendrait a un joueur `AI`(1)."""
     results: list = []
     for uid in collect_ai_controlled(state, player):
         e = state.get_entity(uid)                      # re-check : une action precedente (overwatch) a pu tuer

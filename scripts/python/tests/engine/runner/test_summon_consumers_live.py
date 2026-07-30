@@ -154,6 +154,105 @@ def test_waaagh_fresh_summons_act_live_and_port(waaagh):
     assert max(port_d) >= 2, f"port : aucun Ork Boy n'a quitte l'anneau (dists={port_d})"
 
 
+def test_waaagh_fresh_summons_get_no_activation_live_and_port(waaagh):
+    """#291 -- `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours`
+    TERMINE le tour de l'unite qui apparait pendant le tour de son proprietaire
+    (`IOperationProcessor` slot 0x23 = `FinishUnitTurn(spawned, isTerminated: true)`), et
+    `FinishUnitTurnOperation$$Execute` enchaine sur le slot 0x76 = `MarkUnitAsNoActionAvailable`.
+
+    LIVE   : le summon frais est donc ABSENT de `decisionView.toActivate` (qui filtre exactement sur
+             `IsControlledByCurrentPlayer && IsAlive && HasActionLeft`) -- il n'obtient JAMAIS
+             d'activation au tour de son apparition. Ce n'est pas un trou de harnais, c'est le natif.
+    PORT   : le summon spawne porte `TURN_FINISHED` ET `TURN_FINISHED_FORCED` (`isTerminated=true`).
+    CONTRE-EPREUVE (sinon l'assertion serait triviale) : le caster, lui, EST connu de `toActivate`
+    AVANT son cast -- la liste n'est donc pas vide par construction."""
+    from engine.runner.components import UnitFlagsComponent
+    d = waaagh
+    if not d["res"]["spawned"]:
+        pytest.skip("port n'a spawn aucun Ork Boy")
+    # -- contre-epreuve : la liste PRE-cast n'est pas vide et contient le caster --
+    assert d["caster_id"] in (d["dv0"].get("toActivate") or []), (
+        "montage : le caster doit etre activable AVANT son cast (sinon `toActivate` ne mesure rien)")
+    # -- LIVE : aucun summon frais n'est activable --
+    live_ids = [u["id"] for u in (d["live_new"] or [])]
+    if live_ids:
+        acti = set(d["dv1"].get("toActivate") or [])
+        assert not (set(live_ids) & acti), (
+            f"live : un summon frais est dans toActivate ({sorted(set(live_ids) & acti)}) -- "
+            f"le FinishUnitTurn(spawned, terminated) natif n'aurait pas eu lieu")
+    # -- PORT : les flags de tour du finish forced sont poses --
+    for gid in d["res"]["spawned"]:
+        fl = d["state"].get_entity(gid).get_component(UnitFlagsComponent)
+        assert fl is not None and fl.has(UnitFlagsComponent.TURN_FINISHED), (
+            f"port : le summon {gid} n'a pas TURN_FINISHED (TriggerSpawnedUnitBehaviours non porte)")
+        assert fl.has(UnitFlagsComponent.TURN_FINISHED_FORCED), (
+            f"port : le summon {gid} n'a pas TURN_FINISHED_FORCED (isTerminated=true non porte)")
+
+
+def test_waaagh_summons_rejoin_automatic_pass_next_turn(waaagh):
+    """#291, GENERALISATION -- le finish-turn de l'apparition ne doit PAS figer le summon : il le sort
+    de la passe automatique du tour COURANT (`PlayAutomaticUnitsOperation$$Execute` gate sur
+    `!HasFlag(u, 3 = TurnFinished)`) et l'y REMET au tour SUIVANT, parce que
+    `StartTurnOperation$$Execute` appelle `RemoveTurnFlags(includeNoAction=0, newActivation=1)` sur
+    les unites du joueur entrant AVANT le slot 0x71 `PlayAutomaticUnits`.
+
+    C'est le scenario qui CASSERAIT le port si le gate etait pose sans son reset : les summons ne
+    joueraient plus jamais. On mesure les DEUX etats successifs sur le meme `State`, en faisant
+    tourner le VRAI turn-flow (`EndTurnOperation` x2 -> retour au joueur)."""
+    from engine.runner.operations.summon_ai import collect_ai_controlled
+    from engine.runner.operations.turnflow import EndTurnOperation
+    d = waaagh
+    if not d["res"]["spawned"]:
+        pytest.skip("port n'a spawn aucun Ork Boy")
+    st = d["state"]
+    e0 = st.get_entity(d["res"]["spawned"][0])
+    player = e0.get_component(__import__(
+        "engine.runner.components", fromlist=["OwnerComponent"]).OwnerComponent).player
+    spawned = set(d["res"]["spawned"])
+    # AVANT : le tour du proprietaire n'a pas change -> les summons sont TurnFinished, donc HORS
+    # de la passe automatique (c'est le natif : ils viennent d'agir via `PerformAIAction`).
+    assert not (spawned & set(collect_ai_controlled(st, player))), (
+        "un summon fraichement apparu ne doit PAS etre repris par la passe automatique du MEME tour")
+    # ... puis on fait reellement tourner le turn-flow jusqu'au retour du joueur.
+    EndTurnOperation.execute(st, advance=True)          # joueur -> adverse (StartTurn adverse)
+    EndTurnOperation.execute(st, advance=True)          # adverse -> joueur (StartTurn joueur)
+    assert st.current_player_id == player, "montage : le tour n'est pas revenu au proprietaire"
+    alive = {g for g in spawned
+             if (st.get_entity(g) is not None
+                 and st.get_entity(g).get_component(UnitComponent) is not None
+                 and st.get_entity(g).get_component(UnitComponent).alive)}
+    if not alive:
+        pytest.skip("aucun summon survivant apres deux fins de tour")
+    assert alive & set(collect_ai_controlled(st, player)), (
+        "APRES le turn-start du proprietaire, les summons vivants doivent RE-ENTRER dans la passe "
+        "automatique (sinon le gate TurnFinished les fige definitivement)")
+
+
+def test_spawn_finish_turn_gate_spares_steppable(waaagh):
+    """#291, CONTRE-CAS du GATE -- `TriggerSpawnedUnitBehaviours` ne termine PAS le tour d'une unite
+    portant `UnitTrait.Steppable`(27) : le decompile lit
+    `HasTrait(u, 0x1b) ? false : !HasTrait(u, 0x10 = Hero)`. Sans ce contre-cas, « le summon est
+    finish-turn » ne prouverait pas que le port porte le GATE plutot qu'un finish inconditionnel.
+    Le token decoy (`genesSmnDecoy`, traits `Steppable`+`Decoy`) passe par le MEME choke point."""
+    from engine.runner.components import UnitFlagsComponent, PositionComponent as _PC
+    from engine.runner.operations.spawn import spawn_decoy
+    d = waaagh
+    st = d["fresh"]()
+    if st.board is None:
+        pytest.skip("pas de board dans l'etat rejoue")
+    occupied = {(pc.col, pc.row) for e in st.entities.values()
+                for pc in [e.get_component(_PC)] if pc is not None}
+    tile = next((tid for tid, t in st.board.by_id.items()
+                 if (t["col"], t["row"]) not in occupied), None)
+    if tile is None:
+        pytest.skip("aucune tuile libre pour poser le decoy")
+    did = spawn_decoy(st, tile, d["caster_id"])
+    assert did is not None, "montage : le decoy n'a pas ete pose"
+    fl = st.get_entity(did).get_component(UnitFlagsComponent)
+    assert fl is None or not fl.has(UnitFlagsComponent.TURN_FINISHED), (
+        "un Steppable ne doit PAS etre finish-turn a l'apparition (gate HasTrait(0x1b) non porte)")
+
+
 def test_waaagh_counter_case_without_perform_ai_action(waaagh):
     """CONTRE-CAS : MEME etat-avant, MEME arbre de spawn, SANS `PerformAIAction` -> TOUS les Ork Boyz
     restent a distance 1. Sans ce contraste, « il a bouge » ne prouve rien."""
@@ -243,6 +342,30 @@ def test_sitnw_on_appearance_attack(sitnw):
     assert d["port_tgt_delta"] > 0, (
         f"live : cible -{d['live_tgt_delta']} PV ; port : -{d['port_tgt_delta']} -> l'on-appearance "
         f"portee ne deale pas")
+
+
+def test_sitnw_on_appearance_precedes_finish_turn(sitnw):
+    """#291, GENERALISATION sur la branche `on_appearance` -- autre summoner (`astraYarrick`), autre
+    ability (1016), autre seed, et surtout autre BRANCHE du port : quand `SpawnUnitOptions+0x18`
+    porte un sous-behaviour, `TriggerSpawnedUnitBehaviours` l'execute D'ABORD et n'appelle
+    `FinishUnitTurn(spawned, isTerminated: true)` qu'ENSUITE. Les deux doivent donc COEXISTER :
+    l'attaque on-appearance a bien eu lieu (garde `test_sitnw_on_appearance_attack`) ET les Cadians
+    portent les flags de fin de tour. Un port qui aurait pose le finish AVANT ne serait pas distinguable
+    ici (aucun consommateur offline de `TURN_FINISHED` sur ce chemin) -- ce test garde l'invariant
+    OBSERVABLE : les deux effets sont presents, cote live comme cote port."""
+    from engine.runner.components import UnitFlagsComponent
+    d = sitnw
+    if not d["res"]["spawned"]:
+        pytest.skip("port n'a spawn aucun Cadian")
+    live_ids = [u["id"] for u in (d["live_new"] or [])]
+    if live_ids:
+        acti = set(d["dv1"].get("toActivate") or [])
+        assert not (set(live_ids) & acti), (
+            f"live : un Cadian frais est dans toActivate ({sorted(set(live_ids) & acti)})")
+    for gid in d["res"]["spawned"]:
+        fl = d["state"].get_entity(gid).get_component(UnitFlagsComponent)
+        assert fl is not None and fl.has(UnitFlagsComponent.TURN_FINISHED_FORCED), (
+            f"port : le Cadian {gid} n'a pas TURN_FINISHED_FORCED apres son on-appearance")
 
 
 # ============================================================================================== #

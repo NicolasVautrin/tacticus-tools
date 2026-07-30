@@ -724,14 +724,34 @@ attaque on-appearance −620). Puis endturn team1 → endturn team2 **passif** (
 AI-control sur les unités AI-contrôlées de la team courante** (= les summons) — chaque summon → décision
 playbook → move+attaque → apply — AVANT de rendre la main au contrôleur.
 
-⚠ CORRECTION post-RE (2026-07-06) : l'identification d'un summon N'EST PAS « trait Summon=2 » (hypothèse
-pré-compact FAUSSE). Le natif utilise un **flag runtime per-unité** lu par `IsPlayerAiControlled`
-(SortedDictionary `+0x18==1`), posé à l'invocation — pas un trait gameconfig. Le caller RE'd =
-`IdunGameViews.QueueComputerActions @1804d90d0` (`type player==2` = team entièrement-IA ; sinon flag
-per-unité summon) ; la routine de décision = `PerformAIAbilityUnitBehaviour.Execute @180fcb070` (énumère
-les cibles du sélecteur +0x50 → per-cible génère un candidat move(+0x60)+attaque(+0x78), msg 0x37/0x38 →
-utility-argmax downstream). ⇒ c'est le PLAYBOOK COMPLET (sélection de cible utility-based), pas une routine
-« plus proche ennemi ».
+⚠⚠ **DOUBLE CORRECTION — la « CORRECTION post-RE (2026-07-06) » qui tenait ici était elle-même FAUSSE
+sur ses DEUX points.** Elle affirmait (a) que l'identification d'un summon n'est pas le trait
+`Summon`, mais un flag runtime lu par `IsPlayerAiControlled`, et (b) que le caller est
+`IdunGameViews$$QueueComputerActions`. Le décompilé dit le contraire, et la mesure aussi :
+
+- **(a) c'est bien le TRAIT.** `IdunBattle.Entities.UnitExtensions$$IsAutomatic(unit)` =
+  `BaseUnitComponent.HasTrait(unit, 2 = Summon) || BaseUnitComponent.HasTrait(unit, 13 = Object)` —
+  deux `GetBaseUnitComponent` + `HasTrait`, rien d'autre. Établi par **#250**
+  (`tests/engine/runner/test_summon_automatic_live.py`, qui MESURE le renversement : avec le trait le
+  porteur n'est jamais `ctrl`/`hasAction` et bouge quand même ; sans le trait il est `ctrl` et ne
+  bouge pas) et re-confirmé par **#291**.
+- **(b) le caller est `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute`**, atteint depuis
+  `IdunBattle.Operations.StartTurnOperation$$Execute` par le slot `IOperationProcessor` 0x71 =
+  `PlayAutomaticUnits(currentPlayer)`, APRÈS les cinq émissions d'events 0x12..0x16, sous les gates
+  `!IdunBattle.Core.Services.BattleQuery$$get_NoAutomaticUnitTurns` et `PlayerComponent.PlayerType ∈
+  {Human(0), Network(3), HumanAI(4)}`. `IdunGameViews$$QueueComputerActions` est **autre chose** : la
+  boucle IA lancée quand le joueur COURANT est entièrement AI-contrôlé
+  (`IdunGameViews$$IsPlayerAiControlled`) — elle ne joue pas « les summons d'une team humaine ».
+  Corps de `PlayAutomaticUnitsOperation` (verbatim) :
+  `foreach u in CurrentlyOwnedUnitIds(player) if IsAlive(u) && !HasFlag(u, 3 = TurnFinished) &&
+  IsAutomatic(u)` → `for i in 0..4: if HasActionLeft(u) ComputerAction(u, forced: false)` →
+  `FinishUnitTurn(u, isTerminated: false)`.
+
+Ce qui reste VRAI du paragraphe d'origine : la routine de décision est
+`IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` (énumère les cibles du
+sélecteur `+0x50` → per-cible un candidat move `+0x60` + attaque `+0x78`, msgs 0x37/0x38 →
+utility-argmax downstream) ⇒ c'est bien le **PLAYBOOK COMPLET**, pas une routine « plus proche
+ennemi ». Détail complet et mesure : `docs/rl/case-291-summon-activation.md`.
 
 **Décision utilisateur (2026-07-06) : porter le PLAYBOOK COMPLET** (pas la réduction target→move→attaque).
 Chemin natif exact = au turn-start, invoquer la décision playbook du summon (`DefaultAiUnitTactic.

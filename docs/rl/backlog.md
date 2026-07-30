@@ -1156,11 +1156,22 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   invocateur → greffe possible, non faite) ;
   **(3)** évaluateurs manquants (composite `UtilityAttackCase.Base` pour 1004, `TilesInTriangleShape`
   pour 1148) ; ~~**(4)** route de ciblage ALLIÉ pour 1100~~ — **LEVÉ (#27-4e)** ;
-  **(5)** *(neuf, #27-4f)* **les SUMMONS n'obtiennent jamais d'activation dans le harnais arène** —
-  `orksOrkBoys` arrive bien en bataille par son summoner (`Waaagh`/orksWarboss, en pool) avec son
-  ability prête, mais n'entre jamais dans « À ACTIVER » et `aiDryRunAllUnits` ne rend pour lui que
-  `FinishUnitTurnMessage` (mesuré runner 189, tours 1→3). Contourné par GREFFE (`case-92` §5bis) ;
-  le débloquer rendrait confrontables les porteurs summon avec LEURS stats.
+  ~~**(5)** *(neuf, #27-4f)* les SUMMONS n'obtiennent jamais d'activation dans le harnais arène~~ —
+  **TRANCHÉ (#291), ce n'était PAS un verrou de harnais mais le COMPORTEMENT NATIF**
+  (`case-291-summon-activation.md`) : `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` appelle
+  `FinishUnitTurn(spawned, isTerminated: true)` (slot 0x23) sur toute unité qui apparaît pendant le
+  tour de son propriétaire — sauf traits `Steppable`(27)/`Hero`(16) — et
+  `FinishUnitTurnOperation$$Execute` enchaîne sur `MarkUnitAsNoActionAvailable` (slot 0x76), donc
+  `HasActionLeft` = faux et `toActivate` (qui filtre exactement dessus) l'exclut. Le
+  `FinishUnitTurnMessage` d'`aiDryRunAllUnits` est la réponse CORRECTE du natif. **La greffe n'est
+  plus nécessaire pour la face COMBAT** : le summon agit avec SES stats par
+  (a) le nœud DSL `PerformAIAction` de l'ability du summoner (events du cast — mesuré : les 2
+  `orksOrkBoys` se déplacent de 4 tuiles et jouent `Stikkbomb`/attaque normale DANS le cast) et
+  (b) `PlayAutomaticUnits` au turn-start suivant (mesuré : déplacement + 2623 PV infligés sans
+  aucune action du joueur). Port livré + gardes ; RÉSIDU restant, plus étroit : l'oracle de
+  **DÉCISION** per-unité d'un summon, qui demande un `aiDryRunAllUnits({resetTurnFlags:true})`
+  (point d'ancrage nommé, `case-291` §5.5 — non implémenté : exige une réinjection Frida). Ce
+  résidu est le seul qui reste devant **1098**. `[opus]`.
   ~~Verrou « routes d'ability non-attaque »~~ — **LEVÉ (#27-4b)** : `engine/playbook/nonattack.py`
   (mirror de `ComparablePlaybook<T>$$CalculateActionUtility` — le custom entre dans l'argument de
   `ShouldExecute`, dont le corps par DÉFAUT rend `true`, mesuré au slot de vtable `+0x328` sur 4

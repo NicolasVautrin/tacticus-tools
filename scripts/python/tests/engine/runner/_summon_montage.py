@@ -177,6 +177,11 @@ def cast_and_replay(rpc, rid, board, caster_id, target_id, ability, ability_cls,
     res = ability_cls().execute_behaviour(state, caster_id, target_id)
     port_tgt_delta = port_hp0 - state.get_entity(target_id).get_component(HealthComponent).hp
     return {"res": res, "state": state, "fresh": _fresh, "dv0": dv0, "act": a0,
+            # `dv1` = la vue de DECISION POST-cast entiere. Expose (#291) parce que `toActivate`
+            # (= `IsControlledByCurrentPlayer && IsAlive && HasActionLeft`, cf.
+            # `ai-step/internals.ts::toActivateSquads`) est la seule facon de LIRE, cote natif, le
+            # `MarkUnitAsNoActionAvailable` que `FinishUnitTurnOperation` pose sur un summon frais.
+            "dv1": dv1, "live_new": live_new,
             "live_summons": live_summons, "live_appeared": appeared,
             "live_tgt_delta": live_tgt_delta, "live_new_stats": live_new_stats,
             "port_tgt_delta": port_tgt_delta, "live_effects": live_effects}

@@ -811,7 +811,26 @@ jamais de contournement silencieux. `statut` : open|wip|done. `recurrence` = nb 
   (rendu de glyph ambigu).
 - vu : seed 81002, seed 81000 (A+B, move + range d'attaque).
 
-## TF36 — les unités SUMMONED (Death Riders / Inceptors) ne sont PAS listées dans « À ACTIVER » mais APPARAISSENT dans PLANS D'ATTAQUE et SONT commandables via `play --spec` → ambiguïté sur quels summons ont encore une action ce tour — open — recurrence:1
+## TF36 — les unités SUMMONED (Death Riders / Inceptors) ne sont PAS listées dans « À ACTIVER » mais APPARAISSENT dans PLANS D'ATTAQUE et SONT commandables via `play --spec` → ambiguïté sur quels summons ont encore une action ce tour — EXPLIQUÉ (#291), l'amélioration (a) est REJETÉE — recurrence:1
+- **TRANCHÉ le 2026-07-30 (#291, `case-291-summon-activation.md`) — la vue est FIDÈLE, l'amélioration
+  (a) serait une RÉGRESSION.** « À ACTIVER » = `toActivate` =
+  `IsControlledByCurrentPlayer && IsAlive && HasActionLeft`, les trois prédicats natifs. Un summon en
+  est absent parce que le natif lui a POSÉ `NoActionAvailable` :
+  `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` appelle `FinishUnitTurn(spawned, isTerminated:
+  true)` dès l'apparition, et `PlayAutomaticUnitsOperation` refait le même `FinishUnitTurn` après
+  l'avoir joué au turn-start. **Le natif ne l'offre JAMAIS au joueur** — l'inclure dans « À ACTIVER »
+  ferait mentir la vue sur le régime réel.
+  Ce que « commandable via `play --spec` » signifie exactement, **mesuré** (probe #291, runner arène,
+  `orksNpc2OrkBoy` u108 `ctrl=True hasAction=False`, absent de `toActivate=[83,85]`) :
+  `applyAction {kind:"move"}` rend `ok=True mutated=True` et la position CHANGE. `applyAction`
+  construit et applique un message natif **sans repasser par le gate `HasActionLeft`**, qui n'est
+  qu'un filtre de la couche décision. On peut donc piloter un summon à la main — mais on SORT alors
+  du régime natif (le moteur, lui, ne l'aurait pas activé). À réserver aux montages de validation, et
+  à ne jamais confondre avec la décision native, qui s'observe (a) dans les events du cast du
+  summoner (`PerformAIAction`) ou (b) au delta de turn-start (`PlayAutomaticUnits`).
+  Doctrine résultante, inchangée sur le fond : ne pas traiter « À ACTIVER » comme le set des unités
+  qui vont AGIR ce tour — c'est le set des unités que le JOUEUR active. Les summons agissent, sans
+  y figurer.
 - **friction** (observabilité) : A (team1, seed 81004) — ses unités summonées (`astraSmnDeathRider` via Dreir,
   `ultraSmnInceptor` via Bellator) **n'étaient PAS listées dans la section « À ACTIVER »** de la vue, MAIS
   elles **figuraient bien dans les PLANS D'ATTAQUE** et **étaient commandables via `play --spec`**. Résultat :

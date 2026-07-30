@@ -206,10 +206,17 @@ class StartTurnOperation:
     (`start_turn_triggers` -> ex. TheBetrayer auto-tour). Les resets per-unite natifs (ActorStatistics/
     UnitFlags) ne sont pas suivis offline (cf. en-tete).
 
-    APRES les triggers turn-start : passe AI-control (`run_ai_control_pass`) — joue les summons
-    (`ai_controlled`) de la team courante via le playbook complet AVANT que le controleur agisse. Mirror de
-    `IdunBattle.View.Game.IdunGameViews$$QueueComputerActions` (cf. summon_ai / docs/rl/runner-engine.md #65). No-op si
-    la team n'a aucun summon (aucune regression turn-flow)."""
+    APRES les triggers turn-start : passe AUTOMATIQUE (`run_ai_control_pass`) — joue les unites
+    `IdunBattle.Entities.UnitExtensions$$IsAutomatic` (trait `Summon`(2) ou `Object`(13)) de la team
+    courante via le playbook complet AVANT que le controleur agisse. Artefact natif = le slot
+    `IOperationProcessor` 0x71 = `PlayAutomaticUnits(currentPlayer)` ->
+    `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` (et NON
+    `IdunGameViews$$QueueComputerActions`, qui est la boucle IA d'un joueur entierement AI-controle —
+    citation corrigee par #291). **La PLACE du port est confirmee** : dans le corps natif, l'appel du
+    slot 0x71 vient bien APRES les cinq emissions d'events 0x12..0x16. Deux gates natifs (non suivis
+    offline, sans impact mesure sur l'arene — cf. `summon_ai.run_ai_control_pass`) :
+    `!BattleQuery.NoAutomaticUnitTurns` et `PlayerType in {Human(0), Network(3), HumanAI(4)}`.
+    No-op si la team n'a aucun summon (aucune regression turn-flow)."""
     __slots__ = ()
 
     @staticmethod

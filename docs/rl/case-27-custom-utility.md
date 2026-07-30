@@ -830,9 +830,24 @@ bien un invocateur — `Waaagh` (1058, `constants.unitId = orksOrkBoys`), porte 
 
 Pas de verite de reference par cette voie ⇒ **GREFFE** de l'ability sur `orksRuntherd` (recette
 `case-92` §5bis). Le natif PROUVE que le code exerce est bien `StikkbombPlaybook` en emettant
-`ActiveAbilityMessage(1051)`. **Debloqueur nomme** du verrou lui-meme : donner une activation aux
-summons dans le harnais arene (c'est le meme etage que le refus `buildNormalizedBC` des summons,
-`case-92` §5bis).
+`ActiveAbilityMessage(1051)`.
+
+> **MISE A JOUR #291 — le « verrou » n'en etait pas un : c'est le NATIF**
+> (`case-291-summon-activation.md`). `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` appelle
+> `FinishUnitTurn(spawned, isTerminated: true)` sur toute unite qui apparait pendant le tour de son
+> proprietaire, et `FinishUnitTurnOperation$$Execute` enchaine sur `MarkUnitAsNoActionAvailable` ->
+> `HasActionLeft` faux -> exclusion de `toActivate`, qui filtre exactement dessus. Aucune
+> « activation a donner » : le debloqueur ci-dessus est CADUC.
+> Ce que la mesure (probe_291) montre en revanche : le meme `Ork Boy` **agit** dans le cast meme
+> (deplacement de 4 tuiles puis `Stikkbomb`), pousse par le 5e `Group` de
+> `WaaaghAbility$$ExecuteBehaviour` = `PerformAIAction(...)` -> `ComputerAction(unit, forced)`. La
+> face COMBAT du VRAI porteur est donc confrontable sans greffe, et l'objection « la greffe ne
+> couvre ni les stats ni les traits du vrai porteur » (ci-dessous) tombe pour cette face.
+> Ce qui reste bloque, plus etroitement, c'est l'oracle de **DECISION** per-unite : `aiDryRunAllUnits`
+> interroge la tactique sur une unite a `NoActionAvailable`. **Nouveau debloqueur nomme** : une
+> option `resetTurnFlags` sur `aiDryRunAllUnits` qui encadre `sweepAllUnitProposals` du couple
+> `RemoveTurnFlags(flags, true, true)` / `SetUnitTurnsFlags` de `ComputerActionOperation`
+> (`frida/hooks/features/ai-step/rpc-drive.ts`) — exige une reinjection Frida.
 
 ### Non couvert (nomme, pas masque)
 
