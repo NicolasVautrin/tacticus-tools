@@ -475,6 +475,107 @@ CIBLE, puis `FillUpStatComponent$$MaxFillUp`.
   `unit["effects"]` de `decisionView`). Difference de nature a noter : le gate TwistedScience EXCLUT
   la cible de l'enumeration, celui-ci **annule le terme** sans retirer la cible.
 
+### Validation live (#27-4c)
+
+**Etage 1 — MAGNITUDE, canal SCALAIRE `pairUtility`.** Baldr injecte par
+`catalog_inject.py --units spaceWolfPriest` (le porteur est `lineup` mais hors catalogue de la seed
+BC ; le pool passe de 97 a 98), board MC1_67. Attack 2512, arme 3 coups. Cible `spaceBlackmane` a
+5243/20000, soit `missing` = 14757 — **strictement au-dessus des deux magnitudes candidates**, seul
+regime qui tranche (en dessous, les deux saturent a `missing` et l'A/B ne mesure rien) :
+
+| hypothese | montant | utilite predite | natif |
+|---|---|---|---|
+| **ARME** `2512 x 3` | 7536 | 37.6781160942 | **37.67811609432101** |
+| config `hpToHeal[50] x 180 %` | 4986 | 24.9287535623 | — |
+
+Reproduit apres reinject (session suivante, meme build) sur un autre montage : 37.67811609432101.
+Cible a PV pleins -> `pairUtility` = **0** (`MaxFillUp` nul, `ShouldExecute` refuse), et le port rend
+`None` au meme endroit.
+
+**Seconde source, independante du scalaire** : `aiPlaybookPredict.healEvents` rend
+`{"targetId": 85, "targetHpBefore": 7599, "healAmount": 7536, "probability": 1}` — ce qui confirme d'un
+seul coup (a) la magnitude ARME, (b) la forme `CONCAT44(fill, currentHealth)` de la struct de 8 octets
+(`targetHpBefore` = le mot bas, `healAmount` = le mot haut), (c) la probabilite `Fix64(1)` du
+`Nullable` vide, et (d) **qu'il n'y a qu'UN SEUL event** — donc que la somme du CustomUtility porte sur
+une seule cible, ce que le port supposait et qui est desormais mesure.
+
+> ⚠ **Ce canal-la est SAIN, et il ne faut pas le confondre avec celui du backlog `#276-r1`.** Les deux
+> familles ont des decodeurs DISTINCTS dans `frida/hooks/features/ai-step/playbook-predict.ts` :
+> - `readHealEvent` lit un `ProbableHealEvent` de stride `0x18` dont le `HealPredictionResult` est
+>   INLINE sur **8 octets** a `+0x08..+0x10` (`targetHpBefore@+0x08`, `healAmount@+0x0c`) : il ne lit
+>   RIEN hors struct, et c'est exactement la forme que `ProbableHealEvent$$.ctor` +
+>   `DamagePrediction$$PredictHeal` imposent.
+> - `decodeRepairDict`, lui, suppose un `RepairPrediction` de **16 octets / 4 ints**
+>   (`currentHealth`, `currentArmor`, `hpFill`, `armorFill`) alors que `PredictRepair` rend la MEME
+>   struct de 8 octets : c'est LUI qui deborde (`hpFill`/`armorFill` sont hors struct, et le champ
+>   etiquete `targetArmorBefore` est en realite le `fillUp`). Defaut reel, non corrige a ce jour.
+>
+> La mesure ci-dessus est en outre corroboree par deux sources qui ne passent par aucun decodeur de
+> struct : `targetHpBefore` = 7599 = le `hp` d'`observeBattle`, et `healAmount` = 7536 = le `fill` que
+> `pairUtility` = 37.678 implique par `fill/(hpMax+1)x100`. **Le canal de reference reste malgre tout
+> le scalaire `pairUtility`** — c'est lui qui porte les conclusions ; `healEvents` ne fait que
+> corroborer.
+
+**Etage 2 — le CUSTOM, A/B causal sur le CHOIX natif** (`aiDryRunAllUnits`, read-only). Le terme
+n'apparait pas dans `pairUtility` ; on l'exerce donc par le seul levier qui l'annule, l'effet
+`HealingBalms_ExtraCritDamage`. Montage FIGE (ennemis relegues hors de portee apres la phase de
+blessure, `RitesOfMorkai` passe en cooldown pour que 1212 soit l'ability retenue), `--hp-player 60000` :
+
+| bras | u85 `adeptCanoness` | u87 `spaceStormcaller` | choix natif |
+|---|---|---|---|
+| **CONTROLE** | `pairUtility` = **12.55979067645967**, non buffe, 16920/60000 | `pairUtility` = **12.55979067645967**, non buffe, **39127/60000** | **u85**, sans deplacement |
+| **TEST** | `pairUtility` = **12.55979067645967**, **buffe**, 25379/60000 | `pairUtility` = **12.55979067645967**, non buffe, **39127/60000** | **u87**, move (0,2) |
+
+Les **quatre** utilites de paire sont BIT-IDENTIQUES -> confond de prediction MESURE et NUL. `u87` est
+**strictement inchange** entre les deux bras (memes PV, meme tuile, non buffe) : le seul levier qui
+bouge est l'effet sur u85. Le natif renonce a sa cible et se DEPLACE pour aller soigner une cible
+d'utilite de paire identique mais non buffee.
+
+**Contre-epreuves MOTEUR** sur ce meme etat (generateur `_heal_candidates`, comparaison par
+`full = pred + tile_utility`) :
+
+| bras | cible retenue | `pred` |
+|---|---|---|
+| port tel quel | **u87, to=(0,2)** — cible ET tuile identiques au natif | 18.839686 = `1.5 x 12.559791` |
+| `calculate_custom_utility_from_heal` force a 0 | u85, sans move — **DIVERGE** | 12.559791 |
+| 1212 retire de `HEAL_PLAYBOOKS` | u85, sans move — **DIVERGE** | 12.559791 |
+
+Le terme de tuile vaut **30.0 pour les deux options** (`42.559791 - 12.559791` et
+`48.839686 - 18.839686`) : le deplacement ne coute rien ici, la bascule est donc integralement portee
+par le custom.
+
+**Portee du cast — question ouverte de la passe precedente, FERMEE par mesure.** `abilityTargets`
+distingue `targets` (superset, deplacement inclus) de `fromHere` (cast immediat). Baldr en (1,0),
+allie en (0,1) = distance 2 : present dans `targets`, **absent de `fromHere`**. Le meme allie ramene
+en (2,0) = distance 1 y **entre**. Le filtre `HEAL_RANGE = 1` du generateur est donc CORRECT — il n'y
+a pas d'ecart de port sur cet axe. (Le `range` du ctor reste un bloc de 24 octets recopie d'un
+statique, non resolu offline ; c'est la mesure qui tranche, pas la lecture.)
+
+**Piege de mesure rencontre, et il vaut au-dela de cet item** : un second montage a ete ECARTE parce
+que `pairUtility` y rendait **37.678 sur une cible a PV pleins** — valeur incoherente avec l'etat
+observe, et qui re-mesuree quelques instants plus tard vaut **0**. C'est une lecture de CACHE perime
+(`CachedDamagePredictionQuery`) juste apres une mutation. Regle : **toujours recouper une utilite de
+paire avec l'etat de PV du meme instant** ; une valeur qui ne s'explique pas par `min(amount,
+missing)/(maxHP+1) x 100` est un artefact, pas une mesure.
+
+### Non couvert (explicite)
+
+- **La FORME du terme (facteur vs constante) n'a PAS ete exercee live.** Le decompile la tranche sans
+  ambiguite — `Fix64.FastMul(Sum(...), Half)` est litteralement un produit — et le moteur, qui applique
+  `1.5 x U`, reproduit exactement le choix natif (cible ET tuile). Mais l'A/B retenu a un ECART
+  d'utilite NUL entre les deux cibles : tout terme strictement positif y ferait basculer le natif, y
+  compris une constante. Discriminer experimentalement demanderait DEUX montages a des niveaux de `U`
+  differents et a ecart non nul — bascule a grand ecart / niveau haut, non-bascule a petit ecart /
+  niveau bas — ce qui est contradictoire pour toute constante. Le pilotage fin de `missing` (fenetres
+  de quelques milliers de PV) l'a rendu trop couteux dans cette passe ; c'est le residu nomme.
+- **Les bonus-soin d'effets accumules par `PredictHeal`** avant les caps (boucle sur les effets du
+  caster, slot d'interface `0x29`) ne sont pas portes — inertes sur les porteurs exerces.
+- **Le cap de groupe** (`GetGroupUnitHealLimit`) reste inerte : `MakeHealPredictions` passe
+  `scope = 0`, ce qui est desormais lu au call-site et non suppose.
+- **La face COMBAT de 1212** n'est pas portee (l'ability est absente d'`ABILITY_CLASSES`) : cette
+  tranche ne couvre que la face DECISION. Son masque de ciblage est consigne ci-dessus pour qui la
+  portera.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).

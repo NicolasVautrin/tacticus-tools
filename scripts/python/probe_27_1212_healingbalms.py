@@ -151,11 +151,16 @@ def main(argv: list[str]) -> int:
     if args.choice:
         dry = rpc(sid, "aiDryRunAllUnits", {"runnerId": rid}, 180)
         picks = []
-        for p in (dry.get("units") or dry.get("plans") or []):
-            picks.append({k: p.get(k) for k in ("unitId", "abilityType", "targetId", "to", "score")
-                          if k in p})
+        for p in (dry.get("units") or []):
+            picks.append({"unitId": p.get("unitId"), "proposed": p.get("proposed")})
         out["nativeChoice"] = picks or dry
         print("[1212] E2 choix natif : %s" % json.dumps(picks or dry)[:900])
+        # Lecture : le custom n'est PAS dans `pairUtility` ; ce que ce bloc donne, c'est la cible
+        # RETENUE par le natif. L'A/B se fait en BUFFANT la cible qu'il vient de choisir (cast 1212
+        # dessus) puis en relancant : il doit basculer sur une cible d'utilite de paire IDENTIQUE mais
+        # non buffee. Recouper CHAQUE `U_nat` avec l'etat de PV du meme instant -- une valeur qui ne
+        # vaut pas `min(amount, missing)/(hpMax+1)*100` est une lecture de CACHE perimee
+        # (`CachedDamagePredictionQuery`), pas une mesure.
 
     if args.json:
         Path(args.json).write_text(json.dumps(out, indent=1), encoding="utf-8")
