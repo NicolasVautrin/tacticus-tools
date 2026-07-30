@@ -150,7 +150,7 @@ def main(argv):
         res_p = turn_start_other_triggers(state, p_team)
         lm_p = [r for r in res_p if r.get("type") == "living_metal_repair"]
         off = next((r for r in lm_p if r.get("unit") == wid), None)
-        off_healed = off.get("healed") if off else None
+        off_healed = off.get("repaired") if off else None   # #310 : cle `repaired` (RepairUnitOperation)
         off_amount = off.get("amount") if off else None
         print(f"[203] OFFLINE scoping(A-turn) lm={lm_a} | regen(P-turn) warden={off}")
 
