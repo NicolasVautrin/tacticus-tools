@@ -42,7 +42,9 @@ from engine.entities.pathfinding.board import Board
 from engine.entities.pathfinding.ignore_terrain_pathfinder import weight_cost
 from engine.entities.pathfinding.walk_pathfinder import (
     get_reachable_levels, is_valid_path_node as walk_is_valid_path_node)
+from engine.ai.context import _mindist_case
 from engine.entities.traits.unit_trait import UnitTrait
+from engine.playbook.scene import build_predictor
 from engine.runner.components import StatsComponent
 from engine.runner.snapshot import load_state
 from engine.utilities.move import (MIN_DIST_UTILITY, UtilityMovementCase, is_non_attacking,
@@ -452,12 +454,21 @@ def _leaf_terms(ctx, wt):
 
 
 def _both_faces(rpc, rid, uid, wt):
-    """(ctx LIVE, ctx OFFLINE) du meme etat de decision. `board=` OBLIGATOIRE cote offline :
-    sans lui `state.board is None` -> `_pathdist_to_enemies` rend {} et on mesurerait le repli hex."""
+    """(ctx LIVE, state, ctx OFFLINE) du meme etat de decision.
+
+    Deux obligations de montage, chacune deja payee une fois :
+      - `board=` cote offline : sans lui `state.board is None` -> `_pathdist_to_enemies` rend {}
+        et on mesurerait le repli hex, pas la face offline ;
+      - un PREDICTOR cote live : la `Scene` en derive, et sans `Scene` le port ne peut pas lire
+        `GetStat(unit, CriticalChance)` -> `unit_crit_chance` reste `None` et le GATE 4 est
+        SUSPENDU. Un test qui passe `predictor=None` mesure donc un montage volontairement
+        degrade, et son vert ne dit rien du gate 4."""
     dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     mov = rpc("aiMovableTiles", {"runnerId": rid}, 90)
     mov_by_unit = {r["unitId"]: r for r in (mov.get("units") or [])}
-    ctx = _ai_ctx.build(lambda m, b=None, t=60: rpc(m, b, t), rid, dv, mov_by_unit, uid, wt, None)
+    _rpc = lambda m, b=None, t=60: rpc(m, b, t)          # noqa: E731
+    predictor = build_predictor(_rpc, rid)
+    ctx = _ai_ctx.build(_rpc, rid, dv, mov_by_unit, uid, wt, predictor)
     obs = rpc("observeBattle", {"runnerId": rid}, 60)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     bg = rpc("boardGraph", {"runnerId": rid}, 90)
@@ -491,6 +502,14 @@ def test_min_distance_leaf_is_zero_when_closest_enemy_is_null_live(host, live_se
     assert isinstance(pd, dict) and not pd.get("ok") and not (pd.get("enemies") or []), (
         "montage NON FORME : le RPC a retenu des candidats "
         f"({str(pd)[:200]}) -- le ClosestEnemy n'est PAS null, ne pas lire ce vert")
+    # Le CANAL, pas seulement l'issue : le gate 3 se lit sur le champ STRUCTURE que le hook pose
+    # dans sa sortie `if (!cands.length)`. Le litteral d'erreur du meme `return` n'est plus une
+    # donnee (le port LEVE s'il le voit seul). Si ce champ manque, le bundle Frida injecte est
+    # anterieur -> le test doit ECHOUER, pas mesurer le gate par un message.
+    assert pd.get("noTargetableEnemies") is True, (
+        "le RPC ne sert pas `noTargetableEnemies` (recu : "
+        f"{ {k: v for k, v in pd.items() if k != 'tiles'} }) -- bundle Frida anterieur au champ, "
+        "rebuild + reinject requis ; le gate 3 ne peut PAS etre confronte par le litteral")
 
     ctx, state, octx = _both_faces(rpc, rid, uid, wt)
     assert ctx.epos, "aucun ennemi positionne -- le repli hex n'aurait rien a mesurer"
@@ -594,3 +613,70 @@ def test_unit_can_be_damaged_gate_mirrors_native():
     assert MIN_DIST_UTILITY.evaluate_movement(
         (0, 0), [(3, 3)], wt, {(0, 0): 4},
         case=UtilityMovementCase(unit=None)) == 0.0, "GATE 1 : `case.Unit == null` -> 0"
+
+
+def test_mindist_case_reads_structured_channel_not_error_literal():
+    """Le GATE 3 se lit sur le champ STRUCTURE `noTargetableEnemies`, jamais sur un message.
+
+    Un littéral d'erreur parse est un canal fragile : c'est le patron « un echec rendu se lit
+    comme une mesure ». Les quatre entrees possibles du RPC, et ce que le port en fait :
+
+      1. `noTargetableEnemies: True`         -> gate 3 (`ClosestEnemy == null`) ;
+      2. le littéral SEUL (bundle anterieur) -> LEVE. Le port ne peut pas savoir si le gate mord,
+         et un `None` silencieux redonnerait un terme de distance la ou le natif rend 0 --
+         regression PERMISSIVE invisible ;
+      3. une AUTRE erreur                    -> indisponibilite du RPC : aucun case, gates hors-jeu ;
+      4. `ok` + `closestEnemyId`             -> identite du ClosestEnemy CONNUE (residu 1 ferme
+         cote port ; la face live du champ attend une fenetre de reinject).
+
+    Deterministe : aucune session, aucun runner -- ces quatre branches ne dependent que du contrat
+    hook <-> port."""
+    units = [{"id": 1, "visualId": None}, {"id": 2, "visualId": None}, {"id": 3, "visualId": None}]
+    me = units[0]
+
+    c = _mindist_case(1, me, units, None, {"ok": False, "noTargetableEnemies": True})
+    assert c is not None and c.closest_enemy is None, \
+        "champ structure -> GATE 3 (`case.ClosestEnemy == null`)"
+
+    with pytest.raises(RuntimeError, match="noTargetableEnemies"):
+        _mindist_case(1, me, units, None, {"ok": False, "error": "aucun ennemi vivant"})
+
+    assert _mindist_case(1, me, units, None, {"ok": False, "error": "Pathfinders null"}) is None, \
+        "autre erreur = indisponibilite du RPC, pas un gate : aucun case n'est devine"
+
+    c4 = _mindist_case(1, me, units, None, {
+        "ok": True, "closestResolved": True, "closestEnemyId": 2,
+        "enemies": [{"id": 2}, {"id": 3}]})
+    assert c4.closest_enemy == 2, (
+        "`closestEnemyId` servi : l'identite du ClosestEnemy est LUE, plus deduite d'une "
+        f"unanimite de traits (recu {c4.closest_enemy!r})")
+
+
+def test_mindist_case_crit_chance_matches_native_getstat_live(host, live_session, rpc,
+                                                              build_runner):
+    """GATE 4, sa STAT : `unit_crit_chance` doit etre la valeur NATIVE, sur les deux faces.
+
+    `IdunBattle.AI.Utilities.UnitCanBeDamagedUtility$$UnitCanBeDamaged` lit
+    `IdunBattle.Entities.UnitExtensions$$GetStat(unit, 9, Current, null)` -- exactement ce que le
+    RPC `combatSnapshot` invoque pour `stats.critChance`. La valeur COMPTE : `0` FAIT MORDRE le
+    gate sur un ClosestEnemy `Impervious`, la ou `None` (stat non lue) le SUSPEND. Un port qui
+    poserait `0` par defaut ferait donc mordre un gate sur une donnee jamais lue -- et un montage
+    sans `Scene` mesurerait un gate suspendu en croyant l'avoir verifie."""
+    rid = build_runner(seed="12345", board="MC1_67", extra=["--no-ai"])["rid"]
+    uid = _pick_mover(rpc, rid)
+    assert uid is not None, "aucune unite controlee vivante -- montage vide"
+    ctx, _state, octx = _both_faces(rpc, rid, uid, weights.load())
+
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+    nat = next(((u.get("stats") or {}).get("critChance")
+                for u in (snap.get("units") or []) if u.get("entityId") == uid), None)
+    assert nat is not None, (
+        f"combatSnapshot ne rend pas critChance pour u{uid} -- aucun oracle, ne pas lire ce vert")
+    for label, c in (("live", ctx), ("offline", octx)):
+        assert c.mindist_case is not None, f"[{label}] aucun UtilityMovementCase construit"
+        assert c.mindist_case.unit_crit_chance is not None, (
+            f"[{label}] unit_crit_chance=None : le gate 4 est SUSPENDU, ce montage ne verifie "
+            "rien de lui (cote live : fournir un predictor, donc une Scene)")
+        assert int(c.mindist_case.unit_crit_chance) == int(nat), (
+            f"[{label}] GetStat(u{uid}, CriticalChance) : port={c.mindist_case.unit_crit_chance} "
+            f"natif={nat}")

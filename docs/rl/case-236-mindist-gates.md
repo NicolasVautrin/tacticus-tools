@@ -98,48 +98,100 @@ lui-même.
 `engine/utilities/move.py::UtilityMovementCase` ne matérialise que ce que les gates **lisent**.
 
 **Face OFFLINE** (`state_bridge`) — exacte sur les quatre gates : `_pathdist_to_enemies` rend
-désormais `(pathdist_by_pos, closestEnemyId)`, donc la passe `FindClosestEnemy` qui produit les
-distances **fige aussi l'identité**.
+`(pathdist_by_pos, closestEnemyId)`, donc la passe `FindClosestEnemy` qui produit les distances
+**fige aussi l'identité**.
 
 **Face LIVE** (`context._mindist_case`) — le RPC `pathDistToEnemies` rejoue les mêmes prédicats
-natifs mais n'expose pas l'id retenu. Ce qui est décidable suffit :
+natifs. L'ordre de décision :
 
-- set de candidats vide (`noTargetableEnemies`) ou `closestResolved` faux -> **gate 3, exact** ;
-- un seul candidat -> identité connue, **gate 4 exact** ;
-- N candidats -> le gate 4 ne lit du ClosestEnemy que `HasTrait(Impervious)` : si les candidats sont
-  **unanimes** sur ce trait, le verdict est le même quel que soit l'argmin — **exact sans connaître
-  l'argmin**. Sinon, substrat `None` = gate 4 **suspendu**, jamais deviné.
+- `noTargetableEnemies` vrai, ou `closestResolved` faux -> **gate 3, exact** ;
+- `closestEnemyId` servi -> identité **lue**, **gate 4 exact** quelle que soit la composition du set ;
+- à défaut, un seul candidat -> identité connue, **gate 4 exact** ;
+- à défaut, N candidats -> le gate 4 ne lit du ClosestEnemy que `HasTrait(Impervious)` : si les
+  candidats sont **unanimes** sur ce trait, le verdict est le même quel que soit l'argmin — **exact
+  sans connaître l'argmin**. Sinon, substrat `None` = gate 4 **suspendu**, jamais deviné.
 
-Deux `None` sont les seuls trous du mirror, et ils sont nommés dans la dataclass :
-`closest_enemy_traits is None` (identité non établie) et `unit_crit_chance is None`
-(`Scene` absente -> `GetStat(unit, 9)` non lisible). Les deux rendent `UnitCanBeDamaged` **vrai**
-(permissif) plutôt que d'inventer une valeur.
+### Le gate 3 se lit sur un CHAMP, plus jamais sur un message
+
+Le hook pose `noTargetableEnemies: true` dans sa sortie `if (!cands.length)`. C'est la **seule**
+voie du gate 3 : le littéral `"aucun ennemi vivant"` du même `return` n'est plus une donnée.
+Mesuré le 2026-07-30 (session 28, build `rnca9r7q6c`) — le RPC rend
+`{ok: false, error: "aucun ennemi vivant", noTargetableEnemies: true}` : le champ **est servi**.
+
+Le littéral garde une fonction, et une seule : **détecter un bundle Frida antérieur au champ**.
+Dans ce cas `_mindist_case` **lève** — il ne rend pas `None`. Un `None` silencieux redonnerait un
+terme de distance là où le natif rend 0, c'est-à-dire la régression permissive que ce case a
+fermée, ré-ouverte sans le moindre signal. C'est le patron « un échec rendu se lit comme une
+mesure » : la parade est de durcir le choke point, pas de parser le message.
+
+### `GetStat(unit, CriticalChance)` : lisible, et la valeur COMPTE
+
+`UnitCanBeDamaged` lit `IdunBattle.Entities.UnitExtensions$$GetStat(unit, 9, Current, null)` —
+**exactement** ce que le RPC `combatSnapshot` invoque pour `stats.critChance`. La stat est donc
+lisible en live, sans nouveau hook : elle arrive par la `Scene`, que l'appelant obtient en
+fournissant un predictor (`engine.playbook.scene.build_predictor`).
+
+Ce n'est pas cosmétique, et c'est mesuré : sur `ultraTitus` la CriticalChance vaut **0**. `None`
+(stat non lue) **suspend** le gate 4 ; `0` le **fait mordre** sur un ClosestEnemy `Impervious`.
+Les deux ne sont donc pas interchangeables — d'où deux règles :
+
+- un appelant qui veut le gate 4 décidable **fournit un predictor** ; sans `Scene`, le port laisse
+  `unit_crit_chance = None` et le gate reste **suspendu**, jamais posé à `0` ;
+- côté offline la `Scene` existe toujours, mais l'ancien `getattr(scene.ctx(uid), "crit_chance", 0)
+  or 0` rendait `0` pour une unité **sans `UnitContext`** — un gate qui mord sur une donnée jamais
+  lue. Corrigé : `None` dans ce cas.
 
 ## 6. Ce qui n'est pas couvert
 
-- **Identité du ClosestEnemy côté LIVE.** Point d'ancrage pour la fermer : renvoyer l'`id` du
-  `closestTile` retenu dans `ctx.rpc.pathDistToEnemies`
-  (`frida/hooks/features/ai-step/rpc-board.ts`). Exige un reinject.
-- **`noTargetableEnemies`** est posé dans le hook mais pas encore exercé : la session Frida en cours
-  a été injectée avant. La voie active — et **testée live** — reste le littéral d'erreur du même
-  `return`, contrat interne hook <-> port.
+- **`closestEnemyId` en live.** Le champ est ajouté au hook (`ctx.rpc.pathDistToEnemies`,
+  `frida/hooks/features/ai-step/rpc-board.ts`) et consommé par le port, mais le bundle injecté en
+  session 28 est antérieur : **il exige la prochaine fenêtre de reinject**. Le probe le classe
+  `PENDING`, jamais `OK`. En attendant, le port retombe sur son verdict d'unanimité (§5).
+- **Tie-break de l'identité.** Le hook départage comme le natif (remplacement sur `<` **strict**,
+  donc keep-first), mais **n'énumère pas dans le même ordre** (`forEachEntity` contre
+  `IdunBattle.Entities.StateExtensions$$GetAllEnemyUnitsOfUnit`). À égalité de distance-chemin,
+  l'id retenu peut donc différer de l'argmin natif. Sans effet sur le gate 4 tant que les ex-aequo
+  s'accordent sur `HasTrait(Impervious)`.
 - **Traits RETIRÉS** (`BaseUnitComponent+0x50`) : aucun `RemoveTrait` n'est porté (constat #225
   inchangé).
 - **Gates 2 et 4 en live** : non confrontables, cf. §4. Le gate 4 est du code
-  *registered-but-dead* dans notre régime.
+  *registered-but-dead* dans notre régime — seule sa **stat d'entrée** est confrontée au natif.
 
 ## 7. Garde
 
-`tests/engine/test_min_distance_move_leaf_live.py` — quatre tests ajoutés aux sept du socle #17 :
+`tests/engine/test_min_distance_move_leaf_live.py` — six tests ajoutés aux sept du socle #17 :
 
 | test | ce qu'il verrouille |
 |------|---------------------|
-| `..._is_zero_when_closest_enemy_is_null_live` | gate 3, deux faces, tuile par tuile |
+| `..._is_zero_when_closest_enemy_is_null_live` | gate 3, deux faces, tuile par tuile + le CHAMP `noTargetableEnemies` |
 | `..._terms_unchanged_when_no_gate_bites_live` | non-régression : aucun gate ne mord dans le nominal |
 | `..._is_zero_for_non_attacking_mover_live` | gate 2, sur le substrat `HasTrait` |
 | `test_unit_can_be_damaged_gate_mirrors_native` | gates 1 et 4, sur le case |
+| `test_mindist_case_reads_structured_channel_not_error_literal` | les 4 entrées du contrat hook <-> port, dont la LEVÉE sur bundle périmé (déterministe) |
+| `test_mindist_case_crit_chance_matches_native_getstat_live` | `unit_crit_chance` == `GetStat(u,9)` natif, deux faces, et refus du `None` |
 
-Chacun **échoue si le montage ne forme pas le gate** (terme déjà nul sans gate, ou candidats
-retenus par le RPC) : pas de vert vide. **Mordant vérifié** — en neutralisant le bloc de gates,
-trois des quatre passent rouge ; le quatrième (non-régression) reste vert par construction, et c'est
-sa fonction, pas un trou.
+Chacun **échoue si le montage ne forme pas le gate** (terme déjà nul sans gate, candidats retenus
+par le RPC, stat non lue) : pas de vert vide.
+
+### Le probe rend un statut par étape, et « non exercé » échoue
+
+`probe_236_mindist_gates.py` monte **les deux régimes** par défaut (`gate3` puis `nominal`) et
+classe chaque étape `OK` / `DIVERGE` / `NON EXERCE` / `PENDING`. Un `NON EXERCE` échoue au même
+titre qu'un `DIVERGE` — un accord sur une étape non exercée est un accord vide.
+
+C'est ce statut qui a démasqué un faux-vert de la version précédente : elle exerçait le **gate 2**
+dans le régime `gate3`, où le **gate 3 mord d'abord**. Le terme y était déjà nul avant qu'on pose
+le trait `NonAttacking`, donc la conformité était lue sur une étape que le montage n'avait pas
+formée — et le probe rendait `0 non conforme`. Le gate 2 n'est confrontable qu'en régime
+`nominal`.
+
+**Mordant re-vérifié le 2026-07-30**, trois mutations sur le montage `gate3` (12 tuiles, mover
+`ultraTitus`, board MC1_67) :
+
+| mutation | effet mesuré |
+|----------|--------------|
+| le port ignore `noTargetableEnemies` | face LIVE : `OK 12/12` -> `NON EXERCE` (plus aucun case) |
+| le case est construit mais le gate 3 raté (ClosestEnemy fictif) | face LIVE : `DIVERGE` — terme `-600…-800` au lieu de `0` |
+| le champ retiré de la réponse RPC (bundle antérieur) | `RuntimeError` — le port ne devine pas |
+
+Référence (port intact) : **0 non conforme, 0 non exercée**, 1 `PENDING` (`closestEnemyId`).

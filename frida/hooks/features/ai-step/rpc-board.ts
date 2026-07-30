@@ -592,12 +592,24 @@ export function registerViewBoard(ctx: Ctx): void {
         // courante ; (2) mesure chaque tuile candidate vers CET ennemi. L'ancien min-sur-tous ecrasait
         // le tiebreak MinDist (toutes distances = la plus courte) -> divergence move-pur seed 909
         // (cf. docs/rl/agreement-stages.md lead 7 : natif MinDist 3/4/5 par tuile, nous 3 partout).
+        // `closestEnemyId` = l'ID de l'unite retenue (pas seulement le booleen `closestResolved`) :
+        // c'est le `case.ClosestEnemy` (`UtilityMovementCase+0x20`) que la feuille MinDist(16) lit
+        // pour son gate 4 (`UnitCanBeDamaged` -> `HasTrait(Impervious)` sur CETTE unite). Sans lui, le
+        // port ne peut trancher l'identite que si les candidats sont unanimes sur le trait, et laisse
+        // sinon le gate SUSPENDU (#236 §5). Meme regle de departage que le natif
+        // (`IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext` :
+        // remplacement sur `<` STRICT, donc KEEP-FIRST a egalite) ; l'ORDRE d'enumeration differe en
+        // revanche (`forEachEntity` ici, `StateExtensions$$GetAllEnemyUnitsOfUnit` la-bas), donc a
+        // egalite de distance-chemin l'ID retenu peut differer de l'argmin natif.
         let closestTile: NativePointer | null = null;
+        let closestEnemyId: number | null = null;
         if (cur && !cur.isNull()) {
             let best = -1;
             for (const ec of cands) {
                 const d = pathLen(cur, ec.tile);
-                if (d >= 0 && (best < 0 || d < best)) { best = d; closestTile = ec.tile; }
+                if (d >= 0 && (best < 0 || d < best)) {
+                    best = d; closestTile = ec.tile; closestEnemyId = ec.id;
+                }
             }
         }
         const distTo = (from: NativePointer): number => {
@@ -619,6 +631,7 @@ export function registerViewBoard(ctx: Ctx): void {
         });
         return { ok: true, runner: label, unitId: body.unitId,
             enemyCount: cands.length, closestResolved: !!closestTile,
+            closestEnemyId,
             enemies, onlyTargetsCount, onlyTargetsUnmatched, tiles };
     });
 
