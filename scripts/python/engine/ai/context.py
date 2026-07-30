@@ -519,36 +519,44 @@ def _mindist_case(uid, me, units, scene, pdr: dict):
     retenus, pas l'ID retenu -> l'identite du ClosestEnemy n'est pas toujours decidable ici.
 
     Ce qui EST decidable, et suffit :
-      * `ok` faux -> DEUX cas a ne pas confondre. Le RPC sort en `"aucun ennemi vivant"` quand son
-        set de candidats est VIDE apres les predicats natifs -- c'est EXACTEMENT `ClosestEnemy ==
-        null`, donc le GATE 3 (mesure : roster adverse 100 % `TeleportStrike`, les cinq portent
-        `TeleportStrike_TeleportingIn` donc `IsTargetable` faux, cf. `probe_236_mindist_gates.py`).
-        Toute AUTRE erreur (`Pathfinders` non resolu, runner/state nul, unite introuvable) est une
-        indisponibilite du PORT : aucun case, les gates restent hors-jeu ;
+      * `noTargetableEnemies` vrai -> le set de candidats du RPC est VIDE apres les predicats
+        natifs, c'est EXACTEMENT `ClosestEnemy == null`, donc le GATE 3 (mesure : roster adverse
+        100 % `TeleportStrike`, les cinq portent `TeleportStrike_TeleportingIn` donc `IsTargetable`
+        faux, cf. `probe_236_mindist_gates.py`). Toute AUTRE erreur (`Pathfinders` non resolu,
+        runner/state nul, unite introuvable) est une indisponibilite du PORT : aucun case, les
+        gates restent hors-jeu ;
       * `closestResolved` faux (0 candidat, ou aucun joignable depuis la tuile courante) ->
         `ClosestEnemy == null`, c'est le GATE 3, exact ;
-      * un seul candidat -> son identite EST le ClosestEnemy, gate 4 exact ;
-      * plusieurs candidats -> le gate 4 ne lit du ClosestEnemy QUE `HasTrait(Impervious)` : si les
-        candidats sont UNANIMES sur ce trait, le verdict est le meme quel que soit l'argmin, donc
-        exact sans connaitre l'argmin. Sinon (candidats PANACHES) le substrat est laisse a `None`
-        et le gate 4 est SUSPENDU — jamais devine.
-
-    Point d'ancrage pour fermer ce dernier trou (hors perimetre ici : exige un reinject) : renvoyer
-    l'`id` du `closestTile` retenu dans `ctx.rpc.pathDistToEnemies` (`frida/hooks/features/ai-step/
-    rpc-board.ts`), le case le lirait alors directement."""
+      * `closestEnemyId` servi -> l'identite EST connue, gate 4 exact quelle que soit la
+        composition du set ;
+      * a defaut, un seul candidat -> son identite EST le ClosestEnemy, gate 4 exact ;
+      * a defaut, plusieurs candidats -> le gate 4 ne lit du ClosestEnemy QUE `HasTrait(Impervious)` :
+        si les candidats sont UNANIMES sur ce trait, le verdict est le meme quel que soit l'argmin,
+        donc exact sans connaitre l'argmin. Sinon (candidats PANACHES) le substrat est laisse a
+        `None` et le gate 4 est SUSPENDU — jamais devine."""
     from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
     from engine.utilities.move import UtilityMovementCase
     if not pdr:
         return None
-    # Sortie du RPC quand son set de candidats est VIDE apres les predicats de `FindClosestEnemy`
-    # (`frida/hooks/features/ai-step/rpc-board.ts`, `if (!cands.length) return {ok:false, ...}`).
-    # Le champ STRUCTURE `noTargetableEnemies` est la voie canonique ; le littéral d'erreur reste lu
-    # pour les sessions Frida injectees AVANT son ajout (contrat interne hook <-> port, pas une
-    # donnee du jeu).
-    _no_targetable = bool(pdr.get("noTargetableEnemies")) or (
-        pdr.get("error") == "aucun ennemi vivant")
-    if not pdr.get("ok") and not _no_targetable:
-        return None
+    # GATE 3 -- voie STRUCTUREE et UNIQUE : le champ `noTargetableEnemies` pose par le hook dans sa
+    # sortie `if (!cands.length)` (`frida/hooks/features/ai-step/rpc-board.ts`). Le littéral
+    # d'erreur du meme `return` n'est PLUS une donnee : un message est un canal fragile, et le lire
+    # comme une mesure est exactement le patron « un echec rendu se lit comme une mesure ». Il ne
+    # sert plus qu'a DETECTER un bundle Frida anterieur au champ -- cas ou le port ne peut pas
+    # savoir si le gate mord, et ou le silence serait une regression PERMISSIVE invisible
+    # (terme de distance attribue la ou le natif rend 0). On LEVE donc, on ne devine pas.
+    _no_targetable = False
+    if not pdr.get("ok"):
+        if pdr.get("noTargetableEnemies") is True:
+            _no_targetable = True
+        elif pdr.get("error") == "aucun ennemi vivant":
+            raise RuntimeError(
+                "pathDistToEnemies rend le litteral 'aucun ennemi vivant' SANS le champ "
+                "`noTargetableEnemies` : le bundle Frida injecte est anterieur a ce champ. Le "
+                "gate 3 de MinDist(16) serait silencieusement inactif -> rebuild + reinject "
+                "requis (#236). Aucun UtilityMovementCase n'est devine.")
+        else:
+            return None
     vis_by_id = {u.get("id"): u.get("visualId") for u in (units or [])}
     _ctx_of = (lambda i: scene.ctx(i)) if scene is not None else (lambda i: None)
     _traits = lambda i: entity_trait_names(_ctx_of(i), vis_by_id.get(i))   # noqa: E731
@@ -562,6 +570,13 @@ def _mindist_case(uid, me, units, scene, pdr: dict):
     if not pdr.get("closestResolved") or not cands:
         return UtilityMovementCase(unit=uid, unit_traits=unit_traits, unit_crit_chance=crit,
                                    closest_enemy=None, closest_enemy_traits=None)
+    # `closestEnemyId` = l'argmin que le RPC a REELLEMENT retenu (meme selection que
+    # `MovementActionGenerator.<FindClosestEnemy>d__8$$MoveNext`, keep-first a egalite). Servi ->
+    # l'identite du ClosestEnemy est connue, plus aucune ambiguite a lever.
+    ce_id = pdr.get("closestEnemyId")
+    if ce_id is not None:
+        return UtilityMovementCase(unit=uid, unit_traits=unit_traits, unit_crit_chance=crit,
+                                   closest_enemy=ce_id, closest_enemy_traits=_traits(ce_id))
     if len(cands) == 1:
         ce_traits = _traits(cands[0])
     else:

@@ -93,6 +93,10 @@ class UtilityMovementCase:
       - `unit_crit_chance` : `IdunBattle.Entities.UnitExtensions$$GetStat(unit, StatType.CriticalChance)`
         -> branche `crit != 0` de `UnitCanBeDamaged` (gate 4). `None` = stat NON RESOLUE par le port
         (contexte live sans `Scene`) -> gate 4 SUSPENDU, comme pour `closest_enemy_traits`.
+        **Le defaut est `None`, pas `0`** : `0` est precisement la valeur qui FAIT MORDRE le gate,
+        donc un defaut a `0` le ferait mordre sur une stat que personne n'a lue. Un appelant qui
+        renseigne `closest_enemy_traits=(Impervious,)` sans fournir la stat obtient un gate
+        SUSPENDU (permissif), jamais un gate arme sur une donnee absente.
       - `closest_enemy` : identite du ClosestEnemy. `None` == `case.ClosestEnemy == null` (gate 3).
       - `closest_enemy_traits` : substrat `HasTrait` du ClosestEnemy -> branche `Impervious` du gate 4.
         **`None` = substrat NON RESOLU par le port** (identite du ClosestEnemy ambigue cote LIVE, cf.
@@ -102,7 +106,7 @@ class UtilityMovementCase:
     un appelant qui n'a pas construit le case ne doit pas se voir imposer un gate invente."""
     unit: object = None
     unit_traits: tuple = ()
-    unit_crit_chance: int = 0
+    unit_crit_chance: "int | None" = None
     closest_enemy: object = None
     closest_enemy_traits: "tuple | None" = ()
 

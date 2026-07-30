@@ -648,10 +648,16 @@ def build_from_state(state, uid: int, debug: bool = False):
     # aucun case n'est construit, la feuille garde son comportement degrade documente.
     mindist_case = None
     if pathdist_by_pos is not None:
+        # `GetStat(unit, 9)` du gate 4 : la valeur LUE, ou `None` si l'unite n'a pas de
+        # `UnitContext` dans la Scene -- donc pas de stat lisible. Surtout PAS un `or 0` de repli :
+        # `0` est la valeur qui FAIT MORDRE le gate (`UnitCanBeDamaged` renvoie faux sur un
+        # ClosestEnemy `Impervious`), donc un defaut le ferait mordre sur une donnee jamais lue.
+        _me_ctx = scene.ctx(uid)
         mindist_case = UtilityMovementCase(
             unit=uid,
-            unit_traits=entity_trait_names(scene.ctx(uid), vid),
-            unit_crit_chance=getattr(scene.ctx(uid), "crit_chance", 0) or 0,
+            unit_traits=entity_trait_names(_me_ctx, vid),
+            unit_crit_chance=(getattr(_me_ctx, "crit_chance", None)
+                              if _me_ctx is not None else None),
             closest_enemy=closest_enemy_id,
             closest_enemy_traits=(None if closest_enemy_id is None else entity_trait_names(
                 scene.ctx(closest_enemy_id),

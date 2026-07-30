@@ -291,21 +291,27 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `units.abilities[*].constants.unitId` du gameconfig ne le cite (`case-193c` §1.2). Seul summon du
   gisement dans ce cas.
 
-- **Identité du `ClosestEnemy` non exposée côté LIVE** — `case-236` §5/§6. Le RPC
-  `pathDistToEnemies` rejoue `FindClosestEnemy` mais ne renvoie que `closestResolved` + la liste des
-  candidats, pas l'id retenu. Conséquence bornée : le **gate 4** de `MinDist(16)`
-  (`UnitCanBeDamaged`) est SUSPENDU quand plusieurs candidats sont **panachés** sur
-  `HasTrait(Impervious)` — unanimes, le verdict est exact sans l'argmin, et le gate 4 est de toute
-  façon *registered-but-dead* dans notre régime (§4). Point d'ancrage : renvoyer l'`id` du
-  `closestTile` dans `ctx.rpc.pathDistToEnemies` (`frida/hooks/features/ai-step/rpc-board.ts`) —
-  exige un reinject.
-- **`noTargetableEnemies` posé mais pas encore exercé** — `case-236` §6. Le champ structuré est
-  dans `rpc-board.ts` ; la session Frida en cours ayant été injectée avant, la voie ACTIVE et
-  testée live reste le littéral d'erreur du même `return`. À re-confronter au prochain inject
-  (`probe_236_mindist_gates.py --runner <rid>` doit rester à 0 non-conforme).
-- **`GetStat(unit, CriticalChance)` non lisible sans `Scene`** — `case-236` §5. `_mindist_case`
-  laisse alors `unit_crit_chance = None` -> gate 4 SUSPENDU (permissif) plutôt que `0`, qui le
-  ferait mordre sur une donnée jamais lue.
+- **Identité du `ClosestEnemy` côté LIVE : champ `closestEnemyId` en attente de reinject** —
+  `case-236` §6. Le champ **est** désormais posé dans `ctx.rpc.pathDistToEnemies`
+  (`frida/hooks/features/ai-step/rpc-board.ts`) et **consommé** par `_mindist_case`, mais le bundle
+  injecté en session 28 est antérieur : le probe le classe `PENDING`, jamais `OK`. **À la prochaine
+  fenêtre de reinject** : `probe_236_mindist_gates.py` doit passer ce `PENDING` en `OK`. En
+  attendant, le port retombe sur son verdict d'unanimité — le **gate 4** reste suspendu quand les
+  candidats sont **panachés** sur `HasTrait(Impervious)`, et il est de toute façon
+  *registered-but-dead* dans notre régime (§4). Résidu connexe, **non fermable par ce champ** : le
+  hook n'énumère pas dans l'ordre natif, donc à égalité de distance-chemin l'id retenu peut
+  différer de l'argmin de `MovementActionGenerator.<FindClosestEnemy>d__8`.
+- ~~**`noTargetableEnemies` posé mais pas encore exercé**~~ — **CLOS le 2026-07-30**. Mesuré servi
+  par le bundle de la session 28 ; le port a basculé sur le champ **seul**, et le littéral d'erreur
+  ne sert plus qu'à détecter un bundle antérieur — auquel cas `_mindist_case` **lève** au lieu de
+  rendre un `None` permissif silencieux.
+- ~~**`GetStat(unit, CriticalChance)` non lisible sans `Scene`**~~ — **CLOS le 2026-07-30**. La stat
+  est celle que le RPC `combatSnapshot` invoque déjà (`UnitExtensions$$GetStat(u, 9, Current,
+  null)`) : elle est lisible dès que l'appelant fournit un predictor, et le port la lit alors
+  exactement (`0` sur `ultraTitus`, == natif, sur les deux faces). Sans `Scene` la suspension
+  `None` demeure — **et c'est la règle**, pas un trou : `0` ferait mordre le gate sur une donnée
+  jamais lue. Bug corrigé au passage côté OFFLINE : `getattr(scene.ctx(uid), "crit_chance", 0)
+  or 0` rendait `0` pour une unité **sans `UnitContext`**.
 
 - ~~**Cycle de vie de `ContagionsOfNurgle_ArmorReduction1/2` (1071/1072)**~~ — **CLOS par
   `case-cvc-contagions-lifecycle.md`**. Les trois manques (aura qui grandit, unité qui sort, bascule
