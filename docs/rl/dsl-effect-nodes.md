@@ -3,6 +3,12 @@
 > Cap posé 2026-07-13 (feedback utilisateur : « pourquoi tu n'utilises pas plus le port DSL ? »).
 > Racine doctrinale : `.claude/skills/tacticus-re-port/SKILL.md` §2.0 + mémoire
 > `feedback_check_own_port_before_re` (« structure offline == structure native », appliqué aux behaviours).
+>
+> **Ce fichier CLASSE le vocabulaire (DSL vs impératif). Il ne dit pas QUI l'emploie.**
+> Le graphe d'usage — quelles abilities composent une primitive, et réciproquement — vit dans
+> `dsl-cartography-phase1.md` (méthode + contrat) et `dsl-usage-map.md` (données générées).
+> C'est là que se lit le **classement des primitives par levier**, qui chiffre l'intuition
+> « porter les PRIMITIVES, pas les abilities ».
 
 ## Problème (pourquoi ce chantier)
 
