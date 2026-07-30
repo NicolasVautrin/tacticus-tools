@@ -77,8 +77,9 @@ export const attackQueryOff = getFieldOffset(
     runnerClass!, "<AttackQuery>k__BackingField");
 // IDamagePredictionQuery.GetAllPredictions(attacker, selectedAttackerTile,
 // ActiveAbilityType) → IDictionary<IEntity, DamagePredictionResult>.
-// DamagePredictionResult struct : CurrentHealth@0, CurrentArmor@4,
-// CurrentShield@8, TotalDamage(MinMaxDamage)@0x90 (Min@+8=0x98, Max@+0xC=0x9C).
+// Layout du `DamagePredictionResult` : `frida/hooks/game/damage-prediction.ts`
+// (re-dérivé sur `rnca9r7q6c`, #276 — les offsets qui figuraient ici dataient de
+// `gqfc5mff6c` et étaient faux depuis la migration).
 // L'instance vit dans EntityServices (container god-object) tenu par le runner
 // via <Services>@0xC8 ; EntityServices.<DamagePredictionQuery>@0x88.
 export const servicesOff = getFieldOffset(runnerClass!, "<Services>k__BackingField");

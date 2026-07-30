@@ -62,6 +62,16 @@ géométrie.
 `data/symbols/rnca9r7q6c/frida/classes.tsv` :
 `IdunBattle.Core.Services.DamagePredictionResult` = **176 octets** (`0xB0`).
 
+> ⚠ **Ces 176 octets sont la taille BOXÉE, pas celle des champs** (corrigé en #276). La colonne
+> `size` de `classes.tsv` est `il2cpp_class_instance_size`, qui inclut le header IL2CPP de `0x10`
+> pour un `System.ValueType`. Les champs occupent donc **`0xA0`**, ce que trois fonctions
+> confirment indépendamment : `unit_HUD_test$$CreateDamagePrediction` et
+> `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` font un `memset(dst, 0, 0xa0)`,
+> et `…HarlequinsPanoplyAbility$$SurvivesByDiscardingHits` recopie `+0x00 .. +0x9f`.
+> Même correction pour tous les autres types de la table : `MinMaxDamage` = 32 boxé donc **16**
+> de champs, `DamagePredictionScenario` = 52 donc **36**, `ProbableDamageEvent` = 200 donc
+> **`0xB8`** (et non `0xD8`, la valeur que les hooks utilisaient comme stride).
+
 Trois fonctions **indépendantes** se recoupent sur le même layout — aucune déduction, que de la
 lecture :
 
@@ -90,6 +100,52 @@ l'**emplacement des champs dans le struct englobant**.
 trois `MinMaxDamage` restants (`0x40`, `0x50`, `0x60`) et un `int` agrégé (`0x98`), sans dire lequel
 est lequel. Les nommer demande de lire les écrivains (`GetAllPredictions`,
 `CalculateProbabilisticDamage*`) — c'est le travail du chantier ci-dessous, pas de ce cas.
+
+### 2quater. Appariement des trois `MinMaxDamage` restants — fait en #276, par XREF
+
+Aucun de ces champs n'a d'accesseur `get_*`. On les a donc nommés par leur **consommateur**, pas
+par un ordre de déclaration supposé — chacun est une fonction NOMMÉE qui ne fait rien d'autre que
+lire cet offset :
+
+| off | champ | ce qui le nomme |
+|---|---|---|
+| `0x40` | `HealthDamage` → Min `0x48` / Max `0x4c` | `IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage` = `MinMaxDamage$$Avg(pred + 0x40)` |
+| `0x50` | `ShieldDamage` → Min `0x58` / Max `0x5c` | `IdunBattle.AI.Utilities.DamageUtility$$GetShieldDamage` = `MinMaxDamage$$Avg(pred + 0x50)` |
+| `0x60` | `TotalDamage` → Min `0x68` / Max `0x6c` | `unit_HUD_test$$CreateDamagePrediction` y écrit `minArmor + minHealth` / `maxArmor + maxHealth` ; `PredictAttackRaw` y pose le retour de `MinMaxDamage$$Add(a, b)` |
+| `0x98` | `AppliedHits` (int) | `PredictAttackRaw` le pose à **1** à l'instant précis où UN `HitDamage` est ajouté à la liste `@0x80` ; `DamagePredictionResult$$Add` le somme (seul `int` agrégé) |
+
+Deux autres champs tombent au passage, et ils **corrigent l'ancien décodeur** :
+
+* **`0x04` = `CurrentShield`**, pas `CurrentArmor`. Deux sources : `CalculateProbabilisticDamagePart`
+  fait `Math.Min(this[4], scenario.ShieldDamage)` (un dégât de bouclier plafonné par le bouclier
+  courant) et `CalculateProbabilisticDamage` cape le total à `this[0] + this[4]` ;
+  `unit_HUD_test$$CreateDamagePrediction` y écrit son argument `currentShield`.
+* **`CurrentArmor` n'a AUCUN lecteur** dans ce build. Le décodeur rend donc `armorBefore = null` —
+  une absence déclarée, pas un offset deviné. C'est exactement le défaut qu'on répare : `+0x04`
+  rendait une valeur *plausible* sous le nom « armor », et personne ne pouvait le voir.
+
+Deux champs restent **non identifiés** et ne sont pas exposés : `0x08` (8 o) et `0x9c` (4 o).
+
+### 2quinquies. Ce que #276 a livré
+
+Un décodeur UNIQUE — `frida/hooks/game/damage-prediction.ts` — qui porte la table ci-dessus avec
+la fonction native qui prouve chaque ligne, et que les six fichiers de hooks appellent désormais.
+Plus aucun offset de prédiction n'est écrit ailleurs.
+
+Il porte **deux gardes**, parce que le défaut reviendra :
+
+1. **taille de classe** — `il2cpp_class_instance_size` confronté aux tailles RE (`0xB0`, `0xC8`,
+   `0x28`). C'est le signal le plus précoce d'un changement de build et il ne coûte ni bataille ni
+   cible : `aiPredict` rend alors `layoutError` non nul au lieu d'une plage inventée ;
+2. **sentinelles de forme** au décodage (`shapeErrors`) — un `bool` hors `{0,1}`, un `min > max`,
+   des PV négatifs. Elles attrapent l'autre moitié du problème : la classe intacte mais une base
+   fausse (mauvais boxing, mauvais stride, pointeur d'event mal calculé). `mightCrit = 25` était
+   précisément ça.
+
+Sonde de non-régression : `python scripts/python/probe_276_prediction_decoder.py` — elle confronte
+la plage rendue au dégât **mesuré live** (`hp_avant − hp_après`, victime increvable) et nomme chaque
+sentinelle en échec. Elle compare à une grandeur MESURÉE, jamais à une constante de référence qui
+se périmerait au même rythme que les offsets.
 
 ### 2ter. Portée réelle du défaut — 6 fichiers, ~25 sites
 
@@ -222,9 +278,11 @@ a changé, c'est qu'aucun test de cette famille ne peut plus passer sans avoir m
 
 ## 5. Ce qui n'est PAS couvert
 
-* **Le décodeur lui-même n'est pas corrigé.** Le fix vit dans `frida/hooks/**` et sa validation
-  exige une réinjection. Chantier séparé, entrée au backlog ; §2bis en donne les offsets sûrs et
-  nomme ce qui reste à dériver.
+* ~~**Le décodeur lui-même n'est pas corrigé.**~~ **FAIT en #276** (cf. §2quater / §2quinquies) :
+  les six fichiers passent par un décodeur unique, les quatre champs manquants sont appariés par
+  XREF, et deux gardes structurelles ont été posées. ⚠ **Le fix vit dans `frida/hooks/**` : il
+  n'entre en vigueur qu'après un `build:hooks` + réinjection**, geste que l'auteur du fix ne fait
+  pas. Tant que ça n'a pas eu lieu, `probe_276_prediction_decoder.py` mesure l'ANCIEN décodeur.
 * **Les autres consommateurs du canal ne sont pas inventoriés fonctionnellement.** On sait *où* le
   struct est relu (§2ter) ; on ne sait pas lesquels de leurs tests sont déjà faux à cause de ça.
   `test_overkill_decision_live.py` (fixtures `overkill_decision_*` du même `conftest.py`) lit le

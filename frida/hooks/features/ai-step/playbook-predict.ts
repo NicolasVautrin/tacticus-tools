@@ -22,20 +22,26 @@
  *      offset natif) — c'est ce que les movers natifs utilisent (ArmouredMight_MoveAbility).
  *      `AbilityState` {level@0, mult@4, 0@8} = l'entrée ActiveAbility (capteur #100).
  *   3. Retour `List<ProbableDamageEvent>` | `ProbableDamageEvent[]` | yield-machine
- *      `<MakeDamagePredictions>d__N` (struct 0xd8, ctor @181135500) : target(BEntityId)@+0x00,
- *      AttackHitPrediction copiée @+0x08 (donc chaque champ DamagePredictionResult @X →
- *      event @+0x08+X : hp@+0x08, armor@+0x0c, shield@+0x10, willKill@+0x2c=struct+0x24,
- *      mightKill@+0x30=struct+0x28, healthDmg@+0x68/+0x6c=struct+0x60/+0x64, totalDmg@+0x98/
- *      +0x9c, mightCrit@+0xb9, appliedHits@+0xc4), probability(Fix64)@+0xc8, probMult@+0xd0.
+ *      `<MakeDamagePredictions>d__N`. Layout re-dérivé sur `rnca9r7q6c` (#276) depuis
+ *      `IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor` : struct de **0xb8**,
+ *      `IEntity Target`@+0x00, copie intégrale du `DamagePredictionResult`@+0x08,
+ *      `Fix64 Probability`@+0xa8, `Fix64 Weight`@+0xb0. Le détail des champs et LA
+ *      TABLE DES PREUVES vivent dans `game/damage-prediction.ts` — plus un seul
+ *      offset de prédiction n'est écrit ici.
  *  #34 : décode AUSSI les Probable{Heal,Effect}Event (siblings du slot damage —
- *  `MakeHealPredictions @18140a970` / `MakeEffectPredictions @18140a930`, overrides bespoke
- *  ex. HealPlaybook @181184a70) via le MÊME harnais (invocation par nom + List/array/yield).
- *  Layouts RE (ctors @1811359a0 / @181135820, stride 0x18) : target(ptr)@+0x00 ;
- *  HealEvent : HealPrediction INLINE 8 o = {currentHealth@+0x08, healAmount@+0x0c} (=
- *  retour par VALEUR de `DamagePrediction.PredictHeal @181037180` : CONCAT44(amount,
- *  curHP), amount capé MaxFillUp/boss/group) ; EffectEvent : effectType(int)@+0x08 ;
- *  probability(Fix64)@+0x10 (Nullable → 1.0 par défaut). Repair : PAS d'event —
- *  `MakeRepairPredictions @18140a9b0` rend un Dictionary (décodage non porté, v2). */
+ *  `MakeHealPredictions` / `MakeEffectPredictions`, overrides bespoke ex. HealPlaybook)
+ *  via le MÊME harnais (invocation par nom + List/array/yield). Layouts RE-VÉRIFIÉS sur
+ *  `rnca9r7q6c` (#276) et **INCHANGÉS** — stride 0x18 (40 boxé − header) :
+ *  `IEntity Target`@+0x00 ; HealEvent : `IdunBattle.Core.Services.HealPredictionResult`
+ *  INLINE — c'est un ValueType de 8 o, donc passé PAR VALEUR en registre au ctor
+ *  (`ProbableHealEvent$$.ctor` : `*(void**)(this+8) = healPrediction` écrit la VALEUR,
+ *  pas un pointeur) : `{targetHpBefore@+0x08, healAmount@+0x0c}`. L'ordre vient du
+ *  `return CONCAT44(iVar6, uVar14)` de `IdunBattle.Core.Services.DamagePrediction$$PredictHeal`,
+ *  où `uVar14 = GetStat(target, 5)` (santé, mot BAS) et `iVar6` = le montant capé
+ *  `FillUpStatComponent$$MaxFillUp` / `MaxReduce` (mot HAUT). EffectEvent :
+ *  `int EffectType`@+0x08. `Fix64 Probability`@+0x10 dans les deux cas (Nullable → 1.0
+ *  par défaut). Repair : PAS d'event — `MakeRepairPredictions` rend un Dictionary
+ *  (décodage non porté, v2). */
 import {
     class_get_name, findMethodByNameSuffix, findMethodByParamClasses,
     findMethodByParamCount, getFieldOffset, s,
@@ -43,33 +49,27 @@ import {
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { runnerOff } from "../../game/runner.js";
 import { entityExtClass, servicesOff } from "./internals.js";
+import {
+    DamagePredictionFields, PDE_PREDICTION_OFF, PDE_PROBABILITY_OFF, PDE_STRIDE,
+    PDE_WEIGHT_OFF, readDamagePredictionResult, readFix64, SMALL_EVENT_STRIDE,
+} from "../../game/damage-prediction.js";
 
-/** sizeof(ProbableDamageEvent) — RE ctor @181135500 (copie AttackHitPrediction 0xc0 o
- *  à +0x08, puis probability@+0xc8 + probMult@+0xd0). */
-const EVENT_STRIDE = 0xd8;
+/** sizeof(ProbableDamageEvent) = son stride dans un `List<T>`/tableau. Re-dérivé du
+ *  ctor natif (#276) — cf. `game/damage-prediction.ts`. */
+const EVENT_STRIDE = PDE_STRIDE;
 
-export interface DamageEvent {
+/** Un `ProbableDamageEvent` décodé = la cible + tous les champs du
+ *  `DamagePredictionResult` embarqué (cf. `game/damage-prediction.ts` pour la table
+ *  des offsets et de leurs preuves) + les deux `Fix64` de l'enveloppe.
+ *
+ *  `willKillDmg`/`mightKillDmg` = les bornes du `DefaultBlockScenario` que lisent
+ *  `get_WillBeKill` / `get_MightBeKill` ; `mightCrit`/`forceOverkill`/`preventOverkill`
+ *  = les trois arguments booléens que `MightBeOverkill` / `WillBeOverkill` passent à
+ *  `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — mais pas les mêmes :
+ *  `MightBeOverkill` passe `MightCrit`, `WillBeOverkill` passe le littéral 0.
+ *  L'asymétrie est NATIVE (borne optimiste vs garantie), cf. `case-r34`. */
+export interface DamageEvent extends DamagePredictionFields {
     targetId: number | null;
-    hpBefore: number; armorBefore: number; shieldBefore: number;
-    healthDmgMin: number; healthDmgMax: number;
-    totalDmgMin: number; totalDmgMax: number;
-    /** Seuils de mort EFFECTIFS (post floor-Resilient + overkill) : hp<=willKillDmg =
-     *  mort garantie (get_WillBeKill@struct+0x24) ; hp<=mightKillDmg = possible (@+0x28). */
-    willKillDmg: number; mightKillDmg: number;
-    /** AccurateShieldDamage (MinMax @struct+0x78 : Min@+0x80/Max@+0x84) — le split bouclier
-     *  que le composite Damage consomme (leaves Shield). */
-    shieldDmgMin: number; shieldDmgMax: number;
-    /** LimitedByMinHp@struct+0xB0 (floor Resilient/HP-min a borne le degat) ·
-     *  ForceOverkill@struct+0xB2 (trait force-overkill). Consommes par les leaves
-     *  kill/overkill du composite Damage (confrontation par-etage, Etape 1). */
-    limitedByMinHp: number; forceOverkill: number;
-    /** MightCrit@struct+0xB1 (= `DamageCalculations$$CouldCrit(attaquant)`, slot 7) ·
-     *  PreventOverkill@struct+0xB3 (= `HasFlag(cible, 0x13)`, pose par
-     *  `FuelledByFury_BlockOverkillEffect`). Les DEUX sont des arguments de la surcharge privee
-     *  8-args de `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` — mais pas des memes
-     *  appelants : `MightBeOverkill` passe MightCrit, `WillBeOverkill` passe le litteral 0.
-     *  L'asymetrie est NATIVE (borne optimiste vs garantie), cf. `case-r34`. */
-    mightCrit: number; preventOverkill: number; appliedHits: number;
     probability: number; probMult: number;
 }
 
@@ -202,49 +202,37 @@ export function makeDamagePredictions(
     } catch { return { list: ptr(0), retClass: null, makeArity: makeArgs.length }; }
 }
 
-/** Lit UN ProbableDamageEvent (struct 0xd8) à l'adresse `ev`. La référence IEntity
+/** Lit UN `ProbableDamageEvent` (struct 0xb8) à l'adresse `ev`. La référence `IEntity`
  *  cible est un pointeur 8 o @+0x00 (un readS32 y lit du garbage) → résolue en unitId
- *  via `idByPtr`. AttackHitPrediction copiée dès +0x08 (RE ctor @181135500). */
+ *  via `idByPtr`. Le `DamagePredictionResult` est copié INLINE dès +0x08 par
+ *  `IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor`, d'où la délégation au décodeur
+ *  unique : aucun offset de prédiction n'est écrit ici (#276). */
 export function readDamageEvent(
     ev: NativePointer, idByPtr: Map<string, number>,
 ): DamageEvent {
-    const fx = (off: number): number =>
-        ev.add(off).readS64().toNumber() / 4294967296;   // Fix64 Q32.32
     return {
         targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
-        hpBefore: ev.add(0x08).readS32(),
-        armorBefore: ev.add(0x0c).readS32(),
-        shieldBefore: ev.add(0x10).readS32(),
-        willKillDmg: ev.add(0x2c).readS32(),
-        mightKillDmg: ev.add(0x30).readS32(),
-        healthDmgMin: ev.add(0x68).readS32(),
-        healthDmgMax: ev.add(0x6c).readS32(),
-        shieldDmgMin: ev.add(0x88).readS32(),
-        shieldDmgMax: ev.add(0x8c).readS32(),
-        totalDmgMin: ev.add(0x98).readS32(),
-        totalDmgMax: ev.add(0x9c).readS32(),
-        limitedByMinHp: ev.add(0xb8).readU8(),
-        forceOverkill: ev.add(0xba).readU8(),
-        mightCrit: ev.add(0xb9).readU8(),
-        // struct+0xB3 -> event+0xBB (l'event embarque AttackHitPrediction a +0x08).
-        preventOverkill: ev.add(0xbb).readU8(),
-        appliedHits: ev.add(0xc4).readS32(),
-        probability: fx(0xc8), probMult: fx(0xd0),
+        ...readDamagePredictionResult(ev.add(PDE_PREDICTION_OFF)),
+        probability: readFix64(ev.add(PDE_PROBABILITY_OFF)),
+        probMult: readFix64(ev.add(PDE_WEIGHT_OFF)),
     };
 }
 
-/** #34 — ProbableHealEvent (ctor @1811359a0, stride 0x18) : target@+0x00 +
- *  HealPrediction INLINE (retour par VALEUR de `PredictHeal @181037180` =
- *  CONCAT44(amount, currentHealth)) : targetHpBefore@+0x08, healAmount@+0x0c
- *  (capé MaxFillUp maxHP−curHP / boss / group-limit) + probability@+0x10. */
+/** #34 — `ProbableHealEvent` (`ProbableHealEvent$$.ctor`, stride 0x18) : target@+0x00 +
+ *  `HealPredictionResult` INLINE (ValueType de 8 o = retour par VALEUR de
+ *  `IdunBattle.Core.Services.DamagePrediction$$PredictHeal`, `CONCAT44(amount,
+ *  currentHealth)`) : targetHpBefore@+0x08, healAmount@+0x0c (capé MaxFillUp
+ *  maxHP−curHP / boss / group-limit) + probability@+0x10. RE-VÉRIFIÉ sur `rnca9r7q6c`
+ *  (#276) : inchangé. */
 export interface HealEvent {
     targetId: number | null;
     targetHpBefore: number; healAmount: number;
     probability: number;
 }
 
-/** #34 — ProbableEffectEvent (ctor @181135820, stride 0x18) : target@+0x00,
- *  effectType(int)@+0x08, probability@+0x10. */
+/** #34 — `ProbableEffectEvent` (`ProbableEffectEvent$$.ctor`, stride 0x18) :
+ *  target@+0x00, effectType(int)@+0x08, probability@+0x10. RE-VÉRIFIÉ (#276) :
+ *  inchangé. */
 export interface EffectEvent {
     targetId: number | null;
     effectType: number;
@@ -258,7 +246,7 @@ export function readHealEvent(
         targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
         targetHpBefore: ev.add(0x08).readS32(),
         healAmount: ev.add(0x0c).readS32(),
-        probability: ev.add(0x10).readS64().toNumber() / 4294967296,   // Fix64 Q32.32
+        probability: readFix64(ev.add(0x10)),
     };
 }
 
@@ -268,12 +256,9 @@ export function readEffectEvent(
     return {
         targetId: idByPtr.get(ev.readPointer().toString()) ?? null,
         effectType: ev.add(0x08).readS32(),
-        probability: ev.add(0x10).readS64().toNumber() / 4294967296,
+        probability: readFix64(ev.add(0x10)),
     };
 }
-
-/** sizeof(Probable{Heal,Effect}Event) — RE ctors @1811359a0/@181135820 (3 slots 8 o). */
-const SMALL_EVENT_STRIDE = 0x18;
 
 /** Décode le retour d'un Make<X>Predictions en events (générique #34 : le READER et le
  *  STRIDE varient par famille, le harnais est identique). Gère les 3 formes :

@@ -43,11 +43,12 @@
 // min/max health damage, hits) the scorer used per candidate — with CrushingStrike
 // / Terrifying / all attacker+defender modifiers applied by the native.
 //
-// Struct (dump gqfc5mff6c, TypeDefIndex 12292) -- offsets NON re-verifies sur rnca9r7q6c :
-//   ProbableDamageEvent { IEntity Target@0x0; DamagePredictionResult DamagePrediction@0x8;
-//                         Fix64 Probability@0xC8; Fix64 Weight@0xD0 }
-//   DamagePredictionResult : CurrentHealth@0, Armor@4, Shield@8,
-//     AccurateHealthDamage(Min@0x60,Max@0x64), TotalDamage(Min@0x90,Max@0x94), AppliedHits@0xBC.
+// Struct RE-DERIVE sur `rnca9r7q6c` (#276) — les anciens offsets etaient ceux de `gqfc5mff6c`
+// et rendaient du garbage silencieux (cf. `docs/rl/case-268-decodeur-prediction-perime.md`) :
+//   ProbableDamageEvent (0xb8) { IEntity Target@0x0; DamagePredictionResult DamagePrediction@0x8;
+//                                Fix64 Probability@0xa8; Fix64 Weight@0xb0 }
+//   DamagePredictionResult (0xa0) : table complete + preuve par champ dans
+//     `frida/hooks/game/damage-prediction.ts`. Ce fichier n'ecrit plus aucun offset.
 //   IEntity : id@+0x10 (BEntityId 4B), type@+0x14 (EntityType).
 //
 // Gated by `trace.on` (default OFF — the ctor also fires during live game AI). The findMethod ctor hook is
@@ -61,6 +62,7 @@ import {
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+import { readDamagePredictionResult } from "../game/damage-prediction.js";
 import { readTileCoord } from "./ai-step/internals.js";
 
 // Attribution runner : les buffers sont SÉPARÉS PAR ORIGINE (OriginBuffers =
@@ -299,13 +301,16 @@ interface DmgEvent {
     curHealth: number;
     healthMin: number;
     healthMax: number;
-    // AccurateShieldDamage @0x78 (MinMaxDamage Min@+8/Max@+0xc, dump.cs TypeDefIndex 11757) —
-    // consommé par DamageUtility.MoveNext @1810e2280 (D = hAvg + sAvg). + LimitedByMinHp @0xB0
-    // (si set, GetHealthDamage @1810cec60 retourne CurrentHealth entier).
+    // `ShieldDamage` = le MinMaxDamage que `IdunBattle.AI.Utilities.DamageUtility$$GetShieldDamage`
+    // moyenne — consommé par `DamageUtility.MoveNext` (D = hAvg + sAvg). `LimitedByMinHp` : si posé,
+    // `DamageUtility$$GetHealthDamage` retourne `CurrentHealth` entier. Offsets : #276, cf.
+    // `game/damage-prediction.ts` (ceux d'ici étaient périmés depuis la migration `rnca9r7q6c`).
     shieldMin: number;
     shieldMax: number;
     limitedByMinHp: number;
     hits: number;
+    /** Violations de forme du décodage (non nul = le décodeur ne décode plus ce struct). */
+    shapeErrors: string[] | null;
     // Tuile caster du candidat (via MakeDamagePredictions param_3=position) — le nerf de
     // CrushingStrike (+50% mêlée si non-bougé) dépend de si cette tuile == pos courante du caster.
     casterCol: number;
@@ -726,18 +731,22 @@ function installHook(): boolean {
                 if (target.isNull() || dpr.isNull()) return;
                 const targetId = target.add(0x10).readS32();
                 utilTrace.targets.push(targetId);   // corrélation: cible de CET event -> l'appel util courant
+                // `args[2]` est le struct passé PAR RÉFÉRENCE au ctor : c'est déjà la base
+                // des champs, aucun décalage à appliquer. Offsets centralisés (#276).
+                const p = readDamagePredictionResult(dpr);
                 trace.buf.push({
                     seq: ++trace.seq,
                     originRunnerId: getTraceOrigin(),
                     targetId,
                     targetType: target.add(0x14).readS32(),
-                    curHealth: dpr.readS32(),
-                    healthMin: dpr.add(0x60).readS32(),
-                    healthMax: dpr.add(0x64).readS32(),
-                    shieldMin: dpr.add(0x80).readS32(),
-                    shieldMax: dpr.add(0x84).readS32(),
-                    limitedByMinHp: dpr.add(0xb0).readU8(),
-                    hits: dpr.add(0xbc).readS32(),
+                    curHealth: p.hpBefore,
+                    healthMin: p.healthDmgMin,
+                    healthMax: p.healthDmgMax,
+                    shieldMin: p.shieldDmgMin,
+                    shieldMax: p.shieldDmgMax,
+                    limitedByMinHp: p.limitedByMinHp,
+                    hits: p.appliedHits,
+                    shapeErrors: p.shapeErrors ?? null,
                     casterCol: curPredTile ? curPredTile.col : (curCaster ? curCaster.col : -1),
                     casterRow: curPredTile ? curPredTile.row : (curCaster ? curCaster.row : -1),
                 });
