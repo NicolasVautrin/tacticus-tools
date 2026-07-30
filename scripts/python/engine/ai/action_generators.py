@@ -47,6 +47,7 @@ from engine import move
 from engine import battle_query as bq          # is_adjacent (élévation-gaté) — cibles heal SpiritLeech (#84)
 from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
+from engine.playbook.base import NO_ACTION   # sentinelle `BaseUtility` -> Nullable VIDE (#27-4g)
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK, HEAL_PLAYBOOKS
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
 from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
@@ -188,7 +189,16 @@ class ComparableAbilityGenerator(ActionGenerator):
         `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCustomUtility`).
         Le custom est SOMMÉ DANS `…$$CalculateActionUtility` (avant le terme Tile), donc AVANT tout
         argmax -> il doit entrer dans CE comparatif, pas être ajouté après (sinon un custom
-        POSITION-dépendant — Drachnyen `IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility` — ne peut jamais changer la tuile choisie)."""
+        POSITION-dépendant — Drachnyen `IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility` — ne peut jamais changer la tuile choisie).
+
+        ORDRE : le natif calcule le custom EN PREMIER et teste ses trois valeurs SENTINELLES avant
+        d'appeler `CalculateUtilityFromPredictions`. Deux d'entre elles rendent un `Nullable` VIDE,
+        c.-à-d. AUCUNE action pour ce (tuile, cible) — cf. `playbook.base.NO_ACTION`, que le port
+        laisse rendre à `calculate_custom_utility`. Ce chemin est INERTE pour tous les playbooks dont
+        le custom est numérique (la quasi-totalité) ; seul `PlasmaGrenadePlaybook` (1098) l'emprunte."""
+        custom = pb.calculate_custom_utility(ctx, tile, tgt, ab)
+        if custom is NO_ACTION:
+            return None                # `CalculateActionUtility` rend un Nullable VIDE -> pas d'action
         cand = pb.calculate_action_utility(ctx, tile, tgt, ab)
         if cand is None:
             return None
@@ -200,7 +210,7 @@ class ComparableAbilityGenerator(ActionGenerator):
             ls = self._spiritleech_lifesteal_util(ctx, tile, cand["pred"])
             u_full += ls
             u_val += ls
-        u_action = u_full + pb.calculate_custom_utility(ctx, tile, tgt, ab)
+        u_action = u_full + custom
         return (u_action, u_full, u_val, cand["pred"], cand["aoe"], cand["bk"])
 
     def _sweep_tiles(self, ctx, rk_tiles_union) -> list:

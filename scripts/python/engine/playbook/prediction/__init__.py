@@ -30,14 +30,16 @@ from ._shared import (defender_prediction_block_amount, _add_positional_and_defe
 from .normal_attack import (make_normal_attack_predictions, get_additional_damage_prediction,
                             get_klaw_attack1_prediction)
 from .abilities import (generate_multi_hit_attack_prediction, make_damage_predictions,
-                        make_hammer_wrath_events, make_stikkbomb_splash_event)
+                        make_hammer_wrath_events, make_secondary_multihit_event)
 
 __all__ = [
     "make_normal_attack_predictions", "make_damage_predictions",
     "generate_multi_hit_attack_prediction", "make_hammer_wrath_events",
-    # Volet SPLASH de Stikkbomb (1051) — consomme par les DEUX faces du playbook natif
-    # (`MakeDamagePredictions` cote ennemis, `CalculateCustomUtility` cote amis), cf. #27 verrou 3.
-    "make_stikkbomb_splash_event",
+    # Event SECONDAIRE (`minDmg` seul x `nrOfHits_2`, sur la CIBLE PRINCIPALE) — call-site natif
+    # IDENTIQUE dans les DEUX faces de Stikkbomb 1051 (`MakeDamagePredictions` cote ennemis,
+    # `CalculateCustomUtility` cote amis) ET dans `PlasmaGrenadePlaybook$$CalculateCustomUtility`
+    # (1098, cote ennemis). Cf. #27 verrou 4.
+    "make_secondary_multihit_event",
     "get_additional_damage_prediction", "get_klaw_attack1_prediction",
     "defender_prediction_block_amount", "_add_positional_and_defender_mods",
     "_apply_ally_attack_dmg_bonus", "_target_damage_limits", "_PROFILE_INDEX", "RANGED_IN_MELEE_PCT",

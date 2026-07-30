@@ -770,7 +770,7 @@ cible ampute la moitie de la valeur de l'action**, deux l'annulent. Ce n'est pas
 | Artefact natif | Port |
 |---|---|
 | `StikkbombPlaybook$$MakeDamagePredictions`, entrees de l'event principal | `prediction/abilities.py::_stikkbomb_inputs` (registre `_MAKE_DMG_INPUT_OVERRIDES[1051]`) : **base = `minDmg` SEUL** (`DSLFormulas.Get(0xc)` a le MEME corps que `DSLFormulas.Direct` — meme mold que #173 HellfireShells / #57e GreatFrostAxe) et **hits = `nrOfHits` LITTERAL** (le chemin generique passait par `get_special_hits`, qui AJOUTE la stat `ExtraHits`) |
-| l'appel `GenerateMultiHitAttackPredictions(..., target, <Target>, Get(minDmg), 0x32, ...)`, identique dans les deux faces | `prediction/abilities.py::make_stikkbomb_splash_event` — **un seul foyer**, consomme par les DEUX faces du playbook |
+| l'appel `GenerateMultiHitAttackPredictions(..., target, <Target>, Get(minDmg), 0x32, ...)`, identique dans les deux faces | `prediction/abilities.py::make_secondary_multihit_event` — **un seul foyer**, consomme par les DEUX faces du playbook 1051 **et par `PlasmaGrenadePlaybook$$CalculateCustomUtility` (1098)**, dont le call-site a les MEMES 4 entrees (renomme en #27-4g : `make_stikkbomb_splash_event` n'etait plus un nom vrai) |
 | la boucle `!IsFriend` de `MakeDamagePredictions` | `StikkbombPlaybook.make_damage_predictions` : `events + [ev] * n_ennemis_adjacents` |
 | la boucle `IsFriend` + negation de `CalculateCustomUtility` | `StikkbombPlaybook.calculate_custom_utility` : `-n_amis_adjacents * U(ev)` |
 
@@ -930,7 +930,7 @@ natif (`aiDryRunAllUnits`, read-only, per-unite) une fois les autres etages veri
 (une seule entree bascule la condition, geometrie et paires FIGEES) donne le signe, la condition
 exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
-## PORTES (8) — `engine/playbook/loki_custom.py`
+## PORTES (9) — `engine/playbook/loki_custom.py`
 
 | Ability (id) | VA | Formule mirroir | Poids (seed-bc) | Porteur | Validation |
 |---|---|---|---|---|---|
@@ -947,7 +947,9 @@ exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
 | **Stikkbomb** (1051) | `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` | `-n x U(pred(CIBLE, base = Get(minDmg), hits = GetNumberConstant(0x32 = nrOfHits_2), profil config))` ou `n` = nb d'AMIS du caster (caster INCLUS) adjacents a la CIBLE. Sous-set = arbre DSL `AdjacentUnits(Target, unique:1, sel:3)` **partage avec la face COMBAT**, filtre par un `IsFriend` IMPERATIF. Chaque membre produit une prediction sur la **CIBLE PRINCIPALE**, pas sur lui-meme (4e arg du `GenerateMultiHitAttackPredictions` = `target`, lu a l'assembleur). Terme INDEPENDANT de la tuile d'attaque. | **aucun poids BC** (ce custom n'appelle pas `GetUtilityValue`) ; `nrOfHits_2` = 1, `nrOfHits` = 2 | orksOrkBoys [SUMMON de `Waaagh`/orksWarboss ; amene mais **jamais activable en arene** -> GREFFE sur `orksRuntherd`, `case-92` §5bis] | **A/B causal live** (`probe_27_4f_stikkbomb_ab.py`, board MC1_67, seed 909, `--armor-target 3000`), **7 bras**, moteur = natif dans les 7 ; 6 `pairUtility` natives BIT-IDENTIQUES sur tous les bras amis ; linearite prouvee par bras DESEQUILIBRES ; deux contre-epreuves DIVERGENTES. Detail en §TRANCHE 4d. |
 
-Les huit HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
+| **PlasmaGrenade** (1098) | `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` | `n x U(pred(CIBLE, base = Get(minDmg), hits = GetNumberConstant(0x32 = nrOfHits_2), profil config))` ou `n` = nb d'**ENNEMIS** du caster adjacents a la CIBLE (`battleQuery.<slot itf 0x7d>` = `GetAdjacentEnemies(IEntity, BEntityId, bool)`, index de vtable 0x81 — RE-DERIVE au runtime). Signe **POSITIF** (Stikkbomb, meme mold, NIE sa somme parce qu'il compte des amis). **Somme nulle -> `BaseUtility.<statics+0x18>` = VETO**, pas utilite nulle. Terme INDEPENDANT de la tuile d'attaque, DEPENDANT de la cible. | **aucun poids BC** ; `nrOfHits_2` = 1, `nrOfHits` = 2 | eldarSmnGuardian [summon SANS invocateur] + eldarNpc1Guardian [npc] -> porteur **GREFFE** sur `eldarAutarch` (`case-92` §5bis) | **A/B causal live** (`probe_27_4g_plasma_grenade_ab.py`, board MC1_67, seed 909), **3 bras a issues DIFFERENTES**, moteur = natif dans les 3 ; VETO prouve avec cible LEGALE et `pairUtility` = 13.553 ; RENVERSEMENT de l'argmax par cible en C2 ; **2 mutations adversariales ROUGES**. Detail en §TRANCHE 4g |
+
+Les neuf HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
 terme custom (la prediction est deja assuree par `prediction.py`, ecarts de degat = hors perimetre).
 **Exception assumee : Stikkbomb (1051)**, dont la prediction est portee DANS la meme tranche —
 `MakeDamagePredictions` et `CalculateCustomUtility` y sont litteralement le meme corps avec
@@ -1074,6 +1076,11 @@ d'agreement ci-dessous : 0 regression).
 
 ## INVENTAIRE EXHAUSTIF des overrides `CalculateCustomUtility` (27 corps / 27 classes, build `gqfc5mff6c`)
 
+> ⚠ **Ce tableau est celui de `gqfc5mff6c`.** Le compte du build COURANT (`rnca9r7q6c`) est **29 corps
+> distincts = 26 nommes + 3 partages**, re-derive en §TRANCHE 4g ; les verdicts par ligne ci-dessous
+> sont tenus a jour, mais les VA et le compte d'en-tete ne le sont pas. Re-deriver plutot que citer :
+> `python probe_27_custom_utility_inventory.py --build rnca9r7q6c`.
+
 **27 corps DISTINCTS** = 1 base + 4 mutualises (attaque normale / heal) + **22 corps par-ability** ;
 **27 classes** overridantes — une par corps. (La tranche 3 en annoncait 28, `AmuletOfTheVoidwyrmPlaybook`
 etant cense partager le corps de `PlasmaGrenadePlaybook` : **faux positif de lecture hors-vtable,
@@ -1103,10 +1110,10 @@ re-derouler la recon : elle part d'ici.
 | 13 | `SorcerousFacadePlaybook` | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **PORTE** (#27-4e) | — (le verrou « route de ciblage ALLIE » est TOMBE : 1100 passe par `playbook/nonattack.py`, dont l'enumeration vient de `ctx.ability_targets` ; le VETO #217 sur la route ENNEMIE est INTACT et re-mesure dans le meme montage) |
 | ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
-| 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** (face DECISION) | MoW absentes de `decisionView.units` / `attackPlans` (pas de PositionComponent) -> jamais feedees a `_best_attack` — **confirme live runner 336** : `observeBattle.mows` = 2 machines, `aiDryRunAllUnits` ne propose rien pour elles. Debloqueur : modeliser les MoW comme unites de decision (position derivee de `MachineComponent.Position`). NB : la face **COMBAT** de 1169 est portee et validee par **#90** — c'est bien le seul volet DECISION qui manque |
-| 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom |
-| 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **et** MalleusRocketLauncher (1142) — playbook PARTAGE | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] ; astraOrdnanceBattery [MoW] | summon + MoW | **PORTE pour 1051** (#27-4f) ; 1142 reste **residu** (verrou MoW) | — pour 1051 (le sous-set = `AdjacentUnits(Target)` filtre par `IsFriend`, et chaque membre produit une prediction sur la CIBLE PRINCIPALE : lu au decompile puis a l'assembleur, confirme live). Porteur summon amene par `Waaagh` mais jamais activable en arene -> GREFFE (`case-92` §5bis) |
-| 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian | summon **sans invocateur** (aucune ability du gameconfig ne le summon) | **residu / non confrontable** | invocateur inexistant -> non amenable en bataille ; + `GenerateMultiHitAttackPredictions` |
+| 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** — verrou **RE-QUALIFIE (#27-4g)** | Le verrou n'est PAS « MoW » : greffee sur `deathTyphus` (pool), 1169 reste ingenerable parce que son ciblage est **TILE-TARGET** (`TargetIsTile` du masque `0x40000042` ; `abilityTargets` -> 58 cibles `kind = "tile"` ; `attackPlans` `rankCount = 0` sur TOUTES les cibles unite). Mesure `probe_27_4g_plagueburst_route.py` en regime maximalement favorable (`--hp-target 400000`, n=2 donc `custom = 20` contre `pair(69)+1 ~ 2.02`) : le natif propose **69 sur 8/8 tirages, 1169 JAMAIS**. Debloqueur en DEUX pieces, dans cet ordre : (1) une route de decision a cibles TUILE ; (2) le tacticien MoW. **La formule, elle, est ENTIEREMENT RE** (cf. §TRANCHE 4g) et son selecteur est deja porte par la face COMBAT (#90) |
+| 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom. Custom lu au passage (#27-4g) : `10 x |ennemis sur GetTargetAreaTiles|`, ou `10` est une CONSTANTE `Fix64(0xa)` EN DUR (aucun `GetUtilityValue`) |
+| 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **SEULE** | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] | summon | **PORTE** (#27-4f) | — (le sous-set = `AdjacentUnits(Target)` filtre par `IsFriend`, et chaque membre produit une prediction sur la CIBLE PRINCIPALE : lu au decompile puis a l'assembleur, confirme live). Porteur summon amene par `Waaagh` mais jamais activable en arene -> GREFFE (`case-92` §5bis). ⚠ **Le « playbook PARTAGE 1051/1142 » est RETIRE (#27-4g)** : `...StikkbombPlaybook$$.ctor` appelle `ComparablePlaybook<T>..ctor(this, 0x41b)` — 1051 seule — et aucune classe `Malleus*Playbook` ne porte le slot au balayage runtime. 1142 n'a AUCUN corps propre |
+| 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian [summon **sans invocateur**] + eldarNpc1Guardian [npc] | summon + npc | **PORTE** (#27-4g) | — (les deux verrous sont TOMBES : (a) le mold `GenerateMultiHitAttackPredictions` a ete ouvert par 1051 et le foyer est PARTAGE — `prediction.make_secondary_multihit_event`, memes 4 entrees ; (b) le porteur, refuse par `buildNormalizedBC`, est GREFFE sur `eldarAutarch`). S'y ajoute le VETO : somme nulle -> `BaseUtility.<statics+0x18>` -> aucune action |
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
 | 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4e) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
@@ -1119,16 +1126,25 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 13** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
-  1100, **1051**.
-- **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
+*(Re-derive du BINAIRE le 2026-07-30 sur `rnca9r7q6c` — `probe_27_custom_utility_inventory.py
+--build rnca9r7q6c`. Ces chiffres se PERIMENT : les re-deriver plutot que citer cette ligne.)*
+
+- **PORTES / couverts : 15** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212,
+  1100, 1051, **1098**, 1009 (+ les corps mutualises `Loki_NormalBossAttack` et
+  `TwistedScience_Heal`, et les 3 corps PARTAGES : base, attaque normale, heal generique).
+- **Traites sans port (verdict ferme) : 1** — ProperKilly (dead-code, aucun porteur).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 5** — 1169, 1148, **1142**, 1098, 1053. Le couple « 1051/1142 » de la
-  tranche 3 est SCINDE : 1051 est PORTE (#27-4f) et 1142, qui partage son playbook, n'est plus
-  retenu que par le verrou MoW (verrou 1) — son terme custom est desormais porte et outille.
+- **En cours (autre tranche) : 1** — 1222 MassDriverAccelerator.
+- **Residus a debloquer : 3** — **1169** (verrou re-qualifie : cible TUILE, cf. #27-4g), **1148**
+  (idem + DSL `TilesInTriangleShape`), **1004 MortisRound** (`GetTargetUtilityDiffOnDisplace`, et sa
+  TRONCATURE vers `int` explique le « terme mesure NUL » des tranches precedentes).
+- **DEUX entrees SORTENT de la liste sans qu'aucun port ne les ferme (#27-4g, correction
+  d'inventaire)** : **1142 MalleusRocketLauncher** n'a AUCUN corps propre — le « playbook PARTAGE
+  1051/1142 » est FAUX sur ce build (`...StikkbombPlaybook$$.ctor` -> `0x41b` = 1051 seule) — et
+  **1053 DevoutPush** partage le corps de l'attaque normale (`Fix64(1)`), deja couvert.
   (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
   **1185 porte — #27-4c** ; **1212 porte — #27-4d** ; **1100 porte — #27-4e** ;
-  **1051 porte — #27-4f**.)
+  **1051 porte — #27-4f** ; **1098 porte + 1142/1053 retires — #27-4g**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -1162,13 +1178,21 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
 
 ### Les VERROUS qui tiennent les residus
 
-1. **MoW non modelisees comme unites de DECISION** (1169, 1148, et la face MoW de 1142) — le blocage
-   le plus rentable : 3 overrides d'un coup, et `PlagueburstMortar` est deja un patron PORTE
-   (`count(GetAdjacentEnemies) * W`, identique a Drachnyen). Mesure live (runner 336) : les MoW
-   DEPLOIENT bien (`observeBattle.mows` = 2) mais n'apparaissent ni dans `decisionView.units`
-   ni dans `attackPlans`, et `aiDryRunAllUnits` ne leur propose rien. **La face COMBAT de 1169/1148
-   est deja portee et validee live par #90** : c'est donc STRICTEMENT le volet DECISION qui manque
-   (les deux faces se valident separement, cf. le protocole `tacticus-re-port`).
+1. **Cible TUILE non modelisee dans la route de DECISION** (1169, 1148) — **RE-QUALIFIE #27-4g, et ce
+   n'etait pas le verrou ecrit ici.** La redaction precedente disait « MoW non modelisees comme unites
+   de DECISION » ; or ce verrou-la se LEVE par la GREFFE (le natif charge le playbook PAR ABILITY).
+   Greffee sur `deathTyphus` (pool), 1169 reste ingenerable **par son DOMAINE DE CIBLE** : masque
+   `0x40000042` -> bit `TargetIsTile`, `abilityTargets` rend 58 cibles `kind = "tile"`, et
+   `attackPlans` donne `rankCount = 0` sur toutes les cibles UNITE. En regime maximalement favorable
+   (`--hp-target 400000`, `custom = 20` contre `pair(69)+1 ~ 2.02`), le natif propose 69 sur 8/8
+   tirages et **jamais 1169** — il ne genere pas l'action, et le port ne le peut pas davantage
+   (`_best_attack` consomme `ranked` ; `nonattack.eligible_targets` filtre `kind == "unit"`).
+   Debloqueur en DEUX pieces, dans cet ordre : **(1)** une route de decision a cibles TUILE ;
+   **(2)** le tacticien MoW (les MoW n'apparaissent ni dans `decisionView.units` ni dans
+   `attackPlans` — mesure runner 336). La piece (1) est le prerequis, pas l'inverse.
+   **La face COMBAT de 1169/1148 est deja portee et validee live par #90**, et la FORMULE custom de
+   1169 est desormais entierement RE (§TRANCHE 4g) : le jour ou le verrou tombe, il n'y a rien a
+   inventer — son selecteur EST `plagueburst_damage_targets` sans son `Filter`.
 2. ~~**Routes d'ability non-attaque**~~ — **VERROU LEVE (tranche 4b)**. La route existe
    (`engine/playbook/nonattack.py`) et est validee live sur son premier membre, Chronometron (1226).
    `state_bridge._is_attack_ability` n'est plus la SEULE porte : une ability Comparable sans
@@ -1206,10 +1230,12 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
    prediction sur la **CIBLE PRINCIPALE** (lu a l'assembleur, confirme live : +8.0282 sur la paire
    de la cible, contre 0.5504 attendus si l'event portait sur le voisin). **1051 est PORTE et
    valide live** (7 bras, linearite prouvee par bras desequilibres, deux contre-epreuves).
-   Ce qui reste derriere ce patron n'est plus le patron mais le PORTEUR :
-   - **1142 MalleusRocketLauncher** — meme playbook, mais porteur MoW -> verrou 1 ;
-   - **1098 PlasmaGrenade** — playbook DISTINCT (`PlasmaGrenadePlaybook`, meme mold) et porteur
-     `eldarSmnGuardian`, summon SANS invocateur -> greffe possible, non faite (hors perimetre 4f).
+   **Ce verrou est desormais CLOS des deux cotes (#27-4g)** :
+   - **1098 PlasmaGrenade** — **PORTE**. Playbook DISTINCT (`PlasmaGrenadePlaybook`) mais MEMES 4
+     entrees de prediction : un seul foyer, `prediction.make_secondary_multihit_event` (renomme de
+     `make_stikkbomb_splash_event`). Porteur summon SANS invocateur -> GREFFE sur `eldarAutarch`.
+   - **1142 MalleusRocketLauncher** — **RETIRE de l'inventaire** : il n'a AUCUN corps propre (le
+     partage de playbook avec 1051 etait un faux positif de la tranche 3, refute au `.ctor`).
    (AmuletOfTheVoidwyrm y figurait au titre du « corps partage avec 1098 » — **retire par #218**,
    ce partage n'existait pas.)
 5. **Evaluateurs manquants** : composite `UtilityAttackCase.Base` (1004), DSL de forme
@@ -2107,3 +2133,244 @@ Garde : `tests/engine/test_resurrection_orb_decision_live.py` (11 tests).
   `Mechanical` sans `LivingMetal` du pool rank 17 rendraient ce bras discriminant.
 - **Le cap `maxSummons = 5` vs l'ancien `6`** n'est pas confronte LIVE non plus : il faudrait
   `Count(morts mecaniques) + TURNS_STARTED >= 6`, hors de portee du montage a deux tours.
+
+## TRANCHE 4g (2026-07-30) — `PlasmaGrenade` (1098) PORTE, et le VERROU 4 tombe pour de bon
+
+### L'inventaire, RE-DERIVE du binaire (et deux entrees qui en SORTENT)
+
+`probe_27_custom_utility_inventory.py --build rnca9r7q6c` : **388** classes `*Playbook*`, **96**
+portent le slot, **toutes a `+0x338`**, **29 corps distincts** = **26 nommes** + 3 partages (base,
+attaque normale, heal generique). Ventilation des 26 nommes : **17 portes/couverts**, **4** npc-only,
+**1** dead-code, **3 residus** (1148, 1169, 1004), **1** en cours (1222).
+
+**Deux entrees quittent la liste des residus sans qu'aucun port ne les ait fermees** — c'est une
+correction d'inventaire, et elle se lit au `.ctor` :
+
+- **1142 `MalleusRocketLauncher` n'a AUCUN corps propre.**
+  `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$.ctor` appelle
+  `ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$.ctor(this, 0x41b, klass)` — **1051
+  SEULE** — et aucune classe `Malleus*Playbook` ne porte le slot dans le balayage runtime. Le
+  « playbook PARTAGE 1051/1142 » ecrit en tranche 3 est **FAUX sur ce build** : il n'y a rien a
+  porter pour 1142 cote `CalculateCustomUtility`. (Le meme controle vaut l'inverse :
+  `PlasmaGrenadePlaybook$$.ctor` -> `0x44a` = 1098, un seul id.)
+- **1053 `DevoutPush`** partage le corps de `ALoki_NormalAttackPlaybook<T>` (= `Fix64(1)`), deja
+  couvert par `common.NormalAttackPlaybook`.
+
+⚠ **Le `--build` par defaut du probe reste le PIEGE nomme en tranche 4** : lance sans
+`--build rnca9r7q6c`, il croise les RVA du runtime contre l'ANCIENNE table et rend un tableau
+coherent et entierement faux.
+
+### `PlasmaGrenade` (1098) — la formule, relue VERBATIM
+
+`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` :
+
+```
+formula = DSLFormulas.Get(GetVariableForLevel(config, 0xc = minDmg));   // == Direct(minDmg)
+hits2   = GetNumberConstant(config, 0x32 = nrOfHits_2);
+profile = GetDamageProfile(config);
+ownerId = OwnerComponent.get_CurrentPlayerEntityId(caster);
+u = Fix64.Zero;
+foreach (e in battleQuery.<slot itf 0x7d>(target, ownerId, ignoreSteppables: false))
+    foreach (p in GenerateMultiHitAttackPredictions(caster, casterPosition, target,
+                      <selecteur Target>, formula, hits2, profile, null, null))
+        u = Fix64.op_Addition(u, CalculateUtilityFromDamageEvent(p, caster, casterPosition));
+if (u == Fix64(0)) u = BaseUtility.<statics+0x18>;
+return u;
+```
+
+soit **`u = n x U(1 coup sur la CIBLE)`**, `n` = nombre d'ENNEMIS DU CASTER adjacents a la CIBLE.
+C'est le MOLD de Stikkbomb (1051) avec **trois differences qui changent tout** :
+
+| | Stikkbomb (1051) | PlasmaGrenade (1098) |
+|---|---|---|
+| sous-set | arbre DSL `AdjacentUnits(Target)` **partage avec la face COMBAT**, filtre par un `IsFriend` imperatif | appel `battleQuery` DIRECT `GetAdjacentEnemies` — **aucun arbre DSL**, donc rien a partager |
+| qui est compte | les **AMIS** (caster inclus) | les **ENNEMIS** |
+| signe | `op_UnaryNegation` FINAL (penalite de tir ami) | **positif** (bonus de groupement) |
+| somme nulle | rend `Fix64(0)` (utilite nulle) | rend une **SENTINELLE** -> aucune action |
+
+Les entrees de prediction, elles, sont IDENTIQUES (`minDmg` seul, `nrOfHits_2` coups, selecteur
+`Target` -> mono-cible, profil de config) : un seul foyer de port,
+`prediction/abilities.py::make_secondary_multihit_event` (renomme de `make_stikkbomb_splash_event`,
+qui n'etait plus un nom vrai).
+
+### Le VETO — trois constantes de `BaseUtility` qu'il fallait lire, pas deviner
+
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+teste le custom contre TROIS valeurs **avant toute prediction** :
+
+```
+u = CalculateCustomUtility(vtable +0x338)(...)
+if (u == BaseUtility.<statics+0x18>) return null;      // Nullable VIDE
+if (u == BaseUtility.<statics+0x20>) return null;      // Nullable VIDE
+if (u == BaseUtility.<statics+0x10>) return Nullable(BaseUtility.<statics+0x10>);
+```
+
+et `IdunBattle.AI.Utilities.BaseUtility$$.cctor` les derive de `FixMath.NET.Fix64$$.cctor`
+(`Fix64.<statics+0x10>` = `0x7fffffffffffffff` = MaxValue, `Fix64.<statics+0x18>` =
+`0x8000000000000000` = MinValue) :
+
+    BaseUtility.<statics+0x10> = Fix64.MaxValue
+    BaseUtility.<statics+0x18> = Fix64.MinValue / Fix64.FromIntFraction(1000001, 1000000)
+    BaseUtility.<statics+0x20> = Fix64.MinValue
+
+Ce ne sont donc pas des utilites tres basses **qui perdraient la comparaison** : ce sont des VETOS
+qui SUPPRIMENT l'action. 1098 rend `<statics+0x18>` des que sa somme vaut `Fix64(0)`.
+
+Port : `playbook/base.py::NO_ACTION`, une IDENTITE (`is NO_ACTION`) et non un flottant proche de
+`-2**31` — la comparaison native est une egalite EXACTE sur un Fix64, qu'un port `float` ne peut pas
+reproduire, et une valeur tres negative laissee dans l'arithmetique serait SOMMEE aux termes suivants
+au lieu d'annuler l'action. Consomme par `ai/action_generators._action_utility` (qui calcule desormais
+le custom **AVANT** `calculate_action_utility`, comme le natif) et par `playbook/nonattack.py`.
+
+**Classification DSL/imperatif** (tranchee AVANT de coder) : `CalculateCustomUtility`,
+`GetAdjacentEnemies` (methode de `BattleQuery`) et la chaine de prediction sont des METHODES, pas des
+arbres `DSLFactory` -> **imperatif**, mirror 1:1. Aucun noeud declaratif sur ce chemin — contrairement
+a Stikkbomb, dont le sous-set EST un arbre et devait donc etre partage avec la face COMBAT.
+
+### Le slot d'interface se RE-DERIVE, il ne se recopie pas
+
+`probe_27_4g_battlequery_slots.py` (neuf) balaie la vtable PROPRE de
+`IdunBattle.Core.Services.BattleQuery` au runtime et rend, sur `rnca9r7q6c` :
+
+| slot d'interface | index de vtable | methode |
+|---|---|---|
+| 0x7a / 0x7b / 0x7c | 0x7e / 0x7f / 0x80 | `GetAdjacentUnits` (**AMIS COMPRIS**) |
+| **0x7d** | **0x81** | **`GetAdjacentEnemies(IEntity from, BEntityId playerEntityId, bool)`** |
+| 0x7e / 0x7f / 0x80 | 0x82 / 0x83 / 0x84 | `GetAdjacentEnemies` (autres surcharges) |
+| 0x81 | 0x85 | `GetAdjacentFriends` |
+| 0x8e | 0x92 | `GetAllEnemiesOf` |
+
+La conversion `+4` est CONFIRMEE par les deux ancres independantes du probe (slot 0x02 -> index 0x06
+`IsMeleeAttack` ; slot 0x4f -> index 0x53 `GetAdjacentTiles`). **Un decalage d'UN slot inverserait la
+semantique en silence** (`GetAdjacentUnits` compte les amis) : c'est exactement le piege que la note
+de fidelite HeavyWarpFlamer decrivait, et il est desormais outille.
+
+### Porteur GREFFE, et pourquoi ca reste une mesure
+
+Les deux seules unites qui portent 1098 sont `eldarSmnGuardian` (SUMMON) et `eldarNpc1Guardian`
+(npc) ; le summon n'a pas d'invocateur et `buildNormalizedBC` refuse les deux. Porteur GREFFE sur
+`eldarAutarch` (Aeldari, pool) — `case-92` §5bis. Le natif charge le playbook PAR ABILITY et il le
+PROUVE en emettant `ActiveAbilityMessage(1098)`. La formule ne lit **ni stat ni trait du caster**
+(uniquement le board et la config d'ability), donc la greffe ne la deforme pas.
+
+### Validation — A/B causal live, 3 bras, 3 issues DIFFERENTES
+
+`probe_27_4g_plasma_grenade_ab.py --build --engine --tirages=18` (board MC1_67, seed 909, runner 201).
+CASTER et CIBLE PRINCIPALE **FIGES** en (2,4) et (4,4) ; seuls les deux autres ennemis bougent.
+
+| bras | n(A) | cibles LEGALES (natif) | natif (18 tirages) | moteur | verdict |
+|---|---|---|---|---|---|
+| **C0** | 0 | **{A}** — A est legale | `FinishUnitTurn` **18/18**, 1098 **JAMAIS** | `(None, None)` | **MATCH** |
+| **C1** | 1 | {A, B} | `1098 -> B` (9/18) | `(1098, B)` | **MATCH** |
+| **C2** | 2 | {A, B, C} | `1098 -> A` (8/18) | `(1098, A)` | **MATCH** |
+
+Ce que chaque bras etablit, et pourquoi il ne peut pas passer par accident :
+
+- **C0 prouve le VETO dans le regime le plus exigeant** : la cible EST legale (`abilityTargets` la
+  rend) et `pairUtility(1098, A)` = **13.553077075630426** — une utilite qui aurait largement gagne
+  contre une attaque normale a `pairUtility` **0**. Le natif ne propose pourtant JAMAIS 1098.
+  A `p = 1/3`, `0/18` a une probabilite `(2/3)^18 ~ 7e-4`.
+- **C2 prouve la LINEARITE par RENVERSEMENT** : `pair(1098, A) = 13.553077 < pair(1098, B) =
+  15.940501`, et le natif prend pourtant **A** — la cible dont la `pairUtility` est la plus FAIBLE,
+  parce qu'elle a DEUX voisins ennemis au lieu d'un. `u(A) = 13.553 + 2 x 6.777 = 27.106` contre
+  `u(B) = 15.941 + 1 x 7.970 = 23.911`.
+- **Confond de prediction MESURE et NUL** sur les deux cibles de l'arbitrage : `pairUtility(1098, A)`
+  et `pairUtility(1098, B)` sont **BIT-IDENTIQUES** dans les trois bras. *(La 3e cible, elle, est
+  DEPLACEE entre C1 et C2 : sa paire bouge, 15.056975 -> 10.045359. Le test le dit explicitement au
+  lieu d'exiger une invariance fausse.)*
+- **Recoupement quantitatif independant** : le port calcule `U(1 coup) = 6.776538538139812` (C1,
+  n=1 sur A) la ou `pairUtility(1098, A) / 2 = 6.776538537815213` — l'ability a `nrOfHits = 2` et
+  `nrOfHits_2 = 1`, donc l'event secondaire vaut exactement la moitie de la paire. Ecart **3.2e-10**
+  (arrondi Fix64). Ce n'est pas un scalaire ajuste : c'est une consequence de la config, verifiee.
+
+**Deux MUTATIONS ADVERSARIALES, vues ROUGES avant le fix** (le probe les rejoue a chaque run) :
+
+1. **VETO DESARME** (le custom rend `0.0` — c'est-a-dire l'etat du port AVANT ce commit) : le moteur
+   propose `(1098, A)` en **C0**, la ou le natif ne le fait JAMAIS. Degradation PERMISSIVE.
+2. **TERME RENDU BOOLEEN** (`n` remplace par `min(n, 1)`) : le moteur bascule sur **B** en C2 alors
+   que le natif dit **A**. Le montage separe donc bien lineaire et booleen — sans cette mutation,
+   « lineaire » resterait une hypothese.
+
+Garde : `tests/engine/test_plasma_grenade_decision_live.py` (8 tests).
+
+### `PlagueburstMortar` (1169) — le verrou est RE-QUALIFIE, et il n'est pas celui qui etait ecrit
+
+La fiche rangeait 1169 derriere le VERROU 1 (« MoW non modelisees comme unites de DECISION »). Ce
+verrou-la se LEVE par la greffe — le natif charge le playbook par ABILITY. Une fois 1169 greffee sur
+`deathTyphus` (Death Guard, pool), on voit le verrou SUIVANT, et il est ailleurs.
+
+**Le custom, entierement lu** (`IdunBattle.AI.Playbook.PlagueburstMortarPlaybook$$CalculateCustomUtility`) :
+
+```
+sel = PlagueburstMortarAbility.GetAdjacentEnemies();       // arbre DSL
+n   = TargetsSelector.Count(sel, AbilityEntities(owner: caster, caster: caster, target: target));
+return Fix64.op_Multiply(Fix64(n), GetUtilityValue("PlagueburstMortar_AdjacentEnemy"));
+```
+
+avec `IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility$$GetAdjacentEnemies` =
+`Enemies(<caster>, Units(AdjacentTiles(<target>), unique: 1, sel: 3), sel: 3)` — c'est-a-dire
+EXACTEMENT le second terme de `plagueburst_damage_targets` (face COMBAT, portee par #90) **sans** son
+`Filter(GetIsValidAdjacentEnemyTrigger)`. Un seul artefact, deja porte : le jour ou le verrou tombe,
+il n'y a rien a inventer. Poids : `PlagueburstMortar_AdjacentEnemy` = **10**.
+
+> **Ancrage du slot 2** (`FUN_180025bf0(2, <klass>, selector, entities)` -> `uint`) :
+> `IdunBattle.DSL.TargetsSelector$$Count`. Etabli par ANCRAGE et non par recopie —
+> `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$CalculateCustomUtility` emet le MEME
+> appel avec la MEME classe, et sa formule (`max(0, Count(GetBuffTargets) - 1) * W`) est deja RE.
+
+**Ce que la mesure dit** (`probe_27_4g_plagueburst_route.py --build --hp-target=400000`, runner 260,
+n(A) = 2 donc `custom` attendu = 20) :
+
+| mesure | valeur |
+|---|---|
+| `abilityTargets(1169)` | **58 cibles, domaine `tile` a 100 %** (bit `TargetIsTile` du masque `0x40000042`) |
+| `attackPlans` evals 1169 | `rankCount = 0` sur les **trois** cibles UNITE |
+| `pairUtility(1169, *)` | **0** partout — `$$MakeDamagePredictions` passe `GetMainDamageTarget` = `Filter(..., GetIsValidAdjacentEnemyTrigger)`, predicat FAUX au spawn (ni aura `ContagionsOfNurgle_ArmorReduction1`, ni modificateur d'armure negatif) |
+| `pairUtility(69, *)` | 0.79 a 1.02 (ecrasees par `--hp-target 400000`) |
+| `aiDryRunAllUnits` x8 | **`ActiveAbilityMessage(69)` 8/8 — 1169 JAMAIS proposee** |
+
+Le regime est pourtant maximalement favorable : `custom = 20` ecraserait `pair(69) + 1 ~ 2.02`. **Le
+natif ne genere donc simplement pas d'action pour 1169 depuis une unite de decision normale** — et le
+port ne le peut pas davantage (`_best_attack` consomme `ranked`, vide ; `nonattack.eligible_targets`
+filtre `kind == "unit"`).
+
+**VERDICT : invalidable-residu, verrou re-qualifie.** Ce n'est pas « les MoW ne sont pas modelisees »
+mais **le domaine de cible** : 1169 est TILE-TARGET, et la greffe — qui a leve le verrou porteur pour
+1185 et 1051 — **ne le leve pas ici**. Debloqueur nomme, en DEUX pieces :
+
+1. une route de decision a cibles **TUILE** (enumeration + format d'action + correspondance
+   `id d'entite-tuile` <-> `(col, row)` pour confronter le choix natif) ;
+2. le tacticien MoW (les MoW n'apparaissent ni dans `decisionView.units` ni dans `attackPlans`, et
+   `aiDryRunAllUnits` ne leur propose rien — mesure #27 tranche 1, runner 336).
+
+La piece (1) est un prerequis de la piece (2) et non l'inverse : c'est ce que cette mesure retourne
+par rapport a la redaction precedente. **1148 `DaemonicOrdnance` est dans le meme cas** (porteur MoW ;
+son custom, lu au passage, est `10 x |ennemis sur GetTargetAreaTiles|` — une CONSTANTE `Fix64(0xa)`
+en dur, sans `GetUtilityValue` —, et sa zone est un `TilesInTriangleShape` non porte).
+
+### Non couvert (explicite)
+
+- **Le tirage `GetUseProbability` de 1098 n'est pas modelise.**
+  `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$GetUseProbability` = `Fix64(1)/Fix64(3)`, et
+  `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate` en fait un TIRAGE (`p >= 1 -> true` ;
+  `p <= 0 -> false` ; sinon `random(p)`). Le moteur offline est deterministe : il emet 1098 la ou le
+  natif la saute ~2 fois sur 3. Meme statut que `...BlackRagePlaybook$$GetUseProbability` et
+  `...ScarabSummonPlaybook$$GetUseProbability`. **Consequence sur la mesure** : l'accord se lit sur
+  l'ENSEMBLE des cibles proposees au moins une fois sur K tirages, jamais sur un tirage isole.
+- **La 3e sentinelle (`BaseUtility.<statics+0x10>` = `Fix64.MaxValue` -> `Nullable(MaxValue)`) n'est
+  portee par AUCUN membre du registre** : elle est lue et documentee, pas implementee. Le jour ou un
+  playbook la rend, il faudra un second cas dans `_action_utility`.
+- **La greffe ne couvre pas** les stats, traits et armes du VRAI porteur d'1098 (`eldarSmnGuardian`).
+  Elle est legitime ici parce que le terme ne lit ni stat ni trait du caster ; elle ne le serait pas
+  pour une prediction de degat.
+- **`MakeDamagePredictions` de 1098 n'est pas re-porte** : le playbook l'override
+  (`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$MakeDamagePredictions`), et le port herite du
+  chemin generique. L'ecart n'a pas ete mesure — les `pairUtility` natives servent d'etage de
+  reference dans l'A/B, donc il ne contamine pas la conclusion sur le custom, mais il reste ouvert.
+- **1004 `MortisRound`** reste un residu d'une nature encore differente :
+  `IdunBattle.AI.Playbook.Loki.MortisRoundPlaybook$$CalculateCustomUtility` =
+  `(Fix64)(int)(Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetTargetUtilityDiffOnDisplace(caster, casterPosition.MainTile, <liste>, target).<+0x18>)`
+  — une TRONCATURE vers `int` d'un differentiel d'utilite de DEPLACEMENT. La troncature explique le
+  « terme mesure NUL (< 0.012) » des tranches precedentes : tout differentiel de module < 1 rend 0.
+  Debloqueur : porter `GetTargetUtilityDiffOnDisplace` (evaluateur `UtilityMovementCase`), pas un
+  scalaire.

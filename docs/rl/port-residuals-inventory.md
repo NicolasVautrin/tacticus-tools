@@ -107,7 +107,7 @@
 | passifs **portés** | 46 | **54** | +8 |
 | passifs **gap** | 150 | **142** | −8 |
 | passifs gap **confrontables** | 63 | **55** | −8 |
-| overlays `CalculateCustomUtility` **non portés** | 16 | **15** | −1 (correction de comptage, cf. R15) |
+| overlays `CalculateCustomUtility` **non portés** | 16 | **3** (+1 en cours) | −13 — re-dérivé du BINAIRE, cf. ci-dessous |
 
 **Les deux gisements « que notre propre cadence aggrave » ne l'aggravent plus.** `TARGETING_OPTIONS`
 a reculé de 35 en deux jours (`89518da` 10 DarkAngels/Aeldari/WorldEaters, `ff66741` 13
@@ -125,6 +125,30 @@ AdMec/BloodAngels**, plus les masques posés en même temps que chaque nouveau p
 > *(Mesure intermédiaire du matin, conservée pour la tendance : 89 entrées / 53 sans masque.)*
 La règle de non-régression du `CLAUDE.md` a donc pris — c'est le seul endroit de ce document où la
 tendance s'est retournée, et il vaut de le noter avant que quiconque recopie « 60 restantes ».
+
+> **`CalculateCustomUtility` — re-dérivé du BINAIRE le 2026-07-30** (#27-4g,
+> `probe_27_custom_utility_inventory.py --build rnca9r7q6c` : 388 classes `*Playbook*`, **96** portent
+> le slot, **tous à `+0x338`**, **29 corps distincts** = 26 nommés + 3 partagés). Ventilation des
+> **26 corps NOMMÉS** (les 3 partagés sont la base, l'attaque normale et le heal générique, tous
+> couverts) :
+>
+> | état | n | ids |
+> |---|---|---|
+> | **portés / couverts** | **17** | 1014, 1020, 1029, 1051, 1098, 1100, 1119, 1177, 1185, 1199, 1212, 1226, 1227, 1230, 1009, + `Loki_NormalBossAttack`, `TwistedScience_Heal` |
+> | non pertinents (porteurs **npc** uniquement) | 4 | 1093, 1215, 1216, 1217 |
+> | dead-code (aucun porteur) | 1 | `ProperKilly_NormalAttack` |
+> | **résidus** | **3** | 1148 DaemonicOrdnance, 1169 PlagueburstMortar, 1004 MortisRound |
+> | en cours (autre tranche) | 1 | 1222 MassDriverAccelerator |
+>
+> **Deux entrées SORTENT de la liste des résidus, et ce n'est pas un port** — c'est une correction
+> d'inventaire, mesurée : **1142 MalleusRocketLauncher** n'a AUCUN corps propre
+> (`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$.ctor` appelle
+> `ComparablePlaybook<T>..ctor(this, 0x41b)` — l'ability **1051 SEULE** —, et aucune classe
+> `Malleus*Playbook` ne porte le slot dans le balayage runtime) : le « playbook PARTAGÉ 1051/1142 »
+> des tranches précédentes est FAUX sur ce build. **1053 DevoutPush** partage désormais le corps de
+> `ALoki_NormalAttackPlaybook<T>` (= `Fix64(1)`), déjà couvert.
+
+
 
 ---
 
