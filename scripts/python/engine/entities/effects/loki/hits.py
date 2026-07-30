@@ -521,7 +521,7 @@ class AnvilShieldAdditionalBlockEffect(BaseEffect):
     OwnerIsActor` -> 1202 (et 1200) sont poses A LA CREATION de l'unite, PAS au block. GROUND TRUTH live :
     Arjac porte `AnvilShield_AdditionalBlock` (level 1, remaining 0) des le PREMIER `decisionView` d'un
     runner frais -> l'effet est deja materialise par le seed, RIEN a caber. Le vrai volet ON-BLOCK
-    (`On(UnitBlocked=0x3d)`) est `ApplyIce`/`ApplyStun` (cf. triggers/loki/anvil_shield.py)."""
+    (`On(UnitBlocked=0x3c)`) est `ApplyIce`/`ApplyStun` (cf. triggers/loki/anvil_shield.py)."""
 
     def get_stat_modification_stat(self) -> int | None:
         return 8                                     # StatType.BLOCK_DAMAGE
@@ -1411,8 +1411,8 @@ class Swarm_HitReductionEffect(BaseEffect):
     = **−min(nrOfMembers − 1, membres MORTS)** (plancher structurel 1 hit). Stat 20 = NUMBER_OF_MEMBERS,
     résolue par le handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (IdunBattle.Entities.UnitExtensions$$GetStat+0x859) → GroupUnitComponent
     fill-up {+0x10=nrOfMembers, +0x18=membres restants} via `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`.
-    Triggers `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` : (On(UnitRepaired=49)|On(UnitHealed=44)|On(UnitMemberDeath=48)|
-    On(UnitRevived=46)) & OwnerIsTarget | OnOwnerSpecificAbilityInit(1023) — tous les événements qui
+    Triggers `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` : (On(UnitRepaired=48)|On(UnitHealed=43)|On(UnitMemberDeath=47)|
+    On(UnitRevived=45)) & OwnerIsTarget | OnOwnerSpecificAbilityInit(1023) — tous les événements qui
     changent le compte de membres.
 
     Côté runner l'AddOrUpdate vit dans `runner/abilities/loki/swarm.py` (refresh aux points de mutation

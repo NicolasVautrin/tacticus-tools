@@ -2,7 +2,7 @@
 gqfc5mff6c, doc §1.5 / §13.11 / §13.12). UNE CLASSE feuille (nom NATIF) + le composite = INSTANCE.
 
 `IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$.ctor ; `UtilityType.
-MinDistanceToClosestEnemy=16`) :
+MinDistanceToClosestEnemy=17`) :
   - `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext` (stub IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$EvaluateMovementInSteps) : `U = wMin * d`, avec
     `wMin = MinDistanceToClosestEnemy.PerTileDistance` (-100, du BC ; negatif => preferer se
     RAPPROCHER) et `d = GetMinDistanceToEnemy(unit, tuile_candidate, ClosestEnemy)`. Le contexte du
@@ -48,14 +48,14 @@ MinDistanceToClosestEnemy=16`) :
     tuile ; un offset UNIFORME ne deplace AUCUN argmax, donc aucune statistique d'agrement ne peut
     voir ce trou -- ne jamais valider ce terme par un taux d'accord).
 
-Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)** (composition
+Le decideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(17)** (composition
 LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`, doc §13.8/13.11). C'est
 un `ComposedUtility` INSTANCE (PAS une classe). Il s'evalue sur le CANAL MOUVEMENT (`ComposedUtility.
 IdunBattle.AI.Utilities.ComposedUtility$$EvaluateMovement` = Σ enfant.EvaluateMovement) : la feuille Tile score la tuile (canal tile)
 et MinDist la distance (canal mouvement). Le generateur `MovementSuggestion` (engine.move.best_move_faithful)
 pilote les deux canaux par tuile ; on ne somme donc PAS via `UNIT_MOVEMENT.evaluate` (signatures par canal).
 
-NB hors composite : `MaxDistanceToEnemies(18)` n'est dans AUCUN composite ; `MaxDistanceToUnitTile(17)`
+NB hors composite : `MaxDistanceToEnemies(19)` n'est dans AUCUN composite ; `MaxDistanceToUnitTile(18)`
 n'appartient qu'a `UnitMovementFromTemporary(5)` — non portes (doc §13.3).
 """
 from __future__ import annotations
@@ -142,7 +142,7 @@ assert int(StatType.CRIT_CHANCE) == 9      # `GetStat(unit, 9)` de `UnitCanBeDam
 
 class MinDistanceToClosestEnemyUtility(BaseUtility):
     """`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility` (IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility$$.ctor ;
-    UtilityType.MinDistanceToClosestEnemy=16). Feuille du composite UnitMovement(6)."""
+    UtilityType.MinDistanceToClosestEnemy=17). Feuille du composite UnitMovement(6)."""
     UTILITY_TYPE = int(UtilityType.MinDistanceToClosestEnemy)  # 17
 
     def get_min_distance_to_enemy(self, pos, enemy_positions=None, pathdist_by_pos=None):
@@ -205,10 +205,10 @@ class MinDistanceToClosestEnemyUtility(BaseUtility):
         return wt.sub("MinDistanceToClosestEnemy", "PerTileDistance") * d
 
 
-MIN_DIST_UTILITY = MinDistanceToClosestEnemyUtility()   # instance a UtilityType.MinDistanceToClosestEnemy=16
+MIN_DIST_UTILITY = MinDistanceToClosestEnemyUtility()   # instance a UtilityType.MinDistanceToClosestEnemy=17
 assert MIN_DIST_UTILITY.UTILITY_TYPE == UtilityType.MinDistanceToClosestEnemy
 
-# Composite UnitMovement(6) = INSTANCE ComposedUtility (Tile=7 + MinDistanceToClosestEnemy=16) ; membership
+# Composite UnitMovement(6) = INSTANCE ComposedUtility (Tile=7 + MinDistanceToClosestEnemy=17) ; membership
 # LUE runtime (doc §13.8/13.11). Evalue sur le CANAL MOUVEMENT par le generateur, PAS via .evaluate (les
 # deux enfants ont des canaux differents) ; sert de RECORD de membership + de cle UtilitiesDatabase.
 UNIT_MOVEMENT = ComposedUtility([TILE_UTILITY, MIN_DIST_UTILITY], utility_type=UtilityType.UnitMovement)

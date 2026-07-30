@@ -28,6 +28,14 @@ import { queueOnMainThread } from "../runtime/queue.js";
 import { state } from "../game/state.js";
 import { aiControlClass } from "../game/ai-control.js";
 import { getTraceOrigin, OriginBuffers } from "../game/trace-origin.js";
+// #283 — la table etait INLINE ici, figee sur `gqfc5mff6c`, donc hors de la garde #252 :
+// `AttackTile` (insere en 8 par `rnca9r7q6c`) manquait, et les 37 ids suivants nommaient leur
+// VOISIN. Elle n'est pas decorative — `prePopulateKnownConfigs` APPELLE
+// `UtilitiesDatabase$$GetUtilityConfig(type, coll)` avec ces ordinaux, puis etiquette la config
+// rendue avec le nom associe : chaque entree de `knownConfigs` portait donc, a partir de l'id 8,
+// le libelle de l'utilite voisine, et l'utilite d'ordinal le plus eleve n'etait jamais peuplee.
+// Desormais generee par `regen_hook_name_tables.py` et gardee par `probe_252_hook_name_tables.py`.
+import { UTILITY_TYPE_NAMES } from "../data/utility-type-names.js";
 
 // Cache the System.String Il2CppClass* once at module load. The hook on
 // Dictionary<string,int>.TryGetValue actually fires for ALL reference-typed
@@ -467,55 +475,11 @@ function captureStack(
     trace.callstacks.push({ origin, source, topRva, frames, ts: Date.now() });
 }
 
-// --- Enum name lookup (from sources_win UtilityType.cs / UtilityConfigCollectionType.cs) ---
-
-const UTILITY_TYPE_NAMES: Record<number, string> = {
-    0: "Spawn", 1: "SingleAdjacency", 2: "TriggeredAbilities",
-    3: "UnitSpecificBehaviours", 4: "TriggeredAbilitiesNonOwner",
-    5: "UnitMovementFromTemporary", 6: "UnitMovement", 7: "Tile",
-    8: "Elevation", 9: "TileEffects", 10: "UnitEffectsAdjacent",
-    11: "UnitEffectsSurrounding", 12: "UnitEffectsRanged",
-    13: "TemporaryTile", 14: "TilePendingBlockableSummon",
-    15: "RangedAdjacentEnemy", 16: "MinDistanceToClosestEnemy",
-    17: "MaxDistanceToUnitTile", 18: "MaxDistanceToEnemies",
-    19: "SteppableUnit", 20: "KustomForceField",
-    21: "DefenderOfTheGreaterGood", 22: "SaviorProtocols",
-    23: "MoltenForm", 24: "CapturePoint", 25: "AdjacentToadstool",
-    26: "TreeAncientHeal", 27: "Contaminated", 28: "PowerUp",
-    29: "DislikeStartingTilesUtility", 30: "DespoiledGround",
-    31: "SummonDislikeDoorOpening", 32: "HeroLikeDoorOpening",
-    33: "EnvEndBombardment", 34: "MovementSuggestion",
-    35: "TileDistance", 36: "Damage", 37: "DamageDealt",
-    38: "KillUnit", 39: "OverkillUnit", 40: "DislikeObjects",
-    41: "DislikeEnvironmentUnits", 42: "OnlyImperviousUnitIfCanBeDamaged",
-    43: "EnemyOnTerritoryTile", 44: "AttackTargetWithEffect",
-    45: "Heal", 46: "AddedTileEffects", 47: "Repair",
-    48: "RepairedAmount", 49: "DanceOfDaggers",
-    50: "AdjacentQuickSlash", 51: "RoyalGuard_AvoidAdjacentEnemies",
-    52: "SwornProtector_AvoidAdjacentEnemies",
-    53: "DevoutPush_AdjacentRangedEnemies",
-    54: "RammingSpeed_MostAdjacentEnemies",
-    55: "WireweaveNet_FirstAttack",
-    56: "MV71SniperDroneSquad_ClosestToParent",
-    57: "EarlyWarningOverride_SpawnSummon",
-    58: "DoctrinaImperatives_AttractMechanicals",
-    59: "EchoesFromTheWarp_FriendliesAvoidGhost",
-    60: "OptimizedGait_AdjacentFriends",
-    61: "Phantasm_AvoidFriendlyPhantasm",
-    62: "BioMinefield_MoveTowardsTarget",
-    63: "MasterOfTheTutelaries_MoveTowardsTarget",
-    64: "HypersensoryAbilities_BonusForFirstAttack",
-    65: "DecoysAndMisdirection_AttractToDecoys",
-    66: "TheArdentBlade_Geminae", 67: "LeadingTheCharge_ChargeTile",
-    68: "ActiveAbilities", 69: "PreferNonBoss",
-    70: "PreferFreshlySpawned", 71: "MinPossibleNormalAttackTarget",
-    72: "UnitWithShortestPathToEnemy", 73: "Remaining",
-    74: "PreferAbilities", 75: "PreferSummons",
-    76: "LastAbilities", 77: "UnitOrder", 78: "Random",
-    79: "AdjacentHarmonizedFriend", 80: "PsychicFortress",
-    81: "NoMovementToTileWithAdjacentEnemies",
-};
-
+// --- Enum name lookup ---
+// UTILITY_TYPE_NAMES : importe de ../data/utility-type-names.js (auto-genere, garde #252).
+// UtilityConfigCollectionType n'a PAS bouge entre gqfc5mff6c et rnca9r7q6c (3/3 membres
+// identiques, verifie #283) : la table ci-dessous reste juste, et c'est justement pour ca
+// qu'elle est dangereuse -- rien ne signalera son invalidation au prochain build.
 const COLLECTION_NAMES: Record<number, string> = {
     0: "Default", 1: "SummonIceElemental", 2: "MovementSuggestion",
 };

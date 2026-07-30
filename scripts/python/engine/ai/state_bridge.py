@@ -216,7 +216,7 @@ def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -
 def _pathdist_to_enemies(state, uid: int, my_team: int, enemy_positions: list,
                          origin=None, enemy_ids: list | None = None) -> tuple:
     """`{(col,row): pathDist}` OFFLINE, mirror 1:1 du couple natif qui alimente la feuille de
-    mouvement `MinDistanceToClosestEnemy(16)` — et pendant offline EXACT du RPC `pathDistToEnemies` :
+    mouvement `MinDistanceToClosestEnemy(17)` — et pendant offline EXACT du RPC `pathDistToEnemies` :
 
       1. `IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CFindClosestEnemyu003Ed__8$$MoveNext`
          fige **UN** `ClosestEnemy` = argmin de la distance depuis la tuile COURANTE sur les ennemis

@@ -2,7 +2,7 @@
 UNE CLASSE `*Utility` par `UtilityType` (nom natif), dont `evaluate(...)` porte le corps de son
 `*Utility.<Evaluate*InSteps>d__N.MoveNext` (ghidra gqfc5mff6c) + poids `BattleConfiguration.Utilities`.
 
-Le composite à scorer (Damage=34, Tile=7) = INSTANCE `ComposedUtility` (SOMME de ses feuilles ; ce ne
+Le composite à scorer (Damage=35, Tile=7) = INSTANCE `ComposedUtility` (SOMME de ses feuilles ; ce ne
 sont PAS des classes dédiées). La MEMBERSHIP exacte est LUE À L'EXÉCUTION (RPC `dumpComposedUtility`,
 doc §13.8) — pas devinée. cf. docs/rl/playbook-engine.md §13.7 / §13.8 / §13.9.
 

@@ -17,7 +17,7 @@ FINDINGS DECOMPILE :
     Direct(GetNumberConstant(0x16)=range=2), reachOnly=1)` = `CanAddUnit(AdjacentTiles(target))
     op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)` == meme pool que
     HeroicFusillade (surround_radius=1, move_range=2). Le TRI en aval est
-    `SortTilesByUtility(..., 0x20 = MovementSuggestion)` = composite `[Tile(7), TileDistance(33)]`
+    `SortTilesByUtility(..., 0x20 = MovementSuggestion)` = composite `[Tile(7), TileDistance(34)]`
     (#201) -- PAS « la tuile la plus proche », qui n'en etait qu'un cas particulier.
   - ATTAQUE mono-cible melee (profil Power, pierce 40%, 3 hits) ; gate = les DEUX vivants ; PAS de splash/crit.
 
@@ -494,7 +494,7 @@ def test_vig_landing_tile_refutes_closest_tile_collapse(rpc, build_runner):
 
 
 def test_vig_landing_tile_needs_tiledistance_leaf(rpc, build_runner):
-    """MOITIE `TileDistance(33)` du composite : sur une geometrie ou `Tile(7)` SEUL et le composite
+    """MOITIE `TileDistance(34)` du composite : sur une geometrie ou `Tile(7)` SEUL et le composite
     complet divergent (donc `Tile(7)` est ex aequo et c'est `-d/10` qui tranche), le natif suit le
     composite. Interdit de conclure « le fix marche parce que Tile(7) domine » : sans cette feuille,
     le tri stable rendrait la premiere tuile de l'ordre source."""

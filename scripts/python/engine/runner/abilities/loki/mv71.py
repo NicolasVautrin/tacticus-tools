@@ -26,7 +26,7 @@ Config = l'entrée gameconfig **`MV71SniperDroneSquad`** (le passif 1119) : cons
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$PickTile` : candidates = tuiles autour des TUILES DE LA CIBLE selon la config du drone
 (service slot 0x66 x slot 0xaa(unitId) — portée d'attaque du drone), filtrées `CanAddUnit` &
 `!IsTilePendingDrafting` & « peut attaquer les tuiles de la cible depuis » (slot 0xc3) ; puis
-`SortTilesByUtility(list, [UtilityBucket[WeightedUtility(7=Tile), WeightedUtility(0x37=
+`SortTilesByUtility(list, [UtilityBucket[WeightedUtility(7=Tile), WeightedUtility(0x38=
 MV71SniperDroneSquad_ClosestToParent)]], Self@0x148)` -> First. `firstOnly` -> 1er candidat brut
 (le gate de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility$$GetDynamicInvalidTargetReason` : la SEULE condition dynamique — H53 infirmée,
 aucune portée minimale). FALLBACK (seulement au cap) : la tuile du drone le plus faible si à portée

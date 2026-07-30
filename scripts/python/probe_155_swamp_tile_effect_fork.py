@@ -1,6 +1,6 @@
 """PROBE case-155 -- le `-25 Swamp` a UN SEUL foyer, et il ne double JAMAIS.
 
-RESIDU NOMME de #146 : le savoir « terrain STATIQUE -> noms sommes par la feuille TileEffects(9) »
+RESIDU NOMME de #146 : le savoir « terrain STATIQUE -> noms sommes par la feuille TileEffects(10) »
 vivait dans DEUX tables offline -- `utilities/tile.py::TERRAIN_TILE_EFFECTS` (DryBush -> LightCover)
 et `runner/operations/spawn.py::_PLACEMENT_TERRAIN_EFFECTS` (Swamp -> Thorns_DefenseReduction), cette
 derniere lue par UN SEUL call-site. Fork de port : 1 concept natif, 2 implementations qui derivent.

@@ -104,10 +104,10 @@ class UtilitiesDatabase:
 UtilitiesDatabase.register(TILE_UTILITY)      # Tile = 7
 UtilitiesDatabase.register(DAMAGE_UTILITY)    # Damage = 34
 UtilitiesDatabase.register(UNIT_MOVEMENT)     # UnitMovement = 6 (Tile + MinDistanceToClosestEnemy)
-UtilitiesDatabase.register(MIN_DIST_UTILITY)  # MinDistanceToClosestEnemy = 16
+UtilitiesDatabase.register(MIN_DIST_UTILITY)  # MinDistanceToClosestEnemy = 17
 UtilitiesDatabase.register(HEAL_UTILITY)      # Heal = 44
-UtilitiesDatabase.register(REPAIR_UTILITY)    # RepairedAmount = 47
-UtilitiesDatabase.register(ADDED_EFFECT_UTILITY)  # AddedTileEffects = 45
+UtilitiesDatabase.register(REPAIR_UTILITY)    # RepairedAmount = 48
+UtilitiesDatabase.register(ADDED_EFFECT_UTILITY)  # AddedTileEffects = 46
 _DISLIKE_STARTING_TILES = UtilitiesDatabase.register(DislikeStartingTilesUtility())  # 27
 for _name, _inst in TILE_LEAVES.values():     # feuilles Tile (8, 9, 13, 19, …)
     if _inst is not None:

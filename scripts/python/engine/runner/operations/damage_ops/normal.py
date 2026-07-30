@@ -102,7 +102,7 @@ class _Normal:
                                               is_ranged=bool(_ranged), is_overwatch=bool(is_overwatch))
         if _pbonus:
             pierce, _ranged, whits = select_weapon_pierce(ctx, dist, effect_bonus=_pbonus)
-        # `On(PreUnitAbility=0x2b)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+        # `On(PreUnitAbility=0x2a)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
         # l'emet TOUT EN HAUT (`FUN_180026490(0x4d, .., 0x2b)`), AVANT l'execution de l'ability : l'attaque
         # normale EST une active ability (`NormalAttackType`, cf. #139 plus bas). Emis ICI, juste apres la
         # selection d'arme (lecture pure : le natif connait deja la nature du coup) et AVANT tout calcul
@@ -447,7 +447,7 @@ class _Normal:
         # est justement le porteur du seul consommateur (cf. `attack_damage_attack_triggers`).
         # `target_id` est ici la cible REELLEMENT frappee (#120bis, cf. le commentaire du champ `target`
         # ci-dessous) : le natif emet cet event depuis l'AttackData de l'attaque effectivement resolue.
-        # `On(FinalDamage = 0x43 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+        # `On(FinalDamage = 0x42 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
         # RegisterFinalDamage`, dont les xrefs sont EXHAUSTIVES : `IdunBattle.Operations.
         # AttackDamageOperation$$Execute` (ici) et `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute` (cf. `execute_ability_attack`) — donc UNE fois par ATTAQUE / par degat d'ability,

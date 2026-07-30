@@ -15,10 +15,10 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
                                                   -> effet-MARQUEUR `EffectType.PhoenixGem_CanRevive`=1451
   IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal
       ArraySet{
-        Triggered( On(0x2e=UnitRevived) & OwnerIsTarget
+        Triggered( On(0x2d=UnitRevived) & OwnerIsTarget
                    & CurrentAbilityIs(AbilityOrEffect(0x5b2=1458 TriggeredAbilityType.PhoenixGem)),
                    RemoveEffect(self@0x150) ),          # revive consomme -> le marqueur DISPARAIT
-        Triggered( On(0x2f=UnitResurrected) & OwnerIsTarget, RemoveEffect(self@0x150) )
+        Triggered( On(0x2e=UnitResurrected) & OwnerIsTarget, RemoveEffect(self@0x150) )
       }
       -> case-89 volet B3 : ces DEUX triggers sont desormais PORTES pour de vrai
       (`PhoenixGemRemoveMarkerOnRevive` / `PhoenixGemRemoveMarkerOnResurrect` ci-dessous), branches sur
@@ -154,7 +154,7 @@ class _PhoenixGemRemoveMarker(EffectTrigger):
 
 
 class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
-    """1re entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2e=UnitRevived) & OwnerIsTarget &
+    """1re entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2d=UnitRevived) & OwnerIsTarget &
     CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))` -> `RemoveEffect(1451)`. Le gate `CurrentAbilityIs`
     est essentiel : un revive de PhoenixGem consomme le marqueur, un revive venu d'AILLEURS (Narthecium
     d'un allie, ...) le LAISSE en place."""
@@ -167,7 +167,7 @@ class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
 
 
 class PhoenixGemRemoveMarkerOnResurrect(_PhoenixGemRemoveMarker):
-    """2e entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2f=UnitResurrected) & OwnerIsTarget` ->
+    """2e entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2e=UnitResurrected) & OwnerIsTarget` ->
     `RemoveEffect(1451)`. AUCUN `CurrentAbilityIs` ici (lu au decompile) : toute RESURRECTION
     (`ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute, ambush) consomme aussi le marqueur."""
     event_id = EventTriggerType.UnitResurrected                # 0x2f = 47

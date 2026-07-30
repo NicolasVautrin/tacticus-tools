@@ -1,6 +1,6 @@
 """`HealUtility` — utilite de SOIN (RE ghidra gqfc5mff6c, doc §13 / status.md §3.1). UNE CLASSE (nom NATIF).
 
-`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; `UtilityType.Heal=44`). Corps =
+`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; `UtilityType.Heal=45`). Corps =
 `<EvaluateAttackInSteps>d__.MoveNext` (stub `IdunBattle.AI.Utilities.HealUtility$$EvaluateAttackInSteps`, body iter IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext) :
     U = (effective / (maxHP + 1)) * W_HEAL * friendSign * bossMod
 avec `W_HEAL = 100` (`IdunBattle.AI.Utilities.HealUtility$$.cctor` = Fix64.FromInt(100)), `friendSign = +1` si la
@@ -19,7 +19,7 @@ W_HEAL = 100   # IdunBattle.AI.Utilities.HealUtility$$.cctor : Fix64.FromInt(100
 
 
 class HealUtility(BaseUtility):
-    """`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; UtilityType.Heal=44). Corps dans
+    """`IdunBattle.AI.Utilities.HealUtility` (IdunBattle.AI.Utilities.HealUtility$$.ctor ; UtilityType.Heal=45). Corps dans
     `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body IdunBattle.AI.Utilities.HealUtility.u003CEvaluateAttackInStepsu003Ed__1$$MoveNext)."""
     UTILITY_TYPE = int(UtilityType.Heal)  # 45
 
@@ -37,5 +37,5 @@ class HealUtility(BaseUtility):
         return u * self.get_unit_utility_modifier(is_boss)
 
 
-HEAL_UTILITY = HealUtility()   # instance enregistree a UtilityType.Heal=44
+HEAL_UTILITY = HealUtility()   # instance enregistree a UtilityType.Heal=45
 assert HEAL_UTILITY.UTILITY_TYPE == UtilityType.Heal

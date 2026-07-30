@@ -15,7 +15,7 @@ RE (decompile ghidra, build `gqfc5mff6c`)
 `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` : `0x148 Owner · 0x158 Actor · 0x160 Caster ·
 0x178 Target`, `0x130` = l'ability declenchante, `0xc0` = la constante `1` du `.ctor` du factory)
 
-    On(0x2b = PreUnitAbility, 1)
+    On(0x2a = PreUnitAbility, 1)
     & AreEnemies(caster@0x160, owner@0x148)
     & GetIsValidTargetForSwornProtectorTrigger(owner@0x148)      # sous-fonction dediee
           = AreEqual(target@0x178, owner) | AreEqual(target@0x178, MainTileOfUnits(owner))
@@ -55,7 +55,7 @@ en (2,3) et Kell en (3,4)... les deux ont echange, et les coups sont alles sur K
 ## `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtector_ProtectAbility$$CreateTrigger`
 
     parent = Parent(owner@0x148)                                  # Creed
-    On(0x2b = PreUnitAbility, 1)
+    On(0x2a = PreUnitAbility, 1)
     & ( AreEqual(target@0x178, parent) | AreEqual(target@0x178, MainTileOfUnits(parent)) )
     & ( AbilityHasAttackType(@0x130, 0) | AbilityHasAttackType(@0x130, 1) )
     & NOT AreEqual(actor@0x158, owner@0x148)                      # Kell n'est pas l'acteur

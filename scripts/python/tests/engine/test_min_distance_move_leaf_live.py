@@ -1,4 +1,4 @@
-"""GARDE de la feuille de MOUVEMENT `MinDistanceToClosestEnemy(16)` — confrontee au NATIF.
+"""GARDE de la feuille de MOUVEMENT `MinDistanceToClosestEnemy(17)` — confrontee au NATIF.
 
 Ce que cette garde verrouille (residu #17 / case-52 §#57k-#57l, ferme le 2026-07-28) :
 

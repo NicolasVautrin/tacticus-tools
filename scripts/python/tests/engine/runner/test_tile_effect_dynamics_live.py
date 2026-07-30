@@ -15,8 +15,8 @@ A. EXPIRATION. `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` n'itere 
    `expired`. Pour une TUILE, dont c'est le SEUL chemin de lecture, le feu brulait pour toujours.
 
 B. TRANSITION D'ENTREE. `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateTrigger`
-   = `(On(0x19=MatchInit) | On(0x33=UnitAdded) | On(0x24=UnitPositionChanged_1) | On(0x2e=UnitRevived)
-   | On(0x2f=UnitResurrected)) & NOT AmountIsZero(UnitsThatNeedEffect)` ;
+   = `(On(0x19=MatchInit) | On(0x32=UnitAdded) | On(0x24=UnitPositionChanged_1) | On(0x2d=UnitRevived)
+   | On(0x2e=UnitResurrected)) & NOT AmountIsZero(UnitsThatNeedEffect)` ;
    `$$CreateBehaviour` = `AddEffect(0x3f5 = 1013 LightCover, AbilityStateReference, UnitsThatNeedEffect)`.
    `On(0x24)` est le PREMIER des trois events d'`IdunBattle.Operations.MoveUnitOperation$$
    EvaluateAfterMoveTriggers` : une unite qui ENTRE sur une tuile de cover recoit l'effet. Le port ne

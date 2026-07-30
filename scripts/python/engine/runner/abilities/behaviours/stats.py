@@ -149,7 +149,7 @@ class Repair(AbilityBehaviour):
     `IdunBattle.Entities.Behaviours.RepairBehaviour$$Execute` : pour chaque unite du selecteur (+0x50,
     pre-filtree par le wrapper `HealableUnitsSelector`), evalue le montant (+0x58) et emet une Operation
     de REPARATION (slot processeur 0x58) -- la mutation PV passe par le MEME mutateur fill-up que le
-    soin (`HealUnitOperation`, cf. `On(UnitRepaired=49)` deja cable cote Swarm). La SEULE difference
+    soin (`HealUnitOperation`, cf. `On(UnitRepaired=48)` deja cable cote Swarm). La SEULE difference
     avec `Heal` est la GARDE d'eligibilite : type 1 (mecanique) au lieu du type 0.
 
     Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.

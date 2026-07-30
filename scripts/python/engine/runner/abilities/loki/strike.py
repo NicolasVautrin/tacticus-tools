@@ -97,7 +97,7 @@ def armorium_cherub_tree() -> AtomicGroup:
         ExecuteAtomic(
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg 0xc/maxDmg 0xd), profile=Flame,
                                    nrOfHits=GetNumberConstant(0x2f)=4)          # 4x Flame ranged, feu posé #136
-          & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # -> passif FireOfAbsolution
+          & EvaluateAbilities(0x4a=AttackInAtomicGroup) )                       # -> passif FireOfAbsolution
     Port : `AtomicGroup( op_and( AttackWithAttackDamage(Target(),"ArmoriumCherub","Flame",ranged),
                                  EvaluateAbilities(AttackInAtomicGroup, ranged=True) ) )`.
     `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(target,0) = `RandomAmount(minDmg[0xc],maxDmg[0xd])` = le degat generique de la
@@ -372,7 +372,7 @@ class ArmoriumCherubAbility(ActiveAbility):
         ExecuteAtomic(
             AttackWithAttackDamage(caster, target, MinMaxDamage(minDmg/maxDmg[level]), Flame,
                                    nrOfHits=GetNumberConstant(0x2f)=4)          # ← DSL (feuille AttackWithAttackDamage)
-          & EvaluateAbilities(0x4b=AttackInAtomicGroup) )                       # ← DSL (nœud EvaluateAbilities)
+          & EvaluateAbilities(0x4a=AttackInAtomicGroup) )                       # ← DSL (nœud EvaluateAbilities)
     Actif RANGED (range 2). Profil Flame (`OnFire`) → POSE du feu sur la tuile-cible via le vecteur after-hit
     d'ability (`execute_ability_attack` → `_on_fire_damage_ability`, #136). i2 « Using Armorium Cherub does
     not end Vindicta's turn » = turn-flow (ne consomme pas le tour) — NON modélisé ici (concern turn-order).
@@ -711,7 +711,7 @@ def _black_rage_charge_tile(state, caster_id, target_id, move_range: int):
     `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit `UtilityDefinition..ctor(0x20)`
     et délègue à la surcharge objet avec `ownerSel` NUL), PAS le `7 = Tile` des ports frères.
     `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` compose la clé `0x20` en
-    `[Tile(7), TileDistance(33)]` — les DEUX enfants sont portés (#201, `engine/utilities/tile.py`).
+    `[Tile(7), TileDistance(34)]` — les DEUX enfants sont portés (#201, `engine/utilities/tile.py`).
 
     #206 — le COLLAPSE « tuiles ADJACENTES à la cible ordonnées par proximité au caster » est SUPPRIMÉ :
     il ne reproduisait le natif que dans le régime où `Tile(7)` est PLAT (alors `TileDistance = -d/10`,

@@ -4,7 +4,7 @@ deplacement VERBATIM, zero changement de comportement).
 
 `On(PreAttack=5)`, `On(PreAttackHit=6)`, `On(DamageTaken)`, `On(AttackDamageAttack=10)`,
 `On(Attack=9)`/`On(AttackHit)` (after-hit normale et ability), `On(UnitBlocked)`,
-`On(FinalDamage=0x43)`, plus la riposte SquigHound."""
+`On(FinalDamage=0x42)`, plus la riposte SquigHound."""
 from __future__ import annotations
 
 from typing import Optional
@@ -40,7 +40,7 @@ def _squighound_after_attack(state: State, attacker_id: int, target_id: int) -> 
 
 def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool, profile: Optional[str]) -> list[dict]:
-    """Vecteur `On(UnitBlocked=0x3d=61)` — emis par `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`
+    """Vecteur `On(UnitBlocked=0x3c=61)` — emis par `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`
     sur la branche `if (param_6 != 0)` (le flag BLOCK), **AVANT** le `On(8)` inconditionnel. L'
     `AbilityEntities` de ce vecteur est `ctor(caster = param_3 = l'ATTAQUANT, owner = actor = target =
     param_4 = le DEFENSEUR, casterTiles = GetTiles(attaquant), targetTiles = GetTiles(defenseur))` :
@@ -62,7 +62,7 @@ def unit_blocked_triggers(state: State, attacker_id: int, target_id: int,
 
 def final_damage_triggers(state: State, attacker_id: int, target_id: int,
                           ranged: bool = False, profile: Optional[str] = None) -> list[dict]:
-    """Vecteur `On(FinalDamage = 0x43 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
+    """Vecteur `On(FinalDamage = 0x42 = 67)` — emis par `IdunBattle.Operations.ADamageOperation$$
     RegisterFinalDamage`, dont la DERNIERE instruction est `FUN_180026490(0x50, .., 0x43, entities)`.
 
     XREFS EXHAUSTIVES de `RegisterFinalDamage` : `IdunBattle.Operations.AttackDamageOperation$$Execute`
@@ -166,7 +166,7 @@ def damage_dealt_triggers(state: State, source_id: Optional[int], target_id: int
                           is_first_hit: Optional[bool] = None,
                           triggering_effect: Optional[int] = None) -> list[dict]:
     """Vecteur `On(DamageDealt=0x10=16)` (#85) — DERNIER des TROIS events qu'emet
-    `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x3a=PreDamageTaken)` ->
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x39=PreDamageTaken)` ->
     `On(0xf=DamageTaken)` -> `On(0x10=DamageDealt)`. **CE N'EST PAS** `IdunBattle.Operations.
     ADamageOperation$$EvaluateAfterHitTriggers`, qui n'emet QUE `0x3d` (branche block) puis `8`
     (after-hit) — mis-attribution corrigee ici et dans `triggers/loki/fire.py`.

@@ -8,7 +8,7 @@ Decomposition par etage imprimee (jamais un total nu) :
   * candidats 1197 : `u` (Sigma CalculateUtilityFromDamageEvent) et `Tile(7)@P` separes ;
   * candidats attaque : `u` (degat) / `Tile(7)@tuile` / `CalculateCustomUtility` separes,
     POUR CHAQUE tuile candidate `ranked` (pas seulement l'argmax) ;
-  * `Tile(7)` ventile par FEUILLE (Elevation(8), TileEffects(9), ...) sur les tuiles en litige.
+  * `Tile(7)` ventile par FEUILLE (Elevation(8), TileEffects(10), ...) sur les tuiles en litige.
 
 Board `C4_02` (marche d'elevation), caster `emperNoiseMarine`. Ancrage = l'etat de #124 section 7.
 Runner dedie, dispose en fin. ASCII only.

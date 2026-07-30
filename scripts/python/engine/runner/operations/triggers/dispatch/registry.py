@@ -104,7 +104,7 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "ActOfFaith": [ActOfFaithAccumulateAbility, ActOfFaithResetAbility],
     # FinalJustice (worldKharn) = attaque normale à la mort (fire-on-death, gate overkill).
     "FinalJustice": [FinalJusticeAbility],
-    # Ambush (Isaak/Judh/Neophyte, G3) = mort -> decoy (On UnitDefeated=55) + resurrection sur decoy allie
+    # Ambush (Isaak/Judh/Neophyte, G3) = mort -> decoy (On UnitDefeated=54) + resurrection sur decoy allie
     # au debut du tour suivant (On TurnStart=22). Les DEUX sont fire-on-death (owner mort au moment du fire).
     "Ambush": [AmbushSummonAbility, EnvAmbushResurrectAbility],
     # WeaverOfFate (trait Abraxas thousInfernalMaster, #202-A) = `On(9=Attack)` : >=3 ennemis ayant recu
@@ -224,7 +224,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "FleshmetalGuns": [FleshmetalGunsRotationAbility, FleshmetalGunsTileEffectAbility],
     # TerrifyingCrescendo (passif emperNoiseMarine << Shiron >>) = ACCUMULATION du stack de l'effet 1424
     # (deja porte #204, magnitude x level) : disjonction `On(0=UnitDeath) & OwnerIsActor & TargetIsOverkilled`
-    # | `On(0x3e=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
+    # | `On(0x3d=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
     # 1424, +1, max=buffMaxLevel=6)`. Cf. loki/terrifying_crescendo.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour).
     "TerrifyingCrescendo": [TerrifyingCrescendoOverkillAbility, TerrifyingCrescendoSuppressAbility],
     # FuelledByFury (passif ultraTitus << Titus >>) = ACCUMULATION du stack de l'effet 1323 (magnitude
@@ -237,19 +237,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `Revive(self, self, ConfigVar('hp'), healType=0, sourceId=1251)`. Le passif porte les DEUX
     # triggered-abilities (l'`ArraySet` du marqueur 1324 n'enregistre, lui, que ses 3 triggers d'etat).
     "FuelledByFury": [FuelledByFuryExtraDamageAbility, FuelledByFuryReviveAbility],
-    # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3d) &
+    # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3c) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3d)` qui
     # manquait. Volets Stun / FrozenAttackerAdvantage / init-effects = residus documentes.
     # Cf. loki/anvil_shield.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour ; emetteur IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers).
     # #100 : les DEUX autres volets on-block sont desormais portes (ils etaient du dead-code faute de
     # leurs prerequis) — `ApplyStun` (`On(0x3d) & IsMeleeAttack & (HasEffect(1200)|HasEffect(1201))` ->
-    # Stunned sur l'attaquant) et `FrozenAttackerAdvantage` (`On(0x2b=PreUnitAbility) & IsNormalAttack &
+    # Stunned sur l'attaquant) et `FrozenAttackerAdvantage` (`On(0x2a=PreUnitAbility) & IsNormalAttack &
     # IsUnitOnTileWithEffect(caster, Ice)` -> +20 % block chance transitoire).
     "AnvilShield": [AnvilShieldApplyIceAbility, AnvilShieldApplyStunAbility,
                     AnvilShieldFrozenAttackerAdvantageAbility],
     # --- #95-RESTE2 : chaine SwornProtector -> Kell -> ListenUpMaggots ---------------------------
-    # SwornProtector (passif `astraCreed`, triggered 1050) = `On(PreUnitAbility=0x2b)` : a la PREMIERE
+    # SwornProtector (passif `astraCreed`, triggered 1050) = `On(PreUnitAbility=0x2a)` : a la PREMIERE
     # attaque ennemie visant Creed, Kell (`astraSmnKell`) apparait sur un hex libre adjacent et prend
     # sa place (TriggerAbility -> SwornProtector_Protect). Cf. loki/sworn_protector.py.
     "SwornProtector": [SwornProtectorSummonKellAbility],
@@ -257,7 +257,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # suivante visant Creed, Kell re-echange sa position avec lui et encaisse.
     "SwornProtector_Protect": [SwornProtectorProtectSwitchAbility],
     # HazeOfCorruption (passif `deathBlightlord` << Maladus >>, triggered 1076) = MEME event
-    # `On(PreUnitAbility=0x2b)`, gate `get_OwnerIsCaster` SEUL : a l'entree de CHAQUE ability du
+    # `On(PreUnitAbility=0x2a)`, gate `get_OwnerIsCaster` SEUL : a l'entree de CHAQUE ability du
     # porteur, `HazeOfCorruption_TargetFinderAbility$$CreateBehaviour` resout
     # `PickRandomly(Damageable(AdjacentEnemies(Self) & AdjacentFriends(Target)), 2)` -- donc
     # `min(len(pool), 2)` `genrand_int32` AVANT tout coup -- et bonde les relais (effet 1077).
@@ -268,7 +268,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # tomber, dont le degat DEBORDE integralement vers le relais bonde (l'effet 1077 ci-dessous).
     "HazeOfCorruption": [HazeOfCorruptionTargetFinderAbility, HazeCorruptionBonusHitAbility],
     # MartialSuperiority (passif `templChampion` << Brother Jaeger >>, triggered 0x444=1092) = MEME
-    # event `On(PreUnitAbility=0x2b)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
+    # event `On(PreUnitAbility=0x2a)` : quand Jaeger est CIBLE d'une attaque de MELEE pendant le tour
     # ADVERSE, il frappe l'attaquant 2x profil Power AVANT que l'attaque ne s'execute
     # (`MartialSuperiorityAbility$$CreateTrigger`/`$$CreateBehaviour`, cible = `Actor@0x158` ==
     # `$$GetInitialTarget`). Si la riposte TUE l'attaquant, le gate acteur-mort POST-`On(0x2b)` de
@@ -280,11 +280,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "ListenUpMaggots": [ListenUpMaggotsAddEffectAbility],
     # --- Genestealer Cults : les 2 passifs HERO restants du parc GS ------------------------------
     # CosmicHorror (passif `genesPatriarch` << The Patermine >>) = DEUX abilities natives distinctes :
-    #   * `On(0x37=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(Steppable)` -> decoy sur la
+    #   * `On(0x36=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(Steppable)` -> decoy sur la
     #     tuile du mort + `Foreach(ennemis de l'anneau, Maybe(chance){ TriggerAbility(BattleFatigue)
     #     & If(IsAlive, AddEffect(Pinned 1065)) })` -- UN SEUL Maybe pour les DEUX volets (le << 60 %
     #     et 60 % >> de l'i2 est de la prose : le decompile n'a qu'un tirage par victime) ;
-    #   * `On(0x36=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(Decoy)` -> `Heal(self, hp)`
+    #   * `On(0x35=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(Decoy)` -> `Heal(self, hp)`
     #     (le << marcher sur un decoy >> est en realite le CRUSH du decoy, qui passe par
     #     `KillUnitOperation$$Execute` -> `On(0x36)`).
     # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
@@ -304,7 +304,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     EXTRA_RANGE (1206), 1 tour. Son `CreateTrigger` est un fold ICF vers
     #     `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WeaverOfFateAbility$$GetTrigger` (parametre
     #     par l'effectType 0x4b5) -- MEME corps que WeaverOfFate, aucune parente.
-    #   * `RealityUnboundExtraMaxDamageAbility` : `On(0x43=FinalDamage)` &
+    #   * `RealityUnboundExtraMaxDamageAbility` : `On(0x42=FinalDamage)` &
     #     `HasTakenDamageOfDamageProfileThisTurnAmountOfTimes(target, Psychic, times=1)` (EGALITE
     #     STRICTE = 1re instance seulement = « each DIFFERENT enemy ») & `AreEnemies` ->
     #     +extraMaxDmg EXTRA_MAX_DAMAGE (1207, EMPILABLE), 1 tour.
@@ -412,8 +412,8 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # (IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
     # (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
     # bataille. Le `IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` de l'effet enregistre en plus les
-    # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2e=UnitRevived) & OwnerIsTarget &
-    # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2f=UnitResurrected) & OwnerIsTarget`.
+    # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2d=UnitRevived) & OwnerIsTarget &
+    # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2e=UnitResurrected) & OwnerIsTarget`.
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
                              PhoenixGemRemoveMarkerOnRevive,         # On(0x2e) -> RemoveEffect(1451)
                              PhoenixGemRemoveMarkerOnResurrect],     # On(0x2f) -> RemoveEffect(1451)

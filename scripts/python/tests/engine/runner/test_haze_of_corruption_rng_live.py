@@ -3,7 +3,7 @@ A L'ENTREE de chaque ability de `deathBlightlord`, AVANT le premier coup.
 
 Chaines natives portees (symboles) :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateTrigger`
-      = `On(0x2b = PreUnitAbility, 1) & get_OwnerIsCaster`
+      = `On(0x2a = PreUnitAbility, 1) & get_OwnerIsCaster`
   `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
       = `PickRandomly( Damageable( AdjacentEnemies(Self@0x148, 1, 3)
                                  & AdjacentFriends(Target@0x178, 1, 3) ), 2, 0, 0x7fffffff, false )`

@@ -1,4 +1,4 @@
-"""Probe #120 — DE-FORK du vecteur `On(PreUnitAbility = 0x2b)`.
+"""Probe #120 — DE-FORK du vecteur `On(PreUnitAbility = 0x2a)`.
 
 LE FORK
 -------

@@ -10,7 +10,7 @@ Natif (DSL, mirror noeud a noeud) :
                          StatAmount(Self, 20, part 4=MISSING))))
     = **-min(nrOfMembers - 1, membres MORTS)** (plancher structurel : jamais moins de 1 hit).
   * `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` =
-        (On(UnitRepaired=49,1) | On(UnitHealed=44,1) | On(UnitMemberDeath=48,0) | On(UnitRevived=46,1))
+        (On(UnitRepaired=48,1) | On(UnitHealed=43,1) | On(UnitMemberDeath=47,0) | On(UnitRevived=45,1))
         & OwnerIsTarget  |  OnOwnerSpecificAbilityInit(0x3ff=1023)
     — exactement les evenements qui changent le compte de membres du porteur.
   * Stat 20 (NUMBER_OF_MEMBERS) : handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (bloc IdunBattle.Entities.UnitExtensions$$GetStat+0x859) →

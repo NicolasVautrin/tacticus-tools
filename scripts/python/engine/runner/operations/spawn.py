@@ -302,8 +302,8 @@ def _sort_tiles_by_utility_for_summon(state: State, tiles: list, caster_id: int)
     On passe donc `parent_id=caster_id` — le `parent` natif, 3ᵉ argument de
     `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon` — et AUCUN `unit_id` : le foyer
     produit un ctx `{"is_spawning": True}`, que chaque feuille consomme selon SA propre dégradation
-    (0 pour `TriggeredAbilities(2)` / `DespoiledGround(28)` / `HeroLikeDoorOpening(30)` ; flag summon
-    pour `CapturePoint(24)` / `PowerUp(26)` / `SummonDislikeDoorOpening(29)`).
+    (0 pour `TriggeredAbilities(2)` / `DespoiledGround(28)` / `HeroLikeDoorOpening(31)` ; flag summon
+    pour `CapturePoint(25)` / `PowerUp(27)` / `SummonDislikeDoorOpening(30)`).
 
     ⚠ La réduction est **MESURÉE, pas supposée** : trois scénarios live où le tri et l'ordre source
     DÉSACCORDENT (`probe_130_placement_sort_rng.py`, dont `--discriminate` qui construit exprès la
@@ -439,7 +439,7 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
 
 
 def on_unit_added(state: State, unit_id: Optional[int]) -> list:
-    """VECTEUR `On(UnitAdded = 0x33)` — mirror du point d'emission natif (`AddUnitOperation`) : une
+    """VECTEUR `On(UnitAdded = 0x32)` — mirror du point d'emission natif (`AddUnitOperation`) : une
     unite vient d'ENTRER en bataille, les triggers qui ecoutent cet evenement s'executent MAINTENANT,
     avec l'unite deja POSEE (position incluse — les gates de portee en dependent).
 
@@ -463,7 +463,7 @@ def on_unit_added(state: State, unit_id: Optional[int]) -> list:
     r = apply_on_unit_added(state, int(unit_id))
     if r is not None:
         out.append(r)
-    # DISPATCH GENERIQUE `On(UnitAdded = 0x33 = 51)` : `AbilityEntities.ctor(added, added, added)`
+    # DISPATCH GENERIQUE `On(UnitAdded = 0x32 = 51)` : `AbilityEntities.ctor(added, added, added)`
     # -> actor = caster = target = l'unite qui vient d'apparaitre.
     from .triggers import TriggerEvent, evaluate_trigger_operation
     from ...dsl.event_trigger_type import EventTriggerType

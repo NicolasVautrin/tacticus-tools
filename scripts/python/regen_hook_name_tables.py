@@ -60,6 +60,12 @@ TABLES = {
     "effect-type-names.ts":        ("IdunBattle.Entities.Enum.EffectType",           "EFFECT_TYPE_NAMES"),
     "event-trigger-type-names.ts": ("IdunBattle.DSL.EventTriggerType",               "EVENT_TRIGGER_TYPE_NAMES"),
     "triggered-ability-names.ts":  ("IdunBattle.Entities.Enum.TriggeredAbilityType", "TRIGGERED_ABILITY_NAMES"),
+    # #283 : entree en 2026-07-30. Cette table vivait INLINE dans
+    # `frida/hooks/features/ai-utility-trace.ts`, donc hors de la garde #252 -- et elle etait
+    # figee sur `gqfc5mff6c` (82 entrees, 37 fausses). Elle n'est PAS decorative : elle pilote
+    # `prePopulateKnownConfigs`, qui appelle `UtilitiesDatabase$$GetUtilityConfig(type, coll)`
+    # AVEC ces ordinaux et etiquette le resultat avec le nom associe.
+    "utility-type-names.ts":       ("IdunBattle.Configuration.UtilityType",          "UTILITY_TYPE_NAMES"),
 }
 
 ENTREE = re.compile(r'^\s*(-?\d+)\s*:\s*"([^"]*)"', re.M)
@@ -71,6 +77,7 @@ ROLE = {
     "effect-type-names.ts": "id -> nom d'EffectType (EffectComponent.EffectType) : ce que l'UI rend en icones.",
     "event-trigger-type-names.ts": "id -> nom d'EventTriggerType (le declencheur d'un trigger DSL).",
     "triggered-ability-names.ts": "id -> nom de TriggeredAbilityType (l'ability passive/declenchee).",
+    "utility-type-names.ts": "id -> nom d'UtilityType (la cle d'une UtilityConfig d'IA).",
 }
 
 

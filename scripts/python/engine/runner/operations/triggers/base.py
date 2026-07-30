@@ -58,7 +58,7 @@ class TriggerEvent:
         # attaque melee Physical/Power + bonus Psychic QUALIFIE le trigger 1173). None = non threadé
         # (les consommateurs retombent sur {profile}).
         self.profiles = set(profiles) if profiles else None
-        # `TriggeringEffectIs(effectType)` (`On(PreEffectAdded=62)`/`On(EffectRemoved=65)`) : le TYPE
+        # `TriggeringEffectIs(effectType)` (`On(PreEffectAdded=61)`/`On(EffectRemoved=64)`) : le TYPE
         # d'effet porte par l'evenement (celui qu'on est en train de poser/retirer). None hors de ces
         # vecteurs. Consommateur : branche 2 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
         # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).

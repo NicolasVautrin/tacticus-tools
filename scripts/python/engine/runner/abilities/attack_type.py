@@ -1,6 +1,6 @@
 """`IdunBattle.Entities.Abilities.AbilityAttackType` + les deux predicats DSL qui le lisent
 (`AbilityHasAttackType`, `IsNormalAttack`) -- la DONNEE manquante quand le vecteur
-`On(PreUnitAbility=0x2b)` cesse d'etre emis par la SEULE voie d'attaque normale (#120).
+`On(PreUnitAbility=0x2a)` cesse d'etre emis par la SEULE voie d'attaque normale (#120).
 
 POURQUOI CE MODULE EXISTE
 -------------------------

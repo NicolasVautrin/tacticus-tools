@@ -10,7 +10,7 @@ CONDITION DE FACTION (`AreEnemies` vs `AreFriends`), PAS par l'event :
     -> `Repeat( AttackWithAbilityDamage(owner, actor=stepper, MinMaxDamage, Blast, GetHits=1),
                Count(GetValidDeadDecoys) )`
 - `DecoysAndMisdirection_BuffFriendsAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_BuffFriendsAbility$$CreateBehaviour) :
-    `(On(0x2f=UnitResurrected) | On(0x1d)) & AreFriends(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)`
+    `(On(0x2e=UnitResurrected) | On(0x1d)) & AreFriends(owner, actor) & AmountIsGreaterThanZero(GetValidDeadDecoys)`
     -> `AddEffect(1379 DecoysAndMisdirection_ExtraDamage +582, on=actor)` + `If(HasFaction(actor,
        GenestealerCults), spawn_decoy(First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(actor)))),
        ForSteppable))`
@@ -237,7 +237,7 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
 #   - `Ambush_SummonAbility`      (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : mort -> decoy.
 #   - `EnvAmbushResurrectAbility`  (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour)   : resurrection.
 # La feuille DSL `IdunBattleLogic.Entities.DSLFactory$$Resurrect appelle l'Operation imperative `ResurrectUnitOperation.Execute
-# IdunBattle.Operations.ResurrectUnitOperation$$Execute` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=47).
+# IdunBattle.Operations.ResurrectUnitOperation$$Execute` (../resurrect.py) qui pose le flag one-shot 0xe + crushe le decoy + emet On(UnitResurrected=46).
 # RE ghidra gqfc5mff6c ; doc docs/rl/genestealer-cults.md (verdict G3).
 # =====================================================================================================
 
@@ -338,7 +338,7 @@ def _max_health(state: State, uid: int):
 
 class AmbushSummonAbility(TriggeredAbility):
     """`Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger, IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour). A la MORT d'un porteur
-    Ambush : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
+    Ambush : `On(UnitDefeated=54) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
     la tuile du mort (sinon adjacente libre), ForSteppable (feuille Spawn = G1). ENREGISTRE aussi `turn_defeated`
     (base du delai de resurrection). `fire_on_death` : l'owner EST l'unite morte (alive=False)."""
     event_id = int(EventTriggerType.UnitDefeated)         # 55 (0x37)

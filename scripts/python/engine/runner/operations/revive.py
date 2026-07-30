@@ -35,7 +35,7 @@ juste apres `On(PreUnitDeath)`) : c'est l'ordre observable natif (la phase 0xd s
   * flags        IdunBattle.Operations.ReviveUnitOperation$$Execute+0x7e0 : Remove(0xf), Remove(8=overkill), Add(0x14) -> l'unite redevient VIVANTE
                  (PAS 0xe AmbushConsumed -- un revive-en-place N'EST PAS un ambush one-shot)
   * IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition : repositionne sur la tuile de l'unite -> IN-PLACE
-  * emet `On(UnitRevived = 46 = 0x2e)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
+  * emet `On(UnitRevived = 45 = 0x2e)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d,...,lVar16,0x2e)`)
   * PUIS purge `unitComponent + 0xa8 .. +0xe8 = 0` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRES le dispatch de On(0x2e))
 
 Frontiere DSL (#149) : la feuille `Revive` (declaratif, `triggers/revive_effect.py`) POSE ; l'Operation
@@ -223,12 +223,12 @@ class ReviveUnitOperation:
         # revive est alors IN-PLACE (aucune ecriture de position), ce qui est le cas de TOUS les
         # consommateurs sauf le ghost de `thousTerminator` (#213).
         moved_to = _set_revive_position(state, unit_id, data.get("revive_position"))
-        # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=46) du
+        # #60 : re-eval du stat-mod EXTRA_HITS du trait Swarm au retour a la vie (bras On(UnitRevived=45) du
         # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger), comme ResurrectUnitOperation.
         if hc is not None and set_hp is not None:
             from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
-        # `On(UnitRevived = 0x2e = 46)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
+        # `On(UnitRevived = 0x2d = 46)` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 -- emis AVANT la purge du champ (ordre natif lu).
         # Consommateurs portes : `PhoenixGem_CanReviveEffect` (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal : retrait du marqueur 1451 sous
         # `CurrentAbilityIs(PhoenixGem)`), et tout futur `On(0x2e)`.
         from .triggers import unit_revived_triggers

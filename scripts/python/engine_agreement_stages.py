@@ -488,7 +488,7 @@ class StageProbe:
                 if e is not None else {}
             if c in ctx.is_temporary_by_pos:
                 meta["is_temporary"] = ctx.is_temporary_by_pos[c]
-            # TileEffects(9) : effets DYNAMIQUES (tileMeta, Loop1) + covers HÉBERGÉS par le terrain
+            # TileEffects(10) : effets DYNAMIQUES (tileMeta, Loop1) + covers HÉBERGÉS par le terrain
             # (Loop2 : DryBush->LightCover, case-37).
             _effs = list(ctx.effects_by_pos.get(c) or [])
             _effs += terrain_tile_effects(ctx.terrain_by_pos.get(c), _effs)   # #155 : canal dyn. passé

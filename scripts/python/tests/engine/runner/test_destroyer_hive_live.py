@@ -159,7 +159,10 @@ def test_dh_trigger_registered(dh_state):
     mine = [t for t in collect_triggered_abilities(state)
             if isinstance(t, DestroyerHiveAbility) and t.owner_id == dh_state["tid"]]
     assert len(mine) == 1, "Typhus doit porter exactement 1 trigger DestroyerHive"
-    assert mine[0].event_id == 22, "le trigger ecoute On(0x16=TurnStart_Actions)"
+    # #283 : etait `== 22`, l'ordinal en dur (juste aujourd'hui, muet au prochain build).
+    from engine.dsl.event_trigger_type import EventTriggerType
+    assert mine[0].event_id == EventTriggerType.TurnStart_Actions, \
+        "le trigger ecoute On(TurnStart_Actions)"
 
 
 def _fire_offline(dh_state, player):

@@ -1,10 +1,10 @@
 """probe #201 -- `VigilanceEternal` (1202) trie ses tuiles de charge par `MovementSuggestion(32)`,
-composite `[Tile(7), TileDistance(33)]` -- et non par un collapse « la plus proche du caster ».
+composite `[Tile(7), TileDistance(34)]` -- et non par un collapse « la plus proche du caster ».
 
 Ce que le probe ETABLIT, en trois etages separes (on ne fitte aucun scalaire) :
 
   1. `--decompose` : pour une geometrie donnee, le score du pool de charge TERME PAR TERME
-     (les feuilles de `Tile(7)` une a une, puis `TileDistance(33)` a part), en regard des
+     (les feuilles de `Tile(7)` une a une, puis `TileDistance(34)` a part), en regard des
      metadonnees LIVE (`tileMeta`). C'est ce qui permet de nommer LE terme qui tranche.
   2. `--scan` : balaie les geometries jouables et retient celles ou l'ANCIEN collapse
      (`min` sur `(hexdist(caster, tuile), tileId)`) et le NOUVEAU tri (`first_tile_by_utility`
@@ -135,7 +135,7 @@ def drive_to(rid, wanted: dict, max_turns: int = 18) -> bool:
 def decompose(state, board, tiles, unit_id):
     """Score PAR TERME des `tiles`, avec les MEMES `meta`/`ctx` que
     `engine.utilities.tile.sort_tiles_by_utility` -- les 29 feuilles de `Tile(7)` d'un cote,
-    `TileDistance(33)` de l'autre (c'est la separation qui rend l'ecart attribuable)."""
+    `TileDistance(34)` de l'autre (c'est la separation qui rend l'ecart attribuable)."""
     from engine.utilities.tile import (TILE_LEAVES, TILE_LEAF_IDS, terrain_tile_effects,
                                        runner_tile_leaf_ctx, TileDistanceUtility)
     from engine.weights import load as load_weights
@@ -205,7 +205,7 @@ def new_sort(state, cands, caster):
 def tile7_only_sort(state, cands, caster):
     """L'AUTRE moitie du composite, seule : `UtilityDefinition(7)` -- ce que rendrait le foyer si
     on branchait ce call-site sur le litteral des ports freres. Sert de CONTRE-EPREUVE isolant
-    `TileDistance(33)` : la ou ce tri differe de `new_sort`, c'est `TileDistance` SEUL qui
+    `TileDistance(34)` : la ou ce tri differe de `new_sort`, c'est `TileDistance` SEUL qui
     tranche (et non `Tile(7)` qui domine)."""
     from engine.utilities.tile import first_tile_by_utility
     from engine.utilities.utility_type import UtilityType
@@ -325,7 +325,7 @@ def scan(seed, board_id, a_unit, limit, dispose=True, play=True, max_pairs=0, ag
 
       * `against="legacy"` : contre l'ANCIEN collapse « la plus proche, tie-break id ». Isole ce
         que le fix CHANGE.
-      * `against="tile7"`  : contre `Tile(7)` SEUL. Isole ce que `TileDistance(33)` APPORTE --
+      * `against="tile7"`  : contre `Tile(7)` SEUL. Isole ce que `TileDistance(34)` APPORTE --
         c'est la contre-epreuve de la feuille portee, celle qui interdit de conclure « le fix
         marche parce que Tile(7) domine »."""
     bc = inject_bc(VIGIL_VIS)

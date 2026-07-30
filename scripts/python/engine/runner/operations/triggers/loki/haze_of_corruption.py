@@ -16,7 +16,7 @@ RE (decompile ghidra, build `gqfc5mff6c`) -- case-207
 
 ## `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateTrigger`
 
-    On(0x2b = PreUnitAbility, 1) & get_OwnerIsCaster
+    On(0x2a = PreUnitAbility, 1) & get_OwnerIsCaster
 
 AUCUN autre terme : ni `IsNormalAttack`, ni `AbilityHasAttackType`, ni `AreEnemies`. Le volet se
 declenche donc pour N'IMPORTE QUELLE ability du porteur (attaque normale, 1042 FlailSwing, ...).
@@ -92,7 +92,7 @@ Nullable<AbilityOrEffect>(0x434 = 1076 HazeOfCorruption), 0)`. Deux accesseurs l
 ## `…HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger`
 
     ( OnDeath(1, 1) & ( TriggeringAbilityIs(AbilityOrEffect(0x435)) | AreEqual(Actor@0x158, bonded) ) )
-    | On(0x2e = UnitRevived, 1)
+    | On(0x2d = UnitRevived, 1)
     | On(0x35 = UnitFled,    1)
     ) & IsAlive(bonded) & AreEqual(Target@0x178, EffectSource(Effect@0x150))
 
@@ -222,7 +222,7 @@ HAZE_TARGET_POOL = Damageable(And(AdjacentEnemies(Caster(), Const(1)),
 
 
 class HazeOfCorruptionTargetFinderAbility(TriggeredAbility):
-    """`HazeOfCorruption_TargetFinderAbility` -- `On(PreUnitAbility = 0x2b) & get_OwnerIsCaster`.
+    """`HazeOfCorruption_TargetFinderAbility` -- `On(PreUnitAbility = 0x2a) & get_OwnerIsCaster`.
 
     Tire (jusqu'a) 2 relais de transfert dans `Damageable(AdjacentEnemies(Self) & AdjacentFriends(
     Target))` et pose les bonds 1077 correspondants. Le TIRAGE est l'observable : `min(len(pool), 2)`

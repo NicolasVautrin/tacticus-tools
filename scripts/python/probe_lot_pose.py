@@ -235,7 +235,7 @@ def item3_crescendo(state, dec, board):
     print("  [pre] " + show(state, shiron))
     lvls = []
     for k in range(9):
-        # chemin REEL : Shiron pose Pinned (SuppressiveFire) -> On(PreEffectAdded=62) -> +1 stack.
+        # chemin REEL : Shiron pose Pinned (SuppressiveFire) -> On(PreEffectAdded=61) -> +1 stack.
         AddEffectOperation.execute(state, source=shiron, target=ens[k % len(ens)],
                                    effect_type=PIN, name="Pinned")
         cur = [e.level for e in state.effects.by_unit.get(shiron, [])

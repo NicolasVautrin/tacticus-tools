@@ -11,20 +11,20 @@ Artefacts natifs (build gqfc5mff6c) :
       `AmountIsEqualOrGreater(Direct(GetNumberConstant(0x4f=healthPct)), StatAmount(Self, 5=HEALTH,
        1=CURRENT_PCT))` -> le gate sante est un **POURCENTAGE** (`StatPart.CURRENT_PCT`).
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_FrozenAttackerAdvantage$$CreateTrigger`
-      `On(0x2b=PreUnitAbility) & IsNormalAttack & OwnerIsTarget & IsUnitOnTileWithEffect(caster, Ice)
+      `On(0x2a=PreUnitAbility) & IsNormalAttack & OwnerIsTarget & IsUnitOnTileWithEffect(caster, Ice)
        & !HasEffect(Self,1200,active) & !HasEffect(Self,1201,active)`
     -> `$$CreateBehaviour` = `AddStaticStatModifierEffect(Self, 1201, stat 7, blockChance)`.
   - `IdunBattle.Entities.Effects.Loki.AnvilShield_FrozenAttackerAdvantageEffect$$CreateTargetTrigger`
       `On(0xe=UnitPostAbility) & AreEqual(target, EffectSource(this))` -> le bonus ne vit QUE le temps
       de l'ability qui l'a declenche.
-  - `...AnvilShieldAbility_ApplyStun$$CreateTrigger` `On(0x3d=UnitBlocked) & OwnerIsTarget &
+  - `...AnvilShieldAbility_ApplyStun$$CreateTrigger` `On(0x3c=UnitBlocked) & OwnerIsTarget &
       IsMeleeAttack & !HasTrait(caster, Steppable) & IsUnit & IsAlive &
       (HasEffect(target,1200,active) | HasEffect(target,1201,active))`
     -> `$$CreateBehaviour` = `AddEffect(1162 Stunned, source=Self, cible=caster,
        duree=If(IsTurnOf(caster), TurnsUntilEndOfCurrentPlayersNextTurn, TurnsFromRounds(1)))`.
 
 Ce que ces tests GARDENT (classe de bug = le no-op SILENCIEUX) :
-  - le vecteur `On(PreUnitAbility=0x2b)` (nouveau) et son pendant `On(UnitPostAbility=0xe)` ;
+  - le vecteur `On(PreUnitAbility=0x2a)` (nouveau) et son pendant `On(UnitPostAbility=0xe)` ;
   - le gate `HasEffect(..., activeOnly)` (4e argument natif : le flag `EffectComponent+0x5c`, PAS un
     minLevel) et donc l'`ActiveCondition` de 1200 ;
   - le canal STAT 7 (BLOCK_CHANCE) des deux effets, et son driver d'ActiveCondition.

@@ -589,7 +589,7 @@ def test_sky_strike_landing_tile_follows_tile_utility(rpc, build_runner, sky_bc)
 #
 # `BlackRageAbility$$ExecuteBehaviour` et `WaaaghAbility$$ExecuteBehaviour` appellent
 # `First(SortTilesByUtility(<Ability>.GetPossibleMovementTiles(), caster@0x160, 0x20), 1)` : le
-# composite est `MovementSuggestion(32) = [Tile(7), TileDistance(33)]` (#201), PAS le `7 = Tile` des
+# composite est `MovementSuggestion(32) = [Tile(7), TileDistance(34)]` (#201), PAS le `7 = Tile` des
 # trois ports ci-dessus. Ces DEUX call-sites gardaient leur collapse « la plus proche du caster »
 # apres #201 ; ces tests sont leur CLIQUET, sur le MEME principe que les trois precedents : une
 # geometrie ou collapse et utilite DIVERGENT, confrontee au NATIF.

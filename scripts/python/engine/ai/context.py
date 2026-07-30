@@ -81,18 +81,18 @@ class AiDecisionContext:
     #                                   placement (TileExtensions.CanAddUnit) ; l'occupation DYNAMIQUE se
     #                                   lit via epos/fpos/origine (frais), PAS le occupantUnitId caché (#116)
     terrain_by_pos: dict              # {(col,row): tileDefId} (boardGraph, statique) — covers HÉBERGÉS par
-    #                                   le terrain sommés par TileEffects(9) Loop2 (DryBush->LightCover, case-37)
+    #                                   le terrain sommés par TileEffects(10) Loop2 (DryBush->LightCover, case-37)
     # Deux attributs de TUILE que `tileMeta` remonte DÉJÀ et que le port jetait (#175) : sans eux les
     # feuilles Tile(7) qui les gatent restent muettes même quand `ctx.unit_traits` est peuplé.
     is_territory_by_pos: dict = field(default_factory=dict)
     #     {(col,row): bool} <- tileMeta.isTerritory = `TileComponent+0x2e`, l'octet que lit
-    #     `IdunBattle.Entities.TileExtensions$$IsTerritoryTile` -> feuille CapturePoint(24) (+/-300)
+    #     `IdunBattle.Entities.TileExtensions$$IsTerritoryTile` -> feuille CapturePoint(25) (+/-300)
     tile_effect_type_ids_by_pos: dict = field(default_factory=dict)
     #     {(col,row): [EffectType]} <- tileMeta.effects[].effectType = `EffectComponent+0x58` ->
     #     feuilles DespoiledGround(28, 0x5c4), Contaminated(25, 0x4dc), MoltenForm(23, 5/10)
     mindist_case: Any = None
     #     `UtilityMovementCase` (engine.utilities.move) — les DEUX champs que la feuille
-    #     MinDistanceToClosestEnemy(16) LIT sur son case : `+0x10` Unit et `+0x20` ClosestEnemy,
+    #     MinDistanceToClosestEnemy(17) LIT sur son case : `+0x10` Unit et `+0x20` ClosestEnemy,
     #     plus les deux valeurs que ses gates en derivent (traits du mover, CriticalChance du mover,
     #     traits du ClosestEnemy). `None` = le port n'a pas pu etablir le case -> aucun gate (#236).
 
@@ -287,7 +287,7 @@ def _board_neighbours(rpc: Callable[..., dict], rid: int) -> dict:
 def _board_terrain(rpc: Callable[..., dict], rid: int) -> dict:
     """{(col,row): tileDefId} depuis `boardGraph` (terrain STATIQUE `TileId` de la BC : Grass/DryBush/
     Trench/... — board caché par rid). Alimente les covers HÉBERGÉS par le terrain sommés par la feuille
-    TileEffects(9) via son Loop2 (DryBush->LightCover ; case-37). `tileMeta` ne porte pas le terrain."""
+    TileEffects(10) via son Loop2 (DryBush->LightCover ; case-37). `tileMeta` ne porte pas le terrain."""
     m = _BOARD_TERRAIN_CACHE.get(rid)
     if m is None:
         m = {(t.get("col"), t.get("row")): t.get("tileDefId") for t in _board_graph_tiles(rpc, rid)}
@@ -316,7 +316,7 @@ def _tile_attribute_maps(tiles: list) -> tuple:
     et `effects[].effectType` = `EffectComponent+0x58` (comparé à `0x5c4` par
     `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`)
     étaient tous deux déjà remontés par le RPC et jetés par le port : `effects_by_pos` ne gardait que
-    le NOM (clé de poids BC de la feuille TileEffects(9)), jamais le type."""
+    le NOM (clé de poids BC de la feuille TileEffects(10)), jamais le type."""
     terr, tids = {}, {}
     for t in tiles:
         p = (t.get("col"), t.get("row"))
@@ -510,7 +510,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
 
 
 def _mindist_case(uid, me, units, scene, pdr: dict):
-    """`UtilityMovementCase` de la feuille MinDistanceToClosestEnemy(16) — face LIVE (#236).
+    """`UtilityMovementCase` de la feuille MinDistanceToClosestEnemy(17) — face LIVE (#236).
 
     Le generateur natif `<GenerateActions>IdunBattle.AI.ActionGenerators.MovementActionGenerator.u003CGenerateActionsu003Ed__6$$MoveNext`
     construit ce case avec `ClosestEnemy = FindClosestEnemy(unit, posCourante)`. Le RPC

@@ -6,7 +6,7 @@ splittees par l'EVENEMENT. RE (decompile ghidra, build gqfc5mff6c) :
 ## Volet 1 -- `CosmicHorror_OnKillAbility` (le Patermine acheve un ennemi)
 
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger` (conjonction `op_BitwiseAnd`) =
-        On(0x37=UnitDefeated=55) & get_OwnerIsActor
+        On(0x36=UnitDefeated=54) & get_OwnerIsActor
           & AreEnemies(caster@0x148, target@0x178)
           & NOT HasTrait(target@0x178, 0x1b=27=Steppable)
     Le gate `NOT Steppable` est ce qui empeche le volet de re-partir sur le CRUSH d'un decoy
@@ -36,13 +36,13 @@ splittees par l'EVENEMENT. RE (decompile ghidra, build gqfc5mff6c) :
 ## Volet 2 -- `CosmicHorror_OnMoveAbility` (le Patermine marche sur un decoy ami)
 
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger` =
-        On(0x36=PostUnitKill=54) & get_OwnerIsActor
+        On(0x35=PostUnitKill=53) & get_OwnerIsActor
           & AreFriends(caster@0x148, target@0x178)
           & HasTrait(target@0x178, 0x41d=1053=Decoy)
     L'evenement n'est PAS un evenement de mouvement malgre le nom de la classe : marcher sur un
     decoy = le CRUSHER (`IdunBattle.Operations.MoveUnitOperation$$KillSteppableUnits` ->
     `IdunBattle.Operations.KillUnitOperation$$Execute` avec `KillUnitOperationOptions$$ForSteppable`),
-    et `KillUnitOperation$$Execute` termine sa sequence par `On(0x36=PostUnitKill)` {actor=le tueur =
+    et `KillUnitOperation$$Execute` termine sa sequence par `On(0x35=PostUnitKill)` {actor=le tueur =
     le mover, target=le crushe}. `OwnerIsActor` => c'est bien le PATERMINE qui doit avoir marche dessus.
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateBehaviour` (feuille UNIQUE) =
         Heal( caster@0x148, caster@0x148, ConfigVar(0x1d=29=hp, config) )       -> 2910 @L65
@@ -336,7 +336,7 @@ class CosmicHorrorOnKillAbility(TriggeredAbility):
 class CosmicHorrorOnMoveAbility(TriggeredAbility):
     """`CosmicHorror_OnMoveAbility` (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger`
     / `...$$CreateBehaviour`). Le Patermine marche sur un decoy ALLIE (le crush emet
-    `On(0x36=PostUnitKill)` {actor=mover, target=crushe}) -> il se soigne de `hp` PV (2910 @L65)."""
+    `On(0x35=PostUnitKill)` {actor=mover, target=crushe}) -> il se soigne de `hp` PV (2910 @L65)."""
     event_id = _ON_CRUSH
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

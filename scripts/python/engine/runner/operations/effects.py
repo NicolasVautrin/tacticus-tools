@@ -131,7 +131,7 @@ class AddEffectOperation:
         c'est le BUILDER qui la porte (`GetEffectBuilder` résout le sélecteur `bondedEntity` en id, et
         bascule sur le builder de bond ssi cet id est non nul) ; le port passe l'id résolu ici, l'opération
         n'a qu'à le recopier sur l'instance. None = builder d'effet ORDINAIRE (aucun bond)."""
-        # `On(PreEffectAdded=0x3e=62)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
+        # `On(PreEffectAdded=0x3d=62)` — le natif émet ce message TOUT EN HAUT d'`IdunBattle.Operations.AddEffectOperation$$Execute`
         # (`FUN_180026490(0x50, …, 0x3e)` juste après la construction de l'`AbilityEntities`), donc AVANT
         # le gate cible-nulle, AVANT le gate « déjà présent » et AVANT le gate d'immunité : l'événement
         # fire même si la pose est finalement abandonnée (sémantique « would have », cf.
@@ -373,7 +373,7 @@ class ChangeEffectTurnsOperation:
         cur = comp.Duration @+0x64
         new = max(0, BattleQuery.GetAmount(cur, amount, changeType)) # `IdunBattle.Core.Services.BattleQuery$$GetAmount`
         comp.Duration @+0x64 = new
-        -> events UpdateEffectTurns (0x15/0x16) + `RefreshEffectOptions(0, 4, 0, 0, 0)`
+        -> events UpdateEffectTurns (0x14/0x16) + `RefreshEffectOptions(0, 4, 0, 0, 0)`
 
     `IdunBattle.Core.Services.BattleQuery$$GetAmount(current, amount, changeType)` (mirror EXACT) :
     `IdunBattle.Entities.Enum.ChangeType` **0 = Add** (`current + amount`), **1 = Set** (`amount`) ; toute
