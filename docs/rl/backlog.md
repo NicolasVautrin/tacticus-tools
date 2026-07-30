@@ -1116,6 +1116,28 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   - **`WeaponHighestHits` vs arme normale** : le port passe `UnitContext.normal_weapon_hits` là où le
     natif lit `WeaponHighestHits(weapon de l'ability)`. Les 5 porteurs du trait `Mechanic` ont des armes
     homogènes (`[1,1]`, `[2,2]`, `[5]`, `[4]`, `[3]`) → **indiscriminable** en l'état.
+- ~~**#298 — « le rail de DÉCISION de la réparation n'est jamais atteint »**~~ — **FERMÉ le
+  2026-07-30 par MESURE : le rail EXISTE et l'IA propose la réparation**
+  (`docs/rl/case-298-repair-decision-rail.md`). Rail = `ActiveAbilityActionGenerator` sur
+  `_comparableAbilities` : l'ability est **dérivée du trait `Mechanic`**
+  (`UnitFactory$$AddDerivedAbilities` ← `StaticBattleRules.Trait$$GetActiveAbility`) et entre dans
+  `ActiveAbilityComponent.Abilities` — que `…$$GetUnitAbilitiesInOrder` itère **sans** le filtre
+  `IsActiveAbility` de `GetActives` (d'où `kind="granted"` dans `abilityTargets`). Le seul gate est
+  d'ÉTAT : `AttackQuery$$EntityCanBeRepaired` exige `IsDamagedUnit` **et**
+  `IsAffectedByHealType(entity, 1)`. Mesuré, une variable à la fois : cible à 100 % → **0**
+  prédiction ; cible blessée → **1119** proposé (`admecManipulus`) ou **28** (`admecDominus`) ;
+  cible blessée non mécanique → **0**. Probe `probe_298_repair_rail.py`, fixture `repair_stage`,
+  tests `tests/engine/runner/test_repair_decision_rail_live.py`.
+  **RÉSIDUS OUVERTS, tous les deux OFFLINE** (le natif est correct) :
+  * **`28 Repair` DÉCIDE sans EXÉCUTER** — présent dans `engine.playbook.base.REGISTRY`, absent
+    d'`ABILITY_CLASSES` ⇒ cast accepté, tour consommé, **zéro soin**. Porteurs HERO du pool :
+    `admecDominus`, `necroSpyder`, `orksBigMek`. `[opus]`
+  * **`1119 Repair_GalvanicField` absent des DEUX registres** — l'IA portée ne le propose même pas,
+    et un replay du message natif est un no-op silencieux. Porteur : `admecManipulus`. `[opus]`
+  * **Correction d'inventaire** : `port-residuals-inventory.md` classait `28 Repair` « dormant par
+    construction, hors périmètre » ; c'est faux. Corollaire de méthode : **l'absence d'un id dans
+    les `abilities` du gameconfig ne prouve pas qu'il est dormant** — balayer aussi les abilities
+    dérivées de traits.
 - **#276-r1 — décodeur hooks `decodeRepairDict` (CONFIRMÉ par lecture, exige un reinject)** : il lit
   **16 octets** d'une struct qui en fait **8**. `DamagePrediction$$PredictRepair` rend
   `CONCAT44(fill, currentHealth)` et `UtilityAttackCase$$ForRepairPrediction` stocke la valeur ENTIÈRE

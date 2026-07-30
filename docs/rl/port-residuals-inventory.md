@@ -245,14 +245,27 @@ régénéré, dont le critère `D` a été corrigé entre-temps.
 >                                 1129, 1177, 1183, 1192, 1194]
 > ```
 >
-> **10 items réels restants** (13 bruts − `28 Repair` dormant − `1192`/`1194` npc-only).
+> **11 items réels restants** (13 bruts − `1192`/`1194` npc-only). ⚠ **Le compte précédent disait 10
+> et défalquait `28 Repair` : c'était FAUX**, cf. la correction ci-dessous.
 >
-> **Sur les 15 de la dérivation initiale, 12 étaient des items réels et confrontables** :
-> * `28 Repair` est un **TAG de playbook générique, pas une ability** — `RepairPlaybook.ability_id =
->   ActiveAbilityType.Repair`, mais **aucune** entrée `abilities` du gameconfig ne s'appelle
->   `Repair` (les repairs concrets ont leur propre id, ex. `NanoscarabRepairProtocols`). Les deux
->   registres sont lookupés par id CONCRET (`REGISTRY.get(ability_id)`) ⇒ le playbook 28 est
->   **dormant par construction**, exactement comme le tag `NormalAttack (17)`. Hors périmètre.
+> **Sur les 15 de la dérivation initiale, 13 étaient des items réels et confrontables** :
+> * ~~`28 Repair` est un TAG de playbook générique, pas une ability… dormant par construction… hors
+>   périmètre.~~ — **RÉFUTÉ le 2026-07-30 par MESURE LIVE (#298,
+>   `docs/rl/case-298-repair-decision-rail.md`).** `28 Repair` est une **vraie ability, castée en
+>   bataille, et PROPOSÉE par l'IA native** (`ActiveAbilityMessage abilityType=28` sur
+>   `admecDominus`). Le raisonnement qui l'avait classée dormante — « aucune entrée `abilities` du
+>   gameconfig ne s'appelle `Repair` » — est précisément le piège : l'ability n'est pas dans le
+>   gameconfig parce qu'elle est **DÉRIVÉE D'UN TRAIT** au montage de l'unité
+>   (`IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities` ←
+>   `StaticBattleRules.Trait$$GetActiveAbility(Mechanic)`), et elle entre dans
+>   `ActiveAbilityComponent.Abilities` comme n'importe quelle autre. **Corollaire de méthode :
+>   l'absence d'un id dans les `abilities` du gameconfig ne prouve PAS qu'il est dormant** — il faut
+>   balayer aussi les abilities dérivées de traits.
+>   Porteurs HERO **dans le pool** rank 17 : `admecDominus`, `necroSpyder`, `orksBigMek` (→ 28) ;
+>   `admecManipulus` (→ **1119 `Repair_GalvanicField`**, son passif `GalvanicField` spécialise le
+>   slot `RepairType` @0x2c). Écart offline : `28` DÉCIDE (`engine.playbook.base.REGISTRY`) sans
+>   EXÉCUTER ⇒ cast accepté, tour consommé, **zéro soin** ; `1119` est absent des **deux** registres
+>   ⇒ l'IA portée ne le propose même pas.
 > * `1192 NovaBoost` / `1194 NovaShield` : porteur unique `tauBossRiptide`, **npc**. Non pertinents
 >   (pas « bloqués »).
 
@@ -280,8 +293,10 @@ summon** dans ce gisement :
 | ~~10~~ | ~~1100~~ | ~~SorcerousFacade~~ | ThousandSons | `thousTzaangor` « Yazaghor » ✅ | 4 | — | **FERMÉ** (`case-287-sorcerous-facade-combat.md`) |
 | 11 | 1038 | FoulInfusion | DeathGuard | `deathPutrifier` « Pestillian » ✅ | 3 | — | ~880 o |
 | 12 | 1117 | DefendTheDivineWork | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | ~752 o + `GetAdjacentFriends` |
+| 13 | 28 | Repair (**dérivée du trait `Mechanic`**, pas du gameconfig) | multi | `admecDominus`, `necroSpyder`, `orksBigMek` ✅ | plusieurs | — | `RepairUnitOperation` / `RepairMachineOperation` (#298) |
 | — | 1192 | NovaBoost | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
 | — | 1194 | NovaShield | Tau | **aucun** | `tauBossRiptide` | — | **NON PERTINENT** |
+| + | 1119 | Repair_GalvanicField (spécialise `RepairType` @0x2c) | AdeptusMechanicus | `admecManipulus` « Actus » ✅ | 5 | — | **absent des DEUX registres** — hors gisement « décide sans exécuter », à ouvrir à part (#298) |
 
 > La taille est le delta d'adresse entre `…$$ExecuteBehaviour` et le symbole suivant de la même
 > classe — un **proxy** de volume, pas une mesure de difficulté. Les helpers comptent davantage :
