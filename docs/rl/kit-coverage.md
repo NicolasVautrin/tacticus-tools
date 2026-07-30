@@ -94,7 +94,7 @@
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| votanChampion | 2 | MassDriverAccelerator(1222) [--] NO-OP DAMAGE(DirectDamage) | ModifiedExoarmour | - |
+| votanChampion | 2 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | ModifiedExoarmour | - |
 | votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
 | votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
 | votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |

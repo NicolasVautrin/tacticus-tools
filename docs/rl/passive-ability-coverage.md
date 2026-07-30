@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1914 assignations ecartees dans 301 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (7028 symboles distincts) de la PROSE (4025 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (1914 assignations ecartees dans 303 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (7040 symboles distincts) de la PROSE (4049 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, move, playbook, predict, runner, services, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -67,7 +67,7 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
 - **PORTES** (>=1 canal structurel) : **61** (29 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **14**
-- **GAPS** (mention seule + absent) : **136** = 43 mention + 93 absent
+- **GAPS** (mention seule + absent) : **136** = 44 mention + 92 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **63 gaps** et **10 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=27, **O**=6, **E**=39, **G**=1, **X**=0, **B**=4
@@ -134,7 +134,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | GrimEfficiency | L~=1 | votanUthar | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour` |
 | HaywireMine | L~=1 N=1 | astarCyrus | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineAbility$$CreateBehaviour` |
 | IconOfObstinacy | L~=1 | astarLysander | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IconOfObstinacy_AddArmourBuffAbility$$CreateBehaviour` |
-| ModifiedExoarmour | L~=1 | votanChampion | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour` |
+| ModifiedExoarmour | L~=1 | votanChampion | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour` |
 | PredictiveGuidance | L~=1 | votanMemnyr | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PredictiveGuidanceAbility$$CreateBehaviour` |
 | PropheticSentinel | L~=1 | thousSekhetar | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PropheticSentinel_AddBuffAbility$$CreateBehaviour` |
 | RedRampage | L~=1 N=1 | bloodTerminator | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateBehaviour` |
@@ -372,7 +372,7 @@ Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 p
 | 52 | **GrimEfficiency** | votanUthar | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour` |
 | 53 | **HaywireMine** | astarCyrus | L~=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HaywireMineAbility$$CreateBehaviour` |
 | 54 | **IconOfObstinacy** | astarLysander | L~=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IconOfObstinacy_AddArmourBuffAbility$$CreateBehaviour` |
-| 55 | **ModifiedExoarmour** | votanChampion | L~=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour` |
+| 55 | **ModifiedExoarmour** | votanChampion | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour` |
 | 56 | **PredictiveGuidance** | votanMemnyr | L~=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PredictiveGuidanceAbility$$CreateBehaviour` |
 | 57 | **PropheticSentinel** | thousSekhetar | L~=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PropheticSentinel_AddBuffAbility$$CreateBehaviour` |
 | 58 | **RedRampage** | bloodTerminator | L~=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateBehaviour` |
