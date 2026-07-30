@@ -25,7 +25,8 @@ from __future__ import annotations
 
 from ._shared import (defender_prediction_block_amount, _add_positional_and_defender_mods,
                       _apply_ally_attack_dmg_bonus, _target_damage_limits, _PROFILE_INDEX,
-                      RANGED_IN_MELEE_PCT, prediction_has_moved, prediction_has_teleported)
+                      RANGED_IN_MELEE_PCT, prediction_has_moved, prediction_has_teleported,
+                      _entity_traits)
 from .normal_attack import (make_normal_attack_predictions, get_additional_damage_prediction,
                             get_klaw_attack1_prediction)
 from .abilities import (generate_multi_hit_attack_prediction, make_damage_predictions,
@@ -38,4 +39,8 @@ __all__ = [
     "defender_prediction_block_amount", "_add_positional_and_defender_mods",
     "_apply_ally_attack_dmg_bonus", "_target_damage_limits", "_PROFILE_INDEX", "RANGED_IN_MELEE_PCT",
     "prediction_has_moved", "prediction_has_teleported",
+    # #267-r1 : FOYER unique du substrat de traits de la face PREDICTION (pendant de
+    # `runner.damage_model.target_trait_names`) — consomme aussi par `playbook/fury_of_the_ancients.py`
+    # et `playbook/psyker.py`, qui appellent le meme `get_attack_prediction`.
+    "_entity_traits",
 ]
