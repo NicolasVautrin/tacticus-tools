@@ -119,23 +119,65 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         portee l'override."""
         return True
 
+    def targets_tiles(self, ability_id) -> bool:
+        """`IdunBattle.Core.Services.TargetingOptions$$get_IsTileTargeting` (= `rules >> 6 & 1`) — le
+        SEUL aiguillage tuile du natif, et il est BINAIRE.
+
+        `IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` le teste UNE fois puis
+        appelle `...$$GetTilesInRange` **ou** `...$$GetUnitsInRange` — jamais les deux. Un ensemble de
+        cibles natif est donc homogene : tout tuile, ou tout unite/machine. C'est pourquoi
+        `eligible_targets` choisit un domaine au lieu de concatener (case-302 §1.1).
+
+        Import LOCAL : `engine.runner.abilities.targeting` tire tout le registre d'abilities, dont
+        cette couche n'a pas besoin au chargement."""
+        try:
+            from ..runner.abilities.targeting import targeting_options_for
+            opts = targeting_options_for(ability_id)
+        except Exception:
+            return False
+        return bool(opts is not None and opts.is_tile_targeting)
+
     def eligible_targets(self, ctx, ability_id) -> list:
         """`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities` — l'ensemble des cibles
         que le playbook score. Mirror OFFLINE/LIVE via le seam `ctx.ability_targets` (RPC natif
         `abilityTargets` en live, `state_bridge.ability_targets_offline` sinon), qui rend l'UNION des
         cibles legales sur les tuiles-caster. Le natif, lui, recalcule l'ensemble PAR TUILE
-        (`possibleCasterPosition`) : l'union est un SUR-ENSEMBLE, resserre par `is_caster_added`."""
+        (`possibleCasterPosition`) : l'union est un SUR-ENSEMBLE, resserre par `is_caster_added`.
+
+        DOMAINE (case-302) : le natif rend une liste d'`IEntity` NON TYPEE — `GetValidTargets` remplit
+        `ValidTargets.AllTargets` avec des entites TUILE des que le masque porte `TargetIsTile`, et
+        `IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluateTarget` (le predicat du `Remove` final) ne
+        retire QUE des unites (`IsUnit && CurrentOwnerIsEnvironment`, ou `IsIrrelevantObject`) : une
+        entite-tuile n'est **jamais** ecartee. Le filtre `kind == "unit"` d'origine etait donc une
+        restriction du PORT, pas du natif — c'est lui qui rendait la route inerte sur 1169 / 1148.
+
+        Le RPC `abilityTargets` n'emet PAS d'`id` sur `kind == "tile"` (contrat mesure :
+        `{kind, tile:{col,row}}` seul, `frida/hooks/features/ai-step/rpc-targeting.ts::mapTargets`).
+        La resolution passe donc par `ctx.tile_id_by_pos` (RPC `boardGraph`), qui est **le meme id que
+        celui attendu par `applyOneAction`** — la cible qu'emet le natif dans son
+        `ActiveAbilityMessage`. Une tuile non resolue est OMISE (jamais un id invente)."""
         at = ctx.ability_targets(ctx.uid, ability_id) or {}
+        tile_domain = self.targets_tiles(ability_id)
+        tid_by_pos = getattr(ctx, "tile_id_by_pos", None) or {}
         out = []
         for u in (at.get("units") or []):
             for a in (u.get("abilities") or []):
                 if a.get("abilityId") != ability_id:
                     continue
                 for t in (a.get("targets") or []):
-                    if t.get("kind") == "unit" and t.get("targetId") is not None:
+                    if tile_domain:
+                        if t.get("kind") != "tile":
+                            continue
+                        tl = t.get("tile") or {}
+                        tid = tid_by_pos.get((tl.get("col"), tl.get("row")))
+                        if tid is None:
+                            continue        # tuile hors boardGraph -> pas d'id emettable
+                    elif t.get("kind") == "unit" and t.get("targetId") is not None:
                         tid = int(t["targetId"])
-                        if tid not in out:
-                            out.append(tid)
+                    else:
+                        continue
+                    if tid not in out:
+                        out.append(tid)
         return out
 
 
