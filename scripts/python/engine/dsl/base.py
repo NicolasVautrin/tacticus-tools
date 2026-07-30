@@ -200,6 +200,27 @@ class DslContext:
     # CHAQUE unite du state). Defaut None -> False (degradation fidele : aucun ressuscite). Fourni par
     # `entities_from_state` (lit le `UnitFlagsComponent` de l'ECS runner).
     has_unit_flag: object | None = None
+    # --- Les DEUX slots `IAttackQuery` que le DSL invoque depuis un SELECTEUR (#303) --------------
+    # Verdict `IdunBattle.Core.Services.AttackQuery$$EntityCanBeRepaired(entity, scope, removeEffects)`
+    # -- la surcharge a TROIS arguments (slot 0x13), celle SANS caster, consommee par
+    # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`.
+    # `entity_can_be_repaired(unit, scope, remove_effects) -> bool`. Defaut None (accesseur non
+    # branche = contexte hors runner) -> le selecteur `Repairable` rend [] : degradation NOMMEE par le
+    # noeud, jamais un « tout passe ». Fourni par `entities_from_state`.
+    entity_can_be_repaired: object | None = None
+    # `IdunBattle.Entities.EntityExtensions$$HasEffectOfType(entity, state, effectsDatabase, category)`
+    # -- la CATEGORIE d'effet (1 = negatif) lue dans la DEFINITION de chaque effet porte, consommee par
+    # `IdunBattle.Entities.Selectors.UnitsWithEffectsOfTypeSelector$$Select`.
+    # `has_effect_of_type(unit, effect_category) -> bool`. Defaut None, et AUCUN substrat ne le
+    # branche : le canal de seed n'expose pas la categorie d'un effet (meme trou que
+    # `attack_query.has_negative_unit_effect`) -> le selecteur rend []. RESIDU documente par le noeud.
+    has_effect_of_type: object | None = None
+    # Tirage `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` : `pick_randomly(items,
+    # amount, allow_repeat, max_repeats) -> list`. Le noeud `PickRandomly` DELEGUE ici parce que la
+    # boucle native CONSOMME le PRNG de bataille, qui n'est pas dans le `DslContext` (mirror unique :
+    # `runner/abilities/loki/splash.py::_pick_randomly_n`). None = contexte sans PRNG -> le noeud
+    # retombe sur les `amount` premiers elements, ZERO tirage (degradation nommee par le noeud).
+    pick_randomly: object | None = None
     # `AbilityEntities.IsFirstHit` (`IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit`,
     # champ +0x110 = le `DamageAppliedResult` du coup courant) -> `Nullable<bool>` valant
     # `DamageAppliedResult.get_IsFirstHit` = `hitIndex == 0`. Lu par le SEUL predicat

@@ -13,9 +13,15 @@ regles DYNAMIQUES de deux abilities lues au decompile :
 Les deux surcharges portees ici sont celles A QUATRE ARGUMENTS (`caster` en tete) :
     `AttackQuery.EntityCanBeHealed  (caster, target, scope:HealScope, removeEffects:bool)`
     `AttackQuery.EntityCanBeRepaired(caster, entity, scope:HealScope, removeEffects:bool)`
-La surcharge a TROIS arguments d'`EntityCanBeRepaired` (slot 0x13, consommee par
-`IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) n'est pas portee : aucun call-site
-du registre ne l'atteint.
+
+La surcharge a TROIS ARGUMENTS d'`EntityCanBeRepaired` (slot 0x13, consommee par
+`IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) est desormais ATTEIGNABLE : #303 a
+porte `FabricatorClawArrayAbility`, dont le selecteur de cible passe par `DSLSelectors$$Repairable`.
+Elle n'a PAS de deuxieme implementation ici -- relue verbatim sur `rnca9r7q6c`, elle EST la 4-args
+avec `caster = null` : la seule difference est le disjunct `caster != null && HasFlag(caster,
+0x18 CanRepairFullHealthUnits)`, qui disparait de lui-meme. Le noeud DSL `Repairable` l'atteint donc
+par `entity_can_be_repaired(state, None, entity, scope, remove_effects)` (accesseur
+`ctx.entity_can_be_repaired`, branche par `entities_from_state`).
 
 ⚠ NE PAS CONFONDRE avec `healable_heal_type_0` / `repairable_heal_type_1`
 (`abilities/behaviours/stats.py`) : celles-la sont les gardes COTE MUTATION des feuilles `Heal` /

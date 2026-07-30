@@ -48,8 +48,9 @@ import _repair_stage as S                                 # noqa: E402
 # `GalvanicField`, qui specialise le slot `RepairType` -> `Repair_GalvanicField` (1119).
 #
 # `necroSpyder` est le TROISIEME porteur, et il a son test dedie plus bas : son passif
-# `FabricatorClawArray` ajoute une SECONDE reparation au meme instant, donc le delta HP brut n'y est
-# pas confrontable tel quel (cf. `test_necro_spyder_hits_factor_and_fabricator_claw_residue`).
+# `FabricatorClawArray` ajoute une SECONDE reparation au meme instant (porte par #303), donc le delta
+# HP brut s'y decompose en DEUX termes (cf. `test_necro_spyder_hits_factor_and_fabricator_claw` ici,
+# et le lot ISOLE `test_fabricator_claw_array_live.py`).
 PORTERS = [("admecDominus", 28), ("admecManipulus", 1119)]
 
 
@@ -200,8 +201,8 @@ def test_repair_restores_health_live_and_offline(build_runner, rpc, monkeypatch,
     assert live_delta == off_delta, "live %d != offline %d" % (live_delta, off_delta)
 
 
-def test_necro_spyder_hits_factor_and_fabricator_claw_residue(build_runner, rpc, monkeypatch):
-    """GENERALISATION la plus DISCRIMINANTE du lot -- et elle a trouve un RESIDU.
+def test_necro_spyder_hits_factor_and_fabricator_claw(build_runner, rpc, monkeypatch):
+    """GENERALISATION la plus DISCRIMINANTE du lot -- et c'est elle qui a trouve le residu N20.
 
     `necroSpyder` est le SEUL porteur du trait `Mechanic` dont l'arme a **5 coups**
     (`gameconfig.unit("necroSpyder").weapons[0].hits`) ; les deux AdMec en ont 1, donc chez eux le
@@ -213,26 +214,30 @@ def test_necro_spyder_hits_factor_and_fabricator_claw_residue(build_runner, rpc,
     sature et le montant BRUT reste invisible (piege MESURE : avec le montage standard,
     `manque = 6032` masquait deja tout ecart au-dela de 6032).
 
-    RESIDU NOMME, DECOUVERT ICI -- `FabricatorClawArray`, le passif du Spyder :
+    DEUX REPARATIONS, UN SEUL TOUR (residu N20, DECOUVERT ICI par #299, PORTE par #303) -- le passif
+    `FabricatorClawArray` du Spyder :
 
         IdunBattleLogic.Entities.Abilities.Active.Loki.FabricatorClawArrayAbility$$CreateTrigger
             = On(0x1c = ArrivedAtFinalTile) & OwnerIsActor & !AmountIsZero(GetTargetSelector())
         ...$$CreateBehaviour
             = Repair(Owner, GetTargetSelector(), Direct(ConfigVar(0x24 = hpToRepair)), ForRepair)
-        ...$$GetTargetSelector
-            = PickRandomly(Repairable(UnitsAffectedByHealType(AdjacentFriends(Owner,1,3), 1), 0,1,3), 1)
-              Otherwise PickRandomly(UnitsWithNegativeEffects(...), 1)
 
     Le cast de `Repair` TERMINE le tour (`AddFlagsAfterAbilityExecution` -> `FinishUnitTurnOperation`
-    -> `UnitFlags.Add(ArrivedAtFinalTile = 1)`), ce qui reveille aussitot ce trigger : le natif
-    restaure donc `RepairAmount` PUIS `hpToRepair[level]`. La triggered n'est pas portee (le vecteur
-    `arrived_triggers` du port existe et est VIDE pour cette unite) -- c'est une ability PASSIVE,
-    hors du perimetre #299, et ce test la CHIFFRE au lieu de la laisser en ecart inexplique.
+    -> `UnitFlags.Add(ArrivedAtFinalTile = 1)`), ce qui reveille aussitot ce trigger. AVANT #303 le
+    port ne portait QUE la voie active : natif 10457 contre port 6025.
 
-    L'assertion est donc une EGALITE EXACTE : `live == offline + hpToRepair`. Elle verrouille les
-    DEUX faits d'un coup -- le facteur x5 (sans lui l'egalite tombe de 4820) et le montant du
-    residu."""
+    L'assertion est une EGALITE EXACTE des DEUX cotes, et elle se DECOMPOSE explicitement selon le
+    vecteur qui a publie `On(0x1c)` -- car `_approach` peut avoir DEPLACE le Spyder :
+      * s'il n'a PAS bouge (deja au contact au spawn), le flag n'est pas encore pose a la capture :
+        le cast le pose, le passif tire APRES, donc `delta == RepairAmount + hpToRepair` ;
+      * s'il a bouge, `MoveUnitOperation` a deja publie `On(0x1c)` AVANT la capture (le passif a
+        deja repare, et `combatSnapshot.unitFlags` porte le flag) : le cast ne le re-publie pas,
+        donc `delta == RepairAmount`.
+    Dans les deux cas `live == offline`. Le test verrouille du meme coup le facteur x5 (sans lui
+    l'egalite tombe de 4820) et le montant du passif. Le passif a par ailleurs ses propres tests
+    ISOLES (`test_fabricator_claw_array_live.py`, ou le deplacement seul l'exerce sans aucun cast)."""
     from engine.entities.effects.magnitude import ability_var
+    from engine.runner.components import UnitFlagsComponent
     monkeypatch.setattr(S, "REPAIRER_VIS", "necroSpyder")
     stage = S.build_stage(rpc, build_runner=build_runner, hp_player=300000, advance=0,
                           damaged_repairee=1)
@@ -264,6 +269,11 @@ def test_necro_spyder_hits_factor_and_fabricator_claw_residue(build_runner, rpc,
     hc = _hc(state, tid)
     assert int(hc.hp_max) - int(hc.hp) > amount * 3, (
         "le manque doit DEPASSER largement le montant, sinon MaxFillUp sature et masque l'ecart")
+    # Le flag est-il DEJA pose a la capture ? (= `_approach` a deplace le Spyder, donc
+    # `MoveUnitOperation$$Execute` a deja publie `On(0x1c)` et le passif a deja tire.)
+    cfl = state.get_entity(cid).get_component(UnitFlagsComponent)
+    already_arrived = bool(cfl is not None
+                           and cfl.has(UnitFlagsComponent.ARRIVED_AT_FINAL_TILE))
     off_pre = int(hc.hp)
     runner = Runner(state).install_default_handlers(20)
     runner.apply(ActiveAbilityMessage(caster_id=cid, target_id=tid, ability_type=28))
@@ -278,15 +288,17 @@ def test_necro_spyder_hits_factor_and_fabricator_claw_residue(build_runner, rpc,
     lvl = getattr(ctx, "passive_ability_level", None) or getattr(ctx, "active_ability_level", None)
     mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
     bonus = ability_var("FabricatorClawArray", "hpToRepair", lvl, multiplier_pct=mult)
-    print("\n[REPAIR/necroSpyder] attack=%d hits=%d amount=%d offline=%d live=%d "
-          "FabricatorClawArray(lvl=%s mult=%d)=%s"
-          % (atk, hits, amount, off_delta, live_delta, lvl, mult, bonus))
-    assert off_delta == amount, "offline %d != RepairAmount %d" % (off_delta, amount)
     assert bonus, "hpToRepair de FabricatorClawArray illisible (lvl=%s)" % lvl
-    assert live_delta == off_delta + int(bonus), (
-        "l'ecart live/offline n'est PAS explique par le seul FabricatorClawArray : "
-        "live=%d offline=%d bonus=%d (reste %d)"
-        % (live_delta, off_delta, int(bonus), live_delta - off_delta - int(bonus)))
+    expected = amount + (0 if already_arrived else int(bonus))
+    print("\n[REPAIR/necroSpyder] attack=%d hits=%d amount=%d offline=%d live=%d "
+          "FabricatorClawArray(lvl=%s mult=%d)=%s already_arrived=%s attendu=%d"
+          % (atk, hits, amount, off_delta, live_delta, lvl, mult, bonus, already_arrived, expected))
+    assert off_delta == expected, (
+        "offline %d != RepairAmount %d + FabricatorClawArray %d (already_arrived=%s)"
+        % (off_delta, amount, 0 if already_arrived else int(bonus), already_arrived))
+    assert live_delta == off_delta, (
+        "live %d != offline %d -- l'ecart n'est plus explique par le passif (porte par #303)"
+        % (live_delta, off_delta))
 
 
 def test_repair_is_capped_by_what_is_missing(repair_stage, build_runner, rpc):

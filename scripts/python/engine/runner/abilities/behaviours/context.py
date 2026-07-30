@@ -432,6 +432,29 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return []
         return [_by_id[t] for t in _vnat(state, int(cid)) if t in _by_id]
 
+    # `ctx.entity_can_be_repaired` (slot 0x13 d'`IAttackQuery`, lu par
+    # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
+    # predicat (`abilities/attack_query.entity_can_be_repaired`) avec `caster_id = None` -- la
+    # surcharge a TROIS arguments EST la 4-args a caster nul (relue au decompile : le seul disjunct
+    # qui disparait est `caster != null && HasFlag(caster, 0x18)`). Surtout pas un 2e port du gate.
+    def _entity_can_be_repaired(unit, scope=0, remove_effects=True):
+        from ..attack_query import entity_can_be_repaired as _ecbr
+        uid = (unit or {}).get("id")
+        if uid is None:
+            return False
+        return bool(_ecbr(state, None, int(uid), scope=int(scope),
+                          remove_effects=bool(remove_effects)))
+
+    # `ctx.pick_randomly` (`IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select`) : le noeud
+    # DSL `PickRandomly` n'a pas acces au PRNG de bataille -> il passe par cet accesseur, qui delegue
+    # au foyer UNIQUE de la boucle native (`abilities/loki/splash._pick_randomly_n`, loi #130/#215 :
+    # `min(len(pool), amount)` tirages, y compris sur un pool de 1). L'ORDRE de `items` est celui du
+    # selecteur source -- on ne le retrie pas ici (R28-1).
+    def _pick_randomly(items, amount, allow_repeat=False, max_repeats=0x7FFFFFFF):
+        from ..loki.splash import _pick_randomly_n
+        return _pick_randomly_n(state, list(items), int(amount),
+                                allow_repeat=bool(allow_repeat), max_repeats=int(max_repeats))
+
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
     # pendant son activation courante. Moitie runtime du predicat
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
@@ -455,4 +478,9 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       has_negative_modifier=_has_negative_modifier,
                       is_in_team_aura=_is_in_team_aura,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
+                      entity_can_be_repaired=_entity_can_be_repaired,
+                      pick_randomly=_pick_randomly,
+                      # `has_effect_of_type` reste NON BRANCHE : la CATEGORIE d'un effet
+                      # (`EffectsDatabase` def+0x58) n'est pas dans le canal de seed. Cf. le noeud
+                      # `UnitsWithEffectsOfType` -- residu NOMME, pas un oubli.
                       current_player_machine_position=mow_pos)
