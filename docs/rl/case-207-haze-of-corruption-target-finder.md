@@ -223,6 +223,14 @@ d'`AdjacentFriends` (retour au collapse caster) → le test de pool rougit.
 `probe_dpw_weapon_cell.py --seeds 777,12345,314159,88` → **arme alignée 4/4, contrefactuel 0/4**
 (inchangé).
 
+### 4.f Corollaire mesuré plus tard — le POINT D'ENTRÉE du rejeu (case-277)
+
+Ce trigger n'est atteint que si `On(0x2b)` est émis, donc que si le cast entre par
+`AbilityHandler.visit_ActiveAbilityMessage`. Un rejeu offline qui appelle
+`<Ability>().execute_behaviour(...)` **à la main** saute le vecteur, donc saute ces tirages — et lit
+la mauvaise fenêtre du flux, cellule d'arme pourtant juste. Mesuré sur `FlailSwing` (1042) :
+`docs/rl/case-277-flail-swing-ecart-degat.md`, échelle `k = 0/1/2` refaite sur la voie ABILITY.
+
 ## 5. Ce qui n'est PAS couvert
 
 * ~~Le **transfert de dégât** lui-même~~ — **RÉSOLU par case-209** (`docs/rl/case-209-haze-of-corruption-damage-transfer.md`).

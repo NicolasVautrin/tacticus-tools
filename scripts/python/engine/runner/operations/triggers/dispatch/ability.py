@@ -68,7 +68,15 @@ def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
         CETTE attaque (c'est exactement pour ca que le natif emet l'evenement AVANT l'execution) ;
       * `SwornProtectorSummonKellAbility` / `SwornProtectorProtectSwitchAbility` (#95) — gate
         `AbilityHasAttackType(0|1)`, donc actifs sur les DEUX voies : c'est eux que le fork rendait
-        muets face a une ability offensive.
+        muets face a une ability offensive ;
+      * `HazeOfCorruptionTargetFinderAbility` (case-207) — gate `get_OwnerIsCaster` SEUL (aucun gate
+        d'attaque) : il fire pour N'IMPORTE QUELLE ability de `deathBlightlord` et **consomme du
+        RNG** (`min(|pool|, 2)` tirages du `PickRandomly`) AVANT le premier coup. C'est le
+        consommateur qui rend ce vecteur NUMERIQUEMENT observable : un rejeu offline qui appelle
+        `<Ability>.execute_behaviour(...)` a la main au lieu de passer par
+        `AbilityHandler.visit_ActiveAbilityMessage` saute ces tirages et lit la mauvaise fenetre du
+        flux -- signature mesuree #277 (port 21680 / live 21023 sur `FlailSwing`, cellule d'arme
+        pourtant IDENTIQUE).
     AUCUN autre trigger porte n'ecoute `event_id == 0x2b`."""
     ev = TriggerEvent(EventTriggerType.PreUnitAbility, caster_id, target_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
