@@ -152,16 +152,19 @@ exacte d'un filtre qui regarde le mauvais pas.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **`enum_maps.GROUP_TYPE` reste périmée** (102/104, décalée à partir de 36). Sa régénération passe
-  par `python scripts/python/rl_gen_enum_columns.py`, qui lit un `dump.cs` — artefact **gitignoré**,
-  absent d'un worktree. Le seul **consommateur** de cette table (`rl_collect_batch._group_name`) est
-  repointé sur `enums.tsv` ici, donc la base RL est correcte ; la table elle-même reste fausse pour
-  quiconque l'importerait directement. La même incertitude vaut pour les autres enums qu'elle porte
-  (`effect_type`, `active_ability_type`, `passive_ability_type`, `damage_profile_type`,
-  `unit_spawn_source`) — **non vérifiées ici**.
-* **La colonne `step_name` / `group_name` des batches DÉJÀ ingérés n'est pas rétro-corrigée.** Les
-  batches ingérés depuis la MAJ portent des noms décalés en base ; le SQL de backfill de
-  `013_enum_fk_and_names.sql` ne couvre que les colonnes `*_name` d'enums d'ability/effet.
+* ~~**`enum_maps.GROUP_TYPE` reste périmée** (102/104, décalée à partir de 36)~~ — **RÉSOLU par
+  #275** : les six blocs d'`enum_maps.py` sont régénérés depuis `enums.tsv` par
+  `scripts/python/regen_enum_maps.py`, et gardés par `probe_275_enum_maps_drift.py` +
+  `tests/test_enum_maps_ratchet_offline.py`. Les cinq autres enums, « non vérifiées ici », le sont
+  désormais : `EFFECT_TYPE` et `PASSIVE_ABILITY_TYPE` dérivaient aussi (2 renumérotés + 73 absents
+  + 20 manquants ; 107 absents + 9 manquants). Voir `docs/rl/case-275-enum-maps-drift.md`.
+* **La colonne `step_name` / `group_name` des batches DÉJÀ ingérés n'est pas rétro-corrigée — et
+  elle ne DOIT pas l'être** (mesuré en #275 §4). Un nom stocké se juge contre le build **qui a
+  écrit la ligne**, pas contre le build courant : le seul batch en base a été produit par un build
+  antérieur aux deux builds versionnés (preuve sémantique : `GroupType` 61 et 48 n'y apparaissent
+  **jamais**, alors que 59 porte 1 212 groupes tous sous `Ability_Power`). Ses `step_name` et
+  `group_name` sont donc cohérents avec leur émetteur ; les « corriger » vers la table courante
+  renommerait 52 842 lignes vers le pas **voisin**.
 * **Le changement de `_ATTACK`/`_ACTOR` (§4) n'est pas confronté live** : il modifie la
   classification `normal_melee` / `normal_ranged` de l'ingest RL, qui ne se mesure que sur un batch
   complet. La correction est justifiée par la lecture (intention du commentaire × table réelle), pas
