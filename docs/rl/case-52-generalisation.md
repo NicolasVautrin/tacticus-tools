@@ -1390,10 +1390,14 @@ DEUX couples (`port GATE` redevient `ability 69 -> u49` sur MC1_63, `ability 69 
 ### 4. Non couvert
 
 - Le residu `2468 s4` (Poxwalkers) **reste ouvert et le restera** : c'est un tirage.
-- L'accord **move-vs-finish** apres le gate n'est PAS couvert : sur `MC1_67` le natif rend
-  `FinishUnitTurnMessage` (son meilleur deplacement est la tuile COURANTE -> action nulle) la ou le port
-  rend un `move` a utilite negative. Le `MovementActionGenerator` du port rend TOUJOURS une action --
-  ecart DISTINCT, nomme, non traite.
+- ~~L'accord **move-vs-finish** apres le gate n'est PAS couvert~~ -> **FERME par #309**
+  (`docs/rl/case-309-action-nulle-mouvement.md`). La cause n'etait PAS un gate manquant a l'entree du
+  `MovementActionGenerator` : ce generateur natif ne teste AUCUN flag, et comme ses `positions`
+  contiennent toujours la tuile COURANTE il rend lui aussi toujours une action. Le filtre est en
+  AVAL, dans `IdunBattle.AI.ActionGenerators.InputBuilder$$GenerateInputMessagesFromUnitAction` :
+  une action qui ne bouge pas (destination absente ou egale a la tuile courante) et ne cible rien
+  produit une liste de messages VIDE, donc un `FinishUnitTurnMessage`. Mirror porte :
+  `engine.ai.tactic.input_messages_from_unit_action`.
 - Le second porteur du regime (`1063 FireAndReposition`, Calandis) est hors du pool spawnable ; la
   generalisation se fait sur deux couples (board, seed) du MEME porteur.
 - Les deux `pos-downstream-of-ability` du seed 12345 restent : ils sont en aval des misses d'ability
