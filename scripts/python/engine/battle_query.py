@@ -641,6 +641,50 @@ def surrounding_enemies(origin: tuple, positions: list,
     return out
 
 
+def surrounding_enemies_in_range(origin: tuple, positions: list, radius: int) -> set:
+    """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies`, surcharge **5 args**
+    `(unit, range, unique, unitSelectionType)` — celle dont le 2e parametre est nomme `unit` (une
+    ENTITE), PAS `unitTile`. Corps natif :
+
+        Enemies( unit,
+                 Units( SurroundingTiles(unit, includeCenter: 1, range) - Tiles(unit),
+                        unique, unitSelectionType ),
+                 unitSelectionType )
+
+    Trois consequences LUES (jamais deduites) :
+
+    * **le centre est l'ENTITE** : `SurroundingTiles`/`Tiles` partent de
+      `IdunBattle.Entities.EntityExtensions$$IterateTiles(unit)`, donc de la MainTile REELLE du sujet
+      — pas de la tuile candidate du balayage IA (meme quirk que
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility$$GetDamage`, confronte live
+      en #216) ;
+    * `- Tiles(unit)` retire le centre (`includeCenter: 1` puis soustraction) ;
+    * **aucun `Unobscured`** dans cette surcharge — contrairement a `surrounding_enemies` ci-dessus,
+      qui mirroir le `Unobscured(SurroundingEnemies(...))` de
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector`.
+      Ne PAS reutiliser cette derniere ici : elle retirerait des ennemis a distance 2 obscurcis que ce
+      selecteur-ci compte.
+
+    Le filtre de tuiles de `SurroundingTiles` est `IdunBattle.Core.Services.TileUtil$$IsTileValidForList
+    (tile, src, 1, 0)` = non-mur + walkable, SANS test d'elevation ni d'occupation : une unite
+    stationne forcement sur du walkable, donc no-op offline (meme raisonnement que
+    `surrounding_enemies`). `radius` vient du `GetNumberConstant` du call-site, jamais d'un scalaire
+    fige.
+
+    Retour : set de positions (1 unite par tuile ; le `unique` natif dedoublonne les unites
+    multi-tuiles, sans objet ici)."""
+    ok = (origin[0], origin[1])
+    out = set()
+    for p in (positions or []):
+        pk = (p[0], p[1])
+        if pk == ok:
+            continue                                   # `- Tiles(unit)`
+        if hexgeo.distance(ok, pk) > int(radius):
+            continue
+        out.add(pk)
+    return out
+
+
 def iterate_surrounding_tiles_order_key(pos: tuple) -> tuple:
     """Clé d'ORDRE d'énumération de `TileQuery.IterateSurroundingTiles` (`IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`) —
     le tie-break NATIF de cible à utilité égale au sein d'une position (#57g, 12345 s15).

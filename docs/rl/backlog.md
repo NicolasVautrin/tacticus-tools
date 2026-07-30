@@ -1008,16 +1008,26 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `test_lord_of_tempests_addice_smite_branch` (géométrie placée : Njal d=2 de T, E2 voisin de T ;
   live glace {T, E2} == offline) ; `is_normal_attack` face attaquant et Stormcaller (1113)
   runner-face — **résolus par #217** (`case-217-stormcaller`).
-- **`CalculateCustomUtility`, 9 overrides non portés** (`case-27` — inventaire RE-DÉRIVÉ au slot de
+- **`CalculateCustomUtility`, 8 overrides non portés** (`case-27` — inventaire RE-DÉRIVÉ au slot de
   vtable, **BORNÉ depuis #218** : **27 corps ET 27 classes** (le « 28e », `AmuletOfTheVoidwyrmPlaybook`
   cru partageant le corps de `PlasmaGrenadePlaybook`, était un faux positif de lecture hors-vtable —
-  `case-218-amulet-voidwyrm-custom-utility.md`) ; **7 portés** dans `loki_custom.py` —
-  1014/1177/1020/1029/1199/**1230**, plus 1119 hors module). Les 9 résidus tiennent à **4 verrous** :
-  MoW non modélisées comme unités de DÉCISION (1169/1148/1142 — le débloqueur `case-mow-offboard-cast`
-  ne lève que la face COMBAT) ; routes d'ability non-attaque (`dp=False` : 1226/1053/1185/1212, plus
-  1100 dont la cible native est un ALLIÉ) ; `GenerateMultiHitAttackPredictions` sur un sous-set de
-  cibles (1051/1142, 1098) ; évaluateurs manquants (composite
-  `UtilityAttackCase.Base` pour 1004, `TilesInTriangleShape` pour 1148, sélecteur DSL pour 1226).
+  `case-218-amulet-voidwyrm-custom-utility.md`) ; **9 portés** — 1014/1177/1020/1029/1199/1230/1227/**1226**
+  dans `loki_custom.py`, plus 1119 hors module). Verrous restants :
+  **(1)** MoW non modélisées comme unités de DÉCISION (1169/1148/1142 — le débloqueur
+  `case-mow-offboard-cast` ne lève que la face COMBAT ; ⚠ la face DÉCISION n'a AUCUNE vérité de
+  référence mesurable en arène : `aiDryRunAllUnits` ne propose rien pour une MoW, mesuré runner 336) ;
+  **(2)** `GenerateMultiHitAttackPredictions` sur un sous-set de cibles (1051/1142, 1098) ;
+  **(3)** évaluateurs manquants (composite `UtilityAttackCase.Base` pour 1004, `TilesInTriangleShape`
+  pour 1148) ; **(4)** route de ciblage ALLIÉ pour 1100 (verrou propre, la route non-attaque ne le
+  débloque pas : son masque `0x402` la fait VETO-er par `_is_attack_ability` depuis #217).
+  ~~Verrou « routes d'ability non-attaque »~~ — **LEVÉ (#27-4b)** : `engine/playbook/nonattack.py`
+  (mirror de `ComparablePlaybook<T>$$CalculateActionUtility` — le custom entre dans l'argument de
+  `ShouldExecute`, dont le corps par DÉFAUT rend `true`, mesuré au slot de vtable `+0x328` sur 4
+  playbooks). Premier membre validé live : **Chronometron (1226)**, A/B 4 bras, linéarité prouvée,
+  route et terme montrés NÉCESSAIRES, ancrage entité vs tuile tranché par le natif. Restent derrière
+  cette route, chacun avec son verrou PROPRE : **1185** (prédicat Markerlight + cibles ennemies),
+  **1212** (sous-ability d'un passif, `ShouldExecute`/`MakeHealPredictions` overridés → branche HEAL),
+  **1053** (plus de corps propre sur ce build : partage `ALoki_NormalAttackPlaybook` = 1, item vide).
   Le verrou « porteur hors `--list-pool` » **n'existe plus** (`catalog_inject.py`). Chaque item nomme
   son débloqueur exact dans `case-27`. `[opus]` : porter UN sous-système débloque son groupe. Biais
   visible seulement en concurrence serrée d'actions du porteur → promouvoir si un miss le fait surface.

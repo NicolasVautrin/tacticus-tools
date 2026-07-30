@@ -29,6 +29,7 @@ import hexgeo
 
 from .common import DefaultActiveAbilityPlaybook
 from .base import register
+from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..utilities.damage import will_be_overkill
@@ -366,6 +367,83 @@ class SavageEchoesPlaybook(_CustomOnlyPlaybook):
         return ctx.wt.sub("ActiveAbilities", self.W_KEY)       # -10
 
 
+class ChronometronPlaybook(NonAttackComparablePlaybook):
+    """`IdunBattle.AI.Playbook.Loki.ChronometronPlaybook$$CalculateCustomUtility` :
+
+        entities = new AbilityEntities(owner: caster, caster: caster, target: target,
+                                       <tous les slots de POSITION zero-initialises>);
+        sel = ChronometronAbility.GetAffectedEnemies(this.ability);      // slot d'interface 0x18 = Count
+        n   = sel.Count(entities);
+        return GetUtilityValue("Chronometron_AffectedEnemies") * Fix64.FromInt(n);
+
+    et `IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility$$GetAffectedEnemies` :
+
+        DSLSelectors.SurroundingEnemies( <selecteur d'UNITE>,
+                                         AbilityConfiguration.GetNumberConstant(0x16 = range),
+                                         unique: 1, unitSelectionType: 3 )
+
+    C'est **le MEME artefact natif que la face COMBAT** : `...ChronometronAbility$$ExecuteBehaviour`
+    re-inline exactement le meme appel (memes 5 arguments) pour alimenter son `Foreach`. Un seul
+    artefact, un seul port — le mirror decision `battle_query.surrounding_enemies_in_range` et le
+    mirror combat `necrons.chronometron_affected_enemies` decrivent le meme ensemble.
+
+    SURCHARGE EXACTE — c'est la 5-args, dont le 2e parametre est nomme `unit` (une ENTITE), PAS la
+    6-args `(unit, unitTile, range, ...)`. Consequence : le centre est la MainTile REELLE du caster
+    (`EntityExtensions.IterateTiles`), **pas** la tuile candidate du balayage IA — et l'`AbilityEntities`
+    construit ici le confirme, ses slots de position sont ZERO-INITIALISES. Le terme est donc CONSTANT
+    sur (tuile, cible) : il arbitre Chronometron CONTRE les autres actions, jamais l'argmax intra-ability.
+    (Meme quirk que `SavageEchoesAbility$$GetDamage`, confronte live en #216 : le bonus photographie
+    l'etat AVANT le deplacement.)
+
+    Pas de `Unobscured` dans cette surcharge -> ne PAS reutiliser `battle_query.surrounding_enemies`
+    (qui, lui, mirroir le `Unobscured(SurroundingEnemies(...))` de GauntletsOfUltramar).
+
+    ROUTE : l'ability n'a **pas de `damageProfile`** (`constants` = `{range, nrOfRounds}`) — elle
+    n'atteint donc jamais `_best_attack`. Elle passe par `playbook/nonattack.py` (verrou 2 de #27),
+    ou `u = custom` et `u_full = u + Tile(7)`. `ShouldExecute` (slot +0x328) rend `true` : MESURE au
+    slot de vtable (`probe_27_4b_chronometron_vtable.py`), pas suppose.
+
+    Poids `aiUtilities.Default.ActiveAbilities.Chronometron_AffectedEnemies` = 10 (resolu a
+    l'execution depuis la BC, jamais code en dur). `range` = `Chronometron.constants.range` = 2.
+    Porteur necroChronomancer « Thothmek » [lineup, Necrons] — hors du catalogue de la seed BC, amene
+    par `catalog_inject.py --units necroChronomancer` (#92), comme le fait deja `probe_116_necrons.py`.
+    La face COMBAT est portee et validee (`engine/runner/abilities/necrons.py::ChronometronAbility`,
+    #116) : ce port-ci ne couvre que la face DECISION."""
+
+    ability_id = int(ActiveAbilityType.Chronometron)  # 1226
+    W_KEY = "Chronometron_AffectedEnemies"
+    CONFIG_ID = "Chronometron"
+
+    def _range(self) -> int:
+        """`AbilityConfiguration.GetNumberConstant(0x16)` = `Chronometron.constants.range` — la MEME
+        constante que celle lue par la face COMBAT (`ChronometronAbility._params`) et que le
+        `TargetingRange` `useRangeFromConfig` du masque de ciblage."""
+        c = (_gc.ability(self.CONFIG_ID) or {}).get("constants") or {}
+        r = c.get("range")
+        return int(r) if r is not None else 1
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        if ctx.origin is None:
+            return 0.0                       # pas de MainTile lisible -> selecteur non evaluable
+        n = len(bq.surrounding_enemies_in_range(ctx.origin, ctx.epos, self._range()))
+        return float(n) * ctx.wt.sub("ActiveAbilities", self.W_KEY)     # 10
+
+    def is_caster_added(self, ctx, caster_tile) -> bool:
+        """`TargetingQuery$$GetCasterNotAddedReason` pour le masque de
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility$$.ctor` (RE-lu et deja
+        porte dans `runner/abilities/necrons.py` : `isSelfCasting = 1`, `Rules = TargetIsEnemy |
+        AllowObscured*`, `TargetingRange` = `useRangeFromConfig`). Branche self-cast du natif :
+        `GetValidTargets(caster, casterTile, options, true, true)` vide -> refus `0x800`, le caster
+        n'entre pas dans `GetEligibleTargetsEntities` et aucune action n'est generee DEPUIS CETTE
+        TUILE. Mirror : au moins un ennemi vivant a `<= range` de la tuile candidate.
+
+        Les regles fines de la cascade (`GetInvalidTargetReason`) ne sont pas rejouees ici — le masque
+        est permissif (`AllowObscuredTargetBy*`) et le port reste un SUR-ENSEMBLE, degradation
+        assumee et bornee a cette ability."""
+        r = self._range()
+        return any(hexgeo.distance(caster_tile, e) <= r for e in (ctx.epos or []))
+
+
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
 #
 # SorcerousFacade (1100) N'EST PAS ENREGISTREE, et c'est DELIBERE (#27 tranche 3).
@@ -389,6 +467,10 @@ def _register_all() -> None:
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook):
         register(cls())
+    # Route NON-ATTAQUE (verrou 2, #27-4b) : l'ability n'a pas de `damageProfile`, elle n'atteint
+    # jamais `_best_attack` -> registre + route dedies (`playbook/nonattack.py`).
+    for cls in (ChronometronPlaybook,):
+        register_nonattack(cls())
 
 
 _register_all()
