@@ -74,8 +74,34 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
     _tctx = scene.ctx(tgt)
     _tgt_armor_reduced = (_tctx.stats.has_negative_modifier(ARMOR_STAT_TYPES)
                           if _tctx is not None and _tctx.stats is not None else None)
+    # #316 : TRAITS DE LA CIBLE, sur le vecteur ABILITY comme sur la normale. Le natif n'a qu'UN
+    # `AbilityEntities` pour ces deux chemins. `IdunBattle.Core.Services.DamagePrediction$$Predict
+    # AttackRaw` appelle `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` avec
+    # `target = request+0x50` -- le 3e argument que le playbook a passe au slot 0x28
+    # (`IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction`, qui l'ecrit VERBATIM
+    # dans la request, recopiee sans re-derivation par les deux `DamagePrediction$$PredictAttack`)
+    # -- puis transmet cet objet au slot 0xd `CalculateAttackerModifiersForPrediction`, lequel ne
+    # recoit AUCUN identifiant d'ability et recopie `Target@+0x10` tel quel dans le copy-ctor qui
+    # alimente les arbres DSL des effets. Les gates `HasTrait(target, ...)` des effets d'ATTAQUANT
+    # (`IdunBattle.Entities.Effects.Loki.BeastSlayer_ExtraDmgEffect$$CreateDamageModifier` = +20%
+    # melee vs BigTarget/Vehicle ; `IdunBattle.Entities.Effects.Loki.MartialKatah_DmgBonusEffect$$
+    # CreateEffectDamageBonusForAttack` = +100% vs Summon) s'y evaluent donc pour une ability
+    # EXACTEMENT comme pour l'attaque normale.
+    # Ce parametre etait absent ICI et present dans `make_normal_attack_predictions` : le defaut
+    # `None` de `BaseEffect.create_effect_damage_bonus_for_attack` vaut "cible inconnue" -> AUCUN
+    # bonus, degradation SILENCIEUSE et UNILATERALE (le port sous-estimait). C'etait AUSSI un fork
+    # prediction<->combat : la face COMBAT du meme vecteur ability threade deja `target_traits`
+    # (`runner/operations/damage_ops/ability.py`), donc le port ANNONCAIT moins qu'il n'EXECUTE.
+    # MESURE (`probe_316_ability_prediction_target_traits.py` : caster `custoBladeChampion`, cible
+    # mannequin dont la ligne `BC.Units[].Traits` est le SEUL curseur, oracle `aiPlaybookPredict`) --
+    # sur 1191 le natif rend [1496,2244] sans trait, [1795,2692] avec `BigTarget` ou `Vehicle`
+    # (x1.1996) et [2993,4488] avec `Summon` (x2.0) ; le port rendait [1496,2244] dans les QUATRE
+    # bras. L'attaque normale du MEME caster, elle, etait deja bit-exacte dans les quatre.
+    # #267-r1 : substrat d'ENTITE (`_entity_traits`), MEME source que la normale et que le combat.
+    _tgt_traits = _entity_traits(scene, tgt)
     mods = calculate_attacker_modifiers_for_prediction(scene.effects(uid), is_ranged=not is_melee,
                                                        has_moved=_hm, is_normal_attack=False,
+                                                       target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,
                                                        att_ctx={"att_pos": attack_pos or scene.pos(uid),
                                                                 "tile_effects_by_pos":

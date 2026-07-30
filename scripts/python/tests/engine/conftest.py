@@ -27,6 +27,14 @@ d'ACTION (`ALoki_NormalAttackPlaybook<T>$$CalculateCustomUtility` = `Fix64(1)` c
 base). Le montage fabrique la fenetre d'exactement UN point d'utilite ou ce terme, et lui seul, decide
 l'action. Montage dans `scripts/python/probe_308_normal_attack_bonus.py`.
 
+`target_trait_ability_case` (#316) -- MONTAGE NOMME des GATES DE TRAIT DE LA CIBLE sur le vecteur
+PREDICTION D'ABILITY (`generate_multi_hit_attack_prediction`, per-cible de
+`ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions`). Un seul couple caster/cible, une seule
+variable : la ligne `BC.Units[].Traits` de la cible, qui ouvre tour a tour `BeastSlayer_ExtraDmg`
+(+20 % melee vs BigTarget/Vehicle) et `MartialKatah_DmgBonus` (+100 % vs Summon) -- deux magnitudes
+DIFFERENTES sur le meme etage. Montage dans
+`scripts/python/probe_316_ability_prediction_target_traits.py`.
+
 Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime non
 atteint est un VERT qui ment -- aucune mesure n'a eu lieu et la suite ne rougit pour personne."""
 from __future__ import annotations
@@ -37,6 +45,7 @@ import probe_17_active_ability_used_gate as AAU
 import probe_17_hammer_corpse as HC
 import probe_17_martial_inspiration as MI
 import probe_308_normal_attack_bonus as NAB
+import probe_316_ability_prediction_target_traits as TTA
 
 
 @pytest.fixture(scope="module")
@@ -128,6 +137,57 @@ def normal_attack_bonus_case(live_session):
             finally:
                 if res is not None:
                     NAB.dispose(res)
+            cache[key] = res
+        return cache[key]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def target_trait_ability_case(live_session):
+    """Fabrique : `target_trait_ability_case()` -> le dict de mesure du probe #316.
+
+    TROIS volets, tous exposes par la MEME fabrique (`variant=`) :
+      * `"synthetic"` (defaut) -- quatre bras sur le meme couple caster/cible, seule la ligne
+        `BC.Units[].Traits` de la cible change (`[]`, `BigTarget`, `Vehicle`, `Summon`). C'est le
+        volet qui isole le gate, et qui porte DEUX magnitudes distinctes ;
+      * `"real"` -- CIBLES REELLES : `Traits` NON patche, autre couple (board, seed). Ferme le doute
+        que patcher `Traits` fabriquerait un regime artificiel ;
+      * `"additive"` -- AUTRE caster, AUTRE ability, AUTRE canal : `adeptCanoness` /
+        `BrazierOfHolyFire` (RANGED) et un gate `ForAddition` (`CondemnorStake_ExtraDmg`) au lieu
+        d'un `ForPercentIncrease`. Interdit de conclure que le threading n'aurait ete valide que sur
+        le canal `%-list`.
+
+    Chaque appel monte un runner par bras (le build suivant remplace le precedent via le meme
+    `--state-file`) et DISPOSE ses runners. Portee MODULE : les assertions du fichier se partagent
+    la mesure."""
+    cache: dict = {}
+    # Chaque volet a SON couple (board, seed) par defaut, et ce n'est pas un detail : ils doivent
+    # differer, sinon la generalisation geometrique n'est pas exercee.
+    defaults = {"synthetic": (TTA.BOARD, TTA.SEED), "real": ("C3_01", 777),
+                "additive": ("C4_09", 909)}
+
+    def _case(board: str = None, seed: int = None, target: str = TTA.TARGET,
+              variant: str = "synthetic") -> dict:
+        assert variant in defaults, f"volet inconnu : {variant} (connus : {sorted(defaults)})"
+        d_board, d_seed = defaults[variant]
+        board = board if board is not None else d_board
+        seed = seed if seed is not None else d_seed
+        key = (board, seed, target, variant)
+        if key not in cache:
+            res = None
+            try:
+                if variant == "real":
+                    res = TTA.scenario_real(board=board, seed=seed, verbose=True)
+                elif variant == "additive":
+                    res = TTA.scenario_additive(board=board, seed=seed, target=target, verbose=True)
+                else:
+                    res = TTA.scenario(board=board, seed=seed, target=target, verbose=True)
+            except RuntimeError as exc:                 # montage non installe -> ROUGE, jamais skip
+                pytest.fail(f"montage target-trait-ability NON INSTALLE (board={board}, seed={seed}, "
+                            f"cible={target}, volet={variant}) : {exc}", pytrace=False)
+            finally:
+                if res is not None:
+                    TTA.dispose(res)
             cache[key] = res
         return cache[key]
     return _case
