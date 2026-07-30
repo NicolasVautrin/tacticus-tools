@@ -351,6 +351,83 @@ def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = 
     return evaluate_trigger_operation(state, ev)
 
 
+def _effect_vector_triggers(state: State, event_id: int, actor_id: Optional[int],
+                            target_id: Optional[int], effect_type: int, *,
+                            removing: bool) -> list[dict]:
+    """FOYER UNIQUE des vecteurs d'EFFET (pose / retrait) et de leurs DEUX canaux d'ability (#306).
+
+    Les deux Operations natives batissent un `AbilityEntities` NEUF par `memset(0, 0x128)` -- l'ambiant
+    de l'appelant (une triggered-ability en cours, p. ex.) n'y survit PAS -- puis remplissent, et
+    ELLES NE REMPLISSENT PAS LES MEMES CHAMPS. C'est toute l'asymetrie, re-derivee au decompile du
+    build `rnca9r7q6c` :
+
+      `IdunBattle.Operations.AddEffectOperation$$Execute`
+          memset(0x128) puis `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor(
+              caster: source, actor: source, target: owner, owner: owner, ...,
+              currentAbilityOrEffect: Nullable(AbilityOrEffect(effectType)),   -> +0x60
+              parentAbilityOrEffect:  Nullable VIDE,                           -> +0x7c
+              triggerAbilityOrEffect: Nullable(AbilityOrEffect(effectType)))   -> +0x98
+          Les DEUX Nullable sortent de DEUX appels distincts a `IdunBattle.Core.AbilityOrEffect$$
+          op_Implicit` sur le MEME argument (`mov edx, edi` deux fois, `edi` = le parametre
+          `effectType`) -> **meme valeur dans les deux champs**.
+          Events publies avec CETTE struct : `On(0x3d=61 PreEffectAdded)`, `On(0x3e=62 EffectAdded)`,
+          `On(0x46=70 UnitBecameUntargetable)`.
+
+      `IdunBattle.Operations.RemoveEffectOperation$$Execute`
+          memset(0x128) puis **AUCUN ctor** -- quatre ecritures directes seulement :
+              +0x10 (`target`) = +0x18 (`owner`) = Entity(effectComponent.OwnerId @+0x14)
+              +0x60..+0x7c (`currentAbilityOrEffect`) =
+                  Nullable(AbilityOrEffect(effectComponent.Type @+0x58))
+          CONTROLE NEGATIF (fait a l'assembleur, pas deduit) : entre le memset et la copie publiee,
+          aucune ecriture ne touche +0x00 (`actor`), +0x08 (`caster`), +0x7c (`parent`) ni **+0x98**
+          (`triggering`) -- ils restent a ZERO.
+          Events publies : `On(0x3f=63 PreEffectRemoved)`, `On(0x40=64 EffectRemoved)`,
+          `On(0x3b=59 UnitBecameTargetable)`.
+
+    Les deux lecteurs sont des copies plates a offset FIXE, ce qui identifie les champs sans deduction :
+        `IdunBattleLogic.Entities.AbilityTypeSelector.CurrentAbilitySelector$$Select`    lit +0x60/+0x68/+0x70/+0x78
+        `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select` lit +0x98/+0xa0/+0xa8/+0xb0
+    et cote DSL, `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` prend le slot
+    `DSLSelectors+0x88` tandis que `$$TriggeringAbilityIs` / `$$TriggeringEffectIs` /
+    `$$TriggeringAbilityIsNone` prennent TOUS LES TROIS `DSLSelectors+0x90`.
+
+    ==> CONSEQUENCE, et c'est l'objet de ce foyer :
+        * sur la POSE, les deux canaux portent la MEME valeur -> `CurrentAbilityIs(effet)` ET
+          `TriggeringEffectIs(effet)` sont VRAIS, indiscernables ;
+        * sur le RETRAIT, `TriggeringEffectIs` / `TriggeringAbilityIs` sont **TOUJOURS FAUX** (le
+          Nullable +0x98 est vide) et `TriggeringAbilityIsNone` est VRAI ; c'est **`CurrentAbilityIs`
+          qui porte l'effet retire**.
+
+    Mapping port (cf. `TriggerEvent` / `State`) :
+        +0x60 `CurrentAbility`    -> `ev.triggering_ability` ET l'ambiant `state.triggering_ability`
+        +0x98 `TriggeringAbility` -> `ev.triggering_effect`  ET l'ambiant `state.trigger_ability_type`
+    Les DEUX niveaux sont poses : le payload parce que c'est ce que lisent les gates cables sur `ev`,
+    l'AMBIANT parce que le memset natif ECRASE ce qu'une triggered englobante y avait mis (sans quoi
+    un `CurrentAbilityIs(<la triggered englobante>)` serait VRAI cote port et FAUX cote natif). Les
+    deux sont restaures en sortie : le natif jette son `AbilityEntities` avec l'operation, le port n'a
+    que des canaux globaux (meme geste que `_verify_deaths` pour le vecteur mort, #301)."""
+    et = int(effect_type)
+    ev = TriggerEvent(int(event_id),
+                      actor_id if actor_id is not None else -1,
+                      target_id if target_id is not None else -1,
+                      ranged=False, profile=None,
+                      triggering_ability=et,                        # +0x60, les DEUX sens
+                      triggering_effect=(None if removing else et))  # +0x98, POSE seulement
+    # Acces DIRECT (pas `getattr(..., None)`) : les deux slots sont declares dans `State.__slots__`.
+    # Un objet qui ne les a pas n'est pas un `State` -> ca doit LEVER, pas degrader en `None` (meme
+    # raison qu'en `_publish_unit_triggered_ability` : un canal absent lu comme « vide » est le mode
+    # de panne silencieuse que ce cas documente).
+    prev_current = state.triggering_ability
+    prev_trigger = state.trigger_ability_type
+    state.triggering_ability = et
+    state.trigger_ability_type = (None if removing else et)
+    try:
+        return evaluate_trigger_operation(state, ev)
+    finally:
+        state.triggering_ability = prev_current
+        state.trigger_ability_type = prev_trigger
+
+
 def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
                               effect_type: int) -> list[dict]:
     """Vecteur `On(PreEffectAdded=0x3d=61)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
@@ -360,12 +437,43 @@ def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id:
 
     `AbilityEntities.ctor(source, source, target)` -> **actor = la SOURCE** de l'effet ; `target` = la
     cible ; `triggering_effect` = le type pose (lu par `TriggeringEffectIs`). Consommateur : branche 2 de
-    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`. No-op si rien ne matche."""
-    ev = TriggerEvent(EventTriggerType.PreEffectAdded,
-                      source_id if source_id is not None else -1,
-                      target_id if target_id is not None else -1,
-                      ranged=False, profile=None, triggering_effect=int(effect_type))
-    return evaluate_trigger_operation(state, ev)
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`. No-op si rien ne matche.
+
+    Les DEUX canaux d'ability sont poses par `_effect_vector_triggers` (#306) : la POSE ecrit `+0x60`
+    ET `+0x98` avec le MEME `AbilityOrEffect(effectType)`."""
+    return _effect_vector_triggers(state, int(EventTriggerType.PreEffectAdded),
+                                   source_id, target_id, effect_type, removing=False)
+
+
+def pre_effect_removed_triggers(state: State, target_id: Optional[int],
+                                effect_type: int) -> list[dict]:
+    """Vecteur `On(PreEffectRemoved=0x3f=63)` — premier des trois events de
+    `IdunBattle.Operations.RemoveEffectOperation$$Execute`, publie APRES les deux gates d'idempotence
+    (`EffectComponent+0x5f` deja retire, `+0x5e` retrait en cours) et AVANT toute revocation.
+
+    `actor`/`caster` (+0x00/+0x08) sont VIDES cote natif -- le memset n'est suivi d'aucune ecriture --
+    donc le port ne threade PAS de source : seul le PORTEUR est connu (`target` = `owner` = +0x10/+0x18).
+    C'est `CurrentAbilityIs` qui porte l'effet retire ; tout `TriggeringEffectIs` y est faux (#306).
+
+    AUCUN consommateur porte n'ecoute encore `On(63)` : l'emission est le MIRROR, et c'est elle qui
+    rend le canal OBSERVABLE donc la loi d'asymetrie VALIDABLE (meme arbitrage que `On(0xd)` en #294).
+    No-op si rien ne matche."""
+    return _effect_vector_triggers(state, int(EventTriggerType.PreEffectRemoved),
+                                   None, target_id, effect_type, removing=True)
+
+
+def effect_removed_triggers(state: State, target_id: Optional[int],
+                            effect_type: int) -> list[dict]:
+    """Vecteur `On(EffectRemoved=0x40=64)` — deuxieme event de
+    `IdunBattle.Operations.RemoveEffectOperation$$Execute`, publie APRES `RemoveSubEffects`, la
+    desactivation (`RefreshEffectsOperation$$DeactivateEffect` -> revert des modifications) et la pose
+    de `EffectComponent+0x5c = 0` / `+0x5f = 1`.
+
+    MEME `AbilityEntities` que `On(63)` : la struct est batie UNE fois puis publiee telle quelle
+    (le port la reconstruit a l'identique via `_effect_vector_triggers`). Memes canaux, meme asymetrie.
+    No-op si rien ne matche."""
+    return _effect_vector_triggers(state, int(EventTriggerType.EffectRemoved),
+                                   None, target_id, effect_type, removing=True)
 
 
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:

@@ -365,6 +365,8 @@ class RemoveEffect(AbilityBehaviour):
         from ...operations.stat_ops import revert_change_stat
         from ...operations.ability_modifications import revert_ability_modifications
         from ...operations.effects import unregister_name
+        from ...operations.triggers import (pre_effect_removed_triggers,   # lazy : cycle behaviours<->triggers
+                                            effect_removed_triggers)
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
@@ -376,6 +378,14 @@ class RemoveEffect(AbilityBehaviour):
             for eff in state.effects.by_unit.get(int(tgt), []):
                 if eff.consumed or eff.effect_type != self.effect_type:
                     continue
+                # `On(PreEffectRemoved = 0x3f = 63)` (#306) -- le natif le publie TOUT EN HAUT de
+                # `IdunBattle.Operations.RemoveEffectOperation$$Execute`, apres les deux gates
+                # d'idempotence (`EffectComponent+0x5f`/`+0x5e`) et AVANT toute revocation. Le port
+                # emet donc ICI, avant le revert, et PAR STACK (le natif appelle l'Operation par
+                # entite-effet). Ses DEUX canaux d'ability sont ASYMETRIQUES vis-a-vis de la pose :
+                # `CurrentAbility` (+0x60) porte l'effet retire, `TriggeringAbility` (+0x98) reste
+                # VIDE -- cf. `dispatch/move_death.py::_effect_vector_triggers`.
+                pre_effect_removed_triggers(state, tgt, eff.effect_type)
                 # revert par SOURCE (ReverseModification) : la valeur se re-clampe au read, sans delta stocke.
                 src = None if eff.stat_mod_reverted else effect_stat_mod_key(eff)
                 if src is not None:
@@ -402,6 +412,12 @@ class RemoveEffect(AbilityBehaviour):
                 # ActiveEffectIds` -> le canal des NOMS (lu par la couche decision) doit suivre,
                 # sinon un couple pose/retire dans le MEME cast laisse son nom colle.
                 unregister_name(state, tgt, eff.name)
+                # `On(EffectRemoved = 0x40 = 64)` (#306) -- publie APRES `RemoveSubEffects`, la
+                # desactivation (revert des modifications) et la pose de `EffectComponent+0x5c = 0` /
+                # `+0x5f = 1`, donc APRES tout ce que la boucle ci-dessus vient de faire. MEME
+                # `AbilityEntities` que `On(63)` : le natif la batit une fois et la publie telle
+                # quelle.
+                effect_removed_triggers(state, tgt, eff.effect_type)
                 removed += 1
             ectx.emit("RemoveEffect", target=tgt, effect_type=self.effect_type, removed=removed)
         return OperationResult.ok()

@@ -422,7 +422,10 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   qui le SÉPARE de `+0x60` existe (`probe_294_trigger_ability_channels.py`, chaîne
   `A --On(0xd)--> B` : `+0x60 = B`, `+0x98 = A`). Ce qui reste ouvert est ailleurs, et c'est
   **N18/N19** de `port-residuals-inventory.md` : le champ a **quatre** écrivains natifs, le port
-  n'en modélise qu'un ; le seul qui produise une divergence réelle est
+  en modélise désormais **trois** (#294 écrivain 4, #301 écrivain 2, #306 écrivain 3 avec
+  l'asymétrie ADD/REMOVE — `case-292` §9) ; ne reste que l'écrivain 1
+  (`OperationProcessor$$EvaluateAbilities`), sans conséquence tant qu'il écrit la MÊME ability dans
+  les deux champs. Celui qui produisait une divergence réelle était
   `IdunBattle.Operations.KillUnitOperation$$Execute` (`+0x98 = KillUnitOptions+0x04`, `+0x60` à
   ZÉRO sur `On(0)/On(1)/On(2)`). Et `On(0xd)` n'a **aucun consommateur, ni porté ni natif** (trou
   déclaré : 4 `Env*Ability$$CreateTrigger` à liste d'events construite par

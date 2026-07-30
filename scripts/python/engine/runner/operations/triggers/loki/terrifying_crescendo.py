@@ -74,7 +74,7 @@ CRESCENDO_EFFECT = int(EffectType.TerrifyingCrescendo_ExtraDmg)     # 0x590 = 14
 CRESCENDO_EFFECT_NAME = "TerrifyingCrescendo_ExtraDmg"              # nom d'EffectType capte live
 PINNED = int(EffectType.Pinned)                                     # 0x429 = 1065 (UI << Suppressed >>)
 _ON_UNIT_DEATH = int(EventTriggerType.UnitDeath)                    # 0
-_ON_PRE_EFFECT_ADDED = int(EventTriggerType.PreEffectAdded)         # 0x3e = 62
+_ON_PRE_EFFECT_ADDED = int(EventTriggerType.PreEffectAdded)         # 0x3d = 61
 _MAX_LEVEL_CONST = "buffMaxLevel"                                   # `GetNumberConstant(0x62)`
 
 

@@ -58,21 +58,28 @@ class TriggerEvent:
         # attaque melee Physical/Power + bonus Psychic QUALIFIE le trigger 1173). None = non threadé
         # (les consommateurs retombent sur {profile}).
         self.profiles = set(profiles) if profiles else None
-        # `TriggeringEffectIs(effectType)` : le TYPE d'effet porte par l'evenement (celui qu'on est
-        # en train de poser). None hors de ce vecteur. Consommateur : branche 2 de
+        # `TriggeringEffectIs(effectType)` : le canal `AbilityEntities+0x98` (`TriggeringAbility`).
+        # `IdunBattleLogic.Entities.DSLTriggers$$TriggeringEffectIs` prend le slot `DSLSelectors+0x90`
+        # -- LE MEME que `$$TriggeringAbilityIs` et `$$TriggeringAbilityIsNone` -- et ce slot porte
+        # `AbilityTypeSelector.TriggeringAbilitySelector`, dont le `Select` est une copie plate de
+        # `+0x98/+0xa0/+0xa8/+0xb0`. `CurrentAbilityIs`, lui, prend `DSLSelectors+0x88` ->
+        # `CurrentAbilitySelector` -> `+0x60/+0x68/+0x70/+0x78` (= `self.triggering_ability`).
+        # None = ce canal est VIDE sur l'evenement.
+        # Consommateur : branche 2 de
         # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
-        # (`On(0x3e) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)`).
-        # ⚠ CORRECTION #294 : ce predicat lit le slot `DSLSelectors+0x90`, donc le champ
-        # `AbilityEntities+0x98` -- LE MEME que `TriggeringAbilityIs`. Or l'ecriture de `+0x98` est
-        # ASYMETRIQUE entre pose et retrait : `IdunBattle.Operations.AddEffectOperation$$Execute`
-        # ecrit `+0x60` ET `+0x98` (`On(61)`/`On(62)`/`On(70)`), tandis que
-        # `IdunBattle.Operations.RemoveEffectOperation$$Execute` n'ecrit QUE `+0x60` et laisse
-        # `+0x98` a zero. Donc sur `On(63 = PreEffectRemoved)` / `On(64 = EffectRemoved)`,
-        # `TriggeringEffectIs` est TOUJOURS FAUX cote natif : c'est `CurrentAbilityIs` qui porte
-        # l'effet retire. L'ancienne redaction (« poser/retirer », `On(64)` inclus) etait fausse.
-        # Aucun consommateur porte n'est sur le vecteur RETRAIT -> rien a corriger cote comportement ;
-        # residu N18 de `docs/rl/port-residuals-inventory.md` (sous-item ADD/REMOVE, toujours OUVERT ;
-        # le sous-item MORT du meme N18 est ferme par #301).
+        # (`On(0x3d = 61 PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(0x429 = Pinned)`).
+        #
+        # SUR LES VECTEURS D'EFFET, LES DEUX CANAUX SONT ASYMETRIQUES (#306, RE re-derivee sur
+        # `rnca9r7q6c`) : `IdunBattle.Operations.AddEffectOperation$$Execute` passe DEUX
+        # `Nullable<AbilityOrEffect>` bâtis sur le MEME `effectType` au ctor nomme
+        # (`currentAbilityOrEffect` -> `+0x60` ET `triggerAbilityOrEffect` -> `+0x98`), alors que
+        # `IdunBattle.Operations.RemoveEffectOperation$$Execute` n'appelle AUCUN ctor : apres son
+        # `memset(0, 0x128)` il n'ecrit que `+0x10`/`+0x18` (le porteur) et `+0x60..+0x7c`
+        # (l'effet retire) -- `+0x98` reste a ZERO (controle negatif fait a l'assembleur).
+        # DONC sur `On(63 = PreEffectRemoved)` / `On(64 = EffectRemoved)` / `On(59 =
+        # UnitBecameTargetable)` : `TriggeringEffectIs` et `TriggeringAbilityIs` sont TOUJOURS FAUX,
+        # `TriggeringAbilityIsNone` est VRAI, et c'est **`CurrentAbilityIs` qui porte l'effet
+        # retire**. Foyer porte des deux sens : `dispatch/move_death.py::_effect_vector_triggers`.
         self.triggering_effect = triggering_effect
         # `IsFirstHitInSeries` (`IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger`) =
         # `AbilityEntities.get_IsFirstHit` = `Nullable<bool>(hitIndex.HasValue && hitIndex == 0)` — le champ
@@ -117,6 +124,10 @@ class TriggerEvent:
         # None = evenement hors triggered-ability. ⚠ Sur le vecteur MORT (`On(0)/On(1)/On(2)/On(53)/
         # On(54)`) ce canal est INCONDITIONNELLEMENT vide cote natif comme cote port (#301) : un gate
         # `Triggering*Is` de ce vecteur doit lire `state.trigger_ability_type`, jamais celui-ci.
+        # ⚠ Sur les vecteurs d'EFFET, a l'inverse, c'est CE canal-ci qui est renseigne dans LES DEUX
+        # sens -- il porte l'`AbilityOrEffect` de l'EFFET (pas d'une triggered) : `+0x60 = +0x98 =
+        # effectType` a la pose, `+0x60 = effectType` avec `+0x98` VIDE au retrait (#306). Un gate de
+        # RETRAIT doit donc lire `CurrentAbilityIs`, jamais `TriggeringEffectIs`.
         self.triggering_ability = triggering_ability
 
 

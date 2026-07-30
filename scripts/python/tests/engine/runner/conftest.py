@@ -40,6 +40,7 @@ import probe_195_prevent_overkill_decision as PVO
 import probe_o5_unit_flags as O5
 import probe_294_trigger_ability_channels as TAC
 import probe_301_kill_unit_trigger_channels as KUC
+import probe_306_effect_trigger_channels as EFC
 
 
 @pytest.fixture
@@ -281,6 +282,40 @@ def kill_unit_trigger_channel_case():
         assert mutate in (None,) + KUC.MUTATIONS, \
             f"mutation inconnue : {mutate} (connues : {sorted(KUC.MUTATIONS)})"
         return KUC.run(mutate=mutate, verbose=False, real=mutate is None)
+    return _case
+
+
+# ── #306 — les memes DEUX canaux, mais sur les vecteurs d'EFFET (pose / retrait) ──────────────────
+
+@pytest.fixture
+def effect_trigger_channel_case():
+    """Fabrique : `effect_trigger_channel_case()` -> le montage NOMINAL (qui exerce le foyer DU
+    DEPOT : `AddEffectOperation.execute` reel + la feuille DSL `RemoveEffect` reelle),
+    `(mutate="symmetric")` -> une contre-epreuve, `(add_only=True)` -> la face POSE seule. Rend le
+    dict de trace de `probe_306_effect_trigger_channels.run()`.
+
+    MONTAGE NOMME de l'ASYMETRIE : les deux Operations d'effet batissent leur `AbilityEntities` par
+    `memset(0, 0x128)`, mais `IdunBattle.Operations.AddEffectOperation$$Execute` remplit
+    `currentAbilityOrEffect` (`+0x60`) **ET** `triggerAbilityOrEffect` (`+0x98`) avec le meme
+    `AbilityOrEffect(effectType)`, tandis que `IdunBattle.Operations.RemoveEffectOperation$$Execute`
+    n'ecrit que `+0x60` -- `+0x98` reste a ZERO. Donc sur `On(63)` / `On(64)`, c'est
+    `CurrentAbilityIs` qui porte l'effet retire, jamais `TriggeringEffectIs`.
+
+    PAS de `live_session`, et c'est DELIBERE -- meme raison qu'en #294/#301 : aucun consommateur
+    porte n'ecoute les vecteurs de retrait, et sur la POSE les deux canaux portent la MEME valeur,
+    donc aucune observable de bataille ne separe les deux lectures. Ce qui est verrouille ici est
+    OFFLINE, deterministe et sans RNG : QUEL canal chaque Operation ecrit, et sa PORTEE. La
+    non-regression du COMPORTEMENT, elle, est portee par `test_lot_pose_live.py` (le seul
+    consommateur porte de `On(61)`).
+
+    Quatre contre-epreuves (`probe_306_effect_trigger_channels.MUTATIONS`), chacune avec sa
+    signature propre : `legacy` (l'etat d'avant #306 : la pose n'ecrit que `+0x98`, le retrait
+    n'emet rien), `symmetric` (le retrait ecrit `+0x98` comme la pose), `noambient` (l'ambiant
+    d'une triggered englobante n'est pas ecrase par le memset), `persist` (pas de restauration)."""
+    def _case(mutate: str = None, add_only: bool = False) -> dict:
+        assert mutate in (None,) + EFC.MUTATIONS, \
+            f"mutation inconnue : {mutate} (connues : {sorted(EFC.MUTATIONS)})"
+        return EFC.run(mutate=mutate, verbose=False, add_only=add_only)
     return _case
 
 
