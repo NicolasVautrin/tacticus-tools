@@ -69,6 +69,41 @@ def _assert_montage(c, label):
          f"{c['scene_sees_after']}) : le canal `active_ability_used_by_id` ne remonte pas")
 
 
+def _assert_tile_target_route_is_covered(c, label):
+    """#302 -- la route Comparable SANS prediction (domaine de cible TUILE, ouverte par #302 et
+    dont `1169 PlagueburstMortar` est le 1er membre) est-elle COUVERTE par le gate ?
+
+    MESURE, pas supposition : le probe compte les appels a `nonattack_candidates` pendant
+    `engine_decide`. Elle vit a l'INTERIEUR de `ComparableAbilityGenerator.generate`, donc EN AVAL
+    du gate. Le discriminant est la PAIRE mesuree sur le MEME etat (apres le cast) :
+    **0 appel quand le gate coupe, >= 1 quand on le neutralise**.
+
+    ⚠ Le compte AVANT le cast n'entre PAS dans le verdict, et une premiere version de cette garde
+    s'y appuyait a tort : le tactic s'arrete au PREMIER generateur non-nul, donc si une
+    NonComparable sort avant (mesure `MC1_63`/12163 : le port propose `1121`), le generateur
+    Comparable n'est jamais atteint et la route n'est pas empruntee -- sans que le gate y soit pour
+    quoi que ce soit. Faire dependre le verdict de ce compte, c'est mesurer quel generateur gagne,
+    pas la portee du gate.
+
+    Cote natif c'est la meme reponse, et elle est STRUCTURELLE :
+    `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators` instancie
+    SIX generateurs, TOUS par `ActiveAbilityActionGenerator$$.ctor` (5 tiers NonComparable pris dans
+    `dict[1000/100/0/-100/-1000]` + le set `special`) -- il n'existe AUCUNE autre classe de
+    generateur d'abilities, donc aucune route qui echapperait au gate. Et le gate precede
+    `GetUnitAbilitiesInOrder`, donc il ignore le domaine de cible (entite comme tuile)."""
+    after = c.get("nonattack_route_after") or {}
+    ungated = c.get("nonattack_route_ungated") or {}
+    assert ungated.get("nonattack_calls", 0) >= 1, \
+        (f"[{label}] gate NEUTRALISE et la route non-attaque / TUILE (#302) n'est pas empruntee "
+         f"({ungated}) : le compteur ne mesure rien sur cet etat, l'assertion suivante serait vide")
+    assert after.get("nonattack_calls", None) == 0, \
+        (f"[{label}] le gate coupe l'attaque mais la route non-attaque / TUILE (#302) est ENCORE "
+         f"empruntee ({after}) -- une ability a cible TUILE pourrait donc etre proposee a une unite "
+         f"qui a deja consomme son action. Le natif n'a qu'UNE classe de generateur d'abilities "
+         f"(`ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`), gatee en tete. "
+         f"Contre-epreuve du meme etat, gate neutralise : {ungated}.")
+
+
 def _assert_native_offers_no_ability(c, label):
     assert "ActiveAbilityMessage" in (c["native_before"] or []), \
         (f"[{label}] REGIME TEMOIN casse : le natif ne proposait aucune ability AVANT le cast "
@@ -83,6 +118,7 @@ def test_port_offers_no_ability_once_the_flag_is_set(active_ability_used_case):
     c = active_ability_used_case()
     _assert_montage(c, "MC1_67")
     _assert_native_offers_no_ability(c, "MC1_67")
+    _assert_tile_target_route_is_covered(c, "MC1_67")
     assert c["port_before"].get("kind") == "ability", \
         (f"[MC1_67] REGIME TEMOIN casse : le port ne proposait aucune ability AVANT le cast "
          f"({c['port_before']})")
@@ -113,6 +149,7 @@ def test_gate_generalises_to_a_second_board(active_ability_used_case):
     c = active_ability_used_case(seed=12163, board="MC1_63")
     _assert_montage(c, "MC1_63")
     _assert_native_offers_no_ability(c, "MC1_63")
+    _assert_tile_target_route_is_covered(c, "MC1_63")
     assert c["port_after"].get("kind") != "ability", \
         f"[MC1_63] le port propose {c['port_after']} malgre `ActiveAbilityUsed`"
     assert c["port_ungated"].get("kind") == "ability", \

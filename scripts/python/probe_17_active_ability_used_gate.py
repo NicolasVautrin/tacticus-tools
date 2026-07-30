@@ -149,8 +149,20 @@ def _native_proposal(sid, rid, uid):
 def _port_decision(sid, rid, dv, uid, wt, neutralise_gate: bool = False):
     """Decision du PORT sur l'etat courant. `neutralise_gate` VIDE le seul canal
     `active_ability_used_by_id` -> l'accesseur rend `None` (non mesure) et le gate reste ouvert :
-    c'est EXACTEMENT le port d'avant ce correctif, tous les autres canaux restant frais."""
+    c'est EXACTEMENT le port d'avant ce correctif, tous les autres canaux restant frais.
+
+    INSTRUMENTATION (#302) : on COMPTE les appels a `nonattack_candidates`, la route Comparable
+    SANS prediction -- celle qui porte le domaine de cible TUILE depuis #302. Elle vit a
+    l'INTERIEUR de `ComparableAbilityGenerator.generate`, donc EN AVAL du gate ; le compteur le
+    MESURE au lieu de le supposer. Attendu : 0 appel quand le gate coupe, >= 1 quand il est
+    neutralise. Cote natif, le gate est la 1re instruction de l'UNIQUE classe de generateur
+    d'abilities (`ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators` en instancie SIX,
+    toutes `ActiveAbilityActionGenerator$$.ctor`) et il precede `GetUnitAbilitiesInOrder` : il
+    ignore donc le domaine de cible, entite comme tuile.
+
+    Rend `(action, flag_vu_par_la_scene, {"nonattack_calls": n, "nonattack_cands": m})`."""
     from engine.playbook import scene as SC
+    from engine.ai import action_generators as AG
     import engine_validate as EV
     rpc_l = (lambda m, b, t=90: _r(sid, m, b, t))
     predictor = SC.build_predictor(rpc_l, rid)
@@ -162,8 +174,20 @@ def _port_decision(sid, rid, dv, uid, wt, neutralise_gate: bool = False):
         predictor["active_ability_used_by_id"] = {}
     mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
     mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
-    act = EV.engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor)
-    return act, seen.get(uid)
+    orig = AG.nonattack_candidates
+    tally = {"nonattack_calls": 0, "nonattack_cands": 0}
+
+    def counted(c):
+        tally["nonattack_calls"] += 1
+        out = orig(c)
+        tally["nonattack_cands"] += len(out or [])
+        return out
+    AG.nonattack_candidates = counted
+    try:
+        act = EV.engine_decide(sid, rid, dv, mov_by_unit, uid, wt, predictor)
+    finally:
+        AG.nonattack_candidates = orig
+    return act, seen.get(uid), tally
 
 
 def _adjacent_free(brd, center, occupied):
@@ -224,7 +248,7 @@ def run(seed: int = 12100, board: str = BOARD, state_file=None, keep: bool = Fal
                                % ACTIVE_ABILITY_USED)
         na_before = _ability_row(sid, rid, cid, IT_ITCHES)
         nat_before, _row_b = _native_proposal(sid, rid, cid)
-        port_before, seen_b = _port_decision(sid, rid, dv, cid, wt)
+        port_before, seen_b, tally_before = _port_decision(sid, rid, dv, cid, wt)
 
         # cible de tuile d'ItItches, castable SANS bouger (`fromHere` = legalite exacte du cast
         # immediat) -- sinon le caster consommerait son deplacement et le regime APRES ne pourrait
@@ -245,8 +269,9 @@ def run(seed: int = 12100, board: str = BOARD, state_file=None, keep: bool = Fal
         fl_after, _ = _unit_flags(sid, rid, cid)
         atk_after = _ability_row(sid, rid, cid, 69)
         nat_after, row_a = _native_proposal(sid, rid, cid)
-        port_after, seen_a = _port_decision(sid, rid, dv2, cid, wt)
-        port_ungated, _ = _port_decision(sid, rid, dv2, cid, wt, neutralise_gate=True)
+        port_after, seen_a, tally_after = _port_decision(sid, rid, dv2, cid, wt)
+        port_ungated, _, tally_ungated = _port_decision(sid, rid, dv2, cid, wt,
+                                                        neutralise_gate=True)
 
         out = {
             "rid": rid, "seed": seed, "board": board, "caster": cid, "target": tid,
@@ -265,6 +290,11 @@ def run(seed: int = 12100, board: str = BOARD, state_file=None, keep: bool = Fal
             # contre-epreuve credible.
             "attack_targets_after": atk_after.get("targetCount"),
             "attack_fromhere_after": atk_after.get("fromHereCount"),
+            # #302 : la route Comparable SANS prediction (domaine de cible TUILE) est-elle
+            # COUVERTE par le gate ? Mesure, pas supposition.
+            "nonattack_route_before": tally_before,
+            "nonattack_route_after": tally_after,
+            "nonattack_route_ungated": tally_ungated,
         }
         if verbose:
             print("[17-aau] caster u%d @%s | cible u%d @%s | cast 1121 -> tuile %s (ok=%s)"
@@ -278,6 +308,8 @@ def run(seed: int = 12100, board: str = BOARD, state_file=None, keep: bool = Fal
             print("[17-aau]   port GATE  = %s" % (port_after,))
             print("[17-aau]   port SANS  = %s   (contre-epreuve : le port d'avant le correctif)"
                   % (port_ungated,))
+            print("[17-aau]   route non-attaque / TUILE (#302) : avant=%s apres(gate)=%s "
+                  "apres(sans gate)=%s" % (tally_before, tally_after, tally_ungated))
         return out
     except RuntimeError as exc:
         return {"error": str(exc)}

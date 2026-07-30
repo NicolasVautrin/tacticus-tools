@@ -1266,6 +1266,12 @@ toute activation.)
 
 ### 3. `1357 s6` -- PAS RNG DU TOUT : un gate DETERMINISTE manquant. PORTE.
 
+> **Pourquoi cette requalification compte plus que le +1 d'agreement qu'elle rapporte.** Un bug
+> DETERMINISTE range dans la case « bruit stochastique » devient **inexplicable a jamais** : plus
+> personne ne cherche la cause d'un tirage, par definition. La ligne « 2 over-fire RNG » a tenu
+> des semaines sur un item qui n'avait aucune part d'alea -- le flag `ActiveAbilityUsed` etait
+> DEJA POSE dans l'etat, lisible d'un `combatSnapshot`. L'etiquette elle-meme etait le verrou.
+
 Etat mesure au pas 6 : `u85 tyranParasite`, `unitFlags = [2]` = **`UnitFlag.ActiveAbilityUsed`** (pose
 au pas 5 par son cast de `1121 ItItches`), `turnsStarted = 1`. Or la PREMIERE instruction de l'etat 0 de
 `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` est :
@@ -1314,15 +1320,22 @@ re-joue avec `unit_action_gate` NEUTRALISE rend des chiffres IDENTIQUES a ceux d
 31337 `pos 18/18 ability 13/13 stay 1/1`. Sur ces trois seeds le gate est donc un **no-op strict** :
 aucune regression n'y est possible, et le +1 de GEN n'est pas paye ailleurs.
 
-**RE-JOUE APRES REBASE** sur `origin/master` (6 commits mergés entre-temps, dont `#27-4g PlasmaGrenade`
-et `#27-r1 MassDriverAccelerator`, qui touchent tous deux le terme `CalculateCustomUtility` et
-`_action_utility`) : le batch GEN rend les MEMES chiffres -- ability 50/53 (94 %), move **62/65 (95 %)**,
-`generator-overfire` **1**, `pos-downstream-of-ability` 2. Tests cibles rejoues apres rebase :
-**31 passed** (les 2 gardes neuves, `test_playbook_live`, `test_stay_in_place_live`,
-`test_hammer_of_wrath_corpse_decision_live`, `test_stikkbomb_decision_live`,
-`test_chronometron_decision_live`) puis **17 passed / 2 skipped**
-(`test_move_tile_sweep_order_live` -- skips = « pas 14 sans tie », condition de montage, PAS un cap
-runner --, `test_min_distance_move_leaf_live`).
+**RE-JOUE APRES CHAQUE REBASE**, et le batch GEN rend les MEMES chiffres a chaque fois -- ability
+50/53 (94 %), move **62/65 (95 %)**, `generator-overfire` **1** (`2468 s4`, le Poxwalkers RNG),
+`pos-downstream-of-ability` 2. Trois passes successives, sur trois etats de `origin/master`
+differents :
+
+1. `#27-4g PlasmaGrenade` + `#27-r1 MassDriverAccelerator` (tous deux sur `CalculateCustomUtility`
+   et `_action_utility`) -- **31 passed**, puis **17 passed / 2 skipped**
+   (`test_move_tile_sweep_order_live` : skips = « pas 14 sans tie », condition de montage, PAS un cap
+   runner -- et `test_min_distance_move_leaf_live`) ;
+2. `#301` (killTrigger `+0x98`) -- **8 passed** sur les gardes + `test_stay_in_place_live` ;
+3. `#302` (route de decision a cibles TUILE) -- **41 passed** (les 2 gardes neuves,
+   la **garde croisee** `test_plagueburst_mortar_decision_live` = la route #302 elle-meme,
+   `test_playbook_live`, `test_stay_in_place_live`, `test_hammer_of_wrath_corpse_decision_live`,
+   `test_stikkbomb_decision_live`, `test_chronometron_decision_live`), puis **17 passed / 2 skipped**
+   (memes 2 skips de montage). L'interaction avec la route tuile est MESUREE, pas supposee : voir
+   « PORTEE DU GATE vs la route a cibles TUILE » ci-dessous.
 
 **Garde** : `scripts/python/tests/engine/test_active_ability_used_gate_live.py` (3 tests), montage
 `scripts/python/probe_17_active_ability_used_gate.py` (fixture `active_ability_used_case`). Deux
@@ -1340,6 +1353,32 @@ Le regime TEMOIN (avant le cast) est mesure dans le meme montage : natif et port
 une ability. Et l'attaque normale reste LEGALE apres le cast (`abilityTargets` : `targetCount = 1`) --
 `AttackQuery$$GetValidTargets` ne gate pas sur le flag : c'est precisement ce qui rendait l'over-fire
 possible.
+
+**PORTEE DU GATE vs la route a cibles TUILE de #302 -- MESUREE, pas supposee.** #302 a ouvert une
+route de generation neuve (`nonattack_candidates`, domaine de cible TUILE, 1er membre `1169
+PlagueburstMortar`). Question : le gate la couvre-t-il, et est-ce ce que fait le natif ?
+
+* **Cote NATIF, c'est STRUCTUREL** : `IdunBattle.AI.Tactics.ABaseAiActorTactic$$GetDefaultActiveAbilityActionGenerators`
+  (relu sur `rnca9r7q6c`) instancie **SIX** generateurs, TOUS par
+  `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator$$.ctor` -- les 5 tiers NonComparable
+  (`dict[1000]`, `[100]`, `[0]`, `[-100]`, `[-1000]` sur `this+0x40`) puis le set `special`
+  (`this+0x38`). Il n'existe **aucune autre classe** de generateur d'abilities, donc aucune route qui
+  echapperait au gate ; et celui-ci precede `GetUnitAbilitiesInOrder`, donc il ignore le domaine de
+  cible (entite comme tuile).
+* **Cote PORT, c'est MESURE** : le probe compte les appels a `nonattack_candidates` pendant
+  `engine_decide`, sur le MEME etat (apres le cast). `MC1_67`/12100 comme `MC1_63`/12163 --
+  **gate actif : 0 appel ; gate neutralise : 1 appel**. La route tuile vit bien a l'interieur de
+  `ComparableAbilityGenerator.generate`, donc en AVAL du gate. Assertion permanente :
+  `_assert_tile_target_route_is_covered` ; mordant re-prouve par mutation (gate neutralise -> la
+  garde rougit avec `apres(gate) = 1 appel`).
+  (`nonattack_cands = 0` sur ces rosters -- aucun porteur de 1169 : c'est le compteur d'APPELS qui
+  tranche, la route est court-circuitee avant meme d'enumerer.)
+  ⚠ Le compte AVANT le cast n'entre PAS dans le verdict : le tactic s'arrete au PREMIER generateur
+  non-nul, donc si une NonComparable sort d'abord (mesure `MC1_63`/12163 : le port propose `1121`)
+  le generateur Comparable n'est jamais atteint -- sans que le gate y soit pour quoi que ce soit.
+  Une premiere version de cette garde s'y appuyait et rougissait a tort sur le 2e board.
+* **Garde croisee** : `tests/engine/test_plagueburst_mortar_decision_live.py` (la route #302
+  elle-meme) est rejoue dans la passe post-rebase.
 
 **MORDANT PROUVE PAR MUTATION** : neutraliser `unit_action_gate` fait rougir 2 des 3 tests, sur les
 DEUX couples (`port GATE` redevient `ability 69 -> u49` sur MC1_63, `ability 69 -> u77` sur MC1_67).
