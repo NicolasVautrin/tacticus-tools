@@ -224,6 +224,14 @@ export function installHealRepairHooks(): void {
                     if (!c.sretPtr || c.sretPtr.isNull()) return;
                     let prediction: Record<string, unknown> | null = null;
                     try {
+                        // ⚠ NON RÉPARÉ, et SUSPECT (constaté en #276, hors périmètre) :
+                        // `IdunBattle.Core.Services.RepairPredictionResult` pèse 24 octets
+                        // BOXÉS dans `classes.tsv`, soit **8 octets de champs** (header IL2CPP
+                        // 0x10 déduit) — or on en lit 16 ici. `totalHeal`/`totalArmorRepair`
+                        // sortent donc des bornes du struct et rendent du tas voisin. Le
+                        // commentaire « 16B sret » ci-dessus date d'un build antérieur.
+                        // Réparer exige de RE `DamagePrediction$$PredictRepair` (quels deux
+                        // int, dans quel ordre) — pas de re-brancher un offset au jugé.
                         prediction = {
                             currentHealth:    c.sretPtr.readS32(),
                             currentArmor:     c.sretPtr.add(0x4).readS32(),

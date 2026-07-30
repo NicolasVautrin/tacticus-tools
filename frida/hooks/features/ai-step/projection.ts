@@ -18,6 +18,7 @@ import {
 } from "./internals.js";
 import type { AbilityInfo } from "./internals.js";
 import { readEffectsByUnit } from "../../game/effects.js";
+import { readDamagePredictionResult } from "../../game/damage-prediction.js";
 import {
     decodeDamageEvents, loadPlaybook, makeDamagePredictions,
     resolvePlaybookDatabase, unitPositionAtTile,
@@ -252,15 +253,17 @@ export function computeAttackPlans(
                                         const boxed = invokeMethod(
                                             predItemMi.info, dict, [tgt.ptr]);
                                         if (!boxed.isNull()) {
-                                            const bb = boxed.add(0x10);
-                                            // dmgMin/Max = AccurateHealthDamage MITIGÉ ; kill/killSure
-                                            // via les seuils de mort EFFECTIFS get_WillBeKill@0x24 /
-                                            // get_MightBeKill@0x28 (PAS dmgMin/Max brut — sur-claime
-                                            // K! sur un Resilient, cf. TF04).
-                                            applyDmg(entry, bb.readS32(),
-                                                bb.add(0x60).readS32(), bb.add(0x64).readS32(),
-                                                bb.add(0x24).readS32(), bb.add(0x28).readS32(),
-                                                bb.add(0xb1).readU8() !== 0, tgtHasReducer);
+                                            // Struct BOXÉ : champs à `boxed+0x10`. Offsets
+                                            // centralisés dans `game/damage-prediction.ts` (#276).
+                                            // dmgMin/Max = `HealthDamage` MITIGÉ ; kill/killSure via
+                                            // les seuils de mort EFFECTIFS que lisent
+                                            // `get_WillBeKill` / `get_MightBeKill` (PAS dmgMin/Max
+                                            // brut — sur-claime K! sur un Resilient, cf. TF04).
+                                            const p = readDamagePredictionResult(boxed.add(0x10));
+                                            applyDmg(entry, p.hpBefore,
+                                                p.healthDmgMin, p.healthDmgMax,
+                                                p.willKillDmg, p.mightKillDmg,
+                                                p.mightCrit !== 0, tgtHasReducer);
                                         }
                                     }
                                 }
@@ -645,9 +648,10 @@ export function computeExposure(
                                 if (predItemMi) {
                                     const boxed = invokeMethod(predItemMi.info, dict, [U.ptr]);
                                     if (!boxed.isNull()) {
-                                        const bb = boxed.add(0x10);
-                                        dmgMin = bb.add(0x60).readS32();
-                                        dmgMax = bb.add(0x64).readS32();
+                                        // Struct BOXÉ : champs à `boxed+0x10` (#276).
+                                        const p = readDamagePredictionResult(boxed.add(0x10));
+                                        dmgMin = p.healthDmgMin;
+                                        dmgMax = p.healthDmgMax;
                                     }
                                 }
                             }
