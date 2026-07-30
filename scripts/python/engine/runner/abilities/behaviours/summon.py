@@ -112,7 +112,12 @@ class Spawn(AbilityBehaviour):
                                      oc.team if oc is not None else None,
                                      oc.player if oc is not None else None,
                                      parent_id=caster_id,     # `Unit_Parent_Id` (mirror live)
-                                     feet_tiles=feet)
+                                     feet_tiles=feet,
+                                     # #291 : l'ORDRE natif de `TriggerSpawnedUnitBehaviours` est
+                                     # on-appearance D'ABORD, `FinishUnitTurn(spawned, true)` ENSUITE
+                                     # -> quand cette feuille porte un on-appearance, elle appelle le
+                                     # foyer elle-meme, apres (cf. plus bas).
+                                     finish_turn_on_spawn=(self.on_appearance is None))
             if gid is not None:
                 child = LiveUnit(state, gid)              # vue LIVE (mirror de la ref d'etat native)
                 child.update({"_new_child": True, "_turns_started": 0, "_attacks_made": 0,
@@ -126,6 +131,12 @@ class Spawn(AbilityBehaviour):
                 ability_init_triggers(state, gid)
                 if self.on_appearance is not None:    # SpawnUnitOptions+0x18 (TriggerSpawnedUnitBehaviours)
                     self.on_appearance.execute(replace(entities, active_target=child), ectx)
+                    # #291 : SECONDE moitie de `TriggerSpawnedUnitBehaviours` — le tour du summon est
+                    # TERMINE (`FinishUnitTurn(spawned, isTerminated: true)`) APRES l'on-appearance,
+                    # sauf `Steppable`/`Hero`. Le foyer porte le gate ; ici on ne fait que respecter
+                    # l'ORDRE natif (l'autre branche l'a deja fait dans `_spawn_config_grot`).
+                    from ...operations.spawn import trigger_spawned_unit_finish_turn
+                    trigger_spawned_unit_finish_turn(state, gid)
         return OperationResult.ok()
 
 

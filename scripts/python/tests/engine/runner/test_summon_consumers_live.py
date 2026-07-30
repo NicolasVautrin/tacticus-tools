@@ -154,6 +154,66 @@ def test_waaagh_fresh_summons_act_live_and_port(waaagh):
     assert max(port_d) >= 2, f"port : aucun Ork Boy n'a quitte l'anneau (dists={port_d})"
 
 
+def test_waaagh_fresh_summons_get_no_activation_live_and_port(waaagh):
+    """#291 -- `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours`
+    TERMINE le tour de l'unite qui apparait pendant le tour de son proprietaire
+    (`IOperationProcessor` slot 0x23 = `FinishUnitTurn(spawned, isTerminated: true)`), et
+    `FinishUnitTurnOperation$$Execute` enchaine sur le slot 0x76 = `MarkUnitAsNoActionAvailable`.
+
+    LIVE   : le summon frais est donc ABSENT de `decisionView.toActivate` (qui filtre exactement sur
+             `IsControlledByCurrentPlayer && IsAlive && HasActionLeft`) -- il n'obtient JAMAIS
+             d'activation au tour de son apparition. Ce n'est pas un trou de harnais, c'est le natif.
+    PORT   : le summon spawne porte `TURN_FINISHED` ET `TURN_FINISHED_FORCED` (`isTerminated=true`).
+    CONTRE-EPREUVE (sinon l'assertion serait triviale) : le caster, lui, EST connu de `toActivate`
+    AVANT son cast -- la liste n'est donc pas vide par construction."""
+    from engine.runner.components import UnitFlagsComponent
+    d = waaagh
+    if not d["res"]["spawned"]:
+        pytest.skip("port n'a spawn aucun Ork Boy")
+    # -- contre-epreuve : la liste PRE-cast n'est pas vide et contient le caster --
+    assert d["caster_id"] in (d["dv0"].get("toActivate") or []), (
+        "montage : le caster doit etre activable AVANT son cast (sinon `toActivate` ne mesure rien)")
+    # -- LIVE : aucun summon frais n'est activable --
+    live_ids = [u["id"] for u in (d["live_new"] or [])]
+    if live_ids:
+        acti = set(d["dv1"].get("toActivate") or [])
+        assert not (set(live_ids) & acti), (
+            f"live : un summon frais est dans toActivate ({sorted(set(live_ids) & acti)}) -- "
+            f"le FinishUnitTurn(spawned, terminated) natif n'aurait pas eu lieu")
+    # -- PORT : les flags de tour du finish forced sont poses --
+    for gid in d["res"]["spawned"]:
+        fl = d["state"].get_entity(gid).get_component(UnitFlagsComponent)
+        assert fl is not None and fl.has(UnitFlagsComponent.TURN_FINISHED), (
+            f"port : le summon {gid} n'a pas TURN_FINISHED (TriggerSpawnedUnitBehaviours non porte)")
+        assert fl.has(UnitFlagsComponent.TURN_FINISHED_FORCED), (
+            f"port : le summon {gid} n'a pas TURN_FINISHED_FORCED (isTerminated=true non porte)")
+
+
+def test_spawn_finish_turn_gate_spares_steppable(waaagh):
+    """#291, CONTRE-CAS du GATE -- `TriggerSpawnedUnitBehaviours` ne termine PAS le tour d'une unite
+    portant `UnitTrait.Steppable`(27) : le decompile lit
+    `HasTrait(u, 0x1b) ? false : !HasTrait(u, 0x10 = Hero)`. Sans ce contre-cas, « le summon est
+    finish-turn » ne prouverait pas que le port porte le GATE plutot qu'un finish inconditionnel.
+    Le token decoy (`genesSmnDecoy`, traits `Steppable`+`Decoy`) passe par le MEME choke point."""
+    from engine.runner.components import UnitFlagsComponent, PositionComponent as _PC
+    from engine.runner.operations.spawn import spawn_decoy
+    d = waaagh
+    st = d["fresh"]()
+    if st.board is None:
+        pytest.skip("pas de board dans l'etat rejoue")
+    occupied = {(pc.col, pc.row) for e in st.entities.values()
+                for pc in [e.get_component(_PC)] if pc is not None}
+    tile = next((tid for tid, t in st.board.by_id.items()
+                 if (t["col"], t["row"]) not in occupied), None)
+    if tile is None:
+        pytest.skip("aucune tuile libre pour poser le decoy")
+    did = spawn_decoy(st, tile, d["caster_id"])
+    assert did is not None, "montage : le decoy n'a pas ete pose"
+    fl = st.get_entity(did).get_component(UnitFlagsComponent)
+    assert fl is None or not fl.has(UnitFlagsComponent.TURN_FINISHED), (
+        "un Steppable ne doit PAS etre finish-turn a l'apparition (gate HasTrait(0x1b) non porte)")
+
+
 def test_waaagh_counter_case_without_perform_ai_action(waaagh):
     """CONTRE-CAS : MEME etat-avant, MEME arbre de spawn, SANS `PerformAIAction` -> TOUS les Ork Boyz
     restent a distance 1. Sans ce contraste, « il a bouge » ne prouve rien."""

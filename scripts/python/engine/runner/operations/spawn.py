@@ -130,6 +130,76 @@ def build_decoy_context(entity_id: int, visual_id: str = "genesSmnDecoy"):
     )
 
 
+#: `IdunBattle.Entities.Enum.UnitTrait` — les deux traits qui EXEMPTENT du finish-turn de spawn.
+_TRAIT_STEPPABLE = "Steppable"      # UnitTrait.Steppable = 27 (0x1b)
+_TRAIT_HERO = "Hero"                # UnitTrait.Hero      = 16 (0x10)
+
+
+def trigger_spawned_unit_finish_turn(state: State, unit_id: int) -> Optional[dict]:
+    """Mirror de la SECONDE moitie de `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$
+    TriggerSpawnedUnitBehaviours` (#291) -- **une unite qui APPARAIT pendant le tour de son
+    proprietaire voit son tour immediatement TERMINE**, elle n'obtient donc JAMAIS d'activation
+    au tour de son apparition. Lu verbatim au decompile :
+
+        if (options.<on-appearance @+0x18> != null) <behaviour>.Execute(entities{caster = spawned})
+        turn = StateExtensions.GetMatchTurn(state)
+        if (TurnComponent.get_CurrentPlayerId(turn) == parentPlayerId) {
+            v = UnitExtensions.HasTrait(spawned, 0x1b = Steppable) ? false
+                                                                  : !HasTrait(spawned, 0x10 = Hero)
+            if (options.<Nullable<bool> @+0x48>.HasValue) v = <...>.Value      # override explicite
+            if (v) IOperationProcessor.<slot 0x23>(spawned, true)              # FinishUnitTurn(u, isTerminated)
+        }
+
+    Le slot 0x23 est identifie SANS AMBIGUITE par `IdunBattle.Entities.Behaviours.
+    FinishUnitTurnBehaviour$$Execute`, qui appelle CE MEME slot avec `(unit, false)` ; et
+    `IdunBattle.Operations.PlayAutomaticUnitsOperation$$Execute` l'appelle aussi apres avoir joue
+    une unite automatique. Cote natif, `FinishUnitTurnOperation$$Execute` termine par le slot 0x76
+    = `MarkUnitAsNoActionAvailable(unit)` -> `UnitExtensions$$HasActionLeft` devient faux et le
+    summon SORT de la liste « a activer » (`decisionView.toActivate`).
+
+    MESURE LIVE (probe_291, runner arene, `orksWarboss`/`Waaagh` -> 2 `orksOrkBoys`) : chaque summon
+    emet, JUSTE APRES son spawn, `UnitStats_TurnFinished=1` puis `UnitStats_ActionsAvailable=0` --
+    exactement cette sequence.
+
+    PORTE ICI : les flags de tour (`TURN_FINISHED` + `ARRIVED_AT_FINAL_TILE` + `TURN_FINISHED_FORCED`
+    via `FinishUnitTurnOperation.execute(forced=True)`).
+    **NON PORTE, residu NOMME** : le `MarkUnitAsNoActionAvailable` final (flag 4). Le poser offline
+    serait une REGRESSION et non un gain de fidelite : son unique retrait natif est
+    `IdunBattle.Operations.VerifyUnitsTurnFinishedOperation$$VerifyUnitTurnEnded` (slot 0x77 =
+    `MarkUnitAsActionAvailable`, quand l'unite regagne des options), que le port ne mirrore PAS --
+    et `StartTurnOperation` appelle `RemoveTurnFlags(includeNoAction=0, ...)`, donc le flag SURVIT au
+    turn-start. Un flag 4 pose sans son retrait figerait definitivement l'unite (`has_action_left`
+    est le gate de `ai_control_execute_for_group`). Debloqueur exact = porter `VerifyUnitTurnEnded`.
+
+    PLACE DANS LE PORT : le natif tient ce foyer dans `SpawnUnitBehaviour` (au-dessus d'`AddUnit`) ;
+    offline on l'appelle depuis les CHOKE POINTS de spawn (`_spawn_config_grot`, `spawn_decoy`, les
+    trois constructions manuelles de ce module) parce qu'AUCUN d'eux ne sert au deploiement initial
+    ni au drafting -- tous mirrorent un `SpawnUnitBehaviour`. Le gate `currentPlayer == owner` les
+    rend de toute facon equivalents.
+
+    Rend le dict de `FinishUnitTurnOperation.execute` quand le finish a lieu, sinon `None` (avec la
+    raison) -- diagnostic pour les probes/tests."""
+    from ..components import UnitFlagsComponent  # noqa: F401  (documente le contrat de flags)
+    from .turnflow import FinishUnitTurnOperation
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return None
+    oc = e.get_component(OwnerComponent)
+    if oc is None or oc.player is None:
+        return None
+    # `TurnComponent.get_CurrentPlayerId(turn) == parentPlayerId` — le summon herite du player du
+    # parent (`CopyOwner`), donc son propre `OwnerComponent.player` EST `parentPlayerId`.
+    if state.current_player_id is None or int(oc.player) != int(state.current_player_id):
+        return None
+    sc = e.get_component(StatsComponent)
+    traits = list(getattr(sc.ctx, "traits", None) or []) if (sc is not None and sc.ctx) else []
+    if _TRAIT_STEPPABLE in traits:          # HasTrait(0x1b) -> v = false (decoys, mines, tokens)
+        return None
+    if _TRAIT_HERO in traits:               # sinon v = !HasTrait(0x10) (clone/revive d'un HEROS)
+        return None
+    return FinishUnitTurnOperation.execute(state, int(unit_id), forced=True)
+
+
 def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDecoy") -> Optional[int]:
     """`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$Spawn(genesSmnDecoy, ForSteppable)` → `SpawnUnitBehaviour.Execute` →
     `AddUnitOperation.Execute` (MÊME socle que ScarabHive/`SpawnUnitOperation`, options DIFFÉRENTES) : pose UN
@@ -168,6 +238,10 @@ def spawn_decoy(state: State, tile, caster_id: int, visual_id: str = "genesSmnDe
     e.add_component(HealthComponent(hp=1, hp_max=1))
     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
     on_unit_added(state, e.id)          # `On(UnitAdded)` (no-op sur un token sans armure)
+    # #291 `TriggerSpawnedUnitBehaviours` : NO-OP ICI par construction — le decoy porte
+    # `UnitTrait.Steppable`(27), la branche `HasTrait(0x1b) -> v = false` du natif. On l'appelle
+    # quand meme pour que le GATE soit exerce (et testable) sur ce chemin comme sur les autres.
+    trigger_spawned_unit_finish_turn(state, e.id)
     return e.id
 
 
@@ -381,7 +455,8 @@ def _occupied_tiles(state: State) -> set:
 def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
                        level, mult: int, team, player, ai_controlled: bool = True,
                        key_suffix: str = "", parent_id: Optional[int] = None,
-                       feet_tiles: Optional[list] = None) -> Optional[int]:
+                       feet_tiles: Optional[list] = None,
+                       finish_turn_on_spawn: bool = True) -> Optional[int]:
     """Spawn UNE unité `visual_id` sur `tile` (id de tuile), stats `WithStatsFromConfig(summon_ability)` =
     `ability_var(summon_ability, summon*[key_suffix], level, mult)`, owner = team+player, `active_ability_level
     = level` (propagé → lève le GAP PileIn 2e-gen). Renvoie l'entity id (None si `tile` None). Partagé par
@@ -435,6 +510,16 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     # `On(UnitAdded)` — APRES la pose ET apres le recalage multi-hex (`set_unit_feet` deplace la
     # `PositionComponent` sur la main tile, et les gates de PORTEE du vecteur la lisent).
     on_unit_added(state, e.id)
+    # #291 `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` : le tour de l'unite qui vient
+    # d'apparaitre PENDANT le tour de son proprietaire est immediatement TERMINE (sauf Steppable /
+    # Hero / override d'options). Elle n'obtient donc jamais d'activation ce tour-la ; elle agit,
+    # quand elle agit, par un `ComputerAction` FORCE (noeud DSL `PerformAIAction` de l'ability du
+    # summoner) ou par `PlayAutomaticUnits` au turn-start suivant. Cf. la docstring du foyer.
+    # `finish_turn_on_spawn=False` : l'appelant a un SOUS-BEHAVIOUR on-appearance (`SpawnUnitOptions
+    # +0x18`) et doit donc appeler le foyer LUI-MEME **apres** l'avoir execute — c'est l'ordre du
+    # corps natif (on-appearance d'abord, FinishUnitTurn ensuite).
+    if finish_turn_on_spawn:
+        trigger_spawned_unit_finish_turn(state, e.id)
     return e.id
 
 
@@ -691,6 +776,7 @@ class SpawnUnitOperation:
             _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
             e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
             on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
+            trigger_spawned_unit_finish_turn(state, e.id)   # #291 FinishUnitTurn(spawned, terminated)
             spawned.append(e.id)
         # NB on-appearance (`UseNormalAttackIfAble`) = tranche ultérieure (les ids spawnés sont renvoyés ;
         # `Entity`/`State` ont __slots__ → pas de marqueur posé ici).
@@ -751,6 +837,7 @@ class SpawnUnitOperation:
             e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
             chosen.add(tile)
             on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
+            trigger_spawned_unit_finish_turn(state, e.id)   # #291 FinishUnitTurn(spawned, terminated)
             spawned.append(e.id)
         return spawned
 
@@ -811,6 +898,7 @@ class SpawnUnitOperation:
         _maybe_seed_ignore_battle_fatigue(state, e.id, coc.team, mult)   # aura SquigHound -> grot immunisé
         e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
         on_unit_added(state, e.id)      # `On(UnitAdded)` — APRES la pose
+        trigger_spawned_unit_finish_turn(state, e.id)       # #291 FinishUnitTurn(spawned, terminated)
         return [e.id]
 
     @staticmethod
