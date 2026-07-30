@@ -84,6 +84,7 @@ from .loki import (
     ShadowInTheWarpLessDmgEffect,
     SmashaEadExtraDamageEffect,
     SquigHoundAdditionalHitsEffect,
+    SorcerousFacadeAdditionalHitsEffect,
     CordClawAdditionalHitsEffect,
     FearOfTheUnseenExtraDamageEffect,
     FoulInfusionExtraHitsEffect,
@@ -150,6 +151,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "FearedInterrogator_Target": FearedInterrogatorTargetEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
+    # SorcerousFacade (Yazaghor thousTzaangor, effet 0x4b4=1204 pose par le cast de 1100 sur le CASTER
+    # ET l'allie Psyker vise, TurnsFromRounds(1)) : +nrOfHits=1 coup hetero [minDmg,maxDmg] Psychic a
+    # TOUTES leurs attaques (trigger = `get_OwnerIsCaster` SEUL). Corps natif IDENTIQUE instruction
+    # pour instruction a `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$
+    # CreateAdditionalHits` -> meme canal #179, forme PREDEFINED [min,max]. #287 (face COMBAT de 1100).
+    "SorcerousFacade_AdditionalHits": SorcerousFacadeAdditionalHitsEffect,
     # CordClaw (Exitor-Rho, effet 0x4e2=1250) : apres cast 1122, +nrOfHits_2=2 coups [minDmg_2,maxDmg_2]
     # DirectDamage a toutes ses attaques (IdunBattle.Entities.Effects.Loki.CordClaw_AdditionalHitsEffect$$CreateAdditionalHits, canal #179). #57c.
     "CordClaw_AdditionHits": CordClawAdditionalHitsEffect,

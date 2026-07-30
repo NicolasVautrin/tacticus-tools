@@ -55,6 +55,7 @@ from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgRedu
                                ExemplarOfHateTargetEffect, ChronometronExtraDamageEffect,
                                SuperchargeExtraPiercingEffect)
 from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
+                   SorcerousFacadeAdditionalHitsEffect,
                    FearOfTheUnseenExtraDamageEffect,
                    FoulInfusionExtraHitsEffect, CyclicIonBlasterAdditionalHitsEffect,
                    FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
@@ -135,6 +136,7 @@ __all__ = [
     "SuperchargeExtraPiercingEffect",
     # hits
     "SquigHoundAdditionalHitsEffect", "CordClawAdditionalHitsEffect",
+    "SorcerousFacadeAdditionalHitsEffect",
     "FearOfTheUnseenExtraDamageEffect",
     "FoulInfusionExtraHitsEffect", "CyclicIonBlasterAdditionalHitsEffect",
     "FleshmetalGunsFocusedMaliceEffect", "FleshmetalGunsRuinousSalvoEffect",

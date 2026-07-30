@@ -265,6 +265,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others (l'ACTIVE ne fait aucun degat ; le
     # 2x Bolter de l'i2 vient de la TRIGGERED `MomentShackle_AttackAbility`, hors registre).
     1184: AbilityAttackType.Others,   # MomentShackleAbility
+    # SorcerousFacade (1100, Yazaghor thousTzaangor), #287. Litteral RELU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent avec la nature du
+    # cast (la cible du MESSAGE est un ALLIE ; le degat part sur un AUTRE rail, `sel`, via
+    # `UseActiveAbility(attaque NORMALE)`) -- mais c'est bien le LITTERAL du ctor qui est transcrit,
+    # pas cette lecture. (`&opts` = un litteral INLINE « flags directs », rules = 0x402 -> ses
+    # `TARGETING_OPTIONS` sont posees sur la classe.)
+    1100: AbilityAttackType.Others,   # SorcerousFacadeAbility
     # Lot Tau #114 (merge d67b6ac), arrive APRES la redaction de #120 : les trois ctors passent
     # litteralement `AActiveAbility..ctor(this, &opts, 2, 0)` (relu au decompile).
     1077: AbilityAttackType.Others,   # EarlyWarningOverrideAbility

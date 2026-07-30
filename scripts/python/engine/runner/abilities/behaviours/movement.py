@@ -46,6 +46,44 @@ class PushUnit(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class SwitchPosition(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$SwitchPosition(unit1, unit2)` — MIRROR du decompile :
+
+        options = new DisplaceUnitBehaviourOptions();  options[+0x10] = 0 ; options[+0x1c] = 1
+        return new DisplaceUnitBehaviour(direction = 5 = SwitchPosition,
+                                         displacingUnit = unit1, displacedUnit = unit2,
+                                         options, targetSelectionType = 2)
+
+    `DisplaceUnitBehaviour$$Execute` resout les deux selecteurs et emet une `DisplaceUnitOperation`
+    par unite deplacee ; le case 5 de son switch est `IdunBattle.Operations.
+    DisplaceUnitOperation$$SwitchPosition`, ou vit TOUTE la logique (gates flag Dead, ordre
+    cible-puis-caster, vecteur `On(UnitDisplaced)`). Cette feuille est donc un wrapper MINCE : elle
+    resout `unit1`/`unit2` et DELEGUE a `SwitchPositionOperation` (frontiere DSL #149 -- au-dessus
+    le declaratif, en-dessous l'imperatif).
+
+    SEUL call-site porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    SorcerousFacade_SwitchAbility$$CreateBehaviour` = `SwitchPosition(Caster@0x48, Target@0x60)`.
+    Emet 'SwitchPosition'. PUR (stop=False)."""
+    __slots__ = ("unit1_sel", "unit2_sel")
+
+    def __init__(self, unit1_sel: TargetsSelector, unit2_sel: TargetsSelector):
+        self.unit1_sel = unit1_sel
+        self.unit2_sel = unit2_sel
+
+    def execute(self, entities, ectx):
+        from ...operations.displace import SwitchPositionOperation
+        state = ectx.state
+        u1 = resolve_unit(self.unit1_sel, entities)
+        u2 = resolve_unit(self.unit2_sel, entities)
+        if state is None or u1 is None or u2 is None:
+            return OperationResult.ok()
+        res = SwitchPositionOperation(u1["id"], u2["id"]).execute(state, ectx.bus) or {}
+        ectx.emit("SwitchPosition", unit1=u1["id"], unit2=u2["id"],
+                  switched=bool(res.get("switched")), caster_to=res.get("caster_to"),
+                  target_to=res.get("target_to"))
+        return OperationResult.ok()
+
+
 class MoveUnit(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$MoveUnit` -> `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : deplace le SUJET
     (`subject_sel`, +0x50) vers la 1re tuile-destination LIBRE (`dest_tile_sel`, +0x58 = `CanAddUnit(...)`),

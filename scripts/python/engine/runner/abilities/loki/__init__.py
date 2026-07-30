@@ -44,6 +44,8 @@ from .imperative import DoctrinaImperativesAbility
 from .mv71 import MV71SniperDroneSquadAttackAbility
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
 from .quickening import TheQuickeningAbility
+from .facade import (SorcerousFacadeAbility, sorcerous_facade_tree,
+                     sorcerous_facade_switch_tree, sorcerous_facade_target_selector)
 
 __all__ = [
     # summon
@@ -76,4 +78,7 @@ __all__ = [
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
     # quickening
     "TheQuickeningAbility",
+    # facade (SorcerousFacade 1100, #287)
+    "SorcerousFacadeAbility", "sorcerous_facade_tree", "sorcerous_facade_switch_tree",
+    "sorcerous_facade_target_selector",
 ]
