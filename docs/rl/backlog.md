@@ -348,10 +348,30 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   683** porte une arme de profil Psychic sans le trait, le contre-cas n'existe pas dans le jeu et
   exigerait de poser un trait en bataille. (c) la disjonction `OwnerIsTarget | OwnerIsAlive` n'est
   pas discriminée (l'owner est toujours vivant ; elle ne le devient que si l'attaque le TUE dans le
-  même flot). (d) `!CurrentAbilityIs(this)` est porté sur le canal `TriggeringAbility` — champ natif
-  DISTINCT de `CurrentAbility` — parce que `ability_type` est keyé sur l'espace `ActiveAbilityType`
-  où **1071 vaut `AnnihilatorBeam`** ; les deux canaux coïncident ici par construction, aucun montage
-  ne les sépare. `[opus]`.
+  même flot). ~~(d) `!CurrentAbilityIs(this)` est porté sur le canal `TriggeringAbility`~~ — **CLOS,
+  et REFUTE** (`case-292-current-vs-triggering-ability.md`) : le port lit le BON champ. Le canal
+  `State.triggering_ability` est posé AVANT `execute_behaviour` et restauré après — trait pour trait
+  la sémantique de `CurrentAbility` (`AbilityEntities+0x60`), que
+  `BaseTriggeredAbility$$Execute` écrit avant le behaviour ; le champ homonyme `TriggeringAbility`
+  (`+0x98`) est écrit APRÈS, pour le seul `On(0xd = UnitTriggeredAbility)`, non porté. Seul le NOM du
+  canal Python était faux (corrigé dans les 4 docstrings qui l'affirmaient). Régime discriminant
+  EXERCE : le double déclenchement du smite `PsykerExtraAttack` (1013) — `--mutate persist`
+  (restauration supprimée) fait tomber `bloodMephiston` de 4860/2 fires à 2430/1 fire, `--mutate
+  nogate` (gate seul) rend 0 désaccord (il est REDONDANT avec `!CasterIsTarget`). `[opus]`.
+- **Résidus nommés de `case-292` (le canal `State.triggering_ability`)** —
+  `case-292-current-vs-triggering-ability.md` §5. (a) le champ natif `TriggeringAbility`
+  (`AbilityEntities+0x98`, slot `DSLSelectors+0x90`, partagé par `TriggeringAbilityIs` /
+  `TriggeringEffectIs` / `TriggeringAbilityIsNone`) **n'est pas porté du tout** : il est écrit APRÈS
+  le behaviour, pour le seul `On(0xd = UnitTriggeredAbility)`, et le port n'a AUCUN consommateur de
+  cet événement. ⚠ La première ability qui en écoutera un ne doit PAS réutiliser
+  `State.triggering_ability` — il faudra un SECOND canal, posé après `execute_behaviour`.
+  (b) sur le vecteur MORT, `IdunBattle.Operations.RecordKillOperation$$Execute` ne relaie pas le
+  `CurrentAbility` ambiant : il lit un `killTrigger` EXPLICITE du `KillUnitContext` (`+0x20` s'il a
+  une valeur, sinon `+0x00`) et le passe au publieur d'`On(3)`. Les consommateurs portés
+  (`FuelledByFury` ← `FinalJustice`, `haze_of_corruption`) lisent le canal unique ; les deux valeurs
+  COÏNCIDENT dans tous les régimes portés, aucun montage ne les sépare. (c) le gate
+  `!CurrentAbilityIs(this)` de 1071 n'est jamais exercé SEUL (`!CasterIsTarget` le couvre —
+  `--mutate nogate` = 0 désaccord) : sa face discriminante propre reste non mesurée. `[opus]`.
 - **Face DANGER ZONE de `CursedPlagueBell` : `CursedPlagueBellDangerZoneAbility` +
   `CursedPlagueBell_DangerZoneEffect` (1084)** — la dernière des quatre pièces de `case-211` §5.
   Elle consomme la branche `isNextTurn = true` de `GetTargetsSelector` (résidu (c) ci-dessus) et

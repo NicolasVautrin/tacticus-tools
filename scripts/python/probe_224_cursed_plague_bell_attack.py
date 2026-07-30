@@ -43,6 +43,16 @@ Usage (depuis scripts/python) :
     python probe_224_cursed_plague_bell_attack.py --board C1_02 --seed 4242 --advance 10 --dists 2 \
         --psykers ultraTigurius --tgt-dist 1                       # contre-cas de PROFIL (melee)
     python probe_224_cursed_plague_bell_attack.py ... --mutate {registry|range1|strict|profile|enemies}
+    python probe_224_cursed_plague_bell_attack.py ... --mutate {nogate|persist}   # case-292
+
+case-292 -- le canal du gate `!CurrentAbilityIs(this)`. Deux mutations SUPPLEMENTAIRES, a signatures
+OPPOSEES, qui tranchent QUEL champ natif le port lit :
+  `nogate`   le gate seul neutralise            -> ZERO rouge (il est REDONDANT avec `!CasterIsTarget`)
+  `persist`  la RESTAURATION du canal supprimee -> le SECOND coup de cloche (smite `PsykerExtraAttack`
+             1013, attaque DISTINCTE emise APRES le behaviour) DISPARAIT.
+La seconde est ce qui prouve que le canal a bien la portee de `AbilityEntities.CurrentAbility`
+(`+0x60`, ecrit AVANT le behaviour, jete avec l'`AbilityEntities` de l'evaluation) et non celle du
+champ homonyme `TriggeringAbility` (`+0x98`, ecrit APRES, pour `On(0xd)` seul).
 
 ASCII only (cp1252). Discipline runner : state-file ABSOLU sous logs/, dispose en fin de passe.
 """
@@ -574,6 +584,60 @@ def _apply_mutation(kind: str):
             finally:
                 oc.team = saved
         C.CursedPlagueBellAttackAbility.matches = _no_enemy_gate
+    elif kind == "nogate":
+        # case-292 -- le gate `!CurrentAbilityIs(this)` NEUTRALISE, et lui seul. On rend le canal
+        # invisible (`None`) le temps de l'appel a `matches` : le gate est alors toujours vrai, sans
+        # rien eteindre d'autre (le canal n'est lu QUE par ce gate dans `matches`).
+        # Signature attendue : ZERO rouge -- `!CasterIsTarget` (auto-attaque) borne deja la recursion.
+        # C'est la PREUVE de redondance, pas un accord vide : la mutation `persist` ci-dessous, elle,
+        # rougit sur le meme montage.
+        import engine.runner.operations.triggers.loki.cursed_plague_bell as C
+        orig = C.CursedPlagueBellAttackAbility.matches
+        _MUT_SAVE["nogate"] = orig
+
+        def _no_current_ability_gate(self, state, ev, _orig=orig):
+            saved = getattr(state, "triggering_ability", None)
+            state.triggering_ability = None
+            try:
+                return _orig(self, state, ev)
+            finally:
+                state.triggering_ability = saved
+        C.CursedPlagueBellAttackAbility.matches = _no_current_ability_gate
+    elif kind == "persist":
+        # case-292 -- la RESTAURATION du canal supprimee. Le natif ecrit `CurrentAbility`
+        # (`AbilityEntities+0x60`) dans l'`AbilityEntities` de CETTE evaluation, jete apres ; chaque
+        # `IdunBattle.Operations.EvaluateTriggerOperation` en batit un neuf, donc la valeur ne FUIT
+        # jamais d'un evenement au suivant. Ici on la fait fuir.
+        # Signature attendue : le SECOND coup de cloche disparait -- celui du smite
+        # `PsykerExtraAttack` (1013), qui est une attaque DISTINCTE emise APRES le behaviour de la
+        # cloche et dont le `On(9)` verrait alors encore `CurrentAbility == 1071`.
+        # C'est le regime qui EXERCE le gate en positif hors auto-attaque.
+        import engine.runner.operations.triggers.dispatch.core as CORE
+        import engine.runner.operations.triggers.dispatch.ability as DAB
+        import engine.runner.operations.triggers.dispatch.attack as DAT
+        import engine.runner.operations.triggers.dispatch.move_death as DMD
+        mods = [CORE, DAB, DAT, DMD]
+        _MUT_SAVE["persist"] = [(m, m.evaluate_trigger_operation) for m in mods]
+        real = CORE.evaluate_trigger_operation
+
+        def _leaky(state, ev, _real=real):
+            before = getattr(state, "triggering_ability", None)
+            out = _real(state, ev)
+            after = getattr(state, "triggering_ability", None)
+            if after == before and _MUT_SAVE.get("persist_seen"):
+                state.triggering_ability = _MUT_SAVE["persist_seen"]
+            return out
+        # On memorise l'id pose par la cloche pour le laisser FUITER apres le drain.
+        import engine.runner.operations.triggers.loki.cursed_plague_bell as C
+        orig_exec = C.CursedPlagueBellAttackAbility.execute_behaviour
+        _MUT_SAVE["persist_exec"] = orig_exec
+
+        def _mark(self, state, ev, _o=orig_exec):
+            _MUT_SAVE["persist_seen"] = self.TRIGGERED_ABILITY_ID
+            return _o(self, state, ev)
+        C.CursedPlagueBellAttackAbility.execute_behaviour = _mark
+        for m in mods:
+            m.evaluate_trigger_operation = _leaky
     else:
         raise SystemExit("mutation inconnue: " + kind)
 
@@ -594,14 +658,26 @@ def _undo_mutation(kind: str):
     elif kind == "enemies":
         import engine.runner.operations.triggers.loki.cursed_plague_bell as C
         C.CursedPlagueBellAttackAbility.matches = _MUT_SAVE.pop("enemies")
+    elif kind == "nogate":
+        import engine.runner.operations.triggers.loki.cursed_plague_bell as C
+        C.CursedPlagueBellAttackAbility.matches = _MUT_SAVE.pop("nogate")
+    elif kind == "persist":
+        import engine.runner.operations.triggers.loki.cursed_plague_bell as C
+        for m, fn in _MUT_SAVE.pop("persist"):
+            m.evaluate_trigger_operation = fn
+        C.CursedPlagueBellAttackAbility.execute_behaviour = _MUT_SAVE.pop("persist_exec")
+        _MUT_SAVE.pop("persist_seen", None)
 
 
 # --------------------------------------------------------------------------- pilote
 
-def scenario(args) -> int:
+def scenario(args, rows_out: list | None = None) -> int:
     """Camp JOUEUR = les psykers (pilotables par `applyAction`) ; camp ADVERSE = Corrodius + tanks.
     `--allies` INVERSE : Corrodius passe du cote joueur -> le psyker devient son ALLIE, ce qui exerce
-    le gate `AreEnemies` sans dependre de l'IA."""
+    le gate `AreEnemies` sans dependre de l'IA.
+
+    `rows_out` (optionnel) recoit les lignes de mesure : un test peut alors verifier l'ETAGE
+    (nombre de declenchements) et pas seulement le total agrege."""
     psykers = args.psykers.split(",")
     if args.allies:
         p_units = CARRIER + "," + args.psykers
@@ -705,6 +781,8 @@ def scenario(args) -> int:
                     return 1
         print("VERDICT:", "OK" if bad == 0 else f"{bad} DESACCORDS")
     finally:
+        if rows_out is not None:
+            rows_out.extend(rows)
         if not args.keep:
             dispose(rid)
     return bad
@@ -725,7 +803,8 @@ def main():
     ap.add_argument("--allies", action="store_true",
                     help="Corrodius du cote JOUEUR -> exerce le gate AreEnemies")
     ap.add_argument("--mutate", default=None,
-                    choices=["registry", "range1", "strict", "profile", "enemies"])
+                    choices=["registry", "range1", "strict", "profile", "enemies",
+                             "nogate", "persist"])
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--tgt-dist", type=int, default=None,
                     help="distance EXACTE psyker->cible (1 = contact -> le natif prend l'arme "

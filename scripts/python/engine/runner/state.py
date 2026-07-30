@@ -116,20 +116,26 @@ class State:
         # permanent) ; None = canal absent -> `convert_rounds_to_turns` retombe sur l'identite (etats
         # construits a la main dans les tests unitaires : comportement historique preserve).
         self.turn_order_player_count: Optional[int] = None
-        # `AbilityEntities.TriggeringAbility` (le champ que lit
-        # `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs`) -- l'`AbilityOrEffect` de la
-        # TRIGGERED-ABILITY en cours d'execution. Ecrit par
-        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`, qui pose
-        # `Nullable<AbilityOrEffect>(ability.Id @ability+0x10)` dans l'`AbilityEntities` **AVANT**
-        # d'executer le behaviour (puis une seconde fois apres, avant d'emettre `On(0xd)`) : tout ce que
-        # le behaviour engendre (attaque, degat, mort) porte donc cet id. Cote port, le foyer UNIQUE de
-        # cette ecriture est `triggers/dispatch/core.py::evaluate_trigger_operation` (sauvegarde/restaure
-        # autour de `execute_behaviour`, ce qui reproduit l'imbrication native). None = hors
-        # triggered-ability (attaque normale, active castee) -> aucun gate `TriggeringAbilityIs` ne fire.
+        # L'`AbilityOrEffect` de la TRIGGERED-ABILITY en cours d'execution.
+        #
+        # NOM HISTORIQUE, semantique RELUE (case-292) : ce canal mirror le champ natif
+        # **`CurrentAbility`** (`AbilityEntities+0x60`), celui que lit
+        # `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` -- et NON le champ homonyme
+        # `TriggeringAbility` (`AbilityEntities+0x98`, lu par `$$TriggeringAbilityIs`).
+        # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit
+        # `Nullable<AbilityOrEffect>(ability.Id @ability+0x10)` dans les DEUX, mais a des moments
+        # differents : `+0x60` **AVANT** l'appel du behaviour (donc herite par tout ce qu'il engendre --
+        # attaque, degat, mort) et `+0x98` **APRES**, pour le seul `On(0xd = UnitTriggeredAbility)`.
+        # Le port pose/restaure autour d'`execute_behaviour` -> c'est exactement `+0x60`.
+        # Foyer UNIQUE de l'ecriture : `triggers/dispatch/core.py::evaluate_trigger_operation`.
+        # None = hors triggered-ability (attaque normale, active castee) -> aucun gate de kind ne fire.
         # PORTEE PARTIELLE ASSUMEE : seules les classes qui declarent `TRIGGERED_ABILITY_ID` alimentent
-        # ce champ ; les autres le laissent a None (degradation permissive sur un `NOT
-        # TriggeringAbilityIs`, restrictive sur un gate positif -- aucun consommateur porte n'en depend
-        # aujourd'hui hors `FuelledByFury` <- `FinalJustice`).
+        # ce champ ; les autres le laissent a None (degradation permissive sur un `NOT CurrentAbilityIs`,
+        # restrictive sur un gate positif). Les consommateurs `TriggeringAbilityIs` du port
+        # (`FuelledByFury` <- `FinalJustice`, `haze_of_corruption`) s'en servent par APPROXIMATION : sur
+        # le vecteur MORT le natif y lit le `killTrigger` du `KillUnitContext` recopie par
+        # `IdunBattle.Operations.RecordKillOperation$$Execute`, qui COINCIDE avec `CurrentAbility` dans
+        # tous les regimes portes. Detail + regimes examines : `docs/rl/case-292-current-vs-triggering-ability.md`.
         self.triggering_ability: Optional[int] = None
         # case-haze-ord -- la FILE DE MORTS du natif. `IdunBattle.Operations.RecordKillOperation$$
         # Execute` n'applique PAS la mort : il pose `UnitFlag.PendingDeath (0xf)`, appelle

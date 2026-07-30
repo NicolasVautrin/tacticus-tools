@@ -307,11 +307,15 @@ le helper de profil DELEGUE desormais au foyer runner) · `test_damage_roll_live
 * **Le collapse `Caster == Actor`** du gate `!CasterIsTarget` : le `TriggerEvent` du port n'a pas de
   slot CASTER distinct sur un evenement d'attaque. Le collapse tient sur les deux vecteurs `On(9)`
   portes ; il tomberait pour un vecteur ou le caster de l'ability differe de l'acteur du coup.
-* **`!CurrentAbilityIs(this)`** est porte sur le canal `state.triggering_ability`
-  (`TriggeringAbility`), pas sur `CurrentAbility` : ce sont deux champs natifs DISTINCTS, et ils ne
-  coincident ici que parce que le seul chemin menant a `CurrentAbility == 1071` sur un `On(9)` est le
-  behaviour de cette classe. Le gate `!CasterIsTarget` borne deja la recursion, donc aucun montage ne
-  separe les deux — leur difference reste non exercee.
+* **`!CurrentAbilityIs(this)`** — ce point est **CLOS et REFUTE** par
+  `case-292-current-vs-triggering-ability.md` : le canal `state.triggering_ability` EST
+  `CurrentAbility` (`AbilityEntities+0x60`). Son NOM designe l'autre champ, sa SEMANTIQUE est la
+  bonne — `BaseTriggeredAbility$$Execute` ecrit `+0x60` AVANT le behaviour (ce que le port
+  reproduit) et `+0x98` APRES, pour le seul `On(0xd = UnitTriggeredAbility)`, non porte. Ce qui
+  reste vrai ici : le gate n'est jamais exerce SEUL, `!CasterIsTarget` le couvrant
+  (`probe_224 --mutate nogate` = 0 desaccord). Ce qui est desormais MESURE : la portee du canal,
+  par `--mutate persist` (restauration supprimee -> le second coup de cloche du smite 1013
+  disparait, 4860/2 fires -> 2430/1 fire).
 * **Le `dmg` est lu au niveau du PORTEUR** : dans un runner rank-based, `passive_ability_level` et
   `active_ability_level` coincident souvent, et le psyker attaquant a le meme rank. Le montage ne
   DISTINGUE donc pas « niveau du porteur » de « niveau du caster » — la lecture est celle du
