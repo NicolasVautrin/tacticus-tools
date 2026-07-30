@@ -22,6 +22,11 @@ porte pytest.
 generateur d'abilities de l'IA (`HasFlag(unit, ActiveAbilityUsed = 2)`). Montage dans
 `scripts/python/probe_17_active_ability_used_gate.py`.
 
+`normal_attack_bonus_case` (#308) -- MONTAGE NOMME du `+1` que l'attaque NORMALE ajoute a son utilite
+d'ACTION (`ALoki_NormalAttackPlaybook<T>$$CalculateCustomUtility` = `Fix64(1)` contre `Fix64(0)` a la
+base). Le montage fabrique la fenetre d'exactement UN point d'utilite ou ce terme, et lui seul, decide
+l'action. Montage dans `scripts/python/probe_308_normal_attack_bonus.py`.
+
 Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime non
 atteint est un VERT qui ment -- aucune mesure n'a eu lieu et la suite ne rougit pour personne."""
 from __future__ import annotations
@@ -31,6 +36,7 @@ import pytest
 import probe_17_active_ability_used_gate as AAU
 import probe_17_hammer_corpse as HC
 import probe_17_martial_inspiration as MI
+import probe_308_normal_attack_bonus as NAB
 
 
 @pytest.fixture(scope="module")
@@ -91,5 +97,37 @@ def active_ability_used_case(live_session):
                 pytest.fail(f"montage active-ability-used NON INSTALLE (seed={seed}, "
                             f"board={board}) : {r['error']}", pytrace=False)
             cache[key] = r
+        return cache[key]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def normal_attack_bonus_case(live_session):
+    """Fabrique : `normal_attack_bonus_case()` -> le dict de mesure du probe #308.
+
+    Chaque appel monte les DEUX bras de l'A/B (`Damage` juste sous / juste au-dessus du seuil de
+    bascule natif), pose la geometrie (cible amenee au contact) et DISPOSE ses runners. Les
+    `damages` par defaut sont les constantes MESUREES du probe ; en passer d'autres (ou
+    `auto=True`) re-calibre le montage sur un autre couple (board, seed, cible).
+
+    Portee MODULE : chaque couple = deux builds, partages par les assertions du fichier."""
+    cache: dict = {}
+
+    def _case(board: str = NAB.BOARD, seed: int = NAB.SEED, target: str = NAB.TARGET,
+              damages=None, auto: bool = False) -> dict:
+        ds = tuple(damages) if damages else (NAB.D_BELOW, NAB.D_WINDOW)
+        key = (board, seed, target, ds, auto)
+        if key not in cache:
+            res = None
+            try:
+                res = NAB.scenario(board=board, seed=seed, target=target,
+                                   damages=None if auto else list(ds), auto=auto, verbose=True)
+            except RuntimeError as exc:                 # montage non installe -> ROUGE, jamais skip
+                pytest.fail(f"montage normal-attack-bonus NON INSTALLE (board={board}, seed={seed}, "
+                            f"cible={target}, damages={ds}) : {exc}", pytrace=False)
+            finally:
+                if res is not None:
+                    NAB.dispose(res)
+            cache[key] = res
         return cache[key]
     return _case
