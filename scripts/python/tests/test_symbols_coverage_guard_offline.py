@@ -6,7 +6,7 @@ jours s'ignore aussi surement qu'une garde absente -- c'est precisement pour ca 
 de 4 882 symboles du 2026-07-29 est passee inapercue (les quatre axes existants etaient verts,
 et personne ne comptait le contenu).
 
-TROIS PROPRIETES CONFRONTEES ICI :
+QUATRE PROPRIETES CONFRONTEES ICI :
  1. la CLASSIFICATION isole le MECANISME (corps pleinement partages) au lieu du namespace --
     sans ca les 4 882 corps se diluent et leur perte devient invisible ;
  2. le SEUIL laisse passer le churn REELLEMENT MESURE (tables Frida gqfc5mff6c -> rnca9r7q6c :
@@ -14,7 +14,18 @@ TROIS PROPRIETES CONFRONTEES ICI :
     l'effondrement (ratio 0,000) ;
  3. le registre des PERTES CONNUES est keye sur la TRANSITION (famille, ref, courant) : il
     tait une perte deja documentee, et RIEN d'autre -- ni la meme famille sur une autre
-    transition, ni une autre famille sur la meme.
+    transition, ni une autre famille sur la meme ;
+ 4. toute entree de ce registre a la FORME que le mecanisme sait lire (triplet exact) et porte
+    de quoi la RETIRER un jour (numero de tache + renvoi de fiche) -- une cle mal formee produit
+    une entree inerte que rien ne signalait, et une excuse sans renvoi ne se retire jamais.
+
+LE MECANISME EST CONFRONTE SUR UNE ENTREE SYNTHETIQUE, JAMAIS SUR LE CONTENU REEL DU REGISTRE
+(#282). `PERTES_CONNUES` est une DONNEE D'EXPLOITATION dont l'etat NOMINAL est VIDE : une excuse
+doit disparaitre des que sa cause est reparee. La version d'origine prelevait sa fixture par
+`next(iter(PERTES_CONNUES.items()))` ; la reparation `5c72a488` (#259-a, 2026-07-29 22:26) a
+retire l'unique entree apres avoir remonte GSHARED de 0 a 4 874, et les quatre tests du registre
+sont tombes en `StopIteration` -- sans qu'une seule ligne de `comparer_couverture` ait bouge. Le
+rouge accusait le MONTAGE. Detail : `docs/rl/case-282-pertes-connues-vide.md`.
 
 Offline pur : aucun runner, aucune session Frida, aucune lecture de `data/`.
 ASCII only (console Windows cp1252).
@@ -30,6 +41,44 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "scripts" / "python"))
 
 import symbols_sync as S  # noqa: E402
+
+
+# ----------------------------------------------------- entree SYNTHETIQUE du registre
+#
+# Une entree de `PERTES_CONNUES` qui n'existe QUE le temps du test. Elle porte deliberement
+# des noms qui ne peuvent designer ni une vraie famille ni un vrai hash de build : si elle
+# fuyait hors du test, elle ne pourrait taire aucune chute reelle.
+_CLE_TEST = ("il2cpp:FamilleSynthetique", "buildRefSynthetique", "buildCurSynthetique")
+_MOTIF_TEST = ("#282 -- entree SYNTHETIQUE de test, elle ne designe aucun build reel : "
+               "docs/rl/case-282-pertes-connues-vide.md")
+
+
+def _verifier_forme(cle, motif) -> None:
+    """Ce qu'une entree doit etre pour que le mecanisme la TROUVE et qu'elle reste CONSULTABLE.
+
+    Trouvable : la cle est le triplet exact (famille, ref, courant) que `comparer_couverture`
+    presente a `PERTES_CONNUES.get(...)` -- un tuple de 2, ou une famille orthographiee de
+    travers, produit une entree inerte qui ne tait rien et que rien ne signale.
+    Consultable : le motif porte un numero de tache ET un renvoi vers une fiche. Une excuse
+    sans renvoi est une excuse qu'on ne saura pas retirer -- or la retirer FAIT PARTIE de la
+    reparation (`symbols_sync.py`, en tete du registre)."""
+    assert isinstance(cle, tuple) and len(cle) == 3, (
+        "cle de PERTES_CONNUES = (famille, build_reference, build_courant), pas %r" % (cle,))
+    assert all(isinstance(x, str) and x for x in cle), (
+        "les trois membres de la cle sont des chaines non vides : %r" % (cle,))
+    assert isinstance(motif, str) and motif, "le motif est une chaine non vide"
+    assert "#" in motif, ("le motif cite le numero de la tache qui suit la perte : %r" % motif)
+    assert ".md" in motif, ("le motif renvoie a la fiche qui la documente : %r" % motif)
+
+
+@pytest.fixture
+def entree_registre(monkeypatch):
+    """Injecte l'entree synthetique dans le registre REEL, et la retire a la sortie.
+
+    `monkeypatch.setitem` restaure l'etat exact -- la cle etant absente au depart, elle est
+    SUPPRIMEE apres le test : aucun test ne peut en desamorcer un autre."""
+    monkeypatch.setitem(S.PERTES_CONNUES, _CLE_TEST, _MOTIF_TEST)
+    return _CLE_TEST, _MOTIF_TEST
 
 
 # --------------------------------------------------------------------- classification
@@ -126,26 +175,26 @@ def test_le_seuil_est_franchi_juste_en_dessous_et_pas_juste_au_dessus():
 
 # ----------------------------------------------------------------- registre des pertes
 
-def test_la_perte_connue_est_taue_MAIS_imprimee():
+def test_la_perte_connue_est_taue_MAIS_imprimee(entree_registre):
     """Tue != cachee. Une perte enregistree ne fait pas echouer la garde, mais elle est
     IMPRIMEE avec son motif : c'est ce qui la garde consultable au lieu de la faire oublier."""
-    (fam, ref, cur), motif = next(iter(S.PERTES_CONNUES.items()))
+    (fam, ref, cur), motif = entree_registre
     lignes = S.comparer_couverture({fam: 4882}, {fam: 0}, ref, cur)
     assert any("PERTE CONNUE" in l and fam in l for l in lignes)
     assert any(motif in l for l in lignes)
 
 
-def test_la_perte_connue_ne_couvre_QUE_sa_transition():
+def test_la_perte_connue_ne_couvre_QUE_sa_transition(entree_registre):
     """Keyee sur (famille, ref, courant) : la MEME famille sur une AUTRE transition doit
     redeclencher. Sans ca, l'entree deviendrait un silencieux permanent -- une garde
     desamorcee par son propre registre."""
-    (fam, ref, cur), _ = next(iter(S.PERTES_CONNUES.items()))
+    (fam, _, cur), _ = entree_registre
     with pytest.raises(S.Desync):
         S.comparer_couverture({fam: 4882}, {fam: 0}, cur, "buildSuivant")
 
 
-def test_la_perte_connue_ne_couvre_pas_une_autre_famille():
-    (_, ref, cur), _ = next(iter(S.PERTES_CONNUES.items()))
+def test_la_perte_connue_ne_couvre_pas_une_autre_famille(entree_registre):
+    (_, ref, cur), _ = entree_registre
     with pytest.raises(S.Desync):
         S.comparer_couverture({"il2cpp:IdunBattle": 15000}, {"il2cpp:IdunBattle": 10},
                               ref, cur)
@@ -207,10 +256,41 @@ def test_sans_archive_l_axe_est_NON_VERIFIE_et_surtout_pas_vert():
         S._reference_la_plus_recente = S_ref
 
 
-def test_le_registre_s_auto_perime_quand_la_famille_est_a_zero_des_deux_cotes():
+def test_le_registre_s_auto_perime_quand_la_famille_est_a_zero_des_deux_cotes(entree_registre):
     """A la MAJ suivante, l'archive de reference sera elle-meme depourvue de la famille :
     0 -> 0 est sous le plancher, donc plus aucune ligne. L'entree devient inerte sans qu'on
-    ait a la retirer a la main -- et si la couverture est RETABLIE, elle l'est aussi."""
-    (fam, _, _), _ = next(iter(S.PERTES_CONNUES.items()))
+    ait a la retirer a la main -- et si la couverture est RETABLIE, elle l'est aussi.
+
+    NB (#282) : ce filet EXISTE, mais ce n'est PAS lui qui a vide le registre le 2026-07-29.
+    L'entree GSHARED a ete retiree A LA MAIN par `5c72a488`, la famille etant remontee a 4 874
+    -- donc jamais a zero cote reference. Le filet reste la garde du cas ou la reparation
+    n'aurait PAS eu lieu avant la MAJ suivante."""
+    (fam, _, _), _ = entree_registre
     lignes = S.comparer_couverture({fam: 0}, {fam: 0}, "buildB", "buildC")
     assert not any("PERTE CONNUE" in l for l in lignes)
+
+
+def test_toute_entree_du_registre_a_la_FORME_que_le_mecanisme_sait_lire():
+    """Applique le MEME controle a l'entree synthetique et a chaque entree REELLE.
+
+    Le controle de l'entree synthetique s'execute a chaque run, donc ce test n'est jamais
+    vacuous meme registre vide -- et il garantit que la fixture des tests ci-dessus est
+    REPRESENTATIVE de ce qu'on ecrit pour de vrai, au lieu d'un raccourci qui passerait
+    la ou une vraie entree echouerait."""
+    _verifier_forme(_CLE_TEST, _MOTIF_TEST)
+    for cle, motif in S.PERTES_CONNUES.items():
+        _verifier_forme(cle, motif)
+
+
+def test_un_registre_VIDE_est_l_etat_NOMINAL_et_ne_desamorce_pas_la_garde():
+    """#282. Vide n'est ni une panne ni une garde eteinte : c'est l'etat vise.
+
+    Le registre a ete vide le 2026-07-29 par `5c72a488` (#259-a) PARCE QUE la perte etait
+    reparee -- mesure re-derivable, `GSHARED` 4 882 -> 4 874 entre `gqfc5mff6c` et
+    `rnca9r7q6c` (`python scripts/python/probe_282_registre_pertes.py`). Ce que ce test
+    exige, c'est qu'une chute effondree sur une transition ABSENTE du registre leve
+    TOUJOURS : le vide ne peut pas se confondre avec un silencieux."""
+    fam, ref, cur = "il2cpp:FamilleAbsenteDuRegistre", "refAbsente", "curAbsente"
+    assert (fam, ref, cur) not in S.PERTES_CONNUES
+    with pytest.raises(S.Desync):
+        S.comparer_couverture({fam: 4882}, {fam: 0}, ref, cur)
