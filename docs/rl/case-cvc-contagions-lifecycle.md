@@ -234,9 +234,35 @@ tous les deux. Elle est mesurée aux étapes B (d=2) et D, sur deux boards.
 
 ### 4.3 Généralisation et mutations
 
-**2e géométrie** : `--board C1_02 --seed 777` → VERDICT OK. Régime différent (`TurnsStarted = 16`,
-donc rayon **3** et `amount = 3` : le palier haut de `GetRangeOnOwnerTurn` est exercé là où
-`MC1_67` n'exerçait que le palier 1), même accord, même dérive `1387 → 2312` à l'étape E.
+**2e géométrie** : `--board C4_09 --seed 999` → VERDICT OK, **A/B/D/E exercées**, même dérive
+`1387 → 2312` à l'étape E. La ligne `d=4` y donne `amount = 0` (armure **2312**, aucune instance
+active), ce que `MC1_67` ne produisait pas : le contre-cas « hors de toute aura » est donc exercé
+là aussi.
+
+> **`C1_02` a été ÉCARTÉ, et c'est une mesure, pas une préférence.** Un scan offline des dumps
+> (`board.Board.playable_tiles` + distance inter-spawns) donne : `C1_02` = **35 tuiles jouables**,
+> spawns à distance 5 ; `MC1_67` = **63** ; `C4_09` = **70**, spawns à distance 1. Sur 35 tuiles il
+> n'existe aucune case à distance ≥ 4 des trois porteurs (le seuil natif — `GetMaxRange = Direct(3)`
+> avec comparateur inclusif), donc l'étape E ne peut pas s'y monter ; et l'approche y coûte
+> 16 tours, ce qui pousse `TurnsStarted` bien au-delà du palier 1 et interdit l'étape C. Le premier
+> run sur `C1_02` affichait pourtant `VERDICT: OK` : c'est ce faux vert qui a motivé le garde-fou
+> `NOT_EXERCISED` ci-dessous.
+
+**Garde-fou anti-faux-vert (`NOT_EXERCISED`)** — une étape qui n'a rien mesuré ne compte JAMAIS
+comme un succès. Trois causes distinctes sont désormais détectées et **nommées** au lieu d'être
+silencieusement vertes : (a) le montage ne se monte pas (isolation impossible, palier déjà dépassé,
+aucune tuile hors aura, pas live avorté) ; (b) la victime **meurt** pendant l'approche par cycles
+`endturn` — le probe bascule alors sur une autre victime du roster plutôt que de lire une unité
+absente du snapshot ; (c) **l'accord VIDE** : si l'état actif live est identique avant et après la
+transition censée le changer, `[] == []` ne prouve rien. Le VERDICT porte le compte d'étapes non
+exercées, et la garde pytest les traduit en `skip` EXPLICITE.
+
+**Répartition mesurée** : l'étape C (croissance d'aura) n'est discriminante que sur `MC1_67`, où
+elle produit même mieux qu'attendu — `[1071]` 1850 → `[1072]` 1387, c'est-à-dire la **bascule
+1071 → 1072 déclenchée par la seule croissance du rayon, sans aucun mouvement**. Sur `C4_09` les
+spawns au contact font que plusieurs porteurs couvrent déjà la victime : l'isolation à un seul
+porteur n'y tient pas et l'étape est rapportée NON EXERCÉE. Les deux boards sont donc
+**complémentaires**, et chaque run le dit explicitement.
 
 **Mutations du fix** — cinq, toutes détectées, avec des signatures **disjointes** :
 
@@ -271,8 +297,8 @@ ctor manquant) — le registre d'abilities n'est pas touché par ce cas.
 ```bash
 cd scripts/python
 python probe_cvc_contagions_lifecycle.py --offline-only
-python probe_cvc_contagions_lifecycle.py --board MC1_67 --seed 4242
-python probe_cvc_contagions_lifecycle.py --board C1_02  --seed 777     # 2e geometrie
+python probe_cvc_contagions_lifecycle.py --board MC1_67 --seed 4242    # A-E, C discriminante
+python probe_cvc_contagions_lifecycle.py --board C4_09  --seed 999     # 2e geometrie (A,B,D,E)
 python -m pytest tests/engine/runner/test_contagions_lifecycle_live.py -q
 ```
 

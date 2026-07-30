@@ -25,10 +25,22 @@ AUSSI monter `TurnsStarted` du porteur, donc GRANDIR l'aura : le `TurnsStarted` 
 ligne, et la confrontation se fait toujours live-vs-port SUR LA MEME SCENE (meme snapshot), donc ce
 confond ne peut pas maquiller un desaccord.
 
+⚠ UNE ETAPE QUI N'A RIEN MESURE N'EST PAS UN SUCCES (`NOT_EXERCISED`). Trois causes sont
+detectees et NOMMEES : (a) le montage ne se monte pas (isolation impossible, palier deja depasse,
+aucune tuile hors aura, pas live avorte) ; (b) la victime MEURT pendant l'approche -> on bascule
+sur une autre victime du roster ; (c) l'ACCORD VIDE -- etat actif identique avant/apres la
+transition censee le changer. Le VERDICT porte le compte d'etapes non exercees.
+
+CHOIX DU BOARD (mesure, pas preference) : il faut assez de tuiles jouables pour qu'une case soit
+a distance >= 4 de TOUS les porteurs (`GetMaxRange = Direct(3)`, comparateur inclusif) ET des
+spawns proches pour que l'approche ne pousse pas `TurnsStarted` au-dela du palier 1.
+`playable_tiles` : `C1_02` = 35 (INADAPTE : etapes C et E impossibles), `MC1_67` = 63,
+`C4_09` = 70 (spawns a distance 1).
+
 Usage (depuis scripts/python) :
     python probe_cvc_contagions_lifecycle.py --offline-only
-    python probe_cvc_contagions_lifecycle.py --board MC1_67 --seed 4242
-    python probe_cvc_contagions_lifecycle.py --board C1_02 --seed 777      # 2e geometrie
+    python probe_cvc_contagions_lifecycle.py --board MC1_67 --seed 4242   # A-E, C discriminante
+    python probe_cvc_contagions_lifecycle.py --board C4_09 --seed 999     # 2e geometrie (A,B,D,E)
 
 ASCII only (cp1252). Discipline runner : state-file ABSOLU unique sous logs/, dispose en fin de passe.
 """
@@ -231,6 +243,24 @@ def _pos_of(ob, uid):
     return None
 
 
+def _alive_victim(rid, victims, prefer=None):
+    """La premiere victime encore VIVANTE (`prefer` d'abord si elle l'est).
+
+    Le montage APPROCHE par cycles `move` + `endturn` x2, ce qui fait tourner les tours : sur un
+    board aux spawns eloignes, la victime choisie peut MOURIR en route (DoT de tuile, effets de
+    fin de tour). On ne subit pas cette geometrie -- on prend une autre victime (le roster en a
+    trois). Sans ce garde-fou, les etapes suivantes lisent une unite ABSENTE du snapshot et
+    rendent un accord VIDE (`[] == []`) qui se lirait « OK »."""
+    ob = rpc("observeBattle", {"runnerId": rid}, 40)
+    alive = {u["squadId"] for u in ob["units"] if not u.get("isDead")}
+    ordered = ([v for v in victims if v["squadId"] == prefer] if prefer is not None else []) + \
+              [v for v in victims if v["squadId"] != prefer]
+    for v in ordered:
+        if v["squadId"] in alive:
+            return v
+    return None
+
+
 def _free_at(tiles, ob, anchor, want, exclude_uid=None):
     """Tuiles marchables LIBRES a distance exacte `want` d'`anchor`."""
     import hexgeo
@@ -273,23 +303,32 @@ def _step_toward(rid, tiles, ob, uid, anchor, want):
     return hexgeo.distance(here, anchor)
 
 
-def _place(rid, tiles, uid, anchor, want, max_cycles=8):
-    """Amene `uid` a distance EXACTE `want` d'`anchor`, en enchainant pas + `endturn` x2 (chaque
-    cycle recharge le mouvement des deux camps ; il fait aussi monter `TurnsStarted`, ce qui est
-    MESURE et imprime a chaque ligne)."""
+def _place(rid, tiles, uid, anchor, want, max_cycles=8, at_least=False):
+    """Amene `uid` a distance `want` d'`anchor` (EXACTE, ou `>= want` si `at_least`), en enchainant
+    pas + `endturn` x2 (chaque cycle recharge le mouvement des deux camps ; il fait aussi monter
+    `TurnsStarted`, ce qui est MESURE et imprime a chaque ligne).
+
+    `at_least` sert a ECARTER une unite : exiger la distance EXACTE echoue sur un board etroit ou
+    la tuile visee n'existe pas, alors que « au moins » suffit -- et c'est le seul critere qui
+    compte pour sortir du rayon d'une aura (`GetMaxRange = Direct(3)`)."""
     import hexgeo
+
+    def _reached(d):
+        return d >= want if at_least else d == want
+
     for _ in range(max_cycles):
         ob = rpc("observeBattle", {"runnerId": rid}, 40)
         d = hexgeo.distance(_pos_of(ob, uid), anchor)
-        if d == want:
+        if _reached(d):
             return d, True
         d = _step_toward(rid, tiles, ob, uid, anchor, want)
-        if d == want:
+        if _reached(d):
             return d, True
         endturn(rid)
         endturn(rid)
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
-    return hexgeo.distance(_pos_of(ob, uid), anchor), False
+    d = hexgeo.distance(_pos_of(ob, uid), anchor)
+    return d, _reached(d)
 
 
 # --------------------------------------------------------------------------- etape C (croissance)
@@ -309,9 +348,12 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
     for c in carriers:
         if c["squadId"] == c0["squadId"]:
             continue
-        d, _ = _place(rid, tiles, c["squadId"], vk, 9)
-        if d < 5:
-            print(f"etape C: {c['visualId']} reste a {d} de la victime -- isolation impossible")
+        # `at_least` : seul « hors du rayon » compte (`GetMaxRange = Direct(3)`), pas une distance
+        # exacte -- exiger 9 pile echoue sur un board etroit alors que 5 suffit largement.
+        d, _ = _place(rid, tiles, c["squadId"], vk, 5, at_least=True)
+        if d < 4:
+            print(f"etape C: {c['visualId']} reste a {d} de la victime (rayon max 3)"
+                  " -- isolation impossible")
             return NOT_EXERCISED
     # (2) victime a distance 2 du porteur isole
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
@@ -349,6 +391,14 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
     live1 = sorted(t for t, a in _live_effects(dec2, v0["squadId"]).items() if a)
     a1 = _live_fixed_armor(snap2, v0["squadId"])
     d_after = hexgeo.distance(_pos_of(ob2, v0["squadId"]), _pos_of(ob2, c0["squadId"]))
+    # ⚠ MEME REGLE QU'A L'ETAPE E : si l'etat actif LIVE est identique avant et apres la
+    # croissance, l'aura n'a rien allume -- typiquement parce que d'AUTRES porteurs couvrent deja
+    # la victime (isolation insuffisante sur cette geometrie). L'accord est alors VIDE et ne
+    # prouve rien. NON EXERCEE, jamais un vert.
+    if live0 == live1:
+        print(f"etape C: l'etat ACTIF live est INCHANGE ({live0}) alors que TurnsStarted est passe"
+              f" de {ts0} a {ts_port} -- la croissance n'a rien allume, rien n'est mesure")
+        return NOT_EXERCISED
     ok = (live1 == port1a) and (a1 == parm1) and (d_after == 2)
     if not ok:
         bad += 1
@@ -358,8 +408,6 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
     print(f"   TurnsStarted {ts_port} (rayon 2) : live actif={live1} armure={a1}"
           f" | port actif={port1a} armure={parm1}   [{'OK' if ok else 'KO'}]"
           f" (distance inchangee: {d_after == 2})")
-    if live0 == live1:
-        print("   note: l'etat ACTIF n'a pas change -- etape C non discriminante sur cette scene")
     return bad
 
 
@@ -380,31 +428,57 @@ def _stage_e(rid, tiles, c0, c1, v0, carriers) -> int:
     a_before_live = _live_fixed_armor(snap, v0["squadId"])
     pact0, parm0 = _port_state(state, v0["squadId"])
     before_port = sorted(t for t, a in pact0.items() if a)
-    # cible du pas : une tuile LIBRE hors de portee de TOUS les porteurs (rayon max = 3)
+    # Cible du pas : une tuile LIBRE hors de portee de TOUS les porteurs. Le seuil est `>= 4`, et
+    # c'est le MIRROR de `$$GetMaxRange = Direct(3)` avec le comparateur INCLUSIF de
+    # `GetInRangeAuraAmount` (`dist <= range` compte) -- au-dela de 3, aucun porteur ne peut
+    # couvrir la tuile, quel que soit son `TurnsStarted`. Un seuil plus strict (5) rendait l'etape
+    # NON EXERCEE sur un board etroit sans aucune raison native.
     occ = {(u["col"], u["row"]) for u in ob["units"] if not u.get("isDead")
            and u["squadId"] != v0["squadId"]}
     ck = [_pos_of(ob, c["squadId"]) for c in carriers]
-    far = [(t["col"], t["row"]) for t in tiles if t.get("walkable", True)
-           and (t["col"], t["row"]) not in occ
-           and all(hexgeo.distance((t["col"], t["row"]), k) >= 5 for k in ck)]
+    ck = [k for k in ck if k is not None]
+    cand = [(t["col"], t["row"]) for t in tiles if t.get("walkable", True)
+            and (t["col"], t["row"]) not in occ]
+    far = [c for c in cand if all(hexgeo.distance(c, k) >= 4 for k in ck)]
     if not far:
-        print("etape E: aucune tuile hors de toutes les auras -- non exercee")
+        print("etape E: aucune tuile a distance >= 4 de TOUS les porteurs -- non exercee")
         return NOT_EXERCISED
     far.sort(key=lambda c: hexgeo.distance(c, vk))
-    dest = far[0]
-    # (1) OFFLINE : le port joue le pas par SA propre operation, sans aucun apport live.
-    MoveUnitOperation(v0["squadId"], dest).execute(state, EventBus())
-    pact1, parm1 = _port_state(state, v0["squadId"])
-    after_port = sorted(t for t, a in pact1.items() if a)
-    # (2) LIVE : le MEME pas, puis relecture.
-    err = move(rid, v0["squadId"], dest[0], dest[1])
+    # (1) LIVE d'abord : on essaie les destinations hors-aura par proximite croissante et on retient
+    # LA PREMIERE que le natif accepte reellement (la portee de mouvement borne le pas ; un `move`
+    # trop long est accepte sans erreur mais l'unite ne bouge pas). Le `state` charge plus haut
+    # n'est PAS mute par ces appels -> il reste le point de depart exact du rejeu offline.
+    dest = None
+    for cand_dest in far[:12]:
+        err = move(rid, v0["squadId"], cand_dest[0], cand_dest[1])
+        ob_try = rpc("observeBattle", {"runnerId": rid}, 40)
+        if _pos_of(ob_try, v0["squadId"]) == cand_dest:
+            dest = cand_dest
+            break
+    if dest is None:
+        print(f"etape E: aucune tuile hors aura ATTEIGNABLE d'un pas depuis {vk}"
+              f" (essais: {far[:12]}) -- confrontation non exercee")
+        return NOT_EXERCISED
     dec2, ob2, snap2, _st2 = _load(rid, tiles)
     got = _pos_of(ob2, v0["squadId"])
     after_live = sorted(t for t, a in _live_effects(dec2, v0["squadId"]).items() if a)
     a_after_live = _live_fixed_armor(snap2, v0["squadId"])
+    # (2) OFFLINE : le port joue LE MEME pas par SA propre operation, sur l'etat d'AVANT.
+    MoveUnitOperation(v0["squadId"], dest).execute(state, EventBus())
+    pact1, parm1 = _port_state(state, v0["squadId"])
+    after_port = sorted(t for t, a in pact1.items() if a)
     if got != dest:
-        print(f"etape E: le pas live n'a pas abouti ({err}, arrivee {got} != {dest})"
+        print(f"etape E: le pas live n'a pas abouti (arrivee {got} != {dest})"
               " -- confrontation non exercee")
+        return NOT_EXERCISED
+    # ⚠ Le pas a ABOUTI, mais a-t-il SORTI l'unite de l'aura ? Si l'etat actif LIVE est le meme
+    # avant et apres, l'etape ne mesure RIEN -- et un « OK » y dirait autre chose que son nom.
+    # C'est le risque concret d'un changement de PATHFINDING (#289 : « une tuile de trop ») ou de
+    # geometrie de board : la destination reste atteignable mais ne sort plus du disque.
+    # NOT_EXERCISED (skip EXPLICITE cote garde), jamais un vert.
+    if before_live == after_live:
+        print(f"etape E: l'etat ACTIF live est INCHANGE ({before_live}) apres le pas {vk} -> {dest}"
+              " -- la sortie d'aura n'a pas eu lieu, rien n'est mesure")
         return NOT_EXERCISED
     ok_act = (after_live == after_port)
     ok_arm = (a_after_live == parm1)
@@ -434,8 +508,6 @@ def _stage_e(rid, tiles, c0, c1, v0, carriers) -> int:
     print(f"   APRES  live actif={after_live} armure={a_after_live}"
           f" | port actif={after_port} armure={parm1}"
           f"   [{'OK' if ok_act and ok_arm else 'KO'}]")
-    if before_port == after_port and before_live == after_live:
-        print("   note: l'etat ACTIF n'a pas change -- etape E non discriminante sur cette scene")
     return bad
 
 
@@ -445,6 +517,7 @@ def scenario(args) -> int:
     rid = build(args.p_units, args.a_units, args.board, args.seed)
     print("runner", rid, "| board", args.board, "| seed", args.seed)
     bad = 0
+    not_exercised: list = []      # etapes qui n'ont RIEN mesure (jamais comptees comme succes)
     try:
         import hexgeo
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -476,6 +549,24 @@ def scenario(args) -> int:
             if not same:
                 bad += 1
         print(f"etape A: {n_ok}/{len(victims)} victimes portent les DEUX instances des deux cotes")
+
+        # ---- etape C : l'AURA QUI GRANDIT (personne ne bouge) ------------------------------
+        v_c = _alive_victim(rid, victims, prefer=v0["squadId"])
+        if v_c is None:
+            print("etape C: aucune victime vivante -- NON EXERCEE")
+            not_exercised.append("C")
+            rc = 0
+        else:
+            if v_c["squadId"] != v0["squadId"]:
+                print(f"etape C: la victime {v0['visualId']} est morte pendant l'approche"
+                      f" -> bascule sur {v_c['visualId']}")
+                v0 = v_c
+            rc = _stage_c(rid, tiles, c0, v0, carriers)
+        if rc == NOT_EXERCISED:
+            print("etape C: NON EXERCEE (cf. ci-dessus) -- ce n'est PAS un succes")
+            not_exercised.append("C")
+        else:
+            bad += rc
 
         # ---- ecarter le 2e/3e porteur pour isoler l'etage GEOMETRIE de l'etape B -----------
         vk = _pos_of(ob, v0["squadId"])
@@ -516,14 +607,17 @@ def scenario(args) -> int:
             print("   note: l'etat ACTIF n'a pas VARIE sur les 4 distances -- etape B non"
                   " discriminante sur cette scene (rayon deja >= 4 ?)")
 
-        # ---- etape C : l'AURA QUI GRANDIT (personne ne bouge) ------------------------------
-        rc = _stage_c(rid, tiles, c0, v0, carriers)
-        if rc == NOT_EXERCISED:
-            print("etape C: NON EXERCEE (cf. ci-dessus) -- ce n'est PAS un succes")
-        else:
-            bad += rc
-
         # ---- etape D : le SECOND porteur -> bascule 1071 -> 1072 ---------------------------
+        v_d = _alive_victim(rid, victims, prefer=v0["squadId"])
+        if v_d is None:
+            print("etape D: aucune victime vivante -- NON EXERCEE")
+            not_exercised.append("D")
+            print("VERDICT:", f"{bad} DESACCORDS | {len(not_exercised)} ETAPES NON EXERCEES: "
+                              f"{','.join(not_exercised)}")
+            return bad
+        if v_d["squadId"] != v0["squadId"]:
+            print(f"etape D: bascule de victime -> {v_d['visualId']}")
+            v0 = v_d
         ob = rpc("observeBattle", {"runnerId": rid}, 40)
         vk = _pos_of(ob, v0["squadId"])
         d1, _ = _place(rid, tiles, c1["squadId"], vk, 1)
@@ -537,15 +631,24 @@ def scenario(args) -> int:
         n = _amount(state, v0["squadId"], c0["squadId"])
         live_active = sorted(t for t, a in live_all.items() if a)
         port_active = sorted(t for t, a in pact.items() if a)
-        agree = (live_active == port_active)
-        if not agree:
-            bad += 1
-        print(f"{'OK ' if agree else 'KO '}etape D | porteurs a d={d0} et d={d1} | amount(port)={n}"
-              f" | live actif={live_active} port actif={port_active}"
-              f" | FixedArmor live={larm} port={parm}")
-        if live_active != [RED2]:
-            print("   note: 1072 n'est PAS l'instance active live -> la variante -40 % n'est pas"
-                  " exercee par cette scene (les deux porteurs ne couvrent pas la victime)")
+        # ⚠ ACCORD VIDE = accord qui ne prouve RIEN. Si la victime a disparu du `combatSnapshot`
+        # (morte pendant l'approche) ou si aucune instance n'est active des deux cotes, `[] == []`
+        # se lirait « OK » alors que la bascule -40 % n'a jamais ete exercee. NON EXERCEE.
+        if larm is None or not live_active:
+            print(f"etape D: victime {'absente du snapshot (morte ?)' if larm is None else 'hors de toute aura'}"
+                  f" -- la bascule 1071 -> 1072 n'est PAS exercee (live actif={live_active},"
+                  f" FixedArmor={larm})")
+            not_exercised.append("D")
+        else:
+            agree = (live_active == port_active)
+            if not agree:
+                bad += 1
+            print(f"{'OK ' if agree else 'KO '}etape D | porteurs a d={d0} et d={d1} | amount(port)={n}"
+                  f" | live actif={live_active} port actif={port_active}"
+                  f" | FixedArmor live={larm} port={parm}")
+            if live_active != [RED2]:
+                print("   note: 1072 n'est PAS l'instance active live -> la variante -40 % n'est pas"
+                      " exercee par cette scene (les deux porteurs ne couvrent pas la victime)")
 
         # ---- etape E : le port DERIVE tout seul (aucun re-seed) -----------------------------
         # Les etapes A..D confrontent deux etats SEEDES : elles prouvent que le port LIT juste,
@@ -554,9 +657,16 @@ def scenario(args) -> int:
         re_ = _stage_e(rid, tiles, c0, c1, v0, carriers)
         if re_ == NOT_EXERCISED:
             print("etape E: NON EXERCEE (cf. ci-dessus) -- ce n'est PAS un succes")
+            not_exercised.append("E")
         else:
             bad += re_
-        print("VERDICT:", "OK" if bad == 0 else f"{bad} DESACCORDS")
+        # Le VERDICT porte les DEUX informations. « OK » seul, avec des etapes non exercees,
+        # dirait autre chose que ce qu'il nomme -- c'est le faux vert qu'on refuse.
+        verdict = "OK" if bad == 0 else f"{bad} DESACCORDS"
+        if not_exercised:
+            verdict += f" | {len(not_exercised)} ETAPES NON EXERCEES: {','.join(not_exercised)}" \
+                       " -- montage a re-crafter, rien n'y a ete valide"
+        print("VERDICT:", verdict)
     finally:
         if not args.keep:
             dispose(rid)
