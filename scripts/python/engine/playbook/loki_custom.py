@@ -27,13 +27,20 @@ from __future__ import annotations
 import gameconfig as _gc
 import hexgeo
 
+from . import prediction
 from .common import DefaultActiveAbilityPlaybook
 from .base import register
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
+from .probable_damage_event import ProbableDamageEvent
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.effect_type import EffectType
 from ..utilities.damage import will_be_overkill
+
+# `param_8` VIDE du call-site `GenerateMultiHitAttackPredictions` : le port encode un profil absent
+# par la chaine "None" (`_PROFILE_INDEX` -> enum -1 : percage 0, armure PLEINE), meme convention que
+# `engine.playbook.prediction.abilities._PLAYBOOK_PROFILE_OVERRIDE`.
+_PROFILE_NONE = "None"
 
 
 class _CustomOnlyPlaybook(DefaultActiveAbilityPlaybook):
@@ -565,9 +572,248 @@ class ForwardObserversPlaybook(NonAttackComparablePlaybook):
                     * ctx.wt.sub("ActiveAbilities", self.W_TARGET_HP))         # 40
 
 
+class SorcerousFacadePlaybook(NonAttackComparablePlaybook):
+    """`IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook` (ability 1100) — le dernier verrou de #27,
+    et il est DISTINCT des autres : sa cible native est un ALLIE.
+
+    ## Le terme custom — `...SorcerousFacadePlaybook$$CalculateCustomUtility`
+
+        u1 = IUtilitiesDatabase.GetUtility(7 = UtilityType.Tile)
+                .EvaluateMovement(new UtilityMovementCase(caster, EntityExtensions.GetMainTile(target)))
+        u2 = IUtilitiesDatabase.GetUtility(7)
+                .EvaluateMovement(new UtilityMovementCase(caster, casterPosition))
+        return Fix64.op_Subtraction(u1, u2)
+
+    C'est le MEME artefact natif que `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility`
+    — memes deux appels (slot 0 de `IUtilitiesDatabase` avec l'argument `7`, puis slot 8 de
+    `IUtility`), au seul champ `AbilityType` pres (rempli la, NUL ici ; il n'entre pas dans le
+    composite Tile). Le port n'ecrit donc AUCUN nouvel evaluateur : il APPELLE
+    `engine.ai.utilities.get_movement_utility(ctx, pos, UtilityType.Tile)`.
+
+    Les deux `UtilityMovementCase` sont construits par des surcharges DIFFERENTES, verifiees par
+    xref : le 1er appel prend la surcharge `movementTile` (elle fait `new UnitPosition(tile)`), le 2e
+    la surcharge `movementPosition`. Les autres champs (`ClosestEnemy`, `AbilityType`, `Parent`,
+    `Target`) sont NULS dans les deux — d'ou la reduction du composite a sa feuille Tile(7) (les
+    feuilles de mouvement se desarment sur `case.ClosestEnemy == null`).
+
+    SENS : `custom = Tile(tuile de la CIBLE) - Tile(tuile candidate)`. Comme la route ajoute ensuite
+    `u_full = u + Tile(tuile candidate)`, le terme de tuile candidate **s'annule exactement** et
+    l'utilite d'action porte `Tile(tuile de la CIBLE)` : apres l'echange de positions, c'est la
+    tuile de l'allie que le caster occupera. Terme POSITION-dependant (il entre dans l'argmax par
+    tuile) et CIBLE-dependant.
+
+    ## Le gate — `...SorcerousFacadePlaybook$$ShouldExecute` (OVERRIDE du slot +0x328)
+
+        sel = TargetsSelector.SelectFirst(SorcerousFacadeAbility.GetTarget(ability),
+                                          entities{Caster=caster, CasterTile=casterTile,
+                                                   CasterTiles=[casterTile]});
+        if (sel == null) {
+            uTarget = GetUtility(7).EvaluateMovement(case(caster, GetMainTile(target)));
+            foreach (t in battleQuery.<slot d'interface 0xa>(caster, false, null))
+                if (GetUtility(7).EvaluateMovement(case(caster, t)) > uTarget) return false;
+        }
+        return !BasePlaybook.WillNormalAttackKill(caster, target, casterTile);
+
+    - `slot d'interface 0xa` : la collection est ITEREE et chaque element est passe a la surcharge
+      `movementTile` du ctor -> ce sont des TUILES, et l'appel `(caster, 0, 0)` tolere un 3e argument
+      NUL. La seule methode d'`IBattleQuery` qui satisfasse les trois contraintes est
+      `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovableTilesOf(unit, ignoreFlags,
+      overrideRange)` (son homologue `GetMovableTilesFor` deREFERENCE son 3e argument, donc
+      crasherait sur `null` ; `GetCurrentAndMovablePositionsFor` est un AUTRE slot, 0xe, celui
+      qu'appelle `IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles`). Mirror :
+      `ctx.reach_nc` (= `action_tiles`, ORIGINE + tuiles de move) — le meme ensemble.
+    - `WillNormalAttackKill` (@ `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill`, surcharge
+      4-args) = `new ProbableDamageEvent(target, battleQuery.<slot 0x21>(caster, target, casterTile))
+      .Prediction.WillBeKill`, avec `target == null -> false`. Le `target` est ici la cible de
+      l'ABILITY, c'est-a-dire l'ALLIE : le natif refuse le cast quand l'attaque normale du caster
+      TUERAIT l'allie vise. Ce n'est pas une paraphrase — c'est le 3e argument du call natif.
+
+    ## Le selecteur `GetTarget` — MEME arbre que la face COMBAT
+
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$GetTarget` :
+
+        Cache(First(SortByDistance(ValidNormalAttackTargets(Caster, CasterTiles, range: null,
+                                                            ignoreRule, additionalRule),
+                                   Caster),
+                    1),
+              true)
+
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$ExecuteBehaviour`
+    RE-INLINE exactement le meme arbre (memes appels, memes arguments) pour alimenter son
+    `UseActiveAbility(caster, sel, UnitNormalAttackType(caster))` : UN seul artefact natif.
+    `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` se resout en
+    `TargetingQuery.GetValidTargets(caster, casterTiles, <options de l'attaque normale>)` -> le
+    mirror OFFLINE/LIVE est `ctx.plans` (les `attackPlans` de l'attaque NORMALE portent deja la
+    cascade de ciblage native), FILTRE sur la tuile candidate.
+    `IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` trie par
+    `PositionComponent.Distance(<reference>, GetMainTileId(s))` ou la reference est le selecteur
+    `Caster` : la distance est prise a la position REELLE du caster, PAS a la tuile candidate (meme
+    quirk d'ancrage que Chronometron/SavageEchoes). `OrderBy` LINQ est STABLE -> a distance egale,
+    l'ordre d'enumeration decide.
+
+    ## La prediction — `...SorcerousFacadePlaybook$$MakeDamagePredictions` (OVERRIDE)
+
+        sel = SelectFirst(GetTarget(ability), entities{Caster, CasterTile=casterPosition.MainTile,
+                                                      CasterTiles=casterPosition});
+        if (sel == null) return <liste VIDE statique>;
+        list = [ new ProbableDamageEvent(sel, battleQuery.<slot 0x22>(caster, sel, casterPosition)) ];
+        list.AddRange(GenerateMultiHitAttackPredictions(
+                          caster, casterPosition, sel,
+                          targets = DSLSelectors.Get(sel),                       // mono-cible
+                          damage  = Half(Sum(GetVariableForLevel(0xc = minDmg),
+                                             GetVariableForLevel(0xd = maxDmg))),
+                          hits    = GetNumberConstant(0x2f = nrOfHits),
+                          profil  = <vide>));
+        return list;
+
+    Deux faits qui changent le port, et qu'aucun nom ne laissait deviner :
+
+    1. **la prediction ne porte PAS sur la cible de l'ability** (l'allie) mais sur `sel`, l'ENNEMI
+       le plus proche attaquable a l'attaque normale. L'utilite d'action de 1100 contient donc
+       l'attaque normale COMPLETE plus le coup psychique — c'est ce qui la rend competitive, et
+       c'est pourquoi un port qui rendrait `[]` (le regime « sans prediction ») divergerait
+       systematiquement ;
+    2. `Half(Sum(minDmg, maxDmg))` est **l'avg config GENERIQUE** — le meme
+       `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(avgFlag)` que 1147/1148 (#172).
+       Le chemin generique `prediction.make_damage_predictions` le produit deja ; l'ancienne note
+       « base != avg -> gap BASE » de `prediction/abilities.py` etait un faux positif de lecture.
+       Le SEUL ecart au generique est le profil de degat, passe VIDE par le playbook -> entree
+       `_PLAYBOOK_PROFILE_OVERRIDE[1100] = "None"` (pierce 0, armure pleine), meme quirk que
+       1020/1062/1147/1148.
+
+    ## Route et masque
+
+    Masque RELU sur le build courant (`...SorcerousFacadeAbility$$.ctor`) : surcharge FLAGS DIRECTS
+    `TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics+0x48>,
+    forceMeleeTarget=1, rules=0x402, 0, 0)` — le littéral `0x402` est passe EN CLAIR, ce n'est ni un
+    preset statique ni la surcharge PRESET+flags. `0x402` = `TargetIsFriendly |
+    TargetMatchesDynamicRule`, exactement ce que `TARGETING_OPTIONS_UNPORTED[1100]` porte deja (#217).
+
+    Consequence : le VETO de #217 (`state_bridge._is_attack_ability`) refuse 1100 sur la route
+    ENNEMIE, et ce port NE LE TOUCHE PAS. 1100 entre par la SECONDE route Comparable
+    (`playbook/nonattack.py`), dont l'enumeration de cibles passe par `ctx.ability_targets` — le RPC
+    natif `abilityTargets` en live, `state_bridge.ability_targets_offline` (kind `ally` depuis #217)
+    sinon. `isSelfCasting = 0` -> `is_caster_added` reste le defaut `True`.
+
+    Porteur thousTzaangor `Tzaangor Enlightened` [lineup, ThousandSons] ; l'allie vise doit porter le
+    trait Psyker (`...SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` : `HasTrait(target,
+    0x3ea)` ET le caster doit pouvoir porter son attaque normale depuis les tuiles de cast). Cette
+    regle DYNAMIQUE n'est pas portee (elle vit sur la classe d'ability, hors registre COMBAT) : en
+    OFFLINE l'ensemble des cibles reste un SUR-ENSEMBLE des allies (degradation permissive documentee
+    par #217) ; en LIVE le RPC rend l'ensemble natif EXACT."""
+
+    ability_id = int(ActiveAbilityType.SorcerousFacade)   # 1100
+    CONFIG_ID = "SorcerousFacade"
+
+    # -- helpers de mirror -------------------------------------------------------------------
+    @staticmethod
+    def _tile_move_utility(ctx, pos) -> float:
+        """`IUtilitiesDatabase.GetUtility(UtilityType.Tile).EvaluateMovement(UtilityMovementCase(
+        caster, pos))` — l'appel PARTAGE avec `Playbook<T>.GetMovementUtility`, pas un evaluateur
+        neuf. Import paresseux : `engine.ai.utilities` retire `engine.playbook.base` a la volee."""
+        from ..ai.utilities import get_movement_utility
+        from ..utilities.utility_type import UtilityType
+        return get_movement_utility(ctx, pos, UtilityType.Tile)
+
+    def _get_target(self, ctx, caster_tile):
+        """`SorcerousFacadeAbility$$GetTarget` evalue puis `TargetsSelector.SelectFirst` : l'ENNEMI
+        valide de l'attaque NORMALE le plus proche, depuis `caster_tile`. `None` si aucun.
+
+        `ValidNormalAttackTargets(Caster, CasterTiles)` -> mirror `ctx.plans` (les `attackPlans` de
+        l'attaque normale, qui portent la cascade de ciblage native) restreint aux evals dont
+        `ranked` contient `caster_tile` — c'est bien « valide DEPUIS cette tuile ».
+        `SortByDistance(..., Caster)` -> distance a `ctx.origin` (position REELLE du caster).
+        `First(1)` -> le minimum, keep-first a egalite (`OrderBy` LINQ est stable)."""
+        legal: list = []
+        for ev in ((ctx.plans.get(ctx.uid) or {}).get("evals") or []):
+            if ev.get("abilityId") not in ctx.normal_ids or not ev.get("rankCount"):
+                continue
+            if any((rk.get("col"), rk.get("row")) == caster_tile
+                   for rk in (ev.get("ranked") or [])):
+                tid = ev.get("targetId")
+                if tid is not None and tid not in legal:
+                    legal.append(tid)
+        if not legal:
+            return None
+        if ctx.origin is None:
+            return legal[0]
+        best, best_d = None, None
+        for tid in legal:
+            p = _main_tile_of(ctx, tid)
+            if p is None:
+                continue
+            d = hexgeo.distance(ctx.origin, p)
+            if best_d is None or d < best_d:                 # `<` STRICT = OrderBy stable
+                best, best_d = tid, d
+        return best if best is not None else legal[0]
+
+    def _will_normal_attack_kill(self, ctx, target, caster_tile) -> bool:
+        """`IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill(caster, target, casterTile)` :
+        `target == null -> false` ; sinon `ProbableDamageEvent(target, PredictNormalAttack(caster,
+        target, casterTile)).Prediction.WillBeKill` (= le champ `killSure` du port). La cible est
+        l'ALLIE vise — le natif ne teste PAS le camp."""
+        if target is None or ctx.scene is None:
+            return False
+        ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, target, caster_tile)
+        if ev is None:
+            return False
+        return bool((ev.composite_fields() or {}).get("killSure"))
+
+    # -- les trois overrides -----------------------------------------------------------------
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        tpos = _main_tile_of(ctx, target)
+        if tpos is None:
+            return 0.0                       # cible hors plateau : GetMainTile non resoluble
+        return self._tile_move_utility(ctx, tpos) - self._tile_move_utility(ctx, caster_tile)
+
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        if self._get_target(ctx, caster_tile) is None:
+            tpos = _main_tile_of(ctx, target)
+            if tpos is None:
+                return False
+            u_target = self._tile_move_utility(ctx, tpos)
+            for T in (ctx.reach_nc or []):
+                if self._tile_move_utility(ctx, T) > u_target:
+                    return False
+        return not self._will_normal_attack_kill(ctx, target, caster_tile)
+
+    def make_damage_predictions(self, ctx, caster_tile, target, ability_id):
+        """Les DEUX events du natif, construits ICI et pas par le chemin generique.
+
+        ⚠ NE PAS deleguer a `prediction.make_damage_predictions` : `SorcerousFacade` est dans
+        `_PREDICT_VIA_NORMAL_ATTACK` (pose par #171), donc ce chemin-la rend l'attaque NORMALE et
+        RIEN d'autre -- c'est voulu pour l'oracle `aiPlaybookPredict`, qui ne remonte que cet
+        event-la (dedup aval, cf. `docs/rl/case-171-sorcerousfacade-normal-attack.md`). Le
+        deleguer ici produirait DEUX fois l'attaque normale : mesure du 2026-07-30, `u_pred`
+        moteur = 54.660 contre `pairUtility(1100)` natif = 27.340, soit exactement le double.
+
+        Le second event, lui, existe bel et bien dans `CalculateUtilityFromPredictions` : c'est le
+        `GenerateMultiHitAttackPredictions(base = Half(Sum(minDmg, maxDmg)), hits = nrOfHits,
+        profil = <vide>)` du call-site. Son profil VIDE (`param_8` nul, meme quirk que 1020/1062/
+        1147/1148) laisse l'armure PLEINE et le percage a 0 : sur une cible blindee il vaut ~1 point
+        de degat, d'ou les +0.0105 d'utilite que le natif ajoute a l'attaque normale."""
+        if ctx.scene is None:
+            return []
+        sel = self._get_target(ctx, caster_tile)
+        if sel is None:
+            return []                        # la liste VIDE statique du natif
+        out = []
+        # event #1 -- `ProbableDamageEvent(sel, battleQuery.<slot 0x22>(caster, sel, casterPosition))`
+        ev = prediction.make_normal_attack_predictions(ctx.scene, ctx.uid, sel, caster_tile)
+        if ev is not None:
+            out.append(ev)
+        # event #2 -- le batch `GenerateMultiHitAttackPredictions` propre a l'ability.
+        dp = prediction.generate_multi_hit_attack_prediction(
+            ctx.scene, ctx.uid, sel, self.ability_id, ctx.ab_name_by_id.get(self.ability_id),
+            attack_pos=caster_tile, profile_override=_PROFILE_NONE)
+        if dp is not None:
+            out.append(ProbableDamageEvent(target=sel, prediction=dp))
+        return out
+
+
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
 #
-# SorcerousFacade (1100) N'EST PAS ENREGISTREE, et c'est DELIBERE (#27 tranche 3).
+# HISTORIQUE (#27 tranche 3) — pourquoi 1100 en avait ete RETIREE, et ce qui a change :
 # `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility` vaut
 # `EvaluateMovement(UtilityMovementCase(unit, GetMainTile(TARGET), null, ...))` moins la meme chose sur
 # la tuile d'attaque — soit, apres reduction du composite a sa feuille Tile(7) (RE relue en tranche 2 :
@@ -580,17 +826,24 @@ class ForwardObserversPlaybook(NonAttackComparablePlaybook):
 # (`constants.damageProfile = Psychic`), et le terme y prenait des valeurs NON NULLES et NON
 # CONSTANTES (-10.0 / -25.0 / +20.0 sur les 3 ennemis du meme montage) : un biais de +-45 applique a
 # une action que le natif refuse. Le verrou reel est la ROUTE DE CIBLAGE ALLIE de 1100, pas la
-# formule ; tant qu'elle n'existe pas, le terme reste NON VALIDABLE et donc non porte (le custom
-# retombe sur la base `ComparablePlaybook<T>` = Fix64(0)). cf. docs/rl/case-27-custom-utility.md.
+# formule ; tant qu'elle n'existe pas, le terme reste NON VALIDABLE et donc non porte.
+#
+# CE VERROU EST LEVE (#27 tranche 4c) — et sans toucher au veto : 1100 n'entre PAS par
+# `_best_attack` (elle reste ABSENTE de `ctx.plans`, exactement comme #217 l'a mesure), mais par la
+# SECONDE route Comparable (`playbook/nonattack.py`), dont l'enumeration de cibles vient de
+# `ctx.ability_targets` -> les ALLIES. Le terme custom n'est donc plus jamais evalue sur un ennemi.
+# cf. docs/rl/case-27-custom-utility.md et docs/rl/case-217-phantom-action-routing.md.
 def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
                 HeavyWarpFlamerPlaybook):
         register(cls())
-    # Route NON-ATTAQUE (verrou 2, #27-4b) : l'ability n'a pas de `damageProfile`, elle n'atteint
-    # jamais `_best_attack` -> registre + route dedies (`playbook/nonattack.py`).
-    for cls in (ChronometronPlaybook, ForwardObserversPlaybook):
+    # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
+    # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque
+    # de ciblage refuse toute cible ennemie (SorcerousFacade, veto #217). Registre + route dedies
+    # (`playbook/nonattack.py`).
+    for cls in (ChronometronPlaybook, ForwardObserversPlaybook, SorcerousFacadePlaybook):
         register_nonattack(cls())
 
 

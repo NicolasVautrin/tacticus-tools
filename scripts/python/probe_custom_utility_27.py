@@ -24,8 +24,12 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
   position REELLE du caster (centre exclu). Route NON-ATTAQUE (`engine/playbook/nonattack.py`) :
   l'ability n'a pas de `damageProfile` et n'atteint donc jamais `_best_attack` -- la garde verifie
   aussi sa presence dans `NONATTACK_PLAYBOOKS`, sans quoi le terme serait INERTE.
-- CLIQUET DE NON-REGRESSION : SorcerousFacade (1100) NE DOIT PAS etre enregistree (son terme
-  s'ancre sur un ALLIE Psyker que le moteur ne route pas ; cf. case-27 tranche 3).
+- SorcerousFacade (1100) IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility =
+  Tile(tuile de la CIBLE) - Tile(tuile candidate), donc `u_full` = Tile(tuile de la CIBLE) : le terme
+  de la tuile candidate s'ANNULE (c'est la tuile de l'allie que le caster occupera apres l'echange).
+  Route ALLIEE via `NONATTACK_PLAYBOOKS` (l'ability est absente de `plans` -- veto #217).
+  CLIQUET DE NON-REGRESSION #217 : `_is_attack_ability(1100)` doit rester False et `_ability_kind`
+  doit rester 'ally', sinon la route ENNEMIE (les actions FANTOMES) se rouvre.
 
 Usage : python probe_custom_utility_27.py   (depuis scripts/python ; ASCII only ; exit 0 = OK)
 """
@@ -41,7 +45,11 @@ import engine.weights as W
 def _fake_ctx(wt, **kw):
     d = dict(me={"team": 1, "id": 100}, units=[], obs_units=[], epos=[], elev_by_pos={}, wt=wt,
              uid=100, plans={}, normal_ids={69}, hp_cur_by_id={}, hpmax_by_id={},
-             origin=None)
+             origin=None,
+             # champs consommes par le composite Tile(7) et par la route non-attaque (1100) :
+             # neutres pour tous les autres cas de ce probe.
+             is_temporary_by_pos={}, effects_by_pos={}, terrain_by_pos={}, fpos=[], enemies=[],
+             reach_nc=[], scene=None, ab_name_by_id={})
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -59,10 +67,25 @@ def main() -> int:
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
-    # cliquet : 1100 ne doit PAS revenir au registre (terme ancre sur un ALLIE, route absente)
-    if 1100 in reg:
-        fails.append("SorcerousFacade (1100) est ENREGISTREE : son terme s'ancre sur la tuile d'un "
-                     "ALLIE Psyker, le moteur ne lui route que des ENNEMIS -> port non validable")
+    # SorcerousFacade (1100) : le cliquet a CHANGE DE SENS (#27-4e). Elle DOIT etre enregistree,
+    # et sur la route ALLIEE (`NONATTACK_PLAYBOOKS`) -- surtout pas sur la route ennemie.
+    from engine.playbook.nonattack import NONATTACK_PLAYBOOKS
+    if type(reg.get(1100)).__name__ != "SorcerousFacadePlaybook":
+        fails.append(f"dispatch 1100: attendu SorcerousFacadePlaybook, obtenu "
+                     f"{type(reg.get(1100)).__name__}")
+    if 1100 not in NONATTACK_PLAYBOOKS:
+        fails.append("SorcerousFacade (1100) absente de NONATTACK_PLAYBOOKS : la seule route qui "
+                     "lui donne des cibles ALLIEES -> le terme serait INERTE")
+    # CLIQUET DE NON-REGRESSION #217 : le masque 0x402 (TargetIsFriendly|TargetMatchesDynamicRule)
+    # doit continuer de VETO-er la route ENNEMIE. Si `_is_attack_ability` redevenait True, 1100
+    # reprendrait des cibles ennemies dans `_plans_for_unit` -- l'action FANTOME que #217 a fermee.
+    from engine.ai.state_bridge import _ability_kind, _is_attack_ability, _resolve_ability
+    _n1100, _cfg1100 = _resolve_ability(1100)
+    if _is_attack_ability(1100, _cfg1100):
+        fails.append("REGRESSION #217 : _is_attack_ability(1100) est True -> route ENNEMIE rouverte")
+    if _ability_kind(1100, _n1100, _cfg1100) != "ally":
+        fails.append(f"REGRESSION #217 : _ability_kind(1100) = "
+                     f"{_ability_kind(1100, _n1100, _cfg1100)!r}, attendu 'ally'")
 
     # ArmoriumCherub = 1 constant (independant du ctx).
     cb = pb.get_playbook(1014)
@@ -323,6 +346,66 @@ def main() -> int:
         if not fo.is_caster_added(_fake_ctx(wt, origin=(0, 0), epos=[]), (0, 0)):
             fails.append("ForwardObservers: gate self-cast applique alors que isSelfCasting = 0")
 
+    # --- SorcerousFacade (1100), #27-4e ---------------------------------------------------------
+    # `...SorcerousFacadePlaybook$$CalculateCustomUtility` = Tile(tuile de la CIBLE) - Tile(tuile
+    # candidate). La garde verifie la formule ET sa consequence STRUCTURELLE : comme la route ajoute
+    # ensuite `+ Tile(tuile candidate)`, l'utilite d'action porte EXACTEMENT Tile(tuile de la CIBLE)
+    # -- c'est la tuile que le caster occupera apres l'echange de positions.
+    from engine.playbook.base import tile_utility as _tileu
+    sf = pb.get_playbook(1100)
+    _u_allie = 200
+    _units_sf = [{"id": 100, "team": 1, "alive": True, "pos": {"col": 0, "row": 0}},
+                 {"id": _u_allie, "team": 1, "alive": True, "pos": {"col": 1, "row": 1}}]
+    c_sf = _fake_ctx(wt, units=_units_sf, elev_by_pos={(0, 0): 0, (1, 1): 3, (2, 2): 1},
+                     origin=(0, 0), reach_nc=[(0, 0), (2, 2)])
+    _u_cible = _tileu(c_sf, (1, 1))
+    for T in ((0, 0), (2, 2)):
+        got = sf.calculate_custom_utility(c_sf, T, _u_allie, 1100)
+        want = _u_cible - _tileu(c_sf, T)
+        if abs(got - want) > 1e-9:
+            fails.append(f"SorcerousFacade custom @{T}: attendu {want}, obtenu {got}")
+        if abs((got + _tileu(c_sf, T)) - _u_cible) > 1e-9:
+            fails.append(f"SorcerousFacade @{T}: le terme Tile de la tuile candidate ne s'annule pas "
+                         f"(u_full doit valoir Tile(tuile de la CIBLE) = {_u_cible})")
+    if sf.calculate_custom_utility(c_sf, (0, 0), _u_allie, 1100) == 0.0:
+        fails.append("SorcerousFacade: terme NUL sur un board a elevation -> la garde ne garde rien")
+    if sf.calculate_custom_utility(c_sf, (0, 0), 999, 1100) != 0.0:
+        fails.append("SorcerousFacade: cible hors plateau -> le terme doit valoir 0 (GetMainTile)")
+    # `ShouldExecute` (OVERRIDE du slot +0x328), branche `sel == null` (aucun ennemi attaquable a
+    # l'attaque normale depuis la tuile candidate -> `plans` vide ici) : REFUS des qu'une tuile de
+    # `GetCurrentAndMovableTilesOf` est MEILLEURE que celle de la cible.
+    c_bad = _fake_ctx(wt, units=_units_sf, elev_by_pos={(0, 0): 0, (1, 1): 1, (2, 2): 5},
+                      origin=(0, 0), reach_nc=[(0, 0), (2, 2)])
+    if sf.should_execute(c_bad, (0, 0), _u_allie, 1100, 0.0):
+        fails.append("SorcerousFacade ShouldExecute: accepte alors qu'une tuile atteignable a une "
+                     "utilite de mouvement SUPERIEURE a celle de la tuile de la cible")
+    c_ok = _fake_ctx(wt, units=_units_sf, elev_by_pos={(0, 0): 0, (1, 1): 5, (2, 2): 1},
+                     origin=(0, 0), reach_nc=[(0, 0), (2, 2)])
+    if not sf.should_execute(c_ok, (0, 0), _u_allie, 1100, 0.0):
+        fails.append("SorcerousFacade ShouldExecute: refus alors que la tuile de la cible domine "
+                     "toutes les tuiles atteignables")
+    # `GetTarget` -> `SelectFirst` : l'ennemi valide de l'attaque NORMALE le plus proche de la
+    # position REELLE du caster, restreint aux cibles legales DEPUIS la tuile candidate.
+    _plans_sf = {100: {"evals": [
+        {"abilityId": 69, "targetId": 81, "rankCount": 2,
+         "ranked": [{"col": 0, "row": 0}, {"col": 2, "row": 2}]},          # loin  (d=4)
+        {"abilityId": 69, "targetId": 79, "rankCount": 1,
+         "ranked": [{"col": 2, "row": 2}]},                                # proche (d=1), tuile (2,2)
+    ]}}
+    _units_gt = _units_sf + [
+        {"id": 79, "team": 2, "alive": True, "pos": {"col": 1, "row": 0}},
+        {"id": 81, "team": 2, "alive": True, "pos": {"col": 4, "row": 0}}]
+    c_gt = _fake_ctx(wt, units=_units_gt, elev_by_pos={(0, 0): 0, (1, 1): 3, (2, 2): 1},
+                     origin=(0, 0), reach_nc=[(0, 0), (2, 2)], plans=_plans_sf)
+    if sf._get_target(c_gt, (0, 0)) != 81:
+        fails.append("SorcerousFacade GetTarget@(0,0): seule 81 est legale depuis cette tuile, "
+                     f"obtenu {sf._get_target(c_gt, (0, 0))}")
+    if sf._get_target(c_gt, (2, 2)) != 79:
+        fails.append("SorcerousFacade GetTarget@(2,2): 79 est la PLUS PROCHE de la position reelle "
+                     f"du caster, obtenu {sf._get_target(c_gt, (2, 2))}")
+    if sf._get_target(c_gt, (7, 7)) is not None:
+        fails.append("SorcerousFacade GetTarget: une tuile hors de tout `ranked` doit rendre None")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
@@ -336,7 +419,10 @@ def main() -> int:
           "(ancre ENTITE, centre exclu, gate self-cast)",
           "; ForwardObservers W_mk=", wfo_mk, "+ pct*W_hp=", wfo_hp,
           "(predicat ENNEMIS-only, lineaire en pct)",
-          "; dispatch 1014/1177/1020/1029/1185/1199/1226/1227/1230 OK ; 1100 non enregistree OK")
+          "; SorcerousFacade custom = Tile(cible)-Tile(candidate) (u_full =", round(_u_cible, 4),
+          "= Tile(cible)), ShouldExecute branche `sel==null` OK, GetTarget plus-proche OK,",
+          "route ALLIEE (NONATTACK_PLAYBOOKS) + veto #217 INTACT",
+          "; dispatch 1014/1177/1020/1029/1100/1185/1199/1226/1227/1230 OK")
     return 0
 
 

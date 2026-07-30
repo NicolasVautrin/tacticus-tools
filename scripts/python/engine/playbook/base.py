@@ -89,21 +89,24 @@ class ComparablePlaybook(BasePlaybook):
         Drachnyen IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility count>=2, HeraldOfTheApocalypse IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility, ProperKilly IdunBattle.AI.Playbook.Loki.ProperKilly_NormalAttackPlaybook$$CalculateCustomUtility...)."""
         return 0.0
 
-    def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
-        """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour (caster@caster_tile, target) : Σ des events (dégât)
-        + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).
-        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât+effet ; u_full = u + tile ; pred = event principal)."""
-        events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
-        if not events:
-            return None
+    def calculate_utility_from_predictions(self, ctx, caster_tile, target, ability_id,
+                                           events) -> tuple:
+        """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions`
+        = Σ `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`
+        (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE) + Σ des events d'EFFET
+        (branche +0x388, base vide). Renvoie `(u, bk)`.
+
+        EXTRAIT de `calculate_action_utility` (aucun changement de comportement pour elle) pour être
+        consommable par la SECONDE route Comparable (`playbook/nonattack.py`), dont le natif somme
+        exactement le même terme : `CalculateActionUtility` fait `u = custom` PUIS
+        `u += CalculateUtilityFromPredictions(...)` — le régime « sans prédiction » n'est que le cas
+        où `MakeDamagePredictions` rend une liste vide, pas une route où le terme n'existe pas."""
         from .probable_damage_event import (calculate_utility_from_damage_event,
                                             calculate_utility_from_effect_event)
-        # `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` = Σ `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromDamageEvent`
-        # (= prob1 × prob2 × composite Damage ; event FRIENDLY -> utilité NÉGÉE) + Σ des events d'EFFET.
         from ..utilities.tile import triggered_abilities_attack_utility
         u = 0.0
         bk = []
-        for ev in events:
+        for ev in (events or []):
             ua = calculate_utility_from_damage_event(ev, ctx.wt, ctx.hpmax_by_id.get(ev.target))
             # Feuille TriggeredAbilities(2) face ATTACK (#45-s18, splash Psyker) : évaluée DANS le
             # composite par event (`ForDamagePrediction`) -> même prob × signe que le composite.
@@ -115,6 +118,16 @@ class ComparablePlaybook(BasePlaybook):
         # Fold EFFET (branche +0x388) : base vide -> no-op pour toute ability sans override (additif).
         for ee in self.make_effect_predictions(ctx, caster_tile, target, ability_id) or []:
             u += calculate_utility_from_effect_event(ee, ctx.wt)
+        return u, bk
+
+    def calculate_action_utility(self, ctx, caster_tile, target, ability_id) -> dict | None:
+        """`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility` pour (caster@caster_tile, target) : Σ des events (dégât)
+        + Σ effet + Tile(7)@tuile. Gate `ShouldExecute` = pas de prédiction d'attaque -> None (pas d'action).
+        Renvoie `{u, u_full, pred, aoe, bk}` (u = dégât+effet ; u_full = u + tile ; pred = event principal)."""
+        events = self.make_damage_predictions(ctx, caster_tile, target, ability_id)  # list[ProbableDamageEvent]
+        if not events:
+            return None
+        u, bk = self.calculate_utility_from_predictions(ctx, caster_tile, target, ability_id, events)
         main = events[0]
         return {"u": u, "u_full": u + tile_utility(ctx, caster_tile),
                 "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}

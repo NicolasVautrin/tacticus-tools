@@ -180,6 +180,12 @@ seul artefact, un seul port — le mirror decision `battle_query.surrounding_ene
 mirror combat `necrons.chronometron_affected_enemies` decrivent le meme ensemble. La face COMBAT etait
 deja portee et validee (#116) : cette tranche ne couvre que la face DECISION.
 
+### SorcerousFacade (1100) — le SECOND membre de cette route, et le dernier verrou de la famille
+
+| Ability (id) | Symbole | Formule mirroir | Porteur | Validation |
+|---|---|---|---|---|
+| **SorcerousFacade** (1100) | `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility` (slot **+0x338**, mesure) | `GetUtility(UtilityType.Tile).EvaluateMovement(case(caster, GetMainTile(target)))` **-** `GetUtility(UtilityType.Tile).EvaluateMovement(case(caster, casterPosition))` = `Tile(tuile de la CIBLE) - Tile(tuile candidate)`. Terme POSITION- **et** CIBLE-dependant ; **aucun poids BC** (c'est une difference de composite Tile). Comme la route ajoute `+ Tile(tuile candidate)`, l'utilite d'action porte exactement `Tile(tuile de la CIBLE)` : la tuile que le caster occupera APRES l'echange. Le playbook override AUSSI `ShouldExecute` (+0x328) et `MakeDamagePredictions` (+0x358) — cf. §`SorcerousFacade (1100)`. | thousTzaangor `Yazaghor` + l'allie Psyker thousSorcerer `Thaumachus` [hero, **les deux dans `--list-pool`**, aucun `catalog_inject`] | **A/B causal live** (`probe_27_4e_facade_ab.py`, board MC1_67, 2 configurations, 5 bras) : caster FIGE, cible collee a d=1, et SEUL l'allie bouge sur 4 tuiles d'elevations 1/2/3/4 **toutes a la meme distance 4 du caster**. Natif = moteur dans les 5 bras ; etage prediction **bit-identique** (27.340392069891095 / 41.01058810483664). Detail en §Validation. |
+
 **Piege evite** : `battle_query.surrounding_enemies` existait deja, mais il mirroir le
 `Unobscured(SurroundingEnemies(...))` de `...GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector`
 et fige `r = 2`. Le reutiliser aurait retire des ennemis a distance 2 obscurcis que CE selecteur-ci
@@ -803,7 +809,7 @@ re-derouler la recon : elle part d'ici.
 | 10 | `DoomSirenPlaybook` @18112cd30 | DoomSiren (1199) | emperKakophonist | hero (pool) | **PORTE** (#27-2) | — |
 | 11 | `Repair_GalvanicFieldPlaybook` @181155520 | Repair_GalvanicField (1119) | admecManipulus (granted par le passif GalvanicField) | hero | **DEJA PORTE** hors loki_custom (`_repair_galvanic_candidates`, #85) | — (verdict tranche 1 « dead-code » CORRIGE) |
 | 12 | `MortisRoundPlaybook` @18114d190 | MortisRound (1004) | ultraEliminatorSgt | hero (pool) | **terme MESURE NUL** (< 0.012), non porte | evaluateur du composite `UtilityAttackCase.Base` (slot 5 du service #0x36) ; re-mesurer sur board a elevation |
-| 13 | `SorcerousFacadePlaybook` @18115b9d0 | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **RE RESOLU, NON PORTE — non-conformite MESUREE puis RETIREE (#27-3)** | le moteur route 1100 comme ATTAQUE d'ENNEMI (`damageProfile` present) alors que le natif cible un **allie Psyker** (echange de positions). Debloqueur : route de ciblage ALLIE pour 1100 (`ability_targets` + generateur dedie facon `_bespoke_candidates`) |
+| 13 | `SorcerousFacadePlaybook` | SorcerousFacade (1100) | thousTzaangor | hero (pool) | **PORTE** (#27-4e) | — (le verrou « route de ciblage ALLIE » est TOMBE : 1100 passe par `playbook/nonattack.py`, dont l'enumeration vient de `ctx.ability_targets` ; le VETO #217 sur la route ENNEMIE est INTACT et re-mesure dans le meme montage) |
 | ~~13bis~~ | ~~`AmuletOfTheVoidwyrmPlaybook`~~ | AmuletOfTheVoidwyrm (1464, `TriggeredAbilityType`) | — | passif/triggered | **RETIRE — FAUX POSITIF (#218)** | n'override PAS : sa base `TriggeredAbilityPlaybook`1` descend directement de `System.Object`, hors de la branche `ComparablePlaybook`1` qui declare le virtuel. Le « slot +0x548 » etait le slot +0x338 de `PlasmaGrenadePlaybook`, dont la classe suit a +0x210 en memoire (les 39 slots coincident). Ce qui reste OUVERT sur 1464 est son playbook de **MOUVEMENT** (`AmuletOfTheVoidwyrmPlaybook$$CalculateMovementUtilityInStepsInternal` + face NonOwner `AmuletOfTheVoidwyrmNonOwnerPlaybook$$GetAdjacencyUtility`), inventorie rang B de `case-193` — un AUTRE item. Detail : `docs/rl/case-218-amulet-voidwyrm-custom-utility.md` |
 | 14 | `ProperKilly_NormalAttackPlaybook` @1811532a0 | ProperKilly (aucun id) | **aucun** | — | **dead-code** | — (non pertinent) |
 | 15 | `PlagueburstMortarPlaybook` @181134e00 | PlagueburstMortar (1169) | deathCrawler | **MoW (pool MoW)** | **invalidable-residu** (face DECISION) | MoW absentes de `decisionView.units` / `attackPlans` (pas de PositionComponent) -> jamais feedees a `_best_attack` — **confirme live runner 336** : `observeBattle.mows` = 2 machines, `aiDryRunAllUnits` ne propose rien pour elles. Debloqueur : modeliser les MoW comme unites de decision (position derivee de `MachineComponent.Position`). NB : la face **COMBAT** de 1169 est portee et validee par **#90** — c'est bien le seul volet DECISION qui manque |
@@ -812,7 +818,7 @@ re-derouler la recon : elle part d'ici.
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian | summon **sans invocateur** (aucune ability du gameconfig ne le summon) | **residu / non confrontable** | invocateur inexistant -> non amenable en bataille ; + `GenerateMultiHitAttackPredictions` |
 | 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
-| 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4c) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
+| 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit [summon SANS invocateur] + tauNpc5StealthSuit [npc] | summon + npc | **PORTE** (#27-4e) | — (les deux verrous sont TOMBES : (a) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (b) le predicat Markerlight est un mirror IMPERATIF de `CheckIfAnyEnemyHasMarkerLight` (slot itf 0x8e `GetAllEnemiesOf` + `EntityExtensions.HasEffect`), sans arbre DSL a evaluer. Porteur GREFFE — `ATemptingTrap` n'appartient a AUCUNE unite ET `buildNormalizedBC` refuse summon/npc) |
 | 22 | `IdunBattle.AI.Playbook.Loki.HealingBalms_HealPlaybook$$CalculateCustomUtility` | HealingBalms_Heal (1212) | spaceWolfPriest `Baldr` [lineup, hors catalogue seed BC -> `catalog_inject.py --units spaceWolfPriest`] | hero | **PORTE** (#27-4d) | — (les verrous annonces sont TOMBES : l'ability n'a pas besoin d'entree gameconfig — sa magnitude vient de l'ARME —, elle est GRANTED des le spawn par `HealingBalmsAbility$$CreateBehaviour` (`RemoveActiveAbility(0x12)` + `AddActiveAbility(0x4bc)`), et elle atteignait deja `_heal_candidates`) |
 | 23 | `SavageEchoesPlaybook` @1811586d0 | SavageEchoes (1230) | bloodTerminator | hero hors catalogue seed BC -> **confrontable via `catalog_inject.py`** | **PORTE** (#27-3) | — (verdicts « porteur hors pool » + « evaluateur de CONDITION manquant » des tranches 1-2 **CORRIGES** : le catalogue se complete, et la condition est un simple ratio de PV lu au decompile) |
 | 24 | `MortarionsPlagueWindPlaybook` @18114ca30 | MortarionsPlagueWind (1093) | deathBossMortarion | **npc** | **non pertinent** | — |
@@ -822,12 +828,12 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 11** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, **1185**, **1212**.
+- **PORTES / couverts : 12** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, 1227, 1226, 1185, 1212, **1100**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 6** — 1100, 1169, 1148, 1051/1142, 1098, 1053.
+- **Residus a debloquer : 5** — 1169, 1148, 1051/1142, 1098, 1053.
   (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b** ;
-  **1185 porte — #27-4c** ; **1212 porte — #27-4d**.)
+  **1185 porte — #27-4c** ; **1212 porte — #27-4d** ; **1100 porte — #27-4e**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -888,9 +894,13 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
    - **1053 DevoutPush** — sur ce build le playbook ne possede PLUS de corps propre (il PARTAGE
      `ALoki_NormalAttackPlaybook<T>` = `Fix64(1)`) : l'item #27 est vide de substance ; reste l'action
      « push » non modelisee, hors #27.
-   - **1100 SorcerousFacade** — verrou distinct et toujours entier : cible ALLIEE. La route
-     non-attaque ne le debloque pas (l'ability a un `damageProfile` et son masque `0x402` la fait
-     VETO-er par `_is_attack_ability` depuis #217) ; il lui faut une route de ciblage ALLIE.
+   - ~~**1100 SorcerousFacade**~~ — **PORTE (#27-4e)**. Le diagnostic « la route non-attaque ne le
+     debloque pas » etait faux d'un cran : le critere reel de cette route n'est pas « pas de
+     `damageProfile` », c'est « ABSENTE de `ctx.plans` ». Le VETO #217 met precisement 1100 dans ce
+     cas, et son enumeration de cibles (`ctx.ability_targets`) rend deja les ALLIES. Il n'a donc
+     fallu creer AUCUNE route neuve — seulement rendre celle-ci structurellement fidele en y sommant
+     `CalculateUtilityFromPredictions` (no-op exact pour Chronometron, dont les predictions sont
+     vides). Detail : §`SorcerousFacade (1100)` ci-dessous.
 3. ~~**Porteur hors `--list-pool` au rank courant**~~ — **VERROU SUPPRIME (tranche 3)**. Le porteur
    `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
    `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
@@ -901,50 +911,172 @@ unite du pool (le playbook se charge par ABILITY, pas par unite).
 5. **Evaluateurs manquants** : composite `UtilityAttackCase.Base` (1004), DSL de forme
    `TilesInTriangleShape` (1148), DSL selecteur d'ability (1226).
 
-### `SorcerousFacade` (1100) — RE COMPLETE (verrou identifie, port refuse)
+### `SorcerousFacade` (1100) — PORTE (#27-4e, tranche 4e)
 
-La tranche 1 le classait « bloque par le sous-systeme utilite de deplacement ». **Ce verrou n'existe
-pas** : le decompile a ete relu integralement le 2026-07-25.
+C'etait le dernier verrou de la famille, et il etait DISTINCT des autres : la cible native est un
+**ALLIE Psyker** (i2 : « Target a friendly Psyker... then switches positions with the targeted
+Psyker »), la ou tous les autres membres scorent des ennemis.
+
+#### Les quatre pieces du natif (relues sur `rnca9r7q6c`)
+
+**1. Le masque.** `IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$.ctor`
+prend la surcharge **FLAGS DIRECTS** de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+(`(this, isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+getDynamicInvalidTargetReason)`) : `isSelfCasting = 0`, `range` = le champ statique `TargetingRange`
++0x48 (whole board), `forceMeleeTarget = 1`, et **`rules = 0x402` en LITTERAL**. Ce n'est ni un
+preset statique recopie, ni la surcharge PRESET+flags — le piege de masque ne s'applique pas ici, et
+`TARGETING_OPTIONS_UNPORTED[1100]` (pose par #217) est confirme sur le build courant. La portee
+« whole board » est visible live : `abilityTargets(1100)` rend l'allie a **distance 6** du caster.
+
+**2. Le terme custom.** `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$CalculateCustomUtility`
+(slot de vtable **+0x338**, MESURE par `probe_27_4e_facade_vtable.py`) :
 
 ```
-u1 = services[7].EvaluateMovement(new UtilityMovementCase(unit, GetMainTile(target), null, null, null));
-u2 = services[7].EvaluateMovement(new UtilityMovementCase(unit, position,            null, null, null));
-return u1 - u2;
+u1 = IUtilitiesDatabase.GetUtility(7 = UtilityType.Tile)
+        .EvaluateMovement(new UtilityMovementCase(caster, EntityExtensions.GetMainTile(target)));
+u2 = IUtilitiesDatabase.GetUtility(7)
+        .EvaluateMovement(new UtilityMovementCase(caster, casterPosition));
+return Fix64.op_Subtraction(u1, u2);
 ```
 
-Le `UtilityMovementCase` est construit avec **`ClosestEnemy = null`** (3e argument du ctor
-`IdunBattle.AI.Utilities.UtilityMovementCase$$.ctor`, champ @0x20 — meme forme que
-`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility`). Or
-`IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
-rend `Fix64(0)` des que `case.ClosestEnemy == null` (3e garde, AVANT tout `GetMinDistanceToEnemy`).
-=> la feuille MinDistanceToClosestEnemy(16) est **INERTE** sur ce chemin et le composite de mouvement
-se reduit a sa feuille **Tile(7)**. Le mirror exact est donc `base.tile_utility(target_tile) -
-base.tile_utility(caster_tile)` — deja disponible dans le moteur, aucun sous-systeme a porter.
+C'est **le MEME artefact natif** que
+`IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetMovementUtility` :
+memes deux appels (slot 0 d'`IUtilitiesDatabase` avec l'argument `7`, puis slot 8 d'`IUtility`), au
+seul champ `AbilityType` pres (rempli la, NUL ici — il n'entre pas dans le composite Tile). Le port
+n'ecrit donc AUCUN evaluateur neuf : il APPELLE `engine.ai.utilities.get_movement_utility(ctx, pos,
+UtilityType.Tile)`. Les deux `UtilityMovementCase` sont construits par des surcharges DIFFERENTES,
+tranchees par XREF et non par lecture d'une signature ambigue (le 1er appel prend la surcharge
+`movementTile`, qui fait `new UnitPosition(tile)` ; le 2e la surcharge `movementPosition`).
 
-**Pourquoi le port est REFUSE** : `SorcerousFacadeAbility` cible un **allie Psyker**
-(i2 : « Target a friendly Psyker... then switches positions with the targeted Psyker »), donc le
-`target` recu par `CalculateCustomUtility` est un ALLIE. Le moteur, lui, route 1100 vers
-`_best_attack` avec des cibles ENNEMIES (`constants.damageProfile = Psychic` present). Le port est
-donc conditionne au debloqueur #2 (route de ciblage ALLIE), pas a un sous-systeme d'utilite.
+La reduction « le composite se reduit a Tile(7) » de la tranche 2 reste vraie mais devient
+SURNUMERAIRE : l'argument passe a `GetUtility` est **litteralement `7`**, il n'y a jamais eu de
+composite de mouvement a reduire.
 
-**Ce refus a ete CONTREDIT PAR LE CODE puis RETABLI (tranche 3).** Le commit `8f4295c` (#27-2)
-annoncait le refus dans son message ET dans cette fiche, mais **enregistrait quand meme**
-`SorcerousFacadePlaybook` dans `loki_custom._register_all()`. Deux mesures live l'ont tranche
-(runner arene MC1_67, `thousTzaangor` + `thousSorcerer` [Psyker] + 3 ennemis rapproches) :
+**Consequence structurelle** : la route ajoute ensuite `u_full = u + Tile(tuile candidate)`, donc le
+terme de la tuile candidate **s'annule exactement** et l'utilite d'action porte
+`Tile(tuile de la CIBLE) + <predictions>`. C'est la tuile que le caster occupera APRES l'echange de
+positions — la formule dit exactement ce que l'ability fait.
 
-1. **Cote natif** — `abilityTargets(unit=thousTzaangor)` rend pour 1100 exactement **UNE** cible
-   legale : `targetId` = le **thousSorcerer ALLIE** (`targets` ET `fromHere`), jamais un ennemi. Le
-   natif n'evalue donc JAMAIS ce terme sur une cible ennemie. (Le gate suplementaire « il faut un
-   ennemi a portee » est visible aussi : sans ennemi proche, 1100 rend 0 cible.)
-2. **Cote moteur** — `state_bridge._plans_for_unit` produit bien trois paires `(1100, ennemi)` et les
-   dispatche a `SorcerousFacadePlaybook`, dont le terme y valait **-10.0 / -25.0 / +20.0** selon
-   l'ennemi (`probe_27_3_facade_route.py`) : NON NUL et NON CONSTANT, un biais de +/-45 sur une
-   action que le natif refuse.
+**3. Le gate.** `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$ShouldExecute` (slot **+0x328**,
+mesure) est un OVERRIDE non trivial, a deux branches :
 
-`SorcerousFacadePlaybook` est donc **retiree du registre** (le custom de 1100 retombe sur la base
-`Fix64(0)`), et `probe_custom_utility_27.py` porte desormais un **cliquet** qui echoue si l'id 1100
-y revient. Le RE ci-dessus reste valable et sera re-branche le jour ou la route de ciblage ALLIE
-existera.
+```
+sel = TargetsSelector.SelectFirst(SorcerousFacadeAbility.GetTarget(ability),
+                                  entities{Caster=caster, CasterTile=casterTile,
+                                           CasterTiles=[casterTile]});
+if (sel == null) {
+    uTarget = GetUtility(7).EvaluateMovement(case(caster, GetMainTile(target)));
+    foreach (t in battleQuery.<slot d'interface 0xa>(caster, false, null))
+        if (GetUtility(7).EvaluateMovement(case(caster, t)) > uTarget) return false;
+}
+return !BasePlaybook.WillNormalAttackKill(caster, target, casterTile);
+```
+
+- le **slot d'interface `0xa`** est `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovableTilesOf`.
+  Il avait d'abord ete identifie PAR ELIMINATION (collection de TUILES, 3 arguments, 3e argument nul
+  tolere — `GetMovableTilesFor` dereference le sien, `GetCurrentAndMovablePositionsFor` est un AUTRE
+  slot) ; il est desormais **MESURE** (`probe_27_4e_facade_vtable.py` : `interfaceOffset` = 4
+  revalide par les deux ancres `IsMeleeAttack`@6 et `GetAdjacentTiles`@0x53, puis lecture de l'index
+  0xe). Mirror : `ctx.reach_nc` (origine + tuiles de move).
+- `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` (surcharge 4-args) =
+  `new ProbableDamageEvent(target, battleQuery.<slot 0x21>(caster, target, casterTile))
+  .Prediction.WillBeKill`, avec `target == null -> false`. Le `target` est ici la cible de
+  l'ABILITY, donc l'**ALLIE** : le natif refuse le cast quand l'attaque normale du caster tuerait
+  l'allie vise. Ce n'est pas une paraphrase — c'est le 3e argument du call natif.
+
+**4. La prediction.** `IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions`
+(slot **+0x358**, mesure) est aussi un override, et c'est le fait qui change tout :
+
+```
+sel = SelectFirst(GetTarget(ability), entities{Caster, CasterTile=casterPosition.MainTile, ...});
+if (sel == null) return <liste VIDE statique>;
+list = [ new ProbableDamageEvent(sel, battleQuery.<slot 0x22>(caster, sel, casterPosition)) ];
+list.AddRange(GenerateMultiHitAttackPredictions(
+                  caster, casterPosition, sel,
+                  targets = DSLSelectors.Get(sel),                        // mono-cible
+                  damage  = Half(Sum(GetVariableForLevel(0xc = minDmg),
+                                     GetVariableForLevel(0xd = maxDmg))),
+                  hits    = GetNumberConstant(0x2f = nrOfHits),
+                  profil  = <vide>));
+return list;
+```
+
+**La prediction ne porte PAS sur la cible de l'ability** (l'allie) mais sur `sel`, l'ennemi le plus
+proche attaquable a l'attaque normale. L'utilite d'action de 1100 contient donc l'attaque normale
+COMPLETE plus le coup psychique : c'est ce qui la rend competitive, et c'est pourquoi la traiter
+comme un membre « sans prediction » (le regime de Chronometron) divergerait systematiquement.
+
+Le selecteur `SorcerousFacadeAbility$$GetTarget` est **le MEME arbre que la face COMBAT** —
+`...SorcerousFacadeAbility$$ExecuteBehaviour` le re-inline mot pour mot pour alimenter son
+`UseActiveAbility(caster, sel, UnitNormalAttackType(caster))` :
+
+```
+Cache(First(SortByDistance(ValidNormalAttackTargets(Caster, CasterTiles, range: null,
+                                                    ignoreRule, additionalRule),
+                           Caster),
+            1),
+      true)
+```
+
+`IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` se resout en
+`TargetingQuery.GetValidTargets(caster, casterTiles, <options de l'attaque normale>)` — le mirror
+OFFLINE/LIVE est `ctx.plans` (les `attackPlans` de l'attaque normale portent deja la cascade de
+ciblage native), FILTRE sur la tuile candidate.
+`IdunBattle.Entities.Selectors.SortByDistanceSelector$$Select` trie par
+`PositionComponent.Distance(<reference>, GetMainTileId(s))` ou la reference est le selecteur
+`Caster` : la distance est prise a la **position REELLE** du caster, pas a la tuile candidate (meme
+quirk d'ancrage que Chronometron/SavageEchoes). `OrderBy` LINQ etant stable, l'ordre d'enumeration
+tranche a distance egale.
+
+#### La route — ouverte SANS toucher au VETO #217
+
+Le diagnostic des tranches precedentes (« il faut une route de ciblage ALLIE, `_bespoke_candidates`
+facon #82 ») etait faux d'un cran. Le critere de la route non-attaque (#27-4b) n'est pas « l'ability
+n'a pas de `damageProfile` » — c'est « l'ability est ABSENTE de `ctx.plans` », donc invisible de
+`_best_attack`. Le VETO #217 met 1100 exactement dans ce cas, et l'enumeration de cette route passe
+par `ctx.ability_targets` (RPC natif `abilityTargets` en live, `ability_targets_offline` sinon), qui
+rend deja les ALLIES depuis #217.
+
+Il n'a donc fallu creer AUCUNE route neuve. La seule modification structurelle est de rendre la
+route existante **fidele a `CalculateActionUtility`** : elle somme desormais
+`custom + CalculateUtilityFromPredictions(MakeDamagePredictions(...))`, alors qu'elle ne portait que
+`custom`. C'est un **no-op exact pour Chronometron** (sa liste de predictions est vide) — re-mesure,
+cf. §Validation.
+
+`ComparablePlaybook.calculate_utility_from_predictions` est EXTRAIT de `calculate_action_utility`
+(meme code, meme ordre) pour que les deux routes consomment le MEME terme.
+
+#### Le piege qui a coute une passe : `_PREDICT_VIA_NORMAL_ATTACK` n'est PAS vide
+
+Le premier port deleguait le 2e event a `prediction.make_damage_predictions(..., 1100, ...)`. Or
+`SorcerousFacade` est dans `_PREDICT_VIA_NORMAL_ATTACK` (pose par #171, parce que l'oracle
+`aiPlaybookPredict` ne remonte que l'attaque normale pour 1100), donc ce chemin rend l'attaque
+NORMALE et rien d'autre. Resultat : **deux events identiques**, `u_pred` moteur = **54.660** contre
+`pairUtility(1100)` natif = **27.340** — le double EXACT, signature limpide une fois l'etage mesure.
+
+Le commentaire de `prediction/abilities.py` affirmait noir sur blanc « `_PREDICT_VIA_NORMAL_ATTACK`
+est VIDE (via_normal toujours False) ; la branche est conservee morte » — **faux depuis #171**.
+Il est corrige dans ce commit. Le port construit desormais ses deux events lui-meme :
+`make_normal_attack_predictions` pour le premier, `generate_multi_hit_attack_prediction(...,
+profile_override="None")` pour le second. Le profil VIDE (`param_8` nul, meme quirk que
+1020/1062/1147/1148) laisse l'armure PLEINE et le percage a 0 : sur `ultraTitus` (armure 2312) le
+batch psychique vaut **1 point de degat**, d'ou les **+0.0105** d'utilite que le natif ajoute a
+l'attaque normale — et cette valeur minuscule est elle-meme une CORROBORATION du profil vide.
+
+Aucune entree n'est posee dans `_PLAYBOOK_PROFILE_OVERRIDE` pour 1100 : elle serait INERTE (le
+court-circuit `via_normal` intervient avant la consommation des overrides). Un commentaire l'y
+remplace, pour que la prochaine lecture ne la re-pose pas.
+
+#### Ce que le port NE fait pas
+
+La regle dynamique (`...SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` : `HasTrait(target,
+0x3ea = Psyker)` ET le caster doit pouvoir porter son attaque normale depuis les tuiles de cast)
+n'est pas portee — elle vit sur la classe d'ability, hors registre COMBAT. En LIVE c'est sans effet
+(le RPC rend l'ensemble natif EXACT) ; en OFFLINE PUR (`ability_targets_offline`) l'ensemble reste
+un SUR-ENSEMBLE des allies, degradation permissive deja documentee par #217. S'y ajoute un second
+ecart offline-pur : `_ability_reach` derive la portee du gameconfig (`attackRangeType: Normal` ->
+portee d'arme = 2) alors que le masque dit **whole board** — l'ensemble offline est donc, sur cet
+axe, un SOUS-ensemble. Les deux ecarts sont hors du chemin LIVE valide ici.
 
 ## Validation
 
@@ -1106,6 +1238,77 @@ existera.
 - **Garde LIVE** : `tests/engine/test_chronometron_decision_live.py` — 7 tests, **7 PASS** (163 s) :
   accord moteur/natif sur les 4 bras, linearite, bit-identite des paires, necessite du terme, necessite
   de la route, allies ignores, gate sans ennemi a portee.
+- **SorcerousFacade (1100)** — A/B causal live `probe_27_4e_facade_ab.py`, board **MC1_67** (elevation
+  1..4, ou le composite Tile vaut 5 / 20 / 30 / 50), seed 1100, stats NATURELLES (aucun `--hp-target`,
+  donc l'armure de la cible est INTACTE — c'est elle qui rend le profil vide observable). Caster
+  `thousTzaangor` FIGE (un `act move` consomme son mouvement -> `aiMovableTiles` rend 0 tuile, le sweep
+  est reduit a sa tuile courante), `ultraTitus` colle a **d=1** (la regle dynamique de 1100 exige que le
+  caster puisse porter son attaque normale), `ultraCalgar` relegue en (6,0). **SEUL l'allie Psyker
+  `thousSorcerer` bouge**, sur quatre tuiles d'elevations 1/2/3/4 **toutes a la MEME distance 4 du
+  caster** — aucune feuille d'adjacence ne les distingue.
+
+  | configuration | caster | Tile(caster) | allie | Tile(allie) | custom | natif | moteur | custom=0 | route OFF |
+  |---|---|---|---|---|---|---|---|---|---|
+  | `caster_bas` e1 | (2,7) elev 1 | 5 | (6,8) elev 1 | 5 | **0** | **69** | 69 | 69 | 69 |
+  | `caster_bas` e2 | (2,7) elev 1 | 5 | (5,5) elev 2 | 20 | **+15** | **1100** | 1100 | **69** | **69** |
+  | `caster_bas` e3 | (2,7) elev 1 | 5 | (1,4) elev 3 | 30 | **+25** | **1100** | 1100 | **69** | **69** |
+  | `caster_bas` e4 | (2,7) elev 1 | 5 | (2,3) elev 4 | 50 | **+45** | **1100** | 1100 | **69** | **69** |
+  | `caster_haut` e4 | (2,3) elev 4 | 50 | (6,3) elev 4 | 50 | **0** | **69** | 69 | 69 | 69 |
+
+  - **ETAGE PREDICTION confronte, et il est BIT-IDENTIQUE** : `pairUtility(1100, allie)` natif
+    **27.340392069891095** vs `CalculateUtilityFromPredictions` du port **27.340392** (config basse) ;
+    **41.01058810483664** vs **41.010588** (config haute). C'est cette mesure — et pas la bascule — qui a
+    attrape le piege `_PREDICT_VIA_NORMAL_ATTACK` : avant correction, le port rendait **54.660**, le
+    double EXACT (deux fois l'attaque normale). Decomposition : event #1 = attaque normale
+    `[1623,3591]` -> 27.33 ; event #2 = batch psychique a profil VIDE -> `[1,1]` de degat sur une
+    armure de 2312 -> **+0.0105**. Le natif ajoute exactement 0.0105.
+  - **Les `pairUtility(69)` natives sont bit-identiques entre les quatre bras** d'une meme
+    configuration (27.329908800311387 en basse, 41.000104835256934 en haute) -> le confond de
+    prediction est MESURE et NUL : deplacer l'allie ne touche ni l'etage paire, ni le terme Tile de la
+    tuile du caster.
+  - **CONTROLE CROISE — le terme est une DIFFERENCE, pas un bonus sur la tuile de la cible.** La MEME
+    tuile d'allie (elevation 4, Tile = 50) donne **1100** avec un caster en elevation 1 et **69** avec
+    un caster en elevation 4. Un terme qui ne lirait que la tuile de la CIBLE rendrait le meme choix
+    dans les deux cas. C'est l'equivalent, pour un terme en difference, du test de linearite de
+    HeavyWarpFlamer.
+  - **Encadrement sans fitting.** Le caster ne bougeant pas, `u_action(69) = pair(69) + Tile(caster) + 1`
+    et `u_action(1100) = Tile(allie) + P` avec `P` = l'etage prediction mesure ci-dessus. La frontiere
+    theorique du custom est donc `1 + pair(69) - P` = **0.98952** en configuration basse
+    (`1 + 27.329909 - 27.340392`) et **0.98952** en configuration haute (`1 + 41.000105 - 41.010588`) —
+    la MEME valeur, ce qui est attendu puisque `P - pair(69)` est le batch psychique, invariant.
+    L'observation encadre cette frontiere dans **(0, 15]** : le natif refuse 1100 a custom = 0 (deux
+    fois, dans deux configurations independantes) et l'accepte des custom = +15. Aucune constante n'est
+    ajustee — les valeurs de `Tile` viennent du composite deja porte, `P` et `pair(69)` du scoreur natif.
+  - **Les deux contre-epreuves** : `custom` force a 0 -> le moteur revient sur 69 dans les trois bras ou
+    1100 gagnait (**terme NECESSAIRE**) ; `NONATTACK_PLAYBOOKS` vide -> le moteur rend 69 partout
+    (**la route est bien le deblocage** ; sans elle, 1100 ne passe par aucune autre voie).
+  - **NON-REGRESSION #217, dans le MEME montage** : cote natif, les evals `(1100, ennemi)` de
+    `decisionView.attackPlans` sont presentes mais toutes a `rankCount = 0` dans les 5 bras (le gate
+    `IdunBattle.Core.Services.AttackQuery$$GetBestTileToAttackFrom` fait son travail, et `_best_attack`
+    les saute) ; cote port, `_is_attack_ability(1100)` reste **False**, `_ability_kind` reste **`ally`**,
+    1100 n'entre pas dans `_attack_abilities('thousTzaangor')`, et `ctx.plans` ne porte aucune eval
+    rankable. Le veto est INTACT — le port l'a contourne par la route alliee, il ne l'a pas affaibli.
+- **SorcerousFacade, non-regression de Chronometron** (la route `nonattack_candidates` a change : elle
+  somme desormais les predictions). `probe_27_4b_chronometron_ab.py --build --engine` rejoue APRES le
+  changement : **4/4 bras MATCH**, linearite PROUVEE (n=1 -> 10, n=2 -> 20), terme NECESSAIRE, route
+  NECESSAIRE, encadrement inchange **6.8781 < W < 13.7562**. Le no-op est donc mesure, pas seulement
+  argumente (les predictions de 1226 sont vides -> le terme ajoute vaut 0).
+- **SorcerousFacade, non-regression du refactor `ComparablePlaybook.calculate_utility_from_predictions`**
+  (extraction pure de `calculate_action_utility`, consommee par les DEUX routes) —
+  `engine_agreement_stages.py --build` : seed **31337** prediction **4/4**, utilite **4/4**, ability
+  **4/4**, move **10/10** (100 % partout) ; seed **777** ability **8/8**, utilite **6/6**, move 10/11,
+  prediction 3/6 (les etages prediction/move de 777 sont une derive PRE-EXISTANTE de `origin/master`,
+  cf. les mesures des tranches precedentes).
+- **Vtables MESUREES** : `probe_27_4e_facade_vtable.py` — les trois slots du playbook
+  (`+0x328` ShouldExecute, `+0x338` CalculateCustomUtility, `+0x358` MakeDamagePredictions) pointent
+  bien sur des corps `SorcerousFacadePlaybook` ; les deux ancres d'`interfaceOffset` d'`IBattleQuery`
+  sont revalidees dans le meme dump (`IsMeleeAttack`@6, `GetAdjacentTiles`@0x53) ; et le slot
+  d'interface `0xa` de `ShouldExecute` est **`GetCurrentAndMovableTilesOf`** (index de vtable 0xe),
+  ce qui CONFIRME l'identification faite par elimination au decompile.
+- **Garde LIVE 1100** : `tests/engine/test_sorcerous_facade_decision_live.py` — 8 tests, **8 PASS**
+  (108 s) : accord moteur/natif sur les 5 bras, egalite de l'etage prediction a 1e-6, bascule du natif
+  avec la difference de tuiles, controle croise (difference vs bonus de cible), necessite du terme,
+  necessite de la route, fermeture de la route ennemie (#217), selecteur + gate exerces.
 - **Inventaire** : `probe_27_custom_utility_inventory.py` (balayage de vtable, 2 sources croisees),
   `probe_27_4b_chronometron_vtable.py` (slots `+0x318`/`+0x328`/`+0x338`/`+0x348` de 4 playbooks : c'est
   lui qui etablit que `ShouldExecute` par defaut rend `true`),
@@ -1268,15 +1471,23 @@ existera.
   offline (`will_be_overkill`), mais **jamais exerce live** — l'A/B utilise `--hp-target 900000`
   precisement pour eteindre kill/overkill et isoler le terme d'adjacence. Il reste de plus soumis a
   l'ecart d'AoE documente (le compte offline porte sur la cible principale seulement).
-- **SorcerousFacade (1100)** : formule RESOLUE mais NON portee (cible allie vs route ennemie du
-  moteur) — cf. l'inventaire. Depuis la tranche 3, plus AUCUN code n'est actif pour 1100 : le custom
-  y retombe sur la base `Fix64(0)`. L'ACTION FANTOME, elle, est **FERMEE (#217)** : le masque du
-  `SorcerousFacadeAbility$$.ctor` (`0x402` = `TargetIsFriendly | TargetMatchesDynamicRule`) est
-  desormais RE-lu et VETO la route ennemie de `_is_attack_ability` — mesure avant/apres dans le meme
-  etat de bataille : `plans[1100]` passe de `[(1100,79),(1100,81)]` a `[]`. Detail, balayage de la
-  classe et residus : `docs/rl/case-217-phantom-action-routing.md`. A noter que la couture LIVE etait
-  deja propre (`attackPlans` porte ces evals avec `rankCount = 0`, que `_best_attack` saute) : les
-  termes ±45 de la tranche 3 venaient d'un probe qui evaluait le custom sans filtrer `rankCount`.
+- **SorcerousFacade (1100)** : **PORTE (#27-4e)** — le custom, le gate `ShouldExecute` et les deux
+  events de `MakeDamagePredictions`. Ce qui reste NON couvert sur cet item :
+  - la **regle dynamique** `...SorcerousFacadeAbility$$GetDynamicInvalidTargetReason` (`HasTrait(target,
+    Psyker)` + le caster doit pouvoir attaquer normalement depuis ses tuiles de cast) n'est pas portee :
+    elle vit sur la classe d'ability, hors registre COMBAT. Inerte en LIVE (le RPC `abilityTargets`
+    rend l'ensemble natif exact), permissive en OFFLINE PUR (sur-ensemble des allies) ;
+  - la **portee du masque** (`TargetingRange` whole board) n'est pas consommee par `_ability_reach`,
+    qui derive de `attackRangeType: Normal` -> portee d'ARME (2). Ecart OFFLINE PUR seulement, et de
+    sens INVERSE au precedent (sous-ensemble). Les deux se ferment ensemble le jour ou
+    `ability_targets_offline` lira le masque plutot que le gameconfig ;
+  - la **face COMBAT** (`ExecuteBehaviour` : `AddEffect(0x4b4)` + `UseActiveAbility(normale sur sel)` +
+    `KillDeadUnits` + `TriggerAbilityDelayed(0x49c = SorcerousFacade_SwitchAbility)`) n'est PAS portee —
+    1100 n'entre pas dans `ABILITY_CLASSES`, son masque reste dans `TARGETING_OPTIONS_UNPORTED` (contrat
+    de disjonction garde par `tests/engine/runner/test_targeting_options_sources.py`). #27 ne couvre que
+    la face DECISION ;
+  - `CalculateCasterPositionUtility` (+0x348) et `CalculateUtilityFromTilePrediction` restent hors port
+    pour 1100 comme pour Chronometron (corps de base partages, non nommes, non overrides ici).
 - **SavageEchoes, face COMBAT** : portee depuis (case-220 §blood-angels, `ABILITY_CLASSES[1230]`) — #27
   ne couvrait que la face DECISION. La **prediction de degat** de 1230, elle, est FERMEE par #216
   (cf. « Notes de fidelite ») : ce n'est plus un non-couvert.
@@ -1374,6 +1585,37 @@ tranche : `klass(voisine) - klass(sujet)` donne la taille reelle du sujet.
 motif ; `catalog_inject.py --units <id>` complete `BC.Units` ET `BC.Abilities` et le runner deploie
 l'unite normalement (fait pour bloodTerminator/SavageEchoes). Ne classer « non confrontable » qu'un
 porteur NPC, ou un summon sans invocateur.
+
+**Un commentaire qui dit « cette branche est morte » est une AFFIRMATION, pas une mesure — et il
+peut avoir peri.** `prediction/abilities.py` portait, en toutes lettres, « `_PREDICT_VIA_NORMAL_ATTACK`
+est VIDE (via_normal toujours False) ; la branche est conservee morte ». L'ensemble contenait
+`SorcerousFacade` depuis #171. Un port qui delegue la prediction de 1100 a cette fonction recoit donc
+l'attaque NORMALE au lieu du batch propre de l'ability — et le symptome est *silencieux* : deux events
+plausibles, aucune exception, un choix d'action qui a l'air simplement « un peu trop favorable ».
+Ce qui l'attrape en une mesure : **confronter l'ETAGE prediction, pas la bascule**. `pairUtility(<id de
+l'ability>, cible)` est le scoreur natif de cet etage exactement ; le port doit l'egaler a 1e-6. Ici le
+port rendait **54.660** contre **27.340** — un facteur 2 EXACT, qui nomme le bug tout seul. Sans cette
+confrontation, la seule chose visible aurait ete « le moteur choisit 1100 partout », qu'on aurait pu
+attribuer au custom, au terme Tile, au gate... Regle : **avant de suspecter le terme qu'on vient de
+porter, mesurer l'etage qu'on a REUTILISE.**
+
+**Une route de dispatch se caracterise par ce qu'elle CONSOMME, pas par le motif de l'item qui l'a fait
+naitre.** La route non-attaque (#27-4b) est nee pour les abilities SANS `damageProfile`, et la fiche
+l'avait ecrite comme ca — d'ou trois tranches a repeter « la route non-attaque ne debloque pas 1100,
+il lui faut une route ALLIEE dediee facon `_bespoke_candidates` ». Faux d'un cran : son critere reel
+est « ABSENTE de `ctx.plans` », et le VETO #217 y met precisement 1100. Le port a donc coute *zero*
+route neuve — seulement de rendre la route existante fidele a `CalculateActionUtility` (y sommer
+`CalculateUtilityFromPredictions`, no-op mesure pour l'item deja porte). **Avant de construire une
+seconde route, verifier si l'existante ne discrimine pas deja sur le bon critere** : le cout d'une
+route en trop, ce n'est pas la duplication, c'est deux endroits ou l'ordre des termes peut diverger.
+
+**Un terme en DIFFERENCE se refute par un CONTROLE CROISE, comme un terme lineaire se refute par
+n=1/n=2.** `custom = Tile(cible) - Tile(candidate)` et « custom = bonus si la cible est sur une tuile
+haute » font la MEME prediction tant qu'on ne bouge que l'allie. Le bras qui separe : rejouer la MEME
+tuile de cible avec le caster sur une tuile de MEME elevation — le terme en difference tombe a 0 et le
+natif change d'avis, le terme-bonus ne bougerait pas. C'est trois lignes de montage, et c'est la
+seule chose qui distingue « la formule est juste » de « la formule est compatible avec ce que j'ai
+mesure ».
 
 **Le gate de dispatch peut mentir sur la NATURE de la cible.** `damageProfile` present ne veut pas dire
 « ability qui cible un ennemi » : `SorcerousFacade` (1100) porte un `damageProfile=Psychic` mais cible un
