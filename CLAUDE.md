@@ -240,7 +240,7 @@ validation des DEUX faces (décider ≠ exécuter) — vit dans le skill `tactic
 ### Gate de confrontabilité : HERO / MoW / SUMMON — jamais NPC
 
 Avant de porter une mécanique (ou d'exiger un datapoint live), établir **qui la porte** et si ce
-porteur est atteignable en bataille. Trois catégories seulement comptent, et les chemins de
+porteur est atteignable en bataille. Trois catégories de porteur comptent, et les chemins de
 vérification sont **distincts** :
 
 - **HERO / MACHINE OF WAR** → présence dans `python scripts/python/rl_duel.py build --list-pool`
@@ -269,11 +269,39 @@ vérification sont **distincts** :
   « bloqué », il est **NON PERTINENT** : ne pas y brûler d'agent (sauf demande explicite de mirror +
   toggle offline).
 
+#### Une ability de RELIQUE se ventile en TROIS états, jamais deux
+
+« Confrontable / non confrontable » est un axe **faux** pour une relique — et le rabattre à deux a
+produit au moins **six verdicts « 0 porteur, DEAD » démontrés FAUX** (recensés dans
+`docs/rl/case-323-unit-map-attribution-voies.md`). Les trois états :
+
+1. **Équipée au seed** → confrontable *tout de suite*, sans rien monter. Lire
+   `BC.Units[].TertiaryAbility`. Mesuré : **4 unités** du seed en portent une (3 abilities
+   distinctes — `admecMarshall` et `admecRuststalker` partagent la même). `buildNormalizedBC` la
+   **préserve** (`normalize-bc/json-build.ts` ne touche qu'à `TertiaryAbilityLevel`).
+2. **Porteur au pool, relique NON équipée** → **montage à écrire** (poser `TertiaryAbility`). C'est
+   le cas de loin le plus fréquent : sur les **56** unités du seed éligibles à une relique — **toutes
+   dans le pool** — **52 y arrivent sans**.
+3. **Porteur hors pool** → injection catalogue, comme un héros hors pool.
+
+**Le piège central** : `rl_duel build --list-pool` répond à « quels `unitId` normalisent au rank
+cible », **pas** à « arrive en bataille AVEC sa relique ». Une gate passée sur le seul pool ne conclut
+donc **rien** sur une ability de relique.
+
+⚠ **Corollaire outillage** : `unit_map.py find --ability` lisait 2 voies d'attribution sur 5 et était
+**aveugle aux reliques** — c'est ainsi qu'un « 0 unité » a fait classer un effet vivant en DEAD.
+Depuis #323 il lit les 5 et **imprime les 4 non couvertes** quand il rend zéro. Un zéro de cet outil
+n'est donc plus une preuve de mort — et ne l'a jamais été. Ne jamais conclure « pas de porteur » d'un
+seul outil de recensement.
+
+Même forme pour les **MACHINES OF WAR** : leurs `mythicAbilities` (**11**) sont invisibles de toute
+autre voie. Les neuf voies d'attribution, mesurées, vivent dans `case-323` §2.
+
 **Pourquoi** : les deux erreurs symétriques ont déjà coûté. Compter les npc comme spawnables envoie un
 solver valider une branche impossible ; inversement, ranger un carrier **summon** en « non confrontable »
 rabat à tort un port validable-live sur du mirror-offline (vécu le 2026-07-25 sur TwoManTeam/Diminutive,
 corrigé en cours de route). Toujours **ventiler les porteurs hero / mow / summon / npc** et dire par
-quel chemin chacun arrive en bataille.
+quel chemin chacun arrive en bataille — et pour une relique, **lequel des trois états**.
 
 ### DSL-effet vs impératif : c'est l'ARTEFACT NATIF qui tranche (#149)
 
