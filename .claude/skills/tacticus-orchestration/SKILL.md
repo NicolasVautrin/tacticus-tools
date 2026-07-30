@@ -544,6 +544,55 @@ n'a pris) : **vérifier en RELISANT** `renderBudget` sans argument une frame plu
 La cadence, elle, n'a rien à faire ici : `render-budget.ts` l'**auto-arme** à 30 Hz /
 `vSync = 0` à chaque inject (vérifiable par `autoArm.done`).
 
+## Suivre un agent — LIRE À FROID, ne JAMAIS le réveiller pour un état
+
+**Un `SendMessage` REJOUE tout le contexte de l'agent** — pour un solveur mature, **300 à 600 K
+tokens**. Ne jamais payer ça pour une information d'avancement : elle se lit à froid, pour zéro.
+
+**Signaux gratuits, dans cet ordre :**
+
+| ce qu'on veut savoir | comment, sans toucher l'agent |
+|---|---|
+| dernière activité | `LastWriteTime` de `<session>/tasks/<agentId>.output` — le transcript est appendu à chaque tour d'outil. ⚠ `Get-Item` **seulement** : ne JAMAIS lire ce fichier, il ferait déborder le contexte. |
+| ce qu'il a écrit | `git -C <worktree> status --porcelain` et `git -C <worktree> log --oneline origin/master..HEAD` |
+| empreinte live | `listRunners` côté host — montre ses runners sans l'éveiller |
+| en cours vs arrêté | `git worktree list` : `locked` = **en cours d'exécution** ; absent des `locked` = arrêté / en veille |
+
+- **Un `SendMessage` ne se justifie que pour CHANGER ce que l'agent fait** : demande de rebase,
+  correction de cap, consigne neuve, préavis de reinject. **Jamais** pour un rapport d'état.
+- **« Silencieux » ≠ « n'a pas reçu ».** Un message est mis en file et délivré **au prochain tour
+  d'outil**. Un agent dans une longue opération (suite de tests live, décompilation) ne le voit pas
+  avant d'en sortir — **ne pas ré-envoyer**, ça n'accélère rien et double le coût.
+- **Un agent en veille ne bloque pas une fenêtre de reinject** : il ne tient aucune mesure live, et
+  le reinject tue les runners de toute façon. Ne pas attendre sa réponse — et ne pas l'arrêter non
+  plus, son travail serait irrécupérable. Il découvrira au réveil qu'il doit reconstruire.
+
+*(Faute commise le 2026-07-30 : agent réveillé après 62 min de silence pour savoir s'il était
+bloqué — alors que sa réponse ne changeait rien à la décision.)*
+
+## Coordonner un REINJECT avec des agents en vol
+
+Plutôt que d'attendre une accalmie à zéro agent — qui peut ne jamais venir — **prévenir, attendre
+le parking, réinjecter, notifier**. Protocole (proposé par l'utilisateur le 2026-07-30) :
+
+1. **Vérifier que chaque worktree est SALE avant tout `SendMessage`** : un agent repris avec un
+   worktree PROPRE le perd et repart dans l'arbre principal, silencieusement.
+2. **Préavis individuel**, pas un message générique. Chaque agent doit lire ce qui *le* concerne :
+   ce que le reinject corrige chez lui, et si ses mesures antérieures sont à jeter.
+3. **Trois clauses non négociables du préavis** :
+   * « **ne réinjecte RIEN toi-même** » ;
+   * « **les runners meurent avec la session** » → il devra reconstruire (`rl_duel build`) ;
+   * « **le warmup sera fait par moi**, pas par toi ».
+4. **Dire ce qui reste possible** : la RE au décompilé, la rédaction, les tests offline ne dépendent
+   pas de la session — un agent parqué n'est pas un agent à l'arrêt.
+5. Réinjecter quand les vivants sont rentrés (les endormis ne comptent pas), **warmup**, puis
+   **notifier chacun** que la session est revenue, avec son numéro.
+
+⚠ Le warmup s'arrête à la capture (`stopAfterCapture` par défaut) et **laisse le jeu sur l'écran de
+bataille** — exactement l'état depuis lequel le warmup SUIVANT ne redémarre plus seul. Deux échecs
+identiques = STOP, demander une navigation humaine. Donc : **annoncer la fenêtre à l'utilisateur
+AVANT de la planifier**, elle peut coûter son intervention.
+
 ## Agents (subagents) — TOUJOURS en worktree isolé
 
 **Tout agent (outil `Agent`, et `agent()` d'un `Workflow`) doit être lancé avec
