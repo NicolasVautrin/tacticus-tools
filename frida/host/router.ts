@@ -31,6 +31,10 @@ import {
 } from "./battle-store.js";
 import { listGateStats, setCap, setTimeoutScale, resetStats } from "./rpc-queue.js";
 import {
+    getDrainState, setDrain, resetDrainCounters, isDrainRefusal,
+    listCreationMethods,
+} from "./drain.js";
+import {
     findTacticusCandidates, injectBundle, TacticusCandidate,
 } from "./admin.js";
 import { syncMetadata, syncCampaignCatalog, syncMoWCatalog, activeMetaVersion } from "./meta-sync.js";
@@ -80,6 +84,24 @@ function symbolicate(rva: number): string {
             + " @ 0x" + rva.toString(16);
     }
     return "<unknown> @ 0x" + rva.toString(16);
+}
+
+/** Rend une erreur d'RPC en HTTP.
+ *
+ * Un refus de DRAIN (#285) sort en **503 + `Retry-After`** et non en 500 : c'est
+ * une indisponibilite TEMPORAIRE et ATTENDUE, pas une panne. Le CORPS garde la
+ * forme `{ error: <message> }` de toujours — c'est ce que lisent tous les
+ * appelants Python (`resp.get("error")`), et c'est ce qui fait remonter le
+ * message jusqu'a l'agent sans toucher a un seul d'entre eux. */
+function sendRpcError(res: Response, e: unknown): void {
+    const message = (e as Error).message;
+    if (isDrainRefusal(e)) {
+        res.setHeader("Retry-After", String(e.retryAfterSec));
+        res.status(503).json({ error: message, drain: true,
+                               retryAfterSec: e.retryAfterSec });
+        return;
+    }
+    res.status(500).json({ error: message });
 }
 
 export function buildRouter(defaultLogDir: string): Router {
@@ -169,7 +191,7 @@ export function buildRouter(defaultLogDir: string): Router {
             );
             res.json({ result });
         } catch (e) {
-            res.status(500).json({ error: (e as Error).message });
+            sendRpcError(res, e);
         }
     });
 
@@ -465,7 +487,10 @@ export function buildRouter(defaultLogDir: string): Router {
 
             res.json({ ok: true, sessionId: sid, runnerId, seed: init.seed });
         } catch (e) {
-            res.status(500).json({ error: (e as Error).message });
+            // Route CREATRICE de runner : un drain la refuse, et le refus doit
+            // ressortir en 503 comme sur la voie RPC generique (meme corps
+            // `{ error }`, meme marqueur).
+            sendRpcError(res, e);
         }
     });
 
@@ -483,6 +508,84 @@ export function buildRouter(defaultLogDir: string): Router {
     //                                               and/or reset counters
     // Measures how many concurrent callers (≈ sub-agents) the single Frida pump
     // absorbs before avgInFlight→N / avgRpcMs climbs (i.e. it stops "breathing").
+    // MODE DRAIN (#285) — suspendre la CREATION de runner sans toucher aux
+    // runners en place, pour laisser une fenetre de reinject/restart s'ouvrir
+    // d'elle-meme au lieu de reveiller les agents.
+    //
+    //   GET  /api/admin/drain  -> { enabled, message, retryAfterSec, since,
+    //                               refusedTotal, refusedByMethod, lastRefusals,
+    //                               creationMethods, liveRunners }
+    //   POST /api/admin/drain  body: { enabled, message?, retryAfterSec?,
+    //                                  resetCounters? }
+    //
+    // `liveRunners` est LA jauge de convergence : le drain est « atteint » quand
+    // elle tombe a 0, et c'est ce qui autorise le reinject.
+    //
+    // ELLE LIT LE REGISTRE DES HOOKS, PAS CELUI DU HOST — et la nuance n'est pas
+    // theorique : MESUREE le 2026-07-30, juste apres une dispose reussie, le
+    // registre du host annoncait 2 runners quand celui des hooks etait VIDE. Le
+    // registre host est un cache, il derive (d'ou l'existence de
+    // `/api/runners/sync`). Une jauge de convergence bATie dessus ne serait jamais
+    // tombee a zero : on aurait attendu sans fin, ou -- pire -- conclu l'inverse
+    // un jour ou il sous-compte, et reinjecte sur des runners bien vivants.
+    //
+    // Tri-etat ASSUME, meme discipline que `host_inputs.py` (#273) :
+    //   nombre -> mesure cote hooks (`liveRunnersSource: "hooks"`)
+    //   null   -> PAS mesure (aucune session, ou RPC en echec) + `liveRunnersError`
+    // Jamais de 0 par defaut : « je n'ai pas pu compter » ne doit pas se lire
+    // « il n'y a rien », sinon la jauge autorise le reinject au pire moment.
+    router.get("/api/admin/drain", async (_req: Request, res: Response) => {
+        let liveRunners: number | null = null;
+        let liveRunnersError: string | null = null;
+        const sid = pickLiveSessionId();
+        if (sid == null) {
+            liveRunnersError = "aucune session Frida vivante";
+        } else {
+            try {
+                const live = await rpcCall(sid, "listRunners", [], 5000) as
+                    Array<{ runnerId: number }>;
+                liveRunners = Array.isArray(live) ? live.length : null;
+                if (liveRunners === null) liveRunnersError = "reponse listRunners inattendue";
+            } catch (e) {
+                liveRunnersError = (e as Error).message;
+            }
+        }
+        res.json({
+            ok: true,
+            ...getDrainState(),
+            creationMethods: listCreationMethods(),
+            liveRunners,
+            liveRunnersSource: liveRunners === null ? null : "hooks",
+            liveRunnersError,
+            // Le cache host, expose SEULEMENT pour rendre la derive visible.
+            // Ne JAMAIS s'en servir comme jauge : cf. le bloc ci-dessus.
+            hostRegistryRunners: listRunners().length,
+        });
+    });
+
+    router.post("/api/admin/drain", (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as {
+            enabled?: boolean; message?: string;
+            retryAfterSec?: number; resetCounters?: boolean;
+        };
+        if (typeof body.enabled !== "boolean") {
+            res.status(400).json({
+                error: "body.enabled (boolean) requis — "
+                     + "{ enabled: true } arme le drain, { enabled: false } le leve",
+            });
+            return;
+        }
+        if (body.resetCounters) resetDrainCounters();
+        const state = setDrain({
+            enabled: body.enabled,
+            message: body.message,
+            retryAfterSec: body.retryAfterSec,
+        });
+        // Pas de comptage ici : le POST ARME/LEVE, il ne mesure pas. La jauge de
+        // convergence se lit par GET (qui, lui, interroge les hooks).
+        res.json({ ok: true, ...state, creationMethods: listCreationMethods() });
+    });
+
     router.get("/api/rpc-queue", (_req: Request, res: Response) => {
         res.json({ ok: true, ...listGateStats() });
     });

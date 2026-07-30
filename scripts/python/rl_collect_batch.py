@@ -841,10 +841,76 @@ def _http(path: str, method: str = "GET",
         return {"_urlError": str(e)}
 
 
+# --- Mode DRAIN cote host (#285) : attendre la levee, ici et NULLE PART AILLEURS --
+#
+# Quand le host est en DRAIN il refuse la CREATION de runner (et elle seule) avec un
+# message portant cette sous-chaine. La conduite correcte est d'ATTENDRE puis de
+# reessayer : un drain dure le temps d'une fenetre de maintenance, pas d'une session.
+#
+# POURQUOI L'ATTENTE VIT ICI, DANS `_rpc`.
+# `tests/conftest.py` savait deja attendre sur le cap de runners, mais les probes
+# AUTONOMES, eux, recopiaient chacun leur propre marqueur et leur propre boucle
+# (`probe_119`, `probe_170`...) -- et une dizaine d'autres appellent `initAndStart`
+# en direct sans aucune attente. Cabler le drain probe par probe, c'etait recopier
+# le motif une fois de plus et laisser le suivant l'oublier.
+#
+# `_rpc` est LE point de passage commun : tout le monde y transite, y compris
+# `rl_duel.py build` -- donc un probe qui lance `rl_duel build` en SOUS-PROCESSUS
+# herite de l'attente sans une ligne de code, le sous-processus bloquant sur son
+# propre `_rpc`. Un seul endroit a maintenir, aucun appelant a modifier.
+#
+# CE QUI RESTE VRAI SI LE DRAIN NE SE LEVE PAS : on rend le dict d'erreur TEL QUEL.
+# Le message continue donc de remonter a l'appelant (`resp["error"]`), qui le leve ou
+# l'imprime comme avant. L'attente ne masque jamais le refus, elle le DIFFERE.
+#
+# Portee volontairement etroite : seul le marqueur DRAIN declenche l'attente. Le cap
+# de runners (« runner cap reached ») garde la sienne, en amont, dans les appelants
+# qui savent quoi liberer -- ici on ne saurait pas quel runner disposer.
+_DRAIN_MARKER = "runner creation paused"
+_DRAIN_WAIT_S = float(os.environ.get("TACTICUS_DRAIN_WAIT_S", "300"))
+_DRAIN_POLL_S = float(os.environ.get("TACTICUS_DRAIN_POLL_S", "15"))
+
+
 def _rpc(sid: int, method: str, args: list | None = None,
          timeout: float = 60.0) -> dict:
     body = {"method": method, "args": args or [], "timeout": int(timeout * 1000)}
-    return _http(f"/api/scripts/{sid}/rpc", "POST", body, timeout=timeout + 5)
+    resp = _http(f"/api/scripts/{sid}/rpc", "POST", body, timeout=timeout + 5)
+
+    # ---- Attente de la levee du drain -------------------------------------------
+    #
+    # L'ANNONCE PRECEDE L'ATTENTE, et ce n'est pas cosmetique.
+    #
+    # Un appelant impatient -- `subprocess.run(..., timeout=60)`, un agent qui borne
+    # son appel, un pytest sous `--timeout` -- sera TUE pendant qu'on patiente. S'il
+    # n'a rien lu a ce moment-la, il ne rapporte qu'un « timeout » opaque : l'attente
+    # aurait alors CONVERTI un refus parfaitement explicite en panne muette, soit
+    # exactement le defaut #263 (`applyAction` rendait `ok:false` sans message, deux
+    # agents y ont perdu des mesures) -- reintroduit par le remede.
+    #
+    # On imprime donc le message COMPLET sur stderr des le premier refus, AVANT le
+    # premier sleep. Un `subprocess.run` tue par timeout expose quand meme ce qui a
+    # ete capture (`TimeoutExpired.stderr`) : la raison survit a la mort du process.
+    # Corollaire : la duree d'attente devient un reglage de CONFORT, plus un risque
+    # de perte d'information -- quel que soit le budget de l'appelant, il sait.
+    waited = 0.0
+    announced = False
+    while _DRAIN_MARKER in str(resp.get("error") or ""):
+        if not announced:
+            print(f"[drain] {resp.get('error')}", file=sys.stderr, flush=True)
+            print(f"[drain] methode refusee : {method} -- attente jusqu'a "
+                  f"{_DRAIN_WAIT_S:.0f}s, essai toutes les {_DRAIN_POLL_S:.0f}s. "
+                  f"Poser TACTICUS_DRAIN_WAIT_S=0 pour echouer immediatement.",
+                  file=sys.stderr, flush=True)
+            announced = True
+        if waited >= _DRAIN_WAIT_S:
+            break
+        time.sleep(_DRAIN_POLL_S)
+        waited += _DRAIN_POLL_S
+        resp = _http(f"/api/scripts/{sid}/rpc", "POST", body, timeout=timeout + 5)
+        if _DRAIN_MARKER not in str(resp.get("error") or ""):
+            print(f"[drain] leve apres {waited:.0f}s -- {method} reprend",
+                  file=sys.stderr, flush=True)
+    return resp
 
 
 # ---- Pre-flight --------------------------------------------------------- #

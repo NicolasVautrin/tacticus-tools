@@ -87,8 +87,34 @@ def _new_state_path() -> Path:
 # quand elles viennent d'un test qui construit son runner LUI-MEME sans passer par la
 # fabrique `build_runner`.
 _CAP_MARKER = "runner cap reached"
+
+# MODE DRAIN cote host (#285) -- meme FORME d'indisponibilite que le cap, autre
+# CAUSE. Le cap dit « toutes les places sont prises » ; le drain dit « je n'en
+# donne plus, une fenetre de maintenance s'ouvre ». Dans les deux cas la conduite
+# correcte est identique : ATTENDRE puis reessayer, et si ca ne se libere pas,
+# ECHOUER ROUGE -- jamais rendre un skip vert.
+#
+# La chaine du message, de bout en bout :
+#   frida/host/drain.ts  DRAIN_MARKER          (source de verite)
+#     -> throw DrainRefusedError
+#     -> router  503 + { error: <message> }
+#     -> rl_collect_batch._http  parse le corps de la HTTPError et le REND
+#     -> rl_duel.cmd_build  imprime `init_resp["error"]` sur stderr
+#     -> ICI  la sous-chaine est retrouvee dans la sortie du subprocess
+# Si la constante change d'un cote sans l'autre, l'attente et la conversion en
+# rouge sautent SILENCIEUSEMENT (retour au skip vert) -- c'est le seul maillon
+# du dispositif qui ne se signale pas tout seul. Garde : `probe_285_drain_gate.py`.
+_DRAIN_MARKER = "runner creation paused"
+
+# Marqueurs qui justifient d'ATTENDRE plutot que d'abandonner.
+_WAIT_MARKERS = (_CAP_MARKER, _DRAIN_MARKER)
 _CAP_WAIT_S = float(os.environ.get("TACTICUS_RUNNER_CAP_WAIT_S", "300"))
 _CAP_POLL_S = float(os.environ.get("TACTICUS_RUNNER_CAP_POLL_S", "15"))
+
+
+def _wait_reason(out: str) -> str | None:
+    """Marqueur d'indisponibilite TEMPORAIRE present dans `out`, sinon None."""
+    return next((m for m in _WAIT_MARKERS if m in out), None)
 
 
 # --- Liberation des runners AU FIL DE L'EAU (#77) ------------------------------
@@ -188,6 +214,7 @@ def pytest_runtest_call(item):
 _HARNESS_DOWN_MARKERS = (
     "build runner KO",
     _CAP_MARKER,
+    _DRAIN_MARKER,
     "pas de session Frida active",
     "warmup KO",
 )
@@ -336,15 +363,27 @@ def build_runner(host, live_session):
             return (p.stderr or p.stdout or "")
 
         out = _attempt()
-        # Cap sature : on ATTEND un slot (les autres agents disposent au fil de
-        # l'eau) plutot que d'abandonner. cf. bloc « file d'attente » en tete.
+        # Indisponibilite TEMPORAIRE (cap sature, ou host en DRAIN) : on ATTEND
+        # puis on reessaie, plutot que d'abandonner. Un cap se libere quand les
+        # autres agents disposent au fil de l'eau ; un drain se leve quand la
+        # fenetre de maintenance se referme. cf. bloc « file d'attente » en tete.
         waited = 0.0
-        while (not state.exists()) and _CAP_MARKER in out and waited < _CAP_WAIT_S:
+        while (not state.exists()) and _wait_reason(out) and waited < _CAP_WAIT_S:
             time.sleep(_CAP_POLL_S)
             waited += _CAP_POLL_S
             out = _attempt()
         if not state.exists():
-            if _CAP_MARKER in out:
+            reason = _wait_reason(out)
+            if reason == _DRAIN_MARKER:
+                pytest.fail(
+                    f"host toujours en DRAIN apres {waited:.0f}s d'attente -- "
+                    f"AUCUNE validation n'a eu lieu (ce n'est PAS un skip vert). "
+                    f"La creation de runner est suspendue le temps d'une fenetre "
+                    f"de maintenance ; les runners en place restent pilotables. "
+                    f"Attendre la levee (GET /api/admin/drain) ou relever "
+                    f"TACTICUS_RUNNER_CAP_WAIT_S. Detail: {out[-300:]}",
+                    pytrace=False)
+            if reason == _CAP_MARKER:
                 pytest.fail(
                     f"cap de runners toujours sature apres {waited:.0f}s d'attente "
                     f"-- AUCUNE validation n'a eu lieu (ce n'est PAS un skip vert). "

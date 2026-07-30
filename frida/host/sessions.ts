@@ -18,6 +18,7 @@ import { pruneRunnersBySession } from "./battle-store.js";
 import {
     acquireSlot, releaseSlot, noteDispatch, noteSettle, concurrencyFactor,
 } from "./rpc-queue.js";
+import { assertCreationAllowed } from "./drain.js";
 
 export interface RunSession {
     id: number;
@@ -281,6 +282,13 @@ export async function rpcCall(
     args: unknown[] | Record<string, unknown>,
     timeout = 10000,
 ): Promise<unknown> {
+    // Porte du DRAIN (#285) — AVANT toute autre verification. Refuse les seules
+    // methodes qui CREENT un runner ; tout le pilotage/monitoring des runners
+    // deja en place passe intact, `disposeRunner` compris (sans lui le drain ne
+    // convergerait jamais vers zero). Pose ICI et non dans la route HTTP parce
+    // que `/api/launch` et la route de replay sim appellent `rpcCall` en
+    // INTERNE : une porte au niveau des routes les laisserait passer.
+    assertCreationAllowed(method);
     const session = requireLiveSession(id);
 
     // Frida exposes rpc.exports as an object of async functions under
