@@ -189,10 +189,13 @@ Résultats :
 * **`ModifiedExoarmour` a aussi une face COMBAT** non portée par ce cas :
   `IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$GetCurrentDamageBonus` /
   `$$GetExtraDamageMultiplier` et `ModifiedExoarmour_PierceReductionEffect$$
-  CreatePiercingMalusForDefense`. **Elle n'est pas la cause établie de l'écart de prédiction ci-dessus
-  (44.395 natif vs 17.8 port) : ce cas ne l'a PAS instruite.** Ces trois symboles n'ont pas été
-  décompilés ici, et l'écart n'a été décomposé sur aucun étage — le rapprochement est une piste,
-  **rien n'a été mesuré qui l'étaye**. À ouvrir comme cas propre, sans partir de cette prémisse.
+  CreatePiercingMalusForDefense`. **INSTRUITE DEPUIS, par #312** (`docs/rl/case-312-votan-prediction-gap.md`) :
+  l'écart de prédiction ci-dessus (44.395 natif vs 17.8 port) est décomposé par étage — l'étage
+  CONVERSION est exact sur les 14 paires, tout l'écart est à l'étage `MakeDamagePredictions`, et un
+  contre-bras sans `PassiveAbilities` le fait disparaître sur 14/14. La cause est bien cette face
+  COMBAT, `CreateEffectDamageBonusForAttack` = `ForAddition(OwnerIsCaster & IsMeleeAttack,
+  ConfigVar(extraDmg) × TilesMovedThisTurn)`. Le port reste À FAIRE (deux résidus chiffrés y sont
+  ouverts : la magnitude exacte, et un Δ de 2 points sur une tuile).
 * **Enum `TriggeredAbilityType`** : 1529 est ajouté ; **8 autres membres du build `rnca9r7q6c`
   manquent encore** (1543 `PropheticSentinel`, 1546 `HeavyWarpFlamer_AttackTrackingAbility`,
   1552 `IconOfObstinacy`, 1554 `WhisperingWeb`, 1555 `EmpyricAmbush_Reset`,
