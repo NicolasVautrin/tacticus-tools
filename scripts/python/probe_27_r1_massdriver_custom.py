@@ -229,16 +229,22 @@ def _geom_ref() -> dict:
 
 
 def build_fixture(damage: int, with_passive: bool = False, board: str = BOARD, seed: int = SEED,
-                  geom: dict | None = None) -> tuple[int, dict]:
+                  geom: dict | None = None, unit_stats=None) -> tuple[int, dict]:
     """`MDA_FIXTURE` -- monte le runner et POSE les positions (cf. docstring du module).
     Kimm n'est JAMAIS deplacee : elle reste sur sa tuile de spawn, sinon 1222 devient illegale.
-    `geom=None` + `board/seed` non standard -> la geometrie est DERIVEE du board vivant."""
+    `geom=None` + `board/seed` non standard -> la geometrie est DERIVEE du board vivant.
+    `unit_stats` = patchs `--unit-stat` SUPPLEMENTAIRES (`"VisualId:Champ=Valeur"`), ADDITIFS au
+    `Damage` du curseur -- c'est le levier qui fait varier une entree de CONFIG (niveau de passif,
+    multiplicateur de rarete) sans toucher a la geometrie du montage (#312)."""
     ensure_seed_bcs()
+    extra = []
+    for s in (unit_stats or ()):
+        extra += ["--unit-stat", str(s)]
     _run(["build", "--seed", str(seed), "--board", board,
           "--seed-bc", str(SEED_BC if with_passive else SEED_BC_NP),
           "--p-units", "votanChampion,ultraCalgar,necroWarden,astraOrdnance,bloodIntercessor",
           "--a-units", "tauCrisis", "--state-file", str(STATE),
-          "--unit-stat", "votanChampion:Damage=%d" % damage])
+          "--unit-stat", "votanChampion:Damage=%d" % damage] + extra)
     rid = _runner_id()
     _resolve_units(rid)                       # ids d'entite reels AVANT tout `act move`
     if geom is None:
