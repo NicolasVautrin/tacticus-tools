@@ -805,6 +805,55 @@ def can_currently_be_used(ability: dict) -> bool:
     return True
 
 
+def all_enemies_of(units: list) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAllEnemiesOf(playerEntityId)` — slot d'INTERFACE
+    `IBattleQuery` **0x8e**, ancre : `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery.
+    u003Cu003Ec__DisplayClass169_0$$u003CGetAllEnemiesOfu003Eb__0` (le decorateur enregistreur) appelle
+    ce meme slot d'interface avec (battleQuery, playerEntityId).
+
+    Corps natif, relu VERBATIM sur `rnca9r7q6c` :
+
+        var set = new OrderedSet<IUnit>();
+        foreach (u in <entities service>.slot(0x2f)(0))              // toutes les UNITES du board
+            if (EntityExtensions.GetCurrentOwnerEntityId(u) != playerEntityId)
+                set.Add(u);
+        return set;
+
+    ⚠ Le natif ne filtre NI la mort NI la position : c'est un « toutes les unites dont le proprietaire
+    courant n'est pas ce joueur ». Le port lit le canal `decisionView`, ou l'appartenance est portee
+    par `ctrl` (vrai = camp de l'unite qui decide) -- MEME predicat, exprime sur la seule donnee que
+    le canal expose. `ctx.units` conserve les unites MORTES (cf. `decisionView keeps dead units`),
+    donc ce mirror les garde AUSSI, comme le natif ; c'est l'appelant qui decide s'il les ecarte.
+    (Le pendant `ctx.enemies` / `_enemies`, lui, filtre `alive` + `pos` : ne PAS le substituer ici,
+    il mirroir un AUTRE ensemble.)"""
+    return [u for u in (units or []) if not u.get("ctrl")]
+
+
+def entity_has_effect(unit: dict, effect_type: int) -> bool:
+    """`IdunBattle.Entities.EntityExtensions$$HasEffect(entity, state, requestedEffectType, onlyActive)`
+    = `IsOwnerOfEffect(entity, state, type, onlyActive) || IsTargetOfEffect(entity, state, type)`.
+
+    Le canal `decisionView` attache a chaque unite `EffectsOwnedComponent.ActiveEffectIds`
+    (`frida/hooks/game/effects.ts::readEffectsByUnit`) : la liste des effets qui S'APPLIQUENT a
+    l'unite -- exactement les icones de statut. Match par `effectType` (l'entier de l'enum, robuste
+    au renommage) et non par `name`.
+
+    DEUX degradations, toutes deux PERMISSIVES-EN-MOINS (le port peut rendre False la ou le natif
+    rend True, jamais l'inverse) :
+      - branche `IsOwnerOfEffect` : le canal ne remonte pas les effets dont l'unite est la SOURCE
+        et une autre la cible (`source` est un champ de l'effet, pas une entree de la liste du
+        porteur) -- seul le role CIBLE est donc teste ;
+      - `onlyActive` : le hook laisse tomber les effets `removed`, et les `!active` sauf
+        `includeInactive` ; le natif recoit ici un `Nullable<bool>` VIDE."""
+    for e in (unit or {}).get("effects") or []:
+        if not isinstance(e, dict):
+            continue
+        et = e.get("effectType")
+        if et is not None and int(et) == int(effect_type):
+            return True
+    return False
+
+
 def adjacent_addable_count(tile: tuple, neigh_by_pos: dict | None,
                            walkable_by_pos: dict | None, occupied: set | None,
                            elev_by_pos: dict | None = None) -> int:

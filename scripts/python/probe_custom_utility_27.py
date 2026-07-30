@@ -55,7 +55,7 @@ def main() -> int:
     for aid, name in ((1014, "ArmoriumCherubPlaybook"), (1177, "LightOfSanguiniusPlaybook"),
                       (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
                       (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook"),
-                      (1227, "HeavyWarpFlamerPlaybook")):
+                      (1227, "HeavyWarpFlamerPlaybook"), (1185, "ForwardObserversPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
             fails.append(f"dispatch {aid}: attendu {name}, obtenu {got}")
@@ -254,6 +254,75 @@ def main() -> int:
         if not ch.should_execute(_fake_ctx(wt), (0, 0), 100, 1226, 0.0):
             fails.append("Chronometron: ShouldExecute gate a 0 -- le slot +0x328 rend `true`")
 
+    # --- ForwardObservers (1185) : DEUX termes de nature differente.
+    #   custom = [aucun ENNEMI ne porte Markerlight(1122)] * W(EnemyHasNoMarkerlight = 200)
+    #          + RemainingPercentage(CIBLE) * W(TargetHealthPercentage = 40)
+    # Le 1er est BOOLEEN et GLOBAL (`CheckIfAnyEnemyHasMarkerLight` boucle sur
+    # `GetAllEnemiesOf(joueur du caster)` et `break` au premier), le 2nd est LINEAIRE dans le RATIO
+    # de PV de la cible (`FillUpStatComponent$$RemainingPercentage` = `max(0, cur/max)`, PAS un
+    # pourcentage arrondi). Route NON-ATTAQUE, comme Chronometron.
+    wfo_mk = wt.sub("ActiveAbilities", "ForwardObservers_EnemyHasNoMarkerlight")
+    wfo_hp = wt.sub("ActiveAbilities", "ForwardObservers_TargetHealthPercentage")
+    if wfo_mk == 0 or wfo_hp == 0:
+        fails.append("poids ForwardObservers_* absents : la table `Utilities` n'a pas ete "
+                     "re-synthetisee depuis le gameconfig courant (catalog_inject.refresh_ai_utilities)")
+    if 1185 not in NONATTACK_PLAYBOOKS:
+        fails.append("ForwardObservers (1185) absente de NONATTACK_PLAYBOOKS : sans la route "
+                     "non-attaque le terme est INERTE (pas de `damageProfile` -> jamais dans `plans`)")
+    fo = pb.get_playbook(1185)
+    if type(fo).__name__ != "ForwardObserversPlaybook":
+        fails.append("dispatch 1185: attendu ForwardObserversPlaybook, obtenu %s" % type(fo).__name__)
+    else:
+        MK = 1122
+        # `ctrl` (canal decisionView) porte l'appartenance : False = ennemi du caster, le predicat
+        # exact de `BattleQuery$$GetAllEnemiesOf`.
+        u_clean = [{"id": 100, "ctrl": True, "effects": [{"effectType": MK}]},   # ALLIE marque -> ignore
+                   {"id": 200, "ctrl": False, "effects": []},
+                   {"id": 201, "ctrl": False, "effects": [{"effectType": 9999}]}]
+        u_marked = [{"id": 200, "ctrl": False, "effects": []},
+                    {"id": 201, "ctrl": False, "effects": [{"effectType": MK}]}]
+        hp_cur, hp_max = {200: 50, 201: 100}, {200: 100, 201: 100}
+        c_clean = _fake_ctx(wt, units=u_clean, hp_cur_by_id=hp_cur, hpmax_by_id=hp_max)
+        c_marked = _fake_ctx(wt, units=u_marked, hp_cur_by_id=hp_cur, hpmax_by_id=hp_max)
+        if fo.any_enemy_has_markerlight(c_clean):
+            fails.append("ForwardObservers: un ALLIE marque declenche le predicat -- le natif itere "
+                         "`GetAllEnemiesOf`, pas toutes les unites")
+        if not fo.any_enemy_has_markerlight(c_marked):
+            fails.append("ForwardObservers: un ENNEMI marque ne declenche pas le predicat")
+        # terme booleen + terme lineaire, cible a 50 % puis a 100 %
+        got = fo.calculate_custom_utility(c_clean, (0, 0), 200, 1185)
+        if got != wfo_mk + 0.5 * wfo_hp:
+            fails.append("ForwardObservers (mk=0, cible 50%%): attendu %s, obtenu %s"
+                         % (wfo_mk + 0.5 * wfo_hp, got))
+        got = fo.calculate_custom_utility(c_clean, (0, 0), 201, 1185)
+        if got != wfo_mk + 1.0 * wfo_hp:
+            fails.append("ForwardObservers (mk=0, cible 100%%): attendu %s, obtenu %s"
+                         % (wfo_mk + wfo_hp, got))
+        # markerlight pose -> le terme BOOLEEN disparait, le terme de PV reste
+        got = fo.calculate_custom_utility(c_marked, (0, 0), 200, 1185)
+        if got != 0.5 * wfo_hp:
+            fails.append("ForwardObservers (mk=1, cible 50%%): attendu %s, obtenu %s"
+                         % (0.5 * wfo_hp, got))
+        # LINEARITE stricte : 4 ratios -> 4 valeurs proportionnelles (un terme booleen les egaliserait).
+        # C'est le pendant OFFLINE du bras A2 de `probe_27_4c_forwardobservers_ab.py`, ou le natif
+        # REFUTE le modele constant sur un etat que les deux modeles departagent.
+        for num in (0, 25, 60, 100):
+            cc = _fake_ctx(wt, units=u_marked, hp_cur_by_id={200: num}, hpmax_by_id={200: 100})
+            got = fo.calculate_custom_utility(cc, (0, 0), 200, 1185)
+            if abs(got - (num / 100.0) * wfo_hp) > 1e-9:
+                fails.append("ForwardObservers lineaire (cible %d%%): attendu %s, obtenu %s"
+                             % (num, (num / 100.0) * wfo_hp, got))
+        # PV max illisible -> le terme de PV s'eteint, le booleen reste (jamais de terme invente)
+        c_nohp = _fake_ctx(wt, units=u_clean, hp_cur_by_id={}, hpmax_by_id={})
+        if fo.calculate_custom_utility(c_nohp, (0, 0), 200, 1185) != wfo_mk:
+            fails.append("ForwardObservers (PV illisibles): le terme de PV doit valoir 0")
+        # `ShouldExecute` (slot +0x328) = `return true` -- MESURE sur CE playbook (#288)
+        if not fo.should_execute(_fake_ctx(wt), (0, 0), 200, 1185, 0.0):
+            fails.append("ForwardObservers: ShouldExecute gate a 0 -- le slot +0x328 rend `true`")
+        # pas de self-cast (`isSelfCasting = 0` au ctor) -> aucun gate de caster invente
+        if not fo.is_caster_added(_fake_ctx(wt, origin=(0, 0), epos=[]), (0, 0)):
+            fails.append("ForwardObservers: gate self-cast applique alors que isSelfCasting = 0")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
@@ -265,7 +334,9 @@ def main() -> int:
           "; HeavyWarpFlamer lineaire 0/W/2W/3W avec W=", wwf,
           "; Chronometron lineaire 0..3 dans le rayon", ch._range(), "avec W=", wch,
           "(ancre ENTITE, centre exclu, gate self-cast)",
-          "; dispatch 1014/1177/1020/1029/1199/1226/1227/1230 OK ; 1100 non enregistree OK")
+          "; ForwardObservers W_mk=", wfo_mk, "+ pct*W_hp=", wfo_hp,
+          "(predicat ENNEMIS-only, lineaire en pct)",
+          "; dispatch 1014/1177/1020/1029/1185/1199/1226/1227/1230 OK ; 1100 non enregistree OK")
     return 0
 
 

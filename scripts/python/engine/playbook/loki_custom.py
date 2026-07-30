@@ -32,6 +32,7 @@ from .base import register
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
+from ..entities.effect_type import EffectType
 from ..utilities.damage import will_be_overkill
 
 
@@ -444,6 +445,126 @@ class ChronometronPlaybook(NonAttackComparablePlaybook):
         return any(hexgeo.distance(caster_tile, e) <= r for e in (ctx.epos or []))
 
 
+class ForwardObserversPlaybook(NonAttackComparablePlaybook):
+    """`IdunBattle.AI.Playbook.Loki.ForwardObserversPlaybook$$CalculateCustomUtility` (1185), relu
+    VERBATIM sur `rnca9r7q6c` :
+
+        CheckIfAnyEnemyHasMarkerLight(caster);            // remplit le cache (this+0x70/+0x71)
+        u = Fix64.Zero;                                   // <Fix64 statics>+0x28, ecrit a 0 par
+                                                          // `FixMath.NET.Fix64$$.cctor`
+        if (!this.<anyEnemyHasMarkerLight @+0x71>)
+            u = Fix64.op_Addition(u, GetUtilityValue("ForwardObservers_EnemyHasNoMarkerlight"));
+        if (target == null) throw;
+        comp = <FillUpStatComponent de la CIBLE, StatType 5 = Health>;      // cf. ci-dessous
+        if (comp == null) throw;
+        return Fix64.op_Addition(u,
+                   Fix64.op_Multiply(comp.RemainingPercentage(),
+                                     GetUtilityValue("ForwardObservers_TargetHealthPercentage")));
+
+    et `IdunBattle.AI.Playbook.Loki.ForwardObserversPlaybook$$CheckIfAnyEnemyHasMarkerLight` :
+
+        if (this.<checked @+0x70>) return;                 // cache, remis a 0 par
+        this.<checked @+0x70> = true;                      // `...ForwardObserversPlaybook$$ResetCaches`
+        player = EntityExtensions.GetCurrentPlayer(caster, this.<state @+0x20>);
+        foreach (e in this.<battleQuery @+0x28>.<slot itf 0x8e = GetAllEnemiesOf>(player))
+            if (EntityExtensions.HasEffect(e, this.<state @+0x20>, 0x462, null)) {
+                this.<anyEnemyHasMarkerLight @+0x71> = true; break;
+            }
+
+    DEUX TERMES, et ils n'ont pas la meme nature :
+
+    * **`EnemyHasNoMarkerlight` (200) — BOOLEEN et GLOBAL** : il ne depend NI de la tuile candidate NI
+      de la cible, seulement de l'etat du BOARD. C'est un bonus d'AMORCAGE : tant qu'aucun ennemi ne
+      porte la marque, poser le premier Markerlight vaut tres cher ; des qu'un seul ennemi (n'importe
+      lequel) l'a, le terme DISPARAIT. Le compte n'intervient pas -- le natif `break` au premier.
+    * **`TargetHealthPercentage` (40) — LINEAIRE dans le RATIO de PV de la CIBLE** :
+      `IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage` =
+      `Fix64.Max(Fix64(0), Fix64(<valeur courante @+0x18>) / Fix64(get_CurrentMaximumValue()))`, donc
+      un ratio dans [0,1] (PAS un pourcentage 0..100, PAS un arrondi -- meme piege que SavageEchoes,
+      resolu dans l'autre sens : ici il n'y a aucun `GetStat(Health, part=1)`). Il arbitre la CIBLE :
+      a poids egal, l'IA marque l'ennemi le PLUS SAIN.
+
+    **La cible du `FillUpStatComponent` est bien la SANTE.** Le call-site est l'inline exact de la
+    branche `statType == 5` de `IdunBattle.Entities.UnitExtensions$$GetFillUpStatComponent` (memes
+    deux classes : le type du composant et la classe qui porte son id de composant en champ statique).
+
+    ARTEFACT NATIF ET CLASSIFICATION (#149) : `CheckIfAnyEnemyHasMarkerLight` est une **methode
+    IMPERATIVE du playbook** -- une boucle `foreach` + `HasEffect`, PAS un arbre `DSLFactory`. Il n'y
+    a donc rien a faire emerger de noeuds DSL, et ce mirror est imperatif de bout en bout. C'est la
+    difference STRUCTURELLE avec Chronometron (dont `GetAffectedEnemies` etait un arbre DSL PARTAGE
+    avec sa face COMBAT) : ici la face COMBAT,
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$ExecuteBehaviour`, est un
+    arbre `AddEffect(0x462 Markerlight, TurnsFromRounds(GetNumberConstant(0x45))) +
+    AddEffect(0x575 ForwardObservers_DamageReduction, TurnsFromRounds(GetNumberConstant(0x77)))` qui
+    n'evalue AUCUN selecteur d'ennemis. **Aucun artefact partage entre les deux faces** -> aucun
+    evaluateur a reutiliser, et aucun risque de fork de port. Les seules primitives mutualisees sont
+    `battle_query.all_enemies_of` (slot 0x8e) et `battle_query.entity_has_effect`
+    (`EntityExtensions.HasEffect`), ecrites la ou vivent leurs homonymes natifs.
+
+    ROUTE : `constants` = `{range: 3, dmgPctReduction: 50, nrOfRounds: 2, nrOfRounds_2: 1}` -- **pas de
+    `damageProfile`** -> l'ability n'atteint jamais `_best_attack` ; elle passe par
+    `playbook/nonattack.py` (verrou 2 de #27), ou `u = custom` et `u_full = u + Tile(7)`.
+    `ShouldExecute` (slot de vtable +0x328) rend `true` : MESURE au slot sur CE playbook
+    (`probe_27_4b_chronometron_vtable.py`), pas suppose.
+
+    CIBLAGE (lu, non porte au registre COMBAT -- ce port ne couvre que la face DECISION) :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$.ctor` appelle la
+    surcharge 7-args EXPLICITE `TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange
+    statics>+0x18 = RANGE_FROM_CONFIG, forceMeleeTarget=0 = RangedBool.True, rules=0x200004002, 0, 0)`
+    -- ce n'est PAS la forme preset+flags, le litteral EST donc le masque effectif :
+    `TargetMatchesDynamicRule (0x2) | TargetIsEnemy (0x4000) | TargetIsNotAnObject (0x200000000)`.
+    `AActiveAbility..ctor(this, &opts, 2)` -> `AbilityAttackType.Others`. La regle DYNAMIQUE est
+    portante : `...ForwardObserversAbility$$GetDynamicInvalidTargetReason` refuse (raison 2) toute
+    cible qui porte DEJA le Markerlight. Cote decision cette cascade est appliquee par le NATIF
+    (`ctx.ability_targets` = RPC `abilityTargets`), donc le port en herite sans la rejouer.
+
+    Poids resolus a l'execution depuis la BC (`aiUtilities.Default.ActiveAbilities`), jamais codes en
+    dur : `ForwardObservers_EnemyHasNoMarkerlight` = 200, `ForwardObservers_TargetHealthPercentage`
+    = 40. Porteurs de 1185 : `tauSmnStealthSuit` (SUMMON) et `tauNpc5StealthSuit` (npc), memes deux
+    actives `[ForwardObservers, WallOfMirrors]`. Le summon est declare par
+    `units.abilities.ATemptingTrap.constants.unitId`, mais **aucune unite du gameconfig ne porte
+    `ATemptingTrap`** -> pas d'invocateur ; le porteur est amene au board par
+    `catalog_inject.py --units tauSmnStealthSuit` (#92), comme SavageEchoes/Chronometron."""
+
+    ability_id = int(ActiveAbilityType.ForwardObservers)   # 1185
+    W_NO_MARKERLIGHT = "ForwardObservers_EnemyHasNoMarkerlight"     # 200
+    W_TARGET_HP = "ForwardObservers_TargetHealthPercentage"         # 40
+    MARKERLIGHT = int(EffectType.Markerlight)                       # 1122 = 0x462
+
+    def any_enemy_has_markerlight(self, ctx) -> bool:
+        """Mirror de `...ForwardObserversPlaybook$$CheckIfAnyEnemyHasMarkerLight` : « au moins UN
+        ennemi du joueur du caster porte l'effet 0x462 ». Le natif `break` au premier -> predicat,
+        pas un compte. Le cache natif (+0x70/+0x71, vide par `ResetCaches`) n'a pas d'equivalent ici :
+        l'etat ne bouge pas pendant une evaluation, donc recalculer rend la MEME valeur."""
+        return any(bq.entity_has_effect(e, self.MARKERLIGHT)
+                   for e in bq.all_enemies_of(ctx.units))
+
+    def remaining_health_percentage(self, ctx, target) -> float:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$RemainingPercentage` sur le composant
+        `Health` (StatType 5) de la CIBLE = `max(0, courant / CurrentMaximumValue)`.
+
+        `courant` = `FillUpStatComponent+0x18` = ce que rend `GetStat(u, Health, part=0)` -> canal
+        `ctx.hp_cur_by_id` ; `CurrentMaximumValue` = ce que rend `GetStat(u, Health, part=2)` ->
+        `ctx.hpmax_by_id` (overlay `combatSnapshot.healthMax`, la MAX EFFECTIVE). Ce sont les deux
+        memes canaux que `SavageEchoesPlaybook`.
+
+        PV max illisible : le natif leverait (`comp == null` -> NRE). Ici la seule facon d'etre dans
+        ce cas est un canal incomplet, jamais un etat de bataille : on rend 0.0 (le terme s'eteint,
+        le terme booleen reste) plutot que de faire tomber tout le generateur d'actions."""
+        cur = ctx.hp_cur_by_id.get(target)
+        mx = ctx.hpmax_by_id.get(target)
+        if cur is None or not mx:
+            return 0.0
+        return max(0.0, float(cur) / float(mx))
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        u = 0.0
+        if not self.any_enemy_has_markerlight(ctx):
+            u += ctx.wt.sub("ActiveAbilities", self.W_NO_MARKERLIGHT)          # 200
+        return u + (self.remaining_health_percentage(ctx, target)
+                    * ctx.wt.sub("ActiveAbilities", self.W_TARGET_HP))         # 40
+
+
 # --- Registry : dispatch par ability_id via get_playbook_or_default (base.REGISTRY) ---
 #
 # SorcerousFacade (1100) N'EST PAS ENREGISTREE, et c'est DELIBERE (#27 tranche 3).
@@ -469,7 +590,7 @@ def _register_all() -> None:
         register(cls())
     # Route NON-ATTAQUE (verrou 2, #27-4b) : l'ability n'a pas de `damageProfile`, elle n'atteint
     # jamais `_best_attack` -> registre + route dedies (`playbook/nonattack.py`).
-    for cls in (ChronometronPlaybook,):
+    for cls in (ChronometronPlaybook, ForwardObserversPlaybook):
         register_nonattack(cls())
 
 
