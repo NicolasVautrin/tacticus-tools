@@ -327,14 +327,36 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `UnitStateChanged(3)` (le port refresh sur move + start-turn + après dégât) ; la part
   MULTIPLICATIVE `part 9` du stat-layer, matérialisée en delta plat équivalent.
 - **Résidus nommés de `case-224` (prédicat d'aura)** — `case-224-is-in-contagions-of-nurgle-range`
-  §5. Trois, tous bornés : (a) le comparateur **STRICT** de `IsInUnitContagionsOfNurgleAura`
-  (`dist < range`, contre l'inclusif de la version d'équipe) est établi par XREF du ctor
-  `AmountIsGreaterAbilityTrigger` mais **non mesuré live** — son seul consommateur natif est le
-  `CreateTrigger` de `CursedPlagueBellAttackAbility` (1071), non porté ; (b) `SynapseEffect`, second
+  §5. (a) ~~le comparateur **STRICT**, non mesuré live~~ — **CLOS, et RENVERSÉ**
+  (`case-224-cursed-plague-bell-attack.md` §3.2) : porter `CursedPlagueBellAttackAbility` (1071) a
+  donné au prédicat son premier consommateur MOTEUR, donc son premier montage confrontable — et le
+  seuil natif mesuré vaut `GetCurrentRange(TurnsStarted)` **exactement**, à deux paliers. Le
+  comparateur effectif est **INCLUSIF**, comme celui de la version d'équipe ; le verrou pytest, qui
+  ne comparait le port qu'à lui-même, est retourné avec sa preuve. Le décompilé du comparateur, lui,
+  a été relu et tient (`minAmount < amount`) : l'écart d'une unité est dans un ÉTAGE non localisable
+  (trois modèles indiscernables, cf. le docstring d'`IsInUnitAura`). (b) `SynapseEffect`, second
   `IAuraEffect`, n'est **pas** au registre `_AURA_EFFECTS` (aucun consommateur mirroré ne le
   demande) ; (c) `GetNextTurnRange` / `isNextTurn=true` est porté mais jamais exercé (ses
   consommateurs sont `CursedPlagueBellMovementAbility$$GetTargetsSelector` et
   `CursedPlagueBell_DangerZoneEffect`). `[opus]`.
+- **Résidus nommés de `case-224` item 5 (face ATTAQUE de `CursedPlagueBell`)** —
+  `case-224-cursed-plague-bell-attack.md` §4. (a) le cas **`d = 1` à `range = 1`** n'a jamais pu être
+  monté sur `C1_02` (aucune tuile libre à distance 1 du porteur aux paliers bas, il est entouré) :
+  c'est le seul point où les mutations `registry` et `range1` se distingueraient, et c'est aussi le
+  point le plus serré du seuil. Levier : un board à voisinage OUVERT autour du spawn adverse.
+  (b) le gate `HasTrait(Actor, Psyker)` n'est exercé **qu'en positif** — balayage : **0 unité sur
+  683** porte une arme de profil Psychic sans le trait, le contre-cas n'existe pas dans le jeu et
+  exigerait de poser un trait en bataille. (c) la disjonction `OwnerIsTarget | OwnerIsAlive` n'est
+  pas discriminée (l'owner est toujours vivant ; elle ne le devient que si l'attaque le TUE dans le
+  même flot). (d) `!CurrentAbilityIs(this)` est porté sur le canal `TriggeringAbility` — champ natif
+  DISTINCT de `CurrentAbility` — parce que `ability_type` est keyé sur l'espace `ActiveAbilityType`
+  où **1071 vaut `AnnihilatorBeam`** ; les deux canaux coïncident ici par construction, aucun montage
+  ne les sépare. `[opus]`.
+- **Face DANGER ZONE de `CursedPlagueBell` : `CursedPlagueBellDangerZoneAbility` +
+  `CursedPlagueBell_DangerZoneEffect` (1084)** — la dernière des quatre pièces de `case-211` §5.
+  Elle consomme la branche `isNextTurn = true` de `GetTargetsSelector` (résidu (c) ci-dessus) et
+  `CreateRangeBonusForDangerZone` / `GetExtraMovementAmount`. Axe PRÉDICTION de zone de danger, pas
+  un stat-mod : l'observable est `decisionView.dangerZone`, à qualifier avant de s'engager. `[opus]`.
 - ~~**`deathBlightlord` : +2 `genrand` natifs à l'entrée d'une attaque mêlée**~~ — **CLOS**
   (`case-207-haze-of-corruption-target-finder.md`). Ce n'étaient ni les effets `1375`/`1147`
   (= `TerminatorArmour_Visual` / `_ReduceDmg`, purement défensifs) ni le spawn de Kell, mais
