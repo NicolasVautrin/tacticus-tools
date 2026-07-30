@@ -300,6 +300,118 @@ class HeavyWarpFlamerPlaybook(_CustomOnlyPlaybook):
         return float(n) * ctx.wt.sub("ActiveAbilities", self.W_KEY)   # 10
 
 
+class MassDriverAcceleratorPlaybook(_CustomOnlyPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$CalculateCustomUtility` —
+    **terme IDENTIQUEMENT NUL : le selecteur est ancre sur `Owner`, que ce corps-la laisse NULL.**
+
+    Corps natif, relu VERBATIM sur `rnca9r7q6c` :
+
+        sel      = MassDriverAcceleratorAbility.GetBuffTargets(this.ability);
+        entities = new AbilityEntities(caster: caster, actor: caster, target: target,
+                                       owner: null, <et TOUS les autres slots a null>);
+        n        = sel.Count(entities);                 // slot 2 de l'interface selecteur
+        return Fix64.FromInt(Math.Max(0, n - 1))
+               * GetUtilityValue("MassDriverAccelerator_AdjacentFriendly");
+
+    et `IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility$$GetBuffTargets` :
+
+        Owner + DSLSelectors.AdjacentFriends(Owner, unique: 1, unitSelectionType: 3)
+
+    C'est **le MEME artefact natif que la face COMBAT** :
+    `...MassDriverAcceleratorAbility$$ExecuteBehaviour` re-inline exactement le meme couple
+    `(Owner, AdjacentFriends(Owner, 1, 3))` joint par `TargetsSelector.op_Addition` pour alimenter son
+    `DSLBehaviors.AddStaticStatModifierEffect(<cible>, 0x606, 1, Get(extraMovement), ...)` : a
+    l'EXECUTION, Kimm et ses amis adjacents gagnent bien le bonus de mouvement. Mais l'`AbilityEntities`
+    de l'execution porte un `owner`, et **celui de la DECISION n'en porte pas**.
+
+    LA CHAINE, LUE BOUT A BOUT (aucun maillon deduit) :
+
+    1. `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ecrit ses champs a
+       `+0x00 = actor`, `+0x08 = caster`, `+0x10 = target`, **`+0x18 = owner`**
+       (l'ordre des PARAMETRES est `(caster, actor, target, owner, casterTile, activePlayer,
+       casterTiles, effect, targetTile, targetTiles, activeTarget, previousActiveTarget,
+       currentAbilityOrEffect, ...)` — signature de `data/symbols/<build>/frida/methods.tsv`).
+    2. Le call-site de `CalculateCustomUtility` passe `(caster, caster, target, 0, 0, 0, 0, 0, 0, 0,
+       0, 0, &cur, &parent, &trig, ...)` : **9 zeros consecutifs en positions 4..12**, donc
+       `owner = null` (et toutes les positions/tuiles nulles). A comparer avec
+       `...MassDriverAcceleratorAbility$$GetDynamicInvalidTargetReason`, qui, LUI, remplit
+       `casterTiles` et `targetTiles` — le contraste est dans le meme binaire, a deux fonctions d'ecart.
+    3. `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit `entities+0x18` et, s'il est nul,
+       **rend une `List` VIDE** (branche `if (owner == 0) return new List<>();`). Ses deux voisins
+       lisent d'autres champs : `IdunBattle.Entities.Selectors.ActorSelector$$Select` lit `+0x00`,
+       `IdunBattle.Entities.Selectors.CasterSelector$$Select` lit `+0x08` — c'est ce triplet qui
+       interdit de confondre le champ.
+    4. `AdjacentFriends(Owner, unique, sel)` = `Friends(Owner, Units(AdjacentTiles(Owner), unique,
+       sel) - Owner, sel)` : sur un `Owner` vide, `AdjacentTiles` n'a aucune ancre -> vide aussi.
+    5. Donc `n = 0`, `Math.Max(0, 0 - 1) = 0`, et le terme vaut `Fix64(0) * W = 0` — **quelle que
+       soit l'adjacence, sur tout plateau**. Le poids
+       `aiUtilities.Default.ActiveAbilities.MassDriverAccelerator_AdjacentFriendly = 5`, pourtant
+       AJOUTE par ce build, n'est jamais applique.
+
+    IDENTIFICATION DU SELECTEUR `Owner` (`DSLSelectors+0x30`) — quatre lectures convergentes :
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector`
+        appelle `AdjacentFriends(champ+0x30, ownerTiles, 1)` — la surcharge `(unit, unitTile, unique)` :
+        le parametre nomme **`ownerTiles`** (metadata IL2CPP) est la liste de tuiles de CE MEME `unit` ;
+      * `IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateTargetSelector`
+        a la structure BIT-A-BIT identique a `GetBuffTargets` et le port le documente deja
+        « Self + AdjacentFriends(range 1) » pour une AURA (donc son porteur = l'owner de l'effet) ;
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour`
+        (le PASSIF de Kimm) passe `champ+0x30` a la FOIS comme cible et comme owner de ses deux
+        `AddEffect` auto-appliques ;
+      * `entities/effects/factory.py` documente deja Defender comme `AdjacentFriends(1) - owner`.
+    Les deux champs voisins ne sont PAS interchangeables : `+0x48` = CASTER (c'est lui que
+    `ExecuteBehaviour` passe a `MoveUnit`/`AttackWithAttackDamage`/`IfAlive`) et `+0x60` = TARGET
+    (`GetAdjacentAttackTargets` = `Enemies(champ+0x48, AdjacentUnits(champ+0x60, 1, 3))`).
+
+    CE QUE LA FICHE #27-r1 ANNONCAIT, ET POURQUOI C'ETAIT FAUX : `max(0, Count(GetBuffTargets) - 1)
+    * W` avec `Count = 1 + |amis adjacents|`. Cette lecture SUPPOSE `Owner = caster` ; elle vient de
+    la face COMBAT, ou c'est vrai. Le port qui en decoule (`W x |amis adjacents|`) est un biais de
+    +5 par allie colle a Kimm que le natif n'applique JAMAIS — mesure ci-dessous.
+
+    CONFRONTATION LIVE (#27-r1, `probe_27_r1_massdriver_custom.py`, board MC1_67 seed 909,
+    `votanChampion` injecte par `catalog_inject`) : Kimm a son SPAWN (1,0) — ne jamais la deplacer,
+    un `act move` consomme son mouvement et rend 1222 ILLEGALE (`GetPossibleMoveTiles` vide) ;
+    ennemi `tauCrisis` en (3,1) ; deux appats allies deplaces sur (1,1) et (0,0) pour n = 0/1/2 amis
+    ADJACENTS. Le duel se joue entre 1222 (depuis (1,0)) et l'attaque NORMALE 69 (depuis (3,0)), et
+    le stat `Damage` de Kimm est le curseur qui les met a egalite :
+
+      | Damage | natif n=0 | natif n=1 | natif n=2 | moteur AVEC `W x n` |
+      |---|---|---|---|---|
+      | 3450..3525 | 1222 | 1222 | 1222 | 1222 (d'accord) |
+      | 3550..3800 | 69   | 69   | 69   | **1222 des n=1** (DIVERGE) |
+
+    Le point de bascule natif est le MEME a n=0, n=1 et n=2, dans une fenetre de 25 points de
+    `Damage` — soit **moins de 0.5 point d'utilite** (pente mesuree : `pairUtility(69, (3,0))` =
+    64.017 a Damage 3600, donc ~0.018 utilite par point de Damage). Un terme de +5 (n=1) aurait
+    deplace ce point de ~280 points de Damage. La SENSIBILITE du montage n'est pas supposee : le
+    moteur PORTANT `W x n` bascule bel et bien a n=1 la ou le natif ne bascule pas.
+
+    VERDICT : le terme est un NO-OP natif. Le port le mirroir en rendant `Fix64(0)`, et cette classe
+    existe pour VERROUILLER ce zero (sans elle, la formule de la fiche resterait la seule trace
+    ecrite, et le prochain lecteur la re-porterait).
+
+    Porteur `votanChampion` `Kimm` [hero, LeaguesOfVotann] — ABSENT du pool de la seed BC (unite
+    ajoutee par ce build), amene en runner par `catalog_inject.py --units votanChampion` (#92).
+    ROUTE : `constants.damageProfile = DirectDamage` -> l'ability entre dans `ctx.plans` et passe par
+    `_best_attack` (aucun verrou de route, contrairement a Chronometron/ForwardObservers).
+
+    RESIDU, hors perimetre de ce terme (`docs/rl/port-residuals-inventory.md`) :
+    `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions` ajoute, APRES
+    la prediction principale, un `GenerateMultiHitAttackPredictions` par entite de
+    `GetAdjacentAttackTargets` (= les ENNEMIS adjacents a la CIBLE) avec `GetHits2`/`DamageProfile2` ;
+    le chemin generique herite n'en produit aucun. L'ecart est NUL tant que la cible n'a pas d'ennemi
+    adjacent — ce que le montage impose — et il ne depend PAS des allies du caster."""
+    ability_id = int(ActiveAbilityType.MassDriverAccelerator)  # 1222
+    # Cle de poids CITEE mais JAMAIS lue : le natif ne l'atteint pas (multiplicande toujours 0).
+    # La garder nommee ici rend le no-op cherchable depuis `BC.Utilities`.
+    W_KEY = "MassDriverAccelerator_AdjacentFriendly"          # = 5, inerte (cf. docstring)
+
+    def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
+        # `Math.Max(0, Count(Owner + AdjacentFriends(Owner)) - 1)` avec `owner == null`
+        # -> `OwnerSelector.Select` rend une liste VIDE -> Count = 0 -> Max(0, -1) = 0.
+        return 0.0
+
+
 class StikkbombPlaybook(_CustomOnlyPlaybook):
     """`IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` (ability 1051) —
     PENALITE DE TIR AMI. Corps natif relu VERBATIM sur `rnca9r7q6c` :
@@ -1054,8 +1166,8 @@ def _register_all() -> None:
     for cls in (ArmoriumCherubPlaybook, LightOfSanguiniusPlaybook,
                 HeraldOfTheApocalypsePlaybook, DrachnyenPlaybook,
                 DoomSirenPlaybook, SavageEchoesPlaybook,
-                HeavyWarpFlamerPlaybook, StikkbombPlaybook,
-                PlasmaGrenadePlaybook):
+                HeavyWarpFlamerPlaybook, MassDriverAcceleratorPlaybook,
+                StikkbombPlaybook, PlasmaGrenadePlaybook):
         register(cls())
     # SECONDE route Comparable (#27-4b/4c/4d) : l'ability est absente de `ctx.plans` -- soit parce
     # qu'elle n'a pas de `damageProfile` (Chronometron, ForwardObservers), soit parce que son masque

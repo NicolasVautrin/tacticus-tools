@@ -70,6 +70,7 @@ def main() -> int:
                       (1020, "HeraldOfTheApocalypsePlaybook"), (1029, "DrachnyenPlaybook"),
                       (1199, "DoomSirenPlaybook"), (1230, "SavageEchoesPlaybook"),
                       (1227, "HeavyWarpFlamerPlaybook"), (1185, "ForwardObserversPlaybook"),
+                      (1222, "MassDriverAcceleratorPlaybook"),
                       (1051, "StikkbombPlaybook")):
         got = type(reg.get(aid)).__name__
         if got != name:
@@ -262,6 +263,23 @@ def main() -> int:
     if wf.calculate_custom_utility(
             _fake_ctx(wt, units=wf_units, epos=voisins[:2]), (8, 8), 200, 1227) != 2 * wwf:
         fails.append("HeavyWarpFlamer: terme ancre a tort sur la tuile d'attaque")
+
+    # --- MassDriverAccelerator (1222) : NO-OP natif. `GetBuffTargets` = `Owner +
+    # AdjacentFriends(Owner, 1, 3)`, evalue contre un `AbilityEntities` dont `owner` est NULL
+    # (`AbilityEntities$$.ctor` ecrit `+0x18 = owner` ; le call-site passe 9 zeros en positions
+    # 4..12 ; `OwnerSelector$$Select` lit `+0x18` et rend une liste VIDE) -> `Max(0, -1) = 0`.
+    # CLIQUET : la formule de case-27 (`W x |amis adjacents|`) rendrait 0/W/2W ici, et elle a ete
+    # FALSIFIEE live (#27-r1, `probe_27_r1_massdriver_custom.py` : le natif est invariant en n).
+    md = pb.get_playbook(1222)
+    md_units = [{"id": 200, "team": 2, "alive": True, "pos": {"col": 3, "row": 3}},
+                {"id": 100, "team": 1, "alive": True, "pos": {"col": 2, "row": 3}}]
+    md_voisins = [(2, 4), (2, 2), (3, 3), (1, 3), (1, 2), (3, 2)]   # les 6 voisins de (2,3)
+    for n in range(4):
+        c = _fake_ctx(wt, units=md_units, fpos=md_voisins[:n], origin=(2, 3))
+        v = md.calculate_custom_utility(c, (2, 3), 200, 1222)
+        if v != 0.0:
+            fails.append(f"MassDriverAccelerator {n} allie(s) adjacent(s): attendu 0.0 (le natif "
+                         f"evalue le selecteur sur un `owner` NULL), obtenu {v}")
     # cible hors plateau / inconnue -> pas de terme invente
     if wf.calculate_custom_utility(_fake_ctx(wt, units=[], epos=voisins), (0, 0), 999, 1227) != 0.0:
         fails.append("HeavyWarpFlamer (cible inconnue): attendu 0.0")
