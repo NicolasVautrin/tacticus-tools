@@ -66,7 +66,7 @@ unites AJOUTEES par ce build) :
 | Playbook | Ability (id) | Porteur | `damageProfile` | Verdict |
 |---|---|---|---|---|
 | `HeavyWarpFlamerPlaybook` | HeavyWarpFlamer (1227) | thousSekhetar `Sekhetar Robot` [lineup] | oui (Flame) | **PORTE** (#27-4) |
-| `MassDriverAcceleratorPlaybook` | MassDriverAccelerator (1222) | votanChampion `Kimm` [lineup] | oui (DirectDamage) | **residu** — `MassDriverAcceleratorAbility$$GetBuffTargets` (selecteur DSL) ; formule = `max(0, Count(GetBuffTargets.Evaluate(entities)) - 1) * W(MassDriverAccelerator_AdjacentFriendly = 5)` |
+| `MassDriverAcceleratorPlaybook` | MassDriverAccelerator (1222) | votanChampion `Kimm` [lineup] | oui (DirectDamage) | **PORTE (#27-r1) — NO-OP NATIF** : le selecteur est ancre sur `Owner`, que ce corps-la laisse NULL -> le terme vaut `Fix64(0)` en toute configuration. Cf. §TRANCHE 4g |
 | `ResurrectionOrbPlaybook` | ResurrectionOrb (1009) | necroOverlord `Anuphet` [lineup] (+ 5 npc) | **NON** | **PORTE** (#289) — route non-attaque ; `u = 90 x [nResurrect>0 ET nTiles>0] + 10 x numSummons` |
 
 Par ailleurs `DevoutPushPlaybook` ne possede plus de corps propre sur ce build : il PARTAGE desormais
@@ -868,6 +868,144 @@ Pas de verite de reference par cette voie ⇒ **GREFFE** de l'ability sur `orksR
   mais gardent leur verrou PROPRE (MoW non modelisee comme unite de decision pour 1142 ; summon SANS
   invocateur pour 1098). Le patron, lui, est desormais porte et outille.
 
+## TRANCHE 4g (2026-07-30, #27-r1) — MassDriverAccelerator (1222) : le terme est un NO-OP NATIF
+
+La fiche #27-r1 annoncait une formule, HERITEE de la tranche 4 :
+`max(0, Count(GetBuffTargets.Evaluate(entities)) - 1) * W(MassDriverAccelerator_AdjacentFriendly = 5)`,
+soit « W x nombre d'allies adjacents au caster ». **Elle est FAUSSE**, et le verrou nomme (l'evaluateur
+du selecteur) n'etait pas la difficulte : la difficulte etait le CONTENU de l'`AbilityEntities`.
+
+### Ce que le decompile dit — la chaine lue bout a bout
+
+```
+IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$CalculateCustomUtility :
+    sel      = MassDriverAcceleratorAbility.GetBuffTargets(this.ability)
+    entities = new AbilityEntities(caster: caster, actor: caster, target: target,
+                                   owner: null, <et TOUS les autres slots a null>)
+    n        = sel.Count(entities)                       // slot 2 de l'interface selecteur
+    return Fix64.FromInt(Math.Max(0, n - 1)) * GetUtilityValue("MassDriverAccelerator_AdjacentFriendly")
+
+IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility$$GetBuffTargets :
+    Owner + DSLSelectors.AdjacentFriends(Owner, unique: 1, unitSelectionType: 3)
+```
+
+1. **`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ecrit `+0x00 = actor`, `+0x08 = caster`,
+   `+0x10 = target`, `+0x18 = owner`.** L'ordre des PARAMETRES, lui, est
+   `(caster, actor, target, owner, casterTile, activePlayer, casterTiles, effect, targetTile,
+   targetTiles, activeTarget, previousActiveTarget, currentAbilityOrEffect, ...)` — signature
+   `data/symbols/<build>/frida/methods.tsv`. **Le decalage entre l'ordre des parametres et l'ordre
+   des champs est exactement le piege** : lire « les deux premiers arguments sont owner et caster »
+   est ce qui a produit la formule fausse.
+2. Le call-site du playbook passe `(caster, caster, target, 0, 0, 0, 0, 0, 0, 0, 0, 0, &cur, &parent,
+   &trig, ...)` : **9 zeros consecutifs en positions 4..12** -> `owner = null`, et toutes les
+   positions/tuiles nulles. Le contraste est dans le meme binaire, a deux fonctions d'ecart :
+   `...MassDriverAcceleratorAbility$$GetDynamicInvalidTargetReason` remplit, LUI, `casterTiles` et
+   `targetTiles`.
+3. **`IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit `entities+0x18`** et, si le champ est
+   nul, rend une `List` **VIDE**. Ses deux voisins lisent d'autres champs —
+   `IdunBattle.Entities.Selectors.ActorSelector$$Select` lit `+0x00`,
+   `IdunBattle.Entities.Selectors.CasterSelector$$Select` lit `+0x08` — c'est ce triplet qui interdit
+   de confondre le champ, et il se lit en trois decompilations.
+4. `AdjacentFriends(Owner, unique, sel)` = `Friends(Owner, Units(AdjacentTiles(Owner), unique, sel)
+   - Owner, sel)` : sur un `Owner` vide, `AdjacentTiles` n'a aucune ancre -> vide aussi.
+5. Donc `n = 0`, `Math.Max(0, 0 - 1) = 0`, terme = `Fix64(0) * W = 0` — **quelle que soit
+   l'adjacence, sur tout plateau**. Le poids `MassDriverAccelerator_AdjacentFriendly = 5`, pourtant
+   AJOUTE par ce build, n'est JAMAIS applique.
+
+**Le selecteur `DSLSelectors+0x30` est bien `OwnerSelector`** — quatre lectures convergentes :
+`...DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector` appelle `AdjacentFriends(champ+0x30,
+ownerTiles, 1)` (surcharge `(unit, unitTile, unique)`, parametre nomme **`ownerTiles`** dans la
+metadata) ; `IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateTargetSelector`
+a la structure BIT-A-BIT identique a `GetBuffTargets` et le port le documente deja « Self +
+AdjacentFriends(range 1) » pour une AURA ; `...ModifiedExoarmourAbility$$CreateBehaviour` (le passif
+de Kimm) passe `champ+0x30` a la fois comme cible et comme owner de ses deux `AddEffect`
+auto-appliques ; `entities/effects/factory.py` documente deja Defender comme `AdjacentFriends(1) -
+owner`. Les deux champs voisins ne sont PAS interchangeables : `+0x48` = CASTER (celui que
+`ExecuteBehaviour` passe a `MoveUnit`/`AttackWithAttackDamage`/`IfAlive`) et `+0x60` = TARGET
+(`GetAdjacentAttackTargets` = `Enemies(champ+0x48, AdjacentUnits(champ+0x60, 1, 3))`).
+
+**A l'EXECUTION, le meme selecteur MARCHE** : `...MassDriverAcceleratorAbility$$ExecuteBehaviour`
+re-inline le meme couple pour son `AddStaticStatModifierEffect(<cible>, 0x606, 1, Get(extraMovement))`
+— Kimm et ses amis adjacents gagnent bien le bonus de mouvement. C'est la DECISION, et elle seule,
+qui evalue le selecteur contre un `owner` nul. Le bug est natif ; on le mirroir, on ne le corrige pas.
+
+### Confrontation LIVE — `probe_27_r1_massdriver_custom.py`
+
+Fixture `MDA_FIXTURE` (board MC1_67, seed 909, `votanChampion` injecte par `catalog_inject`) :
+
+- **Kimm reste sur sa tuile de SPAWN (1,0)**. Un `act move` consomme son mouvement, et 1222 devient
+  alors ILLEGALE (`GetPossibleMoveTiles` vide) — MESURE : `abilityTargets` passe de 1 cible a 0.
+  (1,0) est un coin a 3 voisins — (0,0), (1,1), (2,0) — et (2,0) reste LIBRE (chemin de charge).
+- **La cible doit etre a distance >= 2** : `abilityReason` refuse 1222 sur une cible ADJACENTE
+  (`TargetIsNotAdjacent`). `tauCrisis` en (3,1), sans aucun ennemi adjacent -> le residu
+  `MakeDamagePredictions` (splash sur `GetAdjacentAttackTargets`) est inerte.
+- **Deux allies porteurs d'aura de degat (`ultraCalgar`, `astraOrdnance`) FIGES loin** dans tous les
+  bras : MESURE, rapprocher Calgar de Kimm fait passer `pairUtility(69)` de 22.02 a 37.95.
+- **Le passif `ModifiedExoarmour` est retire du seed BC** (`PassiveAbilities: []`) : son playbook
+  porte un terme de TUILE (`ModifiedExoarmour_LikesMovingPerTile` = 5 x longueur du chemin) que le
+  port n'a pas (residu **N14** de `port-residuals-inventory.md`). Le bras `--passive-on` rejoue le
+  scenario avec le kit REEL.
+- **Le curseur est `--unit-stat votanChampion:Damage=<D>`** : il met l'attaque NORMALE et 1222 a
+  egalite. Il ne touche PAS 1222 (`pairUtility(1222, (1,0))` = **63.846737472340465** sur TOUT le
+  balayage, de Damage 900 a 12000 — bit-identique).
+
+Resultat (passif RETIRE ; `n` = allies adjacents a Kimm, 0/1/2) :
+
+| Damage | natif n=0 | natif n=1 | natif n=2 | moteur (terme = 0) | moteur MUTE `W x n` | `pairUtility(69, (3,0))` |
+|---|---|---|---|---|---|---|
+| 3525 | 1222 | 1222 | 1222 | 1222 x3 | 1222 x3 | 62.68968132790178 |
+| 3550 | 69 | 69 | 69 | 69 x3 | **1222 des n=1** | 63.13543247524649 |
+
+- **Le point de bascule natif est le MEME a n=0, n=1 et n=2**, dans une fenetre de 25 points de
+  `Damage` = **0.4458 point d'utilite**. Borne : `|C(n=2) - C(n=0)| < 0.4458`, quand la formule
+  heritee predisait **10**.
+- **Le montage EST sensible** : le moteur PORTANT `W x n` bascule sur 1222 des n=1 la ou le natif ne
+  bascule pas. Un terme de +5 aurait donc ete VISIBLE ; son absence est une mesure, pas un angle mort.
+- **Bras de controle `--passive-on`** (kit REEL de Kimm, point d'equilibre a Damage 900/1000) : le
+  natif y est **invariant en n lui aussi** (1222/1222/1222 puis 69/69/69), fenetre = 1.7830 point
+  d'utilite. Le retrait du passif n'est donc pas ce qui annule le terme.
+- Accord moteur <-> natif : **6/6 cellules** (2 Damage x 3 configurations d'adjacence).
+
+### Generalisation — un SECOND plateau, geometrie et point d'equilibre RE-DERIVES
+
+`--auto --board <id>` ne rejoue pas le scenario : il le RECONSTRUIT. `derive_geometry` repart de la
+tuile de spawn de Kimm sur le plateau demande, prend ses voisins WALKABLE via `boardGraph`
+(adjacence NATIVE, pas `hexgeo`), choisit une tuile ennemie a distance 2, et `bisect_flip` retrouve
+le `Damage` d'equilibre par bissection. Les ids d'entite sont resolus par `visualId` (sur `C1_02`
+ils valent 49..59 la ou `MC1_67` rend 77..87) — les figer aurait fait echouer tous les `act move`
+en silence.
+
+Resultat sur **`C1_02`** (Kimm en (0,0), ennemi en (0,2), appats en (1,1)/(1,0), equilibre trouve a
+`Damage` 1198/1222) : natif `[1222, 1222, 1222]` puis `[69, 69, 69]` — **invariant en n la aussi** ;
+moteur = natif **6/6** ; moteur MUTE `W x n` DIVERGE a n=1 et n=2. Fenetre de bascule : 24 points de
+`Damage`.
+
+**Un piege de montage a ete pris par cette generalisation, et il est desormais garde (verdict V0).**
+La premiere derivation posait un appat sur `(0,1)` — precisement la tuile ou le natif allait frapper
+a l'attaque normale. Le bras n>=1 privait donc le duel de son concurrent, et le natif basculait sur
+1222 pour une raison **purement geometrique** : `[69, 1222, 1222]`, qu'on aurait lu « le terme n'est
+pas nul ». La derivation choisit maintenant la tuile ennemie de facon a RESERVER au moins un voisin
+de Kimm adjacent a l'ennemi, et le verdict **V0** refuse de conclure si la tuile d'attaque du natif
+tombe sur un emplacement d'appat.
+
+### Le port, et pourquoi il existe alors qu'il rend 0
+
+`engine/playbook/loki_custom.py::MassDriverAcceleratorPlaybook` rend `0.0`. C'est identique au
+comportement de la base `ComparablePlaybook<T>` — la classe n'ajoute donc AUCUN comportement. Elle
+existe pour **verrouiller ce zero** : sans elle, la formule de la fiche resterait la seule trace
+ecrite de 1222 dans le depot, et le prochain lecteur la re-porterait. Deux cliquets l'accompagnent :
+`probe_custom_utility_27.py` (offline, 0 allie a 3 allies adjacents -> 0.0) et
+`tests/engine/test_mass_driver_custom_utility_live.py` (live, 6 cellules + la mutation adversariale).
+
+### Ce que cette tranche NE couvre PAS
+
+- **N14** — le terme de tuile `ModifiedExoarmourPlaybook` (5 x longueur du chemin), non porte :
+  il RETOURNE la decision de Kimm des que son passif est actif (mesure ci-dessus).
+- **N15** — `MassDriverAcceleratorPlaybook$$MakeDamagePredictions` (splash par ennemi adjacent a la
+  cible, `GetHits2`/`DamageProfile2`), non porte ; ecart nul dans ce montage par construction.
+- La face COMBAT de 1222 (`ExecuteBehaviour` : buff de mouvement + `MoveUnit` + double attaque) n'est
+  pas dans le perimetre de #27 et n'a pas ete confrontee ici.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).
@@ -930,7 +1068,7 @@ natif (`aiDryRunAllUnits`, read-only, per-unite) une fois les autres etages veri
 (une seule entree bascule la condition, geometrie et paires FIGEES) donne le signe, la condition
 exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 
-## PORTES (9) — `engine/playbook/loki_custom.py`
+## PORTES (10) — `engine/playbook/loki_custom.py`
 
 | Ability (id) | VA | Formule mirroir | Poids (seed-bc) | Porteur | Validation |
 |---|---|---|---|---|---|
@@ -948,8 +1086,9 @@ exacte et un encadrement de la magnitude — sans jamais fitter un scalaire.
 | **Stikkbomb** (1051) | `IdunBattle.AI.Playbook.Loki.StikkbombPlaybook$$CalculateCustomUtility` | `-n x U(pred(CIBLE, base = Get(minDmg), hits = GetNumberConstant(0x32 = nrOfHits_2), profil config))` ou `n` = nb d'AMIS du caster (caster INCLUS) adjacents a la CIBLE. Sous-set = arbre DSL `AdjacentUnits(Target, unique:1, sel:3)` **partage avec la face COMBAT**, filtre par un `IsFriend` IMPERATIF. Chaque membre produit une prediction sur la **CIBLE PRINCIPALE**, pas sur lui-meme (4e arg du `GenerateMultiHitAttackPredictions` = `target`, lu a l'assembleur). Terme INDEPENDANT de la tuile d'attaque. | **aucun poids BC** (ce custom n'appelle pas `GetUtilityValue`) ; `nrOfHits_2` = 1, `nrOfHits` = 2 | orksOrkBoys [SUMMON de `Waaagh`/orksWarboss ; amene mais **jamais activable en arene** -> GREFFE sur `orksRuntherd`, `case-92` §5bis] | **A/B causal live** (`probe_27_4f_stikkbomb_ab.py`, board MC1_67, seed 909, `--armor-target 3000`), **7 bras**, moteur = natif dans les 7 ; 6 `pairUtility` natives BIT-IDENTIQUES sur tous les bras amis ; linearite prouvee par bras DESEQUILIBRES ; deux contre-epreuves DIVERGENTES. Detail en §TRANCHE 4d. |
 
 | **PlasmaGrenade** (1098) | `IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$CalculateCustomUtility` | `n x U(pred(CIBLE, base = Get(minDmg), hits = GetNumberConstant(0x32 = nrOfHits_2), profil config))` ou `n` = nb d'**ENNEMIS** du caster adjacents a la CIBLE (`battleQuery.<slot itf 0x7d>` = `GetAdjacentEnemies(IEntity, BEntityId, bool)`, index de vtable 0x81 — RE-DERIVE au runtime). Signe **POSITIF** (Stikkbomb, meme mold, NIE sa somme parce qu'il compte des amis). **Somme nulle -> `BaseUtility.<statics+0x18>` = VETO**, pas utilite nulle. Terme INDEPENDANT de la tuile d'attaque, DEPENDANT de la cible. | **aucun poids BC** ; `nrOfHits_2` = 1, `nrOfHits` = 2 | eldarSmnGuardian [summon SANS invocateur] + eldarNpc1Guardian [npc] -> porteur **GREFFE** sur `eldarAutarch` (`case-92` §5bis) | **A/B causal live** (`probe_27_4g_plasma_grenade_ab.py`, board MC1_67, seed 909), **3 bras a issues DIFFERENTES**, moteur = natif dans les 3 ; VETO prouve avec cible LEGALE et `pairUtility` = 13.553 ; RENVERSEMENT de l'argmax par cible en C2 ; **2 mutations adversariales ROUGES**. Detail en §TRANCHE 4g |
+| **MassDriverAccelerator** (1222) | `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$CalculateCustomUtility` | **`Fix64(0)` — NO-OP NATIF.** `Max(0, Count(GetBuffTargets) - 1) * W` avec `GetBuffTargets` = `Owner + AdjacentFriends(Owner, 1, 3)`, evalue contre un `AbilityEntities` dont `owner` est NULL (`AbilityEntities$$.ctor` ecrit `+0x18 = owner` ; le call-site passe 9 zeros en positions 4..12 ; `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit `+0x18` et rend une liste VIDE) -> `Count = 0`, `Max(0, -1) = 0`. | `MassDriverAccelerator_AdjacentFriendly` = **5**, JAMAIS applique | votanChampion `Kimm` [hero, hors pool -> `catalog_inject.py --units votanChampion`] | **A/B causal live** (`probe_27_r1_massdriver_custom.py`, board MC1_67, seed 909, curseur `--unit-stat votanChampion:Damage`) : le point de bascule natif 1222 <-> attaque normale est le MEME a n=0, n=1 et n=2 allies adjacents, dans une fenetre de **0.4458 point d'utilite** (la formule heritee predisait 10). SENSIBILITE prouvee : le moteur PORTANT `W x n` bascule des n=1 la ou le natif ne bascule pas. Bras de controle `--passive-on` (kit REEL) : invariance en n confirmee, fenetre 1.7830. Accord moteur/natif **6/6 cellules**. Detail en §TRANCHE 4g. |
 
-Les neuf HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
+Les dix HERITENT la prediction de degat du `DefaultActiveAbilityPlaybook` ; #27 ne porte QUE le
 terme custom (la prediction est deja assuree par `prediction.py`, ecarts de degat = hors perimetre).
 **Exception assumee : Stikkbomb (1051)**, dont la prediction est portee DANS la meme tranche —
 `MakeDamagePredictions` et `CalculateCustomUtility` y sont litteralement le meme corps avec
