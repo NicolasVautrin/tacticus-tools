@@ -197,9 +197,49 @@ def scan_port(root):
     return cites
 
 
+MARQUEUR_GSHARED = "__Il2CppFullySharedGeneric"     # meme marqueur que probe_259
+
+
+def gshared_axis_check(build):
+    """L'axe VOCABULAIRE est-il MESURABLE sur ce build, ou aveugle comme l'axe UTILITY ?
+
+    Rendre `0` primitives portees sur un axe INVISIBLE se lirait « rien a signaler » (defaut
+    #273) : on MESURE au lieu de supposer, ET on mesure DANS LA BONNE TABLE.
+
+    Point de methode qui a failli me faire ecrire un faux : les corps pleinement partages
+    (`u003C__Il2CppFullySharedGenericTypeu003E`) n'apparaissent JAMAIS dans `frida/methods.tsv`
+    -- ni avant ni apres la MAJ (0 des deux cotes) : le `methodPointer` d'une DEFINITION
+    generique est un thunk d'invocation, pas le corps. Les compter la rendrait donc « 0 » sur
+    tous les builds, ce qui ressemble a l'effondrement decrit par #259 sans en etre un. La table
+    qui les porte est `ghidra/functions.tsv`.
+    """
+    rows = load_methods(build)
+    n_voc = sum(1 for p in rows if p[2] in DSL_FACTORY_CLASSES)
+    n_pb = sum(1 for p in rows
+               if p[2].startswith("IdunBattle.AI.Playbook") or "BucketSystem" in p[2])
+    n_full_frida = sum(1 for p in rows if MARQUEUR_GSHARED in "\t".join(p))
+    n_full_ghidra = sum(1 for s in load_functions(build) if MARQUEUR_GSHARED in s)
+    return {
+        "vocabulaire DSL (methodes de factory)": (n_voc, n_voc > 0),
+        "utility (Playbook/BucketSystem), table frida": (n_pb, n_pb > 0),
+        "corps pleinement partages, table frida": (n_full_frida, None),
+        "corps pleinement partages, table ghidra (#259)": (n_full_ghidra, n_full_ghidra > 0),
+    }
+
+
+def compare_builds(build_a, build_b):
+    """Noms de primitive gagnes/perdus entre deux builds VERSIONNES. Sert a distinguer
+    « la primitive a disparu du jeu » de « la table ne la nomme plus »."""
+    a = {name for (_f, name) in native_primitives(build_a)}
+    b = {name for (_f, name) in native_primitives(build_b)}
+    return sorted(a - b), sorted(b - a), len(a), len(b)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", default="logs")
+    ap.add_argument("--compare", default=None,
+                    help="hash d'un build VERSIONNE a comparer (ex. gqfc5mff6c)")
     args = ap.parse_args()
 
     build = _current_build()
@@ -240,6 +280,20 @@ def main():
     print("  TOTAL      %4d" % len(prim))
     print("classes de NOEUD natives (namespaces Selectors/Formulas/Behaviours/Triggers/DSL) : %d" % n_node_cls)
     print("citations de symbole natif dans scripts/python/engine/** : %d" % len(cites))
+
+    print("MESURABILITE des axes (methodes NOMMEES dans la table du build) :")
+    for b in ([build] + ([args.compare] if args.compare else [])):
+        print("  -- build %s" % b)
+        for label, (n, ok) in gshared_axis_check(b).items():
+            state = ("attendu -- cette table ne porte JAMAIS ces corps" if ok is None
+                     else ("MESURABLE" if ok else "NON MESURABLE (aucun corps nomme)"))
+            print("     %-48s %5d  %s" % (label, n, state))
+
+    if args.compare:
+        lost, gained, na, nb = compare_builds(args.compare, build)
+        print("comparaison %s -> %s : %d -> %d noms de primitive" % (args.compare, build, na, nb))
+        print("  disparus : %s" % (", ".join(lost) or "(aucun)"))
+        print("  apparus  : %s" % (", ".join(gained) or "(aucun)"))
     print("ecrit : %s" % os.path.relpath(p_native, REPO).replace("\\", "/"))
     print("ecrit : %s" % os.path.relpath(p_cites, REPO).replace("\\", "/"))
     return 0
