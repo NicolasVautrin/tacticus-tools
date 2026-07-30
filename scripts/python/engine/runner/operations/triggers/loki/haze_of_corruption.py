@@ -194,25 +194,32 @@ HAZE_BOND_TURNS = 1
 
 
 def _triggering_ability_or_effect(state: State, ev: TriggerEvent):
-    """Le slot `AbilityEntities+0x138` -- l'`AbilityOrEffect` DECLENCHEUR, celui que comparent
-    `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` **et**
+    """Le champ `TriggeringAbility` (`AbilityEntities+0x98`) -- l'`AbilityOrEffect` DECLENCHEUR, celui
+    que comparent `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` **et**
     `IdunBattleLogic.Entities.DSLFactory$$TriggeringEffectIs`. Les deux factories sont le MEME code
-    (decompile lu : `this+0x138` + `DirectAbilitySelector(AbilityOrEffect(x))` + le meme ctor de
-    trigger) -- il n'y a donc qu'UN slot natif, la ou le port en a DEUX canaux :
+    (decompile lu : meme slot `DSLSelectors+0x90` + `DirectAbilitySelector(AbilityOrEffect(x))` + le
+    meme ctor de trigger) et le lecteur unique en est
+    `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select`, qui lit
+    `+0x98/+0xa0/+0xa8/+0xb0`. Il n'y a donc qu'UN champ natif, la ou le port a deux sources :
 
       * `ev.triggering_effect` -- renseigne par les vecteurs qui le portent explicitement
         (`On(PreEffectAdded)`, `On(DamageDealt)`) ;
-      * `state.triggering_ability` -- le foyer UNIQUE du port pour l'ecriture de
-        `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` (`Nullable<AbilityOrEffect>(
-        ability.Id)` pose AVANT le behaviour, donc porte par TOUT ce que le behaviour engendre --
-        attaque, degat, **mort**), tenu par `triggers/dispatch/core.py::evaluate_trigger_operation`.
+      * `state.trigger_ability_type` -- le canal `+0x98` du port. Sur le vecteur MORT il est pose
+        par `operations/damage.py::_verify_deaths` a partir du `killTrigger` de la file, mirror du
+        bloc `AbilityEntities+0x98..+0xb4 = KillUnitOptions+0x04` qu'ecrit
+        `IdunBattle.Operations.KillUnitOperation$$Execute` (#301) ; hors mort, il est pose par
+        `triggers/dispatch/core.py::_publish_unit_triggered_ability` pour `On(0xd)`.
 
-    Le vecteur MORT ne porte pas le premier canal, mais le second est exact : c'est par lui que la
-    mort causee par un transfert 1077 se sait « declenchee par 0x435 »."""
+    ⚠ NE PAS LIRE `state.triggering_ability` ICI (#301) : ce canal-la mirror `CurrentAbility`
+    (`+0x60`), que `KillUnitOperation$$Execute` laisse a ZERO sur ses cinq evenements -- un
+    `Triggering*Is` branche dessus lirait un champ que le natif ne publie pas sur ce vecteur."""
     te = getattr(ev, "triggering_effect", None)
     if te is not None:
         return te
-    return getattr(state, "triggering_ability", None)
+    # Acces DIRECT (meme raison qu'en #294) : le slot est declare dans `State.__slots__`. Un objet
+    # qui ne l'a pas n'est pas un `State` -> ca doit LEVER, pas degrader en « pas de declencheur »,
+    # qui est precisement le mode de panne permissif que ce gate anti-chaine doit empecher.
+    return state.trigger_ability_type
 
 # `Damageable( AdjacentEnemies(Self@0x148, 1, 3) & AdjacentFriends(Target@0x178, 1, 3) )` -- arbre DSL
 # VERBATIM. `Caster()` = `Self@0x148` (trigger : Owner == Caster, c'est le gate `get_OwnerIsCaster`) ;
@@ -298,9 +305,11 @@ class HazeCorruptionBonusHitAbility(TriggeredAbility):
     24 -- la meme valeur sur les DEUX seeds, donc la base nominale et non un jet.
 
     Le gate `NOT TriggeringEffectIs(0x435)` (anti-chaine : un mort cause par un transfert 1077 ne
-    re-declenche PAS le bonus) est lu sur le slot natif `AbilityEntities+0x138` via
-    `_triggering_ability_or_effect` -- sur le vecteur MORT il vient de `state.triggering_ability`
-    (case-haze-bonded). MESURE qui l'exigeait (`probe_220_haze_bonded_chain.py`, k = 2, seed 777, hp 1200) : le
+    re-declenche PAS le bonus) est lu sur le champ natif `TriggeringAbility` (`AbilityEntities+0x98`)
+    via `_triggering_ability_or_effect` -- sur le vecteur MORT il vient de
+    `state.trigger_ability_type`, que `_verify_deaths` alimente avec le `killTrigger` de la file
+    (mirror de `KillUnitOptions+0x04`, #301 ; le canal `+0x60` y est VIDE cote natif).
+    MESURE qui l'exigeait (`probe_220_haze_bonded_chain.py`, k = 2, seed 777, hp 1200) : le
     natif n'emet AUCUN coup bonus a la mort des relais, le port en emettait DEUX de plus."""
     event_id = _ON_PRE_UNIT_DEATH
 

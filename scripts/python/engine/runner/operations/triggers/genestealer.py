@@ -341,7 +341,7 @@ class AmbushSummonAbility(TriggeredAbility):
     Ambush : `On(UnitDefeated=54) & OwnerIsTarget & Not(HasFlag(owner, 0xe))` -> pose 1 decoy genesSmnDecoy sur
     la tuile du mort (sinon adjacente libre), ForSteppable (feuille Spawn = G1). ENREGISTRE aussi `turn_defeated`
     (base du delai de resurrection). `fire_on_death` : l'owner EST l'unite morte (alive=False)."""
-    event_id = int(EventTriggerType.UnitDefeated)         # 55 (0x37)
+    event_id = int(EventTriggerType.UnitDefeated)         # 54 (0x36) -- litteral re-derive en #301
     fire_on_death = True
 
     def matches(self, state, ev):

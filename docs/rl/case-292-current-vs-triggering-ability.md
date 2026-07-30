@@ -7,6 +7,10 @@ du canal Python — et c'est ce nom qui a produit le signalement.
 `State.trigger_ability_type`) avec sa sémantique propre, **et le montage qui le sépare du premier** :
 §7. Sa couverture est partielle **et nommée** — un seul des quatre écrivains natifs du champ (§7.2).
 
+**#301 en a porté un DEUXIÈME — le vecteur MORT** (`IdunBattle.Operations.KillUnitOperation$$Execute`,
+écrivain 2) : §8. Le port y posait le `killTrigger` sur `+0x60` et laissait `+0x98` vide — l'inversion
+exacte de ce que fait le natif, qui memset son `AbilityEntities` et n'y réécrit QUE `+0x98`.
+
 Origine : l'agent qui a porté la face COMBAT de `CursedPlagueBell` (PR #299) a remonté lui-même, en
 « non couvert », que « `!CurrentAbilityIs` est porté sur `TriggeringAbility`, champ natif distinct de
 `CurrentAbility` ». Il l'a signalé sans le mesurer. Ce cas l'établit.
@@ -210,7 +214,9 @@ Flot natif du cas `bloodMephiston` (dump des coups, mutation `persist`) :
   un montage : les deux coïncident partout où le port les exerce. #294 en donne la **raison
   structurelle** (§7.2, écrivain 1) — sur `On(3)` le natif écrit la MÊME valeur dans les deux champs,
   donc aucun montage ne peut les y séparer. La divergence réelle est ailleurs, sur `On(0)/On(1)`
-  (écrivain 2), et elle n'est pas exercée non plus.
+  (écrivain 2) — **et c'est celle-là que #301 ferme (§8)**. Ce qui reste ouvert de §2.1 est le
+  **choix de la valeur** (le port CAPTURE `state.triggering_ability` là où le natif lit le
+  `KillUnitContext`), pas le canal.
 * **La collision d'espace d'id** (`ActiveAbilityType 1071 = AnnihilatorBeam` vs
   `TriggeredAbilityType 1071 = CursedPlagueBell`) reste la raison pour laquelle `ability_type` ne peut
   pas porter cet id ; elle est re-dérivée par l'étape 0 du probe, pas héritée.
@@ -271,7 +277,7 @@ différentes**. C'est là, et nulle part ailleurs, qu'une confusion des deux cha
 | # | écrivain | ce qu'il écrit | événements | porté ? |
 |---|---|---|---|---|
 | 1 | `Core.Services.OperationProcessor$$EvaluateAbilities(actor, caster, target, [tiles,] trigger, ability [, prev, wasCrit])` | `+0x60` **et** `+0x98` = `ability` ; `+0x7c` = `default` | la voie universelle, dont `On(3)` via `RecordKillOperation` | **non** |
-| 2 | `IdunBattle.Operations.KillUnitOperation$$Execute` | `+0x98` = `KillUnitOptions+0x04` ; **`+0x60` reste ZÉRO** | `On(0)`, `On(1)`, `On(2)`, `On(53)`, `On(54)` | **non** |
+| 2 | `IdunBattle.Operations.KillUnitOperation$$Execute` | `+0x98` = `KillUnitOptions+0x04` ; **`+0x60` reste ZÉRO** | `On(0)`, `On(1)`, `On(2)`, `On(53)`, `On(54)` | **OUI (#301, §8)** |
 | 3 | `IdunBattle.Operations.AddEffectOperation$$Execute` | `+0x60` = `+0x98` = `AbilityOrEffect(effectType)` | `On(61)`, `On(62)`, `On(70)` | **non** |
 | 4 | `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` | `+0x98` = `this.Id`, APRÈS le behaviour | `On(0xd)` | **OUI** |
 
@@ -300,9 +306,9 @@ Deux résultats NÉGATIFS, à ne pas supposer :
   immédiat. Le surcoût est donc un dispatch qui rend `[]` pour 7 familles de triggers, et il est
   invisible bout-en-bout : `test_death_queue_ordering_live.py` (22 tests, session Frida 2, même
   machine, runs consécutifs) — **AVANT 148,43 s / APRÈS 147,07 s**, soit −0,9 %, dans le bruit.
-* **Les écrivains 1, 2 et 3 ne sont pas portés.** Le seul qui produise une **divergence réelle** est
-  le 2 : sur `On(0)/On(1)/On(2)`, le natif laisse `+0x60` à zéro alors que le port y pose l'ambiant.
-  Aucun montage ne l'exerce ici ; le porter changerait un vecteur EXERCÉ (la mort) et déborde #294.
+* ~~**Les écrivains 1, 2 et 3 ne sont pas portés.**~~ **L'écrivain 2 l'est depuis #301 — §8.** Restent
+  1 et 3. Le 2 était le seul à produire une **divergence réelle** : sur les cinq événements de mort,
+  le natif laisse `+0x60` à zéro alors que le port y posait l'ambiant.
 * **Aucune mesure LIVE**, et c'est délibéré : sans consommateur porté ni capteur, `+0x98` n'a aucune
   observable de bataille. Un montage live serait du théâtre. Ce qui est verrouillé est le MOMENT
   D'ÉCRITURE et la PORTÉE, offline et déterministes.
@@ -361,4 +367,137 @@ python probe_294_trigger_ability_channels.py --mutate alias     # attendu : ROUG
 python probe_294_trigger_ability_channels.py --mutate persist   # attendu : ROUGE, fuite finale
 python probe_294_trigger_ability_channels.py --mutate noevent   # attendu : ROUGE, B ne fire pas
 python -m pytest tests/engine/runner/test_trigger_ability_channels.py -q
+```
+
+---
+
+## 8. Le vecteur MORT — écrivain 2 porté, et les deux canaux INVERSÉS (#301)
+
+### 8.1 Le fait natif, re-dérivé verbatim (build `rnca9r7q6c`)
+
+`IdunBattle.Operations.KillUnitOperation$$Execute` bâtit **UN SEUL** `AbilityEntities` — un value
+type de **0x128** octets, soit les 312 octets boxés de `classes.tsv` moins l'en-tête — et le publie
+**cinq** fois sans plus jamais y toucher :
+
+```
+memset(&entities, 0, 0x128)              -> TOUS les champs a zero, dont +0x60 et +0x7c
++0x00 = +0x08 = killer ; +0x10 = killed
++0x38 = EntityExtensions$$GetTiles(killed) ; +0x48 = GetTiles(killer)
++0x98..+0xb4 = les 0x1c octets de KillUnitOptions+0x04        <-- TriggeringAbility
+... puis cinq fois : copie de la struct, puis Publish(..., <eventId>) avec
+        1     On(PreUnitDeath)      2     On(PreUnitDeath_2)      0     On(UnitDeath)
+        0x36  On(UnitDefeated = 54)                               0x35  On(PostUnitKill = 53)
+```
+
+Deux résultats, tous deux load-bearing :
+
+* **`CurrentAbility` (`+0x60`) est VIDE sur tout le vecteur mort.** Aucune écriture ne suit le
+  memset. Tout `CurrentAbilityIs` y est donc FAUX côté natif.
+* **`TriggeringAbility` (`+0x98`) porte le `killTrigger`.** Les lecteurs sont des copies plates à
+  offset fixe, ce qui identifie les champs sans ambiguïté :
+  `AbilityTypeSelector.CurrentAbilitySelector$$Select` lit `+0x60/+0x68/+0x70/+0x78`,
+  `AbilityTypeSelector.TriggeringAbilitySelector$$Select` lit `+0x98/+0xa0/+0xa8/+0xb0` — exactement
+  le bloc de 0x1c octets écrit ci-dessus.
+
+⚠ Les LITTÉRAUX d'événement sont `1, 2, 0, 0x36, 0x35` — plusieurs docstrings du port écrivaient
+`0x37`/`0x36` pour les deux derniers. Les valeurs DÉCIMALES (54 puis 53) et l'ORDRE étaient justes ;
+seul l'hexadécimal était faux. Corrigé.
+
+### 8.2 La chaîne de la valeur, de bout en bout
+
+Aucun maillon supposé — les quatre fonctions ont été décompilées :
+
+```
+IdunBattle.Core.MatchState$$AddDeath(this, killer, killed, killTrigger, attackTrigger,
+                                     AttackRangeType)          <-- signature NOMMEE
+    -> enqueue { +0x00 killerId, +0x04 killedId,
+                 +0x08..+0x24 killTrigger (0x1c octets),
+                 +0x24..+0x40 attackTrigger, +0x40 AttackRangeType }
+
+IdunBattle.Messages.InputMessageProcessor.u003Cu003Ec__DisplayClass49_0$$u003CVerifyDeathsu003Eb__0
+    -> options = IdunBattle.Operations.KillUnitOperationOptions$$ForDefault()
+       puis ECRASE options[0x04..0x20) avec le killTrigger de l'entree -- et RIEN d'autre
+
+Core.Services.OperationProcessor$$KillUnit  -> recopie les 0x48 octets d'options tels quels
+IdunBattle.Operations.KillUnitOperation$$Execute -> +0x98..+0xb4 = options[0x04..0x20)
+```
+
+⇒ `AbilityEntities+0x98` **EST** le `killTrigger` porté par l'entrée de file.
+
+### 8.3 Ce que le port faisait — l'inversion exacte
+
+`operations/damage.py::_verify_deaths` reposait le `killTrigger` sur `state.triggering_ability`
+(`+0x60`) et laissait `state.trigger_ability_type` (`+0x98`) vide. Dégradation **PERMISSIVE** :
+un `CurrentAbilityIs` voyait une valeur là où le natif n'en publie aucune, et les gates
+`Triggering*Is` du vecteur mort lisaient le mauvais canal.
+
+Le fix, en deux gestes :
+
+* `_verify_deaths` pose `state.trigger_ability_type = kill_trigger` **et force**
+  `state.triggering_ability = None` — mirror du memset — puis restaure les DEUX ;
+* `haze_of_corruption::_triggering_ability_or_effect` (le gate `NOT TriggeringEffectIs(0x435)` de
+  `HazeCorruption_BonusHitAbility`, **seul** consommateur porté du canal sur ce vecteur) lit
+  désormais `state.trigger_ability_type`, en accès DIRECT (un canal absent doit LEVER, pas dégrader
+  en « pas de déclencheur » — le mode de panne que ce gate anti-chaîne doit empêcher).
+
+### 8.4 La mesure — le régime est ATTEINT en bataille, et le rouge a été VU
+
+Montage live = la chaîne `HazeOfCorruption` de `case-haze-bonded` (seed 777 / PV 1200 / k = 2), le
+seul montage porté qui produise un `killTrigger` non nul : les relais y meurent DANS le behaviour de
+`HazeOfCorruptionDamageTransferTrigger` (`TRIGGERED_ABILITY_ID = 0x435`).
+
+```
+                          (dying, +0x98, +0x60)
+APRES #301 :  [(77, None, None), (81, 1077, None), (79, 1077, None)]
+AVANT #301 :  [(77, None, None), (81, None, 1077), (79, None, 1077)]
+```
+
+L'inversion exacte, sur 2 morts sur 3. Rouges vus **avant** le fix :
+
+* `probe_301 --real` (le code du dépôt) : `ROUGE -- 'K.matches' voit +0x98 = None` ;
+* `pytest test_kill_unit_trigger_channels.py` : **5 rouges sur 12** ;
+* `pytest test_kill_unit_trigger_channels_live.py` : **2 rouges sur 3**, avec les valeurs mesurées.
+
+Quatre contre-épreuves, **quatre signatures distinctes** (`probe_301 --mutate`) : `legacy` (l'état
+d'avant, `+0x98` vide), `both` (les deux canaux alimentés → `CurrentAbilityIs` redevient satisfiable
+sur la mort), `nowipe` (`+0x60` non effacé → l'ambiant fuit dans la mort), `persist` (pas de
+restauration de `+0x98`).
+
+### 8.5 Ce que #301 n'établit PAS
+
+* **La divergence était LATENTE, et le dire est le point le plus important.** Aucun consommateur
+  porté ne lit `+0x60` sur le vecteur mort : le seul qui lise le canal y est
+  `haze_of_corruption`, dont le prédicat natif est `TriggeringEffectIs` — donc `+0x98`. Le fix
+  déplace la valeur d'un canal à l'autre **sans changer aucun observable de bataille** :
+  `probe_220 --cf` rend **14 `genrand` / `bonus_fire = 1`** des DEUX côtés du fix (le contrefactuel,
+  lui, donne 18 / 3). C'est la signature même d'une dégradation permissive, et la raison pour
+  laquelle les gardes sont câblées sur le CANAL, pas sur un observable.
+* **Le seul consommateur porté de `CurrentAbilityIs` — `CursedPlagueBellAttackAbility` (`On(9)`) —
+  n'est pas exerçable sous la mort.** Il faudrait une attaque émise par un trigger SANS
+  `TRIGGERED_ABILITY_ID` (les 79 du registre) pendant le drain, dont l'acteur soit `Psyker`, avec un
+  porteur ennemi de 1071 dans la portée de contagion, sur une mort à `killTrigger` non nul. Cette
+  conjonction n'est atteinte par aucun montage connu — **non couvert, nommé**.
+* **`barbed_ovipositor`** (`On(0)`, `NOT TriggeringAbilityIs(TriggeredAbilityType.ItsGonnaBlow =
+  1080)`) reste un gate **INERTE non porté** : aucun poseur d'`ItsGonnaBlow` n'existe côté port
+  (passif npc-only). Le canal `+0x98` étant désormais alimenté sur `On(0)`, ce gate est **portable
+  le jour où `ItsGonnaBlow` l'est** — il ne l'est pas ici, faute de poseur.
+* **Le CHOIX de la valeur** capturée à l'enqueue reste l'approximation de §2.1 : le port capture
+  `state.triggering_ability` (l'ambiant `CurrentAbility`) là où `RecordKillOperation$$Execute` lit le
+  `KillUnitContext`. Les deux coïncident dans tous les régimes portés ; #301 corrige le canal de
+  SORTIE, pas la source d'ENTRÉE.
+* **Les écrivains 1 et 3 restent ouverts** (§7.2). Le 3 porte en outre l'asymétrie ADD/REMOVE, qui
+  contredit un commentaire de `triggers/base.py` — signalé, non traité ici.
+
+### 8.6 Reproduire (#301)
+
+```bash
+cd scripts/python
+python probe_301_kill_unit_trigger_channels.py --real          # le code du depot : VERT
+python probe_301_kill_unit_trigger_channels.py --mutate legacy   # ROUGE : +0x98 vide
+python probe_301_kill_unit_trigger_channels.py --mutate both     # ROUGE : +0x60 = killTrigger
+python probe_301_kill_unit_trigger_channels.py --mutate nowipe   # ROUGE : +0x60 = l'ambiant
+python probe_301_kill_unit_trigger_channels.py --mutate persist  # ROUGE : fuite finale de +0x98
+python probe_301_kill_unit_trigger_channels.py --live            # regime mesure en bataille
+python -m pytest tests/engine/runner/test_kill_unit_trigger_channels.py -q       # 12 offline
+python -m pytest tests/engine/runner/test_kill_unit_trigger_channels_live.py -q  # 3 live
 ```

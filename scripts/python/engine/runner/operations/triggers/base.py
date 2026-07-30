@@ -71,7 +71,8 @@ class TriggerEvent:
         # `TriggeringEffectIs` est TOUJOURS FAUX cote natif : c'est `CurrentAbilityIs` qui porte
         # l'effet retire. L'ancienne redaction (« poser/retirer », `On(64)` inclus) etait fausse.
         # Aucun consommateur porte n'est sur le vecteur RETRAIT -> rien a corriger cote comportement ;
-        # residu N18 de `docs/rl/port-residuals-inventory.md`.
+        # residu N18 de `docs/rl/port-residuals-inventory.md` (sous-item ADD/REMOVE, toujours OUVERT ;
+        # le sous-item MORT du meme N18 est ferme par #301).
         self.triggering_effect = triggering_effect
         # `IsFirstHitInSeries` (`IdunBattle.Entities.Triggers.IsFirstHitInSeriesTrigger$$ShouldTrigger`) =
         # `AbilityEntities.get_IsFirstHit` = `Nullable<bool>(hitIndex.HasValue && hitIndex == 0)` — le champ
@@ -109,8 +110,13 @@ class TriggerEvent:
         #     recopie par `IdunBattle.Operations.RecordKillOperation$$Execute` depuis le
         #     `KillUnitContext` (le champ `+0x20` s'il a une valeur, sinon `+0x00`) et passe au
         #     publieur de `On(3)`. Les deux valeurs COINCIDENT dans les regimes portes (le coup fatal
-        #     est porte par la triggered en cours), jamais separees par un montage.
-        # None = evenement hors triggered-ability.
+        #     est porte par la triggered en cours), jamais separees par un montage. Sur `On(3)` le
+        #     natif ecrit d'ailleurs `+0x60` ET `+0x98` avec la MEME ability (voie universelle
+        #     `Core.Services.OperationProcessor$$EvaluateAbilities`) -> lire l'un ou l'autre y est
+        #     equivalent, contrairement aux CINQ evenements de `KillUnitOperation` (#301).
+        # None = evenement hors triggered-ability. ⚠ Sur le vecteur MORT (`On(0)/On(1)/On(2)/On(53)/
+        # On(54)`) ce canal est INCONDITIONNELLEMENT vide cote natif comme cote port (#301) : un gate
+        # `Triggering*Is` de ce vecteur doit lire `state.trigger_ability_type`, jamais celui-ci.
         self.triggering_ability = triggering_ability
 
 

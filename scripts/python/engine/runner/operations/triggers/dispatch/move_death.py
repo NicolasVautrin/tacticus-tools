@@ -128,10 +128,10 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
     """Vecteur `On(PostUnitKill = 0x35 = 53)` — **5e et DERNIER** des events de mort émis par
     `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
-    par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)`).
+    par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x36)` -> `On(0x35)`).
     `actor` = le TUEUR, `target`/`dying` = la victime.
 
-    Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x36) & OwnerIsActor & AreFriends &
+    Consommateur porté : `CosmicHorrorOnMoveAbility` (`On(0x35) & OwnerIsActor & AreFriends &
     HasTrait(target, Decoy)`) — le Patermine qui marche sur un decoy allié le CRUSHE
     (`MoveUnitOperation$$KillSteppableUnits` -> `KillUnitOperation$$Execute` avec
     `KillUnitOperationOptions$$ForSteppable`) et se soigne. No-op si rien ne matche."""
@@ -248,7 +248,17 @@ def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
     {killer=0x158, dying=0x178, overkill} et lance `evaluate_trigger_operation`. Déclenche les accumulations
     ActOfFaith (allié Imperial qui meurt ou tue) + FinalJustice (l'unité mourante riposte, sauf overkill).
     `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
-    matche."""
+    matche.
+
+    CANAUX D'ABILITY SUR CE VECTEUR (#301) — vaut pour les CINQ events de
+    `IdunBattle.Operations.KillUnitOperation$$Execute` (`On(1)`, `On(2)`, `On(0)`, `On(54)`, `On(53)`),
+    qui partagent le MEME `AbilityEntities`, bati une fois et publie tel quel :
+      * `CurrentAbility` (`+0x60`, `state.triggering_ability`) = **VIDE** — le memset de 0x128 n'est
+        suivi d'AUCUNE reecriture de ce champ. Tout `CurrentAbilityIs` y est faux.
+      * `TriggeringAbility` (`+0x98`, `state.trigger_ability_type`) = le `killTrigger` de la file
+        (`KillUnitOptions+0x04`). C'est LUI que doit lire un `TriggeringAbilityIs` /
+        `TriggeringEffectIs` / `TriggeringAbilityIsNone` de ce vecteur.
+    Les deux sont poses par `operations/damage.py::_verify_deaths` pour la duree du drain."""
     ev = TriggerEvent(EventTriggerType.PreUnitDeath,
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id,
@@ -301,7 +311,9 @@ def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[i
     """Vecteur `On(PreUnitDeath_2 = 2)` — event NATIF DISTINCT de `PreUnitDeath(1)` et de
     `UnitDefeated(54)`. Emis par `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute` ENTRE les deux : ordre
     d'instruction LU au decompile `On(1)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc) -> `On(2)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x97a) ->
-    `On(0)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9) -> `On(0x37=55)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xeac) -> `On(0x36=54)` (IdunBattle.Operations.KillUnitOperation$$Execute+0x102c).
+    `On(0)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9) -> `On(0x36=54 UnitDefeated)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xeac) -> `On(0x35=53 PostUnitKill)` (IdunBattle.Operations.KillUnitOperation$$Execute+0x102c).
+    (Litteraux d'event RE-DERIVES en #301 : les cinq call-sites passent 1, 2, 0, 0x36 puis 0x35 --
+    l'ancienne redaction ecrivait `0x37`/`0x36`, hex faux pour les memes valeurs decimales.)
     (`ApplyDamageOperation$$IdunBattle.Operations.ApplyDamageOperation$$Execute` n'emet AUCUN des trois ; `InputMessageProcessor$$
     IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` non plus — il ne fait qu'appeler `OperationProcessor$$Core.Services.OperationProcessor$$KillUnit.)
 
@@ -321,9 +333,9 @@ def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[i
 def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = None,
                         overkill: bool = False) -> list[dict]:
     """Vecteur `On(UnitDeath=0)` — 3e des events de mort emis par `IdunBattle.Operations.KillUnitOperation$$Execute`
-    (sequence verifiee au decompile : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` PreUnitDeath_2 ->
-    `...,0` **UnitDeath** -> `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja
-    `On(1)` (`after_death_triggers`) et `On(0x37)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
+    (sequence verifiee au decompile : `(...,1)` PreUnitDeath -> `...,2` PreUnitDeath_2 ->
+    `...,0` **UnitDeath** -> `...,0x36` UnitDefeated -> `...,0x35` PostUnitKill). Le port emettait deja
+    `On(1)` (`after_death_triggers`) et `On(0x36)` (`unit_defeated_triggers`) mais PAS `On(0)` — d'ou ce
     vecteur, insere a sa place EXACTE (entre les deux).
 
     Consommateur : branche 1 de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger`
@@ -357,8 +369,8 @@ def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id:
 
 
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
-    """Vecteur `On(UnitDefeated=54=0x37)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
-    `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x37) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
+    """Vecteur `On(UnitDefeated=54=0x36)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
+    `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x36) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
     par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
     fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
     `turn_defeated`. No-op si aucun porteur Ambush ne meurt."""
