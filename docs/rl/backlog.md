@@ -123,17 +123,33 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Sur un stride d'itération de `List<T>`, se tromper de 32 octets par élément suffit à rendre du
   garbage sur **tout événement après le premier**. Ne jamais citer un chiffre de `classes.tsv` sans
   retirer le header.
-- **Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile** sur certaines configurations
-  (`case-224-cursed-plague-bell-extramove` §4). Mesuré en confrontant `aiMovableTiles`
-  (`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor`) au pendant offline
-  `engine/ai/state_bridge._move_tiles` : `MC1_67`/777 — `astraBullgryn` **et** `worldJakhal`
-  sur-atteignent `(2,3)`, `necroWarden` sur-atteint `(3,6)` ; `C4_09`/31337 — `blackAbaddon`
-  sur-atteint `(4,4)`. Signature **constante** : toujours `offline \ natif`, toujours **une** tuile,
-  et **indépendant de tout effet** (les unités témoins sans stat-mod montrent le même écart aux mêmes
-  tuiles). C'est donc la flood-fill (`get_movable_positions` / `make_can_continue`), pas un canal de
-  buff. Conséquence : l'IA portée peut choisir une tuile d'arrêt que le natif refuse. Point d'ancrage :
-  ces tuiles précises, en regard de `BasePathfinder$$NodesInNextLevel` / `IsValidContinuePathTile`
-  (le gate déjà porté pour `BlockEnteringUnits`). `[opus]`.
+- ~~**Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile**~~ — **LIVRÉ (2026-07-30)**,
+  `case-224-pathfinding-overreach.md`. Le gate #131 (`BasePathfinder$$NodesInNextLevel` ->
+  `WalkPathfinder$$IsValidContinuePathTile`) **était porté et n'était jamais exécuté** :
+  `make_can_continue` lit `State.effects`, que seul le canal **OPT-IN** `load_state(tiles=tileMeta)`
+  alimente — et la quasi-totalité des call-sites (dont le probe qui a produit le constat) ne le passe
+  pas. Étage confirmé par mesure discriminante (`aiMovableTiles` ré-interrogé à `overrideRange`
+  croissant) : la tuile en écart entre dans l'ensemble natif à **`mv + 1`**, jamais à `mv` — donc un
+  pas de FLOOD-FILL en trop, pas un filtre d'arrêt manquant. Les **4** cas cités pendaient tous d'un
+  **Swamp**. Fix : `make_can_continue(..., board=)` gagne une seconde source SUBORDONNÉE, le repli
+  TERRAIN (`TERRAIN_BLOCK_ENTERING = {"Swamp"}`, fondé sur
+  `ThornsBlockMovementAbility$$CreateBehaviour` = `AddBlockEnteringUnitsEffect(0) & …`), utilisée
+  UNIQUEMENT quand l'état ne porte aucun effet de tuile (`state_carries_tile_effects`). **Second
+  trou trouvé en craftant le cas discriminant neuf** (`EMC2_02`/4242, 13 Swamp) : `GetTileBlockingReasons`
+  ne teste **aucun EffectType** — il relit le registre du `MovementComponent` qu'alimente
+  `BlockTileMovementEffect$$ApplyInternal`, et **six** classes s'y enregistrent (`0x00`
+  BlockEnteringUnits, `0x05` Fire, `0x11` Ice, `0x3a` Darkness, `0x5e` LandMine, + la base
+  paramétrée sans appelant nommé). Le port ne connaissait que `0x00` ⇒ les tuiles `Fire` n'étaient
+  pas des culs-de-sac. Chiffres (`extra` = `offline \ natif`, **0 `missing` créé**) : `MC1_67`/777
+  **3 → 0**, `C4_09`/31337 **1 → 0**, `EMC2_02`/4242 **15 → 6** non hydraté et **6 → 0** hydraté.
+  Garde-fou du repli : correspondance Swamp(live) ↔ effet bloqueur mesurée **75/75 sur 13 boards**
+  (`probe_pathfinding_overreach.py --audit`) — au passage, l'affirmation de
+  `test_block_entering_tiles_live` selon laquelle « les Swamp de `PVP_desert_04` ne portent aucun
+  `BlockEnteringUnits`, la pose est CONDITIONNELLE » est **rectifiée** : ce board n'a **aucune**
+  tuile Swamp live (les 10 venaient du dump BC, pas du plateau déployé). Garde :
+  `test_block_entering_gate_armed_without_tile_channel_live`. Résidus nommés dans le case doc §6
+  (bloqueur de décor hors tile-def en régime non hydraté, bit 0x4 `blockerId != 0`, bit 0x2
+  `GetEffectiveDepth`, gate d'activation `UnitFlags`).
 - **`docs/rl/kit-coverage.md` et `docs/rl/passive-ability-coverage.md` sont PÉRIMÉS** — régénérés
   (`audit_kit_coverage.py` / `audit_passive_ability_coverage.py`), ils rendent **203 + 169** lignes de
   diff, dont l'essentiel n'est imputable à aucune PR en cours : les compteurs sautent de **123 à 127**
@@ -936,6 +952,11 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Unstoppable} consommé par le WalkPathfinder pour les effets de tuile movement-ending
   (Fire/Ice/BlockEntering). À câbler **dans la tranche movement-stop #131/B4** quand le fondement
   (effets de tuile dans la reachability) sera porté — sinon code registered-but-dead. `[opus]`.
+  ⚠ **Le fondement l'est désormais pour le bit 0x1** (2026-07-30, `case-224-pathfinding-overreach`) :
+  `tile_blocks_entering` reconnaît les **cinq** EffectTypes bloquants (`0x00/0x05/0x11/0x3a/0x5e`) et
+  applique déjà `not_blocking_movement_of_traits(effect_type)` — l'exemption Mounted/Vehicle/Unstoppable
+  n'est donc plus du code mort sur ce chemin. **Ce qui reste ouvert ici est le bit 0x2** (`GetEffectiveDepth`
+  = `Min(1, depth)`), c'est-à-dire le volet « l'hex FINIT le mouvement », toujours sans datapoint.
 - **Push : arc arrière NON-dégénéré (pousseur non-adjacent)** (`case-push-distance` §5, #68 CLOS —
   distance 1 hex tranchée RE+live) : `FindTileToPush @180e695e0` sélectionne dans l'arc arrière
   distance-1 `GetMinimumTiles180Behind @181064f98` ; pour un pousseur **non axis-aligné** l'arc rend

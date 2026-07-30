@@ -110,10 +110,17 @@ def test_block_entering_tile_is_a_dead_end_live(live_session, rpc, build_runner,
     uid, vid, team, depth = me
 
     # --- CONTROLE NEGATIF : aucun effet block-entering sur ce board -> le gate doit etre INERTE.
-    # Mesure 2026-07-27 : les Swamp de `PVP_desert_04` (10 tuiles, elevation 4) ne portent AUCUN
-    # `BlockEnteringUnits`, la ou ceux de `MC1_67` (elevations 1-2) en portent — la pose est
-    # CONDITIONNELLE (`SwampBlockMovement`, condition non RE'd). C'est exactement ce qui interdit de
-    # gater sur le TERRAIN (`tileDefId == 'Swamp'`) : ce serait un sur-blocage ici.
+    # ⚠ RECTIFICATIF (mesure 2026-07-30, `probe_pathfinding_overreach --audit`) : ce controle negatif
+    # tient, mais PAS pour la raison ecrite ici jusqu'a present (<< les Swamp de PVP_desert_04 ne
+    # portent AUCUN BlockEnteringUnits, la pose est CONDITIONNELLE >>). Le board DEPLOYE par
+    # `--board PVP_desert_04` n'a **aucune** tuile Swamp : son `boardGraph.tileDefId` rend
+    # `Unplayable 24 / Grass 21 / Block 14 / DryBush 4`. Les << 10 Swamp >> venaient du DUMP BC
+    # (`data/boards/**/PVP_desert_04.json`), pas du live. Le board reste un excellent controle
+    # negatif -- zero tuile bloquante -- mais il ne dit RIEN sur une pose conditionnelle.
+    # Correlation Swamp(live) <-> BlockEnteringUnits mesuree sur 13 boards : 75/75, zero exception
+    # (`probe_pathfinding_overreach.py --audit "MC1_67,C4_09,EMC2_02,PVP_desert_04,C2_26,C2_19,
+    # MC1_15,EC2_10,LE2_12,MC1_64,C3_10,Infested_SyncPvp_Arctic_01,C1_02"`), ce qui FONDE le repli
+    # terrain de `tile_blocking.TERRAIN_BLOCK_ENTERING`.
     if not blocked:
         from collections import Counter
         census = Counter(board.tile_def_id(t) for t in board.by_id)
@@ -169,3 +176,76 @@ def test_block_entering_tile_is_a_dead_end_live(live_session, rpc, build_runner,
     # 2. avec le gate : EGALITE EXACTE avec le natif.
     assert port == nat, (f"movable set != natif : port-only={sorted(port - nat)} "
                          f"natif-only={sorted(nat - port)}")
+
+
+@pytest.mark.parametrize("board_id", ["MC1_67", "C4_09"])
+def test_block_entering_gate_armed_without_tile_channel_live(live_session, rpc, build_runner,
+                                                             board_id):
+    """Le gate #131 doit mordre AUSSI sur un etat charge SANS `tiles=tileMeta` (residu case-224 SS4).
+
+    Le test ci-dessus hydrate l'etat (`_load` passe `tiles=`), donc il ne pouvait PAS voir le trou :
+    `load_state(tiles=...)` est OPT-IN et la quasi-totalite des call-sites ne le passe pas. Sur un
+    etat non hydrate, `State.effects` ne porte AUCUN effet de tuile, `make_can_continue` rendait
+    `None`, et `_move_tiles` s'etendait DEPUIS une Swamp : UNE tuile de trop, celle qui ne pend que
+    d'un Swamp (MC1_67/777 `worldJakhal` (2,3) via la Swamp (1,3), `necroWarden` (3,6) via (4,6) ;
+    C4_09/31337 `blackAbaddon` (4,4) via (4,3)).
+
+    La garde : sur un etat NON hydrate, `_move_tiles` == `aiMovableTiles` pour toute unite que le
+    natif juge encore mobile. AUTO-DISCRIMINANTE : avec `TERRAIN_BLOCK_ENTERING` vide (l'arbre
+    d'AVANT le fix) le meme etat doit sur-atteindre STRICTEMENT -- sinon la geometrie ne prouve rien.
+    """
+    import engine.entities.pathfinding.tile_blocking as TB
+    from engine.ai.state_bridge import _move_tiles
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from engine.runner.snapshot import load_state
+
+    rid = build_runner("777" if board_id == "MC1_67" else "31337",
+                       extra=["--p-units", "deathBlightbringer,worldJakhal,blackAbaddon,astraBullgryn",
+                              "--a-units", "necroWarden,necroWarden",
+                              "--hp-target", "300000", "--hp-player", "300000"],
+                       board=board_id)["rid"]
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    if not (isinstance(bg, dict) and bg.get("tiles")):
+        pytest.skip("boardGraph indispo")
+    board = Board(bg["tiles"], adjacency="native_sym")
+    dec = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 150)
+    ob = rpc("observeBattle", {"runnerId": rid}, 60)
+    snap = rpc("combatSnapshot", {"runnerId": rid}, 90)
+    mv = rpc("aiMovableTiles", {"runnerId": rid, "side": "all"}, 120)
+
+    # etat NON hydrate : PAS de `tiles=` -- c'est tout l'objet du test.
+    state = load_state(dec, ob, snap, board=board)
+    assert not any(state.effects.by_unit.get(t) for t in board.by_id), \
+        "l'etat ne devait porter AUCUN effet de tuile -> le test ne mesure pas le bon regime"
+
+    def _port(uid):
+        e = state.get_entity(uid)
+        pc, oc, uc = (e.get_component(PositionComponent), e.get_component(OwnerComponent),
+                      e.get_component(UnitComponent))
+        return {(t["col"], t["row"])
+                for t in _move_tiles(state, int(uid), uc.visual_id, int(oc.team), (pc.col, pc.row))}
+
+    natives = {int(u["unitId"]): {(t["col"], t["row"]) for t in (u.get("tiles") or [])}
+               for u in (mv.get("units") or [])}
+    natives = {k: v for k, v in natives.items() if v}      # unites encore mobiles seulement
+    assert natives, "aiMovableTiles ne rend rien -> rien a confronter"
+
+    saved, over_before = TB.TERRAIN_BLOCK_ENTERING, 0
+    try:
+        TB.TERRAIN_BLOCK_ENTERING = frozenset()            # l'arbre d'AVANT le fix
+        for uid, nat in natives.items():
+            over_before += len(_port(uid) - nat)
+    finally:
+        TB.TERRAIN_BLOCK_ENTERING = saved
+    assert over_before > 0, (f"{board_id} : sans le repli terrain le port est deja d'accord avec le "
+                             "natif -> scenario NON discriminant, le test ne prouve rien")
+
+    bad = {}
+    for uid, nat in natives.items():
+        p = _port(uid)
+        if p != nat:
+            bad[uid] = (sorted(p - nat), sorted(nat - p))
+    print(f"[224-SS4] {board_id} etat NON hydrate : {len(natives)} unites, "
+          f"sur-atteinte AVANT={over_before} APRES={sum(len(v[0]) for v in bad.values())}")
+    assert not bad, f"{board_id} : desaccord sur un etat non hydrate -> {bad}"

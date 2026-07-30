@@ -250,15 +250,17 @@ manquant : aucun ») — vérifiés, pas supposés : ce port n'entre AUCUNE abil
 
 ### Résidus observés, hors périmètre
 
-* **Étage PATHFINDING : le port SUR-ATTEINT d'une tuile** sur certaines configurations, et c'est
-  **indépendant de ce port** — la preuve est dans la mesure : le même écart tombe sur des unités qui
-  ne portent PAS 1073, à la même tuile (`MC1_67/777` : u87 `astraBullgryn` (sans effet) et u83 (avec)
-  sur-atteignent tous deux `(2,3)` ; u79 `necroWarden` sur-atteint `(3,6)` ; `C4_09/31337` : u92
-  `blackAbaddon` (sans effet) sur-atteint `(4,4)`). Signature constante : toujours `offline \ natif`,
-  toujours **une** tuile. Le probe le mesure, le soustrait comme bruit et le REPORTE au lieu de
-  l'imputer. Point d'ancrage pour le fermer : `engine/ai/state_bridge._move_tiles` /
-  `get_movable_positions` confrontés à `IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor`
-  sur ces tuiles précises.
+* ~~**Étage PATHFINDING : le port SUR-ATTEINT d'une tuile**~~ — **FERMÉ (2026-07-30)**,
+  `case-224-pathfinding-overreach.md`. Le constat de cette fiche était juste jusque dans le détail
+  (indépendant de 1073 : le même écart tombe sur les unités témoins, aux mêmes tuiles). Cause :
+  **les quatre tuiles pendaient d'un `Swamp`**, et le gate #131 (`BasePathfinder$$NodesInNextLevel`
+  -> `WalkPathfinder$$IsValidContinuePathTile`), pourtant porté, ne s'armait pas — il lit
+  `State.effects`, que seul le canal OPT-IN `load_state(tiles=tileMeta)` alimente, et ce probe-ci
+  charge `load_state(dec, ob, snap, board=board)` **sans** lui. `make_can_continue` prend désormais
+  le `board` et retombe sur le TERRAIN quand l'état ne porte aucun effet de tuile. Mesure sur les
+  couples de cette fiche : `MC1_67/777` 3 → 0 tuiles en trop, `C4_09/31337` 1 → 0, aucun `missing`
+  créé. (Le probe de ce cas continue de soustraire le bruit pathfinding : c'est désormais un
+  no-op.)
 * **`docs/rl/kit-coverage.md` et `docs/rl/passive-ability-coverage.md` sont PÉRIMÉS sur `master`** :
   les régénérer produit **203 + 169 lignes** de diff dont l'essentiel est étranger à cet item (les
   compteurs sautent de 123 à **127** unités lineup). Non régénérés ici — le faire noierait l'apport
