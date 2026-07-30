@@ -47,8 +47,18 @@ qui tenait 1226 / 1053 / 1185 / 1212 (et, pour une autre raison — cible ALLIEE
 Une SECONDE route Comparable, strictement ADDITIVE (elle ne touche ni `_best_attack` ni le gate
 `if not events`, qui reste le mirror pratique du regime ATTAQUE) :
 
-- `NonAttackComparablePlaybook` — regime « Comparable sans prediction » : `u = custom`, gate
-  `should_execute` (defaut `True`, mirror du slot +0x328), `u_full = u + tile_utility(tuile)`.
+- `NonAttackComparablePlaybook` — regime « Comparable hors `attackPlans` » :
+  `u = custom + CalculateUtilityFromPredictions(MakeDamagePredictions(...))`, gate `should_execute`
+  (defaut `True`, mirror du slot +0x328), `u_full = u + tile_utility(tuile)`. La base rend une liste
+  de predictions VIDE (le cas des abilities sans `damageProfile`, ex. Chronometron) — le terme de
+  prediction y est donc nul, exactement comme cote natif ; un membre qui OVERRIDE
+  `MakeDamagePredictions` (1100 SorcerousFacade) le voit sommé, comme `CalculateActionUtility` le fait.
+
+  ⚠ La route ne se limite PAS aux abilities « sans `damageProfile` ». Son critere reel est
+  « Comparable ABSENTE de `ctx.plans` », donc invisible de `_best_attack` — ce qui couvre aussi une
+  ability a `damageProfile` dont le masque de ciblage refuse toute cible ennemie (VETO #217 :
+  `state_bridge._is_attack_ability` rend False, l'ability n'entre jamais dans `attackPlans`). C'est
+  par cette porte, et SANS toucher au veto, que 1100 SorcerousFacade (cible ALLIEE) devient candidate.
 - `nonattack_candidates(ctx)` — mirror des deux boucles natives :
   `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`
   (ability x tuile) et `...ComparablePlaybook...$$EvaluateInternal` (cible, keep-first STRICT).
@@ -160,7 +170,13 @@ def nonattack_candidates(ctx) -> list:
             if not pb.is_caster_added(ctx, T):
                 continue                   # GetCasterNotAddedReason != null depuis cette tuile
             for tgt in targets:
+                # ORDRE NATIF de `CalculateActionUtility` : custom D'ABORD, puis la somme des
+                # predictions, et c'est CETTE somme que `ShouldExecute` recoit en argument.
                 u = pb.calculate_custom_utility(ctx, T, tgt, aid)
+                events = pb.make_damage_predictions(ctx, T, tgt, aid)
+                if events:                 # liste vide -> terme nul (le cas de tous les membres
+                    #                        sans `damageProfile`, ex. Chronometron : no-op exact)
+                    u += pb.calculate_utility_from_predictions(ctx, T, tgt, aid, events)[0]
                 if not pb.should_execute(ctx, T, tgt, aid, u):
                     continue               # CalculateActionUtility rend un Nullable VIDE
                 full = u + tile_utility(ctx, T)

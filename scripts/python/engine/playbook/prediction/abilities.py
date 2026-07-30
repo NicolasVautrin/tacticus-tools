@@ -378,7 +378,20 @@ _PLAYBOOK_PROFILE_OVERRIDE = {
     # --- audit #165 param_8=null : les 5 AUTRES candidats NE sont PAS des overrides pierce (confronte #169) :
     #   1027 PsychicMaelstrom IdunBattle.AI.Playbook.Loki.PsychicMaelstromPlaybook$$MakeDamagePredictions : param_8 = Nullable(BasiliskBarrage.GetDamageProfile) EXPLICITE (PAS null ; l'audit
     #     d'arite confondait param_8=profil et param_9=poids Fix64). Live OK bit-exact [2792,4188] (astraPrimarisPsy). AUCUN override.
-    #   1100 SorcerousFacade IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions : base=Half(Sum(var0xc,var0xd)) DSL != avg -> gap BASE (tache dediee).
+    #   1100 SorcerousFacade : PAS d'entree ici, et c'est DELIBERE (#27-4e). Le profil du 2e batch de
+    #   IdunBattle.AI.Playbook.Loki.SorcerousFacadePlaybook$$MakeDamagePredictions est bien VIDE
+    #   (`param_8` nul), mais une entree dans CETTE table serait INERTE : `SorcerousFacade` est dans
+    #   `_PREDICT_VIA_NORMAL_ATTACK`, donc `_event` court-circuite vers l'attaque normale AVANT de
+    #   consommer `overrides`. C'est le playbook lui-meme
+    #   (`engine.playbook.loki_custom.SorcerousFacadePlaybook.make_damage_predictions`) qui appelle
+    #   `generate_multi_hit_attack_prediction(..., profile_override="None")` pour ce 2e event, sur
+    #   `sel` (l'ennemi le plus proche) et non sur la cible ALLIEE de l'ability.
+    #   ⚠ RECTIFICATION de l'ancienne note « base=Half(Sum(var0xc,var0xd)) DSL != avg -> gap BASE » :
+    #   faux positif de lecture, tranche par le meme raisonnement que 1147/1148 (#172) --
+    #   `Half(Sum(GetVariableForLevel(0xc = minDmg), GetVariableForLevel(0xd = maxDmg)))` EST
+    #   `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(avgFlag)`, c.-a-d. l'avg config
+    #   GENERIQUE (== `ab.get_damage()` = 1496 mesure). Les hits sont `GetNumberConstant(0x2f =
+    #   nrOfHits)`, eux aussi generiques, et les cibles `DSLSelectors.Get(sel)` = mono-cible.
     1148: "None",     # DaemonicOrdnance IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
     1147: "None",     # HadesAutocannons IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions (blackForgefiend MoW) ; param_8=null -> pierce 0/armure pleine [#172]
     #   ^1148/1147 : RE #172 REFUTE l'ancienne hypothese "gap BASE". base = IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetDamage /
@@ -401,9 +414,12 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # « SpiritLeech herite ALoki_NormalAttackAbility.PredictAttack (slot vtable 0x27) » est REFUTEE — les
     # 5 specials audites resolvent `PredictAttack` vers le STUB ABSTRAIT `AActiveAbility.PredictAttack
     # IdunBattle.Entities.Abilities.AActiveAbility$$PredictAttack` (qui THROW). Le vrai chemin = `<Special>Playbook.MakeDamagePredictions` ->
-    # `GenerateMultiHitAttackPredictions(base = ability.GetAttackDamage() = CONFIG minmax)`. Donc
-    # `_PREDICT_VIA_NORMAL_ATTACK` est VIDE (via_normal toujours False) ; la branche est conservee morte
-    # au cas ou un special s'avererait un jour reellement Attack-based.
+    # `GenerateMultiHitAttackPredictions(base = ability.GetAttackDamage() = CONFIG minmax)`.
+    # ⚠ CORRECTION (#27-4e) : ce commentaire affirmait « `_PREDICT_VIA_NORMAL_ATTACK` est VIDE
+    # (via_normal toujours False) ; la branche est conservee morte ». C'est FAUX depuis #171 --
+    # l'ensemble contient `SorcerousFacade`, et la branche est bien VIVANTE pour elle. Un port qui
+    # croit cette ligne et DELEGUE la prediction de 1100 a cette fonction recoit l'attaque NORMALE,
+    # pas le batch propre de l'ability (mesure : deux events identiques, `u_pred` double).
     via_normal = ability_name in _PREDICT_VIA_NORMAL_ATTACK
     # ab/cfg/aoe construits ICI (AVANT le main event) car le compte AoE TOTAL (nrEnemies = 1 + secondaires)
     # est requis pour la clause `GetCorrectDamage` (MurderousSwing : +extraDmg AJOUTE A LA BASE si UN seul

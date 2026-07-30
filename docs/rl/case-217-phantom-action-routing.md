@@ -39,6 +39,14 @@ SorcerousFacadeAbility$$GetDynamicInvalidTargetReason(caster, casterTiles, targe
 `Psychic` et `constants.range` est absent (portée = arme, 2). Les DEUX signaux gameconfig disent
 « attaque » ; le camp ne vit QUE dans le littéral du ctor.
 
+✅ **RE-LU sur le build `rnca9r7q6c` (#27-4e)** — identique, et l'overload est cette fois ÉTABLI :
+c'est la surcharge **FLAGS DIRECTS** de `IdunBattle.Core.Services.TargetingOptions$$.ctor`
+(`(this, isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+getDynamicInvalidTargetReason)`), ni la surcharge PRESET+flags ni une recopie de champ statique —
+`rules = 0x402` est donc bien le masque EFFECTIF, et non un littéral trompeur. Le `range` copié
+depuis les statiques est un `TargetingRange` **whole board**, confirmé live : `abilityTargets(1100)`
+rend l'allié Psyker à **distance 6** du caster.
+
 ### 1.2 Pourquoi le natif ne rend AUCUNE tuile sur un ennemi
 
 `IdunBattle.Core.Services.AttackQuery$$GetBestTileToAttackFrom(unit, tiles, target, ability)` —
@@ -144,7 +152,7 @@ les re-dériver avec le probe plutôt que citer ce tableau :
 
 | classe | compte | statut |
 |---|---|---|
-| masque refusant TOUTE cible ennemie (`TargetIsFriendly`/`TargetIsCaster`) | **5** — 1002 CombatRestoratives, 1009 ResurrectionOrb, **1100 SorcerousFacade**, 1187 ThriceBlessedConflagration, 1214 Hailstrike | **fermé** (veto) |
+| masque refusant TOUTE cible ennemie (`TargetIsFriendly`/`TargetIsCaster`) | **5** — 1002 CombatRestoratives, 1009 ResurrectionOrb, **1100 SorcerousFacade**, 1187 ThriceBlessedConflagration, 1214 Hailstrike | **fermé** (veto) ; 1100 a depuis une route ALLIÉE portée (#27-4e) — le veto reste, la route ne le traverse pas |
 | dont **routées vers les ennemis avant le fix** | **3** — 1100, 1187, 1214 | **fermé** |
 | divergence de **DOMAINE** : routée vers des UNITÉS ennemies, masque TILE-targeting | **7** — 1017 FragBomb, 1026 BasiliskBarrage, 1116 RadBombardment, 1159 MacroPlasmaIncinerator, 1188 DevastatingRefrain, 1201 SquigMine, 1213 DeathOnTheWind | **résidu nommé** (§5) |
 | **sous-génération** : masque `TargetIsEnemy`, ability NON routée (pas de `damageProfile`) | **11** | **résidu nommé** (§5) |
@@ -208,12 +216,22 @@ bloc de statiques → `rules` à `<preset>+0x28`), après quoi chaque ctor se li
   candidates offline. Le veto est soustractif par construction ; les promouvoir demanderait de savoir
   leur produire une utilité (elles n'ont pas de prédiction de dégât).
 - **Règle dynamique de 1100 non portée** — `ability_targets_offline(1100)` rend un SUR-ENSEMBLE des
-  alliés (le caster inclus) là où le natif ne rend que l'allié **Psyker**. Aucun consommateur
-  aujourd'hui (1100 n'a pas de playbook, cf. PR #208), donc inerte ; à fermer avec le port de la
-  face COMBAT de 1100.
+  alliés (le caster inclus) là où le natif ne rend que l'allié **Psyker**. ⚠ **1100 A désormais un
+  playbook** (`SorcerousFacadePlaybook`, porté par #27-4e) : ce sur-ensemble n'est plus inerte en
+  OFFLINE PUR, il y est consommé par la route alliée de `engine/playbook/nonattack.py`. En LIVE
+  l'ensemble reste EXACT (le seam `ctx.ability_targets` appelle le RPC natif `abilityTargets`, et
+  c'est ce chemin-là qui est validé). S'y ajoute un écart de sens INVERSE, lui aussi offline-pur :
+  `_ability_reach(1100)` dérive de `attackRangeType: Normal` → portée d'ARME (2), alors que le
+  masque porte `TargetingRange` **whole board** (mesuré live : `abilityTargets` rend l'allié à
+  distance 6). Les deux se ferment ensemble le jour où `ability_targets_offline` lira le masque
+  plutôt que le gameconfig.
 - **15 masques non relus** (§4) — MoW et boss NPC pour l'essentiel.
-- **Pas de flip de DÉCISION mesuré** : dans le montage exercé, l'action retenue est la même avant et
-  après (`ability 17` attaque normale, `util 51.92`). C'est attendu — le dégât config de 1100
-  (`[1197,1795]`, cf. `case-171`) est **sous** l'attaque normale du Tzaangor (`[1623,3591]`), donc le
-  fantôme perdait l'argmax. Il restait une action ILLÉGALE offerte à l'espace d'action (et exécutable
-  en dégât générique) : c'est ce trou qui est fermé, pas un choix d'IA observé.
+- ~~**Pas de flip de DÉCISION mesuré**~~ — vrai de CE fix (le fantôme perdait l'argmax : le dégât
+  config de 1100, `[1197,1795]` cf. `case-171`, est sous l'attaque normale du Tzaangor
+  `[1623,3591]`) ; **plus vrai du cas**. La face DÉCISION de 1100 a depuis été portée par **#27-4e**
+  sur la route ALLIÉE, et le flip y est mesuré : le natif bascule attaque normale ↔ 1100 selon
+  l'élévation de la tuile de l'allié visé, le moteur suit dans les 5 bras, et la route ENNEMIE reste
+  à zéro éval rankable **dans le même montage** (`probe_27_4e_facade_ab.py`,
+  `tests/engine/test_sorcerous_facade_decision_live.py`). Le veto de cette fiche n'a pas été
+  affaibli — il a été CONTOURNÉ par le bon côté : 1100 n'entre pas dans `plans`, elle entre par
+  `NONATTACK_PLAYBOOKS`.
