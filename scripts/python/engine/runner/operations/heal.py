@@ -2,8 +2,8 @@
 
 Mutateur ECS inverse du degat : remonte les PV d'une cible, plafonne a `hp_max` (FillUp).
 KEYSTONE de la categorie HEAL/REPAIR/lifesteal du runner combat (cf.
-`docs/rl/combat-ability-coverage.md`, tache #94) : SpiritLeech lifesteal, MassHeal, MechRepair,
-BattleTinkererRepair, etc. delegueront ici pour muter les PV cote EXECUTION (le runner no-op-ait
+`docs/rl/combat-ability-coverage.md`, tache #94) : SpiritLeech lifesteal, MassHeal (8), Repair (28),
+Repair_GalvanicField (1119), etc. delegueront ici pour muter les PV cote EXECUTION (le runner no-op-ait
 SILENCIEUSEMENT ces abilities, cf. doctrine CLAUDE.md "DECIDER != EXECUTER").
 """
 from __future__ import annotations

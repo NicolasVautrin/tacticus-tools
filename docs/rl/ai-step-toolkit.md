@@ -161,7 +161,8 @@ porte aussi `<DamagePrediction>@0x50, <Attack>@0x68, <Movement>@0x60, <Targeting
 ## Modèle d'abilities (clé — découvert 2026-06-14)
 
 **L'attaque normale n'est PAS l'abstrait `ActiveAbilityType.NormalAttack=17`.** C'est un
-id **CONCRET par unité** (ex. `Loki_NormalAttack=69`, `ShadeAttack_Attack=68`…). L'abstrait
+id **CONCRET par unité** (ex. `Loki_NormalAttack=69`, `TemplarInitiateNormalAttack=1046`,
+`RogalDorn_NormalAttack=1126`…). L'abstrait
 17 n'est dans le component d'**aucune** unité → `GetOrNull(component, 17)` renvoie null →
 `GetBestTileToAttackFrom`/`GetValidTargets`/`GetInvalidTargetReason` rejettent toutes les
 tiles → résultat vide. **Il FAUT passer l'id concret.**
@@ -251,8 +252,11 @@ caster du tout. Overloads `GetInvalidTargetReason` : `(…, IEntity tile, …)`,
   de BattleQuery. + `GetEligibleTargetsEntities`, `GetAllNormalAttackTargets`.
 - **`<Ability>Playbook`** = policy/scoring par-ability (au-dessus des weights `Utilities`) :
   `Calculate*Utility`/`GetTargetUtility`/`Get*Selector`. Non-attaque : `CrusadeOfWrath.
-  GetBuffTargetsSelector` (buff), `BattleTinkererRepair.FindHighestAttackEnemyWithTarget`
-  (repair), `DeathFromAbove`/`ResurrectionOrb.GetNumPossibleSpawnTilesForTarget` (summon),
+  GetBuffTargetsSelector` (buff), `IdunBattle.AI.Playbook.Common.RepairPlaybook` /
+  `IdunBattle.AI.Playbook.Loki.NanoscarabRepairProtocolsPlaybook` (repair — l'exemple
+  `BattleTinkererRepair.FindHighestAttackEnemyWithTarget` cité ici jusqu'au 2026-07-30 a été
+  RETIRÉ du jeu, cf. #270 : ni la classe ni l'ability n'existent plus),
+  `DeathFromAbove`/`ResurrectionOrb.GetNumPossibleSpawnTilesForTarget` (summon),
   `NobleCharge.GetPushableTargetOnHighestUtilityTile` (displacement). cf. mémoire
   `reference_playbook_ai_policy`. → la **légalité** est ce qu'on expose ; la **policy** est de la
   doctrine lisible si on veut comprendre les choix de l'IA.
