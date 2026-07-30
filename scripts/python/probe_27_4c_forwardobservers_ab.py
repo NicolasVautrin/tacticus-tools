@@ -62,6 +62,8 @@ import sys
 from pathlib import Path
 
 import probe_27_3_live as L
+from engine.entities.active_ability_type import ActiveAbilityType
+from engine.entities.effect_type import EffectType
 
 HERE = Path(__file__).resolve().parent
 LOGS = HERE.parents[1] / "logs"
@@ -69,9 +71,13 @@ SEED_BC = LOGS / "bc_fo_graft.json"
 STATE = LOGS / "rs_fo_ab.json"
 BOARD = "MC1_67"
 SEED = 909
-FORWARD_OBSERVERS = 1185
+# Ordinaux DERIVES des tables versionnees, jamais recopies d'une fiche (cf. #292 : des ordinaux
+# executables figes sur un ancien build). `ForwardObservers` est un `ActiveAbilityType`, `Markerlight`
+# un `EffectType` -- deux enums DISTINCTS ou 1185 designe deux choses sans rapport
+# (`EffectType(1185)` = `WeaverOfFate_MaxOutDamage`).
+FORWARD_OBSERVERS = int(ActiveAbilityType.ForwardObservers)
 NORMAL = 69
-MARKERLIGHT = 1122                     # EffectType.Markerlight = 0x462
+MARKERLIGHT = int(EffectType.Markerlight)                # 0x462
 
 GRAFT_ON = "tauCrisis"                 # porteur GREFFE (cf. l'en-tete)
 P_UNITS = "tauCrisis,tauDarkstrider,ultraCalgar"
