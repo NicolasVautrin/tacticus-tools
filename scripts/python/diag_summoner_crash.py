@@ -40,7 +40,10 @@ from pathlib import Path
 
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
-TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
+# #273 : `TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"` vivait ici sans
+# AUCUN lecteur -- une entree gitignoree citee mais jamais lue. Retiree : elle
+# gonflait l'inventaire des consommateurs sans en etre un. Les vrais lecteurs
+# passent par `host_inputs.find("frida/data/ai-traces", ...)`.
 ARENA_SEED_BC = ROOT / "data" / "seed-bc.json"
 
 PLAYER_ID_HUMAN = 11

@@ -18,11 +18,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 STATE = ROOT / "logs" / "runners" / "_49gnt_state.json"
-TRACES = ROOT / "frida" / "data" / "ai-traces"   # host cwd = frida/ (cf. ai-trace-store.ts)
+# #273 : ecrites par le HOST dans SON arbre (`frida/host/ai-trace-store.ts`), et
+# `frida/data/` est gitignore -> chemin construit depuis un worktree = vide, et
+# `Path.glob` ne leve pas. `host_inputs` resout et separe les deux 0.
+TRACES = "frida/data/ai-traces"
 STOP = 14
 TILES = {(3, 4), (4, 3)}
 
@@ -71,9 +75,17 @@ def main() -> int:
         _rpc(sid, "aiTraceDisable", ["L3"], timeout=20)
         print(f"[49g] fenetre seq: ({lo}, {hi}]")
 
-        files = sorted(TRACES.glob(f"{sid}-*.jsonl"), key=lambda p: p.stat().st_mtime)
+        try:
+            files = sorted(host_inputs.find(TRACES, f"{sid}-*.jsonl"),
+                           key=lambda p: p.stat().st_mtime)
+        except host_inputs.HostInputUnavailable as e:
+            # PAS MESURE -- distinct de « la capture L3 n'a rien emis » (rc 4).
+            print("[49g] repertoire de traces introuvable :\n" + str(e))
+            return 5
         if not files:
-            print(f"[49g] pas de trace {sid}-*.jsonl dans {TRACES}")
+            print(f"[49g] MESURE et VIDE : aucun {sid}-*.jsonl dans "
+                  f"{host_inputs.resolve(TRACES).label()} -- la capture L3 "
+                  f"n'a rien ecrit pour cette session")
             return 4
         out: dict = {}
         with open(files[-1], encoding="utf-8") as f:

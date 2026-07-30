@@ -65,6 +65,7 @@ except ImportError:
 # ci-dessous. `stream_events` lit `data/symbols/<CURRENT>/frida/enums.tsv`, VERSIONNÉE et
 # estampillée, et LÈVE sur un membre disparu.
 import stream_events as _SE  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 
 
 def _enum_name(v: int | None, col: str) -> str | None:
@@ -84,8 +85,14 @@ def _group_name(code: int | None) -> str | None:
 
 HOST = "http://127.0.0.1:8765"
 ROOT = Path(__file__).resolve().parents[2]
-TRACES_DIR = ROOT / "frida" / "data" / "ai-traces"
-SUMMARIES_DIR = ROOT / "frida" / "data" / "rl-batches"
+# #273 : ENTREES gitignorees ecrites HORS de ce checkout -- `ai-traces` par le
+# HOST Node (cwd = `frida/` de SON arbre), `rl-batches` par un batch anterieur.
+# Resolues par `host_inputs` (env > arbre local > arbre principal git), qui
+# LEVE au lieu de rendre une liste vide quand aucun candidat n'existe.
+# `rl-batches` reste, lui, une SORTIE de ce script : ecrite dans l'arbre du
+# host quand il existe, sinon cree localement (cf. `_summaries_out_dir`).
+_TRACES = "frida/data/ai-traces"
+_SUMMARIES = "frida/data/rl-batches"
 # Seed BC template (skeleton Players/Utilities/mode) + board dumps. TOUS DEUX
 # sous data/ (gitignore) = artefacts LOCAUX per-hash, PURGES par tout menage de
 # data/ (git clean -fdx, ...). Regeneres en une commande : `python dump_boards.py`
@@ -179,10 +186,25 @@ def _open_progressive_ingest(
         print("[ingest] psycopg pas installe — ingestion progressive desactivee",
               file=sys.stderr)
         return None
-    env = _load_env(ROOT / ".env")
+    # #273 : `.env` est gitignore (secret) -> ABSENT d'un worktree frais. Le
+    # message d'avant (« PG_PASSWORD vide ») accusait le CONTENU du fichier ;
+    # dans un worktree, le fichier n'existait tout simplement pas et le batch
+    # tournait en collectant tout, sans rien ingerer. Les deux causes portent
+    # desormais deux messages, et le chemin retenu est NOMME.
+    env_res = host_inputs.resolve(".env")
+    env = _load_env(env_res.path) if env_res.path else {}
     pwd = env.get("PG_PASSWORD")
     if not pwd:
-        print("[ingest] PG_PASSWORD vide — ingestion desactivee", file=sys.stderr)
+        if env_res.path is None:
+            print("[ingest] PAS MESURE -- aucun .env trouve, ingestion "
+                  "desactivee :\n"
+                  + "\n".join(f"    [{o}] {p.as_posix()}"
+                              for o, p in env_res.candidates),
+                  file=sys.stderr)
+        else:
+            print(f"[ingest] PG_PASSWORD vide dans "
+                  f"{env_res.path.as_posix()} -- ingestion desactivee",
+                  file=sys.stderr)
         return None
     conn = psycopg.connect(
         host=env.get("PG_HOST", "localhost"),
@@ -244,7 +266,7 @@ def _open_progressive_ingest(
     return {
         "conn": conn,
         "batch_id": batch_id,
-        "trace_path": trace_path or TRACES_DIR / "_unknown.jsonl",
+        "trace_path": trace_path or host_inputs.require(_TRACES) / "_unknown.jsonl",
         "trace_offset": 0,
         "pending_events": {},
         "next_gid": next_gid,
@@ -848,9 +870,15 @@ def _ensure_ai_trace(sid: int) -> dict:
     return _rpc(sid, "aiTraceStatus", [], timeout=5).get("result") or {}
 
 
-def _dir_size_bytes(p: Path) -> int:
-    if not p.exists():
-        return 0
+def _dir_size_bytes(p: Path | None) -> int | None:
+    """Octets de `*.jsonl` sous `p`. `None` = PAS MESURE (repertoire absent).
+
+    #273 : rendait `0` pour « repertoire absent » comme pour « repertoire vide ».
+    Le delta before/after imprime en fin de batch valait alors `0 -> 0`, lu comme
+    « le host n'a rien ecrit » alors qu'on ne regardait pas au bon endroit.
+    """
+    if p is None or not p.exists():
+        return None
     return sum(f.stat().st_size for f in p.glob("*.jsonl") if f.is_file())
 
 
@@ -1475,16 +1503,26 @@ def main(argv: list[str]) -> int:
     rng = random.Random(seed)
     print(f"[ok] seed = {seed}")
 
-    bytes_before = _dir_size_bytes(TRACES_DIR)
+    # #273 : le repertoire de traces est ECRIT PAR LE HOST, dans SON arbre. Un
+    # worktree y globait dans le vide et le batch se poursuivait, annoncant
+    # `0 -> 0` octets et `active trace = None` comme si le host s'etait tu.
+    # Le collect a besoin de ce fichier (offset d'ingest + `trace_files` du
+    # summary) : introuvable => ECHEC NOMME, jamais une collecte muette.
+    try:
+        traces_dir = host_inputs.require(_TRACES)
+    except host_inputs.HostInputUnavailable as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    bytes_before = _dir_size_bytes(traces_dir)
     # Snapshot le fichier JSONL trace actif AVANT le run pour pouvoir
     # l'écrire dans le summary (= pointer vers les events Frida de ce batch).
     trace_files_before = set(
-        p.name for p in TRACES_DIR.glob("*.jsonl"))
+        p.name for p in host_inputs.find(_TRACES, "*.jsonl"))
     # Localiser le JSONL actif (le plus recent) pour l'ingest progressif.
-    _all_traces = sorted(TRACES_DIR.glob("*.jsonl"),
+    _all_traces = sorted(host_inputs.find(_TRACES, "*.jsonl"),
                          key=lambda p: p.stat().st_mtime, reverse=True)
     active_trace = _all_traces[0] if _all_traces else None
-    print(f"[ok] ai-traces dir : {TRACES_DIR}")
+    print(f"[ok] ai-traces dir : {host_inputs.resolve(_TRACES).label()}")
     print(f"[ok] bytes before  : {bytes_before:,}")
     print(f"[ok] active trace  : {active_trace}")
     print(f"[ok] launching {args_ns.num_battles} battles "
@@ -1624,8 +1662,8 @@ def main(argv: list[str]) -> int:
                       f"err={res.get('err')!r}")
 
     total_elapsed = time.monotonic() - t_global
-    bytes_after = _dir_size_bytes(TRACES_DIR)
-    delta = bytes_after - bytes_before
+    bytes_after = _dir_size_bytes(traces_dir)
+    delta = (bytes_after or 0) - (bytes_before or 0)
 
     print("-" * 60)
     ok_count = sum(1 for r in results if r.get("ok"))
@@ -1637,8 +1675,8 @@ def main(argv: list[str]) -> int:
     if ok_count:
         print(f"  reached Finished    : {finished}/{ok_count}")
     print(f"  total turns         : {total_turns}")
-    print(f"  ai-traces           : {bytes_before:,} -> {bytes_after:,} "
-          f"(+{delta:,} bytes)")
+    print(f"  ai-traces           : {bytes_before or 0:,} -> "
+          f"{bytes_after or 0:,} (+{delta:,} bytes)")
     print(f"  total elapsed       : {total_elapsed:.1f}s")
     if ok_count and total_turns:
         print(f"  avg time / turn     : "
@@ -1649,7 +1687,7 @@ def main(argv: list[str]) -> int:
     # run, et tous les battles avec rosters/board/runnerId/turns.
     # Le runnerId du Frida permet de joindre avec les events `move_options`
     # et `battle_winner` du JSONL.
-    trace_files_after = set(p.name for p in TRACES_DIR.glob("*.jsonl"))
+    trace_files_after = set(p.name for p in host_inputs.find(_TRACES, "*.jsonl"))
     new_traces = sorted(trace_files_after - trace_files_before)
     # Si plusieurs JSONLs créés pendant le run (rare — typiquement 0 ou 1
     # nouveau), on garde tous. Si aucun, on pointe vers le plus récent
@@ -1657,14 +1695,17 @@ def main(argv: list[str]) -> int:
     if new_traces:
         active_traces = new_traces
     else:
-        latest = sorted(
-            [p for p in TRACES_DIR.glob("*.jsonl")],
-            key=lambda p: p.stat().st_mtime, reverse=True)
+        latest = sorted(host_inputs.find(_TRACES, "*.jsonl"),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
         active_traces = [latest[0].name] if latest else []
 
-    SUMMARIES_DIR.mkdir(parents=True, exist_ok=True)
+    # SORTIE : le summary accompagne les traces qu'il indexe (`trace_files` y est
+    # relatif a TRACES_DIR), donc il s'ecrit dans l'arbre du HOST -- pas dans le
+    # worktree, ou `rl_ingest_postgres --all` ne le retrouverait jamais.
+    summaries_dir = traces_dir.parent / "rl-batches"
+    summaries_dir.mkdir(parents=True, exist_ok=True)
     summary_name = (f"batch-{int(t_global)}-sid{sid}.json")
-    summary_path = SUMMARIES_DIR / summary_name
+    summary_path = summaries_dir / summary_name
     summary = {
         "schema_version": 1,
         "started_at": int(t_global),       # monotonic — pour ordering

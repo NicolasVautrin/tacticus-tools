@@ -40,8 +40,14 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "python"))
 
 import stream_events as SE  # noqa: E402
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
 
-HOST_META = REPO / "frida" / "data" / "meta"
+# #273 : l'artefact host vit sous `frida/data/meta` de l'arbre d'ou tourne le
+# HOST -- gitignore, donc jamais dans un worktree. `REPO / "frida" / "data" /
+# "meta"` y rendait TOUJOURS « artefact host absent », et l'ETAPE 1 restait
+# perpetuellement NON VERIFIEE pour tout agent. Resolu par `host_inputs`, elle
+# redevient verifiable ; l'absence, elle, garde son verdict NON VERIFIEE.
+HOST_META = "frida/data/meta"
 
 
 def etape0() -> list[str]:
@@ -63,12 +69,18 @@ def etape0() -> list[str]:
 
 
 def _host_enums() -> tuple[Path | None, dict]:
-    """L'artefact host le plus recent, s'il existe (gitignore -> souvent absent)."""
-    if not HOST_META.is_dir():
+    """L'artefact host le plus recent, s'il existe (gitignore -> souvent absent).
+
+    `None` = PAS MESURE (repertoire introuvable dans TOUS les arbres candidats)
+    ou repertoire present sans `*/enums.json` -- les deux menent au meme verdict
+    NON VERIFIEE cote appelant, mais le premier est desormais distinguable.
+    """
+    try:
+        cands = sorted(host_inputs.find(HOST_META, "*/enums.json"),
+                       key=lambda q: [int(x) if x.isdigit() else 0
+                                      for x in q.parent.name.split(".")])
+    except host_inputs.HostInputUnavailable:
         return None, {}
-    cands = sorted(HOST_META.glob("*/enums.json"),
-                   key=lambda q: [int(x) if x.isdigit() else 0
-                                  for x in q.parent.name.split(".")])
     if not cands:
         return None, {}
     best = cands[-1]
@@ -80,8 +92,10 @@ def etape1() -> tuple[list[str], bool, bool]:
     lignes = ["ETAPE 1 -- equivalence table VERSIONNEE <-> artefact HOST"]
     chemin, host = _host_enums()
     if not host:
-        lignes.append("  artefact host absent (%s) -- NON VERIFIEE" % HOST_META.as_posix())
-        lignes.append("  (normal dans un worktree : frida/data/ est gitignore)")
+        lignes.append("  artefact host absent (%s) -- NON VERIFIEE"
+                      % host_inputs.resolve(HOST_META).label())
+        lignes.append("  (frida/data/ est gitignore : absent tant qu'aucun arbre "
+                      "candidat ne porte l'artefact du host)")
         return lignes, False, True
     lignes.append("  artefact host   : %s" % chemin.as_posix())
     conforme = True

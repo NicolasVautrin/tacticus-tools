@@ -170,7 +170,12 @@ def main(argv: list[str]) -> int:
 
     if args.apply:
         import psycopg2
-        envfile = ROOT / ".env"
+        # #273 : `.env` est gitignore -- absent d'un worktree frais. Le
+        # `read_text` nu levait bien, mais sur un `FileNotFoundError` qui ne
+        # disait ni QUI remplit ce fichier ni qu'un autre arbre le porte.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import host_inputs
+        envfile = host_inputs.require(".env")
         pg = {}
         for line in envfile.read_text(encoding="utf-8").splitlines():
             if "=" in line and not line.startswith("#"):

@@ -26,9 +26,15 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import host_inputs  # noqa: E402  (#273 : entrees gitignorees, resolution tri-etat)
+
 # Le store ecrit sous `frida/data/ai-traces` (cwd du host = frida/), PAS sous `data/`.
 # Ce chemin pointait sur un repertoire inexistant : bug latent trouve le 2026-07-26.
-TRACES_DIR = Path(__file__).resolve().parents[2] / "frida" / "data" / "ai-traces"
+# #273 : et il pointait sur le repertoire du WORKTREE, jamais sur celui du host --
+# `.exists()` y rendait False, le script disait « Aucun fichier JSONL trouve » et
+# renvoyait « demarre le host », alors que le host tournait et ecrivait ailleurs.
+TRACES = "frida/data/ai-traces"
 
 
 # ---- I/O ---------------------------------------------------------------- #
@@ -46,13 +52,20 @@ def _iter_jsonl(path: Path) -> Iterable[dict[str, Any]]:
                       file=sys.stderr)
 
 
-def _list_sources(arg: str | None) -> list[Path]:
+def _list_sources(arg: str | None) -> list[Path] | None:
+    """Fichiers JSONL a inspecter.
+
+    Tri-etat (#273) : `None` = PAS MESURE (repertoire de traces introuvable, ou
+    argument explicite qui n'existe pas), `[]` = MESURE et VIDE (repertoire du
+    host present, aucun `.jsonl` dedans).
+    """
     if arg:
         p = Path(arg)
-        return [p] if p.exists() else []
-    if not TRACES_DIR.exists():
-        return []
-    return sorted(TRACES_DIR.glob("*.jsonl"))
+        return [p] if p.exists() else None
+    try:
+        return host_inputs.find(TRACES, "*.jsonl")
+    except host_inputs.HostInputUnavailable:
+        return None
 
 
 # ---- Schema inference --------------------------------------------------- #
@@ -235,8 +248,18 @@ def _report_winner_kinds(records: list[dict[str, Any]]) -> None:
 def main(argv: list[str]) -> int:
     arg = argv[1] if len(argv) > 1 else None
     sources = _list_sources(arg)
-    if not sources:
-        print(f"Aucun fichier JSONL trouve sous {TRACES_DIR}")
+    if sources is None:                      # PAS MESURE -- rc 2
+        if arg:
+            print(f"Chemin introuvable : {arg}")
+        else:
+            try:
+                host_inputs.require(TRACES)
+            except host_inputs.HostInputUnavailable as e:
+                print(str(e))
+        return 2
+    if not sources:                          # MESURE et VIDE -- rc 1
+        print(f"MESURE et VIDE : aucun .jsonl sous "
+              f"{host_inputs.resolve(TRACES).label()}")
         print("Demarre le host, fait jouer une battle, puis relance.")
         return 1
 
