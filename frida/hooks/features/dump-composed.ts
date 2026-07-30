@@ -1,8 +1,8 @@
 // dump-composed — lecture RUNTIME du `_composedUtilityLookup` de la
 // `UtilitiesDatabase` (Dictionary<UtilityType, UtilityType[]>).
 //
-// Pourquoi : l'assemblage des composites (Damage(34)=[13 feuilles], Tile(7)=[29],
-// MovementSuggestion(32), …) est construit dans `UtilitiesDatabase.InitializeUtilities`
+// Pourquoi : l'assemblage des composites (Damage(35)=[13 feuilles], Tile(7)=[29],
+// MovementSuggestion(33), …) est construit dans `UtilitiesDatabase.InitializeUtilities`
 // depuis des arrays STATIQUES du binaire (RuntimeHelpers.InitializeArray) — illisibles
 // via `read_bytes(DAT)` (rend un token de métadonnée). On les lit donc à l'exécution,
 // sur l'instance déjà initialisée (lecture d'une STRUCTURE de config, pas d'une utilité).

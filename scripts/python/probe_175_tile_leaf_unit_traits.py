@@ -9,9 +9,9 @@ CRITERE BINAIRE (mesure, pas lecture) : sur les DEUX chemins natifs qui emettent
 
 Si NON : les 12 lectures `ctx["unit_traits"]` de `engine/utilities/tile.py` rendent 0.0 en
 silence (`_has` est strict : cle absente -> False), donc 7 feuilles sont MORTES
-(CapturePoint 24 +/-300, PowerUp 26, DespoiledGround 28, SummonDislikeDoorOpening 29,
-HeroLikeDoorOpening 30, DoctrinaImperatives_AttractMechanicals 57,
-MasterOfTheTutelaries_MoveTowardsTarget 62).
+(CapturePoint 25 +/-300, PowerUp 27, DespoiledGround 28, SummonDislikeDoorOpening 30,
+HeroLikeDoorOpening 31, DoctrinaImperatives_AttractMechanicals 58,
+MasterOfTheTutelaries_MoveTowardsTarget 63).
 
 Le probe instrumente les INSTANCES de feuilles (`TILE_LEAVES`) : chaque `evaluate` enregistre
 les cles du ctx recu, sans changer la valeur rendue. Il imprime aussi, pour chaque gate,
@@ -51,7 +51,7 @@ ROOT = PYDIR.parents[1]
 # (ligne source dans utilities/tile.py, feuille, cle meta CO-GATE) -- la table du mandat.
 # #272 : l'ordinal est DERIVE du membre, jamais ecrit en dur. Les litteraux d'origine (24, 26, 28,
 # 29, 30, 57, 62) dataient d'avant `fe5b9245` (#252 : `AttackTile` insere en 8, 59 membres decales
-# de +1) et faisaient donc afficher a ce rapport `CapturePoint(24)` -- l'etiquette de la feuille
+# de +1) et faisaient donc afficher a ce rapport `CapturePoint(25)` -- l'etiquette de la feuille
 # VOISINE (`MoltenForm`). Meme ordinal perime, meme famille de degradation silencieuse que le rouge
 # de #272 ; ici purement cosmetique (l'indexation, elle, passe par `TILE_LEAF_IDS`, des MEMBRES).
 UNIT_TRAIT_GATES = [

@@ -7,7 +7,7 @@ i2 : « Arjac blocks an additional 728 Damage and when he Blocks he covers the a
 chance and if he blocks a melee attack, the attacker is Stunned until the end of the attacker's next
 turn.** »
 
-Ce qui MANQUAIT en #222 : le **DISPATCH `On(UnitBlocked=0x3d=61)`**. Le port RESOLVAIT deja le block
+Ce qui MANQUAIT en #222 : le **DISPATCH `On(UnitBlocked=0x3c=61)`**. Le port RESOLVAIT deja le block
 (`did_block`, damage_hits.py) mais n'emettait JAMAIS l'evenement -> tout le cluster on-block
 d'AnvilShield etait du code inatteignable. L'effet de TUILE `Ice` (0x11) est deja porte (poseur existant :
 LordOfTempests AddIce) : #222 a cable SA POSE par AnvilShield.
@@ -15,7 +15,7 @@ LordOfTempests AddIce) : #222 a cable SA POSE par AnvilShield.
 Ce qui MANQUAIT en #100 (les DEUX autres volets, laisses en residus parce qu'ils auraient ete du
 dead-code garanti) : les classes d'effet **1200** (`AnvilShield_BlockChanceBelowHealthCap`, la moitie
 « below 35 % Health » du gate) et **1201** (`AnvilShield_FrozenAttackerAdvantage`, la moitie
-« attacker on Ice »), le vecteur **`On(0x2b = PreUnitAbility)`** + son pendant
+« attacker on Ice »), le vecteur **`On(0x2a = PreUnitAbility)`** + son pendant
 **`On(0xe = UnitPostAbility)`**, et le **canal stat 7 (BLOCK_CHANCE)** avec son driver
 d'`ActiveCondition` (`runner/operations/refresh_effects.py`). Cf. `docs/rl/case-100-anvil-shield-residus.md`.
 
@@ -44,7 +44,7 @@ et `df@0x168` (CasterTile) = la tuile de l'ATTAQUANT.
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger`
 ```
-On(0x3d = UnitBlocked) & get_OwnerIsTarget & IsUnit(caster@0x160)
+On(0x3c = UnitBlocked) & get_OwnerIsTarget & IsUnit(caster@0x160)
 ```
 = << quand le porteur BLOQUE une attaque, et que l'attaquant est une UNITE >>.
 
@@ -57,7 +57,7 @@ AddEffect( 0x11 = Ice, AbilityStateReference, source = Self@0x148, cible = df@0x
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyStun$$CreateTrigger`
 ```
-On(0x3d = UnitBlocked) & get_OwnerIsTarget & IsMeleeAttack
+On(0x3c = UnitBlocked) & get_OwnerIsTarget & IsMeleeAttack
   & !HasTrait(caster@0x160, 0x1b = Steppable) & IsUnit(caster@0x160) & IsAlive(caster@0x160)
   & ( HasEffect(target@0x178, 0x4b0 = 1200, activeOnly=1, sourceFlags=6)
     | HasEffect(target@0x178, 0x4b1 = 1201, activeOnly=1, sourceFlags=6) )
@@ -72,7 +72,7 @@ AddEffect( 0x48a = 1162 Stunned, AbilityStateReference, source = Self@0x148, cib
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_FrozenAttackerAdvantage$$CreateTrigger`
 ```
-On(0x2b = PreUnitAbility) & IsNormalAttack & get_OwnerIsTarget
+On(0x2a = PreUnitAbility) & IsNormalAttack & get_OwnerIsTarget
   & IsUnitOnTileWithEffect(caster@0x160, 0x11 = Ice)
   & !HasEffect(Self@0x148, 0x4b0, 1, 6) & !HasEffect(Self@0x148, 0x4b1, 1, 6)
 ```
@@ -154,7 +154,7 @@ def anvil_shield_apply_ice_tree():
 
 class AnvilShieldApplyIceAbility(TriggeredAbility):
     """`AnvilShieldAbility_ApplyIce` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour) — quand Arjac
-    BLOQUE une attaque, la TUILE de l'attaquant est GLACEE. `On(UnitBlocked=61) & OwnerIsTarget &
+    BLOQUE une attaque, la TUILE de l'attaquant est GLACEE. `On(UnitBlocked=60) & OwnerIsTarget &
     IsUnit(caster)`. L'effet de tuile Ice (0x11) est deja porte (meme effet que LordOfTempests AddIce)."""
     event_id = _ON_BLOCKED
 
@@ -237,7 +237,7 @@ class AnvilShieldApplyStunAbility(TriggeredAbility):
     `$$CreateBehaviour`) — quand Arjac BLOQUE une attaque de MELEE et qu'il beneficie du « +20 % Block
     chance » (1200 sous 35 % PV **ou** 1201 attaquant-sur-glace), l'ATTAQUANT est **Stunned**.
 
-    `On(UnitBlocked=0x3d)` : `AbilityEntities.ctor(caster = ATTAQUANT, owner = actor = target =
+    `On(UnitBlocked=0x3c)` : `AbilityEntities.ctor(caster = ATTAQUANT, owner = actor = target =
     DEFENSEUR)` -> `get_OwnerIsTarget` = `ev.target_id == owner_id`, `caster@0x160` = `ev.actor_id`.
     Les predicats du `CreateTrigger` sont COLLAPSES imperativement (doctrine #149 : la feuille
     `AddEffect` reste l'arbre DSL)."""
@@ -299,7 +299,7 @@ class AnvilShieldFrozenAttackerAdvantageAbility(TriggeredAbility):
     Arjac, si l'attaquant se tient sur une tuile GLACEE et qu'Arjac n'a pas deja un des deux bonus de
     block, Arjac gagne 1201 (+20 % Block chance) pour CETTE ability.
 
-    `On(0x2b = PreUnitAbility)` est emis par `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
+    `On(0x2a = PreUnitAbility)` est emis par `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
     (`FUN_180026490(0x4d, .., 0x2b)`) **AVANT** l'execution de l'ability — donc avant le calcul du block ;
     la MEME operation emet ensuite `0xb`, `0xc` puis `0xe (UnitPostAbility)`. L'attaque normale passe par
     cette operation (l'attaque normale EST une active ability, cf. `NormalAttackType`), et le gate

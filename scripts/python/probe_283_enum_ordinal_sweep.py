@@ -752,11 +752,79 @@ def step_prose(verbose: bool, racine: str = "scripts/python", fix: bool = False)
 
 
 # ------------------------------------------------------------------------------------------
+# Etape 5 -- le residu INDECIDABLE : `On(<n>)` sans son membre
+# ------------------------------------------------------------------------------------------
+
+_ON_NU = re.compile(r"\bOn\(\s*(0x[0-9a-fA-F]+|\d{1,3})\s*[,)&]")
+_ON_NOMME = re.compile(r"\bOn\(\s*(?:0x[0-9a-fA-F]+|\d{1,3})\s*=\s*[A-Za-z_]")
+
+
+def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
+    """`On(<n>)` NU en prose : l'ancre est sure, le verdict ne l'est PAS.
+
+    L'ancre `On(` est le contrat natif `IdunBattleLogic.Entities.DSLFactory$$On(EventTriggerType,
+    ...)` : le nombre EST un `EventTriggerType`, sans ambiguite d'homonyme. Mais rien ne dit de
+    QUEL build il vient, et c'est ce qui interdit la correction automatique :
+
+      * `probe_281_pre_unit_ability_shortcut.py` ecrit `On(0x2a)` -- JUSTE, ecrit apres la MAJ ;
+      * `engine/runner/abilities/handler.py` ecrit `On(0x2b)` -- FAUX, recopie d'avant.
+
+    Les deux sont des ordinaux « dont le proprietaire a change » : le critere qui tranche
+    l'etape 4 (le NOM accole donne l'attendu) n'existe pas ici. Le `git blame` ne tranche pas non
+    plus -- MESURE : sur les 7 sites ecrits APRES la migration, 6 recopiaient l'ancienne valeur.
+
+    Cette etape COMPTE et LOCALISE, elle ne corrige pas. Corriger un site exige de relire quel
+    trigger natif il cite -- un travail de RE par site, pas une migration."""
+    cur, prev = current_build(), previous_build()
+    new = enum_map(cur, ENUMS["EventTriggerType"])
+    old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
+    stables, decales = 0, []
+    for suf in (".py", ".md"):
+        for p in sorted((REPO / racine).rglob("*" + suf)):
+            rel = _ignore(p)
+            if rel is None or rel in ALLOWLIST:
+                continue
+            try:
+                src = io.open(p, encoding="utf-8", newline="").read()
+            except (UnicodeDecodeError, OSError):
+                continue
+            zones = _zones_prose(src, suf)
+            if zones is None:
+                continue
+            for base, txt in zones:
+                for g in _ON_NU.finditer(txt):
+                    if _ON_NOMME.match(txt, g.start()):
+                        continue          # forme nommee : c'est l'etape 4 qui la traite
+                    s = g.group(1)
+                    v = int(s, 16) if s.lower().startswith("0x") else int(s)
+                    if old.get(v) == new.get(v):
+                        stables += 1      # sous le point de decalage : le meme sur les 2 builds
+                    else:
+                        decales.append((rel, _ligne_de(src, base + g.start(1)), s,
+                                        old.get(v), new.get(v)))
+    print("[283] etape 5 : `On(<n>)` NUS en prose de %s -- %d stables, %d AMBIGUS"
+          % (racine, stables, len(decales)))
+    print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
+    print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
+    par_fichier = {}
+    for rel, ln, s, a, b in decales:
+        par_fichier.setdefault(rel, []).append((ln, s, a, b))
+    for rel in sorted(par_fichier):
+        items = sorted(par_fichier[rel])
+        print("   %-62s %d" % (rel, len(items)))
+        for ln, s, a, b in (items if verbose else items[:2]):
+            print("        :%d  On(%s) : etait %s, vaut %s" % (ln, s, a, b))
+        if not verbose and len(items) > 2:
+            print("        ... (+%d)" % (len(items) - 2))
+    return stables, decales
+
+
+# ------------------------------------------------------------------------------------------
 
 def main(argv) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--step", default="all",
-                    choices=("all", "diff", "mirror", "exec", "tables", "prose"))
+                    choices=("all", "diff", "mirror", "exec", "tables", "prose", "on"))
     ap.add_argument("--racine", default="scripts/python",
                     help="perimetre de l'etape prose (defaut scripts/python)")
     ap.add_argument("--fix", action="store_true",
@@ -778,6 +846,8 @@ def main(argv) -> int:
         ko += len(step_tables(args.verbose))
     if args.step in ("all", "prose"):
         step_prose(args.verbose, args.racine, args.fix)   # compteur, JAMAIS un gate
+    if args.step in ("all", "on"):
+        step_on(args.verbose, args.racine)                # compteur, JAMAIS un gate
     print("[283] VERDICT: %s" % ("PASS" if ko == 0 else "FAIL (%d)" % ko))
     return 0 if ko == 0 else 1
 

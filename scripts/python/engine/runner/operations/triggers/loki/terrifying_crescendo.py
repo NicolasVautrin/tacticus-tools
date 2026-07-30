@@ -21,14 +21,14 @@ JAMAIS -> l'effet etait present-mais-inerte (case-204 §<< Accumulation : NON re
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` (DISJONCTION `op_BitwiseOr` de deux conjonctions)
 ```
 branche1 = On(0 = UnitDeath)      & get_OwnerIsActor & TargetIsOverkilled
-branche2 = On(0x3e = PreEffectAdded = 62) & get_OwnerIsActor & TriggeringEffectIs(0x429 = 1065 Pinned)
+branche2 = On(0x3d = PreEffectAdded = 61) & get_OwnerIsActor & TriggeringEffectIs(0x429 = 1065 Pinned)
 trigger  = branche1 | branche2
 ```
 = i2 << +218 Damage **for each time he Overkilled or would have Suppressed** an enemy unit >>.
 - branche1 : le porteur TUE en OVERKILL. `On(0=UnitDeath)` est emis par `IdunBattle.Operations.KillUnitOperation$$Execute` (sequence verifiee : `FUN_180026490(...,1)` PreUnitDeath -> `...,2` -> `...,0` UnitDeath ->
   `...,0x37` UnitDefeated -> `...,0x36` PostUnitKill). Le port emettait deja `On(1)` et `On(0x37)` mais
   PAS `On(0)` -> vecteur ajoute (`unit_death_triggers`, dispatch.py) ENTRE les deux, a la place exacte.
-- branche2 : << would have Suppressed >>. `On(0x3e=PreEffectAdded)` est emis par
+- branche2 : << would have Suppressed >>. `On(0x3d=PreEffectAdded)` est emis par
   `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN HAUT** (`FUN_180026490(0x50,...,0x3e)` AVANT le gate
   cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite) -> le compteur monte meme
   quand le Pinned n'est PAS reellement applique (d'ou << WOULD have >>). L'`AbilityEntities` de cet
@@ -125,7 +125,7 @@ class TerrifyingCrescendoOverkillAbility(_CrescendoAccumulateBase):
 
 
 class TerrifyingCrescendoSuppressAbility(_CrescendoAccumulateBase):
-    """Branche 2 : `On(PreEffectAdded=62) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)` — Shiron
+    """Branche 2 : `On(PreEffectAdded=61) & OwnerIsActor & TriggeringEffectIs(0x429=Pinned)` — Shiron
     POSE (ou aurait pose) un Suppressed. L'event natif precede TOUS les gates d'`AddEffectOperation` ->
     le compteur monte meme si la cible portait deja Pinned (<< would have Suppressed >>)."""
     event_id = _ON_PRE_EFFECT_ADDED

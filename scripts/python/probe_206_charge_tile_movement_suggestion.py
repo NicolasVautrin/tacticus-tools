@@ -6,7 +6,7 @@ Les deux appellent, au decompile :
     First( SortTilesByUtility( <Ability>.GetPossibleMovementTiles(...), caster@0x160, 0x20 ), 1 )
 
 soit EXACTEMENT la forme de `VigilanceEternalAbility$$ExecuteBehaviour` (#201) : composite
-`MovementSuggestion(32) = [Tile(7), TileDistance(33)]`.
+`MovementSuggestion(32) = [Tile(7), TileDistance(34)]`.
 
 Ce que le probe ETABLIT (jamais un scalaire fitte -- on separe les etages) :
 
@@ -15,7 +15,7 @@ Ce que le probe ETABLIT (jamais un scalaire fitte -- on separe les etages) :
      geometrie le port est invalidable : sur carte plate `Tile(7)` est constant, `TileDistance`
      ordonne seul par distance croissante, et TOUT collapse « la plus proche » a l'air juste.
   2. `--decompose` (implicite a chaque cas joue) : le pool score TERME PAR TERME -- les feuilles de
-     `Tile(7)` une a une, `TileDistance(33)` a part -- pour NOMMER le terme qui tranche.
+     `Tile(7)` une a une, `TileDistance(34)` a part -- pour NOMMER le terme qui tranche.
   3. le cast LIVE : la tuile ou le natif POSE le caster tranche entre ANCIEN et NOUVEAU.
 
 Les deux ANCIENS collapses ne sont PAS identiques et sont reproduits ici tels qu'ils etaient
@@ -153,7 +153,7 @@ def drive_to(rid, wanted: dict, max_turns: int = 18) -> bool:
 def decompose(state, board, tiles, unit_id):
     """Score PAR TERME des `tiles`, avec les MEMES `meta`/`ctx` que
     `engine.utilities.tile.sort_tiles_by_utility` : les feuilles de `Tile(7)` d'un cote,
-    `TileDistance(33)` de l'autre. C'est cette separation qui rend l'ecart ATTRIBUABLE."""
+    `TileDistance(34)` de l'autre. C'est cette separation qui rend l'ecart ATTRIBUABLE."""
     from engine.utilities.tile import (TILE_LEAVES, TILE_LEAF_IDS, terrain_tile_effects,
                                        runner_tile_leaf_ctx, TileDistanceUtility)
     from engine.weights import load as load_weights
@@ -222,7 +222,7 @@ def new_sort(state, cands, caster):
 
 def tile7_only_sort(state, cands, caster):
     """CONTRE-EPREUVE : le composite `Tile(7)` SEUL (le litteral des ports freres). La ou ce tri
-    differe de `new_sort`, c'est `TileDistance(33)` SEUL qui tranche."""
+    differe de `new_sort`, c'est `TileDistance(34)` SEUL qui tranche."""
     from engine.utilities.tile import first_tile_by_utility
     from engine.utilities.utility_type import UtilityType
     best = first_tile_by_utility(state, cands, unit_id=caster, utility_type=int(UtilityType.Tile))
@@ -278,7 +278,7 @@ def _kind_of_divergence(dec, board, legacy, new):
       * `TILE7`    : `Tile(7)` DIFFERE entre la tuile de l'ANCIEN et celle du NOUVEAU. C'est le
                      regime demande : un terme ENTIER (Elevation 10/niveau, TileEffects +-9/-25)
                      renverse l'ordre. Le collapse « la plus proche » y est FRANCHEMENT faux.
-      * `TILEDIST` : `Tile(7)` egal, `total32` different -> seul `TileDistance(33)` tranche.
+      * `TILEDIST` : `Tile(7)` egal, `total32` different -> seul `TileDistance(34)` tranche.
       * `TIEBREAK` : `total32` egal -> c'est l'ordre du SELECTEUR SOURCE (tri stable) qui tranche,
                      contre le tie-break `tileId` INVENTE de l'ancien collapse.
     """

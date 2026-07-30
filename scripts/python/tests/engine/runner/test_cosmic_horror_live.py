@@ -4,12 +4,12 @@ CosmicHorror = **passiveAbility** -> ability-trigger (registre `ABILITY_TRIGGERS
 DEUX abilities natives distinctes (RE ghidra gqfc5mff6c, cf.
 `engine/runner/operations/triggers/loki/cosmic_horror.py`) :
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger` =
-    `On(0x37=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(target, Steppable)` ;
+    `On(0x36=UnitDefeated) & OwnerIsActor & AreEnemies & NOT HasTrait(target, Steppable)` ;
     `...$$CreateBehaviour` = `Spawn(decoy sur la tuile du mort)` op_BitwiseAnd
     `Foreach(Enemies(SurroundingTiles(mort,0,1)), Maybe(TriggerAbility(BattleFatigue)
      & If(IsAlive, AddEffect(Pinned 1065)), ConfigVar(chance)))`.
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger` =
-    `On(0x36=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(target, Decoy)` ;
+    `On(0x35=PostUnitKill) & OwnerIsActor & AreFriends & HasTrait(target, Decoy)` ;
     `...$$CreateBehaviour` = `Heal(caster, caster, ConfigVar(hp))`.
 
 CE FICHIER (port-agreement offline, board natif evenq + kit gameconfig LIVE ; positions DRIVE'es) --
@@ -345,7 +345,7 @@ def _prep_move(rpc, build_runner):
 
 def test_cosmic_horror_on_move_heals_when_stepping_on_friendly_decoy(live_session, rpc, build_runner):
     """POSITIF OnMove : le Patermine marche sur un decoy ALLIE -> `_kill_steppable_units` le crushe,
-    `after_move_triggers` emet `On(0x36=PostUnitKill)` {actor=Patermine, target=decoy}, et
+    `after_move_triggers` emet `On(0x35=PostUnitKill)` {actor=Patermine, target=decoy}, et
     `Heal(caster, caster, ConfigVar(hp))` le soigne."""
     from engine.runner.events import EventBus
     from engine.runner.operations.movement import MoveUnitOperation

@@ -11,7 +11,7 @@ Les 3 coups d'arme LIVE valent exactement `raw[2], raw[3], raw[4]` de la MEME ce
 
 Le candidat lu au decompile :
   `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility`
-    $$CreateTrigger  = On(0x2b = PreUnitAbility, 1) & get_OwnerIsCaster
+    $$CreateTrigger  = On(0x2a = PreUnitAbility, 1) & get_OwnerIsCaster
     $$CreateBehaviour= PickRandomly( Damageable( AdjacentEnemies(Self@0x148, 1, 3)
                                                & AdjacentFriends(Target@0x178, 1, 3) ),
                                      2, 0, 0x7fffffff, false )

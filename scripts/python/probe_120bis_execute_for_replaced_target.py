@@ -1,5 +1,5 @@
 """Probe #120bis -- `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteForReplacedTarget`
-(la RE-RESOLUTION DE CIBLE qui suit le vecteur `On(0x2b = PreUnitAbility)`), sur les DEUX VOIES.
+(la RE-RESOLUTION DE CIBLE qui suit le vecteur `On(0x2a = PreUnitAbility)`), sur les DEUX VOIES.
 
 CE QUI EST MESURE ICI
 ---------------------

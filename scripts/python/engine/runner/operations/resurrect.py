@@ -13,7 +13,7 @@ Operation (en-dessous, impératif). Chaîne native : `IdunBattle.Entities.Behavi
   * `IdunBattle.Operations.ResurrectUnitOperation$$SetHealth` = PV pleins (le `StatAmount(unit, Health=5, mode=2)` passé par le behaviour) ;
   * si `takesImmediateTurn (param_7)` → `RemoveTurnFlags(unit,1,1)` → l'unité peut REJOUER immédiatement
     (l'exécution du tour = couche IA/contrôleur, pas cette Operation) ;
-  * émet `On(UnitResurrected=0x2f=47)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
+  * émet `On(UnitResurrected=0x2e=47)` → `unit_resurrected_triggers` → alimente G2 `BuffFriends` + G5 ré-arme.
 
 ⚠ NE PAS confondre avec la couche DÉCISION `RitesOfRestorationPlaybook` (`playbook/noncomparable/heals.py`,
 `GetPossibleResurrectTargets`) qui SCORE l'évaluation IA — le runner n'avait PAS d'Operation resurrect ;
@@ -57,7 +57,7 @@ class ResurrectUnitOperation:
         hc = e.get_component(HealthComponent)
         if hc is not None and hp is not None:
             hc.hp = int(hp)                   # IdunBattle.Operations.ResurrectUnitOperation$$SetHealth
-            # #60 : bras `On(UnitRevived=46) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
+            # #60 : bras `On(UnitRevived=45) & OwnerIsTarget` du `SwarmAbility.CreateTrigger
             # IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — re-evalue le stat-mod EXTRA_HITS du trait Swarm au retour a la vie.
             from ..abilities.loki.swarm import on_group_unit_hp_changed
             on_group_unit_hp_changed(state, unit_id)
@@ -72,7 +72,7 @@ class ResurrectUnitOperation:
         # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction + turn-flags)
         if immediate_turn:
             fl.remove_turn_flags(include_no_action=True, new_activation=True)
-        # émet On(UnitResurrected=47) -> G2 BuffFriends (+582 + decoy si GS Cult) + G5 ré-arme HeroicFusillade
+        # émet On(UnitResurrected=46) -> G2 BuffFriends (+582 + decoy si GS Cult) + G5 ré-arme HeroicFusillade
         from .triggers.dispatch import unit_resurrected_triggers
         downstream = unit_resurrected_triggers(state, unit_id)
         return {"resurrected": int(unit_id), "tile": (int(dest_coord[0]), int(dest_coord[1])) if dest_coord else None,

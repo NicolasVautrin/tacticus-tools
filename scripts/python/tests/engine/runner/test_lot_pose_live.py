@@ -17,10 +17,10 @@ Maillons + artefacts natifs (build gqfc5mff6c) :
      `On(0x16 TurnStart_Actions) & IsTurnOf(Self)` -> Remove x3 + `If(Modulo(UnitTurnsStarted,3)==
      1/2/0, AddEffect(1067/1212/1221))` = ROTATION.
   3. TerrifyingCrescendo(`emperNoiseMarine`) IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger / IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour
-     `(On(0 UnitDeath) & TargetIsOverkilled) | (On(0x3e PreEffectAdded) & TriggeringEffectIs(1065))`
+     `(On(0 UnitDeath) & TargetIsOverkilled) | (On(0x3d PreEffectAdded) & TriggeringEffectIs(1065))`
      -> `AddEffectOrIncreaseLevel(1424, +1, max=buffMaxLevel)` = ACCUMULATION capee.
   4. AnvilShield        (`spaceRockfist`)    emetteur `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (branche
-     `On(UnitBlocked=0x3d)`) ; `ApplyIce IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour` -> glace la tuile de l'ATTAQUANT bloque.
+     `On(UnitBlocked=0x3c)`) ; `ApplyIce IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateBehaviour` -> glace la tuile de l'ATTAQUANT bloque.
 
 ASCII only (cp1252).
 """
@@ -318,7 +318,7 @@ def test_fleshmetal_guns_rotation_live(live_session, rpc, build_runner):
 def test_terrifying_crescendo_stacks_and_caps_live(live_session, rpc, build_runner):
     """Le stack 1424 MONTE d'un cran a chaque tir suppress de Shiron et PLAFONNE a `buffMaxLevel`
     (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour : `AddEffectOrIncreaseLevel(1424, +1, max)`), y compris quand la cible est DEJA
-    Pinned -- preuve que le vecteur est `On(0x3e PreEffectAdded)`, EMIS AVANT le gate « deja
+    Pinned -- preuve que le vecteur est `On(0x3d PreEffectAdded)`, EMIS AVANT le gate « deja
     present » d'`IdunBattle.Operations.AddEffectOperation$$Execute` (semantique « would have Suppressed »).
 
     Ce que ca garderait : un vecteur recable sur `On(EffectAdded)` (le stack cesserait de monter
@@ -384,7 +384,7 @@ def test_terrifying_crescendo_stacks_and_caps_live(live_session, rpc, build_runn
 
 # --------------------------------------------------------------------------- 4. AnvilShield
 def test_anvil_shield_ices_blocked_attacker_tile_live(live_session, rpc, build_runner):
-    """Un BLOCAGE d'Arjac glace la TUILE DE L'ATTAQUANT : vecteur `On(UnitBlocked=0x3d)` emis par
+    """Un BLOCAGE d'Arjac glace la TUILE DE L'ATTAQUANT : vecteur `On(UnitBlocked=0x3c)` emis par
     `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` -> `ApplyIce IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_ApplyIce$$CreateTrigger`.
 
     `--block-target 100,500` met Arjac (cote adverse) a 100 % de blocage : le blocage est CRAFTE,

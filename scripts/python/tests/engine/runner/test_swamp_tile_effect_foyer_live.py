@@ -1,4 +1,4 @@
-"""case-155 -- GARDE du FOYER UNIQUE « terrain statique -> noms sommes par la feuille TileEffects(9) ».
+"""case-155 -- GARDE du FOYER UNIQUE « terrain statique -> noms sommes par la feuille TileEffects(10) ».
 
 CRITERE TRANCHE (decompile = verite). `IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
 a DEUX boucles, deux SOURCES, deux espaces de NOMS :

@@ -216,7 +216,7 @@ def run(sid, rid, carrier, ability, max_steps, max_arm=6):
         vt, ve, vf = _one(tt, t), _one(el, t), _one(te, t, 0.0)
         leaves, leaf_ctx = _port_leaves(ctx, t)
         p_tot = sum(leaves.values())
-        p_x = p_tot - leaves.get(8, 0.0) - leaves.get(9, 0.0)      # 8=Elevation 9=TileEffects
+        p_x = p_tot - leaves.get(8, 0.0) - leaves.get(9, 0.0)      # 8=Elevation 10=TileEffects
         term = pb.calculate_movement_utility_in_steps(t, leaf_ctx, wt)
         x = (vt - ve - vf) if None not in (vt, ve, vf) else None
         d = (x - p_x) if x is not None else None

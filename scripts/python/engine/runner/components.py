@@ -110,7 +110,7 @@ class UnitComponent(Component):
         ANNULE donc la mort (cf. `damage.py::_fire_death_if_killed`) ;
       * LECTURE+PURGE `IdunBattle.Operations.ReviveUnitOperation$$Execute` : lit les 9 qwords @0xa8..0xe8, refuse
         (log d'erreur + return) si `!HasValue` @IdunBattle.Operations.ReviveUnitOperation$$Execute+0x2ba, applique le revive, puis REMET LES 9 QWORDS
-        À 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRÈS l'émission de `On(UnitRevived=0x2e)`).
+        À 0 @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+ (donc APRÈS l'émission de `On(UnitRevived=0x2d)`).
     Port : `None` = pas de revive en attente ; sinon un dict `{amount, heal_type, source, priority}`
     (cf. `operations/revive.py`).
 

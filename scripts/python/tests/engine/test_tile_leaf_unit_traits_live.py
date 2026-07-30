@@ -104,8 +104,8 @@ def test_unit_traits_reaches_the_leaves_on_both_native_paths(rpc, despoiled):
                            % label)
         assert "unit_traits" in keys, (
             "chemin %s : le ctx qui atteint BaseUtility.evaluate N'A PAS `unit_traits` -> les 7 "
-            "feuilles a gate de trait (CapturePoint 24, PowerUp 26, DespoiledGround 28, "
-            "SummonDislikeDoorOpening 29, HeroLikeDoorOpening 30, AttractMechanicals 57, "
+            "feuilles a gate de trait (CapturePoint 25, PowerUp 27, DespoiledGround 28, "
+            "SummonDislikeDoorOpening 30, HeroLikeDoorOpening 31, AttractMechanicals 57, "
             "MasterOfTheTutelaries 62) rendent 0.0 EN SILENCE. cles vues : %s" % (label, keys))
 
 

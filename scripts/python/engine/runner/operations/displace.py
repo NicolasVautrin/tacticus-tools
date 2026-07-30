@@ -1,9 +1,19 @@
 """Operation de PUSH (knockback) — `IdunBattle.Operations.DisplaceUnitOperation` IdunBattle.Operations.DisplaceUnitOperation$$Execute.
 
-Le PUSH d'ability (ThunderousAssault, CrushingClaws splash) = `DisplaceUnitOperation(type=1)` : le natif
-`Execute(pusher, pushed, DisplacementType, ...)` route sur un switch `DisplacementType` ; **type 1 =
-`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush`** = pousser l'unite A L'OPPOSE du pousseur, le long de la ligne hex
-pousseur->poussee PROLONGEE.
+Le PUSH d'ability (ThunderousAssault, CrushingClaws splash) = `DisplaceUnitOperation(direction=Push)` :
+le natif `Execute(this, caster, target, DisplaceDirection, options)` route sur un switch
+`IdunBattle.Operations.DisplaceDirection` ; **`Push` = `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush`** = pousser l'unite A L'OPPOSE du
+pousseur, le long de la ligne hex pousseur->poussee PROLONGEE.
+
+⚠ ORDINAL RENUMEROTE (#283) : ce commentaire disait `type=1`, exact sur `gqfc5mff6c`. La MAJ
+`rnca9r7q6c` a **retire `DisplaceDirection.Pull` (0)**, donc TOUS les membres survivants ont
+recule d'un cran -- `Push` vaut **0**. Relu au decompile du build COURANT, le switch d'`Execute`
+donne : 0=FindTileToPush, 1=FindTileToPushFromBlacklist, 2=FindTileToPushToPrioritizedTiles,
+3=AdjacentVector, 4=Direct (1re tuile de la liste), 5=SwitchPosition, 6=FindTileToPullOnce.
+Le symbole `FindTileToPull` a DISPARU du binaire en meme temps que le membre `Pull` (seul
+`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPullOnce` subsiste) : la symetrie
+confirmatoire citee plus bas est donc HISTORIQUE, pas re-verifiable sur ce build. Aucun ordinal
+de `DisplaceDirection` n'est fige dans le port -- il n'implemente que le push, sans switch.
 
 Geometrie (mirror `IdunBattle.Core.Services.BattleQuery$$GetTilesBetweenInLineFromUnit` -> `IdunBattle.Core.Services.BattleQuery$$GetTilesBehind`) : le natif
 reflechit la tuile poussee a travers le pousseur (`reflected = 2*pushedCube - pusherCube`) puis marche
@@ -48,13 +58,16 @@ from ...entities.traits.unit_trait import UnitTrait, has_any_trait
 
 # Distance du push, en tuiles = 1. CONSTANTE SOURCEE (cas #68 : RE decompile + confirme live), PAS une
 # hypothese. TRANCHE 1-vs-2 :
-#  - `IdunBattle.Operations.DisplaceUnitOperation$$Execute` case 1 (push) = `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` appele avec
+#  - `IdunBattle.Operations.DisplaceUnitOperation$$Execute` case `Push` (= 0 sur `rnca9r7q6c`, 1 sur
+#    `gqfc5mff6c` -- cf. #283) = `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPush` appele avec
 #    `(this, pusher, pushed, 0)` -> la destination sort de la liste rendue par le slot d'INTERFACE 0x4c =
 #    `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Behind+0x38` -> `IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180BehindFromTile` : un ARC de
 #    tuiles TOUTES a distance 1 (cas aligne melee -> 1 seule tuile straight-back). FindTileToPush filtre
 #    (predicat 0x5f) puis pick (1 tuile -> index 0 ; sinon random parmi les empty/steppable). Symetrie
-#    confirmatoire : le pull (`IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPull`) utilise le slot 0xa6 = arc AVANT
-#    (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`). => la destination est TOUJOURS a 1 hex.
+#    confirmatoire HISTORIQUE (build `gqfc5mff6c`) : le pull (`FindTileToPull`) utilisait le slot 0xa6 =
+#    arc AVANT (`IdunBattle.Core.Services.BattleQuery$$GetMinimumTiles180Front`). Ce symbole a DISPARU du
+#    binaire courant avec le membre `DisplaceDirection.Pull` -- ne pas le rechercher, seul
+#    `IdunBattle.Operations.DisplaceUnitOperation$$FindTileToPullOnce` subsiste. => la destination est TOUJOURS a 1 hex.
 #  - Le champ +0x84=2 de `DisplaceUnitBehaviour` (pose par `.IdunBattle.Entities.Behaviours.DisplaceUnitBehaviour$$.ctor` 9e arg via
 #    `IdunBattleLogic.Entities.DSLFactory$$PushUnit`) N'ATTEINT PAS FindTileToPush (appele avec `0` litteral) : ce n'est
 #    PAS la distance de push (c'est un parametre de la couche DSL du behaviour, hors selection de tuile).

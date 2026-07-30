@@ -23,7 +23,7 @@ TROIS VOIES DE REJEU, sur le MEME etat et le MEME flux :
                   ce que fait `probe_178_overkill_gate._replay_attack`, donc le contrepoint qui a
                   produit le 21680.
   * `pipeline` -- `Runner.apply(ActiveAbilityMessage(...))` : la voie de PRODUCTION, qui passe par
-                  `AbilityHandler.visit_ActiveAbilityMessage` et emet donc `On(0x2b = PreUnitAbility)`
+                  `AbilityHandler.visit_ActiveAbilityMessage` et emet donc `On(0x2a = PreUnitAbility)`
                   avant la behaviour (mirror `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`).
   * `pipeline_nohaze` -- la MEME voie, trigger `HazeOfCorruption_TargetFinderAbility` NEUTRALISE.
                   Anti-tautologie : si celui-la reproduit aussi le live, la mesure ne prouve rien.

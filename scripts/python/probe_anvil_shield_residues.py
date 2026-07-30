@@ -12,11 +12,11 @@ Decompile (build gqfc5mff6c) :
       = AmountIsEqualOrGreater( Direct(GetNumberConstant(0x4f = healthPct = 35)),
                                 StatAmount(Self@0x148, 5 = HEALTH, 1 = CURRENT_PCT) )
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_FrozenAttackerAdvantage$$CreateTrigger`
-      = On(0x2b = PreUnitAbility) & IsNormalAttack & OwnerIsTarget
+      = On(0x2a = PreUnitAbility) & IsNormalAttack & OwnerIsTarget
         & IsUnitOnTileWithEffect(caster@0x160, 0x11 = Ice)
         & !HasEffect(Self@0x148, 0x4b0, 1, 6) & !HasEffect(Self@0x148, 0x4b1, 1, 6)
   - `...AnvilShieldAbility_ApplyStun$$CreateTrigger`
-      = On(0x3d = UnitBlocked) & OwnerIsTarget & IsMeleeAttack & !HasTrait(caster, 0x1b = Steppable)
+      = On(0x3c = UnitBlocked) & OwnerIsTarget & IsMeleeAttack & !HasTrait(caster, 0x1b = Steppable)
         & IsUnit(caster) & IsAlive(caster)
         & ( HasEffect(target@0x178, 0x4b0, 1, 6) | HasEffect(target@0x178, 0x4b1, 1, 6) )
   (le 4e argument natif de `IdunBattleLogic.Entities.DSLFactory$$HasEffect` est ACTIVE-ONLY, pas un

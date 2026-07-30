@@ -7,7 +7,7 @@ Valide le port de `SortUnitsByDamageUtility` (`IdunBattle.Entities.Selectors.Sor
     <Select>b__0)` -> 1ere ;
   - le lambda `<Select>b__0`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0 renvoie **`Fix64.op_UnaryNegation(util)`** -> `OrderBy(-util)` =
     tri DECROISSANT -> 1ere cible = utilite **MAX** ; FinalJustice frappe donc l'**argmax** du composite
-    Damage(34) = DamageDealt(35)+KillUnit(36)+OverkillUnit(37) ;
+    Damage(34) = DamageDealt(35)+KillUnit(36)+OverkillUnit(38) ;
   - gate `Count(validTargets) > 0 AND NOT TargetIsOverkilled`.
 
 PROTOCOLE (live, deterministe) : build Kharn vs >=3 ennemis ; capture l'etat REEL a turn 0 (stats/PV live).

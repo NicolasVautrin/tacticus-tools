@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""#236 -- les GATES D'ENTREE de la feuille de mouvement `MinDistanceToClosestEnemy(16)`.
+"""#236 -- les GATES D'ENTREE de la feuille de mouvement `MinDistanceToClosestEnemy(17)`.
 
 `<EvaluateMovementInSteps>IdunBattle.AI.Utilities.MinDistanceToClosestEnemyUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
 court-circuite la feuille sur QUATRE gates, AVANT tout calcul de distance -- chacun rend

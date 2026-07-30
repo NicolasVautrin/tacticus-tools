@@ -259,8 +259,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             On(1  = PreUnitDeath)    ret IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc   <- AVANT la garde `if (*pcVar21 == '\\0')` @IdunBattle.Operations.KillUnitOperation$$Execute+0x82e
             On(2  = PreUnitDeath_2)  ret IdunBattle.Operations.KillUnitOperation$$Execute+0x97a   <- sous la garde
             On(0  = UnitDeath)       ret IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9   (aucun consommateur porté)
-            On(55 = UnitDefeated)    ret IdunBattle.Operations.KillUnitOperation$$Execute+0xeac
-            On(54 = PostUnitKill)    ret IdunBattle.Operations.KillUnitOperation$$Execute+0x102c   (aucun consommateur porté)
+            On(54 = UnitDefeated)    ret IdunBattle.Operations.KillUnitOperation$$Execute+0xeac
+            On(53 = PostUnitKill)    ret IdunBattle.Operations.KillUnitOperation$$Execute+0x102c   (aucun consommateur porté)
 
         => **1 -> 2 -> 55** est CONFIRMÉ (auparavant une simple inférence par numérotation). Les 3 vecteurs
         portés sont donc émis dans cet ordre ci-dessous.
@@ -411,7 +411,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                              overkill: bool) -> list:
         """`IdunBattle.Operations.KillUnitOperation$$Execute` -- l'APPLICATION d'une mort deja
         enqueuee. Emet la SEQUENCE 1 -> 2 -> 0 -> 0x37 -> 0x36 ; les quatre premiers sont portes, DANS
-        CET ORDRE (le 5e, `PostUnitKill = 0x36`, n'a pas de consommateur porte). La garde
+        CET ORDRE (le 5e, `PostUnitKill = 0x35`, n'a pas de consommateur porte). La garde
         `IdunBattle.Operations.KillUnitOperation$$Execute+0x82e` (revive en attente) court-circuite
         tout ce qui suit `On(PreUnitDeath)` -- cf. la docstring de `_fire_death_if_killed`."""
         from .triggers import (after_death_triggers, unit_defeated_triggers,
@@ -438,13 +438,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # cadavre ne sont lus par personne, un retrait global serait un changement de comportement
         # transverse hors perimetre).
         _revert_ability_modifications_of_dead(state, target_id)
-        # #G3 : `On(UnitDefeated=55)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
+        # #G3 : `On(UnitDefeated=54)` (event DISTINCT de 1, 2 et 0) -> Ambush_SummonAbility (mort -> decoy +
         # record turn_defeated). L'unité est déjà alive=False (fire-on-death).
         return out + unit_defeated_triggers(state, target_id, attacker_id)
 
     @staticmethod
     def _refresh_swarm(state: State, target_id: int) -> None:
-        """#60 : bras `On(UnitMemberDeath=48) & OwnerIsTarget` du `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — apres toute baisse de PV de la cible, re-evalue le stat-mod EXTRA_HITS du trait
+        """#60 : bras `On(UnitMemberDeath=47) & OwnerIsTarget` du `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` — apres toute baisse de PV de la cible, re-evalue le stat-mod EXTRA_HITS du trait
         Swarm (`AddOrUpdateStaticStatModifierEffect 0x3fd`, cf. runner/abilities/loki/swarm.py). No-op
         rapide pour une cible non-swarm ou morte. Lazy import (cycle damage <-> abilities)."""
         from ..abilities.loki.swarm import on_group_unit_hp_changed
@@ -464,7 +464,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
         seulement) -> `RegisterDamageOperation IdunBattle.Operations.RegisterDamageOperation$$Execute` (`_register_received_damage`) -> re-eval Swarm
-        (`_refresh_swarm`, On(UnitMemberDeath=48)). Avant ce foyer, chaque vecteur inlinait le meme bloc
+        (`_refresh_swarm`, On(UnitMemberDeath=47)). Avant ce foyer, chaque vecteur inlinait le meme bloc
         x4 (divergence structurelle vs le chokepoint natif). `is_attack=False` = degat DIRECT (DoT) :
         pas de `_record_attacked` (un DoT n'est PAS une attaque, compteur HasBeenAttackedAmountThisTurn).
 
@@ -569,7 +569,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             state, target_id, total, shield_dmg, armor_dmg, last_hit)
         AttackDamageOperation._register_damaged_this_phase(
             state, attacker_id, target_id, total, shield_dmg, armor_dmg)
-        AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=48)
+        AttackDamageOperation._refresh_swarm(state, target_id)          # #60 : On(UnitMemberDeath=47)
         # #100 : `IdunBattle.Operations.RefreshEffectsOperation` (volet stat-modifier) — les PV viennent
         # de changer, donc les `CreateActiveCondition` qui lisent `StatAmount(Self, HEALTH, CURRENT_PCT)`
         # peuvent basculer. Cas porte : `AnvilShield_BlockChanceBelowHealthCap` (1200) dont la

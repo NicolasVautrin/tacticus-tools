@@ -176,7 +176,7 @@ def _argmax_tile(ctx):
 def _explain(ctx, leaf_ctx, wt, own, nono, nat_tile):
     """DECOMPOSITION PAR ETAGE du decideur de move PUR sur les tuiles candidates.
 
-    `UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)` (`engine/move.py`). On imprime,
+    `UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(17)` (`engine/move.py`). On imprime,
     tuile par tuile : la distance de CHEMIN a l'ennemi le plus proche, le terme MinDist, le
     composite `Tile(7)` du port, et la part que les DEUX faces de 1547 y prennent. C'est ce qui
     distingue « le terme ne bascule rien parce qu'il est domine » de « le port se trompe »."""
@@ -306,7 +306,7 @@ def run(sid, rid, steps, verbose):
 #
 # Pourquoi il FAUT crafter. L'etape 1 mesure sur la trajectoire NATURELLE, et elle y montre que le
 # terme VARIE beaucoup mais ne BASCULE presque jamais : le decideur de move pur est
-# `UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)` et `MinDist.PerTileDistance` vaut -100
+# `UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(17)` et `MinDist.PerTileDistance` vaut -100
 # PAR TUILE de distance-CHEMIN. Un ecart d'une seule tuile de chemin (100) ecrase le terme (10..40).
 # Le terme ne peut donc trancher qu'entre tuiles a distance-chemin EGALE -- configuration qu'il faut
 # FABRIQUER, pas attendre (cf. runner.md, « tu as la maitrise totale du setup »).

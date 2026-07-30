@@ -145,8 +145,8 @@ def _write_side() -> dict:
 #                 mais incomplet sur les 3 traits d'alliance).
 GATES = [
     # -- famille Tile(7), sujet (`ctx["unit_traits"]`)
-    ("T1 CapturePoint(24)", "utilities/tile.py", 288, 'unit_traits', [2, 13], "ENTITE"),
-    ("T2 PowerUp(26)", "utilities/tile.py", 304, 'unit_traits', [2, 13], "ENTITE"),
+    ("T1 CapturePoint(25)", "utilities/tile.py", 288, 'unit_traits', [2, 13], "ENTITE"),
+    ("T2 PowerUp(27)", "utilities/tile.py", 304, 'unit_traits', [2, 13], "ENTITE"),
     ("T3 DespoiledGround(28)a", "utilities/tile.py", 382, 'unit_traits', [2026], "ENTITE"),
     ("T3 DespoiledGround(28)b", "utilities/tile.py", 384, 'unit_traits', [26, 1006], "ENTITE"),
     ("T4 SummonDislikeDoor(29)", "utilities/tile.py", 405, 'unit_traits', [2], "ENTITE"),

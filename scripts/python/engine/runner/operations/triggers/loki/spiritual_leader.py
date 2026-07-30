@@ -83,7 +83,7 @@ RESIDUS (honnetes) :
     l'un des deux sera pose la semantique soit deja juste. Consequence mesurable AUJOURD'HUI : nulle.
   - Le Neophyte spawne SUR la tuile d'un decoy : le natif `AddUnitOperation$$KillSteppableUnits`
     ecrase le decoy porteur. Porte via `movement._kill_steppable_units` (meme helper que le crush
-    par move). Ce crush n'emet PAS `On(0x36=PostUnitKill)` ici (le port ne l'emet que pour le
+    par move). Ce crush n'emet PAS `On(0x35=PostUnitKill)` ici (le port ne l'emet que pour le
     crush-par-MOVE, cf. `loki/cosmic_horror.py`) : aucun consommateur porte ne le lit sur ce chemin.
   - `SpiritualLeaderPlaybook` (`FilterAdjacentFriends` / `GetAdjacentFriendUtility`) = face DECISION
     (l'IA prefere finir son move a cote de ses decoys) : hors perimetre de la face COMBAT.

@@ -70,7 +70,7 @@ TROIS artefacts natifs DISTINCTS (ne pas les fondre) :
        `GhostEffect$$CreateHandleTriggerAbilitiesInternal` = ArraySet de CINQ retraits
        (`GetRemoveEffectBehaviour` a chaque fois) -- la « condition de disparition » de l'i2 :
          1. On(0x1f = PreUnitMove, 1) & AreEqual(caster@0x160, EffectSource)
-         2. On(0x33 = UnitAdded, 1) & NOT AreEqual(caster, EffectSource)
+         2. On(0x32 = UnitAdded, 1) & NOT AreEqual(caster, EffectSource)
             & Contains(TargetTiles@0x190, Owner@0x148) & NOT HasTrait(caster, 0x1b = Steppable)
          3. On(0x24 = UnitPositionChanged_1, 1) & NOT AreEqual(caster, EffectSource)
             & Contains(TargetTiles@0x190, Owner@0x148)
@@ -383,7 +383,7 @@ class GhostRemoveOnSourceMoves(_GhostRemoval):
 
 
 class GhostRemoveOnUnitAdded(_GhostRemoval):
-    """Retrait n°2 : `On(0x33 = UnitAdded, 1) & NOT AreEqual(caster, EffectSource)
+    """Retrait n°2 : `On(0x32 = UnitAdded, 1) & NOT AreEqual(caster, EffectSource)
     & Contains(TargetTiles@0x190, Owner@0x148) & NOT HasTrait(caster, 0x1b = Steppable)` -- une AUTRE
     unite (non-Steppable) APPARAIT sur la tuile du ghost."""
     event_ids = (int(EventTriggerType.UnitAdded),)

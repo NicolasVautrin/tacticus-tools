@@ -40,7 +40,7 @@ DEUX classes natives, DEUX events, DEUX volets — le passif accorde les deux.
 
 - `...RealityUnboundExtraMaxDamageAbility$$CreateTrigger` :
 
-      On(0x43 = 67 = FinalDamage, subject=1)
+      On(0x43 = 66 = FinalDamage, subject=1)
       & HasTakenDamageOfDamageProfileThisTurnAmountOfTimes(
             unit = target@0x178, damageProfile = 0xd = Psychic, times = 1, unitSelectionType = 2)
       & AreEnemies(target@0x178, self@0x148)
@@ -239,7 +239,7 @@ class RealityUnboundAbility(TriggeredAbility):
 
 
 class RealityUnboundExtraMaxDamageAbility(TriggeredAbility):
-    """Volet B — `On(67=FinalDamage)` : a la PREMIERE instance de degat Psychic encaissee par un
+    """Volet B — `On(66=FinalDamage)` : a la PREMIERE instance de degat Psychic encaissee par un
     ennemi ce tour, Yazaghor gagne +extraMaxDmg de degat MAXIMUM (effet 1207) pour 1 tour.
 
     STACK : le natif appelle `AddStaticStatModifierEffect` une fois par ennemi distinct **sans

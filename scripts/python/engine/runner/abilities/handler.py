@@ -11,7 +11,7 @@ l'execution : le gate ACTEUR-MORT (#70) puis le GATE DE CIBLE (#115, `IsInvalidT
 generique + regle dynamique par ability, cf. `targeting.py`). Un refus = no-op COMPLET : ni
 behaviour, ni `AddFlagsAfterAbilityExecution` (donc `actionConsumed = false` cote natif).
 
-#120 — LES VECTEURS D'OPERATION `On(0x2b)` / `On(0xe)`. Le natif emet `PreUnitAbility (0x2b)` depuis
+#120 — LES VECTEURS D'OPERATION `On(0x2b)` / `On(0xe)`. Le natif emet `PreUnitAbility (0x2a)` depuis
 UN SEUL site, `ActiveAbilityOperation$$ExecuteInternal`, et l'attaque NORMALE emprunte cette MEME
 operation (elle EST une active ability :
 `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port, lui, a DEUX
@@ -269,7 +269,7 @@ class AbilityHandler:
         from ..operations.active_ability import (execute_for_replaced_target, get_tiles,
                                                  resolve_replaced_target)
         _target_tiles = get_tiles(self.state, msg.target_id)
-        # #120 `On(PreUnitAbility=0x2b)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
+        # #120 `On(PreUnitAbility=0x2a)` — le vecteur d'OPERATION, emis pour TOUTE ability qui passe
         # les gates, portee ou non (il ne depend pas de la behaviour : cf. le meme raisonnement que
         # les FLAGS de tour #139 ci-dessous). Emis AVANT l'execution, comme le natif.
         self._pre_unit_ability(msg)

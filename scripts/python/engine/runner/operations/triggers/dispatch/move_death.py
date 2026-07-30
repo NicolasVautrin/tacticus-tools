@@ -101,7 +101,7 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 
     ORDRE NATIF COMPLET, lu au décompilé d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (les deux
     events ENCADRANTS sont désormais portés, cf. les vecteurs dédiés ci-dessous) :
-        AddMoveEvent(s) -> **KillSteppableUnits** (-> `On(0x36=PostUnitKill)` par crushé)
+        AddMoveEvent(s) -> **KillSteppableUnits** (-> `On(0x35=PostUnitKill)` par crushé)
         -> UpdateCharging -> SetMovedFlag -> **Add(UnitFlag.ArrivedAtFinalTile=1)**
         -> EvaluateAfterMoveTriggers (`On(0x24)` / `On(4)` / `On(0x1d)`)
         -> si le flag 1 venait d'être AJOUTÉ : **`On(0x1c=ArrivedAtFinalTile)`**.
@@ -126,7 +126,7 @@ def after_move_triggers(state: State, mover_id: int) -> list[dict]:
 
 
 def post_unit_kill_triggers(state: State, killer_id: int, killed_id: int) -> list[dict]:
-    """Vecteur `On(PostUnitKill = 0x36 = 54)` — **5e et DERNIER** des events de mort émis par
+    """Vecteur `On(PostUnitKill = 0x35 = 54)` — **5e et DERNIER** des events de mort émis par
     `IdunBattle.Operations.KillUnitOperation$$Execute` (séquence lue au décompilé et déjà documentée
     par `pre_unit_death_2_triggers` : `On(1)` -> `On(2)` -> `On(0)` -> `On(0x37)` -> `On(0x36)`).
     `actor` = le TUEUR, `target`/`dying` = la victime.
@@ -299,7 +299,7 @@ def pending_death_added_triggers(state: State, dying_id: int,
 def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[int],
                               overkill: bool = False) -> list[dict]:
     """Vecteur `On(PreUnitDeath_2 = 2)` — event NATIF DISTINCT de `PreUnitDeath(1)` et de
-    `UnitDefeated(55)`. Emis par `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute` ENTRE les deux : ordre
+    `UnitDefeated(54)`. Emis par `KillUnitOperation$$IdunBattle.Operations.KillUnitOperation$$Execute` ENTRE les deux : ordre
     d'instruction LU au decompile `On(1)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x7dc) -> `On(2)` (ret IdunBattle.Operations.KillUnitOperation$$Execute+0x97a) ->
     `On(0)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xdf9) -> `On(0x37=55)` (IdunBattle.Operations.KillUnitOperation$$Execute+0xeac) -> `On(0x36=54)` (IdunBattle.Operations.KillUnitOperation$$Execute+0x102c).
     (`ApplyDamageOperation$$IdunBattle.Operations.ApplyDamageOperation$$Execute` n'emet AUCUN des trois ; `InputMessageProcessor$$
@@ -341,7 +341,7 @@ def unit_death_triggers(state: State, dying_id: int, killer_id: Optional[int] = 
 
 def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
                               effect_type: int) -> list[dict]:
-    """Vecteur `On(PreEffectAdded=0x3e=62)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
+    """Vecteur `On(PreEffectAdded=0x3d=62)` — emis par `IdunBattle.Operations.AddEffectOperation$$Execute` **TOUT EN
     HAUT** (`FUN_180026490(0x50, ..., 0x3e)` juste apres la construction de l'`AbilityEntities`, AVANT le
     gate cible-nulle, AVANT le gate << deja present >> et AVANT le gate d'immunite `HasFlag(target,6)`).
     => l'evenement fire meme quand l'effet n'est finalement PAS applique (semantique << would have >>).
@@ -357,7 +357,7 @@ def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id:
 
 
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
-    """Vecteur `On(UnitDefeated=55=0x37)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
+    """Vecteur `On(UnitDefeated=54=0x37)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
     `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x37) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
     par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
     fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
@@ -369,9 +369,9 @@ def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int]
 
 
 def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -> list[dict]:
-    """Vecteur `On(UnitRevived = 46 = 0x2e)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
+    """Vecteur `On(UnitRevived = 45 = 0x2e)` (case-89 volet B3) — emis par `ReviveUnitOperation.Execute`
     @IdunBattle.Operations.ReviveUnitOperation$$Execute+0xac1 (`FUN_180026490(0x4d, DAT_1831d3468, events, 0x2e)`), APRES la mutation PV/flags/position
-    et **AVANT** la purge de la `ReviveData` (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+). DISTINCT d'`On(UnitResurrected=47=0x2f)`
+    et **AVANT** la purge de la `ReviveData` (@IdunBattle.Operations.ReviveUnitOperation$$Execute+0xda7+). DISTINCT d'`On(UnitResurrected=46=0x2f)`
     (`ResurrectUnitOperation`, ambush).
 
     `current_ability` = le `sourceId` (`AbilityOrEffect`) porte par la `ReviveData` — c'est ce que lit le
@@ -388,7 +388,7 @@ def unit_revived_triggers(state: State, revived_id: int, current_ability=None) -
 
 
 def unit_resurrected_triggers(state: State, resurrected_id: int) -> list[dict]:
-    """Vecteur `On(UnitResurrected=47=0x2f)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
+    """Vecteur `On(UnitResurrected=46=0x2f)` (G3) — emis par `ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute apres une
     resurrection Ambush (`actor` = l'unite ressuscitee, co-localisee avec le decoy qu'elle vient de crusher).
     Alimente `DecoysAndMisdirection_BuffFriends` (G2, `(On(0x2f)|On(0x1d)) & AreFriends` -> +582 + nouveau
     decoy si GS Cult) et la re-arme HeroicFusillade (G5, `On(0x2f) & OwnerIsTarget`). No-op si aucun

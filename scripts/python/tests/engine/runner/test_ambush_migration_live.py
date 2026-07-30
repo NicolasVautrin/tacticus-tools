@@ -1,13 +1,13 @@
 """Gen-stealer G3 : trait Ambush (1052, Isaak/Judh) PORT -> triggers + Operation resurrect, valide LIVE.
 
 Trait Ambush = 2 abilities-triggers (namespace `Triggered.Loki`) + 1 Operation impLerative :
-  - `Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : `On(UnitDefeated=55) & OwnerIsTarget & Not(HasFlag 0xe)`
+  - `Ambush_SummonAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$GetSummonBehaviour) : `On(UnitDefeated=54) & OwnerIsTarget & Not(HasFlag 0xe)`
     -> pose 1 genesSmnDecoy sur la tuile du mort (ForSteppable) + enregistre `turn_defeated`.
   - `EnvAmbushResurrectAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.EnvAmbushResurrectAbility$$CreateBehaviour) : `On(TurnStart=22) & ValidDecoys>0 & Eligible>0`
     -> ressuscite chaque porteur eligible (mort au tour PRECEDENT, delta==1, non-flag-0xe) sur un decoy allie
     aleatoire, PV pleins, tour immediat, ordre Character-first.
   - feuille `Resurrect` -> `IdunBattle.Operations.ResurrectUnitOperation$$Execute` : alive=True + flag 0xe (one-shot) +
-    crushe le decoy + SetHealth(full) + RemoveTurnFlags + emet `On(UnitResurrected=47)` (-> G2 BuffFriends).
+    crushe le decoy + SetHealth(full) + RemoveTurnFlags + emet `On(UnitResurrected=46)` (-> G2 BuffFriends).
 
 VALIDATION : deterministe-sur-etat-live (comme G2/G4/G5). BUILD un runner (Isaak genesPrimus + Judh
 genesKelermorph + ennemi banal), capture l'etat LIVE, DRIVE les positions, SIMULE la mort (alive=False +
@@ -136,7 +136,7 @@ def _park_others(state, board, keep_ids, center_coord):
 
 def _kill(state, uid, killer_id):
     """SIMULE la mort de `uid` EXACTEMENT comme `DamageCalculations._fire_death_if_killed` : hp=0 + alive=False
-    PUIS `unit_defeated_triggers` (On UnitDefeated=55) -> Ambush_SummonAbility (decoy + turn_defeated)."""
+    PUIS `unit_defeated_triggers` (On UnitDefeated=54) -> Ambush_SummonAbility (decoy + turn_defeated)."""
     from engine.runner.components import UnitComponent, HealthComponent
     from engine.runner.operations.triggers import unit_defeated_triggers
     e = state.get_entity(uid)
@@ -336,7 +336,7 @@ def test_g3_resurrect_is_one_shot(g3_state):
 
 
 def test_g3_resurrect_emits_event_to_g2_bufffriends(g3_state):
-    """(E) CHAINAGE `On(UnitResurrected=47)` : la resurrection d'un ALLIE (Judh) emet l'event qui atteint
+    """(E) CHAINAGE `On(UnitResurrected=46)` : la resurrection d'un ALLIE (Judh) emet l'event qui atteint
     G2 `DecoysAndMisdirection_BuffFriends` (carrier Isaak vivant) -> pose l'effet 1379 (+582) sur Judh. Prouve
     que la resurrection publie bien `On(UnitResurrected)` (source live de G2/G5)."""
     state = g3_state["build_state"]()

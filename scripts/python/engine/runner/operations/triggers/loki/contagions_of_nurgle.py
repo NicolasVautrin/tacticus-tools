@@ -8,7 +8,7 @@ RE (decompile ghidra, build `gqfc5mff6c`)
 ## `IdunBattleLogic.Entities.Abilities.Active.Loki.ContagionsOfNurgle_AddEffectToNewUnit_Ability`
 
     $$CreateTrigger =
-        ( On(0x33 = UnitAdded, 1) | On(0x2f = UnitResurrected, 1) | On(0x2e = UnitRevived, 1) )
+        ( On(0x32 = UnitAdded, 1) | On(0x2e = UnitResurrected, 1) | On(0x2d = UnitRevived, 1) )
         & op_LogicalNot( AreEqual(owner@0x148, target@0x178) )
         & AreEnemies(owner@0x148, target@0x178)
 
@@ -45,8 +45,8 @@ RE (decompile ghidra, build `gqfc5mff6c`)
 FORME DU PORT
 ================================================================================================
 * Le vecteur `On(UnitAdded)` est cable au SPAWN (`operations/spawn.py` : `on_unit_added`), qui est
-  le seul site du port ou une unite ENTRE en bataille. Les branches `UnitResurrected(0x2f)` /
-  `UnitRevived(0x2e)` partagent le meme foyer -- `operations/revive.py` / `resurrect.py` peuvent
+  le seul site du port ou une unite ENTRE en bataille. Les branches `UnitResurrected(0x2e)` /
+  `UnitRevived(0x2d)` partagent le meme foyer -- `operations/revive.py` / `resurrect.py` peuvent
   l'appeler quand elles ramenent une unite (NON cable a ce jour : residu explicite ci-dessous).
 * `AddEffectInitially` (`OnOwnerSpecificAbilityInit`) n'est PAS porte, et c'est DELIBERE : le
   runner ne rejoue pas l'init de bataille, il RECHARGE un `combatSnapshot` ou le debuff est DEJA

@@ -2,7 +2,7 @@
 inline), extraits de `triggers/dispatch.py` (scission du module >1000 lignes, tache #169
 -- deplacement VERBATIM, zero changement de comportement).
 
-`On(AbilityInit=0x21)`, `On(PreUnitAbility=0x2b)`, `On(UnitPostAbility)`,
+`On(AbilityInit=0x21)`, `On(PreUnitAbility=0x2a)`, `On(UnitPostAbility)`,
 `On(UnitActiveAbility)`, plus `evaluate_abilities_for_event` (noeud DSL `EvaluateAbilities`)."""
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
 def pre_unit_ability_triggers(state: State, caster_id: int, target_id: int,
                               ranged: bool, profile: Optional[str] = None,
                               ability_type: Optional[int] = None) -> list[dict]:
-    """Vecteur `On(PreUnitAbility=0x2b=43)` — emis par
+    """Vecteur `On(PreUnitAbility=0x2a=43)` — emis par
     `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (`FUN_180026490(0x4d, .., 0x2b)`)
     **TOUT EN HAUT**, avant l'execution de l'ability (donc avant tout degat/block) ; la MEME operation
     emet ensuite, dans l'ordre, `0xb (UnitAbility)`, `0xc (UnitActiveAbility)` et `0xe (UnitPostAbility)`.
@@ -135,7 +135,7 @@ def evaluate_abilities_for_event(state: State, caster_id: int, target_id: int,
     """Mirror `IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$Execute` (IdunBattle.Entities.Behaviours.EvaluateAbilitiesBehaviour$$.ctor, champ +0x50 = `EventTriggerType`)
     : EVALUE les abilities DÉCLENCHÉES du CASTER pour l'`EventTriggerType` `event`, INLINE dans un behaviour-tree
     (nœud DSL générique `IdunBattleLogic.Entities.DSLFactory$$EvaluateAbilities`). Callers natifs : NormalAttack
-    `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4b=AttackInAtomicGroup)`, ArmouredMight/
+    `EvaluateAbilities(0x26)`, ArmoriumCherub `EvaluateAbilities(0x4a=AttackInAtomicGroup)`, ArmouredMight/
     TheQuickening (after-move).
 
     `AttackInAtomicGroup` (attaque d'ability ATOMIQUE du caster, ex. ArmoriumCherub `ExecuteAtomic`) -> le passif

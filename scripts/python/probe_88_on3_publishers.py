@@ -36,8 +36,8 @@ STACK_SLOTS = (0x20, 0x28, 0x30, 0x38, 0x40, 0x48, 0x50)
 # emetteur natif connu -- ils valident que le balayage voit bien ce genre de site.
 WITNESSES = {
     0x1c: "MoveUnitOperation$$EvaluateArrivedAtFinalTileTrigger (28 ArrivedAtFinalTile)",
-    0x2f: "ResurrectUnitOperation (47 UnitResurrected)",
-    0x2c: "HealUnitOperation (44 UnitHealed)",
+    0x2f: "ResurrectUnitOperation (46 UnitResurrected)",
+    0x2c: "HealUnitOperation (43 UnitHealed)",
 }
 
 

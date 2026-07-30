@@ -331,7 +331,7 @@ def _replay_attack(st, attacker_id, victim_id, ability=NORMAL_ATTACK):
 
     ⚠ #277 -- LA VOIE D'ABILITY PASSE PAR `Runner.apply`, JAMAIS PAR `execute_behaviour` A LA MAIN.
     Le natif n'a qu'UN point d'entree de cast (`IdunBattle.Operations.ActiveAbilityOperation$$
-    ExecuteInternal`), qui emet `On(0x2b = PreUnitAbility)` AVANT la behaviour. Cote port ce vecteur
+    ExecuteInternal`), qui emet `On(0x2a = PreUnitAbility)` AVANT la behaviour. Cote port ce vecteur
     est emis par `AbilityHandler.visit_ActiveAbilityMessage` : appeler `FlailSwingAbility().
     execute_behaviour(...)` directement SAUTE l'emission, donc saute le `PickRandomly` de
     `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`

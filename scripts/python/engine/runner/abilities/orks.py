@@ -186,7 +186,7 @@ def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_rang
     `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit
     `UtilityDefinition..ctor(0x20)` et delegue a la surcharge objet avec `ownerSel` NUL), PAS le
     `7 = Tile` des ports freres. `UtilitiesDatabase$$InitializeUtilities` compose la cle `0x20` en
-    `[Tile(7), TileDistance(33)]` -- les DEUX enfants sont portes (#201, `engine/utilities/tile.py`).
+    `[Tile(7), TileDistance(34)]` -- les DEUX enfants sont portes (#201, `engine/utilities/tile.py`).
 
     #206 -- le COLLAPSE « la tuile la plus PROCHE du caster (tie-break tile id) » est SUPPRIME : il ne
     reproduisait le natif que dans le regime ou `Tile(7)` est PLAT (alors `TileDistance = -d/10`, seul

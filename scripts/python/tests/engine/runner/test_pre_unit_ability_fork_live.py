@@ -1,4 +1,4 @@
-"""#120 — `On(PreUnitAbility = 0x2b)` part-il de la voie ABILITY comme de la voie NORMALE ?
+"""#120 — `On(PreUnitAbility = 0x2a)` part-il de la voie ABILITY comme de la voie NORMALE ?
 CONFRONTE AU LIVE.
 
 Le natif n'a qu'UN site d'emission : `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`

@@ -14,7 +14,7 @@ Chaîne native : `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTrigge
   `GetTimesTriggeredThisPhase < 0x33` (51/phase).
 
 EVENT-MAPPING RE (#147, verdict agent #150) : `On(NormalAttack=38)` et le vecteur after-hit
-`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (dispatche `AttackHit=8` TOUJOURS + `UnitBlocked=61`
+`IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` (dispatche `AttackHit=8` TOUJOURS + `UnitBlocked=60`
 (0x3d) sur la branche `param_6`) sont des events NATIFS DISTINCTS. L'ancien port les conflatait sous une
 constante 0x26 → le splash (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`, events {6,8,0x3d}, JAMAIS
 NormalAttack) re-satisfaisait Psyker `On(NormalAttack)` → chain 51×. Corrigé (#147) : Psyker écoute

@@ -220,8 +220,8 @@ def light_cover_on_enter(state: State, mover_id: int) -> list[dict]:
     """`LightCoverAbility` (Abilities.Tiles.Loki) — MIRROR 1:1 du decompile (build `gqfc5mff6c`) :
 
         `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateTrigger` =
-            ( On(0x19=MatchInit) | On(0x33=UnitAdded) | On(0x24=UnitPositionChanged_1)
-              | On(0x2e=UnitRevived) | On(0x2f=UnitResurrected) )
+            ( On(0x19=MatchInit) | On(0x32=UnitAdded) | On(0x24=UnitPositionChanged_1)
+              | On(0x2d=UnitRevived) | On(0x2e=UnitResurrected) )
             & NOT AmountIsZero( UnitsThatNeedEffect )
         `IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$CreateBehaviour` =
             AddEffect( 0x3f5 = 1013 LightCover, AbilityStateReference, UnitsThatNeedEffect )

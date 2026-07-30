@@ -11,7 +11,7 @@ ARTEFACT NATIF vise (decompile, build `gqfc5mff6c`) :
 
     IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger
         ( OnDeath(1,1) & ( TriggeringAbilityIs(0x435) | AreEqual(Actor@0x158, bonded) )
-          | On(0x2e = UnitRevived) | On(0x35 = UnitFled) )
+          | On(0x2d = UnitRevived) | On(0x35 = UnitFled) )
         & IsAlive(bonded) & AreEqual(Target@0x178, EffectSource(Effect@0x150))
 
     …$$CreateTargetTriggerBehaviour

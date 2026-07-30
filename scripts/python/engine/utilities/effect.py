@@ -1,7 +1,7 @@
 """`AddedEffectUtility` — utilite de POSE D'EFFET (RE ghidra gqfc5mff6c, doc §13). Poids PLAT par type
 d'effet, 100% pilote par le BattleConfiguration (PAS de magnitude : un DoT/reduction passe par le DEGAT).
 
-`IdunBattle.AI.Utilities.AddedEffectUtility` (IdunBattle.AI.Utilities.AddedEffectUtility$$.ctor ; `UtilityType.AddedTileEffects=45` = la
+`IdunBattle.AI.Utilities.AddedEffectUtility` (IdunBattle.AI.Utilities.AddedEffectUtility$$.ctor ; `UtilityType.AddedTileEffects=46` = la
 categorie de poids BC `Utilities.Default[AddedTileEffects]` lue par cette utilite). Corps =
 `<EvaluateAttackInSteps>d__.MoveNext` (stub `IdunBattle.AI.Utilities.AddedEffectUtility$$EvaluateAttackInSteps`, body iter IdunBattle.AI.Utilities.AddedEffectUtility.u003CEvaluateAttackInStepsu003Ed__0$$MoveNext) :
     si la cible a DEJA l'effet (EntityExtensions.HasEffect)  -> U = 0
@@ -11,8 +11,8 @@ categorie de poids BC `Utilities.Default[AddedTileEffects]` lue par cette utilit
 Weight[...] = `IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue` (`get_utility_value` en base ; absent -> 0).
 Ex. AddedTileEffects Fire=10 / Unit_on_Fire=15 : Fire sous un ENNEMI = 10+15 = 25 ; sous un ALLIE = 10-15 = -5.
 
-NB `UtilityType.AttackTargetWithEffect=42` est une AUTRE utilite (preference de CIBLAGE : viser une cible
-qui a deja un effet), a ne pas confondre avec la POSE d'effet (AddedTileEffects=45) que porte cette classe.
+NB `UtilityType.AttackTargetWithEffect=43` est une AUTRE utilite (preference de CIBLAGE : viser une cible
+qui a deja un effet), a ne pas confondre avec la POSE d'effet (AddedTileEffects=46) que porte cette classe.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ EFFECT_UTILITY_PREFIX = "Unit_on_"   # AddedEffectUtility String.Concat(prefix, 
 
 
 class AddedEffectUtility(BaseUtility):
-    """`IdunBattle.AI.Utilities.AddedEffectUtility` (IdunBattle.AI.Utilities.AddedEffectUtility$$.ctor ; UtilityType.AddedTileEffects=45).
+    """`IdunBattle.AI.Utilities.AddedEffectUtility` (IdunBattle.AI.Utilities.AddedEffectUtility$$.ctor ; UtilityType.AddedTileEffects=46).
     Corps dans `evaluate` (= `<EvaluateAttackInSteps>d__.MoveNext`, body IdunBattle.AI.Utilities.AddedEffectUtility.u003CEvaluateAttackInStepsu003Ed__0$$MoveNext)."""
     UTILITY_TYPE = int(UtilityType.AddedTileEffects)  # 46
 
@@ -38,5 +38,5 @@ class AddedEffectUtility(BaseUtility):
         return float(base + prefixed)
 
 
-ADDED_EFFECT_UTILITY = AddedEffectUtility()   # instance a UtilityType.AddedTileEffects=45
+ADDED_EFFECT_UTILITY = AddedEffectUtility()   # instance a UtilityType.AddedTileEffects=46
 assert ADDED_EFFECT_UTILITY.UTILITY_TYPE == UtilityType.AddedTileEffects

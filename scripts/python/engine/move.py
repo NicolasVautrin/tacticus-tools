@@ -1,6 +1,6 @@
 """Scoring de MOUVEMENT — repositionnement pur (le profil natif « MovementSuggestion », §1.5).
 
-Le décideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
+Le décideur de move PUR est **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(17)**
 (composition LUE runtime via `UtilitiesDatabase.InitializeUtilities._composedUtilityLookup`,
 RE ghidra gqfc5mff6c, doc §13.8/13.11) : `U(tuile) = tile_composite(Tile(7)) + wMin × d`, avec
 wMin = `MinDistanceToClosestEnemy.PerTileDistance` (-100) et `d` = distance de CHEMIN (pathfinding,
@@ -31,7 +31,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
                        terrain_by_pos: dict | None = None,
                        leaf_ctx: dict | None = None,
                        mindist_case=None) -> tuple:
-    """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(16)**
+    """Move scoring FIDÈLE — décideur **UnitMovement(6) = Tile(7) + MinDistanceToClosestEnemy(17)**
     (composition LUE runtime, doc §13.8/13.11). `U(tuile) = tile_composite(Tile(7)) + wMin×d`.
     PAS de `MaxDistanceToEnemies` (dans AUCUN composite) ni `MaxDistanceToUnitTile` (seulement
     UnitMovementFromTemporary).
@@ -41,8 +41,8 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
     (approximation). `elev_by_pos` = `{(col,row): elevation}` (RPC tileMeta = BOARD ENTIER) ; max/min
     d'élévation calculés sur TOUT le board (= `IdunBattle.AI.Utilities.ElevationUtility$$LoadRelevantTileElevations`, verdict case-37 :
     board-singleton, PAS le candidate-set). `is_temporary_by_pos` = `{(col,row): bool}`
-    (tileMeta.isTemporary) → leaf TemporaryTile(13) (-10000 sur tuile temporaire). `terrain_by_pos` =
-    `{(col,row): tileDefId}` (boardGraph) → covers HÉBERGÉS par le terrain sommés par TileEffects(9)
+    (tileMeta.isTemporary) → leaf TemporaryTile(14) (-10000 sur tuile temporaire). `terrain_by_pos` =
+    `{(col,row): tileDefId}` (boardGraph) → covers HÉBERGÉS par le terrain sommés par TileEffects(10)
     (DryBush→LightCover, Loop2 ; case-37). `leaf_ctx` = le dict `ctx` PAR-DÉCISION des feuilles Tile(7)
     (`unit_triggered_abilities` + `friend_positions` → feuille TriggeredAbilities(2), case-36).
     `mindist_case` = le `UtilityMovementCase` (engine.utilities.move) que le générateur natif passe à
@@ -67,7 +67,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
             if e is not None else {}
         if is_temporary_by_pos and c in is_temporary_by_pos:
             meta["is_temporary"] = is_temporary_by_pos[c]
-        # feuille TileEffects(9) : effets DYNAMIQUES (tileMeta = Loop1 : Thorns/Fire/...) + covers HÉBERGÉS
+        # feuille TileEffects(10) : effets DYNAMIQUES (tileMeta = Loop1 : Thorns/Fire/...) + covers HÉBERGÉS
         # par le terrain (Loop2 : DryBush->LightCover). case-37.
         _effs = list(effects_by_pos.get(c) or []) if effects_by_pos else []
         if terrain_by_pos:
@@ -81,7 +81,7 @@ def best_move_faithful(tiles: list, elev_by_pos: dict, enemy_positions: list, wt
         # SUPPRIMÉ : aucun appelant ne l'a jamais fourni (feuille `SteppableUnit` muette), et le laisser aurait
         # créé une seconde source pour `meta.steppable`, écrasée juste après par la ligne suivante.
         apply_tile_attributes(meta, c, leaf_ctx)
-        # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(16) [canal mouvement].
+        # UnitMovement(6) = Tile(7) [canal tile] + MinDistanceToClosestEnemy(17) [canal mouvement].
         # MinDist gère lui-même distance CHEMIN (si dispo) vs hex (fallback) — corps dans la feuille.
         tile_u = 0.0 if tile_off else tile_composite(c, meta, leaf_ctx or {}, wt)
         mindist_u = MIN_DIST_UTILITY.evaluate_movement(c, enemy_positions, wt, pathdist_by_pos,

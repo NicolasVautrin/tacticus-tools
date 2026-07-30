@@ -137,7 +137,7 @@ Self-revive INCONDITIONNEL (aucun `Maybe`). `healType = 0` (Heal) est le littera
 ```
 On(0x21 = 33 AbilityInit)                & OwnerIsActor                       -> ActivateEffect(self@0x150)
 On(0x12 = 18 TurnStart_EffectActivation)                                      -> ActivateEffect(self@0x150)
-On(0x2e = 46 UnitRevived) & OwnerIsTarget & CurrentAbilityIs(0x4e3 = 1251)    -> DeactivateEffect(self@0x150)
+On(0x2e = 45 UnitRevived) & OwnerIsTarget & CurrentAbilityIs(0x4e3 = 1251)    -> DeactivateEffect(self@0x150)
 ```
 Le 2e est le << first time each TURN >> (re-armement a CHAQUE tick de tour) ; le 3e est la
 CONSOMMATION (le revive de FuelledByFury -- et lui seul, d'ou le `CurrentAbilityIs` -- desactive le
@@ -380,7 +380,7 @@ class FuelledByFuryCanReviveActivateOnTurnStart(_FuelledByFuryCanReviveActivate)
 
 
 class FuelledByFuryCanReviveDeactivateOnRevive(EffectTrigger):
-    """3e entree de l'`ArraySet` : `On(0x2e = 46 UnitRevived) & OwnerIsTarget &
+    """3e entree de l'`ArraySet` : `On(0x2e = 45 UnitRevived) & OwnerIsTarget &
     CurrentAbilityIs(AbilityOrEffect(0x4e3 = 1251)) -> DeactivateEffect(self@0x150)`.
 
     Le `CurrentAbilityIs` est essentiel : SEUL un revive venu de FuelledByFury consomme le marqueur ;

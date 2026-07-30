@@ -513,7 +513,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    CURRENT_PCT))` -> le gate sante est un **POURCENTAGE** (StatPart 1). Live : absent+blockChance 0
     #    a 100 % PV, present+blockChance 20 a 31.8 %.
     #  - 0x4b1=1201 FrozenAttackerAdvantage : MEME stat 7 / MEME var 0x15, pose TRANSITOIREMENT par
-    #    `...AnvilShieldAbility_FrozenAttackerAdvantage$$CreateBehaviour` sur `On(0x2b=PreUnitAbility)`
+    #    `...AnvilShieldAbility_FrozenAttackerAdvantage$$CreateBehaviour` sur `On(0x2a=PreUnitAbility)`
     #    quand l'attaquant est sur une tuile GLACEE, consomme a `On(0xe=UnitPostAbility)`.
     # Les DEUX derniers etaient les prerequis manquants du volet `ApplyStun` (#100).
     "AnvilShield_AdditionalBlock": AnvilShieldAdditionalBlockEffect,

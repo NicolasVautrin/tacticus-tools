@@ -1,6 +1,6 @@
 """`RepairedAmountUtility` — utilite de REPARATION des unites MECANIQUES (RE ghidra rnca9r7q6c, #45d).
 
-`IdunBattle.AI.Utilities.RepairedAmountUtility` (IdunBattle.AI.Utilities.RepairedAmountUtility$$.ctor ; `UtilityType.RepairedAmount=47`).
+`IdunBattle.AI.Utilities.RepairedAmountUtility` (IdunBattle.AI.Utilities.RepairedAmountUtility$$.ctor ; `UtilityType.RepairedAmount=48`).
 Corps = `<EvaluateRepairInSteps>d__.MoveNext` (stub `IdunBattle.AI.Utilities.RepairedAmountUtility$$EvaluateRepairInSteps`, body iter
 IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext) — UN SEUL yield, UN SEUL terme :
     U = fill_hp / (maxHP + 1) * W_HP * bossMod
@@ -36,7 +36,7 @@ W_HP = 100      # IdunBattle.AI.Utilities.RepairedAmountUtility$$.cctor : W[0] =
 
 
 class RepairedAmountUtility(BaseUtility):
-    """`IdunBattle.AI.Utilities.RepairedAmountUtility` (IdunBattle.AI.Utilities.RepairedAmountUtility$$.ctor ; UtilityType.RepairedAmount=47).
+    """`IdunBattle.AI.Utilities.RepairedAmountUtility` (IdunBattle.AI.Utilities.RepairedAmountUtility$$.ctor ; UtilityType.RepairedAmount=48).
     Corps dans `evaluate` (= `<EvaluateRepairInSteps>d__.MoveNext`, body IdunBattle.AI.Utilities.RepairedAmountUtility.u003CEvaluateRepairInStepsu003Ed__2$$MoveNext)."""
     UTILITY_TYPE = int(UtilityType.RepairedAmount)  # 48
 
@@ -49,5 +49,5 @@ class RepairedAmountUtility(BaseUtility):
         return fill_hp / (int(target_max_hp) + 1) * W_HP * self.get_unit_utility_modifier(is_boss)
 
 
-REPAIR_UTILITY = RepairedAmountUtility()   # instance enregistree a UtilityType.RepairedAmount=47
+REPAIR_UTILITY = RepairedAmountUtility()   # instance enregistree a UtilityType.RepairedAmount=48
 assert REPAIR_UTILITY.UTILITY_TYPE == UtilityType.RepairedAmount

@@ -7,7 +7,7 @@ Le natif n'a QU'UN site d'execution d'ability active (`ExecuteInternal`) : l'att
 active ability (`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility`). Le port,
 lui, a DEUX portes d'operation -- `AttackDamageOperation.execute` (attaque normale, `damage_ops.py`)
 et `AbilityHandler.visit_ActiveAbilityMessage` (cast, `abilities/handler.py`). #120 a de-forke sur ce
-meme site l'emission du vecteur `On(0x2b = PreUnitAbility)` ; l'etage IMMEDIATEMENT SUIVANT -- la
+meme site l'emission du vecteur `On(0x2a = PreUnitAbility)` ; l'etage IMMEDIATEMENT SUIVANT -- la
 re-resolution de cible -- restait absent des DEUX portes. Il vit ici, en UN foyer, appele par les
 deux (le cabler sur une seule recreerait exactement le fork que #120 a ferme).
 
@@ -25,7 +25,7 @@ d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` :
                   # entities@+0x38 <- EntityExtensions.GetTiles(target, state)   << LE SNAPSHOT >>
     skipEndTurn = GetSkipEndTurnFlag(options, ability, entities)
     skipUsed    = GetSkipAbilityUsedFlag(options, ability, entities)
-    On(0x2b = PreUnitAbility)                       # <- la cascade de triggers PEUT bouger la cible
+    On(0x2a = PreUnitAbility)                       # <- la cascade de triggers PEUT bouger la cible
     if (!options@+0x4a && IsUnit(caster) && IsDead(caster)) return 0
     if (IsUnit(target) && Count(entities@+0x38) > 0) {              # << LA RE-RESOLUTION >>
         replaced = IdunBattle.Entities.UnitExtensions$$GetUnit(First(entities@+0x38), state)
@@ -161,7 +161,7 @@ def get_unit(state: State, tile) -> Optional[int]:
 def resolve_replaced_target(state: State, target_id: Optional[int],
                             target_tiles: list) -> tuple:
     """Le bloc de re-resolution d'`ActiveAbilityOperation$$ExecuteInternal`, JUSTE APRES le
-    `On(0x2b = PreUnitAbility)` :
+    `On(0x2a = PreUnitAbility)` :
 
         if (IsUnit(target) && Count(targetTiles) > 0) {
             replaced = UnitExtensions.GetUnit(First(targetTiles), state);

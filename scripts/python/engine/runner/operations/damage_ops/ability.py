@@ -536,7 +536,7 @@ class _AbilityAttack:
         after_hit = after_hit_ability_attack(state, attacker_id, target_id, r["did_crit"],
                                              profile=damage_profile, ability_type=ability_type,
                                              did_block=r["did_block"])
-        # `On(FinalDamage = 0x43 = 67)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
+        # `On(FinalDamage = 0x42 = 67)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
         # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
         # base commune `ADamageOperation` et les deux `Execute` l'appellent — contraste avec `On(10)`

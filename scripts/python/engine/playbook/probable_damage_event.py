@@ -88,7 +88,7 @@ def calculate_utility_from_predictions(events: list[ProbableDamageEvent], wt,
 # La fonction native somme QUATRE familles de prédictions via 4 slots vtable : dégât (+0x358), soin
 # (+0x368/378), EFFET (+0x388=MakeEffectPredictions), repair (dict). La branche effet (LAB_181407fe0) :
 #   pour chaque event {target@0, effectType@1, probability@2} : ForEffect(case, caster, target, effectType)
-#   -> AddedEffectUtility (UtilityType 0x2d=45=AddedTileEffects) -> Fix64.op_Multiply(event.probability, U).
+#   -> AddedEffectUtility (UtilityType 0x2d=46=AddedTileEffects) -> Fix64.op_Multiply(event.probability, U).
 # FIDÉLITÉ DE BUILD (gqfc5mff6c) : le SEUL override de MakeEffectPredictions est `SpiritLeechPlaybook`
 # IdunBattle.AI.Playbook.Loki.SpiritLeechPlaybook$$MakeEffectPredictions (les autres héritent de la base VIDE IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$MakeEffectPredictions). SpiritLeech pose l'effet 0x429=1065="Pinned",
 # ABSENT de la catégorie BC AddedTileEffects (qui ne pondère que Fire/Ice/SpiderWeb) -> son terme effet = 0.
@@ -114,7 +114,7 @@ class ProbableEffectEvent:
 
 def calculate_utility_from_effect_event(event: ProbableEffectEvent, wt) -> float:
     """Branche effet de `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateUtilityFromPredictions` (LAB_181407fe0) :
-    `probability × ForEffect→AddedEffectUtility(name, has_effect, is_friend, weights[AddedTileEffects=45])`.
+    `probability × ForEffect→AddedEffectUtility(name, has_effect, is_friend, weights[AddedTileEffects=46])`.
     Poids = catégorie BC `Utilities.Default.AddedTileEffects` (Fire/Ice/SpiderWeb + `Unit_on_*`)."""
     from ..utilities.effect import ADDED_EFFECT_UTILITY
     weights = wt.category("AddedTileEffects")

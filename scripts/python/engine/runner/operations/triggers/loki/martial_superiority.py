@@ -16,7 +16,7 @@ Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLFactory$$InitializeShare
 ## `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MartialSuperiorityAbility$$CreateTrigger`
 (conjonction `AbilityTrigger.op_BitwiseAnd`, ordre de lecture du decompile)
 
-    On(0x2b = PreUnitAbility, 1)
+    On(0x2a = PreUnitAbility, 1)
     & NOT ctx@0xa0                          # NOT IsTurnOf(Owner)  -> pendant le tour ADVERSE
     & IsDirectTargetAttack(@0x130)          # l'ability EN COURS est une attaque directe/normale
     & NOT IsDirectTargetAttack(@0x140)      # ... et n'est pas la FILLE d'une attaque directe

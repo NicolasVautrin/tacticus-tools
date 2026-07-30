@@ -15,7 +15,7 @@ DECOMPILE (`…SortUnitsByDamageUtilitySelector$$Select`, lecture integrale) :
 
 Le lambda de tri (`…SortUnitsByDamageUtilitySelector.u003Cu003Ec__DisplayClass9_0$$u003CSelectu003Eb__0`)
 rend **−utilite** ⇒ `OrderBy` croissant sur −u = tri **DECROISSANT** par utilite ⇒ le `First(…)` d'un
-call-site prend l'**argmax du composite Damage(34)** = DamageDealt(35) + KillUnit(36) + OverkillUnit(37)
+call-site prend l'**argmax du composite Damage(34)** = DamageDealt(35) + KillUnit(36) + OverkillUnit(38)
 (`engine.utilities.damage_composite`, poids BC `Utilities`).
 
 La prediction IA est PRE-ARMURE (`armor = 0`, cf. en-tete de `services/damage_prediction`) ⇒ la PLAGE de

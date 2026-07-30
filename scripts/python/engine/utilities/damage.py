@@ -18,7 +18,7 @@ DamageDealt(35) = `IdunBattle.AI.Utilities.DamageUtility` (IdunBattle.AI.Utiliti
 
 KillUnit(36) (`KillUnitUtility` IdunBattle.AI.Utilities.KillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyKill(BC 100) si WillBeKill,
   +PossibleKill(BC 50) si MightBeKill ; 0 si Steppable ; *-1 si friendly-fire.
-OverkillUnit(37) (`OverkillUnitUtility` IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyOverkill(BC 40) si
+OverkillUnit(38) (`OverkillUnitUtility` IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext) : +DefinitelyOverkill(BC 40) si
   WillBeOverkill, +PossibleOverkill(BC 15) si MightBeOverkill ; ADDITIONNÉ (un kill garanti+overkill est
   PRÉFÉRÉ = certitude) — l'OPPOSÉ de l'ancien `attack_utility`.
 
@@ -44,7 +44,7 @@ def _clamp01(x: float) -> float:
 
 
 class DamageUtility(BaseUtility):
-    """`DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112 ; UtilityType.DamageDealt=35) — le LEAF DamageDealt
+    """`DamageUtility` (IdunBattle.AI.Utilities.DamageUtility$$.ctor, TypeDefIndex 12112 ; UtilityType.DamageDealt=36) — le LEAF DamageDealt
     (le NOM natif de la classe est `DamageUtility`, PAS `DamageDealtUtility`). Corps = `<EvaluateAttackInSteps>
     IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext`. `GetHealthDamage`/`GetShieldDamage` = méthodes natives (VA citées)."""
     UTILITY_TYPE = int(UtilityType.DamageDealt)  # 36
@@ -83,7 +83,7 @@ class DamageUtility(BaseUtility):
 
 
 class KillUnitUtility(BaseUtility):
-    """`KillUnitUtility` (IdunBattle.AI.Utilities.KillUnitUtility$$.ctor, TypeDefIndex 12124 ; UtilityType.KillUnit=36) ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
+    """`KillUnitUtility` (IdunBattle.AI.Utilities.KillUnitUtility$$.ctor, TypeDefIndex 12124 ; UtilityType.KillUnit=37) ; IdunBattle.AI.Utilities.KillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
     DefinitelyKill si WillBeKill (killSure), sinon PossibleKill si MightBeKill (kill). 0 sinon.
     (Steppable/friendly-fire non gérés : le moteur ne cible que des ennemis vivants.)"""
     UTILITY_TYPE = int(UtilityType.KillUnit)  # 37
@@ -179,7 +179,7 @@ def might_be_overkill(pred) -> bool:
 
 
 class OverkillUnitUtility(BaseUtility):
-    """`OverkillUnitUtility` (IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor, TypeDefIndex 12129 ; UtilityType.OverkillUnit=37) ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
+    """`OverkillUnitUtility` (IdunBattle.AI.Utilities.OverkillUnitUtility$$.ctor, TypeDefIndex 12129 ; UtilityType.OverkillUnit=38) ; IdunBattle.AI.Utilities.OverkillUnitUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext :
     `IdunBattle.Core.Services.DamagePredictionResult$$WillBeOverkill (borne MIN) -> DefinitelyOverkill(40) ; sinon `IdunBattle.Core.Services.DamagePredictionResult$$MightBeOverkill
     (borne MAX) -> PossibleOverkill(15). Les deux = `IdunBattle.Core.Services.DamagePrediction$$IsOverkill` : le dégât est
     un KILL **et** l'over-shoot `(dmg − hp)/hp × 100 >= overkillDmgPctOfHealth` (=100 => dmg >= 2×hp), OU
@@ -199,7 +199,7 @@ class OverkillUnitUtility(BaseUtility):
         return 0.0
 
 
-# Composite Damage(34) = INSTANCE `ComposedUtility` (PAS de classe dediee ; Damage est un UtilityType, le
+# Composite Damage(35) = INSTANCE `ComposedUtility` (PAS de classe dediee ; Damage est un UtilityType, le
 # composite est un ComposedUtility enregistre a 34 ; `DamageUtility` c'est le LEAF type-35). 3 feuilles
 # DOMINANTES (DamageDealt=DamageUtility + KillUnit + OverkillUnit) ; 10 situationnels TODO. Devise ~[0,250].
 DAMAGE_UTILITY = ComposedUtility([DamageUtility(), KillUnitUtility(), OverkillUnitUtility()],

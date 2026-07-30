@@ -14,7 +14,7 @@ TROIS montages INDEPENDANTS, chacun exercant un porteur different :
     (4,4)=45 vs (6,4)=40 ; le port EGALISAIT les deux a 30 -> tie artefact, tuile choisie
     arbitraire ;
   * `C4_09`/31337 pas 22 -- u84 admecMarshall, RELIQUE `KardiocoreGalvanus` (1457) + la feuille
-    `UnitEffectsRanged(12)` (`PathOfCommand_ExtraDmg` porte par l'Autarch a 2 hex) : natif
+    `UnitEffectsRanged(13)` (`PathOfCommand_ExtraDmg` porte par l'Autarch a 2 hex) : natif
     (2,4)=45 / (3,6)=40 / (2,5)=35 ; le port EGALISAIT les TROIS a 30 ;
   * `C3_01`/777 pas 14 -- montage CRAFTE sur un AUTRE BOARD (`--p-units`), templAncient : natif
     (3,5)=45 / (4,5)=40 / (5,5)=25 -> generalisation geometrique du meme terme.
