@@ -327,11 +327,31 @@ REVIVE_A_UNITS = ("genesPrimus", APOTHECARY)
 
 
 def _replay_attack(st, attacker_id, victim_id, ability=NORMAL_ATTACK):
-    """Rejoue OFFLINE le vecteur d'attaque du regime sur l'etat `st` (attaque normale ou ability)."""
+    """Rejoue OFFLINE le vecteur d'attaque du regime sur l'etat `st` (attaque normale ou ability).
+
+    ⚠ #277 -- LA VOIE D'ABILITY PASSE PAR `Runner.apply`, JAMAIS PAR `execute_behaviour` A LA MAIN.
+    Le natif n'a qu'UN point d'entree de cast (`IdunBattle.Operations.ActiveAbilityOperation$$
+    ExecuteInternal`), qui emet `On(0x2b = PreUnitAbility)` AVANT la behaviour. Cote port ce vecteur
+    est emis par `AbilityHandler.visit_ActiveAbilityMessage` : appeler `FlailSwingAbility().
+    execute_behaviour(...)` directement SAUTE l'emission, donc saute le `PickRandomly` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
+    (`min(|pool|, 2)` tirages, case-207) que `deathBlightlord` paie a chaque cast. Le flux RNG du
+    rejeu demarrait alors `|pool|` tirages TROP TOT et les coups d'arme lisaient la mauvaise fenetre :
+    seed 17833, montage `revive-flail`, port 21680 contre live 21023 (+3,1 %) -- un ecart de
+    DECALAGE, pas de formule (cellule, percage, armure et `GetStat(Attack)` sont IDENTIQUES des deux
+    cotes). Re-derivation : `python probe_277_flail_damage_stages.py --seeds 17833 --regimes k1,k0`.
+
+    La voie d'ATTAQUE NORMALE, elle, emet deja `On(0x2b)` DANS `AttackDamageOperation$$Execute`
+    (`damage_ops/normal.py`, marqueur `ability_type = 1013`) : elle n'a jamais eu ce trou et reste
+    sur l'appel d'operation, pour ne pas ajouter au regime les vecteurs after-hit/turn-flow que le
+    `Runner` poserait en plus."""
     from engine.runner.operations.damage import AttackDamageOperation
     if int(ability) == FLAIL_SWING:
-        from engine.runner.abilities.deathguard import FlailSwingAbility
-        return FlailSwingAbility().execute_behaviour(st, int(attacker_id), int(victim_id))
+        from engine.runner.runner import Runner
+        from engine.runner.messages import ActiveAbilityMessage
+        runner = Runner(st).install_default_handlers(20)
+        runner.apply(ActiveAbilityMessage(int(attacker_id), int(victim_id), int(ability)))
+        return getattr(runner.ability_handler, "last", None)
     return AttackDamageOperation.execute(st, int(attacker_id), int(victim_id), 20)
 
 

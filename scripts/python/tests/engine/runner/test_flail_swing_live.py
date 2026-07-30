@@ -24,6 +24,14 @@ Ce que ces tests PROUVENT (drive les positions -- `applyAction move` ignore port
       PV full, PAS PV-1) ; le port (force_overkill=True) laisse la cible a 0 PV (morte) == live ; le CONTROL
       SANS le flag laisse 1 PV (cap Resilient tient) -> le flag est le SEUL ecart (bypass du cap
       `IdunBattle.Core.Services.DamagePrediction$$ApplyResilientTraitDamageLimit`).
+  (4) POINT D'ENTREE DU CAST (#277) -- les volets (1)-(3) rejouent l'ability par un appel DIRECT a
+      `execute_behaviour`, ce qui n'est exact que parce que LEUR geometrie laisse VIDE le pool de
+      `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
+      (le 2e ennemi y est place a distance > 1 du caster). Des que le pool est NON VIDE, le natif paie
+      `min(|pool|, 2)` tirages AVANT le premier coup (case-207), tirages emis par `On(0x2b =
+      PreUnitAbility)` -- donc par `AbilityHandler.visit_ActiveAbilityMessage`, jamais par
+      `execute_behaviour`. Le volet (4) monte EXPRES cette geometrie et exige que la voie de PRODUCTION
+      (`Runner.apply(ActiveAbilityMessage)`) soit bit-exacte, ET que le raccourci direct ne le soit PAS.
 
 ORACLE DU NOMBRE DE COUPS (#96 / lot A) : le natif ne DERIVE pas le nb de coups, il le LIT tel quel --
 `AbilityConfiguration.GetNumberConstant(cfg, 0x2f)` (DECOMPILE ci-dessus), et `GetNumberConstant` =
@@ -69,6 +77,12 @@ ROOT = PYDIR.parents[1]                                      # racine repo
 CASTER_VIS = "deathBlightlord"
 ABILITY = 1042
 A_UNITS = "necroWarden,necroWarden,necroWarden,necroOverlord"
+
+# --- volet (4) : montage a pool `HazeOfCorruption_TargetFinder` NON VIDE (#277) ---
+HAZE_VICTIM = "genesPrimus"        # la cible du cast
+HAZE_ALLY = "ultraApothecary"      # allie de la cible, adjacent aux DEUX -> pool = {lui}
+HAZE_FILLER = "astraBullgryn"      # 2e unite de mon camp, parquee hors du ring
+HAZE_BOND_TRIGGER = 1076           # `Effect_SourceTriggeredAbility` des bonds HazeOfCorruption
 
 
 def _ok(r):
@@ -449,6 +463,184 @@ def test_flail_swing_overkill_resilient(live_session, rpc):
             "port et control identiques -> le flag force_overkill ne change RIEN (le flag n'est pas discriminant)"
         print(f"[FLAIL ovk] OK : flag alwaysOverkilled porte -> tue a travers Resilient (live==port hp0), "
               f"control (sans flag) survit a {hp_ctrl} PV = le flag est le seul ecart")
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+        except Exception:
+            pass
+        try:
+            sf.unlink()
+        except Exception:
+            pass
+
+
+# ============================================= (4) point d'entree du cast, pool Haze non vide (#277)
+
+def _build_haze(seed, hp):
+    """Build du volet (4) : mon camp = le porteur + un filler ; le camp adverse = la cible et SON
+    allie (le futur unique candidat du pool `HazeOfCorruption_TargetFinder`). PV hauts pour que la
+    cible SURVIVE aux 3 coups (le degat lu n'est alors jamais tronque par la mort)."""
+    sf = ROOT / "logs" / "runners" / f"flail-haze-{uuid.uuid4().hex[:8]}.json"
+    sf.parent.mkdir(parents=True, exist_ok=True)
+    proc = subprocess.run(
+        [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
+         "--board", "MC1_67", "--rank", "17",
+         "--p-units", f"{CASTER_VIS},{HAZE_FILLER}",
+         "--a-units", f"{HAZE_VICTIM},{HAZE_ALLY}",
+         "--hp-target", str(hp), "--crit", "0,0", "--block-target", "0,0"],
+        cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if not sf.exists():
+        return None, None, (proc.stderr or proc.stdout or "")[-300:]
+    return int(json.loads(sf.read_text())["runnerId"]), sf, None
+
+
+def _genrand_steps(before, after, limit=200):
+    """Nombre de `genrand_int32` consommes par le NATIF entre deux `dumpRng` : on re-simule le
+    Mersenne Twister depuis `before` et on compte les pas jusqu'a retomber sur `after` (methode
+    `case-o4a`). -1 = non retrouve dans `limit` pas."""
+    m = IntBasedMersenneTwister()
+    m.mt = list(before["mt"]); m.mti = before["mti"]
+    tgt = (list(after["mt"]), after["mti"])
+    for k in range(limit + 1):
+        if (m.mt, m.mti) == tgt:
+            return k
+        m.genrand_int32()
+    return -1
+
+
+def _counting_rng(s):
+    """PRNG du rejeu + COMPTEUR de `genrand_int32` : c'est l'observable de l'etage AMONT (combien de
+    tirages le port paie avant les coups d'arme), a confronter au compte NATIF (`dumpRng`)."""
+    box = [0]
+
+    class _Counting(IntBasedMersenneTwister):
+        __slots__ = ()
+
+        def genrand_int32(self):
+            box[0] += 1
+            return IntBasedMersenneTwister.genrand_int32(self)
+
+    r = _Counting()
+    r.mt = list(s["mt"]); r.mti = s["mti"]
+    return r, box
+
+
+def test_flail_swing_cast_entry_point_haze_pool_live(live_session, rpc):
+    """#277 -- POINT D'ENTREE DU CAST quand le pool `HazeOfCorruption_TargetFinder` est NON VIDE.
+
+    Geometrie DRIVEE (`applyAction move` ignore portee et propriete) : la victime au centre, le
+    porteur ET l'allie de la victime sur son ring 1 -> le pool
+    `Damageable(AdjacentEnemies(Self) & AdjacentFriends(Target))` vaut exactement 1 candidat, donc
+    le natif paie 1 tirage AVANT le premier coup (`PickRandomly`, case-207).
+
+    Ce que le test EXIGE :
+      * le montage est DISCRIMINANT (au moins un bond natif 1076, et natif > direct en tirages) ;
+      * la voie de PRODUCTION `Runner.apply(ActiveAbilityMessage)` -- qui emet `On(0x2b)` -- rend le
+        MEME compte de tirages que le natif ET les MEMES coups, a l'unite ;
+      * ANTI-TAUTOLOGIE : le raccourci `execute_behaviour(...)` appele a la main NE reproduit PAS le
+        live. Sans cette derniere exigence, un montage a pool vide passerait au vert sans rien
+        prouver -- c'est exactement ce qui laissait passer +3,1 % d'ecart (`probe_178`, seed 17833 :
+        port 21680 contre live 21023)."""
+    from engine.runner.runner import Runner
+    from engine.runner.messages import ActiveAbilityMessage
+
+    HPN = 200000
+    rid, sf, err = _build_haze("17833", HPN)
+    if rid is None:
+        pytest.skip(f"build KO: {err}")
+    try:
+        bg = rpc("boardGraph", {"runnerId": rid}, 60)
+        if not (isinstance(bg, dict) and bg.get("tiles")):
+            pytest.skip("boardGraph indispo")
+        board = Board(bg["tiles"], adjacency="native_sym")
+        center = (3, 4)
+        ring = [board.coord(t) for t in board.neighbours(board.id_at(*center))]
+        if len(ring) < 2:
+            pytest.skip("centre trop pauvre en voisins")
+        dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        ids = {}
+        for v in (CASTER_VIS, HAZE_FILLER, HAZE_VICTIM, HAZE_ALLY):
+            u = _find(dv, v)
+            if u is None:
+                pytest.skip(f"unite absente du build : {v}")
+            ids[v] = u["id"]
+        for uid, (col, row) in ((ids[HAZE_FILLER], (6, 7)), (ids[HAZE_VICTIM], center),
+                                (ids[CASTER_VIS], ring[0]), (ids[HAZE_ALLY], ring[1])):
+            rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": uid, "to": {"col": col, "row": row}}}, 60)
+        cid, tid = ids[CASTER_VIS], ids[HAZE_VICTIM]
+
+        dv2 = rpc("decisionView", {"runnerId": rid, "allAbilities": True}, 120)
+        ob2 = rpc("observeBattle", {"runnerId": rid}, 60)
+        snap2 = rpc("combatSnapshot", {"runnerId": rid}, 90)
+        vic = next(u for u in dv2["units"] if int(u["id"]) == int(tid))
+        if int(vic.get("hp") or 0) != HPN:
+            pytest.skip(f"setup pollue : victime a {vic.get('hp')} PV au lieu de {HPN}")
+        s0 = rpc("dumpRng", {"runnerId": rid}, 30)
+        if not _ok(s0):
+            pytest.skip("dumpRng KO")
+
+        # --- LIVE ---
+        cast = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": cid, "targetId": tid, "abilityType": ABILITY},
+            "captureEvents": True}, 150)
+        s1 = rpc("dumpRng", {"runnerId": rid}, 30)
+        rows, bonds = [], 0
+        for act in (cast.get("actions") or []):
+            for e in (act.get("events") or []):
+                td = e.get("tags")
+                td = json.loads(td) if isinstance(td, str) else (td or {})
+                if td.get("Effect_SourceTriggeredAbility") == HAZE_BOND_TRIGGER:
+                    bonds += 1
+                if "Amount" in td and td.get("Target_Id") == tid:
+                    rows.append(td)
+        live = [int(td["Amount"]) for td in rows]
+        if not live:
+            pytest.skip(f"aucun degat live (cast={str(cast)[:160]})")
+        if any(td.get("Attack_DidCrit") or td.get("Attack_DidBlock") or td.get("Attack_DidEvade")
+               for td in rows):
+            pytest.skip("coup SALE (crit/block/evade) -- montage non comparable")
+        n_native = _genrand_steps(s0, s1)
+
+        # --- OFFLINE voie de PRODUCTION (Runner.apply -> On(0x2b) -> pool Haze) ---
+        st_p = load_state(dv2, ob2, snap2, board=board)
+        st_p.rng, box_p = _counting_rng(s0)
+        runner = Runner(st_p).install_default_handlers(20)
+        runner.apply(ActiveAbilityMessage(cid, tid, ABILITY))
+        last = getattr(runner.ability_handler, "last", None) or {}
+        pipe = list(((last.get("attack") or {}).get("per_hit")) or [])
+
+        # --- OFFLINE raccourci (execute_behaviour a la main : PAS de On(0x2b)) ---
+        st_d = load_state(dv2, ob2, snap2, board=board)
+        st_d.rng, box_d = _counting_rng(s0)
+        direct = list((((FlailSwingAbility().execute_behaviour(st_d, cid, tid) or {})
+                        .get("attack") or {}).get("per_hit")) or [])
+
+        print(f"\n[FLAIL entry] bonds natifs={bonds} genrand natif={n_native} "
+              f"pipeline={box_p[0]} direct={box_d[0]}")
+        print(f"[FLAIL entry] live={live} pipeline={pipe} direct={direct}")
+
+        # (a) le montage DISCRIMINE : le pool n'est pas vide, donc le raccourci saute des tirages
+        assert bonds >= 1, (
+            f"montage NON discriminant : {bonds} bond HazeOfCorruption -> le pool "
+            f"`AdjacentEnemies(Self) & AdjacentFriends(Target)` est VIDE, le raccourci ne peut plus "
+            f"rougir (re-driver la geometrie)")
+        assert n_native > box_d[0], (
+            f"montage NON discriminant : natif {n_native} tirages == raccourci {box_d[0]} -> aucun "
+            f"tirage amont a sauter")
+        # (b) la voie de PRODUCTION reproduit le NATIF : compte de tirages ET valeurs
+        assert box_p[0] == n_native, (
+            f"Runner.apply consomme {box_p[0]} tirages != natif {n_native} (le vecteur On(0x2b) / le "
+            f"PickRandomly HazeOfCorruption ne sont plus alignes)")
+        assert len(pipe) == len(live) and pipe == live, (
+            f"voie de production per_hit {pipe} != live {live} (board plat, aucun modificateur -> "
+            f"devrait etre bit-exact)")
+        # (c) ANTI-TAUTOLOGIE : le raccourci ne reproduit PAS le live
+        assert direct != live, (
+            f"le raccourci execute_behaviour rend {direct} == live : ce montage ne prouve plus que "
+            f"le point d'entree compte (verifier que l'allie est bien adjacent aux DEUX)")
+        print("[FLAIL entry] OK : On(0x2b) paie le PickRandomly HazeOfCorruption, Runner.apply "
+              "bit-exact, raccourci direct refute")
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 20)
