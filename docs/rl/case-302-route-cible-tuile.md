@@ -37,6 +37,23 @@ if (rules & TargetIsEnemy || rules & TargetIsCasterOrEnemy)
 TUILE du jeu.** Il n'y a pas de « chemin tuile » parallele : c'est la MEME fonction
 `GetPossibleTargetsForOptions`, la MEME suite de filtres, le MEME conteneur de sortie.
 
+> ### ⚠ Ce que le bit `TargetIsTile` dit, et ce qu'il NE dit PAS
+>
+> Le bit repond a **« le DOMAINE de `GetValidTargets` est-il fait de tuiles ? »**, PAS a
+> **« la cible de l'action est-elle une tuile ? »**. Les deux questions ne coincident pas, et les
+> confondre fait rater des abilities dans les deux sens :
+>
+> - **`1197 ExcruciatingFrequencies` cible une TUILE sans porter le bit.** Son aim passe par
+>   `TargetTiles@0x190` (la ligne de tir), pas par le domaine de ciblage — d'ou sa route BESPOKE
+>   (`engine/playbook/excruciating_frequencies.py`, qui balaie positions x aims) plutot que la route
+>   generique de cette fiche. Elle n'apparait donc PAS dans le balayage du §4, et c'est correct.
+> - Reciproquement, une ability qui porte le bit voit son ensemble eligible bascule ENTIEREMENT en
+>   domaine tuile — c'est ce qui rendait `eligible_targets` VIDE (et la route inerte) tant que le
+>   port filtrait `kind == "unit"`.
+>
+> Le balayage du §4 repond a la premiere question. La seconde n'a pas d'inventaire, et n'est pas
+> derivable d'un masque.
+
 ### 1.2 Par quel chemin les tuiles entrent dans la comparaison de decision
 
 ```
