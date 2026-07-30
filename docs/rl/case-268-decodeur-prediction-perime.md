@@ -291,6 +291,10 @@ a changé, c'est qu'aucun test de cette famille ne peut plus passer sans avoir m
   XREF, et deux gardes structurelles ont été posées. ⚠ **Le fix vit dans `frida/hooks/**` : il
   n'entre en vigueur qu'après un `build:hooks` + réinjection**, geste que l'auteur du fix ne fait
   pas. Tant que ça n'a pas eu lieu, `probe_276_prediction_decoder.py` mesure l'ANCIEN décodeur.
+  **Suite en #279** (`case-279-resolution-par-nom.md`) : les offsets ne sont plus des littéraux, ils
+  sont résolus PAR NOM dans les métadonnées IL2CPP — 0 écart sur 24 chemins avec la table ci-dessus,
+  et un champ DÉPLACÉ est désormais suivi au lieu de casser la lecture. Toujours NON CONFRONTÉ pour
+  la même raison : `frida/hooks/**` exige une réinjection.
 * **Les autres consommateurs du canal ne sont pas inventoriés fonctionnellement.** On sait *où* le
   struct est relu (§2ter) ; on ne sait pas lesquels de leurs tests sont déjà faux à cause de ça.
   `test_overkill_decision_live.py` (fixtures `overkill_decision_*` du même `conftest.py`) lit le

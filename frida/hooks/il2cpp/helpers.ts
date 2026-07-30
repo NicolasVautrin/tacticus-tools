@@ -78,6 +78,21 @@ export const class_instance_size = (() => {
     return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
 })();
 
+/** `il2cpp_class_is_valuetype(Il2CppClass*)` — non nul pour un `System.ValueType`.
+ *
+ *  Deux conséquences, et les deux comptent pour un décodeur de struct (#279) :
+ *  ses champs sont INLINE dans le conteneur (pas déréférencés), et
+ *  `il2cpp_field_get_offset` rend pour lui un offset **BOXÉ** — header IL2CPP de
+ *  `0x10` inclus. Composer une chaîne de champs sans retrancher ce header décale
+ *  de 16 octets par maillon.
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque) : c'est à l'appelant de
+ *  décider si « je ne sais pas » l'autorise à lire. */
+export const class_is_valuetype = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_class_is_valuetype");
+    return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
+})();
+
 // Use the stable public API to get the method code pointer. The first field
 // of MethodInfo varies across IL2CPP versions (some have invoker_method first,
 // methodPointer second) so readPointer() is unsafe.

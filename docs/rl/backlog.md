@@ -144,6 +144,24 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Sur un stride d'itération de `List<T>`, se tromper de 32 octets par élément suffit à rendre du
   garbage sur **tout événement après le premier**. Ne jamais citer un chiffre de `classes.tsv` sans
   retirer le header.
+- **Le décodeur de prédiction résout ses champs PAR NOM** — **LIVRÉ (#279)**,
+  `case-279-resolution-par-nom.md`. `frida/hooks/game/damage-prediction.ts` ne fige plus aucun
+  offset : il demande `AccurateHealthDamage` / `DefaultScenario.Damage.HealthDamage` aux
+  métadonnées IL2CPP, qui sont **en process** (pas dans un dump qu'un worktree n'aurait pas).
+  Mesure de conformité, `classFields` sur `rnca9r7q6c` : **0 écart sur 24** chemins — le fichier ne
+  mentait pas, ce qu'on ferme aussi. Ce qui change est la NATURE de la garde : un champ **déplacé**
+  est désormais SUIVI et signalé (`predictionLayoutDrift`, non bloquant), seul un champ **renommé**
+  invalide la mesure (`predictionLayoutError`). La liste exhaustive des 18 champs tranche trois
+  « non identifiés » de #276 (`DamageProfile`, `Modifiers`, `DeniedDamage`, plus
+  `CannotBeGuaranteedKilled@0x89`), prouve que **`CurrentArmor` n'existe pas** (absence PROUVÉE, pas
+  absence de preuve) et corrige un commentaire faux : `ProbableHealEvent.HealPrediction` est un
+  ValueType INLINE de 8 o, pas un pointeur. **Borne mesurée** : `class_get_fields` ne descend PAS
+  dans un ValueType imbriqué — la chaîne se compose maillon par maillon via `field_get_type`, et le
+  header `0x10` d'un ValueType reste une connaissance de FORME extérieure aux noms (d'où
+  `class_is_valuetype` dans `helpers.ts`). ⚠ **NON CONFRONTÉ** : le fix vit dans `frida/hooks/**`,
+  il n'entre en vigueur qu'après `build:hooks` **+ réinjection**. La garde adversariale
+  (`frida/tools/probe-279-layout-by-name.ts`, 8/8, vue ROUGE par mutation du `throw`) éprouve la
+  RÉSOLUTION hors process, pas les valeurs émises par le bundle injecté.
 - ~~**Étage PATHFINDING : le port SUR-ATTEINT d'UNE tuile**~~ — **LIVRÉ (2026-07-30)**,
   `case-224-pathfinding-overreach.md`. Le gate #131 (`BasePathfinder$$NodesInNextLevel` ->
   `WalkPathfinder$$IsValidContinuePathTile`) **était porté et n'était jamais exécuté** :
