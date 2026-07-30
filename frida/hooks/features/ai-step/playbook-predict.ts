@@ -43,8 +43,9 @@
  *  par défaut). Repair : PAS d'event — `MakeRepairPredictions` rend un Dictionary
  *  (décodage non porté, v2). */
 import {
-    class_get_name, findMethodByNameSuffix, findMethodByParamClasses,
-    findMethodByParamCount, getFieldOffset, s,
+    class_get_name, class_instance_size, field_get_type, findMethodByNameSuffix,
+    findMethodByParamClasses, findMethodByParamCount, getFieldInfo, getFieldOffset, s,
+    type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { runnerOff } from "../../game/runner.js";
@@ -352,17 +353,123 @@ export function decodeEffectEvents(
     return decodeEventsGeneric(list, idByPtr, readEffectEvent, SMALL_EVENT_STRIDE);
 }
 
-/** #45 — décodage v2 REPAIR. Le repair n'a PAS d'event : `RepairPlaybook.
- *  MakeRepairPredictions @181187830` rend un `Dictionary<IEntity, RepairPrediction>`
- *  {cible: PredictRepair(...)} (la base @18140a9b0 rend un dict VIDE quand le playbook
- *  n'override pas). RepairPrediction = retour par VALEUR de `DamagePrediction.
- *  PredictRepair @181038280`, 16 o = 4 ints : currentHealth@+0x00 (GetStat 5),
- *  currentArmor@+0x04 (GetStat 4), hpFill@+0x08 (MaxFillUp Health), armorFill@+0x0c
- *  (MaxFillUp Armor) — les DEUX fills consomment le MÊME amount (pas de partage). */
+/** #45/#300 — décodage REPAIR. Le repair n'a PAS d'event :
+ *  `IdunBattle.AI.Playbook.RepairPlaybook$$MakeRepairPredictions` rend un
+ *  `Dictionary<IEntity, RepairPredictionResult>` {cible: PredictRepair(...)} — la base
+ *  `NonComparablePlaybook<T>$$MakeRepairPredictions` rend un dict VIDE quand le playbook
+ *  n'override pas.
+ *
+ *  ⚠ CE DÉCODEUR A ÉTÉ FAUX SUR DEUX AXES (#276-r1, corrigé le 2026-07-30). L'en-tête
+ *  affirmait « RepairPrediction … 16 o = 4 ints : currentHealth, currentArmor, hpFill,
+ *  armorFill », et le corps appliquait `ENTRY_SIZE = 32`. Les DEUX sont faux, mesuré :
+ *
+ *   1. **Le type de valeur n'a que DEUX champs.** RPC `classFields` sur la session live :
+ *      `IdunBattle.Core.Services.RepairPredictionResult` -> `boxedSize 24, fieldsSize 8,
+ *      fieldCount 2` = `Int32 CurrentHealth@+0x00`, `Int32 TotalHeal@+0x04`. La table
+ *      versionnée concorde (`data/symbols/<build>/frida/classes.tsv` : `24 System.ValueType`).
+ *      Il n'y a **aucun** champ d'armure — `CurrentArmor` a été établi ABSENT par #279, et
+ *      `PredictArmorRestore` n'existe plus dans ce build. Les champs 3 et 4 lisaient donc
+ *      des octets VOISINS. C'est le pendant exact de `HealPredictionResult` (même forme,
+ *      même taille), et le miroir du correctif `33292bc4` sur `PredictRepair` lui-même.
+ *   2. **Le stride était faux**, et c'est le plus grave : `Dictionary<K,V>.Entry` =
+ *      `{int hashCode; int next; TKey key; TValue value}`. Avec une clé RÉFÉRENCE (8 o,
+ *      alignée 8) et une valeur de 8 o, l'entrée fait **24 o**, pas 32. Dès `i = 1` on
+ *      lisait à côté — y compris le `keyPtr`, donc l'identifiant de CIBLE lui-même.
+ *      Un montage à une seule cible ne l'aurait jamais montré.
+ *
+ *  D'où ce décodage entièrement RÉSOLU PAR NOM, sans un seul littéral de layout : la
+ *  classe `Entry` se déduit du TYPE du champ `_entries` (donc du dictionnaire réel qu'on
+ *  décode, pas d'un nom qu'on suppose), sa taille et les offsets de `key`/`value` viennent
+ *  du runtime, et le type de valeur se déduit à son tour du champ `value`. Un renommage
+ *  inter-build ne rend plus des nombres faux : il rend une ERREUR NOMMÉE (mirror de la
+ *  discipline posée par #279 dans `game/damage-prediction.ts`).
+ *
+ *  ⚠ Les offsets rendus par `il2cpp_field_get_offset` et la taille rendue par
+ *  `il2cpp_class_instance_size` sont BOXÉS pour un ValueType : on retranche l'en-tête de
+ *  `0x10` (même piège que `classes.tsv`, cf. la note de `reference_symbol_table_versioned`). */
 export interface RepairEntry {
     targetId: number | null;
-    targetHpBefore: number; targetArmorBefore: number;
-    hpFill: number; armorFill: number;
+    /** `GetStat(target, Health)` — mot BAS du retour de `PredictRepair`. */
+    targetHpBefore: number;
+    /** `FillUpStatComponent$$MaxFillUp(HealthComponent(target), eff)` — mot HAUT. */
+    hpFill: number;
+}
+
+const BOX_HEADER = 0x10;
+
+/** Layout du `Dictionary<IEntity, RepairPredictionResult>`, résolu une fois par classe
+ *  de dictionnaire rencontrée. `null` = un maillon n'a pas résolu -> on refuse de décoder
+ *  plutôt que de deviner. */
+interface RepairDictLayout {
+    entriesOff: number; countOff: number;
+    entryStride: number; keyOff: number; valOff: number;
+    currentHealthOff: number; totalHealOff: number;
+}
+const repairLayoutCache: Record<string, RepairDictLayout | string> = {};
+
+function resolveRepairDictLayout(cls: NativePointer): RepairDictLayout | string {
+    const key = cls.toString();
+    const hit = repairLayoutCache[key];
+    if (hit !== undefined) return hit;
+    const fail = (why: string): string => {
+        repairLayoutCache[key] = why;
+        return why;
+    };
+
+    const entriesOff = getFieldOffset(cls, "_entries");
+    const countOff = getFieldOffset(cls, "_count");
+    if (entriesOff < 0 || countOff < 0) {
+        return fail("Dictionary : champs `_entries`/`_count` non résolus");
+    }
+    if (!class_instance_size) {
+        return fail("`il2cpp_class_instance_size` indisponible — stride d'Entry non mesurable");
+    }
+    // `Entry` se déduit du TYPE du champ `_entries` (un `Entry[]`), donc du dictionnaire
+    // RÉEL — jamais d'un nom de classe supposé.
+    const entriesField = getFieldInfo(cls, "_entries");
+    if (!entriesField) return fail("FieldInfo `_entries` non résolu");
+    const entryArrType = field_get_type(entriesField) as NativePointer;
+    if (entryArrType.isNull()) return fail("type de `_entries` non résolu");
+    const entryClass = type_get_class_or_element_class(entryArrType) as NativePointer;
+    if (entryClass.isNull()) return fail("classe élément de `_entries` (Entry) non résolue");
+
+    const entryStride = (class_instance_size(entryClass) as number) - BOX_HEADER;
+    const keyOff = getFieldOffset(entryClass, "key") - BOX_HEADER;
+    const valOff = getFieldOffset(entryClass, "value") - BOX_HEADER;
+    if (entryStride <= 0 || keyOff < 0 || valOff < 0) {
+        return fail(`Entry : stride/key/value non résolus (stride=${entryStride}, `
+            + `key=${keyOff}, value=${valOff})`);
+    }
+
+    const valueField = getFieldInfo(entryClass, "value");
+    if (!valueField) return fail("FieldInfo `Entry.value` non résolu");
+    const valueType = field_get_type(valueField) as NativePointer;
+    if (valueType.isNull()) return fail("type de `Entry.value` non résolu");
+    const valueClass = type_get_class_or_element_class(valueType) as NativePointer;
+    if (valueClass.isNull()) return fail("classe de `Entry.value` non résolue");
+
+    const currentHealthOff = getFieldOffset(valueClass, "CurrentHealth") - BOX_HEADER;
+    const totalHealOff = getFieldOffset(valueClass, "TotalHeal") - BOX_HEADER;
+    if (currentHealthOff < 0 || totalHealOff < 0) {
+        // Renommage inter-build : on NOMME le champ manquant au lieu de publier des nombres.
+        return fail(`${class_get_name(valueClass)} : champs `
+            + `CurrentHealth/TotalHeal non résolus (${currentHealthOff}/${totalHealOff})`);
+    }
+    // Garde de bornes : les deux champs doivent tenir DANS la valeur de l'entrée. Sans elle,
+    // un renommage qui ferait résoudre un homonyme d'une autre classe relirait des voisins —
+    // exactement la faute que ce correctif supprime.
+    const valueSize = entryStride - valOff;
+    if (currentHealthOff + 4 > valueSize || totalHealOff + 4 > valueSize) {
+        return fail(`${class_get_name(valueClass)} : champs HORS BORNES de la valeur `
+            + `(valueSize=${valueSize}, ch=${currentHealthOff}, th=${totalHealOff})`);
+    }
+
+    const layout: RepairDictLayout = {
+        entriesOff, countOff, entryStride, keyOff, valOff,
+        currentHealthOff, totalHealOff,
+    };
+    repairLayoutCache[key] = layout;
+    return layout;
 }
 
 export function decodeRepairDict(
@@ -372,33 +479,29 @@ export function decodeRepairDict(
     const retClass = classNameAt(dict);
     try {
         const cls = dict.readPointer();
-        // offsets résolus runtime (mirror items-catalog.ts : survit au drift de layout)
-        const entriesOff = getFieldOffset(cls, "_entries");
-        const countOff = getFieldOffset(cls, "_count");
-        if (entriesOff < 0 || countOff < 0) {
-            return { events: [], count: -1, retClass,
-                error: "offsets Dictionary (_entries/_count) introuvables" };
+        const layout = resolveRepairDictLayout(cls);
+        if (typeof layout === "string") {
+            return { events: [], count: -1, retClass, error: layout };
         }
-        const entries = dict.add(entriesOff).readPointer();
-        const count = dict.add(countOff).readS32();
+        const entries = dict.add(layout.entriesOff).readPointer();
+        const count = dict.add(layout.countOff).readS32();
         if (entries.isNull() || count <= 0 || count > 4096) {
             return { events: [], count: 0, retClass };
         }
-        // Entry<ref, struct 16 o> : {hashCode(4), next(4), key(ptr 8), value(16)} = 32 o ;
-        // éléments de l'array dès +0x20. hashCode==0 = slot libéré (pattern items-catalog).
-        const ENTRY_SIZE = 32, KEY_OFF = 8, VAL_OFF = 16, ARR_DATA = 0x20;
+        // Données d'un Il2CppArray dès +0x20 ; `hashCode == 0` = slot libéré
+        // (même pattern que `normalize-bc/items-catalog.ts`).
+        const ARR_DATA = 0x20;
         const out: RepairEntry[] = [];
         for (let i = 0; i < count; i++) {
-            const e = entries.add(ARR_DATA + i * ENTRY_SIZE);
+            const e = entries.add(ARR_DATA + i * layout.entryStride);
             if (e.readS32() === 0) continue;
-            const keyPtr = e.add(KEY_OFF).readPointer();
+            const keyPtr = e.add(layout.keyOff).readPointer();
             if (keyPtr.isNull()) continue;
+            const v = e.add(layout.valOff);
             out.push({
                 targetId: idByPtr.get(keyPtr.toString()) ?? null,
-                targetHpBefore: e.add(VAL_OFF).readS32(),
-                targetArmorBefore: e.add(VAL_OFF + 4).readS32(),
-                hpFill: e.add(VAL_OFF + 8).readS32(),
-                armorFill: e.add(VAL_OFF + 12).readS32(),
+                targetHpBefore: v.add(layout.currentHealthOff).readS32(),
+                hpFill: v.add(layout.totalHealOff).readS32(),
             });
         }
         return { events: out, count: out.length, retClass };

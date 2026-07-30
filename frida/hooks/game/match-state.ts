@@ -338,7 +338,9 @@ export const unitFootComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "UnitFootComponent");
 const tileContentComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "TileContentComponent");
-const playerComponentClass = findClassAnywhere(
+/** Exportée (#311) : `rpc-board` lit `PlayerComponent.TeamId` pour étiqueter les
+ *  positions de machine de guerre rendues par `BattleQuery$$GetPositionMachineForPlayer`. */
+export const playerComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "PlayerComponent");
 
 /** UnitFootComponent layout — UnitId @ +0x10, TileId @ +0x14 (both 4B). */

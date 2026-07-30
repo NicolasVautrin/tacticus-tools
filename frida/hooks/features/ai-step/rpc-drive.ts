@@ -18,8 +18,10 @@ import {
     applyEndTurn, captureStateForDemo, DecodedMsg, decodeMsgList, DryRunResult,
     hasActionLeftMi, invokeBool, isAliveMi, processMsgList,
     resolvePlayerEntity, resolveStrategy, summarize, sweepAllUnitProposals,
+    turnFlagResetAvailable, turnFlagResetDiagnostic,
     UnitDemo, UnitProposal, validSquadsOrdered,
 } from "./internals.js";
+
 
 export function registerDrive(ctx: Ctx): void {
     /** Étape 1 : pilote 1 MoveNext de CalculateNextActionForPlayer et décode
@@ -565,7 +567,7 @@ export function registerDrive(ctx: Ctx): void {
      *  mutated=false). Donne, contre le MÊME état courant, ce que ferait
      *  chaque unité « si elle jouait en premier ». body: { runnerId, maxPump? } */
     ctx.rpc.aiDryRunAllUnits = (
-        body?: { runnerId?: number; maxPump?: number },
+        body?: { runnerId?: number; maxPump?: number; resetTurnFlags?: boolean },
     ): Promise<unknown> => queueOnMainThread(() => {
         let runner: NativePointer; let label: string;
         if (typeof body?.runnerId === "number") {
@@ -613,19 +615,48 @@ export function registerDrive(ctx: Ctx): void {
 
         const before = summarize(statePtr);
         const t0 = Date.now();
-        const { units, pumps } = sweepAllUnitProposals(
-            statePtr, strategy, calcUnitMi, maxPump, { mi: null });
+
+        // #296 — OPT-IN. Sans lui, rien ne change : le défaut reste la mesure « à l'état
+        // courant », qui est la bonne pour un tour frais. Avec lui, on répond à l'autre
+        // question : « que proposerait chaque unité si son tour n'était PAS entamé ? » —
+        // seule façon d'obtenir un oracle de DÉCISION per-unité pour un SUMMON, dont le
+        // natif termine le tour dès l'apparition (`SpawnUnitBehaviour$$
+        // TriggerSpawnedUnitBehaviours` -> `FinishUnitTurn(spawned, isTerminated: true)`).
+        const wantReset = body?.resetTurnFlags === true;
+        if (wantReset && !turnFlagResetAvailable()) {
+            // On REFUSE plutôt que de balayer sans reset : rendre un résultat
+            // silencieusement identique au défaut ferait passer un capteur MORT pour une
+            // mesure (même discipline de tri-état que `unitFlags`).
+            return { ok: false, runner: label,
+                error: "resetTurnFlags demandé mais non résolu : "
+                    + turnFlagResetDiagnostic() };
+        }
+        const { units, pumps, turnFlagsReset } = sweepAllUnitProposals(
+            statePtr, strategy, calcUnitMi, maxPump, { mi: null },
+            { resetTurnFlags: wantReset });
         const after = summarize(statePtr);
         const unitsWithVis = units.map((u) => ({
             ...u,
             visualId: visById.get(u.unitId) ?? null,
             pos: posById.get(u.unitId) ?? null,
         }));
+        const resets = turnFlagsReset ?? [];
         return {
             ok: true, runner: label, playerId,
+            // ⚠ Avec `resetTurnFlags`, `mutated` est LA garde : il doit rester `false`.
+            // `true` = la restauration a échoué et la mesure est à jeter.
             mutated: before.sig !== after.sig,
             totalPumps: pumps, ms: Date.now() - t0,
             unitCount: unitsWithVis.length, units: unitsWithVis,
+            // `null` = non demandé ; `[]` = demandé et aucune unité n'avait de flag de tour.
+            turnFlagsReset: wantReset
+                ? resets.map((r) => ({ unitId: r.unitId, cleared: r.cleared,
+                    notRestored: r.notRestored, error: r.error ?? null }))
+                : null,
+            turnFlagsRestoreFailed: wantReset
+                ? resets.filter((r) => r.notRestored.length > 0).length : null,
+            turnFlagsError: wantReset
+                ? (resets.find((r) => r.error)?.error ?? null) : null,
         };
     });
 }

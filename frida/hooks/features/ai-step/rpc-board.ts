@@ -12,8 +12,8 @@ import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
 import { setTraceOrigin } from "../../game/trace-origin.js";
 import {
-    EntityType, forEachComponent, forEachEntity, projectMatchState,
-    readBattleStatus, unitFootComponentClass,
+    EntityType, forEachComponent, forEachEntity, playerComponentClass,
+    projectMatchState, readBattleStatus, unitFootComponentClass,
 } from "../../game/match-state.js";
 import {
     readEffectsByUnit, readEffectsByTile, readRoundCapClock, readEffectAbilityStateRaw,
@@ -465,10 +465,62 @@ export function registerViewBoard(ctx: Ctx): void {
                 occupantUnitId: occByTile.get(t.id) ?? null,
             };
         });
+        // ─── #311 — POSITION DE MACHINE DE GUERRE, PAR JOUEUR ────────────────────────────
+        //
+        // POURQUOI ICI. `GetTargetAreaTiles` de `1148 DaemonicOrdnance` fait dépendre la
+        // DIRECTION de son triangle de zone de `If(IsPositionMachineForCurrentPlayer(2), 1, 4)`.
+        // Ce prédicat n'interroge AUCUNE machine déployée : c'est une propriété du PLATEAU.
+        // Le port lisait `MachineComponent.Position` de la MoW déployée et se trompait de
+        // cible (52 vs 53, mesuré sur `MC1_67` SANS aucune MoW). Faute de canal, il rend
+        // aujourd'hui `None` (= non mesuré) plutôt que de deviner — et il a raison de refuser :
+        // un repli naïf serait faux sur ~74 % des plateaux (balayage des 675 boards : 502
+        // déclarent une valeur, 173 l'autre).
+        //
+        // CE QU'ON N'INVENTE PAS. On n'expose PAS la config brute et on ne relit PAS
+        // `SpawnPointGroupConfiguration+0x14` nous-mêmes : on invoque la fonction NOMMÉE que
+        // le jeu appelle lui-même, `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer(player)`.
+        // Son corps (relu sur `rnca9r7q6c`) lit le TeamId du joueur (`PlayerComponent+0x24`),
+        // appelle `IdunBattle.Configuration.SpawnPointSetConfiguration$$GroupForPlayer(teamId,
+        // playerNr)` et rend le champ du groupe — AVEC son repli natif quand aucun groupe ne
+        // correspond (`teamId 1 -> 2`, `teamId 2 -> 1`, sinon 0). L'invoquer nous donne donc
+        // la valeur EFFECTIVE, repli compris, au lieu d'une reconstitution qui pourrait diverger.
+        //
+        // Tri-état : `null` = pas mesuré (méthode irrésolue), `[]` = mesuré et aucun joueur.
+        // Les confondre ferait passer un capteur MORT pour un plateau sans joueurs.
+        const posMachineMi = findMethodByParamCount(
+            bqClass, "GetPositionMachineForPlayer", 1);
+        let mowPositions: Array<{
+            playerId: number; teamId: number | null;
+            machineOfWarPosition: number | null; error?: string;
+        }> | null = null;
+        if (posMachineMi) {
+            mowPositions = [];
+            forEachEntity(statePtr, (e, id, ty) => {
+                if (ty !== EntityType.Player) return;
+                let teamId: number | null = null;
+                if (playerComponentClass) {
+                    forEachComponent(e, (comp, klass) => {
+                        if (!klass.equals(playerComponentClass!)) return;
+                        try { teamId = comp.add(0x24).readS32(); } catch { /* laisse null */ }
+                    });
+                }
+                try {
+                    const boxed = invokeMethod(posMachineMi.info, battleQ, [e]);
+                    mowPositions!.push({ playerId: id, teamId,
+                        machineOfWarPosition: boxed.isNull()
+                            ? null : boxed.add(0x10).readS32() });
+                } catch (err) {
+                    mowPositions!.push({ playerId: id, teamId,
+                        machineOfWarPosition: null, error: (err as Error).message });
+                }
+            });
+        }
+
         return {
             ok: true, runner: label, tileCount: tiles.length,
             occupiedTiles: occByTile.size,
             adjCalls, adjFails, walkFails, tiles,
+            mowPositions,
         };
     });
 

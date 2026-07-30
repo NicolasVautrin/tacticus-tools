@@ -17,6 +17,7 @@ import {
     ensureStreamHooks, popApply, pushApply, StreamEvent,
 } from "../../game/apply-stack.js";
 import { abilityName } from "../../data/ability-names.js";
+import { dumpEnum } from "../../il2cpp/enum-dump.js";
 
 // --- Résolution statique (une fois au load) ---
 
@@ -890,16 +891,118 @@ export interface UnitProposal {
     proposed: DecodedMsg[];
 }
 
+// ─── #296 — REMISE À ZÉRO DES FLAGS DE TOUR (opt-in de `sweepAllUnitProposals`) ────────
+//
+// POURQUOI. Le sweep n'est un oracle FIDÈLE que sur un tour FRAIS. Mesuré le 2026-07-30
+// sur un même build (`--advance 2`, board MC1_67) :
+//
+//   | séquence                            | `repair_prediction` | playbooks évalués           |
+//   |-------------------------------------|---------------------|-----------------------------|
+//   | dry-run IMMÉDIAT après build        | 5                   | 4 dont Repair_GalvanicField |
+//   | dry-run APRÈS un `aiturn` intercalé | 0                   | 2                           |
+//
+// Les deux abilities DÉRIVÉES (`RepairType`@0x2c, `NormalAttackType`@0x28) disparaissent
+// ENSEMBLE de l'énumération, alors que les cibles sont PLUS abîmées à ce moment-là — et
+// sans la moindre erreur. Toute mesure de décision prise après un tour consommé est donc
+// silencieusement PARTIELLE. La cause est en amont : `ActiveAbilityActionGenerator.
+// u003CGenerateActionsu003Ed__7$$MoveNext` commence par `if (HasFlag(unit, 2 =
+// ActiveAbilityUsed)) return 0` — AVANT `GetUnitAbilitiesInOrder`, donc l'attaque normale
+// tombe avec les actives (établi par #17, PR #318).
+//
+// CE QU'ON N'INVENTE PAS. Le jeu a SA fonction pour ça :
+// `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags(this,
+//  bool removeNoActionAvailable, bool removeMoved)`. Son corps (relu sur `rnca9r7q6c`)
+// retire TOUJOURS `ActiveAbilityUsed(2)`, `TurnFinished(3)` et `TurnTerminated(0x1b)` ;
+// `NoActionAvailable(4)` sous le 1er booléen ; `Moved(0)`, `ArrivedAtFinalTile(1)` et
+// `Teleported(0xc)` sous le 2nd. On n'énumère donc AUCUN ensemble « flags de tour » de
+// notre cru — c'est le natif qui le définit, et un changement de build le suit tout seul.
+//
+// ⚠ Sa signature décompilée est DÉCALÉE par le `sret` (elle rend une struct de 7 octets) :
+// Ghidra nomme `this` le buffer de retour et attribue `removeNoActionAvailable` à ce qui est
+// en fait le 1er booléen. C'est EXACTEMENT le piège qui avait rendu `PredictRepair` faux sur
+// tous ses arguments (#278) — les noms de paramètres IL2CPP sont justes, leur POSITION ne
+// l'est pas. On ne lit donc PAS cette struct de retour : on mesure nous-mêmes, avant/après.
+//
+// CONTRAT READ-ONLY. On relève les flags POSÉS avant (par `UnitExtensions$$HasFlag`, une
+// fois par valeur d'enum — le même canal que `combatSnapshot`), on appelle `RemoveTurnFlags`,
+// on balaie, puis on RE-POSE par `UnitFlagsComponent$$Add` exactement ce qui a disparu. La
+// restauration est donc MESURÉE, pas déduite d'un layout. Le `mutated` du RPC reste la
+// garde : s'il passe à `true`, la restauration a échoué et la mesure ne vaut rien.
+const unitFlagsComponentClass = findClassAnywhere(
+    "IdunBattle.Entities.Components", "UnitFlagsComponent");
+const unitExtClassFlags = findClassAnywhere("IdunBattle.Entities", "UnitExtensions");
+const removeTurnFlagsMi = unitFlagsComponentClass
+    ? findMethodByParamCount(unitFlagsComponentClass, "RemoveTurnFlags", 2) : null;
+const flagsAddMi = unitFlagsComponentClass
+    ? findMethodByParamCount(unitFlagsComponentClass, "Add", 1) : null;
+const hasFlagMiFlags = unitExtClassFlags
+    ? findMethodByParamCount(unitExtClassFlags, "HasFlag", 2) : null;
+
+/** Le reset est-il montable ? `false` -> l'appelant doit REFUSER, pas balayer sans. */
+export function turnFlagResetAvailable(): boolean {
+    return !!(unitFlagsComponentClass && removeTurnFlagsMi && flagsAddMi && hasFlagMiFlags
+        && unitFlagValues().length > 0);
+}
+
+/** Quel maillon manque — pour que le refus NOMME sa cause au lieu d'être opaque. */
+export function turnFlagResetDiagnostic(): string {
+    return `classe=${!!unitFlagsComponentClass} RemoveTurnFlags=${!!removeTurnFlagsMi} `
+        + `Add=${!!flagsAddMi} HasFlag=${!!hasFlagMiFlags} `
+        + `valeursEnum=${unitFlagValues().length}`;
+}
+
+/** Valeurs de `IdunBattle.Entities.Enum.UnitFlag`, LUES AU RUNTIME et dédupliquées (un
+ *  enum C# admet des alias). Aucune table du dépôt : une renumérotation de build se
+ *  propage seule — même discipline que `unitFlagTypes` de `rpc-snapshot.ts`. */
+let unitFlagValuesCache: number[] | null = null;
+function unitFlagValues(): number[] {
+    if (unitFlagValuesCache) return unitFlagValuesCache;
+    const raw = dumpEnum("IdunSharedAssembly.dll", "IdunBattle.Entities.Enum", "UnitFlag") ?? {};
+    const vals = Object.keys(raw)
+        .map((k) => parseInt(raw[k], 10))
+        .filter((v) => Number.isFinite(v));
+    unitFlagValuesCache = Array.from(new Set(vals)).sort((a, b) => a - b);
+    return unitFlagValuesCache;
+}
+
+function unitFlagsComponentOf(entity: NativePointer): NativePointer | null {
+    if (!unitFlagsComponentClass) return null;
+    let found: NativePointer | null = null;
+    forEachComponent(entity, (comp, klass) => {
+        if (found) return;
+        if (klass.equals(unitFlagsComponentClass)) found = comp;
+    });
+    return found;
+}
+
+export interface TurnFlagReset {
+    unitId: number;
+    /** Flags effectivement RETIRÉS par le natif — donc ceux à re-poser après. */
+    cleared: number[];
+    /** Flags qu'on n'a PAS réussi à restaurer. Non vide = la mesure est à jeter. */
+    notRestored: number[];
+    error?: string;
+}
+
 /** Sweep READ-ONLY : pour chaque squad contrôlé+vivant du joueur courant,
  *  pompe `CalculateNextActionForUnit(unit)` et lit l'action proposée SANS
  *  l'appliquer. Chaque proposition est conditionnée au MÊME état courant
  *  (« si l'unité jouait en premier »). `moveNextRef` cache le MethodInfo
- *  MoveNext entre appels. Ne mute pas le runner. */
+ *  MoveNext entre appels. Ne mute pas le runner.
+ *
+ *  `opts.resetTurnFlags` (#296) répond à l'AUTRE question : « que proposerait chaque unité
+ *  si son tour n'était PAS entamé ? » — seule façon d'obtenir un oracle de DÉCISION
+ *  per-unité pour un SUMMON, dont le natif termine le tour dès l'apparition
+ *  (`SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` -> `FinishUnitTurn(spawned,
+ *  isTerminated: true)`). Le reset porte sur les MÊMES squads que le balayage — c'est la
+ *  raison pour laquelle il vit ICI et non chez l'appelant : une seconde énumération
+ *  pourrait diverger de celle qui est réellement balayée. */
 export function sweepAllUnitProposals(
     statePtr: NativePointer, strategy: NativePointer,
     calcUnitMi: { info: NativePointer }, maxPump: number,
     moveNextRef: { mi: { info: NativePointer; ptr: NativePointer } | null },
-): { units: UnitProposal[]; pumps: number } {
+    opts?: { resetTurnFlags?: boolean },
+): { units: UnitProposal[]; pumps: number; turnFlagsReset?: TurnFlagReset[] } {
     const squads: Array<{ id: number; ptr: NativePointer; hasAction: boolean }> = [];
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty !== EntityType.Unit) return;
@@ -907,38 +1010,94 @@ export function sweepAllUnitProposals(
         if (!invokeBool(isAliveMi, [e, statePtr])) return;
         squads.push({ id, ptr: e, hasAction: invokeBool(hasActionLeftMi, [e]) });
     });
+
+    const wantReset = opts?.resetTurnFlags === true && turnFlagResetAvailable();
+    const resets: TurnFlagReset[] = [];
+    const compById = new Map<number, NativePointer>();
+    const flagBuf = Memory.alloc(4);
+    const boolBuf = Memory.alloc(1);
+    const flagsOf = (e: NativePointer): number[] => {
+        const on: number[] = [];
+        for (const v of unitFlagValues()) {
+            flagBuf.writeS32(v);
+            if (invokeBool(hasFlagMiFlags!, [e, flagBuf])) on.push(v);
+        }
+        return on;
+    };
+    if (wantReset) {
+        for (const sq of squads) {
+            const comp = unitFlagsComponentOf(sq.ptr);
+            if (!comp) continue;
+            const had = flagsOf(sq.ptr);
+            const rec: TurnFlagReset = { unitId: sq.id, cleared: [], notRestored: [] };
+            try {
+                boolBuf.writeU8(1);
+                invokeMethod(removeTurnFlagsMi!.info, comp, [boolBuf, boolBuf]);
+                const now = new Set(flagsOf(sq.ptr));
+                rec.cleared = had.filter((v) => !now.has(v));
+            } catch (e) {
+                rec.error = (e as Error).message;
+            }
+            compById.set(sq.id, comp);
+            resets.push(rec);
+        }
+    }
+
     const out: UnitProposal[] = [];
     let pumps = 0;
-    for (const sq of squads) {
-        let chunk: DecodedMsg[] = [];
-        let p = 0; let exhausted = false; let err: string | null = null;
-        try {
-            const e = invokeMethod(calcUnitMi.info, strategy, [sq.ptr]);
-            if (e.isNull()) { exhausted = true; }
-            else {
-                gcRoot.add(e);
-                try {
-                    if (!moveNextRef.mi) {
-                        moveNextRef.mi = findMethod(e.readPointer(), "MoveNext");
-                    }
-                    while (moveNextRef.mi && p < maxPump) {
-                        const boxed = invokeMethod(moveNextRef.mi.info, e, null);
-                        p++; pumps++;
-                        if (boxed.isNull() || boxed.add(0x10).readU8() === 0) {
-                            exhausted = true; break;
+    try {
+        for (const sq of squads) {
+            let chunk: DecodedMsg[] = [];
+            let p = 0; let exhausted = false; let err: string | null = null;
+            try {
+                const e = invokeMethod(calcUnitMi.info, strategy, [sq.ptr]);
+                if (e.isNull()) { exhausted = true; }
+                else {
+                    gcRoot.add(e);
+                    try {
+                        if (!moveNextRef.mi) {
+                            moveNextRef.mi = findMethod(e.readPointer(), "MoveNext");
                         }
-                        const decoded = decodeMsgList(e.add(0x18).readPointer());
-                        if (decoded.count > 0) { chunk = decoded.messages; break; }
+                        while (moveNextRef.mi && p < maxPump) {
+                            const boxed = invokeMethod(moveNextRef.mi.info, e, null);
+                            p++; pumps++;
+                            if (boxed.isNull() || boxed.add(0x10).readU8() === 0) {
+                                exhausted = true; break;
+                            }
+                            const decoded = decodeMsgList(e.add(0x18).readPointer());
+                            if (decoded.count > 0) { chunk = decoded.messages; break; }
+                        }
+                    } finally { try { gcRoot.remove(e); } catch { /* */ } }
+                }
+            } catch (ex) { err = (ex as Error).message; }
+            out.push({
+                unitId: sq.id, hasActionLeft: sq.hasAction, pumps: p, exhausted,
+                proposed: err ? [{ cls: "ERR:" + err }] : chunk,
+            });
+        }
+    } finally {
+        // RESTAURATION INCONDITIONNELLE. Même si le balayage jette, l'état doit revenir
+        // tel quel : un dry-run « read-only » qui laisserait le runner amputé de ses flags
+        // de tour fausserait TOUS les appels suivants, et en silence.
+        if (wantReset) {
+            for (const rec of resets) {
+                const comp = compById.get(rec.unitId);
+                const sq = squads.find((x) => x.id === rec.unitId);
+                if (!comp || !sq) continue;
+                for (const v of rec.cleared) {
+                    try {
+                        flagBuf.writeS32(v);
+                        invokeMethod(flagsAddMi!.info, comp, [flagBuf]);
+                    } catch { /* constaté juste après */ }
+                    flagBuf.writeS32(v);
+                    if (!invokeBool(hasFlagMiFlags!, [sq.ptr, flagBuf])) {
+                        rec.notRestored.push(v);
                     }
-                } finally { try { gcRoot.remove(e); } catch { /* */ } }
+                }
             }
-        } catch (ex) { err = (ex as Error).message; }
-        out.push({
-            unitId: sq.id, hasActionLeft: sq.hasAction, pumps: p, exhausted,
-            proposed: err ? [{ cls: "ERR:" + err }] : chunk,
-        });
+        }
     }
-    return { units: out, pumps };
+    return { units: out, pumps, turnFlagsReset: wantReset ? resets : undefined };
 }
 
 export interface UnitDemo {

@@ -483,12 +483,30 @@ export function registerViewPredict(ctx: Ctx): void {
             return { ok: false, playbookClass,
                 error: "CalculateUtilityFromPredictions(4) introuvable" };
         }
+        // #302-t5 — LA CIBLE N'EST PAS TYPÉE côté natif. `CalculateUtilityFromPredictions(unit,
+        // UnitPosition, target, Nullable<AbilityState>)` prend un `IEntity`, exactement comme
+        // `IdunBattle.AI.ActionGenerators.UnitAction$$.ctor(position, target, abilityType)`.
+        // Ce RPC, lui, n'acceptait que `EntityType.Unit` -> toute ability à cibles TUILE
+        // (bit `TargetIsTile`, cf. `IdunBattle.Core.Services.TargetingOptions$$get_IsTileTargeting`)
+        // renvoyait « target N not found », et l'oracle par étage était INVALIDABLE sur ces
+        // 19 abilities du registre — dont `1169 PlagueburstMortar` et `1148 DaemonicOrdnance`,
+        // portées par #302. Le filtre était donc une limite du HARNAIS, pas du jeu.
+        //
+        // On résout donc la cible par ID sur TOUS les types d'entité, et on PUBLIE le type
+        // retenu (`targetEntityType`) : un consommateur qui croyait viser une unité et reçoit
+        // une tuile doit pouvoir le voir, plutôt que de le découvrir dans un chiffre faux.
+        // Départage déterministe si deux entités portaient le même id : `Unit` gagne.
         let unit = ptr(0); let target = ptr(0);
+        let targetType: number | null = null;
+        const idTypesSeen: number[] = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty === EntityType.Unit || ty === EntityType.Machine) {
                 if (id === body.unitId) unit = e;
             }
-            if (ty === EntityType.Unit && id === body.targetId) target = e;
+            if (id === body.targetId) {
+                idTypesSeen.push(ty);
+                if (target.isNull() || ty === EntityType.Unit) { target = e; targetType = ty; }
+            }
         });
         if (unit.isNull()) return { ok: false, error: "unit " + body.unitId + " not found" };
         if (target.isNull()) return { ok: false, error: "target " + body.targetId + " not found" };
@@ -546,7 +564,18 @@ export function registerViewPredict(ctx: Ctx): void {
         try {
             boxed = invokeMethod(scoreMi.info, playbook, [unit, posPtr, target, stateBuf]);
         } catch (e) {
+            // #302-t5 — DIAGNOSTIC, mesuré le 2026-07-30 : passer une entité TUILE au playbook
+            // d'une ability qui cible des UNITÉS fait jeter le natif (« system error ») au lieu
+            // de refuser proprement. Avant le correctif de résolution, le RPC répondait
+            // « target N not found » — opaque, mais au moins ça nommait le problème. On publie
+            // donc le TYPE résolu dans le chemin d'erreur AUSSI : sans lui, l'appelant voit un
+            // « system error » nu et n'a aucun moyen de savoir qu'il a confondu les domaines.
             return { ok: false, playbookClass, posSrc,
+                targetEntityType: targetType,
+                hint: targetType === EntityType.Tile
+                    ? "cible de type Tile passée à `" + playbookClass + "` : ce playbook "
+                        + "attend-il vraiment un domaine TUILE (bit `TargetIsTile`) ?"
+                    : undefined,
                 error: "CalculateUtilityFromPredictions threw: " + (e as Error).message };
         }
         const after = summarize(statePtr);
@@ -554,6 +583,11 @@ export function registerViewPredict(ctx: Ctx): void {
         return {
             ok: true, runner: label, playbookClass, posSrc,
             unitId: body.unitId, targetId: body.targetId,
+            // #302-t5 : valeur de `EntityType` de la cible retenue (0 = Tile, 1 = Unit, …).
+            // `targetIdTypesSeen` n'apparaît QUE s'il y a collision d'id entre deux types —
+            // anormal, donc signalé plutôt que tu.
+            targetEntityType: targetType,
+            targetIdTypesSeen: idTypesSeen.length > 1 ? idTypesSeen : undefined,
             ability: body.abilityType, abilityName: abilityName(body.abilityType),
             abilityState: { level: lvl, multiplier: mult, source: stSrc },
             utility: raw === null ? null : raw.toNumber() / 4294967296,
