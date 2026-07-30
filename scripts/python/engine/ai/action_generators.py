@@ -49,6 +49,7 @@ from engine.playbook import noncomparable as playbooks
 from engine.playbook import get_playbook_or_default, tile_utility
 from engine.playbook.common import NORMAL_ATTACK_PLAYBOOK, HEAL_PLAYBOOK
 from engine.playbook.bespoke import BESPOKE_SELFCAST   # #82 : BloodChalice/MomentShackle self-cast
+from engine.playbook.nonattack import nonattack_candidates  # #27-4b : route Comparable SANS prédiction
 from engine.playbook.excruciating_frequencies import excruciating_frequencies_candidates  # #56-t3b : 1197 ligne-AoE tuile
 from engine.predict import (repair_utility,            # RepairedAmountUtility (analogue non-custom du soin)
                             predict_heal_effective, heal_amount_config,   # magnitude soin OFFLINE (#79)
@@ -676,6 +677,10 @@ class ComparableAbilityGenerator(ActionGenerator):
         cands += self._repair_candidates(ctx)             # RepairPlaybook générique (id 28)
         cands += self._repair_galvanic_candidates(ctx)    # #85 : Repair_GalvanicField bespoke (id 1119)
         cands += self._bespoke_candidates(ctx)   # #82 : BloodChalice/MomentShackle
+        cands += nonattack_candidates(ctx)       # #27-4b : Comparable SANS prediction (verrou 2)
+        #                                       (ability sans `damageProfile` -> jamais dans `plans`,
+        #                                        donc invisible de `_best_attack` ; le natif, lui, ne
+        #                                        gate PAS sur la prediction — `ShouldExecute` = true)
         cands += excruciating_frequencies_candidates(ctx)   # #56-t3b : 1197 ExcruciatingFrequencies
         #                                       (ligne-AoE ciblant une TUILE, non plan-driven rankCount=0)
         # (Les NonComparable sont traitées par le générateur précédent — cf. InitAbilityTypeLists.)

@@ -19,6 +19,11 @@ Verifie la FORME des termes custom portes (dispatch + formule), pas le live :
   W(HeavyWarpFlamer_LikesAdjacentEnemies)=10 * COMPTE d'ennemis adjacents a la TUILE DE LA CIBLE.
   Meme ensemble que le 2e terme de DoomSiren, mais LINEAIRE : le test de linearite (0/1/2/3
   voisins -> 0/W/2W/3W) est ce qui distingue ce port d'une copie booleenne de DoomSiren.
+- Chronometron (1226) IdunBattle.AI.Playbook.Loki.ChronometronPlaybook$$CalculateCustomUtility =
+  W(Chronometron_AffectedEnemies)=10 * COMPTE des ennemis du disque `constants.range` autour de la
+  position REELLE du caster (centre exclu). Route NON-ATTAQUE (`engine/playbook/nonattack.py`) :
+  l'ability n'a pas de `damageProfile` et n'atteint donc jamais `_best_attack` -- la garde verifie
+  aussi sa presence dans `NONATTACK_PLAYBOOKS`, sans quoi le terme serait INERTE.
 - CLIQUET DE NON-REGRESSION : SorcerousFacade (1100) NE DOIT PAS etre enregistree (son terme
   s'ancre sur un ALLIE Psyker que le moteur ne route pas ; cf. case-27 tranche 3).
 
@@ -35,7 +40,8 @@ import engine.weights as W
 
 def _fake_ctx(wt, **kw):
     d = dict(me={"team": 1, "id": 100}, units=[], obs_units=[], epos=[], elev_by_pos={}, wt=wt,
-             uid=100, plans={}, normal_ids={69}, hp_cur_by_id={}, hpmax_by_id={})
+             uid=100, plans={}, normal_ids={69}, hp_cur_by_id={}, hpmax_by_id={},
+             origin=None)
     d.update(kw)
     return types.SimpleNamespace(**d)
 
@@ -199,6 +205,55 @@ def main() -> int:
     if wf.calculate_custom_utility(_fake_ctx(wt, units=[], epos=voisins), (0, 0), 999, 1227) != 0.0:
         fails.append("HeavyWarpFlamer (cible inconnue): attendu 0.0")
 
+    # --- Chronometron (1226) : W(10) * COMPTE d'ennemis dans le DISQUE `range` autour de la
+    # position REELLE du caster (centre exclu). Route NON-ATTAQUE (`playbook/nonattack.py`) :
+    # l'ability n'a pas de `damageProfile`, elle n'atteint jamais `_best_attack`.
+    from engine.playbook.nonattack import NONATTACK_PLAYBOOKS
+    wch = wt.sub("ActiveAbilities", "Chronometron_AffectedEnemies")
+    if wch == 0:
+        fails.append("Chronometron_AffectedEnemies absent des poids : la table `Utilities` n'a pas "
+                     "ete re-synthetisee depuis le gameconfig courant "
+                     "(cf. catalog_inject.refresh_ai_utilities)")
+    if 1226 not in NONATTACK_PLAYBOOKS:
+        fails.append("Chronometron (1226) absente de NONATTACK_PLAYBOOKS : sans la route non-attaque "
+                     "le terme est INERTE (l'ability n'entre jamais dans `plans`)")
+    ch = pb.get_playbook(1226)
+    if type(ch).__name__ != "ChronometronPlaybook":
+        fails.append("dispatch 1226: attendu ChronometronPlaybook, obtenu %s" % type(ch).__name__)
+    else:
+        rng = ch._range()
+        # anneaux successifs autour de l'origine (0,0) : d=1 puis d=2 ; la 3e est a d=3 -> HORS.
+        near = [(0, 1), (1, 0), (0, 2)]         # d = 1, 1, 2  -> dans le disque range=2
+        far = (0, 3)                            # d = 3        -> hors
+        for n in range(len(near) + 1):
+            c = _fake_ctx(wt, origin=(0, 0), epos=list(near[:n]))
+            v = ch.calculate_custom_utility(c, (0, 0), 100, 1226)
+            if v != n * wch:
+                fails.append(f"Chronometron {n} ennemi(s) dans le rayon: attendu {n * wch}, obtenu {v}")
+        c_far = _fake_ctx(wt, origin=(0, 0), epos=[far])
+        if ch.calculate_custom_utility(c_far, (0, 0), 100, 1226) != 0.0:
+            fails.append("Chronometron: un ennemi a d=%d est compte a tort (range=%d)"
+                         % (3, rng))
+        # ANCRAGE : le terme ne doit PAS bouger avec la tuile candidate (surcharge 5-args de
+        # `DSLSelectors$$SurroundingEnemies`, centre = ENTITE). Confronte live (bras `--anchor` de
+        # `probe_27_4b_chronometron_ab.py`) : la variante ancree-tuile bascule sur 1226 la ou le
+        # natif reste sur l'attaque normale.
+        c2 = _fake_ctx(wt, origin=(0, 0), epos=[(0, 1), (1, 0)])
+        if ch.calculate_custom_utility(c2, (8, 8), 100, 1226) != 2 * wch:
+            fails.append("Chronometron: terme ancre a tort sur la tuile candidate")
+        # le CENTRE est exclu (`- Tiles(unit)`)
+        if ch.calculate_custom_utility(_fake_ctx(wt, origin=(0, 0), epos=[(0, 0)]),
+                                       (0, 0), 100, 1226) != 0.0:
+            fails.append("Chronometron: la tuile du caster est comptee (le `- Tiles(unit)` manque)")
+        # gate self-cast `GetCasterNotAddedReason` : aucun ennemi a portee -> pas d'action
+        if ch.is_caster_added(_fake_ctx(wt, origin=(0, 0), epos=[far]), (0, 0)):
+            fails.append("Chronometron: caster ajoute sans ennemi a portee (gate 0x800 manquant)")
+        if not ch.is_caster_added(_fake_ctx(wt, origin=(0, 0), epos=[(0, 2)]), (0, 0)):
+            fails.append("Chronometron: caster refuse alors qu'un ennemi est a portee")
+        # `ShouldExecute` (slot +0x328) = `return true` : une utilite NULLE ne doit pas gater
+        if not ch.should_execute(_fake_ctx(wt), (0, 0), 100, 1226, 0.0):
+            fails.append("Chronometron: ShouldExecute gate a 0 -- le slot +0x328 rend `true`")
+
     if fails:
         for f in fails:
             print("FAIL:", f)
@@ -208,7 +263,9 @@ def main() -> int:
           "; DoomSiren adj=", v_adj, "/isolee=", v_alone, "(W_overkill=", wok, ")",
           "; SavageEchoes 49.64%=0 / 50.19%=", wse, "(seuil", thr, "%)",
           "; HeavyWarpFlamer lineaire 0/W/2W/3W avec W=", wwf,
-          "; dispatch 1014/1177/1020/1029/1199/1227/1230 OK ; 1100 non enregistree OK")
+          "; Chronometron lineaire 0..3 dans le rayon", ch._range(), "avec W=", wch,
+          "(ancre ENTITE, centre exclu, gate self-cast)",
+          "; dispatch 1014/1177/1020/1029/1199/1226/1227/1230 OK ; 1100 non enregistree OK")
     return 0
 
 

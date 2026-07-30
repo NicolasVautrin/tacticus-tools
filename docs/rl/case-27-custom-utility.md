@@ -99,6 +99,92 @@ intermediaire en `UtilityType`, et recopie VERBATIM le dict `{nom: entier}` — 
 Delta mesure gqfc5mff6c -> rnca9r7q6c : `Default/ActiveAbilities` +7, `Default/TriggeredAbilities`
 +5 et ~2, `Default/TriggeredAbilitiesNonOwner` +4 et ~1 ; **0 cle retiree**, 54 categories inchangees.
 
+## TRANCHE 4b (2026-07-30) — le VERROU 2 est leve : une route pour les Comparable SANS prediction
+
+### Ce que le decompile dit vraiment de `CalculateActionUtility`
+
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`,
+relue integralement sur `rnca9r7q6c` :
+
+```
+u = CalculateCustomUtility(vtable +0x338)(caster, casterPosition, target, abilityOrEffect, possibleTargets)
+if (u == <sentinelle A> || u == <sentinelle B>) return null;          // Fix64? VIDE
+if (u == <sentinelle C>) return Nullable(<sentinelle C>);
+u += CalculateUtilityFromPredictions(caster, casterPosition, target, abilityOrEffect)
+if ( ShouldExecute(vtable +0x328)(caster, casterPosition.MainTile, target, u) ) {
+    u += CalculateCasterPositionUtility(vtable +0x348)(caster, casterPosition, abilityOrEffect)
+    u += <service #0x37>.slot5( IdunBattle.AI.Utilities.UtilityAttackCase$$Base(caster, casterPosition,
+                                                                               target, abilityOrEffect) )
+    u += CalculateUtilityFromTilePrediction(caster, casterPosition, target, ...)
+    return Nullable(u)
+}
+return null;
+```
+
+Deux faits, et ils corrigent la redaction des tranches precedentes :
+
+1. **Le custom est calcule EN PREMIER** et entre dans l'ARGUMENT de `ShouldExecute` — ce n'est pas un
+   terme ajoute apres coup a une utilite de degat. (Les offsets de vtable cites en tranche 3
+   — « custom = +0x348 » — etaient decales d'un slot : `+0x338` = `CalculateCustomUtility`,
+   `+0x348` = `CalculateCasterPositionUtility`. Le port, lui, etait juste : il sommait bien le custom
+   AVANT l'argmax de tuile.)
+2. **`ShouldExecute` par DEFAUT rend `true`.** MESURE au slot de vtable, pas deduite
+   (`probe_27_4b_chronometron_vtable.py`) : le slot `+0x328` de `ChronometronPlaybook`,
+   `DrachnyenPlaybook`, `DoomSirenPlaybook` et `ForwardObserversPlaybook` pointe sur le MEME corps
+   trivial `return 1`, dont l'unique proprietaire nomme dans `methods.tsv` est
+   `UnityEngine.U2D.IK.Solver2D$$DoValidate` (dedup IL2CPP). Les `<X>Playbook$$ShouldExecute` NOMMES
+   (`...HealingBalms_HealPlaybook$$ShouldExecute` = `utility > Fix64(0)`,
+   `...ArmoriumCherubPlaybook$$ShouldExecute`, `...SorcerousFacadePlaybook$$ShouldExecute`) sont des
+   OVERRIDES. Chercher « le ShouldExecute de la base » dans la table aurait donne la reponse INVERSE.
+
+**Consequence** : le natif n'exige NULLE PART une prediction de degat pour generer une action. Ce qui
+borne l'ensemble, c'est le CIBLAGE (`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsEntities`,
+recalcule PAR TUILE candidate), pas un `damageProfile`. Le gate `if not events: return None` du port
+(`ComparablePlaybook.calculate_action_utility`) n'a donc **aucun equivalent natif** : c'est LUI le
+verrou 2.
+
+### La route portee — `engine/playbook/nonattack.py`
+
+Route Comparable SECONDE, strictement ADDITIVE (ni `_best_attack` ni le gate `if not events` ne sont
+touches — le regime ATTAQUE reste inchange, delta d'agreement nul par construction) :
+
+- `NonAttackComparablePlaybook` : `make_damage_predictions -> []`, `u = custom`,
+  `should_execute` (defaut `True`, mirror du slot `+0x328`), `u_full = u + tile_utility(tuile)`,
+  `eligible_targets` (mirror de `GetEligibleTargetsEntities` via le seam `ctx.ability_targets`),
+  `is_caster_added` (mirror de `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason`,
+  branche self-cast : `GetValidTargets` vide -> `GenericBrokenTargetingRule(0x800)`, le caster n'entre
+  pas dans les cibles depuis cette tuile).
+- `nonattack_candidates(ctx)` : mirror des deux boucles natives —
+  `...ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` (ability x tuile, ordre
+  `ctx.reach_nc` = origine en tete) et `...ComparablePlaybook...$$EvaluateInternal` (cibles,
+  keep-first STRICT). Appelee par `ComparableAbilityGenerator.generate`, a cote de `_heal_candidates` /
+  `_repair_candidates` / `_bespoke_candidates`.
+- Registre **EXPLICITE** `NONATTACK_PLAYBOOKS` : seule une ability dont le playbook est PORTE y entre.
+  Une route generique (« toute non-attaque devient candidate ») serait une degradation permissive —
+  exactement le trou qu'un entrainement irait exploiter.
+
+**Classification DSL/imperatif** (tranchee AVANT de coder) : la route (`CalculateActionUtility`,
+`ShouldExecute`, `EvaluateInternal`, l'`ActionGenerator`) est **imperative** — ce sont des methodes,
+pas des arbres `DSLFactory`. Le SELECTEUR `GetAffectedEnemies` est **declaratif** : c'est le MEME arbre
+que la face COMBAT, et le port l'EVALUE au lieu de recabler l'adjacence a la main.
+
+### Chronometron (1226) — l'override porte derriere ce verrou
+
+| Ability (id) | Symbole | Formule mirroir | Poids | Porteur | Validation |
+|---|---|---|---|---|---|
+| **Chronometron** (1226) | `IdunBattle.AI.Playbook.Loki.ChronometronPlaybook$$CalculateCustomUtility` | `W * Count(ChronometronAbility$$GetAffectedEnemies)` ; `GetAffectedEnemies` = `DSLSelectors.SurroundingEnemies(<unite>, GetNumberConstant(0x16 = range), unique:1, sel:3)` — surcharge **5-args** (2e parametre `unit`, pas `unitTile`) = `Enemies(unit, Units(SurroundingTiles(unit, includeCenter:1, range) - Tiles(unit), unique, sel), sel)`. Terme **LINEAIRE**, ancre sur la MainTile **REELLE** du caster, centre exclu, **sans** `Unobscured`. | `Chronometron_AffectedEnemies` = **10** ; `range` = `Chronometron.constants.range` = 2 | necroChronomancer `Thothmek` [lineup, hors seed BC -> `catalog_inject.py --units necroChronomancer`] | **A/B causal live** (`probe_27_4b_chronometron_ab.py`, board MC1_67, seed 909, `--hp-target 85000`), 4 bras, moteur = natif dans les 4. Detail en §Validation. |
+
+**Le meme artefact natif que la face COMBAT** : `...ChronometronAbility$$ExecuteBehaviour` re-inline
+exactement le meme appel a `SurroundingEnemies` (memes 5 arguments) pour alimenter son `Foreach`. Un
+seul artefact, un seul port — le mirror decision `battle_query.surrounding_enemies_in_range` et le
+mirror combat `necrons.chronometron_affected_enemies` decrivent le meme ensemble. La face COMBAT etait
+deja portee et validee (#116) : cette tranche ne couvre que la face DECISION.
+
+**Piege evite** : `battle_query.surrounding_enemies` existait deja, mais il mirroir le
+`Unobscured(SurroundingEnemies(...))` de `...GauntletsOfUltramarAbility$$GetSurroundingTargetsSelector`
+et fige `r = 2`. Le reutiliser aurait retire des ennemis a distance 2 obscurcis que CE selecteur-ci
+compte, et fige un rayon qui vient d'un `GetNumberConstant`. D'ou une fonction distincte.
+
 ## Deja couverts (hors #27)
 
 - `ComparablePlaybook<T>` @181407840 = `Fix64(0)` (base.py).
@@ -333,7 +419,7 @@ re-derouler la recon : elle part d'ici.
 | 16 | `DaemonicOrdnancePlaybook` @1811286c0 | DaemonicOrdnance (1148) | blackForgefiend | MoW (pool MoW) | **invalidable-residu** (face DECISION) | idem #15 (face COMBAT portee par #90) + evaluateur DSL `TilesOnSameElevation(TilesInTriangleShape(...))` pour le terme custom |
 | 17 | `StikkbombPlaybook` @18115f7c0 | Stikkbomb (1051) **et** MalleusRocketLauncher (1142) — playbook PARTAGE | orksOrkBoys [summon de `Waaagh`/orksWarboss, **en pool**] ; astraOrdnanceBattery [MoW] | summon + MoW | **residu** | `MalleusRocketLauncherAbility.GetAdditionalTargets` (DSL) + `TargetsSelector.SelectUniqueUnits(3)` + `GenerateMultiHitAttackPredictions` sur les AMIS touches (penalite tir ami, resultat NEGE) |
 | 18 | `PlasmaGrenadePlaybook` @181151040 | PlasmaGrenade (1098) | eldarSmnGuardian | summon **sans invocateur** (aucune ability du gameconfig ne le summon) | **residu / non confrontable** | invocateur inexistant -> non amenable en bataille ; + `GenerateMultiHitAttackPredictions` |
-| 19 | `ChronometronPlaybook` @181125ab0 | Chronometron (1226) | necroChronomancer | hero **hors pool** | **residu** | (a) porteur non possede au rank courant ; (b) `damageProfile` absent -> n'atteint pas `_best_attack` ; (c) selecteur DSL `ChronometronAbility.GetAffectedEnemies` |
+| 19 | `ChronometronPlaybook` | Chronometron (1226) | necroChronomancer | hero (catalog_inject) | **PORTE** (#27-4b) | — (les trois verrous annonces sont TOMBES : (a) `catalog_inject.py` amene le porteur ; (b) la route non-attaque `playbook/nonattack.py` remplace `_best_attack` ; (c) le selecteur DSL etait DEJA porte par la face COMBAT — `chronometron_affected_enemies`, meme artefact natif) |
 | 20 | `DevoutPushPlaybook` @18112c7b0 | DevoutPush (1053) | templInitiate | summon **d'environnement** (`EnvFactionSummons:BlackTemplars`) | **residu** | formule TRIVIALE (`ALoki_NormalAttack.custom * 2` = **2** constant) mais (a) porteur env-only, (b) `damageProfile` absent -> action « push » non modelisee |
 | 21 | `ForwardObserversPlaybook` @18113bb70 | ForwardObservers (1185) | tauSmnStealthSuit | summon de `ATemptingTrap` | **residu** | `damageProfile` absent -> ability non-degat ciblant un ENNEMI, aucune route offline. Formule : `(aucun ennemi n'a de markerlight ? W(=200) : 0) + RemainingPercentage(cible) * W(=40)` |
 | 22 | `HealingBalms_HealPlaybook` @181142dc0 | HealingBalms_Heal (1212) | spaceWolfPriest (sous-ability du PASSIF HealingBalms) | hero **hors pool** | **residu** | pas d'entree gameconfig active ; voie « heal declenche par un passif » non modelisee |
@@ -345,11 +431,11 @@ re-derouler la recon : elle part d'ici.
 
 ### Ventilation (les 22 overrides par-ability, apres correction #218)
 
-- **PORTES / couverts : 7** — 1014, 1177, 1020, 1029, 1199, 1119, **1230**.
+- **PORTES / couverts : 9** — 1014, 1177, 1020, 1029, 1199, 1119, 1230, **1227**, **1226**.
 - **Traites sans port (verdict ferme) : 2** — MortisRound (terme mesure NUL), ProperKilly (dead-code).
 - **Non pertinents (porteurs NPC uniquement) : 4** — 1093, 1215, 1216, 1217.
-- **Residus a debloquer : 9** — 1100, 1169, 1148, 1051/1142, 1098, 1226, 1053, 1185, 1212.
-  (La tranche 3 en comptait 10 ; **AmuletOfTheVoidwyrm est retire — faux positif, cf. #218**.)
+- **Residus a debloquer : 8** — 1100, 1169, 1148, 1051/1142, 1098, 1053, 1185, 1212.
+  (Tranche 3 : 10 ; **AmuletOfTheVoidwyrm retire — faux positif, #218** ; **1226 porte — #27-4b**.)
 
 **Triage de dispatch re-derive du code (tranche 3, `probe_27_residual_triage.py`)** — la porte vers
 `_best_attack` est `state_bridge._is_attack_ability` (= `constants.damageProfile` present ET non-NC) :
@@ -379,9 +465,25 @@ Consequence directe : le verrou « porteur hors `--list-pool` » de la tranche 2
    ni dans `attackPlans`, et `aiDryRunAllUnits` ne leur propose rien. **La face COMBAT de 1169/1148
    est deja portee et validee live par #90** : c'est donc STRICTEMENT le volet DECISION qui manque
    (les deux faces se valident separement, cf. le protocole `tacticus-re-port`).
-2. **Routes d'ability non-attaque** (`damageProfile` absent, ou cible ALLIEE) — 1100, 1226, 1053, 1185,
-   1212. Le gate `state_bridge._is_attack_ability` est la seule porte vers `_best_attack` ; toute
-   ability qui ne produit pas de degat (ou qui cible un allie) n'a aucune route offline.
+2. ~~**Routes d'ability non-attaque**~~ — **VERROU LEVE (tranche 4b)**. La route existe
+   (`engine/playbook/nonattack.py`) et est validee live sur son premier membre, Chronometron (1226).
+   `state_bridge._is_attack_ability` n'est plus la SEULE porte : une ability Comparable sans
+   `damageProfile` entre par `NONATTACK_PLAYBOOKS`. Ce qui reste sur les autres items n'est plus la
+   route mais leur verrou PROPRE :
+   - **1185 ForwardObservers** — porteur tauSmnStealthSuit, SUMMON d'`ATemptingTrap` (a amener par son
+     summoner). Formule deja RE'd : `(aucun ennemi n'a de markerlight ? W=200 : 0) + RemainingPercentage(cible) * W=40`.
+     Il faut le predicat « porte un Markerlight » cote decision + la cible ENNEMIE (l'ability ne fait
+     pas de degat mais cible un ennemi -> `eligible_targets` doit rendre des ennemis, pas le caster).
+   - **1212 HealingBalms_Heal** — sous-ability d'un PASSIF, aucune entree gameconfig active ; en outre
+     `...HealingBalms_HealPlaybook$$ShouldExecute` OVERRIDE le defaut (`utility > 0`) et
+     `$$MakeHealPredictions` est override : ce n'est pas un membre « sans prediction », il faut porter
+     sa branche HEAL.
+   - **1053 DevoutPush** — sur ce build le playbook ne possede PLUS de corps propre (il PARTAGE
+     `ALoki_NormalAttackPlaybook<T>` = `Fix64(1)`) : l'item #27 est vide de substance ; reste l'action
+     « push » non modelisee, hors #27.
+   - **1100 SorcerousFacade** — verrou distinct et toujours entier : cible ALLIEE. La route
+     non-attaque ne le debloque pas (l'ability a un `damageProfile` et son masque `0x402` la fait
+     VETO-er par `_is_attack_ability` depuis #217) ; il lui faut une route de ciblage ALLIE.
 3. ~~**Porteur hors `--list-pool` au rank courant**~~ — **VERROU SUPPRIME (tranche 3)**. Le porteur
    `lineup` absent du catalogue de la seed BC se rajoute par `catalog_inject.py --units <id>` (#92,
    `BC.Units` ET `BC.Abilities`), et le runner le deploie normalement — fait pour bloodTerminator
@@ -546,12 +648,86 @@ existera.
   de ratio mesurees de SavageEchoes, et le **cliquet 1100 absent du registre**). Il ECHOUE aussi si
   `HeavyWarpFlamer_LikesAdjacentEnemies` vaut 0 — c'est-a-dire si la table `Utilities` n'a pas ete
   re-synthetisee depuis le gameconfig courant.
+- **Chronometron (1226)** — A/B causal live `probe_27_4b_chronometron_ab.py`, board **MC1_67**, seed
+  909, `--hp-target 85000`, porteur `necroChronomancer` amene par `catalog_inject.py`. Caster FIGE en
+  (2,6) (il ne bouge dans aucun bras : `aiMovableTiles` rend 0 tuile apres son placement, donc le terme
+  Tile est IDENTIQUE partout — mesure = 20.0). Seule variable : le nombre d'ennemis a `d <= 2`.
+  L'ordre des appats est CALIBRE (le premier arrive sur la tuile a `pairUtility` FORTE) pour que le
+  maximum des paires soit atteint des n=1 et ne bouge plus.
+
+  | mesure | n=0 | n=1 | n=2 | 1 ennemi + 1 ALLIE |
+  |---|---|---|---|---|
+  | `pairUtility(69, orksWarboss)` natif | 0 | 12.756170448847115 | **12.756170448847115** | **12.756170448847115** |
+  | cibles eligibles (RPC `abilityTargets`) | `[]` | `[79, 83]` | `[79, 81, 83]` | `[79, 83]` |
+  | choix natif (`aiDryRunAllUnits`) | **rien** (FinishUnitTurn) | **69** | **1226** | **69** |
+  | choix moteur | rien | 69 | **1226** | 69 |
+  | moteur, custom force a 0 | rien | 69 | **69** (= divergence -> terme NECESSAIRE) | 69 |
+  | moteur, ROUTE desactivee | rien | 69 | **69** (= divergence -> route NECESSAIRE) | 69 |
+  | custom porte | 0 | 10 | 20 | 10 |
+
+  - Les `pairUtility` natives sont **bit-identiques** de n=1 a `ally` -> confond de prediction MESURE
+    et NUL (l'ability ne produit aucune prediction, et deplacer un appat ne change ni stats ni profil).
+  - **LINEARITE PROUVEE** : n=1 ne bascule PAS, n=2 bascule. Un terme booleen (copie du 2e terme de
+    DoomSiren) aurait bascule des n=1. Encadrement sans fitting (`u_action(69) = pair_max + Tile + 1`,
+    `u_action(1226) = n*W + Tile`, meme tuile donc Tile s'annule) : `W < 13.7562` (n=1) et
+    `2W > 13.7562` (n=2) => **6.8781 < W < 13.7562** ; le port rend 10.
+  - **ALLIES IGNORES** : le bras de controle remplace le 2e ennemi par un ALLIE sur la MEME tuile — le
+    natif REVIENT sur l'attaque normale. C'est ce qui separe `Enemies(...)` d'un compte d'unites.
+  - **n=0** : `abilityTargets` natif rend `[]` -> le gate self-cast
+    (`GetCasterNotAddedReason` -> `0x800`) est exerce, et le port le mirroir (`is_caster_added=False`).
+  - **ROUTE NECESSAIRE** : le bras « route desactivee » (registre `NONATTACK_PLAYBOOKS` vide) rejoue la
+    decision dans l'etat d'AVANT le port et rend 69 — c'est la preuve que 1226 ne passe par aucune
+    autre voie, et donc que le deblocage du verrou 2 est bien ce qui produit l'accord.
+- **Chronometron, ANCRAGE du compte** (`probe_27_4b_chronometron_ab.py --anchor --build --engine`,
+  runner DEDIE ou le caster n'a pas encore bouge — un `act move` consomme son mouvement et rend le test
+  impossible). Caster REEL en (1,0), appats en (0,2)/(1,3) : `d=3` de la position reelle, `d=2` de la
+  tuile de MOVE (1,1). Les cibles eligibles sont NON VIDES (`[79, 83, 81, 77]`) : l'action 1226 est bien
+  generable. Resultat : natif **69** (avec `MoveUnitMessage`), moteur **69** [MATCH] ; la variante
+  concurrente « custom ancre sur la TUILE CANDIDATE », rejouee sur le MEME etat, rend **1226** ->
+  l'hypothese est **REFUTEE PAR LE NATIF**. Le centre du selecteur est donc bien l'ENTITE (surcharge
+  5-args), comme le decompile l'annonce.
+- **Non-regression (garde d'agreement `engine_agreement_stages.py --build`, board MC1_67)** :
+  seed **31337** — prediction **10/10**, utilite **10/10**, ability **13/13**, move **18/18** (100 %) ;
+  seed **777** — prediction 9/12, utilite 12/12, ability **16/16**, move 16/17. Le delta du port est
+  **NUL par construction** et pas seulement par mesure : `nonattack_candidates` boucle sur
+  `NONATTACK_PLAYBOOKS` = {1226}, et les SEULS porteurs de Chronometron sont `necroChronomancer`
+  [lineup] + 4 npc (`unit_map find --ability Chronometron`) — aucun n'est dans le roster de ces seeds.
+- **Garde de forme OFFLINE** : `probe_custom_utility_27.py` couvre desormais 1226 — dispatch, presence
+  dans `NONATTACK_PLAYBOOKS` (sans quoi le terme serait INERTE), linearite 0/W/2W/3W, exclusion du
+  centre, exclusion de `d = range+1`, **invariance a la tuile candidate**, gate `is_caster_added` dans
+  les deux sens, et `should_execute(0) == True`.
+- **Garde LIVE** : `tests/engine/test_chronometron_decision_live.py` — 7 tests, **7 PASS** (163 s) :
+  accord moteur/natif sur les 4 bras, linearite, bit-identite des paires, necessite du terme, necessite
+  de la route, allies ignores, gate sans ennemi a portee.
 - **Inventaire** : `probe_27_custom_utility_inventory.py` (balayage de vtable, 2 sources croisees),
+  `probe_27_4b_chronometron_vtable.py` (slots `+0x318`/`+0x328`/`+0x338`/`+0x348` de 4 playbooks : c'est
+  lui qui etablit que `ShouldExecute` par defaut rend `true`),
   `probe_27_slot_offsets.py` (les 7 playbooks hors 0x338), `probe_27_vtable_dump.py` (controle de
   bornes), `probe_27_residual_triage.py` (route de dispatch + porteurs), `probe_27_3_ability_names.py`
   (les 8 ids absents de la map des hooks).
 
 ### Non couvert (explicite)
+
+- **Chronometron, la CIBLE choisie a custom egal.** Le terme est constant sur les cibles : a
+  `custom` egal, c'est l'ORDRE d'enumeration qui tranche (keep-first STRICT). Le port consomme l'ordre
+  du RPC `abilityTargets` ; le natif herite de celui de
+  `IdunBattle.Core.Services.TileQuery$$IterateSurroundingTiles`. Les deux **coincident sur les montages
+  mesures** (`[79, 81, 83]` -> 79 des deux cotes) mais l'identite des deux ordres n'est PAS etablie.
+- **Chronometron, les deux termes positionnels non portes** : `CalculateCasterPositionUtility`
+  (vtable `+0x348`) et `CalculateUtilityFromTilePrediction`. Leurs corps de BASE sont partages et non
+  nommes ; aucun membre actuel de `NONATTACK_PLAYBOOKS` ne les override, donc ils sont hors du chemin
+  exerce — mais ils ne sont pas mirrores.
+- **Chronometron, le composite `UtilityAttackCase.Base`** n'est porte que par sa feuille Tile(7)
+  (`tile_utility`), exactement comme la route d'attaque. C'est le meme residu que celui qui bloque
+  MortisRound (1004), et il est PARTAGE par les deux routes — donc neutre dans une comparaison entre
+  elles.
+- **Chronometron, la cascade fine de ciblage** : `is_caster_added` mirroir la branche self-cast de
+  `GetCasterNotAddedReason` (« au moins un ennemi a `range` »), pas la cascade
+  `GetInvalidTargetReason` complete. Le masque de 1226 est permissif (`AllowObscuredTargetBy*`), donc
+  le port reste un SUR-ENSEMBLE — degradation assumee et bornee a cette ability. En LIVE le point est
+  sans objet : `ctx.ability_targets` est le RPC natif (mesure : `[]` au bras n=0).
+- **La route non-attaque n'a qu'UN membre.** Les autres residus du groupe (1185, 1212, 1053) gardent
+  chacun un verrou PROPRE, nomme ci-dessus ; ils n'ont pas ete enchaines.
 
 - **Les 2 overrides NEUFS non portes du build `rnca9r7q6c`** : `MassDriverAccelerator` (1222,
   votanChampion — verrou : evaluateur du selecteur DSL `MassDriverAcceleratorAbility$$GetBuffTargets`)
@@ -614,6 +790,34 @@ existera.
   n'existent pas comme unites de decision cote moteur.
 
 ## Technique generalisable
+
+**Le corps par DEFAUT d'un virtuel ne se lit pas dans la table — et l'intuition est souvent INVERSEE.**
+`ShouldExecute` a trois proprietaires nommes dans `methods.tsv`, tous des comparaisons `utility > 0` ou
+des predicats metier ; on en conclut naturellement que « le defaut, c'est `> 0` ». **FAUX** : le defaut
+est `return true`, et ces trois-la sont les OVERRIDES. La raison est structurelle — un `return true`
+est un corps trivial (`mov al,1 ; ret`), donc DEDUPLIQUE par IL2CPP et nomme sur UN SEUL proprietaire
+arbitraire (ici `UnityEngine.U2D.IK.Solver2D$$DoValidate`). Les corps NON triviaux, eux, sont tous
+nommes. **La table sur-represente donc systematiquement les overrides « riches » et cache le defaut
+« pauvre ».** Ce qui tranche : le SLOT DE VTABLE sur plusieurs classes SŒURS (si quatre playbooks sans
+rapport pointent sur le meme corps, c'est le defaut) ; et l'identification du corps trivial se fait en
+le decompilant (`return 1` / `return 0`), pas en lisant son nom. Cout : un probe de 100 lignes
+(`probe_27_4b_chronometron_vtable.py`). Sans lui, le port aurait recopie un gate `u > 0` — et
+Chronometron, dont l'utilite de prediction est nulle par nature, n'aurait JAMAIS ete jouee.
+
+**Un bras d'A/B qui « ne bascule pas » ne prouve rien tant qu'on n'a pas montre que l'hypothese
+CONCURRENTE, elle, aurait bascule.** Sur l'ancrage de Chronometron (position reelle du caster vs tuile
+candidate), le natif a joue l'attaque normale. C'est compatible avec « le custom vaut 0 » — mais aussi
+avec « le custom vaut 20 et perd quand meme ». La parade coute trois lignes : rejouer la MEME decision
+moteur avec la variante concurrente branchee (ici un `calculate_custom_utility` ancre sur
+`caster_tile`). Elle rend **1226** ; le natif rend 69 ; l'hypothese est REFUTEE PAR LE NATIF, et le
+bras devient une mesure. Sans ce controle, le probe affichait deja « ancrage CONFIRME » — sur rien.
+
+**Un `act move` consomme le MOUVEMENT de l'unite : deplacer le caster detruit son sweep de tuiles.**
+Apres placement, `aiMovableTiles` rend **0 tuile** pour lui — pratique pour isoler un terme (le terme
+Tile devient constant et s'annule dans toutes les inegalites), FATAL pour tester quoi que ce soit qui
+depende de la tuile candidate. Les deux besoins exigent donc DEUX runners : l'un ou le caster est place
+a la main (A/B du terme), l'autre ou il reste a son spawn avec son mouvement intact (test d'ancrage).
+Un test d'ancrage joue sur le premier rend « aucune cible eligible » et se lit comme une confirmation.
 
 **Mesurer un terme d'ACTION sans instrument d'action : A/B causal + verification de l'etage PAIRE.**
 Le custom n'est visible ni dans `pairUtility` ni dans le terme Tile, et les deux hooks d'utilite
