@@ -7,6 +7,10 @@
 > Re-dériver les chiffres plutôt que les citer : `python scripts/python/probe_259_gshared_coverage.py`
 > (couverture de table) et `python scripts/python/probe_262_gshared_runtime.py` (résolution runtime).
 > Garde permanente : axe 5 de `scripts/python/symbols_sync.py` + `tests/test_symbols_coverage_guard_offline.py`.
+>
+> **Suite** : le retrait de l'entrée `PERTES_CONNUES` par `#259-a` a laissé quatre tests rouges
+> derrière lui — ils prélevaient leur fixture sur ce registre, dont l'état nominal est **vide**.
+> Diagnostic, correction et validation adversariale : [`case-282`](case-282-pertes-connues-vide.md).
 
 ## 1. Le fait
 

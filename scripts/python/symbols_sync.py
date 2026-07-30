@@ -263,6 +263,14 @@ PLANCHER_FAMILLE = 100
 # ⚠ UNE EXCUSE QUI SURVIT A SON MOTIF EST PIRE QU'UNE ABSENCE DE GARDE : elle rend l'axe muet sur
 # une famille qui pourrait re-tomber, sans que personne ne s'en apercoive. Retirer l'entree fait
 # donc PARTIE de la reparation, au meme titre que le re-dump.
+#
+# REMPLIR OU VIDER CE DICT NE FAIT PLUS ROUGIR AUCUN TEST (#282). Les tests du mecanisme
+# (`tests/test_symbols_coverage_guard_offline.py`) confrontent une entree SYNTHETIQUE et ne
+# prelevent RIEN ici. La version d'origine y prenait sa fixture par `next(iter(...))` : le vidage
+# ci-dessus -- pourtant la BONNE action -- a laisse quatre tests en `StopIteration` derriere lui,
+# rouges pendant des heures sans qu'une ligne de `comparer_couverture` ait bouge.
+# UNE ENTREE NEUVE PORTE UN NUMERO DE TACHE ET UN RENVOI VERS SA FICHE (`.md`) : le controle de
+# forme l'exige, parce qu'une excuse sans renvoi est une excuse qu'on ne saura pas retirer.
 PERTES_CONNUES: dict[tuple[str, str, str], str] = {}
 
 MARQUEUR_GSHARED = "__Il2CppFullySharedGeneric"
