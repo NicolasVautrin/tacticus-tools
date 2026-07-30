@@ -43,21 +43,33 @@ from engine import weights as W  # noqa: E402
 from engine.playbook import scene as _scene  # noqa: E402
 from engine.ai import context as _ai_ctx  # noqa: E402
 from engine.utilities.tile import TILE_LEAF_IDS, TILE_LEAVES  # noqa: E402
+from engine.utilities.utility_type import UtilityType  # noqa: E402
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 # (ligne source dans utilities/tile.py, feuille, cle meta CO-GATE) -- la table du mandat.
+# #272 : l'ordinal est DERIVE du membre, jamais ecrit en dur. Les litteraux d'origine (24, 26, 28,
+# 29, 30, 57, 62) dataient d'avant `fe5b9245` (#252 : `AttackTile` insere en 8, 59 membres decales
+# de +1) et faisaient donc afficher a ce rapport `CapturePoint(24)` -- l'etiquette de la feuille
+# VOISINE (`MoltenForm`). Meme ordinal perime, meme famille de degradation silencieuse que le rouge
+# de #272 ; ici purement cosmetique (l'indexation, elle, passe par `TILE_LEAF_IDS`, des MEMBRES).
 UNIT_TRAIT_GATES = [
-    (233, "CapturePoint", 24, "is_territory", "traits 2/13 -> +/-300"),
-    (246, "PowerUp", 26, "occupant_is_powerup", "traits 2/13 -> -300"),
-    (320, "DespoiledGround", 28, "tile_effect_type_ids", "trait 2026 -> -5"),
-    (322, "DespoiledGround", 28, "tile_effect_type_ids", "traits 26/1006 -> -25"),
-    (337, "SummonDislikeDoorOpening", 29, "door", "trait 2 -> -50"),
-    (351, "HeroLikeDoorOpening", 30, "door", "trait 16 -> -50 / (10-cost)*10"),
-    (392, "DoctrinaImperatives_AttractMechanicals", 57, "attract_mechanicals_neighbor",
+    (233, "CapturePoint", int(UtilityType.CapturePoint), "is_territory", "traits 2/13 -> +/-300"),
+    (246, "PowerUp", int(UtilityType.PowerUp), "occupant_is_powerup", "traits 2/13 -> -300"),
+    (320, "DespoiledGround", int(UtilityType.DespoiledGround), "tile_effect_type_ids",
+     "trait 2026 -> -5"),
+    (322, "DespoiledGround", int(UtilityType.DespoiledGround), "tile_effect_type_ids",
+     "traits 26/1006 -> -25"),
+    (337, "SummonDislikeDoorOpening", int(UtilityType.SummonDislikeDoorOpening), "door",
+     "trait 2 -> -50"),
+    (351, "HeroLikeDoorOpening", int(UtilityType.HeroLikeDoorOpening), "door",
+     "trait 16 -> -50 / (10-cost)*10"),
+    (392, "DoctrinaImperatives_AttractMechanicals",
+     int(UtilityType.DoctrinaImperatives_AttractMechanicals), "attract_mechanicals_neighbor",
      "trait 5 -> +10"),
-    (459, "MasterOfTheTutelaries_MoveTowardsTarget", 62, "movetowards_hexdist",
+    (459, "MasterOfTheTutelaries_MoveTowardsTarget",
+     int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget), "movetowards_hexdist",
      "traits 2026/1019 -> -20 x d"),
 ]
 

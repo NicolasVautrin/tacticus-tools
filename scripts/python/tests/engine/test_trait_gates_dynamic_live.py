@@ -46,9 +46,15 @@ from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.runner.abilities.behaviours.grants import AddTrait
 from engine.runner.components import StatsComponent, UnitComponent
 from engine.runner.snapshot import load_state
-from engine.utilities.tile import TILE_LEAVES, runner_tile_leaf_ctx
+from engine.utilities.tile import TILE_LEAVES, CapturePointTileUtility, runner_tile_leaf_ctx
+from engine.utilities.utility_type import UtilityType
 
-CAPTURE_POINT = 24                       # UtilityType.CapturePoint
+# #272 : MEMBRE d'enum, JAMAIS l'ordinal. Ce test naissait avec `CAPTURE_POINT = 24` -- exact a son
+# ecriture, PERIME depuis `fe5b9245` (#252 : la MAJ de build insere `AttackTile` en 8 et decale 59
+# membres de +1, `CapturePoint` 24 -> 25). `TILE_LEAVES` etant keye par MEMBRES depuis #254, l'index
+# 24 rendait alors `MoltenForm_TilesUtility` -- une feuille gatee sur `unit_triggered_abilities`
+# (1221), donc 0.0 quoi qu'on lui donne : le test mesurait une AUTRE feuille que celle qu'il nomme.
+CAPTURE_POINT = UtilityType.CapturePoint
 SUMMON = int(UnitTrait.Summon)           # 2
 
 
@@ -144,7 +150,14 @@ def test_in_battle_granted_trait_flips_the_capture_point_gate(state_and_units):
     assert "Summon" not in kit, ("le trait accorde est DEJA dans le gameconfig de %s (%s) : le cas "
                                  "statique et le cas dynamique seraient indiscernables" % (vis, kit))
 
-    leaf = TILE_LEAVES[CAPTURE_POINT][1]
+    # GARDE D'IDENTITE (#272) : la feuille confrontee doit etre CELLE QUE LE TEST NOMME. Sans ce
+    # controle, un ordinal perime rend une AUTRE feuille du registre -- qui vaut 0.0 sur ce `meta`,
+    # donc un rouge qui accuse le gate de trait alors que la feuille n'a jamais ete atteinte.
+    leaf_name, leaf = TILE_LEAVES[CAPTURE_POINT]
+    assert leaf_name == "CapturePoint" and isinstance(leaf, CapturePointTileUtility), (
+        "TILE_LEAVES[%r] rend %r (%s) au lieu de CapturePointTileUtility"
+        % (int(CAPTURE_POINT), leaf_name, type(leaf).__name__))
+    assert leaf.UTILITY_TYPE == int(UtilityType.CapturePoint)
     meta = {"is_territory": True}
     tile = (0, 0)                      # la feuille ne lit que `meta`/`ctx` -- la tuile est un jeton
     before = runner_tile_leaf_ctx(state, subject)
