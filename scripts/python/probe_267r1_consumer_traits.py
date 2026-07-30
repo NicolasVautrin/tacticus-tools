@@ -61,6 +61,9 @@ MODULES = [
 ]
 
 # Traits EFFECTIVEMENT consommes par ces sites (nom natif <- gate lu au decompile).
+# NB : la liste se DERIVE des gates, elle ne se devine pas. `Summon` et les pseudo-traits de
+# GRANDE ALLIANCE y sont parce qu'un gate les lit, pas parce qu'ils "avaient l'air" pertinents --
+# et ce sont justement les deux qui divergent (cf. sortie de l'etage 1).
 CONSUMER_TRAITS = {
     "MkXGravis":    "GetBaseDamageWithFixedPiercedArmor -> HasTrait(defender, 0x3f5) : hit_mult 2",
     "BigTarget":    "BeastSlayer_ExtraDmg (0x3f9) + HellfireShellsPlaybook (0x3f9) : +dmg / +hits",
@@ -70,6 +73,10 @@ CONSUMER_TRAITS = {
     "Flying":       "LordOfTheHost_ExtraDamage -> HasTrait(ally, 4)",
     "Psyker":       "DestroyTheWitch_ExtraDamage -> HasTrait(target, 0x3ea)",
     "Daemon":       "InfernalPacts_AdditionalHits -> HasTrait(att, 0x3fb)",
+    "Summon":       "MartialKatahDamageEffect -> HasTrait(target, 2) : +100% de DEGAT",
+    "Xenos":        "DespoiledGround_ExtraDamagePct -> HasTrait(target, 0x3ee) : +15%",
+    "Imperial":     "DespoiledGround_ExtraDamagePct -> HasTrait(target, 0x1a) : +15%",
+    "Chaos":        "pseudo-trait d alliance -- ABSENT de tout `gameconfig.unit().traits`",
 }
 
 
@@ -147,6 +154,15 @@ def etage1() -> dict:
                 par_trait.setdefault(t, {"BC_SEUL": [], "KIT_SEUL": []})["KIT_SEUL"].append(vis)
     print("  %d unites, %d avec des traits EN PLUS que le kit, %d avec MOINS"
           % (len(units), total_plus, total_moins))
+    # Le kit ne porte JAMAIS le pseudo-trait d'alliance ; `unit_trait_names` le DERIVE. Un site
+    # qui relisait `GC.unit(vis).traits` BRUT (sans passer par ce derivateur) rendait donc un gate
+    # d'alliance structurellement MORT -- on le mesure ici, c'est un ecart de 100 % des unites.
+    brut_sans_alliance = sum(1 for u in units
+                             if u.get("VisualId")
+                             and not ({"Imperial", "Chaos", "Xenos"}
+                                      & frozenset((GC.unit(u["VisualId"]) or {}).get("traits") or ())))
+    print("  pseudo-trait d ALLIANCE absent du `GC.unit(vis).traits` BRUT : %d/%d unites"
+          % (brut_sans_alliance, len(units)))
     if not par_trait:
         print("  AUCUN trait CONSOMME ne differe sur le seed BC -> le montage discriminant doit")
         print("  passer par un `AddTraitOperation` en bataille (cf. etage 2).")
