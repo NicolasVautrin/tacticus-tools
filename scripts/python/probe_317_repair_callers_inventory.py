@@ -13,10 +13,11 @@ Ce probe fait les deux moities :
   * la table `CALLSITES` est la RE, transcrite du decompile (build `rnca9r7q6c`). Elle n'est pas
     derivable du checkout : les xrefs et les corps vivent dans ghidra. Commande de re-derivation
     en pied de docstring ;
-  * la ventilation des PORTEURS, elle, est DERIVEE du gameconfig a chaque execution -- y compris
-    la voie RELIQUE (`items[*].abilityId` + `allowedUnits`), que `unit_map.py find --ability`
-    ne voit pas (il ne lit que `activeAbilities` + `passiveAbilities`, d'ou son « 0 unite » sur
-    `DawnBlade`, qui est une `relicAbilities`).
+  * la ventilation des PORTEURS, elle, est DERIVEE du gameconfig a chaque execution, via l'index
+    des VOIES de `unit_map` (5 voies : active, passive, relic, mythic, item). C'est ce probe qui
+    avait attrape le faux negatif de #310 en lisant la voie RELIQUE ; depuis #323 `unit_map` la lit
+    aussi -- et l'index est desormais PARTAGE, au lieu d'exister en deux copies divergentes
+    (celle d'ici ratait `mythicAbilities`). Cf. `docs/rl/case-323-unit-map-attribution-voies.md`.
 
 CORRECTIONS que ce probe apporte a la fiche #310 (mesurees, pas heritees) :
 
@@ -44,6 +45,7 @@ import json
 import sys
 
 import gameconfig as GC
+import unit_map as UM
 
 # ---------------------------------------------------------------------------------------------
 # Les DEUX fabriques statiques d'options, relues verbatim sur `rnca9r7q6c` :
@@ -133,26 +135,19 @@ CALLSITES: list[tuple[str, str, str, str, str | None, bool, str]] = [
 def _units_by_ability() -> dict:
     """Index `abilityId -> [(kind, unitId, voie)]`, DERIVE du gameconfig.
 
-    Trois voies, et la troisieme est celle qui manquait : `activeAbilities`, `passiveAbilities`,
-    `relicAbilities` -- plus les ITEMS reliques (`items[*].abilityId` + `allowedUnits`), qui
-    accordent une ability a un HERO sans qu'elle apparaisse dans sa fiche d'unite."""
-    doc = json.loads(GC._find_gameconfig().read_text(encoding="utf-8"))
-    cg = doc["clientGameConfig"]
+    DELEGUE a `unit_map` depuis #323 : cette fonction en portait une COPIE, et cette copie ratait
+    la voie `mythicAbilities` (11 abilities de Machine of War, invisibles ailleurs). Deux index
+    concurrents pour la meme question, c'est la garantie qu'ils divergeront -- il n'y en a plus
+    qu'un, celui de `unit_map.VOIE_KEYS` (5 voies couvertes, 4 assumees non couvertes)."""
     idx: dict[str, list[tuple[str, str, str]]] = {}
-    for kind in ("lineup", "npc", "summons"):
-        coll = cg["units"].get(kind) or {}
-        items = coll.items() if isinstance(coll, dict) else [(u.get("id"), u) for u in coll]
-        for uid, u in items:
-            for field in ("activeAbilities", "passiveAbilities", "relicAbilities"):
-                for aid in (u.get(field) or []):
-                    idx.setdefault(aid, []).append((kind, uid, field))
-    for iid, it in (cg.get("items") or {}).items():
-        aid = it.get("abilityId")
-        if not aid:
-            continue
-        for uid in (it.get("allowedUnits") or []):
-            u = GC.unit(uid) or {}
-            idx.setdefault(aid, []).append((u.get("kind") or "?", uid, "item:" + iid))
+    for k in UM.all_kits():
+        for voie, names in (k.get("voies") or {}).items():
+            for aid in names:
+                tag = voie
+                if voie == "item":
+                    tag = "item:" + ",".join(r["item"] for r in k["relic_items"]
+                                             if r["ability"] == aid)
+                idx.setdefault(aid, []).append((k["kind"], k["id"], tag))
     return idx
 
 

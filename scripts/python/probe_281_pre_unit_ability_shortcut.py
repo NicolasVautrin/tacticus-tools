@@ -388,8 +388,11 @@ def carriers() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for fam in NATIVE_CONSUMERS:
         low = fam.lower()
+        # `abilities_all` et non `abilities` (#323) : la seconde n'est que active+passive, et un
+        # recensement de PORTEURS qui ignore les voies relique/mythique rend des « 0 porteur »
+        # faux -- exactement ce qui a fait classer l'effet 1456 DEAD (#310 -> #317 -> #323).
         out[fam] = sorted(k["id"] for k in kits
-                          if any(low in a.lower() for a in k.get("abilities", []) or []))
+                          if any(low in a.lower() for a in k.get("abilities_all", []) or []))
     return out
 
 

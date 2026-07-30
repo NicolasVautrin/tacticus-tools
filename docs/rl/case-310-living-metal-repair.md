@@ -104,12 +104,21 @@ natifs calculent le même `GetGroupUnitMaxHealthWithRemainingMembers`, l'un le c
 le gate aurait refusé → `filled <= 0` → `return 0`, sans mutation ni trigger. `attack_query.py` est
 par ailleurs le territoire d'un autre agent en vol — le stub n'a pas été touché.
 
-**Résidu NOMMÉ, DEAD** : le 3ᵉ implémenteur de `BaseEffect$$RepairBonus`,
-`NetherRealmCasket_LivingMetalBonusEffect` (1456), a un gate
+**Résidu NOMMÉ, ATTEIGNABLE** — ⚠ **cette fiche l'a d'abord classé DEAD, et c'était FAUX**
+(rectifié par #317, mesuré par #323) : le 3ᵉ implémenteur de `BaseEffect$$RepairBonus`,
+`NetherRealmCasket_LivingMetalBonusEffect` (`EffectType` **1456**), a un gate
 `get_OwnerIsTarget & TriggeringAbilityIs(LivingMetalRepair)` — c'est la **seule** branche que ce
-rebranchement pourrait rendre atteignable. Elle ne l'est pas :
-`python unit_map.py find --ability NetherRealmCasket` rend **0 unité**. L'effet est enregistré mais
-injouable ; le threader demanderait un canal `triggering_ability` dans `engine.predict` pour rien.
+rebranchement pourrait rendre atteignable, **et elle l'est**.
+
+Le verdict d'origine (« `python unit_map.py find --ability NetherRealmCasket` rend **0 unité** »)
+venait d'un **outil aveugle à la voie RELIQUE** : `find --ability` ne lisait alors que
+`activeAbilities` + `passiveAbilities`. Mesure #323 : **18 porteurs**, dont les **3 héros du pool**
+de `items/R_Booster_Crit_NetherRealmCasket.allowedUnits` (`necroWarden`, `necroSpyder`,
+`necroDestroyer`), et `necroSpyder` la porte **ÉQUIPÉE** dans le seed BC
+(`Units[].TertiaryAbility = 1462 = TriggeredAbilityType.NetherRealmCasket` ; ne pas confondre avec
+l'`EffectType` 1462 `TheArdentBlade`). Ce qui bloque n'est donc pas l'absence de porteur, mais
+l'absence du canal `triggering_ability` dans `engine.predict` **et** du canal relique dans le rail
+COMBAT (résidus N317-a / N317-b). Détail : `docs/rl/case-323-unit-map-attribution-voies.md`.
 
 ## 4. Validation — le ROUGE a été VU AVANT
 
@@ -215,8 +224,13 @@ python probe_203_livingmetal.py                               # non-regression l
 python probe_203_swarm.py                                     # non-regression live du cap de groupe
 python -m pytest tests/engine/runner/test_living_metal_repair_live.py -q
 python unit_map.py find --trait LivingMetal                   # 52 porteurs, aucune MoW
-python unit_map.py find --ability NetherRealmCasket           # 0 unite -> l'effet 1456 est DEAD
+python unit_map.py find --ability NetherRealmCasket           # 18 porteurs (3 heros du pool, voie:item)
+python probe_323_ability_carrier_voies.py                     # les 5 voies d'attribution + le gisement
 ```
+
+⚠ La 2ᵉ ligne rendait `0 unite` avant #323 (`unit_map` ne lisait ni `relicAbilities` ni
+`items[*].abilityId`) et cette fiche en avait conclu « l'effet 1456 est DEAD ». **C'est ce zéro
+qui était faux, pas l'effet** — cf. §3 et `docs/rl/case-323-unit-map-attribution-voies.md`.
 
 Les tables natives du probe (les xrefs) ne sont pas dérivables du checkout ; leur commande de
 re-dérivation ghidra est citée dans sa docstring.

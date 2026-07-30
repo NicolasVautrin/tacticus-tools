@@ -112,8 +112,10 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     LivingMetal passe bien par cette Operation, donc la face COMBAT est le seul chemin ou ce bonus
     vaudrait autre chose que 0.
     #310 l'avait classe DEAD sur `python unit_map.py find --ability NetherRealmCasket` = **0 unite**.
-    Ce zero est un FAUX NEGATIF : `unit_map find --ability` ne lit que `activeAbilities` +
-    `passiveAbilities`, il est **aveugle aux RELIQUES**. `NetherRealmCasket` est l'ability de l'item
+    Ce zero etait un FAUX NEGATIF : `unit_map find --ability` ne lisait que `activeAbilities` +
+    `passiveAbilities`, il etait **aveugle aux RELIQUES** -- **CORRIGE par #323** (5 voies lues,
+    la commande rend desormais 18 porteurs ; cf. `docs/rl/case-323-unit-map-attribution-voies.md`).
+    `NetherRealmCasket` est l'ability de l'item
     `R_Booster_Crit_NetherRealmCasket`, `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]`
     -- TROIS heros DU POOL -- et `necroSpyder` (traits `Hero`/`LivingMetal`/`Mechanical`/`Mechanic`)
     la porte DEJA EQUIPEE dans le seed BC courant (`Units[].TertiaryAbility = 1462`).
