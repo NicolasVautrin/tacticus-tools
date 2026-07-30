@@ -44,6 +44,10 @@ TABLES = {
     "event-trigger-type-names.ts": ("IdunBattle.DSL.EventTriggerType", False),
     "triggered-ability-names.ts":  ("IdunBattle.Entities.Enum.TriggeredAbilityType", False),
     "targeting-rule-names.ts":     ("IdunBattle.Core.Services.TargetingRule", True),
+    # #283 : rapatriee ici depuis `features/ai-utility-trace.ts`, ou elle vivait INLINE et
+    # echappait donc a cette garde. Elle etait figee sur `gqfc5mff6c` : `AttackTile` (insere en
+    # 8) manquait et les 37 ids suivants nommaient leur VOISIN.
+    "utility-type-names.ts":       ("IdunBattle.Configuration.UtilityType", False),
 }
 
 ENTREE = re.compile(r'^\s*(-?\d+)\s*:\s*"([^"]*)"', re.M)

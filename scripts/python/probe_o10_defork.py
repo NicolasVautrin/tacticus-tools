@@ -64,7 +64,12 @@ OVIPOSITOR_VIS = "tyranParasite"
 FRAGILE_FOE = "astraBullgryn"
 FIRE_TILE = 5                       # EffectType.Fire
 CONTAMINATED_TILE = 1244            # EffectType.Contaminated (0x4dc)
-DAMAGE_DEALT = 16                   # EventTriggerType.DamageDealt (0x10)
+# #283 : etait `DAMAGE_DEALT = 16`. Juste sur les deux builds versionnes (16 < 40), donc
+# silencieusement faux au premier build qui touchera aux membres inferieurs -- resolu par MEMBRE.
+sys.path.insert(0, str(PYDIR))
+from engine.dsl.event_trigger_type import EventTriggerType  # noqa: E402
+
+DAMAGE_DEALT = int(EventTriggerType.DamageDealt)
 
 
 # --------------------------------------------------------------------------- plomberie live

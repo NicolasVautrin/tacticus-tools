@@ -148,7 +148,9 @@ def test_g6b_passive_registers_trigger(g6b_state):
     mine = [t for t in trigs
             if isinstance(t, HypersensoryMoveAndSpawnDecoyAbility) and t.owner_id == judh]
     assert len(mine) == 1, "Judh doit porter exactement 1 trigger MoveAndSpawnDecoy"
-    assert mine[0].event_id == 9, "le trigger ecoute On(9=Attack)"
+    # #283 : etait `== 9`, l'ordinal en dur (juste aujourd'hui, muet au prochain build).
+    from engine.dsl.event_trigger_type import EventTriggerType
+    assert mine[0].event_id == EventTriggerType.Attack, "le trigger ecoute On(Attack)"
 
 
 def test_g6b_reaction_move_decoy_flag(g6b_state):

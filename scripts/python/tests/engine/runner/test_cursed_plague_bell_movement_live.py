@@ -80,7 +80,11 @@ def test_cpb_trigger_registered(cpb):
             if isinstance(t, CursedPlagueBellMovementAbility)]
     assert len(mine) == 1, "Corrodius doit porter exactement 1 trigger CursedPlagueBellMovement"
     assert mine[0].owner_id == cpb["ids"][PB.CARRIER]
-    assert mine[0].event_id == 19, "le trigger ecoute On(0x13=TurnStart_Other)"
+    # #283 : etait `== 19`, l'ordinal en dur. Il est juste sur les deux builds versionnes, et
+    # c'est exactement ce qui le rendait dangereux -- rien n'aurait signale son invalidation.
+    from engine.dsl.event_trigger_type import EventTriggerType
+    assert mine[0].event_id == EventTriggerType.TurnStart_Other, \
+        "le trigger ecoute On(TurnStart_Other)"
 
 
 def test_cpb_agreement_targets_and_duration(cpb):

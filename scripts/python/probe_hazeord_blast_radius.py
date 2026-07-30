@@ -25,15 +25,20 @@ from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
 ENGINE = PYDIR / "engine"
+sys.path.insert(0, str(PYDIR))
+
+from engine.dsl.event_trigger_type import EventTriggerType as _ETT  # noqa: E402
 
 # Les cinq vecteurs emis par le couple `RecordKillOperation$$Execute` / `KillUnitOperation$$Execute`.
-DEATH_EVENTS = {
-    0: "UnitDeath",
-    1: "PreUnitDeath",
-    2: "PreUnitDeath_2",
-    3: "PendingDeathAdded",
-    55: "UnitDefeated",
-}
+#
+# ⚠ RESOLUS PAR MEMBRE, jamais par ordinal (#283). Cette table portait `55: "UnitDefeated"`,
+# juste sur `gqfc5mff6c` : la MAJ `rnca9r7q6c` a retire `ArmorChanged` (40), donc `UnitDefeated`
+# vaut 54 et 55 est `AttackChanged`. `DEATH_EVENTS` etant INTERSECTE avec l'`event_id` des
+# classes du registre, les consommateurs d'`UnitDefeated` disparaissaient de l'inventaire --
+# sans erreur ni trace, et un futur trigger sur `AttackChanged` y serait entre a leur place.
+DEATH_EVENTS = {int(e): e.name for e in (_ETT.UnitDeath, _ETT.PreUnitDeath,
+                                         _ETT.PreUnitDeath_2, _ETT.PendingDeathAdded,
+                                         _ETT.UnitDefeated)}
 # Marqueurs, dans le SOURCE d'un `execute_behaviour`, d'un behaviour capable de TUER.
 _KILLING = ("execute_ability_attack", "execute_normal_like", "execute_direct",
             "AttackWithAttackDamage", "AttackWithAbilityDamage", "AttackDamageOperation.execute",

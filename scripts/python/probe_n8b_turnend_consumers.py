@@ -12,8 +12,16 @@ Sortie ASCII stricte (cp1252). Aucune session live requise : lecture pure des re
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-TURN_END = 23          # `EventTriggerType.TurnEnd` = 0x17
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from engine.dsl.event_trigger_type import EventTriggerType  # noqa: E402
+
+# #283 : etait `TURN_END = 23`. Juste sur les deux builds versionnes (23 < 40, sous le point de
+# retrait d'`ArmorChanged`) -- et c'est precisement ce qui le rendait dangereux : rien n'aurait
+# signale son invalidation au prochain build, exactement comme `CAPTURE_POINT = 24` de #272.
+TURN_END = int(EventTriggerType.TurnEnd)
 
 
 def _events_of(cls) -> list[int]:
