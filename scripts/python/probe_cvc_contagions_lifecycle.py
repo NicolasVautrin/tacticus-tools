@@ -51,6 +51,11 @@ RED2 = 1072                 # EffectType.ContagionsOfNurgle_ArmorReduction2 (-40
 NAME1 = "ContagionsOfNurgle_ArmorReduction1"
 NAME2 = "ContagionsOfNurgle_ArmorReduction2"
 
+# Sentinelle « l'etape N'A PAS PU S'EXERCER » (geometrie indisponible, palier deja depasse...).
+# DISTINCTE de 0 (= exercee, aucun desaccord) : un montage qui ne s'est pas monte ne doit JAMAIS se
+# lire comme un succes -- cote garde pytest il devient un `skip` EXPLICITE, jamais un vert.
+NOT_EXERCISED = -1
+
 
 # --------------------------------------------------------------------------- plomberie RPC
 
@@ -307,7 +312,7 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
         d, _ = _place(rid, tiles, c["squadId"], vk, 9)
         if d < 5:
             print(f"etape C: {c['visualId']} reste a {d} de la victime -- isolation impossible")
-            return 0
+            return NOT_EXERCISED
     # (2) victime a distance 2 du porteur isole
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     ck = _pos_of(ob, c0["squadId"])
@@ -318,7 +323,7 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
     ts0 = _turns_started(state, c0["squadId"])
     if got != 2:
         print(f"etape C: victime a d={got} (2 voulu) -- non exercee")
-        return 0
+        return NOT_EXERCISED
     live0 = sorted(t for t, a in _live_effects(dec, v0["squadId"]).items() if a)
     port0, parm0 = _port_state(state, v0["squadId"])
     port0a = sorted(t for t, a in port0.items() if a)
@@ -326,7 +331,7 @@ def _stage_c(rid, tiles, c0, v0, carriers) -> int:
     if ts0 > 2:
         print(f"etape C: TurnsStarted(porteur) vaut deja {ts0} (> 2) -- le palier 1 n'est plus"
               " atteignable sur cette scene, croissance non exercee")
-        return 0
+        return NOT_EXERCISED
     # (3) faire GRANDIR l'aura -- live par `endturn`, port par `StartTurnOperation` sur CE state.
     ent = state.get_entity(int(c0["squadId"]))
     oc = ent.get_component(OwnerComponent) if ent is not None else None
@@ -384,7 +389,7 @@ def _stage_e(rid, tiles, c0, c1, v0, carriers) -> int:
            and all(hexgeo.distance((t["col"], t["row"]), k) >= 5 for k in ck)]
     if not far:
         print("etape E: aucune tuile hors de toutes les auras -- non exercee")
-        return 0
+        return NOT_EXERCISED
     far.sort(key=lambda c: hexgeo.distance(c, vk))
     dest = far[0]
     # (1) OFFLINE : le port joue le pas par SA propre operation, sans aucun apport live.
@@ -400,7 +405,7 @@ def _stage_e(rid, tiles, c0, c1, v0, carriers) -> int:
     if got != dest:
         print(f"etape E: le pas live n'a pas abouti ({err}, arrivee {got} != {dest})"
               " -- confrontation non exercee")
-        return 0
+        return NOT_EXERCISED
     ok_act = (after_live == after_port)
     ok_arm = (a_after_live == parm1)
     if not ok_act:
@@ -512,7 +517,11 @@ def scenario(args) -> int:
                   " discriminante sur cette scene (rayon deja >= 4 ?)")
 
         # ---- etape C : l'AURA QUI GRANDIT (personne ne bouge) ------------------------------
-        bad += _stage_c(rid, tiles, c0, v0, carriers)
+        rc = _stage_c(rid, tiles, c0, v0, carriers)
+        if rc == NOT_EXERCISED:
+            print("etape C: NON EXERCEE (cf. ci-dessus) -- ce n'est PAS un succes")
+        else:
+            bad += rc
 
         # ---- etape D : le SECOND porteur -> bascule 1071 -> 1072 ---------------------------
         ob = rpc("observeBattle", {"runnerId": rid}, 40)
@@ -542,7 +551,11 @@ def scenario(args) -> int:
         # Les etapes A..D confrontent deux etats SEEDES : elles prouvent que le port LIT juste,
         # pas qu'il EVOLUE juste. Ici on charge UNE fois, puis on joue le MEME pas des DEUX cotes
         # (offline `MoveUnitOperation` / live `applyAction`) et on compare ce que CHACUN produit.
-        bad += _stage_e(rid, tiles, c0, c1, v0, carriers)
+        re_ = _stage_e(rid, tiles, c0, c1, v0, carriers)
+        if re_ == NOT_EXERCISED:
+            print("etape E: NON EXERCEE (cf. ci-dessus) -- ce n'est PAS un succes")
+        else:
+            bad += re_
         print("VERDICT:", "OK" if bad == 0 else f"{bad} DESACCORDS")
     finally:
         if not args.keep:

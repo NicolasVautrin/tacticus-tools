@@ -137,9 +137,13 @@ pose la MÊME paire sur `Enemies(owner)` à l'init de bataille.
 
 ### 4.2 `IdunBattle.Entities.Effects.Loki.ContagionsOfNurgle_ArmorReduction_Effect`
 
-`.ctor` = `ADynamicStatModifierEffect(AbilityOrEffect(0x431), FixedArmor, …)` puis
+`.ctor` = `AStatModifierEffect(AbilityOrEffect(0x431), 0, 0, 1, 1)` puis
 `+0x488 = <clé de constante>`, `+0x48c = <min>`, `+0x490 = <max>`. Les DEUX seules constructions
 (`IdunBattle.Core.Services.EffectsDatabase` `b__14_93` / `b__14_94`) :
+
+⚠ Le parent est bien `AStatModifierEffect`, **pas** `ADynamicStatModifierEffect` (lecture corrigée
+par `case-cvc` §1.1 : `ADynamicStatModifierEffect$$CreateTargetTrigger` utilise `+0x488` comme cache
+de pointeur, or le ctor y écrit un `int`).
 
 | effet | ctor | variable de trait | fenêtre active |
 |---|---|---|---|
@@ -184,16 +188,24 @@ $$GetMaxRange = Direct(3)
   pas l'init de bataille, il recharge un `combatSnapshot` où le debuff est DÉJÀ cuit dans
   `GetStat(FixedArmor)` (mesure : `astraCreed` 6000 → 4800) et l'effet 1071 déjà matérialisé par
   `decisionView.effects`. Le porter appliquerait le −20 % une seconde fois.
-* **La paire `AddEffect(1071) & AddEffect(1072)`** est collapsée à l'instance ACTIVE. Observable
-  identique : `decisionView.effects` de Kell ne liste que `1071` dans le montage à UNE aura, et le
-  stat-layer n'applique de toute façon qu'une modification.
-* **Le cycle de vie** : l'effet n'est posé qu'à l'APPARITION. Il n'est ni re-évalué quand l'aura
-  grandit (`CalculateRange` monte à 2 puis 3), ni retiré quand l'unité en sort, ni basculé
-  1071 ↔ 1072. Le natif tient ce cycle par sa condition ACTIVE, que le port ne matérialise pas.
+* ~~**La paire `AddEffect(1071) & AddEffect(1072)`** est collapsée à l'instance ACTIVE.~~
+  **DÉFAIT par `case-cvc`** : le natif pose les DEUX, et le canal `decisionView { includeInactive:
+  true }` les montre toutes deux sur chaque ennemi du porteur (mesure : `active: false` / `false`
+  hors du disque). L'observable de ce montage-ci restait juste — le canal par DÉFAUT droppe les
+  inactives — mais le collapse rendait la bascule 1071 ↔ 1072 structurellement impossible.
+* ~~**Le cycle de vie** : l'effet n'est posé qu'à l'APPARITION…~~ — **CLOS par
+  `case-cvc-contagions-lifecycle.md`**. Les trois manques étaient UN SEUL mécanisme : la fenêtre
+  `[min, max]` de `CreateActiveCondition`, ré-évaluée à chaque `RefreshEffectsOperation`, sur deux
+  instances coexistantes. Le port matérialise désormais la condition (`is_active`), et le driver
+  `refresh_stat_modifier_effects` ÉCRIT le flag `EffectComponent.IsActive @+0x5c` (le producteur qui
+  manquait) et applique/reverte la `ValueModification`. Mesuré des deux côtés, sans re-seed :
+  sortie d'aura 1387 → 2312, croissance d'aura 2312 → 1850 sans que personne ne bouge.
 * **`UnitResurrected` / `UnitRevived`** : branches non câblées (aucun montage).
-* **`ContagionsOfNurgleAmount`** (slot 0x93 d'`IBattleQuery`) est COLLAPSÉ en « nombre de porteurs
-  vivants du trait `ContagionsOfNurgle` ENNEMIS, à distance hex ≤ `CalculateRange(porteur)` ». Le
-  corps natif du slot n'est pas lu ; le collapse rend le bon compte (1) sur le montage mesuré.
+* ~~**`ContagionsOfNurgleAmount`** est COLLAPSÉ…~~ — **RÉSOLU par `case-cvc` §1.2** :
+  `ContagionsOfNurgleAmountFormula$$Calculate` DÉLÈGUE au slot `0x95` d'`IBattleQuery` =
+  `BattleQuery$$GetInRangeAuraAmount`, déjà porté par case-224. Le port délègue au même mirror. Deux
+  différences avec le collapse : comparateur **INCLUSIF** (mesuré live) et filtre d'appartenance
+  « alliés de l'`EffectSource` », pas « ennemis de la cible ».
 
 ---
 
@@ -252,10 +264,12 @@ et il ne l'est pas ici : **natif 5 tirages contre 3 au port** (résidu NEUF, cf.
   purement défensifs) ; et le montage `foul` de §6.a est aligné simplement parce que `deathPutrifier`
   ne porte pas `HazeOfCorruption`. Port désormais 5/5 sur 4 seeds, per-coup bit-exact.
 
-* La variante **`_ArmorReduction2` (−40 %, 2 auras ou plus)** n'a aucun montage : il faudrait DEUX
-  porteurs `ContagionsOfNurgle` ennemis chevauchants. La fenêtre `[2, 0x7fffffff]` est lue au
-  décompilé, la magnitude au gameconfig, mais rien n'est confronté live.
-* Le **cycle de vie** de l'effet (croissance d'aura, sortie d'aura, bascule 1071 ↔ 1072) — cf. §5.
+* ~~La variante **`_ArmorReduction2` (−40 %, 2 auras ou plus)** n'a aucun montage~~ — **MESURÉE LIVE
+  par `case-cvc` §4.2** : deux porteurs `ContagionsOfNurgle` dans le MÊME roster adverse
+  (`rl_duel build --a-units deathTyphus,deathBlightlord,deathPutrifier`) suffisent, et les positions
+  se pilotent. Résultat : `amount = 2` → 1072 actif, `FixedArmor` 2312 → **1387** (= −40 %), live et
+  port identiques, sur deux boards.
+* ~~Le **cycle de vie** de l'effet~~ — **CLOS**, cf. `case-cvc-contagions-lifecycle.md`.
 * La face **PRÉDICTION** : `engine/services/…` lit l'armure du défenseur par le même
   `GetStat(FixedArmor)`, donc elle hérite du fix quand l'unité est SEEDÉE depuis un snapshot ; une
   unité spawnée EN COURS de simulation n'entre dans la prédiction que via l'ECS, donc par le même
