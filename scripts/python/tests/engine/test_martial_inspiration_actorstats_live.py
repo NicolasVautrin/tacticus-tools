@@ -49,8 +49,8 @@ def _assert_montage(res, label):
     assert len(rows) >= 2, f"[{label}] {len(rows)} tour(s) mesure(s) : il en faut au moins 2"
     counts = [r["count_live"] for r in rows]
     assert counts[0] == 0, \
-        (f"[{label}] le compteur ne part pas de 0 (counts={counts}) -- le regime « debut de "
-         f"bataille, buff = 1 » n'est pas couvert")
+        (f"[{label}] le compteur ne part pas de 0 (counts={counts}) -- le regime 'debut de "
+         f"bataille, buff = 1' n'est pas couvert")
     assert max(counts) > 0, \
         (f"[{label}] TotalAttacksMade n'a jamais bouge (counts={counts}) : le caster n'a pas "
          f"attaque, la garde n'eprouve rien")

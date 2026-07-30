@@ -1314,6 +1314,16 @@ re-joue avec `unit_action_gate` NEUTRALISE rend des chiffres IDENTIQUES a ceux d
 31337 `pos 18/18 ability 13/13 stay 1/1`. Sur ces trois seeds le gate est donc un **no-op strict** :
 aucune regression n'y est possible, et le +1 de GEN n'est pas paye ailleurs.
 
+**RE-JOUE APRES REBASE** sur `origin/master` (6 commits mergés entre-temps, dont `#27-4g PlasmaGrenade`
+et `#27-r1 MassDriverAccelerator`, qui touchent tous deux le terme `CalculateCustomUtility` et
+`_action_utility`) : le batch GEN rend les MEMES chiffres -- ability 50/53 (94 %), move **62/65 (95 %)**,
+`generator-overfire` **1**, `pos-downstream-of-ability` 2. Tests cibles rejoues apres rebase :
+**31 passed** (les 2 gardes neuves, `test_playbook_live`, `test_stay_in_place_live`,
+`test_hammer_of_wrath_corpse_decision_live`, `test_stikkbomb_decision_live`,
+`test_chronometron_decision_live`) puis **17 passed / 2 skipped**
+(`test_move_tile_sweep_order_live` -- skips = « pas 14 sans tie », condition de montage, PAS un cap
+runner --, `test_min_distance_move_leaf_live`).
+
 **Garde** : `scripts/python/tests/engine/test_active_ability_used_gate_live.py` (3 tests), montage
 `scripts/python/probe_17_active_ability_used_gate.py` (fixture `active_ability_used_case`). Deux
 couples (board, seed). Le montage DRIVE la geometrie (cible amenee au contact, caster immobile pour
