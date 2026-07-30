@@ -13,11 +13,10 @@ Ces gardes confrontent donc :
   * LIVE     l'etage TRAIT + PORTEE + DISTANCE, par l'oracle `abilityTargets` -- le SEUIL de distance
              doit suivre `TurnsStarted(porteur)`, ce qui exerce la table en plusieurs points.
 
-Le comparateur de la version UNITE est STRICT (`dist < range`) la ou celui de la version EQUIPE est
-INCLUSIF (`dist <= range`) : ce n'est PAS une coquille, c'est l'overload `AmountIsGreaterAbilityTrigger
-$$.ctor(amount, minAmount)` d'un cote contre le `if (r < d) continue` de l'autre (XREF + decompile).
-Le test verrouille la relation `rayon UNITE == rayon EQUIPE - 1` pour qu'une future « harmonisation »
-casse ici plutot qu'en silence.
+⚠ Les DEUX versions ont le MEME rayon effectif (`dist <= range`) -- RENVERSEMENT mesure par
+case-224 item 5, cf. `test_unit_predicate_radius_equals_team_radius_offline` et le docstring
+d'`IsInUnitAura`. Le verrou inverse (`UNITE == EQUIPE - 1`) tenu ici jusqu'au 2026-07-30 ne
+comparait le port QU'A LUI-MEME : le predicat par unite n'avait alors aucun consommateur moteur.
 
 Probe de mesure : `scripts/python/probe_224_contagions_aura_range.py`.
 ASCII-only ; state-file UNIQUE sous `logs/` ; runner dispose en fin de test.
@@ -77,10 +76,21 @@ def test_aura_effect_table_offline():
         assert aura_trait(other) is None and aura_max_range(other) is None
 
 
-def test_unit_predicate_is_strict_vs_team_inclusive_offline():
-    """Le rayon EFFECTIF de la version UNITE vaut celui de la version EQUIPE MOINS UN, a tout palier.
-    Verrou anti-« harmonisation » : `IsInUnitAura` utilise `AmountIsGreater` (STRICT) alors que
-    `get_in_range_aura_amount` compte des que `d <= r` (INCLUSIF)."""
+def test_unit_predicate_radius_equals_team_radius_offline():
+    """Le rayon EFFECTIF de la version UNITE vaut celui de la version EQUIPE, a tout palier.
+
+    ⚠ RENVERSEMENT (case-224 item 5, 2026-07-30). Ce test verrouillait la relation inverse
+    (« UNITE == EQUIPE - 1 »), tiree de la lecture STRICTE du comparateur
+    `AmountIsGreaterAbilityTrigger`. Elle n'etait comparee QU'AU PORT : a l'epoque, le predicat par
+    unite n'avait aucun consommateur MOTEUR, donc aucun montage ne l'opposait au natif -- c'etait un
+    verrou sur une hypothese, pas sur une mesure.
+
+    Depuis que `CursedPlagueBellAttackAbility` (1071) est portee, le predicat est confrontable, et il
+    l'a ete : `probe_224_cursed_plague_bell_attack.py` mesure un SEUIL natif egal a
+    `GetCurrentRange(TurnsStarted)` a DEUX paliers (range 2 -> la cloche part a d=1 et d=2, pas a
+    d=3 ; range 3 -> elle part a d=2 et d=3, pas a d=4), attribution par le tag natif
+    `Passive_Ability_Type = 1071`. Un comparateur strict rendrait les seuils 1 et 2.
+    Detail de la tension decompile/mesure : docstring d'`IsInUnitAura`."""
     from engine.entities.effects.aura import aura_range_on_owner_turn
     from engine.entities.triggers import IsInUnitAura
     from engine.entities.selectors import Caster, Target
@@ -105,7 +115,7 @@ def test_unit_predicate_is_strict_vs_team_inclusive_offline():
             ctx = DslContext(units=[carrier, other], caster=carrier, target=other,
                              has_trait=lambda u, t: u["id"] == 1,
                              get_stat=lambda u, s, v=0, lv=None: turns if u["id"] == 1 else 0)
-            assert node.should_trigger(ctx) is (dist < rng_), (turns, dist, rng_)
+            assert node.should_trigger(ctx) is (dist <= rng_), (turns, dist, rng_)
 
 
 # ------------------------------------------------------------------ harnais live
@@ -248,9 +258,10 @@ def test_contagions_aura_range_live(host, live_session):
             assert native == (dist <= expected_range), (
                 f"seuil natif d={dist} = {native}, attendu {dist <= expected_range} "
                 f"(GetCurrentRange({turns}) = {expected_range})")
-            # version UNITE (STRICT) : rayon effectif = range - 1, sur la MEME scene.
+            # version UNITE : MEME rayon effectif que la version EQUIPE, sur la MEME scene
+            # (renversement mesure -- cf. `test_unit_predicate_radius_equals_team_radius_offline`).
             unit_v = _port_unit_verdict(state, carrier["squadId"], enemy["squadId"])
-            assert unit_v == (dist < expected_range), (dist, expected_range, unit_v)
+            assert unit_v == (dist <= expected_range), (dist, expected_range, unit_v)
             seen += 1
         assert seen >= 3, f"trop peu de distances exercees ({seen})"
 

@@ -372,13 +372,14 @@ def _cursed_plague_bell_damage_profile() -> str:
     littéral de défaut lu au décompilé est `0xd` = 13 = `Psychic`
     (`IdunBattle.Entities.Enum.DamageProfileType`).
 
-    `IdunBattle.Configuration.AbilityConfiguration$$GetAffectedDamageProfile` = la constante
-    d'ability `affectedDamageProfile` (`GetEnumConstant`), qui vaut `"Psychic"` pour
-    `CursedPlagueBell` au gameconfig courant. On la RELIT plutôt que de figer `Psychic` : le natif la
-    relit aussi, et le défaut ne s'applique que si la constante disparaît."""
-    import gameconfig as GC
-    consts = ((GC.ability("CursedPlagueBell") or {}).get("constants")) or {}
-    return consts.get("affectedDamageProfile") or "Psychic"     # DamageProfileType.Psychic (0xd)
+    DÉLÈGUE au foyer UNIQUE `runner.abilities.deathguard.cursed_plague_bell_damage_profile` (case-224
+    item 5) : le natif n'a qu'UN `GetDamageProfile`, et il a désormais DEUX consommateurs portés —
+    ce prédicat de playbook (`b__4_0`) et le `damageProfile` de l'`AttackWithAttackDamage` de
+    `CursedPlagueBellAttackAbility$$CreateBehaviour`. Deux copies offline d'un seul nœud natif
+    seraient le fork que la doctrine `check-own-port` interdit. Import paresseux : la dépendance
+    établie du dépôt va playbook -> runner (jamais l'inverse)."""
+    from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
+    return cursed_plague_bell_damage_profile()
 
 
 class CursedPlagueBellPlaybook(AdjacentToOwnerNonOwnerPlaybook):

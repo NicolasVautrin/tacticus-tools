@@ -141,13 +141,15 @@ from typing import Optional
 from .....dsl.base import AAmountFormula, TargetsSelector, resolve_unit
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
+from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
-from .....entities.selectors import Caster, SurroundingFriends, UnitsWithoutTrait, UnitsWithTrait
+from .....entities.selectors import (Actor, Caster, SurroundingFriends, UnitsWithoutTrait,
+                                     UnitsWithTrait)
 from .....entities.stats import StatType
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....abilities.behaviours import AddEffect, entities_from_state
-from ....components import OwnerComponent
+from ....components import OwnerComponent, StatsComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 
@@ -164,8 +166,16 @@ AURA_EFFECT = int(EffectType.ContagionsOfNurgle_ArmorReduction1)  # 0x42f = 1071
 AURA_TRAIT_BY_EFFECT = {AURA_EFFECT: int(UnitTrait.ContagionsOfNurgle)}   # 0x42f -> 0x7eb = 2027
 CHAOS = int(UnitTrait.Chaos)                                      # 0x7ea = 2026
 STATIONARY = int(UnitTrait.Stationary)                            # 0x418 = 1048
+PSYKER = int(UnitTrait.Psyker)                                    # 0x3ea = 1002
 # Duree du `AddEffect` : `Nullable<int>(1)` -- deja en TOURS (overload 4-args de `DSLBehaviors.AddEffect`).
 EXTRA_MOVE_TURNS = 1
+# LITTERAL du conjoint `CurrentAttackDamageProfilesContain(0xd)` du `CreateTrigger` de la face ATTAQUE.
+# ⚠ C'est une SECONDE source, distincte de la constante `affectedDamageProfile` que lit
+# `GetDamageProfile` pour le profil de la riposte : le decompile ecrit un littéral ici et un
+# `GetValueOrDefault` la-bas. Les deux coincident au gameconfig courant ; on ne les fusionne PAS.
+ATTACK_GATE_PROFILE = DamageProfileType(0xd).name                 # "Psychic"
+VAR_DMG = "dmg"                     # `GetVariableForLevel(cfg, 0xb)` -- AbilityVariableType.dmg
+CONST_NR_OF_HITS = "nrOfHits"       # `GetNumberConstant(cfg, 0x2f)` -- AbilityConstantType.nrOfHits
 
 
 class ContagionsOfNurgleRange(AAmountFormula):
@@ -282,3 +292,214 @@ class CursedPlagueBellMovementAbility(TriggeredAbility):
                 "targets": [p.get("target") for p in placed],
                 "newly_placed": [p.get("target") for p in placed if p.get("placed")],
                 "turns": EXTRA_MOVE_TURNS, "effect": EXTRA_MOVE}
+
+
+# =====================================================================================================
+# VOLET ATTAQUE (case-224 item 5) -- `CursedPlagueBellAttackAbility`
+# =====================================================================================================
+# i2 : « Enemy PSYKER units within Corrodius' Contagion aura deal {nrOfHits}x {dmg} Psychic Damage
+#        TO THEMSELVES each time one of their attacks deals Psychic Damage. »
+#
+# ## `...CursedPlagueBellAttackAbility$$CreateTrigger` (decompile, ordre de lecture)
+#
+#     On(9 = EventTriggerType.Attack, ownerNeedsToBeAlive = 0)
+#   & ( OwnerIsTarget | OwnerIsAlive<DSLTriggers+0x20> )
+#   & NOT CasterIsTarget
+#   & CurrentAttackDamageProfilesContain(0xd = Psychic, includeNotApplied = 0)
+#   & AreEnemies(Actor@0x40, Owner@0x30, UnitTeamSelectionType = 0 = ByCurrentTeam)
+#   & HasTrait(Actor@0x40, 0x3ea = UnitTrait.Psyker)
+#   & IsInContagionsOfNurgleRange                 # = IsInUnitContagionsOfNurgleAura(Actor, Owner)
+#   & NOT CurrentAbilityIs(this)
+#
+# `<DSLTriggers+0x20>` est NOMME par lecture, pas par mesure :
+# `IdunBattleLogic.Entities.DSLTriggers$$On(triggerType, ownerNeedsToBeAlive)` choisit LITTERALEMENT
+# le slot `+0x20` quand le drapeau est vrai et le slot `+0x70` (trigger neutre) sinon -- `+0x20` est
+# donc le conjoint « OWNER VIVANT ». Recoupement independant : `DSLTriggers$$InitializeShared`
+# construit `+0x20` avec le seul `state` (ce dont
+# `IdunBattle.Entities.Triggers.OwnerIsAliveAbilityTrigger$$ShouldTrigger` a besoin :
+# `IsUnit(owner) ? UnitExtensions.IsAlive(owner, state) : true`) et `+0x70` SANS argument.
+#
+# ## `...CursedPlagueBellAttackAbility$$CreateBehaviour(abilityState, triggerType)`
+#
+#     DSLBehaviors.AttackWithAttackDamage(
+#         caster          = Actor@0x40,                       # le PSYKER -- il s'attaque LUI-MEME
+#         target          = Actor@0x40,                       # le MEME slot, lu deux fois
+#         amount          = DSLFormulas.Get( GetVariableForLevel(cfg, 0xb = dmg, abilityState) ),
+#         damageProfile   = Nullable<DamageProfileType>( GetAffectedDamageProfile()
+#                                                        .GetValueOrDefault(0xd = Psychic) ),
+#         hits            = GetNumberConstant(cfg, 0x2f = nrOfHits),
+#         abilityOrEffect = (AbilityOrEffect)this,
+#         options         = default(Nullable<AttackDamageBehaviourOptions>),   # 0x28 octets a ZERO
+#         selectionType   = 2 = UnitSelectionType.OnlyTargetable )
+#
+# OVERLOAD identifie par SA SIGNATURE dans `frida/methods.tsv` (`damageProfile:Nullable<
+# DamageProfileType>`, `hits:System.Int32`) -- cinq overloads d'`AttackWithAttackDamage` coexistent, et
+# ils different justement sur ces deux parametres. `DSLFormulas$$Get(int)` = le noeud constante
+# (`Direct`), donc le montant est FIGE a la construction de l'arbre, avec l'`abilityState` du PORTEUR.
+# `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` batit
+# `AttackDamageBehaviour(state, Caster@0x48, Target@0x60, amount, profile, Direct(hits), ...)` puis
+# `AttackBehaviour(caster, target, <ce behaviour>, abilityOrEffect)` : les deux selecteurs passes
+# (ici `Actor` deux fois) sont ceux de l'AttackBehaviour EXTERNE, qui re-ancre le contexte.
+#
+# FORME DU PORT (doctrine #149) : `CreateBehaviour` -> ARBRE DSL (feuille `AttackWithAttackDamage`
+# existante, mode `amount`) ; les conjoints du `CreateTrigger` -> collapse imperatif dans `matches`,
+# SAUF `IsInContagionsOfNurgleRange` qui est deja un NOEUD DSL porte (case-224 item 4,
+# `runner/abilities/deathguard.is_in_contagions_of_nurgle_range`) et dont ce port est le PREMIER
+# consommateur moteur.
+#
+# `options` VIDE (`HasValue = 0`, les 0x28 octets sont mis a zero juste avant l'appel) => aucune
+# variance d'arme sur le montant => `amount_spread_pct = 0` (meme regime que le smite Psyker), et ni
+# `alwaysOverkilled` ni `alwaysCrit`.
+
+
+def cursed_plague_bell_attack_hits() -> int:
+    """`AbilityConfiguration.GetNumberConstant(cfg, 0x2f = nrOfHits)` -- le 5e argument
+    (`hits:System.Int32`) de l'overload d'`AttackWithAttackDamage` retenu. Constante d'ability, donc
+    NON scalee par la rarete."""
+    from .....entities.effects.magnitude import ability_var
+    return int(ability_var(ABILITY_ID, CONST_NR_OF_HITS, is_constant=True) or 1)
+
+
+def cursed_plague_bell_attack_damage(state: State, owner_id: int) -> int:
+    """`AbilityConfiguration.GetVariableForLevel(cfg, 0xb = dmg, abilityState)` -- le montant que
+    `DSLFormulas.Get(...)` fige dans le noeud constante de l'arbre.
+
+    ⚠ Le niveau et le multiplicateur de rarete sont ceux du PORTEUR de la cloche (l'`abilityState` que
+    `BaseTriggeredAbility` passe a `CreateBehaviour` est le sien), PAS ceux du psyker qui subit
+    l'attaque -- alors meme que le CASTER de l'`AttackWithAttackDamage` est ce psyker. C'est
+    exactement la dissociation que le decompile impose, et elle n'est pas devinable depuis la feuille
+    (dont le `level_slot` lit toujours le caster) : d'ou le mode `amount` plutot que le mode bornes.
+    `dmg` est dans `variablesAffectedByRarityBonus` -> le scaling `AbilityVariablesMultiplier`
+    s'applique (mirror `ability_var`). Passif -> `passive_ability_level` (repli `active_ability_level`,
+    meme regle qu'`ability_attack_params(level_slot="passive")`)."""
+    from .....entities.effects.magnitude import ability_var
+    e = state.get_entity(owner_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    if ctx is None:
+        level, mult = 0, 100
+    else:
+        level = (ctx.passive_ability_level if ctx.passive_ability_level is not None
+                 else ctx.active_ability_level)
+        mult = ctx.ability_variables_multiplier
+    return int(ability_var(ABILITY_ID, VAR_DMG, level, multiplier_pct=mult) or 0)
+
+
+def cursed_plague_bell_attack_tree(amount: int):
+    """`...CursedPlagueBellAttackAbility$$CreateBehaviour` -- MIRROR 1:1 de l'unique feuille.
+
+    `Actor()` porte les DEUX selecteurs natifs (`caster` ET `target` sont le meme slot `+0x40`) : le
+    caster de l'attaque est fourni par l'`entities` construit dans `execute_behaviour` (ancre sur
+    l'acteur), et la cible par ce selecteur. `is_melee=False` : `attackRangeType = "Ranged"` a la
+    config d'ability. `native_factory="attack"` : la factory natif est bien `AttackWithAttackDamage`
+    (et non `AttackWithAbilityDamage`) -- classification par le call-site, pas au juge.
+    `amount_spread_pct=0` : le `Nullable<AttackDamageBehaviourOptions>` natif est passe VIDE.
+    Import paresseux (cycle triggers <-> abilities.behaviours, == martial_superiority)."""
+    from ....abilities.behaviours import AttackWithAttackDamage
+    from ....abilities.deathguard import cursed_plague_bell_damage_profile
+    from .....entities.formulas import Get
+    return AttackWithAttackDamage(Actor(), ABILITY_ID, cursed_plague_bell_damage_profile(),
+                                  is_melee=False, amount=Get(int(amount)),
+                                  hits=cursed_plague_bell_attack_hits(),
+                                  native_factory="attack", amount_spread_pct=0)
+
+
+class CursedPlagueBellAttackAbility(TriggeredAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility` (volet ATTAQUE du
+    passif `CursedPlagueBell` 1071, `deathBlightbringer`) -- cf. le bloc RE juste au-dessus.
+
+    Meme placement que la classe MOUVEMENT : parent direct `BaseTriggeredAbility` (`classes.tsv`),
+    donc `ABILITY_TRIGGERS` et NI `TARGETING_OPTIONS` NI `ABILITY_ATTACK_TYPE` (elles ne concernent que
+    `ABILITY_CLASSES`, le registre des ACTIVES)."""
+    event_id = int(EventTriggerType.Attack)                  # On(9), ownerNeedsToBeAlive = 0
+    # Les trois classes du passif partagent l'id `TriggeredAbilityType.CursedPlagueBell` (0x42f=1071),
+    # que `BaseTriggeredAbility$$Execute` ecrit avant le behaviour.
+    TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.CursedPlagueBell)
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        actor, target = ev.actor_id, ev.target_id
+        if actor is None:
+            return False
+        # --- NOT CasterIsTarget (`AreEqual(Caster@0x48, Target@0x60)`) -------------------------------
+        # Le port n'a pas de slot CASTER distinct sur un evenement d'attaque : `TriggerEvent` porte
+        # `actor_id` (l'attaquant) et `target_id`. Sur les DEUX vecteurs `On(9)`
+        # (`after_hit_normal_attack` / `after_hit_ability_attack`) l'acteur EST le caster du coup ->
+        # collapse assume `Caster == Actor`. C'est aussi le gate qui BORNE la recursion : la riposte
+        # est une AUTO-attaque (caster == target == le psyker), donc elle ne se re-declenche pas.
+        if target is not None and int(target) == int(actor):
+            return False
+        owner = state.get_entity(self.owner_id)
+        if owner is None:
+            return False
+        # --- ( OwnerIsTarget | OwnerIsAlive ) -------------------------------------------------------
+        # `OwnerIsAliveAbilityTrigger$$ShouldTrigger` : `IsUnit(owner) ? IsAlive(owner, state) : true`.
+        # Vrai par construction sur ce vecteur (le dispatch a deja ecarte un owner mort, `CanGet*
+        # Trigger`), mais porte explicitement pour ne pas maquiller la disjonction du decompile.
+        ouc = owner.get_component(UnitComponent)
+        owner_is_alive = ouc is None or bool(ouc.alive)
+        if not (owner_is_alive or (target is not None and int(target) == int(self.owner_id))):
+            return False
+        # --- CurrentAttackDamageProfilesContain(0xd = Psychic) --------------------------------------
+        # `DamageProfilesContainsTrigger$$ShouldTrigger` = `<liste de profils de l'attaque>.Contains(
+        # damageProfileType)` (liste nulle -> faux). `ev.profiles` = le SET COMPLET (arme + bonus-hits
+        # #179) quand le vecteur le threade ; repli `{ev.profile}` sinon (voie ABILITY, cf. residus).
+        profs = ev.profiles if ev.profiles else ({ev.profile} if ev.profile else set())
+        if ATTACK_GATE_PROFILE not in profs:
+            return False
+        # --- AreEnemies(Actor@0x40, Owner@0x30) -----------------------------------------------------
+        ae = state.get_entity(actor)
+        if ae is None:
+            return False
+        aoc = ae.get_component(OwnerComponent)
+        ooc = owner.get_component(OwnerComponent)
+        if aoc is None or ooc is None or aoc.team == ooc.team:
+            return False
+        # --- HasTrait(Actor@0x40, 0x3ea = Psyker) ---------------------------------------------------
+        asc = ae.get_component(StatsComponent)
+        a_traits = set(getattr(asc.ctx, "traits", None) or ()) if asc is not None else set()
+        if UnitTrait(PSYKER).name not in a_traits:
+            return False
+        # --- NOT CurrentAbilityIs(this) -------------------------------------------------------------
+        # Le natif compare `CurrentAbility` (le slot `DSLSelectors+0x88`, ce que l'`AttackBehaviour`
+        # ecrit depuis son `AbilityOrEffect`) a `Direct(AbilityOrEffect(this))`. Le port ne peut PAS
+        # threader cet id par `ability_type` : le canal est keye sur l'espace `ActiveAbilityType`, ou
+        # 1071 vaut `AnnihilatorBeam` -- y injecter le `TriggeredAbilityType` 1071 ferait lire une
+        # AUTRE ability par tous les gates de kind (meme piege que `MartialSuperiority`/
+        # `MartialApotheosis`, qui ont refuse de threader le leur). On lit donc le foyer UNIQUE que le
+        # dispatch pose deja pour la triggered EN COURS (`state.triggering_ability`, ecrit par
+        # `evaluate_trigger_operation` en mirror de `BaseTriggeredAbility$$Execute`). Les deux champs
+        # natifs sont distincts (`CurrentAbility` vs `TriggeringAbility`) mais ils coincident ici :
+        # le SEUL chemin par lequel `CurrentAbility` peut valoir 1071 sur un `On(9)` est l'execution
+        # du behaviour de CETTE classe (les deux autres classes du passif n'emettent aucune attaque).
+        # Le gate `NOT CasterIsTarget` ci-dessus borne deja la recursion ; celui-ci est la SECONDE
+        # ceinture, celle que le decompile ecrit.
+        if getattr(state, "triggering_ability", None) == self.TRIGGERED_ABILITY_ID:
+            return False
+        # --- IsInContagionsOfNurgleRange (NOEUD DSL, case-224 item 4) --------------------------------
+        # `IsInUnitAura(Actor, 1071, Caster)` = `MinDistance(Actor, Owner) < AuraEffectRange(Owner)`,
+        # comparateur STRICT. `entities_from_state(state, owner, actor_id=actor)` pose Caster == Owner
+        # (regle des triggered) et l'acteur de l'evenement dans le slot `Actor`.
+        from ....abilities.deathguard import is_in_contagions_of_nurgle_range
+        ctx = entities_from_state(state, self.owner_id, None, int(actor))
+        return bool(is_in_contagions_of_nurgle_range().should_trigger(ctx))
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent):
+        actor = ev.actor_id
+        if actor is None:
+            return None
+        amount = cursed_plague_bell_attack_damage(state, self.owner_id)
+        # Le natif ancre l'`AttackBehaviour` sur `Actor` pour le caster ET pour la cible : le psyker
+        # se frappe lui-meme. On construit donc l'`entities` avec `caster_id = actor_id` (c'est ce que
+        # lit la feuille pour l'armure/percage/crit) et le meme id dans le slot `Actor` (ce que lit le
+        # selecteur de cibles). Le porteur de la cloche n'intervient QUE par le montant (cf.
+        # `cursed_plague_bell_attack_damage`).
+        entities = entities_from_state(state, int(actor), None, int(actor))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        cursed_plague_bell_attack_tree(amount).execute(entities, ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        atk = atks[0] if atks else None
+        if atk is None:
+            return None
+        return {"type": "cursed_plague_bell_attack", "owner": int(self.owner_id),
+                "caster": int(actor), "target": atk.get("target"),
+                "amount": int(amount), "total": atk.get("total"), "attack": atk.get("attack")}
