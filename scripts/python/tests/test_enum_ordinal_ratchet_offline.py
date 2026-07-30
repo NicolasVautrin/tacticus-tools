@@ -31,11 +31,11 @@ sys.path.insert(0, str(REPO / "scripts" / "python"))
 import probe_283_enum_ordinal_sweep as SW  # noqa: E402
 
 
-def _exec_hits(src: str) -> list:
+def _exec_hits(src: str, sigs: "dict | None" = None) -> list:
     tree = ast.parse(src)
     refs = {c: SW._by_name(SW.enum_map(SW.current_build(), fq))
             for c, fq in SW.ENUMS.items()}
-    sw = SW._ExecSweep(SW._prose_par_ligne(src), refs)
+    sw = SW._ExecSweep(SW._prose_par_ligne(src), refs, sigs)
     sw.visit(tree)
     return sw.hits
 
@@ -85,6 +85,33 @@ def test_detecte_la_comparaison_sur_un_nom_qui_trahit_l_enum():
     Trois assertions de tests vivaient sous cette forme."""
     h = _exec_hits('assert t.event_id == 19, "le trigger ecoute On(TurnStart_Other)"\n')
     assert h and h[0][1] == "EventTriggerType" and h[0][3] == 19
+
+
+def test_detecte_l_argument_positionnel_dont_la_signature_nomme_l_enum():
+    """#315 -- LE motif que les quatre autres rataient : rien, sur la ligne du littéral, ne
+    nomme l'enum. `TriggerEvent(61, 1, 2, ...)` a vecu deux fois dans
+    `tests/engine/runner/test_effect_trigger_channels.py` pendant que l'etape 2 rendait
+    `0 a lire` -- le nom de l'enum est dans la SIGNATURE de l'appele, pas au site d'appel."""
+    sigs = {"TriggerEvent": (0, "EventTriggerType")}
+    h = _exec_hits("ev = TriggerEvent(61, 1, 2, ranged=False, profile=None)\n", sigs)
+    assert h, "le motif positionnel #315 n'est plus detecte"
+    assert h[0][1] == "EventTriggerType" and h[0][2] == "posarg" and h[0][3] == 61
+    # sans la signature, ce meme code est MUET : c'est bien elle qui porte le contrat.
+    assert not _exec_hits("ev = TriggerEvent(61, 1, 2, ranged=False, profile=None)\n")
+
+
+def test_les_signatures_positionnelles_se_derivent_du_depot():
+    """La table des appelables est DERIVEE, jamais ecrite a la main : un appelable renomme ou
+    ajoute reste couvert sans toucher au probe. `TriggerEvent` est le ctor de reference --
+    `__init__(self, event_id, ...)` donne bien l'index 0 apres retrait de `self`."""
+    sigs = SW._signatures_positionnelles(
+        {"x.py": ast.parse("class TriggerEvent:\n"
+                           "    def __init__(self, event_id, actor_id):\n"
+                           "        pass\n"
+                           "def get_utility(utility_type, ctx):\n"
+                           "    return 0\n")})
+    assert sigs["TriggerEvent"] == (0, "EventTriggerType")
+    assert sigs["get_utility"] == (0, "UtilityType")
 
 
 def test_ne_signale_PAS_l_usage_symbolique_correct():

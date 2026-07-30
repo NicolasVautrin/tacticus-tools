@@ -137,6 +137,7 @@ def offline_guard() -> int:
     """Garde de SUBSTRAT : ce que le port lit, confronte a ce que le decompile / les tables
     versionnees disent. Aucun live."""
     import gameconfig as GC
+    from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
     from engine.runner.operations.triggers.loki.cursed_plague_bell import (
         CursedPlagueBellAttackAbility, ATTACK_GATE_PROFILE, cursed_plague_bell_attack_hits,
@@ -147,8 +148,9 @@ def offline_guard() -> int:
     classes = [c.__name__ for c in ABILITY_TRIGGERS.get("CursedPlagueBell", ())]
     if "CursedPlagueBellAttackAbility" not in classes:
         print("KO registre:", classes); bad += 1
-    # `On(9)` = `EventTriggerType.Attack` (table versionnee), et l'id de la triggered = 1071.
-    if CursedPlagueBellAttackAbility.event_id != 9:
+    # `On(EventTriggerType.Attack)` -- resolu par MEMBRE contre le mirror de la table versionnee
+    # (l'enum est l'un des QUATRE renumerotes par la MAJ, cf. #252/#283) ; id de la triggered = 1071.
+    if CursedPlagueBellAttackAbility.event_id != EventTriggerType.Attack:
         print("KO event_id", CursedPlagueBellAttackAbility.event_id); bad += 1
     if CursedPlagueBellAttackAbility.TRIGGERED_ABILITY_ID != TRIGGERED:
         print("KO TRIGGERED_ABILITY_ID", CursedPlagueBellAttackAbility.TRIGGERED_ABILITY_ID); bad += 1

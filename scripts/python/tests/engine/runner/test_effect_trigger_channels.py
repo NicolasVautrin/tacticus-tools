@@ -40,12 +40,16 @@ import probe_306_effect_trigger_channels as EFC
 def test_the_two_channels_are_distinct_slots_on_the_event():
     """Garde de structure : `TriggerEvent` porte DEUX slots distincts. Si quelqu'un refond les deux
     canaux en un seul champ, ce fix redevient un no-op silencieux -- et ce test rougit avant."""
+    from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.operations.triggers.base import TriggerEvent
     assert "triggering_ability" in TriggerEvent.__slots__
     assert "triggering_effect" in TriggerEvent.__slots__
-    ev = TriggerEvent(61, 1, 2, ranged=False, profile=None, triggering_ability=7)
+    # Meme vecteur que le reste du fichier, resolu par MEMBRE : l'enum est l'un des QUATRE que la
+    # MAJ `gqfc5mff6c` -> `rnca9r7q6c` a renumerotes (#252/#283).
+    add = int(EventTriggerType.PreEffectAdded)
+    ev = TriggerEvent(add, 1, 2, ranged=False, profile=None, triggering_ability=7)
     assert ev.triggering_effect is None, "ecrire +0x60 a touche +0x98 : les canaux sont aliases"
-    ev2 = TriggerEvent(61, 1, 2, ranged=False, profile=None, triggering_effect=8)
+    ev2 = TriggerEvent(add, 1, 2, ranged=False, profile=None, triggering_effect=8)
     assert ev2.triggering_ability is None, "ecrire +0x98 a touche +0x60 : les canaux sont aliases"
 
 
