@@ -49,14 +49,24 @@ def _fmt_action(msgs: list) -> str:
     return ", ".join(parts)
 
 
-def _print_apply(label: str, res: dict, my_ids=None, raw: bool = False) -> None:
+def _print_apply(label: str, res: dict, my_ids=None, raw: bool = False) -> str | None:
     """Affiche le résultat d'un applyAction : diff d'état (a) + cascade
     StreamDispatcher décodée (c) + flag overwatch. my_ids = mes squadId (pour
-    distinguer dégât SUBI / infligé). raw=True → dump brut des events."""
+    distinguer dégât SUBI / infligé). raw=True → dump brut des events.
+
+    Rend la raison d'un ÉCHEC DE DÉCODAGE de la cascade (déjà imprimée), sinon None.
+
+    ⚠ CETTE FONCTION NE DOIT JAMAIS PROPAGER — `applyAction` a DÉJÀ muté le runner quand
+    on arrive ici. Une exception de décodage remontait jusqu'à `cmd_act`, court-circuitant
+    l'append `action_log` + `_save_state` : l'appelant lisait « erreur » sur une action
+    APPLIQUÉE, la rejouait, et la jouait deux fois. Mesuré le 2026-07-30 (#254b-a) : un
+    worktree frais levait `KeyError: StepType.UnitDamaged` ICI, après le RPC. Le décodage
+    est de l'AFFICHAGE ; il rend compte de sa propre panne, il n'annule pas l'action."""
     import stream_events  # noqa: E402
     if not res.get("ok") and not res.get("actions"):
         print(f"  [{label}] ÉCHEC: {res.get('error')}")
-        return
+        return None
+    echec: str | None = None
     for act in (res.get("actions") or []):
         print(f"  [{label}] kind={act.get('kind')} ok={act.get('ok')} "
               f"mutated={act.get('mutated')} stage={act.get('stage')} "
@@ -85,7 +95,15 @@ def _print_apply(label: str, res: dict, my_ids=None, raw: bool = False) -> None:
         # Résumé (c) UNIFORME : dégâts SUBIS / INFLIGÉS / morts. L'overwatch
         # n'est PAS un cas spécial — c'est un dégât subi labellisé [overwatch]
         # (comme [dot]), au même titre que counter/aura.
-        an = stream_events.analyze(evs, my_ids)
+        try:
+            an = stream_events.analyze(evs, my_ids)
+        except Exception as e:                     # decodage seul -> jamais fatal
+            echec = "%s: %s" % (type(e).__name__, e)
+            print("        /!\\ CASCADE NON DECODEE (%d events) -- %s" % (len(evs), echec))
+            print("        /!\\ L'ACTION A DEJA ETE APPLIQUEE cote runner : l'etat A BOUGE.")
+            print("        /!\\ NE PAS LA REJOUER -- corriger le decodage, puis relire l'etat"
+                  " par `rl_duel.py view`.")
+            continue
         for d in an["received"]:
             crit = " CRIT" if d["crit"] else ""
             kill = " → TUÉ" if d["killed"] else ""
@@ -106,6 +124,7 @@ def _print_apply(label: str, res: dict, my_ids=None, raw: bool = False) -> None:
         else:
             for ln in stream_events.decode_lines(evs):
                 print("          " + ln)
+    return echec
 
 
 def main(argv: list[str]) -> int:
