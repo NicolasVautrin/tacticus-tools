@@ -610,8 +610,9 @@ class EffectLevel(AAmountFormula):
 
 # `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` rend `int.MaxValue` quand une des deux
 # enumerations est VIDE (l'accumulateur `uVar15` est initialise a 0x7fffffff et aucune iteration ne le
-# baisse). Ce n'est PAS un detail : c'est ce qui rend le predicat `AmountIsGreater(range, dist)` FAUX
-# des qu'un operande ne resout rien -- degradation fidele, jamais un « dans l'aura » par defaut.
+# baisse). Ce n'est PAS un detail : c'est ce qui rend le predicat `AmountIsEqualOrGreater(range,
+# dist)` FAUX des qu'un operande ne resout rien -- degradation fidele, jamais un « dans l'aura » par
+# defaut.
 MIN_DISTANCE_EMPTY = 0x7FFFFFFF
 
 
@@ -629,7 +630,16 @@ class MinDistance(AAmountFormula):
     MainTile -- PAS l'empreinte de pieds (contraste `EntityExtensions$$GetTiles`). Le port fait de meme
     (`dsl.base._pos`). Une entite sans position est SAUTEE (le natif deref son PositionComponent ; cote
     port on ne peut pas mesurer une distance sans coordonnee) ; si aucune paire n'est mesurable on rend
-    `MIN_DISTANCE_EMPTY`, exactement le `int.MaxValue` du natif quand la boucle ne tourne pas."""
+    `MIN_DISTANCE_EMPTY`, exactement le `int.MaxValue` du natif quand la boucle ne tourne pas.
+
+    ⚠ **AUCUN offset sur le chemin de distance** -- le chemin est lu de bout en bout :
+    `IdunBattle.Entities.Components.PositionComponent$$Distance` =
+    `IdunBattle.Utils.Hex.CubeCoordinate$$Distance(this.ToCube(), other.ToCube())`, lui-meme
+    `Max(Max(|dx|, |dy|), |dz|)` -- la distance hex NUE, egale a `hexgeo.distance`. C'est ce qui
+    REFUTE le modele « `MinDistance` natif = `hexdist - 1` » avance pour expliquer l'ecart d'une
+    unite du predicat d'aura par unite : l'ecart etait dans le COMPARATEUR, pas ici (#293, cf.
+    `entities/triggers.py::IsInUnitAura`). Garde re-derivable :
+    `python scripts/python/probe_293_aura_predicate_comparator.py` (etape 3)."""
     def __init__(self, a: TargetsSelector, b: TargetsSelector):
         self.a, self.b = a, b
 

@@ -485,8 +485,10 @@ class CursedPlagueBellAttackAbility(TriggeredAbility):
         if getattr(state, "triggering_ability", None) == self.TRIGGERED_ABILITY_ID:
             return False
         # --- IsInContagionsOfNurgleRange (NOEUD DSL, case-224 item 4) --------------------------------
-        # `IsInUnitAura(Actor, 1071, Caster)` = `MinDistance(Actor, Owner) < AuraEffectRange(Owner)`,
-        # comparateur STRICT. `entities_from_state(state, owner, actor_id=actor)` pose Caster == Owner
+        # `IsInUnitAura(Actor, 1071, Caster)` = `MinDistance(Actor, Owner) <= AuraEffectRange(Owner)`,
+        # comparateur INCLUSIF (`AmountIsEqualOrGreaterAbilityTrigger`, #293 -- le nom du `.ctor` est
+        # DEDUPLIQUE et ne designe pas la classe).
+        # `entities_from_state(state, owner, actor_id=actor)` pose Caster == Owner
         # (regle des triggered) et l'acteur de l'evenement dans le slot `Actor`.
         from ....abilities.deathguard import is_in_contagions_of_nurgle_range
         ctx = entities_from_state(state, self.owner_id, None, int(actor))

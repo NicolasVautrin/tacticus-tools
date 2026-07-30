@@ -346,18 +346,34 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   `UnitStateChanged(3)` (le port refresh sur move + start-turn + après dégât) ; la part
   MULTIPLICATIVE `part 9` du stat-layer, matérialisée en delta plat équivalent.
 - **Résidus nommés de `case-224` (prédicat d'aura)** — `case-224-is-in-contagions-of-nurgle-range`
-  §5. (a) ~~le comparateur **STRICT**, non mesuré live~~ — **CLOS, et RENVERSÉ**
-  (`case-224-cursed-plague-bell-attack.md` §3.2) : porter `CursedPlagueBellAttackAbility` (1071) a
-  donné au prédicat son premier consommateur MOTEUR, donc son premier montage confrontable — et le
-  seuil natif mesuré vaut `GetCurrentRange(TurnsStarted)` **exactement**, à deux paliers. Le
-  comparateur effectif est **INCLUSIF**, comme celui de la version d'équipe ; le verrou pytest, qui
-  ne comparait le port qu'à lui-même, est retourné avec sa preuve. Le décompilé du comparateur, lui,
-  a été relu et tient (`minAmount < amount`) : l'écart d'une unité est dans un ÉTAGE non localisable
-  (trois modèles indiscernables, cf. le docstring d'`IsInUnitAura`). (b) `SynapseEffect`, second
+  §5. (a) ~~le comparateur **STRICT**, non mesuré live~~ — **CLOS, RENVERSÉ, puis ATTRIBUÉ (#293,
+  2026-07-30)**. Porter `CursedPlagueBellAttackAbility` (1071) a donné au prédicat son premier
+  consommateur MOTEUR, donc son premier montage confrontable, et le seuil natif mesuré vaut
+  `GetCurrentRange(TurnsStarted)` **exactement**, à deux paliers
+  (`case-224-cursed-plague-bell-attack.md` §3.2). #293 a **localisé** l'écart d'une unité : il est
+  dans le COMPARATEUR, et la lecture « STRICT » venait du **nom du `.ctor`**, corps trivial
+  DÉDUPLIQUÉ par IL2CPP. La classe réellement instanciée est
+  `AmountIsEqualOrGreaterAbilityTrigger` (`minAmount <= amount`) — établi par le pointeur de classe,
+  pas par le nom ; les deux autres modèles sont réfutés étage par étage. Le port était **juste**,
+  aucun changement de comportement. Garde : `probe_293_aura_predicate_comparator.py`. (b)
+  `SynapseEffect`, second
   `IAuraEffect`, n'est **pas** au registre `_AURA_EFFECTS` (aucun consommateur mirroré ne le
   demande) ; (c) `GetNextTurnRange` / `isNextTurn=true` est porté mais jamais exercé (ses
   consommateurs sont `CursedPlagueBellMovementAbility$$GetTargetsSelector` et
   `CursedPlagueBell_DangerZoneEffect`). `[opus]`.
+- **Seuil d'`IsActiveAbilityCountedAsUsed` décalé d'une unité (trouvé en marge de #293)** —
+  `engine/runner/operations/triggers/loki/fuelled_by_fury.py::is_active_ability_counted_as_used`.
+  `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(isPreAbilityTrigger)` construit
+  `AmountIsGreater(amount = DSLFormulas.TotalActiveAbilityUsed(...), minAmount = <seuil>)` avec la
+  classe de la famille **STRICT** (`AmountIsGreaterAbilityTrigger`, confirmé par pointeur de classe —
+  inventaire de `probe_293_aura_predicate_comparator.py --inventory`) et
+  `<seuil> = isPreAbilityTrigger ? Formulas+0x18 : Formulas+0x20`, or `DSLFormulas$$.ctor` cache
+  `+0x18 = Direct(0)` et `+0x20 = Direct(1)`. Sur la branche que le port mirroir
+  (`isPreAbilityTrigger = false`), le natif évalue donc **`used > 1`**, soit `used >= 2` ; le port
+  écrit `used >= 1` → il bloquerait **une utilisation trop tôt**. **INERTE aujourd'hui**
+  (`state.total_active_ability_used` n'existe pas, `_times_ability_used` rend `None`, la branche
+  n'est jamais prise) — mais c'est exactement le point à corriger **avant** de câbler ce compteur.
+  Non corrigé ici : hors périmètre du cas #293. `[opus]`.
 - **Résidus nommés de `case-224` item 5 (face ATTAQUE de `CursedPlagueBell`)** —
   `case-224-cursed-plague-bell-attack.md` §4. (a) le cas **`d = 1` à `range = 1`** n'a jamais pu être
   monté sur `C1_02` (aucune tuile libre à distance 1 du porteur aux paliers bas, il est entouré) :
