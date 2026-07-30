@@ -268,6 +268,11 @@ toute cible qui porte DEJA le Markerlight — cote decision, cette cascade est a
 
 ### Pourquoi le porteur est GREFFE, et pourquoi ca reste une mesure
 
+> **Recette reutilisable — un porteur non spawnable NE ferme PAS le dossier.** L'enchainement
+> complet (les deux etages `catalog_inject` / `buildNormalizedBC`, le diagnostic en une commande,
+> les trois recours dans l'ordre, et ce que la greffe ne couvre pas) est ecrit une seule fois, en
+> **`docs/rl/case-92-catalog-injection.md` §5bis**. Ce qui suit n'en est que l'instance 1185.
+
 Les deux SEULES unites qui portent 1185 sont `tauSmnStealthSuit` et `tauNpc5StealthSuit` (memes actives
 `[ForwardObservers, WallOfMirrors]`). Le summon est declare par
 `units.abilities.ATemptingTrap.constants.unitId` — mais **aucune unite du gameconfig ne porte
@@ -869,9 +874,22 @@ existera.
   ALLIE marque ne doit RIEN declencher), la separation des deux termes (mk=0 vs mk=1), la LINEARITE
   stricte sur 4 ratios (0 / 25 / 60 / 100 %), l'extinction propre quand les PV sont illisibles, et
   `should_execute(0) == True`.
-- **Garde LIVE (1185)** : `tests/engine/test_forward_observers_decision_live.py` — 6 tests (accord sur
-  les 4 bras, booleen global du Markerlight, cible qui suit le ratio, bras A2 discriminant avec
-  verification que le montage SEPARE bien les deux modeles, necessite du terme, necessite de la route).
+- **Garde LIVE (1185)** : `tests/engine/test_forward_observers_decision_live.py` — 6 tests,
+  **6 PASS** (37 s, session 28) : accord sur les 4 bras, booleen global du Markerlight, cible qui
+  suit le ratio, bras A2 discriminant AVEC verification prealable que le montage SEPARE bien les
+  deux modeles (`W_B * pct < pair_max + 1 < W_B` — sinon le test ECHOUE au lieu de passer a vide),
+  necessite du terme, necessite de la route.
+- **La correction #292 de `UTILITY_TYPE_NAMES` (37 entrees fausses) est SANS EFFET sur cette mesure
+  — verifie, pas suppose.** Aucun chemin de #27-4c ne resout un nom d'utilite par RPC : les poids
+  viennent de `engine.weights.load()` (seed BC sur disque + re-synthese depuis le gameconfig
+  VIVANT), et cote natif de `BC.Utilities` re-synthetisee par `_load_seed_bc` — dans les deux cas
+  des cles TEXTUELLES, jamais un ordinal `UtilityType`. Les seuls RPC du probe sont `decisionView`,
+  `observeBattle`, `pairUtility`, `aiDryRunAllUnits`, `aiMovableTiles`, `abilityTargets` et
+  `combatSnapshot` ; `aiUtilityTrace` (le consommateur de cette table) n'est pas utilise — il est
+  d'ailleurs inoperant sur runner isole (cf. §« Ou l'utilite d'ACTION est OBSERVABLE »). Les enums
+  renumerotes par #283 sont `EventTriggerType`, `UtilityType`, `StepType` et `DisplaceDirection` :
+  **ni `EffectType` ni `ActiveAbilityType`**, les deux seuls dont ce port lit un ordinal (1122 et
+  1185), et il les derive des tables versionnees.
 
 ### Non couvert (explicite)
 

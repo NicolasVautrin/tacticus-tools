@@ -212,6 +212,63 @@ attaque a l'apparition — exactement les valeurs que le port offline assertait.
 (champ `visualId` de l'entree summon du gameconfig), pas `votanSmnSteeljack`. Un test qui cherche
 l'id de l'entree ne le trouve jamais.
 
+## 5bis. La LIMITE de l'injection, et la recette qui prend le relais (mesuree #27-4c, 2026-07-30)
+
+**`catalog_inject` complete le CATALOGUE ; il ne rend pas tout SPAWNABLE.** Ce sont deux etages, et
+c'est le SECOND qui refuse les summons et les npc :
+
+```
+seed BC + catalog_inject   ->  BC.Units / BC.Abilities completes      (etage 1 : le catalogue)
+buildNormalizedBC          ->  `normalized` = le POOL de --p-units     (etage 2 : la formule de stats)
+```
+
+L'etage 2 appelle `IStatsFormula.StatsUsingProgressionIndexFor` par unite ; **une unite sans table de
+progression de heros y leve**, et le RPC la range dans `skipped` avec `reason = "v2 patch: system
+error"`. Mesure du 2026-07-30 sur `rnca9r7q6c` : `tauSmnStealthSuit` (summon) et `tauNpc5StealthSuit`
+(npc) entrent bien dans `BC.Units` (175 -> 176 entrees) et sont malgre tout **absents du pool**, aux
+cotes des 70 entrees `*Npc*:<n>` deja presentes dans la capture. Leurs `Health`/`Damage`/`Armor`
+restent a 0 — l'entree synthetisee est structurellement complete, mais sans stats.
+
+Le diagnostic se lit en UNE commande, et il vaut mieux que de deviner :
+
+```python
+out = R._rpc(sid, "buildNormalizedBC", [args], timeout=60)["result"]
+[s for s in out["skipped"] if "<mon id>" in s["unitId"]]     # -> reason
+```
+
+**Ce que ca ne veut PAS dire, c'est « dossier ferme ».** L'ordre des recours, du plus fidele au moins :
+
+1. **SUMMON avec invocateur** -> spawner l'invocateur (la voie de la gate de confrontabilite).
+2. **SUMMON SANS invocateur** — verifie par balayage du gameconfig, pas suppose : chercher l'ability
+   qui le declare (`units.abilities.<X>.constants.unitId`) PUIS chercher qui porte `<X>` dans
+   `activeAbilities`/`passiveAbilities`. Si personne, il n'y a pas d'invocateur (cas
+   `tauSmnStealthSuit` / `ATemptingTrap`).
+3. **GREFFE DE L'ABILITY sur une unite DU POOL** — remplacer `ActiveAbilities` de l'entree `BC.Units`
+   d'un heros spawnable par `[<abilityId>]` dans une COPIE du seed BC. **C'est une mesure, pas un
+   contournement** : le natif charge le playbook PAR ABILITY
+   (`PlaybookDatabase.LoadPlaybook(abilityType)`), jamais par unite — le code exerce est donc bien
+   celui de l'ability visee, et le natif le PROUVE en emettant `ActiveAbilityMessage(<id>)` dans
+   `aiDryRunAllUnits`. La config d'ability est deja la (`_load_seed_bc` re-synthetise `BC.Abilities`
+   depuis le gameconfig courant, donc meme une ability que personne ne porte y figure).
+
+   ```python
+   bc = R._load_seed_bc(None)
+   for u in bc["Units"]:
+       if u["Id"] == "<hero du pool>":
+           u["ActiveAbilities"] = [<abilityId>]
+   Path(out).write_text(json.dumps(bc), encoding="utf-8")   # JAMAIS le seed BC partage
+   ```
+
+   Choisir le greffon avec la MEME faction et un profil d'arme compatible quand la mecanique en
+   depend (#27-4c : `tauCrisis`, T'au, arme Pulse portee 2, pour 1185 `ForwardObservers`).
+
+**Ce que la greffe NE couvre PAS**, et qu'il faut ecrire dans le rapport : les stats, traits et armes
+du VRAI porteur — donc toute interaction de la mecanique avec eux. Elle est donc legitime pour un
+terme qui ne lit ni stats ni traits du caster (un terme de playbook qui lit `BC.Utilities` + l'etat du
+board), et NON pour une prediction de degat. Debloqueur nomme du verrou lui-meme : donner a
+`buildNormalizedBC` un chemin de stats explicite pour summons/npc, au lieu de
+`IStatsFormula.StatsUsingProgressionIndexFor`.
+
 ## 6. Usage
 
 ```bash
