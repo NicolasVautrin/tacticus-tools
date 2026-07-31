@@ -100,7 +100,17 @@ class FuryOfTheAncientsPlaybook:
         # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` ->
         # HasTrait(defender, 0x3f5)), MEME foyer que `_target_damage_limits` deux lignes plus bas.
         hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
-        avg = (int(dmin) + int(dmax)) // 2       # MinMaxDamage avgFlag (somme paire ici : 599+797)
+        # #339 : TRONCATURE, et c'est le NATIF. `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction`
+        # appelle `<Ability>$$GetDamage` (corps dedupe = `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage`)
+        # = `IdunBattleLogic.Entities.DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)`, puis le slot 4
+        # de `IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage` :
+        #     `(CalculateMin() + CalculateMax()) / 2` en arithmetique ENTIERE (division signee C,
+        #     tronquee vers zero) -- AUCUN Fix64 sur cette branche.
+        # Ce n'est donc PAS `IdunBattle.Core.Services.MinMaxDamage$$Avg` (demi-vers-le-pair, #333) ni
+        # `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage` (`Half(Sum(...))`, qui
+        # passe par `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` mode 0 = ToEven). Les trois
+        # divergent des que `min + max` vaut 3 mod 4.
+        avg = (int(dmin) + int(dmax)) // 2
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=avg,
             hits=1,                              # slot 0x23 : hits forcés 1 (probe_32d)
