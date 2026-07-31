@@ -26,7 +26,16 @@ cible est ignoree.
 
   * cible GITIGNOREE  -> ROUGE (la faute de #365)
   * cible ABSENTE     -> ROUGE (le depot ne construit pas)
+  * cible VIDE (0 o)  -> ROUGE (voir ci-dessous)
   * sinon             -> vert
+
+⚠ POURQUOI LE CAS « 0 OCTET » EST TRAITE A PART. A la restauration des 67 modules, TROIS sont
+revenus VIDES. Le probe, qui ne testait que l'existence, est passe AU VERT -- alors que
+`frida-compile` echouait toujours : `File '.../dsl-node-probe.ts' is not a module` (un fichier
+vide n'exporte rien, donc un import nomme ne resout pas). Un cliquet qui verdit pendant que le
+build casse est pire que pas de cliquet : il transforme une panne en « rien a signaler ».
+Le probe ne remplace PAS `frida-compile` -- il repond a « le depot est-il auto-constructible ? »,
+pas a « le TypeScript compile-t-il ». Les deux se lancent.
 
 `git check-ignore --stdin` fait le travail en UN appel : interroger git fichier par fichier sur
 des centaines d'imports serait lent et masquerait les erreurs.
@@ -107,6 +116,10 @@ def main() -> int:
 
     missing = [(s, spec, t) for (s, spec, t) in edges if not t.exists()]
     ignored_edges = [(s, spec, t) for (s, spec, t) in edges if t in ignored]
+    # Une cible de 0 octet EXISTE mais n'est pas un module : `import { x } from ...` ne resout
+    # rien. C'est l'etat dans lequel une restauration partielle laisse les fichiers.
+    empty = [(s, spec, t) for (s, spec, t) in edges
+             if t.exists() and t.stat().st_size == 0]
 
     print("[365] fichiers .ts suivis par git sous frida/ : %d" % len(files))
     print("[365] imports relatifs resolus                : %d" % len(edges))
@@ -147,8 +160,18 @@ def main() -> int:
             if len(specs) > 4:
                 print("      ... et %d autres" % (len(specs) - 4))
 
+    if empty:
+        rc = 1
+        print("\n[365] ROUGE -- import STATIQUE d'une cible VIDE (0 octet, donc PAS un module) (%d):"
+              % len(empty))
+        for src, specs in sorted(_grp(empty).items()):
+            print("  %s" % src)
+            for sp in sorted(specs):
+                print("      %s" % sp)
+        print("  => restauration PARTIELLE. `frida-compile` rendra \"is not a module\".")
+
     if rc == 0:
-        print("\n[365] OK -- aucun fichier versionne n'importe de cible gitignoree ou absente.")
+        print("\n[365] OK -- aucun fichier versionne n'importe de cible gitignoree, absente ou vide.")
     return rc
 
 
