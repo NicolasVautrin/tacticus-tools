@@ -204,6 +204,23 @@ Les valeurs correspondent au gameconfig terme à terme
 (`extraCritDmg: [590, 622, 654, 686, 717, 749, 781, 813, 845, 877]` → `arr[level-1]`), et le
 **clamp haut** est direct : 50 rend le palier 10.
 
+**Généralisation — l'ÉTAT 3 joué de bout en bout, et les deux voies confrontées côte à côte.**
+`tauFarsight` est **hors catalogue** ; injecté (`catalog_inject --units tauFarsight`) puis équipé de
+`DawnBlade` (1501, `allowedUnits = [tauFarsight]`), niveau **8** demandé :
+
+| voie | `TriggeredAbility.Level` lu en bataille | `hpToHeal` résolu |
+|---|---|---|
+| A — relique dans le seed BC, puis `build --seed-bc` | **50** (écrasé par `buildNormalizedBC`) | 579 = palier **10** |
+| B — `build --equip-relic "tauFarsight:DawnBlade:8"` | **8** (exact) | **537** = palier 8 |
+
+Sur les deux runners : niveau 10 → 579, **niveau 50 → 579** (clamp), niveau 0 → `system error`.
+C'est la mesure qui tranche « où poser le couple » : la voie A **ne peut pas** jouer un niveau
+choisi.
+
+**Balayage offline** : les **32** abilities de relique se synthétisent (`synthesize_ability`, 0
+échec) et les **56** couples (porteur au catalogue × relique autorisée) se montent — soit toutes
+les unités des états 1 et 2.
+
 ## 7. Ce qui n'est PAS couvert
 
 * **Le rail COMBAT du port Python ne lit toujours pas la relique équipée** (résidu `N317-a`). Ce
@@ -212,6 +229,12 @@ Les valeurs correspondent au gameconfig terme à terme
   portées ».
 * **Aucune mesure du contenu de l'effet** : le probe vérifie que l'ability est **montée** (hiérarchie
   3, id, niveau) et que le natif **résout ses variables** — pas que son effet de jeu est correct.
+* **La levée du verrou 2 en usage réel est LUE, pas jouée.** Le décompilé de
+  `ConfigAmount$$Calculate` montre `fallbackToDefault = false`, donc l'exception ; la mesure, elle,
+  passe par `abilityConfigProbe` (qui force `dontThrow`) et observe la valeur **`0`**. Faire fauter
+  un vrai cast demanderait de déclencher le trigger de la relique en bataille — hors périmètre.
+* **`allowedUnits` n'a pas été confronté côté natif** : rien dans `AddConfiguredAbilities` ne le
+  relit, mais aucun montage `allow_unlisted=True` n'a été joué live pour le vérifier.
 * `TertiaryAbilityVariablesMultiplierPercentage` (`UnitConfiguration+0x78`) vaut **200** sur les
   entrées du seed et n'est **jamais** recalculé par `buildNormalizedBC`. Un porteur synthétisé par
   `catalog_inject.synthesize` porte **100**. L'écart n'a pas été confronté ici.
