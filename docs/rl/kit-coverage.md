@@ -2,73 +2,102 @@
 
 > Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur
 > des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`
-> (par-ability). Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre
-> les TROIS registres de scoring (non-comparables + overrides custom des comparables
-> + sous-classes `AActiveAbility` par ability). La mention « NC classee, utilite NC non
+> (par-ability). **Ne jamais fusionner un conflit sur ce fichier : le REGENERER.**
+>
+> Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre les TROIS
+> registres de scoring (non-comparables + overrides custom des comparables +
+> sous-classes `AActiveAbility` par ability). La mention « NC classee, utilite NC non
 > portee » marque une ability reconnue NonComparable dont l'utilite reste a porter :
-> c'est un travail restant, pas une face couverte.
-> A regenerer
-> apres tout port. Les MISSING passifs/traits sont des CANDIDATS (approximation
-> registres, cf. docstring du script) : trancher au recon du kit.
+> c'est un travail restant, pas une face couverte. Les MISSING passifs/traits sont des
+> CANDIDATS (approximation registres, cf. docstring du script) : trancher au recon du kit.
+>
+> **Ce que le total compte** : les items du kit INTRINSEQUE (`activeAbilities`,
+> `passiveAbilities`, traits de kit). **Ce qu'il ne compte pas** : les voies
+> CONDITIONNELLES (mythique a debloquer, relique a equiper) — elles ont leur propre
+> section, chiffree, en fin de document. Les voies `trait`/`liveevent`/`summon`/`tile`
+> ne sont derivables d'aucune source offline (`case-323-unit-map-attribution-voies.md`).
+>
+> Sections detaillees ordonnees par NOM de faction (ordre stable, pour qu'une
+> regeneration ne produise un diff que la ou le contenu bouge) ; la priorisation par
+> volume est la table de bilan ci-dessous.
 
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **37** ; kits avec du travail : **90**
-- Volume total : **115** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **112** items manquants (actives no-op + passifs/traits non registres)
+- HORS total — voies conditionnelles : **43** abilities non portees (11 mythiques, 32 reliques equipables)
 
-## Par faction (kits avec du travail, tries par volume)
+### Priorite par faction (volume decroissant)
+
+| faction | kits | items |
+|---|---:|---:|
+| Aeldari | 5 | 8 |
+| EmperorsChildren | 5 | 8 |
+| BloodAngels | 6 | 7 |
+| Necrons | 6 | 7 |
+| ThousandSons | 5 | 7 |
+| BlackTemplars | 5 | 6 |
+| Custodes | 5 | 6 |
+| SpaceWolves | 4 | 6 |
+| Tau | 5 | 6 |
+| WorldEaters | 5 | 6 |
+| AstraMilitarum | 4 | 5 |
+| DarkAngels | 4 | 5 |
+| LeaguesOfVotann | 5 | 5 |
+| Sisterhood | 4 | 5 |
+| AdeptusAstartes | 2 | 4 |
+| BlackLegion | 4 | 4 |
+| Orks | 3 | 4 |
+| AdeptusMechanicus | 3 | 3 |
+| Genestealers | 3 | 3 |
+| Tyranids | 3 | 3 |
+| Ultramarines | 3 | 3 |
+| DeathGuard | 1 | 1 |
+
+## Par faction (kits avec du travail)
+
+### AdeptusAstartes — 2 kits, 4 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
+| astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
+
+### AdeptusMechanicus — 3 kits, 3 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
+| admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
+| admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
 ### Aeldari — 5 kits, 8 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
+| eldarAutarch | 1 | Loki_SwoopingHawk(1064) [--] NO-OP DAMAGE(Piercing) | - | - |
 | eldarJainZar | 2 | SilentDeath(1068) [--] NO-OP DAMAGE(Piercing) | TerrorsLament | - |
 | eldarLhykhis | 2 | EmpyricAmbush(1232) [--] NO-OP DAMAGE(Eviscerate) | WhisperingWeb | - |
-| eldarRanger | 2 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | WireweaveNet | - |
-| eldarAutarch | 1 | Loki_SwoopingHawk(1064) [--] NO-OP DAMAGE(Piercing) | - | - |
 | eldarMauganRa | 1 | HarvesterOfSouls(1067) [CD] OK | InescapableAccuracy | - |
+| eldarRanger | 2 | FireAndReposition(1063) [--] NO-OP EFFECT/BUFF | WireweaveNet | - |
 
-### EmperorsChildren — 5 kits, 8 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| emperExultant | 2 | EuphoricStrikes(1198) [--] NO-OP DAMAGE(Power) | RefusalToBeOutdone | - |
-| emperFlawlessBlade | 2 | DaemonicPatrons(1203) [--] NO-OP EFFECT/BUFF | EcstaticSlaughter | - |
-| emperLucius | 2 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | - |
-| emperKakophonist | 1 | DoomSiren(1199) [CD] OK | ObsessiveAnnunciation | - |
-| emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
-
-### Necrons — 6 kits, 8 items
+### AstraMilitarum — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
-| necroWarden | 2 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | RelentlessMarch | - |
-| necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
-| necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
-| necroOverlord | 1 | ResurrectionOrb(1009) [CD] OK | MyWillBeDoneOverlord | - |
-| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
+| astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
+| astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
+| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [--] NO-OP DAMAGE(Psychic) | - | - |
+| astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
-### BloodAngels — 6 kits, 7 items
+### BlackLegion — 4 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
-| bloodDante | 1 | LightOfSanguinius(1177) [-D] NO-OP DAMAGE(Melta) | - | - |
-| bloodDeathCompany | 1 | BlackRage(1163) [CD] OK | VisionsOfHeresy | - |
-| bloodIntercessor | 1 | HammerOfWrath(1153) [CD] OK | AggressiveOnslaught | - |
-| bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
-| bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
-
-### ThousandSons — 5 kits, 7 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| thousDaemonPrince | 2 | AetherStride(1208) [--] NO-OP SUMMON<br>InfernalCannon(1209) [--] NO-OP DAMAGE(Flame) | - | - |
-| thousSekhetar | 2 | HeavyWarpFlamer(1227) [-D] NO-OP DAMAGE(Flame) | PropheticSentinel | - |
-| thousAhriman | 1 | Doombolt(1102) [C-] OK | PsychicStalk | - |
-| thousSorcerer | 1 | AttemptedPossession(1101) [--] NO-OP EFFECT/BUFF | - | - |
-| thousTerminator | 1 | HellfyreMissileRack(1088) [--] NO-OP DAMAGE(HeavyRound) | - | - |
+| blackAbaddon | 1 | Drachnyen(1029) [CD] OK | FirstAmongTraitors | - |
+| blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
+| blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
+| blackTerminator | 1 | BringerOfDespair(1022) [C-] OK | HatefulAssault | - |
 
 ### BlackTemplars — 5 kits, 6 items
 
@@ -80,96 +109,80 @@
 | templHelbrecht | 1 | CrusadeOfWrath(1049) [--] NO-OP EFFECT/BUFF | - | - |
 | templSwordBrother | 1 | ThunderousAssault(1043) [C-] OK | ChampionOfTheFeast | - |
 
+### BloodAngels — 6 kits, 7 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| bloodDante | 1 | LightOfSanguinius(1177) [-D] NO-OP DAMAGE(Melta) | - | - |
+| bloodDeathCompany | 1 | BlackRage(1163) [CD] OK | VisionsOfHeresy | - |
+| bloodIntercessor | 1 | HammerOfWrath(1153) [CD] OK | AggressiveOnslaught | - |
+| bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
+| bloodSanguinary | 2 | BloodChalice(1175) [--] NO-OP HEAL | SanguinaryPriest | - |
+| bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
+
 ### Custodes — 5 kits, 6 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| custoBladeChampion | 2 | MartialInspiration(1191) [--] NO-OP DAMAGE(Eviscerate) | LegacyOfCombat | - |
 | custoAtlacoya | 1 | TalonsOfTheEmperor(1195) [--] NO-OP DAMAGE(Power) | - | - |
+| custoBladeChampion | 2 | MartialInspiration(1191) [--] NO-OP DAMAGE(Eviscerate) | LegacyOfCombat | - |
 | custoKyrus | 1 | VigilanceEternal(1202) [CD] OK | UnwaveringSentinel | - |
 | custoTrajann | 1 | MomentShackle(1184) [C-] OK | LegendaryCommander | - |
 | custoVexilusPraetor | 1 | VexillaMagnifica(1183) [-D] NO-OP DAMAGE(Physical) | - | - |
-
-### LeaguesOfVotann — 5 kits, 6 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| votanChampion | 2 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | ModifiedExoarmour | - |
-| votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
-| votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
-| votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
-| votanUthar | 1 | AncestralFortune(1207) [C-] OK | GrimEfficiency | - |
-
-### SpaceWolves — 4 kits, 6 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| spaceHound | 2 | GrapnelLauncher(1090) [-D] NO-OP DAMAGE(Physical) | HuntersBeyondDeath | - |
-| spaceWolfPriest | 2 | RitesOfMorkai(1211) [--] NO-OP EFFECT/BUFF | HealingBalms | - |
-| spaceBlackmane | 1 | WarHowl(1106) [--] NO-OP EFFECT/BUFF | - | - |
-| spaceWulfen | 1 | GreatFrostAxe(1089) [C-] OK | SavageKiller | - |
-
-### Tau — 5 kits, 6 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
-| tauAunShi | 1 | InspiredToGreatness(1082) [CD] OK | SereneUnifier | - |
-| tauDarkstrider | 1 | FightingRetreat(1081) [CD] OK | StructuralAnalyser | - |
-| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [--] NO-OP DAMAGE(HeavyRound) | - | - |
-| tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
-
-### WorldEaters — 5 kits, 6 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
-| worldEightbound | 1 | OverwhelmingWrath(1141) [--] NO-OP DAMAGE(Eviscerate) | - | - |
-| worldExecutions | 1 | MurderousSwing(1137) [CD] OK | TrophyTaker | - |
-| worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
-| worldKharn | 1 | KillMaimBurn(1132) [--] NO-OP DAMAGE(Piercing) | - | - |
-
-### AstraMilitarum — 4 kits, 5 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| astraDreir | 2 | LeadingTheCharge(1204) [--] NO-OP DAMAGE(Power) | ToughToKill | - |
-| astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
-| astraPrimarisPsy | 1 | PsychicMaelstrom(1027) [--] NO-OP DAMAGE(Psychic) | - | - |
-| astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
 ### DarkAngels — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| darkaSternguard | 2 | SternguardFocus(1228) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
 | darkaCompanion | 1 | CalibaniteGreatsword(1189) [C-] OK | EnmityForTheUnworthy | - |
 | darkaHellblaster | 1 | Supercharge(1103) [C-] OK | GrimRetribution | - |
+| darkaSternguard | 2 | SternguardFocus(1228) [--] NO-OP EFFECT/BUFF | SpecialIssueCombiMelta | - |
 | darkaTerminator | 1 | PlasmaCannon(1150) [CD] OK | Deathwing | - |
 
-### Sisterhood — 4 kits, 5 items
+### DeathGuard — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| adeptHospitaller | 2 | RitesOfRestoration(1039) [-D] NO-OP HEAL | MedicusMinistorum | - |
-| adeptCelestine | 1 | SkyStrike(1025) [C-] OK | GeminaeSuperia | - |
-| adeptMorvenn | 1 | SanctorumMissile(1062) [C-] OK | RighteousRepugnance | - |
-| adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
+| deathPutrifier | 1 | FoulInfusion(1038) [-D] NO-OP DAMAGE(Toxic) | - | - |
 
-### AdeptusAstartes — 2 kits, 4 items
+### EmperorsChildren — 5 kits, 8 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
-| astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
+| emperExultant | 2 | EuphoricStrikes(1198) [--] NO-OP DAMAGE(Power) | RefusalToBeOutdone | - |
+| emperFlawlessBlade | 2 | DaemonicPatrons(1203) [--] NO-OP EFFECT/BUFF | EcstaticSlaughter | - |
+| emperKakophonist | 1 | DoomSiren(1199) [CD] OK | ObsessiveAnnunciation | - |
+| emperLucius | 2 | LashOfTorment(1196) [--] NO-OP DAMAGE(Eviscerate) | ArmourOfShriekingSouls | - |
+| emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
 
-### AdeptusMechanicus — 3 kits, 4 items
+### Genestealers — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| admecManipulus | 2 | DefendTheDivineWork(1117) [-D] NO-OP REPAIR | GalvanicField | - |
-| admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
-| admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
+| genesBiophagus | 1 | AberrantHypermorph(1166) [CD] OK | TwistedScience | - |
+| genesMagus | 1 | MindControl(1164) [--] NO-OP EFFECT/BUFF | - | - |
+| genesPatriarch | 1 | MightFromBelow(1165) [--] NO-OP DAMAGE(Psychic) | - | - |
+
+### LeaguesOfVotann — 5 kits, 5 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
+| votanChampion | 1 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | - | - |
+| votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
+| votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
+| votanUthar | 1 | AncestralFortune(1207) [C-] OK | GrimEfficiency | - |
+
+### Necrons — 6 kits, 7 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
+| necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
+| necroOverlord | 1 | ResurrectionOrb(1009) [CD] OK | MyWillBeDoneOverlord | - |
+| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
+| necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
+| necroWarden | 1 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | - | - |
 
 ### Orks — 3 kits, 4 items
 
@@ -179,22 +192,43 @@
 | orksNob | 1 | UnstoppableMomentumReworked(1152) [--] NO-OP DAMAGE(DirectDamage) | - | - |
 | orksWarboss | 1 | Waaagh(1058) [C-] OK | LightImUp | - |
 
-### BlackLegion — 4 kits, 4 items
+### Sisterhood — 4 kits, 5 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| blackAbaddon | 1 | Drachnyen(1029) [CD] OK | FirstAmongTraitors | - |
-| blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
-| blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
-| blackTerminator | 1 | BringerOfDespair(1022) [C-] OK | HatefulAssault | - |
+| adeptCelestine | 1 | SkyStrike(1025) [C-] OK | GeminaeSuperia | - |
+| adeptHospitaller | 2 | RitesOfRestoration(1039) [-D] NO-OP HEAL | MedicusMinistorum | - |
+| adeptMorvenn | 1 | SanctorumMissile(1062) [C-] OK | RighteousRepugnance | - |
+| adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
-### Genestealers — 3 kits, 3 items
+### SpaceWolves — 4 kits, 6 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| genesBiophagus | 1 | AberrantHypermorph(1166) [CD] OK | TwistedScience | - |
-| genesMagus | 1 | MindControl(1164) [--] NO-OP EFFECT/BUFF | - | - |
-| genesPatriarch | 1 | MightFromBelow(1165) [--] NO-OP DAMAGE(Psychic) | - | - |
+| spaceBlackmane | 1 | WarHowl(1106) [--] NO-OP EFFECT/BUFF | - | - |
+| spaceHound | 2 | GrapnelLauncher(1090) [-D] NO-OP DAMAGE(Physical) | HuntersBeyondDeath | - |
+| spaceWolfPriest | 2 | RitesOfMorkai(1211) [--] NO-OP EFFECT/BUFF | HealingBalms | - |
+| spaceWulfen | 1 | GreatFrostAxe(1089) [C-] OK | SavageKiller | - |
+
+### Tau — 5 kits, 6 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| tauAunShi | 1 | InspiredToGreatness(1082) [CD] OK | SereneUnifier | - |
+| tauDarkstrider | 1 | FightingRetreat(1081) [CD] OK | StructuralAnalyser | - |
+| tauFarsight | 2 | ExemplarOfTheMontka(1210) [--] NO-OP EFFECT/BUFF | WayOfTheShortBlade | - |
+| tauMarksman | 1 | SeekerMissileFrequencyLock(1069) [--] NO-OP DAMAGE(HeavyRound) | - | - |
+| tauShadowsun | 1 | ExemplarOfTheKauyon(1087) [--] NO-OP DAMAGE(Blast) | - | - |
+
+### ThousandSons — 5 kits, 7 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| thousAhriman | 1 | Doombolt(1102) [C-] OK | PsychicStalk | - |
+| thousDaemonPrince | 2 | AetherStride(1208) [--] NO-OP SUMMON<br>InfernalCannon(1209) [--] NO-OP DAMAGE(Flame) | - | - |
+| thousSekhetar | 2 | HeavyWarpFlamer(1227) [-D] NO-OP DAMAGE(Flame) | PropheticSentinel | - |
+| thousSorcerer | 1 | AttemptedPossession(1101) [--] NO-OP EFFECT/BUFF | - | - |
+| thousTerminator | 1 | HellfyreMissileRack(1088) [--] NO-OP DAMAGE(HeavyRound) | - | - |
 
 ### Tyranids — 3 kits, 3 items
 
@@ -212,12 +246,75 @@
 | ultraInceptorSgt | 1 | DeathFromAbove(1003) [C-] OK | ShockAssault | - |
 | ultraTigurius | 1 | StormOfWrath(1019) [--] NO-OP DAMAGE(Psychic) | - | - |
 
-### DeathGuard — 1 kits, 1 items
+### WorldEaters — 5 kits, 6 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| deathPutrifier | 1 | FoulInfusion(1038) [-D] NO-OP DAMAGE(Toxic) | - | - |
+| worldEightbound | 1 | OverwhelmingWrath(1141) [--] NO-OP DAMAGE(Eviscerate) | - | - |
+| worldExecutions | 1 | MurderousSwing(1137) [CD] OK | TrophyTaker | - |
+| worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
+| worldKharn | 1 | KillMaimBurn(1132) [--] NO-OP DAMAGE(Piercing) | - | - |
+| worldTerminator | 2 | BloodyFury(1129) [-D] NO-OP DAMAGE(Chain) | WrathfulDevotion | - |
 
 ## Kits lineup COMPLETS (37)
 
 adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astraBullgryn, astraCreed, astraOrdnanceBattery, blackForgefiend, blackObliterator, darkaAsmodai, darkaAzrael, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathRotbone, deathTyphus, eldarFarseer, genesKelermorph, genesPrimus, necroSpyder, orksKillaKan, orksRukkatrukk, orksRuntherd, spaceRockfist, spaceStormcaller, tauBroadside, tauCrisis, thousInfernalMaster, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraTitus
+
+## HORS total — voies conditionnelles (43 abilities non portees)
+
+> Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
+> pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
+> (`items[*].abilityId` + `allowedUnits`, la relique a EQUIPER). Elles sont hors du
+> total parce que leur nature differe — mais les taire reproduirait la cecite de #323,
+> qui a fait rendre un faux « 0 unite, DEAD ». Une relique se ventile en TROIS etats
+> (equipee au seed / porteur au pool relique non equipee / porteur hors pool) :
+> `case-323-unit-map-attribution-voies.md` §5. La voie `relicAbilities` ne touche
+> AUCUNE unite `lineup` (0 mesure) — elle n'apparait donc pas ici.
+
+| ability | voie | porteurs lineup | ex. |
+|---|---|---:|---|
+| AmuletOfTheVoidwyrm | item | 3 | genesBiophagus, genesKelermorph, genesPrimus |
+| BladeOfTheAncestors | item | 1 | votanUthar |
+| BookOfFate | item | 3 | blackPossession, thousInfernalMaster, thousSorcerer |
+| ChaliceOfBaal | item | 1 | bloodSanguinary |
+| DaemonfleshPlate | item | 4 | blackTerminator, deathBlightlord, thousTerminator, worldTerminator |
+| DawnBlade | item | 1 | tauFarsight |
+| Dw02AdvancedBurstCannon | item | 1 | tauCrisis |
+| HeadwoppasKillchoppa | item | 1 | orksWarboss |
+| Helspear | item | 1 | blackHaarken |
+| IntoxicatingElixir | item | 4 | emperExultant, emperFlawlessBlade, emperKakophonist, emperNoiseMarine |
+| KardiocoreGalvanus | item | 3 | admecDestroyer, admecMarshall, admecRuststalker |
+| Lakrimae | item | 1 | deathTyphus |
+| Maugetar | item | 1 | eldarMauganRa |
+| MawClawsOfThyrax | item | 4 | genesPatriarch, tyranParasite, tyranTyrantGuard, tyranWingedPrime |
+| MonsterSlayerOfCaliban | item | 1 | darkaCompanion |
+| NetherRealmCasket | item | 3 | necroDestroyer, necroSpyder, necroWarden |
+| NornCrown | item | 1 | tyranNeurothrope |
+| OrbsOfDecay | item | 3 | deathBlightbringer, deathPutrifier, deathRotbone |
+| ParagonSpear | item | 1 | custoKyrus |
+| PhasalSubjugator | item | 1 | necroOverlord |
+| PhoenixGem | item | 1 | eldarAutarch |
+| RelicBoltPistol | item | 7 | astarCyrus, darkaHellblaster, darkaSternguard, spaceHound |
+| RelicOfLostCadia | item | 3 | astraBullgryn, astraOrdnance, astraPrimarisPsy |
+| RelicPowerFist | item | 3 | bloodIntercessor, darkaTerminator, templAggressor |
+| SabreOfSacrifice | item | 1 | astraDreir |
+| SupaCyborkBody | item | 3 | orksBigMek, orksNob, orksRuntherd |
+| TalismanOfRage | item | 3 | worldEightbound, worldExecutions, worldJakhal |
+| TalonOfHorus | item | 1 | blackAbaddon |
+| TheArdentBlade | item | 1 | adeptCelestine |
+| Vitarus | item | 1 | bloodMephiston |
+| VolummsMasterArtifice | item | 1 | votanIronmaster |
+| WyrdmakersHelm | item | 1 | spaceWolfPriest |
+| BlightedLand | mythic | 1 | deathCrawler |
+| CabalOfSorcerers | mythic | 1 | thousDaemonPrince |
+| ContemptuousDisregard | mythic | 1 | blackForgefiend |
+| ElectrochaffBackups | mythic | 1 | tauBroadside |
+| GuardianConstruct | mythic | 1 | necroReanimator |
+| HyperCorrosiveAcid | mythic | 1 | tyranBiovore |
+| MastersOfManoeuvre | mythic | 1 | darkaStormSpeeder |
+| MoreGitzOverEre | mythic | 1 | orksRukkatrukk |
+| OnMyPosition | mythic | 1 | astraOrdnanceBattery |
+| ShieldOfFaith | mythic | 1 | adeptExorcist |
+| WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
+
+Portees (au moins un registre) : **0**
