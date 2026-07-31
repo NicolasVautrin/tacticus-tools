@@ -628,10 +628,22 @@ tokens**. Ne jamais payer ça pour une information d'avancement : elle se lit à
 
 | ce qu'on veut savoir | comment, sans toucher l'agent |
 |---|---|
-| dernière activité | `LastWriteTime` de `<session>/tasks/<agentId>.output` — le transcript est appendu à chaque tour d'outil. ⚠ `Get-Item` **seulement** : ne JAMAIS lire ce fichier, il ferait déborder le contexte. |
+| dernière activité | `LastWriteTime` de `~/.claude/projects/<projet>/<session>/subagents/agent-<agentId>.jsonl` — LE transcript, appendu à chaque tour d'outil. ⚠ `Get-Item` **seulement** : ne JAMAIS lire ce fichier (700 Ko à 1,4 Mo), il ferait déborder le contexte. |
 | ce qu'il a écrit | `git -C <worktree> status --porcelain` et `git -C <worktree> log --oneline origin/master..HEAD` |
 | empreinte live | `listRunners` côté host — montre ses runners sans l'éveiller |
-| en cours vs arrêté | `git worktree list` : `locked` = **en cours d'exécution** ; absent des `locked` = arrêté / en veille |
+| en cours vs arrêté | `LastWriteTime` du même `.jsonl` comparé à maintenant. **PAS** l'absence de notification — un agent vivant n'en émet aucune. |
+
+> ⛔ **`<session>/tasks/<agentId>.output` — celui que l'outil `Agent` rapporte comme `output_file` —
+> fait `0 octet` pour TOUS les agents, vivants comme morts, et son `LastWriteTime` vaut l'heure de
+> LANCEMENT.** Il ne mesure ni l'activité, ni la survie du contexte. **Mesuré le 2026-07-31 sur
+> 9 agents : 0 Ko × 9**, pendant que les `subagents/*.jsonl` faisaient 92 Ko à 1,4 Mo.
+>
+> Cette ligne du skill disait le contraire, et l'avoir crue a coûté : quatre agents tombés sur
+> erreur API ont été relancés **à neuf** alors que leur transcript était intact (`SendMessage` les
+> aurait repris) ; un cinquième, **qui travaillait**, a été déclaré mort — d'où un doublon lancé sur
+> sa tâche et un `git commit` intrusif dans son worktree. Un agent qui tombe sur erreur API
+> **garde son transcript** : la reprise à vide décrite plus bas ne vaut que pour un exit brutal du
+> parent, et se vérifie sur la TAILLE du `.jsonl`, jamais sur ce fichier-ci.
 
 - **Un `SendMessage` ne se justifie que pour CHANGER ce que l'agent fait** : demande de rebase,
   correction de cap, consigne neuve, préavis de reinject. **Jamais** pour un rapport d'état.
@@ -777,8 +789,9 @@ bloqué — alors que sa réponse ne changeait rien à la décision.)*
   `Agent` (qui repart de ZÉRO) ni un synthétiseur du transcript.** L'outil `Agent` n'a AUCUN `--resume` :
   un nouvel `Agent` démarre toujours frais. SEUL `SendMessage(to: <agentId>)` continue un agent déjà
   lancé — il recharge son **transcript** (= la conversation JSONL de l'agent sur disque,
-  `…/tasks/<agentId>.output` : prompt + tours assistant + `tool_use`/`tool_result`) puis y ajoute mon
-  message. C'est le VRAI équivalent de `--resume`.
+  `~/.claude/projects/<projet>/<session>/subagents/agent-<agentId>.jsonl` : prompt + tours assistant
+  + `tool_use`/`tool_result`) puis y ajoute mon message. C'est le VRAI équivalent de `--resume`.
+  ⚠ **Pas** `tasks/<agentId>.output`, qui est vide pour tout le monde (encadré plus haut).
   - Agent **terminé** ou stoppé **proprement** (`TaskStop`) → transcript flushé → resume **AVEC contexte
     intact**. Cas normal.
   - **Exit BRUTAL du process Claude Code parent** (crash / Ctrl-C sur la session / terminal fermé) pendant
