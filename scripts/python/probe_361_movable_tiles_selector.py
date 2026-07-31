@@ -27,6 +27,28 @@ arme donc AUSSI les deux sous-selecteurs, NOMMES et a corps court, qui les PRODU
     (le SEUL noeud de l'arbre qui CHANGE de branche entre les deux contextes : le gate laisse
     `+0x48` nul, le playbook le renseigne)
 
+LE RETOUR SE LIT EN DEUX FORMES (#374) -- et une seule etait decodee
+--------------------------------------------------------------------
+Premier tir arme : 4 appels sur chacun des deux bras, `[retour-illisible]` partout
+(`classes=['OrderedSet`1' x4]`), alors que le controle positif emettait ses batchs (bras A
+4 events == 4 attendus, bras B 5 == 5). Le decodeur ne se trompait pas sur le fond : il ne
+savait pas lire ce type. Lu au decompile :
+
+  * les DEUX early-returns rendent la `System.Collections.Generic.List`1` VIDE que le corps
+    vient d'allouer ;
+  * le retour de `IBattleQuery.GetMovableTilesInRange` est un
+    `idun.shared.collections.OrderedSet`1`, qui DERIVE de `List`1` -- `OrderedSet<T>$$.ctor`
+    appelle `List<T>$$.ctor` sur le MEME `this` et n'ajoute que son `HashSet` a `+0x28`, et
+    `OrderedSet<T>$$get_Item` DELEGUE a `List<T>$$get_Item`. Le stockage ordonne est donc
+    celui de la base (`_items`@+0x10, `_size`@+0x18, elements des +0x20), exactement ce que
+    `internals.extractTiles` decode deja pour le RPC `aiMovableTiles`.
+
+La CLASSE du retour est donc elle-meme discriminante (`List` = early-return silencieux,
+`OrderedSet` = la requete a repondu). Le capteur la publie avec la forme de stockage retenue
+et le chemin d'heritage ; `_shape` la rend dans les phrases. Le tri-etat, lui, NE BOUGE PAS :
+`[retour-illisible]` reste STRICTEMENT distinct de `[vide]` -- c'est lui qui a evite un faux
+« pool vide », et il NOMME desormais la raison de son refus.
+
 DEUX GARDE-FOUS, sans lesquels ce probe mesurerait un artefact de MONTAGE
 ------------------------------------------------------------------------
   1. **La gate doit etre OUVERTE.** `MakeDamagePredictions` ne construit `GetTileToMoveTo()`
@@ -101,6 +123,41 @@ def _in_window(calls, node: dict) -> list:
     return [c for c in (calls or []) if lo <= c.get("seq", -1) <= hi]
 
 
+def probe_predates_374(tp) -> bool:
+    """Le capteur INJECTE est-il anterieur au correctif #374 (lecture d'`OrderedSet`) ?
+
+    Le correctif vit dans `frida/hooks/*` : il reste INERTE tant que le bundle n'a pas ete
+    rebuilde ET reinjecte. Sans ce discriminant, un `[retour-illisible]` post-correctif se
+    lirait « le capteur est incoherent » alors qu'il n'est simplement pas charge -- et c'est
+    exactement le genre d'ambiguite qui a fait tourner ce residu en rond. Le capteur corrige
+    pose TOUJOURS la cle `returnedStorage` (fut-elle nulle) ; celui d'avant ne la connait pas.
+
+    NE conclut RIEN du natif : `True` veut dire « NON CONFRONTE », jamais « pool vide »."""
+    nodes = (tp or {}).get("nodes")
+    if not nodes:
+        return False
+    return not any("returnedStorage" in n for n in nodes)
+
+
+def _shape(node: dict) -> str:
+    """La FORME du retour, telle que le capteur l'a lue -- classe effective, stockage retenu,
+    chemin d'heritage. Publiee dans les phrases parce que la classe est elle-meme DISCRIMINANTE
+    (#374) : `MovableTilesInRangeSelector$$Select` rend la `List` VIDE qu'il vient d'allouer sur
+    ses deux early-returns, et un `OrderedSet` (derive de `List`) quand
+    `IBattleQuery.GetMovableTilesInRange` a repondu. Purement descriptif : aucun verdict n'en
+    est derive -- ce sont les sous-selecteurs qui departagent les trois issues du corps."""
+    cls, sto = node.get("returnedClass"), node.get("returnedStorage")
+    via, el = node.get("returnedVia"), node.get("returnedElementClass")
+    bits = ["classe=%s" % cls]
+    if sto:
+        bits.append("stockage=%s" % sto)
+    if via:
+        bits.append("via=%s" % via)
+    if el:
+        bits.append("element=%s" % el)
+    return " ".join(bits)
+
+
 def _tile_verdict(tp) -> tuple:
     """Traduit le capteur #370 en (etiquette, phrase). TRI-ETAT strict a chaque maillon :
       `None`           -> capteur ABSENT du bundle injecte (reinject en attente) ;
@@ -121,17 +178,37 @@ def _tile_verdict(tp) -> tuple:
                 "`TargetsSelector$$op_BitwiseAnd` / `$$AdjacentTiles`)")
     counts = [int(n.get("returnedCount", -1)) for n in nodes]
     if any(c < 0 for c in counts):
+        # Cet etat reste DISTINCT de `[vide]`, et c'est tout son interet : c'est lui qui a
+        # empeche de lire un « pool vide » la ou le controle positif emettait ses batchs (#374).
+        # Il NOMME desormais la raison du refus, faute de quoi un `-1` muet se relirait comme un
+        # bug du capteur au lieu d'un type que le decodeur ne connait pas.
+        #
+        # ... et il dit AUSSI de quel capteur vient ce refus. Le correctif #374 (lecture d'
+        # `OrderedSet`) vit dans `frida/hooks/*` : il reste INERTE tant que le bundle injecte
+        # n'a pas ete rebuilde. Sans cette distinction, un `[retour-illisible]` post-correctif
+        # se lirait « le correctif ne marche pas » alors qu'il n'est simplement pas charge --
+        # exactement le genre d'ambiguite qui a fait tourner ce residu en rond. Discriminant :
+        # le capteur corrige pose TOUJOURS la cle `returnedStorage` (fut-elle nulle) ; celui
+        # d'avant #374 ne la connait pas.
+        aged = not any("returnedStorage" in n for n in nodes)
         return ("retour-illisible",
                 "capteur #370 ARME (%d appel(s)) mais le retour de "
-                "`MovableTilesInRangeSelector$$Select` n'est pas decodable (classes=%s) -- c'est "
-                "une ERREUR de lecture, pas un pool vide"
-                % (len(nodes), [n.get("returnedClass") for n in nodes]))
+                "`MovableTilesInRangeSelector$$Select` n'est pas decodable -- c'est une ERREUR de "
+                "lecture, pas un pool vide. Formes vues : %s ; raisons : %s%s"
+                % (len(nodes), [_shape(n) for n in nodes],
+                   [n.get("returnedError") for n in nodes
+                    if int(n.get("returnedCount", -1)) < 0],
+                   (". Le capteur INJECTE est ANTERIEUR a #374 (il ne publie pas "
+                    "`returnedStorage`) : la lecture d'`OrderedSet` est livree mais PAS CHARGEE "
+                    "-- fenetre de reinject en attente, rien n'est conclu du natif" if aged
+                    else "")))
     if any(c > 0 for c in counts):
         return ("pool-non-vide",
                 "capteur #370 ARME : `MovableTilesInRangeSelector$$Select` rend %s tuile(s) => le "
                 "POOL n'est PAS vide, et la perte est en AVAL (`op_BitwiseAnd CanAddUnit` / "
-                "`SortTilesByUtility` / `First`). Tuiles : %s"
-                % (counts, [n.get("returnedTiles") for n in nodes]))
+                "`SortTilesByUtility` / `First`). Tuiles : %s. Formes : %s"
+                % (counts, [n.get("returnedTiles") for n in nodes],
+                   [_shape(n) for n in nodes]))
 
     # --- tous les appels rendent un pool VIDE : departager les trois issues du corps
     node = nodes[0]
@@ -177,9 +254,9 @@ def _tile_verdict(tp) -> tuple:
             "capteur #370 : pool VIDE alors que `CasterSelector$$Select` rend %s element(s) ET "
             "`CasterTileSelector$$Select` rend %s tuile(s) => les deux entrees sont PRESENTES, et "
             "c'est `IBattleQuery.GetMovableTilesInRange(entity, fromTile, ignoreFlags, options)` "
-            "qui rend un ensemble VIDE"
+            "qui rend un ensemble VIDE. Forme du retour : %s"
             % ([c.get("returnedCount") for c in unit_win],
-               [c.get("returnedCount") for c in tile_win]))
+               [c.get("returnedCount") for c in tile_win], _shape(node)))
 
 
 # --------------------------------------------------------------------------------------------
@@ -352,7 +429,12 @@ def run(seed: int = 37000, level: int = 8, mult: int = None, verbose: bool = Tru
         out["verdict"] = ("CONTROLE POSITIF PERDU : le bras A n'emet plus les batchs 3/4 (%d "
                           "events pour %d attendus). Le montage a derive -- rien n'est conclu."
                           % (a.get("n_events"), (a.get("expected") or {}).get("n")))
-    elif a["tile_kind"] in ("absent", "non-arme"):
+    elif a["tile_kind"] in ("absent", "non-arme") or probe_predates_374(a.get("tile_probe")):
+        # ⚠ Trois situations, un SEUL verdict : capteur absent du bundle, capteur non arme, ou
+        # capteur ARME mais ANTERIEUR au correctif #374. Les trois disent la meme chose -- le
+        # harnais n'est pas en etat de repondre -- et aucune n'autorise a conclure du natif.
+        # La derniere est la plus traitre : le capteur FIRE, ses appels se comptent, et sans le
+        # discriminant `returnedStorage` on l'accuserait d'etre « incoherent ».
         out["ok"] = False
         out["verdict"] = (
             "NON CONFRONTE : %s. Les DEUX bras sont PRETS et DISCRIMINANTS, et ils ENCADRENT la "

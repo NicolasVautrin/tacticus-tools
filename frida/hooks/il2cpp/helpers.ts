@@ -93,6 +93,22 @@ export const class_is_valuetype = (() => {
     return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
 })();
 
+/** `il2cpp_class_get_element_class(Il2CppClass*)` — pour un `T[]`, la classe de `T`.
+ *
+ *  À quoi ça sert, concrètement : décider le STRIDE d'un tableau managé sans le
+ *  supposer. `System.Collections.Generic.List<T>$$get_Item` lit l'élément à
+ *  `items + 0x20 + element_size * i`, où `element_size` vient du `Il2CppClass` du
+ *  tableau — donc `8` pour une référence, mais la TAILLE DE LA STRUCT pour un type
+ *  valeur. Un décodeur qui écrit `8` en dur rend du garbage plausible sur le second
+ *  cas. Croisé avec `class_is_valuetype`, cet accesseur permet de RÉPONDRE « je ne
+ *  sais pas lire » au lieu de rendre des nombres faux.
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque), comme ses deux voisins. */
+export const class_get_element_class = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_class_get_element_class");
+    return p ? new NativeFunction(p, "pointer", ["pointer"]) : null;
+})();
+
 // Use the stable public API to get the method code pointer. The first field
 // of MethodInfo varies across IL2CPP versions (some have invoker_method first,
 // methodPointer second) so readPointer() is unsafe.
