@@ -69,13 +69,13 @@ listee dans `variablesAffectedByRarityBonus`) meme sans dissocier les niveaux.
 la classe (corps propre + bases jusqu'a `BaseEffect` exclu + helpers de MODULE appeles, profondeur
 2) mentionne-t-elle `ability_level` / `active_ability_level` / `ability_variables_multiplier` ?
 
-Mesure du 2026-07-31, APRES rebase sur `origin/master` (`91a0c429` — `visions_of_heresy` a ajoute
-deux entrees entre-temps ; ces chiffres se periment, les RE-DERIVER plutot que citer cette ligne) :
+Mesure du 2026-07-31, APRES rebase sur `origin/master` (`d70c60d2` — `visions_of_heresy` puis `ExemplarOfTheKauyon` ont ajoute
+trois entrees entre-temps ; ces chiffres se periment, les RE-DERIVER plutot que citer cette ligne) :
 
 | | |
 |---|---|
-| `EFFECT_CLASSES` | **137** entrees, **134** classes distinctes |
-| SENSIBLES au canal | **80** entrees |
+| `EFFECT_CLASSES` | **138** entrees, **135** classes distinctes |
+| SENSIBLES au canal | **81** entrees |
 | INDIFFERENTES | **57** entrees (le correctif y est un no-op quel que soit l'ecart) |
 
 Ce que ce balayage NE dit PAS, et qui est la limite assumee : il ne suit que les helpers du **MEME
@@ -112,6 +112,13 @@ u79 <- u83 IgnoreBattleFatigue  porte (180, 50, 50) | source (180, 50, 50) | por
 
 Etats IDENTIQUES -> le correctif y est numeriquement neutre. C'est le cas general : sur un seed
 normalise, deux unites de MEME rarete ont le meme triplet.
+
+Corrobore au rebase sur `d70c60d2` : `1181 ExemplarOfTheKauyon_AdditionalHits` (entree neuve de
+#404, MEME fichier `hits.py`) est bien HORS de ce regime. Verifie moi-meme plutot que repris du
+rapport — roster `tauShadowsun,tauCrisis` vs `orksNob`, 8 activations IA : **10 effets, cross = 0**,
+dont le frere `CyclicIonBlaster_AdditionalHits` (`source == porteur`). L'effet 1181 lui-meme n'a pas
+ete materialise dans ce montage (il se pose au CAST) — sa garde `test_exemplar_of_the_kauyon_hits_
+live.py` est verte apres le correctif (**7 tests**).
 
 **Lecture** : une AURA n'est PAS un effet pose sur le beneficiaire. L'entite-effet vit sur son
 PORTEUR-SOURCE et projette sa modification par selecteur
@@ -212,6 +219,8 @@ Sous la meme mutation, `tests/engine/runner/test_effect_source_ability_state_liv
 | suite | resultat |
 |---|---|
 | `test_effect_source_ability_state_live.py` (neuf) | **8 passed** |
+| `test_exemplar_of_the_kauyon_hits_live.py` (voisin de `hits.py`, #404) | **7 passed** |
+| `test_378_parent_link_offline.py` + `test_366_effects_registry_partition_offline.py` | **verts** |
 | `test_saga_other_space_wolves_live.py` + `test_static_statmod_g1_{expiry,live}.py` | **23 passed** |
 | `test_dotgg_extra_hits_live.py` + `test_path_of_command_crit_aura_live.py` | **17 passed** |
 | `test_ischarging_saga_{hits,crit}_live.py` | **15 passed** |
