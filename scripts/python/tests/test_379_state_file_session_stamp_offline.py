@@ -9,8 +9,8 @@ agent, qui ne verrait ni erreur ni refus, seulement une bataille qui avance tout
 
 Ce test tient les deux moities du correctif :
 
-  * le TRI-ETAT de `runner_state.py` -- et surtout que l'etat « estampille ABSENTE » ne se
-    degrade jamais en « tout va bien » (meme discipline que `host_inputs`, ou `[introuvable]`
+  * le TRI-ETAT de `runner_state.py` -- et surtout que l'etat "estampille ABSENTE" ne se
+    degrade jamais en "tout va bien" (meme discipline que `host_inputs`, ou `[introuvable]`
     reste distinct de `[vide]`) ;
   * le CABLAGE dans `rl_duel.py` (G1..G4), dont la perte serait SILENCIEUSE -- un
     `_save_state` qui n'estampe plus eteint la garde sans qu'aucune autre assertion ne bouge.
@@ -87,7 +87,7 @@ def test_unstamped_recent_passes_but_never_reads_as_ok(tmp_path):
 
 
 def test_unstamped_but_older_than_session_is_refused(tmp_path):
-    """Ce qui rend l'etat « absente » OPERANT : le mtime prouve l'anteriorite.
+    """Ce qui rend l'etat "absente" OPERANT : le mtime prouve l'anteriorite.
 
     Au moment ou la garde entre en service, AUCUN state-file du disque n'est estampe -- donc
     l'etat le plus dangereux est justement celui que l'estampille ne sait pas juger.
@@ -182,6 +182,22 @@ def test_ratchet_bites_when_attach_stops_checking_from(tmp_path):
         "        return 2\n",
         "")
     assert any(v.startswith("G4") for v in p379.scan_guard_sites(root))
+
+
+def test_ratchet_bites_on_an_external_writer_without_session(tmp_path):
+    """G5 -- un module tiers qui ecrit un state-file via `rl_duel` sans poser `SESSION`.
+
+    `_wave_build.py` refait son propre `build` en court-circuitant `rl_duel.main()` : sans
+    `RD.SESSION`, `stamp` n'ecrit rien et le fichier produit reste "non verifiable" a vie.
+    """
+    src = (ROOT / "scripts" / "python" / "_wave_build.py").read_text(encoding="utf-8")
+    assert "RD.SESSION = runner_state.current_identity()" in src
+    d = tmp_path / "scripts" / "python"
+    d.mkdir(parents=True)
+    (d / "_wave_build.py").write_text(
+        src.replace("RD.SESSION = runner_state.current_identity()", "pass", 1),
+        encoding="utf-8")
+    assert any(v.startswith("G5") for v in p379._scan_external_writers(tmp_path))
 
 
 def test_ratchet_reports_missing_file(tmp_path):

@@ -25,7 +25,7 @@ LE CORRECTIF, ET SON TRI-ETAT
     MISMATCH         -> REFUS franc (nomme l'estampille et la session courante)
     UNSTAMPED_STALE  -> REFUS franc  (pas d'estampille, mais mtime ANTERIEUR au startedAt
                                       de la session : l'anteriorite PROUVE la divergence)
-    UNSTAMPED        -> AVERTISSEMENT non bloquant -- « non verifiable », jamais « OK »
+    UNSTAMPED        -> AVERTISSEMENT non bloquant -- "non verifiable", jamais "OK"
 
 CE QUE CE CLIQUET GARDE (etape 0, statique, AUCUNE session requise)
 -------------------------------------------------------------------
@@ -39,12 +39,18 @@ chacun perdable en une ligne, et dont la perte est SILENCIEUSE (aucun test ne ro
       sur disque -- est garde par le verdict (`.ok`) ;
   G4  `cmd_attach` confronte son `--from` : sans ca, un id perime serait recopie dans un
       state-file NEUF et recevrait une estampille FRAICHE -- le mensonge deviendrait
-      indetectable en aval.
+      indetectable en aval ;
+  G5  tout module TIERS qui ecrit un state-file via `rl_duel._save_state` pose `SESSION`.
+      `SESSION` est un global de `rl_duel` pose par son `main()` ; un module qui refait son
+      propre build en le court-circuitant (`_wave_build.py`) laisserait `SESSION` a `None`,
+      `stamp` n'ecrirait rien, et la garde ne garderait rien -- sans erreur ni refus.
+      Lu par AST : un balayage textuel s'attrape LUI-MEME sur les commentaires qui citent
+      `X._save_state(` (mesure faite en ecrivant ce probe).
 
 ETAPE 1 (offline, toujours jouee) -- les quatre etats, sur des fichiers fabriques
 --------------------------------------------------------------------------------
 Fabrique un state-file par etat et verifie le verdict ET la decision (`enforce`). C'est la
-demonstration que les quatre etats sont bien QUATRE, et notamment qu'« absente » ne se lit
+demonstration que les quatre etats sont bien QUATRE, et notamment qu'"absente" ne se lit
 jamais comme une validation.
 
 ETAPE 2 (--live, OPT-IN) -- le refus vu ROUGE de bout en bout
@@ -59,6 +65,7 @@ Sortie ASCII stricte (console Windows cp1252).
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -136,7 +143,45 @@ def scan_guard_sites(root: Path) -> list[str]:
     elif "runner_state.enforce(" not in att or "runner_state.verify(" not in att:
         bad.append("G4 `cmd_attach` ne confronte plus son `--from` -- un id perime serait "
                    "recopie dans un state-file NEUF avec une estampille FRAICHE")
+
+    bad += _scan_external_writers(root)
     return bad
+
+
+def _scan_external_writers(root: Path) -> list[str]:
+    """G5 -- tout module TIERS qui ecrit un state-file via `rl_duel` doit poser `SESSION`.
+
+    `SESSION` est un global de `rl_duel`, pose par son `main()`. Un module qui importe
+    `rl_duel` et appelle `_save_state` SANS passer par `main()` (c'est le cas de
+    `_wave_build.py`, qui refait son propre `build`) laisserait `SESSION` a `None` :
+    `stamp` n'ecrirait rien et le fichier produit resterait indefiniment "non verifiable".
+    Panne SILENCIEUSE -- ni erreur, ni refus, juste une garde qui ne garde rien.
+    """
+    out: list[str] = []
+    pydir = root / "scripts" / "python"
+    if not pydir.is_dir():
+        return out
+    for p in sorted(pydir.glob("*.py")):
+        if p.name in ("rl_duel.py", "runner_state.py"):
+            continue
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        # Lecture par AST, pas par regex : un balayage textuel s'attrape LUI-MEME sur les
+        # commentaires et docstrings qui CITENT `X._save_state(` -- mesure faite.
+        writes = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "_save_state" for n in ast.walk(tree))
+        if not writes:
+            continue
+        poses = any(isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Attribute) and t.attr == "SESSION"
+                            for t in n.targets)
+                    for n in ast.walk(tree))
+        if not poses:
+            out.append(f"G5 {p.name} ecrit un state-file via rl_duel._save_state sans "
+                       f"poser `SESSION` -- le fichier produit ne sera PAS estampe")
+    return out
 
 
 # ---- etape 1 : les quatre etats, offline ---------------------------------- #
@@ -322,7 +367,7 @@ def main(argv: list[str]) -> int:
     bad0 = scan_guard_sites(ROOT)
     for v in bad0:
         print(f"  ROUGE {v}")
-    print("  OK -- G1..G4 intacts" if not bad0 else f"  {len(bad0)} violation(s)")
+    print("  OK -- G1..G5 intacts" if not bad0 else f"  {len(bad0)} violation(s)")
     rc |= 1 if bad0 else 0
 
     print("== etape 1 : les quatre etats (offline) ==")

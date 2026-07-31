@@ -74,16 +74,15 @@ n'obtiennent pas des ids consécutifs, et personne ne récupère l'id de personn
   le sien le pilote. Ce n'est pas de la réattribution : il faut viser juste, pas se tromper.
 * **La monotonie vaut PAR SESSION Frida.** `counter` est un état de module du bundle injecté : une
   (ré)injection le remet à `0`. Au même instant `byId` est vide — tous les runners meurent, donc
-  aucune victime. Le seul chemin résiduel de collision est **inter-session** : un `--runner` (ou un
-  `--state-file`) d'avant un reinject, réutilisé après, une fois que la nouvelle session a dépassé
-  ce numéro. Ce n'est pas hors d'atteinte : `case-321` a mesuré une session montée à **332** ids,
-  au-delà du `261` de l'incident. Un reinject casse déjà tout le harnais en vol (c'est pourquoi
-  c'est un geste orchestrateur planifié), mais un **state-file survit sur disque**, lui.
-  → résidu nommé, correctif **Python pur** (donc actif sans reinject) : estamper le state-file avec
-  le `sessionId` au `build`, et **refuser franchement** toute commande dont la session courante
-  diffère — tri-état obligatoire (`sessionId` absent = state-file d'avant la garde ⇒ avertir, ne pas
-  refuser, sinon on casse les agents en vol). Sites : `_save_state` / `_load_state` / `cmd_attach`
-  de `scripts/python/rl_duel.py`.
+  aucune victime. Le chemin résiduel de collision était **inter-session** : un `--runner` (ou un
+  `--state-file`) d'avant un reinject, réutilisé après. **FERMÉ par #379** (`case-379`) : le
+  state-file est estampé de l'identité de session au `build` et reconfronté au pilotage, tri-état.
+  ⚠ **Cette entrée citait le mauvais chiffre** (« une session montée à 332, au-delà du 261 »), ce
+  qui suggérait qu'une longue session est nécessaire. C'est **l'inverse** : les ids sont distribués
+  en ordre **croissant**, donc un id **BAS** devient collisionnable en **quelques minutes** après un
+  reinject, tandis qu'un id haut reste refusé longtemps. Mesuré le 2026-07-31 : `runnerId=2` est
+  passé de « pas encore attribué » à « appartient au pytest d'un autre agent » en moins de dix
+  minutes (`case-379` §7).
 
 ## 5. Le cliquet
 

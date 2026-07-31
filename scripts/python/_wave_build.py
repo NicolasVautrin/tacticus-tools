@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import rl_duel as RD
+import runner_state
 from rl_collect_batch import (
     _load_seed_bc, _load_unspawnable, _normalize_and_extract_pool,
     _spawn_points_by_twpi, _patch_predefined_units, _patch_predefined_machines,
@@ -35,6 +36,10 @@ def main() -> int:
 
     sid = RD._resolve_session()
     RD.STATE = Path(a.state_file)
+    # #379 : ce module court-circuite `RD.main()`, qui est l'endroit ou `SESSION` est
+    # normalement pose. Sans cette ligne `RD._save_state` n'estamperait RIEN et le
+    # state-file produit ici resterait indefiniment « non verifiable ».
+    RD.SESSION = runner_state.current_identity()
 
     seed_bc = _load_seed_bc()
     board_dump = _load_board_dump(a.board)
@@ -71,10 +76,18 @@ def main() -> int:
     # runner de CE state-file s'il existe (meme discipline que rl_duel build).
     if RD.STATE.exists():
         try:
-            old_rid = json.loads(RD.STATE.read_text(encoding="utf-8")).get("runnerId")
+            old = json.loads(RD.STATE.read_text(encoding="utf-8"))
         except Exception:
-            old_rid = None
-        if old_rid is not None:
+            old = {}
+        old_rid = old.get("runnerId")
+        # #379 : meme garde que `rl_duel.cmd_build` -- cet id est relu sur DISQUE et peut
+        # dater d'avant un reinject, auquel cas il designe le runner d'un AUTRE agent.
+        verdict = runner_state.verify(old, RD.SESSION, RD.STATE)
+        if old_rid is not None and not verdict.ok:
+            runner_state.enforce(verdict, "_wave_build (dispose de l'ancien runner)")
+            print(f"[build] ancien runner {old_rid} NON dispose (state-file d'une autre "
+                  f"session)", file=sys.stderr)
+        elif old_rid is not None:
             _rpc(sid, "disposeRunner", [{"runnerId": old_rid}], timeout=15)
     init = (_rpc(sid, "initAndStart",
                  [{"configJson": json.dumps(bc), "seed": a.seed,

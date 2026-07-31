@@ -155,8 +155,15 @@ PAS un reducteur de coups). Les autres (`Water`/`Bridge` = LOS/mvt, `BrokenIce`,
 - **Un `runnerId` disposé n'est JAMAIS réattribué** (compteur monotone côté hooks — `case-377`).
   Piloter un id périmé est donc **refusé franchement** (`runner N not found`), jamais silencieux : ça
   ne pollue le runner de personne. ⚠ **Ce n'est pas une dispense de `--state-file`** — l'id littéral
-  d'un runner **vivant** d'autrui, lui, PASSE (aucun contrôle d'`owner`). Garantie valable **par
-  session Frida** : un reinject remet le compteur à 0, donc un state-file d'avant devient un piège.
+  d'un runner **vivant** d'autrui, lui, PASSE (aucun contrôle d'`owner`).
+- **Après un reinject, repars sur un `--state-file` PROPRE.** La garantie ci-dessus vaut **par
+  session Frida** : le compteur repart de `0` alors que les state-files survivent sur disque, et
+  ce sont les **PETITS** numéros le danger (ids croissants — `runnerId=2` a mis moins de dix
+  minutes à passer de libre au pytest d'un autre agent, mesuré). Depuis `#379`, `rl_duel` estampe
+  le state-file de l'identité de session au `build` et **REFUSE en rc 2** (`MISMATCH`, ou pas
+  d'estampille sur un fichier antérieur au démarrage de la session) ; un fichier sans estampille
+  mais écrit pendant la session courante passe en **AVERTISSANT** — c'est « non vérifiable », pas
+  « OK ». Détail : `case-379`.
 - **⚠ UN `SKIPPED` N'EST PAS UN SUCCÈS.** Au cap saturé, le build échoue → `pytest.skip` → une passe
   entière rend `sssssss`, des `s` qui *ressemblent* à du vert alors que **RIEN n'a été validé**
   (mesuré le 2026-07-25 : 7/7 tests d'un agent skippés, cap 10/10 pris par un autre). **Après CHAQUE

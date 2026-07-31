@@ -1,6 +1,6 @@
 """Estampille de SESSION FRIDA sur un state-file de runner, et verification TRI-ETAT.
 
-LE PROBLEME (case-377 §4, residu nomme)
+LE PROBLEME (case-377 sec.4, residu nomme)
 ---------------------------------------
 Le FICHIER est prive -- un `--state-file` vit dans le `logs/` du worktree de son agent, et
 son chemin absolu est justement la cle `owner` du harnais. Aucun agent ne lit le fichier
@@ -24,11 +24,11 @@ dangereux en QUELQUES MINUTES -- le nouveau compteur y arrive tout de suite. Un 
 reste refuse longtemps, le temps que la nouvelle session le rattrape. Un test de collision qui
 exercerait un id eleve ne montrerait qu'un refus benin et ferait croire ce garde-fou inutile.
 
-LA CONVENTION -- TRI-ETAT, et la sous-division qui rend l'etat « absente » utile
+LA CONVENTION -- TRI-ETAT, et la sous-division qui rend l'etat "absente" utile
 -------------------------------------------------------------------------------
 Le remede est d'ESTAMPER le state-file avec l'identite de la session au `build`, et de
-comparer au pilotage. Mais « pas d'estampille » n'est PAS « c'est bon » : c'est
-« NON VERIFIABLE », et les deux ne doivent jamais rendre la meme chose (meme discipline que
+comparer au pilotage. Mais "pas d'estampille" n'est PAS "c'est bon" : c'est
+"NON VERIFIABLE", et les deux ne doivent jamais rendre la meme chose (meme discipline que
 le tri-etat de `host_inputs`, ou `[introuvable]` reste distinct de `[vide]`).
 
     MATCH            estampille presente et identique          -> PASSE, silencieux
@@ -38,7 +38,7 @@ le tri-etat de `host_inputs`, ou `[introuvable]` reste distinct de `[vide]`).
     UNSTAMPED        pas d'estampille, fichier ecrit PENDANT
                      la session courante                       -> AVERTISSEMENT, non bloquant
 
-`UNSTAMPED_STALE` est ce qui rend l'etat « absente » operant AU LIEU d'etre un aveu poli. Au
+`UNSTAMPED_STALE` est ce qui rend l'etat "absente" operant AU LIEU d'etre un aveu poli. Au
 moment ou cette garde entre en service, AUCUN state-file du disque ne porte d'estampille --
 c'est-a-dire que l'etat le plus dangereux (fichier d'avant une fenetre de reinject) est
 exactement celui que l'estampille ne sait pas juger. Le mtime le juge quand meme : un
