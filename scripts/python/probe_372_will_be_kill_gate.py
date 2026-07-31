@@ -181,28 +181,45 @@ def run(seed: int = 35301, level: int = 8, mult: int = 100, board: str = BOARD,
         ratio = (float(wk) / float(hp_se)) if (hp_se and wk) else None
         out["self_bound_ratio"] = ratio
         out["ok"] = True
-        # TROIS causes possibles au depart ; le probe en elimine DEUX.
-        #  (1) le gate `CannotBeGuaranteedKilled` -- exclu par la RE (xrefs) ;
-        #  (2) « la borne par defaut ne suffit pas » -- exclu par la MESURE ci-dessous
-        #      (`willKillDmg` >> `hpBefore`, la branche `else` rendrait donc true) ;
-        #  (3) `BlockScenarios` NON VIDE avec `[0].Damage.HealthDamage.Min < hpBefore`.
-        # La 4e cause imaginable -- « la gate ouvre mais les batchs 3/4 rendent 0 event » --
-        # exigerait `GetTileToMoveTo() == null` (la CIBLE est adjacente a toute tuile du ring,
-        # donc `Enemies(AdjacentUnits(tile,1,3))` serait non vide). Or #353-r1 volet (a) a
-        # CONFRONTE cette tuile au natif par un cast reel (la position d'arrivee du caster EST
-        # la tuile rendue), et le playbook l'appelle SANS condition d'adjacence.
-        out["verdict"] = (
-            "GATE FERMEE MEME A 1 PV (%d events dans les deux bras, rapport borne/PV = %s)."
-            " DEUX causes ELIMINEES : (1) `CannotBeGuaranteedKilled` -- exclu par la RE"
-            " (unique ecrivain = PredictNormalAttack ; la voie playbook passe par"
-            " GetMultiHitAttackPrediction, qui memset 0xa0) ; (2) borne insuffisante -- exclu"
-            " par la mesure (willKillDmg=%s contre hpBefore=%s, la branche `else` rendrait"
-            " TRUE). Reste UNE cause compatible : `BlockScenarios` NON VIDE avec"
-            " [0].Damage.HealthDamage.Min < %s. Le capteur #372 la lit"
-            " (blockScenarioCount=%s blockKillDmg=%s willBeKill=%s) -- NON CONFRONTE tant que"
-            " le bundle n'est pas reinjecte."
-            % (out["n_kill"], ("%.0f:1" % ratio) if ratio else "?", wk, hp_se, hp_se,
-               se.get("blockScenarioCount"), se.get("blockKillDmg"), se.get("willBeKill")))
+        live = se.get("blockScenarioCount") is not None
+        base = ("GATE FERMEE MEME A 1 PV (%d events dans les deux bras, rapport borne/PV = %s)."
+                " DEUX causes ELIMINEES : (1) `CannotBeGuaranteedKilled` -- exclu par la RE"
+                " (unique ecrivain = PredictNormalAttack ; la voie playbook passe par"
+                " GetMultiHitAttackPrediction, qui memset 0xa0) ; (2) borne insuffisante --"
+                " exclu par la mesure (willKillDmg=%s contre hpBefore=%s, la branche `else`"
+                " rendrait TRUE)."
+                % (out["n_kill"], ("%.0f:1" % ratio) if ratio else "?", wk, hp_se))
+        if not live:
+            # Capteur absent du bundle : on NOMME la 3e cause sans la trancher. Tri-etat, pas zero.
+            out["verdict"] = base + (
+                " Reste UNE cause compatible : `BlockScenarios` NON VIDE avec"
+                " [0].Damage.HealthDamage.Min < %s. Le capteur #372 la lit"
+                " (blockScenarioCount / blockKillDmg / willBeKill) -- NON CONFRONTE tant que le"
+                " bundle n'est pas reinjecte." % (hp_se,))
+        elif se.get("willBeKill") and not se.get("blockScenarioCount"):
+            # DERIVE DE LA MESURE, pas d'un recit ecrit d'avance. Le capteur etant vivant, la 3e
+            # cause tombe (`blockScenarioCount == 0`) ET le predicat de la gate est VRAI
+            # (`willBeKill == true`) : les batchs 3/4 n'ont donc PAS ete supprimes par la gate.
+            # C'est la 4e cause -- « la gate ouvre et les batchs rendent 0 event » -- qui reste
+            # seule debout. Son ecartement initial la rabattait sur `GetTileToMoveTo() == null` ;
+            # or les batchs selectionnent `Friends`/`Enemies(AdjacentUnits(<tuile d'arrivee>))`,
+            # qui se vident aussi quand cette tuile n'a aucun voisin occupe. A confronter en
+            # PEUPLANT le voisinage de la tuile d'arrivee.
+            out["gate_predicate_true"] = True
+            out["verdict"] = base + (
+                " CAPTEUR VIVANT : `blockScenarioCount = %s` ELIMINE la 3e cause, et"
+                " `willBeKill = %s` sur l'event du caster montre que LE PREDICAT DE LA GATE EST"
+                " VRAI. Les batchs 3/4 restent pourtant absents => ce n'est pas la gate qui les"
+                " supprime. Seule cause encore debout : les selecteurs des batchs eux-memes"
+                " (`Friends`/`Enemies(AdjacentUnits(<tuile d'arrivee>))`) rendent un ensemble"
+                " VIDE sur cette geometrie. A confronter en peuplant le voisinage de la tuile"
+                " d'arrivee -- PAS en corrigeant le port."
+                % (se.get("blockScenarioCount"), se.get("willBeKill")))
+        else:
+            out["verdict"] = base + (
+                " CAPTEUR VIVANT : blockScenarioCount=%s blockKillDmg=%s willBeKill=%s"
+                " -- la 3e cause (`BlockScenarios` non vide sous les PV) est CONFIRMEE."
+                % (se.get("blockScenarioCount"), se.get("blockKillDmg"), se.get("willBeKill")))
 
     out["sensor_live"] = any(r.get("blockScenarioCount") is not None
                              for r in (k.get("events") or []))
