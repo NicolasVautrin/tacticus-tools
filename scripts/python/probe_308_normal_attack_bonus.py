@@ -120,11 +120,14 @@ MARTIAL_INSPIRATION = 1191
 # donc ENCORE au franchissement de 1.0 a une echelle d'utilite deux fois plus petite -> le terme est
 # un `+1` ABSOLU, pas un facteur relatif.
 #
-# CIBLE A EVITER pour ce montage : `tauCrisis` (trait `BigTarget`). Le port y sous-predit 1191 --
-# raw [1496, 2244] au lieu de [1795, 2693], soit le facteur x1.2 qu'il applique pourtant a l'attaque
-# normale ([1428, 2142] -> [1713, 2571]) -- ce qui fait diverger moteur et natif pour une raison
-# ETRANGERE au terme teste (pair natif 21.2822 vs porte 17.7352). Residu DISTINCT, inventorie :
-# `docs/rl/port-residuals-inventory.md` §4.a `N16` (backlog `#308-r`).
+# NOTE PERIMEE, CORRIGEE LE 2026-07-31 (#316). Cette ligne disait : "CIBLE A EVITER pour ce montage :
+# `tauCrisis` (trait `BigTarget`) -- le port y sous-predit 1191 (raw [1496,2244] au lieu de la valeur
+# native), ce qui fait diverger moteur et natif pour une raison ETRANGERE au terme teste".
+# Le residu en question (`N16` / backlog `#308-r`) est FERME : `generate_multi_hit_attack_prediction`
+# threade desormais `target_traits`, comme la normale et comme la face COMBAT. Une cible `BigTarget`
+# n'est donc plus a eviter -- c'est meme un bras de GENERALISATION legitime de ce montage-ci.
+# Le montage et la mesure de la fermeture vivent dans
+# `probe_316_ability_prediction_target_traits.py`.
 D_BELOW, D_WINDOW = 1189, 1190
 
 STATE = ROOT / "logs" / "runners" / "probe_308_na_bonus.json"

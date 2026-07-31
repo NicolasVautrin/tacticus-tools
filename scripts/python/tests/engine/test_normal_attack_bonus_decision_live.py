@@ -70,6 +70,22 @@ MARTIAL_INSPIRATION = NAB.MARTIAL_INSPIRATION               # 1191, l'actif Comp
 # Cf. `test_the_bonus_generalises_to_another_board_and_target`.
 GEN = {"board": "C3_01", "seed": 777, "target": "ultraCalgar", "damages": (1397, 1398)}
 
+# TROISIEME couple -- une cible qui porte un TRAIT GATANT un modificateur de degat de l'attaquant.
+# `tauCrisis` <<Re'vas>> porte `BigTarget`, donc le `BeastSlayer_ExtraDmg` de Kariyan (+20 % melee)
+# entre dans les DEUX abilities du duel.
+#
+# Ce bras etait litteralement documente comme "CIBLE A EVITER" jusqu'au 2026-07-31 : le port
+# sous-predisait 1191 (raw [1496,2244] au lieu de [1795,2692]) parce que
+# `generate_multi_hit_attack_prediction` ne threadait pas `target_traits` -- residu `N16`, ferme par
+# #316. Le montage y rendait V2 = 1/2 bras, pour une raison ETRANGERE au `+1`.
+# Il passe desormais 2/2 (MESURE 2026-07-31, bisection au pas de 1) :
+#     Damage=1187 : pair(69)=20.2580  pair(1191)=21.2822  gap=1.0243 > 1  -> natif ET moteur -> 1191
+#     Damage=1188 : pair(69)=20.2864  pair(1191)=21.2822  gap=0.9958 < 1  -> natif ET moteur -> 69
+# Il garde donc DEUX choses a la fois : le `+1` (l'objet de ce fichier) et la CONSEQUENCE DECISION
+# du threading de #316 -- si ce dernier regressait, `pair(1191)` retomberait a 17.7352, le gap
+# passerait a -2.5 et le moteur ne suivrait plus le natif dans le bras temoin.
+GEN_GATED = {"board": "C3_01", "seed": 777, "target": "tauCrisis", "damages": (1187, 1188)}
+
 
 def _arms(res) -> tuple:
     """`(bras temoin, bras fenetre)` = les deux `Damage` du scenario, dans l'ordre croissant."""
@@ -228,3 +244,26 @@ def test_the_bonus_generalises_to_another_board_and_target(normal_attack_bonus_c
     assert hi["engine_zero_bonus"] == MARTIAL_INSPIRATION, (
         f"[{_label(res)}] la mutation a 0.0 ne fait pas basculer le moteur : le second couple "
         f"n'exerce pas le terme")
+
+
+def test_the_bonus_generalises_to_a_target_whose_trait_gates_an_attacker_modifier(
+        normal_attack_bonus_case):
+    """GENERALISATION -- cible dont un TRAIT ouvre un modificateur de degat de l'ATTAQUANT.
+
+    `tauCrisis` porte `BigTarget`, donc le `BeastSlayer_ExtraDmg` de Kariyan (+20 % melee) s'applique
+    aux DEUX abilities du duel. Ce couple etait interdit d'usage jusqu'a #316, ou la prediction
+    d'ability du port ne lisait pas les traits de la cible : il rendait alors `pair(1191) = 17.7352`
+    au lieu de 21.2822 et le moteur ne suivait plus le natif -- pour une raison ETRANGERE au `+1`.
+
+    Ce test garde donc DEUX invariants d'un coup : le `+1` (l'objet du fichier) et la CONSEQUENCE
+    DECISION du threading `target_traits` de `generate_multi_hit_attack_prediction`."""
+    res = normal_attack_bonus_case(board=GEN_GATED["board"], seed=GEN_GATED["seed"],
+                                   target=GEN_GATED["target"], damages=GEN_GATED["damages"])
+    _assert_montage(res)
+    _, hi = _arms(res)
+    assert 0.0 < hi["gap"] < 1.0, (
+        f"[{_label(res)}] ecart de paire {hi['gap']} hors de ]0, 1[ dans la fenetre")
+    _assert_engine_follows_native(res)
+    assert hi["engine_zero_bonus"] == MARTIAL_INSPIRATION, (
+        f"[{_label(res)}] la mutation a 0.0 ne fait pas basculer le moteur : ce couple n'exerce pas "
+        f"le terme")
