@@ -61,6 +61,26 @@ affiche pour diagnostic via le compte total). Les points de branchement patches 
 telles qu'IMPORTEES dans `engine.entities.abilities.active_ability` (`_round_fix64`,
 `calculate_average`).
 
+DEUXIEME ORACLE : la face NONCOMPARABLE (#356)
+----------------------------------------------
+`aiPlaybookPredict` ne peut STRUCTURELLEMENT rien rendre pour un playbook NonComparable -- les quatre
+`Make*Predictions` ne sont declarees que sur la branche `ComparablePlaybook`1` (cf.
+`docs/rl/case-350r3-oracle-noncomparable.md`). Mais la PREDICTION existe : `EvaluateNonComparable`
+construit le MEME `ProbableDamageEvent` avant de le passer a `CalculateUtilityFromDamageEvent` -- il
+le CONSOMME au lieu de le RENDRE. Le RPC `ncPlaybookPredict` (`via: "evaluate"`) le CAPTURE au
+ctor. `--oracle nc` (auto des que l'ability a un playbook NC porte) commute donc :
+  * cote natif : `ncPlaybookPredict` au lieu d'`aiPlaybookPredict` ;
+  * cote port  : `engine.playbook.prediction.generate_multi_hit_attack_prediction` -- exactement ce
+    qu'appelle le playbook NC porte -- au lieu de `make_damage_predictions`.
+Le point de branchement patche est le MEME (`AActiveAbility.get_damage`), donc le verdict d'arrondi
+se lit a l'identique sur les deux faces.
+
+⚠ REGIME : une ability NC peut porter une precondition d'eligibilite (1202 VigilanceEternal exige une
+cible ADJACENTE ou chargeable a portee 2 -- `VigilanceEternalAbility$$GetDynamicInvalidTargetReason`).
+L'anneau de `_place_ring` la satisfait PAR CONSTRUCTION (toutes les cibles a distance 1) et le probe
+le VERIFIE (`_nc_regime`) : un bras hors regime rend une erreur qui NOMME le montage, il ne rougit
+pas comme un ecart d'arrondi.
+
 ⚠ SEQUENCE, ET NON « le premier event » (#351). Un playbook peut emettre PLUSIEURS events sur la MEME
 cible : `...SorcerousFacadePlaybook$$MakeDamagePredictions` construit `[normale]` puis `AddRange(batch)`,
 les deux sur `sel`. En ne lisant que le premier, le probe comparait l'ATTAQUE NORMALE -- qui ne lit
@@ -185,6 +205,91 @@ def _place_ring(sid, rid, ids, center_visual, center):
         slot += 1
 
 
+def _is_nc(ability: int) -> bool:
+    """L'ability a-t-elle un playbook NonComparable PORTE ? (registre `engine.playbook.
+    noncomparable.PLAYBOOKS`, mirror des classes de parent `NonComparablePlaybook`1`)."""
+    from engine.playbook import noncomparable as NCPB
+    return NCPB.is_noncomp(int(ability))
+
+
+def _nc_regime(sid, rid, cid, tid, ability) -> dict:
+    """Le montage atteint-il le REGIME d'eligibilite de l'ability NC ?
+
+    Preuve GEOMETRIQUE, prise au decompile :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason`
+    rend `0` IMMEDIATEMENT si les tuiles du caster et de la cible sont ADJACENTES (predicat
+    d'interface slot 0x62), avant meme d'essayer la charge -- l'anneau de `_place_ring` place
+    justement toutes les cibles a distance hex 1. On confirme par `abilityReason`, dont le
+    `targetReason.hex` EST le flag rendu par ce corps (`0x8000000` = `TargetIsInRange` = refus).
+
+    ⚠ `abilityTargets` n'est PAS utilisable ici : apres le placement, les unites ont consomme leur
+    action et le RPC ne les liste plus (mesure 2026-07-31 : `units: []`). Un montage ne se declare
+    donc pas hors regime sur ce silence-la."""
+    import hexgeo
+    ob = _r(sid, "observeBattle", {"runnerId": rid}, 120)
+    us = {int(u["squadId"]): u for u in (ob.get("units") or []) if not u.get("isDead")}
+    c, t = us.get(int(cid)), us.get(int(tid))
+    if c is None or t is None:
+        return {"reached": False, "why": "caster ou cible absent d'observeBattle"}
+    d = hexgeo.distance((c["col"], c["row"]), (t["col"], t["row"]))
+    rr = _r(sid, "abilityReason", {"runnerId": rid, "casterId": int(cid), "targetId": int(tid),
+                                   "abilityType": int(ability)}, 60)
+    tr = (rr or {}).get("targetReason") or {}
+    hx = tr.get("hex")
+    # Critere PRINCIPAL : le flag rendu par `GetDynamicInvalidTargetReason` vaut 0 = cible eligible
+    # (c'est le MEME jeu de regles que le slot 0x42 qu'interroge `GetEligibleTargetsEntities`).
+    # Repli si `abilityReason` n'a pas resolu : l'ADJACENCE, qui court-circuite ce corps.
+    if hx is None:
+        reached, why = (d == 1), (None if d == 1 else
+                                  "abilityReason muet et cible a distance %d" % d)
+    else:
+        reached = hx in ("0x0", "0x0000000000000000", 0)
+        why = None if reached else "targetReason=%s %s (dist %d)" % (hx, tr.get("reasons"), d)
+    return {"reached": bool(reached), "dist": d, "casterPos": (c["col"], c["row"]),
+            "targetPos": (t["col"], t["row"]),
+            "targetReasonHex": hx, "targetReasons": tr.get("reasons"), "why": why}
+
+
+def _native_nc(sid, rid, cid, tid, ability):
+    """Pendant NonComparable de `_native` : `ncPlaybookPredict(via="evaluate")` invoque le wrapper
+    `Evaluate` du playbook sous un trampoline FENETRE sur `ProbableDamageEvent$$.ctor` et rend les
+    events CONSTRUITS pendant l'evaluation. Meme filtre que `_native` : la SEQUENCE des events de la
+    cible principale, plus le compte total (les autres cibles eligibles sont un axe distinct)."""
+    r = _r(sid, "ncPlaybookPredict", {"runnerId": rid, "unitId": int(cid),
+                                      "abilityType": int(ability), "via": "evaluate"}, 240)
+    evs = (r or {}).get("captured") or []
+    mains = [e for e in evs if e.get("targetId") == int(tid)]
+    if not mains:
+        return None, len(evs)
+    return (tuple((e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))
+                  for e in mains), len(evs))
+
+
+def _offline_nc(scene, cid, tid, ability, ability_name, here, fn=None, all_targets=None):
+    """Pendant NonComparable de `_offline` : le chemin EXACT du playbook NC porte --
+    `engine.playbook.prediction.generate_multi_hit_attack_prediction`, appele DIRECTEMENT (cf.
+    `engine/playbook/noncomparable/vigilance_eternal.py`), et non `make_damage_predictions` (dont
+    le gate d'affichage #109 rend `[]` pour toute NonComparable). Le point de branchement patche
+    (`AActiveAbility.get_damage`) est le meme, donc la variante d'arrondi se mesure a l'identique."""
+    from engine.playbook.prediction import generate_multi_hit_attack_prediction as G
+    o_round, o_avg = AA._round_fix64, AA.calculate_average
+    if fn is not None:
+        AA._round_fix64 = fn
+        AA.calculate_average = lambda mn, mx: fn(Fraction(int(mn) + int(mx), 2), 0)
+    try:
+        dp = G(scene, int(cid), int(tid), int(ability), ability_name, attack_pos=here)
+        n = 0
+        for other in (all_targets or [int(tid)]):
+            if G(scene, int(cid), int(other), int(ability), ability_name,
+                 attack_pos=here) is not None:
+                n += 1
+    finally:
+        AA._round_fix64, AA.calculate_average = o_round, o_avg
+    if dp is None:
+        return None, n
+    return ((dp.accurate_health_damage.min, dp.accurate_health_damage.max, dp.applied_hits),), n
+
+
 def _native(sid, rid, cid, tid, ability):
     """(bornes de TOUS les events de la CIBLE PRINCIPALE, nombre total d'events).
 
@@ -263,8 +368,9 @@ def _offline(scene, cid, tid, ability, ability_name, here, fn=None):
 
 
 def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_name,
-                 board, center, mult, armor_target=None) -> dict:
+                 board, center, mult, armor_target=None, nc: bool = False) -> dict:
     rid = None
+    regime = None
     try:
         rid = _build(sf, seed, caster, victim, board, level, mult, armor_target)
         dv = _view(sid, rid)
@@ -285,11 +391,24 @@ def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_n
         mn, mx, lvl_eff, mult_eff = mm
         mp = ctx.me.get("pos") or {}
         here = (mp.get("col"), mp.get("row"))
-        nat, n_nat = _native(sid, rid, cid, tid, ability)
-        _p = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
-              for name, fn in VARIANTS}
-        ports = {k: v[0] for k, v in _p.items()}
-        shipped, n_port = _offline(scene, cid, tid, ability, ability_name, here, None)
+        if nc:
+            # Le REGIME d'abord : hors regime, une capture nulle accuserait le MONTAGE, pas le port.
+            regime = _nc_regime(sid, rid, cid, tid, ability)
+            if not regime.get("reached"):
+                return {"label": label, "regime": regime,
+                        "error": "MONTAGE HORS REGIME NC : %s" % regime.get("why")}
+            foes = [ids[victim], ids[FILLER_A]]
+            nat, n_nat = _native_nc(sid, rid, cid, tid, ability)
+            _p = {name: _offline_nc(scene, cid, tid, ability, ability_name, here, fn, foes)
+                  for name, fn in VARIANTS}
+            ports = {k: v[0] for k, v in _p.items()}
+            shipped, n_port = _offline_nc(scene, cid, tid, ability, ability_name, here, None, foes)
+        else:
+            nat, n_nat = _native(sid, rid, cid, tid, ability)
+            _p = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
+                  for name, fn in VARIANTS}
+            ports = {k: v[0] for k, v in _p.items()}
+            shipped, n_port = _offline(scene, cid, tid, ability, ability_name, here, None)
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -298,14 +417,19 @@ def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_n
     return {"label": label, "runner": rid, "level_asked": level, "level_eff": lvl_eff,
             "mult_eff": mult_eff, "minDmg": int(mn), "maxDmg": int(mx), "sum": s,
             "sum_mod4": s % 4, "floor": s // 2, "native": nat, "ports": ports,
-            "shipped": shipped, "n_events_native": n_nat, "n_events_port": n_port}
+            "shipped": shipped, "n_events_native": n_nat, "n_events_port": n_port,
+            "oracle": "nc" if nc else "comparable", "regime": regime}
 
 
 def _grade(arm: dict) -> dict:
     """Verdict d'UN bras : quelles variantes egalent le natif, et le bras DISCRIMINE-t-il ?"""
     nat = arm.get("native")
     if not nat:
-        arm["error"] = "aiPlaybookPredict n'a rendu AUCUN event"
+        # Le REGIME a deja ete verifie en amont pour la face NC : une capture nulle ICI accuse donc
+        # bien l'oracle, pas le montage -- et le message NOMME lequel des deux oracles s'est tu.
+        arm["error"] = ("ncPlaybookPredict n'a capture AUCUN event (regime NC verifie)"
+                        if arm.get("oracle") == "nc"
+                        else "aiPlaybookPredict n'a rendu AUCUN event")
         return arm
     arm["match"] = {k: (v == nat) for k, v in arm["ports"].items()}
     arm["shipped_ok"] = (arm.get("shipped") == nat)
@@ -320,16 +444,18 @@ def _grade(arm: dict) -> dict:
 def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = CASTER,
         victim: str = VICTIM, ability: int = ABILITY, ability_name: str = ABILITY_NAME,
         board: str = BOARD, center=CENTER, lvl_a: int = LVL_A, lvl_b: int = LVL_B,
-        mult: int = MULT, armor_target=None) -> dict:
+        mult: int = MULT, armor_target=None, oracle: str = "auto") -> dict:
     sid = _resolve_session()
     sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p344.json")
     sf.parent.mkdir(parents=True, exist_ok=True)
+    # `auto` = la face que le natif IMPOSE (playbook NonComparable -> aucun `Make*Predictions`).
+    nc = _is_nc(ability) if oracle == "auto" else (oracle == "nc")
 
     arms = {}
     for key, label, lvl, sd in (("a", "A (3 mod 4 -- le natif MONTE)", lvl_a, seed),
                                 ("b", "B (1 mod 4 -- le natif DESCEND)", lvl_b, seed + 1)):
         arm = _measure_arm(sid, sf, sd, label, lvl, caster, victim, ability, ability_name,
-                           board, center, mult, armor_target)
+                           board, center, mult, armor_target, nc=nc)
         if not arm.get("error"):
             _grade(arm)
         arms[key] = arm
@@ -351,12 +477,21 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
     if verbose:
         print("[344] montage : %s / %s (%d) -> %s sur %s, anneau centre en %s"
               % (caster, ability_name, ability, victim, board, tuple(center)))
+        print("[344] oracle : %s (%s)"
+              % ("ncPlaybookPredict (face NONCOMPARABLE)" if nc
+                 else "aiPlaybookPredict (face COMPARABLE)",
+                 "auto" if oracle == "auto" else "force par --oracle"))
         print("[344] famille lue au decompile : %s -> variante attendue = %s" % (family, expected))
         for key in ("a", "b"):
             arm = arms[key]
             if arm.get("error"):
                 print("\n=== bras %s === ERREUR : %s" % (key, arm["error"]))
                 continue
+            if arm.get("regime"):
+                print("\n[344] regime NC du bras %s : caster=%s cible=%s dist=%s reason=%s %s"
+                      % (key, arm["regime"].get("casterPos"), arm["regime"].get("targetPos"),
+                         arm["regime"].get("dist"), arm["regime"].get("targetReasonHex"),
+                         arm["regime"].get("targetReasons")))
             print("\n=== bras %s === %s" % (key, arm["label"]))
             print("  niveau demande=%d effectif=%d mult=%d | minDmg=%d maxDmg=%d somme=%d "
                   "(mod4=%d) floor=%d"
@@ -377,7 +512,7 @@ def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = 
         print("  -> %s" % ("OK" if ok else "ECHEC"))
 
     return {"ok": ok, "arms": arms, "regimes_ok": regimes_ok, "nul_on_both_arms": nul_on_both,
-            "expected_variant": expected, "family": family,
+            "expected_variant": expected, "family": family, "oracle": "nc" if nc else "comparable",
             "montage": {"caster": caster, "victim": victim, "ability": ability,
                         "ability_name": ability_name, "board": board, "center": tuple(center),
                         "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult,
@@ -401,6 +536,9 @@ def main() -> int:
     ap.add_argument("--mult", type=int, default=MULT)
     ap.add_argument("--armor-target", type=int, default=None,
                     help="armure FORCEE de la cible (0 = etage armure retire, cf. _build)")
+    ap.add_argument("--oracle", choices=("auto", "comparable", "nc"), default="auto",
+                    help="face mesuree : `auto` = `nc` des que l'ability a un playbook "
+                         "NonComparable porte (#356), sinon `comparable`")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     name = a.ability_name
@@ -410,7 +548,8 @@ def main() -> int:
     out = run(seed=a.seed, state_file=a.state_file, caster=a.caster, victim=a.victim,
               ability=a.ability, ability_name=name, board=a.board,
               center=tuple(int(x) for x in a.center.split(",")),
-              lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult, armor_target=a.armor_target)
+              lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult, armor_target=a.armor_target,
+              oracle=a.oracle)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if out.get("ok") else 1
