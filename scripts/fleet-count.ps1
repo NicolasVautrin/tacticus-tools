@@ -45,23 +45,11 @@ foreach ($line in (git worktree list)) {
     $age = if ($j) { [math]::Round(((Get-Date) - $j.LastWriteTime).TotalMinutes, 1) } else { $null }
     $enVol = ($age -ne $null -and $age -lt $FreshMin)
 
-    # ORIGINE -- un agent peut en lancer un AUTRE (le CLAUDE.md l'autorise : « un agent lance
-    # couramment un re-expert »). Un ENFANT n'est PAS un dispatch de l'orchestrateur : il fait
-    # partie du travail de son parent et ne consomme pas un slot du plafond.
-    # /!\ AUCUNE metadonnee ne distingue parent et enfant : `isSidechain`, `cwd` et `slug` sont
-    #     IDENTIQUES pour les deux (mesure du 2026-07-31). Le seul discriminant durable est le
-    #     PROMPT, et il ne tient que parce que l'orchestrateur ouvre TOUS ses briefs par
-    #     `Tache #NNN --`. C'est une convention a preserver : sans elle, le decompte redevient
-    #     dependant du contexte de la conversation (donc perdu au compact).
+    # ORIGINE : resolue plus bas par LOOKUP DE PARENTE (voir $parentDe). Un agent peut en lancer
+    # un AUTRE -- le CLAUDE.md l'autorise (« un agent lance couramment un re-expert ») -- et un
+    # ENFANT n'est PAS un dispatch de l'orchestrateur : il fait partie du travail de son parent
+    # et ne consomme aucun slot du plafond.
     $origine = "?"
-    if ($j) {
-        $l1 = Get-Content $jPath -TotalCount 1 -ErrorAction SilentlyContinue
-        if ($l1) {
-            $c = ($l1 | ConvertFrom-Json).message.content
-            if ($c -is [array]) { $c = ($c | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text }
-            $origine = if ($c -match '^\s*Tache #\d+') { "MOI" } else { "enfant" }
-        }
-    }
 
     $base = git merge-base $head master 2>$null
     $commits = if ($base) { [int](git rev-list --count "$base..$head" 2>$null) } else { 0 }
@@ -89,13 +77,53 @@ foreach ($line in (git worktree list)) {
     }
 }
 
+# --- LOOKUP DE PARENTE -------------------------------------------------------------------
+# Celui qui LANCE voit l'agentId du lance : le `tool_result` de son appel `Agent` le contient
+# verbatim (« Async agent launched successfully ... agentId: <id> »). Donc :
+#   * l'id apparait dans un AUTRE `subagents/agent-*.jsonl`  -> ENFANT, et ce fichier est son PARENT ;
+#   * l'id n'apparait nulle part ailleurs                    -> lance par l'ORCHESTRATEUR (le
+#     tool_result vit alors dans le transcript de la session principale, hors de subagents/).
+# C'est une PREUVE, pas une heuristique -- et elle survit au compact, contrairement au decompte
+# de tete ou a une convention de redaction des briefs.
+# (Mesure du 2026-07-31 : `isSidechain`, `cwd` et `slug` sont IDENTIQUES chez parent et enfant --
+#  aucun champ de metadonnee ne les separe. Il faut ce lookup.)
+$ids = $rows.id
+if ($ids) {
+    $recents = Get-ChildItem $subDir -Filter "agent-*.jsonl" -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -gt (Get-Date).AddHours(-6) }
+    foreach ($f in $recents) {
+        $moi = $f.BaseName -replace '^agent-', ''
+        $autres = @($ids | Where-Object { $_ -ne $moi })       # jamais se citer soi-meme
+        if (-not $autres) { continue }
+        # /!\ DEUX pieges, tous deux VECUS :
+        #  1. `Select-String -SimpleMatch` ne peuple PAS `$_.Matches` -> la boucle recolte du vide
+        #     et tout ressort « MOI ». On lit le fichier UNE fois et on teste par .Contains().
+        #  2. Une simple MENTION de l'id n'est PAS une preuve de filiation : les agents lancent
+        #     `git worktree list`, dont la sortie contient TOUS les ids. Chercher l'id nu produit
+        #     un faux positif massif et meme des CYCLES (A enfant de B et B enfant de A).
+        #     Le marqueur qui prouve le LANCEMENT est la chaine exacte du tool_result :
+        #         agentId: <id> (internal ID - ...
+        #     Le champ JSON du transcript de l'enfant lui-meme s'ecrit `"agentId":"<id>"` (sans
+        #     espace, entre guillemets) : les deux formes ne se confondent pas.
+        $txt = Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
+        if (-not $txt) { continue }
+        foreach ($a in $autres) {
+            if ($txt.Contains("agentId: $a")) {
+                ($rows | Where-Object { $_.id -eq $a }) |
+                    ForEach-Object { $_.origine = "enf. de $($moi.Substring(0,8))" }
+            }
+        }
+    }
+}
+$rows | Where-Object { $_.origine -eq "?" } | ForEach-Object { $_.origine = "MOI" }
+
 $rows | Sort-Object enVol, origine -Descending |
     Format-Table id, origine, lock, age, lance, retard, porte, etat -AutoSize | Out-String | Write-Output
 
 # Le plafond porte sur MES dispatches. Les enfants sont comptes a part : ils tournent, ils
 # consomment de la concurrence, mais ils n'ouvrent ni ne ferment un slot.
-$vol = @($rows | Where-Object { $_.enVol -and $_.origine -ne "enfant" }).Count
-$enfants = @($rows | Where-Object { $_.enVol -and $_.origine -eq "enfant" }).Count
+$vol = @($rows | Where-Object { $_.enVol -and $_.origine -eq "MOI" }).Count
+$enfants = @($rows | Where-Object { $_.enVol -and $_.origine -ne "MOI" }).Count
 if ($enfants) { Write-Output "(+ $enfants agent(s) ENFANT en vol, lances par un agent -- hors plafond)" }
 $libres = $Cap - $vol
 Write-Output "EN VOL : $vol / $Cap"
