@@ -289,7 +289,9 @@ def my_will_be_done_attack_tree(target: TargetsSelector, cap: int, pct: int, tur
     clear = RemoveEffect(TEMPORARY_STAT_OVERRIDE, target)
     remember = AddToPersistentDataList(MY_WILL_BE_DONE_OVERLORD, Caster(), ABILITY_ID,
                                        EntityId(target))
-    then = Seq(override, free_attack, clear, remember)
+    # `op_BitwiseAnd(op_BitwiseAnd(op_BitwiseAnd(b1, b2), b3), b4)` -- l'imbrication GAUCHE du
+    # decompile, reproduite telle quelle (l'ordre d'execution est le meme, la FORME aussi).
+    then = Seq(Seq(Seq(override, free_attack), clear), remember)
     # `AddDynamicStatModifierEffectToOwner(0x62d, statType=0 Attack, turns, isHidden=0)` = le MEME
     # behaviour avec `Owner@0x30` dans les DEUX slots (source ET cible).
     els = AddDynamicStatModifierEffect(Caster(), Caster(), EXTRA_DAMAGE_EFFECT,
