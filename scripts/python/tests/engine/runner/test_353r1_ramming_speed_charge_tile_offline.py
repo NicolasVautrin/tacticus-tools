@@ -203,7 +203,8 @@ def test_operand_order_changes_the_chosen_tile_on_ties():
     ents = entities_from_state(m.state, m.caster_id, m.target_id)
     swapped = TileIntersect(CanAddUnit(AdjacentTiles(Target())),
                             MovableTilesInRange(Caster(), CasterTile(), Const(MOVE_RANGE),
-                                                can_reach_only=False)).evaluate(ents)
+                                                ignore_flags=False,
+                                                ignore_units_on_tiles=False)).evaluate(ents)
 
     assert sorted(swapped) == sorted(m.candidates), (
         "les deux ordres doivent porter le MEME ensemble -- sinon on mesure une difference de "

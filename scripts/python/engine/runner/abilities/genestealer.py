@@ -333,17 +333,27 @@ def _charge_candidate_tiles(state: "State", caster_id: int, target_id: int,
     """Le POOL de tuiles de charge, DANS L'ORDRE DU SELECTEUR (avant tout tri) :
 
         CanAddUnit(SurroundingTiles(target@0x190, radius@0xc0))
-          op_And MovableTilesInRange(caster@0x160, tile@0x168, Direct(range), reachOnly=1)
+          op_And MovableTilesInRange(caster@0x160, tile@0x168, Direct(range),
+                                     ignoreFlags = 1, ignoreUnitsOnTiles = 0)
 
     Partage par `HeroicFusilladeAbility$$ExecuteBehaviour` et par
     `VigilanceEternalAbility$$GetPossibleMovementTiles`
-    (= `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
-    Direct(GetNumberConstant(0x16)=range), canReachOnly=1)`, meme ensemble avec radius 1) — SEUL le
+    (= `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, tile, target,
+    Direct(GetNumberConstant(0x16)=range), ignoreFlags = 1)`, meme ensemble avec radius 1) — SEUL le
     TRI en aval differe entre les deux (cf. `_hf_move_dest_tile` / `_vigilance_move_dest_tile`).
 
-    `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele, reachOnly =
-    stop_set). `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd` = INTERSECTION : l'ordre conserve est
-    celui de l'operande GAUCHE (`SurroundingTiles`). Pre-move (aucune mutation avant le MoveUnit)."""
+    ⚠ #381-r1 : le 4e argument n'est PAS un `canReachOnly`, c'est `ignoreFlags` (il ne touche que la
+    garde d'entree de `MovementQuery$$FindAnyOrAllMoveableTiles`). L'ensemble rendu est TOUJOURS le
+    stop_set, quel que soit ce booleen — ce que ce collapse fait deja (`stop`), et par chance : la
+    lecture ecrite ici etait fausse, le resultat juste.
+
+    `MovableTilesInRange` -> `walk_pathfinder.get_movable_positions` (BFS niveaux fidele).
+    `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd` = INTERSECTION : l'ordre conserve est
+    celui de l'operande GAUCHE (`SurroundingTiles`). Pre-move (aucune mutation avant le MoveUnit).
+
+    RESIDU (partage avec le noeud DSL, cf. `entities/selectors/tiles.MovableTilesInRange`) : ce
+    collapse n'applique NI le gate d'expansion #131 (`IsValidContinuePathTile`) NI le dispatch
+    `GetPathfinderTypeForUnit`. Il sur-atteint donc sur un board a tuiles block-entering."""
     board = state.board
     cpos = _pos_of(state, caster_id)
     tpos = _pos_of(state, target_id)

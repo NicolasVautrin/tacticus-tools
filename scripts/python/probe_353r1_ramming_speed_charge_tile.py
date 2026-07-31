@@ -224,7 +224,7 @@ def _three_arms(state, board, caster, target):
     swapped_pool = TileIntersect(
         CanAddUnit(AdjacentTiles(Target())),
         MovableTilesInRange(Caster(), CasterTile(), Const(MOVE_RANGE),
-                            can_reach_only=False)).evaluate(ents)
+                            ignore_flags=False, ignore_units_on_tiles=False)).evaluate(ents)
     only7 = UtilityDefinition.from_utility_type(int(UtilityType.Tile))
 
     def _first(tiles, definition):

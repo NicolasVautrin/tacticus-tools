@@ -111,7 +111,15 @@ def _betrayer_stop_tile(state: State, owner_id: int, target_id: int) -> Optional
     movable la plus proche. Renvoie (col,row) ou None si rien d'atteignable. Pathfinding LOURD calculé
     IMPÉRATIVEMENT hors DSL (doctrine slice-18/19) -> injecté ensuite dans la feuille `MoveUnit` via
     `FixedTiles`. (`SortTilesByUtility` = pré-tri d'utilité de tuile non porté -> `MinPathLength` départagé
-    par id.)"""
+    par id.)
+
+    RÉSIDU `#381-r4`, PARTAGÉ par tous les collapses impératifs de `MovableTilesInRange` (celui-ci,
+    `abilities/genestealer._charge_candidate_tiles`, `triggers/genestealer._hypersensory_move_dest`) :
+    ce `get_movable_positions` n'applique NI le gate d'expansion #131
+    (`BasePathfinder$$NodesInNextLevel` -> `IsValidContinuePathTile`) NI le dispatch
+    `MovementQuery$$GetPathfinderTypeForUnit` (`IsLikeFlying`). Il SUR-ATTEINT donc sur un board à
+    tuiles block-entering. Le nœud DSL homonyme, lui, les porte depuis `#381-r1` — c'est le même
+    correctif à recopier ici, avec le re-jeu des tests live de chaque ability concernée."""
     board = state.board
     owner = state.get_entity(owner_id)
     if board is None or owner is None:

@@ -679,13 +679,16 @@ def black_rage_possible_movement_tiles_selector(move_range: int):
         TilesUnitCanMoveToChargeTarget( caster@0x160, casterTile@0x168, target@0x178,
                                         UnitMovementRangeWithBonus(caster, 0x53e=1342,
                                                                    ConfigConst(0xe)),
-                                        canReachOnly = 0 )
+                                        ignoreFlags = 0 )
         = CanAddUnit(AdjacentTiles(target)) op_BitwiseAnd MovableTilesInRange(caster, casterTile,
-                                                                             range, canReachOnly=0)
+                                                                              range, ignoreFlags=0,
+                                                                              ignoreUnitsOnTiles=0)
 
-    `canReachOnly=0` (comme Waaagh ; CONTRASTE avec VigilanceEternal/HeroicFusillade qui passent 1) ->
-    l'ensemble « movable » est le `visited` du BFS et non le `stop_set` ; la différence (tuiles
-    traversables mais occupées) est de toute façon éliminée par le `CanAddUnit(AdjacentTiles(target))`.
+    `ignoreFlags=0` (comme Waaagh ; CONTRASTE avec VigilanceEternal, qui passe 1). ⚠ #381-r1 : ce
+    booléen N'EST PAS un `canReachOnly` — il ne touche que la garde d'entrée de
+    `MovementQuery$$FindAnyOrAllMoveableTiles`. L'ensemble « movable » est TOUJOURS le `stop_set`
+    (tuiles LIBRES), `MovementQuery$$AnyOrFillMoveableTiles` terminant par
+    `RemoveAll(t => !IsMovableTile(unit, t, ignoreUnitsOnTiles=0))`.
 
     #206 — le pool COLLAPSÉ qui vivait ici (`board.neighbours(tuile de la cible)`, ring-1 NU) est
     SUPPRIMÉ : il ignorait `MovableTilesInRange`, donc il proposait des tuiles hors de portée de charge
@@ -696,7 +699,7 @@ def black_rage_possible_movement_tiles_selector(move_range: int):
     `move_range` arrive DÉJÀ CALCULÉ (`_black_rage_move_range`) et est présenté au nœud par un `Const` :
     c'est LA valeur du 4e argument natif."""
     return tiles_unit_can_move_to_charge_target(Caster(), CasterTile(), Target(),
-                                                Const(int(move_range)), can_reach_only=False)
+                                                Const(int(move_range)), ignore_flags=False)
 
 
 def _black_rage_charge_tile(state, caster_id, target_id, move_range: int):
