@@ -184,19 +184,19 @@ def _pos(state, uid):
     return (pc.col, pc.row) if pc is not None else None
 
 
-def _far_tile(board, state, from_pos, min_d: int, occupied) -> tuple:
-    """Une tuile LIBRE, jouable, a distance >= `min_d` de `from_pos` -- on PILOTE la geometrie, on
-    ne l'attend pas. Renvoie None si le board n'en offre aucune (a dire, jamais a subir)."""
-    best = None
-    for t in (board.tiles_by_pos if hasattr(board, "tiles_by_pos") else {}):
-        if t in occupied:
+def out_of_ring_candidates(board, carrier_pos, home, occupied, min_d: int = 3) -> list:
+    """Tuiles LIBRES et jouables a distance >= `min_d` du PORTEUR, triees par proximite au point de
+    depart de l'allie (donc par plausibilite de budget de mouvement). On PILOTE la geometrie : le
+    probe ESSAIE les candidates jusqu'a ce que le natif en accepte une, il ne subit pas la
+    premiere venue. Liste vide = le board n'en offre aucune -- a DIRE, jamais a taire."""
+    out = []
+    for pos, t in board.by_coord.items():
+        if pos in occupied or not board.walkable(t["id"]):
             continue
-        d = hexgeo.distance(tuple(from_pos), tuple(t))
-        if d < min_d:
+        if hexgeo.distance(tuple(carrier_pos), tuple(pos)) < min_d:
             continue
-        if best is None or d < best[0]:
-            best = (d, t)
-    return best[1] if best else None
+        out.append((hexgeo.distance(tuple(home), tuple(pos)), pos))
+    return [p for _, p in sorted(out)]
 
 
 # --------------------------------------------------------------------------- volets
@@ -236,17 +236,24 @@ def run(seed=SEED, board_id=BOARD, sid=None, rid=None, keep=False) -> dict:
         # ---- volet A : SEED d'un etat DEJA atterri (attribution + gate) -----------------
         _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)   # rends-moi la main
         dv1, ob1, sn1, s1 = _capture(sid, rid, board)
-        rows["seed"] = {"live": _live_crit(sn1), "off": _off_crit(s1)}
+        rows["seedstate"] = {"live": _live_crit(sn1), "off": _off_crit(s1)}
 
         # ---- volet C : MOBILITE (sortie du rayon 2, puis retour) ------------------------
         runner = Runner(s1).install_default_handlers(20)
         occupied = {_pos(s1, u) for u in s1.entities}
         home = _pos(s1, a_crit)
-        out_tile = _far_tile(board, s1, _pos(s1, carrier), 3, occupied - {home})
         steps = []
+        out_tile = None
+        cands = out_of_ring_candidates(board, _pos(s1, carrier), home, occupied - {home}) \
+            if board is not None else []
+        for tile in cands[:12]:
+            res = _r(sid, "applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": a_crit, "to": {"col": tile[0], "row": tile[1]}}}, 60)
+            if isinstance(res, dict) and res.get("ok") is False:
+                continue                                   # hors budget de mouvement -> candidate suivante
+            out_tile = tile
+            break
         if out_tile is not None:
-            _r(sid, "applyAction", {"runnerId": rid, "action": {
-                "kind": "move", "unitId": a_crit, "to": {"col": out_tile[0], "row": out_tile[1]}}}, 60)
             runner.apply(MoveUnitMessage(a_crit, tuple(out_tile)))
             steps.append(("out", _live_crit(_r(sid, "combatSnapshot", {"runnerId": rid}, 90)),
                           _off_crit(s1), out_tile))
@@ -255,7 +262,8 @@ def run(seed=SEED, board_id=BOARD, sid=None, rid=None, keep=False) -> dict:
             runner.apply(MoveUnitMessage(a_crit, tuple(home)))
             steps.append(("back", _live_crit(_r(sid, "combatSnapshot", {"runnerId": rid}, 90)),
                           _off_crit(s1), home))
-        rows["mobility"] = {"home": home, "out_tile": out_tile, "steps": steps}
+        rows["mobility"] = {"home": home, "out_tile": out_tile,
+                            "candidates": len(cands), "steps": steps}
     finally:
         if own and not keep:
             _r(sid, "disposeRunner", {"runnerId": rid}, 60)
@@ -306,7 +314,7 @@ def report(rows, avant=False) -> int:
     if land["live"].get(a_crit, (0, 0))[1] <= 0:
         fails.append("B2 MONTAGE : le natif n'a accorde AUCUN crit a l'allie CRIT>0 -- rien a mesurer")
 
-    seed = rows["seed"]
+    seed = rows["seedstate"]
     print("\n-- A SEED d'un etat atterri (attribution + gate) --")
     for uid in (carrier, a_crit, a_flat):
         print("   " + _fmt(uid, seed["live"], seed["off"]))
@@ -325,7 +333,8 @@ def report(rows, avant=False) -> int:
     mob = rows["mobility"]
     print("\n-- C MOBILITE (sortie du rayon 2 puis retour) --")
     if mob["out_tile"] is None:
-        print("   NON CONFRONTE : aucune tuile libre a distance >= 3 du porteur sur ce board")
+        print("   NON CONFRONTE : %d tuiles a distance >= 3 du porteur, aucune ATTEIGNABLE par "
+              "l'allie en un deplacement" % mob.get("candidates", 0))
         fails.append("C : montage impossible sur ce board -- rejouer sur un autre --board")
     for label, live, off, tile in mob["steps"]:
         print("   [%s] allie CRIT>0 en %s : %s" % (label, tile, _fmt(a_crit, live, off)))
