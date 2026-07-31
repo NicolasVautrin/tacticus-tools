@@ -54,12 +54,17 @@ Consequence a l'etage DECISION, mesuree par #308 sur `tauCrisis` : `pairUtility`
 
   * les DEUX AUTRES call-sites de `calculate_attacker_modifiers_for_prediction` cote prediction --
     `engine/playbook/psyker.py` (splash Psyker) et `engine/playbook/fury_of_the_ancients.py`
-    (`bloodMephiston`) -- ne threadent toujours PAS `target_traits`. Ils sont HORS du perimetre de
-    #316 et, mesure a l'appui, INERTES sur ce roster : les SIX effets gates `target_traits`
-    (`BeastSlayer_ExtraDmg`, `MartialKatah_DmgBonus`, `CondemnorStake_ExtraDmg`, `HeavyGravCannon`,
-    `DestroyTheWitch_ExtraDamage`, `DespoiledGround_ExtraDamagePct`) n'ont aucun porteur `Psyker`,
-    et `bloodMephiston` n'en porte aucun. Les cabler sans porteur confrontable serait speculatif ->
-    residu NOMME dans `docs/rl/port-residuals-inventory.md` ;
+    (`bloodMephiston`) -- ne threadent toujours PAS `target_traits`, et sont HORS du perimetre de
+    #316. `fury_of_the_ancients.py` est INERTE (`bloodMephiston` ne porte aucun des six gates, et
+    n'est pas Chaos). `psyker.py`, LUI, NE L'EST PAS : `DespoiledGround_ExtraDamagePct` se pose sur
+    toute unite CHAOS demarrant son tour sur une tuile `DespoiledGround`, et **cinq heros lineup
+    sont Chaos ET Psyker** (`blackPossession`, `deathTyphus`, `thousAhriman`,
+    `thousInfernalMaster`, `thousSorcerer`) -> le splash Psyker SOUS-PREDIT pour eux contre une
+    cible `Xenos`/`Imperial`. Residu NOMME `N22` dans `docs/rl/port-residuals-inventory.md`, avec
+    son montage. Cliquet : `probe_316... --inert-call-sites` (exit 1 tant qu'un porteur existe).
+    !! La premiere redaction de ce fichier ecrivait "les deux sont INERTES, 0 porteur" : c'etait
+    FAUX, et du motif exact de #323/#327 -- un recensement par `k["abilities"]` (2 voies sur 5) qui
+    ne voit pas un gate attribue par une TUILE ;
   * la face DECISION n'est pas assertee ici (le probe expose `pairUtility` natif a titre
     informatif) : c'est `test_normal_attack_bonus_decision_live.py` qui garde l'etage utilite ;
   * la valeur des deux pourcentages n'est pas figee dans ce fichier -- elle est DERIVEE de

@@ -529,10 +529,51 @@ def verdicts_real(res) -> int:
 
 # Les SIX effets d'attaquant dont le `create_effect_damage_bonus_for_attack` / `create_damage_
 # modifier` consulte REELLEMENT `target_traits` dans son corps (les autres ne l'ont qu'en
-# signature). `kind` dit par quoi le porteur l'obtient : un TRAIT du kit, ou une ABILITY.
+# signature). `kind` dit par quoi le porteur l'obtient.
+#
+# !! `DespoiledGround` n'est PAS attribue par une unite : c'est un buff pose sur toute unite CHAOS
+#    qui demarre son tour sur une tuile `DespoiledGround` (`DespoiledGround_ExtraDamagePctEffect`,
+#    effet 0x5c6 ; la tuile 0x5c4 vient de `FleshMetalGuns_TileEffect` ou `LetTheGalaxyBurn`). Sa
+#    voie est donc `tile` -- l'une des QUATRE voies que `unit_map` ne couvre PAS. Le recenser comme
+#    une ability rendait `0 porteur`, et ce zero est EXACTEMENT le faux DEAD que #323/#327
+#    decrivent : le porteur potentiel est n'importe quelle unite Chaos, sans aucune entree
+#    `units.*Abilities`.
 _TARGET_TRAIT_GATES = {"BeastSlayer": "trait", "MartialKatah": "trait", "CondemnorStake": "ability",
                        "HeavyGravCannon": "ability", "DestroyTheWitch": "both",
-                       "DespoiledGround": "ability"}
+                       "DespoiledGround": "tile-chaos"}
+
+
+def _gate_holders(kits, gate: str, kind: str) -> list:
+    """Porteurs d'un gate, avec la VOIE d'attribution -- `[(kit, [voies])]`.
+
+    !! LES CINQ VOIES, pas deux. `k["abilities"]` n'est que l'union `active + passive` ; les voies
+    `relic` (relique EN DUR), `mythic` (Machine of War) et `item` (relique EQUIPABLE, qui n'apparait
+    NULLE PART sur la fiche de l'unite) n'y sont pas. `unit_map` expose `abilities_all` et `voies`
+    depuis #323, et c'est exactement ce trou qui a fait classer six mecaniques VIVANTES en DEAD
+    (`docs/rl/case-323-unit-map-attribution-voies.md`). Un recensement d'ability qui lit
+    `k["abilities"]` rend donc un zero qui ne prouve rien.
+
+    Pour les gates portes par un TRAIT (BeastSlayer, MartialKatah), la voie est le trait du kit :
+    la ventilation par voie d'ABILITY ne s'y applique pas -- on rend `["trait"]`.
+
+    `kind == "tile-chaos"` : le buff n'est attribue par AUCUNE entree du kit -- il est pose sur toute
+    unite CHAOS qui demarre son tour sur la tuile. Le porteur POTENTIEL est donc l'ensemble des
+    unites de grande alliance Chaos, et la voie est `tile`."""
+    out = []
+    for k in kits:
+        voies = []
+        if kind == "tile-chaos":
+            if k.get("alliance") == "Chaos":
+                voies.append("tile")
+        else:
+            if kind in ("trait", "both") and gate in set(k.get("traits") or ()):
+                voies.append("trait")
+            if kind in ("ability", "both"):
+                per_voie = k.get("voies") or {}
+                voies += [v for v, abils in per_voie.items() if gate in set(abils or ())]
+        if voies:
+            out.append((k, sorted(set(voies))))
+    return out
 
 
 def inert_call_sites_report() -> dict:
@@ -542,49 +583,66 @@ def inert_call_sites_report() -> dict:
 
     Ils sont HORS du perimetre de #316. Les laisser en l'etat n'est defendable que s'ils sont
     INERTES, c.-a-d. qu'aucun porteur d'un des six gates n'emprunte ces chemins. Cette fonction le
-    MESURE au lieu de l'affirmer : le jour ou une unite Psyker gagne `BeastSlayer` (ou ou
-    `bloodMephiston` gagne un de ces passifs), le compte cesse d'etre nul et le residu doit etre
-    rouvert.
+    MESURE au lieu de l'affirmer, et sur les CINQ voies d'attribution (#323) : le jour ou une unite
+    Psyker gagne l'un des gates -- y compris par une RELIQUE, voie qui n'apparait pas sur la fiche
+    de l'unite -- le compte cesse d'etre nul et le residu doit etre rouvert ET confronte live.
 
-    Rend `{gate: {"carriers": n, "psyker_carriers": [...]}}` + la ligne `bloodMephiston`."""
+    Rend `{gate: {"carriers": n, "voies": [...], "psyker_carriers": [(id, [voies])]}}` + la ligne
+    `bloodMephiston`."""
     import unit_map as UM
     kits = UM.all_kits()
     out = {}
     for gate, kind in _TARGET_TRAIT_GATES.items():
-        holders = []
-        for k in kits:
-            tr, ab = set(k.get("traits") or ()), set(k.get("abilities") or ())
-            if (kind in ("trait", "both") and gate in tr) or (kind in ("ability", "both")
-                                                              and gate in ab):
-                holders.append(k)
-        out[gate] = {"carriers": len(holders),
-                     "psyker_carriers": sorted(h["id"] for h in holders
-                                               if "Psyker" in (h.get("traits") or ()))}
+        holders = _gate_holders(kits, gate, kind)
+        psy = [(k["id"], k.get("kind"), vs) for k, vs in holders
+               if "Psyker" in (k.get("traits") or ())]
+        out[gate] = {
+            "carriers": len(holders),
+            "voies": sorted({v for _k, vs in holders for v in vs}),
+            "psyker_carriers": sorted(psy),
+            # SEULS les `lineup` comptent pour la confrontabilite (un npc n'est jamais spawnable ;
+            # un summon compte, mais aucun de ces gates n'en concerne -- cf. la gate du CLAUDE.md).
+            "psyker_lineup": sorted(i for i, kd, _v in psy if kd == "lineup")}
     meph = next((k for k in kits if k["id"] == "bloodMephiston"), None)
-    out["_bloodMephiston"] = {
-        "gates_held": sorted(g for g, kind in _TARGET_TRAIT_GATES.items()
-                             if meph is not None
-                             and ((kind in ("trait", "both") and g in (meph.get("traits") or ()))
-                                  or (kind in ("ability", "both")
-                                      and g in (meph.get("abilities") or ()))))}
+    held = []
+    if meph is not None:
+        for gate, kind in _TARGET_TRAIT_GATES.items():
+            hits = [vs for k, vs in _gate_holders([meph], gate, kind)]
+            if hits:
+                held.append((gate, hits[0]))
+    out["_bloodMephiston"] = {"gates_held": sorted(held)}
     return out
 
 
 def print_inert_call_sites() -> int:
     rep = inert_call_sites_report()
     print("=== call-sites de prediction NON threades (hors perimetre #316) -- confrontabilite ===")
-    tot = 0
+    print("    (recensement sur les CINQ voies d'attribution #323 : active/passive/relic/mythic/")
+    print("     item -- un zero lu sur `abilities` seul ne prouverait RIEN)")
+    live = {}
     for gate in sorted(_TARGET_TRAIT_GATES):
         r = rep[gate]
-        tot += len(r["psyker_carriers"])
-        print("  %-18s porteurs=%-3d dont Psyker=%d %s"
-              % (gate, r["carriers"], len(r["psyker_carriers"]), r["psyker_carriers"] or ""))
+        if r["psyker_lineup"]:
+            live[gate] = r["psyker_lineup"]
+        print("  %-18s porteurs=%-4d voies=%-12s Psyker=%-3d dont lineup=%d %s"
+              % (gate, r["carriers"], ",".join(r["voies"]) or "-",
+                 len(r["psyker_carriers"]), len(r["psyker_lineup"]),
+                 ",".join(r["psyker_lineup"][:5]) or ""))
     meph = rep["_bloodMephiston"]["gates_held"]
     print("  bloodMephiston (FuryOfTheAncients) porte : %s" % (meph or "aucun de ces gates"))
-    inert = (tot == 0 and not meph)
-    print("\n%s" % ("psyker.py et fury_of_the_ancients.py sont INERTES sur ces gates -- les cabler "
-                    "serait speculatif" if inert else
-                    "UN PORTEUR EXISTE DESORMAIS -- le residu doit etre rouvert et confronte live"))
+    inert = (not live and not meph)
+    if inert:
+        print("\npsyker.py et fury_of_the_ancients.py sont INERTES sur ces gates -- les cabler "
+              "serait speculatif")
+    else:
+        print("\nUN PORTEUR CONFRONTABLE EXISTE -- le residu N22 n'est PAS inerte :")
+        for g, ids in sorted(live.items()):
+            print("   %-18s -> %d hero(s) lineup Psyker : %s" % (g, len(ids), ", ".join(ids)))
+        print("   => le call-site `engine/playbook/psyker.py` (splash Psyker) SOUS-PREDIT pour eux.")
+        print("   Montage a ecrire : poser la tuile `DespoiledGround` (0x5c4, via")
+        print("   `FleshMetalGuns_TileEffect` ou `LetTheGalaxyBurn`), y faire DEMARRER le tour d'un")
+        print("   de ces heros (le buff 0x5c6 se pose au turn-start), puis un splash Psyker sur un")
+        print("   ennemi Xenos ou Imperial.")
     return 0 if inert else 1
 
 

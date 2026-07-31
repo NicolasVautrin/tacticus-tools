@@ -174,22 +174,45 @@ désormais threadés (`normal_attack.py`, `abilities.py`) ; deux ne le sont pas 
 * `engine/playbook/psyker.py` — volet SPLASH d'un caster Psyker ;
 * `engine/playbook/fury_of_the_ancients.py` — `bloodMephiston`.
 
-Le natif n'ayant qu'un builder, ils **devraient** l'être. Ils ne le sont pas parce qu'ils sont
-**INERTES**, et c'est **mesuré**, pas affirmé (`probe_316… --inert-call-sites`) :
+Le natif n'ayant qu'un builder, ils **devraient** l'être.
+
+> ### ⚠ Correction du même jour — mon premier verdict « les deux sont INERTES » était FAUX
+>
+> La première rédaction concluait « **0 porteur sur les six gates** ⇒ les câbler serait spéculatif ».
+> C'était le motif exact que `#323`/`#327` décrivent : un recensement lu sur `k["abilities"]`
+> (**2 voies d'attribution sur 5**), et surtout un gate qui **n'est attribué par aucune unité**.
+>
+> `DespoiledGround_ExtraDamagePct` (0x5c6) est posé sur **toute unité CHAOS qui démarre son tour sur
+> une tuile `DespoiledGround`** (0x5c4, posée par `FleshMetalGuns_TileEffect` ou
+> `LetTheGalaxyBurn`). Sa voie est `tile` — l'une des **quatre non couvertes** par `unit_map`. Le
+> `0 porteur` n'était donc pas une mort : c'était l'outil qui regardait ailleurs.
+
+Re-dérivé correctement (`probe_316… --inert-call-sites`, qui ventile désormais par **voie** et rend
+**exit 1** tant qu'un porteur existe) :
 
 ```
-BeastSlayer        porteurs=27  dont Psyker=0
-CondemnorStake     porteurs=4   dont Psyker=0
-DespoiledGround    porteurs=0   dont Psyker=0
-DestroyTheWitch    porteurs=3   dont Psyker=0
-HeavyGravCannon    porteurs=4   dont Psyker=0
-MartialKatah       porteurs=4   dont Psyker=0
+BeastSlayer        porteurs=27   voies=trait        Psyker=0   dont lineup=0
+CondemnorStake     porteurs=4    voies=passive      Psyker=0   dont lineup=0
+DespoiledGround    porteurs=127  voies=tile         Psyker=32  dont lineup=5  blackPossession,deathTyphus,thousAhriman,thousInfernalMaster,thousSorcerer
+DestroyTheWitch    porteurs=3    voies=passive      Psyker=0   dont lineup=0
+HeavyGravCannon    porteurs=4    voies=passive      Psyker=0   dont lineup=0
+MartialKatah       porteurs=4    voies=trait        Psyker=0   dont lineup=0
 bloodMephiston (FuryOfTheAncients) porte : aucun de ces gates
 ```
 
-Aucun porteur confrontable ⇒ les câbler serait un port **spéculatif**. Le compte est un **cliquet,
-pas un acquis** : le jour où une unité `Psyker` gagne l'un des six gates, il cesse d'être nul et le
-résidu (`N22` de l'inventaire) doit être rouvert **et confronté live**.
+Le verdict corrigé, gate par gate :
+
+* **`fury_of_the_ancients.py` est bien INERTE** — `bloodMephiston` ne porte aucun des six gates, et
+  n'est pas Chaos (Blood Angels), donc il ne peut pas non plus recevoir le buff de tuile ;
+* **`psyker.py` NE L'EST PAS.** Cinq héros `lineup` sont Chaos **et** Psyker — `blackPossession`,
+  `deathTyphus`, `thousAhriman`, `thousInfernalMaster`, `thousSorcerer`. Sur une tuile
+  `DespoiledGround`, leur splash Psyker **sous-prédit** contre une cible `Xenos`/`Imperial`.
+
+`N22` reste donc OUVERT, mais **avec un porteur confrontable et un montage nommé** — ce n'est plus
+un « bloqué par la confrontabilité ». **Montage à écrire** : poser la tuile, y faire *démarrer* le
+tour d'un de ces cinq héros (le buff se pose au turn-start), puis un splash Psyker sur un ennemi
+`Xenos` ou `Imperial`. Il n'est pas porté ici parce qu'il sort du périmètre de #316 et exige son
+propre montage live — pas parce qu'il serait invalidable.
 
 **Autres angles non couverts, nommés** :
 
