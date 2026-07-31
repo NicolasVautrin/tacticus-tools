@@ -21,7 +21,9 @@ TriggeredAbilityType 0x4df=1247) — RE re-expert #32, réconcilié EXACT :
   ciblable (`IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(u,3)`) en ordre d'énumération des tuiles
   adjacentes de E → itération `neigh_by_pos[E]` (ordre voisins natif), fallback ordre `enemies`.
 - `IdunBattle.AI.Playbook.Loki.FuryOfTheAncientsPlaybook$$GetDamagePrediction` : niveau PASSIF du caster (`GetAbilityState`) → `GetDamage`
-  (`MinMaxDamage` = minDmg/maxDmg[lvl] × mult rareté) évalué en MOYENNE, routé par le slot 0x23
+  (= `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage` = `DSLFormulas.RandomAmount(minDmg 0xc, maxDmg 0xd)`,
+  ×mult rareté) évalué en MOYENNE par le slot 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage`
+  — qui TRONQUE (#339, cf. `engine.dsl.base.calculate_average`), routé par le slot 0x23
   (`IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction`, cf. `psyker.py`) = **montant PRÉDÉFINI
   avg(min,max), hits FORCÉS 1, spread 0** — PROUVÉ probe_32d (matrice hits×canal) : delta ~1e-8
   vs les composites natifs pour les DEUX cibles ; hits=2/canal plage → ×2/off. Le const
@@ -45,6 +47,7 @@ from ..entities.traits import target_hit_multiplier, TraitFactory
 from ..entities.effects import calculate_attacker_modifiers_for_prediction
 from ..entities.effects.magnitude import ability_var
 from ..services.damage_prediction import get_attack_prediction
+from ..dsl.base import calculate_average   # `AAmountFormula$$CalculateAverage` (#339) — TRONQUE
 from .. import battle_query as bq
 from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_damage_event
 
@@ -100,7 +103,13 @@ class FuryOfTheAncientsPlaybook:
         # #267-r1 : MkXGravis lu sur l'ENTITE (`GetBaseDamageWithFixedPiercedArmor` ->
         # HasTrait(defender, 0x3f5)), MEME foyer que `_target_damage_limits` deux lignes plus bas.
         hit_mult = target_hit_multiplier(TraitFactory.create_many(_entity_traits(scene, tgt_id)))
-        avg = (int(dmin) + int(dmax)) // 2       # MinMaxDamage avgFlag (somme paire ici : 599+797)
+        # #339 -- `GetDamage` rend un noeud VALEUR a PLAGE, et la moyenne qu'on en prend TRONQUE :
+        # `<Ability>$$GetDamage` (corps dedupe = `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage`)
+        # = `IdunBattleLogic.Entities.DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)`, puis le
+        # slot 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage`.
+        # Ni `MinMaxDamage$$Avg` (#333) ni `AActiveAbility$$MinMaxDamageAverage` : les trois
+        # divergent des que `min + max` vaut 3 mod 4. Lecture complete : `calculate_average`.
+        avg = calculate_average(int(dmin), int(dmax))
         return get_attack_prediction(
             target_current_health=scene.hp(tgt_id) or 0, initial_damage=avg,
             hits=1,                              # slot 0x23 : hits forcés 1 (probe_32d)

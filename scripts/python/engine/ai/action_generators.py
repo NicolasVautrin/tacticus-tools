@@ -39,7 +39,7 @@ méthode : les corps `mov eax,imm32 ; ret` sont dédupliqués par IL2CPP, donc n
 from __future__ import annotations
 
 import sys
-import math
+from fractions import Fraction
 
 import hexgeo
 import gameconfig as gc
@@ -62,6 +62,8 @@ from engine.predict import (repair_utility, repair_amount_weapon,  # RepairedAmo
 from engine.entities.stats import StatType, StatPart   # Attack INITIALE de la cible (magnitude #85)
 from engine.entities.effect_type import EffectType     # #158 : ids d'effet -> enum natif
 from engine.entities.effects.magnitude import ability_var   # maxDmg/dmgPct GalvanicField (#85)
+from engine.services.min_max_damage import min_max_avg  # `MinMaxDamage$$Avg` (#333) — lifesteal SpiritLeech (#339)
+from engine.dsl.base import _round_fix64   # `AAmountFormula$$RoundFix64Result` — PercentageOf(roundUp=1)
 from engine.ai.bucket import Action, Bucket
 
 
@@ -403,24 +405,35 @@ class ComparableAbilityGenerator(ActiveAbilityActionGenerator):
         tyranNeurothrope/Loki) → `GenerateHealPredictions` → Σ `CalculateUtilityFromHealEvent`, SOMMÉ au
         dégât (+ effet Pinned=0, inerte ce build) par `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`.
 
-        - lifesteal = `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForPrediction` = `ceil(degat_predit × hpToHealPct/100)`
-          (`IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountFromDamageAmount` = `PercentageOf(dmg, ConfigVar 0x4b, roundUp=1)`).
-          `hpToHealPct` ∈ [40..60] au niveau ACTIF du caster (PAS rarity-scaled). `degat_predit` = dégât
-          santé+bouclier prédit sur la cible d'attaque (avg des bornes BRUTES @0x24/@0x28 + bouclier).
+        - lifesteal = `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForPrediction`
+          = `PercentageOf(DamagePredictionFormula(…), ConfigVar 0x4b, roundUp=1)` — le `roundUp=1` est le
+          mode `Ceiling` de `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`.
+          `hpToHealPct` ∈ [40..60] au niveau ACTIF du caster (PAS rarity-scaled).
+          **#339 — le montant moyenné est `AccurateHealthDamage`, une seule fois, arrondi
+          demi-vers-le-pair.** `IdunBattle.Entities.Formulas.DamagePredictionFormula$$Calculate` finit par
+          `MinMaxDamage$$Avg(prediction + 0x40)` quand `prioritizeKills@+0x54` est FAUX — et
+          `GetHealAmountForPrediction` passe bien `false` (10ᵉ arg de
+          `IdunBattle.Entities.Formulas.DamagePredictionFormula$$.ctor`). Donc : bornes CAPÉES aux PV
+          (`healthDmgMin/Max`), PAS les bornes BRUTES (`DefaultScenario` @+0x14 = `rawHealthDmg*`), et
+          AUCUN terme de BOUCLIER. Le port lisait les trois de travers ; mesuré live (probe_339,
+          bornes brutes `[2758,4139]` capées à `[2758,2765]`) : **4.83 points d'utilité** d'écart.
         - cibles = `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealTargets` = SELF ∪ (amis ADJACENTS à `tile_T`, faction Tyranids(0xc)).
         - Σ par cible : eff = `PredictHeal` = min(lifesteal, PV manquants) ; `HealUtility` = eff/(maxHP+1)×100
           (is_friend=True). Position-dépendant (adjacence des alliés à la tuile de cast `tile_T`)."""
         me = ctx.me
         if me is None or not cand_pred:
             return 0.0
-        # degat predit (avg des bornes BRUTES health @0x24/@0x28 + bouclier) sur la cible d'attaque
-        dmg = ((cand_pred.get("rawHealthDmgMin") or 0) + (cand_pred.get("rawHealthDmgMax") or 0)) / 2.0 \
-            + ((cand_pred.get("shieldDmgMin") or 0) + (cand_pred.get("shieldDmgMax") or 0)) / 2.0
+        # `DamagePredictionFormula.Calculate` -> `MinMaxDamage$$Avg(AccurateHealthDamage@+0x40)`
+        # (#339) : bornes CAPÉES, un SEUL arrondi demi-vers-le-pair, aucun bouclier.
+        # ⚠ Pas de court-circuit `LimitedByMinHp` ici — `DamagePredictionFormula$$Calculate` lit
+        # `+0x40` en direct (contrairement à `IdunBattle.AI.Utilities.DamageUtility$$GetHealthDamage`).
+        dmg = min_max_avg(cand_pred.get("healthDmgMin") or 0, cand_pred.get("healthDmgMax") or 0)
         if dmg <= 0:
             return 0.0
         hc = ctx.heal_config(ctx.uid)
         pct = ability_var("SpiritLeech", "hpToHealPct", hc["active"], multiplier_pct=hc["multiplier"]) or 0
-        lifesteal = math.ceil(dmg * pct / 100.0)
+        # `PercentageOf(dmg, pct, roundUp=1)` -> `RoundFix64Result(mode 1 = Ceiling)`.
+        lifesteal = _round_fix64(Fraction(int(dmg) * int(pct), 100), 1)
         if lifesteal <= 0:
             return 0.0
         # cibles de soin : SELF + amis Tyranids ADJACENTS à la tuile de cast (GetHealTargets)
