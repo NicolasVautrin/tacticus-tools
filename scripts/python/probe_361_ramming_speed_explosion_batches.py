@@ -47,10 +47,12 @@ DEUX MESURES SUR LE MEME ETAT, et c'est leur CONJONCTION qui porte le verdict
      => un cast qui PASSE prouve que l'arbre rend une tuile dans un contexte STRICTEMENT PLUS
      PAUVRE que celui du playbook. Le pool ne peut donc pas y etre vide.
 
-Si le cast passe ET que les batchs restent absents sur un voisinage peuplé, la seule cause
-compatible est la GATE elle-meme (`Enumerable.Any<T>(selfPreds, p => p.Prediction.WillBeKill)`)
--- alors meme que le capteur #372 mesure `willBeKill = true` sur cet event. Le probe le DIT et
-nomme le point d'ancrage, il ne conclut pas a la place de la mesure.
+Si le cast passe ET que les batchs restent absents sur un voisinage peuple, la cause est en aval de
+la gate. #365 l'a ISOLEE : c'est l'`origin` des deux selecteurs -- l'arbre `GetTileToMoveTo()` --
+qui rend VIDE dans le contexte du playbook, tandis que la composition `AdjacentUnits` y est vivante
+(`probe_361_adjacent_units_selector.py`, 3/3 bras exacts) et que l'arbre ne designe pas non plus une
+tuile isolee (`probe_361_ramming_speed_forced_tile.py`, ring sature). Le probe le DIT et nomme le
+point d'ancrage restant, il ne conclut pas a la place de la mesure.
 
 Le verdict est DERIVE des champs mesures (jamais un texte ecrit d'avance) -- c'est la propriete de
 `probe_372` qui a permis de tuer la 3e cause, on la garde.
@@ -374,12 +376,18 @@ def run(seed: int = 36100, level: int = 8, mult: int = 100, verbose: bool = True
         out["verdict"] = (
             "BATCHS 3/4 ABSENTS SUR UN VOISINAGE PROUVE PEUPLE : tuile=%s amis=%s ennemis=%s, "
             "gate OUVERTE (willBeKill=True sur l'event du caster), et le natif rend %d events. "
-            "La contre-epreuve ECARTE le pool vide : le cast reel PASSE et pose le caster en %s "
-            "== la tuile du port, alors que `GetDynamicInvalidTargetReason` evalue le meme arbre "
-            "dans un contexte STRICTEMENT PLUS PAUVRE que celui du playbook. Et `get_WillBeKill` "
-            "GOUVERNE bien (probe_361_will_be_kill_gate_direct : 2 events puis 0 sur "
-            "StormOfFlensingBlades). Il ne reste que ce que `Enumerable.Any<T>(selfPreds, "
-            "<MakeDamagePredictions>b__2_0)` fait du predicat -- %s."
+            "La contre-epreuve ECARTE le pool vide cote GATE : le cast reel PASSE et pose le "
+            "caster en %s == la tuile du port, alors que `GetDynamicInvalidTargetReason` evalue le "
+            "meme arbre dans un contexte STRICTEMENT PLUS PAUVRE que celui du playbook. "
+            "CAUSE ETABLIE (#365) : l'`origin` des deux selecteurs -- l'arbre "
+            "`RammingSpeedAbility$$GetTileToMoveTo()` -- rend VIDE quand il est evalue dans le "
+            "contexte de `ComparablePlaybook<T>$$GenerateAttackPredictions`. La composition "
+            "`AdjacentUnits`/`op_Subtraction`/`SelectUniqueUnits(ctx,3)`, elle, est VIVANTE dans ce "
+            "meme contexte (probe_361_adjacent_units_selector : 3/3 bras exacts), et l'arbre ne "
+            "designe pas non plus une tuile isolee (probe_361_ramming_speed_forced_tile : ring "
+            "sature, chaque candidate porte 2 voisins, 2 events). Le maillon INTERNE reste ouvert "
+            "-- capteur a poser sur "
+            "`IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`. Capteur gate : %s."
             % (f["tile"], [x["visualId"] for x in f["friends"]],
                [x["visualId"] for x in f["enemies"]], f["n_events"], c.get("landed"),
                f.get("gate_phrase")))
