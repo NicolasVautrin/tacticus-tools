@@ -197,6 +197,29 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
 }
 
 
+# ─── #350-r3 : les playbooks dont la formule ne porte PAS sur leur propre `ActiveAbilityType` ──────
+#
+# Un `<X>Playbook` n'évalue pas toujours l'ability qui l'a fait charger : il peut aller CHERCHER une
+# autre ability par `Playbook<T>$$GetAbility<T>(this, <id>, ...)`. Quand cet `<id>` est un
+# `TriggeredAbilityType`, aucune inscription à `_PREDICTION_MINMAX_AVERAGE` / `_RANDOM_READ` n'a de
+# sens : ces deux registres sont indexés par `ActiveAbilityType` et ne sont lus que par
+# `AActiveAbility.get_damage`, chemin que l'objet évalué N'EMPRUNTE PAS (il descend de
+# `BaseTriggeredAbility`, config à `+0x20`, pas `AActiveAbility`, config à `+0x60`).
+#
+# Table PUREMENT DOCUMENTAIRE — aucun code ne branche dessus ; la garde offline de #350 vérifie
+# qu'elle est DISJOINTE des trois tables ci-dessus (une entrée qui y apparaîtrait aussi serait une
+# qualification d'enum fausse, exactement l'erreur que cette table existe pour empêcher).
+_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY = {
+    # ActiveAbilityType : (playbook natif, TriggeredAbilityType RÉELLEMENT évalué, chaîne lue)
+    1160: ("HeavyRailRiflePlaybook$$EvaluateNonComparable",
+           1260,        # 0x4ec — littéral passé à `Playbook<T>$$GetAbility<T>`, et valeur rendue par
+                        # `HeavyRailRifle_PendingAttackEffect$$GetTriggeredAbilityType`
+           "MassiveScythingTalonsAbility$$GetDamage -> BaseTriggeredAbility$$MinMaxDamage "
+           "= RandomAmount(cfg@0x20[0xc], cfg@0x20[0xd]), pris au slot 4 d'IAmountFormula "
+           "(= AAmountFormula$$CalculateAverage, TRONCATURE) -> forme (b)"),
+}
+
+
 class AActiveAbility:
     """Base ability active. `ability_type` = ActiveAbilityType ; `config` = AbilityConfiguration
     (None pour l'attaque normale générique) ; `caster` = UnitContext de l'attaquant ;
