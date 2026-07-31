@@ -355,8 +355,11 @@ Non-régression rejouée après ce port : `test_votan_prediction_gap_live.py` + 
   `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` **sauvegarde `+0xec` et
   `+0xf0` avant l'action simulée et les restaure après**, le pendant `$$DoActionInSimulatedOnSameTile`
   ne touche pas le composant. Mesuré bit-exact sur trois bras (`n` = 1, 2 et **6**, contrefactuel
-  `n=0` à −1246 / −2494 / −7484), argmax **renversé** sur 11/35 points. Reste ouvert, en `#340-r1` :
-  le capteur `+0xf0` (livré dans `actorStats`, **non déployé**) qu'exige la voie **live-capture**.
+  `n=0` à −1246 / −2494 / −7484), argmax **renversé** sur 11/35 points.
+  **La voie live-capture est fermée à son tour (`#340-r1`, 2026-07-31)** — capteur déployé et
+  CONFRONTÉ, les deux voies live bit-exactes sur 5 valeurs de `n` et 2 plateaux : `case-340` §8.
+  Le contrôle du capteur y a trouvé un bug de repli d'offset (`#340-r2`, correctif livré, exige une
+  réinjection) qui ne touche PAS `+0xf0`, donc pas ce cas.
 * **`DisplaceUnitOperation$$AddTilesMoved` non porté.** Un déplacement FORCÉ (push, pull, switch)
   compte nativement ses tuiles par cette fonction, gatée `options+0x10 && !IsEnemy(caster, target)`
   — donc **seulement pour un déplacement AMICAL**. Les call-sites de déplacement du port passent

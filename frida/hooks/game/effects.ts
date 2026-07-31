@@ -17,7 +17,7 @@
 
 import {
     class_get_fields, class_get_name, field_get_name, field_get_offset,
-    field_get_type, findClassAnywhere, getFieldOffset, s,
+    field_get_type, fieldOffsetOr, findClassAnywhere, getFieldOffset, s,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { EntityType, forEachComponent, forEachEntity } from "./match-state.js";
@@ -29,24 +29,27 @@ const effectComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "EffectComponent");
 
 // ActiveEffectIds : List<BEntityId> on EffectsOwnedComponent (dump: +0x10).
+// `fieldOffsetOr` et NON `getFieldOffset(...) || …` : ce dernier ne teste que `0`, alors que le
+// « nom absent » vaut **-1** — truthy en JS, donc le repli ne se déclenchait pas et l'offset
+// restait -1 (lecture à `comp - 1`). Mesuré sur `actorStats` (#340-r1) ; cf. `fieldOffsetOr`.
 const activeEffectIdsOff = effectsOwnedComponentClass
-    ? (getFieldOffset(effectsOwnedComponentClass, "ActiveEffectIds") || 0x10)
+    ? fieldOffsetOr(effectsOwnedComponentClass, "ActiveEffectIds", 0x10)
     : 0x10;
 
 // EffectComponent field offsets (resolved by name; dump values as fallback).
 const EC = {
     sourceUnitId: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "SourceUnitId") || 0x10) : 0x10,
+        ? fieldOffsetOr(effectComponentClass, "SourceUnitId", 0x10) : 0x10,
     effectType: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "EffectType") || 0x58) : 0x58,
+        ? fieldOffsetOr(effectComponentClass, "EffectType", 0x58) : 0x58,
     isActive: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "IsActive") || 0x5c) : 0x5c,
+        ? fieldOffsetOr(effectComponentClass, "IsActive", 0x5c) : 0x5c,
     removed: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "Removed") || 0x5f) : 0x5f,
+        ? fieldOffsetOr(effectComponentClass, "Removed", 0x5f) : 0x5f,
     remainingTurns: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "RemainingTurns") || 0x64) : 0x64,
+        ? fieldOffsetOr(effectComponentClass, "RemainingTurns", 0x64) : 0x64,
     level: effectComponentClass
-        ? (getFieldOffset(effectComponentClass, "Level") || 0x68) : 0x68,
+        ? fieldOffsetOr(effectComponentClass, "Level", 0x68) : 0x68,
 } as const;
 
 // --- StatModifierComponent de l'entité-effet ---------------------------------
@@ -189,7 +192,7 @@ function readEffect(effEntityPtr: NativePointer): Decoded | null {
 // d'un additif d'effet (#68/#75 : SmashaEad combat=300 vs prédiction 599). On dumpe la zone en
 // ints BRUTS (le layout Nullable<T> il2cpp hasValue-first/value-first se décode côté client).
 const abilityStateOff = effectComponentClass
-    ? (getFieldOffset(effectComponentClass, "AbilityState") || 0x18) : 0x18;
+    ? fieldOffsetOr(effectComponentClass, "AbilityState", 0x18) : 0x18;
 
 /** Raw dump of an EffectEntity's AbilityStateReference (10 ints from comp+abilityStateOff)
  * + identity fields (EffectType/source/owner) resolved by name like readEffect. */

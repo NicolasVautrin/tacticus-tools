@@ -1,13 +1,18 @@
 # case-340 — la face PRÉDICTION lit le compteur RÉEL de `TilesMovedThisTurn`
 
-**Statut : FERMÉ côté OFFLINE** (2026-07-31). Résidu `#322-r2`, classé « exige une réinjection » :
+**Statut : FERMÉ — les deux voies.** Le volet OFFLINE ci-dessous (2026-07-31), puis le volet
+LIVE-CAPTURE (`#340-r1`) une fois le capteur déployé : **§8**. Ce dernier a trouvé, au passage, que
+le capteur lisait **deux de ses trois champs à `comp - 1`** — un bug de repli, pas de RE.
+
+**Statut du volet OFFLINE : FERMÉ** (2026-07-31). Résidu `#322-r2`, classé « exige une réinjection » :
 **c'était faux pour la moitié qui compte**. La voie que la chaîne de décision emprunte
 (`Scene.from_state`) lit un ECS qui **portait déjà le compteur** depuis #335 — la face prédiction le
 reconstruisait à zéro. Même forme que **#267** (traits reconstruits alors que le runner les tenait)
 et **#266** (flag `Moved` non câblé) : *une face qui LIT ce que l'autre TIENT*.
 
-Ce qui reste vraiment bloqué par un capteur : la voie **live-capture** (`from_predictor_sctx`), dont
-le câblage Python est posé et inerte (tri-état) tant que le hook n'est pas déployé.
+Ce qui restait bloqué par un capteur : la voie **live-capture** (`from_predictor_sctx`), dont le
+câblage Python était posé et inerte (tri-état) tant que le hook n'était pas déployé. **C'est le
+volet `#340-r1`, fermé au §8.**
 
 ## 1. Le fait, lu au décompilé (`rnca9r7q6c`)
 
@@ -107,18 +112,10 @@ scalaire d'utilité.
 
 ## 6. Résidus OUVERTS
 
-* **Capteur `+0xf0` non déployé (`#340-r1`).** Le hook `actorStats` publie désormais les trois
-  compteurs de tuiles, mais **exige une réinjection** : tant qu'elle n'a pas eu lieu, la table
-  `tiles_moved_by_id` de la voie live reste vide, l'accesseur rend `None` et la prédiction
-  live-capture garde le seul terme « pas simulé » (comportement strictement antérieur). Les offsets
-  sont attestés par trois lectures indépendantes (`RecordTilesMoved` écrit `+0xec`/`+0xf0`,
-  `TilesMovedThisTurnFormula$$Calculate` lit `+0xf0`, `DoActionInSimulatedTile` les sauve/restaure) ;
-  les **noms** de champs passés à `getFieldOffset` ne sont pas vérifiables offline (aucun
-  `fields.tsv` dans `data/symbols/`) — d'où le fallback décompilé, contrat déjà en place pour
-  `TotalAttacksMade`/`TotalTurnsWithAttacksMade`.
-* **`load_state` ne seede pas le compteur.** Un `State` rechargé depuis une capture live (au lieu
-  d'un pas REJOUÉ) part à zéro — même gap de capteur, refermé par le même hook. Aucune régression :
-  c'est ce que le port faisait déjà partout.
+* ~~**Capteur `+0xf0` non déployé (`#340-r1`).**~~ **FERMÉ (§8)** — le capteur est déployé et
+  CONFRONTÉ ; les deux voies live sont bit-exactes sur 5 valeurs de `n`, 2 plateaux.
+* ~~**`load_state` ne seede pas le compteur.**~~ **FERMÉ (§8)** — `load_state(actor_stats=…)` +
+  `snapshot._load_actor_statistics`.
 * **Régime `réel > 0` ET `pas simulé > 0` NON CONFRONTÉ, et c'est structurel** : une unité qui a joué
   son déplacement ne peut plus bouger, donc `aiPlaybookPredict` ne rend plus rien depuis une autre
   tuile (mesuré : `None` sur toutes les tuiles non courantes en phase B). Les deux termes ne sont
@@ -138,6 +135,8 @@ scalaire d'utilité.
 |---|---|
 | probe MESURE (2 phases, bras rival, sensibilité argmax) | `scripts/python/probe_340_tiles_moved_prediction.py` |
 | gardes | `scripts/python/tests/engine/test_tiles_moved_prediction_live.py` |
+| probe `#340-r1` (capteur + 2 voies live + garde, §8) | `scripts/python/probe_340_r1_actorstats_live.py` |
+| gardes `#340-r1` | `scripts/python/tests/engine/test_actorstats_sensor_live.py` |
 | harnais réutilisé | `scripts/python/probe_335_tiles_moved_combat.py` |
 | le cas amont | `docs/rl/case-322-modified-exoarmour-extradmg.md` |
 
@@ -146,3 +145,112 @@ cd scripts/python
 python probe_340_tiles_moved_prediction.py --steps 1,2 --rival-step 2
 python -m pytest tests/engine/test_tiles_moved_prediction_live.py -q
 ```
+
+---
+
+## 8. `#340-r1` — le capteur déployé, et le bug qu'il portait
+
+**Statut : FERMÉ** (2026-07-31). Les deux voies LIVE lisent le compteur. **Et le contrôle du
+capteur a trouvé un bug que la RE ne pouvait pas voir : deux de ses trois champs lisaient
+`comp - 1`.**
+
+### 8.1 Le contrôle — pourquoi on ne croit pas un capteur sur parole
+
+Les offsets `+0xec` / `+0xf0` / `+0xf4` sont attestés par le décompilé (relu sur `rnca9r7q6c` :
+`UnitExtensions$$RecordTilesMoved` écrit les deux premiers, `TilesMovedThisTurnFormula$$Calculate`
+rend `+0xf0`, `TilesMovedLastTurnFormula$$Calculate` rend `+0xf4`,
+`ActorStatisticsComponent$$ResetThisTurn` fait `if (wasOwnTurn) +0xf4 = +0xf0; +0xf0 = 0`). Mais les
+**noms** passés à `getFieldOffset` ne sont pas vérifiables offline (aucun `fields.tsv`), et un hook
+qui lit au mauvais endroit **ne lève rien** — il rend un entier plausible.
+
+Le discriminant n'est donc pas une valeur, ce sont les **deux transitions** du composant, exigées
+sur chaque champ :
+
+| | un pas de `n` tuiles | `EndTurnOperation` |
+|---|---|---|
+| `+0xec` battle | `+= n` | inchangé |
+| `+0xf0` turn | `+= n` | **0** |
+| `+0xf4` last | inchangé | `= +0xf0` |
+
+Deux transitions différentes sur le même champ ne peuvent pas être un alignement heureux.
+
+### 8.2 Ce que la mesure a trouvé
+
+`+0xf0` : **exact**, sur 5 valeurs de `n` et les deux transitions. `+0xec` et `+0xf4` :
+**-1201836032 tous les deux**, constants, insensibles au pas comme au reset.
+
+**La même valeur aux deux offsets est la signature** : les deux lisaient la **même adresse**.
+Cause racine, lue dans `frida/hooks/il2cpp/helpers.ts` — `getFieldOffset` rend **`-1`** sur un nom
+absent, et l'idiome `getFieldOffset(k, "X") || 0xec` ne teste que `0`, or **`-1` est *truthy* en
+JS**. Le repli décompilé n'était donc **jamais** pris : l'offset restait `-1` et le hook lisait
+`comp - 1`. Seul `TilesMovedThisTurn` porte un nom qui **existe** dans les métadonnées — d'où le
+champ correct au milieu de deux faux, et d'où le fait que le cas lui-même n'était pas bloqué.
+
+Ce n'était **pas une erreur de RE** : les trois offsets étaient justes. C'était un repli qui ne se
+déclenchait pas.
+
+**Correctif au foyer** : `helpers.ts::fieldOffsetOr(klass, name, fallback)` (`off >= 0 ? off :
+fallback`), qui rend l'idiome faux inexprimable. Les **14** call-sites du pattern y passent
+(`rpc-snapshot` 8, `effects` 8, `projection` 1) — même bug latent partout, même réinjection ; aucun
+changement de comportement quand le nom existe. ⛔ **Exige une réinjection pour prendre effet.**
+
+Côté port, `snapshot._load_actor_statistics` **refuse une valeur négative** : les trois champs sont
+des compteurs à incréments `>= 1` (`RecordTilesMoved` sort sur `if ((int)tiles < 1) return;`), donc
+un négatif dénonce une **lecture** invalide, jamais un état de jeu — on ne l'ingère pas dans l'ECS.
+
+### 8.3 Le port
+
+| pièce | fichier |
+|---|---|
+| voie `load_state` | `engine/runner/snapshot.py::load_state(actor_stats=…)` → `_load_actor_statistics` |
+| voie live-capture | `scene.py::_tiles_moved_from_actor_stats` (posée par #340) — désormais ALIMENTÉE |
+| le capteur | `frida/hooks/features/ai-step/rpc-snapshot.ts::actorStats` |
+| le repli correct | `frida/hooks/il2cpp/helpers.ts::fieldOffsetOr` |
+
+### 8.4 Validation
+
+`probe_340_r1_actorstats_live.py` — quatre volets : **V1** le capteur (deux transitions × trois
+champs), **V2** `load_state`, **V3** live-capture, **V4** le garde anti-garbage. Chacun porte son
+contrefactuel (canal retiré) ; une tuile où le contrefactuel rend la même valeur est dénoncée comme
+INERTE.
+
+| plateau / seed | bras | `n` | NATIF == PORT (deux voies) | contrefactuel |
+|---|---|---|---|---|
+| MC1_67 / 909 | 1 hex | 1 | `[7672, 10882]` | **−1246** |
+| MC1_67 / 909 | 2 hex | 2 | `[8920, 12130]` | **−2494** |
+| MC1_67 / 909 | 2 hex + **rival bloquant** | **6** | `[13910, 17120]` | **−7484** |
+| C1_25 / 31337 | 2 hex + rival | 3 | `[10168, 13378]` | **−3742** |
+| C1_25 / 31337 | 3 hex | 4 | `[11416, 14626]` | **−4990** |
+
+Le bras rival est le discriminant **chemin-vs-hex appliqué au CAPTEUR** : l'ennemi au contact bloque
+le passage, 2 hex coûtent 6 tuiles de chemin, et le capteur rend 6. Les valeurs reproduisent celles
+du §3 — mais par les voies LIVE, là où le §3 passait par le rejeu offline, **qui masquait le trou**
+(c'est le moteur qui reposait le compteur).
+
+Gardes : `tests/engine/test_actorstats_sensor_live.py` (12 passed + 1 xfail). Le xfail est le
+**cliquet du reinject** : il exige aujourd'hui le régime pré-correctif (les deux champs faux rendent
+la MÊME valeur négative) et exigera le patron natif complet une fois réinjecté — dans les deux cas
+il MESURE, au lieu de virer au vert à vide.
+
+Quatre mutations adversariales, **vues rouges** :
+
+| mutation | rouges | message obtenu |
+|---|---|---|
+| seed `load_state` retiré | 3 | `bras pas=1 : load_state(actor_stats=...) seede None au lieu de 1` |
+| table live-capture vidée | 4 | `la table tiles_moved_by_id de la voie live est VIDE` |
+| garde `< 0` retiré | 1 | `du garbage NEGATIF est entre dans l'ECS : battle=-1201836032 last=-1201836032` |
+| comptage en distance HEX | 5 | `bras pas=2 : load_state seede 6 au lieu de 2` — le CAPTEUR compte le chemin, c'est le port muté qui a tort |
+
+### 8.5 Résidus
+
+* ⛔ **`+0xec` et `+0xf4` restent faux jusqu'à la réinjection.** Le correctif est livré ; aucun
+  lecteur porté n'en dépend (`tiles_moved_this_battle` n'a aucun consommateur, `tiles_moved_last_turn`
+  non plus), et le garde `< 0` empêche le garbage d'entrer dans l'ECS. À re-jouer après reinject :
+  le xfail de `test_the_two_other_counters_are_measured_either_way` doit devenir un PASS.
+* **Les 13 autres call-sites de `fieldOffsetOr` ne sont pas re-confrontés un par un.** Leurs noms
+  existent (tous validés live de longue date), donc le correctif est un no-op pour eux
+  aujourd'hui — mais c'est au prochain **changement de build** qu'il compte : un nom qui disparaît
+  y produisait jusqu'ici du garbage silencieux, il produira désormais le repli décompilé.
+* **Une seule tuile mesurante par bras**, structurellement : après un déplacement joué,
+  `aiPlaybookPredict` ne rend plus rien depuis une autre tuile (déjà noté au §6). Les 5 bras
+  compensent en variant `n`, pas en variant la tuile.

@@ -4,7 +4,7 @@
  *  INCHANGEE (memes noms ctx.rpc.*), agregee par registerView (rpc-view.ts). */
 import {
     class_get_name, class_get_namespace, findClass, findClassAnywhere, findMethod,
-    findMethodByParamClasses, findMethodByParamCount, getFieldOffset, readIl2cppString, s,
+    fieldOffsetOr, findMethodByParamClasses, findMethodByParamCount, readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
 import { dumpEnum } from "../../il2cpp/enum-dump.js";
@@ -697,11 +697,13 @@ export function registerViewSnapshot(ctx: Ctx): void {
         const tacClass = findClassAnywhere("IdunBattle.Entities.Components", "TriggeredAbilityComponent");
         const aaClass = findClassAnywhere("IdunBattle.Entities.Components", "ActiveAbility");
         if (!aacClass) return { ok: false, error: "ActiveAbilityComponent non résolu" };
-        const AAC_ABILITIES = getFieldOffset(aacClass, "Abilities") || 0x20;
+        // `fieldOffsetOr` et NON `|| fallback` — cf. le commentaire d'`actorStats` plus bas et la
+        // docstring de `fieldOffsetOr` : un nom absent vaut **-1**, truthy en JS.
+        const AAC_ABILITIES = fieldOffsetOr(aacClass, "Abilities", 0x20);
         const AA = {
-            name: aaClass ? (getFieldOffset(aaClass, "AbilityName") || 0x44) : 0x44,
-            state: aaClass ? (getFieldOffset(aaClass, "_abilityState") || 0x4c) : 0x4c,
-            override: aaClass ? (getFieldOffset(aaClass, "OverrideAbilityState") || 0x58) : 0x58,
+            name: aaClass ? fieldOffsetOr(aaClass, "AbilityName", 0x44) : 0x44,
+            state: aaClass ? fieldOffsetOr(aaClass, "_abilityState", 0x4c) : 0x4c,
+            override: aaClass ? fieldOffsetOr(aaClass, "OverrideAbilityState", 0x58) : 0x58,
         };
         // KeyedCollection/Collection<T> : IList items @0x10 → List {items@0x10, size@0x18, éléments
         // ref 8 o dès 0x20} (même walk que statModSources SH / MAJ 11 dumpTriggeredMult, validé).
@@ -802,7 +804,7 @@ export function registerViewSnapshot(ctx: Ctx): void {
         const services = runner.add(servicesOff).readPointer();
         if (services.isNull()) return { ok: false, error: "services null" };
         const abilitiesOff = entityServicesClass
-            ? (getFieldOffset(entityServicesClass, "<Abilities>k__BackingField") || 0x40) : 0x40;
+            ? fieldOffsetOr(entityServicesClass, "<Abilities>k__BackingField", 0x40) : 0x40;
         const db = services.add(abilitiesOff).readPointer();
         if (db.isNull()) return { ok: false, error: "AbilitiesDatabase null" };
         const dbKlass = db.readPointer();
@@ -947,10 +949,15 @@ export function registerViewSnapshot(ctx: Ctx): void {
         if (statePtr.isNull()) return { ok: false, error: "state null" };
         const asClass = findClassAnywhere("IdunBattle.Entities.Components", "ActorStatisticsComponent");
         if (!asClass) return { ok: false, error: "ActorStatisticsComponent non résolu" };
-        // Offsets int32 sur le composant (décompilé, 3 confirmations). getFieldOffset par nom si le dump
-        // le porte, sinon le fallback (offsets non-nuls -> `||` sûr, comme le reste du module).
-        const OFF_TOTAL = getFieldOffset(asClass, "TotalAttacksMade") || 0x20;
-        const OFF_TURNS = getFieldOffset(asClass, "TotalTurnsWithAttacksMade") || 0x30;
+        // Offsets int32 sur le composant (décompilé, 3 confirmations). Nom d'abord, repli décompilé
+        // ensuite — via `fieldOffsetOr`, JAMAIS via `|| fallback`.
+        // ⚠ L'idiome `getFieldOffset(...) || 0x20` qui figurait ici était FAUX : `getFieldOffset`
+        // rend **-1** sur un nom absent, et `-1` est *truthy* en JS, donc le repli n'était jamais
+        // pris et le hook lisait `comp - 1`. MESURÉ (`probe_340_r1_actorstats_live.py`) sur les deux
+        // champs de tuiles ci-dessous, qui rendaient tous deux la MÊME valeur constante
+        // (-1201836032) — signature d'une lecture à la même adresse. Détail : `fieldOffsetOr`.
+        const OFF_TOTAL = fieldOffsetOr(asClass, "TotalAttacksMade", 0x20);
+        const OFF_TURNS = fieldOffsetOr(asClass, "TotalTurnsWithAttacksMade", 0x30);
         // TUILES PARCOURUES (case-322-r2) — le MÊME composant, trois compteurs contigus, écrits
         // par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (`+0xec += n` cumul BATAILLE,
         // `+0xf0 += n` cumul CE TOUR, garde `n < 1` -> no-op) et roulés en FIN de tour par
@@ -961,11 +968,16 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // lire faute de capteur. Offsets CONFIRMÉS par TROIS lectures indépendantes du décompilé :
         // `RecordTilesMoved` (écrit `+0xec`/`+0xf0`), `TilesMovedThisTurnFormula$$Calculate` (lit
         // `+0xf0`) et `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` (les
-        // SAUVEGARDE avant l'action simulée et les RESTAURE après). Même contrat `getFieldOffset` +
-        // fallback décompilé que les deux compteurs ci-dessus.
-        const OFF_TILES_BATTLE = getFieldOffset(asClass, "TilesMovedThisBattle") || 0xec;
-        const OFF_TILES_TURN = getFieldOffset(asClass, "TilesMovedThisTurn") || 0xf0;
-        const OFF_TILES_LAST = getFieldOffset(asClass, "TilesMovedLastTurn") || 0xf4;
+        // SAUVEGARDE avant l'action simulée et les RESTAURE après). Même contrat `fieldOffsetOr` +
+        // repli décompilé que les deux compteurs ci-dessus.
+        // MESURE (2026-07-31) : seul `TilesMovedThisTurn` porte un nom qui EXISTE dans les
+        // métadonnées — les deux autres se repliaient donc, et c'est précisément ce repli que le
+        // `|| 0x...` cassait. Vérification : `probe_340_r1_actorstats_live.py` exige des trois
+        // champs les DEUX transitions du composant (un pas -> `+0xec += n` et `+0xf0 = n` ;
+        // `EndTurnOperation` -> `+0xf4 = +0xf0` puis `+0xf0 = 0`).
+        const OFF_TILES_BATTLE = fieldOffsetOr(asClass, "TilesMovedThisBattle", 0xec);
+        const OFF_TILES_TURN = fieldOffsetOr(asClass, "TilesMovedThisTurn", 0xf0);
+        const OFF_TILES_LAST = fieldOffsetOr(asClass, "TilesMovedLastTurn", 0xf4);
         const units: Array<Record<string, unknown>> = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;

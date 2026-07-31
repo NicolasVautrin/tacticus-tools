@@ -377,6 +377,34 @@ export function getFieldOffset(klass: NativePointer, fieldName: string): number 
     return -1;
 }
 
+/**
+ * `getFieldOffset` avec repli DÉCOMPILÉ — la seule façon correcte d'écrire
+ * « offset par nom, sinon la constante lue au décompilé ».
+ *
+ * **Le piège que ce helper existe pour fermer** : `getFieldOffset` rend **`-1`** sur un nom
+ * ABSENT (cf. juste au-dessus), et l'idiome spontané `getFieldOffset(k, "X") || 0xec` ne teste
+ * que `0` — or **`-1` est *truthy* en JavaScript**. Le repli n'est donc JAMAIS pris, l'offset
+ * vaut `-1`, et le hook lit `comp - 1` : du garbage, **sans la moindre erreur**. Deux champs
+ * résolus ainsi lisent la MÊME adresse et rendent donc la MÊME valeur — c'est la signature.
+ *
+ * MESURÉ le 2026-07-31 (`probe_340_r1_actorstats_live.py`, résidu `#340-r1`) : dans le RPC
+ * `actorStats`, `TilesMovedThisBattle` (`+0xec`) et `TilesMovedLastTurn` (`+0xf4`) rendaient tous
+ * deux **-1201836032**, la même valeur constante, pendant que `TilesMovedThisTurn` (`+0xf0`) —
+ * dont le nom, lui, existe — était exact sur les deux transitions du composant. Les trois offsets
+ * étaient pourtant justes au décompilé : ce n'était pas une erreur de RE, mais le repli qui ne
+ * se déclenchait pas.
+ *
+ * Un nom de champ IL2CPP n'est pas vérifiable offline (aucun `fields.tsv` dans `data/symbols/`),
+ * donc l'absence d'un nom est un cas NORMAL, pas un incident — d'où le repli. Ce qui n'est pas
+ * normal, c'est de lire du garbage en croyant se replier.
+ */
+export function fieldOffsetOr(
+    klass: NativePointer, fieldName: string, fallback: number,
+): number {
+    const off = getFieldOffset(klass, fieldName);
+    return off >= 0 ? off : fallback;
+}
+
 /** Returns FieldInfo* for `fieldName` walking the inheritance chain, or null. */
 export function getFieldInfo(
     klass: NativePointer, fieldName: string,
