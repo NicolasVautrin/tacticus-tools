@@ -14,6 +14,13 @@ Etapes (toutes OFFLINE -- aucun RPC, aucune session Frida) :
      lettre de lecteur lui est INVISIBLE -- et c'est le motif qui perce
      l'isolation par worktree : le script tourne dans le worktree mais ECRIT
      dans l'arbre de l'orchestrateur. Cette etape le fait rougir.
+  0c. SORTIE dans le `data/` du worktree COURANT (#349) : troisieme angle du
+     meme invariant. `data/` est VERSIONNE et ne porte que des ENTREES ; ce
+     qu'un run PRODUIT va dans `logs/`. Une sortie qui y atterrit salit
+     `git status` sans que l'agent ait rien edite -- et brouille donc le signal
+     meme dont l'invariant se sert comme garde-fou. Les etapes 0 et 0b sont
+     aveugles au motif : le chemin est RELATIF (donc invisible a 0b) et
+     `data/` n'est pas gitignore (donc hors verdict de 0).
   1. MECANISME : `Path(<inexistant>).glob(...)` rend [] SANS lever -- c'est
      exactement ce qui fait passer un capteur mort pour une mesure. Contre-
      epreuve : `host_inputs.find` LEVE sur le meme chemin.
@@ -45,122 +52,217 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 
 
-# ---- etape 0 : balayage des chemins construits depuis une racine ---------- #
+# ---- balayage commun (etapes 0 et 0c) : evaluation CONCRETE des chemins --- #
 
-def _root_vars(tree: ast.Module) -> set[str]:
-    """Noms de variables (module-level) valant une racine derivee de `__file__`.
+_DYN = "<dyn>"
 
-    Reconnait `Path(__file__).resolve().parents[N]`, `.parent.parent`,
-    `os.path.dirname(os.path.abspath(__file__))` et les DERIVES d'une racine
-    deja reconnue (`ROOT = PYDIR.parents[1]`).
+
+class _Eval:
+    """Evalue un chemin construit dans le source, EN CONNAISSANT le fichier.
+
+    L'ancienne version reconnaissait des FORMES par le texte (`"__file__" in
+    src and "parent" in src`), et ratait en silence tout ce qui remontait par
+    une racine deja nommee : `DATA = PYDIR.parent.parent / "data"` (le motif de
+    `probe_113_votann.py`) n'etait PAS un chemin, pour elle. Ici on evalue pour
+    de vrai -- `__file__` vaut le fichier balaye -- donc `.parent`,
+    `.parents[N]`, `os.path.dirname/join`, `Path(...)`, `str(...)` et les
+    variables (module ET locales, point fixe) se resolvent en un chemin ABSOLU
+    que l'on rapporte ensuite a la racine balayee.
+
+    Un segment non litteral (f-string, variable, `%`) devient `<dyn>` : le
+    prefixe statique porte la decision, et pour l'etape 0c `<dyn>` est en
+    lui-meme un verdict (aucune entree versionnee n'a de nom calcule).
     """
-    roots: set[str] = set()
-    for _ in range(3):                      # point fixe (derivations en chaine)
-        for node in tree.body:
-            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-                continue
-            tgt = node.targets[0]
-            if not isinstance(tgt, ast.Name):
-                continue
-            src = ast.unparse(node.value)
-            if "__file__" in src and ("parent" in src or "dirname" in src):
-                roots.add(tgt.id)
-            elif any(f"{r}." in src or src == r for r in roots):
-                if "parent" in src or "dirname" in src:
-                    roots.add(tgt.id)
-    return roots
 
+    def __init__(self, f: Path, env: dict, modenv: dict, alias: dict):
+        self.f, self.env, self.modenv, self.alias = f, env, modenv, alias
 
-def _joined(node: ast.AST, roots: set[str]) -> tuple[str, list[str]] | None:
-    """`<root> / "a" / "b"` -> ("<root>", ["a", "b"]). None si autre forme.
+    @staticmethod
+    def _s(node: ast.AST) -> str | None:
+        return node.value if (isinstance(node, ast.Constant)
+                              and isinstance(node.value, str)) else None
 
-    La base peut etre une variable racine (`ROOT`) OU l'expression racine
-    ECRITE EN LIGNE (`Path(__file__).resolve().parents[2] / "frida" / ...`) --
-    c'est la forme d'`inspect_ai_trace.py`, qu'un balayage par nom de variable
-    RATE en silence.
-    """
-    segs: list[str] = []
-    cur = node
-    while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
-        r = cur.right
-        if isinstance(r, ast.Constant) and isinstance(r.value, str):
-            segs.append(r.value)
-        else:
-            segs.append("<dyn>")
-        cur = cur.left
-    if not segs:
+    @staticmethod
+    def _slash(base: Path, seg: str) -> Path:
+        """`base / seg`, en NORMALISANT `..` -- `pathlib` ne le fait pas.
+
+        Sans ca, `PYDIR / ".." / ".." / "logs" / "x.json"` (deux probes) rend
+        `scripts/python/../../logs/x.json` : un chemin qui ne commence pas par
+        `logs/`, donc classe « autre » au lieu de SORTIE, et le cliquet rougit
+        sur une sortie parfaitement conforme.
+        """
+        if seg == "..":
+            return base.parent
+        return base if seg in (".", "") else base / seg
+
+    def ev(self, node: ast.AST, depth: int = 0) -> Path | None:
+        if depth > 12:
+            return None
+        if isinstance(node, ast.Name):
+            return self.f if node.id == "__file__" else self.env.get(node.id)
+        if isinstance(node, ast.Attribute):
+            # `<module_importe>.VAR` (ex. `R.BOARDS_DIR` via `import runner as R`)
+            if isinstance(node.value, ast.Name) and node.value.id in self.alias:
+                return self.modenv.get(self.alias[node.value.id], {}).get(node.attr)
+            if node.attr == "parent":
+                b = self.ev(node.value, depth + 1)
+                return b.parent if b is not None else None
+            return None
+        if isinstance(node, ast.Subscript):          # `<x>.parents[N]`
+            v = node.value
+            if isinstance(v, ast.Attribute) and v.attr == "parents":
+                b = self.ev(v.value, depth + 1)
+                n = node.slice.value if isinstance(node.slice, ast.Constant) else None
+                if b is not None and isinstance(n, int):
+                    try:
+                        return b.parents[n]
+                    except IndexError:
+                        return None
+            return None
+        if isinstance(node, ast.Call):
+            tail = ast.unparse(node.func).split(".")[-1]
+            if tail in ("Path", "str", "abspath", "realpath", "normpath",
+                        "fspath") and node.args:
+                return self.ev(node.args[0], depth + 1)
+            if tail in ("resolve", "absolute", "expanduser") and isinstance(
+                    node.func, ast.Attribute):
+                return self.ev(node.func.value, depth + 1)
+            if tail == "dirname" and node.args:
+                b = self.ev(node.args[0], depth + 1)
+                return b.parent if b is not None else None
+            if tail in ("join", "joinpath"):
+                if tail == "joinpath" and isinstance(node.func, ast.Attribute):
+                    b, rest = self.ev(node.func.value, depth + 1), node.args
+                elif node.args:
+                    b, rest = self.ev(node.args[0], depth + 1), node.args[1:]
+                else:
+                    return None
+                if b is None:
+                    return None
+                for a in rest:
+                    b = self._slash(b, self._s(a) or _DYN)
+                return b
+            return None
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            b = self.ev(node.left, depth + 1)
+            return None if b is None else self._slash(b, self._s(node.right) or _DYN)
         return None
-    if isinstance(cur, ast.Name) and cur.id in roots:
-        return cur.id, list(reversed(segs))
-    src = ast.unparse(cur)
-    if "__file__" in src and ("parent" in src or "dirname" in src):
-        return "<inline>", list(reversed(segs))
+
+
+def _is_join_call(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Call)
+            and ast.unparse(node.func).split(".")[-1] in ("join", "joinpath"))
+
+
+def _base_of(node: ast.AST) -> ast.AST | None:
+    """Sous-expression qui sert de BASE a `node`, si `node` est collectable."""
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        return node.left
+    if _is_join_call(node):
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "joinpath":
+            return node.func.value
+        return node.args[0] if node.args else None
     return None
 
 
 def _fragment_ids(tree: ast.Module) -> set[int]:
-    """Ids des BinOp `/` qui ne sont qu'une SOUS-EXPRESSION GAUCHE d'un autre.
+    """Ids des sous-expressions qui ne sont que la BASE d'un chemin plus long.
 
     `ast.walk` visite tout le sous-arbre : sur `ROOT / "frida" / "assets" /
-    "raw" / "Bundles"` il rend AUSSI `ROOT / "frida" / "assets" / "raw"`,
-    `ROOT / "frida" / "assets"` et `ROOT / "frida"`. Ces trois-la ne sont pas
-    des chemins que le script construit -- ce sont des fragments de syntaxe.
-    Les compter revenait a inventer des lectures : `frida/assets` etait
-    signale comme une ENTREE lue par `build_asset_manifest.py`, qui ne le
-    nomme nulle part (il n'a que `RAW = .../raw/Bundles` et
-    `PUBLIC = .../public`). Seule l'expression MAXIMALE est un chemin reel.
-
-    Aucun prefixe legitime n'est perdu : la troncature au premier segment
-    dynamique s'applique a l'expression maximale, qui porte deja le prefixe
-    statique le plus long.
+    "raw" / "Bundles"` il rend AUSSI les trois prefixes. Ce ne sont pas des
+    chemins que le script construit, ce sont des fragments de syntaxe -- les
+    compter revenait a INVENTER des lectures (`frida/assets` etait signale
+    comme lu par `build_asset_manifest.py`, qui ne le nomme nulle part). Seule
+    l'expression MAXIMALE est un chemin reel.
     """
     inner: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
-            cur = node.left
-            while isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.Div):
-                inner.add(id(cur))
-                cur = cur.left
+        cur = _base_of(node)
+        while cur is not None:
+            inner.add(id(cur))
+            cur = _base_of(cur)
     return inner
 
 
-def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
-    """[(fichier, var_racine, chemin_relatif)] pour tout `scripts/python/**`."""
-    files = sorted((scan_root / "scripts" / "python").rglob("*.py"))
+def _module_name(f: Path, pydir: Path) -> str:
+    return f.relative_to(pydir).with_suffix("").as_posix().replace("/", ".")
+
+
+def _scan_repo_paths(scan_root: Path) -> list[tuple[Path, int, str]]:
+    """[(fichier, ligne, chemin relatif a `scan_root`)] pour `scripts/python/**`.
+
+    Le relatif garde ses segments `<dyn>` : c'est a l'appelant de tronquer
+    (etape 0) ou de les traiter comme un verdict (etape 0c).
+    """
+    pydir = scan_root / "scripts" / "python"
     trees: dict[Path, ast.Module] = {}
-    local_roots: dict[Path, set[str]] = {}
-    for f in files:
+    for f in sorted(pydir.rglob("*.py")):
         try:
             trees[f] = ast.parse(f.read_text(encoding="utf-8"))
         except (OSError, SyntaxError):
             continue
-        local_roots[f] = _root_vars(trees[f])
-    # Une racine IMPORTEE d'un module local en est une aussi (`from
-    # rl_gen_ref_tables import ROOT`) -- sans ca, rl_gen_enum_columns.py sort
-    # du balayage sans qu'on le sache.
-    known = {n for s in local_roots.values() for n in s}
-    out: list[tuple[Path, str, str]] = []
+    envs: dict[Path, dict] = {f: {} for f in trees}
+    aliases: dict[Path, dict] = {}
     for f, tree in trees.items():
-        roots = set(local_roots.get(f) or ())
+        alias: dict[str, str] = {}
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom):
-                roots |= {a.asname or a.name for a in node.names
-                          if (a.asname or a.name) in known}
-        fragments = _fragment_ids(tree)
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    alias[a.asname or a.name.split(".")[0]] = a.name
+        aliases[f] = alias
+    modenv: dict[str, dict] = {}
+    # Point fixe : une racine peut venir d'une autre variable du meme fichier
+    # (`ROOT = PYDIR.parents[1]`) OU d'un module voisin (`from rl_gen_ref_tables
+    # import ROOT`, `import runner as R` puis `R.BOARDS_DIR`).
+    for _ in range(4):
+        for f, tree in trees.items():
+            ev = _Eval(f, envs[f], modenv, aliases[f])
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                        and isinstance(node.targets[0], ast.Name)):
+                    p = ev.ev(node.value)
+                    if p is not None:
+                        envs[f][node.targets[0].id] = p
+            modenv[_module_name(f, pydir)] = envs[f]
+        for f, tree in trees.items():
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    src = modenv.get(node.module) or {}
+                    for a in node.names:
+                        if a.name in src:
+                            envs[f].setdefault(a.asname or a.name, src[a.name])
+    out: list[tuple[Path, int, str]] = []
+    for f, tree in trees.items():
+        ev = _Eval(f, envs[f], modenv, aliases[f])
+        frags = _fragment_ids(tree)
         for node in ast.walk(tree):
-            if id(node) in fragments:
+            if id(node) in frags:
                 continue
-            j = _joined(node, roots)
-            if j is None:
+            if not (_is_join_call(node)
+                    or (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div))):
                 continue
-            var, segs = j
-            # un chemin dont un segment est dynamique : on garde le prefixe
-            # statique -- c'est lui qui porte la decision gitignore.
-            if "<dyn>" in segs:
-                segs = segs[:segs.index("<dyn>")]
-            if not segs:
+            p = ev.ev(node)
+            if p is None:
                 continue
-            out.append((f, var, "/".join(segs)))
+            try:
+                rel = p.relative_to(scan_root).as_posix()
+            except ValueError:
+                continue                      # hors du depot (AppData, temp, ...)
+            if rel in ("", "."):
+                continue
+            out.append((f, getattr(node, "lineno", 0), rel))
+    return out
+
+
+def _scan_paths(scan_root: Path) -> list[tuple[Path, str, str]]:
+    """Vue etape 0 : chemins TRONQUES au premier segment dynamique."""
+    out: list[tuple[Path, str, str]] = []
+    for f, _lineno, rel in _scan_repo_paths(scan_root):
+        segs = rel.split("/")
+        if _DYN in segs:
+            segs = segs[:segs.index(_DYN)]
+        if segs:
+            out.append((f, "<path>", "/".join(segs)))
     return out
 
 
@@ -212,13 +314,26 @@ def _check_ignored(rels: list[str], scan_root: Path) -> dict[str, bool]:
 # `__file__`, et POURQUOI c'est admis. Toute AUTRE entree fait echouer l'etape 0
 # -- c'est le cliquet : chaque nouveau `ROOT / <gitignore>` doit soit passer par
 # `host_inputs`, soit venir s'expliquer ici.
+# Une cle couvre le chemin ET ses sous-chemins (`_allowed_for`) : depuis que le
+# balayage resout les variables intermediaires, `PUBLIC / "units"` et ses cinq
+# soeurs remontent aussi -- six lignes d'allowlist pour UNE raison, c'est du
+# bruit qui finit par cacher la vraie exception.
 _ALLOWED: dict[str, str] = {
     "frida/assets/public":
-        "SORTIE de build_asset_manifest.py (mkdir + ecriture), pas une entree",
+        "SORTIE de build_asset_manifest.py (mkdir + ecriture), pas une entree "
+        "-- couvre ses sous-repertoires (units/, boards/, i18n/, ...)",
     "frida/assets/raw/Bundles":
         "constante RAW, repli du bundle d'installation ; _bundle_dir resout "
         "par host_inputs et les appelants impriment deja [warn] missing",
 }
+
+
+def _allowed_for(rel: str, allowed: dict[str, str]) -> tuple[str, str] | None:
+    """Cle d'allowlist couvrant `rel` (elle-meme ou un de ses prefixes)."""
+    for k, why in allowed.items():
+        if rel == k or rel.startswith(k + "/"):
+            return k, why
+    return None
 # `frida/assets/raw` y figurait, justifie « prefixe de RAW » : c'etait l'aveu
 # que le balayage remontait des fragments (cf. `_fragment_ids`). Le fragment
 # elimine, la ligne n'a plus d'objet -- une exception se RETIRE quand sa cause
@@ -275,19 +390,21 @@ def step0(scan_root: Path) -> int:
           f"  [conforme, NE PAS toucher]")
     print(f"    - autres          : {len(inputs)}")
     rc = 0
+    used: set[str] = set()
     for rel in inputs:
         who = sorted({f.name for (f, _, r) in found if r == rel})
-        why = _ALLOWED.get(rel)
-        tag = "OK  " if why else "FAIL"
+        hit = _allowed_for(rel, _ALLOWED)
+        tag = "OK  " if hit else "FAIL"
         print(f"      [{tag}] {rel:<30} <- {', '.join(who)}")
-        if why:
-            print(f"               ({why})")
+        if hit:
+            used.add(hit[0])
+            print(f"               ({hit[1]})")
         else:
             rc = 1
     if rc:
         print("  FAIL -- entree gitignoree lue depuis la racine sans passer par "
               "host_inputs : un glob y rendrait [] SANS lever (cf. etape 1)")
-    rc |= _check_allowlist_live(_ALLOWED, set(inputs), "_ALLOWED")
+    rc |= _check_allowlist_live(_ALLOWED, used, "_ALLOWED")
     return rc
 
 
@@ -363,6 +480,103 @@ def step0b(scan_root: Path) -> int:
         except ValueError:
             seen.add(f"{f.as_posix()}:{lineno}")
     rc |= _check_allowlist_live(_ALLOWED_ABS, seen, "_ALLOWED_ABS")
+    return rc
+
+
+# ---- etape 0c : SORTIE dans le `data/` du worktree courant (#349) --------- #
+
+# Chemins `data/...` qui ne designent PAS une entree versionnee et restent
+# admis, avec la raison. Cle = "<fichier>:<chemin data/ resolu>" -- pas le
+# numero de ligne (il bouge a chaque edition), pas le chemin seul (`data/<dyn>`
+# couvrirait alors tous les state-files du depot).
+#
+# Ce qui est admis ici : des LECTURES d'entrees locales non versionnees,
+# produites HORS run (dump IL2CPP, instantane gameconfig, spawn-probe
+# exhaustif). Elles relevent de l'angle #273 -- un worktree ne les a pas, et
+# une lecture nue y rend [] ou None sans le dire -- pas de #349. Une ECRITURE
+# de run n'entre JAMAIS ici : elle demenage dans `logs/`.
+_ALLOWED_DATA: dict[str, str] = {
+    "scripts/python/audit_passive_ability_coverage.py:data/<dyn>":
+        "LECTURE data/unspawnable_rank<N>.json (spawn-probe exhaustif), "
+        "avec repli explicite sur UNSPAWNABLE_FALLBACK",
+    "scripts/python/rl_collect_batch.py:data/<dyn>":
+        "LECTURE data/unspawnable_rank<N>.json (meme source), repli idem",
+    "scripts/python/gameconfig_diff.py:data/gameconfig":
+        "LECTURE de l'instantane gameconfig versionne hors depot ; l'outil "
+        "compare deux instantanes et dit lui-meme lequel manque",
+    "scripts/python/playbook_keys.py:data/dumps":
+        "LECTURE du dump IL2CPP local (per-hash, produit par dump-il2cpp-full)",
+    "scripts/python/playbook_keys.py:data/dumps/<dyn>/stringliteral.json":
+        "LECTURE du dump IL2CPP local (idem)",
+    "scripts/python/rl_gen_ref_tables.py:data/dumps/<dyn>/dump.cs":
+        "LECTURE du dump IL2CPP local ; absence -> SystemExit explicite",
+    "scripts/python/rl_ingest_postgres.py:data/dumps":
+        "LECTURE du dump IL2CPP local (auto-detection du hash de build)",
+}
+
+
+def _versioned_data_entries(scan_root: Path) -> set[str]:
+    """Premiers segments sous `data/` que git SUIT, dans CE checkout.
+
+    Derive de `git ls-files`, jamais d'une liste en dur : une liste ecrite ici
+    se perimerait au premier ajout d'entree (et un cliquet perime rougit sur du
+    legitime, ce qui le fait desarmer).
+    """
+    r = subprocess.run(["git", "ls-files", "-z", "data"], cwd=str(scan_root),
+                       capture_output=True, text=True, timeout=60)
+    out = {tok.replace("\\", "/").split("/")[1]
+           for tok in (r.stdout or "").split("\0")
+           if tok and "/" in tok.replace("\\", "/")}
+    return out
+
+
+def step0c(scan_root: Path) -> int:
+    print("\n== 0c. SORTIE dans le `data/` du worktree courant (#349) ==")
+    print(f"  arbre balaye        : {scan_root.as_posix()}")
+    versioned = _versioned_data_entries(scan_root)
+    print(f"  entrees versionnees : {len(versioned)} "
+          f"({', '.join(sorted(versioned)) if versioned else 'AUCUNE'})")
+    if not versioned:
+        print("  FAIL -- `git ls-files data` ne rend RIEN : le verdict serait "
+              "rendu contre un referentiel vide, donc faux dans les deux sens.")
+        return 1
+    hits = [(f, ln, rel) for (f, ln, rel) in _scan_repo_paths(scan_root)
+            if rel == "data" or rel.startswith("data/")]
+    bad: list[tuple[str, str, int]] = []
+    for f, lineno, rel in hits:
+        segs = rel.split("/")
+        if len(segs) > 1 and segs[1] in versioned:
+            continue                        # entree versionnee -> lecture (ou
+        if len(segs) == 1:                  # regeneration) legitime
+            continue                        # `data` nu : pas une destination
+        try:
+            src = f.relative_to(scan_root).as_posix()
+        except ValueError:
+            src = f.as_posix()
+        bad.append((src, rel, lineno))
+    print(f"  chemins data/       : {len(hits)}   "
+          f"hors entree versionnee : {len(bad)}")
+    rc = 0
+    used: set[str] = set()
+    for src, rel, lineno in sorted(set(bad)):
+        key = f"{src}:{rel}"
+        why = _ALLOWED_DATA.get(key)
+        tag = "OK  " if why else "FAIL"
+        print(f"      [{tag}] {src}:{lineno}  ->  {rel}")
+        if why:
+            used.add(key)
+            print(f"               ({why})")
+        else:
+            rc = 1
+    if rc:
+        print("  FAIL -- `data/` ne porte que des ENTREES VERSIONNEES. Ce qu'un "
+              "run PRODUIT (state-file, seed BC augmente, dump de probe) va "
+              "dans `logs/` : sinon l'arbre d'un agent devient SALE sans qu'il "
+              "ait rien edite, et le `git status` dont l'invariant se sert comme "
+              "garde-fou ne veut plus rien dire.")
+    else:
+        print("  OK -- aucune sortie de run dans data/")
+    rc |= _check_allowlist_live(_ALLOWED_DATA, used, "_ALLOWED_DATA")
     return rc
 
 
@@ -499,12 +713,13 @@ def main(argv: list[str]) -> int:
                     help="arbre a balayer a l'etape 0 (defaut : celui-ci) -- "
                          "pointer un worktree sur origin/master donne l'AVANT")
     ap.add_argument("--only-scan", action="store_true",
-                    help="etapes 0 + 0b seules (le cliquet, 100%% offline)")
+                    help="etapes 0 + 0b + 0c seules (le cliquet, 100%% offline)")
     args = ap.parse_args(argv[1:])
     scan_root = Path(args.scan_root).resolve() if args.scan_root else ROOT
     if args.only_scan:
-        return step0(scan_root) | step0b(scan_root)
-    rc = step0(scan_root) | step0b(scan_root) | step1() | step2() | step3()
+        return step0(scan_root) | step0b(scan_root) | step0c(scan_root)
+    rc = (step0(scan_root) | step0b(scan_root) | step0c(scan_root)
+          | step1() | step2() | step3())
     if args.demo_worktree:
         rc |= step4(args.ref)
     print("\n[273] rc=" + str(rc))
