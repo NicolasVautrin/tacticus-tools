@@ -374,3 +374,69 @@ MISS restant (pas 6, `u87` / `ab=1154`) est étranger à ce cas et inchangé ent
   d'exploitable offline. C'est `bucketUtil` qui sert de cadran.
 
 **Aucune réinjection n'a été requise** : le capteur `ncPlaybookPredict` est celui de #356, inchangé.
+
+## 9. `#350-r3a-r3` — le gate per-position : l'écart n'était pas le prédicat, c'était la TRONCATURE
+
+**Énoncé hérité, RÉFUTÉ** : « le port gate sur une UNION de positions (`P in ranked(tgt)` du plan)
+là où le natif interroge `GetValidTargets(caster, position, ability)` par position ». Les DEUX côtés
+sont per-position, et ils portent le MÊME prédicat :
+`BasePlaybook$$GetEligibleTargetsSelectable` appelle `AttackQuery$$GetValidTargets` une fois par
+position ; `computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`) fait un
+shrink-and-recall sur `AttackQuery$$GetBestTileToAttackFrom`, dont le corps garde une tuile ssi
+`AttackQuery$$GetInvalidTargetReason` n'est pas invalide. **Écart de prédicat mesuré : 0 position sur
+33, à tous les rangs** (`castFromTiles` == éligibilité native, y compris le flag `0x8000000`
+`TargetIsInRange` de `VigilanceEternalAbility$$GetDynamicInvalidTargetReason`).
+
+**Le vrai écart** : `computeAttackPlans` PLAFONNE le résultat — `for (let r = 0; r < maxRank; r++)`.
+Ce plafond n'existe nulle part côté natif. Mesure sur **un seul état** (`probe_350r3a_r3_position_gate.py`,
+fixture `carte` : `custoKyrus` en `(3,4)`, `necroWarden` à 1 hex, `ultraTitus` à 3 hex, board `MC1_67`) :
+
+| `maxRank` | positions perdues par le port | argmax |
+|---|---|---|
+| 32 | 0 / 33 | natif `(1,3)` = port `(1,3)` |
+| **8** (défaut `rl_duel._decision`) | **19 / 33** | identique — **par coïncidence de géométrie** |
+| **6** (défaut du RPC `decisionView`) | **21 / 33** | **natif `(1,3)` vs port `(0,3)`** |
+
+Le régime fautif est donc celui de **production**, et l'écart est à sens unique (le port est plus
+PAUVRE, jamais plus permissif : `diff_port_only` = `[]` partout).
+
+**Pourquoi il avait résisté deux fois** : le relevé de #356 et le `0/33` du WIP mesuraient un écart de
+COMPTE d'éligibilité à une position, jamais un écart de DÉCISION. Un montage où les deux modèles
+rendent le même argmax ne conclut rien — la position gagnante y voyait les deux cibles.
+
+**Fix** : `_PlanTargetPlaybook.eligible_positions` (foyer neuf, `engine/playbook/noncomparable/_base.py`,
+7 sous-classes) lit `castFromTiles` — même prédicat, SANS troncature — au lieu de `ranked(tgt)`.
+Repli NOMMÉ sur `ranked` si la seam est absente, en erreur, ou rend un ensemble vide malgré
+`rankCount >= 1`. L'énumération des CIBLES reste celle du plan : aucune n'est perdue par la
+troncature (`rankCount >= 1` dès qu'une position est valide, le harnais bornant `maxRank >= 1`).
+
+**Ce que le fix ne fait PAS** : il ne détronque pas `attackPlans`. Tout autre consommateur de
+`ranked` reste exposé au plafond — c'est un défaut du **harnais**, et le corriger demanderait une
+réinjection.
+
+Garde : `tests/engine/test_350r3a_r3_position_gate_live.py` — **9 passed** (était 2 failed / 4 passed
+avant le fix ; 4 failed sous mutation adversariale du gate). Elle exige l'égalité des ENSEMBLES
+d'éligibilité aux 33 positions et des ARGMAX, aux trois rangs `32 / 8 / 6`.
+
+### 9.1 Généralisation — et la limite de la méthode de mesure
+
+* **Autre géométrie, même ability** (`--rings 2,4`) : le plan perd jusqu'à **18 positions sur 33**
+  (`E2plan` = 0 → 11 → 14 → 16 → 18 quand `maxRank` descend de 32 à 2), et pourtant la carte du gate
+  reste **identique à 0 position près** aux cinq rangs, argmax inclus. Le gate est devenu insensible
+  au plafond — ce qui était le but.
+* **Autre sous-classe** (`1153 HammerOfWrath`, `bloodIntercessor`, fixture `hammer`) : argmax
+  identique aux cinq rangs, aucune régression. Le régime de troncature n'y est PAS atteint
+  (`ranked = 1` tuile) — c'est donc une non-régression, pas une seconde démonstration.
+* **Les quatre autres `_PlanTargetPlaybook`** (`BloodyFury`, `Stormcaller`, `VexillaMagnifica`,
+  `BlackRage`) ont une utilité position-INDÉPENDANTE : leur argmax est l'ORIGINE par keep-first, que
+  le gate soit tronqué ou non. Le fix ne peut pas les changer. **NON CONFRONTÉ**, et c'est un
+  raisonnement structurel, pas une mesure.
+
+⚠ **La CAPTURE n'est pas l'ensemble des cibles ÉLIGIBLES** — même leçon que #362. L'oracle est ancré
+sur `ProbableDamageEvent$$.ctor` : il voit tout ce que l'évaluation construit. Sur `1153`, qui score
+`Σ CalculateUtilityFromDamageEvent` sur la cible ET ses adjacents, il capture les éclaboussures :
+mesuré, `e1_nat_only = 1` à l'origine (`abilityReason(77)` = `TargetIsNotAdjacent`, et 77 est
+pourtant capturé). Ce n'est **pas** un écart de gate. Le probe sépare donc les deux sens —
+`e1_cft_only` (le port serait PERMISSIF : le seul qui accuse le gate) et `e1_nat_only` (splash) — et
+l'égalité ensembliste n'est concluante que sur une ability **MONO-CIBLE**. `1202` l'est
+(`e1_cft_only = e1_nat_only = 0` aux 33 positions), d'où la validité de la mesure ci-dessus.

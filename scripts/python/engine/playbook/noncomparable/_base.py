@@ -445,8 +445,11 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
     eligibles ; `IdunBattle.AI.BucketSystem.Bucketu003C__Il2CppFullySharedGenericTypeu003E$$AddAction` SEED le 1er ajoute puis ne remplace QUE si STRICTEMENT superieur
     -> au tie d'utilite, la PREMIERE position de cet ordre gagne, c'est-a-dire l'ORIGINE : une
     utilite position-INDEPENDANTE (BloodyFury, Stormcaller) fait donc caster SANS BOUGER.
-    L'eligibilite par position pour la paire (ability, cible) = les tuiles rankees du plan natif
-    (`GetAllValidTargetsFromAllPossibleMovementTiles`) -> gate `P in ranked(tgt)`.
+    L'eligibilite par position pour la paire (ability, cible) est rendue par `eligible_positions`
+    (`castFromTiles` = `IdunBattle.Core.Services.AttackQuery$$GetInvalidTargetReason` tuile par
+    tuile, SANS troncature), et non par les tuiles rankees du plan : celles-ci portent le meme
+    predicat mais plafonnees a `maxRank` par le harnais -- un plafond absent du natif, et qui
+    DEPLACE l'argmax des `maxRank <= 6` (#350-r3a-r3, cf. `eligible_positions`).
 
     Miss vecu (#32, 909 s17 VigilanceEternal) : l'ancien balayage en ordre RANKED du plan cassait
     le tie 43.867 vers (4,2) (1re rankee) quand le natif prend (3,4) (1re du movable set) — l'origine
@@ -489,15 +492,63 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
             "mesurer ce playbook avec probe_344 --oracle nc (sinon la comparaison de sequence "
             "n'a pas de pendant offline)." % type(self).__name__)
 
+    def eligible_positions(self, ctx: NCContext, target, ranked: set) -> set:
+        """Les positions d'ou la paire (cette ability, `target`) est castable — mirror de
+        `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable`.
+
+        POURQUOI CETTE METHODE N'EST PAS `ranked` (#350-r3a-r3). Le natif interroge
+        `IdunBattle.Core.Services.AttackQuery$$GetValidTargets(caster, UnitPosition(P), ability)`
+        UNE FOIS PAR POSITION candidate, **sans plafond**. `ranked(tgt)` du plan porte le MEME
+        predicat — `computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`) fait un
+        shrink-and-recall sur `IdunBattle.Core.Services.AttackQuery$$GetBestTileToAttackFrom`, dont
+        le corps garde une tuile ssi `AttackQuery$$GetInvalidTargetReason` n'est pas invalide — mais
+        il le TRONQUE : `for (let r = 0; r < maxRank; r++)`. Ce plafond n'existe nulle part cote
+        natif, et il DEPLACE la decision.
+
+        MESURE (montage `carte` de `probe_350r3a_r3_position_gate.py`, UN etat, plusieurs rangs) :
+
+            maxRank=32  0/33 position perdue   -> argmax identique
+            maxRank=8  19/33 positions perdues -> argmax identique (par CHANCE)
+            maxRank=6  21/33 positions perdues -> ARGMAX DIFFERENT : natif (1,3), port (0,3)
+
+        `8` est le defaut de `rl_duel._decision`, `6` celui du RPC `decisionView` : le regime fautif
+        est celui de PRODUCTION, pas un cas de laboratoire.
+
+        `castFromTiles` rend le MEME predicat SANS troncature (`GetInvalidTargetReason` tuile par
+        tuile), et sa carte position-par-position EGALE l'eligibilite native mesuree par
+        `ncPlaybookPredict` a tous les rangs (ecart `e1_predicat` = **0**). C'est donc lui le mirror,
+        et `ranked` n'en est qu'une vue tronquee.
+
+        REPLI NOMME, jamais silencieux : seam absente, RPC en erreur, ou ensemble VIDE alors que le
+        plan annonce `rankCount >= 1` (incoherence) -> on rend `ranked`. Un `set()` rendu dans ces
+        cas ferait DISPARAITRE la cible, ce qui est pire que la troncature."""
+        fn = getattr(ctx, "cast_from_tiles", None)
+        if not callable(fn) or target is None:
+            return ranked
+        try:
+            cf = fn(ctx.uid, int(target), self.ABILITY_ID) or {}
+        except Exception:                                   # noqa: BLE001 (seam live faillible)
+            return ranked
+        out = {(t.get("col"), t.get("row")) for t in (cf.get("moveTiles") or [])
+               if t.get("col") is not None}
+        if cf.get("currentValid") and ctx.origin is not None:
+            out.add(ctx.origin)
+        return out or ranked
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        pairs = []   # (tgt, tuiles rankees de la paire) — ordre cibles = ordre du plan natif
+        # L'ENUMERATION DES CIBLES reste celle du plan (ordre natif preserve) : une cible castable
+        # depuis au moins une position a `rankCount >= 1` quel que soit `maxRank` (le harnais borne
+        # `maxRank >= 1`), donc la troncature n'en fait perdre AUCUNE. Seule leur CARTE DE POSITIONS
+        # etait mutilee -> c'est elle, et elle seule, que `eligible_positions` rectifie.
+        pairs = []   # (tgt, positions eligibles de la paire) — ordre cibles = ordre du plan natif
         for ev in (ctx.plan.get("evals") or []):
             if ev.get("abilityId") != self.ABILITY_ID or not ev.get("rankCount"):
                 continue
             rset = {(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or [])
                     if rk.get("col") is not None}
             if rset:
-                pairs.append((ev.get("targetId"), rset))
+                pairs.append((ev.get("targetId"),
+                              self.eligible_positions(ctx, ev.get("targetId"), rset)))
         if not pairs:
             return []
         best = None  # (target, tile, util)
