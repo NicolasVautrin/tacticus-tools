@@ -31,6 +31,7 @@ from .loki import (
     DespoiledGroundExtraDamagePctEffect,
     OverwhelmingWrathRangeDmgReductionEffect,
     FireAndRepositionReduceDmgEffect,
+    WireweaveNetCounterAttackEffect,
     SereneUnifierSenseOfStoneEffect,
     SereneUnifierStormOfFireEffect,
     UnbreakableDutyHealthEffect,
@@ -604,6 +605,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, non porte).
     # EffectType 0x4bf=1215 (#366-r1).
     "PsychicStalk_ExtraAttackDamage": PsychicStalkExtraAttackDamageEffect,
+    # WireweaveNet (PASSIF 1111 de Calandis `eldarRanger`) : effet-RIPOSTE (`CounterAttackEffect` ->
+    # `PlayerTurnEffect`). AUCUN canal de bonus -- tout son observable vit dans les TROIS `Triggered()`
+    # de `EFFECT_TRIGGERS[1111]` (`runner/operations/triggers/loki/wireweave_net.py`). Inscrit ici pour
+    # nommer la classe NATIVE au lieu de router sur `BaseEffect`, et porter les litteraux du `.ctor`
+    # (`turnsEnabled=1` -> tour ENNEMI, `activationFrequency=2`, `hasAutomaticActivation=False`).
+    "WireweaveNet_CounterAttack": WireweaveNetCounterAttackEffect,
     # PsychicFortress (passif Tigurius ultraTigurius, ability enum 0x3e8=1000) -- 2 effets posEs par
     # IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicFortressAbility$$CreateBehaviour :
     #  - DmgReduction (0x3f2=1010) : AURA -dmgReduction[ablvl]xmult PLAT du degat PSYCHIQUE recu par les AMIS
@@ -966,6 +973,19 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` ci-dessus.
     # Idempotent (skip si deja capte). case-366-r1.
     "VisionsOfHeresy": ["VisionsOfHeresy_ExtraPierceMelee", "VisionsOfHeresy_ExtraPierceRanged"],
+    # WireweaveNet (passif d'`eldarRanger` <<Calandis>>, TriggeredAbilityType 0x457=1111) --
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WireweaveNetAbility$$CreateBehaviour` =
+    # `AddEffect(0x457, <AbilityStateReference>, source=Owner, targets=Owner, <duree ZEROEE>)
+    #  + If(NOT IsTurnOf(Owner), ActivateEffect(Owner, 0x457))`, sur le trigger
+    # `OnOwnerSpecificAbilityInit` de sa base `AOwnerEffectTriggeredAbility` -> owner-effect
+    # PERMANENT pose a l'INIT. Son etat ACTIF est pilote par les deux `Triggered()` de
+    # `IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal`
+    # (branche `ActivationFrequency == 2`) : INACTIF pendant le tour de Calandis -> ABSENT du canal
+    # `decisionView.effects` par DEFAUT (actifs seuls, GROUND TRUTH #100). Sans ce seed, un runner
+    # capture pendant le tour de Calandis n'aurait AUCUNE instance a armer et la riposte serait morte.
+    # MEME motif exact qu'`AnvilShield`/`HammerOfWrath`/`ModifiedExoarmour`/`VisionsOfHeresy`.
+    # Idempotent (skip si deja capte, p.ex. capture pendant le tour ennemi). case-366-r1b.
+    "WireweaveNet": ["WireweaveNet_CounterAttack"],
 }
 
 

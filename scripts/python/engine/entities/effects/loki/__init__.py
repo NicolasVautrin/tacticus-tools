@@ -60,6 +60,7 @@ from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraD
                                 SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect,
                                 DefenderOfTheGreaterGoodExtraDmgEffect,
                                 DefenderOfTheGreaterGoodExtraDmgDroneEffect)
+from .counter_attack import WireweaveNetCounterAttackEffect
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
                                PrioritisedEfficiencyDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
@@ -170,6 +171,8 @@ __all__ = [
     "FightingRetreatDmgReductionEffect", "ShadowInTheWarpLessDmgEffect",
     "DaughterOfTheAbyssFriendlyDmgReductionPctEffect", "DaughterOfTheAbyssOwnerDmgReductionEffect",
     "OverwhelmingWrathRangeDmgReductionEffect", "FireAndRepositionReduceDmgEffect",
+    # counter_attack
+    "WireweaveNetCounterAttackEffect",
     "PsychicFortressDmgReductionEffect", "CamoCloakDmgReductionEffect",
     "SereneUnifierSenseOfStoneEffect",
     "VexillaMagnificaDmgReductionEffect",
