@@ -786,7 +786,9 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
     # l'AoE de l'ability (RammingSpeed 1059 : `<Caster>`, le recul du ram). Consomme ICI, apres la
     # boucle AoE : c'est l'ordre du natif pour le seul membre actuel, dont la boucle AoE est vide.
     _extra_fn = _MAKE_DMG_EXTRA_EVENTS.get(ability_id)
-    if _extra_fn is not None and not via_normal and cfg is not None:
+    # `prepend_normal` s'appelait `via_normal` quand ce gate a ete ecrit (#353) : RENOMME par #351,
+    # MEME appartenance au MEME frozenset -- rename mecanique au rebase, aucun changement de sens.
+    if _extra_fn is not None and not prepend_normal and cfg is not None:
         events.extend(_extra_fn(scene, caster_id, main_tgt_id, ability_id, ability_name,
                                 attack_pos, ab, cfg))
     # #108 count² : les abilities AoE SELF-centrees (MurderousSwing) RE-EMETTENT la liste d'events de degat
