@@ -60,13 +60,33 @@ STATE_SOLO = ROOT / "logs" / "runners" / "_354_mwbd_overlord_solo.json"
 CARRIER = "necroOverlord"        # le porteur : passif MyWillBeDoneOverlord (+ LivingMetal, Hero)
 ALLY_A = "necroWarden"           # groupe A : faction Necrons + trait Hero + Mechanical
 ALLY_B = "admecDominus"          # groupe B : Hero + Mechanical, faction AdeptusMechanicus
-ENEMY_A = "blackTerminator"      # la cible du groupe A
-ENEMY_B = "worldKharn"           # la cible du groupe B
+ENEMY_A = "blackTerminator"      # L'UNIQUE ennemi -- adjacent aux DEUX allies (cf. setup_positions)
 
 EXTRA_DAMAGE_EFFECT = 1581       # `EffectType.MyWillBeDoneOverlord_ExtraDamage`
+MY_WILL_BE_DONE_OVERLORD = 1556  # `TriggeredAbilityType.MyWillBeDoneOverlord`
+MARTIAL_APOTHEOSIS = 1045        # `TriggeredAbilityType.MartialApotheosis` (l'ANCIEN passif)
+
+# ------------------------------------------------------------------------------------------------
+# LE MONTAGE OBLIGATOIRE, et pourquoi (MESURE du 2026-07-31, `unitAbilityStates` du runner) :
+#
+#   `necroOverlord` monte depuis `data/seed-bc.json` porte `triggered = [1045 MartialApotheosis,
+#   1010 LivingMetal]` -- PAS 1556. Le natif lit le kit de passifs dans **`BC.Units[].
+#   PassiveAbilities`** (des IDs numeriques), et cette entree du seed est ANTERIEURE a la MAJ qui a
+#   remplace `MartialApotheosis` par `MyWillBeDoneOverlord`. Le PORT, lui, lit
+#   `gameconfig.unit(visualId).passiveAbilities` (le fichier VIVANT) -> il instancie 1556.
+#
+#   Sans ce patch, la confrontation ne mesure donc PAS le port de 1556 : elle mesure l'ecart entre
+#   deux SOURCES de kit. C'est la forme #254 (« une config d'ability presente mais PERIMEE »), et
+#   `_load_seed_bc` ne re-synthetise que `BC.Abilities`, jamais `BC.Units[].PassiveAbilities`.
+#
+#   Le patch est donc le MONTAGE, exactement comme poser un `TertiaryAbility` pour confronter une
+#   relique non equipee au seed. `--unit-stat` ne tolere pas de virgule DANS une valeur -> la liste
+#   ne porte que 1556 ; `LivingMetal` (1010) reste accorde par le TRAIT et, de toute facon, fire sur
+#   `On(0x13 = TurnStart_Other)`, jamais sur le `finish` que la mesure encadre.
+CARRIER_PASSIVES_PATCH = "%s:PassiveAbilities=[%d]" % (CARRIER, MY_WILL_BE_DONE_OVERLORD)
 
 P_UNITS = [CARRIER, ALLY_A, ALLY_B]
-A_UNITS = [ENEMY_A, ENEMY_B]
+A_UNITS = [ENEMY_A]
 # L'Attaque du groupe B est patchee TRES AU-DESSUS de celle du groupe A : si le port triait
 # globalement par Attaque (H2) il eluerait le Dominus. Les deux valeurs restent sous le `maxDmg` du
 # porteur (verifie en sortie : le cap ne doit pas ecraser la difference).
@@ -75,6 +95,11 @@ ALLY_B_DAMAGE = 3000
 # PV des ennemis remontes : le montage doit SURVIVRE a plusieurs tours (M3), et une victime tuee au
 # premier coup ferait disparaitre le cas discriminant du tour suivant.
 ENEMY_HP = 40000
+# ARMURE de la victime ANNULEE. Mesure faite AVANT ce patch : l'armure native de `blackTerminator`
+# ecrasait les DEUX regimes d'Attaque sur le meme degat PLANCHER (-2 / -3), c'est-a-dire que le
+# montage ne discriminait PLUS les deux hypotheses. Sans armure, `Damage = 400` et `Damage = 3000`
+# donnent deux regimes de degat sans recouvrement -> le chiffre DESIGNE l'attaquant.
+ENEMY_ARMOR_SPECS = ("%s:Armor=0" % ENEMY_A, "%s:FixedArmor=0" % ENEMY_A)
 
 
 def _r(sid, m, b, t=90):
@@ -184,12 +209,19 @@ def _free_neighbours(bg, tile_id, ids_ok=()):
 def setup_positions(sid, rid, ids):
     """DRIVE la geometrie du montage M1/M2/M3 (`applyAction move` TELEPORTE -> elle est CHOISIE) :
 
-        Overlord sur un hub a 6 voisins ; ALLY_A et ALLY_B sur DEUX voisins du hub NON adjacents
-        entre eux ; ENEMY_A sur un voisin de ALLY_A hors ring-1 de ALLY_B ; ENEMY_B symetriquement.
+        Overlord sur un hub H a 6 voisins ; ALLY_A et ALLY_B sur DEUX voisins de H **adjacents entre
+        eux** ; ENEMY_A sur leur SECOND voisin commun E (celui qui n'est pas H), donc a distance 2 de
+        l'Overlord et a distance 1 des DEUX allies.
 
-    Rend `None` (montage REFUSE) plutot qu'une geometrie degradee : si les deux ennemis se
-    retrouvaient a portee des deux allies, la victime ne designerait plus l'attaquant et le vert ne
-    prouverait rien."""
+    Pourquoi CETTE geometrie, et pas « une cible par allie » : le choix de CIBLE de l'attaque libre
+    est un etage PARTAGE (le moteur d'utilite de `PerformAIAbilityUnitBehaviour`, residu #348/#338-r1)
+    -- avec deux ennemis, un desaccord sur cet etage-la masquerait l'etage que ce cas doit mesurer
+    (QUEL ALLIE est elu). Avec un ennemi UNIQUE a portee des deux, la cible est forcee et c'est le
+    DEGAT qui designe l'attaquant : les Attaques des deux allies sont patchees a `%d` et `%d`, donc
+    deux regimes de degat sans recouvrement possible.
+
+    Rend `None` (montage REFUSE) plutot qu'une geometrie degradee.""" % (ALLY_A_DAMAGE,
+                                                                        ALLY_B_DAMAGE)
     import hexgeo
     bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
     hub = _hub_tile(bg)
@@ -197,38 +229,41 @@ def setup_positions(sid, rid, ids):
         return None
     move(sid, rid, ids[CARRIER], hub["col"], hub["row"])
     bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    by_id = {t["id"]: t for t in bg["tiles"]}
     ring = _free_neighbours(bg, hub["id"], tuple(ids.values()))
-    # deux voisins du hub NON adjacents entre eux (distance hex 2) -> les rings-1 des deux allies
-    # sont disjoints en dehors du hub.
-    pair = None
+    # deux voisins du hub ADJACENTS entre eux, dont le SECOND voisin commun (hors hub) est libre.
+    pick = None
     for i in range(len(ring)):
-        for j in range(i + 1, len(ring)):
+        for j in range(len(ring)):
+            if i == j:
+                continue
             a, b = ring[i], ring[j]
-            if hexgeo.distance((a["col"], a["row"]), (b["col"], b["row"])) == 2:
-                pair = (a, b)
+            if hexgeo.distance((a["col"], a["row"]), (b["col"], b["row"])) != 1:
+                continue
+            common = [by_id[n] for n in (a.get("neighbours") or [])
+                      if n in by_id and n != hub["id"]
+                      and n in set(b.get("neighbours") or [])
+                      and by_id[n].get("walkable") and not by_id[n].get("isWall")
+                      and by_id[n].get("occupantUnitId") in (None, ids[ENEMY_A])]
+            if common:
+                pick = (a, b, common[0])
                 break
-        if pair:
+        if pick:
             break
-    if pair is None:
+    if pick is None:
         return None
-    move(sid, rid, ids[ALLY_A], pair[0]["col"], pair[0]["row"])
-    move(sid, rid, ids[ALLY_B], pair[1]["col"], pair[1]["row"])
-    for ally, enemy in ((ALLY_A, ENEMY_A), (ALLY_B, ENEMY_B)):
-        bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
-        by_id = {t["id"]: t for t in bg["tiles"]}
-        atile = next((t for t in bg["tiles"] if t.get("occupantUnitId") == ids[ally]), None)
-        otile = next((t for t in bg["tiles"] if t.get("occupantUnitId") == ids[CARRIER]), None)
-        other = next((t for t in bg["tiles"]
-                      if t.get("occupantUnitId") == ids[ALLY_B if ally == ALLY_A else ALLY_A]), None)
-        if atile is None or otile is None or other is None:
+    move(sid, rid, ids[ALLY_A], pick[0]["col"], pick[0]["row"])
+    move(sid, rid, ids[ALLY_B], pick[1]["col"], pick[1]["row"])
+    move(sid, rid, ids[ENEMY_A], pick[2]["col"], pick[2]["row"])
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    pos = {t.get("occupantUnitId"): (t["col"], t["row"])
+           for t in bg["tiles"] if t.get("occupantUnitId") is not None}
+    for vis in (ALLY_A, ALLY_B):                       # controle de sortie : geometrie ATTEINTE
+        if hexgeo.distance(pos[ids[vis]], pos[ids[CARRIER]]) != 1:
             return None
-        cands = [t for t in _free_neighbours(bg, atile["id"])
-                 if hexgeo.distance((t["col"], t["row"]), (other["col"], other["row"])) > 1
-                 and hexgeo.distance((t["col"], t["row"]), (otile["col"], otile["row"])) > 1]
-        if not cands:
+        if hexgeo.distance(pos[ids[vis]], pos[ids[ENEMY_A]]) != 1:
             return None
-        move(sid, rid, ids[enemy], cands[0]["col"], cands[0]["row"])
-    return _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    return bg
 
 
 def capture(sid, rid, board):
@@ -319,10 +354,12 @@ def measure(sid, seed="777", board_id="MC1_67", turns=2, verbose=True):
     """M1/M2/M3 -- monte le montage, joue `turns` activations du porteur et rend la mesure BRUTE.
     `None` si le montage n'a pas pu etre etabli (JAMAIS un resultat degrade)."""
     import hexgeo
-    stats = ["%s:Damage=%d" % (ALLY_A, ALLY_A_DAMAGE),
+    stats = [CARRIER_PASSIVES_PATCH,
+             "%s:Damage=%d" % (ALLY_A, ALLY_A_DAMAGE),
              "%s:Damage=%d" % (ALLY_B, ALLY_B_DAMAGE)]
     for e in A_UNITS:
         stats += ["%s:Health=%d" % (e, ENEMY_HP), "%s:RemainingHealth=%d" % (e, ENEMY_HP)]
+    stats += list(ENEMY_ARMOR_SPECS)
     rid = build(seed, board_id, P_UNITS, A_UNITS, STATE, stats)
     if rid is None:
         return None
@@ -400,7 +437,8 @@ def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
     """M4 -- BRANCHE ELSE : l'Overlord SEUL de son camp (aucun allie adjacent) clot son tour ->
     aucune attaque, et l'effet 1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI."""
     rid = build(seed, board_id, [CARRIER], [ENEMY_A], STATE_SOLO,
-                ["%s:Health=%d" % (ENEMY_A, ENEMY_HP),
+                [CARRIER_PASSIVES_PATCH,
+                 "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
                  "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)])
     if rid is None:
         return None
