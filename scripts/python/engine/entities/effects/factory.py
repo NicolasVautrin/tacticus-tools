@@ -381,6 +381,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Gate = foyer partage `is_charging_attack(att_ctx)`. MESURE live : 10 coups en charge vs 7 en
     # decalage adjacent. La face CRIT du meme effet reste NON portee (residu N14, case-ischarging-hits §7).
     "SagaOfTheWarriorBorn_Owner": SagaOfTheWarriorBornOwnerEffect,
+    # SagaOfTheWarriorBorn_OtherSpaceWolves (0x4c8=1224) -- MEME CLASSE NATIVE que 1223, pas un calque :
+    # les deux fabriques `<>c$$<InitializeEffects>b__14_{241,242}` d'`IdunBattle.Core.Services.
+    # EffectsDatabase$$InitializeEffects` sont BIT-IDENTIQUES (meme slot `Il2CppClass*`, meme
+    # `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$.ctor`, aucun argument
+    # variable). Sur les 607 enregistrements, ce slot ne couvre QUE 1223 et 1224 -- identite tranchee
+    # par le slot, jamais par le nom du ctor (51 noms couvrent plusieurs classes). Le port doit donc
+    # pointer la MEME classe, sinon il duplique une classe que le natif n'a pas.
+    # Le ctor est une CONSTANTE partagee : `AbilityOrEffect(TriggeredAbilityType.SagaOfTheWarriorBorn
+    # = 0x49e = 1182)` -> les deux effets lisent la MEME config d'ability, donc les MEMES
+    # `extraHits` (0x13) / `extraCritDmg` (0x42). Seul le PORTEUR change.
+    # POSE (face separee, non portee ici -- cf. la docstring de la classe) :
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_KillAbility` pose 1224
+    # sur les Space Wolves AMIS (hors Ragnar) quand Ragnar TUE un ennemi ayant le trait `Hero`.
+    "SagaOfTheWarriorBorn_OtherSpaceWolves": SagaOfTheWarriorBornOwnerEffect,
     # UnstoppableFerocity (`blackSmnBloodletter`, summon d'Archimatos `blackPossession` ; passif du
     # summon, effet 0x408=1032) : +extraHit (constante = 1) coup a TOUTE attaque du porteur EN CHARGE
     # (`IdunBattle.Entities.Effects.Loki.UnstoppableFerocityOwnerEffect$$CreateEffectHitsBonusForAttack`
