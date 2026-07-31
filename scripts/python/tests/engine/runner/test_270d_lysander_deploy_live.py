@@ -59,6 +59,36 @@ def test_le_porteur_se_deploie_et_expose_titanhammer_squad(lysander_deploy_case)
         % (PORTEUR, ABILITY_ID, r.get("abilities")))
 
 
+def test_le_porteur_entre_dans_toactivate(lysander_deploy_case):
+    """« Se deploie » ne suffit pas a rendre `1231` confrontable : il faut que le porteur JOUE.
+
+    Un deploiement sans activation laisserait l'ability aussi invalidable qu'avant -- exactement le
+    verdict que ce cas leve. On exige donc l'id du porteur dans `decisionView.toActivate`."""
+    r = lysander_deploy_case()
+    assert r["b_ok"], "le montage nominal n'a pas monte : %r" % r.get("b_out")
+    assert r.get("to_activate"), (
+        "%s se deploie mais n'est propose a l'activation par personne (toActivate vide)" % PORTEUR)
+    assert r.get("unit_id") in r["to_activate"], (
+        "%s (id=%r) absent de toActivate=%r -- l'ability reste invalidable"
+        % (PORTEUR, r.get("unit_id"), r["to_activate"]))
+
+
+def test_la_faute_vient_du_trait_pas_du_porteur(trait_hors_enum_cross_case):
+    """ATTRIBUTION -- une unite qui monte DEJA casse des qu'on lui pose le meme nom hors enum.
+
+    Sans cette moitie, `lysander_deploy_case` etablirait « retirer ce nom deverrouille CE porteur »
+    sans exclure un co-facteur propre a l'unite."""
+    r = trait_hors_enum_cross_case()
+    assert r["base_ok"], (
+        "%s ne monte deja pas intact : le temoin est invalide, la contre-epreuve ne dit rien"
+        % r["porteur"])
+    assert r["spiked_ok"] is False, (
+        "%s a MONTE avec %s dans ses Traits -- la faute ne serait donc pas le nom hors enum"
+        % (r["porteur"], r["faux_trait"]))
+    assert "system error" in r["verbatim"] or "initAndStart" in r["verbatim"], (
+        "il casse, mais pas par la faute attendue -- verbatim : %r" % r["verbatim"])
+
+
 def test_le_kit_de_combat_survit_au_filtre(lysander_deploy_case):
     """Le filtre ne doit retirer QUE la sous-faction inconnue -- pas un trait de combat.
 

@@ -451,6 +451,31 @@ def lysander_deploy_case(live_session):
 
 
 @pytest.fixture(scope="module")
+def trait_hors_enum_cross_case(live_session):
+    """Fabrique : `trait_hors_enum_cross_case("votanChampion")` -> la CONTRE-EPREUVE CROISEE #270-d.
+
+    Le A/B de `lysander_deploy_case` montre que RETIRER `ImperialFists` deverrouille
+    `astarLysander` ; il n'exclut pas que la faute vienne d'autre chose de propre a cette unite (son
+    kit, son passif, son rang) dont le trait n'aurait ete qu'un co-facteur. Cette fixture prend une
+    unite qui monte DEJA et lui POSE le meme nom hors enum : si elle casse a son tour, la cause est
+    le TRAIT, pas le porteur.
+
+    Portee MODULE (deux builds par unite). ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case(porteur: str = "votanChampion", seed: int = 777, board: str = "MC1_67") -> dict:
+        key = (porteur, seed, board)
+        if key not in cache:
+            r = LYS.run_cross(porteur, seed=seed, board=board, verbose=True)
+            if r.get("why"):
+                pytest.fail("contre-epreuve croisee NON INSTALLEE : %s" % r["why"])
+            cache[key] = r
+        return cache[key]
+
+    return _case
+
+
+@pytest.fixture(scope="module")
 def unit_flags_moved_case(live_session):
     """LE CANAL SUIT L'ETAT : `UnitFlag.Moved` (=0) sur la MEME unite, avant puis apres un
     `MoveUnitOperation` reel. Sans cette garde, une table de flags FIGEE au build passerait la

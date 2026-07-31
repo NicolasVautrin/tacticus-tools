@@ -106,13 +106,46 @@ de ce build ne peut tester un membre que son propre enum ne contient pas**. Et l
 pas la cohorte reelle : sur les 175 entrees capturees, `_traits_raw` produit 0 nom hors enum, donc
 `catalog_inject --validate` est inchange.
 
+## 5bis. La mesure LIVE (2026-07-31, session 1 puis 2, apres warmup)
+
+`probe_270d_lysander_deploy.py` — deux builds, meme roster, meme board, meme seed, meme seed BC ;
+seule difference : `ImperialFists` present ou non dans `BC.Units[astarLysander].Traits`.
+
+```
+Traits produits  : ['Imperial','Hero','TeleportStrike','TerminatorArmour','Resilient','CrushingStrike']
+Traits ECARTES   : ['ImperialFists']
+A  trait REMIS     : build KO   verbatim : [error] initAndStart: system error
+B  tel que produit : build OK   abilities du porteur : [69, 1231]   toActivate : [85]
+```
+
+Rejoue sur un SECOND couple (seed 31337, board `C1_74`) : meme resultat.
+
+**Contre-epreuve croisee** (`--cross votanChampion`) — le meme nom pose sur une unite qui monte
+DEJA :
+
+```
+CROSS votanChampion   intact: build OK | + ImperialFists : build KO
+                      verbatim : [error] initAndStart: system error
+```
+
+C'est cette moitie qui ATTRIBUE : la faute est le **trait**, pas le porteur.
+
+**`1231 TitanhammerSquad` est confrontable, pas seulement « deploye »** : le porteur (id 85, pos
+(1,0), 11044 PV) est **la seule unite de `toActivate`**, `abilityTargets(1231)` repond `ok`, et
+l'ability arrive avec `cooldown = 1` — ce qui corrobore au passage la lecture de
+`AbilityConstantType.initialCooldownTurns` (`TitanhammerSquad.constants.initialCooldownTurns = "1"`).
+
+Le probe #270 d'origine, rejoue avec les **quatre** porteurs injectes ensemble, passe desormais sur
+les quatre lignes (`1222`, `1227`, `1231`, `1232` : natif=True / port=True / sans-l-entree=False) —
+c'est la couverture qui lui manquait.
+
 ## 6. Ce qui est garde
 
 | Fichier | Nature | Session |
 |---|---|---|
-| `scripts/python/tests/engine/test_270d_catalog_traits_enum.py` | vocabulaire sur les 669 unites + partition `_traits` / `dropped_traits` + non-regression des 175 capturees | non |
-| `scripts/python/tests/engine/runner/test_270d_lysander_deploy_live.py` | le porteur se deploie, expose `1231`, et son kit de combat survit au filtre | oui |
-| `scripts/python/probe_270d_lysander_deploy.py` | le montage A/B a UN SEUL BIT d'ecart (fixture `lysander_deploy_case`) | oui |
+| `scripts/python/tests/engine/test_270d_catalog_traits_enum.py` | vocabulaire sur les 669 unites + partition `_traits` / `dropped_traits` + non-regression des 175 capturees (3 tests) | non |
+| `scripts/python/tests/engine/runner/test_270d_lysander_deploy_live.py` | le trait remis casse le build ; le porteur se deploie, expose `1231`, entre dans `toActivate` ; la faute est attribuee au TRAIT (contre-epreuve croisee) ; le kit de combat survit au filtre (5 tests) | oui |
+| `scripts/python/probe_270d_lysander_deploy.py` | le montage A/B a UN SEUL BIT d'ecart + `--cross` (fixtures `lysander_deploy_case`, `trait_hors_enum_cross_case`) | oui |
 
 Rouge de la garde offline **avant** le correctif, verbatim :
 

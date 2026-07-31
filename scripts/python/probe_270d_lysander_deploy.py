@@ -83,14 +83,75 @@ FOES = "orksWarboss,orksNob,necroWarden,eldarRanger"
 BOARD = "MC1_67"
 
 
-def _build(seed_bc: Path, state: Path, seed: int, board: str) -> tuple[bool, str]:
+def _build(seed_bc: Path, state: Path, seed: int, board: str,
+           porteur: str = PORTEUR) -> tuple[bool, str]:
     """Lance `rl_duel build`. Rend (le state-file existe, sortie concatenee)."""
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
            "--board", board, "--seed-bc", str(seed_bc), "--state-file", str(state),
-           "--p-units", PORTEUR, "--a-units", FOES]
+           "--p-units", porteur, "--a-units", FOES]
     p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     return state.exists(), ((p.stdout or "") + (p.stderr or ""))
+
+
+def run_cross(porteur: str, faux_trait: str = "ImperialFists", seed: int = 777,
+              board: str = BOARD, verbose: bool = False) -> dict:
+    """CONTRE-EPREUVE CROISEE : le meme nom hors enum, mais pose sur un AUTRE porteur.
+
+    Pourquoi elle est necessaire. Le A/B de `run()` etablit que RETIRER `ImperialFists` de
+    `astarLysander` deverrouille le build -- il n'exclut pas que la faute vienne d'AUTRE CHOSE de
+    propre a cette unite (son kit, son passif, son rang) et que le trait n'ait ete qu'un
+    co-facteur. On prend donc une unite qui monte DEJA (`votanChampion`, mesure #270) et on lui
+    ajoute le meme nom : si elle casse a son tour, la cause est le TRAIT, pas le porteur.
+
+    Rend {`base_ok`: build de l'unite intacte, `spiked_ok`: build avec le nom hors enum ajoute,
+    `verbatim`}.
+    """
+    out = {"porteur": porteur, "faux_trait": faux_trait, "seed": seed, "board": board}
+    if faux_trait in catalog_inject.unit_trait_members():
+        out["why"] = ("%s est MEMBRE de UnitTrait sur ce build : la contre-epreuve n'a plus de "
+                      "nom hors vocabulaire a poser" % faux_trait)
+        return out
+    sid = _resolve_session()
+    tmp = REPO / "logs" / "probe270d"
+    tmp.mkdir(parents=True, exist_ok=True)
+    tag = uuid.uuid4().hex[:8]
+    bc_base = tmp / ("cross-base-%s.json" % tag)
+    bc_spike = tmp / ("cross-spike-%s.json" % tag)
+    st_base = tmp / ("cross-sb-%s.json" % tag)
+    st_spike = tmp / ("cross-ss-%s.json" % tag)
+
+    catalog_inject.write_augmented_seed_bc(str(bc_base), [porteur])
+    doc = json.loads(bc_base.read_text(encoding="utf-8"))
+    entry = next(u for u in doc["Units"] if u["Id"] == porteur)
+    out["traits"] = list(entry["Traits"])
+    entry["Traits"] = [out["traits"][0], faux_trait] + out["traits"][1:]
+    bc_spike.write_text(json.dumps(doc), encoding="utf-8")
+
+    try:
+        ok_b, _ = _build(bc_base, st_base, seed, board, porteur=porteur)
+        out["base_ok"] = ok_b
+        if ok_b:
+            _rpc(sid, "disposeRunner",
+                 [{"runnerId": json.loads(st_base.read_text(encoding="utf-8"))["runnerId"]}],
+                 timeout=30)
+        ok_s, raw_s = _build(bc_spike, st_spike, seed, board, porteur=porteur)
+        out["spiked_ok"] = ok_s
+        out["verbatim"] = next((ln.strip() for ln in raw_s.splitlines()
+                                if "initAndStart" in ln or "[error]" in ln), "(aucune)")
+        if ok_s:
+            _rpc(sid, "disposeRunner",
+                 [{"runnerId": json.loads(st_spike.read_text(encoding="utf-8"))["runnerId"]}],
+                 timeout=30)
+    finally:
+        for p in (bc_base, bc_spike, st_base, st_spike):
+            p.unlink(missing_ok=True)
+    if verbose:
+        print("CROSS %-16s intact: build %s | + %s : build %s"
+              % (porteur, "OK" if out.get("base_ok") else "KO", faux_trait,
+                 "OK <-- ECART" if out.get("spiked_ok") else "KO (attendu)"))
+        print("      verbatim : %s" % out.get("verbatim", "")[:180])
+    return out
 
 
 def run(seed: int = 777, board: str = BOARD, verbose: bool = False) -> dict:
@@ -167,8 +228,17 @@ def run(seed: int = 777, board: str = BOARD, verbose: bool = False) -> dict:
                 if u.get("visualId") == PORTEUR:
                     ids |= {int(a.get("id")) for a in (u.get("abilities") or [])
                             if a.get("id") is not None}
+                    out["unit_id"] = u.get("id")
+                    out["pos"] = u.get("pos")
+                    # cooldown initial expose -- corrobore la lecture de
+                    # `AbilityConstantType.initialCooldownTurns` (gameconfig : "1")
+                    out["cooldowns"] = {int(a["id"]): a.get("cooldown")
+                                        for a in (u.get("abilities") or [])
+                                        if a.get("id") is not None}
             out["abilities"] = sorted(ids)
             out["carries_ability"] = ABILITY_ID in ids
+            # ACTIVABLE, pas seulement present : sans cela `1231` resterait invalidable.
+            out["to_activate"] = list(dec.get("toActivate") or [])
     finally:
         if rid is not None:
             try:
@@ -184,7 +254,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--seed", type=int, default=777)
     ap.add_argument("--board", default=BOARD)
+    ap.add_argument("--cross", default=None, metavar="UNIT_ID",
+                    help="contre-epreuve CROISEE : poser le meme nom hors enum sur une unite qui "
+                         "monte DEJA (ex. votanChampion) -- attribue la faute au TRAIT, pas au "
+                         "porteur")
     a = ap.parse_args()
+    if a.cross:
+        c = run_cross(a.cross, seed=a.seed, board=a.board, verbose=True)
+        if c.get("why"):
+            print("NON MESURE : %s" % c["why"])
+            return 0
+        return 0 if (c["base_ok"] and not c["spiked_ok"]) else 1
     r = run(seed=a.seed, board=a.board, verbose=True)
     if r.get("why"):
         print("NON MESURE : %s" % r["why"])
@@ -194,9 +274,12 @@ def main() -> int:
     print("   verbatim        : %s" % r["a_verbatim"][:200])
     print("B  tel que produit : build %s" % ("OK (attendu)" if r["b_ok"] else "KO <-- ECART"))
     if r.get("b_ok"):
-        print("   abilities du porteur : %s" % r.get("abilities"))
+        print("   abilities du porteur : %s   cooldowns %s"
+              % (r.get("abilities"), r.get("cooldowns")))
         print("   %d TitanhammerSquad expose au decisionView : %s"
               % (ABILITY_ID, r.get("carries_ability")))
+        print("   porteur id=%s pos=%s   toActivate=%s"
+              % (r.get("unit_id"), r.get("pos"), r.get("to_activate")))
     else:
         print("   sortie          : %s" % r.get("b_out", ""))
     print("")
