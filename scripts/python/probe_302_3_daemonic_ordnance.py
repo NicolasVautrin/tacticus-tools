@@ -402,12 +402,16 @@ def _burn_stage(rid: int, state: Path, state_name: str, a_units: list, hot_count
     igniter = ids[BURN_IGNITER]
     _duel(["act", "ability", "--caster", str(igniter), "--ability", str(DAEMONIC),
            "--to", "%d,%d" % tuple(geo["hot"])], state, rid)
-    # PHASE 2 : les tuiles en feu sont MESUREES, pas deduites de la geometrie. `GetTargetAreaTiles`
-    # finit par `TilesOnSameElevation(..., maxDiff = 1)` et `AddEffectOperation` n'allume pas une
-    # tuile non marchable (residu #359-r4) : la zone-triangle NOMINALE compte 3 tuiles, la zone
-    # EMBRASEE en compte souvent 2 (mesure : cast sur `(4,1)` -> `{(4,1), (5,2)}`, `(4,2)` exclue).
-    # Placer les chauds sur la geometrie nominale mettait donc l'un des deux HORS du feu, et le
-    # montage rendait UN event au lieu de deux -- en silence.
+    # PHASE 2 : les tuiles en feu sont MESUREES, pas deduites de la geometrie. La zone-triangle
+    # calculee ici (`geo["zone_hot"]`) est la geometrie NOMINALE -- l'ancre + ses deux voisines de
+    # coin -- SANS le filtre d'elevation que `GetTargetAreaTiles` applique en dernier
+    # (`TilesOnSameElevation(..., maxDiff = 1)`). Mesure : cast sur `(4,1)` de `MC1_67` ->
+    # `{(4,1), (5,2)}`, `(4,2)` exclue parce qu'elle est a l'elevation 4 contre 2. Placer les chauds
+    # sur la geometrie nominale mettait donc l'un des deux HORS du feu, et le montage rendait UN
+    # event au lieu de deux -- en silence.
+    # ⚠ La cause est l'ELEVATION, pas la marchabilite : #368 a mesure le contraire du residu #359-r4
+    # (bras A, `MC1_67` : la tuile amputee y est MARCHABLE). L'ecart REEL lie a la marchabilite
+    # existe mais est plus etroit -- `docs/rl/case-368-pose-daemonic-ordnance.md` §3.
     fire = _fire_now(rid)
     hot_slots = [p for p in fire if p in set(map(tuple, geo["zone_hot"]))]
     if len(hot_slots) < hot_count:

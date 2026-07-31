@@ -212,14 +212,25 @@ principale sur chaque membre du set passerait.
 ne prouverait donc rien.
 
 ⚠ **Résidu NOMMÉ, découvert par cette généralisation** : sur `C1_15` le natif n'allume que
-`{(3,3), (3,4)}` du triangle `{(2,3), (3,3), (3,4)}`. Ni l'élévation (`(3,3)` a la **même**, 2, et
-brûle) ni un trou d'observation (`tileMeta` projette bien `(2,3)`) ne l'expliquent ; la seule
-covariable mesurée est `walkable = False`. `BattleQuery$$GetTilesInTriangleShape` et
-`TilesOnSameElevationSelector$$Select` ont été **relus** : **aucun** ne filtre la marchabilité — le
-port est fidèle, et l'écart est dans la **POSE** de l'effet (face COMBAT), hors périmètre. Il est
-**inerte pour ce sélecteur** : une unité ne se tient pas sur une tuile non marchable, donc
-`Units(<tuile non marchable>)` rend vide de toute façon. D'où une garde par **inclusion** (les
-tuiles allumées sont dans le triangle attendu, centre compris), pas par égalité.
+`{(3,3), (3,4)}` du triangle `{(2,3), (3,3), (3,4)}`, et la seule covariable relevée était
+`walkable = False`. D'où une garde par **inclusion** (les tuiles allumées sont dans le triangle
+attendu, centre compris), pas par égalité.
+
+> **TRANCHÉ par #368** — `docs/rl/case-368-pose-daemonic-ordnance.md`. Deux choses distinctes
+> étaient confondues. **(a)** L'amputation « 3 nominales → 2 réelles » qui a coûté une passe de
+> montage est **l'ÉLÉVATION** (`TilesOnSameElevation(…, maxDiff = 1)`), déjà portée : le
+> « nominal » comparé était la géométrie calculée à la main par `probe_302_3._burn_stage`, sans ce
+> filtre. Mesuré, natif == port sur les **deux** branches du `If` — et sur `MC1_67` la tuile amputée
+> est **MARCHABLE**, ce qui retourne la covariable. **(b)** Un écart RÉEL subsiste, plus étroit :
+> une tuile de la zone **non marchable** n'est pas embrasée par le natif (3 mesures, 2 boards,
+> 2 terrains, dont une où les trois élévations sont identiques). Sa cause native n'est **pas
+> tranchée** — aucun étage de la chaîne de pose ne lit la marchabilité, et `tileMeta` filtre les
+> effets inactifs sans exposer le drapeau, donc « non posé » et « posé-inactif » restent
+> indiscernables. Capteur nommé et livré (non activé). L'écart reste **inerte** pour ce sélecteur,
+> pour la raison ci-dessous.
+
+Il est **inerte pour ce sélecteur** : une unité ne se tient pas sur une tuile non marchable, donc
+`Units(<tuile non marchable>)` rend vide de toute façon.
 
 ### Le **BRANCHEMENT** de cette prédiction sur la route de DÉCISION (#359-r3)
 
@@ -388,9 +399,12 @@ Hors périmètre `#350-r3`.
   avec 1147, qui finit par `SortByRow`/`SortReverse`), donc l'ordre natif est celui de l'itération
   des tuiles de `GetTargetAreaTiles`. Le port l'obtient par construction (`Units` itère les tuiles),
   mais la garde porte sur l'ENSEMBLE — l'ordre n'a pas été confronté.
-- **La tuile NON MARCHABLE du triangle** (`C1_15`, `(2,3)`) : le natif ne l'allume pas alors qu'aucun
-  des deux sélecteurs lus ne filtre la marchabilité. L'écart est dans la POSE de l'effet (face
-  COMBAT, `AddEffectOperation` sur une entité-tuile) — **non tranché**, inerte pour la prédiction.
+- ~~**La tuile NON MARCHABLE du triangle**~~ — **REPRIS par #368**
+  (`docs/rl/case-368-pose-daemonic-ordnance.md`). L'amputation nominal → réel est l'ÉLÉVATION, déjà
+  portée (natif == port, deux branches du `If`). L'écart lié à la marchabilité existe, est mesuré
+  trois fois et **borné** (l'écart `port \ natif` est exactement l'ensemble des tuiles non
+  marchables de la zone), mais sa **cause native reste non tranchée** — capteur `tileMeta
+  includeInactive` livré, non activé. Inerte pour la prédiction comme pour le combat.
 - ~~**Le BRANCHEMENT de la prédiction de 1148 sur sa route de DÉCISION**~~ — **FERMÉ (#359-r3)**,
   section dédiée ci-dessus.
 - **La généralisation du montage BRÛLANT à un board où `dir` bascule** (#359-r3) : **NON COUVERTE**.
