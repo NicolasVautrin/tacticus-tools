@@ -18,7 +18,7 @@ import {
 } from "./internals.js";
 import type { AbilityInfo } from "./internals.js";
 import { readEffectsByUnit } from "../../game/effects.js";
-import { readDamagePredictionResult } from "../../game/damage-prediction.js";
+import { DamagePredictionFields, readDamagePredictionResult } from "../../game/damage-prediction.js";
 import {
     decodeDamageEvents, loadPlaybook, makeDamagePredictions,
     resolvePlaybookDatabase, unitPositionAtTile,
@@ -146,18 +146,26 @@ export function computeAttackPlans(
         if (pb === undefined) { pb = loadPlaybook(playbookDb, abilityId); playbookCache.set(abilityId, pb); }
         return pb;
     };
-    // Remplit une RankedTile depuis un tuple {hp, dmgMin/Max, willKill, mightKill, mightCrit}
-    // (source playbook OU preview) : dmg affiché + K!/K? via les seuils de mort EFFECTIFS
-    // (post floor-Resilient + overkill), PAS dmgMin/Max brut. predOptimistic dégrade K!→K?
-    // si la cible porte un dmg-reducer trigger-based non simulé (TF04).
+    // Remplit une RankedTile depuis un `DamagePredictionResult` DÉCODÉ (source playbook OU
+    // preview) : dmg affiché + K!/K? via les seuils de mort EFFECTIFS (post floor-Resilient +
+    // overkill), PAS dmgMin/Max brut. predOptimistic dégrade K!→K? si la cible porte un
+    // dmg-reducer trigger-based non simulé (TF04).
+    //
+    // #372 — cette fonction RECEVAIT les deux BORNES (`willKill`, `mightKill`) et rejouait
+    // `hp <= willKill` chez elle. C'était un TROISIÈME lieu où la règle de `get_WillBeKill`
+    // était ré-assemblée à la main, donc un troisième endroit où il manquait le gate
+    // `CannotBeGuaranteedKilled@0x89` et la préférence pour `BlockScenarios[0]+0x0c`. Elle
+    // prend désormais le résultat décodé et lit le VERDICT que le décodeur a calculé — foyer
+    // unique. `willBeKill` est TRI-ÉTAT : `null` = non mesuré, et on laisse alors `killSure`
+    // non posé (sous-claim assumé : le HUD n'affiche pas K!) plutôt que d'inventer un `false`
+    // indiscernable d'un « pas de kill garanti ».
     const applyDmg = (
-        entry: RankedTile, hp: number, dmgMin: number, dmgMax: number,
-        willKill: number, mightKill: number, mightCrit: boolean, hasReducer: boolean,
+        entry: RankedTile, p: DamagePredictionFields, hasReducer: boolean,
     ): void => {
-        entry.dmgMin = dmgMin; entry.dmgMax = dmgMax;
-        entry.killSure = hp <= willKill;
-        entry.kill = hp <= mightKill;
-        entry.mightCrit = mightCrit;
+        entry.dmgMin = p.healthDmgMin; entry.dmgMax = p.healthDmgMax;
+        if (p.willBeKill !== null) entry.killSure = p.willBeKill;
+        entry.kill = p.mightBeKill;
+        entry.mightCrit = p.mightCrit !== 0;
         if (hasReducer) { entry.predOptimistic = true; entry.killSure = false; }
     };
 
@@ -229,9 +237,7 @@ export function computeAttackPlans(
                                     const ev = decodeDamageEvents(mk.list, idByPtr)
                                         .events.find((e) => e.targetId === tgt.id);
                                     if (ev) {
-                                        applyDmg(entry, ev.hpBefore, ev.healthDmgMin,
-                                            ev.healthDmgMax, ev.willKillDmg, ev.mightKillDmg,
-                                            ev.mightCrit !== 0, tgtHasReducer);
+                                        applyDmg(entry, ev, tgtHasReducer);
                                         filled = true;
                                     }
                                 }
@@ -260,10 +266,7 @@ export function computeAttackPlans(
                                             // `get_WillBeKill` / `get_MightBeKill` (PAS dmgMin/Max
                                             // brut — sur-claime K! sur un Resilient, cf. TF04).
                                             const p = readDamagePredictionResult(boxed.add(0x10));
-                                            applyDmg(entry, p.hpBefore,
-                                                p.healthDmgMin, p.healthDmgMax,
-                                                p.willKillDmg, p.mightKillDmg,
-                                                p.mightCrit !== 0, tgtHasReducer);
+                                            applyDmg(entry, p, tgtHasReducer);
                                         }
                                     }
                                 }
