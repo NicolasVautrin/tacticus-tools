@@ -84,6 +84,19 @@ construction :
 `extraArmor`, `chance`) sont toutes des membres valides de `AbilityConstantType` /
 `AbilityVariableType`.
 
+## 4bis. Ce que le filtre COUTE : rien, et c'est mesure
+
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor` construit un
+`OrderedSet<UnitTrait>` qu'il stocke a `statics+0x18` et qui contient **exactement quatre** valeurs,
+ecrites en dur : `9000`, `0x2329`, `0x232a`, `0x232b` — soit les quatre sous-factions de l'enum, ni
+plus ni moins. L'ensemble des traits de sous-faction que ce binaire sait manipuler est donc **ferme
+et code en dur** ; il n'y a aucune case pour `ImperialFists`, ni dans l'enum, ni dans cette table de
+regles. Retirer ce nom ne prive le natif d'aucune branche : il n'en a aucune a offrir.
+
+Le jour ou le binaire rattrapera le gameconfig, `dropped_traits` deviendra vide de lui-meme, le
+filtre cessera de mordre, et le probe A/B le dira explicitement (`why` = « plus rien a contraster »)
+au lieu de rendre un vert par vacuite.
+
 ## 5. Le correctif
 
 `catalog_inject._traits` ne produit plus que des membres de `UnitTrait` **du build courant**, et ce
