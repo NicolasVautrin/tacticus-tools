@@ -282,12 +282,23 @@ annoncait, toutes MESUREES :
 Voir **§8** — le port, et surtout l'etage que la tranche a fait apparaitre
 (`IsPositionMachineForCurrentPlayer` lisait la mauvaise chose).
 
-### Tranche 4 — balayage EXHAUSTIF du bit `TargetIsTile`
+### Tranche 4 — LIVREE : balayage EXHAUSTIF du bit `TargetIsTile`
 
-`probe_302 --inventory` ne lit le bit que sur les **95** abilities de `ABILITY_CLASSES`, sur **257**
-`ActiveAbilityType`. Lire les `.ctor` restants au decompile (attention aux deux pieges mesures :
-overload PRESET+flags, et copie d'un champ statique de `TargetingOptions` ecrit par son `.cctor`).
-Livrable : la liste complete, et pour chacune si sa face DECISION a une route.
+Fiche propre : **`case-302-4-population-cible-tuile.md`** ; probe
+`scripts/python/probe_302_4_tile_target_population.py` ; tables `docs/rl/case-302-4/`.
+
+`probe_302 --inventory` ne lisait le bit que sur `ABILITY_CLASSES` — un sous-ensemble. La tranche 4
+le lit sur **toute** la population enregistree par le jeu, `.ctor` par `.ctor`, avec les quatre
+formes de `TargetingOptions..ctor` (litteral / preset+flags / preset seul / copie d'un statique) et
+un tri-etat explicite pour ce qui n'est pas lisible. Deux corrections a ce que cette section
+annoncait :
+
+- le denominateur n'est PAS « les membres d'`ActiveAbilityType` » mais **les entrees du registre**
+  `IdunBattle.Core.Services.AbilitiesDatabase$$InitializeActiveAbilities` — `...$$GetActive` rend
+  `new NoneAbility()` pour toute valeur absente de ce dictionnaire ;
+- les pieges sont **quatre**, pas deux : s'ajoutent l'overload PRESET SEUL, et surtout le fait que
+  le champ lu par `GetValidTargets` est `AActiveAbility+0x70`, PAS le second jeu d'options
+  `+0xb0` (`TargetingOptionsForContinue`), qu'un slot virtuel peut surcharger.
 
 ### Tranche 5 (outillage, exige un reinject — a grouper avec un autre besoin de reinject)
 
