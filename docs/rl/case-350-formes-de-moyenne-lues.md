@@ -57,11 +57,10 @@ l'erreur y est **plus profonde que l'arrondi**.
 Hors table (pas de `minDmg`/`maxDmg` en config, donc le port n'émet rien) : `1010 StormOfFlensingBlades`
 (prédiction d'attaque NORMALE, slot `0x22`), `1025 SkyStrike` (`Sum(NormalAttackDamage, Direct(var8))`).
 
-**`1160 HeavyRailRifle` — NON inscrit, volontairement** : `HeavyRailRiflePlaybook$$EvaluateNonComparable`
-appelle `MassiveScythingTalonsAbility$$GetDamage` → `BaseTriggeredAbility$$MinMaxDamage` (`RandomAmount`,
-donc (b)), **mais** ce corps lit sa config à `+0x20`, l'offset d'une `BaseTriggeredAbility`, pas d'une
-`AActiveAbility` (`+0x60`). L'objet évalué n'est donc pas l'ability 1160 elle-même. L'inscrire au registre
-`ActiveAbilityType` serait une extrapolation (`#350-r3`).
+**`1160 HeavyRailRifle` — NON inscrit, et la raison est LUE** (`#350-r3`, tranché) : le playbook
+n'évalue pas 1160. Il va chercher `Playbook<T>$$GetAbility<T>(this, 0x4ec, …)` — la **TriggeredAbility
+`1260 HeavyRailRifle_Attack`**, la même valeur que rend
+`HeavyRailRifle_PendingAttackEffect$$GetTriggeredAbilityType`. Détail : `case-350r3-porteur-mow-et-formule-triggered.md`.
 
 ## 4. Mesure LIVE — quatre abilities, deux voies, deux boards
 
@@ -90,8 +89,8 @@ natif. Non-régression de la famille (b) : `1150 PlasmaCannon` (montage #344) tr
 
 - **Non confrontables par `aiPlaybookPredict`** : les playbooks **NonComparable** rendent 0 event à cet
   oracle (mesuré sur `1132 KillMaimBurn`). Concerne 1132, 1111, et les deux déjà lues par #344 (1173, 1202).
-- **Porteur MoW** : `1147 HadesAutocannons` / `1148 DaemonicOrdnance` (`blackForgefiend`) — le gabarit
-  #344 passe le caster par `--p-units`, qui **refuse** un MoW. Montage à étendre, pas une impossibilité.
+- ~~**Porteur MoW**~~ — **LEVÉ par `#350-r3`** : `1147` et `1148` sont confrontées (voie greffe +
+  summons / feu). `case-350r3-porteur-mow-et-formule-triggered.md`.
 - **Porteur hors pool** : 1044, 1073, 1074, 1078, 1093, 1095, 1157, 1207 (injection catalogue non tentée).
 - **1137 MurderousSwing** : porteur au pool (`worldExecutions`) mais son playbook émet `count²` events
   (double boucle) — non confronté, la lecture (`GetCorrectDamage` → `MinMaxDamageAverage` sur les deux
