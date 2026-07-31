@@ -93,6 +93,8 @@ from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif 
                                 DestroyTheWitchExtraDamageEffect)
 from .cursed_plague_bell import CursedPlagueBellExtraMoveEffect        # aura deathBlightbringer (1071)
 from .relentless_march import RelentlessMarchExtraMoveEffect           # passif necroWarden (1004)
+from .my_will_be_done_overlord import (                                # passif necroOverlord (1556)
+    MyWillBeDoneOverlordExtraDamageEffect)
 from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
                               RealityUnboundExtraMaxDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
@@ -174,6 +176,8 @@ __all__ = [
     "CursedPlagueBellExtraMoveEffect",
     # relentless_march (passif necroWarden 1004 : +1 MOVEMENT aux allies adjacents non-Stationary)
     "RelentlessMarchExtraMoveEffect",
+    # my_will_be_done_overlord (passif necroOverlord 1556 : +extraDmg ATTACK self, branche ELSE)
+    "MyWillBeDoneOverlordExtraDamageEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)

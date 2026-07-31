@@ -620,16 +620,102 @@ def setup_solo_positions(sid, rid, ids):
     return bg
 
 
-def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
+def attack_live(snap, uid) -> "int | None":
+    """`combatSnapshot` -> stat ATTAQUE COURANTE (`GetStat(unit, 0 = Attack, 0 = Current)`)."""
+    for u in (snap.get("units") or []):
+        if int(u.get("entityId") or -1) == int(uid):
+            v = (u.get("stats") or {}).get("attack")
+            return int(v) if v is not None else None
+    return None
+
+
+def attack_port(state, uid) -> "int | None":
+    """Meme lecture cote port : `UnitStats.get_stat(ATTACK, CURRENT)` du `StatsComponent`."""
+    from engine.entities.stats import StatPart, StatType
+    from engine.runner.components import StatsComponent
+    e = state.get_entity(int(uid))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return None
+    return int(ctx.stats.get_stat(int(StatType.ATTACK), StatPart.CURRENT))
+
+
+def stat_mod_sources(sid, rid, uid, stat="attack") -> dict:
+    """RPC `statModSources` -- decomposition PAR SOURCE de la `ValueModification` de la stat, la
+    ground truth du `ChangeStat(..., modificationEntity = Entity(effect))` natif : la contribution du
+    self-buff 1581 y apparait keyee par l'ENTITE-EFFET (donc `self: false`, `sourceIsUnit: false`).
+    Rend `{}` si la stat n'a AUCUNE modification (le RPC skippe alors le scan, `minAbs = 1`)."""
+    r = _r(sid, "statModSources", {"runnerId": rid, "unitId": int(uid), "stats": [stat]}, 90)
+    for u in (r.get("units") or []):
+        if int(u.get("entityId") or -1) == int(uid):
+            return (u.get("mods") or {}).get(stat) or {}
+    return {}
+
+
+def expected_extra_dmg(state, uid) -> "int | None":
+    """`ConfigVar(AbilityOrEffect(1556), EffectSource, 8 = extraDmg)` re-derive du gameconfig au
+    NIVEAU DE PASSIF de la source et a SON multiplier de rarete -- jamais un scalaire fitte."""
+    from engine.entities.effects.magnitude import ability_var
+    from engine.runner.components import StatsComponent
+    e = state.get_entity(int(uid))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return None
+    lvl = getattr(ctx, "passive_ability_level", None)
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+    return ability_var("MyWillBeDoneOverlord", "extraDmg", lvl, multiplier_pct=mult)
+
+
+def _revert_extra_damage(state, uid) -> "int | None":
+    """Rejoue le RETRAIT de l'instance 1581 cote port et rend l'ATTAQUE resultante.
+
+    Mirror du foyer natif `RemoveEffectOperation$$Execute -> RefreshEffectsOperation$$DeactivateEffect
+    -> RevertEffectsForTargets -> RevertInternal`, qui pour la famille `AStatModifierEffect` EST
+    `RevertModification` (`ChangeStat(..., part 6 = ResetModification, Entity(effect))`). Cote port :
+    `revert_stat_mods_of_removed_effects`, dont le discriminant est justement `reverted_stats()`.
+    Rend `None` si aucune instance 1581 n'est portee."""
+    from engine.runner.operations.effects import revert_stat_mods_of_removed_effects
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return None
+    hit = None
+    for e in eff.by_unit.get(int(uid), []):
+        if (not e.consumed) and int(e.effect_type) == EXTRA_DAMAGE_EFFECT:
+            hit = e
+            break
+    if hit is None:
+        return None
+    hit.consumed = True                       # gate `consumed OR expired` du foyer de revert
+    revert_stat_mods_of_removed_effects(state)
+    return attack_port(state, uid)
+
+
+def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True, carrier_specs=()):
     """M4 -- BRANCHE ELSE : aucun allie ADJACENT eligible -> l'Overlord n'attaque personne et l'effet
-    1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI, avec sa DUREE (`remaining`).
+    1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI, avec sa DUREE (`remaining`) et sa
+    MAGNITUDE (le stat-mod ATTACK qu'il pose).
 
     Le camp du porteur compte un seul AUTRE allie, EXILE a distance >= 3 (cf. `setup_solo_positions`)
-    : il ne peut pas etre elu, mais il empeche la bascule de tour qui fausserait la duree observee."""
+    : il ne peut pas etre elu, mais il empeche la bascule de tour qui fausserait la duree observee.
+
+    #358 : la magnitude est le SECOND observable de cette branche. Elle sort du corps GENERIQUE
+    `IdunBattle.Entities.Effects.DynamicStatModifierEffect$$GetDynamicStatModificationAmount` (l'effet
+    est une instance `DynamicStatModifierEffect(AbilityType(1556), 8 = extraDmg, isNegative = 0, 0)`
+    construite par `EffectsDatabase.<>c$$<InitializeEffects>b__14_574`), materialisee par
+    `AStatModifierEffect$$ApplyModification` en `ChangeStat(Attack, part 5)`. On la mesure sur TROIS
+    canaux independants : la stat ATTAQUE courante (`combatSnapshot`), sa decomposition par source
+    (`statModSources`), et le gameconfig re-lu (`extraDmg[passiveLevel] x mult`).
+
+    `carrier_specs` = specs `--unit-stat` SUPPLEMENTAIRES sur le porteur (appliquees APRES la
+    normalisation de la BC), pour produire un SECOND cas discriminant : deplacer
+    `PassiveAbilityLevel` ou `AbilityVariablesMultiplierPercentage` doit deplacer la magnitude
+    d'AUTANT des deux cotes -- sans quoi le 898 du cas nominal ne serait qu'un scalaire qui colle."""
     rid = build(seed, board_id, [CARRIER, ALLY_A], [ENEMY_A], STATE_SOLO,
                 [CARRIER_PASSIVES_PATCH,
                  "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
-                 "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)])
+                 "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)] + list(carrier_specs))
     if rid is None:
         return None
     try:
@@ -641,39 +727,141 @@ def measure_solo(sid, seed="777", board_id="MC1_67", verbose=True):
         if setup_solo_positions(sid, rid, ids) is None:
             print("[354] ABORT solo : geometrie d'exil non atteinte")
             return None
-        bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
-        board = Board(bg["tiles"], adjacency="evenq")
-        cap = capture(sid, rid, board)
-        turn_before = (cap["dec"] or {}).get("turn")
-        hp_before = hp_live(cap["dec"])
-        st, port_out = offline_finish(cap, ids[CARRIER])
-        finish(sid, rid, ids[CARRIER])
-        after = dv(sid, rid, all_ab=True)
-        d_live = {i: hp_live(after).get(i, hp_before[i]) - hp_before[i] for i in hp_before}
-        live_eff = effects_live(after, EXTRA_DAMAGE_EFFECT)
-        port_eff = {}
-        eff = getattr(st, "effects", None)
-        if eff is not None:
-            port_eff = {int(uid): e.remaining_turns for uid, lst in eff.by_unit.items()
-                        for e in lst if (not e.consumed) and int(e.effect_type) == EXTRA_DAMAGE_EFFECT}
-        turn_after = (after or {}).get("turn")
-        if verbose:
-            print("[354] SOLO  1581 live=%s port=%s  degats live=%s  turn %s -> %s"
-                  % (live_eff, port_eff, {i: d for i, d in d_live.items() if d},
-                     turn_before, turn_after))
-            if port_out:
-                print("    port: self_buff=%s attaques=%s"
-                      % (port_out[0].get("self_buff"), port_out[0].get("attacks")))
-        return {"rid": rid, "ids": ids, "live_eff": live_eff, "port_eff": port_eff,
-                "d_live": d_live, "port_out": port_out, "cap": cap,
-                "turn_before": turn_before, "turn_after": turn_after}
+        return _measure_else_branch(sid, rid, ids, "SOLO", verbose)
+    finally:
+        dispose(rid=rid, sid=sid)
+
+
+def _measure_else_branch(sid, rid, ids, tag, verbose=True):
+    """Bloc de MESURE de la branche ELSE, partage par tous ses montages : duree ET magnitude du
+    self-buff 1581, live vs port, plus la symetrie apply/revert cote port."""
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    board = Board(bg["tiles"], adjacency="evenq")
+    cap = capture(sid, rid, board)
+    turn_before = (cap["dec"] or {}).get("turn")
+    hp_before = hp_live(cap["dec"])
+    atk_before = attack_live(cap["snap"], ids[CARRIER])
+    sm_before = stat_mod_sources(sid, rid, ids[CARRIER])
+    st, port_out = offline_finish(cap, ids[CARRIER])
+    finish(sid, rid, ids[CARRIER])
+    after = dv(sid, rid, all_ab=True)
+    snap_after = _r(sid, "combatSnapshot", {"runnerId": rid}, 120)
+    sm_after = stat_mod_sources(sid, rid, ids[CARRIER])
+    d_live = {i: hp_live(after).get(i, hp_before[i]) - hp_before[i] for i in hp_before}
+    live_eff = effects_live(after, EXTRA_DAMAGE_EFFECT)
+    port_eff = {}
+    eff = getattr(st, "effects", None)
+    if eff is not None:
+        port_eff = {int(uid): e.remaining_turns for uid, lst in eff.by_unit.items()
+                    for e in lst if (not e.consumed) and int(e.effect_type) == EXTRA_DAMAGE_EFFECT}
+    turn_after = (after or {}).get("turn")
+    atk_live_after = attack_live(snap_after, ids[CARRIER])
+    atk_port_after = attack_port(st, ids[CARRIER])
+    expected = expected_extra_dmg(st, ids[CARRIER])
+    # SYMETRIE apply/revert (`AStatModifierEffect$$RevertModification`, ChangeStat part 6) : on
+    # retire l'instance 1581 du port et on relit l'ATTAQUE. ⚠ MUTE `st` -> tout ce qui precede est
+    # deja calcule, et `state` est rendu POST-revert.
+    atk_port_reverted = _revert_extra_damage(st, ids[CARRIER])
+    d_atk_live = (atk_live_after - atk_before) if (atk_live_after is not None
+                                                   and atk_before is not None) else None
+    d_atk_port = (atk_port_after - atk_before) if (atk_port_after is not None
+                                                   and atk_before is not None) else None
+    if verbose:
+        print("[354] %s  1581 live=%s port=%s  degats live=%s  turn %s -> %s"
+              % (tag, live_eff, port_eff, {i: d for i, d in d_live.items() if d},
+                 turn_before, turn_after))
+        print("[358] %s  ATTACK %s -> live %s (d=%s) / port %s (d=%s)  attendu extraDmg=%s"
+              % (tag, atk_before, atk_live_after, d_atk_live, atk_port_after, d_atk_port, expected))
+        print("[358] %s  statModSources(attack) avant=%s apres=%s"
+              % (tag, json.dumps(sm_before), json.dumps(sm_after)))
+        print("[358] %s  revert port -> ATTACK %s (attendu %s)"
+              % (tag, atk_port_reverted, atk_before))
+        if port_out:
+            print("    port: self_buff=%s attaques=%s"
+                  % (port_out[0].get("self_buff"), port_out[0].get("attacks")))
+    return {"rid": rid, "ids": ids, "live_eff": live_eff, "port_eff": port_eff,
+            "d_live": d_live, "port_out": port_out, "cap": cap, "state": st,
+            "turn_before": turn_before, "turn_after": turn_after,
+            "atk_before": atk_before, "atk_live_after": atk_live_after,
+            "atk_port_after": atk_port_after, "d_atk_live": d_atk_live,
+            "d_atk_port": d_atk_port, "expected_extra_dmg": expected,
+            "atk_port_reverted": atk_port_reverted,
+            "sm_before": sm_before, "sm_after": sm_after}
+
+
+def setup_ineligible_neighbour_positions(sid, rid, ids, ally):
+    """Geometrie du montage M7 : porteur sur un hub H, `ally` sur un VOISIN de H, ennemi sur un
+    voisin de `ally` distinct de H. L'allie est donc bien dans `AdjacentFriends(Caster())` ET il a
+    une cible d'attaque normale -- le SEUL gate qui tombe est `HasTrait(it, 0x05 = Mechanical)`.
+    Rend `None` (montage REFUSE) plutot qu'une geometrie degradee."""
+    import hexgeo
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    hub = _hub_tile(bg)
+    if hub is None:
+        return None
+    move(sid, rid, ids[CARRIER], hub["col"], hub["row"])
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+    by_id = {t["id"]: t for t in bg["tiles"]}
+    occupied = tuple(ids.values())
+    for ta in _free_neighbours(bg, hub["id"], occupied):
+        foe = [by_id[n] for n in (ta.get("neighbours") or [])
+               if n in by_id and n != hub["id"] and by_id[n].get("walkable")
+               and not by_id[n].get("isWall")
+               and by_id[n].get("occupantUnitId") in (None, ids[ENEMY_A])]
+        if not foe:
+            continue
+        move(sid, rid, ids[ally], ta["col"], ta["row"])
+        move(sid, rid, ids[ENEMY_A], foe[0]["col"], foe[0]["row"])
+        g = _r(sid, "boardGraph", {"runnerId": rid}, 90)
+        pos = {t.get("occupantUnitId"): (t["col"], t["row"])
+               for t in g["tiles"] if t.get("occupantUnitId") is not None}
+        # controle de SORTIE : allie ADJACENT au porteur, ennemi ADJACENT a l'allie.
+        if (hexgeo.distance(pos[ids[ally]], pos[ids[CARRIER]]) == 1
+                and hexgeo.distance(pos[ids[ally]], pos[ids[ENEMY_A]]) == 1):
+            return g
+    return None
+
+
+def measure_solo_ineligible(sid, seed="777", board_id="MC1_67", verbose=True):
+    """M7 (#358) -- GENERALISATION : la branche ELSE atteinte par un PREDICAT QUI TOMBE, pas par
+    l'absence de voisin.
+
+    L'unique allie (`astraCreed`, `Hero` NU) est ADJACENT au porteur et a bien une cible a portee :
+    seul le gate `HasTrait(it, 0x05 = Mechanical)` de `GetTargetFriend` l'ecarte. Le pool est donc
+    VIDE pour une autre raison que dans M4, et le self-buff 1581 doit tomber a l'identique. Le tour
+    ne bascule pas non plus (l'allie reste a activer)."""
+    rid = build(seed, board_id, [CARRIER, ALLY_NM], [ENEMY_A], STATE_SOLO,
+                [CARRIER_PASSIVES_PATCH,
+                 "%s:Health=%d" % (ENEMY_A, ENEMY_HP),
+                 "%s:RemainingHealth=%d" % (ENEMY_A, ENEMY_HP)])
+    if rid is None:
+        return None
+    try:
+        view = dv(sid, rid)
+        ids = {u.get("visualId"): int(u["id"]) for u in (view.get("units") or []) if u.get("alive")}
+        if CARRIER not in ids or ALLY_NM not in ids or ENEMY_A not in ids:
+            print("[358] ABORT M7 : roster incomplet")
+            return None
+        g = setup_ineligible_neighbour_positions(sid, rid, ids, ALLY_NM)
+        if g is None:
+            print("[358] ABORT M7 : geometrie (allie adjacent + ennemi a sa portee) non atteinte")
+            return None
+        import hexgeo
+        pos = {t.get("occupantUnitId"): (t["col"], t["row"])
+               for t in g["tiles"] if t.get("occupantUnitId") is not None}
+        out = _measure_else_branch(sid, rid, ids, "M7", verbose)
+        # La geometrie EST le discriminant de M7 : sans elle, ce montage retomberait sur M4.
+        out["dist_carrier_ally"] = hexgeo.distance(pos[ids[CARRIER]], pos[ids[ALLY_NM]])
+        out["dist_ally_enemy"] = hexgeo.distance(pos[ids[ALLY_NM]], pos[ids[ENEMY_A]])
+        out["ally"] = ALLY_NM
+        return out
     finally:
         dispose(rid=rid, sid=sid)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--only", choices=["m1", "m4"], default=None)
+    ap.add_argument("--only", choices=["m1", "m4", "m7"], default=None)
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--turns", type=int, default=2)
@@ -690,6 +878,11 @@ def main() -> int:
         out = measure_solo(sid, a.seed, a.board)
         if out is None:
             print("[354] M4 : montage NON MONTABLE")
+            rc = 1
+    if a.only in (None, "m7"):
+        out = measure_solo_ineligible(sid, a.seed, a.board)
+        if out is None:
+            print("[358] M7 : montage NON MONTABLE")
             rc = 1
     return rc
 
