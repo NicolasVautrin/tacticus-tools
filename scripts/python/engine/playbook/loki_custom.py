@@ -395,12 +395,18 @@ class MassDriverAcceleratorPlaybook(_CustomOnlyPlaybook):
     ROUTE : `constants.damageProfile = DirectDamage` -> l'ability entre dans `ctx.plans` et passe par
     `_best_attack` (aucun verrou de route, contrairement a Chronometron/ForwardObservers).
 
-    RESIDU, hors perimetre de ce terme (`docs/rl/port-residuals-inventory.md`) :
-    `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions` ajoute, APRES
-    la prediction principale, un `GenerateMultiHitAttackPredictions` par entite de
-    `GetAdjacentAttackTargets` (= les ENNEMIS adjacents a la CIBLE) avec `GetHits2`/`DamageProfile2` ;
-    le chemin generique herite n'en produit aucun. L'ecart est NUL tant que la cible n'a pas d'ennemi
-    adjacent — ce que le montage impose — et il ne depend PAS des allies du caster."""
+    VOLET SPLASH (`MakeDamagePredictions`) — PORTE depuis #305, et il n'est PAS dans cette classe.
+    `IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions` ajoute, APRES la
+    prediction principale, un `GenerateMultiHitAttackPredictions` par entite de
+    `GetAdjacentAttackTargets` (= les ENNEMIS DU CASTER adjacents a la CIBLE) avec
+    `GetHits2`/`GetDamageProfile2` — chaque event portant sur SON ennemi (selecteur
+    `IdunBattleLogic.Entities.DSLSelectors$$Entity(<entite iteree>)`), et non sur la cible principale.
+    Le port passe par le chemin GENERIQUE (`prediction.make_damage_predictions` -> `get_aoe_targets` +
+    `aoe_overrides`), donc `MassDriverAcceleratorPlaybook` n'a AUCUN `make_damage_predictions` propre :
+    le SET vit sur `engine.entities.abilities.active_ability.MassDriverAcceleratorAbility` et les
+    entrees per-batch sur `engine.playbook.prediction.abilities._mass_driver_accelerator_inputs`.
+    Consequence pour ce terme-ci : le montage de #27-r1 (cible SANS ennemi adjacent) reste valide
+    tel quel — le volet y est inerte, il ne pouvait donc pas confondre la mesure du terme custom."""
     ability_id = int(ActiveAbilityType.MassDriverAccelerator)  # 1222
     # Cle de poids CITEE mais JAMAIS lue : le natif ne l'atteint pas (multiplicande toujours 0).
     # La garder nommee ici rend le no-op cherchable depuis `BC.Utilities`.

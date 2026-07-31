@@ -470,13 +470,72 @@ def _savage_echoes_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # targ
     return {"base_override": int(base)}
 
 
+def _mass_driver_accelerator_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.MassDriverAcceleratorPlaybook$$MakeDamagePredictions` (ability 1222,
+    votanChampion « Kimm ») — le volet SPLASH **par ennemi adjacent a la CIBLE**, jamais chiffre jusqu'ici.
+
+    Le playbook enchaine DEUX batchs `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`
+    et concatene le second dans la liste du premier (`List.AddRange` en boucle) :
+
+        damage = <GetDamage>                                  // AActiveAbility$$MinMaxDamage(state, isPrediction: false)
+        list   = GenerateMultiHitAttackPredictions(caster, casterPosition, target, <Target>,
+                     damage, AActiveAbility$$GetHits, Nullable(AActiveAbility$$GetDamageProfile), null, 0)
+        foreach (e in <GetAdjacentAttackTargets>.Select(AbilityEntities(caster: caster, target: target)))
+            list.AddRange( GenerateMultiHitAttackPredictions(caster, casterPosition, e,
+                               DSLSelectors$$Entity(e), damage, AActiveAbility$$GetHits2,
+                               Nullable(AActiveAbility$$GetDamageProfile2), null, 0) )
+        return list;
+
+    Le SET et les trois lectures de RE qui le gouvernent (splash porte sur l'ENNEMI et pas sur la cible ;
+    degat = celui du batch PRINCIPAL et non `MinMaxDamage2` ; seuls coups+profil changent) sont
+    documentes sur `MassDriverAcceleratorAbility` -- ce handler ne fait que RESOUDRE les entrees :
+
+      - **batch PRINCIPAL** : `hits` = `AActiveAbility$$GetHits` = `GetNumberConstant(0x2f = nrOfHits)`
+        **LITTERAL**. Le chemin generique passe, lui, par `ab.get_special_hits` =
+        `GetDefaultAttackHits(nrOfHits, ExtraHits[, Melee])`, qui AJOUTE la stat `ExtraHits` du caster --
+        que ce playbook n'ajoute pas (meme ecart, meme correctif que `_stikkbomb_inputs`). Sans
+        `ExtraHits` les deux coincident ; avec, ils divergent. La BASE et le PROFIL du batch principal
+        restent generiques (`MinMaxDamage` -> `ab.get_damage()` ; `Nullable(GetDamageProfile)` NON vide
+        -> `damageProfile` = DirectDamage), donc aucun override.
+      - **batch SPLASH** (`aoe_overrides`) : `hits` = `AActiveAbility$$GetHits2` =
+        `GetNumberConstant(0x32 = nrOfHits_2)` et `profil` = `AActiveAbility$$GetDamageProfile2` =
+        `AbilityConfiguration$$GetDamageProfile2` = `GetEnumConstant(0x3f = damageProfile_2)`. La base
+        n'est PAS surchargee : elle est HERITEE du batch principal, ce qui est exactement le mirror du
+        `param_6` partage (relire le point 2 de `MassDriverAcceleratorAbility`).
+
+    C'est le profil qui rend le volet OBSERVABLE : sur 1222, `damageProfile` = `DirectDamage` et
+    `damageProfile_2` = `Physical` -- deux `PiercingRatio` distincts, donc un degat predit distinct
+    contre une meme armure. Les coups, eux, sont egaux (1 et 1), et `minDmg_2`/`maxDmg_2` egaux a
+    `minDmg`/`maxDmg` : le volet ne se distingue NI par les coups NI par la base, seulement par le
+    profil et par la CIBLE (chaque ennemi adjacent recoit SON propre event, contre SES PV/armure).
+
+    Config absente -> `{}` = chemin generique inchange (aucune sur-prediction inventee), meme
+    convention que `_frenzied_firing_inputs` / `_savage_echoes_inputs`."""
+    consts = (cfg.constants or {}) if cfg is not None else {}
+    hits = int(consts.get("nrOfHits") or 0)          # const 0x2f = nrOfHits (LITTERAL, batch principal)
+    hits2 = int(consts.get("nrOfHits_2") or 0)       # const 0x32 = nrOfHits_2 (batch SPLASH)
+    prof2 = consts.get("damageProfile_2")            # const 0x3f = damageProfile_2 (batch SPLASH)
+    out: dict = {}
+    if hits:
+        out["hits_override"] = hits
+    aoe: dict = {}
+    if hits2:
+        aoe["hits_override"] = hits2
+    if prof2:
+        aoe["profile_override"] = prof2
+    if aoe:
+        out["aoe_overrides"] = aoe
+    return out
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_claws_inputs,
                              1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
                              1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs,
-                             1051: _stikkbomb_inputs}
+                             1051: _stikkbomb_inputs,
+                             1222: _mass_driver_accelerator_inputs}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
