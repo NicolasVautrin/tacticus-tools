@@ -51,12 +51,29 @@ rendait `(81, 123, 3)` : sur-prediction MUETTE (ni erreur ni crash), qui gonflai
 Ferme par `_MAKE_DMG_TARGET_GATE` (`engine/playbook/prediction/abilities.py`). Cette etape mesure les
 DEUX regimes : zone froide (natif 0 == port 0) et zone EN FEU apres un premier cast.
 
+ETAPE 4 -- LE VOLET AoE DE `1147` (#359)
+----------------------------------------
+`HadesAutocannonsPlaybook$$MakeDamagePredictions` ne prend PAS `<Target>` : il boucle sur les entites
+de `GetEntitiesFromSelector(HadesAutocannonsAbility$$GetAllTargets, ...)` et `AddRange` un
+`GenerateMultiHitAttackPredictions` par entite. Le port n'avait aucun mirror de ce selecteur -> UN
+event la ou le natif en emet un par summon retenu. Quatre regimes (aucun summon / cible summon /
+porteur ennemi au contact / cible NON-summon), chacun mesure natif vs port AVANT vs port APRES -- le
+port d'AVANT etant reconstitue par RETRAIT des entrees de registre, jamais reimplemente.
+
+ETAPE 5 -- GENERALISATION DU MEME VOLET
+---------------------------------------
+Board DIFFERENT (`MC1_15`) et caster ALLIE des summons : le selecteur ne lit RIEN du caster. L'etape
+4 borne un cote (caster ENNEMI -- un port qui referencerait le caster rendrait 0), celle-ci l'autre
+(caster ALLIE -- un port qui filtrerait les cibles ennemies rendrait 0 alors que le natif emet).
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_mow_caster.py --only-scan        # etape 0, aucun runner
     python probe_350r3_mow_caster.py --step 1           # constat caster MoW
     python probe_350r3_mow_caster.py --step 2           # confrontation 1147 (2 bras)
     python probe_350r3_mow_caster.py --step 3           # 1148 zone froide / zone en feu
-    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3
+    python probe_350r3_mow_caster.py --step 4           # 1147 volet AoE, 4 regimes
+    python probe_350r3_mow_caster.py --step 5           # 1147 volet AoE, generalisation
+    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3 + 4 + 5
 """
 from __future__ import annotations
 
