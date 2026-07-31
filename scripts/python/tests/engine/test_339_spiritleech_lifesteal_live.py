@@ -106,7 +106,7 @@ def test_the_residual_is_exactly_the_heal_term(measured):
     natif observe (`1065`) pese 0 dans `CalculateUtilityFromPredictions`."""
     for key, arm in measured["arms"].items():
         assert arm["effectEvents"], (
-            "bras %s : aucun event d'effet -- l'affirmation « l'effet pese 0 » n'est plus TESTEE"
+            "bras %s : aucun event d'effet -- l'affirmation `l'effet pese 0` n'est plus TESTEE"
             % key)
         assert abs(arm["deltas"]["to_even"]) < TOL, (
             "bras %s : residu %s != terme de soin %s -- une 4e famille de prediction pese, la "

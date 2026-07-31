@@ -1,7 +1,7 @@
 """#339 -- TROIS moyennes natives, TROIS comportements. La garde qui interdit de les confondre.
 
 #333 a etabli que `IdunBattle.Core.Services.MinMaxDamage$$Avg` arrondit demi-vers-le-PAIR. Le
-residu qu'il a laisse (« deux autres sites gardent une division entiere ») a ete resolu ici en
+residu qu'il a laisse (`deux autres sites gardent une division entiere`) a ete resolu ici en
 lisant l'artefact de CHAQUE site -- et ils ne sont pas les memes :
 
 | moyenne native | corps | comportement |
@@ -13,7 +13,7 @@ lisant l'artefact de CHAQUE site -- et ils ne sont pas les memes :
 Le point qui fait tout : **elles divergent exactement quand `min + max` vaut 3 mod 4**. Sur une
 somme PAIRE elles coincident ; sur `1 mod 4` aussi (le floor est pair, demi-vers-le-pair descend).
 Une mesure qui ne verrait que ces regimes ne dirait RIEN -- c'est ce qui avait laisse passer le
-commentaire « somme paire ici : 599+797 » du site Fury.
+commentaire `somme paire ici : 599+797` du site Fury.
 
 Ce que la garde verrouille :
 A. la table de divergence des trois moyennes (et donc qu'aucune n'est substituable) ;
