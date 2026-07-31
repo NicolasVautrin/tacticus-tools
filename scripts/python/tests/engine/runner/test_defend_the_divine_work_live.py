@@ -78,11 +78,10 @@ def test_galvanic_field_free_attack_fires_from_the_adjacent_friend(defend_the_di
     l'allie mais LOIN de tout ennemi. Un ennemi DOIT perdre des PV, live comme offline, et
     l'attaquant rendu par le port doit etre l'ALLIE.
 
-    RESIDU NOMME, herite du meme patron que 1119 (`TheQuickening`) : le CHOIX de cible de l'attaque
-    IA est approxime par `perform_ai_attack_from_current_position` (ennemi le plus proche a portee),
-    pas par le moteur d'utilite natif -- MESURE sur ce montage : le port frappe `orksWarboss` la ou
-    le natif frappe `orksKillaKan`. On verrouille donc le MONTANT TOTAL inflige et l'IDENTITE DE
-    L'ATTAQUANT, pas l'identite de la victime."""
+    Le CHOIX de cible n'est plus approxime depuis #338 : `perform_ai_ability_unit_behaviour` passe
+    par le moteur d'utilite natif (`AiControl$$ExecuteAbilityActionFor` ->
+    `DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`), donc le delta HP
+    est verrouille PAR ENNEMI et plus seulement en total."""
     r = defend_the_divine_work_case("attack")
     exp = int(r["hp_to_repair"])
     assert r["normal_targets"][P.ADJ_VIS] > 0, (
@@ -94,6 +93,11 @@ def test_galvanic_field_free_attack_fires_from_the_adjacent_friend(defend_the_di
         "degat total live %s != port %s" % (r["live_enemy_loss"], r["off_enemy_loss"]))
     attackers = {a["attacker"] for a in (r["attacks"] or [])}
     assert len(attackers) == 1, "exactement UN attaquant attendu (mesure : %s)" % (r["attacks"],)
+    # #338 : la VICTIME aussi, pas seulement le total.
+    for vis in P.ENEMY_VIS:
+        assert r["off"].get(vis, 0) == r["live"].get(vis, 0), (
+            "%s : delta HP port %s != live %s -- le choix de cible a diverge"
+            % (vis, r["off"].get(vis), r["live"].get(vis)))
     # la reparation reste, elle, bit-exacte des deux cotes
     for side in ("live", "off"):
         assert r[side].get(P.CASTER_VIS) == exp and r[side].get(P.ADJ_VIS) == exp, (
@@ -143,9 +147,11 @@ def test_two_adjacent_mechanics_both_attack_and_the_caster_still_does_not(
       2. DEUX attaques, et le degat ENNEMI TOTAL est le meme live et offline ;
       3. le caster ne frappe TOUJOURS pas -- alors qu'ici `normal_targets` lui donne des cibles.
 
-    RESIDU VISIBLE ICI, et c'est le meme qu'au regime `attack` : la REPARTITION differe (le port
-    concentre ses deux attaques sur un ennemi, le natif les ventile), parce que le choix de cible
-    est approxime. Le TOTAL, lui, coincide."""
+    C'EST LE REGIME QUI A REVELE #338, et il en est desormais la GARDE. Avant le fix, les deux
+    attaquants concentraient leurs coups sur UN ennemi (le plus proche, tie-break id) la ou le
+    natif les VENTILE : total identique des deux cotes (18038), repartition fausse (18038 sur un
+    seul vs 7795 + 10243 sur deux). Aucun test ne l'attrapait, parce qu'aucun ne comparait autre
+    chose que le total. On verrouille donc le delta HP **par ennemi**."""
     r = defend_the_divine_work_case("two")
     exp = int(r["hp_to_repair"])
     assert r["geometry"]["d_caster_adj"] == 1 and r["geometry"]["d_caster_far"] == 1, (
@@ -162,6 +168,14 @@ def test_two_adjacent_mechanics_both_attack_and_the_caster_still_does_not(
         "DEUX attaquants distincts attendus : %s" % (r["attacks"],))
     assert r["live_enemy_loss"] == r["off_enemy_loss"] > 0, (
         "degat ENNEMI TOTAL live %s != port %s" % (r["live_enemy_loss"], r["off_enemy_loss"]))
+    # #338 -- LA garde du choix de cible : la VENTILATION, pas seulement la somme.
+    for vis in P.ENEMY_VIS:
+        assert r["off"].get(vis, 0) == r["live"].get(vis, 0), (
+            "%s : delta HP port %s != live %s -- les deux attaquants ne choisissent plus les memes"
+            " cibles que le natif" % (vis, r["off"].get(vis), r["live"].get(vis)))
+    assert len([v for v in P.ENEMY_VIS if r["live"].get(v, 0) < 0]) == 2, (
+        "le natif VENTILE ses deux attaques sur DEUX ennemis (mesure de reference : -7795 / -10243)"
+        " -- si ce montage n'en touche plus qu'un, il ne discrimine plus rien : %s" % (r["live"],))
     caster_off = next((a for a in (r["attacks"] or [])
                        if a["attacker"] == r["repairs"][-1]["target"]), None)
     assert caster_off is None, (

@@ -269,6 +269,70 @@ def ai_control_execute_for(state: State, uid: int) -> dict:
     return decide_and_apply(state, uid)
 
 
+def ai_control_execute_ability_action_for(state: State, uid: int, ability_id: int,
+                                          allow_only_move: bool = False,
+                                          move_amount: Optional[int] = None,
+                                          custom_utility=None,
+                                          range_gate=None) -> Optional[dict]:
+    """`IdunBattle.Core.Services.AiControl$$ExecuteAbilityActionFor(unit, abilityType, options)` — la
+    SURCHARGE `options` (celle qui prend une struct `{allowOnlyMove, skipAtomicCheck, true,
+    Nullable<int> moveAmount, customUtility}`), a ne pas confondre avec la surcharge `movementTiles`
+    qui la jouxte au binaire. Corps natif :
+
+        var tactic = this._tactics.GetUnitTacticForUnit(unit);      // this+0x10
+        if (tactic == null) return;
+        var e = tactic.<slot+1 = CalculateAbilityActionForUnit>(unit, abilityType, options)
+                      .GetEnumerator();
+        while (e.MoveNext()) { }                                    // draine
+        ApplyAiMessages(this, e.Current);
+
+    DIFFERENCE avec `ai_control_execute_for` (= `AiControl$$ExecuteFor`) : l'ability est IMPOSEE par
+    l'appelant, la decision passe donc par `CalculateAbilityActionForUnit` (`d__6`) et non par
+    `CalculateNextActionForUnit` (`d__5`) — un seul generateur, sur un set d'UNE ability.
+
+    Ce port rend la DECISION (l'action choisie) au lieu de l'appliquer : son unique appelant,
+    `PerformAIAbilityUnitBehaviour$$Execute` (`abilities/loki/summon.py`), porte deja l'apply
+    (`AttackDamageOperation.execute` + vecteur after-hit) — c'est le meme couple d'Operations que
+    `apply_action`, mais avec le diag attendu par ses huit consommateurs.
+
+    `move_amount` = `behaviour+0x78` evalue : `0` (`Direct(0)`, noeud `PerformAIAttackFromCurrentPosition`)
+    ou `None` (noeud `PerformAIAttack`). Il est passe TEL QUEL a `GenerateActionTiles` via
+    `build_from_state(max_distance=...)`.
+
+    ⚠ **RESIDU MAINTENU, hors perimetre #338** : la branche `move_amount is None` est ici FORCEE a la
+    tuile courante (`max_distance=0`). Le natif y rendrait la plage de deplacement normale, donc une
+    tuile d'action != origine ; l'appelant, lui, n'applique AUCUN `MoveUnitMessage` -> l'attaque serait
+    calculee depuis une tuile ou l'unite n'est pas. Ouvrir la plage exige donc d'ouvrir AUSSI l'apply
+    du deplacement (residu jumeau `GenerateActionTiles`/`MovementActionGenerator`), qui est une autre
+    tache. Tant qu'elle n'est pas faite, forcer la tuile courante est le seul choix SUR.
+
+    `range_gate(target_id) -> bool` = la PORTEE EFFECTIVE de l'acteur depuis sa tuile courante. Le
+    natif l'applique DANS l'enumeration des cibles eligibles (`IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack`
+    -> `IdunBattle.Core.Services.TargetingQuery$$GetRange`, qui clampe `Math.Min(1, range)` si l'acteur
+    porte `ForcedInMelee (0x529)`), donc AVANT tout argmax d'utilite. Le bridge offline, lui, borne les
+    plans par `_max_attack_range` (gameconfig) SANS ce clamp : sans ce gate, le moteur pourrait elire une
+    cible que l'acteur ne peut pas frapper, et l'appelant n'aurait plus qu'a ne rien faire -- alors que le
+    natif aurait elu la meilleure cible PARMI les atteignables. `None` -> aucun filtre.
+
+    AUCUN `try/except` ici, et c'est DELIBERE : un echec du bridge RENDU en « pas d'attaque » se
+    lirait comme une mesure (« le natif non plus ne frappe pas »), silencieusement, sur les huit
+    consommateurs du corps. On LEVE.
+
+    Rend l'action (`{kind, target, ability, to, util}`) ou `None` (aucun message emis)."""
+    from engine.ai.state_bridge import build_from_state
+    from engine.ai.tactic import calculate_ability_action_for_unit
+    ctx = build_from_state(state, int(uid), max_distance=0)
+    if range_gate is not None:
+        # `GetEligibleTargetsForNormalAttack` : les cibles hors PORTEE EFFECTIVE ne sont jamais
+        # soumises a l'utilite. On retire leurs `evals` du plan (le seul canal de cibles d'attaque).
+        plan = ctx.plans.get(int(uid)) or {}
+        plan["evals"] = [ev for ev in (plan.get("evals") or [])
+                         if range_gate(ev.get("targetId"))]
+    return calculate_ability_action_for_unit(ctx, int(ability_id),
+                                             allow_only_move=bool(allow_only_move),
+                                             custom_utility=custom_utility)
+
+
 def ai_control_execute_for_group(state: State, uids: list) -> list:
     """`IdunBattle.Core.Services.AiControl$$ExecuteFor(IEnumerable<Unit> group) : BOUCLE
     `while (messages = DefaultPlayerStrategy.CalculateNextActionForUnitGroup(group)) != empty:

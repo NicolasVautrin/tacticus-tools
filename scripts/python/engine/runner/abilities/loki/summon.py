@@ -1,6 +1,7 @@
 """Abilities actives de SUMMON du namespace natif `Abilities.Active.Loki.*` — spawn d'unites :
 ScarabHive (necroSpyder), ScarabSummon (auto-dedoublement necroSmnSwarm), GetEmRuntz (orksRuntherd).
-+ les helpers on-appearance partages (`_summon_on_appearance_attack`, `_nearest_enemy`) consommes par
++ le helper on-appearance partage `_summon_on_appearance_attack` (et `_nearest_enemy`, devenu un simple
+outil GEOMETRIQUE de test depuis #338) consommes par
 les feuilles `SpawnSummon`/`SpawnReplica`/`PerformAIAttack` (`../behaviours.py`). Cf. `loki/__init__.py`."""
 from __future__ import annotations
 
@@ -77,8 +78,8 @@ def scarab_summon_tree() -> SpawnReplica:
     Port = feuille `SpawnReplica` (cf. behaviours.py) qui delegue le SPAWN a l'Operation VALIDEE
     `SpawnUnitOperation.execute_self_replica` (`IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` = clone owner+stats du parent, tuiles
     libres adjacentes au caster) puis l'ON-APPEARANCE via le CORPS UNIQUE `perform_ai_attack(..., True, None)`
-    (gate de portee `_in_attack_range` + attaque normale complete + dispatch after-hit ; cible approximee par
-    `_nearest_enemy`). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
+    (gate de portee `_in_attack_range` + attaque normale complete + dispatch after-hit ; cible choisie par le
+    MOTEUR D'UTILITE natif depuis #338). L'imperatif `ScarabSummonAbility.execute_behaviour` (spawn + boucle on-appearance cables
     a la main) est REMPLACE par cet arbre. DISTINCT de `scarab_hive_tree` (WithStatsFromConfig summoner-scaled +
     AddEffect(0x4a3) + attaque de la CIBLE ; ici CopyOwner clone-du-parent + tour AI du double, sans effet).
     GAPS (inchanges) : le cap de duplication (`UnitDuplicationLimitSelector`) n'est pas porte — recurrence non
@@ -208,11 +209,34 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
         corps -> son domaine se REDUIT tout seul a l'adjacence, sans variante de code (`_in_attack_range`
         porte le clamp, cf. `operations/triggers/base.py::_forced_in_melee`).
 
-    RESIDUS (communs a tous les appelants) : le choix de cible est approxime par `_nearest_enemy` (le
-    moteur d'utilite IA natif n'est pas mirrore) ; gate « if able » = `_in_attack_range` (mirror
-    `GetRange`) evalue depuis la tuile COURANTE. TheQuickening passe en plus un `customUtility` (lambda du
-    display-class de l'ability) qui ne peut que reordonner des cibles EQUIVALENTES en portee — non
-    mirrore, meme classe de residu.
+    CHOIX DE CIBLE — LE MOTEUR D'UTILITE NATIF (#338, plus d'approximation) : l'appel IA slot 0x37 est
+    porte par `operations/summon_ai.py::ai_control_execute_ability_action_for` (mirror
+    `IdunBattle.Core.Services.AiControl$$ExecuteAbilityActionFor`), qui construit le contexte de decision
+    offline (`engine.ai.state_bridge.build_from_state`, `max_distance=0` = `GenerateActionTiles` sur la
+    seule tuile courante) puis appelle `engine.ai.tactic.calculate_ability_action_for_unit` (mirror
+    `DefaultAiUnitTactic.u003CCalculateAbilityActionForUnitu003Ed__6$$MoveNext`) : UN generateur
+    `ActiveAbilityActionGenerator` sur le set d'UNE ability, `Bucket.ChooseAction`.
+
+    L'ability imposee est celle du `Func` `+0x68` : son corps NATIF est
+    `IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)` (= `ActiveAbilityComponent+0x28`),
+    corps DEDUPLIQUE dont Ghidra ne nomme qu'un proprietaire
+    (`...ShockAssaultAbility.u003Cu003Ec$$u003CCreateBehaviouru003Eb__1_0`, 7 slots de delegate y
+    pointent) — c'est l'ATTAQUE NORMALE de l'acteur pour les DEUX noeuds. Offline elle porte l'id
+    SYNTHETIQUE 17 (`state_bridge.NORMAL_ATTACK_ID` ; le type concret per-unite, ex. `Loki_NormalAttack`
+    69, est un etat runtime non derivable de gameconfig — sans impact, la prediction lit l'arme du `ctx`).
+
+    AVANT #338 : `_nearest_enemy` (ennemi vivant le plus proche, tie-break id). MESURE de l'ecart, montage
+    `two` de #334 (deux allies mecaniques attaquant chacun une fois) : total identique de part et d'autre
+    (18038), mais le natif le VENTILE 7795 + 10243 sur DEUX ennemis la ou le port concentrait 18038 sur un
+    seul. Aucun test ne l'attrapait — seule la REPARTITION trahissait le raccourci.
+
+    RESIDUS (communs a tous les appelants) : gate « if able » = `_in_attack_range` (mirror `GetRange`,
+    clamp `ForcedInMelee` inclus) evalue depuis la tuile COURANTE — il est desormais passe au moteur comme
+    `range_gate`, donc il BORNE l'enumeration des cibles au lieu de couper apres coup (mirror de
+    `GetEligibleTargetsForNormalAttack`), et il reste applique a la cible elue (double filet).
+    TheQuickening passe en plus un `customUtility` (lambda du display-class de l'ability) : il est threade
+    jusqu'a `calculate_ability_action_for_unit` mais IGNORE (non mirrore) — le residu est desormais
+    LOCALISE la, pas ici.
 
     RESIDU PROPRE A `move_amount is None` (branche `PerformAIAttack`) : ni `GenerateActionTiles` ni le
     `MovementActionGenerator` ne sont portes -> le port n'APPROCHE PAS l'acteur. Le domaine d'action reste
@@ -222,7 +246,16 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     melee. Les deux champs sont threades explicitement (et remontes dans le diag) pour que ce residu soit
     localise ici, et non re-invente par un fork chez un appelant. None si pas de cible legale."""
     from ...operations.triggers.base import _in_attack_range
-    tgt = _nearest_enemy(state, unit_id)
+    from ...operations.summon_ai import (ai_control_execute_ability_action_for,
+                                         NORMAL_ATTACK_ID)
+    # `abilityId = getAbilityType(actor)` (`behaviour+0x68`) = `UnitExtensions$$GetNormalAttackType`.
+    # `aiControl.ExecuteAbilityActionFor(actor, abilityId, {allowOnlyMove, skipAtomic, true,
+    #                                    Nullable<int> moveAmount, customUtility})` -- slot 0x37.
+    action = ai_control_execute_ability_action_for(
+        state, unit_id, NORMAL_ATTACK_ID, allow_only_move=bool(allow_move_action),
+        move_amount=move_amount,
+        range_gate=lambda t: t is not None and _in_attack_range(state, unit_id, t))
+    tgt = action.get("target") if (action or {}).get("kind") == "ability" else None
     # `GenerateActionTiles(unit, true, move_amount)` : `0` = la tuile courante seule ; `None` = la plage
     # de deplacement normale -> NON PORTEE (cf. RESIDU ci-dessus), on retombe sur la tuile courante.
     if tgt is None or not _in_attack_range(state, unit_id, tgt):
@@ -276,8 +309,14 @@ def perform_ai_attack(state: "State", unit_id: int, allow_move_action: bool,
 
 
 def _nearest_enemy(state: "State", unit_id: int) -> Optional[int]:
-    """Ennemi VIVANT le plus proche (distance hex) de `unit_id` — cible de `PerformAIAttack` (approx du
-    choix AI natif). None si pas de position/board ou aucun ennemi. Tie-break `id` (déterministe)."""
+    """Ennemi VIVANT le plus proche (distance hex) de `unit_id`. None si pas de position/board ou aucun
+    ennemi. Tie-break `id` (déterministe).
+
+    ⚠ **Ce n'est PLUS le choix de cible de `PerformAIAttack`** (#338) : ce corps le tenait pour une
+    approximation du moteur d'utilité natif, mesurée FAUSSE sur la répartition (cf.
+    `perform_ai_ability_unit_behaviour`). Il ne reste qu'un helper GEOMETRIQUE, consommé par les tests
+    (établir qu'un montage est discriminant : quel ennemi le raccourci aurait élu). Aucun chemin
+    d'exécution du moteur ne l'appelle."""
     e = state.get_entity(unit_id)
     pc = e.get_component(PositionComponent) if e is not None else None
     oc = e.get_component(OwnerComponent) if e is not None else None

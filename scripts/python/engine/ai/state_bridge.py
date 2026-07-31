@@ -588,10 +588,20 @@ def _no_rpc(method: str, body: dict, timeout: int = 0) -> dict:
     return {"units": []}
 
 
-def build_from_state(state, uid: int, debug: bool = False):
+def build_from_state(state, uid: int, debug: bool = False, max_distance: int | None = None):
     """`State`(runner) -> `AiDecisionContext` pour l'unite `uid` (offline). Tous les champs derives des
     composants/board/gameconfig ; `predictor`/`sctx`=None (le spine lit `ctx.scene`). Voir en-tete pour les
-    gaps documentes."""
+    gaps documentes.
+
+    `max_distance` = le 3e argument d'`IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles(unit,
+    ignoreFlags, overrideRange)`, propage jusqu'au slot `IBattleQuery+0xe` =
+    `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor(unit, ignoreUnitFlags, options)`
+    -> `MovementQuery$$GetMovablePositionsFor`. `None` (defaut) = plage de deplacement NORMALE de l'unite
+    (le seul regime de `CalculateNextActionForUnit`). **`0` = portee de deplacement NULLE** : l'ensemble se
+    reduit a la graine de l'`OrderedSet`, c.-a-d. la tuile COURANTE seule -- c'est litteralement le
+    « FromCurrentPosition » du noeud `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition`
+    (`behaviour+0x78 = Direct(0)`). Seules ces DEUX valeurs ont un call-site natif ; toute autre valeur
+    entiere est traitee comme `0` faute d'override de portee porte dans le pathfinder (aucun appelant)."""
     from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
 
     me_ent = state.get_entity(uid)
@@ -620,7 +630,9 @@ def build_from_state(state, uid: int, debug: bool = False):
     if me is not None:
         me["abilities"] = abilities
 
-    move_tiles = _move_tiles(state, uid, vid or "", my_team, origin)
+    # `GenerateActionTiles(unit, true, overrideRange)` : override `0` -> AUCUNE tuile mobile (la graine
+    # de l'`OrderedSet`, la tuile courante, reste seule). `None` -> plage normale.
+    move_tiles = [] if max_distance is not None else _move_tiles(state, uid, vid or "", my_team, origin)
     # `tiles` du tactic natif (`ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
     # `BattleQuery$$GetCurrentAndMovablePositionsFor`) : ORIGINE EN TETE puis les tuiles de move.
     # MEME helper que la couture LIVE `context.build` -> meme ensemble ET meme ORDRE de sweep.
