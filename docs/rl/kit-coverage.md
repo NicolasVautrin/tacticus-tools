@@ -14,7 +14,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **37** ; kits avec du travail : **90**
-- Volume total : **115** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **112** items manquants (actives no-op + passifs/traits non registres)
 
 ## Par faction (kits avec du travail, tries par volume)
 
@@ -38,17 +38,6 @@
 | emperKakophonist | 1 | DoomSiren(1199) [CD] OK | ObsessiveAnnunciation | - |
 | emperNoiseMarine | 1 | ExcruciatingFrequencies(1197) [--] NO-OP DAMAGE(Blast) | - | - |
 
-### Necrons — 6 kits, 8 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
-| necroWarden | 2 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | RelentlessMarch | - |
-| necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
-| necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
-| necroOverlord | 1 | ResurrectionOrb(1009) [CD] OK | MyWillBeDoneOverlord | - |
-| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
-
 ### BloodAngels — 6 kits, 7 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
@@ -59,6 +48,17 @@
 | bloodIntercessor | 1 | HammerOfWrath(1153) [CD] OK | AggressiveOnslaught | - |
 | bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
 | bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
+
+### Necrons — 6 kits, 7 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| necroReanimator | 2 | ReanimationBeam(1223) [--] NO-OP REPAIR<br>NanoscarabRepairProtocols(1224) [--] NO-OP REPAIR | - | - |
+| necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
+| necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
+| necroOverlord | 1 | ResurrectionOrb(1009) [CD] OK | MyWillBeDoneOverlord | - |
+| necroPlasmancer | 1 | HarbingerOfDestruction(1008) [C-] OK | LivingLightning | - |
+| necroWarden | 1 | AdaptiveStrategy(1005) [--] NO-OP EFFECT/BUFF | - | - |
 
 ### ThousandSons — 5 kits, 7 items
 
@@ -89,16 +89,6 @@
 | custoKyrus | 1 | VigilanceEternal(1202) [CD] OK | UnwaveringSentinel | - |
 | custoTrajann | 1 | MomentShackle(1184) [C-] OK | LegendaryCommander | - |
 | custoVexilusPraetor | 1 | VexillaMagnifica(1183) [-D] NO-OP DAMAGE(Physical) | - | - |
-
-### LeaguesOfVotann — 5 kits, 6 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| votanChampion | 2 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | ModifiedExoarmour | - |
-| votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
-| votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
-| votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
-| votanUthar | 1 | AncestralFortune(1207) [C-] OK | GrimEfficiency | - |
 
 ### SpaceWolves — 4 kits, 6 items
 
@@ -156,20 +146,22 @@
 | adeptMorvenn | 1 | SanctorumMissile(1062) [C-] OK | RighteousRepugnance | - |
 | adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
+### LeaguesOfVotann — 5 kits, 5 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
+| votanChampion | 1 | MassDriverAccelerator(1222) [-D] NO-OP DAMAGE(DirectDamage) | - | - |
+| votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
+| votanMemnyr | 1 | IronkinSteeljack(1219) [C-] OK | PredictiveGuidance | - |
+| votanUthar | 1 | AncestralFortune(1207) [C-] OK | GrimEfficiency | - |
+
 ### AdeptusAstartes — 2 kits, 4 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | astarCyrus | 2 | StrikeFromTheShadows(1225) [--] NO-OP DAMAGE(Bolter) | HaywireMine | - |
 | astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
-
-### AdeptusMechanicus — 3 kits, 4 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| admecManipulus | 2 | DefendTheDivineWork(1117) [-D] NO-OP REPAIR | GalvanicField | - |
-| admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
-| admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
 ### Orks — 3 kits, 4 items
 
@@ -187,6 +179,14 @@
 | blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
 | blackTerminator | 1 | BringerOfDespair(1022) [C-] OK | HatefulAssault | - |
+
+### AdeptusMechanicus — 3 kits, 3 items
+
+| unite | manque | actives | passifs manquants | traits de kit manquants |
+|---|---|---|---|---|
+| admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
+| admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
+| admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
 ### Genestealers — 3 kits, 3 items
 
