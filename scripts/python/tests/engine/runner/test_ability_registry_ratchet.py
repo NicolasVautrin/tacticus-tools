@@ -142,8 +142,10 @@ SANS_TARGETING_OPTIONS: dict[int, str] = {
     # `...BringerOfDespairAbility$$.ctor` recopie `TargetingOptions statics+0x40` INTEGRALEMENT
     # (aucun ctor appele) -> masque = `*(statics+0x68)` = 0x4000 (TargetIsEnemy seul). Portee =
     # `TargetingRange statics+0x30` = RANGE_ADJACENT ; `forceMeleeTarget` = `*(statics+0x60)` = 1 =
-    # RangedBool.False. MEME preset que 1020 HeraldOfTheApocalypse et 1122 CordClaw ; PAS le meme
-    # masque que 1029 Drachnyen, qui recopie ce preset et enchaine sur PRESET + flags (0x200004000).
+    # RangedBool.False. MEME preset que 1020 HeraldOfTheApocalypse, 1122 CordClaw ET 1029 Drachnyen
+    # -- quatre porteurs, MEME masque 0x4000. (Ce commentaire prêtait a 1029 un `0x200004000` via la
+    # surcharge PRESET + flags : REFUTE par les xrefs entrantes des trois surcharges de
+    # `TargetingOptions..ctor` -- cf. docs/rl/case-302-4-population-cible-tuile.md §5.3.)
     # 1028 SupremeCommanderAbility RESORBEE (#253) -- forme 1 « FLAGS DIRECTS », mais le SEUL des
     # quatre a poser `isSelfCasting = 1` : `TargetingOptions..ctor(&opts, 1, &preset, 1, 0x208000,
     # 0,0,0)` -> masque = CasterHasFreeAdjacentTile (1<<21) | CasterIsPossibleTarget (1<<15).
@@ -415,6 +417,35 @@ def test_targeting_range_accompagne_toujours_le_masque():
         "n'est pas arme, le moteur accepte des casts hors portee que le natif REFUSE. Lire le 2e "
         "argument de `<X>Ability$$.ctor` -> `TargetingOptions$$.ctor` (ou le `<preset>+0x08..0x1f` "
         "du preset statique recopie) : %s" % [(a, _nom(a)) for a in manquants])
+
+
+def test_les_quatre_porteurs_du_preset_0x40_ont_le_meme_masque():
+    """#336 / `case-302-4` §5.3 -- garde de NON-REGRESSION d'un masque corrige.
+
+    `TargetingOptions statics+0x40` est recopie INTEGRALEMENT par quatre ctors : 1020
+    `HeraldOfTheApocalypse`, 1022 `BringerOfDespair`, 1029 `Drachnyen` et 1122 `CordClaw`. La copie
+    passe par la surcharge **2 arguments** de `TargetingOptions..ctor` (copie PURE) ou par aucune
+    surcharge du tout -- dans les deux cas AUCUN flag n'est ajoute, donc les quatre masques valent
+    `*(statics+0x68)` = `TargetIsEnemy` seul.
+
+    Le registre a porte pendant un temps `TargetIsEnemy | TargetIsNotAnObject` sur 1029, sur la foi
+    d'un `..ctor(&out, &preset, 0x200000000, 0)` qui N'EST PAS la surcharge appelee : les xrefs
+    entrantes des trois surcharges tranchent (1029 appelle la 2-args, et n'appelle pas la 3-args).
+    Ce test verrouille la lecture corrigee -- et, plus utile, il verrouille l'INVARIANT : quatre
+    porteurs d'un meme preset copie ne peuvent pas diverger sans qu'un flag soit LU quelque part."""
+    porteurs = (1020, 1022, 1029, 1122)
+    masques = {}
+    for aid in porteurs:
+        cls = ABILITY_CLASSES.get(aid)
+        assert cls is not None, "%d absente du registre COMBAT -- test a re-ancrer" % aid
+        opts = getattr(cls, "TARGETING_OPTIONS", None)
+        assert opts is not None, "%d sans TARGETING_OPTIONS" % aid
+        masques[aid] = int(opts.rules)
+    attendu = int(TargetingRule.TargetIsEnemy)
+    faux = {a: hex(m) for a, m in masques.items() if m != attendu}
+    assert not faux, (
+        "les porteurs du preset `TargetingOptions statics+0x40` doivent tous valoir "
+        "`TargetIsEnemy` (%s) -- la copie de preset n'ajoute aucun flag : %s" % (hex(attendu), faux))
 
 
 def test_masques_poses_ne_portent_aucun_bit_inconnu():

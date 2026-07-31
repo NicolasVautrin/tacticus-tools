@@ -101,6 +101,12 @@ TO_CCTOR = "IdunBattle.Core.Services.TargetingOptions$$.cctor"
 PRESET_STRIDE = 0x40          # sizeof(TargetingOptions)
 PRESET_RULES_OFF = 0x28       # TargetingOptions+0x28 = Rules (64 bits)
 
+# Les FABRIQUES statiques de `TargetingOptions` (5e forme). Leurs noms sont lus dans la table de
+# symboles au scan ; leur `Rules` est extrait de leur propre decompile, jamais code en dur ici.
+FACTORY_QUERY = (r"Core\.Services\.TargetingOptions\$\$"
+                 r"(CustomIdunNormalAttackOptions|CustomLokiNormalAttackOptions"
+                 r"|SelfCastIfEnemyInCustomRangeOptions)$")
+
 
 # --------------------------------------------------------------------------------- utilitaires
 
@@ -142,9 +148,20 @@ def _args(call: str) -> list:
 
 
 def _literal(tok: str):
-    """`(void *)0x40000042` / `0x2` / `1000` -> int ; sinon None (ce n'est pas un litteral)."""
-    m = re.fullmatch(r"(?:\(\s*void\s*\*\s*\)\s*)?(0x[0-9a-fA-F]+|\d+)", tok.strip())
-    return _int(m.group(1)) if m else None
+    """`(void *)0x40000042` / `0x2` / `1000` -> int ; sinon None (ce n'est pas un litteral).
+
+    ⚠ Un immediat 64 bits dont la valeur tombe dans l'espace d'adressage de l'image est rendu par
+    Ghidra comme une REFERENCE (`&LAB_180004000`), pas comme un nombre. VERIFIE AUX OCTETS sur
+    `...Loki.DeathScreamAbility$$.ctor` : `48 b8 00 40 00 80 01 00 00 00` = `mov rax, 0x180004000`,
+    puis `mov [rsp+0x20], rax` -> c'est bien le 5e argument `rules`, valeur `0x180004000`. Sans
+    cette lecture, l'ability ressortait `not_measurable` alors que son masque est explicite.
+    """
+    tok = tok.strip()
+    m = re.fullmatch(r"(?:\(\s*void\s*\*\s*\)\s*)?(0x[0-9a-fA-F]+|\d+)", tok)
+    if m:
+        return _int(m.group(1))
+    m = re.fullmatch(r"(?:\(\s*void\s*\*\s*\)\s*)?&(?:LAB|DAT|UNK|FUN)_([0-9a-fA-F]+)", tok)
+    return int(m.group(1), 16) if m else None
 
 
 # ------------------------------------------------------------------------------ scan (ghidra)
@@ -209,6 +226,15 @@ def cmd_scan(args) -> int:
             big[key] = prev[slot]
         else:
             big.update(_decompile(g, [key], timeout=300))
+
+    # 1b. les fabriques statiques de TargetingOptions (5e forme de masque)
+    fsyms = (g.call("search_symbols_by_name",
+                    {"binary_name": BINARY, "query": FACTORY_QUERY,
+                     "functions_only": True, "limit": 50}) or {}).get("symbols") or []
+    fnames = sorted({s["name"] for s in fsyms})
+    print("        %d fabriques TargetingOptions : %s"
+          % (len(fnames), [n.rsplit("$$", 1)[-1] for n in fnames]), flush=True)
+    fac_code = _decompile(g, fnames) if fnames else {}
 
     # 2. les lambdas de fabrique
     print("  [2/4] lambdas b__27_N ...", flush=True)
@@ -277,6 +303,7 @@ def cmd_scan(args) -> int:
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "init_active_abilities": big.get(INIT_ACTIVE, {}),
         "targeting_options_cctor": big.get(TO_CCTOR, {}),
+        "targeting_options_factories": fac_code,
         "lambdas": {str(k): v for k, v in sorted(lam.items())},
         "ctors": ctor_code,
     }, indent=1), encoding="utf-8")
@@ -320,21 +347,39 @@ def _symbol_index(build: str) -> dict:
 
 
 def _classes_constructed(code: str, idx: dict) -> list:
-    """Classes `<X>Ability` instanciees par une lambda de fabrique (`new <X>Ability()`)."""
+    """Classe instanciee par une lambda de fabrique (`new <X>()`).
+
+    On ne filtre PAS sur le nom : deux entrees du registre construisent des classes qui ne portent
+    pas « Ability » (`...Active.TestTargetAndAdjacentAttack`, `...Active.TestTileAttack`), et le
+    filtre les rendait `absent`. Le motif du corps suffit a lever l'ambiguite : la lambda alloue
+    (`thunk_FUN_...`) puis appelle UN ctor -- on retient celui qui est resolu par la table des
+    symboles, ce qui exclut les helpers d'allocation.
+    """
+    norm = _norm(code)
     out = []
-    for m in _CTOR_CALL.finditer(_norm(code)):
+    for m in _CTOR_CALL.finditer(norm):
         flat = m.group(1)
-        if flat.endswith("Ability") or "Ability_" in flat:
-            out.append(idx.get(flat) or flat.replace("_", "."))
+        if flat in idx:
+            out.append(idx[flat])
+        elif flat.endswith("Ability") or "Ability_" in flat:
+            out.append(flat.replace("_", "."))
     return out
 
 
 def _base_ctors(code: str, idx: dict) -> list:
-    """Ctors de classe de BASE appeles depuis un ctor d'ability (hors AActiveAbility)."""
+    """Ctors de classe de BASE appeles depuis un ctor d'ability.
+
+    Le filtre porte sur « contient Ability », pas « finit par Ability » : la base de
+    `...Loki.SwoopingHawkAbility` s'appelle `DiveAttackAbilityBase`, et exiger le suffixe la
+    rendait invisible -- ses deux heritieres (1064, 1091) ressortaient `not_measurable` alors que
+    leur masque est parfaitement lisible UN CRAN plus haut.
+    """
     out = []
     for m in _CTOR_CALL.finditer(_norm(code)):
         flat = m.group(1)
-        if not flat.endswith("Ability") or flat.endswith("AActiveAbility"):
+        if "Ability" not in flat or flat.endswith("AActiveAbility"):
+            continue
+        if flat.endswith("ADeprecatedActiveAbility"):
             continue
         out.append(idx.get(flat) or flat.replace("_", "."))
     return out
@@ -371,6 +416,46 @@ def _parse_presets(code: str) -> dict:
     owners = [d for _v, d in presets.values() if d]
     dat = max(set(owners), key=owners.count) if owners else None
     return {"dat": dat, "rules_by_offset": {o: v for o, (v, _d) in sorted(presets.items())}}
+
+
+def _parse_factories(raw: dict, presets: dict, to_dat: str) -> dict:
+    """Les fabriques statiques -> `{nom C aplati: {rules, extra}}`.
+
+    Deux ecritures possibles du champ `Rules` (+0x28) dans une fabrique :
+      - `*(...)(out + 0x28) = <litteral>;`             -> masque COMPLET ;
+      - `*(...)(out + 0x28) = *(...)(<statics> + N) | <reg>;` -> `<preset>.Rules | extraRules`, et
+        `extraRules` n'est PAS lisible chez l'appelant -> masque MINORANT (`extra = True`).
+    """
+    out = {}
+    for name, item in (raw.get("targeting_options_factories") or {}).items():
+        code = _norm(item.get("code") or "")
+        short = name.rsplit("$$", 1)[-1]
+        flat = name.replace(".", "_").replace("$$", "__")
+        rules, extra = None, False
+        stat_vars = set()
+        for line in code.split("\n"):
+            line = line.strip()
+            m = re.match(r"(\w+)\s*=\s*\*\(\w+ \*+\)\((DAT_[0-9a-f]+) \+ 0xb8\);", line)
+            if m and (not to_dat or m.group(2) == to_dat):
+                stat_vars.add(m.group(1))
+                continue
+            m = re.match(r"\*\(\w+ \*\)\(\(longlong\)\w+ \+ 0x28\)\s*=\s*(.+);", line)
+            if not m:
+                continue
+            rhs = m.group(1)
+            lit = _literal(rhs)
+            if lit is not None:
+                rules, extra = lit, False
+                continue
+            mm = re.match(r"\*\(ulonglong \*\)\((\w+) \+ (0x[0-9a-f]+|\d+)\)\s*\|", rhs.strip())
+            if mm and mm.group(1) in stat_vars:
+                off = _int(mm.group(2))
+                base = off - (off % PRESET_STRIDE)
+                if base in presets:
+                    rules, extra = presets[base], True
+        if rules is not None:
+            out[flat] = {"rules": rules, "extra": extra, "symbol": name, "short": short}
+    return out
 
 
 def _parse_registry(code: str) -> list:
@@ -435,7 +520,35 @@ def _ability_class_of(lam_code: str, idx: dict) -> str:
     return cls[0] if cls else ""
 
 
-def _mask_from_ctor(code: str, to_dat: str, presets: dict) -> dict:
+_STACK_VAR = re.compile(r"^(?:local|uStack|aStack|auStack)_([0-9a-f]+)$")
+
+
+def _stack_off(var: str):
+    """`local_48` / `uStack_20` -> l'offset de pile encode dans le nom Ghidra (0x48 / 0x20).
+
+    Ghidra nomme une variable de pile par son deplacement depuis le cadre. Deux variables du MEME
+    cadre sont donc a distance `off(a) - off(b)` l'une de l'autre -- c'est ce qui permet de trouver
+    le champ `Rules` (+0x28) d'une struct construite INLINE, sans aucun appel de ctor.
+    """
+    m = _STACK_VAR.match(var.strip().lstrip("&").strip())
+    return int(m.group(1), 16) if m else None
+
+
+def _factory_rules(code: str, factories: dict):
+    """Le ctor delegue-t-il a une FABRIQUE statique de `TargetingOptions` ?
+
+    Trois existent dans ce build (`CustomIdunNormalAttackOptions`, `CustomLokiNormalAttackOptions`,
+    `SelfCastIfEnemyInCustomRangeOptions`). Deux d'entre elles font `Rules = <preset> | extraRules`,
+    et `extraRules` passe par un registre que le decompile de l'APPELANT n'expose pas -> le masque
+    rendu est alors un MINORANT, et l'etat le dit (`measured_partial`).
+    """
+    for name, info in factories.items():
+        if re.search(r"\b%s\s*\(" % re.escape(name), code):
+            return dict(info, factory=name)
+    return None
+
+
+def _mask_from_ctor(code: str, to_dat: str, presets: dict, factories: dict = None) -> dict:
     """Masque `Rules` effectif expose par un ctor d'ability. Rend un dict TRI-ETAT."""
     code = _norm(code)
     # variables recevant le DEBUT (offset multiple de 0x40) d'un preset de TargetingOptions
@@ -497,6 +610,36 @@ def _mask_from_ctor(code: str, to_dat: str, presets: dict) -> dict:
         return {"state": "not_measurable",
                 "why": "copie statique AMBIGUE : presets lus = %s" % sorted(presets_read),
                 "form": "static-copy"}
+
+    # Cinquieme forme : une FABRIQUE statique de `TargetingOptions` remplit la struct.
+    fac = _factory_rules(code, factories or {})
+    if fac is not None:
+        if fac.get("extra"):
+            return {"state": "measured_partial", "rules": fac["rules"], "form": "factory",
+                    "factory": fac["factory"],
+                    "why": ("%s fait `Rules = <preset> | extraRules` et `extraRules` passe par un "
+                            "registre invisible du decompile de l'appelant -- masque MINORANT"
+                            % fac["factory"])}
+        return {"state": "measured", "rules": fac["rules"], "form": "factory",
+                "factory": fac["factory"]}
+
+    # Sixieme forme : la struct est construite INLINE sur la pile, sans ctor ni preset. On retrouve
+    # le champ `Rules` par l'offset encode dans les noms de variables Ghidra (base - 0x28).
+    m = re.search(r"(?:AActiveAbility|ADeprecatedActiveAbility)___ctor\s*\(\s*this\s*,\s*&(\w+)",
+                  code)
+    if m:
+        base = _stack_off(m.group(1))
+        if base is not None:
+            want = base - PRESET_RULES_OFF
+            for line in code.split("\n"):
+                mm = re.match(r"(\w+)\s*=\s*(0x[0-9a-fA-F]+|\d+);", line.strip())
+                if mm and _stack_off(mm.group(1)) == want:
+                    return {"state": "measured", "rules": _int(mm.group(2)), "form": "inline",
+                            "stack_base": hex(base)}
+            return {"state": "not_measurable",
+                    "why": "struct INLINE : champ Rules (base %s - 0x28) non ecrit par un litteral"
+                           % hex(base), "form": "inline"}
+
     return {"state": "not_measurable", "why": "aucune forme de TargetingOptions dans ce ctor",
             "form": "none"}
 
@@ -566,6 +709,7 @@ def cmd_report(args) -> int:
     idx = _symbol_index(raw["build"])
     pres = _parse_presets(raw["targeting_options_cctor"].get("code") or "")
     presets, to_dat = pres["rules_by_offset"], pres["dat"]
+    factories = _parse_factories(raw, presets, to_dat)
     registry = _parse_registry(raw["init_active_abilities"].get("code") or "")
     lambdas = raw["lambdas"]
     ctors = raw["ctors"]
@@ -586,18 +730,19 @@ def cmd_report(args) -> int:
             nm = ActiveAbilityType(aid).name
         except ValueError:
             nm = "<hors enum du port>"
-        mask = {"state": "absent", "why": "aucune classe reliee"}
+        found = {"state": "absent", "why": "aucune classe reliee"}
         chain = []
         if cls:
-            mask, chain = _mask_of_class(cls, ctors, to_dat, presets, idx)
+            found, chain = _mask_of_class(cls, ctors, to_dat, presets, idx, factories)
         rows.append({"id": aid, "enum_name": nm, "lambda": n, "cache_offset": off,
-                     "ability_class": cls, "ctor_chain": chain, **mask})
+                     "ability_class": cls, "ctor_chain": chain, **found})
 
     _emit(rows, cal, presets, raw, mask, args)
     return 0
 
 
-def _mask_of_class(cls: str, ctors: dict, to_dat: str, presets: dict, idx: dict, depth: int = 0):
+def _mask_of_class(cls: str, ctors: dict, to_dat: str, presets: dict, idx: dict,
+                   factories: dict = None, depth: int = 0):
     """Masque d'une classe, en suivant au besoin la chaine de ctors de BASE (max 4 niveaux)."""
     chain = [cls]
     item = ctors.get(cls) or {}
@@ -606,14 +751,14 @@ def _mask_of_class(cls: str, ctors: dict, to_dat: str, presets: dict, idx: dict,
         return ({"state": "not_measurable",
                  "why": "ctor introuvable au decompile (%s)" % (item.get("error") or "absent"),
                  "form": "none"}, chain)
-    res = _mask_from_ctor(code, to_dat, presets)
-    if res["state"] == "measured" or depth >= 4:
+    res = _mask_from_ctor(code, to_dat, presets, factories)
+    if res["state"].startswith("measured") or depth >= 4:
         return (res, chain)
     for base in _base_ctors(code, idx):
         if base == cls:
             continue
-        sub, subchain = _mask_of_class(base, ctors, to_dat, presets, idx, depth + 1)
-        if sub["state"] == "measured":
+        sub, subchain = _mask_of_class(base, ctors, to_dat, presets, idx, factories, depth + 1)
+        if sub["state"].startswith("measured"):
             return (sub, chain + subchain)
     return (res, chain)
 
@@ -622,9 +767,14 @@ def _routed_decision_ids() -> dict:
     """Abilities dont la face DECISION a une route PROPRE -- re-derivee du code, jamais recopiee.
 
     « Avoir une route » ne veut PAS dire « etre evaluable » : toute ability du registre passe par
-    `DefaultActiveAbilityPlaybook`. Pour une cible TUILE, ce qui compte est un chemin qui ENUMERE
-    le domaine tuile et emet une action portant un `tileEntityId` -- d'ou DEUX champs rendus :
-    `route` (quel chemin) et `enumerates_tiles` (ce chemin sait-il produire une cible tuile).
+    `DefaultActiveAbilityPlaybook`. Pour une cible TUILE, ce qui compte est un chemin qui emet une
+    action dont le `target` EST une entite-tuile -- d'ou DEUX champs rendus : `route` (quel chemin)
+    et `emits_tile_target` (ce chemin resout-il une cible par `ctx.tile_id_by_pos`).
+
+    ⚠ `emits_tile_target = False` ne veut PAS dire « la route ignore les tuiles ». Mesure : les
+    playbooks de `1166 AberrantHypermorph` et `1194 NovaShield` LISENT bien le domaine tuile
+    (`ability_targets(...)` filtre `kind == "tile"`) mais emettent `target: None` -- ils choisissent
+    une POSITION de caster, pas une cible. Le champ dit ce qu'il dit : la cible emise.
 
     Les registres sont consultes du PLUS specifique au moins specifique, et le premier gagne : la
     route non-attaque (seule a porter l'aiguillage `targets_tiles`), puis les NonComparable, puis
@@ -638,7 +788,7 @@ def _routed_decision_ids() -> dict:
 
     def _add(aid, label, tiles):
         try:
-            out.setdefault(int(aid), {"route": label, "enumerates_tiles": bool(tiles)})
+            out.setdefault(int(aid), {"route": label, "emits_tile_target": bool(tiles)})
         except (TypeError, ValueError):
             pass
 
@@ -753,7 +903,7 @@ def _crosscheck(rows: list, mask: int) -> dict:
             unported.append(r["id"])
             continue
         if r.get("state") != "measured":
-            unreadable.append(r["id"])
+            unreadable.append((r["id"], r.get("state")))
             continue
         port = int(opts.rules)
         if port == r["rules"]:
@@ -772,7 +922,12 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
 
     routed = _routed_decision_ids()
 
-    tiles = [r for r in rows if r.get("state") == "measured" and (r["rules"] & mask)]
+    # `measured_partial` = base connue, `extraRules` illisible : le bit PRESENT est certain, le bit
+    # ABSENT est INDETERMINE. On compte donc ces lignes a part, jamais dans un « n'a pas le bit ».
+    tiles = [r for r in rows
+             if r.get("state", "").startswith("measured") and (r.get("rules", 0) & mask)]
+    partial = [r for r in rows if r.get("state") == "measured_partial"]
+    partial_no_bit = [r for r in partial if not (r.get("rules", 0) & mask)]
     nomask = [r for r in rows if r.get("state") == "not_measurable"]
     absent = [r for r in rows if r.get("state") == "absent"]
     measured = [r for r in rows if r.get("state") == "measured"]
@@ -781,7 +936,7 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
         r["in_ability_classes"] = r["id"] in ABILITY_CLASSES
         rt = routed.get(r["id"]) or {}
         r["decision_route"] = rt.get("route", "")
-        r["route_enumerates_tiles"] = bool(rt.get("enumerates_tiles"))
+        r["route_emits_tile_target"] = bool(rt.get("emits_tile_target"))
 
     print("=== #302 tranche 4 -- population COMPLETE du bit TargetIsTile (masque %s) ==="
           % hex(mask))
@@ -799,6 +954,8 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
     print("fabriques b__27_N              : %d" % len(raw["lambdas"]))
     print("entrees du registre natif      : %d" % len(rows))
     print("  masque MESURE                : %d" % len(measured))
+    print("  masque PARTIEL (minorant)    : %d  -> bit ABSENT = INDETERMINE sur %d d'entre elles"
+          % (len(partial), len(partial_no_bit)))
     print("  masque NON MESURABLE         : %d" % len(nomask))
     print("  classe ABSENTE               : %d" % len(absent))
     print("valeurs d'enum SANS entree     : %d %s"
@@ -820,10 +977,10 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
     print("")
     print("--- PORTANT TargetIsTile ---")
     print("total                          : %d" % len(tiles))
-    print("  route qui ENUMERE des tuiles : %d"
-          % sum(1 for r in tiles if r["route_enumerates_tiles"]))
-    print("  route NON tuile (playbook)   : %d"
-          % sum(1 for r in tiles if r["decision_route"] and not r["route_enumerates_tiles"]))
+    print("  route qui EMET une cible tuile: %d"
+          % sum(1 for r in tiles if r["route_emits_tile_target"]))
+    print("  route sans cible tuile emise : %d"
+          % sum(1 for r in tiles if r["decision_route"] and not r["route_emits_tile_target"]))
     print("  AUCUNE route                 : %d" % sum(1 for r in tiles if not r["decision_route"]))
     print("  au registre COMBAT du port   : %d" % sum(1 for r in tiles if r["in_ability_classes"]))
     print("")
@@ -839,9 +996,18 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
         print("  %-6d %-32s %-14s %-6s %-5s %-26s %s"
               % (r["id"], r["enum_name"][:32], hex(r["rules"]),
                  "oui" if r["in_ability_classes"] else "NON",
-                 "OUI" if r["route_enumerates_tiles"] else "-", cs,
+                 "OUI" if r["route_emits_tile_target"] else "-", cs,
                  r["decision_route"] or "-- AUCUNE --"))
 
+    if partial:
+        print("")
+        print("--- MASQUE PARTIEL (%d) : base lue, `extraRules` ILLISIBLE -> minorant ---"
+              % len(partial))
+        for r in sorted(partial, key=lambda r: r["id"]):
+            print("  %-6d %-30s base=%-12s bit6 dans la base=%s  (%s)"
+                  % (r["id"], r["enum_name"][:30], hex(r["rules"]),
+                     "OUI" if (r["rules"] & mask) else "non -> INDETERMINE",
+                     r.get("factory", r.get("form", "?"))))
     if nomask:
         print("")
         print("--- NON MESURABLE (%d) : le masque n'est PAS nul, il est ILLISIBLE ici ---"
@@ -858,7 +1024,7 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
     TABLES.mkdir(parents=True, exist_ok=True)
     tsv = TABLES / "tile-target-population.tsv"
     cols = ["id", "enum_name", "ability_class", "state", "form", "rules", "targets_tile",
-            "in_ability_classes", "decision_route", "route_enumerates_tiles", "why"]
+            "in_ability_classes", "decision_route", "route_emits_tile_target", "why"]
     with tsv.open("w", encoding="utf-8", newline="\n") as fh:
         fh.write("# build=%s  schema=%s  source=%s\n" % (raw["build"], SCHEMA_VERSION, RAW.name))
         fh.write("\t".join(cols) + "\n")
@@ -866,11 +1032,13 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
             tt = ""
             if r.get("state") == "measured":
                 tt = "1" if (r["rules"] & mask) else "0"
+            elif r.get("state") == "measured_partial":
+                tt = "1" if (r["rules"] & mask) else "indetermine"
             fh.write("\t".join([
                 str(r["id"]), r["enum_name"], r.get("ability_class", ""), r.get("state", ""),
                 r.get("form", ""), hex(r["rules"]) if "rules" in r else "", tt,
                 "1" if r["in_ability_classes"] else "0", r.get("decision_route", ""),
-                "1" if r.get("route_enumerates_tiles") else "0",
+                "1" if r.get("route_emits_tile_target") else "0",
                 r.get("why", "")]) + "\n")
     js = TABLES / "tile-target-population.json"
     js.write_text(json.dumps({
@@ -880,13 +1048,15 @@ def _emit(rows: list, cal: dict, presets: dict, raw: dict, mask: int, args) -> N
         "crosscheck_vs_port_registry": xc,
         "counts": {"enum_members_game": len(enum), "factories": len(raw["lambdas"]),
                    "registry_entries": len(rows), "measured": len(measured),
+                   "measured_partial": len(partial),
+                   "measured_partial_bit_indeterminate": len(partial_no_bit),
                    "not_measurable": len(nomask), "absent": len(absent),
                    "targets_tile": len(tiles),
-                   "targets_tile_route_enumerates_tiles":
-                       sum(1 for r in tiles if r["route_enumerates_tiles"]),
+                   "targets_tile_route_emits_tile_target":
+                       sum(1 for r in tiles if r["route_emits_tile_target"]),
                    "targets_tile_route_non_tile":
                        sum(1 for r in tiles
-                           if r["decision_route"] and not r["route_enumerates_tiles"]),
+                           if r["decision_route"] and not r["route_emits_tile_target"]),
                    "targets_tile_no_route": sum(1 for r in tiles if not r["decision_route"]),
                    "ability_classes": len(ABILITY_CLASSES)},
         "enum_values_without_registry_entry": sorted(set(enum) - reg_ids),

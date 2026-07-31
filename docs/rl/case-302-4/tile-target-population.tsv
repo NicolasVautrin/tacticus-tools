@@ -1,0 +1,259 @@
+# build=rnca9r7q6c  schema=1.0  source=probe_302_4_raw.json
+id	enum_name	ability_class	state	form	rules	targets_tile	in_ability_classes	decision_route	route_emits_tile_target	why
+0	None_	IdunBattleLogic.Entities.Abilities.Active.NoneAbility	measured	literal	0x8000000	0	0		0	
+3	ChainLightning	IdunBattleLogic.Entities.Abilities.Active.ChainLightningAbility	measured	static-copy	0x4000	0	0		0	
+4	Taunt	IdunBattleLogic.Entities.Abilities.Active.TauntAbility	measured	static-copy	0x4000	0	0		0	
+8	MassHeal	IdunBattleLogic.Entities.Abilities.Active.MassHealAbility	measured	literal	0x8002	0	0		0	
+9	HolyBolt	IdunBattleLogic.Entities.Abilities.Active.HolyBoltAbility	measured	static-copy	0x4000	0	0		0	
+12	NobleCharge	IdunBattleLogic.Entities.Abilities.Active.NobleChargeAbility	measured_partial	factory	0x4000	indetermine	0		0	IdunBattle_Core_Services_TargetingOptions__CustomIdunNormalAttackOptions fait `Rules = <preset> | extraRules` et `extraRules` passe par un registre invisible du decompile de l'appelant -- masque MINORANT
+13	Test	IdunBattleLogic.Entities.Abilities.Active.TestAbility	measured	static-copy	0x4000	0	0		0	
+17	NormalAttack	IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility	measured	static-copy	0x4000	0	0		0	
+18	Heal	IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility	measured	static-copy	0x8500	0	0		0	
+28	Repair	IdunBattleLogic.Entities.Abilities.Active.RepairAbility	measured	literal	0x8002	0	1	REGISTRY:RepairPlaybook (domaine unite)	0	
+69	Loki_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1000	GauntletsOfUltramar	IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility	measured	factory	0x4000	0	1	noncomparable:GauntletsOfUltramarPlaybook	0	
+1001	MightOfHeroes	IdunBattleLogic.Entities.Abilities.Active.Loki.MightOfHeroesAbility	measured	literal	0x8400	0	0		0	
+1002	CombatRestoratives	IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility	measured	literal	0x8500	0	1	noncomparable:CombatRestorativesPlaybook	1	
+1003	DeathFromAbove	IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility	measured	literal	0x4020	0	1		0	
+1004	MortisRound	IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility	measured	static-copy	0x4000	0	1		0	
+1005	AdaptiveStrategy	IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility	measured	literal	0x402	0	0		0	
+1006	MultiThreatEliminator	IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility	measured	static-copy	0x4002	0	1		0	
+1007	ScarabHive	IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility	measured	literal	0x4020	0	1	noncomparable:ScarabHivePlaybook	0	
+1008	HarbingerOfDestruction	IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility	measured	static-copy	0x200000000000004	0	1		0	
+1009	ResurrectionOrb	IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility	measured	literal	0x8000000020	0	1	nonattack:ResurrectionOrbPlaybook	0	
+1010	StormOfFlensingBlades	IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfFlensingBladesAbility	measured	literal	0x4010	0	0		0	
+1011	TunnelingHorror	IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility	measured	literal	0x8000000001042	1	0		0	
+1012	PrecisionShot_Aim	IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AimAbility	measured	preset+flags	0x8014	0	0		0	
+1013	PrecisionShot_Attack	IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AttackAbility	measured	literal	0x4004	0	0		0	
+1014	ArmoriumCherub	IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility	measured	static-copy	0x4002	0	1	REGISTRY:ArmoriumCherubPlaybook (domaine unite)	0	
+1015	PrecisionShot	IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShotAbility	measured	preset+flags	0x8014	0	0		0	
+1016	SendInTheNextWave	IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility	measured	literal	0x4002	0	1	noncomparable:SendInTheNextWavePlaybook	0	
+1017	FragBomb	IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility	measured	literal	0x80040	1	1		0	
+1018	ValkyrieStrike	IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility	measured	static-copy	0x6000040	1	1		0	
+1019	StormOfWrath	IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility	measured	literal	0x4000	0	0		0	
+1020	HeraldOfTheApocalypse	IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility	measured	static-copy	0x4000	0	1	REGISTRY:HeraldOfTheApocalypsePlaybook (domaine unite)	0	
+1021	Incursion	IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility	measured	literal	0x4020	0	1	noncomparable:IncursionPlaybook	0	
+1022	BringerOfDespair	IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility	measured	static-copy	0x4000	0	1		0	
+1023	Burrowers	IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility	measured	static-copy	0x8004	0	0		0	
+1024	Burrowers_Appear	IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility_Appear	measured	literal	0x8040000004	0	0		0	
+1025	SkyStrike	IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility	measured	literal	0x6004002	0	1		0	
+1026	BasiliskBarrage	IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility	measured	literal	0x80050	1	1		0	
+1027	PsychicMaelstrom	IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicMaelstromAbility	measured	static-copy	0x4002	0	0		0	
+1028	SupremeCommander	IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility	measured	literal	0x208000	0	1	noncomparable:SupremeCommanderPlaybook	0	
+1029	Drachnyen	IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility	measured	preset	0x4000	0	1	REGISTRY:DrachnyenPlaybook (domaine unite)	0	
+1030	Loki_NormalBossAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalBossAttackAbility	measured	static-copy	0x4000	0	0		0	
+1031	SpawnTermagants	IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility	measured	static-copy	0x8004	0	0		0	
+1032	Catalyst	IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility	measured	static-copy	0x8004	0	0		0	
+1033	SpawnTermagants2	IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility	measured	static-copy	0x8004	0	0		0	
+1034	SpawnTermagants3	IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility	measured	static-copy	0x8004	0	0		0	
+1035	PlagueWind	IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility	measured	static-copy	0x4002	0	1		0	
+1036	FrenziedFiring	IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility	measured	static-copy	0x4002	0	1		0	
+1037	RevitalizingMalignancy	IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility	measured	literal	0x8500	0	1	noncomparable:RevitalizingMalignancyPlaybook	1	
+1038	FoulInfusion	IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility	measured	literal	0x482	0	0	noncomparable:FoulInfusionPlaybook	0	
+1039	RitesOfRestoration	IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility	measured	literal	0x8508	0	0	noncomparable:RitesOfRestorationPlaybook	1	
+1040	Poxwalkers	IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility	measured	literal	0x8000000004	0	1	noncomparable:SpawnPoxwalkersPlaybook	0	
+1041	BrazierOfHolyFire	IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility	measured	static-copy	0x4002	0	1		0	
+1042	FlailSwing	IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility	measured	static-copy	0x4000	0	1		0	
+1043	ThunderousAssault	IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility	measured	preset+flags	0x10004000	0	1		0	
+1044	IncendiaryShells	IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility	measured	static-copy	0x4002	0	0		0	
+1045	GetEmRuntz	IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility	measured	static-copy	0x8004	0	1	noncomparable:GetEmRuntzPlaybook	0	
+1046	TemplarInitiateNormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TemplarInitiateNormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1047	ScarabSummon	IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility	measured	literal	0x208000	0	1	noncomparable:ScarabSummonPlaybook	0	
+1048	FragstormGrenadeLauncher	IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormGrenadeLauncherAbility	measured	preset+flags	0x2004002	0	0		0	
+1049	CrusadeOfWrath	IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility	measured	literal	0x400	0	0		0	
+1050	HolyDuel	IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility	measured	preset+flags	0x200004000	0	0	noncomparable:HolyDuelPlaybook	0	
+1051	Stikkbomb	IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility	measured	preset+flags	0x2004002	0	1	REGISTRY:StikkbombPlaybook (domaine unite)	0	
+1052	CallRipperSwarms	IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility	measured	static-copy	0x8004	0	0		0	
+1053	DevoutPush	IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility	measured	static-copy	0x4000	0	0		0	
+1054	CallRipperSwarms2	IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility	measured	static-copy	0x8004	0	0		0	
+1055	CallRipperSwarms3	IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility	measured	static-copy	0x8004	0	0		0	
+1056	StranglethornCannon	IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility	measured	preset+flags	0x100004002	0	0		0	
+1057	GrotTank	IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility	measured	literal	0x1040	1	0		0	
+1058	Waaagh	IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility	measured	literal	0x106004012	0	1		0	
+1059	RammingSpeed	IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility	measured	literal	0x4002	0	0		0	
+1060	TunnelingHorror_Appear	IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorror_AppearAbility	measured	literal	0x80008000000000	0	0		0	
+1061	UnbreakableDuty	IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility	measured	literal	0x8400	0	0		0	
+1062	SanctorumMissile	IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility	measured	static-copy	0x4002	0	1		0	
+1063	FireAndReposition	IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility	measured	static-copy	0x4002	0	0		0	
+1064	Loki_SwoopingHawk	IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility	measured	static-copy	0x4000	0	0		0	
+1065	ScythingTalons	IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility	measured	static-copy	0x4000	0	1		0	
+1066	Executioner	IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility	measured	static-copy	0x4002	0	1		0	
+1067	HarvesterOfSouls	IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility	measured	static-copy	0x4002	0	1		0	
+1068	SilentDeath	IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility	measured	static-copy	0x4000	0	0		0	
+1069	SeekerMissileFrequencyLock	IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility	measured	static-copy	0x4002	0	0		0	
+1070	BreathOfSilence	IdunBattleLogic.Entities.Abilities.Active.Loki.BreathOfSilenceAbility	measured	static-copy	0x8004	0	0		0	
+1071	AnnihilatorBeam	IdunBattleLogic.Entities.Abilities.Active.Loki.AnnihilatorBeamAbility	measured	static-copy	0x8004	0	0		0	
+1072	MyWillBeDone	IdunBattleLogic.Entities.Abilities.Active.Loki.MyWillBeDoneAbility	measured	static-copy	0x8004	0	0		0	
+1073	StaffOfStars	IdunBattleLogic.Entities.Abilities.Active.Loki.StaffOfStarsAbility	measured	static-copy	0x4002	0	0		0	
+1074	ScytheOfDust	IdunBattleLogic.Entities.Abilities.Active.Loki.ScytheOfDustAbility	measured	static-copy	0x4000	0	0		0	
+1075	TargetingProtocols	IdunBattleLogic.Entities.Abilities.Active.Loki.TargetingProtocolsAbility	measured	static-copy	0x8004	0	0		0	
+1076	MV71SniperDroneSquadAttack	IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility	measured_partial	factory	0x4002	indetermine	1		0	IdunBattle_Core_Services_TargetingOptions__CustomLokiNormalAttackOptions fait `Rules = <preset> | extraRules` et `extraRules` passe par un registre invisible du decompile de l'appelant -- masque MINORANT
+1077	EarlyWarningOverride	IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility	measured	static-copy	0x8004	0	1	noncomparable:EarlyWarningOverridePlaybook	0	
+1078	Fragstorm	IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility	measured	preset+flags	0x2004002	0	1		0	
+1080	HellfireShells	IdunBattleLogic.Entities.Abilities.Active.Loki.HellfireShellsAbility	measured	static-copy	0x4002	0	0		0	
+1081	FightingRetreat	IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility	measured	literal	0x802	0	1	noncomparable:FightingRetreatPlaybook	0	
+1082	InspiredToGreatness	IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility	measured	literal	0x402	0	1	noncomparable:InspiredToGreatnessPlaybook	1	
+1083	NeedsMoreDakka	IdunBattleLogic.Entities.Abilities.Active.Loki.NeedsMoreDakkaAbility	measured	literal	0x1000000042	1	0		0	
+1084	DaGreatWaaagh	IdunBattleLogic.Entities.Abilities.Active.Loki.DaGreatWaaaghAbility	measured	static-copy	0x8004	0	0		0	
+1085	EreWeGo	IdunBattleLogic.Entities.Abilities.Active.Loki.EreWeGoAbility	measured	literal	0x1042	1	0		0	
+1086	ProperKilly_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1087	ExemplarOfTheKauyon	IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility	measured	literal	0x6001042	1	0		0	
+1088	HellfyreMissileRack	IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility	measured	static-copy	0x4002	0	0		0	
+1089	GreatFrostAxe	IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility	measured	static-copy	0x4000	0	1		0	
+1090	GrapnelLauncher	IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility	measured	literal	0x8004000	0	0	noncomparable:GrapnelLauncherPlaybook	0	
+1091	SlashingDive	IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility	measured	static-copy	0x4000	0	0		0	
+1092	DarkTalonStrike	IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility	measured	literal	0x80040	1	1	noncomparable:DarkTalonStrikePlaybook	1	
+1093	MortarionsPlagueWind	IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility	measured	static-copy	0x4002	0	0		0	
+1094	TheLantern	IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility	measured	literal	0x2000100042	1	0		0	
+1095	ReapingScythe	IdunBattleLogic.Entities.Abilities.Active.Loki.ReapingScytheAbility	measured	static-copy	0x4000	0	0		0	
+1096	MasterOfTheTutelaries	IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility	measured	literal	0x1040	1	1	noncomparable:MasterOfTheTutelariesPlaybook	1	
+1097	Foehammer	IdunBattleLogic.Entities.Abilities.Active.Loki.FoehammerAbility	measured	static-copy	0x4002	0	1		0	
+1098	PlasmaGrenade	IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility	measured	preset+flags	0x2004002	0	1	REGISTRY:PlasmaGrenadePlaybook (domaine unite)	0	
+1100	SorcerousFacade	IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility	measured	literal	0x402	0	1	nonattack:SorcerousFacadePlaybook	0	
+1101	AttemptedPossession	IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility	measured	preset+flags	0x200004002	0	0		0	
+1102	Doombolt	IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility	measured	preset	0x200000000000004	0	1		0	
+1103	Supercharge	IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility	measured	static-copy	0x4002	0	1		0	
+1104	SpiritLeech	IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility	measured	static-copy	0x4002	0	1		0	
+1105	CrushingClaws	IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility	measured	static-copy	0x4000	0	1		0	
+1106	WarHowl	IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility	measured	preset+flags	0x8014	0	0		0	
+1107	Reveal	IdunBattleLogic.Entities.Abilities.Active.Loki.RevealAbility	measured	preset+flags	0x6004002	0	0		0	
+1108	KissOfDeath	IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility	measured	static-copy	0x4000	0	0		0	
+1109	DeathScream	IdunBattleLogic.Entities.Abilities.Active.Loki.DeathScreamAbility	measured	literal	0x180004000	0	0		0	
+1110	UnparalleledFerocity	IdunBattleLogic.Entities.Abilities.Active.Loki.UnparalleledFerocityAbility	measured	static-copy	0x4000	0	0		0	
+1111	LivingBatteringRam	IdunBattleLogic.Entities.Abilities.Active.Loki.LivingBatteringRamAbility	measured	literal	0x4002	0	0		0	
+1112	AlphaWarrior	IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility	measured	literal	0x6001052	1	1		0	
+1113	Stormcaller	IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility	measured	preset+flags	0x200004002	0	1	noncomparable:StormcallerPlaybook	0	
+1114	BlisteringAssault_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.BlisteringAssault_NormalAttackAbility	measured	static-copy	0x4000	0	0		0	
+1115	FearOfTheUnseen	IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility	measured	literal	0x18	0	1		0	
+1116	RadBombardment	IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility	measured	literal	0xa0000000042	1	1		0	
+1117	DefendTheDivineWork	IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility	measured	literal	0x8c02	0	0	noncomparable:DefendTheDivineWorkPlaybook	1	
+1118	DoctrinaImperatives	IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility	measured	literal	0x80	0	1	noncomparable:DoctrinaImperativesPlaybook	0	
+1119	Repair_GalvanicField	IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility	measured	literal	0x8002	0	1	bespoke repair_galvanic	0	
+1120	FeederTendrils_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1121	ItItches	IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility	measured	literal	0x80040	1	0	noncomparable:ItItchesPlaybook	1	
+1122	CordClaw	IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility	measured	static-copy	0x4000	0	1	noncomparable:CordClawPlaybook	0	
+1123	OptimizedGait_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.OptimizedGait_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1124	PoundThemToDust	IdunBattleLogic.Entities.Abilities.Active.Loki.PoundThemToDustAbility	measured	literal	0x4000	0	0		0	
+1125	GunnersKillOnSight	IdunBattleLogic.Entities.Abilities.Active.Loki.GunnersKillOnSightAbility	measured	literal	0x84	0	0		0	
+1126	RogalDorn_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.RogalDorn_NormalAttackAbility	measured	literal	0x4000	0	0		0	
+1127	ArmouredMight_Move	IdunBattleLogic.Entities.Abilities.Active.Loki.ArmouredMight_MoveAbility	measured	literal	0x80	0	0		0	
+1128	Boltstorm_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1129	BloodyFury	IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility	measured	preset	0x4000	0	0	noncomparable:BloodyFuryPlaybook	0	
+1131	JakhalStimms	IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility	measured	static-copy	0x4000	0	1		0	
+1132	KillMaimBurn	IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility	measured	static-copy	0x4000	0	0		0	
+1133	WarConstruct	IdunBattleLogic.Entities.Abilities.Active.Loki.WarConstructAbility	measured	literal	0x8000	0	0		0	
+1134	TheWailingDoomSweeps	IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomSweepsAbility	measured	literal	0x2000000042	1	0		0	
+1135	TheWailingDoomStrikes	IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomStrikesAbility	measured	literal	0x2000000042	1	0		0	
+1136	TheWrathOfKhaineUnleashed	IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedAbility	measured	static-copy	0x8004	0	0		0	
+1137	MurderousSwing	IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility	measured	preset	0x4000	0	1		0	
+1138	Wraithcannon_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.Wraithcannon_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1139	SentinelDirectives	IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility	measured	literal	0x100004000	0	1		0	
+1140	ExemplarOfHate	IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility	measured	literal	0x6004000	0	1		0	
+1141	OverwhelmingWrath	IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility	measured	literal	0x4000	0	0		0	
+1142	MalleusRocketLauncher	IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility	measured	literal	0x10000040000040	1	1		0	
+1143	ForwardSpotter	IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility	measured	literal	0x40000422	0	1		0	
+1144	BioMinefield	IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility	measured	literal	0x40004020	0	0		0	
+1145	SporeMineLauncher	IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility	measured	literal	0x40046001042	1	1		0	
+1146	FloatingDeath_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.FloatingDeath_NormalAttackAbility	measured	literal	0x4000	0	0		0	
+1147	HadesAutocannons	IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility	measured	literal	0x46006000	0	1		0	
+1148	DaemonicOrdnance	IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility	measured	literal	0x46000040	1	1	nonattack:DaemonicOrdnancePlaybook	1	
+1149	MachineTest	IdunBattleLogic.Entities.Abilities.Active.Loki.MachineTestAbility	measured	literal	0x40004000	0	0		0	
+1150	PlasmaCannon	IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility	measured	static-copy	0x4002	0	1		0	
+1151	TheQuickening	IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility	measured	preset+flags	0x806000042	1	1	noncomparable:TheQuickeningPlaybook	1	
+1152	UnstoppableMomentumReworked	IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility	measured	literal	0x10120040	1	0		0	
+1153	HammerOfWrath	IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility	measured	static-copy	0x102004032	0	1	noncomparable:HammerOfWrathPlaybook	0	
+1154	TacticalPrecision	IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility	measured	static-copy	0x4000	0	1		0	
+1155	TzeentchsFirestorm	IdunBattleLogic.Entities.Abilities.Active.Loki.TzeentchsFirestormAbility	measured	static-copy	0x8004	0	0		0	
+1156	TreasonOfTzeentch	IdunBattleLogic.Entities.Abilities.Active.Loki.TreasonOfTzeentchAbility	measured	literal	0x4800000004002	0	0		0	
+1157	BladeOfMagnus	IdunBattleLogic.Entities.Abilities.Active.Loki.BladeOfMagnusAbility	measured	literal	0x4000	0	0		0	
+1158	DutyEternal	IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility	measured	literal	0x20000040000042	1	1		0	
+1159	MacroPlasmaIncinerator	IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility	measured	literal	0x46000040	1	1		0	
+1160	HeavyRailRifle	IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility	measured	literal	0x10400040004000	0	1		0	
+1161	TwinSmartMissileSystem	IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility	measured	literal	0x40004000	0	1		0	
+1162	AncientFury_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1163	BlackRage	IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility	measured	literal	0x106004012	0	1	noncomparable:BlackRagePlaybook	0	
+1164	MindControl	IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility	measured	literal	0x4002	0	0		0	
+1165	MightFromBelow	IdunBattleLogic.Entities.Abilities.Active.Loki.MightFromBelowAbility	measured	static-copy	0x4000	0	0		0	
+1166	AberrantHypermorph	IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility	measured	literal	0x1040	1	1	noncomparable:AberrantHypermorphPlaybook	0	
+1167	Heal_TwistedScience	IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility	measured	literal	0x8402	0	0		0	
+1168	EntropyCannons	IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility	measured	literal	0x40004002	0	1		0	
+1169	PlagueburstMortar	IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility	measured	literal	0x40000042	1	1	nonattack:PlagueburstMortarPlaybook	1	
+1170	ExplosivePresents	IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility	measured	literal	0x200000000002	0	0		0	
+1171	DakkaDakkaDakka	IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility	measured	preset	0x4002	0	1		0	
+1172	InvocationOfMachineVengeance	IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility	measured	literal	0x8000	0	0		0	
+1173	ArcScourge	IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility	measured	literal	0x4006	0	0		0	
+1174	SolarAtomizer	IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility	measured	literal	0x1000100042	1	0		0	
+1175	BloodChalice	IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility	measured	literal	0xc02	0	0	bespoke selfcast	0	
+1176	BlightGrenades	IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility	measured	literal	0x4002	0	0		0	
+1177	LightOfSanguinius	IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility	measured	static-copy	0x102004032	0	0	REGISTRY:LightOfSanguiniusPlaybook (domaine unite)	0	
+1178	ElectroShock_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.ElectroShock_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1179	CultDemagogue	IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility	measured	static-copy	0x4002	0	1	bespoke selfcast	0	
+1180	HeroicFusillade	IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility	measured	literal	0x6004002	0	1	noncomparable:HeroicFusilladePlaybook	0	
+1181	ShroudPsalm	IdunBattleLogic.Entities.Abilities.Active.Loki.ShroudPsalmAbility	measured	static-copy	0x8004	0	0		0	
+1182	RighteousRepugnance_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1183	VexillaMagnifica	IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility	measured	preset+flags	0x200004000	0	0	noncomparable:VexillaMagnificaPlaybook	0	
+1184	MomentShackle	IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility	measured	static-copy	0x8004	0	1	bespoke selfcast	0	
+1185	ForwardObservers	IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility	measured	literal	0x200004002	0	0	nonattack:ForwardObserversPlaybook	0	
+1186	WallOfMirrors	IdunBattleLogic.Entities.Abilities.Active.Loki.WallOfMirrorsAbility	measured	literal	0x6004012	0	0		0	
+1187	ThriceBlessedConflagration	IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility	measured	literal	0x40000400	0	1	noncomparable:ThriceBlessedConflagrationPlaybook	0	
+1188	DevastatingRefrain	IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility	measured	literal	0x10000040000040	1	1		0	
+1189	CalibaniteGreatsword	IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility	measured	literal	0x80	0	1		0	
+1191	MartialInspiration	IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility	measured	static-copy	0x4000	0	0		0	
+1192	NovaBoost	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility	measured	preset+flags	0x8014	0	0	noncomparable:NovaBoostPlaybook	0	
+1193	NovaCharge	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaChargeAbility	measured	literal	0x2000000042	1	0		0	
+1194	NovaShield	IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility	measured	static-copy	0x6000040	1	0	noncomparable:NovaShieldPlaybook	0	
+1195	TalonsOfTheEmperor	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility	measured	static-copy	0x4000	0	0		0	
+1196	LashOfTorment	IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility	measured	static-copy	0x4002	0	0		0	
+1197	ExcruciatingFrequencies	IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility	measured	literal	0x20000000042	1	0	bespoke excruciating_frequencies	1	
+1198	EuphoricStrikes	IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility	measured	static-copy	0x4000	0	0		0	
+1199	DoomSiren	IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility	measured	static-copy	0x4000	0	1	REGISTRY:DoomSirenPlaybook (domaine unite)	0	
+1200	SquigLaunchas	IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility	measured	literal	0x40004002	0	1		0	
+1201	SquigMine	IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility	measured	literal	0x46001042	1	1		0	
+1202	VigilanceEternal	IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility	measured	literal	0x206004002	0	1	noncomparable:VigilanceEternalPlaybook	0	
+1203	DaemonicPatrons	IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility	measured	preset+flags	0x200004000	0	0		0	
+1204	LeadingTheCharge	IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility	measured	static-copy	0x102004032	0	0		0	
+1205	TalonOfHorus_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1206	GravitonRifle	IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility	measured	static-copy	0x4002	0	1		0	
+1207	AncestralFortune	IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility	measured	static-copy	0x8004	0	1		0	
+1208	AetherStride	IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility	measured	literal	0x20000040000042	1	0		0	
+1209	InfernalCannon	IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility	measured	literal	0x46000040	1	0		0	
+1210	ExemplarOfTheMontka	IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility	measured	static-copy	0x8004	0	0		0	
+1211	RitesOfMorkai	IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility	measured	literal	0x2008402	0	0		0	
+1212	HealingBalms_Heal	IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility	measured	literal	0x8402	0	0		0	
+1213	DeathOnTheWind	IdunBattleLogic.Entities.Abilities.Active.Loki.DeathOnTheWindAbility	measured	literal	0x40080042	1	1		0	
+1214	Hailstrike	IdunBattleLogic.Entities.Abilities.Active.Loki.HailstrikeAbility	measured	literal	0x200240000400	0	1		0	
+1215	InstrumentsOfVengeance	IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility	measured	static-copy	0x8004	0	0		0	
+1216	MartialExemplar	IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility	measured	preset+flags	0x8014	0	0		0	
+1217	TheLionsWrath	IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility	measured	static-copy	0x4000	0	0		0	
+1218	TheWrathOfKhaineUnleashedReworked	IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedReworkedAbility	measured	static-copy	0x8004	0	0		0	
+1219	IronkinSteeljack	IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility	measured	literal	0x1040	1	1		0	
+1220	Fealty_NormalAttack	IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility	measured	static-copy	0x4002	0	0		0	
+1221	AugmentedAssault	IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility	measured	static-copy	0x4000	0	1		0	
+1222	MassDriverAccelerator	IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility	measured	static-copy	0x102004032	0	0	REGISTRY:MassDriverAcceleratorPlaybook (domaine unite)	0	
+1223	ReanimationBeam	IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility	measured	literal	0x200040000402	0	0		0	
+1224	NanoscarabRepairProtocols	IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility	measured	literal	0x40000402	0	0		0	
+1225	StrikeFromTheShadows	IdunBattleLogic.Entities.Abilities.Active.Loki.StrikeFromTheShadowsAbility	measured	static-copy	0x4002	0	0		0	
+1226	Chronometron	IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility	measured	inline	0x6004000	0	1	nonattack:ChronometronPlaybook	0	
+1227	HeavyWarpFlamer	IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility	measured	static-copy	0x4002	0	0	REGISTRY:HeavyWarpFlamerPlaybook (domaine unite)	0	
+1228	SternguardFocus	IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility	measured	static-copy	0x4002	0	0		0	
+1230	SavageEchoes	IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility	measured	static-copy	0x4000	0	1	REGISTRY:SavageEchoesPlaybook (domaine unite)	0	
+1231	TitanhammerSquad	IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility	measured	literal	0x6001042	1	0		0	
+1232	EmpyricAmbush	IdunBattleLogic.Entities.Abilities.Active.Loki.EmpyricAmbushAbility	measured	literal	0x6004020	0	0		0	
+9001	TestTargetAndAdjacentAttack	IdunBattleLogic.Entities.Abilities.Active.TestTargetAndAdjacentAttack	measured	static-copy	0x4000	0	0		0	
+9002	TestMeleeAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestMeleeAttackDamageAbility	measured	static-copy	0x4000	0	0		0	
+9003	TestRangedAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestRangedAttackDamageAbility	measured	static-copy	0x4002	0	0		0	
+9004	TestMeleeAbilityDamage	IdunBattleLogic.Entities.Abilities.Active.TestMeleeAbilityDamageAbility	measured	static-copy	0x4000	0	0		0	
+9005	TestRangedAbilityDamage	IdunBattleLogic.Entities.Abilities.Active.TestRangedAbilityDamageAbility	measured	static-copy	0x4002	0	0		0	
+9006	TestDirectKill	IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectKillAbility	measured	static-copy	0x4002	0	0		0	
+9007	TestDamageMachine	IdunBattleLogic.Entities.Abilities.Active.Loki.TestDamageMachineAbility	measured	literal	0x100040004000	0	0		0	
+9008	TestDirectForceOverkill	IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectForceOverkillAbility	measured	static-copy	0x4002	0	0		0	
+9009	TestSummon	IdunBattleLogic.Entities.Abilities.Active.TestSummonAbility	measured	static-copy	0x6000040	1	0		0	
+9010	TestDoubleMeleeAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestDoubleMeleeAttackDamageAbility	measured	static-copy	0x4000	0	0		0	
+9011	TestTwoHitGroupsAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestTwoHitGroupsAttackDamageAbility	measured	static-copy	0x4000	0	0		0	
+9012	TestTileAttack	IdunBattleLogic.Entities.Abilities.Active.TestTileAttack	measured	literal	0x80040	1	0		0	
+9013	TestMultiHitAttack	IdunBattleLogic.Entities.Abilities.Active.TestMultiHitAttackAbility	measured	static-copy	0x4002	0	0		0	
+9014	TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamageAbility	measured	static-copy	0x4000	0	0		0	
+9015	TestMultipleTargetsAttackDamage	IdunBattleLogic.Entities.Abilities.Active.TestMultipleTargetsAttackDamageAbility	measured	static-copy	0x4000	0	0		0	
+9016	TestDecoy	IdunBattleLogic.Entities.Abilities.Active.TestDecoyAbility	measured	static-copy	0x6000040	1	0		0	
+9017	TestSummonOnBestUtilityTile	IdunBattleLogic.Entities.Abilities.Active.TestSummonOnBestUtilitytileAbility	measured	static-copy	0x6000040	1	0		0	
+9018	TestAttackTiles	IdunBattleLogic.Entities.Abilities.Active.TestAttackTilesAbility	measured	literal	0x80040	1	0		0	

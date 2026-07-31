@@ -899,26 +899,31 @@ class DrachnyenAbility(ActiveAbility):
     ABILITY_TYPE = int(ActiveAbilityType.Drachnyen)   # 1029
     ABILITY_ID = DRACHNYEN_ID
 
-    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$.ctor` combine
-    # LES DEUX pieges a masque a la fois -- d'ou la derivation ecrite ici plutot qu'un litteral :
+    # GATE DE CIBLE. `IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility$$.ctor` :
     #   1. il recopie les 0x40 octets du PRESET STATIQUE `TargetingOptions` `statics+0x40` (aucun
     #      litteral de masque n'apparait dans le ctor) ;
-    #   2. il passe ce preset a l'overload PRESET + flags
-    #      `TargetingOptions..ctor(&out, &preset, 0x200000000, 0)`, qui fait
-    #      `out.Rules = flags | preset.Rules` et recopie le RESTE verbatim (+0x00 isSelfCasting,
-    #      +0x08..0x1f TargetingRange, +0x20 forceMeleeTarget, +0x30/+0x38 delegues).
+    #   2. il passe ce preset a l'overload **COPIE PURE** `TargetingOptions..ctor(&out, &template)`,
+    #      qui recopie les 8 qwords verbatim -- il n'ajoute AUCUN flag.
     # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit pour ce preset : `+0x68` (= +0x28
     # relatif) `Rules = 0x4000`, `+0x60` (= +0x20) `forceMeleeTarget = 1` (RangedBool.False) et
     # `+0x48..0x5f` (= +0x08) le `TargetingRange` statique `+0x30`.
-    # MASQUE EFFECTIF = `0x200000000 | 0x4000` = `0x200004000` :
-    #     0x4000       TargetIsEnemy       -> PORTE : refus sur soi-meme et sur un allie.
-    #     0x200000000  TargetIsNotAnObject -> bit 33, regle NON portee (degradation permissive).
+    # MASQUE EFFECTIF = `0x4000` = `TargetIsEnemy` seul -> refus sur soi-meme et sur un allie.
+    #
+    # ⚠ CORRECTION #336 (balayage exhaustif du bit `TargetIsTile`, `case-302-4`). Ce masque portait
+    # `TargetIsNotAnObject` (`0x200000000`), sur la foi d'un `TargetingOptions..ctor(&out, &preset,
+    # 0x200000000, 0)` — l'overload PRESET + flags. Ce n'est PAS l'overload appele : les xrefs
+    # ENTRANTES des trois surcharges tranchent sans ambiguite sur le build courant --
+    # `DrachnyenAbility$$.ctor` appelle la surcharge **2 arguments** (copie pure), et n'apparait pas
+    # dans les appelants de la surcharge 3 arguments. Le decompile du ctor le confirme :
+    # `TargetingOptions___ctor(&local_88, &local_48);`, deux arguments, aucun litteral de flags.
+    # Le bit retire n'est de toute facon PAS porte (regle `TargetIsNotAnObject` non implementee),
+    # donc la correction ne change AUCUN verdict de ciblage -- elle retire une fausse verite.
     # PORTEE : MEME preset `+0x40` que JakhalStimms (1131) -- `onlyAdjacent = True` +
     # `overrideRange = 1` -> cible ADJACENTE obligatoire, et la constante de config `range` n'est
     # PAS consultee (`overrideRange` deja pose court-circuite
     # `AActiveAbility$$SetConfigValuesInTargetingOptions`). Coherent avec `attackRangeType=Melee` et
     # l'i2 (« a normal melee attack against an adjacent enemy unit »).
-    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetIsNotAnObject,
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy,
                                          range=RANGE_ADJACENT,
                                          force_melee_target=RANGED_BOOL_FALSE)
 

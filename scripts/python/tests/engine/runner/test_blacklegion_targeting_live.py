@@ -15,9 +15,11 @@ LES TROIS FORMES DE CTOR SONT TOUTES REPRESENTEES ICI, ET C'EST LE POINT :
     `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`.
 
 Et les deux pieges du module y sont exerces :
-  * 1022 recopie le MEME preset `statics+0x40` que 1020 `HeraldOfTheApocalypse` et 1122 `CordClaw`,
-    mais PAS le meme masque que 1029 `Drachnyen`, qui recopie ce preset puis enchaine sur la
-    surcharge PRESET + flags (`0x200000000 | 0x4000`). Meme source, deux masques.
+  * 1022 recopie le MEME preset `statics+0x40` que 1020 `HeraldOfTheApocalypse`, 1122 `CordClaw` et
+    1029 `Drachnyen` -- quatre porteurs, MEME masque `0x4000`. (Le commentaire disait auparavant que
+    1029 y ajoutait `0x200000000` via la surcharge PRESET + flags : REFUTE par les xrefs entrantes
+    des trois surcharges de `TargetingOptions..ctor` -- 1029 appelle la surcharge 2 arguments, la
+    copie PURE. Cf. `docs/rl/case-302-4-population-cible-tuile.md` §5.3.)
   * 1036 recopie le preset `statics+0x140`, qui ne differe de celui de 1104 `SpiritLeech` (+0x180)
     QUE par `forceMeleeTarget` (`RangedBool.True` contre `RangedBool.False`). C'est le champ le plus
     facile a recopier au voisin, et celui qui change le REGIME de portee au contact : les tests 1021
@@ -126,8 +128,9 @@ def test_bringer_of_despair_targeting_mask_matches_native(host, live_session):
         "ennemi a d=2 non refuse -> l'adjacence n'est pas encadree par le haut"
     assert any(r["nat"] == int(TR.TargetIsEnemy) for r in rows), \
         "aucun refus TargetIsEnemy -> le volet CAMP n'est pas exerce"
-    # Le masque NU ne porte AUCUN bit du volet CASTER -- c'est ce qui le separe de 1029 Drachnyen,
-    # qui recopie pourtant LE MEME preset.
+    # Le masque NU ne porte AUCUN bit du volet CASTER. 1029 Drachnyen recopie LE MEME preset et a
+    # donc le MEME masque (`0x4000`) -- la separation supposee entre les deux etait un artefact du
+    # commentaire, pas du natif (cf. `case-302-4` §5.3).
     assert all(r["nat_caster"] == 0 for r in rows), \
         "casterReason natif non nul -> une regle du volet caster mord et n'est pas portee"
 

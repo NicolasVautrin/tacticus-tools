@@ -5,7 +5,7 @@ Chantier ouvert par la tranche 4g de `case-27` (PR #313), qui a re-qualifie le v
 cible**. Cette fiche etablit l'INVENTAIRE (RE au decompile `rnca9r7q6c`), pose la premiere tranche
 et decoupe explicitement les suivantes.
 
-**Etat : tranches 1 (§6), 2 et 3 (§8) LIVREES.** Tranches 4 et 5 restent ouvertes (§7).
+**Etat : tranches 1 (§6), 2, 3 (§8) et 4 LIVREES.** Seule la tranche 5 reste ouverte (§7).
 La tranche 2 a sa fiche propre : **`case-302-2-prediction-tile-target.md`** — elle porte le terme de
 PREDICTION de 1169 et degage le **patron valable pour tout tile-target a degat**.
 
@@ -47,10 +47,14 @@ TUILE du jeu.** Il n'y a pas de « chemin tuile » parallele : c'est la MEME fon
 > **« la cible de l'action est-elle une tuile ? »**. Les deux questions ne coincident pas, et les
 > confondre fait rater des abilities dans les deux sens :
 >
-> - **`1197 ExcruciatingFrequencies` cible une TUILE sans porter le bit.** Son aim passe par
->   `TargetTiles@0x190` (la ligne de tir), pas par le domaine de ciblage — d'ou sa route BESPOKE
+> - **`1197 ExcruciatingFrequencies` cible une TUILE par un chemin qui n'est PAS le domaine.** Son
+>   aim passe par `TargetTiles@0x190` (la ligne de tir) — d'ou sa route BESPOKE
 >   (`engine/playbook/excruciating_frequencies.py`, qui balaie positions x aims) plutot que la route
->   generique de cette fiche. Elle n'apparait donc PAS dans le balayage du §4, et c'est correct.
+>   generique de cette fiche.
+>   ⚠ **RECTIFICATIF (tranche 4)** : cette ligne affirmait aussi « sans porter le bit », et c'est
+>   FAUX — `...Loki.ExcruciatingFrequenciesAbility$$.ctor` passe `rules = 0x20000000042`, bit 6
+>   POSE. Elle etait absente du balayage du §4 parce que ce balayage ne lisait que `ABILITY_CLASSES`,
+>   ou 1197 ne figure pas. Voir `case-302-4-population-cible-tuile.md` §6.
 > - Reciproquement, une ability qui porte le bit voit son ensemble eligible bascule ENTIEREMENT en
 >   domaine tuile — c'est ce qui rendait `eligible_targets` VIDE (et la route inerte) tant que le
 >   port filtrait `kind == "unit"`.
@@ -161,17 +165,19 @@ bespoke). Les 16 autres : 1017, 1018, 1026, 1112, 1116, 1142, 1145, **1148**, 11
 Le detail (id, masque, route existante) est produit par le probe, qui est la source a citer — ces
 chiffres se periment des qu'une ability entre au registre (95 -> 97 pendant la redaction).
 
-**Ce que ce balayage NE couvre PAS, et il faut le dire** : `ABILITY_CLASSES` compte 97 entrees sur
-les 257 valeurs d'`ActiveAbilityType`. Le bit n'a donc ete lu que sur les abilities **deja portees**
-(chacune au decompile de son `.ctor`, par les tranches qui les ont fait entrer). La population
-complete demanderait de lire les 160 `.ctor` restants — hors perimetre de ce chantier, et pose en
-tranche 4 (§7).
+**Ce que ce balayage NE couvrait PAS** : `ABILITY_CLASSES` compte 97 entrees sur les **257** du
+registre natif. Le bit n'y etait lu que sur les abilities **deja portees**. La population complete
+est desormais MESUREE — **41 abilities, dont 22 hors `ABILITY_CLASSES`** — par la tranche 4 :
+**`case-302-4-population-cible-tuile.md`**. Les 19 ci-dessus s'y retrouvent **a l'identique**, ce qui
+valide croisement l'inventaire manuel et le balayage automatique.
 
-> ⚠ **`1197 ExcruciatingFrequencies` n'est PAS dans cette liste** alors que sa cible de decision EST
-> une tuile : son ciblage passe par `TargetTiles@0x190` (l'aim d'une ligne), pas par le bit
-> `TargetIsTile`. Le bit repond a « le domaine de `GetValidTargets` est-il fait de tuiles ? », pas a
-> « la cible de l'action est-elle une tuile ? ». D'ou sa route BESPOKE
-> (`excruciating_frequencies.py`, qui balaie positions x aims) plutot que cette route generique.
+> ⚠ **`1197 ExcruciatingFrequencies` n'etait pas dans cette liste, et la raison ecrite ici etait
+> FAUSSE.** Ce n'est pas qu'elle « ne porte pas le bit » — elle le porte
+> (`...Loki.ExcruciatingFrequenciesAbility$$.ctor` passe `rules = 0x20000000042`, bit 6 pose). Elle
+> etait absente parce qu'elle n'est pas dans `ABILITY_CLASSES`, le seul ensemble que ce balayage
+> lisait. Reste vrai : son ciblage EFFECTIF passe par `TargetTiles@0x190` (l'aim d'une ligne), d'ou
+> sa route BESPOKE (`excruciating_frequencies.py`) plutot que cette route generique. Detail :
+> `case-302-4-population-cible-tuile.md` §6.
 
 ---
 

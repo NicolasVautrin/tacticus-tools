@@ -1,0 +1,4633 @@
+{
+ "schema_version": "1.0",
+ "build": "rnca9r7q6c",
+ "generated_at": "2026-07-31T04:46:32",
+ "mask_target_is_tile": "0x40",
+ "calibration": {
+  "base": 8,
+  "score": 0.9416342412451362,
+  "agree": 242,
+  "checked": 257,
+  "mapped": 257,
+  "ok": true
+ },
+ "presets": {
+  "0x0": "0x4002",
+  "0x40": "0x4000",
+  "0x80": "0x4000",
+  "0xc0": "0x80040",
+  "0x100": "0x8500",
+  "0x140": "0x4002",
+  "0x180": "0x4002",
+  "0x1c0": "0x6000040",
+  "0x200": "0x42",
+  "0x240": "0x102004032",
+  "0x280": "0x8004",
+  "0x2c0": "0x4000",
+  "0x300": "0x4000",
+  "0x340": "0x4000",
+  "0x380": "0x400",
+  "0x3c0": "0x200000000000004"
+ },
+ "crosscheck_vs_port_registry": {
+  "agree": 97,
+  "disagree": [],
+  "not_in_registry": 159,
+  "registry_but_unreadable": [
+   [
+    1076,
+    "measured_partial"
+   ]
+  ]
+ },
+ "counts": {
+  "enum_members_game": 260,
+  "factories": 257,
+  "registry_entries": 257,
+  "measured": 255,
+  "measured_partial": 2,
+  "measured_partial_bit_indeterminate": 2,
+  "not_measurable": 0,
+  "absent": 0,
+  "targets_tile": 41,
+  "targets_tile_route_emits_tile_target": 7,
+  "targets_tile_route_non_tile": 2,
+  "targets_tile_no_route": 32,
+  "ability_classes": 97
+ },
+ "enum_values_without_registry_entry": [
+  1079,
+  1130,
+  9999
+ ],
+ "registry_entries_without_enum_value": [],
+ "carriers_note": "`carriers` ventile les porteurs par `kind` du gameconfig. Ce n'est PAS une gate de spawnabilite : la gate HERO/MoW est `rl_duel build --list-pool`, et une absence du pool se leve par injection catalogue.",
+ "rows": [
+  {
+   "id": 0,
+   "enum_name": "None_",
+   "lambda": 1,
+   "cache_offset": 16,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.NoneAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.NoneAbility"
+   ],
+   "state": "measured",
+   "rules": 134217728,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 3,
+   "enum_name": "ChainLightning",
+   "lambda": 13,
+   "cache_offset": 112,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.ChainLightningAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.ChainLightningAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 4,
+   "enum_name": "Taunt",
+   "lambda": 7,
+   "cache_offset": 64,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TauntAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TauntAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 832,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 8,
+   "enum_name": "MassHeal",
+   "lambda": 6,
+   "cache_offset": 56,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.MassHealAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.MassHealAbility"
+   ],
+   "state": "measured",
+   "rules": 32770,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9,
+   "enum_name": "HolyBolt",
+   "lambda": 5,
+   "cache_offset": 48,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.HolyBoltAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.HolyBoltAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 12,
+   "enum_name": "NobleCharge",
+   "lambda": 12,
+   "cache_offset": 104,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.NobleChargeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.NobleChargeAbility"
+   ],
+   "state": "measured_partial",
+   "rules": 16384,
+   "form": "factory",
+   "factory": "IdunBattle_Core_Services_TargetingOptions__CustomIdunNormalAttackOptions",
+   "why": "IdunBattle_Core_Services_TargetingOptions__CustomIdunNormalAttackOptions fait `Rules = <preset> | extraRules` et `extraRules` passe par un registre invisible du decompile de l'appelant -- masque MINORANT",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 13,
+   "enum_name": "Test",
+   "lambda": 0,
+   "cache_offset": 8,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 17,
+   "enum_name": "NormalAttack",
+   "lambda": 3,
+   "cache_offset": 32,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 18,
+   "enum_name": "Heal",
+   "lambda": 2,
+   "cache_offset": 24,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility"
+   ],
+   "state": "measured",
+   "rules": 34048,
+   "form": "static-copy",
+   "preset": 256,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 28,
+   "enum_name": "Repair",
+   "lambda": 4,
+   "cache_offset": 40,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.RepairAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.RepairAbility"
+   ],
+   "state": "measured",
+   "rules": 32770,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:RepairPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 69,
+   "enum_name": "Loki_NormalAttack",
+   "lambda": 24,
+   "cache_offset": 200,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1000,
+   "enum_name": "GauntletsOfUltramar",
+   "lambda": 25,
+   "cache_offset": 208,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GauntletsOfUltramarAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "factory",
+   "factory": "IdunBattle_Core_Services_TargetingOptions__SelfCastIfEnemyInCustomRangeOptions",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:GauntletsOfUltramarPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1001,
+   "enum_name": "MightOfHeroes",
+   "lambda": 30,
+   "cache_offset": 248,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MightOfHeroesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MightOfHeroesAbility"
+   ],
+   "state": "measured",
+   "rules": 33792,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1002,
+   "enum_name": "CombatRestoratives",
+   "lambda": 26,
+   "cache_offset": 216,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CombatRestorativesAbility"
+   ],
+   "state": "measured",
+   "rules": 34048,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:CombatRestorativesPlaybook",
+   "route_emits_tile_target": true
+  },
+  {
+   "id": 1003,
+   "enum_name": "DeathFromAbove",
+   "lambda": 27,
+   "cache_offset": 224,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathFromAboveAbility"
+   ],
+   "state": "measured",
+   "rules": 16416,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1004,
+   "enum_name": "MortisRound",
+   "lambda": 29,
+   "cache_offset": 240,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MortisRoundAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1005,
+   "enum_name": "AdaptiveStrategy",
+   "lambda": 31,
+   "cache_offset": 256,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility"
+   ],
+   "state": "measured",
+   "rules": 1026,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1006,
+   "enum_name": "MultiThreatEliminator",
+   "lambda": 35,
+   "cache_offset": 288,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MultiThreatEliminatorAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1007,
+   "enum_name": "ScarabHive",
+   "lambda": 38,
+   "cache_offset": 312,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabHiveAbility"
+   ],
+   "state": "measured",
+   "rules": 16416,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:ScarabHivePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1008,
+   "enum_name": "HarbingerOfDestruction",
+   "lambda": 37,
+   "cache_offset": 304,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility"
+   ],
+   "state": "measured",
+   "rules": 144115188075855876,
+   "form": "static-copy",
+   "preset": 960,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1009,
+   "enum_name": "ResurrectionOrb",
+   "lambda": 51,
+   "cache_offset": 416,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ResurrectionOrbAbility"
+   ],
+   "state": "measured",
+   "rules": 549755813920,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "nonattack:ResurrectionOrbPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1010,
+   "enum_name": "StormOfFlensingBlades",
+   "lambda": 28,
+   "cache_offset": 232,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfFlensingBladesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfFlensingBladesAbility"
+   ],
+   "state": "measured",
+   "rules": 16400,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1011,
+   "enum_name": "TunnelingHorror",
+   "lambda": 92,
+   "cache_offset": 744,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorrorAbility"
+   ],
+   "state": "measured",
+   "rules": 2251799813689410,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "necroNpc4Destroyer",
+     "necroNpc4DestroyerLHE",
+     "necroNpc4DestroyerSurv"
+    ],
+    "summons": [
+     "necroSmnDestroyer"
+    ]
+   }
+  },
+  {
+   "id": 1012,
+   "enum_name": "PrecisionShot_Aim",
+   "lambda": 33,
+   "cache_offset": 272,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AimAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AimAbility"
+   ],
+   "state": "measured",
+   "rules": 32788,
+   "form": "preset+flags",
+   "preset": 640,
+   "additional": 16,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1013,
+   "enum_name": "PrecisionShot_Attack",
+   "lambda": 34,
+   "cache_offset": 280,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16388,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1014,
+   "enum_name": "ArmoriumCherub",
+   "lambda": 36,
+   "cache_offset": 296,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ArmoriumCherubAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:ArmoriumCherubPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1015,
+   "enum_name": "PrecisionShot",
+   "lambda": 32,
+   "cache_offset": 264,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShotAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShotAbility"
+   ],
+   "state": "measured",
+   "rules": 32788,
+   "form": "preset+flags",
+   "preset": 640,
+   "additional": 16,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1016,
+   "enum_name": "SendInTheNextWave",
+   "lambda": 39,
+   "cache_offset": 320,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:SendInTheNextWavePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1017,
+   "enum_name": "FragBomb",
+   "lambda": 40,
+   "cache_offset": 328,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FragBombAbility"
+   ],
+   "state": "measured",
+   "rules": 524352,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "astraBullgryn"
+    ],
+    "npc": [
+     "astraBossBullgryn",
+     "astraBossBullgrynLEG",
+     "astraBossBullgrynLHE",
+     "astraNpcBullgryn"
+    ]
+   }
+  },
+  {
+   "id": 1018,
+   "enum_name": "ValkyrieStrike",
+   "lambda": 41,
+   "cache_offset": 336,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ValkyrieStrikeAbility"
+   ],
+   "state": "measured",
+   "rules": 100663360,
+   "form": "static-copy",
+   "preset": 448,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "astraNpc3Voxcaster"
+    ],
+    "summons": [
+     "astraSmnVoxcaster"
+    ]
+   }
+  },
+  {
+   "id": 1019,
+   "enum_name": "StormOfWrath",
+   "lambda": 42,
+   "cache_offset": 344,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1020,
+   "enum_name": "HeraldOfTheApocalypse",
+   "lambda": 43,
+   "cache_offset": 352,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HeraldOfTheApocalypseAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:HeraldOfTheApocalypsePlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1021,
+   "enum_name": "Incursion",
+   "lambda": 44,
+   "cache_offset": 360,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.IncursionAbility"
+   ],
+   "state": "measured",
+   "rules": 16416,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:IncursionPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1022,
+   "enum_name": "BringerOfDespair",
+   "lambda": 45,
+   "cache_offset": 368,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1023,
+   "enum_name": "Burrowers",
+   "lambda": 46,
+   "cache_offset": 376,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1024,
+   "enum_name": "Burrowers_Appear",
+   "lambda": 47,
+   "cache_offset": 384,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility_Appear",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BurrowersAbility_Appear"
+   ],
+   "state": "measured",
+   "rules": 550829555716,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1025,
+   "enum_name": "SkyStrike",
+   "lambda": 48,
+   "cache_offset": 392,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SkyStrikeAbility"
+   ],
+   "state": "measured",
+   "rules": 100679682,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1026,
+   "enum_name": "BasiliskBarrage",
+   "lambda": 49,
+   "cache_offset": 400,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BasiliskBarrageAbility"
+   ],
+   "state": "measured",
+   "rules": 524368,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "astraOrdnance"
+    ],
+    "npc": [
+     "astraBossOrdnance",
+     "astraBossOrdnanceLEG",
+     "astraBossOrdnanceLHE",
+     "astraNpcOrdnance"
+    ]
+   }
+  },
+  {
+   "id": 1027,
+   "enum_name": "PsychicMaelstrom",
+   "lambda": 50,
+   "cache_offset": 408,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicMaelstromAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PsychicMaelstromAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1028,
+   "enum_name": "SupremeCommander",
+   "lambda": 57,
+   "cache_offset": 464,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility"
+   ],
+   "state": "measured",
+   "rules": 2129920,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:SupremeCommanderPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1029,
+   "enum_name": "Drachnyen",
+   "lambda": 58,
+   "cache_offset": 472,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DrachnyenAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "preset",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:DrachnyenPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1030,
+   "enum_name": "Loki_NormalBossAttack",
+   "lambda": 52,
+   "cache_offset": 424,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalBossAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalBossAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1031,
+   "enum_name": "SpawnTermagants",
+   "lambda": 53,
+   "cache_offset": 432,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1032,
+   "enum_name": "Catalyst",
+   "lambda": 56,
+   "cache_offset": 456,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1033,
+   "enum_name": "SpawnTermagants2",
+   "lambda": 54,
+   "cache_offset": 440,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1034,
+   "enum_name": "SpawnTermagants3",
+   "lambda": 55,
+   "cache_offset": 448,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnTermagantsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1035,
+   "enum_name": "PlagueWind",
+   "lambda": 59,
+   "cache_offset": 480,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PlagueWindAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1036,
+   "enum_name": "FrenziedFiring",
+   "lambda": 61,
+   "cache_offset": 496,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FrenziedFiringAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1037,
+   "enum_name": "RevitalizingMalignancy",
+   "lambda": 60,
+   "cache_offset": 488,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RevitalizingMalignancyAbility"
+   ],
+   "state": "measured",
+   "rules": 34048,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:RevitalizingMalignancyPlaybook",
+   "route_emits_tile_target": true
+  },
+  {
+   "id": 1038,
+   "enum_name": "FoulInfusion",
+   "lambda": 62,
+   "cache_offset": 504,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FoulInfusionAbility"
+   ],
+   "state": "measured",
+   "rules": 1154,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:FoulInfusionPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1039,
+   "enum_name": "RitesOfRestoration",
+   "lambda": 65,
+   "cache_offset": 528,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility"
+   ],
+   "state": "measured",
+   "rules": 34056,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:RitesOfRestorationPlaybook",
+   "route_emits_tile_target": true
+  },
+  {
+   "id": 1040,
+   "enum_name": "Poxwalkers",
+   "lambda": 63,
+   "cache_offset": 512,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility"
+   ],
+   "state": "measured",
+   "rules": 549755813892,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:SpawnPoxwalkersPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1041,
+   "enum_name": "BrazierOfHolyFire",
+   "lambda": 64,
+   "cache_offset": 520,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1042,
+   "enum_name": "FlailSwing",
+   "lambda": 66,
+   "cache_offset": 536,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1043,
+   "enum_name": "ThunderousAssault",
+   "lambda": 67,
+   "cache_offset": 544,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ThunderousAssaultAbility"
+   ],
+   "state": "measured",
+   "rules": 268451840,
+   "form": "preset+flags",
+   "preset": 64,
+   "additional": 268435456,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1044,
+   "enum_name": "IncendiaryShells",
+   "lambda": 69,
+   "cache_offset": 560,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1045,
+   "enum_name": "GetEmRuntz",
+   "lambda": 68,
+   "cache_offset": 552,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GetEmRuntzAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:GetEmRuntzPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1046,
+   "enum_name": "TemplarInitiateNormalAttack",
+   "lambda": 70,
+   "cache_offset": 568,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TemplarInitiateNormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TemplarInitiateNormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1047,
+   "enum_name": "ScarabSummon",
+   "lambda": 71,
+   "cache_offset": 576,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ScarabSummonAbility"
+   ],
+   "state": "measured",
+   "rules": 2129920,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:ScarabSummonPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1048,
+   "enum_name": "FragstormGrenadeLauncher",
+   "lambda": 72,
+   "cache_offset": 584,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormGrenadeLauncherAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormGrenadeLauncherAbility"
+   ],
+   "state": "measured",
+   "rules": 33570818,
+   "form": "preset+flags",
+   "preset": 384,
+   "additional": 33554432,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1049,
+   "enum_name": "CrusadeOfWrath",
+   "lambda": 73,
+   "cache_offset": 592,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility"
+   ],
+   "state": "measured",
+   "rules": 1024,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1050,
+   "enum_name": "HolyDuel",
+   "lambda": 74,
+   "cache_offset": 600,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HolyDuelAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950976,
+   "form": "preset+flags",
+   "preset": 64,
+   "additional": 8589934592,
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:HolyDuelPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1051,
+   "enum_name": "Stikkbomb",
+   "lambda": 75,
+   "cache_offset": 608,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility"
+   ],
+   "state": "measured",
+   "rules": 33570818,
+   "form": "preset+flags",
+   "preset": 320,
+   "additional": 33554432,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:StikkbombPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1052,
+   "enum_name": "CallRipperSwarms",
+   "lambda": 77,
+   "cache_offset": 624,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1053,
+   "enum_name": "DevoutPush",
+   "lambda": 76,
+   "cache_offset": 616,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1054,
+   "enum_name": "CallRipperSwarms2",
+   "lambda": 78,
+   "cache_offset": 632,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1055,
+   "enum_name": "CallRipperSwarms3",
+   "lambda": 79,
+   "cache_offset": 640,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1056,
+   "enum_name": "StranglethornCannon",
+   "lambda": 80,
+   "cache_offset": 648,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility"
+   ],
+   "state": "measured",
+   "rules": 4294983682,
+   "form": "preset+flags",
+   "preset": 320,
+   "additional": 4294967296,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1057,
+   "enum_name": "GrotTank",
+   "lambda": 81,
+   "cache_offset": 656,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GrotTankAbility"
+   ],
+   "state": "measured",
+   "rules": 4160,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "orksBigMek"
+    ],
+    "npc": [
+     "orksBossBigMek",
+     "orksBossBigMekLEG",
+     "orksBossBigMekLHE",
+     "orksNpcBigMek"
+    ]
+   }
+  },
+  {
+   "id": 1058,
+   "enum_name": "Waaagh",
+   "lambda": 83,
+   "cache_offset": 672,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility"
+   ],
+   "state": "measured",
+   "rules": 4395646994,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1059,
+   "enum_name": "RammingSpeed",
+   "lambda": 84,
+   "cache_offset": 680,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1060,
+   "enum_name": "TunnelingHorror_Appear",
+   "lambda": 93,
+   "cache_offset": 752,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorror_AppearAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TunnelingHorror_AppearAbility"
+   ],
+   "state": "measured",
+   "rules": 36029346774777856,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1061,
+   "enum_name": "UnbreakableDuty",
+   "lambda": 82,
+   "cache_offset": 664,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDutyAbility"
+   ],
+   "state": "measured",
+   "rules": 33792,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1062,
+   "enum_name": "SanctorumMissile",
+   "lambda": 86,
+   "cache_offset": 696,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1063,
+   "enum_name": "FireAndReposition",
+   "lambda": 88,
+   "cache_offset": 712,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FireAndRepositionAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1064,
+   "enum_name": "Loki_SwoopingHawk",
+   "lambda": 87,
+   "cache_offset": 704,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1065,
+   "enum_name": "ScythingTalons",
+   "lambda": 89,
+   "cache_offset": 720,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ScythingTalonsAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1066,
+   "enum_name": "Executioner",
+   "lambda": 90,
+   "cache_offset": 728,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExecutionerAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1067,
+   "enum_name": "HarvesterOfSouls",
+   "lambda": 91,
+   "cache_offset": 736,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1068,
+   "enum_name": "SilentDeath",
+   "lambda": 94,
+   "cache_offset": 760,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SilentDeathAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1069,
+   "enum_name": "SeekerMissileFrequencyLock",
+   "lambda": 98,
+   "cache_offset": 792,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1070,
+   "enum_name": "BreathOfSilence",
+   "lambda": 99,
+   "cache_offset": 800,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BreathOfSilenceAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BreathOfSilenceAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1071,
+   "enum_name": "AnnihilatorBeam",
+   "lambda": 101,
+   "cache_offset": 816,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AnnihilatorBeamAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AnnihilatorBeamAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1072,
+   "enum_name": "MyWillBeDone",
+   "lambda": 96,
+   "cache_offset": 776,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MyWillBeDoneAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MyWillBeDoneAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1073,
+   "enum_name": "StaffOfStars",
+   "lambda": 100,
+   "cache_offset": 808,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StaffOfStarsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StaffOfStarsAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1074,
+   "enum_name": "ScytheOfDust",
+   "lambda": 97,
+   "cache_offset": 784,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ScytheOfDustAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ScytheOfDustAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 832,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1075,
+   "enum_name": "TargetingProtocols",
+   "lambda": 95,
+   "cache_offset": 768,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TargetingProtocolsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TargetingProtocolsAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1076,
+   "enum_name": "MV71SniperDroneSquadAttack",
+   "lambda": 102,
+   "cache_offset": 824,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.MV71SniperDroneSquadAttackAbility"
+   ],
+   "state": "measured_partial",
+   "rules": 16386,
+   "form": "factory",
+   "factory": "IdunBattle_Core_Services_TargetingOptions__CustomLokiNormalAttackOptions",
+   "why": "IdunBattle_Core_Services_TargetingOptions__CustomLokiNormalAttackOptions fait `Rules = <preset> | extraRules` et `extraRules` passe par un registre invisible du decompile de l'appelant -- masque MINORANT",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1077,
+   "enum_name": "EarlyWarningOverride",
+   "lambda": 105,
+   "cache_offset": 848,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.EarlyWarningOverrideAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:EarlyWarningOverridePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1078,
+   "enum_name": "Fragstorm",
+   "lambda": 103,
+   "cache_offset": 832,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility"
+   ],
+   "state": "measured",
+   "rules": 33570818,
+   "form": "preset+flags",
+   "preset": 384,
+   "additional": 33554432,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1080,
+   "enum_name": "HellfireShells",
+   "lambda": 104,
+   "cache_offset": 840,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HellfireShellsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HellfireShellsAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1081,
+   "enum_name": "FightingRetreat",
+   "lambda": 106,
+   "cache_offset": 856,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility"
+   ],
+   "state": "measured",
+   "rules": 2050,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:FightingRetreatPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1082,
+   "enum_name": "InspiredToGreatness",
+   "lambda": 107,
+   "cache_offset": 864,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.InspiredToGreatnessAbility"
+   ],
+   "state": "measured",
+   "rules": 1026,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:InspiredToGreatnessPlaybook",
+   "route_emits_tile_target": true
+  },
+  {
+   "id": 1083,
+   "enum_name": "NeedsMoreDakka",
+   "lambda": 108,
+   "cache_offset": 872,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.NeedsMoreDakkaAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.NeedsMoreDakkaAbility"
+   ],
+   "state": "measured",
+   "rules": 68719476802,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 1084,
+   "enum_name": "DaGreatWaaagh",
+   "lambda": 109,
+   "cache_offset": 880,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DaGreatWaaaghAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DaGreatWaaaghAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1085,
+   "enum_name": "EreWeGo",
+   "lambda": 110,
+   "cache_offset": 888,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.EreWeGoAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.EreWeGoAbility"
+   ],
+   "state": "measured",
+   "rules": 4162,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 1086,
+   "enum_name": "ProperKilly_NormalAttack",
+   "lambda": 111,
+   "cache_offset": 896,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ProperKilly_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1087,
+   "enum_name": "ExemplarOfTheKauyon",
+   "lambda": 112,
+   "cache_offset": 904,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheKauyonAbility"
+   ],
+   "state": "measured",
+   "rules": 100667458,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "tauShadowsun"
+    ],
+    "npc": [
+     "tauBossShadowsun",
+     "tauBossShadowsunInc",
+     "tauBossShadowsunLHE",
+     "tauNpcShadowsun"
+    ]
+   }
+  },
+  {
+   "id": 1088,
+   "enum_name": "HellfyreMissileRack",
+   "lambda": 113,
+   "cache_offset": 912,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HellfyreMissileRackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1089,
+   "enum_name": "GreatFrostAxe",
+   "lambda": 114,
+   "cache_offset": 920,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GreatFrostAxeAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1090,
+   "enum_name": "GrapnelLauncher",
+   "lambda": 115,
+   "cache_offset": 928,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GrapnelLauncherAbility"
+   ],
+   "state": "measured",
+   "rules": 134234112,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:GrapnelLauncherPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1091,
+   "enum_name": "SlashingDive",
+   "lambda": 116,
+   "cache_offset": 936,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SwoopingHawkAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1092,
+   "enum_name": "DarkTalonStrike",
+   "lambda": 118,
+   "cache_offset": 952,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility"
+   ],
+   "state": "measured",
+   "rules": 524352,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:DarkTalonStrikePlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "darkaAzrael"
+    ],
+    "npc": [
+     "darkaBossAzraelLHE",
+     "darkaNpcAzrael"
+    ]
+   }
+  },
+  {
+   "id": 1093,
+   "enum_name": "MortarionsPlagueWind",
+   "lambda": 119,
+   "cache_offset": 960,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1094,
+   "enum_name": "TheLantern",
+   "lambda": 120,
+   "cache_offset": 968,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility"
+   ],
+   "state": "measured",
+   "rules": 137440002114,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "deathBossMortarion"
+    ]
+   }
+  },
+  {
+   "id": 1095,
+   "enum_name": "ReapingScythe",
+   "lambda": 117,
+   "cache_offset": 944,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ReapingScytheAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ReapingScytheAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1096,
+   "enum_name": "MasterOfTheTutelaries",
+   "lambda": 121,
+   "cache_offset": 976,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MasterOfTheTutelariesAbility"
+   ],
+   "state": "measured",
+   "rules": 4160,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:MasterOfTheTutelariesPlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "thousInfernalMaster"
+    ],
+    "npc": [
+     "thousBossInfernalMaster",
+     "thousBossInfernalMasterCamp",
+     "thousBossInfernalMasterLHE",
+     "thousBossInfernalMasterSurv",
+     "thousNpcInfernalMaster"
+    ]
+   }
+  },
+  {
+   "id": 1097,
+   "enum_name": "Foehammer",
+   "lambda": 123,
+   "cache_offset": 992,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FoehammerAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FoehammerAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1098,
+   "enum_name": "PlasmaGrenade",
+   "lambda": 122,
+   "cache_offset": 984,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility"
+   ],
+   "state": "measured",
+   "rules": 33570818,
+   "form": "preset+flags",
+   "preset": 320,
+   "additional": 33554432,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:PlasmaGrenadePlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1100,
+   "enum_name": "SorcerousFacade",
+   "lambda": 124,
+   "cache_offset": 1000,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility"
+   ],
+   "state": "measured",
+   "rules": 1026,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "nonattack:SorcerousFacadePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1101,
+   "enum_name": "AttemptedPossession",
+   "lambda": 127,
+   "cache_offset": 1024,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950978,
+   "form": "preset+flags",
+   "preset": 384,
+   "additional": 8589934594,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1102,
+   "enum_name": "Doombolt",
+   "lambda": 125,
+   "cache_offset": 1008,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility"
+   ],
+   "state": "measured",
+   "rules": 144115188075855876,
+   "form": "preset",
+   "preset": 960,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1103,
+   "enum_name": "Supercharge",
+   "lambda": 126,
+   "cache_offset": 1016,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SuperchargeAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1104,
+   "enum_name": "SpiritLeech",
+   "lambda": 130,
+   "cache_offset": 1048,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1105,
+   "enum_name": "CrushingClaws",
+   "lambda": 129,
+   "cache_offset": 1040,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CrushingClawsAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1106,
+   "enum_name": "WarHowl",
+   "lambda": 128,
+   "cache_offset": 1032,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.WarHowlAbility"
+   ],
+   "state": "measured",
+   "rules": 32788,
+   "form": "preset+flags",
+   "preset": 640,
+   "additional": 16,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1107,
+   "enum_name": "Reveal",
+   "lambda": 131,
+   "cache_offset": 1056,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RevealAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RevealAbility"
+   ],
+   "state": "measured",
+   "rules": 100679682,
+   "form": "preset+flags",
+   "preset": 384,
+   "additional": 100663298,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1108,
+   "enum_name": "KissOfDeath",
+   "lambda": 132,
+   "cache_offset": 1064,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1109,
+   "enum_name": "DeathScream",
+   "lambda": 133,
+   "cache_offset": 1072,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathScreamAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathScreamAbility"
+   ],
+   "state": "measured",
+   "rules": 6442467328,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1110,
+   "enum_name": "UnparalleledFerocity",
+   "lambda": 134,
+   "cache_offset": 1080,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.UnparalleledFerocityAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.UnparalleledFerocityAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1111,
+   "enum_name": "LivingBatteringRam",
+   "lambda": 135,
+   "cache_offset": 1088,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.LivingBatteringRamAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.LivingBatteringRamAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1112,
+   "enum_name": "AlphaWarrior",
+   "lambda": 136,
+   "cache_offset": 1096,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AlphaWarriorAbility"
+   ],
+   "state": "measured",
+   "rules": 100667474,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "tyranWingedPrime"
+    ],
+    "npc": [
+     "tyranBossWingedPrime",
+     "tyranBossWingedPrimeCE",
+     "tyranBossWingedPrimeLEG",
+     "tyranBossWingedPrimeLHE",
+     "tyranBossWingedPrimeSurv",
+     "tyranNpcOSWingedPrime",
+     "tyranNpcWingedPrime"
+    ]
+   }
+  },
+  {
+   "id": 1113,
+   "enum_name": "Stormcaller",
+   "lambda": 147,
+   "cache_offset": 1184,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StormcallerAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950978,
+   "form": "preset+flags",
+   "preset": 384,
+   "additional": 8589934592,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:StormcallerPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1114,
+   "enum_name": "BlisteringAssault_NormalAttack",
+   "lambda": 137,
+   "cache_offset": 1104,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BlisteringAssault_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BlisteringAssault_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalBossAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 128,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1115,
+   "enum_name": "FearOfTheUnseen",
+   "lambda": 148,
+   "cache_offset": 1192,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FearOfTheUnseenAbility"
+   ],
+   "state": "measured",
+   "rules": 24,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1116,
+   "enum_name": "RadBombardment",
+   "lambda": 152,
+   "cache_offset": 1224,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RadBombardmentAbility"
+   ],
+   "state": "measured",
+   "rules": 10995116277826,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "admecDominus"
+    ],
+    "npc": [
+     "admecBossDominus",
+     "admecBossDominusCE",
+     "admecBossDominusLEG",
+     "admecBossDominusLHE",
+     "admecBossDominusSurv"
+    ]
+   }
+  },
+  {
+   "id": 1117,
+   "enum_name": "DefendTheDivineWork",
+   "lambda": 150,
+   "cache_offset": 1208,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility"
+   ],
+   "state": "measured",
+   "rules": 35842,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:DefendTheDivineWorkPlaybook",
+   "route_emits_tile_target": true
+  },
+  {
+   "id": 1118,
+   "enum_name": "DoctrinaImperatives",
+   "lambda": 149,
+   "cache_offset": 1200,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DoctrinaImperativesAbility"
+   ],
+   "state": "measured",
+   "rules": 128,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:DoctrinaImperativesPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1119,
+   "enum_name": "Repair_GalvanicField",
+   "lambda": 151,
+   "cache_offset": 1216,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.RepairAbility"
+   ],
+   "state": "measured",
+   "rules": 32770,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "bespoke repair_galvanic",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1120,
+   "enum_name": "FeederTendrils_NormalAttack",
+   "lambda": 138,
+   "cache_offset": 1112,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1121,
+   "enum_name": "ItItches",
+   "lambda": 153,
+   "cache_offset": 1232,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility"
+   ],
+   "state": "measured",
+   "rules": 524352,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:ItItchesPlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "tyranParasite"
+    ],
+    "npc": [
+     "tyranBossParasite",
+     "tyranBossParasiteCE",
+     "tyranBossParasiteLHE",
+     "tyranBossParasiteSurv",
+     "tyranNpcOSParasite",
+     "tyranNpcParasite"
+    ]
+   }
+  },
+  {
+   "id": 1122,
+   "enum_name": "CordClaw",
+   "lambda": 155,
+   "cache_offset": 1248,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CordClawAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:CordClawPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1123,
+   "enum_name": "OptimizedGait_NormalAttack",
+   "lambda": 156,
+   "cache_offset": 1256,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.OptimizedGait_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.OptimizedGait_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1124,
+   "enum_name": "PoundThemToDust",
+   "lambda": 157,
+   "cache_offset": 1264,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PoundThemToDustAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PoundThemToDustAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1125,
+   "enum_name": "GunnersKillOnSight",
+   "lambda": 158,
+   "cache_offset": 1272,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GunnersKillOnSightAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GunnersKillOnSightAbility"
+   ],
+   "state": "measured",
+   "rules": 132,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1126,
+   "enum_name": "RogalDorn_NormalAttack",
+   "lambda": 142,
+   "cache_offset": 1144,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RogalDorn_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RogalDorn_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1127,
+   "enum_name": "ArmouredMight_Move",
+   "lambda": 159,
+   "cache_offset": 1280,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ArmouredMight_MoveAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ArmouredMight_MoveAbility"
+   ],
+   "state": "measured",
+   "rules": 128,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1128,
+   "enum_name": "Boltstorm_NormalAttack",
+   "lambda": 139,
+   "cache_offset": 1120,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1129,
+   "enum_name": "BloodyFury",
+   "lambda": 154,
+   "cache_offset": 1240,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BloodyFuryAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "preset",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:BloodyFuryPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1131,
+   "enum_name": "JakhalStimms",
+   "lambda": 169,
+   "cache_offset": 1360,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1132,
+   "enum_name": "KillMaimBurn",
+   "lambda": 144,
+   "cache_offset": 1160,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.KillMaimBurnAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1133,
+   "enum_name": "WarConstruct",
+   "lambda": 181,
+   "cache_offset": 1456,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.WarConstructAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.WarConstructAbility"
+   ],
+   "state": "measured",
+   "rules": 32768,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1134,
+   "enum_name": "TheWailingDoomSweeps",
+   "lambda": 166,
+   "cache_offset": 1336,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomSweepsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomSweepsAbility"
+   ],
+   "state": "measured",
+   "rules": 137438953538,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 1135,
+   "enum_name": "TheWailingDoomStrikes",
+   "lambda": 167,
+   "cache_offset": 1344,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomStrikesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWailingDoomStrikesAbility"
+   ],
+   "state": "measured",
+   "rules": 137438953538,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 1136,
+   "enum_name": "TheWrathOfKhaineUnleashed",
+   "lambda": 168,
+   "cache_offset": 1352,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1137,
+   "enum_name": "MurderousSwing",
+   "lambda": 160,
+   "cache_offset": 1288,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.MurderousSwingAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "preset",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1138,
+   "enum_name": "Wraithcannon_NormalAttack",
+   "lambda": 145,
+   "cache_offset": 1168,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.Wraithcannon_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Wraithcannon_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1139,
+   "enum_name": "SentinelDirectives",
+   "lambda": 161,
+   "cache_offset": 1296,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.SentinelDirectivesAbility"
+   ],
+   "state": "measured",
+   "rules": 4294983680,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1140,
+   "enum_name": "ExemplarOfHate",
+   "lambda": 170,
+   "cache_offset": 1368,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfHateAbility"
+   ],
+   "state": "measured",
+   "rules": 100679680,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1141,
+   "enum_name": "OverwhelmingWrath",
+   "lambda": 162,
+   "cache_offset": 1304,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1142,
+   "enum_name": "MalleusRocketLauncher",
+   "lambda": 164,
+   "cache_offset": 1320,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MalleusRocketLauncherAbility"
+   ],
+   "state": "measured",
+   "rules": 4503600701112384,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "astraOrdnanceBattery"
+    ],
+    "npc": [
+     "astraNpcMowOrdnanceBattery"
+    ]
+   }
+  },
+  {
+   "id": 1143,
+   "enum_name": "ForwardSpotter",
+   "lambda": 163,
+   "cache_offset": 1312,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardSpotterAbility"
+   ],
+   "state": "measured",
+   "rules": 1073742882,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1144,
+   "enum_name": "BioMinefield",
+   "lambda": 174,
+   "cache_offset": 1400,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility"
+   ],
+   "state": "measured",
+   "rules": 1073758240,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1145,
+   "enum_name": "SporeMineLauncher",
+   "lambda": 173,
+   "cache_offset": 1392,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SporeMineLauncherAbility"
+   ],
+   "state": "measured",
+   "rules": 4399220920386,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "tyranBiovore"
+    ],
+    "npc": [
+     "tyranNpcMowBiovore"
+    ]
+   }
+  },
+  {
+   "id": 1146,
+   "enum_name": "FloatingDeath_NormalAttack",
+   "lambda": 143,
+   "cache_offset": 1152,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.FloatingDeath_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.FloatingDeath_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1147,
+   "enum_name": "HadesAutocannons",
+   "lambda": 171,
+   "cache_offset": 1376,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility"
+   ],
+   "state": "measured",
+   "rules": 1174429696,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1148,
+   "enum_name": "DaemonicOrdnance",
+   "lambda": 172,
+   "cache_offset": 1384,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility"
+   ],
+   "state": "measured",
+   "rules": 1174405184,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "nonattack:DaemonicOrdnancePlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "blackForgefiend"
+    ],
+    "npc": [
+     "blackNpcMowForgefiend"
+    ]
+   }
+  },
+  {
+   "id": 1149,
+   "enum_name": "MachineTest",
+   "lambda": 165,
+   "cache_offset": 1328,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MachineTestAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MachineTestAbility"
+   ],
+   "state": "measured",
+   "rules": 1073758208,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1150,
+   "enum_name": "PlasmaCannon",
+   "lambda": 182,
+   "cache_offset": 1464,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1151,
+   "enum_name": "TheQuickening",
+   "lambda": 179,
+   "cache_offset": 1440,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheQuickeningAbility"
+   ],
+   "state": "measured",
+   "rules": 34460401730,
+   "form": "preset+flags",
+   "preset": 512,
+   "additional": 34460401664,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:TheQuickeningPlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "bloodMephiston"
+    ]
+   }
+  },
+  {
+   "id": 1152,
+   "enum_name": "UnstoppableMomentumReworked",
+   "lambda": 85,
+   "cache_offset": 688,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.UnstoppableMomentumReworkedAbility"
+   ],
+   "state": "measured",
+   "rules": 269615168,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "orksNob"
+    ],
+    "npc": [
+     "orksBossNob",
+     "orksBossNobLEG",
+     "orksBossNobLHE",
+     "orksNpcNob"
+    ]
+   }
+  },
+  {
+   "id": 1153,
+   "enum_name": "HammerOfWrath",
+   "lambda": 180,
+   "cache_offset": 1448,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility"
+   ],
+   "state": "measured",
+   "rules": 4328538162,
+   "form": "static-copy",
+   "preset": 576,
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:HammerOfWrathPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1154,
+   "enum_name": "TacticalPrecision",
+   "lambda": 178,
+   "cache_offset": 1432,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TacticalPrecisionAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1155,
+   "enum_name": "TzeentchsFirestorm",
+   "lambda": 176,
+   "cache_offset": 1416,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TzeentchsFirestormAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TzeentchsFirestormAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1156,
+   "enum_name": "TreasonOfTzeentch",
+   "lambda": 177,
+   "cache_offset": 1424,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TreasonOfTzeentchAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TreasonOfTzeentchAbility"
+   ],
+   "state": "measured",
+   "rules": 1266637395214338,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1157,
+   "enum_name": "BladeOfMagnus",
+   "lambda": 175,
+   "cache_offset": 1408,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BladeOfMagnusAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BladeOfMagnusAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1158,
+   "enum_name": "DutyEternal",
+   "lambda": 186,
+   "cache_offset": 1496,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DutyEternalAbility"
+   ],
+   "state": "measured",
+   "rules": 9007200328482882,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "ultraDreadnought"
+    ],
+    "npc": [
+     "ultraNpcMoWDreadnought"
+    ]
+   }
+  },
+  {
+   "id": 1159,
+   "enum_name": "MacroPlasmaIncinerator",
+   "lambda": 187,
+   "cache_offset": 1504,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility"
+   ],
+   "state": "measured",
+   "rules": 1174405184,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "ultraDreadnought"
+    ],
+    "npc": [
+     "ultraNpcMoWDreadnought"
+    ]
+   }
+  },
+  {
+   "id": 1160,
+   "enum_name": "HeavyRailRifle",
+   "lambda": 184,
+   "cache_offset": 1480,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyRailRifleAbility"
+   ],
+   "state": "measured",
+   "rules": 4573969445306368,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1161,
+   "enum_name": "TwinSmartMissileSystem",
+   "lambda": 185,
+   "cache_offset": 1488,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TwinSmartMissileSystemAbility"
+   ],
+   "state": "measured",
+   "rules": 1073758208,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1162,
+   "enum_name": "AncientFury_NormalAttack",
+   "lambda": 188,
+   "cache_offset": 1512,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1163,
+   "enum_name": "BlackRage",
+   "lambda": 190,
+   "cache_offset": 1528,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility"
+   ],
+   "state": "measured",
+   "rules": 4395646994,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:BlackRagePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1164,
+   "enum_name": "MindControl",
+   "lambda": 189,
+   "cache_offset": 1520,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1165,
+   "enum_name": "MightFromBelow",
+   "lambda": 194,
+   "cache_offset": 1560,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MightFromBelowAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MightFromBelowAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1166,
+   "enum_name": "AberrantHypermorph",
+   "lambda": 191,
+   "cache_offset": 1536,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AberrantHypermorphAbility"
+   ],
+   "state": "measured",
+   "rules": 4160,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:AberrantHypermorphPlaybook",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "genesBiophagus"
+    ],
+    "npc": [
+     "genesBossBiophagus",
+     "genesBossBiophagusLHE",
+     "genesNpcBiophagus"
+    ]
+   }
+  },
+  {
+   "id": 1167,
+   "enum_name": "Heal_TwistedScience",
+   "lambda": 192,
+   "cache_offset": 1544,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility"
+   ],
+   "state": "measured",
+   "rules": 33794,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1168,
+   "enum_name": "EntropyCannons",
+   "lambda": 195,
+   "cache_offset": 1568,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility"
+   ],
+   "state": "measured",
+   "rules": 1073758210,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1169,
+   "enum_name": "PlagueburstMortar",
+   "lambda": 196,
+   "cache_offset": 1576,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.PlagueburstMortarAbility"
+   ],
+   "state": "measured",
+   "rules": 1073741890,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "nonattack:PlagueburstMortarPlaybook",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "deathCrawler"
+    ],
+    "npc": [
+     "deathNpcMoWCrawler"
+    ]
+   }
+  },
+  {
+   "id": 1170,
+   "enum_name": "ExplosivePresents",
+   "lambda": 199,
+   "cache_offset": 1600,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility"
+   ],
+   "state": "measured",
+   "rules": 35184372088834,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1171,
+   "enum_name": "DakkaDakkaDakka",
+   "lambda": 197,
+   "cache_offset": 1584,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "preset",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1172,
+   "enum_name": "InvocationOfMachineVengeance",
+   "lambda": 208,
+   "cache_offset": 1672,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility"
+   ],
+   "state": "measured",
+   "rules": 32768,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1173,
+   "enum_name": "ArcScourge",
+   "lambda": 209,
+   "cache_offset": 1680,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility"
+   ],
+   "state": "measured",
+   "rules": 16390,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1174,
+   "enum_name": "SolarAtomizer",
+   "lambda": 210,
+   "cache_offset": 1688,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility"
+   ],
+   "state": "measured",
+   "rules": 68720525378,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "admecBossBelisarius"
+    ]
+   }
+  },
+  {
+   "id": 1175,
+   "enum_name": "BloodChalice",
+   "lambda": 198,
+   "cache_offset": 1592,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility"
+   ],
+   "state": "measured",
+   "rules": 3074,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "bespoke selfcast",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1176,
+   "enum_name": "BlightGrenades",
+   "lambda": 205,
+   "cache_offset": 1648,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1177,
+   "enum_name": "LightOfSanguinius",
+   "lambda": 200,
+   "cache_offset": 1608,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.LightOfSanguiniusAbility"
+   ],
+   "state": "measured",
+   "rules": 4328538162,
+   "form": "static-copy",
+   "preset": 576,
+   "in_ability_classes": false,
+   "decision_route": "REGISTRY:LightOfSanguiniusPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1178,
+   "enum_name": "ElectroShock_NormalAttack",
+   "lambda": 146,
+   "cache_offset": 1176,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ElectroShock_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ElectroShock_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1179,
+   "enum_name": "CultDemagogue",
+   "lambda": 207,
+   "cache_offset": 1664,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": true,
+   "decision_route": "bespoke selfcast",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1180,
+   "enum_name": "HeroicFusillade",
+   "lambda": 206,
+   "cache_offset": 1656,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HeroicFusilladeAbility"
+   ],
+   "state": "measured",
+   "rules": 100679682,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:HeroicFusilladePlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1181,
+   "enum_name": "ShroudPsalm",
+   "lambda": 211,
+   "cache_offset": 1696,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ShroudPsalmAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ShroudPsalmAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1182,
+   "enum_name": "RighteousRepugnance_NormalAttack",
+   "lambda": 140,
+   "cache_offset": 1128,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1183,
+   "enum_name": "VexillaMagnifica",
+   "lambda": 214,
+   "cache_offset": 1720,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.VexillaMagnificaAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950976,
+   "form": "preset+flags",
+   "preset": 64,
+   "additional": 8589934592,
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:VexillaMagnificaPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1184,
+   "enum_name": "MomentShackle",
+   "lambda": 215,
+   "cache_offset": 1728,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": true,
+   "decision_route": "bespoke selfcast",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1185,
+   "enum_name": "ForwardObservers",
+   "lambda": 223,
+   "cache_offset": 1792,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950978,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "nonattack:ForwardObserversPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1186,
+   "enum_name": "WallOfMirrors",
+   "lambda": 224,
+   "cache_offset": 1800,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.WallOfMirrorsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.WallOfMirrorsAbility"
+   ],
+   "state": "measured",
+   "rules": 100679698,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1187,
+   "enum_name": "ThriceBlessedConflagration",
+   "lambda": 212,
+   "cache_offset": 1704,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility"
+   ],
+   "state": "measured",
+   "rules": 1073742848,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:ThriceBlessedConflagrationPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1188,
+   "enum_name": "DevastatingRefrain",
+   "lambda": 213,
+   "cache_offset": 1712,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DevastatingRefrainAbility"
+   ],
+   "state": "measured",
+   "rules": 4503600701112384,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "adeptExorcist"
+    ],
+    "npc": [
+     "adeptNpcMoWExorcist"
+    ]
+   }
+  },
+  {
+   "id": 1189,
+   "enum_name": "CalibaniteGreatsword",
+   "lambda": 220,
+   "cache_offset": 1768,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.CalibaniteGreatswordAbility"
+   ],
+   "state": "measured",
+   "rules": 128,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1191,
+   "enum_name": "MartialInspiration",
+   "lambda": 216,
+   "cache_offset": 1736,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MartialInspirationAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1192,
+   "enum_name": "NovaBoost",
+   "lambda": 217,
+   "cache_offset": 1744,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility"
+   ],
+   "state": "measured",
+   "rules": 32788,
+   "form": "preset+flags",
+   "preset": 640,
+   "additional": 16,
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:NovaBoostPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1193,
+   "enum_name": "NovaCharge",
+   "lambda": 218,
+   "cache_offset": 1752,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaChargeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaChargeAbility"
+   ],
+   "state": "measured",
+   "rules": 137438953538,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "tauBossRiptide"
+    ]
+   }
+  },
+  {
+   "id": 1194,
+   "enum_name": "NovaShield",
+   "lambda": 219,
+   "cache_offset": 1760,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility"
+   ],
+   "state": "measured",
+   "rules": 100663360,
+   "form": "static-copy",
+   "preset": 448,
+   "in_ability_classes": false,
+   "decision_route": "noncomparable:NovaShieldPlaybook",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "npc": [
+     "tauBossRiptide"
+    ]
+   }
+  },
+  {
+   "id": 1195,
+   "enum_name": "TalonsOfTheEmperor",
+   "lambda": 222,
+   "cache_offset": 1784,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonsOfTheEmperorAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1196,
+   "enum_name": "LashOfTorment",
+   "lambda": 225,
+   "cache_offset": 1808,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.LashOfTormentAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1197,
+   "enum_name": "ExcruciatingFrequencies",
+   "lambda": 221,
+   "cache_offset": 1776,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExcruciatingFrequenciesAbility"
+   ],
+   "state": "measured",
+   "rules": 2199023255618,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "bespoke excruciating_frequencies",
+   "route_emits_tile_target": true,
+   "carriers": {
+    "lineup": [
+     "emperNoiseMarine"
+    ]
+   }
+  },
+  {
+   "id": 1198,
+   "enum_name": "EuphoricStrikes",
+   "lambda": 226,
+   "cache_offset": 1816,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1199,
+   "enum_name": "DoomSiren",
+   "lambda": 227,
+   "cache_offset": 1824,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:DoomSirenPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1200,
+   "enum_name": "SquigLaunchas",
+   "lambda": 229,
+   "cache_offset": 1840,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility"
+   ],
+   "state": "measured",
+   "rules": 1073758210,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1201,
+   "enum_name": "SquigMine",
+   "lambda": 230,
+   "cache_offset": 1848,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SquigMineAbility"
+   ],
+   "state": "measured",
+   "rules": 1174409282,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "orksRukkatrukk"
+    ],
+    "npc": [
+     "orksNpcMoWRukkatrukk"
+    ]
+   }
+  },
+  {
+   "id": 1202,
+   "enum_name": "VigilanceEternal",
+   "lambda": 228,
+   "cache_offset": 1832,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility"
+   ],
+   "state": "measured",
+   "rules": 8690614274,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "noncomparable:VigilanceEternalPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1203,
+   "enum_name": "DaemonicPatrons",
+   "lambda": 231,
+   "cache_offset": 1856,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility"
+   ],
+   "state": "measured",
+   "rules": 8589950976,
+   "form": "preset+flags",
+   "preset": 64,
+   "additional": 8589934592,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1204,
+   "enum_name": "LeadingTheCharge",
+   "lambda": 233,
+   "cache_offset": 1872,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility"
+   ],
+   "state": "measured",
+   "rules": 4328538162,
+   "form": "static-copy",
+   "preset": 576,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1205,
+   "enum_name": "TalonOfHorus_NormalAttack",
+   "lambda": 232,
+   "cache_offset": 1864,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1206,
+   "enum_name": "GravitonRifle",
+   "lambda": 234,
+   "cache_offset": 1880,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.GravitonRifleAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1207,
+   "enum_name": "AncestralFortune",
+   "lambda": 235,
+   "cache_offset": 1888,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1208,
+   "enum_name": "AetherStride",
+   "lambda": 236,
+   "cache_offset": 1896,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility"
+   ],
+   "state": "measured",
+   "rules": 9007200328482882,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "thousDaemonPrince"
+    ],
+    "npc": [
+     "thousNpcMowDaemonPrince"
+    ]
+   }
+  },
+  {
+   "id": 1209,
+   "enum_name": "InfernalCannon",
+   "lambda": 237,
+   "cache_offset": 1904,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility"
+   ],
+   "state": "measured",
+   "rules": 1174405184,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "thousDaemonPrince"
+    ],
+    "npc": [
+     "thousNpcMowDaemonPrince"
+    ]
+   }
+  },
+  {
+   "id": 1210,
+   "enum_name": "ExemplarOfTheMontka",
+   "lambda": 238,
+   "cache_offset": 1912,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1211,
+   "enum_name": "RitesOfMorkai",
+   "lambda": 239,
+   "cache_offset": 1920,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility"
+   ],
+   "state": "measured",
+   "rules": 33588226,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1212,
+   "enum_name": "HealingBalms_Heal",
+   "lambda": 193,
+   "cache_offset": 1552,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HealingBalms_HealAbility"
+   ],
+   "state": "measured",
+   "rules": 33794,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1213,
+   "enum_name": "DeathOnTheWind",
+   "lambda": 240,
+   "cache_offset": 1928,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathOnTheWindAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.DeathOnTheWindAbility"
+   ],
+   "state": "measured",
+   "rules": 1074266178,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "darkaStormSpeeder"
+    ],
+    "npc": [
+     "darkaNpcMowStormSpeeder"
+    ]
+   }
+  },
+  {
+   "id": 1214,
+   "enum_name": "Hailstrike",
+   "lambda": 201,
+   "cache_offset": 1616,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HailstrikeAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HailstrikeAbility"
+   ],
+   "state": "measured",
+   "rules": 35194035766272,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1215,
+   "enum_name": "InstrumentsOfVengeance",
+   "lambda": 246,
+   "cache_offset": 1976,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1216,
+   "enum_name": "MartialExemplar",
+   "lambda": 241,
+   "cache_offset": 1936,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility"
+   ],
+   "state": "measured",
+   "rules": 32788,
+   "form": "preset+flags",
+   "preset": 640,
+   "additional": 16,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1217,
+   "enum_name": "TheLionsWrath",
+   "lambda": 242,
+   "cache_offset": 1944,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1218,
+   "enum_name": "TheWrathOfKhaineUnleashedReworked",
+   "lambda": 243,
+   "cache_offset": 1952,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedReworkedAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TheWrathOfKhaineUnleashedReworkedAbility"
+   ],
+   "state": "measured",
+   "rules": 32772,
+   "form": "static-copy",
+   "preset": 640,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1219,
+   "enum_name": "IronkinSteeljack",
+   "lambda": 244,
+   "cache_offset": 1960,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.IronkinSteeljackAbility"
+   ],
+   "state": "measured",
+   "rules": 4160,
+   "form": "literal",
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "votanMemnyr"
+    ]
+   }
+  },
+  {
+   "id": 1220,
+   "enum_name": "Fealty_NormalAttack",
+   "lambda": 141,
+   "cache_offset": 1136,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TalonOfHorus_NormalAttackAbility",
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.Loki_NormalAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1221,
+   "enum_name": "AugmentedAssault",
+   "lambda": 245,
+   "cache_offset": 1968,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.AugmentedAssaultAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1222,
+   "enum_name": "MassDriverAccelerator",
+   "lambda": 247,
+   "cache_offset": 1984,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.MassDriverAcceleratorAbility"
+   ],
+   "state": "measured",
+   "rules": 4328538162,
+   "form": "static-copy",
+   "preset": 576,
+   "in_ability_classes": false,
+   "decision_route": "REGISTRY:MassDriverAcceleratorPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1223,
+   "enum_name": "ReanimationBeam",
+   "lambda": 248,
+   "cache_offset": 1992,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility"
+   ],
+   "state": "measured",
+   "rules": 35185445831682,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1224,
+   "enum_name": "NanoscarabRepairProtocols",
+   "lambda": 249,
+   "cache_offset": 2000,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility"
+   ],
+   "state": "measured",
+   "rules": 1073742850,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1225,
+   "enum_name": "StrikeFromTheShadows",
+   "lambda": 251,
+   "cache_offset": 2016,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.StrikeFromTheShadowsAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.StrikeFromTheShadowsAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1226,
+   "enum_name": "Chronometron",
+   "lambda": 250,
+   "cache_offset": 2008,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.ChronometronAbility"
+   ],
+   "state": "measured",
+   "rules": 100679680,
+   "form": "inline",
+   "stack_base": "0x48",
+   "in_ability_classes": true,
+   "decision_route": "nonattack:ChronometronPlaybook",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1227,
+   "enum_name": "HeavyWarpFlamer",
+   "lambda": 253,
+   "cache_offset": 2032,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.HeavyWarpFlamerAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "REGISTRY:HeavyWarpFlamerPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1228,
+   "enum_name": "SternguardFocus",
+   "lambda": 252,
+   "cache_offset": 2024,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1230,
+   "enum_name": "SavageEchoes",
+   "lambda": 254,
+   "cache_offset": 2040,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.SavageEchoesAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": true,
+   "decision_route": "REGISTRY:SavageEchoesPlaybook (domaine unite)",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 1231,
+   "enum_name": "TitanhammerSquad",
+   "lambda": 255,
+   "cache_offset": 2048,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility"
+   ],
+   "state": "measured",
+   "rules": 100667458,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {
+    "lineup": [
+     "astarLysander"
+    ]
+   }
+  },
+  {
+   "id": 1232,
+   "enum_name": "EmpyricAmbush",
+   "lambda": 256,
+   "cache_offset": 2056,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.EmpyricAmbushAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.EmpyricAmbushAbility"
+   ],
+   "state": "measured",
+   "rules": 100679712,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9001,
+   "enum_name": "TestTargetAndAdjacentAttack",
+   "lambda": 8,
+   "cache_offset": 72,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestTargetAndAdjacentAttack",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestTargetAndAdjacentAttack"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9002,
+   "enum_name": "TestMeleeAttackDamage",
+   "lambda": 9,
+   "cache_offset": 80,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestMeleeAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestMeleeAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9003,
+   "enum_name": "TestRangedAttackDamage",
+   "lambda": 10,
+   "cache_offset": 88,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestRangedAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestRangedAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 320,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9004,
+   "enum_name": "TestMeleeAbilityDamage",
+   "lambda": 11,
+   "cache_offset": 96,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestMeleeAbilityDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestMeleeAbilityDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9005,
+   "enum_name": "TestRangedAbilityDamage",
+   "lambda": 14,
+   "cache_offset": 120,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestRangedAbilityDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestRangedAbilityDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 384,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9006,
+   "enum_name": "TestDirectKill",
+   "lambda": 15,
+   "cache_offset": 128,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectKillAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectKillAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9007,
+   "enum_name": "TestDamageMachine",
+   "lambda": 183,
+   "cache_offset": 1472,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDamageMachineAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDamageMachineAbility"
+   ],
+   "state": "measured",
+   "rules": 17593259802624,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9008,
+   "enum_name": "TestDirectForceOverkill",
+   "lambda": 16,
+   "cache_offset": 136,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectForceOverkillAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.Loki.TestDirectForceOverkillAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9009,
+   "enum_name": "TestSummon",
+   "lambda": 202,
+   "cache_offset": 1624,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestSummonAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestSummonAbility"
+   ],
+   "state": "measured",
+   "rules": 100663360,
+   "form": "static-copy",
+   "preset": 448,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 9010,
+   "enum_name": "TestDoubleMeleeAttackDamage",
+   "lambda": 17,
+   "cache_offset": 144,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestDoubleMeleeAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestDoubleMeleeAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9011,
+   "enum_name": "TestTwoHitGroupsAttackDamage",
+   "lambda": 18,
+   "cache_offset": 152,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestTwoHitGroupsAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestTwoHitGroupsAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9012,
+   "enum_name": "TestTileAttack",
+   "lambda": 20,
+   "cache_offset": 168,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestTileAttack",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestTileAttack"
+   ],
+   "state": "measured",
+   "rules": 524352,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 9013,
+   "enum_name": "TestMultiHitAttack",
+   "lambda": 21,
+   "cache_offset": 176,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestMultiHitAttackAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestMultiHitAttackAbility"
+   ],
+   "state": "measured",
+   "rules": 16386,
+   "form": "static-copy",
+   "preset": 0,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9014,
+   "enum_name": "TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamage",
+   "lambda": 19,
+   "cache_offset": 160,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestMultipleHitGroupsWithDifferentDamageProfileTypesAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9015,
+   "enum_name": "TestMultipleTargetsAttackDamage",
+   "lambda": 22,
+   "cache_offset": 184,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestMultipleTargetsAttackDamageAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestMultipleTargetsAttackDamageAbility"
+   ],
+   "state": "measured",
+   "rules": 16384,
+   "form": "static-copy",
+   "preset": 64,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false
+  },
+  {
+   "id": 9016,
+   "enum_name": "TestDecoy",
+   "lambda": 204,
+   "cache_offset": 1640,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestDecoyAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestDecoyAbility"
+   ],
+   "state": "measured",
+   "rules": 100663360,
+   "form": "static-copy",
+   "preset": 448,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 9017,
+   "enum_name": "TestSummonOnBestUtilityTile",
+   "lambda": 203,
+   "cache_offset": 1632,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestSummonOnBestUtilitytileAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestSummonOnBestUtilitytileAbility"
+   ],
+   "state": "measured",
+   "rules": 100663360,
+   "form": "static-copy",
+   "preset": 448,
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  },
+  {
+   "id": 9018,
+   "enum_name": "TestAttackTiles",
+   "lambda": 23,
+   "cache_offset": 192,
+   "ability_class": "IdunBattleLogic.Entities.Abilities.Active.TestAttackTilesAbility",
+   "ctor_chain": [
+    "IdunBattleLogic.Entities.Abilities.Active.TestAttackTilesAbility"
+   ],
+   "state": "measured",
+   "rules": 524352,
+   "form": "literal",
+   "in_ability_classes": false,
+   "decision_route": "",
+   "route_emits_tile_target": false,
+   "carriers": {}
+  }
+ ]
+}
