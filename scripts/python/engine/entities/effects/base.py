@@ -137,6 +137,34 @@ def tiles_moved_this_turn(att_ctx) -> "int | None":
     return None if v is None else int(v)
 
 
+def is_turn_of_owner(att_ctx) -> "bool | None":
+    """Noeud DSL `IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf(Owner@0x148)` — foyer UNIQUE du
+    canal `att_ctx["is_turn_of_owner"]` (case-366-r1, `1110 FireAndReposition_ReduceDmg`).
+
+    Le natif est `IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` : pour chaque
+    entite rendue par le selecteur il compare `OwnerComponent.CurrentPlayerEntityId` a
+    `TurnComponent.CurrentPlayerId`. Sur le canal DEFENSEUR (`CreateEffectDamageMalusForDefense`),
+    `Owner@0x148` est le PORTEUR de l'effet, c'est-a-dire la CIBLE du coup -- donc la question posee
+    est « est-ce le tour du joueur qui possede le defenseur ? ».
+
+    C'est mot pour mot `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer(unit, state)`
+    (meme paire de champs, meme egalite), ce que les DEUX faces LISENT au lieu de le deriver :
+      * DECISION -- `decisionView.units[].ctrl`, ou le hook INVOQUE la methode native
+        (`projection.ts`, `isCtrlByCurMi`), relaye par `Scene.is_turn_of(uid)` ;
+      * COMBAT -- `OwnerComponent.player == State.current_player_id` (mirror
+        `StateExtensions.GetCurrentPlayerId`), pose par `damage_model.defender_modifiers`.
+
+    Tri-etat : cle ABSENTE -> `None` = « non threade ». Les consommateurs d'un gate `NOT IsTurnOf`
+    n'appliquent alors RIEN (« present != applique ») -- meme polarite que `is_charging_attack`.
+
+    ⚠ Le port du noeud generique (`entities/triggers.py::IsTurnOf`) agrege par `any(...)` la ou le
+    natif sort FAUX des qu'UNE entite selectionnee n'appartient pas au joueur courant (donc `all`).
+    Sans effet ici -- `Owner` est un singleton -- mais l'ecart est reel pour un selectionneur
+    multi-entites (residu NOMME, non corrige par ce cas)."""
+    v = (att_ctx or {}).get("is_turn_of_owner")
+    return None if v is None else bool(v)
+
+
 @dataclass
 class SubEffectSpec:
     """Sous-effet (enfant) qu'un effet COMPOSITE spawne quand il est appliqué (mirror des
@@ -528,6 +556,10 @@ class BaseEffect:
                                   `EffectSource(Effect@0x150)` = `eff.source`, qui n'est PAS l'attaquant ;
           • `traits`            → `HasTrait(caster, …)` (noms gameconfig), dont `IsMechanical(caster)`
                                   = `AmountIsEqualOrGreater(TraitAmount(caster, Mechanical), 1)`.
+        UNE clé fait exception et porte sur `Owner@0x148` (= le PORTEUR de l'effet, donc la CIBLE du
+        coup) et non sur le caster — parce que le nœud natif, lui, porte sur l'Owner :
+          • `is_turn_of_owner`  → `IsTurnOf(Owner@0x148)`, lu par le foyer `is_turn_of_owner(ctx)`
+                                  ci-dessus (gate de `1110 FireAndReposition_ReduceDmg`).
         Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur devinée.
         Renvoie un `EffectBonus` (`PercentDecrease` de réduction OU `ForAddition` positif type Neuroparasite,
         gated par une condition d'effet) ou None.

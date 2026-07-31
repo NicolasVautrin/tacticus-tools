@@ -95,14 +95,31 @@ class EffectsState:
         `ability_state_by_unit` = {unit_id: (multiplier, abilityLevel, activeAbilityLevel)} — l'état
         d'ability de CHAQUE entité, consulté **par la SOURCE de l'effet** (`captured["source"]`).
         C'est le mirror du bake natif : cf. `baked_ability_state`. Absent (défaut) → comportement
-        strictement antérieur, l'état du PORTEUR pour tous ses effets."""
+        strictement antérieur, l'état du PORTEUR pour tous ses effets.
+
+        LE TROISIÈME MEMBRE DU TRIPLE — `activeAbilityLevel` — EST LU, Y COMPRIS EN REPLI
+        (case-366-r1). `GetAbilityState(effet)` résout l'`AbilityState` de l'ability SOURCE, et cette
+        source est une ACTIVE pour toute une famille d'effets (`<Effect>$$.ctor` écrit
+        l'`ActiveAbilityType` puis la surcharge `IdunBattle.Core.AbilityOrEffect$$op_Implicit` qui
+        appelle `set_ActiveAbility`). **19 classes d'effet** écrivent la cascade
+        `active_ability_level -> ability_level -> level`, et elle retombait TOUJOURS sur le passif :
+        le repli porteur forçait `None`. L'écart est INVISIBLE en runner normalisé
+        (`buildNormalizedBC` met les deux niveaux à `targetAbilityLevel`) — mesuré en les dissociant
+        (`--unit-stat "eldarRanger:ActiveAbilityLevel=30"`, passif 50), le natif retire
+        `dmgReduction[30] x 1.8 = 716` là où le port retirait `dmgReduction[50] x 1.8 = 2992`.
+        Le repli tire donc le triple d'`ability_state_by_unit[porteur]` quand il y est ; à défaut
+        (appelant qui ne passe pas la table) il reste `(mult, abilityLevel, None)`, comportement
+        strictement antérieur."""
         bu: dict[int, list[BaseEffect]] = {}
         for uid, effs in (effects_by_unit or {}).items():
             uid = int(uid)
-            # REPLI = le porteur, à l'identique de l'ancien code (`active_ability_level` reste None :
-            # `seed` ne l'a jamais propagé pour le porteur, et l'élargir ici déborderait du cas).
-            carrier = (int((mult_by_unit or {}).get(uid, 100) or 100),
-                       (ability_level_by_unit or {}).get(uid), None)
+            # REPLI = le porteur. `ability_state_by_unit` porte DÉJÀ son triple complet (même
+            # lecture que pour une source) : on s'en sert, sinon on retombe sur les deux tables
+            # historiques (et `activeAbilityLevel` inconnu -> None, jamais un niveau deviné).
+            carrier = (ability_state_by_unit or {}).get(uid)
+            if carrier is None:
+                carrier = (int((mult_by_unit or {}).get(uid, 100) or 100),
+                           (ability_level_by_unit or {}).get(uid), None)
             out: list[BaseEffect] = []
             for c in (effs or []):
                 if not (isinstance(c, Mapping) and c.get("name")):
