@@ -158,7 +158,7 @@ def _machine_ability_state(m: dict) -> tuple:
 
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
-               board=None, tiles=None) -> State:
+               board=None, tiles=None, actor_stats=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
 
     CANAL DE CAPTURE — `decision` accepte les DEUX canaux du capteur `readEffectsByUnit`. Capté par
@@ -204,7 +204,17 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     le compte `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage`)
     partaient d'un plateau VIERGE → toute mécanique tile-driven était INCONFRONTABLE.
     Requiert `board` (le tile-id ECS ne vient que de `boardGraph` ; `tileMeta` ne porte que
-    col/row) ; `tiles=None` = canal non fourni → comportement STRICTEMENT inchangé."""
+    col/row) ; `tiles=None` = canal non fourni → comportement STRICTEMENT inchangé.
+
+    `actor_stats` (payload du RPC `actorStats`) optionnel : les TROIS compteurs de tuiles parcourues
+    de l'`ActorStatisticsComponent` (`+0xec` bataille / `+0xf0` ce tour / `+0xf4` tour précédent).
+    MÊME nature que `_load_unit_flags` et `_load_unit_turn_state` — une ENTRÉE de gate que rien ne
+    peuplait sur un état rechargé : un `State` reconstruit depuis une capture live repartait à
+    `tiles_moved_this_turn = 0` alors que l'unité venait de parcourir `k` tuiles, donc
+    `ModifiedExoarmour_ExtraDmgEffect` (magnitude `V × n`) y était SILENCIEUSEMENT inerte. C'était le
+    résidu `#340-r1`, bloqué non par le port mais par l'absence de capteur ; `actorStats` publie
+    désormais les trois champs. `actor_stats=None` = canal non fourni → comportement STRICTEMENT
+    inchangé (les compteurs restent à 0, comme un composant natif frais)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
@@ -261,6 +271,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
         # la RECONSTRUISANT depuis gameconfig au lieu de lire la source -- cf. `_load_unit_traits`.
         _load_unit_traits(state, snapshot)
+    # MEME nature que les deux seeds ci-dessus, mais son canal est un RPC DISTINCT (`actorStats`,
+    # pas `combatSnapshot`) -> il est gate par son propre argument, jamais par `snapshot`.
+    if actor_stats is not None:
+        _load_actor_statistics(state, actor_stats)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -564,6 +578,46 @@ def _load_unit_turn_state(state: State, snapshot: dict) -> None:
         charged = su.get("chargedUnitIds")
         if isinstance(charged, list):
             uc.charged_unit_ids = [int(i) for i in charged]
+
+
+def _load_actor_statistics(state: State, actor_stats: dict) -> None:
+    """Seede les TROIS compteurs de tuiles parcourues du `UnitComponent` depuis le RPC `actorStats`
+    (`#340-r1`).
+
+    MIRROR : `IdunBattle.Entities.Components.ActorStatisticsComponent @+0xec` (cumul BATAILLE),
+    `@+0xf0` (cumul CE TOUR) et `@+0xf4` (tour PRECEDENT) -- les trois champs contigus qu'ecrit
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (`+=` sur les deux premiers, garde
+    `< 1`) et que roule `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn`
+    en FIN de tour (`+0xf4 = +0xf0` si `wasOwnTurn`, puis `+0xf0 = 0` INCONDITIONNEL).
+    `+0xf0` est ce que rend `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate`.
+
+    POURQUOI. Pendant EXACT de `_load_unit_flags` (#210) et `_load_unit_turn_state` : ce sont des
+    ENTREES de gate, pas des sorties, et jusqu'ici RIEN ne les peuplait sur un etat recharge --
+    seules les operations OFFLINE les ecrivaient (`components.record_tiles_moved`, appele par
+    `MoveUnitOperation`, et `reset_tiles_moved_this_turn` par `EndTurnOperation`, tous deux #335).
+    Un `State` reconstruit d'une capture live prise APRES un deplacement repartait donc a zero, et
+    `ModifiedExoarmour_ExtraDmgEffect` -- dont la magnitude est `V x n` -- y devenait inerte SANS
+    la moindre erreur. Le rejeu offline d'un `MoveUnitMessage` (voie `probe_335.offline_state`)
+    masquait le trou : c'est le moteur qui reposait le compteur.
+
+    TRI-ETAT, meme discipline que les seeds voisins : une unite n'est seedee QUE si le champ est
+    PRESENT et non `null`. Sur un hook qui ne publie pas encore `+0xf0` (avant le deploiement du
+    capteur) la boucle ne pose RIEN et les compteurs gardent leur 0 de construction -- le
+    comportement d'avant, a l'identique. Un `0` publie est un vrai zero (l'unite n'a pas bouge)."""
+    for su in ((actor_stats or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        ent = state.get_entity(uid)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        for key, attr in (("tilesMovedThisBattle", "tiles_moved_this_battle"),
+                          ("tilesMovedThisTurn", "tiles_moved_this_turn"),
+                          ("tilesMovedLastTurn", "tiles_moved_last_turn")):
+            v = su.get(key)
+            if v is not None:
+                setattr(uc, attr, int(v))
 
 
 def _load_unit_traits(state: State, snapshot: dict) -> None:
