@@ -35,6 +35,7 @@ import pytest
 
 import probe_psychic_aoe as P
 import probe_178_overkill_gate as OVK
+import probe_334_defend_the_divine_work as DTDW
 import probe_r34_overkill_decision as DEC
 import probe_195_prevent_overkill_decision as PVO
 import probe_o5_unit_flags as O5
@@ -316,6 +317,39 @@ def effect_trigger_channel_case():
         assert mutate in (None,) + EFC.MUTATIONS, \
             f"mutation inconnue : {mutate} (connues : {sorted(EFC.MUTATIONS)})"
         return EFC.run(mutate=mutate, verbose=False, add_only=add_only)
+    return _case
+
+
+# ── #334 — face COMBAT de `DefendTheDivineWork` (1117), les DEUX Operations enchainees ───────────
+
+@pytest.fixture(scope="module")
+def defend_the_divine_work_case(build_runner, rpc):
+    """Fabrique : `defend_the_divine_work_case("repair")` -> le dict de mesure du montage #334.
+
+    PORTE pytest du montage de `scripts/python/probe_334_defend_the_divine_work.py` (build isole,
+    conduite des positions des DEUX camps, capture + `dumpRng`, cast OFFLINE sur cette capture puis
+    cast LIVE). TROIS regimes, et c'est leur CONTRASTE qui prouve quelque chose :
+
+      `repair`  etage 1 seul (les camps restent loin : aucune attaque ne peut masquer un ecart) ;
+      `attack`  l'ALLIE adjacent au contact d'un ennemi, le caster non -> l'etage 2 DOIT mordre ;
+      `caster`  le CASTER au contact d'un ennemi, l'allie adjacent non -> l'etage 2 ne doit RIEN
+                faire, et `normal_targets` etablit que le caster POUVAIT frapper.
+
+    Portee MODULE (chaque regime = un build + une conduite de positions + deux casts).
+    ⚠ Montage non installe => ECHEC, jamais skip (#268) : un skip serait un vert qui ment."""
+    cache: dict = {}
+
+    def _case(scenario: str = "repair") -> dict:
+        if scenario not in cache:
+            # `keep=True` : le runner appartient a `build_runner`, qui le libere au teardown du
+            # module -- le probe ne doit pas le disposer sous les pieds de son proprietaire.
+            r = DTDW.run_scenario(rpc, scenario, build_runner=build_runner, keep=True)
+            if not r.get("ok"):
+                pytest.fail("montage DefendTheDivineWork NON INSTALLE (%s) : %s"
+                            % (scenario, r.get("why")))
+            cache[scenario] = r
+        return cache[scenario]
+
     return _case
 
 
