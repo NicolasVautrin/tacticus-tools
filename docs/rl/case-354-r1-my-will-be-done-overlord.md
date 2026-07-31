@@ -119,10 +119,12 @@ champ de l'effet, `+0x4a4`). La STAT, elle, vient de l'entité-effet
 **Le lien lambda ↔ `EffectType` est mécanique, pas une inférence.** Dans `EffectsDatabase$$InitializeEffects`,
 chaque enregistrement écrit le delegate dans le champ statique `<>9__14_N` juste avant
 `Add(dict, effectType, delegate)` ; les statiques de `<>c` sont `[<>9, <>9__14_0, …]`, donc
-`offset = 8 × (N+1)`. Mesuré : la fonction contient **511 appels `Add`**, tous vers la même cible, pour
-**511 `EffectType` distincts** (aucun doublon), et **511 stores** de delegate — offsets tous multiples de
-8, 511 indices `N` distincts. Les **14** lambdas qui appellent `DynamicStatModifierEffect$$.ctor` tombent
-chacune sur un `EffectType` distinct (dont les trois du lot Votann déjà portés). Ici :
+`offset = 8 × (N+1)`. Mesuré (chiffres **corrigés par #364**, cf. §5ter) : la fonction contient
+**607 appels `Add`** pour **607 `EffectType` distincts** (aucun doublon) et **607 stores** de delegate —
+offsets tous multiples de 8, 607 indices `N` distincts, et exactement **607** fabriques
+`<>9__14_N` présentes en binaire, ce qui **ferme** l'inventaire. Les **14** lambdas qui appellent
+`DynamicStatModifierEffect$$.ctor` tombent chacune sur un `EffectType` distinct (dont les trois du lot
+Votann déjà portés) — compte re-dérivé sous l'inventaire complet, inchangé. Ici :
 `offset 0x11f8` → `N = 574` → `EffectType 0x62d = 1581`.
 
 Ce balayage est un outil, pas une lecture ponctuelle : **`scripts/python/probe_358_effects_database_registry.py`**
@@ -159,12 +161,98 @@ allié (`astraCreed`, `Hero` nu) est **adjacent** au porteur **et** a une cible 
 `HasTrait(it, Mechanical)` l'écarte. Le buff y est bit-identique (+898, `residual = 0`, `turn` stable).
 Les deux distances sont assertées par la garde : sans elles, M7 retomberait silencieusement sur M4.
 
-## 5bis. Résidus nommés restants
+## 6. L'effet 1582 : INERTIE DÉMONTRÉE (#364, résidu fermé)
 
-- `MyWillBeDoneOverlord_FriendlyAttackedMarker` (1582) n'apparaît dans aucune des deux fonctions, **et
-  n'a aucune entrée dans `EffectsDatabase$$InitializeEffects`** : sur les 511 `Add` balayés, 1581 et 1583
-  y sont, 1582 **non** (le maximum enregistré est 1583). Aucune classe d'effet ne lui est donc associée
-  côté natif non plus — à trancher séparément (hors périmètre #358).
+**Verdict : `1582 MyWillBeDoneOverlord_FriendlyAttackedMarker` est déclaré par l'enum et n'existe
+nulle part ailleurs.** Ce n'est pas un port manquant : il n'y a rien à porter. La docstring du port
+qui le mentionnait en résidu était donc fidèle — mais elle l'affirmait sans l'avoir établi.
+
+**L'identifiant d'abord.** `data/symbols/rnca9r7q6c/frida/enums.tsv` :
+`1581 = MyWillBeDoneOverlord_ExtraDamage`, `1582 = MyWillBeDoneOverlord_FriendlyAttackedMarker`,
+`1583 = Helspear_IgnoreArmor`. Contrôle nécessaire — ce build a déjà renuméroté deux membres en
+silence (1563/1564, #318), et une chasse menée sur le mauvais identifiant rendrait un « absent »
+parfaitement faux. La garde ré-assertent le nom, pas seulement la valeur.
+
+**Les trois voies par lesquelles un `EffectType` peut vivre, toutes trois fermées :**
+
+| voie | mesure | résultat |
+|---|---|---|
+| fabrique dans `EffectsDatabase$$InitializeEffects` | 607 `Add`, inventaire **fermé** | **absent** (1581 et 1583 y sont) |
+| immédiat chargé par du code | segment de code entier, encodages **32 et 16 bits** | **0** instruction `IdunBattle` |
+| tableau statique en données | sections hors code | **50** occurrences — contre **70** pour 1581 et **47** pour 1583 |
+
+La troisième ligne est un **contrôle négatif**, pas une preuve : 1582 est un entier banal. Ce qui
+compte est que sa présence en données soit du même ordre que celle de ses voisins **vivants** — les
+hits voisins forment des triplets de 12 octets `(index, valeur, 0xFFFFFFFF)` où 1581, 1582 et 1583
+figurent au même titre : c'est de la métadonnée IL2CPP, pas une voie de pose.
+
+Les deux seules instructions du binaire qui chargent `0x62e` sont `I2.Loc.ArabicTable$$.ctor` et
+`System.Globalization.HebrewCalendar$$GetDayOfYear` — des coïncidences numériques hors du jeu.
+Le **gameconfig** n'est pas une quatrième voie : il ne nomme aucun `EffectType` créateur d'effet —
+`MyWillBeDoneOverlord_ExtraDamage` (1581), pourtant vivant et posé, n'y figure pas davantage.
+
+**Ce que « inerte » veut dire exactement** — lu dans `IdunBattle.Core.Services.EffectsDatabase$$GetEffect` :
+un `EffectType` sans fabrique **ne lève pas**. Le cache (`this+0x50`) rate, le `TryGetValue` sur le
+dictionnaire de fabriques (`this+0x48`) rate à son tour, le natif formate `System.Enum$$ToString` de
+la clé dans un message de log et construit un `IdunBattle.Entities.Effects.NoneEffect`. La
+dégradation native est **définie** et silencieuse côté gameplay. « Inerte » = « même posé, il ne
+ferait rien » — pas « impossible à poser ».
+
+**Ce n'est pas une singularité, c'est un régime.** Le build déclare **629** membres d'`EffectType`,
+**607** ont une fabrique, **22** n'en ont pas : deux sentinelles (`None`, `STRIPPED`), sept
+emplacements morts nommés comme tels (`UNUSED_2/6/10/13`, `NotUsed`, `Not_Used`, `Unused`), trois
+mocks de test, `Boss8_Mini_2_2`, des reliquats de mécaniques retirées (`Duel_Taunt`, `ShadeAttack_*`,
+`Cursed`, `MegaShooterMisfire_ExtraDmg`, `WeaversOfFate`, `ArcaneShield`, `InfernalCannon`) — et 1582.
+Dans cette cohorte, 1582 se range avec les plus morts : `1353 NotUsed` et `1373 UNUSED_13` sont, avec
+lui, les seuls dont **aucune** fonction `IdunBattle` ne charge la valeur.
+
+**Le porteur est confrontable, et il a déjà été confronté.** `MyWillBeDoneOverlord` (1556) est un
+passif de `necroOverlord` — **HERO, dans le pool** (rank 17, 97 unités régulières spawnables) ; les
+cinq autres porteurs (`necroBossOverlord`, `necroNpcOverlord`, …) sont npc, aucun MoW, aucun summon,
+aucune relique. L'inertie de 1582 n'est donc **pas** un défaut d'accès : elle est établie sur un
+vecteur que §4 a effectivement joué en live.
+
+Garde : `scripts/python/tests/engine/test_effect_1582_inertia_binary.py` (offline pure, ~2 s) — un
+test par voie, plus la fermeture de l'inventaire, le typage des clés, l'anti-zéro-menteur sur
+1581/1583 et le contexte de cohorte. Les quatre ont été vues **rouges** par mutation adversariale.
+Si un futur build donne une fabrique à 1582, ou si du code se met à le poser, elle rougit — et c'est
+le signal qu'il faut le PORTER.
+
+### 6.1 Ce que #364 a corrigé dans l'outil, et pourquoi ça dépasse 1582
+
+L'inventaire de #358 était **incomplet, et son incomplétude était invisible**. Ses deux balayages
+partageaient l'octet-clé `4c 8b c6` (`mov r8, rsi`) : ils n'étaient pas indépendants, et leur accord
+parfait (511 == 511) était un accord sur la **même cécité**.
+
+Relu au désassembleur, `InitializeEffects` fait **607** enregistrements. Les **96** manquants
+n'appellent pas le thunk mais `Dictionary<,>$$Add` **directement**, et passent leur clé **par
+adresse** — le dictionnaire gshared ayant une clé `ValueType`, IL2CPP l'écrit dans un slot de pile :
+
+    mov qword ptr [rcx + 0x20], rsi     ; store du delegate au statique <>9__14_3
+    lea rdx, [rsp + 0x28]               ; arg2 = &slot
+    mov r8, rsi                         ; arg3 = le delegate
+    mov dword ptr [rsp + 0x28], 5       ; le LITTERAL, en pile   (5 = Fire)
+    call Dictionary<,>$$Add             ; appel DIRECT
+
+Après `mov r8, rsi`, l'octet suivant est `C7` (`mov mem, imm32`) et non `BA` (`mov edx, imm32`) —
+d'où la cécité. Conséquence : **96 `EffectType` étaient rapportés « NON ENREGISTRÉ → aucune classe
+d'effet native »**, dont `5 Fire`, `17 Ice`, `31 StatModifier`, `1004 MightOfHeroes_ExtraHits`,
+`1099 Waaagh_ExtraMovement`, `1244 Contaminated` — tous parfaitement vivants. C'est exactement le
+faux négatif que le CLAUDE.md interdit de traiter comme une preuve de mort, et il était produit par
+notre propre outillage.
+
+Ce qui l'a fermé n'est pas un troisième motif d'octets mais une **source indépendante** : le nombre
+de fabriques `<>9__14_N` présentes dans le binaire (**607**) doit égaler le nombre d'`Add` vus. Un
+balayage partiel casse cette égalité ; c'est ce que `test_registry_inventory_is_closed` assertent, et
+la mutation qui ré-introduit la cécité rend le message chiffré `96 appel(s) d'ajout sur 607 n'ont
+PAS de clé résolue`. Compter « enregistrés + orphelins == membres » n'aurait rien prouvé : les
+orphelins étant dérivés des enregistrés, l'égalité est vraie par construction — y compris avec 96
+sites manquants.
+
+`probe_364.registry` est désormais l'implémentation **unique** de la loi ; `probe_358` la consomme.
+
+## 7. Résidus nommés restants
+
 - `GetPersistentDataListAsEntities` n'est pas porté en **sélecteur** : le gate de purge est collapsé en
   « la liste est non vide ».
 - Le terme `!TriggeringAbilityIs(1557 PhasalSubjugator) | IsUnitWithVisualId(…)` est **omis** : sur le
