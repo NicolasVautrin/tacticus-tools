@@ -309,6 +309,86 @@ def _stikkbomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_i
     return out
 
 
+def _plasma_grenade_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$MakeDamagePredictions` (ability 1098,
+    `eldarSmnGuardian` / `eldarNpc1Guardian`) — event PRINCIPAL. MEME mold que `_stikkbomb_inputs`
+    (#57e/#173), relu ability par ability sur `rnca9r7q6c` et NON deduit de la voisine :
+
+        damage  = IdunBattleLogic.Entities.DSLFormulas$$Get(GetVariableForLevel(config, 0xc = minDmg, state))
+        hits    = GetNumberConstant(config, 0x2f = nrOfHits)
+        hits2   = GetNumberConstant(config, 0x32 = nrOfHits_2)      // volet secondaire (cf. playbook)
+        profile = GetDamageProfile(config)                          // Nullable NON vide (Plasma)
+        list    = GenerateMultiHitAttackPredictions(caster, casterPosition, target, <selecteur Target>,
+                                                    damage, hits, profile, null, 0)
+
+    DEUX surcharges des entrees generiques, toutes deux lues au call-site :
+
+      - BASE = **minDmg SEUL** (rarity-scaled), PAS l'avg(minDmg, maxDmg) generique. La surcharge
+        `DSLFormulas$$Get(this, amount)` a le MEME corps que `IdunBattleLogic.Entities.DSLFormulas$$Direct`
+        (noeud `DirectAmount`). Config 1098 @lvl65 mult100 : minDmg 509 vs avg tronque 618
+        -> le generique SUR-predisait de +109 par coup.
+        CONTRASTE avec la face COMBAT : `...PlasmaGrenadeAbility$$ExecuteBehaviour` passe, lui,
+        `RandomAmount(minDmg 0xc, maxDmg 0xd)` -- deux call-sites natifs distincts, pas une
+        incoherence de port (meme forme que Stikkbomb #57e).
+      - HITS = `GetNumberConstant(0x2f = nrOfHits)` **LITTERAL** (7e arg du call-site). Le chemin
+        generique passe par `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits, ...)`,
+        qui AJOUTE la stat `ExtraHits` du caster -- que ce playbook n'ajoute pas.
+
+    Le PROFIL n'est pas surcharge : `GetDamageProfile(config)` -> `Nullable` NON vide (Plasma), pas
+    le quirk `param_8 = null` de #164/#165."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)      # var 0xc = minDmg (Get == Direct)
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
+    out = {"base_override": base}
+    if hits:
+        out["hits_override"] = hits
+    return out
+
+
+def _fragstorm_grenade_launcher_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions`
+    (ability 1048, `templAggressor` « Burchard ») — event PRINCIPAL.
+
+    Ce playbook n'appelle PAS
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions` :
+    il appelle DIRECTEMENT la surcharge « amount » de `IBattleQuery.GetAttackPrediction` (slot
+    d'interface 0x24, la meme interface `Playbook<T>+0x28` que le generique, qui prend son slot 0x28) :
+
+        maxDmg = GetVariableForLevel(config, 0xd = maxDmg, state);
+        hits   = GetNumberConstant(config, 0x2f = nrOfHits);
+        result = battleQuery.GetAttackPrediction(caster, target, casterPosition,
+                                                 Nullable(AbilityOrEffect(ability)),
+                                                 amount: hits * maxDmg,          // PRODUIT
+                                                 GetDamageProfile(config), null, default);
+        return new[] { new ProbableDamageEvent(target, result, null, null) }.ToList();
+
+    DEUX lectures, aucune ne se devine :
+
+      1. **La BASE est le PRODUIT `nrOfHits x maxDmg`, pas une moyenne.** Config 1048 @lvl65 mult100 :
+         `6 x 2183 = 13098`, la ou le generique rendait `avg(1746, 2183) = 1964` (troncature).
+      2. **Le nombre de coups est 1, LITTERAL** -- et c'est la surcharge appelee qui le pose, pas le
+         playbook : `IdunBattle.Core.Services.BattleQuery$$GetAttackPrediction` (forme « amount »,
+         sans parametre `hits`) transmet `hits: 1` en dur a
+         `IdunBattle.Core.Services.DamagePredictionQuery$$GetAttackPrediction`
+         (forme `(caster, casterPosition, target, ability, initialDamage, hits, damageProfile,
+         defenderInitialHealth, previousHitsPrediction)`). Le generique, lui, passe les `nrOfHits`
+         coups au slot 0x28.
+
+    L'ecart n'est donc PAS un arrondi mais une GRANDEUR et une STRUCTURE : `1 x 13098` contre
+    `6 x 1964`. Les deux ne coincident sur AUCUN axe -- ni le centre (13098 vs 11784), ni surtout
+    l'armure, soustraite UNE fois au lieu de SIX (`predict_attack_raw` deduit l'armure par coup).
+
+    Config absente -> `{}` = chemin generique inchange (aucune sur-prediction inventee), meme
+    convention que `_frenzied_firing_inputs` / `_mass_driver_accelerator_inputs`. `nrOfHits` absent
+    est IMPOSSIBLE nativement (`GetNumberConstant` THROW sur cle manquante) : garde-fou offline."""
+    lvl, mult = ab.level, ab.multiplier
+    mx = cfg.get_variable_for_level("maxDmg", lvl, 0, mult)        # var 0xd = maxDmg (rarity-scaled)
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits
+    if not mx or not hits:
+        return {}
+    return {"base_override": int(mx) * hits, "hits_override": 1}
+
+
 def make_secondary_multihit_event(scene, caster_id, target_id, ability_id, ability_name, attack_pos):
     """UN event de degat du VOLET SECONDAIRE d'une ability a splash — c'est-a-dire **sur la CIBLE
     PRINCIPALE**, avec le nombre de coups SECONDAIRE (`nrOfHits_2`) et la base `minDmg` SEULE.
@@ -535,6 +615,8 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
                              1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
                              1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs,
                              1051: _stikkbomb_inputs,
+                             1098: _plasma_grenade_inputs,
+                             1048: _fragstorm_grenade_launcher_inputs,
                              1222: _mass_driver_accelerator_inputs}
 
 
