@@ -117,6 +117,16 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # `prediction_has_teleported`).
                                                                 "has_teleported":
                                                                     prediction_has_teleported(
+                                                                        scene, uid, attack_pos),
+                                                                # `TilesMovedThisTurn(Self)` depuis
+                                                                # la tuile candidate (case-322) —
+                                                                # `ModifiedExoarmour_ExtraDmg` n'a
+                                                                # AUCUN gate IsNormalAttack, il
+                                                                # entre donc AUSSI sur ce vecteur
+                                                                # ABILITY (le seul autre gate est
+                                                                # IsMeleeAttack, deja threade).
+                                                                "tiles_moved_this_turn":
+                                                                    prediction_tiles_moved_this_turn(
                                                                         scene, uid, attack_pos)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,

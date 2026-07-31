@@ -360,7 +360,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 "is_charging": _prediction_is_charging(scene, att_id, attack_pos, tgt_id),
                 # branche `| HasFlag(Self, Teleported)` du gate HeavyWeapon — pendant prediction du
                 # threading de `damage_model.attacker_modifiers` (cf. `prediction_has_teleported`).
-                "has_teleported": prediction_has_teleported(scene, att_id, attack_pos)}
+                "has_teleported": prediction_has_teleported(scene, att_id, attack_pos),
+                # `TilesMovedThisTurn(Self)` evalue depuis la TUILE CANDIDATE (case-322) : compteur
+                # REEL du tour + tuiles du pas SIMULE (`RecordTilesMoved` est un `+=`, et
+                # `MoveUnitOperation$$Execute` l'appelle AUSSI en mode simulation). Consommateur :
+                # `ModifiedExoarmour_ExtraDmg` (1544), dont la magnitude EST `extraDmg x ce compte`.
+                # PREDICAT DISTINCT de `_hm` (`HasFlag(Moved)`) : un teleport pose `Moved` sans
+                # enregistrer la moindre tuile, un `DisplaceUnitOperation` fait l'inverse.
+                "tiles_moved_this_turn": prediction_tiles_moved_this_turn(scene, att_id, attack_pos)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

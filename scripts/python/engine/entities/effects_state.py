@@ -50,9 +50,18 @@ class EffectsState:
         `ActivateEffect`/`DeactivateEffect` (et ce que lit `EntityExtensions$$IsOwnerOfEffect` en mode
         `activeOnly`) ; la CONDITION est reevaluee a la lecture (mirror de `CreateActiveCondition`, cf.
         `runner/operations/refresh_effects.py`). Un effet desactive par une feuille ne contribue plus —
-        exactement comme il disparait de `decisionView.units[].effects` cote live."""
+        exactement comme il disparait de `decisionView.units[].effects` cote live.
+
+        EXCEPTION NOMMEE (case-322) : `BaseEffect.active_condition_ported`. Le flag capte decrit
+        l'etat REEL au moment de la capture ; pour un effet dont la `CreateActiveCondition` porte sur
+        l'etat SIMULE (tuile candidate), le natif le RECALCULE avant d'evaluer
+        (`RefreshEffectsOperation$$RefreshEffect` sur `RefreshTrigger.Simulation`), donc le flag
+        capte n'est PAS la reponse. Pour ces classes SEULES, la condition portee fait foi. Blast
+        radius nul ailleurs : le defaut de l'attribut est `False`."""
         return [e for e in self.by_unit.get(int(unit_id), [])
-                if not e.consumed and not e.expired and e.active and e.is_active(unit_state)]
+                if not e.consumed and not e.expired
+                and (e.active or getattr(e, "active_condition_ported", False))
+                and e.is_active(unit_state)]
 
     def has_effect(self, unit_id: int, effect_type: int | None = None,
                    name: str | None = None) -> bool:
