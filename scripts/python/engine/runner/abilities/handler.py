@@ -80,7 +80,8 @@ from .aeldari import ExecutionerAbility, HarvesterOfSoulsAbility
 from .spacewolves import GreatFrostAxeAbility, FoehammerAbility
 from .tyranids import SporeMineLauncherAbility, AlphaWarriorAbility, FearOfTheUnseenAbility
 from .worldeaters import JakhalStimmsAbility, MurderousSwingAbility
-from .admec import SentinelDirectivesAbility, RadBombardmentAbility
+from .admec import (SentinelDirectivesAbility, RadBombardmentAbility,
+                    DefendTheDivineWorkAbility)
 from .repair import RepairAbility, Repair_GalvanicFieldAbility
 from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility,
@@ -207,6 +208,10 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # `idun...StaticBattleRules.ActiveAbility$$IsRegularRepair`.
     RepairAbility.ABILITY_TYPE: RepairAbility,                         # 28 (ability DERIVEE du trait `Mechanic`, donc ABSENTE du gameconfig et multi-factions : admecDominus / admecManipulus / necroSpyder / orksBigMek / votanIronmaster ; `Repair(Caster, ActiveTarget, Attack x Max(WeaponHighestHits,1), ForRepair)` -> `RepairUnitOperation`)
     Repair_GalvanicFieldAbility.ABILITY_TYPE: Repair_GalvanicFieldAbility,  # 1119 (admecManipulus, passif `GalvanicField` : la reparation HERITEE de 28 & volet attaque -- AddStatOverrideEffect(1242 ATTACK = Min(maxDmg, Attack_Initial x dmgPct)) & PerformAIAttackFromCurrentPosition & RemoveEffect, patron TheQuickening)
+    # --- case-317 §5 tranche 2 : face COMBAT de 1117 (la face DECISION etait deja portee, playbook
+    # NonComparable). MEME porteur qu'au-dessus (`admecManipulus`), et il REUTILISE litteralement
+    # `Repair_GalvanicFieldAbility$$CreateAttackBehavior` -- avec un `actingUnits` DIFFERENT.
+    DefendTheDivineWorkAbility.ABILITY_TYPE: DefendTheDivineWorkAbility,  # 1117 (admecManipulus « Actus » AdeptusMechanicus, self-cast : ExecuteAtomic(Repair(Caster@0x48, Friends(Caster, AdjacentUnits(CasterTile@0x50)) + Caster, Get(hpToRepair), ForRepair), 0x2a) PUIS Execute(Repair_GalvanicFieldAbility.CreateAttackBehavior(dsl, Friends(Caster, AdjacentUnits(CasterTile)) SANS le caster)) -- l'etage 1 repare le caster ET ses amis adjacents, l'etage 2 ne fait attaquer que les amis adjacents MECANIQUES)
     DakkaDakkaDakkaAbility.ABILITY_TYPE: DakkaDakkaDakkaAbility,       # 1171 (orksKillaKan « Snappawrecka » Orks : Min(nrOfHits + TimesRepaired*extraHits, maxNrOfHits) coups Projectile ranged sur la cible & If(NumLeftOverHits(cible), attaque des coups GASPILLES repartis (Divide Floor + reste a la 1re) sur PickRandomly(Damageable(Unobscured(SurroundingEnemies(caster, range_2))), RandomAmount(1, Min(numLeft, Count))) ) & If(IsAlive(caster), ChangeStat(caster, Health, Subtract, PercentageOf(StatAmount(caster, Health, MAXIMUM), healthPct))))
 }
 

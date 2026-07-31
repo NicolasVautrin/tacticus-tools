@@ -6,27 +6,31 @@ NB : d'autres AdMec (CordClaw 1122, DoctrinaImperatives 1118) vivent dans loki.p
 `Abilities.Active.Loki.*`) — ce fichier porte les AdMec du namespace propre. RE ghidra gqfc5mff6c.
 
 SentinelDirectives (id 1139, admecDestroyer « Sy-Gex ») — case-220 §6.17 [opus] direct.
+DefendTheDivineWork (id 1117, admecManipulus « Actus ») — case-317 §5 tranche 2 [opus].
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import Foreach, op_add
+from ...entities.behaviours import AtomicGroup, Foreach, op_add
 from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
-from ...entities.selectors import (AllUnits, Blocking, Caster, CasterTile, FixedTileIds, Friends,
-                                   SortReverse, Sub, Subject, Target, TilesBehindInLine, Units,
-                                   UnitsWithTrait)
+from ...entities.selectors import (AdjacentUnits, AllUnits, Blocking, Caster, CasterTile,
+                                   FixedTileIds, Friends, SortReverse, Sub, Subject, Target,
+                                   TilesBehindInLine, Union, Units, UnitsWithTrait)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
+from ..components import StatsComponent
 from .base import ActiveAbility
-from .targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
-                        custom_range)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions, custom_range)
 from .targeting_rule import TargetingRule as TR
-from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon)
+from .behaviours import (entities_from_state, AttackWithAttackDamage, AddEffect, InformWeapon,
+                         Repair)
 
 if TYPE_CHECKING:
     from ..state import State
@@ -398,3 +402,238 @@ class RadBombardmentAbility(ActiveAbility):
                 "attacks": attacks,
                 "pinned": [p for p in posed if p["effect"] == PINNED],
                 "contaminated": [p for p in posed if p["effect"] == CONTAMINATED], "dsl": True}
+
+
+# ========= DefendTheDivineWork (1117, `admecManipulus` -- Actus, HERO AdeptusMechanicus) ==========
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour`
+# -- MIRROR du DECOMPILE, et la composition des DEUX selecteurs a ete verrouillee au
+# **DESASSEMBLAGE** (erratum de la tranche 1 de case-317 : une cellule de tableau qui resume
+# `feuilleA + feuilleB` PERD la distinction de leurs arguments) :
+#
+#   hpToRepair = GetVariableForLevel( config@0x60, 0x24 = 36 hpToRepair, abilityState, 0 )
+#
+#   # -- etage 1 : la REPARATION -------------------------------------------------------------
+#   adj     = DSLSelectors.AdjacentUnits( CasterTile@0x50, unique = 1, selectionType = 3 )
+#   friends = DSLSelectors.Friends( of = Caster@0x48, adj, 3 )
+#   targets = friends op_Addition Caster@0x48                     # == `$$GetHealTargets`
+#   beh1    = DSLBehaviors.Repair( mechanic = Caster@0x48, targets,
+#                                  DSLFormulas.Get(hpToRepair),
+#                                  AbilityOrEffect(this+0x10 = 0x45d = 1117),
+#                                  RepairBehaviourOptions.ForRepair() )   # scope 0, removeEffects 1
+#   AActiveAbility.ExecuteAtomic( beh1, entities, groupType = 0x2a )
+#
+#   # -- etage 2 : le COUP GRATUIT de GalvanicField ------------------------------------------
+#   acting  = DSLSelectors.Friends( of = Caster@0x48,
+#                                   DSLSelectors.AdjacentUnits(CasterTile@0x50, 1, 3) )
+#                                                                 # == `$$GetAdjacentFriends`
+#   beh2    = Repair_GalvanicFieldAbility.CreateAttackBehavior( dsl@0x30, acting )
+#   return AActiveAbility.Execute( beh2, entities )
+#
+# LE POINT QUI SE LIT AU DESASSEMBLAGE ET NULLE PART AILLEURS -- les deux etages n'ont PAS le meme
+# selecteur, et le decompile reutilise le meme nom de variable pour les deux :
+#
+#   1812ef9b1  mov  r12, [rdx+0x48]   ; Caster        <- `of` de Friends ET operande de l'addition
+#   1812ef9c0  mov  rdx, [rdx+0x50]   ; CasterTile    <- origine des adjacents
+#   1812ef9cd  call DSLSelectors$$AdjacentUnits
+#   1812ef9e6  call DSLSelectors$$Friends
+#   1812efa08  mov  rdx, [rdx+0x48]   ; Caster        <- RELECTURE, 2e operande
+#   1812efa12  call TargetsSelector$$op_Addition      ; etage 1 : Friends(...) + Caster
+#   ...
+#   1812efb77  mov  rdi, [r14+0x48]   ; Caster
+#   1812efb8f  mov  rdx, [rdx+0x50]   ; CasterTile
+#   1812efb93  call DSLSelectors$$AdjacentUnits
+#   1812efbac  call DSLSelectors$$Friends
+#   1812efbb4  mov  rdx, rax          ; <- PASSE DIRECTEMENT, **aucun op_Addition**
+#   1812efbba  call Repair_GalvanicFieldAbility$$CreateAttackBehavior
+#
+# => l'etage 1 repare **les amis adjacents ET le caster** ; l'etage 2 fait attaquer **les amis
+# adjacents SEULS**. L'i2 dit la meme chose deux fois : « Repairs HIMSELF AND all friendly adjacent
+# units » (1117) et « Whenever Actus repairs ANOTHER unit, that unit immediately attacks »
+# (GalvanicField). Trois sources independantes concordent.
+#
+# IDENTIFICATION DES OFFSETS `DSLSelectors` (+0x48 Caster / +0x50 CasterTile), par DEUX voies :
+#   * `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfRestorationAbility$$GetHealTargets`
+#     appelle `DSLSelectors$$AdjacentFriends(this, unit = <sel+0x48>, unitTile = <sel+0x50>, 1)` --
+#     les NOMS DE PARAMETRES de la signature native tranchent : +0x48 est l'unite, +0x50 sa tuile ;
+#   * la carte `DSLFactory` deja documentee (`entities/selectors/accessors.py::ActiveTarget`) est la
+#     MEME a un decalage CONSTANT de 0x118 pres : `factory+0x160 Caster` = `DSLSelectors+0x48`,
+#     `factory+0x168 CasterTile` = `DSLSelectors+0x50`, `factory+0x148 Owner` = `+0x30`,
+#     `factory+0x178 Target` = `+0x60`, `factory+0x190 TargetTiles` = `+0x78`.
+#
+# QUIRK PORTE, et il CONTREDIT le texte i2 : l'etage 2 ne filtre PAS « a effectivement ete repare ».
+# `CreateAttackBehavior` n'applique que `UnitsAffectedByHealType(acting, 1)` (= MECANIQUE) -- une
+# machine amie adjacente A PLEINE VIE, que `RepairUnitOperation` REFUSE de reparer (gate
+# `AttackQuery$$EntityCanBeRepaired`), attaque quand meme. Le decompile fait foi.
+
+DEFEND_THE_DIVINE_WORK_ID = "DefendTheDivineWork"
+VAR_DTDW_HP_TO_REPAIR = 0x24     # GetVariableForLevel(0x24) -> `AbilityVariableType` 36 = hpToRepair
+
+
+def defend_the_divine_work_adjacent_friends():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$GetAdjacentFriends`
+    (MIRROR 1:1) = `Friends( of = Caster@0x48, AdjacentUnits(CasterTile@0x50, unique = 1, sel = 3) )`.
+
+    Le natif appelle les DEUX factories separement (`$$AdjacentUnits` puis `$$Friends`) plutot que le
+    raccourci `$$AdjacentFriends` : on mirror les deux appels. `reference = Caster()` est EXPLICITE
+    (le defaut du port serait deja `ctx.caster`, mais le litteral natif est `<sel+0x48>` -- on ne
+    laisse pas un collapse implicite porter un argument LU).
+
+    C'est aussi, mot pour mot, l'`actingUnits` de l'etage 2 -- d'ou la fonction partagee."""
+    return Friends(AdjacentUnits(CasterTile(), Const(1)), Caster())
+
+
+def defend_the_divine_work_heal_targets():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$GetHealTargets`
+    (MIRROR 1:1) = `GetAdjacentFriends() op_Addition Caster@0x48`.
+
+    ORDRE conserve (`Union(a, b)` = concatenation) : les amis adjacents D'ABORD, le caster ENSUITE --
+    c'est l'ordre du `op_Addition(left = Friends(...), right = Caster)` relu au desassemblage. Les
+    deux volets sont DISJOINTS (`AdjacentUnits` exclut son origine), donc aucun doublon."""
+    return Union(defend_the_divine_work_adjacent_friends(), Caster())
+
+
+def defend_the_divine_work_repair_tree(amount: int) -> AtomicGroup:
+    """Etage 1 : `ExecuteAtomic( DSLBehaviors.Repair(...), 0x2a )`.
+
+    `mechanic = Caster@0x48` (le REPARATEUR) est le defaut de la feuille `Repair` (elle lit
+    `entities.caster`). `guard = None` : le natif ne pre-filtre PAS ce selecteur (aucun `Healable` /
+    `Repairable` autour) -- exactement comme `RepairAbility$$CreateBehaviour`, c'est le gate
+    `AttackQuery$$EntityCanBeRepaired` DE L'OPERATION qui tranche. `scope = 0` / `remove_effects =
+    True` sont les deux champs de `RepairBehaviourOptions$$ForRepair`.
+
+    `AtomicGroup` = le mirror STRUCTUREL d'`ExecuteAtomic` (pass-through cote etat, RE #201) ; le
+    `groupType = 0x2a` du natif est une donnee de VUE (`DSLBehaviors$$AtomicGroup`), sans observable
+    d'etat porte."""
+    return AtomicGroup(Repair(defend_the_divine_work_heal_targets(), int(amount), guard=None,
+                              scope=0, remove_effects=True))
+
+
+class DefendTheDivineWorkAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour`
+    (id 1117, `admecManipulus` -- Actus, HERO AdeptusMechanicus) -- cf. le bloc de commentaire ci-dessus.
+
+    Kit gameconfig 1117 : une seule variable, `hpToRepair` (rarity-affected), aucune constante.
+    i2 : « Repairs himself and all friendly adjacent units {hpToRepair} Health. »
+
+    OBSERVABLE DU CAST (self-cast, aucune cible utile) :
+      1. le caster ET chacun de ses allies ADJACENTS sont REPARES de `hpToRepair[level]` PV
+         (`RepairUnitOperation` -> gate `EntityCanBeRepaired`, `RepairModifier`, caps `PredictRepair`) ;
+      2. puis, par le passif `GalvanicField` du MEME porteur, chaque allie adjacent MECANIQUE recoit
+         un override d'Attack (1242 `GalvanicField_DmgOverride` = `Min(maxDmg, Attack_Initial x
+         dmgPct)`), attaque immediatement depuis sa position, et l'override est retire -> net-zero.
+         **Le caster n'attaque PAS** (il est hors de l'`actingUnits` de l'etage 2).
+
+    La face DECISION etait deja portee (`playbook/noncomparable/heals.py::DefendTheDivineWorkPlaybook`) :
+    avant cette entree au registre, `AbilityHandler` rendait `ported: False` -- cast accepte, tour
+    consomme, ZERO PV restaure et AUCUNE attaque gratuite. Meme signature de degradation que #299.
+
+    Turn-flags = defauts base (1117 absent des overrides `NO_END_TURN_*` : le cast finit le tour)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DefendTheDivineWork)   # 1117
+    ABILITY_ID = DEFEND_THE_DIVINE_WORK_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$.ctor` -- FORME
+    # « FLAGS DIRECTS » (la surcharge 7 arguments, celle qui ECRIT `rules` telle quelle a
+    # `options+0x28` : ni preset combine, ni copie statique). Le ctor recopie les 0x18 octets du
+    # `TargetingRange` STATIQUE `<TargetingRange statics>+0x30` -- LE MEME champ que
+    # `RepairAbility$$.ctor` (meme `DAT` de classe, meme offset) -- puis :
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 1, &range, forceMeleeTarget = 1, 0x8c02, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = `AbilityAttackType.Others`
+    #
+    # Decomposition de 0x8c02 -- EXHAUSTIVE, aucun bit residuel
+    # (0x2 + 0x400 + 0x800 + 0x8000 = 0x8c02) :
+    #   bit  1  0x2     TargetMatchesDynamicRule     -> consulte `GetDynamicInvalidTargetReason`,
+    #                   PORTE ci-dessous (mirror du virtuel natif).
+    #   bit 10  0x400   TargetIsFriendly             -> refuse toute cible ENNEMIE (regle PORTEE).
+    #   bit 11  0x800   AddCasterIfAtLeastOneTarget  -> le caster s'AJOUTE a la liste des cibles des
+    #                   qu'il en existe au moins une. Regle d'AJOUT, pas de refus : non portee au
+    #                   filtre statique (cf. l'inventaire de `targeting.py`) -- et sans effet ici, le
+    #                   behaviour ancrant tout sur `Caster`/`CasterTile` plutot que sur `Target`.
+    #   bit 15  0x8000  CasterIsPossibleTarget       -> LECTURE du masque (le caster peut etre cible),
+    #                   jamais une regle de refus.
+    # `range` = statics+0x30 = RANGE_ADJACENT (`onlyAdjacent = RangedBool.True`, `overrideRange = 1`).
+    # `forceMeleeTarget` = 1 = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True = 0, False = 1) --
+    # DIFFERENT de `RepairAbility` (qui passe 2 = IfRangedCaster).
+    # `isSelfCasting = 1` -> aiguillage SELF-CAST de l'overload 5 arguments de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason`.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsFriendly
+               | TR.AddCasterIfAtLeastOneTarget | TR.CasterIsPossibleTarget),
+        self_cast=True, range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile, verbatim :
+
+            if (caster != target) {
+                pos = EntityExtensions.GetUnitPosition(target, state@0x18);
+                nat = UnitExtensions.GetNormalAttackType(target);
+                if (attackQuery.<slot 2>(target, pos, nat)) {            # HasValidTargets
+                    if (UnitExtensions.IsEnemy(target, caster, state))  return 0x400 TargetIsFriendly;
+                    return UnitExtensions.IsAffectedByHealType(target, 1) ? 0 : 1 ValidRequest;
+                }
+            }
+            return attackQuery.<slot 0x13>(target, 0, true) ? 0 : 0x10000 TargetIsRepairable;
+
+        PROCHE de `Repair_GalvanicFieldAbility$$GetDynamicInvalidTargetReason` mais PAS identique --
+        et les differences sont LUES, pas deduites : ici la branche B n'a NI garde `IsUnit(target)`,
+        NI repli `IsEnemy(...) ? 0x400 : 0`. On transcrit CE corps-la.
+
+        Slot 2 = `IdunBattle.Core.Services.AttackQuery$$HasValidTargets(unit, position, abilityType)`
+        (« la cible a-t-elle quelqu'un a frapper depuis sa tuile ») -> mirror
+        `targeting.valid_normal_attack_targets`. Slot 0x13 = la surcharge **TROIS arguments**
+        d'`AttackQuery$$EntityCanBeRepaired` (SANS caster) -> `entity_can_be_repaired(caster_id=None)`.
+
+        SENS : GalvanicField accepte une machine encore PLEINE si elle peut frapper (le coup gratuit
+        suffit a justifier le cast) ; sinon on retombe sur le gate de reparation standard.
+
+        N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
+        from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
+        from .targeting import units_are_enemies, valid_normal_attack_targets
+        if target_id is None:
+            return 0                # `target == null` : GetUnitPosition/IsEnemy faux -> branche B, 0
+        tid, cid = int(target_id), int(caster_id)
+        if tid != cid and valid_normal_attack_targets(state, tid):
+            if units_are_enemies(state, tid, cid):
+                return int(TR.TargetIsFriendly)
+            return 0 if is_affected_by_heal_type(state, tid, 1) else int(TR.ValidRequest)
+        # slot 0x13 = surcharge 3-args d'`EntityCanBeRepaired` (le disjunct `caster != null &&
+        # HasFlag(caster, 0x18)` de la 5-args tombe de lui-meme avec `caster_id = None`).
+        return 0 if entity_can_be_repaired(state, None, tid, scope=0,
+                                           remove_effects=True) else int(TR.TargetIsRepairable)
+
+    def _hp_to_repair(self, state: "State", caster_id: int) -> int:
+        """`GetVariableForLevel( config@0x60, 0x24 = hpToRepair, abilityState, 0 )` -> le montant
+        DEJA scale par `AbilityVariablesMultiplierPercentage` (`hpToRepair` est dans
+        `variablesAffectedByRarityBonus` de 1117). Meme resolution que tous les autres call-sites
+        `GetVariableForLevel` du port (`ability_var`)."""
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        return int(ability_var(self.ABILITY_ID, "hpToRepair", level, multiplier_pct=mult) or 0)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        """Les DEUX appels natifs, dans l'ordre : `ExecuteAtomic(repair, 0x2a)` PUIS
+        `Execute(CreateAttackBehavior(dsl, GetAdjacentFriends()))`.
+
+        Ce sont bien DEUX invocations distinctes du pipeline (aucun `op_Addition`/`op_BitwiseAnd`
+        entre elles) : l'etage 2 RE-EVALUE donc son selecteur APRES la reparation -- ce que le port
+        reproduit en appelant les deux etages a la suite sur le meme `state`.
+
+        `target_id` est INDIFFERENT au behaviour (tout est ancre sur `Caster`/`CasterTile`) ; il n'est
+        remonte que pour la trace."""
+        from .repair import galvanic_field_attack_behavior
+        amount = self._hp_to_repair(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        defend_the_divine_work_repair_tree(amount).execute(entities, ectx)   # ExecuteAtomic(.., 0x2a)
+        rep = next((p for n, p in ectx.emitted if n == "Repair"), None) or {}
+        attacks = galvanic_field_attack_behavior(                            # Execute(CreateAttack..)
+            state, caster_id, defend_the_divine_work_adjacent_friends())
+        return {"ability": DEFEND_THE_DIVINE_WORK_ID, "caster": caster_id, "target": target_id,
+                "amount": amount, "repairs": rep.get("repairs"), "attacks": attacks, "dsl": True}
