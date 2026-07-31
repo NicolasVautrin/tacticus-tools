@@ -111,14 +111,16 @@ Sur `C1_74 / 38502`, caster (2,0) et cible (3,4) :
 * `aiMovableTiles(side=all, overrideRange=5)` rend **27** tuiles, et **(2,4) comme (4,4) n'y sont
   PAS**. Le pool natif se réduit donc à `[(2,3), (4,3)]`, où (4,3) gagne — ce que le natif fait.
 
-⇒ L'écart est **entièrement** l'étage TUILE, et sa cause est le POOL : `MovableTilesInRange` rend
-côté port le `visited` d'un BFS qui TRAVERSE, côté natif un PATHFINDING
-(`MovementQuery$$AnyOrFillMoveableTiles`). C'est `#381-r1`, deuxième mesure indépendante (la
-première était un ring saturé), et cette fois avec la **décomposition complète** : le probe sépare
-POOL / TRI / SÉLECTEURS et le dit dans son verdict.
+⇒ L'écart est **entièrement** l'étage TUILE, et sa cause est le POOL. C'est `#381-r1`, deuxième
+mesure indépendante (la première était un ring saturé), et cette fois avec la **décomposition
+complète** : le probe sépare POOL / TRI / SÉLECTEURS et le dit dans son verdict.
 
-Rien n'est corrigé ici : `#381-r1` est un résidu de plein droit, et il mord déjà sur l'étage MOVE
-de la face COMBAT indépendamment de ces batchs.
+**FERMÉ depuis — `case-381-r1`.** La cause n'était pas « le port TRAVERSE les unités » : derrière
+l'intersection `CanAddUnit(...)`, le filtre d'occupation est inobservable. C'est le **gate
+d'expansion #131** (`BasePathfinder$$NodesInNextLevel` → `IsValidContinuePathTile`) que le nœud DSL
+ne posait pas — (2,4) et (4,4) ne pendent que d'un Swamp de `C1_74`. Le nœud porte désormais les
+trois étages d'`AnyOrFillMoveableTiles` et, sur cette même géométrie, **désigne (4,3)** — la tuile
+où le natif pose le caster.
 
 ## 6. `#383-r1` — la face COMBAT n'entre PAS dans `ABILITY_CLASSES`
 

@@ -156,13 +156,15 @@ on lisait 2 events des deux côtés. Le probe porte la garde qui refuse ce monta
   **les batchs 3/4 sont PORTÉS et confrontés 4/4 (#383, `case-383`)** ; la face COMBAT, elle, reste
   hors `ABILITY_CLASSES` (résidu `#383-r1` : le nœud `<DSLTriggers+0x20>` du `If` autour des deux
   attaques n'est nommé nulle part). Les deux données de registre sont LUES dans `case-383` §6.
-* **Écart PORT/NATIF sur un ring saturé** : `ramming_speed_tile_to_move_to` désigne `(2,3)` alors que
-  le natif ne peut **pas** l'atteindre (intersection vide, §4b). Le port de `MovableTilesInRange` ne
-  modélise donc pas le blocage par les unités que `MovementQuery$$AnyOrFillMoveableTiles` applique.
-  Non confronté hors de cette géométrie ; le MATCH 2/2 de `#353-r1` portait sur des régimes non
-  bloqués. **Résidu nommé, non traité** — **2ᵉ mesure indépendante par #383** (`C1_74`, caster
-  loin : deux candidates du pool du port sont HORS des 27 tuiles d'`aiMovableTiles`, et les
-  sélecteurs des batchs sont exonérés — `case-383` §5).
+* ~~**Écart PORT/NATIF sur un ring saturé**~~ — **FERMÉ (`#381-r1`, `case-381-r1`)**. La cause n'était
+  pas celle écrite ici : le 4ᵉ argument du nœud n'est pas un `canReachOnly` mais `ignoreFlags`, et le
+  pool natif est TOUJOURS filtré (`AnyOrFillMoveableTiles` termine par
+  `RemoveAll(t => !IsMovableTile(unit, t, ignoreUnitsOnTiles = 0))`). Ce qui mordait derrière
+  l'intersection `CanAddUnit(...)` n'était pas le blocage par les unités mais le **gate d'expansion
+  #131** (`NodesInNextLevel` → `IsValidContinuePathTile`), que le nœud DSL ne posait pas : sur
+  `C1_74`, (2,4) et (4,4) ne pendent que d'un Swamp. Confronté à `aiMovableTiles` sur 4 boards —
+  `MC1_67` 9/9, `C2_26` 9/9, `PVP_desert_04` 9/9, `C1_74` 8/9 (le reste = `#381-r3`, écart de
+  substrat PARTAGÉ bit à bit avec `ai/state_bridge._move_tiles`).
 * **La branche `UnitExtensions$$CanMove`** n'a jamais été observée fermée : aucun montage n'a porté
   le trait `0x418` ni un blocage de mouvement. Elle est lue, pas mesurée.
 * **La gate de Fragstorm** (`1048`) : son ouverture reste indéterminée, son batch étant mort en aval
