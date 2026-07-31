@@ -626,6 +626,95 @@ def write_relic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     return p, reports
 
 
+# --------------------------------------------- #366-r1 : GREFFER un PASSIF sur une unite du pool
+#
+# POURQUOI. `case-92` §5bis donne la recette de greffe pour une ability ACTIVE (remplacer
+# `BC.Units[].ActiveAbilities`). Le pendant PASSIF est le seul chemin de confrontation d'une
+# `TriggeredAbility` dont l'unique porteur est un **npc** : `buildNormalizedBC` refuse tout npc
+# (`IdunMetaLogic.Formulas.StatsFormula$$StatsUsingProgressionIndexFor` -> `KeyNotFoundException`
+# sur un lookup PAR UNITID qui ne couvre que le bucket `lineup`), et AUCUN enrichissement du seed
+# BC ne peut lever ce refus. Premier cas : `EchoesFromTheWarp` (1219), passif unique de
+# `thousNpc4Terminator` -- cf. `docs/rl/case-366r1-echoes-from-the-warp-revive.md`.
+#
+# DEUX ECRITURES, et l'une echoue EN SILENCE si on l'oublie :
+#   1. `BC.Units[<greffon>].PassiveAbilities = [<TriggeredAbilityType>]` -- ce que
+#      `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` monte reellement ;
+#   2. `BC.Abilities.PassiveAbilities[<nom>]` = la config de l'ability. Sans elle,
+#      `AbilityConfiguration$$GetVariableForLevel`/`$$GetStringConstant` LEVENT -> « system error »
+#      AU DEPLOIEMENT pour un passif (l'arbre DSL est bati a la creation de l'unite). C'est le
+#      verrou #226/#254, et `refresh_ability_configs` ne le comble PAS tout seul : sa 2e boucle
+#      derive les noms d'abilities de l'`Id` de l'unite au gameconfig, pas de la liste greffee.
+#
+# CE QUE LA GREFFE NE COUVRE PAS (a ecrire dans tout rapport) : les stats, traits et armes du VRAI
+# porteur. Elle est donc legitime pour une mecanique qui ne les lit pas -- et quand elle lit une
+# stat du caster, c'est celle du GREFFON qui sert, ce qui en fait un DISCRIMINANT (le montant
+# attendu change avec le greffon) et non un confond.
+#
+# Le NIVEAU n'a pas ici le verrou de la relique : `buildNormalizedBC` pose
+# `PassiveAbilityLevel = targetAbilityLevel` INCONDITIONNELLEMENT (json-build.ts), et ne touche
+# JAMAIS la liste `PassiveAbilities` -- greffer avant ou apres la normalisation donne le meme
+# niveau 50.
+
+def graft_passive_ability(bc: dict, unit_id: str, ability_name: str,
+                          *, replace: bool = True) -> dict:
+    """GREFFE le passif `ability_name` sur `unit_id` DANS `bc` (mute en place). Rend un rapport.
+
+    Les deux ecritures du bloc ci-dessus, faites ENSEMBLE. `replace=True` (defaut) REMPLACE la
+    liste `PassiveAbilities` du greffon -- c'est ce qu'on veut pour isoler la mecanique mesuree ;
+    `replace=False` l'AJOUTE aux passifs natifs du greffon.
+    """
+    aid = triggered_ability_id(ability_name)
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units -- injecter d'abord le greffon "
+                       f"(write_augmented_seed_bc)")
+    node = bc.setdefault("Abilities", {}).setdefault("PassiveAbilities", {})
+    config_added = False
+    if ability_name not in node:
+        node[ability_name] = synthesize_ability(ability_name)
+        config_added = True
+    before = []
+    for u in hits:
+        before = list(u.get("PassiveAbilities") or [])
+        u["PassiveAbilities"] = [aid] if replace else sorted(set(before) | {aid})
+    return {"unitId": unit_id, "ability": ability_name, "abilityId": aid,
+            "configAdded": config_added, "unitsPatched": len(hits),
+            "passiveAbilitiesBefore": before,
+            "passiveAbilitiesAfter": list(hits[0].get("PassiveAbilities") or [])}
+
+
+def parse_graft_spec(spec: str) -> tuple[str, str]:
+    """`'unitId:AbilityName'` -> `(unitId, ability)`."""
+    parts = [p.strip() for p in spec.split(":")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError(f"spec de greffe invalide {spec!r} -- attendu 'unitId:AbilityName'")
+    return parts[0], parts[1]
+
+
+def write_grafted_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
+                          rank: int = 17, ability_level: int = 50, replace: bool = True):
+    """FIXTURE : ecrit un seed BC ou chaque `spec` greffe son passif. Rend `(Path, rapports)`.
+
+    `specs` = iterable de `'unitId:AbilityName'` (ou de tuples deja parses). Le greffon est
+    injecte au catalogue s'il en manque (`augment`), puis greffe (`graft_passive_ability`).
+
+    SURVIE AU RECHARGEMENT (#380) : `rl_collect_batch._load_seed_bc` rappelle
+    `refresh_ability_configs`, dont la 1re boucle RE-SYNTHETISE les configs DEJA presentes. Celle
+    qu'on vient de poser l'est donc aussi -- a l'identique, puisqu'elle sort de la MEME
+    `synthesize_ability`. Rien n'est perdu, et `BC.Units[].PassiveAbilities` n'est touche par
+    aucune des deux boucles.
+    """
+    parsed = [parse_graft_spec(s) if isinstance(s, str) else tuple(s) for s in specs]
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, _added, _added_ab, _unres = augment(seed, [u for u, _a in parsed], rank, ability_level)
+    reports = [graft_passive_ability(bc, uid, ability, replace=replace)
+               for uid, ability in parsed]
+    p = host_inputs.reject_data_output(out_path, "write_grafted_seed_bc(out_path=...)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, reports
+
+
 # ------------------------------------------------- #369 : forcer un REGIME de variables d'ability
 #
 # POURQUOI CE MONTAGE EXISTE. Les deux formes de moyenne de la couche TRIGGERED (#350-r3b) ne

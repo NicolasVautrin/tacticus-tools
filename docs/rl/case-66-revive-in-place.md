@@ -563,15 +563,37 @@ unite, deplacement du ghost au 2e move). Zero-reg cible : famille revive (42), m
   (effet deja present) puis le retrait n°1 le supprime -> plus de ghost. Cas de bord (une unite ne
   bouge qu'une fois par tour, flag `UnitFlag.Moved`).
 - ~~**Branche `StatAmount(src, Health, max)` du fork d'amount** (`EchoesFromTheWarp`, effet 1284)~~ —
-  **FERME (#228, 2026-07-29)** : porteur etabli et **NON PERTINENT**, cf. §8.4.
+  **PORTEE ET VALIDEE LIVE (#366-r1, 2026-08-01, `case-366r1-echoes-from-the-warp-revive.md`)**.
+  Le verdict « NON PERTINENT » de #228 est INFIRME : la voie existait (GREFFE du passif sur une
+  unite du pool), elle demandait un montage que le harnais ne savait pas faire et un canal que le
+  port n'avait pas branche. Voir §8.4, reecrite.
 
 NB : `RitesOfRestoration` (deja porte) = **Resurrect** (tile-choice/ambush), sous-systeme DISTINCT
 (`ResurrectUnitOperation`) — NE PAS confondre avec Revive-en-place.
 
-### 8.4 La branche `StatAmount` du fork d'`amount` — NON PERTINENT (#228, porteur NPC pur)
+### 8.4 La branche `StatAmount` du fork d'`amount` — PORTEE ET VALIDEE LIVE (#366-r1)
 
-Le residu « branche `StatAmount(src, Health, max)` non portee, porteur non etabli » laisse par #213
-est **ferme sans port** : le porteur est etabli, il est NPC, et rien ne l'amene en bataille.
+> **Cette section a ete REECRITE.** Elle concluait « NON PERTINENT » (#228) sur la seule base du
+> pool ferme. Le verdict est INFIRME : l'ability se GREFFE sur une unite du pool, et elle est
+> desormais portee et confrontee. Fiche complete :
+> **`docs/rl/case-366r1-echoes-from-the-warp-revive.md`**. Les trois corrections a retenir :
+>
+> 1. **`StatPart 3` = `Initial`, PAS `Maximum` (= 2)** — le « max = 3 » ci-dessous etait un
+>    mislabel. `IdunBattle.Entities.Enum.StatPart` et
+>    `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` (`case 3: return *(this+0x10)`
+>    vs `case 2: get_CurrentMaximumValue()`) le tranchent. Le montant final = **PV pleines**, ce que
+>    l'i2 dit mot pour mot (« revives with **Full Health** »).
+> 2. **Le pool ferme ne ferme PAS le dossier** : le natif monte
+>    `BattleConfiguration.Units[].PassiveAbilities`, donc un passif se GREFFE
+>    (`catalog_inject.graft_passive_ability` — pendant PASSIF de `case-92` §5bis). Legitime ici : ni
+>    trait ni arme du caster ne sont lus, et la seule stat lue est celle du greffon.
+> 3. **Le port ne voyait pas les passives montees** : il les derivait du gameconfig par `visualId`.
+>    Corrige par le canal mesure `UnitContext.passive_abilities` (hierarchie 2 de
+>    `TriggeredAbilityComponent`, deja publiee par `unitAbilityStates`), meme faute et meme
+>    correctif que #264 sur l'axe TRAITS.
+>
+> Ce qui suit reste juste sur les FAITS (ventilation du porteur, cause du refus de
+> `buildNormalizedBC`) et faux sur la CONCLUSION.
 
 **Le fork, relu au decompile** (`IdunBattle.Entities.Effects.Loki.GhostEffect$$CreateTargetTriggerBehaviour`).
 Deux `Nullable.get_HasValue` en cascade deballent le champ `source` de l'effet
@@ -650,17 +672,18 @@ Le notre est leve **a la NORMALISATION**, avant tout spawn, par un appelant diff
 (`system error` = exception managee remontee par l'invoke IL2CPP), diagnostics opposes : le distinguer
 par l'APPELANT, jamais par le libelle.
 
-**Verdict** : gate de confrontabilite HERO/MoW/SUMMON — les trois portes sont fermees, la seule
-categorie restante est NPC. L'item n'est pas « bloque », il est **NON PERTINENT**. Aucun port : un port
-sans porteur spawnable serait invalidable, donc speculatif (regle « no unvalidatable ability ports »).
+**Verdict de #228 — INFIRME (#366-r1)** : les trois portes HERO/MoW/SUMMON sont bien fermees, mais
+**ce n'etait pas la liste complete des voies**. Une QUATRIEME existe pour une ability dont l'arbre ne
+lit ni traits ni arme du caster : la GREFFE sur une unite du pool. Ce que #228 a reellement
+demontre, et qui reste vrai, c'est que **`catalog_inject` ne fera JAMAIS entrer un npc au pool** —
+pas que la mecanique est inatteignable.
 
-**Ce qui rouvrirait la fiche** : `thousNpc4Terminator` promu jouable par un futur build (il apparaitrait
-alors dans `--list-pool`), ou une 3e sous-classe de `GhostReviveAbility` portee par un hero. Le probe
-re-derive les deux en un run — ne pas recopier les chiffres ci-dessus, les recalculer.
+Lecon transposable : « le porteur n'entre pas au pool » repond a « peut-on SPAWNER ce porteur »,
+jamais a « peut-on EXERCER ce code ». Poser la seconde question separement.
 
-**Note pour un port eventuel** (si la fiche rouvre) : `StatAmount(src, Health = 5, max = 3)` porte le
-piege deja paye en `case-envfire-tile-ability-route` — `HEALTH` est une stat *fill-up*, `Maximum` doit
-etre route sur le `HealthComponent` (`hp_max`), pas sur la valeur COURANTE.
+**Ce qui rouvrirait cette section** : `thousNpc4Terminator` promu jouable (il apparaitrait dans
+`--list-pool`), ou une 3e sous-classe de `GhostReviveAbility`. Le probe re-derive les deux en un run
+— ne pas recopier les chiffres ci-dessus, les recalculer.
 
 ### 8.3 Technique reutilisable : lire une vtable **sans** classe initialisee
 

@@ -6,7 +6,16 @@ QUESTION : la branche `StatAmount(src, Health, max)` du fork d'`amount` de
 CONFRONTABLE en runner ? (L'autre branche, `Direct(GetVariableForLevel(config, 0x1d = 'hp'))`, est
 celle de `TimeFlux_Revive` 1186 -- portee et validee live par #213.)
 
-REPONSE MESUREE (2026-07-29) : **NON -- NON PERTINENT**. Un seul porteur dans tout le parc,
+⚠ **VERDICT PERIME (#366-r1, 2026-08-01)** -- la branche EST portee et VALIDEE LIVE, cf.
+`docs/rl/case-366r1-echoes-from-the-warp-revive.md` et `probe_366r1_echoes_revive.py`. Ce que ce
+probe mesure reste JUSTE (le porteur est npc, `catalog_inject` ne le fera jamais entrer au pool) ;
+c'est la CONCLUSION qui etait fausse : une QUATRIEME voie existe, la GREFFE du passif sur une unite
+du pool (`catalog_inject.graft_passive_ability`), legitime des lors que l'arbre ne lit ni traits ni
+arme du caster. « Le porteur n'entre pas au pool » repond a « peut-on SPAWNER ce porteur », jamais a
+« peut-on EXERCER ce code ». Ce probe reste utile comme mesure de la porte SPAWN -- pas comme
+verdict de pertinence.
+
+REPONSE MESUREE (2026-07-29, CONCLUSION DEPUIS INFIRMEE) : Un seul porteur dans tout le parc,
 `thousNpc4Terminator` (« Scarab Occult Terminator », ThousandSons), bucket **npc** :
   * absent de `--list-pool` (rank 17 : 97 unites regulieres + 8 MoW) ;
   * **aucun summoner** -- 0 des 559 abilities du gameconfig ne cite son id (ses 308 occurrences dans
