@@ -723,8 +723,13 @@ def _load_tertiary_abilities(state: State, ability_states: dict) -> int:
                 continue                      # id hors enum du build -> non ingerable, non devinable
             sc.ctx.tertiary_ability = name
             sc.ctx.tertiary_ability_level = int(lvl)
+            # `mult` = `AbilityState.VariableMultiplierPercentage` (`+0x24`), lu SANS garde de
+            # valeur : contrairement au niveau, aucun invariant natif n'en exclut de plage, et un
+            # `0` publie serait un vrai zero. Absent (`None`) = champ non expose -> on garde le
+            # defaut neutre 100. Si `level` est lisible, `+0x24` l'est aussi (meme instance) : un
+            # walk partiel aurait deja fait sortir la boucle sur `len(raw) <= 10`.
             mult = t.get("mult")
-            if mult is not None and int(mult) > 0:
+            if mult is not None:
                 sc.ctx.tertiary_ability_variables_multiplier = int(mult)
             seeded += 1
             break                             # `TertiaryAbility` est un Nullable SIMPLE : une au plus
