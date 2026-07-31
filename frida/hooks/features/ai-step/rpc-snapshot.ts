@@ -38,7 +38,7 @@ import {
 import { applyAiMsgMi } from "../../game/ai-control.js";
 import {
     classFieldsDump, computeAttackPlans, computeDangerZone, computeExposure,
-    projectMowsFull, projectUnitsFull,
+    projectMowsFull, projectUnitsFull, readParentLink,
 } from "./projection.js";
 
 // --- Snapshot one-shot des stats de combat résolues (prédiction 100% offline, doc §16) ---
@@ -519,6 +519,23 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
+                // #378 : `ChildComponent.ParentId` — le lien enfant -> SUMMONER, TRI-ÉTAT
+                // (`parentId` + `parentMeasured`). MÊME lecteur que `decisionView.units[]`
+                // (`readParentLink`, source unique) : les deux canaux ne peuvent pas diverger.
+                //
+                // POURQUOI ICI, alors que `decisionView` le publie déjà. Ce sont deux régimes,
+                // pas deux copies. `combatSnapshot` est (a) le canal de SEED de `load_state`
+                // (l'ECS reconstruit d'une capture live n'a AUCUN autre moyen de connaître le
+                // parent d'un summon apparu avant la capture — la simulation ne l'a pas spawné)
+                // et (b) le canal RE-LU PAR PAS (`playbook/scene.py::refresh_shields`), donc le
+                // seul qui suive un summon apparu MID-BATAILLE. `decisionView`, lui, n'est
+                // interrogé que LAZY. Sans cette ligne, `parent_by_id` restait vide sur les deux
+                // faces et la chance du jumeau drone `1307 DefenderOfTheGreaterGood_ExtraHitsDrone`
+                // se lisait sur SES tours au lieu de ceux de son summoner (résidu de #372).
+                //
+                // Lecture MÉMOIRE PURE (aucun `invokeMethod`) : comme `readShields` et
+                // `readUnitTurnState`, elle ne peut rien muter -> pas de bouton `debugOnly`.
+                ...readParentLink(e),
                 // #223 : `currentTurnStartTile` + `chargedUnitIds` (cf. le bloc `readUnitTurnState`).
                 ...readUnitTurnState(e),
             });

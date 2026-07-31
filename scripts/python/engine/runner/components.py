@@ -135,16 +135,24 @@ class UnitComponent(Component):
     ability » de `GhostEffect` et de `GhostReviveAbility`. Port : set d'ids `AbilityOrEffect`
     (l'`EffectType` 1186 pour le ghost).
 
-    `parent_id` = mirror du lien PARENT natif (`ParentComponent`, champ id @+0x10 ; observable live
-    `Unit_Parent_Id` emis au spawn d'un summon). C'est ce que lit le selecteur
-    `IdunBattle.Entities.Selectors.ParentSelector$$Select` (-> `IdunBattle.Entities.UnitExtensions$$GetParent`),
-    consomme par `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$CreateTargetSelector`
-    (`Parent(Self)` = le SUMMONER) et par le gate `IsFriendlyKell` du playbook SupremeCommander.
+    `parent_id` = mirror du lien enfant -> SUMMONER natif : `IdunBattle.Entities.Components.
+    ChildComponent`, champ `ParentId` (`BEntityId` = int32 @+0x10 ; observable live `Unit_Parent_Id`
+    emis au spawn d'un summon). C'est ce que lit `IdunBattle.Entities.UnitExtensions$$GetParent`
+    (`TryGetComponent<ChildComponent>` puis `state.GetEntity(ParentId)` ; la recursion vers la
+    RACINE n'a lieu que si son 3e argument `root` est vrai), foyer du selecteur
+    `IdunBattle.Entities.Selectors.ParentSelector$$Select`, consomme par
+    `IdunBattle.Entities.Effects.Loki.ListenUpMaggotsEffect$$CreateTargetSelector` (`Parent(Self)`
+    = le SUMMONER) et par le gate `IsFriendlyKell` du playbook SupremeCommander.
+    ⚠ Ce n'est PAS `IdunBattle.Entities.Components.ParentComponent`, dont le `+0x10` est
+    `ChildrenIds` (une `List`, sens parent -> enfants -- cf. son `$$.ctor` et son `$$ToString`) :
+    c'est l'autre bout du lien, et l'ancrage que nommait le residu de #372.
     None = unite sans parent (toute unite du roster initial). Pose par `SpawnUnitOperation`
-    (`_spawn_config_grot`, mirror `SpawnUnitOptions` -> `Unit_Parent_Id = casterId`).
+    (`_spawn_config_grot`, mirror `SpawnUnitOptions` -> `Unit_Parent_Id = casterId`) et, sur un etat
+    HYDRATE, seede depuis `combatSnapshot.units[].parentId` par `snapshot._load_unit_parent` (#378).
 
     Le lien RECIPROQUE (parent -> enfants) n'est PAS materialise : le port le derive en balayant
-    `state.entities` (cf. `children_of`), la ou le natif tient une liste `ParentComponent.children`.
+    `state.entities` (cf. `children_of`), la ou le natif tient la liste `ParentComponent.ChildrenIds`
+    (@+0x10, construite par `IdunBattle.Entities.Components.ParentComponent$$.ctor`).
 
     `death_source` = mirror du `Nullable<IdunBattle.Operations.DamageSource>` @`UnitComponent+0x108`,
     ECRIT par `IdunBattle.Operations.KillUnitOperation$$RecordDeathReason(killer, killed,
@@ -1060,11 +1068,14 @@ def set_unit_feet(state, unit_id: int, feet) -> List[tuple]:
     return get_unit_feet(state, unit_id)
 
 
-# --- Lien PARENT / ENFANTS (`ParentComponent`) --------------------------------------------------- #
+# --- Lien PARENT / ENFANTS (`ChildComponent.ParentId` / `ParentComponent.ChildrenIds`) ----------- #
 def parent_of(state, unit_id):
-    """`IdunBattle.Entities.UnitExtensions$$GetParent(unit)` (lu par
-    `IdunBattle.Entities.Selectors.ParentSelector$$Select`) : l'entite PARENTE (le summoner), ou None.
-    Le port lit `UnitComponent.parent_id` pose au spawn."""
+    """`IdunBattle.Entities.UnitExtensions$$GetParent(unit, state, root = false)` (lu par
+    `IdunBattle.Entities.Selectors.ParentSelector$$Select`) : l'entite PARENTE DIRECTE (le summoner),
+    ou None. Le natif y lit `ChildComponent.ParentId` puis `state.GetEntity(...)` ; il ne remonte
+    a la RACINE que si son 3e argument `root` est vrai, ce que ce port ne demande jamais.
+    Le port lit `UnitComponent.parent_id` (pose au spawn, ou seede du live par
+    `snapshot._load_unit_parent`)."""
     e = state.get_entity(unit_id) if unit_id is not None else None
     uc = e.get_component(UnitComponent) if e is not None else None
     pid = getattr(uc, "parent_id", None) if uc is not None else None
@@ -1072,7 +1083,8 @@ def parent_of(state, unit_id):
 
 
 def children_of(state, unit_id, alive_only: bool = True) -> list:
-    """Enfants (summons) de `unit_id` — mirror de `ParentComponent.children` cote natif, DERIVE ici par
+    """Enfants (summons) de `unit_id` — mirror de `ParentComponent.ChildrenIds` (la `List` @+0x10 que
+    construit `IdunBattle.Entities.Components.ParentComponent$$.ctor`), DERIVE ici par
     balayage de `state.entities` (le port ne materialise que le lien enfant -> parent). `alive_only`
     reflete `IdunBattle.Entities.Selectors.AllAliveMachinesSelector` (le selecteur `DSLFactory.Children`
     ne rend que des unites VIVANTES) ; le gate `IsFriendlyKell` du playbook SupremeCommander, lui,

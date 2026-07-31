@@ -128,10 +128,14 @@ def _kit_spawn_visual_ids(visual_id) -> set:
     `IdunBattle.AI.Playbook.Loki.SupremeCommanderPlaybook$$IsFriendlyKell` (`*(int *)(comp + 0x10)
     == EntityId(caster)`).
 
-    AUCUN RPC ne publie ce champ : ni `projectUnitsFull` (decisionView : id/visualId/pos/hp/owner/
-    team/alive/ctrl/hasAction/ranged/defeatedByMelee/killerId/abilities/effects), ni `observeBattle`
-    (entityId/squadId/visualId/teamId/playerId/col/row/hp/hpMax/armor/rank/isDead), ni
-    `combatSnapshot`. Le lien se RECONSTRUIT donc depuis la config : toute constante d'une ability
+    ⚠ CE N'EST PLUS LA VOIE PRINCIPALE. `projectUnitsFull` (decisionView) et `combatSnapshot`
+    publient desormais le champ (`parentId` + son discriminant `parentMeasured`, #378), et
+    `supreme_commander._has_friendly_kell` le LIT en priorite : cette derivation n'est plus que le
+    REPLI, ligne par ligne, pour les sources qui ne le portent pas -- `observeBattle`
+    (entityId/squadId/visualId/teamId/playerId/col/row/hp/hpMax/armor/rank/isDead), qui reste la
+    source des MORTS, et tout hook anterieur au capteur.
+
+    Le lien se RECONSTRUIT depuis la config : toute constante d'une ability
     du kit dont la valeur NOMME une unite connue de gameconfig designe une unite que ce kit fait
     apparaitre. Le scan des 669 unites rend un vocabulaire de cles etroit et exclusivement
     spawn-related : `unitId`(48), `unitToSpawn`(5), `unitId_2`(5), `summonId`(3), `heroId`(3),
@@ -145,9 +149,8 @@ def _kit_spawn_visual_ids(visual_id) -> set:
     DOMAINE D'EXACTITUDE (a lire avec le consommateur `IsFriendlyKell`) : le couple
     (visualId de summon, equipe du summoner) identifie le parent des lors qu'une equipe ne porte pas
     DEUX summoners du meme summon. Sinon le predicat « j'ai un enfant » peut passer pour le
-    summoner A alors que l'enfant est celui de B. RESIDU pour lever l'approximation : publier
-    `ChildComponent.ParentId` dans `projectUnitsFull` (le champ dict `parentId` existe deja cote
-    port -- `engine/entities/selectors.py::Parent` -- et serait alors lu directement)."""
+    summoner A alors que l'enfant est celui de B. C'est exactement l'approximation que la LECTURE
+    de `parentId` leve (#378) ; elle ne subsiste que sur les lignes non mesurees."""
     if not visual_id:
         return set()
     s = _KIT_SPAWN_CACHE.get(visual_id)

@@ -267,13 +267,16 @@ defaut de montage -- pas d'un gate manquant.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **Le lien PARENT n'est capte par aucun RPC.** Ni `decisionView` ni `combatSnapshot` n'exposent le
-  `ParentComponent` (id @+0x10). Cote COMBAT le port lit `UnitComponent.parent_id`, pose au spawn
-  **par la simulation** -- correct quand le drone est invoque DANS le rejeu, absent quand l'etat est
-  hydrate depuis un snapshot posterieur au spawn. Cote PREDICTION il n'est pas threade du tout.
-  Consequence, limitee au jumeau DRONE : sa chance est lue sur SES tours au lieu de ceux de son
-  summoner, donc **SOUS-ESTIMEE** (fidelite-safe : le port sous-tire, il ne sur-tire pas).
-  **Point d'ancrage a exposer** : `ParentComponent` id @+0x10, a ajouter a `combatSnapshot.units[]`.
+* ~~**Le lien PARENT n'est capte par aucun RPC.**~~ **TRAITE par #378** (`case-378-parent-link.md`) :
+  `combatSnapshot.units[]` porte desormais `parentId` + `parentMeasured`, le seed
+  `snapshot._load_unit_parent` le pose sur l'ECS d'un etat hydrate, et la face PREDICTION le threade
+  (`Scene.parent_by_id` -> `normal_attack`) la ou la cle etait ABSENTE. La sous-estimation de la
+  chance du jumeau DRONE est donc fermee cote port ; la face live attend la fenetre de reinject
+  (`probe_378_parent_link.py` rend `NON CONFRONTE` rc 7 en la nommant).
+  ⚠ **L'ancrage nomme ici etait FAUX** : `ParentComponent+0x10` est `ChildrenIds` (une `List`, sens
+  parent -> enfants). Le lien enfant -> parent est **`ChildComponent.ParentId`** (`BEntityId`
+  @+0x10) — les deux offsets valant 0x10, l'erreur etait invisible. Et `ParentId == 0` vaut « pas de
+  parent » (`MatchComponent$$NextId` pre-incremente : le premier id est `1`).
 * **Le regime `chance < 100` n'est pas confronte** : le coup y est un TIRAGE, et l'alignement du
   flux PRNG entre natif et port sur ce point precis n'a pas ete mesure. Le port TIRE (mirror), donc
   la consommation de genrand est la ; que le tirage tombe au MEME rang que le natif reste a etablir.
