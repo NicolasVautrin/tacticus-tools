@@ -127,13 +127,30 @@ y occupe **3 lignes pour 22 surcharges réelles**. C'est exactement ce faux nég
 fait écrire « aucun override n'existe » — puis **supprimer** deux valeurs justes en les
 croyant périmées.
 
-**Depuis le build `rnca9r7q6c`, un TROISIÈME motif d'absence, et il est massif** : les corps
-**pleinement partagés** (`u003C__Il2CppFullySharedGenericTypeu003E`) ne sont plus nommés du
-tout — **4 882 → 0**, mesuré. La chaîne Frida ne peut pas les produire : le `methodPointer`
-d'une **définition** générique est un thunk d'invocation, pas le corps. Toute la couche
-`IdunBattle.AI.Playbook` / `BucketSystem` est concernée (31 citations du dépôt). Cause, voies
-de rétablissement et protocole : **`docs/rl/case-259-couverture-gshared.md`** ;
-re-dérivation : `python scripts/python/probe_259_gshared_coverage.py`.
+**TROISIÈME motif d'absence — mais il ne vaut QUE pour la table Frida.** Les corps
+**pleinement partagés** sont absents de `frida/methods.tsv`, et ce **zéro est STRUCTUREL, pas
+une régression de build** : la chaîne Frida ne peut pas les produire, le `methodPointer` d'une
+**définition** générique étant un thunk d'invocation, pas le corps. **Ghidra, lui, les nomme.**
+
+Re-mesuré le 2026-07-31 sur `rnca9r7q6c`, motif par motif — le compte dépend du motif cherché,
+et deux lectures honnêtes ont déjà divergé faute de le préciser :
+
+| sous-chaîne cherchée (colonne SYMBOLE) | `ghidra/functions.tsv` | `frida/methods.tsv` |
+|---|---:|---:|
+| `__Il2CppFullySharedGeneric` | **4 874** | 0 |
+| `FullySharedGenericType` | 4 011 | 0 |
+| `FullySharedGenericStructType` | 912 | 0 |
+
+⚠ **Ne PAS en conclure que la couche `IdunBattle.AI.Playbook` / `BucketSystem` est illisible** —
+c'est ce que cette section affirmait, et c'est **FAUX** : Ghidra y nomme **2 184** symboles
+`IdunBattle.AI.Playbook`. Or la RE passe par Ghidra (`mcp__ghidra__decompile_function`), pas par
+la table Frida. Décourager cette lecture coûtait autant qu'un faux vert : une consigne qui
+interdit à tort une conclusion fait abandonner une mesure disponible.
+
+Ce qui reste vrai : un symbole absent des **deux** tables n'existe pas pour autant moins, et
+`frida/methods.tsv` ne peut pas servir d'inventaire des génériques. Cause, voies de
+rétablissement et protocole : **`docs/rl/case-259-couverture-gshared.md`** ; re-dérivation :
+`python scripts/python/probe_259_gshared_coverage.py`.
 
 **Comment conclure pour de vrai** : invoquer le **slot de vtable** sur l'instance (runtime,
 cf. `reference_il2cpp_methodptr_uninit_class`), balayer **toutes** les valeurs d'enum
