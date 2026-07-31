@@ -1198,14 +1198,17 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
 def _source_ability_state(state: State, source_id) -> Tuple[int, Optional[int], Optional[int]]:
     """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` de l'unité SOURCE d'un effet.
 
-    Le natif BAKE l'`AbilityStateReference` (`EffectComponent.AbilityState`) à la CRÉATION de
-    l'effet, depuis l'ability qui le pose — donc depuis la SOURCE, pas depuis le porteur. Pour
-    un effet d'UNITÉ le port approxime avec le `unitConfig` du PORTEUR (résidu documenté dans
-    `_load_stats_and_effects`) ; une TUILE n'a AUCUN `unitConfig`, donc il n'y a rien à
-    approximer : on lit le canal exact, le `StatsComponent.ctx` de la source
-    (`EffectComponent.SourceUnitId` = le champ `source` du capteur). Source inconnue/non chargée
-    (posée par une unité morte et retirée de la capture, ou par l'environnement) → neutre
-    (100, None, None), MÊME défaut que `EffectFactory.create`."""
+    Le natif BAKE l'`AbilityStateReference` (`EffectComponent.AbilityState @+0x18`) à la CRÉATION de
+    l'effet (`IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder`), depuis
+    l'ability qui le pose — donc depuis la SOURCE, pas depuis le porteur. On lit ici le canal exact,
+    le `StatsComponent.ctx` de la source (`EffectComponent.SourceUnitId` = le champ `source` du
+    capteur).
+
+    DIFFÉRENCE avec la voie des UNITÉS (`engine.entities.effects_state.baked_ability_state`, #382),
+    et elle tient au REPLI, pas à la lecture : une TUILE n'a AUCUN `unitConfig`, donc rien à quoi se
+    replier — source inconnue/non chargée (posée par une unité morte et retirée de la capture, ou
+    par l'environnement) → neutre (100, None, None), MÊME défaut que `EffectFactory.create`. Un
+    effet d'UNITÉ, lui, se replie sur son PORTEUR."""
     if source_id is None:
         return (100, None, None)
     ent = state.get_entity(int(source_id))

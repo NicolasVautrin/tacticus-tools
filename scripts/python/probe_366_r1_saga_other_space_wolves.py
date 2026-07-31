@@ -117,11 +117,12 @@ def main() -> int:
     ap.add_argument("--runner", type=int, default=None)
     ap.add_argument("--extra", action="append", default=[],
                     help="arg supplementaire passe a `rl_duel build` (repetable). Sert a mesurer le "
-                         "RESIDU `ability_level` : le natif indexe `extraHits` sur l'AbilityState de "
-                         "la SOURCE (Ragnar), le port sur le `unitConfig` du PORTEUR. Les deux "
+                         "regime DISSOCIE (#382) : le natif indexe `extraHits` sur l'AbilityState "
+                         "BAKEE dans l'effet, donc celle de la SOURCE (Ragnar). Les deux niveaux "
                          "coincident sous `buildNormalizedBC` (50 partout) ; les DISSOCIER "
                          "(`--extra --unit-stat --extra spaceBlackmane:PassiveAbilityLevel=1`) est "
-                         "le SEUL montage qui les separe.")
+                         "le SEUL montage qui les separe. Montage dedie : "
+                         "`probe_382_effect_source_ability_state.py`.")
     a = ap.parse_args()
 
     import rl_collect_batch as R

@@ -375,9 +375,12 @@ class GuardianOrganismDamageReductionEffect(BaseEffect):
       - cap = ConfigVar(0x12) = `dmgReduction` [20..1455, rarity-scaled × mult].
     AURA (`IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateTargetSelector` = Self + `AdjacentFriends(range 1)`) : l'effet se MATÉRIALISE
     sur chaque bénéficiaire (self + amis ring-1) -> capté dans SA liste (source = le porteur GuardianOrganism).
-    Côté port l'effet est DÉJÀ sur le défenseur (comme Terrifying/Terminator) : `self.ability_level`/
-    `self.ability_variables_multiplier` = ceux du porteur = le DÉFENSEUR (EffectsState.seed les propage) ->
-    niveau/mult CORRECTS sans threading. Aucun gate profil/mêlée/attaquant (OwnerIsTarget seul).
+    Côté port l'effet est DÉJÀ sur le défenseur (comme Terrifying/Terminator) ; `self.ability_level` /
+    `self.ability_variables_multiplier` sont ceux de la **SOURCE** de l'effet — le porteur de
+    `GuardianOrganism` — depuis #382 (`baked_ability_state` : le natif BAKE l'`AbilityStateReference`
+    du caster dans l'entité-effet à la pose). Sur le bénéficiaire == le porteur, c'est le même état
+    qu'avant ; sur un ami ring-1, c'est désormais celui du porteur d'aura et non plus celui du
+    défenseur. Aucun threading. Aucun gate profil/mêlée/attaquant (OwnerIsTarget seul).
     Symptôme non-porté (probe #86a) : port sur-prédit dégât->TyrantGuard (off 3205 vs natif 2324)."""
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
@@ -401,8 +404,9 @@ class NightshroudDmgReductionEffect(BaseEffect):
     enemy turn. » (le grant Infiltrate + la durée their+next-enemy-turn = cycle de vie de l'effet ; le
     ForSubtraction est le SEUL terme de dégât).
       - montant = ConfigVar(0x12) = `dmgReduction` [5..364 par niveau, RARITY-SCALÉ : dmgReduction ∈
-        variablesAffectedByRarityBonus] × `mult` (= `*(effet+0x60)`) = niveau/mult du porteur = le DÉFENSEUR
-        (EffectsState.seed les propage sur chaque allié ring-1 de Sibyll, comme l'AURA GuardianOrganism #89).
+        variablesAffectedByRarityBonus] × `mult` (= `*(effet+0x60)`) = niveau/mult de la **SOURCE**
+        (Sibyll), pas du défenseur, depuis #382 — l'état est BAKÉ dans l'entité-effet à la pose
+        (`baked_ability_state`), comme pour l'AURA GuardianOrganism #89.
     AUCUN gate (OwnerIsTarget SEUL -> s'applique mêlée ET ranged, normale ET spéciale, tout profil de dégât ;
     ≠ le percent-decrease gaté de Terrifying/MartialKatah). PER-COUP : « -X Damage from EACH hit » -> additif
     DÉFENSEUR @+0x10 soustrait de la BASE **PRÉ-perçage** (comme l'additif attaquant #75), donc DILUÉ par

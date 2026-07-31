@@ -166,13 +166,35 @@ def _ability_state_rows(snap: dict) -> dict:
             for u in (snap.get("units") or []) if u.get("entityId") is not None}
 
 
-def cross_unit_effects(rec, state) -> list:
+def source_census(snap, state) -> dict:
+    """VENTILATION des instances materialisees par etat de leur champ `source`. C'est
+    l'ANTI-FAUX-NEGATIF du balayage : « 0 effet cross-unite » ne veut rien dire tant qu'on n'a pas
+    montre que le champ `source` est RENSEIGNE et EGAL au porteur (et non pas absent)."""
+    rows = _ability_state_rows(snap)
+    out = {"total": 0, "source_null": 0, "source_eq_carrier": 0,
+           "source_cross_resolvable": 0, "source_cross_unresolvable": 0}
+    for carrier, effs in (state.effects.by_unit or {}).items():
+        for e in effs:
+            out["total"] += 1
+            src = getattr(e, "source", None)
+            if src is None:
+                out["source_null"] += 1
+            elif int(src) == int(carrier):
+                out["source_eq_carrier"] += 1
+            elif int(src) in rows:
+                out["source_cross_resolvable"] += 1
+            else:
+                out["source_cross_unresolvable"] += 1
+    return out
+
+
+def cross_unit_effects(snap, state) -> list:
     """Toutes les instances materialisees dont la SOURCE differe du PORTEUR, avec l'etat qu'elles
     portent et celui que le `combatSnapshot` attribue a leur source.
 
     Invariant transverse (il ne parle PAS que de 1224) : pour toute instance dont la source est
     RESOLVABLE et differente, le triplet porte doit etre celui de la SOURCE."""
-    rows = _ability_state_rows(rec["snapshot"]["snap"])
+    rows = _ability_state_rows(snap)
     out = []
     for carrier, effs in (state.effects.by_unit or {}).items():
         for e in effs:
@@ -293,7 +315,7 @@ def run(seed: str = "777", board: str = "MC1_67", verbose: bool = True,
             "live_per_hit": rec["live_per_hit"], "off_per_hit": off["per_hit"],
             "effect_ability_level": e.ability_level,
             "effect_multiplier": int(e.ability_variables_multiplier or 100),
-            "cross_unit": cross_unit_effects(rec, off["state"]),
+            "cross_unit": cross_unit_effects(rec["snapshot"]["snap"], off["state"]),
         })
         if verbose:
             print("[p382] source u%s state=%s | porteur u%s state=%s"
@@ -309,9 +331,104 @@ def run(seed: str = "777", board: str = "MC1_67", verbose: bool = True,
         rpc("disposeRunner", {"runnerId": rid}, 20)
 
 
+# ─────────────── BALAYAGE des porteurs d'AURA : qui arrive vraiment avec source != porteur ────────
+
+#: Rosters CHOISIS pour ramener chacun une famille ou le porteur d'effet n'est PAS la source :
+#: aura stat-mod projetee, aura de crit, aura de coups, aura de reduction, aura de MoW. Le dernier
+#: est le TOUT-VENANT (roster aleatoire seede), qui dit ce qu'une bataille ordinaire produit.
+SWEEP_ROSTERS = [
+    ("lionhelm",   "darkaAzrael,darkaHellblaster,ultraApothecary", "necroOverlord,necroWarden", []),
+    ("pathofcmd",  "eldarAutarch,eldarRanger,eldarFarseer",        "necroWarden",               []),
+    ("dotgg",      "tauShadowsun,tauCrisis",                       "orksNob",                   []),
+    ("psyfortress", "ultraTigurius,ultraApothecary",               "bloodMephiston",            []),
+    ("contagions", "deathTyphus,necroWarden",                      "custoKyrus,ultraTitus",
+     ["--p-mow", "deathCrawler"]),
+    # GuardianOrganism : le SEUL cas connu ou une doc du port annoncait l'effet MATERIALISE sur
+    # l'allie ring-1 avec `source` = le porteur de l'aura. A mesurer, pas a supposer.
+    ("guardianorg", "tyranTyrantGuard,tyranParasite,tyranNeurothrope", "necroDestroyer",         []),
+    ("random5v5",  None,                                           None,                        []),
+]
+
+
+def sweep(seed: str = "777", board: str = "MC1_67", verbose: bool = True,
+          advance: int = 0) -> dict:
+    """Balaye des rosters CHOISIS et rend, PAR roster, les effets materialises dont la source
+    differe du porteur (au DEPLOIEMENT, sans jouer un tour).
+
+    C'est la mesure de l'axe « source peut differer du porteur » -- l'autre axe du recensement, que
+    `scan_registry` (sensibilite au canal) ne dit pas. Elle est EXACTE sur ce qu'elle couvre et
+    MUETTE sur le reste : un effet pose par un TRIGGER (kill, cast, deplacement) n'apparait pas ici,
+    et c'est dit dans le rapport plutot que masque."""
+    import rl_collect_batch as R
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+
+    sid = R._resolve_session()
+
+    def rpc(method, body=None, timeout=60):
+        return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))
+
+    out: dict = {}
+    for tag, p_units, a_units, extra in SWEEP_ROSTERS:
+        fd, state_file = tempfile.mkstemp(prefix="p382sw_%s_" % tag, suffix=".json")
+        os.close(fd)
+        Path(state_file).unlink(missing_ok=True)
+        argv = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+                "--state-file", state_file, "--board", board, "--no-ai"]
+        if p_units:
+            argv += ["--p-units", p_units, "--a-units", a_units]
+        else:
+            argv += ["--roster", "5"]
+        argv += list(extra or [])
+        p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        if not Path(state_file).exists():
+            out[tag] = {"error": (p.stderr or p.stdout or "")[-300:]}
+            if verbose:
+                print("[sweep/%s] build KO : %s" % (tag, out[tag]["error"]))
+            continue
+        rid = json.loads(Path(state_file).read_text())["runnerId"]
+        Path(state_file).unlink(missing_ok=True)
+        try:
+            bg = rpc("boardGraph", {"runnerId": rid}, 60)
+            # `advance` : fait JOUER l'IA N activations d'equipe. Sans lui on ne voit que les
+            # owner-effects du DEPLOIEMENT ; les effets poses par un TRIGGER (kill, cast, pas) --
+            # la seule famille ou porteur != source -- n'existent pas encore.
+            for _ in range(max(0, int(advance))):
+                rpc("aiPlayByUnit", {"runnerId": rid, "maxTurns": 1, "maxActivations": 9999,
+                                     "maxPump": 400}, 300)
+            dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            ob = rpc("observeBattle", {"runnerId": rid}, 40)
+            snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
+            st = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
+            rows = cross_unit_effects(snap, st)
+            out[tag] = {"rows": rows, "census": source_census(snap, st),
+                        "n_effects": sum(len(v) for v in (st.effects.by_unit or {}).values())}
+            if verbose:
+                c = out[tag]["census"]
+                print("[sweep/%s] runner %s : %d effets ; source null=%d, ==porteur=%d, "
+                      "cross resolvable=%d, cross non chargee=%d"
+                      % (tag, rid, c["total"], c["source_null"], c["source_eq_carrier"],
+                         c["source_cross_resolvable"], c["source_cross_unresolvable"]))
+                for r in rows:
+                    print("    u%-3s <- u%-3s %-42s porte %s | source %s | porteur %s%s"
+                          % (r["carrier"], r["source"], r["name"], r["carried"],
+                             r["expected_source"], r["carrier_state"],
+                             "  <-- ETATS DIFFERENTS"
+                             if tuple(r["expected_source"]) != tuple(r["carrier_state"] or ())
+                             else ""))
+        finally:
+            rpc("disposeRunner", {"runnerId": rid}, 20)
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scan", action="store_true", help="recensement OFFLINE seul (sans jeu)")
+    ap.add_argument("--sweep", action="store_true",
+                    help="balayage LIVE des rosters d'aura (source != porteur au deploiement)")
+    ap.add_argument("--advance", type=int, default=0,
+                    help="nombre d'activations d'equipe jouees par l'IA avant la lecture (--sweep)")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--source-level", type=int, default=SOURCE_LEVEL)
@@ -324,6 +441,10 @@ def main() -> int:
         print("[scan] SENSIBLES au canal AbilityState : %d entrees" % len(s["sensitive"]))
         print("[scan] INDIFFERENTES                   : %d entrees" % len(s["insensitive"]))
         print("[scan] indifferentes : %s" % ", ".join(s["insensitive"]))
+        return 0
+
+    if a.sweep:
+        sweep(seed=a.seed, board=a.board, advance=a.advance)
         return 0
 
     r = run(seed=a.seed, board=a.board, source_level=a.source_level)
