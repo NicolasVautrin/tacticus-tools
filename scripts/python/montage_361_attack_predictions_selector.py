@@ -160,10 +160,15 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
     Rend un dict {target, ally, enemy2, caster} de positions, ou None.
     """
     walk = sorted(board.coord(t) for t in board.by_id if board.walkable(t))
+    if not walk:
+        return None
+    cc = (sum(p[0] for p in walk) / float(len(walk)), sum(p[1] for p in walk) / float(len(walk)))
     six = [t for t in board.by_id
            if board.walkable(t) and len(board.neighbours(t)) == 6
            and all(board.walkable(n) for n in board.neighbours(t))]
-    for tt in sorted(six)[:max_targets]:
+    # Cible AU CENTRE de la zone marchable : un coin de board etrangle les chemins du drive.
+    six.sort(key=lambda t: (abs(board.coord(t)[0] - cc[0]) + abs(board.coord(t)[1] - cc[1]), t))
+    for tt in six[:max_targets]:
         tp = board.coord(tt)
         ring = sorted(board.coord(n) for n in board.neighbours(tt))
         if len(ring) < 3:
@@ -172,8 +177,14 @@ def scan_geometry(board, dv, caster_adjacent: bool = False, max_targets: int = 4
         if caster_adjacent:
             caster = ring[2]
         else:
-            caster = next((p for p in walk
-                           if p != tp and p not in ring and hexgeo.distance(p, tp) >= 2), None)
+            # Caster a distance >= 2, et le PLUS LOIN POSSIBLE des deux voisins occupes : pose sur
+            # une tuile intermediaire, il bloque leur trajet (une unite adverse interdit la
+            # traversee) et le drive echoue -- mesure du 1er jet de ce montage.
+            cands = [p for p in walk
+                     if p != tp and p not in ring and hexgeo.distance(p, tp) >= 2]
+            caster = max(cands, key=lambda p: (min(hexgeo.distance(p, ally),
+                                                   hexgeo.distance(p, enemy2)), p),
+                         default=None)
         if caster is None:
             continue
         return {"target": tp, "ally": ally, "enemy2": enemy2, "caster": caster}
@@ -200,8 +211,14 @@ def build_montage(sid, arm: SelectorArm, seed: int, level: int = 8,
     if geo is None:
         errors.append("aucune geometrie a 6 voisins marchables sur %s" % BOARD)
     else:
-        wanted = {ids[VICTIM]: geo["target"], ids[FILLER_P]: geo["ally"],
-                  ids[ENEMY2]: geo["enemy2"], ids[GRAFT]: geo["caster"]}
+        # DRIVE EN DEUX PHASES : le VOISINAGE d'abord, le caster ensuite. Les deplacer ensemble
+        # laisse le caster se poser sur une tuile intermediaire et bloquer le trajet d'une unite
+        # adverse -- mesure du 1er jet (l'ennemi restait a 2 tuiles de sa destination).
+        ring_w = {ids[VICTIM]: geo["target"], ids[FILLER_P]: geo["ally"],
+                  ids[ENEMY2]: geo["enemy2"]}
+        wanted = dict(ring_w)
+        wanted[ids[GRAFT]] = geo["caster"]
+        drive_to(sid, rid, ring_w)
         if not drive_to(sid, rid, wanted):
             dv = _view(sid, rid)
             errors.append("drive KO : voulu %s obtenu %s"
