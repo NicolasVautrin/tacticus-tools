@@ -14,14 +14,93 @@ par la capture `combatSnapshot.normalAttack` (= dégât de base d'arme résolu).
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 from ..unit_context import UnitContext
 from ..stats import StatType
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
 from ...dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
+# `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` et `$$CalculateAverage` — les DEUX moyennes que
+# la prédiction d'ability emprunte selon le playbook (cf. `_PREDICTION_MINMAX_AVERAGE`).
+from ...dsl.base import _round_fix64, calculate_average
 # #158 : table `DamageProfileType index -> nom` DERIVEE de l'enum (source unique, ex-copie transcrite retiree).
 from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
+
+
+# ─── #344 : la PRÉDICTION d'ability moyenne `minDmg/maxDmg` par DEUX chaînes natives distinctes ───
+#
+# Le 6ᵉ argument que `<X>Playbook$$MakeDamagePredictions` passe à
+# `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` prend l'une de DEUX formes, portées
+# chacune par UN corps DÉDUPLIQUÉ (donc UN SEUL nom ghidra pour tous ses propriétaires) :
+#
+#   (a) `<X>Ability$$GetDamageAmountMain` — corps partagé étiqueté
+#       `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$GetDamageAmountMain`
+#       -> `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`
+#       =  `Half(Sum(Direct(minDmg), Direct(maxDmg)), rule = 0)`
+#       -> `IdunBattle.Entities.Formulas.DivideAmount$$Calculate`
+#       -> `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round` demi-vers-le-PAIR.
+#
+#   (b) `<X>Ability$$GetDamage` — corps partagé étiqueté
+#       `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDamage`
+#       -> `AActiveAbility$$MinMaxDamage(state, isPrediction: FALSE)` = `RandomAmount(minDmg, maxDmg)`,
+#       dont le playbook prend le slot 4 d'`IAmountFormula` =
+#       `IdunBattle.DSL.AAmountFormula$$CalculateAverage` = `(min + max) / 2` ENTIER = TRONCATURE.
+#
+# Les deux ne divergent QUE lorsque `minDmg + maxDmg` vaut 3 mod 4, d'exactement 1 — invisible
+# deux fois sur trois. Les DEUX faces sont MESURÉES LIVE (`probe_344_ability_damage_average.py`) :
+# FlailSwing 1042 relève de (a) et le natif MONTE ; PlasmaCannon 1150 relève de (b) et le natif
+# TRONQUE. Un port qui mettrait tout le monde d'un seul côté est faux dans l'autre moitié.
+#
+# L'ensemble ci-dessous est la famille (a), ÉNUMÉRÉE par les xrefs du corps `GetDamageAmountMain`
+# (exhaustives à la date de lecture, build `rnca9r7q6c`). Le DÉFAUT est (b) — qui est aussi le
+# comportement historique du port. ⚠ Une ability absente des DEUX listes de xrefs n'est pas
+# « (b) lue » : elle est NON LUE et retombe sur le défaut. Cf. docs/rl/case-344.
+_PREDICTION_MINMAX_AVERAGE = frozenset({
+    1173,   # ArcScourge             (`ArcScourgePlaybook$$EvaluateNonComparable`)
+    1014,   # ArmoriumCherub
+    1026,   # BasiliskBarrage        (`BasiliskBarragePlaybook$$GenerateAttackPredictionsForShells`)
+    1041,   # BrazierOfHolyFire
+    1022,   # BringerOfDespair
+    1105,   # CrushingClaws
+    1066,   # Executioner            (`ExecutionerPlaybook$$GeneratePredictions`)
+    1042,   # FlailSwing             -- MESURÉ LIVE (bras (a) du probe #344)
+    1017,   # FragBomb
+    1008,   # HarbingerOfDestruction
+    1067,   # HarvesterOfSouls
+    1004,   # MortisRound
+    1006,   # MultiThreatEliminator
+    1035,   # PlagueWind
+    1027,   # PsychicMaelstrom
+    1062,   # SanctorumMissile
+    1065,   # ScythingTalons
+    1056,   # StranglethornCannon
+})
+
+# Famille (b), LUE elle aussi (xrefs du corps `VigilanceEternalAbility$$GetDamage`) — elle coïncide
+# avec le défaut, donc rien à brancher ; on la NOMME pour distinguer « lu et confirmé (b) » de
+# « non lu, retombé sur le défaut ». Consommée par les gardes de #344.
+_PREDICTION_MINMAX_RANDOM_READ = frozenset({
+    1176,   # BlightGrenades
+    1171,   # DakkaDakkaDakka
+    1199,   # DoomSiren
+    1168,   # EntropyCannons
+    1197,   # ExcruciatingFrequencies
+    1169,   # PlagueburstMortar
+    1170,   # ExplosivePresents
+    1036,   # FrenziedFiring         (DEUX call-sites : cible d'origine + volet AoE)
+    1227,   # HeavyWarpFlamer
+    1020,   # HeraldOfTheApocalypse
+    1196,   # LashOfTorment
+    1222,   # MassDriverAccelerator
+    1165,   # MightFromBelow
+    1150,   # PlasmaCannon           -- MESURÉ LIVE (bras (b) du probe #344)
+    1225,   # StrikeFromTheShadows
+    1103,   # Supercharge
+    1154,   # TacticalPrecision
+    1202,   # VigilanceEternal       (`VigilanceEternalPlaybook$$EvaluateNonComparable`)
+})
 
 
 class AActiveAbility:
@@ -94,20 +173,30 @@ class AActiveAbility:
                                        self.caster.extra_hits_melee, self.caster.is_melee)
 
     # GetDamage : base de dégât (single, pré-spread) — défaut générique (special : min/max config).
-    # Mirror `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage` (avgFlag=true, chemin PRÉDICTION) :
-    # Half(Sum(GetVariableForLevel(minDmg 0xc), GetVariableForLevel(maxDmg 0xd))), chaque var
-    # scalée ×mult/100 + Fix64.Round DANS GetVariableForLevel (TryGetVariableArrayForLevel
-    # IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel, gate variablesAffectedByRarityBonus). DÉCOMPOSÉ PAR ÉTAGE #100 (varLevelDumps,
-    # u80 PlasmaCannon (50,180)) : minDmg 665→1197 + maxDmg 886→1595 → avg 1396 ; bouts prédiction
-    # [1117,1675] = ±20% EXACT. ⚠ Le « base = maxDmg seul » (#96) est RÉFUTÉ par cette lecture —
-    # le 1396 se décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination), d'où le faux verdict.
+    # Chaque var est scalée ×mult/100 + Fix64.Round DANS GetVariableForLevel
+    # (`IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`, gate
+    # variablesAffectedByRarityBonus). DÉCOMPOSÉ PAR ÉTAGE #100 (varLevelDumps, u80 PlasmaCannon
+    # (50,180)) : minDmg 665→1197 + maxDmg 886→1595 → avg 1396 ; bouts prédiction [1117,1675] =
+    # ±20% EXACT. ⚠ Le « base = maxDmg seul » (#96) est RÉFUTÉ par cette lecture — le 1396 se
+    # décomposait AUSSI en maxDmg[65]×1.2 (sous-détermination), d'où le faux verdict.
+    #
+    # ⚠ L'ARRONDI DE LA MOYENNE N'EST PAS UNIQUE (#344) : il dépend de la forme que le
+    # `<X>Playbook$$MakeDamagePredictions` passe en 6ᵉ argument de
+    # `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` — cf. `_PREDICTION_MINMAX_AVERAGE`.
     def get_damage(self) -> int:
         if self.config is not None:
             lvl, mult = self.level, self.multiplier
             mn = self.config.get_variable_for_level("minDmg", lvl, 0, mult)
             mx = self.config.get_variable_for_level("maxDmg", lvl, 0, mult)
             if mn or mx:
-                return (mn + mx) // 2   # Half (Fix64) — somme impaire : x.5 tronqué (cas non observé)
+                if int(self.ability_type) in _PREDICTION_MINMAX_AVERAGE:
+                    # (a) `AActiveAbility$$MinMaxDamageAverage` = `Half(Sum(Direct(mn), Direct(mx)), 0)`
+                    # -> `DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)`
+                    # = `Fix64.Round` demi-vers-le-PAIR.
+                    return _round_fix64(Fraction(mn + mx, 2), 0)
+                # (b) `AActiveAbility$$MinMaxDamage(state, isPrediction: FALSE)` = `RandomAmount(mn, mx)`,
+                # dont le playbook prend le slot 4 = `AAmountFormula$$CalculateAverage` = TRONCATURE.
+                return calculate_average(mn, mx)
             return self.config.get_variable_for_level("dmg", lvl, 0, mult) \
                 or self.config.get_variable_for_level("baseDmg", lvl, 0, mult)
         return 0

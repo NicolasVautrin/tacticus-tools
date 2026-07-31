@@ -39,17 +39,24 @@ class HitDamage:
         return cls(mm.min, mm.max)
 
     def get_damage(self, rng: IntBasedMersenneTwister, use_midpoint: bool = False) -> int:
-        """`IdunBattle.Core.HitDamage$$GetDamage.
+        """`IdunBattle.Core.HitDamage$$GetDamage`.
 
           • Min == Max            → Min            (AUCUN tirage RNG)
           • use_midpoint (prédiction) → (Min+Max)/2 (troncature entière, aucun tirage)
           • sinon                 → rng.Next(Min, Max+1) = next_internal(Min, Max+1)
                                     (uniforme [Min,Max], 1 tirage)
+
+        ⚠ La branche midpoint TRONQUE, et c'est JUSTE — relu au décompilé `rnca9r7q6c` par #344 :
+        `return (ulonglong)(uint)((iVar1 + *(int *)this) / 2)`, division entière C sur les deux `int`
+        du struct, **aucun Fix64 sur ce chemin**. Ce n'est donc ni `IdunBattle.Core.Services.MinMaxDamage$$Avg`
+        ni `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`, qui arrondissent tous
+        deux demi-vers-le-PAIR : sur `Min+Max` valant 3 mod 4 cette fonction rend UNE unité de MOINS
+        qu'eux, et c'est le comportement natif. Ne pas « corriger » (cf. docs/rl/case-344).
         """
         if self.min == self.max:
             return self.min
         if use_midpoint:
-            return (self.min + self.max) // 2      # (int)((Max+Min)/2)
+            return (self.min + self.max) // 2      # (int)((Max+Min)/2) — TRONCATURE native, cf. supra
         return rng.next_internal(self.min, self.max + 1)
 
 

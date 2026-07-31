@@ -19,6 +19,7 @@ Contenu :
 """
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
@@ -37,6 +38,7 @@ from ...entities.stats import StatType, StatPart
 from ...entities.behaviours import op_and, op_add, If as IfBehaviour
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors import Caster, Target
+from ...dsl.base import _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 
 if TYPE_CHECKING:
@@ -384,7 +386,13 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
     mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
     bmin = int(ability_var("AncestralFortune", "minDmg", lvl, multiplier_pct=mult) or 0)
     bmax = int(ability_var("AncestralFortune", "maxDmg", lvl, multiplier_pct=mult) or 0)
-    avg = (bmin + bmax) // 2                                   # Half(Sum(minDmg, maxDmg))
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.AncestralFortuneAbility$$GetAttackTarget` passe
+    # `AActiveAbility$$MinMaxDamage(state, isPrediction: true)` = `Half(Sum(Direct(minDmg), Direct(maxDmg)), 0)`
+    # a `SortUnitsByDamageUtility`, dont le `$$Select` evalue la formule par le slot 1 de `IAmountFormula`
+    # (= `Calculate`) -> `IdunBattle.Entities.Formulas.DivideAmount$$Calculate` ->
+    # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round` demi-vers-le-PAIR.
+    # #344 : c'etait une TRONCATURE, fausse d'exactement 1 quand `bmin + bmax` vaut 3 mod 4.
+    avg = _round_fix64(Fraction(bmin + bmax, 2), 0)
     return first_by_damage_utility(state, cands, avg, avg)
 
 
