@@ -130,6 +130,45 @@ def test_galvanic_field_free_attack_never_fires_from_the_caster(defend_the_divin
             "%s : la reparation, elle, DOIT avoir eu lieu sur les deux (%d)" % (side, exp))
 
 
+def test_two_adjacent_mechanics_both_attack_and_the_caster_still_does_not(
+        defend_the_divine_work_case):
+    """GENERALISATION la plus discriminante du lot -- DEUX allies mecaniques adjacents.
+
+    Les trois autres regimes n'en placent qu'UN : un port qui ne ferait attaquer que la PREMIERE
+    unite du selecteur (ou qui poserait/retirerait l'override sur un seul) y serait invisible. Ici
+    l'`actingUnits` en contient deux, tous deux au contact d'un ennemi.
+
+    Trois choses a la fois, et aucune n'est redondante :
+      1. TROIS reparations de `hpToRepair` (les 2 adjacents + le caster) ;
+      2. DEUX attaques, et le degat ENNEMI TOTAL est le meme live et offline ;
+      3. le caster ne frappe TOUJOURS pas -- alors qu'ici `normal_targets` lui donne des cibles.
+
+    RESIDU VISIBLE ICI, et c'est le meme qu'au regime `attack` : la REPARTITION differe (le port
+    concentre ses deux attaques sur un ennemi, le natif les ventile), parce que le choix de cible
+    est approxime. Le TOTAL, lui, coincide."""
+    r = defend_the_divine_work_case("two")
+    exp = int(r["hp_to_repair"])
+    assert r["geometry"]["d_caster_adj"] == 1 and r["geometry"]["d_caster_far"] == 1, (
+        "les DEUX allies doivent etre adjacents au caster (mesure %s / %s)"
+        % (r["geometry"]["d_caster_adj"], r["geometry"]["d_caster_far"]))
+    assert r["normal_targets"][P.ADJ_VIS] > 0 and r["normal_targets"][P.FAR_VIS] > 0, (
+        "les DEUX allies doivent avoir une cible, sinon une seule attaque partirait")
+    assert len(r["repairs"] or []) == 3, (
+        "trois reparations attendues (2 adjacents + caster) : %s" % (r["repairs"],))
+    for vis in (P.CASTER_VIS, P.ADJ_VIS, P.FAR_VIS):
+        for side in ("live", "off"):
+            assert r[side].get(vis) == exp, "%s : %s doit etre repare de %d" % (side, vis, exp)
+    assert len({a["attacker"] for a in (r["attacks"] or [])}) == 2, (
+        "DEUX attaquants distincts attendus : %s" % (r["attacks"],))
+    assert r["live_enemy_loss"] == r["off_enemy_loss"] > 0, (
+        "degat ENNEMI TOTAL live %s != port %s" % (r["live_enemy_loss"], r["off_enemy_loss"]))
+    caster_off = next((a for a in (r["attacks"] or [])
+                       if a["attacker"] == r["repairs"][-1]["target"]), None)
+    assert caster_off is None, (
+        "le CASTER (dernier repare, cf. `Friends(...) + Caster`) ne doit jamais attaquer : %s"
+        % (r["attacks"],))
+
+
 def test_1117_is_in_the_combat_registry_with_its_mask_and_attack_type():
     """GARDE DE NON-REGRESSION -- le CLIQUET du CLAUDE.md : une ability qui entre dans
     `ABILITY_CLASSES` pose son `TARGETING_OPTIONS` **et** son `ABILITY_ATTACK_TYPE` dans le MEME

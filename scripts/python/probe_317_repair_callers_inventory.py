@@ -102,10 +102,18 @@ CALLSITES: list[tuple[str, str, str, str, str | None, bool, str]] = [
      "targets = Friends(AdjacentUnits(Owner)) [- HeroUnits(targets) si triggerType == 0x20 Custom] "
      "-- porte par #328 (triggers/loki/relentless_march.py)"),
     ("IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour",
-     REPAIR, FOR_REPAIR, "ActiveAbilityType 1117 DefendTheDivineWork", "DefendTheDivineWork", False,
-     "Repair(Caster@0x48, Friends(Caster, AdjacentUnits(@0x50)) + Caster, "
-     "Get(GetVariableForLevel(0x24)), .., ForRepair) puis ExecuteAtomic(0x2a) + "
-     "Repair_GalvanicFieldAbility$$CreateAttackBehavior -- face DECISION portee (playbook), COMBAT non"),
+     REPAIR, FOR_REPAIR, "ActiveAbilityType 1117 DefendTheDivineWork", "DefendTheDivineWork", True,
+     # MEME FAMILLE DE PIEGE QUE LA LIGNE 7 (erratum #328) : DEUX Operations enchainees, et leurs
+     # selecteurs DIFFERENT d'un `op_Addition`. Lu au desassemblage (#334) :
+     #   etage 1  mov r12,[rdx+0x48] Caster ; mov rdx,[rdx+0x50] CasterTile ; AdjacentUnits ;
+     #            Friends ; mov rdx,[rdx+0x48] Caster ; op_Addition        <- le caster EST repare
+     #   etage 2  mov rdi,[r14+0x48] Caster ; mov rdx,[rdx+0x50] CasterTile ; AdjacentUnits ;
+     #            Friends ; mov rdx,rax ; CreateAttackBehavior             <- AUCUN op_Addition
+     "ExecuteAtomic(Repair(Caster@0x48, Friends(Caster@0x48, AdjacentUnits(CasterTile@0x50, 1, 3)) "
+     "+ Caster@0x48, Get(GetVariableForLevel(0x24)), .., ForRepair), 0x2a) puis "
+     "Execute(Repair_GalvanicFieldAbility$$CreateAttackBehavior(dsl@0x30, "
+     "Friends(Caster@0x48, AdjacentUnits(CasterTile@0x50, 1, 3)) SANS le caster)) "
+     "-- porte par #334 (abilities/admec.py) ; face DECISION deja portee (playbook NonComparable)"),
     ("IdunBattleLogic.Entities.Abilities.Triggered.Loki.DawnBlade_HealAbility$$CreateBehaviour",
      REPAIR, FOR_REPAIR, "TriggeredAbilityType 1501 DawnBlade "
      "(l'EffectType 1501 est DawnBlade_ExtraDmg -- homonyme d'id, autre enum)", "DawnBlade", True,

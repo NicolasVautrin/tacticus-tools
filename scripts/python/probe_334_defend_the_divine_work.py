@@ -144,6 +144,49 @@ def _drive_away(rpc, rid, board, live, sq_mover, anchor_tile, min_dist=FAR_MIN_D
     return False
 
 
+def _drive_two_adjacent_attackers(rpc, rid, board, live, sq, enemy_tiles):
+    """Regime de GENERALISATION `two` : les DEUX allies mecaniques adjacents au caster ET au CONTACT
+    d'un ennemi -- donc DEUX attaques gratuites dans le meme cast.
+
+    On cherche une tuile pour le CASTER qui partage >= 2 voisins libres avec un ennemi, puis on y
+    pose les deux allies. Le caster, lui, reste a distance 2 de l'ennemi (il ne doit pas devenir
+    lui-meme un attaquant potentiel, sinon le regime ne separe plus rien)."""
+    import hexgeo
+    for et in enemy_tiles:
+        ep = board.coord(et)
+        U = live()
+        occ = {board.id_at(u["col"], u["row"]) for u in U.values()}
+        ring = [n for n in board.neighbours(et) if n in board.by_id and board.walkable(n)]
+        cands = []
+        for t in board.by_id:
+            if not board.walkable(t) or hexgeo.distance(board.coord(t), ep) != 2:
+                continue
+            shared = [n for n in board.neighbours(t) if n in ring]
+            if len(shared) >= 2:
+                cands.append((t, shared))
+        cands.sort(key=lambda x: abs(board.coord(x[0])[0] - U[sq[CASTER_VIS]]["col"])
+                   + abs(board.coord(x[0])[1] - U[sq[CASTER_VIS]]["row"]))
+        for t, shared in cands[:8]:
+            if t in occ and t != board.id_at(U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"]):
+                continue
+            _move_to(rpc, rid, sq[CASTER_VIS], t, board)
+            U2 = live()
+            if board.id_at(U2[sq[CASTER_VIS]]["col"], U2[sq[CASTER_VIS]]["row"]) != t:
+                continue
+            free = [n for n in shared
+                    if n not in {board.id_at(u["col"], u["row"]) for u in U2.values()}]
+            if len(free) < 2:
+                continue
+            _move_to(rpc, rid, sq[ADJ_VIS], free[0], board)
+            _move_to(rpc, rid, sq[FAR_VIS], free[1], board)
+            U3 = live()
+            got = [v for v, f in ((ADJ_VIS, free[0]), (FAR_VIS, free[1]))
+                   if board.id_at(U3[sq[v]]["col"], U3[sq[v]]["row"]) == f]
+            if len(got) == 2:
+                return True
+    return False
+
+
 def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
                  damaged: int | None = None, build_runner=None, keep: bool = False) -> dict:
     """Monte le scenario, caste 1117 OFFLINE puis LIVE, rend les mesures.
@@ -215,6 +258,10 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
         if not _drive_adjacent(rpc, rid, board, live, sq[ADJ_VIS], ct, far_from=enemy_tiles):
             out["why"] = "l'allie ne peut pas se poser adjacent au caster et LOIN des ennemis"
             return out
+    elif scenario == "two":
+        if not _drive_two_adjacent_attackers(rpc, rid, board, live, sq, enemy_tiles):
+            out["why"] = "aucune tuile ne donne DEUX voisins libres partages avec un ennemi"
+            return out
     else:
         U = live()
         ct = board.id_at(U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"])
@@ -224,7 +271,10 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
 
     U = live()
     ct = board.id_at(U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"])
-    out["far_driven"] = _drive_away(rpc, rid, board, live, sq[FAR_VIS], ct)
+    # Dans le regime `two`, le second allie est justement ADJACENT (c'est le point du regime) : on
+    # ne l'eloigne que dans les regimes ou il joue le TEMOIN NEGATIF.
+    out["far_driven"] = (False if scenario == "two"
+                         else _drive_away(rpc, rid, board, live, sq[FAR_VIS], ct))
 
     U = live()
     cp = (U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"])
@@ -266,7 +316,8 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
         return out
     out["normal_targets"] = {
         CASTER_VIS: len(valid_normal_attack_targets(state, cid) or []),
-        ADJ_VIS: len(valid_normal_attack_targets(state, by_vis(ADJ_VIS)) or [])}
+        ADJ_VIS: len(valid_normal_attack_targets(state, by_vis(ADJ_VIS)) or []),
+        FAR_VIS: len(valid_normal_attack_targets(state, by_vis(FAR_VIS)) or [])}
 
     sc = state.get_entity(cid).get_component(StatsComponent)
     lvl = getattr(sc.ctx, "active_ability_level", None)
@@ -318,7 +369,8 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario", default="repair", choices=("repair", "attack", "caster"))
+    ap.add_argument("--scenario", default="repair",
+                    choices=("repair", "attack", "caster", "two"))
     ap.add_argument("--advance", type=int, default=None)
     ap.add_argument("--damaged", type=int, default=None)
     ap.add_argument("--keep", action="store_true")

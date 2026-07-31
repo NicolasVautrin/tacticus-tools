@@ -6,8 +6,9 @@ faute ?
 
 **Réponse, mesurée** : côté port, **aucun** des 13 n'est câblé sur le soin. Les portés passent tous
 par `RepairUnitOperation` (dont `LivingMetalRepair`, rebranché par #310, `DawnBlade`, porté par
-cette PR, et `RelentlessMarch`, porté par #328 → **6 sur 13**) ; les 7 restants ne sont **pas portés
-du tout** — ce sont des tranches neuves, pas des rescapés du bug #310. Le balayage AST inverse
+cette PR, `RelentlessMarch` par #328 et `DefendTheDivineWork` par #334 → **7 sur 13**) ; les 6
+restants ne sont **pas portés du tout** — ce sont des tranches neuves, pas des rescapés du bug #310.
+Le balayage AST inverse
 (`probe_310_heal_vs_repair_callers.py`) le confirme dans l'autre sens : 10 déclarations, **toutes
 `HEAL`**, 0 rescapé.
 
@@ -69,7 +70,7 @@ relues verbatim sur `rnca9r7q6c` : `$$ForRepair` = `(0, 1)`, `$$ForRegenerate` =
 | 5 | `…Active.Loki.ReanimationBeamAbility$$ExecuteBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1223 | non |
 | 6 | `…Active.Loki.ReanimationBeamAbility$$GetRepairBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1223 | non |
 | 7 | `…Active.Loki.RelentlessMarchAbility` | `AddEffect(0x3f3) + Repair` | ForRepair | `TriggeredAbilityType` 1004 (**homonyme** d'`ActiveAbilityType` 1004 `MortisRound`) | **oui** (#328) |
-| 8 | `…Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour` | `Repair` | ForRepair | `ActiveAbilityType` 1117 | non (DÉCISION portée) |
+| 8 | `…Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour` | `ExecuteAtomic(Repair, 0x2a)` puis `Execute(Repair_GalvanicField…$$CreateAttackBehavior)` | ForRepair | `ActiveAbilityType` 1117 | **oui** (#334) |
 | 9 | `…Triggered.Loki.DawnBlade_HealAbility` | **`Repair`** | ForRepair | `TriggeredAbilityType` 1501 `DawnBlade` (l'`EffectType` 1501 est `DawnBlade_ExtraDmg` — autre enum) | **oui** (#317, §6) |
 | 10 | `…Triggered.Loki.EnhancementRegenerationAbility` | `If(Repairable, Repair, Heal)` | **ctor ad-hoc** `+0x10=1` (scope), `+0x14=0`, `+0x15=1`, `+0x18=1` | `TriggeredAbilityType` 1433 | non |
 | 11 | `…Triggered.Loki.PowerUp_HealingAbility$$AdditionalBehavior` | `If(IsMechanical, Repair, Heal)` | **ctor ad-hoc** `+0x10=0`, `+0x14=1`, `+0x16=1` | `TriggeredAbilityType` 1273 | non |
@@ -146,10 +147,12 @@ Par ordre de valeur décroissante (porteur confrontable × écart mesurable) :
    littéral `Direct(1)` — l'ability n'a AUCUNE constante au gameconfig).
    ⚠ qualifier l'enum : 1004 est **`TriggeredAbilityType.RelentlessMarch`**, homonyme d'id avec
    `ActiveAbilityType.MortisRound`.
-2. **`DefendTheDivineWorkAbility`** (active 1117, `admecManipulus`, **dans le pool**) — face
-   DÉCISION déjà portée (playbook NonComparable), face COMBAT à faire :
-   `Repair(Caster, Friends(AdjacentUnits) + Caster, …)` puis `ExecuteAtomic(0x2a)` +
-   `Repair_GalvanicFieldAbility$$CreateAttackBehavior`. Deux Operations à enchaîner.
+2. ~~**`DefendTheDivineWorkAbility`**~~ — **PORTÉE par #334**
+   (`docs/rl/case-334-defend-the-divine-work.md`, `engine/runner/abilities/admec.py`). Deux
+   Operations enchaînées, et **elles n'ont pas le même sélecteur** — l'étage 1 répare
+   `Friends(Caster, AdjacentUnits(CasterTile)) + Caster`, l'étage 2 fait attaquer
+   `Friends(Caster, AdjacentUnits(CasterTile))` **sans** le caster. Même famille de piège que
+   l'erratum §3, lue au désassemblage.
 3. **`ReanimationBeamAbility`** (active 1223, MoW `necroReanimator`, hors pool → `catalog_inject`)
    — les call-sites #5 et #6 sont **la même feuille** ; seul le volet REVIVE est porté
    (`triggers/loki/reanimation_beam.py`). Sélecteur :
