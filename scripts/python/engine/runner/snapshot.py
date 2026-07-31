@@ -603,7 +603,21 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
     TRI-ETAT, meme discipline que les seeds voisins : une unite n'est seedee QUE si le champ est
     PRESENT et non `null`. Sur un hook qui ne publie pas encore `+0xf0` (avant le deploiement du
     capteur) la boucle ne pose RIEN et les compteurs gardent leur 0 de construction -- le
-    comportement d'avant, a l'identique. Un `0` publie est un vrai zero (l'unite n'a pas bouge)."""
+    comportement d'avant, a l'identique. Un `0` publie est un vrai zero (l'unite n'a pas bouge).
+
+    ⚠ GARDE `< 0` -- ce n'est PAS de la defense de principe, c'est un invariant NATIF.
+    Les trois champs sont des compteurs a increments `>= 1` (`RecordTilesMoved` sort sur
+    `if ((int)tiles < 1) return;`), remis a `0` ou copies l'un dans l'autre par `ResetThisTurn` :
+    aucune ecriture native ne peut les rendre negatifs. Une valeur `< 0` denonce donc une LECTURE
+    invalide, jamais un etat de jeu -- et on refuse de l'ingerer plutot que de propager du faux
+    dans l'ECS. MESURE qui a impose ce garde (2026-07-31, `probe_340_r1_actorstats_live.py`) :
+    `tilesMovedThisBattle` et `tilesMovedLastTurn` rendaient tous deux **-1201836032**, la MEME
+    valeur, parce que `getFieldOffset` rend **-1** sur un nom absent et que le hook les resolvait
+    par `getFieldOffset(...) || 0xec` -- or `-1` est *truthy* en JS, donc le fallback decompile
+    n'etait jamais pris et les deux champs lisaient `comp - 1`, la MEME adresse. Le correctif du
+    hook est livre mais EXIGE UNE REINJECTION ; en attendant, ce garde laisse ces deux champs a
+    leur 0 de construction (aucun lecteur porte pour `+0xec` ; `+0xf4` n'en a pas non plus) tandis
+    que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement."""
     for su in ((actor_stats or {}).get("units") or []):
         uid = su.get("entityId")
         if uid is None:
@@ -616,8 +630,9 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
                           ("tilesMovedThisTurn", "tiles_moved_this_turn"),
                           ("tilesMovedLastTurn", "tiles_moved_last_turn")):
             v = su.get(key)
-            if v is not None:
-                setattr(uc, attr, int(v))
+            if v is None or int(v) < 0:
+                continue
+            setattr(uc, attr, int(v))
 
 
 def _load_unit_traits(state: State, snapshot: dict) -> None:

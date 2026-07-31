@@ -1,7 +1,7 @@
 import {
     class_get_fields, class_get_name, class_get_parent,
     field_get_name, field_get_offset, field_get_type,
-    findClassAnywhere, findMethodByParamCount, getFieldOffset, s,
+    fieldOffsetOr, findClassAnywhere, findMethodByParamCount, s,
     type_get_class_or_element_class,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
@@ -314,8 +314,10 @@ export interface FullUnit {
 // §6.2) si la table de champs n'est pas énumérable.
 const childComponentClass = findClassAnywhere(
     "IdunBattle.Entities.Components", "ChildComponent");
+// `fieldOffsetOr` et NON `getFieldOffset(...) || …` : le « nom absent » vaut **-1**, truthy en JS,
+// donc le repli ne se déclenchait pas (lecture à `comp - 1`). Mesuré sur `actorStats` (#340-r1).
 const childParentIdOff = childComponentClass
-    ? (getFieldOffset(childComponentClass, "ParentId") || 0x10) : 0x10;
+    ? fieldOffsetOr(childComponentClass, "ParentId", 0x10) : 0x10;
 
 function readParentId(entityPtr: NativePointer): number | null {
     if (!childComponentClass) return null;

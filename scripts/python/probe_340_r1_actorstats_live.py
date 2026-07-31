@@ -223,29 +223,44 @@ def arm(h, steps: int) -> dict:
 
 
 # ---------------------------------------------------------------- verdicts
-def sensor_transitions(a: dict) -> list:
-    """Les ecarts du PATRON A TROIS CHAMPS -- le discriminant de V1. Liste VIDE = capteur conforme."""
+def sensor_transitions(a: dict) -> dict:
+    """Le PATRON A TROIS CHAMPS, VENTILE PAR CHAMP -- le discriminant de V1.
+
+    Ventile, parce que les trois champs ne sont PAS solidaires dans le capteur : mesure du
+    2026-07-31, `tilesMovedThisTurn` (+0xf0) est exact alors que `tilesMovedThisBattle` (+0xec) et
+    `tilesMovedLastTurn` (+0xf4) rendent la MEME valeur constante -- signature d'une lecture a la
+    MEME adresse (`getFieldOffset` rend **-1** sur un nom absent, et `-1 || 0x...` vaut -1 en JS,
+    donc le hook lisait `comp - 1` pour les deux). Un verdict global aurait noye le seul champ qui
+    porte ce cas sous l'echec des deux autres.
+
+    Rend `{champ: [(quoi, attendu, obtenu), ...]}` ; listes vides = champ conforme."""
     c = a["caster"]
-    bad = []
-    b, af, rs = a["ast_before"], a["ast_after"], a["ast_reset"]
-    if not (b and af and rs) or c not in b or c not in af or c not in rs:
-        return [("capteur MUET sur le caster", None, None)]
+    if not (a["ast_before"] and a["ast_after"] and a["ast_reset"]):
+        return {"turn": [("capteur MUET (RPC en echec)", None, None)]}
+    if not all(c in a[k] for k in ("ast_before", "ast_after", "ast_reset")):
+        return {"turn": [("capteur MUET sur le caster", None, None)]}
+    b, af, rs = a["ast_before"][c], a["ast_after"][c], a["ast_reset"][c]
     k = a["n_ref"]
-    if af["turn"] != k:
-        bad.append(("+0xf0 apres le pas", k, af["turn"]))
+    out = {"turn": [], "battle": [], "last": []}
+    # +0xf0 -- LE champ de ce cas (`TilesMovedThisTurnFormula$$Calculate` rend exactement lui).
     if b["turn"] != 0:
-        bad.append(("+0xf0 avant le pas (le cycle complet doit l'avoir remis a 0)", 0, b["turn"]))
-    if af["battle"] != (b["battle"] or 0) + k:
-        bad.append(("+0xec cumule", (b["battle"] or 0) + k, af["battle"]))
-    if af["last"] != b["last"]:
-        bad.append(("+0xf4 inchange par un pas", b["last"], af["last"]))
+        out["turn"].append(("avant le pas (le cycle complet doit l'avoir remis a 0)", 0, b["turn"]))
+    if af["turn"] != k:
+        out["turn"].append(("apres le pas", k, af["turn"]))
     if rs["turn"] != 0:
-        bad.append(("+0xf0 remis a 0 par ResetThisTurn", 0, rs["turn"]))
-    if rs["last"] != k:
-        bad.append(("+0xf4 = +0xf0 au reset (wasOwnTurn)", k, rs["last"]))
+        out["turn"].append(("remis a 0 par ResetThisTurn", 0, rs["turn"]))
+    # +0xec -- cumul BATAILLE : `RecordTilesMoved` l'incremente du MEME pas, `ResetThisTurn` n'y
+    # touche jamais.
+    if af["battle"] != (b["battle"] or 0) + k:
+        out["battle"].append(("cumule le pas", (b["battle"] or 0) + k, af["battle"]))
     if rs["battle"] != af["battle"]:
-        bad.append(("+0xec insensible au reset", af["battle"], rs["battle"]))
-    return bad
+        out["battle"].append(("insensible au reset", af["battle"], rs["battle"]))
+    # +0xf4 -- tour PRECEDENT : inchange par un pas, prend `+0xf0` au reset (`wasOwnTurn`).
+    if af["last"] != b["last"]:
+        out["last"].append(("inchange par un pas", b["last"], af["last"]))
+    if rs["last"] != k:
+        out["last"].append(("= +0xf0 au reset (wasOwnTurn)", k, rs["last"]))
+    return out
 
 
 def mismatches(rows: list, key: str) -> list:
@@ -276,22 +291,30 @@ def report(res: dict) -> bool:
                   "mauvaise raison (le port garderait son comportement d'avant).")
             continue
         b, af, rs = a["ast_before"][c], a["ast_after"][c], a["ast_reset"][c]
-        print("    V1 CAPTEUR (+0xec battle / +0xf0 turn / +0xf4 last)")
-        print("      %-22s battle=%-5s turn=%-5s last=%-5s" % ("avant le pas", b["battle"],
-                                                               b["turn"], b["last"]))
-        print("      %-22s battle=%-5s turn=%-5s last=%-5s" % ("apres le pas", af["battle"],
-                                                               af["turn"], af["last"]))
-        print("      %-22s battle=%-5s turn=%-5s last=%-5s" % ("apres EndTurnOperation",
-                                                               rs["battle"], rs["turn"],
-                                                               rs["last"]))
+        print("    V1 CAPTEUR (+0xec battle / +0xf0 turn / +0xf4 last ; attacks = +0x20)")
+        for lbl, row in (("avant le pas", b), ("apres le pas", af),
+                         ("apres EndTurnOperation", rs)):
+            print("      %-22s battle=%-13s turn=%-6s last=%-13s attacks=%-6s"
+                  % (lbl, row["battle"], row["turn"], row["last"], row["attacks"]))
         bad = sensor_transitions(a)
-        if bad:
+        if bad.get("turn"):
             ok = False
-            print("      [X] le patron a TROIS champs est rompu : %s"
-                  % [(w, "attendu %s" % e, "obtenu %s" % g) for w, e, g in bad])
+            print("      [X] +0xf0 (`TilesMovedThisTurnFormula$$Calculate`) : %s"
+                  % [(w, "attendu %s" % e, "obtenu %s" % g) for w, e, g in bad["turn"]])
         else:
-            print("      [OK] les deux transitions (pas / reset) suivent RecordTilesMoved et "
-                  "ResetThisTurn sur les trois champs -- les offsets et les noms sont les bons")
+            print("      [OK] +0xf0 : les deux transitions (pas -> %d, EndTurnOperation -> 0) "
+                  "suivent RecordTilesMoved et ResetThisTurn -- c'est LE champ de ce cas" % a["n_ref"])
+        for f, sym in (("battle", "+0xec (cumul BATAILLE)"), ("last", "+0xf4 (tour PRECEDENT)")):
+            if bad.get(f):
+                print("      [X] %s : %s" % (sym, [(w, "attendu %s" % e, "obtenu %s" % g)
+                                                   for w, e, g in bad[f]]))
+            else:
+                print("      [OK] %s" % sym)
+        if bad.get("battle") and bad.get("last") and b["battle"] == b["last"]:
+            print("      -> les DEUX champs faux rendent la MEME valeur (%s) : signature d'une "
+                  "lecture a la MEME adresse. `getFieldOffset` rend -1 sur un nom ABSENT, et "
+                  "`-1 || 0x...` vaut -1 en JS -> le hook lit `comp - 1`. CORRECTIF LIVRE "
+                  "(rpc-snapshot.ts), EXIGE UNE REINJECTION." % b["battle"])
 
         # ---- V2 / V3
         print("    V2 `load_state`  : compteur seede=%s   contrefactuel (sans le canal)=%s"
