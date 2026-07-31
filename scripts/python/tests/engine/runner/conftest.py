@@ -44,6 +44,7 @@ import probe_301_kill_unit_trigger_channels as KUC
 import probe_306_effect_trigger_channels as EFC
 import probe_338_ai_target_choice as AITC
 import probe_348_ai_approach as AIAP
+import probe_270d_lysander_deploy as LYS
 
 
 @pytest.fixture
@@ -410,6 +411,66 @@ def ai_approach_case(build_runner, rpc):
                             % (regime, r.get("why")))
             cache[regime] = r
         return cache[regime]
+
+    return _case
+
+
+# ── #270-d — un trait hors `UnitTrait` rend le BC ENTIER indeserialisable ────────────────────────
+
+@pytest.fixture(scope="module")
+def lysander_deploy_case(live_session):
+    """Fabrique : `lysander_deploy_case()` -> le dict de mesure du montage #270-d.
+
+    PORTE pytest de `scripts/python/probe_270d_lysander_deploy.py` : DEUX builds a UN SEUL BIT
+    d'ecart -- meme roster (`astarLysander` vs `orksWarboss,orksNob,necroWarden,eldarRanger`), meme
+    board (MC1_67), meme seed, meme seed BC augmente. Seule difference : le bras A RE-INSERE
+    `ImperialFists` dans `BC.Units[astarLysander].Traits`.
+
+    Ce que le contraste etablit : `UnitConfiguration.Traits` est TYPE
+    `List<IdunBattle.Entities.Enum.UnitTrait>` (`BattleConfigBuilder$$GetUnitConfiguration` recopie
+    `UnitProperties+0x18`, que `UnitPropertiesExtensions$$GetPlayerFacingTraits` lit en rendant
+    `List<UnitTrait>`), donc un nom hors enum fait LEVER
+    `Newtonsoft.Json.Utilities.EnumUtils$$ParseEnum` au step=deserialize BC d'`initAndStart`. Un
+    seul bras suffirait a montrer « ca marche » ou « ca casse » ; c'est la PAIRE qui attribue.
+
+    Portee MODULE (deux builds). ⚠ Montage non installe => ECHEC, jamais skip (#268) : ici un skip
+    serait particulierement trompeur -- « le porteur ne se deploie pas » est justement l'etat
+    qu'on est en train de refuter."""
+    cache: dict = {}
+
+    def _case(seed: int = 777, board: str = "MC1_67") -> dict:
+        key = (seed, board)
+        if key not in cache:
+            r = LYS.run(seed=seed, board=board, verbose=True)
+            if r.get("why"):
+                pytest.fail("montage lysander-deploy NON INSTALLE : %s" % r["why"])
+            cache[key] = r
+        return cache[key]
+
+    return _case
+
+
+@pytest.fixture(scope="module")
+def trait_hors_enum_cross_case(live_session):
+    """Fabrique : `trait_hors_enum_cross_case("votanChampion")` -> la CONTRE-EPREUVE CROISEE #270-d.
+
+    Le A/B de `lysander_deploy_case` montre que RETIRER `ImperialFists` deverrouille
+    `astarLysander` ; il n'exclut pas que la faute vienne d'autre chose de propre a cette unite (son
+    kit, son passif, son rang) dont le trait n'aurait ete qu'un co-facteur. Cette fixture prend une
+    unite qui monte DEJA et lui POSE le meme nom hors enum : si elle casse a son tour, la cause est
+    le TRAIT, pas le porteur.
+
+    Portee MODULE (deux builds par unite). ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case(porteur: str = "votanChampion", seed: int = 777, board: str = "MC1_67") -> dict:
+        key = (porteur, seed, board)
+        if key not in cache:
+            r = LYS.run_cross(porteur, seed=seed, board=board, verbose=True)
+            if r.get("why"):
+                pytest.fail("contre-epreuve croisee NON INSTALLEE : %s" % r["why"])
+            cache[key] = r
+        return cache[key]
 
     return _case
 

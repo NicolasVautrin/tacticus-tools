@@ -48,14 +48,19 @@ CIBLES = {
     1232: ("EmpyricAmbush", "eldarLhykhis"),
 }
 
-# Porteur qui NE SE DEPLOIE PAS -- mesure, pas supposition : bissection unite-par-unite le
-# 2026-07-30 (les 3 autres montent SEULS, celui-ci echoue SEUL). C'est un defaut de MONTAGE,
-# independant de #270, et il est DECLARE ici plutot que masque en vert.
-BLOQUES = {
-    "astarLysander": "initAndStart: system error au DEPLOIEMENT (famille #254 -- son passif "
-                     "`IconOfObstinacy` a `constants: null` au gameconfig ; un "
-                     "`GetStringConstant` a la construction du trigger LEVE). Non tranche.",
-}
+# Porteurs qui NE SE DEPLOIENT PAS. Vide depuis #270-d (2026-07-31) : `astarLysander` y figurait
+# avec pour motif suppose la famille #254 (« `IconOfObstinacy` a `constants: null`, un
+# `GetStringConstant` LEVE a la construction du trigger »). CETTE PISTE EST REFUTEE au decompile --
+# aucune des classes du kit n'appelle `GetStringConstant`/`GetNumberConstant` a la construction, et
+# la seule constante lue (`TitanhammerSquadAbility$$GetCurrentlyAffectedFriends` ->
+# `GetNumberConstant(0x16 = AbilityConstantType.range)`) est PRESENTE au gameconfig.
+#
+# La vraie cause : `catalog_inject._traits` posait `Subfaction: ImperialFists` dans
+# `UnitConfiguration.Traits`, qui est TYPE `List<IdunBattle.Entities.Enum.UnitTrait>` -- nom hors
+# enum => `StringEnumConverter$$ReadJson` -> `EnumUtils$$ParseEnum` LEVE au step=deserialize BC
+# d'`initAndStart`, ce qui emporte le BC ENTIER. Detail + montage A/B :
+# `probe_270d_lysander_deploy.py`, `docs/rl/case-270d-trait-hors-enum.md`.
+BLOQUES: dict = {}
 FOES = "orksWarboss,orksNob,necroWarden,eldarRanger"
 BOARD = "MC1_67"
 
