@@ -294,9 +294,17 @@ export function registerViewBoard(ctx: Ctx): void {
      *  (engine/utilities/tile.py : ElevationUtility, TileEffects, …). `aiMovableTiles`
      *  ne rend que col/row ; ce RPC projette TOUTES les tiles (TileComponent) avec
      *  leur élévation/terrain. L'occupant steppable se dérive côté moteur via les
-     *  positions des summons (decisionView). Read-only. body: { runnerId? }. */
+     *  positions des summons (decisionView). Read-only.
+     *  `includeInactive` publie AUSSI les effets de tuile posés-mais-INACTIFS, avec
+     *  leur flag `active` (défaut FAUX = comportement historique, que tous les
+     *  consommateurs actuels supposent) — strict pendant de `decisionView`, même
+     *  raison : sans lui, l'absence d'un effet de tuile est AMBIGUË (non-posé ou
+     *  posé-inactif ?). C'est exactement ce qui laisse #368 sans verdict sur la
+     *  tuile NON MARCHABLE de la zone de `1148 DaemonicOrdnance` — cf.
+     *  `docs/rl/case-368-pose-daemonic-ordnance.md`.
+     *  body: { runnerId?, includeInactive?=false } */
     ctx.rpc.tileMeta = (
-        body?: { runnerId?: number },
+        body?: { runnerId?: number; includeInactive?: boolean },
     ): Promise<unknown> => queueOnMainThread(() => {
         let runner: NativePointer; let label: string;
         if (typeof body?.runnerId === "number") {
@@ -316,7 +324,8 @@ export function registerViewBoard(ctx: Ctx): void {
         // Effets de statut de tuile (EffectsOwnedComponent sur l'entité Tile) — la feuille
         // TileEffectsUtility somme Default.TileEffects.<EffectName> pour chaque effet présent.
         // Clé = entity id de la tuile ; on joint sur t.id de la projection.
-        const effectsByTile = readEffectsByTile(statePtr);
+        const includeInactive = body?.includeInactive === true;
+        const effectsByTile = readEffectsByTile(statePtr, { includeInactive });
         const tiles = (proj.tiles ?? []).map((t) => {
             const effs = effectsByTile.get(t.id) ?? [];
             return {
@@ -324,9 +333,12 @@ export function registerViewBoard(ctx: Ctx): void {
                 isWall: t.isWall, isTemporary: t.isTemporary, isTerritory: t.isTerritory,
                 // effects: liste des effets de statut sur la tuile (name = clé de poids
                 // Default.TileEffects ; effectType/source pour le multiplicateur natif).
+                // `active` n'est publié que sous `includeInactive` — sinon il vaut toujours
+                // true (les inactifs sont filtrés en amont) et le champ mentirait par omission.
                 effects: effs.map((e) => ({
                     name: e.name, effectType: e.effectType,
                     source: e.source, remaining: e.remaining, level: e.level,
+                    ...(includeInactive ? { active: e.active } : {}),
                 })),
             };
         });
