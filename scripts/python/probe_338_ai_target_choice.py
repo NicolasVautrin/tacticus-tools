@@ -129,7 +129,20 @@ def run(rpc, low_vis: str = ENEMY_VIS[1], advance: int = 4, build_runner=None,
     """Monte le regime, caste 1166 OFFLINE puis LIVE, rend les mesures.
 
     Rend un dict : `ok`/`why`, `nearest` (ce que le RACCOURCI aurait elu), `off_target` /
-    `live_victim` (la cible reellement frappee), `discriminant`, `geometry`."""
+    `live_victim` (la cible reellement frappee), `discriminant`, `geometry`.
+
+    `keep=False` libere le runner **y compris sur echec de montage** (les sorties `why`) : un
+    montage qui echoue est justement le cas ou l'on relance, donc celui qui fuit le plus vite."""
+    r = _run(rpc, low_vis, advance, build_runner, keep)
+    if not keep and r.get("rid") is not None and not r.get("disposed"):
+        try:
+            rpc("disposeRunner", {"runnerId": r["rid"]}, 40)
+        except Exception:                                # pragma: no cover (nettoyage best-effort)
+            pass
+    return r
+
+
+def _run(rpc, low_vis: str, advance: int, build_runner, keep: bool) -> dict:
     import hexgeo
     from engine.entities.pathfinding.board import Board
     from engine.runner.abilities.loki import _nearest_enemy
@@ -304,6 +317,7 @@ def run(rpc, low_vis: str = ENEMY_VIS[1], advance: int = 4, build_runner=None,
 
     if not keep:
         rpc("disposeRunner", {"runnerId": rid}, 40)
+        out["disposed"] = True
     return out
 
 
