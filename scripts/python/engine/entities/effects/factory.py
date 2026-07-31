@@ -135,6 +135,7 @@ from .loki import (
     FearedInterrogatorOwnerEffect,
     FearedInterrogatorTargetEffect,
     HammerOfWrathConditionalDamageEffect,
+    MyWillBeDoneOverlordExtraDamageEffect,
 )
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -238,6 +239,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `GetNumberConstant(0xe = extraMovement)` du voisin aurait rendu 0 (effet inerte).
     # Cf. `loki/relentless_march.py` et `docs/rl/case-328-relentless-march.md`.
     "RelentlessMarch_Effect": RelentlessMarchExtraMoveEffect,
+    # MyWillBeDoneOverlord (necroOverlord "Imotekh", passif `TriggeredAbilityType` 1556) : effet
+    # 0x62d=1581 pose sur LUI-MEME par la branche ELSE de `MyWillBeDoneOverlordAbility$$CreateBehaviour`
+    # (`AddDynamicStatModifierEffectToOwner(0x62d, stat = 0 Attack, Sum(TurnsFromRounds(1), Direct(1)))`)
+    # quand aucun allie adjacent n'est eligible a l'attaque libre. AUCUNE classe d'effet native dediee :
+    # instance GENERIQUE `DynamicStatModifierEffect(AbilityType(1556), 8 = extraDmg, isNegative = 0, 0)`
+    # construite par la lambda `EffectsDatabase.<>c$$<InitializeEffects>b__14_574` -> magnitude lue par
+    # `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` (meme mold que le lot Votann).
+    # Residu nomme de #354-r1, ferme par #358 -- cf. `loki/my_will_be_done_overlord.py`.
+    "MyWillBeDoneOverlord_ExtraDamage": MyWillBeDoneOverlordExtraDamageEffect,
     # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpotterReworkedAbility$$CreateBehaviour) : aura
     # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
     # rayon 2 (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack).

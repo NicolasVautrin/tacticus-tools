@@ -30,6 +30,15 @@ CE QUE LA GARDE PROUVE :
       adjacent a une Attaque BIEN PLUS GROSSE ;
   (G) LIVE -- PURGE : au tour SUIVANT le MEME allie re-attaque (sans le volet `On(0x12)` il serait
       memorise a vie) ;
+  (I) LIVE -- MAGNITUDE du self-buff 1581 (#358) : le stat-mod ATTACK qu'il pose vaut
+      `extraDmg[passiveAbilityLevel] x multiplier`, MEME montant live et port, sur trois canaux
+      (`combatSnapshot`, `statModSources` avec `residual = 0`, gameconfig re-lu), plus DEUX regimes
+      de scaling supplementaires, une GENERALISATION (montage M7 : la branche ELSE atteinte parce
+      qu'un PREDICAT tombe, allie adjacent AVEC cible mais non-`Mechanical`) et la symetrie
+      apply/revert. Le consommateur natif de cette
+      magnitude n'est PAS dans la classe d'ability : c'est le corps GENERIQUE
+      `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` de l'instance construite par
+      `EffectsDatabase.<>c$$<InitializeEffects>b__14_574`.
   (H) CONTREFACTUELS : quatre mutations de MON PROPRE mecanisme doivent changer l'election. Sans
       elles, le vert des tests (E)/(F) ne prouverait pas que ces etages sont testes.
       ⚠ CHAQUE mutation exige le montage qui l'EXERCE -- mesure du 2026-07-31, ou trois des quatre
@@ -71,6 +80,41 @@ def mwbd_solo(rpc, live_session):
     out = MW.measure_solo(_resolve_session(), SEED, BOARD, verbose=True)
     if out is None:
         pytest.skip("montage solo MyWillBeDoneOverlord non montable (DRAIN)")
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_solo_scaling(rpc, live_session):
+    """#358 -- DEUX cas discriminants de plus sur la MAGNITUDE du self-buff 1581, chacun sur son
+    propre runner (monte puis dispose sequentiellement, jamais deux a la fois) :
+
+      * `mult100`   : `AbilityVariablesMultiplierPercentage = 100` -> le multiplier de rarete ne
+                      s'applique plus (`extraDmg` est pourtant dans `variablesAffectedByRarityBonus`) ;
+      * `passive20` : `PassiveAbilityLevel = 20` alors que `ActiveAbilityLevel` reste a 50 -> SEUL le
+                      niveau de PASSIF doit bouger la magnitude.
+
+    Sans eux, le montant du cas nominal ne serait qu'UN scalaire qui colle."""
+    from rl_collect_batch import _resolve_session
+    sid = _resolve_session()
+    out = {}
+    for key, spec in (("mult100", "%s:AbilityVariablesMultiplierPercentage=100" % MW.CARRIER),
+                      ("passive20", "%s:PassiveAbilityLevel=20" % MW.CARRIER)):
+        r = MW.measure_solo(sid, SEED, BOARD, verbose=True, carrier_specs=[spec])
+        if r is None:
+            pytest.skip("montage solo #358 (%s) non montable (DRAIN)" % key)
+        out[key] = r
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_solo_ineligible(rpc, live_session):
+    """Montage M7 (#358) -- GENERALISATION : la branche ELSE atteinte parce qu'un PREDICAT TOMBE
+    (`astraCreed`, `Hero` NU, est ADJACENT au porteur et a une cible : seul `HasTrait(Mechanical)`
+    l'ecarte), et non parce qu'il n'y a personne autour. Le self-buff doit y etre IDENTIQUE."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_solo_ineligible(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage M7 (allie adjacent ineligible) non montable (board/pool/DRAIN)")
     return out
 
 
@@ -453,3 +497,150 @@ def test_mwbd_else_branch_self_buff(mwbd_solo):
     assert set(mwbd_solo["live_eff"].values()) == {3}, (
         "turns = Sum(TurnsFromRounds(1) = 2, Direct(1)) = 3 en duel ; observe %s"
         % mwbd_solo["live_eff"])
+
+
+# ------------------------------------------------------------------------------------------------
+# (I) #358 -- LA MAGNITUDE du self-buff 1581. Consommateur natif : le corps GENERIQUE
+#     `IdunBattle.Entities.Effects.DynamicStatModifierEffect$$GetDynamicStatModificationAmount`
+#     de l'instance construite par `EffectsDatabase.<>c$$<InitializeEffects>b__14_574`
+#     (`AbilityType(1556)`, variableType 8 = extraDmg, isNegative = 0). Il n'est PAS dans la classe
+#     d'ability -- c'est pourquoi #354-r1 ne l'avait pas trouve et avait, a raison, refuse d'inventer.
+# ------------------------------------------------------------------------------------------------
+EXTRA_DMG_ABILITY = "MyWillBeDoneOverlord"
+
+
+def _extra_dmg(level, mult):
+    from engine.entities.effects.magnitude import ability_var
+    return ability_var(EXTRA_DMG_ABILITY, "extraDmg", level, multiplier_pct=mult)
+
+
+def test_mwbd_extra_damage_effect_is_registered():
+    """(I a) OFFLINE -- l'`EffectType` 1581 a bien une CLASSE cote port, keyee par le nom de membre
+    d'enum que la pose (et `decisionView`) publie. Sans cette entree, l'effet retombe sur `BaseEffect`
+    nu : present mais SANS stat-mod -- exactement l'etat que #354-r1 avait laisse en residu."""
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effects.loki import MyWillBeDoneOverlordExtraDamageEffect
+    assert EFFECT_CLASSES["MyWillBeDoneOverlord_ExtraDamage"] is \
+        MyWillBeDoneOverlordExtraDamageEffect
+
+
+def test_mwbd_extra_damage_magnitude_live(mwbd_solo):
+    """(I b) LIVE -- le self-buff pose bien un stat-mod ATTAQUE, du MEME montant que le port, et ce
+    montant EST `ConfigVar(extraDmg)` re-lu du gameconfig (jamais fitte).
+
+    TROIS canaux independants : la stat ATTAQUE courante (`combatSnapshot`, `GetStat(0, Current)`),
+    sa decomposition PAR SOURCE (`statModSources`, la `ValueModification` que
+    `AStatModifierEffect$$ApplyModification` attribue a `Entity(effect)`), et le gameconfig.
+    `residual == 0` verifie qu'AUCUNE autre source ne contribue -- sans quoi l'egalite des deltas
+    pourrait etre une compensation."""
+    exp = mwbd_solo["expected_extra_dmg"]
+    assert exp and exp > 0, "extraDmg introuvable au gameconfig -> le montage ne mesure rien"
+    assert mwbd_solo["sm_before"] == {}, (
+        "l'ATTAQUE du porteur portait DEJA une modification avant le finish (%s) : le delta ne serait "
+        "pas imputable au seul 1581" % mwbd_solo["sm_before"])
+    assert mwbd_solo["d_atk_live"] == mwbd_solo["d_atk_port"] == exp, (
+        "d(ATTACK) live=%s port=%s attendu extraDmg=%s"
+        % (mwbd_solo["d_atk_live"], mwbd_solo["d_atk_port"], exp))
+    mods = mwbd_solo["sm_after"]
+    assert int(mods.get("total") or 0) == exp and int(mods.get("residual") or 0) == 0, (
+        "statModSources(attack) = %s (attendu total=%s, residual=0)" % (mods, exp))
+    by = [s for s in (mods.get("bySource") or []) if int(s.get("amount") or 0)]
+    assert len(by) == 1, "une SEULE source doit contribuer, vu %s" % by
+    assert by[0]["self"] is False and by[0]["sourceIsUnit"] is False, (
+        "la source du ChangeStat est l'ENTITE-EFFET (`Entity(effect)`), pas l'unite : %s" % by[0])
+
+
+def test_mwbd_extra_damage_revert_symmetry(mwbd_solo):
+    """(I c) La contribution SORT quand l'instance part -- mirror
+    `AStatModifierEffect$$RevertModification` (`ChangeStat`, part 6 = ResetModification), joue cote
+    port par `revert_stat_mods_of_removed_effects`, dont le discriminant est `reverted_stats()`.
+    Un `reverted_stats()` qui nommerait une AUTRE stat laisserait le buff a vie, en silence."""
+    assert mwbd_solo["atk_port_reverted"] == mwbd_solo["atk_before"], (
+        "apres retrait de 1581 l'ATTAQUE doit revenir a %s, observe %s"
+        % (mwbd_solo["atk_before"], mwbd_solo["atk_port_reverted"]))
+
+
+def test_mwbd_extra_damage_scales_with_rarity_and_passive_level(mwbd_solo, mwbd_solo_scaling):
+    """(I d) DEUX cas discriminants de plus, live-vs-port, pour que le montant du cas nominal ne
+    puisse pas etre un scalaire qui colle :
+
+      * multiplier 100 -> la magnitude DESCEND (donc `extraDmg` est bien scale par la rarete, ce que
+        `variablesAffectedByRarityBonus` annonce et que `ability_var` gate) ;
+      * `PassiveAbilityLevel = 20` avec `ActiveAbilityLevel` INCHANGE a 50 -> la magnitude descend
+        AUSSI : le `ConfigVar` s'indexe sur le niveau de PASSIF. Si le port lisait le niveau ACTIF il
+        rendrait ici la valeur du cas nominal.
+
+    Les trois montants doivent etre DEUX A DEUX DISTINCTS, sinon aucun etage n'est departage."""
+    cases = {"nominal": mwbd_solo,
+             "mult100": mwbd_solo_scaling["mult100"],
+             "passive20": mwbd_solo_scaling["passive20"]}
+    for key, out in cases.items():
+        exp = out["expected_extra_dmg"]
+        assert out["d_atk_live"] == out["d_atk_port"] == exp, (
+            "%s : d(ATTACK) live=%s port=%s attendu=%s"
+            % (key, out["d_atk_live"], out["d_atk_port"], exp))
+    got = {k: out["d_atk_live"] for k, out in cases.items()}
+    assert len(set(got.values())) == 3, (
+        "les trois regimes doivent rendre trois montants DISTINCTS, vu %s" % got)
+    assert got["mult100"] < got["nominal"] and got["passive20"] < got["mult100"], (
+        "ordre attendu passive20 < mult100 < nominal, vu %s" % got)
+
+
+def test_mwbd_extra_damage_on_ineligible_neighbour(mwbd_solo_ineligible, mwbd_solo):
+    """(I f) GENERALISATION -- le self-buff ne depend pas du montage qui l'a produit.
+
+    Ici la branche ELSE est prise parce qu'un PREDICAT de `GetTargetFriend` tombe : l'unique allie
+    (`astraCreed`, `Hero` NU) est bien ADJACENT au porteur (donc dans `AdjacentFriends(Caster())`) et
+    a bien une cible d'attaque normale a portee (donc
+    `AmountIsGreaterThanZero(ValidNormalAttackTargets)` est VRAI) -- seul `HasTrait(it, Mechanical)`
+    l'ecarte. C'est une VOIE D'ENTREE differente de M4 (ou le pool etait vide faute de voisin), et le
+    buff doit y etre bit-identique. Les deux distances sont assertees : sans elles, ce montage
+    retomberait silencieusement sur M4."""
+    out = mwbd_solo_ineligible
+    assert out["dist_carrier_ally"] == 1, (
+        "l'allie doit etre ADJACENT au porteur (sinon on retombe sur M4), d=%s"
+        % out["dist_carrier_ally"])
+    assert out["dist_ally_enemy"] == 1, (
+        "l'allie doit avoir une cible d'attaque normale a portee, d=%s" % out["dist_ally_enemy"])
+    assert not any(d for d in out["d_live"].values()), \
+        "aucun allie ELIGIBLE -> aucune attaque libre"
+    assert out["port_out"] and out["port_out"][0]["self_buff"] is True
+    assert out["turn_before"] == out["turn_after"], "le tour ne doit pas basculer"
+    assert out["live_eff"] == out["port_eff"] and set(out["live_eff"].values()) == {3}
+    exp = out["expected_extra_dmg"]
+    assert out["d_atk_live"] == out["d_atk_port"] == exp, (
+        "M7 : d(ATTACK) live=%s port=%s attendu=%s" % (out["d_atk_live"], out["d_atk_port"], exp))
+    assert exp == mwbd_solo["expected_extra_dmg"], (
+        "meme porteur, meme niveau -> meme magnitude que M4 (%s vs %s)"
+        % (exp, mwbd_solo["expected_extra_dmg"]))
+
+
+def test_mwbd_extra_damage_counterfactuals_offline():
+    """(I e) CONTREFACTUELS sur MON PROPRE etage de magnitude : chaque mutation d'un littéral LU au
+    decompile doit DIVERGER du montant porte. Sans eux, le vert de (I b)/(I d) ne prouverait pas que
+    ces littéraux sont ceux qui pilotent le calcul.
+
+      * `variableType`  : 8 = extraDmg -- la lambda passe `mov r8d,8` ; `maxDmg` (13) est la variable
+        VOISINE que la MEME ability consomme dans sa branche THEN, donc la confusion la plus probable ;
+      * niveau           : PASSIF (l'ability 1556 est un `TriggeredAbilityType`), pas ACTIF ;
+      * multiplier       : applique (variable listee dans `variablesAffectedByRarityBonus`) ;
+      * `isNegative = 0` : le montant est POSITIF (un `1` en ferait un malus, cf.
+        `AugmentedAssault_ReduceArmor`, qui partage la MEME classe native)."""
+    from engine.entities.stats import StatType
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effects.magnitude import ability_var
+    cls = EFFECT_CLASSES["MyWillBeDoneOverlord_ExtraDamage"]
+    eff = cls(effect_type=1581, name="MyWillBeDoneOverlord_ExtraDamage")
+    eff.ability_level, eff.active_ability_level = 20, 50      # passif 20 / actif 50 : ils DIFFERENT
+    eff.ability_variables_multiplier = 180
+    got = eff.applied_stat_mods(None)
+    assert len(got) == 1 and int(got[0][0]) == int(StatType.ATTACK), (
+        "le stat-mod porte sur ATTACK (statType 0 du behaviour), vu %s" % (got,))
+    amount = int(got[0][1])
+    assert amount == _extra_dmg(20, 180) > 0, "extraDmg[passif] x mult, signe POSITIF"
+    for label, other in (
+            ("maxDmg au lieu d'extraDmg",
+             ability_var(EXTRA_DMG_ABILITY, "maxDmg", 20, multiplier_pct=180)),
+            ("niveau ACTIF au lieu du PASSIF", _extra_dmg(50, 180)),
+            ("multiplier de rarete non applique", _extra_dmg(20, 100))):
+        assert other != amount, "mutation inerte (%s) : cet etage n'est pas teste" % label

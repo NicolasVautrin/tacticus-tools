@@ -5,8 +5,10 @@
 injection. Face DÉCISION (`MyWillBeDoneOverlordPlaybook` / `…NonOwnerPlaybook`) hors périmètre (#271-r4).
 
 Port : `scripts/python/engine/runner/operations/triggers/loki/my_will_be_done_overlord.py`
-(+ `runner/abilities/behaviours/persistent_data.py`).
-Garde : `tests/engine/runner/test_my_will_be_done_overlord_live.py` — **15 tests, tous verts**.
+(+ `runner/abilities/behaviours/persistent_data.py`,
++ `entities/effects/loki/my_will_be_done_overlord.py` pour l'effet 1581, #358).
+Garde : `tests/engine/runner/test_my_will_be_done_overlord_live.py` — **21 tests, tous verts**
+(15 pour la face COMBAT, +6 pour la magnitude de 1581).
 
 ## 1. Ce que le natif fait
 
@@ -95,13 +97,74 @@ Montage obligatoire : `necroOverlord:PassiveAbilities=[1556]`. Le seed BC porte 
 passif (1045 `MartialApotheosis`) tandis que le port lit le gameconfig vivant — sans ce patch la mesure
 compare deux SOURCES de kit, pas le port.
 
-## 5. Résidus nommés
+## 5. L'effet 1581 : où sa magnitude est lue (#358, résidu fermé)
 
-- `EffectType.MyWillBeDoneOverlord_ExtraDamage` (1581) est **posé** mais aucune classe d'effet ne le
-  porte → effet présent sans stat-mod. Sa magnitude native vient de
-  `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` ; la variable `extraDmg` du gameconfig
-  en est la source évidente mais n'est lue par aucune des deux fonctions RE — non porté plutôt qu'inventé.
-- `MyWillBeDoneOverlord_FriendlyAttackedMarker` (1582) n'apparaît dans aucune des deux fonctions.
+`extraDmg` n'apparaît dans **aucune** fonction de la classe d'ability — ni les trois RE'ées ci-dessus,
+ni le helper `…$$GetFriendAttackDamage`, qui ne sert que l'override d'attaque de la branche THEN
+(`maxDmg`/`dmgPct`). Refuser d'inventer était donc juste : le consommateur est **ailleurs, et générique**.
+
+L'effet **n'a aucune classe native dédiée**. Il est instancié par une lambda de la base d'effets :
+
+    IdunBattle.Core.Services.EffectsDatabase.<>c$$<InitializeEffects>b__14_574
+      -> new DynamicStatModifierEffect(AbilityType(0x614 = 1556), variableType = 8 = extraDmg,
+                                       isNegative = 0, canBeImmuneTo = 0)
+
+(les quatre littéraux sont **lus au désassembleur** — ghidra perd l'immédiat de l'`AbilityType`), et sa
+magnitude sort du corps générique
+`IdunBattle.Entities.Effects.DynamicStatModifierEffect$$GetDynamicStatModificationAmount` :
+`ConfigVar(AbilityOrEffect(1556), EffectSource(Get(effect)), 8)`, **nié si `isNegative`** (le signe est un
+champ de l'effet, `+0x4a4`). La STAT, elle, vient de l'entité-effet
+(`AStatModifierEffect$$GetStatModificationStat` lit le composant écrit par le behaviour) = `0 = Attack`.
+
+**Le lien lambda ↔ `EffectType` est mécanique, pas une inférence.** Dans `EffectsDatabase$$InitializeEffects`,
+chaque enregistrement écrit le delegate dans le champ statique `<>9__14_N` juste avant
+`Add(dict, effectType, delegate)` ; les statiques de `<>c` sont `[<>9, <>9__14_0, …]`, donc
+`offset = 8 × (N+1)`. Mesuré : la fonction contient **511 appels `Add`**, tous vers la même cible, pour
+**511 `EffectType` distincts** (aucun doublon), et **511 stores** de delegate — offsets tous multiples de
+8, 511 indices `N` distincts. Les **14** lambdas qui appellent `DynamicStatModifierEffect$$.ctor` tombent
+chacune sur un `EffectType` distinct (dont les trois du lot Votann déjà portés). Ici :
+`offset 0x11f8` → `N = 574` → `EffectType 0x62d = 1581`.
+
+Ce balayage est un outil, pas une lecture ponctuelle : **`scripts/python/probe_358_effects_database_registry.py`**
+rend, pour n'importe quel `EffectType`, sa lambda, ses callees NOMMÉES et — si c'est bien un
+`DynamicStatModifierEffect` — les quatre arguments du ctor. Il **se contrôle sur des cas déjà portés
+ailleurs** : `1541 AugmentedAssault_ReduceArmor` → `(1221, 48 armorReduction, isNegative = 1)`,
+`1485/1486 AncestralFortune_*` → `(1207, 65/62, isNegative = 0)` — identiques à ce que `votann.py` avait
+établi sur un AUTRE build ; `1296 TemporaryStatOverride` → `StatOverrideEffect$$.ctor` et
+`1583 Helspear_IgnoreArmor` → `Helspear_IgnoreArmorEffect$$.ctor`, donc **pas** des
+`DynamicStatModifierEffect` (le probe le dit au lieu d'inventer des arguments — c'est exactement le
+faux positif qu'une fenêtre de lecture non bornée avait produit au premier jet).
+
+Port : `entities/effects/loki/my_will_be_done_overlord.py`, canal EAGER `applied_stat_mods` /
+`reverted_stats` (mirror `AStatModifierEffect$$ApplyModification` part 5 / `$$RevertModification` part 6),
+même moule que `votann.py`. `ADynamicStatModifierEffect$$RefreshValueInternal` n'est qu'un
+revert-puis-apply : le `ConfigVar` ne dépendant que du niveau d'ability de la source, il rend la même
+valeur — le canal eager est fidèle à l'observable.
+
+**Confrontation live (montage M4, allié-tampon exilé) — trois régimes, `live == port` à chaque fois :**
+
+| régime du porteur | `extraDmg[passif] × mult` | Δ ATTACK live | Δ ATTACK port |
+|---|---|---|---|
+| passif 50, mult 180 (nominal) | 499 × 1,8 = **898** | +898 | +898 |
+| passif 50, mult **100** | **499** | +499 | +499 |
+| passif **20**, actif 50, mult 180 | 47 × 1,8 = **85** | +85 | +85 |
+
+`statModSources(attack)` rend `total = Δ`, **`residual = 0`**, et une source unique marquée
+`self: false, sourceIsUnit: false` = l'**entité-effet** (le `modificationEntity = Entity(effect)` natif).
+Le troisième régime est le discriminant du niveau : `PassiveAbilityLevel` bouge, `ActiveAbilityLevel` non
+— un port qui lirait le niveau actif rendrait 898 là où le natif rend 85.
+
+**Généralisation (montage M7)** : la branche ELSE atteinte par une VOIE D'ENTRÉE différente — l'unique
+allié (`astraCreed`, `Hero` nu) est **adjacent** au porteur **et** a une cible à portée, donc seul le gate
+`HasTrait(it, Mechanical)` l'écarte. Le buff y est bit-identique (+898, `residual = 0`, `turn` stable).
+Les deux distances sont assertées par la garde : sans elles, M7 retomberait silencieusement sur M4.
+
+## 5bis. Résidus nommés restants
+
+- `MyWillBeDoneOverlord_FriendlyAttackedMarker` (1582) n'apparaît dans aucune des deux fonctions, **et
+  n'a aucune entrée dans `EffectsDatabase$$InitializeEffects`** : sur les 511 `Add` balayés, 1581 et 1583
+  y sont, 1582 **non** (le maximum enregistré est 1583). Aucune classe d'effet ne lui est donc associée
+  côté natif non plus — à trancher séparément (hors périmètre #358).
 - `GetPersistentDataListAsEntities` n'est pas porté en **sélecteur** : le gate de purge est collapsé en
   « la liste est non vide ».
 - Le terme `!TriggeringAbilityIs(1557 PhasalSubjugator) | IsUnitWithVisualId(…)` est **omis** : sur le
