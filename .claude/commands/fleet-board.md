@@ -16,10 +16,14 @@ et régénérer le fichier local ne met pas à jour celui de claude.ai :
 
 - outil `Artifact`, `file_path` = le HTML qui vient d'être écrit (`logs/fleet-board.html`, ou le
   chemin passé via `-o`) ;
-- `url` = `https://claude.ai/code/artifact/5572fbd1-7257-4444-9bac-f451d8fd9037` — **toujours cette
+- `url` = `https://claude.ai/code/artifact/728c4207-1acb-4944-8a20-42e5601fddb0` — **toujours cette
   URL**, sinon une nouvelle est créée à chaque fois et l'ancienne se fige ;
-  (l'URL précédente `9c22449f-…` est MORTE : un `/login` a rebasculé sur un compte qui ne possède
-  pas l'artefact, et un artefact ne se récupère pas — il se republie, donc le lien change.)
+  (deux URLs précédentes sont MORTES — `9c22449f-…` puis `5572fbd1-…`. Même cause les deux fois :
+  l'artefact a cessé d'être accessible au compte courant. Symptôme au 2ᵉ décès, le 2026-07-31 :
+  `Artifact` refuse d'abord en demandant de relire la version distante, puis, avec `force:true`,
+  répond « the artifact you're updating was deleted, or you no longer have write access ».
+  **Un artefact ne se récupère pas : il se republie**, donc le lien change et il faut mettre à
+  jour CETTE ligne — sans quoi la republication suivante repart sur une URL morte.)
 - `favicon` = `🛩️` (le garder stable : l'utilisateur retrouve son onglet à son icône).
 
 Puis **rends compte en quelques lignes**, sans recopier la table entière — elle est déjà à l'écran.
