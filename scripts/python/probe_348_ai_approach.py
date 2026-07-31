@@ -312,6 +312,18 @@ def _run(rpc, regime: str, build_runner, keep: bool) -> dict:
         free_sq.remove(sq)
         assign[sq] = t
     anchor = next(s for s, t in assign.items() if t == a_tile)
+    # Les allies EN TROP sont PARQUES : ils campent sinon sur la tuile de spawn ou sur le chemin
+    # (mesure : la tuile de spawn 13 restait occupee par un bloqueur non affecte). Un allie ne
+    # BLOQUE pas le pathfinding, mais il interdit d'y STOPPER -- donc il fausse l'approche.
+    _used = set(slots)
+    for sq in list(free_sq):
+        far = max((t for t in board.by_id
+                   if board.walkable(t) and t not in _used
+                   and t not in board.neighbours(sp_tile)),
+                  key=lambda t: (hexgeo.distance(board.coord(t), board.coord(sp_tile))
+                                 + hexgeo.distance(board.coord(t), board.coord(e_tile))))
+        _used.add(far)
+        assign[sq] = far
     for _ in range(4):                              # quelques passes : les blocages mutuels se denouent
         todo = [s for s, t in assign.items()
                 if _tile_of(board, _live(rpc, rid).get(s, {})) != t]
@@ -326,13 +338,39 @@ def _run(rpc, regime: str, build_runner, keep: bool) -> dict:
         return out
     foe_owner = int((next(u for u in (dv0.get("units") or [])
                           if u.get("id") == foes[0]) or {}).get("owner"))
-    for extra in foes[1:]:                          # les autres ennemis : PARQUES hors de tout
-        far = max((t for t in board.by_id if board.walkable(t)),
-                  key=lambda t: hexgeo.distance(board.coord(t), board.coord(sp_tile)))
-        _walk_to(rpc, rid, board, extra, far, foe_owner)
-    got = _walk_to(rpc, rid, board, foes[0], e_tile, foe_owner)
+    # Cote ADVERSE : un seul ennemi tient la fenetre du regime, les autres sont PARQUES loin de la
+    # tuile de spawn ET de lui. Meme discipline d'affectation multi-passes que les allies : parquer
+    # un ennemi sur la tuile que vise un autre fige la figure (mesure : u79 campait sur la tuile
+    # visee par u77, qui n'a jamais pu s'y rendre).
+    used = {a_tile, sp_tile, e_tile} | set(block_tiles) | set(assign.values())
+    parks: list = []
+    # Tri par distance DECROISSANTE a la seule tuile de SPAWN : c'est `min(d_spawn)` sur TOUS les
+    # ennemis qui decide du regime, donc un ennemi parque « loin de tout » mais a 4 hex du spawn
+    # casse la fenetre (mesure : d=4 dans un regime move_only qui en exige >= 6).
+    for t in sorted(board.by_id,
+                    key=lambda t: -hexgeo.distance(board.coord(t), board.coord(sp_tile))):
+        if len(parks) >= len(foes) - 1:
+            break
+        if board.walkable(t) and t not in used:
+            parks.append(t)
+            used.add(t)
+    # Le role « ennemi de la fenetre » va a celui qui est DEJA le plus proche de `e_tile`. Sans ce
+    # choix, deux ennemis adjacents devaient ECHANGER leurs tuiles -- un swap qu'aucune passe ne
+    # denoue (chacun bloque l'autre).
+    ep = board.coord(e_tile)
+    main_foe = min(foes, key=lambda s: hexgeo.distance((U[s]["col"], U[s]["row"]), ep))
+    foe_assign = {main_foe: e_tile}
+    foe_assign.update(zip([s for s in foes if s != main_foe], parks))
+    for _ in range(4):
+        todo = [s for s, t in foe_assign.items()
+                if _tile_of(board, _live(rpc, rid).get(s, {})) != t]
+        if not todo:
+            break
+        for sq in todo:
+            _walk_to(rpc, rid, board, sq, foe_assign[sq], foe_owner)
+    got = _tile_of(board, _live(rpc, rid).get(main_foe, {}))
     if got != e_tile:
-        out["why"] = "l'ennemi u%s bloque en %s, visait %s" % (foes[0], got, e_tile)
+        out["why"] = "l'ennemi u%s bloque en %s, visait %s" % (main_foe, got, e_tile)
         return out
 
     if not _hand_to(rpc, rid, owner):
@@ -426,6 +464,21 @@ def _run(rpc, regime: str, build_runner, keep: bool) -> dict:
     out["agree_moved"] = (out["off_moved"] == out["live_moved"])
     out["agree_tile"] = (out.get("off_tile") == out["live_tile"])
     out["agree_victim"] = (out["off_victim"] == out["live_victim"])
+    # DECOMPOSITION PAR ETAGE en cas de desaccord de TUILE : l'ensemble de candidats
+    # (`GenerateActionTiles`) est-il en cause, ou seulement le SCORING (`best_move_faithful`) ?
+    # On recalcule l'ensemble du port DEPUIS LA TUILE DE SPAWN (l'unite portee existe toujours dans
+    # l'etat mute, on ne lui emprunte que ses stats/traits) et on regarde si la tuile ELUE PAR LE
+    # NATIF y figure. Presente => desaccord de scoring (hors #348) ; absente => desaccord d'ensemble.
+    if spawned_off and not out["agree_tile"]:
+        from engine.ai.state_bridge import _move_tiles
+        from engine.runner.components import OwnerComponent
+        e = state.get_entity(spawned_off[0])
+        uc = e.get_component(UnitComponent) if e is not None else None
+        oc = e.get_component(OwnerComponent) if e is not None else None
+        reach = _move_tiles(state, spawned_off[0], (uc.visual_id if uc else "") or "",
+                            oc.team if oc else None, board.coord(sp_tile))
+        out["off_reach_from_spawn"] = sorted(board.id_at(t["col"], t["row"]) for t in reach)
+        out["live_tile_in_off_reach"] = out["live_tile"] in out["off_reach_from_spawn"]
     out["ok"] = True
     if not keep:
         rpc("disposeRunner", {"runnerId": rid}, 40)
@@ -465,6 +518,19 @@ def main() -> int:
              r["live_mutated"]))
     print("ACCORD bouge=%s tuile=%s victime=%s"
           % (r["agree_moved"], r["agree_tile"], r["agree_victim"]))
+    if "off_reach_from_spawn" in r:
+        print("   etage CANDIDATS : tuile LIVE %s dans l'ensemble du port ? %s | ensemble=%s"
+              % (r["live_tile"], r["live_tile_in_off_reach"], r["off_reach_from_spawn"]))
+    # `move_only` : la TUILE exacte n'est PAS comparable -- le port materialise le `unitId` du
+    # gameconfig (`astraSmnGuardsman`, traits [Summon, BattleFatigue]) la ou le jeu materialise
+    # `astraNpc1Guardsman` (traits [BattleFatigue]), et le composite de MOUVEMENT lit les traits.
+    # Ce qui EST verifiable ici : les deux BOUGENT, aucun ne frappe, et la tuile du natif appartient
+    # a l'ensemble de candidats du port (donc `GenerateActionTiles` est bon ; le residu est le
+    # SCORING, hors #348).
+    if a.regime == "move_only":
+        ok = (r["agree_moved"] and not r["live_dmg"] and not r["off_dmg"]
+              and (r["agree_tile"] or r.get("live_tile_in_off_reach")))
+        return 0 if ok else 2
     return 0 if (r["agree_moved"] and r["agree_tile"] and r["agree_victim"]) else 2
 
 
