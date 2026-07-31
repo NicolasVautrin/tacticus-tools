@@ -94,10 +94,24 @@ Mesuré (`python catalog_inject.py --list-relics`) : le gameconfig porte **32 it
 **3** — exactement celles qu'une unité équipe au seed :
 `KardiocoreGalvanus` (1457), `NetherRealmCasket` (1462), `SupaCyborkBody` (1475).
 
-C'est le verrou déjà connu de #226, appliqué à la relique : sans
-`BC.Abilities.PassiveAbilities[<nom>]`, `AbilitiesDatabase.GetConfig` rend une config nulle et
-`AbilityConfiguration$$GetVariableForLevel` s'exécute dessus → « system error » au cast.
-`catalog_inject.synthesize_ability` produit l'entrée depuis le gameconfig.
+C'est le verrou déjà connu de #226, appliqué à la relique. **Mesuré, la forme exacte est plus
+retorse qu'une config nulle** : `AbilitiesDatabase.GetConfig(1467)` rend une config **non nulle mais
+VIDE** (`cfgClassName = AbilityConfiguration`, `rarityFlagged: []`), et
+`GetVariableForLevel(extraCritDmg, level=6)` y rend **`0`** au lieu de `749`. La sonde
+`abilityConfigProbe` passe `fallbackToDefault = true`, d'où le `0` ; **le jeu, lui, faute** — le
+nœud DSL qui lit la variable dans le behaviour de la relique
+(`IdunBattle.Entities.Formulas.ConfigAmount$$Calculate`, atteint depuis
+`RelicBoltPistol_ExtraCritDamageEffect$$CreateCritDamageBonus` via
+`IdunBattleLogic.Entities.DSLFormulas$$ConfigVar`) appelle
+`GetVariableForLevel(cfg, varType, state, 0)`, donc **`fallbackToDefault = false`**, et cette
+branche lève `System.Exception`. `catalog_inject.synthesize_ability` produit l'entrée depuis le
+gameconfig.
+
+⚠ **`BC.Abilities` traverse `buildNormalizedBC` INTACT** — le RPC ne touche que `bc.Units`,
+`bc.Board` et `bc.SpawnPointSetIndex`. La config peut donc se poser avant OU après la
+normalisation, contrairement au couple `TertiaryAbility`/`TertiaryAbilityLevel`. Mesuré : supprimer
+l'injection pré-normalisation de `rl_duel` ne rend **aucun** test rouge, parce qu'`equip_relic` la
+repose après. C'est pourquoi il n'y a qu'**un seul foyer** — `equip_relic`.
 
 ## 4. Ce que fait `buildNormalizedBC`, et pourquoi l'ORDRE compte
 
@@ -127,7 +141,12 @@ D'où les deux voies, et ce qu'elles donnent :
 | voie | où on pose | niveau effectif |
 |---|---|---|
 | seed BC augmenté (`write_relic_seed_bc` + `build --seed-bc`) | avant normalisation | **écrasé à 50** → clampé au dernier palier |
-| `rl_duel build --equip-relic` | config avant, couple **après** normalisation | **exactement celui demandé** |
+| `rl_duel build --equip-relic` | **après** normalisation | **exactement celui demandé** |
+
+Mesuré live, vue ROUGE : en retirant l'écriture du niveau d'`equip_relic`, le test
+`test_relique_non_equipee_arrive_en_bataille` rend
+`AssertionError: TertiaryAbilityLevel attendu 3, lu 0` — le natif porte bien **0** quand personne
+ne l'écrit après la normalisation.
 
 ## 5. Le montage — fixture nommée et réutilisable
 
@@ -164,6 +183,26 @@ relit jamais `allowedUnits` — c'est un garde-fou de montage, pas une gate du m
 
 4 + 52 = **56**, le chiffre de `case-323`. L'état 3 était compté « 0 » par toute lecture qui
 s'arrêtait au pool.
+
+## 6bis. Ce qui a été MESURÉ live (build `rnca9r7q6c`, board `MC1_67`, seed 777)
+
+Observable : `unitAbilityStates` dumpe `TriggeredAbilityComponent+0x18` instance par instance ;
+`raw` = 12 × int32 depuis `+0x10`, donc `raw[0]` = id, `raw[4]` = Level, `raw[10]` = **hiérarchie**.
+Une relique montée = une entrée de hiérarchie **3**. `probe_237_relic_equip.py` :
+
+| régime | mesure |
+|---|---|
+| TÉMOIN (aucun montage) | **0** entrée de hiérarchie 3 |
+| `ultraTitus` ← `RelicBoltPistol` niv. 6 | `{abilityId: 1467, level: 6, mult: 100}` — montée |
+| `admecDestroyer` ← `KardiocoreGalvanus` niv. 3 | `{abilityId: 1457, level: 3, mult: 100}` — montée |
+| `RelicBoltPistol.extraCritDmg` par niveau | 1 → **590**, 6 → **749**, 10 → **877**, **50 → 877** |
+| `KardiocoreGalvanus.extraCritDmg` par niveau | 1 → **295**, 3 → **327**, 10 → **438**, **50 → 438** |
+| niveaux `0` et `-1` | **`err: "system error"`** (l'`InvalidOperationException` de `ToZeroBasedIndex`) |
+| `RelicBoltPistol` sans sa config au BC | variable → **`0`** au lieu de 749 |
+
+Les valeurs correspondent au gameconfig terme à terme
+(`extraCritDmg: [590, 622, 654, 686, 717, 749, 781, 813, 845, 877]` → `arr[level-1]`), et le
+**clamp haut** est direct : 50 rend le palier 10.
 
 ## 7. Ce qui n'est PAS couvert
 

@@ -259,14 +259,13 @@ def cmd_build(sid: int, a) -> int:
               f"sps={fixed_board_dump.get('spawnPointsSet')}")
     seed_bc = _load_seed_bc(getattr(a, "seed_bc", None))
     # --equip-relic (#237) : ETAT 2 de la gate de confrontabilite (« porteur au pool, relique NON
-    # equipee »). Trois ecritures obligatoires, et l'ORDRE compte :
-    #   * la CONFIG d'ability va dans le seed BC AVANT normalisation (29 des 32 abilities de
-    #     relique sont absentes du seed capture ; sans elle, `GetVariableForLevel` tourne sur une
-    #     config nulle -> « system error » au cast) ;
-    #   * le couple `TertiaryAbility`/`TertiaryAbilityLevel` est re-pose APRES normalisation,
-    #     parce que `buildNormalizedBC` ECRASE le niveau a `targetAbilityLevel` (50) des que
-    #     `TertiaryAbility` est non nul. 50 n'est pas une erreur (le natif clampe au dernier
-    #     palier) mais ce n'est pas le niveau demande.
+    # equipee »). Les TROIS ecritures sont faites par `catalog_inject.equip_relic`, APRES la
+    # normalisation -- et c'est le seul ordre correct :
+    #   * `buildNormalizedBC` ECRASE `TertiaryAbilityLevel` a `targetAbilityLevel` (50) des que
+    #     `TertiaryAbility` est non nul (`normalize-bc/json-build.ts`). Poser AVANT reviendrait
+    #     donc a jouer 50, que le natif clampe au dernier palier -- jamais le niveau demande ;
+    #   * `BC.Abilities` traverse `buildNormalizedBC` INTACT (le RPC ne touche que `Units`,
+    #     `Board` et `SpawnPointSetIndex`), donc la config d'ability se pose aussi bien apres.
     relic_specs = []
     for spec in (getattr(a, "equip_relic", None) or []):
         try:
@@ -274,17 +273,6 @@ def cmd_build(sid: int, a) -> int:
         except ValueError as e:
             print(f"[error] --equip-relic: {e}", file=sys.stderr)
             return 2
-    if relic_specs:
-        seed_bc = copy.deepcopy(seed_bc)
-        node = seed_bc.setdefault("Abilities", {}).setdefault("PassiveAbilities", {})
-        for _uid, ability, _lvl in relic_specs:
-            if ability not in node:
-                try:
-                    node[ability] = catalog_inject.synthesize_ability(ability)
-                except KeyError as e:
-                    print(f"[error] --equip-relic: {e}", file=sys.stderr)
-                    return 2
-                print(f"[relic] config d'ability {ability} injectee dans BC.Abilities")
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump)
@@ -299,7 +287,8 @@ def cmd_build(sid: int, a) -> int:
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
         print(f"[relic] {uid} <- {ability} (TriggeredAbilityType={rep['abilityId']}) "
-              f"TertiaryAbilityLevel={lvl}{clamp}")
+              f"TertiaryAbilityLevel={lvl} "
+              f"config{'+' if rep['configAdded'] else '='}BC{clamp}")
     bad_u, bad_mow = _load_unspawnable(a.rank)
     pool = [u for u in pool if u not in bad_u]
     pool_mow = [u for u in pool_mow if u not in bad_mow]

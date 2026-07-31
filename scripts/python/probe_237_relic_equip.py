@@ -172,10 +172,14 @@ def main(argv: list[str]) -> int:
         if ability not in node:
             node[ability] = CI.synthesize_ability(ability)
 
+        # Une normalisation par SOURCE (avec / sans config), pas par regime : le RPC est cher.
+        templates = {}
+        for key, src in (("cfg", seed_with_cfg), ("nocfg", seed_bc)):
+            templates[key] = _normalize_and_extract_pool(sid, src, a.rank, board_dump=board)
+
         for regime in ("TEMOIN", "VERT", "ROUGE_A_sans_config", "ROUGE_B_niveau_0"):
-            src = seed_bc if regime == "ROUGE_A_sans_config" else seed_with_cfg
-            template, pool, _mow = _normalize_and_extract_pool(sid, src, a.rank,
-                                                              board_dump=board)
+            key = "nocfg" if regime == "ROUGE_A_sans_config" else "cfg"
+            template, pool, _mow = templates[key]
             if uid not in pool:
                 print(f"  [{regime}] SKIP -- {uid} hors pool rank {a.rank}")
                 continue

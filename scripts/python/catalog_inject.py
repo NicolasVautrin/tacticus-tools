@@ -424,10 +424,15 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
 #
 #   2. `BC.Abilities.PassiveAbilities[<nom>]` = la config de l'ability.
 #      Le seed BC ne porte que les abilities des unites de CETTE bataille : sur les 32 abilities
-#      de relique du gameconfig, 3 SEULEMENT y sont (celles equipees au seed). Sans la config,
-#      `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` s'execute sur une
-#      config nulle -> « system error » au cast. Meme verrou, meme parade que #226 pour un
-#      porteur hors pool : c'est `synthesize_ability` qui la produit.
+#      de relique du gameconfig, 3 SEULEMENT y sont (celles equipees au seed). Sans elle,
+#      `AbilitiesDatabase.GetConfig` rend une config NON NULLE MAIS VIDE, et
+#      `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` n'y trouve aucun
+#      tableau : le noeud DSL du behaviour (`IdunBattle.Entities.Formulas.ConfigAmount$$Calculate`)
+#      l'appelle avec `fallbackToDefault = false`, donc il LEVE -> « system error » au cast.
+#      MESURE : la relique est bien montee, mais `extraCritDmg` rend 0 au lieu de 749.
+#      Meme verrou, meme parade que #226 : c'est `synthesize_ability` qui la produit.
+#      NB `BC.Abilities` traverse `buildNormalizedBC` INTACT (le RPC ne touche que `Units`,
+#      `Board`, `SpawnPointSetIndex`) -- cette ecriture-la n'a donc pas d'ordre impose.
 #
 #   3. `BC.Units[].TertiaryAbilityLevel` >= 1.  <-- LE VERROU QUI N'AVAIT PAS DE NOM
 #      `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel` -- le foyer
