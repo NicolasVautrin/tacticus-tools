@@ -472,6 +472,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     att_ctx["team"] = scene.team(att_id)
     att_ctx["team_by_id"] = scene.team_by_id
     att_ctx["traits"] = _entity_traits(scene, att_id)
+    # `IsTurnOf(Owner@0x148)` (case-366-r1) : SEULE cle de ce contexte portee sur l'OWNER de l'effet
+    # (= la CIBLE `tgt_id`) et non sur le caster -- parce que le noeud natif, lui, porte sur l'Owner.
+    # `scene.is_turn_of` LIT `dv.units[].ctrl` (= `IsControlledByCurrentPlayer` invoque natif) ; la
+    # face COMBAT pose la MEME cle depuis l'ECS (`damage_model._owner_turn_flag`). `None` (non
+    # mesure) -> cle ABSENTE, le gate consommateur se tait.
+    _toc = scene.is_turn_of(tgt_id)
+    if _toc is not None:
+        att_ctx["is_turn_of_owner"] = _toc
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction

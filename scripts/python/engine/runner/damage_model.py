@@ -274,6 +274,26 @@ def _unit_team(state: State, unit_id: Optional[int]):
     return oc.team if oc is not None else None
 
 
+def _owner_turn_flag(state: State, unit_id: Optional[int]) -> Optional[bool]:
+    """`IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` pour un selecteur SINGLETON :
+    `OwnerComponent.CurrentPlayerEntityId(unit) == TurnComponent.CurrentPlayerId(state)`.
+
+    Face COMBAT du canal `att_ctx["is_turn_of_owner"]` (cf. `entities/effects/base.py::
+    is_turn_of_owner`) ; la face DECISION lit le MEME predicat par `decisionView.units[].ctrl`
+    (`IsControlledByCurrentPlayer`, invoque natif). `None` si l'une des deux lectures manque --
+    non mesure, jamais un booleen devine."""
+    if unit_id is None:
+        return None
+    cur = getattr(state, "current_player_id", None)
+    if cur is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    oc = e.get_component(OwnerComponent) if e is not None else None
+    if oc is None or oc.player is None:
+        return None
+    return int(oc.player) == int(cur)
+
+
 def _positional_att_ctx(state: State, unit_id: int) -> Optional[dict]:
     """Contexte POSITIONNEL `{att_pos, tile_effects_by_pos}` pour les bonus attaquant à magnitude
     position-dépendante (#35 — LordOfTempests `IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage` : Count(Ice
@@ -484,8 +504,17 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     active = (state.effects.active_effects(unit_id, unit_state_for_effects(state, unit_id))
               if state.effects is not None else [])
     att_ctx = None
+    # `IsTurnOf(Owner@0x148)` (case-366-r1) : sur ce canal `Owner` = le PORTEUR de l'effet, donc la
+    # CIBLE `unit_id`. Le natif compare `OwnerComponent.CurrentPlayerEntityId` a
+    # `TurnComponent.CurrentPlayerId` (`IsTurnOfUnitTrigger$$ShouldTrigger`) : on LIT les deux
+    # (`OwnerComponent.player` de l'ECS, `State.current_player_id` = mirror `GetCurrentPlayerId`).
+    # Une des deux inconnues -> cle ABSENTE (non mesure), jamais un booleen devine.
+    _toc = _owner_turn_flag(state, unit_id)
+    if _toc is not None:
+        att_ctx = {"is_turn_of_owner": _toc}
     if attacker_id is not None or is_normal_attack is not None:
-        att_ctx = {"id": attacker_id, "is_normal_attack": is_normal_attack}
+        att_ctx = dict(att_ctx or {})
+        att_ctx.update({"id": attacker_id, "is_normal_attack": is_normal_attack})
         # FACTION de l'attaquant (gate `HasFaction(actor, ...)` des malus défenseur, ex. Markerlight
         # IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$CreateDamageModifier : +15% aux attaques RANGED d'un attaquant T'AU sur la cible marquée). FactionId
         # gameconfig par visualId (même résolveur `_faction` que `entities_from_state`) ; lazy import

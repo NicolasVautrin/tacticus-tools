@@ -320,8 +320,17 @@ class Scene:
                 pos_by_id[eid] = pos
             if oc is not None:
                 team_by_id[eid] = oc.team
+            # `ctrl` = `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer` — le champ que
+            # le hook publie sur la face LIVE (`dv.units[].ctrl`, methode native INVOQUEE). Ici on le
+            # reconstitue depuis les DEUX memes lectures que le natif compare
+            # (`OwnerComponent.CurrentPlayerEntityId` / `TurnComponent.CurrentPlayerId`). L'une des
+            # deux manquante -> `None` (non mesure), et `Scene.is_turn_of` rendra `None`.
+            _cur = getattr(state, "current_player_id", None)
+            _ctrl = (None if (_cur is None or oc is None or oc.player is None)
+                     else int(oc.player) == int(_cur))
             units.append({
                 "id": eid, "visualId": vis, "alive": bool(uc.alive),
+                "ctrl": _ctrl,
                 "team": oc.team if oc is not None else None,
                 "pos": {"col": pos[0], "row": pos[1]} if pos is not None else None,
                 "hp": hc.hp if hc is not None else None,
@@ -437,6 +446,25 @@ class Scene:
 
     def team(self, uid):
         return self.team_by_id.get(uid)
+
+    def is_turn_of(self, uid) -> "bool | None":
+        """`IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` pour un selecteur
+        SINGLETON = `OwnerComponent.CurrentPlayerEntityId(unit) == TurnComponent.CurrentPlayerId`,
+        c'est-a-dire mot pour mot `IdunBattle.Entities.UnitExtensions$$IsControlledByCurrentPlayer`.
+
+        Face DECISION du canal `att_ctx["is_turn_of_owner"]` (cf. `entities/effects/base.py::
+        is_turn_of_owner`) : on LIT `decisionView.units[].ctrl`, que le hook obtient en INVOQUANT la
+        methode native (`ai-step/projection.ts`, `isCtrlByCurMi`) -- pas une derivation
+        equipe-vs-equipe. `Scene.from_state` pose la MEME cle depuis l'ECS
+        (`OwnerComponent.player == State.current_player_id`).
+
+        `None` = non mesure (ligne d'unite absente, ou champ absent d'un flux anterieur) -> le gate
+        consommateur se TAIT."""
+        for u in (self.units or ()):
+            if u.get("id") == uid:
+                v = u.get("ctrl")
+                return None if v is None else bool(v)
+        return None
 
     def armor(self, uid) -> int:
         return self.armor_by_id.get(uid, 0)
