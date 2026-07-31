@@ -1239,8 +1239,66 @@ class AstartesBannerExtraHitEffect(BaseEffect):
 
 
 class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
-    """`SagaOfTheWarriorBorn_Owner` (effet 0x4c7=1223, `spaceBlackmane` <<Ragnar>>) — axe COUPS,
-    gate `IsCharging`. MIRROR de
+    """`SagaOfTheWarriorBorn_Owner` (0x4c7=1223) ET `SagaOfTheWarriorBorn_OtherSpaceWolves`
+    (0x4c8=1224) — UNE SEULE classe, comme le natif. Axe COUPS + axe CRIT, gate `IsCharging`.
+
+    UNE CLASSE POUR DEUX `EffectType` — mesure, pas supposition. Les deux fabriques
+    `IdunBattle.Core.Services.EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_241`
+    (1223) et `…b__14_242` (1224) sont **bit-identiques** : meme slot `Il2CppClass*`, meme
+    `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$.ctor`, **aucun argument
+    variable**. Sur les **607** enregistrements d'`InitializeEffects` (formes A + B), ce slot ne
+    couvre QUE ces deux ids — aucun autre jumeau. L'identite vient du SLOT, jamais du nom du ctor
+    (51 noms de ctor couvrent plusieurs classes sur ce binaire). Le port pointe donc la MEME classe
+    depuis les deux entrees d'`EFFECT_CLASSES` : ecrire une seconde classe aurait duplique une
+    distinction que le natif n'a pas.
+
+    Le ctor porte une CONSTANTE partagee — `mov edx, 0x49e` puis
+    `IdunBattle.Core.AbilityOrEffect$$op_Implicit` puis
+    `IdunBattle.Entities.Effects.BaseEffect$$.ctor(this, abilityOrEffect, hasAutomaticActivation: 1)` :
+    `0x49e = 1182 = TriggeredAbilityType.SagaOfTheWarriorBorn`. Les DEUX effets lisent donc la MEME
+    config d'ability, donc les MEMES variables `extraHits` (0x13) et `extraCritDmg` (0x42). Seul le
+    PORTEUR change — d'ou deux `EffectType`, un seul comportement.
+
+    QUI PORTE QUOI :
+      * **1223** — `spaceBlackmane` <<Ragnar>> lui-meme, pose des le depart par
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_InitAbility$$GetEffectType`
+        (= `0x4c7`, corps litteral).
+      * **1224** — les AUTRES Space Wolves AMIS, poses par
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_KillAbility` :
+
+            CreateTrigger   = OnDeath(triggerOnOverkill: 1, triggerOnSteppable: 0)
+                            & get_OwnerIsActor
+                            & HasTrait(Target, 0x10 = UnitTrait.Hero)
+
+            CreateBehaviour = AddEffect( 0x4c8 = 1224,
+                                         get_AbilityStateReference(owner),
+                                         source  = Owner,
+                                         targets = UnitsFromFaction(
+                                                       Friends(Owner, <pool partage>,
+                                                               UnitSelectionType.OnlyAlive)
+                                                       - Owner,
+                                                       faction = 0xd = UnitFaction.SpaceWolves,
+                                                       UnitSelectionType.OnlyAlive ),
+                                         <Nullable vide = aucune duree> )
+
+        ⚠ **AUCUN RAYON.** `IdunBattleLogic.Entities.DSLSelectors$$Friends(of, entities,
+        selectionType)` n'a pas de parametre de distance : son 2e argument est le POOL D'ENTITES a
+        filtrer (un selecteur partage pre-construit par
+        `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`), pas une portee. La fiche
+        `case-ischarging-hits` §7 le lisait « `<radius @+0x80>` » — mé-lecture, corrigee ici et
+        recoupee par l'i2 (« friendly Space Wolves », sans mention de portee). L'effet est donc
+        POSE A TOUTE L'EQUIPE Space Wolves vivante, ou qu'elle soit sur le plateau, et il est
+        PERMANENT (le dernier argument d'`AddEffect` est un `Nullable` vide) — ce que dit l'i2 :
+        « If Ragnar has defeated one or more enemy Characters **this battle**, friendly Space Wolves
+        also gain this ability. » (« Characters » = le libelle UI du trait `Hero`.)
+
+    FACE POSE NON PORTEE (residu nomme) : le trigger ci-dessus n'existe pas cote port — un moteur
+    100 % offline ne posera donc jamais 1224 de lui-meme. Ce que ce port ferme, c'est la LECTURE :
+    quand le natif l'a pose, `load_state` le materialise et le port en compte desormais la
+    contribution (avant, il retombait sur `BaseEffect`, no-op silencieux).
+
+    MIRROR de
+    `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack` :
     `IdunBattle.Entities.Effects.Loki.SagaOfTheWarriorBorn_OwnerEffect$$CreateEffectHitsBonusForAttack` :
 
         EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(owner@0x148, target@0x178),
@@ -1286,9 +1344,33 @@ class SagaOfTheWarriorBornOwnerEffect(BaseEffect):
     `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` passe l'attaquant ET la cible
     a `GetCritDamageBonusFromEffects`, qui batit son `AbilityEntities` avec les deux. Le contexte est
     desormais threade en UN point (`runner/operations/damage.py::AttackDamageOperation._crit_params`).
-    HORS PERIMETRE, nomme : `SagaOfTheWarriorBorn_OtherSpaceWolves` (1224) est un effet SEPARE, pose
-    par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SagaOfTheWarriorBorn_KillAbility$$CreateBehaviour`
-    sur les amis Space Wolves apres un kill de Character."""
+
+    NIVEAU D'ABILITY — le seul point ou 1224 SOLLICITE le port autrement que 1223, et un ECART REEL
+    (mesure, pas suppose). Le natif lit
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` =
+    `IdunBattleLogic.Entities.DSLSelectors$$AbilityStateFromEffect(<noeud EFFET>)`, c.-a-d.
+    l'`AbilityStateReference` BAKEE DANS L'EFFET a la pose, donc celle de la SOURCE (Ragnar). Le
+    port, lui, seede `ability_level` depuis le `unitConfig` du PORTEUR (`EffectsState.seed`, cle par
+    porteur) — approximation deja nommee dans `runner/snapshot.py::_source_ability_state`. Pour 1223
+    les deux coincident (porteur == source) : l'ecart y est INOBSERVABLE. Pour **1224 ils different
+    par construction** — le porteur est un Space Wolf qui n'a PAS l'ability.
+
+    Sous `buildNormalizedBC` les deux valent 50, donc l'ecart est numeriquement nul sur tout montage
+    normalise. DISSOCIES, il apparait (MC1_67 / 777, Ragnar `PassiveAbilityLevel=1`, Ulf 50) :
+
+        natif   n=4  [2679, 3724, 2879, 3771]                      # extraHits[1] = 1, niveau SOURCE
+        port    n=6  [2679, 3724, 2879, 3771, 3273, 3750]          # extraHits[50] = 3, niveau PORTEUR
+
+    Repro : `probe_366_r1_saga_other_space_wolves.py --arms KILL --regimes CHARGE
+    --extra="--unit-stat" --extra="spaceBlackmane:PassiveAbilityLevel=1"`.
+    Le meme ecart porte sur le MULTIPLIER de rarete (mesure : source 200, porteur 180), donc il
+    touche AUSSI la face CRIT (`extraCritDmg` est la seule variable scalee par le multiplier).
+
+    NON CORRIGE ICI, et actionnable : le capteur publie deja la source sur l'effet
+    (`{"effectType": 1224, …, "source": 81}`) et `_source_ability_state(state, source_id)` fait deja
+    exactement ce calcul pour les effets de TUILE. Ce qui manque est le CABLAGE de cette voie sur les
+    effets d'UNITE — un changement du canal de seed partage par les 135 entrees d'`EFFECT_CLASSES`,
+    donc une tranche a part entiere avec sa propre validation, pas un ajout a ce port."""
 
     def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
                                             att_ctx: "Mapping | None" = None) -> EffectBonus | None:
