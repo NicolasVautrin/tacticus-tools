@@ -183,7 +183,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1117 | InescapableAccuracy_overrideHits | idem | `eldarMauganRa` | HERO, pool |
 | 1171 | SereneUnifierStormOfFire | `StaticStatModifierEffect` (phase 3 du cycle ; phase 1 = `1169`, portee) | `tauAunShi` | HERO, pool |
 | 1174 | StructuralAnalyser_Visual | `CreateActiveCondition` | `tauDarkstrider` | HERO, pool |
-| 1175 | HatefulAssault_AlreadyAttacked | `UntilOfEndTurnEffect` (marqueur a duree) | `blackTerminator` | HERO, pool |
+| ~~1175~~ | ~~HatefulAssault_AlreadyAttacked~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-hateful-assault-marker.md`. Marqueur `UntilOfEndTurnEffect` : AUCUN timer (`DefaultAmountOfRounds` ne le connait pas, le poseur passe un `turns` vide) -> son retrait est un TRIGGER `On(TurnEnd)`. Livre AVEC son poseur/lecteur `1038 HatefulAssault`, qui etait absent de tous les registres de trigger | `blackTerminator` | HERO, pool |
 | ~~1181~~ | ~~ExemplarOfTheKauyon_AdditionalHits~~ | **PORTE par #366-r1** — `docs/rl/case-366-r1-exemplar-of-the-kauyon-hits.md`. ⚠ La colonne « COUPS » CONFOND deux canaux : le marqueur natif est `CreateAdditionalHits` (#179, groupe a degat/profil PROPRES), **pas** le `CreateEffectHitsBonusForAttack` de `1183` — meme porteur, canal different | `tauShadowsun` | HERO, pool |
 | ~~1183~~ | ~~DefenderOfTheGreaterGood_ExtraHits~~ | **PORTE par #372** (avec les jumeaux drone 1306/1307) -- `docs/rl/case-372-dotgg-extra-hits.md` | `tauShadowsun` | HERO, pool |
 | 1215 | PsychicStalk_ExtraAttackDamage | `CreateEffectDamageMalusForDefense` | `thousAhriman` | HERO, pool |

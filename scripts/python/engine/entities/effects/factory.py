@@ -136,6 +136,7 @@ from .loki import (
     VisionsOfHeresyExtraPierceMeleeEffect,
     VisionsOfHeresyExtraPierceRangedEffect,
     WarHowlExtraDamageUnstoppableEffect,
+    UntilOfEndTurnEffect,
     HeavyGravCannonEffect,
     DestroyTheWitchExtraMoveEffect,
     DestroyTheWitchExtraDamageEffect,
@@ -738,6 +739,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
+    # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
+    # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
+    # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
+    # qui borne l'attaque d'opportunite a UNE fois par ennemi et par tour. La classe native est la
+    # GENERIQUE `UntilOfEndTurnEffect` (slot `Il2CppClass*`, cf. `probe_1175 --step 1`), zero
+    # contribution : toute sa semantique est sa DUREE, portee par `EFFECT_TRIGGERS[1175]`.
+    # ⚠ Cette entree ne change RIEN au comportement par elle-meme (`BaseEffect` no-op est identique) --
+    # elle documente l'identite de classe et fait passer 1175 du cote « porte » de l'inventaire #366.
+    "HatefulAssault_AlreadyAttacked": UntilOfEndTurnEffect,
     # 1291 HeavyGravCannon : owner-effect du PASSIF homonyme d'admecDestroyer <<Sy-Gex>>. Classe DEDIEE
     # `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect` a DEUX canaux partageant UNE condition
     # (`...$$DamageCondition` = OwnerIsActor & IsRangedAttack & (HasTrait(target,5=Mechanical) |
