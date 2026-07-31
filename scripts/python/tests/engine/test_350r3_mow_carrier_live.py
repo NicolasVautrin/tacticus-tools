@@ -17,9 +17,17 @@ Ce que la garde tient :
 3. `1147` CONFRONTEE : deux bras de parite, quatre variantes, `to_even` SEULE nulle sur les deux --
    ce que prevoit son inscription (a2) -- et le code LIVRE egal au natif sur les deux bras ;
 4. `1148` CONFRONTEE dans ses DEUX regimes : zone froide (natif 0 == port 0) et zone EN FEU
-   (natif == port). Le regime froid est celui ou le port INVENTAIT un event avant #350-r3.
+   (natif == port). Le regime froid est celui ou le port INVENTAIT un event avant #350-r3 ;
+5. (#359) le VOLET AoE de `1147` : le natif emet UN event PAR ENTITE de son selecteur
+   `HadesAutocannonsAbility$$GetAllTargets`, le port n'en emettait qu'UN. Quatre regimes -- aucun
+   summon, cible summon, porteur ennemi AU CONTACT, cible NON-summon -- avec le port d'AVANT
+   reconstitue par retrait des entrees de registre, pour que la garde verrouille un ECART et pas un
+   accord vide ;
+6. (#359) la GENERALISATION du meme volet : autre board (`MC1_15`), caster ALLIE des summons, et un
+   montage ou les summons ne prennent PAS tous le meme degat -- ce qui distingue une prediction
+   PAR CIBLE d'une recopie.
 
-Trois runners au total, disposes par le probe. ASCII only.
+Cinq runners au total, disposes par le probe. ASCII only.
 """
 from __future__ import annotations
 
@@ -54,6 +62,16 @@ def confronted_1147():
 @pytest.fixture(scope="module")
 def daemonic():
     return P.step3_daemonic_ordnance(seed=35160, verbose=False)
+
+
+@pytest.fixture(scope="module")
+def aoe_1147():
+    return P.step4_aoe_1147(seed=35180, verbose=False)
+
+
+@pytest.fixture(scope="module")
+def aoe_1147_generalized():
+    return P.step5_generalize_1147(seed=35200, verbose=False)
 
 
 def test_p_units_refuses_a_mow_by_construction_and_the_mow_path_is_wired(scan):
@@ -127,3 +145,109 @@ def test_1148_agrees_with_the_native_in_both_fire_regimes(daemonic):
     assert hot["port"] == hot["native"], (
         "zone EN FEU : port %s != natif %s -- le gate ne doit pas eteindre les events LEGITIMES"
         % (hot["port"], hot["native"]))
+
+
+def _bag(events):
+    """Les events d'un regime, comparables SANS l'ordre. Le natif ORDONNE son ensemble
+    (`SortByRow` / `SortReverse` sous `If(IsTopPlayer)`, un ordre de LECTURE du selecteur) ; le port
+    ne porte PAS ces noeuds et emet la cible principale en tete. La garde porte donc sur l'ENSEMBLE
+    et les valeurs -- ce que l'utilite consomme (`CalculateUtilityFromPredictions` SOMME) -- et non
+    sur une sequence dont le port ne pretend pas mirrorer l'ordre."""
+    return sorted((e["target"], tuple(e["dmg"])) for e in events)
+
+
+def test_1147_emits_one_event_per_entity_of_its_selector(aoe_1147):
+    """5 (#359) : le volet AoE de `1147`, verrouille par un ECART mesure.
+
+    `HadesAutocannonsPlaybook$$MakeDamagePredictions` ne prend PAS `<Target>` : il boucle sur
+    `GetEntitiesFromSelector(HadesAutocannonsAbility$$GetAllTargets, ...)` -- les summons du camp de
+    la CIBLE dans son disque `range`, cible INCLUSE -- et `AddRange` un
+    `GenerateMultiHitAttackPredictions` par entite.
+
+    Les quatre regimes ne sont pas redondants :
+      * R0 (aucun summon en jeu) tient la borne BASSE : selecteur vide -> 0 event. C'est le regime
+        mesure 16 fois par #350-r3, et celui ou le port d'AVANT inventait un event ;
+      * R1 donne le COMPTE (le natif en emet autant que de summons retenus) ;
+      * R2 amene le porteur -- du camp du CASTER -- au contact : le compte ne doit PAS bouger, ce qui
+        discrimine le referent d'equipe `Friends(of: Target)` (R1 seul le laisse ambigu, summoner et
+        summons y etant du meme camp) ;
+      * R3 cible une unite NON-summon : le natif emet quand meme sur les summons voisins. C'est CE
+        regime qui interdit de court-circuiter la boucle AoE quand la cible principale est refusee
+        par le gate -- une lecture qui ne se devine pas depuis R1/R2."""
+    r = aoe_1147
+    assert not r.get("error"), "montage KO : %s" % r["error"]
+    assert len(r["summons"]) >= 2, (
+        "le montage n'a pose que %s summon(s) : le volet AoE ne serait pas exerce" % len(r["summons"]))
+    assert r["r0"]["native"] == [], (
+        "R0 : le natif emet %s SANS aucun summon en jeu -- le selecteur ne serait plus restreint aux "
+        "summons, et les 16 mesures de #350-r3 seraient a relire" % (r["r0"]["native"],))
+    for k in ("r0", "r1", "r2", "r3"):
+        reg = r[k]
+        assert _bag(reg["port_after"]) == _bag(reg["native"]), (
+            "%s : port %s != natif %s" % (reg["tag"], reg["port_after"], reg["native"]))
+    # R1 : le natif emet bien PLUSIEURS events -- sans quoi la garde passerait sur un montage
+    # mono-cible, ou le volet AoE n'est tout simplement pas exerce.
+    assert len(r["r1"]["native"]) == len(r["summons"]) >= 2, (
+        "R1 : %d event(s) natif(s) pour %d summons -- le selecteur ne les retient plus tous"
+        % (len(r["r1"]["native"]), len(r["summons"])))
+    assert len(r["r2"]["native"]) == len(r["r1"]["native"]), (
+        "R2 : le porteur ENNEMI au contact change le compte natif (%d -> %d) -- `Friends` "
+        "referencerait le CASTER et non la CIBLE"
+        % (len(r["r1"]["native"]), len(r["r2"]["native"])))
+    import hexgeo
+    cpos, tpos = r.get("r2_caster_pos"), r.get("r2_target_pos")
+    assert cpos is not None and tpos is not None and hexgeo.distance(cpos, tpos) <= 1, (
+        "R2 : le porteur n'a pas ete amene au CONTACT de la cible (caster=%s cible=%s) -- le regime "
+        "ne discrimine alors plus le referent d'equipe" % (cpos, tpos))
+    # R3 : la cible demandee n'est PAS dans les events natifs, et pourtant il y en a.
+    tgt3 = r["r3"]["target"]
+    assert r["r3"]["native"], "R3 : le natif ne rend plus rien quand la cible est hors selecteur"
+    assert all(e["target"] != tgt3 for e in r["r3"]["native"]), (
+        "R3 : le natif emet sur la cible NON-summon %s -- `UnitsWithTrait(2 = Summon)` ne la "
+        "filtrerait plus" % tgt3)
+    # LE CLIQUET : le port d'AVANT #359 differait sur les trois regimes. Sans cet ecart, la garde
+    # ci-dessus serait un accord vide.
+    for k in ("r0", "r1", "r2", "r3"):
+        reg = r[k]
+        assert _bag(reg["port_before"]) != _bag(reg["native"]), (
+            "%s : le port d'AVANT #359 est deja d'accord avec le natif -- la garde ne verrouille "
+            "plus rien, relire le montage" % reg["tag"])
+
+
+def test_1147_aoe_generalizes_to_another_board_and_a_friendly_caster(aoe_1147_generalized):
+    """6 (#359) : la generalisation -- board DIFFERENT (`MC1_15`) et caster ALLIE des summons.
+
+    Le selecteur ne lit RIEN du caster : `Friends(of: Target)` et `SurroundingUnits(Target, range)`
+    referencent la CIBLE. L'etape 4 borne un cote (caster ENNEMI : un port qui referencerait le
+    caster rendrait 0) ; celle-ci borne l'autre (caster ALLIE : un port qui filtrerait les cibles
+    ennemies -- le reflexe pour une ability offensive, et ce que disent ses `TargetingOptions` --
+    rendrait 0 alors que le natif emet).
+
+    Elle tient AUSSI la fidelite PAR CIBLE : un event par entite RETENUE, chacun porte par SA cible
+    -- pas un event recopie N fois. Mesure (seed 35130, `MC1_15`) : les trois summons n'y prennent
+    pas le meme degat (`(486, 738, 6)` deux fois, `(324, 492, 6)` une fois, un facteur geometrique
+    de 1.5) et le port reproduit la ventilation. Cette ventilation-la n'est PAS asserte : elle
+    depend des tuiles ou le tirage natif pose les summons, donc de la seed -- l'exiger ferait rougir
+    le MONTAGE et non le port. Ce qui est asserte, c'est ce qui ne depend pas du tirage : l'ensemble
+    des cibles, et l'egalite des valeurs avec le natif."""
+    g = aoe_1147_generalized
+    assert not g.get("error"), "montage KO : %s" % g["error"]
+    assert g["caster_team_is_target_team"] is True, (
+        "le caster n'est PAS allie de la cible : le montage ne borne plus le referent d'equipe")
+    assert g["native"], "le natif n'emet rien avec un caster allie : relire le selecteur"
+    assert _bag(g["port_after"]) == _bag(g["native"]), (
+        "board %s / caster allie : port %s != natif %s"
+        % (g["board"], g["port_after"], g["native"]))
+    assert _bag(g["port_before"]) != _bag(g["native"]), (
+        "le port d'AVANT #359 est deja d'accord ici : la garde ne verrouille rien")
+    # Fidelite PAR CIBLE, sur l'axe qui ne depend PAS du tirage : un event par summon retenu, aucun
+    # doublon, et exactement les summons -- ce qu'une recopie de la cible principale ne donnerait pas.
+    tgts = [e["target"] for e in g["port_after"]]
+    assert len(set(tgts)) == len(tgts), "le port emet deux events sur la meme cible : %s" % tgts
+    assert set(tgts) <= set(g["summons"]), (
+        "le port emet sur %s, hors des summons poses %s" % (sorted(set(tgts)), g["summons"]))
+    # RESIDU NOMME, MESURE ici et pas ailleurs : sur ce montage le natif ordonne `%s` et le port
+    # `%s` -- les noeuds `SortByRow` / `SortReverse` du selecteur ne sont pas portes. On ne l'ASSERTE
+    # pas (l'ordre du port suit `scene.units` et peut coincider par hasard, comme a l'etape 4) : la
+    # garde porte sur l'ENSEMBLE, qui est ce que l'utilite SOMME. Le fait est expose par le probe.
+    assert isinstance(g["same_order"], bool), "le probe ne rapporte plus la comparaison d'ordre"
