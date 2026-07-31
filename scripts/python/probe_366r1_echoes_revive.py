@@ -236,8 +236,11 @@ def volet_b(sid, rid) -> dict:
     dans `collect_triggered_abilities` serait un changement AVEUGLE."""
     from engine.entities.triggered_ability_type import TriggeredAbilityType
     st = rpc(sid, "unitAbilityStates", {"runnerId": rid}, 90)
-    ob = rpc(sid, "observeBattle", {"runnerId": rid}, 60)
-    vis = {u.get("id"): u.get("visualId") for u in (ob.get("units") or [])}
+    # ⚠ `observeBattle.units[]` porte `entityId`/`squadId`, PAS `id` : un mapping sur `id` rend
+    # `{None: ...}` et le volet mesure **0 unite**, ce qui se lit a tort comme « 0 ecart ». C'est
+    # `decisionView.units[].id` qui est l'id d'entite du port (celui de `state.get_entity`).
+    dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 150)
+    vis = {u.get("id"): u.get("visualId") for u in (dv.get("units") or [])}
     rows, bad = [], 0
     for su in (st.get("units") or []):
         vid = vis.get(su.get("entityId"))
@@ -260,6 +263,11 @@ def volet_b(sid, rid) -> dict:
         print("  %-22s mesure=%-30s gameconfig=%-30s %s"
               % (vid, m, d, "OK" if ok else "*** ECART ***"))
     print("  -> %d unite(s), %d ecart(s)" % (len(rows), bad))
+    if not rows:
+        # Un balayage a ZERO n'est PAS une mesure : sans ce garde-fou, un mapping casse se lit
+        # exactement comme « aucun ecart » (c'est arrive ici, cf. le commentaire sur `entityId`).
+        print("  *** AUCUNE unite mesuree : le canal ou le mapping est casse, PAS un succes ***")
+        return {"rows": 0, "mismatch": 1}
     return {"rows": len(rows), "mismatch": bad}
 
 
@@ -435,8 +443,17 @@ def main():
         return 0
     sid = _resolve_session()
     Path(STATE).parent.mkdir(parents=True, exist_ok=True)
-    # B : non-regression du canal, sur un runner NON greffe.
-    rid = build_runner(SEED, BOARDS[0], HP_ARMS[0], None)
+    # B : non-regression du canal, sur un runner NON greffe -- roster ALEATOIRE 5v5 (bien plus
+    # discriminant qu'un duo choisi : on veut savoir si la substitution mesure/gameconfig est un
+    # no-op sur des kits QUELCONQUES).
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(SEED), "--rank", "17",
+           "--roster", "5", "--board", BOARDS[0], "--no-ai", "--state-file", STATE]
+    p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True)
+    if p.returncode != 0:
+        sys.stdout.write((p.stdout or "")[-1200:])
+        sys.stdout.write((p.stderr or "")[-1600:])
+        raise SystemExit("build KO (volet B)")
+    rid = json.loads(Path(STATE).read_text(encoding="utf-8"))["runnerId"]
     try:
         b = volet_b(sid, rid)
     finally:
