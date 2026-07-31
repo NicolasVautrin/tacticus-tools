@@ -38,9 +38,14 @@ DEUX BRAS, et le second est le TEMOIN :
   * `--hp-target 1`      : cibles one-shot -> le composite `KillUnit` domine, le natif ATTAQUE.
 Sans le temoin, un port qui casterait 1148 SYSTEMATIQUEMENT passerait toutes les autres gardes.
 
+5. **(#359-r3) Le terme de PREDICTION**, qui n'existe que si la zone BRULE -- et le seul poseur de
+   ce feu est 1148 elle-meme. Le regime se MONTE (`--burning`) : il ne s'observe pas autrement.
+
 Usage (depuis scripts/python, ASCII only) :
     python probe_302_3_daemonic_ordnance.py --decision
     python probe_302_3_daemonic_ordnance.py --stage        # etage kit/cooldown/domaine seul
+    python probe_302_3_daemonic_ordnance.py --burning [--hot-count 1|2] [--board <id>]
+    python probe_302_3_daemonic_ordnance.py --agreement [--steps N] [--unbranched]
 """
 from __future__ import annotations
 

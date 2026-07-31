@@ -263,9 +263,16 @@ qui n'agit **que** sur 1148 ; baisser les PV relèverait l'attaque normale autan
 `--hot-hp 8000` → `_best_attack.full = 166.98` contre `70.0`, le natif attaque et 1148 n'est plus
 élue du tout).
 
+**Bras TÉMOIN, et il est indispensable** : avec **UN SEUL** ennemi brûlant, l'écart de custom vaut
+DEUX ennemis (30 contre 10) et le terme (`U = 13.96`) ne suffit pas — le natif COMME le port restent
+sur l'ancre FROIDE. Le terme ne renverse donc pas *par principe*, il renverse quand il PÈSE plus que
+l'écart. Sans ce bras, un port qui préférerait la zone brûlante systématiquement passerait le bras
+séparant.
+
 | mesure | natif | port APRÈS | port AVANT (débranché) |
 |---|---|---|---|
-| tuile élue, zone en feu | `(1148, 49)` = `(4,1)` | = natif | **`(1148, 52)` = `(4,4)`** |
+| tuile élue, **2** brûlants (custom 30 vs 20) | `(1148, 49)` = `(4,1)` | = natif | **`(1148, 52)` = `(4,4)`** |
+| tuile élue, **1** brûlant (custom 30 vs 10) — TÉMOIN | `(1148, 52)` = `(4,4)` | = natif | = natif |
 | agreement, marche entière | — | **11/11** casts, 7/7 pos, 4/4 stay | **10/11** casts |
 
 Le désaccord du bras débranché, verbatim :
@@ -386,4 +393,11 @@ Hors périmètre `#350-r3`.
   COMBAT, `AddEffectOperation` sur une entité-tuile) — **non tranché**, inerte pour la prédiction.
 - ~~**Le BRANCHEMENT de la prédiction de 1148 sur sa route de DÉCISION**~~ — **FERMÉ (#359-r3)**,
   section dédiée ci-dessus.
+- **La généralisation du montage BRÛLANT à un board où `dir` bascule** (#359-r3) : **NON COUVERTE**.
+  Le placement piloté échoue sur `C1_03` — `act move` respecte la portée de déplacement de l'unité,
+  et les spawns y sont trop loin des ancres (`worldTerminator` reste à `(1,3)` au lieu de `(4,3)`) ;
+  le probe le REFUSE (`placement KO (obtenu, attendu)`) au lieu de mesurer un montage dégradé.
+  Portée bornée : le branchement lui-même ne lit pas `dir`, et les DEUX branches du `If` sont déjà
+  gardées ailleurs — bras `--flip` (`C1_03`) côté custom, `C1_15` côté prédiction (#359-r1). Ce qui
+  manque est une confrontation du branchement sous `dir = 4`, pas une lecture.
 - **La couche TRIGGERED** (tableau ci-dessus) : lue, non portée, non confrontée.
