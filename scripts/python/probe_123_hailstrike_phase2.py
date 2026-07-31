@@ -29,8 +29,10 @@ import hexgeo
 from rl_collect_batch import _rpc, _resolve_session
 
 PYDIR = Path(__file__).resolve().parent
-DATA = PYDIR.parent.parent / "data"
-SEED_BC = DATA / "_123_hailstrike_bc.json"
+# SORTIES du probe -> `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees
+# et sert de garde-fou `git status` a l'isolation par worktree (#349).
+LOGS = PYDIR.parent.parent / "logs" / "runners"
+SEED_BC = LOGS / "_123_hailstrike_bc.json"
 BOARD = "MC1_67"
 
 MOW = "darkaStormSpeeder"

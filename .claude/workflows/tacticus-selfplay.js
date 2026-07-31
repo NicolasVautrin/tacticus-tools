@@ -171,12 +171,12 @@ const SIDES = {
 
 function setupPrompt(m) {
   const aiCsv = m.aiUnits ? m.aiUnits.map((u) => String(u).split(':')[0]).join(',') : null
-  const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --board MC1_67 --state-file data/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
+  const buildCmd = `python scripts/python/rl_duel.py build --seed ${m.seed} --board MC1_67 --state-file logs/runners/_sp_${m.seed}_A.json${aiCsv ? ` --a-units ${aiCsv}` : ''}`
   return `Tu es l'agent SETUP d'UN match self-play Tacticus (seed ${m.seed}). cwd = racine du repo.
    PRECONDITION: session Frida (id=${sessionId}) DEJA warmee par l'orchestrateur -> NE lance JAMAIS warmupGameSingletons, NE navigue PAS l'UI.
    ⚠ INVARIANT (matchs concurrents) : la coexistence est le DÉFAUT côté hooks — un build ne détruit JAMAIS les runners frères, mais un cap dur (MAX_RUNNERS) fait REFUSER le build si l'atelier est plein. DONC : lance EXCLUSIVEMENT la commande build ci-dessous (son --state-file DÉDIÉ garantit que le retry remplace TON runner, pas un frère), JAMAIS un build ad-hoc avec un autre state-file, et NE lance JAMAIS \`dispose\` (réservé au teardown). Si le build échoue avec "runner cap reached" -> renvoie {ok:false, error:"cap runners atteint"} (l'orchestrateur/cleanup arbitre, ce n'est PAS à toi de disposer). Si tu dois ré-essayer, relance EXACTEMENT la même commande.
    1. BUILD le runner PARTAGE (team1=joueur, team2=adverse) : \`${buildCmd}\`. Lis le runnerId dans la ligne "[build] runnerId=N" et les 2 rosters ("MON roster (team 1)=..." / "roster ADVERSE (team 2)=...").
-   2. CREE le state-file du player B (MEME runner, camp 2) : \`python scripts/python/rl_duel.py attach --from data/_sp_${m.seed}_A.json --team 2 --state-file data/_sp_${m.seed}_B.json\`.
+   2. CREE le state-file du player B (MEME runner, camp 2) : \`python scripts/python/rl_duel.py attach --from logs/runners/_sp_${m.seed}_A.json --team 2 --state-file logs/runners/_sp_${m.seed}_B.json\`.
    3. GATE D'ADRESSABILITÉ (OBLIGATOIRE avant de rendre ok) — vérifie que le runner est joignable par LE MÊME chemin que les players (l'endpoint await), pour attraper un runner nuké par un build concurrent AVANT de spawn 2 players dessus : \`curl -s -m 10 "http://127.0.0.1:8765/api/selfplay/${sessionId}/await?runnerId=<N>&player=3&timeoutMs=3000"\` (remplace <N> par le runnerId du build). VERDICT : réponse JSON avec \`"ok":true\` (\`yourTurn\` OU \`timedOut\`) = runner ADRESSABLE -> rends ok. Réponse avec \`"error"\` (ex. "runner <N> not found", HTTP 502) = runner ABSENT du registry -> NE rends PAS ok:true : renvoie {ok:false, error:"runner <N> non adressable post-build"} pour que le workflow RE-SETUP (le retry rebuild est non destructif pour les frères : coexistence par défaut, replace scoped à TON state-file).
    NE joue PAS le match, NE dispose PAS le runner (c'est le role des players / du teardown).
    Renvoie {ok:true, runnerId:<N>, rosterMine:[team1...], rosterTheirs:[team2...]} UNIQUEMENT si la gate (3) passe. Si le build echoue OU la gate echoue -> {ok:false, error:"..."}.`
@@ -184,7 +184,7 @@ function setupPrompt(m) {
 
 function playerPrompt(side, runnerId, m, setup) {
   const s = SIDES[side]
-  const sf = `data/_sp_${m.seed}_${side}.json`
+  const sf = `logs/runners/_sp_${m.seed}_${side}.json`
   const url = `http://127.0.0.1:8765/api/selfplay/${sessionId}/await?runnerId=${runnerId}&player=${s.pid}&timeoutMs=90000`
   return `Tu es le PLAYER ${side} (équipe ${s.team}, player id ${s.pid}) d'un match SELF-PLAY Tacticus (seed ${m.seed}, oracle vs oracle). Tu joues UNIQUEMENT l'équipe ${s.team}. L'adversaire (équipe ${s.other}) est joué par un AUTRE agent en parallèle — tu ne le vois jamais, tu n'as que TA perspective via decisionView. cwd = racine du repo.
    PRECONDITION (NE PAS y toucher) : session Frida id=${sessionId} DEJA warmee, runner runnerId=${runnerId} DEJA construit. NE lance JAMAIS warmupGameSingletons, NE build PAS, NE navigue PAS l'UI, NE dispose PAS le runner. Toutes tes commandes rl_duel utilisent --state-file ${sf}.
@@ -230,7 +230,7 @@ function teardownPrompt(m, runnerId, pa, pb) {
    - PLAYER B (team 2, player 4) : ${SQ(pb)}
    (un retour peut être null si le player a échoué — note-le et adjuge avec ce que tu as.)
 
-   1. ADJUDICATION (vainqueur). La self-play est ZERO-SUM. SOURCE AUTORITATIVE = \`python scripts/python/rl_duel.py status --state-file data/_sp_${m.seed}_A.json\` qui imprime désormais \`*** BATTLE FINIE — winner AUTORITATIF = team1|team2|no-winner ***\` (champ NATIF battleStatus.winner, lisible post-Finished — H59). ⚠ NE te fie PAS à \`alive_by_team={}\` post-Finished : decisionView refuse hors-Running donc il est VIDE — IDENTIQUE pour une élimination ET un no-winner round-cap (c'était le piège H59). authoritative_winner = EXACTEMENT ce que cette ligne reporte. Recoupe avec outcome_perceived des 2 players (A="W"&B="L"→team1 ; A="L"&B="W"→team2 ; mutual "L"/ "uncertain"→souvent no-winner) : winner_consensus = true si A et B s'accordent ET que ça MATCHE le winner autoritatif (sinon flag la divergence).
+   1. ADJUDICATION (vainqueur). La self-play est ZERO-SUM. SOURCE AUTORITATIVE = \`python scripts/python/rl_duel.py status --state-file logs/runners/_sp_${m.seed}_A.json\` qui imprime désormais \`*** BATTLE FINIE — winner AUTORITATIF = team1|team2|no-winner ***\` (champ NATIF battleStatus.winner, lisible post-Finished — H59). ⚠ NE te fie PAS à \`alive_by_team={}\` post-Finished : decisionView refuse hors-Running donc il est VIDE — IDENTIQUE pour une élimination ET un no-winner round-cap (c'était le piège H59). authoritative_winner = EXACTEMENT ce que cette ligne reporte. Recoupe avec outcome_perceived des 2 players (A="W"&B="L"→team1 ; A="L"&B="W"→team2 ; mutual "L"/ "uncertain"→souvent no-winner) : winner_consensus = true si A et B s'accordent ET que ça MATCHE le winner autoritatif (sinon flag la divergence).
 
    2. CONFRONTATION A vs B = vérif INDÉPENDANTE par consensus (2 observateurs séparés du même match). Compare :
       - win-condition : A.win_condition.theirs (lecture de B par A) vs B.win_condition.mine (auto-lecture de B) ; et A.mine vs B.theirs. Accord = haute confiance. Divergence = un des deux a mal lu -> divergences[].
@@ -246,9 +246,9 @@ function teardownPrompt(m, runnerId, pa, pb) {
       NE modifie JAMAIS .claude/skills/tacticus-battle/SKILL.md. NE touche PAS aux métriques win-rate de loop.md (le W/L self-play est zero-sum, non comparable au win-rate oracle-vs-IA).
 
    4. ARCHIVE + CLEANUP (dans CET ordre — l'archive AVANT toute suppression) :
-      a. ARCHIVE la trajectoire (= le dataset IL ; IMPÉRATIF avant le rm) : \`python scripts/python/archive_demo.py --a data/_sp_${m.seed}_A.json --b data/_sp_${m.seed}_B.json --ts '${ts}' --winner <authoritative_winner>\` → écrit logs/selfplay/sp_${m.seed}_<ts>.json (action_logs des 2 camps + rosters + outcome, rejouable via seed). Mets le chemin imprimé dans files_written.
-      b. DISPOSE le runner : \`python scripts/python/rl_duel.py dispose --state-file data/_sp_${m.seed}_A.json\` (libère le runner ${runnerId}). runner_disposed=true si OK.
-      c. SUPPRIME les 2 state-files : \`rm data/_sp_${m.seed}_A.json data/_sp_${m.seed}_B.json\` (UNIQUEMENT après a+b réussis).
+      a. ARCHIVE la trajectoire (= le dataset IL ; IMPÉRATIF avant le rm) : \`python scripts/python/archive_demo.py --a logs/runners/_sp_${m.seed}_A.json --b logs/runners/_sp_${m.seed}_B.json --ts '${ts}' --winner <authoritative_winner>\` → écrit logs/selfplay/sp_${m.seed}_<ts>.json (action_logs des 2 camps + rosters + outcome, rejouable via seed). Mets le chemin imprimé dans files_written.
+      b. DISPOSE le runner : \`python scripts/python/rl_duel.py dispose --state-file logs/runners/_sp_${m.seed}_A.json\` (libère le runner ${runnerId}). runner_disposed=true si OK.
+      c. SUPPRIME les 2 state-files : \`rm logs/runners/_sp_${m.seed}_A.json logs/runners/_sp_${m.seed}_B.json\` (UNIQUEMENT après a+b réussis).
 
    Renvoie le résumé structuré (TEARDOWN_SCHEMA) : seed, authoritative_winner, winner_consensus, consensus_mechanics, divergences, wiki_inscribed, demos_recorded, runner_disposed, files_written, notes.`
 }

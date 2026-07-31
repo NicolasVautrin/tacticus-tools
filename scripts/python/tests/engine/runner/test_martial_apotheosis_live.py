@@ -67,7 +67,7 @@ from engine.dsl.event_trigger_type import EventTriggerType
 AGENT_ID = "a2a29ebf31c1e4476"
 PYDIR = Path(__file__).resolve().parents[3]                          # scripts/python
 ROOT = Path(__file__).resolve().parents[5]                          # racine repo
-STATE = ROOT / "data" / f"_pytest_martial_apotheosis_{AGENT_ID}.json"
+STATE = ROOT / "logs" / "runners" / f"_pytest_martial_apotheosis_{AGENT_ID}.json"   # SORTIE -> logs/ (#349)
 
 CARRIER = "necroOverlord"                                           # porteur du passif MartialApotheosis
 ENEMIES = "necroWarden,eldarRanger,eldarAutarch"                    # ennemis (team joueur), tanky + armure 0

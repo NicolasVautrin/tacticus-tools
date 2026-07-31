@@ -19,9 +19,9 @@ bâtir un runner « depuis l'état qu'il a capturé » — un runner se construi
 **déploie** (`initAndStart`), et rend des units observables. C'est ce qu'utilisent la conftest
 (`build_runner`) et les agents.
 
-> **⚠ ARTEFACTS LIVE À RÉGÉNÉRER (per-hash, PURGEABLES — cf. #159).** Le harnais lit DEUX artefacts sous
-> `data/` (entièrement **gitignore** → JAMAIS versionnés, effacés par tout ménage de `data/` : `git clean
-> -fdx`, nettoyage disque) :
+> **⚠ ARTEFACTS LIVE À RÉGÉNÉRER (per-hash — cf. #159).** Le harnais lit DEUX artefacts sous `data/`
+> — **VERSIONNÉ** depuis `f467e64` : `data/` ne porte que des **ENTRÉES**, les **sorties** de run vont
+> dans `logs/` (et `rl_duel --state-file` REFUSE un chemin sous `data/`, #349) :
 > - `data/seed-bc.json` — le **seed BC template** (skeleton Players/Utilities/mode), lu par `_load_seed_bc`.
 > - `data/boards/{pvp,syncPvp,global}/<id>.json` — les **~800 board dumps**, lus par `_load_board_dump`.
 >

@@ -57,7 +57,7 @@ def _r(sid, method, body, t=90):
 
 
 def build(seed: int, tag: str) -> int:
-    state = ROOT / "data" / f"_a217_storm_state_{tag}.json"
+    state = ROOT / "logs" / "runners" / f"_a217_storm_state_{tag}.json"   # SORTIE -> logs/ (#349)
     state.unlink(missing_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed),

@@ -91,7 +91,7 @@ python predict_sweep.py --runner 12
 ```
 
 Pre-requis : session Frida chaude (warmup apres chaque reinject). Le harnais build+dispose son
-propre runner (state-file dedie `data/_predict_sweep.json`, coexistence) -- ne touche pas au runner
+propre runner (state-file dedie `logs/runners/_predict_sweep.json`, coexistence) -- ne touche pas au runner
 utilisateur. Le drive/commit-move/cycle mutent le runner ISOLE uniquement.
 
 ## Carte des ecarts (run propre 2026-07-11, post-fix-cycle)

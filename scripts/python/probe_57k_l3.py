@@ -157,7 +157,9 @@ def run_case(sid: int, tag: str, seed: str, stop: int, uid: int, vis: str, tiles
                 t = _tile_of(e.get("caseTile"))
                 by_tile.setdefault(t, []).append((e.get("utility"), e.get("score")))
         # dump brut de la fenetre : re-analyse offline sans re-payer une passe L3
-        dump = ROOT / "data" / f"l3_57k_{tag.lower()}.jsonl"
+        # SORTIE -> logs/, jamais data/ qui ne porte que des ENTREES versionnees (#349)
+        dump = ROOT / "logs" / f"l3_57k_{tag.lower()}.jsonl"
+        dump.parent.mkdir(parents=True, exist_ok=True)   # logs/ absent d'un checkout frais
         with open(dump, "w", encoding="utf-8") as f:
             for e in win:
                 f.write(json.dumps(e) + "\n")

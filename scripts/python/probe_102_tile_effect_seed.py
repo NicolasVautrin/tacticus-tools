@@ -47,7 +47,7 @@ sys.path.insert(0, str(PYDIR))
 
 HOST = "http://127.0.0.1:8765"
 AGENT_ID = "a102tile"
-STATE = ROOT / "data" / f"_probe102_{AGENT_ID}_state.json"
+STATE = ROOT / "logs" / "runners" / f"_probe102_{AGENT_ID}_state.json"   # SORTIE -> logs/ (#349)
 
 BOARD = "C1_02"                 # board MoW-capable (slot MachineOfWarPosition des deux cotes)
 SEED = "4242"

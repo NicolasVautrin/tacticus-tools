@@ -44,7 +44,10 @@ from engine.entities.effects.magnitude import ability_var
 from engine.entities.stats import StatType
 
 PYDIR = Path(__file__).resolve().parents[3]
-DATA = PYDIR.parent.parent / "data"
+# SORTIES du test -> `logs/` (gitignore, meurt avec le worktree). `data/` est VERSIONNE et ne porte
+# que des ENTREES : une sortie qui y atterrit salit `git status` sans qu'on ait rien edite -- soit
+# exactement le signal dont l'isolation par worktree se sert comme garde-fou (#349).
+LOGS = PYDIR.parent.parent / "logs" / "runners"
 # Board/seed OVERRIDABLES : le critere pass/fail n'en depend pas (on confronte le PORT rejouant le
 # MEME cast sur le MEME etat) -> `VOTANN113_BOARD` / `VOTANN113_SEED` rejouent le scenario ailleurs
 # pour chasser le sur-ajustement a une geometrie/un tirage.
@@ -71,8 +74,9 @@ EXTRA_BLOCK_NAME = "AncestralFortune_ExtraBlockChance"
 @pytest.fixture(scope="session")
 def votann_bc():
     """Seed BC augmente des 3 porteurs Votann (`catalog_inject.py`, #92). Le seed BC PARTAGE n'est
-    jamais modifie."""
-    out = DATA / "_113_votann_bc.json"
+    jamais modifie. Cache inter-run DERIVE (data/seed-bc.json + gameconfig) : le regenerer coute un
+    appel `catalog_inject`, donc il vit dans `logs/` et se refait une fois par worktree."""
+    out = LOGS / "_113_votann_bc.json"
     if not out.exists():
         p = subprocess.run([sys.executable, "catalog_inject.py", "--units",
                             f"{BESERK},{IRONMASTER},{UTHAR}", "--out", str(out)],

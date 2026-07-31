@@ -240,3 +240,39 @@ par un **processus hors du checkout** (le host Node) ou par l'utilisateur (`.env
 seront jamais dans un checkout, et c'est correct. Ce qui doit être vrai, c'est qu'un lecteur
 sache **dire** qu'il ne les voit pas plutôt que rendre un zéro. La reformulation est du ressort
 de l'auteur du `CLAUDE.md` ; ce fichier n'en propose que la matière.
+
+## 9. #349 — le troisième angle : la SORTIE écrite dans `data/`
+
+Même invariant, angle distinct des deux premiers : le chemin est **relatif** (donc invisible à
+l'étape 0b, qui ne voit que les absolus vers l'arbre principal) et `data/` **n'est pas
+gitignoré** (donc hors du verdict de l'étape 0). Une sortie qui y atterrit salit `git status`
+sans qu'aucun fichier n'ait été édité — c'est-à-dire qu'elle brouille le **signal même** dont
+l'isolation par worktree se sert comme garde-fou.
+
+**Mesure** (balayage `scripts/python/**` sur `origin/master` @ `ac88bc47`) : **25 sites sur 19
+fichiers** — 15 probes et 4 tests live, soit des state-files de runner, des seed BC augmentés et
+trois dumps de probe. Résidu de la migration `f467e64`, qui n'avait déplacé que les sous-répertoires
+`data/rl-state[s]` et `data/selfplay-logs`, pas les fichiers posés à la racine de `data/`. Tous
+déplacés sous `logs/runners/` (ou `logs/` pour les dumps). Hors Python, un appelant faisait la
+même chose : `.claude/workflows/tacticus-selfplay.js` construisait `data/_sp_<seed>_{A,B}.json`
+à chaque match.
+
+**Cliquet — étape 0c de `probe_273 --only-scan`.** Verdict : le premier segment sous `data/`
+doit être une entrée que **git suit**, dérivé de `git ls-files data` et jamais d'une liste en
+dur. `data/symbols`, `data/boards`, `data/seed-bc.json` et `data/i2_en.json` sont donc verts
+d'office — y compris quand la chaîne de symboles y **écrit** (`preprocess_il2cpp_dump`,
+`ghidra_symbols`, `symbols_sync`, `symbols_layout` : 82 chemins balayés, 0 faux positif). Les
+**7** chemins `data/` non versionnés qui restent sont des **lectures** d'entrées locales (dump
+IL2CPP, instantané gameconfig, spawn-probe), justifiées dans `_ALLOWED_DATA`.
+
+**Refus au choke point, en plus du cliquet statique** — celui-ci ne balaye que
+`scripts/python/**`, et le vecteur JS le prouvait : `rl_duel --state-file`,
+`catalog_inject --out` et `write_augmented_seed_bc()` **refusent** désormais un chemin sous
+`data/` (`host_inputs.reject_data_output`, rc 2, message actionnable).
+
+**Le balayage a été réécrit en évaluation concrète** (`_Eval` : `__file__` vaut le fichier
+balayé, donc `.parent`, `.parents[N]`, `os.path.dirname/join`, `Path()`, `str()`, les variables
+module **et** locales, et `import x as R` puis `R.VAR` se résolvent). L'ancien reconnaissait des
+**formes par le texte** et ratait `DATA = PYDIR.parent.parent / "data"` — le motif même de #349 —
+ainsi que `PYDIR / ".." / ".." / "logs"` (segment `..` non normalisé, deux sorties conformes
+classées « autre »).

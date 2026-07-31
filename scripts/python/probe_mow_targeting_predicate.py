@@ -27,7 +27,7 @@ PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
 HOST = "http://127.0.0.1:8765"
 AGENT = "a24478d7"
-STATE = ROOT / "data" / f"_solver90a_{AGENT}.json"
+STATE = ROOT / "logs" / "runners" / f"_solver90a_{AGENT}.json"   # SORTIE -> logs/ (#349)
 
 
 def _sid() -> int:

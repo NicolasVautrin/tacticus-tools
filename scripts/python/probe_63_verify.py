@@ -16,8 +16,9 @@ import rl_collect_batch as R                                    # noqa: E402
 from _combat_replay import replay_normal_attack, replay_attack_driven   # noqa: E402
 
 _SID = R._resolve_session()
-_STATE = os.path.abspath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "data", "_probe63v_a5a63eef_state.json"))
+_STATE = os.path.abspath(os.path.join(          # SORTIE -> logs/, jamais data/ (#349)
+    os.path.dirname(__file__), "..", "..", "logs", "runners",
+    "_probe63v_a5a63eef_state.json"))
 _BOARD = "MC1_67"
 _created = []
 

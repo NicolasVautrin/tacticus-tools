@@ -23,7 +23,8 @@ import requests
 
 HOST = "http://127.0.0.1:8765"
 PYDIR = Path(__file__).resolve().parent
-DATA = PYDIR.parents[1] / "data"
+# SORTIES du probe -> `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES
+LOGS = PYDIR.parents[1] / "logs" / "runners"   # (#349)
 AGENT = "aca3ce9d9a19ff4f9"
 
 
@@ -115,7 +116,7 @@ def scenario_fr(sid):
     """FightingRetreat : rapproche Darkstrider d'un ork jusqu'a l'ADJACENCE, laisse l'ork engager,
     puis caste au tour SUIVANT (Darkstrider a DEMARRE adjacent -> RangedSpecialist DESACTIVE)."""
     import hexgeo
-    state_path = DATA / f"_probe114_fr_{AGENT}.json"
+    state_path = LOGS / f"_probe114_fr_{AGENT}.json"
     rid = build(state_path, ["--seed", "114001", "--board", "MC1_67",
                              "--p-units", "tauDarkstrider,tauCrisis",
                              "--a-units", "orksNob,orksNob", "--hp-player", "60000"])
@@ -179,7 +180,7 @@ def scenario_fr2(sid):
     le 4e volet re-active le trait de L'ALLIE, et le 5e volet prend la branche `FinishTurn` (0 ennemi
     adjacent au caster)."""
     import hexgeo
-    state_path = DATA / f"_probe114_fr2_{AGENT}.json"
+    state_path = LOGS / f"_probe114_fr2_{AGENT}.json"
     rid = build(state_path, ["--seed", "114003", "--board", "MC1_67", "--no-ai",
                              "--p-units", "tauCrisis,tauDarkstrider",
                              "--a-units", "orksNob,orksNob", "--hp-player", "60000"])
@@ -231,7 +232,7 @@ def scenario_itg(sid):
     (cast EWO) ; Aun'Shi adjacent la cible avec 1082 -> branche `canReset` (petit montant `hpToHeal`),
     REPAIR (Re'vas est Mechanical) + override de niveau + re-armement de l'actif."""
     import hexgeo
-    state_path = DATA / f"_probe114_itg_{AGENT}.json"
+    state_path = LOGS / f"_probe114_itg_{AGENT}.json"
     rid = build(state_path, ["--seed", "114004", "--board", "MC1_67",
                              "--p-units", "tauCrisis,tauAunShi",
                              "--a-units", "orksNob,orksNob", "--hp-player", "60000"])
@@ -321,7 +322,7 @@ def confront_itg(sid, rid, caster, target):
 
 
 def scenario_ewo(sid):
-    state_path = DATA / f"_probe114_ewo_{AGENT}.json"
+    state_path = LOGS / f"_probe114_ewo_{AGENT}.json"
     rid = build(state_path, ["--seed", "114002", "--board", "MC1_67",
                              "--p-units", "tauCrisis,tauDarkstrider",
                              "--a-units", "orksNob,orksNob"])

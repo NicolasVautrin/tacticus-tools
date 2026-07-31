@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rl_collect_batch import _resolve_session, _rpc  # noqa: E402
 from engine_validate import native_chunk  # noqa: E402
 
-DATA = Path(__file__).resolve().parents[2] / "data"
+# Dump du probe -> `logs/` (gitignore), jamais `data/` qui ne porte que des ENTREES versionnees (#349)
+LOGS = Path(__file__).resolve().parents[2] / "logs"
 
 
 def _r(sid: int, method: str, body: dict, t: float = 90) -> dict:
@@ -137,8 +138,10 @@ def main(argv: list[str]) -> int:
            "fills": {"repairCount": fills.get("repairCount"),
                      "repairs": fills.get("repairs"),
                      "repairError": fills.get("repairError")}}
-    (DATA / "_45_gate_probe.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
-    print(f"[probe45] dump -> {DATA / '_45_gate_probe.json'}")
+    dump = LOGS / "_45_gate_probe.json"
+    dump.parent.mkdir(parents=True, exist_ok=True)     # logs/ absent d'un checkout frais
+    dump.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(f"[probe45] dump -> {dump}")
     return 0
 
 

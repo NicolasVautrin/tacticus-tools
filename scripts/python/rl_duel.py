@@ -42,6 +42,7 @@ from rl_collect_batch import (  # noqa: E402
     PLAYER_ID_HUMAN,
 )
 from rl_probe_step import _print_apply  # noqa: E402
+import host_inputs  # noqa: E402
 import oracle  # noqa: E402
 import stream_events  # noqa: E402
 from board import Board  # noqa: E402
@@ -2157,6 +2158,16 @@ def main(argv: list[str]) -> int:
 
     global STATE
     if a.state_file:
+        # CHOKE POINT (#349) : un state-file est une SORTIE de run. `data/` est
+        # VERSIONNE et ne porte que des ENTREES -- y ecrire salit `git status`,
+        # le signal dont l'isolation par worktree se sert comme garde-fou. Le
+        # refus vit ICI, pas chez les appelants : il couvre aussi ceux que le
+        # cliquet statique de probe_273 ne balaye pas (workflows JS).
+        try:
+            host_inputs.reject_data_output(a.state_file, "--state-file")
+        except host_inputs.DataOutputRefused as e:
+            print(f"[error] {e}", file=sys.stderr)
+            return 2
         sf = Path(a.state_file)
         # Chemin RELATIF ancre sur la RACINE du repo (pas le cwd) : le
         # state-file est l'enregistrement de PROPRIETE du runner (replace
