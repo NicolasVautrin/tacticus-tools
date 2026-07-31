@@ -185,7 +185,7 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1174 | StructuralAnalyser_Visual | `CreateActiveCondition` | `tauDarkstrider` | HERO, pool |
 | 1175 | HatefulAssault_AlreadyAttacked | `UntilOfEndTurnEffect` (marqueur a duree) | `blackTerminator` | HERO, pool |
 | 1181 | ExemplarOfTheKauyon_AdditionalHits | COUPS | `tauShadowsun` | HERO, pool |
-| 1183 | DefenderOfTheGreaterGood_ExtraHits | `CreateEffectHitsBonusForAttack` + `CreateTargetSelector` | `tauShadowsun` | HERO, pool -- **residu deja NOMME** (+ jumeaux drone 1306/1307) |
+| ~~1183~~ | ~~DefenderOfTheGreaterGood_ExtraHits~~ | **PORTE par #372** (avec les jumeaux drone 1306/1307) -- `docs/rl/case-372-dotgg-extra-hits.md` | `tauShadowsun` | HERO, pool |
 | 1215 | PsychicStalk_ExtraAttackDamage | `CreateEffectDamageMalusForDefense` | `thousAhriman` | HERO, pool |
 | 1216 | PsychicStalk_VisualEffect | `CreateActiveCondition` + `CreateTargetSelector` | `thousAhriman` | HERO, pool |
 | 1222 | WarHowl_ExtraDamage_Unstoppable | `CreateEffectDamageBonusForAttack` + `CreateCritChanceBonus` + `ApplyInternal`/`RevertInternal` | `spaceBlackmane` | HERO, pool |
