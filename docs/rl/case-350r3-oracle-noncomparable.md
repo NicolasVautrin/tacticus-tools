@@ -417,3 +417,26 @@ réinjection.
 Garde : `tests/engine/test_350r3a_r3_position_gate_live.py` — **9 passed** (était 2 failed / 4 passed
 avant le fix ; 4 failed sous mutation adversariale du gate). Elle exige l'égalité des ENSEMBLES
 d'éligibilité aux 33 positions et des ARGMAX, aux trois rangs `32 / 8 / 6`.
+
+### 9.1 Généralisation — et la limite de la méthode de mesure
+
+* **Autre géométrie, même ability** (`--rings 2,4`) : le plan perd jusqu'à **18 positions sur 33**
+  (`E2plan` = 0 → 11 → 14 → 16 → 18 quand `maxRank` descend de 32 à 2), et pourtant la carte du gate
+  reste **identique à 0 position près** aux cinq rangs, argmax inclus. Le gate est devenu insensible
+  au plafond — ce qui était le but.
+* **Autre sous-classe** (`1153 HammerOfWrath`, `bloodIntercessor`, fixture `hammer`) : argmax
+  identique aux cinq rangs, aucune régression. Le régime de troncature n'y est PAS atteint
+  (`ranked = 1` tuile) — c'est donc une non-régression, pas une seconde démonstration.
+* **Les quatre autres `_PlanTargetPlaybook`** (`BloodyFury`, `Stormcaller`, `VexillaMagnifica`,
+  `BlackRage`) ont une utilité position-INDÉPENDANTE : leur argmax est l'ORIGINE par keep-first, que
+  le gate soit tronqué ou non. Le fix ne peut pas les changer. **NON CONFRONTÉ**, et c'est un
+  raisonnement structurel, pas une mesure.
+
+⚠ **La CAPTURE n'est pas l'ensemble des cibles ÉLIGIBLES** — même leçon que #362. L'oracle est ancré
+sur `ProbableDamageEvent$$.ctor` : il voit tout ce que l'évaluation construit. Sur `1153`, qui score
+`Σ CalculateUtilityFromDamageEvent` sur la cible ET ses adjacents, il capture les éclaboussures :
+mesuré, `e1_nat_only = 1` à l'origine (`abilityReason(77)` = `TargetIsNotAdjacent`, et 77 est
+pourtant capturé). Ce n'est **pas** un écart de gate. Le probe sépare donc les deux sens —
+`e1_cft_only` (le port serait PERMISSIF : le seul qui accuse le gate) et `e1_nat_only` (splash) — et
+l'égalité ensembliste n'est concluante que sur une ability **MONO-CIBLE**. `1202` l'est
+(`e1_cft_only = e1_nat_only = 0` aux 33 positions), d'où la validité de la mesure ci-dessus.

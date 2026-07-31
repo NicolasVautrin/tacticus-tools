@@ -78,11 +78,22 @@ def test_predicat_identique_par_position(measured):
     """(A) `castFromTiles` == l'eligibilite native, position par position, a TOUS les rangs.
 
     C'est l'etage qui repond a la question binaire du residu. S'il rougissait, l'ecart serait dans le
-    PREDICAT (`GetValidTargets` vs `GetInvalidTargetReason`) et non dans la troncature."""
-    bad = [(x["maxRank"], x["e1_predicat"]) for x in measured["byRank"] if x["e1_predicat"]]
-    assert not bad, (
-        "le PREDICAT diverge (castFromTiles != eligibilite native) sur %s ; "
-        "l'ecart n'est alors PAS la troncature et le fix de #350-r3a-r3 vise a cote" % (bad,))
+    PREDICAT (`GetValidTargets` vs `GetInvalidTargetReason`) et non dans la troncature.
+
+    L'egalite ENSEMBLISTE n'est exigible que parce que `1202` est MONO-CIBLE : l'oracle est ancre sur
+    `ProbableDamageEvent$$.ctor`, donc il capture tout ce que l'evaluation construit -- sur une
+    ability AoE il verrait aussi les ECLABOUSSURES. Mesure de controle sur `1153 HammerOfWrath`
+    (fixture `hammer`, qui score cible + adjacents) : `e1_nat_only = 1`, et ce n'est PAS un ecart de
+    gate. D'ou les deux sens separes ici, et la lecture stricte reservee au mono-cible."""
+    perm = [(x["maxRank"], x["e1_cft_only"]) for x in measured["byRank"] if x["e1_cft_only"]]
+    assert not perm, (
+        "le predicat ACCEPTE une cible que le natif n'evalue pas, sur %s : le gate du port serait "
+        "PERMISSIF -- c'est le seul sens qui accuse vraiment le gate" % (perm,))
+    splash = [(x["maxRank"], x["e1_nat_only"]) for x in measured["byRank"] if x["e1_nat_only"]]
+    assert not splash, (
+        "le natif construit un event pour une entite que le ciblage REFUSE, sur %s ; sur une ability "
+        "MONO-CIBLE comme 1202 cela ne peut pas etre du splash -> le predicat diverge vraiment, et "
+        "le fix de #350-r3a-r3 vise a cote" % (splash,))
 
 
 @pytest.mark.parametrize("rank", RANKS)

@@ -118,6 +118,20 @@ _FIXTURES = {
         "center": (3, 4), "rings": {"necroWarden": 1, "ultraTitus": 2},
         "level": 50, "mult": 140, "max_rank": 2,
     },
+    # Montage 4 -- GENERALISATION A UNE AUTRE SOUS-CLASSE. `1153 HammerOfWrath`
+    # (`bloodIntercessor`, present au pool) est l'autre `_PlanTargetPlaybook` a utilite
+    # POSITION-DEPENDANTE (une charge, comme 1202) : c'est donc la seule ou le gate per-position
+    # peut deplacer l'argmax. Les quatre autres (BloodyFury, Stormcaller, VexillaMagnifica,
+    # BlackRage) ont une utilite position-INDEPENDANTE -> leur argmax est l'ORIGINE par keep-first,
+    # que le gate soit tronque ou non : le fix ne peut pas les changer, et le dire est une mesure,
+    # pas une esperance.
+    "hammer": {
+        "name": "hammer", "board": "MC1_67", "seed": 35044, "rank": 17,
+        "caster": "bloodIntercessor", "ability": 1153,
+        "p_units": "bloodIntercessor,astraBullgryn", "a_units": "necroWarden,ultraTitus",
+        "center": (3, 4), "rings": {"necroWarden": 1, "ultraTitus": 3},
+        "level": 50, "mult": 140, "max_rank": 32,
+    },
 }
 
 
@@ -343,10 +357,10 @@ def _cast_from_tiles(rpc, sid, rid, cid, tid, ability) -> dict:
 
 # --- LE PORT REEL (pas une re-implementation du gate dans le probe) ------------------------------
 
-def _port_candidate(rpc, sid, rid, cid: int, dv: dict) -> dict:
-    """Fait tourner `VigilanceEternalPlaybook.generate_candidates` sur un `NCContext` bati par le
-    chemin de PRODUCTION (`engine.ai.context.build`) -- c'est le code LIVRE qui decide, pas une
-    copie du gate ecrite pour le probe."""
+def _port_candidate(rpc, sid, rid, cid: int, dv: dict, ability: int) -> dict:
+    """Fait tourner `<X>Playbook.generate_candidates` sur un `NCContext` bati par le chemin de
+    PRODUCTION (`engine.ai.context.build`) -- c'est le code LIVRE qui decide, pas une copie du gate
+    ecrite pour le probe."""
     from engine import weights as W
     from engine.ai import context as AICTX
     from engine.playbook import scene as _scene
@@ -366,9 +380,9 @@ def _port_candidate(rpc, sid, rid, cid: int, dv: dict) -> dict:
         obs_units=ctx.obs_units, tile_id_by_pos=ctx.tile_id_by_pos,
         active_levels=ctx.active_ability_levels, ability_config=ctx.heal_config,
         units=ctx.units, cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene, debug=False)
-    pb = NC.PLAYBOOKS.get(_ABILITY)
+    pb = NC.PLAYBOOKS.get(int(ability))
     if pb is None:
-        return {"ok": False, "error": "aucun playbook porte pour %d" % _ABILITY}
+        return {"ok": False, "error": "aucun playbook porte pour %d" % ability}
     if not pb.should_evaluate(nc):
         return {"ok": True, "gated": True, "cands": [], "eff": {}}
     cands = pb.generate_candidates(nc)
@@ -378,18 +392,13 @@ def _port_candidate(rpc, sid, rid, cid: int, dv: dict) -> dict:
     # fix du gate (c'est exactement ce qui l'a fait rougir apres coup).
     eff = {}
     for ev in ((nc.plan or {}).get("evals") or []):
-        if ev.get("abilityId") != _ABILITY or not ev.get("rankCount"):
+        if ev.get("abilityId") != int(ability) or not ev.get("rankCount"):
             continue
         rset = {(rk.get("col"), rk.get("row")) for rk in (ev.get("ranked") or [])
                 if rk.get("col") is not None}
         if rset:
             eff[int(ev.get("targetId"))] = pb.eligible_positions(nc, ev.get("targetId"), rset)
     return {"ok": True, "gated": False, "cands": cands, "reach": list(nc.reach_nc), "eff": eff}
-
-
-def _plan_targets(plan: dict) -> list:
-    return [int(ev.get("targetId")) for ev in (plan.get("evals") or [])
-            if int(ev.get("abilityId", -1)) == _ABILITY and ev.get("rankCount")]
 
 
 # --- L'ARGMAX NATIF, MESURE (jamais reconstruit) -------------------------------------------------
@@ -484,9 +493,10 @@ def step1(rpc, sid, logs: Path, fx: dict, verbose: bool = True) -> dict:
                   % (tid, rz["hex"], rz["reasons"]))
         print("\n  ARGMAX NATIF (bucketUtil mesure, keep-first origine d'abord) : %s" % nat_arg)
         for x in by_rank:
-            print("  maxRank=%-3d ranked=%-22s gateDiv=%-3d E1=%-3d E2plan=%-3d port=%s  %s"
-                  % (x["maxRank"], x["rankedSizes"], x["divergentPositions"], x["e1_predicat"],
-                     x["e2_troncature"], x["argmaxPort"],
+            print("  maxRank=%-3d ranked=%-20s gateDiv=%-3d permissif=%-3d splash=%-3d E2plan=%-3d "
+                  "port=%s  %s"
+                  % (x["maxRank"], x["rankedSizes"], x["divergentPositions"], x["e1_cft_only"],
+                     x["e1_nat_only"], x["e2_troncature"], x["argmaxPort"],
                      "SEPARE" if x["separates"] else "coincide"))
     return out
 
@@ -501,7 +511,7 @@ def _one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin, nat, cft, nat_a
       `castFromTiles` -- le predicat natif `GetInvalidTargetReason` tuile par tuile, SANS troncature.
     """
     port_rk = _port_ranked(dv, cid, fx["ability"])
-    port = _port_candidate(rpc, sid, rid, cid, dv)
+    port = _port_candidate(rpc, sid, rid, cid, dv, fx["ability"])
     port_eff = port.get("eff") or {}
     rows = []
     for p in positions:
@@ -515,11 +525,25 @@ def _one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin, nat, cft, nat_a
                      "diff_port_only": sorted(q - n), "diff_natif_only": sorted(n - q),
                      "bucketUtil": nat[p]["bucketUtil"]})
     n_div = sum(1 for x in rows if x["diff_port_only"] or x["diff_natif_only"])
-    # E1 = le PREDICAT : `castFromTiles` differe-t-il de l'eligibilite NATIVE ?
     # E2 = la TRONCATURE du PLAN : `ranked` perd-il des positions que `castFromTiles` a ?
-    #      (diagnostic du harnais -- il reste > 0 apres le fix, et c'est normal : le fix ne
+    #      (diagnostic du HARNAIS -- il reste > 0 apres le fix, et c'est normal : le fix ne
     #      DETRONQUE pas `attackPlans`, il cesse de s'en servir comme gate.)
     e2 = sum(1 for x in rows if set(x["castFromTiles"]) - set(x["ranked"]))
+    # E1 se DECOMPOSE, et les confondre fait accuser le gate a tort (mesure sur `1153` :
+    #   `cft_only` = le predicat ACCEPTE une cible que le natif n'a pas evaluee -> le port serait
+    #                PERMISSIF. C'est le seul sens qui accuse vraiment le gate.
+    #   `nat_only` = le natif construit un event pour une entite que le ciblage REFUSE. Sur une
+    #                ability AoE c'est la reponse JUSTE : `HammerOfWrathPlaybook` score
+    #                `Sigma CalculateUtilityFromDamageEvent` sur la cible ET ses ADJACENTS, donc
+    #                l'oracle (ancre sur `ProbableDamageEvent$$.ctor`) capture les eclaboussures.
+    #                Mesure : 1153 rend `nat_only = 1` a l'origine (`abilityReason(77)` =
+    #                `TargetIsNotAdjacent`, et 77 est pourtant capture). Ce n'est PAS un ecart de
+    #                gate -- c'est la meme lecon que `damage_predictions` (#362) : la CAPTURE n'est
+    #                pas l'ensemble des cibles ELIGIBLES.
+    # => l'egalite ensembliste natif == port n'est concluante que sur une ability MONO-CIBLE
+    #    (`1202` : `nat_only = cft_only = 0` aux 33 positions). Ailleurs, seul l'ARGMAX conclut.
+    e1_cft_only = sum(1 for x in rows if set(x["castFromTiles"]) - set(x["natif"]))
+    e1_nat_only = sum(1 for x in rows if set(x["natif"]) - set(x["castFromTiles"]))
     e1 = sum(1 for x in rows if set(x["castFromTiles"]) != set(x["natif"]))
     cands = (port.get("cands") or [])
     port_arg = ({"pos": list(cands[0]["to"] or origin), "util": cands[0]["pred"],
@@ -532,14 +556,15 @@ def _one_rank(rpc, sid, rid, cid, fx, dv, mr, positions, origin, nat, cft, nat_a
         print("    [maxRank=%d] SEPARE : natif %s (u=%s) vs port %s (u=%s)"
               % (mr, nat_arg["pos"], nat_arg["util"], port_arg["pos"], port_arg["util"]))
     return {"maxRank": mr, "rows": rows, "divergentPositions": n_div,
-            "e1_predicat": e1, "e2_troncature": e2, "argmaxPort": port_arg,
+            "e1_predicat": e1, "e1_cft_only": e1_cft_only, "e1_nat_only": e1_nat_only,
+            "e2_troncature": e2, "argmaxPort": port_arg,
             "separates": separates, "portGated": port.get("gated"),
             "rankedSizes": str({t: len(s) for t, s in sorted(port_rk.items())}),
             "portRanked": {str(t): sorted(s) for t, s in port_rk.items()}}
 
 
 def run(fixture: str, max_rank: int | None, ranks: tuple | None = None,
-        verbose: bool = True) -> dict:
+        rings: tuple | None = None, verbose: bool = True) -> dict:
     _resolve_session, _rpc = _rpc_mod()
     sid = _resolve_session()
     logs = ROOT / "logs"
@@ -549,8 +574,12 @@ def run(fixture: str, max_rank: int | None, ranks: tuple | None = None,
         fx["max_rank"] = int(max_rank)
     if ranks:
         fx["ranks"] = tuple(sorted(set(ranks), reverse=True))
-    print("[350-r3a-r3] session %s -- fixture %s (rangs %s)"
-          % (sid, fx["name"], list(fx.get("ranks") or (fx["max_rank"],))))
+    if rings:
+        fx["rings"] = dict(zip(("necroWarden", "ultraTitus"), rings))
+        fx["name"] = "%s_r%s" % (fx["name"], "-".join(str(x) for x in rings))
+        fx["seed"] = int(fx["seed"]) + sum(rings) * 7
+    print("[350-r3a-r3] session %s -- fixture %s (rangs %s, anneaux %s)"
+          % (sid, fx["name"], list(fx.get("ranks") or (fx["max_rank"],)), fx["rings"]))
     return {"step1": step1(_rpc, sid, logs, fx, verbose)}
 
 
@@ -609,11 +638,16 @@ def main() -> int:
                     help="valeurs de maxRank a balayer (defaut : 32,8,6,4,3,2 hors --sweep ; 8 en "
                          "--sweep). 8 = `rl_duel._decision`, 6 = defaut du RPC `decisionView`.")
     ap.add_argument("--near", type=int, default=1, help="anneau du concurrent")
+    ap.add_argument("--rings", default=None,
+                    help="anneaux des deux ennemis, ex. '1,2' -- PILOTE la geometrie sans creer une "
+                         "fixture de plus (le regime de troncature exige plus de tuiles valides "
+                         "que `maxRank` : sans ca la mesure est NON DISCRIMINANTE, pas verte)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
     res = (sweep(_ints(a.dists), _ints(a.ranks or "8"), a.near, verbose=not a.json) if a.sweep
            else run(a.fixture, a.max_rank,
-                    _ints(a.ranks) if a.ranks else (32, 8, 6, 4, 3, 2), verbose=not a.json))
+                    _ints(a.ranks) if a.ranks else (32, 8, 6, 4, 3, 2),
+                    _ints(a.rings) if a.rings else None, verbose=not a.json))
     if a.json:
         print(json.dumps(res, indent=2, default=str))
     s1 = res.get("step1")
