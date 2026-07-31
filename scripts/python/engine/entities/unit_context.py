@@ -55,6 +55,23 @@ class UnitContext:
     tertiary_ability: str | None = None
     tertiary_ability_level: int = 0
     tertiary_ability_variables_multiplier: int = 100
+    # --- passiveAbilities REELLEMENT MONTEES (#366-r1) ----------------------------------------------
+    # Pendant EXACT de `traits_measured` sur l'axe ABILITY, et mirror de la PREMIERE boucle
+    # d'`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` :
+    #     foreach (id in config+0xa8 = UnitConfiguration.PassiveAbilities)
+    #         TriggeredAbilityComponent$$TryAdd(id, passiveAbilityState, 2)
+    # -> la HIERARCHIE 2 est exactement l'image de `BC.Units[].PassiveAbilities`, lue au decompile
+    # (la 3 est la relique, cf. ci-dessus ; les actives passent par `AddActiveAbility`).
+    # Le port DERIVAIT cette liste du gameconfig par `visualId`
+    # (`triggers/dispatch/core.py::collect_triggered_abilities`) -- une RECONSTRUCTION a partir d'une
+    # autre source, exactement la faute que #264 a corrigee pour les traits. Consequence mesurable :
+    # un passif GREFFE sur une unite du pool (`catalog_inject.graft_passive_ability`, seul chemin de
+    # confrontation d'une ability dont l'unique porteur est un npc) etait monte LIVE et INERTE cote
+    # port, sans erreur ni trace.
+    # TRI-ETAT : `None` = canal non mesure -> fallback gameconfig (comportement strictement d'avant) ;
+    # une LISTE (fut-elle vide) = mesure, et elle FAIT AUTORITE. Les NOMS sont portes, comme
+    # `tertiary_ability`, parce que les registres de dispatch sont indexes par nom.
+    passive_abilities: list[str] | None = None
     # gameconfig-units (offline) — SAUF quand `traits_measured` est vrai (cf. ci-dessous).
     traits: list[int] = field(default_factory=list)
     # #264 — `traits` a-t-il ete SEEDE depuis la MESURE live (`combatSnapshot.units[].traits`) plutot
