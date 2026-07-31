@@ -209,10 +209,20 @@ et `engine/runner/abilities/votann.py:388` (`first_by_damage_utility(..., avg, a
   `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`. Il n'est PAS touché ici, et
   `engine/playbook/fury_of_the_ancients.py:103` en garde une transcription `// 2` — à confronter
   séparément.
+  > **#339 — cette attribution est FAUSSE, et son verdict aussi.** Le site Fury ne passe pas par
+  > `MinMaxDamageAverage` mais par `IdunBattle.DSL.AAmountFormula$$CalculateAverage`, qui **tronque**
+  > (aucun Fix64 sur cette branche) : son `// 2` était JUSTE. Et `RoundFix64Result` en mode 0 est
+  > bien `Fix64.Round(., ToEven)`, donc `MinMaxDamageAverage` arrondit COMME `Avg`. Détail et
+  > chaîne de symboles : `case-339-arrondi-moyennes-residuelles.md` §1/§2.
 - **`engine/ai/action_generators.py:417-418`** (`_spiritleech_lifesteal_util`) moyenne les bornes
   BRUTES à la main (`/ 2.0`). Son artefact natif est
   `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$GetHealAmountForPrediction`,
   **pas** `MinMaxDamage$$Avg` — non relu, laissé tel quel, nommé ici comme résidu.
+  > **#339 — relu : il l'est, en fin de chaîne.** `GetHealAmountForPrediction` =
+  > `PercentageOf(DamagePredictionFormula(…), hpToHealPct, Ceiling)`, et
+  > `DamagePredictionFormula$$Calculate` finit par `MinMaxDamage$$Avg(prediction + 0x40)` =
+  > `AccurateHealthDamage`. Le port lisait les bornes BRUTES **et** ajoutait un terme de bouclier
+  > inexistant : **4.83 points d'utilité** d'écart mesurés, corrigé par `case-339` §3/§4.
 
 ---
 
