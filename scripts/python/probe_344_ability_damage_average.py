@@ -1,0 +1,368 @@
+#!/usr/bin/env python
+"""Probe #344 -- `AActiveAbility$$MinMaxDamage(isPrediction: true)` ARRONDIT, il ne TRONQUE pas.
+
+CE QUE LE DECOMPILE DIT (`rnca9r7q6c`, lu VERBATIM)
+---------------------------------------------------
+
+    IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamage(this, state, isPrediction) :
+        isPrediction == 0 -> DSLFormulas.RandomAmount(GetVariableForLevel(0xc), GetVariableForLevel(0xd))
+        sinon             -> DSLFormulas.Half( DSLFormulas.Sum(
+                                 Direct(GetVariableForLevel(0xc = minDmg)),
+                                 Direct(GetVariableForLevel(0xd = maxDmg)) ), rule = 0 )
+
+    (corps IDENTIQUE a `IdunBattle.Entities.Abilities.AActiveAbility$$MinMaxDamageAverage`)
+
+    DSLFormulas$$Half(a, rule) = new <Divide>(a, Direct(2), rule)
+    IdunBattle.Entities.Formulas.DivideAmount$$Calculate :
+        Fix64.op_Division(Fix64(a), Fix64(b)) puis
+        IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., rule = this@+0x20)
+    IdunBattle.DSL.AAmountFormula$$RoundFix64Result : 1 -> Ceiling, 2 -> Floor, sinon Fix64.Round(., 0)
+
+`Fix64.Round(., midpointRounding = 0)` = demi-vers-le-PAIR (cf. probe_333). Le port TRONQUAIT
+(`(mn + mx) // 2`), donc il rendait UNE unite de MOINS des que `minDmg + maxDmg` vaut 3 mod 4.
+
+CE QUE CE PROBE MESURE, ET POURQUOI IL FAUT DEUX BRAS
+----------------------------------------------------
+Une somme PAIRE ne separe aucun mode. Une somme IMPAIRE en separe deux groupes selon la parite du
+FLOOR, et il faut les DEUX pour isoler `to_even` :
+
+  bras A : `mn + mx = 3 mod 4` (floor IMPAIR) -> natif = floor + 1 ; `trunc` rend floor = FAUX
+  bras B : `mn + mx = 1 mod 4` (floor PAIR)   -> natif = floor     ; `half_up`/`ceil` rendent floor+1 = FAUX
+
+  | variante          | bras A (floor impair) | bras B (floor pair) |
+  |-------------------|-----------------------|---------------------|
+  | `to_even` (NATIF) |           0           |          0          |
+  | `trunc` (le port d'avant #344) |     != 0 |          0          |
+  | `half_up`         |           0           |        != 0         |
+  | `ceil`            |           0           |        != 0         |
+
+**Aucune autre variante n'est nulle sur les DEUX bras.**
+
+La parite est PILOTEE, pas subie : `--unit-stat '<vis>:ActiveAbilityLevel=<L>'` choisit le niveau,
+donc le couple (minDmg, maxDmg) de la config, donc la classe de `mn + mx` modulo 4. Le regime
+EFFECTIVEMENT obtenu est RE-DERIVE du live (l'objet ability du port, nourri de l'`abilityState`
+capte) -- si le pilotage ne prend pas, le probe le DIT au lieu de conclure.
+
+Piege herite de #339 (sec.4) : un arrondi AVAL peut ABSORBER l'ecart d'une unite. Le probe exige
+donc, sur chaque bras, que les variantes rendent des bornes de prediction DISTINCTES ; un bras ou
+tout coincide est declare NON DISCRIMINANT et fait ECHOUER le verdict au lieu de le verdir.
+
+Oracle = `aiPlaybookPredict` (invocation DIRECTE de `<Ability>Playbook.MakeDamagePredictions`),
+compare a `engine.playbook.prediction.abilities.make_damage_predictions` sur le MEME etat live.
+Le seul point de branchement patche est `_round_fix64` tel qu'IMPORTE dans
+`engine.entities.abilities.active_ability` -- c'est le seul endroit ou `GetDamage` consulte l'arrondi.
+
+ASCII only (cp1252). Usage (depuis scripts/python) :
+    python probe_344_ability_damage_average.py
+    python probe_344_ability_damage_average.py --caster darkaTerminator --ability 1150 --lvl-a 3 --lvl-b 2
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import subprocess
+import sys
+from fractions import Fraction
+from pathlib import Path
+
+PYDIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(PYDIR))
+
+from rl_collect_batch import _resolve_session, _rpc                          # noqa: E402
+import engine.entities.abilities.active_ability as AA                        # noqa: E402
+from engine.dsl.base import _round_fix64                                     # noqa: E402
+
+# Montage par DEFAUT : FlailSwing (1042, `deathBlightlord`) -- ability du registre porte SANS
+# handler `_MAKE_DMG_INPUT_OVERRIDES` ni override de `get_damage`, donc la base traverse bien le
+# `AActiveAbility.get_damage` GENERIQUE qui est le site corrige.
+CASTER = "deathBlightlord"
+ABILITY = 1042
+ABILITY_NAME = "FlailSwing"
+FILLER_P = "astraBullgryn"
+VICTIM = "necroWarden"          # cible TEMOIN : aucun trait de reduction de coups (pas de Parry)
+FILLER_A = "ultraTitus"
+BOARD = "MC1_67"
+CENTER = (3, 4)
+LVL_A = 2                       # minDmg+maxDmg = 3 mod 4 (bras discriminant)
+LVL_B = 5                       # minDmg+maxDmg = 1 mod 4 (bras temoin de l'autre cote)
+MULT = 100
+
+
+def _r(sid, m, b, t=90):
+    return (_rpc(sid, m, [b], timeout=t).get("result") or {})
+
+
+# -- variantes d'arrondi, appliquees au SEUL point de branchement ------------------------------
+
+def _v_to_even(value: Fraction, mode: int) -> int:
+    return _round_fix64(value, mode)
+
+
+def _v_trunc(value: Fraction, mode: int) -> int:
+    return int(value)                       # troncature vers zero = le port d'AVANT #344
+
+
+def _v_half_up(value: Fraction, mode: int) -> int:
+    return math.floor(value + Fraction(1, 2))
+
+
+def _v_ceil(value: Fraction, mode: int) -> int:
+    return math.ceil(value)
+
+
+VARIANTS = (("to_even", _v_to_even), ("trunc", _v_trunc),
+            ("half_up", _v_half_up), ("ceil", _v_ceil))
+
+
+def _build(state_file: Path, seed: int, caster: str, victim: str, board: str,
+           level: int, mult: int) -> int:
+    """`rl_duel build` -- board CHOISI (runner.md sec.2) et NIVEAU D'ABILITY PILOTE (`--unit-stat`,
+    ecrit VERBATIM dans `BC.Units[]`), qui est le levier de la parite mesuree ici."""
+    state_file.unlink(missing_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+           "--state-file", str(state_file), "--board", board, "--rank", "17",
+           "--p-units", "%s,%s" % (caster, FILLER_P if caster != FILLER_P else CASTER),
+           "--a-units", "%s,%s" % (victim, FILLER_A if victim != FILLER_A else VICTIM),
+           "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=%d"
+                          % (caster, level, mult),
+           "--crit", "0,0", "--block-target", "0,0", "--no-ai"]
+    proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    if not state_file.exists():
+        raise RuntimeError("build KO : %s" % ((proc.stderr or proc.stdout or "")[-900:]))
+    return int(json.loads(state_file.read_text())["runnerId"])
+
+
+def _view(sid, rid):
+    return _r(sid, "decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+
+
+def _move(sid, rid, uid, col, row):
+    return _r(sid, "applyAction", {"runnerId": rid, "action": {
+        "kind": "move", "unitId": int(uid), "to": {"col": int(col), "row": int(row)}}}, 90)
+
+
+def _place_ring(sid, rid, ids, center_visual, center):
+    """GEOMETRIE DRIVEE (runner.md sec.4) : le caster au centre, tout le monde sur son ring 1."""
+    from engine.entities.pathfinding.board import Board
+    bg = _r(sid, "boardGraph", {"runnerId": rid}, 60)
+    board = Board(bg["tiles"], adjacency="evenq")
+    ccol, crow = center
+    ring = [board.coord(t) for t in board.neighbours(board.id_at(ccol, crow))]
+    if len(ring) < len(ids) - 1:
+        raise RuntimeError("centre (%d,%d) trop pauvre en voisins (%d)" % (ccol, crow, len(ring)))
+    _move(sid, rid, ids[center_visual], ccol, crow)
+    slot = 0
+    for v, uid in ids.items():
+        if v == center_visual:
+            continue
+        _move(sid, rid, uid, *ring[slot])
+        slot += 1
+
+
+def _native(sid, rid, cid, tid, ability):
+    r = _r(sid, "aiPlaybookPredict", {"runnerId": rid, "unitId": int(cid),
+                                      "targetId": int(tid), "abilityType": int(ability)}, 120)
+    return [(e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))
+            for e in ((r or {}).get("events") or [])]
+
+
+def _ctx(sid, rid, cid):
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.ai import context as AICTX
+    rpc = lambda m, b, t=60: _r(sid, m, b, t)                       # noqa: E731
+    dv = _view(sid, rid)
+    mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60)
+    mov_by_unit = {u.get("unitId"): u for u in ((mov or {}).get("units") or [])}
+    return AICTX.build(rpc, rid, dv, mov_by_unit, int(cid), W.load(),
+                       _scene.build_predictor(rpc, rid)), dv
+
+
+def _minmax_config(scene, cid, ability, ability_name):
+    """(minDmg, maxDmg) EFFECTIFS du port -- re-derives du live (level/mult captes), jamais supposes."""
+    import gameconfig as GC
+    from engine.entities.abilities.ability_configuration import AbilityConfiguration
+    from engine.entities.abilities.active_ability import active_ability_for
+    ctx0 = scene.ctx(int(cid))
+    cfg = AbilityConfiguration.from_gameconfig(ability_name, GC.ability(ability_name))
+    if ctx0 is None or cfg is None:
+        return None
+    ab = active_ability_for(ability_name, int(ability), ctx0, cfg,
+                            ability_state=scene.ability_state(int(cid), int(ability)))
+    lvl, mult = ab.level, ab.multiplier
+    return (cfg.get_variable_for_level("minDmg", lvl, 0, mult),
+            cfg.get_variable_for_level("maxDmg", lvl, 0, mult), lvl, mult)
+
+
+def _offline(scene, cid, tid, ability, ability_name, here, fn=None):
+    """Prediction OFFLINE. `fn = None` = le code LIVRE (aucun patch). Sinon les DEUX moyennes que
+    `AActiveAbility.get_damage` peut emprunter (`_round_fix64` pour la famille `MinMaxDamageAverage`,
+    `calculate_average` pour la famille `RandomAmount`) sont remplacees par `fn` -- de sorte que la
+    variante mesure bien UN mode d'arrondi, quelle que soit la famille de l'ability."""
+    from engine.playbook.prediction import abilities as PA
+    o_round, o_avg = AA._round_fix64, AA.calculate_average
+    if fn is not None:
+        AA._round_fix64 = fn
+        AA.calculate_average = lambda mn, mx: fn(Fraction(int(mn) + int(mx), 2), 0)
+    try:
+        evs = PA.make_damage_predictions(scene, int(cid), int(tid), int(ability), ability_name,
+                                         attack_pos=here)
+    finally:
+        AA._round_fix64, AA.calculate_average = o_round, o_avg
+    return [(e.prediction.accurate_health_damage.min, e.prediction.accurate_health_damage.max,
+             e.prediction.applied_hits) for e in evs]
+
+
+def _measure_arm(sid, sf, seed, label, level, caster, victim, ability, ability_name,
+                 board, center, mult) -> dict:
+    rid = None
+    try:
+        rid = _build(sf, seed, caster, victim, board, level, mult)
+        dv = _view(sid, rid)
+        ids = {}
+        for v in (caster, FILLER_P, victim, FILLER_A):
+            u = next((x for x in (dv.get("units") or [])
+                      if x.get("visualId") == v and x.get("alive")), None)
+            if u is None:
+                return {"label": label, "error": "unite absente du build : %s" % v}
+            ids[v] = int(u["id"])
+        _place_ring(sid, rid, ids, caster, center)
+        cid, tid = ids[caster], ids[victim]
+        ctx, _dv2 = _ctx(sid, rid, cid)
+        scene = ctx.scene
+        mm = _minmax_config(scene, cid, ability, ability_name)
+        if mm is None:
+            return {"label": label, "error": "config d'ability introuvable"}
+        mn, mx, lvl_eff, mult_eff = mm
+        mp = ctx.me.get("pos") or {}
+        here = (mp.get("col"), mp.get("row"))
+        nat = _native(sid, rid, cid, tid, ability)
+        ports = {name: _offline(scene, cid, tid, ability, ability_name, here, fn)
+                 for name, fn in VARIANTS}
+        shipped = _offline(scene, cid, tid, ability, ability_name, here, None)
+    finally:
+        if rid is not None:
+            _r(sid, "disposeRunner", {"runnerId": rid}, 30)
+
+    s = int(mn) + int(mx)
+    return {"label": label, "runner": rid, "level_asked": level, "level_eff": lvl_eff,
+            "mult_eff": mult_eff, "minDmg": int(mn), "maxDmg": int(mx), "sum": s,
+            "sum_mod4": s % 4, "floor": s // 2, "native": nat, "ports": ports,
+            "shipped": shipped}
+
+
+def _grade(arm: dict) -> dict:
+    """Verdict d'UN bras : quelles variantes egalent le natif, et le bras DISCRIMINE-t-il ?"""
+    nat = arm.get("native") or []
+    if not nat:
+        arm["error"] = "aiPlaybookPredict n'a rendu AUCUN event"
+        return arm
+    arm["match"] = {k: (v == nat) for k, v in arm["ports"].items()}
+    arm["shipped_ok"] = (arm.get("shipped") == nat)
+    distinct = {json.dumps(v) for v in arm["ports"].values()}
+    # Un bras ou toutes les variantes rendent la MEME prediction ne prouve rien (l'ecart d'une
+    # unite a ete absorbe en aval) -- cf. l'en-tete, piege herite de #339 sec.4.
+    arm["discriminates"] = len(distinct) > 1
+    arm["ok"] = bool(arm["shipped_ok"] and arm["discriminates"])
+    return arm
+
+
+def run(seed: int = 34401, state_file=None, verbose: bool = True, caster: str = CASTER,
+        victim: str = VICTIM, ability: int = ABILITY, ability_name: str = ABILITY_NAME,
+        board: str = BOARD, center=CENTER, lvl_a: int = LVL_A, lvl_b: int = LVL_B,
+        mult: int = MULT) -> dict:
+    sid = _resolve_session()
+    sf = Path(state_file) if state_file else (PYDIR.parents[1] / "logs" / "p344.json")
+    sf.parent.mkdir(parents=True, exist_ok=True)
+
+    arms = {}
+    for key, label, lvl, sd in (("a", "A (3 mod 4 -- le natif MONTE)", lvl_a, seed),
+                                ("b", "B (1 mod 4 -- le natif DESCEND)", lvl_b, seed + 1)):
+        arm = _measure_arm(sid, sf, sd, label, lvl, caster, victim, ability, ability_name,
+                           board, center, mult)
+        if not arm.get("error"):
+            _grade(arm)
+        arms[key] = arm
+
+    # Les DEUX bras doivent etre dans le regime ANNONCE, sinon le pilotage du niveau n'a pas pris.
+    regimes_ok = (arms["a"].get("sum_mod4") == 3 and arms["b"].get("sum_mod4") == 1)
+    nul_on_both = [n for n, _fn in VARIANTS
+                   if all((arms[k].get("match") or {}).get(n) for k in ("a", "b"))]
+    # Ce que le REGISTRE de `active_ability` prevoit pour CETTE ability : `to_even` si son playbook
+    # passe `MinMaxDamageAverage` (famille (a)), `trunc` sinon (famille (b) = `RandomAmount` +
+    # `AAmountFormula$$CalculateAverage`). Le probe verifie que le LIVE tranche dans ce sens.
+    expected = "to_even" if int(ability) in AA._PREDICTION_MINMAX_AVERAGE else "trunc"
+    family = ("(a) MinMaxDamageAverage -> Half -> Fix64.Round(0)"
+              if expected == "to_even"
+              else "(b) MinMaxDamage(false) = RandomAmount -> CalculateAverage (troncature)")
+    ok = bool(regimes_ok and all(arms[k].get("ok") for k in ("a", "b"))
+              and nul_on_both == [expected])
+
+    if verbose:
+        print("[344] montage : %s / %s (%d) -> %s sur %s, anneau centre en %s"
+              % (caster, ability_name, ability, victim, board, tuple(center)))
+        print("[344] famille lue au decompile : %s -> variante attendue = %s" % (family, expected))
+        for key in ("a", "b"):
+            arm = arms[key]
+            if arm.get("error"):
+                print("\n=== bras %s === ERREUR : %s" % (key, arm["error"]))
+                continue
+            print("\n=== bras %s === %s" % (key, arm["label"]))
+            print("  niveau demande=%d effectif=%d mult=%d | minDmg=%d maxDmg=%d somme=%d "
+                  "(mod4=%d) floor=%d"
+                  % (arm["level_asked"], arm["level_eff"], arm["mult_eff"], arm["minDmg"],
+                     arm["maxDmg"], arm["sum"], arm["sum_mod4"], arm["floor"]))
+            print("  natif   = %s" % (arm["native"],))
+            print("  LIVRE   = %-34s %s"
+                  % (str(arm["shipped"]), "== NATIF" if arm["shipped_ok"] else "!= NATIF"))
+            for name, _fn in VARIANTS:
+                print("    %-9s port=%-34s %s"
+                      % (name, str(arm["ports"][name]), "== NATIF" if arm["match"][name] else "!="))
+            print("  bras discriminant : %s" % arm["discriminates"])
+        print("\n=== VERDICT ===")
+        print("  regimes pilotes comme annonces : %s" % regimes_ok)
+        print("  variantes egales au natif sur les DEUX bras : %s" % (nul_on_both or "aucune"))
+        print("  attendue par le registre : %s" % expected)
+        print("  -> %s" % ("OK" if ok else "ECHEC"))
+
+    return {"ok": ok, "arms": arms, "regimes_ok": regimes_ok, "nul_on_both_arms": nul_on_both,
+            "expected_variant": expected, "family": family,
+            "montage": {"caster": caster, "victim": victim, "ability": ability,
+                        "ability_name": ability_name, "board": board, "center": tuple(center),
+                        "lvl_a": lvl_a, "lvl_b": lvl_b, "mult": mult}}
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--seed", type=int, default=34401)
+    ap.add_argument("--state-file", default=None)
+    ap.add_argument("--caster", default=CASTER)
+    ap.add_argument("--victim", default=VICTIM)
+    ap.add_argument("--ability", type=int, default=ABILITY)
+    ap.add_argument("--ability-name", default=None,
+                    help="nom gameconfig de l'ability (defaut : resolu depuis --ability)")
+    ap.add_argument("--board", default=BOARD, help="board CHOISI (runner.md sec.2), jamais subi")
+    ap.add_argument("--center", default="%d,%d" % CENTER)
+    ap.add_argument("--lvl-a", type=int, default=LVL_A, help="niveau dont minDmg+maxDmg = 3 mod 4")
+    ap.add_argument("--lvl-b", type=int, default=LVL_B, help="niveau dont minDmg+maxDmg = 1 mod 4")
+    ap.add_argument("--mult", type=int, default=MULT)
+    ap.add_argument("--json", action="store_true")
+    a = ap.parse_args()
+    name = a.ability_name
+    if name is None:
+        import gameconfig as GC
+        name = GC.ability_name(a.ability) or ABILITY_NAME
+    out = run(seed=a.seed, state_file=a.state_file, caster=a.caster, victim=a.victim,
+              ability=a.ability, ability_name=name, board=a.board,
+              center=tuple(int(x) for x in a.center.split(",")),
+              lvl_a=a.lvl_a, lvl_b=a.lvl_b, mult=a.mult)
+    if a.json:
+        print(json.dumps(out, indent=1, default=str))
+    return 0 if out.get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
