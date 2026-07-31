@@ -14,12 +14,15 @@ par la capture `combatSnapshot.normalAttack` (= dégât de base d'arme résolu).
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 from ..unit_context import UnitContext
 from ..stats import StatType
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
 from ...dsl import nodes as dsl   # facade DSLFactory (construction des noeuds)
+from ...dsl.base import _round_fix64   # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result`
 # #158 : table `DamageProfileType index -> nom` DERIVEE de l'enum (source unique, ex-copie transcrite retiree).
 from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # re-exporte (prediction.py l'importe d'ici)
 
@@ -107,7 +110,11 @@ class AActiveAbility:
             mn = self.config.get_variable_for_level("minDmg", lvl, 0, mult)
             mx = self.config.get_variable_for_level("maxDmg", lvl, 0, mult)
             if mn or mx:
-                return (mn + mx) // 2   # Half (Fix64) — somme impaire : x.5 tronqué (cas non observé)
+                # `Half(Sum(...), rule = 0)` -> `IdunBattle.Entities.Formulas.DivideAmount$$Calculate`
+                # -> `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(Fix64(mn+mx)/Fix64(2), 0)`
+                # = `Fix64.Round(., 0)` = demi-vers-le-PAIR. #344 : c'était une TRONCATURE, fausse
+                # d'exactement 1 quand `mn + mx` vaut 3 mod 4 (cf. docs/rl/case-339 §1).
+                return _round_fix64(Fraction(mn + mx, 2), 0)
             return self.config.get_variable_for_level("dmg", lvl, 0, mult) \
                 or self.config.get_variable_for_level("baseDmg", lvl, 0, mult)
         return 0

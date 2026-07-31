@@ -849,7 +849,12 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
       `OrderByDescending(key)` avec (lambda `<Select>b__0`, LU) :
           key(unit) = 0x7fffffff  si DamagePredictionResult.WillBeKill
                       0x7ffffffe  si DamagePredictionResult.MightBeKill
-                      MinMaxDamage.Avg  sinon
+                      MinMaxDamage.Avg  sinon    (demi-vers-le-PAIR, #344)
+      ⚠ RESIDU NOMME, non ouvert par #344 (perimetre = l'arrondi) : le natif batit TROIS predictions
+      distinctes -- le noeud de degat y est evalue par les slots 2/4/3 d'`IAmountFormula`
+      (`CalculateMin` / `CalculateAverage` / `CalculateMax`) -- puis lit `WillBeKill` sur celle du MAX,
+      `MightBeKill` sur celle du MIN, et moyenne le champ `+0x60` de celle de l'AVERAGE. Le port n'en
+      batit qu'UNE et moyenne `raw_health_damage`.
       Port : MEME structure de cle, la prediction etant batie comme celle de `_finaljustice_target`
       (`get_attack_prediction` PRE-ARMURE armor=0/pierce=100, profil 0 -- cf. l'en-tete de
       `services/damage_prediction`) mais avec `initial_damage` = l'OVERRIDE (le natif passe justement
@@ -861,6 +866,7 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     from ..damage_model import attacker_modifiers, select_weapon_pierce
     from ...entities.effects import hits_bonus_from_effects
     from ...services.damage_prediction import get_attack_prediction
+    from ...services.min_max_damage import min_max_avg
     from ...ai.action_generators import _faction
     import gameconfig as GC
     ce = state.get_entity(caster_id)
@@ -907,7 +913,11 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
         elif thp > 0 and rmax >= thp:
             key = 0x7ffffffe                               # MightBeKill
         else:
-            key = (rmin + rmax) // 2                       # MinMaxDamage.Avg
+            # `SortAttackersByDamagePredictionSelector.u003Cu003Ec__DisplayClass8_0$$u003CSelectu003Eb__0`
+            # finit par `IdunBattle.Core.Services.MinMaxDamage$$Avg` = `Fix64.Round(., 0)` demi-vers-le-PAIR.
+            # #344 : c'etait une TRONCATURE, fausse d'exactement 1 quand `rmin + rmax` vaut 3 mod 4 --
+            # et c'est une CLE DE TRI, donc un ecart d'une unite peut renverser l'ordre des attaquants.
+            key = min_max_avg(rmin, rmax)
         scored.append((uid, key))
     scored.sort(key=lambda t: (-t[1], t[0]))               # OrderByDescending(key), tie-break id (stable)
     return [uid for uid, _k in scored]

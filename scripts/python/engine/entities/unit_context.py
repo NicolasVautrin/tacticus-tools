@@ -86,11 +86,12 @@ class UnitContext:
         from .traits import TraitFactory
         return TraitFactory.create_many(self.traits)
 
-    @property
-    def normal_base(self) -> int:
-        """Base mono-valeur de l'attaque normale (pré-spread) = avg(min,max) capturé.
-        Le port de prédiction ré-applique le spread (CalculateDamageSpread)."""
-        return (self.normal_min + self.normal_max) // 2
+    # #344 — `normal_base` (= `(normal_min + normal_max) // 2`) RETIRÉE : elle ne citait AUCUN symbole
+    # natif et n'avait AUCUN consommateur dans le dépôt (grep exhaustif, y compris accès dynamiques).
+    # Le rail vivant passe par `AActiveAbility.get_min_max_damage` qui rend les bornes CAPTURÉES telles
+    # quelles (`MinMaxDamage(min=caster.normal_min, max=caster.normal_max)`) — aucune moyenne n'y est
+    # prise. Une moyenne tronquée sans artefact, jamais exercée par un test, était un piège : le
+    # prochain consommateur aurait hérité d'un arrondi non lu. cf. docs/rl/case-344.
 
     def get_stat(self, stat_type: int, stat_part: int = 0, source: object = None) -> int:
         """`IdunBattle.Entities.UnitExtensions$$GetStat` sur les stats portées de l'unité. Défaut = Current
