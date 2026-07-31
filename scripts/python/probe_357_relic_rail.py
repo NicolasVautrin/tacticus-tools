@@ -219,8 +219,12 @@ def _patch_passive_level():
 def _port_repair(dv, ob, snap, board, ability_states, carrier_vis: str, victim_vis: str) -> dict:
     """Rejoue `On(UnitDeath = 0)` OFFLINE sur la capture, victime marquee MORTE.
 
-    `ability_states=None` = le canal #357 non fourni -> le rail ne voit pas la relique (l'etat
-    d'avant). Rend `{repaired, amount, events, level, mult, tertiary}`."""
+    `ability_states=False` = le canal #357 REFUSE -> le rail ne voit pas la relique (l'etat d'avant).
+    ⚠ DEPUIS #363, `None` NE VEUT PLUS DIRE « pas de canal » mais « AUTO » : sous pytest un transport
+    ambiant est lie (`conftest.live_session`), donc un `None` ferait que le bras « sans rail »
+    RE-TIRERAIT le payload tout seul et rendrait le MEME resultat que le nominal -- la contre-epreuve
+    deviendrait un vert qui ment. C'est `False`, et lui seul, qui exprime le refus.
+    Rend `{repaired, amount, events, level, mult, tertiary}`."""
     from engine.runner.components import HealthComponent, StatsComponent, UnitComponent
     from engine.runner.operations.triggers import unit_death_triggers
     from engine.runner.operations.triggers.loki.dawn_blade import hp_to_heal
@@ -366,10 +370,10 @@ def run(rpc, level: int = 8, mutate: str | None = None, build_runner=None,
         undo = _patch_passive_level() if mutate == "passive-level" else (lambda: None)
         try:
             out["port"] = _port_repair(dv, ob, snap, board,
-                                       None if mutate == "no-rail" else uas, CARRIER, VICTIM)
+                                       False if mutate == "no-rail" else uas, CARRIER, VICTIM)
         finally:
             undo()
-        out["port_no_rail"] = _port_repair(dv, ob, snap, board, None, CARRIER, VICTIM)
+        out["port_no_rail"] = _port_repair(dv, ob, snap, board, False, CARRIER, VICTIM)
         undo = _patch_passive_level()
         try:
             out["port_passive_level"] = _port_repair(dv, ob, snap, board, uas, CARRIER, VICTIM)

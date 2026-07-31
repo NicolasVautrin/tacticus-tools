@@ -421,8 +421,10 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # UnitFactory$$AddConfiguredAbilities`. Le registre ci-dessous est INDEXE PAR NOM d'ability, donc il
 # sert aux deux formes sans duplication ; c'est `collect_triggered_abilities` qui DEDUPLIQUE (mirror
 # du `TryAdd` sur `KeyedCollection`) quand une unite porte la meme relique par les deux voies.
-# ⚠ Le canal est OPT-IN : un etat charge sans `load_state(ability_states=...)` (ou un `State` nu)
-# ne voit QUE la forme gameconfig -- exactement comme avant #357.
+# ⚠ Le canal est ON PAR DEFAUT depuis #363 (transport ambiant `snapshot.bind_live_rpc`, lie par le
+# harnais de test). Hors harnais live -- `State` nu, capture rejouee sans transport, ou refus
+# explicite `ability_states=False` -- le rail ne voit QUE la forme gameconfig, exactement comme
+# avant #357.
 #
 # Registre SEPARE de `ABILITY_TRIGGERS` a dessein : aucune des 25 relicAbilities n'y figure, donc un
 # registre distinct rend la double-inscription STRUCTURELLEMENT impossible.

@@ -60,7 +60,8 @@ def collect_triggered_abilities(state: State) -> list[TriggeredAbility]:
         # AddConfiguredAbilities` : `if (config.TertiaryAbility.HasValue) TriggeredAbilityComponent
         # $$TryAdd(id, tertiaryAbilityState, 3)`. Etat JOUEUR, invisible du gameconfig -- d'ou un
         # canal PROPRE (`snapshot._load_tertiary_abilities`, RPC `unitAbilityStates`) et non une
-        # derivation. Sans ce canal (etat charge sans `load_state(ability_states=...)`, State nu),
+        # derivation -- ON PAR DEFAUT depuis #363 (transport ambiant lie par le harnais). Sans ce
+        # canal (State nu, capture rejouee hors harnais live, ou `ability_states=False`),
         # `tertiary_ability` vaut None et cette branche est un no-op : le comportement d'avant.
         # DEDUPLICATION -- le natif TryAdd sur une `KeyedCollection` indexee par l'ability-type :
         # monter DEUX FOIS la meme ability n'ajoute qu'UNE entree. Un npc qui porte la relique en dur

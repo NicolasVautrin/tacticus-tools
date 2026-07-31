@@ -52,9 +52,10 @@ Il l'était encore à l'écriture de ce cas : `probe_193_move_playbook_inventory
 « BC.Units avec une RELIQUE équipée que le port n'expose PAS », et
 `engine/ai/context.py::live_triggered_ability_ids` (RPC `unitAbilityStates`) était la seule lecture
 FIDÈLE du kit déclenché — côté DÉCISION uniquement. Le rail COMBAT lit désormais le MÊME RPC par un
-canal OPT-IN (`load_state(ability_states=…)` → `snapshot._load_tertiary_abilities`, entrées de
-hiérarchie **3**), et `collect_triggered_abilities` inscrit la relique équipée comme **cinquième**
-chemin de registration.
+canal `load_state(ability_states=…)` → `snapshot._load_tertiary_abilities` (entrées de hiérarchie
+**3**), et `collect_triggered_abilities` inscrit la relique équipée comme **cinquième** chemin de
+registration. Ce canal était OPT-IN ; il est **ON PAR DÉFAUT depuis #363** (transport ambiant lié par
+le harnais, 33 ms par bataille — `case-363-canal-relique-par-defaut.md`).
 
 ## 3. L'inventaire — 13 call-sites
 

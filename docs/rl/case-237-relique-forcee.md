@@ -229,11 +229,13 @@ les unités des états 1 et 2.
 
 * ~~**Le rail COMBAT du port Python ne lit toujours pas la relique équipée** (résidu `N317-a`).~~
   **FERMÉ par #357** (`case-357-rail-relique-equipee.md`) : `snapshot._load_tertiary_abilities`
-  (canal OPT-IN `load_state(ability_states=…)`, RPC `unitAbilityStates`, entrées de hiérarchie 3)
+  (canal `load_state(ability_states=…)`, RPC `unitAbilityStates`, entrées de hiérarchie 3)
   seede `UnitContext.tertiary_ability`, et `collect_triggered_abilities` l'inscrit comme CINQUIÈME
   chemin de registration. Confronté live sur `DawnBlade` : natif == port == `hpToHeal[niveau]` sur
-  deux niveaux (6745 et 5423), 0 côté port sans le canal. **Une seule relique sur 32**, et le canal
-  n'a qu'un producteur (le probe) — hors de ce montage une relique équipée reste inerte.
+  deux niveaux (6745 et 5423), 0 côté port sans le canal. **Une seule relique sur 32.** Le canal
+  n'avait qu'un producteur (le probe) ; il est **ON PAR DÉFAUT depuis #363**
+  (`case-363-canal-relique-par-defaut.md`) — les 4 unités qui équipent une relique au seed arrivent
+  désormais côté port avec, sans que l'appelant demande rien.
 * **Aucune mesure du contenu de l'effet** : le probe vérifie que l'ability est **montée** (hiérarchie
   3, id, niveau) et que le natif **résout ses variables** — pas que son effet de jeu est correct.
 * **La levée du verrou 2 en usage réel est LUE, pas jouée.** Le décompilé de
