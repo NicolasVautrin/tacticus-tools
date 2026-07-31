@@ -65,10 +65,15 @@ def test_le_natif_repare_le_palier_de_la_relique_et_le_port_le_suit(relic_rail_c
 def test_sans_le_canal_le_port_est_inerte(relic_rail_case):
     """CONTRE-EPREUVE 1 -- l'etat d'AVANT #357, rejoue sur LA MEME capture.
 
-    `load_state(ability_states=None)` : le rail ne voit que le gameconfig, donc `tauFarsight`
+    `load_state(ability_states=False)` : le rail ne voit que le gameconfig, donc `tauFarsight`
     (dont le kit gameconfig ne porte PAS `DawnBlade` -- seuls les 5 npc `*Farsight` l'ont en dur)
     n'inscrit AUCUN trigger. Sans ce bras, le test ci-dessus serait un vert que rien ne fait
-    rougir."""
+    rougir.
+
+    ⚠ `False`, PAS `None` : depuis #363 le canal est ACTIF PAR DEFAUT des qu'un transport ambiant
+    est lie -- et sous pytest il l'est (`conftest.live_session`). Un `None` ici ferait re-tirer le
+    payload par ce bras meme, qui rendrait alors le MEME resultat que le nominal : la contre-epreuve
+    deviendrait un vert qui ment."""
     r = relic_rail_case(8)
     assert r["port"]["tertiary"] == RELIC.RELIC, (
         "le canal ne seede pas `UnitContext.tertiary_ability` (lu : %s)" % r["port"]["tertiary"])
@@ -213,18 +218,40 @@ def test_le_rail_lit_bien_la_voie_tertiaire_dans_le_collecteur():
     assert "ability_states" in kwonly, "load_state n'expose plus le canal `ability_states`"
 
 
-def test_le_canal_reste_opt_in():
-    """Le canal est OPT-IN : un etat charge SANS lui doit se comporter EXACTEMENT comme avant.
+def test_un_etat_charge_hors_harnais_live_ne_change_pas_de_comportement():
+    """CE QUE #363 A DEPLACE, ET CE QU'IL N'A PAS DEPLACE.
 
-    Verrouille par construction plutot que par mesure -- `_load_tertiary_abilities` n'est appele
-    que sous `if ability_states is not None`, donc aucun des ~200 call-sites de `load_state` qui
-    ne passent pas le canal ne change de comportement."""
+    #357 avait fait de ce canal un OPT-IN et le verrouillait par construction (`if ability_states is
+    not None:` dans `load_state`). #363 l'a rendu ACTIF PAR DEFAUT -- mais seulement quand un
+    transport RPC ambiant est lie. Le contrat que cette garde protegeait vraiment TIENT donc
+    toujours, et c'est LUI qu'on verrouille ici plutot que la forme du `if` :
+
+      un `State` reconstruit HORS harnais live (aucun `bind_live_rpc` -- rejeu d'une capture sur
+      disque, test unitaire, outil offline) se comporte EXACTEMENT comme avant #357.
+
+    Mesure, pas lecture de source : on demande a la resolution du tri-etat ce qu'elle rend."""
     from engine.runner import snapshot as S
-    src = inspect.getsource(S.load_state)
-    assert "if ability_states is not None:" in src, (
-        "le seed tertiaire n'est plus gate par son argument -> le canal cesse d'etre opt-in")
+    prev = S.unbind_live_rpc()
+    try:
+        assert S._auto_ability_states(None, {"runner": "build#1"}, {}, {}) == (None, "no-transport")
+    finally:
+        S.bind_live_rpc(prev)
     from engine.entities.unit_context import UnitContext
     fresh = UnitContext(entity_id=1)
     assert (fresh.tertiary_ability, fresh.tertiary_ability_level,
             fresh.tertiary_ability_variables_multiplier) == (None, 0, 100), (
         "les defauts du ctx ne sont plus neutres : une unite sans relique porterait un etat")
+
+
+def test_le_refus_explicite_reste_exprimable():
+    """L'AUTRE moitie de ce que #363 a change : `None` ne veut plus dire « pas de canal ».
+
+    Sans un refus EXPRIMABLE, la contre-epreuve « sans rail » de ce fichier deviendrait, sous
+    pytest, identique au bras nominal -- un vert qui ment. `False` est ce refus, et cette garde
+    verrouille qu'il existe encore."""
+    from engine.runner import snapshot as S
+    assert S._auto_ability_states(False, {"runner": "build#1"}, {}, {}) == (None, "refused")
+    src = inspect.getsource(RELIC._port_repair)
+    assert "ability_states=False" in src or "`False`" in src, (
+        "le probe #357 ne documente plus le refus explicite -- le bras `no-rail` risque de "
+        "re-tirer le payload tout seul")

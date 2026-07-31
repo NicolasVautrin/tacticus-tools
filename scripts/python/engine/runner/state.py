@@ -94,7 +94,7 @@ class State:
     __slots__ = ("entities", "current_player_id", "_next_entity_id", "effects", "rng", "board",
                  "turn_counts", "turn_order_player_count", "triggering_ability",
                  "trigger_ability_type",
-                 "pending_deaths", "draining_deaths")
+                 "pending_deaths", "draining_deaths", "ability_states_seed")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -236,6 +236,14 @@ class State:
         # `HazeOfCorruption`) est traitee par le tour de boucle suivant, jamais AU MILIEU du
         # `KillUnitOperation` en cours -- ni au milieu du behaviour qui l'a causee.
         self.draining_deaths: bool = False
+        # #363 -- TRACE du canal du seed TERTIAIRE (`snapshot._auto_ability_states`), pose par
+        # `load_state` : `{"source": <str>, "seeded": <int|None>}`. `seeded = None` veut dire « le
+        # seed n'a PAS tourne », et `source` dit POURQUOI (`refused`, `no-snapshot`, `no-transport`,
+        # `no-runner-label`, `unavailable:<msg>`). Sans cette trace, un etat sans relique se lit
+        # comme « aucune relique equipee » alors qu'il peut signifier « le canal n'a rien mesure » --
+        # c'est la discipline tri-etat de `host_inputs.py`, appliquee a un seed. Reste `None` sur un
+        # `State` construit a la main (aucun `load_state` n'est passe).
+        self.ability_states_seed: Optional[dict] = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:
