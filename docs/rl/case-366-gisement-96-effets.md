@@ -124,6 +124,16 @@ l'enjeu du port n'est PAS le calcul : c'est l'ATTRIBUTION PAR SOURCE. Declare, l
 seed reste a vie. Trancher a-t-il un porteur est donc secondaire pour ce groupe -- ce qui compte est
 la duree.
 
+> **TRAITE par #371 -- `docs/rl/case-371-g1-static-stat-modifier.md`** (table RE complete : poseur,
+> stat, montant, `turns`, pour les 11). **3 inscrits** : `1171 SereneUnifierStormOfFire` (`tauAunShi`,
+> le SEUL des onze a porter un vrai timer -- `TurnsFromRounds(1)`), `1251/1256 UnbreakableDuty_*`
+> (`templAncient`, `turns` NULL donc PERMANENTS : leur inscription ferme l'ATTRIBUTION, pas une duree).
+> **8 non inscrits**, avec la raison : `1004/1005/1006 MightOfHeroes_*` DEAD (ability absente du
+> gameconfig -> magnitude irresoluble, un port serait inerte), `1103 KanOpener_ReduceArmor` 0 porteur,
+> `1351/1352/1507 EnvStatBoost_*` environnement ET magnitude CONTEXTUELLE (`PercentageOf(StatAmount(
+> <stat>, part 3), GetNumberConstant(<cle>))`, forme OVERRIDE), `31 StatModifier` toujours non tranche
+> (mais les 6 chemins de pose sont inventories et les 2 non-litteraux elimines -- case-371 §5).
+
 #### G2 -- vivant en binaire, AUCUN porteur d'unite (21)
 
 Aucun de ces effets n'a de porteur au catalogue d'unites (`unit_map`, 5 voies) ; l'ability est soit
@@ -221,4 +231,8 @@ ne pouvait pas trancher -- et `orksKillaKan` porte `DakkaDakkaDakka`, pas `KanOp
   `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect` ; le balayage d'immediat
   n'est PAS discriminant a cette valeur (un immediat n'est pas type, et 31 est partout). Il faut un
   autre angle -- p. ex. lire les arbres DSL qui passent 31 en argument.
+  ⚠ **Champ REDUIT par #371** (case-371 §5) : les SIX chemins de pose sont inventories par xrefs, et
+  les deux seuls ou l'`effectType` n'est pas un litteral (`APowerUpAbility$$AddAbsoluteBoost` /
+  `$$AddPctBasedBoost`, qui lisent un champ de record) sont ELIMINES -- leurs trois implementations
+  concretes portent `0x473`/`0x477`/`0x475`. Reste a balayer les ~60 call-sites litteraux.
 * **Aucune mesure live** : ce cas est 100 % offline (binaire + tables versionnees + gameconfig).
