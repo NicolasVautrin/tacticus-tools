@@ -1,0 +1,191 @@
+# #237 — Forcer une RELIQUE en bataille : la condition exacte, au décompilé
+
+**Question binaire.** Peut-on amener en bataille une unité du pool **AVEC une relique qu'elle
+n'équipe pas au seed**, et à quelle condition ?
+
+**Réponse.** Oui, et la condition tient en **trois écritures du BC**, chacune adossée à un verrou
+natif nommé. Aucune n'est optionnelle, et **deux des trois échouent en silence**.
+
+Build de mesure : `rnca9r7q6c`.
+
+---
+
+## 1. Le pipeline natif, du champ du BC à l'ability montée
+
+`IdunBattle.Entities.Factories.UnitFactory$$Build` construit chaque unité depuis son
+`IdunBattle.Configuration.UnitConfiguration`. Trois `AbilityState` y sont fabriqués, dans cet
+ordre (offsets lus dans le corps de `Build`, confirmés par `UnitConfiguration$$.ctor`) :
+
+| `AbilityState` | niveau lu | multiplicateur lu |
+|---|---|---|
+| `activeAbilityState`   | `config+0xb8` = `ActiveAbilityLevel`   | `config+0x74` |
+| `passiveAbilityState`  | `config+0xbc` = `PassiveAbilityLevel`  | `config+0x74` |
+| `tertiaryAbilityState` | `config+0xc0` = `TertiaryAbilityLevel` | `config+0x78` |
+
+La surcharge de `IdunBattle.Configuration.AbilityState$$.ctor` retenue par `Build` est celle qui
+**écrit le niveau DIRECTEMENT** (`*(int*)this = level`) — pas celle qui passe par
+`Idun.Shared.Level$$.ctor`. Vérifié par les XREFS entrantes : `UnitFactory$$Build` appelle trois
+fois `AbilityState$$.ctor+0x0` (variante à écriture directe), jamais la variante validante.
+**Conséquence : aucune validation du niveau au moment du build.** Un `TertiaryAbilityLevel = 0`
+traverse la construction sans un mot.
+
+Puis `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities(entity, config,
+activeAbilityState, passiveAbilityState, tertiaryAbilityState)` :
+
+* itère `config+0xa8` (les passives) → `TriggeredAbilityComponent$$TryAdd(id, passiveState, 2)` ;
+* **si `config+0xb0` (`Nullable<TriggeredAbilityType> TertiaryAbility`) a une valeur** →
+  `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)` ;
+* itère `config+0xa0` (les actives) → `UnitFactory$$AddActiveAbility`.
+
+Le littéral `3` est la **hiérarchie Tertiary** — c'est le discriminant observable qui distingue une
+relique d'un passif de kit dans le composant. `TryAdd` stocke `{abilityId@+0x10, Level@+0x20,
+VariableMultiplierPercentage@+0x24, Counter@+0x28, Hierarchy@+0x38}` et ne valide rien.
+
+## 2. Le verrou du NIVEAU — `Idun.Shared.Level$$ToZeroBasedIndex`
+
+Les **quatre** accesseurs de variable d'une `AbilityConfiguration` —
+`GetVariableForLevel`, `TryGetVariableForLevel`, `GetVariableArrayForLevel`,
+`GetAllVariablesForLevel` — passent **tous** par le même foyer :
+`IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`. Son corps :
+
+```
+idx = Idun.Shared.Level$$ToZeroBasedIndex(abilityState)   // level - 1
+idx = System.Math$$Max(0, idx)
+if (idx < arr.Length)  lVar5 = idx
+else                   lVar5 = arr.Length - 1             // CLAMP HAUT
+... arr[lVar5] ...
+```
+
+et `Idun.Shared.Level$$ToZeroBasedIndex` :
+
+```
+if (0 < *param_1) return *param_1 - 1;
+throw new InvalidOperationException(...)
+```
+
+D'où **la condition exacte, nommée** :
+
+> **`BC.Units[].TertiaryAbilityLevel >= 1`.**
+> Champ : `UnitConfiguration+0xc0`. Lu par `UnitFactory$$Build` (→ `AbilityState`), consommé par
+> `AbilityConfiguration$$TryGetVariableArrayForLevel`, comparé à **`0`** dans
+> `Idun.Shared.Level$$ToZeroBasedIndex`, qui **lève `InvalidOperationException`** sur `<= 0`.
+
+Et son pendant, qui compte autant parce qu'il **désamorce** une fausse crainte :
+
+> **Il n'y a PAS de borne haute.** Le même foyer clampe (`idx >= len` → `len - 1`). Un niveau 50
+> sur une ability de relique à **10** paliers rend le palier 10 — pas une erreur, mais pas le
+> niveau demandé non plus.
+
+Le `0` n'est pas une valeur accidentelle : `Idun.Shared.Level$$CreateValidOrLockedLevel` le laisse
+passer explicitement (`if (param_1 == 0) return 0;`) et `Idun.Shared.LevelJsonConverter$$ReadJson`
+aussi — **`0` signifie « verrouillé / non débloqué »**, pas « niveau zéro ». C'est exactement ce que
+portent les **171** entrées `Units` sans relique du seed BC, et ce que `catalog_inject.synthesize`
+produit. Poser la relique sans toucher au niveau laisse donc une unité qui **se déploie
+normalement** puis **faute à la première lecture de variable**.
+
+⚠ La désérialisation n'est PAS le verrou : `LevelJsonConverter$$ReadJson` accepte `0` et tout entier
+positif, ne refusant que les négatifs (`ArgumentOutOfRangeException`). Chercher la validation à la
+lecture du JSON est une fausse piste.
+
+## 3. Le verrou de la CONFIG — 29 des 32 abilities de relique sont absentes du seed BC
+
+Mesuré (`python catalog_inject.py --list-relics`) : le gameconfig porte **32 items relique**
+(`items[*].abilityId`), donc **32 abilities distinctes**. Le seed BC n'en porte la config que pour
+**3** — exactement celles qu'une unité équipe au seed :
+`KardiocoreGalvanus` (1457), `NetherRealmCasket` (1462), `SupaCyborkBody` (1475).
+
+C'est le verrou déjà connu de #226, appliqué à la relique : sans
+`BC.Abilities.PassiveAbilities[<nom>]`, `AbilitiesDatabase.GetConfig` rend une config nulle et
+`AbilityConfiguration$$GetVariableForLevel` s'exécute dessus → « system error » au cast.
+`catalog_inject.synthesize_ability` produit l'entrée depuis le gameconfig.
+
+## 4. Ce que fait `buildNormalizedBC`, et pourquoi l'ORDRE compte
+
+`frida/hooks/features/normalize-bc/json-build.ts` ne touche à la relique que d'une façon :
+
+```ts
+if (typeof args.targetAbilityLevel === "number") {
+    const lvl = args.targetAbilityLevel;
+    u.ActiveAbilityLevel = lvl;
+    u.PassiveAbilityLevel = lvl;
+    if (u.TertiaryAbility != null) u.TertiaryAbilityLevel = lvl;
+}
+```
+
+Il **PRÉSERVE `TertiaryAbility`** et **ÉCRASE `TertiaryAbilityLevel`** — avec
+`targetAbilityLevel = 50` (`rl_collect_batch._normalize_and_extract_pool`). Deux conséquences
+mesurées, l'une bénigne et l'autre décisive :
+
+* **bénigne** — les 4 unités du seed passent de `TertiaryAbilityLevel = 1` à `50`, donc le natif
+  les clampe au palier **10**. Le harnais ne joue donc jamais une relique au niveau du seed ;
+* **décisive** — le champ n'est réécrit que **si `TertiaryAbility` est déjà non nul au moment de la
+  normalisation**. Poser la relique **après** `buildNormalizedBC` (par `--unit-stat`, par un patch
+  du template) laisse `TertiaryAbilityLevel` à **0** : verrou 3 armé, en silence.
+
+D'où les deux voies, et ce qu'elles donnent :
+
+| voie | où on pose | niveau effectif |
+|---|---|---|
+| seed BC augmenté (`write_relic_seed_bc` + `build --seed-bc`) | avant normalisation | **écrasé à 50** → clampé au dernier palier |
+| `rl_duel build --equip-relic` | config avant, couple **après** normalisation | **exactement celui demandé** |
+
+## 5. Le montage — fixture nommée et réutilisable
+
+```bash
+# recenser : abilities, ids TriggeredAbilityType, paliers, porteurs, config présente ou non
+python catalog_inject.py --list-relics
+python catalog_inject.py --relic-state          # les TROIS états, sur le seed BC
+
+# monter, niveau EXACT (voie recommandée)
+python rl_duel.py build --board MC1_67 --state-file <absolu>.json \
+    --p-units ultraTitus --equip-relic "ultraTitus:RelicBoltPistol:6"
+
+# ou écrire un seed BC réutilisable (niveau ensuite écrasé à 50 par la normalisation)
+python catalog_inject.py --equip-relic "tauCrisis:Dw02AdvancedBurstCannon:10" \
+    --out <absolu>/logs/relic.json
+```
+
+Depuis un test/probe Python : `catalog_inject.equip_relic(bc, unit_id, ability, level)` sur un BC
+déjà chargé, ou `catalog_inject.write_relic_seed_bc(out, ["uid:Ability:lvl", ...])`. La fonction
+fait les **trois** écritures d'un bloc — les séparer est précisément ce qui produit un montage
+muet. Elle **refuse** `level < 1` en nommant `Idun.Shared.Level$$ToZeroBasedIndex`, et refuse un
+porteur hors `allowedUnits` sauf `allow_unlisted=True` (greffe assumée : le natif côté combat ne
+relit jamais `allowedUnits` — c'est un garde-fou de montage, pas une gate du moteur).
+
+## 6. Les TROIS états, re-dérivés
+
+`python catalog_inject.py --relic-state`, sur `data/seed-bc.json` :
+
+| état | compte | ce qu'il faut |
+|---|---|---|
+| 1 — relique **équipée au seed** | **4** unités, 3 abilities (`admecMarshall`/`admecRuststalker` partagent 1457) | rien |
+| 2 — au catalogue, relique **absente** | **52** | les trois écritures (ce cas) |
+| 3 — porteur **hors catalogue** | **9** (`adeptCelestine`, `astarCyrus`, `darkaSternguard`, `emperExultant`, `emperFlawlessBlade`, `spaceWolfPriest`, `tauFarsight`, `votanIronmaster`, `votanUthar`) | injection catalogue (#92 §6) **puis** les trois écritures |
+
+4 + 52 = **56**, le chiffre de `case-323`. L'état 3 était compté « 0 » par toute lecture qui
+s'arrêtait au pool.
+
+## 7. Ce qui n'est PAS couvert
+
+* **Le rail COMBAT du port Python ne lit toujours pas la relique équipée** (résidu `N317-a`). Ce
+  cas livre le **MONTAGE**, pas le port : une relique montée est désormais confrontable, et c'est
+  ce qui permettra de mesurer l'écart natif↔port. Ne pas lire ce cas comme « les reliques sont
+  portées ».
+* **Aucune mesure du contenu de l'effet** : le probe vérifie que l'ability est **montée** (hiérarchie
+  3, id, niveau) et que le natif **résout ses variables** — pas que son effet de jeu est correct.
+* `TertiaryAbilityVariablesMultiplierPercentage` (`UnitConfiguration+0x78`) vaut **200** sur les
+  entrées du seed et n'est **jamais** recalculé par `buildNormalizedBC`. Un porteur synthétisé par
+  `catalog_inject.synthesize` porte **100**. L'écart n'a pas été confronté ici.
+
+## 8. Ce que ce cas a démenti en route
+
+* **« Le verrou est le niveau du HÉROS porteur »** — non. Ni `Level`, ni `Rank`, ni
+  `StarLevel`, ni `ActiveAbilityLevel` n'entrent dans le chemin de la relique.
+  `UnitProgression$$ProgressionLevelNeededToUnlockTertiaryAbility` existe bien, mais c'est du côté
+  **META** (`IdunMetaLogic.UserProgress`), sur le chemin qui CONSTRUIT un BC depuis la progression
+  du joueur. Nous fabriquons le BC directement : ce chemin n'est jamais emprunté. Le verrou est le
+  niveau de **l'ABILITY tertiaire**, pas celui de l'unité.
+* **« Un niveau trop haut casse »** — non, le natif clampe. La crainte d'un dépassement d'index sur
+  10 paliers est infondée ; l'écriture `TertiaryAbilityLevel = 50` de `buildNormalizedBC` est
+  inoffensive (mais non fidèle).
+* **« La désérialisation valide le niveau »** — non, `LevelJsonConverter$$ReadJson` accepte `0`.
