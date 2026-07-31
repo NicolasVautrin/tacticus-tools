@@ -136,6 +136,42 @@ def scan_saturated(board, caster_pos, max_targets: int = 60):
     return None
 
 
+def _team_of(dv, uid):
+    for u in (dv.get("units") or []):
+        if int(u.get("id")) == int(uid):
+            return u.get("team")
+    return None
+
+
+def movable_count(sid, rid, uid) -> int:
+    """Nombre de tuiles que `aiMovableTiles` donne a `uid` -- le pendant RPC de la query que
+    `MovableTilesInRangeSelector$$Select` delegue a
+    `IBattleQuery.GetMovableTilesInRange(unit, fromTile, ignoreFlags, options)`. Zero = l'arbre
+    `GetTileToMoveTo` ne peut structurellement rien rendre."""
+    mov = _r(sid, "aiMovableTiles", {"runnerId": rid}, 60) or {}
+    for mu in (mov.get("units") or []):
+        if int(mu.get("unitId") or -1) == int(uid):
+            return len(mu.get("tiles") or [])
+    return -1          # l'unite n'est meme pas listee : elle n'a pas la main
+
+
+def hand_back_to(sid, rid, uid, max_turns: int = 8) -> dict:
+    """Rend la main jusqu'a ce que `uid` figure dans `aiMovableTiles` (= c'est son tour).
+
+    POURQUOI ce bras existe : `drive_to` termine par un `endturn`, donc la mesure qui suit tombe
+    pendant le tour ADVERSE. Or `IdunBattle.Entities.Selectors.MovableTilesInRangeSelector$$Select`
+    delegue a `IBattleQuery.GetMovableTilesInRange(unit, fromTile, ignoreFlags, options)` avec
+    `ignoreFlags = 0` -- le litteral que `RammingSpeedAbility$$GetTileToMoveTo` passe -- donc la
+    query RESPECTE les flags de l'unite. Un caster qui n'a pas la main n'aurait aucune tuile de
+    mouvement, et l'arbre rendrait vide POUR UNE RAISON DE MONTAGE, pas de mecanique."""
+    from probe_353r1_ramming_speed_charge_tile import _endturn
+    for _ in range(max_turns):
+        if movable_count(sid, rid, uid) >= 0:
+            return _view(sid, rid)
+        _endturn(sid, rid)
+    return _view(sid, rid)
+
+
 def _ring_population(board, dv, tile_pos, caster_id):
     """Amis / ennemis VIVANTS sur une tuile hex-adjacente a `tile_pos`, camps RELATIFS au caster.
     C'est exactement ce que `Friends`/`Enemies(Caster, AdjacentUnits(tile, 1, 3), 3)` selectionnent
@@ -214,20 +250,38 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         t_port = ramming_speed_tile_to_move_to(state, caster, target, MOVE_RANGE)
         out["tile_port"] = list(t_port) if t_port else None
 
-        nat = _r(sid, "aiPlaybookPredict",
-                 {"runnerId": rid, "unitId": caster, "targetId": target,
-                  "abilityType": ABILITY, "gateProbe": True}, 120)
-        rows = [{"targetId": e.get("targetId"), "hpBefore": e.get("hpBefore"),
-                 "healthDmgMin": e.get("healthDmgMin"), "appliedHits": e.get("appliedHits"),
-                 "willBeKill": e.get("willBeKill"), "willKillDmg": e.get("willKillDmg")}
-                for e in (nat.get("events") or [])]
-        out["events"] = rows
-        out["n_events"] = len(rows)
-        out["playbook"] = nat.get("playbookClass")
-        out["native_error"] = nat.get("error")
-        out["gate_kind"], out["gate_phrase"] = _gate_verdict(nat.get("gateProbe"))
-        self_ev = next((r for r in rows if r["targetId"] == caster), None)
-        out["gate_open"] = ((self_ev or {}).get("willBeKill") is True)
+        def _shot(tag):
+            nat = _r(sid, "aiPlaybookPredict",
+                     {"runnerId": rid, "unitId": caster, "targetId": target,
+                      "abilityType": ABILITY, "gateProbe": True}, 120)
+            rows = [{"targetId": e.get("targetId"), "hpBefore": e.get("hpBefore"),
+                     "healthDmgMin": e.get("healthDmgMin"), "appliedHits": e.get("appliedHits"),
+                     "willBeKill": e.get("willBeKill"), "willKillDmg": e.get("willKillDmg")}
+                    for e in (nat.get("events") or [])]
+            self_ev = next((r for r in rows if r["targetId"] == caster), None)
+            gk, gp = _gate_verdict(nat.get("gateProbe"))
+            return {"tag": tag, "events": rows, "n_events": len(rows),
+                    "playbook": nat.get("playbookClass"), "native_error": nat.get("error"),
+                    "gate_kind": gk, "gate_phrase": gp,
+                    "gate_open": ((self_ev or {}).get("willBeKill") is True)}
+
+        # (a) TEL QUEL : `drive_to` a fini par un `endturn`, on est donc dans le tour ADVERSE.
+        out["team_caster"] = _team_of(dv, caster)
+        out["movable_a"] = movable_count(sid, rid, caster)
+        shot_a = _shot("tour-adverse")
+        shot_a["movable"] = out["movable_a"]
+        # (b) MAIN RENDUE AU CASTER : seul facteur qui change entre (a) et (b).
+        hand_back_to(sid, rid, caster)
+        out["movable_b"] = movable_count(sid, rid, caster)
+        shot_b = _shot("tour-caster")
+        shot_b["movable"] = out["movable_b"]
+        out["shots"] = [shot_a, shot_b]
+        # Le verdict porte sur le bras ou le caster a EFFECTIVEMENT des tuiles de mouvement : c'est
+        # le seul ou la query ne peut pas etre neutralisee par le montage.
+        chosen = shot_b if out["movable_b"] > 0 else shot_a
+        out["chosen_shot"] = chosen["tag"]
+        out.update({k: chosen[k] for k in ("events", "n_events", "playbook", "native_error",
+                                           "gate_kind", "gate_phrase", "gate_open")})
     finally:
         if rid is not None:
             _r(sid, "disposeRunner", {"runnerId": rid}, 30)
@@ -249,6 +303,12 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
         out["ok"] = False
         out["verdict"] = ("BRAS NON DISCRIMINANT : le ring est SATURE a 6/6, il ne reste aucune "
                           "tuile de charge -- le natif n'aurait rien a designer.")
+    elif max(out.get("movable_a", -1), out.get("movable_b", -1)) <= 0:
+        out["ok"] = False
+        out["verdict"] = ("BRAS NON DISCRIMINANT : le caster n'a AUCUNE tuile de mouvement "
+                          "(aiMovableTiles a=%s b=%s), donc `MovableTilesInRange` rendrait vide "
+                          "quel que soit le contexte -- le montage, pas la mecanique."
+                          % (out.get("movable_a"), out.get("movable_b")))
     elif out.get("min_pool_population", 0) < 1:
         out["ok"] = False
         out["verdict"] = ("BRAS NON DISCRIMINANT : une tuile du pool %s n'a AUCUN voisin occupe "
@@ -277,6 +337,11 @@ def run(seed: int = 36510, level: int = 8, verbose: bool = True) -> dict:
     if verbose:
         print("[365f] runner=%s playbook=%s geo=%s"
               % (out.get("runner"), out.get("playbook"), json.dumps(out.get("geometry"))))
+        for s in out.get("shots") or []:
+            print("       tir[%s] movable=%s events=%s gate_ouverte=%s erreur=%s"
+                  % (s.get("tag"), s.get("movable"), s.get("n_events"), s.get("gate_open"),
+                     s.get("native_error")))
+        print("       team_caster=%s retenu=%s" % (out.get("team_caster"), out.get("chosen_shot")))
         print("       pool=%s population=%s min=%s tuile_port=%s"
               % (out.get("pool"), json.dumps(out.get("pool_population")),
                  out.get("min_pool_population"), out.get("tile_port")))
