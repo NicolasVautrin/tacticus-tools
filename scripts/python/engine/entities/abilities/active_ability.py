@@ -18,6 +18,9 @@ from fractions import Fraction
 
 from ..unit_context import UnitContext
 from ..stats import StatType
+# `UnitsWithTrait(..., 2 = Summon)` du sélecteur de `HadesAutocannons` — l'id natif vient de l'enum,
+# jamais d'un littéral (cf. `entities/traits/unit_trait.py`).
+from ..traits.unit_trait import UnitTrait as _UnitTrait
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
@@ -847,7 +850,76 @@ class MassDriverAcceleratorAbility(AActiveAbility):
         return self._AOE.evaluate(ctx)
 
 
+class HadesAutocannonsAbility(AActiveAbility):
+    """`HadesAutocannons` (1147, MoW `blackForgefiend`) — le volet **AoE** de sa prédiction (#359).
+
+    `IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions` ne prédit PAS « la
+    cible » : il BOUCLE sur les entités que rend
+    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetEntitiesFromSelector(
+    IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets, caster,
+    casterPosition, target)` et, pour CHACUNE, `List.AddRange(GenerateMultiHitAttackPredictions(
+    caster, casterPosition, <entite>, DSLSelectors$$Entity(<entite>), <damage>, <hits>, ...))` :
+
+        damage = StaffOfStarsAbility$$GetDamage(state, isPrediction = 1)   # (a2), hors boucle
+        hits   = AActiveAbility$$GetHits()                                 # hors boucle
+        for e in GetEntitiesFromSelector(GetAllTargets(), ...):
+            list.AddRange(GenerateMultiHitAttackPredictions(..., e, Entity(e), damage, hits,
+                                                            0, Nullable<DamageProfile>(null), 0))
+
+    Il n'y a donc **NI second batch NI sélecteur secondaire** : c'est LA boucle du sélecteur, dont le
+    port n'avait aucun mirror -> `AActiveAbility.get_aoe_targets` rendait `[]` et le port émettait
+    UN event là où le natif en émet un PAR summon retenu.
+
+    Le sélecteur, VERBATIM (`...HadesAutocannonsAbility$$GetAllTargets`) :
+
+        range = AbilityConfiguration$$GetNumberConstant(0x16 = range)
+        ring  = DSLSelectors$$SurroundingUnits(Target, range, unique: 1, includeCenter: 1, sel: 3)
+        f     = DSLSelectors$$Friends(of: Target, entities: ring, sel: 3)
+        w     = DSLSelectors$$UnitsWithTrait(f, 2 = Summon, 3)
+        asc   = SortByRow(Tiles(w), 0, 0, false) ; desc = SortReverse(asc)
+        return DSLSelectors$$If(AreEqual(CurrentPlayer, Player(1)), asc, desc)
+
+    = les **SUMMONS du camp de la CIBLE**, dans le disque de rayon `range` centré sur ELLE, cible
+    INCLUSE (`includeCenter = 1`). i2 : « a targeted enemy summon and all other enemy summons within
+    2 hexes ». MÊME arbre que la face COMBAT (`runner/abilities/blacklegion.
+    hades_autocannons_get_all_targets`) ; il est redit ici parce que `entities/` ne peut pas importer
+    `runner/` (sens de dépendance), exactement comme `MassDriverAcceleratorAbility._AOE`.
+
+    Le référent `DSLSelectors+0x60` est **Target** et non Caster — lu sur un second consommateur dont
+    le nom natif le DIT : `...DaemonicOrdnanceAbility$$GetTargetAreaTiles` =
+    `TilesOnSameElevation(+0x60, TilesInTriangleShape(+0x60, dir), 1)` (la zone-triangle est ancrée
+    sur la cible, confronté live en #350-r3), et `MassDriverAcceleratorAbility` cite déjà la même
+    carte (`+0x48 = caster`, `+0x60 = target`). Le contraste `+0x30 = Owner` est lisible sur
+    `...HadesAutocannonsAbility$$ExecuteBehaviour`, qui attaque DEPUIS `DSLSelectors+0x30`.
+
+    NON PORTÉ, et sans effet mesurable ici : le `SortByRow`/`SortReverse` + `If(IsTopPlayer)` est un
+    ordre de LECTURE. `make_damage_predictions` émet la cible principale d'abord puis le reste ; la
+    somme d'utilité (`CalculateUtilityFromPredictions`) est insensible à l'ordre, et le compte ne l'est
+    pas non plus. HYPOTHÈSE explicite, discriminable live avec >= 2 summons dont l'ordre de `row`
+    contredit celui d'`id`.
+
+    ⚠ Le natif boucle sur des entités **TUILE** (`GetAllTargets` finit par `Tiles(...)`), là où la
+    face COMBAT re-résout l'occupant (`DSLSelectors$$Units(GetAllTargets())`). Le substrat de
+    prédiction du port porte des dicts d'UNITÉ : `Units(Tiles(w))` est l'identité sur l'ensemble
+    (une tuile de summon a ce summon pour occupant), donc l'ENSEMBLE est le même ; seule l'identité
+    publiée par le natif dans `ProbableDamageEvent.target` peut être celle de la TUILE."""
+
+    # `...HadesAutocannonsAbility$$GetAllTargets`, sans les nœuds de TRI (cf. docstring).
+    # `include_center=True` = `SurroundingUnits(..., includeCenter: 1, ...)` : la cible elle-même est
+    # un des summons frappés — `make_damage_predictions` la retire de l'AoE (elle est l'event
+    # PRINCIPAL), donc l'ensemble émis reste exactement celui du sélecteur.
+    _AOE = dsl.UnitsWithTrait(
+        dsl.Friends(dsl.SurroundingUnits(dsl.TargetTile(), dsl.ConfigConst("range", 0),
+                                         include_center=True),
+                    reference=dsl.Target()),
+        int(_UnitTrait.Summon))
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
+    "HadesAutocannons": HadesAutocannonsAbility,
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
     "PlasmaCannon": PlasmaCannonAbility,

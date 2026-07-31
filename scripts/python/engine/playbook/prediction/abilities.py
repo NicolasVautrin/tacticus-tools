@@ -14,6 +14,10 @@ from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_
 from .normal_attack import make_normal_attack_predictions
 # `EffectType.Fire` (5) : effet de TUILE lu par le gate de selecteur de 1148 (`_MAKE_DMG_TARGET_GATE`).
 from ...entities.effect_type import EffectType as _EffectType
+# `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
+# cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
+from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
+                                           trait_name as _trait_name)
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
@@ -779,12 +783,49 @@ def _daemonic_ordnance_target_gate(scene, caster_id: int, target_id: int) -> boo
     return _EFFECT_FIRE_NAME in (fx.get(tuple(p)) or [])
 
 
+def _hades_autocannons_target_gate(scene, caster_id: int, target_id: int) -> bool:
+    """#359 -- appartenance de la CIBLE au selecteur de `HadesAutocannonsPlaybook$$MakeDamagePredictions`.
+
+    Le playbook ne boucle pas sur `<Target>` : il boucle sur
+    `GetEntitiesFromSelector(HadesAutocannonsAbility$$GetAllTargets, ...)` =
+
+        UnitsWithTrait( Friends( of: Target@0x60,
+                                 SurroundingUnits(Target@0x60, ConfigConst(0x16 = range),
+                                                  unique: 1, includeCenter: 1, sel: 3) ),
+                        2 = Summon, 3 )                       # + SortByRow / SortReverse (ordre)
+
+    Une cible que ce selecteur ne retient pas n'a donc AUCUN event -- exactement le regime mesure en
+    #350-r3 : sans summon en jeu, `aiPlaybookPredict(1147)` rend `count = 0`, **16 fois** (8 cibles x
+    2 abilities x {MoW, unite greffee}), quel que soit le caster.
+
+    L'appartenance de LA CIBLE a son PROPRE selecteur se reduit a UN predicat, et c'est une
+    reduction EXACTE, pas une heuristique -- les trois conjonctions du selecteur, prises sur la
+    cible elle-meme :
+      * `SurroundingUnits(Target, range, includeCenter: 1)` : distance(cible, cible) = 0 <= range,
+        et le centre est INCLUS -> vrai (le seul residu serait une cible morte, que `_within` ecarte
+        deja par `_is_alive`, d'ou le test de vie explicite ici) ;
+      * `Friends(of: Target)` : une entite est toujours de son propre camp -> vrai ;
+      * `UnitsWithTrait(2 = Summon)` -> **le seul discriminant**.
+    Le referent d'equipe est la CIBLE (`DSLSelectors+0x60`), pas le caster : ce gate ne teste donc
+    PAS l'inimitie (c'est `TargetingOptions.TargetIsEnemy` qui la porte, face ELIGIBILITE).
+
+    Substrat de traits = `_entity_traits` (#267-r1), le meme foyer que tous les autres gates de
+    trait de la face prediction -- jamais une relecture du kit gameconfig par visualId."""
+    if not scene.units:
+        return False
+    u = next((x for x in scene.units if x.get("id") == target_id), None)
+    if u is None or not bool(u.get("alive", True)) or (u.get("hp") or 0) <= 0:
+        return False
+    return _has_trait(_entity_traits(scene, target_id), _UnitTrait.Summon)
+
+
 # {ability_id: gate(scene, caster_id, target_id) -> bool}. Mirror des playbooks dont
 # `MakeDamagePredictions` boucle sur un SELECTEUR (`GetEntitiesFromSelector`) au lieu de `<Target>` :
 # une cible que le selecteur ne retient pas n'a AUCUN event. Sans ce gate, le port emet un event
 # generique par cible demandee -- une sur-prediction muette. Registre distinct de
 # `_MAKE_DMG_INPUT_OVERRIDES` (qui, lui, ne change QUE les entrees d'un event deja acquis).
-_MAKE_DMG_TARGET_GATE = {1148: _daemonic_ordnance_target_gate}
+_MAKE_DMG_TARGET_GATE = {1148: _daemonic_ordnance_target_gate,
+                         1147: _hades_autocannons_target_gate}
 
 
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
@@ -890,7 +931,16 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         dctx = dsl.DslContext(units=scene.units, caster=by_id.get(caster_id),
                               target=by_id.get(main_tgt_id), config=cfg, ability_level=ab.level,
                               times_attacked=getattr(ctx0, "times_attacked", 0) or 0,
-                              caster_pos=attack_pos, elev_by_pos=scene.elev_by_pos)
+                              caster_pos=attack_pos, elev_by_pos=scene.elev_by_pos,
+                              # `HasFlag(unit, traitId)` du natif -- requis par tout set AoE qui
+                              # passe par `UnitsWithTrait`/`UnitsWithoutTrait` (1147 :
+                              # `UnitsWithTrait(..., 2 = Summon)`). Sans lui, `ctx.has_trait` vaut
+                              # None et ces noeuds rendent VIDE par degradation, c.-a-d. un volet
+                              # AoE muet. Substrat = `_entity_traits` (#267-r1), le foyer unique de
+                              # la face prediction. Inerte pour les sets AoE deja portes (aucun ne
+                              # lit de trait) : le champ n'etait tout simplement pas consulte.
+                              has_trait=lambda u, t: _trait_name(t) in _entity_traits(
+                                  scene, (u or {}).get("id")))
         aoe = [t for t in ab.get_aoe_targets(dctx)
                if t.get("id") is not None and t.get("id") != main_tgt_id]
     base_bonus = 0
