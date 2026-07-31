@@ -176,12 +176,21 @@ def _weapons(gc: dict) -> list:
     return out
 
 
-def _traits(gc: dict) -> list:
-    """[GrandAlliance] + [Subfaction si presente] + traits (+ "NPC" pour un kind npc).
+@functools.lru_cache(maxsize=1)
+def unit_trait_members() -> frozenset:
+    """Noms des membres de `IdunBattle.Entities.Enum.UnitTrait` sur le build COURANT.
 
-    Mirror de l'ordre observe dans les 175 entrees (l'alliance d'abord, la sous-faction
-    ensuite : custoAtlacoya -> ['Imperial','SistersSilence','Hero','Parry','Terrifying']).
+    C'est le VOCABULAIRE ferme de `UnitConfiguration.Traits` -- pas une convention de nommage :
+    le champ est TYPE `List<IdunBattle.Entities.Enum.UnitTrait>`, cf. `_traits`.
     """
+    return frozenset(enum_map("IdunBattle.Entities.Enum.UnitTrait"))
+
+
+def _traits_raw(gc: dict) -> list:
+    """[GrandAlliance] + [Subfaction si presente] + traits (+ "NPC" pour un kind npc), AVANT
+    confrontation au vocabulaire de l'enum. Mirror de l'ordre observe dans les 175 entrees
+    (l'alliance d'abord, la sous-faction ensuite :
+    custoAtlacoya -> ['Imperial','SistersSilence','Hero','Parry','Terrifying'])."""
     out = []
     if gc.get("GrandAllianceId"):
         out.append(gc["GrandAllianceId"])
@@ -191,6 +200,50 @@ def _traits(gc: dict) -> list:
     if gc.get("kind") == "npc":
         out.append("NPC")
     return out
+
+
+def dropped_traits(gc: dict) -> list:
+    """Noms que `_traits_raw` produirait et que `UnitTrait` du build COURANT NE CONNAIT PAS.
+
+    A regarder AVANT de conclure « ce porteur ne se deploie pas » : une liste non vide veut dire
+    que le gameconfig est EN AVANCE sur le binaire (contenu pre-livre), pas que l'unite est cassee.
+    """
+    return [t for t in _traits_raw(gc) if t not in unit_trait_members()]
+
+
+def _traits(gc: dict) -> list:
+    """Bloc `UnitConfiguration.Traits` -- RESTREINT aux membres de `UnitTrait` du build courant.
+
+    POURQUOI CE FILTRE, ET POURQUOI IL N'EST PAS COSMETIQUE (#270-d).
+    `Traits` est TYPE `List<IdunBattle.Entities.Enum.UnitTrait>`, etabli au decompile en deux
+    maillons :
+      - `Idun.Source.IdunBattle.View.BattleConfigBuilder$$GetUnitConfiguration` recopie
+        `UnitProperties+0x18` dans `UnitConfiguration+0xd0` (dernier champ, = `Traits` ; a defaut
+        elle y pose une `List` neuve) ;
+      - `IdunMetaLogic.UserProgress.Model.UnitPropertiesExtensions$$GetPlayerFacingTraits` lit ce
+        MEME `UnitProperties+0x18` et rend un `List<IdunBattle.Entities.Enum.UnitTrait>`.
+    Donc une valeur hors enum n'est pas « un trait que le natif ignorerait » : elle est
+    INEXPRIMABLE dans ce champ. A la relecture du BC, `initAndStart` step=deserialize BC ->
+    `Newtonsoft.Json.Converters.StringEnumConverter$$ReadJson` (token String) ->
+    `Newtonsoft.Json.Utilities.EnumUtils$$ParseEnum` -> `$$MatchName` / `$$FindIndexByName`
+    rendent un `Nullable` VIDE -> message bati par `Newtonsoft.Json.Utilities.StringUtils$$FormatWith`,
+    `System.ArgumentException` construite puis LEVEE. Exception managee sous `invokeMethod` =>
+    Frida rend « system error », d'ou `[error] initAndStart: system error`.
+
+    CE QUI DECLENCHE LE CAS : le gameconfig VIVANT est livre EN AVANCE sur le binaire. Mesure du
+    2026-07-31 (`rnca9r7q6c`) -- `astarLysander` (releaseStatus 2026-08-26) porte
+    `Subfaction: ImperialFists`, et `UnitTrait` s'arrete a 4 sous-factions (`DeathKorpsKrieg` 9000,
+    `FarsightEnclaves` 9001, `SistersSilence` 9002, `BloodRavens` 9003). C'est la SEULE des 669
+    unites du gameconfig dont `_traits_raw` sort du vocabulaire, et le SEUL porteur de #270 qui ne
+    se deployait pas.
+
+    LE FILTRE NE PERD RIEN D'OBSERVABLE : aucun code natif de ce build ne peut tester un membre
+    qui n'existe pas dans son propre enum. Il ne touche pas non plus la cohorte capturee -- sur
+    les 175 entrees du seed BC, `_traits_raw` produit 0 nom hors enum, donc `--validate` est
+    inchange. Ce qui est ecarte se lit par `dropped_traits`, jamais en silence.
+    """
+    members = unit_trait_members()
+    return [t for t in _traits_raw(gc) if t in members]
 
 
 def ability_multiplier_pct(rank: int, ability_level: int, is_mow: bool) -> int:
@@ -895,6 +948,11 @@ def main(argv: list[str]) -> int:
 
     if a.show:
         print(json.dumps(synthesize(a.show, a.rank, a.ability_level, a.ability_mult_pct), indent=1))
+        drop = dropped_traits(G.unit(a.show.split(":")[0]) or {})
+        if drop:
+            # JAMAIS silencieux : c'est la signature « gameconfig EN AVANCE sur le binaire ».
+            print(f"[traits] ECARTES (hors IdunBattle.Entities.Enum.UnitTrait du build "
+                  f"{_build_hash()}) : {drop}")
         return 0
 
     if not a.units and not a.equip_relic:

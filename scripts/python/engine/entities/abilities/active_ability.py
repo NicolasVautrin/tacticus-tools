@@ -184,9 +184,13 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
     #   3/4. si `selfPreds.Any(p => p.WillBeKill)` SEULEMENT : `ExplodesAbility$$GetDamage` evaluee,
     #        puis `GenerateAttackPredictions(..., Nullable(0xf = DirectDamage))` sur
     #        `Friends(AdjacentUnits(GetTileToMoveTo))` puis sur `Enemies(<idem>)`.
-    # 1 et 2 sont PORTES (`_ramming_speed_inputs` / `_ramming_speed_self_events`) ; 3/4 = residu
-    # nomme (`GetTileToMoveTo` exige `UtilityBucket[Tile 7, RammingSpeed_MostAdjacentEnemies 54]`,
-    # et 54 n'est pas dans `UTILITY_BY_TYPE`). Cf. `docs/rl/case-353-ramming-speed-prediction.md`.
+    # 1 et 2 sont PORTES (`_ramming_speed_inputs` / `_ramming_speed_self_events`). Pour 3/4,
+    # `GetTileToMoveTo` exige `UtilityBucket[Tile 7, RammingSpeed_MostAdjacentEnemies 54]` : ce
+    # bucket est PORTE depuis #353-r1a (`engine/utilities/ramming_speed.py` + `decider.py`, 54
+    # inscrite a `UTILITY_BY_TYPE`, confrontee live 2/2). Ce qui RESTE ouvert pour 3/4 est le gate
+    # `selfPreds.Any(p => p.WillBeKill)`, non observable : `get_WillBeKill` lit
+    # `CannotBeGuaranteedKilled@+0x89` et `BlockScenarios[0]+0x0c`, ni l'un ni l'autre expose par
+    # `aiPlaybookPredict` -- volet (b) de `#353-r1`, cf. `docs/rl/case-353-ramming-speed-prediction.md`.
     1059: ("RammingSpeedPlaybook$$MakeDamagePredictions",
            "Get(minDmg) SEUL + hits const 0x2f ; batch SELF (hits 0x32) ; batch EXPLOSION conditionnel",
            True),
