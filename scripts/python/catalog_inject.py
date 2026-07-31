@@ -462,6 +462,194 @@ def missing_from_seed_bc(seed_bc: dict) -> list:
     return sorted(k for k in G._index()["lineup"] if k not in have)
 
 
+# --------------------------------------------------------- 3e catalogue : la RELIQUE (#237)
+#
+# ETAT 2 de la gate de confrontabilite (« porteur au pool, relique NON equipee ») : 52 des 56
+# unites eligibles du seed BC arrivent en bataille SANS leur relique. Le montage qui les equipe
+# tient en TROIS ecritures, et il faut les TROIS -- chacune a son verrou natif :
+#
+#   1. `BC.Units[].TertiaryAbility` = id `TriggeredAbilityType`.
+#      Lu par `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` : quand le
+#      `Nullable` a une valeur, l'ability entre par
+#      `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)`
+#      (le `3` = hierarchie Tertiary ; les passives entrent avec `2`). Champ nul = rien ne se
+#      passe, SANS erreur : le montage se lit comme un succes.
+#
+#   2. `BC.Abilities.PassiveAbilities[<nom>]` = la config de l'ability.
+#      Le seed BC ne porte que les abilities des unites de CETTE bataille : sur les 32 abilities
+#      de relique du gameconfig, 3 SEULEMENT y sont (celles equipees au seed). Sans elle,
+#      `AbilitiesDatabase.GetConfig` rend une config NON NULLE MAIS VIDE, et
+#      `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` n'y trouve aucun
+#      tableau : le noeud DSL du behaviour (`IdunBattle.Entities.Formulas.ConfigAmount$$Calculate`)
+#      l'appelle avec `fallbackToDefault = false`, donc il LEVE -> « system error » au cast.
+#      MESURE : la relique est bien montee, mais `extraCritDmg` rend 0 au lieu de 749.
+#      Meme verrou, meme parade que #226 : c'est `synthesize_ability` qui la produit.
+#      NB `BC.Abilities` traverse `buildNormalizedBC` INTACT (le RPC ne touche que `Units`,
+#      `Board`, `SpawnPointSetIndex`) -- cette ecriture-la n'a donc pas d'ordre impose.
+#
+#   3. `BC.Units[].TertiaryAbilityLevel` >= 1.  <-- LE VERROU QUI N'AVAIT PAS DE NOM
+#      `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel` -- le foyer
+#      UNIQUE par lequel passent `GetVariableForLevel`, `TryGetVariableForLevel`,
+#      `GetVariableArrayForLevel` et `GetAllVariablesForLevel` -- convertit le niveau par
+#      `Idun.Shared.Level$$ToZeroBasedIndex`, qui LEVE `InvalidOperationException` des que
+#      `level <= 0`. Or une entree `Units` sans relique porte `TertiaryAbilityLevel = 0` (les
+#      171 du seed), et `synthesize` fait pareil : poser la relique SANS le niveau donne une
+#      unite qui se deploie puis FAUTE a la premiere lecture de variable.
+#      Borne HAUTE : il n'y en a pas. Le meme foyer CLAMPE (`idx >= len` -> `len - 1`), donc
+#      `TertiaryAbilityLevel = 50` (ce qu'ecrit `buildNormalizedBC`) sur une ability de relique
+#      a 10 paliers rend le palier 10. Pas d'erreur -- mais pas le niveau demande non plus.
+
+def relic_items() -> dict:
+    """`{itemId: {ability, allowedUnits, levels, rarity}}` des reliques du gameconfig.
+
+    Une relique = une entree `items[*]` qui porte un `abilityId`. Le champ `allowedUnits` dit
+    quels heros peuvent l'equiper -- c'est l'etat JOUEUR, pas une gate de bataille : le natif
+    cote combat ne le relit jamais (`AddConfiguredAbilities` ne connait que le champ du BC).
+    On s'en sert pour REFUSER un montage incoherent, pas parce que le moteur l'exigerait.
+    """
+    out = {}
+    for item_id, it in (G._cfg().get("items") or {}).items():
+        aid = it.get("abilityId")
+        if not aid:
+            continue
+        out[item_id] = {
+            "ability": aid,
+            "allowedUnits": list(it.get("allowedUnits") or []),
+            "levels": len(it.get("levels") or []),
+            "rarity": it.get("rarity"),
+        }
+    return out
+
+
+def relic_carriers(ability_name: str) -> list:
+    """unitIds autorises a equiper la relique qui porte `ability_name` (union des items)."""
+    out: set = set()
+    for meta in relic_items().values():
+        if meta["ability"] == ability_name:
+            out.update(meta["allowedUnits"])
+    return sorted(out)
+
+
+def ability_level_count(ability_name: str) -> int:
+    """Nombre de paliers de la plus longue variable de l'ability (0 si aucune variable).
+
+    Sert a NOMMER la borne au-dela de laquelle `TryGetVariableArrayForLevel` clampe -- pas a
+    refuser un niveau : le natif ne refuse rien par le haut.
+    """
+    g = G.ability(ability_name) or {}
+    lens = [len(v) for v in (g.get("variables") or {}).values() if isinstance(v, list)]
+    return max(lens) if lens else 0
+
+
+def equip_relic(bc: dict, unit_id: str, ability_name: str, level: int = 1,
+                *, allow_unlisted: bool = False) -> dict:
+    """EQUIPE une relique a `unit_id` DANS `bc` (mute en place). Rend un rapport.
+
+    Les trois ecritures du bloc ci-dessus, faites ensemble -- c'est le point : les separer est
+    exactement ce qui produit un montage muet (rien ne se passe) ou un « system error ».
+
+    `level` DOIT etre >= 1 (`Idun.Shared.Level$$ToZeroBasedIndex` leve sinon). Un niveau
+    au-dela des paliers de l'ability est ACCEPTE et signale : le natif le clampe.
+    """
+    if level < 1:
+        raise ValueError(
+            f"TertiaryAbilityLevel={level} : le natif exige >= 1 "
+            f"(Idun.Shared.Level$$ToZeroBasedIndex leve InvalidOperationException sur <= 0)")
+    carriers = relic_carriers(ability_name)
+    if carriers and unit_id.split(":")[0] not in carriers and not allow_unlisted:
+        raise ValueError(
+            f"{unit_id!r} n'est pas dans allowedUnits de la relique {ability_name!r} "
+            f"({carriers}). Passer allow_unlisted=True pour GREFFER quand meme.")
+    aid = triggered_ability_id(ability_name)
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units -- injecter d'abord le porteur "
+                       f"(write_augmented_seed_bc)")
+    node = bc.setdefault("Abilities", {}).setdefault("PassiveAbilities", {})
+    config_added = False
+    if ability_name not in node:
+        node[ability_name] = synthesize_ability(ability_name)
+        config_added = True
+    for u in hits:
+        u["TertiaryAbility"] = aid
+        u["TertiaryAbilityLevel"] = level
+    n_lvl = ability_level_count(ability_name)
+    return {
+        "unitId": unit_id, "ability": ability_name, "abilityId": aid,
+        "level": level, "levelsAvailable": n_lvl,
+        "clamped": bool(n_lvl and level > n_lvl),
+        "configAdded": config_added, "unitsPatched": len(hits),
+        "allowedUnits": carriers,
+    }
+
+
+def parse_relic_spec(spec: str) -> tuple[str, str, int]:
+    """`'unitId:AbilityName[:level]'` -> `(unitId, ability, level)`. Niveau par defaut 1."""
+    parts = [p.strip() for p in spec.split(":")]
+    if len(parts) == 2:
+        uid, ability = parts
+        level = 1
+    elif len(parts) == 3:
+        uid, ability, lvl = parts
+        level = int(lvl)
+    else:
+        raise ValueError(f"spec relique invalide {spec!r} -- attendu 'unitId:Ability[:level]'")
+    if not uid or not ability:
+        raise ValueError(f"spec relique invalide {spec!r} -- attendu 'unitId:Ability[:level]'")
+    return uid, ability, level
+
+
+def write_relic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
+                        rank: int = 17, ability_level: int = 50,
+                        allow_unlisted: bool = False):
+    """FIXTURE : ecrit un seed BC ou chaque `spec` equipe sa relique. Rend `(Path, rapports)`.
+
+    `specs` = iterable de `'unitId:AbilityName[:level]'` (ou de tuples deja parses). Le porteur
+    est injecte au catalogue s'il en manque (`augment`), puis equipe (`equip_relic`).
+
+    ⚠ ORDRE ET NIVEAU. Ce fichier est un seed BC, donc il passe ENSUITE par `buildNormalizedBC`,
+    qui REECRIT `TertiaryAbilityLevel = targetAbilityLevel` (50) des que `TertiaryAbility` est
+    non nul (`frida/hooks/features/normalize-bc/json-build.ts`). Le niveau ecrit ici n'est donc
+    PAS celui qui arrive en bataille par cette voie : c'est 50, que le natif clampe au dernier
+    palier. Pour un niveau EXACT, patcher le BC NORMALISE (`rl_duel build --equip-relic`, qui
+    re-pose le couple apres la normalisation).
+    """
+    parsed = [parse_relic_spec(s) if isinstance(s, str) else tuple(s) for s in specs]
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, _added, _added_ab, _unres = augment(seed, [u for u, _a, _l in parsed], rank,
+                                            ability_level)
+    reports = [equip_relic(bc, uid, ability, lvl, allow_unlisted=allow_unlisted)
+               for uid, ability, lvl in parsed]
+    p = host_inputs.reject_data_output(out_path, "write_relic_seed_bc(out_path=...)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, reports
+
+
+def relic_state_of_seed_bc(seed_bc: dict) -> dict:
+    """Ventilation des TROIS etats de la gate « ability de relique » sur un BC donne.
+
+    Rend `{equipped, eligible_no_relic, off_catalog}` -- `equipped` = les entrees `Units` qui
+    portent deja `TertiaryAbility` ; `eligible_no_relic` = celles qu'un item relique autorise
+    mais qui arrivent sans ; `off_catalog` = les porteurs autorises absents du catalogue.
+    """
+    have = {u.get("Id"): u for u in (seed_bc.get("Units") or [])}
+    allowed: dict = {}
+    for meta in relic_items().values():
+        for uid in meta["allowedUnits"]:
+            allowed.setdefault(uid, set()).add(meta["ability"])
+    equipped, eligible, off = [], [], []
+    for uid, abilities in sorted(allowed.items()):
+        u = have.get(uid)
+        if u is None:
+            off.append(uid)
+        elif u.get("TertiaryAbility"):
+            equipped.append((uid, u["TertiaryAbility"], u.get("TertiaryAbilityLevel")))
+        else:
+            eligible.append((uid, sorted(abilities)))
+    return {"equipped": equipped, "eligible_no_relic": eligible, "off_catalog": off}
+
+
 # ------------------------------------------------- rafraichissement du 2e catalogue (#254)
 
 def refresh_ability_configs(bc: dict) -> tuple[list, list]:
@@ -679,9 +867,48 @@ def main(argv: list[str]) -> int:
                     help="re-synthetise le catalogue capture et diffe champ a champ")
     ap.add_argument("--missing", action="store_true",
                     help="liste les heros/MoW du gameconfig absents du catalogue")
+    ap.add_argument("--equip-relic", action="append", default=None,
+                    help="equipe une relique : 'unitId:AbilityName[:level]'. Repetable. Pose "
+                         "TertiaryAbility + TertiaryAbilityLevel (>=1) ET injecte la config "
+                         "d'ability dans BC.Abilities.PassiveAbilities. Combinable avec --units.")
+    ap.add_argument("--allow-unlisted-relic", action="store_true",
+                    help="--equip-relic : autorise un porteur hors allowedUnits (greffe)")
+    ap.add_argument("--relic-state", action="store_true",
+                    help="ventile les TROIS etats de la gate relique sur le seed BC")
+    ap.add_argument("--list-relics", action="store_true",
+                    help="liste les reliques du gameconfig (ability, paliers, porteurs)")
     a = ap.parse_args(argv)
 
     seed = _load_seed(a.seed_bc)
+
+    if a.list_relics:
+        items = relic_items()
+        by_ability: dict = {}
+        for item_id, m in items.items():
+            by_ability.setdefault(m["ability"], []).append((item_id, m))
+        seed_pa = (seed.get("Abilities") or {}).get("PassiveAbilities") or {}
+        print(f"[relics] {len(items)} items relique -> {len(by_ability)} abilities distinctes")
+        for ability in sorted(by_ability):
+            rows = by_ability[ability]
+            carriers = sorted({u for _i, m in rows for u in m["allowedUnits"]})
+            try:
+                aid = triggered_ability_id(ability)
+            except Exception:                              # pragma: no cover - diagnostic
+                aid = None
+            in_bc = "config-in-BC" if ability in seed_pa else "CONFIG ABSENTE du BC"
+            print(f"  {ability:26s} id={aid} paliers={ability_level_count(ability):2d} "
+                  f"{in_bc:22s} porteurs={carriers}")
+        return 0
+
+    if a.relic_state:
+        st = relic_state_of_seed_bc(seed)
+        print(f"[relic-state] equipees au seed        : {len(st['equipped'])}")
+        for uid, aid, lvl in st["equipped"]:
+            print(f"    {uid:24s} TertiaryAbility={aid} TertiaryAbilityLevel={lvl}")
+        print(f"[relic-state] au catalogue SANS relique: {len(st['eligible_no_relic'])}")
+        print(f"[relic-state] porteurs hors catalogue  : {len(st['off_catalog'])} "
+              f"{st['off_catalog']}")
+        return 0
 
     if a.validate:
         rc = 0
@@ -728,12 +955,25 @@ def main(argv: list[str]) -> int:
                   f"{_build_hash()}) : {drop}")
         return 0
 
-    if not a.units:
+    if not a.units and not a.equip_relic:
         ap.print_help()
         return 2
-    ids = [x.strip() for x in a.units.split(",") if x.strip()]
+    ids = [x.strip() for x in (a.units or "").split(",") if x.strip()]
+    relic_specs = [parse_relic_spec(s) for s in (a.equip_relic or [])]
+    ids += [uid for uid, _ab, _lvl in relic_specs if uid not in ids]
     bc, added, added_ab, unresolved = augment(seed, ids, a.rank, a.ability_level,
                                               a.ability_mult_pct)
+    for uid, ability, lvl in relic_specs:
+        try:
+            rep = equip_relic(bc, uid, ability, lvl,
+                              allow_unlisted=a.allow_unlisted_relic)
+        except (ValueError, KeyError) as e:
+            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            return 2
+        clamp = (f"  [clamp] niveau {rep['level']} > {rep['levelsAvailable']} paliers -> le "
+                 f"natif rend le dernier" if rep["clamped"] else "")
+        print(f"[relic] {uid} <- {ability} (id={rep['abilityId']}) niveau={rep['level']} "
+              f"config{'+' if rep['configAdded'] else '='}BC{clamp}")
     print(f"[inject] {len(added)} unites ajoutees: {added}")
     print(f"[inject] catalogue Units: {len(seed['Units'])} -> {len(bc['Units'])} entrees")
     print(f"[inject] {len(added_ab)} configs d'ability ajoutees: {added_ab}")

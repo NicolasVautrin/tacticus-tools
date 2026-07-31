@@ -281,10 +281,26 @@ produit au moins **six verdicts « 0 porteur, DEAD » démontrés FAUX** (recens
    `BC.Units[].TertiaryAbility`. Mesuré : **4 unités** du seed en portent une (3 abilities
    distinctes — `admecMarshall` et `admecRuststalker` partagent la même). `buildNormalizedBC` la
    **préserve** (`normalize-bc/json-build.ts` ne touche qu'à `TertiaryAbilityLevel`).
-2. **Porteur au pool, relique NON équipée** → **montage à écrire** (poser `TertiaryAbility`). C'est
-   le cas de loin le plus fréquent : sur les **56** unités du seed éligibles à une relique — **toutes
-   dans le pool** — **52 y arrivent sans**.
-3. **Porteur hors pool** → injection catalogue, comme un héros hors pool.
+2. **Porteur au pool, relique NON équipée** → **montage ÉCRIT (#237)** :
+   `rl_duel build --equip-relic "<unitId>:<Ability>[:level]"`, ou `catalog_inject.equip_relic` /
+   `write_relic_seed_bc` depuis un test. C'est le cas de loin le plus fréquent : sur les **56**
+   unités du seed éligibles à une relique — **toutes dans le pool** — **52 y arrivent sans**.
+3. **Porteur hors pool** → injection catalogue, comme un héros hors pool (**9** unités), **puis**
+   le montage de l'état 2.
+
+**Le montage tient en TROIS écritures, et DEUX échouent EN SILENCE** (RE :
+`docs/rl/case-237-relique-forcee.md`) : `BC.Units[].TertiaryAbility` (sans lui,
+`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` ne monte rien, sans erreur) ;
+la config d'ability dans `BC.Abilities.PassiveAbilities` (**29 des 32** abilities de relique sont
+absentes du seed → « system error » au cast, même verrou que #226) ; et
+**`TertiaryAbilityLevel >= 1`** — `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`
+(foyer UNIQUE des quatre accesseurs de variable) convertit par `Idun.Shared.Level$$ToZeroBasedIndex`,
+qui **lève `InvalidOperationException` sur `<= 0`**, et `0` est exactement ce que porte toute
+entrée sans relique (`0` = « verrouillé », cf. `Idun.Shared.Level$$CreateValidOrLockedLevel`).
+**Pas de borne haute** : le même foyer clampe (`idx >= len` → `len - 1`).
+⚠ **L'ORDRE** : `buildNormalizedBC` réécrit le niveau à `targetAbilityLevel` (50) **seulement si
+`TertiaryAbility` est déjà non nul** — poser la relique APRÈS la normalisation (`--unit-stat`,
+patch du template) laisse le niveau à `0`, verrou armé en silence.
 
 **Le piège central** : `rl_duel build --list-pool` répond à « quels `unitId` normalisent au rank
 cible », **pas** à « arrive en bataille AVEC sa relique ». Une gate passée sur le seul pool ne conclut

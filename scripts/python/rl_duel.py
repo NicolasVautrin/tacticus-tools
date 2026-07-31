@@ -42,6 +42,7 @@ from rl_collect_batch import (  # noqa: E402
     PLAYER_ID_HUMAN,
 )
 from rl_probe_step import _print_apply  # noqa: E402
+import catalog_inject  # noqa: E402
 import host_inputs  # noqa: E402
 import oracle  # noqa: E402
 import stream_events  # noqa: E402
@@ -257,9 +258,37 @@ def cmd_build(sid: int, a) -> int:
               f"kind={fixed_board_dump.get('kind')} {_bi.get('Width')}x{_bi.get('Height')} "
               f"sps={fixed_board_dump.get('spawnPointsSet')}")
     seed_bc = _load_seed_bc(getattr(a, "seed_bc", None))
+    # --equip-relic (#237) : ETAT 2 de la gate de confrontabilite (« porteur au pool, relique NON
+    # equipee »). Les TROIS ecritures sont faites par `catalog_inject.equip_relic`, APRES la
+    # normalisation -- et c'est le seul ordre correct :
+    #   * `buildNormalizedBC` ECRASE `TertiaryAbilityLevel` a `targetAbilityLevel` (50) des que
+    #     `TertiaryAbility` est non nul (`normalize-bc/json-build.ts`). Poser AVANT reviendrait
+    #     donc a jouer 50, que le natif clampe au dernier palier -- jamais le niveau demande ;
+    #   * `BC.Abilities` traverse `buildNormalizedBC` INTACT (le RPC ne touche que `Units`,
+    #     `Board` et `SpawnPointSetIndex`), donc la config d'ability se pose aussi bien apres.
+    relic_specs = []
+    for spec in (getattr(a, "equip_relic", None) or []):
+        try:
+            relic_specs.append(catalog_inject.parse_relic_spec(spec))
+        except ValueError as e:
+            print(f"[error] --equip-relic: {e}", file=sys.stderr)
+            return 2
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump)
+    for uid, ability, lvl in relic_specs:
+        try:
+            rep = catalog_inject.equip_relic(
+                template_bc, uid, ability, lvl,
+                allow_unlisted=bool(getattr(a, "allow_unlisted_relic", False)))
+        except (ValueError, KeyError) as e:
+            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            return 2
+        clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
+                 if rep["clamped"] else "")
+        print(f"[relic] {uid} <- {ability} (TriggeredAbilityType={rep['abilityId']}) "
+              f"TertiaryAbilityLevel={lvl} "
+              f"config{'+' if rep['configAdded'] else '='}BC{clamp}")
     bad_u, bad_mow = _load_unspawnable(a.rank)
     pool = [u for u in pool if u not in bad_u]
     pool_mow = [u for u in pool_mow if u not in bad_mow]
@@ -2082,6 +2111,15 @@ def main(argv: list[str]) -> int:
                          "valeur unique sur tout un camp : indispensable des que la mesure porte sur "
                          "un ECART entre deux unites du meme cote (ex. deux Health -> deux niveaux "
                          "d'utilite de soin). Pas de virgule dans une valeur.")
+    ap.add_argument("--equip-relic", action="append", default=None,
+                    help="build: EQUIPE une relique — 'unitId:AbilityName[:level]', repetable. "
+                         "Pose BC.Units[].TertiaryAbility + TertiaryAbilityLevel (>=1 OBLIGATOIRE : "
+                         "Idun.Shared.Level$$ToZeroBasedIndex leve sur <=0) ET injecte la config "
+                         "d'ability dans BC.Abilities.PassiveAbilities (29 des 32 abilities de "
+                         "relique sont absentes du seed capture). Ids/porteurs : "
+                         "`python catalog_inject.py --list-relics`.")
+    ap.add_argument("--allow-unlisted-relic", action="store_true",
+                    help="build: --equip-relic sur un porteur hors allowedUnits (greffe assumee)")
     ap.add_argument("--armor-target", type=int, default=None,
                     help="build: force Armor+FixedArmor des a-units a la valeur donnee (pendant "
                          "de --hp-target, qui les met a 0). HAUTE = la branche PERCAGE du plancher "

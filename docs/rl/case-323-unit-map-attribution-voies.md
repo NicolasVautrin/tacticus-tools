@@ -148,6 +148,13 @@ correspondante — c'est le résidu N317-a, ouvert, et cette fiche ne le referme
 écrire : poser `TertiaryAbility`) / `porteur hors pool` (injection catalogue). « Non confrontable »
 n'est aucun des trois.
 
+> **Suite — le montage de l'état 2 EXISTE depuis #237** (`docs/rl/case-237-relique-forcee.md`) :
+> `rl_duel build --equip-relic "<unitId>:<Ability>[:level]"`. « Poser `TertiaryAbility` » était
+> **incomplet** : il faut TROIS écritures, et le champ seul ne produit rien — la config d'ability
+> (**29 des 32** absentes du seed) et surtout **`TertiaryAbilityLevel >= 1`**
+> (`Idun.Shared.Level$$ToZeroBasedIndex` lève sur `<= 0`, et `0` est ce que porte toute entrée sans
+> relique). Le compte de l'état 3, re-dérivé : **9** porteurs hors catalogue.
+
 ## 6. Le correctif et sa garde
 
 `scripts/python/unit_map.py` :

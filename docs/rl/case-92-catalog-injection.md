@@ -269,11 +269,46 @@ board), et NON pour une prediction de degat. Debloqueur nomme du verrou lui-meme
 `buildNormalizedBC` un chemin de stats explicite pour summons/npc, au lieu de
 `IStatsFormula.StatsUsingProgressionIndexFor`.
 
+## 5ter. La RELIQUE — un TROISIEME catalogue, et un verrou de NIVEAU (#237)
+
+Le meme module equipe desormais une **relique** (`--equip-relic`, `equip_relic`,
+`write_relic_seed_bc`). Ce n'est pas une variante de l'injection de porteur : c'est un montage a
+**trois** ecritures, dont deux echouent EN SILENCE si on les oublie.
+
+1. `BC.Units[].TertiaryAbility` = id `TriggeredAbilityType` —
+   `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` ne monte l'ability que si le
+   `Nullable` a une valeur (`TriggeredAbilityComponent$$TryAdd(id, state, 3)`, le `3` = hierarchie
+   Tertiary). Champ nul = rien, sans erreur.
+2. `BC.Abilities.PassiveAbilities[<nom>]` — **29 des 32** abilities de relique sont ABSENTES du seed
+   capture (seules les 3 equipees y sont). Meme verrou et meme parade que §2 : sans la config,
+   « system error » au cast.
+3. `BC.Units[].TertiaryAbilityLevel >= 1` — **le verrou propre a la relique**.
+   `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel` (foyer UNIQUE des
+   quatre accesseurs de variable) convertit par `Idun.Shared.Level$$ToZeroBasedIndex`, qui LEVE
+   `InvalidOperationException` des que `level <= 0`. Or **`synthesize` pose `TertiaryAbilityLevel =
+   0`**, comme les 171 entrees sans relique du seed (0 = « verrouille », cf.
+   `Idun.Shared.Level$$CreateValidOrLockedLevel`). **Pas de borne haute** : le meme foyer clampe
+   (`idx >= len` -> `len - 1`).
+
+⚠ **L'ORDRE compte.** `buildNormalizedBC` ECRASE `TertiaryAbilityLevel` a `targetAbilityLevel` (50)
+**si et seulement si** `TertiaryAbility` est deja non nul — donc poser la relique APRES la
+normalisation (patch du template, `--unit-stat`) laisse le niveau a 0. `rl_duel build
+--equip-relic` fait les deux moities au bon moment (config avant, couple apres) et rend le niveau
+EXACT ; la voie `--seed-bc` est plus simple mais donne toujours 50, clampe au dernier palier.
+
+Detail, decompile et ventilation des trois etats : **`docs/rl/case-237-relique-forcee.md`**.
+
 ## 6. Usage
 
 ```bash
 # ce qui manque au catalogue
 python catalog_inject.py --missing
+
+# les RELIQUES : abilities, ids, paliers, porteurs, config presente ou non (#237)
+python catalog_inject.py --list-relics
+python catalog_inject.py --relic-state      # les TROIS etats : 4 equipees / 52 sans / 9 hors catalogue
+python rl_duel.py build --board MC1_67 --state-file <absolu>.json \
+       --p-units ultraTitus --equip-relic "ultraTitus:RelicBoltPistol:6"
 
 # la synthese reproduit-elle le catalogue capture ? (offline, 0 divergence attendue)
 python catalog_inject.py --validate
