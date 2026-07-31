@@ -1237,7 +1237,8 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     _load_machine_stats(state, decision, snapshot, mult_by_id)
     # effets ACTIFS structurés (decisionView.effects), matérialisés + propagés mult/level.
     # `abstate_by_id` : l'état d'ability de chaque entité, consulté par la SOURCE de chaque effet
-    # (mirror du bake natif). Les deux tables par PORTEUR restent le REPLI.
+    # (mirror du bake natif) ET, depuis case-366-r1, par le PORTEUR en repli — c'est le seul canal
+    # qui porte son `activeAbilityLevel`. Les deux tables par PORTEUR restent le repli du repli.
     state.effects = EffectsState.seed(effects_by_id, mult_by_id, ablvl_by_id, abstate_by_id)
     # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` (boucle ABILITIES) : à la création de CHAQUE
     # unité, l'owner-effect posé par le `CreateBehaviour` de ses abilities (DSL `AddEffect(owner)`). Le
