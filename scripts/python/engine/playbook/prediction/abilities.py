@@ -549,6 +549,82 @@ def _mass_driver_accelerator_inputs(scene, caster_id, target_id, ab, cfg) -> dic
     return out
 
 
+def _ramming_speed_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (ability 1059) --
+    batch de la CIBLE PRINCIPALE. DEUX surcharges, lues au call-site :
+
+      - BASE = `IdunBattleLogic.Entities.DSLFormulas$$Get(GetVariableForLevel(config, 0xc = minDmg,
+        abilityState))` = **minDmg SEUL** (rarity-scaled), PAS l'avg(minDmg, maxDmg) generique. Meme
+        mold que `_great_frost_axe_inputs` (#57e), `_stikkbomb_inputs` et `_hellfire_shells_inputs`
+        (#173). ⚠ CONTRASTE avec la face COMBAT :
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.RammingSpeedAbility$$ExecuteBehaviour` passe
+        `DSLFormulas$$RandomAmount(minDmg 0xc, maxDmg 0xd)` -- deux call-sites natifs distincts, comme
+        pour Stikkbomb.
+      - HITS = `GetNumberConstant(0x2f = nrOfHits)` **LITTERAL** (7e arg du call-site). Le chemin
+        generique passe par `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits, Melee)`,
+        qui AJOUTE la stat `ExtraHits` du caster -- que ce playbook n'ajoute pas.
+
+    Le PROFIL n'est PAS surcharge : le 8e arg est `AbilityConfiguration$$GetDamageProfile(config)`,
+    `Nullable` NON vide (`damageProfile` = Physical), pas le quirk `param_8 = null` de #164/#165.
+
+    ⚠ RECTIFICATION #353 de la ligne 1059 de `_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE` : #350 avait
+    inscrit `ExplodesAbility$$GetDamage` = `PercentageOf(StatAmount(Health), ...)` comme LA formule de
+    1059. C'est une lecture PARTIELLE -- ce corps n'alimente que le TROISIEME batch (l'explosion), et
+    seulement quand l'auto-degat du ram TUE le caster. La formule du batch principal est `Get(minDmg)`.
+    Les deux autres batchs : `_ramming_speed_self_events` (porte) et le batch EXPLOSION (residu nomme,
+    cf. cette fonction et `docs/rl/case-353-ramming-speed-prediction.md`)."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)      # var 0xc = minDmg (Get == Direct)
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
+    out = {"base_override": base}
+    if hits:
+        out["hits_override"] = hits
+    return out
+
+
+# {ability_id: handler(scene, caster_id, target_id, ability_id, ability_name, attack_pos, ab, cfg)
+#  -> [ProbableDamageEvent]}. Batchs SUPPLEMENTAIRES d'un playbook : un
+# `GenerateMultiHitAttackPredictions` de plus, sur un selecteur qui n'est NI `<Target>` NI l'AoE de
+# l'ability (les deux que `make_damage_predictions` couvre deja). Consomme APRES la boucle AoE --
+# c'est l'ordre du natif pour le seul membre actuel (1059 : la boucle AoE y est vide).
+def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_name,
+                               attack_pos, ab, cfg) -> list:  # target_id ignore (contrat registre)
+    """`RammingSpeedPlaybook$$MakeDamagePredictions` -- **2e batch : le CASTER LUI-MEME**.
+
+    Le playbook enchaine un SECOND `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullyShared
+    GenericTypeu003E$$GenerateMultiHitAttackPredictions` dont le `param_4` ET le selecteur `param_5`
+    sont le CASTER (`DSLSelectors@+0x48`, celui-la meme que `RammingSpeedAbility$$ExecuteBehaviour`
+    passe a `MoveUnit`), puis `List.AddRange` dans la liste du 1er batch :
+
+        self = GenerateMultiHitAttackPredictions(caster, casterPosition, CASTER, <Caster>,
+                   Get(minDmg 0xc), GetNumberConstant(0x32 = nrOfHits_2),
+                   AbilityConfiguration$$GetDamageProfile(), null, 0)
+        list.AddRange(self)
+
+    C'est le RECUL du ram : le caster s'inflige `nrOfHits_2` coups de sa propre base. La face COMBAT
+    porte le MEME terme -- `RammingSpeedAbility$$ExecuteBehaviour` construit
+    `AttackWithAttackDamage(Owner@0x30, Owner@0x30, RandomAmount(minDmg, maxDmg), profile, nrOfHits_2)`
+    (caster == cible), somme a l'attaque de la cible. Base/profil sont ceux du batch principal ; seuls
+    les COUPS changent.
+
+    `friendly = True` : mirror de la negation NATIVE, pas une convention de port --
+    `IdunBattle.AI.Utilities.DamageUtility.u003CEvaluateAttackInStepsu003Ed__2$$MoveNext` termine par
+    `if (IsFriend(caster, actor)) u = u * -1` (branche `HasFriendlyFire` -> `IsEnemy` sinon). Le caster
+    est son propre ami : l'utilite de ce batch est NEGATIVE, exactement comme l'event de cout self.
+
+    Config incomplete -> `[]` (degradation fidele, aucun event invente), meme convention que
+    `_frenzied_firing_inputs`."""
+    lvl, mult = ab.level, ab.multiplier
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)       # var 0xc = minDmg (Get == Direct)
+    hits2 = int((cfg.constants or {}).get("nrOfHits_2") or 0)       # const 0x32 = nrOfHits_2
+    if not hits2 or not base:
+        return []
+    dp = generate_multi_hit_attack_prediction(scene, caster_id, caster_id, ability_id, ability_name,
+                                              attack_pos=attack_pos, base_override=base,
+                                              hits_override=hits2)
+    return [ProbableDamageEvent(target=caster_id, prediction=dp, friendly=True)] if dp is not None else []
+
+
 # {ability_id: handler(scene, caster_id, target_id, ab, cfg) -> {base/hits/profile_override}}. Mirror du dispatch
 # playbook natif (par type d'ability). HammerOfWrath (1153) a son propre chemin (make_hammer_wrath_events,
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
@@ -556,7 +632,12 @@ _MAKE_DMG_INPUT_OVERRIDES = {1191: _martial_inspiration_inputs, 1105: _crushing_
                              1080: _hellfire_shells_inputs, 1089: _great_frost_axe_inputs,
                              1036: _frenzied_firing_inputs, 1230: _savage_echoes_inputs,
                              1051: _stikkbomb_inputs,
-                             1222: _mass_driver_accelerator_inputs}
+                             1222: _mass_driver_accelerator_inputs,
+                             1059: _ramming_speed_inputs}
+
+# Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
+# sur un selecteur AUTRE que la cible principale et l'AoE de l'ability.
+_MAKE_DMG_EXTRA_EVENTS = {1059: _ramming_speed_self_events}
 
 
 # Override de PROFIL DE PREDICTION par-ability (audit #165) — mirror du `param_8`
@@ -700,6 +781,14 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
         aev = _event(t.get("id"), prob1, aoe_overrides)
         if aev is not None:
             events.append(aev)
+    # BATCH SUPPLEMENTAIRE a SELECTEUR PROPRE (`_MAKE_DMG_EXTRA_EVENTS`) — mirror des playbooks qui
+    # enchainent un `GenerateMultiHitAttackPredictions` sur un selecteur qui n'est NI `<Target>` NI
+    # l'AoE de l'ability (RammingSpeed 1059 : `<Caster>`, le recul du ram). Consomme ICI, apres la
+    # boucle AoE : c'est l'ordre du natif pour le seul membre actuel, dont la boucle AoE est vide.
+    _extra_fn = _MAKE_DMG_EXTRA_EVENTS.get(ability_id)
+    if _extra_fn is not None and not via_normal and cfg is not None:
+        events.extend(_extra_fn(scene, caster_id, main_tgt_id, ability_id, ability_name,
+                                attack_pos, ab, cfg))
     # #108 count² : les abilities AoE SELF-centrees (MurderousSwing) RE-EMETTENT la liste d'events de degat
     # `count` fois — le playbook natif boucle sur le set `AdjacentEnemies(caster)` (EXTERNE) ET
     # `GenerateMultiHitAttackPredictions` re-boucle sur ce MEME set (INTERNE) -> count² events, chaque cible
