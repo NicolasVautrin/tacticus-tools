@@ -309,7 +309,8 @@ def burn_geometry(groups, team) -> dict:
             "caster_outside": cpos not in (zone_cold | zone_hot)}
 
 
-def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING) -> tuple:
+def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING,
+                  hot_count: int = 2) -> tuple:
     """Monte le montage BURNING et rend `(rid, geometry, caster_id)`.
 
     DEUX PORTEURS, et c'est la piece centrale du montage : 1148 SORT du kit apres son cast (mesure
@@ -347,21 +348,35 @@ def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNI
           "--state-file", str(state)])
     rid = int(json.loads(state.read_text(encoding="utf-8"))["runnerId"])
     try:
-        return _burn_stage(rid, state, state_name, geo_units=a_units)
+        return _burn_stage(rid, state, state_name, a_units, hot_count)
     except BaseException:
         dispose(rid)                       # jamais de runner orphelin sur un echec de MONTAGE
         raise
 
 
-def _burn_stage(rid: int, state: Path, state_name: str, geo_units: list) -> tuple:
-    """Placement + purge de cooldown + PREMIER CAST -- la partie du montage qui peut ECHOUER."""
-    a_units = geo_units
+def _burn_stage(rid: int, state: Path, state_name: str, a_units: list, hot_count: int) -> tuple:
+    """Placement + purge de cooldown + PREMIER CAST -- la partie du montage qui peut ECHOUER.
+
+    `hot_count` = nombre d'ennemis places sur des tuiles EN FEU. `2` = le bras qui SEPARE (le terme
+    renverse l'ecart de custom) ; `1` = le bras TEMOIN (l'ecart de custom vaut DEUX ennemis, un seul
+    event ne suffit pas -> le natif ET le port doivent rester sur l'ancre FROIDE). Sans le temoin,
+    un port qui prefererait la zone brulante SYSTEMATIQUEMENT passerait le bras separant."""
     geo = burn_geometry(spawn_groups(state_name), _current_team(rid))
     if geo.get("dir") is None:
         raise SystemExit("SpawnPointGroups non lus -> `dir` indecidable, montage abandonne")
     if not (geo.get("zones_disjoint") and geo.get("caster_outside")):
         raise SystemExit("geometrie invalide (zones jointes ou caster dedans) : %s" % geo)
     ids = {v: i for v, (i, _p) in _units(rid).items()}
+    # Les tuiles du CASTER et de l'ALLUMEUR sont des PREFERENCES, pas des constantes : `dir` bascule
+    # d'un plateau a l'autre, donc les deux zones bougent, et une position ecrite en dur y tombe
+    # dedans (mesure sur `C1_03`, `dir = 4` : `(1,3)` entre en collision avec la zone FROIDE). On
+    # les RESOUT sur le board reel -- marchable, hors des deux zones, hors des ancres.
+    occupied = {tuple(p) for p in geo["cold_slots"]} | set(map(tuple, geo["zone_cold"])) \
+        | set(map(tuple, geo["zone_hot"]))
+    walk = _walkable(rid)
+    cpos = _pick_tile(walk, occupied, tuple(BURN_CASTER_TILE))
+    ipos = _pick_tile(walk, occupied | {cpos}, tuple(BURN_IGNITER_TILE))
+    geo["caster"], geo["igniter"] = cpos, ipos
 
     def _place(want: dict) -> None:
         """Place chaque unite NOMMEE ; toute autre (summon apparu au premier tour) part au PARKING.
@@ -377,7 +392,7 @@ def _burn_stage(rid: int, state: Path, state_name: str, geo_units: list) -> tupl
     # PHASE 1 : la zone FROIDE est deja definitive ; les DEUX chauds restent au parking, le temps
     # que le cast designe les tuiles REELLEMENT embrasees.
     cold = {a_units[i]: tuple(geo["cold_slots"][i]) for i in range(3)}
-    _place({**cold, CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(BURN_IGNITER_TILE)})
+    _place({**cold, CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(geo["igniter"])})
     _wait_ready(rid, state, BURN_IGNITER)
     igniter = ids[BURN_IGNITER]
     _duel(["act", "ability", "--caster", str(igniter), "--ability", str(DAEMONIC),
@@ -390,15 +405,38 @@ def _burn_stage(rid: int, state: Path, state_name: str, geo_units: list) -> tupl
     # montage rendait UN event au lieu de deux -- en silence.
     fire = _fire_now(rid)
     hot_slots = [p for p in fire if p in set(map(tuple, geo["zone_hot"]))]
-    if len(hot_slots) < 2:
-        raise SystemExit("zone chaude : %d tuile(s) en feu seulement (%s) -- il en faut 2"
-                         % (len(hot_slots), fire))
-    geo["hot_slots"] = hot_slots[:2]
-    _place({**cold, a_units[3]: hot_slots[0], a_units[4]: hot_slots[1],
-            CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(BURN_IGNITER_TILE)})
+    if len(hot_slots) < hot_count:
+        raise SystemExit("zone chaude : %d tuile(s) en feu seulement (%s) -- il en faut %d"
+                         % (len(hot_slots), fire, hot_count))
+    geo["hot_slots"] = hot_slots[:hot_count]
+    hot = {a_units[3 + i]: geo["hot_slots"][i] for i in range(hot_count)}
+    _place({**cold, **hot,
+            CASTER_VID: tuple(geo["caster"]), BURN_IGNITER: tuple(geo["igniter"])})
     # AUCUN endturn : le DECIDEUR joue dans le MEME tour d'equipe, 1148 intacte.
     caster = _assert_ready(rid, CASTER_VID)
     return rid, geo, caster
+
+
+def _walkable(rid: int) -> dict:
+    """`{(col,row): bool}` du `boardGraph` -- `BattleQuery$$IsWalkableTile`. Une tuile non marchable
+    ne peut jamais accueillir d'unite : y envoyer un `act move` echoue en silence et l'unite reste ou
+    elle etait, ce qui se lit ensuite comme un placement « presque bon »."""
+    import engine_validate as EV
+    import probe_27_3_live as L
+    from engine.ai import context as C
+    sid = L.INV._session_id()
+    return C._board_walkable(lambda m, b, t=60: EV._r(sid, m, b, t), rid)
+
+
+def _pick_tile(walkable: dict, forbidden: set, prefer: tuple) -> tuple:
+    """`prefer` si elle est marchable et hors `forbidden` ; sinon la tuile marchable autorisee la
+    PLUS PROCHE (distance hex, puis ordre lexicographique -- deterministe)."""
+    if walkable.get(tuple(prefer)) and tuple(prefer) not in forbidden:
+        return tuple(prefer)
+    cands = [p for p, ok in walkable.items() if ok and p not in forbidden]
+    if not cands:
+        raise SystemExit("aucune tuile marchable hors des zones pour placer %s" % (prefer,))
+    return min(cands, key=lambda p: (hexgeo.distance(p, tuple(prefer)), p))
 
 
 def _fire_now(rid: int) -> list:
@@ -559,10 +597,11 @@ def burn_diag(scene, caster: int, rows: list) -> dict:
             "target_hpmax": {t: scene.hpmax(int(t)) for t in tgts}}
 
 
-def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING) -> dict:
+def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BURNING,
+                    hot_count: int = 2) -> dict:
     """Le runner est dispose par l'APPELANT (`arms` du test, `burning` du CLI) -- mais jamais
     abandonne : un echec APRES le build rend quand meme son `rid` dans l'exception."""
-    rid, geo, caster = build_burning(state_name, board, hp_target)
+    rid, geo, caster = build_burning(state_name, board, hp_target, hot_count)
     try:
         groups = spawn_groups(state_name)
         pos = {v: p for v, (_i, p) in _units(rid).items()}
@@ -574,9 +613,9 @@ def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_BUR
         raise
 
 
-def burning(hp_target: int = HP_BURNING, board: str = BOARD,
+def burning(hp_target: int = HP_BURNING, board: str = BOARD, hot_count: int = 2,
             state_name: str = "rs_302_3_burn.json") -> int:
-    r = measure_burning(state_name, board, hp_target)
+    r = measure_burning(state_name, board, hp_target, hot_count)
     try:
         e, g = r["engine"], r["geo"]
         print("\n=== BURNING (runner %d, caster u%s, board %s) ===" % (r["rid"], r["caster"], board))
@@ -968,6 +1007,7 @@ def main() -> int:
     ap.add_argument("--agreement", action="store_true")
     ap.add_argument("--steps", type=int, default=24)
     ap.add_argument("--unbranched", action="store_true")
+    ap.add_argument("--hot-count", type=int, default=2)
     ap.add_argument("--diag", action="store_true")
     ap.add_argument("--stage", action="store_true")
     ap.add_argument("--board", default=BOARD)
@@ -979,7 +1019,8 @@ def main() -> int:
     if a.agreement:
         return agreement(a.steps, a.board, a.unbranched)
     if a.burning:
-        return burning(a.hp_target if a.hp_target != HP_FAVOURABLE else HP_BURNING, a.board)
+        return burning(a.hp_target if a.hp_target != HP_FAVOURABLE else HP_BURNING, a.board,
+                       a.hot_count)
     if a.flip:
         return flip(a.hp_target)
     if a.diag:

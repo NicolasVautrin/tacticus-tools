@@ -215,62 +215,91 @@ def test_spawn_group_channel_drives_the_triangle_direction(arms):
 
 @pytest.fixture(scope="module")
 def burning():
-    """Le runner est dispose DES la mesure : le dict porte tout ce que les gardes lisent, et la
-    fixture `arms` en garde deja trois vivants (plafond MAX_RUNNERS partage)."""
-    r = AB.measure_burning("rs_302_3_t_burn.json")
-    try:
-        yield r
-    finally:
+    """DEUX bras, montes l'un apres l'autre (jamais deux runners vivants a la fois -- la fixture
+    `arms` en garde deja trois, plafond MAX_RUNNERS partage) :
+
+      * `sep`    : DEUX ennemis brulants -> le terme renverse l'ecart de custom ;
+      * `temoin` : UN SEUL -> l'ecart vaut DEUX ennemis, un event ne suffit pas, et le natif COMME
+                   le port restent sur l'ancre FROIDE. Sans lui, un port qui prefererait la zone
+                   brulante SYSTEMATIQUEMENT passerait le bras separant."""
+    out = {}
+    for tag, n in (("sep", 2), ("temoin", 1)):
+        r = AB.measure_burning("rs_302_3_t_burn_%s.json" % tag, hot_count=n)
         AB.dispose(r["rid"])
+        out[tag] = r
+    yield out
 
 
 def test_burning_montage_really_burns_and_separates(burning):
-    """Le montage n'est pas complaisant : les DEUX tuiles chaudes portent `Fire`, AUCUNE froide ne
-    le porte, et l'ancre chaude rend DEUX evenements contre ZERO pour la froide."""
-    g, e = burning["geo"], burning["engine"]
-    fire = set(map(tuple, e["fire"]))
-    hot = [tuple(p) for p in g["hot_slots"]]
-    cold = [tuple(p) for p in g["cold_slots"]]
-    assert set(hot) <= fire, "zone chaude %s hors du feu mesure %s" % (hot, sorted(fire))
-    assert not (set(cold) & fire), "zone froide %s en feu -- le contraste est perdu" % (cold,)
-    hot_row = next(x for x in e["rows"] if tuple(x["pos"]) == hot[0])
-    cold_row = next(x for x in e["rows"] if tuple(x["pos"]) == cold[0])
-    assert (hot_row["n_events"], cold_row["n_events"]) == (2, 0), (
-        "events attendus (chaude 2, froide 0), mesures (%s, %s)"
-        % (hot_row["n_events"], cold_row["n_events"]))
-    assert cold_row["custom"] > hot_row["custom"], (
-        "le custom doit FAVORISER la froide (30 > 20), sinon la bascule ne prouve rien : %s vs %s"
-        % (cold_row["custom"], hot_row["custom"]))
+    """Le montage n'est pas complaisant : les tuiles chaudes portent TOUTES `Fire`, AUCUNE froide ne
+    le porte, l'ancre chaude rend UN event PAR ennemi brulant et la froide ZERO, et le custom
+    FAVORISE la froide dans les deux bras."""
+    for tag, r in burning.items():
+        g, e = r["geo"], r["engine"]
+        fire = set(map(tuple, e["fire"]))
+        hot = [tuple(p) for p in g["hot_slots"]]
+        cold = [tuple(p) for p in g["cold_slots"]]
+        assert set(hot) <= fire, "bras %s : zone chaude %s hors du feu %s" % (tag, hot, sorted(fire))
+        assert not (set(cold) & fire), "bras %s : zone froide %s en feu" % (tag, cold)
+        hot_row = next(x for x in e["rows"] if tuple(x["pos"] or ()) == hot[0])
+        cold_row = next(x for x in e["rows"] if tuple(x["pos"] or ()) == cold[0])
+        assert (hot_row["n_events"], cold_row["n_events"]) == (len(hot), 0), (
+            "bras %s : events attendus (chaude %d, froide 0), mesures (%s, %s)"
+            % (tag, len(hot), hot_row["n_events"], cold_row["n_events"]))
+        assert cold_row["custom"] > hot_row["custom"], (
+            "bras %s : le custom doit FAVORISER la froide, sinon la bascule ne prouve rien "
+            "(%s vs %s)" % (tag, cold_row["custom"], hot_row["custom"]))
 
 
 def test_the_ordnance_beats_the_normal_attack_in_the_burning_arm(burning):
     """Sans cela, la mesure porterait sur l'arbitrage ability/attaque et non sur le CIBLAGE."""
-    e = burning["engine"]
-    assert burning["native"][0] == DO, (
-        "le natif ne caste pas 1148 dans le bras brulant (%s) -- le montage ne mord plus"
-        % (burning["native"],))
-    assert e["cand_1148"] and e["best_attack"], "candidat 1148 ou _best_attack absent"
-    assert e["cand_1148"][0]["full"] > e["best_attack"]["full"], (
-        "1148 (%.3f) ne bat plus l'attaque normale (%.3f)"
-        % (e["cand_1148"][0]["full"], e["best_attack"]["full"]))
+    for tag, r in burning.items():
+        e = r["engine"]
+        assert r["native"][0] == DO, (
+            "bras %s : le natif ne caste pas 1148 (%s) -- le montage ne mord plus"
+            % (tag, r["native"]))
+        assert e["cand_1148"] and e["best_attack"], "bras %s : candidat 1148/_best_attack absent" % tag
+        assert e["cand_1148"][0]["full"] > e["best_attack"]["full"], (
+            "bras %s : 1148 (%.3f) ne bat plus l'attaque normale (%.3f)"
+            % (tag, e["cand_1148"][0]["full"], e["best_attack"]["full"]))
 
 
 def test_engine_matches_native_when_the_area_burns(burning):
-    """H : LA question binaire de la tranche -- ability ET cible elues, port contre natif."""
-    e = burning["engine"]
-    assert e["on"] == burning["native"], (
-        "moteur %s != natif %s (zone en feu)" % (e["on"], burning["native"]))
-    assert tuple(e["pos_by_tid"].get(e["on"][1]) or ()) == tuple(burning["geo"]["hot_slots"][0]), (
-        "la tuile elue %s n'est pas l'ancre CHAUDE %s"
-        % (e["pos_by_tid"].get(e["on"][1]), burning["geo"]["hot_slots"][0]))
+    """H : LA question binaire de la tranche -- ability ET cible elues, port contre natif, dans les
+    DEUX bras (celui qui renverse et le TEMOIN qui ne renverse pas)."""
+    for tag, r in burning.items():
+        assert r["engine"]["on"] == r["native"], (
+            "bras %s : moteur %s != natif %s (zone en feu)"
+            % (tag, r["engine"]["on"], r["native"]))
+
+
+def test_two_burning_enemies_flip_the_elected_tile_but_one_does_not(burning):
+    """Le terme ne renverse PAS par principe : il renverse quand il PESE plus que l'ecart de custom.
+
+    * `sep`    (2 brulants) : ecart de custom = 1 ennemi (30 vs 20) -> l'elu passe a la CHAUDE ;
+    * `temoin` (1 brulant)  : ecart = 2 ennemis (30 vs 10) -> l'elu RESTE la FROIDE.
+    Le natif tranche pareil dans les deux cas (`test_engine_matches_native_when_the_area_burns`)."""
+    sep, tem = burning["sep"], burning["temoin"]
+    assert tuple(sep["engine"]["pos_by_tid"].get(sep["engine"]["on"][1]) or ()) \
+        == tuple(sep["geo"]["hot_slots"][0]), (
+        "bras sep : la tuile elue %s n'est pas l'ancre CHAUDE %s"
+        % (sep["engine"]["pos_by_tid"].get(sep["engine"]["on"][1]), sep["geo"]["hot_slots"][0]))
+    assert tuple(tem["engine"]["pos_by_tid"].get(tem["engine"]["on"][1]) or ()) \
+        == tuple(tem["geo"]["cold_slots"][0]), (
+        "bras TEMOIN : la tuile elue %s n'est pas l'ancre FROIDE %s -- le port prefere donc la zone "
+        "brulante SYSTEMATIQUEMENT, et l'accord du bras separant ne prouve rien"
+        % (tem["engine"]["pos_by_tid"].get(tem["engine"]["on"][1]), tem["geo"]["cold_slots"][0]))
 
 
 def test_unbranching_the_prediction_elects_another_tile(burning):
     """VUE ROUGE, MESUREE : `make_damage_predictions` remis sur le corps de BASE de
     `NonAttackComparablePlaybook` (`return []`) -- litteralement le port d'AVANT #359-r3 -- fait
     elire l'ancre FROIDE, la ou le natif vise la CHAUDE. Si ce test cessait de mordre, l'accord de
-    `test_engine_matches_native_when_the_area_burns` viendrait d'ailleurs que de ce branchement."""
-    e, g = burning["engine"], burning["geo"]
+    `test_engine_matches_native_when_the_area_burns` viendrait d'ailleurs que de ce branchement.
+
+    Le bras TEMOIN, lui, n'est PAS concerne : il n'y a rien a renverser (le port debranche y elit
+    deja la bonne tuile) -- c'est precisement ce qui en fait un temoin."""
+    e, g = burning["sep"]["engine"], burning["sep"]["geo"]
     assert e["nopred"] != e["on"], (
         "prediction debranchee : le moteur rend %s, identique au bras cable -- le branchement "
         "n'est donc pas ce qui produit l'accord" % (e["nopred"],))
