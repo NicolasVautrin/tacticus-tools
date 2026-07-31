@@ -122,7 +122,7 @@ def _move(sid, rid, uid, col, row):
         "kind": "move", "unitId": int(uid), "to": {"col": int(col), "row": int(row)}}}, 90)
 
 
-def drive_to(sid, rid, wanted: dict, max_turns: int = 20) -> bool:
+def drive_to(sid, rid, wanted: dict, max_turns: int = 40) -> bool:
     """Amene chaque unite sur SA position (pas-a-pas via `aiMovableTiles`), puis `endturn` -- ce
     qui RESET le flag `Moved` du caster, sans quoi `GetDynamicInvalidTargetReason` rend `0x10`."""
     for _ in range(max_turns):
@@ -198,17 +198,33 @@ def _three_arms(state, board, caster, target):
 
 def _decompose(state, board, pool, caster):
     """Terme par terme sur le pool : `Tile(7)` d'un cote, la feuille 54 de l'autre. C'est ce qui
-    rend un ecart ATTRIBUABLE au lieu d'etre constate."""
+    rend un ecart ATTRIBUABLE au lieu d'etre constate.
+
+    ⚠ Le `meta` par tuile est reconstruit EXACTEMENT comme dans `sort_tiles_by_utility` (elevation
+    de la tuile + min/max du BOARD ENTIER + effets, canal dynamique puis `terrain_tile_effects`).
+    Un `meta` vide ferait rendre 0 a `ElevationUtility`/`TileEffectsUtility` et afficherait un
+    `Tile(7)` PLAT qui n'existe pas -- c'est exactement le faux diagnostic a ne pas produire."""
     from engine import weights as W
     from engine.utilities.ramming_speed import RAMMING_SPEED_MOST_ADJACENT_ENEMIES as U54
-    from engine.utilities.tile import TILE_UTILITY, runner_tile_leaf_ctx
+    from engine.utilities.tile import TILE_UTILITY, runner_tile_leaf_ctx, terrain_tile_effects
     wt = W.load()
     ctx = runner_tile_leaf_ctx(state, caster)
+    elevs = [t.get("elevation") for t in board.by_id.values() if t.get("elevation") is not None]
+    emax, emin = (max(elevs), min(elevs)) if elevs else (None, None)
+    fx = getattr(state, "effects", None)
     out = {}
     for t in pool:
         p = board.coord(t)
-        out[str(p)] = {"tile7": TILE_UTILITY.evaluate(p, {}, ctx, wt),
-                       "u54": U54.evaluate(p, {}, ctx, wt)}
+        info = board.by_id.get(t) or {}
+        effs = []
+        if fx is not None:
+            effs += [e.name for e in fx.by_unit.get(int(t), []) if not e.consumed and e.name]
+        effs += terrain_tile_effects(board.tile_def_id(t), effs)
+        meta = {"elevation": info.get("elevation"), "elevation_max": emax, "elevation_min": emin,
+                "effects": effs}
+        out[str(p)] = {"tile7": TILE_UTILITY.evaluate(p, meta, ctx, wt),
+                       "u54": U54.evaluate(p, meta, ctx, wt),
+                       "elev": info.get("elevation"), "terrain": board.tile_def_id(t)}
     return out
 
 
@@ -234,57 +250,64 @@ def _cast(sid, rid, caster, target, tries=6):
     return act0, after
 
 
-def _geometry(board, kind: str):
-    """Deux geometries CRAFTEES sur le board reel (positions DIRIGEES, jamais subies) :
+def _scan_geometry(state, board, ids, kind: str, max_targets: int = 24):
+    """Cherche une geometrie DISCRIMINANTE en MUTANT l'etat OFFLINE, puis en TESTANT les trois bras
+    -- jamais en PREDISANT la discrimination depuis une hypothese de terrain.
 
-      * `count`  : le 2e ennemi touche DEUX candidates qui ne sont PAS les premieres de l'ordre
-                   source -> c'est la feuille 54 qui doit trancher ;
-      * `order`  : le 2e ennemi cree DEUX candidates ex aequo au sommet -> a utilite egale, c'est
-                   l'ORDRE du selecteur source qui tranche.
+    C'est la lecon du 1er jet de ce probe : il choisissait la geometrie en supposant `Tile(7)` PLAT
+    (« la 1re du pool gagne a utilite egale »). Sur un board REEL, `Tile(7)` porte l'elevation et les
+    effets de terrain, il n'est PAS plat, et l'axe ORDRE tombait sur une geometrie non discriminante.
+    On mesure donc, sur le board reel, ce que les bras rendent.
 
-    Rend `(target_pos, enemy2_pos, caster_pos, ally_pos)` ou None si le board n'offre pas la
-    configuration (le probe le DIT au lieu d'inventer une geometrie degradee)."""
-    six = sorted(t for t in board.by_id
-                 if board.walkable(t) and len(board.neighbours(t)) == 6
-                 and all(board.walkable(n) for n in board.neighbours(t)))
-    for tt in six:
-        tp = board.coord(tt)
-        ring = [board.coord(n) for n in board.neighbours_native(tt)]
-        if len(ring) != 6:
-            continue
-        for e2 in ring:
-            rest = [p for p in ring if p != e2]
-            touched = [p for p in rest if hexgeo.distance(p, e2) == 1]
-            if len(touched) != 2:
+      * `count`  : le bras `Tile(7)` SEUL doit designer une AUTRE tuile que le bucket complet
+                   -> c'est la feuille 54 qui tranche ;
+      * `order`  : le bras OPERANDES INTERVERTIS doit designer une AUTRE tuile
+                   -> c'est l'ordre du selecteur source qui tranche.
+
+    Rend `(target_pos, enemy2_pos, caster_pos, ally_pos)` ou None -- auquel cas le probe le DIT au
+    lieu de jouer une geometrie qui ne prouverait rien. Positions restaurees a la sortie."""
+    from engine.runner.components import PositionComponent
+    pcs = {v: state.get_entity(ids[v]).get_component(PositionComponent)
+           for v in (GRAFT, FILLER_P, VICTIM, ENEMY2)}
+    keep = {v: (pc.col, pc.row) for v, pc in pcs.items()}
+    walk = sorted(board.coord(t) for t in board.by_id if board.walkable(t))
+    # PROXIMITE AUX SPAWNS : chaque tuile de deplacement est un tour de drive, et un drive long
+    # derive l'etat (fatigue, effets de tour). On balaie donc les cibles les plus proches d'abord.
+    six = sorted((t for t in board.by_id
+                  if board.walkable(t) and len(board.neighbours(t)) == 6
+                  and all(board.walkable(n) for n in board.neighbours(t))),
+                 key=lambda t: (hexgeo.distance(board.coord(t), keep[VICTIM]), t))
+    try:
+        for tt in six[:max_targets]:
+            tp = board.coord(tt)
+            ring = [board.coord(n) for n in board.neighbours_native(tt)]
+            if len(ring) != 6:
                 continue
-            # ordre source du port = ids de tuile CROISSANTS (cf. `MovableTilesInRange`)
-            by_id = sorted(rest, key=lambda p: board.id_at(p[0], p[1]))
-            first_is_touched = by_id[0] in touched
-            if kind == "count" and first_is_touched:
-                continue                     # le 1er du pool est deja au max -> non discriminant
-            if kind == "order" and not first_is_touched:
-                continue                     # les ex aequo ne sont pas departages par l'ordre
-            if kind == "order":
-                # les ex aequo doivent etre departages DIFFEREMMENT par les deux ordres, sinon la
-                # geometrie ne peut rien prouver sur l'ordre des operandes
-                first_by_ring = next(p for p in ring if p in touched)
-                first_by_id = next(p for p in by_id if p in touched)
-                if first_by_ring == first_by_id:
-                    continue
-            # caster ET allie : marchables, HORS ring, et l'allie assez LOIN pour ne toucher
-            # aucune candidate (sinon il n'est pas neutre pour la feuille 54 -- qui ne compte que
-            # les ennemis, mais il occuperait une tuile du pool).
-            walk = sorted(board.coord(x) for x in board.by_id if board.walkable(x))
-            free = [p for p in walk if p not in ring and p != tp]
-            ally = next((p for p in reversed(free)
+            ally = next((p for p in reversed(walk)
                          if all(hexgeo.distance(p, q) > 1 for q in ring + [tp])), None)
             if ally is None:
                 continue
-            cp = next((p for p in free
-                       if p != ally and 2 <= hexgeo.distance(p, tp) <= MOVE_RANGE), None)
-            if cp is None:
-                continue
-            return tp, e2, cp, ally
+            pcs[VICTIM].col, pcs[VICTIM].row = tp
+            pcs[FILLER_P].col, pcs[FILLER_P].row = ally
+            casters = sorted((p for p in walk
+                              if p != ally and p not in ring
+                              and 2 <= hexgeo.distance(p, tp) <= MOVE_RANGE),
+                             key=lambda p: (hexgeo.distance(p, keep[GRAFT]), p))
+            for e2 in sorted(ring, key=lambda p: hexgeo.distance(p, keep[ENEMY2])):
+                pcs[ENEMY2].col, pcs[ENEMY2].row = e2
+                for cp in casters[:8]:
+                    pcs[GRAFT].col, pcs[GRAFT].row = cp
+                    arms = _three_arms(state, board, ids[GRAFT], ids[VICTIM])
+                    if arms["bucket"] is None or len(arms["pool"]) < 2:
+                        continue
+                    if kind == "count" and arms["bucket"] == arms["tile7"]:
+                        continue
+                    if kind == "order" and arms["bucket"] == arms["swapped"]:
+                        continue
+                    return tp, e2, cp, ally
+    finally:
+        for v, pc in pcs.items():
+            pc.col, pc.row = keep[v]
     return None
 
 
@@ -300,9 +323,10 @@ def run_case(sid, kind: str, seed: int, hp: int, verbose: bool) -> dict:
         out["runner"] = rid
         state, board, dv = _load(sid, rid)
         ids = _ids(dv)
-        geo = _geometry(board, kind)
+        geo = _scan_geometry(state, board, ids, kind)
         if geo is None:
-            out["error"] = "aucune geometrie %r sur le board %s" % (kind, BOARD)
+            out["error"] = ("aucune geometrie DISCRIMINANTE %r sur le board %s -- rien n'est joue "
+                            "(une geometrie non discriminante ne validerait rien)" % (kind, BOARD))
             return out
         tp, e2, cp, ap = geo
         out["geometry"] = {"target": list(tp), "enemy2": list(e2), "caster": list(cp),

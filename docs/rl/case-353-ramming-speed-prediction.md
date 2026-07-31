@@ -216,14 +216,37 @@ Bucket → `(3,4)` ; `Tile(7)` seul (ce que le port savait exprimer) → `(2,2)`
 `engine/runner/abilities/orks.py::ramming_speed_tile_to_move_to` (+ son sélecteur).
 1059 **n'entre pas** dans `ABILITY_CLASSES` : seule `GetTileToMoveTo` est portée.
 
-**Non confronté LIVE** — la plateforme était hors service pendant la tranche (host `127.0.0.1:8765`
-éteint, aucune session Frida ; un agent n'injecte pas). Le probe est écrit et prêt :
-`probe_353r1_ramming_speed_charge_tile.py`. Il n'utilise **aucun capteur neuf** — la face COMBAT
-expose la tuile directement (`ExecuteBehaviour` = `If(!IsAdjacent(caster, target, 3), MoveUnit(caster,
-GetTileToMoveTo()))`), donc **la position d'arrivée du caster après un cast natif de 1059 EST la
-réponse**. Deux conditions de montage, lues au décompilé : caster NON adjacent à la cible (sinon le
-`If` court-circuite) et caster n'ayant pas bougé ce tour (sinon
-`GetDynamicInvalidTargetReason` rend `0x10` — d'où le `endturn` après le drive).
+**CONFRONTÉ LIVE — 2/2 MATCH**, `probe_353r1_ramming_speed_charge_tile.py`. **Aucun capteur neuf** :
+la face COMBAT expose la tuile directement (`ExecuteBehaviour` = `If(!IsAdjacent(caster, target, 3),
+MoveUnit(caster, GetTileToMoveTo()))`) ⇒ **la position d'arrivée du caster après un cast natif de 1059
+EST la réponse**. Deux conditions de montage, lues au décompilé : caster NON adjacent à la cible
+(sinon le `If` court-circuite) et caster n'ayant pas bougé ce tour (sinon
+`GetDynamicInvalidTargetReason` rend `0x10`) — d'où le `endturn` après le drive. Greffe = celle du
+§3 (`orksKillaKan`, config injectée explicitement).
+
+Board `MC1_67`, cible `necroWarden` en (4,7), greffon caster, 2ᵉ ennemi `ultraTitus` :
+
+| bras | runner | 2ᵉ ennemi / caster | pool (ordre natif) | `Tile(7)` / `u54` | port livré | bras muté | NATIF |
+|---|---|---|---|---|---|---|---|
+| **le terme 54 tranche** | 58 | (5,8) / (1,4) | `[(3,7),(3,8),(4,6),(5,7)]` | `5/20 · 5/20 · -20/20 · 5/40` | **(5,7)** | `Tile(7)` seul → (3,7) | **(5,7)** MATCH |
+| **l'ordre tranche** | 57 | (5,7) / (1,5) | `[(3,7),(3,8),(4,6),(4,8)]` | `5/20 · 5/20 · -20/40 · 5/20` | **(3,7)** | opérandes intervertis → (4,8) | **(3,7)** MATCH |
+
+Deux choses que ces mesures donnent en plus de l'accord :
+
+* **la SOMME est confirmée, pas seulement la présence du terme.** Dans le bras « ordre », (4,6) porte
+  le `u54` MAXIMUM (40) mais un `Tile(7)` de **-20** — c'est une `Swamp`, dont l'ability de terrain
+  pose `Thorns_DefenseReduction` sur la tuile (cf. `case-155`). Total 20 < 25. Un port qui aurait pris
+  « la tuile au plus d'ennemis adjacents » aurait choisi (4,6) ; le natif prend (3,7).
+* **`Tile(7)` n'est PAS constant sur un board réel** (Grass +5, Swamp -20). Le montage offline est
+  plat EXPRÈS pour nommer le terme qui tranche ; le live couvre le régime où les deux termes se
+  combinent vraiment.
+
+⚠ Le probe **cherche sa géométrie en MUTANT l'état offline puis en TESTANT les trois bras**, jamais en
+prédisant la discrimination. Son premier jet la prédisait en supposant `Tile(7)` plat : sur le board
+réel, l'axe ORDRE tombait alors sur une géométrie **non discriminante** (le probe l'avait dit — c'est
+ce qui a fait corriger la méthode plutôt qu'accepter un accord sans valeur). Même cause pour le
+`decompose`, qui doit reconstruire le `meta` par tuile **exactement** comme `sort_tiles_by_utility`
+(élévation + min/max du board + effets) : un `meta` vide affiche un `Tile(7)` plat qui n'existe pas.
 
 ## 6. Gardes
 
@@ -232,11 +255,12 @@ réponse**. Deux conditions de montage, lues au décompilé : caster NON adjacen
 | `tests/engine/test_353_ramming_speed_prediction_offline.py` (6) | le registre + la ligne de table rectifiée ; base = `minDmg` sur 4 niveaux avec écart NON NUL ; coups = littéral même avec `ExtraHits`/`ExtraHitsMelee` (l'axe que le live n'exerce pas) ; câblage du 2ᵉ batch (ordre, cible = caster, `nrOfHits_2`, `friendly`) ; dégradation `[]` sans config ; **0 porteur de 1059 dans tout le gameconfig** |
 | `tests/engine/test_353_ramming_speed_prediction_live.py` (4) | greffe appliquée + config injectée + `playbookClass` + `AbilityState` du capteur ; port == natif event pour event ; le natif émet bien l'event SELF à `nrOfHits_2` coups et le port d'AVANT n'en émettait qu'un ; chaque bras DISCRIMINE |
 | `tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py` (10) | **#353-r1 volet (a)**, 100 % offline sur le montage nommé `_ramming_speed_charge_montage.py` : 54 au registre (par MEMBRE d'enum) ; feuille = `#ennemis adjacents × poids BC` (poids RELU, pas figé) ; muette sans sujet ; bucket = 2 termes de poids 1, `minDiff` 0, UN seul `Buckets[0]` ; **le 2ᵉ terme change la tuile** ; poids 0 ≡ amputation (la composition est bien une somme pondérée) ; type inconnu → LÈVE (jamais 0 silencieux) ; opérandes `MovableTilesInRange` À GAUCHE ; **l'ordre change la tuile à égalité** ; intersection vide → `None` |
+| `probe_353r1_ramming_speed_charge_tile.py` (2 bras) | **la confrontation** : la tuile du port == celle où le natif POSE le caster, sur deux géométries dont l'une isole le terme 54 et l'autre l'ordre des opérandes ; chaque bras muté DIVERGE (sinon le probe écrit `[NON DISCRIMINANT]` au lieu de compter un accord sans valeur) |
 
 **Ce qui n'est PAS couvert** : les batchs 3/4 (§5 (b) — gate `WillBeKill`, hors périmètre #353-r1) ;
-la confrontation LIVE de `GetTileToMoveTo` (probe écrit, plateforme éteinte) ; le régime où `Tile(7)`
-n'est PAS constant (le montage est plat EXPRÈS, pour que le terme qui tranche soit nommable) ;
 l'ORDRE natif de `MovableTilesInRange` (le port rend les ids croissants, le natif l'ordre de visite du
 BFS — inobservable tant que ce nœud était à DROITE de toutes les intersections portées, il devient ici
-l'ordre source et ne départage que des utilités STRICTEMENT égales) ; l'axe COUPS en live (le greffon
-a 0 `ExtraHits` — couvert offline seulement) ; le `multiplier` per-ability (les 4 bras sont à 100).
+l'ordre source et ne départage que des utilités STRICTEMENT égales ; les deux bras live sont tranchés
+par des utilités DIFFÉRENTES, donc ce résidu n'y est pas exercé) ; les quatre SENTINELLES de
+`CalculateUtilityInSteps` (aucune utilité portée n'en rend une) ; l'axe COUPS en live (le greffon a 0
+`ExtraHits` — couvert offline seulement) ; le `multiplier` per-ability (les 4 bras sont à 100).
