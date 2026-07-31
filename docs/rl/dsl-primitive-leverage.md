@@ -14,7 +14,7 @@ Chaine de production (trois probes, trois tables machine dans `logs/`) :
 | C | `probe_326_dsl_join.py` | `logs/326_dsl_primitive_leverage.tsv` | quelle primitive NON PORTEE debloque le plus d'abilities confrontables ? |
 
 
-Build mesure : `rnca9r7q6c`. Table phase 1 (#325) : **ABSENTE -- la colonne de levier vaut `NON_MESURABLE_P1`**.
+Build mesure : `rnca9r7q6c`. Table phase 1 (#325) : **`docs/rl/dsl-usage/dsl-usage-edges.tsv`**.
 
 ## 1. Couverture du port, par famille de primitive
 
@@ -51,11 +51,100 @@ La voie RELIQUE a **trois** etats et non deux (`RELIQUE_EQUIPEE_SEED` / `RELIQUE
 
 ## 3. Classement des primitives NON PORTEES par levier
 
-**NON MESURABLE** -- la table `primitive <-> abilities` de la phase 1 (#325) n'a pas
-atterri. Le classement n'est PAS estime : un ordre invente sur des xrefs devinees
-vaudrait moins que son absence. Relancer avec `--p1 <table>` le produit sans autre
-changement (le lecteur accepte TSV/JSON et trois formes de nom de chaque cote ;
-cf. `scripts/python/tests/test_326_dsl_join_offline.py`).
+Aretes de la table phase 1 : **11180** | **retenues : 8966 (80.2 %)** | rejetees cote primitive : 0 | rejetees cote owner : 2214.
+
+Les rejets sont VENTILES, pas jetes -- par `owner_kind` de la phase 1 : `ability` 1239, `effect` 586, `dsl-internal` 217, `utility` 120, `other` 52.
+
+Ce qui reste non resolu est **structurel** : bases abstraites (`A*Ability`,
+`*Base`), abilities d'ENVIRONNEMENT (`Env*`, `PowerUp*`), internes du DSL
+lui-meme, et couche `utility`. Aucune ne repond a un nom d'ability du
+gameconfig -- ce n'est pas un defaut de lecture, c'est qu'elles n'en ont pas.
+
+
+| # | famille | primitive | verdict port | abilities | dont confrontables | dont pool |
+|---:|---|---|---|---:|---:|---:|
+| 1 | DSLTriggers | `get_OwnerIsCaster` | CITE_A_QUALIFIER | 128 | 104 | 66 |
+| 2 | DSLFormulas | `Direct` | CITE_A_QUALIFIER | 149 | 101 | 83 |
+| 3 | DSLTriggers | `get_OwnerIsTarget` | CITE_A_QUALIFIER | 128 | 78 | 45 |
+| 4 | DSLFormulas | `Multiply` | PORTE_SANS_CITATION | 65 | 54 | 35 |
+| 5 | DSLTriggers | `get_OwnerIsActor` | CITE_A_QUALIFIER | 67 | 53 | 36 |
+| 6 | DSLFormulas | `Sum` | PORTE_SANS_CITATION | 58 | 43 | 32 |
+| 7 | DSLSelectors | `Direct` | CITE_A_QUALIFIER | 42 | 33 | 28 |
+| 8 | DSLTriggers | `TriggeringAbilityIs` | CITE_A_QUALIFIER | 22 | 19 | 13 |
+| 9 | DSLFormulas | `Min` | PORTE_SANS_CITATION | 18 | 17 | 13 |
+| 10 | DSLBehaviors | `IfAlive` | CITE_A_QUALIFIER | 20 | 14 | 11 |
+| 11 | DSLBehaviors | `PerformAIAttackFromCurrentPosition` | CITE_A_QUALIFIER | 19 | 14 | 11 |
+| 12 | DSLFormulas | `Subtract` | NON_PORTE | 14 | 13 | 6 |
+| 13 | DSLSelectors | `SortTilesByUtility` | CITE_A_QUALIFIER | 18 | 13 | 9 |
+| 14 | DSLSelectors | `SortTilesByUtilityForSummon` | CITE_A_QUALIFIER | 14 | 13 | 10 |
+| 15 | DSLTriggers | `OnOwnerSpecificAbilityInit` | CITE_A_QUALIFIER | 14 | 13 | 6 |
+| 16 | DSLFactory | `Triggered` | NON_PORTE | 19 | 12 | 8 |
+| 17 | DSLFormulas | `GetPersistentData` | CITE_A_QUALIFIER | 19 | 12 | 3 |
+| 18 | DSLTriggers | `CurrentAbilityIs` | CITE_A_QUALIFIER | 14 | 12 | 6 |
+| 19 | DSLBehaviors | `AddDynamicStatModifierEffectToOwner` | CITE_A_QUALIFIER | 12 | 9 | 6 |
+| 20 | DSLBehaviors | `SetPersistentData` | CITE_A_QUALIFIER | 15 | 9 | 4 |
+| 21 | DSLSelectors | `DamageProfileFromConfig` | CITE_A_QUALIFIER | 16 | 9 | 6 |
+| 22 | DSLSelectors | `SortUnitsByDamageUtility` | CITE_A_QUALIFIER | 10 | 9 | 5 |
+| 23 | DSLTriggers | `IsUnit` | CITE_A_QUALIFIER | 10 | 9 | 6 |
+| 24 | DSLBehaviors | `AddFlag` | NON_PORTE | 9 | 8 | 4 |
+| 25 | DSLSelectors | `NonSteppableOrObjectUnits` | CITE_A_QUALIFIER | 12 | 8 | 8 |
+| 26 | DSLTriggers | `OnDeath` | NON_PORTE | 12 | 8 | 6 |
+| 27 | DSLBehaviors | `AddStaticStatModifierEffectToOwner` | NON_PORTE | 10 | 7 | 3 |
+| 28 | DSLBehaviors | `ClearPersistentData` | CITE_A_QUALIFIER | 8 | 7 | 1 |
+| 29 | DSLBehaviors | `UseNormalAttackIfAble` | CITE_A_QUALIFIER | 8 | 7 | 6 |
+| 30 | DSLSelectors | `None` | NON_PORTE | 8 | 7 | 6 |
+| 31 | DSLSelectors | `NormalUnits` | CITE_A_QUALIFIER | 10 | 7 | 6 |
+| 32 | DSLSelectors | `UnitsWithRarity` | NON_PORTE | 7 | 7 | 5 |
+| 33 | DSLTriggers | `DamageProfileIs` | NON_PORTE | 11 | 7 | 5 |
+| 34 | DSLTriggers | `HealthPctIsBelowOrEqual` | CITE_A_QUALIFIER | 7 | 7 | 4 |
+| 35 | DSLTriggers | `IsObjectOrSteppable` | CITE_A_QUALIFIER | 8 | 7 | 4 |
+| 36 | DSLBehaviors | `AddPersistentData` | NON_PORTE | 10 | 6 | 0 |
+| 37 | DSLSelectors | `CreateSnapshot` | NON_PORTE | 6 | 6 | 4 |
+| 38 | DSLSelectors | `FreeTilesOrAdjacentFreeTiles` | NON_PORTE | 6 | 6 | 3 |
+| 39 | DSLSelectors | `SortTargetsByDamagePredictionSelector` | NON_PORTE | 6 | 6 | 5 |
+| 40 | DSLTriggers | `CurrentAttackDamageProfilesContain` | NON_PORTE | 7 | 6 | 4 |
+
+Lire la colonne **verdict port** : ce tableau melange volontairement les trois
+etats non attestes. `PORTE_SANS_CITATION` (`Sum`, `Min`, `Multiply`) est du code qui
+EXISTE mais ne cite aucun artefact -- l'action y est d'ATTESTER, pas de porter.
+`CITE_A_QUALIFIER` demande une relecture. Seul `NON_PORTE` est du portage sec :
+
+### 3bis. Le backlog SEC : primitives `NON_PORTE` avec un levier mesure
+
+**176 primitives** `NON_PORTE` debloquent au moins une ability confrontable (sur 310 `NON_PORTE` au total -- les autres ont un levier mesure a zero, ce qui est une mesure, pas une ignorance).
+
+| # | famille | primitive | symbole | abilities | dont confrontables | dont pool |
+|---:|---|---|---|---:|---:|---:|
+| 1 | DSLFormulas | `Subtract` | `IdunBattleLogic.Entities.DSLFormulas$$Subtract` | 14 | 13 | 6 |
+| 2 | DSLFactory | `Triggered` | `IdunBattleLogic.Entities.DSLFactory$$Triggered` | 19 | 12 | 8 |
+| 3 | DSLBehaviors | `AddFlag` | `IdunBattleLogic.Entities.DSLBehaviors$$AddFlag` | 9 | 8 | 4 |
+| 4 | DSLTriggers | `OnDeath` | `IdunBattleLogic.Entities.DSLTriggers$$OnDeath` | 12 | 8 | 6 |
+| 5 | DSLBehaviors | `AddStaticStatModifierEffectToOwner` | `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffectToOwner` | 10 | 7 | 3 |
+| 6 | DSLSelectors | `None` | `IdunBattleLogic.Entities.DSLSelectors$$None` | 8 | 7 | 6 |
+| 7 | DSLSelectors | `UnitsWithRarity` | `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRarity` | 7 | 7 | 5 |
+| 8 | DSLTriggers | `DamageProfileIs` | `IdunBattleLogic.Entities.DSLTriggers$$DamageProfileIs` | 11 | 7 | 5 |
+| 9 | DSLBehaviors | `AddPersistentData` | `IdunBattleLogic.Entities.DSLBehaviors$$AddPersistentData` | 10 | 6 | 0 |
+| 10 | DSLSelectors | `CreateSnapshot` | `IdunBattleLogic.Entities.DSLSelectors$$CreateSnapshot` | 6 | 6 | 4 |
+| 11 | DSLSelectors | `FreeTilesOrAdjacentFreeTiles` | `IdunBattleLogic.Entities.DSLSelectors$$FreeTilesOrAdjacentFreeTiles` | 6 | 6 | 3 |
+| 12 | DSLSelectors | `SortTargetsByDamagePredictionSelector` | `IdunBattleLogic.Entities.DSLSelectors$$SortTargetsByDamagePredictionSelector` | 6 | 6 | 5 |
+| 13 | DSLTriggers | `CurrentAttackDamageProfilesContain` | `IdunBattleLogic.Entities.DSLTriggers$$CurrentAttackDamageProfilesContain` | 7 | 6 | 4 |
+| 14 | DSLTriggers | `HasRarity` | `IdunBattleLogic.Entities.DSLTriggers$$HasRarity` | 6 | 6 | 5 |
+| 15 | DSLTriggers | `IsNormalUnit` | `IdunBattleLogic.Entities.DSLTriggers$$IsNormalUnit` | 6 | 6 | 2 |
+| 16 | DSLTriggers | `get_OwnerOrOwnerTileIsTarget` | `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerOrOwnerTileIsTarget` | 6 | 6 | 6 |
+| 17 | DSLBehaviors | `AddTemporaryAttackOverrideEffect` | `IdunBattleLogic.Entities.DSLBehaviors$$AddTemporaryAttackOverrideEffect` | 5 | 5 | 3 |
+| 18 | DSLBehaviors | `ResetTemporaryAttackOverrideEffect` | `IdunBattleLogic.Entities.DSLBehaviors$$ResetTemporaryAttackOverrideEffect` | 5 | 5 | 3 |
+| 19 | DSLTriggers | `Contains` | `IdunBattleLogic.Entities.DSLTriggers$$Contains` | 9 | 5 | 3 |
+| 20 | DSLTriggers | `HasAdjacentEnemies` | `IdunBattleLogic.Entities.DSLTriggers$$HasAdjacentEnemies` | 8 | 5 | 5 |
+| 21 | DSLTriggers | `IsOverwatchAttack` | `IdunBattleLogic.Entities.DSLTriggers$$IsOverwatchAttack` | 5 | 5 | 4 |
+| 22 | DSLTriggers | `IsUnitWithVisualId` | `IdunBattleLogic.Entities.DSLTriggers$$IsUnitWithVisualId` | 6 | 5 | 3 |
+| 23 | DSLBehaviors | `Repeat` | `IdunBattleLogic.Entities.DSLBehaviors$$Repeat` | 6 | 4 | 3 |
+| 24 | DSLBehaviors | `ResetMovement` | `IdunBattleLogic.Entities.DSLBehaviors$$ResetMovement` | 4 | 4 | 2 |
+| 25 | DSLBehaviors | `UseNormalAttack` | `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack` | 6 | 4 | 1 |
+| 26 | DSLFormulas | `TilesMovedThisTurn` | `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn` | 4 | 4 | 1 |
+| 27 | DSLSelectors | `Attackable` | `IdunBattleLogic.Entities.DSLSelectors$$Attackable` | 4 | 4 | 4 |
+| 28 | DSLSelectors | `ConditionalSelector` | `IdunBattleLogic.Entities.DSLSelectors$$ConditionalSelector` | 5 | 4 | 2 |
+| 29 | DSLSelectors | `UnitsWithRangedWeapons` | `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedWeapons` | 4 | 4 | 2 |
+| 30 | DSLTriggers | `ActorHasTriggeredAbility` | `IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility` | 7 | 4 | 2 |
 
 ### Inventaire brut des primitives NON PORTEES (matiere de la jointure)
 
