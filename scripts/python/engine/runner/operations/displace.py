@@ -237,11 +237,21 @@ class SwitchPositionOperation(Operation):
         dead_caster = unit_is_dead(caster)
         dead_target = unit_is_dead(target)
         res = {"switched": False, "caster_to": None, "target_to": None}
+        # `record_tiles=False` (case-322-r1) : le natif ne compte PAS les tuiles d'un switch dans
+        # `MoveUnitOperation` -- `IdunBattle.Operations.DisplaceUnitOperation$$SwitchPosition`
+        # appelle `processor.MoveUnit(...)` PUIS
+        # `IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`, qui refait le
+        # `RecordTilesMoved` avec SES propres gates (`options+0x10` et `!IsEnemy(caster,target)`).
+        # Le laisser a `True` compterait DEUX FOIS cote natif -- d'ou l'octet `MoveUnitOptions+0x16`.
+        # RESIDU NOMME : `AddTilesMoved` lui-meme n'est pas porte (sous-comptage sur un switch
+        # AMICAL, seul cas ou le natif enregistre quelque chose ici).
         if not dead_target:
-            MoveUnitOperation(self.target_id, tile_caster, set_moved=False).execute(state, bus)
+            MoveUnitOperation(self.target_id, tile_caster, set_moved=False,
+                              record_tiles=False).execute(state, bus)
             res["target_to"] = tile_caster
         if not dead_caster:
-            MoveUnitOperation(self.caster_id, tile_target, set_moved=False).execute(state, bus)
+            MoveUnitOperation(self.caster_id, tile_target, set_moved=False,
+                              record_tiles=False).execute(state, bus)
             res["caster_to"] = tile_target
         res["switched"] = res["caster_to"] is not None or res["target_to"] is not None
         # `EventAndAbilitiesAndEffects` (le MEME appel que la queue du push) : le vecteur
@@ -330,7 +340,12 @@ class DisplaceUnitOperation(Operation):
             if kbs:
                 res["knockback"] = kbs
             return res
-        MoveUnitOperation(self.pushed_id, dest).execute(state, bus)
+        # `record_tiles=False` (case-322-r1, MEME raison que `SwitchPositionOperation`) :
+        # `IdunBattle.Operations.DisplaceUnitOperation$$Execute` fait `processor.MoveUnit(...)` PUIS
+        # `$$AddTilesMoved` -- le comptage d'un DEPLACEMENT FORCE appartient a `AddTilesMoved`, pas
+        # a `MoveUnitOperation`. Et ses gates l'eteignent pour un push ORDINAIRE : `!IsEnemy(caster,
+        # target)` (on ne pousse pas un allie, en general) -> le natif n'enregistre alors RIEN.
+        MoveUnitOperation(self.pushed_id, dest, record_tiles=False).execute(state, bus)
         # Mirror `IdunBattle.Operations.DisplaceUnitOperation$$EventAndAbilitiesAndEffects` : APRES le MoveUnit du push, le
         # natif emet On(UnitDisplaced) {actor=pusher, target=pushed}. On dispatche ce vecteur -> RadSaturation
         # branche 2 (`OwnerIsTarget`) : un Skitarii Vanguard POUSSE contamine sa tuile d'atterrissage. Import

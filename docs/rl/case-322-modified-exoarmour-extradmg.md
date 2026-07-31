@@ -9,6 +9,11 @@ mêlée bit-exactes, min et max, aux deux `Damage` — la sixième comprise.
 Point de départ : `docs/rl/case-312-votan-prediction-gap.md` (localisation étage 1
 `MakeDamagePredictions`, écart `44.395` natif vs `17.783` port).
 
+**Les DEUX faces sont désormais portées et confrontées live.** La face PRÉDICTION (§1-§4) est
+bit-exacte sur 85 paires ; la face COMBAT, laissée inerte par la première tranche, est fermée par
+#335 (§5bis) : le runner tient lui-même le compteur de tuiles, parce que c'est lui qui applique le
+déplacement.
+
 ---
 
 ## 1. La réponse au critère
@@ -92,15 +97,37 @@ Trois lectures font la magnitude, et **aucune ne se devine** :
    mirrorée (`is_active`), parce que le natif l'écrit — mais elle ne peut pas être le discriminant
    d'une valeur.
 
-### D'où vient `n` en PRÉDICTION — le point qui n'était pas lu
+### D'où vient `n` — le compteur, ses quatre écritures et son reset
 
-`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` rend `UnitComponent+0xf0`, et
-ce champ n'est écrit que par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, en `+=` :
+`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` rend **`ActorStatisticsComponent
++0xf0`** — le composant que `IdunBattle.Operations.StartTurnOperation$$ResetUnit` passe à
+`ActorStatisticsComponent$$ResetAttacksReceivedThisTurn`, PAS le `UnitComponent` (étiquette
+corrigée par #335 ; elle n'a rien changé au port, mais elle change le point d'ancrage à hooker pour
+`R2`). Ce champ n'est écrit que par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` :
 
 ```csharp
-comp->+0xec += tiles;   // cumul BATAILLE
-comp->+0xf0 += tiles;   // cumul CE TOUR
+if ((int)tiles < 1) return;   // no-op silencieux : 0 et négatifs ne comptent pas
+comp->+0xec += tiles;         // cumul BATAILLE  (aucun lecteur porté)
+comp->+0xf0 += tiles;         // cumul CE TOUR   -> TilesMovedThisTurnFormula
+                              // +0xf4 = TilesMovedLastTurnFormula (roulé au reset)
 ```
+
+**Quatre call-sites** (xrefs relues) : les DEUX branches de `MoveUnitOperation$$Execute`,
+`IdunBattle.Operations.ReviveUnitOperation$$SetRevivePosition` et
+`IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`.
+
+**Le reset est en FIN de tour, pas au début** — `IdunBattle.Operations.EndTurnOperation$$Execute`
+itère `StateExtensions$$GetAllUnits` et appelle, par unité,
+`IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn(comp, wasOwnTurn)` :
+
+```csharp
+if (wasOwnTurn) comp->+0xf4 = comp->+0xf0;   // TilesMovedLastTurn
+comp->+0xf0 = 0;                             // INCONDITIONNEL, pour TOUTE unité
+```
+
+`wasOwnTurn` = `PlayerComponent.CurrentlyOwnedUnitIds` du joueur qui finit **contient** l'unité.
+⚠ `StartTurnOperation$$ResetUnit` ne touche NI `+0xf0` NI `+0xf4` — chercher le reset là est une
+impasse.
 
 `IdunBattle.Operations.MoveUnitOperation$$Execute` l'appelle sur **les deux** branches, et la
 branche SIMULATION est le corps de `MoveUnitOperation$$GetNumTilesMovedForSimulation`, **inliné**
@@ -246,31 +273,114 @@ PARTAGÉE** — non modifiée ici (elle porte d'autres consommateurs, dont #305)
 endroit que `_assert_placed`, qui applique déjà exactement cette doctrine (« On refuse plutôt que de
 mesurer du vide »).
 
+## 5bis. La face COMBAT — `R1` FERMÉ (#335, 2026-07-31)
+
+Le compteur est posé **au foyer, l'Operation de déplacement** — pas chez les appelants.
+
+| pièce | fichier | mirror natif |
+|---|---|---|
+| le champ | `engine/runner/components.py::UnitComponent.tiles_moved_{this_battle,this_turn,last_turn}` | `ActorStatisticsComponent +0xec / +0xf0 / +0xf4` |
+| l'écriture | `components.py::record_tiles_moved` | `UnitExtensions$$RecordTilesMoved` (`+=`, garde `< 1`) |
+| l'appel | `runner/operations/movement.py::MoveUnitOperation.execute` | `MoveUnitOperation$$Execute`, branche réelle |
+| le compte | `movement.py::_num_tiles_moved` | `BattleQuery$$GetNumTilesMoved(connectedPath)` = `Count − 1` |
+| le graphe | `entities/pathfinding/board.py::Board.walk_maps_by_pos` | `IPathfinders.GetPath(GetPathfinderTypeForUnit(u), …)` |
+| le reset | `runner/operations/turnflow.py::EndTurnOperation` → `reset_tiles_moved_this_turn` | `ActorStatisticsComponent$$ResetThisTurn` |
+| la lecture | `components.py::unit_tiles_moved_this_turn` + `UnitEffectStateView["tiles_moved_this_turn"]` | `TilesMovedThisTurnFormula$$Calculate` |
+| le threading | `runner/damage_model.py::attacker_modifiers` | l'`AbilityEntities` per-coup |
+
+Trois lectures décident du port, et **aucune ne se devine** :
+
+1. **La branche RÉELLE n'a PAS le gate `HasTriggeredAbility(0x5f9) || (0x4de)`.** Ce gate est propre
+   à `MoveUnitOperation$$GetNumTilesMovedForSimulation` (économie de pathfinding en simulation). Un
+   mouvement JOUÉ compte ses tuiles pour **toute** unité.
+2. **`connectedPath` vient du MÊME pathfinder que `path`.** `MovementQuery$$GetConnectedPathTo`
+   appelle l'overload `Pathfinders$$GetPath(unit, from, to, maxRange)` — celui **sans** type
+   explicite, qui résout lui-même `GetPathfinderTypeForUnit(unit)`. D'où le foyer partagé
+   `Board.walk_maps_by_pos`, extrait de `prediction/_shared.py` pour que les deux faces voient le
+   même graphe (le champ `neighbours` BRUT, ni trié ni symétrisé).
+3. **`MoveUnitOptions +0x16` existe pour empêcher un DOUBLE comptage.**
+   `DisplaceUnitOperation$$Execute` fait `processor.MoveUnit(...)` **puis** `$$AddTilesMoved`, qui
+   refait le `RecordTilesMoved` avec ses propres gates (`options+0x10` et
+   `!IsEnemy(caster, target)` — seul un déplacement AMICAL compte). Les call-sites de déplacement
+   forcé du port passent donc `record_tiles=False` (push, switch, lift-off de `TheQuickening`).
+
+### Ce que la mesure live a tranché
+
+Montage : `probe_335_tiles_moved_combat.py` (runner isolé, `catalog_inject` pour Kimm hors pool,
+géométrie DRIVÉE, snapshot **avant** le pas, pas REJOUÉ offline, MT re-calé après le pas).
+
+| plateau / seed | pas demandé | `n` porté | live | offline | `n` forcé à 0 | `n` forcé à 1 |
+|---|---|---|---|---|---|---|
+| MC1_67 / 909 | 1 | 1 | `[3980, 4303]` | **identique** | `[3357, 3680]` | (= live) |
+| MC1_67 / 909 | 2 | 2 | `[5500, 5073]` | **identique** | `[4253, 3826]` | `[4876, 4449]` |
+| C1_25 / 31337 | 1 | 1 | `[5233, 4301]` | **identique** | `[4610, 3678]` | (= live) |
+| C1_25 / 31337 | **3 (hex)** | **4** | `[7049, 6124]` | **identique** | `[4554, 3629]` | `[5177, 4252]` |
+
+La dernière ligne est le discriminant qu'on n'avait pas cherché : sur `C1_25`, un pas de distance
+**hex 3** coûte **4 tuiles de chemin** (détour). Le natif facture 4, le port aussi — un port qui
+aurait compté en distance hexagonale aurait rendu ~`6425` au lieu de `7049`. C'est ce qui prouve que
+le compte vient du PATHFINDER, pas de la géométrie.
+
+Le **reset de fin de tour** est confronté par sa CONSÉQUENCE (aucun capteur ne publie `+0xf0`) : la
+même attaque, depuis la même tuile, un tour plus tard et sans bouger, rend `[4456, 4568]` live ET
+offline ; en CONSERVANT le compteur du tour précédent le port rendrait `[5703, 5815]`.
+
+### Gardes (`tests/engine/runner/test_tiles_moved_combat_live.py`, 8 tests)
+
+`test_combat_damage_matches_live_for_each_step` · `test_bonus_is_not_vacuous` ·
+`test_count_is_threaded_not_a_constant` · `test_effect_magnitude_scales_with_the_count` ·
+`test_turn_end_resets_the_counter_live` · `test_end_turn_operation_zeroes_the_counter_offline` ·
+`test_att_ctx_channel_is_threaded_by_the_runner` ·
+`test_count_comes_from_the_pathfinder_not_hex_distance`.
+
+Deux mutations adversariales, **vues rouges**, message verbatim :
+
+| mutation | rouges | message obtenu |
+|---|---|---|
+| `att_ctx["tiles_moved_this_turn"]` NON threadé (l'état d'avant #335) | 4 | `pas de 1 tuile(s) (n=1) : le degat de COMBAT diverge -- live=[3980, 4303] offline=[3357, 3680] (delta/coup=[-623, -623])` ; `attacker_modifiers ne threade PAS la cle tiles_moved_this_turn dans l'att_ctx (cles=['att_pos', 'has_teleported', 'is_charging', …])` |
+| `reset_tiles_moved_this_turn` neutralisé dans `EndTurnOperation` | 1 | `ActorStatisticsComponent$$ResetThisTurn : +0xf0 doit retomber a 0, obtenu 2` |
+
+Non-régression rejouée après ce port : `test_votan_prediction_gap_live.py` + `test_modified_exoarmour_live.py`
+(11 passed), `test_ischarging_extra_damage_live.py` + `test_turnflow_endturn_flags.py` (16 passed),
+`test_damage_roll_live.py` + `test_turnflow_live.py` (4 passed), `probe_181` (97/97, 0 manquante),
+`probe_120_pre_unit_ability_fork` (OK), `probe_273 --only-scan` (OK).
+
 ## 6. Résidus OUVERTS
 
-* **Face COMBAT inerte.** L'effet est bien matérialisé côté runner (l'entrée
-  `ABILITY_INIT_OWNER_EFFECTS` alimente `spawn.py::_owner_effects_from_abilities`), mais
-  `att_ctx["tiles_moved_this_turn"]` n'est **pas threadé** par `runner/damage_model.py` : le port
-  n'a aucun compteur de tuiles parcourues. `MoveUnitOperation` (port) pose la position finale sans
-  calculer de chemin, donc fermer ce résidu demande d'abord un mirror de `CalculatePaths` côté
-  runner. Dégradation **fidèle et sans régression** (l'effet rendait déjà `None` avant ce port), mais
-  le dégât RÉEL d'une charge de Kimm est sous-évalué par le moteur. Backlog `#322-r1`.
-* **Terme RÉEL de `TilesMovedThisTurn` non mesuré.** Aucun capteur ne publie `UnitComponent+0xf0` ;
-  `prediction_tiles_moved_this_turn` rend `0` pour ce terme. **Exact** tant que l'unité n'a pas encore
-  bougé de son tour — c'est-à-dire le cas nominal de la chaîne de décision, qui évalue ses tuiles
-  candidates AVANT d'agir — **sous-estimé** après un déplacement déjà joué. Point d'ancrage à hooker :
-  `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, ou le champ `+0xf0` du `UnitComponent` à
-  exposer par `combatSnapshot`. Backlog `#322-r2`.
+* **Terme RÉEL de `TilesMovedThisTurn` non mesuré — côté PRÉDICTION SEULEMENT.** Aucun capteur ne
+  publie `ActorStatisticsComponent+0xf0` ; `prediction_tiles_moved_this_turn` rend `0` pour ce terme.
+  **Exact** tant que l'unité n'a pas encore bougé de son tour — c'est-à-dire le cas nominal de la
+  chaîne de décision, qui évalue ses tuiles candidates AVANT d'agir — **sous-estimé** après un
+  déplacement déjà joué. Point d'ancrage à hooker :
+  `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`, ou le champ `+0xf0` de
+  l'`ActorStatisticsComponent` à exposer par `combatSnapshot`. ⚠ Périmètre RÉDUIT depuis #335 : la
+  face COMBAT n'en dépend plus (le runner tient le compteur lui-même, puisque c'est lui qui applique
+  le déplacement). Backlog `#322-r2`.
+* **`DisplaceUnitOperation$$AddTilesMoved` non porté.** Un déplacement FORCÉ (push, pull, switch)
+  compte nativement ses tuiles par cette fonction, gatée `options+0x10 && !IsEnemy(caster, target)`
+  — donc **seulement pour un déplacement AMICAL**. Les call-sites de déplacement du port passent
+  `record_tiles=False` (sinon le port compterait là où le natif ne compte pas) : la dégradation
+  résiduelle est un SOUS-comptage sur le seul cas amical. Même chose pour
+  `ReviveUnitOperation$$SetRevivePosition`, 4ᵉ call-site natif de `RecordTilesMoved`.
+* **Lift-off de `TheQuickening`.** Le natif fait `MoveUnit` vers une `UnitPosition` VIDE puis un
+  `MoveIn` ; sur ce lift-off, `CalculatePaths` prend sa branche `Count(movementStartPosition) == 0`
+  et rend `[endTile, endTile]` — soit **1 tuile**, quelle que soit la distance. Le port faisant
+  l'échange DIRECT, ce chemin n'est pas reproductible : il n'enregistre rien (`record_tiles=False`)
+  plutôt que de facturer une distance de MARCHE que le natif ne calcule jamais.
+* **`ModifiedExoarmour_ExtraDmgEffect$$GetExtraDamageMultiplier`** (`TilesMovedThisTurn(Self)` seul,
+  sans le `ConfigVar`) n'a **aucune xref de code** — seulement des références de table de méthodes.
+  Non porté ; à relire si un jour une lecture d'UI/tooltip en dépend.
 * **`connectedPath` vs `path`.** Le natif compte sur `BattleQuery$$GetConnectedPathTo` →
   `MovementQuery$$GetConnectedPathTo`, qui **densifie** le chemin du pathfinder (ré-insertion des
   tuiles intermédiaires entre deux nœuds distants de plus de 1, cas téléporteur/saut). Sur un chemin
   de marche ordinaire les deux listes ont la même longueur — les 85 paires mesurées ne les
   distinguent pas. Un porteur de `ModifiedExoarmour` avec un effet de mouvement spécial les
   séparerait.
-* **`block_entering_positions` non dérivable de la `Scene`.** `tile_effects_by_pos` porte des NOMS,
-  la table de blocage des ids `EffectType` — le pathfinder de la face DÉCISION ne facture donc pas
-  les `10000 − elevation` que le natif applique aux tuiles bloquantes. Dégradation PERMISSIVE
-  (chemin éventuellement plus court). Même résidu que la face MOUVEMENT (#304).
+* **`block_entering_positions` non dérivable.** `tile_effects_by_pos` porte des NOMS, la table de
+  blocage des ids `EffectType` — le pathfinder ne facture donc pas les `10000 − elevation` que le
+  natif applique aux tuiles bloquantes. Dégradation PERMISSIVE (chemin éventuellement plus court).
+  Même résidu que la face MOUVEMENT (#304), et il vaut désormais pour les DEUX faces : la face
+  COMBAT (`movement.py::_num_tiles_moved`) passe elle aussi une liste vide.
 * **`SmashaEad` (0x4de) ne lit pas ce canal.** Son port bake la condition « a traversé ≥ 2 hexes »
   dans la matérialisation de l'effet ; il n'est donc pas inscrit dans
   `_TILES_MOVED_CARRIER_EFFECTS`. Le jour où il passera au canal, l'y ajouter.
@@ -281,8 +391,10 @@ mesurer du vide »).
 | rôle | chemin |
 |---|---|
 | probe MODÈLE (offline, aucun live) | `scripts/python/probe_322_exoarmour_magnitude.py` |
-| probe MESURE (2 bras, N plateaux, `--unit-stat`) | `scripts/python/probe_312_votan_prediction_gap.py` |
-| gardes | `scripts/python/tests/engine/test_votan_prediction_gap_live.py` |
+| probe MESURE PRÉDICTION (2 bras, N plateaux, `--unit-stat`) | `scripts/python/probe_312_votan_prediction_gap.py` |
+| probe MESURE COMBAT (N longueurs de pas, N plateaux) | `scripts/python/probe_335_tiles_moved_combat.py` |
+| gardes PRÉDICTION | `scripts/python/tests/engine/test_votan_prediction_gap_live.py` |
+| gardes COMBAT | `scripts/python/tests/engine/runner/test_tiles_moved_combat_live.py` |
 | fixture réutilisée | `scripts/python/probe_27_r1_massdriver_custom.py` |
 | face MOUVEMENT du même passif | `docs/rl/case-304-modified-exoarmour-move.md` |
 | localisation d'origine | `docs/rl/case-312-votan-prediction-gap.md` |

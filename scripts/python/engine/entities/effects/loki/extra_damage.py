@@ -869,7 +869,11 @@ class ModifiedExoarmourExtraDmgEffect(BaseEffect):
 
         `tiles_moved_this_turn` ABSENT du `unit_state` = **non mesure** (la `Scene` de prediction est
         construite AVANT de connaitre la tuile candidate) -> on ne ferme pas : la magnitude, qui EST
-        `V x n`, rend alors l'effet inerte toute seule. Presente -> le gate natif, verbatim."""
+        `V x n`, rend alors l'effet inerte toute seule. Presente -> le gate natif, verbatim.
+
+        Cote COMBAT la cle EST desormais posee (case-322-r1) : `UnitEffectStateView` la lit de
+        `ActorStatisticsComponent+0xf0` (`runner/components.py::unit_tiles_moved_this_turn`), que
+        `MoveUnitOperation` tient a jour. Le gate y est donc le gate NATIF, plus une degradation."""
         n = (unit_state or {}).get("tiles_moved_this_turn")
         return True if n is None else int(n) > 0
 
@@ -882,7 +886,11 @@ class ModifiedExoarmourExtraDmgEffect(BaseEffect):
                                               att_ctx=None) -> EffectBonus | None:
         if not is_melee_attack(is_ranged):        # IsMeleeAttack (BattleQuery$$IsMeleeAttack)
             return None
-        n = tiles_moved_this_turn(att_ctx)        # TilesMovedThisTurn(Self) -- foyer partage
+        # `TilesMovedThisTurn(Self)` -- foyer partage. DEUX alimentations, aucune devinee :
+        #  * DECISION : `prediction_tiles_moved_this_turn` (compteur reel + pas simule) ;
+        #  * COMBAT (case-322-r1) : `attacker_modifiers` lit le compteur REEL de l'ECS, tenu par
+        #    `MoveUnitOperation` -> une charge de Kimm FACTURE desormais son bonus en combat.
+        n = tiles_moved_this_turn(att_ctx)
         if not n or int(n) <= 0:                  # non threade, ou aucune tuile parcourue -> inerte
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None

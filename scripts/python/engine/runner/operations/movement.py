@@ -19,8 +19,72 @@ from __future__ import annotations
 from ..state import State
 from ..events import EventBus
 from ..components import (PositionComponent, UnitComponent, StatsComponent, HealthComponent,
-                          set_moved_flag, update_charging)
+                          OwnerComponent, set_moved_flag, update_charging, record_tiles_moved)
 from .base import Operation
+
+
+def _num_tiles_moved(state: State, mover_id: int, from_pos, to_pos) -> int:
+    """`IdunBattle.Core.Services.BattleQuery$$GetNumTilesMoved(connectedPath)` applique au
+    `connectedPath` que `IdunBattle.Operations.MoveUnitOperation$$CalculatePaths` produit pour CE
+    pas -- c'est-a-dire le nombre d'ARETES du chemin, `path.Count - 1` :
+
+        GetNumTilesMoved(path) = IsNullOrEmpty(path) ? 0 : path.Count - 1
+
+    `connectedPath` vient de `IdunBattle.Core.Services.BattleQuery$$GetConnectedPathTo(unit,
+    startTile, endTile)` -> `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo`, qui
+    appelle `IdunBattle.Entities.Pathfinding.Pathfinders$$GetPath(unit, from, to, maxRange)` --
+    l'overload SANS type explicite, qui resout lui-meme
+    `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit(unit)`, donc **le meme
+    pathfinder** que le `path` de `CalculatePaths`. Pour une unite ordinaire (ni volante, ni effet
+    de mouvement special) c'est le **WalkPathfinder**, celui que porte
+    `entities.pathfinding.walk_pathfinder.get_path_node_counts_by_pos` -- FOYER PARTAGE avec la
+    face DECISION (`prediction/_shared.py::_walk_path_counts_from`) et avec la face MOUVEMENT du
+    meme passif (#304). `Count` = NOEUDS, extremites incluses -> `- 1`.
+
+    RESIDUS, tous nommes (identiques a ceux de la face DECISION) :
+      * `MovementQuery$$GetConnectedPathTo` DENSIFIE le chemin du pathfinder (re-insertion des
+        tuiles intermediaires entre deux noeuds distants de plus de 1 -- teleporteurs/sauts). Sur
+        un chemin de marche ordinaire les deux listes ont la MEME longueur.
+      * `block_entering_positions` (tuiles a `GetTileBlockingReasons & 1`, facturees
+        `10000 - elevation`) n'est pas derivable de l'ECS -> vide : un chemin peut etre plus COURT
+        que celui du natif. Degradation PERMISSIVE, meme residu que #304.
+      * `IsTemporary(to)` : aucune source offline.
+    `from_pos`/`to_pos` egaux, absents, ou destination injoignable -> 0 (le natif rend 0 sur
+    `IsNullOrEmpty(path)`)."""
+    if from_pos is None or to_pos is None or tuple(from_pos) == tuple(to_pos):
+        return 0
+    board = getattr(state, "board", None)
+    if board is None:
+        return 0
+    from ...entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
+    neigh, walk, elev = board.walk_maps_by_pos()
+    # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable` (un ami ne
+    # bloque pas le passage ; `HasTrait(occ, 0x1b = Steppable)` court-circuite le blocage).
+    from ...entities.traits import UnitTrait, has_trait
+    me = state.get_entity(mover_id)
+    moc = me.get_component(OwnerComponent) if me is not None else None
+    team = moc.team if moc is not None else None
+    blocking = set()
+    for uid, e in state.entities.items():
+        if uid == mover_id:
+            continue
+        pc = e.get_component(PositionComponent)
+        uc = e.get_component(UnitComponent)
+        if pc is None or uc is None or not uc.alive:
+            continue
+        oc = e.get_component(OwnerComponent)
+        if team is not None and oc is not None and oc.team == team:
+            continue
+        sc = e.get_component(StatsComponent)
+        traits = getattr(sc.ctx, "traits", None) if sc is not None else None
+        if has_trait(traits or [], UnitTrait.Steppable):
+            continue
+        blocking.add((pc.col, pc.row))
+    counts = get_path_node_counts_by_pos((from_pos[0], from_pos[1]), neigh_by_pos=neigh,
+                                         walkable_by_pos=walk, elev_by_pos=elev,
+                                         blocking_positions=blocking)
+    n = counts.get((to_pos[0], to_pos[1]))
+    return int(n) - 1 if n else 0                    # `IsNullOrEmpty(path)` -> 0
 
 
 def _kill_steppable_units(state: State, dest_tile: tuple[int, int], mover_id: int) -> list:
@@ -68,13 +132,26 @@ class MoveUnitOperation(Operation):
     MESURE qui tranche (probe_287, `combatSnapshot.units[].unitFlags` AVANT/APRES le cast de 1100) :
     le caster TELEPORTE par le switch gagne `[ArrivedAtFinalTile, ActiveAbilityUsed, TurnFinished,
     NoActionAvailable]` et **PAS `Moved`**. Un port qui poserait `Moved` ici fermerait a tort la
-    regle `CasterHasNotMoved` (0x10) de tout cast ulterieur du meme tour."""
-    __slots__ = ("unit_id", "to", "set_moved")
+    regle `CasterHasNotMoved` (0x10) de tout cast ulterieur du meme tour.
 
-    def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True):
+    `record_tiles` = mirror de l'octet `+0x16` du MEME `MoveUnitOptions` (case-322-r1) : le
+    decompile fait `if (*(options + 0x16) == 0) { n = GetNumTilesMoved(connectedPath);
+    RecordTilesMoved(unit, n, state); }`, sur les DEUX branches d'`Execute` (simulation et reelle).
+    Il vaut donc `True` pour tous les call-sites a options nulles -- c'est-a-dire tout MOUVEMENT
+    reel. Les call-sites de DEPLACEMENT FORCE le passent a `False`, et ce n'est pas une commodite :
+    `IdunBattle.Operations.DisplaceUnitOperation$$Execute` appelle `processor.MoveUnit(...)` PUIS
+    `IdunBattle.Operations.DisplaceUnitOperation$$AddTilesMoved`, qui refait lui-meme le
+    `RecordTilesMoved` avec SES gates (`options+0x10` et `!IsEnemy(caster, target)` -- seul un
+    deplacement AMICAL compte comme du mouvement). Si `MoveUnitOperation` enregistrait aussi, le
+    natif compterait DEUX FOIS : l'octet +0x16 est precisement ce qui l'en empeche."""
+    __slots__ = ("unit_id", "to", "set_moved", "record_tiles")
+
+    def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
+                 record_tiles: bool = True):
         self.unit_id = unit_id
         self.to = to
         self.set_moved = bool(set_moved)
+        self.record_tiles = bool(record_tiles)
 
     def execute(self, state: State, bus: EventBus) -> None:
         e = state.get_entity(self.unit_id)
@@ -126,6 +203,20 @@ class MoveUnitOperation(Operation):
         # le seul call-site qui le pose est `SwitchPositionOperation` (mesure live #287).
         if self.set_moved:
             set_moved_flag(state, self.unit_id)
+        # case-322-r1 : `RecordTilesMoved(unit, GetNumTilesMoved(connectedPath), state)`. RANG NATIF
+        # EXACT, lu au decompile d'`IdunBattle.Operations.MoveUnitOperation$$Execute` : le bloc
+        # tombe APRES `SetMovedFlag` / `Add(ArrivedAtFinalTile)` / `RemoveReservation` et AVANT le
+        # `RefreshEffects(RefreshTrigger.UnitPositionChanged = 7)` -- c'est-a-dire avant les deux
+        # rafraichissements ci-dessous, ce qui est necessaire : la `CreateActiveCondition` de
+        # `ModifiedExoarmour_ExtraDmg` (`AmountIsGreaterThanZero(TilesMovedThisTurn)`) est
+        # justement l'une des conditions que ce refresh reevalue.
+        # ⚠ La branche REELLE n'a PAS le gate `HasTriggeredAbility(0x5f9)||(0x4de)` de
+        # `MoveUnitOperation$$GetNumTilesMovedForSimulation` : ce gate n'existe QUE cote SIMULATION
+        # (economie de pathfinding). Un mouvement JOUE compte ses tuiles pour TOUTE unite.
+        # `RecordTilesMoved` fait `+=` sur `+0xec` ET `+0xf0`, et no-op si le compte est < 1.
+        if self.record_tiles:
+            record_tiles_moved(state, self.unit_id,
+                               _num_tiles_moved(state, self.unit_id, old_pos, self.to))
         # AURA stat-mod PROJETEE — `UpdateEffectTargets` : le selecteur d'un `AStatModifierEffect` a
         # projection est purement GEOMETRIQUE, donc un move le change. Le natif re-evalue et
         # applique/reverte la `ValueModification` chez les cibles. GROUND TRUTH live (statModSources,

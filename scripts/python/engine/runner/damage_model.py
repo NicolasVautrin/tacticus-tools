@@ -24,7 +24,7 @@ from typing import Optional, Tuple
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
                          UnitComponent, unit_has_moved, unit_has_teleported,
-                         unit_state_for_effects)
+                         unit_tiles_moved_this_turn, unit_state_for_effects)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -400,6 +400,18 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # la prédiction (qui le lit du tileMeta frais). Seul consommateur d'att_ctx à ce jour ; les unités
     # sans effet positionnel sont inchangées (les autres bonus ignorent att_ctx).
     att_ctx = _positional_att_ctx(state, unit_id)
+    # `TilesMovedThisTurn(Self)` (case-322-r1) — `IdunBattle.Entities.Formulas.
+    # TilesMovedThisTurnFormula$$Calculate` = `ActorStatisticsComponent+0xf0`, alimente par
+    # `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` que `MoveUnitOperation` appelle a
+    # chaque pas JOUE (`components.record_tiles_moved`) et remis a zero par `EndTurnOperation`.
+    # Consommateur porte : `ModifiedExoarmour_ExtraDmgEffect` (magnitude `V x n`, Kimm).
+    # THREADE INCONDITIONNELLEMENT : cote COMBAT la valeur est MESUREE, donc la cle est toujours
+    # posee -- le tri-etat `None = non threade` de `effects.base.tiles_moved_this_turn` ne concerne
+    # plus que les appelants HORS runner. Une unite sans `UnitComponent` rend 0, comme un composant
+    # natif frais. ⚠ Le contexte est PER-COUP : il porte la position ET le compteur, exactement
+    # comme l'`AbilityEntities` natif que `BaseEffect$$DamageBonusForAttack` recoit.
+    att_ctx = dict(att_ctx or {})
+    att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, unit_id)
     # Branche `| HasFlag(Self@0x148, 0xc = Teleported)` du trigger de
     # `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` : le +25%
     # ranged survit a un deplacement qui etait un TELEPORT. Threade dans `att_ctx` (le contexte

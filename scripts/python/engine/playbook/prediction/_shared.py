@@ -295,12 +295,9 @@ def _walk_path_counts_from(scene, att_id) -> dict:
     board = scene.board
     counts: dict = {}
     if sp is not None and board is not None:
-        by_id = board.by_id
-        pos_of = {tid: (t["col"], t["row"]) for tid, t in by_id.items()}
-        neigh = {pos_of[tid]: [pos_of[n] for n in (t.get("neighbours") or []) if n in pos_of]
-                 for tid, t in by_id.items()}
-        walk = {pos_of[tid]: bool(t.get("walkable")) for tid, t in by_id.items()}
-        elev = {pos_of[tid]: int(t.get("elevation") or 0) for tid, t in by_id.items()}
+        # FOYER UNIQUE du substrat de graphe, PARTAGE avec la face COMBAT
+        # (`runner/operations/movement.py::_num_tiles_moved`) : `Board.walk_maps_by_pos`.
+        neigh, walk, elev = board.walk_maps_by_pos()
         # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI VIVANT non `Steppable`.
         team = scene.team(att_id)
         blocking = set()
@@ -330,7 +327,7 @@ def prediction_tiles_moved_this_turn(scene, att_id, attack_pos) -> int:
     """`TilesMovedThisTurn(Self)` TEL QUE LA PREDICTION NATIVE LE VOIT (case-322) — le pendant de
     `prediction_has_moved` sur l'axe COMPTEUR, et il a la MEME structure a deux termes :
 
-      1. **le compteur REEL du tour** (`UnitComponent+0xf0`, ecrit par
+      1. **le compteur REEL du tour** (`ActorStatisticsComponent+0xf0`, ecrit par
          `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved`) ;
       2. **le pas SIMULE**. Une prediction depuis une tuile autre que la tuile courante passe par
          `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile`, et
@@ -345,13 +342,17 @@ def prediction_tiles_moved_this_turn(scene, att_id, attack_pos) -> int:
     observable : le seul consommateur porte (`ModifiedExoarmour_ExtraDmg`) n'existe que sur un
     porteur de 0x5f9, et le calcul n'est declenche que par lui.
 
-    TERME 1 NON MESURE : aucun capteur ne publie `UnitComponent+0xf0` (ni `combatSnapshot` ni
-    `decisionView`), et ce port ne peut pas en ajouter un. On rend donc `0` pour le terme reel —
-    EXACT tant que l'unite n'a pas encore bouge de son tour (le cas de TOUTE prediction faite avant
-    le deplacement, c'est-a-dire le cas nominal de la chaine de decision, qui evalue les tuiles
-    candidates AVANT d'agir), SOUS-ESTIME apres un deplacement deja joue. Point d'ancrage a hooker
-    pour le fermer : `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (ou le champ `+0xf0` du
-    `UnitComponent`, a exposer par `combatSnapshot`)."""
+    TERME 1 NON MESURE (residu #322-r2, TOUJOURS OUVERT) : aucun capteur ne publie
+    `ActorStatisticsComponent+0xf0` (ni `combatSnapshot` ni `decisionView`), et ce port ne peut pas
+    en ajouter un. On rend donc `0` pour le terme reel — EXACT tant que l'unite n'a pas encore bouge
+    de son tour (le cas de TOUTE prediction faite avant le deplacement, c'est-a-dire le cas nominal
+    de la chaine de decision, qui evalue les tuiles candidates AVANT d'agir), SOUS-ESTIME apres un
+    deplacement deja joue. Point d'ancrage a hooker pour le fermer :
+    `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (ou le champ `+0xf0` de
+    l'`ActorStatisticsComponent`, a exposer par `combatSnapshot`).
+    ⚠ Ce residu est celui de la `Scene` de PREDICTION, qui se construit depuis la CAPTURE live.
+    La face COMBAT, elle, n'en depend plus : le runner TIENT le compteur lui-meme depuis #322-r1
+    (`runner/components.py::record_tiles_moved`), parce que c'est LUI qui applique le deplacement."""
     real = 0                       # terme 1 — non capte (cf. docstring), jamais devine autrement
     cur = scene.pos(att_id)
     if attack_pos is None or cur is None or tuple(attack_pos) == tuple(cur):

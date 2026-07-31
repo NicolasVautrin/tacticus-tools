@@ -38,7 +38,10 @@ durees d'effet, triggers de debut de tour) :
 
 DEFERE (etat NON suivi offline -> TODO, en miroir documente) :
   * `DecreaseAbilityCooldowns` (le runner ne suit pas de compteur de cooldown d'ability offline) ;
-  * `ActorStatisticsComponent.ResetThisTurn` (stats per-tour non suivies : attaques recues/portees...) ;
+  * `ActorStatisticsComponent.ResetThisTurn` : SEUL le volet TUILES est porte (case-322-r1,
+    `reset_tiles_moved_this_turn` -> `+0xf0 = 0` partout, `+0xf4 = +0xf0` si `wasOwnTurn`) ; les
+    autres roulements de ce reset (0x78/0x7c, 0xe4/0xe8, 0x58/0x5c, 0xa0/0xa4, dict par-entite)
+    portent des stats per-tour non suivies offline (attaques recues/portees...) ;
   * `ResetAbilitiesThatResetOnTurnEnd` ; resets per-unite UnitFlags de StartTurn ;
   * `PickNextUnit` (ordre intra-tour = DECISION de l'IA, pas une mutation moteur -> couche playbook).
 """
@@ -48,7 +51,7 @@ from typing import Optional
 
 from ..state import State
 from ..components import (OwnerComponent, UnitComponent, ShieldComponent, StatsComponent,
-                          UnitFlagsComponent, PositionComponent)
+                          UnitFlagsComponent, PositionComponent, reset_tiles_moved_this_turn)
 from ...entities.stats import StatType
 from .triggers import (start_turn_triggers, turn_start_other_triggers, tile_tick_triggers,
                        first_aid_heal)
@@ -342,7 +345,7 @@ class EndTurnOperation:
          `turnsFinished@+0x5c += 1` (+ `ResetAbilitiesThatResetOnTurnEnd` / `DecreaseAbilityCooldowns`,
          non suivis offline) ;
       2. `IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields` sur `GetAllUnits`
-         (+ `ActorStatisticsComponent.ResetThisTurn`, non suivi) ;
+         (+ `ActorStatisticsComponent.ResetThisTurn` : volet TUILES porte, cf. en-tete) ;
       3. meme `+0x5c += 1` sur la Machine of War du joueur (`PlayerComponent+0x78`) ;
       4. si `IdunBattle.Entities.Components.TurnComponent$$HasActivePlayer` : le vecteur de triggers
          `On(0x17 = TurnEnd)` (slot 0x51 = `Core.Services.OperationProcessor$$EvaluateAbilities`,
@@ -367,6 +370,13 @@ class EndTurnOperation:
         _bump_turns_finished(state, finishing)
         # (2) IdunBattle.Operations.EndTurnOperation$$RemoveOneTurnOnShields : décay d'1 tour des boucliers à durée de TOUTES les unités
         # (ShieldComponent.RemoveOneTurn → décrémente remaining, retire les instances à 0).
+        # MEME BOUCLE, MEME RANG que le natif : `Execute` itere `StateExtensions$$GetAllUnits` et
+        # enchaine, par unite, `RemoveOneTurnOnShields` puis
+        # `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn(comp, wasOwnTurn)`.
+        # Volet TUILES de ce reset (case-322-r1, `reset_tiles_moved_this_turn`) : `+0xf0 = 0` pour
+        # TOUTES les unites -- c'est ce qui donne a `TilesMovedThisTurn` sa portee « CE TOUR » --
+        # et `+0xf4 = +0xf0` (TilesMovedLastTurn) pour les seules unites du joueur qui FINIT.
+        # `was_own_turn` = mirror du `PlayerComponent.CurrentlyOwnedUnitIds.Contains(unit.Id)` natif.
         shields_ticked: list[tuple] = []
         for uid, e in state.entities.items():
             shc = e.get_component(ShieldComponent)
@@ -374,6 +384,9 @@ class EndTurnOperation:
                 ch = shc.remove_one_turn()
                 if ch["removed"] or ch["decremented"]:
                     shields_ticked.append((int(uid), ch))
+            oc = e.get_component(OwnerComponent)
+            reset_tiles_moved_this_turn(state, int(uid),
+                                        was_own_turn=(oc is not None and oc.player == finishing))
         # DEEP-STRIKE LANDING : les unites TeleportStrike du joueur FINISSANT atterrissent a la fin de leur
         # 1er tour (ground truth live ds_landing : discret, PAS un tick de duree) -> retire TeleportingIn +
         # init des passives deferrees (aura PathOfCommand). Mirror natif : landing = InitializeActorAbilities.
