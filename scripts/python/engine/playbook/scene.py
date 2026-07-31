@@ -904,16 +904,46 @@ def _seed_condition_gated_owner_effects(eff_state, units, predictor) -> None:
 
 def step_context(predictor, dv):
     """État COURANT du pas (hp/pos/team + effets matérialisés seed) — reconstruit à chaque pas car
-    l'état mute. (Ex-`PV.step_context`.)"""
+    l'état mute. (Ex-`PV.step_context`.)
+
+    #360 — les tables PAR ID couvrent AUSSI les MACHINES OF WAR (`dv.mows`). `decisionView.units`
+    ne contient jamais de Machine (canal `.mows` séparé, mirror de `EntityExtensions$$IsMachine`),
+    si bien que `scene.team(<MoW>)` rendait `None` pour TOUT caster MoW — et un sélecteur porté qui
+    commence par `if scene.team(caster) is None: return False` se dégradait alors en NÉGATIF.
+
+    MESURÉ (`probe_360_mow_caster_oracle.py --step c`, `blackForgefiend` / `1148 DaemonicOrdnance`,
+    zone EN FEU après un cast de la MoW elle-même) : natif `(3, 3, 3)` contre port `aucun event`.
+    Sous-prédiction MUETTE — ni erreur ni crash — symétrique de la sur-prédiction que `#350-r3`
+    avait fermée sur le même sélecteur, et invisible tant que l'ability était mesurée par GREFFE
+    sur une unité (qui, elle, a une équipe).
+
+    Purement ADDITIF : aucune clé existante n'est réécrite (les ids de Machine sont disjoints de
+    ceux de `.units`), et `units` reste `dv.units` — les consommateurs qui COMPTENT des unités
+    (ex. `_enemy_psykers_alive`) ne voient donc aucun changement. `pos` n'est versée que si la
+    ligne en porte une : une MoW est off-board et n'a pas de `PositionComponent`."""
     units = dv.get("units") or []
+    mows = dv.get("mows") or []
     eff_state = EffectsState.seed(
         {u["id"]: (u.get("effects") or []) for u in units},
         predictor["mult_by_id"], predictor["ablvl_by_id"])
     _seed_condition_gated_owner_effects(eff_state, units, predictor)
+    hp_by_id = {u["id"]: u.get("hp") for u in units}
+    pos_by_id = {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")}
+    team_by_id = {u["id"]: u.get("team") for u in units}
+    for m in mows:
+        # `casterId` = `machineId` = l'`EntityType.Machine` (cf. `projectMowsFull`) : la MÊME clé
+        # que `context.machine_row` et que les RPC de prédiction.
+        mid = m.get("casterId")
+        if mid is None:
+            continue
+        hp_by_id[mid] = m.get("hp")
+        team_by_id[mid] = m.get("team")
+        if m.get("pos"):
+            pos_by_id[mid] = (m["pos"]["col"], m["pos"]["row"])
     return {
         "units": units,
-        "hp_by_id": {u["id"]: u.get("hp") for u in units},
-        "pos_by_id": {u["id"]: (u["pos"]["col"], u["pos"]["row"]) for u in units if u.get("pos")},
-        "team_by_id": {u["id"]: u.get("team") for u in units},
+        "hp_by_id": hp_by_id,
+        "pos_by_id": pos_by_id,
+        "team_by_id": team_by_id,
         "eff_state": eff_state,
     }

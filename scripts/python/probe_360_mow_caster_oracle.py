@@ -318,19 +318,127 @@ def step_b(seed: int = 36030, verbose: bool = True) -> dict:
             "nul_on_both_arms": nul_on_both, "expected_variant": expected}
 
 
+# --------------------------- etape C : 1148 DaemonicOrdnance, MEME porteur MoW, DEUX regimes de feu
+
+ORDNANCE = 1148
+ORDNANCE_NAME = "DaemonicOrdnance"
+ORDNANCE_LVL = 2
+# Nom de l'effet de TUILE que lit le gate de selecteur de 1148 (`EffectType.Fire`, 5) -- re-derive
+# de l'enum du moteur, jamais ecrit en dur.
+_EFFECT_FIRE = __import__("engine.entities.effect_type", fromlist=["EffectType"]).EffectType.Fire.name
+
+
+def step_c(seed: int = 36070, verbose: bool = True) -> dict:
+    """`1148` avec `blackForgefiend` POUR CASTER -- l'ability dont le porteur natif EST cette MoW.
+
+    `DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle sur
+    `DaemonicOrdnanceAbility$$GetAllDamageableTargets` = les ennemis debout sur une tuile qui PORTE
+    DEJA `Fire` (5) -- que ce meme cast pose en dernier etage de son behaviour. Deux regimes sur le
+    MEME runner : zone froide (avant tout cast) et zone en feu (apres). C'est le gate
+    `_MAKE_DMG_TARGET_GATE` qui est en jeu, cette fois avec le VRAI caster."""
+    sid = _resolve_session()
+    LOGS.mkdir(parents=True, exist_ok=True)
+    sf = LOGS / "p360_stepC.json"
+    rid = None
+    out: dict = {}
+    try:
+        rid = P350._build(sf, seed, ["--p-units", "%s,%s" % (SUMMONER, P_FILLER),
+                                     "--a-units", "%s,%s" % (A_UNIT, A_FILLER),
+                                     "--a-mow", MOW,
+                                     "--unit-stat", "%s:ActiveAbilityLevel=%d,"
+                                                    "AbilityVariablesMultiplierPercentage=100"
+                                                    % (MOW, ORDNANCE_LVL)])
+        ids, dv = P350._ids(sid, rid)
+        mow_row = next((m for m in (dv.get("mows") or []) if m.get("visualId") == MOW), None)
+        if mow_row is None:
+            raise RuntimeError("MoW %s non deployee" % MOW)
+        cid = int(mow_row["casterId"])
+        out["casterId"] = cid
+        out["mow_abilities"] = [(a.get("id"), a.get("level"))
+                                for a in (mow_row.get("abilities") or [])]
+        # GEOMETRIE DRIVEE : la cible (une unite du camp OPPOSE a la MoW) au centre.
+        tgt_pos = CENTER
+        P350._move(sid, rid, ids[SUMMONER], *tgt_pos)
+        P350._move(sid, rid, ids[P_FILLER], tgt_pos[0] - 1, tgt_pos[1] - 1)
+        tid = ids[SUMMONER]
+
+        def _both(tag):
+            from engine.playbook.prediction import abilities as PA
+            nat, n_nat, err = _native_mow_ability(sid, rid, cid, tid, ORDNANCE)
+            ctxm, _d = _ctx_machine(sid, rid, cid)
+            port, n_port = P344._offline(ctxm.scene, cid, tid, ORDNANCE, ORDNANCE_NAME,
+                                         ctxm.origin, None)
+            sc = ctxm.scene
+            fx = (sc.tile_effects_by_pos or {}).get(tuple(tgt_pos)) or []
+            # DECOMPOSITION PAR ETAGE : un desaccord doit designer SON etage, pas rester un
+            # « le port rend 0 ». Le gate de selecteur de 1148 lit trois choses -- les equipes des
+            # deux entites et la tuile de la cible : on les publie toutes.
+            return {"tag": tag, "native": nat, "n_native": n_nat, "native_error": err,
+                    "port": port, "n_port": n_port, "tile_effects_on_target": fx,
+                    "scene_team_caster": sc.team(cid), "scene_team_target": sc.team(tid),
+                    "scene_pos_target": sc.pos(tid), "scene_ctx_caster": sc.ctx(cid) is not None,
+                    "gate": PA._MAKE_DMG_TARGET_GATE[ORDNANCE](sc, cid, tid)}
+
+        out["cold"] = _both("zone FROIDE (aucune tuile en feu)")
+        cast = _r(sid, rid, "applyAction",
+                  {"action": {"kind": "ability", "casterId": cid,
+                              "to": {"col": tgt_pos[0], "row": tgt_pos[1]},
+                              "abilityType": ORDNANCE}}, 180)
+        out["cast_ok"] = bool((cast.get("actions") or [{}])[0].get("ok"))
+        out["cast_error"] = (cast.get("actions") or [{}])[0].get("error")
+        out["hot"] = _both("zone EN FEU (apres un premier cast de la MoW)")
+    finally:
+        if rid is not None:
+            _r(sid, rid, "disposeRunner", {}, 30)
+    cold, hot = out["cold"], out["hot"]
+    # Les DEUX regimes sont verrouilles, et c'est ce qui a change avec #360. Avant, seul le regime
+    # FROID etait exigible : le port y rendait ZERO pour la MAUVAISE raison (`scene.team(<MoW>)`
+    # valait None, donc le gate se degradait en NEGATIF), et le regime CHAUD passait inapercu --
+    # natif `(3, 3, 3)`, port RIEN. Un accord obtenu par une donnee manquante n'est pas un accord.
+    out["ok"] = bool(cold["n_native"] == 0 and cold["n_port"] == 0 and not cold["native_error"]
+                     and cold["scene_team_caster"] is not None
+                     and out.get("cast_ok")
+                     and _EFFECT_FIRE in (hot["tile_effects_on_target"] or [])
+                     and hot["n_native"] > 0 and hot["port"] == hot["native"])
+    if verbose:
+        print("\n[360/C] %s (%d) -- caster = la MoW REELLE %s" % (ORDNANCE_NAME, ORDNANCE, MOW))
+        print("  abilities portees par la MoW : %s" % out.get("mow_abilities"))
+        for k in ("cold", "hot"):
+            r = out.get(k) or {}
+            print("  %-46s natif=%s (%s ev, err=%s) | port=%s (%s ev) | effets de tuile=%s"
+                  % (r.get("tag"), r.get("native"), r.get("n_native"), r.get("native_error"),
+                     r.get("port"), r.get("n_port"), r.get("tile_effects_on_target")))
+            print("      etages du gate : team(caster)=%s team(cible)=%s pos(cible)=%s "
+                  "ctx(caster)=%s -> gate=%s"
+                  % (r.get("scene_team_caster"), r.get("scene_team_target"),
+                     r.get("scene_pos_target"), r.get("scene_ctx_caster"), r.get("gate")))
+        print("  cast intermediaire par la MoW : ok=%s err=%s"
+              % (out.get("cast_ok"), out.get("cast_error")))
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
+    return out
+
+
+def _native_mow_ability(sid, rid, cid, tid, ability):
+    """`_native_mow` avec le message d'erreur RENDU (utilise par l'etape C, ou le zero est
+    justement le verdict attendu : un zero DOIT etre distingue d'une levee)."""
+    return _native_mow(sid, rid, cid, tid, ability)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--step", choices=("a", "b"), default=None)
+    ap.add_argument("--step", choices=("a", "b", "c"), default=None)
     ap.add_argument("--seed", type=int, default=36010)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    steps = [a.step] if a.step else ["a", "b"]
+    steps = [a.step] if a.step else ["a", "b", "c"]
     out = {}
     if "a" in steps:
         out["stepA"] = step_a(seed=a.seed)
     if "b" in steps:
         out["stepB"] = step_b(seed=a.seed + 20)
+    if "c" in steps:
+        out["stepC"] = step_c(seed=a.seed + 60)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if all(v.get("ok") for v in out.values()) else 1

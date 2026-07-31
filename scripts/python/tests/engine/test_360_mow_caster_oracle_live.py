@@ -46,6 +46,11 @@ def confronted():
     return P.step_b(seed=36240, verbose=False)
 
 
+@pytest.fixture(scope="module")
+def ordnance():
+    return P.step_c(seed=36280, verbose=False)
+
+
 def test_the_caster_position_is_what_opens_the_mow_oracle(discriminant):
     """1 : le MEME `MakeDamagePredictions`, deux positions, deux issues. C'est la mesure qui
     designe `rpc-predict.ts` comme le verrou -- et elle ne depend d'aucune fenetre de reinject,
@@ -114,3 +119,29 @@ def test_1147_with_its_real_mow_carrier_matches_the_graft(confronted):
     assert r["nul_on_both_arms"] == ["to_even"], (
         "variantes nulles sur les DEUX bras : %s -- attendu ['to_even'] (voie a2, "
         "`StaffOfStarsAbility$$GetDamage` avec isPrediction = 1)" % r["nul_on_both_arms"])
+
+
+def test_1148_with_its_real_mow_carrier_agrees_in_both_fire_regimes(ordnance):
+    """4 : `1148 DaemonicOrdnance` avec le MEME porteur MoW -- et le bug que la greffe CACHAIT.
+
+    Le gate de selecteur porte par `#350-r3` commence par `if scene.team(caster) is None:
+    return False`. Or `step_context` ne versait que `decisionView.units` dans ses tables, et une
+    Machine n'y figure JAMAIS : `scene.team(<MoW>)` valait `None`, donc le gate se degradait en
+    NEGATIF pour tout caster MoW. Le regime FROID restait vert PAR ACCIDENT (le natif y rend 0
+    aussi) ; le regime EN FEU etait faux en silence -- natif `(3, 3, 3)`, port RIEN.
+
+    La garde verrouille donc les DEUX regimes ET la DONNEE qui les separe (`scene_team_caster`) :
+    sans elle, un accord obtenu par une table vide se relirait comme un accord."""
+    cold, hot = ordnance["cold"], ordnance["hot"]
+    assert cold["scene_team_caster"] is not None, (
+        "`scene.team(<MoW>)` est de nouveau None : le gate de 1148 se degrade en NEGATIF pour tout "
+        "caster MoW, et le regime EN FEU redevient faux EN SILENCE (cf. `scene.step_context`)")
+    assert cold["n_native"] == 0 and cold["n_port"] == 0, (
+        "zone FROIDE : natif %s ev / port %s ev -- le selecteur de 1148 ne retient que les ennemis "
+        "sur une tuile qui BRULE DEJA" % (cold["n_native"], cold["n_port"]))
+    assert ordnance["cast_ok"], (
+        "la MoW n'a pas pu caster 1148 : %s -- le second regime n'est pas atteint"
+        % ordnance.get("cast_error"))
+    assert hot["n_native"] > 0, "zone en feu et natif muet : le montage ne discrimine plus"
+    assert hot["port"] == hot["native"], (
+        "zone EN FEU, caster = la MoW REELLE : port %s != natif %s" % (hot["port"], hot["native"]))
