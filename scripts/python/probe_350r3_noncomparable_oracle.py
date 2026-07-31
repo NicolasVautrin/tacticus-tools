@@ -60,10 +60,14 @@ ce gate ne traverse pas `GetDynamicInvalidTargetReason`. La preuve utilisee ici 
 `abilityTargets` (`fromHere`/`targets` NON VIDES) confirmee par `abilityReason` (`targetReason.hex
 == 0x0` au lieu de `0x8000000`), c.-a-d. exactement le flag du decompile.
 
+Codes de retour : 0 = tout confronte et vert ; 1 = ECHEC ; 2 = rien n'a echoue mais une etape
+n'a PAS ETE CONFRONTEE (typiquement : montage hors regime).
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_noncomparable_oracle.py --offline
     python probe_350r3_noncomparable_oracle.py
     python probe_350r3_noncomparable_oracle.py --json
+    python probe_350r3_noncomparable_oracle.py --max-rounds 1   # exerce la voie NON CONFRONTE
 """
 from __future__ import annotations
 
@@ -595,7 +599,7 @@ def main() -> int:
                     help="etape 0 seule (structure) -- aucune plateforme requise")
     ap.add_argument("--max-rounds", type=int, default=None,
                     help="bornes du pilotage de positions. `--max-rounds 1` EXERCE la voie "
-                         "« MONTAGE NON ATTEINT » : le probe doit alors rendre NON CONFRONTE, "
+                         "MONTAGE NON ATTEINT : le probe doit alors rendre NON CONFRONTE, "
                          "PAS un echec de port (c'est le separateur des deux lectures de #356)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
