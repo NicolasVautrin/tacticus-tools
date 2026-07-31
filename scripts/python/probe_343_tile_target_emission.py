@@ -168,18 +168,26 @@ def _move(item: int, rid: int, unit: int, to: tuple) -> None:
 # --------------------------------------------------------------------------- oracle + moteur
 
 def native(rid: int, caster: int) -> tuple:
-    """Le TOUR IA OBSERVE : `(abilityType, targetId)` de l'`ActiveAbilityMessage` propose par
-    `CalculateNextActionForUnit` pour le caster, contre CET etat, sans appliquer."""
+    """Le TOUR IA OBSERVE : les messages proposes par `CalculateNextActionForUnit` pour le caster,
+    contre CET etat, sans appliquer -> `(abilityType, targetId, to, [classes])`.
+
+    `to` = destination du `MoveUnitMessage` quand il y en a un. Le comparer N'EST PAS optionnel :
+    `InputBuilder$$GenerateInputMessagesFromUnitAction` emet le move ET le cast depuis la MEME
+    `UnitAction`, donc un port qui trouve la bonne cible depuis la MAUVAISE position n'a pas
+    reproduit l'action natif."""
     dr = _rpc("aiDryRunAllUnits", {"runnerId": rid})
     for u in (dr.get("units") or []):
         if u.get("unitId") != caster:
             continue
-        msgs = [m.get("cls") for m in (u.get("proposed") or [])]
-        for m in (u.get("proposed") or []):
+        proposed = u.get("proposed") or []
+        msgs = [m.get("cls") for m in proposed]
+        to = next(((m["to"].get("col"), m["to"].get("row")) for m in proposed
+                   if m.get("cls") == "MoveUnitMessage" and m.get("to")), None)
+        for m in proposed:
             if m.get("cls") == "ActiveAbilityMessage":
-                return (m.get("abilityType"), m.get("targetId"), msgs)
-        return (None, None, msgs)
-    return (None, None, [])
+                return (m.get("abilityType"), m.get("targetId"), to, msgs)
+        return (None, None, to, msgs)
+    return (None, None, None, [])
 
 
 def engine(rid: int, caster: int, item: int) -> dict:
@@ -224,20 +232,26 @@ def measure(item: int, rid: int, label: str) -> dict:
     caster = u[c["caster_vid"]][0]
     tid_by_pos, _walk = _board(rid)
     pos_by_tid = {t: p for p, t in tid_by_pos.items()}
-    ab, tgt, msgs = native(rid, caster)
+    ab, tgt, nto, msgs = native(rid, caster)
     e = engine(rid, caster, item)
     on, red = e["on"], e["red"]
+    origin = u[c["caster_vid"]][1]
+    # `to` du moteur : `None` = « reste a l'origine » (le port n'emet pas de move) -> on le compare
+    # a la MEME convention cote natif (pas de `MoveUnitMessage` = reste a l'origine).
+    eto = tuple(on.get("to")) if on.get("to") else origin
+    nto_ = nto if nto is not None else origin
 
     print("  --- %s ---" % label)
     print("      positions : %s" % {v: p for v, (_i, p, _c) in u.items()})
-    print("      natif  : ability=%s target=%s -> tuile %s (messages=%s)"
-          % (ab, tgt, pos_by_tid.get(tgt), msgs))
+    print("      natif  : ability=%s target=%s -> tuile %s | to=%s (messages=%s)"
+          % (ab, tgt, pos_by_tid.get(tgt), nto_, msgs))
     print("      moteur : ability=%s target=%s -> tuile %s | to=%s"
-          % (on.get("ability"), on.get("target"), pos_by_tid.get(on.get("target")), on.get("to")))
+          % (on.get("ability"), on.get("target"), pos_by_tid.get(on.get("target")), eto))
     print("      ROUGE (target=None force) : ability=%s target=%s"
           % ((red or {}).get("ability"), (red or {}).get("target")))
     return {"caster": caster, "native": (ab, tgt), "native_tile": pos_by_tid.get(tgt),
-            "engine": (on.get("ability"), on.get("target")), "engine_to": on.get("to"),
+            "native_to": nto_, "engine_to": eto,
+            "engine": (on.get("ability"), on.get("target")),
             "engine_tile": pos_by_tid.get(on.get("target")),
             "red": ((red or {}).get("ability"), (red or {}).get("target")),
             "pos_by_tid": pos_by_tid, "units": u}
@@ -297,26 +311,29 @@ def run(item: int, do_build: bool) -> int:
     print("  ST1=%s ST2=%s caster=%s" % (st["st1"], st["st2"], st["caster_pos"]))
 
     rows = {}
-    # BRAS A : UN ennemi, adjacent a ST1 seulement -> l'argmax doit etre ST1.
+    # BRAS A : UN SEUL ennemi en jeu, loge contre ST1 ; l'autre est gare loin.
     _move(item, rid, st["e1"][0], st["e1"][1])
     _move(item, rid, st["e2"][0], _far_slot(rid, st))
     rows["A"] = measure(item, rid, "A : 1 ennemi adjacent a ST1 (%s)" % (st["st1"],))
-    # BRAS B : le 2e ennemi rejoint ST2, le 1er s'eloigne -> l'argmax doit basculer sur ST2.
-    _move(item, rid, st["e2"][0], st["e2"][1])
-    _move(item, rid, st["e1"][0], _far_slot(rid, st))
-    rows["B"] = measure(item, rid, "B : 1 ennemi adjacent a ST2 (%s)" % (st["st2"],))
+    # BRAS B : on DEPLACE l'ennemi pour forcer une AUTRE tuile argmax. La destination est derivee du
+    # resultat du bras A (>= 3 de la tuile que le natif vient de choisir) : sans ca le montage peut
+    # degenerer en un seul etat, ou l'accord est trivialement vrai. Le 2e ennemi reste gare loin.
+    ta = rows["A"]["native_tile"]
+    _move(item, rid, st["e1"][0], _slot_far_from(rid, ta, st["st2"], 3) if ta else st["e2"][1])
+    _move(item, rid, st["e2"][0], _far_slot(rid, st))
+    rows["B"] = measure(item, rid, "B : l'ennemi DEPLACE a >= 3 de la tuile choisie en A (%s)" % (ta,))
 
     print("\n=== SYNTHESE item %d ===" % item)
     ok = True
     for k in ("A", "B"):
         r = rows[k]
-        agree = r["native"] == r["engine"]
+        agree = (r["native"] == r["engine"]) and (r["native_to"] == r["engine_to"])
         emits = r["native"][1] is not None
         is_tile = r["native_tile"] is not None
         ok = ok and agree
-        print("  %-2s natif=(%s, %s) tuile=%s | moteur=(%s, %s) tuile=%s | %s"
-              % (k, r["native"][0], r["native"][1], r["native_tile"],
-                 r["engine"][0], r["engine"][1], r["engine_tile"],
+        print("  %-2s natif=(%s, %s) tuile=%s to=%s | moteur=(%s, %s) tuile=%s to=%s | %s"
+              % (k, r["native"][0], r["native"][1], r["native_tile"], r["native_to"],
+                 r["engine"][0], r["engine"][1], r["engine_tile"], r["engine_to"],
                  "MATCH" if agree else "DIVERGE"))
         print("     natif emet une CIBLE : %s | cette cible est une TUILE du board : %s"
               % ("OUI" if emits else "NON (target=None)", "OUI" if is_tile else "NON"))
@@ -327,6 +344,19 @@ def run(item: int, do_build: bool) -> int:
           % ("OUI" if changed else "NON", rows["A"]["native_tile"], rows["B"]["native_tile"]))
     print("(pense a disposer : python probe_343_tile_target_emission.py --item %d --dispose)" % item)
     return 0 if ok else 1
+
+
+def _slot_far_from(rid: int, tile, prefer_near, dmin: int):
+    """Une tuile libre a >= `dmin` de `tile`, la PLUS PROCHE possible de `prefer_near` (pour rester
+    dans le domaine de ciblage du caster). Repli sur `prefer_near` si rien ne convient."""
+    import hexgeo
+    tid_by_pos, walk = _board(rid)
+    occ = {p for _v, (_i, p, _c) in _units(rid).items()}
+    cand = [p for p in tid_by_pos
+            if walk.get(p) and p not in occ and hexgeo.distance(p, tile) >= dmin]
+    if not cand:
+        return prefer_near
+    return min(cand, key=lambda p: hexgeo.distance(p, prefer_near))
 
 
 def _far_slot(rid: int, st: dict):

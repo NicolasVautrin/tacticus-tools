@@ -47,15 +47,31 @@ class DislikeStartingTilesUtility(BaseUtility):
     Pour une unite a 1 pied les deux formulations coincident exactement (`{pos} inter {origin}`), donc
     le comportement du cas nominal est inchange.
 
-    DATA-GAP RESTANT (no-op cite, doctrine « pas d'invention ») : le poids
-    `GetUtilityValue(DislikeStartingTiles)` n'est pas identifie dans les weights BC charges -> `_WEIGHT`
-    reste 0.0. Le trou `GetFeetCount`, lui, est COMBLE (substrat #R30).
-    ATTENTION (validateur R2) : ce terme n'est PAS neutre. Il PENALISE l'origine (0 ailleurs) = c'est le
-    TIE-BREAKER natif origine-vs-move qui pousse l'unite HORS de sa tuile de depart. Le tier NonComparable
-    (`get_Priority`, cf. NATIVE_PRIORITY) et le CENTRE marque restent inchanges, MAIS le no-op
-    (_WEIGHT=0) neutralise ce tie-breaker
-    -> biais du port a RESTER sur place au lieu de bouger (couple au trou#6 R1 : origine evaluee en dernier
-    cote natif). A confirmer live : si le poids BC DislikeStartingTiles est != 0, cabler `_WEIGHT`."""
+    DATA-GAP LEVE (#343, 2026-07-31) — le poids etait a 0.0 avec la consigne « a confirmer live : si le
+    poids BC DislikeStartingTiles est != 0, cabler `_WEIGHT` ». Les DEUX moities sont mesurees :
+
+    * LIVE (`probe_343_tile_target_emission.py --item 1194`, board MC1_67/909, NovaShield greffe sur
+      tauCrisis) : a utilite STRICTEMENT egale entre l'origine (1,0) et la tuile de move (0,0)
+      — meme centre marque, meme terme Tile(7)=30, donc 137 contre 137 dans le modele du port — le
+      natif EMET UN `MoveUnitMessage` vers (0,0) avant son `ActiveAbilityMessage`. Avec un poids nul
+      il resterait sur place (`Bucket.AddAction` ne remplace que sur amelioration STRICTE, et
+      l'origine est balayee EN PREMIER). Ce datapoint prouve donc le SIGNE (penalite < 0) et la
+      NON-NULLITE ; il ne borne pas la magnitude (aucune tuile de move accessible n'ecartait le
+      terme Tile de plus de 10).
+    * BC : la categorie de poids de CETTE utilite (`BaseUtility` `this+0x58`, le `Dict<string,int>`
+      que lit `IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue`) est
+      `Default/DislikeStartingTilesUtility`, et elle porte EXACTEMENT UNE entree :
+      `ActiveAbility_DislikesCurrentTiles = -40`. Meme forme et meme accesseur que
+      `MinDistanceToClosestEnemy.PerTileDistance = -100`.
+
+    CE QUI RESTE UNE INFERENCE, et il faut le dire : la CHAINE passee a `GetUtilityValue` est un
+    litteral IL2CPP (`DAT_1833dcd00` dans
+    `IdunBattle.AI.Utilities.DislikeStartingTilesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`)
+    qui ne se lit pas statiquement ; on l'identifie a `ActiveAbility_DislikesCurrentTiles` parce que
+    c'est la SEULE cle de la categorie. Si un jour la categorie en portait deux, il faudrait lire la
+    chaine live avant de choisir.
+    Le trou `GetFeetCount`, lui, etait deja COMBLE (substrat #R30). SEUL CONSOMMATEUR de ce terme
+    dans la face DECISION : `engine/playbook/noncomparable/nova_shield.py` (rayon de souffle borne)."""
     UTILITY_TYPE = int(UtilityType.DislikeStartingTilesUtility)  # 28
 
     def candidate_footprint(self, ctx, pos) -> list:
@@ -71,8 +87,16 @@ class DislikeStartingTilesUtility(BaseUtility):
                 tiles.append(n)
         return tiles
 
+    # `IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue(query, <cle>)` : categorie de poids BC
+    # `Default/DislikeStartingTilesUtility`, cle unique `ActiveAbility_DislikesCurrentTiles` (cf. la
+    # docstring de la classe pour ce qui est MESURE et ce qui est INFERE).
+    WEIGHT_CATEGORY = "DislikeStartingTilesUtility"
+    WEIGHT_KEY = "ActiveAbility_DislikesCurrentTiles"
+
     def evaluate(self, ctx, pos) -> float:
-        _WEIGHT = 0.0  # TODO cabler BaseUtility.GetUtilityValue(query, DislikeStartingTiles) [poids BC] (R2)
+        wt = getattr(ctx, "wt", None)
+        # Poids NON LU (contexte sans weights BC) -> 0.0 : on ne fabrique pas une penalite a l'aveugle.
+        weight = float(wt.sub(self.WEIGHT_CATEGORY, self.WEIGHT_KEY)) if wt is not None else 0.0
         # `start.Value.ContainsAnyOf(tiles)` : chevauchement de l'empreinte de DEBUT DE TOUR
         # (`ctx.start_feet`, defaut = la seule `ctx.origin`) avec l'empreinte candidate.
         start = getattr(ctx, "start_feet", None)
@@ -82,7 +106,7 @@ class DislikeStartingTilesUtility(BaseUtility):
         if not start:
             return 0.0
         footprint = self.candidate_footprint(ctx, pos)
-        return _WEIGHT if any(s in footprint for s in start) else 0.0
+        return weight if any(s in footprint for s in start) else 0.0
 
 
 class UtilitiesDatabase:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hexgeo
+from engine import battle_query as bq
 from engine.ai.utilities import get_movement_utility
 from engine.utilities.utility_type import UtilityType
 from engine.entities.active_ability_type import ActiveAbilityType
@@ -30,9 +31,24 @@ class NovaShieldPlaybook(NonComparablePlaybook):
     (struct de 0x128 octets ; `+0x10` = l'ENTITE cible, ecrite juste apres `GetEligibleTargetsEntities`).
     Le port rendait `target: None` : il gardait l'argmax d'utilite mais JETAIT le centre argmax.
     Le natif n'emet JAMAIS de cible nulle ici — la cible EST le centre (entite-tuile, `ctx.tile_id_by_pos`).
-    HYPOTHÈSE(trench) : flag isTrench non capturé -> ring géométrique complet (biais <=6 sur Count,
-    écrasé par 100*enemies).
-    STATUT : DECOMPILE-PROVEN, ARENE-INAGREABLE (Riptide non spawnable). L'ancienne note « classe
+    RING = porte d'ELEVATION, mesurée #343. `AdjacentTiles` n'est PAS le ring géométrique :
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` passe par
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`, dont le
+    dernier gate — INCONDITIONNEL, sans flag — est `|elev(centre) - elev(voisin)| < 2`. Datapoint
+    DISCRIMINANT (board MC1_67/909, ennemi en (0,3)) : centres (1,3)@elev4 et (1,4)@elev3 sont à
+    ÉGALITÉ 107 avec un ring géométrique, et le port émettait (1,3) là où le natif émet (1,4) ;
+    la porte retire 2 voisins de (1,3) (elev 2, Δ=2) et aucun de (1,4) -> 105 contre 107, le natif
+    est reproduit. Les 3 flags optionnels du même itérateur (temporary / walkable /
+    emptyOrSteppable) ne sont PAS appliqués : la chaîne d'offsets qui les relie aux 3 arguments
+    `(tile, 0, 1, 1)` du sélecteur est ambiguë, et la lecture « emptyOrSteppable exclut les tuiles
+    OCCUPÉES » est REFUTÉE live (elle ferait émettre (0,3), pas (1,4)).
+    HYPOTHÈSE(trench) : flag isTrench non capturé -> le filtre `!IsTrenchTile` n'est pas appliqué
+    (aucune tuile Trench sur les boards confrontés ; biais <=6 sur Count, écrasé par 100*enemies).
+    STATUT #343 : CONFRONTE LIVE. Seul porteur du gameconfig = `tauBossRiptide` (npc, hors pool,
+    refuse par `buildNormalizedBC`) -> l'ability est GREFFEE sur `tauCrisis` (`case-92` §5bis :
+    le natif charge le playbook PAR ABILITY, et l'utilite ne lit ni stats ni traits du caster).
+    `probe_343_tile_target_emission.py --item 1194` : accord natif/moteur sur (ability, cible TUILE,
+    position) sur les deux bras. L'ancienne note « classe
     TILE-target -> le natif BOUGE au tie -> sweep origine-LAST », deja marquee [UNVERIFIED], est
     RETIREE : elle reposait sur l'idee que l'ordre brut du generateur mettait l'origine en dernier.
     Le decompile dit l'inverse — la liste `tiles` vient de `ABaseAiUnitTactic$$GenerateActionTiles`
@@ -59,8 +75,15 @@ class NovaShieldPlaybook(NonComparablePlaybook):
             move_term = (get_movement_utility(ctx, caster_pos, UtilityType.Tile)
                          + get_movement_utility(ctx, caster_pos, UtilityType.DislikeStartingTilesUtility))
             for center in centers:
+                # `GetMarkedTiles` = `Target + AdjacentTiles(Target)` filtre `!IsTrenchTile`.
+                # `AdjacentTiles` = `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` ->
+                # `IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles` -> l'iterateur
+                # `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`,
+                # qui applique la porte d'ELEVATION INCONDITIONNELLE `|elev(centre)-elev(voisin)| < 2`
+                # (la MEME primitive que `GetAdjacent*`, cf. `battle_query.is_adjacent`).
                 marked = [center] + [n for n in hexgeo.neighbors(*center)
-                                     if (not board) or (n in board)]        # GetMarkedTiles \ trench
+                                     if ((not board) or (n in board))
+                                     and bq.is_adjacent(center, n, ctx.elev_by_pos)]
                 n_enemy = sum(1 for t in marked if t in epos)               # IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$CountEnemiesOnTiles
                 u = 100.0 * n_enemy + len(marked) + move_term              # 100*enemies + get_Count(marked)
                 if best is None or u > best[2]:   # strict > : 1re paire (pos, centre) du max garde
