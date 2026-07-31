@@ -131,11 +131,8 @@ class AiDecisionContext:
            natif a l'aveugle serait faux sur ~74 % des plateaux (cf.
            `engine.services.machine_of_war_position`). Le predicat rend alors False, ce qui est
            l'etat ANTERIEUR a cette tranche, et le residu est nomme."""
-        from ..services.machine_of_war_position import machine_of_war_position_for_player
-        if self.spawn_groups is not None and self.current_player_team is not None:
-            return machine_of_war_position_for_player(self.spawn_groups,
-                                                      int(self.current_player_team))
-        return (self.mow_slot_by_player or {}).get(self.cur)
+        return _machine_of_war_position(self.spawn_groups, self.current_player_team,
+                                        self.mow_slot_by_player, self.cur)
 
     def ability_targets(self, unit_id: int, ability_id: int) -> dict:
         """Lazy `abilityTargets` (union des cibles/tuiles légales) — `GetEligibleTargetsSelectable`.
@@ -448,6 +445,19 @@ def _mow_slot_by_player(dv: dict) -> dict:
             if m.get("owner") is not None and m.get("slot") is not None}
 
 
+def _machine_of_war_position(spawn_groups, current_player_team, mow_slot_by_player, cur):
+    """La cascade de `AiDecisionContext.machine_of_war_position`, en fonction MODULE.
+
+    Elle vit ici (et non seulement en methode) parce que la `Scene` la porte desormais aussi : la
+    face PREDICTION (`make_damage_predictions`) ne recoit que la `Scene`, jamais l'
+    `AiDecisionContext`, et l'arbre de zone de 1148 lit ce canal. Un seul foyer -> les deux
+    consommateurs ne peuvent pas diverger."""
+    from ..services.machine_of_war_position import machine_of_war_position_for_player
+    if spawn_groups is not None and current_player_team is not None:
+        return machine_of_war_position_for_player(spawn_groups, int(current_player_team))
+    return (mow_slot_by_player or {}).get(cur)
+
+
 def _current_player_team(dv: dict):
     """`TeamComponent.<+0x24>` du joueur COURANT — l'entree de `GroupForPlayer(teamIndex, ...)`.
 
@@ -551,17 +561,21 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # c'était déjà l'ordre natif.
     reach_nc = action_tiles
 
+    mow_slot_by_player = _mow_slot_by_player(dv)
+    current_player_team = _current_player_team(dv)
+
     # Scene objet = predictor + sctx consolidés (+ élévation + effets de tuile FRAIS du pas — la glace
     # LordOfTempests s'accumule en bataille) — consommée par engine.playbook.prediction.
-    scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos,
-                                       tile_effects_by_pos=effects_by_pos)
+    # `machine_of_war_position` : MEME cascade que `AiDecisionContext.machine_of_war_position` (foyer
+    # unique `_machine_of_war_position`) — la face PREDICTION ne voit que la Scene.
+    scene = (Scene.from_predictor_sctx(
+        predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
+        machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
+                                                         mow_slot_by_player, cur))
              if (predictor is not None and sctx is not None) else None)
 
     # #236 — `UtilityMovementCase` de la feuille MinDist(16), face LIVE (cf. `_mindist_case`).
     mindist_case = _mindist_case(uid, me, units, scene, pdr)
-
-    mow_slot_by_player = _mow_slot_by_player(dv)
-    current_player_team = _current_player_team(dv)
 
     return AiDecisionContext(
         rpc=rpc, rid=rid, wt=wt, predictor=predictor, sctx=sctx, scene=scene,
@@ -739,8 +753,12 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
 
     fpos = [(u["pos"]["col"], u["pos"]["row"]) for u in units
             if u.get("ctrl") and u.get("alive") and u.get("pos") and u.get("id") != uid]
-    scene = (Scene.from_predictor_sctx(predictor, sctx, elev_by_pos,
-                                       tile_effects_by_pos=effects_by_pos)
+    mow_slot_by_player = _mow_slot_by_player(dv)
+    current_player_team = _current_player_team(dv)
+    scene = (Scene.from_predictor_sctx(
+        predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
+        machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
+                                                         mow_slot_by_player, cur))
              if (predictor is not None and sctx is not None) else None)
 
     return AiDecisionContext(
@@ -756,6 +774,6 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_territory_by_pos=is_territory_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
-        mow_slot_by_player=_mow_slot_by_player(dv),
-        current_player_team=_current_player_team(dv),
+        mow_slot_by_player=mow_slot_by_player,
+        current_player_team=current_player_team,
         spawn_groups=spawn_groups, debug=debug)
