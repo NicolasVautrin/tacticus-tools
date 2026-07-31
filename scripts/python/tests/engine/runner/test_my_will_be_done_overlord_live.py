@@ -1,0 +1,455 @@
+"""GARDE #354-r1 -- `MyWillBeDoneOverlordAbility` (passif `MyWillBeDoneOverlord`,
+`TriggeredAbilityType` 0x614 = 1556, de `necroOverlord` << Anuphet >>), face COMBAT.
+
+Artefacts natifs portes (RE ghidra + DESASSEMBLAGE, build `rnca9r7q6c` -- lecture in extenso dans
+l'en-tete de `engine/runner/operations/triggers/loki/my_will_be_done_overlord.py`) :
+  - `...MyWillBeDoneOverlordAbility$$CreateTrigger` =
+        `On(0x12 TurnStart_EffectActivation) & AmountIsGreaterThanZero(<liste persistante>)`
+      | `On(0x29 UnitFinishedTurnNormally) & get_OwnerIsActor`
+  - `...$$CreateBehaviour` = `If(GetTargetFriend, <override + attaque libre + reset + memorisation>,
+        AddDynamicStatModifierEffectToOwner(0x62d = 1581))`, et `ClearAllPersistentData` sur 0x12 ;
+  - `...$$GetTargetFriend` = quatre groupes Necron/Hero chaines par `Otherwise`, tries par Attaque
+    COURANTE DESCENDANTE, `First(1)`.
+
+CE QUE LA GARDE PROUVE :
+  (A) STRUCTURE de l'arbre-cible, offline : les QUATRE groupes dans le BON ordre, le tri DESCENDANT,
+      les trois gates du predicat de base, et le fait que les quatre `Filter` de groupe partagent le
+      MEME sous-arbre `pool` (le natif reprend le meme `pvVar4`) ;
+  (B) STRUCTURE de l'arbre-behaviour, offline : le triptyque override / attaque-libre / retrait
+      encadre bien l'attaque, la memorisation vient APRES, et les CINQ consommateurs du selecteur
+      recoivent LE MEME OBJET (aucun `Cache` -- quirk natif, section 6 de l'en-tete du module) ;
+  (C) SUBSTRAT persistant, offline : `AddToPersistentDataList` empile SANS dedup, le predicat
+      `IsInPersistentDataList` mord, et `ClearAllPersistentData(abilityId)` n'emporte QUE les cles
+      de cette ability ;
+  (D) VECTEUR : `On(0x29)` est bien celui du registre, et `FinishUnitTurnOperation.execute` ne
+      l'emet QUE quand le flag TurnFinished est NOUVELLEMENT pose ET que la terminaison n'est pas
+      forcee (les deux gates du decompile) ;
+  (E) LIVE -- AGREEMENT : au `finish` du porteur, MEME victime et MEME delta de PV par unite entre
+      le natif et le port (donc meme allie elu, meme cible, meme plafond d'attaque) ;
+  (F) LIVE -- PREFERENCE DE GROUPE : l'allie Necron-Hero est elu alors qu'un allie Hero non-Necron
+      adjacent a une Attaque BIEN PLUS GROSSE ;
+  (G) LIVE -- PURGE : au tour SUIVANT le MEME allie re-attaque (sans le volet `On(0x12)` il serait
+      memorise a vie) ;
+  (H) CONTREFACTUELS : quatre mutations de MON PROPRE mecanisme doivent changer l'election. Sans
+      elles, le vert des tests (E)/(F) ne prouverait pas que ces etages sont testes.
+      ⚠ CHAQUE mutation exige le montage qui l'EXERCE -- mesure du 2026-07-31, ou trois des quatre
+      echouaient sur M1 : `ascending` est inerte tant qu'un groupe ne contient qu'UNE unite,
+      `notargets` tant que tous les allies ont une cible, `nomechanical` tant qu'un Necron est
+      eligible (ils sont TOUS `Mechanical`). D'ou M5 (trois Necrons du groupe A, dont un melee pure
+      hors de portee) et M6 (aucun Necron allie).
+
+ASCII-only. Skip si pas de session live / montage non montable.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))                  # scripts/python
+import probe_354_my_will_be_done_overlord as MW                     # noqa: E402
+
+SEED, BOARD, TURNS = "777", "MC1_67", 2
+
+
+@pytest.fixture(scope="session")
+def mwbd(rpc, live_session):
+    """Monte le montage M1/M2/M3 UNE fois (destructif : il joue 2 activations du porteur)."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure(_resolve_session(), SEED, BOARD, TURNS, verbose=True)
+    if out is None or not out["rows"]:
+        pytest.skip("montage MyWillBeDoneOverlord non montable (board/pool/placement/DRAIN)")
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_solo(rpc, live_session):
+    """Montage M4 (branche ELSE) : aucun allie ADJACENT eligible, allie-tampon EXILE."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_solo(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage solo MyWillBeDoneOverlord non montable (DRAIN)")
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_cf(rpc, live_session):
+    """Montage M5 -- TROIS Necrons du groupe A : deux avec cible (Attaques differentes) et un
+    MELEE PURE hors de portee. C'est le seul montage qui exerce `ascending` et `notargets`."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_counterfactual(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage M5 (contrefactuels) non montable (board/pool/placement/DRAIN)")
+    return out
+
+
+@pytest.fixture(scope="session")
+def mwbd_nomech(rpc, live_session):
+    """Montage M6 -- AUCUN allie Necron (groupe A vide) : un `Mechanical` et un `Hero` NU. C'est le
+    seul montage qui exerce `nomechanical`."""
+    from rl_collect_batch import _resolve_session
+    out = MW.measure_nomech(_resolve_session(), SEED, BOARD, verbose=True)
+    if out is None:
+        pytest.skip("montage M6 (nomechanical) non montable (board/pool/placement/DRAIN)")
+    return out
+
+
+def _elected(cap, carrier_id, mutate):
+    """L'allie elu par le port quand on neutralise l'etage `mutate` (None = l'ability reste inerte)."""
+    _st, out = MW.offline_finish(cap, carrier_id, patch=MW._patched_tree(mutate))
+    return out[0]["friend"] if out else None
+
+
+# ------------------------------------------------------------------------------------------------
+# (A) STRUCTURE de l'arbre-cible -- offline, aucun live requis.
+# ------------------------------------------------------------------------------------------------
+def test_mwbd_target_tree_groups_and_sort():
+    """(A) `GetTargetFriend` : `First(SortByFormula(A.Otherwise(B).Otherwise(C).Otherwise(D),
+    StatAmount(it, ATTACK, CURRENT), ascending = 0))`.
+
+    Le sens du tri est le LITTERAL `xor r9d, r9d` du call-site (`ascending = 0` -> DESCENDANT) : un
+    `ascending=True` eluerait l'allie le plus FAIBLE du groupe."""
+    from engine.entities.formulas import StatAmount
+    from engine.entities.selectors import First, Otherwise, SortByFormula, Filter
+    from engine.entities.stats import StatPart, StatType
+    from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
+        my_will_be_done_target_friend)
+    tree = my_will_be_done_target_friend()
+    assert isinstance(tree, First) and tree.index == 0, "First(chain, amount = 1)"
+    srt = tree.source
+    assert isinstance(srt, SortByFormula)
+    assert srt.ascending is False, "ascending = 0 (lu au desassemblage) -> tri DESCENDANT"
+    assert isinstance(srt.formula, StatAmount)
+    assert int(srt.formula.stat_type) == int(StatType.ATTACK) == 0
+    assert int(srt.formula.variant) == int(StatPart.CURRENT) == 0
+    # A.Otherwise(B).Otherwise(C).Otherwise(D) -- l'imbrication GAUCHE du decompile.
+    o3 = srt.source
+    assert isinstance(o3, Otherwise)
+    o2 = o3.primary
+    assert isinstance(o2, Otherwise)
+    o1 = o2.primary
+    assert isinstance(o1, Otherwise)
+    groups = [o1.primary, o1.fallback, o2.fallback, o3.fallback]
+    assert all(isinstance(g, Filter) for g in groups), "les QUATRE groupes sont des Filter(pool, ...)"
+    # ... et les quatre partagent le MEME sous-arbre `pool` (le natif reprend le meme `pvVar4`).
+    assert all(g.source is groups[0].source for g in groups)
+
+
+def test_mwbd_target_tree_group_predicates():
+    """(A bis) L'ORDRE de preference : (Necron & Hero) > (!Necron & Hero) > (Necron & !Hero) >
+    (!Necron & !Hero). C'est la lecture des quatre `op_BitwiseAnd`/`op_LogicalNot` du desassemblage
+    -- l'inverser changerait l'allie elu des que deux groupes sont peuples."""
+    from engine.entities.triggers import HasFaction, HasTrait, Not, TriggerAnd
+    from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
+        HERO, NECRONS, my_will_be_done_target_friend)
+    tree = my_will_be_done_target_friend()
+    o3 = tree.source.source
+    o2, o1 = o3.primary, o3.primary.primary
+    groups = [o1.primary, o1.fallback, o2.fallback, o3.fallback]
+
+    def shape(pred):
+        """(necron_positif, hero_positif) du `TriggerAnd(<HasFaction|Not>, <HasTrait|Not>)`."""
+        assert isinstance(pred, TriggerAnd)
+        a, b = pred.a, pred.b
+        na = isinstance(a, HasFaction)
+        nb = isinstance(b, HasTrait)
+        fa = a if na else a.a
+        fb = b if nb else b.a
+        assert isinstance(fa, HasFaction) and int(fa.faction) == NECRONS == 7
+        assert isinstance(fb, HasTrait) and int(fb.trait) == HERO == 0x10
+        return (na, nb)
+
+    assert [shape(g.predicate) for g in groups] == [
+        (True, True), (False, True), (True, False), (False, False)]
+    assert all(isinstance(g.predicate.a, (HasFaction, Not)) for g in groups)
+
+
+def test_mwbd_base_predicate_gates():
+    """(A ter) Le predicat de base du `pool` : `HasTrait(it, 0x05 Mechanical)` &
+    `AmountIsGreaterThanZero(Count(ValidNormalAttackTargets(it, Tiles(it))))` &
+    `NOT IsInPersistentDataList(1556, Owner, dataKey, EntityId(it))`.
+
+    ⚠ Le trait est `0x05 = Mechanical` NU -- pas le `IsMechanical` a trois traits que
+    `ResurrectionOrb` emploie sur la MEME unite : recopier ce voisin aurait elargi le pool aux
+    porteurs de `LivingMetal`/`Vehicle` sans trait 5."""
+    from engine.entities.formulas import Count, EntityId
+    from engine.entities.selectors import AdjacentFriends, Tiles, ValidNormalAttackTargets
+    from engine.entities.traits.unit_trait import UnitTrait
+    from engine.entities.triggers import (AmountIsGreaterThanZero, HasTrait,
+                                          IsInPersistentDataList, Not, TriggerAnd)
+    from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
+        ABILITY_ID, MECHANICAL, MY_WILL_BE_DONE_OVERLORD, my_will_be_done_target_friend)
+    pool = my_will_be_done_target_friend().source.source.primary.primary.primary.source
+    assert isinstance(pool.source, AdjacentFriends), "pool = Filter(AdjacentFriends(Caster()), base)"
+    base = pool.predicate
+    assert isinstance(base, TriggerAnd)
+    left, mem = base.a, base.b
+    assert isinstance(left, TriggerAnd)
+    mech, tgts = left.a, left.b
+    assert isinstance(mech, HasTrait) and int(mech.trait) == MECHANICAL == int(UnitTrait.Mechanical)
+    assert isinstance(tgts, AmountIsGreaterThanZero) and isinstance(tgts.a, Count)
+    assert isinstance(tgts.a.selector, ValidNormalAttackTargets)
+    assert isinstance(tgts.a.selector.unit_tile, Tiles), "ValidNormalAttackTargets(it, Tiles(it))"
+    assert isinstance(mem, Not) and isinstance(mem.a, IsInPersistentDataList)
+    assert mem.a.ability_or_effect == MY_WILL_BE_DONE_OVERLORD == 1556
+    assert mem.a.data_key == ABILITY_ID
+    assert isinstance(mem.a.value, EntityId)
+
+
+# ------------------------------------------------------------------------------------------------
+# (B) STRUCTURE de l'arbre-behaviour -- offline.
+# ------------------------------------------------------------------------------------------------
+def test_mwbd_behaviour_tree_shape():
+    """(B) `If(target, ((override & attaque) & reset) & memorisation, selfBuff)` -- l'imbrication
+    GAUCHE des trois `AbilityBehaviour.op_BitwiseAnd`, et les littéraux du decompile.
+
+    Le point NON EVIDENT et VOULU : les CINQ consommateurs du selecteur (le `If` + les quatre
+    feuilles) recoivent LE MEME OBJET, sans `Cache` -- le natif re-resout donc l'arbre a chaque
+    etage, contre l'etat DEJA MUTE (cf. section 6 de l'en-tete du module). `ExemplarOfHate`, lui,
+    enveloppe son selecteur d'attaquant dans un `Cache(..., 1)` explicite : l'ABSENCE ici est une
+    lecture, pas un oubli."""
+    from engine.entities.behaviours import Seq
+    from engine.entities.stats import StatType
+    from engine.runner.abilities.behaviours import (AddDynamicStatModifierEffect,
+                                                    AddStatOverrideEffect, AddToPersistentDataList,
+                                                    PerformAIAttack, RemoveEffect)
+    from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
+        EXTRA_DAMAGE_EFFECT, MY_WILL_BE_DONE_OVERLORD, TEMPORARY_STAT_OVERRIDE,
+        my_will_be_done_attack_tree, my_will_be_done_target_friend)
+    target = my_will_be_done_target_friend()
+    node = my_will_be_done_attack_tree(target, 1234, 90, 3)
+    assert node.condition is target, "la condition du `If` EST le selecteur GetTargetFriend"
+    then, els = node.then, node.otherwise
+    assert isinstance(then, Seq) and isinstance(then.left, Seq) and isinstance(then.left.left, Seq)
+    override, free_attack = then.left.left.left, then.left.left.right
+    clear, remember = then.left.right, then.right
+    assert isinstance(override, AddStatOverrideEffect)
+    assert override.effect_type == TEMPORARY_STAT_OVERRIDE == 0x510
+    assert override.stat_type == int(StatType.ATTACK) == 0
+    assert isinstance(free_attack, PerformAIAttack)
+    assert free_attack.allow_move_action is False and free_attack.move_amount == 0, \
+        "PerformAIAttackFromCurrentPosition : overrideMovement = <DSLFormulas+0x18 = Direct(0)>"
+    assert isinstance(clear, RemoveEffect) and clear.effect_type == TEMPORARY_STAT_OVERRIDE
+    assert isinstance(remember, AddToPersistentDataList)
+    assert remember.ability_or_effect == MY_WILL_BE_DONE_OVERLORD
+    assert isinstance(els, AddDynamicStatModifierEffect)
+    assert els.effect_type == EXTRA_DAMAGE_EFFECT == 0x62d
+    assert els.stat_type == int(StatType.ATTACK)
+    assert els.duration_turns == 3 and els.duration_rounds is None, \
+        "turns = Sum(TurnsFromRounds(1), Direct(1)) -- deja en TOURS"
+    # LE MEME OBJET dans les cinq consommateurs (aucun `Cache`).
+    assert override.unit_sel is target and free_attack.tile_selector is target
+    assert clear.target_sel is target and remember.value.ref is target
+
+
+# ------------------------------------------------------------------------------------------------
+# (C) SUBSTRAT persistant -- offline.
+# ------------------------------------------------------------------------------------------------
+def _state_with(owner_id=1):
+    from engine.runner.state import State
+    st = State()
+    e = st.add_entity()
+    return st, e
+
+
+def test_persistent_data_list_append_contains_clear():
+    """(C) Le sac LISTE, mirror des trois primitives natives :
+      * `AddToPersistentDataListBehaviour$$Execute` -> `list.Add(value)` INCONDITIONNEL (le natif ne
+        deduplique PAS -- c'est le predicat en amont qui evite le doublon) ;
+      * `IsInPersistentDataListTrigger$$ShouldTrigger` -> `(list ?? new List()).Contains(value)` ;
+      * `PersistentDataComponent$$ClearAllPersistentData(abilityId)` = `Dictionary.Remove(abilityId)`
+        -> emporte TOUTES les dataKeys de CETTE ability, et RIEN des autres."""
+    from engine.runner.components import PersistentDataComponent, persistent_data_list
+    st, e = _state_with()
+    c = PersistentDataComponent()
+    e.add_component(c)
+    k_mine, k_other = (1556, "MyWillBeDoneOverlord"), (1004, "RelentlessMarch")
+    assert persistent_data_list(e, k_mine) == [], "cle absente -> liste VIDE (le natif fait `?? new`)"
+    c.persist_data_list(k_mine, [7])
+    c.persist_data_list(k_other, [9])
+    c.persist_data(("scalaire", "x"), 1)
+    assert persistent_data_list(e, k_mine) == [7]
+    lst = list(c.try_get_persist_data_list(k_mine))
+    lst.append(7)                                     # `List.Add` : PAS de dedup
+    c.persist_data_list(k_mine, lst)
+    assert persistent_data_list(e, k_mine) == [7, 7]
+    c.clear_all_persistent_data(1556)
+    assert persistent_data_list(e, k_mine) == [], "Remove(abilityId) emporte les cles de 1556"
+    assert persistent_data_list(e, k_other) == [9], "... et RIEN des autres abilities"
+    assert c.try_get_persist_data_list(("scalaire", "x")) is None, \
+        "un scalaire n'est pas une liste (les deux familles coexistent dans le meme dict)"
+    c.clear_all_persistent_data()                     # overload SANS argument (resurrection)
+    assert c.data == {}
+
+
+# ------------------------------------------------------------------------------------------------
+# (D) VECTEUR -- offline.
+# ------------------------------------------------------------------------------------------------
+def test_mwbd_registered_on_unit_finished_turn_normally():
+    """(D) Les DEUX branches du `CreateTrigger` sont au registre `ABILITY_TRIGGERS`, sur les DEUX
+    events LUS (`0x29` pour l'attaque, `0x12` pour la purge)."""
+    from engine.dsl.event_trigger_type import EventTriggerType
+    from engine.runner.operations.triggers.dispatch import ABILITY_TRIGGERS
+    from engine.runner.operations.triggers.loki.my_will_be_done_overlord import (
+        MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility)
+    entries = ABILITY_TRIGGERS["MyWillBeDoneOverlord"]
+    assert entries == [MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility]
+    assert MyWillBeDoneOverlordAttackAbility.event_id == int(
+        EventTriggerType.UnitFinishedTurnNormally) == 41
+    assert MyWillBeDoneOverlordClearAbility.event_id == int(
+        EventTriggerType.TurnStart_EffectActivation) == 18
+    assert MyWillBeDoneOverlordAttackAbility.TRIGGERED_ABILITY_ID == 1556
+
+
+def test_finish_unit_turn_emits_only_when_newly_finished_and_not_forced():
+    """(D bis) Les DEUX gates natifs du `publish On(0x29)` :
+
+        if (flags.Add(0x03 = TurnFinished)) { publish On(0x28) ;
+                                              if (!isTerminated) publish On(0x29) }
+
+    -> un `finish` FORCE (le `FinishUnitTurn(spawned, isTerminated: true)` des summons, #291) et un
+    second `finish` sur une unite deja close n'emettent RIEN. Le test appelle l'Operation sur un etat
+    NU (aucun trigger enregistre) : ce qu'il verifie est la PRESENCE de la cle, donc l'emission."""
+    from engine.runner.components import UnitFlagsComponent
+    from engine.runner.operations.turnflow import FinishUnitTurnOperation
+    st, e = _state_with()
+    e.add_component(UnitFlagsComponent())
+    out = FinishUnitTurnOperation.execute(st, e.id, forced=False)
+    assert out["newly_finished"] is True and "finished_normally_triggers" in out
+    again = FinishUnitTurnOperation.execute(st, e.id, forced=False)
+    assert again["newly_finished"] is False and "finished_normally_triggers" not in again, \
+        "le flag TurnFinished etait deja pose -> le natif ne republie pas"
+    st2, e2 = _state_with()
+    e2.add_component(UnitFlagsComponent())
+    forced = FinishUnitTurnOperation.execute(st2, e2.id, forced=True)
+    assert forced["newly_finished"] is True and "finished_normally_triggers" not in forced, \
+        "isTerminated = true -> On(0x28) seul, JAMAIS On(0x29)"
+
+
+# ------------------------------------------------------------------------------------------------
+# (E)-(H) -- confrontation LIVE.
+# ------------------------------------------------------------------------------------------------
+def test_mwbd_agreement_damage_deltas(mwbd):
+    """(E) A chaque activation du porteur : MEME delta de PV par unite live et port. C'est
+    l'assertion qui couvre les TROIS termes de la question binaire -- meme allie elu (une autre
+    unite frapperait une autre victime), meme cible, meme plafond d'attaque (`min(maxDmg[lvl],
+    round(Attaque x dmgPct%))` : un cap ou un pourcentage faux donnerait un autre degat)."""
+    vis = mwbd["vis_by_id"]
+    for row in mwbd["rows"]:
+        for uid in row["hp_before"]:
+            assert row["d_live"].get(uid, 0) == row["d_port"].get(uid, 0), (
+                "activation #%d : %s live=%d port=%d"
+                % (row["k"], vis.get(uid), row["d_live"].get(uid, 0), row["d_port"].get(uid, 0)))
+
+
+def test_mwbd_group_preference_beats_attack_sort(mwbd):
+    """(F) LE DISCRIMINANT : `necroWarden` (Necron + Hero, groupe A) est elu alors qu'`admecDominus`
+    (Hero non-Necron, groupe B) est adjacent, eligible, et porte une Attaque BIEN PLUS GROSSE. Un
+    tri global par Attaque (sans la chaine `Otherwise`) eluerait le Dominus.
+
+    L'identite de l'attaquant est lue par la VICTIME : le montage donne a chaque allie SA propre
+    cible adjacente, hors de portee de l'autre (`setup_positions` REFUSE toute autre geometrie)."""
+    vis, ids = mwbd["vis_by_id"], mwbd["ids"]
+    row = mwbd["rows"][0]
+    hurt = [uid for uid, d in row["d_live"].items() if d < 0]
+    assert hurt, "aucune victime live : le trigger natif n'a pas fire (montage a revoir)"
+    assert [vis[u] for u in hurt] == [MW.ENEMY_A], (
+        "la victime doit etre la cible du groupe A (%s), pas %s"
+        % (MW.ENEMY_A, [vis[u] for u in hurt]))
+    assert row["port_out"], "le port doit avoir fire aussi"
+    assert row["port_out"][0]["friend"] == ids[MW.ALLY_A], (
+        "l'allie elu par le port doit etre %s, pas %s"
+        % (MW.ALLY_A, vis.get(row["port_out"][0]["friend"])))
+
+
+def test_mwbd_persistent_list_is_purged_between_turns(mwbd):
+    """(G) PURGE : a l'activation SUIVANTE, le MEME allie re-attaque. Sans le volet
+    `On(0x12) -> ClearAllPersistentData`, il resterait memorise et un AUTRE allie (ou personne)
+    agirait -- c'est la seule confrontation LIVE possible de la purge, puisqu'il y a toujours au
+    moins un turn-start entre deux activations du porteur."""
+    if len(mwbd["rows"]) < 2:
+        pytest.skip("il faut >= 2 activations du porteur pour observer la purge")
+    ids, vis = mwbd["ids"], mwbd["vis_by_id"]
+    for row in mwbd["rows"]:
+        hurt = [uid for uid, d in row["d_live"].items() if d < 0]
+        assert [vis[u] for u in hurt] == [MW.ENEMY_A], (
+            "activation #%d : victime %s (le meme allie doit rejouer apres la purge)"
+            % (row["k"], [vis[u] for u in hurt]))
+        assert row["port_out"] and row["port_out"][0]["friend"] == ids[MW.ALLY_A]
+
+
+def test_mwbd_counterfactual_nogroups(mwbd):
+    """(H.1) `nogroups` -- supprimer la chaine `A.Otherwise(B).Otherwise(C).Otherwise(D)` rabat le
+    choix sur un tri GLOBAL par Attaque. Sur M1 (`necroWarden` 400 groupe A vs `admecDominus` 3000
+    groupe B) cela elit le Dominus : c'est le pendant exact du discriminant (F)."""
+    diverged = False
+    for row in mwbd["rows"]:
+        want = row["port_out"][0]["friend"] if row["port_out"] else None
+        if _elected(row["cap"], mwbd["ids"][MW.CARRIER], "nogroups") != want:
+            diverged = True
+            break
+    assert diverged, "la chaine Otherwise n'est pas exercee par M1"
+
+
+@pytest.mark.parametrize("mutate", ["ascending", "notargets"])
+def test_mwbd_counterfactuals_m5(mwbd_cf, mutate):
+    """(H.2) Les DEUX etages que M1 N'EXERCE PAS, sur le montage M5 taille pour eux :
+
+      * `ascending` -- M1 n'oppose qu'UNE unite par groupe, donc le sens du tri y est INERTE. M5 met
+        `necroDestroyer` (400) et `necroWarden` (3000) dans le MEME groupe A : le tri DESCENDANT elit
+        le Warden, l'ascendant elirait le Destroyer.
+      * `notargets` -- les deux allies de M1 ont une cible, donc le gate y est INERTE. M5 ajoute
+        `necroSpyder` (Attaque MAXIMALE, MELEE PURE) hors de portee : le gate l'ecarte ; sans lui il
+        est elu et l'ability devient INERTE (il ne peut pas frapper).
+
+    MESURE 2026-07-31 : ces deux mutations echouaient sur M1 -- a juste titre. Un contrefactuel qui
+    ne bouge pas dit que l'etage n'est pas teste, pas que le port est bon."""
+    base = mwbd_cf["port_out"][0]["friend"] if mwbd_cf["port_out"] else None
+    got = _elected(mwbd_cf["cap"], mwbd_cf["ids"][MW.CARRIER], mutate)
+    assert got != base, (
+        "la mutation '%s' n'a change AUCUNE election (base=%s) : cet etage n'est pas exerce"
+        % (mutate, mwbd_cf["vis_by_id"].get(base)))
+
+
+def test_mwbd_counterfactual_nomechanical(mwbd_nomech):
+    """(H.3) `nomechanical` sur M6. Il n'existe AUCUN Necron non-`Mechanical` (recon gameconfig
+    2026-07-31) : des qu'un Necron est eligible, le groupe A gagne et retirer le gate ne deplace
+    rien -- ce pourquoi M1 et M5 laissent cette mutation inerte. M6 vide donc le groupe A :
+    `admecDominus` (`Mechanical`, 400) est le seul elu possible, alors qu'`astraCreed` (`Hero` NU,
+    3000) le devancerait au tri sans le gate."""
+    base = mwbd_nomech["port_out"][0]["friend"] if mwbd_nomech["port_out"] else None
+    got = _elected(mwbd_nomech["cap"], mwbd_nomech["ids"][MW.CARRIER], "nomechanical")
+    assert base == mwbd_nomech["ids"][MW.ALLY_B], (
+        "l'elu de base doit etre le seul Mechanical (%s), pas %s"
+        % (MW.ALLY_B, mwbd_nomech["vis_by_id"].get(base)))
+    assert got == mwbd_nomech["ids"][MW.ALLY_NM], (
+        "sans le gate Mechanical, %s (Attaque plus grosse) doit etre elu, pas %s"
+        % (MW.ALLY_NM, mwbd_nomech["vis_by_id"].get(got)))
+
+
+def test_mwbd_else_branch_self_buff(mwbd_solo):
+    """(E bis) BRANCHE ELSE : aucun allie ADJACENT eligible -> le porteur n'attaque personne, et
+    l'effet 1581 `MyWillBeDoneOverlord_ExtraDamage` apparait SUR LUI -- avec la MEME DUREE live et
+    port.
+
+    ⚠ La duree est comparee en VALEUR, pas seulement par les porteurs : `AddDynamicStatModifier
+    EffectToOwner(0x62d, ATTACK, turns = Sum(TurnsFromRounds(1), <DSLFormulas+0x20 = Direct(1)>))`
+    est le SEUL etage de cette branche qui produise un observable, et un `set(...)` sur les cles le
+    laissait passer en silence. MESURE du 2026-07-31 : sur l'ancien montage (porteur SEUL de son
+    camp) le live rendait `remaining = 2` contre `3` au port -- non pas parce que la duree etait
+    fausse, mais parce que le `finish` du porteur faisait BASCULER le tour et qu'un TICK s'appliquait
+    avant l'observation. Le montage exile donc un allie-tampon (`setup_solo_positions`) pour que le
+    tour NE bascule PAS, et les deux cotes rendent alors 3."""
+    assert not any(d for d in mwbd_solo["d_live"].values()), \
+        "aucun allie eligible -> aucune attaque"
+    assert mwbd_solo["port_out"] and mwbd_solo["port_out"][0]["self_buff"] is True
+    assert mwbd_solo["turn_before"] == mwbd_solo["turn_after"], (
+        "le tour a BASCULE (%s -> %s) : un tick a decremente la duree et la comparaison ne porterait "
+        "plus sur le meme instant" % (mwbd_solo["turn_before"], mwbd_solo["turn_after"]))
+    assert mwbd_solo["live_eff"] == mwbd_solo["port_eff"], (
+        "1581 (porteur ET duree) live=%s port=%s" % (mwbd_solo["live_eff"], mwbd_solo["port_eff"]))
+    assert set(mwbd_solo["live_eff"].values()) == {3}, (
+        "turns = Sum(TurnsFromRounds(1) = 2, Direct(1)) = 3 en duel ; observe %s"
+        % mwbd_solo["live_eff"])
