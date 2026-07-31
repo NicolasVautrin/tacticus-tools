@@ -111,7 +111,16 @@ def test_hits_are_the_literal_constant_not_the_default_formula():
 # ------------------------------------------------------------- D : le cablage du 2e batch (CASTER)
 
 class _Rec:
-    """Sentinelle de prediction : `make_damage_predictions` ne lit rien d'elle."""
+    """Sentinelle de prediction. `make_damage_predictions` n'en lit QU'UNE chose : `will_be_kill()`
+    sur l'event du CASTER -- le predicat de la gate `!self.Any(p => p.Prediction.WillBeKill)` qui
+    decide des batchs 3/4 (#383). `kill=False` = gate FERMEE, donc le natif s'arrete au 2e batch :
+    c'est le regime que ce fichier verrouille (le batch EXPLOSION a ses propres gardes dans
+    `test_383_ramming_speed_explosion_offline.py`)."""
+    def __init__(self, kill: bool = False):
+        self.kill = bool(kill)
+
+    def will_be_kill(self) -> bool:
+        return self.kill
 
 
 class _Scene:

@@ -128,9 +128,13 @@ on lisait 2 events des deux côtés. Le probe porte la garde qui refuse ce monta
 
 ## 7. Ce qui reste VRAI de la RE des sélecteurs (#365)
 
-* `DSLSelectors$$Friends`/`$$Enemies` allouent le **même** `UnitsFromFactionSelector` à un bit près
-  et **partitionnent** leur entrée par `UnitExtensions$$HasFaction` ⇒ les deux batchs vides
-  équivaut à `AdjacentUnits(GetTileToMoveTo(), 1, 3)` vide.
+* ~~`DSLSelectors$$Friends`/`$$Enemies` allouent le **même** `UnitsFromFactionSelector` à un bit
+  près et **partitionnent** leur entrée par `UnitExtensions$$HasFaction`~~ — **FAUX, rectifié par
+  #383** (`case-383` §3) : les deux allouent `UnitsByTeamSelector` (classe `DAT_18336e320`, contre
+  `DAT_18336e9b0` pour `DSLSelectors$$UnitsFromFaction`) et partitionnent par
+  `UnitExtensions$$IsFriend`. Les deux `.ctor` ont le MÊME corps donc sont **dédupliqués** — c'est
+  le faux négatif de table du `CLAUDE.md`, et le nom lu était celui de l'autre classe. Ce qui reste
+  vrai : les deux batchs vides équivaut à `AdjacentUnits(GetTileToMoveTo(), 1, 3)` vide.
 * `DSLSelectors$$AdjacentUnits(origin, unique, sel)` = `Units(AdjacentTiles(origin), unique, sel)
   op_Subtraction origin` — aucun sélecteur dédié. `AdjacentTilesSelector$$Select` exclut déjà les
   tuiles d'origine. `GenerateAttackPredictions` appelle l'index **4**
@@ -148,13 +152,17 @@ on lisait 2 events des deux côtés. Le probe porte la garde qui refuse ce monta
 
 ## 8. Ce qui n'est PAS couvert
 
-* **`1059` n'entre toujours pas dans `ABILITY_CLASSES`** — port des batchs 3/4 à faire, avec
-  `TARGETING_OPTIONS` et `ABILITY_ATTACK_TYPE` dans le même commit.
+* ~~**`1059` n'entre toujours pas dans `ABILITY_CLASSES`** — port des batchs 3/4 à faire~~ —
+  **les batchs 3/4 sont PORTÉS et confrontés 4/4 (#383, `case-383`)** ; la face COMBAT, elle, reste
+  hors `ABILITY_CLASSES` (résidu `#383-r1` : le nœud `<DSLTriggers+0x20>` du `If` autour des deux
+  attaques n'est nommé nulle part). Les deux données de registre sont LUES dans `case-383` §6.
 * **Écart PORT/NATIF sur un ring saturé** : `ramming_speed_tile_to_move_to` désigne `(2,3)` alors que
   le natif ne peut **pas** l'atteindre (intersection vide, §4b). Le port de `MovableTilesInRange` ne
   modélise donc pas le blocage par les unités que `MovementQuery$$AnyOrFillMoveableTiles` applique.
   Non confronté hors de cette géométrie ; le MATCH 2/2 de `#353-r1` portait sur des régimes non
-  bloqués. **Résidu nommé, non traité.**
+  bloqués. **Résidu nommé, non traité** — **2ᵉ mesure indépendante par #383** (`C1_74`, caster
+  loin : deux candidates du pool du port sont HORS des 27 tuiles d'`aiMovableTiles`, et les
+  sélecteurs des batchs sont exonérés — `case-383` §5).
 * **La branche `UnitExtensions$$CanMove`** n'a jamais été observée fermée : aucun montage n'a porté
   le trait `0x418` ni un blocage de mouvement. Elle est lue, pas mesurée.
 * **La gate de Fragstorm** (`1048`) : son ouverture reste indéterminée, son batch étant mort en aval

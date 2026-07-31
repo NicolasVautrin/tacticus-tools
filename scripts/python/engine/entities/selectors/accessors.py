@@ -44,6 +44,24 @@ class FixedTiles(TargetsSelector):
         return list(self.positions)
 
 
+class FixedTile(TargetsSelector):
+    """Jumeau SINGULIER de `FixedTiles` — PAS un noeud natif : meme VEHICULE DE COLLAPSE, mais il rend
+    **UNE** position `(col,row)` au lieu d'une liste. Les deux coexistent parce que les consommateurs
+    n'ont pas le meme contrat : `MoveUnit` itere une LISTE (-> `FixedTiles`) alors que les selecteurs
+    de voisinage (`AdjacentUnits`/`SurroundingUnits` -> `dsl.base._within`) prennent UN centre
+    (position ou entite) -- leur passer une liste d'un element ferait lever `hexgeo.distance`.
+
+    Consommateur : l'`origin` de `AdjacentUnits(RammingSpeedAbility$$GetTileToMoveTo(), 1, 3)` dans
+    `IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (#383) -- l'arbre de la
+    tuile est un selecteur AI/pathfinding LOURD (kind S : `MovableTilesInRange op_BitwiseAnd
+    CanAddUnit(AdjacentTiles(target))`, tri d'utilite, `First`), calcule hors DSL puis injecte ici."""
+    def __init__(self, pos):
+        self.pos = (int(pos[0]), int(pos[1])) if pos is not None else None
+
+    def select(self, ctx):
+        return self.pos
+
+
 class FixedTileIds(TargetsSelector):
     """Jumeau ID-DOMAIN de `FixedTiles` — PAS un noeud natif : VEHICULE DE COLLAPSE presentant a une
     feuille des **ids de tuile** deja resolus imperativement. Les deux domaines coexistent parce que les
