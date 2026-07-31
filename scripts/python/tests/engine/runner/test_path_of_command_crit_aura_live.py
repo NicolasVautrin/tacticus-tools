@@ -35,8 +35,13 @@ ALLY_CRIT = "eldarRanger"      # chance de crit forcee > 0 -> CIBLE du selecteur
 ALLY_NOCRIT = "eldarFarseer"   # chance de crit 0 (la normalisation la met a 0) -> NON cible
 FOE = "necroWarden"
 CRIT_SEED = 20
-BUILD = ["--p-units", f"{CARRIER},{ALLY_CRIT},{ALLY_NOCRIT}", "--a-units", FOE, "--no-ai",
-         "--unit-stat", f"{ALLY_CRIT}:CritChance={CRIT_SEED}"]
+BUILD = ["--p-units", f"{CARRIER},{ALLY_CRIT},{ALLY_NOCRIT}", "--a-units", f"{FOE},{FOE},{FOE}",
+         "--no-ai",
+         "--unit-stat", f"{ALLY_CRIT}:CritChance={CRIT_SEED}",
+         # ENNEMI a chance de crit > 0 : sans lui le noeud `Friends` du selecteur ne serait exerce
+         # par RIEN (un ennemi normalise est a crit 0, donc exclu par le gate CRIT et non par le
+         # gate d'EQUIPE — un vert qui ne prouverait rien).
+         "--unit-stat", f"{FOE}:CritChance={CRIT_SEED}"]
 EXTRA_CRIT = "PathOfCommand_ExtraCrit"
 
 
@@ -146,8 +151,33 @@ def poc_crit(rpc, build_runner):
             "kind": "move", "unitId": a_crit, "to": {"col": home[0], "row": home[1]}}}, 40)
         runner.apply(MoveUnitMessage(a_crit, tuple(home)))
         steps.append(("back", _live(rpc, rid), _off(s1)))
+    # --- noeud `Friends` : on AMENE le porteur a <= 2 d'un ennemi a chance de crit > 0 ----
+    from engine.runner.components import OwnerComponent as _OC
+    my_team = s1.get_entity(carrier).get_component(_OC).team
+    foes = [u for u, e in s1.entities.items()
+            if e.get_component(_OC) is not None and e.get_component(_OC).team != my_team]
+    taken = {_pos(s1, u) for u in s1.entities}
+    friends = None
+    for foe in sorted(foes, key=lambda u: hexgeo.distance(_pos(s1, carrier), _pos(s1, u)) or 99):
+        near = sorted((p for p, t in board.by_coord.items()
+                       if p not in taken and board.walkable(t["id"])
+                       and hexgeo.distance(tuple(_pos(s1, foe)), tuple(p)) <= 2),
+                      key=lambda p: hexgeo.distance(tuple(_pos(s1, carrier)), tuple(p)))
+        for tile in near[:14]:
+            res = rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": carrier, "to": {"col": tile[0], "row": tile[1]}}}, 40)
+            if isinstance(res, dict) and res.get("ok") is False:
+                continue
+            runner.apply(MoveUnitMessage(carrier, tuple(tile)))
+            friends = {"foe": foe, "tile": tile,
+                       "d": hexgeo.distance(tuple(tile), tuple(_pos(s1, foe))),
+                       "live": _live(rpc, rid), "off": _off(s1)}
+            break
+        if friends is not None:
+            break
     return {"ids": ids, "carrier": carrier, "a_crit": a_crit, "a_flat": a_flat,
-            "land": (land_live, land_off), "steps": steps, "out_tile": out_tile, "d": d}
+            "land": (land_live, land_off), "steps": steps, "out_tile": out_tile, "d": d,
+            "friends": friends}
 
 
 def test_landing_crit_offline_equals_live(poc_crit):
@@ -205,3 +235,25 @@ def test_crit_aura_offline_equals_live_at_every_step(poc_crit):
     assert out_live["d_cc"] == 0, (
         f"le natif garde le bonus de crit hors rayon (mod {out_live['d_cc']:+d}) -> la tuile de "
         "sortie n'est pas assez loin, le cas NEGATIF n'est pas exerce")
+
+
+def test_friends_gate_excludes_enemies_in_range(poc_crit):
+    """Le noeud `Friends` de `SurroundingFriends` MORD : un ENNEMI a <= 2 hexes du porteur, ET dont
+    la chance de crit est > 0 (donc NON exclu par le gate CRIT), ne recoit rien -- ni en live, ni
+    dans le port. Le porteur est AMENE a portee ; on ne l'attend pas."""
+    fr = poc_crit["friends"]
+    assert fr is not None, (
+        "le porteur n'a pu approcher aucun ennemi a <= 2 en un deplacement -> le gate `Friends` "
+        "n'a PAS ete exerce (rejouer sur un autre board)")
+    foe = fr["foe"]
+    assert fr["d"] is not None and fr["d"] <= 2, f"ennemi a d={fr['d']}, hors du rayon"
+    assert fr["live"][foe]["cc"] > 0, (
+        "l'ennemi n'a AUCUNE chance de crit -> il serait exclu par le gate CRIT, pas par `Friends` ; "
+        "ce test ne prouverait rien")
+    assert fr["live"][foe]["d_cc"] == 0 and _attr(fr["off"][foe]["per"]) == 0, (
+        f"un ENNEMI a portee recoit le bonus de crit (live {fr['live'][foe]['d_cc']:+d}, "
+        f"port {fr['off'][foe]['per']}) -> le noeud `Friends` ne mord pas")
+    for uid in poc_crit["ids"].values():
+        assert fr["off"][uid]["cc"] == fr["live"][uid]["cc"], (
+            f"[friends] u{uid} : critChance offline {fr['off'][uid]['cc']} != "
+            f"live {fr['live'][uid]['cc']} (le pas du PORTEUR doit re-evaluer l'aura chez TOUS)")

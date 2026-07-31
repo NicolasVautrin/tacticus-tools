@@ -103,7 +103,8 @@ _seq = itertools.count()
 CARRIER = "eldarAutarch"      # HERO du pool (`rl_duel.py build --list-pool`), porteur de PathOfCommand
 ALLY_CRIT = "eldarRanger"     # allie a chance de crit > 0 -> CIBLE du selecteur
 ALLY_NOCRIT = "eldarFarseer"  # allie a chance de crit == 0 -> NON cible (le gate mord)
-A_UNITS = "necroWarden,necroWarden,necroWarden"
+FOE = "necroWarden"
+A_UNITS = ",".join([FOE] * 3)
 SEED = "31337"
 BOARD = "MC1_67"
 CRIT_SEED = 20                # `--unit-stat <ALLY_CRIT>:CritChance=20`
@@ -127,7 +128,11 @@ def _build(sid, seed: str, board: str) -> int:
             "--state-file", str(state), "--board", board, "--no-ai",
             "--p-units", "%s,%s,%s" % (CARRIER, ALLY_CRIT, ALLY_NOCRIT),
             "--a-units", A_UNITS,
-            "--unit-stat", "%s:CritChance=%d" % (ALLY_CRIT, CRIT_SEED)]
+            "--unit-stat", "%s:CritChance=%d" % (ALLY_CRIT, CRIT_SEED),
+            # ENNEMI a chance de crit > 0 : sans lui le noeud `Friends` ne serait exerce par RIEN
+            # (les ennemis normalises sont a crit 0, donc exclus par le gate CRIT, pas par le gate
+            # d'equipe). Volet D.
+            "--unit-stat", "%s:CritChance=%d" % (FOE, CRIT_SEED)]
     deadline = time.time() + 300
     while True:
         state.unlink(missing_ok=True)
@@ -264,6 +269,40 @@ def run(seed=SEED, board_id=BOARD, sid=None, rid=None, keep=False) -> dict:
                           _off_crit(s1), home))
         rows["mobility"] = {"home": home, "out_tile": out_tile,
                             "candidates": len(cands), "steps": steps}
+
+        # ---- volet D : le noeud `Friends` -- un ENNEMI a chance de crit > 0, A PORTEE -----
+        # On DEPLACE le porteur vers l'ennemi le plus proche (au lieu d'attendre qu'un ennemi
+        # vienne) : c'est la seule facon d'avoir un ennemi DANS le rayon 2 au tour 1.
+        foes = [uid for uid, e in s1.entities.items()
+                if (e.get_component(OwnerComponent) or None) is not None
+                and e.get_component(OwnerComponent).team
+                != s1.get_entity(carrier).get_component(OwnerComponent).team]
+        foe_tile = None
+        chosen_foe = None
+        for foe in sorted(foes, key=lambda u: hexgeo.distance(_pos(s1, carrier), _pos(s1, u)) or 99):
+            fpos = _pos(s1, foe)
+            near = sorted((p for p, t in board.by_coord.items()
+                           if p not in {_pos(s1, u) for u in s1.entities}
+                           and board.walkable(t["id"])
+                           and hexgeo.distance(tuple(fpos), tuple(p)) <= 2),
+                          key=lambda p: hexgeo.distance(tuple(_pos(s1, carrier)), tuple(p)))
+            for tile in near[:14]:
+                res = _r(sid, "applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": carrier, "to": {"col": tile[0], "row": tile[1]}}}, 60)
+                if isinstance(res, dict) and res.get("ok") is False:
+                    continue
+                foe_tile, chosen_foe = tile, foe
+                break
+            if foe_tile is not None:
+                break
+        friends = None
+        if foe_tile is not None:
+            runner.apply(MoveUnitMessage(carrier, tuple(foe_tile)))
+            friends = {"carrier_tile": foe_tile, "foe": chosen_foe,
+                       "d_foe": hexgeo.distance(tuple(foe_tile), tuple(_pos(s1, chosen_foe))),
+                       "live": _live_crit(_r(sid, "combatSnapshot", {"runnerId": rid}, 90)),
+                       "off": _off_crit(s1)}
+        rows["friends"] = friends
     finally:
         if own and not keep:
             _r(sid, "disposeRunner", {"runnerId": rid}, 60)
@@ -348,7 +387,30 @@ def report(rows, avant=False) -> int:
             fails.append("C MONTAGE : le natif garde le bonus hors rayon (mod %+d) -- la tuile "
                          "choisie n'est pas assez loin" % out_live[1])
 
-    print("\n=== %s ===" % ("VERDICT : ACCORD natif/port sur les 3 volets" if not fails
+    fr = rows.get("friends")
+    print("\n-- D noeud `Friends` (ENNEMI a chance de crit > 0, porteur AMENE a portee) --")
+    if not fr:
+        print("   NON CONFRONTE : le porteur n'a pu approcher aucun ennemi a <= 2 en un deplacement")
+        fails.append("D : le gate `Friends` n'a PAS ete exerce (aucun ennemi amene dans le rayon)")
+    else:
+        print("   porteur amene en %s, ennemi u%d a d=%s" % (fr["carrier_tile"], fr["foe"], fr["d_foe"]))
+        print("   " + _fmt(fr["foe"], fr["live"], fr["off"]))
+        if fr["d_foe"] is None or fr["d_foe"] > 2:
+            fails.append("D MONTAGE : l'ennemi est a d=%s, hors du rayon -> le gate d'EQUIPE n'est "
+                         "pas ce qui le distingue" % fr["d_foe"])
+        if fr["live"].get(fr["foe"], (0, 0))[0] <= 0:
+            fails.append("D MONTAGE : l'ennemi n'a pas de chance de crit -> il serait exclu par le "
+                         "gate CRIT, pas par `Friends` ; le volet ne prouve rien")
+        if fr["live"].get(fr["foe"], (0, 0))[1] != 0 or _attr_1107(fr["off"].get(fr["foe"], (0, 0, {}))[2]):
+            fails.append("D : un ENNEMI a portee recoit le bonus de crit -> le noeud `Friends` ne mord pas")
+        for uid in (carrier, a_crit, a_flat, fr["foe"]):
+            lc = fr["live"].get(uid, (None,))[0]
+            oc = fr["off"].get(uid, (None,))[0]
+            if lc != oc:
+                fails.append("D u%d : critChance offline %s != live %s apres le pas du porteur"
+                             % (uid, oc, lc))
+
+    print("\n=== %s ===" % ("VERDICT : ACCORD natif/port sur les 4 volets" if not fails
                             else "VERDICT : %d ECART(S)" % len(fails)))
     for f in fails:
         print("   X " + f)
