@@ -186,6 +186,224 @@ def build_ready(hp_target: int, state_name: str, board: str = BOARD) -> int:
     raise SystemExit("cooldown de 1148 jamais purge sur le runner %d" % rid)
 
 
+# =========================== montage BURNING (#359-r3) : la zone BRULE ===========================
+#
+# CE QUE CE MONTAGE MESURE, ET QUE `--decision` NE PEUT PAS MESURER
+# -----------------------------------------------------------------
+# `DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle sur `GetAllDamageableTargets` = les
+# ENNEMIS debout sur une tuile DEJA EN FEU de la zone. Or le SEUL poseur de ce feu est l'etage [5]
+# du behaviour de 1148 elle-meme (`AddEffect(Fire -> zone)`). Sur un board frais le selecteur est
+# donc VIDE et le terme de prediction vaut REELLEMENT 0 -- c'est le regime de `--decision`, ou
+# brancher la prediction ne change RIEN. Le seul regime qui exerce le branchement se monte en
+# CASTANT 1148 une premiere fois, puis en re-mesurant la decision au tour suivant.
+#
+# LA GEOMETRIE, ET POURQUOI ELLE SEPARE (l'argmax DOIT changer, sinon le lot ne conclut rien)
+# -------------------------------------------------------------------------------------------
+# `dir` vaut 1 sur `MC1_67` -> zone(X) = {X, X+S, X+SE}. On monte DEUX ancres candidates :
+#   * `P_COLD` porte DEUX ennemis (sur `P_COLD` et `P_COLD+S`), aucun en feu
+#         -> custom = 2 x 10 = 20, terme de prediction = 0 ;
+#   * `P_HOT`  porte UN ennemi, sur une tuile EN FEU
+#         -> custom = 1 x 10 = 10, terme de prediction = U_dmg > 0.
+# SANS le branchement le port elit `P_COLD` (20 > 10) ; AVEC, il elit `P_HOT` des que U_dmg > 10.
+# Le natif, lui, tranche -- et c'est exactement la question binaire de la tranche.
+#
+# DEUX LEVIERS DE PILOTAGE, tous deux requis :
+#   * `ActiveAbilityLevel = 50` sur le caster : au niveau du rank les bornes saturent au PLANCHER
+#     (`param_8 = null` -> pierce 0, armure PLEINE) et U_dmg serait inobservable ;
+#   * armure 0 sur l'ennemi de `P_HOT` : meme raison, c'est le pierce nul qui l'exige.
+# Le feu est pose par un cast REEL (aucun autre chemin ne le pose) et les tours se terminent A VIDE
+# (`act endturn`, l'IA adverse ne joue pas) : les positions craftees survivent.
+
+BURN_LEVEL = 50
+BURN_ARMOR = 0
+# Ancre FROIDE : le couple d'ennemis. Ancre CHAUDE : le solo, sur la tuile qu'on embrase.
+BURN_COLD_ANCHOR = (4, 4)
+BURN_HOT_DIR_STEPS = 3            # nb de pas (direction NORD) entre l'ancre froide et l'ancre chaude
+
+
+def _step(pos, direction, n):
+    for _ in range(int(n)):
+        pos = neighbour_at(pos[0], pos[1], int(direction))
+    return tuple(pos)
+
+
+def burn_geometry(groups, team) -> dict:
+    """Positions du montage BURNING, DERIVEES de `dir` -- jamais ecrites en dur.
+
+    `dir` = `If(IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4))` calcule par le mirror de
+    `IdunBattle.Core.Services.BattleQuery$$GetPositionMachineForPlayer` sur les `SpawnPointGroups` de
+    la BC REELLEMENT executee. Les deux ancres sont separees de `BURN_HOT_DIR_STEPS` pas dans la
+    direction NORD (3) : leurs zones-triangles sont alors DISJOINTES quel que soit `dir` (les deux
+    coins portes, 1 = {S, SE} et 4 = {NW, N}, ne s'etendent que d'UN pas)."""
+    from engine.services.machine_of_war_position import machine_of_war_position_for_player
+    from engine.entities.selectors.geometry import _TRIANGLE_SHAPE_DIRECTIONS
+    if groups is None or team is None:
+        return {"dir": None}
+    d = 1 if int(machine_of_war_position_for_player(groups, int(team))) == 2 else 4
+    dirs = _TRIANGLE_SHAPE_DIRECTIONS[d]
+    cold = tuple(BURN_COLD_ANCHOR)
+    cold2 = tuple(neighbour_at(cold[0], cold[1], dirs[0]))     # 2e ennemi DANS la zone de `cold`
+    hot = _step(cold, 3, BURN_HOT_DIR_STEPS)                   # ancre chaude, hors zone de `cold`
+    zone_cold = {cold, cold2, tuple(neighbour_at(cold[0], cold[1], dirs[1]))}
+    zone_hot = {hot} | {tuple(neighbour_at(hot[0], hot[1], k)) for k in dirs}
+    # Le caster se pose HORS des deux zones (il ne doit ni bruler ni gonfler un custom).
+    cpos = _step(cold, 3, BURN_HOT_DIR_STEPS + 3)
+    return {"dir": d, "dirs": dirs, "cold": cold, "cold2": cold2, "hot": hot,
+            "caster": cpos, "zone_cold": sorted(zone_cold), "zone_hot": sorted(zone_hot),
+            "zones_disjoint": not (zone_cold & zone_hot)}
+
+
+def build_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOURABLE) -> tuple:
+    """Monte le montage BURNING et rend `(rid, geometry, caster_id)`.
+
+    Etapes, dans l'ordre -- chacune est une CONDITION du regime, pas un ornement :
+      1. build (niveau d'ability 50 + armure 0 sur l'ennemi chaud) ;
+      2. placement PILOTE des trois ennemis et du caster (`act move`) ;
+      3. purge du `initialCooldownTurns = 1` (`act endturn` a vide) ;
+      4. PREMIER CAST de 1148 sur `P_HOT` -- le seul chemin qui pose `Fire` (5) sur la zone ;
+      5. `act endturn` a vide jusqu'au retour du caster, 1148 de nouveau utilisable
+         (le kit gameconfig de 1148 n'a PAS de `cooldownTurns` recurrent : seul l'initial existe)."""
+    state = LOGS / state_name
+    write_graft_seed_bc()
+    _run(["build", "--seed", str(SEED), "--board", board, "--rank", RANK,
+          "--seed-bc", str(SEED_BC), "--p-units", P_UNITS, "--a-units", A_UNITS,
+          "--hp-target", str(hp_target),
+          "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=100"
+                         % (CASTER_VID, BURN_LEVEL),
+          "--unit-stat", "%s:Armor=%d,FixedArmor=%d" % (C_VID, BURN_ARMOR, BURN_ARMOR),
+          "--state-file", str(state)])
+    rid = int(json.loads(state.read_text(encoding="utf-8"))["runnerId"])
+    geo = burn_geometry(spawn_groups(state_name), _current_team(rid))
+    if geo.get("dir") is None:
+        raise SystemExit("SpawnPointGroups non lus -> `dir` indecidable, montage abandonne")
+    if not geo.get("zones_disjoint"):
+        raise SystemExit("zones froide/chaude non disjointes : %s" % geo)
+    ids = {v: i for v, (i, _p) in _units(rid).items()}
+    # A/B = le couple FROID (A sur l'ancre, B dans sa zone) ; C = le solo CHAUD.
+    for unit, to in ((ids[A_VID], geo["cold"]), (ids[B_VID], geo["cold2"]),
+                     (ids[C_VID], geo["hot"]), (ids[CASTER_VID], geo["caster"])):
+        _duel(["act", "move", "--unit", str(unit), "--to", "%d,%d" % tuple(to)], state, rid)
+    caster = _wait_ready(rid, state)
+    hot_tile = "%d,%d" % tuple(geo["hot"])
+    _duel(["act", "ability", "--caster", str(caster), "--ability", str(DAEMONIC),
+           "--to", hot_tile], state, rid)
+    _wait_ready(rid, state)
+    return rid, geo, caster
+
+
+def _current_team(rid: int):
+    from engine.ai.context import _current_player_team
+    return _current_player_team(_dv(rid))
+
+
+def _wait_ready(rid: int, state: Path, tries: int = 6) -> int:
+    """`act endturn` A VIDE jusqu'a ce que le caster soit activable ET 1148 hors cooldown."""
+    for _ in range(tries):
+        cid, cd, to_act = _caster_state(rid)
+        if cid is not None and cd in (None, 0) and cid in (to_act or []):
+            return cid
+        _duel(["act", "endturn"], state, rid)
+    raise SystemExit("caster jamais pret (cooldown 1148 non purge) sur le runner %d" % rid)
+
+
+def engine_burning(rid: int, caster: int, groups) -> dict:
+    """Decision MOTEUR sur l'etat BRULANT + le bras `nopred` (l'etat d'AVANT #359-r3).
+
+    `nopred` remet `make_damage_predictions` sur le corps de BASE de `NonAttackComparablePlaybook`
+    (`return []`) : c'est LITTERALEMENT le port d'avant cette tranche, reconstitue, jamais
+    re-implemente. Un `nopred == on` signifie que le montage n'exerce pas le branchement."""
+    import engine_validate as EV
+    import probe_27_3_live as L
+    import engine.playbook as PB
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.playbook.nonattack import NonAttackComparablePlaybook
+    from engine.ai import context as AICTX
+
+    sid = L.INV._session_id()
+    rpc = lambda m, b, t: EV._r(sid, m, b, t)              # noqa: E731
+    dv = rpc("decisionView", {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+    mov = rpc("aiMovableTiles", {"runnerId": rid}, 60)
+    mov_by_unit = {u.get("unitId"): u for u in (mov.get("units") or [])}
+    wt = W.load()
+    predictor = _scene.build_predictor(rpc, rid)
+    ctx = AICTX.build(rpc, rid, dv, mov_by_unit, caster, wt, predictor, spawn_groups=groups)
+    pb = PB.REGISTRY[DAEMONIC]
+    pos_by_tid = {t: p for p, t in (ctx.tile_id_by_pos or {}).items()}
+
+    rows = []
+    for t in pb.eligible_targets(ctx, DAEMONIC):
+        cu = pb.calculate_custom_utility(ctx, ctx.origin, t, DAEMONIC)
+        evs = pb.make_damage_predictions(ctx, ctx.origin, t, DAEMONIC)
+        up = (pb.calculate_utility_from_predictions(ctx, ctx.origin, t, DAEMONIC, evs)[0]
+              if evs else 0.0)
+        rows.append({"tile": t, "pos": pos_by_tid.get(t), "custom": cu,
+                     "n_events": len(evs), "u_pred": up, "u": cu + up,
+                     "events": [(e.target, e.prediction.accurate_health_damage.min,
+                                 e.prediction.accurate_health_damage.max,
+                                 e.prediction.applied_hits) for e in evs]})
+    on = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor, spawn_groups=groups)
+    orig = NonAttackComparablePlaybook.make_damage_predictions
+    type(pb).make_damage_predictions = orig
+    try:
+        nopred = EV.engine_decide(sid, rid, dv, mov_by_unit, caster, wt, predictor,
+                                  spawn_groups=groups)
+        nopred_rows = [{"tile": r["tile"], "pos": r["pos"], "u": r["custom"]} for r in rows]
+    finally:
+        del type(pb).make_damage_predictions
+    fire = sorted({p for p, names in (ctx.scene.tile_effects_by_pos or {}).items()
+                   if "Fire" in (names or [])})
+    return {"on": (on.get("ability"), on.get("target")), "to": on.get("to"),
+            "nopred": (nopred.get("ability"), nopred.get("target")),
+            "rows": rows, "nopred_rows": nopred_rows, "fire": fire,
+            "mow_position": ctx.machine_of_war_position(),
+            "pos_by_tid": pos_by_tid}
+
+
+def measure_burning(state_name: str, board: str = BOARD, hp_target: int = HP_FAVOURABLE) -> dict:
+    rid, geo, caster = build_burning(state_name, board, hp_target)
+    groups = spawn_groups(state_name)
+    pos = {v: p for v, (_i, p) in _units(rid).items()}
+    return {"rid": rid, "caster": caster, "geo": geo, "board": board, "positions": pos,
+            "spawn_groups": groups, "native": native(rid, caster),
+            "engine": engine_burning(rid, caster, groups)}
+
+
+def burning(hp_target: int, board: str = BOARD, state_name: str = "rs_302_3_burn.json") -> int:
+    r = measure_burning(state_name, board, hp_target)
+    try:
+        e, g = r["engine"], r["geo"]
+        print("\n=== BURNING (runner %d, caster u%s, board %s) ===" % (r["rid"], r["caster"], board))
+        print("  dir              = %s (zone = centre + %s)" % (g["dir"], list(g["dirs"])))
+        print("  ancre FROIDE     = %s (+ %s)   ancre CHAUDE = %s" % (g["cold"], g["cold2"],
+                                                                      g["hot"]))
+        print("  positions        = %s" % r["positions"])
+        print("  tuiles EN FEU    = %s" % (e["fire"],))
+        print("  MachineOfWarPos  = %s" % e["mow_position"])
+        cold_t = next((x for x in e["rows"] if x["pos"] == tuple(g["cold"])), None)
+        hot_t = next((x for x in e["rows"] if x["pos"] == tuple(g["hot"])), None)
+        for lab, x in (("FROIDE", cold_t), ("CHAUDE", hot_t)):
+            print("  ancre %-7s : %s" % (lab, {k: x[k] for k in
+                                               ("tile", "pos", "custom", "n_events", "u_pred", "u")}
+                                         if x else "HORS DOMAINE"))
+            if x and x["events"]:
+                print("      events      = %s" % (x["events"],))
+        top = sorted(e["rows"], key=lambda x: -x["u"])[:4]
+        print("  top u (avec pred) = %s" % [(x["pos"], round(x["u"], 3)) for x in top])
+        topn = sorted(e["nopred_rows"], key=lambda x: -x["u"])[:4]
+        print("  top u (SANS pred) = %s" % [(x["pos"], round(x["u"], 3)) for x in topn])
+        print("  natif            = %s  pos=%s" % (r["native"], e["pos_by_tid"].get(r["native"][1])))
+        print("  moteur   (on)    = %s  pos=%s" % (e["on"], e["pos_by_tid"].get(e["on"][1])))
+        print("  moteur (nopred)  = %s  pos=%s" % (e["nopred"],
+                                                   e["pos_by_tid"].get(e["nopred"][1])))
+        print("\n=== VERDICT ===")
+        print("  ACCORD natif/moteur       = %s" % (e["on"] == r["native"]))
+        print("  l'argmax CHANGE (on!=nop) = %s" % (e["on"] != e["nopred"]))
+    finally:
+        dispose(r["rid"])
+    return 0
+
+
 # ----------------------------------------------------------------------------- etages mesures
 
 def stage(rid: int, caster: int) -> dict:
@@ -478,13 +696,17 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--decision", action="store_true")
     ap.add_argument("--flip", action="store_true")
+    ap.add_argument("--burning", action="store_true")
     ap.add_argument("--diag", action="store_true")
     ap.add_argument("--stage", action="store_true")
+    ap.add_argument("--board", default=BOARD)
     ap.add_argument("--hp-target", type=int, default=HP_FAVOURABLE)
     ap.add_argument("--hp-witness", type=int, default=HP_WITNESS)
     a = ap.parse_args()
     if a.decision:
         return decision(a.hp_target, a.hp_witness)
+    if a.burning:
+        return burning(a.hp_target, a.board)
     if a.flip:
         return flip(a.hp_target)
     if a.diag:
