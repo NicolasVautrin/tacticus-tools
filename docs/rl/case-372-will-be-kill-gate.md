@@ -106,9 +106,11 @@ snapshot embarqué identique au live.
 
 ## 6. Ce qui n'est PAS couvert
 
-* **Le capteur n'a jamais tourné.** Le code hooks est INERTE tant que le bundle n'est pas rebuildé et
-  réinjecté — geste orchestrateur. Tous les champs neufs sortent à `None` aujourd'hui, et
-  `probe_372_will_be_kill_gate.py` le DIT (`capteur #372 actif dans le bundle : NON`).
+* ~~Le capteur n'a jamais tourné.~~ **DÉPLOYÉ et mesuré** (session 3, 2026-07-31) :
+  `blockScenarioCount = 0`, `cannotBeGuaranteedKilled = 0`, `willBeKill` bascule correctement.
+  Le flag est en outre CONFRONTÉ de bout en bout par `probe_361_will_be_kill_gate_direct.py`
+  (volet A, `StormOfFlensingBlades` : 2 events quand faux, 0 quand vrai — le décodeur et
+  `get_WillBeKill` s'accordent). Suite du résidu #353 : `case-361-explosion-batches-gate.md`.
 * **La voie `GetAllPredictions`** (= `aiPredict`, `decisionView.attackPlans`) :
   `DamagePredictionQuery$$GetAllPredictions` construit sa prédiction par un slot d'interface à 3
   arguments `(attacker, position, target)` — la signature de `GetNormalAttackPrediction`, donc la voie

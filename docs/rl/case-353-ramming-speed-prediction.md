@@ -120,23 +120,14 @@ quand le plancher écrase le dégât — régime où un écart de base est souve
 
 ## 5. Résidu nommé — les batchs 3/4 (EXPLOSION)
 
-Deux verrous, l'un de port, l'autre de mesure.
+Deux verrous : l'un de port — **FERMÉ** par #353-r1 volet (a), §5bis — l'autre de mesure.
 
-**(a) Port.** `RammingSpeedAbility$$GetTileToMoveTo` =
-`First(SortTilesByUtility( CanAddUnit(AdjacentTiles(target)) & MovableTilesInRange(caster, casterTile,
-Direct(GetNumberConstant(0x16 = range)), false), caster, UtilityBucket([WeightedUtility(7 = Tile),
-WeightedUtility(0x36 = 54 RammingSpeed_MostAdjacentEnemies)]), null ), 1)`.
-Le port a l'intersection (`selectors/tiles.py::tiles_unit_can_move_to_charge_target`, mirror exact) et
-l'utilité `7` (`UTILITY_BY_TYPE`), mais **pas** l'utilité `54` ni un bucket à DEUX `WeightedUtility`.
-`IdunBattle.AI.Utilities.RammingSpeed_MostAdjacentEnemies.<EvaluateMovementInSteps>d__1$$MoveNext` =
-`Σ GetUtilityValue(RAMMINGSPEED_AdjacentEnemy)` sur les entités rendues par la query slot `0x7f`
-(tuile, équipe) — poids présent dans `gameconfig.aiUtilities.Default`.
+**(a) Port : `GetTileToMoveTo`.** Porté et CONFRONTÉ (2/2 par cast réel) — le détail, les trois
+lectures qui ont corrigé l'énoncé hérité et les deux bras discriminants sont au §5bis.
 
-**(b) Mesure — la gate n'a ouvert sur AUCUN montage.** Cinq montages joués
+**(b) Mesure — les batchs 3/4 n'apparaissent sur AUCUN montage.** Cinq montages joués
 (`hp_player` 9037 / 60 / 1, avec et sans `--block-player 0,0`, caster adjacent puis à distance 2 d'une
-cible à 6 voisins dont 3 libres) : le natif rend **2 events**, jamais 4. Or le RPC expose
-`willKillDmg = 156` contre `hpBefore = 60` puis `1`. Les deux champs que `get_WillBeKill` lit
-réellement ne sont **pas exposés** :
+cible à 6 voisins dont 3 libres) : le natif rend **2 events**, jamais 4.
 
 ```
 get_WillBeKill(this):
@@ -145,23 +136,14 @@ get_WillBeKill(this):
     return CurrentHealth <= v;
 ```
 
-`willKillDmg` du RPC = `DefaultScenario.Damage.HealthDamage.Min` (`+0x1c`) — c'est-à-dire **la seule
-branche `else`**. Le balayage du décompilé montre que `+0x89` n'est écrit que par
-`DamagePrediction$$PredictNormalAttack` (unique site), ce qui *devrait* le laisser à 0 sur une
-prédiction d'ability ; et le port calcule `block_raw_min = None` pour ce caster (BlockChance = 0). La
-cause reste donc **non tranchée**, et c'est le seul point du cas qui l'est.
+Le canal n'exposait alors que la branche `else` (`willKillDmg`) : le verdict se prenait en aveugle.
+#372 a livré la lecture des trois entrées, et §5ter puis `case-361` ont épuisé les causes — la gate
+est HORS DE CAUSE, le résidu est ailleurs.
 
-> **Point d'ancrage à hooker** (pas de reinject dans cette fenêtre) : exposer, dans
-> `frida/hooks/game/damage-prediction.ts`, `CannotBeGuaranteedKilled` (`+0x89`) et le premier élément
-> de `BlockScenarios` (`+0x38`, `Probability@0x00` / `HealthDamage.Min@0x0c`). Ces deux champs sont
-> déjà DOCUMENTÉS dans la table du fichier ; il ne manque que la lecture. Sans eux, tout verdict sur
-> une gate `WillBeKill` se prend en aveugle — et pas seulement pour 1059.
+## 5ter. `#372` puis `#361` — les trois causes de la gate sont éliminées
 
-## 5ter. `#372` — le capteur est écrit, et DEUX des trois causes sont éliminées
-
-Le paragraphe ci-dessus est **périmé sur un point** : « le balayage montre que `+0x89` n'est écrit que
-par `PredictNormalAttack`, ce qui *devrait* le laisser à 0 » était une conjecture ; #372 l'a
-**établi**, et cela suffit à **exclure** cette cause. La voie du playbook est
+`+0x89` n'est écrit que par `PredictNormalAttack` : #372 l'a **établi** (xrefs), et cela **exclut**
+cette cause. La voie du playbook est
 `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` → `IBattleQuery` slot `0x28` =
 `BattleQuery$$GetMultiHitAttackPrediction`, qui `memset(result, 0, 0xa0)` puis délègue au slot `0xb`
 (`PredictAttack`) — jamais au slot 9. `DamagePredictionResult$$Add` ne fusionne aucun booléen.
@@ -178,20 +160,15 @@ diffèrent que par `--hp-player`, contre-épreuve « caster intouchable ») :
 pas en cause, et le rapport 1450:1 réfute au passage l'idée d'un blocage *partiel* qui manquerait le
 seuil. La contre-épreuve montre que le compte ne bouge pas d'un iota.
 
-Une quatrième cause imaginable — « la gate ouvre, mais les batchs 3/4 rendent 0 event » — exigerait
-`GetTileToMoveTo() == null` : la CIBLE est adjacente à toute tuile du ring, donc
-`Enemies(<Caster>, AdjacentUnits(tile, 1, 3), 3)` serait non vide. Or §5bis a **confronté cette tuile
-au natif par un cast réel**, et le playbook l'appelle sans condition d'adjacence.
+La troisième cause — `BlockScenarios` NON VIDE sur l'event du caster — est tombée dès que le capteur
+#372 a été déployé : **`blockScenarioCount = 0`** (et `cannotBeGuaranteedKilled = 0`,
+`willBeKill = TRUE`). Au passage, `--block-player 0,0` fait donc bien ce que le commentaire de
+`_build` en dit.
 
-⇒ **Il reste UNE cause compatible : `BlockScenarios` NON VIDE sur l'event du caster, avec
-`[0].Damage.HealthDamage.Min` sous ses PV.** Corollaire immédiat : `--block-player 0,0` ne vide pas
-cette liste, contrairement à ce que le commentaire de `_build` (probe #353) suppose.
-
-**NON CONFRONTÉ — attend la fenêtre de reinject.** Le décodeur livré lit `blockScenarioCount` /
-`blockProbability` / `blockKillDmg` / `blockMightDmg` / `cannotBeGuaranteedKilled` et publie
-`willBeKill` calculé ; `probe_372_will_be_kill_gate.py` les imprime déjà (tri-état `None` tant que le
-bundle ne porte pas la lecture) et dit lui-même si le capteur est actif. Un seul run après reinject
-tranche.
+⇒ **Le PRÉDICAT de la gate est VRAI et les batchs 3/4 sont quand même absents.** Ce n'est pas la
+gate qui les supprime. La suite — trois causes de plus écartées (pool de tuiles, voisinage vide,
+lecture du flag), le maillon unique qui reste et le capteur qui le tranche — vit dans
+**`case-361-explosion-batches-gate.md`**.
 
 ## 5bis. `GetTileToMoveTo` — porté (#353-r1, volet a)
 
@@ -293,7 +270,8 @@ ce qui a fait corriger la méthode plutôt qu'accepter un accord sans valeur). M
 | `tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py` (10) | **#353-r1 volet (a)**, 100 % offline sur le montage nommé `_ramming_speed_charge_montage.py` : 54 au registre (par MEMBRE d'enum) ; feuille = `#ennemis adjacents × poids BC` (poids RELU, pas figé) ; muette sans sujet ; bucket = 2 termes de poids 1, `minDiff` 0, UN seul `Buckets[0]` ; **le 2ᵉ terme change la tuile** ; poids 0 ≡ amputation (la composition est bien une somme pondérée) ; type inconnu → LÈVE (jamais 0 silencieux) ; opérandes `MovableTilesInRange` À GAUCHE ; **l'ordre change la tuile à égalité** ; intersection vide → `None` |
 | `probe_353r1_ramming_speed_charge_tile.py` (2 bras) | **la confrontation** : la tuile du port == celle où le natif POSE le caster, sur deux géométries dont l'une isole le terme 54 et l'autre l'ordre des opérandes ; chaque bras muté DIVERGE (sinon le probe écrit `[NON DISCRIMINANT]` au lieu de compter un accord sans valeur) |
 
-**Ce qui n'est PAS couvert** : les batchs 3/4 (§5 (b) — gate `WillBeKill`, hors périmètre #353-r1) ;
+**Ce qui n'est PAS couvert** : les batchs 3/4 — la gate est HORS DE CAUSE (§5ter), le résidu et son
+capteur sont dans `case-361-explosion-batches-gate.md` ;
 l'ORDRE natif de `MovableTilesInRange` (le port rend les ids croissants, le natif l'ordre de visite du
 BFS — inobservable tant que ce nœud était à DROITE de toutes les intersections portées, il devient ici
 l'ordre source et ne départage que des utilités STRICTEMENT égales ; les deux bras live sont tranchés

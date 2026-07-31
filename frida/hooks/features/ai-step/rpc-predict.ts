@@ -46,6 +46,7 @@ import {
     decodeRepairDict, loadPlaybook, makeDamagePredictions, nullUnitPosition,
     resolvePlaybookDatabase, unitPositionAtTile, unitPositionCurrent,
 } from "./playbook-predict.js";
+import { withWillBeKillProbe } from "./playbook-gate-probe.js";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function registerViewPredict(ctx: Ctx): void {
@@ -280,6 +281,9 @@ export function registerViewPredict(ctx: Ctx): void {
             runnerId?: number; unitId?: number; targetId?: number;
             abilityType?: number; level?: number; multiplier?: number;
             col?: number; row?: number;
+            /** #361 — arme le capteur de gate `WillBeKill` LE TEMPS de cette invocation
+             *  (`playbook-gate-probe.ts`). Absent/false = aucun hook posé. */
+            gateProbe?: boolean;
         },
     ): Promise<unknown> => queueOnMainThread(() => {
         if (typeof body?.unitId !== "number" || typeof body?.targetId !== "number"
@@ -416,8 +420,18 @@ export function registerViewPredict(ctx: Ctx): void {
         //    (ex. 1113 Stormcaller, 1121 ItItches, 1151 TheQuickening, 1163 BlackRage).
         //    Erreur d'une famille = champ *Error (ne fail pas le RPC ; le gate reste damage).
         const before = summarize(statePtr);
-        const mk = makeDamagePredictions(
-            playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
+        // #361 — `gateProbe: true` arme le capteur de GATE le TEMPS de cette invocation
+        // (cf. `playbook-gate-probe.ts` : pourquoi ce point d'ancrage, et les trois issues).
+        // Hors flag, aucun hook n'est posé : `get_WillBeKill` est appelé par l'UI à chaque
+        // frame, on ne le taxe jamais par défaut.
+        const gate = body.gateProbe === true
+            ? withWillBeKillProbe(() => makeDamagePredictions(
+                playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number))
+            : null;
+        const mk = gate !== null
+            ? gate.result
+            : makeDamagePredictions(
+                playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number);
         const dec = decodeDamageEvents(mk.list, idByPtr);
         const mkHeal = makeDamagePredictions(
             playbook, unit, posPtr, target, lvl as number, (mult ?? 100) as number,
@@ -451,6 +465,10 @@ export function registerViewPredict(ctx: Ctx): void {
             effectRetClass: mkEff.retClass, effectError: decEff.error ?? null,
             repairCount: decRep.count, repairs: decRep.events,
             repairRetClass: decRep.retClass, repairError: decRep.error ?? null,
+            // #361 — TRI-ÉTAT : `null` = capteur non demandé (`gateProbe` absent) ; un objet dont
+            // `calls` vaut `null` = demandé mais NON ARMÉ (maillon non résolu, `error` le dit) ;
+            // `calls: []` = armé et AUCUN appel — ce qui est en soi un verdict.
+            gateProbe: gate !== null ? gate.probe : null,
             mutated: before.sig !== after.sig,
         };
     });
