@@ -141,6 +141,22 @@ fenêtre, et lui seul. Procédure **exécutée et validée le 2026-07-31**, 4 ag
    l'orchestrateur* a bloqué une fenêtre à lui seul.
 5. **Agir** : `npm run build:hooks` si `frida/hooks/*` a changé → restart host → inject
    (le warmup est enchaîné par l'inject — vérifier `warmupError: null` dans sa réponse).
+
+   ⚠ **`npm run build:hooks` HANGE sur cette machine** (même cause que `npm run dev` : `frida-compile`
+   n'est pas dans le PATH que npm expose ici). Passer par node :
+   `node node_modules\frida-compile\dist\cli.js hooks/main.ts -o dist/hooks.js` depuis `frida/`
+   (~10 s, rc 0). Vérifier le `LastWriteTime` de `dist/hooks.js` — c'est le seul témoin que le
+   bundle est neuf.
+
+   ⚠ **Si l'inject dépasse la minute, N'EN RELANCE PAS UN À L'IDENTIQUE — ISOLE L'ÉTAGE.**
+   Mesuré le 2026-07-31 : le premier inject après une session vieille de 2 h a dépassé **300 s** et
+   laissé `.session == null` ; un second, immédiat, avec `{"warmup": false}`, a rendu la main en
+   **5,1 s** — puis `POST /api/admin/warmup` seul en **15,1 s**, 8 étapes vertes. Le harnais n'avait
+   rien de cassé. `{"warmup": false}` sert exactement à ça : il sépare l'ATTACH du WARMUP, donc il
+   dit LEQUEL a consommé le temps. Sans cette séparation on lit « le reinject wedge » et on va
+   demander une relance du jeu (geste UTILISATEUR, coûteux) pour un incident qui se résout tout seul.
+   ⚠ **Ne PAS conclure de ce timeout que le warmup est en cause** : rien ne l'établit — un attach qui
+   hange bloque avant lui. Écrire « étage non isolé » plutôt que désigner un coupable.
 6. **Lever le drain**, puis **reprendre les agents par `SendMessage`** (contexte intact),
    en leur donnant l'état du harnais (session, warmup, drain levé, hash de build).
 
