@@ -9,9 +9,11 @@ Ce que la garde tient :
 1. la garde `--p-units` est EXPLICITE et STRUCTURELLE -- `pool_regular = normalized - mow`, donc
    `blackForgefiend` est dans `pool_mow` et JAMAIS dans le pool regulier -- et le chemin MoW EST
    cable (`--a-mow` la deploie, board MoW-capable, entree `BC.Units` patchable) ;
-2. le mur RESTANT n'est PAS le deploiement : avec la MoW comme caster, l'oracle natif rend une liste
-   VIDE sans summon puis `null` avec, et le port n'a AUCUN contexte AI pour une MoW. C'est ce
-   constat qui justifie la voie GREFFE (`case-92` §5bis) ;
+2. le mur RESTANT n'etait PAS le deploiement -- et, depuis #360, ce n'etait pas non plus le jeu :
+   l'oracle qui passe la position du CASTER (`ncPlaybookPredict`, = `UnitPosition$$NullPosition()`)
+   REND les events d'une MoW, et `engine.ai.context.build_machine` lui construit un contexte. Ce que
+   #350-r3 mesurait etait la SUBSTITUTION de la position de la cible faite par `rpc-predict.ts`
+   (corrigee, cf. `test_360_mow_caster_oracle_live.py`) ;
 3. `1147` CONFRONTEE : deux bras de parite, quatre variantes, `to_even` SEULE nulle sur les deux --
    ce que prevoit son inscription (a2) -- et le code LIVRE egal au natif sur les deux bras ;
 4. `1148` CONFRONTEE dans ses DEUX regimes : zone froide (natif 0 == port 0) et zone EN FEU
@@ -66,21 +68,31 @@ def test_p_units_refuses_a_mow_by_construction_and_the_mow_path_is_wired(scan):
     assert scan["ok"] is True
 
 
-def test_the_remaining_wall_is_the_oracle_not_the_deployment(mow_caster):
-    """2 : la MoW se deploie et son playbook se resout -- et pourtant ni l'oracle ni le port ne
-    savent la prendre pour CASTER. C'est ce constat qui rend la greffe necessaire, et c'est lui
-    qu'il faudra re-mesurer si `rpc-predict.ts` ou `ai/context.py` changent."""
+def test_the_mow_caster_is_measurable_by_the_caster_position_oracle(mow_caster):
+    """2 : la MoW se deploie, son playbook se resout, son niveau est PILOTE -- et l'oracle qui passe
+    la position du CASTER (`ncPlaybookPredict`, = la `NullPosition` du tactic natif) REND ses events.
+
+    ⚠ Ce test disait l'inverse jusqu'a #360 : il verrouillait `hot.listNull is True` et
+    `port_ctx_me is None` comme le « mur restant ». Les deux etaient des artefacts de MESURE --
+    `aiPlaybookPredict` substituait la position de la CIBLE, et le probe appelait `build` (la
+    fonction des UNITES) au lieu de `build_machine`. La garde porte donc desormais sur ce qui est
+    vrai du JEU : l'oracle repond, et le port construit un contexte."""
     assert mow_caster["deployed"] is True
     assert dict(mow_caster["abilities"]).get(1147) == P.A1147_LVL_A, (
         "`--unit-stat` ne pilote plus le niveau d'ability de la MoW : la parite ne serait plus "
         "choisie mais subie")
     assert mow_caster["cold"]["count"] == 0 and mow_caster["cold"]["listNull"] is False
     assert mow_caster["summons"], "le montage summon n'a rien pose"
-    assert mow_caster["hot"]["listNull"] is True, (
-        "l'oracle rend desormais une liste avec un caster MoW : la voie DIRECTE serait ouverte, "
-        "et la greffe ne serait plus la seule voie -- a re-lire avant de garder le montage actuel")
+    assert mow_caster["oracles_agree"] is True, (
+        "l'oracle par la position du CASTER ne rend plus d'event pour une MoW (ou les deux oracles "
+        "divergent alors que le bundle porte le correctif #360) : %s / %s"
+        % (mow_caster.get("hot"), mow_caster.get("hot_nc")))
+    assert mow_caster["port_machine_ctx_me"] == P.MOW, (
+        "`engine.ai.context.build_machine` ne construit plus le contexte de la MoW : %s"
+        % mow_caster.get("port_machine_ctx_me"))
     assert mow_caster["port_ctx_me"] is None, (
-        "le port construit desormais un contexte AI pour une MoW : re-evaluer la voie directe")
+        "`build` (fonction des UNITES) rend un contexte pour une Machine : `decisionView.units` "
+        "contiendrait desormais les MoW, ce qui change le routage de tactic")
 
 
 def test_1147_is_confronted_and_rounds_half_to_even(confronted_1147):

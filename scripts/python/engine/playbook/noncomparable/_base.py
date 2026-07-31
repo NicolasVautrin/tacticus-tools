@@ -457,6 +457,38 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
     def evaluate_non_comparable(self, tile: tuple, target, ctx: NCContext) -> float | None:
         raise NotImplementedError
 
+    def damage_predictions(self, tile: tuple, target, ctx: NCContext) -> list:
+        """TRACE de construction : la SEQUENCE des `DamagePredictionResult` que ce playbook
+        CONSTRUIT pour (position, cible), dans l'ORDRE NATIF, chacune ETIQUETEE par le site natif
+        qui la construit -> `list[(tag, DamagePredictionResult)]`.
+
+        POURQUOI CETTE METHODE EXISTE, ET POURQUOI CE N'EST PAS `evaluate_non_comparable`.
+        L'oracle `ncPlaybookPredict` pose son trampoline sur
+        `IdunBattle.AI.Playbook.ProbableDamageEvent$$.ctor` : il capture donc TOUTE prediction
+        construite pendant l'evaluation, y compris celles qu'un GATE construit sans jamais les
+        scorer. `IdunBattle.AI.Playbook.BasePlaybook$$WillNormalAttackKill` en est le cas type : il
+        predit l'attaque NORMALE (`IBattleQuery` slot 0x21), en fait un `ProbableDamageEvent`, et
+        n'en retient que `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill`. Un
+        playbook emet donc, pour la MEME cible, autant d'events que de ctor traverses -- alors que
+        son utilite n'en consomme qu'un.
+
+        `evaluate_non_comparable` rend l'UTILITE ; cette methode rend ce que l'oracle VOIT. Sans
+        elle, `probe_344 --oracle nc` opposait l'event du GATE a la prediction d'ABILITY et lisait
+        l'ecart comme un bug d'arrondi : c'est exactement la fausse divergence de `#356-r1`
+        (`(8536, 8536, 4)` = l'attaque normale de `worldKharn`, 4 = `weapons[0].hits`, contre
+        `(86, 129, 1)` = l'ability, `nrOfHits` = 1).
+
+        Tags employes : `"WillNormalAttackKill"` (event du gate) et `"ability"` (la prediction
+        propre de l'ability, seule porteuse de la moyenne `minDmg`/`maxDmg` que #344 mesure).
+
+        NON IMPLEMENTEE = ECHEC BRUYANT, jamais une liste vide : un `[]` par defaut se lirait
+        « ce playbook ne construit aucune prediction », ce qui est une AFFIRMATION -- et fausse
+        pour tout playbook a utilite de degat."""
+        raise NotImplementedError(
+            "%s.damage_predictions : trace de construction non portee. La renseigner AVANT de "
+            "mesurer ce playbook avec probe_344 --oracle nc (sinon la comparaison de sequence "
+            "n'a pas de pendant offline)." % type(self).__name__)
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         pairs = []   # (tgt, tuiles rankees de la paire) — ordre cibles = ordre du plan natif
         for ev in (ctx.plan.get("evals") or []):
