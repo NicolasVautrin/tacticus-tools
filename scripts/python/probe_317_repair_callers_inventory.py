@@ -91,9 +91,16 @@ CALLSITES: list[tuple[str, str, str, str, str | None, bool, str]] = [
      "ConfigVar(0x24), .., ForRepair)"),
     ("IdunBattleLogic.Entities.Abilities.Active.Loki.RelentlessMarchAbility$$CreateBehaviour",
      REPAIR, FOR_REPAIR, "TriggeredAbilityType 1004 RelentlessMarch "
-     "(HOMONYME d'id avec ActiveAbilityType 1004 MortisRound)", "RelentlessMarch", False,
-     "AddEffect(0x3f3) + Repair(Owner@0x30, UnitsWithoutTrait(Friends(AdjacentUnits(Owner)), 0x418) "
-     "[- HeroUnits si triggerType == 0x20], Direct(GetVariableForLevel(0x24)), .., ForRepair)"),
+     "(HOMONYME d'id avec ActiveAbilityType 1004 MortisRound)", "RelentlessMarch", True,
+     # ERRATUM #328 : cette ligne mettait le UnitsWithoutTrait(0x418) sur le Repair. C'est
+     # l'INVERSE -- il enveloppe la cible de l'AddEffect, le Repair recoit l'arbre NU (lu au
+     # desassemblage : r14 = resultat filtre -> 4e arg d'AddEffect ; rbx = arbre nu -> 3e arg de
+     # Repair). Consequence MESUREE live : un allie adjacent Stationary est REPARE sans recevoir le
+     # +1 Mouvement. Cf. docs/rl/case-328-relentless-march.md.
+     "AddEffect(0x3f3, UnitsWithoutTrait(targets, 0x418), turns = Nullable<int>(1)) + "
+     "Repair(Owner@0x30, targets, Direct(GetVariableForLevel(0x24)), .., ForRepair) ou "
+     "targets = Friends(AdjacentUnits(Owner)) [- HeroUnits(targets) si triggerType == 0x20 Custom] "
+     "-- porte par #328 (triggers/loki/relentless_march.py)"),
     ("IdunBattleLogic.Entities.Abilities.Active.Loki.DefendTheDivineWorkAbility$$ExecuteBehaviour",
      REPAIR, FOR_REPAIR, "ActiveAbilityType 1117 DefendTheDivineWork", "DefendTheDivineWork", False,
      "Repair(Caster@0x48, Friends(Caster, AdjacentUnits(@0x50)) + Caster, "

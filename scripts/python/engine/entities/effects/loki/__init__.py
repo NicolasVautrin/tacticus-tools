@@ -92,6 +92,7 @@ from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, Contam
 from .destroy_the_witch import (DestroyTheWitchExtraMoveEffect,        # passif templHelbrecht (1091)
                                 DestroyTheWitchExtraDamageEffect)
 from .cursed_plague_bell import CursedPlagueBellExtraMoveEffect        # aura deathBlightbringer (1071)
+from .relentless_march import RelentlessMarchExtraMoveEffect           # passif necroWarden (1004)
 from .reality_unbound import (RealityUnboundMovementEffect, RealityUnboundRangeEffect,
                               RealityUnboundExtraMaxDamageEffect)
 from .imperative import ProtectorImperativeEffect, ConquerorImperativeEffect
@@ -171,6 +172,8 @@ __all__ = [
     "DestroyTheWitchExtraMoveEffect", "DestroyTheWitchExtraDamageEffect",
     # cursed_plague_bell (aura deathBlightbringer 1071 : +1 MOVEMENT aux amis Chaos, 1 tour)
     "CursedPlagueBellExtraMoveEffect",
+    # relentless_march (passif necroWarden 1004 : +1 MOVEMENT aux allies adjacents non-Stationary)
+    "RelentlessMarchExtraMoveEffect",
     # imperative
     "ProtectorImperativeEffect", "ConquerorImperativeEffect",
     # ability_modifications (ecriture dans `ActiveAbilityModificationsComponent`)
