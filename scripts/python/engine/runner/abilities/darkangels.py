@@ -846,7 +846,22 @@ def sort_attackers_by_damage_prediction_key(pred_min, pred_avg, pred_max) -> int
     le sure-kill se lit sur la borne HAUTE, le kill possible sur la borne BASSE.
 
     Fonction SEPAREE parce que le natif en fait une : c'est le seul point ou l'appariement est
-    verifiable sans monter d'etat."""
+    verifiable sans monter d'etat.
+
+    #372 -- LE RESIDU « borne PERMISSIVE » DE #344-r2 EST FERME, ET LA REPONSE EST « INERTE ICI ».
+    `get_WillBeKill` sort en tete sur `CannotBeGuaranteedKilled@0x89` ; ce champ existe desormais
+    dans le port (`DamagePredictionResult.cannot_be_guaranteed_killed`) et `will_be_kill` le lit.
+    Sur CE site il vaut structurellement False, et c'est LU, pas suppose : le lambda natif appelle
+    `IBattleQuery` slot 0x28 = `BattleQuery$$GetMultiHitAttackPrediction` (7 arguments : attacker,
+    target, attackerPosition, ability, damage, damageProfile, hits -- la meme signature que
+    `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` emprunte), or cette methode
+    commence par `memset(result, 0, 0xa0)` puis delegue au slot 0xb (`PredictAttack`). Le SEUL
+    ecrivain du flag est `DamagePrediction$$PredictNormalAttack` (slot 9), atteint par
+    `GetNormalAttackPrediction` -- que ce lambda n'emprunte PAS. `DamagePredictionResult$$Add` ne
+    fusionne aucun flag booleen, donc le cumul des coups ne peut pas le rallumer non plus.
+    La borne `will_be_kill` de ce site n'etait donc PAS permissive : elle etait exacte, sans
+    preuve. La preuve est faite, et la garde `test_372_*` la verrouille dans les DEUX sens (le
+    gate mord quand le flag est pose ; il ne mord pas sur la voie multi-hit)."""
     if pred_max.will_be_kill():
         return 0x7fffffff
     if pred_min.might_be_kill():
@@ -924,7 +939,9 @@ def _exemplar_of_hate_attackers(state: "State", caster_id: int, target_id: int,
     RESIDU NOMME (hors perimetre #344-r2) : le port ne fournit a la prediction ni l'armure/le percage
     reels ni le `defender_block_amount` de la cible -- donc `block_raw_min` reste `None` et
     `will_be_kill` retombe sur le scalaire `raw_health_damage.min`, exactement comme le fallback natif
-    "liste `BlockScenarios` vide". Le gate `CannotBeGuaranteedKilled@0x89` n'existe pas dans le port.
+    "liste `BlockScenarios` vide". (#372 : le gate `CannotBeGuaranteedKilled@0x89` EXISTE desormais
+    dans le port et vaut structurellement False sur cette voie -- cf.
+    `sort_attackers_by_damage_prediction_key`. Le residu restant est donc le seul `block_raw_min`.)
 
     Rend la liste ORDONNEE (le `First(...,1)` est applique par l'appelant)."""
     from ..components import (HealthComponent, OwnerComponent, PositionComponent, ShieldComponent,

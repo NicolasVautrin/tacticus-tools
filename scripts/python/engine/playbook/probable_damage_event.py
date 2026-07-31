@@ -45,7 +45,10 @@ class ProbableDamageEvent:
         `IsOverkill`, et que le corps privé RENVOIE dans le cas « létal mais sous le seuil » ;
         `WillBeOverkill`, lui, passe 0 EN DUR — le port posait 0 des deux côtés),
         `preventOverkill` = @0xB3 (#195 : le 5ᵉ argument `isPreventOverkill`, celui-là passé par les
-        DEUX bornes — `HasFlag(cible, 0x13)`, posé par `FuelledByFury_BlockOverkillEffect`)."""
+        DEUX bornes — `HasFlag(cible, 0x13)`, posé par `FuelledByFury_BlockOverkillEffect`).
+        `cannotBeGuaranteedKilled` = le gate de sortie anticipée de `get_WillBeKill` (#372) : publié
+        pour que la trace dise POURQUOI `killSure` est faux, plutôt que de laisser deviner entre
+        « bornes insuffisantes » et « gate armé »."""
         dp = self.prediction
         r = dp.accurate_health_damage
         rr = dp.raw_health_damage
@@ -57,6 +60,14 @@ class ProbableDamageEvent:
         # sur le rawMax scalaire SANS block.
         bmin = dp.block_raw_min
         will_min = bmin if bmin is not None else rr.min
+        # #372 : `get_WillBeKill` SORT EN TETE sur `CannotBeGuaranteedKilled@0x89`, avant tout choix
+        # de borne. `killSure` est ce verdict-la : le gate doit donc etre ICI aussi, pas seulement
+        # dans `DamagePredictionResult.will_be_kill`. Les deux restent DEUX lignes distinctes
+        # (et non un appel a `will_be_kill()`) parce que le port y ajoute un gate `hp > 0` PORT-SIDE
+        # que le natif n'a pas : `composite_fields` doit rester le mirror NU (`hp == 0` -> le natif
+        # rend `true`), sinon on changerait le verdict sur les cibles a 0 PV que `decisionView`
+        # conserve. Le flag, lui, est le MEME fait des deux cotes.
+        will_sure = (not dp.cannot_be_guaranteed_killed) and will_min >= hp
         return {"hpBefore": hp, "shieldBefore": dp.shield,
                 "healthDmgMin": min(r.min, hp), "healthDmgMax": min(r.max, hp),
                 "rawHealthDmgMin": rr.min, "rawHealthDmgMax": rr.max, "forceOverkill": dp.force_overkill,
@@ -64,7 +75,8 @@ class ProbableDamageEvent:
                 "shieldDmgMin": s.min, "shieldDmgMax": s.max,
                 "limitedByMinHp": dp.limited_by_min_hp, "appliedHits": dp.applied_hits,
                 "blockRawMin": bmin,
-                "kill": r.max >= hp, "killSure": will_min >= hp}
+                "cannotBeGuaranteedKilled": dp.cannot_be_guaranteed_killed,
+                "kill": r.max >= hp, "killSure": will_sure}
 
 
 def calculate_utility_from_damage_event(event: ProbableDamageEvent, wt, target_max_hp: int | None = None) -> float:

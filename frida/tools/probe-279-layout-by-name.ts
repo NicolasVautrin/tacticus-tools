@@ -21,6 +21,11 @@
  *      LEVE avec un message nomme, au lieu de retomber sur 0 / -1 et de lire a cote.
  *      C'est le point central : `getFieldOffset` rend -1 sur un nom absent, et lire a
  *      -1 serait PIRE qu'un offset perime — perime mais stable.
+ *   3. #372 — les deux entrees de `get_WillBeKill` que le canal n'exposait pas
+ *      (`CannotBeGuaranteedKilled@0x89` et `BlockScenarios[0]+0x0c`) : resolution de la
+ *      chaine du scenario, table de verite du mirror `computeWillBeKill` (dont les DEUX
+ *      lignes qui opposent la borne de block a la borne par defaut), et sentinelles de
+ *      forme sur les champs neufs.
  *
  * CE QU'IL NE MESURE PAS : que le bundle injecte emette les memes valeurs. Cela exige
  * un reinject. Le code reste NON CONFRONTE tant que ce n'est pas fait.
@@ -547,6 +552,166 @@ async function main(): Promise<void> {
         } else {
             process.stdout.write("OK    champ deplace : suivi ET signale\n        -> "
                 + r.drift.join(" ; ") + "\n");
+        }
+    }
+
+    // ================================================================================
+    // #372 — les DEUX entrees de `get_WillBeKill` que le canal n'exposait pas.
+    // ================================================================================
+    process.stdout.write("\n=== ETAPE 3 (#372) : CannotBeGuaranteedKilled +"
+        + " BlockScenarios[0] ===\n");
+    const { computeWillBeKill, damagePredictionShapeErrors } = mod;
+
+    // (i) le gate est un champ REQUIS : le renommer doit rendre layout=null, pas un
+    //     decodeur qui lit le flag a cote (le voisin @0x88 est `LimitedByMinHp`, un bool
+    //     lui aussi -- une lecture decalee serait PLAUSIBLE, donc indetectable).
+    {
+        const d = deepCopy(base);
+        const c = d["IdunBattle.Core.Services.DamagePredictionResult"];
+        const f = c.fields.find((x) => x.name === "CannotBeGuaranteedKilled");
+        if (f) f.name = "CannotBeGuaranteedKilledXX";
+        const probe = buildProbe(d, defaultValueTypes()) as unknown as Probe;
+        const r = resolvePredictionLayout(probe);
+        const hit = r.errors.some((e) => e.indexOf("CannotBeGuaranteedKilled") >= 0);
+        if (r.layout !== null || !hit) {
+            process.stdout.write("ROUGE gate renomme : layout="
+                + (r.layout === null ? "null" : "RENDU") + " signale=" + hit + "\n");
+            failures++;
+        } else {
+            process.stdout.write("OK    gate renomme -> layout=null et nom cite\n");
+        }
+    }
+
+    // (j) la chaine du SCENARIO (`BlockScenarios[0]`) est resolue sur la classe du champ
+    //     `DefaultScenario` -- meme type, etabli par `GetBlockScenarioOrDefault`. Casser
+    //     `Probability` doit donc casser la resolution ENTIERE, pas la degrader.
+    {
+        const d = deepCopy(base);
+        const c = d["IdunBattle.Core.Services.DamagePredictionScenario"];
+        const f = c.fields.find((x) => x.name === "Probability");
+        if (f) f.name = "ProbabilityZZ";
+        const probe = buildProbe(d, defaultValueTypes()) as unknown as Probe;
+        const r = resolvePredictionLayout(probe);
+        const hit = r.errors.some((e) => e.indexOf("DamagePredictionScenario.Probability") >= 0);
+        if (r.layout !== null || !hit) {
+            process.stdout.write("ROUGE scenario.Probability renomme : layout="
+                + (r.layout === null ? "null" : "RENDU") + " signale=" + hit + "\n");
+            failures++;
+        } else {
+            process.stdout.write("OK    scenario.Probability renomme -> layout=null\n");
+        }
+    }
+
+    // (k) contre-epreuve VERTE du sous-layout scenario : sur la disposition intacte, les
+    //     trois offsets ET le stride se resolvent, aux valeurs LUES au decompile
+    //     (`get_WillBeKill` lit `BlockScenarios[0] + 0x0c`).
+    {
+        const probe = buildProbe(deepCopy(base), defaultValueTypes()) as unknown as Probe;
+        const r = resolvePredictionLayout(probe);
+        const sc = r.layout ? r.layout.scenario : null;
+        const want = { probability: 0x00, healthDamageMin: 0x0c, healthDamageMax: 0x10,
+            stride: 0x24 };
+        if (sc === null) {
+            process.stdout.write("ROUGE sous-layout scenario : non resolu\n");
+            failures++;
+        } else if (sc.probability !== want.probability
+            || sc.healthDamageMin !== want.healthDamageMin
+            || sc.healthDamageMax !== want.healthDamageMax || sc.stride !== want.stride) {
+            process.stdout.write("ROUGE sous-layout scenario : "
+                + JSON.stringify(sc) + " != " + JSON.stringify(want) + "\n");
+            failures++;
+        } else {
+            process.stdout.write("OK    sous-layout scenario : prob=" + hx(sc.probability)
+                + " hpMin=" + hx(sc.healthDamageMin) + " hpMax=" + hx(sc.healthDamageMax)
+                + " stride=" + hx(sc.stride) + " (le +0x0c de get_WillBeKill)\n");
+        }
+    }
+
+    // (l) `computeWillBeKill` = le mirror ENTIER. Table de verite ; chaque ligne separe
+    //     une facon differente de se tromper. Les lignes 4 et 5 sont les seules qui
+    //     DISCRIMINENT le choix de borne : elles opposent `blockKillDmg` a `willKillDmg`.
+    {
+        type Row = [string, Parameters<typeof computeWillBeKill>[0], boolean | null];
+        const rows: Row[] = [
+            ["gate arme : les bornes tuent, le natif rend false",
+                { hpBefore: 10, willKillDmg: 999, cannotBeGuaranteedKilled: 1,
+                    blockScenarioCount: 0, blockKillDmg: null }, false],
+            ["pas de scenario de block, borne letale -> true",
+                { hpBefore: 10, willKillDmg: 10, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: 0, blockKillDmg: null }, true],
+            ["pas de scenario de block, borne insuffisante -> false",
+                { hpBefore: 10, willKillDmg: 9, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: 0, blockKillDmg: null }, false],
+            ["BlockScenarios[0] PRIME et refuse le kill (bloc < hp < defaut)",
+                { hpBefore: 10, willKillDmg: 999, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: 1, blockKillDmg: 9 }, false],
+            ["BlockScenarios[0] PRIME et accorde le kill (defaut < hp <= bloc)",
+                { hpBefore: 10, willKillDmg: 1, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: 1, blockKillDmg: 10 }, true],
+            ["liste NON MESUREE -> null, jamais false",
+                { hpBefore: 10, willKillDmg: 999, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: null, blockKillDmg: null }, null],
+            ["count>=1 mais borne NON MESUREE -> null",
+                { hpBefore: 10, willKillDmg: 999, cannotBeGuaranteedKilled: 0,
+                    blockScenarioCount: 1, blockKillDmg: null }, null],
+        ];
+        for (const [label, input, want] of rows) {
+            const got = computeWillBeKill(input).willBeKill;
+            if (got !== want) {
+                process.stdout.write("ROUGE computeWillBeKill : " + label
+                    + " -> attendu " + want + ", obtenu " + got + "\n");
+                failures++;
+            } else {
+                process.stdout.write("OK    computeWillBeKill : " + label + "\n");
+            }
+        }
+    }
+
+    // (m) sentinelles de FORME sur les champs neufs : un bool hors {0,1} et un Count
+    //     aberrant accusent le DECODEUR (base fausse), pas la bataille.
+    {
+        const okFields = {
+            hpBefore: 100, armorBefore: null, shieldBefore: 0,
+            willKillDmg: 10, mightKillDmg: 20,
+            cannotBeGuaranteedKilled: 0, blockScenarioCount: 0, blockProbability: null,
+            blockKillDmg: null, blockMightDmg: null, willKillDmgEffective: 10,
+            willBeKill: false, mightBeKill: false,
+            healthDmgMin: 1, healthDmgMax: 2, shieldDmgMin: 0, shieldDmgMax: 0,
+            totalDmgMin: 1, totalDmgMax: 2, limitedByMinHp: 0, mightCrit: 0,
+            forceOverkill: 0, preventOverkill: 0, appliedHits: 1,
+        };
+        const cases: Array<[string, Record<string, unknown>, string]> = [
+            ["bool de gate hors {0,1}", { cannotBeGuaranteedKilled: 25 },
+                "cannotBeGuaranteedKilled=25 hors {0,1}"],
+            ["Count negatif", { blockScenarioCount: -1 },
+                "blockScenarioCount=-1 hors [0,1024]"],
+            ["Count delirant", { blockScenarioCount: 70000 },
+                "blockScenarioCount=70000 hors [0,1024]"],
+            ["paire de block inversee",
+                { blockScenarioCount: 1, blockKillDmg: 9, blockMightDmg: 3 },
+                "blockKillDmg=9 > blockMightDmg=3"],
+        ];
+        for (const [label, mut, needle] of cases) {
+            const v = { ...okFields, ...mut } as Parameters<typeof damagePredictionShapeErrors>[0];
+            const errs = damagePredictionShapeErrors(v);
+            if (!errs.some((e) => e.indexOf(needle) >= 0)) {
+                process.stdout.write("ROUGE sentinelle : " + label
+                    + " non detectee -> [" + errs.join(" ; ") + "]\n");
+                failures++;
+            } else {
+                process.stdout.write("OK    sentinelle : " + label + "\n");
+            }
+        }
+        // Contre-epreuve : la forme INTACTE ne doit lever aucune sentinelle, sinon les
+        // rouges ci-dessus ne prouveraient rien.
+        const clean = damagePredictionShapeErrors(
+            okFields as Parameters<typeof damagePredictionShapeErrors>[0]);
+        if (clean.length > 0) {
+            process.stdout.write("ROUGE sentinelle : forme intacte signalee -> "
+                + clean.join(" ; ") + "\n");
+            failures++;
+        } else {
+            process.stdout.write("OK    sentinelle : forme intacte silencieuse\n");
         }
     }
 

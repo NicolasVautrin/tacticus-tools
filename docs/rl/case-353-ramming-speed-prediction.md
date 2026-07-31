@@ -157,6 +157,42 @@ cause reste donc **non tranchée**, et c'est le seul point du cas qui l'est.
 > déjà DOCUMENTÉS dans la table du fichier ; il ne manque que la lecture. Sans eux, tout verdict sur
 > une gate `WillBeKill` se prend en aveugle — et pas seulement pour 1059.
 
+## 5ter. `#372` — le capteur est écrit, et DEUX des trois causes sont éliminées
+
+Le paragraphe ci-dessus est **périmé sur un point** : « le balayage montre que `+0x89` n'est écrit que
+par `PredictNormalAttack`, ce qui *devrait* le laisser à 0 » était une conjecture ; #372 l'a
+**établi**, et cela suffit à **exclure** cette cause. La voie du playbook est
+`ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions` → `IBattleQuery` slot `0x28` =
+`BattleQuery$$GetMultiHitAttackPrediction`, qui `memset(result, 0, 0xa0)` puis délègue au slot `0xb`
+(`PredictAttack`) — jamais au slot 9. `DamagePredictionResult$$Add` ne fusionne aucun booléen.
+
+La seconde cause est éliminée par la **mesure** (`probe_372_will_be_kill_gate.py`, deux bras qui ne
+diffèrent que par `--hp-player`, contre-épreuve « caster intouchable ») :
+
+| niveau | `hpBefore` (event self) | `willKillDmg` | events, bras KILL | events, bras VIVANT |
+|---|---|---|---|---|
+| 8 | 1 | 104 | 2 | 2 |
+| 45 | 1 | 1450 | 2 | 2 |
+
+`1 <= 1450` : la branche `else` de `get_WillBeKill` rendrait **TRUE**. La borne par défaut n'est donc
+pas en cause, et le rapport 1450:1 réfute au passage l'idée d'un blocage *partiel* qui manquerait le
+seuil. La contre-épreuve montre que le compte ne bouge pas d'un iota.
+
+Une quatrième cause imaginable — « la gate ouvre, mais les batchs 3/4 rendent 0 event » — exigerait
+`GetTileToMoveTo() == null` : la CIBLE est adjacente à toute tuile du ring, donc
+`Enemies(<Caster>, AdjacentUnits(tile, 1, 3), 3)` serait non vide. Or §5bis a **confronté cette tuile
+au natif par un cast réel**, et le playbook l'appelle sans condition d'adjacence.
+
+⇒ **Il reste UNE cause compatible : `BlockScenarios` NON VIDE sur l'event du caster, avec
+`[0].Damage.HealthDamage.Min` sous ses PV.** Corollaire immédiat : `--block-player 0,0` ne vide pas
+cette liste, contrairement à ce que le commentaire de `_build` (probe #353) suppose.
+
+**NON CONFRONTÉ — attend la fenêtre de reinject.** Le décodeur livré lit `blockScenarioCount` /
+`blockProbability` / `blockKillDmg` / `blockMightDmg` / `cannotBeGuaranteedKilled` et publie
+`willBeKill` calculé ; `probe_372_will_be_kill_gate.py` les imprime déjà (tri-état `None` tant que le
+bundle ne porte pas la lecture) et dit lui-même si le capteur est actif. Un seul run après reinject
+tranche.
+
 ## 5bis. `GetTileToMoveTo` — porté (#353-r1, volet a)
 
 Le volet (a) du §5 est FERMÉ. Trois lectures ont corrigé l'énoncé hérité, et deux d'entre elles
