@@ -184,8 +184,10 @@ def arrange_ranged(h, caster_visual, enemy_index=0):
     return None
 
 
-def stage(h, a, do_step):
-    """Monte le bras et rend `(rec, reason)` : `reason is None` = regime ATTEINT."""
+def stage(h, do_step):
+    """FOYER UNIQUE du montage (importe par le cliquet, jamais re-transcrit).
+
+    Monte le bras et rend `(rec, reason)` : `reason is None` = regime ATTEINT."""
     import hexgeo
     plan = arrange_ranged(h, MAUGAN)
     if plan is None:
@@ -269,7 +271,7 @@ def run_case(a, rpc, Board, ChargeRegimeHarness, arm) -> int:
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
         h = ChargeRegimeHarness(rpc, rid, Board(bg["tiles"], adjacency="native_sym"))
-        rec, why = stage(h, a, arm == "MOVED")
+        rec, why = stage(h, arm == "MOVED")
         if rec is None:
             print("[%s] REFUS : %s" % (arm, why))
             return 2
