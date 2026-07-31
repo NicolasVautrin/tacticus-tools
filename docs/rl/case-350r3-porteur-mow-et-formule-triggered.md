@@ -14,22 +14,25 @@ la poussent par `BC.PredefinedMachines` (`_patch_predefined_machines`), voie dé
 Mesuré (rank 17, `MC1_67`) : `blackForgefiend` ∈ `pool_mow` (8 MoW), ∉ pool régulier (97 unités),
 entrée `BC.Units` présente (donc `--unit-stat` a prise), board MoW-capable. **Rien à assouplir.**
 
-### Le mur RESTANT n'est pas le déploiement
+### Le mur RESTANT n'est pas le déploiement — ⚠ ni le jeu (tranché par #360)
 
 La MoW se déploie, `aiPlaybookPredict` résout ses playbooks (`HadesAutocannonsPlaybook`,
 `DaemonicOrdnancePlaybook`) et `--unit-stat blackForgefiend:ActiveAbilityLevel=4` **pilote** le
 niveau (`abilityState.level = 4`, `source: capteur`). Et pourtant, avec la MoW **comme caster** :
 
-| mesure | résultat |
-|---|---|
-| `aiPlaybookPredict(1147)` sans summon en jeu | `count = 0`, `listNull = false` |
-| idem avec un summon en jeu | **`count = -1`, `listNull = true`** — le natif rend `null` |
-| `engine.ai.context.build(…, casterId de la MoW)` | **`ctx.me is None`** |
+| mesure | résultat | verdict #360 |
+|---|---|---|
+| `aiPlaybookPredict(1147)` sans summon en jeu | `count = 0`, `listNull = false` | régime du sélecteur, correct |
+| idem avec un summon en jeu | **`count = -1`, `listNull = true`** | **artefact du harnais** — il substituait la `UnitPosition` de la CIBLE ; le natif passe `UnitPosition$$NullPosition()` |
+| `engine.ai.context.build(…, casterId de la MoW)` | **`ctx.me is None`** | **correct, et pas un verrou** — `build` est la fonction des UNITÉS ; `build_machine` rend le contexte |
 
-Une MoW est off-board : le harnais lui substitue la `UnitPosition` de la **cible**
-(`rpc-predict.ts`, RE #172), et elle n'est pas dans `decisionView.units`, d'où l'absence de contexte
-côté port. La confrontation d'arrondi passe donc par la **greffe** (`case-92` §5bis) : le natif
-charge le playbook **par ability**, et la formule de 1147 ne lit ni stat ni trait du caster.
+Les deux lignes basses ont été **retournées par #360** : le même `MakeDamagePredictions`, invoqué
+avec la position du CASTER, rend `(324, 492, 6)`. Détail, correctif et gardes :
+**`docs/rl/case-360-porteur-mow-oracle-direct.md`**.
+
+La **greffe** (`case-92` §5bis) reste légitime — le natif charge le playbook **par ability**, et la
+formule de 1147 ne lit ni stat ni trait du caster — et elle est désormais **validée par mesure** :
+les deux bras rejoués avec le porteur MoW réel rendent les mêmes couples.
 
 ### `1147 HadesAutocannons` — CONFRONTÉE
 
@@ -138,12 +141,11 @@ régime froid avec `(81, 123, 3)` contre `∅`.
 
 ## Ce qui n'est PAS couvert
 
-- **1147/1148 avec la MoW pour caster** : le montage GREFFE remplace le porteur, donc l'étage AVAL
-  (profil d'arme, perçage) est celui du greffon. L'arrondi de la **base**, lui, est bien celui de
-  1147 — le bras A discrimine (492 contre 480). La voie directe reste fermée par les deux mesures du
-  tableau ci-dessus ; la rouvrir demande soit que `rpc-predict.ts` sache calculer une
-  `UnitPosition` pour une MoW, soit que `ai/context.py` construise un contexte pour une entité
-  `Machine`.
+- ~~**1147/1148 avec la MoW pour caster**~~ — **COUVERT depuis #360**
+  (`case-360-porteur-mow-oracle-direct.md`). Les deux bras de 1147 et les deux régimes de feu de
+  1148 ont été rejoués avec `blackForgefiend` POUR CASTER : 1147 rend **les mêmes couples** que la
+  greffe (`(324, 492, 6)` / `(240, 360, 6)`), et 1148 a révélé un **bug que la greffe cachait**
+  (`scene.team(<MoW>) is None` faisait taire son gate de sélecteur — natif `(3, 3, 3)`, port ∅).
 - **Le volet AoE de 1147** : le natif émet un event par summon retenu (2 sur le bras A), le port un
   seul. Le gabarit #344 isole la cible principale ; ce compte est affiché, pas gardé.
 - **La couche TRIGGERED** (tableau ci-dessus) : lue, non portée, non confrontée.
