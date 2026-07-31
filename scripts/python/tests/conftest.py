@@ -255,6 +255,14 @@ def _release_runners(owners: set[str]) -> None:
                 _DISPOSER(e["rid"])
             except Exception:
                 pass                                  # deja parti / session morte
+        # #363 : le cache du seed TERTIAIRE est indexe par label de runner (`build#<rid>`). Un rid
+        # est RECYCLE par un build ulterieur -> sans cette purge, le prochain runner du meme id
+        # heriterait des reliques du precedent, en silence.
+        try:
+            from engine.runner.snapshot import clear_ability_states_cache
+            clear_ability_states_cache("build#%d" % int(e["rid"]))
+        except Exception:
+            pass                                      # engine non importable (collecte a vide)
         e["state"].unlink(missing_ok=True)
     _LEDGER[:] = kept
 
@@ -295,7 +303,23 @@ def host():
 @pytest.fixture(scope="session")
 def live_session(host):
     """Session Frida résolue + warmup-if-needed (doctrine : warmup avant tout RPC).
-    Skip si pas de session ou warmup KO — toute la suite se confronte au live."""
+    Skip si pas de session ou warmup KO — toute la suite se confronte au live.
+
+    #363 — LIE AUSSI LE TRANSPORT RPC AMBIANT (`snapshot.bind_live_rpc`) pour la durée de la
+    session pytest. C'est ce qui rend le seed de l'ability TERTIAIRE (l'item RELIQUE ÉQUIPÉ, #357)
+    ACTIF PAR DÉFAUT dans TOUTE la suite live : `load_state(dv, ob, snap)` va chercher
+    `unitAbilityStates` elle-même, sans qu'aucun des ~620 call-sites ait à le demander. Le binding
+    est ici, et pas sur la fixture `rpc`, parce que TOUT test live tire `live_session` (directement
+    ou via `rpc`/`build_runner`) alors que treize fichiers font leurs RPC eux-mêmes.
+
+    Coût mesuré AVANT branchement (`probe_363_ability_states_channel.py --volet cost`, build
+    `rnca9r7q6c`) : un seul RPC de 33 ms par bataille (cache par runner), contre 312 à 1347 ms pour
+    la capture que le test fait déjà. Un test qui veut l'état d'AVANT #357 passe
+    `ability_states=False` explicitement — `None` ne veut plus dire « rien ».
+
+    `TACTICUS_NO_AMBIENT_RPC=1` débranche l'ambiant : c'est la MUTATION qui fait rougir
+    `test_363_ability_states_default_live.py` (une garde qu'on ne sait pas faire échouer ne garde
+    rien). Usage attendu : vérifier cette garde, jamais un mode de travail."""
     try:
         sid = host._resolve_session()
     except Exception as e:                            # pas de host / pas de session
@@ -303,12 +327,33 @@ def live_session(host):
     w = _unwrap(host._rpc(sid, "warmupGameSingletons", [{}], timeout=180))
     if not (isinstance(w, dict) and w.get("ok")):
         pytest.skip(f"warmup KO (jeu indisponible): {str(w)[:200]}")
-    return sid
+
+    def _ambient(method: str, body=None, timeout: float = 60):
+        return _unwrap(host._rpc(sid, method, [body] if body is not None else [], timeout=timeout))
+
+    from engine.runner.snapshot import bind_live_rpc, clear_ability_states_cache, unbind_live_rpc
+    if os.environ.get("TACTICUS_NO_AMBIENT_RPC") != "1":
+        bind_live_rpc(_ambient)
+    try:
+        yield sid
+    finally:
+        unbind_live_rpc()
+        clear_ability_states_cache()
 
 
 @pytest.fixture(scope="session")
 def rpc(host, live_session):
-    """`rpc("decisionView", {"runnerId": rid})` → résultat déballé."""
+    """`rpc("decisionView", {"runnerId": rid})` → résultat déballé.
+
+    #363 — ce transport est AUSSI LIÉ COMME AMBIANT (`snapshot.bind_live_rpc`) le temps de la
+    session pytest. C'est ce qui rend le seed de l'ability TERTIAIRE (l'item RELIQUE ÉQUIPÉ, #357)
+    ACTIF PAR DÉFAUT dans TOUTE la suite live : `load_state(dv, ob, snap)` va alors chercher
+    `unitAbilityStates` elle-même, sans qu'aucun des ~620 call-sites ait à le demander. Coût mesuré
+    avant branchement (`probe_363_ability_states_cost.py`) : 33 ms par bataille — un seul RPC, mis
+    en cache par runner — contre 312 à 1347 ms pour la capture que le test fait déjà.
+
+    Un test qui veut l'état d'AVANT #357 (contre-épreuve « sans rail ») passe `ability_states=False`
+    explicitement ; `None` ne veut plus dire « rien »."""
     sid = live_session
 
     def _call(method: str, body=None, timeout: float = 60):

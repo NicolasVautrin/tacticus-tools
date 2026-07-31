@@ -21,6 +21,7 @@ d'UNITÉ (squadId/decisionView.id), pas l'entityId, pour rester aligné aux mess
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
 from .state import State
@@ -216,14 +217,24 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     désormais les trois champs. `actor_stats=None` = canal non fourni → comportement STRICTEMENT
     inchangé (les compteurs restent à 0, comme un composant natif frais).
 
-    `ability_states` (payload du RPC `unitAbilityStates`) optionnel : l'ability TERTIAIRE de chaque
-    unité — l'item RELIQUE ÉQUIPÉ (#357). MÊME nature que les trois seeds ci-dessus, et son canal est
-    lui aussi un RPC DISTINCT (`unitAbilityStates`), donc il a son propre argument. Sans lui, une
-    relique montée en bataille (`BC.Units[].TertiaryAbility`, montage #237) est INERTE côté port : le
-    rail COMBAT dérive le kit déclenché du gameconfig, qui ne connaît que les reliques câblées EN DUR
-    sur des npc (`units.<id>.relicAbilities`) — jamais l'item équipé, qui est un état JOUEUR.
-    Requiert `snapshot` (le seed écrit dans `StatsComponent.ctx`, que `_load_stats_and_effects` pose).
-    `ability_states=None` = canal non fourni → comportement STRICTEMENT inchangé."""
+    `ability_states` (payload du RPC `unitAbilityStates`) : l'ability TERTIAIRE de chaque unité —
+    l'item RELIQUE ÉQUIPÉ (#357). MÊME nature que les trois seeds ci-dessus, et son canal est lui
+    aussi un RPC DISTINCT (`unitAbilityStates`). Sans lui, une relique montée en bataille
+    (`BC.Units[].TertiaryAbility`, montage #237) est INERTE côté port : le rail COMBAT dérive le kit
+    déclenché du gameconfig, qui ne connaît que les reliques câblées EN DUR sur des npc
+    (`units.<id>.relicAbilities`) — jamais l'item équipé, qui est un état JOUEUR. Requiert `snapshot`
+    (le seed écrit dans `StatsComponent.ctx`, que `_load_stats_and_effects` pose).
+
+    ⚠ C'est le SEUL des quatre seeds qui n'est PAS opt-in — depuis #363 il est **ON PAR DÉFAUT** dès
+    qu'un transport RPC est lié (`bind_live_rpc`), et l'argument est un TRI-ÉTAT :
+
+        `ability_states=<payload>`  le payload est utilisé tel quel (l'appelant a déjà fait le RPC) ;
+        `ability_states=None`       AUTO — le canal se sert lui-même s'il le peut (cf. `_auto_ability_states`) ;
+        `ability_states=False`      REFUS explicite — l'état d'AVANT #357, pour une contre-épreuve.
+
+    Sans transport lié (`State` reconstruit hors harnais live, rejeu d'une capture sur disque), AUTO
+    ne pose RIEN et le comportement est strictement celui d'avant. Le pourquoi de cette asymétrie
+    avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`)."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
@@ -284,11 +295,17 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # pas `combatSnapshot`) -> il est gate par son propre argument, jamais par `snapshot`.
     if actor_stats is not None:
         _load_actor_statistics(state, actor_stats)
-    # Ability TERTIAIRE (item RELIQUE equipe, #357) : MEME nature, MEME forme -- canal RPC distinct
-    # (`unitAbilityStates`), donc argument propre. APRES `_load_stats_and_effects`, qui pose les
-    # `StatsComponent.ctx` dans lesquels ce seed ecrit.
-    if ability_states is not None:
-        _load_tertiary_abilities(state, ability_states)
+    # Ability TERTIAIRE (item RELIQUE equipe, #357) : canal RPC distinct (`unitAbilityStates`), donc
+    # argument propre. APRES `_load_stats_and_effects`, qui pose les `StatsComponent.ctx` dans
+    # lesquels ce seed ecrit. #363 : `None` ne veut plus dire « ne rien poser » mais « AUTO » --
+    # `_auto_ability_states` va chercher le payload lui-meme quand un transport est lie. `False` est
+    # le refus EXPLICITE (contre-epreuve), et lui seul.
+    payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
+    if payload is not None:
+        seeded = _load_tertiary_abilities(state, payload)
+        state.ability_states_seed = {"source": source, "seeded": seeded}
+    else:
+        state.ability_states_seed = {"source": source, "seeded": None}
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -647,6 +664,170 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
             if v is None or int(v) < 0:
                 continue
             setattr(uc, attr, int(v))
+
+
+# ═══ CANAL AMBIANT du seed TERTIAIRE (#363) ═══════════════════════════════════════════════════════
+#
+# POURQUOI CE CANAL EST LE SEUL DES QUATRE A NE PAS ETRE OPT-IN.
+# `tiles=` (#102) et `actor_stats=` (#340-r1) decrivent un ETAT QUI BOUGE (effets de tuile poses en
+# cours de bataille, compteur de tuiles parcourues remis a zero chaque tour) : les fournir change ce
+# que le port CALCULE, donc les activer partout serait un changement de comportement a evaluer
+# scenario par scenario. L'ability TERTIAIRE, elle, est FIGEE AU MONTAGE DE L'UNITE
+# (`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`, appele par
+# `UnitFactory$$Build`) : c'est une donnee d'IDENTITE, du meme ordre que le visualId ou les traits.
+# Ne pas la poser n'est donc pas « un canal en moins », c'est une unite DECRITE FAUX -- et le defaut
+# le plus fidele est de la poser.
+#
+# LE COUT, MESURE AVANT DE BRANCHER (`probe_363_ability_states_cost.py`, build `rnca9r7q6c`,
+# board MC1_67, seed 777, medianes sur 12-15 appels, 1er appel exclu) :
+#
+#   roster   unites   dv+ob+snap+bg (la capture DEJA faite)   unitAbilityStates   part ajoutee
+#   2v2         4                              312.2 ms             33.4 ms           +10.7 %
+#   5v5        10                             1347.3 ms             33.4 ms            +2.5 %
+#
+# Le RPC est le MOINS cher des cinq (33 ms contre 178 a 1175 ms pour `decisionView`) et, surtout, il
+# NE SCALE PAS avec l'effectif la ou `decisionView` explose -- donc sa part RECULE quand la bataille
+# grossit. Le seed Python lui-meme est dans le bruit (< 0.3 ms). Cout sur un batch : NUL --
+# `rl_collect_batch` et `engine_validate` n'appellent JAMAIS `load_state` (verifie : les seules
+# occurrences dans `engine/` sont des commentaires ; la face DECISION lit son kit declenche par
+# `engine/ai/context.py::live_triggered_ability_ids`, deja sur ce meme RPC).
+#
+# LE CACHE N'EST PAS UNE OPTIMISATION, C'EST UNE CONDITION DE DETERMINISME. Un probe rejoue
+# couramment la MEME capture plusieurs fois (`probe_357` la rejoue trois fois pour contraster ses
+# bras). Si le canal repartait au live a chaque `load_state`, deux rejeux de la meme capture
+# pourraient lire deux etats differents -- le rejeu offline cesserait d'etre reproductible. On
+# capture donc UNE FOIS PAR RUNNER. C'est fidele : l'entree tertiaire ne bouge pas en cours de
+# bataille (aucune Operation ne la reecrit ; les seules unites qui APPARAISSENT ensuite sont des
+# summons, qui n'ont pas d'etat JOUEUR donc pas de relique equipee).
+_LIVE_RPC = None
+_ABILITY_STATES_CACHE: dict = {}     # {label runner: payload `unitAbilityStates`} -- 1 RPC/bataille
+
+
+def bind_live_rpc(rpc):
+    """Lie le transport RPC AMBIANT dont `load_state` se sert pour les canaux qu'elle sait tirer
+    elle-meme (aujourd'hui : `unitAbilityStates`). Rend le transport PRECEDENT, pour restauration.
+
+    `rpc` a la signature du dépôt : `rpc(method, body=None, timeout=…)` -> resultat DEBALLE (sans
+    l'enveloppe `{result: …}`) -- exactement la fixture `rpc` de `tests/conftest.py` et le `rpc`
+    local que chaque probe se fabrique.
+
+    POURQUOI UN AMBIANT ET PAS UN ARGUMENT DE PLUS. `load_state` recoit des PAYLOADS, jamais un
+    transport : elle ne peut pas aller chercher ce qui lui manque. Faire remonter le besoin jusqu'aux
+    appelants voudrait dire editer les ~620 call-sites (379 fichiers) -- et surtout, chaque nouveau
+    montage devrait y REPENSER, ce qui est exactement la dette que #357-r1 constate. Un transport lie
+    UNE FOIS par harnais (la fixture `rpc` couvre toute la suite de tests) rend le canal disponible
+    partout sans toucher un seul call-site."""
+    global _LIVE_RPC
+    prev, _LIVE_RPC = _LIVE_RPC, rpc
+    return prev
+
+
+def unbind_live_rpc():
+    """Delie le transport ambiant (et rend le precedent). Le cache SURVIT : il indexe des payloads
+    de runners, pas le transport."""
+    global _LIVE_RPC
+    prev, _LIVE_RPC = _LIVE_RPC, None
+    return prev
+
+
+@contextmanager
+def live_rpc(rpc):
+    """`with live_rpc(rpc): …` -- lie le transport pour la duree du bloc, restaure ensuite."""
+    prev = bind_live_rpc(rpc)
+    try:
+        yield rpc
+    finally:
+        bind_live_rpc(prev)
+
+
+def clear_ability_states_cache(label: Optional[str] = None) -> None:
+    """Purge le cache par runner. Sans argument : tout. A appeler quand un runner est DISPOSE et que
+    son id peut etre recycle par un build ulterieur (les tests le font au teardown)."""
+    if label is None:
+        _ABILITY_STATES_CACHE.clear()
+    else:
+        _ABILITY_STATES_CACHE.pop(label, None)
+
+
+def runner_label(*payloads) -> Optional[str]:
+    """Le label de runner que TOUT payload de capture porte (`decisionView`/`observeBattle`/
+    `combatSnapshot`/`boardGraph` rendent `runner: label`) : `"build#<id>"` pour un runner isole,
+    `"live"` pour la bataille du jeu. `None` si aucun payload n'en porte -- capture fabriquee a la
+    main, ou payload tronque : dans ce cas le canal AUTO ne se declenche pas."""
+    for p in payloads:
+        if isinstance(p, dict):
+            lab = p.get("runner")
+            if isinstance(lab, str) and lab:
+                return lab
+    return None
+
+
+def _runner_body(label: str) -> dict:
+    """Corps RPC vise par un label. `"build#37"` -> `{"runnerId": 37}` ; `"live"` -> `{}`, que le
+    capteur resout sur `state.liveRunner` (`rpc-snapshot.ts` : `typeof body?.runnerId === "number"`
+    sinon repli live)."""
+    if label.startswith("build#"):
+        try:
+            return {"runnerId": int(label[len("build#"):])}
+        except ValueError:
+            return {}
+    return {}
+
+
+def capture_ability_states(rpc, label: str, use_cache: bool = True) -> dict:
+    """Payload `unitAbilityStates` du runner `label`, capture UNE FOIS puis servi du cache.
+
+    Rend `{"units": [...]}` ou `{"error": …}` -- le capteur RENVOIE ses echecs, il ne les tait pas.
+    Une reponse en erreur n'est PAS mise en cache (un runner momentanement indisponible ne doit pas
+    figer un trou pour toute la session)."""
+    if use_cache and label in _ABILITY_STATES_CACHE:
+        return _ABILITY_STATES_CACHE[label]
+    res = rpc("unitAbilityStates", _runner_body(label), 60)
+    if isinstance(res, dict) and "result" in res:          # transport non deballe -> on deballe
+        res = res["result"]
+    if not isinstance(res, dict):
+        return {"error": "reponse non-dict : %r" % (type(res).__name__,)}
+    if res.get("units") is None:
+        return {"error": res.get("error") or "payload sans `units`"}
+    if use_cache:
+        _ABILITY_STATES_CACHE[label] = res
+    return res
+
+
+def _auto_ability_states(ability_states, decision, observe, snapshot) -> tuple:
+    """Resout le TRI-ETAT de `load_state(ability_states=…)`. Rend `(payload|None, source)`.
+
+    `source` est TRACE dans `State.ability_states_seed` -- c'est la discipline tri-etat du depot
+    (`host_inputs.py`) : on distingue « pas mesure » de « mesure et vide », pour qu'un canal muet ne
+    se lise jamais comme une mesure.
+
+      `given`             l'appelant a fourni le payload ;
+      `auto`              le canal s'est servi (transport lie + label lisible + snapshot present) ;
+      `refused`           `ability_states=False` -- contre-epreuve explicite ;
+      `no-snapshot`       pas de `combatSnapshot` -> aucun `StatsComponent.ctx` ou ecrire : le seed
+                          serait un no-op, on ne paie pas le RPC ;
+      `no-transport`      aucun `bind_live_rpc` -> etat reconstruit hors harnais live (comportement
+                          strictement d'avant #363) ;
+      `no-runner-label`   payloads sans `runner` (capture fabriquee a la main) ;
+      `unavailable:<msg>` transport lie mais le capteur a RENDU une erreur. On ne LEVE pas -- un
+                          runner dispose entre la capture et le rejeu est un cas legitime -- mais on
+                          l'ECRIT, pour qu'un zero se lise comme une panne et non comme « aucune
+                          relique »."""
+    if ability_states is False:
+        return (None, "refused")
+    if ability_states is not None:
+        return (ability_states, "given")
+    if snapshot is None:
+        return (None, "no-snapshot")
+    if _LIVE_RPC is None:
+        return (None, "no-transport")
+    label = runner_label(decision, observe, snapshot)
+    if label is None:
+        return (None, "no-runner-label")
+    res = capture_ability_states(_LIVE_RPC, label)
+    if res.get("error"):
+        return (None, "unavailable:%s" % (res["error"],))
+    return (res, "auto")
 
 
 TERTIARY_HIERARCHY = 3

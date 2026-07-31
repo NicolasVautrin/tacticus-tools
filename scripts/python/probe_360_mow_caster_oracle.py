@@ -179,32 +179,47 @@ def step_a(seed: int = 36010, verbose: bool = True) -> dict:
             _r(sid, rid, "disposeRunner", {}, 30)
     nc = out.get("ncPlaybookPredict") or {}
     ai = out.get("aiPlaybookPredict") or {}
-    # VERDICT : le capteur est-il le verrou, et la substitution en est-elle la cause ?
+    # VERDICT. ⚠ CE DRAPEAU EST ECRIT POUR VALOIR `True` AVANT LE CORRECTIF : il constate que
+    # `aiPlaybookPredict` TOMBE (`listNull` / `count < 0`) tandis que la voie « position du
+    # caster » repond. Une fois le correctif de `rpc-predict.ts` DEPLOYE, il vaut donc `False`
+    # -- et ce `False` est le SUCCES, pas un echec. D'ou le second drapeau ci-dessous, qui dit
+    # l'etat POST-correctif ; les deux ensemble couvrent les deux regimes sans ambiguite.
     out["oracle_ouvert_par_position_caster"] = bool(
         (nc.get("returnedCount") or 0) >= 0 and not nc.get("error")
         and (ai.get("listNull") is True or (ai.get("count") or 0) < 0))
+    out["oracle_direct_repare"] = bool(
+        ai.get("ok") and ai.get("listNull") is False and (ai.get("count") or 0) >= 0
+        and (nc.get("returnedCount") or 0) == (ai.get("count") or -1))
     out["port_ouvert_par_build_machine"] = bool(
         out.get("port_build_machine_me") == MOW and out.get("port_build_me") is None)
-    out["ok"] = bool(out["oracle_ouvert_par_position_caster"] or out["port_ouvert_par_build_machine"])
+    out["ok"] = bool(out["oracle_ouvert_par_position_caster"]
+                     or out["oracle_direct_repare"]
+                     or out["port_ouvert_par_build_machine"])
     if verbose:
         print("\n[360/A] DISCRIMINANT -- caster MoW %s (id=%s), cible summon id=%s"
               % (MOW, out.get("casterId"), out.get("targetId")))
-        print("  (a1) aiPlaybookPredict  [pos = CIBLE substituee] : ok=%s count=%s listNull=%s err=%s"
-              % (ai.get("ok"), ai.get("count"), ai.get("listNull"), ai.get("error")))
-        print("  (a2) ncPlaybookPredict  [pos = CASTER (NullPosition)] : ok=%s returned=%s "
+        # `posSrc` est RENDU par le RPC : on l'imprime au lieu de le decrire. Un libelle fige
+        # ("pos = CIBLE substituee") survivrait au correctif et decrirait un etat revolu.
+        print("  (a1) aiPlaybookPredict  [posSrc=%s] : ok=%s count=%s listNull=%s err=%s"
+              % (ai.get("posSrc"), ai.get("ok"), ai.get("count"), ai.get("listNull"),
+                 ai.get("error")))
+        print("  (a2) ncPlaybookPredict  [posSrc=%s] : ok=%s returned=%s "
               "captured=%s err=%s"
-              % (nc.get("ok"), nc.get("returnedCount"), nc.get("capturedCount"), nc.get("error")))
+              % (nc.get("posSrc"), nc.get("ok"), nc.get("returnedCount"),
+                 nc.get("capturedCount"), nc.get("error")))
         print("       events rendus : %s" % json.dumps(nc.get("returned"), default=str)[:400])
         pu = out.get("pairUtility") or {}
-        print("  (a3) pairUtility        [pos = CASTER] : ok=%s utility=%s err=%s"
-              % (pu.get("ok"), pu.get("utility"), pu.get("error")))
+        print("  (a3) pairUtility        [posSrc=%s] : ok=%s utility=%s err=%s"
+              % (pu.get("posSrc"), pu.get("ok"), pu.get("utility"), pu.get("error")))
         print("  (b)  port build()        -> ctx.me = %s" % out.get("port_build_me"))
         print("       port build_machine() -> ctx.me = %s | abilities=%s | scene.ctx=%s | origin=%s"
               % (out.get("port_build_machine_me"), out.get("port_build_machine_abilities"),
                  out.get("port_scene_ctx"), out.get("port_origin")))
-        print("  -> oracle ouvert par la position du caster : %s"
+        print("  -> [PRE-correctif] oracle ouvert par la position du caster : %s"
               % out["oracle_ouvert_par_position_caster"])
-        print("  -> port ouvert par build_machine          : %s"
+        print("  -> [POST-correctif] aiPlaybookPredict repare, et D'ACCORD avec nc : %s"
+              % out["oracle_direct_repare"])
+        print("  -> port ouvert par build_machine                           : %s"
               % out["port_ouvert_par_build_machine"])
     return out
 

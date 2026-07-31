@@ -61,9 +61,19 @@ frida/dump-analyze.cjs
 Tacticus_*.json
 # One-shot debug / capture artifacts
 frida/captures/
-# Throwaway probe scripts the hooks codebase parks per investigation
-frida/hooks/scratch/
-# Root-level helper scripts for local sessions (not project deliverables)
-scratch/
+# frida/hooks/scratch/ N'EST PLUS IGNORE (2026-07-31) -- il est ENTREE DE BUILD.
+# `frida/hooks/controller.ts` est VERSIONNE et importe STATIQUEMENT 67 de ses modules : les
+# ignorer rendait le depot non constructible (clone frais ET worktree d'agent), ce qui poussait
+# les agents a contourner par une JUNCTION vers l'arbre principal -- et une junction supprimee en
+# recursif VIDE sa cible sous Windows. Les 67 modules ont ete perdus ainsi le 2026-07-31.
+# Le cliquet `scripts/python/probe_365_versioned_imports_gitignored.py` interdit desormais qu'un
+# fichier versionne importe une cible gitignoree ou absente.
+# Root-level helper scripts for local sessions (not project deliverables).
+# ANCRE A LA RACINE (`/scratch/`), et c'est ESSENTIEL : sans le `/` initial, gitignore matche
+# n'importe quel repertoire nomme `scratch` A N'IMPORTE QUELLE PROFONDEUR. C'est cette regle
+# generique -- pas la ligne dediee -- qui ignorait `frida/hooks/scratch/`, et elle aurait annule
+# son de-ignorage EN SILENCE (mesure le 2026-07-31 : `git check-ignore -v` pointait `.gitignore:72`
+# alors que la ligne dediee venait d'etre retiree).
+/scratch/
 # Claude harness state
 .claude/scheduled_tasks.lock

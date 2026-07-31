@@ -692,6 +692,34 @@ bloqué — alors que sa réponse ne changeait rien à la décision.)*
   session Frida globale via RPC. Le script `setup-agent-worktree.ps1` ne crée plus rien :
   il VÉRIFIE qu'un checkout est runnable et signale une junction héritée.
 
+- **⚠ LA LEÇON DE LA JUNCTION N'AVAIT PAS ÉTÉ GÉNÉRALISÉE — elle a resservi le 2026-07-31.**
+  Supprimer la junction `data/` a fermé UN chemin, pas la CLASSE. Les agents en ont recréé
+  ailleurs, pour la même raison de fond : un worktree frais ne pouvait pas **compiler le
+  bundle**. Résultat mesuré — `frida/hooks/scratch` (67 modules gitignorés, jamais versionnés,
+  aucune copie nulle part) **détruit dans l'arbre principal**, `frida/node_modules` amputé, le
+  bundle devenu inconstructible. Sous Windows, `git worktree remove --force` **suit le point de
+  reparse et vide la cible** ; un agent qui « nettoie sa junction avant de rendre la main » n'y
+  change rien, la destruction a lieu APRÈS son départ.
+
+  **La cause n'est jamais la junction, c'est ce qui la rend nécessaire** : une entrée de build
+  gitignorée. `frida/hooks/scratch/` est donc VERSIONNÉ depuis le 2026-07-31, et le cliquet
+  `probe_365_versioned_imports_gitignored.py` rougit si un fichier versionné importe
+  statiquement une cible gitignorée ou absente — c'est lui qui empêche la classe de revenir.
+  L'interdiction de junction est posée dans les invariants agents du `CLAUDE.md`.
+
+  **Suppression d'un worktree — ne jamais laisser `--force` traverser un lien.** Énumérer les
+  points de reparse et supprimer les LIENS d'abord, puis retirer le worktree :
+
+  ```powershell
+  $wt = ".claude/worktrees/agent-<id>"
+  Get-ChildItem $wt -Recurse -Force -Attributes ReparsePoint -ErrorAction SilentlyContinue |
+      ForEach-Object { cmd /c rmdir "`"$($_.FullName)`"" }   # supprime le LIEN, pas la cible
+  git worktree remove $wt --force
+  ```
+
+  Un `worktree remove` qui échoue en **`Invalid argument`** est la signature d'un point de
+  reparse : ne pas réessayer en boucle — enlever le lien d'abord.
+
 - **CONSÉQUENCE — le worktree part du HEAD de `master` (la base), PAS de ma branche
   courante ni de mes changements NON COMMITÉS.** Un working tree sale / une
   side-branch est INVISIBLE au worktree → l'agent auditerait du code périmé (déjà

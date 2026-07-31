@@ -422,6 +422,20 @@ règles ne sont donc pas réservées à l'orchestrateur — elles s'appliquent �
    `probe_273_gitignored_inputs.py --only-scan` est le cliquet à faire passer avant d'ouvrir
    une PR. Symptôme si on l'oublie : un balayage rend `0 fichier` et se lit comme « rien à
    signaler » — mesuré, `rl_ingest --all` ingérait **zéro** batch depuis un worktree, sans erreur.
+
+   ⛔ **JAMAIS DE JUNCTION (ni lien symbolique) depuis ton worktree vers l'arbre principal.**
+   Pas pour `node_modules`, pas pour `frida/hooks/scratch`, pas pour `data/` — pour rien.
+   **Pourquoi** : sous Windows, une suppression récursive forcée (`git worktree remove --force`,
+   `Remove-Item -Recurse`) **SUIT le point de reparse et vide la CIBLE**. Mesuré le 2026-07-31 :
+   `frida/hooks/scratch` (67 modules, gitignorés, jamais versionnés, aucune copie ailleurs) a été
+   détruit dans l'arbre principal par cette voie, et `frida/node_modules` amputé. Le bundle est
+   devenu inconstructible. Un agent qui a « nettoyé sa junction avant de rendre la main » ne prouve
+   rien : la destruction a lieu au `worktree remove`, après son départ.
+   **Si un build te manque une dépendance** : `npm ci` dans TON worktree (`package-lock.json` est
+   versionné, ~10 s) — jamais un lien vers l'arbre du voisin. Si une **source** te manque, c'est
+   qu'elle est gitignorée à tort : dis-le, ne la contourne pas. Le cliquet
+   `probe_365_versioned_imports_gitignored.py` rougit sur cette faute (un fichier versionné qui
+   importe statiquement une cible gitignorée ou absente).
 4. **⛔ Ne (ré)injecter NI redémarrer le host TOI-MÊME, jamais.** Ce geste stoppe la session
    Frida et casse le harnais des autres agents. Il appartient à l'orchestrateur, qui dispose
    d'une procédure sûre (mode DRAIN). Si ton travail exige un reinject — un correctif
