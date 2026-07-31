@@ -53,11 +53,18 @@ from ..damage_profile_type import PROFILE_NAME_BY_INDEX as _PROFILE_BY_INDEX  # 
 # FlailSwing 1042 relève de (a) et le natif MONTE ; PlasmaCannon 1150 relève de (b) et le natif
 # TRONQUE. Un port qui mettrait tout le monde d'un seul côté est faux dans l'autre moitié.
 #
-# L'ensemble ci-dessous est la famille (a), ÉNUMÉRÉE par les xrefs du corps `GetDamageAmountMain`
-# (exhaustives à la date de lecture, build `rnca9r7q6c`). Le DÉFAUT est (b) — qui est aussi le
-# comportement historique du port. ⚠ Une ability absente des DEUX listes de xrefs n'est pas
-# « (b) lue » : elle est NON LUE et retombe sur le défaut. Cf. docs/rl/case-344.
-_PREDICTION_MINMAX_AVERAGE = frozenset({
+# ⚠ Le NOM du corps ne dit JAMAIS à quelle forme appartient une ability donnée (les deux corps sont
+# dédupliqués) : la voie de lecture est les XREFS ENTRANTES de chaque corps, et — quand le playbook
+# n'appelle aucune méthode d'ability — la lecture du call-site lui-même. #350 a bouclé l'inventaire :
+# les ensembles ci-dessous sont EXHAUSTIFS pour le build `rnca9r7q6c`, parce que la moyenne min/max
+# ne peut naître QUE de `AActiveAbility$$MinMaxDamage{,Average}` (dont les xrefs sont énumérées) ou
+# d'un `DSLFormulas$$Half`/`$$Divide` INLINE dans le playbook (dont les xrefs le sont aussi : deux
+# playbooks, `SorcerousFacade` et `IncendiaryShells`). Le DÉFAUT reste (b) — qui est aussi le
+# comportement historique du port. ⚠ Une ability absente des DEUX registres n'est pas « (b) lue » :
+# elle est NON LUE. Cf. docs/rl/case-344 et docs/rl/case-350.
+
+# (a1) corps DÉDUPLIQUÉ `<X>Ability$$GetDamageAmountMain` -> `AActiveAbility$$MinMaxDamageAverage`.
+_A_VIA_GET_DAMAGE_AMOUNT_MAIN = frozenset({
     1173,   # ArcScourge             (`ArcScourgePlaybook$$EvaluateNonComparable`)
     1014,   # ArmoriumCherub
     1026,   # BasiliskBarrage        (`BasiliskBarragePlaybook$$GenerateAttackPredictionsForShells`)
@@ -77,6 +84,46 @@ _PREDICTION_MINMAX_AVERAGE = frozenset({
     1065,   # ScythingTalons
     1056,   # StranglethornCannon
 })
+
+# (a2) corps DÉDUPLIQUÉ `<X>Ability$$GetDamage(state, isPrediction)` — étiqueté
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.StaffOfStarsAbility$$GetDamage` — qui FORWARDE
+# `isPrediction` à `AActiveAbility$$MinMaxDamage`. Les ONZE call-sites de playbook posent tous
+# `mov r8b, 1` (lu à l'octet) : `isPrediction = TRUE` -> branche `Half(Sum(Direct(mn), Direct(mx)), 0)`,
+# donc EXACTEMENT la même arithmétique que (a1). Le nom du corps ne prédit rien : c'est le littéral
+# du call-site qui tranche.
+_A_VIA_STAFF_OF_STARS_GET_DAMAGE = frozenset({
+    1207,   # AncestralFortune       (`AncestralFortunePlaybook$$MakeDamagePredictions`)
+    1078,   # Fragstorm
+    1147,   # HadesAutocannons
+    1132,   # KillMaimBurn           (`KillMaimBurnPlaybook$$EvaluateNonComparable`)
+    1204,   # LeadingTheCharge
+    1177,   # LightOfSanguinius
+    1111,   # LivingBatteringRam     (`LivingBatteringRamPlaybook$$EvaluateNonComparable`)
+    1074,   # ScytheOfDust
+    1069,   # SeekerMissileFrequencyLock
+    1073,   # StaffOfStars           (DEUX call-sites : cible principale + volet secondaire)
+})
+
+# (a3) corps PROPRE de l'ability (non dédupliqué, donc nommé par ghidra), qui aboutit à la même
+# moyenne demi-vers-le-pair. Pour les quatre premiers le call-site du playbook pose `isPrediction = 1`.
+_A_VIA_OWN_ABILITY_BODY = frozenset({
+    1157,   # BladeOfMagnus     `BladeOfMagnusAbility$$GetDamage` = Sum(MinMaxDamage(true), If(HasEffect(5), Direct(extraDmg), 0))
+    1148,   # DaemonicOrdnance  `DaemonicOrdnanceAbility$$GetDamage` -> MinMaxDamage(true)  (4e arg `mov r9b, 1`)
+    1093,   # MortarionsPlagueWind  `MortarionsPlagueWindAbility$$GetDamage1` -> MinMaxDamageAverage
+    1137,   # MurderousSwing    `MurderousSwingAbility$$GetCorrectDamage` -> MinMaxDamageAverage sur les DEUX branches du If
+    1095,   # ReapingScythe     `ReapingScytheAbility$$GetDamage` : `isPrediction != 0` -> MinMaxDamageAverage
+    1104,   # SpiritLeech       `SpiritLeechAbility$$GetAttackDamage` -> MinMaxDamage(true) (les deux branches du ConditionalAmount)
+})
+
+# (a4) le playbook n'appelle AUCUNE méthode d'ability : il INLINE la moyenne. Même primitive finale
+# (`DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)`), donc même arrondi.
+_A_INLINE_IN_PLAYBOOK = frozenset({
+    1044,   # IncendiaryShells  `IncendiaryShellsAbility$$GetDamageRange(random = 0)` = Divide(Sum(Get(mn), Get(mx)), Get(2), 0)
+    1100,   # SorcerousFacade   `SorcerousFacadePlaybook$$MakeDamagePredictions` = Half(Sum(Get(mn), Get(mx)), 0)
+})
+
+_PREDICTION_MINMAX_AVERAGE = (_A_VIA_GET_DAMAGE_AMOUNT_MAIN | _A_VIA_STAFF_OF_STARS_GET_DAMAGE
+                              | _A_VIA_OWN_ABILITY_BODY | _A_INLINE_IN_PLAYBOOK)
 
 # Famille (b), LUE elle aussi (xrefs du corps `VigilanceEternalAbility$$GetDamage`) — elle coïncide
 # avec le défaut, donc rien à brancher ; on la NOMME pour distinguer « lu et confirmé (b) » de
@@ -100,7 +147,33 @@ _PREDICTION_MINMAX_RANDOM_READ = frozenset({
     1103,   # Supercharge
     1154,   # TacticalPrecision
     1202,   # VigilanceEternal       (`VigilanceEternalPlaybook$$EvaluateNonComparable`)
+    # #350 -- corps PROPRE de l'ability, `isPrediction` CODÉ EN DUR À FAUX (pas un paramètre) :
+    1230,   # SavageEchoes      `SavageEchoesAbility$$GetDamage` = Sum(MinMaxDamage(this, state, 0), Multiply(...))
 })
+
+
+# ─── #350 : les abilities dont la PRÉDICTION n'est NI (a) NI (b) — leur base n'est PAS une moyenne ───
+#
+# Résultat de lecture à part entière : on les NOMME au lieu de les forcer dans l'une des deux formes.
+# Elles ne sont dans AUCUN des deux registres ci-dessus, donc `get_damage()` leur rend le défaut
+# (troncature de la moyenne) — ce qui est faux sur un axe PLUS PROFOND que l'arrondi : ce n'est pas
+# la bonne GRANDEUR. Certaines sont déjà corrigées en amont par un handler
+# `playbook/prediction/abilities.py::_MAKE_DMG_INPUT_OVERRIDES` (colonne « corrigé »), les autres
+# restent des résidus chiffrés. Aucun code ne branche sur cette table : elle est LUE par la garde
+# offline de #350, qui vérifie sa disjonction d'avec les deux registres de moyenne.
+_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
+    # id  : (symbole natif porteur de la formule, ce que le natif prend réellement, corrigé ?)
+    1080: ("HellfireShellsPlaybook$$MakeDamagePredictions", "Direct(minDmg) SEUL", True),
+    1089: ("GreatFrostAxePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    1051: ("StikkbombPlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
+    1191: ("MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
+           "round(minDmg * buff), hits = 1", True),
+    1098: ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", False),
+    1048: ("FragstormGrenadeLauncherPlaybook$$MakeDamagePredictions", "maxDmg (var 0xd) SEUL", False),
+    1059: ("ExplodesAbility$$GetDamage",
+           "PercentageOf(StatAmount(Health), Sum(ConfigConst, ConditionalAmount)) -- aucun minDmg/maxDmg",
+           False),
+}
 
 
 class AActiveAbility:
