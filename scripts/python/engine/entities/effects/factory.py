@@ -74,6 +74,7 @@ from .loki import (
     PsychicFortressDmgReductionEffect,
     PsychicFortressExtraBlockEffect,
     ParryEffect,
+    PathOfCommandExtraCritEffect,
     PathOfCommandExtraDmgEffect,
     RangedSpecialistEffect,
     PinnedEffect,
@@ -270,9 +271,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RitesOfBattle_ExtraDmgBasic": RitesOfBattleExtraDmgEffect,
     "RitesOfBattle_ExtraDmgImperial": RitesOfBattleExtraDmgEffect,
     # AURA +Attack (rayon 2) du SOURCE Loki (PathOfCommandAbility IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour) : friends dist<=2,
-    # +extraDmg (+extraDmg_2 si même grande-alliance que Loki). ExtraDmg=1112 ; ExtraCrit (1107,
-    # extraCritChance) = axe CRIT, canal aura-crit non porté (TODO). Nom capté = "PathOfCommand_ExtraDmg".
+    # +extraDmg (+extraDmg_2 si même grande-alliance que Loki). Nom capté = "PathOfCommand_ExtraDmg".
     "PathOfCommand_ExtraDmg": PathOfCommandExtraDmgEffect,
+    # Volet CRIT du MEME behaviour (#373) : `AddDynamicStatModifierEffectToOwner(0x453 = 1107,
+    # statType 0x9 = CritChance)`. Selecteur = SurroundingFriends(range 2) INTERSECTE
+    # `UnitsWithStatBiggerThan(CritChance, Current, > 0, excludingEffect)` -> un allie a portee dont
+    # la chance de crit est NULLE n'est PAS cible. Magnitude = extraCritChance[niveau SOURCE].
+    # Canal = l'aura stat-mod PROJETEE (`runner/operations/aura_stat_mods.py`), comme LionHelm.
+    "PathOfCommand_ExtraCrit": PathOfCommandExtraCritEffect,
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     # Marqueur until-EoT 1197 (#202-C, Abraxas) : arme la triggered 1173 (Screamer sur attaque Psychic
@@ -746,11 +752,12 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
     "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour : AddEffect(0x458=1112 ExtraDmg) + AddEffect(0x453=1107
-    # ExtraCrit). AURA +Attack rayon 2 aux allies (cf. loki.PathOfCommandExtraDmgEffect). Ces owner-effects sont
+    # ExtraCrit). AURA rayon 2 aux allies : +Attack (cf. loki.PathOfCommandExtraDmgEffect) et +CritChance
+    # (cf. loki.crit_aura.PathOfCommandExtraCritEffect, #373). Ces owner-effects sont
     # poses a l'INIT de l'ability = a l'ATTERRISSAGE pour un deep-strike (deferres pendant TeleportingIn ;
-    # ground truth live ds_landing : absents au teleport-in, apparaissent au landing). ExtraCrit (axe crit) non
-    # porte -> seul ExtraDmg est materialise.
-    "PathOfCommand": ["PathOfCommand_ExtraDmg"],
+    # ground truth live ds_landing : absents au teleport-in, apparaissent au landing -- l'event stream de
+    # l'atterrissage porte les DEUX `Effect_Refresh`, dans cet ordre : 1107 puis 1112).
+    "PathOfCommand": ["PathOfCommand_ExtraCrit", "PathOfCommand_ExtraDmg"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],

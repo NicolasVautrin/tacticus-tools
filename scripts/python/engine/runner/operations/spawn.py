@@ -702,6 +702,16 @@ def land_deep_strike(state: State, unit_id: int) -> Optional[dict]:
                                         ability_level=getattr(ctx, "passive_ability_level", None))   # PathOfCommand aura / HP-floor
     added += _seed_trait_owner_effects(state, unit_id, traits, mult)    # owner-effects des traits (idempotent)
     added += _seed_derived_ability_owner_effects(state, unit_id, traits, mult)
+    if added:
+        # `ActivateEffect` -> `UpdateEffectTargets` -> `AStatModifierEffect$$ApplyModification` : un
+        # owner-effect a stat-mod PROJETE ecrit sa `ValueModification` chez ses cibles-selecteur DES
+        # sa pose. GROUND TRUTH LIVE de l'atterrissage (#373, eldarAutarch) : l'event stream porte,
+        # dans le MEME `Effect_Refresh`, `ActivateEffect e=<autarch>` PUIS `ChangeStats e=<allie>
+        # UnitStats_CritChance_Modification_Change=20`. Sans ce refresh la pose etait INERTE cote
+        # stats (l'effet apparaissait chez le porteur, la cible ne gagnait rien) -- le volet
+        # `create_aura_*` du jumeau ATTACK, lui, est un canal de LECTURE, donc il ne le voyait pas.
+        from .aura_stat_mods import refresh_aura_stat_modifiers
+        refresh_aura_stat_modifiers(state)
     return {"landed": unit_id, "owner_effects_added": added}
 
 

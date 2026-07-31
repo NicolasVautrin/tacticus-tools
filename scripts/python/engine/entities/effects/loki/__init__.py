@@ -20,7 +20,10 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           porteur != source -> scaling resolu contre la SOURCE).
 - `dark_angels_passives.py` — passifs `LionHelm` (1163, darkaAzrael : aura +dmg overwatch + aura
                           stat-mod block) et `FearedInterrogator` (1235, darkaAsmodai : marqueur de
-                          cible + bonus degat/coups)."""
+                          cible + bonus degat/coups).
+- `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
+                          (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
+                          `aura_stat_modification_*` que le volet block de LionHelm."""
 from __future__ import annotations
 
 from .extra_damage import (RapidAssaultExtraDamageEffect, PrioritisedEfficiencyExtraDmgEffect,
@@ -109,11 +112,14 @@ from .darkangels import HailstrikeExtraPierceEffect
 from .dark_angels_passives import (LionHelmExtraDmgEffect, LionHelmExtraBlockDamageEffect,
                                    LionHelmExtraBlockChanceEffect,
                                    FearedInterrogatorOwnerEffect, FearedInterrogatorTargetEffect)
+from .crit_aura import PathOfCommandExtraCritEffect
 
 __all__ = [
     # dark_angels_passives (passifs LionHelm 1163 / FearedInterrogator 1235)
     "LionHelmExtraDmgEffect", "LionHelmExtraBlockDamageEffect", "LionHelmExtraBlockChanceEffect",
     "FearedInterrogatorOwnerEffect", "FearedInterrogatorTargetEffect",
+    # crit_aura (aura stat-mod CRIT projetee -- volet CRIT de PathOfCommand 1112)
+    "PathOfCommandExtraCritEffect",
     # extra_damage (volet DIRECT)
     "RapidAssaultExtraDamageEffect", "PrioritisedEfficiencyExtraDmgEffect",
     "SmashaEadExtraDamageEffect", "FeederTendrilsExtraDamageEffect",
