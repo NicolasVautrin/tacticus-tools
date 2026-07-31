@@ -41,7 +41,8 @@ from .extra_damage_aura import (RitesOfBattleExtraDmgEffect, PathOfCommandExtraD
                                 BeaconOfRageFriendlyExtraDamageEffect,
                                 LordOfTheHostExtraDamageEffect, DoomExtraDmgEffect,
                                 SpotterReworkedExtraDamageEffect, SpotterReworkedHeavyWeaponEffect,
-                                DefenderOfTheGreaterGoodExtraDmgEffect)
+                                DefenderOfTheGreaterGoodExtraDmgEffect,
+                                DefenderOfTheGreaterGoodExtraDmgDroneEffect)
 from .damage_reduction import (TerrifyingExtraDefenseEffect, MartialKatahDmgReductionEffect,
                                PrioritisedEfficiencyDmgReductionEffect,
                                TerminatorArmourReduceDmgEffect, GuardianOrganismDamageReductionEffect,
@@ -77,6 +78,8 @@ from .hits import (SquigHoundAdditionalHitsEffect, CordClawAdditionalHitsEffect,
                    BigTargetAdjacentEffect,
                    AstartesBannerExtraHitEffect, SagaOfTheWarriorBornOwnerEffect,
                    UnstoppableFerocityOwnerEffect,
+                   DefenderOfTheGreaterGoodExtraHitsEffect,
+                   DefenderOfTheGreaterGoodExtraHitsDroneEffect,
                    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect,
                    KanOpenerEffect, LIGHT_COVER_TILE_ID)
 from .status import (HypersensoryMinimalHealthEffect, ContaminatedEffect, ContaminatedUnitEffect,
@@ -129,7 +132,7 @@ __all__ = [
     "DaughterOfTheAbyssExtraDamagePctEffect", "BeaconOfRageFriendlyExtraDamageEffect",
     "LordOfTheHostExtraDamageEffect", "DoomExtraDmgEffect",
     "SpotterReworkedExtraDamageEffect", "SpotterReworkedHeavyWeaponEffect",
-    "DefenderOfTheGreaterGoodExtraDmgEffect",
+    "DefenderOfTheGreaterGoodExtraDmgEffect", "DefenderOfTheGreaterGoodExtraDmgDroneEffect",
     # damage_reduction
     "TerrifyingExtraDefenseEffect", "MartialKatahDmgReductionEffect",
     "PrioritisedEfficiencyDmgReductionEffect", "TerminatorArmourReduceDmgEffect",
@@ -160,6 +163,7 @@ __all__ = [
     "LET_THE_GALAXY_BURN_PERSISTENT_KEY",
     "BigTargetAdjacentEffect", "AstartesBannerExtraHitEffect",
     "SagaOfTheWarriorBornOwnerEffect", "UnstoppableFerocityOwnerEffect",
+    "DefenderOfTheGreaterGoodExtraHitsEffect", "DefenderOfTheGreaterGoodExtraHitsDroneEffect",
     "PowerTripFullHealthEffect", "PowerTripIgnoreArmorEffect", "KanOpenerEffect", "LIGHT_COVER_TILE_ID",
     # status
     "HypersensoryMinimalHealthEffect", "ContaminatedEffect", "ContaminatedUnitEffect",

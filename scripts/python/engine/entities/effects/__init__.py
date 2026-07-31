@@ -46,6 +46,7 @@ __all__ = [
     "build_attacker_modifiers_from_effects", "calculate_attacker_modifiers_for_prediction",
     "build_defender_modifiers_from_effects",
     "hits_bonus_from_effects", "hits_malus_from_defender_effects", "aura_hits_malus_for_defense",
+    "aura_hits_bonus_for_attack",
     "additional_hit_groups", "aura_defense_damage_malus_from_units",
     "aura_attack_damage_bonus_from_allies", "aura_fixed_armor_bonus_for_defense",
     "crit_chance_bonus_from_effects", "crit_damage_bonus_from_effects",
@@ -313,13 +314,47 @@ def aura_hits_malus_for_defense(units_effects, ctx) -> int:
     return total
 
 
-# #204 — `aura_hits_bonus_for_attack` a ETE SUPPRIME (agregateur + hook `create_aura_hits_bonus_
-# for_attack`). Son unique alimenteur, `AstartesBannerExtraHitEffect`, appelle en natif
+# #204 avait SUPPRIME `aura_hits_bonus_for_attack` (agregateur + hook) : son unique alimenteur
+# d'alors, `AstartesBannerExtraHitEffect`, appelle en natif
 # `IdunBattle.Entities.Effects.Loki.AstartesBanner_AdditionalHitsEffect$$CreateAdditionalHits`
-# (canal #179), pas `CreateEffectHitsBonusForAttack` : il est passe a
-# `create_aura_additional_hits_for_ally` / `aura_additional_hits_from_allies`. Meme motif que la
-# sortie de `tile_effects_by_pos`/`persistent_data` d'`attack_hits_with_modifiers` en #227 : un
-# canal sans alimenteur natif est un gate MORT, donc un piege.
+# (canal #179) et non `CreateEffectHitsBonusForAttack` -- un canal sans alimenteur natif est un
+# gate MORT, donc un piege. #372 le REOUVRE avec l'alimenteur natif qui manquait.
+def aura_hits_bonus_for_attack(carriers, ctx) -> int:
+    """Somme des bonus de COUPS projetes sur l'ATTAQUANT par des effets-AURA possedes par d'AUTRES
+    unites (`create_aura_hits_bonus_for_attack`).
+
+    Alimenteur natif : `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$
+    CreateEffectHitsBonusForAttack` (1183 sur `tauShadowsun`, 1307 sur son summon Command-Link Drone)
+    -- `EffectBonus.ForAddition(get_OwnerIsCaster & IsRangedAttack & !DamageProfileIs(0xd) &
+    Maybe(chance), ConfigConst(0x2b = extraHit))`, donc un TERME de
+    `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate` -- pas un groupe #179.
+
+    Mirror de la boucle NATIVE effets x cibles : `DamagePrediction$$GetAttackHits` prend TOUS les
+    effets actifs du board (`EffectsQuery$$GetActiveEffectsWithBonuses`) et ecrit
+    `AbilityEntities+0x18 (Owner) <- la cible de l'effet`. Cote port, chaque porteur re-evalue son
+    selecteur sur l'ATTAQUANT (modele #49/#153, adjacence relue a la TUILE CANDIDATE) : le porteur
+    lui-meme est exclu par le selecteur (`sel - Owner`), pas par cette boucle.
+
+    `carriers` = les memes tuples que les autres canaux d'aura ([0]=owner_id, [1]=owner_pos,
+    [2]=owner_team, [-1]=effets du porteur -- 4-tuple comme 8-tuple) ; `ctx` = {att_id, att_pos,
+    att_team, att_faction, is_melee, damage_profile, turns_started_by_id, parent_by_id, rng}.
+    `aura_peers` est injecte ICI : la branche `isDrone` du selecteur natif
+    (`EntitiesIsNotTargetOfEffect`) doit pouvoir evaluer le selecteur d'un AUTRE porteur.
+    Retour signe (a ADDITIONNER aux coups) ; 0 strict hors carrier."""
+    total = 0
+    cs = list(carriers or [])
+    for c in cs:
+        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2],
+                "aura_peers": cs}
+        for e in _as_effects(c[-1]):
+            hb = e.create_aura_hits_bonus_for_attack(octx)
+            if hb is None:
+                continue
+            if hb.kind == "Addition":
+                total += hb.value
+            elif hb.kind == "Subtraction":
+                total -= hb.value
+    return total
 
 
 def aura_attack_bonus_from_allies(carriers, ctx) -> int:
@@ -423,8 +458,13 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
     [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets (accepte le 4-tuple comme le 8-tuple
     `carriers` de la prédiction)."""
     out = []
-    for c in (carriers or []):
-        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2]}
+    cs = list(carriers or [])
+    for c in cs:
+        # #372 — `aura_peers` : la branche `isDrone` du selecteur de `DefenderOfTheGreaterGood`
+        # (`EntitiesIsNotTargetOfEffect`) doit pouvoir evaluer le selecteur d'un AUTRE porteur.
+        # Sans cette cle le gate se tait, et un DRONE double-compterait l'aura de son summoner.
+        octx = {**(ctx or {}), "owner_id": c[0], "owner_pos": c[1], "owner_team": c[2],
+                "aura_peers": cs}
         for e in _as_effects(c[-1]):
             eb = e.create_aura_attack_damage_bonus_for_ally(octx)
             if eb is not None:

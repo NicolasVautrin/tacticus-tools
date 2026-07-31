@@ -358,10 +358,28 @@ class BaseEffect:
         fourni par l'agrégateur `aura_hits_malus_for_defense`. Défaut None = pas d'aura."""
         return None
 
-    # #204 — `create_aura_hits_bonus_for_attack` a ETE SUPPRIME. Son unique implementeur,
+    # #204 avait SUPPRIME `create_aura_hits_bonus_for_attack` : son unique implementeur d'alors,
     # `AstartesBannerExtraHitEffect`, appelle en natif `CreateAdditionalHits` (canal #179) et non
-    # `CreateEffectHitsBonusForAttack` : il est passe a `create_aura_additional_hits_for_ally`. Le
-    # laisser aurait ete un hook MORT (aucun descripteur natif ne le peuple), donc un piege.
+    # `CreateEffectHitsBonusForAttack` -- le hook etait donc MORT, et un hook mort est un piege.
+    # #372 le REOUVRE avec l'alimenteur natif qui manquait :
+    # `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`
+    # (1183 / 1307), un `EffectBonus.ForAddition` -- donc bien un TERME DE LA FORMULE de coups.
+    def create_aura_hits_bonus_for_attack(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        """Contribution AURA a l'axe COUPS de l'ATTAQUANT : l'effet est possede par une AUTRE unite
+        (le PORTEUR) et projette un bonus de coups sur ses allies selon son `CreateTargetSelector`.
+
+        Natif : `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` n'itere pas les effets de
+        l'attaquant mais TOUS les effets actifs du board
+        (`IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses`), en bouclant effets x
+        CIBLES et en ecrivant `AbilityEntities+0x18 (Owner) <- la cible de l'effet` : `get_OwnerIsCaster`
+        y signifie donc « la cible de l'effet EST l'attaquant ». Le port rend ce gate par le canal
+        (l'agregateur n'interroge que les porteurs != attaquant et evalue le selecteur sur l'attaquant),
+        comme les autres auras source-side (#49/#153).
+
+        `ctx` = {owner_id/pos/team, att_id/att_pos/att_team/att_faction, is_melee, damage_profile,
+        turns_started_by_id, parent_by_id, rng, aura_peers} fourni par `aura_hits_bonus_for_attack`.
+        Defaut None = pas d'aura."""
+        return None
 
     def create_aura_attack_bonus(self, ctx: Mapping | None = None) -> "int | None":
         """Contribution AURA à la BASE (stat Attack) : effet stat-mod possédé par un ALLIÉ du porteur qui

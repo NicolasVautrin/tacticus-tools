@@ -434,30 +434,65 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
     tier T'au range-2 (deja threade cote prediction ; ajoute cote combat)."""
 
     _TAU_FACTION = "Tau"           # UnitFaction.Tau=9 (UnitsFromFaction(9) IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector) ; FactionId gameconfig="Tau"
+    # #372 -- UNE SEULE classe native pour 1182 ET 1306 : `..._ExtraDmgEffect$$.ctor(this, isDrone)`
+    # ecrit `isDrone` a `this+0x480` apres `DamageModifierAbilityEffect(0x483 = 1155, 0)`.
+    _IS_DRONE = False
+    _SOURCE_EFFECT_TYPE = 1182     # 0x49e -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
 
-    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+    def aura_selector_covers(self, ctx: Mapping | None = None) -> bool:
+        """Tronc commun de `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector`
+        (SANS la branche `isDrone`) -- extrait en methode parce que la branche DRONE
+        (`EntitiesIsNotTargetOfEffect`) doit l'evaluer sur un AUTRE porteur (#372)."""
         c = ctx or {}
         if c.get("att_id") == c.get("owner_id"):              # AdjacentFriends/SurroundingFriends excluent self
-            return None
+            return False
         if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
-            return None                                       # Friends = meme equipe que le porteur
-        if c.get("is_melee") is not False:                    # IsRangedAttack (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier) : ranged only
-            return None                                       # (None = ability combat non threade -> gate off)
-        if (c.get("damage_profile") or None) == "Psychic":    # !DamageProfileIs(0xd=13=Psychic)
-            return None
+            return False                                      # Friends = meme equipe que le porteur
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
-            return None
+            return False
         import hexgeo
         d = hexgeo.distance(op, ap)
         # Selecteur IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector : (AdjacentFriends(range=1, TOUTE faction) - owner) + UnitsFromFaction(
         # SurroundingFriends(range=2, disk), Tau=9). range 1 / range 2 = litteraux DSL (pas de ConfigVar range).
         adjacent = (d == 1)
         tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)
-        if not (adjacent or tau_ring):
+        return bool(adjacent or tau_ring)
+
+    def _covered_by_source_aura(self, c: Mapping) -> bool:
+        """`EntitiesIsNotTargetOfEffect(sel, <effectType non-drone>)` -- branche `isDrone` du selecteur
+        (#372) : le DRONE n'accorde rien a une unite deja CIBLE de l'effet de Shadowsun."""
+        for p in (c.get("aura_peers") or []):
+            for e in (p[-1] or []):
+                if getattr(e, "effect_type", None) != self._SOURCE_EFFECT_TYPE:
+                    continue
+                if e.aura_selector_covers({**c, "owner_id": p[0], "owner_pos": p[1],
+                                           "owner_team": p[2]}):
+                    return True
+        return False
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        if c.get("is_melee") is not False:                    # IsRangedAttack (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier) : ranged only
+            return None                                       # (None = ability combat non threade -> gate off)
+        if (c.get("damage_profile") or None) == "Psychic":    # !DamageProfileIs(0xd=13=Psychic)
             return None
+        if not self.aura_selector_covers(c):
+            return None
+        if self._IS_DRONE and self._covered_by_source_aura(c):
+            return None                                       # EntitiesIsNotTargetOfEffect
         if self.ability_level is None:                        # ConfigVar sans AbilityState -> pas de magnitude
             return None
         amt = ability_var("DefenderOfTheGreaterGood", "extraDmg", self.ability_level,
                           multiplier_pct=self.ability_variables_multiplier)
         return for_addition(True, amt) if amt else None
+
+
+class DefenderOfTheGreaterGoodExtraDmgDroneEffect(DefenderOfTheGreaterGoodExtraDmgEffect):
+    """Jumeau DRONE (effet 0x51a=1306, porte par `tauSmnDroneCommandLink`, le summon d'
+    `ExemplarOfTheKauyon`). MEME classe native, `isDrone = 1` a `this+0x480` (le ctor est litteralement
+    le meme corps) -- donc MEME magnitude et MEME selecteur, a une difference pres : la branche
+    `EntitiesIsNotTargetOfEffect(sel, 0x49e)` qui exclut les unites deja couvertes par l'aura de
+    Shadowsun (anti-double-comptage natif). RE : `docs/rl/case-372-dotgg-extra-hits.md`."""
+
+    _IS_DRONE = True

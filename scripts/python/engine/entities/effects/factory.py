@@ -105,6 +105,9 @@ from .loki import (
     SpotterReworkedExtraDamageEffect,
     SpotterReworkedHeavyWeaponEffect,
     DefenderOfTheGreaterGoodExtraDmgEffect,
+    DefenderOfTheGreaterGoodExtraDmgDroneEffect,
+    DefenderOfTheGreaterGoodExtraHitsEffect,
+    DefenderOfTheGreaterGoodExtraHitsDroneEffect,
     StandVigilExtraArmorEffect,
     StunnedEffect,
     TauntedEffect,
@@ -261,8 +264,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$CreateBehaviour branche NON-Summon) : aura +extraDmg[ablvl]xmult additif pre-percage aux attaques
     # RANGED non-Psychic des amis SOIT adjacents (toute faction) SOIT T'au dans range 2 (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier, selector
     # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector = (AdjacentFriends(1)-owner) + UnitsFromFaction(SurroundingFriends(2), Tau=9)). extraDmg[L65]=364.
-    # 1183 ExtraHits (coup additionnel probabiliste) + jumeaux drone 1306/1307 = NON portes ([fable]/couple).
     "DefenderOfTheGreaterGood_ExtraDmg": DefenderOfTheGreaterGoodExtraDmgEffect,
+    # #372 — l'axe COUPS de la MEME ability (1183) et les TROIS jumeaux drone. UNE SEULE classe
+    # native par axe, parametree : `..._Extra{Dmg,Hits}Effect$$.ctor(this, isDrone)` ecrit `isDrone`
+    # a `this+0x480` ; la branche `isDrone` du selecteur ajoute `EntitiesIsNotTargetOfEffect(sel,
+    # <effectType non-drone>)` = anti-double-comptage quand les deux auras se recouvrent.
+    # COUPS = `..._ExtraHitsEffect$$CreateEffectHitsBonusForAttack` = `EffectBonus.ForAddition(
+    # get_OwnerIsCaster & IsRangedAttack & !DamageProfileIs(0xd) & Maybe(chance), ConfigConst(0x2b =
+    # extraHit))` avec `chance = Min(Direct(100), Multiply(ConfigConst(0x2a = chance),
+    # UnitTurnsStarted(parent-ou-source)))` -> TERME de la formule de coups (canal
+    # `aura_hits_bonus_for_attack`), PAS un groupe #179. RE : `docs/rl/case-372-dotgg-extra-hits.md`.
+    "DefenderOfTheGreaterGood_ExtraHits": DefenderOfTheGreaterGoodExtraHitsEffect,
+    "DefenderOfTheGreaterGood_ExtraDmgDrone": DefenderOfTheGreaterGoodExtraDmgDroneEffect,
+    "DefenderOfTheGreaterGood_ExtraHitsDrone": DefenderOfTheGreaterGoodExtraHitsDroneEffect,
     # AURA +dégât (Attack) du SOURCE Calgar (RitesOfBattleAbility IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfBattleAbility$$CreateBehaviour) : 2 effets permanents
     # mutuellement exclusifs par trait Imperial (26). Noms captés EXACTS = ...Basic (1002) / ...Imperial
     # (1003) ; la classe lit le variant via self.name (endswith Imperial). Modélisée SOURCE-side

@@ -1439,6 +1439,191 @@ class KanOpenerEffect(BaseEffect):
         return None
 
 
+class DefenderOfTheGreaterGoodExtraHitsEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect` (effet 0x49f=1183 sur
+    `tauShadowsun`, 0x51b=1307 sur son summon `tauSmnDroneCommandLink`) -- AURA source-side sur l'axe
+    COUPS. i2 : « Affected attacks also have a chance to score an additional hit. This chance is
+    {[chance]}% for each round in which Shadowsun has been on the battlefield. »
+
+    UNE SEULE CLASSE NATIVE pour les DEUX EffectType : `..._ExtraHitsEffect$$.ctor(this, isDrone)` ecrit
+    `isDrone` a `this+0x480` apres `BaseEffect(AbilityOrEffect(...), hasAutomaticActivation = 1)`. Le
+    port suit -- `DefenderOfTheGreaterGoodExtraHitsDroneEffect` n'est qu'une sous-classe a `_IS_DRONE`.
+
+    POSE : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$CreateBehaviour`
+    = `If(HasTrait(Owner, 0x2 = Summon), AddEffect(0x51a)+AddEffect(0x51b),
+                                         AddEffect(0x49e)+AddEffect(0x49f))`, toujours sur
+    `selectors.Owner` -> l'effet vit sur le PORTEUR (mesure live : `decisionView` porte
+    `DefenderOfTheGreaterGood_ExtraHits` sur `tauShadowsun`, jamais sur ses allies).
+
+    CONTRIBUTION -- `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$CreateEffectHitsBonusForAttack`,
+    lu verbatim (ordre des `DSLFactory` du corps natif) :
+
+        srcSel  = EffectSource(<selectors+0x38 = le selecteur Effect>)
+        turnSel = If( AmountIsGreaterThanZero(Parent(srcSel)), Parent(srcSel), srcSel )
+        chance  = Min( Direct(100), Multiply( ConfigConst(0x2a = chance), UnitTurnsStarted(turnSel) ) )
+        trigger = get_OwnerIsCaster & IsRangedAttack & !DamageProfileIs(0xd = Psychic) & Maybe(chance)
+        return EffectBonus.ForAddition( trigger, ConfigConst(0x2b = extraHit), <AbilityOrEffect> )
+
+    `Direct(100)` = le champ `DSLFormulas+0x30`, construit `DirectAmount(100)` par
+    `IdunBattleLogic.Entities.DSLFormulas$$.ctor` (voisins : +0x18=0, +0x20=1, +0x28=2, +0x38=-1).
+    `IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraHitsEffect$$GetCurrentExtraHitChance`
+    reconstruit EXACTEMENT le meme noeud `chance` (c'est la donnee `{[chanceCurrent]}` de l'i2).
+
+    ## MARQUEUR DE CANAL : `CreateEffectHitsBonusForAttack`, PAS `CreateAdditionalHits`
+    Le coup gagne est un coup d'ARME de plus (terme de
+    `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`), pas un groupe #179 a
+    degat propre. C'est la distinction tranchee en #204/#227, ici dans l'autre sens : cet effet est
+    l'alimenteur natif qui manquait au canal AURA de la formule de coups, supprime faute d'implementeur.
+
+    ## `Owner` = LE BENEFICIAIRE, jamais le porteur
+    `IdunBattle.Core.Services.DamagePrediction$$GetAttackHits` n'itere PAS `attacker.Effects` : il
+    prend TOUS les effets actifs du board (`IdunBattle.Core.Services.EffectsQuery$$GetActiveEffectsWithBonuses`,
+    entrees baties par `IdunBattle.Core.Services.EffectsQuery$$GetEffectWithTargetEntry` qui embarquent
+    la liste des CIBLES) puis boucle effets x cibles en ecrivant `AbilityEntities+0x18 (Owner) <- la
+    CIBLE de l'effet` et `+0x08/+0x00 (Caster/Actor) <- l'ATTAQUANT`. Donc `get_OwnerIsCaster` signifie
+    « la cible de l'effet EST l'attaquant » -- le porteur n'est atteint que par `EffectSource(Effect)`,
+    ce que fait justement la formule de chance. Cote port, ce gate est PORTE PAR LE CANAL
+    (`aura_hits_bonus_for_attack` n'interroge que des porteurs != attaquant et evalue le selecteur sur
+    l'attaquant), exactement comme pour les autres auras source-side (#49/#153).
+
+    ## SELECTEUR -- partage avec l'axe DEGAT
+    `..._ExtraHitsEffect$$CreateTargetSelector` = `DefenderOfTheGreaterGoodAbility.GetBaseBuffTargetSelector(
+    dsl, Tiles(Owner), isDrone@+0x480, 0x49f)`, dont le corps est :
+
+        sel = AdjacentFriends(Owner, ownerTiles, includeSelf = 1) - Owner
+        sel = Unique( sel + UnitsFromFaction(SurroundingFriends(Owner, ownerTiles, range = 2), 9 = Tau) )
+        sel = UnitsWithRangedWeaponsExcludingDamageProfile( sel, 0xd = Psychic )
+        if (isDrone == 0) return sel
+        return EntitiesIsNotTargetOfEffect( sel, Nullable<EffectType>(effectType) )
+
+    Le tronc est celui deja porte pour `1182` (`loki/extra_damage_aura.py`). La branche `isDrone` retire
+    du selecteur du DRONE toute unite DEJA ciblee par l'effet NON-drone de Shadowsun (`0x49f` ici) :
+    anti-double-comptage natif quand les deux auras se recouvrent -> `_IS_DRONE` + `aura_peers`.
+
+    ⚠ `!DamageProfileIs(0xd)` du trigger est **INERTE SUR CE CANAL** : `GetAttackHits` construit son
+    `AbilityEntities` avec `damageProfile (+0xbc) = null`, et
+    `IdunBattle.Entities.Triggers.DamageProfileIsTrigger$$IsMatchingDamageProfileInEntities` ouvre sur
+    `Nullable.get_HasValue(entities+0xbc)` -> rend 0. Le gate Psychic PORTE ici vient donc du
+    SELECTEUR (`UnitsWithRangedWeaponsExcludingDamageProfile` = eligibilite de l'ARME du beneficiaire),
+    pas du trigger -- meme approximation que sur l'axe degat : l'attaque evaluee etant RANGED, son
+    profil EST celui de l'arme ranged du beneficiaire.
+
+    ## MAGNITUDE / CHANCE
+    `extraHit` et `chance` sont les DEUX seules constantes de l'ability au gameconfig
+    (`{chance: 25, extraHit: 1}`) et AUCUNE n'est dans `variablesAffectedByRarityBonus` -> le multiplier
+    est inerte. `chance = min(100, 25 x UnitTurnsStarted(src))` avec
+    `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate` = `GetStat(unit, 0xc)` =
+    `StatType.TURNS_STARTED` ; `src` = le PARENT du porteur s'il existe (drone -> Shadowsun), sinon le
+    porteur -> dans les deux cas les tours de SHADOWSUN, ce que dit l'i2.
+
+    ## `Maybe(chance)` -- foyer PARTAGE, aucun predicat re-derive
+    `entities.triggers.MaybeTrigger` (mirror 1:1 de
+    `IdunBattle.Entities.Triggers.MaybeTrigger$$ShouldTrigger`) : sans PRNG (`!CanUseRandom`, c.-a-d.
+    la face DECISION/PREDICTION) il rend `99 < chance`, donc VRAI seulement a 100 % ; avec PRNG (face
+    COMBAT) il tire `NextBool(chance)` -- **et ce tirage CONSOMME un genrand**, il ne peut donc pas
+    etre saute sans decaler tout le flux. Le noeud est evalue EN DERNIER (apres selecteur et gates),
+    comme dans l'arbre natif.
+
+    GROUND TRUTH LIVE (`MC1_67`/777, `tauShadowsun` rank 17, `turnsStarted >= 4` donc chance = 100) :
+    `darkaHellblaster` (non-T'au) a d=1 de Shadowsun -> **2** coups ; a d=2 -> **1** ; a d=4 -> **1**.
+    `tauCrisis` (T'au) a d=2 -> **10** coups ; a d=4 -> **9**. Le selecteur MORD sur la distance ET la
+    faction."""
+
+    _IS_DRONE = False
+    _TAU_FACTION = "Tau"           # UnitFaction.Tau=9 (`UnitsFromFaction(..., 9)`)
+    _SOURCE_EFFECT_TYPE = 1183     # 0x49f -- l'effet NON-drone vise par `EntitiesIsNotTargetOfEffect`
+
+    # ------------------------------------------------------------------ selecteur (geometrie)
+
+    def aura_selector_covers(self, ctx: "Mapping | None" = None) -> bool:
+        """Tronc commun de `GetBaseBuffTargetSelector` (SANS la branche `isDrone`) : l'attaquant
+        est-il dans le selecteur de CE porteur ? Extrait en methode parce que la branche drone
+        (`EntitiesIsNotTargetOfEffect`) doit l'evaluer sur un AUTRE porteur."""
+        c = ctx or {}
+        if c.get("att_id") == c.get("owner_id"):              # `sel - Owner`
+            return False
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return False                                      # Adjacent/SurroundingFRIENDS
+        op, ap = c.get("owner_pos"), c.get("att_pos")
+        if not op or not ap:
+            return False
+        d = hexgeo.distance(tuple(op), tuple(ap))
+        adjacent = (d == 1)                                   # AdjacentFriends(range 1, TOUTE faction)
+        tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)   # UnitsFromFaction(2, Tau)
+        return bool(adjacent or tau_ring)
+
+    def _covered_by_source_aura(self, c: Mapping) -> bool:
+        """`EntitiesIsNotTargetOfEffect(sel, <effectType non-drone>)` -- branche `isDrone` du selecteur.
+        `aura_peers` = les MEMES porteurs que ceux passes a l'agregateur (tuple [0]=id, [1]=pos,
+        [2]=team, [-1]=effets) : on cherche un porteur du type NON-drone dont le selecteur couvre
+        DEJA l'attaquant."""
+        for p in (c.get("aura_peers") or []):
+            for e in (p[-1] or []):
+                if getattr(e, "effect_type", None) != self._SOURCE_EFFECT_TYPE:
+                    continue
+                if e.aura_selector_covers({**c, "owner_id": p[0], "owner_pos": p[1],
+                                           "owner_team": p[2]}):
+                    return True
+        return False
+
+    # ------------------------------------------------------------------ chance (noeud V)
+
+    def current_extra_hit_chance(self, ctx: "Mapping | None" = None) -> "int | None":
+        """MIRROR de `..._ExtraHitsEffect$$GetCurrentExtraHitChance` :
+        `Min(Direct(100), Multiply(ConfigConst(0x2a = chance), UnitTurnsStarted(turnSel)))`.
+        None = substrat absent (pas de `turns_started_by_id`) -> aucune contribution, jamais un 0
+        deguise en mesure."""
+        c = ctx or {}
+        ts = c.get("turns_started_by_id") or {}
+        oid = c.get("owner_id")
+        # `If( AmountIsGreaterThanZero(Parent(EffectSource)), Parent(EffectSource), EffectSource )` :
+        # le PARENT s'il existe (drone -> son summoner Shadowsun), sinon la source elle-meme.
+        pid = (c.get("parent_by_id") or {}).get(oid)
+        src = pid if (pid is not None and pid in ts) else oid
+        turns = ts.get(src)
+        if turns is None:
+            return None
+        per = ability_var("DefenderOfTheGreaterGood", "chance", is_constant=True)   # ConfigConst 0x2a
+        if not per:
+            return None
+        return min(100, int(per) * int(turns))                # Min(Direct(100), Multiply(...))
+
+    # ------------------------------------------------------------------ contribution
+
+    def create_aura_hits_bonus_for_attack(self, ctx: "Mapping | None" = None) -> "EffectBonus | None":
+        from ...triggers import MaybeTrigger        # foyer PARTAGE du noeud `Maybe` (mirror 1:1)
+        c = ctx or {}
+        if c.get("is_melee") is not False:                    # IsRangedAttack (TRI-ETAT : None se tait)
+            return None
+        if (c.get("damage_profile") or None) == "Psychic":    # selecteur ...ExcludingDamageProfile(0xd)
+            return None
+        if not self.aura_selector_covers(c):
+            return None
+        if self._IS_DRONE and self._covered_by_source_aura(c):
+            return None                                       # EntitiesIsNotTargetOfEffect
+        chance = self.current_extra_hit_chance(c)
+        if chance is None:
+            return None
+        # `Maybe(chance)` EN DERNIER (ordre de l'arbre natif) : le tirage COMBAT consomme un genrand,
+        # il ne doit avoir lieu que si les noeuds precedents ont tenu.
+        if not MaybeTrigger(c.get("rng"), int(chance)).should_trigger(None):
+            return None
+        n = ability_var("DefenderOfTheGreaterGood", "extraHit", is_constant=True)   # ConfigConst 0x2b
+        return for_addition(True, int(n)) if n else None
+
+
+class DefenderOfTheGreaterGoodExtraHitsDroneEffect(DefenderOfTheGreaterGoodExtraHitsEffect):
+    """Jumeau DRONE (effet 0x51b=1307, porte par `tauSmnDroneCommandLink`, le summon d'
+    `ExemplarOfTheKauyon`). MEME classe native, `isDrone = 1` a `this+0x480` -- donc MEME magnitude,
+    MEME chance (lue sur le PARENT = Shadowsun), et une seule difference de comportement : la branche
+    `EntitiesIsNotTargetOfEffect` du selecteur (cf. `_covered_by_source_aura`).
+
+    `..._ExtraHitsEffect$$get_Priority` rend `0` quand `isDrone`, `100` sinon -- ordre de resolution
+    des effets, sans effet sur la magnitude ; non porte (le canal somme, il ne trie pas)."""
+
+    _IS_DRONE = True
+
+
 # Clé de source UNIQUE du stat-mod Swarm_HitReduction — partagée entre l'attribution d'hydratation
 # (`UnitContext.from_snapshot`) et le refresh runner (`runner/abilities/loki/swarm.py`) : même clé =
 # `IdunBattle.Entities.Components.ValueModification$$Modify` REMPLACE la contribution (sémantique AddOrUpdate native),
