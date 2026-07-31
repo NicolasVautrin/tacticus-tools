@@ -348,10 +348,11 @@ ability + roadmap des tranches restantes : **`docs/rl/dsl-effect-nodes.md`** (se
   REFUSE (ami/ennemi, cible == caster, caster ayant bougé). La dégradation est **permissive** :
   ni erreur, ni crash — donc invisible en self-play, et c'est exactement le trou qu'un
   entraînement irait exploiter.
-- **Dette RÉSORBÉE — mesurée le 2026-07-30** (compte re-dérivé du code, pas hérité —
-  `python scripts/python/probe_181_targeting_gaps.py`) : `ABILITY_CLASSES` = **94 entrées**,
-  **94** portent leur masque, **0 manquante**. Trajectoire complète : 75 → 53 → 40 → **0**.
-  Le pendant `ABILITY_ATTACK_TYPE` est lui aussi à **0 manquant**.
+- **Dette RÉSORBÉE — re-mesurée le 2026-08-01** (compte re-dérivé du code, pas hérité —
+  `python scripts/python/probe_181_targeting_gaps.py`) : `ABILITY_CLASSES` = **98 entrées**,
+  **98** portent leur masque, **0 manquante**. Trajectoire des MANQUANTES : 75 → 53 → 40 → **0**,
+  et le zéro tient depuis, à travers **quatre** entrées neuves (94 → 98 entre le 2026-07-30 et le
+  2026-08-01). Le pendant `ABILITY_ATTACK_TYPE` est lui aussi à **0 manquant**.
   ⚠ **Zéro n'est pas un acquis, c'est un CLIQUET** : ce gisement est le seul que notre propre
   cadence de portage alimente — chaque ability entrée sans son masque le rouvre. La règle
   ci-dessus (masque posé DANS LE MÊME COMMIT) est donc désormais ce qui MAINTIENT le zéro,
