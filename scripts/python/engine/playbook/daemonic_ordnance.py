@@ -80,10 +80,19 @@ premier cast et tout board frais.
 
 ⚠ **RESIDU NOMME (meme tranche 2 que 1169)** : des qu'un ennemi se tient sur une tuile en feu de la
 zone visee, le natif ajoute un terme de degat que ce port ne calcule pas -> il SOUS-ESTIME l'utilite
-de 1148. Le montage discriminant est explicite : caster 1148 une premiere fois pour allumer la zone,
-puis re-scorer un tir sur cette meme zone avec un ennemi encore dessus (c'est exactement le protocole
-de `docs/rl/case-172-mow-abilities-conditional.md`). Garde de non-regression silencieuse :
+de 1148. Garde de non-regression silencieuse :
 `tests/engine/test_daemonic_ordnance_decision_live.py::test_prediction_term_is_zero_because_the_area_is_not_burning`.
+
+⚠⚠ **CE QU'IL RESTE EXACTEMENT, depuis #359-r1** : la PREDICTION, elle, est portee et CONFRONTEE.
+`engine.playbook.prediction.make_damage_predictions(scene, caster, target, 1148, "DaemonicOrdnance")`
+mirrore desormais la boucle du selecteur (`DaemonicOrdnanceAbility.get_aoe_targets` +
+`_MAKE_DMG_TARGET_GATE[1148]`) et rend les MEMES events que le natif, valeurs comprises -- mesure et
+gardes dans `docs/rl/case-350r3-porteur-mow-et-formule-triggered.md`. Ce qui manque n'est donc plus
+la MECANIQUE mais le seul BRANCHEMENT : `NonAttackComparablePlaybook.make_damage_predictions` rend
+`[]` par construction (le corps de BASE de `ComparablePlaybook<T>` le fait quand le profil est
+absent), alors que `1148` a un `<Ability>Playbook$$MakeDamagePredictions` BESPOKE. Y router la
+prediction portee CHANGERAIT l'utilite de decision de 1148 des que la zone brule, et fait donc
+tomber la garde ci-dessus : c'est une tranche a part entiere, avec son propre montage d'utilite.
 """
 from __future__ import annotations
 

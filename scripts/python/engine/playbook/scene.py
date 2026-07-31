@@ -38,6 +38,15 @@ class Scene:
     #                                                    # None = inconnu (bonus position-dépendants inertes)
     board: object | None = None                        # Board (voisins natifs, adjacence hex) — cf.
     #                                                    # engine.entities.pathfinding.board ; None → evenq
+    # `MachineOfWarPosition` du joueur COURANT (1=Top, 2=Bottom) — la valeur que compare le predicat
+    # `IsPositionMachineForCurrentPlayer` (`BattleQuery$$GetPositionMachineForPlayer`, cascade portee
+    # dans `engine.services.machine_of_war_position`). C'est une propriete du PLATEAU, pas d'une MoW
+    # deployee. La face DECISION la calcule dans `engine.ai.context` et la depose ICI parce que
+    # `make_damage_predictions` ne recoit que la `Scene` : sans ce fil, l'arbre de 1148
+    # (`GetTargetAreaTiles` = `If(IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4))`)
+    # prendrait TOUJOURS la branche `else` -- une degradation SILENCIEUSE qui deplace la
+    # zone-triangle. `None` = **non mesure** -> le predicat rend False (jamais une valeur devinee).
+    machine_of_war_position: int | None = None
     # AbilityState PER-ABILITY (#100) : {uid: {abilityId: {"level","multiplier"}}} — capteur
     # combatSnapshot.abilityStates (entrée ActiveAbility._abilityState @0x4c). C'est le couple que
     # le natif passe au playbook et qui indexe les variables config (TryGetVariableArrayForLevel
@@ -302,10 +311,13 @@ class Scene:
     @classmethod
     def from_predictor_sctx(cls, predictor: dict, sctx: dict, elev_by_pos: dict | None = None,
                             board: object | None = None,
-                            tile_effects_by_pos: dict | None = None) -> "Scene":
+                            tile_effects_by_pos: dict | None = None,
+                            machine_of_war_position: int | None = None) -> "Scene":
         """Bridge des dicts de l'ancien PV vers l'objet Scene (mêmes données, forme objet).
         `tile_effects_by_pos` = effets de tuile FRAIS du pas (tileMeta ; dynamique — la glace
-        LordOfTempests s'accumule) ; None -> bonus position-dépendants inertes."""
+        LordOfTempests s'accumule) ; None -> bonus position-dépendants inertes.
+        `machine_of_war_position` = `GetPositionMachineForPlayer(joueur courant)` ; None = non mesure
+        (le predicat `IsPositionMachineForCurrentPlayer` rend alors False)."""
         sc = cls(
             ctx_by_id=predictor.get("ctx_by_id") or {}, armor_by_id=predictor.get("armor_by_id") or {},
             shield_by_id=predictor.get("shield_by_id") or {}, mult_by_id=predictor.get("mult_by_id") or {},
@@ -315,6 +327,7 @@ class Scene:
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             tile_effects_by_pos=tile_effects_by_pos,
+            machine_of_war_position=machine_of_war_position,
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
             actorstats_by_id=predictor.get("actorstats_by_id") or {},

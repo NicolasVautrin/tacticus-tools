@@ -142,6 +142,85 @@ event, c.-à-d. le régime du natif sur tout board frais. Faux négatif possible
 zone brûle réellement sans que la carte d'effets soit chargée ; l'ancien comportement, lui, était
 faux sur **tout** board.
 
+### Le volet **AoE** de `1148` — le SET, pas seulement le gate (#359-r1)
+
+Le gate ci-dessus ne couvrait que la cible **PRINCIPALE**. La boucle native, elle, est celle du
+sélecteur : `MakeDamagePredictions` évalue `GetEntitiesFromSelector(GetAllDamageableTargets, caster,
+casterPosition, target)` et, **par entité rendue**, `AddRange(GenerateMultiHitAttackPredictions(…, e,
+DSLSelectors$$Entity(e), damage, hits, 0, Nullable<DamageProfile>(null), 0))`. `hits`
+(`AActiveAbility$$GetHits`) est hoisté ; `damage` est évalué DANS la boucle, mais
+`DaemonicOrdnanceAbility$$GetDamage(target, state, isPrediction)` **ignore son argument `target`**
+(son corps est `AActiveAbility$$MinMaxDamage(state, isPrediction)` seul) — la base est donc la même
+pour toutes les entités, et il n'y a rien à surcharger.
+
+Le port n'avait **aucun** mirror de ce sélecteur : `AActiveAbility.get_aoe_targets` rendait `[]`.
+La zone étant ancrée sur la CIBLE, elle la contient toujours — d'où l'exactitude du gate — mais elle
+contient **aussi les deux voisines du triangle**, et c'est là que l'écart vivait.
+
+**Trois pièces**, comme pour `1147`, mais la troisième est différente : le sélecteur est
+TILE-DOMAIN, donc il exige des canaux que le `DslContext` de la prédiction n'avait pas.
+
+1. `DaemonicOrdnanceAbility` (`entities/abilities/active_ability.py`) porte le sélecteur en
+   `get_aoe_targets`. `Tiles(Subject@0x68)` est collapsé en `Subject()` — le sujet lié par le
+   `Filter` est déjà une entité-TUILE, `UnitsMainTilesSelector` y est l'identité (même collapse que
+   la face COMBAT) ;
+2. `_MAKE_DMG_TARGET_GATE[1148]` : **inchangé**, il datait de #350-r3 ;
+3. la levée du court-circuit (#359) : **inchangée**, et c'est le régime R\_B ci-dessous qui l'exerce
+   — la cible principale y est refusée par le gate alors que le natif émet.
+
+**Le câblage, et ses TROIS dégradations silencieuses.** Aucune n'aurait levé d'erreur :
+
+| canal | sans lui | conséquence |
+|---|---|---|
+| `board` | `TilesInTriangleShape` / `TilesOnSameElevation` / `Units(<tuiles>)` rendent `[]` | volet muet |
+| `tile_has_effect` | branche TUILE de `HasEffect` sans accesseur → `False` | volet muet |
+| `Scene.machine_of_war_position` | `IsPositionMachineForCurrentPlayer(2)` FAUX d'office → `dir = 4` | **mauvais triangle**, en silence |
+
+Les deux premiers viennent de la `Scene` (le second par `_tile_has_effect_from_scene`, qui traduit
+l'id d'entité-tuile en position — **même substrat que le gate**, foyer unique). Le troisième est
+neuf : `Scene` porte désormais `machine_of_war_position`, posé par `engine.ai.context` via
+`_machine_of_war_position` (la cascade de `AiDecisionContext.machine_of_war_position`, extraite en
+fonction module pour que les deux consommateurs ne divergent pas). `make_damage_predictions` ne
+reçoit que la `Scene` — c'est la raison d'être du champ.
+
+⚠ **Piège d'OUTILLAGE, et il a coûté une passe de mesure** : `probe_344._ctx` n'appelle pas
+`AICTX.build(..., spawn_groups=…)`. Sans les groupes, la cascade retombe sur le slot d'une MoW
+**déployée** (`decisionView.mows`) — et un montage GREFFÉ n'en a aucune → `None` → `dir = 4`. Le
+probe lit donc les `SpawnPointGroups` dans le state-file du build (`_ctx_with_groups`), résidu
+d'outillage déjà nommé par `case-302` (aucun RPC ne les expose par runner).
+
+Mesures (`probe_350r3_mow_caster.py --step 6|7`), natif / port AVANT / port APRÈS. Montage :
+1148 greffée sur `deathBlightbringer`, deux ennemis d'armures **pilotées** (0 et 500) et niveau 50 —
+au niveau 2 les quatre bornes saturent au plancher `(3, 3, 3)` sur les deux, et l'accord ne dirait
+plus rien des VALEURS.
+
+| régime | natif | port AVANT | port APRÈS |
+|---|---|---|---|
+| R\_A cible sur tuile EN FEU | `(2793, 4191, 3)` | = natif | = natif |
+| R\_B **cible sur tuile FROIDE**, un autre ennemi brûlant dans SON triangle | **1** event, sur l'AUTRE | **∅** | 1, = natif |
+| R\_C deux ennemis sur tuiles en feu | **2** events, `(2793,4191,3)` et `(1941,4038,3)` | **1** | 2, mêmes valeurs |
+| généralisation `C1_15` (`dir` BASCULE à 4) | idem, `(4191,6288,3)` / `(1941,4038,3)` | idem | = natif |
+
+R\_B est le régime du cas : la cible demandée n'a **aucun** event natif, et le natif émet quand
+même. R\_C sépare les VALEURS — sans les armures distinctes, un port qui recopierait la prédiction
+principale sur chaque membre du set passerait.
+
+**La généralisation borne la SECONDE branche du `If`.** `MC1_67` déclare
+`MachineOfWarPosition(team 1) = 2` → `dir = 1` (triangle `{S, SE}`) ; `C1_15` déclare `0` → `dir = 4`
+(`{NW, N}`). Balayage du dépôt : **502** boards résolvent sur `0`, **173** sur `2`. La mutation
+« canal MoW débranché » est **rouge sur `MC1_67` et VERTE sur `C1_15`** — une seule des deux gardes
+ne prouverait donc rien.
+
+⚠ **Résidu NOMMÉ, découvert par cette généralisation** : sur `C1_15` le natif n'allume que
+`{(3,3), (3,4)}` du triangle `{(2,3), (3,3), (3,4)}`. Ni l'élévation (`(3,3)` a la **même**, 2, et
+brûle) ni un trou d'observation (`tileMeta` projette bien `(2,3)`) ne l'expliquent ; la seule
+covariable mesurée est `walkable = False`. `BattleQuery$$GetTilesInTriangleShape` et
+`TilesOnSameElevationSelector$$Select` ont été **relus** : **aucun** ne filtre la marchabilité — le
+port est fidèle, et l'écart est dans la **POSE** de l'effet (face COMBAT), hors périmètre. Il est
+**inerte pour ce sélecteur** : une unité ne se tient pas sur une tuile non marchable, donc
+`Units(<tuile non marchable>)` rend vide de toute façon. D'où une garde par **inclusion** (les
+tuiles allumées sont dans le triangle attendu, centre compris), pas par égalité.
+
 ---
 
 ## (c) `1160 HeavyRailRifle` — l'objet évalué est la TriggeredAbility `1260`
@@ -197,7 +276,8 @@ Hors périmètre `#350-r3`.
 | idem — **G** | le gate de sélecteur de 1148 sur scène synthétique : ami refusé, tuile froide refusée, tuile en feu acceptée, `tileMeta` absent = feu **inconnu** (pas supposé) |
 | idem — **H** (#359) | le SET AoE de 1147, conjonction par conjonction : rayon (témoin à `range+1`), trait, camp de la CIBLE, centre inclus ; + le gate réduit au trait `Summon` (mort refusé, scène vide refusée). `range` **relu du gameconfig**, pas écrit en dur |
 | `tests/engine/test_350r3_mow_carrier_live.py` (6) | pools disjoints + chemin MoW câblé ; la MoW-caster est MESURABLE par l'oracle qui passe la position du CASTER (#360) ; 1147 `to_even` seule nulle sur deux bras ; 1148 en accord dans les **deux** régimes de feu ; **(#359)** le volet AoE sur 4 régimes + sa généralisation (autre board, caster allié) |
-| `probe_350r3_mow_caster.py` | le montage (`--only-scan`, `--step 1|2|3|4|5`) |
+| idem — **(7)(8)** (#359-r1) | le SET AoE de 1148 sur 3 régimes, dont celui où la cible demandée n'a AUCUN event natif ; les VALEURS séparées par cible (armures pilotées) ; le port d'AVANT EXIGÉ différent ; et **(8)** le même montage sur un board où `dir` bascule — les deux ensemble bornent les deux branches du `If` |
+| `probe_350r3_mow_caster.py` | le montage (`--only-scan`, `--step 1|2|3|4|5|6|7`) ; `--step 6` imprime la DÉCOMPOSITION PAR ÉTAGE du set (classe routée, board, `mow_position`, triangle brut + élévations + marchabilité, zone, tuiles en feu, AoE) — c'est elle qui a désigné le canal manquant au lieu d'un `[]` muet |
 
 **Mutations jouées, toutes rouges** :
 
@@ -208,6 +288,11 @@ Hors périmètre `#350-r3`.
 | ré-armer le court-circuit `if main is None: return events` | live R3 : port `∅` contre 3 events natifs |
 | remplacer `ConfigConst("range")` par une constante large | offline **H** : `{10, 11, 12}` au lieu de `{10, 11}` |
 | retirer `has_trait` du `DslContext` de `make_damage_predictions` | live R1 : le set AoE devient vide (la garde offline, qui construit son propre contexte, ne le voit PAS) |
+| **(#359-r1)** retirer `DaemonicOrdnance` du registre de classes (= le port d'AVANT) | live R\_B : `port [] != natif [{'target': 77, 'dmg': (2793, 4191, 3)}]` |
+| **(#359-r1)** ré-armer le court-circuit `if main is None: return events` | live R\_B : **même** message — c'est le seul régime qui l'exerce |
+| **(#359-r1)** retirer `1148` de `_MAKE_DMG_TARGET_GATE` | live R\_B : le port ajoute un event sur la cible FROIDE — `port [{'target': 79, …}, {'target': 77, …}] != natif [{'target': 77, …}]` |
+| **(#359-r1)** débrancher `current_player_machine_position` | live R\_B sur `MC1_67` : `port [] != natif […]` — et **VERT sur `C1_15`**, où la dégradation coïncide avec `dir = 4` |
+| **(#359-r1)** débrancher `tile_has_effect` | live R\_B : `port [] != natif […]` |
 
 ## Ce qui n'est PAS couvert
 
@@ -225,9 +310,24 @@ Hors périmètre `#350-r3`.
   (`--step 5`) : natif `[113, 110, 116]`, port `[110, 113, 116]` — même ensemble, même valeurs.
   Sans effet sur l'utilité (`CalculateUtilityFromPredictions` **somme**), d'où une garde qui porte
   sur l'ENSEMBLE ; le jour où un consommateur lira le premier event, il faudra porter le tri.
-- **Le pendant du volet AoE pour 1148** : son playbook boucle lui aussi sur un sélecteur, mais le
-  port n'a **pas** de set AoE pour elle (`AActiveAbility.get_aoe_targets` → `[]`). Une cible hors
-  zone-de-feu alors qu'un AUTRE ennemi y est debout donne donc `∅` côté port et un event côté natif.
-  Le mécanisme est en place (la levée du court-circuit vaut pour tout `_MAKE_DMG_TARGET_GATE`) : il
-  ne manque que le mirror de `GetAllDamageableTargets` en `get_aoe_targets`. Non porté, non mesuré.
+- ~~**Le pendant du volet AoE pour 1148**~~ — **COUVERT depuis #359-r1** (section dédiée ci-dessus).
+  ⚠ Comme pour 1147, il n'a PAS été rejoué avec la MoW pour caster : les quatre mesures passent par
+  la GREFFE. Le sélecteur ne lit du caster que son `team` (`Enemies(Caster, …)`), et le pont #360
+  permettrait de le confronter directement — non fait.
+- **L'ORDRE des events de 1148** : non mesuré. Le sélecteur de 1148 n'a PAS de nœud de tri (contraste
+  avec 1147, qui finit par `SortByRow`/`SortReverse`), donc l'ordre natif est celui de l'itération
+  des tuiles de `GetTargetAreaTiles`. Le port l'obtient par construction (`Units` itère les tuiles),
+  mais la garde porte sur l'ENSEMBLE — l'ordre n'a pas été confronté.
+- **La tuile NON MARCHABLE du triangle** (`C1_15`, `(2,3)`) : le natif ne l'allume pas alors qu'aucun
+  des deux sélecteurs lus ne filtre la marchabilité. L'écart est dans la POSE de l'effet (face
+  COMBAT, `AddEffectOperation` sur une entité-tuile) — **non tranché**, inerte pour la prédiction.
+- **Le BRANCHEMENT de la prédiction de 1148 sur sa route de DÉCISION** — résidu **NEUF**, et c'est
+  désormais le seul qui reste sur cette ability. `DaemonicOrdnancePlaybook` (port) hérite de
+  `NonAttackComparablePlaybook`, dont `make_damage_predictions` rend `[]` par construction ; le
+  natif, lui, a un `MakeDamagePredictions` **bespoke**. Le terme de prédiction de son
+  `CalculateActionUtility` vaut donc toujours 0 côté port, ce qui SOUS-ESTIME l'utilité de 1148 dès
+  que la zone brûle. La mécanique, elle, n'est plus le verrou : `prediction.make_damage_predictions`
+  rend les bons events. Y router change une utilité de décision et fait tomber
+  `test_daemonic_ordnance_decision_live.py::test_prediction_term_is_zero_because_the_area_is_not_burning`
+  → tranche à part, avec son propre montage d'utilité.
 - **La couche TRIGGERED** (tableau ci-dessus) : lue, non portée, non confrontée.

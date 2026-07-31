@@ -73,7 +73,18 @@ ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_mow_caster.py --step 3           # 1148 zone froide / zone en feu
     python probe_350r3_mow_caster.py --step 4           # 1147 volet AoE, 4 regimes
     python probe_350r3_mow_caster.py --step 5           # 1147 volet AoE, generalisation
-    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3 + 4 + 5
+    python probe_350r3_mow_caster.py --step 6           # 1148 volet AoE (#359-r1), 3 regimes
+    python probe_350r3_mow_caster.py --step 7           # idem sur un board ou `dir` BASCULE
+    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3 + 4 + 5 + 6 + 7
+
+ETAPE 6 -- LE PENDANT AoE DE `1148` (#359-r1)
+---------------------------------------------
+`DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle lui aussi sur un selecteur
+(`GetAllDamageableTargets` = les ennemis debout sur une tuile EN FEU de la zone-triangle ancree sur
+la CIBLE). #350-r3 n'avait porte que le gate de la cible PRINCIPALE ; le SET restait vide. Des que la
+cible demandee est HORS de la zone de feu alors qu'un AUTRE ennemi y est debout, le natif emet et le
+port rendait `[]`. Trois regimes, positions DRIVEES (`dir` calcule par le mirror de
+`BattleQuery$$GetPositionMachineForPlayer`, puis RE-VERIFIE contre les tuiles reellement en feu).
 """
 from __future__ import annotations
 
@@ -177,10 +188,11 @@ def _graft_seed_bc(ability_ids, on_unit: str, name: str) -> Path:
     return p
 
 
-def _build(state_file: Path, seed: int, extra: list, seed_bc: Path | None = None) -> int:
+def _build(state_file: Path, seed: int, extra: list, seed_bc: Path | None = None,
+           board: str = BOARD) -> int:
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
-           "--state-file", str(state_file), "--board", BOARD, "--rank", str(RANK),
+           "--state-file", str(state_file), "--board", board, "--rank", str(RANK),
            "--crit", "0,0", "--block-target", "0,0", "--no-ai"] + extra
     if seed_bc is not None:
         cmd += ["--seed-bc", str(seed_bc)]
@@ -805,15 +817,337 @@ def step5_generalize_1147(seed: int = 35090, verbose: bool = True) -> dict:
     return out
 
 
+# ------------- etape 6 : le pendant AoE de 1148 (#359-r1) -- cible HORS zone de feu
+
+def _fire_positions(scene) -> set:
+    """Positions portant `Fire` -- `Scene.tile_effects_by_pos` est indexee par NOM d'effet (tileMeta
+    `effects[].name`), jamais par id : meme cle que `_daemonic_ordnance_target_gate`."""
+    from engine.entities.effect_type import EffectType
+    fx = scene.tile_effects_by_pos or {}
+    return {tuple(p) for p, names in fx.items() if EffectType.Fire.name in (names or [])}
+
+
+def _triangle_dir(groups, team) -> int:
+    """`dir` de `DaemonicOrdnanceAbility$$GetTargetAreaTiles` =
+    `If(IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4))`, calcule PAR LE MIRROR de la
+    cascade native (`BattleQuery$$GetPositionMachineForPlayer`), jamais suppose. Le probe le
+    RE-VERIFIE ensuite contre les tuiles REELLEMENT en feu apres le cast."""
+    from engine.services.machine_of_war_position import machine_of_war_position_for_player
+    if groups is None or team is None:
+        return None
+    return 1 if int(machine_of_war_position_for_player(groups, int(team))) == 2 else 4
+
+
+def _port_events_1148(scene, cid, tid, here, shipped: bool):
+    """Events du PORT pour 1148. `shipped = False` = le port d'AVANT #359-r1 -- reconstitue en
+    RETIRANT l'entree `DaemonicOrdnance` de `_SPECIAL_ABILITY_CLASSES` (donc `get_aoe_targets` rend
+    `[]`, l'etat exact d'avant cette tranche), jamais re-implemente. Le gate de selecteur
+    `_MAKE_DMG_TARGET_GATE[1148]`, lui, est ANTERIEUR (#350-r3) : il reste arme des deux cotes."""
+    from engine.playbook.prediction import abilities as PA
+    import engine.entities.abilities.active_ability as AA
+    klass = AA._SPECIAL_ABILITY_CLASSES
+    if not shipped:
+        AA._SPECIAL_ABILITY_CLASSES = {k: v for k, v in klass.items() if k != "DaemonicOrdnance"}
+    try:
+        evs = PA.make_damage_predictions(scene, int(cid), int(tid), 1148, "DaemonicOrdnance",
+                                         attack_pos=here)
+    finally:
+        AA._SPECIAL_ABILITY_CLASSES = klass
+    return [{"target": e.target,
+             "dmg": (e.prediction.accurate_health_damage.min,
+                     e.prediction.accurate_health_damage.max, e.prediction.applied_hits)}
+            for e in evs]
+
+
+def _ctx_with_groups(sid, rid, cid, groups):
+    """`AiDecisionContext` du caster AVEC ses `SpawnPointGroups`.
+
+    `probe_344._ctx` ne les passe pas -- il n'en a pas besoin pour l'arrondi. Ici c'est CENTRAL : sans
+    eux, `AiDecisionContext.machine_of_war_position` retombe sur le slot d'une MoW DEPLOYEE
+    (`decisionView.mows`), et le montage GREFFE n'en a aucune -> `None` -> le predicat
+    `IsPositionMachineForCurrentPlayer` rend False -> `dir = 4` au lieu de 1, donc la MAUVAISE
+    zone-triangle. C'est le residu d'outillage nomme par `case-302` : aucun RPC n'expose les groupes
+    par runner, l'appelant qui monte le runner les LIT dans le state-file."""
+    from engine import weights as W
+    from engine.playbook import scene as _scene
+    from engine.ai import context as AICTX
+    rpc = lambda m, b, t=60: _r(sid, rid, m, b, t)                              # noqa: E731
+    dv = _r(sid, rid, "decisionView", {"allAbilities": True, "maxRank": 8}, 180)
+    mov = _r(sid, rid, "aiMovableTiles", {}, 90)
+    mov_by_unit = {u.get("unitId"): u for u in ((mov or {}).get("units") or [])}
+    return AICTX.build(rpc, rid, dv, mov_by_unit, int(cid), W.load(),
+                       _scene.build_predictor(rpc, rid), spawn_groups=groups), dv
+
+
+def _aoe_stages_1148(scene, cid, tid) -> dict:
+    """DECOMPOSITION PAR ETAGE du set AoE de 1148 -- pour qu'un desaccord designe l'etage FAUTIF au
+    lieu d'un `[]` muet. Chaque ligne est un noeud de l'arbre natif, evalue sur le MEME contexte que
+    `make_damage_predictions`."""
+    import gameconfig as GC
+    from engine.entities.abilities.ability_configuration import AbilityConfiguration
+    from engine.entities.abilities.active_ability import (active_ability_for,
+                                                          DaemonicOrdnanceAbility)
+    from engine.playbook.prediction import abilities as PA
+    from engine import dsl
+    by_id = {u.get("id"): u for u in scene.units}
+    cfg = AbilityConfiguration.from_gameconfig("DaemonicOrdnance", GC.ability("DaemonicOrdnance"))
+    ctx0 = scene.ctx(int(cid))
+    ab = active_ability_for("DaemonicOrdnance", 1148, ctx0, cfg,
+                            ability_state=scene.ability_state(int(cid), 1148))
+    the = PA._tile_has_effect_from_scene(scene)
+    dctx = dsl.DslContext(units=scene.units, caster=by_id.get(int(cid)), target=by_id.get(int(tid)),
+                          config=cfg, ability_level=(ab.level if ab else 0),
+                          board=scene.board, elev_by_pos=scene.elev_by_pos,
+                          tile_has_effect=the,
+                          current_player_machine_position=getattr(
+                              scene, "machine_of_war_position", None))
+    area = DaemonicOrdnanceAbility._AREA.evaluate(dctx)
+    coord = (lambda t: tuple(scene.board.coord(t)) if scene.board is not None else t)
+    burning = [t for t in area if the is not None and the(t, 5)]
+    # Le TRIANGLE BRUT (avant `TilesOnSameElevation`) + l'elevation de chaque tuile : c'est ce qui
+    # permet de dire, quand le natif allume MOINS de tuiles que le port n'en met dans `area`, si
+    # l'ecart vient du filtre d'elevation ou d'une tuile hors plateau.
+    raw = DaemonicOrdnanceAbility._AREA.tiles.evaluate(dctx)
+    return {"class_routed": type(ab).__name__ if ab is not None else None,
+            "board": scene.board is not None,
+            "mow_position": getattr(scene, "machine_of_war_position", None),
+            "tile_has_effect_wired": the is not None,
+            "triangle_raw": [coord(t) for t in raw],
+            "elev": {str(coord(t)): scene.board.elevation(t) for t in raw} if scene.board else {},
+            # La tuile est-elle PROJETEE par `tileMeta` ? Une tuile absente de la carte n'est pas
+            # « sans feu » : elle est NON OBSERVEE -- distinction indispensable pour ne pas lire un
+            # trou de canal comme un verdict du natif.
+            "in_tilemeta": {str(coord(t)): (coord(t) in (scene.tile_effects_by_pos or {}))
+                            for t in raw},
+            "walkable": ({str(coord(t)): bool(scene.board.walkable(t)) for t in raw}
+                         if scene.board is not None else {}),
+            "area": [coord(t) for t in area],
+            "burning": [coord(t) for t in burning],
+            "aoe": [u.get("id") for u in (ab.get_aoe_targets(dctx) if ab is not None else [])]}
+
+
+def _native_events_1148(sid, rid, cid, tid):
+    r = _r(sid, rid, "aiPlaybookPredict",
+           {"unitId": int(cid), "targetId": int(tid), "abilityType": 1148}, 120)
+    return [{"target": e.get("targetId"),
+             "dmg": (e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))}
+            for e in ((r or {}).get("events") or [])]
+
+
+GEN_BOARD_DIR4 = "C1_15"   # `MachineOfWarPosition(team 1) = 0` -> l'AUTRE branche du `If` (dir = 4)
+
+
+def step6_aoe_1148(seed: int = 35100, board: str = BOARD, verbose: bool = True,
+                   tag: str = "6") -> dict:
+    """#359-r1 -- `DaemonicOrdnancePlaybook$$MakeDamagePredictions` boucle sur
+    `GetEntitiesFromSelector(DaemonicOrdnanceAbility$$GetAllDamageableTargets, ...)` =
+
+        Enemies( Caster,
+                 Units( Filter( GetTargetAreaTiles(), HasEffect(Subject, 5 = Fire) ), unique ) )
+
+    L'ensemble est ancre sur la CIBLE (`GetTargetAreaTiles` = `TilesOnSameElevation(Target,
+    TilesInTriangleShape(Target, dir), 1)`), donc il peut contenir des ennemis que la cible demandee
+    n'est PAS. #350-r3 n'avait porte que le gate de la cible PRINCIPALE ; le SET, lui, restait vide
+    (`AActiveAbility.get_aoe_targets` -> `[]`).
+
+    MONTAGE PILOTE (positions DRIVEES, jamais subies) :
+      * `dir` est calcule par le mirror de `BattleQuery$$GetPositionMachineForPlayer` sur les
+        `SpawnPointGroups` de la BC REELLEMENT executee, puis RE-VERIFIE contre les tuiles en feu ;
+      * A (`necroWarden`) est pose sur l'ancre `PA`, B (`worldKharn`) sur `PB` = la voisine de `PA`
+        dans la direction OPPOSEE a un cote du triangle -> `PA` appartient au triangle de `PB`, et
+        `PB` n'appartient PAS a celui de `PA` (donc elle ne prend pas feu) ;
+      * un premier cast sur `PA` allume `{PA, n1, n2}` -- c'est l'etage [5] `AddEffect(Fire -> zone)`
+        du behaviour, la seule voie qui pose ce feu.
+
+    TROIS REGIMES, sur le MEME runner :
+      RA  cible = A, qui brule -> 1 event (regime deja couvert par l'etape 3, re-mesure ici) ;
+      RB  cible = B, tuile FROIDE, A brulant DANS son triangle -> le natif emet pour A, la cible
+          demandee n'y figurant pas. C'est LE regime du pendant AoE ;
+      RC  B ramene sur une tuile EN FEU du triangle de A, cible = A -> DEUX events, un par ennemi.
+          Verrouille l'ENSEMBLE et les VALEURS (chaque event est predit contre SON ennemi)."""
+    sid = _resolve_session()
+    LOGS.mkdir(parents=True, exist_ok=True)
+    seed_bc = _graft_seed_bc([1148], SUMMONER, "1148")
+    sf = LOGS / ("p350r3b_step%s.json" % tag)
+    rid = None
+    out: dict = {"board": board}
+    try:
+        # DEUX leviers de PILOTAGE, tous deux requis pour que l'accord dise autre chose que « meme
+        # ensemble » :
+        #  * niveau 50 (minDmg/maxDmg = 997/1330, relus du gameconfig) -- au niveau 2 les bornes
+        #    saturent au PLANCHER sur les DEUX ennemis (`(3, 3, 3)`), parce que `param_8 = null`
+        #    donne pierce 0 (armure PLEINE) et que l'armure du rank 17 depasse le degat ;
+        #  * armures DIFFERENTES par ennemi (`--unit-stat` ecrit `Armor`/`FixedArmor` dans le BC
+        #    normalise) : c'est ce qui SEPARE les bornes des deux events de RC. Sans cela, un port
+        #    qui recopierait la prediction de la cible principale sur chaque membre du set passerait.
+        rid = _build(sf, seed, ["--p-units", "%s,%s" % (SUMMONER, P_FILLER),
+                                "--a-units", "%s,%s" % (GRAFT_ON, A_FILLER),
+                                "--unit-stat", "%s:ActiveAbilityLevel=50,"
+                                               "AbilityVariablesMultiplierPercentage=100"
+                                               % SUMMONER,
+                                "--unit-stat", "%s:Armor=0,FixedArmor=0" % GRAFT_ON,
+                                "--unit-stat", "%s:Armor=500,FixedArmor=500" % A_FILLER],
+                     seed_bc=seed_bc, board=board)
+        from engine.services.machine_of_war_position import spawn_groups_from_battle_config
+        from engine.ai.context import _current_player_team
+        from engine.entities.selectors.geometry import (neighbour_at,
+                                                        _TRIANGLE_SHAPE_DIRECTIONS)
+        bc = json.loads(sf.read_text(encoding="utf-8")).get("bc") or {}
+        groups = spawn_groups_from_battle_config(bc)
+        ids, dv = _ids(sid, rid)
+        team = _current_player_team(dv)
+        d = _triangle_dir(groups, team)
+        out["spawn_groups"] = groups
+        out["current_player_team"] = team
+        out["dir_expected"] = d
+        if d is None:
+            out["error"] = "SpawnPointGroups non lus -> `dir` indecidable, montage abandonne"
+            raise _MontageError(out["error"])
+        dirs = _TRIANGLE_SHAPE_DIRECTIONS[d]
+        pa = CENTER                                       # ancre : la tuile que le cast allume
+        pb = neighbour_at(pa[0], pa[1], (dirs[0] + 3) % 6)  # PA est dans le triangle de PB
+        fire_expected = {tuple(pa)} | {tuple(neighbour_at(pa[0], pa[1], k)) for k in dirs}
+        # Le caster se pose sur une voisine de PA qui n'est NI dans la zone de feu NI la tuile de B.
+        cpos = next((tuple(neighbour_at(pa[0], pa[1], k)) for k in range(6)
+                     if tuple(neighbour_at(pa[0], pa[1], k)) not in fire_expected
+                     and tuple(neighbour_at(pa[0], pa[1], k)) != tuple(pb)), None)
+        out["pa"], out["pb"], out["caster_pos"] = tuple(pa), tuple(pb), cpos
+        out["fire_expected"] = sorted(fire_expected)
+        cid, a_id, b_id = ids[SUMMONER], ids[GRAFT_ON], ids[A_FILLER]
+        out["moves"] = {}
+        for who, uid, to in (("A", a_id, pa), ("caster", cid, cpos),
+                             ("B", b_id, tuple(pb)),
+                             ("filler", ids[P_FILLER], (pa[0] - 2, pa[1] - 2))):
+            mv = _move(sid, rid, uid, to[0], to[1])
+            out["moves"][who] = {"to": tuple(to),
+                                 "ok": bool((mv.get("actions") or [{}])[0].get("ok")),
+                                 "error": (mv.get("actions") or [{}])[0].get("error")}
+        if not all(out["moves"][t]["ok"] for t in ("A", "caster", "B")):
+            out["error"] = "placement KO : %s" % out["moves"]
+            raise _MontageError(out["error"])
+
+        def _regime(tag, tid):
+            ctx, _d = _ctx_with_groups(sid, rid, int(cid), groups)
+            mp = ctx.me.get("pos") or {}
+            here = (mp.get("col"), mp.get("row"))
+            ob = _r(sid, rid, "observeBattle", {}, 120)
+            pos = {int(u["squadId"]): (u["col"], u["row"])
+                   for u in (ob.get("units") or []) if not u.get("isDead")}
+            return {"tag": tag, "target": tid, "positions": pos,
+                    "fire": sorted(_fire_positions(ctx.scene)),
+                    "stages": _aoe_stages_1148(ctx.scene, cid, tid),
+                    "native": _native_events_1148(sid, rid, cid, tid),
+                    "port_before": _port_events_1148(ctx.scene, cid, tid, here, shipped=False),
+                    "port_after": _port_events_1148(ctx.scene, cid, tid, here, shipped=True)}
+
+        # Le cast POSE le feu (etage [5] du behaviour). Zone froide -> aucun degat : les deux
+        # ennemis survivent, ce que la mesure des positions confirme.
+        cast = _r(sid, rid, "applyAction",
+                  {"action": {"kind": "ability", "casterId": cid,
+                              "to": {"col": pa[0], "row": pa[1]}, "abilityType": 1148}}, 180)
+        out["cast_ok"] = bool((cast.get("actions") or [{}])[0].get("ok"))
+        out["cast_error"] = (cast.get("actions") or [{}])[0].get("error")
+        if not out["cast_ok"]:
+            out["error"] = "cast 1148 refuse : %s" % out["cast_error"]
+            raise _MontageError(out["error"])
+        out["ra"] = _regime("RA cible = A, sa tuile BRULE", a_id)
+        # VERIFICATION du `dir` calcule : les tuiles reellement allumees doivent etre INCLUSES dans
+        # le triangle attendu, et la tuile-centre en faire partie. L'inclusion (et non l'egalite) est
+        # ce que le natif garantit : une voisine du triangle peut manquer -- hors plateau, ou ecartee
+        # par `TilesOnSameElevation` -- et c'est OBSERVE sur `C1_15` (2 tuiles allumees sur 3). Le
+        # `dir` reste tranche : les tuiles allumees d'une AUTRE direction ne s'y trouveraient pas.
+        out["fire_measured"] = out["ra"]["fire"]
+        _fire_meas = set(map(tuple, out["ra"]["fire"]))
+        out["dir_confirmed"] = bool(_fire_meas) and _fire_meas <= fire_expected \
+            and tuple(pa) in _fire_meas
+        out["area_extra_vs_native"] = sorted(fire_expected - _fire_meas)
+        out["rb"] = _regime("RB cible = B (tuile FROIDE), A brule dans SON triangle", b_id)
+        # RC : B ramene sur une tuile REELLEMENT EN FEU du triangle de A (mesuree, pas attendue) ->
+        # deux ennemis dans l'ensemble.
+        b_hot = next((p for p in sorted(_fire_meas) if tuple(p) != tuple(pa)), None)
+        out["b_hot_pos"] = tuple(b_hot) if b_hot else None
+        out["b_hot_ok"] = False
+        if b_hot is not None:
+            mvb = _move(sid, rid, b_id, b_hot[0], b_hot[1])
+            out["b_hot_ok"] = bool((mvb.get("actions") or [{}])[0].get("ok"))
+            out["b_hot_error"] = (mvb.get("actions") or [{}])[0].get("error")
+        if out["b_hot_ok"]:
+            out["rc"] = _regime("RC deux ennemis sur tuiles EN FEU, cible = A", a_id)
+    except _MontageError:
+        pass
+    finally:
+        if rid is not None:
+            _r(sid, rid, "disposeRunner", {}, 30)
+    regs = [out[k] for k in ("ra", "rb", "rc") if k in out]
+    _bag = (lambda evs: sorted((e["target"], tuple(e["dmg"])) for e in (evs or [])))
+    out["after_matches_native"] = bool(regs) and all(_bag(r["port_after"]) == _bag(r["native"])
+                                                     for r in regs)
+    out["before_differed"] = any(_bag(r["port_before"]) != _bag(r["native"]) for r in regs)
+    # L'accord doit porter sur les VALEURS, pas seulement sur l'ENSEMBLE : si les deux events de RC
+    # rendaient les MEMES bornes, un port qui recopierait la prediction de la cible principale sur
+    # chaque membre du set passerait. On EXIGE donc que RC les separe (armures distinctes).
+    _rc = [tuple(e["dmg"]) for e in ((out.get("rc") or {}).get("native") or [])]
+    out["values_discriminate"] = len(_rc) >= 2 and len(set(_rc)) >= 2
+    out["ok"] = bool(out["after_matches_native"] and out["before_differed"]
+                     and out.get("dir_confirmed") is True and out["values_discriminate"])
+    if verbose:
+        print("\n[350r3b/%s] pendant AoE de 1148 -- selecteur GetAllDamageableTargets (board %s)"
+              % (tag, board))
+        print("  SpawnPointGroups : %s | team courante : %s"
+              % ([(g.get("TeamWithPlayerIndex"), g.get("MachineOfWarPosition"))
+                  for g in (out.get("spawn_groups") or [])] or "NON LUS",
+                 out.get("current_player_team")))
+        print("  dir attendu=%s | zone attendue=%s | ALLUMEE=%s | confirme=%s | non allumee=%s"
+              % (out.get("dir_expected"), out.get("fire_expected"), out.get("fire_measured"),
+                 out.get("dir_confirmed"), out.get("area_extra_vs_native")))
+        print("  B sur tuile en feu : %s (ok=%s err=%s)"
+              % (out.get("b_hot_pos"), out.get("b_hot_ok"), out.get("b_hot_error")))
+        print("  PA=%s PB=%s caster=%s | cast ok=%s err=%s"
+              % (out.get("pa"), out.get("pb"), out.get("caster_pos"),
+                 out.get("cast_ok"), out.get("cast_error")))
+        print("  placements : %s" % out.get("moves"))
+        for k in ("ra", "rb", "rc"):
+            r = out.get(k)
+            if not r:
+                continue
+            print("\n  === %s ===  cible=%s" % (r["tag"], r["target"]))
+            print("    positions : %s" % r["positions"])
+            print("    feu       : %s" % r["fire"])
+            print("    etages    : %s" % r["stages"])
+            print("    natif       (%d ev) : %s" % (len(r["native"]), r["native"]))
+            print("    port AVANT  (%d ev) : %s" % (len(r["port_before"]), r["port_before"]))
+            print("    port APRES  (%d ev) : %s" % (len(r["port_after"]), r["port_after"]))
+        print("\n  port APRES == natif sur les %d regimes : %s"
+              % (len(regs), out["after_matches_native"]))
+        print("  port AVANT differait                  : %s" % out["before_differed"])
+        print("  RC separe les VALEURS par cible       : %s" % out.get("values_discriminate"))
+        print("  erreur : %s" % out.get("error"))
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
+    return out
+
+
+def step7_generalize_1148(seed: int = 35110, verbose: bool = True) -> dict:
+    """#359-r1, GENERALISATION -- le MEME montage sur un board dont le predicat de plateau BASCULE.
+
+    `MC1_67` (etape 6) declare `MachineOfWarPosition(team 1) = 2`, donc
+    `IsPositionMachineForCurrentPlayer(2)` VRAI, donc `dir = 1` = triangle `{S, SE}`. `C1_15`
+    declare `0` : le predicat est FAUX et le natif prend `Direct(4)` = triangle `{NW, N}`. Un port
+    qui aurait code `dir` en dur -- ou qui aurait laisse le canal `machine_of_war_position` non
+    branche -- passe l'etape 6 et ECHOUE ici : les deux etapes ensemble bornent les DEUX branches
+    du `If`. Mesure du depot au moment de l'ecriture : **502** boards resolvent sur `0` et **173**
+    sur `2` (re-derivable par un balayage de `data/boards/`, jamais recopie)."""
+    return step6_aoe_1148(seed=seed, board=GEN_BOARD_DIR4, verbose=verbose, tag="7")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only-scan", action="store_true")
-    ap.add_argument("--step", type=int, default=None, choices=[0, 1, 2, 3, 4, 5])
+    ap.add_argument("--step", type=int, default=None, choices=[0, 1, 2, 3, 4, 5, 6, 7])
     ap.add_argument("--seed", type=int, default=35030)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    steps = [a.step] if a.step is not None else ([0] if a.only_scan else [0, 1, 2, 3, 4, 5])
+    steps = [a.step] if a.step is not None else ([0] if a.only_scan else [0, 1, 2, 3, 4, 5, 6, 7])
     out = {}
     if 0 in steps:
         out["scan"] = scan()
@@ -827,6 +1161,10 @@ def main() -> int:
         out["step4"] = step4_aoe_1147(seed=a.seed + 30)
     if 5 in steps:
         out["step5"] = step5_generalize_1147(seed=a.seed + 40)
+    if 6 in steps:
+        out["step6"] = step6_aoe_1148(seed=a.seed + 50)
+    if 7 in steps:
+        out["step7"] = step7_generalize_1148(seed=a.seed + 60)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if all(v.get("ok") for v in out.values()) else 1

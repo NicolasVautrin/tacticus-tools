@@ -745,6 +745,38 @@ def _ramming_speed_self_events(scene, caster_id, target_id, ability_id, ability_
 _EFFECT_FIRE_NAME = _EffectType.Fire.name
 
 
+def _tile_has_effect_from_scene(scene):
+    """`ctx.tile_has_effect(tileId, effectType)` de la face PREDICTION -- branche TUILE de
+    `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`, lue par `HasEffect(<entite-tuile>, ...)`.
+
+    Le substrat est `Scene.tile_effects_by_pos` (tileMeta, indexe par POSITION et par NOM d'effet) :
+    on traduit donc l'ID d'entite-tuile en position par `Scene.board`, comme `unit_on_tile`. C'est le
+    MEME substrat que `_daemonic_ordnance_target_gate` -- foyer unique, donc le gate de la cible
+    PRINCIPALE et le SET AoE ne peuvent pas se contredire.
+
+    Rend `None` (et non un accesseur qui repondrait `False`) quand la carte d'effets ou le board
+    manquent : le noeud `HasEffect` distingue alors « accesseur absent » et rend False lui-meme --
+    le regime du natif sur tout board frais --, sans qu'aucune couche n'invente de feu."""
+    fx, board = scene.tile_effects_by_pos, scene.board
+    if not fx or board is None:
+        return None
+    names_by_id = {}
+
+    def _tile_has_effect(tile_id, effect_type) -> bool:
+        key = int(tile_id)
+        names = names_by_id.get(key)
+        if names is None:
+            c = board.coord(key) if key in board.by_id else None
+            names = set(fx.get((int(c[0]), int(c[1]))) or ()) if c is not None else set()
+            names_by_id[key] = names
+        try:
+            return _EffectType(int(effect_type)).name in names
+        except ValueError:                       # type d'effet hors enum -> jamais porte par la carte
+            return False
+
+    return _tile_has_effect
+
+
 def _daemonic_ordnance_target_gate(scene, caster_id: int, target_id: int) -> bool:
     """#350-r3 -- SELECTEUR de `DaemonicOrdnancePlaybook$$MakeDamagePredictions`, qui n'etait pas porte.
 
@@ -940,7 +972,30 @@ def make_damage_predictions(scene, caster_id, main_tgt_id, ability_id, ability_n
                               # la face prediction. Inerte pour les sets AoE deja portes (aucun ne
                               # lit de trait) : le champ n'etait tout simplement pas consulte.
                               has_trait=lambda u, t: _trait_name(t) in _entity_traits(
-                                  scene, (u or {}).get("id")))
+                                  scene, (u or {}).get("id")),
+                              # --- les TROIS canaux du set AoE TILE-DOMAIN de 1148 (#359-r1) ------
+                              # `board` : requis par TOUT selecteur de tuiles (`TilesInTriangleShape`
+                              # -> `board.id_at`/`neighbour_at`, `TilesOnSameElevation` ->
+                              # `board.elevation`, `Units(<tuiles>)` -> `board.coord`). Absent, ils
+                              # rendent `[]` par degradation -- volet muet, ni erreur ni crash.
+                              # Pour les sets AoE UNIT-DOMAIN deja portes il ne change QUE L'ORDRE
+                              # d'enumeration (`_within` trie de facon STABLE par le rang de tuile
+                              # natif ; l'ENSEMBLE et les valeurs sont inchanges) -- il les rend
+                              # donc PLUS fideles, jamais differents en contenu.
+                              board=scene.board,
+                              # `HasEffect(<entite-tuile>, 5 = Fire)` -> branche TUILE de
+                              # `EntityExtensions$$HasOneOfEffects`. Substrat = le MEME
+                              # `scene.tile_effects_by_pos` (indexe par NOM d'effet) que
+                              # `_daemonic_ordnance_target_gate` : un seul foyer, donc gate de cible
+                              # principale et SET ne peuvent pas diverger. Table absente = feu
+                              # INCONNU -> accesseur None -> le noeud rend False (regime du natif
+                              # sur tout board frais), jamais un feu suppose.
+                              tile_has_effect=_tile_has_effect_from_scene(scene),
+                              # `IsPositionMachineForCurrentPlayer(2)` -> `dir` de la zone-triangle.
+                              # None = non mesure -> predicat False -> `dir = 4`, la branche `else`
+                              # NATIVE (degradation NOMMEE). Canal : `Scene.machine_of_war_position`.
+                              current_player_machine_position=getattr(
+                                  scene, "machine_of_war_position", None))
         aoe = [t for t in ab.get_aoe_targets(dctx)
                if t.get("id") is not None and t.get("id") != main_tgt_id]
     base_bonus = 0

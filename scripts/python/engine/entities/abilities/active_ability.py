@@ -21,6 +21,9 @@ from ..stats import StatType
 # `UnitsWithTrait(..., 2 = Summon)` du sélecteur de `HadesAutocannons` — l'id natif vient de l'enum,
 # jamais d'un littéral (cf. `entities/traits/unit_trait.py`).
 from ..traits.unit_trait import UnitTrait as _UnitTrait
+# `HasEffect(Tiles(Subject), 5 = Fire)` du selecteur de `DaemonicOrdnance` — meme regle : l'id natif
+# vient de l'enum, jamais d'un litteral (cf. `entities/effect_type.py`).
+from ..effect_type import EffectType as _EffectType
 from .ability_configuration import AbilityConfiguration
 from ...services.damage_prediction import get_default_attack_hits
 from ...services.min_max_damage import MinMaxDamage
@@ -918,7 +921,80 @@ class HadesAutocannonsAbility(AActiveAbility):
         return self._AOE.evaluate(ctx)
 
 
+class DaemonicOrdnanceAbility(AActiveAbility):
+    """`DaemonicOrdnance` (1148, MoW `blackForgefiend`) — le pendant AoE de sa prédiction (#359-r1).
+
+    `IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions` a la MÊME forme que
+    celui de 1147 : il ne prédit PAS « la cible », il BOUCLE sur les entités que rend
+    `IdunBattle.AI.Playbook.Playbooku003C__Il2CppFullySharedGenericTypeu003E$$GetEntitiesFromSelector(
+    IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicOrdnanceAbility$$GetAllDamageableTargets,
+    caster, casterPosition, target)` :
+
+        hits = AActiveAbility$$GetHits()                                    # hors boucle
+        for e in GetEntitiesFromSelector(GetAllDamageableTargets(), ...):
+            damage = DaemonicOrdnanceAbility$$GetDamage(Entity(e), state, isPrediction = 1)
+            list.AddRange(GenerateMultiHitAttackPredictions(caster, casterPosition, e, Entity(e),
+                                                            damage, hits, 0,
+                                                            Nullable<DamageProfile>(null), 0))
+
+    ⚠ `GetDamage` est évalué DANS la boucle (contraste avec 1147, où il est hoisté), mais son corps
+    IGNORE l'argument `target` — `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    DaemonicOrdnanceAbility$$GetDamage` = `AActiveAbility$$MinMaxDamage(state, isPrediction)` seul.
+    La base est donc la MÊME pour toutes les entités : rien à surcharger ici.
+
+    Le sélecteur, VERBATIM (`...DaemonicOrdnanceAbility$$GetAllDamageableTargets`) :
+
+        area = GetTargetAreaTiles()
+        p    = DSLTriggers$$HasEffect( DSLSelectors$$Tiles(Subject@+0x68), 5 = Fire, 0, 6 )
+        f    = DSLSelectors$$Filter(area, p)
+        u    = DSLSelectors$$Units(f, unique: 1, sel: 3)
+        return DSLSelectors$$Enemies(Caster@+0x48, u, 3)
+
+    et sa zone (`...DaemonicOrdnanceAbility$$GetTargetAreaTiles`) :
+
+        dir = DSLFormulas$$If( DSLTriggers$$IsPositionMachineForCurrentPlayer(2),
+                               Direct(1), Direct(4) )
+        return TilesOnSameElevation( Target@+0x60, TilesInTriangleShape(Target@+0x60, dir), 1 )
+
+    = les **ENNEMIS du caster debout sur une tuile EN FEU** de la zone-triangle ancrée sur la CIBLE.
+    MÊME arbre que la face COMBAT (`runner/abilities/blacklegion.
+    daemonic_ordnance_all_damageable_targets`) ; il est redit ici parce que `entities/` ne peut pas
+    importer `runner/` (sens de dépendance), exactement comme `HadesAutocannonsAbility._AOE`.
+
+    `Tiles(Subject)` est COLLAPSÉ en `Subject()` : le sujet lié par le `Filter` est déjà une
+    entité-TUILE (la source est un sélecteur de tuiles), et `UnitsMainTilesSelector` sur une
+    `TileEntity` rend cette tuile — l'identité. Même collapse que la face COMBAT.
+
+    ⚠ Ce que le SET ajoute au gate de cible principale de #350-r3 : ce dernier réduit l'appartenance
+    de la CIBLE à « ennemi du caster ET sa tuile porte Fire » (exact, parce que la zone est ancrée
+    SUR elle, donc la contient toujours, quel que soit `dir`). Mais l'ensemble, lui, contient aussi
+    les DEUX voisines du triangle : une cible hors zone de feu avec un autre ennemi dedans donnait
+    `∅` côté port et un event côté natif. MESURÉ (#359-r1, board `MC1_67`, cible sur tuile FROIDE,
+    un ennemi brûlant dans son triangle) : natif **1** event — sur l'AUTRE ennemi —, port **0**.
+
+    NON PORTÉ, et sans consommateur ici : le natif rend des entités TUILE (`Filter` tile-domain) et
+    re-résout l'occupant par `Units`, ce que ce nœud fait aussi ; seule l'identité publiée dans
+    `ProbableDamageEvent.target` pourrait être celle de la TUILE — le live mesure des ids d'UNITÉ."""
+
+    # `...DaemonicOrdnanceAbility$$GetTargetAreaTiles` — `dir` par le prédicat de plateau, jamais une
+    # constante : `ctx.current_player_machine_position` (canal `Scene.machine_of_war_position`,
+    # cascade `BattleQuery$$GetPositionMachineForPlayer`). Non mesuré -> False -> `dir = 4`, la
+    # branche `else` NATIVE ; c'est une dégradation NOMMÉE, pas un défaut inventé.
+    _AREA = dsl.TilesOnSameElevation(
+        dsl.Target(),
+        dsl.TilesInTriangleShape(dsl.Target(),
+                                 dsl.If(dsl.IsPositionMachineForCurrentPlayer(2),
+                                        dsl.Const(1), dsl.Const(4))),
+        1)
+    _AOE = dsl.Enemies(dsl.Units(dsl.Filter(_AREA, dsl.HasEffect(dsl.Subject(),
+                                                                 int(_EffectType.Fire)))))
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
+    "DaemonicOrdnance": DaemonicOrdnanceAbility,
     "HadesAutocannons": HadesAutocannonsAbility,
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
