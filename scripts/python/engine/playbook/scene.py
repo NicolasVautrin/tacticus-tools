@@ -114,6 +114,19 @@ class Scene:
     # DYNAMIQUE (pose au cast, purge a l'entree de tour par `UnitFlagsComponent$$RemoveTurnFlags`)
     # -> re-capture par pas via `refresh_shields`.
     active_ability_used_by_id: dict = field(default_factory=dict)
+    # `TilesMovedThisTurn` PER-UNITE (case-322-r2) : {uid: `ActorStatisticsComponent+0xf0`} — le
+    # compteur REEL de tuiles parcourues CE TOUR, ecrit par
+    # `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` et remis a zero en FIN de tour par
+    # `IdunBattle.Entities.Components.ActorStatisticsComponent$$ResetThisTurn`. C'est le PREMIER des
+    # deux termes que `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` rend a la
+    # prediction — cf. `prediction.prediction_tiles_moved_this_turn` pour le second (le pas simule).
+    # Que ce terme soit le compteur REEL, NON pollue par les simulations precedentes, est LU :
+    # `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` SAUVEGARDE `+0xec` et
+    # `+0xf0` avant l'action simulee et les RESTAURE apres (mesure de fermeture : sans cette
+    # restauration, 17 tuiles candidates evaluees a la suite auraient accumule leurs chemins).
+    # DYNAMIQUE au meme titre que `moved_by_id` (chaque deplacement l'incremente) -> re-capture par
+    # pas via `refresh_shields`. Table VIDE = **non mesure** -> l'accesseur rend `None`.
+    tiles_moved_by_id: dict = field(default_factory=dict)
     # Cache PAR EQUIPE du cardinal `Enemies(Owner, UnitsWithTrait(AllUnits, Psyker))` (#208) —
     # calcule a la demande par `_enemy_psykers_alive`, valable pour TOUTE la duree de vie de la
     # Scene (elle est reconstruite a chaque pas de decision). Table de travail, pas une entree.
@@ -153,6 +166,19 @@ class Scene:
         `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`."""
         return self.active_ability_used_by_id.get(uid)
 
+    def tiles_moved_this_turn(self, uid) -> int | None:
+        """`IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` =
+        `ActorStatisticsComponent+0xf0` — nb de tuiles que l'unite a DEJA parcourues ce tour
+        (case-322-r2). Pendant PREDICTION de `runner.components.unit_tiles_moved_this_turn`.
+
+        TRI-ETAT, meme discipline que `has_moved` : `None` = **non mesure** (voie live, aucun capteur
+        ne publie `+0xf0`) -> `prediction_tiles_moved_this_turn` garde le seul terme « pas simule »,
+        soit le comportement strictement anterieur ; `0` mesure est un vrai zero. Confondre les deux
+        ferait passer un capteur ABSENT pour « n'a pas bouge », et c'est exactement le sous-comptage
+        que ce residu decrivait."""
+        v = (self.tiles_moved_by_id or {}).get(uid)
+        return None if v is None else int(v)
+
     def has_teleported(self, uid) -> bool | None:
         """`UnitExtensions.HasFlag(uid, UnitFlag.Teleported = 0xc)` — le déplacement de ce tour était
         un TÉLÉPORT, ce qui RÉ-AUTORISE le +25% (`... & (!HasFlag(Moved) | HasFlag(Teleported))`).
@@ -173,11 +199,13 @@ class Scene:
                                          HealthComponent, UnitComponent, ShieldComponent,
                                          EffectsOwnedComponent, is_machine_of_war,
                                          unit_prevents_overkill, unit_has_moved,
-                                         unit_has_teleported, unit_has_used_active_ability)
+                                         unit_has_teleported, unit_has_used_active_ability,
+                                         unit_tiles_moved_this_turn)
         ctx_by_id, armor_by_id, shield_by_id, mult_by_id, ablvl_by_id, vis_by_id = {}, {}, {}, {}, {}, {}
         hp_by_id, hpmax_by_id, pos_by_id, team_by_id = {}, {}, {}, {}
         defstat_by_id, charged_by_id, prevent_overkill_by_id = {}, {}, {}
         moved_by_id, teleported_by_id, active_ability_used_by_id = {}, {}, {}
+        tiles_moved_by_id = {}
         from engine.entities.stats import StatType as _ST     # #197 : DEFENSE (stat 3) du ctx ECS
         turns_started_by_id = {}
         units: list = []
@@ -229,6 +257,13 @@ class Scene:
             teleported_by_id[eid] = unit_has_teleported(state, eid)
             # #17 : `HasFlag(u, ActiveAbilityUsed=2)` — MEME composant, MEME regime de seed.
             active_ability_used_by_id[eid] = unit_has_used_active_ability(state, eid)
+            # case-322-r2 : `ActorStatisticsComponent+0xf0` LU de l'ECS. Le compteur y est TENU par
+            # `runner/operations/movement.py::MoveUnitOperation.execute` depuis #335 (c'est le runner
+            # qui applique le deplacement) et remis a zero par `EndTurnOperation` — donc la face
+            # DECISION offline lit exactement ce que la face COMBAT a ecrit, au lieu de le
+            # reconstruire a zero. MEME forme que #267 (traits) et #266 (flag `Moved`) : une face qui
+            # LIT ce que l'autre TIENT, jamais une seconde derivation.
+            tiles_moved_by_id[eid] = unit_tiles_moved_this_turn(state, eid)
             vis_by_id[eid] = vis
             if hc is not None:
                 hp_by_id[eid] = hc.hp
@@ -259,7 +294,8 @@ class Scene:
             turns_started_by_id=turns_started_by_id, charged_by_id=charged_by_id,
             prevent_overkill_by_id=prevent_overkill_by_id,
             moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
-            active_ability_used_by_id=active_ability_used_by_id)
+            active_ability_used_by_id=active_ability_used_by_id,
+            tiles_moved_by_id=tiles_moved_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
 
@@ -296,7 +332,13 @@ class Scene:
             teleported_by_id=predictor.get("teleported_by_id") or {},
             # #17 : `ActiveAbilityUsed`, MEME canal et MEME tri-etat. Table vide -> l'accesseur rend
             # `None` (non mesure) et le gate du generateur reste OUVERT, comportement anterieur.
-            active_ability_used_by_id=predictor.get("active_ability_used_by_id") or {})
+            active_ability_used_by_id=predictor.get("active_ability_used_by_id") or {},
+            # case-322-r2 : `TilesMovedThisTurn` du capteur `actorStats`. Table vide = le hook ne
+            # publie PAS `+0xf0` -> l'accesseur rend `None` (non mesure) et
+            # `prediction_tiles_moved_this_turn` garde le seul terme « pas simule », comportement
+            # strictement anterieur. Le cablage est pose ICI pour que la voie live se ferme au
+            # prochain reinject sans retoucher au port.
+            tiles_moved_by_id=predictor.get("tiles_moved_by_id") or {})
         sc._seed_battle_counters()   # #185 BlessingsOfKhorne (melee-defeats -> effets N-scalés)
         return sc
 
@@ -563,6 +605,10 @@ def build_predictor(rpc, rid):
         _ast = None
     actorstats_by_id = {u["entityId"]: int(u.get("totalAttacksMade") or 0)
                         for u in ((_ast or {}).get("units") or []) if u.get("entityId") is not None}
+    # case-322-r2 : `TilesMovedThisTurn` (+0xf0) du MEME capteur. AUSSI dynamique que `Moved` (chaque
+    # deplacement l'incremente, `ActorStatisticsComponent$$ResetThisTurn` le remet a zero en FIN de
+    # tour) -> re-capture par pas dans `refresh_shields`.
+    tiles_moved_by_id = _tiles_moved_from_actor_stats(_ast)
     # BOARD STATIQUE (#183) : mirror offline des Tile objects natifs. Le natif ne passe PAS de "board" a la
     # prediction -- l'attackerTile (tuile candidate, `local_588` de CalculateAttackerModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction) PORTE lui-meme son terrain (tileDefId -> IdunBattle.Entities.TileExtensions$$IsTrench = IsTileWithId) et son graphe
@@ -579,6 +625,7 @@ def build_predictor(rpc, rid):
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
+            "tiles_moved_by_id": tiles_moved_by_id,
             # #46 : TurnsStarted (stat 12) — gate slot-4 « pas au 1er tour ». DYNAMIQUE ->
             # re-capturé par-pas via `refresh_shields` (le cold seul serait figé au pas 0).
             "turns_started_by_id": {
@@ -668,6 +715,20 @@ def _unit_flag_from_snapshot(snap, flag_name: str) -> dict:
             if u.get("entityId") is not None and u.get("unitFlags") is not None}
 
 
+def _tiles_moved_from_actor_stats(ast) -> dict:
+    """{uid: `ActorStatisticsComponent+0xf0`} depuis le capteur `actorStats` (case-322-r2) — le
+    compteur que `IdunBattle.Entities.Formulas.TilesMovedThisTurnFormula$$Calculate` rend, et qui est
+    le terme REEL de `prediction.prediction_tiles_moved_this_turn`.
+
+    MEME discipline TRI-ETAT que `_unit_flag_from_snapshot` : une unite n'entre dans la table QUE si
+    le champ est PRESENT et non `null`. Sur un hook qui ne publie pas encore `+0xf0` la table reste
+    donc VIDE, l'accesseur rend `None`, et le port garde le seul terme « pas simule » — le
+    comportement d'avant, a l'identique. `0` publie est un vrai zero (l'unite n'a pas bouge)."""
+    return {u["entityId"]: int(u["tilesMovedThisTurn"])
+            for u in ((ast or {}).get("units") or [])
+            if u.get("entityId") is not None and u.get("tilesMovedThisTurn") is not None}
+
+
 def _defense_stats_from_snapshot(units) -> dict:
     """{uid: StatComponent(DEFENSE)} depuis un `combatSnapshot` (#194). Reconstruit la vue
     `DefenseComponent` (stat 3) que la face défenseur de `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` lit : `initial` = defense résolue − statDelta.defense (base, 100 chez les unités
@@ -754,6 +815,11 @@ def refresh_shields(predictor, rpc, rid):
         predictor["actorstats_by_id"] = {
             u["entityId"]: int(u.get("totalAttacksMade") or 0)
             for u in _ast["units"] if u.get("entityId") is not None}
+        # case-322-r2 : re-capture de `TilesMovedThisTurn` (+0xf0). Le compteur est remis a zero a
+        # CHAQUE fin de tour (`ActorStatisticsComponent$$ResetThisTurn`) et incremente a chaque
+        # deplacement : un cold fige au pas 0 rendrait « n'a jamais bouge » pour toute la bataille,
+        # soit exactement le sous-comptage que ce residu decrivait.
+        predictor["tiles_moved_by_id"] = _tiles_moved_from_actor_stats(_ast)
     # #53 : hydrate les unités APPARUES mid-bataille (summons) dans les tables STATIQUES —
     # `build_predictor` est cold (pas 0), donc un summon spawné ensuite n'a NI ctx NI visualId :
     # scene.ctx(summon)=None -> make_normal_attack_predictions=None -> toutes tuiles refusées
