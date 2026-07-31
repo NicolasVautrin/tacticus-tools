@@ -488,7 +488,10 @@ class BaseEffect:
           • `is_normal_attack`   → `IsNormalAttack` ;
           • `caster_crit_chance` → `StatAmount(Caster, 0x9 CriticalChance, StatPart.Current)`, la
             stat COURANTE de l'attaquant (stat-modifications comprises) — nœud du gate
-            `AmountIsGreaterThanZero` de `WarHowl_ExtraDamage_Unstoppable`.
+            `AmountIsGreaterThanZero` de `WarHowl_ExtraDamage_Unstoppable` ;
+          • `has_moved`          → `HasFlag(Owner, 0 = UnitFlag.Moved)`, le prédicat de la
+            `CreateActiveCondition` d'`InescapableAccuracy_extraCritChance` (1115). Même store que
+            le gate no-move déjà porté sur l'axe DÉGÂT (`CrushingStrike`) : `UnitFlagsComponent`.
         Clé absente ⇒ le gate correspondant se TAIT (« présent ≠ appliqué »), jamais une valeur
         devinée."""
         return None

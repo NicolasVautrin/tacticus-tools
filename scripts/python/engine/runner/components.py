@@ -1572,6 +1572,11 @@ class UnitEffectStateView(Mapping):
         est appele par `MoveUnitOperation`), donc `is_active` rend le gate natif VERBATIM au lieu
         de la degradation « non mesure -> on ne ferme pas ». Cote DECISION la `Scene` ne pose PAS
         cette cle : elle evalue l'etat SIMULE et le compte y vient du `att_ctx`, pas du porteur.
+      * `has_moved` — `HasFlag(Self, 0 = UnitFlag.Moved)` (`unit_has_moved`, LECTEUR UNIQUE du
+        `UnitFlagsComponent`) ; lu par `InescapableAccuracy_ExtraCritChanceEffect$$
+        CreateActiveCondition` = `op_LogicalNot(HasFlag(Owner, 0))`. La cle n'est presente que si
+        l'entite existe ; le composant absent vaut « n'a pas bouge » (comme le natif, dont le
+        `UnitFlagsComponent$$Has` sur un set vide rend faux).
       * `contagions_of_nurgle_amount` — **un CALLABLE** `(source_unit_id) -> int | None`, et non une
         valeur : le nœud natif `ContagionsOfNurgleAmount(team, unit)` prend l'EFFECT SOURCE en
         entrée, donc le cardinal dépend de l'INSTANCE d'effet qui l'interroge, pas seulement du
@@ -1601,6 +1606,12 @@ class UnitEffectStateView(Mapping):
         uc = ent.get_component(UnitComponent) if ent is not None else None
         if uc is not None:
             eager["tiles_moved_this_turn"] = int(uc.tiles_moved_this_turn or 0)
+        # `HasFlag(Self, 0 = UnitFlag.Moved)` (cf. la docstring de classe). EAGER : `unit_has_moved`
+        # est une lecture de set sur le `UnitFlagsComponent`, aucun balayage. C'est le MEME store
+        # que le gate no-move deja porte sur l'axe DEGAT (`CrushingStrike`), donc les deux axes ne
+        # peuvent pas diverger.
+        if ent is not None:
+            eager["has_moved"] = unit_has_moved(state, self._uid)
         self._eager = eager
         oc = ent.get_component(OwnerComponent) if ent is not None else None
         self._has_psy = oc is not None            # `Enemies(Owner, …)` calculable
@@ -1645,10 +1656,12 @@ def unit_state_for_effects(state, unit_id: int) -> UnitEffectStateView:
     LECTURE SEULE, et le périmètre est CLOS : `HealthComponent`, `StatsComponent.ctx.traits`,
     `OwnerComponent`, `UnitComponent.alive`, `PositionComponent` (la clé-CALLABLE
     `contagions_of_nurgle_amount`, dont le corps ne s'exécute que si une instance d'effet
-    l'appelle). En particulier **PAS `UnitFlagsComponent`** — le seed de
-    flags de `load_state` (`snapshot._load_unit_flags`, case-o10) et cette vue écrivent/lisent des
-    composants DISJOINTS, il n'y a donc ni double écriture ni contrainte d'ordre d'init entre eux.
-    Le SEUL point de contact est `unit_prevents_overkill` ci-dessus, qui interroge le composant de
+    l'appelle), et — depuis case-366-r1 — le `UnitFlagsComponent` en LECTURE SEULE via
+    `unit_has_moved` (clé `has_moved`, exigée par la `CreateActiveCondition`
+    `NOT HasFlag(Owner, Moved)` d'`InescapableAccuracy_extraCritChance`). Cette vue n'ÉCRIT rien :
+    le seed de flags de `load_state` (`snapshot._load_unit_flags`, case-o10) reste le seul
+    producteur, il n'y a donc ni double écriture ni contrainte d'ordre d'init.
+    L'autre point de contact est `unit_prevents_overkill` ci-dessus, qui interroge le composant de
     flags d'ABORD et ne retombe sur la dérivation par l'effet 1354 qu'ensuite : le seed rend ce repli
     moins fréquent, il ne le rend pas faux — et il reste indispensable pour un effet posé OFFLINE en
     cours de bataille, que le snapshot n'a jamais vu."""
