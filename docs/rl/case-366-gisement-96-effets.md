@@ -195,9 +195,25 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1255 | MartialSuperiority_Visual | `CreateActiveCondition` -- deja documente `: BaseEffect` cote port | `templChampion` | HERO, pool |
 | 1256 | UnbreakableDuty_Damage | `StaticStatModifierEffect` | `templAncient` | HERO, pool |
 | 1284 | EchoesFromTheWarp_Revive | MEME classe que `1186 TimeFlux_Revive` (portee) -- un REVIVE | `thousNpc4Terminator` (npc SEUL) | GREFFE npc (`case-92` 5bis) : un revive ne lit ni stats ni traits du caster |
-| 1345 | VisionsOfHeresy_ExtraPierceMelee | axe PERCAGE | `bloodDeathCompany` | HERO, pool |
-| 1346 | VisionsOfHeresy_ExtraPierceRanged | axe PERCAGE | `bloodDeathCompany` | HERO, pool |
+| ~~1345~~ | ~~VisionsOfHeresy_ExtraPierceMelee~~ | **PORTE par #366-r1** (avec `1346`) -- `docs/rl/case-366-r1-visions-of-heresy-pierce.md` | `bloodDeathCompany` | HERO, pool |
+| ~~1346~~ | ~~VisionsOfHeresy_ExtraPierceRanged~~ | idem -- MEME classe native, le `statType` de la pose est le seul discriminant | `bloodDeathCompany` | HERO, pool |
 | 1435 | PsychicStalk_FriendlyChaosExtraDamage | `CreateEffectDamageBonusForAttack` | `thousAhriman` | HERO, pool |
+
+### 3.3ter -- `1345`/`1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged}` : PORTES (#366-r1)
+
+UNE SEULE classe native pour les deux ids -- tranche par le **slot `Il2CppClass*`** (identique pour
+les deux, et DISTINCT de celui de `StaticStatModifierEffect`), pas par le nom du ctor. Le
+discriminant melee/ranged est le `statType` que passe le poseur
+`...VisionsOfHeresy_ExtraPierceAbility$$CreateBehaviour` : `0x15 = 21 EXTRA_PIERCE_MELEE` pour
+`1345`, `0x16 = 22 EXTRA_PIERCE_RANGED` pour `1346`, MEME montant
+(`ConfigVar(0x3f = extraPierceRatio)`), `turns = NULL`.
+
+**Canal = la STAT**, lue par `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio`
+(`GetStat(attacker, isMelee ? 0x15 : 0x16)`) -- ni `EffectBonus.ForPiercing`, ni groupe #179.
+Active-condition `HealthPctIsBelowOrEqual(Owner, ConfigConst(0x4f = healthPct) = 50)`, donc ABSENTS
+du canal `decisionView` ACTIF-ONLY tant que Lucien est au-dessus du seuil : ils entrent par
+`ABILITY_INIT_OWNER_EFFECTS["VisionsOfHeresy"]`. Detail, mesures et mutations :
+`docs/rl/case-366-r1-visions-of-heresy-pierce.md`.
 
 ### 3.3bis -- `1107 PathOfCommand_ExtraCrit` : PORTE (#373)
 
