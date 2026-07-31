@@ -125,21 +125,27 @@ def poc_crit(rpc, build_runner):
     runner = Runner(s1).install_default_handlers(20)
     home = _pos(s1, a_crit)
     occupied = {_pos(s1, u) for u in s1.entities} - {home}
-    cpos = _pos(s1, carrier)
-    out_tile = None
-    for t in sorted(board.tiles_by_pos if hasattr(board, "tiles_by_pos") else {}):
-        if t in occupied:
-            continue
-        if hexgeo.distance(tuple(cpos), tuple(t)) >= 3:
-            out_tile = t
-            break
+    # Tuiles LIBRES hors du rayon 2 du porteur, triees par proximite au point de depart de l'allie
+    # (donc par plausibilite de budget de mouvement) — on ESSAIE jusqu'a ce que le natif accepte,
+    # on ne subit pas la premiere venue. Foyer partage avec `probe_373_path_of_command_extra_crit`.
+    from probe_373_path_of_command_extra_crit import out_of_ring_candidates
+    cands = out_of_ring_candidates(board, _pos(s1, carrier), home, occupied)
     steps = [("seed", _live(rpc, rid), _off(s1))]
+    out_tile = None
+    for tile in cands[:12]:
+        res = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": a_crit, "to": {"col": tile[0], "row": tile[1]}}}, 40)
+        if isinstance(res, dict) and res.get("ok") is False:
+            continue                                   # hors budget de mouvement -> candidate suivante
+        out_tile = tile
+        break
     if out_tile is not None:
-        for label, tile in (("out", out_tile), ("back", home)):
-            rpc("applyAction", {"runnerId": rid, "action": {
-                "kind": "move", "unitId": a_crit, "to": {"col": tile[0], "row": tile[1]}}}, 40)
-            runner.apply(MoveUnitMessage(a_crit, tuple(tile)))
-            steps.append((label, _live(rpc, rid), _off(s1)))
+        runner.apply(MoveUnitMessage(a_crit, tuple(out_tile)))
+        steps.append(("out", _live(rpc, rid), _off(s1)))
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": a_crit, "to": {"col": home[0], "row": home[1]}}}, 40)
+        runner.apply(MoveUnitMessage(a_crit, tuple(home)))
+        steps.append(("back", _live(rpc, rid), _off(s1)))
     return {"ids": ids, "carrier": carrier, "a_crit": a_crit, "a_flat": a_flat,
             "land": (land_live, land_off), "steps": steps, "out_tile": out_tile, "d": d}
 
@@ -186,8 +192,10 @@ def test_crit_contribution_is_attributed_not_opaque(poc_crit):
 
 def test_crit_aura_offline_equals_live_at_every_step(poc_crit):
     """Sortie du rayon puis retour : le natif reverte/re-applique, le port doit suivre."""
-    if poc_crit["out_tile"] is None:
-        pytest.skip("aucune tuile libre a distance >= 3 du porteur sur ce board")
+    assert poc_crit["out_tile"] is not None, (
+        "aucune tuile hors du rayon 2 ATTEIGNABLE par l'allie en un deplacement -> le cas NEGATIF "
+        "(revert de l'aura) n'a PAS ete exerce ; rejouer sur un autre board (un skip ici serait "
+        "un vert qui ment)")
     for label, live, off in poc_crit["steps"]:
         for uid in poc_crit["ids"].values():
             assert off[uid]["cc"] == live[uid]["cc"], (
