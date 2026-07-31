@@ -45,6 +45,7 @@ from rl_probe_step import _print_apply  # noqa: E402
 import catalog_inject  # noqa: E402
 import host_inputs  # noqa: E402
 import oracle  # noqa: E402
+import runner_state  # noqa: E402
 import stream_events  # noqa: E402
 from board import Board  # noqa: E402
 
@@ -60,20 +61,40 @@ except Exception:  # noqa: BLE001
 ROOT = Path(__file__).resolve().parents[2]
 STATE = ROOT / "logs" / "runners" / "duel_state.json"
 
+# Identite de la session Frida courante (#379), posee UNE fois par `main()`. Le state-file
+# en est ESTAMPE a l'ecriture et RECONFRONTE a la relecture : le fichier est prive au
+# worktree, mais l'espace de `runnerId` est PARTAGE par tous les agents, et une (re)injection
+# remet son compteur a 0 pendant que les fichiers survivent. Detail + tri-etat :
+# `scripts/python/runner_state.py`.
+SESSION: runner_state.SessionIdentity | None = None
+
 
 def _save_state(d: dict) -> None:
     # Creer le repertoire : `logs/` est gitignore, donc ABSENT d'un checkout frais
     # (contrairement a l'ancien `data/`, qui existait toujours via la jonction).
     # Sans ce mkdir, un worktree d'agent echoue au premier build sur FileNotFoundError.
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(d), encoding="utf-8")
+    STATE.write_text(json.dumps(runner_state.stamp(d, SESSION)), encoding="utf-8")
 
 
-def _load_state() -> dict:
+def _read_state(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_state(context: str = "rl_duel (pilotage)") -> dict:
+    """Etat du duel, REFUSE s'il appartient a une autre session Frida (#379).
+
+    `MATCH` passe en silence, `UNSTAMPED` passe en AVERTISSANT (state-file ecrit avant que
+    cette garde existe -- un agent qui a build puis rebase mi-run est dans ce cas, et son
+    runner est valide), `MISMATCH` / `UNSTAMPED_STALE` sortent en rc 2.
+    """
     if not STATE.exists():
         print("[error] pas d'état de duel — lance `build` d'abord", file=sys.stderr)
         sys.exit(2)
-    return json.loads(STATE.read_text(encoding="utf-8"))
+    st = _read_state(STATE)
+    if not runner_state.enforce(runner_state.verify(st, SESSION, STATE), context):
+        sys.exit(2)
+    return st
 
 
 # --- helpers partagés (dédup : routines répétées sur plusieurs commandes) ---------
@@ -500,11 +521,26 @@ def cmd_build(sid: int, a) -> int:
     # enregistre dans CE --state-file (celui que _save_state va ecraser),
     # pas les freres — sinon il deviendrait orphelin et mangerait le cap.
     if STATE.exists():
+        # #379 -- LE site le plus dangereux du fichier. Ce `disposeRunner` frappe un id
+        # relu sur DISQUE ; si le state-file vient d'une session anterieure (fenetre de
+        # reinject), le compteur d'ids a redemarre a 0 et ce meme numero designe
+        # aujourd'hui le runner d'un AUTRE agent : on le DETRUIRAIT sans qu'il en soit
+        # informe. On ne dispose donc que sur estampille CONCORDANTE (ou sur un fichier
+        # ecrit pendant la session courante). Le build lui-meme n'est PAS refuse : il est
+        # precisement le geste « repartir a neuf », et il re-estampe le fichier.
         try:
-            old_rid = json.loads(STATE.read_text(encoding="utf-8")).get("runnerId")
+            old = _read_state(STATE)
         except Exception:
-            old_rid = None
-        if old_rid is not None:
+            old = {}
+        old_rid = old.get("runnerId")
+        verdict = runner_state.verify(old, SESSION, STATE)
+        if old_rid is not None and not verdict.ok:
+            runner_state.enforce(verdict, "rl_duel build (dispose de l'ancien runner)")
+            print(f"[build] ancien runner {old_rid} NON dispose (state-file d'une autre "
+                  f"session) -- le state-file est reconstruit, cet id est laisse intact",
+                  file=sys.stderr)
+        elif old_rid is not None:
+            runner_state.enforce(verdict, "rl_duel build (dispose de l'ancien runner)")
             _rpc(sid, "disposeRunner", [{"runnerId": old_rid}], timeout=15)
             print(f"[build] ancien runner {old_rid} du state-file dispose")
     # `owner` = le --state-file ABSOLU. C'est LA cle de proprietaire du harnais :
@@ -1457,7 +1493,15 @@ def cmd_attach(sid: int, a) -> int:
     if not a.attach_from:
         print("[attach] --from <state-file source> requis", file=sys.stderr)
         return 2
-    src = json.loads(Path(a.attach_from).read_text(encoding="utf-8"))
+    src_path = Path(a.attach_from)
+    src = _read_state(src_path)
+    # #379 : le `--from` est un state-file comme un autre -- il porte un `runnerId` de
+    # l'espace d'ids PARTAGE. L'attacher sans le confronter recopierait un id perime dans
+    # un state-file NEUF, et lui donnerait une estampille FRAICHE : le mensonge deviendrait
+    # indetectable en aval. On refuse ici, a la copie.
+    if not runner_state.enforce(runner_state.verify(src, SESSION, src_path),
+                                "rl_duel attach (--from)"):
+        return 2
     rid = a.runner if a.runner is not None else src.get("runnerId")
     if rid is None:
         print("[attach] pas de runnerId (ni --runner ni dans --from)",
@@ -2217,6 +2261,17 @@ def main(argv: list[str]) -> int:
         STATE = sf if sf.is_absolute() else (ROOT / sf)
 
     sid = _resolve_session()
+    # #379 : identite COMPLETE de la session (id + pid + startedAt), pas seulement `sid`.
+    # `nextSessionId` est un etat de module du HOST -- un restart du host le remet a 1, si
+    # bien que deux sessions distinctes peuvent porter le meme `id` et qu'une estampille
+    # reduite a l'id VALIDERAIT un state-file mort. `startedAt` (ISO a la milliseconde)
+    # tranche. Identite illisible -> `stamp` n'ecrit rien et `verify` rend UNSTAMPED : on
+    # ne fabrique jamais une estampille a partir d'une inconnue.
+    global SESSION
+    SESSION = runner_state.current_identity()
+    if SESSION is None:
+        print("[warn] identite de session ILLISIBLE (/api/admin/status) -- les "
+              "state-files ne seront ni estampes ni verifies (#379)", file=sys.stderr)
     _ensure_ai_trace(sid)
     dispatch = {"build": cmd_build, "view": cmd_view, "act": cmd_act,
                 "aiturn": cmd_aiturn, "status": cmd_status,
