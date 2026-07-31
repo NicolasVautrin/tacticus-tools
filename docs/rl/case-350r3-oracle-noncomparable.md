@@ -129,36 +129,104 @@ La réponse mirror celle d'`aiPlaybookPredict` (`events[]` avec `healthDmgMin/Ma
 de sorte que le gabarit `probe_344_ability_damage_average.py` puisse commuter d'oracle sans changer sa
 logique de verdict.
 
-**Déploiement** : `frida/hooks/*` ne vit qu'après réinjection. Le code est livré, **non déployé**.
+## 6. Le montage doit atteindre le RÉGIME, et le PROUVER (#356)
 
-## 6. État de la mesure
+`1202 VigilanceEternal` porte une **précondition géométrique**, lue dans
+`IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetDynamicInvalidTargetReason` :
 
-`probe_350r3_noncomparable_oracle.py` porte les quatre étapes. Fixtures **nommées** (`_FIXTURE_*`),
-jamais de montage inline.
+```
+si  <ITileService> slot 0x62 (casterTiles, targetTiles)      -> return 0            (déjà adjacent)
+sinon  DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster, casterTiles, target,
+                                    movementRange = GetNumberConstant(0x16))
+       .Count >= 1                                            -> return 0
+       sinon                                                  -> return 0x8000000   (TargetIsInRange)
+```
 
-| étape | ce qu'elle tranche | plateforme | état |
-|---|---|---|---|
-| 0 structure | §1 : frères, exclusivité des `Make*Predictions`, les 4 playbooks sont NC | **aucune** | **VERTE** |
-| 1 valeur de retour | `aiPlaybookPredict` rend bien `makeArity 0` / `listNull` **et** la bonne `playbookClass` | session Frida | **NON CONFRONTÉE** |
-| 2 `ncEvaluate` | non-vacuité : « 0 event » ne se lit pas « rien ne se passe » | session Frida | **NON CONFRONTÉE** |
-| 3 capteur | verrou (`via=makeDamagePredictions` sur une Comparable : capture == liste rendue) puis NC | session **+ capteur déployé** | **NON CONFRONTÉE** |
+Aux tuiles de **spawn** de `MC1_67`, le caster est à **10-11 hex** des cibles : aucune n'est
+éligible, `GetEligibleTargetsSelectable` rend une liste vide, et le bucket vide est la **réponse
+juste** du natif. Le `capture=0` hérité mesurait donc le **montage**, pas le port.
 
-Étape 0, jouée (`--offline`) : `siblings = True`, **134** NC / **96** Comparable, les 4
-`Make*Predictions` présentes sur la branche Comparable et **aucune** sur la NC, membres propres de
-`NonComparablePlaybook`1` = `EvaluateInternal`, `GenerateBucketWithActionForEveryEligibleTarget`,
-`GenerateBucketWithMultipleStrategies`, et les 4 playbooks du résidu de parent
-`NonComparablePlaybook`1`.
+**Ce qui n'est PAS une preuve** : `ncEvaluate.hvt` (`IBattleQuery.HasValidTargets`, slot `0x3f`)
+valait **`true` aux 13/13 positions** de ce montage à éligibilité vide — ce gate ne traverse pas
+`GetDynamicInvalidTargetReason`. La preuve retenue est `abilityTargets` (`fromHere`/`targets` non
+vides) confirmée par `abilityReason`, dont le `targetReason.hex` **EST** le flag du décompilé
+(`0x8000000` = refus, `0x0` = éligible).
 
-Étapes 1-3 : **NON CONFRONTÉES — plateforme DOWN.** Aucun process n'écoutait sur `127.0.0.1:8765`
-au moment de ce travail (host Frida non lancé), donc aucun RPC. Ni le compte hérité (« 0 event sur
-1132 ») ni les trois faces du §4 n'ont pu être re-mesurés. Le probe le **DIT** (`LIVE NON CONFRONTE`)
-au lieu de rendre un zéro. Ce qui est établi ci-dessus l'est **au décompilé et par la table de
-symboles versionnée**, deux sources indépendantes du live.
+Le probe **pilote donc les positions** (`_approach` : les deux camps avancent l'un vers l'autre sur
+un runner `--no-ai`, donc chaque déplacement est le nôtre) jusqu'à ce que la précondition soit vraie
+**au début de mon tour**, caster non encore déplacé. Effet de bord voulu : au round *N* le caster a
+`turnsStarted = N`, donc le gate natif `VigilanceEternalPlaybook$$ShouldEvaluate`
+(`GetStat(unit, 0xc) > 1`) est franchi lui aussi — le montage est dans le régime où le générateur
+natif évaluerait **réellement** ce playbook.
 
-L'étape 1 a une propriété utile pour la reprise : **le caster n'y entre pas**. `LoadPlaybook` charge
-par ability et la résolution de méthode échoue avant tout usage du caster — le verdict est une
-propriété de la CLASSE du playbook, donc un montage trivial suffit (le contrôle `playbookClass` évite
-le faux positif du `fallbackToDefault`, qui rendrait le playbook d'attaque normale).
+⚠ `BasePlaybook$$Evaluate` **n'appelle PAS** `ShouldEvaluate` : il pose l'`AbilityState`, coupe le
+random et saute au slot `+0x238` (`EvaluateInternal`). Les deux oracles NC contournent donc ce gate,
+et c'est correct — ils mesurent la face « évaluer », pas la face « décider d'évaluer ».
 
-**Le capteur compile** : `frida-compile hooks/main.ts` sort en `exit 0`, bundle 1 039 732 o,
-`ncPlaybookPredict` présent. Il n'est **pas déployé** — `frida/hooks/*` ne vit qu'après réinjection.
+**Trois issues, jamais deux.** Le probe distingue désormais : régime non atteint → `NON CONFRONTÉ`
+(rc **2**) ; régime atteint + events → OK ; régime atteint + capture nulle → ÉCHEC, et c'est
+seulement là que le port/harnais est en cause. `--max-rounds 1` exerce délibérément la première
+branche.
+
+## 7. État de la mesure — CONFRONTÉ le 2026-07-31 (session Frida 2)
+
+`probe_350r3_noncomparable_oracle.py`, joué en entier :
+
+| étape | ce qu'elle tranche | état |
+|---|---|---|
+| 0 structure | frères, exclusivité des `Make*Predictions`, les 4 playbooks sont NC | **VERTE** (134 NC / 96 Comparable) |
+| 1 valeur de retour | `aiPlaybookPredict` rend `makeArity 0` / `listNull` **et** la bonne `playbookClass` | **VERTE** sur les 4 (1132, 1111, 1173, 1202) |
+| 3a verrou capteur | `deathBlightlord`/`1042` : capture == liste rendue | **VERTE** (`capture=1 rendue=1 identiques=True`) |
+| 2 `ncEvaluate` | non-vacuité de la face NC, régime atteint | **VERTE** : 17 positions, **16 scorées** |
+| 3b oracle NC | `ncPlaybookPredict` sur le montage piloté | **VERTE** : `capture=1` |
+
+Régime atteint en **3 rounds** (caster `(1,0) -> (2,2)`, cibles `(6,8)/(6,7) -> (4,3)/(3,3)`),
+`fromHere=1 targets=2`, `abilityReason` = `0x0`. Event capturé :
+`tgt=79 (ultraTitus) healthDmg=[1938, 2904] appliedHits=3 probability=1`, `bucketUtil = 25.3800189`.
+
+**L'oracle NonComparable est OUVERT.** Les **134** classes de playbook NC redeviennent observables —
+sous réserve, pour chacune, d'atteindre son propre régime d'éligibilité.
+
+### 7.1 Ce que le port en dit — `probe_344` branché sur cet oracle
+
+`probe_344 --oracle auto` commute sur `ncPlaybookPredict` dès que l'ability a un playbook NC porté,
+et compare à `engine.playbook.prediction.generate_multi_hit_attack_prediction` (le chemin exact du
+playbook NC porté). Le point de branchement patché reste `AActiveAbility.get_damage`, donc le verdict
+d'arrondi se lit à l'identique sur les deux faces. L'anneau de `_place_ring` satisfait la précondition
+**par construction** (toutes les cibles à distance 1) et le probe le **vérifie** (`_nc_regime`).
+
+`custoKyrus` / `1202`, anneau centré en `(3,4)`, `--armor-target 0` :
+
+| bras | niveau | minDmg+maxDmg | natif | `to_even` | `trunc` | `half_up` | `ceil` |
+|---|---|---|---|---|---|---|---|
+| A | 4 | 35+48 = 83 (**3 mod 4**) | **(99, 147, 3)** | (102,150,3) | **=** | (102,150,3) | (102,150,3) |
+| B | 3 | 31+42 = 73 (**1 mod 4**) | **(87, 129, 3)** | **=** | **=** | (90,132,3) | (90,132,3) |
+
+Intersection sur les deux bras = **`trunc`**, exactement ce que le registre
+`_PREDICTION_MINMAX_RANDOM_READ` prévoit pour `1202` (famille (b) : `RandomAmount` lu au slot **4**
+`CalculateAverage`, division entière). Le code **LIVRÉ** égale le natif sur les deux bras. Une forme
+d'arrondi de plus passe donc de « lue au décompilé » à « confrontée live ».
+
+Sur le montage piloté (rank 17, niveau 50, mult 140), la comparaison per-position tient aussi :
+port et natif rendent `(1938, 2904, 3)` sur 14 positions et `(2904, 4356, 3)` sur `(0,3)`/`(1,3)`,
+et l'argmax du port (`target=77`, `to=(1,3)`, `u=42.5158`) égale le `bucketUtil` natif de cette
+position (`42.5158117`). **Écart relevé, non tranché** : par position, le natif ne score qu'**une**
+cible là où le port en score deux (gate `P in ranked(tgt)` du plan vs `GetValidTargets` par
+position) — sans effet sur l'argmax de ce montage, donc hors périmètre de #356.
+
+### 7.2 Une capture nulle a une TROISIÈME lecture
+
+`ncPlaybookPredict` capture ce que le natif **construit**. Un playbook NC dont l'utilité n'est pas
+un dégât n'en construit aucun, et le zéro est alors juste. Mesuré :
+`IdunBattle.AI.Playbook.Loki.DarkTalonStrikePlaybook$$EvaluateNonComparable` score
+`Fix64(DarkTalonStrikeAbility$$GetAttackTargets(GetTilesInBestLine()).Count)` — un **compte de
+cibles**, aucun `ProbableDamageEvent`.
+
+Ce trou n'était pas atteignable tant que `probe_344` ne parlait qu'aux Comparables ; `--oracle auto`
+l'ouvre. `probe_344` **refuse donc désormais (rc 2)** toute ability absente des **deux** registres
+d'arrondi : sur celles-là son `expected` (`to_even` si dans `_PREDICTION_MINMAX_AVERAGE`, `trunc`
+sinon) serait une **fabrication**. Des 13 abilities à `minDmg`/`maxDmg` dont le playbook NC est porté,
+**seule `1202`** est dans un registre.
+
+**Le capteur est DÉPLOYÉ** (session Frida 2) et **inchangé par ce travail** — aucune réinjection
+n'est requise pour rejouer ce qui précède.

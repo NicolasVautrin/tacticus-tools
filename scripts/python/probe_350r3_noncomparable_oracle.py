@@ -414,7 +414,7 @@ def step2_nc_evaluate(rpc, sid, rid: int, appr: dict, verbose: bool = True) -> d
            "precondition": appr.get("precondition")}
     if not appr.get("reached"):
         out["ok"] = None
-        out["skipped"] = ("MONTAGE NON ATTEINT en %s rounds -- precondition geometrique de "
+        out["skipped"] = ("MONTAGE NON ATTEINT en %s round(s) -- precondition geometrique de "
                           "GetDynamicInvalidTargetReason non satisfaite" % appr.get("rounds"))
         if verbose:
             print("\n[350-r3/2] ncEvaluate -- %s" % out["skipped"])
@@ -526,7 +526,7 @@ def step3_nc(rpc, sid, rid: int, appr: dict, verbose: bool = True) -> dict:
     return out
 
 
-def run(offline: bool = False, verbose: bool = True) -> dict:
+def run(offline: bool = False, verbose: bool = True, max_rounds: "int | None" = None) -> dict:
     out = {"step0": step0_structure(verbose)}
     if offline:
         out["live"] = "SKIP -- --offline"
@@ -552,13 +552,16 @@ def run(offline: bool = False, verbose: bool = True) -> dict:
     # UN SEUL runner pour les etapes 2 et 3b : le pilotage de positions coute plusieurs rounds,
     # et les deux oracles doivent parler du MEME etat.
     sf = logs / "p350r3_nc.json"
+    fx = dict(_FIXTURE_NC)
+    if max_rounds is not None:
+        fx["max_rounds"] = int(max_rounds)      # levier de TEST du separateur (cf. --max-rounds)
     rid = None
     try:
-        rid = _build(sf, _FIXTURE_NC)
+        rid = _build(sf, fx)
         if verbose:
             print("\n[350-r3] montage NC : pilotage des positions (board %s, %s vs %s)"
-                  % (_FIXTURE_NC["board"], _FIXTURE_NC["p_units"], _FIXTURE_NC["a_units"]))
-        appr = _approach(rpc, sid, rid, _FIXTURE_NC, verbose)
+                  % (fx["board"], fx["p_units"], fx["a_units"]))
+        appr = _approach(rpc, sid, rid, fx, verbose)
         out["approach"] = {k: v for k, v in appr.items() if k != "precondition"}
         out["step2"] = step2_nc_evaluate(rpc, sid, rid, appr, verbose)
         out["step3b"] = step3_nc(rpc, sid, rid, appr, verbose)
@@ -590,12 +593,21 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--offline", action="store_true",
                     help="etape 0 seule (structure) -- aucune plateforme requise")
+    ap.add_argument("--max-rounds", type=int, default=None,
+                    help="bornes du pilotage de positions. `--max-rounds 1` EXERCE la voie "
+                         "« MONTAGE NON ATTEINT » : le probe doit alors rendre NON CONFRONTE, "
+                         "PAS un echec de port (c'est le separateur des deux lectures de #356)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    out = run(offline=a.offline)
+    out = run(offline=a.offline, max_rounds=a.max_rounds)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
-    return 0 if out.get("ok") else 1
+    if not out.get("ok"):
+        return 1
+    # rc 2 = « rien n'a echoue, mais une etape n'a PAS ETE CONFRONTEE ». Sans lui, un montage qui
+    # n'atteint pas le regime rendrait 0 et se lirait VERT -- exactement le silence que ce probe
+    # existe pour empecher.
+    return 2 if out.get("not_confronted") else 0
 
 
 if __name__ == "__main__":
