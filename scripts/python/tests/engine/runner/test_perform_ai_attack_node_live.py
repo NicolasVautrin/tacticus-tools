@@ -36,9 +36,11 @@ D+E. **La feuille `SpawnReplica` (ScarabSummon 1047) passe par le MEME corps.** 
      E = le double, spawne AU CONTACT de Judh, declenche sa reaction `On(9)`.
    Le noeud natif de cette feuille est `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (et non
    `...FromCurrentPosition`) : `+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null` (i2 « which then
-   immediately takes a turn »). Le port THREADE ces deux champs mais ne porte ni `GenerateActionTiles`
-   ni le `MovementActionGenerator` -> il n'APPROCHE pas le double ; D verifie donc un MANQUE-A-AGIR
-   fidele (le natif non plus ne frappe pas a distance avec une arme de melee), pas un deplacement.
+   immediately takes a turn »). Depuis #348 le port APPROCHE bel et bien le double
+   (`GenerateActionTiles(null)` + `MovementActionGenerator` + apply du `MoveUnitMessage`), d'ou deux
+   ajustements ici : D parque les ennemis HORS DE PORTEE MEME APRES DEPLACEMENT (Movement 4 + arme de
+   melee 1 = 5 hex de portee effective) et E lit la tuile d'ATTERRISSAGE (emission `SpawnUnit`) et
+   non la position finale. La confrontation LIVE de l'approche vit dans `test_ai_approach_live.py`.
 
 METHODE : etat REEL (`load_state` : board + stats live), positions PILOTEES, MT calee (`dumpRng`).
 """
@@ -356,25 +358,32 @@ def _make_scarab(state, spyder_id):
 
 
 def _replica_run(state, scarab_id):
-    """Joue l'arbre natif de ScarabSummon depuis le scarab. Renvoie (replicas, on_appearance)."""
+    """Joue l'arbre natif de ScarabSummon depuis le scarab. Renvoie (replicas, on_appearance,
+    spawn_pos) -- `spawn_pos` = {unit: (col,row)} capture A L'ATTERRISSAGE. Depuis #348 le double
+    PEUT se deplacer avant d'attaquer (`+0x78 moveAmount = null`), donc sa position finale n'est
+    plus sa tuile de spawn : lire la position APRES coup mesurerait l'approche, pas le placement."""
     from engine.runner.abilities.loki import scarab_summon_tree
     from engine.runner.abilities.behaviours import entities_from_state
     from engine.dsl.effects import ExecutionContext
     ectx = ExecutionContext(state=state, rng=state.rng)
     scarab_summon_tree().execute(entities_from_state(state, scarab_id), ectx)
     return ([p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"],
-            [p for n, p in ectx.emitted if n == "ReplicaOnAppearance"])
+            [p for n, p in ectx.emitted if n == "ReplicaOnAppearance"],
+            {p["unit"]: p.get("pos") for n, p in ectx.emitted if n == "SpawnUnit"})
 
 
 def test_spawn_replica_gates_on_attack_range(live_session, rpc, build_runner):
-    """D -- GATE DE PORTEE. Le double d'un scarab (`necroSmnSwarm`, arme de MELEE portee 1) apparait
-    a >= 6 hex du premier ennemi : `IdunBattle.Core.Services.TargetingQuery$$GetRange` ne rend AUCUNE
-    cible legale, donc AUCUNE attaque.
+    """D -- GATE DE PORTEE. Le double d'un scarab (`necroSmnSwarm`, Movement 4, arme de MELEE
+    portee 1) apparait a >= 7 hex du premier ennemi : sa portee EFFECTIVE etant 4 + 1 = 5 hex
+    (`+0x78 moveAmount = null` lui ouvre son deplacement depuis #348),
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange` ne rend AUCUNE cible legale depuis AUCUNE
+    tuile d'action -- donc AUCUNE attaque. Il s'APPROCHE (deplacement pur), et c'est le natif.
 
     ROUGE avant le fix : la feuille `SpawnReplica` recablait `_nearest_enemy` +
     `AttackDamageOperation.execute` SANS gate -- le double frappait l'ennemi le plus proche a n'importe
     quelle distance. DISCRIMINANT explicite : on prouve qu'une cible VIVANTE existe (donc que l'ancien
-    corps aurait tire) et qu'elle est HORS portee (donc que c'est bien le gate qui l'a arretee)."""
+    corps aurait tire) et qu'elle reste HORS portee APRES l'approche (donc que c'est bien le gate qui
+    l'a arretee, et non un manque de mouvement)."""
     from engine.runner.abilities.loki import _nearest_enemy
     from engine.runner.operations.triggers.base import _in_attack_range
     state, board, dv = _setup(rpc, build_runner, "31337", f"{SPYDER},{ALLY}", f"{FILLER},{FILLER}")
@@ -385,20 +394,22 @@ def test_spawn_replica_gates_on_attack_range(live_session, rpc, build_runner):
         pytest.skip("roster incomplet offline")
     sid, aid, eid, e2id = spyder["id"], ally["id"], e1["id"], e2["id"]
 
-    # C = tuile du scarab, avec au moins une voisine libre ; ennemis parques a >= 4 de C (le double
-    # atterrit sur une voisine de C -> il reste a >= 3 de l'ennemi, tres au-dela de sa portee 1).
+    # C = tuile du scarab, avec au moins une voisine libre ; ennemis parques a >= 7 de C. Le double
+    # atterrit sur une voisine de C -> il reste a >= 6 de l'ennemi, au-dela de sa portee EFFECTIVE
+    # (Movement 4 + arme de melee 1 = 5). Le plancher etait 4 avant #348, quand le port n'approchait
+    # pas : a 3 hex, le double ATTEINDRAIT desormais sa cible et le test ne mesurerait plus le gate.
     c_tile = ez = None
     for cand in sorted(board.by_id):
         if not (board.walkable(cand) and sum(1 for n in board.neighbours(cand)
                                              if board.walkable(n)) >= 2):
             continue
-        ez = next((z for z in (_far_tile(board, [cand], mind=m) for m in (8, 7, 6, 5, 4))
+        ez = next((z for z in (_far_tile(board, [cand], mind=m) for m in (10, 9, 8, 7))
                    if z is not None), None)
         if ez is not None:
             c_tile = cand
             break
     if c_tile is None or ez is None:
-        pytest.skip("aucune geometrie (C isolable a >= 4 des ennemis) sur ce board")
+        pytest.skip("aucune geometrie (C isolable a >= 7 des ennemis) sur ce board")
     _place(state, eid, board, ez)
     _place(state, e2id, board, ez)
     # spyder + ally parques loin de C ET de la zone ennemie (le spyder doit garder une voisine libre)
@@ -414,7 +425,7 @@ def test_spawn_replica_gates_on_attack_range(live_session, rpc, build_runner):
     print(f"\n[GATE/replica] scarab@{c_tile} ; ennemis@{ez} ; spyder@{park}")
 
     hp0, hp0b = _hp(state, eid), _hp(state, e2id)
-    replicas, attacks = _replica_run(state, scarab)
+    replicas, attacks, _spawn_pos = _replica_run(state, scarab)
     assert replicas, "aucun double spawne : le scenario ne teste rien"
     rid_ = replicas[0]
     tgt = _nearest_enemy(state, rid_)
@@ -490,9 +501,13 @@ def test_spawn_replica_dispatches_after_hit(live_session, rpc, build_runner):
           f"bloquees={block_tiles}")
 
     assert not state.effects.has_effect(jid, effect_type=HYPERSENSORY_FLAG), "drapeau deja pose"
-    replicas, attacks = _replica_run(state, scarab)
+    replicas, attacks, spawn_pos = _replica_run(state, scarab)
     assert len(replicas) == 1, f"attendu 1 double, obtenu {replicas}"
-    assert _tile_of(state, board, replicas[0]) == p_tile, (
+    # Tuile d'ATTERRISSAGE (capturee a l'emission `SpawnUnit`), et non position finale : depuis #348
+    # le double peut se DEPLACER avant de frapper (`+0x78 moveAmount = null`), et il le fait ici --
+    # il attaque Judh depuis une autre tuile adjacente. Lire la position finale mesurerait
+    # l'approche, pas le determinisme du placement que ce setup veut etablir.
+    assert spawn_pos.get(replicas[0]) == board.coord(p_tile), (
         "le double n'a pas atterri sur la seule tuile libre -> setup non deterministe")
     assert any(a.get("target") == jid for a in attacks), (
         f"le double n'a pas attaque Judh alors qu'il est ADJACENT (attacks={attacks})")

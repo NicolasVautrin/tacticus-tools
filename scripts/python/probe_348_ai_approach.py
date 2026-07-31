@@ -18,13 +18,16 @@ masque `0x40000422` porte `TargetIsFriendly` : le `astraSmnGuardsman` nait sur u
 ADJACENTE A UN ALLIE CHOISI, donc la distance spawn<->ennemi est ENTIEREMENT pilotable (on place
 l'ancre, on bloque ses voisines sauf une, on marche l'ennemi a la distance voulue).
 
-TROIS REGIMES, tous sur le MEME montage a une distance pres :
+QUATRE REGIMES, tous sur le MEME montage a une distance pres :
   * `approach`  : d(spawn, ennemi) dans [3 .. move+range]  -> le natif AVANCE puis FRAPPE
                   (le guardsman porte a 2 : Las range 2 ; Movement 3 -> portee effective 5) ;
-  * `stay`      : d(spawn, ennemi) <= 2                    -> il FRAPPE SANS BOUGER (bras symetrique :
+  * `stay`      : d(spawn, ennemi) == 2                    -> il FRAPPE SANS BOUGER (bras symetrique :
                   sans lui on ne mesure que « il bouge », pas « il bouge quand il faut ») ;
   * `move_only` : d(spawn, ennemi) > move+range            -> DEPLACEMENT PUR, aucun degat
-                  (c'est le `MovementActionGenerator` d'`allowMoveAction`).
+                  (c'est le `MovementActionGenerator` d'`allowMoveAction`) ;
+  * `touch`     : d(spawn, ennemi) == 1                    -> il CHANGE DE TUILE bien qu'il puisse
+                  deja frapper : l'argmax porte sur le couple (tuile, cible), pas sur « suis-je a
+                  portee ». MESURE (regime `touch`) : le natif bouge, le port aussi, meme tuile.
 
 Le probe REFUSE de conclure si le montage n'est pas dans la fenetre du regime demande.
 
@@ -54,7 +57,7 @@ ABILITY = 1143
 SEED = "777"
 BOARD = "MC1_67"
 #: portee EFFECTIVE du guardsman = Movement + max(Range arme). Bornes des trois regimes.
-REGIMES = {"approach": (3, 5), "stay": (1, 2), "move_only": (6, 99)}
+REGIMES = {"approach": (3, 5), "stay": (2, 2), "move_only": (6, 99), "touch": (1, 1)}
 
 
 def _unwrap(r):
@@ -315,13 +318,23 @@ def _run(rpc, regime: str, build_runner, keep: bool) -> dict:
     # Les allies EN TROP sont PARQUES : ils campent sinon sur la tuile de spawn ou sur le chemin
     # (mesure : la tuile de spawn 13 restait occupee par un bloqueur non affecte). Un allie ne
     # BLOQUE pas le pathfinding, mais il interdit d'y STOPPER -- donc il fausse l'approche.
-    _used = set(slots)
+    _used = set(slots) | {sp_tile}
+    spp = board.coord(sp_tile)
     for sq in list(free_sq):
-        far = max((t for t in board.by_id
-                   if board.walkable(t) and t not in _used
-                   and t not in board.neighbours(sp_tile)),
-                  key=lambda t: (hexgeo.distance(board.coord(t), board.coord(sp_tile))
-                                 + hexgeo.distance(board.coord(t), board.coord(e_tile))))
+        here = (U[sq]["col"], U[sq]["row"])
+        # Assez LOIN de la tuile de spawn pour ne rien gener, assez PRES de l'unite pour etre
+        # atteignable : viser le coin oppose du board ne marche pas (mesure -- l'allie s'arretait a
+        # mi-chemin et le montage etait declare non installe, alors que seule sa marche avait echoue).
+        pool = [t for t in board.by_id
+                if board.walkable(t) and t not in _used
+                and hexgeo.distance(board.coord(t), spp) >= 4]
+        if not pool:
+            pool = [t for t in board.by_id
+                    if board.walkable(t) and t not in _used
+                    and hexgeo.distance(board.coord(t), spp) >= 3]
+        if not pool:
+            continue
+        far = min(pool, key=lambda t: hexgeo.distance(board.coord(t), here))
         _used.add(far)
         assign[sq] = far
     for _ in range(4):                              # quelques passes : les blocages mutuels se denouent
@@ -331,8 +344,11 @@ def _run(rpc, regime: str, build_runner, keep: bool) -> dict:
             break
         for sq in todo:
             _walk_to(rpc, rid, board, sq, assign[sq], owner)
+    # Seules les tuiles de la FIGURE (ancre + bloqueurs) sont contraignantes ; le rangement des
+    # allies en trop est best-effort -- ce qui compte d'eux est qu'ils ne campent pas sur la tuile
+    # de spawn, ce que verifie `spawn_free` plus bas.
     bad = [(s, _tile_of(board, _live(rpc, rid).get(s, {})), t) for s, t in assign.items()
-           if _tile_of(board, _live(rpc, rid).get(s, {})) != t]
+           if t in slots and _tile_of(board, _live(rpc, rid).get(s, {})) != t]
     if bad:
         out["why"] = "figure alliee non tenue (u, atteint, vise) = %s" % (bad,)
         return out

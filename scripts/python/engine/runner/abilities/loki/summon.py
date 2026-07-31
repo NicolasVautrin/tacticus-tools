@@ -511,10 +511,16 @@ class ScarabSummonAbility(ActiveAbility):
         ectx = ExecutionContext(state=state, rng=state.rng)
         scarab_summon_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
         spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
-        attacks = [{"summon": p["summon"], "target": p["target"], "total": p["total"]}
+        # Tuile d'ATTERRISSAGE par clone : depuis #348 le double PEUT se deplacer avant de frapper
+        # (`+0x78 moveAmount = null`), donc sa position finale n'est plus son point de chute -- et
+        # c'est le point de chute que verifie le placement `AdjacentTiles(self)`.
+        spawn_pos = {p["unit"]: p.get("pos") for n, p in ectx.emitted if n == "SpawnUnit"}
+        attacks = [{"summon": p["summon"], "target": p["target"], "total": p["total"],
+                    "moved": p.get("moved")}
                    for n, p in ectx.emitted if n == "ReplicaOnAppearance"]
         visual_id = ((GC.ability("ScarabSummon") or {}).get("constants") or {}).get("unitId")
-        return {"summon": visual_id, "spawned": spawned, "attacks": attacks, "replica": True, "dsl": True}
+        return {"summon": visual_id, "spawned": spawned, "spawn_pos": spawn_pos,
+                "attacks": attacks, "replica": True, "dsl": True}
 
 
 class GetEmRuntzAbility(ActiveAbility):

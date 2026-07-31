@@ -19,11 +19,13 @@ porte `TargetIsFriendly`, si bien que le guardsman nait sur une tuile libre adja
 CHOISI. On pose donc la distance spawn<->ennemi au hex pres. Guardsman : Movement 3, arme Las
 portee 2 -> portee EFFECTIVE 5.
 
-TROIS regimes, qui ne se recouvrent pas :
+QUATRE regimes, qui ne se recouvrent pas :
   * `approach`  d(spawn, ennemi) = 3..5 -> le natif AVANCE puis FRAPPE ;
-  * `stay`      d(spawn, ennemi) <= 2   -> il FRAPPE SANS BOUGER (bras symetrique : sans lui on ne
+  * `stay`      d(spawn, ennemi) = 2    -> il FRAPPE SANS BOUGER (bras symetrique : sans lui on ne
                 mesure que « il bouge », pas « il bouge quand il faut ») ;
-  * `move_only` d(spawn, ennemi) >= 6   -> DEPLACEMENT PUR, aucun degat.
+  * `move_only` d(spawn, ennemi) >= 6   -> DEPLACEMENT PUR, aucun degat ;
+  * `touch`     d(spawn, ennemi) = 1    -> il CHANGE DE TUILE alors qu'il pouvait deja frapper --
+                l'argmax porte sur (tuile, cible), pas sur « bouger ou pas ».
 
 ASCII only (console cp1252).
 """
@@ -71,14 +73,39 @@ def test_the_actor_stays_put_when_already_in_range(ai_approach_case):
     echouerait ici."""
     r = ai_approach_case("stay")
     assert r["live_mutated"] is True, "le cast LIVE n'a pas mordu -- montage invalide"
-    assert r["d_near"] <= 2, (
-        "ennemi le plus proche a d=%s : le regime `stay` exige une cible DEJA a portee" % r["d_near"])
+    assert r["d_near"] == 2, (
+        "ennemi le plus proche a d=%s : le regime `stay` exige une cible a la portee EXACTE de "
+        "l'arme (2), la seule distance ou rester sur place est l'optimum" % r["d_near"])
     assert r["live_moved"] is False, (
         "le NATIF a bouge (%s -> %s) alors que la cible etait a portee -- montage non discriminant"
         % (r["geometry"]["spawn_tile"], r["live_tile"]))
     assert r["off_moved"] is False, (
         "le PORT a DEPLACE l'acteur (%s) alors que le natif reste sur %s" % (r["off_tile"],
                                                                             r["live_tile"]))
+    assert r["off_victim"] == r["live_victim"] and r["live_victim"] is not None, (
+        "victime PORT=%s vs LIVE=%s" % (r["off_victim"], r["live_victim"]))
+
+
+def test_the_actor_repositions_even_when_already_touching(ai_approach_case):
+    """REGIME `touch` -- l'ennemi est ADJACENT a la tuile de naissance, et l'acteur CHANGE QUAND
+    MEME de tuile avant de frapper.
+
+    C'est la mesure qui interdit de lire l'approche comme un « il ne bouge que s'il le doit » :
+    l'argmax natif porte sur le couple (tuile, cible) via `Bucket.ChooseAction`, pas sur un
+    predicat « suis-je deja a portee ». Elle a une consequence PRATIQUE, et c'est pourquoi elle est
+    verrouillee ici : ce pas declenche le vecteur after-move de la cible (`EvaluateAfterMoveTriggers`
+    -> overwatch), qui peut TUER l'acteur avant son attaque -- comportement du NATIF, mesure ici.
+
+    Sans elle, deux montages offline (`test_scarab_summon_migration_live`,
+    `test_perform_ai_attack_node_live` E) auraient pu passer pour des regressions du port."""
+    r = ai_approach_case("touch")
+    assert r["live_mutated"] is True, "le cast LIVE n'a pas mordu -- montage invalide"
+    assert r["d_near"] == 1, (
+        "ennemi le plus proche a d=%s : le regime `touch` exige une cible ADJACENTE" % r["d_near"])
+    assert r["live_moved"] is True, (
+        "le NATIF n'a pas bouge : le regime ne montre rien de plus que `stay`")
+    assert r["off_tile"] == r["live_tile"], (
+        "le PORT s'arrete en %s la ou le natif s'arrete en %s" % (r["off_tile"], r["live_tile"]))
     assert r["off_victim"] == r["live_victim"] and r["live_victim"] is not None, (
         "victime PORT=%s vs LIVE=%s" % (r["off_victim"], r["live_victim"]))
 

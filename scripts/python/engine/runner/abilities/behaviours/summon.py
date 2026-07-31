@@ -337,8 +337,16 @@ class SpawnReplica(AbilityBehaviour):
             return OperationResult.ok()
         # [Spawn / CopyOwner / placement adjacent-self] -> Operation validee (clone owner+stats du parent)
         spawned = SpawnUnitOperation.execute_self_replica(state, caster_id, vid, self.count)
+        # La position est capturee ICI, AVANT l'on-appearance : depuis #348 le double PEUT se
+        # deplacer (`+0x78 moveAmount = null` -> `GenerateActionTiles` sur la plage complete), donc
+        # sa position finale n'est plus sa tuile d'ATTERRISSAGE. Sans cette capture, le seul canal
+        # de diagnostic du placement disparaissait derriere le deplacement.
+        from ...components import PositionComponent as _PC
         for sid in spawned:
-            ectx.emit("SpawnUnit", unit=sid)
+            _e = state.get_entity(sid)
+            _p = _e.get_component(_PC) if _e is not None else None
+            ectx.emit("SpawnUnit", unit=sid,
+                      pos=((_p.col, _p.row) if _p is not None else None))
         # [on-appearance] `PerformAIAttack(Spawned@0x180, 1, 0, 0, 0)` -> LE noeud (corps unique) : les deux
         # champs qui le distinguent de `...FromCurrentPosition` sont passes tels que lus au decompile
         # (`+0x70 allowMoveAction = 1`, `+0x78 moveAmount = null`).
@@ -346,5 +354,6 @@ class SpawnReplica(AbilityBehaviour):
             r = perform_ai_attack(state, sid, allow_move_action=True, move_amount=None)
             if r is not None:
                 ectx.emit("ReplicaOnAppearance", summon=sid, target=r["target"],
-                          total=r.get("total"), after_hit=r.get("after_hit"))
+                          total=r.get("total"), after_hit=r.get("after_hit"),
+                          moved=r.get("moved"))
         return OperationResult.ok()
