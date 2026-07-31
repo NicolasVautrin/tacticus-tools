@@ -46,6 +46,7 @@ import probe_338_ai_target_choice as AITC
 import probe_348_ai_approach as AIAP
 import probe_270d_lysander_deploy as LYS
 import probe_357_relic_rail as RELIC
+import probe_363_ability_states_channel as ASD
 
 
 @pytest.fixture
@@ -509,6 +510,43 @@ def relic_rail_case(build_runner, rpc):
                             % (level, regime, r.get("why")))
             cache[key] = r
         return cache[key]
+
+    return _case
+
+
+# ── #363 — le canal du seed TERTIAIRE est-il ACTIF PAR DEFAUT ? ──────────────────────────────────
+
+@pytest.fixture(scope="module")
+def ability_states_default_case(build_runner, rpc):
+    """Fabrique : `ability_states_default_case()` -> le dict de mesure du volet `default` de #363.
+
+    PORTE pytest de `scripts/python/probe_363_ability_states_channel.py::run_default` : les QUATRE
+    unites qui equipent une relique DES LE SEED BC (`necroSpyder` NetherRealmCasket, `orksRuntherd`
+    SupaCyborkBody, `admecMarshall` / `admecRuststalker` KardiocoreGalvanus) montees d'un coup, deux
+    par camp, puis la MEME capture chargee de TROIS facons : canal AUTO (le defaut, #363), canal
+    REFUSE (`ability_states=False` -- l'etat d'avant) et canal EXPLICITE (`ability_states=<payload>`,
+    la reference #357).
+
+    C'est le CONTRASTE des trois qui prouve : le bras `auto` seul serait un vert que ni un
+    debranchement du canal ni une lecture par un autre chemin ne feraient rougir. Deux oracles
+    INDEPENDANTS l'encadrent -- le payload `unitAbilityStates` (ce que le NATIF a monte) et
+    `data/seed-bc.json` (ce que la CONFIG declare).
+
+    Portee MODULE (un seul build pour tout le fichier).
+    ⚠ Montage non installe => ECHEC, jamais skip (#268)."""
+    cache: dict = {}
+
+    def _case() -> dict:
+        if "r" not in cache:
+            # `keep=True` : le runner appartient a `build_runner` (teardown du module).
+            # `bind_if_unbound=False` : le probe NE LIE PAS le transport ambiant -- le bras `auto`
+            # doit s'appuyer sur celui que `conftest.live_session` a lie, sinon la garde resterait
+            # verte meme le harnais debranche (et ne garderait donc rien).
+            r = ASD.run_default(rpc, build_runner=build_runner, keep=True, bind_if_unbound=False)
+            if not r.get("ok"):
+                pytest.fail("montage ability-states-default NON INSTALLE : %s" % r.get("why"))
+            cache["r"] = r
+        return cache["r"]
 
     return _case
 

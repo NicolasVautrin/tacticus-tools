@@ -83,6 +83,7 @@ from .it_itches import ItItchesPlaybook
 from .the_quickening import TheQuickeningPlaybook
 from .black_rage import BlackRagePlaybook
 from .vigilance_eternal import VigilanceEternalPlaybook
+from .kill_maim_burn import KillMaimBurnPlaybook
 from .scarab_hive import ScarabHivePlaybook
 from .cord_claw import CordClawPlaybook
 from .poxwalkers import SpawnPoxwalkersPlaybook
@@ -130,6 +131,12 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         ItItchesPlaybook(),             # 1121 — #ennemis pousses ; gates IsDisplaceable + CanBePushed
         BlackRagePlaybook(),            # 1163 — degat de l'attaque NORMALE depuis la tuile de charge
         VigilanceEternalPlaybook(),     # 1202 — degat de l'ability depuis l'hex libre adjacent
+        # #362 (residu #356-r1) — DEBLOQUE par l'oracle NC (#350-r3) : meme forme que 1202 (utilite
+        # de DEGAT interne) PLUS le gate `WillNormalAttackKill` de Stormcaller. L'oracle repondait
+        # deja pour 1132, mais sans playbook porte `probe_344 --oracle auto` refusait (rc 2) : la
+        # comparaison aurait oppose le chemin GENERIQUE a une capture qui contenait, elle, l'event
+        # d'attaque NORMALE construit par ce meme gate.
+        KillMaimBurnPlaybook(),         # 1132 — degat de l'ability ; `continue` si la normale sure-kill
         TheQuickeningPlaybook(),        # 1151 — teleport-echange ; porte #46 RESOLUE : slot 4
         #                                 `ShouldEvaluate(unit)` = corps folde IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$ShouldEvaluate
         #                                 (`turnsStarted > 1`, jamais au 1er tour de l'unite)
@@ -237,7 +244,7 @@ __all__ = [
     "GetEmRuntzPlaybook", "GauntletsOfUltramarPlaybook", "HammerOfWrathPlaybook",
     "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook",
     "StormcallerPlaybook", "ItItchesPlaybook", "TheQuickeningPlaybook",
-    "BlackRagePlaybook", "VigilanceEternalPlaybook",
+    "BlackRagePlaybook", "VigilanceEternalPlaybook", "KillMaimBurnPlaybook",
     "ScarabHivePlaybook", "CordClawPlaybook",
     "SpawnPoxwalkersPlaybook", "FoulInfusionPlaybook", "HolyDuelPlaybook",
     "GrapnelLauncherPlaybook", "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",

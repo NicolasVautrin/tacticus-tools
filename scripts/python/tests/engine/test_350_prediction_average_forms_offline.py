@@ -25,7 +25,11 @@ F. (#350-r3) `1160 HeavyRailRifle` n'est dans AUCUN des trois registres, et la R
    son playbook evalue une AUTRE ability, la TriggeredAbility `0x4ec = 1260`. L'y inscrire serait une
    erreur de qualification d'enum, pas une correction ;
 G. (#350-r3) le gate de SELECTEUR de `1148 DaemonicOrdnance` existe et refuse une cible dont la tuile
-   ne porte pas `Fire` -- ce qui etait la sur-prediction muette trouvee en levant le mur MoW.
+   ne porte pas `Fire` -- ce qui etait la sur-prediction muette trouvee en levant le mur MoW ;
+H. (#359) le SET AoE de `1147 HadesAutocannons` mirrore `HadesAutocannonsAbility$$GetAllTargets` --
+   les quatre conjonctions du selecteur (trait Summon, camp de la CIBLE, disque `range` centre sur
+   ELLE, centre INCLUS) sont tenues une par une sur une scene synthetique, la ou la garde LIVE ne
+   discrimine que le compte et le referent d'equipe.
 
 ASCII only.
 """
@@ -221,3 +225,117 @@ def test_1148_target_gate_mirrors_the_native_selector():
     assert gate(_S({(4, 4): ["Fire"]}), 1, 1) is False, "le caster est son propre ami (`Enemies`)"
     assert gate(_S({}), 1, 2) is False, "aucun effet de tuile connu : regime du board frais"
     assert gate(_S(None), 1, 2) is False, "`tileMeta` non charge -> feu INCONNU, pas suppose"
+
+
+# ---------------------------------------------------------------------------------------------
+# H (#359) -- le SET AoE de 1147, conjonction par conjonction.
+
+_R1147 = 2          # `HadesAutocannons.constants.range` du gameconfig -- RELU par le test ci-dessous
+
+
+def _hades_ctx(units, target_id):
+    """`DslContext` de la face PREDICTION tel que `make_damage_predictions` le construit pour 1147 :
+    memes champs, meme substrat de traits (ici pose en dur par unite, la `Scene` etant hors-scope
+    d'un test offline)."""
+    from engine.dsl.nodes import DslContext
+    from engine.entities.abilities.ability_configuration import AbilityConfiguration
+    cfg = AbilityConfiguration(name="HadesAutocannons", variables={},
+                               constants={"range": _R1147})
+    by_id = {u["id"]: u for u in units}
+    return DslContext(units=units, caster=by_id.get(1), target=by_id.get(target_id),
+                      config=cfg, ability_level=1,
+                      has_trait=lambda u, t: int(t) in ((u or {}).get("_traits") or ()))
+
+
+def _u(uid, team, pos, summon=False, hp=100):
+    """Une ligne d'unite du substrat de PREDICTION (`Scene.units` / `decisionView.units`) : la
+    position y vit sous `pos` (cf. `engine.dsl.base._pos`), jamais en `col`/`row` a plat."""
+    from engine.entities.traits.unit_trait import UnitTrait
+    return {"id": uid, "team": team, "pos": {"col": pos[0], "row": pos[1]}, "hp": hp, "alive": True,
+            "_traits": (int(UnitTrait.Summon),) if summon else ()}
+
+
+def test_1147_aoe_set_mirrors_its_native_selector():
+    """H : `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` =
+
+        UnitsWithTrait( Friends( of: Target@0x60,
+                                 SurroundingUnits(Target@0x60, ConfigConst(0x16 = range),
+                                                  unique: 1, includeCenter: 1, sel: 3) ),
+                        2 = Summon, 3 )
+
+    Quatre conjonctions, quatre pieges distincts -- chacune tenue par UNE unite temoin :
+      * `s_far`     : summon du bon camp mais a `range + 1` -> le RAYON compte (la garde live ne peut
+                      pas l'exercer : les poxwalkers naissent tous sur l'anneau 1 du summoner) ;
+      * `ally`      : unite du camp de la CIBLE, adjacente, SANS le trait -> `UnitsWithTrait` ;
+      * `foe_summon`: summon du camp du CASTER, adjacent -> `Friends` reference la CIBLE ;
+      * la CIBLE elle-meme est dans le set (`includeCenter: 1`) -- `make_damage_predictions` l'en
+        retire parce qu'elle est deja l'event PRINCIPAL, donc l'ensemble EMIS reste celui du natif.
+
+    Le `range` n'est pas ecrit en dur : il est RELU du gameconfig et compare a la constante du test,
+    pour qu'un changement de config fasse rougir ici plutot que de fausser le montage en silence."""
+    from engine.entities.abilities.active_ability import HadesAutocannonsAbility
+    from engine.entities.unit_context import UnitContext
+    from engine.entities.abilities.ability_configuration import AbilityConfiguration
+
+    assert int((GC.ability("HadesAutocannons") or {}).get("constants", {}).get("range")) == _R1147, (
+        "`HadesAutocannons.constants.range` a change dans le gameconfig : le montage de ce test "
+        "(temoin a range+1) ne discrimine plus le rayon")
+
+    target = _u(10, team=2, pos=(3, 4), summon=True)
+    s_near = _u(11, team=2, pos=(5, 4), summon=True)          # dist 2 == range  -> DEDANS
+    s_far = _u(12, team=2, pos=(6, 4), summon=True)           # dist 3 == range+1 -> DEHORS
+    ally = _u(13, team=2, pos=(4, 4), summon=False)           # camp de la cible, PAS summon
+    foe_summon = _u(14, team=1, pos=(3, 5), summon=True)      # summon du camp du CASTER
+    caster = _u(1, team=1, pos=(0, 0), summon=False)
+    units = [caster, target, s_near, s_far, ally, foe_summon]
+
+    ab = HadesAutocannonsAbility(
+        ability_type=1147, caster=UnitContext(entity_id=1),
+        config=AbilityConfiguration(name="HadesAutocannons", variables={},
+                                    constants={"range": _R1147}),
+        ability_state={"level": 1, "multiplier": 100})
+    got = {u["id"] for u in ab.get_aoe_targets(_hades_ctx(units, target_id=10))}
+    assert got == {10, 11}, (
+        "set AoE = %s -- attendu {10 (la cible, includeCenter), 11 (summon a range)} ; "
+        "12 = rayon, 13 = trait, 14 = camp" % sorted(got))
+
+    # Une cible NON-summon ne VIDE PAS le set : le selecteur est ancre sur ELLE (le disque se
+    # RECENTRE) et c'est `UnitsWithTrait` qui l'ecarte, elle seule. Depuis (4,4), les trois summons
+    # de son camp sont a 1/1/2 -> tous les trois DEDANS. C'est le pendant offline du regime R3 de la
+    # garde live (natif : 3 events, aucun sur la cible demandee).
+    got2 = {u["id"] for u in ab.get_aoe_targets(_hades_ctx(units, target_id=13))}
+    assert got2 == {10, 11, 12}, (
+        "cible NON-summon en (4,4) : set = %s -- attendu {10, 11, 12} (summons team 2 a 1/1/2 "
+        "d'ELLE) ; 14 est team 1, donc hors de `Friends(of: Target)`" % sorted(got2))
+
+
+def test_1147_target_gate_reduces_to_the_summon_trait():
+    """H (suite) : le gate de cible de 1147 est la reduction EXACTE de l'appartenance de la cible a
+    son propre selecteur -- vrai ssi elle porte `Summon` et qu'elle est vivante."""
+    import engine.playbook.prediction.abilities as PA
+    from engine.entities.traits.unit_trait import UnitTrait
+    gate = PA._MAKE_DMG_TARGET_GATE.get(1147)
+    assert gate is not None, "1147 n'a plus son gate : le port re-emet sur des cibles non-summon"
+
+    class _Ctx:
+        """`UnitContext` minimal : `traits_measured` vrai = « la mesure telle quelle », le regime de
+        `_entity_traits` des que `combatSnapshot.units[].traits` a seede la Scene (#264)."""
+        traits_measured = True
+        def __init__(self, traits):
+            self.traits = tuple(traits)
+
+    class _S:
+        vis_by_id: dict = {}
+        def __init__(self, units, traits):
+            self.units, self._t = units, traits
+        def ctx(self, uid):                                       # noqa: D102
+            return _Ctx(self._t.get(uid, ()))
+
+    units = [_u(1, 1, (0, 0)), _u(10, 2, (3, 4), summon=True), _u(13, 2, (4, 4))]
+    dead = dict(units[1]); dead["alive"] = False
+    tr = {10: (UnitTrait.Summon.name,), 13: ()}
+    assert gate(_S(units, tr), 1, 10) is True, "un summon vivant EST dans son propre selecteur"
+    assert gate(_S(units, tr), 1, 13) is False, "sans le trait Summon, `UnitsWithTrait` l'ecarte"
+    assert gate(_S([units[0], dead], tr), 1, 10) is False, (
+        "une cible morte n'est plus sur sa tuile : `SurroundingUnits` ne la retient pas")
+    assert gate(_S([], tr), 1, 10) is False, "scene vide -> aucun set, aucun event"

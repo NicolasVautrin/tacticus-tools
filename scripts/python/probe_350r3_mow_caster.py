@@ -51,12 +51,29 @@ rendait `(81, 123, 3)` : sur-prediction MUETTE (ni erreur ni crash), qui gonflai
 Ferme par `_MAKE_DMG_TARGET_GATE` (`engine/playbook/prediction/abilities.py`). Cette etape mesure les
 DEUX regimes : zone froide (natif 0 == port 0) et zone EN FEU apres un premier cast.
 
+ETAPE 4 -- LE VOLET AoE DE `1147` (#359)
+----------------------------------------
+`HadesAutocannonsPlaybook$$MakeDamagePredictions` ne prend PAS `<Target>` : il boucle sur les entites
+de `GetEntitiesFromSelector(HadesAutocannonsAbility$$GetAllTargets, ...)` et `AddRange` un
+`GenerateMultiHitAttackPredictions` par entite. Le port n'avait aucun mirror de ce selecteur -> UN
+event la ou le natif en emet un par summon retenu. Quatre regimes (aucun summon / cible summon /
+porteur ennemi au contact / cible NON-summon), chacun mesure natif vs port AVANT vs port APRES -- le
+port d'AVANT etant reconstitue par RETRAIT des entrees de registre, jamais reimplemente.
+
+ETAPE 5 -- GENERALISATION DU MEME VOLET
+---------------------------------------
+Board DIFFERENT (`MC1_15`) et caster ALLIE des summons : le selecteur ne lit RIEN du caster. L'etape
+4 borne un cote (caster ENNEMI -- un port qui referencerait le caster rendrait 0), celle-ci l'autre
+(caster ALLIE -- un port qui filtrerait les cibles ennemies rendrait 0 alors que le natif emet).
+
 ASCII only (cp1252). Usage (depuis scripts/python) :
     python probe_350r3_mow_caster.py --only-scan        # etape 0, aucun runner
     python probe_350r3_mow_caster.py --step 1           # constat caster MoW
     python probe_350r3_mow_caster.py --step 2           # confrontation 1147 (2 bras)
     python probe_350r3_mow_caster.py --step 3           # 1148 zone froide / zone en feu
-    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3
+    python probe_350r3_mow_caster.py --step 4           # 1147 volet AoE, 4 regimes
+    python probe_350r3_mow_caster.py --step 5           # 1147 volet AoE, generalisation
+    python probe_350r3_mow_caster.py                    # 0 + 1 + 2 + 3 + 4 + 5
 """
 from __future__ import annotations
 
@@ -492,15 +509,311 @@ def step3_daemonic_ordnance(seed: int = 35050, verbose: bool = True) -> dict:
     return out
 
 
+# ------------------------------------ etape 4 : le volet AoE de 1147 (natif N events, port N ?)
+
+class _MontageError(RuntimeError):
+    """Le MONTAGE n'a pas atteint son regime (pas assez de summons) -- distinct d'un desaccord de
+    port : on le RAPPORTE tel quel, on ne le maquille pas en mesure."""
+
+
+def _port_events(scene, cid, tid, here, shipped: bool):
+    """Events du PORT pour 1147. `shipped = False` = le port d'AVANT #359 (aucun set AoE pour 1147,
+    aucun gate de selecteur) -- reconstitue en RETIRANT les deux entrees de registre, jamais en
+    re-implementant quoi que ce soit."""
+    from engine.playbook.prediction import abilities as PA
+    import engine.entities.abilities.active_ability as AA
+    gate, klass = PA._MAKE_DMG_TARGET_GATE, AA._SPECIAL_ABILITY_CLASSES
+    if not shipped:
+        PA._MAKE_DMG_TARGET_GATE = {k: v for k, v in gate.items() if k != 1147}
+        AA._SPECIAL_ABILITY_CLASSES = {k: v for k, v in klass.items() if k != "HadesAutocannons"}
+    try:
+        evs = PA.make_damage_predictions(scene, int(cid), int(tid), 1147, "HadesAutocannons",
+                                         attack_pos=here)
+    finally:
+        PA._MAKE_DMG_TARGET_GATE, AA._SPECIAL_ABILITY_CLASSES = gate, klass
+    return [{"target": e.target,
+             "dmg": (e.prediction.accurate_health_damage.min,
+                     e.prediction.accurate_health_damage.max, e.prediction.applied_hits)}
+            for e in evs]
+
+
+def _native_events(sid, rid, cid, tid):
+    r = _r(sid, rid, "aiPlaybookPredict",
+           {"unitId": int(cid), "targetId": int(tid), "abilityType": 1147}, 120)
+    return [{"target": e.get("targetId"),
+             "dmg": (e.get("healthDmgMin"), e.get("healthDmgMax"), e.get("appliedHits"))}
+            for e in ((r or {}).get("events") or [])]
+
+
+SUMMON_LEVEL = 50        # `Poxwalkers` : chance/chance_2 = 20/45 des le niveau 40 (gameconfig, relu)
+
+
+def step4_aoe_1147(seed: int = 35060, verbose: bool = True) -> dict:
+    """#359 -- le natif emet UN event PAR ENTITE du selecteur `HadesAutocannonsAbility$$GetAllTargets`
+    (les summons du camp de la CIBLE, dans son disque `range`, cible INCLUSE) ; le port n'en emettait
+    qu'UN. Quatre regimes, sur le MEME runner, chacun mesure natif / port AVANT / port APRES :
+
+      R0  AUCUN summon en jeu (avant le cast du summoner) -> selecteur VIDE, natif 0 event. C'est le
+          regime que #350-r3 a mesure 16 fois, et celui ou le port d'AVANT inventait un event.
+      R1  cible = un summon, les AUTRES summons dans son disque -> natif = |selecteur| >= 2. C'est le
+          volet manquant, et son compte est le verdict.
+      R2  le PORTEUR (camp du caster) amene AU CONTACT des summons -> le compte ne bouge PAS :
+          `Friends(of: Target)` reference la CIBLE, donc une unite du camp du CASTER n'entre jamais
+          dans l'ensemble. Discrimine le REFERENT d'equipe, que le montage R1 laisse ambigu (le
+          summoner et les summons y sont du meme camp).
+      R3  cible = une unite NON-summon (le summoner, qui est POURTANT au centre du nuage de summons)
+          -> `UnitsWithTrait(2 = Summon)` la refuse. Ce que le natif rend ICI dit s'il boucle sur SON
+          selecteur meme quand la cible n'y est pas.
+
+    MONTAGE. Le nombre de poxwalkers est un TIRAGE natif : `SpawnPoxwalkersAbility$$ExecuteBehaviour`
+    = `Divide(RandomAmount(cnt x chance, cnt x chance_2), 100, Ceiling)` ou `cnt` = le nombre de
+    tuiles LIBRES du disque `CalculateRange(TurnsStarted)` (= 1 aux tours 1-2). A niveau >= 40,
+    chance/chance_2 = 20/45 : il faut donc `cnt = 6` (anneau ENTIEREMENT libre) pour que la borne
+    BASSE elle-meme, `ceil(6 x 20 / 100) = 2`, garantisse deux summons. D'ou le montage : le summoner
+    seul au centre, tout le monde d'abord ECARTE -- le porteur n'est ramene au contact qu'en R2, une
+    fois les summons poses."""
+    sid = _resolve_session()
+    LOGS.mkdir(parents=True, exist_ok=True)
+    seed_bc = _graft_seed_bc([1147], GRAFT_ON, "1147")
+    sf = LOGS / "p350r3b_step4.json"
+    rid = None
+    out: dict = {}
+    try:
+        rid = _build(sf, seed, ["--p-units", "%s,%s" % (SUMMONER, P_FILLER),
+                                "--a-units", "%s,%s" % (GRAFT_ON, A_FILLER),
+                                "--unit-stat", "%s:ActiveAbilityLevel=%d,"
+                                               "AbilityVariablesMultiplierPercentage=100"
+                                               % (GRAFT_ON, A1147_LVL_A),
+                                "--unit-stat", "%s:ActiveAbilityLevel=%d"
+                                               % (SUMMONER, SUMMON_LEVEL)], seed_bc=seed_bc)
+        ids, _dv = _ids(sid, rid)
+        # GEOMETRIE DRIVEE : le summoner SEUL au centre. Personne d'autre ne bouge -- leurs spawns
+        # sont hors de son anneau, ce que la mesure de `ring_occupied` ci-dessous VERIFIE.
+        _move(sid, rid, ids[SUMMONER], *CENTER)
+        ob0 = _r(sid, rid, "observeBattle", {}, 120)
+        pos0 = {int(u["squadId"]): (u["col"], u["row"])
+                for u in (ob0.get("units") or []) if not u.get("isDead")}
+        import hexgeo
+        out["ring_occupied"] = sorted(uid for uid, p in pos0.items()
+                                      if uid != ids[SUMMONER]
+                                      and hexgeo.distance(p, CENTER) <= 1)
+
+        def _regime(tag, tid):
+            ctx, _d = P344._ctx(sid, rid, int(ids[GRAFT_ON]))
+            mp = ctx.me.get("pos") or {}
+            here = (mp.get("col"), mp.get("row"))
+            ob = _r(sid, rid, "observeBattle", {}, 120)
+            pos = {int(u["squadId"]): (u["col"], u["row"])
+                   for u in (ob.get("units") or []) if not u.get("isDead")}
+            return {"tag": tag, "target": tid, "positions": pos,
+                    "native": _native_events(sid, rid, ids[GRAFT_ON], tid),
+                    "port_before": _port_events(ctx.scene, ids[GRAFT_ON], tid, here, shipped=False),
+                    "port_after": _port_events(ctx.scene, ids[GRAFT_ON], tid, here, shipped=True)}
+
+        # R0 -- AUCUN summon en jeu : le selecteur est VIDE quelle que soit la cible, et le natif
+        # n'emet RIEN (le regime mesure 16 fois par #350-r3). C'est le cas ou le port d'AVANT
+        # inventait un event, et celui ou un port TROP permissif se verrait tout de suite.
+        out["r0"] = _regime("R0 aucun summon en jeu", ids[SUMMONER])
+        _r(sid, rid, "applyAction",
+           {"action": {"kind": "ability", "casterId": ids[SUMMONER],
+                       "targetId": ids[SUMMONER], "abilityType": SPAWN_POXWALKERS}}, 180)
+        _ids2, dv2 = _ids(sid, rid)
+        # ⚠ `_ids` indexe par `visualId` : les DEUX poxwalkers y ecrasent la meme cle. Le compte de
+        # summons se lit donc sur la LISTE `decisionView.units`, jamais sur ce dict.
+        smn = sorted(int(u["id"]) for u in (dv2.get("units") or [])
+                     if u.get("alive") and str(u.get("visualId") or "").startswith("deathPox"))
+        out["summons"] = smn
+        out["all_units"] = sorted((u.get("visualId"), u.get("id"))
+                                  for u in (dv2.get("units") or []) if u.get("alive"))
+        cid = ids[GRAFT_ON]
+        if len(smn) < 2:
+            out["error"] = ("montage : %d summon(s), il en faut 2 (anneau du summoner occupe par %s)"
+                            % (len(smn), out["ring_occupied"]))
+            raise _MontageError(out["error"])
+        out["r1"] = _regime("R1 cible = summon, les autres summons dans son disque", smn[0])
+        out["r3"] = _regime("R3 cible NON-summon (le summoner, au centre du nuage)", ids[SUMMONER])
+        # R2 : le porteur (camp ADVERSE des summons) amene AU CONTACT. `Friends(of: Target)` doit
+        # l'exclure -> meme compte qu'en R1.
+        tgt_pos = next((p for uid, p in
+                        {int(u["squadId"]): (u["col"], u["row"])
+                         for u in ((_r(sid, rid, "observeBattle", {}, 120)).get("units") or [])
+                         if not u.get("isDead")}.items() if uid == smn[0]), None)
+        out["r2_target_pos"] = tgt_pos
+        if tgt_pos is not None:
+            import hexgeo as _hg
+            for cand in _hg.disk(tgt_pos[0], tgt_pos[1], 1):
+                if tuple(cand) == tuple(tgt_pos):
+                    continue
+                mv = _move(sid, rid, cid, cand[0], cand[1])
+                if bool((mv.get("actions") or [{}])[0].get("ok")):
+                    out["r2_caster_pos"] = tuple(cand)
+                    break
+        out["r2"] = _regime("R2 porteur (camp du caster) AU CONTACT des summons", smn[0])
+    except _MontageError:
+        pass                                   # le montage a echoue : on RAPPORTE, on n'invente pas
+    finally:
+        if rid is not None:
+            _r(sid, rid, "disposeRunner", {}, 30)
+    # Le verdict est DERIVE de la mesure : natif == port APRES sur les trois regimes, et le port
+    # AVANT differe sur au moins un (sinon la garde ne verrouille rien).
+    regs = [out[k] for k in ("r0", "r1", "r2", "r3") if k in out]
+    out["after_matches_native"] = bool(regs) and all(r["port_after"] == r["native"] for r in regs)
+    out["before_differed"] = any(r["port_before"] != r["native"] for r in regs)
+    out["ok"] = bool(out["after_matches_native"] and out["before_differed"])
+    if verbose:
+        print("\n[350r3b/4] volet AoE de 1147 -- selecteur GetAllTargets (summons du camp de la CIBLE)")
+        print("  summons : %s  | erreur: %s" % (out.get("summons"), out.get("error")))
+        print("  unites  : %s" % out.get("all_units"))
+        print("  anneau du summoner occupe par : %s" % out.get("ring_occupied"))
+        print("  R2 : porteur deplace en %s (cible en %s)"
+              % (out.get("r2_caster_pos"), out.get("r2_target_pos")))
+        for k in ("r0", "r1", "r2", "r3"):
+            r = out.get(k)
+            if not r:
+                continue
+            print("\n  === %s ===  cible=%s" % (r["tag"], r["target"]))
+            print("    positions : %s" % r["positions"])
+            print("    natif       (%d ev) : %s" % (len(r["native"]), r["native"]))
+            print("    port AVANT  (%d ev) : %s" % (len(r["port_before"]), r["port_before"]))
+            print("    port APRES  (%d ev) : %s" % (len(r["port_after"]), r["port_after"]))
+        print("\n  port APRES == natif sur les %d regimes : %s" % (len(regs),
+                                                                  out["after_matches_native"]))
+        print("  port AVANT differait                  : %s" % out["before_differed"])
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
+    return out
+
+
+# --------------- etape 5 : GENERALISATION -- autre board, caster ALLIE des summons
+
+GEN_BOARD = "MC1_15"     # board DIFFERENT de celui des etapes 0-4 (geometrie et spawns distincts)
+GEN_GRAFT_ON = P_FILLER  # `deathPutrifier` : meme camp que le summoner, donc ALLIE des summons
+
+
+def step5_generalize_1147(seed: int = 35090, verbose: bool = True) -> dict:
+    """#359, generalisation. Le selecteur de 1147 ne lit RIEN du caster -- `Friends(of: Target)` et
+    `SurroundingUnits(Target, range)` referencent tous deux la CIBLE. Un caster ALLIE des summons
+    doit donc rendre le MEME ensemble qu'un caster ennemi.
+
+    Ce n'est pas une redite de l'etape 4 : la-bas le caster est du camp OPPOSE aux summons, si bien
+    qu'un port qui aurait (a tort) reference le CASTER aurait rendu ZERO -- l'ecart etait visible.
+    Ici c'est l'inverse : un port qui filtrerait les cibles ENNEMIES du caster (le reflexe naturel
+    pour une ability offensive, et ce que disent ses `TargetingOptions`) rendrait zero ALORS QUE LE
+    NATIF EMET. Les deux montages ensemble bornent le referent des deux cotes.
+
+    Board DIFFERENT (`MC1_15`) : la geometrie de spawn, le nombre de tuiles libres autour du
+    summoner -- donc le NOMBRE de summons -- et les distances changent. Un accord qui ne tiendrait
+    que sur `MC1_67` serait un sur-ajustement au montage."""
+    sid = _resolve_session()
+    LOGS.mkdir(parents=True, exist_ok=True)
+    seed_bc = _graft_seed_bc([1147], GEN_GRAFT_ON, "1147gen")
+    sf = LOGS / "p350r3b_step5.json"
+    rid = None
+    out: dict = {"board": GEN_BOARD, "caster_visual": GEN_GRAFT_ON}
+    try:
+        sfp = sf
+        sfp.unlink(missing_ok=True)
+        cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+               "--state-file", str(sfp), "--board", GEN_BOARD, "--rank", str(RANK),
+               "--crit", "0,0", "--block-target", "0,0", "--no-ai",
+               "--p-units", "%s,%s" % (SUMMONER, GEN_GRAFT_ON),
+               "--a-units", "%s,%s" % (GRAFT_ON, A_FILLER),
+               "--unit-stat", "%s:ActiveAbilityLevel=%d,AbilityVariablesMultiplierPercentage=100"
+                              % (GEN_GRAFT_ON, A1147_LVL_A),
+               "--unit-stat", "%s:ActiveAbilityLevel=%d" % (SUMMONER, SUMMON_LEVEL),
+               "--seed-bc", str(seed_bc)]
+        proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                              encoding="utf-8", errors="replace")
+        if not sfp.exists():
+            raise RuntimeError("build KO : %s" % ((proc.stderr or proc.stdout or "")[-900:]))
+        rid = int(json.loads(sfp.read_text())["runnerId"])
+        ids, _dv = _ids(sid, rid)
+        # Le summoner s'isole : c'est le nombre de tuiles LIBRES de son anneau qui fixe le compte de
+        # summons (`ceil(cnt x chance / 100)`). On prend la tuile la plus degagee qu'il peut atteindre.
+        import hexgeo
+        ob0 = _r(sid, rid, "observeBattle", {}, 120)
+        pos0 = {int(u["squadId"]): (u["col"], u["row"])
+                for u in (ob0.get("units") or []) if not u.get("isDead")}
+        mov = _r(sid, rid, "aiMovableTiles", {}, 90)
+        cand = []
+        for u in (mov.get("units") or []):
+            if int(u.get("unitId") or -1) != int(ids[SUMMONER]):
+                continue
+            for t in (u.get("tiles") or []):
+                p = (t.get("col"), t.get("row"))
+                if None in p:
+                    continue
+                busy = sum(1 for uid, q in pos0.items()
+                           if uid != ids[SUMMONER] and hexgeo.distance(q, p) <= 1)
+                cand.append((busy, p))
+        cand.sort()
+        out["summoner_tile"] = cand[0][1] if cand else pos0.get(int(ids[SUMMONER]))
+        out["neighbours_busy"] = cand[0][0] if cand else None
+        if cand:
+            _move(sid, rid, ids[SUMMONER], *cand[0][1])
+        _r(sid, rid, "applyAction",
+           {"action": {"kind": "ability", "casterId": ids[SUMMONER],
+                       "targetId": ids[SUMMONER], "abilityType": SPAWN_POXWALKERS}}, 180)
+        _ids2, dv2 = _ids(sid, rid)
+        smn = sorted(int(u["id"]) for u in (dv2.get("units") or [])
+                     if u.get("alive") and str(u.get("visualId") or "").startswith("deathPox"))
+        out["summons"] = smn
+        if not smn:
+            out["error"] = "montage : aucun summon pose sur %s" % GEN_BOARD
+            raise _MontageError(out["error"])
+        cid = ids[GEN_GRAFT_ON]
+        ctx, _d = P344._ctx(sid, rid, cid)
+        mp = ctx.me.get("pos") or {}
+        here = (mp.get("col"), mp.get("row"))
+        out["native"] = _native_events(sid, rid, cid, smn[0])
+        out["port_after"] = _port_events(ctx.scene, cid, smn[0], here, shipped=True)
+        out["port_before"] = _port_events(ctx.scene, cid, smn[0], here, shipped=False)
+        out["caster_team_is_target_team"] = (ctx.scene.team(cid) == ctx.scene.team(smn[0]))
+        ob = _r(sid, rid, "observeBattle", {}, 120)
+        out["summon_positions"] = {int(u["squadId"]): (u["col"], u["row"])
+                                   for u in (ob.get("units") or [])
+                                   if not u.get("isDead") and int(u["squadId"]) in smn}
+    except _MontageError:
+        pass
+    finally:
+        if rid is not None:
+            _r(sid, rid, "disposeRunner", {}, 30)
+    # L'ENSEMBLE et les valeurs -- pas la sequence : le port ne mirrore PAS les noeuds de tri du
+    # selecteur (`SortByRow` / `SortReverse` sous `If(IsTopPlayer)`), et l'utilite les ignore
+    # (`CalculateUtilityFromPredictions` SOMME). Ce montage-ci le MESURE : le natif ordonne autrement.
+    _bag = (lambda evs: sorted((e["target"], tuple(e["dmg"])) for e in (evs or [])))
+    out["order_native"] = [e["target"] for e in (out.get("native") or [])]
+    out["order_port"] = [e["target"] for e in (out.get("port_after") or [])]
+    out["same_bag"] = bool(out.get("native")) and _bag(out.get("port_after")) == _bag(out.get("native"))
+    out["same_order"] = out["order_native"] == out["order_port"]
+    out["ok"] = bool(out["same_bag"] and out.get("caster_team_is_target_team") is True
+                     and _bag(out.get("port_before")) != _bag(out.get("native")))
+    if verbose:
+        print("\n[350r3b/5] GENERALISATION -- board %s, caster %s (ALLIE des summons)"
+              % (GEN_BOARD, GEN_GRAFT_ON))
+        print("  tuile du summoner : %s (voisins occupes : %s) | summons : %s @ %s"
+              % (out.get("summoner_tile"), out.get("neighbours_busy"), out.get("summons"),
+                 out.get("summon_positions")))
+        print("  caster allie de la cible : %s" % out.get("caster_team_is_target_team"))
+        print("  natif      (%s ev) : %s" % (len(out.get("native") or []), out.get("native")))
+        print("  port APRES (%s ev) : %s" % (len(out.get("port_after") or []), out.get("port_after")))
+        print("  port AVANT (%s ev) : %s" % (len(out.get("port_before") or []),
+                                             out.get("port_before")))
+        print("  meme ENSEMBLE : %s | meme SEQUENCE : %s (le tri du selecteur n'est pas porte)"
+              % (out["same_bag"], out["same_order"]))
+        print("  erreur : %s" % out.get("error"))
+        print("  -> %s" % ("OK" if out["ok"] else "ECHEC"))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--only-scan", action="store_true")
-    ap.add_argument("--step", type=int, default=None, choices=[0, 1, 2, 3])
+    ap.add_argument("--step", type=int, default=None, choices=[0, 1, 2, 3, 4, 5])
     ap.add_argument("--seed", type=int, default=35030)
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    steps = [a.step] if a.step is not None else ([0] if a.only_scan else [0, 1, 2, 3])
+    steps = [a.step] if a.step is not None else ([0] if a.only_scan else [0, 1, 2, 3, 4, 5])
     out = {}
     if 0 in steps:
         out["scan"] = scan()
@@ -510,6 +823,10 @@ def main() -> int:
         out["step2"] = step2_confront_1147(seed=a.seed + 10)
     if 3 in steps:
         out["step3"] = step3_daemonic_ordnance(seed=a.seed + 20)
+    if 4 in steps:
+        out["step4"] = step4_aoe_1147(seed=a.seed + 30)
+    if 5 in steps:
+        out["step5"] = step5_generalize_1147(seed=a.seed + 40)
     if a.json:
         print(json.dumps(out, indent=1, default=str))
     return 0 if all(v.get("ok") for v in out.values()) else 1

@@ -103,16 +103,56 @@ def test_probe_344_refuses_an_ability_outside_both_rounding_registries():
     assert 1092 not in (set(_PREDICTION_MINMAX_AVERAGE) | set(_PREDICTION_MINMAX_RANDOM_READ))
 
 
+def _nc_native_class_names() -> set:
+    """Classes de playbook dont le PARENT DIRECT est `NonComparablePlaybook`1`, lues dans la table
+    VERSIONNEE `data/symbols/<build>/frida/classes.tsv` (colonne parent) -- la meme source que
+    `docs/rl/case-350r3-oracle-noncomparable.md` sec.1. Jamais deduit d'un nom."""
+    import glob
+    out = set()
+    for path in glob.glob(str(PYDIR.parents[1] / "data" / "symbols" / "*" / "frida" / "classes.tsv")):
+        for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("#!"):
+                continue
+            f = line.split("\t")
+            if len(f) >= 3 and f[2].startswith("IdunBattle.AI.Playbook.NonComparablePlaybook"):
+                out.add(f[0].rsplit(".", 1)[-1])
+    return out
+
+
+def _nc_native_registry_ability_without_port():
+    """Une ability qui reunit les TROIS conditions du second volet de F : dans un registre
+    d'arrondi, playbook natif NonComparable, AUCUN playbook porte. DERIVEE (registres + table de
+    symboles versionnee), jamais epinglee : `1132 KillMaimBurn` occupait ce role jusqu'a son port
+    (#362), et epingler un id aurait fait rougir la garde pour la BONNE nouvelle."""
+    from engine.entities.active_ability_type import ActiveAbilityType
+    known = set(_PREDICTION_MINMAX_AVERAGE) | set(_PREDICTION_MINMAX_RANDOM_READ)
+    nc_classes = _nc_native_class_names()
+    for a in sorted(known):
+        try:
+            name = ActiveAbilityType(a).name
+        except ValueError:
+            continue
+        if (name + "Playbook") in nc_classes and not NCPB.is_noncomp(a):
+            return a, name
+    return None, None
+
+
 def test_probe_344_refuses_an_nc_ability_without_a_ported_playbook():
-    """F (second volet) : `1132 KillMaimBurn` EST dans un registre d'arrondi et son playbook natif
-    EST NonComparable, mais aucun playbook NC n'est porte cote Python -- l'offline mesurerait
-    `generate_multi_hit_attack_prediction`, qui n'est pas sa chaine. Mesure : natif
-    `(8536, 8536, 4)` (borne aux PV MAX, 4 coups, trois profils) contre `(86, 129, 1)` pour le
-    chemin generique. Sans ce refus, le probe rougirait comme un ecart d'ARRONDI ce qui est un
-    PORT MANQUANT. Refus PRE-live."""
-    assert 1132 in _PREDICTION_MINMAX_AVERAGE and not NCPB.is_noncomp(1132)
-    out = P344.run(verbose=False, caster="worldKharn", ability=1132,
-                   ability_name="KillMaimBurn", oracle="nc")
+    """F (second volet) : une ability qui EST dans un registre d'arrondi et dont le playbook natif
+    EST NonComparable, mais SANS playbook porte cote Python -- l'offline n'aurait aucune sequence de
+    construction a opposer a la capture. Sans ce refus, le probe rougirait comme un ecart d'ARRONDI
+    ce qui est un PORT MANQUANT. Refus PRE-live (aucune session requise).
+
+    Le cas d'ecole reste `1132 KillMaimBurn` avant #362 : natif `(8536, 8536, 4)` contre
+    `(86, 129, 1)` pour le chemin generique -- et #362 a montre que l'ecart n'etait meme pas une
+    divergence de formule, mais l'event d'ATTAQUE NORMALE que le gate `WillNormalAttackKill`
+    construit et que l'oracle capte au meme ctor."""
+    ability, name = _nc_native_registry_ability_without_port()
+    if ability is None:
+        pytest.skip("plus aucune ability NC de registre n'est non portee -- la situation que cette "
+                    "garde couvre n'existe plus (etat SOUHAITABLE, pas un contournement)")
+    out = P344.run(verbose=False, caster="worldKharn", ability=ability,
+                   ability_name=name, oracle="nc")
     assert out.get("out_of_scope") is True
     assert "playbook NonComparable porte" in (out.get("reason") or "")
 
