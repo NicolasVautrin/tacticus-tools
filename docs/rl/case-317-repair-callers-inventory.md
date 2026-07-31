@@ -39,19 +39,22 @@ classait par le NOM de l'artefact, ici on classait par un OUTIL aveugle à une v
    `ACTIVE_ABILITY_TRIGGERS` (`triggers/dispatch/registry.py`) ;
 2. **`traits`** → `TRAIT_TRIGGERS` (ex. `LivingMetal` → `LivingMetalRepair` ; le trait `Mechanic`
    accorde l'`ActiveAbilityType 28 Repair`, qui n'a AUCUNE entrée `units.abilities`) ;
-3. **RELIQUE** — deux formes, et le port n'en voit aucune :
+3. **RELIQUE** — deux formes :
    * `relicAbilities` en dur sur l'unité (les 5 npc `tauBossFarsight*` / `tauNpcFarsight` portent
-     `DawnBlade` ainsi) ;
+     `DawnBlade` ainsi) — lue par `RELIC_ABILITY_TRIGGERS` depuis ce cas ;
    * item relique ÉQUIPÉ par le joueur : `items[*].abilityId` + `allowedUnits`, matérialisé dans
      `BattleConfiguration.Units[].TertiaryAbility` (+ `TertiaryAbilityLevel`,
      `TertiaryAbilityVariablesMultiplierPercentage`). **4 unités sur 175** du seed BC en portent
      une (`necroSpyder` 1462, `orksRuntherd` 1475, `admecMarshall` 1457, `admecRuststalker` 1457).
 
-Le gap (3) est déjà nommé ailleurs : `probe_193_move_playbook_inventory.py` volet 2 mesure
+⚠ **MISE À JOUR — le gap (3) 2ᵉ forme est FERMÉ par #357** (`case-357-rail-relique-equipee.md`).
+Il l'était encore à l'écriture de ce cas : `probe_193_move_playbook_inventory.py` volet 2 mesurait
 « BC.Units avec une RELIQUE équipée que le port n'expose PAS », et
-`engine/ai/context.py::live_triggered_ability_ids` (RPC `unitAbilityStates`) est la seule lecture
-FIDÈLE du kit déclenché — côté DÉCISION uniquement. Le rail COMBAT
-(`triggers/dispatch/core.py::collect_triggered_abilities`) n'a pas ce canal.
+`engine/ai/context.py::live_triggered_ability_ids` (RPC `unitAbilityStates`) était la seule lecture
+FIDÈLE du kit déclenché — côté DÉCISION uniquement. Le rail COMBAT lit désormais le MÊME RPC par un
+canal OPT-IN (`load_state(ability_states=…)` → `snapshot._load_tertiary_abilities`, entrées de
+hiérarchie **3**), et `collect_triggered_abilities` inscrit la relique équipée comme **cinquième**
+chemin de registration.
 
 ## 3. L'inventaire — 13 call-sites
 
@@ -128,7 +131,7 @@ donc la seule immédiate : elle se téléporte et le drone `tauSmnDroneCommandLi
 | 5–6 | `ReanimationBeam` | `necroReanimator` (**MoW, hors pool → injectable**) | — | 1 | **confrontable** |
 | 7 | `RelentlessMarch` | `necroWarden` (**pool**) | — | 5 | **confrontable** |
 | 8 | `DefendTheDivineWork` | `admecManipulus` (**pool**) | — | 5 | **confrontable** |
-| 9 | `DawnBlade` | `tauFarsight` — **par la RELIQUE `R_Crit_DawnBlade` uniquement** (hors pool) | — | 5 (`relicAbilities` en dur) | confrontable côté NATIF ; **le port n'a pas le canal relique** (§2) |
+| 9 | `DawnBlade` | `tauFarsight` — **par la RELIQUE `R_Crit_DawnBlade` uniquement** (hors pool → injection catalogue) | — | 5 (`relicAbilities` en dur) | **confrontable des DEUX côtés depuis #357** (canal relique posé, mesuré live) |
 | 10 | `EnhancementRegeneration` | **aucun** — accordée par un `liveEvents/idunLiveEventConfigs[…]/enhancements/Regeneration_01` | — | — | **NON confrontable** (hors bataille régulière) |
 | 11 | `PowerUp_Healing` | — | — | `powupHealing` : traits `Steppable`/`Invincible`/`Immune` = **power-up de TERRAIN**, pas une unité npc hostile | présence board-dépendante, **non mesurée ici** |
 | 12 | `SelfRepairMechanism` | **aucun porteur** | — | — | **DEAD sur ce build** : aucune référence hors du catalogue ; son successeur `SelfRepairMechanismReworked` (1474, `admecBossBelisarius`) construit un `AddStaticStatModifierEffectToOwner`, **pas** un `Repair` |
@@ -199,13 +202,12 @@ implique `IsMechanical`), ici le gate mord réellement :
 
 ### Résidus NOMMÉS de cette tranche
 
-* **canal RELIQUE** : le seul porteur non-npc (`tauFarsight`) obtient `DawnBlade` par l'item
-  `R_Crit_DawnBlade`, matérialisé dans `BC.Units[].TertiaryAbility` — que
-  `collect_triggered_abilities` ne lit pas (§2). Le câblage posé ici lit `relicAbilities` du
-  gameconfig, ce qui couvre les porteurs qui l'ont **en dur** (les 5 npc Farsight) et rend le
-  trigger inerte pour le héros. Fermer le gap demanderait de faire descendre le kit déclenché
-  RÉEL (RPC `unitAbilityStates`, déjà consommé côté DÉCISION) jusqu'au rail COMBAT — chantier
-  distinct, hors périmètre de cette tranche ;
+* ~~**canal RELIQUE**~~ — **FERMÉ (#357)**. Le seul porteur non-npc (`tauFarsight`) obtient
+  `DawnBlade` par l'item `R_Crit_DawnBlade`, matérialisé dans `BC.Units[].TertiaryAbility` : le kit
+  déclenché RÉEL (RPC `unitAbilityStates`) descend désormais jusqu'au rail COMBAT, et le trigger
+  n'est plus inerte pour le héros. **Confronté live** : natif == port == `hpToHeal[niveau]`
+  (**6745** au niveau 8, **5423** au niveau 3), **0** sans le canal. Cf.
+  `case-357-rail-relique-equipee.md` ;
 * **`countRevived` / `countResurrected`** de `UnitsDefeatedByMeleeAttackSelector` : le natif teste
   `UnitExtensions.HasFlag(unit, 0x14)` / `HasFlag(unit, 0xe)` sur la victime. Le port ne modélise
   pas ces deux flags ; il retient la condition principale (`la victime est morte du coup en

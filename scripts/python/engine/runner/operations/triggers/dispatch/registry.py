@@ -413,10 +413,16 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 #   * `gameconfig.units.<kind>.<id>.relicAbilities` -- la relique EN DUR sur l'unite. 25 abilities
 #     du build sont dans ce cas, TOUTES sur des npc (mesure : `probe_317_repair_callers_inventory.py`) ;
 #   * l'item relique EQUIPE par le joueur (`items[*].abilityId` + `allowedUnits`), materialise dans
-#     `BattleConfiguration.Units[].TertiaryAbility` -- 4 unites sur 175 du seed BC en portent une.
-# **SEULE la premiere forme est lue ici** : le rail COMBAT derive du gameconfig, et la lecture fidele
-# du kit declenche REEL (RPC `unitAbilityStates`, `engine/ai/context.py::live_triggered_ability_ids`)
-# n'existe que cote DECISION. Gap NOMME, mesure par `probe_193_move_playbook_inventory.py` volet 2.
+#     `BattleConfiguration.Units[].TertiaryAbility` -- 4 unites sur 175 du seed BC en portent une,
+#     et 52 autres peuvent en recevoir une par le montage #237.
+# **LES DEUX formes sont lues depuis #357** : la premiere par le gameconfig (`relicAbilities`), la
+# seconde par `UnitContext.tertiary_ability`, seede depuis le RPC `unitAbilityStates`
+# (`snapshot._load_tertiary_abilities`) -- la branche TERTIAIRE d'`IdunBattle.Entities.Factories.
+# UnitFactory$$AddConfiguredAbilities`. Le registre ci-dessous est INDEXE PAR NOM d'ability, donc il
+# sert aux deux formes sans duplication ; c'est `collect_triggered_abilities` qui DEDUPLIQUE (mirror
+# du `TryAdd` sur `KeyedCollection`) quand une unite porte la meme relique par les deux voies.
+# ⚠ Le canal est OPT-IN : un etat charge sans `load_state(ability_states=...)` (ou un `State` nu)
+# ne voit QUE la forme gameconfig -- exactement comme avant #357.
 #
 # Registre SEPARE de `ABILITY_TRIGGERS` a dessein : aucune des 25 relicAbilities n'y figure, donc un
 # registre distinct rend la double-inscription STRUCTURELLEMENT impossible.

@@ -6,12 +6,15 @@ Le NOM de la classe native dit `Heal` et la variable qu'elle lit s'appelle `hpTo
 exactement le piege qui avait fait survivre le bug #310 pendant des mois (`LivingMetal` cable sur le
 soin) : on classe par l'ARTEFACT, jamais par le nom.
 
-TOUT EST OFFLINE et deterministe (State nu + board REEL `MC1_67`, zero RNG, zero runner), et ce
-n'est pas un pis-aller : AUCUN porteur de `DawnBlade` n'est confrontable par le harnais -- mesure
-rendue par `python probe_317_dawn_blade.py --pool`. Les 5 porteurs `gameconfig.relicAbilities` sont
-npc et ne passent pas `buildNormalizedBC` au rank 17 ; le seul non-npc (`tauFarsight`) ne l'obtient
-que par l'item relique equipe (`BC.Units[].TertiaryAbility`), canal absent du rail COMBAT. Le residu
-est NOMME dans `docs/rl/case-317-repair-callers-inventory.md`.
+TOUT EST OFFLINE et deterministe ici (State nu + board REEL `MC1_67`, zero RNG, zero runner) : ce
+fichier verrouille les ETAGES (repair vs heal, gate, modifier), qui se tranchent sur un `State`.
+
+⚠ « AUCUN porteur de `DawnBlade` n'est confrontable » etait vrai a l'ecriture (2 raisons : les 5
+porteurs `gameconfig.relicAbilities` sont npc et ne passent pas `buildNormalizedBC` au rank 17 ; le
+seul non-npc, `tauFarsight`, ne l'obtient que par l'item relique equipe, canal alors absent du rail
+COMBAT). **Ce n'est PLUS vrai** : le montage #237 pose la relique et #357 la fait LIRE. La
+confrontation LIVE existe -- `tests/engine/runner/test_357_relic_rail_live.py` (natif == port ==
+`hpToHeal[TertiaryAbilityLevel]`, sur deux niveaux et deux regimes negatifs).
 
 Montage et contre-epreuve : `probe_317_dawn_blade.py` (`--mutate heal` rebranche la feuille sur
 `HealUnitOperation` -- la faute #310 transposee). ROUGE VU AVANT, verbatim :

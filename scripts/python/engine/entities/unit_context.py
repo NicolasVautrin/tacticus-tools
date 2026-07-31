@@ -34,6 +34,23 @@ class UnitContext:
     # les variables d'ability « affectées par la rareté » (ex. PowerTrip.armorIgnored) §17.21. Capté hors
     # combatSnapshot (BC) pour l'instant ; non figé par from_snapshot.
     ability_variables_multiplier: int = 100
+    # --- ability TERTIAIRE = l'item RELIQUE EQUIPE (#357) -------------------------------------------
+    # Les trois champs de `IdunBattle.Configuration.UnitConfiguration` que
+    # `IdunBattle.Entities.Factories.UnitFactory$$Build` lit pour fabriquer le TROISIEME `AbilityState`
+    # (les deux autres etant l'actif et le passif, deja portes ci-dessus) :
+    #     TertiaryAbility                              +0xb0  Nullable<TriggeredAbilityType>
+    #     TertiaryAbilityLevel                         +0xc0  (0 = VERROUILLE, jamais un niveau)
+    #     TertiaryAbilityVariablesMultiplierPercentage +0x78  (l'actif/passif lisent +0x74)
+    # `AddConfiguredAbilities` monte ensuite l'ability par
+    # `IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)` -- le
+    # `3` est la hierarchie Tertiary (les passives entrent avec `2`), c'est le discriminant qui
+    # distingue une relique d'un passif de kit. `None` = aucune relique equipee (171 des 175 entrees
+    # `Units` du seed BC). Peuple par `snapshot._load_tertiary_abilities` (canal `unitAbilityStates`).
+    # Le NOM est porte plutot que l'id parce que les registres de dispatch et le gameconfig sont
+    # tous deux indexes par nom (`RELIC_ABILITY_TRIGGERS`, `gameconfig.abilities`).
+    tertiary_ability: str | None = None
+    tertiary_ability_level: int = 0
+    tertiary_ability_variables_multiplier: int = 100
     # gameconfig-units (offline) — SAUF quand `traits_measured` est vrai (cf. ci-dessous).
     traits: list[int] = field(default_factory=list)
     # #264 — `traits` a-t-il ete SEEDE depuis la MESURE live (`combatSnapshot.units[].traits`) plutot

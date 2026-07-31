@@ -64,21 +64,25 @@ Oui, et par DEUX chemins distincts :
     passe le trigger et se fait REFUSER par le gate (`IsDamagedUnit` faux). C'est un refus REEL ;
   * `IsDefeatedByMeleeAttack` : un kill A DISTANCE ne declenche rien.
 
-RESIDUS NOMMES
+DEUX RESIDUS LEVES PAR #357 (le rail de la relique EQUIPEE)
   * **canal RELIQUE** -- le SEUL porteur non-npc, `tauFarsight`, obtient `DawnBlade` par l'item
     `R_Crit_DawnBlade` (`allowedUnits = ['tauFarsight']`), materialise cote natif dans
-    `BattleConfiguration.Units[].TertiaryAbility`. Le rail COMBAT
-    (`triggers/dispatch/core.py::collect_triggered_abilities`) derive du gameconfig et ne voit pas
-    ce champ ; la lecture FIDELE du kit declenche (RPC `unitAbilityStates`,
-    `engine/ai/context.py::live_triggered_ability_ids`) n'existe que cote DECISION. Le cablage pose
-    ici lit `relicAbilities` du gameconfig -- la voie des 5 porteurs npc `tauBossFarsight*` /
-    `tauNpcFarsight`, qui l'ont EN DUR -- et reste donc inerte pour le heros. Gap deja mesure par
-    `probe_193_move_playbook_inventory.py` volet 2 ; cf. `docs/rl/case-317-repair-callers-inventory.md`.
-  * **niveau de la variable** -- `hpToHeal` a 10 entrees (niveaux de RELIQUE 1..10), et le niveau
-    natif correspondant est `BC.Units[].TertiaryAbilityLevel`, que le substrat runner n'expose pas
-    non plus (`StatsComponent.ctx` porte `active_ability_level` / `passive_ability_level`). Le port
-    passe `passive_ability_level`, qu'`ability_var` CLAMPE au dernier index -> valeur du niveau de
-    relique MAX. Choix documente, pas mesure.
+    `BattleConfiguration.Units[].TertiaryAbility`. Ce champ est desormais LU par le rail COMBAT :
+    `snapshot._load_tertiary_abilities` (RPC `unitAbilityStates`, entrees de hierarchie **3**) seede
+    `UnitContext.tertiary_ability`, que `collect_triggered_abilities` inscrit comme CINQUIEME chemin
+    de registration -- mirror de la branche tertiaire d'`IdunBattle.Entities.Factories.UnitFactory$$
+    AddConfiguredAbilities`. Le canal est OPT-IN (`load_state(ability_states=...)`) : un `State` nu
+    ou une capture qui ne le passe pas ne voit que la voie `relicAbilities` du gameconfig (les 5 npc
+    `tauBossFarsight*` / `tauNpcFarsight`, qui l'ont EN DUR).
+  * **niveau de la variable** -- `hpToHeal` a 10 entrees (niveaux de RELIQUE 1..10), indexees
+    nativement par `BC.Units[].TertiaryAbilityLevel`. Le port lisait `passive_ability_level` (50 sur
+    tout runner normalise), qu'`ability_var` clampait au dernier palier : la relique rendait
+    TOUJOURS `hpToHeal[10]`, quel que soit son niveau. `triggered_ability_state` (mirror des trois
+    `AbilityState` d'`UnitFactory$$Build`) rend maintenant le couple TERTIAIRE exact
+    (`TertiaryAbilityLevel`, `TertiaryAbilityVariablesMultiplierPercentage` +0x78) quand l'ability
+    arrive par l'item equipe, et le couple PASSIF sinon. Mesure : `probe_357_relic_rail.py`.
+
+RESIDUS NOMMES
   * **marqueur « defaite par attaque de MELEE »** -- le natif lit un CHAMP persistant pose sur la
     victime ; le port n'a aucun canal melee sur le vecteur `On(UnitDeath = 0)`
     (`unit_death_triggers` pose `ranged=False` en dur). Le port evalue donc la nature du coup
@@ -109,7 +113,8 @@ from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import StatsComponent, UnitComponent
 from ....state import State
 from ....abilities.behaviours import Repair, entities_from_state
-from ..base import TriggeredAbility, TriggerEvent, _is_ranged_position
+from ..base import (TriggeredAbility, TriggerEvent, triggered_ability_state,
+                    _is_ranged_position)
 
 ABILITY_ID = "DawnBlade"
 HP_TO_HEAL_KEY = "hpToHeal"      # `AbilityVariableType` 0x20 = 32 -- le NOM dit heal, l'artefact repare
@@ -131,19 +136,22 @@ def dawn_blade_behaviour_tree(amount: int) -> Repair:
 def hp_to_heal(state: State, owner_id: int) -> int:
     """`AbilityConfiguration$$GetVariableForLevel(cfg, 0x20 = hpToHeal, abilityState, 0)`.
 
+    L'`abilityState` est celui sous lequel l'ability est MONTEE, et `triggered_ability_state` mirrore
+    le choix qu'en fait `IdunBattle.Entities.Factories.UnitFactory$$Build` : etat TERTIAIRE
+    (`TertiaryAbilityLevel` / `TertiaryAbilityVariablesMultiplierPercentage`) quand `DawnBlade`
+    arrive par l'item relique EQUIPE, etat PASSIF quand elle est cablee en dur sur un npc
+    (`gameconfig.relicAbilities`) -- ou quand le canal tertiaire n'a pas ete fourni au chargement.
+
     `hpToHeal` n'est PAS dans `variablesAffectedByRarityBonus` du gameconfig de `DawnBlade` -> le
-    `multiplier_pct` ne s'applique pas (`ability_var` gate l'application sur cette liste). Le NIVEAU
-    lu est un residu NOMME (cf. l'en-tete : le natif indexe par `TertiaryAbilityLevel`, hors
-    substrat). 0 si l'unite / son contexte / la variable manquent -> la feuille `Repair` est alors un
-    no-op (`amount > 0` est sa garde)."""
+    `multiplier_pct` ne s'applique pas (`ability_var` gate l'application sur cette liste) ; on le
+    passe quand meme, parce que c'est le natif qui decide -- pas nous. 0 si l'unite / son contexte /
+    la variable manquent -> la feuille `Repair` est alors un no-op (`amount > 0` est sa garde)."""
     from .....entities.effects.magnitude import ability_var
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
-    ctx = sc.ctx if sc is not None else None
-    if ctx is None:
+    if sc is None or getattr(sc, "ctx", None) is None:
         return 0
-    lvl = getattr(ctx, "passive_ability_level", None)
-    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+    lvl, mult = triggered_ability_state(state, owner_id, ABILITY_ID)
     return int(ability_var(ABILITY_ID, HP_TO_HEAL_KEY, lvl, multiplier_pct=mult) or 0)
 
 

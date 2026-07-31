@@ -10,7 +10,8 @@ Découpage fidèle au namespace natif :
 - `effect_triggers.py`  — `Entities.Effects.*` (Contaminated, Overwatch).
 """
 from .base import (TriggerEvent, TriggeredAbility, EffectTrigger, TileEffectTrigger,
-                   PHASE_TRIGGER_CAP, _unit_tile, _hex_dist, _adjacent_enemies, _is_adjacent_units)
+                   PHASE_TRIGGER_CAP, triggered_ability_state,
+                   _unit_tile, _hex_dist, _adjacent_enemies, _is_adjacent_units)
 from .dispatch import (
     TRAIT_TRIGGERS, ABILITY_TRIGGERS, ACTIVE_ABILITY_TRIGGERS, EFFECT_TRIGGERS,
     collect_triggered_abilities, collect_effect_triggers, evaluate_trigger_operation,
@@ -39,6 +40,7 @@ from .tiles import first_aid_heal, dry_bush_fire_spread
 
 __all__ = [
     "TriggerEvent", "TriggeredAbility", "EffectTrigger", "TileEffectTrigger", "PHASE_TRIGGER_CAP",
+    "triggered_ability_state",
     "_unit_tile", "_hex_dist", "_adjacent_enemies", "_is_adjacent_units",
     "TRAIT_TRIGGERS", "ABILITY_TRIGGERS", "ACTIVE_ABILITY_TRIGGERS", "EFFECT_TRIGGERS",
     "collect_triggered_abilities", "collect_effect_triggers", "evaluate_trigger_operation",

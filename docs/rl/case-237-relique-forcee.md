@@ -208,10 +208,14 @@ Les valeurs correspondent au gameconfig terme à terme
 `tauFarsight` est **hors catalogue** ; injecté (`catalog_inject --units tauFarsight`) puis équipé de
 `DawnBlade` (1501, `allowedUnits = [tauFarsight]`), niveau **8** demandé :
 
-| voie | `TriggeredAbility.Level` lu en bataille | `hpToHeal` résolu |
+| voie | `TriggeredAbility.Level` lu en bataille | `extraDmg` résolu |
 |---|---|---|
 | A — relique dans le seed BC, puis `build --seed-bc` | **50** (écrasé par `buildNormalizedBC`) | 579 = palier **10** |
 | B — `build --equip-relic "tauFarsight:DawnBlade:8"` | **8** (exact) | **537** = palier 8 |
+
+⚠ La variable sondée est **`extraDmg`** (`[390, 411, …, 579]`), pas `hpToHeal` : le probe prend
+`sorted(variables)[0]`. `DawnBlade.hpToHeal` vaut `[4895, …, 7273]` — c'est elle que lit le
+behaviour porté, et #357 la mesure (6745 au niveau 8).
 
 Sur les deux runners : niveau 10 → 579, **niveau 50 → 579** (clamp), niveau 0 → `system error`.
 C'est la mesure qui tranche « où poser le couple » : la voie A **ne peut pas** jouer un niveau
@@ -223,10 +227,13 @@ les unités des états 1 et 2.
 
 ## 7. Ce qui n'est PAS couvert
 
-* **Le rail COMBAT du port Python ne lit toujours pas la relique équipée** (résidu `N317-a`). Ce
-  cas livre le **MONTAGE**, pas le port : une relique montée est désormais confrontable, et c'est
-  ce qui permettra de mesurer l'écart natif↔port. Ne pas lire ce cas comme « les reliques sont
-  portées ».
+* ~~**Le rail COMBAT du port Python ne lit toujours pas la relique équipée** (résidu `N317-a`).~~
+  **FERMÉ par #357** (`case-357-rail-relique-equipee.md`) : `snapshot._load_tertiary_abilities`
+  (canal OPT-IN `load_state(ability_states=…)`, RPC `unitAbilityStates`, entrées de hiérarchie 3)
+  seede `UnitContext.tertiary_ability`, et `collect_triggered_abilities` l'inscrit comme CINQUIÈME
+  chemin de registration. Confronté live sur `DawnBlade` : natif == port == `hpToHeal[niveau]` sur
+  deux niveaux (6745 et 5423), 0 côté port sans le canal. **Une seule relique sur 32**, et le canal
+  n'a qu'un producteur (le probe) — hors de ce montage une relique équipée reste inerte.
 * **Aucune mesure du contenu de l'effet** : le probe vérifie que l'ability est **montée** (hiérarchie
   3, id, niveau) et que le natif **résout ses variables** — pas que son effet de jeu est correct.
 * **La levée du verrou 2 en usage réel est LUE, pas jouée.** Le décompilé de
@@ -235,9 +242,16 @@ les unités des états 1 et 2.
   un vrai cast demanderait de déclencher le trigger de la relique en bataille — hors périmètre.
 * **`allowedUnits` n'a pas été confronté côté natif** : rien dans `AddConfiguredAbilities` ne le
   relit, mais aucun montage `allow_unlisted=True` n'a été joué live pour le vérifier.
-* `TertiaryAbilityVariablesMultiplierPercentage` (`UnitConfiguration+0x78`) vaut **200** sur les
+* ~~`TertiaryAbilityVariablesMultiplierPercentage` (`UnitConfiguration+0x78`) vaut **200** sur les
   entrées du seed et n'est **jamais** recalculé par `buildNormalizedBC`. Un porteur synthétisé par
-  `catalog_inject.synthesize` porte **100**. L'écart n'a pas été confronté ici.
+  `catalog_inject.synthesize` porte **100**. L'écart n'a pas été confronté ici.~~ **TRANCHÉ par
+  #357** : ce n'est pas un écart de synthèse. Sur les 175 entrées du seed, `+0x78` vaut **200** sur
+  **4** et **100** sur **171** — et les 4 sont EXACTEMENT celles qui portent une `TertiaryAbility`
+  (elles portent aussi `AbilityVariablesMultiplierPercentage = 200`). Les 171 autres n'ont pas de
+  relique : leur `+0x78` est un champ neutre que rien ne lit, donc le `100` de `synthesize` est
+  correct. Mesuré en bataille à deux sources indépendantes (`AbilityState` monté et
+  `unitConfig.tertiaryAbilityVariablesMultiplier`) : **100** des deux côtés, contre **180** pour
+  `+0x74` — deux champs distincts, et le port lit le bon.
 
 ## 8. Ce que ce cas a démenti en route
 

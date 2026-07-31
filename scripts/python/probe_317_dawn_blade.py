@@ -11,16 +11,21 @@ INVISIBLE en regime nominal : il ne se voit qu'aux etages qui les separent. D'ou
 
 --------------------------------------------------------------------------- POURQUOI OFFLINE
 
-Le montage est OFFLINE et deterministe (State nu + board REEL, zero RNG, zero runner), et ce n'est
-pas un pis-aller : `DawnBlade` n'a AUCUN porteur confrontable par le harnais.
-  * le seul porteur non-npc, `tauFarsight`, l'obtient par l'item relique `R_Crit_DawnBlade`,
-    materialise cote natif dans `BattleConfiguration.Units[].TertiaryAbility` -- canal que le rail
-    COMBAT du port ne lit pas (residu NOMME, `docs/rl/case-317-repair-callers-inventory.md`) ;
+Le montage est OFFLINE et deterministe (State nu + board REEL, zero RNG, zero runner) : la question
+posee ici est « le cablage et les ETAGES sont-ils les bons », et elle se tranche sur un `State` --
+exactement comme `probe_301_kill_unit_trigger_channels.py`.
+
+⚠ MISE A JOUR #357. Ce probe disait aussi « `DawnBlade` n'a AUCUN porteur confrontable par le
+harnais », et c'etait vrai a l'ecriture :
   * les 5 porteurs qui l'ont EN DUR (`gameconfig.relicAbilities`) sont des npc, et le sondage
-    `--pool` de ce probe MESURE que `tauNpcFarsight` injecte au catalogue **ne passe pas** la
-    normalisation `buildNormalizedBC` au rank 17 -> il n'entre pas au pool spawnable.
-La question posee ici est donc « le cablage et les etages sont-ils les bons », et elle se tranche
-sur un `State` -- exactement comme `probe_301_kill_unit_trigger_channels.py`.
+    `--pool` ci-dessous MESURE que `tauNpcFarsight` injecte au catalogue **ne passe pas** la
+    normalisation `buildNormalizedBC` au rank 17 -> il n'entre pas au pool spawnable ;
+  * le seul porteur non-npc, `tauFarsight`, l'obtient par l'item relique `R_Crit_DawnBlade`,
+    materialise dans `BattleConfiguration.Units[].TertiaryAbility` -- canal qu'aucun rail ne lisait.
+Les DEUX obstacles sont leves : #237 pose la relique (injection catalogue + `--equip-relic`), #357
+la fait LIRE. La confrontation live vit dans `probe_357_relic_rail.py`. Le sondage `--pool` reste
+ici parce que sa reponse (le npc ne se normalise pas) est TOUJOURS vraie -- seule sa CONCLUSION
+« donc aucun porteur confrontable » ne l'est plus.
 
 --------------------------------------------------------------------------- LES REGIMES
 
@@ -222,10 +227,10 @@ def pool_probe() -> int:
     print("[317/pool] +%d unite(s) au catalogue | pool normalise = %d regulieres + %d MoW | %s "
           "spawnable = %s" % (len(added), len(pool), len(pool_mow), CARRIER, ok))
     if not ok:
-        print("[317/pool] => aucun porteur de DawnBlade n'est confrontable : les 5 porteurs "
-              "`relicAbilities` sont npc et ne passent pas la normalisation ; le heros "
-              "`tauFarsight` ne l'obtient que par la relique equipee "
-              "(`BC.Units[].TertiaryAbility`), canal absent du rail COMBAT.")
+        print("[317/pool] => les 5 porteurs `relicAbilities` sont npc et ne passent pas la "
+              "normalisation. La voie CONFRONTABLE est l'autre : le heros `tauFarsight` injecte "
+              "au catalogue + `--equip-relic tauFarsight:DawnBlade:<lvl>` (#237), lu par le rail "
+              "tertiaire (#357). Cf. `probe_357_relic_rail.py`.")
     return 0
 
 

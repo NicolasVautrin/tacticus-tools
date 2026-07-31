@@ -158,7 +158,7 @@ def _machine_ability_state(m: dict) -> tuple:
 
 
 def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
-               board=None, tiles=None, actor_stats=None) -> State:
+               board=None, tiles=None, actor_stats=None, ability_states=None) -> State:
     """Snapshot live → `State` ECS (entités + composants d'unité).
 
     CANAL DE CAPTURE — `decision` accepte les DEUX canaux du capteur `readEffectsByUnit`. Capté par
@@ -214,7 +214,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     `ModifiedExoarmour_ExtraDmgEffect` (magnitude `V × n`) y était SILENCIEUSEMENT inerte. C'était le
     résidu `#340-r1`, bloqué non par le port mais par l'absence de capteur ; `actorStats` publie
     désormais les trois champs. `actor_stats=None` = canal non fourni → comportement STRICTEMENT
-    inchangé (les compteurs restent à 0, comme un composant natif frais)."""
+    inchangé (les compteurs restent à 0, comme un composant natif frais).
+
+    `ability_states` (payload du RPC `unitAbilityStates`) optionnel : l'ability TERTIAIRE de chaque
+    unité — l'item RELIQUE ÉQUIPÉ (#357). MÊME nature que les trois seeds ci-dessus, et son canal est
+    lui aussi un RPC DISTINCT (`unitAbilityStates`), donc il a son propre argument. Sans lui, une
+    relique montée en bataille (`BC.Units[].TertiaryAbility`, montage #237) est INERTE côté port : le
+    rail COMBAT dérive le kit déclenché du gameconfig, qui ne connaît que les reliques câblées EN DUR
+    sur des npc (`units.<id>.relicAbilities`) — jamais l'item équipé, qui est un état JOUEUR.
+    Requiert `snapshot` (le seed écrit dans `StatsComponent.ctx`, que `_load_stats_and_effects` pose).
+    `ability_states=None` = canal non fourni → comportement STRICTEMENT inchangé."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     # #90/#98 -- FACTEUR rounds->turns (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `count(joueurs du
@@ -275,6 +284,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # pas `combatSnapshot`) -> il est gate par son propre argument, jamais par `snapshot`.
     if actor_stats is not None:
         _load_actor_statistics(state, actor_stats)
+    # Ability TERTIAIRE (item RELIQUE equipe, #357) : MEME nature, MEME forme -- canal RPC distinct
+    # (`unitAbilityStates`), donc argument propre. APRES `_load_stats_and_effects`, qui pose les
+    # `StatsComponent.ctx` dans lesquels ce seed ecrit.
+    if ability_states is not None:
+        _load_tertiary_abilities(state, ability_states)
     # Effets de TUILE : APRÈS `_load_stats_and_effects` (qui REMPLACE `state.effects` par un
     # `EffectsState.seed` frais) et APRÈS que les `StatsComponent` des sources soient posés (le
     # niveau/multiplicateur d'un effet de tuile se lit sur son unité SOURCE, cf. `_load_tile_effects`).
@@ -633,6 +647,93 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
             if v is None or int(v) < 0:
                 continue
             setattr(uc, attr, int(v))
+
+
+TERTIARY_HIERARCHY = 3
+"""`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` monte l'ability TERTIAIRE par
+`IdunBattle.Entities.Components.TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)` : le `3` est
+la hierarchie `Tertiary`. Les passives du kit entrent avec `2`, les derivees de trait avec d'autres
+valeurs -- c'est donc LE discriminant « cette entree est une RELIQUE EQUIPEE » dans le composant."""
+
+
+def _load_tertiary_abilities(state: State, ability_states: dict) -> int:
+    """Seede `UnitContext.tertiary_ability{,_level,_variables_multiplier}` depuis le RPC
+    `unitAbilityStates` (#357). Rend le nombre d'unites seedees.
+
+    MIRROR -- ce qu'on lit est le RESULTAT de la branche TERTIAIRE d'
+    `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` :
+
+        si `config+0xb0` (`Nullable<TriggeredAbilityType> TertiaryAbility`) a une valeur
+          -> `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)`
+
+    ou `tertiaryAbilityState` est l'`AbilityState` que `UnitFactory$$Build` a fabrique depuis
+    `config+0xc0` (`TertiaryAbilityLevel`) et `config+0x78`
+    (`TertiaryAbilityVariablesMultiplierPercentage`) -- PAS `+0x74`, qui sert a l'actif et au passif.
+    Le capteur (`rpc-snapshot.ts`, `unitAbilityStates`) dumpe le `TriggeredAbilityComponent+0x18`
+    instance par instance : `raw` = 12 x int32 depuis `+0x10`, donc `raw[0]` = `AbilityName`,
+    `raw[10]` = hierarchie ; `level`/`mult` sont exposes separement depuis `+0x20`/`+0x24`.
+
+    POURQUOI CE CANAL, ET PAS `combatSnapshot.unitConfig`. Le capteur `unitConfig` publie bien
+    `tertiaryAbilityVariablesMultiplier` (+0x78) mais NI `TertiaryAbility` (+0xb0) NI
+    `TertiaryAbilityLevel` (+0xc0) -- les ajouter demanderait une reinjection. `unitAbilityStates`,
+    lui, porte deja les TROIS informations, et il les porte a l'endroit ou le natif les a REELLEMENT
+    posees (l'`AbilityState` monte), pas a l'endroit ou elles sont declarees. C'est donc a la fois le
+    canal disponible et le plus fidele. Le `tertiaryAbilityVariablesMultiplier` de `unitConfig` reste
+    son JUMEAU cote config -- `probe_357_relic_rail.py` mesure les deux et verifie qu'ils coincident.
+
+    POURQUOI. Pendant EXACT de `_load_unit_flags` / `_load_unit_turn_state` / `_load_actor_statistics`
+    : une ENTREE que RIEN ne peuplait. Le rail COMBAT
+    (`triggers/dispatch/core.py::collect_triggered_abilities`) derivait le kit declenche du
+    gameconfig, qui ignore par construction l'item relique EQUIPE -- etat JOUEUR, pas donnee de kit.
+    Une relique montee en bataille (#237) etait donc INERTE cote port, SANS erreur ni trace : le
+    trigger n'etait simplement jamais inscrit.
+
+    TRI-ETAT, meme discipline que les seeds voisins : `ability_states=None` (canal non fourni) ne
+    pose RIEN et le comportement est STRICTEMENT celui d'avant ; une unite sans entree de hierarchie
+    3 garde `tertiary_ability = None` (= le `Nullable` natif sans valeur, cas des 171 unites du seed
+    BC qui n'equipent aucune relique).
+
+    ⚠ GARDE `level < 1` -- invariant NATIF, pas de la defense de principe : `Idun.Shared.Level$$
+    ToZeroBasedIndex` LEVE `InvalidOperationException` sur `<= 0`, et `0` signifie « verrouille /
+    non debloque » (`Idun.Shared.Level$$CreateValidOrLockedLevel` le laisse passer explicitement).
+    Une entree de hierarchie 3 a niveau 0 ne peut donc PAS venir d'une bataille jouable -- elle
+    denonce un montage incomplet (relique posee sans son niveau, cf. `docs/rl/case-237-relique-
+    forcee.md` §4). On refuse de l'ingerer plutot que d'indexer `arr[-1]` cote port la ou le natif
+    faute."""
+    from ..entities.triggered_ability_type import TriggeredAbilityType
+    seeded = 0
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        if sc is None or getattr(sc, "ctx", None) is None:
+            continue
+        for t in (su.get("triggered") or []):
+            raw = t.get("raw") or []
+            if len(raw) <= 10 or raw[10] != TERTIARY_HIERARCHY:
+                continue
+            aid, lvl = raw[0], t.get("level")
+            if lvl is None or int(lvl) < 1:
+                continue
+            try:
+                name = TriggeredAbilityType(int(aid)).name
+            except ValueError:
+                continue                      # id hors enum du build -> non ingerable, non devinable
+            sc.ctx.tertiary_ability = name
+            sc.ctx.tertiary_ability_level = int(lvl)
+            # `mult` = `AbilityState.VariableMultiplierPercentage` (`+0x24`), lu SANS garde de
+            # valeur : contrairement au niveau, aucun invariant natif n'en exclut de plage, et un
+            # `0` publie serait un vrai zero. Absent (`None`) = champ non expose -> on garde le
+            # defaut neutre 100. Si `level` est lisible, `+0x24` l'est aussi (meme instance) : un
+            # walk partiel aurait deja fait sortir la boucle sur `len(raw) <= 10`.
+            mult = t.get("mult")
+            if mult is not None:
+                sc.ctx.tertiary_ability_variables_multiplier = int(mult)
+            seeded += 1
+            break                             # `TertiaryAbility` est un Nullable SIMPLE : une au plus
+    return seeded
 
 
 def _load_unit_traits(state: State, snapshot: dict) -> None:
