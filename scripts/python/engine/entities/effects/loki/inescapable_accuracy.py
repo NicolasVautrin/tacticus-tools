@@ -96,17 +96,20 @@ scaling de rarete, et `ability_var` applique cette regle config-driven toute seu
 (« le multiplicateur vient de la SOURCE, le port lit le PORTEUR ») est donc DOUBLEMENT inerte ici :
 la variable n'est pas scalee, et l'effet est pose sur son propre porteur (source == porteur).
 
-## RESIDU HERITE — `could_crit` du port inclut le bonus, le natif NON
+## HYPOTHESE REFUTEE PAR LA MESURE — il n'y a PAS de residu `could_crit` ici
 
-`IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` = `GetStat(9) > 0 AND
-GetStat(10) > 0` : le bonus d'effet n'y entre PAS. Le port, lui, appelle
-`could_crit(GetStat(9) + somme, GetStat(10))` (`_crit_params`). Sur un porteur a `GetStat(9) == 0`,
-le natif ne tire donc AUCUN crit alors que le port en tirerait a 15 %. C'est exactement ce que le
-gate `AmountIsGreaterThanZero` de WarHowl masquait cote 1222 -- ici le natif ne l'ecrit pas, donc le
-residu est nu. Il est STRUCTUREL au port (`services/damage_combat.py::could_crit` + son appelant),
-pas propre a cette classe : le corriger deplacerait la lecture de `GetStat(9)` brute jusqu'a
-`could_crit`, ce qui touche les trois vecteurs d'attaque. NON CORRIGE ici, MESURE (bras `NOCRIT` du
-probe) et nomme dans `docs/rl/case-366-r1-inescapable-accuracy-crit-chance.md`.
+`IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` lit bien `GetStat(9)` et
+`GetStat(10)` BRUTES (le bonus d'effet n'y entre pas), et l'absence du gate
+`AmountIsGreaterThanZero` -- que le voisin `1222` porte, lui -- faisait CRAINDRE que le port crite
+la ou le natif ne crite pas, sur un porteur a `GetStat(9) == 0`.
+
+**MESURE LIVE (`--crit 0,700`, `GetStat(9) = 0`) : le natif CRITE.** Le chemin d'execution ne passe
+pas par `CouldCrit` (qui n'a que des xrefs DATA, donc n'est invoque que par slot d'interface) mais
+par `IdunBattle.Core.Services.DamagePrediction$$RollCritical`, dont le gate est
+`clamp(GetStat(9) + GetCritChanceBonusFromEffects, 0, 100) >= 1` -- **bonus INCLUS**. Le port, qui
+passe `GetStat(9) + somme` a `could_crit`, rend donc exactement le meme gate. Les deux tirent, et le
+coup mesure est bit-exact. Le carre du probe le montre dans les deux sens : sans le canal, le port
+retombe a `could_crit(0, 700)` = faux, ne tire RIEN, et le coup cesse d'etre un crit.
 """
 from __future__ import annotations
 

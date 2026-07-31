@@ -68,6 +68,8 @@ sys.path.insert(0, str(PYDIR / "tests" / "engine" / "runner"))
 #: Le SEUL porteur du passif `InescapableAccuracy` (`unit_map find --ability InescapableAccuracy` :
 #: 6 entrees, dont UNE seule `lineup` -- les cinq autres sont des variantes de BOSS npc).
 MAUGAN = "eldarMauganRa"
+#: Le nom d'ABILITY (TriggeredAbilityType 1115) -- distinct du nom d'EffectType ci-dessous.
+_ABILITY_CFG = "InescapableAccuracy"
 EFFECT_NAME = "InescapableAccuracy_extraCritChance"
 EFFECT_TYPE = 1115                   # EffectType 0x45b (homonyme de TriggeredAbilityType 1115)
 #: Portee de l'arme a distance de MauganRa (`weapons[1].Range`) : le tir exige `2 <= d <= 3`
@@ -104,13 +106,59 @@ def _hits_of(res, caster, target):
     return bool(a0.get("ok")), out
 
 
+def neutralized_seed_bc(level: int = 50, hits: "int | None" = 1):
+    """Ecrit un seed BC ou `InescapableAccuracy.extraCritDmg` vaut **0**, + son sidecar d'epinglage.
+    `hits` (defaut **1**) force en plus le nombre de coups de l'arme A DISTANCE de Maugan Ra.
+
+    POURQUOI, et pourquoi ce n'est PAS un truquage : le porteur recoit les TROIS effets du passif
+    d'un bloc, et `1116 InescapableAccuracy_extraCritDmg` n'est **pas porte** (autre canal,
+    `CreateCritDamageBonus`). Tant qu'il vaut `extraCritDmg[50] = 728`, le natif frappe ses CRITS
+    728 plus fort que le port : tout coup critique diverge, et l'ecart de 1115 -- qui se manifeste
+    justement PAR des crits -- devient illisible. Le mettre a 0 rend 1116 INERTE **des deux cotes**
+    (le port ne le lit deja pas), sans toucher a `extraCritChance`, la variable de CE port. C'est
+    le pendant de `--block-target 0,0` pour `1117`.
+
+    Le sidecar `<seed>.pins.json` est INDISPENSABLE (#375) : sans lui `refresh_ability_configs`
+    ecrase le patch depuis le gameconfig vivant, **en silence**.
+
+    `hits = 1` -- POURQUOI, et pourquoi ce n'est pas un confort : le port porte une divergence
+    PRE-EXISTANTE de l'etage CRIT, INDEPENDANTE de ce cas, qui se declenche a partir du 3e coup
+    d'une salve des qu'un coup a crite. Elle est REPRODUITE sur `necroDestroyer` (aucun rapport
+    avec `InescapableAccuracy`) et en MELEE, ou 1115 est ferme -- residu nomme dans la fiche. Une
+    salve d'UN coup mesure donc CE port, et rien d'autre ; la salve de 6 le noierait dans un ecart
+    qui ne lui appartient pas. L'arme ranged (`Weapons[1]`, `Range` 3) est la seule touchee :
+    l'arme melee reste a 5 coups."""
+    import catalog_inject
+    fd, out = tempfile.mkstemp(prefix="ia1115_seedbc_", suffix=".json")
+    os.close(fd)
+    p, reports = catalog_inject.write_variable_patched_seed_bc(
+        out, [(_ABILITY_CFG, level, {"extraCritDmg": 0})])
+    if hits is not None:
+        bc = json.loads(Path(p).read_text(encoding="utf-8"))
+        n = 0
+        for u in (bc.get("Units") or []):
+            if u.get("Id") != MAUGAN and u.get("VisualId") != MAUGAN:
+                continue
+            for w in (u.get("Weapons") or []):
+                if w.get("IsRanged"):
+                    w["Hits"] = int(hits)
+                    n += 1
+        if n != 1:
+            raise RuntimeError("seed BC : %d arme(s) RANGED de %s patchee(s), attendu 1 -- le "
+                               "montage 1-coup n'a pas pris" % (n, MAUGAN))
+        Path(p).write_text(json.dumps(bc), encoding="utf-8")
+        reports = list(reports) + [{"weapon_hits": int(hits), "unit": MAUGAN}]
+    return str(p), reports
+
+
 def build(a, arm):
     """Un runner par bras. Rend `(runnerId, state_file)` ou `(None, state_file)`.
 
     `--block-target 0,0` NEUTRALISE le canal BLOCK de la cible : c'est le canal
     (`BaseEffect$$BlockHitsReduction`) que porte le JUMEAU `1117
     InescapableAccuracy_overrideHits`, NON porte. Sans cette neutralisation, un ecart de coups
-    imputable a 1117 se lirait comme un ecart de 1115."""
+    imputable a 1117 se lirait comme un ecart de 1115. Le pendant pour `1116` est le seed BC
+    neutralise ci-dessus (`--zero-crit-dmg`, actif par DEFAUT)."""
     fd, sf = tempfile.mkstemp(prefix="ia1115_%s_" % arm.lower(), suffix=".json")
     os.close(fd)
     Path(sf).unlink(missing_ok=True)
@@ -119,6 +167,8 @@ def build(a, arm):
             "--p-units", MAUGAN, "--a-units", "%s,%s" % (a.target_unit, a.other_unit),
             "--hp-target", "400000", "--hp-player", "400000", "--no-ai",
             "--crit", a.crit, "--block-target", "0,0"]
+    if getattr(a, "seed_bc", None):
+        argv += ["--seed-bc", a.seed_bc]
     argv += list(a.extra or [])
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -301,26 +351,42 @@ def run_case(a, rpc, Board, ChargeRegimeHarness, arm) -> int:
         off = replay(h, rec)
         print("[%s] LIVE    n=%d %s" % (arm, len(live), live))
         print("[%s] OFFLINE n=%d %s" % (arm, len(off), off))
-        if len(off) == len(live):
-            print("[%s] DELTA   %s" % (arm, [l - o for l, o in zip(live, off)]))
+        # PORTEE DE LA COMPARAISON. Le montage `--hits` s'applique au NATIF seul : le port derive
+        # le nombre de coups du GAMECONFIG par visualId (`battle_query.select_weapon_pierce` ->
+        # `get_attack_weapon_for_default_normal_attack(ctx.visual_id, ...)`), pas du BC ni du
+        # snapshot -- residu de SOURCE nomme dans la fiche. On confronte donc les `len(live)`
+        # premieres cellules, les SEULES ou les deux modeles sont sur la MEME case du flux PRNG
+        # (meme dump `rng_after_step` en entree). Le harnais REFUSE si le natif n'a pas rendu
+        # exactement les `--hits` coups demandes : sans cette garde, une salve tronquee (cible
+        # morte, coup avale) passerait pour un accord.
+        n = len(live)
+        if not a.keep_crit_dmg and n != int(a.hits):
+            print("[%s] REFUS : le natif a joue %d coup(s), %d demande(s) par --hits"
+                  % (arm, n, a.hits))
+            return 2
+        if len(off) >= n:
+            print("[%s] DELTA   %s" % (arm, [l - o for l, o in zip(live, off[:n])]))
         expect_div = bool(a.expect_diverge)
-        same = off == live
+        same = off[:n] == live
         print("[%s] VERDICT per_hit %s (attendu : %s)"
               % (arm, "OK" if same else "DIVERGE", "DIVERGE" if expect_div else "OK"))
         rc = 0 if (same != expect_div) else 1
 
-        # GARDES DE DISCRIMINATION -- une mutation qui NE change RIEN prouve que le bras est VIDE.
-        if not a.no_mutations and not expect_div:
+        # GARDE DE DISCRIMINATION -- la mutation se compare au REJEU DE REFERENCE, jamais au live :
+        # `mut == off` veut dire que desarmer le mecanisme ne change RIEN au modele, donc que la
+        # salve ne l'exerce pas (aucun tirage de crit ne tombe dans la fenetre ouverte par les 15
+        # points). Comparer a `live` serait vide de sens des que live et off different deja.
+        if not a.no_mutations:
             want = {"NOMOVE": "NOCHANNEL", "MOVED": "NOGATE"}[arm]
             mut = replay(h, rec, mutate=want)
             print("[%s] MUT-%s n=%d %s" % (arm, want, len(mut), mut))
-            if mut == live:
-                print("[%s] REFUS : la mutation %s ne change RIEN -- le bras ne mesure pas le "
-                      "mecanisme (regime de crit non discriminant : varie --crit / --seed)"
-                      % (arm, want))
+            if mut[:n] == off[:n]:
+                print("[%s] REFUS : la mutation %s ne change RIEN au rejeu -- la salve n'exerce "
+                      "PAS le mecanisme (aucun tirage dans la fenetre des 15 points) ; varier "
+                      "--crit / --seed / --board" % (arm, want))
                 rc |= 2
             else:
-                print("[%s] MUT-%s DIVERGE : le bras EXERCE bien le mecanisme" % (arm, want))
+                print("[%s] MUT-%s change le rejeu : la salve EXERCE le mecanisme" % (arm, want))
         return rc
     finally:
         rpc("disposeRunner", {"runnerId": rid}, 20)
@@ -341,9 +407,20 @@ def main() -> int:
                     help="le bras doit DIVERGER (mesure du residu `could_crit` a --crit 0,...)")
     ap.add_argument("--no-mutations", action="store_true",
                     help="saute les gardes de discrimination (diagnostic seulement)")
+    ap.add_argument("--keep-crit-dmg", action="store_true",
+                    help="NE PAS neutraliser `1116 extraCritDmg` NI reduire la salve (diagnostic : "
+                         "montre l'ecart que le jumeau NON PORTE injecte dans tout coup critique, "
+                         "et le residu CRIT pre-existant a partir du 3e coup)")
+    ap.add_argument("--hits", type=int, default=1,
+                    help="coups de l'arme RANGED de Maugan Ra imposes au seed BC (defaut 1)")
     ap.add_argument("--extra", action="append", default=[],
                     help="arg supplementaire passe a `rl_duel build` (repetable)")
     a = ap.parse_args()
+    a.seed_bc = None
+    if not a.keep_crit_dmg:
+        a.seed_bc, rep = neutralized_seed_bc(hits=a.hits)
+        print("[probe] seed BC neutralise (1116 extraCritDmg = 0, ranged Hits = %d) : %s | %s"
+              % (a.hits, a.seed_bc, rep))
 
     import rl_collect_batch as R
     from engine.entities.pathfinding.board import Board

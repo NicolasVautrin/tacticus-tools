@@ -178,9 +178,9 @@ Pool spawnable relu au rank courant : **97** unites.
 | 1110 | FireAndReposition_ReduceDmg | `CreateEffectDamageMalusForDefense` | `eldarRanger` | HERO, pool |
 | 1111 | WireweaveNet_CounterAttack | (classe propre) | `eldarRanger` | HERO, pool |
 | 1113 | TunnelingHorror_PendingSummon | marqueur de summon pending | `necroSmnDestroyer` | SUMMON |
-| 1115 | InescapableAccuracy_extraCritChance | (classe propre, ctor fondu avec 1116) | `eldarMauganRa` | HERO, pool |
-| 1116 | InescapableAccuracy_extraCritDmg | idem | `eldarMauganRa` | HERO, pool |
-| 1117 | InescapableAccuracy_overrideHits | idem | `eldarMauganRa` | HERO, pool |
+| ~~1115~~ | ~~InescapableAccuracy_extraCritChance~~ | **PORTE par #366-r1** -- `docs/rl/case-366-r1-inescapable-accuracy-crit-chance.md`. « ctor fondu » est VRAI (un corps pour les TROIS ids) mais ne fait PAS une classe commune : les fabriques `b__14_141/142/143` allouent depuis TROIS slots `Il2CppClass*` DIFFERENTS. Canal `CreateCritChanceBonus` = `ForAddition(get_OwnerIsCaster & IsRangedAttack, ConfigVar(0x41))` -- DEUX noeuds, aucun herite de `1222` ; `CreateActiveCondition` (corps PARTAGE par les trois) = `NOT HasFlag(Owner, 0 = UnitFlag.Moved)` | `eldarMauganRa` | HERO, pool |
+| 1116 | InescapableAccuracy_extraCritDmg | classe PROPRE (slot distinct), canal `CreateCritDamageBonus` = `ForAddition(<les MEMES 2 noeuds>, ConfigVar(0x42 = extraCritDmg))`. Structure etablie par #366-r1, port NON fait | `eldarMauganRa` | HERO, pool |
+| 1117 | InescapableAccuracy_overrideHits | classe PROPRE (slot distinct), canal `BaseEffect$$BlockHitsReduction` (`CreateBlockHitReductionTrigger` = les MEMES 2 noeuds) -- canal NON porte cote moteur | `eldarMauganRa` | HERO, pool |
 | 1171 | SereneUnifierStormOfFire | `StaticStatModifierEffect` (phase 3 du cycle ; phase 1 = `1169`, portee) | `tauAunShi` | HERO, pool |
 | 1174 | StructuralAnalyser_Visual | `CreateActiveCondition` | `tauDarkstrider` | HERO, pool |
 | 1175 | HatefulAssault_AlreadyAttacked | `UntilOfEndTurnEffect` (marqueur a duree) | `blackTerminator` | HERO, pool |

@@ -141,9 +141,40 @@ Contraintes de montage, chacune payée par une mesure fausse évitée :
   neutralisation, un écart imputable à 1117 se lirait comme un écart de 1115 ;
 * **ennemis sans `Overwatch`** (`necroWarden`, `necroOverlord`) — Maugan Ra porte lui-même
   `Overwatch`, et le montage déplace les deux camps ;
-* **`--crit 50,700`** — `CritChance > 0` est obligatoire au bras de référence (cf. §7.1).
+* **`--crit 0,700`** — `GetStat(9) = 0`. C'est le régime **le plus discriminant**, pas un confort :
+  sans le canal, le port calcule `could_crit(0, 700)` = faux et **ne tire RIEN** ; avec, il roule à
+  `clamp(0 + 15) = 15` et tire, exactement comme le natif. Le crit du coup mesuré n'existe donc
+  **que** par la contribution de 1115 ;
+* **`extraCritDmg = 0`** dans le seed BC (+ sidecar d'épinglage `#375`, sans lequel
+  `refresh_ability_configs` écrase le patch **en silence**) — le jumeau `1116` n'est **pas porté**,
+  et à `extraCritDmg[50] = 728` le natif frappe ses crits 728 plus fort que le port : tout coup
+  critique divergerait, et 1115 se manifeste justement **par** des crits ;
+* **arme ranged à 1 coup** dans le seed BC — sort du régime où mord le résidu R1 (§7.1).
 
-<!-- MESURES: à compléter -->
+### 5.1 Le carré, mesuré
+
+`probe_366_r1_inescapable_accuracy_crit_chance.py` — MC1_67 / seed 777, porteur `eldarMauganRa`,
+cible `necroWarden` :
+
+| bras | LIVE | OFFLINE (préfixe) | mutation adversariale |
+|---|---|---|---|
+| **NOMOVE** (immobile) | `[3158]` | `[3158]` | `NOCHANNEL` → `[1946]` |
+| **MOVED** (un pas) | `[1267]` | `[1267]` | `NOGATE` → `[2195]` |
+
+Les deux bras sont **bit-exacts**, et les deux mutations **changent le rejeu** :
+
+* `NOCHANNEL` (inscription retirée d'`EFFECT_CLASSES`) rend `1946` au lieu de `3158` — sans le
+  canal le port ne tire aucun crit, donc **le coup cesse d'être un crit** ;
+* `NOGATE` (les deux mirrors de l'`ActiveCondition` désarmés) rend `2195` au lieu de `1267` — le
+  port se met à criter là où le natif, qui a vu `HasFlag(Moved)`, ne tire pas. **Le gate est
+  load-bearing, pas décoratif.**
+
+Généralisation, mêmes verdicts dans les quatre cases : **`C1_25` / seed 31337** (board à élévation,
+donc le crit traverse aussi l'étage %-list) — NOMOVE `[1285]` == `[1285]`, mutation `[1207]` ;
+MOVED `[956]` == `[956]`, mutation `[1014]`.
+
+Le cliquet `tests/engine/runner/test_inescapable_accuracy_crit_chance_live.py` rend **7 passed**
+(2 structurels offline + 5 live).
 
 ## 6. Ce qui n'est PAS couvert
 
@@ -163,29 +194,67 @@ Contraintes de montage, chacune payée par une mesure fausse évitée :
   `crit_damage_bonus_from_effects`). Sans conséquence pour 1115, dont le trigger commence par
   `get_OwnerIsCaster`.
 
-## 7. Résidus NOMMÉS
+## 7. Résidus NOMMÉS et MESURÉS
 
-### 7.1 `could_crit` du port inclut le bonus d'effet, le natif NON
+### 7.1 `#366-r1-crit-multihit` — l'étage CRIT diverge dès le 3ᵉ coup, INDÉPENDAMMENT de ce cas
 
-`IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` (décompilé) :
+**CANDIDAT fable-solver.** Ce cas le MESURE, il ne le corrige pas : le mécanisme est partagé par
+les trois vecteurs d'attaque, c'est une tranche à part entière.
+
+Montage : salve d'attaque normale à `--crit 50,700` (`GetStat(9) = 50`), toutes options de ce cas
+par ailleurs. Les premiers coups sont **bit-exacts**, puis le port se met à **criter là où le natif
+ne crite plus**, et le flux se décale :
 
 ```
-GetStat(attacker, 0x9) >= 1  AND  GetStat(attacker, 0xa) >= 1
+[eldarMauganRa MELEE 5 coups]  LIVE    [1349, 1355, 982, 1062, 851]
+                               OFFLINE [1349, 1355, 982, 1725, 1606]
+[necroDestroyer MELEE 6 coups] LIVE    [1641, 742, 962, 757, 864, 769]
+                               OFFLINE [1641, 742, 1551, 1825, 1457, 1856]
 ```
 
-— **la stat BRUTE, le bonus d'effet n'y entre pas**. Le port, lui, appelle
-`could_crit(GetStat(9) + Σbonus, GetStat(10))` (`AttackDamageOperation._crit_params`). Sur un
-porteur à `GetStat(9) == 0`, le natif ne tire donc **aucun** crit alors que le port en tirerait à
-15 % — un tirage PRNG de plus, donc **tous** les coups suivants décalés.
+Trois faits l'attribuent hors de ce cas, et hors de l'axe crit-chance :
 
-C'est exactement ce que le gate `AmountIsGreaterThanZero` de `1222` masquait côté WarHowl. Ici le
-natif ne l'écrit pas, donc **le résidu est nu**. Il est STRUCTUREL au port
-(`services/damage_combat.py::could_crit` + son appelant, partagé par les trois vecteurs d'attaque),
-pas propre à cette classe : le corriger demande de faire remonter `GetStat(9)` brute jusqu'à
-`could_crit`. **NON CORRIGÉ ici**, et mesurable par le bras dédié du probe
-(`--crit 0,700 --expect-diverge`).
+1. **Il se reproduit sur `necroDestroyer`**, qui n'a aucun rapport avec `InescapableAccuracy` ;
+2. **il se reproduit en MÊLÉE**, où `IsRangedAttack` ferme 1115, 1116 et 1117 ;
+3. **l'étage de BASE est sain** : la même salve mêlée à `--crit 0,700` (aucun crit possible des
+   deux côtés) est bit-exacte sur les 5 coups — `[868, 865, 887, 735, 823]` de part et d'autre.
 
-### 7.2 Le niveau d'ability n'est propagé qu'en PASSIVE
+Lecture de flux (`--crit 0,700` ranged, 6 coups, 1116 neutralisé) : le rejeu SANS crit-roll
+(mutation `NOCHANNEL`, qui consomme 1 tirage par coup) rend `[1946, 1918, 1764, 1618, 2026, 1967]`,
+et le LIVE rend `[3158, 1618, 2026, 1967, 1682, 1597]` — c'est-à-dire que **le natif consomme deux
+tirages pour les deux premiers coups puis UN SEUL** par coup, là où le port en consomme deux
+partout. Le port tire donc un crit-roll que le natif ne tire pas. La cause exacte n'est **pas**
+tranchée ici (le gate natif `clamp(cc) >= 1` de `RollCritical` est pourtant identique côté port) —
+c'est le point à instruire.
+
+**Conséquence de montage, et pourquoi ce cas est quand même mesuré** : la validation de 1115 se
+fait sur une salve d'**UN** coup, imposée au natif par le seed BC. C'est la seule cellule où les
+deux modèles sont prouvés sur la même case du flux, et c'est exactement là que le canal se
+manifeste.
+
+### 7.2 Le nombre de coups vient du GAMECONFIG côté port, du BC côté natif
+
+`engine/services/battle_query.py::select_weapon_pierce` →
+`get_attack_weapon_for_default_normal_attack(ctx.visual_id, …)` lit les armes du **gameconfig par
+visualId**. Le natif, lui, lit `BC.Units[].Weapons[].Hits`. **Mesuré** : le seed BC de ce cas pose
+`Hits = 1` sur l'arme ranged de Maugan Ra — le natif joue **1** coup, le port en produit **6**.
+Les deux sources coïncident tant que le BC n'est pas patché ; elles divergent dès qu'il l'est, et
+c'est ce qui impose ici la confrontation sur le préfixe `len(live)`. Résidu de SOURCE, non corrigé.
+
+### 7.3 HYPOTHÈSE RÉFUTÉE — il n'y a pas de résidu `could_crit`
+
+`IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` lit `GetStat(9)`/`GetStat(10)`
+**brutes**, et l'absence du gate `AmountIsGreaterThanZero` (que `1222` porte, lui) faisait craindre
+que le port crite là où le natif ne crite pas, sur un porteur à `GetStat(9) == 0`.
+
+**La mesure réfute l'hypothèse** : à `--crit 0,700`, **le natif CRITE** (coup NOMOVE = `3158`, contre
+`1946` sans le canal). Le chemin d'exécution ne passe pas par `CouldCrit` — qui n'a que des xrefs
+DATA, donc n'est invoqué que par slot — mais par `DamagePrediction$$RollCritical`, dont le gate est
+`clamp(GetStat(9) + GetCritChanceBonusFromEffects, 0, 100) >= 1`, **bonus inclus**. Le port, qui
+passe `GetStat(9) + Σbonus` à `could_crit`, rend donc le même gate dans les deux sens. Rien à
+corriger, et rien à porter : c'est consigné parce que la lecture inverse était plausible.
+
+### 7.4 Le niveau d'ability n'est propagé qu'en PASSIVE
 
 `EffectsState.seed` propage `ability_level` (= `unitConfig.passiveAbilityLevel`), ce qui est
 exactement ce que lit cette classe (`InescapableAccuracy` est une passive). Aucun repli

@@ -42,13 +42,17 @@ from _charge_regime import charge_regime                          # noqa: E402,F
 from engine.entities.effects.factory import EFFECT_CLASSES        # noqa: E402
 from engine.entities.effects.loki import InescapableAccuracyExtraCritChanceEffect  # noqa: E402
 from probe_366_r1_inescapable_accuracy_crit_chance import (       # noqa: E402
-    EFFECT_NAME, EFFECT_TYPE, MAUGAN, replay, stage, strike)
+    EFFECT_NAME, EFFECT_TYPE, MAUGAN, neutralized_seed_bc, replay, stage, strike)
 
 _A_UNITS = "necroWarden,necroOverlord"       # aucun des deux ne porte `Overwatch` (cf. le probe)
-#: `CritChance` de base du porteur. **> 0 OBLIGATOIRE** : `DamageCalculations$$CouldCrit` lit
-#: `GetStat(9)` BRUTE (le bonus d'effet n'y entre pas), donc a 0 le natif ne tire aucun crit et le
-#: bras ne prouverait rien (il mesurerait le residu `could_crit`, cf. la fiche).
-_CRIT = "50,700"
+#: `CritChance` de BASE du porteur = **0**. Ce n'est pas un confort, c'est le regime le plus
+#: DISCRIMINANT : a `GetStat(9) = 0`, le port SANS le canal calcule `could_crit(0, 700)` = faux et
+#: ne tire AUCUN crit, tandis que le natif roule a `clamp(0 + extraCritChance[50]) = 15` et tire.
+#: Le crit du coup mesure n'existe donc QUE par la contribution de 1115.
+_CRIT = "0,700"
+#: Le seed BC du module : `1116 extraCritDmg = 0` (jumeau NON porte, sinon tout crit diverge) et
+#: arme RANGED a UN coup (sort du regime ou mord le residu CRIT pre-existant, cf. la fiche).
+_SEED_BC, _SEED_BC_REPORT = neutralized_seed_bc()
 
 
 def _extra(crit: str = _CRIT):
@@ -57,32 +61,40 @@ def _extra(crit: str = _CRIT):
     (`...InescapableAccuracy_OverridHitsEffect$$CreateBlockHitReductionTrigger` ->
     `IdunBattle.Entities.Effects.BaseEffect$$BlockHitsReduction`) : sans elle, un ecart de coups
     imputable a 1117 se lirait comme un ecart de 1115."""
-    return ["--crit", crit, "--block-target", "0,0"]
+    return ["--crit", crit, "--block-target", "0,0", "--seed-bc", _SEED_BC]
 
 
 def _measure(charge_regime, do_step, crit=_CRIT, seed="777", board="MC1_67"):
     """Monte, (option) fait UN pas, tire, rejoue offline. ECHEC FORT si le regime n'est pas atteint
-    -- un `skip` VERT mentirait sur une garde qui n'a rien garde."""
+    -- un `skip` VERT mentirait sur une garde qui n'a rien garde.
+
+    Rend `(h, rec, live)`. Le natif joue UN coup (seed BC) ; le port en produit six (il derive le
+    nombre de coups du GAMECONFIG par visualId, pas du BC -- residu de SOURCE nomme dans la fiche),
+    d'ou la confrontation sur le PREFIXE de longueur `len(live)` : les seules cellules ou les deux
+    modeles sont sur la MEME case du flux PRNG."""
     h = charge_regime(p_units=MAUGAN, a_units=_A_UNITS, seed=seed, board=board,
                       extra=_extra(crit))
     rec, why = stage(h, do_step)
     assert rec is not None, "regime NON ATTEINT (step=%s) : %s" % (do_step, why)
     live, why = strike(h, rec)
     assert live is not None, "salve non mesurable : %s" % why
+    assert len(live) == 1, (
+        "le natif a joue %d coups, 1 attendu -- le seed BC 1-coup n'a pas pris, la mesure "
+        "retomberait dans le regime du residu CRIT pre-existant" % len(live))
     return h, rec, live
 
 
 @pytest.fixture(scope="module")
 def ia_nomove(charge_regime):
     """BRAS NOMOVE -- Maugan Ra n'a pas bouge : l'`ActiveCondition` est VRAIE, le natif roule a
-    `GetStat(9) + extraCritChance[50]` = 50 + 15 = 65."""
+    `clamp(GetStat(9) + extraCritChance[50]) = 0 + 15 = 15` et TIRE."""
     return _measure(charge_regime, False)
 
 
 @pytest.fixture(scope="module")
 def ia_moved(charge_regime):
     """BRAS MOVED -- Maugan Ra a fait UN pas (en restant a portee ET hors contact) : `UnitFlag.Moved`
-    est pose, l'effet est INACTIF, le natif roule a `GetStat(9)` = 50."""
+    est pose, l'effet est INACTIF, le natif roule a `GetStat(9)` = 0 et ne tire PAS."""
     return _measure(charge_regime, True)
 
 
@@ -143,17 +155,16 @@ def test_gates_are_tristate_offline():
 
 
 def test_crit_chance_matches_native(ia_nomove):
-    """CAS ROUGE AVANT LE FIX -- la salve a distance d'un Maugan Ra IMMOBILE roule a `GetStat(9)+15`
-    cote natif ; un port sans le canal roulerait a `GetStat(9)`, memes tirages, crits DIFFERENTS."""
+    """CAS ROUGE AVANT LE FIX -- le tir d'un Maugan Ra IMMOBILE roule a
+    `clamp(GetStat(9) + 15) = 15` cote natif ; un port sans le canal roule a `GetStat(9) = 0`,
+    ne tire RIEN, et ne peut donc pas rendre ce coup."""
     h, rec, live = ia_nomove
-    off = h.replay_offline(rec)
-    assert _carried(rec, off["state"]), \
+    off = h.replay_offline(rec)["per_hit"]
+    assert _carried(rec, h.replay_offline(rec)["state"]), \
         "1115 n'est pas materialise offline sur l'attaquant -- le test comparerait deux absences"
-    assert off["per_hit"] == live, (
-        "CANAL : le port ne compte pas la contribution de 1115 -- live=%s offline=%s (delta=%s)"
-        % (live, off["per_hit"],
-           [l - o for l, o in zip(live, off["per_hit"])] if len(live) == len(off["per_hit"])
-           else "n different"))
+    assert off[:len(live)] == live, (
+        "CANAL : le port ne compte pas la contribution de 1115 -- live=%s offline=%s"
+        % (live, off[:len(live)]))
 
 
 def test_channel_actually_bites(ia_nomove):
@@ -161,23 +172,26 @@ def test_channel_actually_bites(ia_nomove):
     une raison TRIVIALE (aucun bonus nulle part, deux zeros qui s'accordent).
 
     Mutation ADVERSARIALE : l'inscription est retiree d'`EFFECT_CLASSES`, l'effet capte retombe sur
-    `BaseEffect` (qui rend None). Le rejeu DOIT diverger du live."""
+    `BaseEffect` (qui rend None). Le rejeu DOIT alors differer du rejeu de REFERENCE (et pas du
+    live : comparer au live serait vide de sens si les deux divergeaient deja)."""
     h, rec, live = ia_nomove
+    n = len(live)
+    ref = h.replay_offline(rec)["per_hit"]
     mut = replay(h, rec, mutate="NOCHANNEL")
-    assert mut != live, (
-        "l'inscription retiree ne change RIEN (live=%s) -- le regime de crit n'est pas "
-        "discriminant sur cette salve ; varier --crit / --seed / --board" % (live,))
+    assert mut[:n] != ref[:n], (
+        "l'inscription retiree ne change RIEN au rejeu (ref=%s) -- ce tir n'exerce pas le canal ; "
+        "varier --crit / --seed / --board" % (ref[:n],))
 
 
 def test_move_closes_the_gate(ia_moved):
     """BRAS MOVED -- apres UN pas, le natif N'AJOUTE PLUS le bonus (`HasFlag(Owner, Moved)`), et le
-    port non plus. La salve reste une salve A DISTANCE (2 <= d <= 3 impose par le montage)."""
+    port non plus. Le tir reste un tir A DISTANCE (2 <= d <= 3 impose par le montage)."""
     h, rec, live = ia_moved
-    off = h.replay_offline(rec)
-    assert _carried(rec, off["state"]), \
+    res = h.replay_offline(rec)
+    assert _carried(rec, res["state"]), \
         "1115 doit rester MATERIALISE (il est PERMANENT) -- c'est la CONDITION qui l'eteint"
-    assert off["per_hit"] == live, (
-        "GATE : live=%s offline=%s" % (live, off["per_hit"]))
+    assert res["per_hit"][:len(live)] == live, (
+        "GATE : live=%s offline=%s" % (live, res["per_hit"][:len(live)]))
 
 
 def test_move_gate_is_load_bearing(ia_moved):
@@ -185,20 +199,25 @@ def test_move_gate_is_load_bearing(ia_moved):
     port qui n'applique jamais rien.
 
     Mutation ADVERSARIALE : les DEUX mirrors de l'`ActiveCondition` sont desarmes (`is_active` force
-    a True, cle `has_moved` retiree de l'`att_ctx`). Le port se remet alors a rouler a
-    `GetStat(9)+15` la ou le natif roule a `GetStat(9)` -> le rejeu DOIT diverger du live."""
+    a True, cle `has_moved` retiree de l'`att_ctx`). Le port se remet alors a rouler a 15 la ou le
+    natif roule a 0 -> il CRITE, et le rejeu DOIT differer de la reference."""
     h, rec, live = ia_moved
+    n = len(live)
+    ref = h.replay_offline(rec)["per_hit"]
     mut = replay(h, rec, mutate="NOGATE")
-    assert mut != live, (
-        "gate desarme : le rejeu coincide encore avec le live (live=%s) -- ce bras ne prouve pas "
-        "que la condition mord ; varier --crit / --seed / --board" % (live,))
+    assert mut[:n] != ref[:n], (
+        "gate desarme : le rejeu ne bouge pas (ref=%s) -- ce bras ne prouve pas que la condition "
+        "mord ; varier --crit / --seed / --board" % (ref[:n],))
 
 
 def test_other_board(ia_alt):
     """GENERALISATION du cas rouge : autre board (`C1_25`, a ELEVATION -- le crit traverse donc
     aussi l'etage %-list), autre seed (31337)."""
     h, rec, live = ia_alt
-    off = h.replay_offline(rec)
-    assert _carried(rec, off["state"])
-    assert off["per_hit"] == live, (
-        "C1_25/31337 : live=%s offline=%s" % (live, off["per_hit"]))
+    n = len(live)
+    ref = h.replay_offline(rec)["per_hit"]
+    assert _carried(rec, h.replay_offline(rec)["state"])
+    assert ref[:n] == live, "C1_25/31337 : live=%s offline=%s" % (live, ref[:n])
+    mut = replay(h, rec, mutate="NOCHANNEL")
+    assert mut[:n] != ref[:n], \
+        "C1_25/31337 : la mutation ne change rien -- ce bras n'exerce pas le canal"
