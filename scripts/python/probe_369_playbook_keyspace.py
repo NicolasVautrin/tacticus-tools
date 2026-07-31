@@ -168,6 +168,23 @@ _TRIGGERED_SRC = HOOKS / "triggered-predict.ts"
 _RPC_SRC = HOOKS / "rpc-nc-predict.ts"
 
 
+def _success_payload(src: str) -> str:
+    """Le litteral d'objet du chemin SUCCES de `ncPlaybookPredict` (`const out: ... = { ... };`).
+
+    ⚠ POURQUOI CETTE EXTRACTION EXISTE. La premiere version de cette garde cherchait
+    `"abilityKind: keySpace"` dans TOUT le fichier -- et elle est restee VERTE quand on a supprime
+    l'echo du chemin succes, parce que la MEME chaine apparait dans les retours d'ERREUR
+    (`return { ok: false, abilityKind: keySpace, ... }`). Mesure le 2026-07-31 par mutation
+    adversariale : 10 tests verts sur un hook mute. Une garde qui matche n'importe ou dans un
+    fichier ne garde rien -- il faut viser le chemin qu'on protege."""
+    marker = "const out: Record<string, unknown> = {"
+    i = src.find(marker)
+    if i < 0:
+        return ""
+    j = src.find("\n        };", i)
+    return src[i:j] if j > i else src[i:]
+
+
 def step1_harness(verbose: bool = True) -> dict:
     checks = []
 
@@ -201,9 +218,12 @@ def step1_harness(verbose: bool = True) -> dict:
     _check("RPC route par abilityKind",
            "loadPlaybookByKeySpace" in src_r and "isAbilityKeySpace" in src_r,
            "rpc-nc-predict.ts appelle le chargeur par key-space")
-    _check("RPC echoe abilityKind",
-           "abilityKind: keySpace" in src_r,
-           "la reponse porte le key-space effectivement interroge")
+    # L'echo doit etre dans le chemin SUCCES, pas seulement dans un retour d'erreur : c'est lui que
+    # l'appelant lit pour savoir si le hook connait `abilityKind`.
+    payload = _success_payload(src_r)
+    _check("RPC echoe abilityKind (chemin SUCCES)",
+           bool(payload) and "abilityKind: keySpace" in payload,
+           "le litteral `out` porte le key-space effectivement interroge")
     # (c) durcissement : plus de fallback silencieux au DefaultActiveAbilityPlaybook.
     _check("durcissement allowDefault",
            "allowDefault" in src_r and "allowDefault" in src_t,

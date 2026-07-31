@@ -62,12 +62,36 @@ def test_les_trois_cas_mesures_sont_bien_des_collisions():
 # --- le harnais desambiguise (et cette garde ROUGIT sur mutation) --------------------------------
 
 def test_le_harnais_route_par_key_space():
-    """VU ROUGE par mutation adversariale : remplacer `triggered: "TriggeredAbilityType"` par
-    `"ActiveAbilityType"` dans `frida/hooks/features/ai-step/triggered-predict.ts` fait echouer
-    exactement ce test (mesure du 2026-07-31, ligne `key-space triggered = ... ROUGE`)."""
+    """VU ROUGE par DEUX mutations adversariales (mesure du 2026-07-31) :
+      (a) `triggered: "TriggeredAbilityType"` -> `"ActiveAbilityType"` dans `triggered-predict.ts`
+          (= le bug de #369, reintroduit) -> 1 failed, 9 passed ;
+      (b) suppression de l'echo `abilityKind: keySpace` du litteral `out` de `rpc-nc-predict.ts`
+          -> 1 failed, 9 passed."""
     r = P369.step1_harness(verbose=False)
     rouges = [c["name"] for c in r["checks"] if not c["ok"]]
     assert r["ok"], "garde structurelle ROUGE sur : %s" % ", ".join(rouges)
+
+
+def test_la_garde_de_l_echo_vise_le_chemin_SUCCES_pas_le_fichier_entier():
+    """VERROU DU TROU TROUVE PAR LA MUTATION (b). La premiere version cherchait
+    `"abilityKind: keySpace"` dans TOUT le fichier ; comme la meme chaine apparait dans les retours
+    d'ERREUR (`return { ok: false, abilityKind: keySpace, ... }`), supprimer l'echo du chemin
+    SUCCES laissait la garde VERTE. Ce test fige l'extraction ciblee sur des sources synthetiques :
+    il ne depend d'aucun fichier, donc il ne peut pas re-verdir par accident."""
+    avec_echo = (
+        '        if (x) return { ok: false, abilityKind: keySpace, via, error: "boom" };\n'
+        '        const out: Record<string, unknown> = {\n'
+        '            ok: true, via, abilityKind: keySpace, playbookSource: load.source,\n'
+        '        };\n')
+    sans_echo = (
+        '        if (x) return { ok: false, abilityKind: keySpace, via, error: "boom" };\n'
+        '        const out: Record<string, unknown> = {\n'
+        '            ok: true, via, playbookSource: load.source,\n'
+        '        };\n')
+    assert "abilityKind: keySpace" in P369._success_payload(avec_echo)
+    # Le fichier CONTIENT toujours la chaine (dans le retour d'erreur) -- c'est exactement le piege.
+    assert "abilityKind: keySpace" in sans_echo
+    assert "abilityKind: keySpace" not in P369._success_payload(sans_echo)
 
 
 # --- le regime discriminant existe, et le montage l'atteint --------------------------------------
