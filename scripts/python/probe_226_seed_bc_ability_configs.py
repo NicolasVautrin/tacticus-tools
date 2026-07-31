@@ -65,11 +65,37 @@ def _clone_unit(seed: dict, unit_id: str, clone_base: str, ability: int) -> dict
     return inj
 
 
-def _write(bc: dict, tag: str) -> Path:
+def _write(bc: dict, tag: str, withheld=()) -> Path:
+    """Ecrit le seed BC ET son sidecar (#380), toujours -- meme vide.
+
+    POURQUOI LE SIDECAR EST OBLIGATOIRE ICI. `rl_collect_batch._load_seed_bc` applique
+    `catalog_inject.refresh_ability_configs`, dont la 2e boucle POSE toute config qu'une entree
+    `Units` reclame au gameconfig. Le bras `clone` de ce probe -- dont le POINT est justement
+    l'absence de config -- repartait donc du chargeur avec `SavageEchoes` et `RedRampage` en
+    place : les TROIS bras livraient la meme chose au runner, et la discrimination A KO / B OK /
+    C OK avait disparu. Mesure et recensement : `probe_380_seed_bc_patch_survival.py --measure`.
+    Le verdict #226 reste juste (mesure le 2026-07-29 a 00h38, rattrapage #254 pose a 19h17 le
+    meme jour) : c'est la REPRODUCTIBILITE qui etait perdue, pas la conclusion.
+    Le sidecar est ecrit meme vide : un fichier de tag reutilise garderait sinon la retenue du
+    run precedent, et un bras temoin serait retenu a son tour, en silence.
+    """
     p = LOGS / ("bc-226-%s.json" % tag)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(bc), encoding="utf-8")
+    CI.write_pins(p, [], withheld=withheld)
     return p
+
+
+def _missing_ability_keys(bc: dict, unit_id: str) -> list:
+    """Cles `"<node>/<ability>"` que le gameconfig attribue a `unit_id` et qui NE sont PAS dans le
+    BC -- c'est exactement l'absence que le bras `clone` veut faire mesurer au natif."""
+    act, pas = CI._ability_names(unit_id)
+    node = bc.get("Abilities") or {}
+    out = []
+    for names, key in ((act, "ActiveAbilities"), (pas, "PassiveAbilities")):
+        have = node.get(key) or {}
+        out += ["%s/%s" % (key, n) for n in names if n not in have]
+    return sorted(out)
 
 
 def build_seed(mode: str, unit_id: str, clone_base: str, ability: int, tag: str) -> Path:
@@ -95,9 +121,11 @@ def build_seed(mode: str, unit_id: str, clone_base: str, ability: int, tag: str)
                     tgt[n] = CI.synthesize_ability(n)
                     added.append(n)
         print("[%s] configs d'ability posees: %s" % (mode, added))
-    else:
-        print("[%s] AUCUNE config d'ability posee (etat AVANT correctif)" % mode)
-    return _write(bc, tag)
+        return _write(bc, tag)
+    withheld = _missing_ability_keys(bc, unit_id)
+    print("[%s] AUCUNE config d'ability posee (etat AVANT correctif) ; RETENUES au chargement "
+          "(#380): %s" % (mode, withheld))
+    return _write(bc, tag, withheld=withheld)
 
 
 # --------------------------------------------------------------------------- runner
@@ -205,7 +233,7 @@ def run_mode(mode: str, unit_id: str, clone_base: str, ability: int) -> dict:
                 L._rpc("disposeRunner", [{"runnerId": rid}])
             except Exception:
                 pass
-        for p in (bc_file, state):
+        for p in (bc_file, CI.pins_path(bc_file), state):
             try:
                 p.unlink()
             except Exception:

@@ -91,6 +91,16 @@ re-synthétise donc `BC.Abilities` depuis le gameconfig courant à chaque charge
 (`catalog_inject.refresh_ability_configs`) — no-op mesuré sur 273/277 entrées. Détail :
 `docs/rl/case-254-build-migration-blockers.md`.
 
+> ⚠ **Ce rattrapage ÉCRASE ce qu'une fixture vient d'écrire dans `BC.Abilities`, sans un mot** — et
+> sa 2ᵉ boucle **COMBLE** une config volontairement absente. Deux fautes mesurées : le régime
+> discriminant de #369 n'a jamais été joué (`LightImUp.minDmg` écrit `20000`, relu `831`), et le bras
+> négatif de `probe_226` rendait `ok=True` comme ses témoins. **Toute fixture qui patche un seed BC
+> sur disque appelle `probe_380_seed_bc_patch_survival.assert_survives(<path>)` après l'écriture** ;
+> les deux clés opt-in du sidecar `<seed-bc>.pins.json` sont `pinnedAbilityConfigs` (valeur patchée)
+> et `withheldAbilityConfigs` (absence délibérée). Un patch **en mémoire** (`bc = _load_seed_bc(None)`
+> PUIS patch) survit, lui : c'est l'ORDRE qui décide. Détail :
+> `docs/rl/case-375-capteur-triggered-muet.md` §2 et `docs/rl/case-380-recensement-patchs-seed-bc.md`.
+
 ## 2. Choix du board (mécaniques board-dépendantes)
 
 Élévation, trench, couverture/LOS, slot MoW **dépendent du board**. Le **choisir**, ne pas le subir :

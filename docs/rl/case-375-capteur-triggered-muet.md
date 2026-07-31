@@ -51,6 +51,12 @@ Mesuré : `LightImUp.minDmg[49]` écrit à `20000` sur disque, **relu `831`** ap
 était donc le NOMINAL `831 + 1109 = 1940 ≡ 0 mod 4` — le régime **non discriminant** que
 `case-350r3b` §5 avait nommé comme second verrou.
 
+**Suite → #380** : le recensement des AUTRES fixtures a trouvé **0 patch de valeur écrasé** mais un
+**second axe** que ce §2 ne nommait pas — la 2ᵉ boucle du rattrapage *comble* une config
+volontairement absente, ce qui rendait le bras négatif de `probe_226` indiscernable de ses témoins.
+Clé symétrique `withheldAbilityConfigs` + recenseur `probe_380_seed_bc_patch_survival.py` :
+`case-380-recensement-patchs-seed-bc.md`.
+
 **Parade** : sidecar `<seed-bc>.pins.json` (`{"pinnedAbilityConfigs": ["PassiveAbilities/LightImUp"]}`),
 écrit par `write_variable_patched_seed_bc` et lu par `_load_seed_bc`, qui le passe en `skip`.
 Opt-in, nommé, jamais un interrupteur global ; et la config épinglée est **re-synthétisée AVANT**
